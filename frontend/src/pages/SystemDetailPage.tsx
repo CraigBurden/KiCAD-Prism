@@ -4,7 +4,7 @@ import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { hasUnsavedDrafts } from "@/features/system-builder/draft-guard";
-import { useSystemDocument } from "@/features/system-builder/use-system-document";
+import { SystemSessionProvider, useOpenSystemSession, useSessionState } from "@/features/system-builder/session/use-system-session";
 import { SystemWorkspace } from "@/features/system-builder/workspace/system-workspace";
 import {
   migrateLegacyTab,
@@ -23,7 +23,8 @@ export function SystemDetailPage({ user }: SystemDetailPageProps) {
   const { systemId = "" } = useParams();
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
-  const state = useSystemDocument(systemId);
+  const session = useOpenSystemSession(systemId);
+  const state = useSessionState(session);
   const system = state.document?.system ?? null;
   // D-P2-31: an archived system is kept for the parents that froze it, and takes no changes.
   const canEdit = canManageProjects(user?.role) && !system?.archivedAt;
@@ -74,21 +75,19 @@ export function SystemDetailPage({ user }: SystemDetailPageProps) {
         {state.error ? (
           <div className="rounded-md border border-destructive/40 p-4 text-destructive" role="alert">
             {state.error}
-            <Button variant="outline" size="sm" className="ml-3" onClick={() => void state.reload()}>Retry</Button>
+            <Button variant="outline" size="sm" className="ml-3" onClick={() => void session.reload()}>Retry</Button>
           </div>
         ) : "Loading…"}
       </div>
     );
   }
   return (
-    <>
+    <SystemSessionProvider session={session}>
     <SystemWorkspace
       systemId={systemId}
       document={state.document}
-      etag={state.etag}
       canEdit={canEdit}
       user={user}
-      reload={state.reload}
       state={workspace}
       importing={importing && canEdit}
       onState={setWorkspace}
@@ -103,6 +102,6 @@ export function SystemDetailPage({ user }: SystemDetailPageProps) {
         setPending(null);
         action?.();
       }} />
-    </>
+    </SystemSessionProvider>
   );
 }

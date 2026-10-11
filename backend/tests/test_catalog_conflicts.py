@@ -6,11 +6,9 @@ import sys
 from pathlib import Path
 import unittest
 
-from fastapi import HTTPException
-
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from app.api.catalog_errors import raise_catalog_value_error  # noqa: E402
+from app.core.errors import BadRequest, DomainError, value_errors_as  # noqa: E402
 from app.services.catalog.conflicts import (  # noqa: E402
     ASSET_REFERENCED_CODE,
     CatalogConflict,
@@ -41,37 +39,42 @@ class CatalogConflictTypeTests(unittest.TestCase):
         self.assertIn("manifest", str(exc))
 
 
+def _raised_through_route(exc: ValueError) -> DomainError:
+    """What a catalog write route answers: typed conflicts keep their status, other ValueErrors are 400."""
+    try:
+        with value_errors_as(400, keep_typed=True):
+            raise exc
+    except DomainError as rendered:
+        return rendered
+    raise AssertionError("nothing raised")
+
+
 class CatalogConflictHttpTests(unittest.TestCase):
     def test_conflict_status_does_not_depend_on_wording(self) -> None:
-        with self.assertRaises(HTTPException) as raised:
-            raise_catalog_value_error(CatalogConflict("head moved"))
-        self.assertEqual(raised.exception.status_code, 409)
-        self.assertEqual(
-            raised.exception.detail,
-            {"code": REVISION_CONFLICT_CODE, "message": "head moved"},
-        )
+        raised = _raised_through_route(CatalogConflict("head moved"))
+        self.assertEqual(raised.status_code, 412)  # D13: a stale revision answers like every guarded write
+        self.assertEqual(raised.body(), {"detail": "head moved", "code": REVISION_CONFLICT_CODE})
+
+    def test_a_stale_revision_carries_the_current_etag(self) -> None:
+        raised = _raised_through_route(revision_conflict(component_id="cmp-1", current_revision_id="rev-2"))
+        self.assertEqual((raised.status_code, raised.headers), (412, {"ETag": '"component:cmp-1:rev-2"'}))
 
     def test_plain_value_error_with_conflict_wording_stays_400(self) -> None:
-        with self.assertRaises(HTTPException) as raised:
-            raise_catalog_value_error(
-                ValueError("Component revision conflict: refresh the component before saving")
-            )
-        self.assertEqual(raised.exception.status_code, 400)
+        raised = _raised_through_route(
+            ValueError("Component revision conflict: refresh the component before saving")
+        )
+        self.assertIsInstance(raised, BadRequest)
+        self.assertEqual(raised.status_code, 400)
 
     def test_validation_stays_400(self) -> None:
-        with self.assertRaises(HTTPException) as raised:
-            raise_catalog_value_error(ValueError("label is required"))
-        self.assertEqual(raised.exception.status_code, 400)
-        self.assertEqual(raised.exception.detail, "label is required")
+        raised = _raised_through_route(ValueError("label is required"))
+        self.assertEqual(raised.status_code, 400)
+        self.assertEqual(raised.body(), {"detail": "label is required", "code": "bad_request"})
 
     def test_referenced_conflict_is_409(self) -> None:
-        with self.assertRaises(HTTPException) as raised:
-            raise_catalog_value_error(asset_referenced_conflict("still attached"))
-        self.assertEqual(raised.exception.status_code, 409)
-        self.assertEqual(
-            raised.exception.detail,
-            {"code": ASSET_REFERENCED_CODE, "message": "still attached"},
-        )
+        raised = _raised_through_route(asset_referenced_conflict("still attached"))
+        self.assertEqual(raised.status_code, 409)
+        self.assertEqual(raised.body(), {"detail": "still attached", "code": ASSET_REFERENCED_CODE})  # D14: flat
 
 
 if __name__ == "__main__":

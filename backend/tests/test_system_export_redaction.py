@@ -16,6 +16,7 @@ import unittest
 from test_system_child_drift import ChildDriftCase
 from test_system_publish import ADMIN
 from test_system_snapshots import DESIGNER, VIEWER
+from support.postgres import seed_folder
 
 
 class HiddenExportSourceCase(ChildDriftCase):
@@ -23,8 +24,7 @@ class HiddenExportSourceCase(ChildDriftCase):
         """Move the project behind the export (the OBC boards inside the child) to a folder only admins see."""
         project = next(i["projectId"] for i in self.service.document(DESIGNER, self.sid).body["instances"]
                        if i["label"] == "OBC-A")
-        self.conn.execute("INSERT INTO ws_folders (id, visibility_mode, allowed_roles)"
-                          " VALUES ('fld_admins', 'roles', '[\"admin\"]') ON CONFLICT DO NOTHING")
+        seed_folder(self.conn, "fld_admins", visibility_mode="roles", allowed_roles=["admin"], on_conflict_skip=True)
         self.conn.execute("UPDATE ws_projects SET folder_id = 'fld_admins' WHERE id = %s", (project,))
         self.conn.commit()
 

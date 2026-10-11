@@ -35,6 +35,13 @@ Within `data/projects/.kicad-prism`, Prism stores generated comparison and
 visualizer caches, job artifacts and logs, catalog asset objects, revisions,
 previews, KLC evidence, and DBL exports.
 
+Job artifacts and catalog source objects share one content-addressed object
+store, `.kicad-prism/artifacts/objects/sha256` by default
+(`backend/app/services/object_store.py`). An object may be pinned by job
+metadata (`ws_artifacts`, release pins) and by `catalog_artifacts` at once, so
+the daily `artifact_maintenance` collection and catalog retention both ask
+every registered owner before removing or moving a file.
+
 All three persistence domains must be included in backup and restore procedures.
 See [Operations](OPERATIONS.md).
 
@@ -51,6 +58,12 @@ The application separates concerns into PostgreSQL schemas:
 - `catalog`: component metadata, revisions, assets, validation, and release data;
 - `operations`: jobs, leases, logs, artifacts, and runtime coordination.
 
+Each schema's tables change only through a numbered migration ledger
+(`backend/app/services/schema_ledger.py`); the backend brings every ledger to
+head at startup through `schema_head.bring_every_schema_to_head()`, and workers
+reach the same ledgers through the services they initialise. See
+[Upgrades](UPGRADES.md) for the ledger tables and how to add a migration.
+
 SQLite files may still appear inside generated KiCad DBL exports. Those are
 delivery artifacts, not Prism's runtime database.
 
@@ -61,8 +74,30 @@ leases, heartbeats, and fencing. The API returns job identifiers; the browser
 polls job state and logs. Completed outputs are published into immutable job
 artifact locations and surfaced through the Assets portal.
 
-CPU-heavy job classes have separate concurrency settings so imports, design
-comparison, WebGPU generation, and jobsets do not consume unbounded resources.
+Each job kind is declared once, next to its handler
+(`backend/app/services/job_kinds.py`): the worker pool (`prism` or `catalog`),
+the resource slots it holds, the shape of its lock, its attempts and priority.
+CPU-heavy kinds take separate slots (`import`, `design_compare`, `webgpu`,
+`workflow`, `semantic_compile`, `catalog_kicad`) with their own concurrency
+settings, so imports, design comparison, WebGPU generation, and jobsets do not
+consume unbounded resources. Tracker jobs take a dedicated `tracker_sync` slot
+at a low priority.
+
+Some features keep their own rows next to the job (a Release Studio build
+attempt). Their kind declares an end hook: success settles the row inside the
+job's completion transaction, the runner and the supervisor call the hook after
+any other terminal transition, and the prism worker sweeps once a minute for
+rows whose job's process died before it could settle them. A design
+comparison's hook relabels the domains its partial result still shows as
+building as `failed` when its process died (an unfenced publish that applies
+only to an ended job). Nothing traps SIGTERM; a cancel that kills the runner is
+settled by the hook.
+
+`/api/jobs/{id}` (status, events, artifact, cancel) is authorised by the job's
+subject, never by who queued it, because enqueue deduplicates a second request
+onto the first job: project jobs follow the project, System jobs the System,
+import and analyze jobs anyone who may import, catalog jobs the catalog roles;
+only a job with none of these is its requester's or an admin's.
 
 ## Project ingestion
 

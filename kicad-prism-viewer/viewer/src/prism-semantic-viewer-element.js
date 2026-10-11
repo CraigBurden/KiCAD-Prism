@@ -3,6 +3,7 @@ import { AssetCache } from "./asset-cache.js";
 import { absolutizeAssetPaths, bundleIsFinal } from "./bundle-urls.js";
 import { mountStandaloneViewer, mountSystemViewer } from "./main.js";
 import { createReloadOwner, runSemanticViewerReload } from "./semantic-viewer-reload.js";
+import { BoardModeController, SystemModeController, createSharedState, installModeMembers } from "./viewer-controllers.js";
 
 const SUPPORTED_SCHEMA = "prism.visualizer_bundle.a0";
 
@@ -214,15 +215,26 @@ export class PrismSemanticViewerElement extends HTMLElement {
   constructor() {
     super();
     this.attachShadow({ mode: "open" });
-    this.controller = null;
     this.reloadOwner = createReloadOwner();
-    this.pendingSelection = null;
-    this.pendingHiddenComponents = null;
     this.reloadQueued = false;
     this.reloadSource = null;
-    /** IN-61: hosts told when what insets show changed; outlive reloads. */
-    this.sceneListeners = new Set();
-    this.unhookScene = null;
+    // AC-30: one controller per mode for the element's whole life. Each holds
+    // what the host asked for and replays it onto every scene a reload mounts.
+    const shared = createSharedState();
+    this.modes = Object.freeze({ board: new BoardModeController(shared), system: new SystemModeController(shared) });
+    /** The controller with a mounted scene, or null between mounts. */
+    this.mounted = null;
+  }
+
+  /** The controller common members go to: the mounted one, else the one the `mode` attribute names. */
+  get activeMode() {
+    return this.mounted ?? (this.systemMode ? this.modes.system : this.modes.board);
+  }
+
+  detachModes() {
+    this.modes.board.detach();
+    this.modes.system.detach();
+    this.mounted = null;
   }
 
   connectedCallback() {
@@ -231,22 +243,19 @@ export class PrismSemanticViewerElement extends HTMLElement {
 
   disconnectedCallback() {
     this.reloadOwner.cancel();
-    this.unhookScene?.();
-    this.unhookScene = null;
-    this.controller?.dispose?.();
-    this.controller = null;
+    this.detachModes();
     this.reloadSource = null;
   }
 
   attributeChangedCallback(name, oldValue, newValue) {
     if (!this.isConnected || oldValue === newValue) return;
     if (name === "workspace") {
-      this.controller?.setWorkspace?.(this.workspace);
+      this.modes.board.setWorkspace(this.workspace);
       return;
     }
     // mode="system": whether this reader may move boards (the host sets it for editors).
     if (name === "move-allowed") {
-      this.controller?.setMoveAllowed?.(newValue === "true");
+      this.modes.system.setMoveAllowed(newValue === "true");
       return;
     }
     this.queueReload();
@@ -276,8 +285,7 @@ export class PrismSemanticViewerElement extends HTMLElement {
   async reload() {
     const bundleUrl = this.getAttribute("bundle-url");
     const attempt = this.reloadOwner.begin();
-    this.controller?.dispose?.();
-    this.controller = null;
+    this.detachModes();
     if (this.systemMode) {
       await this.reloadSystem(attempt);
       return;
@@ -294,7 +302,7 @@ export class PrismSemanticViewerElement extends HTMLElement {
     const isCurrent = () => this.reloadOwner.owns(attempt) && this.isConnected;
     try {
       this.renderShell();
-      const controller = await mountSystemViewer({
+      const port = await mountSystemViewer({
         root: this.shadowRoot,
         loadBundle: (bundleUrl, boardSignal) => loadBundle(bundleUrl, null, boardSignal),
         isActive: () => this.getAttribute("active") === "true",
@@ -318,15 +326,11 @@ export class PrismSemanticViewerElement extends HTMLElement {
         },
       });
       if (!isCurrent()) {
-        controller?.dispose?.();
+        port?.dispose?.();
         return;
       }
-      this.controller = controller;
-      if (this.pendingGpuBudget != null) controller.setGpuBudget(this.pendingGpuBudget);
-      if (this.pendingSystemScene) controller.setSystemScene(this.pendingSystemScene);
-      if (this.pendingNetEmphasis) controller.setNetEmphasis(this.pendingNetEmphasis);
-      controller.setMoveAllowed(this.getAttribute("move-allowed") === "true");
-      if (this.pendingLabels != null) controller.setLabelsVisible(this.pendingLabels);
+      this.mounted = this.modes.system;
+      this.mounted.attach(port, { moveAllowed: this.getAttribute("move-allowed") === "true" });
       const viewState = this.getViewState();
       if (viewState) this.emitViewState(viewState);
       this.emitReady({ schema: "prism.semantic_viewer_performance.a0", milestone: "system-mounted" });
@@ -339,130 +343,6 @@ export class PrismSemanticViewerElement extends HTMLElement {
 
   emit(name, detail) {
     this.dispatchEvent(new CustomEvent(`prism-semantic-viewer:${name}`, { bubbles: true, composed: true, detail }));
-  }
-
-  /**
-   * The system to show (mode="system"): a `prism.system_scene.a0` descriptor.
-   * Boards already loaded are kept. Safe before the viewer is ready; the last
-   * call is replayed on the next controller.
-   */
-  setSystemScene(descriptor) {
-    this.pendingSystemScene = descriptor || null;
-    if (descriptor) this.controller?.setSystemScene?.(descriptor);
-  }
-
-  /**
-   * Light system nets on every board they reach (mode="system"):
-   * `[{ key, color?, members: [{ occurrence, net }] }]`. Returns the report
-   * (also sent as `prism-semantic-viewer:emphasis` when boards load), or [] before ready.
-   */
-  setNetEmphasis(sets) {
-    this.pendingNetEmphasis = Array.isArray(sets) ? sets : [];
-    return this.controller?.setNetEmphasis?.(this.pendingNetEmphasis) ?? [];
-  }
-
-  /** Frame the copper of a lit set (or of all), on one placement or all; false when nothing is lit there. */
-  frameNetEmphasis(key = null, occurrence = null) {
-    return this.controller?.frameNetEmphasis?.(key, occurrence) ?? false;
-  }
-
-  /**
-   * Move mode (mode="system", SB2-29): `move` events carry `{ phase, allowed,
-   * enabled, space, dragging, target }` with phases mode, target, preview,
-   * commit, cancel and sync. On "commit" the host saves the target's pose and
-   * passes the re-read scene, or calls `cancelMove()` when the save fails.
-   * Whether this reader may move boards is the `move-allowed` attribute.
-   */
-  setMoveMode(enabled, options) {
-    this.controller?.setMoveMode?.(enabled, options);
-  }
-
-  /** Route mode (D-P2-51): move mode for harness routes only; boards stay put. */
-  setRouteMode(enabled) {
-    this.controller?.setMoveMode?.(enabled, { route: true });
-  }
-
-  setMoveSpace(space) {
-    this.controller?.setMoveSpace?.(space);
-  }
-
-  /** Show a pose for the move target without saving it; null shows the saved pose. */
-  previewPose(pose) {
-    this.controller?.previewPose?.(pose);
-  }
-
-  cancelMove() {
-    this.controller?.cancelMove?.();
-  }
-
-  getMoveState() {
-    return this.controller?.getMoveState?.() ?? null;
-  }
-
-  /**
-   * Harness picking and node editing (mode="system", SB2-45b): `harness` events
-   * carry `{ phase, harness, segment, pointMm, autoMm, node, editable }` with
-   * phases select, target, preview, commit, delete, cancel and sync; points are
-   * in the harness's level frame (mm). On "commit" the host saves the node list
-   * with `node.positionMm` and passes the re-read scene, or calls
-   * `cancelHarnessNode()` when the save fails; on "delete" it removes the node.
-   */
-  targetHarnessNode(id) {
-    this.controller?.targetHarnessNode?.(id);
-  }
-
-  /** Pick a root-level harness by id, as clicking it would (SB2-61); null drops the pick. False when it is not drawn. */
-  selectHarness(id) {
-    return this.controller?.selectHarness?.(id) ?? false;
-  }
-
-  /** Show the targeted node at a level-frame position without saving it; null shows its saved place. */
-  previewHarnessNode(positionMm) {
-    this.controller?.previewHarnessNode?.(positionMm);
-  }
-
-  cancelHarnessNode() {
-    this.controller?.cancelHarnessNode?.();
-  }
-
-  getHarnessState() {
-    return this.controller?.getHarnessState?.() ?? null;
-  }
-
-  /** Board name labels over the system scene (on by default). */
-  setLabelsVisible(visible) {
-    this.pendingLabels = Boolean(visible);
-    this.controller?.setLabelsVisible?.(this.pendingLabels);
-  }
-
-  /** mode="system": the proxy harnesses (SB2-34), shown by default. */
-  setHarnessesVisible(visible) {
-    this.controller?.setHarnessesVisible?.(Boolean(visible));
-  }
-
-  /** The keyboard list (also `?`). */
-  setHelpVisible(visible) {
-    this.controller?.setHelpVisible?.(visible);
-  }
-
-  /** Whether the keyboard list is open, so a host button can toggle it. */
-  isHelpVisible() {
-    return Boolean(this.controller?.isHelpVisible?.());
-  }
-
-  /** Frame every placed board (mode="system"). */
-  frameAll() {
-    this.controller?.frameAll?.();
-  }
-
-  /** Frame one placed board (mode="system"). */
-  frameBoard(key) {
-    return this.controller?.frameBoard?.(key) ?? false;
-  }
-
-  /** mode="system": frame parts on their placements, `[{ occurrence, reference }]` (SB2-32). */
-  frameParts(parts) {
-    return this.controller?.frameParts?.(parts) ?? false;
   }
 
   renderLoading() {
@@ -528,24 +408,10 @@ export class PrismSemanticViewerElement extends HTMLElement {
     });
   }
 
-  publishController(controller) {
-    this.controller = controller;
-    this.unhookScene?.();
-    this.unhookScene = controller?.onSceneChange?.(() => this.notifyScene()) ?? null;
-    this.notifyScene();
-    this.controller?.setWorkspace?.(this.workspace);
-    // The hidden set is view state that must outlive a reload: a controller
-    // that was created after the last setHiddenComponents call replays it.
-    if (this.pendingHiddenComponents) {
-      this.controller?.setHiddenComponents?.(this.pendingHiddenComponents);
-    }
-    if (this.pendingGpuBudget != null) this.controller?.setGpuBudget?.(this.pendingGpuBudget);
-    // A fresh viewer is already unselected. Avoid a redundant clearSelection()
-    // while the staged shell is completing its first-frame setup.
-    if (this.pendingSelection) this.controller?.setSelection?.(this.pendingSelection);
-    if (this.pendingHighlightedNets?.length) {
-      this.controller?.setHighlightedNets?.(this.pendingHighlightedNets);
-    }
+  /** runSemanticViewerReload's hand-off: the board scene it mounted, now this element's. */
+  publishController(port) {
+    this.mounted = this.modes.board;
+    this.mounted.attach(port, { workspace: this.workspace });
     const viewState = this.getViewState();
     if (viewState) this.emitViewState(viewState);
   }
@@ -570,218 +436,10 @@ export class PrismSemanticViewerElement extends HTMLElement {
   emitError(error) {
     this.dispatchEvent(new CustomEvent("prism-semantic-viewer:error", { bubbles: true, detail: { error } }));
   }
-
-  setSelection(selection) {
-    this.pendingSelection = selection || null;
-    this.controller?.setSelection?.(this.pendingSelection);
-  }
-
-  /**
-   * Replace the highlighted nets (Prism #305): every listed net renders
-   * emphasised alongside the inspected selection. Idempotent and safe before
-   * the viewer is ready or after a reload; the last call is replayed on the
-   * next controller. Unresolved references are dropped.
-   */
-  setHighlightedNets(nets) {
-    this.pendingHighlightedNets = Array.isArray(nets) ? [...nets] : [];
-    this.controller?.setHighlightedNets?.(this.pendingHighlightedNets);
-  }
-
-  /**
-   * Replace the hidden component references (VAR-18). Idempotent and safe
-   * before the viewer is ready or after a reload: the last call is replayed on
-   * the next controller.
-   */
-  setHiddenComponents(references) {
-    this.pendingHiddenComponents = Array.isArray(references)
-      ? [...references]
-      : [];
-    this.controller?.setHiddenComponents?.(this.pendingHiddenComponents);
-  }
-
-  /**
-   * What is under a client point (SB2-24), without selecting it:
-   * `{ kind: "none" | "feature" | "board", occurrenceKey, occurrenceIndex, featureId }`.
-   * Resolves null before the viewer is ready.
-   */
-  pickAt(clientX, clientY) {
-    return Promise.resolve(this.controller?.pickAt?.(clientX, clientY) ?? null);
-  }
-
-  /** In mode="system": where a client point meets a `pickSurface` model, `{occurrence, pointMm, normal, toCamera}` or null. */
-  pickSurfaceAt(clientX, clientY) {
-    return this.controller?.pickSurfaceAt?.(clientX, clientY) ?? null;
-  }
-
-  /** In mode="system": look along a world axis from its + side (`opposite`: its − side), framing the scene. */
-  viewAxis(axis, opposite = false) {
-    this.controller?.viewAxis?.(axis, opposite);
-  }
-
-  /** In mode="system": put the move gizmo on an occurrence by path; false when it is not placed (yet). */
-  focusMoveTarget(path) {
-    return Boolean(this.controller?.focusMoveTarget?.(path));
-  }
-
-  /** Client coordinates of a component's centre (in mode="system", on one placement), or null when off screen. */
-  projectComponent(reference, occurrenceKey) {
-    return this.controller?.projectComponent?.(reference, occurrenceKey) ?? null;
-  }
-
-  /** Show the scene stats overlay (occurrences by detail, triangles, GPU memory, frame times); the backquote key toggles it. */
-  setStatsOverlay(visible) {
-    this.controller?.setStatsOverlay?.(visible);
-  }
-
-  /** The numbers behind the stats overlay, or null before ready. */
-  getStats() {
-    return this.controller?.stats?.() ?? null;
-  }
-
-  /** Force a level of detail on every occurrence (0 full, 1 board, 2 body, 3 box), or null for automatic. */
-  setLodOverride(lod) {
-    this.controller?.setLodOverride?.(lod);
-  }
-
-  /**
-   * mode="system" (SB2-30a): level-of-detail thresholds in CSS pixels of a
-   * board's projected radius, `{ fullPx, boardPx, boxPx, keep }`, merged into
-   * the current ones; null restores the defaults. Kept per browser. Returns
-   * the thresholds in force, or null before ready.
-   */
-  setLodThresholds(thresholds) {
-    return this.controller?.setLodThresholds?.(thresholds) ?? null;
-  }
-
-  /** The GPU memory budget in bytes (default 1.5 GB); over it, unused tiers are evicted. */
-  setGpuBudget(bytes) {
-    this.pendingGpuBudget = bytes;
-    this.controller?.setGpuBudget?.(bytes);
-  }
-
-  /** Client coordinates of a board-local point (runtime metres; in mode="system", on one placement), or null. */
-  projectPoint(point, occurrenceKey) {
-    return this.controller?.projectPoint?.(point, occurrenceKey) ?? null;
-  }
-
-  /** Every component reference on the board; empty until the viewer is ready. */
-  getComponentReferences() {
-    return this.controller?.getComponentReferences?.() ?? [];
-  }
-
-  // --- Inset views (IN-60/IN-61; one-board PCB workspace only) ---
-
-  /**
-   * Draw the board into `canvas` (a 2D canvas sized by CSS) through an inset
-   * camera `{ center: [x, y] mm, zoom: px/mm, rotation, mirror, tilt, focusZ }`.
-   * `key` names the inset so the copper it shows stays loaded. False when
-   * nothing could be drawn (not ready, system mode, another workspace).
-   */
-  renderInset(canvas, view, key) {
-    return Boolean(this.controller?.renderInset?.(canvas, view, key));
-  }
-
-  /** True once `renderInset` can draw. */
-  insetReady() {
-    return Boolean(this.controller?.insetReady?.());
-  }
-
-  /** The board surface on one side, as the runtime height `focusZ` takes. */
-  insetSurfaceZ(bottom) {
-    return this.controller?.insetSurfaceZ?.(bottom) ?? 0;
-  }
-
-  /** The inset `key` closed: its copper need not stay loaded. */
-  releaseInset(key) {
-    this.controller?.releaseInset?.(key);
-  }
-
-  /** `{ focus, anchor, anchorBox, bottom, surfaceZ }` in KiCad mm for a part (and pad), or null. */
-  insetTarget(reference, pin) {
-    return this.controller?.insetTarget?.(reference, pin) ?? null;
-  }
-
-  /** Inset CSS pixels of a KiCad-mm point on the inset's surface, or null. */
-  projectInset(view, width, height, pointMm) {
-    return this.controller?.projectInset?.(view, width, height, pointMm) ?? null;
-  }
-
-  /**
-   * Call `listener` whenever the main view redrew or the viewer reloaded;
-   * returns an unsubscribe. Survives reloads.
-   */
-  onSceneChange(listener) {
-    this.sceneListeners.add(listener);
-    return () => this.sceneListeners.delete(listener);
-  }
-
-  notifyScene() {
-    for (const listener of this.sceneListeners) listener();
-  }
-
-  insetStats() {
-    return this.controller?.insetStats?.() ?? null;
-  }
-
-  insetSettings(settings) {
-    return this.controller?.insetSettings?.(settings) ?? null;
-  }
-
-  gpuIdle() {
-    return this.controller?.gpuIdle?.() ?? Promise.resolve();
-  }
-
-  resize() {
-    this.controller?.resize?.();
-  }
-
-  /** PCB 3D controls for a host that sets `hide-panel`. Null until ready. */
-  getViewState() {
-    return this.controller?.getViewState?.() ?? null;
-  }
-
-  setViewMode(mode) {
-    this.controller?.setViewMode?.(mode);
-  }
-
-  /** In a system scene, `placement` names the board placement (all placements of the selected board when omitted). */
-  setLayerVisible(layerId, visible, placement = null) {
-    this.controller?.setLayerVisible?.(layerId, visible, placement);
-  }
-
-  applyLayerPreset(preset, placement = null) {
-    this.controller?.applyLayerPreset?.(preset, placement);
-  }
-
-  setShowBoard(visible) {
-    this.controller?.setShowBoard?.(visible);
-  }
-
-  setShowComponents(visible) {
-    this.controller?.setShowComponents?.(visible);
-  }
-
-  setShowPlaceholders(visible) {
-    this.controller?.setShowPlaceholders?.(visible);
-  }
-
-  setRealisticColors(enabled) {
-    this.controller?.setRealisticColors?.(enabled);
-  }
-
-  /** In a system scene, `placement` names one placed board (every placement of the selected board when omitted). */
-  setSeparation(value, placement = null) {
-    this.controller?.setSeparation?.(value, placement);
-  }
-
-  showNetLayers() {
-    this.controller?.showNetLayers?.();
-  }
-
-  setNetIsolation(enabled) {
-    this.controller?.setNetIsolation?.(enabled);
-  }
 }
+
+// AC-30: the board, system and common members, routed to the mode controllers.
+installModeMembers(PrismSemanticViewerElement.prototype);
 
 export function definePrismSemanticViewer() {
   if (!customElements.get("prism-semantic-viewer")) {

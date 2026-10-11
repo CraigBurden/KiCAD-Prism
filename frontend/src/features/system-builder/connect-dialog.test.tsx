@@ -1,13 +1,12 @@
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { fireEvent, screen, waitFor, within } from "@testing-library/react";
+import { describe, expect, it, vi } from "vitest";
 
 import type { SystemDocument } from "@/types/system";
 
 import { ConnectDialog, connectorOptions } from "./connect-dialog";
+import { memorySystem, renderInSession } from "./session/memory-session";
 import { instance, link, systemDocument } from "./test-fixtures";
 import { chooseOption } from "@/test/select";
-
-afterEach(() => vi.unstubAllGlobals());
 
 const obc = instance("OBC");
 const cmbd = instance("CMBD");
@@ -35,13 +34,10 @@ describe("ConnectDialog (SB2-115)", () => {
   });
 
   it("creates a board-to-board link from a port, refusing a connector that already mates, and opens it", async () => {
-    const fetchMock = vi.fn(async () => new Response(JSON.stringify({ id: "slk_9" }), {
-      status: 201, headers: { "Content-Type": "application/json", ETag: '"sys:s:2"' } }));
-    vi.stubGlobal("fetch", fetchMock);
-    const run = vi.fn(async (_label: string, action: () => Promise<unknown>) => action());
+    const memory = memorySystem(document, { edits: { createLink: () => ({ id: "slk_9" }) } });
     const onCreated = vi.fn();
-    render(<ConnectDialog systemId="s" document={document} etag='"sys:s:1"' run={run as never}
-      from={{ instanceId: lp.id, portKey: "key-J2" }} onClose={vi.fn()} onCreated={onCreated} />);
+    renderInSession(<ConnectDialog document={document} from={{ instanceId: lp.id, portKey: "key-J2" }} onClose={vi.fn()} onCreated={onCreated} />,
+      { document, transport: memory.transport });
     expect(screen.getByRole("heading", { name: "Connect LPDRM J2" })).toBeTruthy();
     await chooseOption("Kind", "Board-to-board");
     const to = screen.getByRole("list", { name: "To" });
@@ -50,8 +46,7 @@ describe("ConnectDialog (SB2-115)", () => {
     fireEvent.click(within(to).getByRole("button", { name: /CMBD J1/ }));
     fireEvent.click(screen.getByRole("button", { name: "Create" }));
     await waitFor(() => expect(onCreated).toHaveBeenCalledWith({ kind: "link", id: "slk_9", edit: true }));
-    const [, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
-    expect(JSON.parse(String(init.body))).toEqual({
-      a: { instanceId: lp.id, portKey: "key-J2" }, b: { instanceId: cmbd.id, portKey: "key-J1" }, type: "b2b" });
+    expect(memory.calls).toEqual([{ name: "createLink", args: [{
+      a: { instanceId: lp.id, portKey: "key-J2" }, b: { instanceId: cmbd.id, portKey: "key-J1" }, type: "b2b" }] }]);
   });
 });

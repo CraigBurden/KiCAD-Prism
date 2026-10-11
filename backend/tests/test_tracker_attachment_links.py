@@ -5,11 +5,8 @@ from __future__ import annotations
 import asyncio
 import io
 import json
-import os
 import tempfile
 import unittest
-import uuid
-from contextlib import contextmanager
 from unittest.mock import patch
 
 from fastapi import HTTPException
@@ -18,14 +15,13 @@ from pydantic import SecretStr
 from app.api import comment_attachment_links as public_api
 from app.core.config import settings
 from app.services import comment_attachments
-from app.services.comments_store_service import CommentsStoreService
 from app.services.trackers import attachment_links
 from app.services.trackers.contracts import Destination
 from app.services.trackers.gitlab_auth import GitLabBotAuth, GitLabBotCredentials
 from app.services.trackers.gitlab_issues import GitLabIssueAdapter
 from app.services.trackers.http import TrackerHttp
+from support.postgres import requires_scratch_postgres, scratch_schema, comments_store_on  # noqa: E402
 
-TEST_DSN = os.environ.get("TEST_POSTGRES_URL", "")
 ID = "0123456789abcdef0123456789abcdef"
 DEST = Destination(connectorId="cn_1", containerKind="repo", containerPath="hw/board", remoteContainerId="77", generation=1)
 
@@ -124,24 +120,12 @@ class GitLabUploadTests(unittest.TestCase):
         self.assertIn(b"\x89PNG", sent["data"])
 
 
-@unittest.skipUnless(TEST_DSN, "TEST_POSTGRES_URL is required for disposable PostgreSQL tests")
+@requires_scratch_postgres("comment store tests")
 class OutboundInboundPostgresTests(unittest.TestCase):
     def setUp(self) -> None:
-        import psycopg
-        from psycopg.rows import dict_row
-
-        self._psycopg = psycopg
-        self.schema = "test_attachment_links_" + uuid.uuid4().hex[:12]
-        self.store = CommentsStoreService()
-        self.store.schema = self.schema
-
-        @contextmanager
-        def connect():
-            with psycopg.connect(TEST_DSN, row_factory=dict_row) as conn:
-                conn.execute(f'SET search_path TO "{self.schema}", public')
-                yield conn
-
-        self.store._connect = connect
+        self.scratch = scratch_schema(self, "test_attachment_links", create=False)
+        self.schema = self.scratch.name
+        self.store = comments_store_on(self.scratch)
         self.blobs = tempfile.TemporaryDirectory()
         for p in [*_settings(), patch.object(settings, "COMMENT_ATTACHMENT_ROOT", self.blobs.name)]:
             p.start()
@@ -156,8 +140,6 @@ class OutboundInboundPostgresTests(unittest.TestCase):
         self.body = f"See ![snip.png](attachment:{self.attachment['id']}) now"
 
     def tearDown(self) -> None:
-        with self._psycopg.connect(TEST_DSN) as conn:
-            conn.execute(f'DROP SCHEMA IF EXISTS "{self.schema}" CASCADE')
         self.blobs.cleanup()
 
     def test_github_gets_signed_links_that_map_back(self) -> None:

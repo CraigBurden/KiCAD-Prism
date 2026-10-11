@@ -9,9 +9,8 @@ import type { Finding, SystemDocument, SystemInstance } from "@/types/system";
 import { endLabel } from "../link-editor";
 import { boardStatus, shortSha, type Tone } from "../system-format";
 import { BLOCK_STYLE, blockKind } from "../kind-style";
-import { harnessFindings } from "./use-validation";
+import { findingsOf, worstLevel } from "../findings";
 import type { WorkspaceSelection } from "./workspace-state";
-import { instanceFindings, linkFindings } from "../document-index";
 
 export type AddKind = "board" | "module" | "part" | "subsystem";
 
@@ -26,12 +25,6 @@ interface OutlineProps {
 }
 
 const DOT: Partial<Record<Tone, string>> = { error: "bg-destructive", warning: "bg-warning" };
-
-function worst(findings: readonly Finding[]): Tone | null {
-  if (findings.some((finding) => finding.severity === "error")) return "error";
-  if (findings.some((finding) => finding.severity === "warning")) return "warning";
-  return null;
-}
 
 function Group({ title, count, children }: { title: string; count: number; children: ReactNode }) {
   if (count === 0) return null;
@@ -86,9 +79,10 @@ export function WorkspaceOutline({ document, findings, selection, canEdit, onSel
   const parts = instances("part");
   const subsystems = instances("assembly");
   const harnesses = document.harnesses ?? [];
+  const open = findingsOf(findings);
   const instanceRow = (instance: SystemInstance) => {
     const status = boardStatus(instance);
-    const own = worst(instanceFindings(findings, instance.id));
+    const own = worstLevel(open.instance(instance.id));
     const tone = status.tone === "error" || status.tone === "warning" ? status.tone : own;
     return (
       <Row key={instance.id} icon={instanceIcon(instance)} label={instance.label} meta={instanceMeta(instance)}
@@ -126,7 +120,7 @@ export function WorkspaceOutline({ document, findings, selection, canEdit, onSel
         <Group title="Harnesses" count={harnesses.length}>
           {harnesses.map((harness) => (
             <Row key={harness.id} icon={<Cable className="size-3.5 text-kind-harness" />} label={harness.name}
-              meta={`${harness.ends.length} ends`} tone={worst(harnessFindings(findings, harness.id))}
+              meta={`${harness.ends.length} ends`} tone={worstLevel(open.harness(harness.id))}
               selected={isSelected("harness", harness.id)} onClick={() => onSelect({ kind: "harness", id: harness.id })} />
           ))}
         </Group>
@@ -134,7 +128,7 @@ export function WorkspaceOutline({ document, findings, selection, canEdit, onSel
           {document.links.map((link) => (
             <Row key={link.id} icon={<Spline className="size-3.5" />}
               label={link.name || `${endLabel(document, link, "a")} ↔ ${endLabel(document, link, "b")}`}
-              meta={`${link.rows.length} pins`} tone={worst(linkFindings(findings, link.id))}
+              meta={`${link.rows.length} pins`} tone={worstLevel(open.link(link.id))}
               selected={isSelected("link", link.id)} onClick={() => onSelect({ kind: "link", id: link.id })} />
           ))}
         </Group>

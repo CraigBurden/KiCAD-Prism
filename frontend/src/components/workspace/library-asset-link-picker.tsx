@@ -2,7 +2,7 @@ import { useMemo, useState } from "react";
 import { Link2, X } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
-import { fetchJson } from "@/lib/api";
+import { searchAssets } from "./catalog-client";
 import { cn } from "@/lib/utils";
 import type { CatalogAssetSummary } from "@/types/catalog";
 import { AsyncSearchPicker } from "./async-search-picker";
@@ -83,12 +83,7 @@ export function LibraryAssetLinkPicker({
         </button>
       }
       fetchPage={(query, signal) =>
-        fetchJson<{ items: CatalogAssetSummary[] }>(
-          `/api/catalog/assets/search?asset_type=${assetType}&limit=${RESULT_LIMIT}` +
-            `&q=${encodeURIComponent(query)}`,
-          { signal },
-          "Failed to search catalog assets"
-        ).then((response) => {
+        searchAssets(assetType, query, RESULT_LIMIT, signal).then((response) => {
           const known = response.items.find((item) => item.id === value);
           if (known) setLinked(known);
           return { items: response.items };

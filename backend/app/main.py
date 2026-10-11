@@ -1,6 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.gzip import GZipMiddleware
+from app.core.errors import install_error_handlers
 from app.core.gzip_config import (
     GZIP_COMPRESS_LEVEL,
     GZIP_EXCLUDED_CONTENT_TYPES,
@@ -20,7 +21,7 @@ from app.api.settings import router as settings_router
 from app.api.workspace import router as workspace_router
 from app.api.remote_provider import router as remote_provider_router
 from app.api.provider_oauth import router as provider_oauth_router
-from app.api.tracker_connectors import register_validation_redaction, router as tracker_connectors_router
+from app.api.tracker_connectors import router as tracker_connectors_router
 from app.api.project_trackers import router as project_trackers_router
 from app.api.tracker_sync import router as tracker_sync_router
 from app.api.tracker_webhooks import router as tracker_webhooks_router
@@ -36,13 +37,11 @@ from app.api.health import router as health_router
 from app.api.plugin import router as plugin_router
 from app.api.git_http import router as git_http_router
 from app.api.agent import router as agent_router
-from app.services import password_credential_service, rate_limit_service, session_store_service
-from app.services.comments_store_service import initialize_comments_store
+from app.services import password_credential_service, session_store_service
+from app.services.schema_head import bring_every_schema_to_head
 from app.services.comment_live_broker import broker as comment_live_broker
 from app.services.component_catalog_service import catalog_service
 from app.services.postgres_database import database
-from app.services.workspace_service import workspace
-from app.services.job_service import jobs
 from app.core.config import settings
 from app.core.security_headers import apply_security_headers
 import os
@@ -64,7 +63,7 @@ def configure_git():
     This used to run ``git config --global url.https://<token>@github.com/…``,
     which left the token in cleartext in the container's ``~/.gitconfig``. The
     rewrite now travels in the environment of each Git invocation instead; see
-    ``project_import_service._inject_github_token``.
+    ``git_remote_access._inject_github_token``.
     """
     if settings.GITHUB_TOKEN:
         logger.info("GITHUB_TOKEN is set; HTTPS GitHub remotes will use it per invocation.")
@@ -186,23 +185,12 @@ async def lifespan(app: FastAPI):
     announce_configuration_warnings()
     configure_git()
     ensure_ssh_dir()
-    initialize_comments_store()
-    catalog_service.initialize()
-    workspace.initialize()
-    jobs.initialize()
-    from app.services.trackers.connector_service import initialize_tracker_connector_service
-    from app.services.trackers.identity_service import initialize_tracker_identity_service
-    from app.services.trackers.github_webhooks import initialize_tracker_webhook_service
+    bring_every_schema_to_head()
     from app.services.trackers.composition import initialize_tracker_composition
 
-    initialize_tracker_connector_service()
-    initialize_tracker_identity_service()
-    initialize_tracker_webhook_service()
     initialize_tracker_composition()
     if settings.AUTH_ENABLED:
-        session_store_service.initialize_session_store()
         session_store_service.prune_expired_sessions()
-        rate_limit_service.initialize_rate_limit_store()
         try:
             seeded = password_credential_service.seed_bootstrap_admins()
             if seeded:
@@ -234,6 +222,7 @@ async def lifespan(app: FastAPI):
         database.close()
 
 app = FastAPI(title="KiCAD Prism API", lifespan=lifespan)
+install_error_handlers(app)
 
 
 # Compress large responses. Registered before apply_security_headers so it ends
@@ -288,7 +277,6 @@ app.include_router(service_clients_router)
 app.include_router(remote_provider_router, tags=["remote-provider"])
 app.include_router(provider_oauth_router, tags=["provider-oauth"])
 app.include_router(tracker_connectors_router)
-register_validation_redaction(app)
 app.include_router(tracker_identity_router)
 app.include_router(tracker_identity_admin_router)
 app.include_router(project_trackers_router)

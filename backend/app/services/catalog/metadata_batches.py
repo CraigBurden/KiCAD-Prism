@@ -161,6 +161,17 @@ class CatalogMetadataBatches:
         )
 
     @staticmethod
+    def current_revision_rows(conn: Any) -> dict[str, dict[str, Any]]:
+        """Every active component's current revision, keyed by component id."""
+        return {
+            str(row["component_id"]): dict(row)
+            for row in conn.execute(
+                "SELECT c.id AS component_id, cr.* FROM components c "
+                "JOIN component_revisions cr ON cr.id = c.current_revision_id WHERE c.is_active = 1"
+            ).fetchall()
+        }
+
+    @staticmethod
     def calculate_batch_totals(conn: Any, batch_id: str) -> Any:
         return conn.execute(
             "SELECT SUM(CASE WHEN validation_status = 'applied' THEN 1 ELSE 0 END) AS applied, "

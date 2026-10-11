@@ -3,9 +3,9 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { CatalogComponent } from "@/types/catalog";
 
-const fetchJson = vi.hoisted(() => vi.fn());
-vi.mock("@/lib/api", () => ({ fetchJson }));
+vi.mock("./catalog-client");
 
+import { listModels, listModuleConnectors } from "./catalog-client";
 import { faceLabel } from "./library-module-connector-dialog";
 import { ModuleConnectorsPanel } from "./library-module-interface";
 
@@ -25,15 +25,15 @@ const placedA = {
 };
 
 function serve(connectors: unknown, glb: boolean) {
-  fetchJson.mockImplementation((url: string) => Promise.resolve(url.endsWith("/models")
-    ? { items: [{ assetId: "m", name: "imu.step", glb: glb ? { key: "k".repeat(64) } : null,
-      alignment: { offsetMm: [0, 0, 0], rotationDeg: [0, 0, 0], scale: 1 } }] }
-    : connectors));
+  vi.mocked(listModels).mockResolvedValue({ items: [{ assetId: "m", name: "imu.step", glb: glb ? { key: "k".repeat(64) } : null,
+    alignment: { offsetMm: [0, 0, 0], rotationDeg: [0, 0, 0], scale: 1 } }] } as never);
+  vi.mocked(listModuleConnectors).mockResolvedValue(connectors as never);
 }
 
 describe("module connectors", () => {
   beforeEach(() => {
-    fetchJson.mockReset();
+    vi.mocked(listModels).mockReset();
+    vi.mocked(listModuleConnectors).mockReset();
   });
 
   it("lists each unit's pins with their signals", () => {

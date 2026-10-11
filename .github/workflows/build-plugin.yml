@@ -8,7 +8,7 @@ on:
   workflow_dispatch:
     inputs:
       # Verified against the source, never used to set it. Bump the version in
-      # tools/kicad_plugin/version.py and tools/prism_agent/server.py.
+      # tools/kicad_plugin/version.py and its vendored copy tools/prism_agent/version.py.
       version:
         description: "Expected version (optional). Fails the build if the source says otherwise."
         required: false

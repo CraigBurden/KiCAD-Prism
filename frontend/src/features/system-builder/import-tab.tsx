@@ -8,7 +8,7 @@ import { FileInput } from "@/components/ui/file-input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { commitImport, previewImport, uploadImport } from "@/lib/systems-api";
+import { previewImport, uploadImport } from "@/lib/systems-api";
 import { cn } from "@/lib/utils";
 import type { ImportBucket, ImportCommitReport, ImportEntry, ImportPreview, ImportUpload } from "@/types/system";
 
@@ -23,7 +23,7 @@ import {
   type ColumnMap,
 } from "./import-model";
 import type { SystemTabProps } from "./system-tab-content";
-import { useSystemMutation } from "./use-system-mutation";
+import { useSystemSession } from "./session/use-system-session";
 
 type Step = "upload" | "map" | "preview" | "done";
 
@@ -49,7 +49,7 @@ function endText(entry: ImportEntry, side: "from" | "to"): string {
   return `${v[`${side}_end`]}.${v[`${side}_end_pin`]} ${pad ? `(${pad})` : "(not mated)"}`;
 }
 
-export function ImportTab({ systemId, document, etag, canEdit, reload, onNavigate }: SystemTabProps) {
+export function ImportTab({ systemId, document, canEdit, onNavigate }: SystemTabProps) {
   const [step, setStep] = useState<Step>("upload");
   const [file, setFile] = useState<File | null>(null);
   const [upload, setUpload] = useState<ImportUpload | null>(null);
@@ -59,7 +59,7 @@ export function ImportTab({ systemId, document, etag, canEdit, reload, onNavigat
   const [bucket, setBucket] = useState<ImportBucket>("matched");
   const [report, setReport] = useState<ImportCommitReport | null>(null);
   const [working, setWorking] = useState(false);
-  const { run } = useSystemMutation(reload);
+  const { edit } = useSystemSession();
 
   if (!canEdit) {
     return <p className="p-6 text-sm text-muted-foreground">Only designers can import connections.</p>;
@@ -112,7 +112,7 @@ export function ImportTab({ systemId, document, etag, canEdit, reload, onNavigat
     if (!upload) return;
     setWorking(true);
     try {
-      const result = await run("import", () => commitImport(systemId, etag, upload.importId, maps));
+      const result = await edit("import", (system) => system.commitImport(upload.importId, maps));
       if (result) {
         setReport(result.body);
         setStep("done");

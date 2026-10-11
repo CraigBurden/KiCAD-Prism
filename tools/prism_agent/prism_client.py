@@ -32,6 +32,27 @@ DOWN_FOR = 30
 _LOOPBACK_HOSTS = {"localhost", "127.0.0.1", "::1"}
 
 
+class PrismRefused(Exception):
+    """The backend answered with an HTTP error status."""
+
+    def __init__(self, status: int, body: bytes = b""):
+        super().__init__(f"HTTP {status}")
+        self.status = status
+        self.body = body
+
+    def detail(self) -> str:
+        """The backend's own `detail` message, when its body carried one."""
+        try:
+            parsed = json.loads(self.body or b"{}")
+        except ValueError:
+            return ""
+        return str(parsed.get("detail") or "") if isinstance(parsed, dict) else ""
+
+
+class PrismUnreachable(Exception):
+    """Nothing answered: refused, timed out, or cut off."""
+
+
 @dataclass
 class PrismConfig:
     base_url: str = DEFAULT_BASE_URL
@@ -89,27 +110,60 @@ class PrismClient:
 
         return urllib.request.build_opener(_RewriteHost)
 
+    def _send(
+        self,
+        method: str,
+        path: str,
+        *,
+        data: bytes | None = None,
+        content_type: str = "",
+        token: str | None = None,
+        timeout: float = TIMEOUT,
+    ) -> tuple[int, bytes]:
+        """One request to the backend, every failure raised rather than swallowed.
+
+        Returns (status, body). Raises PrismRefused when the backend answered with an
+        HTTP error (its status and body come with it), PrismUnreachable when nothing
+        answered. `token` overrides the configured bearer token; "" sends none.
+        """
+        url = self.config.base_url.rstrip("/") + path
+        req = urllib.request.Request(url, data=data, method=method)
+        req.add_header("Accept", "application/json")
+        if content_type:
+            req.add_header("Content-Type", content_type)
+        bearer = self.config.token if token is None else token
+        if bearer:
+            req.add_header("Authorization", f"Bearer {bearer}")
+        try:
+            with self._opener().open(req, timeout=timeout) as resp:
+                return resp.status, resp.read()
+        except urllib.error.HTTPError as exc:
+            try:
+                body = exc.read()
+            except OSError:
+                body = b""
+            raise PrismRefused(exc.code, body) from exc
+        except (urllib.error.URLError, OSError) as exc:
+            raise PrismUnreachable(str(exc)) from exc
+
     def _request(
         self, method: str, path: str, body: dict | None = None
     ) -> dict | list | None:
         if not self.config.configured or self.known_down:
             return None
-        url = self.config.base_url.rstrip("/") + path
         data = json.dumps(body).encode() if body is not None else None
-        req = urllib.request.Request(url, data=data, method=method)
-        req.add_header("Accept", "application/json")
-        if data is not None:
-            req.add_header("Content-Type", "application/json")
-        if self.config.token:
-            req.add_header("Authorization", f"Bearer {self.config.token}")
         try:
-            with self._opener().open(req, timeout=TIMEOUT) as resp:
-                raw = resp.read()
+            _status, raw = self._send(
+                method,
+                path,
+                data=data,
+                content_type="application/json" if data is not None else "",
+            )
             return json.loads(raw) if raw else None
-        except (urllib.error.HTTPError, ValueError):
+        except (PrismRefused, ValueError):
             # It answered, just not with what we wanted. Not "down".
             return None
-        except (urllib.error.URLError, OSError):
+        except PrismUnreachable:
             # No answer: refused, timed out, or cut off. The backend being down is a
             # normal state, not an error worth raising: the agent's local features
             # must keep working regardless.
@@ -172,6 +226,47 @@ class PrismClient:
         no agent sign-in to offer anyway.
         """
         return self._request("GET", "/api/agent/config")
+
+    def exchange_agent_code(
+        self, *, code: str, redirect_uri: str, verifier: str, timeout: float = 30
+    ) -> dict:
+        """Trade a one-time sign-in code plus its PKCE verifier for an agent token.
+
+        A direct POST to Prism, never through the browser, so the verifier and the
+        token never touch a URL. Unlike the calls above this one raises: sign-in has
+        to say why it failed. PrismRefused carries the server's reason, and a body
+        that is not JSON raises ValueError.
+        """
+        data = urllib.parse.urlencode(
+            {"code": code, "redirect_uri": redirect_uri, "code_verifier": verifier}
+        ).encode("utf-8")
+        _status, raw = self._send(
+            "POST",
+            "/api/agent/token",
+            data=data,
+            content_type="application/x-www-form-urlencoded",
+            token="",
+            timeout=timeout,
+        )
+        payload = json.loads(raw)
+        if not isinstance(payload, dict):
+            raise ValueError("not a JSON object")
+        return payload
+
+    def revoke_agent_token(self, jti: str, *, timeout: float = 15) -> bool:
+        """Revoke the agent token with this registry id, authenticated as that token.
+
+        Best-effort and never raises: whether the server confirmed.
+        """
+        try:
+            status, _raw = self._send(
+                "DELETE",
+                f"/api/agent/tokens/{urllib.parse.quote(jti)}",
+                timeout=timeout,
+            )
+        except (PrismRefused, PrismUnreachable):
+            return False
+        return 200 <= status < 300
 
     def identity(self) -> dict:
         """A summary the settings UI can render without knowing about OIDC."""

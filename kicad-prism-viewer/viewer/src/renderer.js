@@ -17,7 +17,6 @@ import {
   packOccurrenceEmphasis,
 } from "./net-emphasis.js";
 import {
-  BARREL_RECORD_STRIDE,
   IDENTITY,
   OCCURRENCE_STRIDE,
   OCCURRENCE_WGSL,
@@ -29,9 +28,16 @@ import {
   isIdentity,
   normalizeLodThresholds,
   normalizeOccurrences,
-  packBarrels,
   packOccurrences,
 } from "./occurrences.js";
+import {
+  BARREL_INPUT_WGSL,
+  BARREL_INSTANCE_LAYOUT,
+  BARREL_RECORD_STRIDE,
+  BARREL_STORAGE_WGSL,
+  packBarrelInstances,
+  packBarrels,
+} from "./barrel-records.js";
 
 // position unorm16×4 within the primitive's bounds (SB2-89), normal snorm8×4
 // (SB2-84), netId, objectId. SB2-82 dropped the per-primitive layer and material
@@ -235,14 +241,7 @@ struct Draw { color: vec4f, material: vec4f, offset: vec4f, flags: vec4f };
 @group(0) @binding(2) var<storage, read> layerOffsets: array<f32>;
 @group(0) @binding(4) var<storage, read> netMask: array<u32>;
 ${NET_MASK_WGSL}
-${hook("decl")}struct Input {
-  @location(0) unit: vec3f,
-  @location(1) normal: vec3f,
-  @location(2) radiusMix: f32,
-  @location(3) dimensions: vec4f,
-  @location(4) span: vec2f,
-  @location(5) ids: vec4u,
-};
+${hook("decl")}${BARREL_INPUT_WGSL}
 struct Output {
   @builtin(position) position: vec4f,
   @location(0) normal: vec3f,
@@ -308,14 +307,7 @@ struct Draw { color: vec4f, material: vec4f, offset: vec4f, flags: vec4f };
 @group(0) @binding(2) var<storage, read> layerOffsets: array<f32>;
 @group(0) @binding(4) var<storage, read> netMask: array<u32>;
 ${NET_MASK_WGSL}
-${hook("decl")}struct Input {
-  @location(0) unit: vec3f,
-  @location(1) normal: vec3f,
-  @location(2) radiusMix: f32,
-  @location(3) dimensions: vec4f,
-  @location(4) span: vec2f,
-  @location(5) ids: vec4u,
-};
+${hook("decl")}${BARREL_INPUT_WGSL}
 struct Output {
   @builtin(position) position: vec4f,
   @location(3) @interpolate(flat) netId: u32,
@@ -521,20 +513,7 @@ export const PLACEMENT_STRIDE = 64;
 // Instanced component slots carry their placement count in the class word: 6 | count << 3.
 const COMPONENT_SLOT_CLASS = 6;
 
-const BARREL_INPUT = `struct Input {
-  @location(0) unit: vec3f,
-  @location(1) normal: vec3f,
-  @location(2) radiusMix: f32,
-  @location(3) dimensions: vec4f,
-  @location(4) span: vec2f,
-  @location(5) ids: vec4u,
-};`;
-const BARREL_INPUT_INSTANCED = `struct Barrel {
-  dimensions: vec4f,
-  span: vec2f,
-  ids: vec4u,
-};
-@group(0) @binding(6) var<storage, read> barrels: array<Barrel>;
+const BARREL_INPUT_INSTANCED = `${BARREL_STORAGE_WGSL}
 ${OCCURRENCE_WGSL}
 struct Input {
   @location(0) unit: vec3f,
@@ -550,7 +529,7 @@ function barrelVariant(source, positionLine, extra = []) {
     SELECTED_OCCURRENCE,
     // OCCURRENCE_WGSL declares the layer offsets for every instanced shader.
     ["@group(0) @binding(2) var<storage, read> layerOffsets: array<f32>;\n", ""],
-    [BARREL_INPUT, BARREL_INPUT_INSTANCED],
+    [BARREL_INPUT_WGSL, BARREL_INPUT_INSTANCED],
     [`@vertex fn vs(input: Input) -> Output {`, `struct Record {
   unit: vec3f,
   normal: vec3f,
@@ -1738,15 +1717,7 @@ export class Renderer {
             ],
           },
           // Instanced pipelines read barrel records from storage instead.
-          ...(instanceBuffer ? [{
-            arrayStride: 40,
-            stepMode: "instance",
-            attributes: [
-              { shaderLocation: 3, offset: 0, format: "float32x4" },
-              { shaderLocation: 4, offset: 16, format: "float32x2" },
-              { shaderLocation: 5, offset: 24, format: "uint32x4" },
-            ],
-          }] : []),
+          ...(instanceBuffer ? [BARREL_INSTANCE_LAYOUT] : []),
         ],
       },
       fragment: {
@@ -2018,21 +1989,7 @@ export class Renderer {
     }
     const vertexArray = new Float32Array(vertices);
     const indexArray = new Uint16Array(indices);
-    const instances = new ArrayBuffer(records.length * 40);
-    const view = new DataView(instances);
-    records.forEach((record, index) => {
-      const offset = index * 40;
-      view.setFloat32(offset, record.centerMm[0] / 1000, true);
-      view.setFloat32(offset + 4, -record.centerMm[1] / 1000, true);
-      view.setFloat32(offset + 8, Math.min(record.drillWidthMm, record.drillHeightMm) / 2000, true);
-      view.setFloat32(offset + 12, Math.max(record.outerWidthMm, record.outerHeightMm) / 2000, true);
-      view.setFloat32(offset + 16, record.startZMm / 1000, true);
-      view.setFloat32(offset + 20, record.endZMm / 1000, true);
-      view.setUint32(offset + 24, record.netId || 0, true);
-      view.setUint32(offset + 28, record.objectFeatureId || 0, true);
-      view.setUint32(offset + 32, record.startLayerId || 0, true);
-      view.setUint32(offset + 36, record.endLayerId || 0, true);
-    });
+    const instances = packBarrelInstances(records);
     const vertexBuffer = this.device.createBuffer({ size: vertexArray.byteLength, usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST });
     const indexBuffer = this.device.createBuffer({ size: indexArray.byteLength, usage: GPUBufferUsage.INDEX | GPUBufferUsage.COPY_DST });
     const instanceBuffer = this.device.createBuffer({ size: instances.byteLength, usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST });

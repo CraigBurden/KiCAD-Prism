@@ -18,7 +18,7 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from prism_agent import protocol  # noqa: E402
+from prism_agent import protocol, version  # noqa: E402
 
 TOOLS = str(Path(__file__).resolve().parent.parent)
 
@@ -136,13 +136,7 @@ def test_a_mac_bundle_with_no_version_marker_is_stale(tmp_path, monkeypatch):
     monkeypatch.setattr(sys, "platform", "darwin")
     monkeypatch.setattr(protocol, "is_registered", lambda: True)
     monkeypatch.setattr(protocol, "_mac_app_bundle", lambda: bundle)
-    # server.py itself only imports cleanly on macOS (urllib pulls in _scproxy
-    # there); stub the one name protocol.is_stale actually reads rather than
-    # importing the real module under a spoofed sys.platform.
-    monkeypatch.setitem(
-        sys.modules, "prism_agent.server", type(sys)("prism_agent.server")
-    )
-    sys.modules["prism_agent.server"].VERSION = "0.5.5"
+    monkeypatch.setattr(version, "VERSION", "0.5.5")
 
     assert protocol.is_stale() is True
 
@@ -156,13 +150,7 @@ def test_a_mac_bundle_from_an_older_version_is_stale(tmp_path, monkeypatch):
     monkeypatch.setattr(sys, "platform", "darwin")
     monkeypatch.setattr(protocol, "is_registered", lambda: True)
     monkeypatch.setattr(protocol, "_mac_app_bundle", lambda: bundle)
-    # server.py itself only imports cleanly on macOS (urllib pulls in _scproxy
-    # there); stub the one name protocol.is_stale actually reads rather than
-    # importing the real module under a spoofed sys.platform.
-    monkeypatch.setitem(
-        sys.modules, "prism_agent.server", type(sys)("prism_agent.server")
-    )
-    sys.modules["prism_agent.server"].VERSION = "0.5.5"
+    monkeypatch.setattr(version, "VERSION", "0.5.5")
 
     assert protocol.is_stale() is True
 
@@ -178,10 +166,7 @@ def test_a_mac_bundle_matching_the_running_version_is_not_stale(tmp_path, monkey
     monkeypatch.setattr(sys, "platform", "darwin")
     monkeypatch.setattr(protocol, "is_registered", lambda: True)
     monkeypatch.setattr(protocol, "_mac_app_bundle", lambda: bundle)
-    monkeypatch.setitem(
-        sys.modules, "prism_agent.server", type(sys)("prism_agent.server")
-    )
-    sys.modules["prism_agent.server"].VERSION = "0.5.5"
+    monkeypatch.setattr(version, "VERSION", "0.5.5")
 
     assert protocol.is_stale() is False
 
@@ -265,8 +250,7 @@ def fake_mac_tools(tmp_path, monkeypatch):
     bundle = tmp_path / "Applications" / "KiCad-Prism Agent.app"
     monkeypatch.setattr(protocol, "_mac_app_bundle", lambda: bundle)
     monkeypatch.setattr(protocol, "_launch_command", lambda: ["/usr/bin/prism-agent"])
-    monkeypatch.setitem(sys.modules, "prism_agent.server", type(sys)("prism_agent.server"))
-    sys.modules["prism_agent.server"].VERSION = "0.5.10"
+    monkeypatch.setattr(version, "VERSION", "0.5.10")
     state = {"plist_fails": False}
 
     def run(cmd, **_kwargs):

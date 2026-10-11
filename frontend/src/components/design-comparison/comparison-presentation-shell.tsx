@@ -1419,7 +1419,6 @@ export function ComparisonPresentationShell({
                             className="flex max-h-[min(32rem,var(--radix-popover-content-available-height))] w-80 flex-col overflow-hidden p-0"
                         >
                             <SchematicPageTree
-                                viewer={primaryViewer}
                                 pages={navigatorPages}
                                 hasChanges={(page) => changedDocuments.has(
                                     page.filename.split("/").at(-1) ?? page.filename,

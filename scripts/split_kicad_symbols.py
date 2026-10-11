@@ -4,11 +4,16 @@ from __future__ import annotations
 import argparse
 import json
 import re
-import shutil
 import subprocess
 import sys
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
+
+
+# Symbol text is read with the backend's KiCad library reader; it needs no backend dependencies.
+BACKEND = Path(__file__).resolve().parents[1] / "backend"
+if str(BACKEND) not in sys.path:
+    sys.path.insert(0, str(BACKEND))
 
 
 @dataclass
@@ -34,18 +39,12 @@ def _discover_symbol_files(input_path: Path) -> list[Path]:
 
 
 def _find_kicad_cli(explicit: str) -> str | None:
-    candidates = [
-        explicit,
-        shutil.which("kicad-cli") or "",
-        "/Applications/KiCad/KiCad.app/Contents/MacOS/kicad-cli",
-        str(Path.home() / "Applications/KiCad/KiCad.app/Contents/MacOS/kicad-cli"),
-        "/usr/bin/kicad-cli",
-        "/usr/local/bin/kicad-cli",
-    ]
-    for candidate in candidates:
-        if candidate and Path(candidate).exists():
-            return candidate
-    return None
+    """``--kicad-cli`` if it exists, else Prism's own lookup (KICAD_CLI_PATH, PATH, install dirs)."""
+    if explicit and Path(explicit).exists():
+        return explicit
+    from app.services.kicad_tools import locate_kicad_cli  # noqa: PLC0415
+
+    return locate_kicad_cli()
 
 
 def _run_kicad_cli_split(kicad_cli: str, source: Path, destination: Path, *, dry_run: bool) -> tuple[bool, str, int]:
@@ -73,73 +72,16 @@ def _run_kicad_cli_split(kicad_cli: str, source: Path, destination: Path, *, dry
 
 
 def _discover_symbol_names_in_text(text: str) -> list[str]:
-    matches = re.findall(r'\(symbol\s+"([^"]+)"', text)
-    seen: set[str] = set()
-    names: list[str] = []
-    for name in matches:
-        if re.search(r"_\d+_\d+$", name):
-            continue
-        if name not in seen:
-            seen.add(name)
-            names.append(name)
-    return names
+    from app.services.kicad_library_reader import symbol_names  # noqa: PLC0415
+
+    return symbol_names(text)
 
 
 def _extract_top_level_symbol_blocks(text: str) -> list[tuple[str, str]]:
-    blocks: list[tuple[str, str]] = []
-    depth = 0
-    start: int | None = None
-    name = ""
-    in_string = False
-    escape = False
-    i = 0
-    while i < len(text):
-        ch = text[i]
-        if in_string:
-            if escape:
-                escape = False
-            elif ch == "\\":
-                escape = True
-            elif ch == '"':
-                in_string = False
-            i += 1
-            continue
-        if ch == '"':
-            in_string = True
-            i += 1
-            continue
-        if ch == "(":
-            if depth == 1 and text.startswith("(symbol", i):
-                start = i
-                j = i + len("(symbol")
-                while j < len(text) and text[j].isspace():
-                    j += 1
-                if j < len(text) and text[j] == '"':
-                    j += 1
-                    chars: list[str] = []
-                    escaped = False
-                    while j < len(text):
-                        current = text[j]
-                        if escaped:
-                            chars.append(current)
-                            escaped = False
-                        elif current == "\\":
-                            escaped = True
-                        elif current == '"':
-                            break
-                        else:
-                            chars.append(current)
-                        j += 1
-                    name = "".join(chars)
-            depth += 1
-        elif ch == ")":
-            depth -= 1
-            if start is not None and depth == 1:
-                blocks.append((name, text[start : i + 1]))
-                start = None
-                name = ""
-        i += 1
-    return [(name, block) for name, block in blocks if not re.search(r"_\d+_\d+$", name)]
+    """The library's top-level symbols, without any ``<name>_<unit>_<style>`` block."""
+    from app.services.kicad_library_reader import top_level_symbol_blocks  # noqa: PLC0415
+
+    return [(name, block) for name, block in top_level_symbol_blocks(text) if not re.search(r"_\d+_\d+$", name)]
 
 
 def _symbol_header(text: str) -> tuple[str, str, str]:

@@ -49,9 +49,3 @@ def role_meets_minimum(role: Role, minimum: Role) -> bool:
 
 def role_label(role: Role) -> str:
     return ROLE_LABELS[role]
-
-
-def role_matches_allowed_role(role: Role, allowed_roles: list[str]) -> bool:
-    if role in allowed_roles:
-        return True
-    return role in PROJECT_VIEW_ROLES and "viewer" in allowed_roles

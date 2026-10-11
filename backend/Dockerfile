@@ -149,6 +149,8 @@ RUN PRISM_VIEWER_ROOT=/opt/kicad-prism-viewer /app/scripts/build-prism-clipper2.
 COPY frontend/src/features/system-builder/placement /opt/frontend/src/features/system-builder/placement
 RUN cd /opt/kicad-prism-viewer && npm run build
 
+# backend/ carries the design-compare Node package (/app/design-compare-parser). scripts/ holds the
+# operator CLIs run inside the container (catalog imports, benchmark sessions); nothing at runtime reads it.
 COPY backend/ .
 COPY scripts/ scripts/
 COPY --from=prism-kicad-native-builder \

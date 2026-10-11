@@ -13,8 +13,10 @@ from unittest import mock
 from test_system_api import _request
 from test_system_snapshots import DESIGNER, VIEWER, SnapshotCase
 
+from app.core.errors import install_error_handlers  # noqa: E402
 from app.api import systems as systems_api
 from app.services.systems import service as service_module
+from support.postgres import seed_folder
 
 
 def sheets(content: bytes) -> dict[str, list[list[str]]]:
@@ -112,8 +114,7 @@ class ReportTest(ReportCase):
 
     def test_a_review_on_a_board_the_reader_cannot_see_is_one_restricted_row(self) -> None:
         self.open_f1()
-        self.conn.execute("INSERT INTO ws_folders (id, visibility_mode, allowed_roles)"
-                          " VALUES ('fld_admins', 'roles', '[\"admin\"]')")
+        seed_folder(self.conn, "fld_admins", visibility_mode="roles", allowed_roles=["admin"])
         self.conn.execute("UPDATE ws_projects SET folder_id = 'fld_admins' WHERE id = 'prj_obc'")
         self.conn.commit()
         book = self.workbook(VIEWER)
@@ -130,6 +131,7 @@ class ReportApiTest(ReportCase):
         patcher.start()
         self.addCleanup(patcher.stop)
         self.app = FastAPI()
+        install_error_handlers(self.app)
         self.app.include_router(systems_api.router, prefix="/api/systems")
 
     def test_a_viewer_downloads_both_formats(self) -> None:

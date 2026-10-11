@@ -31,8 +31,8 @@ describe("comparison result sidecars", () => {
                 compare: "head",
                 files: { base: [], head: [] },
             },
-            schematic: { pages: [], changes: [], groups: [], summary: {} },
-            pcb: { changes: [], groups: [], summary: {}, route_metrics: {} },
+            schematic: { pages: [], changes: [], summary: {} },
+            pcb: { changes: [], summary: {}, route_metrics: {} },
             bom: null,
             stackup: { base: [], head: [], changed: false, present: false },
             document_diff: {

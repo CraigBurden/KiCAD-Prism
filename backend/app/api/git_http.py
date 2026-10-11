@@ -30,8 +30,8 @@ from fastapi import APIRouter, HTTPException, Request, Response
 
 from app.api._helpers import get_project_for_role_or_404
 from app.core.config import settings
-from app.core.roles import role_meets_minimum
-from app.core.security import AuthenticatedUser, _require_bearer_scope, _resolve_bearer_user, guest_user
+from app.core import policy
+from app.core.security import AuthenticatedUser, _resolve_bearer_user, guest_user
 from app.services import git_host_service
 
 # Note: the whole pack is buffered in memory rather than streamed. A board repo is tens
@@ -103,13 +103,8 @@ def _authorise(user: AuthenticatedUser, project_id: str, path: str) -> None:
     A hidden or unknown project is a 404, as it is in the API.
     """
     writing = any(path.endswith(p) for p in _WRITE_PATHS)
-    needed = "designer" if writing else "viewer"
     # Tokens carry scopes as well as the user's role: a push needs api:write, a clone api:read.
-    _require_bearer_scope(user, "api:write" if writing else "api:read")
-    if not role_meets_minimum(user.role, needed):
-        raise HTTPException(
-            status_code=403, detail=f"{needed.capitalize()} role required"
-        )
+    policy.authorize(user, "design" if writing else "read")
     get_project_for_role_or_404(project_id, user.role)
 
 

@@ -5,7 +5,6 @@ import argparse
 import csv
 import json
 import os
-import re
 import shutil
 import sys
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -242,22 +241,10 @@ def _relative_library_name(file_path: Path, root: Path, default: str) -> str:
     return _sanitize_name("_".join(relative_parent.parts), default)
 
 
-def _decode_symbol_property_value(value: str) -> str:
-    return value.replace(r"\"", '"').replace(r"\\", "\\")
-
-
 def _symbol_properties(symbol_block: str) -> dict[str, str]:
-    properties: dict[str, str] = {}
-    for match in re_finditer_property(symbol_block):
-        properties[match[0]] = _decode_symbol_property_value(match[1])
-    return properties
+    from app.services.kicad_library_reader import symbol_properties  # noqa: PLC0415
 
-
-def re_finditer_property(symbol_block: str) -> list[tuple[str, str]]:
-    import re
-
-    pattern = re.compile(r'\(property\s+"((?:\\.|[^"])*)"\s+"((?:\\.|[^"])*)"')
-    return [(match.group(1), match.group(2)) for match in pattern.finditer(symbol_block)]
+    return symbol_properties(symbol_block)
 
 
 def _property_first(properties: dict[str, str], names: tuple[str, ...]) -> str:
@@ -336,25 +323,6 @@ def _component_row_from_symbol(
     return row, footprint_ref
 
 
-def _single_symbol_payload_from_parsed_blocks(
-    service: ComponentCatalogService,
-    text: str,
-    blocks: list[tuple[str, str]],
-    selected_symbol: str,
-) -> bytes:
-    blocks_dict = dict(blocks)
-    base_block = blocks_dict.get(selected_symbol)
-    if not base_block:
-        raise ValueError("Selected symbol was not found in the library")
-
-    escaped_name = re.escape(selected_symbol)
-    unit_pattern = re.compile(rf"^{escaped_name}_\d+_\d+$")
-    unit_blocks = [block for name, block in blocks if unit_pattern.match(name)]
-    version, generator = service.asset_files.symbol_header(text)
-    all_blocks_text = "\n  ".join([base_block] + unit_blocks)
-    return f"(kicad_symbol_lib (version {version}) (generator {generator})\n  {all_blocks_text}\n)\n".encode("utf-8")
-
-
 def _register_asset(
     service: ComponentCatalogService,
     conn: Any | None,
@@ -414,7 +382,11 @@ def _import_symbols(
             if skip_upgrade:
                 normalized = payload
             else:
-                normalized = CatalogAssetImports.normalize_symbol_upload(service.runtime, symbol_file.name, payload)
+                from app.services.kicad_tools import kicad_cli  # noqa: PLC0415
+
+                normalized = CatalogAssetImports.normalize_symbol_upload(kicad_cli(), symbol_file.name, payload)
+            from app.services.kicad_library_reader import single_symbol_library  # noqa: PLC0415
+
             text = normalized.decode("utf-8", errors="ignore")
             symbols = _discover_symbol_names_in_text(text)
             parsed_blocks = service.asset_files.extract_top_level_symbol_blocks(text)
@@ -427,7 +399,7 @@ def _import_symbols(
             for symbol_name in symbols:
                 try:
                     print(f"  -> Extracting symbol: {symbol_name}")
-                    canonical_payload = _single_symbol_payload_from_parsed_blocks(service, text, parsed_blocks, symbol_name)
+                    canonical_payload = single_symbol_library(text, symbol_name, parsed_blocks)
                     destination = service.asset_files.symbol_destination(service.runtime, library, symbol_name)
                     if destination.exists() and not _same_bytes(destination, canonical_payload) and not overwrite:
                         destination = _unique_destination(destination)

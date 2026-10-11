@@ -1,7 +1,12 @@
 import { describe, expect, it } from "vitest";
 
+import type { PrismJobStatus } from "@/lib/jobs";
+
 import {
+  analysisResultOf,
+  importedProjectIdsOf,
   importReviewTitle,
+  isAccessFailure,
   isProjectAlreadyImported,
   projectKeyOf,
   projectsPerDirectory,
@@ -100,5 +105,34 @@ describe("projects registered before Prism recorded project files", () => {
   it("falls back to the directory when the backend sends no key", () => {
     const legacy = project({ name: "board", relative_path: "hardware/board" });
     expect(projectKeyOf(legacy)).toBe("hardware/board");
+  });
+});
+
+describe("reading analyse and import jobs from the unified status", () => {
+  const job = (partial: Partial<PrismJobStatus> & Pick<PrismJobStatus, "status">): PrismJobStatus => ({
+    job_id: "job-1",
+    kind: "project_import",
+    stage: partial.status,
+    message: "",
+    percent: 0,
+    ...partial,
+  });
+
+  it("finds the analysis in the result metadata", () => {
+    const analysis = { import_type: "type1", projects: [], repo_name: "boards" };
+    expect(analysisResultOf(job({ status: "completed", result_metadata: { result: analysis } }))).toEqual(analysis);
+    expect(analysisResultOf(job({ status: "completed" }))).toBeUndefined();
+  });
+
+  it("lists the imported project ids", () => {
+    expect(importedProjectIdsOf(job({ status: "completed", result_metadata: { project_ids: ["p1", "p2"] } })))
+      .toEqual(["p1", "p2"]);
+    expect(importedProjectIdsOf(job({ status: "completed" }))).toEqual([]);
+  });
+
+  it("offers the access fix only for a failed job with the git access code", () => {
+    expect(isAccessFailure(job({ status: "failed", error_code: "git_access" }))).toBe(true);
+    expect(isAccessFailure(job({ status: "failed", error_code: "handler_failed" }))).toBe(false);
+    expect(isAccessFailure(job({ status: "cancelled", error_code: "git_access" }))).toBe(false);
   });
 });

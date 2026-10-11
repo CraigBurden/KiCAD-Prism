@@ -9,7 +9,8 @@ Optimistic concurrency: a mutation names the revision it was based on and
 the ``UPDATE ... WHERE revision = %s`` plus the unique
 ``(target_kind, target_id, revision)`` history row make two concurrent edits
 of the same revision impossible to both succeed. The loser gets
-``RevisionConflict`` carrying the current revision.
+``RevisionConflict`` (412) carrying the current revision and ETag. Routes read
+the expected revision from ``If-Match`` (``etag`` below).
 """
 
 from __future__ import annotations
@@ -19,6 +20,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Dict, List, Optional
 
+from app.core import errors, preconditions
 from app.services import comment_live_events
 
 ROOT = "root"
@@ -34,14 +36,36 @@ ORIGIN_PRISM = "prism"
 ORIGIN_REMOTE = "remote"
 
 
-class RevisionConflict(Exception):
-    """The target moved on since the revision the caller edited."""
+ETAG_KINDS = {ROOT: "comment", REPLY: "reply"}
+
+
+def etag(target_kind: str, target_id: str, revision: int) -> str:
+    """A root's ETag is ``"comment:<id>:<revision>"``, a reply's ``"reply:<id>:<revision>"``."""
+
+    return preconditions.etag(ETAG_KINDS[target_kind], target_id, int(revision))
+
+
+class RevisionConflict(errors.StaleVersion):
+    """The target moved on since the revision the caller's ``If-Match`` named (412, current ETag + ``currentRevision``)."""
 
     def __init__(self, target_kind: str, target_id: str, current_revision: Optional[int]):
-        super().__init__(f"{target_kind} {target_id} is at revision {current_revision}")
+        super().__init__(
+            f"{target_kind} {target_id} is at revision {current_revision}",
+            detail="Comment changed since the revision you edited",
+            code="revision_conflict",
+            headers={"ETag": etag(target_kind, target_id, current_revision)} if current_revision else None,
+            currentRevision=current_revision,
+        )
         self.target_kind = target_kind
         self.target_id = target_id
         self.current_revision = current_revision
+
+
+class AnchorImmutable(errors.Invalid, ValueError):
+    """A change tried to move a comment's anchor (422 ``anchor_immutable``)."""
+
+    def __init__(self) -> None:
+        super().__init__("anchor fields are immutable", code="anchor_immutable")
 
 
 @dataclass(frozen=True)
@@ -162,25 +186,19 @@ def record_revision(
     )
     if emit_change:
         if target_kind == ROOT:
-            root = conn.execute(
-                "SELECT id, scope, base_commit, compare_commit FROM comments WHERE project_id = %s AND id = %s",
+            comment_id = target_id
+        elif target_kind == REPLY:
+            parent = conn.execute(
+                "SELECT comment_id FROM comment_replies WHERE project_id = %s AND id = %s",
                 (project_id, target_id),
             ).fetchone()
-        elif target_kind == REPLY:
-            root = conn.execute(
-                """SELECT c.id, c.scope, c.base_commit, c.compare_commit
-                   FROM comments c JOIN comment_replies r ON r.comment_id = c.id
-                   WHERE r.project_id = %s AND r.id = %s AND c.project_id = %s""",
-                (project_id, target_id, project_id),
-            ).fetchone()
+            if parent is None:
+                raise ValueError(f"Comment root missing for {target_kind} {target_id}")
+            comment_id = parent["comment_id"]
         else:
             raise ValueError(f"Unknown comment target kind: {target_kind}")
-        if root is None:
-            raise ValueError(f"Comment root missing for {target_kind} {target_id}")
-        comment_live_events.record_change(
-            conn, project_id=project_id, comment_id=root["id"],
-            scope=root["scope"], base_commit=root["base_commit"],
-            compare_commit=root["compare_commit"],
+        comment_live_events.record_thread_change(
+            conn, project_id=project_id, comment_id=comment_id,
             change_kind="delete" if change_kind == CHANGE_DELETE and target_kind == ROOT else "upsert",
         )
 

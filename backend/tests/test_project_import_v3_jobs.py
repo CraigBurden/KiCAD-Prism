@@ -7,8 +7,10 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest import mock
 
+from app.services import job_service
 from app.services import project_import_service
-from app.services.git_failures import GitAccessError
+from app.services.git_failures import GitAccessError, describe_git_failure
+from app.services.job_runtime import PermanentJobError
 from app.services.git_remote_url import RemoteUrlError
 
 
@@ -53,7 +55,7 @@ class ProjectImportV3JobTests(unittest.TestCase):
                 return_value={"id": "project-1", "repo_id": "repo-1"},
             ),
             mock.patch.object(
-                project_import_service.v3_jobs,
+                job_service.jobs,
                 "enqueue",
                 return_value={"job_id": "job-sync"},
             ) as enqueue,
@@ -73,7 +75,7 @@ class ProjectImportV3JobTests(unittest.TestCase):
 
     def test_import_enqueue_uses_import_slot_and_repository_write_lock(self) -> None:
         with mock.patch.object(
-            project_import_service.v3_jobs,
+            job_service.jobs,
             "enqueue",
             return_value={"job_id": "job-import"},
         ) as enqueue:
@@ -100,12 +102,12 @@ class ProjectImportV3JobTests(unittest.TestCase):
             "HTTPS credentials required", reason="credentials-required"
         )
         with mock.patch.object(
-            project_import_service,
+            project_import_service.git_remote_access,
             "list_remote_branches",
             side_effect=[credential_error, (["main"], "main")],
         ) as list_branches:
             resolved, branches, default_branch = (
-                project_import_service.resolve_remote_access(https)
+                project_import_service.git_remote_access.resolve_remote_access(https)
             )
 
         self.assertEqual(resolved.url, "git@github.com:example/private-board.git")
@@ -124,12 +126,12 @@ class ProjectImportV3JobTests(unittest.TestCase):
             "https://github.com/example/public-board.git"
         )
         with mock.patch.object(
-            project_import_service,
+            project_import_service.git_remote_access,
             "list_remote_branches",
             return_value=(["main"], "main"),
         ) as list_branches:
             resolved, _branches, _default_branch = (
-                project_import_service.resolve_remote_access(https)
+                project_import_service.git_remote_access.resolve_remote_access(https)
             )
 
         self.assertIs(resolved, https)
@@ -140,7 +142,7 @@ class ProjectImportV3JobTests(unittest.TestCase):
             "https://github.com/example/private-board"
         )
         with mock.patch.object(
-            project_import_service,
+            project_import_service.git_remote_access,
             "list_remote_branches",
             side_effect=[
                 GitAccessError("HTTPS credentials required", reason="credentials-required"),
@@ -148,7 +150,7 @@ class ProjectImportV3JobTests(unittest.TestCase):
             ],
         ):
             with self.assertRaises(GitAccessError) as caught:
-                project_import_service.resolve_remote_access(https)
+                project_import_service.git_remote_access.resolve_remote_access(https)
 
         self.assertEqual(caught.exception.reason, "ssh-key-not-authorized")
 
@@ -181,7 +183,7 @@ class ProjectImportV3JobTests(unittest.TestCase):
                 return_value=projects,
             ),
             mock.patch.object(
-                project_import_service,
+                project_import_service.git_remote_access,
                 "list_remote_branches",
                 return_value=(["main", "release/v2"], "main"),
             ),
@@ -368,13 +370,13 @@ class ImportHandlerReDerivesClientClaims(unittest.TestCase):
 
 class EnqueueValidatesRemoteUrls(unittest.TestCase):
     def test_analyze_rejects_a_dangerous_url_before_queueing(self) -> None:
-        with mock.patch.object(project_import_service.v3_jobs, "enqueue") as enqueue:
+        with mock.patch.object(job_service.jobs, "enqueue") as enqueue:
             with self.assertRaises(RemoteUrlError):
                 project_import_service.start_analyze_job("ext::sh -c 'id'")
         enqueue.assert_not_called()
 
     def test_import_rejects_a_dangerous_url_before_queueing(self) -> None:
-        with mock.patch.object(project_import_service.v3_jobs, "enqueue") as enqueue:
+        with mock.patch.object(job_service.jobs, "enqueue") as enqueue:
             with self.assertRaises(RemoteUrlError):
                 project_import_service.start_import_job(
                     "file:///etc", "type1", None
@@ -385,7 +387,7 @@ class EnqueueValidatesRemoteUrls(unittest.TestCase):
         # Otherwise two spellings of one remote could clone concurrently into
         # the same target directory.
         with mock.patch.object(
-            project_import_service.v3_jobs,
+            job_service.jobs,
             "enqueue",
             return_value={"job_id": "job-1"},
         ) as enqueue:
@@ -399,7 +401,7 @@ class EnqueueValidatesRemoteUrls(unittest.TestCase):
 
     def test_analyze_enqueue_records_authenticated_requester(self) -> None:
         with mock.patch.object(
-            project_import_service.v3_jobs,
+            job_service.jobs,
             "enqueue",
             return_value={"job_id": "job-1"},
         ) as enqueue:
@@ -415,3 +417,57 @@ class EnqueueValidatesRemoteUrls(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class _FakeGitError(Exception):
+    def __init__(self, stderr: str) -> None:
+        super().__init__(stderr)
+        self.stderr = stderr
+
+
+class AccessFailureErrorCodeTests(unittest.TestCase):
+    """The job status carries the access-failure flag as its error code."""
+
+    def _analyze_failing_with(self, error: BaseException) -> BaseException:
+        context = SimpleNamespace(
+            payload={"repo_url": "https://example.com/boards.git"},
+            check_cancelled=mock.Mock(),
+            progress=lambda **values: None,
+        )
+        with mock.patch.object(
+            project_import_service.git_remote_access, "resolve_remote_access", side_effect=error
+        ):
+            with self.assertRaises(BaseException) as caught:
+                project_import_service.run_project_analyze_job_v3(context)
+        return caught.exception
+
+    def test_access_failure_fails_the_job_with_the_git_access_code(self) -> None:
+        reason, message = describe_git_failure(_FakeGitError("remote: Repository not found."))
+        raised = self._analyze_failing_with(GitAccessError(message, reason=reason))
+
+        self.assertIsInstance(raised, PermanentJobError)
+        self.assertEqual(raised.code, project_import_service.GIT_ACCESS_ERROR_CODE)
+        self.assertEqual(str(raised), message)
+
+    def test_other_failures_keep_their_own_error(self) -> None:
+        raised = self._analyze_failing_with(ValueError("Branch 'x' does not exist on this remote"))
+
+        self.assertIsInstance(raised, ValueError)
+        self.assertNotIsInstance(raised, PermanentJobError)
+
+    def test_import_handler_is_classified_too(self) -> None:
+        reason, message = describe_git_failure(_FakeGitError("Host key verification failed."))
+        context = SimpleNamespace(
+            payload={"repo_url": "https://example.com/boards.git"},
+            check_cancelled=mock.Mock(),
+            progress=lambda **values: None,
+        )
+        with mock.patch.object(
+            project_import_service,
+            "parse_remote_url",
+            side_effect=GitAccessError(message, reason=reason),
+        ):
+            with self.assertRaises(PermanentJobError) as caught:
+                project_import_service.run_project_import_job_v3(context)
+        self.assertEqual(caught.exception.code, "git_access")
+

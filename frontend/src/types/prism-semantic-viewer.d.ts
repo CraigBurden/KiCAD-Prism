@@ -1,5 +1,6 @@
 import type React from "react";
 import type { PrismSelection } from "@/types/prism-selection";
+import type { SystemScene } from "@/types/system";
 
 export interface PrismSemanticViewerSelectionDetail {
     selection: PrismSelection | null;
@@ -29,45 +30,6 @@ export interface PrismViewerPick {
     featureId: number;
     /** What a click there would select (reference, pin, net), when it hits a feature. */
     selection: Record<string, unknown> | null;
-}
-
-export interface PrismViewerLodThresholds {
-    /** Components draw at or above this projected radius. */
-    fullPx: number;
-    /** Copper, barrels, silkscreen and paste draw at or above this. */
-    boardPx: number;
-    /** Below this the board is a box; between it and boardPx only the substrate and mask draw. */
-    boxPx: number;
-    /** Hysteresis: a finer level holds until the size drops below threshold × keep. */
-    keep: number;
-}
-
-export interface PrismViewerStats {
-    occurrences: number;
-    /** Occurrences per level of detail in the last culled frame. */
-    lod: { full: number; board: number; body: number; box: number; culled: number };
-    triangles: number;
-    draws: number;
-    gpuMemoryBytes: number;
-    /** SB2-26: the GPU budget, the component tier and the browser asset cache. */
-    gpuBudgetBytes: number;
-    componentTier: "idle" | "loading" | "loaded";
-    componentEvictions: number;
-    tileEvictions: number;
-    cache: {
-        enabled: boolean;
-        files?: number;
-        bytes?: number;
-        hits?: number;
-        misses?: number;
-        networkBytes?: number;
-        cachedBytes?: number;
-    };
-    frameIntervalMs: number;
-    frameIntervalP95Ms: number;
-    frameCpuMs: number;
-    frameCpuP95Ms: number;
-    fps: number;
 }
 
 export interface PrismSemanticLayerState {
@@ -135,107 +97,119 @@ export interface PrismInsetView {
     focusZ: number;
 }
 
-export interface PrismSemanticViewerElement extends HTMLElement {
-    setSelection: (selection: PrismRendererSelection | null) => void;
+/**
+ * Members of both modes (AC-30). They act on the mounted scene and answer
+ * their documented default before one is mounted.
+ */
+export interface PrismSemanticViewerCommon {
+    /** Safe before ready and after reloads: the last selection is replayed on the next board mount. */
+    setSelection(selection: PrismRendererSelection | null): void;
+    resize(): void;
+    /** Null until the viewer is ready. Changes arrive as `prism-semantic-viewer:viewstatechange`. */
+    getViewState(): PrismSemanticViewState | null;
+    /** In a system scene, `placement` names one placed board (every placement of the selected board when omitted). */
+    setLayerVisible(layerId: number, visible: boolean, placement?: string | null): void;
+    applyLayerPreset(preset: PrismSemanticLayerPreset, placement?: string | null): void;
+    setShowBoard(visible: boolean): void;
+    setShowComponents(visible: boolean): void;
+    setShowPlaceholders(visible: boolean): void;
+    setRealisticColors(enabled: boolean): void;
+    /** In a system scene, `placement` names one placed board (every placement of the selected board when omitted). */
+    setSeparation(value: number, placement?: string | null): void;
+    showNetLayers(): void;
+    setNetIsolation(enabled: boolean): void;
+    /** Show the scene stats overlay (SB2-25); the backquote key toggles it. */
+    setStatsOverlay(visible: boolean): void;
+    /** What is under a client point, without selecting it (SB2-24). Null before ready. */
+    pickAt(clientX: number, clientY: number): Promise<PrismViewerPick | null>;
+}
+
+/**
+ * The one-board mode (no `mode` attribute). In system mode these keep the
+ * host's state for the next board mount and otherwise answer their defaults.
+ */
+export interface PrismSemanticBoardMode {
     /**
      * Replace the highlighted nets: every listed net renders emphasised
      * alongside the inspected selection. Safe before ready and after reloads.
      */
-    setHighlightedNets?: (nets: readonly PrismRendererSelection[]) => void;
+    setHighlightedNets(nets: readonly PrismRendererSelection[]): void;
     /**
      * Replaces the hidden component set (VAR-18). Safe before ready and after
      * reloads; ambiguous or unknown references stay visible.
      */
-    setHiddenComponents: (references: string[]) => void;
-    /** What is under a client point, without selecting it (SB2-24). Null before ready. */
-    pickAt?: (clientX: number, clientY: number) => Promise<PrismViewerPick | null>;
-    /** mode="system" (SB2-48b): where a client point meets a `pickSurface` model, in world mm with the normal facing the viewer. */
-    pickSurfaceAt?: (clientX: number, clientY: number) => PrismSurfacePick | null;
-    /** mode="system" (SB2-48b): look along a world axis from its + side (`opposite`: its − side), framing the scene. */
-    viewAxis?: (axis: "x" | "y" | "z", opposite?: boolean) => void;
-    /** mode="system" (SB2-48b): put the move gizmo on an occurrence by path; false when it is not placed yet. */
-    focusMoveTarget?: (path: string) => boolean;
-    /** Client coordinates of a component's centre (mode="system": on one placement), or null off screen. */
-    projectComponent?: (reference: string, occurrenceKey?: string) => { x: number; y: number } | null;
-    /** Client coordinates of a board-local runtime point (metres; mode="system": on one placement). */
-    projectPoint?: (point: readonly [number, number, number], occurrenceKey?: string) => { x: number; y: number } | null;
-    /** Show the scene stats overlay (SB2-25); the backquote key toggles it. */
-    setStatsOverlay?: (visible: boolean) => void;
-    /** The numbers behind the stats overlay, or null before ready. */
-    getStats?: () => PrismViewerStats | null;
-    /** Force a level of detail on every occurrence (0 full, 1 board, 2 body, 3 box), or null for automatic. */
-    setLodOverride?: (lod: 0 | 1 | 2 | 3 | null) => void;
-    /** mode="system" (SB2-30a): thresholds in CSS px of a board's projected radius, merged; null restores the defaults. Kept per browser. */
-    setLodThresholds?: (thresholds: Partial<PrismViewerLodThresholds> | null) => PrismViewerLodThresholds | null;
-    /** GPU memory budget in bytes (default 1.5 GB); over it, tiers no occurrence needs are evicted. */
-    setGpuBudget?: (bytes: number) => void;
+    setHiddenComponents(references: string[]): void;
     /** Every component reference on the board; empty until the viewer is ready. */
-    getComponentReferences?: () => string[];
+    getComponentReferences(): string[];
+    setViewMode(mode: PrismSemanticViewState["mode"]): void;
     /**
      * IN-61: draw the board into a 2D `canvas` through an inset camera (KiCad
      * mm). `key` names the inset; false when nothing was drawn.
      */
-    renderInset?: (canvas: HTMLCanvasElement, view: PrismInsetView, key: string) => boolean;
+    renderInset(canvas: HTMLCanvasElement, view: PrismInsetView, key: string): boolean;
     /** True once `renderInset` can draw (one-board PCB workspace, first frame done). */
-    insetReady?: () => boolean;
-    /** The board surface on one side, as `PrismInsetView.focusZ`. */
-    insetSurfaceZ?: (bottom: boolean) => number;
-    releaseInset?: (key: string) => void;
-    /** Called when the main view redrew or the viewer reloaded; returns an unsubscribe. */
-    onSceneChange?: (listener: () => void) => () => void;
-    resize: () => void;
-    /** Null until the viewer is ready. Changes arrive as `prism-semantic-viewer:viewstatechange`. */
-    getViewState?: () => PrismSemanticViewState | null;
-    setViewMode?: (mode: PrismSemanticViewState["mode"]) => void;
-    /** In a system scene, `placement` names one placed board (every placement of the selected board when omitted). */
-    setLayerVisible?: (layerId: number, visible: boolean, placement?: string | null) => void;
-    applyLayerPreset?: (preset: PrismSemanticLayerPreset, placement?: string | null) => void;
-    setShowBoard?: (visible: boolean) => void;
-    setShowComponents?: (visible: boolean) => void;
-    setShowPlaceholders?: (visible: boolean) => void;
-    setRealisticColors?: (enabled: boolean) => void;
-    /** In a system scene, `placement` names one placed board (every placement of the selected board when omitted). */
-    setSeparation?: (value: number, placement?: string | null) => void;
-    showNetLayers?: () => void;
-    setNetIsolation?: (enabled: boolean) => void;
-    /** mode="system" (SB2-31e): the system to show, a `prism.system_scene.a0` descriptor. Safe before ready. */
-    setSystemScene?: (descriptor: unknown) => void;
-    /** mode="system": light system nets on every board they reach; the report also arrives as `prism-semantic-viewer:emphasis`. */
-    setNetEmphasis?: (sets: readonly PrismSystemSceneEmphasisSet[]) => PrismSystemSceneEmphasisResult[];
-    /** mode="system": frame a lit set's copper (or all), on one placement or all; false when nothing is lit there. */
-    frameNetEmphasis?: (key?: string | null, occurrence?: string | null) => boolean;
-    /** mode="system": frame every placed board. */
-    frameAll?: () => void;
-    /** mode="system" move mode (SB2-29); state arrives as `prism-semantic-viewer:move`. Who may move is the `move-allowed` attribute. */
-    setMoveMode?: (enabled: boolean, options?: { route?: boolean }) => void;
-    /** D-P2-51: move mode for harness routes only. */
-    setRouteMode?: (enabled: boolean) => void;
-    setMoveSpace?: (space: "world" | "local") => void;
-    /** Show a pose for the move target without saving it; null shows the saved pose. */
-    previewPose?: (pose: PrismScenePose | null) => void;
-    cancelMove?: () => void;
-    getMoveState?: () => PrismSystemSceneMoveState | null;
-    /** mode="system" harness editing (SB2-45b); state arrives as `prism-semantic-viewer:harness`. */
-    targetHarnessNode?: (id: string | null) => void;
-    /** mode="system" (SB2-61): pick a root-level harness by id as a click would; null drops the pick; false when not drawn. */
-    selectHarness?: (id: string | null) => boolean;
-    /** Show the targeted node at a level-frame position without saving it; null shows its saved place. */
-    previewHarnessNode?: (positionMm: [number, number, number] | null) => void;
-    cancelHarnessNode?: () => void;
-    getHarnessState?: () => PrismSystemSceneHarnessState | null;
-    /** mode="system": board name labels (on by default). */
-    setLabelsVisible?: (visible: boolean) => void;
-    /** mode="system": the proxy harnesses (SB2-34), shown by default. */
-    setHarnessesVisible?: (visible: boolean) => void;
-    /** mode="system": the keyboard list (also `?`). */
-    setHelpVisible?: (visible: boolean) => void;
-    isHelpVisible?: () => boolean;
-    /** mode="system": frame one placed board. */
-    frameBoard?: (key: string) => boolean;
-    /** mode="system": frame parts on their placements (SB2-32: a hop's two connectors); a null reference frames
-     *  its whole occurrence (SB2-108); false when none is drawn. */
-    frameParts?: (parts: readonly { occurrence: string; reference: string | null }[]) => boolean;
+    insetReady(): boolean;
+    /** The board surface on one side, as `PrismInsetView.focusZ`; 0 before ready. */
+    insetSurfaceZ(bottom: boolean): number;
+    releaseInset(key: string): void;
+    /** Called when the main view redrew or the viewer reloaded; returns an unsubscribe. Survives reloads. */
+    onSceneChange(listener: () => void): () => void;
 }
+
+/**
+ * `mode="system"`: several boards from a system scene (SB2-31e). In board
+ * mode these keep the host's state for the next system mount and otherwise
+ * answer their defaults.
+ */
+export interface PrismSemanticSystemMode {
+    /** The system to show, a `prism.system_scene.a0` descriptor. Safe before ready. */
+    setSystemScene(descriptor: SystemScene): void;
+    /** Light system nets on every board they reach; the report also arrives as `prism-semantic-viewer:emphasis`. [] before ready. */
+    setNetEmphasis(sets: readonly PrismSystemSceneEmphasisSet[]): PrismSystemSceneEmphasisResult[];
+    /** Frame a lit set's copper (or all), on one placement or all; false when nothing is lit there. */
+    frameNetEmphasis(key?: string | null, occurrence?: string | null): boolean;
+    /** Frame every placed board. */
+    frameAll(): void;
+    /** Frame one placed board. */
+    frameBoard(key: string): boolean;
+    /** Frame parts on their placements (SB2-32: a hop's two connectors); a null reference frames
+     *  its whole occurrence (SB2-108); false when none is drawn. */
+    frameParts(parts: readonly { occurrence: string; reference: string | null }[]): boolean;
+    /** Move mode (SB2-29); state arrives as `prism-semantic-viewer:move`. Who may move is the `move-allowed` attribute. */
+    setMoveMode(enabled: boolean, options?: { route?: boolean }): void;
+    setMoveSpace(space: "world" | "local"): void;
+    /** Show a pose for the move target without saving it; null shows the saved pose. */
+    previewPose(pose: PrismScenePose | null): void;
+    cancelMove(): void;
+    /** Harness editing (SB2-45b); state arrives as `prism-semantic-viewer:harness`. */
+    targetHarnessNode(id: string | null): void;
+    /** SB2-61: pick a root-level harness by id as a click would; null drops the pick; false when not drawn. */
+    selectHarness(id: string | null): boolean;
+    cancelHarnessNode(): void;
+    /** Board name labels (on by default). */
+    setLabelsVisible(visible: boolean): void;
+    /** The proxy harnesses (SB2-34), shown by default. */
+    setHarnessesVisible(visible: boolean): void;
+    /** The keyboard list (also `?`). */
+    setHelpVisible(visible: boolean): void;
+    isHelpVisible(): boolean;
+    /** SB2-48b: where a client point meets a `pickSurface` model, in world mm with the normal facing the viewer. */
+    pickSurfaceAt(clientX: number, clientY: number): PrismSurfacePick | null;
+    /** SB2-48b: look along a world axis from its + side (`opposite`: its − side), framing the scene. */
+    viewAxis(axis: "x" | "y" | "z", opposite?: boolean): void;
+    /** SB2-48b: put the move gizmo on an occurrence by path; false when it is not placed yet. */
+    focusMoveTarget(path: string): boolean;
+}
+
+/**
+ * `<prism-semantic-viewer>`: both modes' members are always defined. The
+ * element also has members Prism does not call (stats, LOD, GPU budget,
+ * inset diagnostics, harness and move state reads); the pixel-diff harness
+ * uses them, and kicad-prism-viewer/viewer/src/viewer-controllers.js lists
+ * them all.
+ */
+export interface PrismSemanticViewerElement
+    extends HTMLElement, PrismSemanticViewerCommon, PrismSemanticBoardMode, PrismSemanticSystemMode {}
 
 /** A surface pick (SB2-48b): the hit in world mm, the face normal and the direction to the camera (unit). */
 export interface PrismSurfacePick {
@@ -324,9 +298,28 @@ export interface PrismSystemSceneEmphasisResult {
     unresolved: { occurrence: string; net: string; reason: "not-drawn" | "loading" | "restricted" | "unknown-net" }[];
 }
 
+/** `prism-semantic-viewer:error`: the viewer could not start or load. */
+export interface PrismSemanticViewerErrorDetail {
+    error?: { message?: string } | string;
+}
+
 declare global {
     interface HTMLElementTagNameMap {
         "prism-semantic-viewer": PrismSemanticViewerElement;
+    }
+
+    interface HTMLElementEventMap {
+        /** A click selected something (mode="system": with its placement), or nothing. */
+        "prism-semantic-viewer:selectionchange": CustomEvent<{ selection: PrismSystemViewerSelection | null }>;
+        "prism-semantic-viewer:viewstatechange": CustomEvent<PrismSemanticViewState>;
+        "prism-semantic-viewer:emphasis": CustomEvent<{ results: PrismSystemSceneEmphasisResult[] }>;
+        "prism-semantic-viewer:error": CustomEvent<PrismSemanticViewerErrorDetail>;
+        /** The board is visible; detail is the viewer's performance milestone. */
+        "prism-semantic-viewer:ready": CustomEvent<Record<string, unknown>>;
+        "prism-semantic-viewer:performance": CustomEvent<Record<string, unknown>>;
+        "prism-semantic-viewer:contextmenu": CustomEvent<PrismSemanticContextMenuDetail>;
+        "prism-semantic-viewer:move": CustomEvent<PrismSystemSceneMoveState>;
+        "prism-semantic-viewer:harness": CustomEvent<PrismSystemSceneHarnessState>;
     }
 
     namespace JSX {

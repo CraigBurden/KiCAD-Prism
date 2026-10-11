@@ -15,12 +15,13 @@ from typing import Any, Optional
 from git import Repo
 from git.exc import GitCommandError
 
+from app.core import errors
 from app.services import (
     comment_anchor_bindings,
     path_config_service,
+    project_revision,
     project_source_snapshot,
     semantic_index_service,
-    semantic_visualizer_service,
 )
 
 ANCHOR_PINNED = "pinned"
@@ -30,13 +31,11 @@ SOURCE_MANUAL = "manual"
 NOT_PROMOTABLE_UNPINNED = "unpinned_anchor"
 
 
-class AnchorValidationError(Exception):
+class AnchorValidationError(errors.Invalid):
     """A displayed revision the server will not store (HTTP 422)."""
 
     def __init__(self, detail: str, *, code: str = "unknown_revision"):
-        super().__init__(detail)
-        self.detail = detail
-        self.code = code
+        super().__init__(detail, code=code)
 
 
 @dataclass(frozen=True)
@@ -89,26 +88,20 @@ def _project_relative_path(project: Any) -> Optional[str]:
     if not project_path:
         return None
     try:
-        repo_root = semantic_visualizer_service._repo_root(project_path)
-        rel = semantic_visualizer_service._project_relative_path(
-            repo_root, project_path, getattr(project, "project_file", None),
-        )
-        return rel
+        return project_revision.project_file_rel(project_revision.locate(project))
     except (ValueError, OSError):
         anchor = getattr(project, "project_file", None)
         return str(anchor).replace("\\", "/") if anchor else None
 
 
 def _project_dir_in_repo(project: Any) -> tuple[Path, str]:
-    repo_root = semantic_visualizer_service._repo_root(Path(project.path))
-    anchor = path_config_service.anchor_for_project(project)
+    location = project_revision.locate(project)
+    repo_root = location.repo_root
     anchor_source = project_source_snapshot._anchor_source(project, require_file=True)
     if anchor_source is not None:
         project_rel = anchor_source.relative_to(repo_root).as_posix()
     else:
-        project_rel = semantic_visualizer_service._project_relative_path(
-            repo_root, Path(project.path), anchor
-        )
+        project_rel = project_revision.project_file_rel(location)
     project_dir = PurePosixPath(project_rel).parent.as_posix()
     if project_dir == ".":
         project_dir = ""

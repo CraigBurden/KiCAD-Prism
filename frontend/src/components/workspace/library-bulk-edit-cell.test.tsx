@@ -1,14 +1,10 @@
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-vi.mock("@/lib/api", () => ({
-    fetchJson: vi.fn(),
-    fetchApi: vi.fn(),
-    readApiError: vi.fn(async () => "error"),
-}));
+vi.mock("./catalog-client");
 vi.mock("sonner", () => ({ toast: { error: vi.fn(), success: vi.fn() } }));
 
-import { fetchJson } from "@/lib/api";
+import * as catalog from "./catalog-client";
 import { LibraryBulkEditWorkspace } from "./library-bulk-edit-workspace";
 
 // The editable cell holds a draft while the committed value lives in the grid.
@@ -29,20 +25,16 @@ const COMPONENT = {
     workflow_stage: "draft", revision: 1, extra: {},
 };
 
-function route(url: string) {
-    if (url.startsWith("/api/catalog/metadata/fields")) return { items: [FIELD] };
-    if (url.startsWith("/api/catalog/metadata/grid-preferences")) {
-        return { visible: ["value"], order: ["value"], widths: {}, pinned: [] };
-    }
-    if (url.startsWith("/api/catalog/categories")) return { categories: [] };
-    if (url.startsWith("/api/catalog/metadata/grid")) {
-        return { items: [COMPONENT], total: 1, page: 1, page_size: 50, pages: 1, schema: "v1", fields: [FIELD] };
-    }
-    return {};
-}
-
 beforeEach(() => {
-    vi.mocked(fetchJson).mockImplementation(async (input) => route(String(input)) as never);
+    vi.mocked(catalog.listMetadataFields).mockResolvedValue({ items: [FIELD] } as never);
+    vi.mocked(catalog.getMetadataGridPreferences).mockResolvedValue(
+        { visible: ["value"], order: ["value"], widths: {}, pinned: [] },
+    );
+    vi.mocked(catalog.listCategories).mockResolvedValue({ categories: [] });
+    vi.mocked(catalog.getMetadataGrid).mockResolvedValue(
+        { items: [COMPONENT], total: 1, page: 1, page_size: 50, pages: 1, schema: "v1", fields: [FIELD] } as never,
+    );
+    vi.mocked(catalog.saveMetadataGridPreferences).mockResolvedValue({});
 });
 afterEach(() => vi.clearAllMocks());
 

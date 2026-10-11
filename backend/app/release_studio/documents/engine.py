@@ -42,6 +42,7 @@ from app.release_studio.documents.inputs import DocumentInputs
 from app.release_studio.documents.layout import Rect, Sheet
 from app.release_studio.documents.pdf import append_pdf_pages, render_pdf_pages
 from app.release_studio.documents.svg import render_svg
+from app.services.kicad_tools import KicadTool
 
 logger = logging.getLogger(__name__)
 
@@ -144,8 +145,8 @@ def compose(
     #: testpoint drawing and its released schedule select the same parts.
     designators: Sequence[str] = (),
     board: Path | None = None,
-    cli_path: str | None = None,
-    cruncher_path: str | None = None,
+    cli: KicadTool | None = None,
+    cruncher: KicadTool | None = None,
     workdir: Path | None = None,
     sheet_size: str | None = None,
     notes: Mapping[str, Any] | None = None,
@@ -192,8 +193,8 @@ def compose(
             bom_rows=bom_rows,
             sheet_size=sheet_size,
             board=board,
-            cli_path=cli_path,
-            cruncher_path=cruncher_path,
+            cli=cli,
+            cruncher=cruncher,
             workdir=workdir,
         ),
         on_progress=on_progress,
@@ -270,8 +271,8 @@ def compose_documents(
             workdir=inputs.workdir,
             layer_pages=layer_pages,
             variant=str(context.get("variant") or ""),
-            cli_path=inputs.cli_path,
-            cruncher_path=inputs.cruncher_path,
+            cli=inputs.cli,
+            cruncher=inputs.cruncher,
             designators=tuple(inputs.designators or ()),
             acquirer=acquirer,
             drill_acquirer=drill_acquirer,

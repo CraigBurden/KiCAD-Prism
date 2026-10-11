@@ -10,6 +10,7 @@ from test_system_snapshots import DESIGNER, VIEWER, SnapshotCase
 from app.services.systems import interface_cache, manifest as manifest_io
 from app.services.systems.interface_extractor import EXTRACTOR_VERSION
 from app.services.systems.store import Conflict, Invalid, NotFound, StaleVersion
+from support.postgres import seed_folder
 
 
 class WaiverTest(SnapshotCase):
@@ -142,8 +143,7 @@ class WaiverTest(SnapshotCase):
             self.skipTest("the fixture's first warning names no board")
         self.waive(warning)
         project = self.store.get_instance(self.sid, warning["instanceId"])["project_id"]
-        self.conn.execute("INSERT INTO ws_folders (id, visibility_mode, allowed_roles)"
-                          " VALUES ('fld_admins', 'roles', '[\"admin\"]') ON CONFLICT DO NOTHING")
+        seed_folder(self.conn, "fld_admins", visibility_mode="roles", allowed_roles=["admin"], on_conflict_skip=True)
         self.conn.execute("UPDATE ws_projects SET folder_id = 'fld_admins' WHERE id = %s", (project,))
         self.conn.commit()
         report = self.report(VIEWER)

@@ -17,6 +17,7 @@ from .copper_geometry import ingest_copper_geometry, is_copper_geometry_document
 from .models import stable_id
 from .native_clipper import NativeClipperError, build_native_clip_response
 from .prism_clipper2 import PrismClipper2Library, prism_clipper2_library_info
+from .stackup_frame import board_frame, outward_sign
 from .pcb_geometry import (
     KIND_IDS,
     NM_TO_MM,
@@ -176,22 +177,17 @@ class SemanticGltfBuilder:
         mask openings showed substrate instead of copper.
         """
 
-        if len(self.copper_layers) < 2 or self.board_thickness_mm <= 0:
+        if self.board_thickness_mm <= 0:
             return
-        ordered = sorted(self.copper_layers, key=lambda layer: float(layer.get("z_mm") or 0.0))
-        bottom = ordered[0]
-        top = ordered[-1]
-        bottom_inner = float(bottom.get("z_mm") or 0.0) + float(
-            bottom.get("thickness_mm") or 0.0
-        ) / 2.0
-        top_inner = float(top.get("z_mm") or 0.0) - float(
-            top.get("thickness_mm") or 0.0
-        ) / 2.0
-        body_thickness = top_inner - bottom_inner
-        if body_thickness > 0:
+        frame = board_frame(
+            (float(layer.get("z_mm") or 0.0), float(layer.get("thickness_mm") or 0.0))
+            for layer in self.copper_layers
+        )
+        if frame is not None and frame[1] > 0:
+            offset, body_thickness = frame
             self.board_y_min_mm = 0.0
             self.board_y_max_mm = body_thickness
-            self.board_z_offset_mm = -bottom_inner
+            self.board_z_offset_mm = offset
 
     def _runtime_z_mm(self, centered_z_mm: float) -> float:
         if self.board_z_offset_mm is None:
@@ -320,7 +316,7 @@ class SemanticGltfBuilder:
                 "zMm": z_mm,
                 "thicknessMm": thickness_mm,
                 # Face drawn for the layer: the outward one, so outer copper is on the surface.
-                "surfaceSign": 1 if centered_z_mm >= 0 else -1,
+                "surfaceSign": outward_sign(centered_z_mm),
                 "kindId": KIND_IDS.get(kind, KIND_IDS["unknown"]),
                 "polygons": [
                     {
@@ -1306,7 +1302,14 @@ def build_packed_semantic_gltf_scene(
 def _reconcile_packed_net_metadata(
     topology: dict[str, Any], payload: dict[str, Any]
 ) -> None:
-    """Apply topology-owned names to native board-net IDs without touching meshes."""
+    """Apply topology-owned names to native board-net IDs without touching meshes.
+
+    Board nets the topology knows as one net (one name an alias of the other)
+    are not renamed into duplicates: the first keeps its id and the others are
+    listed in ``payload["netMerges"]`` (board id -> kept id), which the scene
+    manifest module applies to the net table, the features, the barrels and
+    the tile vertices.
+    """
 
     topology_by_name: dict[str, dict[str, Any]] = {}
     for net in topology.get("nets", []) or []:
@@ -1317,6 +1320,8 @@ def _reconcile_packed_net_metadata(
             if alias:
                 topology_by_name.setdefault(str(alias), net)
 
+    kept_by_name: dict[str, dict[str, Any]] = {}
+    merges: dict[str, int] = {}
     for packed_net in payload.get("nets", []) or []:
         if int(packed_net.get("id") or 0) == 0:
             continue
@@ -1325,6 +1330,12 @@ def _reconcile_packed_net_metadata(
         if topology_net is None:
             continue
         canonical_name = str(topology_net.get("name") or board_name)
+        kept = kept_by_name.get(canonical_name)
+        if kept is not None:
+            merges[str(int(packed_net["id"]))] = int(kept["id"])
+            if board_name and board_name != canonical_name and board_name not in kept["aliases"]:
+                kept["aliases"].append(board_name)
+            continue
         aliases = [
             str(value)
             for value in topology_net.get("aliases", []) or []
@@ -1338,6 +1349,9 @@ def _reconcile_packed_net_metadata(
             topology_net.get("net_class") or packed_net.get("netClass") or ""
         )
         packed_net["aliases"] = aliases
+        kept_by_name[canonical_name] = packed_net
+    if merges:
+        payload["netMerges"] = merges
 
 
 def _component_manifest_entries(

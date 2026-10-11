@@ -1,8 +1,9 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { ChangesTab } from "./changes-tab";
 import { allowedDecisions, automaticEvents, describeValue, groupItems, itemGroup } from "./review-model";
+import { renderInSession } from "./session/memory-session";
 import { instance, link, systemDocument } from "./test-fixtures";
 import type { Review, ReviewItem } from "@/types/system";
 
@@ -50,9 +51,7 @@ function stub(reviews: Review[]) {
 }
 
 function renderTab(canEdit = true) {
-  const reload = vi.fn(async () => undefined);
-  render(<ChangesTab systemId="sys_1" document={doc} etag='"sys:sys_1:4"' canEdit={canEdit} user={null} reload={reload} onNavigate={vi.fn()} />);
-  return reload;
+  return renderInSession(<ChangesTab systemId="sys_1" document={doc} canEdit={canEdit} user={null} onNavigate={vi.fn()} />, { document: doc }).loads;
 }
 
 describe("review model", () => {
@@ -78,7 +77,7 @@ describe("review model", () => {
 describe("ChangesTab", () => {
   it("shows silent changes, conflicts and reviews, and records decisions with If-Match", async () => {
     const calls = stub([review]);
-    const reload = renderTab();
+    const loads = renderTab();
     expect(await screen.findByText("Resolved automatically when applied")).toBeTruthy();
     expect(screen.getByText("Conflicts: choose a new mapping")).toBeTruthy();
     expect(screen.getByText("Review required")).toBeTruthy();
@@ -87,11 +86,11 @@ describe("ChangesTab", () => {
 
     fireEvent.change(screen.getByLabelText("Remap to pad"), { target: { value: "20" } });
     fireEvent.click(screen.getByRole("button", { name: "Remap" }));
-    await waitFor(() => expect(reload).toHaveBeenCalled());
+    await waitFor(() => expect(loads()).toBe(1));
     const [url, init] = calls.find(([u]) => u.endsWith("/decision"))!;
     expect(url).toBe("/api/systems/sys_1/reviews/rv1/items/i1/decision");
     expect(JSON.parse(String(init.body))).toEqual({ decision: "remap", payload: { pad: "20" } });
-    expect(new Headers(init.headers).get("If-Match")).toBe('"sys:sys_1:4"');
+    expect(new Headers(init.headers).get("If-Match")).toBe('"sys:sys_1:1"');
 
     fireEvent.click(screen.getByRole("button", { name: "Bind" }));
     await waitFor(() => expect(calls.filter(([u]) => u.endsWith("/decision"))).toHaveLength(2));
@@ -121,7 +120,8 @@ describe("ChangesTab", () => {
     vi.stubGlobal("fetch", vi.fn(async (url: string) => new Response(JSON.stringify(url.includes("history") ? { events: [], nextCursor: null } : []), {
       status: 200, headers: { "Content-Type": "application/json" },
     })));
-    render(<ChangesTab systemId="sys_1" document={systemDocument([obc])} etag="e" canEdit user={null} reload={vi.fn()} onNavigate={vi.fn()} />);
+    const document = systemDocument([obc]);
+    renderInSession(<ChangesTab systemId="sys_1" document={document} canEdit user={null} onNavigate={vi.fn()} />, { document });
     expect(await screen.findByText("Nothing to review")).toBeTruthy();
   });
   it("shows a subsystem review by revision and offers the latest released revision", async () => {
@@ -138,8 +138,8 @@ describe("ChangesTab", () => {
           : { outcome: "auto_advanced", reviewId: null, instance: {} };
       return new Response(JSON.stringify(body), { status: 200, headers: { "Content-Type": "application/json", ETag: '"sys:sys_1:3"' } });
     }));
-    render(<ChangesTab systemId="sys_1" document={systemDocument([cndh])} etag='"sys:sys_1:2"' canEdit user={null}
-      reload={vi.fn(async () => undefined)} onNavigate={vi.fn()} />);
+    const document = systemDocument([cndh]);
+    renderInSession(<ChangesTab systemId="sys_1" document={document} canEdit user={null} onNavigate={vi.fn()} />, { document });
     expect(await screen.findByText(/revision v1/)).toBeTruthy();
     expect(screen.queryByText(/rev1/)).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "Take latest released" }));
@@ -172,7 +172,7 @@ describe("manifest import reviews (P2 §21.3)", () => {
     await waitFor(() => expect(calls.some(([u]) => u.endsWith("/reviews/rv9/manifest-import"))).toBe(true));
     const [, init] = calls.find(([u]) => u.endsWith("/reviews/rv9/manifest-import"))!;
     expect(JSON.parse(String(init.body))).toEqual({ decision: "accept" });
-    expect(new Headers(init.headers).get("If-Match")).toBe('"sys:sys_1:4"');
+    expect(new Headers(init.headers).get("If-Match")).toBe('"sys:sys_1:1"');
   });
 
   it("only offers Reject for a manifest that cannot be imported", async () => {

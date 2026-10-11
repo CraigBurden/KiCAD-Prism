@@ -4,7 +4,6 @@ import logging
 import mimetypes
 import os
 import posixpath
-import shutil
 import subprocess
 from pathlib import Path
 from typing import Dict, List, Optional
@@ -14,22 +13,25 @@ from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, Upl
 from fastapi.responses import FileResponse, Response
 from pydantic import BaseModel, Field
 
-from app.api._helpers import get_project_for_role_or_404, _row_to_project, require_output_type, resolve_path_within_root
+from app.api._helpers import authorized_project, get_project_for_role_or_404, _row_to_project, require_output_type, resolve_path_within_root
+from app.core.errors import caller_error, caller_errors, value_errors_as
 from app.core.config import settings
-from app.core.roles import role_meets_minimum
+from app.core import policy
 from app.core.security import AuthenticatedUser, require_designer, require_viewer
 from app.services import (
     derived_assets,
     file_service,
     git_access_service,
     path_config_service,
+    project_deletion,
     project_import_service,
     project_metadata_service,
+    project_revision,
     project_service,
+    project_settings_service,
     semantic_index_service,
     semantic_visualizer_service,
 )
-from app.services.comments_store_service import comments_store
 from app.services.workspace_service import ProjectHasSignedReleasesError, workspace
 from app.services.comments_url_service import build_comments_source_urls, resolve_comments_base_url
 from app.services.git_service import (
@@ -127,13 +129,24 @@ class ProjectPropertiesResponse(BaseModel):
     files: ProjectPropertiesFiles
 
 
+def _project_location(project: project_service.Project) -> project_revision.ProjectLocation:
+    """Where the project sits in its repository (``project_revision`` decides).
+
+    A project whose checkout is missing keeps its own path as the root, so the
+    Git read that follows reports the missing commit or file as before.
+    """
+    try:
+        return project_revision.locate(project)
+    except project_revision.ProjectNotInRepository:
+        return project_revision.ProjectLocation(
+            Path(project.path), "", project_service.project_anchor(project)
+        )
+
+
 def _repo_context(project: project_service.Project) -> tuple[str, Optional[str]]:
-    """Return repository path and optional subproject relative path for project-scoped git operations."""
-    if project.parent_repo_path and project.sub_path:
-        return project.parent_repo_path, project.sub_path
-    if project.import_type == "type2_subproject":
-        return project.parent_repo_path or os.path.dirname(project.path), project.sub_path
-    return project.path, None
+    """Repository root and subproject path for project-scoped git operations."""
+    location = _project_location(project)
+    return str(location.repo_root), location.sub_path
 
 
 def _resolve_output_dir(project: project_service.Project, output_type: str) -> str:
@@ -162,54 +175,15 @@ def _join_relative_paths(*parts: Optional[str]) -> str:
     return posixpath.join(*cleaned) if cleaned else ""
 
 
-#: One implementation of the `.prism.json` merge for both the working tree and
-#: a Git commit; they disagreed, and that disagreement was the bug.
-_merge_commit_config = path_config_service.config_for_anchor
-
-
-def _default_commit_path_config() -> PathConfig:
-    return PathConfig(**path_config_service.DEFAULT_PATHS)
-
-
 def _path_config_from_commit(project: project_service.Project, commit: Optional[str]) -> PathConfig:
     if not commit:
         return project_service.path_config_for(project)
-
-    repo_path, sub_path = _repo_context(project)
     try:
-        prism_file = file_service.read_file_from_commit(
-            repo_path,
-            commit,
-            ".prism.json",
-            relative_prefix=sub_path,
-            not_found_detail=".prism.json not found",
-        )
-    except HTTPException as error:
-        if error.status_code == 404:
-            return _default_commit_path_config()
-        raise
-
-    try:
-        raw_config = json.loads(prism_file.content.decode("utf-8"))
-    except (json.JSONDecodeError, UnicodeDecodeError) as error:
-        raise HTTPException(status_code=500, detail=f"Invalid .prism.json in commit: {error}") from error
-
-    if not isinstance(raw_config, dict):
-        return _default_commit_path_config()
-
-    # Settings for one project of several sharing a directory live under
-    # `projects.<anchor>`. Flattening the file without that namespace handed a
-    # co-located sibling the first project's paths -- or the bare defaults --
-    # at every historical revision, while the working tree looked right.
-    merged: Dict[str, object] = dict(
-        _merge_commit_config(raw_config, project_service.project_anchor(project))
-    )
-
-    for key, default_value in path_config_service.DEFAULT_PATHS.items():
-        if not str(merged.get(key) or "").strip():
-            merged[key] = default_value
-
-    return PathConfig(**merged)
+        return project_revision.path_config_at(_project_location(project), commit)
+    except project_revision.RevisionNotFound as error:
+        raise HTTPException(status_code=404, detail=f"Commit not found: {commit}") from error
+    except ValueError as error:
+        raise caller_error(error, 500) from error
 
 
 def _output_dir_from_config(config: PathConfig, output_type: str) -> str:
@@ -407,7 +381,8 @@ def _read_utf8_file(file_path: str | Path, *, not_found_detail: str, read_error_
     try:
         return path.read_text(encoding="utf-8")
     except OSError as error:
-        raise HTTPException(status_code=500, detail=f"{read_error_prefix}: {error}") from error
+        logger.exception("%s: %s", read_error_prefix, path)
+        raise HTTPException(status_code=500, detail=read_error_prefix) from error
 
 
 def _read_file_from_commit(
@@ -621,7 +596,9 @@ async def analyze_repository(
     Analyze a repository to determine import type and discover KiCAD projects.
     Returns Type-1 or Type-2 classification and project list.
     """
-    try:
+    # A rejected URL or an access failure is something the caller can fix, and
+    # the message says how, so it must not be flattened into a generic 500.
+    with caller_errors(((RemoteUrlError, GitAccessError), 400), unexpected="Analysis failed"):
         job_id = await asyncio.to_thread(
             project_import_service.start_analyze_job,
             request.url,
@@ -629,13 +606,6 @@ async def analyze_repository(
             requested_by=user.email,
         )
         return {"job_id": job_id, "status": "started"}
-
-    except (RemoteUrlError, GitAccessError) as e:
-        # A rejected URL or an access failure is something the caller can fix, and
-        # the message says how, so it must not be flattened into a generic 500.
-        raise HTTPException(status_code=400, detail=str(e))
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Analysis failed: {str(e)}")
 
 
 @router.post("/access-help", dependencies=[Depends(require_designer)])
@@ -646,10 +616,7 @@ async def import_access_help(request: AnalyzeRequest):
     key to register and a link to the right page on the detected forge, instead
     of leaving the user with a message and nowhere to go.
     """
-    try:
-        parsed = parse_remote_url(request.url, project_import_service.remote_url_policy())
-    except RemoteUrlError as error:
-        raise HTTPException(status_code=400, detail=str(error))
+    parsed = parse_remote_url(request.url, project_import_service.remote_url_policy())
 
     key = await asyncio.to_thread(git_access_service.describe_key)
     guidance = git_access_service.guidance_for(parsed)
@@ -676,7 +643,7 @@ async def import_project(
     For Type-1: imports single project at root.
     For Type-2: imports selected subprojects.
     """
-    try:
+    with caller_errors(((RemoteUrlError, GitAccessError, ValueError), 400), unexpected="Import failed"):
         job_id = await asyncio.to_thread(
             project_import_service.start_import_job,
             repo_url=request.url,
@@ -686,22 +653,6 @@ async def import_project(
             requested_by=user.email,
         )
         return {"job_id": job_id, "status": "started"}
-    except (RemoteUrlError, GitAccessError, ValueError) as e:
-        raise HTTPException(status_code=400, detail=str(e))
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-@router.get("/jobs/{job_id}")
-async def get_job_status(job_id: str):
-    """
-    Get the status of an import job.
-    """
-    status = await asyncio.to_thread(project_service.get_job_status, job_id)
-    if not status:
-        status = await asyncio.to_thread(project_import_service.get_job_status, job_id)
-    if not status:
-        raise HTTPException(status_code=404, detail="Job not found")
-    return status
 
 @router.post("/{project_id}/sync", dependencies=[Depends(require_designer)])
 async def sync_project_endpoint(project_id: str, user: AuthenticatedUser = Depends(require_viewer)):
@@ -741,7 +692,7 @@ async def trigger_workflow(
     if request.type not in valid_types:
         raise HTTPException(status_code=400, detail="Invalid workflow type")
         
-    try:
+    with caller_errors((ValueError, 400), unexpected="Workflow failed to start"):
         _ = get_project_for_role_or_404(project_id, user.role)
         job_id = await asyncio.to_thread(
             project_service.start_workflow_job,
@@ -752,10 +703,6 @@ async def trigger_workflow(
             commit=request.commit if request.type == "webgpu_3d" else None,
         )
         return {"job_id": job_id}
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.get("/{project_id}/semantic-index/status")
@@ -765,10 +712,8 @@ async def get_semantic_index_status(
     user: AuthenticatedUser = Depends(require_viewer),
 ):
     project = get_project_for_role_or_404(project_id, user.role)
-    try:
+    with value_errors_as(400):
         return await asyncio.to_thread(semantic_index_service.get_status, project, commit)
-    except ValueError as error:
-        raise HTTPException(status_code=400, detail=str(error)) from error
 
 
 class SemanticIndexGenerateRequest(BaseModel):
@@ -783,7 +728,7 @@ async def generate_semantic_index(
     user: AuthenticatedUser = Depends(require_viewer),
 ):
     _ = get_project_for_role_or_404(project_id, user.role)
-    try:
+    with caller_errors((ValueError, 400), (RuntimeError, 503)):
         job_id = await asyncio.to_thread(
             project_service.start_semantic_index_job,
             project_id,
@@ -792,10 +737,6 @@ async def generate_semantic_index(
             requested_by=user.email,
         )
         return {"job_id": job_id, "status": "started"}
-    except ValueError as error:
-        raise HTTPException(status_code=400, detail=str(error)) from error
-    except RuntimeError as error:
-        raise HTTPException(status_code=503, detail=str(error)) from error
 
 
 @router.get("/{project_id}/semantic-index/identity")
@@ -805,7 +746,7 @@ async def get_semantic_index_identity(
     user: AuthenticatedUser = Depends(require_viewer),
 ):
     project = get_project_for_role_or_404(project_id, user.role)
-    try:
+    with caller_errors((ValueError, 400), (RuntimeError, 503)):
         payload = await asyncio.to_thread(
             semantic_index_service.get_or_build,
             project,
@@ -819,10 +760,6 @@ async def get_semantic_index_identity(
                 "ETag": f'"{payload.get("sourceRevisionKey", "")}-{semantic_index_service.generator_cache_tag()}"',
             },
         )
-    except ValueError as error:
-        raise HTTPException(status_code=400, detail=str(error)) from error
-    except RuntimeError as error:
-        raise HTTPException(status_code=503, detail=str(error)) from error
 
 
 @router.get("/{project_id}/webgpu-3d/status")
@@ -836,15 +773,13 @@ async def get_webgpu_3d_status(
     user: AuthenticatedUser = Depends(require_viewer),
 ):
     project = get_project_for_role_or_404(project_id, user.role)
-    try:
+    with value_errors_as(400):
         status_reader = (
             semantic_visualizer_service.get_status
             if diagnostic
             else semantic_visualizer_service.get_status_fast
         )
         return await asyncio.to_thread(status_reader, project, commit)
-    except ValueError as error:
-        raise HTTPException(status_code=400, detail=str(error)) from error
 
 
 class WebGpu3dGenerateRequest(BaseModel):
@@ -911,14 +846,12 @@ async def get_webgpu_3d_asset(
     user: AuthenticatedUser = Depends(require_viewer),
 ):
     _ = get_project_for_role_or_404(project_id, user.role)
-    try:
+    with value_errors_as(400):
         root = semantic_visualizer_service.bundle_dir(
             project_id,
             source_revision_key,
             generator_build,
         ).resolve()
-    except ValueError as error:
-        raise HTTPException(status_code=400, detail=str(error)) from error
     candidate = (root / asset_path).resolve()
     if candidate != root and root not in candidate.parents:
         raise HTTPException(status_code=400, detail="Invalid WebGPU asset path")
@@ -964,9 +897,9 @@ def _resolve_thumbnail_file(project, row: Optional[dict]) -> Optional[Path]:
 
 @router.get("/{project_id}/thumbnail")
 async def get_project_thumbnail(project_id: str, user: AuthenticatedUser = Depends(require_viewer)):
-    project = get_project_for_role_or_404(project_id, user.role)
     # Use cached thumbnail path from DB, fallback to filesystem detection
-    row = workspace.get_project_by_id(project_id)
+    row = authorized_project(user, project_id)
+    project = _row_to_project(row)
     abs_path = _resolve_thumbnail_file(project, row)
     if abs_path is not None and abs_path.is_file():
         return _thumbnail_response(
@@ -988,8 +921,8 @@ async def get_project_thumbnail_version(
     thumbnail_digest: str,
     user: AuthenticatedUser = Depends(require_viewer),
 ):
-    project = get_project_for_role_or_404(project_id, user.role)
-    row = await asyncio.to_thread(workspace.get_project_by_id, project_id)
+    row = await asyncio.to_thread(authorized_project, user, project_id)
+    project = _row_to_project(row)
     if (
         not row
         or not row.get("thumbnail_rel")
@@ -1075,14 +1008,12 @@ async def regenerate_project_thumbnails(
     for project_id in project_ids:
         get_project_for_role_or_404(project_id, user.role)
 
-    try:
+    with value_errors_as(404):
         job_ids = await asyncio.to_thread(
             project_import_service.start_thumbnail_jobs,
             project_ids,
             requested_by=user.email,
         )
-    except ValueError as error:
-        raise HTTPException(status_code=404, detail=str(error)) from error
 
     count = len(job_ids)
     return {
@@ -1108,15 +1039,13 @@ async def upload_project_thumbnail(
     # Read one byte past the cap so an oversized upload is refused on its size
     # rather than after the whole thing is in memory.
     data = await file.read(derived_assets.MAX_UPLOAD_BYTES + 1)
-    try:
+    with caller_errors((derived_assets.ThumbnailImageError, 400)):
         stored, digest, size = await asyncio.to_thread(
             derived_assets.store_uploaded_thumbnail,
             project.path,
             data,
             anchor=path_config_service.anchor_for_project(project),
         )
-    except derived_assets.ThumbnailImageError as error:
-        raise HTTPException(status_code=400, detail=str(error)) from error
 
     await asyncio.to_thread(
         workspace.update_project,
@@ -1306,53 +1235,17 @@ async def delete_project_endpoint(project_id: str, user: AuthenticatedUser = Dep
     Admins always cascade associated workspace and release-studio listings.
     Designers can delete a project that has no signed release records.
     """
-    project = get_project_for_role_or_404(project_id, user.role)
-    row = workspace.get_project_by_id(project_id)
-    if not row:
+    authorized_project(user, project_id, "design")
+    force = policy.role_allows(user.role, "admin")
+    with caller_errors((ProjectHasSignedReleasesError, 409)):
+        deletion = await asyncio.to_thread(project_deletion.delete_project, project_id, force=force)
+    if deletion is None:
         raise HTTPException(status_code=404, detail="Project not found")
 
-    repo_id = row.get("repo_id")
-    import_type = row.get("import_type") or "single"
-    clone_path = row.get("parent_repo_path") or project.path
-    force = role_meets_minimum(user.role, "admin")
-    try:
-        success = await asyncio.to_thread(
-            workspace.delete_project, project_id, force=force
-        )
-    except ProjectHasSignedReleasesError as exc:
-        raise HTTPException(status_code=409, detail=str(exc)) from exc
-    if not success:
-        raise HTTPException(status_code=404, detail="Project not found")
-
-    remaining_projects = await asyncio.to_thread(workspace.get_projects_by_repo, repo_id) if repo_id else []
-    should_delete_repo = import_type == "single" or not remaining_projects
-    removed_files = False
-    warnings: List[str] = []
-
-    try:
-        await asyncio.to_thread(comments_store.delete_project_comments, project_id)
-    except Exception as exc:
-        warnings.append(
-            f"Project was removed from the workspace, but comments could not be deleted: {exc}"
-        )
-
-    if should_delete_repo and repo_id:
-        await asyncio.to_thread(workspace.delete_repository, repo_id)
-        try:
-            projects_root = Path(project_service.PROJECTS_ROOT).resolve()
-            target = Path(clone_path).resolve()
-            if target != projects_root and projects_root in target.parents and target.exists():
-                await asyncio.to_thread(shutil.rmtree, target)
-                removed_files = True
-        except Exception as exc:
-            warnings.append(
-                f"Project was removed from the workspace, but files could not be deleted: {exc}"
-            )
-
-    response = {"message": "Project deleted successfully", "removed_files": removed_files}
-    if warnings:
-        response["warning"] = " ".join(warnings)
-    response["repository_deleted"] = should_delete_repo
+    response = {"message": "Project deleted successfully", "removed_files": deletion.removed_files}
+    if deletion.warnings:
+        response["warning"] = " ".join(deletion.warnings)
+    response["repository_deleted"] = deletion.repository_deleted
     return response
 
 @router.get("/{project_id}/files", response_model=List[file_service.FileItem])
@@ -1985,7 +1878,9 @@ async def get_project_config(project_id: str, user: AuthenticatedUser = Depends(
     anchor = project_service.project_anchor(project)
     config = project_service.path_config_for(project)
     resolved = project_service.resolved_paths_for(project, config)
-    explicit_config = path_config_service._load_prism_config(project.path, anchor)
+    explicit_config = path_config_service._load_prism_config(
+        project.path, anchor
+    ) or project_settings_service.stored_settings(project.path, anchor)
     effective_config = config.model_copy(deep=True)
     if not effective_config.project_name:
         effective_config.project_name = project.display_name
@@ -2025,7 +1920,7 @@ async def update_project_config(
 ):
     """
     Update path configuration for a project.
-    Saves configuration to .prism.json file.
+    Stores it in the workspace database; the checkout is never written.
     """
     project = get_project_for_role_or_404(project_id, user.role)
 
@@ -2086,7 +1981,7 @@ async def update_project_name(
     user: AuthenticatedUser = Depends(require_viewer),
 ):
     """
-    Update the display name for a project in .prism.json.
+    Update the display name for a project (stored in Prism, not the checkout).
     """
     project = get_project_for_role_or_404(project_id, user.role)
     
@@ -2100,7 +1995,7 @@ async def update_project_name(
     # Update project name
     config.project_name = display_name
     
-    # Save to .prism.json
+    # Stored in Prism; the checkout's .prism.json is never written.
     project_service.save_path_config_for(project, config)
     await asyncio.to_thread(workspace.update_project, project_id, display_name=display_name)
     
@@ -2141,7 +2036,7 @@ async def update_project_description(
     if not updated:
         raise HTTPException(status_code=404, detail="Project not found")
 
-    # Also persist to .prism.json for compatibility
+    # Keep the stored path configuration's description in step.
     config = project_service.path_config_for(project)
     config.description = next_description
     project_service.save_path_config_for(project, config)

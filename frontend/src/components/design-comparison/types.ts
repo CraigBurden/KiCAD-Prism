@@ -185,7 +185,6 @@ export interface ChangeDetails {
             | "footprint"
             | "pad"
             | "track"
-            | "segment"
             | "arc"
             | "via"
             | "zone"
@@ -201,21 +200,6 @@ export interface ChangeDetails {
     }>;
 }
 
-export interface SemanticChangeGroup {
-    id: string;
-    category: ChangeCategory | string;
-    status: ChangeKind;
-    classification: "primary" | "secondary";
-    label: string;
-    semantic_id?: string | null;
-    members: string[];
-    old_fields: Record<string, unknown>;
-    new_fields: Record<string, unknown>;
-    unresolved_thread_count: number;
-    reasons?: ChangeReason[];
-    details?: ChangeDetails;
-}
-
 export interface DiffSummary {
     added: number;
     removed: number;
@@ -225,13 +209,11 @@ export interface DiffSummary {
 export interface SchematicDiff {
     pages: string[];
     changes: ChangeItem[];
-    groups: SemanticChangeGroup[];
     summary: DiffSummary;
 }
 
 export interface PcbDiff {
     changes: ChangeItem[];
-    groups: SemanticChangeGroup[];
     summary: DiffSummary;
     route_metrics?: {
         base: Record<string, RouteMetrics>;
@@ -466,7 +448,6 @@ export interface DesignCompareBundle {
         {
             summary?: { added: number; removed: number; changed: number } | null;
             changeCount: number;
-            groupCount: number;
         }
     >;
     /**
@@ -496,19 +477,6 @@ export type DesignCompareDomainStatus = "pending" | "building" | "ready" | "fail
 export interface DesignCompareReadiness {
     stage: "building-initial" | "initial-ready" | "complete" | string;
     domains: Record<DesignCompareDomain, DesignCompareDomainStatus>;
-}
-
-export interface DesignCompareJobStatus {
-    job_id: string;
-    status: "running" | "completed" | "failed";
-    message: string;
-    percent: number;
-    logs: string[];
-    base?: string;
-    head?: string;
-    result_version?: number;
-    ready_domains?: DesignCompareDomain[];
-    readiness?: DesignCompareReadiness;
 }
 
 export type ViewerSide = "base" | "head";

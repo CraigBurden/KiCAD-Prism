@@ -10,6 +10,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import FileResponse, Response
 from pydantic import BaseModel, Field
 
+from app.core.errors import caller_errors
 from app.core.security import AuthenticatedUser, require_catalog_browser, require_catalog_writer
 from app.services.catalog_job_service import catalog_jobs
 from app.services.component_catalog_service import catalog_service
@@ -22,12 +23,8 @@ class MateRequest(BaseModel):
 
 
 def _mates_call(action):
-    try:
+    with caller_errors((LookupError, 404), (ValueError, 422)):
         return {"items": action()}
-    except LookupError as exc:
-        raise HTTPException(status_code=404, detail=str(exc)) from exc
-    except ValueError as exc:
-        raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 
 @router.get("/components/{component_id}/mates-with")
@@ -55,12 +52,8 @@ class ModuleConnectorRequest(BaseModel):
 
 
 def _connectors_call(action):
-    try:
+    with caller_errors((LookupError, 404), (ValueError, 422)):
         return action()
-    except LookupError as exc:
-        raise HTTPException(status_code=404, detail=str(exc)) from exc
-    except ValueError as exc:
-        raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 
 @router.get("/components/{component_id}/module-connectors")
@@ -141,12 +134,8 @@ def model_preview(
     if offset is not None or rotation is not None or scale is not None:
         alignment = {"offsetMm": _triple(offset, "offset") or [0.0, 0.0, 0.0],
                      "rotationDeg": _triple(rotation, "rotation") or [0.0, 0.0, 0.0], "scale": scale or 1.0}
-    try:
+    with caller_errors((LookupError, 404), (ValueError, 422)):
         svg = catalog_service.system_items.model_preview(component_id, asset_id, view=view, alignment=alignment, partner_id=partner)
-    except LookupError as exc:
-        raise HTTPException(status_code=404, detail=str(exc)) from exc
-    except ValueError as exc:
-        raise HTTPException(status_code=422, detail=str(exc)) from exc
     return Response(content=svg, media_type="image/svg+xml", headers={"Cache-Control": "private, max-age=60"})
 
 

@@ -11,15 +11,16 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Textarea } from "@/components/ui/textarea";
 import { canWriteCatalog } from "@/lib/roles";
 import { cn } from "@/lib/utils";
-import { createSnapshot, diffSnapshot, getHistory, icdUrl, listSnapshots, manifestUrl, publishSnapshot } from "@/lib/systems-api";
-import type { AuditEvent, RowFields, SnapshotDiff, SnapshotMeta, SystemDocument } from "@/types/system";
+import { getHistory, icdUrl, manifestUrl } from "@/lib/systems-api";
+import type { AuditEvent, HistoryPage, RowFields, SnapshotMeta, SystemDocument } from "@/types/system";
 
 import type { SystemTabProps } from "./system-tab-content";
 import { shortSha, timeAgo } from "./system-format";
 import { GitLinkPanel, SnapshotGitBadge } from "./git-link-panel";
 import { PublicationBadge, PublishDialog } from "./publish-dialog";
 import { StateFacts } from "./state-facts";
-import { useSystemMutation } from "./use-system-mutation";
+import { sessionReads } from "./session/session-reads";
+import { useSessionRead, useSystemSession } from "./session/use-system-session";
 
 const LIVE = "live";
 
@@ -92,20 +93,17 @@ function rowText(row: Pick<RowFields, "pinA" | "pinB" | "signal">): string {
 const TH = "h-8 px-2 text-left text-xs font-semibold uppercase tracking-wide text-muted-foreground first:pl-0";
 const TD = "h-9 max-w-0 truncate px-2 first:pl-0";
 
-export function HistoryTab({ systemId, document, etag, canEdit, user, reload, startTaking = false }: SystemTabProps & {
+export function HistoryTab({ systemId, document, canEdit, user, startTaking = false }: SystemTabProps & {
   /** Open the Take snapshot dialog on mount (the workspace top bar's button). */
   startTaking?: boolean;
 }) {
-  // Taking a snapshot does not bump the version, so both lists also follow this counter.
-  const [snapshotsTaken, setSnapshotsTaken] = useState(0);
-  const refresh = `${etag}#${snapshotsTaken}`;
+  // Both lists follow the version and the snapshots (taking one does not bump the version).
   return (
     <div className="grid min-h-full xl:grid-cols-[3fr_2fr] xl:divide-x">
-      <SnapshotsSection systemId={systemId} document={document} etag={etag} refresh={refresh} canEdit={canEdit} reload={reload}
+      <SnapshotsSection systemId={systemId} document={document} canEdit={canEdit}
         startTaking={startTaking && canEdit}
-        canPublish={canEdit && canWriteCatalog(user?.role)}
-        onTaken={() => setSnapshotsTaken((count) => count + 1)} />
-      <AuditLog systemId={systemId} document={document} refresh={refresh} />
+        canPublish={canEdit && canWriteCatalog(user?.role)} />
+      <AuditLog document={document} />
     </div>
   );
 }
@@ -113,77 +111,60 @@ export function HistoryTab({ systemId, document, etag, canEdit, user, reload, st
 interface SnapshotsProps {
   systemId: string;
   document: SystemDocument;
-  etag: string;
-  /** Changes whenever the lists must be re-read. */
-  refresh: string;
-  onTaken: () => void;
   canEdit: boolean;
   /** Designers who may also write to the catalog (CONTRACTS_P2 §3.3). */
   canPublish: boolean;
-  reload: () => Promise<void>;
   startTaking?: boolean;
 }
 
-function SnapshotsSection({ systemId, document, etag, refresh, canEdit, canPublish, reload, onTaken, startTaking = false }: SnapshotsProps) {
+/** A snapshot comparison; a failure is reported once, where it is read. */
+function diffRead(compare: { snapshotId: string; against: string }) {
+  const read = sessionReads.snapshotDiff(compare.snapshotId, compare.against);
+  return { ...read, load: (...args: Parameters<typeof read.load>) => read.load(...args).catch((error: unknown) => {
+    toast.error(error instanceof Error ? error.message : "Could not compare");
+    throw error;
+  }) };
+}
+
+function SnapshotsSection({ systemId, document, canEdit, canPublish, startTaking = false }: SnapshotsProps) {
+  const { session, busy, edit } = useSystemSession();
   const [publishing, setPublishing] = useState<SnapshotMeta | null>(null);
-  const [snapshots, setSnapshots] = useState<{ refresh: string; items: SnapshotMeta[] } | null>(null);
   const [name, setName] = useState("");
   const [note, setNote] = useState("");
   const [taking, setTaking] = useState(startTaking);
   const [compare, setCompare] = useState<{ snapshotId: string; against: string } | null>(null);
-  const [diff, setDiff] = useState<{ key: string; body: SnapshotDiff } | null>(null);
-  const { busy, run } = useSystemMutation(reload);
-
-  useEffect(() => {
-    let cancelled = false;
-    listSnapshots(systemId).then((items) => !cancelled && setSnapshots({ refresh, items })).catch(() => undefined);
-    return () => {
-      cancelled = true;
-    };
-  }, [systemId, refresh]);
+  const snapshotsRead = sessionReads.snapshots();
+  const snapshots = useSessionRead(snapshotsRead).data;
 
   // A commit runs in a job after the snapshot is stored: re-read while one is queued (P2 §21.2).
-  const committing = snapshots?.items.some((snapshot) => snapshot.git?.state === "queued") ?? false;
+  const committing = snapshots?.some((snapshot) => snapshot.git?.state === "queued") ?? false;
   useEffect(() => {
     if (!committing) return;
-    const timer = window.setInterval(() => {
-      listSnapshots(systemId).then((items) => setSnapshots({ refresh, items })).catch(() => undefined);
-    }, 3000);
+    const timer = window.setInterval(() => session.refresh(snapshotsRead.key), 3000);
     return () => window.clearInterval(timer);
-  }, [systemId, refresh, committing]);
+  }, [session, snapshotsRead.key, committing]);
 
-  const compareKey = compare ? `${compare.snapshotId}:${compare.against}:${etag}` : null;
-  useEffect(() => {
-    if (!compare || !compareKey) return;
-    let cancelled = false;
-    diffSnapshot(systemId, compare.snapshotId, compare.against)
-      .then((body) => !cancelled && setDiff({ key: compareKey, body }))
-      .catch((error: unknown) => toast.error(error instanceof Error ? error.message : "Could not compare"));
-    return () => {
-      cancelled = true;
-    };
-  }, [systemId, compare, compareKey]);
+  const diff = useSessionRead(compare ? diffRead(compare) : null);
 
   const take = async () => {
-    const done = await run("snapshot", () => createSnapshot(systemId, etag, { name: name.trim(), note: note.trim() }),
+    const done = await edit("snapshot", (system) => system.createSnapshot({ name: name.trim(), note: note.trim() }),
       `Snapshot ${name.trim()} created`);
     if (done) {
       setName("");
       setNote("");
       setTaking(false);
-      onTaken();
     }
   };
 
-  const items = snapshots?.items ?? [];
-  const shown = diff && diff.key === compareKey ? diff.body : null;
+  const items = snapshots ?? [];
+  const shown = diff.data ?? null;
   const openReviews = document.openReviewCount;
 
   return (
     <section className="min-w-0 space-y-2 p-4 pt-0" aria-label="Snapshots">
       <div className="flex items-center gap-2">
         <div className="min-w-0 flex-1">
-          <GitLinkPanel systemId={systemId} etag={etag} refresh={refresh} canEdit={canEdit} busy={busy} run={run} />
+          <GitLinkPanel canEdit={canEdit} />
         </div>
         {document.instances.some((instance) => instance.kind === "assembly") && (
           <Button asChild variant="ghost" size="sm" className="h-7 shrink-0">
@@ -252,8 +233,7 @@ function SnapshotsSection({ systemId, document, etag, refresh, canEdit, canPubli
                       <span className="shrink-0 text-xs text-warning" title={`${snapshot.openReviewCount} unreviewed when taken`}>{snapshot.openReviewCount} unreviewed</span>
                     )}
                     {snapshot.publication && <PublicationBadge publication={snapshot.publication} />}
-                    <SnapshotGitBadge systemId={systemId} snapshotId={snapshot.id} name={snapshot.name} git={snapshot.git}
-                      canEdit={canEdit} run={run} />
+                    <SnapshotGitBadge snapshotId={snapshot.id} name={snapshot.name} git={snapshot.git} canEdit={canEdit} />
                   </span>
                 </td>
                 <td className="px-2 text-right">
@@ -299,12 +279,9 @@ function SnapshotsSection({ systemId, document, etag, refresh, canEdit, canPubli
           firstPublish={!document.system.catalogComponentId} busy={busy === "publish"}
           onClose={() => setPublishing(null)}
           onPublish={async (fields) => {
-            const done = await run("publish", () => publishSnapshot(systemId, publishing.id, fields),
+            const done = await edit("publish", (system) => system.publishSnapshot(publishing.id, fields),
               `${publishing.name} published to the catalog`);
-            if (done) {
-              setPublishing(null);
-              onTaken();
-            }
+            if (done) setPublishing(null);
           }} />
       )}
 
@@ -356,28 +333,23 @@ function SnapshotsSection({ systemId, document, etag, refresh, canEdit, canPubli
   );
 }
 
-function AuditLog({ systemId, document, refresh }: { systemId: string; document: SystemDocument; refresh: string }) {
-  const [page, setPage] = useState<{ refresh: string; events: AuditEvent[]; next: number | null } | null>(null);
+function AuditLog({ document }: { document: SystemDocument }) {
+  const { session } = useSystemSession();
+  const newest = useSessionRead(sessionReads.auditLog()).data;
+  // Older pages, loaded on demand after this newest page; a re-read of the newest page drops them.
+  const [older, setOlder] = useState<{ after: HistoryPage; events: AuditEvent[]; next: number | null } | null>(null);
   const [loadingMore, setLoadingMore] = useState(false);
   const labels = new Map(document.instances.map((instance) => [instance.id, instance.label]));
-
-  // The newest page is re-read whenever the system moves on; older pages load on demand.
-  useEffect(() => {
-    let cancelled = false;
-    getHistory(systemId, null, 50)
-      .then((body) => !cancelled && setPage({ refresh, events: body.events, next: body.nextCursor }))
-      .catch(() => undefined);
-    return () => {
-      cancelled = true;
-    };
-  }, [systemId, refresh]);
+  const page = newest ? (older?.after === newest
+    ? { events: [...newest.events, ...older.events], next: older.next }
+    : { events: newest.events, next: newest.nextCursor }) : null;
 
   const more = async () => {
-    if (!page?.next) return;
+    if (!newest || !page?.next) return;
     setLoadingMore(true);
     try {
-      const body = await getHistory(systemId, page.next, 50);
-      setPage({ ...page, events: [...page.events, ...body.events], next: body.nextCursor });
+      const body = await getHistory(session.systemId, page.next, 50);
+      setOlder({ after: newest, events: [...(older?.after === newest ? older.events : []), ...body.events], next: body.nextCursor });
     } finally {
       setLoadingMore(false);
     }

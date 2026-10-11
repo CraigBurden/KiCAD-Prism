@@ -1,6 +1,5 @@
+import { fieldError } from "@/lib/catalog-field-rules";
 import type { CatalogComponent, CatalogMetadataField } from "@/types/catalog";
-
-const IDENTITY_REQUIRED_KEYS = new Set(["value", "manufacturer", "description", "datasheet_url"]);
 
 export function activeMetadataFields(items: CatalogMetadataField[]): CatalogMetadataField[] {
   return items
@@ -33,29 +32,6 @@ export function unknownExtraFields(
   );
 }
 
-export function isFieldRequired(
-  field: CatalogMetadataField,
-  identityKind: CatalogComponent["identity_kind"],
-): boolean {
-  // Built-in `mpn` is marked required in the registry, but provisional parts
-  // are allowed to omit it until a real manufacturer part number exists.
-  if (field.key === "mpn") return identityKind === "mpn";
-  if (IDENTITY_REQUIRED_KEYS.has(field.key)) return true;
-  return field.required;
-}
-
-export function validateMetadataField(
-  field: CatalogMetadataField,
-  value: string,
-  identityKind: CatalogComponent["identity_kind"],
-): string {
-  // The single-component PATCH accepts the same free-form strings the previous
-  // editor stored. Shape checks belong to bulk edit; blocking them here would
-  // trap saves on legacy values the user did not touch.
-  if (!value.trim()) return isFieldRequired(field, identityKind) ? "Required" : "";
-  return "";
-}
-
 export function parseUnknownExtraJson(
   raw: string,
 ): { ok: true; extras: Record<string, string> } | { ok: false; message: string } {
@@ -86,7 +62,10 @@ export function metadataFormErrors(
   const parsed = parseUnknownExtraJson(unknownExtrasJson);
   return {
     fieldErrors: Object.fromEntries(
-      fields.map((field) => [field.key, validateMetadataField(field, values[field.key] ?? "", identityKind)]),
+      // The single-component PATCH accepts the free-form strings the previous
+      // editor stored, so the editor context checks presence only: blocking
+      // on shape would trap saves on legacy values the user did not touch.
+      fields.map((field) => [field.key, fieldError(field, values[field.key], "editor", identityKind)]),
     ),
     changeSummaryError: changeSummary.trim() ? "" : "Required",
     unknownExtrasError: parsed.ok ? "" : parsed.message,
@@ -104,13 +83,11 @@ export function buildMetadataPatch({
   fields,
   unknownExtras,
   changeSummary,
-  expectedRevisionId,
 }: {
   values: Record<string, string>;
   fields: CatalogMetadataField[];
   unknownExtras: Record<string, string>;
   changeSummary: string;
-  expectedRevisionId: string;
 }): Record<string, unknown> {
   const extraFields = { ...unknownExtras };
   const columns: Record<string, string> = {};
@@ -123,6 +100,5 @@ export function buildMetadataPatch({
     ...columns,
     extra_fields: extraFields,
     change_summary: changeSummary.trim(),
-    expected_revision_id: expectedRevisionId,
   };
 }

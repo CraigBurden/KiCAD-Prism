@@ -6,10 +6,10 @@ from pathlib import Path
 from typing import Any, Mapping
 
 from app.release_studio.steps import StepOutput
+from app.services.kicad_tools import KicadTool
 
 from .jlcpcb import VendorGenerateError
 from .registry import (
-    CruncherRunner,
     VendorArtifacts,
     profile_by_id,
     resolve_vendor_ids,
@@ -30,8 +30,7 @@ def generate_vendor_outputs(
     closure_root: Path,
     output_root: Path,
     variant: str = "",
-    cruncher_path: str | None,
-    runner: CruncherRunner | None = None,
+    cruncher: KicadTool | None,
     timeout_seconds: int = 900,
 ) -> tuple[tuple[StepOutput, ...], dict[str, bytes]]:
     """Run every configured vendor profile.
@@ -53,7 +52,7 @@ def generate_vendor_outputs(
 
     outputs: list[StepOutput] = []
     extra_evidence: dict[str, bytes] = {}
-    if not cruncher_path:
+    if cruncher is None:
         for vendor_id in vendor_ids:
             spec = vendor_step_spec(vendor_id)
             outputs.append(
@@ -91,11 +90,10 @@ def generate_vendor_outputs(
             continue
         try:
             artifacts = profile.generate(
-                cruncher_path=cruncher_path,
+                cruncher=cruncher,
                 design_file=design,
                 output_root=output_root,
                 variant=variant,
-                runner=runner,
                 timeout_seconds=timeout_seconds,
             )
         except VendorGenerateError as exc:

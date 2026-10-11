@@ -2,14 +2,23 @@ import { render, screen, waitFor } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-vi.mock("@/lib/api", () => ({
-    fetchJson: vi.fn(),
-    fetchApi: vi.fn(),
-    readApiError: vi.fn(async () => "error"),
-}));
+vi.mock("./catalog-client", async (importOriginal) => {
+    const actual = await importOriginal<typeof import("./catalog-client")>();
+    return {
+        ...actual,
+        getComponent: vi.fn(),
+        getComponentRevision: vi.fn(),
+        listComponentRevisions: vi.fn(),
+        listComponentReviews: vi.fn(),
+        listComponentReleases: vi.fn(),
+        listComponentUsage: vi.fn(),
+        listComponentAudit: vi.fn(),
+        verifyComponentAudit: vi.fn(),
+    };
+});
 vi.mock("sonner", () => ({ toast: { error: vi.fn(), success: vi.fn() } }));
 
-import { fetchJson } from "@/lib/api";
+import * as catalog from "./catalog-client";
 import { LibraryComponentWorkspace } from "./library-component-workspace";
 
 // Every tab's evidence is stored as one value carrying the component
@@ -40,28 +49,26 @@ function revision(id: string, summary: string) {
     };
 }
 
-function routeFor(id: string) {
-    return (url: string) => {
-        if (url === `/api/catalog/components/${id}`) return component(id);
-        if (url === `/api/catalog/components/${id}/revisions`) {
-            return { items: [revision(id, `history for ${id}`)] };
-        }
-        return { items: [] };
-    };
-}
+const EMPTY = { items: [] } as never;
 
 function install(...ids: string[]) {
-    const routes = ids.map(routeFor);
-    vi.mocked(fetchJson).mockImplementation(async (input) => {
-        const url = String(input);
-        for (const route of routes) {
-            const hit = route(url);
-            if (hit) return hit as never;
-        }
-        // Anything this test has not taught the mock is a bug in the test, not
-        // an empty response the component should have to cope with.
-        throw new Error(`unrouted request: ${url}`);
+    vi.mocked(catalog.getComponent).mockImplementation(async (id) => {
+        // A component this test has not taught the fake is a bug in the test.
+        if (!ids.includes(id)) throw new Error(`unknown component: ${id}`);
+        return component(id) as never;
     });
+    vi.mocked(catalog.listComponentRevisions).mockImplementation(
+        async (id) => ({ items: [revision(id, `history for ${id}`)] }) as never,
+    );
+    for (const list of [
+        catalog.listComponentReviews,
+        catalog.listComponentReleases,
+        catalog.listComponentUsage,
+        catalog.listComponentAudit,
+    ]) {
+        vi.mocked(list).mockResolvedValue(EMPTY);
+    }
+    vi.mocked(catalog.verifyComponentAudit).mockResolvedValue({} as never);
 }
 
 function Harness({ componentId, revision }: { componentId: string; revision?: string }) {
@@ -96,16 +103,9 @@ describe("component evidence across generations", () => {
         const aRevisions = new Promise<{ items: ReturnType<typeof revision>[] }>((resolve) => {
             finishA = resolve;
         });
-        vi.mocked(fetchJson).mockImplementation(async (input) => {
-            const url = String(input);
-            if (url === "/api/catalog/components/comp-a") return component("comp-a") as never;
-            if (url === "/api/catalog/components/comp-b") return component("comp-b") as never;
-            if (url === "/api/catalog/components/comp-a/revisions") return aRevisions as never;
-            if (url === "/api/catalog/components/comp-b/revisions") {
-                return { items: [revision("comp-b", "history for comp-b")] } as never;
-            }
-            return { items: [] } as never;
-        });
+        vi.mocked(catalog.listComponentRevisions).mockImplementation(async (id) => (
+            id === "comp-a" ? aRevisions : { items: [revision("comp-b", "history for comp-b")] }
+        ) as never);
 
         const { rerender } = renderWorkspace("comp-a");
         expect(await screen.findByText("COMP-A")).toBeInTheDocument();
@@ -125,13 +125,10 @@ describe("component evidence across generations", () => {
     // not a component must not become the active component. It used to, and the
     // header dereferences `validation.status`, so the workspace went white.
     it("refuses a revision response that is not a component", async () => {
-        vi.mocked(fetchJson).mockImplementation(async (input) => {
-            const url = String(input);
-            if (url === "/api/catalog/components/comp-a") return component("comp-a") as never;
-            // The shape a paginated collection would have, standing in for any
-            // 200 that is not the component this screen asked for.
-            return { items: [] } as never;
-        });
+        // The shape a paginated collection would have, standing in for any
+        // 200 that is not the component this screen asked for.
+        vi.mocked(catalog.getComponentRevision).mockResolvedValue(EMPTY);
+        vi.mocked(catalog.listComponentRevisions).mockResolvedValue(EMPTY);
 
         render(<Harness componentId="comp-a" revision="comp-b-rev1" />);
 

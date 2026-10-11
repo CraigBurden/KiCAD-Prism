@@ -14,7 +14,6 @@ from __future__ import annotations
 
 import json
 import logging
-import os
 import shutil
 import subprocess
 import tempfile
@@ -24,7 +23,9 @@ from typing import Any, Callable, ContextManager, Mapping, Optional
 
 from psycopg.types.json import Jsonb
 
+from app.core.config import settings
 from app.services.git_failures import GitAccessError, describe_git_failure
+from app.services.job_kinds import JobKind, JobSubject, subject_lock
 
 logger = logging.getLogger(__name__)
 
@@ -52,7 +53,7 @@ class Author:
 def repos_root() -> Path:
     from app.services import project_service
 
-    configured = os.environ.get("PRISM_SYSTEM_REPOS_ROOT", "").strip()
+    configured = settings.PRISM_SYSTEM_REPOS_ROOT.strip()
     return Path(configured) if configured else Path(project_service.PROJECTS_ROOT) / ".kicad-prism" / "system-repos"
 
 
@@ -86,7 +87,7 @@ def commit_message(snapshot: Mapping[str, Any]) -> str:
 
 
 def _env(extra: Optional[Mapping[str, str]] = None) -> dict[str, str]:
-    from app.services.project_import_service import git_env
+    from app.services.git_remote_access import git_env
 
     return {**git_env(), **(extra or {})}
 
@@ -419,23 +420,14 @@ def remove_clone(system_id: str) -> None:
 
 
 def enqueue_sync(system_id: str, *, requested_by: str = GIT_ACTOR) -> dict:
-    from app.services.job_service import jobs
-
-    return jobs.enqueue(
-        SYNC_JOB_KIND, {"systemId": system_id}, worker_pool="prism", artifact_key=f"system-git-sync:{system_id}",
-        requested_by=requested_by, priority=150, max_attempts=1, resources={"prism_worker": 1},
-        locks=[{"key": f"system-git:{system_id}", "mode": "write"}],
-    )
+    return SYNC.enqueue({"systemId": system_id}, subject=JobSubject(lock_key=f"system-git:{system_id}"),
+                        artifact_key=f"system-git-sync:{system_id}", requested_by=requested_by)
 
 
 def enqueue_commit(system_id: str, snapshot_id: str, *, requested_by: str = GIT_ACTOR) -> dict:
-    from app.services.job_service import jobs
-
-    return jobs.enqueue(
-        COMMIT_JOB_KIND, {"systemId": system_id, "snapshotId": snapshot_id}, worker_pool="prism",
-        artifact_key=f"system-git-commit:{snapshot_id}", requested_by=requested_by, priority=120, max_attempts=1,
-        resources={"prism_worker": 1}, locks=[{"key": f"system-git:{system_id}", "mode": "write"}],
-    )
+    return COMMIT.enqueue({"systemId": system_id, "snapshotId": snapshot_id},
+                          subject=JobSubject(lock_key=f"system-git:{system_id}"),
+                          artifact_key=f"system-git-commit:{snapshot_id}", requested_by=requested_by)
 
 
 def enqueue_due_fetches(connect: Connect, *, interval_seconds: int, limit: int = 8) -> int:
@@ -457,12 +449,20 @@ def enqueue_due_fetches(connect: Connect, *, interval_seconds: int, limit: int =
     return len(rows)
 
 
+def _refresh_counts(system_id: str) -> None:
+    """D12: an import review opened or closed here bumps the version outside the system service."""
+    from app.services.systems.service import service as system_service
+
+    system_service.refresh_stale_counts(system_ids=[system_id])
+
+
 def run_sync_job(context: Any) -> Any:
     from app.services.job_runtime import JobResult
     from app.services.systems.jobs import workspace_connection
 
     context.progress(stage="system-git-sync", message="Fetching the system repository", percent=10, force=True)
     outcome = sync(workspace_connection, str(context.payload["systemId"]))
+    _refresh_counts(str(context.payload["systemId"]))
     return JobResult(message=f"System repository: {outcome['outcome']}", details=outcome)
 
 
@@ -473,4 +473,11 @@ def run_commit_job(context: Any) -> Any:
     context.progress(stage="system-git-commit", message="Committing the snapshot", percent=10, force=True)
     state = commit_snapshot(workspace_connection, str(context.payload["systemId"]),
                             str(context.payload["snapshotId"]))
+    _refresh_counts(str(context.payload["systemId"]))
     return JobResult(message=f"Snapshot commit: {state['state']}", details=state)
+
+
+# One clone per System: sync and commit take its write lock.
+SYNC = JobKind(SYNC_JOB_KIND, run_sync_job, lock=subject_lock("write"), max_attempts=1, priority=150)
+COMMIT = JobKind(COMMIT_JOB_KIND, run_commit_job, lock=subject_lock("write"), max_attempts=1, priority=120)
+JOB_KINDS = (SYNC, COMMIT)

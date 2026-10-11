@@ -84,11 +84,10 @@ class NamespacedPrismConfig(unittest.TestCase):
         self.addCleanup(self._tmp.cleanup)
         self.addCleanup(path_config_service.clear_config_cache)
 
-    def test_settings_saved_for_one_project_do_not_move_its_sibling(self) -> None:
-        path_config_service.save_path_config(
-            str(self.root),
-            path_config_service.PathConfig(pcb="top.kicad_pcb"),
-            anchor="top.kicad_pro",
+    def test_settings_namespaced_for_one_project_do_not_move_its_sibling(self) -> None:
+        (self.root / ".prism.json").write_text(
+            json.dumps({"projects": {"top.kicad_pro": {"paths": {"pcb": "top.kicad_pcb"}}}}),
+            encoding="utf-8",
         )
         top = path_config_service.get_path_config(str(self.root), anchor="top.kicad_pro")
         base = path_config_service.get_path_config(str(self.root), anchor="base.kicad_pro")
@@ -111,14 +110,6 @@ class NamespacedPrismConfig(unittest.TestCase):
         config = path_config_service.get_path_config(str(self.root), anchor="top.kicad_pro")
         self.assertEqual(config.pcb, "base.kicad_pcb")
         self.assertEqual(config.project_name, "Fixture")
-
-    def test_saving_without_an_anchor_keeps_the_flat_shape(self) -> None:
-        path_config_service.save_path_config(
-            str(self.root), path_config_service.PathConfig(pcb="top.kicad_pcb")
-        )
-        written = json.loads((self.root / ".prism.json").read_text(encoding="utf-8"))
-        self.assertEqual(written["paths"]["pcb"], "top.kicad_pcb")
-        self.assertNotIn("projects", written)
 
 
 class FindsTheProjectFileTheViewerShouldRender(unittest.TestCase):
@@ -323,13 +314,25 @@ class HistoricalRevisionsHonourTheAnchor(unittest.TestCase):
 
     def test_the_commit_reader_uses_the_same_merge(self) -> None:
         # The live reader and the commit reader disagreeing is the bug; this
-        # holds them to one implementation.
+        # holds the route's commit reader to the anchor-scoped merge.
         from app.api import projects as projects_api
+        from app.services import project_revision, project_service
 
-        self.assertIs(
-            projects_api._merge_commit_config,
-            path_config_service.config_for_anchor,
+        project = project_service.Project(
+            id="prj_base",
+            name="base",
+            description="",
+            path="/tmp/shared",
+            last_modified="",
+            project_file="base.kicad_pro",
         )
+        with mock.patch.object(
+            project_revision, "read_file", return_value=json.dumps(self.RAW).encode("utf-8")
+        ):
+            config = projects_api._path_config_from_commit(project, "deadbeef")
+        merged = path_config_service.config_for_anchor(self.RAW, "base.kicad_pro")
+        self.assertEqual(config.schematic, merged["schematic"])
+        self.assertEqual(config.pcb, merged["pcb"])
 
     def test_default_commit_globs_select_the_anchored_schematic(self) -> None:
         from app.api import projects as projects_api

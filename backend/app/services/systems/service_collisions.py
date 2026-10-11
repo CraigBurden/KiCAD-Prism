@@ -15,9 +15,10 @@ from typing import Any, Optional
 from app.services.systems import (
     collision_meshes, collisions, scene as scene_module, system_nets,
 )
+from app.services.job_kinds import JobKind
 from app.services.systems.placement import poses as poses_module
-from app.services.systems.service_base import Caller, Result
-from app.services.systems.store import NotFound, SystemStore
+from app.services.systems.service_base import Caller
+from app.services.systems.store import NotFound
 
 logger = logging.getLogger(__name__)
 
@@ -50,14 +51,11 @@ def mated_pairs(level: system_nets.Level, kinds: dict[str, str]) -> set[frozense
 class CollisionsMixin:
     def request_collision_check(self, caller: Caller, system_id: str) -> dict:
         """``POST …/collisions``: queue a check (§24.2). Any reader may ask; it changes no version."""
-        from app.services.job_service import jobs
-
         with self._tx() as store:
             self._system(store, system_id, caller)
-        job = jobs.enqueue(COLLISION_JOB_KIND, {"systemId": system_id}, worker_pool="prism",
-                           artifact_key=f"system-collisions:{system_id}", requested_by=caller.email,
-                           resources={"prism_worker": 1})
-        return {"jobId": job.get("job_id") if isinstance(job, dict) else getattr(job, "job_id", None)}
+        job = COLLISION_CHECK.enqueue({"systemId": system_id}, artifact_key=f"system-collisions:{system_id}",
+                                      requested_by=caller.email)
+        return {"jobId": job["job_id"]}
 
     def collision_check(self, caller: Caller, system_id: str) -> dict:
         """``GET …/collisions``: the stored check as the document reads it (§24.2)."""
@@ -71,9 +69,10 @@ class CollisionsMixin:
         """Build every body, intersect them and store the result with its scene key."""
         started = time.perf_counter()
         with self._tx(consistent=True) as store:
-            system = self._system(store, system_id, CHECKER)
-            built, _instances, _jobs = self._build(store, system)
-            bodies, gaps, exempt = self._collision_bodies(store, system_id)
+            loaded = self._load(store, system_id, CHECKER)
+            system = loaded.system
+            built = self._build(loaded)
+            bodies, gaps, exempt = self._collision_bodies(loaded)
         found = collisions.check(bodies, exempt)
         result = {"collisions": found, "notEvaluated": gaps,
                   "stats": {"bodies": len(bodies), "triangles": int(sum(len(b.faces) for b in bodies)),
@@ -81,17 +80,16 @@ class CollisionsMixin:
         with self._tx() as store:
             store.record_collision_check(system_id, scene_key=built["sceneKey"], version=system["version"],
                                          result=result, job_id=job_id)
+        self.refresh_finding_counts([system_id])  # SYS-V22 reads the stored check (D12)
         return result
 
-    def _collision_bodies(self, store: SystemStore, system_id: str) -> tuple[list, list, set]:
+    def _collision_bodies(self, loaded: Any) -> tuple[list, list, set]:
         from app.services.catalog.models import alignment_matrix
         from app.services.semantic_visualizer_service import bundle_dir, semantic_store_root
 
-        tree = self._tree(store, system_id)
-        level = self._net_level(store, system_id, tree)
-        placement, extents = self._placement(store, system_id, tree, level)
+        tree, level, placement = loaded.tree, loaded.level, loaded.placement
         world = scene_module.world_poses(tree.occurrences, placement["placed"])
-        interface_of, _component_of = self._occurrence_lookups(store, extents)
+        interface_of, _component_of = self._occurrence_lookups(loaded.rows, loaded.extents)
         cache_root = semantic_store_root().parent / "system-collision-meshes"
         bodies, gaps = [], []
         for occurrence in tree.occurrences:
@@ -149,3 +147,7 @@ def run_collision_job(context: Any) -> Any:
     except NotFound:
         return JobResult(message="The system no longer exists", details={})
     return JobResult(message=f"{len(result['collisions'])} collision(s)", details=result["stats"])
+
+
+COLLISION_CHECK = JobKind(COLLISION_JOB_KIND, run_collision_job)
+JOB_KINDS = (COLLISION_CHECK,)

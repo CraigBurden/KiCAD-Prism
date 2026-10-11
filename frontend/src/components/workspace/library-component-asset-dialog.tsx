@@ -21,13 +21,12 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { ApiHttpError, fetchJson } from "@/lib/api";
+import { ApiHttpError } from "@/lib/api";
+import { browseStoredAssets, importComponentAsset, linkComponentAsset } from "./catalog-client";
 import { cn } from "@/lib/utils";
 import type {
   CatalogAsset,
   CatalogComponent,
-  ImportCompletedResponse,
-  SelectionRequiredResponse,
 } from "@/types/catalog";
 
 import { AsyncSearchPicker } from "./async-search-picker";
@@ -139,11 +138,7 @@ function StoredFilePicker({
         </button>
       }
       fetchPage={(query, signal) =>
-        fetchJson<{ files: string[]; total?: number }>(
-          `/api/catalog/assets/browse?asset_type=${encodeURIComponent(assetType)}&limit=${STORED_FILE_RESULT_LIMIT}&q=${encodeURIComponent(query)}`,
-          { signal },
-          "Stored assets could not be listed.",
-        ).then((response) => ({ items: response.files, total: response.total }))
+        browseStoredAssets(assetType, query, STORED_FILE_RESULT_LIMIT, signal).then((response) => ({ items: response.files, total: response.total }))
       }
       getKey={(path) => path}
       isSelected={(path) => path === value}
@@ -209,17 +204,14 @@ export function AssetAttachDialog({
       const form = new FormData();
       form.append("file", sourceFile);
       form.append("target_library", importSelection?.targetLibrary || targetLibrary || session.componentName);
-      form.append("expected_revision_id", assetMutationRevisionId(session.expectedRevisionId, importSelection?.expectedRevisionId));
       if (counterpartAssetId) form.append("counterpart_asset_id", counterpartAssetId);
       if (importSelection?.selected) {
         form.append(session.assetType === "symbol" ? "selected_symbol" : "selected_footprint", importSelection.selected);
       }
-      const endpoint = session.assetType === "symbol"
-        ? `/api/catalog/components/${encodeURIComponent(session.componentId)}/symbol-import`
-        : session.assetType === "footprint"
-          ? `/api/catalog/components/${encodeURIComponent(session.componentId)}/footprint-import`
-          : `/api/catalog/components/${encodeURIComponent(session.componentId)}/assets/${encodeURIComponent(session.assetType)}`;
-      const response = await fetchJson<SelectionRequiredResponse | ImportCompletedResponse | { component: CatalogComponent }>(endpoint, { method: "POST", body: form });
+      const response = await importComponentAsset(
+        session.componentId, session.assetType, form,
+        assetMutationRevisionId(session.expectedRevisionId, importSelection?.expectedRevisionId),
+      );
       if (!aliveRef.current) return;
       if ("mode" in response && response.mode === "selection_required") {
         const options = response.discovered_symbols || response.discovered_footprints || [];
@@ -247,16 +239,12 @@ export function AssetAttachDialog({
     if (!selectedLink) return;
     setSubmitting(true);
     try {
-      await fetchJson(`/api/catalog/components/${encodeURIComponent(session.componentId)}/assets/${encodeURIComponent(session.assetType)}/link`, {
-        method: "POST",
-        body: JSON.stringify({
-          file_path: selectedLink,
-          target_library: targetLibrary.trim() || session.componentName,
-          target_name: targetName.trim(),
-          counterpart_asset_id: counterpartAssetId,
-          expected_revision_id: session.expectedRevisionId,
-        }),
-      });
+      await linkComponentAsset(session.componentId, session.assetType, {
+        file_path: selectedLink,
+        target_library: targetLibrary.trim() || session.componentName,
+        target_name: targetName.trim(),
+        counterpart_asset_id: counterpartAssetId,
+      }, session.expectedRevisionId);
       if (!aliveRef.current) return;
       toast.success(`${label} linked as a new revision.`);
       onSuccess();

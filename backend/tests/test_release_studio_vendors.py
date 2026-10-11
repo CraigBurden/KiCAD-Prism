@@ -8,6 +8,7 @@ import zipfile
 from pathlib import Path
 from types import SimpleNamespace
 
+from tests.kicad_tool_fakes import FakeTool
 from app.release_studio.canonical import write_deterministic_archive, write_deterministic_zip
 from app.release_studio.config.loader import parse_configuration_yaml
 from app.release_studio.config.digests import technical_config_digest
@@ -111,6 +112,39 @@ class JobPipelineStatusTests(unittest.TestCase):
             }
         )
         self.assertEqual(status["pipeline"]["jobs"][0]["id"], "package")
+
+    def test_slim_status_exposes_staged_webgpu_progress(self) -> None:
+        from app.api.jobs import _slim_status
+
+        status = _slim_status(
+            {
+                "job_id": "job-webgpu",
+                "kind": "webgpu_3d",
+                "status": "running",
+                "payload": {
+                    "bundle_url": "/api/projects/p1/webgpu-3d/manifest/source/build",
+                    "readiness_stage": "board-ready",
+                    "readiness": {"stage": "board-ready", "progress": 35, "revision": "rev-1"},
+                    "logs": ["Published staged bundle"],
+                    "project_id": "p1",
+                },
+                "result_metadata": {},
+            }
+        )
+        self.assertEqual(
+            status["staged"],
+            {
+                "bundle_url": "/api/projects/p1/webgpu-3d/manifest/source/build",
+                "readiness_stage": "board-ready",
+                "readiness": {"stage": "board-ready", "progress": 35, "revision": "rev-1"},
+            },
+        )
+
+    def test_slim_status_omits_staged_when_nothing_was_published(self) -> None:
+        from app.api.jobs import _slim_status
+
+        status = _slim_status({"job_id": "job-1", "status": "queued", "payload": {}})
+        self.assertNotIn("staged", status)
 
 
 class DeterministicZipTests(unittest.TestCase):
@@ -233,19 +267,18 @@ class JlcpcbGeneratorTests(unittest.TestCase):
             # lists, named by kind rather than by tool.
             destination = Path(argv[argv.index("-o") + 1])
             destination.mkdir(parents=True, exist_ok=True)
-            if argv[1] == "bom":
+            if argv[0] == "bom":
                 (destination / "board_base_jlc-csv.csv").write_text("Comment,Designator\nR,R1\n")
                 (destination / "board_base_jlc-xlsx.xlsx").write_bytes(b"xlsx-bom")
-            elif argv[1] == "pnp":
+            elif argv[0] == "pnp":
                 (destination / "board_base_jlc-cpl.csv").write_text("Designator,Mid X\nR1,1\n")
                 (destination / "board_base_jlc-cpl-xlsx.xlsx").write_bytes(b"xlsx-cpl")
             return SimpleNamespace(returncode=0, stdout="", stderr="")
 
         artifacts = JlcpcbProfile().generate(
-            cruncher_path="kicad-cruncher",
+            cruncher=FakeTool(runner, name="kicad-cruncher"),
             design_file=design,
             output_root=output_root,
-            runner=runner,
         )
         self.assertEqual(artifacts.returncode, 0)
         self.assertTrue(artifacts.canonical_files["manufacturing/vendors/jlcpcb/bom.csv"].is_file())
@@ -268,7 +301,7 @@ class JlcpcbGeneratorTests(unittest.TestCase):
             calls.append(list(argv))
             destination = Path(argv[argv.index("-o") + 1])
             destination.mkdir(parents=True, exist_ok=True)
-            if argv[1] == "bom":
+            if argv[0] == "bom":
                 (destination / "b_base_jlc-csv.csv").write_text("a\n")
                 (destination / "b_base_jlc-xlsx.xlsx").write_bytes(b"x")
             else:
@@ -277,12 +310,14 @@ class JlcpcbGeneratorTests(unittest.TestCase):
             return SimpleNamespace(returncode=0, stdout="", stderr="")
 
         artifacts = JlcpcbProfile().generate(
-            cruncher_path="kicad-cruncher",
+            cruncher=FakeTool(runner, name="kicad-cruncher"),
             design_file=design,
             output_root=tmp / "out",
-            runner=runner,
         )
-        self.assertEqual([call[1] for call in calls], ["bom", "pnp"])
+        self.assertEqual([call[0] for call in calls], ["bom", "pnp"])
+        # The recorded argv names the tool, as it did when it led the argv.
+        self.assertTrue(all(r.startswith("kicad-cruncher bom") or r.startswith("kicad-cruncher pnp")
+                            for r in artifacts.normalized_argv))
         self.assertTrue(all("--format" not in call for call in calls))
         # An install path is not part of the build's identity: recording one
         # would make the same build differ between two checkouts.
@@ -335,10 +370,9 @@ class JlcpcbGeneratorTests(unittest.TestCase):
 
         with self.assertRaises(VendorGenerateError):
             JlcpcbProfile().generate(
-                cruncher_path="kicad-cruncher",
+                cruncher=FakeTool(runner, name="kicad-cruncher"),
                 design_file=design,
                 output_root=tmp / "out",
-                runner=runner,
             )
 
     def _tmp(self) -> str:

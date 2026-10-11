@@ -1,0 +1,101 @@
+{
+  "_comment": "Written by hand. backend/tests/test_catalog_field_rules.py and frontend/src/lib/catalog-field-rules.test.ts both run every case, so the Python rules and the TypeScript interpreter cannot disagree.",
+  "fields": [
+    { "field": { "key": "value", "type": "text", "required": false }, "value": "", "context": "editor", "identity": "mpn", "verdict": "required" },
+    { "field": { "key": "manufacturer", "type": "text", "required": false }, "value": " ", "context": "editor", "identity": "provisional_ipn", "verdict": "required" },
+    { "field": { "key": "mpn", "type": "text", "required": true }, "value": "", "context": "editor", "identity": "mpn", "verdict": "required" },
+    { "field": { "key": "mpn", "type": "text", "required": true }, "value": "", "context": "editor", "identity": "provisional_ipn", "verdict": "" },
+    { "field": { "key": "mpn", "type": "text", "required": true }, "value": "", "context": "bulk", "identity": "provisional_ipn", "verdict": "" },
+    { "field": { "key": "mpn", "type": "text", "required": true }, "value": "", "context": "bulk", "identity": "mpn", "verdict": "required" },
+    { "field": { "key": "vendor", "type": "text", "required": true }, "value": "", "context": "bulk", "identity": "mpn", "verdict": "" },
+    { "field": { "key": "tolerance", "type": "enum", "required": true, "enum_values": ["1%", "5%"] }, "value": "", "context": "bulk", "identity": "provisional_ipn", "verdict": "required" },
+    { "field": { "key": "tolerance", "type": "enum", "required": false, "enum_values": ["1%", "5%"] }, "value": "", "context": "bulk", "identity": "mpn", "verdict": "" },
+    { "field": { "key": "tolerance", "type": "enum", "required": true, "enum_values": ["1%", "5%"] }, "value": "10%", "context": "bulk", "identity": "mpn", "verdict": "enum" },
+    { "field": { "key": "tolerance", "type": "enum", "required": true, "enum_values": ["1%", "5%"] }, "value": " 5% ", "context": "bulk", "identity": "mpn", "verdict": "" },
+    { "field": { "key": "tolerance", "type": "enum", "required": true, "enum_values": ["1%", "5%"] }, "value": "10%", "context": "editor", "identity": "mpn", "verdict": "" },
+    { "field": { "key": "mass_g", "type": "number" }, "value": "~5", "context": "editor", "identity": "mpn", "verdict": "" },
+    { "field": { "key": "mass_g", "type": "number" }, "value": "~5", "context": "bulk", "identity": "mpn", "verdict": "number" },
+    { "field": { "key": "mass_g", "type": "number" }, "value": "1.5", "context": "bulk", "identity": "mpn", "verdict": "" },
+    { "field": { "key": "mass_g", "type": "number" }, "value": "-.5", "context": "bulk", "identity": "mpn", "verdict": "" },
+    { "field": { "key": "mass_g", "type": "number" }, "value": "+2.", "context": "bulk", "identity": "mpn", "verdict": "" },
+    { "field": { "key": "mass_g", "type": "number" }, "value": "1e-3", "context": "bulk", "identity": "mpn", "verdict": "" },
+    { "field": { "key": "mass_g", "type": "number" }, "value": "nan", "context": "bulk", "identity": "mpn", "verdict": "number" },
+    { "field": { "key": "mass_g", "type": "number" }, "value": "inf", "context": "bulk", "identity": "mpn", "verdict": "number" },
+    { "field": { "key": "mass_g", "type": "number" }, "value": "0x10", "context": "bulk", "identity": "mpn", "verdict": "number" },
+    { "field": { "key": "mass_g", "type": "number" }, "value": "1,5", "context": "bulk", "identity": "mpn", "verdict": "number" },
+    { "field": { "key": "datasheet_url", "type": "url" }, "value": "https://example.com/ds.pdf", "context": "bulk", "identity": "mpn", "verdict": "" },
+    { "field": { "key": "datasheet_url", "type": "url" }, "value": "HTTP://EXAMPLE.COM", "context": "bulk", "identity": "mpn", "verdict": "" },
+    { "field": { "key": "datasheet_url", "type": "url" }, "value": "example.com/ds.pdf", "context": "bulk", "identity": "mpn", "verdict": "url" },
+    { "field": { "key": "datasheet_url", "type": "url" }, "value": "ftp://example.com/ds.pdf", "context": "bulk", "identity": "mpn", "verdict": "url" },
+    { "field": { "key": "datasheet_url", "type": "url" }, "value": "https://", "context": "bulk", "identity": "mpn", "verdict": "url" },
+    { "field": { "key": "datasheet_url", "type": "url" }, "value": "http:/example.com", "context": "bulk", "identity": "mpn", "verdict": "url" },
+    { "field": { "key": "datasheet_url", "type": "url" }, "value": "~", "context": "bulk", "identity": "mpn", "verdict": "url" },
+    { "field": { "key": "datasheet_url", "type": "url" }, "value": "example.com/ds.pdf", "context": "editor", "identity": "mpn", "verdict": "" },
+    { "field": { "key": "rohs", "type": "boolean" }, "value": "Yes", "context": "bulk", "identity": "mpn", "verdict": "" },
+    { "field": { "key": "rohs", "type": "boolean" }, "value": "0", "context": "bulk", "identity": "mpn", "verdict": "" },
+    { "field": { "key": "rohs", "type": "boolean" }, "value": "maybe", "context": "bulk", "identity": "mpn", "verdict": "boolean" }
+  ],
+  "imports": [
+    {
+      "values": { "value": "10k", "manufacturer": "Yageo", "manufacturer_part_number": "RC0603", "description": "Resistor", "datasheet": "https://example.com/ds.pdf", "package_name": "" },
+      "problems": []
+    },
+    {
+      "values": { "value": "10k", "manufacturer": "", "manufacturer_part_number": " ", "description": "Resistor", "datasheet": "see intranet" },
+      "problems": ["Manufacturer is required", "MPN is required", "Datasheet must be an HTTP(S) URL"]
+    },
+    {
+      "values": {},
+      "problems": ["Value is required", "Manufacturer is required", "MPN is required", "Description is required", "Datasheet is required"]
+    }
+  ],
+  "findings": [
+    {
+      "findings": [
+        { "code": "missing_metadata_datasheet", "severity": "error" },
+        { "code": "conflicting_value", "severity": "error" },
+        { "code": "footprint_not_resolved", "severity": "error" },
+        { "code": "symbol_not_resolved", "severity": "error" },
+        { "code": "unresolved_3d_model", "severity": "warning" }
+      ],
+      "linked": [],
+      "blocking": ["footprint_not_resolved", "symbol_not_resolved"]
+    },
+    {
+      "findings": [
+        { "code": "footprint_not_resolved", "severity": "error" },
+        { "code": "symbol_not_resolved", "severity": "error" }
+      ],
+      "linked": ["footprint"],
+      "blocking": ["symbol_not_resolved"]
+    }
+  ],
+  "customImports": [
+    {
+      "fields": [
+        { "key": "approval", "label": "Approval", "storage_kind": "extra", "storage_key": "Approval", "required": true },
+        { "key": "lot", "label": "Lot", "type": "number", "storage_kind": "extra", "storage_key": "lot", "required": true },
+        { "key": "old", "label": "Old", "storage_kind": "extra", "storage_key": "old", "required": true, "archived": true },
+        { "key": "note", "label": "Note", "storage_kind": "extra", "storage_key": "note", "required": false }
+      ],
+      "extra_fields": { "Approval": "  ", "lot": "not a number" },
+      "problems": ["Approval is required"]
+    },
+    {
+      "fields": [
+        { "key": "approval", "label": "Approval", "storage_kind": "extra", "storage_key": "Approval", "required": true },
+        { "key": "value", "label": "Value", "storage_kind": "column", "storage_key": "value", "required": true, "built_in": true }
+      ],
+      "extra_fields": { "Approval": "QA-1" },
+      "problems": []
+    },
+    {
+      "fields": [
+        { "key": "approval", "label": "Approval", "storage_kind": "extra", "storage_key": "Approval", "required": true },
+        { "key": "lot", "label": "Lot", "storage_kind": "extra", "storage_key": "lot", "required": true }
+      ],
+      "extra_fields": {},
+      "problems": ["Approval is required", "Lot is required"]
+    }
+  ]
+}

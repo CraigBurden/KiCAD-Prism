@@ -7,6 +7,7 @@ mod geometry;
 mod materialize;
 pub mod mesh_pack;
 pub mod semantic_compiler;
+mod stackup_frame;
 
 use anyhow::{Context, Result, bail};
 use std::env;

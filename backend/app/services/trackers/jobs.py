@@ -23,11 +23,13 @@ from app.services.trackers.op_store import (
     RECOVERY_DISPATCH,
     OpStore,
 )
+from app.services.job_kinds import TRACKER_RESOURCE, JobKind
 from app.services.trackers.scheduler import (
     DISPATCH_KIND,
     OUTBOX_POLL_SECONDS,
     POLL_KIND,
     SWEEP_KIND,
+    TRACKER_PRIORITY,
     poll_interval_seconds,
     sweep_interval_seconds,
 )
@@ -37,12 +39,6 @@ DispatchExecutor = Callable[[dict[str, Any]], str | None]
 QUARANTINE_FIRST_MINUTES = 1
 
 logger = logging.getLogger(__name__)
-
-
-def register_tracker_job_handlers(register: Callable[[str, Callable], None]) -> None:
-    register(DISPATCH_KIND, run_tracker_dispatch_job)
-    register(POLL_KIND, run_tracker_poll_job)
-    register(SWEEP_KIND, run_tracker_sweep_job)
 
 
 def run_tracker_dispatch_job(context: JobContext) -> JobResult:
@@ -469,3 +465,23 @@ def _comments_connect(context: JobContext):
     with database.connection() as conn:
         conn.execute("SET search_path TO comments, workspace, public")
         yield conn
+
+
+def _tracker_kind(name: str, handler: Callable[[JobContext], JobResult]) -> JobKind:
+    # A dedicated tracker_sync slot and a low priority, so tracker work cannot
+    # starve import or compare work.
+    return JobKind(
+        name,
+        handler,
+        resources={TRACKER_RESOURCE: 1},
+        priority=TRACKER_PRIORITY,
+        max_attempts=8,
+    )
+
+
+JOB_KINDS = (
+    _tracker_kind(DISPATCH_KIND, run_tracker_dispatch_job),
+    _tracker_kind(POLL_KIND, run_tracker_poll_job),
+    _tracker_kind(SWEEP_KIND, run_tracker_sweep_job),
+)
+TRACKER_JOB_KINDS_BY_NAME = {kind.name: kind for kind in JOB_KINDS}

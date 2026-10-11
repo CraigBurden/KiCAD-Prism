@@ -9,8 +9,10 @@ from unittest import mock
 from fastapi import FastAPI
 
 from system_builder_db import FixtureSystemCase
+from support.postgres import seed_folder
 from test_system_api import _request
 
+from app.core.errors import install_error_handlers  # noqa: E402
 from app.api import systems as systems_api
 from app.services.systems import csv_import, icd
 from app.services.systems import service as service_module
@@ -222,8 +224,7 @@ class ImportTest(ImportCase):
         with self.assertRaises(StaleVersion):
             self.service.commit_import(DESIGNER, self.sid, self.version() - 1, upload["importId"], PLAIN_MAP,
                                        self.boards, None)
-        self.conn.execute("INSERT INTO ws_folders (id, visibility_mode, allowed_roles)"
-                          " VALUES ('fld_admins', 'roles', '[\"admin\"]')")
+        seed_folder(self.conn, "fld_admins", visibility_mode="roles", allowed_roles=["admin"])
         self.conn.execute("UPDATE ws_projects SET folder_id = 'fld_admins' WHERE id = 'prj_pay'")
         self.conn.commit()
         with self.assertRaises(NotFound):
@@ -233,8 +234,7 @@ class ImportTest(ImportCase):
         self.delete_link("L-J7J4")
         upload = self.upload(PLAIN_HEADER + "OBC-A,J7,5,PAY,J4,5,DATA_OUT,\n")
         review_id = self.commit(upload["importId"])["reviewId"]
-        self.conn.execute("INSERT INTO ws_folders (id, visibility_mode, allowed_roles)"
-                          " VALUES ('fld_admins', 'roles', '[\"admin\"]')")
+        seed_folder(self.conn, "fld_admins", visibility_mode="roles", allowed_roles=["admin"])
         self.conn.execute("UPDATE ws_projects SET folder_id = 'fld_admins' WHERE id = 'prj_pay'")
         self.conn.commit()
         [review] = [r for r in self.service.list_reviews(DESIGNER, self.sid, "open") if r["id"] == review_id]
@@ -253,8 +253,7 @@ class ImportTest(ImportCase):
         upload = self.upload(PLAIN_HEADER + "OBC-A,J7,5,PAY,J4,5,DATA_OUT,\nOBC-A,J2,3,PWR,J1,3,NOT_THIS_NET,\n")
         committed = self.commit(upload["importId"])
         self.assertEqual(committed["counts"]["needsReview"], 2, committed)
-        self.conn.execute("INSERT INTO ws_folders (id, visibility_mode, allowed_roles)"
-                          " VALUES ('fld_admins', 'roles', '[\"admin\"]')")
+        seed_folder(self.conn, "fld_admins", visibility_mode="roles", allowed_roles=["admin"])
         self.conn.execute("UPDATE ws_projects SET folder_id = 'fld_admins' WHERE id = 'prj_pay'")
         self.conn.commit()
         [review] = [r for r in self.service.list_reviews(DESIGNER, self.sid, "open")
@@ -274,6 +273,7 @@ class ImportApiTest(ImportCase):
         patcher.start()
         self.addCleanup(patcher.stop)
         self.app = FastAPI()
+        install_error_handlers(self.app)
         self.app.include_router(systems_api.router, prefix="/api/systems")
 
     def call(self, method: str, path: str, **kwargs):

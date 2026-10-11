@@ -16,18 +16,16 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from .models import stable_id
+from .board_metadata import BoardFacts, board_metadata, components_from_pads
 from .pcb_extract import (
     LAYER_COLORS,
     _canonical_fallback_stackup,
     _layer_material,
-    _merge_bbox,
     _normalize_stackup_layers,
     _profile_emit,
     _profile_timed,
     _role_for_layer,
     _stackup_layers_from_pcb_file,
-    _stackup_metadata_from_pcb_file,
 )
 from .pcb_geometry import NM_TO_MM
 
@@ -397,7 +395,7 @@ def extract_pcb_metadata_from_mesh_pack(
     pack: NativeSemanticMeshPack,
     profile_callback=None,
 ) -> dict[str, Any]:
-    """Build topology metadata from native semantic tables without geometry hydration."""
+    """The Rust adapter: board facts from native semantic tables, without geometry hydration."""
 
     started = time.perf_counter()
     payload = pack.payload
@@ -424,107 +422,77 @@ def extract_pcb_metadata_from_mesh_pack(
         int(net.get("id") or 0): str(net.get("name") or "")
         for net in payload.get("nets") or ()
     }
-    components_by_key: dict[str, dict[str, Any]] = {}
-    terminal_pad_links: list[dict[str, str]] = []
-    pads: list[dict[str, Any]] = []
+    pads = []
     for feature in payload.get("objectFeatures") or ():
         if str(feature.get("kind") or "") != "pad" or int(feature.get("id") or 0) == 0:
             continue
-        designator = str(feature.get("componentRef") or "")
-        footprint_uid = str(feature.get("footprintUid") or "")
-        pad_number = str(feature.get("padNumber") or "")
-        source_uid = str(feature.get("sourceUid") or "")
         bounds = list(feature.get("boundsMm") or ())
-        bbox = [bounds[0], bounds[1], bounds[3], bounds[4]] if len(bounds) == 6 else None
-        layer_ids = [int(value) for value in feature.get("layerIds") or ()]
-        selected_layers = [layer_names[value] for value in layer_ids if value in layer_names]
-        net_name = net_names.get(int(feature.get("netId") or 0), "")
-        key = footprint_uid or designator
-        if bbox and key:
-            if key not in components_by_key:
-                components_by_key[key] = {
-                    "designator": designator,
-                    "uid": _component_uid(designator),
-                    "unique_id": footprint_uid,
-                    "layer": next(
-                        (name for name in selected_layers if name.endswith(".Cu")),
-                        selected_layers[0] if selected_layers else "F.Cu",
-                    ),
-                    "bbox_mm": bbox,
-                    "x_mm": (bbox[0] + bbox[2]) / 2.0,
-                    "y_mm": (bbox[1] + bbox[3]) / 2.0,
-                    "angle_deg": 0.0,
-                }
-            else:
-                component = components_by_key[key]
-                component["bbox_mm"] = _merge_bbox(component.get("bbox_mm"), bbox)
-                component["x_mm"] = (component["bbox_mm"][0] + component["bbox_mm"][2]) / 2.0
-                component["y_mm"] = (component["bbox_mm"][1] + component["bbox_mm"][3]) / 2.0
-        pad_uid = stable_id("obj", f"pad:{footprint_uid}:{source_uid or pad_number}")
         pads.append(
             {
-                "uid": pad_uid,
-                "designator": designator,
-                "number": pad_number,
-                "net_name": net_name,
-                "layers": selected_layers,
-                "bbox_mm": bbox,
-                "source_uid": source_uid,
+                "designator": str(feature.get("componentRef") or ""),
+                "footprint_uid": str(feature.get("footprintUid") or ""),
+                "number": str(feature.get("padNumber") or ""),
+                "source_uid": str(feature.get("sourceUid") or ""),
+                "net_name": net_names.get(int(feature.get("netId") or 0), ""),
+                "layers": [
+                    layer_names[value]
+                    for value in (int(item) for item in feature.get("layerIds") or ())
+                    if value in layer_names
+                ],
+                "bbox_mm": [bounds[0], bounds[1], bounds[3], bounds[4]] if len(bounds) == 6 else None,
             }
         )
-        if designator and pad_number:
-            terminal_pad_links.append(
-                {
-                    "designator": designator,
-                    "pin": pad_number,
-                    "net_name": net_name,
-                    "object_uid": pad_uid,
-                    "source_uid": source_uid,
-                }
-            )
+    footprints = [
+        {
+            "uid": str(footprint.get("uid") or ""),
+            "designator": str(footprint.get("reference") or ""),
+            "layer": str(footprint.get("layer") or ""),
+            "x_mm": float((footprint.get("positionMm") or (0.0, 0.0))[0]),
+            "y_mm": float((footprint.get("positionMm") or (0.0, 0.0))[1]),
+            "angle_deg": float(footprint.get("angleDeg") or 0.0),
+        }
+        for footprint in payload.get("footprints") or ()
+    ]
+    components, terminal_pad_links, pad_records = components_from_pads(pads, footprints)
     stats = dict(payload.get("stats") or {})
-    metadata = {
-        "source": str(project_file.with_suffix(".kicad_pcb")),
-        "board": {
-            "bbox_mm": list(board.get("bboxMm") or [0.0, 0.0, 80.0, 50.0]),
-            "thickness_mm": float(board.get("thicknessMm") or 1.6),
-            "aux_axis_origin_mm": list(board.get("auxAxisOriginMm") or [0.0, 0.0]),
-            "stackup": {
-                "present": bool(layers),
-                "layers": layers,
-                "computed_thickness_mm": float(board.get("thicknessMm") or 1.6),
-                "copper_finish": str(board.get("copperFinish") or "None"),
-                "edge_connector": bool(board.get("edgeConnector")),
-                "castellated_pads": False,
-                "edge_plating": bool(board.get("edgePlating")),
+    bbox = list(board.get("bboxMm") or [0.0, 0.0, 80.0, 50.0])
+    metadata = board_metadata(
+        BoardFacts(
+            layers=layers,
+            bbox_mm=bbox,
+            thickness_mm=float(board.get("thicknessMm") or 1.6),
+            aux_axis_origin_mm=list(board.get("auxAxisOriginMm") or [0.0, 0.0]),
+            stackup_present=bool(layers),
+            copper_finish=board.get("copperFinish"),
+            edge_connector=board.get("edgeConnector"),
+            edge_plating=board.get("edgePlating"),
+            components=components,
+            terminal_pad_links=terminal_pad_links,
+            pads=pad_records,
+            stats={
+                "footprints": len(components),
+                "pads": int(stats.get("pads") or len(pad_records)),
+                "segments": int(stats.get("tracks") or 0),
+                "vias": int(stats.get("vias") or 0),
+                "zones": int(stats.get("zone_fills") or 0),
             },
-            "net_classes": [],
-        },
-        "physical_objects": [],
-        "terminal_pad_links": terminal_pad_links,
-        "components": list(components_by_key.values()),
-        "pads": pads,
-        "stats": {
-            "layers": len(layers),
-            "footprints": len(components_by_key),
-            "pads": int(stats.get("pads") or len(pads)),
-            "segments": int(stats.get("tracks") or 0),
-            "vias": int(stats.get("vias") or 0),
-            "zones": int(stats.get("zone_fills") or 0),
-            "physical_objects": 0,
-        },
-        "mode": "rust-packed",
-        "geometry_backend": {
-            "name": "rust",
-            "schema": PRISM_SEMANTIC_MESH_PACK_SCHEMA,
-            "kicad_monkey_revision": str(payload.get("kicadMonkeyRevision") or ""),
-            "source_digest": str(payload.get("sourceDigest") or ""),
-            "geometry_revision": pack.geometry_revision,
-            "metrics": pack.metrics,
-            "diagnostics": list(payload.get("diagnostics") or ()),
-        },
-        "bbox_mm": list(board.get("bboxMm") or [0.0, 0.0, 80.0, 50.0]),
-    }
+            mode="rust-packed",
+            extra={
+                "geometry_backend": {
+                    "name": "rust",
+                    "schema": PRISM_SEMANTIC_MESH_PACK_SCHEMA,
+                    "kicad_monkey_revision": str(payload.get("kicadMonkeyRevision") or ""),
+                    "source_digest": str(payload.get("sourceDigest") or ""),
+                    "geometry_revision": pack.geometry_revision,
+                    "metrics": pack.metrics,
+                    "diagnostics": list(payload.get("diagnostics") or ()),
+                },
+                "bbox_mm": list(bbox),
+            },
+        ),
+        project_file,
+        profile_callback=profile_callback,
+    )
     _profile_emit(
         profile_callback,
         "total",
@@ -570,10 +538,6 @@ def emit_copper_geometry(pcb_file: Path):
     return emit_pcb_copper_geometry(pcb_file)
 
 
-def _component_uid(designator: str) -> str:
-    return stable_id("cmp", designator)
-
-
 def _board_bbox_from_copper(document: Any) -> list[float]:
     bounds = getattr(document, "bounds_nm", None)
     if not bounds or len(bounds) != 4:
@@ -597,82 +561,36 @@ def _components_and_links_from_copper(
         int(net.index): str(net.name)
         for net in getattr(document, "nets", ()) or ()
     }
-    components_by_key: dict[str, dict[str, Any]] = {}
-    terminal_pad_links: list[dict[str, str]] = []
-    pads: list[dict[str, Any]] = []
-
+    pads = []
     for feature in getattr(document, "features", ()) or ():
         if str(getattr(feature, "kind", "")) != "pad":
             continue
-        designator = str(getattr(feature, "component_ref", "") or "")
-        footprint_uid = str(getattr(feature, "footprint_uid", "") or "")
-        pad_number = str(getattr(feature, "pad_number", "") or "")
-        source_uid = str(getattr(feature, "source_uid", "") or "")
-        net_name = (
-            net_names.get(int(feature.net_index), "")
-            if getattr(feature, "net_index", None) is not None
-            else ""
-        )
-        layers = [
-            layer_names[index]
-            for index in getattr(feature, "layer_indexes", ()) or ()
-            if index in layer_names
-        ]
         outer = getattr(feature, "outer_nm", ()) or ()
+        bbox = None
         if outer:
             xs = [float(point[0]) * NM_TO_MM for point in outer]
             ys = [float(point[1]) * NM_TO_MM for point in outer]
             bbox = [min(xs), min(ys), max(xs), max(ys)]
-            x_mm = (bbox[0] + bbox[2]) / 2.0
-            y_mm = (bbox[1] + bbox[3]) / 2.0
-        else:
-            bbox = None
-            x_mm = 0.0
-            y_mm = 0.0
-        key = footprint_uid or designator
-        if key and key not in components_by_key:
-            components_by_key[key] = {
-                "designator": designator,
-                "uid": _component_uid(designator),
-                "unique_id": footprint_uid,
-                "layer": next(
-                    (name for name in layers if name.endswith(".Cu")),
-                    layers[0] if layers else "F.Cu",
-                ),
-                "bbox_mm": bbox,
-                "x_mm": x_mm,
-                "y_mm": y_mm,
-                "angle_deg": 0.0,
-            }
-        elif key and bbox:
-            component = components_by_key[key]
-            component["bbox_mm"] = _merge_bbox(component.get("bbox_mm"), bbox)
-            if component.get("bbox_mm"):
-                component["x_mm"] = (component["bbox_mm"][0] + component["bbox_mm"][2]) / 2.0
-                component["y_mm"] = (component["bbox_mm"][1] + component["bbox_mm"][3]) / 2.0
-        pad_uid = stable_id("obj", f"pad:{footprint_uid}:{source_uid or pad_number}")
         pads.append(
             {
-                "uid": pad_uid,
-                "designator": designator,
-                "number": pad_number,
-                "net_name": net_name,
-                "layers": layers,
+                "designator": str(getattr(feature, "component_ref", "") or ""),
+                "footprint_uid": str(getattr(feature, "footprint_uid", "") or ""),
+                "number": str(getattr(feature, "pad_number", "") or ""),
+                "source_uid": str(getattr(feature, "source_uid", "") or ""),
+                "net_name": (
+                    net_names.get(int(feature.net_index), "")
+                    if getattr(feature, "net_index", None) is not None
+                    else ""
+                ),
+                "layers": [
+                    layer_names[index]
+                    for index in getattr(feature, "layer_indexes", ()) or ()
+                    if index in layer_names
+                ],
                 "bbox_mm": bbox,
-                "source_uid": source_uid,
             }
         )
-        if designator and pad_number:
-            terminal_pad_links.append(
-                {
-                    "designator": designator,
-                    "pin": pad_number,
-                    "net_name": net_name,
-                    "object_uid": pad_uid,
-                    "source_uid": source_uid,
-                }
-            )
-    return list(components_by_key.values()), terminal_pad_links, pads
+    return components_from_pads(pads)
 
 
 def _stackup_from_geometry_contract(document: Any) -> list[dict[str, Any]]:
@@ -762,11 +680,6 @@ def extract_pcb_metadata_from_copper(
             ],
             allowed_roles,
         )
-    file_stackup_metadata = _profile_timed(
-        profile_callback,
-        "stackup_metadata_from_file",
-        lambda: _stackup_metadata_from_pcb_file(pcb_file),
-    )
     board_bbox = _profile_timed(
         profile_callback,
         "board_bbox",
@@ -782,83 +695,36 @@ def extract_pcb_metadata_from_copper(
         sum(float(layer.get("thickness_mm") or 0.0) for layer in layers) or 1.6
     )
     copper_stats = dict(getattr(document, "stats", {}) or {})
-    stats = {
-        "layers": len(layers),
-        "footprints": len(components),
-        "pads": int(copper_stats.get("pads") or len(pads)),
-        "segments": int(copper_stats.get("tracks") or 0),
-        "vias": int(copper_stats.get("vias") or 0),
-        "zones": int(copper_stats.get("zone_fills") or 0),
-        "physical_objects": 0,
-    }
-    project_file_pro = project_file.with_suffix(".kicad_pro")
-    net_classes_list: list[dict[str, Any]] = []
-    if project_file_pro.is_file():
-        net_classes_started = time.perf_counter()
-        try:
-            from kicad_monkey.kicad_project import KiCadProject
-
-            proj = KiCadProject.from_file(project_file_pro)
-            if proj.net_settings and proj.net_settings.classes:
-                for nc in proj.net_settings.classes:
-                    net_classes_list.append(
-                        {
-                            "name": nc.name,
-                            "track_width": nc.track_width,
-                            "clearance": nc.clearance,
-                            "diff_pair_gap": nc.diff_pair_gap,
-                            "diff_pair_width": nc.diff_pair_width,
-                            "via_diameter": nc.via_diameter,
-                            "via_drill": nc.via_drill,
-                        }
-                    )
-        except Exception:
-            pass
-        _profile_emit(
-            profile_callback,
-            "project_net_classes",
-            (time.perf_counter() - net_classes_started) * 1000.0,
-            net_classes=len(net_classes_list),
-        )
-
-    metadata = {
-        "source": str(pcb_file),
-        "board": {
-            "bbox_mm": board_bbox,
-            "thickness_mm": computed_thickness,
-            "aux_axis_origin_mm": [
+    metadata = board_metadata(
+        BoardFacts(
+            layers=layers,
+            bbox_mm=board_bbox,
+            thickness_mm=computed_thickness,
+            aux_axis_origin_mm=[
                 float(value) * NM_TO_MM
                 for value in board_contract.get("aux_axis_origin_nm", [0, 0])
             ],
-            "stackup": {
-                "present": bool(layers),
-                "layers": layers,
-                "computed_thickness_mm": computed_thickness,
-                "copper_finish": str(
-                    board_contract.get("copper_finish")
-                    or file_stackup_metadata.get("copper_finish", "None")
-                ),
-                "edge_connector": bool(
-                    board_contract.get("edge_connector")
-                    or file_stackup_metadata.get("edge_connector", False)
-                ),
-                "castellated_pads": bool(file_stackup_metadata.get("castellated_pads", False)),
-                "edge_plating": bool(
-                    board_contract.get("edge_plating")
-                    or file_stackup_metadata.get("edge_plating", False)
-                ),
+            stackup_present=bool(layers),
+            copper_finish=board_contract.get("copper_finish"),
+            edge_connector=board_contract.get("edge_connector"),
+            edge_plating=board_contract.get("edge_plating"),
+            components=components,
+            terminal_pad_links=terminal_pad_links,
+            pads=pads,
+            stats={
+                "footprints": len(components),
+                "pads": int(copper_stats.get("pads") or len(pads)),
+                "segments": int(copper_stats.get("tracks") or 0),
+                "vias": int(copper_stats.get("vias") or 0),
+                "zones": int(copper_stats.get("zone_fills") or 0),
             },
-            "net_classes": net_classes_list,
-        },
-        "physical_objects": [],
-        "terminal_pad_links": terminal_pad_links,
-        "components": components,
-        "pads": pads,
-        "stats": stats,
-        "mode": "copper",
-        "bbox_mm": board_bbox,
-    }
-    _profile_emit(profile_callback, "total", (time.perf_counter() - started) * 1000.0, **stats)
+            mode="copper",
+            extra={"bbox_mm": board_bbox},
+        ),
+        project_file,
+        profile_callback=profile_callback,
+    )
+    _profile_emit(profile_callback, "total", (time.perf_counter() - started) * 1000.0, **metadata["stats"])
     return metadata
 
 

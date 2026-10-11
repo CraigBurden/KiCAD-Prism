@@ -1,6 +1,5 @@
 import hashlib
 import json
-import subprocess
 import sys
 import tempfile
 import unittest
@@ -8,7 +7,8 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from app.services import semantic_index_service, semantic_visualizer_service
+from app.services import project_revision, semantic_index_service, semantic_visualizer_service
+from support.repo import commit_all, init_repo  # noqa: E402
 
 
 class SemanticIndexServiceTests(unittest.TestCase):
@@ -497,14 +497,11 @@ class SemanticIndexServiceTests(unittest.TestCase):
             root = Path(temporary)
             helper = root / "prism-kicad-native"
             helper.write_bytes(b"helper-a")
-            environment = {
-                "PRISM_PCB_GEOMETRY_BACKEND": "rust",
-                "PRISM_KICAD_NATIVE_PATH": str(helper),
-            }
-            with patch.dict(
-                semantic_visualizer_service.os.environ,
-                environment,
-                clear=False,
+            with patch(
+                "app.services.semantic_viewer_runtime.settings.PRISM_PCB_GEOMETRY_BACKEND",
+                "rust",
+            ), patch(
+                "app.core.config.settings.PRISM_KICAD_NATIVE_PATH", str(helper)
             ), patch(
                 "app.services.semantic_viewer_runtime.find_viewer_repo_root",
                 return_value=root,
@@ -514,6 +511,37 @@ class SemanticIndexServiceTests(unittest.TestCase):
                 second = semantic_visualizer_service._compute_build_fingerprint()
 
         self.assertNotEqual(first, second)
+
+    def test_build_fingerprint_covers_every_generator_module(self) -> None:
+        # The fingerprint once hashed a hand-written module list that left out
+        # native_clipper.py, prism_clipper2.py, models.py and vendor_paths.py,
+        # so a change to them served stale bundles. It now hashes the package.
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            package = root / "pipeline" / "topology_compiler"
+            package.mkdir(parents=True)
+            tools = root / "tools" / "semantic-gltf"
+            tools.mkdir(parents=True)
+            for name in ("native_clipper.py", "prism_clipper2.py", "models.py", "vendor_paths.py", "brand_new.py"):
+                (package / name).write_text("a = 1\n")
+            (tools / "scene-manifest.mjs").write_text("export const a = 1;\n")
+            (tools / "build.test.mjs").write_text("// test\n")
+            with patch(
+                "app.services.semantic_viewer_runtime.find_viewer_repo_root",
+                return_value=root,
+            ):
+                baseline = semantic_visualizer_service._compute_build_fingerprint()
+                for path in [*package.iterdir(), tools / "scene-manifest.mjs"]:
+                    original = path.read_text()
+                    path.write_text(original + "b = 2\n")
+                    self.assertNotEqual(
+                        semantic_visualizer_service._compute_build_fingerprint(),
+                        baseline,
+                        path.name,
+                    )
+                    path.write_text(original)
+                (tools / "build.test.mjs").write_text("// changed test\n")
+                self.assertEqual(semantic_visualizer_service._compute_build_fingerprint(), baseline)
 
     def test_webgpu_fast_status_returns_metadata_only_missing_record(self) -> None:
         project = SimpleNamespace(
@@ -544,8 +572,8 @@ class SemanticIndexServiceTests(unittest.TestCase):
             last_modified="revision-9",
         )
         with patch.object(
-            semantic_visualizer_service,
-            "_resolve_commit",
+            project_revision,
+            "resolve_commit",
             side_effect=AssertionError("fast status must not call git"),
         ), patch.object(
             semantic_visualizer_service.jobs,
@@ -571,8 +599,8 @@ class SemanticIndexServiceTests(unittest.TestCase):
             "status_selector": "commit:abcdef0123456789abcdef0123456789abcdef01",
         }
         with patch.object(
-            semantic_visualizer_service,
-            "_resolve_commit",
+            project_revision,
+            "resolve_commit",
             side_effect=AssertionError("fast status must not call git"),
         ), patch.object(
             semantic_visualizer_service.jobs,
@@ -610,6 +638,23 @@ class SemanticIndexServiceTests(unittest.TestCase):
 
             schematic.write_text("schematic-b", encoding="utf-8")
             self.assertNotEqual(semantic_index_service.source_revision_key_for_project_file(project), initial)
+
+    def test_source_revision_key_ignores_kicad_generated_files(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            project = root / "board.kicad_pro"
+            project.write_text("project-a", encoding="utf-8")
+            (root / "board.kicad_sch").write_text("schematic-a", encoding="utf-8")
+            autosave = root / "_autosave-board.kicad_sch"
+            remote = root / "RemoteLibrary" / "symbols" / "remote.kicad_sym"
+            remote.parent.mkdir(parents=True)
+            autosave.write_text("autosave-a", encoding="utf-8")
+            remote.write_text("remote-a", encoding="utf-8")
+
+            initial = semantic_index_service.source_revision_key_for_project_file(project)
+            autosave.write_text("autosave-b", encoding="utf-8")
+            remote.write_text("remote-b", encoding="utf-8")
+            self.assertEqual(semantic_index_service.source_revision_key_for_project_file(project), initial)
 
     def test_build_semantic_index_maps_schematic_and_pcb_identities(self) -> None:
         design_payload = {
@@ -783,12 +828,8 @@ class RevisionIdentityTests(unittest.TestCase):
         (board / "board.kicad_pro").write_text("{}", encoding="utf-8")
         (board / "board.kicad_sch").write_text("(kicad_sch)", encoding="utf-8")
         (board / "notes.md").write_text("not a semantic source", encoding="utf-8")
-        for command in (
-            ["git", "init", "-q"],
-            ["git", "add", "-A"],
-            ["git", "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-qm", "board"],
-        ):
-            subprocess.run(command, cwd=root, check=True)
+        init_repo(root)
+        commit_all(root, "board")
         return board
 
     def test_a_commit_and_the_working_tree_agree_on_the_key(self) -> None:
@@ -851,8 +892,7 @@ class RevisionIdentityTests(unittest.TestCase):
             project = SimpleNamespace(id="p1", path=str(board))
             key, _ = semantic_index_service._revision_identity(project, "HEAD")
 
-            # KICAD_PROJECTS_ROOT is a computed property on the settings model,
-            # so the module's own root function is the patch point.
+            # The module's own root function is the patch point.
             index_root = root / "index"
             index_root.mkdir()
             self.enterContext(
@@ -867,8 +907,8 @@ class RevisionIdentityTests(unittest.TestCase):
             artifact.write_text('{"schema": "cached"}', encoding="utf-8")
 
             with patch.object(
-                semantic_visualizer_service,
-                "_archive_checkout",
+                project_revision,
+                "materialize",
                 side_effect=AssertionError("a cache hit must not check out the repo"),
             ):
                 self.assertEqual(
@@ -929,61 +969,6 @@ class NetResolutionTests(unittest.TestCase):
 
         self.assertIsNone(semantic_index_service._net_table(board))
         self.assertEqual(semantic_index_service._net_name(board, item), "VCC")
-
-
-class BalancedSExpressionTests(unittest.TestCase):
-    """The scanner steps between structural characters rather than over all of
-    them, so the cases that matter are the ones where a paren is not structural."""
-
-    def test_it_returns_the_offset_past_the_closing_paren(self) -> None:
-        text = "(symbol (at 1 2))tail"
-        self.assertEqual(
-            semantic_index_service._balanced_s_expression_end(text, 0),
-            len("(symbol (at 1 2))"),
-        )
-
-    def test_parens_inside_a_string_do_not_change_depth(self) -> None:
-        text = '(property "Value" "TPS55289 (rev B)")after'
-        end = semantic_index_service._balanced_s_expression_end(text, 0)
-        self.assertEqual(text[:end], '(property "Value" "TPS55289 (rev B)")')
-
-    def test_an_escaped_quote_does_not_end_the_string(self) -> None:
-        text = r'(property "Note" "a \" (b" ) rest'
-        end = semantic_index_service._balanced_s_expression_end(text, 0)
-        self.assertEqual(text[:end], r'(property "Note" "a \" (b" )')
-
-    def test_an_unterminated_form_reports_no_end(self) -> None:
-        self.assertIsNone(
-            semantic_index_service._balanced_s_expression_end("(symbol (at 1", 0)
-        )
-
-    def test_an_unterminated_string_reports_no_end(self) -> None:
-        self.assertIsNone(
-            semantic_index_service._balanced_s_expression_end('(property "open', 0)
-        )
-
-    def test_an_escaped_backslash_still_closes_the_string(self) -> None:
-        # The escape consumes the second backslash, so the quote after it is
-        # a real terminator and the following paren is structural again. Read
-        # the other way, the string would swallow the rest of the form.
-        text = r'(property "Path" "C:\\" ) rest'
-        end = semantic_index_service._balanced_s_expression_end(text, 0)
-        self.assertEqual(text[:end], r'(property "Path" "C:\\" )')
-
-    def test_an_empty_string_is_not_mistaken_for_an_unterminated_one(self) -> None:
-        text = '(property "Value" "")tail'
-        end = semantic_index_service._balanced_s_expression_end(text, 0)
-        self.assertEqual(text[:end], '(property "Value" "")')
-
-    def test_a_start_past_the_opening_paren_reports_no_end(self) -> None:
-        self.assertIsNone(
-            semantic_index_service._balanced_s_expression_end("(symbol (at 1 2))", 8 + 9)
-        )
-
-    def test_nested_forms_close_at_the_outermost_paren(self) -> None:
-        text = "(footprint (pad (at 0 0)) (pad (at 1 1)))after"
-        end = semantic_index_service._balanced_s_expression_end(text, 0)
-        self.assertEqual(text[:end], "(footprint (pad (at 0 0)) (pad (at 1 1)))")
 
 
 class SchematicInstanceFieldTests(unittest.TestCase):
@@ -1048,6 +1033,27 @@ class SchematicInstanceFieldTests(unittest.TestCase):
         fields = self._fields(self.LIBRARY + self.PLACED)
 
         self.assertNotIn("pin-uuid-1", fields)
+
+    def test_a_committed_autosave_does_not_shadow_the_sheet(self) -> None:
+        """KiCad's `_autosave-<sheet>` copy carries the same symbol UUIDs.
+
+        It sorts ahead of the sheet it shadows, so reading it would report the
+        stale copy's properties for every placed symbol.
+        """
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            (root / "sheet.kicad_sch").write_text(
+                f"(kicad_sch{self.LIBRARY}{self.PLACED})", encoding="utf-8"
+            )
+            stale = self.PLACED.replace("https://example.invalid/r.pdf", "https://example.invalid/stale.pdf")
+            (root / "_autosave-sheet.kicad_sch").write_text(
+                f"(kicad_sch{self.LIBRARY}{stale})", encoding="utf-8"
+            )
+            fields = semantic_index_service._schematic_instance_fields(root / "board.kicad_pro")
+
+        self.assertEqual(
+            fields["placed-uuid-1"]["Datasheet"], "https://example.invalid/r.pdf"
+        )
 
 
 class CanonicalFieldTests(unittest.TestCase):

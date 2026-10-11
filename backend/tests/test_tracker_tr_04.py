@@ -13,7 +13,6 @@ import os
 import sys
 import tempfile
 import unittest
-import uuid
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -23,15 +22,12 @@ from fastapi.responses import JSONResponse
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
+from app.core.errors import DomainError, error_response  # noqa: E402
 from app.api import comments as comments_api  # noqa: E402
 from app.core.security import AuthenticatedUser  # noqa: E402
 from app.services import comments_revisions  # noqa: E402
-from tests.test_tracker_tr_01 import (  # noqa: E402
-    POSTGRES_URL,
-    SHARED_APPLICATION_DATABASE,
-    DisposableSchemaStore,
-    psycopg,
-)
+from tests.test_tracker_tr_01 import if_match  # noqa: E402
+from support.postgres import requires_scratch_postgres, scratch_schema, comments_store_on  # noqa: E402
 
 
 def session(role="viewer", *, user_id="u_1", name="Priya"):
@@ -39,7 +35,11 @@ def session(role="viewer", *, user_id="u_1", name="Priya"):
 
 
 def run(coro):
-    return asyncio.run(coro)
+    """Await a route; a typed refusal comes back as the response the app handler sends."""
+    try:
+        return asyncio.run(coro)
+    except DomainError as exc:
+        return error_response(exc)
 
 
 def body(response: JSONResponse) -> dict:
@@ -55,20 +55,18 @@ class RequestModelTests(unittest.TestCase):
     def test_empty_content_is_rejected_before_any_lookup(self) -> None:
         with patch.object(comments_api, "get_project_for_role_or_404") as lookup:
             with self.assertRaises(HTTPException) as ctx:
-                run(comments_api.update_reply(
-                    "p", "c", "r", comments_api.UpdateReplyRequest(content="  "), session("designer"),
+                run(comments_api.update_reply("p", "c", "r", comments_api.UpdateReplyRequest(content="  "), if_match("reply", "r", None), session("designer"),
                 ))
         self.assertEqual(ctx.exception.status_code, 400)
         lookup.assert_not_called()
 
 
-@unittest.skipUnless(POSTGRES_URL, "TEST_POSTGRES_URL is required for comments route tests")
-@unittest.skipUnless(psycopg is not None, "psycopg is required")
-@unittest.skipIf(SHARED_APPLICATION_DATABASE, "TEST_POSTGRES_URL must not target PRISM_DATABASE_URL")
+@requires_scratch_postgres("comments route tests")
 class ReplyMutationRouteTests(unittest.TestCase):
     def setUp(self) -> None:
-        self.schema = f"comments_tr04_{uuid.uuid4().hex[:12]}"
-        self.store = DisposableSchemaStore(self.schema)
+        self.scratch = scratch_schema(self, "comments_tr04", create=False)
+        self.schema = self.scratch.name
+        self.store = comments_store_on(self.scratch)
         self.tempdir = tempfile.TemporaryDirectory()
         self.addCleanup(self.tempdir.cleanup)
         self.project = SimpleNamespace(id="prj_test", path=self.tempdir.name)
@@ -84,12 +82,6 @@ class ReplyMutationRouteTests(unittest.TestCase):
         for item in patches:
             item.start()
             self.addCleanup(item.stop)
-        self.addCleanup(self._drop_schema)
-
-    def _drop_schema(self) -> None:
-        with self.store._connect() as conn:
-            conn.execute(f'DROP SCHEMA IF EXISTS "{self.schema}" CASCADE')
-            conn.commit()
 
     def _create_root(self, user, **overrides):
         payload = {"context": "PCB", "location": {"x": 1, "y": 2, "layer": "F.Cu"}, "content": "root"}
@@ -109,7 +101,7 @@ class ReplyMutationRouteTests(unittest.TestCase):
 
         edited = run(comments_api.update_reply(
             "prj_test", root["id"], reply_id,
-            comments_api.UpdateReplyRequest(content="first (edited)", expectedRevision=1, author="Mallory"),
+            comments_api.UpdateReplyRequest(content="first (edited)", author="Mallory"), if_match("reply", reply_id, 1),
             owner,
         ))
         [live] = edited["replies"]
@@ -117,13 +109,13 @@ class ReplyMutationRouteTests(unittest.TestCase):
         self.assertTrue(live["permissions"]["canEdit"])
         self.assertEqual(edited["revision"], 1, "reply edits do not bump the root")
 
-        restarted = DisposableSchemaStore(self.schema)
+        restarted = comments_store_on(self.scratch)
         with patch.object(comments_api, "comments_store", restarted):
             listing = run(comments_api.get_comments("prj_test", owner))
         [again] = listing["comments"][0]["replies"]
         self.assertEqual((again["id"], again["content"], again["revision"]), (reply_id, "first (edited)", 2))
 
-        after_delete = run(comments_api.delete_reply("prj_test", root["id"], reply_id, 2, owner))
+        after_delete = run(comments_api.delete_reply("prj_test", root["id"], reply_id, if_match("reply", reply_id, 2), owner))
         self.assertEqual(after_delete["replies"], [])
         self.assertEqual(after_delete["id"], root["id"])
 
@@ -139,14 +131,13 @@ class ReplyMutationRouteTests(unittest.TestCase):
         root = self._create_root(owner)
         created = self._reply(root["id"], owner, "v1")
         reply_id = created["reply"]["id"]
-        run(comments_api.update_reply(
-            "prj_test", root["id"], reply_id, comments_api.UpdateReplyRequest(content="v2", expectedRevision=1), owner,
+        run(comments_api.update_reply("prj_test", root["id"], reply_id, comments_api.UpdateReplyRequest(content="v2"), if_match("reply", reply_id, 1), owner,
         ))
-        stale = run(comments_api.update_reply(
-            "prj_test", root["id"], reply_id, comments_api.UpdateReplyRequest(content="v3-stale", expectedRevision=1), owner,
+        stale = run(comments_api.update_reply("prj_test", root["id"], reply_id, comments_api.UpdateReplyRequest(content="v3-stale"), if_match("reply", reply_id, 1), owner,
         ))
         self.assertIsInstance(stale, JSONResponse)
-        self.assertEqual((stale.status_code, body(stale)["code"], body(stale)["currentRevision"]), (409, "revision_conflict", 2))
+        self.assertEqual((stale.status_code, body(stale)["code"], body(stale)["currentRevision"]), (412, "revision_conflict", 2))
+        self.assertTrue(stale.headers["etag"].endswith(':2"'))
         current = self.store.get_reply("prj_test", root["id"], reply_id)
         self.assertEqual((current["content"], current["revision"]), ("v2", 2))
 
@@ -155,16 +146,14 @@ class ReplyMutationRouteTests(unittest.TestCase):
         alex2 = session("designer", user_id="u_2", name="Alex Chen")
         root = self._create_root(session("designer", user_id="u_root"))
         created = self._reply(root["id"], alex1)
-        refused = run(comments_api.update_reply(
-            "prj_test", root["id"], created["reply"]["id"], comments_api.UpdateReplyRequest(content="hijack"), alex2,
+        refused = run(comments_api.update_reply("prj_test", root["id"], created["reply"]["id"], comments_api.UpdateReplyRequest(content="hijack"), if_match("reply", created["reply"]["id"], None), alex2,
         ))
         self.assertEqual((refused.status_code, body(refused)["code"]), (403, "not_owner"))
-        deleted = run(comments_api.delete_reply("prj_test", root["id"], created["reply"]["id"], 1, alex2))
+        deleted = run(comments_api.delete_reply("prj_test", root["id"], created["reply"]["id"], if_match("reply", created["reply"]["id"], 1), alex2))
         self.assertEqual((deleted.status_code, body(deleted)["code"]), (403, "not_owner"))
 
         admin = session("admin", user_id="u_a", name="Admin")
-        updated = run(comments_api.update_reply(
-            "prj_test", root["id"], created["reply"]["id"], comments_api.UpdateReplyRequest(content="admin"), admin,
+        updated = run(comments_api.update_reply("prj_test", root["id"], created["reply"]["id"], comments_api.UpdateReplyRequest(content="admin"), if_match("reply", created["reply"]["id"], None), admin,
         ))
         self.assertEqual(updated["replies"][0]["content"], "admin")
         history = self.store.get_history("prj_test", comments_revisions.REPLY, created["reply"]["id"])
@@ -177,13 +166,12 @@ class ReplyMutationRouteTests(unittest.TestCase):
         reply_id = created["reply"]["id"]
 
         with self.assertRaises(HTTPException) as other_project:
-            run(comments_api.update_reply(
-                "prj_other", root["id"], reply_id, comments_api.UpdateReplyRequest(content="x"), owner,
+            run(comments_api.update_reply("prj_other", root["id"], reply_id, comments_api.UpdateReplyRequest(content="x"), if_match("reply", reply_id, None), owner,
             ))
         self.assertEqual(other_project.exception.status_code, 404)
 
         with self.assertRaises(HTTPException) as wrong_parent:
-            run(comments_api.delete_reply("prj_test", "c_missing", reply_id, 1, owner))
+            run(comments_api.delete_reply("prj_test", "c_missing", reply_id, if_match("reply", reply_id, 1), owner))
         self.assertEqual(wrong_parent.exception.status_code, 404)
         self.assertEqual(self.store.get_reply("prj_test", root["id"], reply_id)["content"], "reply")
 
@@ -196,11 +184,10 @@ class ReplyMutationRouteTests(unittest.TestCase):
             author_user_id="github:arjun", author_kind="remote", origin=comments_revisions.ORIGIN_REMOTE,
         )
         admin = session("admin", user_id="u_a")
-        refused = run(comments_api.update_reply(
-            "prj_test", root["id"], remote["id"], comments_api.UpdateReplyRequest(content="no"), admin,
+        refused = run(comments_api.update_reply("prj_test", root["id"], remote["id"], comments_api.UpdateReplyRequest(content="no"), if_match("reply", remote["id"], None), admin,
         ))
         self.assertEqual((refused.status_code, body(refused)["code"]), (403, "remote_object_read_only"))
-        deleted = run(comments_api.delete_reply("prj_test", root["id"], remote["id"], 1, admin))
+        deleted = run(comments_api.delete_reply("prj_test", root["id"], remote["id"], if_match("reply", remote["id"], 1), admin))
         self.assertEqual((deleted.status_code, body(deleted)["code"]), (403, "remote_object_read_only"))
         self.assertEqual(self.store.get_reply("prj_test", root["id"], remote["id"])["content"], "from github")
 
@@ -209,11 +196,10 @@ class ReplyMutationRouteTests(unittest.TestCase):
         root = self._create_root(owner)
         created = self._reply(root["id"], owner)
         plugin = AuthenticatedUser(email="p@x", name="Plugin", role="designer", auth_type="kicad_provider")
-        edited = run(comments_api.update_reply(
-            "prj_test", root["id"], created["reply"]["id"], comments_api.UpdateReplyRequest(content="x"), plugin,
+        edited = run(comments_api.update_reply("prj_test", root["id"], created["reply"]["id"], comments_api.UpdateReplyRequest(content="x"), if_match("reply", created["reply"]["id"], None), plugin,
         ))
         self.assertEqual((edited.status_code, body(edited)["code"]), (403, "provider_token_read_only"))
-        deleted = run(comments_api.delete_reply("prj_test", root["id"], created["reply"]["id"], 1, plugin))
+        deleted = run(comments_api.delete_reply("prj_test", root["id"], created["reply"]["id"], if_match("reply", created["reply"]["id"], 1), plugin))
         self.assertEqual((deleted.status_code, body(deleted)["code"]), (403, "provider_token_read_only"))
 
     def test_legacy_reply_is_admin_only(self) -> None:  # F1.legacy_admin_only
@@ -223,13 +209,11 @@ class ReplyMutationRouteTests(unittest.TestCase):
         _, legacy = self.store.add_reply(
             "prj_test", self.project.path, root["id"], "old reply", "swaroop",
         )
-        refused = run(comments_api.update_reply(
-            "prj_test", root["id"], legacy["id"], comments_api.UpdateReplyRequest(content="x"), designer,
+        refused = run(comments_api.update_reply("prj_test", root["id"], legacy["id"], comments_api.UpdateReplyRequest(content="x"), if_match("reply", legacy["id"], None), designer,
         ))
         self.assertEqual(body(refused)["code"], "legacy_admin_only")
         admin = session("admin", user_id="u_a")
-        updated = run(comments_api.update_reply(
-            "prj_test", root["id"], legacy["id"], comments_api.UpdateReplyRequest(content="admin"), admin,
+        updated = run(comments_api.update_reply("prj_test", root["id"], legacy["id"], comments_api.UpdateReplyRequest(content="admin"), if_match("reply", legacy["id"], None), admin,
         ))
         self.assertEqual(updated["replies"][-1]["content"], "admin")
         self.assertEqual(updated["replies"][-1]["authorKind"], "legacy")
@@ -241,10 +225,10 @@ class ReplyMutationRouteTests(unittest.TestCase):
         created = self._reply(root["id"], other, "keep me")
         reply_id = created["reply"]["id"]
 
-        after_delete = run(comments_api.delete_reply("prj_test", root["id"], reply_id, 1, other))
+        after_delete = run(comments_api.delete_reply("prj_test", root["id"], reply_id, if_match("reply", reply_id, 1), other))
         self.assertEqual(after_delete["replies"], [])
         with self.assertRaises(HTTPException) as second:
-            run(comments_api.delete_reply("prj_test", root["id"], reply_id, None, other))
+            run(comments_api.delete_reply("prj_test", root["id"], reply_id, if_match("reply", reply_id, None), other))
         self.assertEqual(second.exception.status_code, 404)
 
         exported_path = self.store.export_comments_json("prj_test", self.project.path)
@@ -264,7 +248,7 @@ class ReplyMutationRouteTests(unittest.TestCase):
             ["create", "delete"],
         )
 
-        run(comments_api.delete_comment("prj_test", root["id"], 1, owner))
+        run(comments_api.delete_comment("prj_test", root["id"], if_match("comment", root["id"], 1), owner))
         with self.store._connect() as conn:
             replies = conn.execute(
                 "SELECT id, deleted_at IS NOT NULL AS gone FROM comment_replies WHERE id = %s",

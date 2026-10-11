@@ -89,7 +89,7 @@ export function filterBomRows(
  */
 function BomValue({ field, value }: { field: string; value: string }) {
     const text = String(value ?? "").trim();
-    if (field === "DNP" || field === "kicad_dnp") {
+    if (field === "DNP") {
         const isDnp = ["yes", "true", "1"].includes(text.toLocaleLowerCase());
         return (
             <Badge variant={isDnp ? "destructive" : "outline"}>

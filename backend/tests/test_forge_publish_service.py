@@ -220,6 +220,52 @@ class ForgePublishTests(unittest.TestCase):
         self.assertIn(
             ("DELETE", "https://api.github.com/repos/org/board/releases/4242"), calls
         )
+        # The tag stays unless the caller says the publish created it.
+        self.assertNotIn(
+            ("DELETE", "https://api.github.com/repos/org/board/git/refs/tags/v1.0.0"), calls
+        )
+
+    def test_failed_asset_upload_deletes_a_tag_the_publish_created(self) -> None:
+        """D32: GitHub creates the tag with the Release; a rollback takes both down."""
+
+        calls: list[tuple[str, str]] = []
+
+        def request(method, url, **_kwargs):  # noqa: ANN001
+            calls.append((method, url))
+            if method == "POST" and url.endswith("/releases"):
+                return _Response(
+                    201,
+                    {
+                        "id": 4242,
+                        "upload_url": "https://uploads.github.com/repos/org/board/releases/4242/assets{?name,label}",
+                    },
+                )
+            if "uploads.github.com" in url:
+                return _Response(502, {"message": "upstream timeout"})
+            return _Response(204, {})
+
+        with (
+            patch.object(forge.settings, "GITHUB_TOKEN", "ghp_example"),
+            patch.object(forge.requests, "request", side_effect=request),
+        ):
+            with self.assertRaises(forge.ForgePublishError):
+                forge.publish_release(
+                    repo_url="https://github.com/org/board.git",
+                    commit_sha="a" * 40,
+                    tag="v1.0.0",
+                    title="Board",
+                    notes="notes",
+                    zip_bytes=b"zip-bytes",
+                    filename="board-v1.0.0.zip",
+                    new_tag=True,
+                )
+        self.assertEqual(
+            calls[-2:],
+            [
+                ("DELETE", "https://api.github.com/repos/org/board/releases/4242"),
+                ("DELETE", "https://api.github.com/repos/org/board/git/refs/tags/v1.0.0"),
+            ],
+        )
 
     def test_github_uploads_extra_assets_and_rolls_them_back_together(self) -> None:
         calls: list[tuple[str, str]] = []
@@ -498,6 +544,106 @@ class ForgeListTests(unittest.TestCase):
             patch.object(forge.requests, "request", return_value=_Response(502, {"message": "bad gateway"})),
         ):
             self.assertEqual(forge.list_releases("https://github.com/org/board.git"), [])
+
+
+class ForgeAdapterTests(unittest.TestCase):
+    """``forge_for`` hands back one adapter per forge; ``remove_release`` undoes a create."""
+
+    def test_forge_for_refuses_without_a_token_and_names_it(self) -> None:
+        with patch.object(forge.settings, "GITHUB_TOKEN", ""):
+            with self.assertRaises(forge.ForgePublishError) as caught:
+                forge.forge_for("https://github.com/org/board.git")
+        self.assertEqual(caught.exception.status_code, 409)
+        self.assertIn("GITHUB_TOKEN", str(caught.exception))
+
+    def test_forge_for_picks_the_adapter_by_host(self) -> None:
+        with (
+            patch.object(forge.settings, "GITHUB_TOKEN", "ghp_example"),
+            patch.object(forge.settings, "GITLAB_TOKEN", "glpat-example"),
+        ):
+            self.assertIsInstance(forge.forge_for("https://github.com/org/board.git"), forge.GitHubForge)
+            self.assertIsInstance(forge.forge_for("https://gitlab.com/org/board.git"), forge.GitLabForge)
+
+    def test_github_remove_release_finds_the_release_by_tag_and_deletes_it(self) -> None:
+        calls: list[tuple[str, str]] = []
+
+        def request(method, url, **_kwargs):  # noqa: ANN001
+            calls.append((method, url))
+            if method == "GET":
+                return _Response(200, {"id": 42})
+            return _Response(204)
+
+        with (
+            patch.object(forge.settings, "GITHUB_TOKEN", "ghp_example"),
+            patch.object(forge.requests, "request", side_effect=request),
+        ):
+            forge.remove_release("https://github.com/org/board.git", "v1.0.0")
+        self.assertEqual(calls[0], ("GET", "https://api.github.com/repos/org/board/releases/tags/v1.0.0"))
+        self.assertEqual(calls[1], ("DELETE", "https://api.github.com/repos/org/board/releases/42"))
+
+    def test_gitlab_remove_release_deletes_by_tag(self) -> None:
+        calls: list[tuple[str, str]] = []
+
+        def request(method, url, **_kwargs):  # noqa: ANN001
+            calls.append((method, url))
+            return _Response(200, {})
+
+        with (
+            patch.object(forge.settings, "GITLAB_TOKEN", "glpat-example"),
+            patch.object(forge.requests, "request", side_effect=request),
+        ):
+            forge.remove_release("https://gitlab.com/group/board.git", "v1.0.0")
+        self.assertEqual(calls, [("DELETE", "https://gitlab.com/api/v4/projects/group%2Fboard/releases/v1.0.0")])
+
+    def test_github_remove_release_with_tag_deletes_the_tag_ref(self) -> None:
+        calls: list[tuple[str, str]] = []
+
+        def request(method, url, **_kwargs):  # noqa: ANN001
+            calls.append((method, url))
+            if method == "GET":
+                return _Response(200, {"id": 42})
+            return _Response(204)
+
+        with (
+            patch.object(forge.settings, "GITHUB_TOKEN", "ghp_example"),
+            patch.object(forge.requests, "request", side_effect=request),
+        ):
+            forge.remove_release("https://github.com/org/board.git", "v1.0.0", with_tag=True)
+        self.assertEqual(calls[-1], ("DELETE", "https://api.github.com/repos/org/board/git/refs/tags/v1.0.0"))
+
+    def test_gitlab_remove_release_with_tag_deletes_the_repository_tag(self) -> None:
+        calls: list[tuple[str, str]] = []
+
+        def request(method, url, **_kwargs):  # noqa: ANN001
+            calls.append((method, url))
+            return _Response(200, {})
+
+        with (
+            patch.object(forge.settings, "GITLAB_TOKEN", "glpat-example"),
+            patch.object(forge.requests, "request", side_effect=request),
+        ):
+            forge.remove_release("https://gitlab.com/group/board.git", "v1.0.0", with_tag=True)
+        self.assertEqual(
+            calls,
+            [
+                ("DELETE", "https://gitlab.com/api/v4/projects/group%2Fboard/releases/v1.0.0"),
+                ("DELETE", "https://gitlab.com/api/v4/projects/group%2Fboard/repository/tags/v1.0.0"),
+            ],
+        )
+
+    def test_remove_release_is_best_effort(self) -> None:
+        with (
+            patch.object(forge.settings, "GITHUB_TOKEN", "ghp_example"),
+            patch.object(forge.requests, "request", return_value=_Response(500, {"message": "down"})),
+        ):
+            forge.remove_release("https://github.com/org/board.git", "v1.0.0")
+
+    def test_a_forge_failure_other_than_404_reads_as_no_tag(self) -> None:
+        with (
+            patch.object(forge.settings, "GITHUB_TOKEN", "ghp_example"),
+            patch.object(forge.requests, "request", return_value=_Response(500, {"message": "down"})),
+        ):
+            self.assertFalse(forge.tag_exists("https://github.com/org/board.git", "v1.0.0"))
 
 
 if __name__ == "__main__":

@@ -9,21 +9,16 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from app.services.trackers import providers  # noqa: E402
-from app.services.trackers.contracts import Destination  # noqa: E402
 from app.services.trackers.errors import ProviderError  # noqa: E402
 from app.services.trackers.inbound import CallableFetcher  # noqa: E402
-from app.services.trackers.provider_registry import (  # noqa: E402
+from app.services.trackers.connector_runtime import (  # noqa: E402
+    connector_status,
     ContextInboundFetcher,
     DestinationContext,
     TrackerProviderBundle,
 )
 from app.services.trackers.provenance import resolve_editor  # noqa: E402
 from app.services.trackers.state_mutations import supersession_message  # noqa: E402
-
-
-_DEST = Destination(
-    connectorId="cn_1", containerKind="repo", containerPath="acme/board", remoteContainerId="1", generation=1,
-)
 
 
 class ProviderRegistryTests(unittest.TestCase):
@@ -38,14 +33,28 @@ class ProviderRegistryTests(unittest.TestCase):
         self.assertEqual(caught.exception.class_, "invalid_request")
         self.assertNotIn("account linking", str(caught.exception))
 
-    def test_recovery_pages_follow_the_adapters_own_forge(self) -> None:
-        class _Adapter:
-            kind = "gitea"
+    def test_gitea_is_a_linking_only_kit(self) -> None:
+        kit = providers.host_kit("gitea")
+        self.assertTrue(kit.linking_only)
+        self.assertEqual(kit.instance_kinds, ("self-hosted",))
+        self.assertFalse(providers.host_kit("gitlab").linking_only)
+        with self.assertRaises(ProviderError):
+            providers.host_kit("bitbucket")
 
-        with self.assertRaises(ProviderError):
-            providers.issue_page_fetcher_for(_Adapter(), _DEST)
-        with self.assertRaises(ProviderError):
-            providers.comment_page_fetcher_for(_Adapter(), _DEST, "1")
+    def test_web_urls_follow_the_connectors_instance(self) -> None:
+        github = {"provider": "github", "instance_kind": "github.com", "base_url": ""}
+        ghes = {"provider": "github", "instance_kind": "ghes", "base_url": "https://ghe.acme.io/api/v3"}
+        gitlab = {"provider": "gitlab", "instance_kind": "self-hosted", "base_url": "https://gitlab.acme.io"}
+        self.assertEqual(providers.issue_web_url(github, "acme/board", 7), "https://github.com/acme/board/issues/7")
+        self.assertEqual(providers.issue_web_url(ghes, "acme/board", 7), "https://ghe.acme.io/acme/board/issues/7")
+        self.assertEqual(
+            providers.comment_web_url(ghes, "acme/board", 7, "99"),
+            "https://ghe.acme.io/acme/board/issues/7#issuecomment-99",
+        )
+        self.assertEqual(
+            providers.comment_web_url(gitlab, "hw/boards/board", 7, "7:99"),
+            "https://gitlab.acme.io/hw/boards/board/-/issues/7#note_99",
+        )
 
     def test_inbound_fetcher_carries_the_destination_provider(self) -> None:
         bundle = TrackerProviderBundle(
@@ -76,6 +85,45 @@ class ProviderRegistryTests(unittest.TestCase):
     def test_display_names_keep_brand_casing(self) -> None:
         self.assertEqual(providers.display_name("gitlab"), "GitLab")
         self.assertEqual(providers.display_name("github.com"), "GitHub")
+
+
+class ConnectorStatusTests(unittest.TestCase):
+    """One status per connector, derived once on the server (the UI only labels it)."""
+
+    def _row(self, **overrides):  # noqa: ANN003
+        row = {
+            "provider": "github",
+            "credentialConfigured": True,
+            "bot_forge_user_id": "199001",
+            "paused": False,
+            "paused_reason": None,
+        }
+        row.update(overrides)
+        return row
+
+    def test_tested_unpaused_connector_is_ready(self) -> None:
+        self.assertEqual(connector_status(self._row()), "ready")
+
+    def test_lost_auth_and_revoke_read_as_revoked(self) -> None:
+        # auth_lost is what executor_support writes when the forge rejects the credentials.
+        self.assertEqual(connector_status(self._row(paused=True, paused_reason="auth_lost")), "revoked")
+        self.assertEqual(
+            connector_status(self._row(paused=True, paused_reason="revoked", credentialConfigured=False)),
+            "revoked",
+        )
+
+    def test_github_without_its_app_is_revoked_but_gitlab_links_accounts(self) -> None:
+        self.assertEqual(connector_status(self._row(credentialConfigured=False)), "revoked")
+        self.assertEqual(connector_status(self._row(provider="gitlab", credentialConfigured=False)), "linking-only")
+        self.assertEqual(connector_status(self._row(provider="gitea", credentialConfigured=False)), "linking-only")
+
+    def test_untested_or_failed_test_needs_a_test(self) -> None:
+        self.assertEqual(connector_status(self._row(bot_forge_user_id=None)), "needs-test")
+        self.assertEqual(connector_status(self._row(paused=True, paused_reason="test_failed")), "needs-test")
+
+    def test_other_pauses_are_paused(self) -> None:
+        self.assertEqual(connector_status(self._row(paused=True, paused_reason="admin")), "paused")
+        self.assertEqual(connector_status(self._row(paused=True, paused_reason="permissions")), "paused")
 
 
 class ProviderWordingTests(unittest.TestCase):

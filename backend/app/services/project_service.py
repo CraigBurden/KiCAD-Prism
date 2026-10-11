@@ -1,22 +1,21 @@
 import os
 import hashlib
 import json
-import time
 import shutil
 import datetime
-import subprocess
 from typing import Any, Dict, List, Optional
 from urllib.parse import quote
 
 from git import Repo
 from pydantic import BaseModel
 
+from app.core.config import settings
 from app.release_studio.jobset import WORKFLOW_OUTPUT_IDS as _WORKFLOW_OUTPUT_IDS
-from app.services import kicad_jobset_service, path_config_service, semantic_index_service
+from app.services import kicad_jobset_service, path_config_service, project_settings_service, semantic_index_service
 from app.services.workspace_service import workspace
 from app.services.job_artifact_service import job_artifacts
 from app.services.job_runtime import JobContext, JobResult
-from app.services.job_service import jobs as v3_jobs
+from app.services.job_kinds import JobKind, JobSubject, repository_lock
 
 class Project(BaseModel):
     id: str
@@ -55,61 +54,17 @@ class Project(BaseModel):
     portfolio: Optional[Dict[str, Any]] = None  # Portfolio scene/detail metadata
 
 
-class RegisteredProjectRecord(BaseModel):
-    id: str
-    name: str
-    path: str
-    description: str
-    last_modified: str
-    registered_at: Optional[str] = None
-    sub_path: Optional[str] = None
-    parent_repo: Optional[str] = None
-    repo_url: Optional[str] = None
-    import_type: Optional[str] = None
-    parent_repo_path: Optional[str] = None
-    folder_id: Optional[str] = None
-
 # PROJECTS_ROOT is where imported projects are stored.
 # In Docker, this should be a persistent volume mount.
-PROJECTS_ROOT = os.environ.get("KICAD_PROJECTS_ROOT", os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../data/projects")))
+PROJECTS_ROOT = settings.KICAD_PROJECTS_ROOT
 
 # MONOREPOS_ROOT is where monorepos are cloned (Type-2 sub-projects)
 MONOREPOS_ROOT = os.path.join(PROJECTS_ROOT, "type2")
-
-# PROJECT_REGISTRY_FILE tracks all registered projects with metadata
-PROJECT_REGISTRY_FILE = os.path.join(PROJECTS_ROOT, ".project_registry.json")
 
 # Ensure directories exist
 os.makedirs(PROJECTS_ROOT, exist_ok=True)
 os.makedirs(MONOREPOS_ROOT, exist_ok=True)
 os.makedirs(os.path.join(PROJECTS_ROOT, "type1"), exist_ok=True)
-
-PROJECTS_CACHE_TTL = 5.0  # seconds
-
-_project_records_cache: List[RegisteredProjectRecord] = []
-_project_records_cache_time: float = 0
-_projects_cache: List[Project] = []
-_projects_cache_time: float = 0
-
-def _load_project_registry() -> Dict[str, dict]:
-    """Load the project registry from JSON file."""
-    if os.path.exists(PROJECT_REGISTRY_FILE):
-        try:
-            with open(PROJECT_REGISTRY_FILE, 'r') as f:
-                return json.load(f)
-        except (json.JSONDecodeError, IOError):
-            pass
-    return {}
-
-def _save_project_registry(registry: Dict[str, dict]) -> None:
-    """Save the project registry to JSON file."""
-    try:
-        with open(PROJECT_REGISTRY_FILE, 'w') as f:
-            json.dump(registry, f, indent=2)
-        invalidate_project_caches()
-    except IOError as e:
-        print(f"Warning: Failed to save project registry: {e}")
-
 
 # The project file that identifies one project inside a shared directory.
 # Accepts either a `Project` or a raw workspace row, because callers hold one or
@@ -141,187 +96,8 @@ def resolved_paths_for(
 
 
 def save_path_config_for(project: Any, config: path_config_service.PathConfig) -> None:
-    """Persist a project's path configuration under its own anchor."""
-    path_config_service.save_path_config(
-        _project_path_of(project), config, anchor=project_anchor(project)
-    )
-
-
-def invalidate_project_caches() -> None:
-    # Project metadata used to be memoised in-process here as well. It now
-    # lives in ws_project_metadata, keyed by a fingerprint of the files it was
-    # computed from, so it invalidates itself and has nothing to clear.
-    global _project_records_cache, _project_records_cache_time
-    global _projects_cache, _projects_cache_time
-    _project_records_cache = []
-    _project_records_cache_time = 0
-    _projects_cache = []
-    _projects_cache_time = 0
-
-def register_project(project_id: str, name: str, path: str, repo_url: str,
-                     sub_path: Optional[str] = None, parent_repo: Optional[str] = None,
-                     description: Optional[str] = None, folder_id: Optional[str] = None) -> None:
-    """Register a project in the registry."""
-    registry = _load_project_registry()
-    
-    # Get last modified time
-    try:
-        mtime = os.path.getmtime(path)
-        last_modified = datetime.datetime.fromtimestamp(mtime).strftime('%Y-%m-%d')
-    except:
-        last_modified = "Unknown"
-    
-    registry[project_id] = {
-        "name": name,
-        "path": path,
-        "repo_url": repo_url,
-        "sub_path": sub_path,
-        "parent_repo": parent_repo,
-        "description": description or f"Project {name}",
-        "last_modified": last_modified,
-        "registered_at": datetime.datetime.now().isoformat(),
-        "folder_id": folder_id
-    }
-    
-    _save_project_registry(registry)
-
-def _normalize_path(path: str) -> str:
-    """
-    Normalize project paths to work in both Docker and terminal environments.
-    Converts between /app/projects and absolute local paths.
-    """
-    # If path is already correct for current environment and exists, return as-is
-    if os.path.exists(path):
-        return os.path.abspath(path)
-    
-    # Convert Docker path to local path (running on host, registry has docker paths)
-    if path.startswith("/app/projects"):
-        local_path = path.replace("/app/projects", PROJECTS_ROOT)
-        if os.path.exists(local_path):
-            return local_path
-            
-    # Convert Host path to Docker path (running in docker, registry has host paths)
-    # Strategy: locate 'data/projects/' or 'type1'/'type2' and append to current PROJECTS_ROOT
-    for marker in ["data/projects/", "type1/", "type2/", "monorepos/"]:
-        if marker in path:
-            parts = path.split(marker)
-            # Reconstruct using current PROJECTS_ROOT
-            # If marker is data/projects/, we just want the part after it
-            # If marker is type1/, we want type1/ + suffix
-            suffix = parts[-1]
-            if marker == "data/projects/":
-                remapped = os.path.join(PROJECTS_ROOT, suffix)
-            else:
-                remapped = os.path.join(PROJECTS_ROOT, marker.strip("/"), suffix)
-                
-            if os.path.exists(remapped):
-                return remapped
-    
-    # Convert relative path to absolute
-    if not os.path.isabs(path):
-        abs_path = os.path.abspath(os.path.join(PROJECTS_ROOT, "..", "..", path))
-        if os.path.exists(abs_path):
-            return abs_path
-        
-        # Try relative to PROJECTS_ROOT
-        abs_path = os.path.abspath(os.path.join(PROJECTS_ROOT, path))
-        if os.path.exists(abs_path):
-            return abs_path
-    
-    # Return original path if no conversion worked
-    return path
-
-def _record_last_modified(path: str, fallback: str) -> str:
-    try:
-        mtime = os.path.getmtime(path)
-        return datetime.datetime.fromtimestamp(mtime).strftime('%Y-%m-%d')
-    except OSError:
-        return fallback
-
-
-def _to_relative_project_path(project_path: str, file_path: Optional[str]) -> Optional[str]:
-    if not file_path:
-        return None
-    try:
-        relative = os.path.relpath(file_path, project_path)
-    except ValueError:
-        return None
-    if relative.startswith(".."):
-        return None
-    return relative.replace(os.sep, "/")
-
-
-def _resolve_thumbnail_from_path(project_path: str) -> Optional[str]:
-    config = path_config_service.get_path_config(project_path)
-    resolved = path_config_service.resolve_paths(project_path, config)
-    thumbnail_path = resolved.thumbnail_dir
-
-    if not thumbnail_path or not os.path.exists(thumbnail_path):
-        return None
-
-    if os.path.isfile(thumbnail_path):
-        return thumbnail_path
-
-    for file_name in sorted(os.listdir(thumbnail_path)):
-        if file_name.lower().endswith((".png", ".jpg", ".jpeg", ".webp")):
-            return os.path.join(thumbnail_path, file_name)
-
-    return None
-
-
-def _build_portfolio_metadata(project_id: str, project_path: str) -> Optional[Dict[str, Any]]:
-    configured = path_config_service.get_portfolio_config(project_path)
-    portfolio: Dict[str, Any] = dict(configured) if configured else {}
-
-    model_path = portfolio.get("modelPath")
-    if not model_path:
-        detected_model = find_3d_model(project_path)
-        model_path = _to_relative_project_path(project_path, detected_model)
-
-    thumbnail_path = portfolio.get("thumbnailPath")
-    if not thumbnail_path:
-        detected_thumbnail = _resolve_thumbnail_from_path(project_path)
-        thumbnail_path = _to_relative_project_path(project_path, detected_thumbnail)
-
-    if model_path:
-        encoded_model_path = quote(model_path, safe="/")
-        portfolio["modelPath"] = model_path
-        portfolio["modelUrl"] = f"/api/projects/{quote(project_id, safe='')}/asset/{encoded_model_path}"
-
-    if thumbnail_path:
-        encoded_thumbnail_path = quote(thumbnail_path, safe="/")
-        portfolio["thumbnailPath"] = thumbnail_path
-        portfolio["thumbnailUrl"] = f"/api/projects/{quote(project_id, safe='')}/asset/{encoded_thumbnail_path}"
-
-    if "tags" not in portfolio:
-        portfolio["tags"] = []
-
-    return portfolio or None
-
-
-def _record_to_project(record: RegisteredProjectRecord) -> Project:
-    custom_display_name = path_config_service.get_project_display_name(record.path)
-    custom_description = path_config_service.get_project_description(record.path)
-    portfolio = _build_portfolio_metadata(record.id, record.path)
-    thumbnail_path = _resolve_thumbnail_from_path(record.path)
-
-    return Project(
-        id=record.id,
-        name=record.name,
-        display_name=custom_display_name,
-        description=custom_description or record.description,
-        path=record.path,
-        last_modified=record.last_modified,
-        registered_at=record.registered_at,
-        thumbnail_url=f"/api/projects/{record.id}/thumbnail" if thumbnail_path else None,
-        sub_path=record.sub_path,
-        parent_repo=record.parent_repo,
-        repo_url=record.repo_url,
-        import_type=record.import_type,
-        parent_repo_path=record.parent_repo_path,
-        folder_id=record.folder_id,
-        portfolio=portfolio,
-    )
+    """Store a project's path configuration in Prism, never in its checkout."""
+    project_settings_service.save(project, config)
 
 
 def thumbnail_url_for_row(row: dict) -> Optional[str]:
@@ -334,92 +110,11 @@ def thumbnail_url_for_row(row: dict) -> Optional[str]:
     return f"/api/projects/{project_id}/thumbnail"
 
 
-def get_registered_project_records() -> List[RegisteredProjectRecord]:
-    """
-    Return normalized registry-backed project records without hydrating `.prism.json`.
-    """
-    global _project_records_cache, _project_records_cache_time
-
-    current_time = time.time()
-    if _project_records_cache and (current_time - _project_records_cache_time) < PROJECTS_CACHE_TTL:
-        return _project_records_cache
-
-    registry = _load_project_registry()
-    records: List[RegisteredProjectRecord] = []
-    for project_id, data in registry.items():
-        normalized_path = _normalize_path(data["path"])
-        if not os.path.exists(normalized_path):
-            continue
-
-        records.append(
-            RegisteredProjectRecord(
-                id=project_id,
-                name=data["name"],
-                path=normalized_path,
-                description=data.get("description", f"Project {data['name']}"),
-                last_modified=_record_last_modified(normalized_path, data.get("last_modified", "Unknown")),
-                registered_at=data.get("registered_at"),
-                sub_path=data.get("sub_path"),
-                parent_repo=data.get("parent_repo"),
-                repo_url=data.get("repo_url"),
-                import_type=data.get("import_type"),
-                parent_repo_path=(
-                    _normalize_path(data.get("parent_repo_path"))
-                    if data.get("import_type") == "type2_subproject" and data.get("parent_repo_path")
-                    else None
-                ),
-                folder_id=data.get("folder_id"),
-            )
-        )
-
-    _project_records_cache = records
-    _project_records_cache_time = current_time
-    return records
-
-def get_registered_projects() -> List[Project]:
-    """
-    Get all registered projects from the registry.
-    Uses a short-term cache to avoid excessive I/O.
-    """
-    global _projects_cache, _projects_cache_time
-    
-    current_time = time.time()
-    if _projects_cache and (current_time - _projects_cache_time) < PROJECTS_CACHE_TTL:
-        return _projects_cache
-        
-    projects = [_record_to_project(record) for record in get_registered_project_records()]
-    
-    _projects_cache = projects
-    _projects_cache_time = current_time
-    return projects
-
-
 def get_project_by_id(project_id: str) -> Optional[Project]:
-    """
-    Resolve a project from the authoritative workspace registry.
-
-    The JSON registry remains a compatibility fallback for older local installs,
-    but current `prj_*` identities are owned by the workspace database. This is
-    especially important in separate worker processes, whose legacy in-memory
-    registry cache may be empty even though the API can see the project.
-    """
+    """Resolve a project from the workspace database, the only project registry."""
     workspace_row = workspace.get_project_by_id(project_id)
-    if workspace_row:
-        return _workspace_row_to_project(workspace_row)
+    return _workspace_row_to_project(workspace_row) if workspace_row else None
 
-    # Try cache first
-    global _projects_cache, _projects_cache_time
-    current_time = time.time()
-    if _projects_cache and (current_time - _projects_cache_time) < PROJECTS_CACHE_TTL:
-        project = next((p for p in _projects_cache if p.id == project_id), None)
-        if project:
-            return project
-
-    record = next((item for item in get_registered_project_records() if item.id == project_id), None)
-    if not record:
-        return None
-
-    return _record_to_project(record)
 
 def _workspace_row_to_project(row: dict) -> Project:
     return Project(
@@ -448,44 +143,7 @@ def _workspace_row_to_project(row: dict) -> Project:
         portfolio=row.get("portfolio"),
     )
 
-def get_job_status(job_id: str):
-    v3_job = v3_jobs.get(job_id)
-    if v3_job:
-        metadata = dict(v3_job.get("result_metadata") or {})
-        payload_compat = dict(v3_job.get("payload") or {})
-        staged_keys = (
-            "bundle_url",
-            "readiness",
-            "readiness_stage",
-            "sourceRevisionKey",
-            "source_fingerprint",
-            "status_selector",
-            "commit",
-        )
-        staged_fields = {
-            key: payload_compat[key]
-            for key in staged_keys
-            if key in payload_compat and payload_compat[key] is not None
-        }
-        logs = payload_compat.get("logs")
-        if not isinstance(logs, list):
-            logs = []
-        return {
-            **metadata,
-            **staged_fields,
-            **v3_job,
-            "type": v3_job.get("kind"),
-            "error": v3_job.get("error_message") or None,
-            "logs": logs,
-        }
-    return workspace.get_job(job_id)
-
 # Workflow Jobs
-def _find_cli_path():
-    """Keep the legacy lookup seam while delegating to the jobset service."""
-
-    return kicad_jobset_service.find_kicad_cli_path()
-
 def webgpu_artifact_key(row: dict, commit: str | None, *, force: bool = False) -> str:
     """The ``webgpu_3d`` job key for a project row at ``commit`` (or its workspace).
 
@@ -523,13 +181,11 @@ def start_workflow_job(
     row = workspace.get_project_by_id(project_id)
     if not row:
         raise ValueError("Project not found")
-    repository_id = str(row.get("repo_id") or "")
     project_file_rel = str(row.get("project_file_rel") or "")
 
     if workflow_type == "webgpu_3d":
         artifact_key = webgpu_artifact_key(row, commit, force=force)
-        queued = v3_jobs.enqueue(
-            "webgpu_3d",
+        queued = WEBGPU_3D.enqueue(
             {
                 "project_id": project_id,
                 "commit": commit,
@@ -537,21 +193,9 @@ def start_workflow_job(
                 "artifact_key": artifact_key,
                 "project_file_rel": project_file_rel,
             },
-            worker_pool="prism",
+            subject=JobSubject.of_project(row, project_id),
             artifact_key="" if force else artifact_key,
-            project_id=project_id,
-            repository_id=repository_id or None,
             requested_by=author,
-            resources={
-                "prism_worker": 1,
-                "webgpu": 1,
-                "semantic_compile": 1,
-            },
-            locks=(
-                [{"key": f"repository:{repository_id}", "mode": "read"}]
-                if repository_id
-                else [{"key": f"project:{project_id}", "mode": "read"}]
-            ),
         )
         return str(queued["job_id"])
 
@@ -566,29 +210,16 @@ def start_workflow_job(
             separators=(",", ":"),
         ).encode("utf-8")
     ).hexdigest()
-    queued = v3_jobs.enqueue(
-        "kicad_workflow",
+    queued = KICAD_WORKFLOW.enqueue(
         {
             "project_id": project_id,
             "workflow_type": workflow_type,
             "author": author,
             "project_file_rel": project_file_rel,
         },
-        worker_pool="prism",
+        subject=JobSubject.of_project(row, project_id),
         artifact_key=active_key,
-        project_id=project_id,
-        repository_id=repository_id or None,
         requested_by=author,
-        max_attempts=1,
-        resources={
-            "prism_worker": 1,
-            "workflow": 1,
-        },
-        locks=(
-            [{"key": f"repository:{repository_id}", "mode": "write"}]
-            if repository_id
-            else [{"key": f"project:{project_id}", "mode": "write"}]
-        ),
     )
     return str(queued["job_id"])
 
@@ -603,7 +234,6 @@ def start_semantic_index_job(
     row = workspace.get_project_by_id(project_id)
     if not row:
         raise ValueError("Project not found")
-    repository_id = str(row.get("repo_id") or "")
     project_file_rel = str(row.get("project_file_rel") or "")
     source_selector = commit or f"workspace:{row.get('last_modified') or ''}"
     artifact_key = hashlib.sha256(
@@ -618,8 +248,7 @@ def start_semantic_index_job(
             separators=(",", ":"),
         ).encode("utf-8")
     ).hexdigest()
-    queued = v3_jobs.enqueue(
-        "semantic_index",
+    queued = SEMANTIC_INDEX.enqueue(
         {
             "project_id": project_id,
             "commit": commit,
@@ -627,20 +256,9 @@ def start_semantic_index_job(
             "artifact_key": artifact_key,
             "project_file_rel": project_file_rel,
         },
-        worker_pool="prism",
+        subject=JobSubject.of_project(row, project_id),
         artifact_key="" if force else artifact_key,
-        project_id=project_id,
-        repository_id=repository_id or None,
         requested_by=requested_by,
-        resources={
-            "prism_worker": 1,
-            "semantic_compile": 1,
-        },
-        locks=(
-            [{"key": f"repository:{repository_id}", "mode": "read"}]
-            if repository_id
-            else [{"key": f"project:{project_id}", "mode": "read"}]
-        ),
     )
     return str(queued["job_id"])
 
@@ -879,7 +497,6 @@ def run_kicad_workflow_job_v3(context: JobContext) -> JobResult:
         workflow_type=workflow_type,
         author=author,
         routing="repository",
-        cli_path=_find_cli_path(),
         # Keep the old project_service.Repo patch seam for the legacy handler
         # while the generic service remains independently testable.
         repository_factory=Repo,
@@ -973,90 +590,6 @@ def find_ibom_file(project_path: str) -> Optional[str]:
             return os.path.join(resolved.design_outputs_dir, file)
     return None
 
-def delete_project(project_id: str) -> bool:
-    """
-    Delete a project from the registry and optionally remove its files.
-    Returns True if project was found and deleted, False otherwise.
-    """
-    project = get_project_by_id(project_id)
-    if not project:
-        return False
-
-    registry = _load_project_registry()
-    if project_id not in registry:
-        return False
-
-    project_path = project.path
-    parent_repo = project.parent_repo
-    import_type = project.import_type
-    
-    # Remove from registry
-    del registry[project_id]
-    _save_project_registry(registry)
-    
-    if import_type == "type2_subproject" and parent_repo:
-        # Check if there are any remaining subprojects for this parent repo
-        remaining_subprojects = [
-            p for p in registry.values()
-            if p.get("parent_repo") == parent_repo and p.get("import_type") == "type2_subproject"
-        ]
-        
-        # If no remaining subprojects, delete the parent repo directory
-        if not remaining_subprojects and project_path:
-            parent_repo_path = project.parent_repo_path or os.path.dirname(project_path)
-            if os.path.exists(parent_repo_path):
-                try:
-                    shutil.rmtree(parent_repo_path)
-                    print(f"Deleted Type-2 parent repo: {parent_repo_path}")
-                except Exception as e:
-                    print(f"Warning: Failed to delete parent repo directory {parent_repo_path}: {e}")
-    elif not parent_repo and project_path and os.path.exists(project_path):
-        # For Type-1 projects (standalone), delete the directory
-        try:
-            shutil.rmtree(project_path)
-        except Exception as e:
-            print(f"Warning: Failed to delete project directory {project_path}: {e}")
-    
-    return True
-
-
-def update_project_folder_id(project_id: str, folder_id: Optional[str]) -> bool:
-    """
-    Persist workspace folder assignment for a project.
-    Returns False if project does not exist.
-    """
-    registry = _load_project_registry()
-    if project_id not in registry:
-        return False
-
-    registry[project_id]["folder_id"] = folder_id
-    _save_project_registry(registry)
-
-    return True
-
-
-def update_project_description(project_id: str, description: str) -> bool:
-    """
-    Persist project description in .prism.json.
-    Falls back to registry only for project lookup and backward compatibility.
-    Returns False if project does not exist.
-    """
-    project = get_project_by_id(project_id)
-    if not project:
-        return False
-
-    config = path_config_for(project)
-    config.description = description
-    save_path_config_for(project, config)
-
-    # Keep registry mirrored for legacy fallback/search compatibility on older code paths.
-    registry = _load_project_registry()
-    if project_id in registry:
-        registry[project_id]["description"] = description
-        _save_project_registry(registry)
-
-    return True
-
 def get_subsheets(project_path: str, main_schematic: str) -> List[str]:
     """Find all .kicad_sch files using path config."""
     subsheets = []
@@ -1080,3 +613,25 @@ def get_subsheets(project_path: str, main_schematic: str) -> List[str]:
                 subsheets.append(subsheet_rel)
                 
     return subsheets
+
+
+WEBGPU_3D = JobKind(
+    "webgpu_3d",
+    run_webgpu_3d_job_v3,
+    resources={"prism_worker": 1, "webgpu": 1, "semantic_compile": 1},
+    lock=repository_lock("read"),
+)
+KICAD_WORKFLOW = JobKind(
+    "kicad_workflow",
+    run_kicad_workflow_job_v3,
+    resources={"prism_worker": 1, "workflow": 1},
+    lock=repository_lock("write"),
+    max_attempts=1,
+)
+SEMANTIC_INDEX = JobKind(
+    "semantic_index",
+    run_semantic_index_job_v3,
+    resources={"prism_worker": 1, "semantic_compile": 1},
+    lock=repository_lock("read"),
+)
+JOB_KINDS = (WEBGPU_3D, KICAD_WORKFLOW, SEMANTIC_INDEX)

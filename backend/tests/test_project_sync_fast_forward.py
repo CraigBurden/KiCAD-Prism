@@ -8,13 +8,15 @@ once upstream touched the same path.
 
 from __future__ import annotations
 
+import json
 import tempfile
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
 from unittest import mock
 
-from app.services import project_import_service
+from app.services import job_service, path_config_service, project_import_service, project_service
+from support.repo import git, set_identity  # noqa: E402
 
 
 class SyncFastForwardsOnly(unittest.TestCase):
@@ -85,7 +87,7 @@ class SyncFastForwardsOnly(unittest.TestCase):
 
     def test_background_fetch_job_is_separate_and_lower_priority(self) -> None:
         with mock.patch.object(
-            project_import_service.v3_jobs, "enqueue", return_value={"job_id": "job-1"}
+            job_service.jobs, "enqueue", return_value={"job_id": "job-1"}
         ) as enqueue:
             project_import_service.start_sync_job("prj_1", fetch_only=True)
         self.assertEqual(enqueue.call_args.args[1]["fetch_only"], True)
@@ -130,7 +132,7 @@ class SyncFastForwardsOnly(unittest.TestCase):
         # Built locally, it drifts. This is what let the policies diverge.
         project_import_service.sync_project("prj_1")
         env = self.origin.fetch.call_args.kwargs["env"]
-        expected = project_import_service.git_env()
+        expected = project_import_service.git_remote_access.git_env()
         self.assertEqual(env["GIT_SSH_COMMAND"], expected["GIT_SSH_COMMAND"])
         self.assertEqual(env["GIT_TERMINAL_PROMPT"], expected["GIT_TERMINAL_PROMPT"])
 
@@ -142,6 +144,73 @@ class SyncFastForwardsOnly(unittest.TestCase):
         ) as purge:
             project_import_service.sync_project("prj_1")
         purge.assert_called_once()
+
+
+class EditingSettingsKeepsSyncFastForwarding(unittest.TestCase):
+    """Editing a project's settings in Prism must not dirty the checkout.
+
+    The settings routes used to write `.prism.json` into the server-managed
+    checkout. Sync treats a dirty tracked tree as someone's local edit and
+    stops fast-forwarding, so one rename froze the project at that commit.
+    """
+
+    def setUp(self) -> None:
+        self._temporary = tempfile.TemporaryDirectory()
+        root = Path(self._temporary.name)
+        self.addCleanup(self._temporary.cleanup)
+        self.upstream = root / "upstream.git"
+        git(root, "init", "-q", "--bare", "-b", "main", str(self.upstream))
+        self.author = root / "author"
+        git(root, "clone", "-q", str(self.upstream), str(self.author))
+        set_identity(self.author)
+        (self.author / "board.kicad_pro").write_text("{}", encoding="utf-8")
+        (self.author / ".prism.json").write_text(
+            json.dumps({"paths": {"designOutputs": "Design-Outputs"}}), encoding="utf-8"
+        )
+        git(self.author, "add", "-A")
+        git(self.author, "commit", "-qm", "seed")
+        git(self.author, "push", "-q", "origin", "HEAD:main")
+        self.checkout = root / "checkout"
+        git(root, "clone", "-q", str(self.upstream), str(self.checkout))
+        self.row = {
+            "id": "prj_1",
+            "repo_id": "repo_1",
+            "import_type": "single",
+            "path": str(self.checkout),
+            "parent_repo_path": str(self.checkout),
+            "name": "board",
+            "relative_path": ".",
+            "project_file_rel": "board.kicad_pro",
+            "path_settings": None,
+        }
+        path_config_service.clear_config_cache()
+        self.addCleanup(path_config_service.clear_config_cache)
+        for patch in (
+            mock.patch.object(project_import_service.workspace, "get_project_by_id", return_value=self.row),
+            mock.patch.object(project_import_service.workspace, "update_project", return_value=True),
+            mock.patch.object(project_import_service.workspace, "update_repository_synced"),
+            mock.patch.object(project_import_service, "refresh_project_assets"),
+        ):
+            patch.start()
+            self.addCleanup(patch.stop)
+
+    def test_a_settings_edit_does_not_block_the_next_fast_forward(self) -> None:
+        project = project_service._workspace_row_to_project(self.row)
+        config = project_service.path_config_for(project)
+        config.designOutputs = "Outputs"
+        project_service.save_path_config_for(project, config)
+
+        (self.author / "board.kicad_sch").write_text("(kicad_sch)", encoding="utf-8")
+        git(self.author, "add", "-A")
+        git(self.author, "commit", "-qm", "upstream work")
+        git(self.author, "push", "-q", "origin", "HEAD:main")
+        upstream_head = git(self.author, "rev-parse", "HEAD")
+
+        result = project_import_service.sync_project("prj_1")
+
+        self.assertEqual(result["status"], "success", result)
+        self.assertEqual(git(self.checkout, "rev-parse", "HEAD"), upstream_head, result["message"])
+        self.assertEqual(git(self.checkout, "status", "--porcelain"), "")
 
 
 class NoHostKeyPolicyIsWrittenByHand(unittest.TestCase):
@@ -168,7 +237,7 @@ class NoHostKeyPolicyIsWrittenByHand(unittest.TestCase):
             "StrictHostKeyChecking",
             # git_env is the single definition; git_failures only matches on the
             # string when explaining a failure it did not cause.
-            skip=("project_import_service.py", "git_failures.py"),
+            skip=("git_remote_access.py", "git_failures.py"),
         )
         self.assertEqual(
             offenders,

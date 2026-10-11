@@ -1,15 +1,18 @@
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { scenePollDelay, summarizeScene } from "./scene-3d-model";
 import { Scene3dTab } from "./scene-3d-tab";
+import { renderInSession } from "./session/memory-session";
+import type { SystemTabProps } from "./system-tab-content";
 import { instance, systemDocument } from "./test-fixtures";
+import { defineFakeSemanticViewer, mountedSemanticViewer } from "@/test/fake-semantic-viewer";
 import type { SystemScene, SystemSceneAsset, SystemSceneOccurrence } from "@/types/system";
 
 afterEach(() => vi.unstubAllGlobals());
 
 // The viewer bundle defines the element; the tab waits for it before driving it.
-if (!customElements.get("prism-semantic-viewer")) customElements.define("prism-semantic-viewer", class extends HTMLElement {});
+defineFakeSemanticViewer();
 
 const box = { minMm: [0, -90, -0.8], maxMm: [132, 0, 0.8] };
 const occurrence = (label: string, patch: Partial<SystemSceneOccurrence> = {}): SystemSceneOccurrence => ({
@@ -57,15 +60,17 @@ describe("scene summary", () => {
 
 describe("Scene3dTab", () => {
   const props = {
-    systemId: "sys_1", document: systemDocument([instance("OBC-1")]), etag: '"sys:sys_1:3"', canEdit: true, user: null,
-    reload: vi.fn(async () => undefined), onNavigate: vi.fn(),
+    systemId: "sys_1", document: systemDocument([instance("OBC-1")]), canEdit: true, user: null, onNavigate: vi.fn(),
   };
+  /** The tab in a session holding the document; answers how many times it was re-read. */
+  const renderTab = (extra: Partial<SystemTabProps> = {}) =>
+    renderInSession(<Scene3dTab {...props} {...extra} />, { document: props.document }).loads;
 
   it("reads the scene and explains restricted, failed and building boards", async () => {
     vi.stubGlobal("navigator", { ...navigator, gpu: {} });
     const fetchMock = vi.fn(async () => new Response(JSON.stringify(mixed), { status: 200, headers: { "Content-Type": "application/json" } }));
     vi.stubGlobal("fetch", fetchMock);
-    render(<Scene3dTab {...props} />);
+    renderTab();
     expect(await screen.findByText(/CMBD is restricted: drawn as a grey box showing only its size/)).toBeTruthy();
     expect(screen.getByText(/The 3D view of OBC-2 failed: kicad-cli missing/)).toBeTruthy();
     expect(screen.getByText(/Generating the 3D view of PSU/)).toBeTruthy();
@@ -83,13 +88,11 @@ describe("Scene3dTab", () => {
     const responses: Response[] = [];
     const fetchMock = vi.fn(async (url: string) => (String(url).endsWith("/scene") ? json(mixed) : responses.shift()!));
     vi.stubGlobal("fetch", fetchMock);
-    render(<Scene3dTab {...props} />);
+    const loads = renderTab();
     await screen.findByTitle(/^4 boards/);
-    const element = document.querySelector("prism-semantic-viewer") as unknown as HTMLElement & Record<string, unknown>;
-    element.setMoveMode = vi.fn();
+    const element = mountedSemanticViewer();
     // The tab listens once the element is there; give its effects a turn.
     await act(async () => undefined);
-    element.cancelMove = vi.fn();
     fireEvent.click(screen.getByRole("button", { name: /Move/ }));
     expect(element.setMoveMode).toHaveBeenCalledWith(true, { route: false });
 
@@ -103,10 +106,10 @@ describe("Scene3dTab", () => {
     });
     responses.push(json({ instanceId: "sin_OBC-1", ...pose, source: "manual" }, 200, '"sys:sys_1:4"'));
     commit("commit");
-    await waitFor(() => expect(props.reload).toHaveBeenCalled());
+    await waitFor(() => expect(loads()).toBe(1));
     const put = fetchMock.mock.calls.find((call) => String(call[0]).endsWith("/poses/sin_OBC-1")) as unknown as [string, RequestInit];
     expect(put[1].method).toBe("PUT");
-    expect(new Headers(put[1].headers).get("If-Match")).toBe('"sys:sys_1:3"');
+    expect(new Headers(put[1].headers).get("If-Match")).toBe(props.document.system.etag);
     expect(JSON.parse(String(put[1].body))).toEqual(pose);
     expect(element.cancelMove).not.toHaveBeenCalled();
     expect(screen.getByLabelText("Position of OBC-1")).toBeTruthy();
@@ -123,11 +126,10 @@ describe("Scene3dTab", () => {
     });
     const fetchMock = vi.fn(async (url: string) => (String(url).endsWith("/scene") ? json(mixed) : json({})));
     vi.stubGlobal("fetch", fetchMock);
-    render(<Scene3dTab {...props} />);
+    renderTab();
     await screen.findByTitle(/^4 boards/);
-    const element = document.querySelector("prism-semantic-viewer") as unknown as HTMLElement & Record<string, unknown>;
+    const element = mountedSemanticViewer();
     await act(async () => undefined);
-    element.cancelMove = vi.fn();
     const picked = { translationMm: [1, 2, 3], rotation: [0, 0, 0, 1] };
     const send = (phase: string, pose: unknown, unsaved: boolean) => act(() => {
       element.dispatchEvent(new CustomEvent("prism-semantic-viewer:move", { detail: {
@@ -160,11 +162,10 @@ describe("Scene3dTab", () => {
     const json = (body: unknown) => new Response(JSON.stringify(body), { status: 200, headers: { "Content-Type": "application/json" } });
     const fetchMock = vi.fn(async (url: string) => (String(url).endsWith("/scene") ? json(mated) : json({ poses: [] })));
     vi.stubGlobal("fetch", fetchMock);
-    render(<Scene3dTab {...props} />);
+    renderTab();
     await screen.findByTitle(/^2 boards/);
-    const element = document.querySelector("prism-semantic-viewer") as unknown as HTMLElement & Record<string, unknown>;
+    const element = mountedSemanticViewer();
     await act(async () => undefined);
-    element.cancelMove = vi.fn();
     const send = (phase: string, pose: unknown, unsaved: boolean) => act(() => {
       element.dispatchEvent(new CustomEvent("prism-semantic-viewer:move", { detail: {
         phase, allowed: true, enabled: true, space: "world", dragging: false,
@@ -211,11 +212,9 @@ describe("Scene3dTab", () => {
         to: { occurrence: "/sin_OBC-1", displayPath: "OBC-1", reference: "J3", pad: "12" } }] });
     });
     vi.stubGlobal("fetch", fetchMock);
-    render(<Scene3dTab {...props} />);
+    renderTab();
     await screen.findByTitle(/^4 boards/);
-    const element = document.querySelector("prism-semantic-viewer") as unknown as HTMLElement & Record<string, unknown>;
-    element.setNetEmphasis = vi.fn(() => []);
-    element.frameParts = vi.fn(() => true);
+    const element = mountedSemanticViewer();
     await act(async () => undefined);
     const select = (selection: unknown) => act(() => {
       element.dispatchEvent(new CustomEvent("prism-semantic-viewer:selectionchange", { detail: { selection } }));
@@ -257,12 +256,9 @@ describe("Scene3dTab", () => {
       return json({ ...can, members: [{ occurrence: "/sin_OBC-1", displayPath: "OBC-1", net: "CAN0_N" }], hops: [] });
     });
     vi.stubGlobal("fetch", fetchMock);
-    render(<Scene3dTab {...props} />);
+    renderTab();
     await screen.findByTitle(/^4 boards/);
-    const element = document.querySelector("prism-semantic-viewer") as unknown as HTMLElement & Record<string, unknown>;
-    element.setSelection = vi.fn();
-    element.setNetEmphasis = vi.fn(() => []);
-    element.frameNetEmphasis = vi.fn(() => true);
+    const element = mountedSemanticViewer();
     await act(async () => undefined);
     const field = screen.getByRole("combobox", { name: "Find component or net" });
     fireEvent.focusIn(field); // SB2-98: the system-net index loads when the search opens
@@ -299,11 +295,10 @@ describe("Scene3dTab", () => {
     vi.stubGlobal("fetch", fetchMock);
     // The workspace's Nets tray holds the net list.
     const tray = document.body.appendChild(document.createElement("div"));
-    render(<Scene3dTab {...props} netsSlot={tray} />);
+    renderTab({ netsSlot: tray });
     await screen.findByTitle(/^4 boards/);
-    const element = document.querySelector("prism-semantic-viewer") as unknown as HTMLElement & Record<string, unknown>;
-    element.setNetEmphasis = vi.fn(() => [{ key: "g1", color: "#14ff33", lit: 1, unresolved: [] }]);
-    element.frameNetEmphasis = vi.fn(() => true);
+    const element = mountedSemanticViewer();
+    element.setNetEmphasis.mockReturnValue([{ key: "g1", color: "#14ff33", lit: 1, unresolved: [] }]);
     expect(tray.querySelector("[aria-label='Search system nets']")).toBeTruthy();
     fireEvent.change(screen.getByLabelText("Search system nets"), { target: { value: "gnd" } });
     fireEvent.click(await screen.findByRole("button", { name: "Show" }));
@@ -324,7 +319,7 @@ describe("Scene3dTab", () => {
     vi.stubGlobal("navigator", { ...navigator, gpu: undefined });
     const fetchMock = vi.fn(async () => new Response("{}", { status: 200 }));
     vi.stubGlobal("fetch", fetchMock);
-    render(<Scene3dTab {...props} />);
+    renderTab();
     expect(screen.getByText(/The 3D view needs WebGPU/)).toBeTruthy();
     expect(document.querySelector("prism-semantic-viewer")).toBeNull();
     await waitFor(() => expect(fetchMock.mock.calls.some((call) => String((call as unknown[])[0]).includes("/scene"))).toBe(false));

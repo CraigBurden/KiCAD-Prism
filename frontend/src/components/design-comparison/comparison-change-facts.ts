@@ -11,6 +11,7 @@
  */
 
 import { CATEGORY_META, type Category } from "@/lib/diff-grouping";
+import { kindsWith } from "./comparison-change-kinds";
 import type { ChangeItem, FieldDiffValue } from "./types";
 
 const NET_REASON_CODES = new Set([
@@ -26,44 +27,13 @@ const SCHEMATIC_LAYOUT_REASONS = new Set([
     "properties-changed",
 ]);
 
-export const SCHEMATIC_WIRING_KINDS = new Set([
-    "wire",
-    "junction",
-    "bus",
-    "bus_entry",
-]);
+export const SCHEMATIC_WIRING_KINDS = kindsWith("wiring");
 
-export const PCB_COPPER_KINDS = new Set([
-    "track",
-    "segment",
-    "arc",
-    "arc_segment",
-    "via",
-]);
+export const PCB_COPPER_KINDS = kindsWith("copper");
 
-export const PCB_COMPONENT_CHILD_KINDS = new Set([
-    "pad",
-    "footprint_graphic",
-    "footprint_text",
-    "footprint_zone",
-    "zone",
-]);
+export const PCB_COMPONENT_CHILD_KINDS = kindsWith("component-child");
 
-export const RULE_KINDS = new Set([
-    "board_constraint",
-    "board_default",
-    "custom_rule",
-    "drc_exclusion",
-    "drc_severity",
-    "erc_exclusion",
-    "erc_pin_rule",
-    "fabrication_output",
-    "net_class",
-    "net_class_assignment",
-    "routing_preset",
-    "teardrop_setting",
-    "zone_setting",
-]);
+export const RULE_KINDS = kindsWith("rule");
 
 const LAYOUT_FIELD_NAMES = new Set([
     "position",

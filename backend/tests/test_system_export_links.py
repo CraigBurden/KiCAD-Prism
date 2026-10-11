@@ -11,6 +11,7 @@ from test_system_api import _request
 from test_system_assemblies import AssemblyCase
 from test_system_snapshots import DESIGNER, VIEWER
 
+from app.core.errors import install_error_handlers  # noqa: E402
 from app.api import systems as systems_api
 from app.services.systems import manifest as manifest_io
 from app.services.systems import service as service_module
@@ -127,6 +128,7 @@ class ExportLinkTest(AssemblyCase):
     def test_api_accepts_export_ends(self) -> None:
         ctx = self.build_bus()
         app = FastAPI()
+        install_error_handlers(app)
         app.include_router(systems_api.router, prefix="/api/systems")
         etag = f'"sys:{ctx["bus"]}:{self.version_of(ctx["bus"])}"'
         port = self.pwr_port(ctx["bus"], ctx["pwr"])

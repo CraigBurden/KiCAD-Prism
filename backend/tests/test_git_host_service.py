@@ -10,7 +10,6 @@ is always a working tree, because KiCad opens files off the disk. Nothing is con
 
 from __future__ import annotations
 
-import subprocess
 import sys
 import tempfile
 import unittest
@@ -22,22 +21,12 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from app.core.config import settings  # noqa: E402
 from app.services import git_host_service  # noqa: E402
 from app.services.git_host_service import GitHostError  # noqa: E402
-
-
-def git(*args, cwd, check=True):
-    return subprocess.run(
-        ["git", *args], cwd=str(cwd), capture_output=True, text=True, check=check
-    )
+from support.repo import git, init_repo  # noqa: E402
 
 
 def make_tree(path: Path, filename="board.kicad_pro") -> Path:
     path.mkdir(parents=True, exist_ok=True)
-    git("init", "-b", "main", cwd=path)
-    git("config", "user.email", "t@t.t", cwd=path)
-    git("config", "user.name", "T", cwd=path)
-    (path / filename).write_text("{}")
-    git("add", "-A", cwd=path)
-    git("commit", "-m", "first", cwd=path)
+    init_repo(path, {filename: "{}"}, message="first")
     return path
 
 
@@ -48,7 +37,7 @@ class GitHostTestCase(unittest.TestCase):
         temporary = tempfile.TemporaryDirectory()
         self.addCleanup(temporary.cleanup)
         self.tmp = Path(temporary.name)
-        environment = patch.dict("os.environ", {"KICAD_PROJECTS_ROOT": str(self.tmp)})
+        environment = patch.object(settings, "KICAD_PROJECTS_ROOT", str(self.tmp))
         environment.start()
         self.addCleanup(environment.stop)
 
@@ -76,7 +65,7 @@ class BareRepoTests(GitHostTestCase):
         # checked-out copy for two people pushing to corrupt.
         self.assertTrue((path / "HEAD").is_file())
         self.assertFalse((path / ".git").exists())
-        out = git("rev-parse", "--is-bare-repository", cwd=path).stdout.strip()
+        out = git(path, "rev-parse", "--is-bare-repository")
         self.assertEqual(out, "true")
 
     def test_create_is_idempotent(self) -> None:
@@ -92,7 +81,7 @@ class BareRepoTests(GitHostTestCase):
         """Without http.receivepack, a self-hosted git-over-HTTP setup silently 403s on
         push. It is the single most common way this is got wrong."""
         path = git_host_service.create("prj_abc")
-        self.assertEqual(git("config", "http.receivepack", cwd=path).stdout.strip(), "true")
+        self.assertEqual(git(path, "config", "http.receivepack"), "true")
 
     def test_delete_removes_it(self) -> None:
         git_host_service.create("prj_abc")
@@ -107,30 +96,27 @@ class ClientTests(GitHostTestCase):
         bare = git_host_service.create("prj_abc")
 
         alice = make_tree(self.tmp / "alice")
-        git("remote", "add", "origin", str(bare), cwd=alice)
-        git("push", "-u", "origin", "main", cwd=alice)
+        git(alice, "remote", "add", "origin", str(bare))
+        git(alice, "push", "-u", "origin", "main")
 
         # Bob clones what Alice pushed.
         bob = self.tmp / "bob"
-        git("clone", str(bare), str(bob), cwd=self.tmp)
+        git(self.tmp, "clone", str(bare), str(bob))
         self.assertTrue((bob / "board.kicad_pro").is_file())
 
         # A CLIENT clone is a working tree, never bare. KiCad opens files off the disk.
         self.assertTrue((bob / ".git").is_dir())
         self.assertEqual(
-            git("rev-parse", "--is-bare-repository", cwd=bob).stdout.strip(), "false"
+            git(bob, "rev-parse", "--is-bare-repository"), "false"
         )
 
-        # Bob pushes; Alice sees it. A clone has no identity of its own, and CI has no
-        # global one to fall back on.
-        git("config", "user.email", "b@b.b", cwd=bob)
-        git("config", "user.name", "B", cwd=bob)
+        # Bob pushes; Alice sees it.
         (bob / "notes.md").write_text("hi")
-        git("add", "-A", cwd=bob)
-        git("commit", "-m", "bob's change", cwd=bob)
-        git("push", cwd=bob)
+        git(bob, "add", "-A")
+        git(bob, "commit", "-m", "bob's change")
+        git(bob, "push")
 
-        git("pull", cwd=alice)
+        git(alice, "pull")
         self.assertTrue((alice / "notes.md").is_file())
 
 
@@ -147,12 +133,12 @@ class AdoptionTests(GitHostTestCase):
         self.assertTrue(tree.is_dir())
         self.assertTrue((tree / "board.kicad_pro").is_file())
         self.assertEqual(
-            git("rev-parse", "--is-bare-repository", cwd=tree).stdout.strip(), "false"
+            git(tree, "rev-parse", "--is-bare-repository"), "false"
         )
         self.assertEqual(sorted(p.name for p in tree.iterdir()), before)
 
         # It gained a remote, and the history is really in the bare repo.
-        origin = git("remote", "get-url", "origin", cwd=tree).stdout.strip()
+        origin = git(tree, "remote", "get-url", "origin")
         self.assertEqual(origin, str(git_host_service.repo_path("prj_abc")))
         self.assertFalse(git_host_service.is_empty("prj_abc"))
 
@@ -166,7 +152,7 @@ class AdoptionTests(GitHostTestCase):
     def test_adopting_a_repo_with_no_commits_is_refused(self) -> None:
         empty = self.tmp / "empty"
         empty.mkdir()
-        git("init", cwd=empty)
+        git(empty, "init")
         with self.assertRaisesRegex(GitHostError, "no commits"):
             git_host_service.adopt("prj_abc", empty)
 
@@ -174,13 +160,13 @@ class AdoptionTests(GitHostTestCase):
         """Silently replacing someone's existing remote would disconnect them from the
         upstream they actually push to. Refuse and say why."""
         tree = make_tree(self.tmp / "mine")
-        git("remote", "add", "origin", "https://github.com/x/y", cwd=tree)
+        git(tree, "remote", "add", "origin", "https://github.com/x/y")
         with self.assertRaisesRegex(GitHostError, "already has an origin"):
             git_host_service.adopt("prj_abc", tree)
 
         # And the user's remote is untouched.
         self.assertEqual(
-            git("remote", "get-url", "origin", cwd=tree).stdout.strip(),
+            git(tree, "remote", "get-url", "origin"),
             "https://github.com/x/y",
         )
 
@@ -189,7 +175,7 @@ class AdoptionTests(GitHostTestCase):
         every time an adoption was refused."""
         cases = {
             "not-a-repo": lambda p: p.mkdir(),
-            "no-commits": lambda p: (p.mkdir(), git("init", cwd=p)),
+            "no-commits": lambda p: (p.mkdir(), git(p, "init")),
         }
         for name, make_bad in cases.items():
             with self.subTest(name):

@@ -23,18 +23,28 @@ const PROVIDER_CAPABILITY: Record<CodeHostProvider, string> = {
     gitea: "Account linking",
 };
 
-function status(connector: TrackerConnector): { label: string; variant: "success" | "warning" | "destructive" | "outline" } {
-    if (connector.pausedReason === "revoked") return { label: "Credentials revoked", variant: "destructive" };
-    // Without publishing credentials a host is only for linking accounts.
-    if (connector.provider !== "github" && !connector.credentialConfigured) {
-        return connector.capabilities?.accountLinking || connector.oauthClientConfigured
-            ? { label: "Ready", variant: "success" }
-            : { label: "Needs OAuth app", variant: "warning" };
+type StatusBadge = { label: string; variant: "success" | "warning" | "destructive" | "outline" };
+
+const READY: StatusBadge = { label: "Ready", variant: "success" };
+const NEEDS_TEST: StatusBadge = { label: "Needs a connection test", variant: "warning" };
+
+/** Label for the server-derived status; nothing is re-derived here. */
+function status(connector: TrackerConnector): StatusBadge {
+    switch (connector.status) {
+        case "revoked":
+            return { label: "Credentials revoked", variant: "destructive" };
+        case "linking-only":
+            // Without publishing credentials a host is only for linking accounts.
+            return connector.capabilities?.accountLinking || connector.oauthClientConfigured
+                ? READY
+                : { label: "Needs OAuth app", variant: "warning" };
+        case "ready":
+            return READY;
+        case "paused":
+            return { label: "Paused", variant: "warning" };
+        default:
+            return NEEDS_TEST;
     }
-    if (connector.writesEnabled) return { label: "Ready", variant: "success" };
-    if (connector.paused && connector.pausedReason === "test_failed") return { label: "Needs a connection test", variant: "warning" };
-    if (connector.paused) return { label: "Paused", variant: "warning" };
-    return { label: "Needs a connection test", variant: "warning" };
 }
 
 function hostOf(connector: TrackerConnector): string {

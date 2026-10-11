@@ -29,6 +29,11 @@ from app.release_studio.documents.layout import (  # noqa: E402
     fmt,
     text_width,
 )
+from tests.kicad_tool_fakes import FakeTool  # noqa: E402
+
+#: Stand-ins for tests whose acquirers are faked: only presence matters.
+CLI = FakeTool(name="kicad-cli")
+CRUNCHER = FakeTool(name="kicad-cruncher")
 
 
 def _page(result, key: str) -> str:
@@ -1369,7 +1374,7 @@ class AssemblyProjectionWarningTests(unittest.TestCase):
         art = _cruncher_artwork(svg)
         dense = [{"side": "top"}] * 400 + [{"side": "bottom"}]
 
-        def fake(cruncher_path, board, workdir, **kwargs):
+        def fake(cruncher, board, workdir, **kwargs):
             return {f"{kind}-{side}": art
                     for kind in ("assembly", "testpoint")
                     for side in ("top", "bottom")}
@@ -1378,7 +1383,7 @@ class AssemblyProjectionWarningTests(unittest.TestCase):
             context=CONTEXT, stats=STATS, stackup=STACKUP, variants=VARIANTS,
             placements=dense, members=MEMBERS,
             board=Path("/nonexistent/board.kicad_pcb"),
-            cruncher_path="kicad-cruncher",
+            cruncher=CRUNCHER,
             workdir=Path("/tmp"),
             assembly_acquirer=fake,
         )
@@ -1393,7 +1398,7 @@ class AssemblyProjectionWarningTests(unittest.TestCase):
 
         captured: dict[str, object] = {}
 
-        def runner(argv, capture_output=True, text=True, timeout=900, env=None):
+        def runner(argv, env=None, **_kwargs):
             captured["env"] = env
             workdir = Path(argv[argv.index("--output") + 1])
             views = workdir / "views"
@@ -1416,11 +1421,10 @@ class AssemblyProjectionWarningTests(unittest.TestCase):
                 artwork_module, "_cruncher_board_viewport", return_value=None
             ):
                 artwork_module.acquire_assembly_view(
-                    "kicad-cruncher",
+                    FakeTool(runner, name="kicad-cruncher"),
                     board,
                     "top",
                     root / "out",
-                    runner=runner,
                 )
         self.assertIsInstance(captured.get("env"), dict)
         self.assertEqual(captured["env"]["KIPRJMOD"], str(board.parent.resolve()))
@@ -1524,8 +1528,8 @@ class AssemblySheetTests(unittest.TestCase):
     def test_the_engine_asks_cruncher_for_both_sides(self) -> None:
         asked: list[tuple[str, str]] = []
 
-        def fake(cruncher_path, board, workdir, **kwargs):
-            asked.append(cruncher_path)
+        def fake(cruncher, board, workdir, **kwargs):
+            asked.append(cruncher)
             return {f"{kind}-{side}": _cruncher_artwork()
                     for kind in ("assembly", "testpoint")
                     for side in ("top", "bottom")}
@@ -1534,12 +1538,12 @@ class AssemblySheetTests(unittest.TestCase):
             context=CONTEXT, stats=STATS, stackup=STACKUP, variants=VARIANTS,
             placements=PLACEMENTS, members=MEMBERS,
             board=Path("/nonexistent/board.kicad_pcb"),
-            cruncher_path="kicad-cruncher",
+            cruncher=CRUNCHER,
             workdir=Path("/tmp"),
             assembly_acquirer=fake,
         )
         # One invocation for every view: the board load dominates the cost.
-        self.assertEqual(asked, ["kicad-cruncher"])
+        self.assertEqual(asked, [CRUNCHER])
         # Both sides are pages of one assembly document, each carrying the
         # digest of the exact Cruncher bytes placed on it.
         assembly = next(o for o in result.outputs if o.key == "assembly")
@@ -1595,7 +1599,7 @@ class AssemblySheetTests(unittest.TestCase):
                 context=CONTEXT, stats=STATS, stackup=STACKUP, variants=VARIANTS,
                 placements=PLACEMENTS, members=MEMBERS,
                 board=Path("/nonexistent/board.kicad_pcb"),
-                cli_path="kicad-cli",
+                cli=CLI,
                 workdir=Path("/tmp"),
                 acquirer=lambda *_a, **_k: _svg_artwork(board_w, board_h),
                 drill_acquirer=lambda *_a, **_k: map_art,
@@ -1614,14 +1618,14 @@ class AssemblySheetTests(unittest.TestCase):
         )
 
     def test_a_failed_view_degrades_one_sheet_and_says_so(self) -> None:
-        def fake(cruncher_path, board, workdir, **kwargs):
+        def fake(cruncher, board, workdir, **kwargs):
             raise artwork_module.ArtworkError("geometer refused the board")
 
         result = compose(
             context=CONTEXT, stats=STATS, stackup=STACKUP, variants=VARIANTS,
             placements=PLACEMENTS, members=MEMBERS,
             board=Path("/nonexistent/board.kicad_pcb"),
-            cruncher_path="kicad-cruncher",
+            cruncher=CRUNCHER,
             workdir=Path("/tmp"),
             assembly_acquirer=fake,
         )
@@ -1641,7 +1645,7 @@ class AssemblySheetTests(unittest.TestCase):
             context=CONTEXT, stats=STATS, stackup=STACKUP, variants=VARIANTS,
             placements=PLACEMENTS, members=MEMBERS,
             board=Path("/nonexistent/board.kicad_pcb"),
-            cli_path="kicad-cli",
+            cli=CLI,
             workdir=Path("/tmp"),
             acquirer=acquirer,
             drill_acquirer=lambda *_a, **_k: _svg_artwork(50.0, 40.0),
@@ -1678,7 +1682,7 @@ class AcquisitionBoundaryTests(unittest.TestCase):
                 board=Path("/nonexistent/board.kicad_pcb"),
                 workdir=Path("/tmp"),
                 layer_pages=fabrication_layers(STACKUP),
-                cli_path="kicad-cli",
+                cli=CLI,
                 acquirer=acquirer,
                 drill_acquirer=lambda *_a, **_k: _svg_artwork(50.0, 40.0),
                 board_render_acquirer=lambda *_a, **_k: None,
@@ -1713,7 +1717,7 @@ class DocumentPipelineTests(unittest.TestCase):
                     config={"board": ""},
                     candidate={"commit_sha": "a" * 40, "variant": ""},
                     output_root=root,
-                    cli_path=None,
+                    cli=None,
                     staging=root,
                 )
         doc = next(
@@ -1737,7 +1741,7 @@ class DocumentPipelineTests(unittest.TestCase):
                 config={"board": "", "document_number": "DOC-1"},
                 candidate={"commit_sha": "a" * 40, "variant": ""},
                 output_root=root,
-                cli_path=None,
+                cli=None,
                 staging=root,
             )
         doc = next(
@@ -1756,7 +1760,7 @@ class SheetSetConsistencyTests(unittest.TestCase):
             context=CONTEXT, stats=STATS, stackup=STACKUP, variants=VARIANTS,
             placements=PLACEMENTS, members=MEMBERS,
             board=Path("/nonexistent/board.kicad_pcb"),
-            cruncher_path="kicad-cruncher",
+            cruncher=CRUNCHER,
             workdir=Path("/tmp"),
             assembly_acquirer=lambda _path, _board, _dir, **_kw: {
                 f"{kind}-{side}": _cruncher_artwork()
@@ -1968,13 +1972,12 @@ class TestpointStagingTests(unittest.TestCase):
             staged.write_text("(kicad_pcb)\n", encoding="utf-8")
             project_dir = root / "source-project"
             artwork_module._run_pcb_svg(
-                "kicad-cruncher",
+                FakeTool(runner, name="kicad-cruncher"),
                 staged,
                 ["testpoint_top_view"],
                 root / "out",
                 config_path=artwork_module.PCB_SVG_TESTPOINT_CONFIG,
                 project_dir=project_dir,
-                runner=runner,
                 timeout_seconds=1,
             )
 
@@ -1985,7 +1988,7 @@ class TestpointStagingTests(unittest.TestCase):
             artwork_module.ArtworkError, "unknown view kind: 'testpoint'"
         ):
             artwork_module.acquire_board_views(
-                "kicad-cruncher",
+                CRUNCHER,
                 Path("board.kicad_pcb"),
                 Path("out"),
                 kinds=("testpoint",),
@@ -2005,7 +2008,7 @@ class TestpointStagingTests(unittest.TestCase):
                 "testpoint drawing and board projection disagree: missing TP1; unexpected TP2",
             ):
                 artwork_module.acquire_testpoint_views(
-                    "kicad-cruncher",
+                    CRUNCHER,
                     Path("board.kicad_pcb"),
                     Path("out"),
                     designators=("D1", "TP1"),
@@ -2039,7 +2042,7 @@ class TestpointStagingTests(unittest.TestCase):
             ),
         ):
             artwork_module.acquire_testpoint_views(
-                "kicad-cruncher",
+                CRUNCHER,
                 Path("board.kicad_pcb"),
                 Path("out"),
                 designators=("TP1",),
@@ -2240,6 +2243,11 @@ class CruncherViewportTests(unittest.TestCase):
             "kicad_cruncher": None,
             "kicad_cruncher.config_json": None,
         }
+        # Import outside patch.dict: it drops every module first imported
+        # inside it, and numpy cannot be imported twice in one process.
+        import kicad_monkey.kicad_pcb  # noqa: F401
+        import kicad_monkey.kicad_pcb_bounds  # noqa: F401
+
         with patch.dict(sys.modules, without_cruncher), patch(
             "kicad_monkey.kicad_pcb.KiCadPcb.from_file", return_value=pcb
         ), patch(

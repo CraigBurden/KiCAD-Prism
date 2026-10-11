@@ -17,11 +17,8 @@ test's isolated one; it calls the same ``extract_and_store``.
 
 from __future__ import annotations
 
-import os
-import subprocess
 import tempfile
 import unittest
-import uuid
 from contextlib import contextmanager
 from pathlib import Path
 from types import SimpleNamespace
@@ -39,6 +36,7 @@ from fastapi import FastAPI
 from system_builder_fixtures import build_fixture_repo, expected_steps, fixture_system
 from test_system_api import _request
 
+from app.core.errors import install_error_handlers  # noqa: E402
 from app.api import systems as systems_api
 from app.services import job_service, project_import_service, workspace_service
 from app.services.job_handlers import get_job_handler, load_builtin_job_handlers
@@ -48,22 +46,13 @@ from app.services.systems.detection import DETECTION_ACTOR, SOURCE_CHECK_JOB_KIN
 from app.services.systems.drift import pad_sort_key
 from app.services.systems.jobs import EXTRACT_JOB_KIND, extract_and_store
 from app.services.systems.service import SystemService
+from app.services.workspace_schema_migrations import WORKSPACE_LEDGER
+from support.postgres import requires_scratch_postgres, scratch_schema, seed_project, seed_repository
+from support.repo import git
 
-POSTGRES_URL = os.environ.get("TEST_POSTGRES_URL", "").strip().replace(
-    "postgresql+psycopg://", "postgresql://", 1
-)
 BOARDS = {"mini_obc": ("prj_obc", "repo_obc"), "mini_payload": ("prj_pay", "repo_pay"),
           "mini_power": ("prj_pwr", "repo_pwr")}
 PROJECT_BOARD = {project: board for board, (project, _repo) in BOARDS.items()}
-
-_GIT_ENV = {**os.environ, "GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_SYSTEM": os.devnull,
-            "GIT_TERMINAL_PROMPT": "0"}
-
-
-def _git(*args: str) -> str:
-    return subprocess.run(["git", *args], env=_GIT_ENV, check=True, capture_output=True,
-                          text=True).stdout.strip()
-
 
 class _Workspace:
     """The two ``workspace`` calls a fetch-only sync and a source check make."""
@@ -79,8 +68,7 @@ class _Workspace:
         self.synced.append(repo_id)
 
 
-@unittest.skipUnless(POSTGRES_URL, "TEST_POSTGRES_URL is required for the System Builder replay")
-@unittest.skipUnless(psycopg is not None, "psycopg is required for the System Builder replay")
+@requires_scratch_postgres("the System Builder replay")
 class ReplayTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
@@ -91,9 +79,9 @@ class ReplayTest(unittest.TestCase):
         for board in BOARDS:
             author, upstream, clone = root / "author" / board, root / "upstream" / f"{board}.git", root / "server" / board
             cls.commits[board] = build_fixture_repo(board, author)
-            _git("init", "--quiet", "--bare", "--initial-branch=main", str(upstream))
-            _git("-C", str(author), "push", "--quiet", str(upstream), "main:refs/heads/main")
-            _git("clone", "--quiet", str(upstream), str(clone))
+            git(root, "init", "--quiet", "--bare", "--initial-branch=main", str(upstream))
+            git(author, "push", "--quiet", str(upstream), "main:refs/heads/main")
+            git(root, "clone", "--quiet", str(upstream), str(clone))
             cls.authors[board], cls.upstreams[board], cls.clones[board] = author, upstream, clone
         cls.projects = {
             project: SimpleNamespace(id=project, path=str(cls.clones[board]), project_file=f"{board}.kicad_pro")
@@ -107,50 +95,22 @@ class ReplayTest(unittest.TestCase):
     # ------------------------------------------------------------------ per test
 
     def setUp(self) -> None:
-        from app.services.workspace_schema_migrations import apply_workspace_migrations
-
         # Every episode starts from F0 upstream and in the server clones.
         for board in BOARDS:
             self.push(board, "F0")
-            _git("-C", str(self.clones[board]), "fetch", "--quiet", "--prune", "origin")
+            git(self.clones[board], "fetch", "--quiet", "--prune", "origin")
 
-        self.schema = f"system_replay_{uuid.uuid4().hex}"
-        self.conn = psycopg.connect(POSTGRES_URL, row_factory=dict_row)
-        self.conn.execute(f'CREATE SCHEMA "{self.schema}"')
-        self.conn.execute(f'SET search_path TO "{self.schema}", public')
-        self.conn.execute(
-            """
-            CREATE TABLE ws_repositories (id TEXT PRIMARY KEY, name TEXT NOT NULL DEFAULT 'r',
-                url TEXT, clone_path TEXT, import_type TEXT, last_synced_at TIMESTAMPTZ);
-            CREATE TABLE ws_folders (id TEXT PRIMARY KEY, name TEXT NOT NULL DEFAULT 'f',
-                parent_id TEXT, visibility_mode TEXT,
-                allowed_roles JSONB NOT NULL DEFAULT '[]'::jsonb);
-            CREATE TABLE ws_projects (id TEXT PRIMARY KEY,
-                repo_id TEXT NOT NULL REFERENCES ws_repositories(id),
-                name TEXT NOT NULL, display_name TEXT, relative_path TEXT NOT NULL DEFAULT '.',
-                folder_id TEXT REFERENCES ws_folders(id) ON DELETE SET NULL);
-            CREATE TABLE ws_project_portfolio (project_id TEXT PRIMARY KEY);
-            CREATE TABLE ws_jobs (id TEXT PRIMARY KEY, kind TEXT NOT NULL, status TEXT NOT NULL,
-                message TEXT NOT NULL DEFAULT '', percent REAL NOT NULL DEFAULT 0,
-                payload JSONB NOT NULL DEFAULT '{}'::jsonb,
-                created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-                updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW());
-            INSERT INTO ws_repositories (id) VALUES ('repo_obc'), ('repo_pay'), ('repo_pwr');
-            INSERT INTO ws_projects (id, repo_id, name) VALUES
-                ('prj_obc', 'repo_obc', 'mini_obc'), ('prj_pay', 'repo_pay', 'mini_payload'),
-                ('prj_pwr', 'repo_pwr', 'mini_power');
-            """,
-            prepare=False,
-        )
-        apply_workspace_migrations(self.conn)
+        self.scratch = scratch_schema(self, "system_replay", ledgers=(WORKSPACE_LEDGER,))
+        self.schema, self.conn = self.scratch.name, self.scratch.conn
+        for board, (project, repo) in BOARDS.items():
+            seed_repository(self.conn, repo)
+            seed_project(self.conn, project, repo, name=board)
         self.conn.commit()
-        schema = self.schema
 
         @contextmanager
         def connect():
-            conn = psycopg.connect(POSTGRES_URL, row_factory=dict_row)
+            conn = self.scratch.connect()
             try:
-                conn.execute(f'SET search_path TO "{schema}", public')
                 yield conn
             finally:
                 conn.close()
@@ -185,14 +145,9 @@ class ReplayTest(unittest.TestCase):
             patcher.start()
             self.addCleanup(patcher.stop)
         self.app = FastAPI()
+        install_error_handlers(self.app)
         self.app.include_router(systems_api.router, prefix="/api/systems")
         self.build_fixture_system()
-
-    def tearDown(self) -> None:
-        self.conn.rollback()
-        self.conn.execute(f'DROP SCHEMA "{self.schema}" CASCADE')
-        self.conn.commit()
-        self.conn.close()
 
     # ------------------------------------------------------------------ the loop
 
@@ -200,7 +155,7 @@ class ReplayTest(unittest.TestCase):
         """A designer force-pushes a step to the board's upstream ``main``."""
 
         sha = self.commits[board][snapshot]
-        _git("-C", str(self.authors[board]), "push", "--quiet", "--force", str(self.upstreams[board]),
+        git(self.authors[board], "push", "--quiet", "--force", str(self.upstreams[board]),
              f"{sha}:refs/heads/main")
         return sha
 
@@ -237,7 +192,7 @@ class ReplayTest(unittest.TestCase):
     def push_and_fetch(self, board: str, snapshot: str) -> tuple[str, dict[str, int]]:
         sha = self.push(board, snapshot)
         outcomes = self.fetch(board)
-        remote = _git("-C", str(self.clones[board]), "rev-parse", "refs/remotes/origin/main")
+        remote = git(self.clones[board], "rev-parse", "refs/remotes/origin/main")
         self.assertEqual(remote, sha, "the sync job did not fetch the pushed tip")
         return sha, outcomes
 

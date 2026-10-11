@@ -23,6 +23,7 @@ from shapely.geometry import LineString, MultiPolygon, Point, Polygon
 from shapely.ops import polygonize, unary_union
 
 from .pcb_geometry import NM_TO_MM, capsule, pad_rings, point_nm, sample_arc_op, transform
+from .stackup_frame import board_frame, outward_face_z
 
 SIDES = {"top": "F", "bottom": "B"}
 # Segments per full circle for circles drawn on Edge.Cuts or the mask layers.
@@ -412,15 +413,20 @@ def _mask_faces_mm(topology: dict[str, Any]) -> dict[str, float]:
         key=lambda layer: float(layer.get("z_mm") or 0.0),
     )
     masks = {str(layer.get("name")): layer for layer in layers if layer.get("role") == "soldermask"}
-    if len(copper) < 2:
+    frame = board_frame(
+        (float(layer.get("z_mm") or 0.0), float(layer.get("thickness_mm") or 0.0)) for layer in copper
+    )
+    if frame is None:
         return {"top": 1.6, "bottom": -0.05}
     bottom, top = copper[0], copper[-1]
-    offset = -(float(bottom.get("z_mm") or 0.0) + float(bottom.get("thickness_mm") or 0.0) / 2)
+    offset = frame[0]
 
     def face(name: str, sign: int, copper_layer: dict[str, Any]) -> float:
         layer = masks.get(name)
         if layer:
-            z = float(layer.get("z_mm") or 0.0) + sign * float(layer.get("thickness_mm") or 0.01) / 2
+            z = outward_face_z(
+                float(layer.get("z_mm") or 0.0), float(layer.get("thickness_mm") or 0.01), sign
+            )
         else:
             # No mask layer in the stackup: a nominal 10 um over the outer copper.
             z = float(copper_layer.get("z_mm") or 0.0) + sign * (

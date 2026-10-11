@@ -35,7 +35,7 @@ async def create_subport(
     preview: bool = Query(default=False), user: AuthenticatedUser = Depends(require_viewer),
 ):
     version = _version(request, system_id, preview)
-    result = await _run(system_id, lambda: system_service.service.create_subport(
+    result = await _run(lambda: system_service.service.create_subport(
         _caller(user), system_id, version, instance_id, port_key=body.portKey, name=body.name, pads=body.pads,
         preview=preview,
     ))
@@ -48,7 +48,7 @@ async def update_subport(
     response: Response, preview: bool = Query(default=False), user: AuthenticatedUser = Depends(require_viewer),
 ):
     version = _version(request, system_id, preview)
-    result = await _run(system_id, lambda: system_service.service.update_subport(
+    result = await _run(lambda: system_service.service.update_subport(
         _caller(user), system_id, version, instance_id, subport_id, name=body.name, pads=body.pads, preview=preview,
     ))
     return _respond(result, response)
@@ -60,7 +60,7 @@ async def delete_subport(
     preview: bool = Query(default=False), user: AuthenticatedUser = Depends(require_viewer),
 ):
     version = _version(request, system_id, preview)
-    result = await _run(system_id, lambda: system_service.service.delete_subport(
+    result = await _run(lambda: system_service.service.delete_subport(
         _caller(user), system_id, version, instance_id, subport_id, preview=preview,
     ))
     return _respond(result, response)

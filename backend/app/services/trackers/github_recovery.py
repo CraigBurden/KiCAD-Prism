@@ -17,7 +17,22 @@ from app.services.trackers.contracts import Destination, RemoteComment
 from app.services.trackers.errors import ProviderError
 from app.services.trackers.markers import MarkerValidation, ParsedMarker, build_marker, extract_markers, validate_marker
 
-IssuePage = tuple[Sequence[Mapping[str, Any]], Optional[str]]
+@dataclass(frozen=True)
+class RecoveryCandidate:
+    """One bot-listed issue as recovery sees it, whatever forge it came from.
+
+    Each issue adapter lists its own forge's issues in this shape
+    (``recovery_issue_pages``), so the scan and its marker validation stay shared.
+    """
+
+    external_id: str
+    body: str
+    author_id: str
+    number: int | None = None
+    url: str | None = None
+
+
+IssuePage = tuple[Sequence[RecoveryCandidate], Optional[str]]
 IssuePageFetcher = Callable[[Optional[str]], IssuePage]
 CommentPage = tuple[Sequence[RemoteComment], Optional[str]]
 CommentPageFetcher = Callable[[Optional[str]], CommentPage]
@@ -77,17 +92,6 @@ def next_quarantine_at(attempt_index: int, *, now: datetime | None = None) -> da
     return moment + timedelta(minutes=delay)
 
 
-def _author_id(payload: Mapping[str, Any]) -> str:
-    user = payload.get("user")
-    if isinstance(user, dict):
-        return str(user.get("id") or "")
-    return ""
-
-
-def _is_pull_request(payload: Mapping[str, Any]) -> bool:
-    return bool(payload.get("pull_request"))
-
-
 def _audit_rejection(
     outcome: RecoveryOutcome,
     validation: MarkerValidation,
@@ -131,9 +135,7 @@ def scan_issue_pages(
         except ProviderError:
             return RecoveryOutcome(kind=RecoveryKind.INCOMPLETE)
         for item in items:
-            if not isinstance(item, dict) or _is_pull_request(item):
-                continue
-            body = str(item.get("body") or "")
+            body = item.body or ""
             if marker_text not in body:
                 continue
             for parsed in extract_markers(body):
@@ -143,25 +145,19 @@ def scan_issue_pages(
                     container_id=container_id,
                     op_id=op_id,
                     comment_id=comment_id,
-                    author_user_id=_author_id(item),
+                    author_user_id=item.author_id,
                     bot_user_id=bot_user_id,
                 )
                 if not validation.accepted:
                     _audit_rejection(
                         outcome,
                         validation,
-                        external_id=str(item.get("id") or ""),
+                        external_id=item.external_id,
                         audit=audit,
                         connector_id=connector_id,
                     )
                     continue
-                matches.append(
-                    RecoveryMatch(
-                        external_id=str(item.get("id") or ""),
-                        url=str(item.get("html_url") or item.get("url") or "") or None,
-                        number=int(item["number"]) if item.get("number") is not None else None,
-                    )
-                )
+                matches.append(RecoveryMatch(external_id=item.external_id, url=item.url, number=item.number))
         if not cursor:
             break
     if len(matches) == 1:
@@ -335,33 +331,9 @@ def recover_op(
     return RecoveryOutcome(kind=RecoveryKind.NOT_FOUND)
 
 
-def make_issue_page_fetcher(
-    adapter: Any,
-    dest: Destination,
-    *,
-    since: str | None = None,
-) -> IssuePageFetcher:
-    """Build a paginated issue fetcher from ``GitHubIssueAdapter``."""
-
-    owner, repo = _owner_repo(dest)
-    base_url = adapter.auth.url(f"/repos/{owner}/{repo}/issues")
-    params: dict[str, Any] = {"state": "all", "per_page": 100}
-    if adapter.bot_login:
-        params["creator"] = adapter.bot_login
-    if since:
-        params["since"] = since
-
-    def fetch(cursor: Optional[str]) -> IssuePage:
-        url = cursor or base_url
-        response = adapter._request("GET", url, params=None if cursor else params)
-        items = adapter._json_list(response)
-        return items, response.next_page()
-
-    return fetch
-
 
 def make_comment_page_fetcher(adapter: Any, dest: Destination, issue: str) -> CommentPageFetcher:
-    """Build a paginated comment fetcher from ``GitHubCommentAdapter``."""
+    """Pages of an issue's comments, walked through any comment adapter's ``list_comments``."""
 
     def fetch(cursor: Optional[str]) -> CommentPage:
         page_cursor = None
@@ -376,13 +348,3 @@ def make_comment_page_fetcher(adapter: Any, dest: Destination, issue: str) -> Co
         return comments, next_url
 
     return fetch
-
-
-def _owner_repo(dest: Destination) -> tuple[str, str]:
-    path = (dest.containerPath or "").strip().strip("/")
-    if path.count("/") != 1:
-        raise ProviderError("invalid_request", "GitHub destination path must be owner/repo.")
-    owner, repo = path.split("/", 1)
-    if not owner or not repo:
-        raise ProviderError("invalid_request", "GitHub destination path must be owner/repo.")
-    return owner, repo

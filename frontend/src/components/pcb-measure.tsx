@@ -1,16 +1,12 @@
-import { useCallback, useEffect, useState, useSyncExternalStore } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { Ruler, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { KeyCap } from "@/components/keyboard-shortcuts-dialog";
 import { shortcutKeys } from "@/lib/shortcuts";
 import { cn } from "@/lib/utils";
 import { useCommittedRef } from "@/hooks/use-committed-ref";
-import type {
-    ECadViewerElement,
-    EcadMeasureSnap,
-    EcadMeasureState,
-    EcadMeasureUnits,
-} from "@/types/ecad-viewer";
+import { useEcadViewer, type EcadViewer } from "@/lib/ecad-viewer";
+import type { EcadMeasureSnap, EcadMeasureUnits } from "@/types/ecad-viewer";
 
 export const MEASURE_SHORTCUT = "mod+shift+m";
 export const MEASURE_UNITS_STORAGE_KEY = "prism.pcb.measure-units";
@@ -25,37 +21,10 @@ export function formatLength(mm: number, units: EcadMeasureUnits): string {
  * Measure mode of the PCB element. Mirrors the element's state and its
  * change event, so Cmd/Ctrl+Shift+M and the rail button always agree.
  */
-export function useMeasureMode(viewer: ECadViewerElement | null) {
-    const subscribe = useCallback(
-        (notify: () => void) => {
-            if (!viewer) return () => {};
-            viewer.addEventListener("ecad-viewer:measure-mode", notify);
-            return () => viewer.removeEventListener("ecad-viewer:measure-mode", notify);
-        },
-        [viewer],
-    );
-    const on = useSyncExternalStore(subscribe, () => viewer?.measureMode ?? false);
-    const toggle = useCallback(() => {
-        viewer?.setMeasureMode?.(!(viewer.measureMode ?? false));
-    }, [viewer]);
-    return { on, toggle, available: Boolean(viewer?.setMeasureMode) };
-}
-
-/** The element's current points, updated on every move and click. */
-function useMeasureState(viewer: ECadViewerElement | null): EcadMeasureState | null {
-    const [state, setState] = useState<EcadMeasureState | null>(() => viewer?.measureState ?? null);
-    useEffect(() => {
-        if (!viewer) return;
-        const update = (event: Event) => setState((event as CustomEvent<EcadMeasureState>).detail);
-        const reset = () => setState(viewer.measureState ?? null);
-        viewer.addEventListener("ecad-viewer:measure", update);
-        viewer.addEventListener("ecad-viewer:measure-mode", reset);
-        return () => {
-            viewer.removeEventListener("ecad-viewer:measure", update);
-            viewer.removeEventListener("ecad-viewer:measure-mode", reset);
-        };
-    }, [viewer]);
-    return state;
+export function useMeasureMode(viewer: EcadViewer | null) {
+    const { measureMode: on, measureAvailable: available } = useEcadViewer(viewer);
+    const toggle = useCallback(() => viewer?.setMeasureMode(!on), [on, viewer]);
+    return { on, toggle, available };
 }
 
 function readStoredUnits(): EcadMeasureUnits {
@@ -70,20 +39,19 @@ function readStoredUnits(): EcadMeasureUnits {
  * The reviewer's mm/mil choice, kept per browser. The element hears it each
  * time measure mode turns on (by button or key) and on every change.
  */
-export function useMeasureUnits(viewer: ECadViewerElement | null) {
+export function useMeasureUnits(viewer: EcadViewer | null) {
     const [units, setUnits] = useState<EcadMeasureUnits>(readStoredUnits);
     const unitsRef = useCommittedRef(units);
     useEffect(() => {
         if (!viewer) return;
-        const sync = (event: Event) => {
-            if ((event as CustomEvent<{ on: boolean }>).detail?.on) viewer.setMeasureUnits?.(unitsRef.current);
-        };
-        viewer.addEventListener("ecad-viewer:measure-mode", sync);
-        return () => viewer.removeEventListener("ecad-viewer:measure-mode", sync);
+        const off = viewer.on("measure-mode", ({ on }) => {
+            if (on) viewer.setMeasureUnits(unitsRef.current);
+        });
+        return () => off();
     }, [viewer, unitsRef]);
     const choose = useCallback((next: EcadMeasureUnits) => {
         setUnits(next);
-        viewer?.setMeasureUnits?.(next);
+        viewer?.setMeasureUnits(next);
         try {
             window.localStorage.setItem(MEASURE_UNITS_STORAGE_KEY, next);
         } catch {
@@ -93,7 +61,7 @@ export function useMeasureUnits(viewer: ECadViewerElement | null) {
     return [units, choose] as const;
 }
 
-export function MeasureModeToggle({ viewer }: { viewer: ECadViewerElement | null }) {
+export function MeasureModeToggle({ viewer }: { viewer: EcadViewer | null }) {
     const { on, toggle, available } = useMeasureMode(viewer);
     if (!available) return null;
     return (
@@ -119,9 +87,9 @@ function snapName(snap: EcadMeasureSnap): string {
  * The readout under the board while measure mode is on: the two ends, the
  * distance, ΔX, ΔY and the angle, the units, and the way out.
  */
-export function MeasureReadout({ viewer }: { viewer: ECadViewerElement | null }) {
+export function MeasureReadout({ viewer }: { viewer: EcadViewer | null }) {
     const { on } = useMeasureMode(viewer);
-    const state = useMeasureState(viewer);
+    const state = useEcadViewer(viewer).measureState;
     const [units, setUnits] = useMeasureUnits(viewer);
     if (!on) return null;
     const measurement = state?.measurement ?? null;
@@ -175,7 +143,7 @@ export function MeasureReadout({ viewer }: { viewer: ECadViewerElement | null })
                 className="size-6"
                 aria-label="Leave measure mode"
                 title="Leave measure mode"
-                onClick={() => viewer?.setMeasureMode?.(false)}
+                onClick={() => viewer?.setMeasureMode(false)}
             >
                 <X className="size-3.5" aria-hidden />
             </Button>

@@ -6,8 +6,8 @@ project file, the working tree is read in place, and a commit is extracted to
 a temporary checkout that lives for the duration of the context.
 
 This is a narrow public seam over machinery the semantic index already owns.
-``semantic_visualizer_service`` resolves refs; this module materializes only
-KiCad source blobs in one batch instead of archiving generated artifacts, and
+``project_revision`` locates the project, resolves refs and materializes only
+the ``KICAD_SOURCES`` set instead of archiving generated artifacts, and
 ``semantic_index_service`` owns the cache-identity rules. A project whose
 anchor is a board or schematic instead of a ``.kicad_pro`` (PCB-only projects)
 is supported by keying the same source tree to that anchor.
@@ -17,8 +17,6 @@ from __future__ import annotations
 
 import contextlib
 import re
-import subprocess
-import tempfile
 from dataclasses import dataclass
 from functools import lru_cache
 from types import SimpleNamespace
@@ -27,6 +25,7 @@ from typing import Any, Iterator, Optional
 
 from app.services import (
     path_config_service,
+    project_revision,
     semantic_index_service,
     semantic_visualizer_service,
 )
@@ -101,8 +100,9 @@ def _revision_identity_uncached(project: Any, commit: Optional[str]) -> tuple[st
         key = semantic_index_service._revision_key(entries, project_file_rel=anchor)
         return key, None
 
-    repo_root = semantic_visualizer_service._repo_root(Path(project.path))
-    resolved_commit = semantic_visualizer_service._resolve_commit(repo_root, commit)
+    location = project_revision.locate(project)
+    repo_root = location.repo_root
+    resolved_commit = project_revision.resolve_commit(location, commit)
     try:
         source_rel = source.relative_to(repo_root).as_posix()
     except ValueError as error:
@@ -151,24 +151,30 @@ def project_source_snapshot(
         )
         return
 
-    repo_root = semantic_visualizer_service._repo_root(Path(project.path))
-    resolved_commit = semantic_visualizer_service._resolve_commit(repo_root, commit)
+    location = project_revision.locate(project)
+    resolved_commit = project_revision.resolve_commit(location, commit)
     if anchor_source is not None:
         try:
-            project_rel = anchor_source.relative_to(repo_root).as_posix()
+            project_rel = anchor_source.relative_to(location.repo_root).as_posix()
         except ValueError as error:
             raise ValueError(
                 f"Configured source is not inside the repository: {anchor}"
             ) from error
     else:
-        project_rel = semantic_visualizer_service._project_relative_path(
-            repo_root, Path(project.path), anchor
-        )
+        project_rel = project_revision.project_file_rel(location)
 
-    with tempfile.TemporaryDirectory(prefix="variant-catalog-commit-") as tmp:
-        checkout = Path(tmp) / "checkout"
-        _checkout_sources(repo_root, resolved_commit, checkout, project_rel)
-        project_file = checkout / project_rel
+    # Only KiCad inputs, never repository output archives or models.
+    directory = PurePosixPath(project_rel).parent.as_posix()
+    with project_revision.checkout(
+        location,
+        resolved_commit,
+        source_set=project_revision.KICAD_SOURCES,
+        scope="" if directory == "." else directory,
+        prefix="variant-catalog-commit-",
+    ) as revision:
+        if not any(path.is_file() for path in revision.root.rglob("*")):
+            raise ValueError("No KiCad sources found in the selected revision")
+        project_file = revision.path(project_rel)
         if not project_file.is_file():
             raise ValueError(
                 f"KiCad project file not found in commit {resolved_commit}: {project_rel}"
@@ -207,49 +213,3 @@ def source_files(
             raise ValueError("Configured source is outside the project")
         return candidate
     return checked(paths.pcb), checked(paths.schematic)
-
-
-def _checkout_sources(repo_root: Path, commit: str, destination: Path, project_rel: str) -> None:
-    """Materialize only KiCad inputs, never repository output archives/models.
-
-    One batch read avoids one git process per sheet. Only regular blobs are
-    copied; a repository symlink must not cause reads outside this snapshot.
-    """
-    directory = PurePosixPath(project_rel).parent.as_posix()
-    args = ["git", "-C", str(repo_root), "ls-tree", "-r", "-z", commit]
-    if directory != ".":
-        args += ["--", directory + "/"]
-    listing = subprocess.run(args, capture_output=True, check=True).stdout
-    sources: list[tuple[str, str]] = []
-    for record in listing.split(b"\0"):
-        if not record:
-            continue
-        metadata, name = record.split(b"\t", 1)
-        mode, kind, blob = metadata.split()
-        path = name.decode("utf-8")
-        if mode not in (b"100644", b"100755") or kind != b"blob":
-            continue
-        if Path(path).suffix not in PROJECT_SUFFIXES and Path(path).name != ".prism.json":
-            continue
-        sources.append((path, blob.decode("ascii")))
-    if not sources:
-        raise ValueError("No KiCad sources found in the selected revision")
-    objects = subprocess.run(
-        ["git", "-C", str(repo_root), "cat-file", "--batch"],
-        input="".join(blob + "\n" for _, blob in sources).encode("ascii"),
-        capture_output=True, check=True,
-    ).stdout
-    offset = 0
-    for path, blob in sources:
-        end = objects.index(b"\n", offset)
-        actual, kind, size = objects[offset:end].split()
-        if actual.decode("ascii") != blob or kind != b"blob":
-            raise ValueError("Could not read a source blob")
-        start = end + 1
-        offset = start + int(size)
-        target = destination / path
-        if not target.resolve().is_relative_to(destination.resolve()):
-            raise ValueError("Invalid repository source path")
-        target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_bytes(objects[start:offset])
-        offset += 1

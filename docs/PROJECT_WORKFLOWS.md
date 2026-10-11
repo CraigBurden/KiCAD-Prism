@@ -288,5 +288,6 @@ so the final decision should remain in the team's existing system of record.
 ## Project metadata
 
 Designers can override a discovered display name, description, paths, thumbnail,
-README, and jobset through project properties and `.prism.json`. See
-[Configuration](CONFIGURATION.md).
+README, and jobset through project properties (stored by Prism, never written
+into the checkout) or a committed `.prism.json`. Settings stored in Prism win.
+See [Configuration](CONFIGURATION.md).

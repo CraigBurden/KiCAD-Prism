@@ -10,11 +10,9 @@ from __future__ import annotations
 import asyncio
 import json
 import os
-import subprocess
 import sys
 import tempfile
 import unittest
-import uuid
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -24,14 +22,12 @@ from fastapi.responses import JSONResponse
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
+from app.core.errors import DomainError, error_response  # noqa: E402
 from app.api import comments as comments_api  # noqa: E402
 from app.core.security import AuthenticatedUser  # noqa: E402
-from tests.test_tracker_tr_01 import (  # noqa: E402
-    POSTGRES_URL,
-    SHARED_APPLICATION_DATABASE,
-    DisposableSchemaStore,
-    psycopg,
-)
+from tests.test_tracker_tr_01 import if_match  # noqa: E402
+from support.postgres import requires_scratch_postgres, scratch_schema, comments_store_on  # noqa: E402
+from support.repo import commit_all, init_repo  # noqa: E402
 
 
 def session(role="viewer", *, user_id="u_1", name="Priya"):
@@ -42,7 +38,11 @@ PROJECT = SimpleNamespace(id="prj_test", path="")
 
 
 def run(coro):
-    return asyncio.run(coro)
+    """Await a route; a typed refusal comes back as the response the app handler sends."""
+    try:
+        return asyncio.run(coro)
+    except DomainError as exc:
+        return error_response(exc)
 
 
 def body(response: JSONResponse) -> dict:
@@ -54,16 +54,10 @@ def seed_two_commit_board(root: str) -> tuple[str, str]:
     path = Path(root)
     (path / "board.kicad_pro").write_text("{}\n")
     (path / "board.kicad_pcb").write_text("(kicad_pcb (version 20240101) A)\n")
-    subprocess.run(["git", "init", "-b", "main"], cwd=root, check=True, capture_output=True)
-    subprocess.run(["git", "config", "user.email", "test@example.com"], cwd=root, check=True, capture_output=True)
-    subprocess.run(["git", "config", "user.name", "Test"], cwd=root, check=True, capture_output=True)
-    subprocess.run(["git", "add", "."], cwd=root, check=True, capture_output=True)
-    subprocess.run(["git", "commit", "-m", "A"], cwd=root, check=True, capture_output=True)
-    sha_a = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=root, text=True).strip()
+    init_repo(root)
+    sha_a = commit_all(root, "A")
     (path / "board.kicad_pcb").write_text("(kicad_pcb (version 20240101) B)\n")
-    subprocess.run(["git", "add", "."], cwd=root, check=True, capture_output=True)
-    subprocess.run(["git", "commit", "-m", "B"], cwd=root, check=True, capture_output=True)
-    sha_b = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=root, text=True).strip()
+    sha_b = commit_all(root, "B")
     return sha_a, sha_b
 
 
@@ -83,7 +77,7 @@ class RequestModelTests(unittest.TestCase):
     def test_patch_without_fields_is_rejected_before_any_lookup(self) -> None:
         with patch.object(comments_api, "get_project_for_role_or_404") as lookup:
             with self.assertRaises(HTTPException) as ctx:
-                run(comments_api.update_comment("p", "c", comments_api.UpdateCommentRequest(), session("designer")))
+                run(comments_api.update_comment("p", "c", comments_api.UpdateCommentRequest(), if_match("comment", "c", None), session("designer")))
         self.assertEqual(ctx.exception.status_code, 400)
         lookup.assert_not_called()
 
@@ -101,21 +95,20 @@ class RequestModelTests(unittest.TestCase):
         from app.services.comment_permissions import CommentPermissionError
         from app.services.comments_revisions import RevisionConflict
 
-        refused = comments_api._permission_response(CommentPermissionError("publication_required", "no", required_role="designer"))
+        refused = error_response(CommentPermissionError("publication_required", "no", required_role="designer"))
         self.assertEqual((refused.status_code, body(refused)), (403, {"detail": "no", "code": "publication_required", "requiredRole": "designer"}))
-        conflict = comments_api._conflict_response(RevisionConflict("root", "c_1", 3))
-        self.assertEqual(conflict.status_code, 409)
+        conflict = error_response(RevisionConflict("root", "c_1", 3))
+        self.assertEqual((conflict.status_code, conflict.headers["etag"]), (412, '"comment:c_1:3"'))
         self.assertEqual(body(conflict)["code"], "revision_conflict")
         self.assertEqual(body(conflict)["currentRevision"], 3)
 
 
-@unittest.skipUnless(POSTGRES_URL, "TEST_POSTGRES_URL is required for comments route tests")
-@unittest.skipUnless(psycopg is not None, "psycopg is required")
-@unittest.skipIf(SHARED_APPLICATION_DATABASE, "TEST_POSTGRES_URL must not target PRISM_DATABASE_URL")
+@requires_scratch_postgres("comments route tests")
 class RootMutationRouteTests(unittest.TestCase):
     def setUp(self) -> None:
-        self.schema = f"comments_tr03_{uuid.uuid4().hex[:12]}"
-        self.store = DisposableSchemaStore(self.schema)
+        self.scratch = scratch_schema(self, "comments_tr03", create=False)
+        self.schema = self.scratch.name
+        self.store = comments_store_on(self.scratch)
         self.tempdir = tempfile.TemporaryDirectory()
         self.addCleanup(self.tempdir.cleanup)
         self.project = SimpleNamespace(id="prj_test", path=self.tempdir.name)
@@ -126,12 +119,6 @@ class RootMutationRouteTests(unittest.TestCase):
         for item in patches:
             item.start()
             self.addCleanup(item.stop)
-        self.addCleanup(self._drop_schema)
-
-    def _drop_schema(self) -> None:
-        with self.store._connect() as conn:
-            conn.execute(f'DROP SCHEMA IF EXISTS "{self.schema}" CASCADE')
-            conn.commit()
 
     def _create(self, user, **overrides):
         payload = {"context": "PCB", "location": {"x": 1, "y": 2, "layer": "F.Cu"}, "content": "root", "severity": "major"}
@@ -165,18 +152,16 @@ class RootMutationRouteTests(unittest.TestCase):
     def test_owner_edits_and_stale_revision_conflicts_without_writing(self) -> None:  # F2.stale_revision_conflict
         priya = session("designer", user_id="u_priya", name="Priya")
         created = self._create(priya)
-        updated = run(comments_api.update_comment(
-            "prj_test", created["id"],
-            comments_api.UpdateCommentRequest(content="edited", severity="critical", commentClass="task", expectedRevision=1),
+        updated = run(comments_api.update_comment("prj_test", created["id"], comments_api.UpdateCommentRequest(content="edited", severity="critical", commentClass="task"), if_match("comment", created["id"], 1),
             priya,
         ))
         self.assertEqual((updated["revision"], updated["content"], updated["severity"], updated["commentClass"]), (2, "edited", "critical", "task"))
 
-        stale = run(comments_api.update_comment(
-            "prj_test", created["id"], comments_api.UpdateCommentRequest(content="stale", expectedRevision=1), priya,
+        stale = run(comments_api.update_comment("prj_test", created["id"], comments_api.UpdateCommentRequest(content="stale"), if_match("comment", created["id"], 1), priya,
         ))
         self.assertIsInstance(stale, JSONResponse)
-        self.assertEqual((stale.status_code, body(stale)["code"], body(stale)["currentRevision"]), (409, "revision_conflict", 2))
+        self.assertEqual((stale.status_code, body(stale)["code"], body(stale)["currentRevision"]), (412, "revision_conflict", 2))
+        self.assertTrue(stale.headers["etag"].endswith(':2"'))
         current = self.store.get_comment("prj_test", self.project.path, created["id"])
         self.assertEqual((current["content"], current["revision"]), ("edited", 2))
 
@@ -184,10 +169,10 @@ class RootMutationRouteTests(unittest.TestCase):
         alex1 = session("designer", user_id="u_1", name="Alex Chen")
         alex2 = session("designer", user_id="u_2", name="Alex Chen")
         created = self._create(alex1)
-        refused = run(comments_api.update_comment("prj_test", created["id"], comments_api.UpdateCommentRequest(content="x"), alex2))
+        refused = run(comments_api.update_comment("prj_test", created["id"], comments_api.UpdateCommentRequest(content="x"), if_match("comment", created["id"], None), alex2))
         self.assertEqual((refused.status_code, body(refused)["code"]), (403, "not_owner"))
         admin = session("admin", user_id="u_a", name="Admin")
-        updated = run(comments_api.update_comment("prj_test", created["id"], comments_api.UpdateCommentRequest(content="admin edit"), admin))
+        updated = run(comments_api.update_comment("prj_test", created["id"], comments_api.UpdateCommentRequest(content="admin edit"), if_match("comment", created["id"], None), admin))
         self.assertEqual(updated["content"], "admin edit")
         history = self.store.get_history("prj_test", "root", created["id"])
         self.assertEqual([(h["revision"], h["editorUserId"]) for h in history], [(1, "u_1"), (2, "u_a")])
@@ -195,18 +180,16 @@ class RootMutationRouteTests(unittest.TestCase):
     def test_status_needs_designer_and_edit_plus_status_append_two_revisions(self) -> None:  # F1.qa_ranks_as_viewer
         viewer = session("viewer", user_id="u_v")
         created = self._create(viewer)
-        refused = run(comments_api.update_comment("prj_test", created["id"], comments_api.UpdateCommentRequest(status="RESOLVED"), viewer))
+        refused = run(comments_api.update_comment("prj_test", created["id"], comments_api.UpdateCommentRequest(status="RESOLVED"), if_match("comment", created["id"], None), viewer))
         self.assertEqual((refused.status_code, body(refused)["code"], body(refused)["requiredRole"]), (403, "status_role_required", "designer"))
 
         designer = session("designer", user_id="u_d")
-        resolved = run(comments_api.update_comment(
-            "prj_test", created["id"], comments_api.UpdateCommentRequest(status="resolved", expectedRevision=1), designer,
+        resolved = run(comments_api.update_comment("prj_test", created["id"], comments_api.UpdateCommentRequest(status="resolved"), if_match("comment", created["id"], 1), designer,
         ))
         self.assertEqual((resolved["status"], resolved["revision"]), ("RESOLVED", 2))
 
         admin = session("admin", user_id="u_a")
-        both = run(comments_api.update_comment(
-            "prj_test", created["id"], comments_api.UpdateCommentRequest(content="and reopened", status="OPEN", expectedRevision=2), admin,
+        both = run(comments_api.update_comment("prj_test", created["id"], comments_api.UpdateCommentRequest(content="and reopened", status="OPEN"), if_match("comment", created["id"], 2), admin,
         ))
         self.assertEqual((both["status"], both["content"], both["revision"]), ("OPEN", "and reopened", 4))
 
@@ -216,12 +199,12 @@ class RootMutationRouteTests(unittest.TestCase):
         created = self._create(priya)
         run(comments_api.add_reply("prj_test", created["id"], comments_api.CreateReplyRequest(content="r"), other))
 
-        refused = run(comments_api.delete_comment("prj_test", created["id"], None, other))
+        refused = run(comments_api.delete_comment("prj_test", created["id"], if_match("comment", created["id"], None), other))
         self.assertEqual((refused.status_code, body(refused)["code"]), (403, "not_owner"))
 
-        self.assertEqual(run(comments_api.delete_comment("prj_test", created["id"], 1, priya)), {"deleted": created["id"]})
+        self.assertEqual(run(comments_api.delete_comment("prj_test", created["id"], if_match("comment", created["id"], 1), priya)), {"deleted": created["id"]})
         with self.assertRaises(HTTPException) as ctx:
-            run(comments_api.delete_comment("prj_test", created["id"], None, priya))
+            run(comments_api.delete_comment("prj_test", created["id"], if_match("comment", created["id"], None), priya))
         self.assertEqual(ctx.exception.status_code, 404)
         self.assertEqual(self.store.get_comments_file("prj_test", self.project.path)["comments"], [])
         with self.store._connect() as conn:
@@ -242,7 +225,7 @@ class RootMutationRouteTests(unittest.TestCase):
         self.store.initialize()
         legacy = self.store.create_comment("prj_test", self.project.path, "PCB", {"x": 0, "y": 0}, "old", author="swaroop")
         designer = session("designer", user_id="u_d")
-        refused = run(comments_api.update_comment("prj_test", legacy["id"], comments_api.UpdateCommentRequest(content="x"), designer))
+        refused = run(comments_api.update_comment("prj_test", legacy["id"], comments_api.UpdateCommentRequest(content="x"), if_match("comment", legacy["id"], None), designer))
         self.assertEqual(body(refused)["code"], "legacy_admin_only")
         listing = run(comments_api.get_comments("prj_test", designer))
         [row] = listing["comments"]

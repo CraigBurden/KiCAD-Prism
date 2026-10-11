@@ -35,8 +35,9 @@ originating component's result), `library-component-evidence-panels.tsx` (read-o
 usage, and audit evidence), `library-component-metadata-dialog.tsx` and
 `library-component-asset-dialog.tsx` (edit sessions captured at open, one
 success callback), `library-component-metadata-form.ts` (definition-driven
-values, identity/provisional required rules, storage-key PATCH mapping;
-save validation matches the single PATCH, not bulk-edit shape checks),
+values and storage-key PATCH mapping; required and shape verdicts come from
+`frontend/src/lib/catalog-field-rules.ts` in its `editor` context, which checks
+presence only),
 `library-component-metadata-fields.tsx` (typed input adapters),
 `library-component-asset-download.ts` (released-revision downloads through the
 matching remote-provider representation, not the default placement pair),
@@ -45,7 +46,14 @@ matching remote-provider representation, not the default placement pair),
 `library-component-models.tsx` (STEP → GLB status, alignment editor and Geometer preview, P2 §18.2),
 `library-module-interface.tsx` (a module's connectors as derived from its symbol's units, read-only, P2 §3.5, with each one's placement status),
 `library-module-connector-dialog.tsx` and `module-face-picker.tsx` (placing a connector part on the module's model in the system viewer, P2 §3.6, §20.18),
-`library-asset-link-picker.tsx`, `use-edit-history.ts`.
+`library-asset-link-picker.tsx`.
+
+**Staged grid edits** — `use-staged-grid-edits.ts` is the one engine for both
+spreadsheet grids (bulk edit and import remediation): local edits until save,
+cell/fill-down/paste writes as single undo steps, undo/redo 100 steps deep in
+both grids, reset on save or apply, and the undo/redo/save
+hotkeys (optionally scoped to the grid's element). It sits on the pure reducer
+in `use-edit-history.ts`; a grid supplies only its `writeCell`.
 
 **Previews** — two paths that share nothing but a subject.
 `library-preview-viewport.tsx` pans and zooms a stored SVG render
@@ -58,10 +66,19 @@ the two, and `library-preview-pair.ts` decides which representation's assets a
 pair draws. Navigation belongs to the viewer, not to the frame around it — see
 `frontend/src/lib/ecad-renderer.ts`.
 
-**Import** — `library-import-center.tsx`,
+**Catalog client** — `catalog-client.ts` is the one place that knows
+`/api/catalog` URLs: one function per operation over `frontend/src/lib/api.ts`.
+Components call it; component tests fake it (`vi.mock("./catalog-client")`) and
+`catalog-client.test.ts` pins the wire format.
+
+**Import** — `library-import-center.tsx` (scan polling through `usePoll` in
+`frontend/src/lib/server-state.ts`),
 `library-import-session-proposals.ts` (proposals keyed by session ID; abort
-superseded reads; non-overlapping scan polling),
-`library-import-remediation-dialog.tsx`, `library-import-remediation-grid.tsx`,
+superseded reads),
+`library-import-remediation-dialog.tsx`, `library-import-remediation-grid.tsx`
+(both take readiness from `frontend/src/lib/catalog-field-rules.ts`, the rules
+the server enforces on accept, and edit custom field values through
+`library-import-custom-fields.ts`),
 `library-folder-discovery-dialog.tsx`. Import produces proposals that a human
 remediates before acceptance; the grid is the remediation surface.
 

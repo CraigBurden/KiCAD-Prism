@@ -4,12 +4,12 @@ import { Download, Eye, Plus, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { HARNESS_OUTPUTS, harnessOutputUrl, setHarnessCoverings } from "@/lib/systems-api";
+import { HARNESS_OUTPUTS, harnessOutputUrl } from "@/lib/systems-api";
 import type { HarnessCovering, SystemHarness } from "@/types/system";
 
 import { HarnessDrawingViewer } from "./harness-drawing-viewer";
 import { PartDialog, partText } from "./harness-part-dialog";
-import type { Mutate } from "./use-system-mutation";
+import { useSystemSession } from "./session/use-system-session";
 
 const OUTPUT_LABELS: Record<(typeof HARNESS_OUTPUTS)[number], string> = {
   "drawing.svg": "Drawing SVG",
@@ -39,11 +39,13 @@ function comparable(list: Draft[]): string {
 }
 
 /** SB2-110 (§26): the harness's coverings per route segment and its manufacturing outputs. */
-export function HarnessOutputsSection({ systemId, harness, etag, editable, busy, run }: {
-  systemId: string; harness: SystemHarness; etag: string; editable: boolean; busy: boolean; run: Mutate;
-}) {
+export function HarnessOutputsSection({ systemId, harness, editable }: { systemId: string; harness: SystemHarness; editable: boolean }) {
+  const session = useSystemSession();
+  // A draft belongs to the version it was started on.
+  const etag = session.etag;
+  const busy = session.busy !== null;
   const stored = (harness.coverings ?? []).map(toDraft);
-  const [draft, setDraft] = useState<{ etag: string; rows: Draft[] } | null>(null);
+  const [draft, setDraft] = useState<{ etag: string | null; rows: Draft[] } | null>(null);
   const [picking, setPicking] = useState<number | null>(null);
   const [viewing, setViewing] = useState(false);
   const rows = draft?.etag === etag ? draft.rows : stored;
@@ -57,8 +59,8 @@ export function HarnessOutputsSection({ systemId, harness, etag, editable, busy,
     const side = (node: string) => ends.get(node) ?? "breakout";
     return `${side(found.from)} – ${side(found.to)} · ${Math.round(found.lengthMm)} mm`;
   };
-  const edit = (update: (current: Draft[]) => Draft[]) => setDraft({ etag, rows: update(rows) });
-  const save = () => void run("harness", () => setHarnessCoverings(systemId, etag, harness.id,
+  const change = (update: (current: Draft[]) => Draft[]) => setDraft({ etag, rows: update(rows) });
+  const save = () => void session.edit("harness", (system) => system.setHarnessCoverings(harness.id,
     rows.map((row) => ({ segmentId: row.segmentId, componentId: row.componentId, description: row.description.trim() }))),
   "Coverings saved").then(() => setDraft(null));
   const options = ["*", ...segments.map((segment) => segment.id)];
@@ -69,7 +71,7 @@ export function HarnessOutputsSection({ systemId, harness, etag, editable, busy,
         <h3 className="text-sm font-semibold">Coverings</h3>
         {editable && (
           <Button variant="ghost" size="sm" disabled={busy} aria-label="Add covering"
-            onClick={() => edit((current) => [...current,
+            onClick={() => change((current) => [...current,
               { key: crypto.randomUUID(), segmentId: "*", componentId: null, partText: null, description: "" }])}>
             <Plus className="h-4 w-4" aria-hidden />
           </Button>
@@ -97,7 +99,7 @@ export function HarnessOutputsSection({ systemId, harness, etag, editable, busy,
           {rows.map((row, index) => (
             <li key={row.key} className="flex items-center gap-2 px-2 py-1">
               {editable ? (
-                <Select value={row.segmentId} onValueChange={(segmentId) => edit((current) =>
+                <Select value={row.segmentId} onValueChange={(segmentId) => change((current) =>
                   current.map((r, i) => (i === index ? { ...r, segmentId } : r)))}>
                   <SelectTrigger aria-label={`Covering ${index + 1} segment`} className="h-8 w-56"><SelectValue /></SelectTrigger>
                   <SelectContent>
@@ -108,7 +110,7 @@ export function HarnessOutputsSection({ systemId, harness, etag, editable, busy,
               {editable ? (
                 <Input aria-label={`Covering ${index + 1} description`} className="h-8 min-w-0 flex-1" maxLength={200}
                   value={row.description} placeholder="PET braid 6 mm"
-                  onChange={(event) => edit((current) => current.map((r, i) => (i === index ? { ...r, description: event.target.value } : r)))} />
+                  onChange={(event) => change((current) => current.map((r, i) => (i === index ? { ...r, description: event.target.value } : r)))} />
               ) : <span className="min-w-0 flex-1 truncate">{row.description}</span>}
               {editable ? (
                 <button type="button" className="max-w-40 truncate text-xs underline-offset-2 hover:underline" disabled={busy}
@@ -116,7 +118,7 @@ export function HarnessOutputsSection({ systemId, harness, etag, editable, busy,
               ) : <span className="max-w-40 truncate text-xs text-muted-foreground">{row.partText}</span>}
               {editable && (
                 <Button variant="ghost" size="icon" className="h-8 w-8" aria-label={`Remove covering ${index + 1}`} disabled={busy}
-                  onClick={() => edit((current) => current.filter((_, i) => i !== index))}>
+                  onClick={() => change((current) => current.filter((_, i) => i !== index))}>
                   <X className="h-4 w-4" aria-hidden />
                 </Button>
               )}
@@ -127,7 +129,7 @@ export function HarnessOutputsSection({ systemId, harness, etag, editable, busy,
       {viewing && <HarnessDrawingViewer systemId={systemId} harness={harness} onClose={() => setViewing(false)} />}
       {picking !== null && rows[picking] && (
         <PartDialog title="Covering part" current={rows[picking].componentId} busy={busy} onClose={() => setPicking(null)}
-          onPick={async (part) => edit((current) => current.map((r, i) => (i === picking
+          onPick={async (part) => change((current) => current.map((r, i) => (i === picking
             ? { ...r, componentId: part.componentId, partText: partText(part) } : r)))} />
       )}
     </section>

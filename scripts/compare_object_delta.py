@@ -8,7 +8,7 @@ disagreement is an improvement rather than a regression.
 Both sides are produced from the same cold build, in one command, so the
 comparison cannot drift: this script builds base and head through
 ``design_compare_service`` exactly as the worker does, runs
-``scripts/ecad-diff.mjs`` over the snapshots that build produced, and aligns
+``backend/design-compare-parser/ecad-diff.mjs`` over the snapshots that build produced, and aligns
 the two change sets on the native KiCad UUID -- the only identity both sides
 carry.
 
@@ -43,16 +43,14 @@ if str(BACKEND_ROOT) not in sys.path:
 
 SCHEMA = "prism.object_delta_agreement_m2"
 
-# The sidecar's vocabulary, which the Node index is mapped onto for
-# comparison. `pad`, `group`, `sheet` and `sheet_pin` have no sidecar
+# The sidecar's vocabulary, which the Node index's canonical kinds are mapped
+# onto for comparison. `pad`, `group`, `sheet` and `sheet_pin` have no sidecar
 # equivalent at all -- they are objects the current pipeline never sees, and
 # the plan predicted they would show up here as new detections.
 KIND_MAP = {
     "symbol": "symbol",
     "pin": "pin",
     "label": "label",
-    "global_label": "label",
-    "hierarchical_label": "label",
     "junction": "junction",
     "wire": "wire",
     "bus": "wire",
@@ -61,11 +59,10 @@ KIND_MAP = {
     "bus_entry": "graphic",
     "image": "graphic",
     "footprint": "footprint",
-    "segment": "track",
-    "arc_segment": "arc",
+    "track": "track",
+    "arc": "arc",
     "via": "via",
     "zone": "zone",
-    "footprint_zone": "zone",
 }
 
 STATUS_MAP = {"added": "added", "removed": "removed", "modified": "changed"}
@@ -419,7 +416,7 @@ def main() -> None:
         subprocess.run(
             [
                 "node",
-                str(REPOSITORY_ROOT / "scripts" / "ecad-diff.mjs"),
+                str(REPOSITORY_ROOT / "backend" / "design-compare-parser" / "ecad-diff.mjs"),
                 str(snapshots[base]),
                 str(snapshots[head]),
                 "--out",

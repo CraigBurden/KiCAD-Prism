@@ -126,7 +126,7 @@ export function LibraryFolderDiscoveryDialog({ discovery, open, submitting, onOp
                         {canImport
                           ? <Badge variant="success"><CheckCircle2 className="mr-1 h-3 w-3" />Resolved</Badge>
                           : component.existing_component
-                            ? <Badge variant="secondary">Existing · v{component.existing_component.version}</Badge>
+                            ? <Badge variant="secondary">{component.existing_component.is_active ? "Existing" : "Retired"} · v{component.existing_component.version}</Badge>
                             : <Badge variant="warning"><AlertTriangle className="mr-1 h-3 w-3" />{component.footprint.status === "suggested" ? "Suggested match" : component.footprint.status}</Badge>}
                         {warnings > 0 && <Badge variant="outline">{warnings} metadata warning{warnings === 1 ? "" : "s"}</Badge>}
                       </div>

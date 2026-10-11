@@ -6,8 +6,11 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest import mock
 
-from app.services import project_service, semantic_visualizer_service
+from app.services import job_service
+from app.services import kicad_jobset_service, project_service, semantic_visualizer_service
 from app.services.job_runtime import PreparedArtifact
+from app.services.kicad_tools import ToolResult
+from tests.kicad_tool_fakes import FakeTool
 
 
 class ProjectServiceV3JobTests(unittest.TestCase):
@@ -24,7 +27,7 @@ class ProjectServiceV3JobTests(unittest.TestCase):
                 "get_project_by_id",
                 return_value=row,
             ), mock.patch.object(
-                project_service.v3_jobs,
+                job_service.jobs,
                 "enqueue",
                 return_value={"job_id": "job"},
             ) as enqueue:
@@ -37,60 +40,6 @@ class ProjectServiceV3JobTests(unittest.TestCase):
             return semantic_key, webgpu_key
 
         self.assertNotEqual(keys("top.kicad_pro"), keys("base.kicad_pro"))
-
-    def test_job_status_preserves_authoritative_queue_status(self) -> None:
-        with mock.patch.object(
-            project_service.v3_jobs,
-            "get",
-            return_value={
-                "job_id": "job-webgpu",
-                "kind": "webgpu_3d",
-                "status": "completed",
-                "stage": "completed",
-                "result_metadata": {
-                    "schema": "prism.webgpu_3d_status_a0",
-                    "status": "ready",
-                    "available": True,
-                },
-                "error_message": "",
-            },
-        ):
-            status = project_service.get_job_status("job-webgpu")
-
-        self.assertEqual(status["status"], "completed")
-        self.assertEqual(status["stage"], "completed")
-        self.assertEqual(status["schema"], "prism.webgpu_3d_status_a0")
-        self.assertTrue(status["available"])
-
-    def test_job_status_merges_staged_payload_for_pollers(self) -> None:
-        with mock.patch.object(
-            project_service.v3_jobs,
-            "get",
-            return_value={
-                "job_id": "job-webgpu",
-                "kind": "webgpu_3d",
-                "status": "running",
-                "stage": "compile-assets",
-                "payload": {
-                    "bundle_url": "/api/projects/p1/webgpu-3d/manifest/source/build",
-                    "readiness_stage": "board-ready",
-                    "readiness": {
-                        "stage": "board-ready",
-                        "progress": 35,
-                        "revision": "rev-1",
-                    },
-                    "logs": ["Published staged bundle: board-ready (board)"],
-                },
-                "result_metadata": {},
-                "error_message": "",
-            },
-        ):
-            status = project_service.get_job_status("job-webgpu")
-
-        self.assertEqual(status["status"], "running")
-        self.assertEqual(status["readiness_stage"], "board-ready")
-        self.assertIn("bundle_url", status)
-        self.assertEqual(len(status["logs"]), 1)
 
     def test_thumbnail_url_is_content_versioned_when_digest_is_available(self) -> None:
         self.assertEqual(
@@ -125,7 +74,7 @@ class ProjectServiceV3JobTests(unittest.TestCase):
                 },
             ),
             mock.patch.object(
-                project_service.v3_jobs,
+                job_service.jobs,
                 "enqueue",
                 return_value={"job_id": "job-semantic"},
             ) as enqueue,
@@ -227,7 +176,7 @@ class ProjectServiceV3JobTests(unittest.TestCase):
                 return_value={"id": "project-1", "repo_id": "repo-1"},
             ),
             mock.patch.object(
-                project_service.v3_jobs,
+                job_service.jobs,
                 "enqueue",
                 return_value={"job_id": "job-workflow"},
             ) as enqueue,
@@ -266,9 +215,7 @@ class ProjectServiceV3JobTests(unittest.TestCase):
                 progress=lambda **values: progress_updates.append(values),
             )
             project = SimpleNamespace(path=str(project_root))
-            process = mock.Mock()
-            process.stdout = ["first line\n", "second line\n"]
-            process.wait.return_value = 0
+            tool = FakeTool(lambda args, **_: ToolResult(0, "first line\nsecond line\n"))
             repository = mock.Mock()
             repository.is_dirty.return_value = False
 
@@ -293,11 +240,7 @@ class ProjectServiceV3JobTests(unittest.TestCase):
                     "resolve_paths",
                     return_value=SimpleNamespace(jobset_path=str(jobset)),
                 ),
-                mock.patch.object(
-                    project_service.subprocess,
-                    "Popen",
-                    return_value=process,
-                ) as popen,
+                mock.patch.object(kicad_jobset_service, "kicad_cli", return_value=tool),
                 mock.patch.object(project_service, "Repo", return_value=repository),
             ):
                 result = project_service.run_kicad_workflow_job_v3(context)
@@ -305,8 +248,8 @@ class ProjectServiceV3JobTests(unittest.TestCase):
         self.assertEqual(result.message, "Workflow completed successfully")
         self.assertEqual(result.details["workflow_type"], "design")
         self.assertEqual(progress_updates[-1]["stage"], "git-sync")
-        command = popen.call_args.args[0]
-        self.assertEqual(command[1:3], ["jobset", "run"])
+        command = tool.calls[0]["args"]
+        self.assertEqual(command[0:2], ["jobset", "run"])
         self.assertIn("28dab1d3-7bf2-4d8a-9723-bcdd14e1d814", command)
         repository.git.add.assert_not_called()
 

@@ -9,30 +9,16 @@ can read anything.
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-
-_GENERATED_PARTS = {
-    ".cache",
-    ".kicad-prism",
-    "archive",
-    "autosave",
-    "backup",
-    "backups",
-}
+from app.services import project_revision
 
 
 def _is_generated_kicad_path(path: Path, root: Path) -> bool:
+    """The revision source-set rule (``project_revision.is_generated``), for a snapshot path."""
     try:
         relative = path.relative_to(root)
     except ValueError:
         relative = path
-    parts = [part.casefold() for part in relative.parts]
-    name = path.name.casefold()
-    return (
-        any(part in _GENERATED_PARTS or part.endswith("-backups") for part in parts[:-1])
-        or name.startswith(("~", "._"))
-        or "-backup-" in name
-        or name.endswith((".bak", ".lck"))
-    )
+    return project_revision.is_generated(relative.as_posix())
 
 
 def _list_kicad_sources(root: Path) -> List[Dict[str, str]]:

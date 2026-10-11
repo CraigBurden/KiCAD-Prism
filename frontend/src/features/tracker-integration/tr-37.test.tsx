@@ -174,7 +174,7 @@ describe("ConnectorSettings (F9.settings_states / C8)", () => {
             )
             .mockResolvedValueOnce(respond({ ...trackerUiMocks.pausedConnector }))
             .mockResolvedValueOnce(respond(trackerUiMocks.connector))
-            .mockResolvedValueOnce(respond({ ...trackerUiMocks.connector, credentialConfigured: false, paused: true }));
+            .mockResolvedValueOnce(respond({ ...trackerUiMocks.connector, credentialConfigured: false, paused: true, pausedReason: "revoked", status: "revoked" }));
         render(<ConnectorSettings connectorId="cn_gh1" isAdmin={true} />);
         await waitFor(() => {
             expect(screen.getByRole("button", { name: /test connection/i })).toBeTruthy();
@@ -209,7 +209,26 @@ describe("ConnectorSettings (F9.settings_states / C8)", () => {
 
     it("renders revoked badge when credentials are cleared", async () => {
         mockedFetch.mockResolvedValue(
-            respond({ ...trackerUiMocks.connector, credentialConfigured: false, paused: true, pausedReason: "auth" }),
+            respond({ ...trackerUiMocks.connector, credentialConfigured: false, paused: true, pausedReason: "auth_lost", status: "revoked" }),
+        );
+        render(<ConnectorSettings connectorId="cn_gh1" isAdmin={true} />);
+        await waitFor(() => {
+            expect(document.querySelector('[data-tracker-phase="revoked"]')).toBeTruthy();
+        });
+    });
+
+    it("treats a connector the backend paused for lost auth as revoked", async () => {
+        // The backend writes paused_reason = 'auth_lost' and reports status "revoked"
+        // (connector_runtime.connector_status); the editor only maps the status.
+        mockedFetch.mockResolvedValue(
+            respond({
+                ...trackerUiMocks.connector,
+                credentialConfigured: true,
+                paused: true,
+                pausedReason: "auth_lost",
+                status: "revoked",
+                writesEnabled: false,
+            }),
         );
         render(<ConnectorSettings connectorId="cn_gh1" isAdmin={true} />);
         await waitFor(() => {

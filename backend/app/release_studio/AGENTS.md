@@ -29,7 +29,7 @@ as a spurious change in a customer's release comparison.**
 
 | Path | Role |
 | --- | --- |
-| `pipeline.py` | Phase skeleton and progress tracking. Phases: closure, checks, assembly, documents, package. |
+| `pipeline.py` | Build waves (`run_build_waves`: checks, positions, BOM, assembly Cruncher, vendors, artwork, in that order) plus the phase skeleton and progress tracking. Phases: closure, checks, assembly, documents, package. |
 | `steps.py` | Individual `kicad-cli` invocations. Each step is its own process. |
 | `jobset.py` | KiCad jobset translation, pinned to the KiCad 10.0.4 executor. |
 | `closure.py` | Resolves every input a build depends on. Outputs are never closure inputs. |
@@ -37,15 +37,39 @@ as a spurious change in a customer's release comparison.**
 | `document_pipeline.py` | Gathers typed `DocumentInputs` and writes composed sheets as a member-producing step. |
 | `documents/` | Document generation — `documents/acquisition.py` acquires views, `documents/engine.py` composes sheets, the rest render. |
 | `canonical/` | Byte-canonical encoding and JSON. Frozen by default. |
-| `config/` | Schema, loader, substitution, and digest classification. |
+| `config/` | Schema, loader, substitution, and digest classification. `config/loader.py` holds the one configuration-location rule: `<project>/.prism/release-studio/`, references relative to the project, returned as repository paths when read at a commit; no repository-root fallback for a subproject. |
 | `vendors/` | Vendor-specific packaging (`vendors/jlcpcb.py`, `vendors/pack.py`, `vendors/registry.py`). |
 | `dossier.py` | Final manifest and evidence assembly. |
 | `projections.py` · `semantic.py` · `impedance.py` | Derived views over the build. |
 | `ipc.py` | Worker process boundary. |
 
+Every `kicad-cli` and `kicad-cruncher` run goes through the tools
+`execute_build` hands down (`backend/app/services/kicad_tools.py`): discovery,
+per-process isolation, timeout, tee and cancellation live there, not at the
+call site. Tests replace them with a fake or with the replay adapter
+(`backend/app/services/kicad_tool_replay.py`);
+`backend/tests/test_release_studio_replay_build.py` runs a whole build that way.
+
 Entry point is `backend/app/services/release_studio_build_service.py`
-(`run_release_studio_build_job`), dispatched from
-`backend/app/services/job_handlers.py`.
+(`run_release_studio_build_job`, kind `RELEASE_BUILD`), registered by
+`backend/app/services/job_handlers.py`. A build attempt's row lives in
+`backend/app/services/release_build_attempts.py`: it succeeds inside the job's
+completion transaction, and the kind's end hook ends it as the job ended when
+the build process died first (cancel, crash, lost lease). Only a candidate's
+newest attempt moves the candidate's status. `execute_build` reads as closure →
+waves (`pipeline.run_build_waves`) → documents → assemble → record.
+
+Around the build:
+- `backend/app/services/release_studio_config_service.py`: the configuration
+  registry, publishing a configuration to the tracked branch, and reads at a
+  commit.
+- `backend/app/services/release_studio_publish_service.py`: `ReleasePublisher`
+  (approve → package → forge → record) and `BuildArchives` (digest-checked
+  dossier/evidence reads, logs, vendor packs). Forges are adapters in
+  `backend/app/services/forge_publish_service.py` (`forge_for`). This is not
+  the trackers' forge seam (`backend/app/services/trackers/`): different
+  credentials, different purpose. Tests drive it with
+  `backend/tests/release_publish_fakes.py`.
 
 ## Traps
 

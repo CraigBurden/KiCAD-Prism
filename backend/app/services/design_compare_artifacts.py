@@ -9,7 +9,7 @@ import json
 import re
 from pathlib import Path
 from typing import Any, Dict, List, Optional
-from app.services import fabrication_compare_service, semantic_index_service
+from app.services import fabrication_compare_service, kicad_library_reader
 from .design_compare_sources import _find_pcb
 
 
@@ -17,7 +17,7 @@ def _iter_sexpr_blocks(text: str, kind: str):
     """Yield bounded KiCad S-expressions without catastrophic cross-file regexes."""
     pattern = re.compile(rf"\({re.escape(kind)}(?=\s|\))")
     for match in pattern.finditer(text):
-        end = semantic_index_service._balanced_s_expression_end(text, match.start())
+        end = kicad_library_reader.form_end(text, match.start())
         if end is not None:
             yield text[match.start():end]
 
@@ -35,7 +35,7 @@ def _extract_stackup(snap: Path, anchor: Optional[str] = None) -> Dict[str, Any]
     layers: List[Dict[str, Any]] = []
     stackup_start = re.search(r"\(stackup(?=\s|\))", text)
     stackup_end = (
-        semantic_index_service._balanced_s_expression_end(text, stackup_start.start())
+        kicad_library_reader.form_end(text, stackup_start.start())
         if stackup_start
         else None
     )

@@ -8,10 +8,8 @@ boards as Git repositories, and their interfaces are real extractions.
 from __future__ import annotations
 
 import json
-import os
 import tempfile
 import unittest
-import uuid
 from contextlib import contextmanager
 from pathlib import Path
 from types import SimpleNamespace
@@ -29,6 +27,7 @@ from fastapi import FastAPI
 
 from system_builder_fixtures import build_fixture_repo
 
+from app.core.errors import install_error_handlers  # noqa: E402
 from app.api import systems as systems_api
 from app.services.systems import interface_cache
 from app.core.security import AuthenticatedUser, get_current_user
@@ -38,10 +37,11 @@ from app.services.systems.jobs import EXTRACT_JOB_KIND, artifact_key
 from app.services.systems.service import SystemService
 from app.services.systems.interface_extractor import EXTRACTOR_VERSION
 from app.services.systems.store import SystemStore
-
-POSTGRES_URL = os.environ.get("TEST_POSTGRES_URL", "").strip().replace(
-    "postgresql+psycopg://", "postgresql://", 1
+from app.services.workspace_schema_migrations import WORKSPACE_LEDGER
+from support.postgres import (
+    requires_scratch_postgres, scratch_schema, seed_folder, seed_job, seed_project, seed_repository,
 )
+
 
 USERS = {
     role: AuthenticatedUser(email=f"{role}@example.com", name=role, role=role)
@@ -96,6 +96,7 @@ class RoutingTest(unittest.TestCase):
         source = (Path(__file__).resolve().parents[1] / "app" / "main.py").read_text(encoding="utf-8")
         self.assertIn('app.include_router(systems_router, prefix="/api/systems"', source)
         app = FastAPI()
+        install_error_handlers(app)
         app.include_router(systems_api.router, prefix="/api/systems")
         paths = set(app.openapi()["paths"])
         for path in ("/api/systems", "/api/systems/{system_id}",
@@ -111,8 +112,7 @@ class RoutingTest(unittest.TestCase):
         self.assertIn(EXTRACT_JOB_KIND, registered_job_kinds())
 
 
-@unittest.skipUnless(POSTGRES_URL, "TEST_POSTGRES_URL is required for System Builder API tests")
-@unittest.skipUnless(psycopg is not None, "psycopg is required for System Builder API tests")
+@requires_scratch_postgres("System Builder API tests")
 class SystemApiTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
@@ -133,49 +133,21 @@ class SystemApiTest(unittest.TestCase):
         cls._scratch.cleanup()
 
     def setUp(self) -> None:
-        from app.services.workspace_schema_migrations import apply_workspace_migrations
-
-        self.schema = f"system_api_{uuid.uuid4().hex}"
-        self.conn = psycopg.connect(POSTGRES_URL, row_factory=dict_row)
-        self.conn.execute(f'CREATE SCHEMA "{self.schema}"')
-        self.conn.execute(f'SET search_path TO "{self.schema}", public')
-        self.conn.execute(
-            """
-            CREATE TABLE ws_repositories (id TEXT PRIMARY KEY, name TEXT NOT NULL DEFAULT 'r',
-                url TEXT, clone_path TEXT, import_type TEXT, last_synced_at TIMESTAMPTZ);
-            CREATE TABLE ws_folders (id TEXT PRIMARY KEY, name TEXT NOT NULL DEFAULT 'f',
-                parent_id TEXT, visibility_mode TEXT,
-                allowed_roles JSONB NOT NULL DEFAULT '[]'::jsonb);
-            CREATE TABLE ws_projects (id TEXT PRIMARY KEY,
-                repo_id TEXT NOT NULL REFERENCES ws_repositories(id),
-                name TEXT NOT NULL, display_name TEXT, relative_path TEXT NOT NULL DEFAULT '.',
-                folder_id TEXT REFERENCES ws_folders(id) ON DELETE SET NULL);
-            CREATE TABLE ws_project_portfolio (project_id TEXT PRIMARY KEY);
-            CREATE TABLE ws_jobs (id TEXT PRIMARY KEY, kind TEXT NOT NULL, status TEXT NOT NULL,
-                message TEXT NOT NULL DEFAULT '', percent REAL NOT NULL DEFAULT 0,
-                payload JSONB NOT NULL DEFAULT '{}'::jsonb,
-                created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-                updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW());
-            INSERT INTO ws_repositories (id) VALUES ('repo_obc'), ('repo_pay');
-            INSERT INTO ws_folders (id, visibility_mode, allowed_roles) VALUES
-                ('fld_open', NULL, '[]'), ('fld_designers', 'roles', '["designer"]'),
-                ('fld_admins', 'roles', '["admin"]');
-            INSERT INTO ws_projects (id, repo_id, name, folder_id) VALUES
-                ('prj_obc', 'repo_obc', 'mini_obc', 'fld_open'),
-                ('prj_pay', 'repo_pay', 'mini_payload', 'fld_open');
-            """,
-            prepare=False,
-        )
-        apply_workspace_migrations(self.conn)
+        self.scratch = scratch_schema(self, "system_api", ledgers=(WORKSPACE_LEDGER,))
+        self.schema, self.conn = self.scratch.name, self.scratch.conn
+        for repo in ("repo_obc", "repo_pay"):
+            seed_repository(self.conn, repo)
+        seed_folder(self.conn, "fld_open")
+        seed_folder(self.conn, "fld_designers", visibility_mode="roles", allowed_roles=["designer"])
+        seed_folder(self.conn, "fld_admins", visibility_mode="roles", allowed_roles=["admin"])
+        seed_project(self.conn, "prj_obc", "repo_obc", name="mini_obc", folder_id="fld_open")
+        seed_project(self.conn, "prj_pay", "repo_pay", name="mini_payload", folder_id="fld_open")
         self.conn.commit()
-
-        schema = self.schema
 
         @contextmanager
         def connect():
-            conn = psycopg.connect(POSTGRES_URL, row_factory=dict_row)
+            conn = self.scratch.connect()
             try:
-                conn.execute(f'SET search_path TO "{schema}", public')
                 yield conn
             finally:
                 conn.close()
@@ -201,13 +173,8 @@ class SystemApiTest(unittest.TestCase):
         patcher.start()
         self.addCleanup(patcher.stop)
         self.app = FastAPI()
+        install_error_handlers(self.app)
         self.app.include_router(systems_api.router, prefix="/api/systems")
-
-    def tearDown(self) -> None:
-        self.conn.rollback()
-        self.conn.execute(f'DROP SCHEMA "{self.schema}" CASCADE')
-        self.conn.commit()
-        self.conn.close()
 
     # ------------------------------------------------------------------ helpers
 
@@ -421,10 +388,10 @@ class SystemApiTest(unittest.TestCase):
         self.assertIsNone(document["instances"][0]["ports"])
         self.assertEqual(len(self.enqueued), 1)  # no job row yet, so the read asks for one
         # A failed job is reported, not silently retried on every read.
-        self.conn.execute(
-            "INSERT INTO ws_jobs (id, kind, status, artifact_key, error_code, error_message)"
-            " VALUES ('job-f', %s, 'failed', %s, 'source_unavailable', 'secret path detail')",
-            (EXTRACT_JOB_KIND, artifact_key("prj_obc", self.commits["mini_obc"]["F0"])),
+        seed_job(
+            self.conn, "job-f", EXTRACT_JOB_KIND, "failed",
+            artifact_key=artifact_key("prj_obc", self.commits["mini_obc"]["F0"]),
+            error_code="source_unavailable", error_message="secret path detail",
         )
         self.conn.commit()
         self.enqueued.clear()
@@ -548,7 +515,7 @@ class SystemApiTest(unittest.TestCase):
             "b": {"instanceId": b.json["id"], "portKey": self.port_key("prj_pay", "J4")},
         })
         self.assertEqual(response.status, 409)
-        self.assertIn("interface_not_ready", response.json["detail"])
+        self.assertEqual(response.json["code"], "interface_not_ready")
 
     # ------------------------------------------------------------------ links and rows
 

@@ -8,6 +8,7 @@ kicad-prism.corp.internal {
 
 	encode gzip zstd
 
+	# Large catalog imports and long-running semantic generation
 	request_body {
 		max_size 2GB
 	}

@@ -1,11 +1,19 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { chooseOption } from "@/test/select";
 
+import { listMates, listModels, saveModelAlignment } from "./catalog-client";
 import { ModelsPanel, previewUrl } from "./library-component-models";
 
-afterEach(() => vi.unstubAllGlobals());
+vi.mock("./catalog-client", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("./catalog-client")>()),
+  listMates: vi.fn(),
+  listModels: vi.fn(),
+  saveModelAlignment: vi.fn(),
+}));
+
+beforeEach(() => vi.clearAllMocks());
 
 const MODEL = {
   assetId: "ast_1", name: "PinHeader_1x04_P2.54mm_Vertical.step", stepSha256: "a".repeat(64),
@@ -13,21 +21,17 @@ const MODEL = {
   alignment: { offsetMm: [0, 0, 0], rotationDeg: [0, 0, 0], scale: 1, updatedBy: null, updatedAt: null },
 };
 
-function stubApi() {
-  const calls: [string, RequestInit][] = [];
-  vi.stubGlobal("fetch", vi.fn(async (url: string, init: RequestInit = {}) => {
-    calls.push([url, init]);
-    const json = (body: unknown) => new Response(JSON.stringify(body), { status: 200, headers: { "Content-Type": "application/json" } });
-    if (url.endsWith("/mates-with")) return json({ items: [{ componentId: "cmp_socket", name: "Socket", mpn: "PS-104", manufacturer: "Test" }] });
-    if (init.method === "PUT") return json({ items: [{ ...MODEL, alignment: { ...JSON.parse(String(init.body)), updatedBy: "a", updatedAt: "t" } }] });
-    return json({ items: [MODEL] });
-  }));
-  return calls;
+function fakeCatalog() {
+  vi.mocked(listMates).mockResolvedValue({ items: [{ componentId: "cmp_socket", name: "Socket", mpn: "PS-104", manufacturer: "Test" }] });
+  vi.mocked(listModels).mockResolvedValue({ items: [MODEL] } as never);
+  vi.mocked(saveModelAlignment).mockImplementation(async (_, __, alignment) => (
+    { items: [{ ...MODEL, alignment: { ...alignment, updatedBy: "a", updatedAt: "t" } }] } as never
+  ));
 }
 
 describe("ModelsPanel", () => {
   it("shows the converted model and previews an unsaved alignment mated with a partner", async () => {
-    const calls = stubApi();
+    fakeCatalog();
     render(<ModelsPanel componentId="cmp_plug" canMutate />);
     expect(await screen.findByText(/2.54 × 10.16 × 11.54 mm · 2 colours/)).toBeTruthy();
     const preview = () => screen.getByTestId("model-preview").getAttribute("src") ?? "";
@@ -39,14 +43,12 @@ describe("ModelsPanel", () => {
     fireEvent.click(screen.getByRole("tab", { name: "Side" }));
     await waitFor(() => expect(preview()).toContain("view=side"));
     fireEvent.click(screen.getByRole("button", { name: "Save alignment" }));
-    await waitFor(() => expect(calls.some(([, init]) => init.method === "PUT")).toBe(true));
-    const [url, init] = calls.find(([, i]) => i.method === "PUT")!;
-    expect([url, JSON.parse(String(init.body))]).toEqual(["/api/catalog/components/cmp_plug/models/ast_1/alignment",
-      { offsetMm: [0, 0, -8.54], rotationDeg: [0, 0, 0], scale: 1 }]);
+    await waitFor(() => expect(saveModelAlignment).toHaveBeenCalledWith("cmp_plug", "ast_1",
+      { offsetMm: [0, 0, -8.54], rotationDeg: [0, 0, 0], scale: 1 }));
   });
 
   it("lets viewers preview but not save", async () => {
-    stubApi();
+    fakeCatalog();
     render(<ModelsPanel componentId="cmp_plug" canMutate={false} />);
     expect(await screen.findByTestId("model-preview")).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Save alignment" })).toBeNull();

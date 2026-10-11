@@ -30,8 +30,8 @@ describe("systems-api", () => {
     expect(error).toMatchObject({ status: 412, currentEtag: '"sys:s1:9"', message: "System has changed; reload it" });
   });
 
-  it("marks interface_not_ready conflicts and encodes path segments", async () => {
-    const fetchMock = vi.fn(async () => reply(409, { detail: "interface_not_ready: still extracting" }));
+  it("reads interface_not_ready from the code and encodes path segments", async () => {
+    const fetchMock = vi.fn(async () => reply(409, { detail: "A mated board's interface is still being extracted", code: "interface_not_ready" }));
     vi.stubGlobal("fetch", fetchMock);
     const error = await addInstance("a/b", "e", { projectId: "p", label: "x" }).catch((caught) => caught);
     expect(error).toBeInstanceOf(ApiHttpError);

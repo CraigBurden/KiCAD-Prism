@@ -29,12 +29,12 @@ from __future__ import annotations
 
 import json
 import logging
-import os
 import re
-import subprocess
 import tempfile
 from pathlib import Path
 from typing import Optional
+
+from app.services.kicad_tools import KicadTool, ToolError, ToolTimeout, kicad_cli
 
 
 logger = logging.getLogger(__name__)
@@ -54,20 +54,6 @@ _QUANTITY = re.compile(r"^\s*([-+]?\d+(?:\.\d+)?)\s*(\S+)?\s*$")
 
 class BoardStatsUnavailable(RuntimeError):
     """kicad-cli could not produce statistics for this board."""
-
-
-def _resolve_cli() -> str:
-    """Locate kicad-cli the same way Release Studio does.
-
-    Imported lazily: the API process resolves this module at import time and
-    must not fail to start because a toolchain it never calls is absent.
-    """
-    from app.release_studio.steps import StepExecutionError, resolve_cli_path
-
-    try:
-        return resolve_cli_path()
-    except StepExecutionError as error:
-        raise BoardStatsUnavailable(str(error)) from error
 
 
 def _quantity_mm(value: object) -> Optional[float]:
@@ -94,7 +80,7 @@ def _quantity_mm(value: object) -> Optional[float]:
         return None
 
 
-def export_board_stats(pcb_path: str, *, cli_path: Optional[str] = None) -> dict:
+def export_board_stats(pcb_path: str, *, tool: Optional[KicadTool] = None) -> dict:
     """Run ``pcb export stats`` and return the parsed report.
 
     Raises ``BoardStatsUnavailable`` when the toolchain is missing or the run
@@ -106,19 +92,11 @@ def export_board_stats(pcb_path: str, *, cli_path: Optional[str] = None) -> dict
     if not board.is_file():
         raise BoardStatsUnavailable(f"Board not found: {pcb_path}")
 
-    executable = cli_path or _resolve_cli()
+    cli = tool or kicad_cli()
 
     with tempfile.TemporaryDirectory(prefix="prism-board-stats-") as scratch:
         out_path = Path(scratch) / "stats.json"
-        # Each invocation gets its own temp/runtime dir: kicad-cli takes an
-        # instance lock keyed on it, and two of them sharing one directory
-        # serialise for no reason.
-        env = dict(os.environ)
-        for key in ("TMPDIR", "TMP", "TEMP", "XDG_RUNTIME_DIR"):
-            env[key] = scratch
-
         argv = [
-            executable,
             "pcb",
             "export",
             "stats",
@@ -129,20 +107,13 @@ def export_board_stats(pcb_path: str, *, cli_path: Optional[str] = None) -> dict
             str(board),
         ]
         try:
-            completed = subprocess.run(
-                argv,
-                capture_output=True,
-                text=True,
-                timeout=STATS_TIMEOUT_SECONDS,
-                env=env,
-                cwd=scratch,
-            )
-        except subprocess.TimeoutExpired as error:
+            completed = cli.run(argv, timeout=STATS_TIMEOUT_SECONDS, cwd=scratch)
+        except ToolTimeout as error:
             raise BoardStatsUnavailable(
                 f"kicad-cli timed out after {STATS_TIMEOUT_SECONDS}s on {board.name}"
             ) from error
-        except OSError as error:
-            raise BoardStatsUnavailable(f"kicad-cli could not be executed: {error}") from error
+        except ToolError as error:
+            raise BoardStatsUnavailable(str(error)) from error
 
         if completed.returncode != 0:
             detail = (completed.stderr or completed.stdout or "").strip().splitlines()

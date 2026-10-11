@@ -1,12 +1,11 @@
-import { fireEvent, render, screen } from "@testing-library/react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { fireEvent, screen } from "@testing-library/react";
+import { describe, expect, it, vi } from "vitest";
 
 import type { SystemDocument } from "@/types/system";
 
 import { ExportManyDialog, exportCandidates } from "./export-many-dialog";
+import { memorySystem, renderInSession } from "./session/memory-session";
 import { instance, link, systemDocument } from "./test-fixtures";
-
-afterEach(() => vi.unstubAllGlobals());
 
 const obc = instance("OBC");
 const cmbd = instance("CMBD");
@@ -27,12 +26,9 @@ describe("ExportManyDialog (SB2-121)", () => {
   });
 
   it("exports the ticked connectors in one call", async () => {
-    const fetchMock = vi.fn(async () => new Response(JSON.stringify({ exports: [] }), {
-      status: 201, headers: { "Content-Type": "application/json", ETag: '"sys:s:2"' } }));
-    vi.stubGlobal("fetch", fetchMock);
-    const run = vi.fn(async (_label: string, action: () => Promise<unknown>) => action());
+    const memory = memorySystem(document, { edits: { createExports: () => ({ exports: [] }) } });
     const onClose = vi.fn();
-    render(<ExportManyDialog systemId="s" document={document} etag='"sys:s:1"' busy={false} run={run as never} onClose={onClose} />);
+    renderInSession(<ExportManyDialog document={document} onClose={onClose} />, { document, transport: memory.transport });
     fireEvent.click(screen.getByRole("checkbox", { name: "Export OBC J1" }));
     fireEvent.click(screen.getByRole("checkbox", { name: "Export OBC J3" }));
     fireEvent.change(screen.getByRole("textbox", { name: "Name for OBC J3" }), { target: { value: "J3" } });
@@ -40,8 +36,7 @@ describe("ExportManyDialog (SB2-121)", () => {
     fireEvent.change(screen.getByRole("textbox", { name: "Name for OBC J3" }), { target: { value: "DEBUG" } });
     fireEvent.click(screen.getByRole("button", { name: "Export 2" }));
     await vi.waitFor(() => expect(onClose).toHaveBeenCalled());
-    const [url, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
-    expect(url).toMatch(/\/exports\/batch$/);
-    expect(JSON.parse(String(init.body)).exports.map((item: { name: string }) => item.name)).toEqual(["OBC J1", "DEBUG"]);
+    expect(memory.calls.map((call) => call.name)).toEqual(["createExports"]);
+    expect((memory.calls[0].args[0] as { name: string }[]).map((item) => item.name)).toEqual(["OBC J1", "DEBUG"]);
   });
 });

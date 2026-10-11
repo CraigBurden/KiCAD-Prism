@@ -7,6 +7,7 @@ import re
 from typing import Any
 
 from app.services import project_service, semantic_index_service
+from app.services.catalog.field_rules import missing_metadata_findings
 from app.services.component_catalog_service import catalog_service
 from app.services.project_component_asset_extractor import (
     ContentAddressedAssetStager,
@@ -129,15 +130,7 @@ def _proposal(
         "manufacturer": _field(fields, "Manufacturer", "MFR"),
         "manufacturer_part_number": _field(fields, "Manufacturer Part Number", "MPN", "Part Number"),
     }
-    for key, value in required_metadata.items():
-        if not value.strip():
-            findings.append(
-                {
-                    "code": f"missing_metadata_{key}",
-                    "severity": "error",
-                    "message": f"Required component metadata is missing: {key.replace('_', ' ')}.",
-                }
-            )
+    findings.extend(missing_metadata_findings(required_metadata))
     findings.extend(extraction_findings or [])
     return {
         "dedupe_key": _dedupe_key(component, project_id=project_id),

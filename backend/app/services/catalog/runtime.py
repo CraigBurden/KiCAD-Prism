@@ -16,7 +16,7 @@ KLC_VALIDATION_DIRNAME = "klc"
 
 # The asset browser reuses one sorted directory walk per asset type for this
 # long, so repeated dialog opens do not rescan the whole store.
-_ASSET_BROWSE_CACHE_TTL_SECONDS = 30.0
+ASSET_BROWSE_CACHE_TTL_SECONDS = 30.0
 
 
 @dataclass(frozen=True)
@@ -34,8 +34,6 @@ class CatalogRuntime:
 
     initialization_lock: threading.Lock
     initialized: bool
-    kicad_cli: str | None
-    kicad_cli_version: str | None
     category_cache: list[dict[str, Any]] | None
     category_cache_ts: float
     category_cache_ttl: float
@@ -68,8 +66,6 @@ class CatalogRuntime:
 
         self.initialization_lock = threading.Lock()
         self.initialized = False
-        self.kicad_cli = None
-        self.kicad_cli_version = None
         self.category_cache = None
         self.category_cache_ts = 0.0
         self.category_cache_ttl = 60.0
@@ -158,5 +154,5 @@ __all__ = [
     "DEFAULT_STORE_DIRNAME",
     "DBL_EXPORT_DIRNAME",
     "KLC_VALIDATION_DIRNAME",
-    "_ASSET_BROWSE_CACHE_TTL_SECONDS",
+    "ASSET_BROWSE_CACHE_TTL_SECONDS",
 ]

@@ -13,14 +13,15 @@ import json
 from typing import Any
 import uuid
 
-from app.services.catalog.conflicts import CatalogConflict
+from app.services.catalog.component_identity import ComponentIdentity, find_identity_holder
+from app.services.catalog.conflicts import revision_conflict
+from app.services.catalog.field_rules import custom_field_errors, missing_custom_fields
 from app.services.catalog.locking import CatalogLockOperations
 from app.services.catalog.metadata_normalization import (
     IDENTITY_KIND_MPN,
     IDENTITY_KIND_PROVISIONAL_IPN,
     metadata_keywords,
     metadata_search_document,
-    normalize_identity_value,
     normalize_metadata,
 )
 from app.services.catalog.metadata_schema import CatalogMetadataSchema
@@ -81,7 +82,7 @@ METADATA_INSERT_COLUMNS: tuple[str, ...] = (
 _METADATA_COLUMNS = METADATA_INSERT_COLUMNS
 
 
-def _metadata_column_values(metadata: dict[str, Any]) -> tuple[Any, ...]:
+def metadata_column_values(metadata: dict[str, Any]) -> tuple[Any, ...]:
     """Column values in ``_METADATA_COLUMNS`` order followed by keywords, extras, search text."""
     return (
         *(metadata[column] for column in _METADATA_COLUMNS),
@@ -156,6 +157,30 @@ class CatalogComponentWriter:
             counter += 1
         return candidate
 
+    def identity_holder(
+        self,
+        conn: Any,
+        *,
+        manufacturer: str,
+        mpn: str,
+        identity_kind: str = IDENTITY_KIND_MPN,
+        identity_source: str = "",
+        source_internal_part_number: str = "",
+        component_id: str = "",
+        acquire_identity_lock: bool = True,
+    ) -> dict[str, Any] | None:
+        """The component (active or retired) holding this identity, under the identity lock."""
+        identity = ComponentIdentity.of(
+            manufacturer=manufacturer,
+            mpn=mpn,
+            identity_kind=identity_kind,
+            identity_source=identity_source,
+            source_internal_part_number=source_internal_part_number,
+        )
+        if acquire_identity_lock:
+            self._catalog_locks.lock_component_identity(conn, identity.lock_scope, identity.part_number)
+        return find_identity_holder(conn, identity, exclude_component_id=component_id)
+
     def assert_identity_available(
         self,
         conn: Any,
@@ -169,37 +194,34 @@ class CatalogComponentWriter:
         acquire_identity_lock: bool = True,
     ) -> None:
         """Reject a second component with the same orderable or provisional identity."""
-        normalized_manufacturer = normalize_identity_value(manufacturer)
-        normalized_part_number = normalize_identity_value(
-            mpn if identity_kind == IDENTITY_KIND_MPN else source_internal_part_number
-        )
-        if acquire_identity_lock:
-            self._catalog_locks.lock_component_identity(
-                conn,
-                normalized_manufacturer if identity_kind == IDENTITY_KIND_MPN else identity_source,
-                normalized_part_number,
-            )
-        existing = conn.execute(
-            """
-            SELECT id
-            FROM components
-            WHERE identity_kind = %s
-              AND normalized_manufacturer = %s
-              AND normalized_part_number = %s
-              AND identity_source = %s
-              AND id <> %s
-            LIMIT 1
-            """,
-            (
-                identity_kind,
-                normalized_manufacturer if identity_kind == IDENTITY_KIND_MPN else "",
-                normalized_part_number,
-                identity_source if identity_kind == IDENTITY_KIND_PROVISIONAL_IPN else "",
-                component_id,
-            ),
-        ).fetchone()
-        if existing:
+        if self.identity_holder(
+            conn,
+            manufacturer=manufacturer,
+            mpn=mpn,
+            identity_kind=identity_kind,
+            identity_source=identity_source,
+            source_internal_part_number=source_internal_part_number,
+            component_id=component_id,
+            acquire_identity_lock=acquire_identity_lock,
+        ):
             raise ValueError("A component with this manufacturer-part identity already exists")
+
+    def missing_custom_fields(self, conn: Any, metadata: dict[str, Any]) -> list[str]:
+        """Labels of the active custom required fields that normalized ``metadata`` leaves blank."""
+        return [
+            str(field.get("label") or field.get("key"))
+            for field in missing_custom_fields(
+                self._metadata_schema.list_fields(conn), metadata, identity_kind=metadata["identity_kind"]
+            )
+        ]
+
+    def assert_custom_fields_present(self, conn: Any, metadata: dict[str, Any]) -> None:
+        """Refuse normalized ``metadata`` that leaves a custom required field blank (``"<Label>: Required"``)."""
+        errors = custom_field_errors(
+            self._metadata_schema.list_fields(conn), metadata, identity_kind=metadata["identity_kind"]
+        )
+        if errors:
+            raise ValueError("; ".join(errors))
 
     def upsert_metadata_row(
         self,
@@ -262,7 +284,7 @@ class CatalogComponentWriter:
                 SET {assignments}, keywords = %s, extra_fields = %s, search_document = %s, updated_at = %s
                 WHERE id = %s
                 """,
-                (*_metadata_column_values(metadata), now, revision["id"]),
+                (*metadata_column_values(metadata), now, revision["id"]),
             )
             conn.execute(
                 """
@@ -344,7 +366,7 @@ class CatalogComponentWriter:
                 "",
                 REVISION_MANIFEST_A3,
                 "open",
-                *_metadata_column_values(metadata),
+                *metadata_column_values(metadata),
                 now,
                 now,
             ),
@@ -374,11 +396,13 @@ class CatalogComponentWriter:
         """A new component. A ``module`` (CONTRACTS_P2 §3.5) takes its kind before its first revision is
         sealed, so the sealed revision already carries its (symbol-derived) interface."""
         component_id = str(uuid.uuid4())
+        metadata = normalize_metadata(payload)
+        self.assert_custom_fields_present(conn, metadata)
         _component_id, revision_id = self.upsert_metadata_row(
             conn,
             runtime,
             component_id=component_id,
-            metadata=normalize_metadata(payload),
+            metadata=metadata,
             now=utc_now_iso(),
             existing_component_id=None,
             actor=actor,
@@ -431,10 +455,11 @@ class CatalogComponentWriter:
         if not revision:
             return None
         if str(revision["id"]) != expected_revision_id:
-            raise CatalogConflict()
+            raise revision_conflict(component_id=component_id, current_revision_id=str(revision["id"]))
         metadata = merge_metadata_patch(component, revision, updates)
         if metadata_matches_revision(revision, metadata):
             return ""
+        self.assert_custom_fields_present(conn, metadata)
         _, revision_id = self.upsert_metadata_row(
             conn,
             runtime,
@@ -456,5 +481,6 @@ __all__ = [
     "SOURCE_MANUAL",
     "CatalogComponentWriter",
     "merge_metadata_patch",
+    "metadata_column_values",
     "metadata_matches_revision",
 ]

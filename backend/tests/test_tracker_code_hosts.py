@@ -9,12 +9,10 @@ from __future__ import annotations
 
 import json
 import unittest
-import uuid
 from contextlib import contextmanager
 from urllib.parse import parse_qs, urlsplit
 
 from app.api import tracker_identity as identity_api
-from app.services import comments_schema_migrations
 from app.services.trackers.connector_service import ConnectorService
 from app.services.trackers.contracts import ForgeUser, IdentityToken
 from app.services.trackers.errors import ProviderError
@@ -22,22 +20,15 @@ from app.services.trackers.gitea_identity import GiteaIdentityAdapter, GiteaOAut
 from app.services.trackers.github_identity import GitHubIdentityAdapter, GitHubOAuthApp
 from app.services.trackers.gitlab_identity import GitLabIdentityAdapter, GitLabOAuthApp
 from app.services.trackers.http import TrackerHttp
-from app.services.trackers.identity_service import IdentityService, _provider_of
+from app.services.trackers.identity_service import IdentityService
 from app.services.trackers.migrations import (
     migrate_tracker_webhook_oauth_tables,
     migrate_workspace_tracker_tables,
 )
-from test_tracker_tr_21 import (
-    POSTGRES_URL,
-    SHARED_APPLICATION_DATABASE,
-    _dsn,
-    _request,
-    _settings,
-    psycopg,
-    run,
-    session,
-)
+from test_tracker_tr_21 import _request, _settings, run, session
 from test_tracker_tr_47 import _Raw
+from app.services.comments_schema_migrations import COMMENTS_LEDGER  # noqa: E402
+from support.postgres import requires_scratch_postgres, scratch_schema  # noqa: E402
 
 try:
     from psycopg.rows import dict_row
@@ -106,7 +97,7 @@ class IdentityDispatchTests(unittest.TestCase):
         ]
         for app, adapter_type, provider in cases:
             self.assertIsInstance(service._adapter(app, "cn"), adapter_type)
-            self.assertEqual(_provider_of(app), provider)
+            self.assertEqual(app.provider, provider)
 
 
 class _FakeGitLab:
@@ -125,32 +116,13 @@ class _FakeGitLab:
         return ForgeUser(id="7", login="ana", isBot=False, displayName="Ana")
 
 
-@unittest.skipUnless(POSTGRES_URL, "TEST_POSTGRES_URL is required")
-@unittest.skipUnless(psycopg is not None, "psycopg is required")
-@unittest.skipIf(SHARED_APPLICATION_DATABASE, "TEST_POSTGRES_URL must not target PRISM_DATABASE_URL")
+@requires_scratch_postgres("tracker persistence tests")
 class CodeHostPostgresTests(unittest.TestCase):
     def setUp(self) -> None:
-        self.schema = f"codehost_{uuid.uuid4().hex[:12]}"
-        conn = psycopg.connect(_dsn(), row_factory=dict_row)
-        conn.execute(f'CREATE SCHEMA "{self.schema}"')
-        conn.execute(f'SET search_path TO "{self.schema}", public')
-        conn.execute(
-            """CREATE TABLE comments (id TEXT PRIMARY KEY, project_id TEXT NOT NULL, author TEXT NOT NULL DEFAULT '',
-                   timestamp TIMESTAMPTZ NOT NULL DEFAULT NOW(), status TEXT NOT NULL DEFAULT 'OPEN',
-                   context TEXT NOT NULL DEFAULT 'PCB', location_x REAL NOT NULL DEFAULT 0,
-                   location_y REAL NOT NULL DEFAULT 0, location_layer TEXT NOT NULL DEFAULT '',
-                   location_page TEXT NOT NULL DEFAULT '', content TEXT NOT NULL DEFAULT '');
-               CREATE TABLE comment_replies (id TEXT PRIMARY KEY, comment_id TEXT NOT NULL REFERENCES comments(id),
-                   project_id TEXT NOT NULL, author TEXT NOT NULL DEFAULT '',
-                   timestamp TIMESTAMPTZ NOT NULL DEFAULT NOW(), content TEXT NOT NULL DEFAULT '');""",
-            prepare=False,
-        )
-        migrate_workspace_tracker_tables(conn)
-        migrate_tracker_webhook_oauth_tables(conn)
-        comments_schema_migrations.apply_comments_migrations(conn)
-        conn.commit()
-        conn.close()
-        self.addCleanup(self._drop)
+        self.scratch = scratch_schema(self, "codehost", ledgers=(COMMENTS_LEDGER,), then=(
+            migrate_workspace_tracker_tables, migrate_tracker_webhook_oauth_tables,
+        ))
+        self.schema = self.scratch.name
         self.settings = _settings()
         self.connectors = ConnectorService(connect=self._factory, settings=self.settings,
                                            comments_schema=self.schema, workspace_schema=self.schema)
@@ -166,14 +138,9 @@ class CodeHostPostgresTests(unittest.TestCase):
         identity_api.service = self.identities
         self.addCleanup(lambda: setattr(identity_api, "service", IdentityService()))
 
-    def _drop(self) -> None:
-        with psycopg.connect(_dsn()) as conn:
-            conn.execute(f'DROP SCHEMA IF EXISTS "{self.schema}" CASCADE')
-
     @contextmanager
     def _factory(self):
-        conn = psycopg.connect(_dsn(), row_factory=dict_row)
-        conn.execute(f'SET search_path TO "{self.schema}", public')
+        conn = self.scratch.connect()
         try:
             yield conn
         finally:

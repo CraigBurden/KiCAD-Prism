@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 
+import { ROLE_MATRIX } from "./role-matrix.generated";
 import {
+  ROLE_AUTHORITIES,
+  canAdministerCatalog,
+  canAdministerWorkspace,
+  canCommentOnProjects,
   canManageProjects,
   canOpenLibraryManager,
   canReviewCatalogQa,
@@ -44,5 +49,27 @@ describe("role authorities", () => {
   it("allows only admins to administer the workspace", () => {
     expect(roleHasAuthority("designer", "administer_workspace")).toBe(false);
     expect(roleHasAuthority("admin", "administer_workspace")).toBe(true);
+  });
+
+  it("lets every role comment, as the server's comment policy does", () => {
+    for (const role of ["viewer", "qa", "designer", "admin"] as const) {
+      expect(canCommentOnProjects(role)).toBe(true);
+    }
+  });
+
+  it("keeps catalog and workspace administration with admins", () => {
+    expect(canAdministerCatalog("designer")).toBe(false);
+    expect(canAdministerCatalog("admin")).toBe(true);
+    expect(canAdministerWorkspace("qa")).toBe(false);
+    expect(canAdministerWorkspace("admin")).toBe(true);
+  });
+
+  it("describes exactly the authorities the generated matrix carries", () => {
+    expect(ROLE_AUTHORITIES.map((authority) => authority.key).sort()).toEqual(
+      Object.keys(ROLE_MATRIX.authorities).sort(),
+    );
+    for (const authority of ROLE_AUTHORITIES) {
+      expect(authority.roles).toEqual(ROLE_MATRIX.authorities[authority.key]);
+    }
   });
 });

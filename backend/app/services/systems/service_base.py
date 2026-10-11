@@ -14,7 +14,7 @@ from datetime import datetime
 from typing import Any, Callable, ContextManager, Iterator, Mapping, Optional, Sequence
 
 from app.core.roles import Role
-from app.services.systems import exports as exports_module, visibility
+from app.services.systems import exports as exports_module, git_tracking, modules, visibility
 from app.services.systems.bundles import BundleSource
 from app.services.systems.interface_extractor import EXTRACTOR_VERSION
 from app.services.systems.jobs import (
@@ -111,16 +111,22 @@ class ServiceCore:
     @contextmanager
     def _tx(self, *, consistent: bool = False) -> Iterator[SystemStore]:
         """A transaction. ``consistent`` reads every statement from one snapshot (REPEATABLE READ),
-        so a long read sees a single version of the system without holding its lock (SB2-94)."""
+        so a long read sees a single version of the system without holding its lock (SB2-94).
+
+        Once a transaction that created or changed systems has committed, their finding counts are
+        refreshed outside the lock (D12, ``refresh_finding_counts``)."""
         with self._connect() as conn:
             try:
                 if consistent:
                     conn.execute("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ")
-                yield SystemStore(conn)
+                store = SystemStore(conn)
+                yield store
                 conn.commit()
             except BaseException:
                 conn.rollback()
                 raise
+        if store.recount:
+            self.refresh_finding_counts(sorted(store.recount))
 
     def _system(self, store: SystemStore, system_id: str, caller: Caller) -> dict:
         found = visibility.visible_systems(store.conn, caller.role, system_id=system_id)
@@ -172,7 +178,7 @@ class ServiceCore:
             if instance.get("kind", "board") != "board":
                 raise Conflict(f"the {'module' if instance.get('kind') == 'module' else 'subsystem'}'s catalog revision "
                                "cannot be read; try again")
-            raise Conflict("interface_not_ready: the board interface at this baseline is still being extracted")
+            raise Conflict("The board interface at this baseline is still being extracted", code="interface_not_ready")
         return found
 
     def _require_project(self, store: SystemStore, project_id: str, caller: Caller) -> Any:
@@ -188,3 +194,94 @@ class ServiceCore:
         except Exception:  # extraction is re-requested by the next read
             logger.exception("Could not enqueue interface extraction for %s@%s", project_id, commit)
             return None
+
+    # ------------------------------------------------------------------
+    # Catalog revisions behind assembly, module and part instances (P2 §5.1, §5.6)
+
+    def _catalog_revision(self, revision_id: str) -> Optional[dict]:
+        try:
+            return self._catalog().system_revision(revision_id)
+        except Exception:  # the catalog is a separate service; documents must still render
+            logger.exception("Could not read catalog revision %s", revision_id)
+            return None
+
+    def _module_interface(self, revision_id: str) -> Optional[dict]:
+        """A module revision's connectors as an interface artifact (§5.6): its units, the connector
+        parts placed on it today (§3.6) and its model. Placements or a model the catalog can't give
+        leave the ports without geometry (they link but can't mate)."""
+        revision = self._catalog_revision(revision_id)
+        if revision is None:
+            return None
+        catalog = self._catalog()
+        try:
+            connectors = catalog.module_connectors(revision["componentId"])
+        except Exception:  # the catalog is a separate service; the ports still link
+            logger.exception("Could not read the connectors of module %s", revision["componentId"])
+            connectors = None
+        return modules.as_interface(revision.get("interface"), connectors, self._catalog_model(revision["componentId"]))
+
+    def _part_interface(self, revision_id: str) -> Optional[dict]:
+        """A mechanical part (P2 §24.1) as an interface with no ports: its model and aligned bounds."""
+        revision = self._catalog_revision(revision_id)
+        if revision is None:
+            return None
+        return modules.as_interface({"units": []}, None, self._catalog_model(revision["componentId"]))
+
+    def _child_interface(self, revision_id: str) -> Optional[dict]:
+        """reconcile.ChildLoader: a catalog revision's exports as an interface artifact."""
+        revision = self._catalog_revision(revision_id)
+        return exports_module.as_interface(revision.get("interface")) if revision else None
+
+    def _catalog_model(self, component_id: str) -> Optional[dict]:
+        """A catalog component's first converted model with its alignment (§18.2), or None."""
+        try:
+            found = next((m for m in self._catalog().list_models(component_id) if m["glb"]), None)
+        except Exception:
+            logger.debug("No model for component %s", component_id, exc_info=True)
+            found = None
+        return None if found is None else {
+            "glbKey": found["glb"]["key"], "boundsMm": found["glb"]["bounds"],
+            "alignment": {k: found["alignment"][k] for k in ("offsetMm", "rotationDeg", "scale")}}
+
+    # ------------------------------------------------------------------
+    # Git tracking hooks shared by the Git and Snapshot areas (P2 §21)
+
+    _git_enqueue_commit = staticmethod(git_tracking.enqueue_commit)
+
+    def _git_link_row(self, store: SystemStore, system_id: str) -> Optional[dict]:
+        row = store.conn.execute("SELECT * FROM system_git_links WHERE system_id = %s", (system_id,)).fetchone()
+        return dict(row) if row else None
+
+    @staticmethod
+    def _queued_git(previous: Optional[Mapping[str, Any]] = None, caller: Optional[Caller] = None) -> dict:
+        author = (previous or {}).get("author") or {"name": caller.name if caller else "",
+                                                    "email": caller.email if caller else ""}
+        return {"state": "queued", "author": author}
+
+    def _snapshot_git(self, store: SystemStore, system_id: str, caller: Caller) -> Optional[dict]:
+        """The new snapshot's ``git`` status, or a 409 while an outside change waits (§21.3)."""
+        link = self._git_link_row(store, system_id)
+        if link is None:
+            return None
+        if link["outside_commit"]:
+            raise Conflict(f"git_outside_change: {link['outside_commit']} changed {git_tracking.MANIFEST_FILE} "
+                           "outside Prism; import it through review before taking a snapshot")
+        return self._queued_git(caller=caller)
+
+    def _publication_git(self, store: SystemStore, system_id: str,
+                         git: Optional[Mapping[str, Any]]) -> Optional[dict]:
+        """The commit a snapshot's revision records, or None. A commit still in flight is a 409, so a
+        linked system's revision never misses a commit that is about to exist."""
+        state = (git or {}).get("state")
+        if state == "queued":
+            raise Conflict("git_commit_pending: the snapshot is still being committed; publish it once it is")
+        if state != "pushed":
+            return None
+        link = self._git_link_row(store, system_id)
+        return {"url": link["url"] if link else None, "branch": git["branch"], "commit": git["commit"]}
+
+    def _git_quietly(self, enqueue: Any, *args: Any, requested_by: str) -> None:
+        try:
+            enqueue(*args, requested_by=requested_by)
+        except Exception:  # the link or snapshot is stored; a fetch or retry queues it again
+            logger.exception("Could not queue Git work for %s", args)

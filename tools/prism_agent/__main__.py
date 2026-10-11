@@ -25,13 +25,13 @@ import subprocess
 import sys
 import threading
 import time
-import urllib.request
 from pathlib import Path
 
-from . import discovery, protocol
+from . import discovery, loopback, protocol
 from . import settings as settings_store
 from .prism_client import PrismClient, PrismConfig
-from .server import VERSION, serve
+from .server import serve
+from .version import VERSION, should_retire
 
 log = logging.getLogger(__name__)
 
@@ -593,7 +593,7 @@ def _claim_singleton() -> bool:
         return True
 
     theirs = existing.get("version", "")
-    if theirs and not _older_than(theirs, VERSION):
+    if theirs and not should_retire(theirs):
         print(
             f"The Prism agent is already running on 127.0.0.1:{existing['port']} "
             f"(pid {existing.get('pid')}, version {theirs}).",
@@ -612,18 +612,6 @@ def _claim_singleton() -> bool:
     return True
 
 
-def _older_than(a: str, b: str) -> bool:
-    """Is version a older than version b? Unparseable sorts as oldest."""
-
-    def parts(v: str) -> tuple:
-        try:
-            return tuple(int(x) for x in v.strip().split("."))
-        except ValueError:
-            return ()
-
-    return parts(a) < parts(b)
-
-
 def _retire(existing: dict) -> bool:
     """Ask a running agent to quit, and wait for it to actually go.
 
@@ -634,13 +622,9 @@ def _retire(existing: dict) -> bool:
     if not port or not token:
         return False
 
-    request = urllib.request.Request(
-        f"http://127.0.0.1:{port}/quit", data=b"{}", method="POST"
-    )
-    request.add_header("Authorization", f"Bearer {token}")
     try:
-        urllib.request.urlopen(request, timeout=10)
-    except (OSError, ValueError):
+        loopback.call(port, "POST", "/quit", token=token, body={}, timeout=10)
+    except (loopback.Refused, loopback.Unreachable, TypeError, ValueError):
         return False
 
     # It answers before it stops (shutting down from inside a handler would deadlock),

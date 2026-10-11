@@ -8,6 +8,7 @@ from types import SimpleNamespace
 from unittest import mock
 
 from app.services.job_artifact_service import JobArtifactService
+from app.services.object_store import ReferenceOwner
 
 
 class JobArtifactServiceTests(unittest.TestCase):
@@ -178,12 +179,11 @@ class JobArtifactServiceTests(unittest.TestCase):
                 import os
 
                 os.utime(path, (old, old))
-            fake_jobs = SimpleNamespace(
-                referenced_object_paths=mock.Mock(return_value={str(referenced)})
-            )
-
             result = service.collect_unreferenced_objects(
-                service=fake_jobs,
+                owners=[
+                    ReferenceOwner("jobs", lambda: {str(referenced)}),
+                    ReferenceOwner("catalog", lambda: set()),
+                ],
                 grace_seconds=3600,
             )
 

@@ -14,6 +14,7 @@ from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
+from tracker_fault_harness import github_issue_url  # noqa: E402
 from app.services.comments_revisions import Editor, history, set_root_status  # noqa: E402
 from app.services.trackers.contracts import (  # noqa: E402
     ForgeUser,
@@ -26,9 +27,7 @@ from app.services.trackers.contracts import (  # noqa: E402
     UpdateCursor,
 )
 from app.services.trackers.composition import execute_outbound_op  # noqa: E402
-from app.services.trackers.create_executor import (  # noqa: E402
-    github_issue_url,
-)
+from app.services.trackers.github_recovery import RecoveryCandidate  # noqa: E402
 from app.services.trackers.drafts import (  # noqa: E402
     DraftAttribution,
     DraftRenderInput,
@@ -92,17 +91,14 @@ from tracker_fault_harness import (  # noqa: E402
     COMMIT,
     CONNECTOR,
     CONTAINER,
-    DisposableSchema,
     EXT_COMMENT,
     HUMAN_ID,
     HUMAN_LOGIN,
     ISSUE_ID,
     ISSUE_NUMBER,
-    POSTGRES_URL,
     PROJECT_ID,
     REPO,
     REPLY_ID,
-    SHARED_APPLICATION_DATABASE,
     StatefulFakeForge,
     THREAD_ID,
     all_fixture_case_ids,
@@ -111,6 +107,7 @@ from tracker_fault_harness import (  # noqa: E402
     seed_comment_row,
     seed_destination,
 )
+from support.postgres import requires_scratch_postgres, tracker_schema, seed_reply  # noqa: E402
 
 
 def execute_claimed_op(claimed):  # noqa: ANN001
@@ -240,16 +237,13 @@ class GuaranteeLimitsDocumentedTests(unittest.TestCase):
         self.assertIn("never resends", text)
 
 
-@unittest.skipUnless(POSTGRES_URL, "TEST_POSTGRES_URL is required for tracker persistence tests")
-@unittest.skipUnless(psycopg is not None, "psycopg is required for tracker persistence tests")
-@unittest.skipIf(SHARED_APPLICATION_DATABASE, "TEST_POSTGRES_URL must not target PRISM_DATABASE_URL")
+@requires_scratch_postgres("tracker persistence tests")
 class AdversarialPostgresSuite(unittest.TestCase):
     """Every F5–F8 scenario runs against a disposable schema + shared forge."""
 
     def setUp(self) -> None:
-        self.schema_helper = DisposableSchema("tr45")
-        self.addCleanup(self.schema_helper.drop)
-        self.conn = self.schema_helper.conn
+        self.scratch = tracker_schema(self, "tr45")
+        self.conn = self.scratch.conn
         self.store = TrackerStore(self.conn)
         self.ops = OpStore(self.conn)
         self.inbox = InboxStore(self.conn)
@@ -264,7 +258,7 @@ class AdversarialPostgresSuite(unittest.TestCase):
         )
         self._public_base.start()
         self.addCleanup(self._public_base.stop)
-        self._provider_cm = install_fake_provider(self.forge, self.schema_helper.factory)
+        self._provider_cm = install_fake_provider(self.forge, self.scratch.connection)
         self._provider_cm.__enter__()
         self.addCleanup(lambda: self._provider_cm.__exit__(None, None, None))
 
@@ -359,13 +353,16 @@ class AdversarialPostgresSuite(unittest.TestCase):
         return claimed
 
     def _insert_prism_reply(self, *, content: str = "designer reply", revision: int = 1) -> None:
-        self.conn.execute(
-            """
-            INSERT INTO comment_replies (
-                id, comment_id, project_id, author, author_kind, origin, content, revision
-            ) VALUES (%s, %s, %s, %s, 'user', 'prism', %s, %s)
-            """,
-            (REPLY_ID, COMMENT_ID, PROJECT_ID, "Priya", content, revision),
+        seed_reply(
+            self.conn,
+            REPLY_ID,
+            COMMENT_ID,
+            PROJECT_ID,
+            author="Priya",
+            author_kind="user",
+            origin="prism",
+            content=content,
+            revision=revision,
         )
 
     def _sweep(self, **kwargs):
@@ -575,14 +572,7 @@ class AdversarialPostgresSuite(unittest.TestCase):
         self.forge.mid_page_502 = True
         self.forge.list_issues_pages = [
             (
-                [
-                    {
-                        "id": 1,
-                        "number": 1,
-                        "body": "no marker",
-                        "user": {"id": int(BOT_ID), "login": BOT_LOGIN},
-                    }
-                ],
+                [RecoveryCandidate(external_id="1", number=1, body="no marker", author_id=BOT_ID)],
                 "page-2",
             ),
             ([], None),
@@ -610,8 +600,8 @@ class AdversarialPostgresSuite(unittest.TestCase):
     def test_f5_duplicate_workers(self) -> None:
         self._record("F5.duplicate_workers")
         self._seed_pending_create()
-        a = self.schema_helper.connect()
-        b = self.schema_helper.connect()
+        a = self.scratch.connect()
+        b = self.scratch.connect()
         try:
             first = OpStore(a).claim("worker-a")
             a.commit()
@@ -927,7 +917,7 @@ class AdversarialPostgresSuite(unittest.TestCase):
             comment_id=COMMENT_ID,
             actor=DESIGNER,
             local_revision=close_revision,
-            workspace_schema=self.schema_helper.schema,
+            workspace_schema=self.scratch.name,
         )
         open_revision = set_root_status(
             self.conn,
@@ -943,7 +933,7 @@ class AdversarialPostgresSuite(unittest.TestCase):
             comment_id=COMMENT_ID,
             actor=DESIGNER,
             local_revision=open_revision,
-            workspace_schema=self.schema_helper.schema,
+            workspace_schema=self.scratch.name,
         )
         self.conn.commit()
         first = self.ops.claim("worker-a")
@@ -1005,7 +995,7 @@ class AdversarialPostgresSuite(unittest.TestCase):
                 comment_id=COMMENT_ID,
                 actor=VIEWER,
                 local_revision=1,
-                workspace_schema=self.schema_helper.schema,
+                workspace_schema=self.scratch.name,
             )
         before = self.conn.execute("SELECT status FROM comments WHERE id = %s", (COMMENT_ID,)).fetchone()
         self.assertEqual(before["status"], "OPEN")
@@ -1411,7 +1401,7 @@ class AdversarialPostgresSuite(unittest.TestCase):
             thread,
             transferred,
             visibility="private",
-            workspace_schema=self.schema_helper.schema,
+            workspace_schema=self.scratch.name,
         )
         self.conn.commit()
         self.assertEqual(outcome.action, "relinked")
@@ -1437,7 +1427,7 @@ class AdversarialPostgresSuite(unittest.TestCase):
             thread,
             transferred,
             visibility="public",
-            workspace_schema=self.schema_helper.schema,
+            workspace_schema=self.scratch.name,
         )
         self.conn.commit()
         self.assertEqual(outcome.action, "paused")
@@ -1531,8 +1521,8 @@ class AdversarialPostgresSuite(unittest.TestCase):
         health = aggregate_connector_health(
             self.conn,
             CONNECTOR,
-            comments_schema=self.schema_helper.schema,
-            workspace_schema=self.schema_helper.schema,
+            comments_schema=self.scratch.name,
+            workspace_schema=self.scratch.name,
         )
         self.assertFalse(health["degraded"])
         self.assertIsNotNone(health["lastPollAt"])
@@ -1559,7 +1549,7 @@ class AdversarialPostgresSuite(unittest.TestCase):
             comment={"id": COMMENT_ID, "revision": 1, "replies": []},
             reply={"id": REPLY_ID, "revision": 2, "content": "v2", "origin": "prism", "author": "Priya"},
             actor=DESIGNER,
-            workspace_schema=self.schema_helper.schema,
+            workspace_schema=self.scratch.name,
         )
         self.conn.commit()
         self.assertEqual(outcome.action, "enqueued")
@@ -1583,7 +1573,7 @@ class AdversarialPostgresSuite(unittest.TestCase):
             comment={"id": COMMENT_ID, "revision": 1, "replies": []},
             reply={"id": REPLY_ID, "revision": 1, "content": "designer reply", "origin": "prism", "author": "Priya"},
             actor=DESIGNER,
-            workspace_schema=self.schema_helper.schema,
+            workspace_schema=self.scratch.name,
         )
         self.conn.commit()
         self.assertEqual(outcome.action, "enqueued")
@@ -1702,7 +1692,7 @@ class AdversarialPostgresSuite(unittest.TestCase):
             project_id=PROJECT_ID,
             comment_id=COMMENT_ID,
             actor=DESIGNER,
-            workspace_schema=self.schema_helper.schema,
+            workspace_schema=self.scratch.name,
         )
         self.conn.commit()
         self.assertIn(result.action, {"enqueued", "existing"})
@@ -1764,7 +1754,7 @@ class AdversarialPostgresSuite(unittest.TestCase):
             project_id=PROJECT_ID,
             comment={"id": COMMENT_ID, "revision": 1},
             actor=PromotionActor(user_id="u_admin", role="admin"),
-            workspace_schema=self.schema_helper.schema,
+            workspace_schema=self.scratch.name,
         )
         self.conn.commit()
         self.assertEqual(first.action, "enqueued")
@@ -1779,7 +1769,7 @@ class AdversarialPostgresSuite(unittest.TestCase):
             project_id=PROJECT_ID,
             comment={"id": COMMENT_ID, "revision": 1},
             actor=PromotionActor(user_id="u_admin", role="admin"),
-            workspace_schema=self.schema_helper.schema,
+            workspace_schema=self.scratch.name,
         )
         self.conn.commit()
         self.assertEqual(result.action, "denied")
@@ -1824,7 +1814,7 @@ class AdversarialPostgresSuite(unittest.TestCase):
                 "author": "Viewer",
             },
             actor=VIEWER,
-            workspace_schema=self.schema_helper.schema,
+            workspace_schema=self.scratch.name,
         )
         self.conn.commit()
         after = self.conn.execute("SELECT COUNT(*) AS n FROM sync_ops").fetchone()["n"]
@@ -1857,7 +1847,7 @@ class AdversarialPostgresSuite(unittest.TestCase):
                 "author": "Viewer",
             },
             actor=DESIGNER,
-            workspace_schema=self.schema_helper.schema,
+            workspace_schema=self.scratch.name,
         )
         self.conn.commit()
         self.assertEqual(outcome.action, "enqueued")
@@ -1880,7 +1870,7 @@ class AdversarialPostgresSuite(unittest.TestCase):
                 "anchor": {"state": "pinned", "commit": "abc"},
             },
             actor=VIEWER,
-            workspace_schema=self.schema_helper.schema,
+            workspace_schema=self.scratch.name,
         )
         self.conn.commit()
         after = self.conn.execute("SELECT COUNT(*) AS n FROM sync_ops").fetchone()["n"]

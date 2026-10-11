@@ -9,8 +9,10 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest import mock
 
-from app.services import kicad_jobset_service, project_import_service, project_service
+from app.services import git_remote_access, kicad_jobset_service, project_service
 from app.services.job_runtime import JobResult
+from app.services.kicad_tools import ToolResult
+from tests.kicad_tool_fakes import FakeTool
 
 
 class KicadJobsetServiceTests(unittest.TestCase):
@@ -20,11 +22,8 @@ class KicadJobsetServiceTests(unittest.TestCase):
             progress=mock.Mock(),
         )
 
-    def _process(self) -> mock.Mock:
-        process = mock.Mock()
-        process.stdout = ["first line\n", "second line\n"]
-        process.wait.return_value = 0
-        return process
+    def _tool(self) -> FakeTool:
+        return FakeTool(lambda args, **_: ToolResult(0, "first line\nsecond line\n"))
 
     def _repository(self) -> mock.Mock:
         repository = mock.Mock()
@@ -37,7 +36,7 @@ class KicadJobsetServiceTests(unittest.TestCase):
 
     def test_repository_route_characterizes_argv_and_commit_message(self) -> None:
         context = self._context()
-        process = self._process()
+        tool = self._tool()
         repository = self._repository()
         fixed_time = datetime.datetime(2026, 8, 11, 12, 13, 14)
 
@@ -46,18 +45,11 @@ class KicadJobsetServiceTests(unittest.TestCase):
             jobset_path = project_path / "Outputs.kicad_jobset"
             jobset_path.write_text("{}", encoding="utf-8")
 
-            with (
-                mock.patch.object(
-                    kicad_jobset_service.subprocess,
-                    "Popen",
-                    return_value=process,
-                ) as popen,
-                mock.patch.object(
-                    project_import_service,
-                    "git_env",
-                    return_value={"GIT_TERMINAL_PROMPT": "0"},
-                ) as git_env,
-            ):
+            with mock.patch.object(
+                git_remote_access,
+                "git_env",
+                return_value={"GIT_TERMINAL_PROMPT": "0"},
+            ) as git_env:
                 result = kicad_jobset_service.execute_kicad_jobset(
                     context,
                     project_path=project_path,
@@ -67,7 +59,7 @@ class KicadJobsetServiceTests(unittest.TestCase):
                     workflow_type="manufacturing",
                     author="designer@example.com",
                     routing="repository",
-                    cli_path="kicad-cli",
+                    tool=tool,
                     repository_factory=lambda _path: repository,
                     timestamp_factory=lambda: fixed_time,
                 )
@@ -82,17 +74,12 @@ class KicadJobsetServiceTests(unittest.TestCase):
             "output-id",
             "board.kicad_pro",
         ]
-        self.assertEqual(popen.call_args.args[0], expected_argv)
-        self.assertEqual(
-            popen.call_args.kwargs,
-            {
-                "stdout": kicad_jobset_service.subprocess.PIPE,
-                "stderr": kicad_jobset_service.subprocess.STDOUT,
-                "cwd": str(project_path),
-                "text": True,
-                "bufsize": 1,
-            },
-        )
+        self.assertEqual(["kicad-cli", *tool.calls[0]["args"]], expected_argv)
+        self.assertEqual(tool.calls[0]["cwd"], str(project_path))
+        self.assertTrue(tool.calls[0]["tee"])
+        self.assertEqual(tool.calls[0]["timeout"], kicad_jobset_service.JOBSET_TIMEOUT_SECONDS)
+        # The run polls the job's cancellation.
+        self.assertIs(tool.cancel, context.check_cancelled)
         repository.git.add.assert_called_once_with(".")
         repository.git.commit.assert_called_once_with(
             m=(
@@ -123,29 +110,23 @@ class KicadJobsetServiceTests(unittest.TestCase):
 
     def test_artifact_route_does_not_construct_or_mutate_a_repository(self) -> None:
         context = self._context()
-        process = self._process()
         repository_factory = mock.Mock(side_effect=AssertionError("Git was used"))
 
         with tempfile.TemporaryDirectory() as temporary:
             project_path = Path(temporary)
             jobset_path = project_path / "Outputs.kicad_jobset"
             jobset_path.write_text("{}", encoding="utf-8")
-            with mock.patch.object(
-                kicad_jobset_service.subprocess,
-                "Popen",
-                return_value=process,
-            ):
-                result = kicad_jobset_service.execute_kicad_jobset(
-                    context,
-                    project_path=project_path,
-                    jobset_path=jobset_path,
-                    project_file="board.kicad_pro",
-                    output_id="artifact-output",
-                    workflow_type="design",
-                    routing="artifact",
-                    cli_path="kicad-cli",
-                    repository_factory=repository_factory,
-                )
+            result = kicad_jobset_service.execute_kicad_jobset(
+                context,
+                project_path=project_path,
+                jobset_path=jobset_path,
+                project_file="board.kicad_pro",
+                output_id="artifact-output",
+                workflow_type="design",
+                routing="artifact",
+                tool=self._tool(),
+                repository_factory=repository_factory,
+            )
 
         repository_factory.assert_not_called()
         self.assertEqual(result.output.routing, "artifact")
@@ -157,7 +138,7 @@ class KicadJobsetServiceTests(unittest.TestCase):
         )
 
     def test_legacy_handler_keeps_the_pre_change_job_result_shape(self) -> None:
-        process = self._process()
+        tool = self._tool()
         repository = self._repository()
         progress_updates: list[dict[str, object]] = []
         fixed_time = datetime.datetime(2026, 8, 11, 12, 13, 14)
@@ -199,19 +180,10 @@ class KicadJobsetServiceTests(unittest.TestCase):
                     "resolve_paths",
                     return_value=SimpleNamespace(jobset_path=str(jobset)),
                 ),
-                mock.patch.object(
-                    project_service,
-                    "_find_cli_path",
-                    return_value="kicad-cli",
-                ),
-                mock.patch.object(
-                    project_service.subprocess,
-                    "Popen",
-                    return_value=process,
-                ),
+                mock.patch.object(kicad_jobset_service, "kicad_cli", return_value=tool),
                 mock.patch.object(project_service, "Repo", return_value=repository),
                 mock.patch.object(
-                    project_import_service,
+                    git_remote_access,
                     "git_env",
                     return_value={"GIT_TERMINAL_PROMPT": "0"},
                 ),
@@ -236,6 +208,28 @@ class KicadJobsetServiceTests(unittest.TestCase):
             ),
         )
         self.assertEqual(progress_updates[-1]["stage"], "git-sync")
+
+    def test_a_failed_or_expired_run_fails_the_workflow(self) -> None:
+        from app.services.kicad_tools import ToolTimeout
+
+        def expire(args, **_kwargs):
+            raise ToolTimeout("kicad-cli timed out after 3600s: jobset run -f", 3600)
+
+        for tool, message in (
+            (FakeTool(lambda args, **_: ToolResult(2)), "exited with code 2"),
+            (FakeTool(expire), "timed out after 3600s"),
+        ):
+            with tempfile.TemporaryDirectory() as temporary, self.assertRaisesRegex(RuntimeError, message):
+                kicad_jobset_service.execute_kicad_jobset(
+                    self._context(),
+                    project_path=temporary,
+                    jobset_path=Path(temporary) / "Outputs.kicad_jobset",
+                    project_file="board.kicad_pro",
+                    output_id="o",
+                    workflow_type="design",
+                    routing="artifact",
+                    tool=tool,
+                )
 
 
 if __name__ == "__main__":

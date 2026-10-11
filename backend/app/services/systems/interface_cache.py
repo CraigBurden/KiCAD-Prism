@@ -19,10 +19,11 @@ from __future__ import annotations
 
 import hashlib
 import json
-import os
 import threading
 from collections import OrderedDict
 from typing import Any, Optional
+
+from app.core.config import settings
 
 PARSED_PER_STORED_BYTE = 30
 Key = tuple[str, str, str]
@@ -101,8 +102,8 @@ class InterfaceCache:
         return entry
 
 
-_VERIFY = bool(os.environ.get("PRISM_INTERFACE_CACHE_VERIFY"))
-interfaces = InterfaceCache(int(float(os.environ.get("PRISM_INTERFACE_CACHE_MB") or 256) * 1024 * 1024), verify=_VERIFY)
+_VERIFY = settings.PRISM_INTERFACE_CACHE_VERIFY
+interfaces = InterfaceCache(int(settings.PRISM_INTERFACE_CACHE_MB * 1024 * 1024), verify=_VERIFY)
 # SB2-95: the same mechanism for the other immutable inputs of a hierarchy resolve. A child
 # snapshot's manifest never changes, nor does the snapshot a catalog revision was published from.
 manifests = InterfaceCache(64 * 1024 * 1024, verify=_VERIFY)

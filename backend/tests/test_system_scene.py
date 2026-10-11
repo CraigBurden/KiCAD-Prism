@@ -17,6 +17,7 @@ from test_system_assemblies import AssemblyCase
 from test_system_publish import ADMIN
 from test_system_snapshots import DESIGNER, VIEWER
 
+from app.core.errors import install_error_handlers  # noqa: E402
 from app.api import systems as systems_api
 from app.services.systems import service as service_module
 from app.services.systems import bundles
@@ -24,6 +25,7 @@ from app.services.systems.bundles import BundleSource, BundleUnreadable, mid_pla
 from app.services.systems.interface_extractor import EXTRACTOR_VERSION, _arc_points, extract_interface
 from app.services.systems.placement import poses
 from app.services.systems.scene import asset_id, board_bounds
+from support.postgres import seed_folder
 
 P2 = Path(__file__).resolve().parent / "fixtures" / "system_builder" / "p2" / "sources"
 
@@ -324,6 +326,7 @@ class FlatSceneTest(SceneCase):
 
     def test_api(self) -> None:
         app = FastAPI()
+        install_error_handlers(app)
         app.include_router(systems_api.router, prefix="/api/systems")
         with mock.patch.object(service_module, "service", self.service):
             response = _request(app, "GET", f"/api/systems/{self.sid}/scene", user="viewer")
@@ -361,8 +364,7 @@ class NestedSceneTest(SceneCase):
 
     def test_a_hidden_child_system_is_one_box(self) -> None:
         admin = {o["displayPath"]: o for o in self.service.scene(ADMIN, self.bus)["occurrences"]}
-        self.conn.execute("INSERT INTO ws_folders (id, visibility_mode, allowed_roles)"
-                          " VALUES ('fld_admins', 'roles', '[\"admin\"]')")
+        seed_folder(self.conn, "fld_admins", visibility_mode="roles", allowed_roles=["admin"])
         self.conn.execute("UPDATE system_projects SET folder_id = 'fld_admins' WHERE id = %s", (self.sid,))
         self.conn.commit()
         scene = self.service.scene(VIEWER, self.bus)

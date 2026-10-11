@@ -8,7 +8,6 @@ evaluates and applies exactly as a worker would.
 
 from __future__ import annotations
 
-import subprocess
 import unittest
 from types import SimpleNamespace
 from unittest import mock
@@ -18,6 +17,7 @@ from system_builder_fixtures import expected_steps
 
 from app.services.systems import detection
 from app.services.systems.detection import DETECTION_ACTOR, Detector
+from support.repo import git  # noqa: E402
 
 
 class DetectionTest(FixtureSystemCase):
@@ -167,8 +167,7 @@ class DetectionTest(FixtureSystemCase):
 
     def test_tip_at_baseline_and_missing_ref(self) -> None:
         self.assertEqual(self.detector.check_instance(self.instances["PAY"]).outcome, "at_baseline")
-        subprocess.run(["git", "-C", str(self.repos["mini_payload"]), "branch", "-D", "track"],
-                       check=True, capture_output=True)
+        git(self.repos["mini_payload"], "branch", "-D", "track")
         version = self.version()
         result = self.detector.check_instance(self.instances["PAY"])
         self.assertEqual(result.outcome, "ref_missing")

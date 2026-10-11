@@ -22,7 +22,7 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
-import { fetchJson } from "@/lib/api";
+import { catalogPreviewUrl as previewUrl, getComponentValidation } from "./catalog-client";
 import { allowedWorkflowTransitions, workflowStage } from "@/lib/roles";
 import { cn } from "@/lib/utils";
 import type { User } from "@/types/auth";
@@ -96,7 +96,6 @@ const FIELD_LABELS: Record<string, string> = {
 type VisualDiffMode = "side-by-side" | "overlay";
 type DiffPreviewEvidence = CatalogRevisionDiffAsset["previews"][number];
 
-const previewUrl = (previewId: string) => `/api/catalog/previews/${encodeURIComponent(previewId)}`;
 
 function OverlayDifference({
   before,
@@ -487,10 +486,7 @@ function KlcValidationEvidence({ component, historical }: { component: CatalogCo
     const controller = new AbortController();
     setLoading(true);
     setError("");
-    void fetchJson<CatalogComponentValidationEvidence>(
-      `/api/catalog/components/${encodeURIComponent(component.id)}/validation`,
-      { signal: controller.signal },
-    ).then((response) => {
+    void getComponentValidation(component.id, controller.signal).then((response) => {
       if (!controller.signal.aborted) setEvidence(response);
     }).catch((reason: unknown) => {
       if (reason instanceof DOMException && reason.name === "AbortError") return;

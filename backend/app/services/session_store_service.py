@@ -18,6 +18,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from app.core.config import settings
+from app.services.auth_schema_migrations import AUTH_LEDGER
 from app.services.postgres_database import database
 
 _init_lock = threading.Lock()
@@ -55,40 +56,7 @@ def initialize_session_store() -> None:
     with _init_lock:
         if _initialized:
             return
-        with database.connection() as connection:
-            connection.execute("SELECT pg_advisory_xact_lock(hashtext(%s))", ("prism-schema",))
-            connection.execute("CREATE SCHEMA IF NOT EXISTS workspace")
-            connection.execute("SET search_path TO workspace, public")
-            connection.execute(
-                """
-                CREATE TABLE IF NOT EXISTS user_sessions (
-                    session_digest TEXT PRIMARY KEY,
-                    email TEXT NOT NULL,
-                    name TEXT NOT NULL DEFAULT '',
-                    picture TEXT NOT NULL DEFAULT '',
-                    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-                    last_seen_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-                    expires_at TIMESTAMPTZ NOT NULL,
-                    revoked_at TIMESTAMPTZ,
-                    revoked_reason TEXT NOT NULL DEFAULT '',
-                    user_agent TEXT NOT NULL DEFAULT '',
-                    client_ip TEXT NOT NULL DEFAULT ''
-                )
-                """
-            )
-            connection.execute(
-                "CREATE INDEX IF NOT EXISTS user_sessions_email_idx ON user_sessions (email)"
-            )
-            connection.execute(
-                "CREATE INDEX IF NOT EXISTS user_sessions_expires_idx ON user_sessions (expires_at)"
-            )
-            connection.execute(
-                "ALTER TABLE user_sessions ADD COLUMN IF NOT EXISTS user_id TEXT NOT NULL DEFAULT ''"
-            )
-            connection.execute(
-                "CREATE INDEX IF NOT EXISTS user_sessions_user_id_idx ON user_sessions (user_id)"
-            )
-            connection.commit()
+        AUTH_LEDGER.migrate(database.connection)
         _initialized = True
 
 

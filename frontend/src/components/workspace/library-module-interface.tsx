@@ -2,12 +2,11 @@ import { useEffect, useState } from "react";
 import { MapPin } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
-import { fetchJson } from "@/lib/api";
+import { listModels, listModuleConnectors } from "./catalog-client";
 import type { CatalogComponent } from "@/types/catalog";
 
-import type { CatalogModel } from "./library-component-models";
 import {
-  type ModuleConnectorUnit, type ModuleConnectors, ModuleConnectorDialog, connectorsPath, faceLabel,
+  type ModuleConnectorUnit, type ModuleConnectors, ModuleConnectorDialog, faceLabel,
 } from "./library-module-connector-dialog";
 import type { PickerModel } from "./module-face-picker";
 
@@ -38,7 +37,7 @@ function useModuleModel(componentId: string, revision: string): PickerModel | nu
   const key = `${componentId}:${revision}`;
   useEffect(() => {
     const controller = new AbortController();
-    fetchJson<{ items: CatalogModel[] }>(`/api/catalog/components/${encodeURIComponent(componentId)}/models`, { signal: controller.signal })
+    listModels(componentId, controller.signal)
       .then((body) => {
         const found = body.items.find((item) => item.glb);
         setModel({ key, value: found?.glb ? { glbKey: found.glb.key, alignment: found.alignment, boundsMm: found.glb.bounds } : null });
@@ -54,7 +53,7 @@ function useConnectors(componentId: string, revision: string) {
   const key = `${componentId}:${revision}`;
   useEffect(() => {
     const controller = new AbortController();
-    fetchJson<ModuleConnectors>(connectorsPath(componentId), { signal: controller.signal })
+    listModuleConnectors(componentId, controller.signal)
       .then((value) => setConnectors({ key, value }))
       .catch(() => undefined);
     return () => controller.abort();

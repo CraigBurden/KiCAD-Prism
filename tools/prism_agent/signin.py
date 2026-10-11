@@ -29,12 +29,12 @@ import hashlib
 import json
 import secrets
 import threading
-import urllib.error
 import urllib.parse
-import urllib.request
 import webbrowser
 from dataclasses import dataclass
 from http.server import BaseHTTPRequestHandler, HTTPServer
+
+from .prism_client import PrismClient, PrismConfig, PrismRefused, PrismUnreachable
 
 # How long to wait for the user to finish in the browser before giving up. Long
 # enough to type a password and approve, short enough that a forgotten flow (the
@@ -230,20 +230,14 @@ def _exchange(
     This is a direct POST from the agent to Prism, never through the browser, so
     the verifier and the resulting token never touch a URL or a redirect.
     """
-    data = urllib.parse.urlencode(
-        {"code": code, "redirect_uri": redirect_uri, "code_verifier": verifier}
-    ).encode("utf-8")
-    request = urllib.request.Request(
-        f"{base}/api/agent/token", data=data, method="POST"
-    )
-    request.add_header("Content-Type", "application/x-www-form-urlencoded")
-    request.add_header("Accept", "application/json")
+    client = PrismClient(PrismConfig(base_url=base))
     try:
-        with urllib.request.urlopen(request, timeout=30) as resp:
-            payload = json.loads(resp.read())
-    except urllib.error.HTTPError as exc:
-        raise SignInError(_describe_http_error(exc)) from exc
-    except (urllib.error.URLError, OSError) as exc:
+        payload = client.exchange_agent_code(
+            code=code, redirect_uri=redirect_uri, verifier=verifier
+        )
+    except PrismRefused as exc:
+        raise SignInError(_describe_refusal(exc)) from exc
+    except PrismUnreachable as exc:
         raise SignInError(
             "Could not reach Prism to complete sign-in: %s" % exc
         ) from exc
@@ -266,15 +260,12 @@ def _describe_error(query: dict[str, str]) -> str:
     return "Sign-in was refused: %s" % description
 
 
-def _describe_http_error(exc: urllib.error.HTTPError) -> str:
+def _describe_refusal(exc: PrismRefused) -> str:
     """A readable reason from a failed token exchange, using the server's detail."""
-    try:
-        detail = json.loads(exc.read()).get("detail")
-    except (ValueError, OSError):
-        detail = None
+    detail = exc.detail()
     if detail:
         return "Prism refused the sign-in: %s" % detail
-    return "Prism refused the sign-in (HTTP %s)." % exc.code
+    return "Prism refused the sign-in (HTTP %s)." % exc.status
 
 
 def sign_out(base_url: str, token: str) -> bool:
@@ -287,19 +278,11 @@ def sign_out(base_url: str, token: str) -> bool:
     """
     if not token:
         return True
-    base = base_url.rstrip("/")
     jti = _token_jti(token)
     if not jti:
         return False
-    request = urllib.request.Request(
-        f"{base}/api/agent/tokens/{urllib.parse.quote(jti)}", method="DELETE"
-    )
-    request.add_header("Authorization", f"Bearer {token}")
-    try:
-        with urllib.request.urlopen(request, timeout=15) as resp:
-            return 200 <= resp.status < 300
-    except (urllib.error.URLError, urllib.error.HTTPError, OSError):
-        return False
+    client = PrismClient(PrismConfig(base_url=base_url.rstrip("/"), token=token))
+    return client.revoke_agent_token(jti)
 
 
 def _token_jti(token: str) -> str:

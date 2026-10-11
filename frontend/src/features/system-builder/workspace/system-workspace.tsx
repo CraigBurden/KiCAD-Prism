@@ -3,14 +3,13 @@ import { toast } from "sonner";
 
 import { ResizablePanel } from "@/components/ui/resizable-panel";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
-import { addCatalogInstance } from "@/lib/systems-api";
 
 import { AddBoardDialog, addBoards } from "../add-board-dialog";
 import { AddPartDialog } from "../add-part-dialog";
 import { AddSubsystemDialog } from "../subsystem-detail";
 import type { SystemTabProps } from "../system-tab-content";
 import type { SystemTab } from "../system-tabs";
-import { useSystemMutation } from "../use-system-mutation";
+import { useSystemSession } from "../session/use-system-session";
 import { IcdView } from "./icd-view";
 import type { PartDetail } from "./part-detail";
 import { rootInstanceOf } from "./use-viewer-selection-sync";
@@ -58,9 +57,9 @@ function Loading({ what }: { what: string }) {
  * the Connections, Changes and History tabs.
  */
 export function SystemWorkspace({ state, importing, onState, onImporting, onBack, ...props }: WorkspaceProps) {
-  const { systemId, document, etag, canEdit, reload } = props;
+  const { systemId, document, canEdit } = props;
   const { findings } = useValidation(document);
-  const { busy, run } = useSystemMutation(reload);
+  const { busy, edit } = useSystemSession();
   const [adding, setAdding] = useState<AddKind | null>(null);
   const [sheet, setSheet] = useState<"outline" | "inspector" | null>(null);
   const [takeRequest, setTakeRequest] = useState(0);
@@ -105,8 +104,8 @@ export function SystemWorkspace({ state, importing, onState, onImporting, onBack
       onSelect={select} onAdd={setAdding} />
   );
   const inspector = (slot?: (node: HTMLElement | null) => void) => (
-    <WorkspaceInspector slot={slot} systemId={systemId} document={document} etag={etag} canEdit={canEdit} findings={findings}
-      selection={state.selection} part={shownPart} busy={busy} run={run} onSelect={select}
+    <WorkspaceInspector slot={slot} systemId={systemId} document={document} canEdit={canEdit} findings={findings}
+      selection={state.selection} part={shownPart} onSelect={select}
       onEditRows={() => { setSheet(null); update({ tray: "connections" }); }}
       onEditRoute={has3d && canEdit ? (harnessId) => {
         setSheet(null);
@@ -120,7 +119,7 @@ export function SystemWorkspace({ state, importing, onState, onImporting, onBack
       case "diagram":
         return <Suspense fallback={<Loading what="the diagram" />}><DiagramTab {...tabProps} /></Suspense>;
       case "icd":
-        return <IcdView systemId={systemId} etag={etag} />;
+        return <IcdView systemId={systemId} />;
       default:
         return <Suspense fallback={<Loading what="the 3D view" />}><Scene3dTab {...tabProps} /></Suspense>;
     }
@@ -128,7 +127,7 @@ export function SystemWorkspace({ state, importing, onState, onImporting, onBack
 
   return (
     <div className="flex h-app-viewport flex-col bg-background">
-      <WorkspaceTopBar systemId={systemId} document={document} etag={etag} view={shown} canEdit={canEdit} has3d={has3d}
+      <WorkspaceTopBar document={document} view={shown} canEdit={canEdit} has3d={has3d}
         onBack={onBack} onView={(next) => update({ view: next })}
         onFindings={() => setTray("findings")} onHistory={() => setTray("history")}
         onTakeSnapshot={() => { setTakeRequest((count) => count + 1); update({ tray: "history" }); }}
@@ -140,7 +139,7 @@ export function SystemWorkspace({ state, importing, onState, onImporting, onBack
         </ResizablePanel>
         <div className="flex min-w-0 flex-1 flex-col">
           <main className="relative min-h-0 flex-1 overflow-hidden">{view(shown)}</main>
-          <WorkspaceTray {...tabProps} tab={state.tray} findings={findings} selection={state.selection} busy={busy} run={run}
+          <WorkspaceTray {...tabProps} tab={state.tray} findings={findings} selection={state.selection}
             importing={importing} takeRequest={takeRequest} onTab={setTray} onSelect={select} onImporting={onImporting}
             view={shown} onNetsSlot={setNetsSlot} />
         </div>
@@ -164,7 +163,7 @@ export function SystemWorkspace({ state, importing, onState, onImporting, onBack
           busy={busy === "add"}
           onClose={() => setAdding(null)}
           onSubmit={async (value) => {
-            const created = await run("add", () => addCatalogInstance(systemId, etag, adding === "module" ? "module" : "assembly", value),
+            const created = await edit("add", (system) => system.addCatalogInstance(adding === "module" ? "module" : "assembly", value),
               `Added ${value.label}`);
             if (created) {
               setAdding(null);
@@ -179,7 +178,7 @@ export function SystemWorkspace({ state, importing, onState, onImporting, onBack
           busy={busy === "add"}
           onClose={() => setAdding(null)}
           onSubmit={async (value) => {
-            const created = await run("add", () => addCatalogInstance(systemId, etag, "part", value), `Added ${value.label}`);
+            const created = await edit("add", (system) => system.addCatalogInstance("part", value), `Added ${value.label}`);
             if (created) {
               setAdding(null);
               select({ kind: "instance", id: created.body.id });
@@ -194,7 +193,7 @@ export function SystemWorkspace({ state, importing, onState, onImporting, onBack
           busy={busy === "add"}
           onClose={() => setAdding(null)}
           onSubmit={async (boards) => {
-            const outcome = await run("add", () => addBoards(systemId, etag, boards),
+            const outcome = await edit("add", (system) => addBoards(system, boards),
               boards.length === 1 ? `Added ${boards[0].label.trim()}` : undefined);
             if (!outcome) return boards.map((board) => ({ board, error: "Not added" }));
             if (boards.length > 1 && outcome.added.length) toast.success(`Added ${outcome.added.length} of ${boards.length} boards`);

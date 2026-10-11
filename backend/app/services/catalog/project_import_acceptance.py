@@ -16,9 +16,12 @@ from app.services.catalog.asset_files import CatalogAssetFiles
 from app.services.catalog.asset_links import CatalogAssetLinks
 from app.services.catalog.asset_registry import CatalogAssetRegistry
 from app.services.catalog.asset_types import PLACE_REQUIRED_ASSET_TYPES
+from app.services.catalog.component_identity import ComponentIdentity, find_identity_holder
 from app.services.catalog.component_writer import SOURCE_EXTERNAL, CatalogComponentWriter
+from app.services.catalog.field_rules import custom_import_problems, import_metadata_problems
 from app.services.catalog.locking import CatalogLockOperations
 from app.services.catalog.metadata_normalization import normalize_metadata
+from app.services.catalog.metadata_schema import CatalogMetadataSchema
 from app.services.catalog.normalization import sha256_file, utc_now_iso
 from app.services.catalog.project_import_assets import CatalogProjectImportAssets
 from app.services.catalog.project_import_matching import CatalogProjectImportMatching
@@ -55,6 +58,7 @@ class CatalogProjectImportAcceptance:
         asset_links: CatalogAssetLinks,
         finalizer: CatalogRevisionFinalizer,
         component_writer: CatalogComponentWriter,
+        metadata_schema: CatalogMetadataSchema,
     ) -> None:
         self._catalog_locks = catalog_locks
         self._revision_kernel = revision_kernel
@@ -65,6 +69,7 @@ class CatalogProjectImportAcceptance:
         self._asset_links = asset_links
         self._finalizer = finalizer
         self._component_writer = component_writer
+        self._metadata_schema = metadata_schema
 
     # -- pure preparation ---------------------------------------------------
 
@@ -120,20 +125,6 @@ class CatalogProjectImportAcceptance:
             raise ValueError("Project import proposal has already been resolved")
 
     @staticmethod
-    def find_existing_component(conn: Any, manufacturer: str, mpn: str) -> Any | None:
-        return conn.execute(
-            """
-            SELECT c.id
-            FROM components c
-            JOIN component_revisions revision ON revision.id = c.current_revision_id
-            WHERE c.is_active = 1 AND lower(revision.manufacturer) = lower(%s) AND lower(revision.mpn) = lower(%s)
-            ORDER BY c.created_at
-            LIMIT 1
-            """,
-            (manufacturer, mpn),
-        ).fetchone()
-
-    @staticmethod
     def mark_proposal_accepted(
         conn: Any,
         proposal_id: str,
@@ -173,7 +164,14 @@ class CatalogProjectImportAcceptance:
         if proposal["status"] != "candidate":
             raise ValueError("Project import proposal has already been resolved")
         proposal_id = str(proposal["id"])
-        metadata = normalize_metadata(self.build_normalized_input(proposal, metadata_overrides))
+        normalized_input = self.build_normalized_input(proposal, metadata_overrides)
+        problems = import_metadata_problems(normalized_input)
+        if problems:
+            raise ValueError("Resolve import metadata before accepting: " + "; ".join(problems))
+        metadata = normalize_metadata(normalized_input)
+        problems = custom_import_problems(self._metadata_schema.list_fields(conn), metadata)
+        if problems:
+            raise ValueError("Resolve import metadata before accepting: " + "; ".join(problems))
         candidates_by_type = self._import_assets.group_import_assets(proposal)
         # An asset type may instead be satisfied by an existing catalog asset. That is
         # a reference, not a copy: the same assets row is linked into this revision, so
@@ -190,10 +188,16 @@ class CatalogProjectImportAcceptance:
         )
         self._import_assets.validate_project_import_asset_paths(runtime.store_root, proposal, by_type)
 
+        identity = ComponentIdentity.of(manufacturer=metadata["manufacturer"], mpn=metadata["mpn"])
+        self._catalog_locks.lock_component_identity(conn, identity.lock_scope, identity.part_number)
+        existing = find_identity_holder(conn, identity)
+        if existing and not existing["is_active"]:
+            raise ValueError(
+                "A retired catalog component already holds this manufacturer part number; "
+                "it cannot be imported again"
+            )
         now = utc_now_iso()
         self.claim_proposal(conn, proposal_id, now=now)
-        self._catalog_locks.lock_component_identity(conn, metadata["manufacturer"], metadata["mpn"])
-        existing = self.find_existing_component(conn, metadata["manufacturer"], metadata["mpn"])
         component_id = str(existing["id"]) if existing else str(uuid.uuid4())
         import_payload = self.build_import_payload(proposal)
         provenance = import_payload["provenance"]

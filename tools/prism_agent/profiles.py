@@ -1,5 +1,12 @@
 """The agent's run profiles, in one place both the agent and the plugin read.
 
+VENDORED: this file exists byte-for-byte in both ``kicad_plugin/`` and
+``prism_agent/``. The plugin is installed into KiCad on its own and cannot import the
+agent package, so the registry both sides depend on to find each other must exist in
+both. If they drifted on any config-relevant field, the plugin would compute a
+different config dir than the agent and never find it.
+``tools/tests/test_vendored_parity.py`` fails the moment the two copies differ.
+
 A profile is a named environment the agent and plugin run as. Two exist so a
 developer can run a symlinked working copy AND the installed release at once
 without them colliding: each profile has its own discovery file, settings,

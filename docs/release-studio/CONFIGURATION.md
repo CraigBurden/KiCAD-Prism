@@ -145,8 +145,18 @@ the pinned catalogue, not `kicad-cli jobset run`. A jobset key in committed
 YAML is optional leftover and is ignored by the pipeline.
 
 The required schema remains `prism.release-studio.configuration/1`. File
-references are POSIX, repository-root-relative paths that resolve to regular
-files inside the selected commit.
+references are POSIX paths that resolve to regular files inside the selected
+commit.
+
+**Where a configuration lives.** A project's configurations are under
+`<project folder>/.prism/release-studio/configurations/`, and their file
+references are relative to the project folder. For a project at the repository
+root that is the repository root. For a monorepo subproject it is the
+subproject's folder: Settings saves there, and reads at a commit (candidates,
+builds) read there, turning the references into repository paths for the
+closure. A subproject never reads the repository root's configurations, so
+Settings and the at-commit listing show the same set (see `docs/UPGRADES.md`
+to move older root-level files into the subproject).
 
 ## Semantics
 

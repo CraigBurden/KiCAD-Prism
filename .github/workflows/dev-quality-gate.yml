@@ -7,11 +7,13 @@ on:
       - main
       - feature/release-studio
       - feature/system-builder
+      - fix/architecture-consolidation
   push:
     branches:
       - dev
       - main
       - feature/release-studio
+      - fix/architecture-consolidation
   schedule:
     # Live KiCad is not on every feature commit; keep a daily executor check.
     - cron: "17 6 * * *"
@@ -35,6 +37,7 @@ jobs:
       backend: ${{ steps.areas.outputs.backend }}
       frontend: ${{ steps.areas.outputs.frontend }}
       viewer: ${{ steps.areas.outputs.viewer }}
+      design_compare: ${{ steps.areas.outputs.design_compare }}
       agent: ${{ steps.areas.outputs.agent }}
       deploy: ${{ steps.areas.outputs.deploy }}
       deps: ${{ steps.areas.outputs.deps }}
@@ -162,14 +165,25 @@ jobs:
             python3 scripts/check_catalog_architecture.py --base-ref "$CATALOG_BASE_REF"
           fi
 
+      - name: Check module sizes
+        # 1,200 lines per production module (500 for catalog facades); oversized modules that
+        # predate the rule may shrink, never grow. Same baseline file and base ref as above.
+        run: |
+          set -euo pipefail
+          if [ "${CATALOG_BASELINE_BOOTSTRAP:-}" = "1" ]; then
+            python3 scripts/check_module_size.py
+          else
+            python3 scripts/check_module_size.py --base-ref "$CATALOG_BASE_REF"
+          fi
+
       - name: Check agent guidance
         run: python3 scripts/check_agent_docs.py
 
-      - name: Test architecture checker
-        run: python3 -m unittest backend.tests.test_catalog_architecture -v
+      - name: Test architecture and module size checkers
+        run: python3 -m unittest backend.tests.test_catalog_architecture backend.tests.test_module_size_gate -v
 
       - name: Compile Python sources
-        run: python3 -m compileall -q backend/app scripts/check_catalog_architecture.py
+        run: python3 -m compileall -q backend/app scripts/check_catalog_architecture.py scripts/check_module_size.py scripts/architecture_baseline.py
 
   frontend:
     name: Frontend
@@ -477,6 +491,102 @@ jobs:
           frontend/public/prism-semantic-viewer.js
           frontend/index.html
 
+  native-crate:
+    name: Native geometry crate
+    # The checks backend/Dockerfile runs on prism-kicad-native, on the PR instead of only in an
+    # image build. Same toolchain (rust-toolchain.toml), same Geometer SDK pins (read from the Dockerfile).
+    needs: changes
+    if: needs.changes.outputs.viewer == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    defaults:
+      run:
+        working-directory: kicad-prism-viewer/native/prism-kicad-native
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Cache the Rust toolchain, crates and build
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: |
+            ~/.rustup/toolchains
+            ~/.cargo/registry
+            ~/.cargo/git
+            kicad-prism-viewer/native/prism-kicad-native/target
+          key: native-${{ runner.os }}-${{ hashFiles('kicad-prism-viewer/native/prism-kicad-native/rust-toolchain.toml', 'kicad-prism-viewer/native/prism-kicad-native/Cargo.lock') }}
+          restore-keys: native-${{ runner.os }}-
+
+      - name: Install the pinned toolchain
+        run: |
+          set -euo pipefail
+          channel="$(sed -n 's/^channel = "\(.*\)"/\1/p' rust-toolchain.toml)"
+          test -n "$channel"
+          rustup toolchain install "$channel" --profile minimal --component rustfmt --component clippy
+          cargo --version
+
+      - name: Install the SDK's system link libraries
+        # The SDK manifest links pthread, rt, stdc++, dl and X11 (OCCT). The image's builder stage
+        # (rust:bookworm, a buildpack-deps image) ships libx11-dev; the runner does not.
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libx11-dev
+
+      - name: Fetch the Geometer SDK the image links
+        working-directory: ${{ github.workspace }}
+        run: |
+          set -euo pipefail
+          arg() { sed -n "s/^ARG $1=//p" backend/Dockerfile | head -n 1; }
+          tag="$(arg GEOMETER_SDK_TAG)"; version="$(arg GEOMETER_SDK_VERSION)"; sha="$(arg GEOMETER_SDK_LINUX_AMD64_SHA256)"
+          test -n "$tag" && test -n "$version" && test -n "$sha"
+          archive="geometer-sdk-${version}-linux-x64.zip"
+          curl --fail --location --retry 3 \
+            "https://github.com/wavenumber-eng/geometer/releases/download/${tag}/${archive}" \
+            --output "$RUNNER_TEMP/${archive}"
+          echo "${sha}  $RUNNER_TEMP/${archive}" | sha256sum --check -
+          unzip -q "$RUNNER_TEMP/${archive}" -d "$RUNNER_TEMP/geometer-sdk"
+          echo "GEOMETER_SDK_DIR=$RUNNER_TEMP/geometer-sdk" >> "$GITHUB_ENV"
+
+      - name: Check formatting
+        run: cargo fmt --check
+
+      - name: Test
+        run: cargo test --release --locked
+
+      - name: Clippy
+        run: cargo clippy --release --locked -- -D warnings
+
+  design-compare-parser:
+    name: Design compare parser
+    # The Node object index and delta the design comparison worker runs (backend/design-compare-parser).
+    needs: changes
+    if: needs.changes.outputs.design_compare == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Set up Node.js
+        # No dependencies to install or cache: the package runs on Node alone, as in the image.
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version-file: .node-version
+
+      - name: Require the vendored parser to match its provenance
+        working-directory: backend/design-compare-parser/vendor
+        run: |
+          expected="$(python3 -c 'import json; print(json.load(open("kicad-sexpr-parser.provenance.json"))["artifactSha256"])')"
+          echo "${expected}  kicad-sexpr-parser.mjs" | sha256sum --check -
+
+      - name: Test object index and delta
+        working-directory: backend/design-compare-parser
+        run: npm test
+
+      - name: Test the object-delta shadow comparison
+        run: python3 -m unittest scripts.test_compare_object_delta
+
   deployment-config:
     name: Deployment configuration
     needs: changes
@@ -515,6 +625,9 @@ jobs:
             echo "Release Compose must not contain build directives." >&2
             exit 1
           fi
+
+      - name: Test that Compose forwards every setting
+        run: python3 -m unittest scripts.test_compose_env_forwarding -v
 
       - name: Test release metadata and bundle generation
         run: python3 -m unittest scripts.test_release_bundle
@@ -729,6 +842,8 @@ jobs:
       - backend-results
       - agent-plugin
       - semantic-viewer
+      - native-crate
+      - design-compare-parser
       - deployment-config
       - dependency-identity
       - image

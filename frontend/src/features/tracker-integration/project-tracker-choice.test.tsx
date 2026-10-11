@@ -13,7 +13,7 @@ const draft: TrackerSettingsDraft = {
 };
 const github = {
     id: "cn_gh", provider: "github", instanceKind: "github.com", displayName: "GitHub-Testing", baseUrl: "",
-    bot: { id: null, login: null }, credentialConfigured: true, paused: false,
+    bot: { id: null, login: null }, credentialConfigured: true, status: "ready" as const, paused: false,
 };
 
 it("offers the trackers that have a connection and marks Jira and Linear as coming", () => {

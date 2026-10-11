@@ -2,9 +2,7 @@
 
 from __future__ import annotations
 
-import os
 import unittest
-import uuid
 from unittest import mock
 
 try:
@@ -14,7 +12,7 @@ except ImportError:  # pragma: no cover - dependency guard for host-only checks
     psycopg = None  # type: ignore[assignment]
     dict_row = None  # type: ignore[assignment]
 
-from app.services.systems import store_harnesses, store_instances
+from app.services.systems import store_instances, store_links
 from app.services.systems.store import (
     Conflict,
     Invalid,
@@ -22,40 +20,10 @@ from app.services.systems.store import (
     StaleVersion,
     SystemStore,
 )
-from app.services.workspace_migrations import (
-    m028_system_review_pending_changes,
-    m029_system_import_sessions,
-    m030_system_snapshot_manifest,
-    m031_system_exports,
-    m032_system_catalog_binding,
-    m033_system_catalog_instances,
-    m034_system_child_reviews,
-    m035_system_optional_rules,
-    m036_system_port_mating,
-    m037_system_link_types,
-    m038_system_harnesses,
-    m039_system_harness_part_pins,
-    m040_system_poses,
-    m042_system_archive,
-    m043_system_driving_mates,
-    m044_system_harness_nodes,
-    m045_system_git,
-    m046_system_manifest_reviews,
-    m047_system_bundle_frames,
-    m048_system_finding_waivers,
-    m049_system_finding_counts,
-    m050_system_subports,
-    m051_system_net_renames,
-    m052_system_parts_collisions,
-    m053_system_step_exports,
-    m054_system_harness_outputs,
-)
 from app.services.workspace_migrations.m026_system_builder import migrate
-from app.services.workspace_schema_migrations import MIGRATIONS
+from app.services.workspace_schema_migrations import MIGRATIONS, WORKSPACE_LEDGER
+from support.postgres import requires_scratch_postgres, scratch_schema, seed_folder
 
-POSTGRES_URL = os.environ.get("TEST_POSTGRES_URL", "").strip().replace(
-    "postgresql+psycopg://", "postgresql://", 1
-)
 SHA_A = "a" * 40
 SHA_B = "b" * 40
 ACTOR = "user:designer@example.com"
@@ -77,40 +45,14 @@ class MigrationRegistryTest(unittest.TestCase):
         self.assertIn((26, "system_builder", migrate), MIGRATIONS)
 
 
-@unittest.skipUnless(POSTGRES_URL, "TEST_POSTGRES_URL is required for System Builder store tests")
-@unittest.skipUnless(psycopg is not None, "psycopg is required for System Builder store tests")
+@requires_scratch_postgres("System Builder store tests")
 class StoreTest(unittest.TestCase):
     def setUp(self) -> None:
-        self.schema = f"system_store_{uuid.uuid4().hex}"
-        self.conn = psycopg.connect(POSTGRES_URL, row_factory=dict_row)
-        self.conn.execute(f'CREATE SCHEMA "{self.schema}"')
-        self.conn.execute(f'SET search_path TO "{self.schema}", public')
-        self.conn.execute("CREATE TABLE ws_folders (id TEXT PRIMARY KEY)")
-        migrate(self.conn)
+        self.scratch = scratch_schema(self, "system_store", ledgers=(WORKSPACE_LEDGER,))
+        self.schema, self.conn = self.scratch.name, self.scratch.conn
         migrate(self.conn)  # idempotent
-        # The later system-only migrations the store relies on (27 touches workspace tables).
-        for later in (m028_system_review_pending_changes, m029_system_import_sessions,
-                      m030_system_snapshot_manifest, m031_system_exports, m032_system_catalog_binding,
-                      m033_system_catalog_instances, m034_system_child_reviews,
-                      m035_system_optional_rules, m036_system_port_mating,
-                      m037_system_link_types, m038_system_harnesses, m039_system_harness_part_pins,
-                      m040_system_poses, m042_system_archive, m043_system_driving_mates,
-                      m044_system_harness_nodes, m045_system_git,
-                      m046_system_manifest_reviews, m047_system_bundle_frames,
-                      m048_system_finding_waivers, m049_system_finding_counts, m050_system_subports,
-                      m051_system_net_renames, m052_system_parts_collisions,
-                      m053_system_step_exports, m054_system_harness_outputs):
-            later.migrate(self.conn)
         self.conn.commit()
         self.store = SystemStore(self.conn)
-
-    def tearDown(self) -> None:
-        try:
-            self.conn.rollback()
-            self.conn.execute(f'DROP SCHEMA "{self.schema}" CASCADE')
-            self.conn.commit()
-        finally:
-            self.conn.close()
 
     def test_bundle_frames_round_trip(self) -> None:
         # SB2-96: the stored mid-plane of a bundle, read by a later process.
@@ -209,9 +151,8 @@ class StoreTest(unittest.TestCase):
 
     def test_concurrent_mutations_serialize_on_the_row_lock(self) -> None:
         sid = self.system()["id"]
-        other = psycopg.connect(POSTGRES_URL, row_factory=dict_row)
+        other = self.scratch.connect()
         try:
-            other.execute(f'SET search_path TO "{self.schema}", public')
             other.execute("SET lock_timeout = '200ms'")
             other.commit()  # a rolled-back transaction would also revert these SETs
             with self.mutate(sid, 1):
@@ -228,7 +169,7 @@ class StoreTest(unittest.TestCase):
 
     def test_update_system_audits_only_real_changes(self) -> None:
         sid = self.system()["id"]
-        self.conn.execute("INSERT INTO ws_folders (id) VALUES ('fld_1')")
+        seed_folder(self.conn, "fld_1")
         with self.mutate(sid) as change:
             self.store.update_system(change, name="Flight stack", folder_id="fld_1")
         self.conn.commit()
@@ -237,7 +178,7 @@ class StoreTest(unittest.TestCase):
         self.assertEqual(set(event["payload"]), {"folder_id"})
 
     def test_folder_deletion_unplaces_the_system(self) -> None:
-        self.conn.execute("INSERT INTO ws_folders (id) VALUES ('fld_1')")
+        seed_folder(self.conn, "fld_1")
         sid = self.store.create_system(name="S", folder_id="fld_1", actor=ACTOR)["id"]
         self.conn.execute("DELETE FROM ws_folders WHERE id = 'fld_1'")
         self.assertIsNone(self.store.get_system(sid)["folder_id"])
@@ -443,7 +384,7 @@ class StoreTest(unittest.TestCase):
     def test_row_and_link_limits(self) -> None:
         sid = self.system()["id"]
         a, b = self.instance(sid, "A"), self.instance(sid, "B")
-        with mock.patch.object(store_harnesses, "MAX_ROWS", 2), mock.patch.object(store_instances, "MAX_LINKS", 1):
+        with mock.patch.object(store_links, "MAX_ROWS", 2), mock.patch.object(store_links, "MAX_LINKS", 1):
             with self.mutate(sid) as change:
                 link = self.store.create_link(change, a_instance_id=a["id"], a_port=port("/r/a"),
                                               b_instance_id=b["id"], b_port=port("/r/b"))

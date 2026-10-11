@@ -14,9 +14,9 @@ from pathlib import Path
 from typing import Any, Callable, Dict, Mapping, Optional
 
 from app.core.config import settings
-from app.services import path_config_service
+from app.services import path_config_service, project_revision
 from app.services.job_service import jobs
-from app.services.semantic_viewer_runtime import find_viewer_repo_root, pythonpath as semantic_viewer_pythonpath, update_native_geometry_fingerprint
+from app.services.semantic_viewer_runtime import find_viewer_repo_root, generator_inputs, pythonpath as semantic_viewer_pythonpath, update_native_geometry_fingerprint
 
 SCHEMA = "prism.visualizer_bundle.a0"
 GENERATOR_NAME = "kicad-prism-webgpu-3d"
@@ -28,32 +28,13 @@ def _compute_build_fingerprint() -> str:
     try:
         from app.services.semantic_viewer_runtime import find_viewer_repo_root
         viewer_root = find_viewer_repo_root()
-        compiler_modules = (
-            "__main__", "compiler", "context", "copper_geometry", "pcb_extract",
-            # Every pad and track outline is built here, so a change to it has
-            # to invalidate cached bundles the same way pcb_extract does.
-            "pcb_geometry", "semantic_gltf", "kicad_cli_export", "exporter", "soldermask",
-        )
-        inputs = [
-            *(f"pipeline/topology_compiler/{name}.py" for name in compiler_modules),
-            # Builds the copper tile and solder mask meshes.
-            "tools/semantic-gltf/build.mjs",
-            "package.json",
-            "package-lock.json",
-            "requirements-runtime.txt",
-            "pyproject.toml",
-            "viewer/app.js",
-            "viewer/styles.css",
-            "viewer/viewer.template.html",
-        ]
         hasher = hashlib.sha256()
         hasher.update(base.encode("utf-8"))
         update_native_geometry_fingerprint(hasher)
-        hasher.update(os.environ.get("PRISM_KICAD_MONKEY_SOURCE", "").encode("utf-8"))
-        for rel_path in inputs:
-            path = viewer_root / rel_path
-            if path.is_file():
-                hasher.update(path.read_bytes())
+        hasher.update(settings.PRISM_KICAD_MONKEY_SOURCE.encode("utf-8"))
+        for path in generator_inputs(viewer_root):
+            hasher.update(path.relative_to(viewer_root).as_posix().encode("utf-8"))
+            hasher.update(path.read_bytes())
         monkey_spec = importlib.util.find_spec("kicad_monkey")
         if monkey_spec and monkey_spec.origin:
             copper_module = Path(monkey_spec.origin).parent / "kicad_copper_geometry.py"
@@ -109,19 +90,19 @@ def semantic_store_root() -> Path:
 
 
 def semantic_compiler_cache_root() -> Path:
-    configured = os.environ.get("PRISM_SEMANTIC_VIEWER_CACHE", "").strip()
+    configured = settings.PRISM_SEMANTIC_VIEWER_CACHE.strip()
     root = Path(configured).expanduser() if configured else semantic_store_root() / ".cache"
     root.mkdir(parents=True, exist_ok=True)
     return root
 
 
 def semantic_meshopt_level() -> str:
-    level = os.environ.get("PRISM_SEMANTIC_GLTF_MESHOPT_LEVEL", "medium").strip().lower()
+    level = settings.PRISM_SEMANTIC_GLTF_MESHOPT_LEVEL.strip().lower()
     return level if level in MESHOPT_LEVELS else "medium"
 
 
 def semantic_tile_size_mm() -> str:
-    configured = os.environ.get("PRISM_SEMANTIC_GLTF_TILE_SIZE_MM", "auto").strip().lower()
+    configured = settings.PRISM_SEMANTIC_GLTF_TILE_SIZE_MM.strip().lower()
     if configured == "auto":
         return "auto"
     try:
@@ -431,21 +412,18 @@ def get_status_for_source(
 
 
 def get_status_for_commit(project: Any, commit: str, project_rel: str | None = None) -> Dict[str, Any]:
-    repo_root = _repo_root(Path(project.path))
-    resolved_commit = _resolve_commit(repo_root, commit)
-    rel = project_rel or _project_relative_path(
-        repo_root, Path(project.path), path_config_service.anchor_for_project(project)
-    )
+    location = project_revision.locate(project)
+    repo_root = location.repo_root
+    resolved_commit = project_revision.resolve_commit(location, commit)
+    rel = project_rel or project_revision.project_file_rel(location)
     indexed = lookup_commit_source(project.id, resolved_commit, rel)
     if indexed:
         indexed_status = get_status_for_source(project, indexed["source_fingerprint"], commit=resolved_commit, project_rel=rel)
         indexed_status["source_tree_fingerprint"] = indexed.get("source_tree_fingerprint")
         return indexed_status
 
-    with tempfile.TemporaryDirectory(prefix="semantic-status-") as tmp:
-        checkout = Path(tmp) / "checkout"
-        _archive_checkout(repo_root, resolved_commit, checkout)
-        project_file = checkout / rel
+    with project_revision.checkout(location, resolved_commit, prefix="semantic-status-") as revision:
+        project_file = revision.path(rel)
         if not project_file.is_file():
             raise ValueError(f"KiCad project file not found in commit {resolved_commit}: {rel}")
         source_hash = source_fingerprint_for_project_file(project_file)
@@ -933,11 +911,10 @@ def build_visualizer_bundle_for_commit(
     force: bool = False,
 ) -> Dict[str, Any]:
     total_started = time.perf_counter()
-    repo_root = _repo_root(Path(project.path))
-    resolved_commit = _resolve_commit(repo_root, commit)
-    rel = _project_relative_path(
-        repo_root, Path(project.path), path_config_service.anchor_for_project(project)
-    )
+    location = project_revision.locate(project)
+    repo_root = location.repo_root
+    resolved_commit = project_revision.resolve_commit(location, commit)
+    rel = project_revision.project_file_rel(location)
     indexed = lookup_commit_source(project.id, resolved_commit, rel)
     if indexed and not force:
         status = get_status_for_source(
@@ -953,12 +930,10 @@ def build_visualizer_bundle_for_commit(
             persist()
             return status
 
-    with tempfile.TemporaryDirectory(prefix="semantic-commit-") as tmp:
-        archive_started = time.perf_counter()
-        checkout = Path(tmp) / "checkout"
-        _archive_checkout(repo_root, resolved_commit, checkout)
+    archive_started = time.perf_counter()
+    with project_revision.checkout(location, resolved_commit, prefix="semantic-commit-") as revision:
         _record_perf(job, persist, "commit.archive_checkout", archive_started)
-        project_file = checkout / rel
+        project_file = revision.path(rel)
         if not project_file.is_file():
             raise ValueError(f"KiCad project file not found in commit {resolved_commit}: {rel}")
         source_hash = source_fingerprint_for_root(
@@ -1202,48 +1177,3 @@ def _build_visualizer_bundle_locked(
     status = get_status_for_source(project, source_hash)
     _record_perf(job, persist, "status.final_validation", status_started)
     return status
-
-
-def _repo_root(project_path: Path) -> Path:
-    result = subprocess.run(
-        ["git", "-C", str(project_path), "rev-parse", "--show-toplevel"],
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        text=True,
-        check=False,
-    )
-    if result.returncode != 0:
-        raise ValueError(f"Project is not inside a git repository: {project_path}")
-    return Path(result.stdout.strip()).resolve()
-
-
-def _project_relative_path(
-    repo_root: Path, project_path: Path, anchor: Optional[str] = None
-) -> str:
-    project_file = find_kicad_project(str(project_path), anchor)
-    return project_file.resolve().relative_to(repo_root).as_posix()
-
-
-def _resolve_commit(repo_root: Path, ref: str) -> str:
-    result = subprocess.run(
-        ["git", "-C", str(repo_root), "rev-parse", "--verify", f"{ref}^{{commit}}"],
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        text=True,
-        check=False,
-    )
-    if result.returncode != 0:
-        raise ValueError(f"Commit not found: {ref}")
-    return result.stdout.strip()
-
-
-def _archive_checkout(repo_root: Path, commit: str, destination: Path) -> None:
-    destination.mkdir(parents=True, exist_ok=True)
-    p1 = subprocess.Popen(["git", "archive", "--format=tar", commit], cwd=str(repo_root), stdout=subprocess.PIPE)
-    assert p1.stdout is not None
-    p2 = subprocess.Popen(["tar", "-x", "-C", str(destination)], stdin=p1.stdout)
-    p1.stdout.close()
-    p2.wait()
-    p1.wait()
-    if p1.returncode != 0 or p2.returncode != 0:
-        raise ValueError(f"Failed to archive checkout commit {commit}")

@@ -121,7 +121,7 @@ test("writes tiled GLB with net and object feature IDs", async () => {
   const metricsPath = path.join(root, "metrics.json");
   await fs.writeFile(
     inputPath,
-    JSON.stringify({
+    JSON.stringify(fullTables({
       geometryRevision: "fixture",
       tileSizeMm: 20,
       layers: [{ id: 1, name: "F.Cu" }],
@@ -138,7 +138,7 @@ test("writes tiled GLB with net and object feature IDs", async () => {
           polygons: [{ outer: [[0, 0], [25, 0], [25, 5], [0, 5]], holes: [] }],
         },
       ],
-    }),
+    })),
   );
   await run(process.execPath, [
     path.resolve("tools/semantic-gltf/build.mjs"),
@@ -164,7 +164,7 @@ test("writes single-tile polygons without requiring clipping", async () => {
   const metricsPath = path.join(root, "metrics.json");
   await fs.writeFile(
     inputPath,
-    JSON.stringify({
+    JSON.stringify(fullTables({
       geometryRevision: "single-fixture",
       tileSizeMm: 20,
       meshoptLevel: "low",
@@ -182,7 +182,7 @@ test("writes single-tile polygons without requiring clipping", async () => {
           polygons: [{ outer: [[1, 1], [10, 1], [10, 10], [1, 10]], holes: [] }],
         },
       ],
-    }),
+    })),
   );
   await run(process.execPath, [
     path.resolve("tools/semantic-gltf/build.mjs"),
@@ -211,7 +211,7 @@ test("clipper2 mode consumes pre-clipped tile geometry", async () => {
   const outputDir = path.join(root, "scene");
   await fs.writeFile(
     inputPath,
-    JSON.stringify({
+    JSON.stringify(fullTables({
       geometryRevision: "clipper2-fixture",
       sourceGeometryRevision: "source-fixture",
       tileSizeMm: 20,
@@ -256,7 +256,7 @@ test("clipper2 mode consumes pre-clipped tile geometry", async () => {
           },
         ],
       },
-    }),
+    })),
   );
   await run(process.execPath, [
     path.resolve("tools/semantic-gltf/build.mjs"),
@@ -280,12 +280,12 @@ test("clipper2 mode fails clearly without pre-clipped input", async () => {
   const outputDir = path.join(root, "scene");
   await fs.writeFile(
     inputPath,
-    JSON.stringify({
+    JSON.stringify(fullTables({
       geometryRevision: "missing-clipper2-fixture",
       tileSizeMm: 20,
       layers: [{ id: 1, name: "F.Cu" }],
       objects: [],
-    }),
+    })),
   );
   await assert.rejects(
     run(process.execPath, [
@@ -305,7 +305,7 @@ test("verify mode compares pre-clipped geometry with JS clipping", async () => {
   const outputDir = path.join(root, "scene");
   await fs.writeFile(
     inputPath,
-    JSON.stringify({
+    JSON.stringify(fullTables({
       geometryRevision: "verify-fixture",
       tileSizeMm: 20,
       meshoptLevel: "low",
@@ -356,7 +356,7 @@ test("verify mode compares pre-clipped geometry with JS clipping", async () => {
           },
         ],
       },
-    }),
+    })),
   );
   await run(process.execPath, [
     path.resolve("tools/semantic-gltf/build.mjs"),
@@ -383,7 +383,7 @@ test("verify mode uses JS-owned direct path for JTYU 4:7:2 single-tile fixture",
   const source = fixture.source;
   await fs.writeFile(
     inputPath,
-    JSON.stringify({
+    JSON.stringify(fullTables({
       geometryRevision: "jtyu-direct-fixture",
       sourceGeometryRevision: "jtyu-direct-source",
       tileSizeMm: 20,
@@ -411,7 +411,7 @@ test("verify mode uses JS-owned direct path for JTYU 4:7:2 single-tile fixture",
         native: { version: "2026.7.8", abi: 20260708, backend: "clipper2", protocol: "a2", batchSymbol: "prism_clipper2_batch_a2_bytes", libraryPath: "fixture", librarySha256: "fixture-sha" },
         clippedTiles: [],
       },
-    }),
+    })),
   );
   await run(process.execPath, [
     path.resolve("tools/semantic-gltf/build.mjs"),
@@ -501,7 +501,7 @@ test("clipper2 mode combines JS direct single-tile polygons with native multi-ti
       ],
     },
   };
-  await fs.writeFile(inputPath, JSON.stringify(input));
+  await fs.writeFile(inputPath, JSON.stringify(fullTables(input)));
   await run(process.execPath, [
     path.resolve("tools/semantic-gltf/build.mjs"),
     inputPath,
@@ -522,7 +522,7 @@ test("clipper2 mode rejects native duplicate of JS-owned single-tile direct reco
   const outputDir = path.join(root, "scene");
   await fs.writeFile(
     inputPath,
-    JSON.stringify({
+    JSON.stringify(fullTables({
       geometryRevision: "duplicate-direct-fixture",
       sourceGeometryRevision: "duplicate-direct-source",
       tileSizeMm: 20,
@@ -562,7 +562,7 @@ test("clipper2 mode rejects native duplicate of JS-owned single-tile direct reco
           },
         ],
       },
-    }),
+    })),
   );
   await assert.rejects(
     run(process.execPath, [
@@ -576,6 +576,38 @@ test("clipper2 mode rejects native duplicate of JS-owned single-tile direct reco
     /exited with 1/,
   );
 });
+
+// A semantic input's tables as the Python lane writes them: full layer, net
+// and feature records, with the null net and dense feature ids.
+function fullTables(input) {
+  const layers = (input.layers || []).map((layer, index) => ({
+    uid: `layer_${layer.id}`,
+    name: layer.name,
+    role: "copper",
+    z_mm: String(layer.name).startsWith("B.") ? -0.8 : 0.8,
+    thickness_mm: 0.035,
+    material: "copper",
+    color: "#df342b",
+    visibility_group: "copper",
+    stack_index: index,
+    epsilon_r: null,
+    loss_tangent: null,
+    ...layer,
+  }));
+  const net = (id, name = "", netClass = "") => ({ id, uid: name ? `net_${id}` : "", name, netClass, metrics: {} });
+  const nets = [net(0)];
+  for (const record of input.nets || []) {
+    while (nets.length < record.id) nets.push(net(nets.length, `N${nets.length}`));
+    nets.push({ ...net(record.id, record.name, record.netClass), ...record });
+  }
+  const feature = (id) => ({ id, sourceUid: "", netId: 0, layerId: 0, kind: "none", boundsMm: null });
+  const objectFeatures = [feature(0)];
+  for (const record of input.objectFeatures || []) {
+    while (objectFeatures.length < record.id) objectFeatures.push(feature(objectFeatures.length));
+    objectFeatures.push({ ...feature(record.id), layerId: layers[0]?.id || 0, kind: "track", ...record });
+  }
+  return { coordinateSystem: {}, ...input, layers, nets, objectFeatures };
+}
 
 function run(command, args, env = {}) {
   return new Promise((resolve, reject) => {

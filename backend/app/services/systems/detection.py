@@ -21,6 +21,7 @@ import logging
 from dataclasses import dataclass
 from typing import Any, Callable, ContextManager, Mapping, Optional
 
+from app.services.job_kinds import JobKind, JobSubject, repository_lock
 from app.services.systems import drift, exports, renames, sources
 from app.services.systems.jobs import extract_and_store, workspace_connection
 from app.services.systems.store import SystemStore
@@ -294,23 +295,8 @@ detector = Detector()
 
 def _enqueue(payload: dict, *, artifact: str, repository_id: Optional[str], project_id: Optional[str],
              requested_by: str) -> dict:
-    from app.services.job_service import jobs
-
-    return jobs.enqueue(
-        SOURCE_CHECK_JOB_KIND,
-        payload,
-        worker_pool="prism",
-        artifact_key=artifact,
-        project_id=project_id,
-        repository_id=repository_id,
-        requested_by=requested_by,
-        resources={"prism_worker": 1, "semantic_compile": 1},
-        locks=(
-            [{"key": f"repository:{repository_id}", "mode": "read"}]
-            if repository_id
-            else [{"key": f"project:{project_id}", "mode": "read"}]
-        ),
-    )
+    return SOURCE_CHECK.enqueue(payload, subject=JobSubject(project_id=project_id, repository_id=repository_id),
+                                artifact_key=artifact, requested_by=requested_by)
 
 
 def enqueue_source_check(repository_id: str, *, requested_by: str = DETECTION_ACTOR) -> Optional[dict]:
@@ -356,7 +342,20 @@ def run_source_check_job(context: Any) -> Any:
         results = [detector.check_instance(str(payload["instance_id"]), force=bool(payload.get("force")))]
     else:
         results = detector.check_repository(str(payload["repository_id"]))
+    from app.services.systems.service import service as system_service
+
+    # D12: the checks commit outside the system service; refresh the counts of the systems they changed.
+    system_service.refresh_stale_counts(instance_ids=[result.instance_id for result in results])
     counts: dict[str, int] = {}
     for result in results:
         counts[result.outcome] = counts.get(result.outcome, 0) + 1
     return JobResult(message=f"Checked {len(results)} system board(s)", details={"outcomes": counts})
+
+
+SOURCE_CHECK = JobKind(
+    SOURCE_CHECK_JOB_KIND,
+    run_source_check_job,
+    resources={"prism_worker": 1, "semantic_compile": 1},
+    lock=repository_lock("read"),
+)
+JOB_KINDS = (SOURCE_CHECK,)

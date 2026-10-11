@@ -35,6 +35,10 @@ OWN: dict[str, tuple[str, ...]] = {
     "frontend": ("frontend/*", "backend/tests/fixtures/*"),
     "viewer": ("kicad-prism-viewer/*", "frontend/src/features/system-builder/placement/*",
                "frontend/public/prism-semantic-viewer.js", "frontend/index.html", "requirements/*", "fixtures/*"),
+    # The Node parser package's own tests; the backend job also runs it (design-compare tests call it).
+    "design_compare": ("backend/design-compare-parser/*", "scripts/compare_object_delta.py",
+                       "scripts/test_compare_object_delta.py", "scripts/build-ecad-parser.sh",
+                       "scripts/ecad-viewer-upstream.lock"),
     "agent": ("tools/*",),
     "deploy": ("docker-compose*.yml", "deploy/*", "scripts/*", ".env.example", "loadtest/*"),
     "deps": ("*package.json", "*package-lock.json", "requirements/*", "backend/Dockerfile",

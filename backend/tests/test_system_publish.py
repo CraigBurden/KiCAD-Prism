@@ -14,6 +14,7 @@ from test_system_api import _request
 from test_system_exports import ExportCase
 from test_system_snapshots import DESIGNER, VIEWER
 
+from app.core.errors import install_error_handlers  # noqa: E402
 from app.api import systems as systems_api
 from app.services.systems import service as service_module
 from app.services.systems.service import Caller, SystemService
@@ -30,11 +31,11 @@ class PublishCase(ExportCase):
         super().setUp()
         from app.services.component_catalog_service_postgres import ComponentCatalogPostgresService
 
-        from system_builder_db import POSTGRES_URL
+        from support.postgres import CATALOG_URL
 
         self.tempdir = tempfile.TemporaryDirectory()
         self.catalog = ComponentCatalogPostgresService(store_root=Path(self.tempdir.name) / "c",
-                                                       database_url=POSTGRES_URL)
+                                                       database_url=CATALOG_URL)
         self.catalog.initialize()
         self.service = SystemService(connect=self.connect, project_loader=self.projects.get,
                                      enqueue=lambda *a, **k: {"job_id": "j", "status": "queued"},
@@ -148,6 +149,7 @@ class PublishTest(PublishCase):
         self.export()
         cdr = self.snapshot("CDR")
         app = FastAPI()
+        install_error_handlers(app)
         app.include_router(systems_api.router, prefix="/api/systems")
         with mock.patch.object(service_module, "service", self.service):
             first = _request(app, "POST", f"/api/systems/{self.sid}/snapshots/{cdr['id']}/publish",

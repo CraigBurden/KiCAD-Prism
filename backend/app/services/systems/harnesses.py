@@ -10,9 +10,9 @@ from __future__ import annotations
 
 from typing import Any, Mapping, Optional, Sequence
 
-from app.services.systems import exposure, system_nets
+from app.services.systems import exposure, links as link_rules, system_nets
 from app.services.systems.drift import pad_sort_key
-from app.services.systems.store import Invalid, SystemStore
+from app.services.systems.store import Invalid
 
 Component = Optional[Mapping[str, Any]]
 
@@ -65,7 +65,7 @@ def pin_facts(end: Mapping[str, Any], component: Component, *, include_missing: 
     pads = exposure.pins_by_pad(component) if component is not None else {}
     out = {}
     for pin in end_pins(end, component):
-        pad = SystemStore.end_pad(end, pin)
+        pad = link_rules.end_pad(end, pin)
         if component is not None and pad not in pads:
             if include_missing:
                 out[pin] = {"pad": pad, "nets": [], "missing": True}
@@ -106,6 +106,20 @@ def is_linkable(harness: Mapping[str, Any]) -> bool:
         return False
     used = [(w[f"{side}_end"], w[f"{side}_pin"]) for w in harness["wires"] for side in ("from", "to")]
     return len(used) == len(set(used))
+
+
+def end_components(harness: Mapping[str, Any], interfaces: Mapping[str, Any]) -> dict[str, Component]:
+    """``end ID -> mated component`` (None when it no longer resolves) from ``interfaces`` by instance.
+    Ends whose interface is missing (not extracted yet), and unmated ends, are left out."""
+    out: dict[str, Component] = {}
+    for end in harness["ends"]:
+        if not end["mates_instance_id"] or not end["mates_port"]:
+            continue
+        interface = interfaces.get(end["mates_instance_id"])
+        if interface is None:
+            continue
+        out[end["id"]] = exposure.component_by_key(interface, end["mates_port"]["portKey"])
+    return out
 
 
 def findings(harness: Mapping[str, Any], components: Mapping[str, Component],
@@ -157,7 +171,7 @@ def findings(harness: Mapping[str, Any], components: Mapping[str, Component],
         power = []
         for side in ("from", "to"):
             end, component = ends[wire[f"{side}_end"]], components.get(wire[f"{side}_end"])
-            pad = SystemStore.end_pad(end, wire[f"{side}_pin"])
+            pad = link_rules.end_pad(end, wire[f"{side}_pin"])
             power.append((exposure.pins_by_pad(component).get(pad) or {}).get("powerNet") if component else None)
         known = all(components.get(wire[f"{side}_end"]) for side in ("from", "to"))
         named_side = system_nets.net_meets_none(net_from, net_to) if known else None

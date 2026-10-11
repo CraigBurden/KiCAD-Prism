@@ -6,14 +6,14 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { Textarea } from "@/components/ui/textarea";
 import { useVirtualViewport } from "@/hooks/use-virtual-viewport";
 import { Input } from "@/components/ui/input";
-import { proposeRename, unwaiveFinding, waiveFinding, waiveFindings, withdrawRename } from "@/lib/systems-api";
 import { cn } from "@/lib/utils";
 import type { Finding, FindingWaiver, NetRename, Severity, SystemDocument } from "@/types/system";
 
 import { documentIndex } from "../document-index";
+import { findingDetail, findingTarget, findingsOf } from "../findings";
 import { findingFacts, findingText } from "../findings-ui";
 import { endLabel } from "../link-editor";
-import type { Mutate } from "../use-system-mutation";
+import { useSystemSession } from "../session/use-system-session";
 import { findingKeys } from "./finding-keys";
 import { RenamePopover, renameSides, type RenameSide } from "./rename-popover";
 import type { WorkspaceSelection } from "./workspace-state";
@@ -42,11 +42,8 @@ type Row =
   | { kind: "rename"; key: string; rename: NetRename };
 
 interface FindingsTrayProps {
-  systemId: string;
   document: SystemDocument;
-  etag: string;
   canEdit: boolean;
-  run: Mutate;
   onSelect: (selection: WorkspaceSelection) => void;
 }
 
@@ -65,14 +62,6 @@ function matches(document: SystemDocument, finding: Finding, query: string): boo
   const facts = findingFacts(finding);
   return [findingPlace(document, finding), facts.pins, facts.nets, finding.rule, findingText(finding)]
     .join(" ").toLowerCase().includes(query);
-}
-
-function findingTarget(finding: Finding): WorkspaceSelection | null {
-  const harnessId = (finding.detail as { harnessId?: string } | null)?.harnessId;
-  if (harnessId) return { kind: "harness", id: harnessId };
-  if (finding.rule === "SYS-V22" && finding.key) return { kind: "collision", id: finding.key };
-  if (finding.linkId) return { kind: "link", id: finding.linkId, ...(finding.rowId ? { row: finding.rowId } : {}) };
-  return finding.instanceId ? { kind: "instance", id: finding.instanceId } : null;
 }
 
 /** The catalog page of a SYS-V14 finding's subsystem or module, where its revision is released. */
@@ -108,7 +97,8 @@ function WaivePopover({ onWaive, label = "Waive" }: { onWaive: (note: string) =>
   );
 }
 
-export function FindingsTray({ systemId, document, etag, canEdit, run, onSelect }: FindingsTrayProps) {
+export function FindingsTray({ document, canEdit, onSelect }: FindingsTrayProps) {
+  const { edit } = useSystemSession();
   const report = document.validation;
   const findings = report?.findings;
   const [toggled, setToggled] = useState<ReadonlySet<string>>(new Set());
@@ -118,7 +108,8 @@ export function FindingsTray({ systemId, document, etag, canEdit, run, onSelect 
   const rows = useMemo<Row[]>(() => {
     if (!findings) return [];
     const query = filter.trim().toLowerCase();
-    const open = findings.filter((finding) => !finding.waived && matches(document, finding, query));
+    const index = findingsOf(findings);
+    const open = index.open.filter((finding) => matches(document, finding, query));
     const groups = new Map<string, Finding[]>();
     for (const finding of [...open].sort((a, b) => SEVERITY_ORDER[a.severity] - SEVERITY_ORDER[b.severity]
       || a.rule.localeCompare(b.rule))) {
@@ -159,10 +150,8 @@ export function FindingsTray({ systemId, document, etag, canEdit, run, onSelect 
       const isOpen = !toggled.has("waived");
       out.push({ kind: "waived-header", key: "waived", count: waivers.length, open: isOpen });
       if (isOpen) {
-        const byKey = new Map<string | null | undefined, Finding>();
-        for (const finding of findings) if (finding.waived) byKey.set(finding.key, finding);
         for (const waiver of waivers) {
-          out.push({ kind: "waiver", key: `waiver#${waiver.id}`, waiver, finding: byKey.get(waiver.findingKey) ?? null });
+          out.push({ kind: "waiver", key: `waiver#${waiver.id}`, waiver, finding: index.waived(waiver.findingKey) });
         }
       }
     }
@@ -187,19 +176,19 @@ export function FindingsTray({ systemId, document, etag, canEdit, run, onSelect 
     return next;
   });
   const waive = async (finding: Finding, note: string) =>
-    Boolean(finding.key && await run("waive", () => waiveFinding(systemId, etag, finding.key!, note), "Finding waived"));
+    Boolean(finding.key && await edit("waive", (system) => system.waiveFinding(finding.key!, note), "Finding waived"));
   const waiveAll = async (members: Finding[], note: string) => {
     const keys = members.flatMap((finding) => (finding.key && WAIVABLE.has(finding.severity) ? [finding.key] : []));
-    return Boolean(keys.length && await run("waive", () => waiveFindings(systemId, etag, keys, note),
+    return Boolean(keys.length && await edit("waive", (system) => system.waiveFindings(keys, note),
       `${keys.length} ${keys.length === 1 ? "finding" : "findings"} waived`));
   };
   const unwaive = (waiver: FindingWaiver) =>
-    void run("unwaive", () => unwaiveFinding(systemId, etag, waiver.id), "Waiver removed");
-  const propose = async (side: RenameSide, name: string, note: string) => Boolean(await run("rename",
-    () => proposeRename(systemId, etag, { instanceId: side.instanceId, net: side.net, name, ...(note ? { note } : {}) }),
+    void edit("unwaive", (system) => system.unwaiveFinding(waiver.id), "Waiver removed");
+  const propose = async (side: RenameSide, name: string, note: string) => Boolean(await edit("rename",
+    (system) => system.proposeRename({ instanceId: side.instanceId, net: side.net, name, ...(note ? { note } : {}) }),
     `Rename proposed to ${side.board}`));
   const withdraw = (rename: NetRename) =>
-    void run("rename", () => withdrawRename(systemId, etag, rename.id), "Proposal withdrawn");
+    void edit("rename", (system) => system.withdrawRename(rename.id), "Proposal withdrawn");
   const boards = documentIndex(document).instances;
 
   const first = Math.max(0, Math.floor(scrollTop / ROW_HEIGHT) - OVERSCAN);
@@ -321,7 +310,7 @@ function RenameSlot({ finding, document, canEdit, onPropose }: {
   canEdit: boolean;
   onPropose: (side: RenameSide, name: string, note: string) => Promise<boolean>;
 }) {
-  const proposed = (finding.detail as { rename?: { name: string } } | null)?.rename;
+  const proposed = findingDetail(finding).rename;
   if (proposed) {
     return <span className="w-14 shrink-0 truncate text-right font-mono text-xs text-primary" title="Rename proposed">→ {proposed.name}</span>;
   }

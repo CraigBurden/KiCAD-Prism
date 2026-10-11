@@ -13,7 +13,6 @@ the suite run more than once per database.
 from __future__ import annotations
 
 import os
-import subprocess
 import sys
 import tempfile
 import unittest
@@ -25,24 +24,14 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from app.core.config import settings  # noqa: E402
 from app.services import git_host_service, project_create_service  # noqa: E402
 from app.services.project_create_service import CreateError  # noqa: E402
+from support.repo import git, init_repo  # noqa: E402
 
 DATABASE_URL = os.environ.get("PRISM_DATABASE_URL", "").strip()
 
 
-def git(*args, cwd, check=True):
-    return subprocess.run(
-        ["git", *args], cwd=str(cwd), capture_output=True, text=True, check=check
-    )
-
-
 def make_tree(path: Path) -> Path:
     path.mkdir(parents=True)
-    git("init", "-b", "main", cwd=path)
-    git("config", "user.email", "t@t.t", cwd=path)
-    git("config", "user.name", "T", cwd=path)
-    (path / "board.kicad_pro").write_text("{}")
-    git("add", "-A", cwd=path)
-    git("commit", "-m", "first", cwd=path)
+    init_repo(path, {"board.kicad_pro": "{}"}, message="first")
     return path
 
 
@@ -54,7 +43,7 @@ class ProjectCreateTests(unittest.TestCase):
         self.tmp = Path(temporary.name)
 
         for patcher in (
-            patch.dict("os.environ", {"KICAD_PROJECTS_ROOT": str(self.tmp)}),
+            patch.object(settings, "KICAD_PROJECTS_ROOT", str(self.tmp)),
             patch.object(settings, "PUBLIC_BASE_URL", "https://prism.example.com"),
         ):
             patcher.start()
@@ -110,7 +99,7 @@ class ProjectCreateTests(unittest.TestCase):
         bare = git_host_service.repo_path(result["id"])
 
         dest = self.tmp / "clone"
-        git("clone", str(bare), str(dest), cwd=self.tmp)
+        git(self.tmp, "clone", str(bare), str(dest))
 
         self.assertTrue((dest / "Widget.kicad_pro").is_file())
         self.assertTrue((dest / ".gitignore").is_file())
@@ -121,7 +110,7 @@ class ProjectCreateTests(unittest.TestCase):
         result = project_create_service.create("Widget")
         bare = git_host_service.repo_path(result["id"])
         dest = self.tmp / "clone"
-        git("clone", str(bare), str(dest), cwd=self.tmp)
+        git(self.tmp, "clone", str(bare), str(dest))
 
         ignored = (dest / ".gitignore").read_text()
         for noise in ("*-backups/", "*.kicad_prl", "*.lck", "RemoteLibrary/"):
@@ -142,11 +131,11 @@ class ProjectCreateTests(unittest.TestCase):
         # Still there, still a working tree, contents untouched.
         self.assertTrue((tree / "board.kicad_pro").is_file())
         self.assertEqual(
-            git("rev-parse", "--is-bare-repository", cwd=tree).stdout.strip(), "false"
+            git(tree, "rev-parse", "--is-bare-repository"), "false"
         )
         # It gained a remote pointing at the repo Prism now hosts.
         self.assertEqual(
-            git("remote", "get-url", "origin", cwd=tree).stdout.strip(),
+            git(tree, "remote", "get-url", "origin"),
             str(git_host_service.repo_path(result["id"])),
         )
 

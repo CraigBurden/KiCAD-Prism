@@ -2,31 +2,20 @@
 
 Where the semantic pass compares meanings, this compares the objects KiCad
 actually stores — every track, pad, zone, graphic and constraint — and decides
-what each difference is called, which discipline it belongs to, and which of
-them roll up into one review item.
+what each difference is called and which discipline it belongs to. Rolling
+changes up into review items is the frontend's
+(``comparison-review-groups.ts``).
 
 Pure: it reads an already-computed object delta and returns change records.
 """
 
 import hashlib
 import math
-import re
-from typing import Any, Dict, Iterable, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
+
 from app.services import semantic_index_service
-from .design_compare_semantics import _dedupe_visual_targets, _native_item
-
-
-_PARSER_KIND_NAMES = {
-    "arc_segment": "arc",
-    # The parser calls a straight PCB track a segment. Normalize it at the
-    # comparison boundary so every downstream consumer (native grouping,
-    # routing emphasis, and layer focus) sees one canonical routing kind.
-    "segment": "track",
-    "drawing": "graphic",
-    "footprint_zone": "zone",
-    "global_label": "label",
-    "hierarchical_label": "label",
-}
+from .design_compare_occurrences import component_uid, is_power_symbol
+from .design_compare_semantics import _native_item
 
 
 _SCHEMATIC_NET_OBJECT_KINDS = {
@@ -42,7 +31,7 @@ _SCHEMATIC_NET_OBJECT_KINDS = {
 }
 
 
-_PCB_COPPER_OBJECT_KINDS = {"track", "segment", "arc", "via"}
+_PCB_COPPER_OBJECT_KINDS = {"track", "arc", "via"}
 
 
 _PRIMARY_CONSTRAINT_KINDS = {
@@ -74,7 +63,6 @@ _SCHEMATIC_PROJECT_KINDS = {"erc_exclusion", "erc_pin_rule", "project_metadata"}
 
 _NET_AGGREGATE_OBJECT_KINDS = {
     "track",
-    "segment",
     "arc",
     "via",
     "wire",
@@ -218,82 +206,11 @@ def _native_index(side: Dict[str, Any]) -> Dict[str, Dict[str, Any]]:
     }
 
 
-def _parser_components(side: Dict[str, Any]) -> List[Dict[str, Any]]:
-    """Project parser symbols into the component shape used by BOM and diff."""
-
-    footprints = {
-        str(item.get("refdes")): item
-        for item in side.get("componentObjects") or []
-        if item.get("kind") == "footprint" and item.get("refdes")
-    }
-    components: List[Dict[str, Any]] = []
-    for item in side.get("componentObjects") or []:
-        if item.get("kind") != "symbol" or _is_power_symbol(item):
-            continue
-        properties = {
-            str(prop.get("name")): prop.get("value")
-            for prop in item.get("properties") or []
-            if prop.get("name")
-        }
-        instances = item.get("instances") or [{"reference": item.get("refdes")}]
-        for instance in instances:
-            reference = str(instance.get("reference") or item.get("refdes") or "")
-            if not reference:
-                continue
-            path = str(instance.get("path") or "")
-            sheet_path = (
-                path[: -(len(str(item["uuid"])) + 1)] or "/"
-                if path.endswith(f"/{item['uuid']}")
-                else "/"
-            )
-            footprint = footprints.get(reference)
-            fields = {
-                key: "" if value is None else str(value)
-                for key, value in properties.items()
-            }
-            fields["kicad_in_bom"] = "false" if item.get("inBom") is False else "true"
-            fields["kicad_dnp"] = "true" if item.get("dnp") else "false"
-            components.append(
-                {
-                    "componentUid": semantic_index_service._stable_uid(
-                        "cmp", reference, str(item["uuid"]), path
-                    ),
-                    "reference": reference,
-                    "value": str(properties.get("Value") or ""),
-                    "footprint": str(properties.get("Footprint") or ""),
-                    "fields": fields,
-                    "schematicRefs": [
-                        {
-                            "sheetInstancePath": sheet_path,
-                            "page": item.get("documentPath"),
-                            "symbolUuid": item["uuid"],
-                        }
-                    ],
-                    "pcbRefs": (
-                        [{"footprintUuid": footprint["uuid"]}]
-                        if footprint is not None
-                        else []
-                    ),
-                    "webgpuRefs": [],
-                }
-            )
-    return components
-
-
 def _property_value(item: Dict[str, Any], name: str) -> str:
     for prop in item.get("properties") or []:
         if str(prop.get("name") or "") == name:
             return str(prop.get("value") or "")
     return ""
-
-
-def _is_power_symbol(item: Dict[str, Any]) -> bool:
-    """Power ports and PWR_FLAG markers are connectivity, never components."""
-
-    return (
-        str(item.get("kind") or "") == "symbol"
-        and str(item.get("libId") or "").casefold().startswith("power:")
-    )
 
 
 def _property_attributes(value: Any) -> Optional[Dict[str, Any]]:
@@ -310,31 +227,23 @@ def _property_attributes(value: Any) -> Optional[Dict[str, Any]]:
     return compact
 
 
-def _semantic_with_parser_components(
-    revision: Dict[str, Any],
-    side: Dict[str, Any],
-) -> Dict[str, Any]:
-    semantic = dict(revision.get("semantic") or {})
-    semantic["components"] = _parser_components(side)
-    return semantic
-
-
 def _node_change(change: Dict[str, Any]) -> Dict[str, Any]:
     before = change.get("base") or {}
     after = change.get("compare") or {}
     active = after or before or change
-    parser_kind = str(active.get("kind") or change.get("kind") or "")
-    native_kind = _PARSER_KIND_NAMES.get(parser_kind, parser_kind)
+    # The parser emits canonical kinds (`track`, `label`, ...; CANONICAL_KINDS in
+    # backend/design-compare-parser/ecad-parse.mjs).
+    native_kind = str(active.get("kind") or change.get("kind") or "")
     document_path = str(active.get("documentPath") or change.get("documentPath") or "")
     domain = (
         "schematic"
-        if parser_kind in _SCHEMATIC_PROJECT_KINDS
+        if native_kind in _SCHEMATIC_PROJECT_KINDS
         else "pcb"
-        if parser_kind in _CONSTRAINT_KINDS
+        if native_kind in _CONSTRAINT_KINDS
         or document_path.endswith((".kicad_pcb", ".kicad_pro", ".kicad_dru"))
         else "schematic"
     )
-    power_symbol = _is_power_symbol(active)
+    power_symbol = is_power_symbol(active)
     base_layers = _item_layers(before)
     compare_layers = _item_layers(after)
     layers = sorted(set(base_layers) | set(compare_layers))
@@ -356,7 +265,7 @@ def _node_change(change: Dict[str, Any]) -> Dict[str, Any]:
     compare_source = after.get("uuid") if after else None
     native_source = compare_source or base_source
     if reference and native_kind in {"footprint", "symbol"}:
-        semantic_id = semantic_index_service._stable_uid("cmp", str(reference))
+        semantic_id = component_uid(str(reference))
     elif net and (power_symbol or native_kind in _NET_AGGREGATE_OBJECT_KINDS):
         semantic_id = semantic_index_service._stable_uid("net", str(net))
     elif native_source:
@@ -542,9 +451,7 @@ def _hydrate_native_targets(
                 {
                     "page": native_page,
                     "documentPath": native_page,
-                    "kind": _PARSER_KIND_NAMES.get(
-                        str(native.get("kind") or ""), native.get("kind")
-                    ),
+                    "kind": native.get("kind"),
                     "parentSourceId": native.get("parentUuid"),
                     "at": native.get("at"),
                 }
@@ -664,155 +571,3 @@ def _route_metrics_from_digest(
             "diagnostics": diagnostics,
         }
     return result
-
-
-def _group_changes(changes: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    buckets: Dict[str, List[Dict[str, Any]]] = {}
-    normalized_changes: List[Dict[str, Any]] = []
-    for original in changes:
-        change = dict(original)
-        power_reference = (
-            change.get("domain") == "schematic"
-            and re.match(
-                r"^#(?:PWR|FLG)",
-                str(change.get("reference") or change.get("label") or ""),
-                re.IGNORECASE,
-            )
-        )
-        net_semantic_change = set(change.get("reasons") or []) & {
-            "connectivity-changed",
-            "net-renamed",
-            "label-count-changed",
-        }
-        if change.get("category") != "zones" and (
-            power_reference or change.get("net") or net_semantic_change
-        ):
-            change["category"] = "nets"
-        normalized_changes.append(change)
-    for change in normalized_changes:
-        identity = (
-            change.get("semantic_id")
-            or change.get("reference")
-            or change.get("net")
-            or change["id"]
-        )
-        buckets.setdefault(f"{change['category']}:{identity}", []).append(change)
-    groups = []
-    for key, members in buckets.items():
-        kinds = {member["kind"] for member in members}
-        status = next(iter(kinds)) if len(kinds) == 1 else "changed"
-        digest = hashlib.sha256(key.encode("utf-8")).hexdigest()[:20]
-        old_bounds = [
-            (member.get("oldGeometry") or {}).get("bounds")
-            for member in members
-            if (member.get("oldGeometry") or {}).get("bounds")
-        ]
-        new_bounds = [
-            (member.get("geometry") or {}).get("bounds")
-            for member in members
-            if (member.get("geometry") or {}).get("bounds")
-        ]
-        old_points = [
-            tuple(
-                member.get("position_base")
-                or [
-                    (member.get("oldGeometry") or {}).get("x"),
-                    (member.get("oldGeometry") or {}).get("y"),
-                ]
-            )
-            for member in members
-            if (
-                len(member.get("position_base") or ()) == 2
-                or (
-                    (member.get("oldGeometry") or {}).get("x") is not None
-                    and (member.get("oldGeometry") or {}).get("y") is not None
-                )
-            )
-        ]
-        new_points = [
-            tuple(
-                member.get("position_compare")
-                or [
-                    (member.get("geometry") or {}).get("x"),
-                    (member.get("geometry") or {}).get("y"),
-                ]
-            )
-            for member in members
-            if (
-                len(member.get("position_compare") or ()) == 2
-                or (
-                    (member.get("geometry") or {}).get("x") is not None
-                    and (member.get("geometry") or {}).get("y") is not None
-                )
-            )
-        ]
-        position_delta = None
-        if old_points and new_points:
-            old_x = sum(point[0] for point in old_points) / len(old_points)
-            old_y = sum(point[1] for point in old_points) / len(old_points)
-            new_x = sum(point[0] for point in new_points) / len(new_points)
-            new_y = sum(point[1] for point in new_points) / len(new_points)
-            position_delta = {
-                "dx": round(new_x - old_x, 4),
-                "dy": round(new_y - old_y, 4),
-                "distance": round(math.hypot(new_x - old_x, new_y - old_y), 4),
-            }
-        group_details: Dict[str, Any] = {}
-        group_visual_targets: List[Dict[str, Any]] = []
-        for member in members:
-            for detail_key, detail_value in (member.get("details") or {}).items():
-                if detail_key == "visualTargets":
-                    group_visual_targets.extend(
-                        target
-                        for target in detail_value or []
-                        if isinstance(target, dict)
-                    )
-                elif detail_key not in group_details:
-                    group_details[detail_key] = detail_value
-        if group_visual_targets:
-            group_details["visualTargets"] = _dedupe_visual_targets(
-                group_visual_targets
-            )
-
-        groups.append(
-            {
-                "id": f"grp:{digest}",
-                "category": members[0]["category"],
-                "status": status,
-                "classification": (
-                    "secondary"
-                    if all(member.get("classification") == "secondary" for member in members)
-                    else "primary"
-                ),
-                "label": members[0]["label"],
-                "semantic_id": members[0].get("semantic_id"),
-                "members": [member["id"] for member in members],
-                "reasons": list(
-                    dict.fromkeys(
-                        reason
-                        for member in members
-                        for reason in member.get("reasons") or []
-                    )
-                ),
-                "details": group_details,
-                "old_fields": {
-                    field: value.get("old")
-                    for member in members
-                    for field, value in (member.get("fields") or {}).items()
-                    if isinstance(value, dict)
-                },
-                "new_fields": {
-                    field: value.get("new")
-                    for member in members
-                    for field, value in (member.get("fields") or {}).items()
-                    if isinstance(value, dict)
-                },
-                "position_delta": position_delta,
-                "geometry_bounds": {
-                    "base": old_bounds,
-                    "compare": new_bounds,
-                },
-                "unresolved_thread_count": 0,
-            }
-        )
-    return sorted(groups, key=lambda group: (group["classification"], group["category"], group["label"]))

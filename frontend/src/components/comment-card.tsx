@@ -212,28 +212,32 @@ export function CommentCard({
                     >
                         <MessageSquareReply className="h-4 w-4" />
                     </Button>
-                    <Button
-                        variant="ghost"
-                        size="icon"
-                        className={cn("h-8 w-8", isResolved && "text-success")}
-                        aria-label={isResolved ? "Reopen comment" : "Resolve comment"}
-                        onClick={() => onResolve(comment.id, !isResolved)}
-                    >
-                        {isResolved ? (
-                            <CheckCircle className="h-4 w-4" />
-                        ) : (
-                            <Circle className="h-4 w-4" />
-                        )}
-                    </Button>
-                    <Button
-                        variant="ghost"
-                        size="icon"
-                        className="h-8 w-8 text-muted-foreground hover:text-destructive"
-                        aria-label="Delete comment"
-                        onClick={() => setConfirmDelete(true)}
-                    >
-                        <Trash2 className="h-4 w-4" />
-                    </Button>
+                    {comment.permissions?.canResolve !== false && (
+                        <Button
+                            variant="ghost"
+                            size="icon"
+                            className={cn("h-8 w-8", isResolved && "text-success")}
+                            aria-label={isResolved ? "Reopen comment" : "Resolve comment"}
+                            onClick={() => onResolve(comment.id, !isResolved)}
+                        >
+                            {isResolved ? (
+                                <CheckCircle className="h-4 w-4" />
+                            ) : (
+                                <Circle className="h-4 w-4" />
+                            )}
+                        </Button>
+                    )}
+                    {comment.permissions?.canDelete !== false && (
+                        <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-8 w-8 text-muted-foreground hover:text-destructive"
+                            aria-label="Delete comment"
+                            onClick={() => setConfirmDelete(true)}
+                        >
+                            <Trash2 className="h-4 w-4" />
+                        </Button>
+                    )}
                 </div>
             )}
 

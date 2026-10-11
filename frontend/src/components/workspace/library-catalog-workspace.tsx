@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import {
   ArrowDown,
@@ -43,7 +43,7 @@ import {
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { useVirtualViewport } from "@/hooks/use-virtual-viewport";
-import { fetchJson } from "@/lib/api";
+import { createComponent, getComponent, listCategories, listComponents } from "./catalog-client";
 import {
   AVAILABILITY_BADGE_TITLE,
   AVAILABILITY_BADGE_VARIANT,
@@ -54,13 +54,13 @@ import {
 } from "@/lib/catalog-badges";
 import { PermissionHint } from "@/components/ui/permission-hint";
 import { canWriteCatalog } from "@/lib/roles";
+import { useServerState } from "@/lib/server-state";
 import { cn } from "@/lib/utils";
 import type { User } from "@/types/auth";
 import type {
   AvailabilityState,
   CatalogComponent,
   CatalogValidationStatus,
-  PaginatedComponents,
   WorkflowStage,
 } from "@/types/catalog";
 import { LibraryComponentQuickView } from "./library-component-quick-view";
@@ -231,19 +231,16 @@ function CreateComponentDialog({
     }
     setSubmitting(true);
     try {
-      const component = await fetchJson<CatalogComponent>("/api/catalog/components", {
-        method: "POST",
-        body: JSON.stringify({
-          kind: form.kind,
-          value: form.value.trim(),
-          manufacturer: form.manufacturer.trim(),
-          manufacturer_part_number: form.manufacturerPartNumber.trim(),
-          description: form.description.trim(),
-          datasheet: form.datasheet.trim(),
-          category: form.category.trim(),
-          package_name: form.packageName.trim(),
-          change_summary: form.changeSummary.trim(),
-        }),
+      const component = await createComponent({
+        kind: form.kind,
+        value: form.value.trim(),
+        manufacturer: form.manufacturer.trim(),
+        manufacturer_part_number: form.manufacturerPartNumber.trim(),
+        description: form.description.trim(),
+        datasheet: form.datasheet.trim(),
+        category: form.category.trim(),
+        package_name: form.packageName.trim(),
+        change_summary: form.changeSummary.trim(),
       });
       toast.success(`${component.name} created as revision v${component.revision}.`);
       setForm(EMPTY_CREATE_FORM);
@@ -298,6 +295,11 @@ function CreateComponentDialog({
   );
 }
 
+const CATEGORIES_KEY = ["catalog", "categories"] as const;
+const COMPONENTS_KEY = ["catalog", "components"] as const;
+const NO_CATEGORIES: Array<{ name: string; count: number }> = [];
+const NO_COMPONENTS: CatalogComponent[] = [];
+
 // react-doctor-disable-next-line no-giant-component - query params, grid, and facet state are one page
 export function LibraryCatalogWorkspace({
   user,
@@ -316,14 +318,7 @@ export function LibraryCatalogWorkspace({
   const category = searchParams.get("catalogCategory") || "all";
   const sortKey = enumParam<SortKey>(searchParams.get("catalogSort"), SORT_KEYS, "updated_at");
   const sortDirection = enumParam<SortDirection>(searchParams.get("catalogDir"), ["asc", "desc"], sortKey === "updated_at" ? "desc" : "asc");
-  const [items, setItems] = useState<CatalogComponent[]>([]);
-  const [total, setTotal] = useState(0);
-  const [pages, setPages] = useState(1);
   const [query, setQuery] = useState(urlQuery);
-  const [categories, setCategories] = useState<Array<{ name: string; count: number }>>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState("");
-  const [refreshKey, setRefreshKey] = useState(0);
   const [createOpen, setCreateOpen] = useState(false);
   const selectedComponentId = searchParams.get("catalogSelection") || "";
   const [selectedComponent, setSelectedComponent] = useState<CatalogComponent | null>(null);
@@ -357,18 +352,14 @@ export function LibraryCatalogWorkspace({
     return () => window.clearTimeout(timer);
   }, [query, updateCatalogParams, urlQuery]);
 
-  useEffect(() => {
-    let cancelled = false;
-    void fetchJson<{ categories: Array<{ name: string; count: number }> }>("/api/catalog/categories")
-      .then((response) => { if (!cancelled) setCategories(response.categories); })
-      .catch(() => { /* Category discovery is non-blocking for catalog browsing. */ });
-    return () => { cancelled = true; };
-  }, [refreshKey]);
+  // Category discovery is non-blocking for catalog browsing: a failure shows no categories.
+  const categoryRead = useServerState(CATEGORIES_KEY, () => listCategories());
+  const categories = categoryRead.data?.categories ?? NO_CATEGORIES;
 
-  useEffect(() => {
-    const controller = new AbortController();
-    setLoading(true);
-    setError("");
+  // One page per filter/sort/page combination. A new combination keeps the
+  // previous rows on screen until it answers; a failed read shows the error
+  // (and no rows) until the next read starts.
+  const listParams = useMemo(() => {
     const params = new URLSearchParams({
       page: String(page),
       page_size: String(PAGE_SIZE),
@@ -381,24 +372,27 @@ export function LibraryCatalogWorkspace({
     if (availability !== "all") params.set("availability_state", availability);
     if (validation !== "all") params.set("validation_status", validation);
     if (category !== "all") params.set("category", category === "uncategorized" ? "" : category);
-
-    void fetchJson<PaginatedComponents>(`/api/catalog/components?${params.toString()}`, { signal: controller.signal })
-      .then((response) => {
-        setItems(response.items);
-        setTotal(response.total);
-        setPages(response.pages);
+    return params.toString();
+  }, [availability, category, page, sortDirection, sortKey, urlQuery, validation, workflow]);
+  const listing = useServerState(
+    [...COMPONENTS_KEY, listParams],
+    (signal) => listComponents(new URLSearchParams(listParams), signal),
+    {
+      keepPrevious: true,
+      onData: (response) => {
         if (page > response.pages) updateCatalogParams({ catalogPage: response.pages > 1 ? String(response.pages) : null }, true);
-      })
-      .catch((reason: unknown) => {
-        if (reason instanceof DOMException && reason.name === "AbortError") return;
-        setItems([]);
-        setError(reason instanceof Error ? reason.message : String(reason));
-      })
-      .finally(() => {
-        if (!controller.signal.aborted) setLoading(false);
-      });
-    return () => controller.abort();
-  }, [availability, category, page, refreshKey, sortDirection, sortKey, updateCatalogParams, urlQuery, validation, workflow]);
+      },
+    },
+  );
+  const loading = listing.loading || listing.fetching;
+  const error = loading || !listing.error ? "" : listing.error.message;
+  const items = error ? NO_COMPONENTS : listing.data?.items ?? NO_COMPONENTS;
+  const total = listing.data?.total ?? 0;
+  const pages = listing.data?.pages ?? 1;
+  const refreshCatalog = () => {
+    void categoryRead.refresh();
+    void listing.refresh();
+  };
 
   useEffect(() => {
     if (!selectedComponentId) {
@@ -411,7 +405,7 @@ export function LibraryCatalogWorkspace({
     const controller = new AbortController();
     setSelectedLoading(true);
     setSelectedError("");
-    void fetchJson<CatalogComponent>(`/api/catalog/components/${encodeURIComponent(selectedComponentId)}`, { signal: controller.signal })
+    void getComponent(selectedComponentId, controller.signal)
       .then(setSelectedComponent)
       .catch((reason: unknown) => {
         if (reason instanceof DOMException && reason.name === "AbortError") return;
@@ -475,7 +469,7 @@ export function LibraryCatalogWorkspace({
             <div className="flex items-center gap-2"><Database className="h-5 w-5 text-primary" /><h2 className="text-lg font-semibold">Component Catalog</h2></div>
           </div>
           <div className="flex items-center gap-2">
-            <Button size="sm" variant="outline" aria-label="Refresh component catalog" disabled={loading} onClick={() => setRefreshKey((value) => value + 1)}><RefreshCw className={cn("h-3.5 w-3.5", loading && "animate-spin")} /> Refresh</Button>
+            <Button size="sm" variant="outline" aria-label="Refresh component catalog" disabled={loading} onClick={refreshCatalog}><RefreshCw className={cn("h-3.5 w-3.5", loading && "animate-spin")} /> Refresh</Button>
             {/* Shown disabled rather than hidden: a reader who cannot find the
                 button assumes the feature is missing, where a disabled one that
                 explains itself tells them exactly what to ask for. */}
@@ -507,7 +501,7 @@ export function LibraryCatalogWorkspace({
 
         {error ? (
           <div className="flex min-h-64 flex-1 items-center justify-center">
-            <div className="max-w-xl border border-destructive bg-destructive/10 p-5 text-center"><CircleAlert className="mx-auto h-6 w-6 text-destructive" /><p className="mt-2 text-sm font-medium">Catalog query failed</p><p className="mt-1 text-xs text-muted-foreground">{error}</p><Button className="mt-4" size="sm" variant="outline" onClick={() => setRefreshKey((value) => value + 1)}><RefreshCw className="h-3.5 w-3.5" /> Retry</Button></div>
+            <div className="max-w-xl border border-destructive bg-destructive/10 p-5 text-center"><CircleAlert className="mx-auto h-6 w-6 text-destructive" /><p className="mt-2 text-sm font-medium">Catalog query failed</p><p className="mt-1 text-xs text-muted-foreground">{error}</p><Button className="mt-4" size="sm" variant="outline" onClick={refreshCatalog}><RefreshCw className="h-3.5 w-3.5" /> Retry</Button></div>
           </div>
         ) : loading && items.length === 0 ? (
           <div className="flex min-h-64 flex-1 items-center justify-center gap-2 text-sm text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin" /> Loading catalog page from the server…</div>

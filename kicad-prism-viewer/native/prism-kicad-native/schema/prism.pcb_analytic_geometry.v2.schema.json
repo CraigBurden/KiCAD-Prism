@@ -14,6 +14,7 @@
     "board",
     "layers",
     "nets",
+    "footprints",
     "operations",
     "drills",
     "diagnostics",
@@ -42,6 +43,20 @@
     "bounds_nm": { "$ref": "#/$defs/bounds" },
     "layers": { "type": "array", "items": { "type": "object" } },
     "nets": { "type": "array", "items": { "type": "object" } },
+    "footprints": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["source_uid", "reference", "layer", "position_nm", "angle_deg"],
+        "properties": {
+          "source_uid": { "type": "string" },
+          "reference": { "type": "string" },
+          "layer": { "type": "string" },
+          "position_nm": { "$ref": "#/$defs/nm_point" },
+          "angle_deg": { "type": "number" }
+        }
+      }
+    },
     "operations": {
       "type": "array",
       "items": { "$ref": "#/$defs/operation" }

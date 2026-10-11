@@ -8,6 +8,16 @@ Prism has two Compose entry points:
 In both cases, start from the adjacent `.env.example`. Keep deployed values in a
 secret store or host-local file and never commit them.
 
+Both Compose files pass every variable in that file to the backend and worker
+containers; a setting does not need its own line in the Compose file. The file
+is `.env` unless `PRISM_ENV_FILE` names another one. `--env-file` on its own
+only fills the `${...}` placeholders in the Compose file, so when the
+environment file is not `.env`, set both:
+
+```bash
+PRISM_ENV_FILE=prod.env docker compose --env-file prod.env -f docker-compose.yml up -d
+```
+
 Release bundles contain exact `PRISM_BACKEND_IMAGE` and
 `PRISM_FRONTEND_IMAGE` digests. Preserve those values when configuring a release.
 Source builds use Docker build arguments instead.
@@ -107,6 +117,22 @@ default; override at build time with
 `docker compose build --build-arg KICAD_BASE_IMAGE=...`. The public
 source-build and release targets are Linux AMD64.
 
+Prism finds its KiCad tools the same way for every job (release builds,
+jobsets, catalog previews, board statistics, thumbnails, fabrication
+comparison, system STEP export). The image already has them on `PATH`; set
+these only for a host run or a pinned install:
+
+```env
+# kicad-cli. Empty: PATH, then the usual KiCad install locations.
+# A set path is used as given, with no fallback. KICAD_CLI is a legacy name.
+KICAD_CLI_PATH=
+# kicad-cruncher, for release assembly views and vendor packs. Empty: PATH.
+KICAD_CRUNCHER_PATH=
+```
+
+Each kicad-cli run gets its own temporary directory (KiCad's instance lock)
+and a timeout set by the job that runs it.
+
 ### Experimental PCB geometry
 
 `PRISM_PCB_GEOMETRY_BACKEND=legacy` is the normal release and source default.
@@ -114,12 +140,45 @@ The image containing a Rust helper does not activate it. Select `rust` only
 for a deliberate experiment; `python-copper` is also experimental. Rust rejects
 missing helpers, identity mismatches, unsupported geometry, and helper errors
 instead of silently falling back. Set `PRISM_KICAD_NATIVE_TIMEOUT_SECONDS` to
-bound helper execution (default 300 seconds).
+bound helper execution (default 300 seconds). `PRISM_KICAD_NATIVE_PATH` names
+the helper (default `/usr/local/bin/prism-kicad-native`, where the image puts it).
 
 Rollback by setting the backend to `legacy` and recreating the API and general
 worker containers so they receive the new environment. Direct host experiments
 should also unset the old `PRISM_COPPER_EMIT_ENABLED` compatibility switch.
 See [Rust geometry](PCB_RUST_GEOMETRY.md) for build identity and coverage limits.
+
+### Design pipelines, Systems, and build identity
+
+These have working defaults; set them only to relocate storage or tune a
+constrained host. Unless noted, an empty value means the default.
+
+| Setting | Purpose |
+| --- | --- |
+| `KICAD_PROJECTS_ROOT` | root for imported projects and `.kicad-prism` state; Compose sets `/app/projects` |
+| `PRISM_JOB_ARTIFACT_RETENTION_DAYS` | days job artifact metadata is kept (default 30) |
+| `PRISM_JOB_PARTIAL_RETENTION_HOURS` | hours unfinished job artifacts are kept (default 24) |
+| `PRISM_DESIGN_COMPARE_CACHE` | revision snapshot cache (default under the system temporary directory) |
+| `PRISM_DESIGN_COMPARE_JOBS` | design-compare scratch root (default under the system temporary directory) |
+| `PRISM_DESIGN_COMPARE_CACHE_MAX_BYTES` | revision cache cap, least recently used evicted first; 0 disables (default 20 GiB) |
+| `PRISM_DESIGN_COMPARE_CACHE_MIN_AGE` | seconds a cache entry is protected after use (default 900) |
+| `PRISM_DESIGN_COMPARE_STALE_SECONDS` | seconds without progress before an in-process compare is stale (default 300) |
+| `PRISM_DESIGN_COMPARE_MAX_REVISION_WORKERS` | revisions built at once, at most 2 (default 2) |
+| `PRISM_DESIGN_COMPARE_MAX_INITIAL_WORKERS` | schematic-stage workers, at most 2; unset follows `MAX_REVISION_WORKERS` |
+| `PRISM_DESIGN_COMPARE_MAX_PCB_WORKERS` | PCB-stage workers, at most 2; unset follows `MAX_REVISION_WORKERS` |
+| `PRISM_DESIGN_COMPARE_REVISION_PROCESSES` | `false` compiles both revisions in one process (default `true`) |
+| `PRISM_SEMANTIC_VIEWER_REPO` | `kicad-prism-viewer` checkout; the image sets `/opt/kicad-prism-viewer` |
+| `PRISM_SEMANTIC_VIEWER_CACHE` | semantic compiler cache (default under `KICAD_PROJECTS_ROOT/.kicad-prism`) |
+| `PRISM_SEMANTIC_GLTF_MESHOPT_LEVEL` | glTF meshopt level; unknown values use `medium` |
+| `PRISM_SEMANTIC_GLTF_TILE_SIZE_MM` | glTF tile size, 1–1000 mm, or `auto` (default) |
+| `PRISM_KICAD_MONKEY_SOURCE` | label of the installed kicad_monkey build; the image sets it |
+| `KICAD_MONKEY_PYTHONPATH` | development only: kicad_monkey source roots put first on the import path |
+| `PRISM_SYSTEM_REPOS_ROOT` | bare repositories tracking Systems (default `KICAD_PROJECTS_ROOT/.kicad-prism/system-repos`) |
+| `PRISM_INTERFACE_CACHE_MB` | in-process cache of resolved board interfaces, MiB (default 256) |
+| `PRISM_INTERFACE_CACHE_VERIFY` | hash-check every interface cache hit; for test suites |
+| `PRISM_PLUGIN_DOWNLOAD_URL` | where the KiCad plugin update prompt points; set it for a private plugin build |
+| `PRISM_CAIRO_LIBRARY_DIR` | macOS hosts only: directory holding `libcairo.2.dylib` for Release Studio PDFs |
+| `PRISM_RELEASE`, `PRISM_REVISION`, `PRISM_BUILD_DATE` | build identity reported by `/api/health/live`; release images set them |
 
 ### Live comments and issue trackers
 
@@ -169,8 +228,24 @@ Supported path fields:
 - `readme`
 - `jobset`
 
-Resolution order is explicit `.prism.json`, auto-detection, then conventional
-fallbacks. Paths are relative to the registered project root.
+### Settings edited in Prism
+
+Settings changed in Prism's project properties (paths, display name,
+description) are stored in the workspace database, not written into the
+checkout. Prism's checkout is a read-only mirror of the remote; a file written
+into it would block every later Sync fast-forward. To share settings with the
+team, commit them to `.prism.json` in the repository.
+
+Resolution order, highest first:
+
+1. Settings stored in Prism for the project.
+2. The `.prism.json` in the checkout (`projects.<project file>` over the shared
+   block).
+3. Auto-detection.
+4. Conventional fallbacks.
+
+Paths are relative to the registered project root. A past revision is read with
+that revision's committed `.prism.json`.
 
 The schema currently accepts `workflows`, `portfolio`, and additional fields for
 forward compatibility. Arbitrary `workflows` entries are not executed as

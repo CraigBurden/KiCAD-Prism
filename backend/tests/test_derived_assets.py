@@ -17,8 +17,7 @@ class ThumbnailStorageStaysOutsideTheCheckout(unittest.TestCase):
     def setUp(self) -> None:
         self._temporary = tempfile.TemporaryDirectory()
         self.root = Path(self._temporary.name)
-        # KICAD_PROJECTS_ROOT is a computed property on the settings model, so
-        # the store's own root function is the patch point.
+        # The store's own root function is the patch point.
         patcher = mock.patch.object(
             derived_assets, "derived_root", return_value=self.root / "derived"
         )

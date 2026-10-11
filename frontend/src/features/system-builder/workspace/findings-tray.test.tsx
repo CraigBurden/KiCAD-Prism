@@ -1,8 +1,9 @@
-import { fireEvent, render, screen, within } from "@testing-library/react";
+import { fireEvent, screen, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
 import type { Finding, SystemDocument } from "@/types/system";
 
+import { memorySystem, renderInSession } from "../session/memory-session";
 import { instance, link, systemDocument } from "../test-fixtures";
 import { FindingsTray } from "./findings-tray";
 
@@ -21,12 +22,10 @@ function doc(findings: Finding[], waivers: NonNullable<SystemDocument["validatio
 }
 
 function renderTray(document: SystemDocument, canEdit = true) {
-  const run = vi.fn(async (_label: string, action: () => Promise<unknown>) => action());
+  const memory = memorySystem(document);
   const onSelect = vi.fn();
-  vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ id: "sfw_1" }), {
-    status: 201, headers: { "Content-Type": "application/json", ETag: '"sys:s:2"' } })));
-  render(<FindingsTray systemId="s" document={document} etag='"sys:s:1"' canEdit={canEdit} run={run as never} onSelect={onSelect} />);
-  return { run, onSelect };
+  renderInSession(<FindingsTray document={document} canEdit={canEdit} onSelect={onSelect} />, { document, transport: memory.transport });
+  return { memory, onSelect };
 }
 
 describe("FindingsTray (SB2-100)", () => {
@@ -35,7 +34,7 @@ describe("FindingsTray (SB2-100)", () => {
     const v09 = (pin: string, a: string, b: string) => finding({ rule: "SYS-V09", name: "net_name_mismatch", linkId, rowId: `r${pin}`,
       end: "a", pin, detail: { pinB: pin, referenceB: "J2", netA: [a], netB: [b] }, key: `V09|${pin}` });
     const onPwr = Array.from({ length: 9 }, (_, i) => finding({ instanceId: pwr.id, reference: "J2", pin: String(i + 1), key: `V06|p${i}` }));
-    const { run } = renderTray(doc([v09("1", "GND_3", "GND"), v09("3", "CLK", "SCK"), finding({ pin: "9", key: "V06|9" }), ...onPwr]));
+    const { memory } = renderTray(doc([v09("1", "GND_3", "GND"), v09("3", "CLK", "SCK"), finding({ pin: "9", key: "V06|9" }), ...onPwr]));
     // SYS-V06 has 10 findings on two boards: one row per board, PWR first (9), each opening on demand.
     const places = screen.getAllByRole("button", { name: /^(PWR|OBC)\s*\d+$/ });
     expect(places.map((button) => button.textContent)).toEqual(["PWR9", "OBC1"]);
@@ -52,10 +51,7 @@ describe("FindingsTray (SB2-100)", () => {
     fireEvent.click(within(obc).getByRole("button", { name: "Waive all" }));
     fireEvent.change(screen.getByLabelText("Why this is acceptable"), { target: { value: "Board-level, accepted" } });
     fireEvent.click(screen.getAllByRole("button", { name: "Waive" }).at(-1)!);
-    await vi.waitFor(() => expect(run).toHaveBeenCalledWith("waive", expect.any(Function), "1 finding waived"));
-    const [url, init] = (fetch as unknown as ReturnType<typeof vi.fn>).mock.calls[0];
-    expect(String(url)).toMatch(/\/waivers\/batch$/);
-    expect(JSON.parse(String(init.body))).toEqual({ findingKeys: ["V06|9"], note: "Board-level, accepted" });
+    await vi.waitFor(() => expect(memory.calls).toEqual([{ name: "waiveFindings", args: [["V06|9"], "Board-level, accepted"] }]));
   });
 
   it("names a join finding's pins and nets, and Show opens its row (SB2-112)", () => {
@@ -86,15 +82,13 @@ describe("FindingsTray (SB2-100)", () => {
   });
 
   it("offers Waive on warnings only, and sends the finding key with the note", async () => {
-    const { run } = renderTray(doc([finding({}), finding({ rule: "SYS-V03", name: "port_not_exposed", severity: "error", key: "e1" })]));
+    const { memory } = renderTray(doc([finding({}), finding({ rule: "SYS-V03", name: "port_not_exposed", severity: "error", key: "e1" })]));
     const waive = screen.getAllByRole("button", { name: "Waive" });
     expect(waive).toHaveLength(1);
     fireEvent.click(waive[0]);
     fireEvent.change(screen.getByLabelText("Why this is acceptable"), { target: { value: "Known, harmless" } });
     fireEvent.click(screen.getAllByRole("button", { name: "Waive" }).at(-1)!);
-    await vi.waitFor(() => expect(run).toHaveBeenCalledWith("waive", expect.any(Function), "Finding waived"));
-    const [, init] = (fetch as unknown as ReturnType<typeof vi.fn>).mock.calls[0];
-    expect(JSON.parse(String(init.body))).toEqual({ findingKey: `SYS-V06|${obc.id}||||J1|1`, note: "Known, harmless" });
+    await vi.waitFor(() => expect(memory.calls).toEqual([{ name: "waiveFinding", args: [`SYS-V06|${obc.id}||||J1|1`, "Known, harmless"] }]));
   });
 
   it("lists waivers apart, with the note, and a gone finding as no longer raised", () => {

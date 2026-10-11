@@ -8,14 +8,10 @@ unmet gate, not a pass. The projection cases need no database.
 from __future__ import annotations
 
 import json
-import os
 import sys
 import tempfile
 import unittest
-import uuid
-from contextlib import contextmanager
 from pathlib import Path
-from urllib.parse import urlsplit
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
@@ -23,35 +19,24 @@ from app.services import comments_revisions, comments_schema_migrations  # noqa:
 from app.services.comments_revisions import Editor, RevisionConflict  # noqa: E402
 from app.services.comments_store_service import (  # noqa: E402
     COMMENTS_META,
-    CommentsStoreService,
     _row_to_comment_dict,
     _row_to_reply_dict,
 )
+from support.postgres import requires_scratch_postgres, scratch_schema, comments_store_on  # noqa: E402
 
-try:
-    import psycopg
-    from psycopg.rows import dict_row
-except ImportError:  # pragma: no cover - psycopg is part of the runtime lock
-    psycopg = None  # type: ignore[assignment]
-    dict_row = None  # type: ignore[assignment]
-
-POSTGRES_URL = os.environ.get("TEST_POSTGRES_URL", "").strip()
-APPLICATION_POSTGRES_URL = os.environ.get("PRISM_DATABASE_URL", "").strip()
-
-
-def _identity(url: str):
-    parsed = urlsplit(url)
-    return (parsed.username or "", (parsed.hostname or "").lower(), parsed.port, parsed.path.lstrip("/"))
-
-
-SHARED_APPLICATION_DATABASE = bool(
-    POSTGRES_URL and APPLICATION_POSTGRES_URL and _identity(POSTGRES_URL) == _identity(APPLICATION_POSTGRES_URL)
-)
 
 PRIYA = Editor(user_id="u_priya", kind="user", display="Priya Raman")
 ALEX1 = Editor(user_id="u_1", kind="user", display="Alex Chen")
 ALEX2 = Editor(user_id="u_2", kind="user", display="Alex Chen")
 ADMIN = Editor(user_id="u_admin", kind="user", display="Admin")
+
+
+def if_match(kind: str, target: str, revision):
+    """A route's request whose ``If-Match`` names ``revision`` of the target (none when ``None``)."""
+    from starlette.requests import Request
+
+    headers = [] if revision is None else [(b"if-match", f'"{kind}:{target}:{revision}"'.encode())]
+    return Request({"type": "http", "headers": headers})
 
 
 class ProjectionTests(unittest.TestCase):
@@ -86,38 +71,16 @@ class ProjectionTests(unittest.TestCase):
         self.assertEqual(len(versions), len(set(versions)))
 
 
-class DisposableSchemaStore(CommentsStoreService):
-    """The production store, pointed at a throwaway schema in the test database."""
-
-    def __init__(self, schema: str) -> None:
-        super().__init__()
-        self.schema = schema
-
-    @contextmanager
-    def _connect(self):
-        dsn = POSTGRES_URL.replace("postgresql+psycopg://", "postgresql://", 1)
-        with psycopg.connect(dsn, row_factory=dict_row) as conn:
-            conn.execute(f'SET search_path TO "{self.schema}", public')
-            yield conn
-
-
-@unittest.skipUnless(POSTGRES_URL, "TEST_POSTGRES_URL is required for comments persistence tests")
-@unittest.skipUnless(psycopg is not None, "psycopg is required for comments persistence tests")
-@unittest.skipIf(SHARED_APPLICATION_DATABASE, "TEST_POSTGRES_URL must not target PRISM_DATABASE_URL")
+@requires_scratch_postgres("comments persistence tests")
 class CommentsPersistencePostgresTests(unittest.TestCase):
     def setUp(self) -> None:
-        self.schema = f"comments_tr01_{uuid.uuid4().hex[:12]}"
-        self.store = DisposableSchemaStore(self.schema)
+        self.scratch = scratch_schema(self, "comments_tr01", create=False)
+        self.schema = self.scratch.name
+        self.store = comments_store_on(self.scratch)
         self.tempdir = tempfile.TemporaryDirectory()
         self.addCleanup(self.tempdir.cleanup)
         self.project_path = self.tempdir.name
         self.project_id = "prj_test"
-        self.addCleanup(self._drop_schema)
-
-    def _drop_schema(self) -> None:
-        with self.store._connect() as conn:
-            conn.execute(f'DROP SCHEMA IF EXISTS "{self.schema}" CASCADE')
-            conn.commit()
 
     def _raw(self, sql, params=()):
         with self.store._connect() as conn:
@@ -199,7 +162,7 @@ class CommentsPersistencePostgresTests(unittest.TestCase):
         again = self.store.get_comments_file(self.project_id, self.project_path)
         self.assertEqual(again["comments"][0]["replies"][0]["id"], reply["id"])
 
-        restarted = DisposableSchemaStore(self.schema)
+        restarted = comments_store_on(self.scratch)
         restarted.initialize()
         self.assertEqual(restarted.get_comments_file(self.project_id, self.project_path)["comments"][0]["replies"][0]["id"], reply["id"])
 

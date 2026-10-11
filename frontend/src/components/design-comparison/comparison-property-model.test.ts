@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+    isTruthyFlag,
     changeEvidenceMode,
     connectionEntries,
     formatValue,
@@ -93,7 +94,7 @@ describe("property deltas", () => {
         const segment = (id: string, side: "old" | "new"): ChangeItem => change({
             id,
             label: "VCC",
-            object_kind: "segment",
+            object_kind: "track",
             net: "VCC",
             fields: {
                 Position: side === "old"
@@ -131,7 +132,7 @@ describe("property deltas", () => {
         const segment = (id: string) => change({
             id,
             label: "PHY_D+",
-            object_kind: "segment",
+            object_kind: "track",
             net: "Net-(U16-1D-)",
             reasons: ["net-changed"],
             fields: {
@@ -155,13 +156,13 @@ describe("property deltas", () => {
         const deltas = propertyDeltas([
             change({
                 id: "old-segment",
-                object_kind: "segment",
+                object_kind: "track",
                 net: "VCC",
                 fields: { Width: { old: 0.127, new: null } },
             }),
             change({
                 id: "new-segment",
-                object_kind: "segment",
+                object_kind: "track",
                 net: "VCC",
                 fields: { Width: { old: null, new: 0.2 } },
             }),
@@ -330,8 +331,14 @@ describe("component field ordering", () => {
             .toEqual(["Value", "Footprint", "Tolerance"]);
     });
 
-    it("hides the raw kicad flags surfaced as badges", () => {
-        const ordered = orderedFields({ Value: "10k", kicad_dnp: "true" });
+    it("hides the flags surfaced as badges", () => {
+        const ordered = orderedFields({ Value: "10k", DNP: "Yes", "In BOM": "Yes", kicad_dnp: "true" });
         expect(ordered.map(([name]) => name)).toEqual(["Value"]);
+    });
+
+    it("reads the project BOM's Yes/No flags", () => {
+        expect(isTruthyFlag("Yes")).toBe(true);
+        expect(isTruthyFlag("No")).toBe(false);
+        expect(isTruthyFlag("true")).toBe(true);
     });
 });

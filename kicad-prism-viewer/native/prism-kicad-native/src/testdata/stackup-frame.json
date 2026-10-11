@@ -1,0 +1,253 @@
+{
+  "description": "Stackup frame golden shared by stackup_frame.rs and pipeline/topology_compiler/stackup_frame.py. Each case lists a physical stackup top first; frame is what both lanes compute (zMm centred, runtimeZMm in KiCad's board frame, surfaceSign and faceZMm for the drawn face). Regenerate with PRISM_UPDATE_GOLDEN=1 cargo test.",
+  "cases": [
+    {
+      "name": "two-layer 1.6 mm",
+      "stackup": [
+        {
+          "name": "F.SilkS",
+          "type": "Top Silk Screen",
+          "thicknessMm": 0.0
+        },
+        {
+          "name": "F.Paste",
+          "type": "Top Solder Paste",
+          "thicknessMm": 0.0
+        },
+        {
+          "name": "F.Mask",
+          "type": "Top Solder Mask",
+          "thicknessMm": 0.01
+        },
+        {
+          "name": "F.Cu",
+          "type": "copper",
+          "thicknessMm": 0.035
+        },
+        {
+          "name": "dielectric 1",
+          "type": "core",
+          "thicknessMm": 1.51
+        },
+        {
+          "name": "B.Cu",
+          "type": "copper",
+          "thicknessMm": 0.035
+        },
+        {
+          "name": "B.Mask",
+          "type": "Bottom Solder Mask",
+          "thicknessMm": 0.01
+        },
+        {
+          "name": "B.Paste",
+          "type": "Bottom Solder Paste",
+          "thicknessMm": 0.0
+        },
+        {
+          "name": "B.SilkS",
+          "type": "Bottom Silk Screen",
+          "thicknessMm": 0.0
+        }
+      ],
+      "frame": [
+        {
+          "name": "F.SilkS",
+          "role": "silkscreen",
+          "zMm": 0.8,
+          "runtimeZMm": 1.555,
+          "surfaceSign": 1,
+          "faceZMm": 1.555
+        },
+        {
+          "name": "F.Paste",
+          "role": "paste",
+          "zMm": 0.8,
+          "runtimeZMm": 1.555,
+          "surfaceSign": 1,
+          "faceZMm": 1.555
+        },
+        {
+          "name": "F.Mask",
+          "role": "soldermask",
+          "zMm": 0.795,
+          "runtimeZMm": 1.5499999999999998,
+          "surfaceSign": 1,
+          "faceZMm": 1.5549999999999997
+        },
+        {
+          "name": "F.Cu",
+          "role": "copper",
+          "zMm": 0.7725000000000001,
+          "runtimeZMm": 1.5274999999999999,
+          "surfaceSign": 1,
+          "faceZMm": 1.545
+        },
+        {
+          "name": "dielectric 1",
+          "role": "dielectric",
+          "zMm": 1.1102230246251565e-16,
+          "runtimeZMm": 0.755,
+          "surfaceSign": 1,
+          "faceZMm": 1.51
+        },
+        {
+          "name": "B.Cu",
+          "role": "copper",
+          "zMm": -0.7724999999999999,
+          "runtimeZMm": -0.01749999999999996,
+          "surfaceSign": -1,
+          "faceZMm": -0.03499999999999996
+        },
+        {
+          "name": "B.Mask",
+          "role": "soldermask",
+          "zMm": -0.7949999999999998,
+          "runtimeZMm": -0.039999999999999925,
+          "surfaceSign": -1,
+          "faceZMm": -0.04499999999999992
+        },
+        {
+          "name": "B.Paste",
+          "role": "paste",
+          "zMm": -0.7999999999999998,
+          "runtimeZMm": -0.04499999999999993,
+          "surfaceSign": -1,
+          "faceZMm": -0.04499999999999993
+        },
+        {
+          "name": "B.SilkS",
+          "role": "silkscreen",
+          "zMm": -0.7999999999999998,
+          "runtimeZMm": -0.04499999999999993,
+          "surfaceSign": -1,
+          "faceZMm": -0.04499999999999993
+        }
+      ]
+    },
+    {
+      "name": "four-layer asymmetric",
+      "stackup": [
+        {
+          "name": "F.Mask",
+          "type": "Top Solder Mask",
+          "thicknessMm": 0.01
+        },
+        {
+          "name": "F.Cu",
+          "type": "copper",
+          "thicknessMm": 0.035
+        },
+        {
+          "name": "dielectric 1",
+          "type": "prepreg",
+          "thicknessMm": 0.2
+        },
+        {
+          "name": "In1.Cu",
+          "type": "copper",
+          "thicknessMm": 0.035
+        },
+        {
+          "name": "dielectric 2",
+          "type": "core",
+          "thicknessMm": 1.0
+        },
+        {
+          "name": "In2.Cu",
+          "type": "copper",
+          "thicknessMm": 0.0175
+        },
+        {
+          "name": "dielectric 3",
+          "type": "prepreg",
+          "thicknessMm": 0.3
+        },
+        {
+          "name": "B.Cu",
+          "type": "copper",
+          "thicknessMm": 0.07
+        },
+        {
+          "name": "B.Mask",
+          "type": "Bottom Solder Mask",
+          "thicknessMm": 0.02
+        }
+      ],
+      "frame": [
+        {
+          "name": "F.Mask",
+          "role": "soldermask",
+          "zMm": 0.83875,
+          "runtimeZMm": 1.5924999999999998,
+          "surfaceSign": 1,
+          "faceZMm": 1.5974999999999997
+        },
+        {
+          "name": "F.Cu",
+          "role": "copper",
+          "zMm": 0.81625,
+          "runtimeZMm": 1.5699999999999998,
+          "surfaceSign": 1,
+          "faceZMm": 1.5875
+        },
+        {
+          "name": "dielectric 1",
+          "role": "dielectric",
+          "zMm": 0.6987500000000001,
+          "runtimeZMm": 1.4525,
+          "surfaceSign": 1,
+          "faceZMm": 1.5525
+        },
+        {
+          "name": "In1.Cu",
+          "role": "copper",
+          "zMm": 0.5812500000000002,
+          "runtimeZMm": 1.335,
+          "surfaceSign": 1,
+          "faceZMm": 1.3525
+        },
+        {
+          "name": "dielectric 2",
+          "role": "dielectric",
+          "zMm": 0.0637500000000002,
+          "runtimeZMm": 0.8175,
+          "surfaceSign": 1,
+          "faceZMm": 1.3175
+        },
+        {
+          "name": "In2.Cu",
+          "role": "copper",
+          "zMm": -0.4449999999999998,
+          "runtimeZMm": 0.30875,
+          "surfaceSign": -1,
+          "faceZMm": 0.30000000000000004
+        },
+        {
+          "name": "dielectric 3",
+          "role": "dielectric",
+          "zMm": -0.6037499999999998,
+          "runtimeZMm": 0.15000000000000002,
+          "surfaceSign": -1,
+          "faceZMm": 2.7755575615628914e-17
+        },
+        {
+          "name": "B.Cu",
+          "role": "copper",
+          "zMm": -0.7887499999999998,
+          "runtimeZMm": -0.03500000000000003,
+          "surfaceSign": -1,
+          "faceZMm": -0.07000000000000003
+        },
+        {
+          "name": "B.Mask",
+          "role": "soldermask",
+          "zMm": -0.8337499999999999,
+          "runtimeZMm": -0.08000000000000007,
+          "surfaceSign": -1,
+          "faceZMm": -0.09000000000000007
+        }
+      ]
+    }
+  ]
+}

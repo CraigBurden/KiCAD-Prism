@@ -10,7 +10,6 @@ from __future__ import annotations
 import datetime
 import os
 import shlex
-import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, Literal
@@ -18,11 +17,16 @@ from typing import Callable, Literal
 from git import Repo
 
 from app.services.job_runtime import JobContext
+from app.services.kicad_tools import KicadTool, ToolError, kicad_cli
 
 
 JobsetRouting = Literal["artifact", "repository"]
 RepositoryFactory = Callable[[str], Repo]
 TimestampFactory = Callable[[], datetime.datetime]
+
+#: A jobset runs every output it lists (plots, renders, STEP); bounded so a
+#: wedged run frees its worker slot instead of holding it forever.
+JOBSET_TIMEOUT_SECONDS = 3600
 
 
 @dataclass(frozen=True)
@@ -51,15 +55,6 @@ class JobsetExecutionResult:
     warnings: tuple[str, ...] = ()
 
 
-def find_kicad_cli_path() -> str:
-    """Return the KiCad CLI path using the existing Prism lookup convention."""
-
-    mac_path = "/Applications/KiCad/KiCad.app/Contents/MacOS/kicad-cli"
-    if os.path.exists(mac_path):
-        return mac_path
-    return "kicad-cli"
-
-
 def jobset_file_argument(project_path: str | Path, jobset_path: str | Path) -> str:
     """Return the jobset argument exactly as the legacy workflow did."""
 
@@ -83,7 +78,7 @@ def execute_kicad_jobset(
     workflow_type: str,
     author: str = "anonymous",
     routing: JobsetRouting = "repository",
-    cli_path: str | None = None,
+    tool: KicadTool | None = None,
     repository_factory: RepositoryFactory | None = None,
     timestamp_factory: TimestampFactory | None = None,
 ) -> JobsetExecutionResult:
@@ -101,8 +96,8 @@ def execute_kicad_jobset(
     project_path_text = os.fspath(project_path)
     jobset_path_text = os.fspath(jobset_path)
     jobset_file = jobset_file_argument(project_path_text, jobset_path_text)
-    command = [
-        cli_path or find_kicad_cli_path(),
+    tool = (tool or kicad_cli()).with_cancel(context.check_cancelled)
+    args = [
         "jobset",
         "run",
         "-f",
@@ -120,6 +115,10 @@ def execute_kicad_jobset(
         routing=routing,
     )
 
+    try:
+        command = [tool.executable(), *args]
+    except ToolError as exc:
+        raise RuntimeError(f"KiCad workflow could not start: {exc}") from exc
     print(f"Running: {shlex.join(command)}", flush=True)
     context.progress(
         stage="run-jobset",
@@ -127,22 +126,12 @@ def execute_kicad_jobset(
         percent=15,
         force=True,
     )
-    process = subprocess.Popen(
-        command,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,
-        cwd=project_path_text,
-        text=True,
-        bufsize=1,
-    )
-    if process.stdout is not None:
-        for line in process.stdout:
-            line = line.rstrip()
-            if line:
-                print(line, flush=True)
-    return_code = process.wait()
-    if return_code != 0:
-        raise RuntimeError(f"KiCad workflow exited with code {return_code}")
+    try:
+        result = tool.run(args, cwd=project_path_text, timeout=JOBSET_TIMEOUT_SECONDS, tee=True)
+    except ToolError as exc:
+        raise RuntimeError(f"KiCad workflow failed: {exc}") from exc
+    if not result.ok:
+        raise RuntimeError(f"KiCad workflow exited with code {result.returncode}")
 
     context.check_cancelled()
     generated_commit = ""
@@ -210,7 +199,7 @@ def _sync_repository(
             # Share the import path's environment rather than rolling a second
             # one: this keeps the existing GitHub token rewrite and strict
             # host-key behavior for repository-routed workflow output.
-            from app.services.project_import_service import git_env
+            from app.services.git_remote_access import git_env
 
             push_info = repo.remote(name="origin").push(env=git_env())
             for info in push_info:

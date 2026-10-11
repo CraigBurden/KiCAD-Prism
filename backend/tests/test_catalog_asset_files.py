@@ -94,6 +94,19 @@ class CatalogAssetFilesSymbolTests(unittest.TestCase):
         self.assertIn('(property "Description" "text with (parentheses) and \\"quotes\\"")', blocks[0][1])
         self.assertNotIn("Nested_1_1", [name for name, _ in blocks])
 
+    def test_an_uploaded_legacy_footprint_is_named_by_its_content(self) -> None:
+        """KiCad 5 footprints open with `(module NAME ...)`, often unquoted.
+
+        Folder import names such a footprint from its content; an upload of
+        the same file must not fall back to the filename instead.
+        """
+        legacy = "(module R_0603_1608Metric (layer F.Cu) (tedit 5B301BBD)\n  (attr smd))"
+        quoted = '(module "Legacy Name" (layer F.Cu))'
+        self.assertEqual(asset_files_module.discover_footprint_name_in_text(legacy), "R_0603_1608Metric")
+        self.assertEqual(asset_files_module.discover_footprint_name_in_text(quoted), "Legacy Name")
+        self.assertEqual(asset_files_module.discover_footprint_name_in_text('(footprint "Modern")'), "Modern")
+        self.assertEqual(asset_files_module.discover_footprint_name_in_text("(kicad_pcb)"), "")
+
     def test_header_defaults_and_single_symbol_payload_selection(self) -> None:
         explicit = '(kicad_symbol_lib (version 20240101) (generator "unit-test") (symbol "R"))'
         self.assertEqual(CatalogAssetFiles.symbol_header(explicit), ("20240101", '"unit-test"'))

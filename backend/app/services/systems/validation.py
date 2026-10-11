@@ -11,7 +11,9 @@ passing.
 from __future__ import annotations
 
 from collections import defaultdict
-from typing import Any, Collection, Mapping, Optional, Sequence
+from dataclasses import dataclass
+from datetime import datetime
+from typing import Any, Collection, Mapping, Optional, Protocol, Sequence
 
 from app.services.systems import exposure
 from app.services.systems.drift import pad_sort_key
@@ -420,4 +422,243 @@ def collision_findings(collisions: Sequence[Mapping[str, Any]]) -> list[dict]:
                             reference=f"{a['label']} {a['reference'] or ''} ↔ {b['label']} {b['reference'] or ''}".replace("  ", " ").strip(),
                             detail={"a": dict(a), "b": dict(b), "atMm": list(collision["atMm"]),
                                     "pairs": list(collision.get("pairs") or [])}))
+    return out
+
+
+# ---------------------------------------------------------------------------
+# SYS-V18 (CONTRACTS_P2 §18): catalog mates, given as input
+
+
+@dataclass(frozen=True)
+class MateCatalog:
+    """What the catalog says about the connector parts of a system: ``parts`` by lower-cased MPN
+    (``{componentId, …}``) and ``pairs``, the ``(min, max)`` component ID pairs related by mates-with."""
+
+    parts: Mapping[str, Mapping[str, Any]]
+    pairs: Collection[tuple[str, str]]
+
+
+def _mate_candidates(links: Sequence[Mapping[str, Any]], harnesses: Sequence[Mapping[str, Any]],
+                     interfaces: Mapping[str, Any]) -> tuple[list, list]:
+    def connector(instance_id: Optional[str], port: Optional[Mapping[str, Any]]) -> Optional[dict]:
+        interface = interfaces.get(instance_id) if instance_id else None
+        return exposure.component_by_key(interface, port["portKey"]) if interface and port else None
+
+    b2b = [(link, [connector(link[f"{e}_instance_id"], link[f"{e}_port"]) for e in ("a", "b")])
+           for link in links if link.get("type") == "b2b"]
+    ends = [(harness, end, connector(end["mates_instance_id"], end["mates_port"]))
+            for harness in harnesses for end in harness["ends"]
+            if end["catalog_component_id"] and end["mates_instance_id"]]
+    return b2b, ends
+
+
+def _part_of(parts: Mapping[str, Mapping[str, Any]], component: Optional[Mapping[str, Any]]) -> Optional[str]:
+    if not component or not component.get("mpn"):
+        return None
+    return (parts.get(component["mpn"].strip().lower()) or {}).get("componentId")
+
+
+def mate_mpns(links: Sequence[Mapping[str, Any]], harnesses: Sequence[Mapping[str, Any]],
+              interfaces: Mapping[str, Any]) -> list[str]:
+    """The MPNs of the b2b connectors and the board connectors harness ends mate, to look up in the catalog."""
+    b2b, ends = _mate_candidates(links, harnesses, interfaces)
+    return [c["mpn"] for _link, pair in b2b for c in pair if c and c.get("mpn")] + \
+           [c["mpn"] for _h, _e, c in ends if c and c.get("mpn")]
+
+
+def mate_parts(links: Sequence[Mapping[str, Any]], harnesses: Sequence[Mapping[str, Any]],
+               interfaces: Mapping[str, Any], parts: Mapping[str, Mapping[str, Any]]) -> list[str]:
+    """The catalog component IDs whose mates-with pairs SYS-V18 needs, sorted."""
+    b2b, ends = _mate_candidates(links, harnesses, interfaces)
+    known = {p for _link, pair in b2b for p in (_part_of(parts, c) for c in pair) if p} | \
+            {p for _h, e, c in ends for p in (_part_of(parts, c), e["catalog_component_id"]) if p}
+    return sorted(known)
+
+
+def mate_pair_findings(links: Sequence[Mapping[str, Any]], harnesses: Sequence[Mapping[str, Any]],
+                       interfaces: Mapping[str, Any], mates: Optional[MateCatalog]) -> list[dict]:
+    """SYS-V18: a b2b pair, or a harness end's part and its board connector, whose two catalog parts are
+    both known and not related by mates-with. Unknown parts, or no catalog answer (``mates`` None): none."""
+    if mates is None:
+        return []
+    b2b, ends = _mate_candidates(links, harnesses, interfaces)
+
+    def related(x: str, y: str) -> bool:
+        return (min(x, y), max(x, y)) in mates.pairs
+
+    out = []
+    for link, pair in b2b:
+        ids = [_part_of(mates.parts, c) for c in pair]
+        if all(ids) and ids[0] != ids[1] and not related(*ids):
+            out.append(_finding("SYS-V18", link_id=link["id"], detail={"partA": ids[0], "partB": ids[1]}))
+    for harness, end, component in ends:
+        board_part = _part_of(mates.parts, component)
+        if board_part and not related(board_part, end["catalog_component_id"]):
+            out.append(_finding(
+                "SYS-V18", instance_id=end["mates_instance_id"], reference=(end["mates_port"] or {}).get("reference"),
+                detail={"harnessId": harness["id"], "endId": end["id"], "part": end["catalog_component_id"],
+                        "connectorPart": board_part}))
+    return out
+
+
+def stale_mating(boards: Sequence[Mapping[str, Any]], mating: Mapping[str, Mapping[str, Mapping[str, Any]]],
+                 interfaces: Mapping[str, Any]) -> list[dict]:
+    """The stored mating frames whose port geometry changed since confirmation (SYS-V17's input)."""
+    from app.services.systems import mating as mating_module
+
+    stale = []
+    for instance in boards:
+        stored = mating.get(instance["id"])
+        if not stored or instance["id"] not in interfaces:
+            continue
+        for port_key, record in sorted(stored.items()):
+            component = exposure.component_by_key(interfaces[instance["id"]], port_key)
+            if mating_module.is_stale(component, record):
+                stale.append({"instanceId": instance["id"], "portKey": port_key, "mode": record["mode"],
+                              "reference": (component or {}).get("reference")})
+    return stale
+
+
+def collision_report(report: Mapping[str, Any], check: Optional[Mapping[str, Any]], scene_key: str) -> dict:
+    """SYS-V22 (P2 §24.2): the stored check's collisions while it was made for ``scene_key``.
+    ``collisionCheck`` says whether it is ``current``, ``stale`` or ``not_checked``, and lists the
+    occurrences it could not check (no 3D bundle or model): never a pass."""
+    if check is None or check["scene_key"] != scene_key:
+        state = {"state": "not_checked" if check is None else "stale", "checkedAt": _iso(check["checked_at"]) if check else None,
+                 "notEvaluated": []}
+        return {**report, "collisionCheck": state}
+    result = check["result"]
+    report = with_findings(report, collision_findings(result.get("collisions") or []))
+    return {**report, "collisionCheck": {"state": "current", "checkedAt": _iso(check["checked_at"]),
+                                         "notEvaluated": list(result.get("notEvaluated") or [])}}
+
+
+def _iso(value: Any) -> Any:
+    return value.isoformat() if isinstance(value, datetime) else value
+
+
+# ---------------------------------------------------------------------------
+# The whole report (AC-16)
+
+
+class SystemFacts(Protocol):
+    """What ``report`` reads: ``loaded.LoadedSystem`` provides it from rows; tests may pass any object
+    with these attributes."""
+
+    boards: Sequence[Mapping[str, Any]]  # board instance rows
+    links: Sequence[Mapping[str, Any]]
+    exports: Sequence[Mapping[str, Any]]
+    harnesses: Sequence[Mapping[str, Any]]
+    subports: Sequence[Mapping[str, Any]]
+    open_reviews: Sequence[Mapping[str, Any]]
+    open_renames: Sequence[Mapping[str, Any]]
+    waivers: Sequence[Mapping[str, Any]]
+    interfaces: Mapping[str, Any]  # every instance's interface; missing = not extracted / unreadable
+    overrides: Mapping[str, Mapping[str, str]]  # every board's port overrides
+    mating: Mapping[str, Mapping[str, Mapping[str, Any]]]  # every board's stored mating frames
+    unavailable: Mapping[str, str]  # boards whose source can't be read, with the reason
+    optional_rules: Sequence[str]
+    child_states: Sequence[Mapping[str, Any]]  # see child_findings
+    end_components: Mapping[str, Mapping[str, Any]]  # harness ID -> end ID -> mated component
+    mate_mismatches: Optional[Sequence[Mapping[str, Any]]]  # the root solve's B2B mismatches, None if none solved
+    harness_checks: Mapping[str, Mapping[str, Any]]  # routed root harnesses: {lengths, collisions, tightBends}
+    collision_check: Optional[Mapping[str, Any]]  # the last stored collision check
+
+
+def _structural(report: dict, system: SystemFacts, _mates: Any, _scene_key: str) -> dict:
+    """SYS-V01..V08, V09, V10, V16, V23 over boards, links and exports (P1 §7.2, P2 §8.4)."""
+    # The full interface map: board rules read boards only; re-export checks need assemblies (P2 §4).
+    return validate(system.boards, system.links, dict(system.interfaces), system.overrides, system.open_reviews,
+                    unavailable=system.unavailable, exports=system.exports, optional_rules=system.optional_rules)
+
+
+def _children(report: dict, system: SystemFacts, _mates: Any, _scene_key: str) -> dict:
+    """SYS-V14, V15: catalog instances' revisions."""
+    return with_findings(report, child_findings(system.child_states))
+
+
+def _mating_stale(report: dict, system: SystemFacts, _mates: Any, _scene_key: str) -> dict:
+    """SYS-V17: stored mating frames whose port moved."""
+    return with_findings(report, mating_findings(stale_mating(system.boards, system.mating, system.interfaces)))
+
+
+def _mate_mismatch(report: dict, system: SystemFacts, _mates: Any, _scene_key: str) -> dict:
+    """SYS-V11: the root level's B2B mates, solved as the System 3D view places them (§14.9)."""
+    mismatches = system.mate_mismatches
+    return report if mismatches is None else with_findings(report, mate_mismatch_findings(mismatches))
+
+
+def _harness_routes(report: dict, system: SystemFacts, _mates: Any, _scene_key: str) -> dict:
+    """SYS-V12, V13, V20: routed where the System 3D view draws them (§17.10)."""
+    from app.services.systems.placement import harness_spec
+
+    return with_findings(report, harness_route_findings(
+        system.harness_checks, {h["id"]: h["cut_length_mm"] for h in system.harnesses},
+        harness_spec.LENGTH_MISMATCH_TOLERANCE))
+
+
+def _harness_rules(report: dict, system: SystemFacts, _mates: Any, _scene_key: str) -> dict:
+    """§17.2 per harness, in harness order: V01, V03, V04, V09, V10, V19, V23 on ends and wires."""
+    from app.services.systems import harnesses as harnesses_module
+
+    for harness in system.harnesses:
+        report = with_findings(report, harnesses_module.findings(
+            harness, system.end_components.get(harness["id"]) or {}, system.overrides, system.optional_rules,
+            make_finding))
+    return report
+
+
+def _mate_pairs(report: dict, system: SystemFacts, mates: Optional[MateCatalog], _scene_key: str) -> dict:
+    """SYS-V18 from the catalog's mates-with pairs (an input)."""
+    return with_findings(report, mate_pair_findings(system.links, system.harnesses, system.interfaces, mates))
+
+
+def _subports(report: dict, system: SystemFacts, _mates: Any, _scene_key: str) -> dict:
+    """SYS-V21 (P2 §22.4)."""
+    return with_findings(report, subport_findings(system.subports, system.interfaces))
+
+
+def _renames(report: dict, system: SystemFacts, _mates: Any, _scene_key: str) -> dict:
+    """SB2-106 (P2 §23.4): a SYS-V09 finding on a net with an open rename proposal says so."""
+    from app.services.systems import renames as renames_module
+
+    return {**report, "findings": renames_module.annotate(report["findings"], system.links, system.open_renames)}
+
+
+def _collisions(report: dict, system: SystemFacts, _mates: Any, scene_key: str) -> dict:
+    """SYS-V22 from the last check while it matches this placement (P2 §24.2)."""
+    return collision_report(report, system.collision_check, scene_key)
+
+
+def _waivers(report: dict, system: SystemFacts, _mates: Any, _scene_key: str) -> dict:
+    """SB2-100 (D-P2-56): waivers last, over every finding above."""
+    return apply_waivers(report, system.waivers)
+
+
+# The report is these stages in this order. Each stage merges its findings (re-sorted), so the order
+# only shows where it changes data: rename notes cover the findings before them, the collision state
+# is added after them, and waivers see every finding.
+STAGES = (
+    ("structural", _structural),
+    ("children", _children),
+    ("mating_stale", _mating_stale),
+    ("mate_mismatch", _mate_mismatch),
+    ("harness_routes", _harness_routes),
+    ("harness_rules", _harness_rules),
+    ("mate_pairs", _mate_pairs),
+    ("subports", _subports),
+    ("renames", _renames),
+    ("collisions", _collisions),
+    ("waivers", _waivers),
+)
+
+
+def report(system: SystemFacts, *, mates: Optional[MateCatalog], scene_key: str) -> dict:
+    """The whole validation report of one system, waivers included (CONTRACTS_P2 §8.4, §8.5):
+    ``{findings, notEvaluated, exempt, counts, collisionCheck, waivers}``. ``mates`` is the catalog's
+    answer for SYS-V18 (None when the catalog could not be read or no part has an MPN); ``scene_key``
+    is the placement the stored collision check must match."""
+    out: dict = {}
+    for _name, stage in STAGES:
+        out = stage(out, system, mates, scene_key)
     return out

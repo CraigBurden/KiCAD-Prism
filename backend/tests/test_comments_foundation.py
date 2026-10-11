@@ -3,11 +3,9 @@
 from __future__ import annotations
 
 import asyncio
-import os
 import tempfile
 import unittest
 import uuid
-from contextlib import contextmanager
 from types import SimpleNamespace
 from unittest.mock import patch
 
@@ -23,10 +21,8 @@ from app.services.comment_permissions import (
     authorize,
 )
 from app.services.comments_revisions import Editor, RevisionConflict
-from app.services.comments_store_service import CommentsStoreService
+from support.postgres import requires_scratch_postgres, scratch_schema, comments_store_on, set_path  # noqa: E402
 
-
-TEST_DSN = os.environ.get("TEST_POSTGRES_URL", "")
 
 
 class CommentPermissionsTests(unittest.TestCase):
@@ -66,35 +62,21 @@ class CommentPermissionsTests(unittest.TestCase):
                  "id": "c1", "authorUserId": "real-id", "authorKind": "user", "replies": [],
              }) as create:
             asyncio.run(comments_api.create_comment("p1", request, user))
-        self.assertEqual(create.call_args.kwargs["author"], "Real Name")
-        self.assertEqual(create.call_args.kwargs["author_user_id"], "real-id")
+        actor = create.call_args.kwargs["actor"]
+        self.assertEqual((actor.display_name, actor.actor_id), ("Real Name", "real-id"))
+        self.assertNotIn("author", create.call_args.kwargs)
 
 
-@unittest.skipUnless(TEST_DSN, "TEST_POSTGRES_URL is required for disposable PostgreSQL tests")
+@requires_scratch_postgres("comment store tests")
 class CommentStorePostgresTests(unittest.TestCase):
     def setUp(self) -> None:
-        import psycopg
-        from psycopg.rows import dict_row
-
-        self._psycopg = psycopg
-        self._dict_row = dict_row
-        self.schema = "test_comments_" + uuid.uuid4().hex[:16]
-        self.store = CommentsStoreService()
-        self.store.schema = self.schema
-
-        @contextmanager
-        def connect():
-            with psycopg.connect(TEST_DSN, row_factory=dict_row) as conn:
-                conn.execute(f'SET search_path TO "{self.schema}", public')
-                yield conn
-
-        self.store._connect = connect
+        self.scratch = scratch_schema(self, "test_comments", create=False)
+        self.schema = self.scratch.name
+        self.store = comments_store_on(self.scratch)
         self.project_id = "p_" + uuid.uuid4().hex[:12]
         self.path = tempfile.TemporaryDirectory()
 
     def tearDown(self) -> None:
-        with self._psycopg.connect(TEST_DSN) as conn:
-            conn.execute(f'DROP SCHEMA IF EXISTS "{self.schema}" CASCADE')
         self.path.cleanup()
 
     def test_thread_survives_revision_and_records_history(self) -> None:
@@ -175,9 +157,10 @@ class CommentStorePostgresTests(unittest.TestCase):
                          ("After", "RESOLVED", 3))
 
     def test_existing_database_rows_migrate_additively_once(self) -> None:
-        with self._psycopg.connect(TEST_DSN) as conn:
+        with self.scratch.connection() as conn:
             conn.execute(f'CREATE SCHEMA "{self.schema}"')
-            conn.execute(f'SET search_path TO "{self.schema}", public')
+            set_path(conn, self.schema)
+            # Frozen: the comment tables as a database from before the identity columns has them.
             conn.execute("""
                 CREATE TABLE comments (
                     id TEXT PRIMARY KEY, project_id TEXT NOT NULL, author TEXT NOT NULL,

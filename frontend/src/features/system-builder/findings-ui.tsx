@@ -7,15 +7,8 @@ import { Button } from "@/components/ui/button";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import type { Finding } from "@/types/system";
 
+import { findingDetail, levelCounts, worstLevel, type FindingLevel } from "./findings";
 import { comparePads } from "./pads";
-
-type Level = "error" | "warning";
-
-function worst(findings: readonly Finding[]): Level | null {
-  if (findings.some((finding) => finding.severity === "error")) return "error";
-  if (findings.some((finding) => finding.severity === "warning")) return "warning";
-  return null;
-}
 
 function plural(count: number, word: string): string {
   return `${count} ${word}${count === 1 ? "" : "s"}`;
@@ -23,9 +16,10 @@ function plural(count: number, word: string): string {
 
 /** Icon and count for a list entry: errors win over warnings; info never shows. */
 export function FindingCountBadge({ findings }: { findings: readonly Finding[] }) {
-  const level = worst(findings);
+  const level = worstLevel(findings);
   if (!level) return null;
-  const count = findings.filter((finding) => finding.severity === level).length;
+  const counts = levelCounts(findings);
+  const count = level === "error" ? counts.errors : counts.warnings;
   const Icon = level === "error" ? CircleAlert : TriangleAlert;
   return (
     <Badge variant={level === "error" ? "destructive" : "warning"} className="shrink-0 tabular-nums"
@@ -65,8 +59,8 @@ export function findingText(finding: Pick<Finding, "name">): string {
   return RULE_TEXT[finding.name] ?? finding.name.replace(/_/g, " ");
 }
 
-function netsText(nets: unknown): string {
-  return Array.isArray(nets) && nets.length ? nets.join(" | ") : "no net";
+function netsText(nets: string[]): string {
+  return nets.length ? nets.join(" | ") : "no net";
 }
 
 /**
@@ -74,20 +68,19 @@ function netsText(nets: unknown): string {
  * else `J7 · 18`) and the nets (`VCC ↔ no net`, or a PCB net that differs: `A ≠ PCB B`).
  */
 export function findingFacts(finding: Finding): { pins: string; nets: string } {
-  const detail = (finding.detail ?? {}) as Record<string, unknown>;
-  const join = "pinB" in detail;
-  const pins = join
-    ? `${[finding.reference, finding.pin].filter(Boolean).join(" ")} ↔ ${[detail.referenceB, detail.pinB].filter(Boolean).join(" ")}`
+  const { far, nets: seen } = findingDetail(finding);
+  const pins = far
+    ? `${[finding.reference, finding.pin].filter(Boolean).join(" ")} ↔ ${[far.reference, far.pin].filter(Boolean).join(" ")}`
     : [finding.reference, finding.pin].filter(Boolean).join(" · ");
-  const nets = "netA" in detail ? `${netsText(detail.netA)} ↔ ${netsText(detail.netB)}`
-    : "schematic" in detail ? `${netsText(detail.schematic)} ≠ PCB ${netsText(detail.pcb)}`
-      : "nets" in detail ? netsText(detail.nets) : "";
+  const nets = seen?.kind === "join" ? `${netsText(seen.a)} ↔ ${netsText(seen.b)}`
+    : seen?.kind === "pcb" ? `${netsText(seen.schematic)} ≠ PCB ${netsText(seen.pcb)}`
+      : seen ? netsText(seen.nets) : "";
   return { pins, nets };
 }
 
 export interface FindingGroup {
   key: string;
-  level: Level;
+  level: FindingLevel;
   rule: string;
   text: string;
   reference: string | null;
@@ -112,12 +105,11 @@ export function groupFindings(findings: readonly Finding[]): FindingGroup[] {
 }
 
 /** A compact summary of findings, expandable to one line per rule and connector. */
-export function FindingsAlert({ findings, title }: { findings: Finding[]; title?: string }) {
+export function FindingsAlert({ findings, title }: { findings: readonly Finding[]; title?: string }) {
   const [open, setOpen] = useState(false);
-  const level = worst(findings);
+  const level = worstLevel(findings);
   if (!level) return null;
-  const errors = findings.filter((finding) => finding.severity === "error").length;
-  const warnings = findings.filter((finding) => finding.severity === "warning").length;
+  const { errors, warnings } = levelCounts(findings);
   const summary = [errors ? plural(errors, "error") : null, warnings ? plural(warnings, "warning") : null].filter(Boolean).join(", ");
   const Icon = level === "error" ? CircleAlert : TriangleAlert;
   const groups = groupFindings(findings);

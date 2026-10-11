@@ -960,6 +960,7 @@ Python `placement/harness_route.py` and `placement/harness_checks.py`, TypeScrip
 
 | Version | Date | Change |
 |---|---|---|
+| P2-1.94 | 2026-10-11 | AC-37: the systems list's `findingCounts` are written by write paths only (D12): after a system write commits (and after a collision run, a stored board interface, a source check or a git sync) its counts are rebuilt outside the lock; document and report reads write nothing. The 3D toolbar's collision count and a collision selection leave waived SYS-V22 findings out (D1). |
 | P2-1.93 | 2026-10-09 | SB2-125: default layout puts boards with no link side by side below the linked ones, four to a row (canvas and ICD block diagram, parity case added); an expanded board pushes the blocks below it in its column down. |
 | P2-1.92 | 2026-10-09 | SB2-122: the release chain of a subsystem revision (`latestReleasedVersion`, `newestVersion`, `newestReleaseStatus`; §10) in its inspector and diagram node. |
 | P2-1.91 | 2026-10-09 | SB2-123: the wire table takes a pasted spreadsheet block (signal, AWG, colour; down and right from the cell) and sets one AWG/colour on ticked wires. Editor only; no API change. |
@@ -1548,7 +1549,7 @@ Prism never edits a board. When two boards name one signal differently, a system
     - `reference` is the first colliding component, or null for a body;
     - `atMm` is a contact point in root coordinates;
     - `pairs` is up to 10 colliding object pairs `{a, b, atMm}`.
-- **3D.** **Show** on a V22 finding frames both occurrences and marks `atMm`. The view's toolbar gets **Check collisions**, which shows the check's state.
+- **3D.** **Show** on a V22 finding frames both occurrences and marks `atMm`. The view's toolbar gets **Check collisions**, which shows the check's state and the count of open (not waived) collisions.
 
 ## 25. STEP export (SB2-109, D-P2-59)
 

@@ -4,8 +4,7 @@ import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { fetchJson } from "@/lib/api";
-import type { PaginatedComponents } from "@/types/catalog";
+import { addMate, listComponents, listMates, removeMate } from "./catalog-client";
 
 /** A part this part mates with (CONTRACTS_P2 §18). */
 export interface MatingPart {
@@ -14,8 +13,6 @@ export interface MatingPart {
   mpn: string;
   manufacturer: string;
 }
-
-const matesPath = (componentId: string) => `/api/catalog/components/${encodeURIComponent(componentId)}/mates-with`;
 
 /**
  * "Mates with" on a part's overview: the mating housings, plugs or sockets it
@@ -30,7 +27,7 @@ export function MatesWithPanel({ componentId, canMutate }: { componentId: string
 
   useEffect(() => {
     const controller = new AbortController();
-    fetchJson<{ items: MatingPart[] }>(matesPath(componentId), { signal: controller.signal })
+    listMates(componentId, controller.signal)
       .then((body) => setMates({ id: componentId, items: body.items }))
       .catch(() => !controller.signal.aborted && setMates({ id: componentId, items: [] }));
     return () => controller.abort();
@@ -42,7 +39,7 @@ export function MatesWithPanel({ componentId, canMutate }: { componentId: string
     const controller = new AbortController();
     const params = new URLSearchParams({ q: text, page: "1", page_size: "8", lightweight: "true", kind: "part" });
     const timer = window.setTimeout(() => {
-      fetchJson<PaginatedComponents>(`/api/catalog/components?${params.toString()}`, { signal: controller.signal })
+      listComponents(params, controller.signal)
         .then((body) => setResults(body.items.flatMap((item) => (item.id === componentId ? [] : [{
           componentId: item.id, name: item.value || item.description || item.mpn, mpn: item.mpn, manufacturer: item.manufacturer,
         }]))))
@@ -57,10 +54,7 @@ export function MatesWithPanel({ componentId, canMutate }: { componentId: string
   const change = async (partner: string, add: boolean) => {
     setBusy(true);
     try {
-      const body = await fetchJson<{ items: MatingPart[] }>(add ? matesPath(componentId) : `${matesPath(componentId)}/${encodeURIComponent(partner)}`, {
-        method: add ? "POST" : "DELETE",
-        ...(add ? { headers: { "Content-Type": "application/json" }, body: JSON.stringify({ componentId: partner }) } : {}),
-      });
+      const body = await (add ? addMate(componentId, partner) : removeMate(componentId, partner));
       setMates({ id: componentId, items: body.items });
       if (add) {
         setQuery("");

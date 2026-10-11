@@ -1,3 +1,4 @@
+import { kindsWith } from "./comparison-change-kinds";
 import type { ComparisonPresentationMode } from "./comparison-url";
 import type { ChangeItem } from "./types";
 
@@ -29,41 +30,15 @@ const COMPONENT_FIELD_REASONS = new Set([
     "renamed",
 ]);
 
-const SCHEMATIC_EXACT_OBJECTS = new Set([
-    "pin",
-    "sheet_pin",
-    "no_connect",
-    "bus",
-    "bus_entry",
-    "sheet",
-]);
+const SCHEMATIC_EXACT_OBJECTS = kindsWith("schematic-exact");
 
-const SCHEMATIC_NET_OBJECTS = new Set([
-    "wire",
-    "label",
-    "global_label",
-    "hierarchical_label",
-    "junction",
-]);
+const SCHEMATIC_NET_OBJECTS = kindsWith("schematic-net");
 
-const PCB_FABRICATION_OBJECTS = new Set([
-    "footprint",
-    "pad",
-    "track",
-    "segment",
-    "arc",
-    "arc_segment",
-    "via",
-    "zone",
-    "footprint_zone",
-]);
+const PCB_FABRICATION_OBJECTS = kindsWith("fabrication");
 
-const DOCUMENTATION_OBJECTS = new Set([
-    "image",
-    "table",
-    "text",
-    "footprint_text",
-]);
+const DOCUMENTATION_OBJECTS = kindsWith("documentation");
+
+const PCB_GRAPHIC_OBJECTS = kindsWith("pcb-graphic");
 
 const PCB_REVIEW_LAYER_SUFFIXES = [
     ".Cu",
@@ -88,7 +63,7 @@ function recommendation(
     };
 }
 
-function hasAny(values: Iterable<string>, expected: Set<string>): boolean {
+function hasAny(values: Iterable<string>, expected: ReadonlySet<string>): boolean {
     for (const value of values) {
         if (expected.has(value)) return true;
     }
@@ -198,9 +173,7 @@ function isSchematicNet({ change, kinds }: PolicyFacts): boolean {
 
 function isPcbGraphic({ change, kinds }: PolicyFacts): boolean {
     return hasAny(kinds, DOCUMENTATION_OBJECTS)
-        || kinds.has("drawing")
-        || kinds.has("graphic")
-        || kinds.has("footprint_graphic")
+        || hasAny(kinds, PCB_GRAPHIC_OBJECTS)
         || change.category === "graphics";
 }
 

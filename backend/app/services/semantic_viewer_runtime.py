@@ -4,13 +4,45 @@ import os
 import sys
 from pathlib import Path
 
+from app.core.config import settings
+
+
+# Files outside the generator packages that still shape a bundle.
+_GENERATOR_FILES = (
+    "package.json",
+    "package-lock.json",
+    "requirements-runtime.txt",
+    "pyproject.toml",
+    "viewer/app.js",
+    "viewer/styles.css",
+    "viewer/viewer.template.html",
+)
+
+
+def generator_inputs(viewer_root: Path) -> list[Path]:
+    """Every source file that writes a bundle, found from the packages themselves.
+
+    The compiler package and the glTF tool are globbed rather than listed, so a
+    new or forgotten module (native_clipper.py once was) still invalidates
+    cached bundles. Tests are left out: they never run in a build.
+    """
+
+    compiler = sorted((viewer_root / "pipeline" / "topology_compiler").rglob("*.py"))
+    gltf_tool = sorted(
+        path
+        for path in (viewer_root / "tools" / "semantic-gltf").rglob("*")
+        if path.suffix in {".mjs", ".js", ".json"} and not path.name.endswith(".test.mjs")
+    )
+    fixed = [viewer_root / rel_path for rel_path in _GENERATOR_FILES]
+    return [path for path in (*compiler, *gltf_tool, *fixed) if path.is_file()]
+
 
 def update_native_geometry_fingerprint(hasher) -> None:
     """Add the selected PCB backend and native helper identity to a hash."""
-    geometry_backend = os.environ.get("PRISM_PCB_GEOMETRY_BACKEND", "legacy")
-    helper_path = Path(
-        os.environ.get("PRISM_KICAD_NATIVE_PATH", "/usr/local/bin/prism-kicad-native")
-    )
+    geometry_backend = settings.PRISM_PCB_GEOMETRY_BACKEND
+    from app.services.kicad_tools import native_geometry_helper
+
+    helper_path = native_geometry_helper()
     hasher.update(geometry_backend.encode("utf-8"))
     hasher.update(str(helper_path).encode("utf-8"))
     if geometry_backend == "rust" and helper_path.is_file():
@@ -21,7 +53,7 @@ def candidate_roots() -> list[Path]:
     roots: list[Path] = []
     
     # 1. Environment variable override
-    explicit = os.environ.get("PRISM_SEMANTIC_VIEWER_REPO", "").strip()
+    explicit = settings.PRISM_SEMANTIC_VIEWER_REPO.strip()
     if explicit:
         roots.append(Path(explicit).expanduser())
 

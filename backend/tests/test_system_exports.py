@@ -11,12 +11,14 @@ from unittest import mock
 from test_system_api import _request
 from test_system_snapshots import DESIGNER, VIEWER, SnapshotCase
 
+from app.core.errors import install_error_handlers  # noqa: E402
 from app.api import systems as systems_api
 from app.services.systems import exports as exports_module
 from app.services.systems import manifest as manifest_io
 from app.services.systems import service as service_module
 from app.services.systems.manifest_schema import digests
 from app.services.systems.store import Conflict, Invalid, NotFound
+from support.postgres import seed_folder
 
 
 class ExportCase(SnapshotCase):
@@ -91,6 +93,7 @@ class ExportTest(ExportCase):
         self.assertEqual([e["name"] for e in result.body["exports"]], ["DEBUG", "PWR"])
         self.assertEqual(self.version(), before + 1)
         app = FastAPI()
+        install_error_handlers(app)
         app.include_router(systems_api.router, prefix="/api/systems")
         with mock.patch.object(service_module, "service", self.service):
             etag = self.service.document(DESIGNER, self.sid).etag
@@ -155,8 +158,7 @@ class ExportTest(ExportCase):
 
     def test_restricted_boards_redact_their_exports(self) -> None:
         self.export("PAYDBG", "OBC-A", "J6")
-        self.conn.execute("INSERT INTO ws_folders (id, visibility_mode, allowed_roles)"
-                          " VALUES ('fld_admins', 'roles', '[\"admin\"]')")
+        seed_folder(self.conn, "fld_admins", visibility_mode="roles", allowed_roles=["admin"])
         self.conn.execute("UPDATE ws_projects SET folder_id = 'fld_admins' WHERE id = 'prj_obc'")
         self.conn.commit()
         [export] = self.document(VIEWER)["exports"]
@@ -185,6 +187,7 @@ class ExportTest(ExportCase):
 
     def test_api(self) -> None:
         app = FastAPI()
+        install_error_handlers(app)
         app.include_router(systems_api.router, prefix="/api/systems")
         with mock.patch.object(service_module, "service", self.service):
             etag = self.service.document(DESIGNER, self.sid).etag

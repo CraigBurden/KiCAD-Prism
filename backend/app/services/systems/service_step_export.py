@@ -12,15 +12,16 @@ from __future__ import annotations
 
 import logging
 import re
-import subprocess
-import tempfile
 import time
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any, Optional
 
+from app.services.job_kinds import JobKind
+from app.services.kicad_tools import KicadTool, kicad_cli
 from app.services.systems import step_assembly, visibility
 from app.services.systems.placement import poses as poses_module
+from app.services.systems.loaded import LoadedSystem
 from app.services.systems.service_base import Caller
 from app.services.systems.store import Conflict, NotFound, SystemStore
 
@@ -29,7 +30,6 @@ logger = logging.getLogger(__name__)
 STEP_JOB_KIND = "system_step_export"
 BOARD_TIMEOUT_S = 900
 PARALLEL_BOARDS = 3  # kicad-cli processes at once; each is one CPU-heavy export
-_versions: dict[str, str] = {}
 
 
 def _step_root() -> Path:
@@ -38,17 +38,9 @@ def _step_root() -> Path:
     return semantic_store_root().parent / "system-step"
 
 
-def _cli() -> str:
-    from app.services.kicad_jobset_service import find_kicad_cli_path
-
-    return find_kicad_cli_path()
-
-
-def _cli_version(cli: str) -> str:
-    if cli not in _versions:
-        out = subprocess.run([cli, "version"], capture_output=True, text=True, timeout=60)
-        _versions[cli] = re.sub(r"[^0-9A-Za-z.]+", "-", out.stdout.strip()) or "unknown"
-    return _versions[cli]
+def _cli_version(cli: KicadTool) -> str:
+    """The cache key's KiCad version: a new KiCad re-exports every board."""
+    return re.sub(r"[^0-9A-Za-z.]+", "-", cli.version()) or "unknown"
 
 
 def _shifted(matrix: list[float], z: float) -> list[float]:
@@ -64,26 +56,23 @@ def _multiply(a: list[float], b: list[float]) -> list[float]:
     return [sum(a[k * 4 + row] * b[col * 4 + k] for k in range(4)) for col in range(4) for row in range(4)]
 
 
-def board_step(project: Any, commit: str) -> Path:
+def board_step(project: Any, commit: str, *, tool: Optional[KicadTool] = None) -> Path:
     """The board's STEP at ``commit`` (§25), exported once per commit and KiCad version."""
-    from app.services import semantic_visualizer_service as sv
+    from app.services import project_revision
 
-    cli = _cli()
+    cli = tool or kicad_cli()
     target = _step_root() / str(project.id) / f"{commit}-{_cli_version(cli)}.step"
     if target.is_file():
         return target
-    repo = sv._repo_root(Path(project.path))
-    resolved = sv._resolve_commit(repo, commit)
-    relative = sv._project_relative_path(repo, Path(project.path), sv.path_config_service.anchor_for_project(project))
-    with tempfile.TemporaryDirectory(prefix="system-step-") as tmp:
-        checkout = Path(tmp) / "checkout"
-        sv._archive_checkout(repo, resolved, checkout)
-        pcb = (checkout / relative).with_suffix(".kicad_pcb")
+    location = project_revision.locate(project)
+    relative = project_revision.project_file_rel(location)
+    with project_revision.checkout(location, commit, prefix="system-step-") as revision:
+        pcb = revision.path(relative).with_suffix(".kicad_pcb")
         if not pcb.is_file():
             raise RuntimeError(f"No board file in {commit[:12]}")
-        out = Path(tmp) / "board.step"
-        done = subprocess.run([cli, "pcb", "export", "step", "--force", "--subst-models", "-o", str(out), str(pcb)],
-                              capture_output=True, text=True, timeout=BOARD_TIMEOUT_S)
+        out = revision.root.parent / "board.step"
+        done = cli.run(["pcb", "export", "step", "--force", "--subst-models", "-o", str(out), str(pcb)],
+                       timeout=BOARD_TIMEOUT_S)
         if done.returncode != 0 or not out.is_file():
             lines = [line for line in (done.stderr or done.stdout or "").splitlines() if line.strip()]
             raise RuntimeError(lines[-1] if lines else f"kicad-cli exited {done.returncode}")
@@ -95,18 +84,16 @@ def board_step(project: Any, commit: str) -> Path:
 class StepExportMixin:
     def request_step_export(self, caller: Caller, system_id: str) -> dict:
         """``POST …/step``: queue an export at the current version, or join the one running (§25)."""
-        from app.services.job_service import jobs
-
         with self._tx() as store:
             system = self._system(store, system_id, caller)
             current = store.get_step_export(system_id)
         version = int(system["version"])
         if current and current["state"] == "running" and int(current["version"]) == version and current["job_id"]:
             return {"jobId": current["job_id"]}
-        job = jobs.enqueue(STEP_JOB_KIND, {"systemId": system_id, "role": caller.role, "email": caller.email},
-                           worker_pool="prism", artifact_key=f"system-step:{system_id}:{version}",
-                           requested_by=caller.email, resources={"prism_worker": 1})
-        job_id = job.get("job_id") if isinstance(job, dict) else getattr(job, "job_id", None)
+        # The export runs with the requester's role (the payload carries it).
+        job = STEP_EXPORT.enqueue({"systemId": system_id, "role": caller.role, "email": caller.email},
+                                  artifact_key=f"system-step:{system_id}:{version}", requested_by=caller.email)
+        job_id = job["job_id"]
         with self._tx() as store:
             store.record_step_export(system_id, version=version, state="running", job_id=job_id)
         return {"jobId": job_id}
@@ -187,11 +174,10 @@ class StepExportMixin:
         from app.services.catalog.models import alignment_matrix
 
         system_id = system["id"]
-        tree = self._tree(store, system_id)
+        loaded = LoadedSystem(store, system, self)
+        tree, placement = loaded.tree, loaded.placement
         shown = {o["path"]: o for o in self._hierarchy_view(store, caller, system_id, tree)["occurrences"]}
-        level = self._net_level(store, system_id, tree)
-        placement, extents = self._placement(store, system_id, tree, level)
-        interface_of, _component_of = self._occurrence_lookups(store, extents)
+        interface_of, _component_of = self._occurrence_lookups(store, loaded.extents)
         root = step_assembly.Assembly(str(system["name"]))
         nodes: dict[str, step_assembly.Assembly] = {"": root}
         boards: list[tuple] = []
@@ -237,16 +223,16 @@ class StepExportMixin:
                 continue
             parent.children.append(step_assembly.Leaf(name, step, _multiply(local, alignment_matrix(model["alignment"])),
                                                       product=name))
-        root.children += self._step_harnesses(store, (tree, level, placement, extents), cut, skipped)
+        root.children += self._step_harnesses(loaded, cut, skipped)
         return root, boards, skipped
 
-    def _step_harnesses(self, store: SystemStore, placed: tuple, cut: list[str], skipped: list[dict]) -> list:
+    def _step_harnesses(self, loaded: LoadedSystem, cut: list[str], skipped: list[dict]) -> list:
         """Every level's routed harnesses as tubes in the system's frame (§25), as the System 3D view
         draws them. A harness of a restricted subsystem, or with an end on one, is skipped."""
         def hidden(path: Optional[str]) -> bool:
             return bool(path) and any(path == c or path.startswith(f"{c}/") for c in cut)
 
-        routes, _matrices = self._harness_routes(store, placed, root_only=False)
+        routes, _matrices = self._harness_routes(loaded, root_only=False)
         tubes = []
         for harness, routed in routes:
             name = harness["name"] or harness["id"]
@@ -341,3 +327,6 @@ def run_step_job(context: Any) -> Any:
         return JobResult(message="The system no longer exists", details={})
     return JobResult(message=f"STEP export ready ({result['sizeBytes'] // 1_000_000} MB)", details=result)
 
+
+STEP_EXPORT = JobKind(STEP_JOB_KIND, run_step_job)
+JOB_KINDS = (STEP_EXPORT,)

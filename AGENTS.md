@@ -39,14 +39,20 @@ skills automatically should open the relevant linked playbook directly.
 
 ## How work reaches a worker
 
-Long-running operations use the job system. Start at
-`backend/app/services/job_handlers.py`, which builds the worker registry;
-catalog job kinds are delegated through the `HANDLERS` registry in
-`backend/app/services/catalog_worker_tasks.py`. Jobs are claimed from PostgreSQL
-with leases and fencing (`backend/app/services/job_service.py`,
-`backend/app/services/job_runtime.py`) and executed by
-`backend/app/prism_worker.py` or the catalog worker. The browser polls job
-state.
+Long-running operations use the job system. A job kind is declared once, next
+to its handler, as a `JobKind` (`backend/app/services/job_kinds.py`: pool,
+resource slots, lock shape, attempts, priority, and an optional end hook) in
+the module's `JOB_KINDS`; callers queue with `KIND.enqueue(payload, subject=...)`.
+`backend/app/services/job_handlers.py` registers the kinds (catalog kinds come
+from `backend/app/services/catalog_worker_tasks.py`). Jobs are claimed from
+PostgreSQL with leases and fencing (`backend/app/services/job_service.py`,
+`backend/app/services/job_runtime.py`, whose `JobContext` also carries a
+handler's checkpoint) and executed by `backend/app/prism_worker.py` or the
+catalog worker. When a job ends, its kind's end hook settles the kind's own
+rows; the worker sweeps for rows a dead process left behind. The browser waits on a
+job only through `frontend/src/lib/jobs.ts` (`watchPrismJob` on
+`/api/jobs/{id}`; `frontend/src/hooks/use-job-watcher.ts` ties a watch to a
+component's lifetime).
 
 The authenticated application has two main routes plus a catch-all, all in
 `frontend/src/App.tsx`. The root route mounts
@@ -62,7 +68,9 @@ hop usually requires checking its consumers and tests.
 **Import a project from Git**
 `backend/app/api/projects.py` · `backend/app/api/folders.py` →
 `backend/app/services/project_import_service.py` (`run_project_analyze_job_v3`
-then `run_project_import_job_v3`) → `backend/app/services/git_service.py` ·
+then `run_project_import_job_v3`) →
+`backend/app/services/git_remote_access.py` (credentials, host keys, ls-remote) ·
+`backend/app/services/git_service.py` ·
 `backend/app/services/git_access_service.py` → worker →
 `frontend/src/components/import-dialog.tsx` →
 `frontend/src/components/workspace.tsx`
@@ -70,8 +78,10 @@ then `run_project_import_job_v3`) → `backend/app/services/git_service.py` ·
 **Compare two commits**
 `backend/app/api/design_compare.py` →
 `backend/app/services/design_compare_service.py` (`run_design_compare_job_v3`)
-→ `backend/app/services/design_compare_nodes.py` (parse) →
-`backend/app/services/design_compare_semantics.py` (grouping) →
+→ `backend/app/services/project_revision.py` (location, commit, snapshot) →
+`backend/app/services/design_compare_nodes.py` (parser changes) →
+`backend/app/services/design_compare_occurrences.py` (components, BOM rows) →
+`backend/app/services/design_compare_semantics.py` (nets, sheets) →
 `backend/app/services/design_compare_artifacts.py` →
 `frontend/src/components/history-viewer.tsx` →
 `frontend/src/components/design-comparison/design-comparison-workspace.tsx`
@@ -86,6 +96,13 @@ then `run_project_import_job_v3`) → `backend/app/services/git_service.py` ·
 `backend/app/release_studio/documents/` →
 `frontend/src/components/release-studio/ReleaseStudioPanel.tsx`
 
+**Publish a release**
+`backend/app/api/release_studio.py` →
+`backend/app/services/release_studio_publish_service.py` (approve, package,
+forge, record) → `backend/app/services/forge_publish_service.py`
+(`GitHubForge` / `GitLabForge`) → `backend/app/services/release_studio_service.py`
+(publish record)
+
 **Author and release a component**
 `backend/app/api/catalog_admin.py` →
 `backend/app/services/component_catalog_service.py` (runtime alias) →
@@ -97,7 +114,8 @@ then `run_project_import_job_v3`) → `backend/app/services/git_service.py` ·
 
 **Comment on a project or comparison**
 `backend/app/api/comments.py` →
-`backend/app/services/comments_store_service.py` ·
+`backend/app/services/comments_store_writes.py` (writes: authorize, mutate, stream) ·
+`backend/app/services/comments_store_service.py` (reads) ·
 `backend/app/services/comments_url_service.py` →
 `frontend/src/components/comment-panel.tsx` →
 `frontend/src/lib/comment-overlays.ts` (overlay shaping) →
@@ -111,7 +129,8 @@ in `backend/app/services/comment_anchor_bindings.py`. Read
 `backend/app/services/trackers/promotion.py` →
 `backend/app/services/trackers/op_store.py` →
 `backend/app/services/trackers/jobs.py` →
-`backend/app/services/trackers/provider_registry.py`. GitHub and GitLab issue
+`backend/app/services/trackers/connector_runtime.py` →
+`backend/app/services/trackers/providers.py`. GitHub and GitLab issue
 publication are available; Gitea/Forgejo is account-linking only. See
 `docs/TRACKER_INTEGRATION.md` for credentials, destinations, and recovery.
 
@@ -165,14 +184,27 @@ invariant, not the tool workaround.
 - Never add a project lookup that ignores the caller's role.
   `backend/app/api/projects.py` carries an explicit warning: a role-blind helper
   is one import away from an access-control bypass. Use the role-aware function.
+- Who may do what is decided once, in `backend/app/core/policy.py`. Routes
+  ask it (through the `require_*` dependencies, `authorized_project`, or
+  `require_owner_or_admin`) instead of comparing roles or emails inline. A
+  policy change regenerates the frontend matrix with
+  `scripts/export_role_matrix.py`.
 - Derive audit identity from the authenticated session, never from a
   request-supplied name.
 - Never fail open. A limiter, auth, or provider outage denies the request;
   `backend/app/services/rate_limit_service.py` documents why.
 - Never put exception detail in an error response. Database errors can carry
-  credentials (`backend/app/api/health.py`).
+  credentials (`backend/app/api/health.py`). Services refuse with typed errors
+  that one handler renders as one flat body `{detail, code, ...}`
+  (`backend/app/core/errors.py`); guarded writes take `If-Match` and answer
+  412/428 (`backend/app/core/preconditions.py`); the browser reads them only
+  through `frontend/src/lib/api.ts`. A read a component keeps fresh
+  (abort, stale responses, polling while visible, invalidation by key, data
+  kept after unmount for a retention window) and any poll or wait on a job
+  (`usePoll`, `pollUntil`) go through `frontend/src/lib/server-state.ts`; no
+  TanStack Query (decision D21).
 - Never pin Git host keys with `accept-new`
-  (`backend/app/services/project_import_service.py`).
+  (`backend/app/services/git_remote_access.py`).
 
 ### Scope
 
@@ -215,7 +247,8 @@ Do not load minified bundles into context or edit them by hand when source is
 available.
 
 - `frontend/public/ecad-viewer.js`, `frontend/public/parser.worker.js`, and the
-  parser under `scripts/vendor/` come from the sibling `ecad-viewer` checkout.
+  parser under `backend/design-compare-parser/vendor/` come from the sibling
+  `ecad-viewer` checkout.
   Use `.agents/skills/prism-viewer-rebuild/SKILL.md`.
 - `kicad-prism-viewer/` is Prism's semantic viewer source. Its build writes
   `kicad-prism-viewer/dist/prism-semantic-viewer.js` and synchronizes the served

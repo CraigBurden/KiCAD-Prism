@@ -123,6 +123,9 @@ class CollisionServiceTest(PartCase):
         state, [finding] = self.state()
         self.assertEqual((state, finding["severity"]), ("current", "warning"))
         self.assertIn(finding["reference"], ("Enclosure ↔ Lid", "Lid ↔ Enclosure"))  # pairs sort by instance path
+        # D12: the run refreshes the systems list's counts at the same version.
+        listed = next(s for s in self.service.list_systems(DESIGNER) if s["id"] == self.sid)["findingCounts"]
+        self.assertEqual(listed, self.service.document(DESIGNER, self.sid).body["findingCounts"])
         self.assertEqual({finding["detail"]["a"]["label"], finding["detail"]["b"]["label"]}, {"Enclosure", "Lid"})
         # Boards without a 3D bundle are listed, never passed.
         self.assertTrue(all(gap["reason"].startswith("bundle_") or gap["reason"] in ("restricted", "no_outline")

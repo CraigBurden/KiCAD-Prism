@@ -16,9 +16,9 @@ this server, not merely behind: it is the difference between "you should update"
 
 from __future__ import annotations
 
-import os
-
 from fastapi import APIRouter
+
+from app.core.config import settings
 
 router = APIRouter()
 
@@ -41,10 +41,7 @@ PLUGIN_MIN = "0.3.0"
 
 # Where to get it. Overridable so a private deployment can serve its own build rather
 # than sending users to a public repo they may not be able to reach.
-DOWNLOAD_URL = os.environ.get(
-    "PRISM_PLUGIN_DOWNLOAD_URL",
-    "https://github.com/krishna-swaroop/KiCAD-Prism/releases/latest",
-)
+DOWNLOAD_URL = settings.PRISM_PLUGIN_DOWNLOAD_URL
 
 
 @router.get("/version")

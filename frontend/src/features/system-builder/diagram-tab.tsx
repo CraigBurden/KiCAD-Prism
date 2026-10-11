@@ -20,9 +20,7 @@ import { toast } from "sonner";
 import { Cable, ChevronDown, Layers, LayoutGrid, Lock, RectangleHorizontal, Share2, Spline } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
-import {
-  addHarnessEnd, createHarness, createLink, getHierarchy, getLayout, putLayout, updateHarnessEnd, type LayoutPositions,
-} from "@/lib/systems-api";
+import { putLayout, type LayoutPositions } from "@/lib/systems-api";
 import type { SystemHierarchy } from "@/types/system";
 import { cn } from "@/lib/utils";
 
@@ -49,7 +47,8 @@ import { wirePoints } from "./system-layout";
 import type { SystemTabProps } from "./system-tab-content";
 import { TONE_BADGE, boardStatus } from "./system-format";
 import { releaseChain } from "./release-chain";
-import { useSystemMutation } from "./use-system-mutation";
+import { sessionReads } from "./session/session-reads";
+import { useSessionRead, useSystemSession } from "./session/use-system-session";
 import { FloatingToolbar } from "./workspace/floating-toolbar";
 import { ToolbarButton } from "./workspace/toolbar-button";
 
@@ -286,42 +285,23 @@ export function applyOverrides(current: Record<string, NodeOverride>, changes: N
   return next;
 }
 
-export function DiagramTab({ systemId, document, etag, canEdit, reload, onNavigate, selection = null, onSelect }: SystemTabProps) {
-  const [layout, setLayout] = useState<{ systemId: string; positions: LayoutPositions } | null>(null);
+export function DiagramTab({ systemId, document, canEdit, onNavigate, selection = null, onSelect }: SystemTabProps) {
+  const { session, edit } = useSystemSession();
   const [overrides, setOverrides] = useState<Record<string, NodeOverride>>({});
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [hovered, setHovered] = useState<string | null>(null);
-  const [tree, setTree] = useState<{ key: string; body: SystemHierarchy } | null>(null);
   const [mode, setMode] = useState<LinkMode>(null);
-  const { run } = useSystemMutation(reload);
   const hasSubsystems = document.instances.some((instance) => instance.kind === "assembly");
-  const treeKey = `${systemId}:${etag}`;
-
   // Subsystem contents come from the hierarchy, re-read when the system moves on.
-  useEffect(() => {
-    if (!hasSubsystems) return;
-    let cancelled = false;
-    getHierarchy(systemId).then((body) => !cancelled && setTree({ key: treeKey, body })).catch(() => undefined);
-    return () => {
-      cancelled = true;
-    };
-  }, [systemId, treeKey, hasSubsystems]);
-
+  const tree = useSessionRead(hasSubsystems ? sessionReads.hierarchy() : null).data;
   // The saved layout is a separate, unversioned read (§1 invariant 6).
-  useEffect(() => {
-    let cancelled = false;
-    getLayout(systemId)
-      .then((positions) => !cancelled && setLayout({ systemId, positions }))
-      .catch(() => !cancelled && setLayout({ systemId, positions: {} }));
-    return () => {
-      cancelled = true;
-    };
-  }, [systemId]);
+  const layoutRead = sessionReads.layout();
+  const layout = useSessionRead(layoutRead).data;
 
   // SB2-99: the layout and the model are rebuilt only when the document, positions or expansion
   // change, and each node's and edge's data object stays the same otherwise; with memoised node and
   // edge views, a selection change re-renders only what it (de)selects.
-  const positions = layout?.systemId === systemId ? layout.positions : null;
+  const positions = layout ?? null;
   const live = useMemo(() => {
     if (!positions) return null;
     // Positions being dragged count as placed, so wires re-route while dragging.
@@ -342,7 +322,7 @@ export function DiagramTab({ systemId, document, etag, canEdit, reload, onNaviga
     navigate.current = onNavigate;
   }, [onNavigate]);
   const openHarness = useCallback((id: string) => navigate.current("connectivity", { harness: id }), []);
-  const occurrences = tree?.key === treeKey ? tree.body.occurrences : NO_OCCURRENCES;
+  const occurrences = tree?.occurrences ?? NO_OCCURRENCES;
   const boardData = useMemo(() => new Map((diagram?.nodes ?? []).map((node) => [node.id, {
     ...node.data, height: node.height, onToggle: toggle,
     inside: node.data.instance.kind === "assembly" ? subsystemContents(occurrences, node.id) : undefined,
@@ -397,7 +377,7 @@ export function DiagramTab({ systemId, document, etag, canEdit, reload, onNaviga
   const savePositions = (positions: LayoutPositions) =>
     putLayout(systemId, positions)
       .then((saved) => {
-        setLayout({ systemId, positions: saved });
+        session.store(layoutRead.key, saved);
         setOverrides({});
       })
       .catch(() => toast.error("Could not save the layout"));
@@ -414,20 +394,20 @@ export function DiagramTab({ systemId, document, etag, canEdit, reload, onNaviga
     }
     setMode(null);
     if (intent.kind === "harness") {
-      void run("harness", () => createHarness(systemId, etag, { name: "Harness", ends: [intent.a, intent.b], identity: true }),
+      void edit("harness", (system) => system.createHarness({ name: "Harness", ends: [intent.a, intent.b], identity: true }),
         "Harness created").then((created) => created && openHarness(created.body.id));
       return;
     }
     if (intent.kind === "add_end") {
-      void run("harness", () => addHarnessEnd(systemId, etag, intent.harnessId, intent.port), "End added");
+      void edit("harness", (system) => system.addHarnessEnd(intent.harnessId, intent.port), "End added");
       return;
     }
     if (intent.kind === "mate_end") {
-      void run("harness", () => updateHarnessEnd(systemId, etag, intent.harnessId, intent.endId, { mates: intent.port }), "End mated");
+      void edit("harness", (system) => system.updateHarnessEnd(intent.harnessId, intent.endId, { mates: intent.port }), "End mated");
       return;
     }
     const type = mode === "b2b" ? "b2b" : undefined;
-    void run("link", () => createLink(systemId, etag, { a: intent.a, b: intent.b, type }),
+    void edit("link", (system) => system.createLink({ a: intent.a, b: intent.b, type }),
       type === "b2b" ? "Board-to-board link created" : "Link created").then((created) => {
       if (created) {
         onNavigate("connectivity", { link: created.body.id });

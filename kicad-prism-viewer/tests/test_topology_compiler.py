@@ -105,6 +105,32 @@ class TopologyCompilerTests(unittest.TestCase):
         self.assertEqual(payload["nets"][1]["netClass"], "Default")
         self.assertEqual(payload["nets"][1]["aliases"], ["unconnected-(U1-Pad1)"])
 
+    def test_board_nets_that_share_a_topology_net_are_merged_not_duplicated(self) -> None:
+        # Two board nets the topology knows as one net (one is its alias). The
+        # legacy lane gives them one scene id; the packed lane must not list
+        # the same net twice under two ids.
+        payload = {
+            "nets": [
+                {"id": 0, "uid": "", "name": "", "aliases": []},
+                {"id": 1, "uid": "b1", "name": "/VBUS", "netClass": "", "aliases": []},
+                {"id": 2, "uid": "b2", "name": "VBUS", "netClass": "", "aliases": []},
+                {"id": 3, "uid": "b3", "name": "GND", "netClass": "", "aliases": []},
+            ]
+        }
+        _reconcile_packed_net_metadata(
+            {
+                "nets": [
+                    {"uid": "t-vbus", "name": "VBUS", "aliases": ["/VBUS"], "net_class": "Power"},
+                    {"uid": "t-gnd", "name": "GND", "aliases": [], "net_class": "Default"},
+                ]
+            },
+            payload,
+        )
+        self.assertEqual(payload["netMerges"], {"2": 1})
+        self.assertEqual(payload["nets"][1]["name"], "VBUS")
+        self.assertEqual(payload["nets"][1]["aliases"], ["/VBUS"])
+        self.assertEqual(payload["nets"][3]["name"], "GND")
+
     def test_semantic_builder_derives_board_frame_without_opening_glb(self) -> None:
         builder = SemanticGltfBuilder(
             {

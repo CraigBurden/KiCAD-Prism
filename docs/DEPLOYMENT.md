@@ -105,6 +105,13 @@ frontend and backend to loopback, a redacted record of the run, and a
 `NEXT_STEPS.md` listing what remains manual. For DNS-01 it also builds the
 Caddy image with the provider module.
 
+The committed templates (`deploy/Caddyfile*`, `deploy/release/Caddyfile*`) are
+rendered from the installer's site block by
+`python3 -m scripts.prism_deploy.static_caddyfiles --write`, so a proxy started
+from a template sends the same upstream headers (including `X-Forwarded-Proto`)
+as an installed one. Edit the site block in `scripts/prism_deploy/render.py`,
+not the files; `scripts/test_prism_deploy.py` fails when they drift.
+
 Before starting anything it verifies the Compose version, container egress to
 the ACME and DNS provider endpoints, whether container DNS answers match the
 host's, the OIDC discovery document, and the generated Caddy and Compose

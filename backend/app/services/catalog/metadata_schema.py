@@ -44,6 +44,15 @@ class CatalogMetadataSchema:
             "updated_at": str(row.get("updated_at") or ""),
         }
 
+    def list_fields(self, conn: Any, *, include_archived: bool = False) -> list[dict[str, Any]]:
+        """The field registry in display order."""
+        rows = conn.execute(
+            "SELECT * FROM catalog_field_definitions "
+            + ("" if include_archived else "WHERE archived = 0 ")
+            + "ORDER BY display_order, field_key"
+        ).fetchall()
+        return [self.field_payload(dict(row)) for row in rows]
+
     def append_field_event(
         self,
         conn: Any,

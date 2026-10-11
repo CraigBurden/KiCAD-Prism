@@ -10,8 +10,10 @@ from fastapi import FastAPI
 from unittest import mock
 
 from system_builder_db import FixtureSystemCase
+from support.postgres import seed_folder
 from test_system_api import _request
 
+from app.core.errors import install_error_handlers  # noqa: E402
 from app.api import systems as systems_api
 from app.services.systems import icd
 from app.services.systems import service as service_module
@@ -43,8 +45,7 @@ class SnapshotCase(FixtureSystemCase):
         return self.service.create_snapshot(DESIGNER, self.sid, self.version(), name, note).body
 
     def hide_pay(self) -> None:
-        self.conn.execute("INSERT INTO ws_folders (id, visibility_mode, allowed_roles)"
-                          " VALUES ('fld_admins', 'roles', '[\"admin\"]')")
+        seed_folder(self.conn, "fld_admins", visibility_mode="roles", allowed_roles=["admin"])
         self.conn.execute("UPDATE ws_projects SET folder_id = 'fld_admins' WHERE id = 'prj_pay'")
         self.conn.commit()
 
@@ -183,6 +184,7 @@ class SnapshotApiTest(SnapshotCase):
         patcher.start()
         self.addCleanup(patcher.stop)
         self.app = FastAPI()
+        install_error_handlers(self.app)
         self.app.include_router(systems_api.router, prefix="/api/systems")
 
     def call(self, method: str, path: str, **kwargs):

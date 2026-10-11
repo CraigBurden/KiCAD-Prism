@@ -7,6 +7,7 @@ import re
 from pathlib import Path
 from typing import Any, Iterable
 
+from app.services.catalog.field_rules import blocking_import_findings
 from app.services.catalog.normalization import (
     json_loads as _json_loads,
     sha256_file as _sha256_file,
@@ -211,15 +212,7 @@ class CatalogProjectImportAssets:
                 raise ValueError(
                     "A symbol and footprint are required before accepting a project import"
                 )
-        resolved_by_link = {f"{asset_type}_not_resolved" for asset_type in linked}
-        blocking = [
-            finding
-            for finding in findings
-            if finding.get("severity") == "error"
-            and not str(finding.get("code") or "").startswith("missing_metadata_")
-            and not str(finding.get("code") or "").startswith("conflicting_")
-            and str(finding.get("code") or "") not in resolved_by_link
-        ]
+        blocking = blocking_import_findings(findings, linked)
         if blocking:
             raise ValueError("Resolve blocking import findings before accepting this proposal")
         return selected_by_type

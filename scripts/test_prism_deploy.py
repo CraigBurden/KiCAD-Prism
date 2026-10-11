@@ -21,6 +21,11 @@ from prism_deploy.schemes import (
 )
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
+STATIC_CADDYFILES = tuple(
+    f"{folder}/{name}"
+    for folder in ("deploy", "deploy/release")
+    for name in ("Caddyfile", "Caddyfile.internal", "Caddyfile.dns-01")
+)
 ENV_EXAMPLE = (REPOSITORY_ROOT / ".env.example").read_text(encoding="utf-8")
 
 BASE_ANSWERS = {
@@ -318,6 +323,40 @@ class CaddyfileTests(unittest.TestCase):
         config = render.render_caddyfile(answers_for(INTERNAL_CA))
         self.assertIn("tls /certs/prism.crt /certs/prism.key", config)
         self.assertIn("header_up X-Forwarded-Proto https", config)
+
+
+class StaticCaddyfileTests(unittest.TestCase):
+    """The deploy/ and deploy/release/ templates come from the installer's site block."""
+
+    def test_every_static_caddyfile_forwards_the_scheme(self) -> None:
+        for name in STATIC_CADDYFILES:
+            with self.subTest(name=name):
+                text = (REPOSITORY_ROOT / name).read_text(encoding="utf-8")
+                self.assertIn("header_up X-Forwarded-Proto ", text)
+
+    def test_static_caddyfiles_are_rendered_from_the_installer_template(self) -> None:
+        from prism_deploy import static_caddyfiles
+
+        rendered = static_caddyfiles.render_static_caddyfiles()
+        self.assertEqual(sorted(rendered), sorted(STATIC_CADDYFILES))
+        for name, text in rendered.items():
+            with self.subTest(name=name):
+                committed = (REPOSITORY_ROOT / name).read_text(encoding="utf-8")
+                self.assertEqual(
+                    committed, text,
+                    f"{name} drifted; run python3 -m scripts.prism_deploy.static_caddyfiles --write",
+                )
+
+    def test_static_site_block_matches_the_installer_output(self) -> None:
+        from prism_deploy import static_caddyfiles
+
+        rendered = static_caddyfiles.render_static_caddyfiles()
+        for name, scheme in (("deploy/Caddyfile", HTTP_01), ("deploy/Caddyfile.internal", INTERNAL_CA)):
+            with self.subTest(name=name):
+                installer = render.render_caddyfile(answers_for(scheme, acme_staging=False))
+                site = installer[installer.index("prism.example.com {"):]
+                hostname = "prism.example.com" if scheme == HTTP_01 else "kicad-prism.corp.internal"
+                self.assertIn(site.replace("prism.example.com", hostname, 1), rendered[name])
 
 
 class ComposeTests(unittest.TestCase):

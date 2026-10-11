@@ -8,7 +8,7 @@ from typing import Any, Optional
 
 from app.services.systems import renames as renames_module, visibility
 from app.services.systems.service_base import Caller, Result
-from app.services.systems.service_documents import rename_doc
+from app.services.systems.service_rendering import rename_doc
 from app.services.systems.store import Invalid, NotFound
 
 CSV_COLUMNS = ("system", "board", "net", "rename_to", "rows", "connectors", "note", "proposed_by", "proposed_at")

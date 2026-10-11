@@ -6,7 +6,7 @@ import {
   rowProblems,
   type RowEdits,
 } from "./library-import-remediation-grid";
-import type { ProjectComponentImportProposal } from "@/types/catalog";
+import type { CatalogMetadataField, ProjectComponentImportProposal } from "@/types/catalog";
 
 function proposal(
   overrides: Partial<ProjectComponentImportProposal> = {}
@@ -232,5 +232,34 @@ describe("groupProblems", () => {
     };
     const problems = groupProblems(group, linked);
     expect(problems.filter((problem) => problem === "No symbol was extracted")).toHaveLength(1);
+  });
+});
+
+function customField(overrides: Partial<CatalogMetadataField> = {}): CatalogMetadataField {
+  return {
+    id: "field-1", key: "approval_ref", label: "Approval Ref", description: "", group: "custom", type: "text",
+    unit: "", enum_values: [], storage_kind: "extra", storage_key: "approval_ref", built_in: false, required: true,
+    display_order: 100, archived: false, created_by: "", updated_by: "", created_at: "", updated_at: "",
+    ...overrides,
+  };
+}
+
+describe("custom required fields (D43)", () => {
+  const linked: RowEdits = { "proposal-1": { metadata: {}, footprintAssetId: "asset-9" } };
+
+  it("flags a blank custom required field with the server's message", () => {
+    expect(rowProblems(proposal(), linked, [customField()])).toEqual(["Approval Ref is required"]);
+    expect(rowProblems(proposal(), linked, [customField({ required: false })])).toEqual([]);
+  });
+
+  it("reads the symbol's own field, then a saved draft, then a local edit", () => {
+    const scanned = proposal({ metadata: { ...proposal().metadata, fields: { approval_ref: "QA-1" } } });
+    expect(rowProblems(scanned, linked, [customField()])).toEqual([]);
+
+    const drafted = proposal({ draft: { metadata_overrides: { extra_fields: { approval_ref: "QA-2" } } } });
+    expect(rowProblems(drafted, linked, [customField()])).toEqual([]);
+
+    const cleared: RowEdits = { "proposal-1": { metadata: {}, extraFields: { approval_ref: " " }, footprintAssetId: "asset-9" } };
+    expect(rowProblems(drafted, cleared, [customField()])).toEqual(["Approval Ref is required"]);
   });
 });

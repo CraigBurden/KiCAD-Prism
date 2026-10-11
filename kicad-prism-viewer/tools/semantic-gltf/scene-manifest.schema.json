@@ -1,0 +1,131 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "prism.semantic_gltf_a0",
+  "title": "Semantic glTF scene manifest",
+  "description": "What the WebGPU viewer reads from scene-gltf/scene.manifest.json. scene-manifest.mjs builds every manifest from either producer (the Python semantic input or the Rust prism.semantic_mesh_pack.v1) and checks it against this schema before it is written. Units are millimetres in KiCad board axes (y down) unless a field says otherwise; z is the stackup axis. Records may carry more fields than listed.",
+  "type": "object",
+  "required": ["schema", "version", "tileSizeMm", "geometryRevision", "coordinateSystem", "layers", "nets", "objectFeatures", "components", "barrels", "copperLayerIds", "bbox", "tiles", "netToTiles", "analysis"],
+  "properties": {
+    "schema": { "const": "prism.semantic_gltf_a0" },
+    "version": { "const": 0 },
+    "tileSizeMm": { "type": "number", "exclusiveMinimum": 0 },
+    "geometryRevision": { "type": "string", "minLength": 1 },
+    "coordinateSystem": { "type": "object" },
+    "layers": { "type": "array", "items": { "$ref": "#/$defs/layer" } },
+    "nets": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/net" } },
+    "objectFeatures": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/feature" } },
+    "components": { "type": "array" },
+    "barrels": { "type": "array", "items": { "$ref": "#/$defs/barrel" } },
+    "geometryCompiler": { "type": ["object", "null"] },
+    "clipper": { "type": "object" },
+    "copperLayerIds": { "type": "array", "items": { "type": "integer" } },
+    "bbox": {
+      "description": "Scene bounds in metres, glTF axes (x right, y stackup up, z board down).",
+      "type": "object",
+      "required": ["min", "max"],
+      "properties": {
+        "min": { "$ref": "#/$defs/vec3" },
+        "max": { "$ref": "#/$defs/vec3" }
+      }
+    },
+    "tiles": { "type": "array", "items": { "$ref": "#/$defs/tile" } },
+    "netToTiles": { "type": "object", "additionalProperties": { "type": "array", "items": { "type": "string" } } },
+    "analysis": { "type": "object" }
+  },
+  "$defs": {
+    "vec3": { "type": "array", "minItems": 3, "maxItems": 3, "items": { "type": "number" } },
+    "bounds6": {
+      "description": "[minX, minY, minZ, maxX, maxY, maxZ] in mm, z in the board frame.",
+      "type": ["array", "null"],
+      "minItems": 6,
+      "maxItems": 6,
+      "items": { "type": "number" }
+    },
+    "layer": {
+      "description": "A physical stackup layer. z_mm is the layer centre in the centred stackup frame; the copper tiles themselves sit in KiCad's board frame.",
+      "type": "object",
+      "required": ["id", "uid", "name", "role", "z_mm", "thickness_mm", "material", "color", "visibility_group", "stack_index"],
+      "properties": {
+        "id": { "type": "integer", "minimum": 1 },
+        "uid": { "type": "string" },
+        "name": { "type": "string", "minLength": 1 },
+        "role": { "type": "string" },
+        "z_mm": { "type": "number" },
+        "thickness_mm": { "type": "number", "minimum": 0 },
+        "material": { "type": "string" },
+        "color": { "type": "string" },
+        "visibility_group": { "type": "string" },
+        "stack_index": { "type": "integer", "minimum": 0 },
+        "epsilon_r": { "type": ["number", "null"] },
+        "loss_tangent": { "type": ["number", "null"] }
+      }
+    },
+    "net": {
+      "description": "A net. Net 0 is the null net; ids are what the tiles' _FEATURE_ID_0 attribute holds.",
+      "type": "object",
+      "required": ["id", "uid", "name", "netClass", "metrics"],
+      "properties": {
+        "id": { "type": "integer", "minimum": 0 },
+        "uid": { "type": "string" },
+        "name": { "type": "string" },
+        "netClass": { "type": "string" },
+        "aliases": { "type": "array", "items": { "type": "string" } },
+        "metrics": { "type": "object" },
+        "boundsMm": { "$ref": "#/$defs/bounds6" },
+        "layerBoundsMm": { "type": "object", "additionalProperties": { "$ref": "#/$defs/bounds6" } }
+      }
+    },
+    "feature": {
+      "description": "A source object. Feature ids are dense (objectFeatures[i].id === i), feature 0 is the null feature; ids are what the tiles' _FEATURE_ID_1 attribute holds.",
+      "type": "object",
+      "required": ["id", "sourceUid", "netId", "layerId", "kind"],
+      "properties": {
+        "id": { "type": "integer", "minimum": 0 },
+        "sourceUid": { "type": "string" },
+        "netId": { "type": "integer", "minimum": 0 },
+        "layerId": { "type": "integer", "minimum": 0 },
+        "layerIds": { "type": "array", "items": { "type": "integer" } },
+        "kind": { "type": "string" },
+        "boundsMm": { "$ref": "#/$defs/bounds6" }
+      }
+    },
+    "barrel": {
+      "description": "A plated drill's conductive barrel. Its layers are in stackup order, top first; startZMm and endZMm are the runtime (board frame) z of its start and end copper layer centres.",
+      "type": "object",
+      "required": ["sourceUid", "objectFeatureId", "netId", "kind", "centerMm", "drillWidthMm", "drillHeightMm", "outerWidthMm", "outerHeightMm", "startLayerId", "endLayerId", "layerIds", "startZMm", "endZMm", "boundsMm"],
+      "properties": {
+        "sourceUid": { "type": "string" },
+        "objectFeatureId": { "type": "integer", "minimum": 1 },
+        "netId": { "type": "integer", "minimum": 0 },
+        "kind": { "enum": ["via", "plated_pad"] },
+        "centerMm": { "type": "array", "minItems": 2, "maxItems": 2, "items": { "type": "number" } },
+        "drillWidthMm": { "type": "number", "minimum": 0 },
+        "drillHeightMm": { "type": "number", "minimum": 0 },
+        "outerWidthMm": { "type": "number", "minimum": 0 },
+        "outerHeightMm": { "type": "number", "minimum": 0 },
+        "startLayerId": { "type": "integer", "minimum": 1 },
+        "endLayerId": { "type": "integer", "minimum": 1 },
+        "layerIds": { "type": "array", "minItems": 1, "items": { "type": "integer" } },
+        "startZMm": { "type": "number" },
+        "endZMm": { "type": "number" },
+        "boundsMm": { "$ref": "#/$defs/bounds6" }
+      }
+    },
+    "tile": {
+      "type": "object",
+      "required": ["id", "path", "layerId", "tile", "boundsMm", "netIds", "bytes"],
+      "properties": {
+        "id": { "type": "string" },
+        "path": { "type": "string", "minLength": 1 },
+        "layerId": { "type": "integer", "minimum": 1 },
+        "layerName": { "type": "string" },
+        "tile": { "type": "array", "minItems": 2, "maxItems": 2, "items": { "type": "integer" } },
+        "boundsMm": { "type": "array", "minItems": 4, "maxItems": 4, "items": { "type": "number" } },
+        "netIds": { "type": "array", "items": { "type": "integer", "minimum": 0 } },
+        "bytes": { "type": "integer", "minimum": 0 },
+        "vertices": { "type": "integer", "minimum": 0 },
+        "triangles": { "type": "integer", "minimum": 0 }
+      }
+    }
+  }
+}

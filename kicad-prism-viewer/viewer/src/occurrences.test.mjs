@@ -2,13 +2,11 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
-  BARREL_RECORD_STRIDE,
   HIDDEN_LAYER_BITS,
   IDENTITY,
   OCCURRENCE_STRIDE,
   normalMatrix,
   normalizeMatrix,
-  packBarrels,
   packOccurrences,
   transformBounds,
   transformPoint,
@@ -71,19 +69,6 @@ test("matrices are validated", () => {
 test("bounds follow each occurrence", () => {
   const board = [0, 0, -0.001, 0.05, 0.04, 0.001];
   close(transformBounds(QUARTER_TURN, board), [0.06, 0.2, 0.299, 0.1, 0.25, 0.301]);
-});
-
-test("barrel records pack into the storage layout (ids at byte 32)", () => {
-  const data = packBarrels([{
-    centerMm: [10, 20], drillWidthMm: 0.4, drillHeightMm: 0.6, outerWidthMm: 0.8, outerHeightMm: 0.7,
-    startZMm: -0.8, endZMm: 0.8, netId: 7, objectFeatureId: 9, startLayerId: 1, endLayerId: 4,
-  }]);
-  assert.equal(data.byteLength, BARREL_RECORD_STRIDE);
-  const f32 = new Float32Array(data);
-  const u32 = new Uint32Array(data);
-  close([f32[0], f32[1], f32[2], f32[3], f32[4], f32[5]].map((v) => Math.fround(v)),
-    [0.01, -0.02, 0.0002, 0.0004, -0.0008, 0.0008].map((v) => Math.fround(v)));
-  assert.deepEqual([...u32.slice(8, 12)], [7, 9, 1, 4]);
 });
 
 test("instanced shader variants place every path by a culled occurrence", async () => {

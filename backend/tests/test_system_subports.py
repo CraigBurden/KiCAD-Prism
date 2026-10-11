@@ -11,6 +11,7 @@ from unittest import mock
 from test_system_api import _request
 from test_system_snapshots import DESIGNER, SnapshotCase
 
+from app.core.errors import install_error_handlers  # noqa: E402
 from app.api import systems as systems_api
 from app.services.systems import interface_cache, service as service_module, subports
 from app.services.systems.interface_extractor import EXTRACTOR_VERSION
@@ -201,6 +202,7 @@ class SubportApiTest(SubportCase):
         patcher.start()
         self.addCleanup(patcher.stop)
         self.app = FastAPI()
+        install_error_handlers(self.app)
         self.app.include_router(systems_api.router, prefix="/api/systems")
 
     def test_preview_needs_no_etag_and_a_change_does(self) -> None:

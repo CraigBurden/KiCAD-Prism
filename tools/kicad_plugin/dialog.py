@@ -16,6 +16,7 @@ import threading
 import wx
 
 from . import agent_launcher
+from . import git_workflow
 from . import prism_theme as th
 from . import prompts
 from . import version
@@ -89,6 +90,8 @@ class PrismDialog(wx.Dialog):
         self.pal = th.palette(dark=wx.SystemSettings.GetAppearance().IsDark())
         self.SetFont(ui_font(self))
         self.board_path = board_path
+        # Git workflows decide; this dialog asks and shows. See git_workflow.py.
+        self.git = git_workflow.GitWorkflow()
         self.data = None
         self.changes = None  # None = couldn't fetch; [] = genuinely nothing
         # Stashes as of the last load. Rendered from, never fetched during a render.
@@ -403,11 +406,9 @@ class PrismDialog(wx.Dialog):
                 project = None
                 # Only fetch the project when the versions are compatible; an outdated
                 # agent or plugin renders its own card instead of a project view.
-                running = health.get("version", "")
-                if not version.agent_too_old(running):
-                    verdict, _ = version.server_verdict(health.get("server_plugin"))
-                    if verdict != "required":
-                        project = client.project(board_path)
+                verdict = version.health_verdict(health)
+                if version.usable(verdict[0]):
+                    project = client.project(board_path)
                 # Stashes come along for the ride. The sync row needs the count on
                 # every render, and _rebuild re-renders on every collapse/expand, so
                 # reading them inline would put an HTTP round-trip on the UI thread
@@ -428,6 +429,7 @@ class PrismDialog(wx.Dialog):
                         gitignore = {}
                 payload = {
                     "health": health,
+                    "verdict": verdict,
                     "project": project,
                     "stashes": stashes,
                     "gitignore": gitignore,
@@ -480,7 +482,9 @@ class PrismDialog(wx.Dialog):
         # backend. The icon says which, and stays out of the way otherwise.
         self._set_server_icon(bool(health.get("backend_reachable")))
 
-        if version.agent_too_old(running):
+        # Computed once, on the worker, from the same /health payload.
+        verdict, download_url = payload["verdict"]
+        if verdict == "agent_outdated":
             self.data = None
             self.changes = None
             self._render_outdated_agent(running)
@@ -490,9 +494,7 @@ class PrismDialog(wx.Dialog):
         # The plugin follows the server it talks to. "required" means this plugin is
         # older than the server can serve, so there's no point rendering a UI whose calls
         # will fail.
-        self.verdict, self.download_url = version.server_verdict(
-            health.get("server_plugin")
-        )
+        self.verdict, self.download_url = verdict, download_url
         if self.verdict == "required":
             self.data = None
             self.changes = None
@@ -1066,11 +1068,10 @@ class PrismDialog(wx.Dialog):
         if not name or not name.strip():
             return
         branch = name.strip()
-        try:
-            with wx.BusyCursor():
-                AgentClient().create_branch(project["repo_root"], branch)
-        except AgentUnavailable as exc:
-            prompts.tell(self, str(exc), "Prism")
+        with wx.BusyCursor():
+            created = self.git.create_branch(project["repo_root"], branch)
+        if not created.ok:
+            prompts.tell(self, created.error, "Prism")
             return
         self._publish_new_branch(project["repo_root"], branch)
         self._load()
@@ -1087,11 +1088,18 @@ class PrismDialog(wx.Dialog):
         and publishing on the user's behalf puts a name on a shared remote that they
         may not have meant to create.
         """
-        try:
-            remotes = (AgentClient().remotes(repo) or {}).get("remotes") or []
-        except AgentUnavailable:
-            return ""  # cannot ask; keeping it local is the safe answer
-        if not remotes:
+        targets = self.git.new_branch_targets(repo)
+        if targets.kind == git_workflow.LOCAL_ONLY:
+            # Cannot ask; keeping it local is the safe answer, and the user is told.
+            prompts.tell(
+                self,
+                "'%s' was created here, but its remotes could not be listed, so it "
+                "stays on this computer:\n\n%s\n\nYou can publish it later from the panel."
+                % (branch, targets.error),
+                "Branch created",
+            )
+            return ""
+        if targets.kind == git_workflow.NO_REMOTE:
             # Say so. The user asked for a branch expecting to be asked where it goes,
             # and silence here reads as the question having been answered for them.
             prompts.tell(
@@ -1103,9 +1111,10 @@ class PrismDialog(wx.Dialog):
             )
             return ""
 
+        remotes = targets.remotes
         keep_local = "Keep it on this computer for now"
         choices = [keep_local] + [
-            "Publish to %s  (%s)" % (r["name"], r["url"]) for r in remotes
+            "Publish to %s  (%s)" % (r.name, r.url) for r in remotes
         ]
         index = prompts.ask_choice(
             self,
@@ -1116,7 +1125,7 @@ class PrismDialog(wx.Dialog):
         # None is cancelled, 0 is the "keep it local" row: both mean do not publish.
         if not index:
             return ""
-        return remotes[index - 1]["name"]
+        return remotes[index - 1].name
 
     def _publish_new_branch(self, repo, branch):
         """Publish a just-created branch, if the user picked somewhere for it.
@@ -1128,13 +1137,12 @@ class PrismDialog(wx.Dialog):
         target = self._ask_publish_target(repo, branch)
         if not target:
             return
-        try:
-            with wx.BusyCursor():
-                AgentClient().push(repo, set_upstream=True, remote=target)
-        except AgentUnavailable as exc:
+        with wx.BusyCursor():
+            published = self.git.publish(repo, target)
+        if not published.ok:
             prompts.tell(self, "'%s' was created, but publishing it to %s failed:\n\n%s\n\n"
                 "You can publish it later from the panel."
-                % (branch, target, exc),
+                % (branch, target, published.error),
                 "Prism")
 
     def _return_to_branch(self, branch):
@@ -1216,41 +1224,18 @@ class PrismDialog(wx.Dialog):
         if not project or not project.get("repo_root"):
             return
         repo = project["repo_root"]
-        try:
-            data = AgentClient().branches(repo)
-        except AgentUnavailable as exc:
-            prompts.tell(self, str(exc), "Prism")
+        listed = self.git.switch_choices(repo)
+        if listed.kind == git_workflow.FAILED:
+            prompts.tell(self, listed.error, "Prism")
             return
-
-        current = data.get("current") or ""
-        default = data.get("default") or ""
-        local = [b for b in (data.get("local") or []) if b != current]
-        remote = data.get("remote") or []
-
-        # Build labelled choices, and a map from each label back to the ref to check out.
-        # A remote branch (origin/feature) is checked out by its SHORT name (feature) so
-        # git creates a local tracking branch instead of detaching HEAD. The default
-        # branch is marked so the user does not have to recall which of main/master it is.
-        ref_for = {}
-        choices = []
-        for b in local:
-            label = "%s  (default)" % b if b == default else b
-            choices.append(label)
-            ref_for[label] = b
-        for r in remote:
-            short = r.split("/", 1)[1] if "/" in r else r
-            label = "%s  (remote, default)" % short if short == default else "%s  (remote)" % short
-            choices.append(label)
-            ref_for[label] = short
-
-        if not choices:
+        if listed.kind == git_workflow.NOTHING:
             prompts.tell(self, "No other branches to switch to.", "Prism")
             return
 
-        picked = self._pick_branch(choices)
-        if not picked:
+        index = self._pick_branch([label for label, _ref in listed.choices])
+        if index is None:
             return
-        self._do_switch(repo, ref_for[picked])
+        self._do_switch(repo, listed.choices[index][1])
 
     def _pick_branch(self, choices):
         """A branch picker wide enough to read a branch name in.
@@ -1258,10 +1243,9 @@ class PrismDialog(wx.Dialog):
         wx.GetSingleChoice sizes itself to the text and cannot be resized, so anything
         like feature/long-descriptive-name was clipped in a narrow column.
         """
-        index = prompts.ask_choice(
+        return prompts.ask_choice(
             self, "Switch to which branch?", "Switch branch", choices
         )
-        return "" if index is None else choices[index]
 
     def _do_switch(self, repo, ref):
         """Switch to `ref` safely: settle any uncommitted work first, then check out.
@@ -1270,20 +1254,13 @@ class PrismDialog(wx.Dialog):
         and done here; _switch_now handles the board being open.
         """
         # Dry run: can we switch, or is the tree dirty? checkout_status is read-only.
-        try:
-            state = AgentClient().checkout_status(repo, ref) or {}
-        except AgentUnavailable as exc:
-            prompts.tell(self, str(exc), "Prism")
+        ready = self.git.switch_preflight(repo, ref)
+        if ready.kind == git_workflow.NEEDS_SETTLE:
+            if not self._resolve_before_switch(repo, ready.error):
+                return  # user cancelled or it failed
+        elif not ready.ok:
+            prompts.tell(self, ready.error, "Prism")
             return
-
-        if not state.get("can"):
-            reason = state.get("reason")
-            if reason in ("dirty", "untracked_collision"):
-                if not self._resolve_before_switch(repo, state.get("message", "")):
-                    return  # user cancelled or it failed
-            else:
-                prompts.tell(self, state.get("message", "Can't switch."), "Prism")
-                return
 
         self._switch_now(repo, ref)
 
@@ -1340,18 +1317,16 @@ class PrismDialog(wx.Dialog):
         message = prompts.ask_text(self, "Commit message:", "Commit")
         if not message or not message.strip():
             return False
-        try:
-            with wx.BusyCursor():
-                AgentClient().commit(repo, message.strip(), stage_all_design=True)
-        except AgentUnavailable as exc:
-            text = str(exc)
-            if "detached" in text.lower():
-                self._commit_on_new_branch(repo, message.strip())
-                # After creating a branch and committing, the tree is clean, but we are
-                # now on a different branch than the switch target, so re-checking is the
-                # honest thing. Treat as resolved; the caller re-runs the dry run.
-                return True
-            prompts.tell(self, text, "Prism")
+        with wx.BusyCursor():
+            committed = self.git.commit(repo, message.strip())
+        if committed.kind == git_workflow.NEEDS_BRANCH:
+            self._commit_on_new_branch(repo, message.strip())
+            # After creating a branch and committing, the tree is clean, but we are
+            # now on a different branch than the switch target, so re-checking is the
+            # honest thing. Treat as resolved; the caller re-runs the dry run.
+            return True
+        if not committed.ok:
+            prompts.tell(self, committed.error, "Prism")
             return False
         return True
 
@@ -1372,11 +1347,10 @@ class PrismDialog(wx.Dialog):
         carried is in the result below instead, where it is still true and costs
         nobody a click.
         """
-        try:
-            with wx.BusyCursor():
-                AgentClient().switch(repo, ref)
-        except AgentUnavailable as exc:
-            prompts.tell(self, str(exc), "Prism")
+        with wx.BusyCursor():
+            switched = self.git.switch(repo, ref)
+        if not switched.ok:
+            prompts.tell(self, switched.error, "Prism")
             return
 
         prompts.tell(self, "Switched to %s.\n\n"
@@ -1491,11 +1465,10 @@ class PrismDialog(wx.Dialog):
         project = (self.data or {}).get("project")
         if not project or not project.get("repo_root"):
             return
-        try:
-            with wx.BusyCursor():
-                AgentClient().fetch(project["repo_root"])
-        except AgentUnavailable as exc:
-            prompts.tell(self, str(exc), "Prism")
+        with wx.BusyCursor():
+            fetched = self.git.fetch(project["repo_root"])
+        if not fetched.ok:
+            prompts.tell(self, fetched.error, "Prism")
             return
         self._load()
 
@@ -1511,62 +1484,47 @@ class PrismDialog(wx.Dialog):
         if not project or not project.get("repo_root"):
             return
         repo = project["repo_root"]
-        try:
-            with wx.BusyCursor():
-                AgentClient().push(repo)
-        except AgentUnavailable as exc:
-            if getattr(exc, "code", "") == "no_upstream":
-                self._publish_branch(repo)
+        with wx.BusyCursor():
+            pushed = self.git.push(repo)
+        if pushed.kind == git_workflow.NEEDS_REMOTE:
+            target = self._ask_push_target(pushed.remotes)
+            if not target:
                 return
-            prompts.tell(self, str(exc), "Prism")
-            return
-        self._load()
-
-    def _publish_branch(self, repo):
-        """Push a branch that has no remote yet, asking WHERE when there is a choice.
-
-        The choice is real here in a way it never is for an ordinary push: nothing has
-        decided yet, and a repo with both `origin` and `upstream` (the fork layout) would
-        otherwise have the destination guessed for it.
-        """
-        try:
-            remotes = (AgentClient().remotes(repo) or {}).get("remotes") or []
-        except AgentUnavailable as exc:
-            prompts.tell(self, str(exc), "Prism")
-            return
-
-        if not remotes:
+            with wx.BusyCursor():
+                pushed = self.git.publish(repo, target)
+        if pushed.kind == git_workflow.NO_REMOTE:
             prompts.tell(self, "This project has no remote to push to.\n\n"
                 "Add one with `git remote add`, then push again.",
                 "Prism")
             return
+        if not pushed.ok:
+            prompts.tell(self, pushed.error, "Prism")
+            return
+        self._load()
 
+    def _ask_push_target(self, remotes):
+        """Ask WHERE to publish a branch that has never been pushed.
+
+        The choice is real here in a way it never is for an ordinary push: nothing has
+        decided yet, and a repo with both `origin` and `upstream` (the fork layout) would
+        otherwise have the destination guessed for it. Returns the remote, or "".
+        """
         if len(remotes) == 1:
-            target = remotes[0]["name"]
+            target = remotes[0].name
             if not prompts.ask(
                 self,
                 "This branch hasn't been pushed yet.\n\nPublish it to %s?" % target,
                 "Publish branch",
                 yes="Publish",
             ):
-                return
-        else:
-            # remotes() puts origin first, so the default selection is the convention.
-            choices = ["%s  (%s)" % (r["name"], r["url"]) for r in remotes]
-            index = prompts.ask_choice(
-                self, "Publish this branch to which remote?", "Publish branch", choices
-            )
-            if index is None:
-                return
-            target = remotes[index]["name"]
-
-        try:
-            with wx.BusyCursor():
-                AgentClient().push(repo, set_upstream=True, remote=target)
-        except AgentUnavailable as exc:
-            prompts.tell(self, str(exc), "Prism")
-            return
-        self._load()
+                return ""
+            return target
+        # remotes() puts origin first, so the default selection is the convention.
+        choices = ["%s  (%s)" % (r.name, r.url) for r in remotes]
+        index = prompts.ask_choice(
+            self, "Publish this branch to which remote?", "Publish branch", choices
+        )
+        return "" if index is None else remotes[index].name
 
     def _render_gitignore(self):
         """Offer a KiCad .gitignore to a project that has not got one.
@@ -2354,17 +2312,13 @@ class PrismDialog(wx.Dialog):
             return
 
         repo = project["repo_root"]
-        try:
-            with wx.BusyCursor():
-                AgentClient().commit(
-                    repo, message, stage_all_design=not staged_only
-                )
-        except AgentUnavailable as exc:
-            text = str(exc)
-            if "detached" in text.lower():
-                self._commit_on_new_branch(repo, message, staged_only=staged_only)
-                return
-            prompts.tell(self, text, "Prism")
+        with wx.BusyCursor():
+            committed = self.git.commit(repo, message, staged_only=staged_only)
+        if committed.kind == git_workflow.NEEDS_BRANCH:
+            self._commit_on_new_branch(repo, message, staged_only=staged_only)
+            return
+        if not committed.ok:
+            prompts.tell(self, committed.error, "Prism")
             return
 
         self._load()
@@ -2380,14 +2334,12 @@ class PrismDialog(wx.Dialog):
         if not name or not name.strip():
             return
         branch = name.strip()
-        try:
-            with wx.BusyCursor():
-                AgentClient().create_branch(repo, branch)
-                AgentClient().commit(
-                    repo, message, stage_all_design=not staged_only
-                )
-        except AgentUnavailable as exc:
-            prompts.tell(self, str(exc), "Prism")
+        with wx.BusyCursor():
+            committed = self.git.commit_on_new_branch(
+                repo, branch, message, staged_only=staged_only
+            )
+        if not committed.ok:
+            prompts.tell(self, committed.error, "Prism")
             return
         # After the commit, so what gets published is the work, not an empty branch.
         self._publish_new_branch(repo, branch)

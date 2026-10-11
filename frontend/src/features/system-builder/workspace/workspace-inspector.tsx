@@ -7,29 +7,25 @@ import type { Finding, SystemDocument, SystemHarness, SystemLink } from "@/types
 
 import { BoardDetail } from "../board-detail";
 import { ExportsSection } from "../exports-section";
+import { findingsOf, levelCounts } from "../findings";
 import { groupFindings } from "../findings-ui";
 import { endLabel } from "../link-editor";
-import type { Mutate } from "../use-system-mutation";
 import type { PartDetail } from "./part-detail";
 import { PartInspector } from "./part-inspector";
 import { InspectorFacts } from "./inspector-facts";
 import { InspectorHeader } from "./inspector-header";
 import { InspectorSection } from "./inspector-section";
-import { harnessFindings } from "./use-validation";
 import type { WorkspaceSelection } from "./workspace-state";
-import { documentIndex, findingIndex, linkFindings } from "../document-index";
+import { documentIndex } from "../document-index";
 
 interface InspectorProps {
   systemId: string;
   document: SystemDocument;
-  etag: string;
   canEdit: boolean;
   findings: Finding[];
   selection: WorkspaceSelection | null;
   /** The part picked on the selected board in the 3D view. */
   part?: PartDetail | null;
-  busy: string | null;
-  run: Mutate;
   onSelect: (selection: WorkspaceSelection | null) => void;
   /** Where the 3D view puts its move, route and trace panels (the large-screen inspector only). */
   slot?: (node: HTMLElement | null) => void;
@@ -54,15 +50,16 @@ function countSummary(errors: number, warnings: number): ReactNode {
 }
 
 function findingSummary(findings: readonly Finding[]): ReactNode {
-  const { errors, warnings } = findingIndex(findings);
+  const { errors, warnings } = levelCounts(findings);
   return countSummary(errors, warnings);
 }
 
 function FindingList({ findings }: { findings: readonly Finding[] }) {
   const groups = groupFindings(findings);
   if (!groups.length) return null;
+  const { errors, warnings } = levelCounts(findings);
   return (
-    <InspectorSection title="Findings" count={findings.filter((finding) => finding.severity !== "info").length}>
+    <InspectorSection title="Findings" count={errors + warnings}>
       <ul className="text-sm">
         {groups.slice(0, 6).map((entry) => (
           <li key={entry.key} className="flex h-8 items-center gap-2 border-b last:border-b-0"
@@ -84,7 +81,7 @@ function boardsText(total: number | null | undefined, direct: number, subsystems
   return direct ? `${total} · ${direct} direct` : `${total} in ${subsystems} ${subsystems === 1 ? "subsystem" : "subsystems"}`;
 }
 
-function SystemOverview({ systemId, document, etag, canEdit, busy, run, onSelect }: InspectorProps) {
+function SystemOverview({ document, canEdit, onSelect }: InspectorProps) {
   const { system } = document;
   const kinds = (kind: string) => document.instances.filter((item) => (item.kind ?? "board") === kind).length;
   const counts = document.findingCounts;
@@ -100,14 +97,14 @@ function SystemOverview({ systemId, document, etag, canEdit, busy, run, onSelect
         { label: "To review", value: document.openReviewCount ? String(document.openReviewCount) : <span className="text-muted-foreground">None</span> },
         { label: "Findings", value: counts ? countSummary(counts.error, counts.warning) : <span className="text-muted-foreground">Not evaluated</span> },
       ]} />
-      <ExportsSection systemId={systemId} document={document} etag={etag} canEdit={canEdit} busy={busy} run={run}
+      <ExportsSection document={document} canEdit={canEdit}
         onOpenBoard={(instanceId) => onSelect({ kind: "instance", id: instanceId })} />
     </div>
   );
 }
 
 function LinkSummary({ document, link, findings, onEditRows }: { document: SystemDocument; link: SystemLink; findings: Finding[]; onEditRows: () => void }) {
-  const own = linkFindings(findings, link.id);
+  const own = findingsOf(findings).link(link.id);
   const a = endLabel(document, link, "a");
   const b = endLabel(document, link, "b");
   return (
@@ -133,7 +130,7 @@ function LinkSummary({ document, link, findings, onEditRows }: { document: Syste
 function HarnessSummary({ document, harness, findings, onEditRows, onEditRoute }: {
   document: SystemDocument; harness: SystemHarness; findings: Finding[]; onEditRows: () => void; onEditRoute?: (harnessId: string) => void;
 }) {
-  const own = harnessFindings(findings, harness.id);
+  const own = findingsOf(findings).harness(harness.id);
   const label = (instanceId: string | null | undefined) => (instanceId ? documentIndex(document).instances.get(instanceId)?.label : undefined);
   return (
     <div className="space-y-5">
@@ -189,8 +186,8 @@ export function WorkspaceInspector(props: InspectorProps) {
       {instance ? (
         <div className="space-y-5">
           {props.part && <PartInspector part={props.part} />}
-          <BoardDetail key={instance.id} systemId={props.systemId} document={document} instance={instance} etag={props.etag}
-            canEdit={props.canEdit} busy={props.busy} run={props.run} onConnected={props.onSelect} />
+          <BoardDetail key={instance.id} systemId={props.systemId} document={document} instance={instance}
+            canEdit={props.canEdit} onConnected={props.onSelect} />
         </div>
       ) : link ? (
         <LinkSummary document={document} link={link} findings={findings} onEditRows={props.onEditRows} />

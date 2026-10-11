@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { pollUntil, useServerState } from "@/lib/server-state";
 import {
   Archive, ArrowDown, ArrowUp, Check, ChevronLeft, ChevronRight, Columns3, Download,
   Eye, EyeOff, FilePenLine, FilterX, GripVertical, Loader2, Pencil, Pin, Plus, Redo2,
@@ -15,13 +16,33 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { ConfirmDialog, useConfirmTarget } from "@/components/ui/confirm-dialog";
 import { useVirtualViewport } from "@/hooks/use-virtual-viewport";
-import { fetchApi, fetchJson, readApiError } from "@/lib/api";
-import { canWriteCatalog } from "@/lib/roles";
+import { useStagedGridEdits } from "./use-staged-grid-edits";
+import {
+  applyMetadataBatch,
+  approveMetadataBatchFields,
+  archiveMetadataField,
+  createMetadataBatch,
+  createMetadataField,
+  exportMetadataCsv,
+  getMetadataBatch,
+  getMetadataGrid,
+  getMetadataGridPreferences,
+  getMetadataJob,
+  listCategories,
+  listMetadataFields,
+  metadataBatchReportUrl,
+  previewMetadataCsv,
+  restoreMetadataField,
+  saveMetadataGridPreferences,
+  updateMetadataField,
+} from "./catalog-client";
+import { fieldError, type IdentityKind } from "@/lib/catalog-field-rules";
+import { canAdministerCatalog, canWriteCatalog } from "@/lib/roles";
 import { cn } from "@/lib/utils";
 import type { User } from "@/types/auth";
 import type {
   CatalogComponent, CatalogMetadataBatch, CatalogMetadataField, CatalogMetadataFieldType,
-  CatalogMetadataGridPreferences, CatalogMetadataGridResponse, WorkflowStage,
+  CatalogMetadataGridPreferences, WorkflowStage,
 } from "@/types/catalog";
 
 const PAGE_SIZE = 100;
@@ -50,24 +71,22 @@ function componentFieldValue(component: CatalogComponent, field: CatalogMetadata
   return String((component as unknown as Record<string, unknown>)[field.storage_key] ?? "");
 }
 
-function validateCell(field: CatalogMetadataField, value: string): string {
-  if (!value.trim()) return field.required ? "Required" : "";
-  if (field.type === "number" && !Number.isFinite(Number(value))) return "Invalid number";
-  if (field.type === "url") {
-    try {
-      const url = new URL(value);
-      if (!['http:', 'https:'].includes(url.protocol)) return "Use HTTP(S)";
-    } catch { return "Invalid URL"; }
-  }
-  if (field.type === "enum" && !field.enum_values.includes(value)) return "Invalid option";
-  return "";
+/** Stage one cell; a value equal to the component's own drops the edit. */
+function writeStagedCell(base: StagedRows, component: CatalogComponent, field: CatalogMetadataField, value: string): StagedRows {
+  const next = cloneStaged(base);
+  const row = next[component.id] || { expected_revision_id: component.revision_id, patch: {} };
+  const original = componentFieldValue(component, field);
+  if (value === original) delete row.patch[field.key]; else row.patch[field.key] = value;
+  if (Object.keys(row.patch).length) next[component.id] = row; else delete next[component.id];
+  return next;
 }
 
 function MetadataCell({
-  value, field, readOnly, active, rowIndex, columnIndex, pinnedOffset, onCommit, onActivate, onNavigate,
+  value, field, identityKind, readOnly, active, rowIndex, columnIndex, pinnedOffset, onCommit, onActivate, onNavigate,
 }: {
   value: string;
   field: CatalogMetadataField;
+  identityKind: IdentityKind;
   readOnly: boolean;
   active: boolean;
   rowIndex: number;
@@ -133,6 +152,7 @@ function MetadataCell({
   return <CellTextEditor
     value={value}
     field={field}
+    identityKind={identityKind}
     rowIndex={rowIndex}
     columnIndex={columnIndex}
     pinnedClass={pinnedClass}
@@ -145,10 +165,11 @@ function MetadataCell({
 }
 
 function CellTextEditor({
-  value, field, rowIndex, columnIndex, pinnedClass, pinnedStyle, inputRef, readOnly, onCommit, onNavigate,
+  value, field, identityKind, rowIndex, columnIndex, pinnedClass, pinnedStyle, inputRef, readOnly, onCommit, onNavigate,
 }: {
   value: string;
   field: CatalogMetadataField;
+  identityKind: IdentityKind;
   rowIndex: number;
   columnIndex: number;
   pinnedClass: string;
@@ -160,7 +181,7 @@ function CellTextEditor({
 }) {
   const [draft, setDraft] = useState(value);
   const cancelCommit = useRef(false);
-  const error = validateCell(field, draft);
+  const error = fieldError(field, draft, "bulk", identityKind);
   const commit = () => {
     if (cancelCommit.current) { cancelCommit.current = false; return; }
     if (!readOnly && !error && draft !== value) onCommit(draft);
@@ -255,7 +276,7 @@ function BatchReviewDialog({
           {batch.skipped_unchanged_rows ? <Badge variant="secondary">{batch.skipped_unchanged_rows.toLocaleString()} unchanged skipped</Badge> : null}
           {batch.items.some((item) => item.validation_status === "invalid" || item.validation_status === "conflict") ? <Badge variant="destructive">{batch.items.filter((item) => ["invalid", "conflict"].includes(item.validation_status)).length} blocked</Badge> : null}
           {batch.unknown_fields.length ? <Badge variant="warning">{batch.unknown_fields.length} new fields</Badge> : null}
-          <a className="ml-auto text-primary underline-offset-4 hover:underline" href={`/api/catalog/metadata/batches/${batch.id}/report.csv`}>Download report</a>
+          <a className="ml-auto text-primary underline-offset-4 hover:underline" href={metadataBatchReportUrl(batch.id)}>Download report</a>
         </div>
         {batch.unknown_fields.length ? <div className="border border-warning/50 bg-warning/10 p-3 text-xs"><p className="font-medium">CSV proposes: {batch.unknown_fields.map((field) => field.label).join(", ")}</p><p className="mt-1 text-muted-foreground">These will be registered as text fields before the batch can run.</p>{isAdmin ? <Button className="mt-2" size="sm" variant="outline" onClick={onApproveFields} disabled={busy}>Approve new fields</Button> : <p className="mt-2 text-warning">An administrator must approve these definitions.</p>}</div> : null}
         <ScrollArea className="min-h-0 flex-1 border">
@@ -276,16 +297,58 @@ function BatchReviewDialog({
   </Dialog>;
 }
 
+const METADATA_GRID_KEY = ["catalog", "metadata-grid"] as const;
+const NO_COMPONENTS: CatalogComponent[] = [];
+
+interface MetadataGridQuery {
+  page: number;
+  sortBy: string;
+  sortDir: string;
+  fields: string[];
+  query: string;
+  workflow: string;
+  availability: string;
+  validation: string;
+  category: string;
+}
+
+/**
+ * One grid page per filter/sort/page/visible-field combination, through
+ * server state. A new combination keeps the previous rows on screen (dimmed
+ * by `loading`) until it answers; a failed read is a toast.
+ */
+function useMetadataGrid({ page, sortBy, sortDir, fields, query, workflow, availability, validation, category }: MetadataGridQuery) {
+  const gridParams = useMemo(() => {
+    const params = new URLSearchParams({ page: String(page), page_size: String(PAGE_SIZE), sort_by: sortBy, sort_dir: sortDir });
+    fields.forEach((fieldKey) => params.append("field", fieldKey));
+    if (query) params.set("q", query);
+    if (workflow !== "all") params.set("workflow_stage", workflow);
+    if (availability !== "all") params.set("availability_state", availability);
+    if (validation !== "all") params.set("validation_status", validation);
+    if (category !== "all") params.set("category", category === "uncategorized" ? "" : category);
+    return params.toString();
+  }, [availability, category, fields, page, query, sortBy, sortDir, validation, workflow]);
+  const grid = useServerState(
+    [...METADATA_GRID_KEY, gridParams],
+    (signal) => getMetadataGrid(new URLSearchParams(gridParams), signal),
+    { keepPrevious: true, onError: (error) => toast.error(error.message || "Failed to load metadata grid") },
+  );
+  return {
+    items: grid.data?.items ?? NO_COMPONENTS,
+    pages: grid.data?.pages ?? 1,
+    total: grid.data?.total ?? 0,
+    loading: grid.loading || grid.fetching,
+    refresh: grid.refresh,
+  };
+}
+
 // react-doctor-disable-next-line no-giant-component - spreadsheet grid, field preferences, and batch lifecycle share one page state
 export function LibraryBulkEditWorkspace({ user }: { user: User | null }) {
-  const [items, setItems] = useState<CatalogComponent[]>([]);
   const [fields, setFields] = useState<CatalogMetadataField[]>([]);
   const [preferences, setPreferences] = useState<CatalogMetadataGridPreferences>({ visible: [], order: [], widths: {}, pinned: [] });
   const visibleFieldKeySet = useMemo(() => new Set(preferences.visible), [preferences.visible]);
   const pinnedFieldKeySet = useMemo(() => new Set(preferences.pinned), [preferences.pinned]);
   const [page, setPage] = useState(1);
-  const [pages, setPages] = useState(1);
-  const [total, setTotal] = useState(0);
   const [query, setQuery] = useState("");
   const [debouncedQuery, setDebouncedQuery] = useState("");
   const [workflow, setWorkflow] = useState("all");
@@ -295,14 +358,11 @@ export function LibraryBulkEditWorkspace({ user }: { user: User | null }) {
   const [categories, setCategories] = useState<Array<{ name: string; count: number }>>([]);
   const [sortBy, setSortBy] = useState("updated_at");
   const [sortDir, setSortDir] = useState("desc");
-  const [loading, setLoading] = useState(true);
-  const [refreshKey, setRefreshKey] = useState(0);
   const [fieldQuery, setFieldQuery] = useState("");
   const [showArchived, setShowArchived] = useState(false);
   const [panelOpen, setPanelOpen] = useState(true);
   // Archiving a field hides it from every component; the dialog names it.
   const fieldArchiveTarget = useConfirmTarget<CatalogMetadataField>();
-  const [staged, setStaged] = useState<StagedRows>({});
   const [reviewOpen, setReviewOpen] = useState(false);
   const [batch, setBatch] = useState<CatalogMetadataBatch | null>(null);
   const [changeSummary, setChangeSummary] = useState("Bulk update component metadata");
@@ -310,12 +370,20 @@ export function LibraryBulkEditWorkspace({ user }: { user: User | null }) {
   const [fieldDialogOpen, setFieldDialogOpen] = useState(false);
   const [editingField, setEditingField] = useState<CatalogMetadataField | null>(null);
   const [activeCell, setActiveCell] = useState<{ row: number; column: number } | null>(null);
-  const undoStack = useRef<StagedRows[]>([]);
-  const redoStack = useRef<StagedRows[]>([]);
   const csvInputRef = useRef<HTMLInputElement>(null);
   const preferencesLoaded = useRef(false);
   const gridViewport = useVirtualViewport();
-  const isAdmin = user?.role === "admin";
+  // Undo/redo keys act only while focus is inside the grid's scroll area.
+  const gridScopeRef = useRef<HTMLDivElement | null>(null);
+  const { viewportRef } = gridViewport;
+  const attachGridViewport = useCallback((node: HTMLDivElement | null) => {
+    gridScopeRef.current = node;
+    viewportRef(node);
+  }, [viewportRef]);
+  const {
+    edits: staged, canUndo, canRedo, setCell, paste, reset: resetStaged, undo, redo,
+  } = useStagedGridEdits({ writeCell: writeStagedCell, hotkeys: { enabled: true, scope: gridScopeRef } });
+  const isAdmin = canAdministerCatalog(user?.role);
   const canEdit = canWriteCatalog(user?.role);
   // An empty grid means something different when filters are active than when the
   // catalog itself is empty, and the fix differs too.
@@ -329,9 +397,9 @@ export function LibraryBulkEditWorkspace({ user }: { user: User | null }) {
   const loadFieldsAndPreferences = useCallback(async () => {
     try {
       const [fieldResponse, layout, categoryResponse] = await Promise.all([
-        fetchJson<{ items: CatalogMetadataField[] }>("/api/catalog/metadata/fields?include_archived=true"),
-        fetchJson<CatalogMetadataGridPreferences>("/api/catalog/metadata/grid-preferences"),
-        fetchJson<{ categories: Array<{ name: string; count: number }> }>("/api/catalog/categories"),
+        listMetadataFields({ includeArchived: true }),
+        getMetadataGridPreferences(),
+        listCategories(),
       ]);
       setFields(fieldResponse.items);
       setCategories(categoryResponse.categories);
@@ -349,27 +417,14 @@ export function LibraryBulkEditWorkspace({ user }: { user: User | null }) {
 
   useEffect(() => { void loadFieldsAndPreferences(); }, [loadFieldsAndPreferences]);
 
-  useEffect(() => {
-    const controller = new AbortController();
-    setLoading(true);
-    const params = new URLSearchParams({ page: String(page), page_size: String(PAGE_SIZE), sort_by: sortBy, sort_dir: sortDir });
-    preferences.visible.forEach((fieldKey) => params.append("field", fieldKey));
-    if (debouncedQuery) params.set("q", debouncedQuery);
-    if (workflow !== "all") params.set("workflow_stage", workflow);
-    if (availability !== "all") params.set("availability_state", availability);
-    if (validation !== "all") params.set("validation_status", validation);
-    if (category !== "all") params.set("category", category === "uncategorized" ? "" : category);
-    void fetchJson<CatalogMetadataGridResponse>(`/api/catalog/metadata/grid?${params.toString()}`, { signal: controller.signal })
-      .then((response) => { setItems(response.items); setPages(response.pages); setTotal(response.total); })
-      .catch((error) => { if (!controller.signal.aborted) toast.error(error instanceof Error ? error.message : "Failed to load metadata grid"); })
-      .finally(() => { if (!controller.signal.aborted) setLoading(false); });
-    return () => controller.abort();
-  }, [availability, category, debouncedQuery, page, preferences.visible, refreshKey, sortBy, sortDir, validation, workflow]);
+  const { items, pages, total, loading, refresh: refreshGrid } = useMetadataGrid({
+    page, sortBy, sortDir, fields: preferences.visible, query: debouncedQuery, workflow, availability, validation, category,
+  });
 
   useEffect(() => {
     if (!preferencesLoaded.current) return;
     const timer = window.setTimeout(() => {
-      void fetchJson("/api/catalog/metadata/grid-preferences", { method: "PUT", body: JSON.stringify(preferences) }).catch(() => undefined);
+      void saveMetadataGridPreferences(preferences).catch(() => undefined);
     }, 400);
     return () => window.clearTimeout(timer);
   }, [preferences]);
@@ -403,28 +458,6 @@ export function LibraryBulkEditWorkspace({ user }: { user: User | null }) {
   const lastVisibleRow = Math.min(items.length, Math.ceil((gridViewport.scrollTop + gridViewport.height) / GRID_ROW_HEIGHT) + GRID_OVERSCAN);
   const visibleRows = items.slice(firstVisibleRow, lastVisibleRow);
 
-  const commitStaged = useCallback((next: StagedRows) => {
-    // History bookkeeping lives here, not inside a state updater: React may
-    // invoke an updater more than once, which would duplicate undo entries.
-    if (next === staged) return;
-    undoStack.current.push(cloneStaged(staged));
-    if (undoStack.current.length > 100) undoStack.current.shift();
-    redoStack.current = [];
-    setStaged(next);
-  }, [staged]);
-  const undo = () => { const previous = undoStack.current.pop(); if (!previous) return; redoStack.current.push(cloneStaged(staged)); setStaged(previous); };
-  const redo = () => { const next = redoStack.current.pop(); if (!next) return; undoStack.current.push(cloneStaged(staged)); setStaged(next); };
-
-  const applyCellValue = useCallback((component: CatalogComponent, field: CatalogMetadataField, value: string, base: StagedRows = staged) => {
-    const next = cloneStaged(base);
-    const row = next[component.id] || { expected_revision_id: component.revision_id, patch: {} };
-    const original = componentFieldValue(component, field);
-    if (value === original) delete row.patch[field.key]; else row.patch[field.key] = value;
-    if (Object.keys(row.patch).length) next[component.id] = row; else delete next[component.id];
-    return next;
-  }, [staged]);
-
-  const setCellValue = (component: CatalogComponent, field: CatalogMetadataField, value: string) => commitStaged(applyCellValue(component, field, value));
   const displayValue = (component: CatalogComponent, field: CatalogMetadataField) => staged[component.id]?.patch[field.key] ?? componentFieldValue(component, field);
 
   const navigateCell = (row: number, column: number) => {
@@ -436,16 +469,12 @@ export function LibraryBulkEditWorkspace({ user }: { user: User | null }) {
 
   const handleGridPaste = (event: React.ClipboardEvent<HTMLDivElement>) => {
     if (!canEdit || !activeCell) return;
-    const matrix = event.clipboardData.getData("text/plain").replace(/\r/g, "").split("\n").filter((line, index, rows) => line || index < rows.length - 1).map((line) => line.split("\t"));
-    if (!matrix.length) return;
-    event.preventDefault();
-    let next = cloneStaged(staged);
-    matrix.forEach((rowValues, rowOffset) => rowValues.forEach((value, columnOffset) => {
-      const component = items[activeCell.row + rowOffset];
-      const field = visibleFields[activeCell.column + columnOffset];
-      if (component && field && !validateCell(field, value)) next = applyCellValue(component, field, value, next);
-    }));
-    commitStaged(next);
+    const pasted = paste(
+      event.clipboardData.getData("text/plain"),
+      { rows: items, fields: visibleFields, row: activeCell.row, column: activeCell.column },
+      (component, field, value) => !fieldError(field, value, "bulk", component.identity_kind),
+    );
+    if (pasted) event.preventDefault();
   };
 
   const resizeColumn = (key: string, startX: number, startWidth: number) => {
@@ -465,21 +494,21 @@ export function LibraryBulkEditWorkspace({ user }: { user: User | null }) {
   const saveField = async (draft: FieldDraft) => {
     setBusy(true);
     try {
-      const body = JSON.stringify({ key: draft.key, label: draft.label, description: draft.description, type: draft.type, unit: draft.unit, enum_values: draft.enumValues.split(",").map((value) => value.trim()).filter(Boolean), required: draft.required });
-      await fetchJson(editingField ? `/api/catalog/metadata/fields/${editingField.id}` : "/api/catalog/metadata/fields", { method: editingField ? "PATCH" : "POST", body });
+      const body = { key: draft.key, label: draft.label, description: draft.description, type: draft.type, unit: draft.unit, enum_values: draft.enumValues.split(",").map((value) => value.trim()).filter(Boolean), required: draft.required };
+      await (editingField ? updateMetadataField(editingField.id, body) : createMetadataField(body));
       setFieldDialogOpen(false); setEditingField(null); await loadFieldsAndPreferences(); toast.success("Metadata field saved");
     } catch (error) { toast.error(error instanceof Error ? error.message : "Failed to save metadata field"); } finally { setBusy(false); }
   };
 
   const archiveField = async (field: CatalogMetadataField) => {
     fieldArchiveTarget.clear();
-    try { await fetchJson(`/api/catalog/metadata/fields/${field.id}/${field.archived ? "restore" : "archive"}`, { method: "POST" }); await loadFieldsAndPreferences(); } catch (error) { toast.error(error instanceof Error ? error.message : "Failed to update field"); }
+    try { await (field.archived ? restoreMetadataField(field.id) : archiveMetadataField(field.id)); await loadFieldsAndPreferences(); } catch (error) { toast.error(error instanceof Error ? error.message : "Failed to update field"); }
   };
 
   const validateSpreadsheet = async () => {
     setBusy(true);
     try {
-      const created = await fetchJson<CatalogMetadataBatch>("/api/catalog/metadata/batches", { method: "POST", body: JSON.stringify({ change_summary: changeSummary, items: Object.entries(staged).map(([component_id, row]) => ({ component_id, ...row })) }) });
+      const created = await createMetadataBatch({ change_summary: changeSummary, items: Object.entries(staged).map(([component_id, row]) => ({ component_id, ...row })) });
       setBatch(created);
     } catch (error) { toast.error(error instanceof Error ? error.message : "Failed to validate metadata changes"); } finally { setBusy(false); }
   };
@@ -487,10 +516,7 @@ export function LibraryBulkEditWorkspace({ user }: { user: User | null }) {
   const uploadCsv = async (file: File) => {
     setBusy(true); setReviewOpen(true);
     try {
-      const form = new FormData(); form.append("file", file); form.append("change_summary", `Import metadata from ${file.name}`);
-      const response = await fetchApi("/api/catalog/metadata/import-csv/preview", { method: "POST", body: form });
-      if (!response.ok) throw new Error(await readApiError(response, "Failed to preview CSV"));
-      const preview = await response.json() as CatalogMetadataBatch;
+      const preview = await previewMetadataCsv(file, `Import metadata from ${file.name}`);
       setBatch(preview);
       if (preview.total_items === 0) {
         toast.info(`No metadata changes found. ${Number(preview.skipped_unchanged_rows || 0).toLocaleString()} unchanged rows were skipped.`);
@@ -500,30 +526,25 @@ export function LibraryBulkEditWorkspace({ user }: { user: User | null }) {
 
   const exportCsv = async () => {
     try {
-      const params = new URLSearchParams();
-      visibleFields.forEach((field) => params.append("field", field.key));
-      const response = await fetchApi(`/api/catalog/metadata/export.csv?${params.toString()}`);
-      if (!response.ok) throw new Error(await readApiError(response, "Failed to export metadata"));
-      const url = URL.createObjectURL(await response.blob()); const anchor = document.createElement("a"); anchor.href = url; anchor.download = "prism-component-metadata.csv"; anchor.click(); URL.revokeObjectURL(url);
+      const url = URL.createObjectURL(await exportMetadataCsv(visibleFields.map((field) => field.key))); const anchor = document.createElement("a"); anchor.href = url; anchor.download = "prism-component-metadata.csv"; anchor.click(); URL.revokeObjectURL(url);
     } catch (error) { toast.error(error instanceof Error ? error.message : "Failed to export metadata"); }
   };
 
   const approveFields = async () => {
     if (!batch) return; setBusy(true);
-    try { setBatch(await fetchJson<CatalogMetadataBatch>(`/api/catalog/metadata/batches/${batch.id}/approve-fields`, { method: "POST" })); await loadFieldsAndPreferences(); } catch (error) { toast.error(error instanceof Error ? error.message : "Failed to approve fields"); } finally { setBusy(false); }
+    try { setBatch(await approveMetadataBatchFields(batch.id)); await loadFieldsAndPreferences(); } catch (error) { toast.error(error instanceof Error ? error.message : "Failed to approve fields"); } finally { setBusy(false); }
   };
 
   const applyBatch = async (itemIds: string[]) => {
     if (!batch) return; setBusy(true);
     try {
-      const queued = await fetchJson<{ job_id: string }>(`/api/catalog/metadata/batches/${batch.id}/apply`, { method: "POST", body: JSON.stringify({ item_ids: itemIds }) });
-      const poll = async (): Promise<void> => {
-        const job = await fetchJson<{ status: string; error_message?: string }>(`/api/catalog/metadata/jobs/${queued.job_id}`);
+      const queued = await applyMetadataBatch(batch.id, itemIds);
+      await pollUntil(async () => {
+        const job = await getMetadataJob(queued.job_id);
         if (job.status === "failed") throw new Error(job.error_message || "Metadata batch failed");
-        if (job.status !== "completed") { await new Promise((resolve) => window.setTimeout(resolve, 800)); return poll(); }
-      };
-      await poll();
-      const completed = await fetchJson<CatalogMetadataBatch>(`/api/catalog/metadata/batches/${batch.id}`);
+        return job.status === "completed";
+      }, { intervalMs: 800 });
+      const completed = await getMetadataBatch(batch.id);
       const itemIdSet = new Set(itemIds);
       const appliedComponents = new Set(
         completed.items.flatMap((item) => (
@@ -533,8 +554,8 @@ export function LibraryBulkEditWorkspace({ user }: { user: User | null }) {
         )),
       );
       setBatch(completed);
-      setStaged((current) => Object.fromEntries(Object.entries(current).filter(([componentId]) => !appliedComponents.has(componentId))));
-      undoStack.current = []; redoStack.current = []; setRefreshKey((value) => value + 1);
+      resetStaged((current) => Object.fromEntries(Object.entries(current).filter(([componentId]) => !appliedComponents.has(componentId))));
+      void refreshGrid();
       toast.success(`${appliedComponents.size} component revisions moved to Awaiting QA`);
     } catch (error) { toast.error(error instanceof Error ? error.message : "Failed to apply metadata batch"); } finally { setBusy(false); }
   };
@@ -547,7 +568,7 @@ export function LibraryBulkEditWorkspace({ user }: { user: User | null }) {
         <div className="flex flex-wrap items-center gap-2">
           <Button size="sm" variant="outline" onClick={() => void exportCsv()}><Download className="h-3.5 w-3.5" /> Export CSV</Button>
           {canEdit ? <Button size="sm" variant="outline" onClick={() => csvInputRef.current?.click()}><Upload className="h-3.5 w-3.5" /> Import CSV</Button> : null}
-          <Button size="sm" variant="outline" onClick={() => setRefreshKey((value) => value + 1)} disabled={loading}><RefreshCw className={cn("h-3.5 w-3.5", loading && "animate-spin")} /> Refresh</Button>
+          <Button size="sm" variant="outline" onClick={() => void refreshGrid()} disabled={loading}><RefreshCw className={cn("h-3.5 w-3.5", loading && "animate-spin")} /> Refresh</Button>
           {canEdit ? <Button size="sm" onClick={() => { setBatch(null); setReviewOpen(true); }} disabled={!Object.keys(staged).length}><Check className="h-3.5 w-3.5" /> Review changes <Badge variant="secondary">{Object.keys(staged).length}</Badge></Button> : null}
         </div>
       </div>
@@ -559,7 +580,7 @@ export function LibraryBulkEditWorkspace({ user }: { user: User | null }) {
         <Select value={category} onValueChange={(value) => { setCategory(value); setPage(1); }}><SelectTrigger size="sm" className="w-40"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="all">All categories</SelectItem><SelectItem value="uncategorized">Uncategorized</SelectItem>{categories.flatMap((item) => (item.name ? [<SelectItem key={item.name} value={item.name}>{item.name} ({item.count})</SelectItem>] : []))}</SelectContent></Select>
         <Select value={`${sortBy}:${sortDir}`} onValueChange={(value) => { const [key, direction] = value.split(":"); setSortBy(key); setSortDir(direction); setPage(1); }}><SelectTrigger size="sm" className="w-40"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="updated_at:desc">Recently updated</SelectItem><SelectItem value="mpn:asc">MPN A–Z</SelectItem><SelectItem value="manufacturer:asc">Manufacturer A–Z</SelectItem><SelectItem value="category:asc">Category A–Z</SelectItem></SelectContent></Select>
         {workflow !== "all" || availability !== "all" || validation !== "all" || category !== "all" || query ? <Button size="sm" variant="ghost" onClick={() => { setWorkflow("all"); setAvailability("all"); setValidation("all"); setCategory("all"); setQuery(""); setPage(1); }}><FilterX className="h-3.5 w-3.5" /> Clear filters</Button> : null}
-        <div className="ml-auto flex items-center gap-1"><Button size="icon-sm" variant="ghost" aria-label="Undo metadata edit" disabled={!undoStack.current.length} onClick={undo}><Undo2 className="h-4 w-4" /></Button><Button size="icon-sm" variant="ghost" aria-label="Redo metadata edit" disabled={!redoStack.current.length} onClick={redo}><Redo2 className="h-4 w-4" /></Button><Button size="sm" variant="ghost" onClick={() => setPanelOpen((value) => !value)}><Columns3 className="h-4 w-4" /> Fields</Button></div>
+        <div className="ml-auto flex items-center gap-1"><Button size="icon-sm" variant="ghost" aria-label="Undo metadata edit" disabled={!canUndo} onClick={undo}><Undo2 className="h-4 w-4" /></Button><Button size="icon-sm" variant="ghost" aria-label="Redo metadata edit" disabled={!canRedo} onClick={redo}><Redo2 className="h-4 w-4" /></Button><Button size="sm" variant="ghost" onClick={() => setPanelOpen((value) => !value)}><Columns3 className="h-4 w-4" /> Fields</Button></div>
       </div>
     </header>
 
@@ -581,7 +602,7 @@ export function LibraryBulkEditWorkspace({ user }: { user: User | null }) {
 
       <main className="flex min-w-0 flex-1 flex-col p-3">
         <div className="mb-2 flex items-center justify-between text-xs text-muted-foreground"><span>{loading ? "Loading components…" : `${items.length ? (page - 1) * PAGE_SIZE + 1 : 0}–${Math.min(page * PAGE_SIZE, total)} of ${total.toLocaleString()}`}</span><span>{visibleFields.length} visible fields · {Object.keys(staged).length} staged components</span></div>
-        <div ref={gridViewport.viewportRef} className={cn("min-h-0 flex-1 overflow-auto border", loading && "opacity-60")} onScroll={gridViewport.onScroll} onPaste={handleGridPaste} onKeyDown={(event) => { if ((event.ctrlKey || event.metaKey) && event.key.toLocaleLowerCase() === "z") { event.preventDefault(); if (event.shiftKey) redo(); else undo(); } if ((event.ctrlKey || event.metaKey) && event.key.toLocaleLowerCase() === "y") { event.preventDefault(); redo(); } }}>
+        <div ref={attachGridViewport} className={cn("min-h-0 flex-1 overflow-auto border", loading && "opacity-60")} onScroll={gridViewport.onScroll} onPaste={handleGridPaste}>
           <div role="grid" aria-label="Component metadata" aria-rowcount={items.length + 1} aria-colcount={visibleFields.length + 1} className="min-w-max" style={{ width: IDENTITY_WIDTH + visibleFields.reduce((sum, field) => sum + (preferences.widths[field.key] || DEFAULT_WIDTH), 0) }}>
             <div role="row" aria-rowindex={1} className="sticky top-0 z-20 grid h-10 border-b bg-muted text-xs font-medium" style={{ gridTemplateColumns: gridTemplate }}>
               <div role="columnheader" aria-colindex={1} className="sticky left-0 z-30 flex items-center border-r bg-muted px-3">Component</div>
@@ -590,7 +611,7 @@ export function LibraryBulkEditWorkspace({ user }: { user: User | null }) {
             {firstVisibleRow ? <div aria-hidden="true" style={{ height: firstVisibleRow * GRID_ROW_HEIGHT }} /> : null}
             {visibleRows.map((component, visibleRowIndex) => { const rowIndex = firstVisibleRow + visibleRowIndex; return <div key={component.id} role="row" aria-rowindex={rowIndex + 2} className={cn("grid border-b last:border-b-0", staged[component.id] && "bg-primary/5")} style={{ gridTemplateColumns: gridTemplate }}>
               <div role="rowheader" aria-colindex={1} className="sticky left-0 z-10 flex h-9 min-w-0 items-center gap-2 border-r bg-background px-3"><span className="min-w-0 flex-1 truncate text-xs font-medium" title={component.name}>{component.mpn || component.name}</span><Badge variant={component.workflow_stage === "qa_review" ? "warning" : "outline"} className="shrink-0" title="Read-only workflow stage">{WORKFLOW_LABELS[component.workflow_stage]}</Badge><Badge variant="outline" className="shrink-0" title="Read-only revision">v{component.revision}</Badge></div>
-              {visibleFields.map((field, columnIndex) => <MetadataCell key={field.key} value={displayValue(component, field)} field={field} readOnly={!canEdit} active={activeCell?.row === rowIndex && activeCell.column === columnIndex} rowIndex={rowIndex} columnIndex={columnIndex} pinnedOffset={pinnedOffsets.get(field.key)} onCommit={(value) => setCellValue(component, field, value)} onActivate={() => setActiveCell({ row: rowIndex, column: columnIndex })} onNavigate={(rowDelta, columnDelta) => navigateCell(rowIndex + rowDelta, columnIndex + columnDelta)} />)}
+              {visibleFields.map((field, columnIndex) => <MetadataCell key={field.key} value={displayValue(component, field)} field={field} identityKind={component.identity_kind} readOnly={!canEdit} active={activeCell?.row === rowIndex && activeCell.column === columnIndex} rowIndex={rowIndex} columnIndex={columnIndex} pinnedOffset={pinnedOffsets.get(field.key)} onCommit={(value) => setCell(component, field, value)} onActivate={() => setActiveCell({ row: rowIndex, column: columnIndex })} onNavigate={(rowDelta, columnDelta) => navigateCell(rowIndex + rowDelta, columnIndex + columnDelta)} />)}
             </div>; })}
             {lastVisibleRow < items.length ? <div aria-hidden="true" style={{ height: (items.length - lastVisibleRow) * GRID_ROW_HEIGHT }} /> : null}
           </div>

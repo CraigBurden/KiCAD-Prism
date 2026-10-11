@@ -24,7 +24,9 @@ from fastapi import APIRouter, Depends, Form, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from pydantic import BaseModel
 
-from app.core.security import AuthenticatedUser, get_current_user, require_viewer
+from app.core import policy
+from app.core.policy import require_owner_or_admin
+from app.core.security import AuthenticatedUser, get_current_user, refuse_provider_token, require_viewer
 from app.services import agent_auth_service
 
 router = APIRouter(prefix="/api/agent", tags=["agent"])
@@ -88,6 +90,7 @@ async def authorize(
         next_url = str(request.url)
         login_url = f"{_base_url(request).rstrip('/')}/?next={quote(next_url, safe='')}"
         return RedirectResponse(login_url, status_code=302)
+    refuse_provider_token(user)
 
     if user.auth_type == "guest":
         # Auth is off; nothing to authorize.
@@ -130,6 +133,7 @@ async def authorize_submit(
         code_challenge_method=code_challenge_method,
     )
     user = await get_current_user(request)
+    refuse_provider_token(user)
     if user.auth_type == "guest":
         raise HTTPException(status_code=400, detail="Sign-in is not required on this server")
 
@@ -175,7 +179,7 @@ async def list_tokens(
     ``all_users`` is honored only for admins; anyone else always sees just their
     own, regardless of the flag.
     """
-    email = None if (all_users and user.role == "admin") else user.email
+    email = None if (all_users and policy.role_allows(user.role, "admin")) else user.email
     # A catalog read; keep it off the event loop like every other store call.
     return await asyncio.to_thread(agent_auth_service.list_agent_tokens, email=email)
 
@@ -194,8 +198,7 @@ async def revoke_token(
         row = agent_auth_service.get_agent_token(jti)
         if not row:
             raise HTTPException(status_code=404, detail="Token not found")
-        if user.role != "admin" and row["email"] != user.email.strip().lower():
-            raise HTTPException(status_code=403, detail="Not your token")
+        require_owner_or_admin(user, row["email"], detail="Not your token")
         agent_auth_service.revoke_agent_token_by_jti(jti)
 
     await asyncio.to_thread(revoke)

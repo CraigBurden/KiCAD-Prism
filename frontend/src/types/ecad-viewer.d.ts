@@ -437,6 +437,11 @@ export interface EcadMeasureState {
     hover: EcadMeasureSnap | null;
 }
 
+/** `ecad-viewer:inset-mode` and `ecad-viewer:measure-mode`. */
+export interface EcadModeChangeDetail {
+    on: boolean;
+}
+
 export interface ECadViewerElement extends HTMLElement {
     readonly isReady: boolean;
     /** Design-variant API (packet 3.4); required by the vendored bundle. */
@@ -587,6 +592,9 @@ declare global {
         "ecad-viewer:document-comparison-frame": CustomEvent<EcadDocumentComparisonSelectionResult>;
         "ecad-viewer:transition-trace": CustomEvent<EcadTransitionTraceDetail>;
         "ecad-viewer:comment-area": CustomEvent<EcadCommentAreaDetail>;
+        "ecad-viewer:inset-mode": CustomEvent<EcadModeChangeDetail>;
+        "ecad-viewer:measure-mode": CustomEvent<EcadModeChangeDetail>;
+        "ecad-viewer:measure": CustomEvent<EcadMeasureState>;
         "kicanvas:select": CustomEvent<KiCanvasSelectDetail>;
         camerachange: CustomEvent<CameraState>;
     }

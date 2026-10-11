@@ -11,6 +11,7 @@ import logging
 from contextlib import contextmanager
 from typing import Any, Callable, ContextManager, Iterator
 
+from app.services.job_kinds import JobKind, JobSubject, repository_lock
 from app.services.systems.interface_extractor import EXTRACTOR_VERSION, extract_for_revision
 from app.services.systems.store import SystemStore
 
@@ -33,25 +34,14 @@ def workspace_connection() -> Iterator[Any]:
 
 
 def enqueue_extraction(project_id: str, commit: str, *, requested_by: str = "") -> dict[str, Any]:
-    from app.services.job_service import jobs
     from app.services.workspace_service import workspace
 
     row = workspace.get_project_by_id(project_id) or {}
-    repository_id = str(row.get("repo_id") or "")
-    return jobs.enqueue(
-        EXTRACT_JOB_KIND,
+    return EXTRACT.enqueue(
         {"project_id": project_id, "commit": commit},
-        worker_pool="prism",
+        subject=JobSubject.of_project(row, project_id),
         artifact_key=artifact_key(project_id, commit),
-        project_id=project_id,
-        repository_id=repository_id or None,
         requested_by=requested_by,
-        resources={"prism_worker": 1, "semantic_compile": 1},
-        locks=(
-            [{"key": f"repository:{repository_id}", "mode": "read"}]
-            if repository_id
-            else [{"key": f"project:{project_id}", "mode": "read"}]
-        ),
     )
 
 
@@ -88,7 +78,19 @@ def run_system_interface_job(context: Any) -> Any:
         # Missing commit or project file at that commit: retrying cannot help.
         logger.info("System interface extraction failed for %s@%s: %s", project_id, commit, error)
         raise PermanentJobError("Source is not readable at this commit", code="source_unavailable") from error
+    from app.services.systems.service import service as system_service
+
+    system_service.refresh_counts_for_interface(project_id, commit)  # D12: the findings change at that baseline
     return JobResult(
         message="Board interface is ready",
         details={"digest": stored["digest"], "components": len(stored.get("components") or [])},
     )
+
+
+EXTRACT = JobKind(
+    EXTRACT_JOB_KIND,
+    run_system_interface_job,
+    resources={"prism_worker": 1, "semantic_compile": 1},
+    lock=repository_lock("read"),
+)
+JOB_KINDS = (EXTRACT,)

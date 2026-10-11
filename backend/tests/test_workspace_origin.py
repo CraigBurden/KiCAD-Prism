@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import json
 import os
-import subprocess
 import sys
 import tempfile
 import unittest
@@ -19,13 +18,11 @@ from unittest.mock import patch
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from app.api._helpers import _row_to_project  # noqa: E402
+from app.core.config import settings  # noqa: E402
 from app.services.workspace_service import WorkspaceService, _git_origin  # noqa: E402
+from support.repo import git  # noqa: E402
 
 DATABASE_URL = os.environ.get("PRISM_DATABASE_URL", "").strip()
-
-
-def git(*args, cwd):
-    subprocess.run(["git", *args], cwd=cwd, check=True, capture_output=True)
 
 
 class TempDirTestCase(unittest.TestCase):
@@ -41,14 +38,14 @@ class GitOriginTests(TempDirTestCase):
     def test_a_repo_with_a_remote_reports_it(self) -> None:
         repo = self.tmp / "with-remote"
         repo.mkdir()
-        git("init", cwd=repo)
-        git("remote", "add", "origin", "https://github.com/x/y.git", cwd=repo)
+        git(repo, "init")
+        git(repo, "remote", "add", "origin", "https://github.com/x/y.git")
         self.assertEqual(_git_origin(str(repo)), "https://github.com/x/y.git")
 
     def test_a_repo_with_no_remote_reports_nothing(self) -> None:
         repo = self.tmp / "no-remote"
         repo.mkdir()
-        git("init", cwd=repo)
+        git(repo, "init")
         self.assertEqual(_git_origin(str(repo)), "")
 
     def test_a_plain_directory_reports_nothing(self) -> None:
@@ -75,7 +72,7 @@ class RepositoryOriginTests(TempDirTestCase):
 
     def setUp(self) -> None:
         super().setUp()
-        environment = patch.dict("os.environ", {"KICAD_PROJECTS_ROOT": str(self.tmp)})
+        environment = patch.object(settings, "KICAD_PROJECTS_ROOT", str(self.tmp))
         environment.start()
         self.addCleanup(environment.stop)
 
@@ -105,8 +102,8 @@ class RepositoryOriginTests(TempDirTestCase):
     def test_a_cloned_repo_is_external(self) -> None:
         repo = self.tmp / "cloned"
         repo.mkdir()
-        git("init", cwd=repo)
-        git("remote", "add", "origin", "https://gitlab.com/a/b", cwd=repo)
+        git(repo, "init")
+        git(repo, "remote", "add", "origin", "https://gitlab.com/a/b")
 
         rid = self.ws.register_repository(
             name="cloned", url="https://gitlab.com/a/b", clone_path_abs=str(repo)
@@ -147,8 +144,8 @@ class RepositoryOriginTests(TempDirTestCase):
     def test_the_origin_does_reach_a_client(self) -> None:
         repo = self.tmp / "proj"
         repo.mkdir()
-        git("init", cwd=repo)
-        git("remote", "add", "origin", "https://github.com/x/y", cwd=repo)
+        git(repo, "init")
+        git(repo, "remote", "add", "origin", "https://github.com/x/y")
         rid = self.ws.register_repository(name="proj", url="u", clone_path_abs=str(repo))
         self.ws.register_project(repo_id=rid, name="proj", relative_path=".")
         # The project this call just made, not whatever sorts first in the workspace.

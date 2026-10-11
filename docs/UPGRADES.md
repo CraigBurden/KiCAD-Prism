@@ -26,18 +26,39 @@ a general alpha compatibility guarantee. Read the release notes for the exact
 release before relying on an image-only rollback; if the release changed data
 incompatibly, restoring the matching backup is required.
 
-Workspace, catalog, and comment schemas carry numbered ledgers applied at
-startup under an advisory lock:
+Every schema Prism owns carries a numbered ledger. One module,
+[`schema_ledger.py`](../backend/app/services/schema_ledger.py), runs them all: it
+takes the schema's advisory lock, applies the steps a database has not recorded,
+renumbers branch-era rows and adopts legacy markers. At startup
+[`schema_head.py`](../backend/app/services/schema_head.py) brings every ledger to
+head in dependency order:
 
 | Schema | Ledger | Migrations |
 | --- | --- | --- |
 | `workspace` | `workspace.ws_schema_migrations` | [`workspace_schema_migrations.py`](../backend/app/services/workspace_schema_migrations.py) (registry), bodies under [`workspace_migrations/`](../backend/app/services/workspace_migrations/) |
+| `workspace` (auth tables) | `workspace.auth_schema_migrations` | [`auth_schema_migrations.py`](../backend/app/services/auth_schema_migrations.py) |
 | `comments` | `comments.comment_schema_migrations` | [`comments_schema_migrations.py`](../backend/app/services/comments_schema_migrations.py) |
 | `catalog` | `catalog.catalog_schema_versions` | [`catalog_schema_migrations.py`](../backend/app/services/catalog_schema_migrations.py) |
+| `operations` | `operations.artifact_schema_migrations` | [`artifact_schema_migrations.py`](../backend/app/services/artifact_schema_migrations.py) |
+
+The auth and artifact ledgers, and step 0 of the workspace and comments ledgers,
+hold DDL that earlier releases ran on every start outside any ledger. Each of
+those steps is safe on a database that already has it, so an existing
+installation runs them once on upgrade and records them; no manual step is
+needed.
+
+The catalog's baseline (base tables, epoch row, metadata registry and its
+built-in field seed, the first install of the head projections) is step 0 of
+the catalog ledger. Earlier releases reconciled it on every start; an existing
+installation runs it once on upgrade, where it changes nothing, and records it.
+From then on the catalog is forward-only: a later change to any of it ships as a
+new step, and rolling back to a release from before the ledger is not supported
+(see below).
 
 Derived state sits outside those ledgers on purpose. Component-head projections,
 search indexes and integrity guards are rebuilt whenever their definition version
-changes, which a run-once ledger cannot express. They rebuild from authoritative
+changes, which a run-once ledger cannot express, and the catalog's epoch guard
+still refuses a populated pre-epoch-2 catalog on every start. They rebuild from authoritative
 data, so they are not schema-migrated and are omitted from the standard
 `prism_backup.py` archive. Include them separately when faster recovery is worth
 the additional storage.
@@ -283,6 +304,44 @@ Requirements:
 To drop something, ship the code that stops using it first. Remove the column a
 release later.
 
+## Project settings move out of the checkout
+
+Earlier releases wrote project-property edits (name, description, paths) into
+the checkout's `.prism.json`. A tracked file changed that way made the checkout
+dirty, and Sync stopped fast-forwarding the project.
+
+These settings now live in the workspace database (migration 55,
+`project_path_settings`). On the first start after upgrading, Prism reads each
+checkout's `.prism.json` once. If the file is untracked, or a tracked file
+differs from `HEAD`, the values that differ are copied into the database.
+
+Once those values are stored, Prism restores a tracked file it dirtied to the
+committed version, so Sync fast-forwards again without a manual step. A file
+that supplied no values, and an untracked file (which never blocks Sync), are
+left in place. To share the settings with the team, commit them upstream.
+
+## Release Studio configurations in a monorepo subproject
+
+Earlier releases read a monorepo subproject's committed Release Studio
+configurations from the repository root's `.prism/release-studio/configurations/`
+at a commit, with repository-relative file references. A subproject now reads
+only its own folder, `<subproject>/.prism/release-studio/configurations/`, where
+Settings saves it, with references relative to the subproject. Root-level files
+no longer show for a subproject. A candidate that already captured its
+configuration snapshot keeps building from that snapshot.
+
+To keep such a configuration, move it into the subproject and make its
+references relative to the subproject folder:
+
+```sh
+git mv .prism/release-studio/configurations/release.yaml \
+       alpha/.prism/release-studio/configurations/release.yaml
+# edit: board: alpha/board.kicad_pcb  ->  board: board.kicad_pcb
+```
+
+Or open it in Settings for the subproject and save it again. A project at the
+repository root is unaffected.
+
 ## Why the catalog gate is gone
 
 Until [`catalog_schema_migrations.py`](../backend/app/services/catalog_schema_migrations.py)
@@ -297,11 +356,13 @@ had never fired, because the version had never been bumped — so the first
 release to change a catalog table would have discovered it on somebody's
 production database, mid-upgrade, after the old stack had been stopped.
 
-The ladder replaced it. The legacy version row is still written on every startup
-so that an older Prism, which treats that row as a hard precondition, can still
-open a database a newer V3 build has touched. That preserves the catalog
-rollback convention; it does not make a V2 SQLite installation or arbitrary
-alpha API changes backwards-compatible.
+The ladder replaced it. Until the baseline moved into the ledger (step 0), the
+legacy version row was still written on every startup so that an older Prism,
+which treats that row as a hard precondition, could open a database a newer
+build had touched. That row is no longer written: the catalog is forward-only,
+and a rollback to an older Prism needs the pre-upgrade backup. Existing
+databases keep the row they already have; a database created by this release
+never gets one.
 
 ## Catalog epoch 2 cutover
 

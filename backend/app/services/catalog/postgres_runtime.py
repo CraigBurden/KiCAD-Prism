@@ -9,12 +9,12 @@ from app.core.config import settings
 from app.services.postgres_database import database
 
 
-def _postgres_dsn(value: str) -> str:
+def postgres_dsn(value: str) -> str:
     """Accept both native and SQLAlchemy-style psycopg URLs."""
     return value.strip().replace("postgresql+psycopg://", "postgresql://", 1)
 
 
-def _split_sql_script(script: str) -> list[str]:
+def split_sql_script(script: str) -> list[str]:
     """Split the catalog's simple DDL script while respecting quoted strings."""
     statements: list[str] = []
     current: list[str] = []
@@ -82,7 +82,7 @@ class PostgresCatalogRuntime:
     """Own URL selection and per-call PostgreSQL connection setup."""
 
     def __init__(self, database_url: str | None = None) -> None:
-        self._postgres_url = _postgres_dsn(database_url or settings.PRISM_DATABASE_URL)
+        self._postgres_url = postgres_dsn(database_url or settings.PRISM_DATABASE_URL)
 
     @property
     def postgres_url(self) -> str:
@@ -90,13 +90,13 @@ class PostgresCatalogRuntime:
 
     @postgres_url.setter
     def postgres_url(self, value: str) -> None:
-        self._postgres_url = _postgres_dsn(value)
+        self._postgres_url = postgres_dsn(value)
 
     @contextmanager
     def connect(self) -> Iterator[CatalogPostgresConnection]:
         if not self._postgres_url:
             raise ValueError("PRISM_DATABASE_URL is required for PostgreSQL catalog storage")
-        configured_url = _postgres_dsn(settings.PRISM_DATABASE_URL)
+        configured_url = postgres_dsn(settings.PRISM_DATABASE_URL)
         if configured_url and self._postgres_url == configured_url:
             connection_context = database.connection()
         else:
@@ -116,6 +116,6 @@ class PostgresCatalogRuntime:
 __all__ = [
     "CatalogPostgresConnection",
     "PostgresCatalogRuntime",
-    "_postgres_dsn",
-    "_split_sql_script",
+    "postgres_dsn",
+    "split_sql_script",
 ]

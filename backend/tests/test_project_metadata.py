@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import json
 import os
-import subprocess
 import tempfile
 import unittest
 from pathlib import Path
@@ -14,6 +13,7 @@ from app.services import (
     project_metadata_service,
     project_properties_service,
 )
+from support.repo import git, init_repo  # noqa: E402
 
 
 # A board header in the shape KiCad writes one: the fields the project card
@@ -484,12 +484,10 @@ class RepositoryFactsTests(unittest.TestCase):
     """The commit and tag lines on the card are Git work, so they are stored too."""
 
     def _repo(self, directory: Path) -> str:
-        subprocess.run(["git", "init", "-q", str(directory)], check=True)
-        for key, value in (("user.email", "t@example.com"), ("user.name", "Test")):
-            subprocess.run(["git", "-C", str(directory), "config", key, value], check=True)
+        init_repo(directory)
         (directory / "board.kicad_pcb").write_text(BOARD_HEADER + ")\n", encoding="utf-8")
-        subprocess.run(["git", "-C", str(directory), "add", "-A"], check=True)
-        subprocess.run(["git", "-C", str(directory), "commit", "-qm", "first"], check=True)
+        git(directory, "add", "-A")
+        git(directory, "commit", "-qm", "first")
         return str(directory)
 
     def test_fingerprint_moves_with_head(self) -> None:
@@ -498,8 +496,8 @@ class RepositoryFactsTests(unittest.TestCase):
             before = project_metadata_service.repo_fingerprint(repo)
 
             (Path(repo) / "note.txt").write_text("x", encoding="utf-8")
-            subprocess.run(["git", "-C", repo, "add", "-A"], check=True)
-            subprocess.run(["git", "-C", repo, "commit", "-qm", "second"], check=True)
+            git(repo, "add", "-A")
+            git(repo, "commit", "-qm", "second")
 
             self.assertNotEqual(before, project_metadata_service.repo_fingerprint(repo))
 
@@ -510,7 +508,7 @@ class RepositoryFactsTests(unittest.TestCase):
             repo = self._repo(Path(directory))
             before = project_metadata_service.repo_fingerprint(repo)
 
-            subprocess.run(["git", "-C", repo, "tag", "v1.0"], check=True)
+            git(repo, "tag", "v1.0")
 
             self.assertNotEqual(before, project_metadata_service.repo_fingerprint(repo))
 

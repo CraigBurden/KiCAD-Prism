@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { Cable, MoreHorizontal, Pencil, Plus, Trash2, Wand2 } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
@@ -16,9 +16,10 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
-import { deleteLink, generateRows, getInstanceInterface, harnessFromLabel, linkToHarness, replaceRows, updateLink } from "@/lib/systems-api";
+import { generateRows } from "@/lib/systems-api";
 import type { Finding, LinkType, SystemDocument, SystemInstance, SystemLink } from "@/types/system";
 
+import { findingsOf } from "./findings";
 import { FindingsAlert } from "./findings-ui";
 import { GeneratorPanel } from "./generator-panel";
 import {
@@ -27,7 +28,6 @@ import {
   draftFromRows,
   draftProblems,
   draftToInputs,
-  linkFindings,
   mergeGenerated,
   newDraftKey,
   pinFacts,
@@ -38,14 +38,12 @@ import {
 import { LinkRowsTable, type RowView } from "./link-rows-table";
 import { MatingPanel } from "./mating-panel";
 import { comparePads } from "./pads";
-import type { useSystemMutation } from "./use-system-mutation";
+import { sessionReads } from "./session/session-reads";
+import { useSessionRead, useSystemSession } from "./session/use-system-session";
 import { useDraftGuard } from "./draft-guard";
 import { endReference, linkEndPads } from "./subport-model";
 
-type Mutate = ReturnType<typeof useSystemMutation>["run"];
-
 interface EndPins {
-  key: string;
   a: Map<string, PinFact> | null;
   b: Map<string, PinFact> | null;
 }
@@ -57,36 +55,28 @@ function sortedPads(facts: Map<string, PinFact> | null | undefined): string[] {
 }
 
 /** Pins of each end at its baseline, for adding rows and showing draft rows. */
-function useEndPins(systemId: string, link: SystemLink, instances: SystemInstance[]): EndPins | null {
-  const byId = new Map(instances.map((instance) => [instance.id, instance]));
-  // Everything that decides which pins are read, as one comparable value.
-  const spec = JSON.stringify((["a", "b"] as const).map((end) => {
-    const instance = byId.get(link[end].instanceId);
+/** The interface read for one end: a readable board with a known connector. */
+function endRead(link: SystemLink, end: "a" | "b", instances: SystemInstance[]) {
+  const instance = instances.find((item) => item.id === link[end].instanceId);
+  return instance && !instance.restricted && link[end].port && instance.interface?.status === "ready"
+    ? sessionReads.instanceInterface(instance.id, instance.baselineCommit, instance.interface.status)
+    : null;
+}
+
+const settled = (read: { data: unknown; error: unknown }, wanted: boolean) => !wanted || read.data !== undefined || Boolean(read.error);
+
+function useEndPins(link: SystemLink, instances: SystemInstance[]): EndPins | null {
+  const reads = { a: endRead(link, "a", instances), b: endRead(link, "b", instances) };
+  const a = useSessionRead(reads.a);
+  const b = useSessionRead(reads.b);
+  if (!settled(a, Boolean(reads.a)) || !settled(b, Boolean(reads.b))) return null;
+  // As one read: either end failing leaves both without pins.
+  if (a.error || b.error) return { a: null, b: null };
+  const facts = (read: typeof a, end: "a" | "b") => {
     const port = link[end].port;
-    return instance && !instance.restricted && port && instance.interface?.status === "ready"
-      ? { instanceId: instance.id, baseline: instance.baselineCommit, port }
-      : null;
-  }));
-  const [loaded, setLoaded] = useState<EndPins | null>(null);
-
-  useEffect(() => {
-    let cancelled = false;
-    const requests = JSON.parse(spec) as ({ instanceId: string; port: SystemLink["a"]["port"] } | null)[];
-    Promise.all(requests.map(async (request) => {
-      if (!request?.port) {
-        return null;
-      }
-      const result = await getInstanceInterface(systemId, request.instanceId);
-      return result.state === "ready" ? pinFacts(componentFor(result.body, request.port)) : null;
-    }))
-      .then(([a, b]) => !cancelled && setLoaded({ key: spec, a, b }))
-      .catch(() => !cancelled && setLoaded({ key: spec, a: null, b: null }));
-    return () => {
-      cancelled = true;
-    };
-  }, [systemId, spec]);
-
-  return loaded?.key === spec ? loaded : null;
+    return read.data?.state === "ready" && port ? pinFacts(componentFor(read.data.body, port)) : null;
+  };
+  return { a: facts(a, "a"), b: facts(b, "b") };
 }
 
 /** "OBC-1 J14": the board label and connector of one link end. */
@@ -235,11 +225,8 @@ interface LinkEditorProps {
   systemId: string;
   document: SystemDocument;
   link: SystemLink;
-  etag: string;
   canEdit: boolean;
   findings: Finding[];
-  busy: string | null;
-  run: Mutate;
   onDeleted: () => void;
   /** Opens a harness this link was just converted into (CONTRACTS_P2 §16.1). */
   onHarness?: (harnessId: string) => void;
@@ -247,8 +234,9 @@ interface LinkEditorProps {
   focusRow?: string;
 }
 
-export function LinkEditor({ systemId, document, link, etag, canEdit, findings, busy, run, onDeleted, onHarness, focusRow }: LinkEditorProps) {
-  const pins = onEnds(document, link, useEndPins(systemId, link, document.instances));
+export function LinkEditor({ systemId, document, link, canEdit, findings, onDeleted, onHarness, focusRow }: LinkEditorProps) {
+  const { busy, edit } = useSystemSession();
+  const pins = onEnds(document, link, useEndPins(link, document.instances));
   const [draft, setDraft] = useState<DraftRow[] | null>(null);
   // SB2-102: the rows before the last save, for one level of Undo; dropped on the next edit.
   const [undo, setUndo] = useState<{ linkId: string; rows: ReturnType<typeof draftToInputs> } | null>(null);
@@ -258,7 +246,8 @@ export function LinkEditor({ systemId, document, link, etag, canEdit, findings, 
 
   const redacted = link.a.redacted || link.b.redacted;
   const editable = canEdit && !redacted;
-  const { all: linkIssues, byRow } = linkFindings(findings, link);
+  const open = findingsOf(findings);
+  const linkIssues = open.link(link.id);
   const sideA = endLabel(document, link, "a");
   const sideB = endLabel(document, link, "b");
 
@@ -280,7 +269,7 @@ export function LinkEditor({ systemId, document, link, etag, canEdit, findings, 
           missing: Boolean(pins?.a) && !factA, redacted: false },
         b: { pad: row.pinB, names: factB?.pinNames ?? null, nets: factB?.nets ?? null, changed: false,
           missing: Boolean(pins?.b) && !factB, redacted: false },
-        findings: row.id ? byRow.get(row.id) ?? [] : [],
+        findings: row.id ? open.row(link.id, row.id) : [],
         problems: problemsByRow.get(row.key) ?? [],
       };
     })
@@ -298,7 +287,7 @@ export function LinkEditor({ systemId, document, link, etag, canEdit, findings, 
         };
       };
       return { key: row.id, signal: row.signal, source: row.source, a: end("a"), b: end("b"),
-        findings: byRow.get(row.id) ?? [], problems: [] };
+        findings: open.row(link.id, row.id), problems: [] };
     });
 
   const editDraft = (update: (rows: DraftRow[]) => DraftRow[]) => {
@@ -317,7 +306,7 @@ export function LinkEditor({ systemId, document, link, etag, canEdit, findings, 
   const save = async () => {
     if (!draft) return;
     const before = draftToInputs(draftFromRows(link.rows));
-    const done = await run("rows", () => replaceRows(systemId, etag, link.id, draftToInputs(draft)), "Pins saved");
+    const done = await edit("rows", (system) => system.replaceRows(link.id, draftToInputs(draft)), "Pins saved");
     if (done) {
       setDraft(null);
       setUndo({ linkId: link.id, rows: before });
@@ -325,16 +314,16 @@ export function LinkEditor({ systemId, document, link, etag, canEdit, findings, 
   };
   // SB2-114: an empty link fills in one click (a B2B mate is nearly always pad to pad, or mirrored); Undo follows.
   const fill = async (generator: "identity" | "reverse") => {
-    const done = await run("rows", async () => {
+    const done = await edit("rows", async (system) => {
       const proposed = (await generateRows(systemId, link.id, generator)).body.rows;
       if (!proposed.length) throw new Error("No pins to pair: the two connectors share no connected pad");
-      return replaceRows(systemId, etag, link.id, proposed.map(({ pinA, pinB, signal }) => ({ pinA, pinB, signal, source: "generator" })));
+      return system.replaceRows(link.id, proposed.map(({ pinA, pinB, signal }) => ({ pinA, pinB, signal, source: "generator" })));
     }, generator === "identity" ? "Pins filled pad to pad" : "Pins filled mirrored");
     if (done) setUndo({ linkId: link.id, rows: [] });
   };
   const undoSave = async () => {
     if (!undo) return;
-    const done = await run("rows", () => replaceRows(systemId, etag, undo.linkId, undo.rows), "Pins restored");
+    const done = await edit("rows", (system) => system.replaceRows(undo.linkId, undo.rows), "Pins restored");
     if (done) setUndo(null);
   };
 
@@ -367,13 +356,13 @@ export function LinkEditor({ systemId, document, link, etag, canEdit, findings, 
                   <Pencil className="mr-2 h-4 w-4" /> Edit details
                 </DropdownMenuItem>
                 {link.type !== "b2b" && (
-                  <DropdownMenuItem onSelect={() => void run("link", () => linkToHarness(systemId, etag, link.id), "Converted to a harness")
+                  <DropdownMenuItem onSelect={() => void edit("link", (system) => system.linkToHarness(link.id), "Converted to a harness")
                     .then((done) => done && onHarness?.(done.body.id))}>
                     <Cable className="mr-2 h-4 w-4" /> Convert to a harness
                   </DropdownMenuItem>
                 )}
                 {link.harness && link.type !== "b2b" && (
-                  <DropdownMenuItem onSelect={() => void run("link", () => harnessFromLabel(systemId, etag, link.harness!),
+                  <DropdownMenuItem onSelect={() => void edit("link", (system) => system.harnessFromLabel(link.harness!),
                     `Harness ${link.harness} created`).then((done) => done && onHarness?.(done.body.id))}>
                     <Cable className="mr-2 h-4 w-4" /> Make harness {link.harness} from its links
                   </DropdownMenuItem>
@@ -391,8 +380,7 @@ export function LinkEditor({ systemId, document, link, etag, canEdit, findings, 
       <FindingsAlert findings={linkIssues} />
 
       {link.type === "b2b" && (
-        <MatingPanel systemId={systemId} etag={etag} document={document} link={link} editable={editable}
-          busy={busy !== null} run={run} />
+        <MatingPanel document={document} link={link} editable={editable} />
       )}
 
       {redacted && (
@@ -468,7 +456,7 @@ export function LinkEditor({ systemId, document, link, etag, canEdit, findings, 
           link={link}
           busy={busy === "link"}
           onClose={() => setDialog(null)}
-          onSave={async (fields) => Boolean(await run("link", () => updateLink(systemId, etag, link.id, fields), "Link updated"))}
+          onSave={async (fields) => Boolean(await edit("link", (system) => system.updateLink(link.id, fields), "Link updated"))}
         />
       )}
 
@@ -481,7 +469,7 @@ export function LinkEditor({ systemId, document, link, etag, canEdit, findings, 
         destructive
         busy={busy === "delete"}
         onConfirm={() => {
-          void run("delete", () => deleteLink(systemId, etag, link.id), "Link deleted").then((done) => {
+          void edit("delete", (system) => system.deleteLink(link.id), "Link deleted").then((done) => {
             setDialog(null);
             if (done !== undefined) onDeleted();
           });

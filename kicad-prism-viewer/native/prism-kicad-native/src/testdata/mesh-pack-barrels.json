@@ -1,0 +1,102 @@
+[
+  {
+    "sourceUid": "through",
+    "objectFeatureId": 1,
+    "netId": 0,
+    "kind": "via",
+    "centerMm": [
+      10.0,
+      -5.0
+    ],
+    "drillWidthMm": 0.3,
+    "drillHeightMm": 0.3,
+    "outerWidthMm": 0.35,
+    "outerHeightMm": 0.35,
+    "platingThicknessMm": 0.025,
+    "platingThicknessSource": "default",
+    "startLayerId": 2,
+    "endLayerId": 8,
+    "layerIds": [
+      2,
+      4,
+      6,
+      8
+    ],
+    "startZMm": 1.4874999999999998,
+    "endZMm": -0.01749999999999996,
+    "boundsMm": [
+      9.825,
+      -5.175,
+      -0.01749999999999996,
+      10.175,
+      -4.825,
+      1.4874999999999998
+    ]
+  },
+  {
+    "sourceUid": "blind",
+    "objectFeatureId": 2,
+    "netId": 0,
+    "kind": "via",
+    "centerMm": [
+      10.0,
+      -5.0
+    ],
+    "drillWidthMm": 0.3,
+    "drillHeightMm": 0.3,
+    "outerWidthMm": 0.35,
+    "outerHeightMm": 0.35,
+    "platingThicknessMm": 0.025,
+    "platingThicknessSource": "default",
+    "startLayerId": 2,
+    "endLayerId": 4,
+    "layerIds": [
+      2,
+      4
+    ],
+    "startZMm": 1.4874999999999998,
+    "endZMm": 1.2525,
+    "boundsMm": [
+      9.825,
+      -5.175,
+      1.2525,
+      10.175,
+      -4.825,
+      1.4874999999999998
+    ]
+  },
+  {
+    "sourceUid": "pad",
+    "objectFeatureId": 3,
+    "netId": 0,
+    "kind": "plated_pad",
+    "centerMm": [
+      10.0,
+      -5.0
+    ],
+    "drillWidthMm": 0.3,
+    "drillHeightMm": 0.3,
+    "outerWidthMm": 0.35,
+    "outerHeightMm": 0.35,
+    "platingThicknessMm": 0.025,
+    "platingThicknessSource": "default",
+    "startLayerId": 2,
+    "endLayerId": 8,
+    "layerIds": [
+      2,
+      4,
+      6,
+      8
+    ],
+    "startZMm": 1.4874999999999998,
+    "endZMm": -0.01749999999999996,
+    "boundsMm": [
+      9.825,
+      -5.175,
+      -0.01749999999999996,
+      10.175,
+      -4.825,
+      1.4874999999999998
+    ]
+  }
+]

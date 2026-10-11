@@ -6,6 +6,7 @@ import copy
 import unittest
 
 from system_builder_db import FixtureSystemCase
+from support.postgres import seed_job
 from system_builder_fixtures import expected_steps
 
 from app.services.systems.jobs import extract_and_store
@@ -98,11 +99,8 @@ class ValidationGoldenTest(FixtureSystemCase):
 
         interface_cache.interfaces.clear()  # a direct artifact write bypasses the SB2-93 cache
         self.conn.execute("DELETE FROM system_interface_artifacts WHERE project_id = 'prj_pwr'")
-        self.conn.execute(
-            "INSERT INTO ws_jobs (id, kind, status, artifact_key, error_code) VALUES ('jf', %s, 'failed', %s,"
-            " 'source_unavailable')",
-            (EXTRACT_JOB_KIND, artifact_key("prj_pwr", self.commits["mini_power"]["F0"])),
-        )
+        seed_job(self.conn, "jf", EXTRACT_JOB_KIND, "failed",
+                 artifact_key=artifact_key("prj_pwr", self.commits["mini_power"]["F0"]), error_code="source_unavailable")
         self.conn.commit()
         [finding] = [f for f in self.report()["findings"] if f["rule"] == "SYS-V05"]
         self.assertEqual((self.labels[finding["instanceId"]], finding["detail"]),

@@ -31,19 +31,7 @@ the token itself. Keep token values in a deployment secret store or a local
 untracked environment file. The token needs GitLab `api` scope. The hosted
 defaults continue to use `GITHUB_TOKEN` and `GITLAB_TOKEN`.
 
-The release Compose bundle already passes every variable from the file named by
-`PRISM_ENV_FILE` to the backend. Put structured host token variables in that
-file. The source `docker-compose.yml` explicitly forwards the two hosted token
-variables and cannot dynamically forward arbitrary names referenced by
-`token_name`. For a self-hosted source deployment, add a local Compose override
-with an untracked secret file:
-
-```yaml
-services:
-  backend:
-    env_file:
-      - ./forge-host-secrets.env
-```
-
-Then place only the named variables in `forge-host-secrets.env`, or add each
-named variable explicitly under the backend service's `environment` section.
+Both the release Compose bundle and the source `docker-compose.yml` pass every
+variable from the deployment environment file (`.env`, or the file named by
+`PRISM_ENV_FILE`) to the backend and workers. Put structured host token
+variables in that file.
