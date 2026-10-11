@@ -68,8 +68,10 @@ package → forge → record (`ReleasePublisher`): build detail and approval
 state, Designer/QA decisions, the new-tag check at enqueue, zipping the dossier
 with the ready vendor packs, creating the Release through a forge adapter
 (`forge_publish_service.forge_for` → `GitHubForge` / `GitLabForge`), and the
-publish record. If the record cannot be written, the Release just created is
-removed (the tag stays), so publishing again works. Forge calls block; the
+publish record. If the record cannot be written, or an asset upload fails, the
+Release just created is removed, and so is its tag when that publish created it
+(a tag that existed before, or one the forge could not confirm, stays). Both
+publishing again and a new build with that tag then work. Forge calls block; the
 routes run the publisher in a worker thread so a slow forge never stalls the
 event loop. Configuration publishing (Settings → tracked branch) is
 `release_studio_config_service.py`.

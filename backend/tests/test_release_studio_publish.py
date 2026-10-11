@@ -20,6 +20,7 @@ from unittest.mock import patch
 from app.api import release_studio as api
 from app.core.errors import DomainError
 from app.release_studio.config import technical_config_digest
+from app.services.forge_publish_service import ForgePublishError
 from app.services.job_service import jobs as job_queue
 from app.services.release_studio_publish_service import ReleasePublisher
 from tests.release_publish_fakes import FakeForge, FakeRecords
@@ -151,6 +152,35 @@ class PublishTests(_Desk):
         self.assertEqual(retried["release"]["tag"], "v1.0.0")
         self.assertEqual(list(self.forge.releases_by_tag), ["v1.0.0"])
         self.assertIsNotNone(self.records.get_publish_record("build-1"))
+
+    def test_a_failed_record_also_deletes_the_tag_the_publish_created(self) -> None:
+        """D32: the tag left behind used to refuse a new build with that tag at enqueue."""
+
+        self.records.record_failure = RuntimeError("database went away")
+        with self.assertRaises(RuntimeError):
+            self.publish()
+        self.assertNotIn("v1.0.0", self.forge.tags)
+        identity = {"tag": "v1.0.0", "document_name": "DOC", "date": "2026-10-11"}
+        self.publisher.require_new_tag(REPO, identity)
+
+    def test_a_failed_record_keeps_a_tag_that_was_there_before_the_publish(self) -> None:
+        self.forge.tags.add("v1.0.0")
+        self.records.record_failure = RuntimeError("database went away")
+        with self.assertRaises(RuntimeError):
+            self.publish()
+        self.assertEqual(self.forge.releases_by_tag, {})
+        self.assertIn("v1.0.0", self.forge.tags)
+
+    def test_a_tag_the_forge_cannot_check_is_kept_on_rollback(self) -> None:
+        def unanswerable(_tag: str) -> bool:
+            raise ForgePublishError("GitHub is down", status_code=502)
+
+        self.forge.tag_exists = unanswerable  # type: ignore[method-assign]
+        self.records.record_failure = RuntimeError("database went away")
+        with self.assertRaises(RuntimeError):
+            self.publish()
+        self.assertEqual(self.forge.releases_by_tag, {})
+        self.assertIn("v1.0.0", self.forge.tags)
 
     def test_a_vendor_pack_that_is_not_ready_names_the_vendor_not_the_parser_error(self) -> None:
         self.configuration = {**self.configuration, "vendors": ["jlcpcb"]}

@@ -131,11 +131,13 @@ def publish_release(
     zip_bytes: bytes,
     filename: str,
     extra_assets: Sequence[tuple[str, bytes]] = (),
+    new_tag: bool = False,
 ) -> dict[str, str]:
     """Create the forge Release on ``commit_sha`` and attach the zip plus extras.
 
     The Release *name* is the tag. ``title`` is ignored so a client cannot
     publish sheets that state one revision under a different Release title.
+    ``new_tag`` says the tag did not exist before, so a rollback deletes it too.
     """
 
     forge = forge_for(repo_url)
@@ -145,14 +147,15 @@ def publish_release(
         tag=require_tag(tag),
         notes=notes.strip(),
         assets=[(filename, zip_bytes), *list(extra_assets)],
+        new_tag=new_tag,
     )
 
 
-def remove_release(repo_url: str, tag: str) -> None:
-    """Take down the Release just created for *tag*; the tag itself stays. Best effort."""
+def remove_release(repo_url: str, tag: str, *, with_tag: bool = False) -> None:
+    """Take down the Release just created for *tag*, and the tag when *with_tag*. Best effort."""
 
     try:
-        forge_for(repo_url).remove_release(tag)
+        forge_for(repo_url).remove_release(tag, with_tag=with_tag)
     except ForgePublishError:
         return
 
@@ -177,12 +180,17 @@ class Forge(Protocol):
         tag: str,
         notes: str,
         assets: Sequence[tuple[str, bytes]],
+        new_tag: bool = False,
     ) -> dict[str, str]:
-        """Create the Release with every asset attached, or leave none behind."""
+        """Create the Release with every asset attached, or leave none behind.
+
+        ``new_tag``: the tag did not exist before this publish, so a rollback
+        deletes the tag the Release created as well.
+        """
         ...
 
-    def remove_release(self, tag: str) -> None:
-        """Delete the Release for *tag*; the tag stays."""
+    def remove_release(self, tag: str, *, with_tag: bool = False) -> None:
+        """Delete the Release for *tag*, and the tag itself when *with_tag*."""
         ...
 
 
@@ -362,6 +370,7 @@ class GitHubForge:
         tag: str,
         notes: str,
         assets: Sequence[tuple[str, bytes]],
+        new_tag: bool = False,
     ) -> dict[str, str]:
         headers = dict(self.headers)
         created = _request(
@@ -397,6 +406,8 @@ class GitHubForge:
                 )
         except ForgePublishError as exc:
             self._delete(release_id)
+            if new_tag:
+                self._delete_tag(tag)
             raise ForgePublishError(
                 f"{exc} The incomplete GitHub Release was removed; publish again.",
                 status_code=exc.status_code,
@@ -406,7 +417,7 @@ class GitHubForge:
             html_url = f"https://github.com/{self.target.owner_repo}/releases/tag/{quote(tag)}"
         return {"url": html_url, "tag": tag, "forge": "github"}
 
-    def remove_release(self, tag: str) -> None:
+    def remove_release(self, tag: str, *, with_tag: bool = False) -> None:
         release = _request(
             "GET",
             f"{self._repo}/releases/tags/{quote(tag, safe='')}",
@@ -414,6 +425,21 @@ class GitHubForge:
             forge="GitHub",
         )
         self._delete((release or {}).get("id"))
+        if with_tag:
+            self._delete_tag(tag)
+
+    def _delete_tag(self, tag: str) -> None:
+        """Best-effort removal of a tag Prism's Release created (see ``_delete``)."""
+
+        try:
+            _request(
+                "DELETE",
+                f"{self._repo}/git/refs/tags/{quote(tag, safe='')}",
+                headers=dict(self.headers),
+                forge="GitHub",
+            )
+        except ForgePublishError:
+            return
 
     def _delete(self, release_id: Any) -> None:
         """Best-effort removal of a Release Prism created.
@@ -477,8 +503,11 @@ class GitLabForge:
         tag: str,
         notes: str,
         assets: Sequence[tuple[str, bytes]],
+        new_tag: bool = False,
     ) -> dict[str, str]:
-        # Packages first, the Release last: a failed upload leaves no Release.
+        # Packages first, the Release last: a failed upload leaves no Release
+        # and no tag, so ``new_tag`` has nothing to undo here.
+        _ = new_tag
         headers = dict(self.headers)
         links: list[dict[str, str]] = []
         for asset_name, payload in assets:
@@ -504,13 +533,20 @@ class GitLabForge:
         html_url = f"https://{self.target.host}/{self.target.owner_repo}/-/releases/{quote(tag)}"
         return {"url": html_url, "tag": tag, "forge": "gitlab"}
 
-    def remove_release(self, tag: str) -> None:
+    def remove_release(self, tag: str, *, with_tag: bool = False) -> None:
         _request(
             "DELETE",
             f"{self._project}/releases/{quote(tag, safe='')}",
             headers=dict(self.headers),
             forge="GitLab",
         )
+        if with_tag:
+            _request(
+                "DELETE",
+                f"{self._project}/repository/tags/{quote(tag, safe='')}",
+                headers=dict(self.headers),
+                forge="GitLab",
+            )
 
 
 def _request(

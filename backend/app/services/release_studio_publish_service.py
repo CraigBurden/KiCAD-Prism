@@ -5,7 +5,8 @@ Release: the approval state a build shows, Designer/QA decisions, packaging the
 dossier zip and the selected vendor packs, creating the Release through a forge
 adapter (``forge_publish_service.forge_for``) and recording the publish. The
 forge Release and the local record agree: when the record cannot be written the
-Release is taken back down, so the next attempt does not fail on the tag.
+Release is taken back down, with its tag when this publish created it, so neither
+the retry nor a new build with that tag fails on "already exists".
 
 ``BuildArchives`` reads a build's stored dossier and evidence archives
 (digest-checked) for the publisher and for the read-only build routes.
@@ -416,12 +417,16 @@ class ReleasePublisher:
         extras = self._vendor_pack_assets(build, configuration, filename)
 
         # Forge. The Release name is the tag, never a browser-supplied title.
+        # A tag this publish creates is deleted again by any rollback below.
         forge = self._forge(project)
+        tag = forge_publish.require_tag(tag)
+        new_tag = _tag_is_new(forge, tag)
         released = forge.create_release(
             commit_sha=commit_sha,
-            tag=forge_publish.require_tag(tag),
+            tag=tag,
             notes=notes.strip(),
             assets=[(filename, zip_bytes), *extras],
+            new_tag=new_tag,
         )
 
         # Record. A Release with no local record reads as unpublished here and
@@ -441,7 +446,7 @@ class ReleasePublisher:
         except Exception:
             logger.exception("Could not record the %s publish of build %s", tag, build_id)
             try:
-                forge.remove_release(tag)
+                forge.remove_release(tag, with_tag=new_tag)
             except forge_publish.ForgePublishError:
                 logger.warning("Could not remove the unrecorded %s Release", tag)
             raise
@@ -515,6 +520,19 @@ class ReleasePublisher:
                 raise errors.Conflict(f"Selected vendor pack {vendor_id} is not ready.") from exc
             assets.append((f"{stem}-{profile.pack_filename}", pack))
         return assets
+
+
+def _tag_is_new(forge: forge_publish.Forge, tag: str) -> bool:
+    """Whether *tag* is absent before the publish.
+
+    A forge that cannot answer reads as no, so a rollback never deletes a tag
+    Prism did not create.
+    """
+
+    try:
+        return not forge.tag_exists(tag)
+    except forge_publish.ForgePublishError:
+        return False
 
 
 def bound_release_identity(
