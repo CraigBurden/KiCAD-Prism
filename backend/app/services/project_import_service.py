@@ -10,14 +10,15 @@ import subprocess
 import shutil
 import tempfile
 from pathlib import Path
-from typing import List, Optional, Sequence
+from functools import wraps
+from typing import Callable, List, Optional, Sequence
 from dataclasses import dataclass
 from git import Git, Repo, RemoteProgress
 from app.core.config import settings
 from app.services import derived_assets, project_service, path_config_service
 from app.services.git_failures import GitAccessError, as_access_error
 from app.services.git_remote_url import ParsedRemote, RemoteUrlPolicy, parse_remote_url
-from app.services.job_runtime import JobContext, JobResult
+from app.services.job_runtime import JobContext, JobResult, PermanentJobError
 from app.services.job_service import jobs as v3_jobs
 from app.services.project_import_followups import (
     retry_import_follow_ups,
@@ -814,31 +815,9 @@ ACCESS_FAILURE_REASONS = frozenset(
 )
 
 
-def get_job_status(job_id: str) -> Optional[dict]:
-    """Get the current status of an import or workflow job."""
-    v3_job = v3_jobs.get(job_id)
-    if v3_job:
-        metadata = dict(v3_job.get("result_metadata") or {})
-        error_message = v3_job.get("error_message") or None
-        return {
-            **v3_job,
-            **metadata,
-            "type": v3_job.get("kind"),
-            "error": error_message,
-            # Lets the dialog offer the right fix without matching on prose.
-            "access_failure": _is_access_failure(error_message),
-            "logs": [],
-        }
-    return workspace.get_job(job_id)
-
-
 def _is_access_failure(error_message: Optional[str]) -> bool:
-    """Whether a failure is one the user can fix by granting Prism access.
-
-    The worker records only the exception's message, so the reason is recovered
-    by matching the phrases `git_failures` writes rather than by plumbing a new
-    column through the job table for a purely presentational hint.
-    """
+    """Whether a failure is one the user can fix by granting Prism access,
+    matched on the phrases `git_failures` writes into the message."""
     if not error_message:
         return False
     text = error_message.casefold()
@@ -853,6 +832,25 @@ def _is_access_failure(error_message: Optional[str]) -> bool:
     )
 
 
+#: Job error code for a failure the import dialog can offer a guided fix for.
+GIT_ACCESS_ERROR_CODE = "git_access"
+
+
+def _classify_access_failure(handler: Callable[[JobContext], JobResult]) -> Callable[[JobContext], JobResult]:
+    """Fail access failures with GIT_ACCESS_ERROR_CODE so status readers need not parse prose."""
+    @wraps(handler)
+    def run(context: JobContext) -> JobResult:
+        try:
+            return handler(context)
+        except Exception as error:
+            if isinstance(error, PermanentJobError) or not _is_access_failure(str(error)):
+                raise
+            raise PermanentJobError(str(error), code=GIT_ACCESS_ERROR_CODE) from error
+
+    return run
+
+
+@_classify_access_failure
 def run_project_analyze_job_v3(context: JobContext) -> JobResult:
     parsed = parse_remote_url(str(context.payload["repo_url"]), remote_url_policy())
     requested_ref = _validate_ref(context.payload.get("ref"))
@@ -1040,6 +1038,7 @@ def _register_planned_projects(
     return imported_ids
 
 
+@_classify_access_failure
 def run_project_import_job_v3(context: JobContext) -> JobResult:
     payload = context.payload
     parsed = parse_remote_url(str(payload["repo_url"]), remote_url_policy())

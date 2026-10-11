@@ -13,7 +13,8 @@ import { canManageProjects as roleCanManageProjects, canOpenLibraryManager } fro
 import { settingsTabFromParam } from "@/lib/settings-tabs";
 import { registerPaletteCommands, type PaletteCommand } from "@/lib/command-registry";
 import { fetchApi, readApiError } from "@/lib/api";
-import { throwIfJobFailed, watchPrismJob } from "@/lib/jobs";
+import { isAbortError, throwIfJobFailed, type PrismJobStatus } from "@/lib/jobs";
+import { useJobWatcher } from "@/hooks/use-job-watcher";
 import { WorkspaceSectionHeading } from "./workspace/workspace-section-heading";
 import { WorkspaceBreadcrumbs } from "./workspace/workspace-breadcrumbs";
 import { WorkspaceGalleryView } from "./workspace/workspace-gallery-view";
@@ -63,6 +64,23 @@ interface WorkspaceProps {
 // Closes over nothing in the component.
 const getProjectDisplayName = (project: Project) => project.display_name || project.name;
 
+// A render can queue behind other work on the worker pool. Past this long with
+// no progress the toast stops waiting; the render may still land later.
+const THUMBNAIL_STALL_MS = 10 * 60_000;
+
+/** Wait for thumbnail renders, then throw the first failure. */
+async function awaitThumbnailJobs(
+  watchJob: ReturnType<typeof useJobWatcher>,
+  jobIds: string[],
+): Promise<void> {
+  const jobs: PrismJobStatus[] = [];
+  for (const jobId of jobIds) {
+    // react-doctor-disable-next-line async-await-in-loop - one poller at a time on purpose: the renders were queued together, so the next is underway when one settles
+    jobs.push(await watchJob(jobId, { stallTimeoutMs: THUMBNAIL_STALL_MS }));
+  }
+  jobs.forEach((job) => throwIfJobFailed(job, "Failed to render thumbnail"));
+}
+
 // react-doctor-disable-next-line no-giant-component - multi-surface shell whose modals and tabs share session state
 export function Workspace({ searchQuery, user }: WorkspaceProps) {
   const navigate = useNavigate();
@@ -103,6 +121,7 @@ export function Workspace({ searchQuery, user }: WorkspaceProps) {
   // Paging belongs to the list being paged. Carrying that scope on the value
   // replaces both a reset effect and the clamp effect chained behind it.
   const [pageState, setPageState] = useState({ scope: "", page: 1 });
+  const watchJob = useJobWatcher();
   const canManageProjects = roleCanManageProjects(user?.role);
   // Everyone has personal settings (connected accounts, password); the
   // dialog itself hides workspace pages from non-admins.
@@ -427,14 +446,15 @@ export function Workspace({ searchQuery, user }: WorkspaceProps) {
       // The render runs on a worker rather than in the request, so the result
       // arrives with the job rather than with this response.
       const { job_id: jobId } = (await response.json()) as { job_id?: string };
-      if (jobId) {
-        const job = await watchPrismJob(jobId);
-        throwIfJobFailed(job, "Failed to render thumbnail");
-      }
+      if (jobId) await awaitThumbnailJobs(watchJob, [jobId]);
 
       toast.success("Thumbnail rendered", { id: toastId });
       await refresh();
     } catch (err) {
+      if (isAbortError(err)) {
+        toast.dismiss(toastId);
+        return;
+      }
       toast.error(err instanceof Error ? err.message : "Failed to render thumbnail", { id: toastId });
     }
   };
@@ -462,9 +482,7 @@ export function Workspace({ searchQuery, user }: WorkspaceProps) {
       }
 
       const payload = (await response.json()) as { job_ids?: string[]; count?: number };
-      const jobIds = payload.job_ids ?? [];
-      const jobs = await Promise.all(jobIds.map((jobId) => watchPrismJob(jobId)));
-      jobs.forEach((job) => throwIfJobFailed(job, "Failed to render thumbnail"));
+      await awaitThumbnailJobs(watchJob, payload.job_ids ?? []);
 
       toast.success(`Rendered ${payload.count ?? count} thumbnail${(payload.count ?? count) === 1 ? "" : "s"}`, {
         id: toastId,
@@ -472,6 +490,10 @@ export function Workspace({ searchQuery, user }: WorkspaceProps) {
       setBulkSelectedProjectIds(new Set());
       await refresh();
     } catch (err) {
+      if (isAbortError(err)) {
+        toast.dismiss(toastId);
+        return;
+      }
       toast.error(err instanceof Error ? err.message : "Failed to render thumbnails", { id: toastId });
     } finally {
       setIsRegeneratingThumbnails(false);
@@ -525,14 +547,15 @@ export function Workspace({ searchQuery, user }: WorkspaceProps) {
       // Nothing had been rendered for this project yet, so the server queued
       // the render this is reverting to.
       const { job_id: jobId } = (await response.json()) as { job_id?: string | null };
-      if (jobId) {
-        const job = await watchPrismJob(jobId);
-        throwIfJobFailed(job, "Failed to render thumbnail");
-      }
+      if (jobId) await awaitThumbnailJobs(watchJob, [jobId]);
 
       toast.success("Using the rendered board image", { id: toastId });
       await refresh();
     } catch (err) {
+      if (isAbortError(err)) {
+        toast.dismiss(toastId);
+        return;
+      }
       toast.error(err instanceof Error ? err.message : "Failed to restore the rendered image", { id: toastId });
     }
   };

@@ -8,7 +8,8 @@ from types import SimpleNamespace
 from unittest import mock
 
 from app.services import project_import_service
-from app.services.git_failures import GitAccessError
+from app.services.git_failures import GitAccessError, describe_git_failure
+from app.services.job_runtime import PermanentJobError
 from app.services.git_remote_url import RemoteUrlError
 
 
@@ -415,3 +416,57 @@ class EnqueueValidatesRemoteUrls(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class _FakeGitError(Exception):
+    def __init__(self, stderr: str) -> None:
+        super().__init__(stderr)
+        self.stderr = stderr
+
+
+class AccessFailureErrorCodeTests(unittest.TestCase):
+    """The job status carries the access-failure flag as its error code."""
+
+    def _analyze_failing_with(self, error: BaseException) -> BaseException:
+        context = SimpleNamespace(
+            payload={"repo_url": "https://example.com/boards.git"},
+            check_cancelled=mock.Mock(),
+            progress=lambda **values: None,
+        )
+        with mock.patch.object(
+            project_import_service, "resolve_remote_access", side_effect=error
+        ):
+            with self.assertRaises(BaseException) as caught:
+                project_import_service.run_project_analyze_job_v3(context)
+        return caught.exception
+
+    def test_access_failure_fails_the_job_with_the_git_access_code(self) -> None:
+        reason, message = describe_git_failure(_FakeGitError("remote: Repository not found."))
+        raised = self._analyze_failing_with(GitAccessError(message, reason=reason))
+
+        self.assertIsInstance(raised, PermanentJobError)
+        self.assertEqual(raised.code, project_import_service.GIT_ACCESS_ERROR_CODE)
+        self.assertEqual(str(raised), message)
+
+    def test_other_failures_keep_their_own_error(self) -> None:
+        raised = self._analyze_failing_with(ValueError("Branch 'x' does not exist on this remote"))
+
+        self.assertIsInstance(raised, ValueError)
+        self.assertNotIsInstance(raised, PermanentJobError)
+
+    def test_import_handler_is_classified_too(self) -> None:
+        reason, message = describe_git_failure(_FakeGitError("Host key verification failed."))
+        context = SimpleNamespace(
+            payload={"repo_url": "https://example.com/boards.git"},
+            check_cancelled=mock.Mock(),
+            progress=lambda **values: None,
+        )
+        with mock.patch.object(
+            project_import_service,
+            "parse_remote_url",
+            side_effect=GitAccessError(message, reason=reason),
+        ):
+            with self.assertRaises(PermanentJobError) as caught:
+                project_import_service.run_project_import_job_v3(context)
+        self.assertEqual(caught.exception.code, "git_access")
+

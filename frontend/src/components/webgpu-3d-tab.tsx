@@ -18,6 +18,7 @@ import {
     CardTitle,
 } from "@/components/ui/card";
 import { fetchApi, fetchJson, readApiError } from "@/lib/api";
+import { isAbortError, watchPrismJob, type PrismJobStatus } from "@/lib/jobs";
 import { cn } from "@/lib/utils";
 import { useCommittedRef } from "@/hooks/use-committed-ref";
 import { dnpVisibilityNotice } from "./design-variants/dnp-visibility";
@@ -75,6 +76,23 @@ interface WorkflowJob {
     readiness?: WebGpu3dReadiness;
     bundle_url?: string;
     sourceRevisionKey?: string;
+}
+
+/** The tab's view of a generation job: status plus what it staged so far. */
+function workflowJobView(job: PrismJobStatus, logs: string[]): WorkflowJob {
+    const staged = (job.staged ?? {}) as Pick<
+        WorkflowJob,
+        "readiness" | "readiness_stage" | "bundle_url" | "sourceRevisionKey"
+    >;
+    return {
+        job_id: job.job_id,
+        status: job.status,
+        message: job.message,
+        percent: job.percent,
+        logs,
+        error: job.error_message,
+        ...staged,
+    };
 }
 
 interface GenerateResponse {
@@ -208,21 +226,18 @@ export function WebGpu3dTab({
 
     useEffect(() => {
         if (!jobId) return;
-        let cancelled = false;
-        let timer: number | null = null;
-
-        const poll = async () => {
-            try {
-                const next = await fetchJson<WorkflowJob>(
-                    `/api/projects/jobs/${jobId}`,
-                    undefined,
-                    "Failed to read WebGPU generation job",
-                );
-                if (cancelled) return;
-                setJob(next);
-                const nextReadinessRevision = next.readiness?.revision;
+        const controller = new AbortController();
+        const { signal } = controller;
+        void watchPrismJob(jobId, {
+            signal,
+            intervalMs: 1000,
+            includeLogs: true,
+            onUpdate: async (next, logs) => {
+                const view = workflowJobView(next, logs);
+                setJob(view);
+                const nextReadinessRevision = view.readiness?.revision;
                 if (
-                    next.bundle_url
+                    view.bundle_url
                     && nextReadinessRevision
                     && nextReadinessRevision !== readinessRevisionRef.current
                 ) {
@@ -230,32 +245,22 @@ export function WebGpu3dTab({
                     setViewerRevision((revision) => revision + 1);
                     await refreshStatus();
                 }
-                if (next.status === "completed") {
-                    setJobId(null);
-                    setViewerRevision((revision) => revision + 1);
-                    await refreshStatus();
-                    return;
-                }
-                if (next.status === "failed") {
-                    setJobId(null);
-                    setError(next.error || next.message || "WebGPU 3D generation failed");
-                    return;
-                }
-            } catch (nextError) {
-                if (!cancelled) {
-                    setJobId(null);
-                    setError(nextError instanceof Error ? nextError.message : "Failed to poll WebGPU generation");
-                }
+            },
+        }).then(async (settled) => {
+            if (signal.aborted) return;
+            setJobId(null);
+            if (settled.status === "completed") {
+                setViewerRevision((revision) => revision + 1);
+                await refreshStatus();
                 return;
             }
-            timer = window.setTimeout(poll, 1000);
-        };
-
-        timer = window.setTimeout(poll, 500);
-        return () => {
-            cancelled = true;
-            if (timer !== null) window.clearTimeout(timer);
-        };
+            setError(settled.error_message || settled.message || "WebGPU 3D generation failed");
+        }).catch((nextError: unknown) => {
+            if (isAbortError(nextError) || signal.aborted) return;
+            setJobId(null);
+            setError(nextError instanceof Error ? nextError.message : "Failed to poll WebGPU generation");
+        });
+        return () => controller.abort();
     }, [jobId, refreshStatus]);
 
     const generate = useCallback(async (force: boolean) => {
