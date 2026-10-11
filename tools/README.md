@@ -236,8 +236,9 @@ silently serves both. You edit agent code, restart, and see nothing change, beca
 you're still talking to the installed binary.
 
 So the agent and plugin run as one of two **profiles**, defined once in
-`prism_agent/profiles.py` (and mirrored in `kicad_plugin/profiles.py`, since the
-installed plugin can't import the agent package; a test keeps them in sync):
+`profiles.py`, vendored byte for byte into both `prism_agent/` and `kicad_plugin/`
+(the installed plugin can't import the agent package; `test_vendored_parity.py`
+fails if the copies differ):
 
 | Profile | Menu entry | Preferred port | Installs as | State in |
 |---|---|---|---|---|
@@ -417,6 +418,9 @@ tools/
     projects.py           project detection + git status
     prism_client.py       Prism backend client
     discovery.py          how the plugin finds the agent
+    version.py            VENDORED: version + compatibility rules (plugin/agent/server)
+    loopback.py           VENDORED: the one client for the agent's loopback API
+    profiles.py           VENDORED: run profiles (dev/release)
     settings.py           persisted settings
     autostart.py          run at login (per-OS)
     protocol.py           prism:// links (per-OS)
@@ -431,12 +435,14 @@ tools/
     widgets.py            owner-drawn Button/Badge/Card/ScrollThumb
     crossprobe.py         jump to a changed item inside KiCad
     agent_launcher.py     finds and starts the agent binary
-    agent_client.py       talks to the agent
+    agent_client.py       talks to the agent (over loopback.py)
+    git_workflow.py       git decisions the dialog renders (publish, push, commit, switch)
+    version.py, loopback.py, profiles.py   vendored copies of the agent's
     prism_theme.py        the palette
     assets/, icon.png     the Prism logo
 ```
 
-Three things in here look redundant and aren't:
+Four things in here look redundant and aren't:
 
 **`agent_main.py`** exists because PyInstaller runs its entry script with no package
 context, so pointing it at `prism_agent/__main__.py` dies on the first relative
@@ -445,6 +451,12 @@ import.
 **`discovery.py` is duplicated in miniature inside `agent_client.py`.** The plugin
 is installed on its own and cannot import the agent package. Both are tiny; keep
 them in sync.
+
+**`version.py`, `loopback.py` and `profiles.py` exist in both packages.** Same
+reason. They are byte-identical copies rather than mirrors, so there is one set of
+compatibility rules, one loopback client and one profile registry;
+`tests/test_vendored_parity.py` fails the moment a copy differs. Edit one, copy it
+over the other. Bumping the version means editing `version.py` in both.
 
 **The noise classifier is shared, not copied.** The agent loads the backend's own
 `kicad_noise_service` by path (and bundles it into the binary) rather than keeping a
