@@ -77,6 +77,26 @@ class PrismWrittenSettingsTests(unittest.TestCase):
         )
 
 
+class UnavailableStoreTests(unittest.TestCase):
+    def test_path_resolution_survives_a_workspace_without_the_store(self) -> None:
+        # Test suites stand in a minimal workspace; a process may lack the schema.
+        class _Workspace:
+            def get_project_by_id(self, project_id):
+                return None
+
+        project_settings_service.invalidate()
+        self.addCleanup(project_settings_service.invalidate)
+        with tempfile.TemporaryDirectory() as checkout, patch(
+            "app.services.workspace_service.workspace", _Workspace()
+        ):
+            self.assertIsNone(project_settings_service.stored_settings(checkout, None))
+            path_config_service.clear_config_cache()
+            self.assertEqual(
+                path_config_service.get_path_config(checkout, use_cache=False).designOutputs,
+                path_config_service.DEFAULT_PATHS["designOutputs"],
+            )
+
+
 @unittest.skipUnless(DATABASE_URL, "PRISM_DATABASE_URL is required for stored settings tests")
 class StoredSettingsTests(unittest.TestCase):
     def setUp(self) -> None:

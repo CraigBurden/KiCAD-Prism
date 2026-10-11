@@ -24,6 +24,7 @@ configuration only. The index is one query, cached per process for a short TTL.
 from __future__ import annotations
 
 import json
+import logging
 import os
 import subprocess
 import threading
@@ -34,6 +35,8 @@ from typing import Any, Callable, Dict, Optional, Tuple
 from psycopg.types.json import Jsonb
 
 from app.services import path_config_service
+
+logger = logging.getLogger(__name__)
 
 #: Fields a Prism edit may store; the same set the in-tree writer used to keep.
 STORED_FIELDS = (*path_config_service.PATH_FIELDS, "project_name", "description", "workflows", "portfolio")
@@ -57,7 +60,7 @@ def _checkout_path(abs_clone: str, relative_path: Optional[str]) -> str:
 def _load_index() -> Dict[Tuple[str, str], Dict[str, Any]]:
     from app.services.workspace_service import workspace
 
-    workspace.initialize()
+    # No initialize(): the schema ledger brings the tables to head at startup.
     with workspace._connect() as conn:
         rows = conn.execute(
             """SELECT p.relative_path, p.project_file_rel, p.path_settings, r.clone_path
@@ -84,7 +87,15 @@ def stored_settings(project_path: str, anchor: Optional[str] = None) -> Optional
     with _index_lock:
         now = time.monotonic()
         if _index_loaded_at is None or now - _index_loaded_at > _INDEX_TTL_SECONDS:
-            _index = _load_index()
+            try:
+                _index = _load_index()
+            except Exception as exc:  # noqa: BLE001 - see below
+                # Path resolution must not fail because the store cannot be
+                # read (a process without the workspace schema, a stand-in
+                # workspace in tests). The committed .prism.json still applies;
+                # the failure is logged and retried after the TTL.
+                logger.warning("Stored project settings unavailable: %s", type(exc).__name__)
+                _index = {}
             _index_loaded_at = now
         found = _index.get(_key(project_path, anchor))
     return dict(found) if found else None
