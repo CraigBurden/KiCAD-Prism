@@ -1,255 +1,21 @@
-"""Mating frames, poses, harnesses, links and rows (CONTRACTS_P2 §14, §15, §17)."""
+"""Harnesses (CONTRACTS_P2 §17): ends, wires, nodes, coverings, and conversions to and from links."""
 
 from __future__ import annotations
 
 from typing import Any, Mapping, Optional, Sequence
 
-from app.services.systems import (
-    drift, exposure, generators, harnesses as harnesses_module, links as link_rules, mating as mating_module, modules, redaction,
-)
-from app.services.systems.interface_extractor import EXTRACTOR_VERSION
-from app.services.systems.placement import poses as placement_poses
+from app.services.systems import drift, exposure, generators, harnesses as harnesses_module
+from app.services.systems.service_base import Caller, Result, logger
 from app.services.systems.store import Conflict, Invalid, NotFound, SystemStore
-from app.services.systems.service_base import Caller, Result, _iso
 
 MAX_COVERINGS = 64  # per harness (§26.1)
 
 
 class HarnessesMixin:
-    # ------------------------------------------------------------------
-    # Mating frames (CONTRACTS_P2 §15)
-
-    def _mating_board(self, store: SystemStore, system_id: str, instance_id: str, caller: Caller) -> tuple[dict, dict]:
-        instance = self._open_instance(store, system_id, instance_id, caller)
-        if instance.get("kind") == "module":
-            raise Invalid("a module's connector frames come from its connector placement in the catalog (§3.6)")
-        if instance.get("kind", "board") != "board":
-            raise Invalid("a subsystem's connector frames are frozen in its snapshot; change them in the child system")
-        return instance, self._interface(store, instance)
-
-    def mating(self, caller: Caller, system_id: str, instance_id: str) -> dict:
-        """``GET …/instances/{iid}/mating``: every exposed port's inference and stored frame."""
+    def list_harnesses(self, caller: Caller, system_id: str) -> list[dict]:
         with self._tx() as store:
             self._system(store, system_id, caller)
-            _instance, interface = self._mating_board(store, system_id, instance_id, caller)
-            stored = store.list_mating(instance_id)
-            overrides = store.list_overrides(instance_id)
-        exposed = {p["portKey"] for p in exposure.resolve_ports(interface, overrides) if p["exposed"]}
-        ports = [mating_module.port_state(component, stored.get(component["portKey"]))
-                 for component in interface.get("components") or [] if component["portKey"] in exposed]
-        return {"instanceId": instance_id, "boardThicknessMm": interface.get("boardThicknessMm"), "ports": ports}
-
-    def link_mate(self, caller: Caller, system_id: str, link_id: str) -> dict:
-        """``GET …/links/{lid}/mate`` (SB2-39): both connectors of a B2B link with their v6 geometry and
-        frames, so the browser can preview the mated pair with the placement library while a frame is picked."""
-        with self._tx() as store:
-            self._system(store, system_id, caller)
-            link = store.get_link(system_id, link_id)
-            if link.get("type") != "b2b":
-                raise Invalid("only a board-to-board link has a mate")
-            ends = {}
-            for end in ("a", "b"):
-                instance_id, port = link[f"{end}_instance_id"], link[f"{end}_port"]
-                instance = self._open_instance(store, system_id, instance_id, caller)
-                entry = {"instanceId": instance_id, "kind": instance.get("kind", "board"),
-                         "portKey": port["portKey"], "reference": port.get("reference") or "",
-                         "geometry": None, "thicknessMm": None, "inferred": None, "stored": None}
-                if entry["kind"] == "board" and instance.get("project_id") and instance.get("baseline_commit"):
-                    component = store.get_interface_component(instance["project_id"], instance["baseline_commit"],
-                                                              EXTRACTOR_VERSION, port["portKey"])
-                    if component is not None:
-                        record = store.list_mating(instance_id).get(port["portKey"])
-                        state = mating_module.port_state(component, record)
-                        entry.update(geometry=component.get("geometry"), thicknessMm=component.get("boardThicknessMm"),
-                                     inferred=state["inferred"], stored=state["stored"])
-                elif entry["kind"] == "module":
-                    component = modules.component(self._interface(store, instance), port["portKey"])
-                    if component is not None and component.get("geometry"):
-                        entry.update(geometry=component["geometry"], thicknessMm=0.0, stored=component["matingFrame"])
-                ends[end] = entry
-        return {"linkId": link_id, "stackHeightMm": link.get("stack_height_mm"), **ends}
-
-    def placement(self, caller: Caller, system_id: str) -> dict:
-        """``GET …/placement`` (SB2-39): the root level's solve (§14.9), by instance ID, without the scene's
-        bundle reads (which can queue builds)."""
-        with self._tx() as store:
-            loaded = self._load(store, system_id, caller)
-            version = int(loaded.version)
-            solved = loaded.placement["results"].get("")
-            chosen = loaded.driving
-
-        def iid(path: str) -> str:
-            return path.rsplit("/", 1)[-1]
-
-        out = {"systemId": system_id, "version": version, "roots": [], "driving": {}, "mismatches": [],
-               "unusable": [], "ignoredOverrides": [], "drivingMates": chosen}
-        if solved:
-            out.update(
-                roots=[iid(p) for p in solved["roots"]],
-                driving={iid(p): {"linkId": e["linkId"], "from": iid(e["from"]), "overridden": e["overridden"]}
-                         for p, e in solved["driving"].items()},
-                mismatches=solved["mismatches"], unusable=solved["unusable"],
-                ignoredOverrides=[{**o, "member": iid(o["member"])} for o in solved["ignoredOverrides"]])
-        return out
-
-    def set_mating(
-        self, caller: Caller, system_id: str, version: int, instance_id: str, port_key: str,
-        fields: Optional[Mapping[str, Any]],
-    ) -> Result:
-        """``PUT`` (``fields``) or ``DELETE`` (``None``) one port's stored frame."""
-        with self._tx() as store:
-            self._system(store, system_id, caller)
-            with store.mutation(system_id, expected_version=version, actor=caller.actor) as change:
-                _instance, interface = self._mating_board(store, system_id, instance_id, caller)
-                component = exposure.component_by_key(interface, port_key)
-                if component is None or component["portKey"] != port_key:
-                    raise Invalid("portKey is not a component of this board at its baseline")
-                record = None if fields is None else mating_module.record_for(
-                    component, fields.get("mode"), fields.get("axis"), fields.get("quarterTurns"))
-                store.set_mating(change, instance_id, port_key, record)
-                body = mating_module.port_state(component, store.list_mating(instance_id).get(port_key))
-        return Result(body, system_id, change.version)
-
-    # ------------------------------------------------------------------
-    # Poses (CONTRACTS_P2 §14.3)
-
-    def poses(self, caller: Caller, system_id: str) -> dict:
-        """``GET …/poses``: the stored poses of this system's own instances. An instance
-        not listed takes its default pose (the scene shows where that is)."""
-        with self._tx() as store:
-            version = int(self._system(store, system_id, caller)["version"])
-            stored = store.list_poses(system_id)
-        return {"systemId": system_id, "version": version,
-                "poses": [{"instanceId": key, **value} for key, value in stored.items()]}
-
-    def set_pose(
-        self, caller: Caller, system_id: str, version: int, instance_id: str,
-        fields: Optional[Mapping[str, Any]],
-    ) -> Result:
-        """``PUT`` (``fields``: ``translationMm``, ``rotation``) or ``DELETE`` (``None``) one
-        instance's pose. Users store ``manual`` poses; the solve (M4) stores ``auto`` ones."""
-        if fields is None:
-            pose = None
-        else:
-            try:
-                pose = {**placement_poses.pose_from(fields["translationMm"], fields["rotation"]), "source": "manual"}
-            except ValueError as error:
-                raise Invalid(str(error)) from error
-        with self._tx() as store:
-            self._system(store, system_id, caller)
-            with store.mutation(system_id, expected_version=version, actor=caller.actor) as change:
-                store.set_pose(change, instance_id, pose)
-                stored = store.list_poses(system_id).get(instance_id)
-        body = {"instanceId": instance_id, **stored} if stored else {"instanceId": instance_id, "source": "default"}
-        return Result(body, system_id, change.version)
-
-    def driving_mates(self, caller: Caller, system_id: str) -> dict:
-        """``GET …/driving-mates``: the user's driving mate choices (§14.9); the scene shows the ones in use."""
-        with self._tx() as store:
-            version = int(self._system(store, system_id, caller)["version"])
-            chosen = store.list_driving_mates(system_id)
-        return {"systemId": system_id, "version": version,
-                "drivingMates": [{"instanceId": key, "linkId": value} for key, value in chosen.items()]}
-
-    def set_driving_mate(self, caller: Caller, system_id: str, version: int, instance_id: str,
-                         link_id: Optional[str]) -> Result:
-        """``PUT`` (a B2B link of the instance) or ``DELETE`` (``None``, back to the solve's pick)."""
-        with self._tx() as store:
-            self._system(store, system_id, caller)
-            with store.mutation(system_id, expected_version=version, actor=caller.actor) as change:
-                store.set_driving_mate(change, instance_id, link_id)
-                chosen = store.list_driving_mates(system_id).get(instance_id)
-        return Result({"instanceId": instance_id, "linkId": chosen}, system_id, change.version)
-
-    def set_poses(self, caller: Caller, system_id: str, version: int, poses: Sequence[Mapping[str, Any]],
-                  clear: Sequence[str] = ()) -> Result:
-        """``PATCH …/poses`` (SB2-38): store several manual poses and clear others in one change, so a
-        stack moved together (or put back) is one version and never half saved."""
-        if not poses and not clear:
-            raise Invalid("nothing to change: give poses or clear")
-        ids = [p["instanceId"] for p in poses] + list(clear)
-        if len(set(ids)) != len(ids):
-            raise Invalid("each instance may appear once")
-        try:
-            stored = [(p["instanceId"], {**placement_poses.pose_from(p["translationMm"], p["rotation"]), "source": "manual"})
-                      for p in poses]
-        except ValueError as error:
-            raise Invalid(str(error)) from error
-        with self._tx() as store:
-            self._system(store, system_id, caller)
-            with store.mutation(system_id, expected_version=version, actor=caller.actor) as change:
-                for instance_id, pose in stored:
-                    store.set_pose(change, instance_id, pose)
-                for instance_id in clear:
-                    store.set_pose(change, instance_id, None)
-                now = store.list_poses(system_id)
-        body = {"poses": [{"instanceId": i, **now[i]} if i in now else {"instanceId": i, "source": "default"} for i in ids]}
-        return Result(body, system_id, change.version)
-
-    def reset_poses(self, caller: Caller, system_id: str, version: int) -> Result:
-        """``DELETE …/poses``: every manual pose goes back to its default (D-P2-14)."""
-        with self._tx() as store:
-            self._system(store, system_id, caller)
-            with store.mutation(system_id, expected_version=version, actor=caller.actor) as change:
-                reset = store.reset_poses(change)
-        return Result({"reset": reset}, system_id, change.version)
-
-    # ------------------------------------------------------------------
-    # Harnesses (CONTRACTS_P2 §17)
-
-    def _end_components(self, store: SystemStore, harness: Mapping[str, Any],
-                        interfaces: Optional[Mapping[str, dict]] = None) -> dict[str, Optional[dict]]:
-        """``end ID -> mated component`` (None when it no longer resolves). Ends whose board
-        interface is not extracted yet, and unmated ends, are left out."""
-        if interfaces is None:
-            interfaces = {end["mates_instance_id"]: self._instance_interface(
-                store, store.get_instance(harness["system_id"], end["mates_instance_id"]))
-                for end in harness["ends"] if end["mates_instance_id"] and end["mates_port"]}
-        return harnesses_module.end_components(harness, interfaces)
-
-    @staticmethod
-    def _harness_doc(harness: Mapping[str, Any], components: Mapping[str, Optional[dict]]) -> dict:
-        ends = []
-        for end in harness["ends"]:
-            component = components.get(end["id"])
-            mates = None
-            if end["mates_instance_id"] and end["mates_port"]:
-                mates = {"instanceId": end["mates_instance_id"], "portKey": end["mates_port"]["portKey"],
-                         "port": dict(end["mates_port"]), "redacted": False,
-                         "resolved": None if end["id"] not in components else component is not None}
-            ends.append({
-                "id": end["id"], "ordinal": end["ordinal"], "mates": mates,
-                "part": harnesses_module.part_ref(end),
-                "contact": harnesses_module.contact_ref(end),
-                "pinCount": end["pin_count"], "pinMap": end["pin_map"], "bootMm": end["boot_mm"],
-                "pins": harnesses_module.end_pins(end, component),
-                # The mated connector's pads, for the pin map (SB2-18).
-                "matePads": sorted(exposure.pins_by_pad(component), key=drift.pad_sort_key) if component else [],
-            })
-        wires = [{
-            "id": wire["id"], "from": {"end": wire["from_end"], "pin": wire["from_pin"]},
-            "to": {"end": wire["to_end"], "pin": wire["to_pin"]}, "signal": wire["signal"],
-            "gaugeAwg": wire["gauge_awg"], "colour": wire["colour"], "label": wire["label"],
-            "netFrom": list(wire["net_from"]), "netTo": list(wire["net_to"]), "redactedEnds": [],
-        } for wire in harness["wires"]]
-        return {"id": harness["id"], "name": harness["name"], "label": harness["label"],
-                "cutLengthMm": harness["cut_length_mm"], "serviceAllowancePct": harness["service_allowance_pct"],
-                "linkable": harnesses_module.is_linkable(harness), "ends": ends, "wires": wires,
-                "nodes": [dict(node) for node in harness.get("nodes", [])],
-                "coverings": harnesses_module.covering_docs(harness),
-                "updatedAt": _iso(harness["updated_at"])}
-
-    def _harness_body(self, store: SystemStore, system_id: str, harness_id: str, caller: Caller) -> dict:
-        harness = store.get_harness(system_id, harness_id)
-        body = self._harness_doc(harness, self._end_components(store, harness))
-        return redaction.redact_harness(body, self._restricted_instances(store, system_id, caller))
-
-    def _visible_harness(self, store: SystemStore, system_id: str, harness_id: str, caller: Caller) -> dict:
-        harness = store.get_harness(system_id, harness_id)
-        restricted = self._restricted_instances(store, system_id, caller)
-        if any(end["mates_instance_id"] in restricted for end in harness["ends"]):
-            raise NotFound("Harness not found")  # edits would touch a board the caller cannot see
-        return harness
+            return [self._harness_body(store, system_id, h["id"], caller) for h in store.list_harnesses(system_id)]
 
     def _mate(self, store: SystemStore, system_id: str, caller: Caller, mates: Mapping[str, str]) -> tuple[dict, dict]:
         """An exposed port for a harness end: ``(mates for the store, component)``."""
@@ -262,11 +28,6 @@ class HarnessesMixin:
         if instance.get("kind", "board") == "board" and not exposure.is_exposed(component, override):
             raise Conflict("port is not exposed on this board")
         return {"instanceId": instance["id"], "port": exposure.port_baseline(component)}, component
-
-    def list_harnesses(self, caller: Caller, system_id: str) -> list[dict]:
-        with self._tx() as store:
-            self._system(store, system_id, caller)
-            return [self._harness_body(store, system_id, h["id"], caller) for h in store.list_harnesses(system_id)]
 
     def create_harness(self, caller: Caller, system_id: str, version: int, fields: Mapping[str, Any]) -> Result:
         """``POST …/harnesses``: ends mate ports or nothing; ``identity`` fills wires between two mated ends."""
@@ -330,6 +91,9 @@ class HarnessesMixin:
                 store.delete_harness(change, harness_id)
         return Result(None, system_id, change.version)
 
+    # ------------------------------------------------------------------
+    # Ends
+
     def add_harness_end(self, caller: Caller, system_id: str, version: int, harness_id: str,
                         fields: Mapping[str, Any]) -> Result:
         with self._tx() as store:
@@ -375,6 +139,40 @@ class HarnessesMixin:
                     self._replace_wires_in(store, change, harness_id, wires)
                 body = self._harness_body(store, system_id, harness_id, caller)
         return Result(body, system_id, change.version)
+
+    def delete_harness_end(self, caller: Caller, system_id: str, version: int, harness_id: str, end_id: str) -> Result:
+        with self._tx() as store:
+            self._system(store, system_id, caller)
+            with store.mutation(system_id, expected_version=version, actor=caller.actor) as change:
+                self._visible_harness(store, system_id, harness_id, caller)
+                store.delete_harness_end(change, harness_id, end_id)
+                body = self._harness_body(store, system_id, harness_id, caller)
+        return Result(body, system_id, change.version)
+
+    def end_suggestions(self, caller: Caller, system_id: str, harness_id: str, end_id: str) -> dict:
+        """``GET …/harnesses/{hid}/ends/{eid}/suggestions`` (§18): the mated connector's part and its known
+        partners. Nothing is assigned."""
+        with self._tx() as store:
+            self._system(store, system_id, caller)
+            harness = self._visible_harness(store, system_id, harness_id, caller)
+            end = next((e for e in harness["ends"] if e["id"] == end_id), None)
+            if end is None:
+                raise NotFound("Harness end not found")
+            component = self._end_components(store, harness).get(end_id)
+        mpn = (component or {}).get("mpn")
+        if not mpn:
+            return {"endId": end_id, "connectorMpn": None, "connectorPart": None, "suggestions": []}
+        try:
+            catalog = self._catalog()
+            board_part = catalog.parts_by_mpn([mpn]).get(mpn.strip().lower())
+            suggestions = catalog.list_mates_with(board_part["componentId"]) if board_part else []
+        except Exception:
+            logger.exception("Could not read catalog mates for a harness end")
+            board_part, suggestions = None, []
+        return {"endId": end_id, "connectorMpn": mpn, "connectorPart": board_part, "suggestions": suggestions}
+
+    # ------------------------------------------------------------------
+    # Coverings (§26)
 
     def _catalog_part(self, part: Mapping[str, Any]) -> dict:
         """An active catalog part by ``componentId``: summary and current revision (404/422 otherwise)."""
@@ -443,14 +241,8 @@ class HarnessesMixin:
                 "partPins": list(pins), "partSummary": {k: found.get(k) or "" for k in harnesses_module.PART_SUMMARY},
                 "pinCount": len(pins), "pinMap": pin_map}
 
-    def delete_harness_end(self, caller: Caller, system_id: str, version: int, harness_id: str, end_id: str) -> Result:
-        with self._tx() as store:
-            self._system(store, system_id, caller)
-            with store.mutation(system_id, expected_version=version, actor=caller.actor) as change:
-                self._visible_harness(store, system_id, harness_id, caller)
-                store.delete_harness_end(change, harness_id, end_id)
-                body = self._harness_body(store, system_id, harness_id, caller)
-        return Result(body, system_id, change.version)
+    # ------------------------------------------------------------------
+    # Wires and nodes
 
     @staticmethod
     def _wire_input(wire: Mapping[str, Any]) -> dict:
@@ -499,6 +291,9 @@ class HarnessesMixin:
                  for row in body["rows"]]
         skipped = [{"fromPin": s["pinA"], "toPin": s["pinB"], "reason": s["reason"]} for s in body["skipped"]]
         return {"harnessId": harness_id, "generator": generator, "wires": wires, "skipped": skipped}
+
+    # ------------------------------------------------------------------
+    # Links and harnesses (§17.6)
 
     def link_to_harness(self, caller: Caller, system_id: str, version: int, link_id: str) -> Result:
         """§16.1: a 2-end harness mating the link's ends, one wire per row; the link is deleted."""
@@ -576,152 +371,3 @@ class HarnessesMixin:
                 store.replace_rows(change, link["id"], rows)
                 body = self._link_body(store, system_id, link["id"])
         return Result(body, system_id, change.version)
-
-    # ------------------------------------------------------------------
-    # Links and rows
-
-    def _visible_link(self, store: SystemStore, system_id: str, link_id: str, caller: Caller) -> dict:
-        try:
-            link = store.get_link(system_id, link_id)
-        except NotFound:
-            raise NotFound("Link not found") from None
-        for end in ("a", "b"):
-            try:
-                self._open_instance(store, system_id, link[f"{end}_instance_id"], caller)
-            except NotFound:
-                raise NotFound("Link not found") from None
-        return link
-
-    def _link_body(self, store: SystemStore, system_id: str, link_id: str) -> dict:
-        instances = store.list_instances(system_id, kinds=SystemStore.ALL_KINDS)
-        link = store.get_link(system_id, link_id)
-        interfaces: dict[str, dict] = {}
-        overrides: dict[str, dict] = {}
-        for instance in instances:
-            if instance["id"] in (link["a_instance_id"], link["b_instance_id"]):
-                found = self._instance_interface(store, instance)
-                if found is not None:
-                    interfaces[instance["id"]] = found
-                    overrides[instance["id"]] = store.list_overrides(instance["id"])
-        return self._link_doc(link, interfaces, overrides, {
-            iid: store.list_mating(iid) for iid in {link["a_instance_id"], link["b_instance_id"]}},
-            {row["id"]: row for row in store.list_subports(system_id)})
-
-    def create_link(
-        self, caller: Caller, system_id: str, version: int, *, a: Mapping[str, str],
-        b: Mapping[str, str], name: str, harness: Optional[str], link_type: str = "unspecified",
-        stack_height_mm: Optional[float] = None,
-    ) -> Result:
-        with self._tx() as store:
-            self._system(store, system_id, caller)
-            with store.mutation(system_id, expected_version=version, actor=caller.actor) as change:
-                baselines, subport_ids = [], []
-                all_subports = store.list_subports(system_id)
-                for end in (a, b):
-                    instance = self._open_instance(store, system_id, end["instanceId"], caller)
-                    interface = self._interface(store, instance)
-                    component = exposure.component_by_key(interface, end["portKey"])
-                    if component is None:
-                        raise Invalid("portKey is not a component of this board at its baseline")
-                    override = store.list_overrides(instance["id"]).get(component["portKey"])
-                    if not exposure.is_exposed(component, override):
-                        raise Conflict("port is not exposed on this board")
-                    if link_type == "b2b":
-                        link_rules.check_whole_connector(component)
-                    baseline = exposure.port_baseline(component)
-                    subport_id = end.get("subportId")
-                    link_rules.check_subport(all_subports, instance["id"], baseline, subport_id)
-                    baselines.append(baseline)
-                    subport_ids.append(subport_id)
-                link = store.create_link(
-                    change, a_instance_id=a["instanceId"], a_port=baselines[0],
-                    b_instance_id=b["instanceId"], b_port=baselines[1], name=name, harness=harness,
-                    link_type=link_type, stack_height_mm=stack_height_mm,
-                    a_subport_id=subport_ids[0], b_subport_id=subport_ids[1],
-                )
-                body = self._link_body(store, system_id, link["id"])
-        return Result(body, system_id, change.version)
-
-    def update_link(
-        self, caller: Caller, system_id: str, version: int, link_id: str, fields: Mapping[str, Any]
-    ) -> Result:
-        with self._tx() as store:
-            self._system(store, system_id, caller)
-            with store.mutation(system_id, expected_version=version, actor=caller.actor) as change:
-                link = self._visible_link(store, system_id, link_id, caller)
-                if fields.get("type") == "b2b":
-                    for end in ("a", "b"):
-                        found = self._instance_interface(store, store.get_instance(system_id, link[f"{end}_instance_id"]))
-                        link_rules.check_whole_connector(
-                            exposure.component_by_key(found, link[f"{end}_port"]["portKey"]) if found else None)
-                store.update_link(
-                    change, link_id, name=fields.get("name"), harness=fields.get("harness", ...),
-                    link_type=fields.get("type"), stack_height_mm=fields.get("stackHeightMm", ...),
-                )
-                body = self._link_body(store, system_id, link_id)
-        return Result(body, system_id, change.version)
-
-    def delete_link(self, caller: Caller, system_id: str, version: int, link_id: str) -> Result:
-        with self._tx() as store:
-            self._system(store, system_id, caller)
-            with store.mutation(system_id, expected_version=version, actor=caller.actor) as change:
-                self._visible_link(store, system_id, link_id, caller)
-                store.delete_link(change, link_id)
-        return Result(None, system_id, change.version)
-
-    def replace_rows(
-        self, caller: Caller, system_id: str, version: int, link_id: str,
-        rows: Sequence[Mapping[str, Any]],
-    ) -> Result:
-        with self._tx() as store:
-            self._system(store, system_id, caller)
-            with store.mutation(system_id, expected_version=version, actor=caller.actor) as change:
-                link = self._visible_link(store, system_id, link_id, caller)
-                pins: dict[str, dict[str, dict]] = {}
-                references: dict[str, str] = {}
-                for end in ("a", "b"):
-                    instance = store.get_instance(system_id, link[f"{end}_instance_id"])
-                    interface = self._interface(store, instance)
-                    component = exposure.component_by_key(interface, link[f"{end}_port"]["portKey"])
-                    if component is None:
-                        raise Conflict("a link end no longer resolves at its baseline; resolve its review first")
-                    pins[end] = exposure.pins_by_pad(component)
-                    references[end] = component["reference"]
-                all_subports = store.list_subports(system_id)
-                allowed = {end: link_rules.end_pads(link, end, pins[end], all_subports) for end in ("a", "b")}
-                captured = []
-                for row in rows:
-                    item = dict(row)
-                    for end, column in (("a", "A"), ("b", "B")):
-                        pad = str(item.get(f"pin{column}") or "")
-                        if pad and pad not in pins[end]:
-                            raise Invalid(f"pin {pad} does not exist on {references[end]}")
-                        if pad and pad not in allowed[end]:
-                            raise Invalid(f"pin_not_on_subport: pin {pad} is not on this end of the link (P2 §22.2)")
-                        item[f"net{column}"] = pins[end][pad]["nets"] if pad else []
-                    captured.append(item)
-                store.replace_rows(change, link_id, captured)
-                body = self._link_body(store, system_id, link_id)
-        return Result(body, system_id, change.version)
-
-    def generate_rows(
-        self, caller: Caller, system_id: str, link_id: str, generator: str, options: Mapping[str, Any],
-    ) -> Result:
-        """``POST …/links/{lid}/generate`` (§8.5): proposed rows, nothing written."""
-
-        with self._tx() as store:
-            system = self._system(store, system_id, caller)
-            link = self._visible_link(store, system_id, link_id, caller)
-            pins = {}
-            for end in ("a", "b"):
-                instance = store.get_instance(system_id, link[f"{end}_instance_id"])
-                component = exposure.component_by_key(self._interface(store, instance), link[f"{end}_port"]["portKey"])
-                if component is None:
-                    raise Conflict("a link end no longer resolves at its baseline; resolve its review first")
-                pins[end] = exposure.pins_by_pad(component)
-            all_subports = store.list_subports(system_id)
-            for end in ("a", "b"):
-                allowed = link_rules.end_pads(link, end, pins[end], all_subports)
-                pins[end] = {pad: facts for pad, facts in pins[end].items() if pad in allowed}
-        body = generators.generate(generator, pins["a"], pins["b"], link["rows"], options)
-        return Result({"linkId": link_id, **body}, system_id, system["version"])

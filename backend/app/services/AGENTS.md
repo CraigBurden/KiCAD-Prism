@@ -164,6 +164,18 @@ catalog's mate pairs are an input. Documents are built unredacted (`_build`) and
 leave the service only through `_for_reader`/`_report_for_reader`
 (`systems/redaction.py`); that is what lets a snapshot freeze one document and
 `systems/icd.py` render frozen snapshots and diffs for any reader.
+`systems/links.py` owns the link end rules (one of portKey/exportId, same port,
+link type, sub-port membership, exported or linked ports, end pads) and the
+link-shaped view of a mated harness end; the API, CSV import, manifest import
+and the service go through it, and `systems/store_links.py` is the only code that
+tells a harness end's ID from a link's. Both classes are one mixin per concept:
+the store's `store_<concept>.py` (instances, placement, links, exports,
+harnesses, subports, snapshots, reviews, renames) over `store_base.StoreCore`,
+and the service's `service_<concept>.py` over three layers, `service_base`
+(plumbing, catalog revisions, Git hooks), `service_reading` (`_load`, the
+resolver `LoadedSystem` calls back, reader visibility) and `service_rendering`
+(`_build` and the row renderers). A concept calls only its own and the layers'
+private methods (`backend/tests/test_system_service_layers.py`).
 `systems/csv_import.py` parses, classifies and writes connection CSV imports;
 `systems/generators.py` proposes rows and never writes. A change to what the
 extractor reports must bump `EXTRACTOR_VERSION`, since it keys the cache.
