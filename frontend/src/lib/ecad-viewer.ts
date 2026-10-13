@@ -96,8 +96,8 @@ const PCB_POLL_MS = 150;
 const PCB_POLL_ATTEMPTS = viewerRetries(PCB_POLL_MS);
 
 export interface EcadViewerOptions {
-    /** A source load failed for good: the root sheet, or the sheets appended after it. */
-    onLoadError?: (stage: "root" | "rest", cause: unknown) => void;
+    /** A source load failed for good. */
+    onLoadError?: (cause: unknown) => void;
     /** Test seam; defaults to the custom element registry. */
     whenDefined?: () => Promise<unknown>;
 }
@@ -122,7 +122,7 @@ function samePage(a: ActiveSchematicPage | null, b: ActiveSchematicPage | null) 
 }
 
 /**
- * Load the root sheet, and give a failed paint one more go.
+ * Load a revision's sources, and give a failed paint one more go.
  *
  * The viewer paints as soon as sources land and throws "Image not ready" when
  * a bitmap on the sheet has not finished decoding, which rejects
@@ -136,7 +136,7 @@ function samePage(a: ActiveSchematicPage | null, b: ActiveSchematicPage | null) 
  * third would be saying the failure is something other than a race, and if it
  * is then the caller should hear about it.
  */
-async function loadRootSource(
+async function loadSources(
     element: ECadViewerElement,
     payload: Parameters<ECadViewerElement["replaceSources"]>[0],
     isStale: () => boolean,
@@ -161,9 +161,8 @@ export class EcadViewer {
     #handlers = new Map<EventName, Set<(detail: never) => void>>();
     #unbind: (() => void) | null = null;
     #pollTimer: ReturnType<typeof setTimeout> | undefined;
-    #rootToken = 0;
-    #restToken = 0;
-    #root: { revisionKey: string; source: EcadSource; restCount: number; done: Promise<void> } | null = null;
+    #loadToken = 0;
+    #loaded: { revisionKey: string; sources: readonly EcadSource[] } | null = null;
 
     constructor(
         readonly view: EcadView,
@@ -204,9 +203,8 @@ export class EcadViewer {
         this.#unbind?.();
         this.#unbind = null;
         this.#stopPoll();
-        this.#rootToken += 1;
-        this.#restToken += 1;
-        this.#root = null;
+        this.#loadToken += 1;
+        this.#loaded = null;
         this.#element = element;
         this.#state = {
             ...EMPTY_STATE,
@@ -235,24 +233,20 @@ export class EcadViewer {
     }
 
     /**
-     * Load a revision's sources: the first is the root sheet, the rest are
-     * appended once it has painted. A call with the same root (and as many
-     * extra sources) only re-appends. Returns a cancel for the append.
+     * Load a revision's sources -- the root sheet first, then the project
+     * file, page layout and other sheets -- in one `replaceSources` call. The
+     * element does not repaint for appended sources, so a root loaded ahead
+     * of its .kicad_pro kept KiCad's default title block until something else
+     * repainted it. A call with the same revision and sources array does
+     * nothing; any other call reloads.
      */
-    load(revisionKey: string, sources: readonly EcadSource[]): () => void {
+    load(revisionKey: string, sources: readonly EcadSource[]): void {
         const element = this.#element;
-        const [root, ...rest] = sources;
-        if (!element || !root) return () => {};
-        const current = this.#root;
-        if (!current || current.revisionKey !== revisionKey || current.source !== root || current.restCount !== rest.length) {
-            this.#root = { revisionKey, source: root, restCount: rest.length, done: this.#loadRoot(element, revisionKey, root, rest.length) };
-        }
-        if (!rest.length) return () => {};
-        const token = ++this.#restToken;
-        void this.#loadRest(element, revisionKey, rest, token);
-        return () => {
-            if (this.#restToken === token) this.#restToken += 1;
-        };
+        if (!element || sources.length === 0) return;
+        if (this.#loaded?.revisionKey === revisionKey && this.#loaded.sources === sources) return;
+        this.#loaded = { revisionKey, sources };
+        this.#setReadyRevision(null);
+        void this.#load(element, revisionKey, [...sources]);
     }
 
     /** Whether `revisionKey` is loaded and painted in the current element. */
@@ -404,40 +398,22 @@ export class EcadViewer {
         return this.options.whenDefined?.() ?? customElements.whenDefined("ecad-viewer");
     }
 
-    #loadRoot(element: ECadViewerElement, revisionKey: string, source: EcadSource, restCount: number): Promise<void> {
-        const token = ++this.#rootToken;
-        const stale = () => token !== this.#rootToken || this.#element !== element;
+    #load(element: ECadViewerElement, revisionKey: string, sources: EcadSource[]): Promise<void> {
+        const token = ++this.#loadToken;
+        const stale = () => token !== this.#loadToken || this.#element !== element;
         const run = async () => {
             await this.#defined();
             if (stale()) return;
-            this.#setReadyRevision(null);
-            await loadRootSource(element, { revisionKey, sources: [source] }, stale);
-            if (stale() || restCount > 0) return;
+            await loadSources(element, { revisionKey, sources }, stale);
+            if (stale()) return;
             // Wait for parse and first paint: `ready` is a promise, not the `isReady` flag.
             await element.ready;
             if (stale()) return;
             this.#markReady(revisionKey);
         };
         return run().catch((cause: unknown) => {
-            if (!stale()) this.options.onLoadError?.("root", cause);
+            if (!stale()) this.options.onLoadError?.(cause);
         });
-    }
-
-    async #loadRest(element: ECadViewerElement, revisionKey: string, sources: EcadSource[], token: number): Promise<void> {
-        const stale = () => token !== this.#restToken || this.#element !== element;
-        const root = this.#root?.done;
-        this.#setReadyRevision(null);
-        try {
-            await root;
-            if (stale()) return;
-            await element.appendSources({ revisionKey, sources });
-            if (stale()) return;
-            await element.ready;
-            if (stale()) return;
-            this.#markReady(revisionKey);
-        } catch (cause) {
-            if (!stale()) this.options.onLoadError?.("rest", cause);
-        }
     }
 
     #setReadyRevision(readyRevision: string | null) {

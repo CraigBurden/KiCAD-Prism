@@ -112,22 +112,15 @@ const buildViewerKey = (
 ) => `${kind}:${projectId}:${commit ?? "latest"}`;
 
 /** A load that failed for good; the adapter has already retried a lost decode race. */
-function reportLoadError(stage: "root" | "rest", cause: unknown) {
-    if (stage === "root") {
-        // Left unhandled this surfaced only as an uncaught rejection in the
-        // console, with the sheet stuck half-drawn and no hint why.
-        console.error("[Visualizer] Could not load the sheet", cause);
-        toast.error(
-            cause instanceof Error && cause.message
-                ? `Could not draw this sheet: ${cause.message}`
-                : "Could not draw this sheet.",
-        );
-        return;
-    }
-    // Same shape as the root load: an unhandled rejection here left the
-    // extra sheets missing and the viewer never marked ready.
-    console.error("[Visualizer] Could not load the remaining sheets", cause);
-    toast.error("Some sheets in this design could not be drawn.");
+function reportLoadError(cause: unknown) {
+    // Left unhandled this surfaced only as an uncaught rejection in the
+    // console, with the sheet stuck half-drawn and no hint why.
+    console.error("[Visualizer] Could not load the sheet", cause);
+    toast.error(
+        cause instanceof Error && cause.message
+            ? `Could not draw this sheet: ${cause.message}`
+            : "Could not draw this sheet.",
+    );
 }
 
 type EcadViewerHostProps = {
@@ -144,7 +137,9 @@ function EcadViewerHost({ viewer, revisionKey, sources, active, viewportInsets }
     const right = viewportInsets.right ?? 0;
     const top = viewportInsets.top ?? 0;
     const bottom = viewportInsets.bottom ?? 0;
-    useLayoutEffect(() => viewer.load(revisionKey, sources), [revisionKey, sources, viewer]);
+    useLayoutEffect(() => {
+        viewer.load(revisionKey, sources);
+    }, [revisionKey, sources, viewer]);
     useEffect(() => viewer.setActive(active), [active, viewer]);
     useLayoutEffect(
         () => viewer.setViewportInsets({ left, right, top, bottom }),
