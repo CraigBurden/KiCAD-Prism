@@ -404,9 +404,8 @@ export function Visualizer({ projectId, user, commit, active: viewerActive = tru
             const baseUrl = `/api/projects/${projectId}`;
 
             try {
-                const [ibomRes, supportRes, mentionsRes] = await Promise.all([
+                const [ibomRes, mentionsRes] = await Promise.all([
                     fetchApi(appendCommit(`${baseUrl}/ibom`), { signal }),
-                    fetchApi(appendCommit(`${baseUrl}/viewer/support-files`), { signal }),
                     fetchApi(`${baseUrl}/comments/mention-candidates`, { signal }),
                 ]);
                 if (cancelled) return;
@@ -415,13 +414,6 @@ export function Visualizer({ projectId, user, commit, active: viewerActive = tru
                     setIbomUrl(appendCommit(`${baseUrl}/ibom`));
                 } else {
                     setIbomUrl(null);
-                }
-                if (supportRes.ok) {
-                    const payload = await supportRes.json() as { files?: EcadSource[] };
-                    if (cancelled) return;
-                    setViewerSupportFiles(payload.files ?? []);
-                } else {
-                    setViewerSupportFiles([]);
                 }
                 if (mentionsRes.ok) {
                     const candidates = await mentionsRes.json() as MentionCandidate[];
@@ -446,6 +438,40 @@ export function Visualizer({ projectId, user, commit, active: viewerActive = tru
             controller.abort();
         };
     }, [projectId, appendCommit]);
+
+    // The .kicad_pro and page layout the viewers load with each document. A
+    // failed request settles to no files: the sheet still draws, with KiCad's
+    // default page layout.
+    useEffect(() => {
+        const controller = new AbortController();
+        let cancelled = false;
+
+        const fetchSupportFiles = async () => {
+            let files: EcadSource[] = [];
+            try {
+                const response = await fetchApi(
+                    appendCommit(`/api/projects/${projectId}/viewer/support-files`),
+                    { signal: controller.signal },
+                );
+                if (response.ok) {
+                    const payload = await response.json() as { files?: EcadSource[] };
+                    files = payload.files ?? [];
+                }
+            } catch (err) {
+                if (!cancelled && !isAbortError(err)) {
+                    console.error("Error loading viewer support files", err);
+                }
+            }
+            if (cancelled) return;
+            setViewerSupportFiles(files);
+        };
+
+        void fetchSupportFiles();
+        return () => {
+            cancelled = true;
+            controller.abort();
+        };
+    }, [appendCommit, projectId]);
 
     useEffect(() => {
         if (semanticIndex) return;
