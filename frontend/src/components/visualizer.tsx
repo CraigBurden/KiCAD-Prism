@@ -201,7 +201,8 @@ export function Visualizer({ projectId, user, commit, active: viewerActive = tru
     const pcb = useEcadViewer(viewers.pcb);
     const [schematicContent, setSchematicContent] = useState<string | null>(null);
     const [subsheets, setSubsheets] = useState<EcadSource[]>([]);
-    const [viewerSupportFiles, setViewerSupportFiles] = useState<EcadSource[]>([]);
+    // Null until the request settles; the viewers wait for it.
+    const [viewerSupportFiles, setViewerSupportFiles] = useState<EcadSource[] | null>(null);
     const [pcbContent, setPcbContent] = useState<string | null>(null);
     const [ibomUrl, setIbomUrl] = useState<string | null>(null);
     const [schematicContentLoaded, setSchematicContentLoaded] = useState(false);
@@ -436,7 +437,8 @@ export function Visualizer({ projectId, user, commit, active: viewerActive = tru
 
     // The .kicad_pro and page layout the viewers load with each document. A
     // failed request settles to no files: the sheet still draws, with KiCad's
-    // default page layout.
+    // default page layout. Both viewers wait for it, as files arriving after
+    // the sheet would reload the whole design.
     useEffect(() => {
         const controller = new AbortController();
         let cancelled = false;
@@ -1214,12 +1216,14 @@ export function Visualizer({ projectId, user, commit, active: viewerActive = tru
         [schematicContent],
     );
     const schematicSources = useMemo<EcadSource[]>(
-        () => (schematicRootSource ? [schematicRootSource, ...viewerSupportFiles, ...subsheets] : []),
+        () => (schematicRootSource
+            ? [schematicRootSource, ...(viewerSupportFiles ?? []), ...subsheets]
+            : []),
         [schematicRootSource, subsheets, viewerSupportFiles],
     );
     const pcbSources = useMemo<EcadSource[]>(
         () => (pcbContent
-            ? [{ filename: "board.kicad_pcb", content: pcbContent }, ...viewerSupportFiles]
+            ? [{ filename: "board.kicad_pcb", content: pcbContent }, ...(viewerSupportFiles ?? [])]
             : []),
         [pcbContent, viewerSupportFiles],
     );
@@ -1312,7 +1316,7 @@ export function Visualizer({ projectId, user, commit, active: viewerActive = tru
                 <div className="relative min-w-0 flex-1 overflow-hidden">
                     {/* Schematic View - always mounted after first visit */}
                     <div aria-hidden={activeTab !== "sch"} className={`absolute inset-0 z-10 transition-opacity duration-200 ${activeTab === "sch" ? "visible pointer-events-auto opacity-100" : "invisible pointer-events-none opacity-0"}`}>
-                        {schematicContentLoaded ? (
+                        {schematicContentLoaded && viewerSupportFiles ? (
                             schematicSources.length > 0 ? (
                                 <div className="relative h-full min-w-0 overflow-hidden">
                                     <div className="absolute inset-0 min-h-0 min-w-0">
@@ -1357,7 +1361,7 @@ export function Visualizer({ projectId, user, commit, active: viewerActive = tru
 
                     {/* PCB View - always mounted after first visit */}
                     <div aria-hidden={activeTab !== "pcb"} className={`absolute inset-0 z-10 transition-opacity duration-200 ${activeTab === "pcb" ? "visible pointer-events-auto opacity-100" : "invisible pointer-events-none opacity-0"}`}>
-                        {!modes.mounted.pcb ? null : pcbContentLoaded ? (
+                        {!modes.mounted.pcb ? null : pcbContentLoaded && viewerSupportFiles ? (
                             pcbSources.length > 0 ? (
                                 <div className="relative h-full min-w-0 overflow-hidden">
                                     <div className="absolute inset-0 min-h-0 min-w-0">
