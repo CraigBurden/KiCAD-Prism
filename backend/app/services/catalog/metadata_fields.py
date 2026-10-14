@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-import re
 import uuid
 from dataclasses import dataclass
 from typing import Any
@@ -14,11 +13,12 @@ from app.services.catalog.metadata_schema import (
     CatalogMetadataSchema,
     METADATA_FIELD_TYPES,
 )
-from app.services.catalog.metadata_normalization import dedupe
+from app.services.catalog.metadata_normalization import custom_field_key, dedupe
 from app.services.catalog.normalization import (
     json_loads as _json_loads,
     utc_now_iso as _utc_now_iso,
 )
+from app.services.catalog.placement_payloads import is_reserved_stamp_key
 
 
 @dataclass(frozen=True)
@@ -42,8 +42,9 @@ class CatalogMetadataFields:
 
     @staticmethod
     def prepare_create_field(payload: dict[str, Any]) -> PreparedMetadataField:
-        field_key = re.sub(r"[^a-z0-9_]+", "_", str(payload.get("key") or payload.get("label") or "").strip().casefold()).strip("_")
-        if not field_key or field_key in {str(field["key"]) for field in BUILTIN_METADATA_FIELDS}:
+        field_key = custom_field_key(payload.get("key") or payload.get("label") or "")
+        reserved = {str(field["key"]) for field in BUILTIN_METADATA_FIELDS}
+        if not field_key or field_key in reserved or is_reserved_stamp_key(field_key):
             raise ValueError("Custom field key is empty or reserved")
         field_type = str(payload.get("type") or "text")
         if field_type not in METADATA_FIELD_TYPES:

@@ -19,6 +19,11 @@ MPN_SOURCE_MANUFACTURER = "manufacturer"
 MPN_SOURCE_PROVISIONAL_IPN = "provisional_ipn"
 
 
+def custom_field_key(name: object) -> str:
+    """Canonical storage key for a custom metadata field name or label."""
+    return re.sub(r"[^a-z0-9_]+", "_", str(name).strip().casefold()).strip("_")
+
+
 def dedupe(values: Iterable[str]) -> list[str]:
     seen: set[str] = set()
     ordered: list[str] = []
@@ -126,6 +131,7 @@ __all__ = [
     "IDENTITY_KIND_PROVISIONAL_IPN",
     "MPN_SOURCE_MANUFACTURER",
     "MPN_SOURCE_PROVISIONAL_IPN",
+    "custom_field_key",
     "dedupe",
     "fts_query",
     "metadata_keywords",

@@ -8,6 +8,7 @@ from typing import Any
 
 from app.services import project_service, semantic_index_service
 from app.services.catalog.field_rules import missing_metadata_findings
+from app.services.catalog.placement_payloads import is_reserved_stamp_key
 from app.services.component_catalog_service import catalog_service
 from app.services.project_component_asset_extractor import (
     ContentAddressedAssetStager,
@@ -35,9 +36,12 @@ def _is_instance_context_field(name: object) -> bool:
     A project import deliberately groups many placed symbols into one catalog
     candidate.  UUIDs, sheet paths, and sheet names must therefore never become
     catalog metadata or generate a provenance conflict merely because two
-    placements are different.
+    placements are different.  The catalog placement stamp names the revision
+    one placement came from, so it is instance context as well.
     """
 
+    if is_reserved_stamp_key(name):
+        return True
     normalized = re.sub(r"[^a-z0-9]", "", str(name).casefold())
     return normalized in {
         "uuid",
