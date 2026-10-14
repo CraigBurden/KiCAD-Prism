@@ -167,7 +167,11 @@ class DblModelExportTests(unittest.TestCase):
         assets, component = self._revision("r1", step, "3dmodel/Prism_Test/R_Test.step")
         Path(assets[2]["canonical_path"]).write_bytes(b"overwritten")
         old_step = {**assets[2], "id": "r0-step", "canonical_path": str(self.store / "gone.step")}
-        released = [{"component_id": "c1", "revision_id": "r0", **old_step}]
+        # r1 is also seen through its own release record; it is reported once.
+        released = [
+            {"component_id": "c1", "revision_id": "r0", **old_step},
+            {"component_id": "c1", "revision_id": "r1", **assets[2]},
+        ]
         result = self._export({"r1": assets}, released, component)
 
         self.assertFalse((self.export_root / "3DModels").exists())

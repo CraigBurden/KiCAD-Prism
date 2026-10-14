@@ -242,14 +242,14 @@ class CatalogDblExport:
         else:
             reason = "" if sha256_bytes(payload) == expected else "sha256_mismatch"
         if reason:
-            entry = {
-                "component_id": component_id,
-                "revision_id": revision_id,
-                "asset_id": str(model["id"]),
-                "reason": reason,
-            }
-            if entry not in missing_models:
-                missing_models.append(entry)
+            missing_models.append(
+                {
+                    "component_id": component_id,
+                    "revision_id": revision_id,
+                    "asset_id": str(model["id"]),
+                    "reason": reason,
+                }
+            )
             return
         destination = export_root / relpath
         destination.parent.mkdir(parents=True, exist_ok=True)
@@ -297,6 +297,14 @@ class CatalogDblExport:
             )
             self.collect_dbl_assets(conn, component, part_number, export_root, exported_models, missing_models)
         self.collect_released_models(conn, export_root, exported_models, missing_models)
+        # The current revision's models are seen again through its release record.
+        reported: set[tuple[str, ...]] = set()
+        unique_missing_models: list[dict[str, Any]] = []
+        for entry in missing_models:
+            key = (entry["component_id"], entry["revision_id"], entry["asset_id"], entry["reason"])
+            if key not in reported:
+                reported.add(key)
+                unique_missing_models.append(entry)
 
         with sqlite3.connect(db_path) as dbl_conn:
             for category, rows in sorted(grouped_rows.items()):
@@ -387,7 +395,7 @@ class CatalogDblExport:
             "sym_lib_table": str(export_root / "sym-lib-table"),
             "fp_lib_table": str(export_root / "fp-lib-table"),
             "model_count": len(exported_models),
-            "missing_models": missing_models,
+            "missing_models": unique_missing_models,
         }
 
 
