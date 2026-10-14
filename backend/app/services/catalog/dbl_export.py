@@ -163,8 +163,6 @@ class CatalogDblExport:
     ) -> None:
         """Write the component's symbol, footprint and 3D models into ``export_root``.
 
-        Models of every released revision of the component are exported, so
-        boards placed from an earlier release keep resolving their models.
         ``exported_models`` maps written model paths to their SHA-256 across
         components; unreadable or mismatching models go to ``missing_models``.
         """
@@ -188,25 +186,39 @@ class CatalogDblExport:
             destination.parent.mkdir(parents=True, exist_ok=True)
             destination.write_bytes(asset["payload"])
 
-        models = [(component["revision_id"], asset) for asset in assets if asset["asset_type"] == "3dmodel"]
-        models.extend((row["revision_id"], row) for row in self._released_models(conn, component["id"]))
-        for revision_id, model in models:
-            self._export_model(export_root, component["id"], revision_id, model, exported_models, missing_models)
+        for model in assets:
+            if model["asset_type"] == "3dmodel":
+                self._export_model(
+                    export_root, component["id"], component["revision_id"], model, exported_models, missing_models
+                )
 
-    @staticmethod
-    def _released_models(conn: Any, component_id: str) -> list[dict[str, Any]]:
+    def collect_released_models(
+        self,
+        conn: Any,
+        export_root: Path,
+        exported_models: dict[str, str],
+        missing_models: list[dict[str, Any]],
+    ) -> None:
+        """Export the models of every revision ever released, of any component.
+
+        Boards keep referencing a model after its component moves to a newer
+        release or is deactivated, so this does not follow the exported set.
+        """
         rows = conn.execute(
             """
-            SELECT DISTINCT rr.revision_id, a.*
+            SELECT DISTINCT rr.component_id, rr.revision_id, a.*
             FROM component_release_records rr
             JOIN revision_assets ra ON ra.revision_id = rr.revision_id
             JOIN assets a ON a.id = ra.asset_id
-            WHERE rr.component_id = %s AND a.asset_type = '3dmodel'
-            ORDER BY rr.revision_id, a.sha256, a.id
-            """,
-            (component_id,),
+            WHERE a.asset_type = '3dmodel'
+            ORDER BY rr.component_id, rr.revision_id, a.sha256, a.id
+            """
         ).fetchall()
-        return [dict(row) for row in rows]
+        for row in rows:
+            model = dict(row)
+            self._export_model(
+                export_root, model["component_id"], model["revision_id"], model, exported_models, missing_models
+            )
 
     @staticmethod
     def _export_model(
@@ -284,6 +296,7 @@ class CatalogDblExport:
                 dbl_row_for_component(component, part_number, custom_fields)
             )
             self.collect_dbl_assets(conn, component, part_number, export_root, exported_models, missing_models)
+        self.collect_released_models(conn, export_root, exported_models, missing_models)
 
         with sqlite3.connect(db_path) as dbl_conn:
             for category, rows in sorted(grouped_rows.items()):

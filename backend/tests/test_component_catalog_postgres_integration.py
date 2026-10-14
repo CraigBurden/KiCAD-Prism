@@ -1249,7 +1249,12 @@ class ComponentCatalogPostgresIntegrationTests(unittest.TestCase):
         self.assertIn('(property "Footprint" "Prism_Test:R_Test"', exported_symbol)
         self.assertEqual(dbl_row[-1], "Prism_Test:R_Test")
         self.assertIn("PcbLib/Prism_Test.pretty/R_Test.kicad_mod", first_files)
-        self.assertEqual((first_dbl["model_count"], first_dbl["missing_models"]), (1, []))
+        # Earlier tests in a shared database may leave release records whose
+        # files went with their temporary stores; only this component counts.
+        self.assertEqual(first_dbl["model_count"], 1)
+        self.assertEqual(
+            [item for item in first_dbl["missing_models"] if item["component_id"] == component["id"]], []
+        )
         second_dbl = self.service.export_kicad_dbl_bundle()
         second_root = Path(second_dbl["export_root"])
         second_files = {
@@ -1262,6 +1267,21 @@ class ComponentCatalogPostgresIntegrationTests(unittest.TestCase):
             {name: hashlib.sha256(payload).hexdigest() for name, payload in first_files.items()},
             {name: hashlib.sha256(payload).hexdigest() for name, payload in second_files.items()},
         )
+        # A deactivated component leaves the DBL, but boards placed from its
+        # release still reference the model, so the model stays.
+        model_path = next(name for name in first_files if name.startswith("3DModels/"))
+        self.assertTrue(
+            self.service.deactivate_component(component["id"], actor="designer@example.com", reason="obsolete")
+        )
+        self.component_ids.remove(str(component["id"]))
+        third_dbl = self.service.export_kicad_dbl_bundle()
+        third_root = Path(third_dbl["export_root"])
+        self.assertNotIn(
+            "PcbLib/Prism_Test.pretty/R_Test.kicad_mod",
+            {path.relative_to(third_root).as_posix() for path in third_root.rglob("*")},
+        )
+        self.assertEqual((third_root / model_path).read_bytes(), first_files[model_path])
+        self.assertEqual(third_dbl["model_count"], 1)
 
     def test_non_default_representation_drives_manifest_and_inline_pair(self) -> None:
         component = self._component("representations-" + uuid.uuid4().hex[:8])

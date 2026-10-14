@@ -47,9 +47,9 @@ class _Conn:
     def __init__(self, released_rows: list[dict]) -> None:
         self.released_rows = released_rows
 
-    def execute(self, sql: str, params: tuple) -> _Result:
+    def execute(self, sql: str, params: tuple = ()) -> _Result:
         assert "component_release_records" in sql
-        return _Result([row for row in self.released_rows if row["component_id"] == params[0]])
+        return _Result(self.released_rows)
 
 
 class _Placement:
@@ -106,10 +106,10 @@ class DblModelExportTests(unittest.TestCase):
             "assets": [symbol, footprint],
         }
 
-    def _export(self, assets_by_revision: dict, released_rows: list[dict], component: dict) -> dict:
+    def _export(self, assets_by_revision: dict, released_rows: list[dict], component: dict | None) -> dict:
         exporter = CatalogDblExport(_Placement(assets_by_revision))
         runtime = SimpleNamespace(export_root=self.export_root)
-        return exporter.export_bundle(_Conn(released_rows), runtime, [component], [])
+        return exporter.export_bundle(_Conn(released_rows), runtime, [component] if component else [], [])
 
     def _revision(self, revision_id: str, step: bytes, step_relative: str) -> tuple[list[dict], dict]:
         symbol = self._asset(f"{revision_id}-sym", "symbol", "symbol/Prism_Test/R_Test.kicad_sym", SYMBOL.encode())
@@ -149,6 +149,18 @@ class DblModelExportTests(unittest.TestCase):
         footprint = (self.export_root / "PcbLib/Prism_Test.pretty/R_Test.kicad_mod").read_text()
         self.assertIn(f"3DModels/{_sha(step2)[:16]}/R_Test.step", footprint)
         self.assertEqual(result["model_count"], 2)
+
+    def test_models_of_a_component_that_is_no_longer_exported_are_kept(self) -> None:
+        step = b"ISO-10303-21;rev1;END-ISO-10303-21;"
+        assets, component = self._revision("r1", step, "3dmodel/Prism_Test/R_Test.step")
+        released = [{"component_id": "c1", "revision_id": "r1", **assets[2]}]
+        self._export({"r1": assets}, released, component)
+        # Deactivated: the component drops out of the export, its release record stays.
+        result = self._export({}, released, None)
+
+        self.assertEqual((self.export_root / f"3DModels/{_sha(step)[:16]}/R_Test.step").read_bytes(), step)
+        self.assertFalse((self.export_root / "PcbLib/Prism_Test.pretty").exists())
+        self.assertEqual((result["model_count"], result["missing_models"]), (1, []))
 
     def test_missing_or_changed_model_is_reported_not_exported(self) -> None:
         step = b"ISO-10303-21;rev1;END-ISO-10303-21;"
