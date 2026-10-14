@@ -25,6 +25,7 @@ from pathlib import Path
 from typing import Any, Iterable
 import uuid
 
+from app.services.catalog.asset_files import lock_and_check_asset_bytes
 from app.services.catalog.asset_registry import CatalogAssetRegistry
 from app.services.catalog.component_writer import (
     METADATA_INSERT_COLUMNS,
@@ -256,6 +257,8 @@ class CatalogLibraryImportWriter:
     ) -> None:
         """Attach an asset; ``bind_ready_previews`` also binds a symbol's or
         footprint's newest ready preview of each kind to the revision."""
+        if asset["asset_type"] == "3dmodel":
+            lock_and_check_asset_bytes(conn, str(asset["id"]))
         conn.execute(
             """
             INSERT INTO revision_assets (revision_id, asset_type, asset_id, required, created_at, updated_at)

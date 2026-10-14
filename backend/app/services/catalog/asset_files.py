@@ -14,6 +14,7 @@ import uuid
 
 from app.core.errors import NotFound
 from app.services import kicad_library_reader
+from app.services.catalog.conflicts import CatalogConflict
 from app.services.catalog.normalization import sanitize_name, sha256_bytes, utc_now_iso
 from app.services.catalog.runtime import CatalogRuntime
 
@@ -31,6 +32,40 @@ PROTECTED_REVISION_SQL = """
     OR revision.release_status = 'released'
     OR EXISTS (SELECT 1 FROM component_release_records record WHERE record.revision_id = revision.id)
 """
+
+
+ASSET_BYTES_MISSING_CODE = "asset_bytes_missing"
+
+
+def asset_bytes_lock_key(sha256: str) -> str:
+    """The advisory-lock key that serializes the STEP purge with linking an asset.
+
+    One lock per content hash (``hashtext('catalog-asset:' || sha256)``), so
+    asset rows sharing bytes share the lock. Both sides take it as a
+    transaction lock: it is held until the holder commits.
+    """
+    return f"catalog-asset:{sha256}"
+
+
+def lock_and_check_asset_bytes(conn: Any, asset_id: str) -> None:
+    """Before linking a 3D model, wait out a running purge and require its bytes.
+
+    The file is written before any lock is taken, so a purge can delete it
+    between the write and the link. Under the asset's lock the purge either
+    already committed (the file is gone, so refuse) or has not started on it
+    (it will see this link and keep the file).
+    """
+    row = conn.execute("SELECT canonical_path, sha256 FROM assets WHERE id = %s", (asset_id,)).fetchone()
+    if row is None:
+        return
+    sha256 = str(row["sha256"])
+    conn.execute("SELECT pg_advisory_xact_lock(hashtext(%s))", (asset_bytes_lock_key(sha256),)).fetchone()
+    path = Path(str(row["canonical_path"] or ""))
+    if not path.is_file() or sha256_bytes(path.read_bytes()) != sha256:
+        raise CatalogConflict(
+            "The 3D model file is missing from the catalog store; upload it again",
+            code=ASSET_BYTES_MISSING_CODE,
+        )
 
 
 def purge_excuses_missing_file(conn: Any, asset_id: str) -> bool:
@@ -189,6 +224,14 @@ class CatalogAssetFiles:
         row, so the ledger never names a file that is still there. The caller
         commits. Audit verification accepts a missing never-released draft STEP
         only through that row.
+
+        Each candidate is purged only under its ``asset_bytes_lock_key`` lock,
+        after re-checking under it that no protected revision links the asset.
+        The purge only tries the lock: an asset being linked right now is
+        skipped until the next run, so the purge never waits and cannot
+        deadlock with a linker. The caller commits once for all files, so the
+        locks of purged assets are held until then and linkers of those
+        assets wait for that commit, then refuse the missing file.
         """
         rows = conn.execute(
             f"""
@@ -238,6 +281,25 @@ class CatalogAssetFiles:
                 continue
             if not path.is_file():
                 continue
+            locked = conn.execute(
+                "SELECT pg_try_advisory_xact_lock(hashtext(%s)) AS locked",
+                (asset_bytes_lock_key(str(row["sha256"])),),
+            ).fetchone()
+            if not locked["locked"]:
+                continue
+            relinked = conn.execute(
+                f"""
+                SELECT 1
+                FROM revision_assets link
+                JOIN component_revisions revision ON revision.id = link.revision_id
+                JOIN components component ON component.id = revision.component_id
+                WHERE link.asset_id = %s AND ({PROTECTED_REVISION_SQL})
+                LIMIT 1
+                """,
+                (row["id"],),
+            ).fetchone()
+            if relinked:
+                continue
             conn.execute("SAVEPOINT step_purge")
             conn.execute(
                 """
@@ -259,10 +321,12 @@ class CatalogAssetFiles:
 
 
 __all__ = [
+    "ASSET_BYTES_MISSING_CODE",
     "CatalogAssetFiles",
     "content_type_for_asset",
     "discover_footprint_name_in_text",
     "discover_symbol_names_in_text",
+    "lock_and_check_asset_bytes",
     "purge_excuses_missing_file",
     "raise_if_asset_purged",
 ]
