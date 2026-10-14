@@ -285,13 +285,11 @@ class ReleaseStudioClosureTests(unittest.TestCase):
         )
         self.assertEqual(closure.advisory_reasons(), [])
 
-    def test_a_stock_3d_model_reference_is_advisory_not_a_blocker(self) -> None:
+    def test_an_unreadable_external_3d_model_is_non_hermetic(self) -> None:
         # Every real KiCad board carries `(model "${KICAD9_3DMODEL_DIR}/...")`
-        # nodes pointing at the stock 3D library, which the pinned executor
-        # image does not ship.  No Stage 1 manufacturing step reads one, so the
-        # closure records the offending path and says so -- but it does not
-        # count against hermeticity, because the released outputs do not depend
-        # on it and a release must not be blocked by it.
+        # nodes.  The cover render and the assembly views open them with the
+        # worker's environment, so a model the build cannot read is bytes the
+        # build key does not pin.
         self.repo.joinpath("hardware/board/model.step").write_bytes(
             b"small hydrated STEP payload\n"
         )
@@ -299,7 +297,8 @@ class ReleaseStudioClosureTests(unittest.TestCase):
             '(kicad_pcb (version 20240108) '
             '(general (thickness 1.6)) '
             '(model "${KIPRJMOD}/model.step") '
-            '(model "${KICAD9_3DMODEL_DIR}/Resistor_SMD.3dshapes/R_0603.step"))\n',
+            '(model "${KICAD9_3DMODEL_DIR}/Resistor_SMD.3dshapes/R_0603.step") '
+            f'(model "{self.root}/absent/R_0805.step"))\n',
             encoding="utf-8",
         )
         commit = commit_all(self.repo, "stock 3d model reference")
@@ -309,20 +308,20 @@ class ReleaseStudioClosureTests(unittest.TestCase):
             commit,
             self.root / "stock-3d",
             relative_path="hardware/board",
+            model_env={"KICAD9_3DMODEL_DIR": str(self.root / "no-such-library")},
         )
 
-        self.assertEqual(closure.external_references, ())
-        self.assertEqual(closure.non_hermetic_reasons(), [])
-
-        advisory = closure.advisory_references
-        self.assertEqual(len(advisory), 1)
-        self.assertEqual(advisory[0].source_path, "hardware/board/board.kicad_pcb")
-        self.assertIn("KICAD9_3DMODEL_DIR", advisory[0].reference)
-        self.assertTrue(advisory[0].advisory)
-        notes = closure.advisory_reasons()
-        self.assertEqual(len(notes), 1)
-        self.assertIn("R_0603.step", notes[0])
-        self.assertIn("no build step reads it", notes[0])
+        unreadable = closure.external_references
+        self.assertEqual(
+            sorted(reference.location for reference in unreadable),
+            ["unreadable", "unreadable"],
+        )
+        reasons = closure.non_hermetic_reasons()
+        self.assertEqual(len(reasons), 2)
+        self.assertTrue(any("R_0603.step" in reason for reason in reasons))
+        self.assertTrue(any("R_0805.step" in reason for reason in reasons))
+        self.assertIn("bytes are not pinned", reasons[0])
+        self.assertEqual(closure.advisory_reasons(), [])
         # The project's own model still resolves into the closure.
         self.assertIn(
             "hardware/board/model.step",
@@ -332,6 +331,63 @@ class ReleaseStudioClosureTests(unittest.TestCase):
                 if reference.location == "closure"
             },
         )
+
+    def test_an_external_3d_model_is_hashed_into_the_closure_digest(self) -> None:
+        library = self.root / "host-models"
+        (library / "Resistor_SMD.3dshapes").mkdir(parents=True)
+        stock = library / "Resistor_SMD.3dshapes/R_0603.step"
+        absolute = self.root / "absolute-models/R_0805.step"
+        absolute.parent.mkdir()
+        stock.write_bytes(b"stock model v1\n")
+        absolute.write_bytes(b"absolute model v1\n")
+        self.repo.joinpath("hardware/board/model.step").write_bytes(
+            b"small hydrated STEP payload\n"
+        )
+        self.repo.joinpath("hardware/board/board.kicad_pcb").write_text(
+            '(kicad_pcb (version 20240108) '
+            '(general (thickness 1.6)) '
+            '(footprint "R" (model "${KICAD9_3DMODEL_DIR}/Resistor_SMD.3dshapes/R_0603.step")) '
+            f'(footprint "R" (model "{absolute}" (hide yes))))\n',
+            encoding="utf-8",
+        )
+        commit = commit_all(self.repo, "external 3d models")
+
+        def build(name: str, models: Path) -> object:
+            return materialize_input_closure(
+                self.repo,
+                commit,
+                self.root / name,
+                relative_path="hardware/board",
+                model_env={"KICAD9_3DMODEL_DIR": str(models)},
+            )
+
+        first = build("models-1", library)
+        self.assertEqual(first.non_hermetic_reasons(), [])
+        hosted = {
+            reference.reference: reference
+            for reference in first.library_references
+            if reference.location == "host"
+        }
+        self.assertEqual(
+            hosted["${KICAD9_3DMODEL_DIR}/Resistor_SMD.3dshapes/R_0603.step"].digest,
+            hashlib.sha256(b"stock model v1\n").hexdigest(),
+        )
+        self.assertEqual(
+            hosted[str(absolute)].digest,
+            hashlib.sha256(b"absolute model v1\n").hexdigest(),
+        )
+        # No host path is recorded, so the same bytes elsewhere agree.
+        moved = self.root / "elsewhere"
+        shutil.copytree(library, moved)
+        self.assertEqual(build("models-2", moved).digest, first.digest)
+        self.assertNotIn(str(library), str(first.to_dict()))
+
+        stock.write_bytes(b"stock model v2\n")
+        changed_stock = build("models-3", library)
+        self.assertNotEqual(changed_stock.digest, first.digest)
+
+        absolute.write_bytes(b"absolute model v2\n")
+        self.assertNotEqual(build("models-4", library).digest, changed_stock.digest)
 
     def test_a_comma_in_a_quoted_model_path_is_not_truncated(self) -> None:
         # The unquoted-variable scan stops at `,`, so running it over a quoted

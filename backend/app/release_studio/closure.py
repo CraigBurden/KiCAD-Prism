@@ -58,11 +58,15 @@ _PATH_INPUT_SUFFIXES = {
 _UNRESOLVED_WORDING = {
     "external": "resolves outside the release closure and the pinned toolchain",
     "missing": "is not present in the release closure",
+    "unreadable": (
+        "is a 3D model outside the release closure that the build cannot read, "
+        "so its bytes are not pinned"
+    ),
 }
 
-# Suffixes of assets no Stage 1 step opens.  A footprint's `(model ...)` node
-# names one of these, and boards routinely carry stale ones whose case or
-# extension no longer matches anything on disk.
+# Suffixes of 3D models.  A footprint's `(model ...)` node names one of these,
+# and boards routinely carry stale ones whose case or extension no longer
+# matches anything on disk.
 _ADVISORY_SUFFIXES = {
     ".step", ".stp", ".stpz", ".wrl", ".vrml", ".x3d", ".igs", ".iges", ".wings",
 }
@@ -185,11 +189,15 @@ class EnvBinding:
 class ResolvedLibraryPath:
     """A project path reference and its closure/toolchain destination.
 
-    ``advisory`` marks a reference no build step reads.  A 3D model named by a
-    footprint is the case that matters: nothing in the Stage 1 catalogue opens
-    one, so an unresolvable model is worth recording and not worth refusing a
-    release for.  It is still reported, just never as a reason the build is
-    non-hermetic.
+    ``advisory`` marks a reference worth recording and not worth refusing a
+    release for: a 3D model whose path stays inside the closure but names no
+    file.  Every worker sees the same absence, so it is still reported, just
+    never as a reason the build is non-hermetic.
+
+    A 3D model outside the closure is different.  The cover render and the
+    assembly views open it with the worker's environment, so its bytes are
+    hashed into ``digest`` (``location="host"``) or, when the build cannot
+    read it, it is ``unreadable`` and the build is non-hermetic.
     """
 
     source_path: str
@@ -197,15 +205,20 @@ class ResolvedLibraryPath:
     resolved_path: str
     location: str
     advisory: bool = False
+    digest: str = ""
 
     def to_dict(self) -> dict[str, Any]:
-        return {
+        record: dict[str, Any] = {
             "source_path": self.source_path,
             "reference": self.reference,
             "resolved_path": self.resolved_path,
             "location": self.location,
             "advisory": self.advisory,
         }
+        # Emitted only when set, so closures without host models keep their digest.
+        if self.digest:
+            record["digest"] = self.digest
+        return record
 
 
 @dataclass(frozen=True, slots=True)
@@ -258,7 +271,8 @@ class InputClosure:
         return tuple(
             reference
             for reference in self.library_references
-            if reference.location in {"external", "missing"} and not reference.advisory
+            if reference.location in {"external", "missing", "unreadable"}
+            and not reference.advisory
         )
 
     @property
@@ -334,6 +348,7 @@ def materialize_input_closure(
         | Sequence[PinnedToolchainResource]
         | None
     ) = None,
+    model_env: Mapping[str, str] | None = None,
 ) -> InputClosure:
     """Materialize the full repository tree for ``commit``.
 
@@ -346,6 +361,10 @@ def materialize_input_closure(
     The function never checks out, updates, stages, or writes to ``repo_path``.
     It reads Git objects and (only for detected LFS pointers) reads the
     corresponding worktree file to verify already-hydrated bytes.
+
+    ``model_env`` is the environment the build tools run with.  A 3D model a
+    board names outside the closure is resolved through it and hashed, because
+    the cover render and the assembly views read it from there.
     """
 
     repo = Path(repo_path)
@@ -380,6 +399,7 @@ def materialize_input_closure(
         project_rel,
         env or {},
         specs,
+        model_env or {},
     )
     return InputClosure(
         commit_sha=commit_sha,
@@ -405,6 +425,7 @@ def materialize_project_input_closure(
         | Sequence[PinnedToolchainResource]
         | None
     ) = None,
+    model_env: Mapping[str, str] | None = None,
 ) -> InputClosure:
     """Resolve a Prism project/subproject and materialize its full repo tree."""
 
@@ -418,6 +439,7 @@ def materialize_project_input_closure(
         source_checkout=location.checkout,
         env=env,
         toolchain_resources=toolchain_resources,
+        model_env=model_env,
     )
 
 
@@ -955,7 +977,7 @@ def _sheet_references(destination: Path, schematic: str) -> list[str]:
 
 
 def _is_advisory_reference(reference: str) -> bool:
-    """Whether *reference* names an asset no build step opens.
+    """Whether *reference* names a 3D model.
 
     Judged by suffix, which is what a ``(model ...)`` node carries.  The
     alternative -- deciding from the s-expression node the path sits in --
@@ -997,6 +1019,7 @@ def _resolve_project_paths(
     project_rel: str,
     env: Mapping[str, str],
     toolchain_specs: Sequence[_ToolchainSpec],
+    model_env: Mapping[str, str],
 ) -> tuple[list[ResolvedLibraryPath], list[EnvBinding]]:
     resolver = _PathResolver(destination, project_rel, env, toolchain_specs)
     scanned = _design_inputs(destination, repository_inputs, project_rel)
@@ -1032,10 +1055,19 @@ def _resolve_project_paths(
             # refuse a documentation build -- neither of these is fatal, and
             # both are recorded so they stay visible.
             #
-            # They are not equivalent, though. A `.step`/`.wrl` no build step
-            # opens is advisory; anything else is a real input that resolved
+            # They are not equivalent, though. A `.step`/`.wrl` missing from the
+            # closure is advisory; anything else is a real input that resolved
             # outside the closure, and marking those advisory too let a build
             # whose symbols came off the host record itself as fully hermetic.
+            #
+            # A model outside the closure is read by the cover render and the
+            # assembly views, so its bytes are pinned, or the build says it
+            # cannot pin them.
+            if isinstance(exc, ExternalPathError) and _is_advisory_reference(reference):
+                resolved.append(
+                    _host_model_reference(resolver, source, reference, model_env)
+                )
+                continue
             resolved.append(
                 ResolvedLibraryPath(
                     source_path=source,
@@ -1046,6 +1078,59 @@ def _resolve_project_paths(
                 )
             )
     return resolved, sorted(resolver.bindings.values(), key=lambda binding: binding.name)
+
+
+def _host_model_reference(
+    resolver: "_PathResolver",
+    source_path: str,
+    reference: str,
+    model_env: Mapping[str, str],
+) -> ResolvedLibraryPath:
+    """Hash a 3D model outside the closure the way the build tools find it.
+
+    The tools inherit the worker's environment (``kicad_tools.py``) plus
+    ``KIPRJMOD``.  Only the digest is recorded, never the host path, so two
+    workers with the same bytes under different mount points agree.
+    """
+
+    unreadable = ResolvedLibraryPath(
+        source_path=source_path,
+        reference=reference,
+        resolved_path="",
+        location="unreadable",
+    )
+    expanded = reference
+    for _ in range(8):
+        match = _VARIABLE_RE.search(expanded)
+        if match is None:
+            break
+        name = match.group(1)
+        if name == "KIPRJMOD":
+            value = os.fspath(resolver.project_root)
+        else:
+            value = str(model_env.get(name) or "")
+        if not value:
+            return unreadable
+        expanded = expanded[: match.start()] + value + expanded[match.end() :]
+    else:
+        return unreadable
+    candidate = Path(expanded)
+    if not candidate.is_absolute():
+        candidate = resolver.project_root / candidate
+    digest = hashlib.sha256()
+    try:
+        with candidate.open("rb") as handle:
+            for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+                digest.update(chunk)
+    except OSError:
+        return unreadable
+    return ResolvedLibraryPath(
+        source_path=source_path,
+        reference=reference,
+        resolved_path="",
+        location="host",
+        digest=digest.hexdigest(),
+    )
 
 
 class _PathResolver:
@@ -1235,6 +1320,7 @@ def _structured_path_references(
     name = Path(path).name.casefold()
     uri_values: list[str] = []
     scalar_values: list[str] = []
+    absolute_models: list[str] = []
     try:
         if name in {"fp-lib-table", "sym-lib-table"} or suffix in {
             ".kicad_pcb",
@@ -1252,6 +1338,15 @@ def _structured_path_references(
                         and len(form) > 1
                     ):
                         uri_values.append(str(form[1]))
+                    elif (
+                        suffix == ".kicad_pcb"
+                        and str(form[0]).casefold() == "model"
+                        and len(form) > 1
+                        and str(form[1]).startswith("/")
+                    ):
+                        # No variable, so the generic scan below skips it, but
+                        # the tools still open it.
+                        absolute_models.append(str(form[1]))
                 elif isinstance(form, str):
                     scalar_values.append(str(form))
         elif suffix == ".kicad_pro":
@@ -1274,7 +1369,7 @@ def _structured_path_references(
         raise ClosureError(f"cannot parse closure input {path}: {exc}") from exc
 
     variable_values = [value for value in scalar_values if _is_path_reference(value)]
-    return uri_values, variable_values
+    return uri_values, variable_values + absolute_models
 
 
 def _walk_structured_values(value: Any) -> Iterable[Any]:

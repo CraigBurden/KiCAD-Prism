@@ -13,6 +13,7 @@ PostgreSQL with the fence re-validated.
 from __future__ import annotations
 
 import logging
+import os
 import shutil
 import subprocess
 from importlib import metadata
@@ -193,6 +194,9 @@ def prepare_candidate(
         commit_sha,
         closure_root,
         relative_path=project_relpath,
+        # The cover render and the assembly views inherit this environment, so
+        # a model outside the closure is hashed the way they will find it.
+        model_env=os.environ,
     )
 
     hermetic, reasons = _hermeticity(closure_root, config)
@@ -202,9 +206,8 @@ def prepare_candidate(
     if closure_reasons:
         hermetic = False
         reasons = [*reasons, *closure_reasons]
-    # References no build step reads -- 3D models -- are reported rather than
-    # counted against hermeticity, so they cannot block a release whose outputs
-    # do not depend on them.
+    # 3D models missing from the closure are reported rather than counted
+    # against hermeticity: every worker sees the same absence.
     advisory = closure.advisory_reasons()
     if advisory:
         logger.info(
