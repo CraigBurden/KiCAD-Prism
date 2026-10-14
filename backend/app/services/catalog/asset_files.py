@@ -6,16 +6,29 @@ here keep the catalog's historical names for it.
 
 from __future__ import annotations
 
+import logging
 import mimetypes
 from pathlib import Path
 from typing import Any
+import uuid
 
+from app.core.errors import NotFound
 from app.services import kicad_library_reader
-from app.services.catalog.normalization import sanitize_name, sha256_bytes
+from app.services.catalog.normalization import sanitize_name, sha256_bytes, utc_now_iso
 from app.services.catalog.runtime import CatalogRuntime
 
 
 STEP_SUFFIXES = frozenset({".step", ".stp"})
+
+logger = logging.getLogger(__name__)
+
+
+def raise_if_asset_purged(conn: Any, asset_id: str) -> None:
+    """Refuse a read of an asset whose file artifact maintenance deleted on purpose."""
+    if conn.execute(
+        "SELECT 1 AS present FROM catalog_asset_file_purges WHERE asset_id = %s LIMIT 1", (asset_id,)
+    ).fetchone():
+        raise NotFound("The asset's file was purged by artifact maintenance", code="asset_purged")
 
 
 def discover_symbol_names_in_text(text: str) -> list[str]:
@@ -118,7 +131,7 @@ class CatalogAssetFiles:
         return CatalogAssetFiles.asset_root(runtime, asset_type) / safe_library / safe_name
 
     @staticmethod
-    def purge_superseded_step_files(conn: Any, runtime: CatalogRuntime) -> dict[str, Any]:
+    def purge_superseded_step_files(conn: Any, runtime: CatalogRuntime, *, job_id: str = "") -> dict[str, Any]:
         """Purge obsolete STEP bytes while preserving immutable revision evidence.
 
         The asset row, hash, revision link, and audit history remain intact. A file
@@ -126,8 +139,13 @@ class CatalogAssetFiles:
         different 3D model and no revision linking the asset, in any component, is
         protected. A revision is protected while it is its component's current or
         released revision, or once it has ever been released, so released STEP
-        evidence is never deleted. Purging a never-released draft STEP still
-        makes audit-chain verification report ``asset_content_mismatch``.
+        evidence is never deleted.
+
+        Each deleted file gets a ``catalog_asset_file_purges`` row, inserted
+        before the unlink inside a savepoint: a failed unlink rolls back its
+        row, so the ledger never names a file that is still there. The caller
+        commits. Audit verification accepts a missing never-released draft STEP
+        only through that row.
         """
         rows = conn.execute(
             """
@@ -160,7 +178,7 @@ class CatalogAssetFiles:
                        WHERE record.revision_id = revision.id
                    )
             )
-            SELECT DISTINCT asset.id, asset.canonical_path
+            SELECT DISTINCT asset.id, asset.canonical_path, asset.sha256
             FROM superseded_models superseded
             JOIN assets asset ON asset.id = superseded.asset_id
             LEFT JOIN protected_models protected ON protected.asset_id = superseded.asset_id
@@ -181,9 +199,25 @@ class CatalogAssetFiles:
                 continue
             if path.suffix.lower() not in STEP_SUFFIXES:
                 continue
-            if path.is_file():
+            if not path.is_file():
+                continue
+            conn.execute("SAVEPOINT step_purge")
+            conn.execute(
+                """
+                INSERT INTO catalog_asset_file_purges (id, asset_id, sha256, canonical_path, reason, job_id, purged_at)
+                VALUES (%s, %s, %s, %s, 'superseded_draft_step', %s, %s)
+                """,
+                (str(uuid.uuid4()), row["id"], row["sha256"], str(row["canonical_path"]), job_id, utc_now_iso()),
+            )
+            try:
                 path.unlink()
-                purged.append(str(row["id"]))
+            except OSError:
+                logger.warning("Could not purge superseded STEP file %s", path, exc_info=True)
+                conn.execute("ROLLBACK TO SAVEPOINT step_purge")
+                continue
+            finally:
+                conn.execute("RELEASE SAVEPOINT step_purge")
+            purged.append(str(row["id"]))
         return {"purged": len(purged), "asset_ids": purged}
 
 
@@ -192,4 +226,5 @@ __all__ = [
     "content_type_for_asset",
     "discover_footprint_name_in_text",
     "discover_symbol_names_in_text",
+    "raise_if_asset_purged",
 ]

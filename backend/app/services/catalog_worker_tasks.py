@@ -166,6 +166,15 @@ def run_folder_import(context: JobContext) -> dict[str, Any]:
     return {"session_id": session_id, "proposal_count": int((session or {}).get("proposal_count") or 0)}
 
 
+def purge_superseded_step_files(*, job_id: str = "") -> dict[str, Any]:
+    """Delete abandoned draft STEP files and commit their purge-ledger rows."""
+    catalog_service.initialize()
+    with catalog_service.connection() as conn:
+        result = catalog_service.asset_files.purge_superseded_step_files(conn, catalog_service.runtime, job_id=job_id)
+        conn.commit()
+    return result
+
+
 def run_artifact_maintenance(context: JobContext) -> dict[str, Any]:
     _step(context, progress=10, message="Applying local artifact retention")
     result = artifact_store.run_retention()
@@ -198,7 +207,7 @@ def run_artifact_maintenance(context: JobContext) -> dict[str, Any]:
     staging_cleanup = job_artifacts.cleanup_stale_staging()
     git_cache_rows_purged = git_read_cache.prune()
     _step(context, progress=80, message="Purging superseded STEP payloads")
-    step_result = catalog_service.purge_superseded_step_files()
+    step_result = purge_superseded_step_files(job_id=context.job_id)
     staging = catalog_service.cleanup_resolved_import_staging(
         older_than=(datetime.now(timezone.utc) - timedelta(days=30)).isoformat()
     )
