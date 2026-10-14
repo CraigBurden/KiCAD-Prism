@@ -706,6 +706,20 @@ export function WhereUsedPanel({ usage, projects }: { usage: CatalogComponentUsa
   );
 }
 
+// The chain can be intact while a revision manifest or a stored asset file no
+// longer matches; the backend then names that record instead of an event.
+function auditFailureDetail(verification: CatalogAuditVerification) {
+  if (!verification.first_invalid_event_id) {
+    if (verification.first_invalid_revision_id) {
+      return `Revision manifest mismatch: ${verification.first_invalid_revision_id}`;
+    }
+    if (verification.first_invalid_asset_id) {
+      return `Asset file missing or changed: ${verification.first_invalid_asset_id}`;
+    }
+  }
+  return `First invalid event: ${verification.first_invalid_event_id}`;
+}
+
 export function AuditPanel({
   events,
   verification,
@@ -726,7 +740,7 @@ export function AuditPanel({
             <p className="font-medium">{verification?.valid === false ? "Audit chain verification failed" : "Audit chain verified"}</p>
             <Badge variant={verification?.valid === false ? "destructive" : "outline"}>{verification?.verified_count ?? 0}/{verification?.event_count ?? events.length} events</Badge>
           </div>
-          <p className="mt-1 text-xs text-muted-foreground">{verification?.valid === false ? `First invalid event: ${verification.first_invalid_event_id}` : `Head SHA-256 ${verification?.head_hash || "No events"}`}</p>
+          <p className="mt-1 text-xs text-muted-foreground">{verification?.valid === false ? auditFailureDetail(verification) : `Head SHA-256 ${verification?.head_hash || "No events"}`}</p>
         </div>
       </div>
 

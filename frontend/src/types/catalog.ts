@@ -289,6 +289,9 @@ export interface CatalogAuditVerification {
   event_count: number;
   verified_count: number;
   first_invalid_event_id: string;
+  first_invalid_revision_id?: string;
+  first_invalid_asset_id?: string;
+  reason?: string;
   head_hash: string;
 }
 
