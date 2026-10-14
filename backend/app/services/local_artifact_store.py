@@ -298,6 +298,21 @@ class LocalArtifactStore:
             conn.commit()
         return destination
 
+    def locate(self, sha256: str) -> dict[str, str] | None:
+        """Where an object's bytes live, without restoring or touching it (read-only)."""
+        with self._connect() as conn:
+            row = None
+            # An uninitialized ledger has no table; this method never creates it.
+            if conn.execute("SELECT to_regclass('catalog_artifacts') AS relation").fetchone()["relation"]:
+                row = conn.execute(
+                    "SELECT storage_state, object_path, archived_path FROM catalog_artifacts WHERE sha256 = %s",
+                    (sha256,),
+                ).fetchone()
+            conn.rollback()
+        if not row:
+            return None
+        return {key: str(row[key] or "") for key in ("storage_state", "object_path", "archived_path")}
+
     def materialize(self, sha256: str, destination: Path) -> Path:
         source = self.ensure_available(sha256)
         destination.parent.mkdir(parents=True, exist_ok=True)
