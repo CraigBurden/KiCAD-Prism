@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any
 
 from app.core.config import settings
@@ -73,6 +74,25 @@ class CatalogHealth:
             """,
             (PREVIEW_STATUS_FAILED,),
         ).fetchone()
+        # missing_files reflects the head revision only; a draft head can hide
+        # a released revision whose files were removed from disk.
+        released_asset_rows = conn.iter_rows(
+            """
+            SELECT c.id AS component_id, asset.canonical_path
+            FROM components c
+            JOIN revision_assets ra ON ra.revision_id = c.released_revision_id
+            JOIN assets asset ON asset.id = ra.asset_id
+            WHERE c.is_active = 1 AND c.released_revision_id <> ''
+            """,
+            batch_size=HEALTH_PAGE_SIZE,
+        )
+        released_missing_files = len(
+            {
+                row["component_id"]
+                for row in released_asset_rows
+                if not Path(str(row["canonical_path"] or "")).is_file()
+            }
+        )
         return {
             "enabled": bool(settings.CATALOG_KLC_ENABLED),
             "checker_available": self._klc.checker_available(),
@@ -82,6 +102,7 @@ class CatalogHealth:
             "released": released,
             "place_ready": place_ready,
             "missing_files": missing_files,
+            "released_missing_files": released_missing_files,
             "preview_failed": int(preview_failed_row["count"] if preview_failed_row else 0),
             "validation": validation_counts,
         }
