@@ -97,6 +97,44 @@ class FootprintRewriteTests(unittest.TestCase):
         self.assertIn('(model "${KIPRJMOD}/RemoteLibrary/remote_3d/R.step" (offset', rewritten)
         self.assertIn('(model "other.wrl")', rewritten)
 
+    def test_models_are_matched_to_nodes_by_file_name_not_asset_order(self) -> None:
+        payload = (
+            '(footprint "SW_Combo"\n'
+            '  (model "${KICAD8_3DMODEL_DIR}/Button/Zeta_Cap.STEP" (offset (xyz 0 0 0)))\n'
+            '  (model "${KICAD8_3DMODEL_DIR}/Switch/alpha_body.step")\n'
+            ")\n"
+        ).encode("utf-8")
+        # Revision assets are ordered by target_name, not by node order.
+        models = [
+            {"canonical_path": "/store/3dmodel/Lib/alpha_body.step"},
+            {"canonical_path": "/store/3dmodel/Lib/zeta_cap.step"},
+        ]
+        with (
+            patch.object(settings, "REMOTE_PROVIDER_LIBRARY_PREFIX", "Remote"),
+            patch.object(settings, "REMOTE_PROVIDER_DESTINATION_DIR", "/RemoteLibrary"),
+        ):
+            rewritten = rewrite_footprint_payload(payload, {}, models).decode("utf-8")
+        self.assertEqual(
+            rewritten,
+            '(footprint "SW_Combo"\n'
+            '  (model "${KIPRJMOD}/RemoteLibrary/remote_3d/zeta_cap.step" (offset (xyz 0 0 0)))\n'
+            '  (model "${KIPRJMOD}/RemoteLibrary/remote_3d/alpha_body.step")\n'
+            ")\n",
+        )
+
+    def test_single_model_output_is_unchanged_when_names_differ(self) -> None:
+        payload = b'(footprint "R_0402"\n  (model "${KICAD8_3DMODEL_DIR}/legacy.wrl" (offset (xyz 0 0 0)))\n)\n'
+        models = [{"canonical_path": "/store/3dmodel/Lib/R.step"}]
+        with (
+            patch.object(settings, "REMOTE_PROVIDER_LIBRARY_PREFIX", "Remote"),
+            patch.object(settings, "REMOTE_PROVIDER_DESTINATION_DIR", "/RemoteLibrary"),
+        ):
+            rewritten = rewrite_footprint_payload(payload, {}, models)
+        self.assertEqual(
+            rewritten,
+            b'(footprint "R_0402"\n  (model "${KIPRJMOD}/RemoteLibrary/remote_3d/R.step" (offset (xyz 0 0 0)))\n)\n',
+        )
+
     def test_no_models_leaves_bytes_untouched(self) -> None:
         payload = b'(footprint "R_0402"\n  (model "x.step")\n)\n'
         self.assertEqual(rewrite_footprint_payload(payload, {}, []), payload)

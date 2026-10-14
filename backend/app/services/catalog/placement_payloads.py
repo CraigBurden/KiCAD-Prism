@@ -23,7 +23,7 @@ from app.services.catalog.normalization import sanitize_name, sha256_bytes
 
 
 _TOP_LEVEL_PROPERTY_RE = re.compile(r'^([ \t]+)\(property "([^"]+)" ')
-_MODEL_RE = re.compile(r'\(model\s+"[^"]+"')
+_MODEL_RE = re.compile(r'\(model\s+"([^"]+)"')
 
 
 def remote_library_nickname(library_name: str) -> str:
@@ -156,15 +156,26 @@ def rewrite_footprint_payload(
     destination = settings.REMOTE_PROVIDER_DESTINATION_DIR.rstrip("/")
     if destination in {"/RemoteLibrary", "$/RemoteLibrary"}:
         destination = "${KIPRJMOD}/RemoteLibrary"
+    model_names = [
+        Path(str(model.get("canonical_path") or model.get("name") or "model.step")).name for model in models
+    ]
+    # Assets arrive sorted by library, name and hash, not in node order, so
+    # match each node by file name and keep the positional pick as fallback.
+    names_by_key: dict[str, str] = {}
+    for model_name in model_names:
+        names_by_key.setdefault(model_name.lower(), model_name)
     model_index = 0
 
     def replace_model(match: re.Match[str]) -> str:
         nonlocal model_index
-        if model_index >= len(models):
-            return match.group(0)
-        model = models[model_index]
+        node_index = model_index
         model_index += 1
-        model_name = Path(str(model.get("canonical_path") or model.get("name") or "model.step")).name
+        node_key = re.split(r"[/\\]", match.group(1))[-1].lower()
+        model_name = names_by_key.get(node_key)
+        if model_name is None:
+            if node_index >= len(model_names):
+                return match.group(0)
+            model_name = model_names[node_index]
         model_path = f"{destination}/{prefix}_3d/{model_name}"
         return f'(model "{model_path}"'
 
