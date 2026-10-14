@@ -27,7 +27,6 @@ import argparse
 import json
 import os
 import re
-import shutil
 import sys
 import time
 from dataclasses import asdict, dataclass, field
@@ -383,16 +382,13 @@ def _same_bytes(path: Path, payload: bytes) -> bool:
     return path.is_file() and path.read_bytes() == payload
 
 
-def _write_or_copy(destination: Path, source: Path, *, overwrite: bool) -> Path:
-    destination.parent.mkdir(parents=True, exist_ok=True)
+def _write_or_copy(service: Any, destination: Path, source: Path, *, overwrite: bool) -> Path:
     payload = source.read_bytes()
-    if destination.exists():
-        if _same_bytes(destination, payload):
-            return destination
-        if not overwrite:
-            raise ValueError(f"Canonical asset conflict at {destination}")
-    shutil.copy2(source, destination)
-    return destination
+    if destination.exists() and not _same_bytes(destination, payload) and not overwrite:
+        raise ValueError(f"Canonical asset conflict at {destination}")
+    # Never rewrite an existing canonical file: revisions already linked to it keep
+    # their bytes, and changed content goes to an immutable revisions/<sha256>/ path.
+    return service.asset_files.write_canonical_file(service.runtime, destination, payload)
 
 
 def _import_plans(
@@ -458,7 +454,7 @@ def _import_plans(
             cached = footprint_assets.get(footprint_key)
             if cached is None:
                 destination = service.asset_files.footprint_destination(service.runtime, *footprint_key)
-                local_footprint = _write_or_copy(destination, plan.source_path, overwrite=overwrite_assets)
+                local_footprint = _write_or_copy(service, destination, plan.source_path, overwrite=overwrite_assets)
                 footprint_asset = writer.register_asset(
                     conn,
                     asset_type="footprint",
@@ -480,7 +476,7 @@ def _import_plans(
                     destination = service.asset_files.aux_destination(
                         service.runtime, "3dmodel", plan.target_library, plan.model_path.name
                     )
-                    canonical = _write_or_copy(destination, plan.model_path, overwrite=overwrite_assets)
+                    canonical = _write_or_copy(service, destination, plan.model_path, overwrite=overwrite_assets)
                     model_asset = writer.register_asset(
                         conn,
                         asset_type="3dmodel",
@@ -588,7 +584,7 @@ def _build_parser() -> argparse.ArgumentParser:
             "full: use the whole file name as the MPN and leave package_name to the other fallbacks."
         ),
     )
-    parser.add_argument("--overwrite-assets", action="store_true", help="Overwrite canonical asset files when content differs.")
+    parser.add_argument("--overwrite-assets", action="store_true", help="Store changed asset content as a new immutable file instead of refusing.")
     parser.add_argument("--no-previews", action="store_true", help="Skip footprint SVG preview generation. Much faster; previews can be backfilled later.")
     parser.add_argument("--no-release", action="store_true", help="Deprecated: footprint-only epoch-2 imports are always draft-only.")
     parser.add_argument("--dry-run", action="store_true", help="Resolve footprints and report what would be imported without writing anything.")
