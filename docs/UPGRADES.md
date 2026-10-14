@@ -320,6 +320,16 @@ committed version, so Sync fast-forwards again without a manual step. A file
 that supplied no values, and an untracked file (which never blocks Sync), are
 left in place. To share the settings with the team, commit them upstream.
 
+## DBL footprints reference bundled 3D models
+
+Earlier DBL exports wrote footprints whose model paths pointed at
+`${KIPRJMOD}/RemoteLibrary/remote_3d/...`, which exists only where the Remote
+Symbol Provider placed the same part. The export now ships the models under
+`3DModels/` and footprints reference `${PRISM_LIB_DIR}/3DModels/...`. Boards
+that placed DBL footprints before this change keep the old paths; run "Update
+footprints from library" once to pick up the new ones. There is no automatic
+migration.
+
 ## Release Studio configurations in a monorepo subproject
 
 Earlier releases read a monorepo subproject's committed Release Studio

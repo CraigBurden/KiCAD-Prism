@@ -1167,6 +1167,7 @@ class ComponentCatalogPostgresIntegrationTests(unittest.TestCase):
                 for name, payload in sorted(normalized_dbl_files.items())
             },
             {
+                "3DModels/1e561b8e3c745b4b/R_Test.step": "1e561b8e3c745b4b8582275549e0efad5be2e0b610b9bbb1064ed52e8a7a9435",
                 "PcbLib/Prism_Test.pretty/R_Test.kicad_mod": "8d4ef2234c867094a30e793fdbff4975a78a98742ac72825b5fef2c2c5355461",
                 "Prism_Linux.kicad_dbl": "86cacbfb2c4f192082191bf6cfd4a386cb89672ffb4747ebea6cd538c379064d",
                 "Prism_Windows.kicad_dbl": "5f8b5b8128abd1fd8021eac341c104b152f407a179a5df6c2e6c6c8efd20ad14",
@@ -1248,6 +1249,7 @@ class ComponentCatalogPostgresIntegrationTests(unittest.TestCase):
         self.assertIn('(property "Footprint" "Prism_Test:R_Test"', exported_symbol)
         self.assertEqual(dbl_row[-1], "Prism_Test:R_Test")
         self.assertIn("PcbLib/Prism_Test.pretty/R_Test.kicad_mod", first_files)
+        self.assertEqual((first_dbl["model_count"], first_dbl["missing_models"]), (1, []))
         second_dbl = self.service.export_kicad_dbl_bundle()
         second_root = Path(second_dbl["export_root"])
         second_files = {

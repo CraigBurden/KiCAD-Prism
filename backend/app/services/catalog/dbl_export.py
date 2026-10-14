@@ -1,7 +1,8 @@
 """KiCad database-library (DBL) export of released, placeable components.
 
 The bundle is a SQLite interchange file plus per-platform ``.kicad_dbl``
-configs, extracted symbol/footprint libraries, and library tables. Prism's
+configs, extracted symbol/footprint libraries, library tables, and the 3D
+models those footprints use under content-addressed paths. Prism's
 runtime state stays in PostgreSQL; SQLite is only the delivery format KiCad
 reads. Output is byte-stable for an unchanged catalog.
 """
@@ -15,7 +16,7 @@ import shutil
 import sqlite3
 from typing import Any
 
-from app.services.catalog.normalization import sanitize_name
+from app.services.catalog.normalization import sanitize_name, sha256_bytes
 from app.services.catalog.placement import CatalogPlacement
 from app.services.catalog.placement_payloads import materialize_asset
 from app.services.catalog.runtime import CatalogRuntime
@@ -41,6 +42,7 @@ DBL_LINUX_FILENAME = "Prism_Linux.kicad_dbl"
 DBL_WINDOWS_FILENAME = "Prism_Windows.kicad_dbl"
 DBL_LINUX_CONNECTION = "Driver={SQLite3};Database=${CWD}/Prism.sqlite;"
 DBL_WINDOWS_CONNECTION = "Driver={SQLite3 ODBC Driver};Database=${CWD}/Prism.sqlite;"
+DBL_MODEL_DIR = "3DModels"
 
 
 def quote_identifier(identifier: str) -> str:
@@ -62,6 +64,17 @@ def dbl_symbol_library_name(part_number: str, symbol_asset: dict[str, Any] | Non
         return ""
     raw = f"Prism_{part_number}_{symbol_asset['target_library']}_{symbol_asset['target_name']}"
     return sanitize_name(raw, "Prism_Symbol")
+
+
+def dbl_model_relpath(model_asset: dict[str, Any]) -> str:
+    """Bundle path of a 3D model, keyed by the asset row's content hash."""
+    name = Path(str(model_asset.get("canonical_path") or model_asset.get("name") or "model.step")).name
+    return f"{DBL_MODEL_DIR}/{str(model_asset['sha256'])[:16]}/{sanitize_name(name, 'model.step')}"
+
+
+def dbl_model_path(model_asset: dict[str, Any]) -> str:
+    """Model path written into exported footprints."""
+    return "${PRISM_LIB_DIR}/" + dbl_model_relpath(model_asset)
 
 
 def dbl_footprint_ref(component: dict[str, Any]) -> str:
@@ -145,13 +158,26 @@ class CatalogDblExport:
         component: dict[str, Any],
         part_number: str,
         export_root: Path,
+        exported_models: dict[str, str] | None = None,
+        missing_models: list[dict[str, Any]] | None = None,
     ) -> None:
+        """Write the component's symbol, footprint and 3D models into ``export_root``.
+
+        Models of every released revision of the component are exported, so
+        boards placed from an earlier release keep resolving their models.
+        ``exported_models`` maps written model paths to their SHA-256 across
+        components; unreadable or mismatching models go to ``missing_models``.
+        """
+        exported_models = {} if exported_models is None else exported_models
+        missing_models = [] if missing_models is None else missing_models
         _, assets = self._placement.placement_assets(conn, component["revision_id"])
         footprint_ref = dbl_footprint_ref(component) or None
         for raw_asset in assets:
             if raw_asset["asset_type"] not in {"symbol", "footprint"}:
                 continue
-            asset = materialize_asset(raw_asset, assets, component, footprint_ref=footprint_ref)
+            asset = materialize_asset(
+                raw_asset, assets, component, footprint_ref=footprint_ref, model_path=dbl_model_path
+            )
             if raw_asset["asset_type"] == "symbol":
                 library_name = dbl_symbol_library_name(part_number, asset)
                 destination = export_root / "SchLib" / f"{library_name}.kicad_sym"
@@ -161,6 +187,62 @@ class CatalogDblExport:
                 )
             destination.parent.mkdir(parents=True, exist_ok=True)
             destination.write_bytes(asset["payload"])
+
+        models = [(component["revision_id"], asset) for asset in assets if asset["asset_type"] == "3dmodel"]
+        models.extend((row["revision_id"], row) for row in self._released_models(conn, component["id"]))
+        for revision_id, model in models:
+            self._export_model(export_root, component["id"], revision_id, model, exported_models, missing_models)
+
+    @staticmethod
+    def _released_models(conn: Any, component_id: str) -> list[dict[str, Any]]:
+        rows = conn.execute(
+            """
+            SELECT DISTINCT rr.revision_id, a.*
+            FROM component_release_records rr
+            JOIN revision_assets ra ON ra.revision_id = rr.revision_id
+            JOIN assets a ON a.id = ra.asset_id
+            WHERE rr.component_id = %s AND a.asset_type = '3dmodel'
+            ORDER BY rr.revision_id, a.sha256, a.id
+            """,
+            (component_id,),
+        ).fetchall()
+        return [dict(row) for row in rows]
+
+    @staticmethod
+    def _export_model(
+        export_root: Path,
+        component_id: str,
+        revision_id: str,
+        model: dict[str, Any],
+        exported_models: dict[str, str],
+        missing_models: list[dict[str, Any]],
+    ) -> None:
+        relpath = dbl_model_relpath(model)
+        expected = str(model["sha256"])
+        if exported_models.get(relpath) == expected:
+            return
+        if relpath in exported_models:
+            raise ValueError(f"3D model path collision in DBL export: {relpath}")
+        try:
+            payload = Path(str(model["canonical_path"])).read_bytes()
+        except OSError:
+            reason = "file_missing"
+        else:
+            reason = "" if sha256_bytes(payload) == expected else "sha256_mismatch"
+        if reason:
+            entry = {
+                "component_id": component_id,
+                "revision_id": revision_id,
+                "asset_id": str(model["id"]),
+                "reason": reason,
+            }
+            if entry not in missing_models:
+                missing_models.append(entry)
+            return
+        destination = export_root / relpath
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        destination.write_bytes(payload)
+        exported_models[relpath] = expected
 
     def export_bundle(
         self,
@@ -186,6 +268,8 @@ class CatalogDblExport:
         db_path = export_root / "Prism.sqlite"
         used_part_numbers: set[str] = set()
         grouped_rows: dict[str, list[dict[str, str]]] = {}
+        exported_models: dict[str, str] = {}
+        missing_models: list[dict[str, Any]] = []
 
         for component in components:
             base_part = part_number_nocolon(component["mpn"] or component["value"] or component["id"])
@@ -199,7 +283,7 @@ class CatalogDblExport:
             grouped_rows.setdefault(category, []).append(
                 dbl_row_for_component(component, part_number, custom_fields)
             )
-            self.collect_dbl_assets(conn, component, part_number, export_root)
+            self.collect_dbl_assets(conn, component, part_number, export_root, exported_models, missing_models)
 
         with sqlite3.connect(db_path) as dbl_conn:
             for category, rows in sorted(grouped_rows.items()):
@@ -289,6 +373,8 @@ class CatalogDblExport:
             "windows_dbl": str(export_root / DBL_WINDOWS_FILENAME),
             "sym_lib_table": str(export_root / "sym-lib-table"),
             "fp_lib_table": str(export_root / "fp-lib-table"),
+            "model_count": len(exported_models),
+            "missing_models": missing_models,
         }
 
 
@@ -296,9 +382,12 @@ __all__ = [
     "DBL_COMMON_COLUMNS",
     "DBL_KEY_COLUMN",
     "DBL_LINUX_FILENAME",
+    "DBL_MODEL_DIR",
     "DBL_WINDOWS_FILENAME",
     "CatalogDblExport",
     "dbl_footprint_ref",
+    "dbl_model_path",
+    "dbl_model_relpath",
     "dbl_row_for_component",
     "dbl_symbol_library_name",
     "part_number_nocolon",

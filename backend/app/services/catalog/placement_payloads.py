@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from pathlib import Path
 import re
-from typing import Any
+from typing import Any, Callable
 
 from app.core.config import settings
 from app.services.catalog.asset_files import content_type_for_asset
@@ -147,7 +147,14 @@ def rewrite_footprint_payload(
     payload: bytes,
     asset: dict[str, Any],
     model_assets: list[dict[str, Any]] | None = None,
+    *,
+    model_path: Callable[[dict[str, Any]], str] | None = None,
 ) -> bytes:
+    """Point the footprint's ``(model ...)`` entries at the linked model assets, in order.
+
+    ``model_path`` maps a model asset to its path; by default it is the remote
+    provider's ``<destination>/<prefix>_3d/<basename>``.
+    """
     text = payload.decode("utf-8")
     models = list(model_assets or [])
     if not models or "(model " not in text:
@@ -164,9 +171,10 @@ def rewrite_footprint_payload(
             return match.group(0)
         model = models[model_index]
         model_index += 1
+        if model_path is not None:
+            return f'(model "{model_path(model)}"'
         model_name = Path(str(model.get("canonical_path") or model.get("name") or "model.step")).name
-        model_path = f"{destination}/{prefix}_3d/{model_name}"
-        return f'(model "{model_path}"'
+        return f'(model "{destination}/{prefix}_3d/{model_name}"'
 
     return _MODEL_RE.sub(replace_model, text).encode("utf-8")
 
@@ -177,11 +185,13 @@ def materialize_asset(
     component: dict[str, Any] | None = None,
     *,
     footprint_ref: str | None = None,
+    model_path: Callable[[dict[str, Any]], str] | None = None,
 ) -> dict[str, Any]:
     """Read one stored asset and return it with its placement payload attached.
 
     ``footprint_ref`` overrides the symbol's ``Footprint`` value; by default it
-    is the remote provider's ``remote_<library>:<name>``.
+    is the remote provider's ``remote_<library>:<name>``. ``model_path`` is
+    passed to :func:`rewrite_footprint_payload`.
     """
     path = Path(str(asset["canonical_path"]))
     payload = path.read_bytes()
@@ -199,6 +209,7 @@ def materialize_asset(
             payload,
             asset,
             [candidate for candidate in assets_for_revision if candidate["asset_type"] == "3dmodel"],
+            model_path=model_path,
         )
     return {
         **asset,
