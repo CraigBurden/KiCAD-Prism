@@ -17,6 +17,8 @@ import sqlite3
 from unittest.mock import patch
 from urllib.parse import parse_qs, urlsplit
 
+import zstandard
+
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
@@ -1251,6 +1253,49 @@ class ComponentCatalogPostgresIntegrationTests(unittest.TestCase):
             {name: hashlib.sha256(payload).hexdigest() for name, payload in first_files.items()},
             {name: hashlib.sha256(payload).hexdigest() for name, payload in second_files.items()},
         )
+
+    def test_placed_footprint_embeds_the_model_of_each_revision(self) -> None:
+        component = self._component("embed-" + uuid.uuid4().hex[:8])
+        footprint = self.service.import_footprint(
+            component["id"],
+            upload_name="R_Embed.kicad_mod",
+            payload=(
+                b'(footprint "R_Embed" (version 20240108) (generator "test")\n'
+                b'  (model "${KICAD8_3DMODEL_DIR}/R_Embed.step")\n)\n'
+            ),
+            target_library="Prism_Embed",
+            selected_footprint="R_Embed",
+            actor="designer@example.com",
+        )["component"]
+        footprint_id = next(a["id"] for a in footprint["assets"] if a["asset_type"] == "footprint")
+        models = [b"ISO-10303-21;rev1;END-ISO-10303-21;", b"ISO-10303-21;rev2;END-ISO-10303-21;"]
+        revision_ids = [
+            self.service.attach_auxiliary_asset(
+                component["id"],
+                asset_type="3dmodel",
+                upload_name="R_Embed.step",
+                payload=model,
+                target_library="Prism_Embed",
+                actor="designer@example.com",
+            )["component"]["revision_id"]
+            for model in models
+        ]
+
+        def embedded(revision_id: str) -> tuple[str, bytes]:
+            asset = self.service.get_asset_by_id(footprint_id, revision_id=revision_id)
+            assert asset is not None
+            text = asset["payload"].decode("utf-8")
+            name = re.search(r'\(model "kicad-embed://([^"]+)"', text).group(1)
+            data = re.search(r"\(data \|(.*?)\|", text, re.S).group(1)
+            return name, zstandard.ZstdDecompressor().decompress(base64.b64decode(re.sub(r"\s", "", data)))
+
+        first, second = embedded(revision_ids[0]), embedded(revision_ids[1])
+        self.assertNotEqual(first[0], second[0])
+        self.assertEqual(
+            [hashlib.sha256(first[1]).hexdigest(), hashlib.sha256(second[1]).hexdigest()],
+            [hashlib.sha256(model).hexdigest() for model in models],
+        )
+        self.assertEqual(embedded(revision_ids[0]), first)
 
     def test_non_default_representation_drives_manifest_and_inline_pair(self) -> None:
         component = self._component("representations-" + uuid.uuid4().hex[:8])

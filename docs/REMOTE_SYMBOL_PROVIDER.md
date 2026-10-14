@@ -143,6 +143,16 @@ results, list payloads, and component detail:
 - The admin API (`GET /api/catalog/components/{id}`) keeps the legacy flat
   fields for existing internal consumers and additionally returns `supply`.
 
+## 3D models
+
+Placed footprints carry their 3D models as KiCad embedded files: each
+`(model ...)` points at `kicad-embed://<stem>-<sha12><ext>` and the footprint
+holds the zstd-compressed data. The board file, and so the project commit,
+pins the exact model of the placed revision; a fresh clone needs no
+`RemoteLibrary/` files. Models larger than 2 MiB compressed keep the shared
+`<destination>/<prefix>_3d/<name>` path, which is not pinned. The raw model
+file is still shipped with the part.
+
 ## What users can see
 
 The provider reads the released catalog projection. Components are absent when
@@ -165,7 +175,7 @@ authentication failure.
 | catalog is empty | released place-ready components and token scope |
 | preview is missing | preview-generation job and catalog worker logs |
 | Place is disabled | release status and required assets |
-| model path is wrong | provider prefix and destination configuration |
+| model path is wrong | provider prefix and destination configuration (only for models above the embed limit) |
 | works in browser but not KiCad | OS certificate trust and proxy interception |
 
 Inspect:

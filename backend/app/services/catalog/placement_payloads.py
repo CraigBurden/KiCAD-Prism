@@ -2,8 +2,9 @@
 
 Symbols gain the component's metadata properties and a footprint reference
 that points at the remote library nickname; footprints have their 3D model
-paths redirected to the remote provider destination. These rewrites are pure
-and byte-stable for identical inputs, which is what keeps manifest hashes and
+paths redirected to the remote provider destination, or embedded in the
+footprint when a model reader is given. These rewrites are pure and
+byte-stable for identical inputs, which is what keeps manifest hashes and
 inline bundles reproducible.
 """
 
@@ -11,10 +12,17 @@ from __future__ import annotations
 
 from pathlib import Path
 import re
-from typing import Any
+from typing import Any, Callable
 
 from app.core.config import settings
 from app.services.catalog.asset_files import content_type_for_asset
+from app.services.catalog.kicad_embedded_files import (
+    EMBED_MAX_COMPRESSED_BYTES,
+    add_embedded_files,
+    compress_model,
+    embedded_file_form,
+    embedded_model_name,
+)
 from app.services.catalog.metadata_descriptors import (
     SYMBOL_METADATA_FIELD_ORDER,
     SYMBOL_METADATA_LABEL_TO_KEY,
@@ -24,6 +32,7 @@ from app.services.catalog.normalization import sanitize_name, sha256_bytes
 
 _TOP_LEVEL_PROPERTY_RE = re.compile(r'^([ \t]+)\(property "([^"]+)" ')
 _MODEL_RE = re.compile(r'\(model\s+"([^"]+)"')
+_MODEL_INDENT_RE = re.compile(r'^([ \t]*)\(model\s+"', re.MULTILINE)
 
 
 def remote_library_nickname(library_name: str) -> str:
@@ -147,7 +156,15 @@ def rewrite_footprint_payload(
     payload: bytes,
     asset: dict[str, Any],
     model_assets: list[dict[str, Any]] | None = None,
+    read_model: Callable[[dict[str, Any]], bytes] | None = None,
 ) -> bytes:
+    """Point each matched ``(model ...)`` at its placed model.
+
+    With ``read_model``, models up to ``EMBED_MAX_COMPRESSED_BYTES`` are
+    embedded in the footprint under a content-unique ``kicad-embed://`` name,
+    so the board that receives the footprint pins the model. Larger models,
+    and every model without a reader, keep the shared remote destination path.
+    """
     text = payload.decode("utf-8")
     models = list(model_assets or [])
     if not models or "(model " not in text:
@@ -187,6 +204,7 @@ def rewrite_footprint_payload(
             if model_index is not None:
                 assigned[node_index] = model_index
     node_counter = 0
+    placed_path = _ModelPathBuilder(text, models, model_names, f"{destination}/{prefix}_3d", read_model)
 
     def replace_model(match: re.Match[str]) -> str:
         nonlocal node_counter
@@ -194,18 +212,78 @@ def rewrite_footprint_payload(
         node_counter += 1
         if model_index is None:
             return match.group(0)
-        model_path = f"{destination}/{prefix}_3d/{model_names[model_index]}"
+        model_path = placed_path(model_index)
         return f'(model "{model_path}"'
 
-    return _MODEL_RE.sub(replace_model, text).encode("utf-8")
+    text = _MODEL_RE.sub(replace_model, text)
+    return placed_path.finish(text).encode("utf-8")
+
+
+class _ModelPathBuilder:
+    """Build the path for the model asset the matcher assigned to a node.
+
+    Nodes may share an asset, so each asset is read and encoded once.
+    Embedded models are collected once per content-unique name and added to
+    the footprint by ``finish``.
+    """
+
+    def __init__(
+        self,
+        text: str,
+        models: list[dict[str, Any]],
+        model_names: list[str],
+        external_dir: str,
+        read_model: Callable[[dict[str, Any]], bytes] | None,
+    ) -> None:
+        self._models = models
+        self._model_names = model_names
+        self._external_dir = external_dir
+        self._read_model = read_model
+        indent_match = _MODEL_INDENT_RE.search(text)
+        self._indent = indent_match.group(1) if indent_match else "  "
+        self._unit = "\t" if self._indent.startswith("\t") else "  "
+        self._forms: dict[str, str] = {}
+        self._paths: dict[int, str] = {}
+
+    def __call__(self, model_index: int) -> str:
+        if model_index not in self._paths:
+            self._paths[model_index] = self._place(model_index)
+        return self._paths[model_index]
+
+    def _place(self, model_index: int) -> str:
+        model_name = self._model_names[model_index]
+        if self._read_model is not None:
+            data = self._read_model(self._models[model_index])
+            compressed = compress_model(data)
+            if len(compressed) <= EMBED_MAX_COMPRESSED_BYTES:
+                embedded_name = embedded_model_name(model_name, data)
+                if embedded_name not in self._forms:
+                    self._forms[embedded_name] = embedded_file_form(
+                        embedded_name, data, compressed, self._indent + self._unit, self._unit
+                    )
+                return f"kicad-embed://{embedded_name}"
+        return f"{self._external_dir}/{model_name}"
+
+    def finish(self, text: str) -> str:
+        return add_embedded_files(text, list(self._forms.values()), self._indent, self._unit)
+
+
+def _read_canonical_bytes(asset: dict[str, Any]) -> bytes:
+    return Path(str(asset["canonical_path"])).read_bytes()
 
 
 def materialize_asset(
     asset: dict[str, Any],
     assets_for_revision: list[dict[str, Any]],
     component: dict[str, Any] | None = None,
+    *,
+    embed_models: bool = False,
 ) -> dict[str, Any]:
-    """Read one stored asset and return it with its placement payload attached."""
+    """Read one stored asset and return it with its placement payload attached.
+
+    ``embed_models`` embeds the footprint's 3D models (see
+    ``rewrite_footprint_payload``); placement sets it, DBL export does not.
+    """
     path = Path(str(asset["canonical_path"]))
     payload = path.read_bytes()
     if asset["asset_type"] == "symbol":
@@ -223,6 +301,7 @@ def materialize_asset(
             payload,
             asset,
             [candidate for candidate in assets_for_revision if candidate["asset_type"] == "3dmodel"],
+            _read_canonical_bytes if embed_models else None,
         )
     return {
         **asset,
