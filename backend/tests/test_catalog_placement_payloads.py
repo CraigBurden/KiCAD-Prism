@@ -196,6 +196,14 @@ class FootprintRewriteTests(unittest.TestCase):
             [out + "zeta_cap.step", out + "alpha_body.step"],
         )
 
+    def test_ambiguous_tier_defers_to_the_first_unique_one(self) -> None:
+        # "i̇" sanitizes to "i_", which two assets share, but casefolds
+        # to the same text as "İ", which only one asset has.
+        assets = ["/store/3dmodel/A/i_.step", "/store/3dmodel/B/i_.step", "/store/3dmodel/C/İ.step"]
+        self.assertEqual(
+            self._rewrite(["${M}/i̇.step"], assets), ["${KIPRJMOD}/RemoteLibrary/remote_3d/İ.step"]
+        )
+
     def test_single_asset_keeps_positional_pick_for_several_nodes(self) -> None:
         out = "${KIPRJMOD}/RemoteLibrary/remote_3d/R.step"
         assets = ["/store/3dmodel/Lib/R.step"]
