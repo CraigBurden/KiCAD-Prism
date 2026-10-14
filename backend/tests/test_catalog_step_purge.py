@@ -318,6 +318,44 @@ class SupersededStepPurgeTests(unittest.TestCase):
         self.assertFalse(audit["valid"])
         self.assertEqual(audit["first_invalid_asset_id"], str(model["id"]))
 
+    def _relink_purged_model(self, released: dict, scratch_id: str) -> dict:
+        """Upload the purged bytes again: the asset row is reused and its file restored."""
+        relinked = self._attach_model(str(released["id"]), "scratch")
+        self.assertIn(scratch_id, self._model_ids(relinked))
+        self.assertTrue(self._step_path(scratch_id).is_file())
+        return relinked
+
+    def _assert_invalid_at(self, component_id: str, asset_id: str) -> None:
+        audit = self.service.verify_component_audit_chain(component_id)
+        self.assertFalse(audit["valid"], audit)
+        self.assertEqual(audit["reason"], "asset_content_mismatch")
+        self.assertEqual(audit["first_invalid_asset_id"], asset_id)
+
+    def test_an_old_ledger_row_does_not_excuse_a_relinked_model(self) -> None:
+        released, _old_model, scratch_id = self._purged_draft_model()
+        self._relink_purged_model(released, scratch_id)
+        self._step_path(scratch_id).unlink()
+
+        self._assert_invalid_at(str(released["id"]), scratch_id)
+        with self.assertRaises(FileNotFoundError):
+            self.service.get_asset_by_id(scratch_id)
+
+    def test_a_relinked_model_abandoned_again_needs_a_new_ledger_row(self) -> None:
+        released, _old_model, scratch_id = self._purged_draft_model()
+        relinked = self._relink_purged_model(released, scratch_id)
+        self._detach(relinked, scratch_id)
+        path = self._step_path(scratch_id)
+        payload = path.read_bytes()
+        path.unlink()
+
+        self._assert_invalid_at(str(released["id"]), scratch_id)
+
+        path.write_bytes(payload)
+        self.assertIn(scratch_id, self._purge()["asset_ids"])
+        audit = self.service.verify_component_audit_chain(str(released["id"]))
+        self.assertTrue(audit["valid"], audit)
+        self.assertEqual(audit["purged_asset_ids"], [scratch_id])
+
     def test_purge_ledger_is_migrated_and_append_only(self) -> None:
         _released, _old_model, scratch_id = self._purged_draft_model()
         with self.service.connection() as conn:

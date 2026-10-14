@@ -5,6 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
+from app.services.catalog.asset_files import purge_excuses_missing_file
 from app.services.catalog.revision_kernel import (
     CatalogRevisionKernel,
     normalize_workflow_stage,
@@ -179,7 +180,7 @@ class CatalogComponentHistoryReads:
         purged_asset_ids: list[str] = []
         for asset in assets:
             path = Path(str(asset["canonical_path"]))
-            if not path.is_file() and self._purged_draft_asset(conn, component_id, str(asset["id"])):
+            if not path.is_file() and purge_excuses_missing_file(conn, str(asset["id"])):
                 purged_asset_ids.append(str(asset["id"]))
                 continue
             if not path.is_file() or sha256_file(path) != str(asset["sha256"]):
@@ -207,40 +208,6 @@ class CatalogComponentHistoryReads:
             "head_hash": previous_hash,
             "anchored_head_hash": anchored_head,
         }
-
-    @staticmethod
-    def _purged_draft_asset(conn: Any, component_id: str, asset_id: str) -> bool:
-        """Whether maintenance recorded purging this asset's bytes and no released revision needs them.
-
-        A ledger row never excuses a model of this component's released history.
-        """
-        row = conn.execute(
-            """
-                SELECT 1 AS present
-                FROM catalog_asset_file_purges purge
-                JOIN assets asset ON asset.id = purge.asset_id AND asset.sha256 = purge.sha256
-                WHERE purge.asset_id = %s
-                  AND NOT EXISTS (
-                      SELECT 1
-                      FROM revision_assets link
-                      JOIN component_revisions revision ON revision.id = link.revision_id
-                      JOIN components component ON component.id = revision.component_id
-                      WHERE link.asset_id = purge.asset_id
-                        AND revision.component_id = %s
-                        AND (
-                            revision.release_status = 'released'
-                            OR revision.id = component.released_revision_id
-                            OR EXISTS (
-                                SELECT 1 FROM component_release_records record
-                                WHERE record.revision_id = revision.id
-                            )
-                        )
-                  )
-                LIMIT 1
-                """,
-            (asset_id, component_id),
-        ).fetchone()
-        return row is not None
 
     def list_component_usage(
         self,
