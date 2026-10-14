@@ -12,6 +12,7 @@ from pydantic import BaseModel, Field
 
 from app.core.errors import caller_errors
 from app.core.security import AuthenticatedUser, require_catalog_browser, require_catalog_writer
+from app.services.catalog import models as catalog_models
 from app.services.catalog_job_service import catalog_jobs
 from app.services.component_catalog_service import catalog_service
 
@@ -107,10 +108,13 @@ def list_models(component_id: str, user: AuthenticatedUser = Depends(require_cat
 
 
 @router.post("/components/{component_id}/models/convert")
-def convert_models(component_id: str, user: AuthenticatedUser = Depends(require_catalog_writer)):
+def convert_models(component_id: str, revision_id: str | None = Query(None, alias="revisionId"),
+                   user: AuthenticatedUser = Depends(require_catalog_writer)):
+    """Queue GLB conversion of the current revision's STEP models, or of ``revisionId``'s (a pinned one)."""
     _mates_call(lambda: catalog_service.system_items.list_models(component_id))  # 404/422 before queueing
-    job = catalog_jobs.enqueue("catalog_model_glb", {"componentId": component_id}, created_by=user.email,
-                               idempotency_key=f"catalog_model_glb:{component_id}")
+    payload = {"componentId": component_id, **({"revisionId": revision_id} if revision_id else {})}
+    job = catalog_jobs.enqueue("catalog_model_glb", payload, created_by=user.email,
+                               idempotency_key=catalog_models.conversion_job_key(component_id, revision_id))
     return {"jobId": job.get("id"), "status": job.get("status")}
 
 

@@ -248,13 +248,14 @@ class CatalogSystemItemsFacade:
             aligned = catalog_models.alignments(conn, component_id)
         return [catalog_models.model_doc(a, glbs.get(keys[a["id"]]), aligned.get(a["id"])) for a in assets]
 
-    def convert_models(self, component_id: str) -> list[dict[str, Any]]:
-        """Convert every STEP model of the part that has no GLB for the current converter yet."""
+    def convert_models(self, component_id: str, revision_id: str | None = None) -> list[dict[str, Any]]:
+        """Convert every STEP model of the part at ``revision_id`` (default: the current revision) that has
+        no GLB for the current converter yet."""
         self._initialize()
         converter = catalog_models.converter_id()
         with self._connect() as conn:
             catalog_mates.require_modelled(conn, component_id)
-            for asset in catalog_models.step_assets(conn, component_id):
+            for asset in catalog_models.step_assets(conn, component_id, revision_id):
                 key = catalog_models.glb_key(asset["sha256"], converter)
                 if catalog_models.cached(conn, [key]):
                     continue
@@ -262,7 +263,7 @@ class CatalogSystemItemsFacade:
                 catalog_models.store_glb(conn, self._models_root(), key=key, step_sha256=str(asset["sha256"]),
                                          converter=converter, converted=converted, now=utc_now_iso())
             conn.commit()
-        return self.list_models(component_id)
+        return self.list_models(component_id, revision_id)
 
     def model_glb_path(self, key: str) -> Path | None:
         self._initialize()

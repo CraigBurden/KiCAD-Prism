@@ -1,6 +1,6 @@
 # System Builder P2 — contracts
 
-**Version P2-1.93 · 2026-10-09 · tickets SB2-00 to SB2-125.** §0 choices S1–S8 were signed off by the user on 2026-09-30, with S6 revised. The M1 choices T1–T7 (§0.1) were signed off by the user on 2026-09-30.
+**Version P2-1.95 · 2026-10-14 · tickets SB2-00 to SB2-125.** §0 choices S1–S8 were signed off by the user on 2026-09-30, with S6 revised. The M1 choices T1–T7 (§0.1) were signed off by the user on 2026-09-30.
 
 This document extends [CONTRACTS.md](CONTRACTS.md) (P1, v1.12) and never overrides it
 silently. Where P2 changes a P1 rule, the P1 section is named and the change is listed in §19.
@@ -322,7 +322,7 @@ A module instance places a catalog module (§3.5) in a system. It is a leaf of t
   - `geometry` is the connector part's footprint at the origin; `boardThicknessMm` is 0; `footprintPose` is where that footprint sits on the module.
   - `matingFrame` is the frame the placement was made with (§3.6).
 
-  A unit without a placed connector is still a port: it links but has no geometry, so it can't mate. The interface also carries the module's model and its aligned bounds (`boundsMm`).
+  A unit without a placed connector is still a port: it links but has no geometry, so it can't mate. The interface also carries the module's model and its aligned bounds (`boundsMm`). The model comes from the pinned revision's assets; its alignment stays component-scoped (§18.2).
 - **Links, harness ends, exports and nets** treat these ports like a board's. A module port is always exposed (no overrides).
 - **Mating.**
   - A module port mates as "a footprint on a zero-thickness board at `footprintPose` on the module". The solve's `inMember` and a harness end's `connector.inOccurrence` carry that pose. Both harness routers compose it onto the occurrence (`harness_route`/`harness-route.ts`).
@@ -949,7 +949,7 @@ Python `placement/harness_route.py` and `placement/harness_checks.py`, TypeScrip
 
 ### 18.2 Models and alignment (SB2-17)
 
-- **Conversion.** A part's `3dmodel` assets that are STEP files convert to GLB with Geometer (`step_to_glb`). Bounds come from `model_bounds`, in the STEP's own frame, in mm. The catalog job `catalog_model_glb` runs it. `POST …/components/{cid}/models/convert` queues the job (writers); converting in the domain is idempotent.
+- **Conversion.** A part's `3dmodel` assets that are STEP files convert to GLB with Geometer (`step_to_glb`). Bounds come from `model_bounds`, in the STEP's own frame, in mm. The catalog job `catalog_model_glb` runs it. `POST …/components/{cid}/models/convert` queues the job (writers) for the current revision, or for `?revisionId=`; converting in the domain is idempotent. A pinned module or part revision whose STEP has no GLB queues that revision's job when a system reads it, unless its last attempt failed or was cancelled; Convert with `revisionId` retries it.
 - **Cache.** Catalog migration 5 adds `catalog_model_glb`, keyed by `sha256(STEP sha256 + converter)`. The converter is Geometer's version (`geometer-2026.9.7`). That version *is* the tessellation setting: this Geometer's GLB export ignores deflection options (checked: identical output across options on planar and cylindrical models). An unchanged STEP is never converted twice, and a new Geometer produces new files. The GLB is served at `GET /api/catalog/models/{key}.glb`, immutable and cacheable.
 - **Alignment.** Catalog migration 5 also adds `catalog_model_alignment (component_id, asset_id, alignment_json)` with `{offsetMm[3], rotationDeg[3], scale}`, applied as `T(offset) · Rz · Ry · Rx · S` (rotate about x, then y, then z). It maps the model into the part's **mating frame**: mating face on z = 0, mating toward +z, pin 1 toward −x (the housing twin of `F_c`, §14.4). It is set with `PUT …/components/{cid}/models/{assetId}/alignment` (writers; audited `component.model_aligned`). It belongs to the part, so every harness end or module using the part reuses it, and it is never baked into the GLB.
 - **Preview.** `GET …/components/{cid}/models/{assetId}/preview.svg?view=front|side|top&offset=&rotation=&scale=&partner=` renders an orthographic, coloured SVG with Geometer (`model_tessellation` + `mesh_illustration`, about 0.2 s per model). It uses the given alignment (unsaved) or the saved one. `partner` adds the first STEP model of a mating part under its own saved alignment, turned half a turn about x, so the two mating faces meet at z = 0. The M2 viewer replaces this with a live 3D view.
@@ -960,6 +960,7 @@ Python `placement/harness_route.py` and `placement/harness_checks.py`, TypeScrip
 
 | Version | Date | Change |
 |---|---|---|
+| P2-1.95 | 2026-10-14 | A module or part instance draws the model of its pinned revision, not the component's current one (§5.6, §24.1); alignment stays per component. `POST …/models/convert` takes `revisionId`, and a system read queues the conversion of a pinned revision that has none (§18.2). |
 | P2-1.94 | 2026-10-11 | AC-37: the systems list's `findingCounts` are written by write paths only (D12): after a system write commits (and after a collision run, a stored board interface, a source check or a git sync) its counts are rebuilt outside the lock; document and report reads write nothing. The 3D toolbar's collision count and a collision selection leave waived SYS-V22 findings out (D1). |
 | P2-1.93 | 2026-10-09 | SB2-125: default layout puts boards with no link side by side below the linked ones, four to a row (canvas and ICD block diagram, parity case added); an expanded board pushes the blocks below it in its column down. |
 | P2-1.92 | 2026-10-09 | SB2-122: the release chain of a subsystem revision (`latestReleasedVersion`, `newestVersion`, `newestReleaseStatus`; §10) in its inspector and diagram node. |
@@ -1511,7 +1512,7 @@ Prism never edits a board. When two boards name one signal differently, a system
 
 - **What.** A system can place mechanical parts: an enclosure, a bracket, a mounting plate. A part is a catalog component of kind `part` with a converted model (§18.2, SB2-17), added from the catalog only. A new enclosure goes into the catalog first.
 - **Instance.** A new instance kind, `part`, with the same shape as a module instance: `{kind: "part", catalog: {componentId, revisionId}, follow}`.
-  - Its model is the component's first converted model, with its alignment.
+  - Its model is the first converted model among the pinned revision's assets, with the component's alignment (§18.2).
   - Its own-frame box is the model's aligned bounds.
   - It has no ports, rows or nets. It is never a link end, export or harness end, and SYS-V14 applies to it as to a module.
 - **Placement.** Parts are placed and moved like a board or a module (§14.7, §20.4). Poses are stored and reset alike. With no stored pose, a part takes the default side-by-side layout. A part has no mates.

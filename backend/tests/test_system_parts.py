@@ -3,11 +3,14 @@
 from __future__ import annotations
 
 import uuid
+from unittest import mock
 
 from test_catalog_modules import STEP
 from test_system_publish import PublishCase
 from test_system_snapshots import DESIGNER
 
+from app.services import catalog_worker_tasks
+from app.services.catalog import models as catalog_models
 from app.services.systems import manifest as manifest_io
 from app.services.systems.manifest_schema import full_view
 from app.services.systems.store import Invalid
@@ -70,6 +73,34 @@ class PartTest(PartCase):
         scene = self.service.scene(DESIGNER, self.sid)
         [occurrence] = [o for o in scene["occurrences"] if o["instanceId"] == part["id"]]
         self.assertEqual(occurrence["model"]["glbKey"], self.model["glb"]["key"], "the pinned revision's model")
+
+    def test_a_pinned_revision_without_a_glb_is_queued_for_conversion_then_drawn(self) -> None:
+        part = self.add()
+        pinned = str(self.catalog.get_component(self.part_id)["current_revision_id"])
+        self.catalog.detach_asset(self.part_id, "3dmodel", actor="author@example.com")
+        self.catalog.attach_auxiliary_asset(self.part_id, asset_type="3dmodel", upload_name=OTHER_STEP.name,
+                                            payload=OTHER_STEP.read_bytes(), target_library="Test",
+                                            actor="author@example.com")
+        converter = f"test-{uuid.uuid4().hex}"  # a new converter: no GLB of any revision exists for it
+        with mock.patch.object(catalog_models, "converter_id", return_value=converter), \
+                mock.patch("app.services.systems.service_base.latest_job", return_value={"status": "failed"}), \
+                mock.patch("app.services.catalog_job_service.catalog_jobs.enqueue") as enqueue:
+            self.service.scene(DESIGNER, self.sid)
+            enqueue.assert_not_called()  # a read never retries a failed conversion
+        with mock.patch.object(catalog_models, "converter_id", return_value=converter), \
+                mock.patch("app.services.systems.service_base.latest_job", return_value=None), \
+                mock.patch("app.services.catalog_job_service.catalog_jobs.enqueue") as enqueue:
+            scene = self.service.scene(DESIGNER, self.sid)
+            [occurrence] = [o for o in scene["occurrences"] if o["instanceId"] == part["id"]]
+            self.assertIsNone(occurrence.get("model"))
+            enqueue.assert_called_with("catalog_model_glb", {"componentId": self.part_id, "revisionId": pinned},
+                                       created_by="system-builder",
+                                       idempotency_key=f"catalog_model_glb:{self.part_id}@{pinned}")
+            with mock.patch.object(catalog_worker_tasks, "catalog_service", self.catalog):
+                catalog_worker_tasks.run_model_glb(mock.Mock(payload=enqueue.call_args.args[1]))
+            scene = self.service.scene(DESIGNER, self.sid)
+        [occurrence] = [o for o in scene["occurrences"] if o["instanceId"] == part["id"]]
+        self.assertEqual(occurrence["model"]["glbKey"], catalog_models.glb_key(self.model["stepSha256"], converter))
 
     def test_a_part_round_trips_through_the_manifest(self) -> None:
         part = self.add()

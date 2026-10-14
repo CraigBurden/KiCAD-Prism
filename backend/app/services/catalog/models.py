@@ -131,6 +131,11 @@ def preview_svg(step: bytes, alignment: Mapping[str, Any], view: str,
 # Storage (catalog migration 5)
 
 
+def conversion_job_key(component_id: str, revision_id: Optional[str] = None) -> str:
+    """The ``catalog_model_glb`` job key: one per component (its current revision) or per pinned revision."""
+    return f"catalog_model_glb:{component_id}" + (f"@{revision_id}" if revision_id else "")
+
+
 def step_assets(conn: Any, component_id: str, revision_id: Optional[str] = None) -> list[dict[str, Any]]:
     """A revision's ``3dmodel`` assets that are STEP files: ``revision_id`` of this component, else the current one."""
     rows = conn.execute(
