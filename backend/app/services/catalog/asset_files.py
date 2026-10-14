@@ -123,7 +123,10 @@ class CatalogAssetFiles:
 
         The asset row, hash, revision link, and audit history remain intact. A file
         is removed only when a newer current revision for that component has a
-        different 3D model and no component currently uses the old asset.
+        different 3D model and no revision linking the asset, in any component, is
+        protected. A revision is protected while it is its component's current or
+        released revision, or once it has ever been released, so placement and
+        audit-chain verification keep their STEP bytes.
         """
         rows = conn.execute(
             """
@@ -143,12 +146,24 @@ class CatalogAssetFiles:
                  AND replacement.asset_id <> link.asset_id
                 WHERE revision.id <> component.current_revision_id
                   AND link.asset_type = '3dmodel'
+            ), protected_models AS (
+                SELECT DISTINCT link.asset_id
+                FROM revision_assets link
+                JOIN component_revisions revision ON revision.id = link.revision_id
+                JOIN components component ON component.id = revision.component_id
+                WHERE revision.id = component.current_revision_id
+                   OR revision.id = component.released_revision_id
+                   OR revision.release_status = 'released'
+                   OR EXISTS (
+                       SELECT 1 FROM component_release_records record
+                       WHERE record.revision_id = revision.id
+                   )
             )
             SELECT DISTINCT asset.id, asset.canonical_path
             FROM superseded_models superseded
             JOIN assets asset ON asset.id = superseded.asset_id
-            LEFT JOIN current_models active ON active.asset_id = superseded.asset_id
-            WHERE active.asset_id IS NULL
+            LEFT JOIN protected_models protected ON protected.asset_id = superseded.asset_id
+            WHERE protected.asset_id IS NULL
               AND (
                 lower(asset.canonical_path) LIKE %s
                 OR lower(asset.canonical_path) LIKE %s
