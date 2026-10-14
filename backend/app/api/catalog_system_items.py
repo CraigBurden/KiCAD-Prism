@@ -112,6 +112,8 @@ def convert_models(component_id: str, revision_id: str | None = Query(None, alia
                    user: AuthenticatedUser = Depends(require_catalog_writer)):
     """Queue GLB conversion of the current revision's STEP models, or of ``revisionId``'s (a pinned one)."""
     _mates_call(lambda: catalog_service.system_items.list_models(component_id))  # 404/422 before queueing
+    if revision_id and not catalog_service.get_component_revision(component_id, revision_id):
+        raise HTTPException(status_code=404, detail="Component revision not found")
     payload = {"componentId": component_id, **({"revisionId": revision_id} if revision_id else {})}
     job = catalog_jobs.enqueue("catalog_model_glb", payload, created_by=user.email,
                                idempotency_key=catalog_models.conversion_job_key(component_id, revision_id))

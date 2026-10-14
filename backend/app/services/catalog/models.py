@@ -132,8 +132,9 @@ def preview_svg(step: bytes, alignment: Mapping[str, Any], view: str,
 
 
 def conversion_job_key(component_id: str, revision_id: Optional[str] = None) -> str:
-    """The ``catalog_model_glb`` job key: one per component (its current revision) or per pinned revision."""
-    return f"catalog_model_glb:{component_id}" + (f"@{revision_id}" if revision_id else "")
+    """The ``catalog_model_glb`` job key: per component (its current revision) or pinned revision, and per
+    converter, so a new Geometer converts again rather than reusing the old converter's completed job."""
+    return f"catalog_model_glb:{component_id}" + (f"@{revision_id}" if revision_id else "") + f":{converter_id()}"
 
 
 def step_assets(conn: Any, component_id: str, revision_id: Optional[str] = None) -> list[dict[str, Any]]:

@@ -11,7 +11,7 @@ import re
 from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Any, Callable, ContextManager, Iterator, Mapping, Optional, Sequence
+from typing import Any, Callable, ContextManager, Iterable, Iterator, Mapping, Optional, Sequence
 
 from app.core.roles import Role
 from app.services.systems import exports as exports_module, git_tracking, modules, visibility
@@ -234,37 +234,36 @@ class ServiceCore:
         return exports_module.as_interface(revision.get("interface")) if revision else None
 
     def _catalog_model(self, component_id: str, revision_id: str) -> Optional[dict]:
-        """A catalog revision's first converted model with its alignment (§18.2), or None. A revision
-        with STEP models but no GLB yet (a pin the catalog's Convert never reached) queues their
-        conversion, so a later read draws it."""
+        """A catalog revision's first converted model with its alignment (§18.2), or None."""
         try:
-            listed = self._catalog().list_models(component_id, revision_id)
+            found = next((m for m in self._catalog().list_models(component_id, revision_id) if m["glb"]), None)
         except Exception:
             logger.debug("No model for component %s", component_id, exc_info=True)
-            listed = []
-        found = next((m for m in listed if m["glb"]), None)
-        if listed and found is None:
-            try:
-                self._queue_model_conversion(component_id, revision_id)
-            except Exception:
-                logger.exception("Could not queue the models of %s@%s for conversion", component_id, revision_id)
+            found = None
         return None if found is None else {
             "glbKey": found["glb"]["key"], "boundsMm": found["glb"]["bounds"],
             "alignment": {k: found["alignment"][k] for k in ("offsetMm", "rotationDeg", "scale")}}
 
-    @staticmethod
-    def _queue_model_conversion(component_id: str, revision_id: str) -> None:
-        """Queue the catalog's GLB conversion job for one revision. Never after a failed or cancelled
-        attempt: a read does not retry, Convert on the part (with ``revisionId``) does."""
+    def _queue_pinned_conversions(self, pins: Iterable[tuple[str, str]], caller: Caller) -> None:
+        """Queue the catalog's GLB conversion for each pinned ``(component, revision)`` whose STEP models
+        have none yet. Never after a failed or cancelled attempt: a read does not retry, Convert on the
+        part (with ``revisionId``) does. The caller must already hold ``catalog_write``."""
         from app.services.catalog import models as catalog_models
         from app.services.catalog_job_service import catalog_jobs
 
-        key = catalog_models.conversion_job_key(component_id, revision_id)
-        last = latest_job("catalog_model_glb", key)
-        if last and last["status"] in ("failed", "cancelled"):
-            return
-        catalog_jobs.enqueue("catalog_model_glb", {"componentId": component_id, "revisionId": revision_id},
-                             created_by="system-builder", idempotency_key=key)
+        for component_id, revision_id in sorted(set(pins)):
+            try:
+                listed = self._catalog().list_models(component_id, revision_id)
+                if not listed or any(m["glb"] for m in listed):
+                    continue
+                key = catalog_models.conversion_job_key(component_id, revision_id)
+                last = latest_job("catalog_model_glb", key)
+                if last and last["status"] in ("failed", "cancelled"):
+                    continue
+                catalog_jobs.enqueue("catalog_model_glb", {"componentId": component_id, "revisionId": revision_id},
+                                     created_by=caller.email, idempotency_key=key)
+            except Exception:
+                logger.exception("Could not queue the models of %s@%s for conversion", component_id, revision_id)
 
     # ------------------------------------------------------------------
     # Git tracking hooks shared by the Git and Snapshot areas (P2 §21)
