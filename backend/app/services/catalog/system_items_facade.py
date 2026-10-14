@@ -235,13 +235,14 @@ class CatalogSystemItemsFacade:
     def _models_root(self) -> Path:
         return Path(self._runtime.store_root) / "models"
 
-    def list_models(self, component_id: str) -> list[dict[str, Any]]:
-        """The part's STEP models with their cached GLB (or None) and alignment."""
+    def list_models(self, component_id: str, revision_id: str | None = None) -> list[dict[str, Any]]:
+        """The part's STEP models at ``revision_id`` (default: the current revision) with their cached GLB
+        (or None) and alignment."""
         self._initialize()
         converter = catalog_models.converter_id()
         with self._connect() as conn:
             catalog_mates.require_modelled(conn, component_id)
-            assets = catalog_models.step_assets(conn, component_id)
+            assets = catalog_models.step_assets(conn, component_id, revision_id)
             keys = {a["id"]: catalog_models.glb_key(a["sha256"], converter) for a in assets}
             glbs = catalog_models.cached(conn, keys.values())
             aligned = catalog_models.alignments(conn, component_id)

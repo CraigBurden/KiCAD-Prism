@@ -218,24 +218,25 @@ class ServiceCore:
         except Exception:  # the catalog is a separate service; the ports still link
             logger.exception("Could not read the connectors of module %s", revision["componentId"])
             connectors = None
-        return modules.as_interface(revision.get("interface"), connectors, self._catalog_model(revision["componentId"]))
+        return modules.as_interface(revision.get("interface"), connectors,
+                                    self._catalog_model(revision["componentId"], revision_id))
 
     def _part_interface(self, revision_id: str) -> Optional[dict]:
         """A mechanical part (P2 §24.1) as an interface with no ports: its model and aligned bounds."""
         revision = self._catalog_revision(revision_id)
         if revision is None:
             return None
-        return modules.as_interface({"units": []}, None, self._catalog_model(revision["componentId"]))
+        return modules.as_interface({"units": []}, None, self._catalog_model(revision["componentId"], revision_id))
 
     def _child_interface(self, revision_id: str) -> Optional[dict]:
         """reconcile.ChildLoader: a catalog revision's exports as an interface artifact."""
         revision = self._catalog_revision(revision_id)
         return exports_module.as_interface(revision.get("interface")) if revision else None
 
-    def _catalog_model(self, component_id: str) -> Optional[dict]:
-        """A catalog component's first converted model with its alignment (§18.2), or None."""
+    def _catalog_model(self, component_id: str, revision_id: str) -> Optional[dict]:
+        """A catalog revision's first converted model with its alignment (§18.2), or None."""
         try:
-            found = next((m for m in self._catalog().list_models(component_id) if m["glb"]), None)
+            found = next((m for m in self._catalog().list_models(component_id, revision_id) if m["glb"]), None)
         except Exception:
             logger.debug("No model for component %s", component_id, exc_info=True)
             found = None

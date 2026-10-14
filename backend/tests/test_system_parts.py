@@ -12,6 +12,8 @@ from app.services.systems import manifest as manifest_io
 from app.services.systems.manifest_schema import full_view
 from app.services.systems.store import Invalid
 
+OTHER_STEP = STEP.parent / "CYPD3177-24LQXQT.stp"
+
 
 class PartCase(PublishCase):
     def setUp(self) -> None:
@@ -56,6 +58,18 @@ class PartTest(PartCase):
         self.assertEqual(occurrence["model"]["glbKey"], self.model["glb"]["key"])
         self.assertEqual(occurrence["pose"]["translationMm"], [10.0, 20.0, 30.0])
         self.assertIsNotNone(occurrence["boundsMm"])
+
+    def test_a_pinned_part_keeps_its_revision_model_after_the_head_moves(self) -> None:
+        part = self.add()
+        self.catalog.detach_asset(self.part_id, "3dmodel", actor="author@example.com")
+        self.catalog.attach_auxiliary_asset(self.part_id, asset_type="3dmodel", upload_name=OTHER_STEP.name,
+                                            payload=OTHER_STEP.read_bytes(), target_library="Test",
+                                            actor="author@example.com")
+        [head] = self.catalog.system_items.convert_models(self.part_id)
+        self.assertNotEqual(head["glb"]["key"], self.model["glb"]["key"])
+        scene = self.service.scene(DESIGNER, self.sid)
+        [occurrence] = [o for o in scene["occurrences"] if o["instanceId"] == part["id"]]
+        self.assertEqual(occurrence["model"]["glbKey"], self.model["glb"]["key"], "the pinned revision's model")
 
     def test_a_part_round_trips_through_the_manifest(self) -> None:
         part = self.add()
