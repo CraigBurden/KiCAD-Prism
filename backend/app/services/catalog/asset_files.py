@@ -125,8 +125,9 @@ class CatalogAssetFiles:
         is removed only when a newer current revision for that component has a
         different 3D model and no revision linking the asset, in any component, is
         protected. A revision is protected while it is its component's current or
-        released revision, or once it has ever been released, so placement and
-        audit-chain verification keep their STEP bytes.
+        released revision, or once it has ever been released, so released STEP
+        evidence is never deleted. Purging a never-released draft STEP still
+        makes audit-chain verification report ``asset_content_mismatch``.
         """
         rows = conn.execute(
             """
