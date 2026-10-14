@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import shutil
 import tempfile
 import unittest
@@ -388,6 +389,100 @@ class ReleaseStudioClosureTests(unittest.TestCase):
 
         absolute.write_bytes(b"absolute model v2\n")
         self.assertNotEqual(build("models-4", library).digest, changed_stock.digest)
+
+    def _host_model_digest(self, closure: object, reference: str) -> str:
+        return {
+            item.reference: item.digest
+            for item in closure.library_references
+            if item.location == "host"
+        }[reference]
+
+    def test_a_project_text_variable_wins_over_the_environment_for_a_model(
+        self,
+    ) -> None:
+        # KiCad's ExpandEnvVarSubstitutions asks the project's text variables
+        # before the environment, so the project's file is the one rendered.
+        from_env = self.root / "env-models/part.step"
+        from_project = self.root / "project-models/part.step"
+        for path, payload in ((from_env, b"env model\n"), (from_project, b"project model\n")):
+            path.parent.mkdir()
+            path.write_bytes(payload)
+        self.repo.joinpath("hardware/board/model.step").write_bytes(b"payload\n")
+        self.repo.joinpath("hardware/board/board.kicad_pro").write_text(
+            json.dumps({"text_variables": {"CUSTOM": str(from_project.parent)}}),
+            encoding="utf-8",
+        )
+        self.repo.joinpath("hardware/board/board.kicad_pcb").write_text(
+            '(kicad_pcb (version 20240108) '
+            '(footprint "R" (model "${CUSTOM}/part.step")))\n',
+            encoding="utf-8",
+        )
+        commit = commit_all(self.repo, "project text variable model")
+
+        closure = materialize_input_closure(
+            self.repo,
+            commit,
+            self.root / "project-variable",
+            relative_path="hardware/board",
+            model_env={"CUSTOM": str(from_env.parent)},
+        )
+
+        self.assertEqual(
+            self._host_model_digest(closure, "${CUSTOM}/part.step"),
+            hashlib.sha256(b"project model\n").hexdigest(),
+        )
+
+    def test_a_backslash_in_a_model_path_is_a_directory_separator(self) -> None:
+        # KiCad swaps `\` for `/` before resolving on Linux, so it opens
+        # `Folder/part.step`, never a file literally named `Folder\part.step`.
+        library = self.root / "slash-models"
+        (library / "Folder").mkdir(parents=True)
+        (library / "Folder/part.step").write_bytes(b"nested model\n")
+        (library / "Folder\\part.step").write_bytes(b"literal backslash name\n")
+        self.repo.joinpath("hardware/board/model.step").write_bytes(b"payload\n")
+        self.repo.joinpath("hardware/board/board.kicad_pcb").write_text(
+            '(kicad_pcb (version 20240108) '
+            '(footprint "R" (model "${KICAD9_3DMODEL_DIR}/Folder\\\\part.step")))\n',
+            encoding="utf-8",
+        )
+        commit = commit_all(self.repo, "backslash model path")
+
+        closure = materialize_input_closure(
+            self.repo,
+            commit,
+            self.root / "backslash",
+            relative_path="hardware/board",
+            model_env={"KICAD9_3DMODEL_DIR": str(library)},
+        )
+
+        self.assertEqual(
+            self._host_model_digest(closure, "${KICAD9_3DMODEL_DIR}/Folder\\part.step"),
+            hashlib.sha256(b"nested model\n").hexdigest(),
+        )
+
+    def test_a_missing_vrml_model_in_the_closure_is_non_hermetic(self) -> None:
+        # kicad-cli replaces a missing WRL with a same-stem STEP from its
+        # search paths, so this absence is not the same on every worker.
+        self.repo.joinpath("hardware/board/model.step").write_bytes(b"payload\n")
+        self.repo.joinpath("hardware/board/board.kicad_pcb").write_text(
+            '(kicad_pcb (version 20240108) '
+            '(footprint "R" (model "${KIPRJMOD}/packages3D/part.wrl")))\n',
+            encoding="utf-8",
+        )
+        commit = commit_all(self.repo, "missing vrml model")
+
+        closure = materialize_input_closure(
+            self.repo,
+            commit,
+            self.root / "missing-wrl",
+            relative_path="hardware/board",
+        )
+
+        reasons = closure.non_hermetic_reasons()
+        self.assertEqual(len(reasons), 1)
+        self.assertIn("part.wrl", reasons[0])
+        self.assertIn("same-name STEP model", reasons[0])
+        self.assertEqual(closure.advisory_reasons(), [])
 
     def test_a_comma_in_a_quoted_model_path_is_not_truncated(self) -> None:
         # The unquoted-variable scan stops at `,`, so running it over a quoted

@@ -62,14 +62,23 @@ _UNRESOLVED_WORDING = {
         "is a 3D model outside the release closure that the build cannot read, "
         "so its bytes are not pinned"
     ),
+    "substitutable": (
+        "is a VRML model missing from the release closure, which KiCad may replace "
+        "with a same-name STEP model from outside it"
+    ),
 }
 
 # Suffixes of 3D models.  A footprint's `(model ...)` node names one of these,
 # and boards routinely carry stale ones whose case or extension no longer
 # matches anything on disk.
 _ADVISORY_SUFFIXES = {
-    ".step", ".stp", ".stpz", ".wrl", ".vrml", ".x3d", ".igs", ".iges", ".wings",
+    ".step", ".stp", ".stpz", ".wrl", ".wrz", ".vrml", ".x3d", ".igs", ".iges",
+    ".wings",
 }
+# A missing `.wrl`/`.wrz` is not an absence every worker shares: kicad-cli
+# swaps in a same-stem STEP model found on its search paths
+# (`3d_cache.cpp`, `MODEL_SUBSTITUTION::IsWrlExtension`, KiCad 10.0.4).
+_SUBSTITUTED_SUFFIXES = {".wrl", ".wrz"}
 
 # `(property "Sheetfile" "Subsheets/Power.kicad_sch")` -- how a hierarchical
 # sheet names the file it instantiates (`sch_io_kicad_sexpr_parser.cpp`).
@@ -271,7 +280,7 @@ class InputClosure:
         return tuple(
             reference
             for reference in self.library_references
-            if reference.location in {"external", "missing", "unreadable"}
+            if reference.location in {"external", "missing", "unreadable", "substitutable"}
             and not reference.advisory
         )
 
@@ -1068,13 +1077,22 @@ def _resolve_project_paths(
                     _host_model_reference(resolver, source, reference, model_env)
                 )
                 continue
+            substitutable = (
+                not isinstance(exc, ExternalPathError)
+                and Path(reference.replace("\\", "/")).suffix.casefold()
+                in _SUBSTITUTED_SUFFIXES
+            )
             resolved.append(
                 ResolvedLibraryPath(
                     source_path=source,
                     reference=reference,
                     resolved_path="",
-                    location="external" if isinstance(exc, ExternalPathError) else "missing",
-                    advisory=_is_advisory_reference(reference),
+                    location=(
+                        "external"
+                        if isinstance(exc, ExternalPathError)
+                        else "substitutable" if substitutable else "missing"
+                    ),
+                    advisory=_is_advisory_reference(reference) and not substitutable,
                 )
             )
     return resolved, sorted(resolver.bindings.values(), key=lambda binding: binding.name)
@@ -1089,8 +1107,12 @@ def _host_model_reference(
     """Hash a 3D model outside the closure the way the build tools find it.
 
     The tools inherit the worker's environment (``kicad_tools.py``) plus
-    ``KIPRJMOD``.  Only the digest is recorded, never the host path, so two
-    workers with the same bytes under different mount points agree.
+    ``KIPRJMOD``.  As in KiCad 10.0.4's ``FILENAME_RESOLVER::ResolvePath``,
+    backslashes become slashes first, and a variable resolves from the
+    project's ``text_variables`` before the environment
+    (``ExpandEnvVarSubstitutions``, ``common.cpp``).  Only the digest is
+    recorded, never the expanded root, so two workers with the same bytes
+    under different mount points agree.
     """
 
     unreadable = ResolvedLibraryPath(
@@ -1099,13 +1121,16 @@ def _host_model_reference(
         resolved_path="",
         location="unreadable",
     )
-    expanded = reference
+    project_variables = _project_text_variables(resolver.destination, source_path)
+    expanded = reference.replace("\\", "/")
     for _ in range(8):
         match = _VARIABLE_RE.search(expanded)
         if match is None:
             break
         name = match.group(1)
-        if name == "KIPRJMOD":
+        if name in project_variables:
+            value = project_variables[name]
+        elif name == "KIPRJMOD":
             value = os.fspath(resolver.project_root)
         else:
             value = str(model_env.get(name) or "")
@@ -1131,6 +1156,22 @@ def _host_model_reference(
         location="host",
         digest=digest.hexdigest(),
     )
+
+
+def _project_text_variables(destination: Path, board_path: str) -> dict[str, str]:
+    """The ``text_variables`` of the project file next to *board_path*."""
+
+    project_file = _materialized_path(
+        destination, str(Path(board_path).with_suffix(".kicad_pro").as_posix())
+    )
+    try:
+        payload = json.loads(project_file.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    variables = payload.get("text_variables") if isinstance(payload, dict) else None
+    if not isinstance(variables, dict):
+        return {}
+    return {str(name): str(value) for name, value in variables.items()}
 
 
 class _PathResolver:
