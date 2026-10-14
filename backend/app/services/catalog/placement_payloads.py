@@ -10,6 +10,7 @@ inline bundles reproducible.
 
 from __future__ import annotations
 
+from collections import Counter
 from pathlib import Path
 import re
 from typing import Any, Callable
@@ -162,7 +163,9 @@ def rewrite_footprint_payload(
 
     With ``read_model``, models are embedded in the footprint under a
     content-unique ``kicad-embed://`` name, so the board that receives the
-    footprint pins the model, as long as the added forms stay within
+    footprint pins the model, when the footprint grows by no more than the
+    model's raw size (the embedded model is no longer shipped, so the
+    placement never grows) and the added forms stay within
     ``EMBED_MAX_FOOTPRINT_BYTES`` (models are taken in node order). Other
     models, and every model without a reader, keep the shared remote
     destination path.
@@ -214,7 +217,10 @@ def _rewrite_footprint(
             if model_index is not None:
                 assigned[node_index] = model_index
     node_counter = 0
-    placed_path = _ModelPathBuilder(text, models, model_names, f"{destination}/{prefix}_3d", read_model)
+    node_counts = Counter(assigned.values())
+    placed_path = _ModelPathBuilder(
+        text, models, model_names, node_counts, f"{destination}/{prefix}_3d", read_model
+    )
 
     def replace_model(match: re.Match[str]) -> str:
         nonlocal node_counter
@@ -242,16 +248,20 @@ class _ModelPathBuilder:
         text: str,
         models: list[dict[str, Any]],
         model_names: list[str],
+        node_counts: Counter[int],
         external_dir: str,
         read_model: Callable[[dict[str, Any]], bytes] | None,
     ) -> None:
         self._models = models
         self._model_names = model_names
+        self._node_counts = node_counts
         self._external_dir = external_dir
         self._read_model = read_model
         indent_match = _MODEL_INDENT_RE.search(text)
         self._indent = indent_match.group(1) if indent_match else "  "
         self._unit = "\t" if self._indent.startswith("\t") else "  "
+        # Upper bound for what opening or extending the block adds besides forms.
+        self._block_bytes = len(f"{self._indent}(embedded_files\n{self._indent})\n\n{self._indent}".encode("utf-8"))
         self._forms: dict[str, str] = {}
         self._paths: dict[int, str] = {}
         self._embedded_bytes = 0
@@ -264,20 +274,30 @@ class _ModelPathBuilder:
 
     def _place(self, model_index: int) -> str:
         model_name = self._model_names[model_index]
-        if self._read_model is not None:
-            data = self._read_model(self._models[model_index])
-            embedded_name = embedded_model_name(model_name, data)
-            form = self._forms.get(embedded_name) or embedded_file_form(
-                embedded_name, data, compress_model(data), self._indent + self._unit, self._unit
-            )
-            size = len(form.encode("utf-8"))
-            if embedded_name in self._forms or self._embedded_bytes + size <= EMBED_MAX_FOOTPRINT_BYTES:
-                if embedded_name not in self._forms:
-                    self._forms[embedded_name] = form
-                    self._embedded_bytes += size
-                self.embedded_models.append(self._models[model_index])
-                return f"kicad-embed://{embedded_name}"
-        return f"{self._external_dir}/{model_name}"
+        external_path = f"{self._external_dir}/{model_name}"
+        if self._read_model is None:
+            return external_path
+        data = self._read_model(self._models[model_index])
+        embedded_name = embedded_model_name(model_name, data)
+        embedded_path = f"kicad-embed://{embedded_name}"
+        form = self._forms.get(embedded_name)
+        form_bytes = 0
+        if form is None:
+            form = embedded_file_form(embedded_name, data, compress_model(data), self._indent + self._unit, self._unit)
+            form_bytes = len(form.encode("utf-8"))
+        # An embedded model is not shipped, so embed only when the footprint
+        # grows by no more than the raw file it replaces: a placement that fits
+        # KiCad's aggregate download budget without embedding still fits.
+        growth = (form_bytes + self._block_bytes if form_bytes else 0) + self._node_counts[model_index] * (
+            len(embedded_path.encode("utf-8")) - len(external_path.encode("utf-8"))
+        )
+        if growth > len(data) or self._embedded_bytes + form_bytes > EMBED_MAX_FOOTPRINT_BYTES:
+            return external_path
+        if form_bytes:
+            self._forms[embedded_name] = form
+            self._embedded_bytes += form_bytes
+        self.embedded_models.append(self._models[model_index])
+        return embedded_path
 
     def finish(self, text: str) -> str:
         return add_embedded_files(text, list(self._forms.values()), self._indent, self._unit)

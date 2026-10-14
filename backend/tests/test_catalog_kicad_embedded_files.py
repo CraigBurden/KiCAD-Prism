@@ -3,10 +3,13 @@
 from __future__ import annotations
 
 import base64
+import gzip
 import hashlib
 from pathlib import Path
+import random
 import re
 import sys
+import tempfile
 import unittest
 from unittest.mock import patch
 
@@ -22,7 +25,7 @@ from app.services.catalog.kicad_embedded_files import (  # noqa: E402
     embedded_model_name,
     kicad_mmh3_128,
 )
-from app.services.catalog.placement_payloads import rewrite_footprint_payload  # noqa: E402
+from app.services.catalog.placement_payloads import materialize_asset, rewrite_footprint_payload  # noqa: E402
 
 
 FIXTURE_BOARD = (
@@ -107,6 +110,17 @@ KICAD_MMH3_VECTORS = [
 ]
 
 
+def step_model(tag: bytes) -> bytes:
+    """A small STEP-like model that compresses well, as real STEP files do."""
+    return b"ISO-10303-21;\nHEADER;\n" + tag + b"\nDATA;\n" + b"#1=CARTESIAN_POINT('',(0.,0.,0.));\n" * 200 + b"END-ISO-10303-21;\n"
+
+
+def wrz_model(seed: int, size: int) -> bytes:
+    """A gzip-compressed VRML model, which zstd cannot shrink further."""
+    noise = base64.b64encode(random.Random(seed).randbytes(size))
+    return gzip.compress(b"#VRML V2.0 utf8\n# " + noise + b"\nShape { geometry Box { size 1 1 1 } }\n", mtime=0)
+
+
 def decode_embedded(text: str) -> dict[str, tuple[bytes, str]]:
     """Return ``name -> (decompressed data, checksum)`` for every embedded file."""
     files = {}
@@ -170,8 +184,46 @@ class FootprintEmbeddingTests(unittest.TestCase):
         model = b"ISO-10303-21;" + bytes(range(256)) * 64
         self.assertEqual(rewrite(FOOTPRINT, model), rewrite(FOOTPRINT, model))
 
+    def test_model_that_would_grow_the_footprint_more_than_itself_stays_external(self) -> None:
+        text = rewrite(FOOTPRINT, wrz_model(1, 4096))
+        self.assertIn('(model "${KIPRJMOD}/RemoteLibrary/remote_3d/R_0402.step"', text)
+        self.assertNotIn("embedded_files", text)
+        self.assertNotIn("embedded_files", rewrite(FOOTPRINT, b"ISO-10303-21;END-ISO-10303-21;"))
+
+    def test_embedding_never_grows_the_placement_shipment(self) -> None:
+        """Codex's review case: incompressible .wrz models next to a STEP model.
+
+        Before the fix the smaller .wrz was embedded while the larger one fell
+        back, so the shipment grew past what fit without embedding.
+        """
+        cases = {
+            "two_wrz": {"small.wrz": wrz_model(697, 40_000), "large.wrz": wrz_model(698, 200_000)},
+            "step_and_wrz": {"body.step": step_model(b"body"), "large.wrz": wrz_model(699, 200_000)},
+        }
+        expected_embedded = {"two_wrz": set(), "step_and_wrz": {"body.step"}}
+        for case, models in cases.items():
+            with self.subTest(case=case), tempfile.TemporaryDirectory() as tmp:
+                assets = []
+                for name, content in models.items():
+                    (Path(tmp) / name).write_bytes(content)
+                    assets.append({"id": name, "asset_type": "3dmodel", "canonical_path": str(Path(tmp) / name)})
+                nodes = "".join(f'  (model "{name}")\n' for name in models)
+                (Path(tmp) / "Review.kicad_mod").write_text(f'(footprint "Review"\n{nodes})\n', encoding="utf-8")
+                footprint = {"id": "fp", "asset_type": "footprint", "canonical_path": str(Path(tmp) / "Review.kicad_mod")}
+                assets.append(footprint)
+
+                def shipment(embed: bool) -> int:
+                    placed = materialize_asset(footprint, assets, {}, embed_models=embed)
+                    embedded = set(placed.get("embedded_model_ids", []))
+                    shipped = [len(models[a["id"]]) for a in assets if a["asset_type"] == "3dmodel" and a["id"] not in embedded]
+                    return placed["size_bytes"] + sum(shipped)
+
+                placed = materialize_asset(footprint, assets, {}, embed_models=True)
+                self.assertEqual(set(placed["embedded_model_ids"]), expected_embedded[case])
+                self.assertLessEqual(shipment(True), shipment(False))
+
     def test_footprint_cap_boundary(self) -> None:
-        model = b"ISO-10303-21;END-ISO-10303-21;"
+        model = step_model(b"cap")
         name = embedded_model_name("R_0402.step", model)
         form_size = len(embedded_file_form(name, model, compress_model(model), "\t\t", "\t").encode("utf-8"))
         with patch.object(placement_payloads, "EMBED_MAX_FOOTPRINT_BYTES", form_size):
@@ -184,7 +236,7 @@ class FootprintEmbeddingTests(unittest.TestCase):
     def test_footprint_cap_is_shared_by_its_models_in_node_order(self) -> None:
         payload = FOOTPRINT.replace(b"\t(model ", b'\t(model "Z_other.step")\n\t(model ')
         models = [MODEL_ASSET, {"canonical_path": "/store/3dmodels/Lib/Z_other.step"}]
-        data = {"R_0402.step": b"first model", "Z_other.step": b"second model"}
+        data = {"R_0402.step": step_model(b"first"), "Z_other.step": step_model(b"second")}
         forms = {
             file_name: embedded_file_form(
                 embedded_model_name(file_name, raw), raw, compress_model(raw), "\t\t", "\t"
@@ -207,8 +259,8 @@ class FootprintEmbeddingTests(unittest.TestCase):
         self.assertIn('(model "${KIPRJMOD}/RemoteLibrary/remote_3d/R_0402.step"', text)
 
     def test_different_model_bytes_yield_different_embedded_content(self) -> None:
-        first = decode_embedded(rewrite(FOOTPRINT, b"ISO-10303-21;rev1;END-ISO-10303-21;"))
-        second = decode_embedded(rewrite(FOOTPRINT, b"ISO-10303-21;rev2;END-ISO-10303-21;"))
+        first = decode_embedded(rewrite(FOOTPRINT, step_model(b"rev1")))
+        second = decode_embedded(rewrite(FOOTPRINT, step_model(b"rev2")))
         self.assertNotEqual(list(first), list(second))
         self.assertNotEqual(first.popitem()[1], second.popitem()[1])
 
@@ -223,9 +275,9 @@ class FootprintEmbeddingTests(unittest.TestCase):
                 payload,
                 {},
                 [MODEL_ASSET, {"canonical_path": "/store/3dmodels/Lib/Z_other.step"}],
-                lambda asset: reads.append(asset) or b"shared",
+                lambda asset: reads.append(asset) or step_model(b"shared"),
             ).decode("utf-8")
-        name = embedded_model_name("R_0402.step", b"shared")
+        name = embedded_model_name("R_0402.step", step_model(b"shared"))
         self.assertEqual(text.count(f'(model "kicad-embed://{name}"'), 2)
         self.assertEqual(list(decode_embedded(text)), [name])
         self.assertEqual(reads, [MODEL_ASSET])
@@ -235,7 +287,7 @@ class FootprintEmbeddingTests(unittest.TestCase):
             b"\t(version 20241229)\n",
             b'\t(version 20241229)\n\t(descr "An (embedded_files) example \\" (embedded_files")\n',
         )
-        text = rewrite(payload, b"model")
+        text = rewrite(payload, step_model(b"descr"))
         self.assertIn('\t(descr "An (embedded_files) example \\" (embedded_files")\n', text)
         self.assertEqual(text.count("\t(embedded_files\n\t\t(file\n"), 1)
         self.assertTrue(text.endswith("\t\t)\n\t)\n)\n"))
@@ -245,7 +297,7 @@ class FootprintEmbeddingTests(unittest.TestCase):
             b"\t(model ",
             b'\t(embedded_files\n\t\t(file\n\t\t\t(name "font.ttf")\n\t\t\t(type font)\n\t\t)\n\t)\n\t(model ',
         )
-        text = rewrite(payload, b"model")
+        text = rewrite(payload, step_model(b"block"))
         self.assertEqual(text.count("(embedded_files"), 1)
         self.assertIn('(name "font.ttf")\n\t\t\t(type font)\n\t\t)\n\t\t(file\n\t\t\t(name "R_0402-', text)
 

@@ -1269,7 +1269,12 @@ class ComponentCatalogPostgresIntegrationTests(unittest.TestCase):
             actor="designer@example.com",
         )["component"]
         footprint_id = next(a["id"] for a in footprint["assets"] if a["asset_type"] == "footprint")
-        models = [b"ISO-10303-21;rev1;END-ISO-10303-21;", b"ISO-10303-21;rev2;END-ISO-10303-21;"]
+        # Real STEP files compress well; a model is embedded only when that
+        # does not grow the placement, which tiny models cannot satisfy.
+        models = [
+            b"ISO-10303-21;" + tag + b";\n" + b"#1=CARTESIAN_POINT('',(0.,0.,0.));\n" * 200 + b"END-ISO-10303-21;\n"
+            for tag in (b"rev1", b"rev2")
+        ]
         revision_ids = []
         for model in models:
             # Each revision replaces the model with a same-named, different file.

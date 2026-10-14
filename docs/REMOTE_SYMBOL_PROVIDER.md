@@ -154,9 +154,12 @@ needs no `RemoteLibrary/` files.
 
 An embedded model is not shipped as a separate `3dmodel` asset in the manifest
 or inline bundle: KiCad only writes such assets to `<prefix>_3d/`, and every
-manifest asset counts against one `max_download_bytes` budget. The embedded
-models of one footprint may add at most 4 MiB to it (about 3 MiB of
-compressed data); models beyond that keep the shared
+manifest asset counts against one `max_download_bytes` budget. A model is
+embedded only when the footprint grows by no more than the raw file it stops
+shipping, so embedding never makes a placement larger; incompressible models
+(`.wrz`, `.stpz`) therefore stay external. The embedded models of one
+footprint may also add at most 4 MiB to it (about 3 MiB of compressed data).
+Models that are not embedded keep the shared
 `<destination>/<prefix>_3d/<name>` path, which is not pinned, and are still
 shipped. Footprint embedding needs no new discovery fields, so
 `provider_version` is unchanged.
