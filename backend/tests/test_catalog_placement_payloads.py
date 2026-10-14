@@ -179,6 +179,23 @@ class FootprintRewriteTests(unittest.TestCase):
             [out + "zeta_cap.step", out + "alpha_body.step"],
         )
 
+    def test_repeated_references_share_their_matched_asset(self) -> None:
+        assets = ["/store/3dmodel/Lib/alpha.step", "/store/3dmodel/Lib/zeta.step"]
+        out = "${KIPRJMOD}/RemoteLibrary/remote_3d/"
+        self.assertEqual(self._rewrite(["${M}/zeta.step", "${M}/zeta.step"], assets), [out + "zeta.step"] * 2)
+        self.assertEqual(
+            self._rewrite(["${M}/zeta.step", "legacy.wrl", "x/ZETA.step", "${M}/zeta.step"], assets),
+            [out + "zeta.step", out + "alpha.step", out + "zeta.step", out + "zeta.step"],
+        )
+
+    def test_upload_normalization_and_case_compose(self) -> None:
+        assets = ["/store/3dmodel/Lib/alpha_body.step", "/store/3dmodel/Lib/zeta_cap.step"]
+        out = "${KIPRJMOD}/RemoteLibrary/remote_3d/"
+        self.assertEqual(
+            self._rewrite(["${M}/zeta cap.STEP", "${M}/alpha body.STEP"], assets),
+            [out + "zeta_cap.step", out + "alpha_body.step"],
+        )
+
     def test_single_asset_keeps_positional_pick_for_several_nodes(self) -> None:
         out = "${KIPRJMOD}/RemoteLibrary/remote_3d/R.step"
         assets = ["/store/3dmodel/Lib/R.step"]

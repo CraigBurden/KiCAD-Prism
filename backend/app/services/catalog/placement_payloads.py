@@ -161,23 +161,25 @@ def rewrite_footprint_payload(
     ]
     node_names = [re.split(r"[/\\]", match.group(1))[-1] for match in _MODEL_RE.finditer(text)]
     # Assets arrive sorted by library, name and hash, not in node order, so
-    # nodes first claim the one asset their file name identifies: exact name,
-    # then the upload's sanitized name, then case-insensitively. Unclaimed
-    # assets then fill the unmatched nodes in order. A single asset keeps the
-    # positional pick so its output never changes.
+    # each node first looks for the one asset its file name identifies: exact
+    # name, upload-sanitized name, then both case-insensitively. Assets no
+    # node names then fill the unmatched nodes in order. A single asset keeps
+    # the positional pick so its output never changes.
     assigned: dict[int, int] = {}
     if len(models) > 1:
-        for key in (str, lambda name: sanitize_name(name, ""), str.lower):
-            for node_index, node_name in enumerate(node_names):
-                if node_index in assigned or not key(node_name):
-                    continue
-                candidates = [
-                    model_index
-                    for model_index, model_name in enumerate(model_names)
-                    if model_index not in assigned.values() and key(model_name) == key(node_name)
-                ]
+        tiers = (
+            str,
+            lambda name: sanitize_name(name, ""),
+            str.casefold,
+            lambda name: sanitize_name(name, "").casefold(),
+        )
+        for node_index, node_name in enumerate(node_names):
+            for key in tiers:
+                node_key = key(node_name)
+                candidates = [index for index, name in enumerate(model_names) if node_key and key(name) == node_key]
                 if len(candidates) == 1:
                     assigned[node_index] = candidates[0]
+                    break
     unclaimed = iter([index for index in range(len(models)) if index not in assigned.values()])
     for node_index in range(len(node_names)):
         if node_index not in assigned:
