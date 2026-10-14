@@ -32,6 +32,8 @@ _LFS_POINTER_VERSION = "version https://git-lfs.github.com/spec/v1"
 _SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 _RESOURCE_DIGEST_RE = _SHA256_RE
 _VARIABLE_RE = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)\}")
+# Any variable form KiCad expands: `${VAR}`, `$(VAR)`, or a bare `$VAR`.
+_ANY_VARIABLE_RE = re.compile(r"\$(?:\{|\(|[A-Za-z_])")
 # Variables the executor binds at run time rather than the project supplying.
 # `JOBSET_OUTPUT_WORK_PATH` is KiCad's temporary output directory for a
 # `special_execute` job (pinned source `common/jobs/job_special_execute.h:26`);
@@ -1131,14 +1133,23 @@ def _resolve_model(
         if not value:
             return record("unreadable")
         expanded = expanded[: match.start()] + value.replace("\\", "/") + expanded[match.end() :]
-    else:
+    # Fail closed wherever KiCad's resolution is not reproduced exactly: a
+    # variable left over (nested `$(VAR)`, `$VAR`, or more than the bounded
+    # depth), a relative result (KiCad resolves it against the tool's working
+    # directory), or a URI or home-relative path.
+    if (
+        _ANY_VARIABLE_RE.search(expanded)
+        or re.match(r"^[A-Za-z][A-Za-z0-9+.-]*://", expanded)
+        or not Path(expanded).is_absolute()
+    ):
         return record("unreadable")
-    if re.match(r"^[A-Za-z][A-Za-z0-9+.-]*://", expanded) or expanded.split("/", 1)[0] == "~":
+    try:
+        # KiCad checks the path as written before it normalizes `..`, so
+        # `missing/../part.step` is absent even when `part.step` exists.
+        exists = Path(expanded).exists()
+        resolved = Path(os.path.normpath(expanded)).resolve(strict=False)
+    except (OSError, RuntimeError):
         return record("unreadable")
-    candidate = Path(expanded)
-    if not candidate.is_absolute():
-        candidate = resolver.project_root / candidate
-    resolved = Path(os.path.normpath(candidate)).resolve(strict=False)
 
     inside: str | None = None
     try:
@@ -1149,15 +1160,17 @@ def _resolve_model(
                 toolchain_relative = resolved.relative_to(spec.root).as_posix()
             except ValueError:
                 continue
-            if resolved.exists():
+            if exists:
                 return record("toolchain", f"toolchain:{spec.name}/{toolchain_relative}")
             return record("missing", advisory=True)
     if inside is not None:
-        if resolved.exists():
+        if exists:
             return record("closure", inside)
         if Path(expanded).suffix.casefold() in _SUBSTITUTED_SUFFIXES:
             return record("substitutable")
         return record("missing", advisory=True)
+    if not exists:
+        return record("unreadable")
 
     digest = hashlib.sha256()
     try:

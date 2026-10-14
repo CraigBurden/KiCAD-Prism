@@ -519,6 +519,74 @@ class ReleaseStudioClosureTests(unittest.TestCase):
         )
         self.assertEqual(closure.advisory_reasons(), [])
 
+    def _model_location(
+        self,
+        name: str,
+        reference: str,
+        text_variables: dict[str, str] | None = None,
+        model_env: dict[str, str] | None = None,
+    ) -> str:
+        self.repo.joinpath("hardware/board/model.step").write_bytes(b"payload\n")
+        self.repo.joinpath("hardware/board/board.kicad_pro").write_text(
+            json.dumps({"text_variables": text_variables or {}}), encoding="utf-8"
+        )
+        self.repo.joinpath("hardware/board/board.kicad_pcb").write_text(
+            '(kicad_pcb (version 20240108) (footprint "R" (model "'
+            + reference.replace("\\", "\\\\")
+            + '")))\n',
+            encoding="utf-8",
+        )
+        commit = commit_all(self.repo, name)
+        closure = materialize_input_closure(
+            self.repo,
+            commit,
+            self.root / name,
+            relative_path="hardware/board",
+            model_env=model_env or {},
+        )
+        (record,) = [
+            item for item in closure.library_references if item.reference == reference
+        ]
+        return record.location
+
+    def test_models_kicad_resolves_differently_fail_closed(self) -> None:
+        # Where Prism cannot reproduce KiCad's resolution exactly, the model
+        # is unreadable, never hashed as something else or called advisory.
+        host = self.root / "fail-closed/part.step"
+        host.parent.mkdir()
+        host.write_bytes(b"host model\n")
+        loop = self.root / "loop"
+        loop.symlink_to(loop)
+        cases = {
+            # A nested `$(VAR)` KiCad would expand.
+            "nested": ("${CUSTOM}/part.step", {"CUSTOM": "$(ROOT)"}),
+            # A relative value KiCad resolves against the tool's directory.
+            "relative": ("${KIPRJMOD}/part.step", {"KIPRJMOD": "fail-closed"}),
+            # KiCad checks the path before it normalizes `..`.
+            "dotdot": (
+                "${CUSTOM}/nonexistent/../part.step",
+                {"CUSTOM": str(host.parent)},
+            ),
+            # A symlink loop must not escape as an exception.
+            "loop": ("${CUSTOM}/x/part.step", {"CUSTOM": str(loop)}),
+        }
+        for name, (reference, variables) in cases.items():
+            with self.subTest(name):
+                self.assertEqual(
+                    self._model_location(f"fail-closed-{name}", reference, variables),
+                    "unreadable",
+                )
+
+    def test_eight_nested_model_variables_still_resolve(self) -> None:
+        host = self.root / "deep-models/part.step"
+        host.parent.mkdir()
+        host.write_bytes(b"deep model\n")
+        variables = {f"V{index}": f"${{V{index + 1}}}" for index in range(7)}
+        variables["V7"] = str(host.parent)
+        self.assertEqual(
+            self._model_location("deep", "${V0}/part.step", variables), "host"
+        )
+
     def test_a_missing_vrml_model_in_the_closure_is_non_hermetic(self) -> None:
         # kicad-cli replaces a missing WRL with a same-stem STEP from its
         # search paths, so this absence is not the same on every worker.
