@@ -159,24 +159,40 @@ def rewrite_footprint_payload(
     model_names = [
         Path(str(model.get("canonical_path") or model.get("name") or "model.step")).name for model in models
     ]
+    node_names = [re.split(r"[/\\]", match.group(1))[-1] for match in _MODEL_RE.finditer(text)]
     # Assets arrive sorted by library, name and hash, not in node order, so
-    # match each node by file name and keep the positional pick as fallback.
-    names_by_key: dict[str, str] = {}
-    for model_name in model_names:
-        names_by_key.setdefault(model_name.lower(), model_name)
-    model_index = 0
+    # nodes first claim the one asset their file name identifies: exact name,
+    # then the upload's sanitized name, then case-insensitively. Unclaimed
+    # assets then fill the unmatched nodes in order. A single asset keeps the
+    # positional pick so its output never changes.
+    assigned: dict[int, int] = {}
+    if len(models) > 1:
+        for key in (str, lambda name: sanitize_name(name, ""), str.lower):
+            for node_index, node_name in enumerate(node_names):
+                if node_index in assigned or not key(node_name):
+                    continue
+                candidates = [
+                    model_index
+                    for model_index, model_name in enumerate(model_names)
+                    if model_index not in assigned.values() and key(model_name) == key(node_name)
+                ]
+                if len(candidates) == 1:
+                    assigned[node_index] = candidates[0]
+    unclaimed = iter([index for index in range(len(models)) if index not in assigned.values()])
+    for node_index in range(len(node_names)):
+        if node_index not in assigned:
+            model_index = next(unclaimed, None)
+            if model_index is not None:
+                assigned[node_index] = model_index
+    node_counter = 0
 
     def replace_model(match: re.Match[str]) -> str:
-        nonlocal model_index
-        node_index = model_index
-        model_index += 1
-        node_key = re.split(r"[/\\]", match.group(1))[-1].lower()
-        model_name = names_by_key.get(node_key)
-        if model_name is None:
-            if node_index >= len(model_names):
-                return match.group(0)
-            model_name = model_names[node_index]
-        model_path = f"{destination}/{prefix}_3d/{model_name}"
+        nonlocal node_counter
+        model_index = assigned.get(node_counter)
+        node_counter += 1
+        if model_index is None:
+            return match.group(0)
+        model_path = f"{destination}/{prefix}_3d/{model_names[model_index]}"
         return f'(model "{model_path}"'
 
     return _MODEL_RE.sub(replace_model, text).encode("utf-8")

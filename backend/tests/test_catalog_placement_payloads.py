@@ -10,6 +10,7 @@ from unittest.mock import patch
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from app.core.config import settings  # noqa: E402
+from app.services.catalog.asset_files import CatalogAssetFiles  # noqa: E402
 from app.services.catalog.dbl_export import (  # noqa: E402
     dbl_symbol_library_name,
     part_number_nocolon,
@@ -21,6 +22,7 @@ from app.services.catalog.placement_payloads import (  # noqa: E402
     rewrite_footprint_payload,
     rewrite_symbol_payload,
 )
+from app.services.catalog.runtime import CatalogRuntime  # noqa: E402
 from app.services.catalog.signed_urls import CatalogAssetUrlSigner  # noqa: E402
 
 
@@ -133,6 +135,61 @@ class FootprintRewriteTests(unittest.TestCase):
         self.assertEqual(
             rewritten,
             b'(footprint "R_0402"\n  (model "${KIPRJMOD}/RemoteLibrary/remote_3d/R.step" (offset (xyz 0 0 0)))\n)\n',
+        )
+
+    def _rewrite(self, node_paths: list[str], asset_paths: list[str]) -> list[str]:
+        payload = '(footprint "F"\n' + "".join(f'  (model "{path}")\n' for path in node_paths) + ")\n"
+        with (
+            patch.object(settings, "REMOTE_PROVIDER_LIBRARY_PREFIX", "Remote"),
+            patch.object(settings, "REMOTE_PROVIDER_DESTINATION_DIR", "/RemoteLibrary"),
+        ):
+            rewritten = rewrite_footprint_payload(
+                payload.encode("utf-8"), {}, [{"canonical_path": path} for path in asset_paths]
+            ).decode("utf-8")
+        return [line.split('"')[1] for line in rewritten.splitlines() if line.strip().startswith("(model ")]
+
+    def test_fallback_never_reuses_a_name_matched_asset(self) -> None:
+        assets = ["/store/3dmodel/Lib/alpha.step", "/store/3dmodel/Lib/zeta.step"]
+        out = "${KIPRJMOD}/RemoteLibrary/remote_3d/"
+        self.assertEqual(
+            self._rewrite(["${M}/zeta.step", "${M}/legacy_body.wrl"], assets),
+            [out + "zeta.step", out + "alpha.step"],
+        )
+        self.assertEqual(
+            self._rewrite(["${M}/legacy_body.wrl", "${M}/alpha.step"], assets),
+            [out + "zeta.step", out + "alpha.step"],
+        )
+
+    def test_exact_case_wins_over_case_insensitive_match(self) -> None:
+        assets = ["/store/3dmodel/A/Part.step", "/store/3dmodel/B/part.step"]
+        out = "${KIPRJMOD}/RemoteLibrary/remote_3d/"
+        self.assertEqual(self._rewrite(["x/Part.step", "y/part.step"], assets), [out + "Part.step", out + "part.step"])
+        self.assertEqual(self._rewrite(["y/part.step", "x/Part.step"], assets), [out + "part.step", out + "Part.step"])
+
+    def test_uploaded_names_match_through_upload_normalization(self) -> None:
+        runtime = CatalogRuntime(store_root=Path("/store"))
+        assets = [
+            str(CatalogAssetFiles.aux_destination(runtime, "3dmodel", "Lib", name))
+            for name in ("alpha body.step", "zeta cap.step")
+        ]
+        self.assertEqual([Path(path).name for path in assets], ["alpha_body.step", "zeta_cap.step"])
+        out = "${KIPRJMOD}/RemoteLibrary/remote_3d/"
+        self.assertEqual(
+            self._rewrite(["${M}/zeta cap.step", "${M}/alpha body.step"], assets),
+            [out + "zeta_cap.step", out + "alpha_body.step"],
+        )
+
+    def test_single_asset_keeps_positional_pick_for_several_nodes(self) -> None:
+        out = "${KIPRJMOD}/RemoteLibrary/remote_3d/R.step"
+        assets = ["/store/3dmodel/Lib/R.step"]
+        self.assertEqual(self._rewrite(["legacy.wrl", "${M}/R.step"], assets), [out, "${M}/R.step"])
+        self.assertEqual(self._rewrite(["${M}/R.step", "${M}/R.step"], assets), [out, "${M}/R.step"])
+
+    def test_unmatched_nodes_keep_positional_order(self) -> None:
+        assets = ["/store/3dmodel/Lib/b.step", "/store/3dmodel/Lib/a.step"]
+        out = "${KIPRJMOD}/RemoteLibrary/remote_3d/"
+        self.assertEqual(
+            self._rewrite(["x.wrl", "y.wrl", "z.wrl"], assets), [out + "b.step", out + "a.step", "z.wrl"]
         )
 
     def test_no_models_leaves_bytes_untouched(self) -> None:
