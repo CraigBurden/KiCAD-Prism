@@ -190,6 +190,39 @@ class PartTest(PartCase):
                                      b={"instanceId": obc["instanceId"], "portKey": obc["port"]["portKey"]},
                                      name="nope", harness=None)
 
+    def test_head_jobs_under_the_legacy_key_block_nothing(self) -> None:
+        """Jobs queued before conversion keys carried the converter: one completed, one still queued. The
+        head's Convert queues a job of its own under the new key, it completes, and the model is drawn."""
+        from app.services.catalog_job_service import catalog_jobs
+        from app.services.job_service import jobs
+        from app.services.systems.jobs import workspace_connection
+
+        jobs.initialize()
+        part = self.add()
+        legacy = f"catalog_model_glb:{self.part_id}"
+        completed = catalog_jobs.enqueue("catalog_model_glb", {"componentId": self.part_id}, idempotency_key=legacy)
+        with workspace_connection() as conn:
+            conn.execute("UPDATE ws_jobs SET status = 'completed' WHERE id = %s", (completed["id"],))
+            conn.commit()
+        queued = catalog_jobs.enqueue("catalog_model_glb", {"componentId": self.part_id}, idempotency_key=legacy)
+        self.assertNotEqual(queued["id"], completed["id"])
+        writer = AuthenticatedUser(email="w@example.com", name="w", role="designer")
+        converter = f"test-{uuid.uuid4().hex}"
+        with mock.patch.object(catalog_models, "converter_id", return_value=converter), \
+                mock.patch.object(catalog_system_items_api, "catalog_service", self.catalog):
+            self.assertIsNone(self.drawn_key(part, converter))
+            started = catalog_system_items_api.convert_models(self.part_id, revision_id=None, user=writer)
+            self.assertNotIn(started["jobId"], (completed["id"], queued["id"]))
+            job = catalog_jobs.get(started["jobId"])
+            self.assertEqual(job["artifact_key"], f"{legacy}:{converter}")
+            with mock.patch.object(catalog_worker_tasks, "catalog_service", self.catalog):
+                catalog_worker_tasks.run_model_glb(mock.Mock(payload=job["payload"]))
+        with workspace_connection() as conn:
+            conn.execute("UPDATE ws_jobs SET status = 'completed' WHERE id = %s", (started["jobId"],))
+            conn.commit()
+        self.assertEqual(catalog_jobs.get(queued["id"])["status"], "queued", "the legacy job is left to run once")
+        self.assertEqual(self.drawn_key(part, converter), catalog_models.glb_key(self.model["stepSha256"], converter))
+
 
 class SceneConvertPermissionTest(unittest.TestCase):
     """Only a reader who may write the catalog (role and bearer scope) lets a scene read queue conversions."""
