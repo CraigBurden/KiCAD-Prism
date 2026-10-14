@@ -6,9 +6,9 @@ footprint. Embedding a placed model therefore pins it in the project commit.
 
 The format follows KiCad's ``common/embedded_files.cpp``: one-shot zstd at
 level 15 with the content size in the frame and no frame checksum, base64 in
-76-column lines between ``|`` markers, and a checksum that is
-MurmurHash3_x64_128 (seed ``0xABBA2345``) over the uncompressed data
-zero-padded to a multiple of 4 bytes, written as 32 uppercase hex digits.
+76-column lines between ``|`` markers, and KiCad's own MurmurHash3_x64_128
+variant (seed ``0xABBA2345``) of the uncompressed data, written as 32
+uppercase hex digits. KiCad verifies that checksum on load.
 
 zstd output is deterministic for one library version, so output stays
 byte-stable as long as ``zstandard`` (and the libzstd it bundles) is pinned.
@@ -24,13 +24,17 @@ import struct
 
 import zstandard
 
-# Models whose compressed form exceeds this keep an external path. The model
-# is base64 inside the footprint and base64 again inside the inline bundle,
-# about 1.8x the compressed size, and the raw model file is still shipped next
-# to it. 2 MiB compressed (a STEP file of roughly 8-16 MiB) adds at most about
-# 3.6 MiB to a bundle, well inside the 16 MiB max_download_bytes the provider
-# advertises, and about 2.7 MiB to the board file per distinct model.
-EMBED_MAX_COMPRESSED_BYTES = 2 * 1024 * 1024
+# Bytes of (file ...) forms one footprint may carry. KiCad charges every
+# manifest asset against one aggregate max_download_bytes budget (16 MiB
+# advertised by Prism). An embedded model is not shipped as a separate 3dmodel
+# asset, so for a compressible model like STEP the shipment shrinks, but the
+# footprint itself grows by this much at most. 4 MiB of base64 is about
+# 3 MiB of zstd data (a STEP model of roughly 15-30 MiB), leaves most of the
+# budget to the symbol, SPICE model and any model that falls back, and bounds
+# the board-file growth per part. The inline bundle base64-encodes the
+# footprint twice more, so an embedded model costs about 2.37x its compressed
+# size there, plus line wrapping and JSON.
+EMBED_MAX_FOOTPRINT_BYTES = 4 * 1024 * 1024
 
 ZSTD_LEVEL = 15
 MURMUR3_SEED = 0xABBA2345
@@ -38,7 +42,7 @@ BASE64_LINE_LENGTH = 76
 
 _MASK64 = (1 << 64) - 1
 _UNSAFE_NAME_RE = re.compile(r"[^A-Za-z0-9_.-]")
-_EMBEDDED_FILES_RE = re.compile(r"\(embedded_files\b")
+_HEAD_RE = re.compile(r"[^\s()\"]+")
 
 
 def embedded_model_name(file_name: str, data: bytes) -> str:
@@ -66,24 +70,38 @@ def _fmix64(value: int) -> int:
 
 
 def kicad_mmh3_128(data: bytes) -> str:
-    """Return KiCad's embedded-file checksum for ``data``."""
-    padded = data + b"\0" * (-len(data) % 4)
+    """Return KiCad's embedded-file checksum for ``data``.
+
+    A literal port of ``MMH3_HASH(0xABBA2345).add(data).digest()`` from KiCad
+    10.0.4 ``libs/kimath/include/mmh3_hash.h``, which differs from standard
+    MurmurHash3_x64_128 at the tail: ``addData`` pads a non-empty tail with
+    1-4 zero bytes (always at least one), counts the padding in the length,
+    and ``hashTail`` mixes only ``len & 15`` bytes, so a tail padded to 16
+    bytes is dropped.
+    """
     c1, c2 = 0x87C37B91114253D5, 0x4CF5AD432745937F
     h1 = h2 = MURMUR3_SEED
-    body_length = len(padded) - len(padded) % 16
-    for k1, k2 in struct.iter_unpack("<QQ", padded[:body_length]):
+    body_length = len(data) - len(data) % 16
+    for k1, k2 in struct.iter_unpack("<QQ", data[:body_length]):
         h1 ^= (_rotl64((k1 * c1) & _MASK64, 31) * c2) & _MASK64
         h1 = (_rotl64(h1, 27) + h2) & _MASK64
         h1 = (h1 * 5 + 0x52DCE729) & _MASK64
         h2 ^= (_rotl64((k2 * c2) & _MASK64, 33) * c1) & _MASK64
         h2 = (_rotl64(h2, 31) + h1) & _MASK64
         h2 = (h2 * 5 + 0x38495AB5) & _MASK64
-    tail = padded[body_length:]
+    length = body_length
+    remaining = len(data) - body_length
+    tail = data[body_length:]
+    if remaining:
+        padding = 4 - (remaining + 4) % 4
+        tail += b"\0" * padding
+        length += remaining + padding
+    tail = tail[: length & 15]
     if len(tail) > 8:
         h2 ^= (_rotl64((int.from_bytes(tail[8:], "little") * c2) & _MASK64, 33) * c1) & _MASK64
     if tail:
         h1 ^= (_rotl64((int.from_bytes(tail[:8], "little") * c1) & _MASK64, 31) * c2) & _MASK64
-    length = len(padded) & 0xFFFFFFFF
+    length &= 0xFFFFFFFF
     h1 ^= length
     h2 ^= length
     h1 = (h1 + h2) & _MASK64
@@ -118,9 +136,14 @@ def embedded_file_form(name: str, data: bytes, compressed: bytes, indent: str, u
     )
 
 
-def _closing_paren(text: str, open_index: int) -> int:
-    depth = 0
-    index = open_index
+def _sexpr_lists(text: str, start: int = 0):
+    """Yield ``(depth, open, close)`` for every list in ``text`` from ``start``.
+
+    Quoted strings, with backslash escapes, are skipped, so parentheses in a
+    description or property never count. Lists are yielded when they close.
+    """
+    stack: list[int] = []
+    index = start
     while index < len(text):
         char = text[index]
         if char == '"':
@@ -128,42 +151,56 @@ def _closing_paren(text: str, open_index: int) -> int:
             while index < len(text) and text[index] != '"':
                 index += 2 if text[index] == "\\" else 1
         elif char == "(":
-            depth += 1
+            stack.append(index)
         elif char == ")":
-            depth -= 1
-            if depth == 0:
-                return index
+            if not stack:
+                raise ValueError("Unbalanced footprint s-expression")
+            open_index = stack.pop()
+            yield len(stack), open_index, index
+            if not stack:
+                return
         index += 1
     raise ValueError("Unbalanced footprint s-expression")
+
+
+def _list_head(text: str, open_index: int) -> str:
+    match = _HEAD_RE.match(text, open_index + 1)
+    return match.group(0) if match else ""
 
 
 def add_embedded_files(text: str, forms: list[str], indent: str, unit: str) -> str:
     """Add ``(file ...)`` forms to the footprint's ``embedded_files`` block.
 
-    An existing block is extended in place; otherwise a new block is inserted
-    before the footprint's closing parenthesis.
+    The block is the footprint's direct child; an existing one is extended in
+    place, otherwise a new block is inserted before the footprint's closing
+    parenthesis.
     """
     if not forms:
         return text
-    existing = _EMBEDDED_FILES_RE.search(text)
-    if existing:
-        close = _closing_paren(text, existing.start())
-        line_start = text.rfind("\n", 0, close) + 1
-        if text[line_start:close].strip():
-            return text[:close] + "\n" + "".join(forms) + indent + text[close:]
+    footprint_open = text.find("(")
+    if footprint_open < 0:
+        raise ValueError("Footprint payload has no s-expression")
+    footprint_close = -1
+    existing_close = -1
+    for depth, open_index, close_index in _sexpr_lists(text, footprint_open):
+        if depth == 1 and existing_close < 0 and _list_head(text, open_index) == "embedded_files":
+            existing_close = close_index
+        elif depth == 0:
+            footprint_close = close_index
+    if existing_close >= 0:
+        line_start = text.rfind("\n", 0, existing_close) + 1
+        if text[line_start:existing_close].strip():
+            return text[:existing_close] + "\n" + "".join(forms) + indent + text[existing_close:]
         return text[:line_start] + "".join(forms) + text[line_start:]
-    close = text.rstrip().rfind(")")
-    if close <= 0:
-        raise ValueError("Footprint payload has no closing parenthesis")
     block = f"{indent}(embedded_files\n{''.join(forms)}{indent})\n"
-    line_start = text.rfind("\n", 0, close) + 1
-    if text[line_start:close].strip():
-        return text[:close] + "\n" + block + text[close:]
+    line_start = text.rfind("\n", 0, footprint_close) + 1
+    if text[line_start:footprint_close].strip():
+        return text[:footprint_close] + "\n" + block + text[footprint_close:]
     return text[:line_start] + block + text[line_start:]
 
 
 __all__ = [
-    "EMBED_MAX_COMPRESSED_BYTES",
+    "EMBED_MAX_FOOTPRINT_BYTES",
     "add_embedded_files",
     "compress_model",
     "embedded_file_form",

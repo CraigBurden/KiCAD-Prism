@@ -2,7 +2,10 @@
 
 A placement is always anchored to one representation (a symbol/footprint pair)
 on a released revision. Auxiliary 3D/SPICE assets ride along with whichever
-representation is selected.
+representation is selected, except 3D models embedded in the footprint: KiCad
+only writes a shipped model to its remote 3D folder, nothing references it
+once the footprint carries it, and every shipped asset counts against KiCad's
+one download budget.
 """
 
 from __future__ import annotations
@@ -67,6 +70,25 @@ class CatalogPlacement:
         return dict(row), assets
 
     @staticmethod
+    def _placement_payloads(
+        assets: list[dict[str, Any]], component: dict[str, Any]
+    ) -> list[tuple[dict[str, Any], dict[str, Any]]]:
+        """Materialize assets in order, leaving out models the footprint embeds."""
+        materialized = {
+            str(asset["id"]): materialize_asset(asset, assets, component, embed_models=True)
+            for asset in assets
+            if asset["asset_type"] != "3dmodel"
+        }
+        embedded = {
+            model_id for asset in materialized.values() for model_id in asset.get("embedded_model_ids", [])
+        }
+        return [
+            (raw_asset, materialized.get(str(raw_asset["id"])) or materialize_asset(raw_asset, assets, component))
+            for raw_asset in assets
+            if str(raw_asset["id"]) not in embedded
+        ]
+
+    @staticmethod
     def _require_placeable(component: dict[str, Any]) -> None:
         if not component["place_enabled"]:
             raise ValueError(NOT_PLACEABLE_MESSAGE)
@@ -81,8 +103,7 @@ class CatalogPlacement:
         self._require_placeable(component)
         representation, assets = self.placement_assets(conn, component["revision_id"], representation_id)
         manifest_assets = []
-        for raw_asset in assets:
-            asset = materialize_asset(raw_asset, assets, component, embed_models=True)
+        for raw_asset, asset in self._placement_payloads(assets, component):
             manifest_assets.append(
                 {
                     "asset_type": asset["asset_type"],
@@ -121,8 +142,7 @@ class CatalogPlacement:
         self._require_placeable(component)
         representation, assets = self.placement_assets(conn, component["revision_id"], representation_id)
         bundle_entries = []
-        for raw_asset in assets:
-            asset = materialize_asset(raw_asset, assets, component, embed_models=True)
+        for _, asset in self._placement_payloads(assets, component):
             bundle_entries.append(
                 {
                     "type": asset["asset_type"],

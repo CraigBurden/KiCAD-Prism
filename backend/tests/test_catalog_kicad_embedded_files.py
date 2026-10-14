@@ -42,6 +42,70 @@ FOOTPRINT = (
 ).encode("utf-8")
 MODEL_ASSET = {"canonical_path": "/store/3dmodels/Lib/R_0402.step"}
 
+# KiCad's checksum of bytes((i * 37 + 11) & 0xFF for i in range(length)).
+# Produced outside the repository by compiling a small C++ harness against
+# the unmodified libs/kimath/include/mmh3_hash.h and hash_128.h of KiCad
+# 10.0.4 (mmh3_hash.h sha256 5e6d2cb0fe3f50f7898ef6360580e2a0687da8998a5b87306e2d5e83fb3fd4b7),
+# calling MMH3_HASH(0xABBA2345).add(std::vector<char>).digest().ToString() as
+# EMBEDDED_FILES does. Lengths 0-48 cover every tail length three times.
+KICAD_MMH3_VECTORS = [
+    (0, "0A8AD5D826E19AE9B0771881583631B3"),
+    (1, "A126F447BDC35AC4AF8BDD38DA564CF8"),
+    (2, "922E94AD1895FC21F16A0DB5467E9A33"),
+    (3, "EF341B9FA583B65EDF567CE91723CBAD"),
+    (4, "8262CA37315AACCB460488ED2850C3DF"),
+    (5, "2021D5A29839117B0857C1E0E05A7839"),
+    (6, "F35B8C80DC4BB121974BBB1F50F18A97"),
+    (7, "0318BBC6E5CF26F7389780EF5FF2BD4F"),
+    (8, "2D87A82005F4FA83795D29A5FC815DD5"),
+    (9, "58FFDBEBC80B2DB1715A3787C754D4DC"),
+    (10, "B8B8DB45F2F27DCF9EDF2300B4BBB6B7"),
+    (11, "FD241A67C556551A9A9D67AA92016692"),
+    (12, "0FC02384A29118F69FFB8F37551022E3"),
+    (13, "0FC02384A29118F69FFB8F37551022E3"),
+    (14, "0FC02384A29118F69FFB8F37551022E3"),
+    (15, "0FC02384A29118F69FFB8F37551022E3"),
+    (16, "53A8479D112E79788C755A75172A5E62"),
+    (17, "46577AE8025048DD99B669FE11967479"),
+    (18, "0B1B60FF0768AB18901147C511DF0D46"),
+    (19, "69220354A8D833592433E822F1E0BD12"),
+    (20, "A24B02A52175608AB61871716B5986AC"),
+    (21, "1293A6BB35BEB35C01EA91D51C2C79C9"),
+    (22, "FE480492EF134E5AC1E4503CF3E10B2A"),
+    (23, "ACA5BF8CF4C8C8B50FCC2732F0AD48A9"),
+    (24, "C20C7AED3BC1D8DF1C25F25BA87A5172"),
+    (25, "B7C5B6176AC5F44A65AB549CB53629E3"),
+    (26, "DD215E5222C52F0CDBEB0F4990D40E71"),
+    (27, "AABF6DF41581FC058EEF891F57203198"),
+    (28, "2E7AAF159F46C8C89ED03431A9F127D5"),
+    (29, "2E7AAF159F46C8C89ED03431A9F127D5"),
+    (30, "2E7AAF159F46C8C89ED03431A9F127D5"),
+    (31, "2E7AAF159F46C8C89ED03431A9F127D5"),
+    (32, "E3E10E60AA79155A8C018ECA54867F21"),
+    (33, "382F77203FBF221BD552A85277E6FFB5"),
+    (34, "016425240D771D7642114A3C825ABE9B"),
+    (35, "E54126ED6783928B770B3D8AA0CD8E8B"),
+    (36, "D06E87E757ECD19F393B86AAEF7DC26B"),
+    (37, "2E9D5AEBA705505A7E3BE43697B87082"),
+    (38, "1585ABBD91890FECB903568276FFC41D"),
+    (39, "FE8DA7CF9B883ACA10CDA75BF7561DCD"),
+    (40, "829E443A61D28E6143C1A698E1211B70"),
+    (41, "FCE96C463EFBE9BA177887F347F08689"),
+    (42, "2DD46C7CD4629868086FD91510DCD223"),
+    (43, "A7696F1363F783F7C6B68F2E9720DBB5"),
+    (44, "D9BB2BDD2EA646809ACC5A2506FC4D4A"),
+    (45, "D9BB2BDD2EA646809ACC5A2506FC4D4A"),
+    (46, "D9BB2BDD2EA646809ACC5A2506FC4D4A"),
+    (47, "D9BB2BDD2EA646809ACC5A2506FC4D4A"),
+    (48, "E7A912C250C3A8711E5542EADA6CB549"),
+    (63, "522A8629B1F08CDE8BB4A17846638F39"),
+    (64, "58C508191751C96CE702D7AA2A601CFC"),
+    (65, "4CBB63A95F0019E44363CC3ACA5E636F"),
+    (100, "18FEA6438BC355BCB2F5FFEDFABEC146"),
+    (1000, "1C78DD6091BC30420B65AEC62F0AFD3B"),
+    (4099, "FD7F41F49B5713B7D46B6766E3DF19B6"),
+]
+
 
 def decode_embedded(text: str) -> dict[str, tuple[bytes, str]]:
     """Return ``name -> (decompressed data, checksum)`` for every embedded file."""
@@ -77,9 +141,10 @@ class EncoderTests(unittest.TestCase):
                 [line.strip() for line in f"(data |{data}|".splitlines()],
             )
 
-    def test_checksum_pads_to_four_bytes_like_kicad(self) -> None:
-        self.assertEqual(kicad_mmh3_128(b"abc"), kicad_mmh3_128(b"abc\0"))
-        self.assertNotEqual(kicad_mmh3_128(b"abc"), kicad_mmh3_128(b"abd"))
+    def test_checksum_matches_kicad_for_every_tail_length(self) -> None:
+        for length, expected in KICAD_MMH3_VECTORS:
+            with self.subTest(length=length):
+                self.assertEqual(kicad_mmh3_128(bytes((i * 37 + 11) & 0xFF for i in range(length))), expected)
 
     def test_embedded_name_is_unique_per_content(self) -> None:
         self.assertEqual(embedded_model_name("R 0402.step", b"a"), embedded_model_name("R 0402.step", b"a"))
@@ -105,11 +170,41 @@ class FootprintEmbeddingTests(unittest.TestCase):
         model = b"ISO-10303-21;" + bytes(range(256)) * 64
         self.assertEqual(rewrite(FOOTPRINT, model), rewrite(FOOTPRINT, model))
 
-    def test_model_over_the_limit_keeps_the_external_path(self) -> None:
-        with patch.object(placement_payloads, "EMBED_MAX_COMPRESSED_BYTES", 8):
-            text = rewrite(FOOTPRINT, b"ISO-10303-21;END-ISO-10303-21;")
+    def test_footprint_cap_boundary(self) -> None:
+        model = b"ISO-10303-21;END-ISO-10303-21;"
+        name = embedded_model_name("R_0402.step", model)
+        form_size = len(embedded_file_form(name, model, compress_model(model), "\t\t", "\t").encode("utf-8"))
+        with patch.object(placement_payloads, "EMBED_MAX_FOOTPRINT_BYTES", form_size):
+            self.assertIn(f'(model "kicad-embed://{name}"', rewrite(FOOTPRINT, model))
+        with patch.object(placement_payloads, "EMBED_MAX_FOOTPRINT_BYTES", form_size - 1):
+            text = rewrite(FOOTPRINT, model)
         self.assertIn('(model "${KIPRJMOD}/RemoteLibrary/remote_3d/R_0402.step"', text)
         self.assertNotIn("embedded_files", text)
+
+    def test_footprint_cap_is_shared_by_its_models_in_node_order(self) -> None:
+        payload = FOOTPRINT.replace(b"\t(model ", b'\t(model "Z_other.step")\n\t(model ')
+        models = [MODEL_ASSET, {"canonical_path": "/store/3dmodels/Lib/Z_other.step"}]
+        data = {"R_0402.step": b"first model", "Z_other.step": b"second model"}
+        forms = {
+            file_name: embedded_file_form(
+                embedded_model_name(file_name, raw), raw, compress_model(raw), "\t\t", "\t"
+            ).encode("utf-8")
+            for file_name, raw in data.items()
+        }
+        with (
+            patch.object(settings, "REMOTE_PROVIDER_LIBRARY_PREFIX", "remote"),
+            patch.object(settings, "REMOTE_PROVIDER_DESTINATION_DIR", "${KIPRJMOD}/RemoteLibrary"),
+            patch.object(
+                placement_payloads,
+                "EMBED_MAX_FOOTPRINT_BYTES",
+                len(forms["Z_other.step"]) + len(forms["R_0402.step"]) - 1,
+            ),
+        ):
+            text = rewrite_footprint_payload(
+                payload, {}, models, lambda asset: data[Path(asset["canonical_path"]).name]
+            ).decode("utf-8")
+        self.assertIn(f'(model "kicad-embed://{embedded_model_name("Z_other.step", data["Z_other.step"])}"', text)
+        self.assertIn('(model "${KIPRJMOD}/RemoteLibrary/remote_3d/R_0402.step"', text)
 
     def test_different_model_bytes_yield_different_embedded_content(self) -> None:
         first = decode_embedded(rewrite(FOOTPRINT, b"ISO-10303-21;rev1;END-ISO-10303-21;"))
@@ -134,6 +229,16 @@ class FootprintEmbeddingTests(unittest.TestCase):
         self.assertEqual(text.count(f'(model "kicad-embed://{name}"'), 2)
         self.assertEqual(list(decode_embedded(text)), [name])
         self.assertEqual(reads, [MODEL_ASSET])
+
+    def test_embedded_files_text_inside_strings_is_not_a_block(self) -> None:
+        payload = FOOTPRINT.replace(
+            b"\t(version 20241229)\n",
+            b'\t(version 20241229)\n\t(descr "An (embedded_files) example \\" (embedded_files")\n',
+        )
+        text = rewrite(payload, b"model")
+        self.assertIn('\t(descr "An (embedded_files) example \\" (embedded_files")\n', text)
+        self.assertEqual(text.count("\t(embedded_files\n\t\t(file\n"), 1)
+        self.assertTrue(text.endswith("\t\t)\n\t)\n)\n"))
 
     def test_existing_embedded_files_block_is_extended(self) -> None:
         payload = FOOTPRINT.replace(

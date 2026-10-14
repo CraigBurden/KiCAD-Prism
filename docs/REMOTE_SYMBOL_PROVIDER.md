@@ -147,11 +147,19 @@ results, list payloads, and component detail:
 
 Placed footprints carry their 3D models as KiCad embedded files: each
 `(model ...)` points at `kicad-embed://<stem>-<sha12><ext>` and the footprint
-holds the zstd-compressed data. The board file, and so the project commit,
-pins the exact model of the placed revision; a fresh clone needs no
-`RemoteLibrary/` files. Models larger than 2 MiB compressed keep the shared
-`<destination>/<prefix>_3d/<name>` path, which is not pinned. The raw model
-file is still shipped with the part.
+holds the zstd-compressed data. KiCad (9 and later) moves that data into the
+board's own embedded files when the board is saved, so the board file, and so
+the project commit, pins the exact model of the placed revision; a fresh clone
+needs no `RemoteLibrary/` files.
+
+An embedded model is not shipped as a separate `3dmodel` asset in the manifest
+or inline bundle: KiCad only writes such assets to `<prefix>_3d/`, and every
+manifest asset counts against one `max_download_bytes` budget. The embedded
+models of one footprint may add at most 4 MiB to it (about 3 MiB of
+compressed data); models beyond that keep the shared
+`<destination>/<prefix>_3d/<name>` path, which is not pinned, and are still
+shipped. Footprint embedding needs no new discovery fields, so
+`provider_version` is unchanged.
 
 ## What users can see
 

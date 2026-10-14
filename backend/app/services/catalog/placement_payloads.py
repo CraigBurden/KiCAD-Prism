@@ -17,7 +17,7 @@ from typing import Any, Callable
 from app.core.config import settings
 from app.services.catalog.asset_files import content_type_for_asset
 from app.services.catalog.kicad_embedded_files import (
-    EMBED_MAX_COMPRESSED_BYTES,
+    EMBED_MAX_FOOTPRINT_BYTES,
     add_embedded_files,
     compress_model,
     embedded_file_form,
@@ -160,15 +160,25 @@ def rewrite_footprint_payload(
 ) -> bytes:
     """Point each matched ``(model ...)`` at its placed model.
 
-    With ``read_model``, models up to ``EMBED_MAX_COMPRESSED_BYTES`` are
-    embedded in the footprint under a content-unique ``kicad-embed://`` name,
-    so the board that receives the footprint pins the model. Larger models,
-    and every model without a reader, keep the shared remote destination path.
+    With ``read_model``, models are embedded in the footprint under a
+    content-unique ``kicad-embed://`` name, so the board that receives the
+    footprint pins the model, as long as the added forms stay within
+    ``EMBED_MAX_FOOTPRINT_BYTES`` (models are taken in node order). Other
+    models, and every model without a reader, keep the shared remote
+    destination path.
     """
+    return _rewrite_footprint(payload, list(model_assets or []), read_model)[0]
+
+
+def _rewrite_footprint(
+    payload: bytes,
+    models: list[dict[str, Any]],
+    read_model: Callable[[dict[str, Any]], bytes] | None,
+) -> tuple[bytes, list[dict[str, Any]]]:
+    """Rewrite model paths; also return the model assets that were embedded."""
     text = payload.decode("utf-8")
-    models = list(model_assets or [])
     if not models or "(model " not in text:
-        return payload
+        return payload, []
     prefix = sanitize_name(settings.REMOTE_PROVIDER_LIBRARY_PREFIX, "remote").lower()
     destination = settings.REMOTE_PROVIDER_DESTINATION_DIR.rstrip("/")
     if destination in {"/RemoteLibrary", "$/RemoteLibrary"}:
@@ -216,7 +226,7 @@ def rewrite_footprint_payload(
         return f'(model "{model_path}"'
 
     text = _MODEL_RE.sub(replace_model, text)
-    return placed_path.finish(text).encode("utf-8")
+    return placed_path.finish(text).encode("utf-8"), placed_path.embedded_models
 
 
 class _ModelPathBuilder:
@@ -244,6 +254,8 @@ class _ModelPathBuilder:
         self._unit = "\t" if self._indent.startswith("\t") else "  "
         self._forms: dict[str, str] = {}
         self._paths: dict[int, str] = {}
+        self._embedded_bytes = 0
+        self.embedded_models: list[dict[str, Any]] = []
 
     def __call__(self, model_index: int) -> str:
         if model_index not in self._paths:
@@ -254,13 +266,16 @@ class _ModelPathBuilder:
         model_name = self._model_names[model_index]
         if self._read_model is not None:
             data = self._read_model(self._models[model_index])
-            compressed = compress_model(data)
-            if len(compressed) <= EMBED_MAX_COMPRESSED_BYTES:
-                embedded_name = embedded_model_name(model_name, data)
+            embedded_name = embedded_model_name(model_name, data)
+            form = self._forms.get(embedded_name) or embedded_file_form(
+                embedded_name, data, compress_model(data), self._indent + self._unit, self._unit
+            )
+            size = len(form.encode("utf-8"))
+            if embedded_name in self._forms or self._embedded_bytes + size <= EMBED_MAX_FOOTPRINT_BYTES:
                 if embedded_name not in self._forms:
-                    self._forms[embedded_name] = embedded_file_form(
-                        embedded_name, data, compressed, self._indent + self._unit, self._unit
-                    )
+                    self._forms[embedded_name] = form
+                    self._embedded_bytes += size
+                self.embedded_models.append(self._models[model_index])
                 return f"kicad-embed://{embedded_name}"
         return f"{self._external_dir}/{model_name}"
 
@@ -282,10 +297,12 @@ def materialize_asset(
     """Read one stored asset and return it with its placement payload attached.
 
     ``embed_models`` embeds the footprint's 3D models (see
-    ``rewrite_footprint_payload``); placement sets it, DBL export does not.
+    ``rewrite_footprint_payload``) and lists them in ``embedded_model_ids``;
+    placement sets it, DBL export does not.
     """
     path = Path(str(asset["canonical_path"]))
     payload = path.read_bytes()
+    extra: dict[str, Any] = {}
     if asset["asset_type"] == "symbol":
         footprint_asset = next(
             (candidate for candidate in assets_for_revision if candidate["asset_type"] == "footprint"), None
@@ -297,14 +314,16 @@ def materialize_asset(
             )
         payload = rewrite_symbol_payload(payload, footprint_ref, component)
     elif asset["asset_type"] == "footprint":
-        payload = rewrite_footprint_payload(
+        payload, embedded_models = _rewrite_footprint(
             payload,
-            asset,
             [candidate for candidate in assets_for_revision if candidate["asset_type"] == "3dmodel"],
             _read_canonical_bytes if embed_models else None,
         )
+        if embed_models:
+            extra["embedded_model_ids"] = [str(model["id"]) for model in embedded_models]
     return {
         **asset,
+        **extra,
         "payload": payload,
         "content_type": content_type_for_asset(str(asset["asset_type"]), path),
         "size_bytes": len(payload),

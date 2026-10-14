@@ -1255,6 +1255,7 @@ class ComponentCatalogPostgresIntegrationTests(unittest.TestCase):
         )
 
     def test_placed_footprint_embeds_the_model_of_each_revision(self) -> None:
+        self._install_deterministic_preview_renderer()
         component = self._component("embed-" + uuid.uuid4().hex[:8])
         footprint = self.service.import_footprint(
             component["id"],
@@ -1269,17 +1270,20 @@ class ComponentCatalogPostgresIntegrationTests(unittest.TestCase):
         )["component"]
         footprint_id = next(a["id"] for a in footprint["assets"] if a["asset_type"] == "footprint")
         models = [b"ISO-10303-21;rev1;END-ISO-10303-21;", b"ISO-10303-21;rev2;END-ISO-10303-21;"]
-        revision_ids = [
-            self.service.attach_auxiliary_asset(
-                component["id"],
-                asset_type="3dmodel",
-                upload_name="R_Embed.step",
-                payload=model,
-                target_library="Prism_Embed",
-                actor="designer@example.com",
-            )["component"]["revision_id"]
-            for model in models
-        ]
+        revision_ids = []
+        for model in models:
+            # Each revision replaces the model with a same-named, different file.
+            self.service.detach_asset(component["id"], "3dmodel", actor="designer@example.com")
+            revision_ids.append(
+                self.service.attach_auxiliary_asset(
+                    component["id"],
+                    asset_type="3dmodel",
+                    upload_name="R_Embed.step",
+                    payload=model,
+                    target_library="Prism_Embed",
+                    actor="designer@example.com",
+                )["component"]["revision_id"]
+            )
 
         def embedded(revision_id: str) -> tuple[str, bytes]:
             asset = self.service.get_asset_by_id(footprint_id, revision_id=revision_id)
@@ -1296,6 +1300,54 @@ class ComponentCatalogPostgresIntegrationTests(unittest.TestCase):
             [hashlib.sha256(model).hexdigest() for model in models],
         )
         self.assertEqual(embedded(revision_ids[0]), first)
+
+        self.service.import_symbol_library(
+            component["id"],
+            upload_name="R_Embed.kicad_sym",
+            payload=b'''(kicad_symbol_lib (version 20231120) (generator "test")
+              (symbol "R_Embed"
+                (property "Reference" "R" (at 0 0 0) (effects (font (size 1.27 1.27))))
+                (property "Value" "R_Embed" (at 0 0 0) (effects (font (size 1.27 1.27))))
+              )
+            )''',
+            target_library="Prism_Embed",
+            selected_symbol="R_Embed",
+            actor="designer@example.com",
+        )
+        head = self.service.get_component(component["id"])
+        assert head is not None
+        self.service.set_release_status(component["id"], "in_progress", actor="designer@example.com")
+        self.service.set_release_status(component["id"], "qa_review", actor="designer@example.com")
+        approved = self.service.set_release_status(
+            component["id"], "done", actor="qa@example.com", actor_role="qa",
+            expected_revision_id=head["revision_id"], expected_manifest_hash=head["manifest_hash"],
+        )
+        self.service.set_release_status(
+            component["id"], "released", actor="designer@example.com", actor_role="designer",
+            expected_revision_id=approved["revision_id"], expected_manifest_hash=approved["manifest_hash"],
+        )
+
+        # The footprint carries the model, so the 3dmodel asset is not shipped.
+        manifest = self.service.build_manifest(component["id"], "https://prism.example")
+        inline = self.service.build_inline_bundle(component["id"])
+        assert manifest is not None and inline is not None
+        inline_entries = json.loads(base64.b64decode(inline["data"]))
+        self.assertEqual(sorted(a["asset_type"] for a in manifest["assets"]), ["footprint", "symbol"])
+        self.assertEqual(sorted(e["type"] for e in inline_entries), ["footprint", "symbol"])
+        footprint_entry = next(e for e in inline_entries if e["type"] == "footprint")
+        self.assertIn(b"kicad-embed://" + second[0].encode(), base64.b64decode(footprint_entry["content"]))
+        self.assertEqual(
+            next(a["sha256"] for a in manifest["assets"] if a["asset_type"] == "footprint"),
+            footprint_entry["checksum"],
+        )
+
+        # A model that falls back to the external path is still shipped.
+        with patch("app.services.catalog.placement_payloads.EMBED_MAX_FOOTPRINT_BYTES", 0):
+            fallback = self.service.build_manifest(component["id"], "https://prism.example")
+        assert fallback is not None
+        self.assertEqual(
+            sorted(a["asset_type"] for a in fallback["assets"]), ["3dmodel", "footprint", "symbol"]
+        )
 
     def test_non_default_representation_drives_manifest_and_inline_pair(self) -> None:
         component = self._component("representations-" + uuid.uuid4().hex[:8])
