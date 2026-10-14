@@ -47,20 +47,23 @@ def asset_bytes_lock_key(sha256: str) -> str:
     return f"catalog-asset:{sha256}"
 
 
-def lock_and_check_asset_bytes(conn: Any, asset_id: str) -> None:
+def lock_and_check_asset_bytes(conn: Any, asset_id: str, *, local_path: Path | None = None) -> None:
     """Before linking a 3D model, wait out a running purge and require its bytes.
 
     The file is written before any lock is taken, so a purge can delete it
     between the write and the link. Under the asset's lock the purge either
     already committed (the file is gone, so refuse) or has not started on it
     (it will see this link and keep the file).
+
+    ``local_path`` is where this process sees the file, for an importer whose
+    row records the running service's path (``--runtime-store-root``).
     """
     row = conn.execute("SELECT canonical_path, sha256 FROM assets WHERE id = %s", (asset_id,)).fetchone()
     if row is None:
         return
     sha256 = str(row["sha256"])
     conn.execute("SELECT pg_advisory_xact_lock(hashtext(%s))", (asset_bytes_lock_key(sha256),)).fetchone()
-    path = Path(str(row["canonical_path"] or ""))
+    path = local_path or Path(str(row["canonical_path"] or ""))
     if not path.is_file() or sha256_bytes(path.read_bytes()) != sha256:
         raise CatalogConflict(
             "The 3D model file is missing from the catalog store; upload it again",
