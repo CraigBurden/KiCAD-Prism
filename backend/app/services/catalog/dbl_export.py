@@ -64,6 +64,18 @@ def dbl_symbol_library_name(part_number: str, symbol_asset: dict[str, Any] | Non
     return sanitize_name(raw, "Prism_Symbol")
 
 
+def dbl_footprint_ref(component: dict[str, Any]) -> str:
+    """``library:name`` of the default footprint, as written to ``LibFootprint`` and ``fp-lib-table``."""
+    default_representation = next(
+        (item for item in component.get("representations", []) if item.get("is_default")),
+        None,
+    )
+    footprint_asset = default_representation.get("footprint") if default_representation else None
+    if not footprint_asset:
+        return ""
+    return f"{footprint_asset['target_library']}:{footprint_asset['target_name']}"
+
+
 def dbl_row_for_component(
     component: dict[str, Any],
     part_number: str,
@@ -74,13 +86,9 @@ def dbl_row_for_component(
         None,
     )
     symbol_asset = default_representation.get("symbol") if default_representation else None
-    footprint_asset = default_representation.get("footprint") if default_representation else None
     lib_symbol = ""
-    lib_footprint = ""
     if symbol_asset:
         lib_symbol = f"{dbl_symbol_library_name(part_number, symbol_asset)}:{symbol_asset['target_name']}"
-    if footprint_asset:
-        lib_footprint = f"{footprint_asset['target_library']}:{footprint_asset['target_name']}"
     row = {
         "Part Number": part_number,
         "Part Number Nocolon": part_number,
@@ -93,7 +101,7 @@ def dbl_row_for_component(
         "Part Description": component["description"],
         "Datasheet": component["datasheet_url"],
         "LibSymbol": lib_symbol,
-        "LibFootprint": lib_footprint,
+        "LibFootprint": dbl_footprint_ref(component),
     }
     extras = dict(component.get("extra_fields") or {})
     row.update({field["key"]: str(extras.get(field["storage_key"], "")) for field in custom_fields})
@@ -139,10 +147,11 @@ class CatalogDblExport:
         export_root: Path,
     ) -> None:
         _, assets = self._placement.placement_assets(conn, component["revision_id"])
+        footprint_ref = dbl_footprint_ref(component) or None
         for raw_asset in assets:
             if raw_asset["asset_type"] not in {"symbol", "footprint"}:
                 continue
-            asset = materialize_asset(raw_asset, assets, component)
+            asset = materialize_asset(raw_asset, assets, component, footprint_ref=footprint_ref)
             if raw_asset["asset_type"] == "symbol":
                 library_name = dbl_symbol_library_name(part_number, asset)
                 destination = export_root / "SchLib" / f"{library_name}.kicad_sym"
@@ -289,6 +298,7 @@ __all__ = [
     "DBL_LINUX_FILENAME",
     "DBL_WINDOWS_FILENAME",
     "CatalogDblExport",
+    "dbl_footprint_ref",
     "dbl_row_for_component",
     "dbl_symbol_library_name",
     "part_number_nocolon",
