@@ -49,12 +49,19 @@ class SupersededStepPurgeTests(unittest.TestCase):
     def _released_part_with_model(self) -> tuple[dict, dict]:
         """A released part whose revision carries one STEP model."""
 
+        released = self._release(self._part_with_model())
+        [model] = [asset for asset in released["assets"] if asset["asset_type"] == "3dmodel"]
+        return released, model
+
+    def _part_with_model(self, part: str = "", model: str = "rev1") -> dict:
+        """An unreleased part whose head revision carries one STEP model."""
+
         created = self.service.create_manual_component(
             value="10k",
             description="STEP purge component",
             datasheet="https://example.com/r.pdf",
             manufacturer="Prism Purge",
-            manufacturer_part_number=f"PURGE-{self.token}",
+            manufacturer_part_number=f"PURGE-{self.token}{part}",
             actor=ACTOR,
         )
         component_id = str(created["id"])
@@ -78,14 +85,7 @@ class SupersededStepPurgeTests(unittest.TestCase):
             payload=f'(footprint "R_Purge" (version 20240108) (generator "test") (descr "{self.token}"))'.encode(),
             target_library="Prism_Purge", selected_footprint="R_Purge", actor=ACTOR,
         )
-        with_model = self.service.attach_auxiliary_asset(
-            component_id, asset_type="3dmodel", upload_name="R_Purge.step",
-            payload=f"ISO-10303-21;/* rev1 {self.token} */END-ISO-10303-21;".encode(),
-            target_library="Prism_Purge", actor=ACTOR,
-        )["component"]
-        released = self._release(with_model)
-        [model] = [asset for asset in released["assets"] if asset["asset_type"] == "3dmodel"]
-        return released, model
+        return self._attach_model(component_id, model)
 
     def _release(self, draft: dict) -> dict:
         """Walk the head revision through QA approval to release."""
@@ -177,6 +177,70 @@ class SupersededStepPurgeTests(unittest.TestCase):
         self.assertIn(scratch_id, result["asset_ids"])
         self.assertFalse(scratch_path.exists())
         self.assertTrue(self._step_path(str(old_model["id"])).is_file())
+
+    def _archived_release_with_model(self) -> tuple[dict, dict]:
+        """A released revision archived in place: released_revision_id is cleared."""
+
+        released, model = self._released_part_with_model()
+        archived = self.service.set_release_status(
+            str(released["id"]), "archived", actor=ACTOR, expected_revision_id=released["revision_id"],
+        )
+        self.assertEqual(archived["revision_id"], released["revision_id"])
+        self.assertEqual(self._released_revision_id(str(released["id"])), "")
+        return archived, model
+
+    def _released_revision_id(self, component_id: str) -> str:
+        with self.service.connection() as conn:
+            row = conn.execute("SELECT released_revision_id FROM components WHERE id = %s", (component_id,)).fetchone()
+        return str(row["released_revision_id"])
+
+    def test_archived_release_keeps_its_step_through_the_release_record(self) -> None:
+        archived, old_model = self._archived_release_with_model()
+        old_path = self._step_path(str(old_model["id"]))
+        draft = self._replace_model_in_draft(archived, old_model)
+        self.assertNotIn(str(old_model["id"]), self._model_ids(draft))
+        self.assertTrue(self.service.list_component_release_records(str(archived["id"])))
+
+        result = self.service.purge_superseded_step_files()
+
+        self.assertNotIn(str(old_model["id"]), result["asset_ids"])
+        self.assertTrue(old_path.is_file(), "an archived release's STEP was purged")
+
+    def test_step_shared_with_another_components_archived_release_is_kept(self) -> None:
+        archived, shared_model = self._archived_release_with_model()
+        self._replace_model_in_draft(archived, shared_model)
+        # Same bytes, so the second part links the same asset row.
+        other = self._part_with_model("-B")
+        self.assertEqual(self._model_ids(other), [str(shared_model["id"])])
+        shared_path = self._step_path(str(shared_model["id"]))
+        other_draft = self._replace_model_in_draft(other, shared_model)
+        self.assertNotIn(str(shared_model["id"]), self._model_ids(other_draft))
+
+        result = self.service.purge_superseded_step_files()
+
+        self.assertNotIn(str(shared_model["id"]), result["asset_ids"])
+        self.assertTrue(shared_path.is_file(), "a STEP shared with another component's archived release was purged")
+
+    def test_legacy_released_revision_without_record_keeps_its_step(self) -> None:
+        part = self._part_with_model()
+        [model_id] = self._model_ids(part)
+        model_path = self._step_path(model_id)
+        draft = self._replace_model_in_draft(part, {"id": model_id})
+        # No public API marks a revision released without writing a release
+        # record and moving released_revision_id, so set up the legacy state here.
+        with self.service.connection() as conn:
+            conn.execute(
+                "UPDATE component_revisions SET release_status = 'released' WHERE id = %s", (part["revision_id"],)
+            )
+            conn.commit()
+        self.assertFalse(self.service.list_component_release_records(str(part["id"])))
+        self.assertEqual(self._released_revision_id(str(part["id"])), "")
+        self.assertNotEqual(draft["revision_id"], part["revision_id"])
+
+        result = self.service.purge_superseded_step_files()
+
+        self.assertNotIn(model_id, result["asset_ids"])
+        self.assertTrue(model_path.is_file(), "a legacy released revision's STEP was purged")
 
 
 if __name__ == "__main__":
