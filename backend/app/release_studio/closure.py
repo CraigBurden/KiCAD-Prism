@@ -1056,71 +1056,63 @@ def _resolve_project_paths(
     deduped = sorted(set(references), key=lambda item: item)
     resolved: list[ResolvedLibraryPath] = []
     for source, reference, kind in deduped:
+        if _is_advisory_reference(reference):
+            # The cover render and the assembly views open every model, so a
+            # model is resolved the way KiCad resolves it, not as a library path.
+            resolved.append(_resolve_model(resolver, source, reference, model_env))
+            continue
         try:
             resolved.append(resolver.resolve(source, reference, kind))
         except ClosureError as exc:
             # Footprints and symbols are already copied into the board/schematic,
             # so a host-absolute fp-lib-table URI or a missing .pretty must not
             # refuse a documentation build -- neither of these is fatal, and
-            # both are recorded so they stay visible.
-            #
-            # They are not equivalent, though. A `.step`/`.wrl` missing from the
-            # closure is advisory; anything else is a real input that resolved
-            # outside the closure, and marking those advisory too let a build
-            # whose symbols came off the host record itself as fully hermetic.
-            #
-            # A model outside the closure is read by the cover render and the
-            # assembly views, so its bytes are pinned, or the build says it
-            # cannot pin them.
-            if isinstance(exc, ExternalPathError) and _is_advisory_reference(reference):
-                resolved.append(
-                    _host_model_reference(resolver, source, reference, model_env)
-                )
-                continue
-            substitutable = (
-                not isinstance(exc, ExternalPathError)
-                and Path(reference.replace("\\", "/")).suffix.casefold()
-                in _SUBSTITUTED_SUFFIXES
-            )
+            # both are recorded so they stay visible.  They are still real
+            # inputs that resolved outside the closure, so not advisory.
             resolved.append(
                 ResolvedLibraryPath(
                     source_path=source,
                     reference=reference,
                     resolved_path="",
-                    location=(
-                        "external"
-                        if isinstance(exc, ExternalPathError)
-                        else "substitutable" if substitutable else "missing"
-                    ),
-                    advisory=_is_advisory_reference(reference) and not substitutable,
+                    location="external" if isinstance(exc, ExternalPathError) else "missing",
                 )
             )
     return resolved, sorted(resolver.bindings.values(), key=lambda binding: binding.name)
 
 
-def _host_model_reference(
+def _resolve_model(
     resolver: "_PathResolver",
     source_path: str,
     reference: str,
     model_env: Mapping[str, str],
 ) -> ResolvedLibraryPath:
-    """Hash a 3D model outside the closure the way the build tools find it.
+    """Resolve a 3D model reference once, the way the build tools find it.
+
+    As in KiCad 10.0.4's ``FILENAME_RESOLVER::ResolvePath``: backslashes become
+    slashes, then each variable resolves from the project's ``text_variables``
+    before ``KIPRJMOD`` and the environment (``ExpandEnvVarSubstitutions``,
+    ``common.cpp``), then the path is normalized.  Only then is it placed:
+
+    - in the closure: recorded as before; a missing file is advisory, except a
+      ``.wrl``/``.wrz`` KiCad may replace with a STEP model from elsewhere;
+    - outside it: its bytes are hashed into ``digest`` (``location="host"``),
+      or it is ``unreadable`` and the build is non-hermetic.
 
     The tools inherit the worker's environment (``kicad_tools.py``) plus
-    ``KIPRJMOD``.  As in KiCad 10.0.4's ``FILENAME_RESOLVER::ResolvePath``,
-    backslashes become slashes first, and a variable resolves from the
-    project's ``text_variables`` before the environment
-    (``ExpandEnvVarSubstitutions``, ``common.cpp``).  Only the digest is
-    recorded, never the expanded root, so two workers with the same bytes
+    ``KIPRJMOD``; ``model_env`` stands for it.  The record keeps the reference
+    as written and never the expanded root, so two workers with the same bytes
     under different mount points agree.
     """
 
-    unreadable = ResolvedLibraryPath(
-        source_path=source_path,
-        reference=reference,
-        resolved_path="",
-        location="unreadable",
-    )
+    def record(location: str, resolved_path: str = "", **extra: Any) -> ResolvedLibraryPath:
+        return ResolvedLibraryPath(
+            source_path=source_path,
+            reference=reference,
+            resolved_path=resolved_path,
+            location=location,
+            **extra,
+        )
+
     project_variables = _project_text_variables(resolver.destination, source_path)
     expanded = reference.replace("\\", "/")
     for _ in range(8):
@@ -1130,32 +1122,51 @@ def _host_model_reference(
         name = match.group(1)
         if name in project_variables:
             value = project_variables[name]
-        elif name == "KIPRJMOD":
-            value = os.fspath(resolver.project_root)
         else:
-            value = str(model_env.get(name) or "")
+            try:
+                # KIPRJMOD and Prism's own bindings, recorded as before.
+                value = resolver._value(name)
+            except ExternalPathError:
+                value = str(model_env.get(name) or "")
         if not value:
-            return unreadable
-        expanded = expanded[: match.start()] + value + expanded[match.end() :]
+            return record("unreadable")
+        expanded = expanded[: match.start()] + value.replace("\\", "/") + expanded[match.end() :]
     else:
-        return unreadable
+        return record("unreadable")
+    if re.match(r"^[A-Za-z][A-Za-z0-9+.-]*://", expanded) or expanded.split("/", 1)[0] == "~":
+        return record("unreadable")
     candidate = Path(expanded)
     if not candidate.is_absolute():
         candidate = resolver.project_root / candidate
+    resolved = Path(os.path.normpath(candidate)).resolve(strict=False)
+
+    inside: str | None = None
+    try:
+        inside = resolved.relative_to(resolver.destination_root).as_posix() or "."
+    except ValueError:
+        for spec in resolver.toolchain_specs.values():
+            try:
+                toolchain_relative = resolved.relative_to(spec.root).as_posix()
+            except ValueError:
+                continue
+            if resolved.exists():
+                return record("toolchain", f"toolchain:{spec.name}/{toolchain_relative}")
+            return record("missing", advisory=True)
+    if inside is not None:
+        if resolved.exists():
+            return record("closure", inside)
+        if Path(expanded).suffix.casefold() in _SUBSTITUTED_SUFFIXES:
+            return record("substitutable")
+        return record("missing", advisory=True)
+
     digest = hashlib.sha256()
     try:
-        with candidate.open("rb") as handle:
+        with resolved.open("rb") as handle:
             for chunk in iter(lambda: handle.read(1024 * 1024), b""):
                 digest.update(chunk)
     except OSError:
-        return unreadable
-    return ResolvedLibraryPath(
-        source_path=source_path,
-        reference=reference,
-        resolved_path="",
-        location="host",
-        digest=digest.hexdigest(),
-    )
+        return record("unreadable")
+    return record("host", digest=digest.hexdigest())
 
 
 def _project_text_variables(destination: Path, board_path: str) -> dict[str, str]:

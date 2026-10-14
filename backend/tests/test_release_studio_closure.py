@@ -460,6 +460,65 @@ class ReleaseStudioClosureTests(unittest.TestCase):
             hashlib.sha256(b"nested model\n").hexdigest(),
         )
 
+    def test_a_project_kiprjmod_override_is_resolved_before_the_closure(self) -> None:
+        # The project's text variables win even over KIPRJMOD, so KiCad opens
+        # the outside file although the repository has one at the same path.
+        outside = self.root / "outside-project/part.step"
+        outside.parent.mkdir()
+        outside.write_bytes(b"outside model v1\n")
+        self.repo.joinpath("hardware/board/model.step").write_bytes(b"payload\n")
+        self.repo.joinpath("hardware/board/part.step").write_bytes(b"in-repo model\n")
+        self.repo.joinpath("hardware/board/board.kicad_pro").write_text(
+            json.dumps({"text_variables": {"KIPRJMOD": str(outside.parent)}}),
+            encoding="utf-8",
+        )
+        self.repo.joinpath("hardware/board/board.kicad_pcb").write_text(
+            '(kicad_pcb (version 20240108) '
+            '(footprint "R" (model "${KIPRJMOD}/part.step")))\n',
+            encoding="utf-8",
+        )
+        commit = commit_all(self.repo, "project overrides KIPRJMOD")
+
+        def build(name: str) -> object:
+            return materialize_input_closure(
+                self.repo, commit, self.root / name, relative_path="hardware/board"
+            )
+
+        first = build("kiprjmod-1")
+        self.assertEqual(
+            self._host_model_digest(first, "${KIPRJMOD}/part.step"),
+            hashlib.sha256(b"outside model v1\n").hexdigest(),
+        )
+        outside.write_bytes(b"outside model v2\n")
+        self.assertNotEqual(build("kiprjmod-2").digest, first.digest)
+
+    def test_a_backslash_path_that_climbs_out_of_the_closure_is_hashed(self) -> None:
+        # KiCad normalizes `\..\` before it opens the file, so this reference
+        # reads a host file, not a missing name inside the closure.
+        host = self.root / "host-models/part.step"
+        host.parent.mkdir()
+        host.write_bytes(b"climbing model\n")
+        self.repo.joinpath("hardware/board/model.step").write_bytes(b"payload\n")
+        reference = "${KIPRJMOD}\\..\\..\\..\\host-models\\part.step"
+        self.repo.joinpath("hardware/board/board.kicad_pcb").write_text(
+            '(kicad_pcb (version 20240108) '
+            '(footprint "R" (model "'
+            + reference.replace("\\", "\\\\")
+            + '")))\n',
+            encoding="utf-8",
+        )
+        commit = commit_all(self.repo, "backslash path out of the closure")
+
+        closure = materialize_input_closure(
+            self.repo, commit, self.root / "climb", relative_path="hardware/board"
+        )
+
+        self.assertEqual(
+            self._host_model_digest(closure, reference),
+            hashlib.sha256(b"climbing model\n").hexdigest(),
+        )
+        self.assertEqual(closure.advisory_reasons(), [])
+
     def test_a_missing_vrml_model_in_the_closure_is_non_hermetic(self) -> None:
         # kicad-cli replaces a missing WRL with a same-stem STEP from its
         # search paths, so this absence is not the same on every worker.
