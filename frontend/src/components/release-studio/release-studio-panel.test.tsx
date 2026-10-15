@@ -665,7 +665,7 @@ describe("ReleaseStudioPanel", () => {
         await waitFor(() => expect(vi.mocked(api.publishBuild)).toHaveBeenCalledWith(
             "p1",
             "build-1",
-            { tag: "v1.0.0", title: "v1.0.0", notes: "" },
+            { tag: "v1.0.0", title: "v1.0.0", notes: "", acknowledged_models: [] },
         ));
         expect(await screen.findByRole("link", { name: /github.com\/org\/repo\/releases\/tag\/v1/i })).toBeTruthy();
     });
@@ -791,7 +791,36 @@ describe("ReleaseStudioPanel", () => {
         await waitFor(() => expect(vi.mocked(api.approveBuild)).toHaveBeenCalledWith(
             "p1",
             "build-1",
-            { slot: "designer", note: "Waive DRC for proto" },
+            { slot: "designer", note: "Waive DRC for proto", acknowledged_models: [] },
+        ));
+    });
+
+    it("needs the unpinned 3D models acknowledged before approving", async () => {
+        const key = "board.kicad_pcb::${KICAD10_3DMODEL_DIR}/R_0603.step";
+        vi.mocked(api.getBuild).mockResolvedValue({
+            ...detail,
+            approvals: {
+                ...detail.approvals!,
+                unpinned_models: [{
+                    key,
+                    source_path: "board.kicad_pcb",
+                    reference: "${KICAD10_3DMODEL_DIR}/R_0603.step",
+                    location: "unreadable",
+                }],
+            },
+        });
+        render(<ReleaseStudioPanel projectId="p1" canMutate />);
+        await openOutputs();
+        expect(screen.getByText("${KICAD10_3DMODEL_DIR}/R_0603.step")).toBeTruthy();
+        const approve = screen.getByRole("button", { name: "Approve Designer" });
+        expect(approve).toBeDisabled();
+        fireEvent.click(screen.getByRole("checkbox", { name: /Acknowledge 1 unpinned 3D model/i }));
+        expect(approve).not.toBeDisabled();
+        fireEvent.click(approve);
+        await waitFor(() => expect(vi.mocked(api.approveBuild)).toHaveBeenCalledWith(
+            "p1",
+            "build-1",
+            { slot: "designer", note: "", acknowledged_models: [key] },
         ));
     });
 });

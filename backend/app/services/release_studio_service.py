@@ -292,6 +292,8 @@ def create_candidate(
     hermetic: bool,
     non_hermetic_reasons: Sequence[str] = (),
     closure_inputs: Sequence[Mapping[str, Any]] = (),
+    model_inputs: Sequence[Mapping[str, Any]] = (),
+    self_contained: bool | None = None,
     policy_snapshot_captured: bool = False,
     policy_document: Mapping[str, Any] | None = None,
     configuration_snapshot_captured: bool = False,
@@ -324,15 +326,16 @@ def create_candidate(
                 id, project_id, repository_id, config_key, commit_sha, variant,
                 technical_config_digest, input_closure_digest, toolchain_digest,
                 generator_build, build_key, status, hermetic, non_hermetic_reasons,
-                policy_snapshot_captured, policy_document,
+                self_contained, policy_snapshot_captured, policy_document,
                 configuration_snapshot_captured, configuration_document, created_by
-            ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,'draft',%s,%s,%s,%s,%s,%s,%s)
+            ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,'draft',%s,%s,%s,%s,%s,%s,%s,%s)
             """,
             (
                 candidate_id, project_id, repository_id, config_key, commit_sha,
                 variant, technical_config_digest, input_closure_digest,
                 toolchain_digest, generator_build, build_key, hermetic,
-                json.dumps(list(non_hermetic_reasons)), policy_snapshot_captured,
+                json.dumps(list(non_hermetic_reasons)), self_contained,
+                policy_snapshot_captured,
                 json.dumps(dict(policy_document)) if policy_document is not None else None,
                 configuration_snapshot_captured,
                 json.dumps(dict(configuration_document)) if configuration_document is not None else None,
@@ -354,6 +357,22 @@ def create_candidate(
                     item.get("mode", ""), item.get("object_type", ""),
                     item.get("lfs_oid", ""), item.get("materialized_digest", ""),
                     json.dumps(dict(item.get("details") or {})),
+                ),
+            )
+        for item in model_inputs:
+            conn.execute(
+                """
+                INSERT INTO ws_release_model_inputs(
+                    id, candidate_id, source_path, reference, location,
+                    resolved_path, digest, advisory
+                ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s)
+                ON CONFLICT (candidate_id, source_path, reference) DO NOTHING
+                """,
+                (
+                    _new_id("mi"), candidate_id, str(item["source_path"]),
+                    str(item["reference"]), str(item["location"]),
+                    str(item.get("resolved_path") or ""), str(item.get("digest") or ""),
+                    bool(item.get("advisory")),
                 ),
             )
         append_audit_event(
@@ -391,6 +410,22 @@ def get_candidate(candidate_id: str) -> dict[str, Any] | None:
             "SELECT * FROM ws_release_candidates WHERE id = %s", (candidate_id,)
         ).fetchone()
     return dict(row) if row else None
+
+
+def model_inputs(candidate_id: str) -> list[dict[str, Any]]:
+    """The 3D model references a candidate's closure resolved."""
+
+    with connect() as conn:
+        rows = conn.execute(
+            """
+            SELECT source_path, reference, location, resolved_path, digest, advisory
+            FROM ws_release_model_inputs
+            WHERE candidate_id = %s
+            ORDER BY source_path, reference
+            """,
+            (candidate_id,),
+        ).fetchall()
+    return [dict(row) for row in rows]
 
 
 def set_candidate_status(candidate_id: str, status: str, *, actor: str = "") -> dict[str, Any]:
@@ -657,6 +692,7 @@ def build_approval_state(
     publish_row: Mapping[str, Any] | None,
     actor_email: str = "",
     actor_role: str = "",
+    unpinned_models: Sequence[Mapping[str, Any]] = (),
 ) -> dict[str, Any]:
     digest = str(build.get("dossier_digest") or "")
     designer = _active_approval(designer_row, digest)
@@ -709,6 +745,8 @@ def build_approval_state(
         "can_withdraw": can_withdraw,
         "can_publish": can_publish,
         "blocked_reason": " ".join(blocked) if not can_publish and not published else "",
+        # Approve and publish each need these acknowledged; they never block.
+        "unpinned_models": [dict(item) for item in unpinned_models],
     }
 
 
@@ -755,6 +793,7 @@ def record_review_decision(
     electrical_errors: Sequence[str] = (),
     build_status: str = "",
     config_key: str = "",
+    acknowledged_models: Sequence[str] = (),
 ) -> dict[str, Any]:
     if slot not in REVIEW_SLOTS:
         raise ReviewDecisionError("Unknown review slot.", status_code=400)
@@ -812,10 +851,14 @@ def record_review_decision(
         conn.execute(
             """
             INSERT INTO ws_release_review_decisions(
-                id, project_id, build_id, slot, actor, decision, note, dossier_digest
-            ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s)
+                id, project_id, build_id, slot, actor, decision, note, dossier_digest,
+                acknowledged_models
+            ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)
             """,
-            (row_id, project_id, build_id, slot, actor, decision, written, digest),
+            (
+                row_id, project_id, build_id, slot, actor, decision, written, digest,
+                json.dumps(list(acknowledged_models)),
+            ),
         )
         append_audit_event(
             conn,
@@ -825,7 +868,12 @@ def record_review_decision(
             actor=actor,
             subject_kind="build",
             subject_id=build_id,
-            details={"slot": slot, "note": written, "dossier_digest": digest},
+            details={
+                "slot": slot,
+                "note": written,
+                "dossier_digest": digest,
+                "acknowledged_models": list(acknowledged_models),
+            },
         )
         conn.commit()
     return latest_review_decision(build_id, slot) or {}
@@ -842,6 +890,7 @@ def record_publish(
     forge_url: str,
     asset_names: Sequence[str],
     config_key: str = "",
+    acknowledged_models: Sequence[str] = (),
 ) -> dict[str, Any]:
     existing = get_publish_record(build_id)
     if existing:
@@ -853,8 +902,8 @@ def record_publish(
                 """
                 INSERT INTO ws_release_publish_records(
                     id, project_id, build_id, tag, commit_sha, dossier_digest,
-                    published_by, forge_url, asset_names
-                ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                    published_by, forge_url, asset_names, acknowledged_models
+                ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
                 """,
                 (
                     row_id,
@@ -866,6 +915,7 @@ def record_publish(
                     published_by,
                     forge_url,
                     json.dumps(list(asset_names)),
+                    json.dumps(list(acknowledged_models)),
                 ),
             )
             append_audit_event(
@@ -876,7 +926,12 @@ def record_publish(
                 actor=published_by,
                 subject_kind="build",
                 subject_id=build_id,
-                details={"tag": tag, "forge_url": forge_url, "asset_names": list(asset_names)},
+                details={
+                    "tag": tag,
+                    "forge_url": forge_url,
+                    "asset_names": list(asset_names),
+                    "acknowledged_models": list(acknowledged_models),
+                },
             )
             conn.commit()
     except Exception as exc:
@@ -915,6 +970,7 @@ __all__ = [
     "list_audit_events",
     "list_candidates",
     "list_configurations",
+    "model_inputs",
     "record_publish",
     "record_review_decision",
     "ReviewDecisionError",

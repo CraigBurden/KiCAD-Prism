@@ -6,6 +6,7 @@ import { HoldToConfirmButton } from "@/components/ui/hold-to-confirm-button";
 import * as api from "../api";
 import type { BuildDetail } from "../types";
 import type { RunFn } from "../shared";
+import { UnpinnedModelsAck, acknowledgedModelKeys } from "../UnpinnedModels";
 
 export function PublishStep({
     projectId,
@@ -23,20 +24,24 @@ export function PublishStep({
     const forge = detail.forge;
     const forgeName = forge?.name || "GitHub or GitLab";
     const [publishedUrl, setPublishedUrl] = useState("");
+    const [acknowledged, setAcknowledged] = useState(false);
     const forgeUrl = detail.forge_release?.url || detail.approvals?.published?.forge_url || publishedUrl;
     const ready = detail.build.status === "succeeded";
     const tag = String(detail.configuration?.revision || "");
     const documentName = String(detail.configuration?.document_number || "");
     const notes = String(detail.configuration?.release_notes || "");
     const gates = detail.approvals;
+    const unpinned = gates?.unpinned_models ?? [];
     const publishing = busy === "publish";
     const canPublish = Boolean(
         canMutate
         && ready
         && tag.trim()
         && !publishing
-        && (gates ? gates.can_publish : false),
+        && (gates ? gates.can_publish : false)
+        && (unpinned.length === 0 || acknowledged),
     );
+    const selfContained = detail.candidate?.self_contained;
     const tokenHint = forge && !forge.token_configured ? forge.token_hint : "";
     const blocked = gates?.blocked_reason || "";
 
@@ -64,6 +69,7 @@ export function PublishStep({
                 tag: tag.trim(),
                 title: tag.trim(),
                 notes,
+                acknowledged_models: acknowledgedModelKeys(unpinned, acknowledged),
             });
             setPublishedUrl(result.release.url);
         });
@@ -92,11 +98,21 @@ export function PublishStep({
                     <dt className="text-xs uppercase text-muted-foreground">Date</dt>
                     <dd>{detail.configuration?.release_date || "—"}</dd>
                 </div>
+                <div>
+                    <dt className="text-xs uppercase text-muted-foreground">Self-contained</dt>
+                    <dd>{selfContained == null ? "—" : selfContained ? "Yes" : "No"}</dd>
+                </div>
                 <div className="sm:col-span-2">
                     <dt className="text-xs uppercase text-muted-foreground">Notes</dt>
                     <dd className="whitespace-pre-wrap">{notes || "—"}</dd>
                 </div>
             </dl>
+            <UnpinnedModelsAck
+                models={unpinned}
+                checked={acknowledged}
+                onCheckedChange={setAcknowledged}
+                disabled={!canMutate || publishing}
+            />
             <HoldToConfirmButton
                 variant="default"
                 className="self-start"

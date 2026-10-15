@@ -45,6 +45,7 @@ from app.release_studio.vendors import resolve_vendor_ids
 from app.services import project_revision
 from app.services import release_build_attempts as attempts
 from app.services import release_build_failure_evidence as failure_evidence
+from app.services import release_studio_model_inputs as model_inputs
 from app.services import release_studio_service as store
 from app.services.job_artifact_service import JobArtifactService
 from app.services.job_kinds import JobKind
@@ -187,16 +188,20 @@ def prepare_candidate(
     config_digest = technical_config_digest(config)
 
     closure_root = workspace_root / "closure"
-    if closure_root.exists():
-        shutil.rmtree(closure_root)
+    model_stage = workspace_root / "models"
+    for stale in (closure_root, model_stage):
+        if stale.exists():
+            shutil.rmtree(stale)
     closure = materialize_input_closure(
         repo_root,
         commit_sha,
         closure_root,
         relative_path=project_relpath,
         # The cover render and the assembly views inherit this environment, so
-        # a model outside the closure is hashed the way they will find it.
+        # a model outside the closure is hashed the way they will find it,
+        # and staged so they read the bytes that were hashed.
         model_env=os.environ,
+        model_stage=model_stage,
     )
 
     hermetic, reasons = _hermeticity(closure_root, config)
@@ -214,6 +219,7 @@ def prepare_candidate(
             "Release Studio closure carries %d advisory reference(s)", len(advisory)
         )
     _toolchain, toolchain_digest = toolchain_identity()
+    model_rows = model_inputs.closure_model_rows(closure)
 
     candidate = store.create_candidate(
         project_id=project_id,
@@ -228,6 +234,8 @@ def prepare_candidate(
         hermetic=hermetic,
         non_hermetic_reasons=reasons,
         closure_inputs=_closure_rows(closure),
+        model_inputs=model_rows,
+        self_contained=model_inputs.is_self_contained(hermetic, model_rows),
         policy_snapshot_captured=False,
         policy_document=None,
         configuration_snapshot_captured=True,

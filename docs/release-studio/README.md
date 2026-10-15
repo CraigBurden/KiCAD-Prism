@@ -41,10 +41,11 @@ then a GitHub or GitLab Release as the public record.
 5. **Outputs** — inspect composed PDFs and dossier members. Designer and QA
    sign off here; decisions bind to this dossier digest. Unwaived DRC/ERC
    errors block designer/QA sign-off; an admin can override with a written
-   note. Warnings do not block.
+   note. Warnings do not block. Approving a build with unpinned 3D models
+   needs them acknowledged.
 6. **Publish** — confirm only after both slots are approved and every selected
    vendor pack is ready. Prism attaches the dossier zip plus those packs. The
-   Release name is the tag.
+   Release name is the tag. Unpinned 3D models are acknowledged again here.
 
 Host-absolute library table URIs and missing `.pretty` entries are recorded as
 warnings. They do not block the build or the forge publish.

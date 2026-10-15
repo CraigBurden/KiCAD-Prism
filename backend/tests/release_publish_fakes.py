@@ -30,12 +30,14 @@ class FakeRecords:
         artifacts: Mapping[str, Path] | None = None,
         evidence: Sequence[Mapping[str, Any]] = (),
         members: Sequence[Mapping[str, Any]] = (),
+        models: Mapping[str, Sequence[Mapping[str, Any]]] | None = None,
     ) -> None:
         self.builds = {str(row["id"]): dict(row) for row in builds}
         self.candidates = {str(row["id"]): dict(row) for row in candidates}
         self.artifacts = dict(artifacts or {})
         self.evidence = [dict(row) for row in evidence]
         self.members = [dict(row) for row in members]
+        self.models = {key: [dict(row) for row in rows] for key, rows in (models or {}).items()}
         self.decisions: list[dict[str, Any]] = []
         self.published: dict[str, dict[str, Any]] = {}
         self.record_failure: Exception | None = None
@@ -47,6 +49,9 @@ class FakeRecords:
     def get_candidate(self, candidate_id: str) -> dict[str, Any] | None:
         row = self.candidates.get(candidate_id)
         return dict(row) if row else None
+
+    def model_inputs(self, candidate_id: str) -> list[dict[str, Any]]:
+        return [dict(row) for row in self.models.get(candidate_id, ())]
 
     def get_artifact(self, artifact_id: str) -> dict[str, Any] | None:
         path = self.artifacts.get(artifact_id)

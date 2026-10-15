@@ -226,6 +226,92 @@ class DetailAndApprovalTests(_Desk):
         self.assertEqual(self.records.decisions[-1]["actor"], "qa@example.com")
 
 
+UNREADABLE = "hardware/board.kicad_pcb::${KICAD10_3DMODEL_DIR}/R_0603.step"
+
+
+class UnpinnedModelTests(_Desk):
+    """D3: approving or publishing a build with unpinned models needs them acknowledged."""
+
+    def setUp(self) -> None:
+        super().setUp()
+        self.records.models["candidate-1"] = [
+            {
+                "source_path": "hardware/board.kicad_pcb",
+                "reference": "${KICAD10_3DMODEL_DIR}/R_0603.step",
+                "location": "unreadable",
+            },
+            {
+                "source_path": "hardware/board.kicad_pcb",
+                "reference": "${KIPRJMOD}/stale.step",
+                "location": "missing",
+                "advisory": True,
+            },
+            {
+                "source_path": "hardware/board.kicad_pcb",
+                "reference": "/opt/models/C_0402.step",
+                "location": "host",
+                "digest": "e" * 64,
+            },
+        ]
+
+    def test_build_detail_lists_only_the_unpinned_models(self) -> None:
+        detail = self.publisher.detail("project", REPO, "build-1", QA)
+        self.assertEqual(
+            [row["key"] for row in detail["approvals"]["unpinned_models"]], [UNREADABLE]
+        )
+        # Listed, never a reason the build cannot publish.
+        self.assertTrue(detail["approvals"]["can_publish"])
+
+    def test_publish_without_the_acknowledgement_is_refused_naming_the_model(self) -> None:
+        with self.assertRaises(DomainError) as caught:
+            self.publish()
+        self.assertEqual(caught.exception.status_code, 409)
+        self.assertIn("R_0603.step", str(caught.exception.detail))
+        self.assertNotIn("create_release", self.forge.calls)
+
+    def test_an_acknowledged_publish_records_what_was_acknowledged(self) -> None:
+        self.publisher.publish(
+            "project", REPO, "build-1", tag="v1.0.0", notes="", actor=QA,
+            acknowledged_models=[UNREADABLE],
+        )
+        self.assertEqual(
+            self.records.get_publish_record("build-1")["acknowledged_models"], [UNREADABLE]
+        )
+
+    def test_approval_needs_the_acknowledgement_and_withdrawal_does_not(self) -> None:
+        self.records.decisions.clear()
+        with self.assertRaises(DomainError) as caught:
+            self.publisher.decide(
+                "project", "build-1", slot="designer", decision="approved", note="",
+                actor=DESIGNER,
+            )
+        self.assertEqual(caught.exception.status_code, 409)
+        self.assertEqual(self.records.decisions, [])
+        self.publisher.decide(
+            "project", "build-1", slot="designer", decision="approved", note="",
+            actor=DESIGNER, acknowledged_models=[UNREADABLE],
+        )
+        self.assertEqual(self.records.decisions[-1]["acknowledged_models"], [UNREADABLE])
+        self.publisher.decide(
+            "project", "build-1", slot="designer", decision="withdrawn", note="no",
+            actor=DESIGNER,
+        )
+        self.assertEqual(self.records.decisions[-1]["acknowledged_models"], [])
+
+    def test_a_candidate_without_model_rows_reads_its_reasons(self) -> None:
+        self.records.models.clear()
+        self.records.candidates["candidate-1"]["non_hermetic_reasons"] = [
+            "board.kicad_pcb: ${MODELS}/part.step is a 3D model outside the release "
+            "closure that the build cannot read, so its bytes are not pinned",
+            "catalogue step x (y) is not a hermetic KiCad type",
+        ]
+        detail = self.publisher.detail("project", REPO, "build-1", QA)
+        self.assertEqual(
+            [row["key"] for row in detail["approvals"]["unpinned_models"]],
+            ["board.kicad_pcb::${MODELS}/part.step"],
+        )
+
+
 class NewTagTests(_Desk):
     def test_identity_must_name_tag_document_and_date(self) -> None:
         with self.assertRaises(DomainError) as caught:

@@ -64,6 +64,7 @@ EXPECTED_COLUMNS: dict[str, set[str]] = {
         "created_by",
         "created_at",
         "updated_at",
+        "self_contained",
     },
     "ws_release_closure_inputs": {
         "id",
@@ -294,6 +295,7 @@ EXPECTED_COLUMNS: dict[str, set[str]] = {
         "note",
         "dossier_digest",
         "created_at",
+        "acknowledged_models",
     },
     "ws_release_publish_records": {
         "id",
@@ -306,6 +308,17 @@ EXPECTED_COLUMNS: dict[str, set[str]] = {
         "forge_url",
         "asset_names",
         "created_at",
+        "acknowledged_models",
+    },
+    "ws_release_model_inputs": {
+        "id",
+        "candidate_id",
+        "source_path",
+        "reference",
+        "location",
+        "resolved_path",
+        "digest",
+        "advisory",
     },
 }
 
@@ -333,6 +346,7 @@ EXPECTED_PRIMARY_KEYS = {
     "ws_artifact_release_pins": ("artifact_id",),
     "ws_release_review_decisions": ("id",),
     "ws_release_publish_records": ("id",),
+    "ws_release_model_inputs": ("id",),
 }
 
 
@@ -340,6 +354,7 @@ EXPECTED_UNIQUES = {
     ("ws_release_configurations", ("project_id", "config_key")),
     ("ws_release_candidates", ("project_id", "config_key", "build_key")),
     ("ws_release_closure_inputs", ("candidate_id", "kind", "path")),
+    ("ws_release_model_inputs", ("candidate_id", "source_path", "reference")),
     ("ws_release_members", ("build_id", "path")),
     ("ws_release_members", ("id", "build_id")),
     ("ws_release_policies", ("policy_key",)),
@@ -381,6 +396,7 @@ EXPECTED_FKS = {
         "CASCADE",
     ),
     ("ws_release_builds", ("candidate_id",), "ws_release_candidates", ("id",), "CASCADE"),
+    ("ws_release_model_inputs", ("candidate_id",), "ws_release_candidates", ("id",), "CASCADE"),
     ("ws_release_builds", ("job_id",), "ws_jobs", ("id",), "SET NULL"),
     ("ws_release_builds", ("dossier_artifact_id",), "ws_artifacts", ("id",), "RESTRICT"),
     (
@@ -1170,6 +1186,20 @@ class ReleaseStudioPostgresSchemaTests(unittest.TestCase):
             (ids["audit"],),
         )
 
+    def test_model_inputs_are_one_row_per_reference_of_a_candidate(self) -> None:
+        ids = self._seed_release_graph()
+        insert = """
+            INSERT INTO ws_release_model_inputs(id, candidate_id, source_path, reference, location)
+            VALUES (%s, %s, 'board.kicad_pcb', '$(MODELS)/part.step', 'unreadable')
+        """
+        self.conn.execute(insert, (f"model-{uuid.uuid4().hex}", ids["candidate"]))
+        self._assert_rejected(insert, (f"model-{uuid.uuid4().hex}", ids["candidate"]))
+        candidate = self.conn.execute(
+            "SELECT self_contained FROM ws_release_candidates WHERE id = %s", (ids["candidate"],)
+        ).fetchone()
+        # Unknown, not false, on a candidate made before it was recorded.
+        self.assertIsNone(candidate["self_contained"])
+
     def test_a_captured_candidate_policy_snapshot_cannot_be_rewritten(self) -> None:
         """The snapshot is what every evaluation of this candidate is about.
 
@@ -1733,6 +1763,7 @@ class ReleaseStudioPostgresSchemaTests(unittest.TestCase):
                 (53, "system_step_exports"),
                 (54, "system_harness_outputs"),
                 (55, "project_path_settings"),
+                (56, "release_studio_model_inputs"),
             ],
         )
 

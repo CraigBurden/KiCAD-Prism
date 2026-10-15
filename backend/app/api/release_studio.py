@@ -73,11 +73,14 @@ class PublishRequest(BaseModel):
     tag: str = Field(..., min_length=1, max_length=100)
     title: str = Field("", max_length=200)
     notes: str = Field("", max_length=8000)
+    # Keys of the unpinned 3D models (``approvals.unpinned_models``) acknowledged.
+    acknowledged_models: list[str] = Field(default_factory=list, max_length=5000)
 
 
 class ReviewDecisionRequest(BaseModel):
     slot: str = Field(..., pattern="^(designer|qa)$")
     note: str = Field("", max_length=4000)
+    acknowledged_models: list[str] = Field(default_factory=list, max_length=5000)
 
 
 # ---------------------------------------------------------------------------
@@ -519,6 +522,7 @@ async def approve_build(
         decision="approved",
         note=request.note,
         actor=user,
+        acknowledged_models=request.acknowledged_models,
     )
 
 
@@ -558,5 +562,11 @@ def _publish_build(
 ) -> dict[str, Any]:
     project = authorized_project(user, project_id, "release")
     return PUBLISHER.publish(
-        project_id, project, build_id, tag=request.tag, notes=request.notes, actor=user
+        project_id,
+        project,
+        build_id,
+        tag=request.tag,
+        notes=request.notes,
+        actor=user,
+        acknowledged_models=request.acknowledged_models,
     )

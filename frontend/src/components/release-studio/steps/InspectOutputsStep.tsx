@@ -23,6 +23,7 @@ import { cn } from "@/lib/utils";
 
 import * as api from "../api";
 import { shortDigest } from "../flow";
+import { UnpinnedModelsAck, acknowledgedModelKeys } from "../UnpinnedModels";
 import {
     DocumentSheetPreview,
     MemberViewer,
@@ -275,8 +276,30 @@ function SignOffCards({
 }) {
     const published = Boolean(approvals?.published);
     const electrical = approvals?.electrical_errors ?? [];
+    const unpinned = approvals?.unpinned_models ?? [];
+    const [acknowledged, setAcknowledged] = useState(false);
+    const canApprove = Boolean(approvals?.can_approve_designer || approvals?.can_approve_qa);
+    const shared = {
+        electrical,
+        published,
+        busy,
+        onRun,
+        onRefresh,
+        projectId,
+        buildId,
+        acknowledgement: unpinned.length > 0 && !acknowledged ? "missing" as const : "given" as const,
+        acknowledgedModels: acknowledgedModelKeys(unpinned, acknowledged),
+    };
     return (
         <div className="space-y-2">
+            {!published && canApprove ? (
+                <UnpinnedModelsAck
+                    models={unpinned}
+                    checked={acknowledged}
+                    onCheckedChange={setAcknowledged}
+                    disabled={Boolean(busy)}
+                />
+            ) : null}
             {electrical.length > 0 && !approvals?.both_approved ? (
                 <div className="flex flex-wrap gap-1">
                     {electrical.map((kind) => (
@@ -291,13 +314,7 @@ function SignOffCards({
                 decision={approvals?.designer ?? null}
                 canApprove={Boolean(approvals?.can_approve_designer)}
                 canWithdraw={Boolean(approvals?.can_withdraw && approvals.designer && !published)}
-                electrical={electrical}
-                published={published}
-                busy={busy}
-                onRun={onRun}
-                onRefresh={onRefresh}
-                projectId={projectId}
-                buildId={buildId}
+                {...shared}
             />
             <SignOffCard
                 label="QA"
@@ -305,13 +322,7 @@ function SignOffCards({
                 decision={approvals?.qa ?? null}
                 canApprove={Boolean(approvals?.can_approve_qa)}
                 canWithdraw={Boolean(approvals?.can_withdraw && approvals.qa && !published)}
-                electrical={electrical}
-                published={published}
-                busy={busy}
-                onRun={onRun}
-                onRefresh={onRefresh}
-                projectId={projectId}
-                buildId={buildId}
+                {...shared}
             />
             </div>
             {approvals?.published ? (
@@ -336,6 +347,8 @@ function SignOffCard({
     buildId,
     onRun,
     onRefresh,
+    acknowledgement,
+    acknowledgedModels,
 }: {
     label: string;
     slot: ReviewSlot;
@@ -349,6 +362,8 @@ function SignOffCard({
     buildId: string;
     onRun: RunFn;
     onRefresh?: () => Promise<unknown> | void;
+    acknowledgement: "given" | "missing";
+    acknowledgedModels: string[];
 }) {
     const [note, setNote] = useState("");
     const approved = Boolean(decision);
@@ -358,7 +373,11 @@ function SignOffCard({
             if (withdraw) {
                 await api.withdrawApproval(projectId, buildId, { slot, note });
             } else {
-                await api.approveBuild(projectId, buildId, { slot, note });
+                await api.approveBuild(projectId, buildId, {
+                    slot,
+                    note,
+                    acknowledged_models: acknowledgedModels,
+                });
             }
             setNote("");
             await onRefresh?.();
@@ -399,7 +418,11 @@ function SignOffCard({
                     />
                     <Button
                         size="xs"
-                        disabled={Boolean(busy) || (overrideRequired && !note.trim())}
+                        disabled={
+                            Boolean(busy)
+                            || (overrideRequired && !note.trim())
+                            || acknowledgement === "missing"
+                        }
                         aria-label={`Approve ${label}`}
                         onClick={() => runDecision(false)}
                     >
