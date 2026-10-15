@@ -1,4 +1,4 @@
-// Headless Chrome over the DevTools protocol, with no dependencies (Node 22's
+// Headless Chrome over the DevTools protocol, with no dependencies (Node 24's
 // WebSocket). Only what the pixel-diff runner needs: isolated pages, evaluate,
 // viewport, and an in-flight request count.
 import { spawn } from "node:child_process";

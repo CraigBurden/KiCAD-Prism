@@ -36,7 +36,7 @@ Run tests:
 ```
 
 Renderer changes must leave the 3D view pixel-identical unless the change is
-meant to alter it. Check this with the headless pixel-diff harness (Node 22 and
+meant to alter it. Check this with the headless pixel-diff harness (Node 24 and
 a local Chrome; see `tests/browser/pixel-diff/README.md`):
 
 ```bash

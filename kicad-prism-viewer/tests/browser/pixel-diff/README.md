@@ -4,7 +4,7 @@ This harness checks that a renderer change leaves the 3D view unchanged where it
 loads `<prism-semantic-viewer>` builds in headless Chrome on real bundles from disk, captures
 named views, and diffs them pixel by pixel. With `--perf` it also measures frame times.
 
-It needs no Prism server, no login and no dependencies: Node 22 and a local Chrome are enough.
+It needs no Prism server, no login and no dependencies: Node 24 and a local Chrome are enough.
 Every load gets a fresh browser context, so the OPFS asset cache starts empty and all loads come
 from the network. Cached and network loads can otherwise differ by coplanar draw-order ties.
 
