@@ -24,17 +24,24 @@ import struct
 
 import zstandard
 
-# Raw model bytes one footprint may embed, checked before a model is hashed
-# or compressed so an oversized STEP costs a stat, not a zstd pass. KiCad
-# charges every manifest asset against one aggregate max_download_bytes budget
-# (16 MiB advertised by Prism). An embedded model is not shipped as a separate
-# 3dmodel asset, and a model is embedded only when its form is no larger than
-# its raw file, so the footprint grows by this much at most: it leaves most of
-# the budget to the symbol, SPICE model and any model that falls back, and
-# bounds the board-file growth per part. The inline bundle base64-encodes the
+# Bytes of (file ...) forms one footprint may carry. KiCad charges every
+# manifest asset against one aggregate max_download_bytes budget (16 MiB
+# advertised by Prism). An embedded model is not shipped as a separate 3dmodel
+# asset, so for a compressible model like STEP the shipment shrinks, but the
+# footprint itself grows by this much at most. 4 MiB of base64 is about
+# 3 MiB of zstd data (a STEP model of roughly 15-30 MiB), leaves most of the
+# budget to the symbol, SPICE model and any model that falls back, and bounds
+# the board-file growth per part. The inline bundle base64-encodes the
 # footprint twice more, so an embedded model costs about 2.37x its compressed
-# size there, plus line wrapping and JSON.
+# size there, plus line wrapping and JSON. The form's size is known from the
+# compressed data alone, so the pure-Python checksum only runs on a model
+# that fits.
 EMBED_MAX_FOOTPRINT_BYTES = 4 * 1024 * 1024
+
+# Raw model bytes one footprint will read and compress while trying to embed.
+# A cheap guard ahead of the cap above: a model past it costs a stat, not a
+# read and a zstd pass. Generous, since STEP compresses about 5-10x.
+EMBED_MAX_RAW_MODEL_BYTES = 64 * 1024 * 1024
 
 ZSTD_LEVEL = 15
 MURMUR3_SEED = 0xABBA2345
@@ -119,8 +126,14 @@ def compress_model(data: bytes) -> bytes:
     return compressor.compress(data)
 
 
-def embedded_file_form(name: str, data: bytes, compressed: bytes, indent: str, unit: str) -> str:
-    """Return one ``(file ...)`` form laid out as KiCad writes it."""
+def embedded_file_form(
+    name: str, data: bytes, compressed: bytes, indent: str, unit: str, *, checksum: str | None = None
+) -> str:
+    """Return one ``(file ...)`` form laid out as KiCad writes it.
+
+    ``checksum`` overrides KiCad's checksum of ``data``; it is always 32 hex
+    digits, so a placeholder gives the form's exact size without hashing.
+    """
     encoded = base64.b64encode(compressed).decode("ascii")
     lines = [encoded[start : start + BASE64_LINE_LENGTH] for start in range(0, len(encoded), BASE64_LINE_LENGTH)]
     child = indent + unit
@@ -131,7 +144,7 @@ def embedded_file_form(name: str, data: bytes, compressed: bytes, indent: str, u
         f"{child}(type model)\n"
         f"{child}(data |{data_lines}|\n"
         f"{child})\n"
-        f'{child}(checksum "{kicad_mmh3_128(data)}")\n'
+        f'{child}(checksum "{checksum if checksum is not None else kicad_mmh3_128(data)}")\n'
         f"{indent})\n"
     )
 
@@ -201,6 +214,7 @@ def add_embedded_files(text: str, forms: list[str], indent: str, unit: str) -> s
 
 __all__ = [
     "EMBED_MAX_FOOTPRINT_BYTES",
+    "EMBED_MAX_RAW_MODEL_BYTES",
     "add_embedded_files",
     "compress_model",
     "embedded_file_form",

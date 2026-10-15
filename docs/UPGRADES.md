@@ -348,7 +348,7 @@ KiCad placements now carry 3D models inside the footprint as KiCad embedded
 files (see [3D models](REMOTE_SYMBOL_PROVIDER.md#3d-models)). After upgrading:
 
 - Each placed part can add up to 4 MiB to the board file, since the board
-  stores the embedded model data.
+  stores the embedded (compressed) model data.
 - The placed footprint's bytes change, so its `sha256` in the part manifest
   changes once for every component with a 3D model.
 - Embedded models leave the manifest and inline bundle as separate `3dmodel`

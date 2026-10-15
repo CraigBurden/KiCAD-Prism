@@ -18,7 +18,7 @@ import zstandard
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from app.core.config import settings  # noqa: E402
-from app.services.catalog import placement_payloads  # noqa: E402
+from app.services.catalog import kicad_embedded_files, placement_payloads  # noqa: E402
 from app.services.catalog.kicad_embedded_files import (  # noqa: E402
     compress_model,
     embedded_file_form,
@@ -222,19 +222,19 @@ class FootprintEmbeddingTests(unittest.TestCase):
                 self.assertEqual(set(placed["embedded_model_ids"]), expected_embedded[case])
                 self.assertLessEqual(shipment(True), shipment(False))
 
-    def test_footprint_cap_boundary_counts_raw_model_bytes(self) -> None:
+    def test_footprint_cap_boundary_counts_the_compressed_form(self) -> None:
         model = step_model(b"cap")
         name = embedded_model_name("R_0402.step", model)
-        with patch.object(placement_payloads, "EMBED_MAX_FOOTPRINT_BYTES", len(model)):
+        form_size = len(embedded_file_form(name, model, compress_model(model), "\t\t", "\t").encode("utf-8"))
+        self.assertLess(form_size, len(model))
+        with patch.object(placement_payloads, "EMBED_MAX_FOOTPRINT_BYTES", form_size):
             self.assertIn(f'(model "kicad-embed://{name}"', rewrite(FOOTPRINT, model))
         with (
-            patch.object(placement_payloads, "EMBED_MAX_FOOTPRINT_BYTES", len(model) - 1),
-            patch.object(placement_payloads, "compress_model") as compress,
-            patch.object(placement_payloads, "embedded_model_name") as name_model,
+            patch.object(placement_payloads, "EMBED_MAX_FOOTPRINT_BYTES", form_size - 1),
+            patch.object(kicad_embedded_files, "kicad_mmh3_128") as checksum,
         ):
             text = rewrite(FOOTPRINT, model)
-        compress.assert_not_called()
-        name_model.assert_not_called()
+        checksum.assert_not_called()
         self.assertIn('(model "${KIPRJMOD}/RemoteLibrary/remote_3d/R_0402.step"', text)
         self.assertNotIn("embedded_files", text)
 
@@ -242,18 +242,49 @@ class FootprintEmbeddingTests(unittest.TestCase):
         payload = FOOTPRINT.replace(b"\t(model ", b'\t(model "Z_other.step")\n\t(model ')
         models = [MODEL_ASSET, {"canonical_path": "/store/3dmodels/Lib/Z_other.step"}]
         data = {"R_0402.step": step_model(b"first"), "Z_other.step": step_model(b"second")}
+        forms = {
+            file_name: embedded_file_form(
+                embedded_model_name(file_name, raw), raw, compress_model(raw), "\t\t", "\t"
+            ).encode("utf-8")
+            for file_name, raw in data.items()
+        }
         with (
             patch.object(settings, "REMOTE_PROVIDER_LIBRARY_PREFIX", "remote"),
             patch.object(settings, "REMOTE_PROVIDER_DESTINATION_DIR", "${KIPRJMOD}/RemoteLibrary"),
             patch.object(
                 placement_payloads,
                 "EMBED_MAX_FOOTPRINT_BYTES",
-                len(data["Z_other.step"]) + len(data["R_0402.step"]) - 1,
+                len(forms["Z_other.step"]) + len(forms["R_0402.step"]) - 1,
             ),
         ):
             text = rewrite_footprint_payload(
                 payload, {}, models, lambda asset: data[Path(asset["canonical_path"]).name]
             ).decode("utf-8")
+        self.assertIn(f'(model "kicad-embed://{embedded_model_name("Z_other.step", data["Z_other.step"])}"', text)
+        self.assertIn('(model "${KIPRJMOD}/RemoteLibrary/remote_3d/R_0402.step"', text)
+
+    def test_model_larger_than_the_cap_still_embeds_when_it_compresses(self) -> None:
+        model = step_model(b"large") * 720
+        self.assertGreater(len(model), placement_payloads.EMBED_MAX_FOOTPRINT_BYTES)
+        name = embedded_model_name("R_0402.step", model)
+        text = rewrite(FOOTPRINT, model)
+        self.assertIn(f'(model "kicad-embed://{name}"', text)
+        self.assertEqual(decode_embedded(text)[name][0], model)
+
+    def test_raw_ceiling_is_shared_by_the_models_of_a_footprint(self) -> None:
+        payload = FOOTPRINT.replace(b"\t(model ", b'\t(model "Z_other.step")\n\t(model ')
+        models = [MODEL_ASSET, {"canonical_path": "/store/3dmodels/Lib/Z_other.step"}]
+        data = {"R_0402.step": step_model(b"first"), "Z_other.step": step_model(b"second")}
+        with (
+            patch.object(settings, "REMOTE_PROVIDER_LIBRARY_PREFIX", "remote"),
+            patch.object(settings, "REMOTE_PROVIDER_DESTINATION_DIR", "${KIPRJMOD}/RemoteLibrary"),
+            patch.object(placement_payloads, "EMBED_MAX_RAW_MODEL_BYTES", len(data["Z_other.step"]) + 1),
+            patch.object(placement_payloads, "compress_model", wraps=compress_model) as compress,
+        ):
+            text = rewrite_footprint_payload(
+                payload, {}, models, lambda asset: data[Path(asset["canonical_path"]).name]
+            ).decode("utf-8")
+        self.assertEqual(compress.call_count, 1)
         self.assertIn(f'(model "kicad-embed://{embedded_model_name("Z_other.step", data["Z_other.step"])}"', text)
         self.assertIn('(model "${KIPRJMOD}/RemoteLibrary/remote_3d/R_0402.step"', text)
 
@@ -342,9 +373,9 @@ class MaterializedFootprintTests(unittest.TestCase):
         self.assertEqual(placed["embedded_model_ids"], [])
         self.assertIn(b'(model "${KIPRJMOD}/RemoteLibrary/remote_3d/R_0402.step"', placed["payload"])
 
-    def test_model_larger_than_the_cap_is_skipped_without_reading_it(self) -> None:
+    def test_model_over_the_raw_ceiling_is_skipped_without_reading_it(self) -> None:
         with (
-            patch.object(placement_payloads, "EMBED_MAX_FOOTPRINT_BYTES", len(self.model_bytes) - 1),
+            patch.object(placement_payloads, "EMBED_MAX_RAW_MODEL_BYTES", len(self.model_bytes) - 1),
             patch.object(Path, "read_bytes", autospec=True, side_effect=Path.read_bytes) as read,
         ):
             placed = self._place()

@@ -21,6 +21,7 @@ from app.core.config import settings
 from app.services.catalog.asset_files import content_type_for_asset
 from app.services.catalog.kicad_embedded_files import (
     EMBED_MAX_FOOTPRINT_BYTES,
+    EMBED_MAX_RAW_MODEL_BYTES,
     add_embedded_files,
     compress_model,
     embedded_file_form,
@@ -175,8 +176,9 @@ def rewrite_footprint_payload(
     content-unique ``kicad-embed://`` name, so the board that receives the
     footprint pins the model, when the footprint grows by no more than the
     model's raw size (the embedded model is no longer shipped, so the
-    placement never grows) and the raw models embedded so far stay within
-    ``EMBED_MAX_FOOTPRINT_BYTES`` (models are taken in node order). Other
+    placement never grows) and the added forms stay within
+    ``EMBED_MAX_FOOTPRINT_BYTES`` (models are taken in node order); models
+    read past ``EMBED_MAX_RAW_MODEL_BYTES`` are not compressed at all. Other
     models, models the reader returns ``None`` for, and every model without
     a reader keep the shared remote destination path.
     """
@@ -279,8 +281,9 @@ class _ModelPathBuilder:
         self._forms: dict[str, str] = {}
         self._paths: dict[int, str] = {}
         self._embedded_bytes = 0
+        self._compressed_raw_bytes = 0
         self.embedded_models: list[dict[str, Any]] = []
-        # False once the reader skipped a model (missing or over the cap);
+        # False once the reader skipped a model (missing or over the ceiling);
         # such output is not cached, so a restored file is picked up.
         self.complete = True
 
@@ -295,29 +298,38 @@ class _ModelPathBuilder:
         if self._read_model is None:
             return external_path
         data = self._read_model(self._models[model_index])
-        # The cap counts raw bytes, so an oversized model is skipped before
-        # it is hashed or compressed.
-        if data is None or self._embedded_bytes + len(data) > EMBED_MAX_FOOTPRINT_BYTES:
-            self.complete = self.complete and data is not None
+        if data is None:
+            self.complete = False
             return external_path
         embedded_name = embedded_model_name(model_name, data)
         embedded_path = f"kicad-embed://{embedded_name}"
-        form = self._forms.get(embedded_name)
         form_bytes = 0
-        if form is None:
-            form = embedded_file_form(embedded_name, data, compress_model(data), self._indent + self._unit, self._unit)
-            form_bytes = len(form.encode("utf-8"))
+        if embedded_name not in self._forms:
+            # Compress at most EMBED_MAX_RAW_MODEL_BYTES per footprint, and
+            # size the form from the compressed data so KiCad's slow checksum
+            # only runs on a model that fits the cap.
+            if self._compressed_raw_bytes + len(data) > EMBED_MAX_RAW_MODEL_BYTES:
+                return external_path
+            self._compressed_raw_bytes += len(data)
+            compressed = compress_model(data)
+            form_bytes = len(
+                embedded_file_form(
+                    embedded_name, data, compressed, self._indent + self._unit, self._unit, checksum="0" * 32
+                ).encode("utf-8")
+            )
         # An embedded model is not shipped, so embed only when the footprint
         # grows by no more than the raw file it replaces: a placement that fits
         # KiCad's aggregate download budget without embedding still fits.
         growth = (form_bytes + self._block_bytes if form_bytes else 0) + self._node_counts[model_index] * (
             len(embedded_path.encode("utf-8")) - len(external_path.encode("utf-8"))
         )
-        if growth > len(data):
+        if growth > len(data) or self._embedded_bytes + form_bytes > EMBED_MAX_FOOTPRINT_BYTES:
             return external_path
         if form_bytes:
-            self._forms[embedded_name] = form
-            self._embedded_bytes += len(data)
+            self._forms[embedded_name] = embedded_file_form(
+                embedded_name, data, compressed, self._indent + self._unit, self._unit
+            )
+            self._embedded_bytes += form_bytes
         self.embedded_models.append(self._models[model_index])
         return embedded_path
 
@@ -328,13 +340,13 @@ class _ModelPathBuilder:
 def _read_canonical_bytes(asset: dict[str, Any]) -> bytes | None:
     """Read a model to embed, or ``None`` to keep it external.
 
-    A model larger than the whole cap is skipped from its size alone. A
+    A model over the raw ceiling is skipped from its size alone. A
     missing file (artifact maintenance may purge one) is not embedded, so the
     footprint still places and the model's own download reports the loss.
     """
     path = Path(str(asset["canonical_path"]))
     try:
-        if path.stat().st_size > EMBED_MAX_FOOTPRINT_BYTES:
+        if path.stat().st_size > EMBED_MAX_RAW_MODEL_BYTES:
             return None
         return path.read_bytes()
     except FileNotFoundError:
@@ -353,6 +365,7 @@ def _embedded_footprint_key(footprint: dict[str, Any], models: list[dict[str, An
         settings.REMOTE_PROVIDER_LIBRARY_PREFIX,
         settings.REMOTE_PROVIDER_DESTINATION_DIR,
         EMBED_MAX_FOOTPRINT_BYTES,
+        EMBED_MAX_RAW_MODEL_BYTES,
     )
 
 

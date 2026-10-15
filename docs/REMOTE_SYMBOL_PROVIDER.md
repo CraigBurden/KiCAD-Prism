@@ -157,10 +157,12 @@ or inline bundle: KiCad only writes such assets to `<prefix>_3d/`, and every
 manifest asset counts against one `max_download_bytes` budget. A model is
 embedded only when the footprint grows by no more than the raw file it stops
 shipping, so embedding never makes a placement larger; incompressible models
-(`.wrz`, `.stpz`) therefore stay external. The raw models embedded in one
-footprint may total at most 4 MiB, checked before any model is compressed, so
-a board file grows by at most 4 MiB per placed part. Models that are not
-embedded (over that cap, incompressible, or whose stored file is missing) keep
+(`.wrz`, `.stpz`) therefore stay external. The embedded models of one
+footprint may add at most 4 MiB to it (about 3 MiB of compressed data, a STEP
+model of roughly 15-30 MiB), so a board file grows by at most 4 MiB per placed
+part. Prism reads and compresses at most 64 MiB of raw models per footprint;
+a larger model is skipped from its file size. Models that are not embedded
+(over either limit, incompressible, or whose stored file is missing) keep
 the shared `<destination>/<prefix>_3d/<name>` path, which is not pinned, and
 are still shipped. A footprint whose text cannot take an `embedded_files`
 block is placed with external model paths and logged. Footprint embedding
