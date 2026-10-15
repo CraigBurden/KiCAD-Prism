@@ -344,6 +344,14 @@ class Settings(PipelineSettings):
         description="Destination directory assumed by the Prism remote-symbol provider when rewriting model paths."
     )
 
+    REMOTE_PROVIDER_EMBED_3D_MODELS: bool = Field(
+        default=True,
+        description=(
+            "Embed placed 3D models in the footprint as KiCad embedded files so the board pins them. "
+            "When false, every model is shipped to the remote destination directory instead."
+        ),
+    )
+
     REMOTE_PROVIDER_OAUTH_CLIENT_ID: str = Field(
         default="kicad-prism-kicad",
         description="Public OAuth client_id advertised to KiCad for the remote provider."

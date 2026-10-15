@@ -156,6 +156,35 @@ results, list payloads, and component detail:
 - The admin API (`GET /api/catalog/components/{id}`) keeps the legacy flat
   fields for existing internal consumers and additionally returns `supply`.
 
+## 3D models
+
+Placed footprints carry their 3D models as KiCad embedded files: each
+`(model ...)` points at `kicad-embed://<stem>-<sha12><ext>` and the footprint
+holds the zstd-compressed data. KiCad (9 and later) moves that data into the
+board's own embedded files when the board is saved, so the board file, and so
+the project commit, pins the exact model of the placed revision; a fresh clone
+needs no `RemoteLibrary/` files.
+
+An embedded model is not shipped as a separate `3dmodel` asset in the manifest
+or inline bundle: KiCad only writes such assets to `<prefix>_3d/`, and every
+manifest asset counts against one `max_download_bytes` budget. A model is
+embedded only when the footprint grows by no more than the raw file it stops
+shipping, so embedding never makes a placement larger; incompressible models
+(`.wrz`, `.stpz`) therefore stay external. The embedded models of one
+footprint may add at most 4 MiB to it (about 3 MiB of compressed data, a STEP
+model of roughly 15-30 MiB), so a board file grows by at most 4 MiB per placed
+part. Prism reads and compresses at most 64 MiB of raw models per footprint;
+a larger model is skipped from its file size. Models that are not embedded
+(over either limit, incompressible, or whose stored file is missing) keep
+the shared `<destination>/<prefix>_3d/<name>` path, which is not pinned, and
+are still shipped. A footprint whose text cannot take an `embedded_files`
+block is placed with external model paths and logged. Footprint embedding
+needs no new discovery fields, so `provider_version` is unchanged.
+
+Set `REMOTE_PROVIDER_EMBED_3D_MODELS=false` to turn embedding off: every model
+then keeps the destination path and is shipped as a `3dmodel` asset, as before
+embedding existed. The default is `true`.
+
 ## What users can see
 
 The provider reads the released catalog projection. Components are absent when
@@ -178,7 +207,7 @@ authentication failure.
 | catalog is empty | released place-ready components and token scope |
 | preview is missing | preview-generation job and catalog worker logs |
 | Place is disabled | release status and required assets |
-| model path is wrong | provider prefix and destination configuration |
+| model path is wrong | provider prefix and destination configuration (only for models above the embed limit) |
 | works in browser but not KiCad | OS certificate trust and proxy interception |
 
 Inspect:
