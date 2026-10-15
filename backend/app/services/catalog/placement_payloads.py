@@ -192,9 +192,11 @@ def _rewrite_footprint(
     node_names = [re.split(r"[/\\]", match.group(1))[-1] for match in _MODEL_RE.finditer(text)]
     # Assets arrive sorted by library, name and hash, not in node order, so
     # each node first looks for the one asset its file name identifies: exact
-    # name, upload-sanitized name, then both case-insensitively. Assets no
-    # node names then fill the unmatched nodes in order. A single asset keeps
-    # the positional pick so its output never changes.
+    # name, upload-sanitized name, then both case-insensitively, then the
+    # stem alone so a footprint naming foo.wrl finds the catalog's foo.step.
+    # A tier only claims when exactly one asset matches. Assets no node names
+    # then fill the unmatched nodes in order. A single asset keeps the
+    # positional pick so its output never changes.
     assigned: dict[int, int] = {}
     if len(models) > 1:
         tiers = (
@@ -202,6 +204,7 @@ def _rewrite_footprint(
             lambda name: sanitize_name(name, ""),
             str.casefold,
             lambda name: sanitize_name(name, "").casefold(),
+            lambda name: Path(sanitize_name(name, "").casefold()).stem,
         )
         for node_index, node_name in enumerate(node_names):
             for key in tiers:
