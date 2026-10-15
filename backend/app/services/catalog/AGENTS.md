@@ -50,8 +50,9 @@ rationale are recorded in `docs/CATALOG_DECOMPOSITION_HANDOFF.md`.
   (`placement.py`, `placement_payloads.py`, `signed_urls.py`); outputs are
   byte-stable for identical inputs. Remote placement stamps symbols with
   hidden `Prism_Component`/`Prism_Revision` properties; those two names are
-  reserved through `is_reserved_stamp_key` (custom-field key canonicalization),
-  and unstamped output (DBL) is unchanged.
+  reserved through `metadata_normalization.is_reserved_stamp_key`
+  (custom-field key canonicalization), and unstamped output (DBL) is
+  unchanged.
 - DBL bundle layout, column order, and file names (`dbl_export.py`).
 - Release gating is fail-closed and review/release records are append-only
   (`release_workflow.py`). Bulk library imports release only through its

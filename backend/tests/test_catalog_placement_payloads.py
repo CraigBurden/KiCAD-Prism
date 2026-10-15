@@ -16,6 +16,7 @@ from app.services.catalog.dbl_export import (  # noqa: E402
     quote_identifier,
     sexpr_string,
 )
+from app.services.catalog.metadata_normalization import is_reserved_stamp_key  # noqa: E402
 from app.services.catalog.placement_payloads import (  # noqa: E402
     remote_library_nickname,
     rewrite_footprint_payload,
@@ -111,6 +112,12 @@ class SymbolRewriteTests(unittest.TestCase):
         self.assertNotIn("Prism_", unstamped)
         no_revision = rewrite_symbol_payload(SYMBOL.encode("utf-8"), "lib:FP", {"id": "c1"}, stamp=True)
         self.assertNotIn(b"Prism_", no_revision)
+
+    def test_reserved_stamp_keys_follow_custom_field_canonicalization(self) -> None:
+        for name in ("Prism_Component", "prism_revision", "prism-revision", " Prism Revision "):
+            self.assertTrue(is_reserved_stamp_key(name), name)
+        for name in ("prismrevision", "prism__revision", "Prism_Revision_Note", ""):
+            self.assertFalse(is_reserved_stamp_key(name), name)
 
     def test_only_the_two_stamp_names_are_reserved(self) -> None:
         component = {

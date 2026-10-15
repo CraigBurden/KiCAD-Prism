@@ -8,7 +8,7 @@ from typing import Any
 
 from app.services import project_service, semantic_index_service
 from app.services.catalog.field_rules import missing_metadata_findings
-from app.services.catalog.placement_payloads import is_reserved_stamp_key
+from app.services.catalog.metadata_normalization import is_reserved_stamp_key
 from app.services.component_catalog_service import catalog_service
 from app.services.project_component_asset_extractor import (
     ContentAddressedAssetStager,

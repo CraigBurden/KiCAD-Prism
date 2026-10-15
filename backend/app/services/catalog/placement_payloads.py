@@ -20,24 +20,12 @@ from app.services.catalog.metadata_descriptors import (
     SYMBOL_METADATA_FIELD_ORDER,
     SYMBOL_METADATA_LABEL_TO_KEY,
 )
-from app.services.catalog.metadata_normalization import custom_field_key
+from app.services.catalog.metadata_normalization import PLACEMENT_STAMP_FIELDS, is_reserved_stamp_key
 from app.services.catalog.normalization import sanitize_name, sha256_bytes
 
 
 _TOP_LEVEL_PROPERTY_RE = re.compile(r'^([ \t]+)\(property "([^"]+)" ')
 _MODEL_RE = re.compile(r'\(model\s+"[^"]+"')
-
-# Hidden properties that record which catalog revision a placed symbol came
-# from. Both names are reserved: no custom field may take them, a project
-# import treats them as instance context, and when stamping, catalog fields
-# and properties already in the stored symbol with these names are replaced.
-PLACEMENT_STAMP_FIELDS = ("Prism_Component", "Prism_Revision")
-_STAMP_FIELD_KEYS = frozenset(custom_field_key(name) for name in PLACEMENT_STAMP_FIELDS)
-
-
-def is_reserved_stamp_key(name: object) -> bool:
-    """Whether ``name`` is a stamp name under custom-field key canonicalization."""
-    return custom_field_key(name) in _STAMP_FIELD_KEYS
 
 
 def placement_stamp_fields(component: dict[str, Any] | None) -> dict[str, str]:
@@ -248,11 +236,9 @@ def materialize_asset(
 
 
 __all__ = [
-    "PLACEMENT_STAMP_FIELDS",
     "SYMBOL_METADATA_FIELD_ORDER",
     "escape_symbol_property_value",
     "extract_top_level_symbol_properties",
-    "is_reserved_stamp_key",
     "materialize_asset",
     "placement_stamp_fields",
     "remote_library_nickname",

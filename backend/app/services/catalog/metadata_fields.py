@@ -13,12 +13,11 @@ from app.services.catalog.metadata_schema import (
     CatalogMetadataSchema,
     METADATA_FIELD_TYPES,
 )
-from app.services.catalog.metadata_normalization import custom_field_key, dedupe
+from app.services.catalog.metadata_normalization import custom_field_key, dedupe, is_reserved_stamp_key
 from app.services.catalog.normalization import (
     json_loads as _json_loads,
     utc_now_iso as _utc_now_iso,
 )
-from app.services.catalog.placement_payloads import is_reserved_stamp_key
 
 
 @dataclass(frozen=True)
