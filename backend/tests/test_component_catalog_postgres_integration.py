@@ -1162,10 +1162,17 @@ class ComponentCatalogPostgresIntegrationTests(unittest.TestCase):
             for path in first_root.rglob("*")
             if path.is_file()
         }
+        # Earlier tests in a shared database leave released models of their
+        # own; only this component's model is compared.
+        own_model_prefixes = {
+            f"3DModels/{asset['sha256'][:16]}/" for asset in released["assets"] if asset["asset_type"] == "3dmodel"
+        }
+        exported_model_paths = {name for name in first_files if name.startswith("3DModels/")}
+        own_model_paths = {name for name in exported_model_paths if name[: len("3DModels/") + 17] in own_model_prefixes}
         normalized_dbl_files = {
             FIXTURE_TOKEN.sub("assets-<token>", name): _normalize_contract_bytes(payload)
             for name, payload in first_files.items()
-            if name != "Prism.sqlite"
+            if name != "Prism.sqlite" and (name not in exported_model_paths or name in own_model_paths)
         }
         self.assertEqual(
             {
@@ -1173,6 +1180,7 @@ class ComponentCatalogPostgresIntegrationTests(unittest.TestCase):
                 for name, payload in sorted(normalized_dbl_files.items())
             },
             {
+                "3DModels/1e561b8e3c745b4b/R_Test.step": "1e561b8e3c745b4b8582275549e0efad5be2e0b610b9bbb1064ed52e8a7a9435",
                 "PcbLib/Prism_Test.pretty/R_Test.kicad_mod": "8d4ef2234c867094a30e793fdbff4975a78a98742ac72825b5fef2c2c5355461",
                 "Prism_Linux.kicad_dbl": "86cacbfb2c4f192082191bf6cfd4a386cb89672ffb4747ebea6cd538c379064d",
                 "Prism_Windows.kicad_dbl": "5f8b5b8128abd1fd8021eac341c104b152f407a179a5df6c2e6c6c8efd20ad14",
@@ -1254,6 +1262,13 @@ class ComponentCatalogPostgresIntegrationTests(unittest.TestCase):
         self.assertIn('(property "Footprint" "Prism_Test:R_Test"', exported_symbol)
         self.assertEqual(dbl_row[-1], "Prism_Test:R_Test")
         self.assertIn("PcbLib/Prism_Test.pretty/R_Test.kicad_mod", first_files)
+        # Earlier tests in a shared database may leave release records whose
+        # files went with their temporary stores; only this component counts.
+        self.assertEqual(len(own_model_paths), 1)
+        self.assertEqual(first_dbl["model_count"], len(exported_model_paths))
+        self.assertEqual(
+            [item for item in first_dbl["missing_models"] if item["component_id"] == component["id"]], []
+        )
         second_dbl = self.service.export_kicad_dbl_bundle()
         second_root = Path(second_dbl["export_root"])
         second_files = {
@@ -1265,6 +1280,24 @@ class ComponentCatalogPostgresIntegrationTests(unittest.TestCase):
         self.assertEqual(
             {name: hashlib.sha256(payload).hexdigest() for name, payload in first_files.items()},
             {name: hashlib.sha256(payload).hexdigest() for name, payload in second_files.items()},
+        )
+        # A deactivated component leaves the DBL, but boards placed from its
+        # release still reference the model, so the model stays.
+        [model_path] = own_model_paths
+        self.assertTrue(
+            self.service.deactivate_component(component["id"], actor="designer@example.com", reason="obsolete")
+        )
+        self.component_ids.remove(str(component["id"]))
+        third_dbl = self.service.export_kicad_dbl_bundle()
+        third_root = Path(third_dbl["export_root"])
+        self.assertNotIn(
+            "PcbLib/Prism_Test.pretty/R_Test.kicad_mod",
+            {path.relative_to(third_root).as_posix() for path in third_root.rglob("*")},
+        )
+        self.assertEqual((third_root / model_path).read_bytes(), first_files[model_path])
+        self.assertEqual(
+            third_dbl["model_count"],
+            sum(1 for path in (third_root / "3DModels").rglob("*") if path.is_file()),
         )
 
     def test_placed_footprint_embeds_the_model_of_each_revision(self) -> None:

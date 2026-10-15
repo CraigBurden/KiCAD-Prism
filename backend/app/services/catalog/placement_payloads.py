@@ -193,6 +193,8 @@ def rewrite_footprint_payload(
     asset: dict[str, Any],
     model_assets: list[dict[str, Any]] | None = None,
     read_model: Callable[[dict[str, Any]], bytes | None] | None = None,
+    *,
+    model_path: Callable[[dict[str, Any]], str] | None = None,
 ) -> bytes:
     """Point each matched ``(model ...)`` at its placed model.
 
@@ -204,15 +206,18 @@ def rewrite_footprint_payload(
     ``EMBED_MAX_FOOTPRINT_BYTES`` (models are taken in node order); models
     read past ``EMBED_MAX_RAW_MODEL_BYTES`` are not compressed at all. Other
     models, models the reader returns ``None`` for, and every model without
-    a reader keep the shared remote destination path.
+    a reader keep an external path: ``model_path`` maps a model asset to it,
+    and by default it is the remote provider's
+    ``<destination>/<prefix>_3d/<basename>``.
     """
-    return _rewrite_footprint(payload, list(model_assets or []), read_model)[0]
+    return _rewrite_footprint(payload, list(model_assets or []), read_model, model_path)[0]
 
 
 def _rewrite_footprint(
     payload: bytes,
     models: list[dict[str, Any]],
     read_model: Callable[[dict[str, Any]], bytes | None] | None,
+    model_path: Callable[[dict[str, Any]], str] | None = None,
 ) -> tuple[bytes, list[dict[str, Any]], bool]:
     """Rewrite model paths; also return the embedded model assets and
     whether every model the reader was asked for could be read."""
@@ -259,7 +264,7 @@ def _rewrite_footprint(
     node_counter = 0
     node_counts = Counter(assigned.values())
     placed_path = _ModelPathBuilder(
-        text, models, model_names, node_counts, f"{destination}/{prefix}_3d", read_model
+        text, models, model_names, node_counts, f"{destination}/{prefix}_3d", read_model, model_path
     )
 
     def replace_model(match: re.Match[str]) -> str:
@@ -291,8 +296,10 @@ class _ModelPathBuilder:
         node_counts: Counter[int],
         external_dir: str,
         read_model: Callable[[dict[str, Any]], bytes | None] | None,
+        model_path: Callable[[dict[str, Any]], str] | None = None,
     ) -> None:
         self._models = models
+        self._model_path = model_path
         self._model_names = model_names
         self._node_counts = node_counts
         self._external_dir = external_dir
@@ -318,7 +325,10 @@ class _ModelPathBuilder:
 
     def _place(self, model_index: int) -> str:
         model_name = self._model_names[model_index]
-        external_path = f"{self._external_dir}/{model_name}"
+        if self._model_path is not None:
+            external_path = self._model_path(self._models[model_index])
+        else:
+            external_path = f"{self._external_dir}/{model_name}"
         if self._read_model is None:
             return external_path
         data = self._read_model(self._models[model_index])
@@ -440,6 +450,7 @@ def materialize_asset(
     footprint_ref: str | None = None,
     stamp: bool = False,
     embed_models: bool = False,
+    model_path: Callable[[dict[str, Any]], str] | None = None,
 ) -> dict[str, Any]:
     """Read one stored asset and return it with its placement payload attached.
 
@@ -449,6 +460,8 @@ def materialize_asset(
     embeds the footprint's 3D models (see ``rewrite_footprint_payload``) and
     lists them in ``embedded_model_ids``. Remote provider placement sets both;
     the DBL export sets neither, keeping its file contract.
+    ``model_path`` maps a model asset to its external path in the footprint
+    (see ``rewrite_footprint_payload``); the DBL export passes its own.
     """
     path = Path(str(asset["canonical_path"]))
     payload = path.read_bytes()
@@ -468,7 +481,7 @@ def materialize_asset(
             payload, embedded_models = _embed_footprint(asset, payload, models)
             extra["embedded_model_ids"] = [str(model["id"]) for model in embedded_models]
         else:
-            payload = _rewrite_footprint(payload, models, None)[0]
+            payload = _rewrite_footprint(payload, models, None, model_path)[0]
     return {
         **asset,
         **extra,

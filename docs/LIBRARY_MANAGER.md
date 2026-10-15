@@ -176,6 +176,18 @@ Generate through the catalog administration API or supported Library Manager
 action, then distribute the complete export directory. Do not copy only the
 database file because symbol and footprint trees are also required.
 
+Symbols and footprints are a latest-released view: "Update symbols/footprints
+from library" in KiCad moves a design to the newest released revision, as with
+any KiCad library. 3D models are exported under
+`3DModels/<first 16 hex of SHA-256>/<file name>` and footprints reference them
+as `${PRISM_LIB_DIR}/3DModels/...`. Models of every released revision of a
+library part are kept, so a board placed from an earlier release keeps the model
+it was placed with; modules and assemblies are not library parts and their
+models are never exported. The export response lists each stored model whose
+file is missing or no longer matches its recorded hash once in
+`missing_models`; those are left out of the bundle.
+Replace the export directory as a unit.
+
 ## Governance checklist
 
 Define before production use:
