@@ -22,6 +22,8 @@ interface InspectorProps {
   systemId: string;
   document: SystemDocument;
   canEdit: boolean;
+  /** The reader may write the catalog: Convert a pinned module's or part's models (§18.2). */
+  canConvertModels?: boolean;
   findings: Finding[];
   selection: WorkspaceSelection | null;
   /** The part picked on the selected board in the 3D view. */
@@ -187,7 +189,7 @@ export function WorkspaceInspector(props: InspectorProps) {
         <div className="space-y-5">
           {props.part && <PartInspector part={props.part} />}
           <BoardDetail key={instance.id} systemId={props.systemId} document={document} instance={instance}
-            canEdit={props.canEdit} onConnected={props.onSelect} />
+            canEdit={props.canEdit} canConvertModels={props.canConvertModels} onConnected={props.onSelect} />
         </div>
       ) : link ? (
         <LinkSummary document={document} link={link} findings={findings} onEditRows={props.onEditRows} />

@@ -3,6 +3,7 @@ import { toast } from "sonner";
 
 import { ResizablePanel } from "@/components/ui/resizable-panel";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
+import { canWriteCatalog } from "@/lib/roles";
 
 import { AddBoardDialog, addBoards } from "../add-board-dialog";
 import { AddPartDialog } from "../add-part-dialog";
@@ -105,6 +106,7 @@ export function SystemWorkspace({ state, importing, onState, onImporting, onBack
   );
   const inspector = (slot?: (node: HTMLElement | null) => void) => (
     <WorkspaceInspector slot={slot} systemId={systemId} document={document} canEdit={canEdit} findings={findings}
+      canConvertModels={canWriteCatalog(props.user?.role)}
       selection={state.selection} part={shownPart} onSelect={select}
       onEditRows={() => { setSheet(null); update({ tray: "connections" }); }}
       onEditRoute={has3d && canEdit ? (harnessId) => {

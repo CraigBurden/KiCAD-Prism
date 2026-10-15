@@ -28,6 +28,7 @@ import { WireTable } from "./wire-table";
 import { useDraftGuard } from "./draft-guard";
 import { HarnessOutputsSection } from "./harness-outputs-section";
 import { PartDialog, partText } from "./harness-part-dialog";
+import { PinnedHousingConvert } from "./pinned-model";
 
 /** A wire being edited: `key` is stable across edits; `id` is kept for existing wires. */
 export interface DraftWire extends WireInput {
@@ -101,6 +102,8 @@ interface HarnessEditorProps {
   document: SystemDocument;
   harness: SystemHarness;
   canEdit: boolean;
+  /** The reader may write the catalog: Convert a housing part's pinned models (§18.2). */
+  canConvertModels?: boolean;
   findings: Finding[];
   onDeleted: () => void;
   onConverted: (linkId: string) => void;
@@ -110,7 +113,9 @@ interface HarnessEditorProps {
  * An end's mating block: Generic or a catalog part (§17.2), with the catalog partners of the mated
  * connector as suggestions (§18). A part is only assigned when the user picks one.
  */
-function MatingBlock({ harnessId, end, editable }: { harnessId: string; end: HarnessEnd; editable: boolean }) {
+function MatingBlock({ harnessId, end, editable, canConvertModels }: {
+  harnessId: string; end: HarnessEnd; editable: boolean; canConvertModels: boolean;
+}) {
   const session = useSystemSession();
   const { edit } = session;
   const busy = session.busy !== null;
@@ -131,6 +136,9 @@ function MatingBlock({ harnessId, end, editable }: { harnessId: string; end: Har
         {end.part ? `${end.part.mpn || end.part.name ? partText(end.part) : "Catalog part"} · ${end.pinCount} pins` : `Generic · ${end.pinCount} pins`}
       </span>
       {hint && <span className="block text-xs text-muted-foreground" data-testid="end-suggestion">{hint}</span>}
+      {end.part && (
+        <PinnedHousingConvert componentId={end.part.componentId} revisionId={end.part.revisionId} canConvert={canConvertModels} />
+      )}
       {editable && (
         <span className="mt-1 flex flex-wrap gap-x-2 text-xs">
           <button type="button" className="whitespace-nowrap underline-offset-2 hover:underline" disabled={busy} onClick={() => setPicking("part")}>
@@ -268,7 +276,8 @@ function DetailsDialog({ harness, busy, onClose, onSave }: {
   );
 }
 
-export function HarnessEditor({ systemId, document, harness, canEdit, findings, onDeleted, onConverted }: HarnessEditorProps) {
+export function HarnessEditor({ systemId, document, harness, canEdit, canConvertModels = false, findings, onDeleted,
+  onConverted }: HarnessEditorProps) {
   const { busy, edit } = useSystemSession();
   const [draft, setDraft] = useState<DraftWire[] | null>(null);
   // SB2-102: the wires before the last save, for one level of Undo; dropped on the next edit.
@@ -374,7 +383,7 @@ export function HarnessEditor({ systemId, document, harness, canEdit, findings, 
                     <td className="px-3 py-2 font-medium">{endLabel(end)}</td>
                     <td className="px-3 py-2">{matesText(document, end)}</td>
                     <td className="px-3 py-2 text-muted-foreground">
-                      <MatingBlock harnessId={harness.id} end={end} editable={editable} />
+                      <MatingBlock harnessId={harness.id} end={end} editable={editable} canConvertModels={canConvertModels} />
                     </td>
                     <td className="px-3 py-2">
                       {editable && end.mates && !end.mates.redacted ? (

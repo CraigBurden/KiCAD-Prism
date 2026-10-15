@@ -64,6 +64,8 @@ interface BoardDetailProps {
   document: SystemDocument;
   instance: SystemInstance;
   canEdit: boolean;
+  /** The reader may write the catalog: Convert a pinned module's or part's models (§18.2). */
+  canConvertModels?: boolean;
   /** SB2-115: a connection made from a port's Connect…, to open. */
   onConnected?: (selection: WorkspaceSelection) => void;
 }
