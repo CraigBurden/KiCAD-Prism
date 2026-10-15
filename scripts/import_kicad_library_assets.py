@@ -5,7 +5,6 @@ import argparse
 import csv
 import json
 import os
-import shutil
 import sys
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import asdict, dataclass, field
@@ -167,6 +166,7 @@ def _same_bytes(path: Path, payload: bytes) -> bool:
 
 
 def _write_canonical_file(
+    service: ComponentCatalogService,
     destination: Path,
     payload: bytes,
     *,
@@ -181,12 +181,15 @@ def _write_canonical_file(
             return destination
         if not overwrite:
             raise ValueError(f"Canonical asset conflict at {destination}")
-    if not dry_run:
-        destination.write_bytes(payload)
-    return destination
+    if dry_run:
+        return destination
+    # Never rewrite an existing canonical file: revisions already linked to it keep
+    # their bytes, and changed content goes to an immutable revisions/<sha256>/ path.
+    return service.asset_files.write_canonical_file(service.runtime, destination, payload)
 
 
 def _copy_canonical_file(
+    service: ComponentCatalogService,
     source: Path,
     destination: Path,
     *,
@@ -194,16 +197,9 @@ def _copy_canonical_file(
     overwrite: bool,
     stats: ImportStats,
 ) -> Path:
-    destination.parent.mkdir(parents=True, exist_ok=True)
-    if destination.exists():
-        if source.read_bytes() == destination.read_bytes():
-            stats.reused_existing_files += 1
-            return destination
-        if not overwrite:
-            raise ValueError(f"Canonical asset conflict at {destination}")
-    if not dry_run:
-        shutil.copy2(source, destination)
-    return destination
+    return _write_canonical_file(
+        service, destination, source.read_bytes(), dry_run=dry_run, overwrite=overwrite, stats=stats
+    )
 
 
 def _unique_destination(destination: Path) -> Path:
@@ -404,6 +400,7 @@ def _import_symbols(
                     if destination.exists() and not _same_bytes(destination, canonical_payload) and not overwrite:
                         destination = _unique_destination(destination)
                     canonical = _write_canonical_file(
+                        service,
                         destination,
                         canonical_payload,
                         dry_run=dry_run,
@@ -485,6 +482,7 @@ def _import_footprints(
             if destination.exists() and footprint_file.read_bytes() != destination.read_bytes() and not overwrite:
                 destination = _unique_destination(destination)
             canonical = _copy_canonical_file(
+                service,
                 footprint_file,
                 destination,
                 dry_run=dry_run,
@@ -591,6 +589,7 @@ def _import_auxiliary_files(
                 library = _relative_library_name(model_file, models_root, "Prism_Models")
                 destination = service.asset_files.asset_root(service.runtime, "3dmodel") / library / _sanitize_name(model_file.name, "model.step")
                 canonical = _copy_canonical_file(
+                    service,
                     model_file,
                     destination,
                     dry_run=dry_run,
@@ -621,6 +620,7 @@ def _import_auxiliary_files(
                 library = _relative_library_name(spice_file, spice_root, "Prism_SPICE")
                 destination = service.asset_files.asset_root(service.runtime, "spice") / library / _sanitize_name(spice_file.name, "model.lib")
                 canonical = _copy_canonical_file(
+                    service,
                     spice_file,
                     destination,
                     dry_run=dry_run,
@@ -664,7 +664,7 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--no-index-db", action="store_true", help="Only write files; do not create/update catalog asset rows.")
     parser.add_argument("--no-previews", action="store_true", help="Skip symbol/footprint preview generation.")
     parser.add_argument("--skip-symbol-upgrade", action="store_true", help="Do not run kicad-cli sym upgrade before splitting symbols.")
-    parser.add_argument("--overwrite", action="store_true", help="Overwrite conflicting canonical files instead of writing suffixed names.")
+    parser.add_argument("--overwrite", action="store_true", help="Store changed content as a new immutable file instead of writing suffixed names (symbols, footprints) or refusing (3D models, SPICE).")
     parser.add_argument("--dry-run", action="store_true", help="Report what would be imported without writing files or DB rows.")
     parser.add_argument("--strict", action="store_true", help="Exit non-zero when any asset fails to import.")
     parser.add_argument(

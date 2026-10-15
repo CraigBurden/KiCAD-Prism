@@ -223,6 +223,22 @@ class InstancesStore:
         ).fetchall()
         return [dict(row) for row in rows]
 
+    def pinned_catalog_revisions(self) -> list[str]:
+        """Every catalog revision a system pins, across systems: module, assembly and part
+        instances, and harness end connectors and contacts. Catalog artifact maintenance
+        keeps these revisions' files (the catalog cannot read this database itself)."""
+        rows = self.conn.execute(
+            """
+            SELECT catalog_revision_id AS revision_id FROM system_instances WHERE catalog_revision_id IS NOT NULL
+            UNION
+            SELECT catalog_revision_id FROM system_harness_ends WHERE catalog_revision_id IS NOT NULL
+            UNION
+            SELECT contact_revision_id FROM system_harness_ends WHERE contact_revision_id IS NOT NULL
+            ORDER BY 1
+            """
+        ).fetchall()
+        return [str(row["revision_id"]) for row in rows]
+
     def mark_project_unresolved(self, project_id: str) -> list[str]:
         """§5.1: the child project is gone; keep its instances, unresolved.
 

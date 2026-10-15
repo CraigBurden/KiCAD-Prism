@@ -20,6 +20,9 @@ PyJWT[crypto]
 python-multipart
 psycopg[binary]>=3.2,<4
 psycopg-pool>=3.2,<4
+# Remote placement embeds 3D models as KiCad embedded files (zstd). Pinned
+# exactly: zstd output is only byte-stable within one library version.
+zstandard==0.25.0
 
 # Published KiCad tooling is a coordinated pair. The optional local Docker
 # override replaces both packages from one modern kicad_monkey monorepo

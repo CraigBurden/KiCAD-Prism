@@ -9,6 +9,7 @@ representations, release records and audit events.
 from __future__ import annotations
 
 import contextlib
+import hashlib
 import importlib.util
 import io
 import json
@@ -238,6 +239,161 @@ class CatalogImportScriptTests(unittest.TestCase):
         self.assertEqual(provisional_children["releases"], [])
         self.assertEqual([row["event_type"] for row in provisional_children["audit"]], ["component.created"])
 
+    def _linked_assets(self, revision_id: str) -> dict[str, dict]:
+        rows = self._rows(
+            "SELECT a.id, a.asset_type, a.canonical_path, a.sha256 FROM revision_assets ra "
+            "JOIN assets a ON a.id = ra.asset_id WHERE ra.revision_id = %s",
+            revision_id,
+        )
+        return {row["asset_type"]: row for row in rows}
+
+    def _assert_files_match_hashes(self, assets: dict[str, dict], original: dict[str, bytes]) -> None:
+        for asset_type, row in assets.items():
+            payload = Path(row["canonical_path"]).read_bytes()
+            self.assertEqual(payload, original[asset_type], asset_type)
+            self.assertEqual(hashlib.sha256(payload).hexdigest(), row["sha256"], asset_type)
+
+    def _assert_immutable_copy(self, asset: dict, previous: dict, payload: bytes, relative: str) -> None:
+        digest = hashlib.sha256(payload).hexdigest()
+        self.assertNotEqual(asset["id"], previous["id"])
+        self.assertEqual(asset["sha256"], digest)
+        self.assertEqual(Path(asset["canonical_path"]).resolve(), (self.store / "revisions" / digest / relative).resolve())
+        self.assertEqual(Path(asset["canonical_path"]).read_bytes(), payload)
+
+    def test_reimport_with_changed_assets_keeps_released_revision_files(self) -> None:
+        # --overwrite-assets stores changed bytes at an immutable path; the files a
+        # released revision links keep the bytes its recorded hashes describe, and a
+        # new part imported in the same run links the changed bytes.
+        module = _load_script("import_database_library")
+        source = self._database_library()
+        argv = [str(source), "--store-root", str(self.store), "--database-url", POSTGRES_URL]
+        code, report = _run(module, argv)
+        self.assertEqual(code, 0, report["errors"])
+        released = next(row for row in self._components() if row["release_status"] == "released")
+        before = self._linked_assets(released["current_revision_id"])
+        original = {asset_type: Path(row["canonical_path"]).read_bytes() for asset_type, row in before.items()}
+        footprint = f"SOIC8_{self.token}"
+        footprint_file = source / "PcbLib" / "TestFootprints.pretty" / f"{footprint}.kicad_mod"
+        footprint_file.write_text(footprint_file.read_text(encoding="utf-8").replace("test body", "changed body"), encoding="utf-8")
+        # A follow-up import of one new part that uses the same, now changed, footprint.
+        database = sqlite3.connect(source / "library.sqlite")
+        database.execute('DELETE FROM "Sensors"')
+        database.execute(
+            'INSERT INTO "Sensors" VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
+            (f"IPN-{self.token}-3", f"TestSymbols:Sensor_{self.token}", f"TestFootprints:{footprint}",
+             "Acme", f"ACME-{self.token}-NEW", "Sensor", "New sensor", "SOIC-8", ""),
+        )
+        database.commit()
+        database.close()
+
+        code, report = _run(module, [*argv, "--overwrite-assets"])
+
+        self.assertEqual((code, report["components_created"]), (0, 1), report["errors"])
+        self.assertEqual(self._linked_assets(released["current_revision_id"]), before)
+        self._assert_files_match_hashes(before, original)
+        self.assertTrue(self.service.verify_component_audit_chain(released["id"])["valid"])
+        [new_part] = [row for row in self._components() if row["name"] == f"IPN-{self.token}-3"]
+        linked = self._linked_assets(new_part["current_revision_id"])
+        self.assertEqual(linked["symbol"], before["symbol"])
+        self._assert_immutable_copy(
+            linked["footprint"], before["footprint"], footprint_file.read_bytes(),
+            f"footprints/TestFootprints.pretty/{footprint}.kicad_mod",
+        )
+
+    def test_footprint_reimport_with_changed_model_keeps_earlier_revision_files(self) -> None:
+        # A new footprint sharing a changed 3D model links an immutable copy; the
+        # footprint imported first keeps the model bytes its revision recorded.
+        module = _load_script("import_footprint_library")
+        source = self.root / "fpl"
+        library = source / "Footprints" / "Pixxel_Sensors.pretty"
+        library.mkdir(parents=True)
+        (source / "3D").mkdir()
+        model_name = f"Shared_{self.token}.step"
+        model_file = source / "3D" / model_name
+        model_file.write_bytes(b"ISO-10303-21; original\n")
+        model_ref = f'  (model "${{KIPRJMOD}}/{model_name}")\n)\n'
+
+        def write_footprint(name: str) -> None:
+            body = FOOTPRINT.format(name=name).removesuffix(")\n") + model_ref
+            (library / f"{name}.kicad_mod").write_text(body, encoding="utf-8")
+
+        write_footprint(f"ACME{self.token}")
+        argv = [
+            str(source), "--store-root", str(self.store), "--database-url", POSTGRES_URL,
+            "--mpn-mode", "full", "--manufacturer", "Acme", "--no-previews",
+        ]
+        code, report = _run(module, argv)
+        self.assertEqual((code, report["components_created"]), (0, 1), report["errors"])
+        [first] = self._components()
+        before = self._linked_assets(first["current_revision_id"])
+        self.assertEqual(sorted(before), ["3dmodel", "footprint"])
+        original = {asset_type: Path(row["canonical_path"]).read_bytes() for asset_type, row in before.items()}
+        model_file.write_bytes(b"ISO-10303-21; changed\n")
+        write_footprint(f"ACME{self.token}NEW")
+
+        code, report = _run(module, [*argv, "--overwrite-assets"])
+
+        self.assertEqual((code, report["components_created"], report["components_skipped_existing"]), (0, 1, 1), report["errors"])
+        self.assertEqual(self._linked_assets(first["current_revision_id"]), before)
+        self._assert_files_match_hashes(before, original)
+        self.assertTrue(self.service.verify_component_audit_chain(first["id"])["valid"])
+        [new_part] = [row for row in self._components() if row["name"] == f"ACME{self.token}NEW"]
+        self._assert_immutable_copy(
+            self._linked_assets(new_part["current_revision_id"])["3dmodel"], before["3dmodel"],
+            model_file.read_bytes(), f"3dmodels/Pixxel_Sensors/{model_name}",
+        )
+
+    def test_kicad_library_assets_overwrite_keeps_existing_canonical_files(self) -> None:
+        # --overwrite stores changed symbol, footprint and model bytes as new immutable
+        # files; the files the earlier asset rows point at are left as they were.
+        module = _load_script("import_kicad_library_assets")
+        source = self.root / "kicad"
+        (source / "symbols").mkdir(parents=True)
+        (source / "footprints" / "TestFootprints.pretty").mkdir(parents=True)
+        (source / "3D" / "TestModels").mkdir(parents=True)
+        symbol, footprint = f"Sensor_{self.token}", f"SOIC8_{self.token}"
+        symbol_file = source / "symbols" / "TestSymbols.kicad_sym"
+        footprint_file = source / "footprints" / "TestFootprints.pretty" / f"{footprint}.kicad_mod"
+        model_file = source / "3D" / "TestModels" / f"Model_{self.token}.step"
+        symbol_file.write_text(SYMBOL_LIBRARY.format(name=symbol), encoding="utf-8")
+        footprint_file.write_text(FOOTPRINT.format(name=footprint), encoding="utf-8")
+        model_file.write_bytes(b"ISO-10303-21; original\n")
+        argv = [str(source), "--store-root", str(self.store), "--database-url", POSTGRES_URL,
+                "--no-previews", "--skip-symbol-upgrade"]
+        assets_sql = (
+            "SELECT id, asset_type, canonical_path, sha256 FROM assets "
+            "WHERE target_name IN (%s, %s, %s) ORDER BY created_at, id"
+        )
+        names = (symbol, footprint, model_file.name)
+        code, report = _run(module, argv)
+        self.assertEqual(code, 0, report["errors"])
+        before = {row["asset_type"]: row for row in self._rows(assets_sql, *names)}
+        self.assertEqual(sorted(before), ["3dmodel", "footprint", "symbol"])
+        original = {asset_type: Path(row["canonical_path"]).read_bytes() for asset_type, row in before.items()}
+        symbol_file.write_text(SYMBOL_LIBRARY.format(name=symbol).replace("(end 1 -1)", "(end 2 -2)"), encoding="utf-8")
+        footprint_file.write_text(FOOTPRINT.format(name=footprint).replace("test body", "changed body"), encoding="utf-8")
+        model_file.write_bytes(b"ISO-10303-21; changed\n")
+
+        code, report = _run(module, [*argv, "--overwrite"])
+
+        self.assertEqual((code, report["errors"]), (0, []))
+        self._assert_files_match_hashes(before, original)
+        after = [row for row in self._rows(assets_sql, *names) if row["id"] not in {r["id"] for r in before.values()}]
+        added = {row["asset_type"]: row for row in after}
+        self.assertEqual(sorted(added), ["3dmodel", "footprint", "symbol"])
+        self._assert_immutable_copy(
+            added["footprint"], before["footprint"], footprint_file.read_bytes(),
+            f"footprints/TestFootprints.pretty/{footprint}.kicad_mod",
+        )
+        self._assert_immutable_copy(
+            added["3dmodel"], before["3dmodel"], model_file.read_bytes(), f"3dmodels/TestModels/{model_file.name}",
+        )
+        self.assertNotEqual(added["symbol"]["sha256"], before["symbol"]["sha256"])
+        self.assertEqual(
+            Path(added["symbol"]["canonical_path"]).resolve(),
+            (self.store / "revisions" / added["symbol"]["sha256"] / f"symbols/TestSymbols/{symbol}.kicad_sym").resolve(),
+        )
+
     def test_database_library_import_takes_its_slug_through_the_component_writer(self) -> None:
         # AC-28 writer row: slugs are allocated under the writer's lock against the catalog,
         # not only against the import's own batch.
@@ -317,6 +473,37 @@ class CatalogImportScriptTests(unittest.TestCase):
             [(row["event_type"], row["actor"], json.loads(row["details_json"])["change_summary"]) for row in children["audit"]],
             [("component.created", "system:import_footprint_library", "Imported incomplete footprint-only representation")],
         )
+
+    def test_footprint_import_links_its_model_under_a_remapped_runtime_root(self) -> None:
+        """The row records the service's path; the byte check before linking reads the local file."""
+        module = _load_script("import_footprint_library")
+        source = self.root / "fpl"
+        library = source / "Footprints" / "Pixxel_Sensors.pretty"
+        library.mkdir(parents=True)
+        (source / "3D").mkdir()
+        name = f"ACME{self.token}"
+        (source / "3D" / f"{name}.step").write_bytes(f"ISO-10303-21;/* {self.token} */END-ISO-10303-21;".encode())
+        footprint = FOOTPRINT.format(name=name).replace(
+            '(pad "1"', f'(model "C:/Authoring/3D/{name}.step") (pad "1"'
+        )
+        (library / f"{name}.kicad_mod").write_text(footprint, encoding="utf-8")
+        runtime_root = "/app/projects/.kicad-prism/components"
+
+        code, report = _run(module, [
+            str(source), "--store-root", str(self.store), "--database-url", POSTGRES_URL,
+            "--mpn-mode", "full", "--manufacturer", "Acme", "--no-previews",
+            "--runtime-store-root", runtime_root,
+        ])
+
+        self.assertEqual(code, 0, report["errors"])
+        self.assertEqual((report["components_created"], report["errors"]), (1, []))
+        [component] = self._components()
+        [model] = self._rows(
+            "SELECT a.canonical_path FROM revision_assets ra JOIN assets a ON a.id = ra.asset_id "
+            "WHERE ra.revision_id = %s AND ra.asset_type = '3dmodel'",
+            component["current_revision_id"],
+        )
+        self.assertTrue(str(model["canonical_path"]).startswith(f"{runtime_root}/3dmodels/"), model)
 
     def test_footprint_missing_a_required_field_is_skipped_and_listed(self) -> None:
         # AC-28 footprints row: no placeholders; the footprint is skipped and named in the summary.

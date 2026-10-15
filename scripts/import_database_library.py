@@ -5,7 +5,6 @@ import argparse
 import json
 import os
 import re
-import shutil
 import sqlite3
 import sys
 import time
@@ -255,21 +254,13 @@ def _same_bytes(path: Path, payload: bytes) -> bool:
     return path.is_file() and path.read_bytes() == payload
 
 
-def _write_or_copy(destination: Path, source: Path | None, payload: bytes | None, *, overwrite: bool) -> Path:
-    destination.parent.mkdir(parents=True, exist_ok=True)
+def _write_or_copy(service: Any, destination: Path, source: Path | None, payload: bytes | None, *, overwrite: bool) -> Path:
     data = payload if payload is not None else source.read_bytes() if source else b""
-    if destination.exists():
-        if _same_bytes(destination, data):
-            return destination
-        if not overwrite:
-            raise ValueError(f"Canonical asset conflict at {destination}")
-    if payload is not None:
-        destination.write_bytes(payload)
-    elif source is not None:
-        shutil.copy2(source, destination)
-    else:
-        destination.write_bytes(data)
-    return destination
+    if destination.exists() and not _same_bytes(destination, data) and not overwrite:
+        raise ValueError(f"Canonical asset conflict at {destination}")
+    # Never rewrite an existing canonical file: revisions already linked to it keep
+    # their bytes, and changed content goes to an immutable revisions/<sha256>/ path.
+    return service.asset_files.write_canonical_file(service.runtime, destination, data)
 
 
 def _normalize_lookup(value: str) -> str:
@@ -724,7 +715,7 @@ def _register_planned_assets(
             continue
         payload = _symbol_payload_cached(symbol_payload_cache, library, symbol_name)
         destination = service.asset_files.symbol_destination(service.runtime, target_library, symbol_name)
-        canonical = _write_or_copy(destination, None, payload, overwrite=overwrite_assets)
+        canonical = _write_or_copy(service, destination, None, payload, overwrite=overwrite_assets)
         asset = writer.register_asset(
             target_conn,
             asset_type="symbol",
@@ -749,7 +740,7 @@ def _register_planned_assets(
         if key in footprint_asset_cache:
             continue
         destination = service.asset_files.footprint_destination(service.runtime, target_library, target_name)
-        canonical = _write_or_copy(destination, footprint.path, None, overwrite=overwrite_assets)
+        canonical = _write_or_copy(service, destination, footprint.path, None, overwrite=overwrite_assets)
         asset = writer.register_asset(
             target_conn,
             asset_type="footprint",
@@ -1136,7 +1127,7 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--runtime-store-root", type=Path, default=None, help="Canonical store root to write into DB paths, e.g. /app/projects/.kicad-prism/components.")
     parser.add_argument("--database-url", default=os.environ.get("PRISM_DATABASE_URL", ""), help="Target Prism PostgreSQL URL.")
     parser.add_argument("--replace-catalog", action="store_true", help="Delete existing Prism catalog component/asset rows before importing.")
-    parser.add_argument("--overwrite-assets", action="store_true", help="Overwrite canonical asset files when content differs.")
+    parser.add_argument("--overwrite-assets", action="store_true", help="Store changed asset content as a new immutable file instead of refusing.")
     parser.add_argument("--allow-missing-assets", action="store_true", help="Create metadata rows even when symbol or footprint refs cannot be resolved.")
     parser.add_argument("--no-release", action="store_true", help="Keep imported rows open instead of directly marking complete rows released.")
     parser.add_argument("--generate-previews", action="store_true", help="Generate symbol and footprint SVG previews. This can be slow for large libraries.")

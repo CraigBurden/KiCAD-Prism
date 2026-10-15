@@ -297,9 +297,14 @@ def release_queue(
 
 
 @router.get("/health")
-def catalog_health(user: AuthenticatedUser = Depends(require_catalog_reader)):
-    _ = user
-    return catalog_service.catalog_health()
+def catalog_health(
+    check_files: bool = Query(default=False),
+    user: AuthenticatedUser = Depends(require_catalog_reader),
+):
+    # The per-file disk check stats every released asset; only admins may ask for it.
+    if check_files:
+        policy.authorize(user, "catalog_admin")
+    return catalog_service.catalog_health(check_released_files=check_files)
 
 
 @router.post("/import-sessions/projects", status_code=202)
@@ -550,7 +555,7 @@ def accept_project_import_proposal(
     user: AuthenticatedUser = Depends(require_catalog_writer),
 ):
     _project_import_proposal_for_user(proposal_id, user)
-    with value_errors_as(400):
+    with value_errors_as(400, keep_typed=True):
         return catalog_service.accept_project_import_proposal(
             proposal_id,
             metadata_overrides=payload.metadata_overrides,

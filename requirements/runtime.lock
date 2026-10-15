@@ -192,4 +192,6 @@ websockets==17.1
 wn-geometer==2026.9.7
     # via kicad-cruncher
 zstandard==0.25.0
-    # via kicad-monkey
+    # via
+    #   -r requirements/runtime.in
+    #   kicad-monkey
