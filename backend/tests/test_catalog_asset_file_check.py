@@ -362,7 +362,7 @@ class CatalogAssetFileCheckCliTests(unittest.TestCase):
         before = _schema_state(CATALOG_URL)
         code, output, _errors = self._main(CATALOG_URL)
         self.assertIn(code, (0, 1))
-        self.assertEqual(json.loads(output)["store_root"], str(self.projects / ".kicad-prism" / "components"))
+        self.assertEqual(json.loads(output)["store_root"], str((self.projects / ".kicad-prism" / "components").resolve()))
         self.assertEqual(_schema_state(CATALOG_URL), before)
         self.assertFalse(self.projects.exists())
 
@@ -443,6 +443,29 @@ class CatalogAssetRestoreDestinationTests(unittest.TestCase):
         self.assertEqual([item["asset_id"] for item in result["restored"]], ["asset-4"])
         self.assertEqual(list(self.outside.iterdir()), [])
         self.assertEqual((self.store / "3dmodels" / "Lib" / "model.step").read_bytes(), self.PAYLOAD)
+
+    def test_a_store_reached_through_a_symlink_restores_paths_spelled_either_way(self) -> None:
+        linked = self.root / "linked-store"
+        linked.symlink_to(self.store, target_is_directory=True)
+        result = check_script.restore_missing(
+            {"placement_broken": [{
+                "asset_id": f"asset-{index}", "asset_type": "3dmodel", "canonical_path": str(path),
+                "sha256": hashlib.sha256(self.PAYLOAD).hexdigest(), "size_bytes": len(self.PAYLOAD),
+                "problem": "missing", "component_ids": [],
+            } for index, path in enumerate((
+                linked / "3dmodels" / "as-given.step",
+                self.store.resolve() / "3dmodels" / "resolved.step",
+                linked / "3dmodels" / ".." / ".." / "outside" / "escape.step",
+            ))], "history_broken": [], "draft_only": []},
+            store_root=linked, artifact_store=NoObjectStore(),
+            search=check_script.SearchIndex([self.backups]), apply=True,
+        )
+        self.assertEqual([item["asset_id"] for item in result["restored"]], ["asset-0", "asset-1"])
+        self.assertEqual([(item["asset_id"], item["reason"]) for item in result["refused"]],
+                         [("asset-2", "outside the catalog store")])
+        for name in ("as-given.step", "resolved.step"):
+            self.assertEqual((self.store / "3dmodels" / name).read_bytes(), self.PAYLOAD)
+        self.assertEqual(list(self.outside.iterdir()), [])
 
     def test_a_restored_file_gets_the_mode_of_the_store_files(self) -> None:
         sibling = self.store / "3dmodels" / "sibling.step"
