@@ -3,6 +3,7 @@ import { ShieldAlert } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
+import { Label } from "@/components/ui/label";
 
 import type { UnpinnedModel } from "./types";
 
@@ -33,9 +34,9 @@ export function UnpinnedModelsAck({
                     onCheckedChange={(value) => onCheckedChange(value === true)}
                 />
                 <ShieldAlert className="h-3.5 w-3.5 shrink-0 text-warning" aria-hidden />
-                <label htmlFor={id} className="text-xs font-medium">
+                <Label htmlFor={id} className="font-medium">
                     Acknowledge {models.length} unpinned 3D model{models.length === 1 ? "" : "s"}
-                </label>
+                </Label>
             </div>
             <ul className="max-h-24 space-y-0.5 overflow-y-auto text-xs">
                 {models.map((model) => (

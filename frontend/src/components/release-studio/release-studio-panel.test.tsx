@@ -670,6 +670,61 @@ describe("ReleaseStudioPanel", () => {
         expect(await screen.findByRole("link", { name: /github.com\/org\/repo\/releases\/tag\/v1/i })).toBeTruthy();
     });
 
+    it("needs the unpinned 3D models acknowledged before publishing", async () => {
+        const key = "board.kicad_pcb::$(MODELS)/part.step";
+        const approvedDetail = {
+            ...detail,
+            vendor_readiness: [{ vendor_id: "jlcpcb", ready: true, missing_requirements: [] }],
+            approvals: {
+                ...detail.approvals!,
+                both_approved: true,
+                can_publish: true,
+                blocked_reason: "",
+                unpinned_models: [{
+                    key,
+                    source_path: "board.kicad_pcb",
+                    reference: "$(MODELS)/part.step",
+                    location: "unreadable" as const,
+                }],
+            },
+        };
+        vi.mocked(api.getBuild).mockResolvedValue(approvedDetail);
+        render(<ReleaseStudioPanel projectId="p1" canMutate />);
+        await openOutputs();
+        fireEvent.click(screen.getByRole("button", { name: /^Continue$/i }));
+        const publish = screen.getByRole("button", { name: /Hold to publish to GitHub/i });
+        expect(publish).toBeDisabled();
+        fireEvent.click(screen.getByRole("checkbox", { name: /Acknowledge 1 unpinned 3D model/i }));
+        expect(publish).not.toBeDisabled();
+        let now = 0;
+        let frames: FrameRequestCallback[] = [];
+        vi.spyOn(performance, "now").mockImplementation(() => now);
+        vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => {
+            frames.push(callback);
+            return frames.length;
+        });
+        vi.stubGlobal("cancelAnimationFrame", () => {
+            frames = [];
+        });
+        act(() => {
+            publish.dispatchEvent(new MouseEvent("pointerdown", { bubbles: true, button: 0 }));
+        });
+        now = 1000;
+        act(() => {
+            const pending = frames;
+            frames = [];
+            pending.forEach((callback) => callback(now));
+        });
+        await waitFor(() => expect(vi.mocked(api.publishBuild)).toHaveBeenCalledWith(
+            "p1",
+            "build-1",
+            { tag: "v1.0.0", title: "v1.0.0", notes: "", acknowledged_models: [key] },
+        ));
+        // Once published, the acknowledgement is history, not a live control.
+        expect(await screen.findByRole("link", { name: /github.com\/org\/repo\/releases\/tag\/v1/i })).toBeTruthy();
+        expect(screen.queryByRole("checkbox", { name: /Acknowledge/i })).toBeNull();
+    });
+
     it("lists DRC, ERC, and closure warnings as stacked expandable lists", async () => {
         vi.mocked(api.memberJson).mockResolvedValue({
             violations: [
