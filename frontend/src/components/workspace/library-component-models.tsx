@@ -148,6 +148,21 @@ function AlignmentEditor({ componentId, model, partners, canMutate, onSaved }: {
 }
 
 /**
+ * Queue the GLB conversion of the current revision's STEP models, or of `revisionId`'s (a revision a system
+ * pins), and poll until every one has a GLB or two minutes pass (CONTRACTS_P2 §18.2). `onModels` gets each
+ * listing; resolves whether every model was converted.
+ */
+export async function convertModelsAndWait(componentId: string, onModels: (models: CatalogModel[]) => void,
+  revisionId?: string): Promise<boolean> {
+  await convertModels(componentId, revisionId);
+  return pollUntil(async () => {
+    const body = await listModels(componentId, undefined, revisionId);
+    onModels(body.items);
+    return body.items.every((model) => model.glb);
+  }, { intervalMs: 2000, delayFirst: true, maxTicks: 60 });
+}
+
+/**
  * A part's 3D models for System Builder: the STEP converted to GLB with Geometer (bounds, colours) and the
  * alignment that places it in the part's mating frame, previewed alone or mated to a partner (CONTRACTS_P2 §18.2).
  */
@@ -170,12 +185,7 @@ export function ModelsPanel({ componentId, canMutate, mates = true }: { componen
   const convert = async () => {
     setConverting(true);
     try {
-      await convertModels(componentId);
-      await pollUntil(async () => {
-        const body = await listModels(componentId);
-        setState((current) => current && { ...current, models: body.items });
-        return body.items.every((model) => model.glb);
-      }, { intervalMs: 2000, delayFirst: true, maxTicks: 60 });
+      await convertModelsAndWait(componentId, (models) => setState((current) => current && { ...current, models }));
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Could not convert the models");
     } finally {

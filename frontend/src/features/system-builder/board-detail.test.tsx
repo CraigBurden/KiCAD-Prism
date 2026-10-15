@@ -174,4 +174,32 @@ describe("BoardDetail ports and subsystems", () => {
     expect(contents.querySelector("[aria-label=restricted]")).toBeTruthy();
     expect(screen.queryByRole("button", { name: /Check now/ })).toBeNull();
   });
+
+  it("shows a pinned part's model state and converts that revision's STEP", async () => {
+    const calls: [string, RequestInit][] = [];
+    vi.stubGlobal("fetch", vi.fn(async (url: string, init: RequestInit = {}) => {
+      calls.push([url, init]);
+      const body = url.includes("/models/convert") ? { jobId: "j", status: "queued" }
+        : url.includes("/models") ? { items: [{ assetId: "m", name: "enc.step", glb: null }] } : { occurrences: [] };
+      return new Response(JSON.stringify(body), { status: 200, headers: { "Content-Type": "application/json" } });
+    }));
+    const enclosure = instance("ENC", {
+      kind: "part", label: "Enclosure", projectId: null, projectName: null, baselineCommit: null, trackedRef: null, ports: [],
+      catalog: { componentId: "cmp_enc", revisionId: "rev_1", follow: "pinned", version: 1, releaseStatus: "draft",
+        identity: "ENC-1", latestReleasedRevisionId: null, systemId: null, snapshotName: null },
+    });
+    const document = systemDocument([enclosure]);
+    const reader = renderInSession(<BoardDetail systemId="sys_1" document={document} instance={enclosure} canEdit={false} />,
+      { document });
+    expect(await screen.findByText("Not converted")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Convert the pinned revision's models" })).toBeNull();
+    reader.unmount();
+    renderInSession(<BoardDetail systemId="sys_1" document={document} instance={enclosure} canEdit canConvertModels />,
+      { document });
+    expect(await screen.findByText("Not converted")).toBeTruthy();
+    expect(calls.map(([url]) => url)).toContain("/api/catalog/components/cmp_enc/models?revisionId=rev_1");
+    fireEvent.click(screen.getByRole("button", { name: "Convert the pinned revision's models" }));
+    await waitFor(() => expect(calls.filter(([, init]) => init.method === "POST").map(([url]) => url))
+      .toEqual(["/api/catalog/components/cmp_enc/models/convert?revisionId=rev_1"]));
+  });
 });

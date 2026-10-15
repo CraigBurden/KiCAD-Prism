@@ -287,6 +287,98 @@ def _asset_file_purges(conn: Any) -> None:
     )
 
 
+def _module_connector_part_revision(conn: Any) -> None:
+    """System Builder P2 (CONTRACTS_P2 §3.6): the connector part's revision a module placement draws.
+
+    Placing a connector records its part's current revision, so a later revision of that part (a new
+    footprint or model) does not move the module's ports until the connector is placed again. Existing
+    placements take the part's current revision: what they draw today.
+    """
+    conn.execute("ALTER TABLE catalog_module_connectors ADD COLUMN IF NOT EXISTS part_revision_id TEXT")
+    conn.execute(
+        """
+        UPDATE catalog_module_connectors placed SET part_revision_id = part.current_revision_id
+        FROM components part WHERE part.id = placed.part_id AND placed.part_revision_id IS NULL
+        """
+    )
+
+
+def _asset_file_purge_events(conn: Any) -> None:
+    """Quarantine before purge (issue #698, D1): each ledger row records one event.
+
+    Rows written before this step deleted their file at once and keep
+    ``event = 'purged'``. ``quarantine_path`` is where a ``quarantined`` file
+    waits out the grace period; ``quarantine_id`` names the ``quarantined`` row
+    a ``restored``, ``deleted`` or ``quarantine_failed`` row closes
+    (``catalog/step_quarantine.py``). Adding columns does not fire the
+    append-only guards.
+    """
+    conn.execute(
+        "ALTER TABLE catalog_asset_file_purges ADD COLUMN IF NOT EXISTS event TEXT NOT NULL DEFAULT 'purged'"
+    )
+    conn.execute(
+        "ALTER TABLE catalog_asset_file_purges ADD COLUMN IF NOT EXISTS quarantine_path TEXT NOT NULL DEFAULT ''"
+    )
+    conn.execute(
+        "ALTER TABLE catalog_asset_file_purges ADD COLUMN IF NOT EXISTS quarantine_id TEXT NOT NULL DEFAULT ''"
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS catalog_asset_file_purges_quarantine_idx "
+        "ON catalog_asset_file_purges (quarantine_id) WHERE quarantine_id <> ''"
+    )
+
+
+def _project_catalog_placements(conn: Any) -> None:
+    """Which catalog revision each project commit placed (issue #698, from the #695 stamp).
+
+    One scan row and its placement rows per ``(project, commit)``, replaced as
+    a whole when the commit is scanned again (``catalog/project_placements.py``).
+    ``basis`` says how a row was found: ``stamp`` (the placed symbol's
+    ``Prism_Component``/``Prism_Revision``), ``inferred_metadata`` (an unstamped
+    symbol whose fields match exactly one ever-released revision) or
+    ``identity`` (the component is known, its revision is not:
+    ``catalog_revision_id`` is ``''``). No foreign keys: a stamp records what
+    the file says, even a component this catalog does not have.
+    """
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS project_catalog_scans (
+            project_id      TEXT NOT NULL,
+            source_revision TEXT NOT NULL,
+            status          TEXT NOT NULL,
+            symbol_count    INTEGER NOT NULL DEFAULT 0,
+            stamped_count   INTEGER NOT NULL DEFAULT 0,
+            inferred_count  INTEGER NOT NULL DEFAULT 0,
+            untracked_count INTEGER NOT NULL DEFAULT 0,
+            error           TEXT NOT NULL DEFAULT '',
+            scanned_at      TEXT NOT NULL,
+            PRIMARY KEY (project_id, source_revision)
+        )
+        """
+    )
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS project_catalog_placements (
+            project_id          TEXT NOT NULL,
+            source_revision     TEXT NOT NULL,
+            component_id        TEXT NOT NULL,
+            catalog_revision_id TEXT NOT NULL DEFAULT '',
+            basis               TEXT NOT NULL,
+            references_json     TEXT NOT NULL DEFAULT '[]',
+            PRIMARY KEY (project_id, source_revision, component_id, catalog_revision_id, basis)
+        )
+        """
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_project_catalog_placements_revision "
+        "ON project_catalog_placements (component_id, catalog_revision_id)"
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_project_catalog_scans_project "
+        "ON project_catalog_scans (project_id, scanned_at DESC)"
+    )
+
+
 MIGRATIONS: tuple[tuple[int, str, Migration], ...] = (
     (0, "baseline", _baseline),
     (1, "portable_column_types", _portable_column_types),
@@ -298,6 +390,9 @@ MIGRATIONS: tuple[tuple[int, str, Migration], ...] = (
     (7, "module_connectors", _module_connectors),
     (8, "revision_assets_asset_index", _revision_assets_asset_index),
     (9, "asset_file_purges", _asset_file_purges),
+    (10, "module_connector_part_revision", _module_connector_part_revision),
+    (11, "asset_file_purge_events", _asset_file_purge_events),
+    (12, "project_catalog_placements", _project_catalog_placements),
 )
 
 # Migrations that a long-lived branch database recorded under an earlier number.

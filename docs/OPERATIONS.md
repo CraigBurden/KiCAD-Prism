@@ -367,6 +367,32 @@ reported. These checks assume that no untrusted user changes the catalog store's
 directories while the script runs. The script neither initializes nor migrates
 the catalog. It exits 2 when the schema is not at head.
 
+Artifact maintenance never deletes a superseded never-released draft STEP at
+once. It moves the file to `quarantine/<entry>/` under the catalog store and
+deletes it once `CATALOG_DRAFT_MODEL_QUARANTINE_DAYS` (default 30) have passed;
+the purge ledger records both steps. The check lists quarantined files under
+`quarantine` with their `expires_at`, marks a missing file the ledger accounts
+for with `ledger` (`quarantined` or `purged`), and `--restore --apply` moves a
+quarantined file back and records the restore. A restored file stays until its
+asset is linked again and then abandoned. A quarantined file whose revision is
+released or pinned by System Builder again before it expires is restored by
+maintenance itself.
+
+`scripts/report_unpinned_board_models.py [DIR ...]` (default
+`KICAD_PROJECTS_ROOT`) lists every board footprint whose 3D model still points
+at the provider's shared `<prefix>_3d` folder, so a fresh clone opens without
+it: parts placed before footprints embedded their models, with embedding off,
+or over the embed cap. Each entry says whether the file is present in that
+checkout and, with `--database-url`, which catalog 3D model assets carry the
+same bytes. It only reads; place such a part again from KiCad to pin it.
+
+`--record-legacy` lists missing never-released draft STEP files that no ledger
+row accounts for: files the purge deleted before its ledger existed (see
+[Upgrades](UPGRADES.md#superseded-draft-step-files-wait-in-quarantine)). With
+`--apply` it records them as `legacy_pre_ledger`, after which their components'
+audit chains verify again. It never records a released or head revision's
+file; restore those.
+
 ### Disk is full
 
 Stop new imports and generation. Preserve PostgreSQL and authoritative assets

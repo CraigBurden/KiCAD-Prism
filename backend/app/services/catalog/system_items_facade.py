@@ -190,10 +190,11 @@ class CatalogSystemItemsFacade:
 
     # Connector placement on modules (CONTRACTS_P2 §3.6) ----------------------------
 
-    def module_connectors(self, component_id: str) -> dict[str, Any]:
+    def module_connectors(self, component_id: str, revision_id: str | None = None) -> dict[str, Any]:
+        """The connectors of the module at ``revision_id`` (a pinned revision; default: the current one)."""
         self._initialize()
         with self._connect() as conn:
-            return module_connectors.list_connectors(conn, component_id)
+            return module_connectors.list_connectors(conn, component_id, revision_id)
 
     def connector_geometry(self, part_id: str) -> dict[str, Any]:
         """A part as a module connector would use it: footprint geometry at the origin and its model."""
@@ -204,14 +205,17 @@ class CatalogSystemItemsFacade:
                     "model": module_connectors.part_model(conn, part_id)}
 
     def set_module_connector(self, component_id: str, unit_key: str, part_id: str, placement: dict[str, Any], *,
-                             actor: str = "") -> dict[str, Any]:
-        """Place (or move) the connector part of one unit, audited on the module's history."""
+                             actor: str = "", update_part_revision: bool = False) -> dict[str, Any]:
+        """Place (or move) the connector part of one unit, audited on the module's history. Moving keeps the
+        part revision the placement recorded unless ``update_part_revision``."""
         self._initialize()
         with self._connect() as conn:
             result = module_connectors.set_connector(conn, component_id, unit_key, part_id, placement, actor=actor,
-                                                     now=utc_now_iso())
+                                                     now=utc_now_iso(), update_part_revision=update_part_revision)
+            revision = next((u["connector"]["part"]["revisionId"] for u in result["units"]
+                             if u["key"] == unit_key and u["connector"]), None)
             self._audit_connector(conn, component_id, "component.module_connector_placed", actor,
-                                  {"unit": unit_key, "part": part_id})
+                                  {"unit": unit_key, "part": part_id, "partRevision": revision})
             conn.commit()
             return result
 

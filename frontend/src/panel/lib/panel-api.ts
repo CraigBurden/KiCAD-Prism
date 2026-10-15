@@ -34,6 +34,25 @@ export interface PanelComponent {
   footprint_preview_url: string;
   manifest_url: string;
   inline_url: string;
+  /** The revision this payload describes (provider 0.4.0). */
+  revision_id?: string;
+  /** Released revisions placement may serve, newest first (detail only, provider 0.4.0). */
+  released_revisions?: PanelReleasedRevision[];
+}
+
+export interface PanelReleasedRevision {
+  revision_id: string;
+  version: number;
+  released_at: string;
+}
+
+/** `?representation=…&revision=…` with only the parts that are set. */
+function placementQuery(representationId: string, revisionId: string): string {
+  const params = new URLSearchParams();
+  if (representationId) params.set("representation", representationId);
+  if (revisionId) params.set("revision", revisionId);
+  const query = params.toString();
+  return query ? `?${query}` : "";
 }
 
 export interface PanelSupplySource {
@@ -242,13 +261,11 @@ export async function getComponentsByCategory(
 export async function getComponent(
   componentId: string,
   signal?: AbortSignal,
-  representationId = ""
+  representationId = "",
+  revisionId = "",
 ): Promise<PanelComponent> {
-  const params = new URLSearchParams();
-  if (representationId) params.set("representation", representationId);
-  const query = params.toString();
   return panelFetch<PanelComponent>(
-    `/api/remote-provider/components/${componentId}${query ? `?${query}` : ""}`,
+    `/api/remote-provider/components/${componentId}${placementQuery(representationId, revisionId)}`,
     signal
   );
 }
@@ -257,10 +274,10 @@ export async function getPartManifest(
   partId: string,
   representationId = "",
   signal?: AbortSignal,
+  revisionId = "",
 ): Promise<Record<string, unknown>> {
-  const query = representationId ? `?representation=${encodeURIComponent(representationId)}` : "";
   return panelFetch<Record<string, unknown>>(
-    `/api/remote-provider/parts/${partId}${query}`, signal,
+    `/api/remote-provider/parts/${partId}${placementQuery(representationId, revisionId)}`, signal,
   );
 }
 
@@ -268,9 +285,9 @@ export async function getInlineBundle(
   componentId: string,
   representationId = "",
   signal?: AbortSignal,
+  revisionId = "",
 ): Promise<Record<string, unknown>> {
-  const query = representationId ? `?representation=${encodeURIComponent(representationId)}` : "";
   return panelFetch<Record<string, unknown>>(
-    `/api/remote-provider/components/${componentId}/inline${query}`, signal,
+    `/api/remote-provider/components/${componentId}/inline${placementQuery(representationId, revisionId)}`, signal,
   );
 }

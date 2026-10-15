@@ -8,6 +8,16 @@ must exist and hash to the row's ``sha256``. Findings are grouped by impact:
 - ``history_broken``: linked to a released revision or a release record;
 - ``draft_only``: everything else.
 
+A missing file the purge ledger accounts for carries ``ledger``:
+``quarantined`` (artifact maintenance moved it to quarantine; ``--restore``
+moves it back) or ``purged`` (deleted on purpose). ``quarantine`` lists every
+quarantined file and when the grace period deletes it.
+
+``--record-legacy`` records each missing never-released draft STEP that no
+ledger row accounts for as ``purged`` (``legacy_pre_ledger``): the files the
+purge deleted before its ledger existed. Released history and heads are never
+recorded; restore those instead. It is a dry run unless ``--apply`` is given.
+
 The exit status is 1 while ``placement_broken`` is not empty, and 2 when the
 catalog schema is not at head. The script never initializes or migrates the
 catalog, and it assumes no untrusted user changes the store's directories
@@ -16,7 +26,8 @@ while it runs.
 ``--restore`` looks for a missing file's exact bytes in the catalog object
 store (read-only: archived objects are verified from their gzip copy and not
 restored), then in each ``--search`` directory, and copies them to the row's
-``canonical_path``. It is a dry run unless ``--apply`` is given. A candidate is
+``canonical_path``. A quarantined file is moved back from quarantine instead,
+and the ledger records the restore. It is a dry run unless ``--apply`` is given. A candidate is
 used only when its sha256 matches. Destinations outside the store, or behind a
 symlink inside it, are refused; an existing directory entry is never replaced.
 """
@@ -80,6 +91,8 @@ def asset_path(store_root: Path, canonical_path: str) -> Path:
 def check_assets(conn: Any, store_root: Path) -> dict[str, list[dict[str, Any]]]:
     """Missing or changed linked asset files, grouped by impact."""
 
+    from app.services.catalog.step_quarantine import excusing_event  # noqa: PLC0415
+
     report: dict[str, list[dict[str, Any]]] = {group: [] for group in GROUPS}
     for row in conn.execute(LINKED_ASSETS_SQL).fetchall():
         path = asset_path(store_root, str(row["canonical_path"]))
@@ -90,7 +103,9 @@ def check_assets(conn: Any, store_root: Path) -> dict[str, list[dict[str, Any]]]
         else:
             continue
         group = "placement_broken" if row["placement"] else "history_broken" if row["history"] else "draft_only"
+        ledger = excusing_event(conn, str(row["id"])) if problem == "missing" else ""
         report[group].append({
+            "ledger": ledger,
             "asset_id": str(row["id"]),
             "asset_type": str(row["asset_type"]),
             "canonical_path": str(path),
@@ -191,6 +206,8 @@ def restore_missing(
             if item["problem"] != "missing":
                 result["unresolved"].append({**entry, "reason": "file exists with other content"})
                 continue
+            if item.get("ledger") == "quarantined":
+                continue  # moved back from quarantine by unquarantine()
             destination, reason = confined_destination(store_root, item["canonical_path"])
             if destination is None:
                 result["refused"].append({**entry, "reason": reason})
@@ -215,6 +232,45 @@ def restore_missing(
                     continue
             result["restored"].append(entry)
     return result
+
+
+def unquarantine(report: dict[str, list[dict[str, Any]]], *, service: Any, apply: bool) -> dict[str, Any]:
+    """Move quarantined files back through the quarantine, which records each restore."""
+
+    from app.services.catalog.step_quarantine import StepQuarantine  # noqa: PLC0415
+
+    result: dict[str, Any] = {"restored": [], "refused": []}
+    for group in GROUPS:
+        for item in report[group]:
+            if item.get("ledger") != "quarantined":
+                continue
+            entry = {**item, "group": group}
+            if not apply:
+                result["restored"].append(entry)
+                continue
+            try:
+                with service.connection() as conn:
+                    outcome = StepQuarantine.restore(conn, service.runtime, item["asset_id"], job_id="check-script")
+            except Exception as error:  # noqa: BLE001 - reported per asset, the others still run
+                result["refused"].append({**entry, "reason": str(error) or type(error).__name__})
+                continue
+            result["restored"].append({**entry, "outcome": outcome["outcome"]})
+    return result
+
+
+def record_legacy(service: Any, *, apply: bool) -> list[dict[str, Any]]:
+    """Missing draft STEPs no ledger row accounts for, recorded as ``legacy_pre_ledger`` with ``--apply``."""
+
+    from app.services.catalog.step_quarantine import StepQuarantine  # noqa: PLC0415
+
+    with service.connection() as conn:
+        rows = (
+            StepQuarantine.record_legacy_losses(conn, job_id="record-legacy")
+            if apply else StepQuarantine.legacy_losses(conn)
+        )
+        conn.rollback()
+    return [{"asset_id": str(row["id"]), "sha256": str(row["sha256"]), "canonical_path": str(row["canonical_path"])}
+            for row in rows]
 
 
 def stored_file_mode() -> int:
@@ -253,12 +309,15 @@ def main(argv: list[str] | None = None, *, service: Any = None, artifact_store: 
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--database-url", default="", help="Catalog PostgreSQL URL (default: PRISM_DATABASE_URL)")
     parser.add_argument("--restore", action="store_true", help="Look for exact copies of missing files")
-    parser.add_argument("--apply", action="store_true", help="Write restored files (default: dry run)")
+    parser.add_argument("--record-legacy", action="store_true",
+                        help="Record draft STEP files lost before the purge ledger existed")
+    parser.add_argument("--apply", action="store_true",
+                        help="Write restored files or legacy ledger rows (default: dry run)")
     parser.add_argument("--search", action="append", default=[], type=Path, metavar="DIR",
                         help="Extra directory to search for copies (repeatable)")
     args = parser.parse_args(argv)
-    if args.apply and not args.restore:
-        parser.error("--apply requires --restore")
+    if args.apply and not (args.restore or args.record_legacy):
+        parser.error("--apply requires --restore or --record-legacy")
 
     from app.services.catalog_schema_migrations import CATALOG_LEDGER  # noqa: PLC0415
 
@@ -271,6 +330,16 @@ def main(argv: list[str] | None = None, *, service: Any = None, artifact_store: 
     with service.connection() as conn:
         pending = CATALOG_LEDGER.pending(conn)
         report: dict[str, Any] = {} if pending else check_assets(conn, store_root)
+        if not pending:
+            from app.core.config import settings  # noqa: PLC0415
+            from app.services.catalog.step_quarantine import StepQuarantine  # noqa: PLC0415
+
+            report["quarantine"] = [
+                {key: str(value) for key, value in entry.items() if key != "expired"}
+                for entry in StepQuarantine.list_open_entries(
+                    conn, grace_days=settings.CATALOG_DRAFT_MODEL_QUARANTINE_DAYS
+                )
+            ]
         conn.rollback()
     if pending:
         print(f"Catalog schema is not at head ({len(pending)} migrations pending); start Prism once to "
@@ -288,9 +357,12 @@ def main(argv: list[str] | None = None, *, service: Any = None, artifact_store: 
                 report, store_root=store_root, artifact_store=artifact_store,
                 search=SearchIndex(args.search), apply=args.apply, locate_conn=locate_conn,
             )
+        result["unquarantined"] = unquarantine(report, service=service, apply=args.apply)
         report["restore"] = result
         if args.apply:
             placement_broken -= sum(1 for item in result["restored"] if item["group"] == "placement_broken")
+    if args.record_legacy:
+        report["record_legacy"] = {"applied": args.apply, "assets": record_legacy(service, apply=args.apply)}
 
     print(json.dumps({"store_root": str(store_root), **report}, indent=2, sort_keys=True))
     return 1 if placement_broken else 0

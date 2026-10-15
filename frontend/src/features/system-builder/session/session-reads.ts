@@ -1,3 +1,5 @@
+import { listModels } from "@/components/workspace/catalog-client";
+
 import type { SessionRead, SystemReads, Topic } from "./system-session";
 
 function read<T>(key: string, follows: readonly Topic[], keep: boolean, load: (reads: SystemReads, signal: AbortSignal) => Promise<T>): SessionRead<T> {
@@ -5,6 +7,9 @@ function read<T>(key: string, follows: readonly Topic[], keep: boolean, load: (r
 }
 
 const VERSION: readonly Topic[] = ["version"];
+
+/** The key prefix of every `pinnedModels` read, refreshed together when conversions settle. */
+export const PINNED_MODELS_PREFIX = "models:";
 
 /**
  * AC-15: every read the System Builder makes of an open system, with what makes it stale.
@@ -41,6 +46,10 @@ export const sessionReads = {
   }),
   snapshotDiff: (snapshotId: string, against: string) =>
     read(`diff:${snapshotId}:${against}`, VERSION, false, (reads) => reads.diffSnapshot(snapshotId, against)),
+  /** The STEP models of a catalog revision an instance or harness end pins (§18.2): one read per revision. */
+  pinnedModels: (componentId: string, revisionId: string) =>
+    read(`${PINNED_MODELS_PREFIX}${componentId}@${revisionId}`, [], true,
+      async (_reads, signal) => (await listModels(componentId, signal, revisionId)).items ?? null),
   endSuggestions: (harnessId: string, endId: string) =>
     read(`suggestions:${harnessId}:${endId}`, VERSION, false, (reads) => reads.getEndSuggestions(harnessId, endId)),
   /** The live ICD; the last one stays shown while a newer version is generated. */

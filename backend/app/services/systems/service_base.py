@@ -15,7 +15,7 @@ from typing import Any, Callable, ContextManager, Iterable, Iterator, Mapping, O
 
 from app.core.roles import Role
 from app.services.systems import exports as exports_module, git_tracking, modules, visibility
-from app.services.systems.bundles import BundleSource, latest_job
+from app.services.systems.bundles import BundleSource, latest_jobs
 from app.services.systems.interface_extractor import EXTRACTOR_VERSION
 from app.services.systems.jobs import (
     enqueue_extraction,
@@ -207,14 +207,15 @@ class ServiceCore:
 
     def _module_interface(self, revision_id: str) -> Optional[dict]:
         """A module revision's connectors as an interface artifact (§5.6): its units, the connector
-        parts placed on it today (§3.6) and its model. Placements or a model the catalog can't give
-        leave the ports without geometry (they link but can't mate)."""
+        parts placed on it today (§3.6), each at the part revision recorded when it was placed, and its
+        model. Placements or a model the catalog can't give leave the ports without geometry (they link
+        but can't mate)."""
         revision = self._catalog_revision(revision_id)
         if revision is None:
             return None
         catalog = self._catalog()
         try:
-            connectors = catalog.module_connectors(revision["componentId"])
+            connectors = catalog.module_connectors(revision["componentId"], revision_id)
         except Exception:  # the catalog is a separate service; the ports still link
             logger.exception("Could not read the connectors of module %s", revision["componentId"])
             connectors = None
@@ -233,8 +234,9 @@ class ServiceCore:
         revision = self._catalog_revision(revision_id)
         return exports_module.as_interface(revision.get("interface")) if revision else None
 
-    def _catalog_model(self, component_id: str, revision_id: str) -> Optional[dict]:
-        """A catalog revision's first converted model with its alignment (§18.2), or None."""
+    def _catalog_model(self, component_id: str, revision_id: Optional[str]) -> Optional[dict]:
+        """A catalog revision's first converted model with its alignment (§18.2), or None. A revision of
+        None reads the component's current one (a harness end recorded before revisions were)."""
         try:
             found = next((m for m in self._catalog().list_models(component_id, revision_id) if m["glb"]), None)
         except Exception:
@@ -244,15 +246,31 @@ class ServiceCore:
             "glbKey": found["glb"]["key"], "boundsMm": found["glb"]["bounds"],
             "alignment": {k: found["alignment"][k] for k in ("offsetMm", "rotationDeg", "scale")}}
 
-    def _queue_pinned_conversions(self, pins: Iterable[tuple[str, str]], caller: Caller) -> None:
+    def _queue_pinned_conversions(self, pins: Iterable[tuple[str, str]], caller: Caller) -> int:
         """Queue the catalog's GLB conversion for each pinned ``(component, revision)`` whose STEP models
-        have none yet. Never once a job for that key has ended: a read neither retries a failed or cancelled
+        have none yet, and return how many have a conversion queued or running (a scene reader polls
+        while any has). Never once a job for that key has ended: a read neither retries a failed or cancelled
         attempt nor repeats a completed one that left no GLB; Convert on the part (with ``revisionId``) does.
+        The pins' latest jobs are read in one query, and a pin whose job is still active costs nothing more,
+        so the scene's poll while conversions run asks the catalog only about pins with no job yet.
         The caller must already hold ``catalog_write``."""
         from app.services.catalog import models as catalog_models
         from app.services.catalog_job_service import catalog_jobs
 
-        for component_id, revision_id in sorted(set(pins)):
+        keys = {pin: catalog_models.conversion_job_key(*pin) for pin in sorted(set(pins))}
+        try:
+            last = latest_jobs("catalog_model_glb", keys.values())
+        except Exception:
+            logger.exception("Could not read the model conversion jobs")
+            return 0
+        converting = 0
+        for (component_id, revision_id), key in keys.items():
+            status = (last.get(key) or {}).get("status")
+            if status in ("completed", "failed", "cancelled"):
+                continue
+            if status:  # queued or running: it settles by itself
+                converting += 1
+                continue
             try:
                 listed = self._catalog().list_models(component_id, revision_id)
             except (LookupError, ValueError) as refused:  # deactivated, or not a part or module: nothing to convert
@@ -261,14 +279,12 @@ class ServiceCore:
             try:
                 if not listed or any(m["glb"] for m in listed):
                     continue
-                key = catalog_models.conversion_job_key(component_id, revision_id)
-                last = latest_job("catalog_model_glb", key)
-                if last and last["status"] in ("completed", "failed", "cancelled"):
-                    continue
                 catalog_jobs.enqueue("catalog_model_glb", {"componentId": component_id, "revisionId": revision_id},
                                      created_by=caller.email, idempotency_key=key)
+                converting += 1
             except Exception:
                 logger.exception("Could not queue the models of %s@%s for conversion", component_id, revision_id)
+        return converting
 
     # ------------------------------------------------------------------
     # Git tracking hooks shared by the Git and Snapshot areas (P2 §21)

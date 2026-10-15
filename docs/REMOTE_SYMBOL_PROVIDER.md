@@ -96,6 +96,26 @@ the component detail, part manifest, inline bundle, and signed asset download
 flows. Unknown and incomplete IDs are rejected rather than silently falling
 back.
 
+## Placing an earlier released revision
+
+From `provider_version` `0.4.0` the component detail, part manifest and inline
+bundle take an optional `revision` query parameter: the id of one of the
+component's released revisions. The detail lists them as `released_revisions`
+(`revision_id`, `version`, `released_at`, newest first) and names the revision
+it describes in `revision_id`; its `manifest_url` and `inline_url` carry the
+chosen `revision`, and the signed asset URLs of that manifest name it as `rev`.
+The placed symbols are stamped with that revision. Only revisions that were
+released and are not archived qualify: a draft, an archived revision, another
+component's revision or an unknown id is refused with 404
+`revision_not_released`, never served. Without `revision` the current release
+is served, as before.
+
+KiCad needs no change for this: the KiCad 10 Remote Symbols panel shows Prism's
+own page and places whatever manifest or inline bundle that page sends
+(`PLACE_COMPONENT`). The panel shows a revision selector next to the
+representation selector when a part has more than one released revision; it
+defaults to the latest.
+
 ## Placed symbol provenance
 
 Placed symbols carry two hidden properties after the catalog metadata
@@ -109,6 +129,28 @@ replaces any stamp already in the stored symbol, and a project import treats
 them as per-placement context rather than part metadata. The DBL export does
 not add these properties.
 
+After every sync Prism scans the checkout's committed schematics and records
+which catalog revision each part placed (`GET
+/api/projects/{id}/catalog-usage`; the project header's library button lists
+them and counts parts with a newer released revision). A part without the
+stamp, placed before it existed, is matched by its `remote_<library>:<name>`
+symbol or its manufacturer part number, and its revision is the oldest
+released revision whose symbol fields all equal the placed ones; such rows are
+marked inferred, and nothing is written into the project.
+
+KiCad keeps the stamp through its update commands (checked in the KiCad 8.0,
+9.0 and 10.0.6 sources):
+
+- **Update Symbols from Library** copies the library symbol's field text by
+  default ("Update field text"), so the instance takes the stamp of the
+  revision now in the project's remote library, together with the rest of
+  that revision's symbol. A library symbol without the fields leaves the
+  instance's stamp in place, unless "Remove fields if not in library symbol"
+  is checked.
+- **Update PCB from Schematic** copies symbol fields, the stamp included, to
+  the footprint while "Update footprint fields" is on; "Remove extra fields"
+  only removes fields the symbol no longer has.
+
 ## Search and recovery
 
 The finder pages through the catalog rather than truncating it to the first
@@ -121,8 +163,22 @@ credentials.
 ## Parts payload contract (parts_v1)
 
 Clients must read `provider_version` from the discovery metadata before
-assuming payload fields. Version `0.3.0` is a breaking change to the parts
-payload:
+assuming payload fields.
+
+`0.4.0` (issue #698) is additive for clients. It records two payload changes
+that shipped under `0.3.0`, and adds one request parameter:
+
+- placed symbols carry the hidden `Prism_Component` and `Prism_Revision`
+  properties, and both names are reserved
+  ([Placed symbol provenance](#placed-symbol-provenance));
+- placed footprints embed their 3D models, and an embedded model is no longer
+  a separate `3dmodel` asset in the manifest or inline bundle
+  ([3D models](#3d-models));
+- new: the optional `revision` parameter and the `released_revisions` and
+  `revision_id` detail fields
+  ([Placing an earlier released revision](#placing-an-earlier-released-revision)).
+
+Version `0.3.0` is a breaking change to the parts payload:
 
 Removed in `0.3.0` — the flat inventory fields
 `stock_known`, `stock_quantity`, `stock_uom`, `inventory_status`,
@@ -171,15 +227,32 @@ manifest asset counts against one `max_download_bytes` budget. A model is
 embedded only when the footprint grows by no more than the raw file it stops
 shipping, so embedding never makes a placement larger; incompressible models
 (`.wrz`, `.stpz`) therefore stay external. The embedded models of one
-footprint may add at most 4 MiB to it (about 3 MiB of compressed data, a STEP
-model of roughly 15-30 MiB), so a board file grows by at most 4 MiB per placed
-part. Prism reads and compresses at most 64 MiB of raw models per footprint;
-a larger model is skipped from its file size. Models that are not embedded
+footprint may carry at most `REMOTE_PROVIDER_EMBED_MAX_COMPRESSED_BYTES` of
+compressed data (default 16 MiB), which grows the footprint, and the board
+file, by about 4/3 of that per placed part. Prism reads and compresses at most
+64 MiB of raw models per footprint; a larger model is skipped from its file
+size. A 64 MiB STEP model compresses to about 6-13 MiB, so with the default cap
+the raw ceiling is usually the limit that applies. Every placed asset still
+counts against KiCad's one `max_download_bytes` budget (16 MiB), so a part
+whose embedded footprint exceeds it does not place, exactly as it would not
+with the raw model shipped instead. Models that are not embedded
 (over either limit, incompressible, or whose stored file is missing) keep
 the shared `<destination>/<prefix>_3d/<name>` path, which is not pinned, and
 are still shipped. A footprint whose text cannot take an `embedded_files`
 block is placed with external model paths and logged. Footprint embedding
-needs no new discovery fields, so `provider_version` is unchanged.
+needs no new discovery fields; `provider_version` `0.4.0` records the change.
+
+Prism keeps the compressed copy of each model it embeds under the catalog
+store (`embedded-models/`) and reuses it, so a placed footprint's bytes do not
+change when the `zstandard` library is upgraded. A copy that no longer
+decompresses to its model is replaced and logged.
+
+A project imported from a board whose footprints carry `kicad-embed://` models
+gets those models back as catalog 3D model assets, under their original file
+names. `scripts/report_unpinned_board_models.py` lists the boards whose placed
+parts still reference the shared `<prefix>_3d` folder (placed before embedding,
+with embedding off, or over the cap); see
+[Operations](OPERATIONS.md#catalog-metadata-exists-but-placement-fails).
 
 Set `REMOTE_PROVIDER_EMBED_3D_MODELS=false` to turn embedding off: every model
 then keeps the destination path and is shipped as a `3dmodel` asset, as before
@@ -193,7 +266,8 @@ they are:
 - still being authored or reviewed;
 - archived or inactive;
 - missing a required symbol or footprint;
-- not the current released revision.
+- not the current released revision, unless a placement names an earlier
+  released revision explicitly.
 
 A blank provider can therefore indicate catalog state rather than an
 authentication failure.
@@ -207,7 +281,7 @@ authentication failure.
 | catalog is empty | released place-ready components and token scope |
 | preview is missing | preview-generation job and catalog worker logs |
 | Place is disabled | release status and required assets |
-| model path is wrong | provider prefix and destination configuration (only for models above the embed limit) |
+| model path is wrong | provider prefix and destination configuration (only for models above the embed cap) |
 | works in browser but not KiCad | OS certificate trust and proxy interception |
 
 Inspect:

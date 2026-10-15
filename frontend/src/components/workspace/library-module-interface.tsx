@@ -1,8 +1,9 @@
 import { useEffect, useState } from "react";
-import { MapPin } from "lucide-react";
+import { toast } from "sonner";
+import { MapPin, RefreshCw } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
-import { listModels, listModuleConnectors } from "./catalog-client";
+import { listModels, listModuleConnectors, saveModuleConnector } from "./catalog-client";
 import type { CatalogComponent } from "@/types/catalog";
 
 import {
@@ -83,7 +84,18 @@ export function ModuleConnectorsPanel({ component, canMutate }: { component: Cat
   const moduleModel = useModuleModel(component.id, revision);
   const [connectors, setConnectors] = useConnectors(component.id, revision);
   const [editing, setEditing] = useState<string | null>(null);
+  const [updating, setUpdating] = useState(false);
   const placed = new Map((connectors?.units ?? []).map((unit) => [unit.key, unit]));
+  // A placement keeps the part revision it recorded (§3.6) until the user takes the part's current one.
+  const updatePart = (unit: ModuleConnectorUnit) => {
+    const connector = unit.connector!;
+    setUpdating(true);
+    saveModuleConnector(component.id, unit.key,
+      { partId: connector.part.componentId, ...connector.placement, updatePartRevision: true })
+      .then(setConnectors)
+      .catch((error: unknown) => toast.error(error instanceof Error ? error.message : "Could not update the part"))
+      .finally(() => setUpdating(false));
+  };
   const editingUnit = editing ? placed.get(editing) : undefined;
 
   return (
@@ -112,6 +124,13 @@ export function ModuleConnectorsPanel({ component, canMutate }: { component: Cat
             <div className="flex flex-wrap items-center gap-2 text-sm">
               <p className="min-w-0 flex-1"><b>{unit.name}</b> <span className="font-mono text-xs text-muted-foreground">unit {unit.key}</span>
                 {status ? <span className="ml-2 text-xs text-muted-foreground">· {placementSummary(status)}</span> : null}</p>
+              {canMutate && status?.connector?.part.currentRevisionId
+                && status.connector.part.revisionId !== status.connector.part.currentRevisionId ? (
+                <Button variant="ghost" size="icon-sm" disabled={updating} onClick={() => updatePart(status)}
+                  aria-label="Use the part's current revision" title="Use the part's current revision">
+                  <RefreshCw className="size-3.5" />
+                </Button>
+              ) : null}
               {status && moduleModel ? (
                 <Button variant="outline" size="sm" onClick={() => setEditing(unit.key)}>
                   <MapPin className="mr-1 h-3.5 w-3.5" /> {status.connector ? (canMutate ? "Edit placement" : "View placement") : "Place connector"}

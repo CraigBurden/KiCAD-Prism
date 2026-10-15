@@ -50,6 +50,8 @@ class ModuleConnectorRequest(BaseModel):
     normal: list[float] = Field(min_length=3, max_length=3)
     quarterTurns: int = Field(default=0, ge=0, le=3)
     axis: str | None = Field(default=None, max_length=8)
+    # Take the part's current revision; otherwise moving the same part keeps the one it recorded (§3.6).
+    updatePartRevision: bool = False
 
 
 def _connectors_call(action):
@@ -72,9 +74,9 @@ def connector_geometry(component_id: str, user: AuthenticatedUser = Depends(requ
 @router.put("/components/{component_id}/module-connectors/{unit_key}")
 def place_module_connector(component_id: str, unit_key: str, body: ModuleConnectorRequest,
                            user: AuthenticatedUser = Depends(require_catalog_writer)):
-    placement = body.model_dump(exclude={"partId"})
+    placement = body.model_dump(exclude={"partId", "updatePartRevision"})
     return _connectors_call(lambda: catalog_service.system_items.set_module_connector(
-        component_id, unit_key, body.partId, placement, actor=user.email))
+        component_id, unit_key, body.partId, placement, actor=user.email, update_part_revision=body.updatePartRevision))
 
 
 @router.delete("/components/{component_id}/module-connectors/{unit_key}")
@@ -101,10 +103,19 @@ def _triple(text: str | None, name: str) -> list[float] | None:
     return values
 
 
+def _require_revision(component_id: str, revision_id: str | None) -> None:
+    """404 unless ``revisionId`` (when given) is a revision of that component."""
+    if revision_id and not catalog_service.get_component_revision(component_id, revision_id):
+        raise HTTPException(status_code=404, detail="Component revision not found")
+
+
 @router.get("/components/{component_id}/models")
-def list_models(component_id: str, user: AuthenticatedUser = Depends(require_catalog_browser)):
-    """CONTRACTS_P2 §18.2: STEP models with their GLB and alignment."""
-    return _mates_call(lambda: catalog_service.system_items.list_models(component_id))
+def list_models(component_id: str, revision_id: str | None = Query(None, alias="revisionId"),
+                user: AuthenticatedUser = Depends(require_catalog_browser)):
+    """CONTRACTS_P2 §18.2: STEP models with their GLB and alignment, of the current revision or of
+    ``revisionId`` (a pinned one)."""
+    _require_revision(component_id, revision_id)
+    return _mates_call(lambda: catalog_service.system_items.list_models(component_id, revision_id))
 
 
 @router.post("/components/{component_id}/models/convert")
@@ -112,8 +123,7 @@ def convert_models(component_id: str, revision_id: str | None = Query(None, alia
                    user: AuthenticatedUser = Depends(require_catalog_writer)):
     """Queue GLB conversion of the current revision's STEP models, or of ``revisionId``'s (a pinned one)."""
     _mates_call(lambda: catalog_service.system_items.list_models(component_id))  # 404/422 before queueing
-    if revision_id and not catalog_service.get_component_revision(component_id, revision_id):
-        raise HTTPException(status_code=404, detail="Component revision not found")
+    _require_revision(component_id, revision_id)
     payload = {"componentId": component_id, **({"revisionId": revision_id} if revision_id else {})}
     job = catalog_jobs.enqueue("catalog_model_glb", payload, created_by=user.email,
                                idempotency_key=catalog_models.conversion_job_key(component_id, revision_id))

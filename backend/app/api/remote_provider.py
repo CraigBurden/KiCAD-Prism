@@ -11,7 +11,7 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response
 
 from app.core.errors import value_errors_as
 from app.core.security import AuthenticatedUser, require_remote_symbol_reader
-from app.services import provider_auth_service
+from app.services import provider_auth_service, provider_revisions
 from app.services.component_catalog_service import catalog_service
 from app.services.public_url_service import resolve_public_base_url
 
@@ -24,7 +24,18 @@ def _provider_origin(request: Request) -> str:
     return resolve_public_base_url(request)
 
 
-def _component_payload(component: dict, origin: str, representation_id: str = "") -> dict:
+PROVIDER_VERSION = "0.4.0"
+
+
+def _placement_query(representation_id: str, revision_id: str) -> str:
+    """``?representation=…&revision=…`` with only the parts that are set."""
+    parameters = [
+        f"{name}={value}" for name, value in (("representation", representation_id), ("revision", revision_id)) if value
+    ]
+    return f"?{'&'.join(parameters)}" if parameters else ""
+
+
+def _component_payload(component: dict, origin: str, representation_id: str = "", revision_id: str = "") -> dict:
     preview_map = {
         preview["kind"]: f"{origin}/api/remote-provider/previews/{preview['id']}"
         for preview in component["previews"]
@@ -88,13 +99,14 @@ def _component_payload(component: dict, origin: str, representation_id: str = ""
         "preview_status": preview_status,
         "symbol_preview_url": symbol.get("preview_url", "") if symbol else preview_map.get("symbol", ""),
         "footprint_preview_url": footprint.get("preview_url", "") if footprint else preview_map.get("footprint", ""),
+        "revision_id": component.get("revision_id", ""),
         "manifest_url": (
             f"{origin}/api/remote-provider/parts/{component['id']}"
-            + (f"?representation={effective['id']}" if effective else "")
+            + _placement_query(effective["id"] if effective else "", revision_id)
         ),
         "inline_url": (
             f"{origin}/api/remote-provider/components/{component['id']}/inline"
-            + (f"?representation={effective['id']}" if effective else "")
+            + _placement_query(effective["id"] if effective else "", revision_id)
         ),
     }
 
@@ -117,7 +129,7 @@ async def provider_metadata(request: Request):
     auth_metadata = {"type": "none"}
     metadata = {
         "provider_name": "KiCAD Prism Remote Symbols",
-        "provider_version": "0.3.0",
+        "provider_version": PROVIDER_VERSION,
         "api_base_url": base_url,
         "panel_url": f"{base_url}/remote-provider/panel",
         "auth": auth_metadata,
@@ -338,19 +350,18 @@ async def get_component(
     component_id: str,
     request: Request,
     representation: str = Query(default=""),
+    revision: str = Query(default=""),
     user: AuthenticatedUser = Depends(require_remote_symbol_reader),
 ):
+    """The released component; ``revision`` selects one of its ``released_revisions`` (0.4.0)."""
     _ = user
-    component = await asyncio.to_thread(
-        catalog_service.get_component,
-        component_id,
-        include_inactive=False,
-        released_only=True,
-    )
+    component = await asyncio.to_thread(provider_revisions.released_component, component_id, revision)
     if not component:
         raise HTTPException(status_code=404, detail="Component not found")
+    released = await asyncio.to_thread(provider_revisions.released_revisions, component_id)
     with value_errors_as(400):
-        return _component_payload(component, _provider_origin(request), representation)
+        payload = _component_payload(component, _provider_origin(request), representation, revision)
+    return {**payload, "released_revisions": released}
 
 
 @router.get("/api/remote-provider/parts/{part_id}")
@@ -358,12 +369,13 @@ async def get_part_manifest(
     part_id: str,
     request: Request,
     representation: str = Query(default=""),
+    revision: str = Query(default=""),
     user: AuthenticatedUser = Depends(require_remote_symbol_reader),
 ):
     _ = user
     with value_errors_as(400):
         manifest = await asyncio.to_thread(
-            catalog_service.build_manifest, part_id, _provider_origin(request), representation
+            catalog_service.build_manifest, part_id, _provider_origin(request), representation, revision
         )
     if not manifest:
         raise HTTPException(status_code=404, detail="Component not found")
@@ -374,12 +386,13 @@ async def get_part_manifest(
 async def get_inline_component(
     component_id: str,
     representation: str = Query(default=""),
+    revision: str = Query(default=""),
     user: AuthenticatedUser = Depends(require_remote_symbol_reader),
 ):
     _ = user
     with value_errors_as(400):
         bundle = await asyncio.to_thread(
-            catalog_service.build_inline_bundle, component_id, representation
+            catalog_service.build_inline_bundle, component_id, representation, revision
         )
     if not bundle:
         raise HTTPException(status_code=404, detail="Component not found")

@@ -392,8 +392,8 @@ Three things change once:
 - **Symbol bytes and manifest hashes.** Every served symbol's bytes, and so its
   `sha256` in the placement manifest, change on the first request after the
   upgrade. Output is byte-stable again from then on. The manifest and bundle
-  shapes do not change, so `provider_version` stays; a client that caches by
-  hash downloads each symbol once more.
+  shapes do not change; `provider_version` `0.4.0` records the change (see
+  below). A client that caches by hash downloads each symbol once more.
 - **Reserved field keys.** `prism_component` and `prism_revision` become
   reserved custom field keys, matched after key canonicalization (`Prism
   Revision` and `prism-revision` count, `prismrevision` does not). Creating a
@@ -408,6 +408,15 @@ Three things change once:
 
 The DBL export does not stamp symbols; its files are unchanged.
 
+### Library usage of each synced commit
+
+Catalog step 12 (`project_catalog_placements`) adds `project_catalog_scans`
+and `project_catalog_placements`. After every successful sync the catalog
+worker scans the new `HEAD`'s schematics (`project_catalog_usage` job) and
+records the catalog revision each part placed, from the stamp or, for parts
+placed before it, by inference. Existing projects are scanned on their next
+sync, or with `POST /api/projects/{id}/catalog-usage/scan`.
+
 ## Placed footprints embed their 3D models
 
 KiCad placements now carry 3D models inside the footprint as KiCad embedded
@@ -421,6 +430,34 @@ files (see [3D models](REMOTE_SYMBOL_PROVIDER.md#3d-models)). After upgrading:
   entries; models that are not embedded are still listed.
 
 Set `REMOTE_PROVIDER_EMBED_3D_MODELS=false` to keep the previous behaviour.
+
+### Larger embed cap and kept compressed copies
+
+The per-footprint embed cap is now a setting,
+`REMOTE_PROVIDER_EMBED_MAX_COMPRESSED_BYTES`, counted in compressed bytes with
+a default of 16 MiB (it was about 3 MiB of compressed data, a fixed 4 MiB of
+footprint text). Models between the two caps now embed, so their placed
+footprints change once and a board can grow by up to about 21 MiB per such
+part. The 64 MiB raw-model ceiling is unchanged. Set the cap to `3145728` to
+keep the previous limit.
+
+Placement now keeps each embedded model's compressed copy under
+`embedded-models/` in the catalog store and reuses it, so a later `zstandard`
+upgrade does not change placed bytes. Back it up with the rest of the store; a
+missing copy is recreated on the next placement. Boards placed before
+embedding are not changed; `scripts/report_unpinned_board_models.py` lists
+their unpinned models.
+
+## Remote provider 0.4.0: placing an earlier released revision
+
+Discovery metadata now reports `provider_version` `0.4.0`. It records the
+stamped symbols and embedded footprint models above, and adds an optional
+`revision` parameter to the component detail, part manifest and inline bundle
+so a released project can place the exact released revision it used
+(`released_revisions` in the detail lists them). Clients that ignore the new
+fields keep getting the current release. Drafts and archived revisions are
+never served (404 `revision_not_released`). See
+[Placing an earlier released revision](REMOTE_SYMBOL_PROVIDER.md#placing-an-earlier-released-revision).
 
 ## Bulk import overwrite flags keep existing files
 
@@ -498,6 +535,34 @@ before it have no model rows and `self_contained` NULL.
 - **Staged host models.** The tools read a copy of each hashed host model made
   under the build's staging directory, so a host file changed during a build
   cannot reach the outputs.
+
+## Superseded draft STEP files wait in quarantine
+
+**Data-loss window.** From v3.0.0-alpha up to and including v4.0.0-alpha, and
+on `dev` until #684 (merged 2026-10-15), daily artifact maintenance
+(`CATALOG_RETENTION_ENABLED=true`) could delete the STEP file of a released
+revision: it kept only the models of each component's head, so opening a
+draft that replaced a model let the next run delete the released model.
+Placement of that part then fails with a missing file, and its audit chain
+reports `asset_content_mismatch`. Never-released draft models were deleted
+too, with no record, until the purge ledger (#691, catalog step 9). After
+upgrading from any release in that window:
+
+1. run `scripts/check_catalog_asset_files.py`; a non-empty `placement_broken`
+   or `history_broken` is a released model that was lost;
+2. restore those with `--restore --search DIR --apply` from a volume backup,
+   the source library checkout, or users' `RemoteLibrary/remote_3d/` folders;
+3. run `--record-legacy --apply` to record the never-released draft models
+   the old purge deleted, so their components' audit chains verify again.
+
+Catalog step 11 (`asset_file_purge_events`) adds `event`, `quarantine_path`
+and `quarantine_id` to the purge ledger; rows from step 9 become `purged`.
+From this release on, maintenance moves a superseded never-released draft STEP
+to `quarantine/` under the catalog store instead of deleting it, and deletes it
+only after `CATALOG_DRAFT_MODEL_QUARANTINE_DAYS` (default 30). Until then
+`--restore --apply` moves it back. Back up the catalog store's `quarantine/`
+directory with the rest of the store. Reads of a quarantined model answer 404
+`asset_quarantined` (`asset_purged` once it is deleted).
 
 ## Why the catalog gate is gone
 

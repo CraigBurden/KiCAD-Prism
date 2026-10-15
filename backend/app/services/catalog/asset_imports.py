@@ -20,8 +20,8 @@ from app.services.catalog.asset_files import (
     content_type_for_asset,
     discover_footprint_name_in_text,
     discover_symbol_names_in_text,
-    raise_if_asset_purged,
 )
+from app.services.catalog.step_quarantine import raise_if_asset_purged
 from app.services.catalog import system_items
 from app.services.catalog.asset_links import CatalogAssetLinks
 from app.services.catalog.asset_registry import CatalogAssetRegistry
@@ -500,8 +500,8 @@ class CatalogAssetImports:
         """One asset's stored bytes, as written -- not the placement rewrite.
 
         Returns ``(path, content_type, filename)``, or ``None`` when the asset is
-        unknown or its file is missing. A file artifact maintenance purged raises
-        ``NotFound`` with code ``asset_purged`` instead.  The resolved path is confined to the
+        unknown or its file is missing. A file artifact maintenance quarantined or
+        purged raises ``NotFound`` with code ``asset_quarantined`` or ``asset_purged`` instead.  The resolved path is confined to the
         store root so a row written by an older import cannot become an
         arbitrary file read.
         """

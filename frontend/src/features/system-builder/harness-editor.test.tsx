@@ -1,4 +1,4 @@
-import { fireEvent, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { chooseOption } from "@/test/select";
@@ -48,6 +48,9 @@ function stubApi() {
     if (url.startsWith("/api/catalog/components?")) {
       return json({ items: [{ id: "molex", value: "Housing", description: "", mpn: "51021-0400", manufacturer: "Molex" }], total: 1, page: 1, page_size: 8 });
     }
+    if (url.includes("/models")) {
+      return json(init.method === "POST" ? { jobId: "j", status: "queued" } : { items: [{ assetId: "m", name: "h.step", glb: null }] });
+    }
     if (url.endsWith("/generate")) {
       return json({ wires: [{ from: { end: "she_b", pin: "2" }, to: { end: "she_e", pin: "6" }, signal: "G", netFrom: [], netTo: [] }], skipped: [] });
     }
@@ -56,10 +59,10 @@ function stubApi() {
   return calls;
 }
 
-function renderEditor(target = five, findings: Finding[] = []) {
+function renderEditor(target = five, findings: Finding[] = [], canConvertModels = false) {
   const document = { ...doc, harnesses: [target] };
   renderInSession(<HarnessEditor systemId="sys_1" document={document} harness={target}
-    canEdit findings={findings} onDeleted={vi.fn()} onConverted={vi.fn()} />, { document });
+    canEdit canConvertModels={canConvertModels} findings={findings} onDeleted={vi.fn()} onConverted={vi.fn()} />, { document });
 }
 
 describe("harness drafts", () => {
@@ -127,6 +130,21 @@ describe("HarnessEditor", () => {
     await waitFor(() => expect(calls.filter(([, init]) => init.method === "PATCH")).toHaveLength(2));
     expect(calls.filter(([, init]) => init.method === "PATCH").map(([url, init]) => [url.split("/").pop(), JSON.parse(String(init.body))]))
       .toEqual([["she_a", { part: { componentId: "h" } }], ["she_b", { part: null }]]);
+  });
+
+  it("converts the pinned revision of a housing part with no converted model, for catalog writers only", async () => {
+    const calls = stubApi();
+    const parted = { ...five, ends: five.ends.map((end) => end.id === "she_b"
+      ? { ...end, part: { componentId: "jst", revisionId: "r1", mpn: "PHR-4" }, pins: ["1", "2", "3", "4"] } : end) };
+    renderEditor(parted);
+    expect(await screen.findByText(/PHR-4/)).toBeTruthy();
+    expect(calls.some(([url]) => url.includes("/models"))).toBe(false);
+    cleanup();
+    renderEditor(parted, [], true);
+    fireEvent.click(await screen.findByRole("button", { name: "Convert the pinned revision's models" }));
+    await waitFor(() => expect(calls.filter(([, init]) => init.method === "POST").map(([url]) => url))
+      .toEqual(["/api/catalog/components/jst/models/convert?revisionId=r1"]));
+    expect(calls.map(([url]) => url)).toContain("/api/catalog/components/jst/models?revisionId=r1");
   });
 
   it("finds any catalog part by search", async () => {

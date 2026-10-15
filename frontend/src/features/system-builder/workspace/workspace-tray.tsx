@@ -3,6 +3,7 @@ import { ArrowLeft, ChevronDown, ChevronUp, ClipboardList, FileSpreadsheet, File
 
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
+import { canWriteCatalog } from "@/lib/roles";
 import { icdUrl, reportUrl } from "@/lib/systems-api";
 import { cn } from "@/lib/utils";
 import type { Finding, SystemDocument, SystemHarness, SystemLink } from "@/types/system";
@@ -224,7 +225,7 @@ export function WorkspaceTray(props: TrayProps) {
           {tab === "connections" && (harness ? (
             <div className="p-4">
               <HarnessEditor key={harness.id} systemId={systemId} document={document} harness={harness}
-                canEdit={canEdit} findings={findings}
+                canEdit={canEdit} canConvertModels={canWriteCatalog(props.user?.role)} findings={findings}
                 onDeleted={() => onSelect(null)} onConverted={(linkId) => onSelect({ kind: "link", id: linkId })} />
             </div>
           ) : link ? (

@@ -55,6 +55,7 @@ describe("scene summary", () => {
     expect(scenePollDelay(mixed)).toBe(5000);
     expect(scenePollDelay(scene([occurrence("OBC-1")], [asset("OBC-1")]))).toBeNull();
     expect(scenePollDelay(null)).toBeNull();
+    expect(scenePollDelay({ ...scene([occurrence("OBC-1")], [asset("OBC-1")]), modelsConverting: 1 })).toBe(5000);
   });
 });
 

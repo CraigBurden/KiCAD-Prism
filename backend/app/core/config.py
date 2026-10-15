@@ -352,6 +352,15 @@ class Settings(PipelineSettings):
         ),
     )
 
+    REMOTE_PROVIDER_EMBED_MAX_COMPRESSED_BYTES: int = Field(
+        default=16 * 1024 * 1024,
+        ge=0,
+        description=(
+            "Compressed (zstd) 3D model bytes one placed footprint may embed; a model over it keeps "
+            "the external destination path. The footprint grows by about 4/3 of the embedded data."
+        ),
+    )
+
     REMOTE_PROVIDER_OAUTH_CLIENT_ID: str = Field(
         default="kicad-prism-kicad",
         description="Public OAuth client_id advertised to KiCad for the remote provider."
@@ -587,6 +596,16 @@ class Settings(PipelineSettings):
     CATALOG_RETENTION_ENABLED: bool = Field(
         default=True,
         description="Run the local archive/quarantine/GC policy once per day.",
+    )
+
+    CATALOG_DRAFT_MODEL_QUARANTINE_DAYS: int = Field(
+        default=30,
+        ge=0,
+        description=(
+            "Days a superseded never-released draft STEP file waits in the catalog store's quarantine "
+            "before artifact maintenance deletes it; until then it can be restored. 0 deletes it in the "
+            "same maintenance run."
+        ),
     )
 
     CATALOG_IMPORT_ROOTS: str = Field(

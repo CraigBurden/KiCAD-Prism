@@ -10,8 +10,13 @@ level 15 with the content size in the frame and no frame checksum, base64 in
 variant (seed ``0xABBA2345``) of the uncompressed data, written as 32
 uppercase hex digits. KiCad verifies that checksum on load.
 
-zstd output is deterministic for one library version, so output stays
-byte-stable as long as ``zstandard`` (and the libzstd it bundles) is pinned.
+zstd output is deterministic for one library version only. Placement
+therefore keeps the compressed copy of each model it embeds
+(``embedded_model_copies.py``) and reuses it, so a ``zstandard`` upgrade does
+not change the bytes of a footprint placed before.
+
+``decode_embedded_files`` reads the forms back (project harvest uses it for a
+board whose footprints reference ``kicad-embed://`` models).
 """
 
 from __future__ import annotations
@@ -21,26 +26,27 @@ import hashlib
 from pathlib import PurePath
 import re
 import struct
+from typing import Any
 
 import zstandard
 
-# Bytes of (file ...) forms one footprint may carry. KiCad charges every
-# manifest asset against one aggregate max_download_bytes budget (16 MiB
-# advertised by Prism). An embedded model is not shipped as a separate 3dmodel
-# asset, so for a compressible model like STEP the shipment shrinks, but the
-# footprint itself grows by this much at most. 4 MiB of base64 is about
-# 3 MiB of zstd data (a STEP model of roughly 15-30 MiB), leaves most of the
-# budget to the symbol, SPICE model and any model that falls back, and bounds
-# the board-file growth per part. The inline bundle base64-encodes the
-# footprint twice more, so an embedded model costs about 2.37x its compressed
-# size there, plus line wrapping and JSON. The form's size is known from the
-# compressed data alone, so the pure-Python checksum only runs on a model
-# that fits.
-EMBED_MAX_FOOTPRINT_BYTES = 4 * 1024 * 1024
+# Compressed model bytes one footprint may embed, by default. The setting
+# REMOTE_PROVIDER_EMBED_MAX_COMPRESSED_BYTES (issue #698, D2) is the live
+# value; placement reads it per call. 16 MiB of zstd data is a STEP model of
+# roughly 80-160 MiB, so with the raw ceiling below this cap only binds for
+# models that compress poorly. The footprint grows by about 4/3 of it (base64
+# in 76-column lines). KiCad charges every manifest asset against one
+# aggregate max_download_bytes budget, so a footprint over that budget does
+# not place; the raw model it replaces would not have either, because a model
+# is only embedded when that makes the placement no larger.
+DEFAULT_EMBED_MAX_COMPRESSED_BYTES = 16 * 1024 * 1024
 
 # Raw model bytes one footprint will read and compress while trying to embed.
 # A cheap guard ahead of the cap above: a model past it costs a stat, not a
-# read and a zstd pass. Generous, since STEP compresses about 5-10x.
+# read and a zstd pass. Generous, since STEP compresses about 5-10x. Kept at
+# 64 MiB when the compressed cap went from about 3 MiB to 16 MiB: raising it
+# would let one placement read and compress far more per request, and a STEP
+# model of 64 MiB already compresses to about 6-13 MiB.
 EMBED_MAX_RAW_MODEL_BYTES = 64 * 1024 * 1024
 
 ZSTD_LEVEL = 15
@@ -181,6 +187,59 @@ def _list_head(text: str, open_index: int) -> str:
     return match.group(0) if match else ""
 
 
+# Raw bytes one embedded file may decompress to when it is read back.
+DECODE_MAX_RAW_BYTES = 256 * 1024 * 1024
+
+_FILE_FORM_RE = re.compile(
+    r'\(file\s+\(name\s+("(?:[^"\\]|\\.)*"|[^\s()]+)\s*\)\s*\(type\s+([^\s()]+)\s*\)'
+    r"(?:\s*\(data\s*\|([^|]*)\|\s*\))?"
+)
+_EMBEDDED_SUFFIX_RE = re.compile(r"^(?P<stem>.+)-(?P<digest>[0-9a-f]{12})$")
+
+
+def _unquote(token: str) -> str:
+    if len(token) >= 2 and token.startswith('"') and token.endswith('"'):
+        return re.sub(r"\\(.)", r"\1", token[1:-1])
+    return token
+
+
+def decompress_model(compressed: bytes) -> bytes:
+    """Undo ``compress_model`` (or KiCad's ``ZSTD_compress``), refusing oversized output."""
+    size = zstandard.frame_content_size(compressed)
+    if size < 0 or size > DECODE_MAX_RAW_BYTES:
+        raise ValueError("Embedded file has no or too large a content size")
+    return zstandard.ZstdDecompressor().decompress(compressed)
+
+
+def decode_embedded_files(text: str) -> dict[str, dict[str, Any]]:
+    """Every ``(file ...)`` form that carries data, by name: ``{"type", "data"}``.
+
+    Data is base64 of zstd as KiCad writes it. A form without data (a
+    footprint inside a board names its files and the board holds the data) or
+    one that does not decode is left out.
+    """
+    files: dict[str, dict[str, Any]] = {}
+    for match in _FILE_FORM_RE.finditer(text):
+        encoded = match.group(3)
+        if encoded is None:
+            continue
+        try:
+            data = decompress_model(base64.b64decode("".join(encoded.split()), validate=True))
+        except (ValueError, zstandard.ZstdError):
+            continue
+        files.setdefault(_unquote(match.group(1)), {"type": match.group(2), "data": data})
+    return files
+
+
+def original_model_name(embedded_name: str, data: bytes) -> str:
+    """Undo ``embedded_model_name``: drop the ``-<sha256[:12]>`` it added for ``data``."""
+    path = PurePath(embedded_name)
+    match = _EMBEDDED_SUFFIX_RE.match(path.stem)
+    if match and match.group("digest") == hashlib.sha256(data).hexdigest()[:12]:
+        return f"{match.group('stem')}{path.suffix}"
+    return path.name
+
+
 def add_embedded_files(text: str, forms: list[str], indent: str, unit: str) -> str:
     """Add ``(file ...)`` forms to the footprint's ``embedded_files`` block.
 
@@ -213,11 +272,15 @@ def add_embedded_files(text: str, forms: list[str], indent: str, unit: str) -> s
 
 
 __all__ = [
-    "EMBED_MAX_FOOTPRINT_BYTES",
+    "DEFAULT_EMBED_MAX_COMPRESSED_BYTES",
     "EMBED_MAX_RAW_MODEL_BYTES",
+    "ZSTD_LEVEL",
     "add_embedded_files",
     "compress_model",
+    "decode_embedded_files",
+    "decompress_model",
     "embedded_file_form",
     "embedded_model_name",
     "kicad_mmh3_128",
+    "original_model_name",
 ]

@@ -8,6 +8,7 @@ pass named dependencies; the returned object binds onto a service instance.
 from __future__ import annotations
 
 from dataclasses import dataclass, fields
+from pathlib import Path
 
 from app.services.catalog.asset_browser import CatalogAssetBrowser
 from app.services.catalog.asset_files import CatalogAssetFiles
@@ -32,6 +33,7 @@ from app.services.catalog.metadata_csv import CatalogMetadataCsv
 from app.services.catalog.metadata_fields import CatalogMetadataFields
 from app.services.catalog.metadata_grid import CatalogMetadataGrid
 from app.services.catalog.metadata_schema import CatalogMetadataSchema
+from app.services.catalog.embedded_model_copies import CompressedModelCopies
 from app.services.catalog.placement import CatalogPlacement
 from app.services.catalog.preview_pipeline import CatalogPreviewPipeline
 from app.services.catalog.preview_renderer import CatalogPreviewRenderer
@@ -123,11 +125,14 @@ def build_catalog_collaborators(
     asset_registry: CatalogAssetRegistry | None = None,
     metadata_schema: CatalogMetadataSchema | None = None,
     kicad: KicadTool | None = None,
+    store_root: Path | None = None,
 ) -> CatalogCollaborators:
     """Construct an independent collaborator graph around ``catalog_locks``.
 
     ``kicad`` is the kicad-cli the previews and symbol upgrades run; it
-    defaults to the installed one.
+    defaults to the installed one. ``store_root`` is the catalog store, where
+    placement keeps the compressed copy of each model it embeds; without it
+    every placement compresses again.
     """
 
     preview_renderer = preview_renderer or CatalogPreviewRenderer()
@@ -160,7 +165,11 @@ def build_catalog_collaborators(
         catalog_locks, revision_kernel, component_read_models, revision_finalizer, klc_validation
     )
     catalog_health = CatalogHealth(component_queries, klc_validation)
-    placement = CatalogPlacement(revision_kernel, component_read_models)
+    placement = CatalogPlacement(
+        revision_kernel,
+        component_read_models,
+        compress=CompressedModelCopies.under_store(store_root).compress if store_root is not None else None,
+    )
     dbl_export = CatalogDblExport(placement)
     provider_tokens = CatalogProviderTokens()
     remote_heads = CatalogRemoteHeads()

@@ -223,12 +223,16 @@ export function removeMate(componentId: string, partnerId: string) {
   return fetchJson<Items<MatingPart>>(`${component(componentId)}/mates-with/${id(partnerId)}`, { method: "DELETE" });
 }
 
-export function listModels(componentId: string, signal?: AbortSignal) {
-  return fetchJson<Items<CatalogModel>>(`${component(componentId)}/models`, withSignal(signal));
+/** The STEP models of the current revision, or of `revisionId` (a revision a system pins). */
+export function listModels(componentId: string, signal?: AbortSignal, revisionId?: string) {
+  const query = revisionId ? `?revisionId=${id(revisionId)}` : "";
+  return fetchJson<Items<CatalogModel>>(`${component(componentId)}/models${query}`, withSignal(signal));
 }
 
-export function convertModels(componentId: string) {
-  return fetchJson(`${component(componentId)}/models/convert`, post());
+/** Queue the GLB conversion of the current revision's STEP models, or of `revisionId`'s. */
+export function convertModels(componentId: string, revisionId?: string) {
+  const query = revisionId ? `?revisionId=${id(revisionId)}` : "";
+  return fetchJson(`${component(componentId)}/models/convert${query}`, post());
 }
 
 export function saveModelAlignment(componentId: string, assetId: string, alignment: Record<string, unknown>) {

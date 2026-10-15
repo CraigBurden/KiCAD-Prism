@@ -182,16 +182,16 @@ class ManifestHarnessTest(unittest.TestCase):
 
 
 class HousingModelTest(unittest.TestCase):
-    """SB2-47: a scene end with a part gets the part's first converted model (§18.2)."""
+    """SB2-47: a scene end with a part gets the first converted model of the part revision it pins (§18.2, #698)."""
 
     def test_first_converted_model_or_none(self) -> None:
         from app.services.systems.service import SystemService
 
         class Catalog:
-            calls = 0
+            calls: list[tuple[str, object]] = []
 
-            def list_models(self, component_id):
-                Catalog.calls += 1
+            def list_models(self, component_id, revision_id=None):
+                Catalog.calls.append((component_id, revision_id))
                 if component_id == "broken":
                     raise LookupError("not a part")
                 return [{"glb": None, "alignment": {}},
@@ -201,11 +201,14 @@ class HousingModelTest(unittest.TestCase):
 
         service = SystemService.__new__(SystemService)
         service._catalog = lambda: Catalog()
-        harnesses = [{"ends": [{"part": "cmp_a"}, {"part": "cmp_a"}, {"part": "cmp_b"}, {"part": None}, {"part": "broken"}]}]
+        harnesses = [{"ends": [{"part": "cmp_a", "partRevisionId": "rev_a"}, {"part": "cmp_a", "partRevisionId": "rev_a"},
+                               {"part": "cmp_b", "partRevisionId": "rev_b"}, {"part": None, "partRevisionId": None},
+                               {"part": "broken", "partRevisionId": "rev_x"}]}]
         service._attach_housings(harnesses)
         ends = harnesses[0]["ends"]
         self.assertEqual(ends[0]["housing"], {"glbKey": "k2", "boundsMm": {"minMm": [0, 0, -9], "maxMm": [1, 1, 0]},
                                               "alignment": {"offsetMm": [0, 0, 1], "rotationDeg": [0, 0, 90], "scale": 1.0}})
         self.assertIs(ends[1]["housing"], ends[0]["housing"])
         self.assertEqual([e["housing"] for e in ends[2:]], [None, None, None])
-        self.assertEqual(Catalog.calls, 3, "each part is asked once")
+        self.assertEqual(Catalog.calls, [("cmp_a", "rev_a"), ("cmp_b", "rev_b"), ("broken", "rev_x")],
+                         "each pinned part revision is asked once")

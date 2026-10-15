@@ -19,7 +19,7 @@ def ordered(a: str, b: str) -> tuple[str, str]:
 def _part_row(conn: Any, component_id: str) -> dict | None:
     row = conn.execute(
         """
-        SELECT c.id, c.kind, c.is_active, r.name, r.mpn, r.manufacturer, r.value
+        SELECT c.id, c.kind, c.is_active, c.current_revision_id, r.name, r.mpn, r.manufacturer, r.value
         FROM components c LEFT JOIN component_revisions r ON r.id = c.current_revision_id
         WHERE c.id = %s
         """,

@@ -1247,6 +1247,9 @@ def run_project_sync_job_v3(context: JobContext) -> JobResult:
         start_project_metadata_job(project_id, requested_by="project-sync")
     except Exception as error:
         print(f"Could not queue metadata refresh for {project_id}: {error}", flush=True)
+    from app.services import project_catalog_usage_service
+
+    project_catalog_usage_service.project_synced(project_id)  # which library revisions the new HEAD placed
     return JobResult(
         message=str(result.get("message") or "Sync completed"),
         details=dict(result),

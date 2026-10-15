@@ -17,6 +17,7 @@ import type { SystemScene } from "@/types/system";
 import { CollisionCheckButton } from "./collision-check-button";
 import { sessionReads } from "./session/session-reads";
 import { useSessionRead, useSystemSession } from "./session/use-system-session";
+import { useConversionsSettled } from "./pinned-model";
 import { StepExportButton } from "./step-export-button";
 import { drawnBoards, failedNotice, names, scenePollDelay, summarizeScene, webgpuAvailable } from "./scene-3d-model";
 import { HarnessPanel } from "./scene-harness-panel";
@@ -78,6 +79,7 @@ function useSystemScene(enabled: boolean) {
     const timer = setTimeout(() => session.refresh(spec.key), delay);
     return () => clearTimeout(timer);
   }, [scene, session, spec.key]);
+  useConversionsSettled(scene?.modelsConverting ?? 0);
   const error = read.error ? (read.error instanceof Error ? read.error.message : "Could not load the 3D scene") : null;
   return { scene, error };
 }

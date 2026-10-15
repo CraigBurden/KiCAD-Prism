@@ -21,6 +21,7 @@ STEP = Path(__file__).resolve().parents[2] / "fixtures" / "release-studio" / "us
 # A made-up 2×5 header (pads 1–10) from the SB2-21 fixtures: the connector part placed on the module (SB2-48b).
 CONNECTOR = (Path(__file__).resolve().parent / "fixtures" / "system_builder" / "p2" / "sources" / "mezz_base" / "F0"
              / "PrismFixture.pretty" / "Conn_Custom_2x05.kicad_mod")
+OTHER_STEP = STEP.parent / "CYPD3177-24LQXQT.stp"
 TOP = {"originMm": [0.0, 0.0, 10.0], "normal": [0.0, 0.0, 1.0], "quarterTurns": 0}
 
 
@@ -213,6 +214,143 @@ class ModuleItemsTest(unittest.TestCase):
         events = [e["event_type"] for e in self.service.list_component_audit_events(component_id)]
         self.assertIn("component.module_connector_placed", events)
         self.assertIn("component.module_connector_removed", events)
+
+    def test_a_connector_keeps_the_part_revision_it_was_placed_with(self) -> None:
+        """#698: a newer revision of the connector part never changes a placed connector until it is placed again."""
+        component_id = self.modelled_module()
+        part = self.connector_part()
+        self.attach(part, "3dmodel", STEP.name, STEP.read_bytes())
+        [first] = self.service.system_items.convert_models(part)
+        placed_revision = str(self.service.get_component(part)["current_revision_id"])
+        self.service.system_items.set_module_connector(component_id, "A", part, TOP, actor="author@example.com")
+        self.service.detach_asset(part, "3dmodel", actor="author@example.com")
+        self.attach(part, "3dmodel", OTHER_STEP.name, OTHER_STEP.read_bytes())
+        [head] = self.service.system_items.convert_models(part)
+        self.assertNotEqual(head["glb"]["key"], first["glb"]["key"])
+
+        connector = self.service.system_items.module_connectors(component_id)["units"][0]["connector"]
+        self.assertEqual((connector["part"]["revisionId"], connector["model"]["glbKey"]),
+                         (placed_revision, first["glb"]["key"]))
+        self.assertEqual(len(connector["geometry"]["pads"]), 10, "the placed revision's footprint")
+        current = str(self.service.get_component(part)["current_revision_id"])
+        self.assertEqual(connector["part"]["currentRevisionId"], current)
+        moved = self.service.system_items.set_module_connector(component_id, "A", part, dict(TOP, quarterTurns=2),
+                                                               actor="author@example.com")
+        connector = moved["units"][0]["connector"]
+        self.assertEqual((connector["part"]["revisionId"], connector["model"]["glbKey"], connector["placement"]["quarterTurns"]),
+                         (placed_revision, first["glb"]["key"], 2), "a move keeps the recorded revision")
+        updated = self.service.system_items.set_module_connector(component_id, "A", part, TOP, actor="author@example.com",
+                                                                 update_part_revision=True)
+        connector = updated["units"][0]["connector"]
+        self.assertEqual((connector["part"]["revisionId"], connector["model"]["glbKey"]), (current, head["glb"]["key"]))
+        other = self.connector_part()
+        self.service.system_items.set_module_connector(component_id, "A", part, TOP, actor="author@example.com")
+        swapped = self.service.system_items.set_module_connector(component_id, "A", other, TOP, actor="author@example.com")
+        self.assertEqual(swapped["units"][0]["connector"]["part"]["revisionId"],
+                         str(self.service.get_component(other)["current_revision_id"]), "another part takes its current one")
+
+    def test_migration_10_records_each_placement_s_current_part_revision(self) -> None:
+        from app.services import catalog_schema_migrations as migrations
+
+        component_id = self.modelled_module()
+        part = self.connector_part()
+        self.service.system_items.set_module_connector(component_id, "A", part, TOP, actor="author@example.com")
+        with self.service.connection() as conn:
+            step = conn.execute("SELECT name FROM catalog_schema_versions WHERE version = 10").fetchone()
+            self.assertEqual(step["name"], "module_connector_part_revision")
+            conn.execute("UPDATE catalog_module_connectors SET part_revision_id = NULL WHERE component_id = %s",
+                         (component_id,))
+            migrations._module_connector_part_revision(conn)  # re-runnable: a placement from before step 10
+            row = conn.execute("SELECT part_revision_id FROM catalog_module_connectors WHERE component_id = %s",
+                               (component_id,)).fetchone()
+            conn.commit()
+        self.assertEqual(row["part_revision_id"], str(self.service.get_component(part)["current_revision_id"]))
+
+    def test_artifact_maintenance_keeps_the_step_of_a_placed_part_revision(self) -> None:
+        """A connector placement pins its part revision's draft STEP like a system does (§3.6)."""
+        from unittest.mock import patch
+
+        from app.services import catalog_worker_tasks
+
+        component_id = self.modelled_module()
+        part = self.connector_part()
+        self.attach(part, "3dmodel", "scratch.step", f"ISO-10303-21;/* {uuid.uuid4().hex} */END-ISO-10303-21;".encode())
+        [scratch] = [a for a in self.service.get_component(part)["assets"] if a["asset_type"] == "3dmodel"]
+        with self.service.connection() as conn:
+            path = Path(str(conn.execute("SELECT canonical_path FROM assets WHERE id = %s",
+                                         (scratch["id"],)).fetchone()["canonical_path"]))
+        self.service.system_items.set_module_connector(component_id, "A", part, TOP, actor="author@example.com")
+        self.attach(part, "3dmodel", "next.step", f"ISO-10303-21;/* {uuid.uuid4().hex} */END-ISO-10303-21;".encode())
+        head = self.service.get_component(part)
+        self.service.detach_asset_by_id(part, str(scratch["id"]), expected_revision_id=head["revision_id"],
+                                        actor="author@example.com")
+
+        def purge() -> list[str]:
+            with patch.object(catalog_worker_tasks, "catalog_service", self.service):
+                return catalog_worker_tasks.purge_superseded_step_files()["asset_ids"]
+
+        self.assertNotIn(str(scratch["id"]), purge())
+        self.assertTrue(path.is_file(), "the STEP of the part revision a connector placement records was purged")
+        self.service.system_items.remove_module_connector(component_id, "A", actor="author@example.com")
+        self.assertIn(str(scratch["id"]), purge())
+
+    def test_a_connector_s_recorded_draft_step_is_never_quarantined(self) -> None:
+        """Issue #698 (D1): connector part revisions protect a draft STEP from quarantine, and a
+        quarantined STEP a connector comes to record again is restored when its grace period ends."""
+        from unittest.mock import patch
+
+        from app.services import catalog_worker_tasks
+
+        component_id = self.modelled_module()
+        part = self.connector_part()
+        self.attach(part, "3dmodel", "scratch.step", f"ISO-10303-21;/* {uuid.uuid4().hex} */END-ISO-10303-21;".encode())
+        scratch_revision = str(self.service.get_component(part)["revision_id"])
+        [scratch] = [a for a in self.service.get_component(part)["assets"] if a["asset_type"] == "3dmodel"]
+        with self.service.connection() as conn:
+            path = Path(str(conn.execute("SELECT canonical_path FROM assets WHERE id = %s",
+                                         (scratch["id"],)).fetchone()["canonical_path"]))
+        self.attach(part, "3dmodel", "next.step", f"ISO-10303-21;/* {uuid.uuid4().hex} */END-ISO-10303-21;".encode())
+        head = self.service.get_component(part)
+        self.service.detach_asset_by_id(part, str(scratch["id"]), expected_revision_id=head["revision_id"],
+                                        actor="author@example.com")
+
+        def purge(grace_days: int = 30) -> dict:
+            with (
+                patch.object(catalog_worker_tasks, "catalog_service", self.service),
+                patch("app.core.config.settings.CATALOG_DRAFT_MODEL_QUARANTINE_DAYS", grace_days),
+            ):
+                return catalog_worker_tasks.purge_superseded_step_files()
+
+        def record_scratch_revision() -> None:
+            self.service.system_items.set_module_connector(component_id, "A", part, TOP, actor="author@example.com")
+            with self.service.connection() as conn:
+                conn.execute("UPDATE catalog_module_connectors SET part_revision_id = %s WHERE component_id = %s",
+                             (scratch_revision, component_id))
+                conn.commit()
+
+        record_scratch_revision()
+        for grace_days in (30, 0):
+            self.assertNotIn(str(scratch["id"]), purge(grace_days)["asset_ids"])
+            self.assertTrue(path.is_file(), "a connector's recorded draft STEP was quarantined")
+
+        self.service.system_items.remove_module_connector(component_id, "A", actor="author@example.com")
+        self.assertIn(str(scratch["id"]), purge()["asset_ids"])
+        self.assertFalse(path.exists())
+        record_scratch_revision()
+        expired = purge(0)["expired"]
+        self.assertEqual(expired["restored_asset_ids"], [str(scratch["id"])])
+        self.assertTrue(path.is_file(), "a quarantined STEP a connector records again was deleted")
+
+    def test_connectors_list_the_units_of_a_pinned_module_revision(self) -> None:
+        component_id = self.modelled_module()
+        pinned = str(self.service.get_component(component_id)["current_revision_id"])
+        self.attach(component_id, "symbol", "TEST_IMU.kicad_sym",
+                    module_symbol().replace('(number "9"', '(number "10"').encode())
+        pads = lambda listed: [u["pads"] for u in listed["units"]]
+        self.assertEqual(pads(self.service.system_items.module_connectors(component_id))[1], ["7", "8", "10"])
+        self.assertEqual(pads(self.service.system_items.module_connectors(component_id, pinned))[1], ["7", "8", "9"])
+        with self.assertRaisesRegex(LookupError, "revision not found"):
+            self.service.system_items.module_connectors(component_id, "no-such-revision")
 
     def test_a_new_symbol_replaces_the_module_s_symbol(self) -> None:
         """A module has one symbol, its interface: a re-import replaces it rather than adding a second

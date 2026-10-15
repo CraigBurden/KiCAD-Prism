@@ -97,7 +97,8 @@ class PartTest(PartCase):
         """A designer's scene read under ``converter``, which must queue the pinned revision's conversion
         and draw nothing yet; the queued job is then run as the catalog worker would."""
         with mock.patch.object(catalog_models, "converter_id", return_value=converter), \
-                mock.patch("app.services.systems.service_base.latest_job", return_value=last_job), \
+                mock.patch("app.services.systems.service_base.latest_jobs",
+                           side_effect=lambda kind, keys: {k: last_job for k in keys} if last_job else {}), \
                 mock.patch("app.services.catalog_job_service.catalog_jobs.enqueue") as enqueue:
             scene = self.service.scene(DESIGNER, self.sid, may_convert_models=True)
             [occurrence] = [o for o in scene["occurrences"] if o["instanceId"] == part["id"]]
@@ -119,7 +120,8 @@ class PartTest(PartCase):
         with mock.patch.object(catalog_models, "converter_id", return_value=converter), \
                 mock.patch("app.services.catalog_job_service.catalog_jobs.enqueue") as enqueue:
             self.service.scene(DESIGNER, self.sid)  # a reader without catalog_write
-            with mock.patch("app.services.systems.service_base.latest_job", return_value={"status": "failed"}):
+            with mock.patch("app.services.systems.service_base.latest_jobs",
+                            side_effect=lambda kind, keys: {k: {"status": "failed"} for k in keys}):
                 self.service.scene(DESIGNER, self.sid, may_convert_models=True)  # a read never retries a failure
             enqueue.assert_not_called()
         enqueue = self.read_and_convert(part, converter)
@@ -167,11 +169,24 @@ class PartTest(PartCase):
         for refused in (LookupError("Component not found"), ValueError("only parts and modules carry models")):
             with self.subTest(refused=type(refused).__name__), mock.patch.object(self.service, "_catalog") as catalog, \
                     mock.patch("app.services.catalog_job_service.catalog_jobs.enqueue") as enqueue, \
+                    mock.patch("app.services.systems.service_base.latest_jobs", return_value={}), \
                     self.assertLogs("app.services.systems.service", level="DEBUG") as logs:
                 catalog.return_value.list_models.side_effect = refused
                 self.service._queue_pinned_conversions([(self.part_id, "rev")], DESIGNER)
             enqueue.assert_not_called()
             self.assertEqual([(r.levelname, r.exc_info) for r in logs.records], [("DEBUG", None)])
+
+    def test_a_poll_while_a_conversion_runs_asks_the_catalog_nothing(self) -> None:
+        """#698 review: the scene re-reads every 5 s while models convert; an active job settles by itself."""
+        pins = [(self.part_id, "rev-a"), (self.part_id, "rev-b")]
+        with mock.patch.object(self.service, "_catalog") as catalog, \
+                mock.patch("app.services.systems.service_base.latest_jobs",
+                           side_effect=lambda kind, keys: {k: {"status": "running"} for k in keys}) as jobs, \
+                mock.patch("app.services.catalog_job_service.catalog_jobs.enqueue") as enqueue:
+            self.assertEqual(self.service._queue_pinned_conversions(pins, DESIGNER), 2)
+        jobs.assert_called_once()
+        catalog.return_value.list_models.assert_not_called()
+        enqueue.assert_not_called()
 
     def test_convert_takes_only_a_revision_of_that_component(self) -> None:
         other = self.catalog.create_manual_component(
@@ -278,6 +293,77 @@ class SceneConvertPermissionTest(unittest.TestCase):
                     mock.patch.object(systems_api.system_service, "service") as service:
                 asyncio.run(systems_api.get_scene("sys", user))
                 self.assertIs(service.scene.call_args.kwargs["may_convert_models"], expected)
+
+
+class PinnedHousingTest(PartCase):
+    """A harness end's housing is drawn from the part revision the end pins (§17.3), like an instance (#698)."""
+
+    def end_with_part(self) -> tuple[str, str]:
+        """An unmated two-pin end whose block pins the part's current revision; returns ``(end ID, revision)``."""
+        revision = str(self.catalog.get_component(self.part_id)["current_revision_id"])
+        with self.store.mutation(self.sid, expected_version=None, actor="user:t") as change:
+            harness = self.store.create_harness(change, name="W1")
+            self.store.add_harness_end(change, harness["id"], pin_count=2)
+            harness = self.store.add_harness_end(change, harness["id"], pin_count=2,
+                                                 catalog_component_id=self.part_id, catalog_revision_id=revision)
+        self.conn.commit()
+        [end] = [e for e in harness["ends"] if e["catalog_component_id"]]
+        return end["id"], revision
+
+    def move_the_head(self) -> dict:
+        self.catalog.detach_asset(self.part_id, "3dmodel", actor="author@example.com")
+        self.catalog.attach_auxiliary_asset(self.part_id, asset_type="3dmodel", upload_name=OTHER_STEP.name,
+                                            payload=OTHER_STEP.read_bytes(), target_library="Test",
+                                            actor="author@example.com")
+        [head] = self.catalog.system_items.convert_models(self.part_id)
+        return head
+
+    def housing(self, end_id: str, **kwargs) -> Optional[dict]:
+        scene = self.service.scene(DESIGNER, self.sid, **kwargs)
+        [end] = [e for h in scene["harnesses"] for e in h["ends"] if e["id"] == end_id]
+        return end["housing"]
+
+    def test_the_housing_keeps_its_revision_model_after_the_head_moves(self) -> None:
+        end_id, revision = self.end_with_part()
+        head = self.move_the_head()
+        self.assertNotEqual(head["glb"]["key"], self.model["glb"]["key"])
+        scene = self.service.scene(DESIGNER, self.sid)
+        [end] = [e for h in scene["harnesses"] for e in h["ends"] if e["id"] == end_id]
+        self.assertEqual((end["partRevisionId"], end["housing"]["glbKey"]), (revision, self.model["glb"]["key"]))
+
+    def test_a_pinned_housing_without_a_glb_is_queued_then_drawn(self) -> None:
+        end_id, revision = self.end_with_part()
+        self.move_the_head()
+        converter = f"test-{uuid.uuid4().hex}"
+        with mock.patch.object(catalog_models, "converter_id", return_value=converter), \
+                mock.patch("app.services.systems.service_base.latest_jobs", return_value={}), \
+                mock.patch("app.services.catalog_job_service.catalog_jobs.enqueue") as enqueue:
+            self.assertIsNone(self.housing(end_id))
+            enqueue.assert_not_called()
+            self.assertIsNone(self.housing(end_id, may_convert_models=True))
+            self.assertEqual(self.service.scene(DESIGNER, self.sid, may_convert_models=True)["modelsConverting"], 1,
+                             "the writer's scene polls until the conversion settles")
+            enqueue.assert_called_with("catalog_model_glb", {"componentId": self.part_id, "revisionId": revision},
+                                            created_by=DESIGNER.email,
+                                            idempotency_key=f"catalog_model_glb:{self.part_id}@{revision}:{converter}")
+            with mock.patch.object(catalog_worker_tasks, "catalog_service", self.catalog):
+                catalog_worker_tasks.run_model_glb(mock.Mock(payload=enqueue.call_args.args[1]))
+            self.assertEqual(self.housing(end_id)["glbKey"], catalog_models.glb_key(self.model["stepSha256"], converter))
+            self.assertEqual(self.service.scene(DESIGNER, self.sid, may_convert_models=True)["modelsConverting"], 0)
+
+    def test_the_models_route_lists_a_pinned_revision(self) -> None:
+        _end_id, revision = self.end_with_part()
+        self.move_the_head()
+        reader = AuthenticatedUser(email="r@example.com", name="r", role="viewer")
+        with mock.patch.object(catalog_system_items_api, "catalog_service", self.catalog):
+            [pinned] = catalog_system_items_api.list_models(self.part_id, revision_id=revision, user=reader)["items"]
+            [head] = catalog_system_items_api.list_models(self.part_id, revision_id=None, user=reader)["items"]
+            with self.assertRaises(HTTPException) as refused:
+                catalog_system_items_api.list_models(self.part_id, revision_id="no-such-revision", user=reader)
+        self.assertEqual(pinned["glb"]["key"], self.model["glb"]["key"])
+        self.assertNotEqual(head["glb"]["key"], pinned["glb"]["key"])
+        self.assertEqual(refused.exception.status_code, 404)
+
 
 class PinnedDraftStepTest(PartCase):
     """Artifact maintenance keeps the STEP of a draft revision a system pins (#684 review)."""

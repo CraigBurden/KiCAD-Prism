@@ -60,6 +60,8 @@ CATALOG_TABLES = (
     "catalog_metadata_batch_items",
     "catalog_metadata_batches",
     "component_usage",
+    "project_catalog_placements",
+    "project_catalog_scans",
     "project_component_import_proposals",
     "project_component_import_sessions",
     "component_heads",

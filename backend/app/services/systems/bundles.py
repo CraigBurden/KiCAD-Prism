@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import json
 import logging
-from typing import Any, Mapping, Optional
+from typing import Any, Iterable, Mapping, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -48,6 +48,22 @@ def latest_job(kind: str, artifact_key: str) -> Optional[dict]:
             (kind, artifact_key),
         ).fetchone()
     return dict(row) if row else None
+
+
+def latest_jobs(kind: str, artifact_keys: Iterable[str]) -> dict[str, dict]:
+    """``artifact key -> its most recent job of kind`` (any status), in one query; keys with none are left out."""
+    from app.services.systems.jobs import workspace_connection
+
+    keys = sorted(set(artifact_keys))
+    if not keys:
+        return {}
+    with workspace_connection() as conn:
+        rows = conn.execute(
+            "SELECT DISTINCT ON (artifact_key) artifact_key, id, status FROM ws_jobs"
+            " WHERE kind = %s AND artifact_key = ANY(%s) ORDER BY artifact_key, created_at DESC",
+            (kind, keys),
+        ).fetchall()
+    return {str(row["artifact_key"]): dict(row) for row in rows}
 
 
 class BundleSource:

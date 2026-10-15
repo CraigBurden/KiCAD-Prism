@@ -11,6 +11,7 @@ import { fetchJson } from "@/lib/api";
 import type { CatalogComponent } from "@/types/catalog";
 import type { SystemDocument, SystemInstance } from "@/types/system";
 
+import { PinnedModelFact } from "./pinned-model";
 import { catalogComponentHref } from "./publish-dialog";
 import { releaseChain } from "./release-chain";
 import { boardStatus } from "./system-format";
@@ -26,13 +27,15 @@ interface SubsystemDetailProps {
   document: SystemDocument;
   instance: SystemInstance;
   canEdit: boolean;
+  /** The reader may write the catalog: Convert a pinned revision's models (§18.2). */
+  canConvertModels?: boolean;
 }
 
 /**
  * An assembly instance: the catalog revision it pins and the boards inside it (CONTRACTS_P2 §5). A module
  * instance (§5.6) shows the same revision facts and its connectors.
  */
-export function SubsystemDetail({ document, instance, canEdit }: SubsystemDetailProps) {
+export function SubsystemDetail({ document, instance, canEdit, canConvertModels = false }: SubsystemDetailProps) {
   const { busy, edit } = useSystemSession();
   const isModule = instance.kind === "module";
   const isPart = instance.kind === "part";  // a mechanical part: revision facts only (P2 §24.1)
@@ -89,6 +92,9 @@ export function SubsystemDetail({ document, instance, canEdit }: SubsystemDetail
         ...(!isModule && !isPart && ref?.findingCounts ? [{ label: "Findings inside",
           value: `${ref.findingCounts.error} ${ref.findingCounts.error === 1 ? "error" : "errors"} · ${ref.findingCounts.warning} ${ref.findingCounts.warning === 1 ? "warning" : "warnings"}` }] : []),
         { label: "Updates", value: updates },
+        ...((isModule || isPart) && ref ? [{ label: "Model", value: (
+          <PinnedModelFact componentId={ref.componentId} revisionId={ref.revisionId} canConvert={canConvertModels} />
+        ) }] : []),
       ]} />
 
       {!isPart && <InspectorSection title={isModule ? "Connectors" : "Exports"} count={(instance.ports ?? []).length}>

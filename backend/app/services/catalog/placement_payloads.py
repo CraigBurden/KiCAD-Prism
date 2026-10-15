@@ -5,8 +5,10 @@ that points at the remote library nickname and, for remote placement, a
 hidden stamp naming the catalog component and revision; footprints have
 their 3D model paths redirected to the remote provider destination, or
 embedded in the footprint when a model reader is given. These rewrites are
-pure and byte-stable for identical inputs, which is what keeps manifest
-hashes and inline bundles reproducible.
+byte-stable for identical inputs, which is what keeps manifest hashes and
+inline bundles reproducible; embedding reuses each model's kept compressed
+copy (``embedded_model_copies.py``) when the caller passes one, so a
+``zstandard`` upgrade does not change them either.
 """
 
 from __future__ import annotations
@@ -21,7 +23,6 @@ from typing import Any, Callable
 from app.core.config import settings
 from app.services.catalog.asset_files import content_type_for_asset
 from app.services.catalog.kicad_embedded_files import (
-    EMBED_MAX_FOOTPRINT_BYTES,
     EMBED_MAX_RAW_MODEL_BYTES,
     add_embedded_files,
     compress_model,
@@ -41,6 +42,13 @@ _MODEL_RE = re.compile(r'\(model\s+"([^"]+)"')
 _MODEL_INDENT_RE = re.compile(r'^([ \t]*)\(model\s+"', re.MULTILINE)
 
 logger = logging.getLogger(__name__)
+
+Compress = Callable[[bytes], bytes]
+
+
+def embed_max_compressed_bytes() -> int:
+    """Compressed model bytes one footprint may embed (``REMOTE_PROVIDER_EMBED_MAX_COMPRESSED_BYTES``)."""
+    return int(settings.REMOTE_PROVIDER_EMBED_MAX_COMPRESSED_BYTES)
 
 # Embedded footprints by everything that decides their bytes, so a manifest
 # and the download that follows it compress each model once per process.
@@ -195,6 +203,7 @@ def rewrite_footprint_payload(
     read_model: Callable[[dict[str, Any]], bytes | None] | None = None,
     *,
     model_path: Callable[[dict[str, Any]], str] | None = None,
+    compress: Compress | None = None,
 ) -> bytes:
     """Point each matched ``(model ...)`` at its placed model.
 
@@ -202,15 +211,15 @@ def rewrite_footprint_payload(
     content-unique ``kicad-embed://`` name, so the board that receives the
     footprint pins the model, when the footprint grows by no more than the
     model's raw size (the embedded model is no longer shipped, so the
-    placement never grows) and the added forms stay within
-    ``EMBED_MAX_FOOTPRINT_BYTES`` (models are taken in node order); models
+    placement never grows) and the compressed data stays within
+    ``embed_max_compressed_bytes()`` (models are taken in node order); models
     read past ``EMBED_MAX_RAW_MODEL_BYTES`` are not compressed at all. Other
     models, models the reader returns ``None`` for, and every model without
     a reader keep an external path: ``model_path`` maps a model asset to it,
     and by default it is the remote provider's
     ``<destination>/<prefix>_3d/<basename>``.
     """
-    return _rewrite_footprint(payload, list(model_assets or []), read_model, model_path)[0]
+    return _rewrite_footprint(payload, list(model_assets or []), read_model, model_path, compress)[0]
 
 
 def _rewrite_footprint(
@@ -218,6 +227,7 @@ def _rewrite_footprint(
     models: list[dict[str, Any]],
     read_model: Callable[[dict[str, Any]], bytes | None] | None,
     model_path: Callable[[dict[str, Any]], str] | None = None,
+    compress: Compress | None = None,
 ) -> tuple[bytes, list[dict[str, Any]], bool]:
     """Rewrite model paths; also return the embedded model assets and
     whether every model the reader was asked for could be read."""
@@ -264,7 +274,7 @@ def _rewrite_footprint(
     node_counter = 0
     node_counts = Counter(assigned.values())
     placed_path = _ModelPathBuilder(
-        text, models, model_names, node_counts, f"{destination}/{prefix}_3d", read_model, model_path
+        text, models, model_names, node_counts, f"{destination}/{prefix}_3d", read_model, model_path, compress
     )
 
     def replace_model(match: re.Match[str]) -> str:
@@ -297,8 +307,12 @@ class _ModelPathBuilder:
         external_dir: str,
         read_model: Callable[[dict[str, Any]], bytes | None] | None,
         model_path: Callable[[dict[str, Any]], str] | None = None,
+        compress: Compress | None = None,
     ) -> None:
         self._models = models
+        # Looked up at call time so tests that patch ``compress_model`` see it.
+        self._compress = compress or (lambda data: compress_model(data))
+        self._max_compressed_bytes = embed_max_compressed_bytes()
         self._model_path = model_path
         self._model_names = model_names
         self._node_counts = node_counts
@@ -311,7 +325,7 @@ class _ModelPathBuilder:
         self._block_bytes = len(f"{self._indent}(embedded_files\n{self._indent})\n\n{self._indent}".encode("utf-8"))
         self._forms: dict[str, str] = {}
         self._paths: dict[int, str] = {}
-        self._embedded_bytes = 0
+        self._embedded_compressed_bytes = 0
         self._compressed_raw_bytes = 0
         self.embedded_models: list[dict[str, Any]] = []
         # False once the reader skipped a model (missing or over the ceiling);
@@ -338,6 +352,7 @@ class _ModelPathBuilder:
         embedded_name = embedded_model_name(model_name, data)
         embedded_path = f"kicad-embed://{embedded_name}"
         form_bytes = 0
+        compressed = b""
         if embedded_name not in self._forms:
             # Compress at most EMBED_MAX_RAW_MODEL_BYTES per footprint, and
             # size the form from the compressed data so KiCad's slow checksum
@@ -345,7 +360,7 @@ class _ModelPathBuilder:
             if self._compressed_raw_bytes + len(data) > EMBED_MAX_RAW_MODEL_BYTES:
                 return external_path
             self._compressed_raw_bytes += len(data)
-            compressed = compress_model(data)
+            compressed = self._compress(data)
             form_bytes = len(
                 embedded_file_form(
                     embedded_name, data, compressed, self._indent + self._unit, self._unit, checksum="0" * 32
@@ -357,13 +372,13 @@ class _ModelPathBuilder:
         growth = (form_bytes + self._block_bytes if form_bytes else 0) + self._node_counts[model_index] * (
             len(embedded_path.encode("utf-8")) - len(external_path.encode("utf-8"))
         )
-        if growth > len(data) or self._embedded_bytes + form_bytes > EMBED_MAX_FOOTPRINT_BYTES:
+        if growth > len(data) or self._embedded_compressed_bytes + len(compressed) > self._max_compressed_bytes:
             return external_path
         if form_bytes:
             self._forms[embedded_name] = embedded_file_form(
                 embedded_name, data, compressed, self._indent + self._unit, self._unit
             )
-            self._embedded_bytes += form_bytes
+            self._embedded_compressed_bytes += len(compressed)
         self.embedded_models.append(self._models[model_index])
         return embedded_path
 
@@ -398,7 +413,7 @@ def _embedded_footprint_key(footprint: dict[str, Any], models: list[dict[str, An
         tuple(str(model.get("canonical_path") or model.get("name") or "") for model in models),
         settings.REMOTE_PROVIDER_LIBRARY_PREFIX,
         settings.REMOTE_PROVIDER_DESTINATION_DIR,
-        EMBED_MAX_FOOTPRINT_BYTES,
+        embed_max_compressed_bytes(),
         EMBED_MAX_RAW_MODEL_BYTES,
     )
 
@@ -410,7 +425,7 @@ def clear_embedded_footprint_cache() -> None:
 
 
 def _embed_footprint(
-    asset: dict[str, Any], payload: bytes, models: list[dict[str, Any]]
+    asset: dict[str, Any], payload: bytes, models: list[dict[str, Any]], compress: Compress | None = None
 ) -> tuple[bytes, list[dict[str, Any]]]:
     """Embed the footprint's models, reusing a recent identical result.
 
@@ -426,7 +441,9 @@ def _embed_footprint(
         if cached is not None:
             return cached[0], [models[index] for index in cached[1]]
     try:
-        rewritten, embedded, complete = _rewrite_footprint(payload, models, _read_canonical_bytes)
+        rewritten, embedded, complete = _rewrite_footprint(
+            payload, models, _read_canonical_bytes, compress=compress
+        )
     except ValueError:
         logger.warning(
             "Footprint %s could not embed its 3D models; keeping them external", asset.get("id"), exc_info=True
@@ -451,6 +468,7 @@ def materialize_asset(
     stamp: bool = False,
     embed_models: bool = False,
     model_path: Callable[[dict[str, Any]], str] | None = None,
+    compress: Compress | None = None,
 ) -> dict[str, Any]:
     """Read one stored asset and return it with its placement payload attached.
 
@@ -462,6 +480,8 @@ def materialize_asset(
     the DBL export sets neither, keeping its file contract.
     ``model_path`` maps a model asset to its external path in the footprint
     (see ``rewrite_footprint_payload``); the DBL export passes its own.
+    ``compress`` compresses a model to embed; placement passes
+    ``CompressedModelCopies.compress`` so each model keeps one compressed copy.
     """
     path = Path(str(asset["canonical_path"]))
     payload = path.read_bytes()
@@ -478,7 +498,7 @@ def materialize_asset(
     elif asset["asset_type"] == "footprint":
         models = [candidate for candidate in assets_for_revision if candidate["asset_type"] == "3dmodel"]
         if embed_models:
-            payload, embedded_models = _embed_footprint(asset, payload, models)
+            payload, embedded_models = _embed_footprint(asset, payload, models, compress)
             extra["embedded_model_ids"] = [str(model["id"]) for model in embedded_models]
         else:
             payload = _rewrite_footprint(payload, models, None, model_path)[0]
@@ -496,6 +516,7 @@ def materialize_asset(
 __all__ = [
     "SYMBOL_METADATA_FIELD_ORDER",
     "clear_embedded_footprint_cache",
+    "embed_max_compressed_bytes",
     "escape_symbol_property_value",
     "extract_top_level_symbol_properties",
     "materialize_asset",

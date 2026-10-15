@@ -810,6 +810,8 @@ export interface SystemScene {
   harnesses?: SystemSceneHarness[];
   /** SB2-37: the root level's mate solve; null without B2B links, absent from older servers. */
   placement?: SystemScenePlacement | null;
+  /** #698: pinned model and housing revisions with a GLB conversion queued or running (catalog writers only). */
+  modelsConverting?: number;
 }
 
 /** A harness in the scene (CONTRACTS_P2 §20.11): its ends on board placements, its wires as end pairs. */

@@ -19,7 +19,9 @@ from app.services.job_runtime import (
     PermanentJobError,
     RetryableJobError,
 )
+from app.services.catalog import module_connectors
 from app.services.catalog.conflicts import CatalogConflict
+from app.services.catalog.step_quarantine import StepQuarantine
 from app.services.project_component_import_service import run_project_import_session
 from app.services.library_folder_import_service import run_folder_import_session
 from app.services.local_artifact_store import artifact_store
@@ -167,14 +169,28 @@ def run_folder_import(context: JobContext) -> dict[str, Any]:
 
 
 def purge_superseded_step_files(*, job_id: str = "", pinned_revision_ids: Iterable[str] = ()) -> dict[str, Any]:
-    """Delete abandoned draft STEP files and commit their purge-ledger rows."""
+    """Quarantine abandoned draft STEP files, then delete quarantined ones past the grace period.
+
+    ``pinned_revision_ids`` (System Builder's pins) gains the part revisions module connector
+    placements record (CONTRACTS_P2 §3.6); both passes keep every one's files, and the
+    expiry pass restores a quarantined file a pin needs again. Both commit their
+    purge-ledger rows (``catalog/step_quarantine.py``).
+    """
     catalog_service.initialize()
     with catalog_service.connection() as conn:
-        result = catalog_service.asset_files.purge_superseded_step_files(
-            conn, catalog_service.runtime, job_id=job_id, pinned_revision_ids=pinned_revision_ids
+        pinned = tuple(sorted({*map(str, pinned_revision_ids), *module_connectors.placed_part_revisions(conn)}))
+        result = StepQuarantine.purge_superseded_step_files(
+            conn, catalog_service.runtime, job_id=job_id, pinned_revision_ids=pinned
+        )
+        expired = StepQuarantine.expire(
+            conn,
+            catalog_service.runtime,
+            grace_days=settings.CATALOG_DRAFT_MODEL_QUARANTINE_DAYS,
+            job_id=job_id,
+            pinned_revision_ids=pinned,
         )
         conn.commit()
-    return result
+    return {**result, "expired": expired}
 
 
 def system_pinned_catalog_revisions() -> list[str]:
@@ -222,7 +238,7 @@ def run_artifact_maintenance(context: JobContext) -> dict[str, Any]:
     garbage_collection = job_artifacts.collect_unreferenced_objects()
     staging_cleanup = job_artifacts.cleanup_stale_staging()
     git_cache_rows_purged = git_read_cache.prune()
-    _step(context, progress=80, message="Purging superseded STEP payloads")
+    _step(context, progress=80, message="Quarantining superseded STEP payloads")
     step_result = purge_superseded_step_files(job_id=context.job_id, pinned_revision_ids=system_pinned_catalog_revisions())
     staging = catalog_service.cleanup_resolved_import_staging(
         older_than=(datetime.now(timezone.utc) - timedelta(days=30)).isoformat()
@@ -234,7 +250,9 @@ def run_artifact_maintenance(context: JobContext) -> dict[str, Any]:
         **staging_cleanup,
         "job_artifact_metadata_rows_pruned": metadata_rows_pruned,
         "git_cache_rows_purged": git_cache_rows_purged,
-        "superseded_steps_purged": step_result["purged"],
+        "superseded_steps_quarantined": step_result["quarantined"],
+        "quarantined_steps_deleted": step_result["expired"]["deleted"],
+        "quarantined_steps_restored": step_result["expired"]["restored"],
         "staging_sessions_removed": staging["removed"],
     }
 
@@ -280,6 +298,17 @@ def run_model_glb(context: JobContext) -> dict[str, Any]:
     return {"componentId": component_id, "converted": sum(1 for m in models if m["glb"]), "models": len(models)}
 
 
+def run_project_catalog_usage(context: JobContext) -> dict[str, Any]:
+    """Issue #698: record which catalog revision each part of a project commit placed."""
+    from app.services import project_catalog_usage_service
+
+    project_id = str(context.payload["project_id"])
+    _step(context, progress=10, message="Reading schematics")
+    result = project_catalog_usage_service.scan(project_id, str(context.payload.get("commit") or "HEAD"))
+    _step(context, progress=100, message="Library usage recorded", result=result)
+    return result
+
+
 CatalogHandler = Callable[[JobContext], dict[str, Any]]
 
 HANDLERS: dict[str, CatalogHandler] = {
@@ -290,6 +319,7 @@ HANDLERS: dict[str, CatalogHandler] = {
     "artifact_maintenance": run_artifact_maintenance,
     "catalog_metadata_batch": run_metadata_batch,
     "catalog_model_glb": run_model_glb,
+    "project_catalog_usage": run_project_catalog_usage,
 }
 
 # These load KiCad libraries and take a catalog_kicad slot as well.

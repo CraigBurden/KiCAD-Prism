@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import itertools
 from typing import Any, Mapping, Optional, Sequence
 
 from app.services.systems import (
@@ -200,8 +201,10 @@ class PlacementMixin:
 
         A visible board whose bundle is missing gets a build queued when the reader
         may generate bundles (designer or admin, as on the board's 3D tab). A visible
-        module or part whose pinned revision has STEP models but no GLB gets their
-        conversion queued when the reader may write the catalog (``may_convert_models``).
+        module or part, or a visible harness end's housing part, whose pinned revision
+        has STEP models but no GLB gets their conversion queued when the reader may
+        write the catalog (``may_convert_models``); ``modelsConverting`` counts those
+        with a conversion queued or running, so that reader re-reads until they settle.
         """
 
         with self._tx(consistent=True) as store:
@@ -228,12 +231,14 @@ class PlacementMixin:
 
         built = scene_module.build(system_id, version, tree.occurrences, shown, interface_of, asset,
                                    placement=placement)
-        if may_convert_models:
-            self._queue_pinned_conversions(
-                ((o.component_id, o.revision_id) for o in tree.occurrences
-                 if o.kind in ("module", "part") and o.component_id and o.revision_id and o.path in shown
-                 and not (interface_of(o) or {}).get("model")), caller)
         built["harnesses"] = scene_module.redact_harnesses(harnesses, shown)
+        if may_convert_models:
+            housings = ((end["part"], end["partRevisionId"]) for harness in built["harnesses"]
+                        for end in harness["ends"] if end["part"] and end["partRevisionId"] and not end["housing"])
+            instances = ((o.component_id, o.revision_id) for o in tree.occurrences
+                         if o.kind in ("module", "part") and o.component_id and o.revision_id and o.path in shown
+                         and not (interface_of(o) or {}).get("model"))
+            built["modelsConverting"] = self._queue_pinned_conversions(itertools.chain(instances, housings), caller)
         root = placement["results"].get("")
         built["placement"] = {k: root[k] for k in ("roots", "mismatches", "unusable", "ignoredOverrides")} \
             if root else None

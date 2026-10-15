@@ -5,7 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from app.services.catalog.asset_files import purge_excuses_missing_file
+from app.services.catalog.step_quarantine import purge_excuses_missing_file
 from app.services.catalog.revision_kernel import (
     CatalogRevisionKernel,
     normalize_workflow_stage,
