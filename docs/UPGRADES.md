@@ -408,6 +408,15 @@ Three things change once:
 
 The DBL export does not stamp symbols; its files are unchanged.
 
+### Library usage of each synced commit
+
+Catalog step 12 (`project_catalog_placements`) adds `project_catalog_scans`
+and `project_catalog_placements`. After every successful sync the catalog
+worker scans the new `HEAD`'s schematics (`project_catalog_usage` job) and
+records the catalog revision each part placed, from the stamp or, for parts
+placed before it, by inference. Existing projects are scanned on their next
+sync, or with `POST /api/projects/{id}/catalog-usage/scan`.
+
 ## Placed footprints embed their 3D models
 
 KiCad placements now carry 3D models inside the footprint as KiCad embedded

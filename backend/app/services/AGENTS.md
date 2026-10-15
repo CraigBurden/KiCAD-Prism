@@ -55,7 +55,9 @@ base-table change is a new step. Only the epoch guard and derived state
 
 `catalog_validation`, `catalog_preview_generation`, `project_component_import`,
 `folder_library_import`, `artifact_maintenance`, `catalog_metadata_batch`,
-`catalog_model_glb` (System Builder STEP → GLB with Geometer).
+`catalog_model_glb` (System Builder STEP → GLB with Geometer), `project_catalog_usage`
+(which catalog revision a synced commit placed; `project_catalog_usage_service.py`
+over `catalog/project_placements.py`, queued after each sync).
 
 Each task takes the `JobContext` and records resumable state with
 `context.save_checkpoint(checkpoint=..., result=...)`; a retried attempt reads

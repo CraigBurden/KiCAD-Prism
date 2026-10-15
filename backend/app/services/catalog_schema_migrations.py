@@ -328,6 +328,57 @@ def _asset_file_purge_events(conn: Any) -> None:
     )
 
 
+def _project_catalog_placements(conn: Any) -> None:
+    """Which catalog revision each project commit placed (issue #698, from the #695 stamp).
+
+    One scan row and its placement rows per ``(project, commit)``, replaced as
+    a whole when the commit is scanned again (``catalog/project_placements.py``).
+    ``basis`` says how a row was found: ``stamp`` (the placed symbol's
+    ``Prism_Component``/``Prism_Revision``), ``inferred_metadata`` (an unstamped
+    symbol whose fields match exactly one ever-released revision) or
+    ``identity`` (the component is known, its revision is not:
+    ``catalog_revision_id`` is ``''``). No foreign keys: a stamp records what
+    the file says, even a component this catalog does not have.
+    """
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS project_catalog_scans (
+            project_id      TEXT NOT NULL,
+            source_revision TEXT NOT NULL,
+            status          TEXT NOT NULL,
+            symbol_count    INTEGER NOT NULL DEFAULT 0,
+            stamped_count   INTEGER NOT NULL DEFAULT 0,
+            inferred_count  INTEGER NOT NULL DEFAULT 0,
+            untracked_count INTEGER NOT NULL DEFAULT 0,
+            error           TEXT NOT NULL DEFAULT '',
+            scanned_at      TEXT NOT NULL,
+            PRIMARY KEY (project_id, source_revision)
+        )
+        """
+    )
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS project_catalog_placements (
+            project_id          TEXT NOT NULL,
+            source_revision     TEXT NOT NULL,
+            component_id        TEXT NOT NULL,
+            catalog_revision_id TEXT NOT NULL DEFAULT '',
+            basis               TEXT NOT NULL,
+            references_json     TEXT NOT NULL DEFAULT '[]',
+            PRIMARY KEY (project_id, source_revision, component_id, catalog_revision_id, basis)
+        )
+        """
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_project_catalog_placements_revision "
+        "ON project_catalog_placements (component_id, catalog_revision_id)"
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_project_catalog_scans_project "
+        "ON project_catalog_scans (project_id, scanned_at DESC)"
+    )
+
+
 MIGRATIONS: tuple[tuple[int, str, Migration], ...] = (
     (0, "baseline", _baseline),
     (1, "portable_column_types", _portable_column_types),
@@ -341,6 +392,7 @@ MIGRATIONS: tuple[tuple[int, str, Migration], ...] = (
     (9, "asset_file_purges", _asset_file_purges),
     (10, "module_connector_part_revision", _module_connector_part_revision),
     (11, "asset_file_purge_events", _asset_file_purge_events),
+    (12, "project_catalog_placements", _project_catalog_placements),
 )
 
 # Migrations that a long-lived branch database recorded under an earlier number.

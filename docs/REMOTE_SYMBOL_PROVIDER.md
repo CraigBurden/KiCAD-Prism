@@ -109,6 +109,28 @@ replaces any stamp already in the stored symbol, and a project import treats
 them as per-placement context rather than part metadata. The DBL export does
 not add these properties.
 
+After every sync Prism scans the checkout's committed schematics and records
+which catalog revision each part placed (`GET
+/api/projects/{id}/catalog-usage`; the project header's library button lists
+them and counts parts with a newer released revision). A part without the
+stamp, placed before it existed, is matched by its `remote_<library>:<name>`
+symbol or its manufacturer part number, and its revision is the oldest
+released revision whose symbol fields all equal the placed ones; such rows are
+marked inferred, and nothing is written into the project.
+
+KiCad keeps the stamp through its update commands (checked in the KiCad 8.0,
+9.0 and 10.0.6 sources):
+
+- **Update Symbols from Library** copies the library symbol's field text by
+  default ("Update field text"), so the instance takes the stamp of the
+  revision now in the project's remote library, together with the rest of
+  that revision's symbol. A library symbol without the fields leaves the
+  instance's stamp in place, unless "Remove fields if not in library symbol"
+  is checked.
+- **Update PCB from Schematic** copies symbol fields, the stamp included, to
+  the footprint while "Update footprint fields" is on; "Remove extra fields"
+  only removes fields the symbol no longer has.
+
 ## Search and recovery
 
 The finder pages through the catalog rather than truncating it to the first

@@ -298,6 +298,17 @@ def run_model_glb(context: JobContext) -> dict[str, Any]:
     return {"componentId": component_id, "converted": sum(1 for m in models if m["glb"]), "models": len(models)}
 
 
+def run_project_catalog_usage(context: JobContext) -> dict[str, Any]:
+    """Issue #698: record which catalog revision each part of a project commit placed."""
+    from app.services import project_catalog_usage_service
+
+    project_id = str(context.payload["project_id"])
+    _step(context, progress=10, message="Reading schematics")
+    result = project_catalog_usage_service.scan(project_id, str(context.payload.get("commit") or "HEAD"))
+    _step(context, progress=100, message="Library usage recorded", result=result)
+    return result
+
+
 CatalogHandler = Callable[[JobContext], dict[str, Any]]
 
 HANDLERS: dict[str, CatalogHandler] = {
@@ -308,6 +319,7 @@ HANDLERS: dict[str, CatalogHandler] = {
     "artifact_maintenance": run_artifact_maintenance,
     "catalog_metadata_batch": run_metadata_batch,
     "catalog_model_glb": run_model_glb,
+    "project_catalog_usage": run_project_catalog_usage,
 }
 
 # These load KiCad libraries and take a catalog_kicad slot as well.
