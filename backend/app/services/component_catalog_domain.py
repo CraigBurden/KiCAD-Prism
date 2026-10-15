@@ -117,7 +117,7 @@ class ComponentCatalogDomainService:
             database_path=self._database_path(database_url),
         )
         build_catalog_collaborators(
-            catalog_locks=catalog_locks or NoopCatalogLocks(),
+            catalog_locks=catalog_locks or NoopCatalogLocks(), store_root=self._catalog_runtime.store_root,
         ).bind(self)
 
     def _runtime_for_compat(self) -> CatalogRuntime:

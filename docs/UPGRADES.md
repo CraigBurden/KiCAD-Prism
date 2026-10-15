@@ -422,6 +422,23 @@ files (see [3D models](REMOTE_SYMBOL_PROVIDER.md#3d-models)). After upgrading:
 
 Set `REMOTE_PROVIDER_EMBED_3D_MODELS=false` to keep the previous behaviour.
 
+### Larger embed cap and kept compressed copies
+
+The per-footprint embed cap is now a setting,
+`REMOTE_PROVIDER_EMBED_MAX_COMPRESSED_BYTES`, counted in compressed bytes with
+a default of 16 MiB (it was about 3 MiB of compressed data, a fixed 4 MiB of
+footprint text). Models between the two caps now embed, so their placed
+footprints change once and a board can grow by up to about 21 MiB per such
+part. The 64 MiB raw-model ceiling is unchanged. Set the cap to `3145728` to
+keep the previous limit.
+
+Placement now keeps each embedded model's compressed copy under
+`embedded-models/` in the catalog store and reuses it, so a later `zstandard`
+upgrade does not change placed bytes. Back it up with the rest of the store; a
+missing copy is recreated on the next placement. Boards placed before
+embedding are not changed; `scripts/report_unpinned_board_models.py` lists
+their unpinned models.
+
 ## Bulk import overwrite flags keep existing files
 
 `--overwrite-assets` (`scripts/import_database_library.py`,

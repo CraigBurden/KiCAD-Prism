@@ -18,9 +18,12 @@ import zstandard
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from app.core.config import settings  # noqa: E402
-from app.services.catalog import kicad_embedded_files, placement_payloads  # noqa: E402
+from app.services.catalog import embedded_model_copies, kicad_embedded_files, placement_payloads  # noqa: E402
+from app.services.catalog.embedded_model_copies import CompressedModelCopies  # noqa: E402
 from app.services.catalog.kicad_embedded_files import (  # noqa: E402
     compress_model,
+    decode_embedded_files,
+    original_model_name,
     embedded_file_form,
     embedded_model_name,
     kicad_mmh3_128,
@@ -155,6 +158,22 @@ class EncoderTests(unittest.TestCase):
                 [line.strip() for line in f"(data |{data}|".splitlines()],
             )
 
+    def test_decoder_reads_kicad_written_board_files(self) -> None:
+        text = FIXTURE_BOARD.read_text(encoding="utf-8")
+        decoded = decode_embedded_files(text)
+        self.assertEqual(len(decoded), 2)
+        for name, data, checksum in _FILE_RE.findall(text):
+            self.assertEqual(kicad_mmh3_128(decoded[name]["data"]), checksum, name)
+            self.assertEqual(decoded[name]["type"], "model")
+
+    def test_decoder_reads_back_what_placement_embeds(self) -> None:
+        model = step_model(b"decode")
+        name = embedded_model_name("R 0402.step", model)
+        decoded = decode_embedded_files(rewrite(FOOTPRINT, model))
+        self.assertEqual(decoded[name]["data"], model)
+        self.assertEqual(original_model_name(name, model), "R_0402.step")
+        self.assertEqual(original_model_name(name, model + b"x"), name, "a foreign digest is kept")
+
     def test_checksum_matches_kicad_for_every_tail_length(self) -> None:
         for length, expected in KICAD_MMH3_VECTORS:
             with self.subTest(length=length):
@@ -222,15 +241,14 @@ class FootprintEmbeddingTests(unittest.TestCase):
                 self.assertEqual(set(placed["embedded_model_ids"]), expected_embedded[case])
                 self.assertLessEqual(shipment(True), shipment(False))
 
-    def test_footprint_cap_boundary_counts_the_compressed_form(self) -> None:
+    def test_footprint_cap_boundary_counts_the_compressed_data(self) -> None:
         model = step_model(b"cap")
         name = embedded_model_name("R_0402.step", model)
-        form_size = len(embedded_file_form(name, model, compress_model(model), "\t\t", "\t").encode("utf-8"))
-        self.assertLess(form_size, len(model))
-        with patch.object(placement_payloads, "EMBED_MAX_FOOTPRINT_BYTES", form_size):
+        compressed_size = len(compress_model(model))
+        with patch.object(settings, "REMOTE_PROVIDER_EMBED_MAX_COMPRESSED_BYTES", compressed_size):
             self.assertIn(f'(model "kicad-embed://{name}"', rewrite(FOOTPRINT, model))
         with (
-            patch.object(placement_payloads, "EMBED_MAX_FOOTPRINT_BYTES", form_size - 1),
+            patch.object(settings, "REMOTE_PROVIDER_EMBED_MAX_COMPRESSED_BYTES", compressed_size - 1),
             patch.object(kicad_embedded_files, "kicad_mmh3_128") as checksum,
         ):
             text = rewrite(FOOTPRINT, model)
@@ -242,19 +260,14 @@ class FootprintEmbeddingTests(unittest.TestCase):
         payload = FOOTPRINT.replace(b"\t(model ", b'\t(model "Z_other.step")\n\t(model ')
         models = [MODEL_ASSET, {"canonical_path": "/store/3dmodels/Lib/Z_other.step"}]
         data = {"R_0402.step": step_model(b"first"), "Z_other.step": step_model(b"second")}
-        forms = {
-            file_name: embedded_file_form(
-                embedded_model_name(file_name, raw), raw, compress_model(raw), "\t\t", "\t"
-            ).encode("utf-8")
-            for file_name, raw in data.items()
-        }
+        compressed = {file_name: compress_model(raw) for file_name, raw in data.items()}
         with (
             patch.object(settings, "REMOTE_PROVIDER_LIBRARY_PREFIX", "remote"),
             patch.object(settings, "REMOTE_PROVIDER_DESTINATION_DIR", "${KIPRJMOD}/RemoteLibrary"),
             patch.object(
-                placement_payloads,
-                "EMBED_MAX_FOOTPRINT_BYTES",
-                len(forms["Z_other.step"]) + len(forms["R_0402.step"]) - 1,
+                settings,
+                "REMOTE_PROVIDER_EMBED_MAX_COMPRESSED_BYTES",
+                len(compressed["Z_other.step"]) + len(compressed["R_0402.step"]) - 1,
             ),
         ):
             text = rewrite_footprint_payload(
@@ -265,9 +278,9 @@ class FootprintEmbeddingTests(unittest.TestCase):
 
     def test_model_larger_than_the_cap_still_embeds_when_it_compresses(self) -> None:
         model = step_model(b"large") * 720
-        self.assertGreater(len(model), placement_payloads.EMBED_MAX_FOOTPRINT_BYTES)
         name = embedded_model_name("R_0402.step", model)
-        text = rewrite(FOOTPRINT, model)
+        with patch.object(settings, "REMOTE_PROVIDER_EMBED_MAX_COMPRESSED_BYTES", len(model) // 4):
+            text = rewrite(FOOTPRINT, model)
         self.assertIn(f'(model "kicad-embed://{name}"', text)
         self.assertEqual(decode_embedded(text)[name][0], model)
 
@@ -396,8 +409,36 @@ class MaterializedFootprintTests(unittest.TestCase):
         self.assertEqual(compress.call_count, 1)
         self.assertEqual(first["payload"], second["payload"])
         self.assertEqual(second["embedded_model_ids"], ["m1"])
-        with patch.object(placement_payloads, "EMBED_MAX_FOOTPRINT_BYTES", 0):
+        with patch.object(settings, "REMOTE_PROVIDER_EMBED_MAX_COMPRESSED_BYTES", 0):
             self.assertEqual(self._place()["embedded_model_ids"], [])
+
+    def test_the_default_cap_is_sixteen_mebibytes_of_compressed_data(self) -> None:
+        self.assertEqual(type(settings).model_fields["REMOTE_PROVIDER_EMBED_MAX_COMPRESSED_BYTES"].default, 16 << 20)
+
+    def test_a_kept_compressed_copy_pins_the_bytes_across_a_zstd_change(self) -> None:
+        copies = CompressedModelCopies(self.root / "embedded-models")
+        first = materialize_asset(self.footprint, [self.footprint, self.model], {}, embed_models=True,
+                                  compress=copies.compress)
+        kept = copies.path_for(self.model["sha256"])
+        self.assertTrue(kept.is_file())
+        placement_payloads.clear_embedded_footprint_cache()
+
+        # A zstandard upgrade compresses differently; the kept copy wins.
+        other = zstandard.ZstdCompressor(level=3, write_content_size=True, write_checksum=False).compress
+        with patch.object(embedded_model_copies, "compress_model", other):
+            again = materialize_asset(self.footprint, [self.footprint, self.model], {}, embed_models=True,
+                                      compress=copies.compress)
+        self.assertEqual(again["payload"], first["payload"])
+        self.assertNotEqual(other(self.model_bytes), kept.read_bytes())
+
+        # A damaged copy is replaced rather than embedded.
+        kept.write_bytes(b"damaged")
+        placement_payloads.clear_embedded_footprint_cache()
+        with self.assertLogs("app.services.catalog.embedded_model_copies", "WARNING"):
+            repaired = materialize_asset(self.footprint, [self.footprint, self.model], {}, embed_models=True,
+                                         compress=copies.compress)
+        self.assertEqual(repaired["payload"], first["payload"])
+        self.assertEqual(kept.read_bytes(), compress_model(self.model_bytes))
 
     def test_a_missing_model_is_not_cached(self) -> None:
         Path(self.model["canonical_path"]).unlink()

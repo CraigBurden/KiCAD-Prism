@@ -13,7 +13,7 @@ from __future__ import annotations
 import base64
 import json
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 from app.core.config import settings
 from app.services.catalog.asset_types import AUXILIARY_ASSET_TYPES
@@ -35,10 +35,13 @@ class CatalogPlacement:
         revision_kernel: CatalogRevisionKernel,
         read_models: CatalogComponentReadModels,
         signer: type[CatalogAssetUrlSigner] = CatalogAssetUrlSigner,
+        compress: Callable[[bytes], bytes] | None = None,
     ) -> None:
+        """``compress`` keeps each embedded model's compressed copy (``CompressedModelCopies.compress``)."""
         self._revision_kernel = revision_kernel
         self._read_models = read_models
         self._signer = signer
+        self._compress = compress
 
     def placement_assets(
         self,
@@ -72,14 +75,14 @@ class CatalogPlacement:
             raise ValueError("Selected representation references unavailable assets")
         return dict(row), assets
 
-    @staticmethod
     def _placement_payloads(
-        assets: list[dict[str, Any]], component: dict[str, Any]
+        self, assets: list[dict[str, Any]], component: dict[str, Any]
     ) -> list[tuple[dict[str, Any], dict[str, Any]]]:
         """Materialize assets in order, leaving out models the footprint embeds."""
         materialized = {
             str(asset["id"]): materialize_asset(
-                asset, assets, component, stamp=True, embed_models=settings.REMOTE_PROVIDER_EMBED_3D_MODELS
+                asset, assets, component, stamp=True, embed_models=settings.REMOTE_PROVIDER_EMBED_3D_MODELS,
+                compress=self._compress,
             )
             for asset in assets
             if asset["asset_type"] != "3dmodel"
@@ -216,7 +219,8 @@ class CatalogPlacement:
                 if component_row:
                     component = self._read_models.component_payload(conn, component_row, revision)
         return materialize_asset(
-            asset, assets_for_revision, component, stamp=True, embed_models=settings.REMOTE_PROVIDER_EMBED_3D_MODELS
+            asset, assets_for_revision, component, stamp=True, embed_models=settings.REMOTE_PROVIDER_EMBED_3D_MODELS,
+            compress=self._compress,
         )
 
 

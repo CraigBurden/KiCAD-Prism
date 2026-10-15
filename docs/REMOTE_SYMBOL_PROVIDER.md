@@ -171,15 +171,32 @@ manifest asset counts against one `max_download_bytes` budget. A model is
 embedded only when the footprint grows by no more than the raw file it stops
 shipping, so embedding never makes a placement larger; incompressible models
 (`.wrz`, `.stpz`) therefore stay external. The embedded models of one
-footprint may add at most 4 MiB to it (about 3 MiB of compressed data, a STEP
-model of roughly 15-30 MiB), so a board file grows by at most 4 MiB per placed
-part. Prism reads and compresses at most 64 MiB of raw models per footprint;
-a larger model is skipped from its file size. Models that are not embedded
+footprint may carry at most `REMOTE_PROVIDER_EMBED_MAX_COMPRESSED_BYTES` of
+compressed data (default 16 MiB), which grows the footprint, and the board
+file, by about 4/3 of that per placed part. Prism reads and compresses at most
+64 MiB of raw models per footprint; a larger model is skipped from its file
+size. A 64 MiB STEP model compresses to about 6-13 MiB, so with the default cap
+the raw ceiling is usually the limit that applies. Every placed asset still
+counts against KiCad's one `max_download_bytes` budget (16 MiB), so a part
+whose embedded footprint exceeds it does not place, exactly as it would not
+with the raw model shipped instead. Models that are not embedded
 (over either limit, incompressible, or whose stored file is missing) keep
 the shared `<destination>/<prefix>_3d/<name>` path, which is not pinned, and
 are still shipped. A footprint whose text cannot take an `embedded_files`
 block is placed with external model paths and logged. Footprint embedding
 needs no new discovery fields, so `provider_version` is unchanged.
+
+Prism keeps the compressed copy of each model it embeds under the catalog
+store (`embedded-models/`) and reuses it, so a placed footprint's bytes do not
+change when the `zstandard` library is upgraded. A copy that no longer
+decompresses to its model is replaced and logged.
+
+A project imported from a board whose footprints carry `kicad-embed://` models
+gets those models back as catalog 3D model assets, under their original file
+names. `scripts/report_unpinned_board_models.py` lists the boards whose placed
+parts still reference the shared `<prefix>_3d` folder (placed before embedding,
+with embedding off, or over the cap); see
+[Operations](OPERATIONS.md#catalog-metadata-exists-but-placement-fails).
 
 Set `REMOTE_PROVIDER_EMBED_3D_MODELS=false` to turn embedding off: every model
 then keeps the destination path and is shipped as a `3dmodel` asset, as before
@@ -207,7 +224,7 @@ authentication failure.
 | catalog is empty | released place-ready components and token scope |
 | preview is missing | preview-generation job and catalog worker logs |
 | Place is disabled | release status and required assets |
-| model path is wrong | provider prefix and destination configuration (only for models above the embed limit) |
+| model path is wrong | provider prefix and destination configuration (only for models above the embed cap) |
 | works in browser but not KiCad | OS certificate trust and proxy interception |
 
 Inspect:

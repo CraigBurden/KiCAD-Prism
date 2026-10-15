@@ -9,6 +9,7 @@ from typing import Any
 
 from app.core.config import environment_value
 from app.services import kicad_footprint_normalizer
+from app.services.catalog.kicad_embedded_files import decode_embedded_files, original_model_name
 from app.services.kicad_library_reader import form_end, form_starts, iter_forms, model_references
 
 
@@ -86,6 +87,9 @@ def _symbol_library_payload(lib_id: str, definition: str) -> tuple[str, bytes]:
     return symbol_name, payload
 
 
+EMBED_PREFIX = "kicad-embed://"
+
+
 def _sanitize_pad(block: str) -> str:
     return _remove_direct_children(block, {"net", "uuid"})
 
@@ -93,7 +97,9 @@ def _sanitize_pad(block: str) -> str:
 def _sanitize_footprint(block: str, footprint_ref: str) -> tuple[str, bytes, list[str]]:
     target_name = footprint_ref.rsplit(":", 1)[-1] or "ImportedFootprint"
     model_paths = model_references(block)
-    sanitized = _remove_direct_children(block, {"at", "uuid", "path", "locked", "tstamp"})
+    # A footprint inside a board names its embedded files and the board holds
+    # their data; the models come back as catalog assets instead.
+    sanitized = _remove_direct_children(block, {"at", "uuid", "path", "locked", "tstamp", "embedded_files"})
     sanitized = re.sub(
         r'(\(property\s+"Reference"\s+")[^"]*(")',
         r'\1REF**\2',
@@ -247,6 +253,7 @@ class ProjectAssetSnapshotIndex:
         self.files_by_name: dict[str, tuple[Path, ...]] = {}
         self._model_path_cache: dict[tuple[str, Path], Path | None] = {}
         self._payload_cache: dict[Path, bytes] = {}
+        self._board_embedded: dict[Path, dict[str, dict[str, Any]]] = {}
         self._build()
 
     @staticmethod
@@ -312,6 +319,21 @@ class ProjectAssetSnapshotIndex:
             )
         return self._model_path_cache[key]
 
+    def _embedded_model(self, name: str, block: str, pcb_path: Path) -> bytes | None:
+        """A ``kicad-embed://`` model's bytes: from the footprint itself, else from its board.
+
+        A board decodes its embedded files once, on the first footprint that needs them.
+        """
+        own = decode_embedded_files(block) if "(data" in block else {}
+        if name in own:
+            return own[name]["data"]
+        if pcb_path not in self._board_embedded:
+            self._board_embedded[pcb_path] = decode_embedded_files(
+                pcb_path.read_text(encoding="utf-8", errors="ignore")
+            )
+        entry = self._board_embedded[pcb_path].get(name)
+        return entry["data"] if entry else None
+
     def _payload(self, path: Path) -> bytes:
         resolved = path.resolve()
         if resolved not in self._payload_cache:
@@ -375,6 +397,19 @@ class ProjectAssetSnapshotIndex:
         if footprint_result:
             target_name, payload, model_paths = _sanitize_footprint(footprint_result.block, footprint_ref)
             pcb_path = footprint_result.source_path
+            embedded_models: dict[str, tuple[str, bytes]] = {}
+            for model_path in model_paths:
+                if not model_path.startswith(EMBED_PREFIX) or model_path in embedded_models:
+                    continue
+                data = self._embedded_model(model_path[len(EMBED_PREFIX):], footprint_result.block, pcb_path)
+                if data is not None:
+                    embedded_models[model_path] = (original_model_name(model_path[len(EMBED_PREFIX):], data), data)
+            if embedded_models:
+                # Name the model file again, as a library footprint does; placement re-embeds it.
+                text = payload.decode("utf-8")
+                for model_path, (file_name, _data) in embedded_models.items():
+                    text = text.replace(f'(model "{model_path}"', f'(model "{_replace_quoted(file_name)}"')
+                payload = text.encode("utf-8")
 
             # A part placed on the back of the board is stored mirrored. Library
             # footprints are front-side by convention, so undo the placement flip
@@ -420,6 +455,20 @@ class ProjectAssetSnapshotIndex:
             )
             resolved["footprint_lib_id"] = footprint_ref
             for model_path in model_paths:
+                if model_path in embedded_models:
+                    file_name, data = embedded_models[model_path]
+                    assets.append(
+                        _write_staged_asset(
+                            self.stager,
+                            asset_type="3dmodel",
+                            filename=file_name,
+                            payload=data,
+                            target_library=library_name,
+                            target_name=file_name,
+                            source_path=model_path,
+                        )
+                    )
+                    continue
                 source = self._model_path(model_path, pcb_path)
                 if not source:
                     findings.append(

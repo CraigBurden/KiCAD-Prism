@@ -352,6 +352,15 @@ class Settings(PipelineSettings):
         ),
     )
 
+    REMOTE_PROVIDER_EMBED_MAX_COMPRESSED_BYTES: int = Field(
+        default=16 * 1024 * 1024,
+        ge=0,
+        description=(
+            "Compressed (zstd) 3D model bytes one placed footprint may embed; a model over it keeps "
+            "the external destination path. The footprint grows by about 4/3 of the embedded data."
+        ),
+    )
+
     REMOTE_PROVIDER_OAUTH_CLIENT_ID: str = Field(
         default="kicad-prism-kicad",
         description="Public OAuth client_id advertised to KiCad for the remote provider."

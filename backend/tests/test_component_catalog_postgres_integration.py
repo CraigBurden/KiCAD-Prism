@@ -1438,6 +1438,13 @@ class ComponentCatalogPostgresIntegrationTests(unittest.TestCase):
             [hashlib.sha256(model).hexdigest() for model in models],
         )
         self.assertEqual(embedded(revision_ids[0]), first)
+        # Each embedded model's compressed copy is kept in the store and reused.
+        for model in models:
+            kept = list((self.service.runtime.store_root / "embedded-models").rglob(
+                f"{hashlib.sha256(model).hexdigest()}.zst"
+            ))
+            self.assertEqual(len(kept), 1)
+            self.assertEqual(zstandard.ZstdDecompressor().decompress(kept[0].read_bytes()), model)
 
         self.service.import_symbol_library(
             component["id"],
@@ -1480,7 +1487,7 @@ class ComponentCatalogPostgresIntegrationTests(unittest.TestCase):
         )
 
         # A model that falls back to the external path is still shipped.
-        with patch("app.services.catalog.placement_payloads.EMBED_MAX_FOOTPRINT_BYTES", 0):
+        with patch("app.core.config.settings.REMOTE_PROVIDER_EMBED_MAX_COMPRESSED_BYTES", 0):
             fallback = self.service.build_manifest(component["id"], "https://prism.example")
         assert fallback is not None
         self.assertEqual(
