@@ -3,11 +3,16 @@
 from __future__ import annotations
 
 import hashlib
+import json
+import os
 import shutil
 import tempfile
+import time
 import unittest
 from pathlib import Path
+from unittest import mock
 
+from app.release_studio import closure as closure_module, closure_models
 from app.release_studio.canonical import sha256_canonical
 from app.release_studio.closure import (
     ClosureError,
@@ -285,13 +290,11 @@ class ReleaseStudioClosureTests(unittest.TestCase):
         )
         self.assertEqual(closure.advisory_reasons(), [])
 
-    def test_a_stock_3d_model_reference_is_advisory_not_a_blocker(self) -> None:
+    def test_an_unreadable_external_3d_model_is_non_hermetic(self) -> None:
         # Every real KiCad board carries `(model "${KICAD9_3DMODEL_DIR}/...")`
-        # nodes pointing at the stock 3D library, which the pinned executor
-        # image does not ship.  No Stage 1 manufacturing step reads one, so the
-        # closure records the offending path and says so -- but it does not
-        # count against hermeticity, because the released outputs do not depend
-        # on it and a release must not be blocked by it.
+        # nodes.  The cover render and the assembly views open them with the
+        # worker's environment, so a model the build cannot read is bytes the
+        # build key does not pin.
         self.repo.joinpath("hardware/board/model.step").write_bytes(
             b"small hydrated STEP payload\n"
         )
@@ -299,7 +302,8 @@ class ReleaseStudioClosureTests(unittest.TestCase):
             '(kicad_pcb (version 20240108) '
             '(general (thickness 1.6)) '
             '(model "${KIPRJMOD}/model.step") '
-            '(model "${KICAD9_3DMODEL_DIR}/Resistor_SMD.3dshapes/R_0603.step"))\n',
+            '(model "${KICAD9_3DMODEL_DIR}/Resistor_SMD.3dshapes/R_0603.step") '
+            f'(model "{self.root}/absent/R_0805.step"))\n',
             encoding="utf-8",
         )
         commit = commit_all(self.repo, "stock 3d model reference")
@@ -309,20 +313,20 @@ class ReleaseStudioClosureTests(unittest.TestCase):
             commit,
             self.root / "stock-3d",
             relative_path="hardware/board",
+            model_env={"KICAD9_3DMODEL_DIR": str(self.root / "no-such-library")},
         )
 
-        self.assertEqual(closure.external_references, ())
-        self.assertEqual(closure.non_hermetic_reasons(), [])
-
-        advisory = closure.advisory_references
-        self.assertEqual(len(advisory), 1)
-        self.assertEqual(advisory[0].source_path, "hardware/board/board.kicad_pcb")
-        self.assertIn("KICAD9_3DMODEL_DIR", advisory[0].reference)
-        self.assertTrue(advisory[0].advisory)
-        notes = closure.advisory_reasons()
-        self.assertEqual(len(notes), 1)
-        self.assertIn("R_0603.step", notes[0])
-        self.assertIn("no build step reads it", notes[0])
+        unreadable = closure.external_references
+        self.assertEqual(
+            sorted(reference.location for reference in unreadable),
+            ["unreadable", "unreadable"],
+        )
+        reasons = closure.non_hermetic_reasons()
+        self.assertEqual(len(reasons), 2)
+        self.assertTrue(any("R_0603.step" in reason for reason in reasons))
+        self.assertTrue(any("R_0805.step" in reason for reason in reasons))
+        self.assertIn("bytes are not pinned", reasons[0])
+        self.assertEqual(closure.advisory_reasons(), [])
         # The project's own model still resolves into the closure.
         self.assertIn(
             "hardware/board/model.step",
@@ -332,6 +336,378 @@ class ReleaseStudioClosureTests(unittest.TestCase):
                 if reference.location == "closure"
             },
         )
+
+    def test_an_external_3d_model_is_hashed_into_the_closure_digest(self) -> None:
+        library = self.root / "host-models"
+        (library / "Resistor_SMD.3dshapes").mkdir(parents=True)
+        stock = library / "Resistor_SMD.3dshapes/R_0603.step"
+        absolute = self.root / "absolute-models/R_0805.step"
+        absolute.parent.mkdir()
+        stock.write_bytes(b"stock model v1\n")
+        absolute.write_bytes(b"absolute model v1\n")
+        self.repo.joinpath("hardware/board/model.step").write_bytes(
+            b"small hydrated STEP payload\n"
+        )
+        self.repo.joinpath("hardware/board/board.kicad_pcb").write_text(
+            '(kicad_pcb (version 20240108) '
+            '(general (thickness 1.6)) '
+            '(footprint "R" (model "${KICAD9_3DMODEL_DIR}/Resistor_SMD.3dshapes/R_0603.step")) '
+            f'(footprint "R" (model "{absolute}" (hide yes))))\n',
+            encoding="utf-8",
+        )
+        commit = commit_all(self.repo, "external 3d models")
+
+        def build(name: str, models: Path) -> object:
+            return materialize_input_closure(
+                self.repo,
+                commit,
+                self.root / name,
+                relative_path="hardware/board",
+                model_env={"KICAD9_3DMODEL_DIR": str(models)},
+            )
+
+        first = build("models-1", library)
+        self.assertEqual(first.non_hermetic_reasons(), [])
+        hosted = {
+            reference.reference: reference
+            for reference in first.library_references
+            if reference.location == "host"
+        }
+        self.assertEqual(
+            hosted["${KICAD9_3DMODEL_DIR}/Resistor_SMD.3dshapes/R_0603.step"].digest,
+            hashlib.sha256(b"stock model v1\n").hexdigest(),
+        )
+        self.assertEqual(
+            hosted[str(absolute)].digest,
+            hashlib.sha256(b"absolute model v1\n").hexdigest(),
+        )
+        # No host path is recorded, so the same bytes elsewhere agree.
+        moved = self.root / "elsewhere"
+        shutil.copytree(library, moved)
+        self.assertEqual(build("models-2", moved).digest, first.digest)
+        self.assertNotIn(str(library), str(first.to_dict()))
+
+        stock.write_bytes(b"stock model v2\n")
+        changed_stock = build("models-3", library)
+        self.assertNotEqual(changed_stock.digest, first.digest)
+
+        absolute.write_bytes(b"absolute model v2\n")
+        self.assertNotEqual(build("models-4", library).digest, changed_stock.digest)
+
+    def _host_model_digest(self, closure: object, reference: str) -> str:
+        return {
+            item.reference: item.digest
+            for item in closure.library_references
+            if item.location == "host"
+        }[reference]
+
+    def test_a_project_text_variable_wins_over_the_environment_for_a_model(
+        self,
+    ) -> None:
+        # KiCad's ExpandEnvVarSubstitutions asks the project's text variables
+        # before the environment, so the project's file is the one rendered.
+        from_env = self.root / "env-models/part.step"
+        from_project = self.root / "project-models/part.step"
+        for path, payload in ((from_env, b"env model\n"), (from_project, b"project model\n")):
+            path.parent.mkdir()
+            path.write_bytes(payload)
+        self.repo.joinpath("hardware/board/model.step").write_bytes(b"payload\n")
+        self.repo.joinpath("hardware/board/board.kicad_pro").write_text(
+            json.dumps({"text_variables": {"CUSTOM": str(from_project.parent)}}),
+            encoding="utf-8",
+        )
+        self.repo.joinpath("hardware/board/board.kicad_pcb").write_text(
+            '(kicad_pcb (version 20240108) '
+            '(footprint "R" (model "${CUSTOM}/part.step")))\n',
+            encoding="utf-8",
+        )
+        commit = commit_all(self.repo, "project text variable model")
+
+        closure = materialize_input_closure(
+            self.repo,
+            commit,
+            self.root / "project-variable",
+            relative_path="hardware/board",
+            model_env={"CUSTOM": str(from_env.parent)},
+        )
+
+        self.assertEqual(
+            self._host_model_digest(closure, "${CUSTOM}/part.step"),
+            hashlib.sha256(b"project model\n").hexdigest(),
+        )
+
+    def test_a_backslash_in_a_model_path_is_a_directory_separator(self) -> None:
+        # KiCad swaps `\` for `/` before resolving on Linux, so it opens
+        # `Folder/part.step`, never a file literally named `Folder\part.step`.
+        library = self.root / "slash-models"
+        (library / "Folder").mkdir(parents=True)
+        (library / "Folder/part.step").write_bytes(b"nested model\n")
+        (library / "Folder\\part.step").write_bytes(b"literal backslash name\n")
+        self.repo.joinpath("hardware/board/model.step").write_bytes(b"payload\n")
+        self.repo.joinpath("hardware/board/board.kicad_pcb").write_text(
+            '(kicad_pcb (version 20240108) '
+            '(footprint "R" (model "${KICAD9_3DMODEL_DIR}/Folder\\\\part.step")))\n',
+            encoding="utf-8",
+        )
+        commit = commit_all(self.repo, "backslash model path")
+
+        closure = materialize_input_closure(
+            self.repo,
+            commit,
+            self.root / "backslash",
+            relative_path="hardware/board",
+            model_env={"KICAD9_3DMODEL_DIR": str(library)},
+        )
+
+        self.assertEqual(
+            self._host_model_digest(closure, "${KICAD9_3DMODEL_DIR}/Folder\\part.step"),
+            hashlib.sha256(b"nested model\n").hexdigest(),
+        )
+
+    def test_a_project_kiprjmod_override_is_resolved_before_the_closure(self) -> None:
+        # The project's text variables win even over KIPRJMOD, so KiCad opens
+        # the outside file although the repository has one at the same path.
+        outside = self.root / "outside-project/part.step"
+        outside.parent.mkdir()
+        outside.write_bytes(b"outside model v1\n")
+        self.repo.joinpath("hardware/board/model.step").write_bytes(b"payload\n")
+        self.repo.joinpath("hardware/board/part.step").write_bytes(b"in-repo model\n")
+        self.repo.joinpath("hardware/board/board.kicad_pro").write_text(
+            json.dumps({"text_variables": {"KIPRJMOD": str(outside.parent)}}),
+            encoding="utf-8",
+        )
+        self.repo.joinpath("hardware/board/board.kicad_pcb").write_text(
+            '(kicad_pcb (version 20240108) '
+            '(footprint "R" (model "${KIPRJMOD}/part.step")))\n',
+            encoding="utf-8",
+        )
+        commit = commit_all(self.repo, "project overrides KIPRJMOD")
+
+        def build(name: str) -> object:
+            return materialize_input_closure(
+                self.repo, commit, self.root / name, relative_path="hardware/board"
+            )
+
+        first = build("kiprjmod-1")
+        self.assertEqual(
+            self._host_model_digest(first, "${KIPRJMOD}/part.step"),
+            hashlib.sha256(b"outside model v1\n").hexdigest(),
+        )
+        outside.write_bytes(b"outside model v2\n")
+        self.assertNotEqual(build("kiprjmod-2").digest, first.digest)
+
+    def test_a_backslash_path_that_climbs_out_of_the_closure_is_hashed(self) -> None:
+        # KiCad normalizes `\..\` before it opens the file, so this reference
+        # reads a host file, not a missing name inside the closure.
+        host = self.root / "host-models/part.step"
+        host.parent.mkdir()
+        host.write_bytes(b"climbing model\n")
+        self.repo.joinpath("hardware/board/model.step").write_bytes(b"payload\n")
+        reference = "${KIPRJMOD}\\..\\..\\..\\host-models\\part.step"
+        self.repo.joinpath("hardware/board/board.kicad_pcb").write_text(
+            '(kicad_pcb (version 20240108) '
+            '(footprint "R" (model "'
+            + reference.replace("\\", "\\\\")
+            + '")))\n',
+            encoding="utf-8",
+        )
+        commit = commit_all(self.repo, "backslash path out of the closure")
+
+        closure = materialize_input_closure(
+            self.repo, commit, self.root / "climb", relative_path="hardware/board"
+        )
+
+        self.assertEqual(
+            self._host_model_digest(closure, reference),
+            hashlib.sha256(b"climbing model\n").hexdigest(),
+        )
+        self.assertEqual(closure.advisory_reasons(), [])
+
+    def _model_location(
+        self,
+        name: str,
+        reference: str,
+        text_variables: dict[str, str] | None = None,
+        model_env: dict[str, str] | None = None,
+    ) -> str:
+        return self._model_record(name, reference, text_variables, model_env).location
+
+    def _model_record(
+        self,
+        name: str,
+        reference: str,
+        text_variables: dict[str, str] | None = None,
+        model_env: dict[str, str] | None = None,
+    ) -> object:
+        self.repo.joinpath("hardware/board/model.step").write_bytes(b"payload\n")
+        self.repo.joinpath("hardware/board/board.kicad_pro").write_text(
+            json.dumps({"text_variables": text_variables or {}}), encoding="utf-8"
+        )
+        self.repo.joinpath("hardware/board/board.kicad_pcb").write_text(
+            '(kicad_pcb (version 20240108) (footprint "R" (model "'
+            + reference.replace("\\", "\\\\")
+            + '")))\n',
+            encoding="utf-8",
+        )
+        commit = commit_all(self.repo, name)
+        closure = materialize_input_closure(
+            self.repo,
+            commit,
+            self.root / name,
+            relative_path="hardware/board",
+            model_env=model_env or {},
+        )
+        (record,) = [
+            item for item in closure.library_references if item.reference == reference
+        ]
+        return record
+
+    def test_a_closure_symlink_out_of_the_closure_is_unreadable(self) -> None:
+        # A repository symlink must not make the build read and fingerprint a
+        # worker's file, nor stall on an endless device.
+        outside = self.root / "secret/host.step"
+        outside.parent.mkdir()
+        outside.write_bytes(b"host secret\n")
+        for name, target in (("outside-file", outside), ("dev-zero", Path("/dev/zero"))):
+            with self.subTest(name):
+                link = self.repo / f"hardware/board/{name}.step"
+                link.symlink_to(target)
+                started = time.monotonic()
+                record = self._model_record(f"symlink-{name}", f"${{KIPRJMOD}}/{name}.step")
+                self.assertLess(time.monotonic() - started, 30)
+                self.assertEqual((record.location, record.digest), ("unreadable", ""))
+                link.unlink()
+
+    def test_a_host_model_that_is_not_a_regular_file_is_unreadable(self) -> None:
+        host = self.root / "special"
+        host.mkdir()
+        os.mkfifo(host / "pipe.step")
+        (host / "device.step").symlink_to("/dev/zero")
+        for name in ("pipe", "device"):
+            with self.subTest(name):
+                started = time.monotonic()
+                record = self._model_record(
+                    f"special-{name}", f"${{MODELS}}/{name}.step", model_env={"MODELS": str(host)}
+                )
+                self.assertLess(time.monotonic() - started, 30)
+                self.assertEqual((record.location, record.digest), ("unreadable", ""))
+
+    def test_a_host_file_that_is_not_a_3d_model_is_never_hashed(self) -> None:
+        host = self.root / "host-files"
+        host.mkdir()
+        (host / "backend.env").write_bytes(b"SECRET=1\n")
+        (host / "disguised.step").symlink_to(host / "backend.env")
+        cases = {
+            # Absolute, no symlink: the model scan picks it up, KiCad would open it.
+            "absolute": (f"{host}/backend.env.vrml", None),
+            # A model name that resolves to a file KiCad's 3D plugins do not load.
+            "disguised": ("${MODELS}/disguised.step", {"MODELS": str(host)}),
+        }
+        (host / "backend.env.vrml").write_bytes(b"SECRET=1\n")
+        for name, (reference, env) in cases.items():
+            with self.subTest(name):
+                record = self._model_record(f"non-model-{name}", reference, model_env=env)
+                self.assertEqual((record.location, record.digest), ("unreadable", ""))
+        # A board naming a plain host file never gets its bytes hashed.
+        plain = self._model_record("non-model-plain", f"{host}/backend.env")
+        self.assertEqual(plain.digest, "")
+        self.assertIn(plain.location, {"external", "unreadable"})
+
+    def test_a_host_model_over_the_size_cap_is_unreadable(self) -> None:
+        host = self.root / "large-models"
+        host.mkdir()
+        (host / "large.step").write_bytes(b"x" * 64)
+        (host / "small.step").write_bytes(b"x" * 16)
+        with mock.patch.object(closure_models, "HOST_MODEL_MAX_BYTES", 32):
+            large = self._model_record(
+                "large-model", "${MODELS}/large.step", model_env={"MODELS": str(host)}
+            )
+            small = self._model_record(
+                "small-model", "${MODELS}/small.step", model_env={"MODELS": str(host)}
+            )
+        self.assertEqual((large.location, large.digest), ("unreadable", ""))
+        self.assertEqual(small.digest, hashlib.sha256(b"x" * 16).hexdigest())
+
+    def test_a_boards_project_variables_are_read_once(self) -> None:
+        self.repo.joinpath("hardware/board/model.step").write_bytes(b"payload\n")
+        self.repo.joinpath("hardware/board/board.kicad_pcb").write_text(
+            '(kicad_pcb (version 20240108) '
+            '(footprint "R" (model "${KIPRJMOD}/model.step")) '
+            '(footprint "C" (model "${KIPRJMOD}/missing.step")))\n',
+            encoding="utf-8",
+        )
+        commit = commit_all(self.repo, "two models on one board")
+        with mock.patch.object(
+            closure_module,
+            "project_text_variables",
+            wraps=closure_models.project_text_variables,
+        ) as read:
+            materialize_input_closure(
+                self.repo, commit, self.root / "read-once", relative_path="hardware/board"
+            )
+        self.assertEqual(read.call_count, 1)
+
+    def test_models_kicad_resolves_differently_fail_closed(self) -> None:
+        # Where Prism cannot reproduce KiCad's resolution exactly, the model
+        # is unreadable, never hashed as something else or called advisory.
+        host = self.root / "fail-closed/part.step"
+        host.parent.mkdir()
+        host.write_bytes(b"host model\n")
+        loop = self.root / "loop"
+        loop.symlink_to(loop)
+        cases = {
+            # A nested `$(VAR)` KiCad would expand.
+            "nested": ("${CUSTOM}/part.step", {"CUSTOM": "$(ROOT)"}),
+            # A relative value KiCad resolves against the tool's directory.
+            "relative": ("${KIPRJMOD}/part.step", {"KIPRJMOD": "fail-closed"}),
+            # KiCad checks the path before it normalizes `..`.
+            "dotdot": (
+                "${CUSTOM}/nonexistent/../part.step",
+                {"CUSTOM": str(host.parent)},
+            ),
+            # A symlink loop must not escape as an exception.
+            "loop": ("${CUSTOM}/x/part.step", {"CUSTOM": str(loop)}),
+        }
+        for name, (reference, variables) in cases.items():
+            with self.subTest(name):
+                self.assertEqual(
+                    self._model_location(f"fail-closed-{name}", reference, variables),
+                    "unreadable",
+                )
+
+    def test_eight_nested_model_variables_still_resolve(self) -> None:
+        host = self.root / "deep-models/part.step"
+        host.parent.mkdir()
+        host.write_bytes(b"deep model\n")
+        variables = {f"V{index}": f"${{V{index + 1}}}" for index in range(7)}
+        variables["V7"] = str(host.parent)
+        self.assertEqual(
+            self._model_location("deep", "${V0}/part.step", variables), "host"
+        )
+
+    def test_a_missing_vrml_model_in_the_closure_is_non_hermetic(self) -> None:
+        # kicad-cli replaces a missing WRL with a same-stem STEP from its
+        # search paths, so this absence is not the same on every worker.
+        self.repo.joinpath("hardware/board/model.step").write_bytes(b"payload\n")
+        self.repo.joinpath("hardware/board/board.kicad_pcb").write_text(
+            '(kicad_pcb (version 20240108) '
+            '(footprint "R" (model "${KIPRJMOD}/packages3D/part.wrl")))\n',
+            encoding="utf-8",
+        )
+        commit = commit_all(self.repo, "missing vrml model")
+
+        closure = materialize_input_closure(
+            self.repo,
+            commit,
+            self.root / "missing-wrl",
+            relative_path="hardware/board",
+        )
+
+        reasons = closure.non_hermetic_reasons()
+        self.assertEqual(len(reasons), 1)
+        self.assertIn("part.wrl", reasons[0])
+        self.assertIn("same-name STEP model", reasons[0])
+        self.assertEqual(closure.advisory_reasons(), [])
 
     def test_a_comma_in_a_quoted_model_path_is_not_truncated(self) -> None:
         # The unquoted-variable scan stops at `,`, so running it over a quoted
@@ -597,7 +973,7 @@ class PathReferenceDiscriminationTests(unittest.TestCase):
     """
 
     def test_builtin_text_variables_are_not_path_references(self) -> None:
-        from app.release_studio.closure import _is_path_reference
+        from app.release_studio.closure_references import is_path_reference
 
         for value in (
             "${DNP}",
@@ -617,10 +993,10 @@ class PathReferenceDiscriminationTests(unittest.TestCase):
             "${JOBSET_OUTPUT_WORK_PATH}/archive.zip",
         ):
             with self.subTest(value=value):
-                self.assertFalse(_is_path_reference(value))
+                self.assertFalse(is_path_reference(value))
 
     def test_genuine_path_references_are_still_detected(self) -> None:
-        from app.release_studio.closure import _is_path_reference
+        from app.release_studio.closure_references import is_path_reference
 
         for value in (
             "${KIPRJMOD}",
@@ -631,7 +1007,7 @@ class PathReferenceDiscriminationTests(unittest.TestCase):
             "some/relative/${VAR}/path",
         ):
             with self.subTest(value=value):
-                self.assertTrue(_is_path_reference(value))
+                self.assertTrue(is_path_reference(value))
 
     def test_a_board_using_text_variables_still_closes(self) -> None:
         """End to end: a DNP-annotated board must not be rejected."""

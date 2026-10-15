@@ -423,6 +423,31 @@ Two modes leave files no row describes:
   `SELECT canonical_path FROM catalog.assets WHERE canonical_path LIKE
   '%/revisions/<sha256>/%'` returns no row for them.
 
+## Release Studio pins 3D models outside the closure
+
+Earlier releases recorded a board's 3D models outside the repository, such as
+the stock `${KICAD9_3DMODEL_DIR}` library, as advisory and left their bytes out
+of the input closure. The cover render and the assembly views open those
+models, so a release now resolves each one as KiCad does and hashes its bytes
+into the input closure digest.
+
+- **One new build key.** The first build of an existing board that uses stock or
+  other host models after the upgrade gets a new input closure digest, and so a
+  new candidate, even with an unchanged commit and configuration. Later builds
+  are stable again while the model files do not change.
+- **Non-hermetic where the variable is unset.** A worker without the variable
+  (for example no `KICAD9_3DMODEL_DIR` in its environment) cannot read those
+  models, so the build reports them as unreadable and itself as non-hermetic.
+  Set the variable on every worker to the same model library to keep builds
+  hermetic and their digests equal across workers.
+
+Only regular files are hashed, up to 256 MiB each, and only when both the
+written and the resolved name end in a suffix KiCad's 3D plugins load (`.step`,
+`.stp`, `.stpz`, `.stepz`, `.step.gz`, `.stp.gz`, `.igs`, `.iges`, `.wrl`,
+`.wrz`, `.x3d`, `.idf`, `.emn`). Any other host file, a device, a FIFO, a larger
+file, or a repository symlink that leads out of the repository is unreadable,
+and the build non-hermetic.
+
 ## Why the catalog gate is gone
 
 Until [`catalog_schema_migrations.py`](../backend/app/services/catalog_schema_migrations.py)
