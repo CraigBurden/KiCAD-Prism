@@ -144,7 +144,7 @@ export async function getBuild(projectId: string, buildId: string): Promise<Buil
 export async function publishBuild(
     projectId: string,
     buildId: string,
-    body: { tag: string; title?: string; notes?: string },
+    body: { tag: string; title?: string; notes?: string; acknowledged_models?: string[] },
 ): Promise<{ release: { url: string; tag: string; forge: string }; filename: string }> {
     return fetchJson(
         `${base(projectId)}/builds/${encodeURIComponent(buildId)}/publish`,
@@ -160,7 +160,7 @@ export async function publishBuild(
 export async function approveBuild(
     projectId: string,
     buildId: string,
-    body: { slot: ReviewSlot; note?: string },
+    body: { slot: ReviewSlot; note?: string; acknowledged_models?: string[] },
 ): Promise<{ approvals: ApprovalState }> {
     return fetchJson(
         `${base(projectId)}/builds/${encodeURIComponent(buildId)}/approvals`,

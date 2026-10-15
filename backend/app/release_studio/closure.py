@@ -19,12 +19,17 @@ import os
 import re
 import stat
 import subprocess
-from dataclasses import asdict, dataclass, field
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Iterable, Mapping, Sequence
 
 from app.release_studio.canonical import sha256_canonical
-from app.release_studio.closure_models import is_model_reference, project_text_variables, resolve_model
+from app.release_studio.closure_models import (
+    is_model_reference,
+    project_text_variables,
+    resolve_model,
+    rewrite_model_references,
+)
 from app.release_studio.closure_references import VARIABLE_RE as _VARIABLE_RE, structured_path_references
 from app.services import project_revision
 
@@ -336,6 +341,7 @@ def materialize_input_closure(
         | None
     ) = None,
     model_env: Mapping[str, str] | None = None,
+    model_stage: str | Path | None = None,
 ) -> InputClosure:
     """Materialize the full repository tree for ``commit``.
 
@@ -351,7 +357,10 @@ def materialize_input_closure(
 
     ``model_env`` is the environment the build tools run with.  A 3D model a
     board names outside the closure is resolved through it and hashed, because
-    the cover render and the assembly views read it from there.
+    the cover render and the assembly views read it from there.  Given
+    ``model_stage`` (a directory outside ``destination``), each hashed host
+    model is copied there as it is hashed and the materialized board names the
+    copy, so the tools read exactly the hashed bytes.
     """
 
     repo = Path(repo_path)
@@ -387,6 +396,7 @@ def materialize_input_closure(
         env or {},
         specs,
         model_env or {},
+        Path(model_stage) if model_stage is not None else None,
     )
     return InputClosure(
         commit_sha=commit_sha,
@@ -413,6 +423,7 @@ def materialize_project_input_closure(
         | None
     ) = None,
     model_env: Mapping[str, str] | None = None,
+    model_stage: str | Path | None = None,
 ) -> InputClosure:
     """Resolve a Prism project/subproject and materialize its full repo tree."""
 
@@ -427,6 +438,7 @@ def materialize_project_input_closure(
         env=env,
         toolchain_resources=toolchain_resources,
         model_env=model_env,
+        model_stage=model_stage,
     )
 
 
@@ -995,6 +1007,7 @@ def _resolve_project_paths(
     env: Mapping[str, str],
     toolchain_specs: Sequence[_ToolchainSpec],
     model_env: Mapping[str, str],
+    model_stage: Path | None = None,
 ) -> tuple[list[ResolvedLibraryPath], list[EnvBinding]]:
     resolver = _PathResolver(destination, project_rel, env, toolchain_specs)
     scanned = _design_inputs(destination, repository_inputs, project_rel)
@@ -1022,6 +1035,7 @@ def _resolve_project_paths(
     deduped = sorted(set(references), key=lambda item: item)
     resolved: list[ResolvedLibraryPath] = []
     text_variables: dict[str, dict[str, str]] = {}  # per board, parsed once
+    targets: dict[str, dict[str, str]] = {}  # per board: reference -> file to open
     for source, reference, kind in deduped:
         if is_model_reference(reference):
             # The cover render and the assembly views open every model, so a
@@ -1039,8 +1053,12 @@ def _resolve_project_paths(
                 destination=destination,
                 destination_root=resolver.destination_root,
                 toolchain_roots={spec.name: spec.root for spec in toolchain_specs},
+                project_root=resolver.project_root,
+                stage=model_stage,
             )
-            resolved.append(ResolvedLibraryPath(source, reference, **asdict(placement)))
+            resolved.append(ResolvedLibraryPath(source, reference, **placement.record()))
+            if placement.target:
+                targets.setdefault(source, {})[reference] = placement.target
             continue
         try:
             resolved.append(resolver.resolve(source, reference, kind))
@@ -1058,6 +1076,9 @@ def _resolve_project_paths(
                     location="external" if isinstance(exc, ExternalPathError) else "missing",
                 )
             )
+    # Last, so every reference was resolved against the committed bytes.
+    for source, board_targets in sorted(targets.items()):
+        rewrite_model_references(_materialized_path(destination, source), board_targets)
     return resolved, sorted(resolver.bindings.values(), key=lambda binding: binding.name)
 
 

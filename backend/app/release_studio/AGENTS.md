@@ -65,7 +65,10 @@ Around the build:
   commit.
 - `backend/app/services/release_studio_publish_service.py`: `ReleasePublisher`
   (approve → package → forge → record) and `BuildArchives` (digest-checked
-  dossier/evidence reads, logs, vendor packs). Forges are adapters in
+  dossier/evidence reads, logs, vendor packs).
+- `backend/app/services/release_studio_model_inputs.py`: a candidate's 3D model
+  rows, `self_contained`, and the acknowledgement approve and publish need for
+  models the build did not pin. Forges are adapters in
   `backend/app/services/forge_publish_service.py` (`forge_for`). This is not
   the trackers' forge seam (`backend/app/services/trackers/`): different
   credentials, different purpose. Tests drive it with

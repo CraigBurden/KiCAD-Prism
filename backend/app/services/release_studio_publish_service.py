@@ -32,6 +32,7 @@ from typing import Any, Callable, Mapping, Protocol, Sequence
 
 from app.core import errors
 from app.services import forge_publish_service as forge_publish
+from app.services import release_studio_model_inputs as model_inputs
 from app.services import release_studio_service as store
 
 logger = logging.getLogger(__name__)
@@ -50,6 +51,7 @@ class ReleaseRecords(Protocol):
 
     def get_build(self, build_id: str) -> dict[str, Any] | None: ...
     def get_candidate(self, candidate_id: str) -> dict[str, Any] | None: ...
+    def model_inputs(self, candidate_id: str) -> list[dict[str, Any]]: ...
     def get_artifact(self, artifact_id: str) -> dict[str, Any] | None: ...
     def build_members(self, build_id: str) -> list[dict[str, Any]]: ...
     def build_evidence(self, build_id: str) -> list[dict[str, Any]]: ...
@@ -349,11 +351,21 @@ class ReleasePublisher:
         decision: str,
         note: str,
         actor: Actor,
+        acknowledged_models: Sequence[str] = (),
     ) -> dict[str, Any]:
-        """Record a Designer/QA approval or withdrawal and return the new approval state."""
+        """Record a Designer/QA approval or withdrawal and return the new approval state.
+
+        Approving a build whose 3D models are not all pinned needs every one of
+        them in *acknowledged_models*; a withdrawal needs none.
+        """
 
         build = self.archives.build(project_id, build_id)
         candidate = self.records.get_candidate(str(build["candidate_id"])) or {}
+        acknowledged: list[str] = []
+        if decision == "approved":
+            acknowledged = model_inputs.require_acknowledgement(
+                self._unpinned_models(candidate), acknowledged_models, action="Approval"
+            )
         configuration = self.configuration(project_id, candidate)
         readiness = self.archives.vendor_readiness(build, configuration)
         evidence = self.records.build_evidence(build_id)
@@ -371,6 +383,7 @@ class ReleasePublisher:
             electrical_errors=store.electrical_error_kinds(evidence),
             build_status=str(build.get("status") or ""),
             config_key=str(candidate.get("config_key") or ""),
+            acknowledged_models=acknowledged,
         )
         return {"approvals": self._approvals(build, candidate, readiness, actor)}
 
@@ -385,8 +398,13 @@ class ReleasePublisher:
         tag: str,
         notes: str,
         actor: Actor,
+        acknowledged_models: Sequence[str] = (),
     ) -> dict[str, Any]:
-        """Zip the dossier, attach ready vendor packs, create the forge Release, record it."""
+        """Zip the dossier, attach ready vendor packs, create the forge Release, record it.
+
+        A build whose 3D models are not all pinned is published only with each
+        of them in *acknowledged_models*.
+        """
 
         build = self.archives.build(project_id, build_id)
         if str(build.get("status") or "") != "succeeded":
@@ -405,6 +423,9 @@ class ReleasePublisher:
             raise errors.Conflict(
                 approvals.get("blocked_reason") or "This build is not clear to publish"
             )
+        acknowledged = model_inputs.require_acknowledgement(
+            approvals.get("unpinned_models") or [], acknowledged_models, action="Publishing"
+        )
 
         # Package.
         zip_bytes = forge_publish.dossier_tar_to_zip(
@@ -442,6 +463,7 @@ class ReleasePublisher:
                 forge_url=str(released.get("url") or ""),
                 asset_names=[filename, *(name for name, _payload in extras)],
                 config_key=str(candidate.get("config_key") or ""),
+                acknowledged_models=acknowledged,
             )
         except Exception:
             logger.exception("Could not record the %s publish of build %s", tag, build_id)
@@ -476,7 +498,14 @@ class ReleasePublisher:
             publish_row=self.records.get_publish_record(build_id),
             actor_email=actor.email,
             actor_role=actor.role,
+            unpinned_models=self._unpinned_models(candidate),
         )
+
+    def _unpinned_models(self, candidate: Mapping[str, Any]) -> list[dict[str, str]]:
+        """The models an approval or publish of *candidate* must acknowledge."""
+
+        rows = self.records.model_inputs(str(candidate["id"])) if candidate.get("id") else []
+        return model_inputs.unpinned_models(candidate, rows)
 
     def _live_release(
         self, repo_url: str, tag: str, published: Mapping[str, Any] | None

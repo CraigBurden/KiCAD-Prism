@@ -477,6 +477,28 @@ written and the resolved name end in a suffix KiCad's 3D plugins load (`.step`,
 file, or a repository symlink that leads out of the repository is unreadable,
 and the build non-hermetic.
 
+## Release Studio acknowledges unpinned 3D models
+
+Migration 56 (`release_studio_model_inputs`) adds `ws_release_model_inputs`, a
+nullable `self_contained` on `ws_release_candidates`, and
+`acknowledged_models` on review decisions and publish records. Candidates made
+before it have no model rows and `self_contained` NULL.
+
+- **Approve and publish acknowledge unpinned models.** A build whose 3D models
+  include an unreadable one, or a missing `.wrl` KiCad may swap for a STEP
+  model, is still built, approved and published, but each approval and the
+  publish must name those models as acknowledged. The API takes them as
+  `acknowledged_models` (the `key` of each `approvals.unpinned_models` entry)
+  and answers 409 listing the ones missing. For an older candidate the list is
+  read from its non-hermetic reasons.
+- **One new build key for more model forms.** Relative model paths, `:alias:`
+  forms and `$(VAR)` / `$VAR` references are now resolved and pinned instead of
+  skipped, so a board that uses them gets a new input closure digest, and a new
+  candidate, on its first build after the upgrade.
+- **Staged host models.** The tools read a copy of each hashed host model made
+  under the build's staging directory, so a host file changed during a build
+  cannot reach the outputs.
+
 ## Why the catalog gate is gone
 
 Until [`catalog_schema_migrations.py`](../backend/app/services/catalog_schema_migrations.py)

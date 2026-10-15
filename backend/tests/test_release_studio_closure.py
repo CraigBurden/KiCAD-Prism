@@ -745,6 +745,128 @@ class ReleaseStudioClosureTests(unittest.TestCase):
             },
         )
 
+    def test_a_relative_model_resolves_in_the_project_directory(self) -> None:
+        # KiCad looks a relative model up beside the project; the board the
+        # tools read names that file outright, so their working directory
+        # cannot supply another one.
+        models = self.repo / "hardware/board/packages3D"
+        models.mkdir(parents=True, exist_ok=True)
+        (models / "part.step").write_bytes(b"relative model\n")
+        found = self._model_record("relative-found", "packages3D/part.step")
+        self.assertEqual(
+            (found.location, found.resolved_path),
+            ("closure", "hardware/board/packages3D/part.step"),
+        )
+        board = (self.root / "relative-found/hardware/board/board.kicad_pcb").read_text()
+        self.assertIn(f'(model "{self.root / "relative-found"}', board)
+        self.assertNotIn('"packages3D/part.step"', board)
+        # Not beside the project: KiCad would search the working directory,
+        # the footprint library and the stock directory, so it fails closed.
+        self.assertEqual(
+            self._model_location("relative-missing", "packages3D/absent.step"), "unreadable"
+        )
+
+    def test_round_and_bare_variables_expand_like_braces(self) -> None:
+        host = self.root / "round-models"
+        host.mkdir()
+        (host / "part.step").write_bytes(b"round model\n")
+        digest = hashlib.sha256(b"round model\n").hexdigest()
+        for name, reference in (("round", "$(MODELS)/part.step"), ("bare", "$MODELS/part.step")):
+            with self.subTest(name):
+                record = self._model_record(
+                    f"variable-{name}", reference, model_env={"MODELS": str(host)}
+                )
+                self.assertEqual((record.location, record.digest), ("host", digest))
+                unset = self._model_record(
+                    f"variable-{name}-unset", reference.replace("MODELS", "UNSET")
+                )
+                self.assertEqual((unset.location, unset.digest), ("unreadable", ""))
+
+    def test_an_alias_resolves_only_through_a_predefined_path_variable(self) -> None:
+        host = self.root / "alias-models"
+        host.mkdir()
+        (host / "part.step").write_bytes(b"alias model\n")
+        stock = self._model_record(
+            "alias-stock",
+            ":KICAD10_3DMODEL_DIR:part.step",
+            model_env={"KICAD10_3DMODEL_DIR": str(host)},
+        )
+        self.assertEqual(
+            (stock.location, stock.digest),
+            ("host", hashlib.sha256(b"alias model\n").hexdigest()),
+        )
+        # Any other alias is whatever the worker's kicad_common.json says.
+        self.assertEqual(
+            self._model_location(
+                "alias-custom", ":MYLIB:part.step", model_env={"MYLIB": str(host)}
+            ),
+            "unreadable",
+        )
+
+    def test_an_embedded_model_is_no_reference(self) -> None:
+        self.repo.joinpath("hardware/board/model.step").write_bytes(b"payload\n")
+        self.repo.joinpath("hardware/board/board.kicad_pcb").write_text(
+            '(kicad_pcb (version 20240108) '
+            '(footprint "R" (model "kicad-embed://part.step")))\n',
+            encoding="utf-8",
+        )
+        commit = commit_all(self.repo, "embedded model")
+        closure = materialize_input_closure(
+            self.repo, commit, self.root / "embedded", relative_path="hardware/board"
+        )
+        self.assertNotIn(
+            "kicad-embed://part.step",
+            {reference.reference for reference in closure.library_references},
+        )
+        self.assertEqual(closure.non_hermetic_reasons(), [])
+
+    def test_a_staged_host_model_is_what_the_board_names(self) -> None:
+        host = self.root / "staged-models"
+        host.mkdir()
+        model = host / "part.step"
+        model.write_bytes(b"hashed bytes\n")
+        reference = "${MODELS}/part.step"
+        self.repo.joinpath("hardware/board/model.step").write_bytes(b"payload\n")
+        self.repo.joinpath("hardware/board/board.kicad_pcb").write_text(
+            '(kicad_pcb (version 20240108) (footprint "R" (model "' + reference + '")))\n',
+            encoding="utf-8",
+        )
+        commit = commit_all(self.repo, "staged host model")
+
+        def build(name: str, stage: Path | None) -> object:
+            return materialize_input_closure(
+                self.repo,
+                commit,
+                self.root / name,
+                relative_path="hardware/board",
+                model_env={"MODELS": str(host)},
+                model_stage=stage,
+            )
+
+        stage = self.root / "stage"
+        staged = build("staged", stage)
+        digest = hashlib.sha256(b"hashed bytes\n").hexdigest()
+        copy = stage / digest / "part.step"
+        self.assertEqual(copy.read_bytes(), b"hashed bytes\n")
+        board = (self.root / "staged/hardware/board/board.kicad_pcb").read_text()
+        self.assertIn(f'(model "{copy}")', board)
+        # The host file changing after the hash cannot reach the tools.
+        model.write_bytes(b"changed later\n")
+        self.assertEqual(copy.read_bytes(), b"hashed bytes\n")
+        # Staging changes nothing in the record.
+        model.write_bytes(b"hashed bytes\n")
+        self.assertEqual(build("unstaged", None).digest, staged.digest)
+        self.assertNotIn(str(stage), str(staged.to_dict()))
+        # The rewritten board never ships: a board has no canonicalizer, so it
+        # cannot become a dossier member.
+        from app.release_studio.dossier import DossierError, canonicalizer_for
+
+        with self.assertRaises(DossierError):
+            canonicalizer_for("hardware/board/board.kicad_pcb", "")
+        # The read-only copies go with the job's staging directory.
+        shutil.rmtree(stage)
+        self.assertFalse(stage.exists())
+
     def test_a_model_missing_from_the_closure_is_advisory_not_a_blocker(self) -> None:
         # Boards routinely carry stale `(model ...)` paths whose case or
         # extension no longer matches the file on disk.  No Stage 1 step reads
@@ -961,6 +1083,49 @@ class ReleaseStudioClosureTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ModelNodeRewriteTests(unittest.TestCase):
+    def test_a_token_unquotes_as_the_closure_reader_reads_it(self) -> None:
+        from kicad_monkey import parse_sexp
+
+        for token in (
+            "/abs/part.step",
+            '"plain.step"',
+            '"C:\\\\models\\\\part.step"',
+            '"a \\"quoted\\" name.step"',
+            '"tab\\there.step"',
+            '"keep\\(this.step"',
+        ):
+            with self.subTest(token):
+                self.assertEqual(
+                    closure_models.unquote_token(token),
+                    str(parse_sexp(f"(model {token})")[1]),
+                )
+
+    def test_escaped_references_are_rewritten_and_misses_are_logged(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            board = Path(directory) / "board.kicad_pcb"
+            board.write_text(
+                '(kicad_pcb (footprint "R" (model "dir\\\\a \\"b\\".step") (offset (xyz 0 0 0))) '
+                "(footprint \"C\" (model bare.step)))\n",
+                encoding="utf-8",
+            )
+            with self.assertLogs(closure_models.logger, level="WARNING") as logs:
+                count = closure_models.rewrite_model_references(
+                    board,
+                    {
+                        'dir\\a "b".step': '/stage/x/a "b".step',
+                        "bare.step": "/stage/y/bare.step",
+                        "absent.step": "/stage/z/absent.step",
+                    },
+                )
+            self.assertEqual(count, 2)
+            text = board.read_text(encoding="utf-8")
+            self.assertIn('(model "/stage/x/a \\"b\\".step") (offset', text)
+            self.assertIn('(model "/stage/y/bare.step")', text)
+            self.assertIn("absent.step", "\n".join(logs.output))
+            self.assertIn("board.kicad_pcb", "\n".join(logs.output))
 
 
 class PathReferenceDiscriminationTests(unittest.TestCase):
