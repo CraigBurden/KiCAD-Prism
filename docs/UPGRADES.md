@@ -393,6 +393,36 @@ files (see [3D models](REMOTE_SYMBOL_PROVIDER.md#3d-models)). After upgrading:
 
 Set `REMOTE_PROVIDER_EMBED_3D_MODELS=false` to keep the previous behaviour.
 
+## Bulk import overwrite flags keep existing files
+
+`--overwrite-assets` (`scripts/import_database_library.py`,
+`scripts/import_footprint_library.py`) and `--overwrite`
+(`scripts/import_kicad_library_assets.py`) no longer rewrite a canonical asset
+file whose content changed. The file at its familiar path, for example
+`footprints/<Library>.pretty/<Name>.kicad_mod`, keeps its old bytes, because
+revisions already linked to it, released ones included, record those bytes'
+sha256. The changed content is written to `revisions/<sha256>/<same relative
+path>` under the catalog store, and the rows this import creates point there.
+Identical content is still reused in place.
+
+The asset browser lists only the familiar paths, so it keeps offering the old
+file there. Picking it links the old content, not the imported one; to use the
+new content, link the asset the import created or upload the file to the part.
+
+Two modes leave files no row describes:
+
+- `--replace-catalog` (`import_database_library.py`) clears the rows first, so nothing links the old file at
+  the familiar path any more, but it stays on disk and in the browser, and the
+  new rows point at `revisions/<sha256>/`. To have the replacement land at the
+  familiar paths, take a backup and move the affected `symbols/`,
+  `footprints/`, and `3dmodels/` files out of the catalog store before the
+  import.
+- `--no-index-db` writes files only, so changed content under
+  `revisions/<sha256>/` is referenced by nothing. Run the same import again
+  without `--no-index-db` to register it, or delete those directories once
+  `SELECT canonical_path FROM catalog.assets WHERE canonical_path LIKE
+  '%/revisions/<sha256>/%'` returns no row for them.
+
 ## Why the catalog gate is gone
 
 Until [`catalog_schema_migrations.py`](../backend/app/services/catalog_schema_migrations.py)
