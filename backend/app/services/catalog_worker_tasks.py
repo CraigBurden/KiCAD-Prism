@@ -166,6 +166,20 @@ def run_folder_import(context: JobContext) -> dict[str, Any]:
     return {"session_id": session_id, "proposal_count": int((session or {}).get("proposal_count") or 0)}
 
 
+def system_pinned_catalog_revisions() -> list[str]:
+    """Catalog revisions System Builder pins; the STEP purge keeps their files.
+
+    The pins live in the workspace database, which the catalog may not share, so
+    this job reads them and hands them over. A failed read fails the job rather
+    than purging without them.
+    """
+    from app.services.systems.jobs import workspace_connection
+    from app.services.systems.store import SystemStore
+
+    with workspace_connection() as conn:
+        return SystemStore(conn).pinned_catalog_revisions()
+
+
 def run_artifact_maintenance(context: JobContext) -> dict[str, Any]:
     _step(context, progress=10, message="Applying local artifact retention")
     result = artifact_store.run_retention()
@@ -198,7 +212,7 @@ def run_artifact_maintenance(context: JobContext) -> dict[str, Any]:
     staging_cleanup = job_artifacts.cleanup_stale_staging()
     git_cache_rows_purged = git_read_cache.prune()
     _step(context, progress=80, message="Purging superseded STEP payloads")
-    step_result = catalog_service.purge_superseded_step_files()
+    step_result = catalog_service.purge_superseded_step_files(pinned_revision_ids=system_pinned_catalog_revisions())
     staging = catalog_service.cleanup_resolved_import_staging(
         older_than=(datetime.now(timezone.utc) - timedelta(days=30)).isoformat()
     )
