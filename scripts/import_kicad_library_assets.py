@@ -719,17 +719,16 @@ def main() -> int:
     try:
         # A dry run only reads the store and opens no catalog connection: it
         # writes no asset files, directories or DB rows.
-        if args.dry_run:
-            pass
-        elif args.no_index_db:
-            service.runtime.ensure_storage_dirs()
-        else:
-            service.initialize()
-            conn_context = service.connection()
-            conn = conn_context.__enter__()
-            if jobs > 1:
-                print("--jobs is ignored while indexing DB rows directly; use --no-index-db for parallel file import.", file=sys.stderr)
-                jobs = 1
+        if not args.dry_run:
+            if args.no_index_db:
+                service.runtime.ensure_storage_dirs()
+            else:
+                service.initialize()
+                conn_context = service.connection()
+                conn = conn_context.__enter__()
+                if jobs > 1:
+                    print("--jobs is ignored while indexing DB rows directly; use --no-index-db for parallel file import.", file=sys.stderr)
+                    jobs = 1
 
         _import_symbols(
             source_root,
