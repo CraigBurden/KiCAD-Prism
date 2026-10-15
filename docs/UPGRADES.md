@@ -320,6 +320,16 @@ committed version, so Sync fast-forwards again without a manual step. A file
 that supplied no values, and an untracked file (which never blocks Sync), are
 left in place. To share the settings with the team, commit them upstream.
 
+## DBL footprints reference bundled 3D models
+
+Earlier DBL exports wrote footprints whose model paths pointed at
+`${KIPRJMOD}/RemoteLibrary/remote_3d/...`, which exists only where the Remote
+Symbol Provider placed the same part. The export now ships the models under
+`3DModels/` and footprints reference `${PRISM_LIB_DIR}/3DModels/...`. Boards
+that placed DBL footprints before this change keep the old paths; run "Update
+footprints from library" once to pick up the new ones. There is no automatic
+migration.
+
 ## Release Studio configurations in a monorepo subproject
 
 Earlier releases read a monorepo subproject's committed Release Studio
@@ -341,6 +351,47 @@ git mv .prism/release-studio/configurations/release.yaml \
 
 Or open it in Settings for the subproject and save it again. A project at the
 repository root is unaffected.
+
+## Placed symbols carry a catalog revision stamp
+
+Remote placement (part manifest, inline bundle, and signed asset download) now
+adds two hidden properties to every symbol it serves: `Prism_Component` and
+`Prism_Revision`, the catalog component and released revision ids (see
+[Remote Symbol Provider](REMOTE_SYMBOL_PROVIDER.md#placed-symbol-provenance)).
+Three things change once:
+
+- **Symbol bytes and manifest hashes.** Every served symbol's bytes, and so its
+  `sha256` in the placement manifest, change on the first request after the
+  upgrade. Output is byte-stable again from then on. The manifest and bundle
+  shapes do not change, so `provider_version` stays; a client that caches by
+  hash downloads each symbol once more.
+- **Reserved field keys.** `prism_component` and `prism_revision` become
+  reserved custom field keys, matched after key canonicalization (`Prism
+  Revision` and `prism-revision` count, `prismrevision` does not). Creating a
+  field with either key is refused. A field created earlier under one of them
+  keeps its catalog values, but placement no longer writes it into symbols:
+  the stamp replaces it. To keep such a value in KiCad, move it to a field with
+  another key. Project imports treat the two properties as per-placement
+  context, not part metadata.
+- **BOM columns.** Parts placed after the upgrade carry the two properties, so
+  a KiCad BOM that exports all symbol fields gains `Prism_Component` and
+  `Prism_Revision` columns. A BOM preset that lists its fields is unaffected.
+
+The DBL export does not stamp symbols; its files are unchanged.
+
+## Placed footprints embed their 3D models
+
+KiCad placements now carry 3D models inside the footprint as KiCad embedded
+files (see [3D models](REMOTE_SYMBOL_PROVIDER.md#3d-models)). After upgrading:
+
+- Each placed part can add up to 4 MiB to the board file, since the board
+  stores the embedded (compressed) model data.
+- The placed footprint's bytes change, so its `sha256` in the part manifest
+  changes once for every component with a 3D model.
+- Embedded models leave the manifest and inline bundle as separate `3dmodel`
+  entries; models that are not embedded are still listed.
+
+Set `REMOTE_PROVIDER_EMBED_3D_MODELS=false` to keep the previous behaviour.
 
 ## Why the catalog gate is gone
 

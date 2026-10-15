@@ -1695,9 +1695,9 @@ async def get_project_viewer_support_files(
     """Return the small project/worksheet sources required by ecad-viewer.
 
     These are identity and presentation inputs, not generated semantic assets.
-    Keeping them separate from the schematic endpoint lets the root sheet paint
-    immediately while the host appends project settings and the custom page
-    layout without remounting the viewer.
+    Both the schematic and the board viewer need them, so they are served once
+    here rather than with each document. The host loads them together with the
+    document: the viewer does not repaint a sheet when they arrive afterwards.
     """
     project = get_project_for_role_or_404(project_id, user.role)
 

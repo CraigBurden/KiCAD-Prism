@@ -44,6 +44,22 @@ class CatalogAdminPermissionTests(unittest.TestCase):
             asyncio.run(require_catalog_admin(designer))
         self.assertEqual(raised.exception.status_code, 403)
 
+    def test_health_disk_check_is_admin_opt_in(self) -> None:
+        admin = AuthenticatedUser(email="admin@example.com", name="Admin", role="admin")
+        designer = AuthenticatedUser(email="designer@example.com", name="Designer", role="designer")
+        with patch.object(catalog_admin.catalog_service, "catalog_health", return_value={}) as health:
+            catalog_admin.catalog_health(check_files=False, user=designer)
+            health.assert_called_once_with(check_released_files=False)
+            health.reset_mock()
+
+            with self.assertRaises(ROUTE_ERRORS) as raised:
+                catalog_admin.catalog_health(check_files=True, user=designer)
+            self.assertEqual(raised.exception.status_code, 403)
+            health.assert_not_called()
+
+            catalog_admin.catalog_health(check_files=True, user=admin)
+            health.assert_called_once_with(check_released_files=True)
+
     def test_metadata_worker_applies_only_requested_items(self) -> None:
         updates: list[dict[str, object]] = []
         expected = {"batch_id": "batch-1", "status": "partial", "applied": 1, "failed": 0}

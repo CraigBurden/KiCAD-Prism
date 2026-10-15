@@ -318,6 +318,37 @@ class CatalogImportScriptTests(unittest.TestCase):
             [("component.created", "system:import_footprint_library", "Imported incomplete footprint-only representation")],
         )
 
+    def test_footprint_import_links_its_model_under_a_remapped_runtime_root(self) -> None:
+        """The row records the service's path; the byte check before linking reads the local file."""
+        module = _load_script("import_footprint_library")
+        source = self.root / "fpl"
+        library = source / "Footprints" / "Pixxel_Sensors.pretty"
+        library.mkdir(parents=True)
+        (source / "3D").mkdir()
+        name = f"ACME{self.token}"
+        (source / "3D" / f"{name}.step").write_bytes(f"ISO-10303-21;/* {self.token} */END-ISO-10303-21;".encode())
+        footprint = FOOTPRINT.format(name=name).replace(
+            '(pad "1"', f'(model "C:/Authoring/3D/{name}.step") (pad "1"'
+        )
+        (library / f"{name}.kicad_mod").write_text(footprint, encoding="utf-8")
+        runtime_root = "/app/projects/.kicad-prism/components"
+
+        code, report = _run(module, [
+            str(source), "--store-root", str(self.store), "--database-url", POSTGRES_URL,
+            "--mpn-mode", "full", "--manufacturer", "Acme", "--no-previews",
+            "--runtime-store-root", runtime_root,
+        ])
+
+        self.assertEqual(code, 0, report["errors"])
+        self.assertEqual((report["components_created"], report["errors"]), (1, []))
+        [component] = self._components()
+        [model] = self._rows(
+            "SELECT a.canonical_path FROM revision_assets ra JOIN assets a ON a.id = ra.asset_id "
+            "WHERE ra.revision_id = %s AND ra.asset_type = '3dmodel'",
+            component["current_revision_id"],
+        )
+        self.assertTrue(str(model["canonical_path"]).startswith(f"{runtime_root}/3dmodels/"), model)
+
     def test_footprint_missing_a_required_field_is_skipped_and_listed(self) -> None:
         # AC-28 footprints row: no placeholders; the footprint is skipped and named in the summary.
         module = _load_script("import_footprint_library")

@@ -17,9 +17,12 @@ import sqlite3
 from unittest.mock import patch
 from urllib.parse import parse_qs, urlsplit
 
+import zstandard
+
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
+from app.services.catalog import placement_payloads  # noqa: E402
 from app.services.catalog.asset_imports import CatalogAssetImports  # noqa: E402
 from app.services.catalog.asset_registry import CatalogAssetRegistry  # noqa: E402
 from app.services.catalog.postgres_runtime import CatalogPostgresConnection, PostgresCatalogRuntime  # noqa: E402
@@ -616,6 +619,93 @@ class ComponentCatalogPostgresIntegrationTests(unittest.TestCase):
         self.assertEqual(len(self.service.list_component_revisions(component["id"])), 2)
         self.assertTrue(self.service.verify_component_audit_chain(component["id"])["valid"])
 
+    def test_health_reports_released_revision_with_missing_files(self) -> None:
+        self._install_deterministic_preview_renderer()
+        component = self._component("health-" + uuid.uuid4().hex[:8])
+        self.service.import_symbol_library(
+            component["id"],
+            upload_name="R_Health.kicad_sym",
+            payload=b'''(kicad_symbol_lib (version 20231120) (generator "test")
+              (symbol "R_Health"
+                (property "Reference" "R" (at 0 0 0) (effects (font (size 1.27 1.27))))
+                (property "Value" "10k" (at 0 0 0) (effects (font (size 1.27 1.27))))
+              )
+            )''',
+            target_library="Prism_Test",
+            selected_symbol="R_Health",
+            actor="designer@example.com",
+        )
+        self.service.import_footprint(
+            component["id"],
+            upload_name="R_Health.kicad_mod",
+            payload=b'(footprint "R_Health" (version 20240108) (generator "test"))',
+            target_library="Prism_Test",
+            selected_footprint="R_Health",
+            actor="designer@example.com",
+        )
+        with_model = self.service.attach_auxiliary_asset(
+            component["id"],
+            asset_type="3dmodel",
+            upload_name="R_Health.step",
+            payload=b"ISO-10303-21;END-ISO-10303-21;",
+            target_library="Prism_Test",
+            actor="designer@example.com",
+        )["component"]
+        self.service.set_release_status(component["id"], "in_progress", actor="designer@example.com")
+        self.service.set_release_status(component["id"], "qa_review", actor="designer@example.com")
+        approved = self.service.set_release_status(
+            component["id"],
+            "done",
+            actor="qa@example.com",
+            actor_role="qa",
+            expected_revision_id=with_model["revision_id"],
+            expected_manifest_hash=with_model["manifest_hash"],
+        )
+        released = self.service.set_release_status(
+            component["id"],
+            "released",
+            actor="designer@example.com",
+            actor_role="designer",
+            expected_revision_id=approved["revision_id"],
+            expected_manifest_hash=approved["manifest_hash"],
+        )
+        self.assertEqual(released["release_status"], "released")
+
+        released_step = next(asset for asset in released["assets"] if asset["asset_type"] == "3dmodel")
+
+        # A draft head that no longer links the released STEP must not hide it.
+        self.service.attach_auxiliary_asset(
+            component["id"],
+            asset_type="3dmodel",
+            upload_name="R_Health_Draft.step",
+            payload=b"ISO-10303-21;DRAFT;END-ISO-10303-21;",
+            target_library="Prism_Test",
+            actor="designer@example.com",
+        )
+        head = self.service.get_component(component["id"]) or {}
+        draft = self.service.detach_asset_by_id(
+            component["id"],
+            released_step["id"],
+            expected_revision_id=head["revision_id"],
+            actor="designer@example.com",
+        )["component"]
+        self.assertNotEqual(draft["revision_id"], released["revision_id"])
+        self.assertNotIn(released_step["id"], [asset["id"] for asset in draft["assets"]])
+
+        # The disk check is opt-in; the default report never stats asset files.
+        self.assertIsNone(self.service.catalog_health()["released_assets_missing_on_disk"])
+        self.assertEqual(self.service.catalog_health(check_released_files=True)["released_assets_missing_on_disk"], 0)
+
+        store = Path(self.tempdir.name)
+        (released_step_file,) = [path for path in store.rglob("*.step") if b"DRAFT" not in path.read_bytes()]
+        released_step_file.unlink()
+        self.assertEqual(self.service.catalog_health(check_released_files=True)["released_assets_missing_on_disk"], 1)
+
+        # The count is per component, not per missing file.
+        (footprint_file,) = list(store.rglob("*.kicad_mod"))
+        footprint_file.unlink()
+        self.assertEqual(self.service.catalog_health(check_released_files=True)["released_assets_missing_on_disk"], 1)
+
     def test_stale_asset_upload_and_link_do_not_advance_head(self) -> None:
         component = self._component("asset-rev-" + uuid.uuid4().hex[:8])
         self._import_symbol(str(self._component("asset-donor-" + uuid.uuid4().hex[:8])["id"]), "DonorSym")
@@ -1083,6 +1173,9 @@ class ComponentCatalogPostgresIntegrationTests(unittest.TestCase):
             [entry["type"] for entry in inline_entries],
             ["symbol", "footprint", "3dmodel", "spice"],
         )
+        inline_symbol = base64.b64decode(inline_entries[0]["content"]).decode("utf-8")
+        self.assertIn(f'(property "Prism_Component" "{component["id"]}"', inline_symbol)
+        self.assertIn(f'(property "Prism_Revision" "{released["released_revision_id"]}"', inline_symbol)
         for entry in inline_entries:
             self.assertEqual(
                 hashlib.sha256(base64.b64decode(entry["content"])).hexdigest(),
@@ -1156,10 +1249,17 @@ class ComponentCatalogPostgresIntegrationTests(unittest.TestCase):
             for path in first_root.rglob("*")
             if path.is_file()
         }
+        # Earlier tests in a shared database leave released models of their
+        # own; only this component's model is compared.
+        own_model_prefixes = {
+            f"3DModels/{asset['sha256'][:16]}/" for asset in released["assets"] if asset["asset_type"] == "3dmodel"
+        }
+        exported_model_paths = {name for name in first_files if name.startswith("3DModels/")}
+        own_model_paths = {name for name in exported_model_paths if name[: len("3DModels/") + 17] in own_model_prefixes}
         normalized_dbl_files = {
             FIXTURE_TOKEN.sub("assets-<token>", name): _normalize_contract_bytes(payload)
             for name, payload in first_files.items()
-            if name != "Prism.sqlite"
+            if name != "Prism.sqlite" and (name not in exported_model_paths or name in own_model_paths)
         }
         self.assertEqual(
             {
@@ -1167,10 +1267,11 @@ class ComponentCatalogPostgresIntegrationTests(unittest.TestCase):
                 for name, payload in sorted(normalized_dbl_files.items())
             },
             {
+                "3DModels/1e561b8e3c745b4b/R_Test.step": "1e561b8e3c745b4b8582275549e0efad5be2e0b610b9bbb1064ed52e8a7a9435",
                 "PcbLib/Prism_Test.pretty/R_Test.kicad_mod": "8d4ef2234c867094a30e793fdbff4975a78a98742ac72825b5fef2c2c5355461",
                 "Prism_Linux.kicad_dbl": "86cacbfb2c4f192082191bf6cfd4a386cb89672ffb4747ebea6cd538c379064d",
                 "Prism_Windows.kicad_dbl": "5f8b5b8128abd1fd8021eac341c104b152f407a179a5df6c2e6c6c8efd20ad14",
-                "SchLib/Prism_PG-R-assets-<token>_Prism_Test_R_Test.kicad_sym": "f005b31dc8b9553ea528ad253896bab79c9c69ea1e1dac0a683bbcc4dc8d9fbe",
+                "SchLib/Prism_PG-R-assets-<token>_Prism_Test_R_Test.kicad_sym": "744cb38e7b6297ef1bfa6e2e3f9825998c9be6f8339d0e5363da34b6f6a07c44",
                 "fp-lib-table": "149d573ae28f732acb912b6707b02f0851c7c250d3f698b6e7a92269e2cc3c86",
                 "sym-lib-table": "a97a151e180b2945dbd6a81a3cbc00d4a7edcb17488f371d5fe24f43a1805fbf",
             },
@@ -1239,6 +1340,22 @@ class ComponentCatalogPostgresIntegrationTests(unittest.TestCase):
                 dbl_conn.execute('SELECT COUNT(*) FROM "Uncategorized"').fetchone(),
                 (1,),
             )
+        # The exported symbol must name the footprint the bundle registers.
+        exported_symbol = next(
+            payload.decode("utf-8")
+            for name, payload in first_files.items()
+            if name.startswith("SchLib/")
+        )
+        self.assertIn('(property "Footprint" "Prism_Test:R_Test"', exported_symbol)
+        self.assertEqual(dbl_row[-1], "Prism_Test:R_Test")
+        self.assertIn("PcbLib/Prism_Test.pretty/R_Test.kicad_mod", first_files)
+        # Earlier tests in a shared database may leave release records whose
+        # files went with their temporary stores; only this component counts.
+        self.assertEqual(len(own_model_paths), 1)
+        self.assertEqual(first_dbl["model_count"], len(exported_model_paths))
+        self.assertEqual(
+            [item for item in first_dbl["missing_models"] if item["component_id"] == component["id"]], []
+        )
         second_dbl = self.service.export_kicad_dbl_bundle()
         second_root = Path(second_dbl["export_root"])
         second_files = {
@@ -1251,6 +1368,146 @@ class ComponentCatalogPostgresIntegrationTests(unittest.TestCase):
             {name: hashlib.sha256(payload).hexdigest() for name, payload in first_files.items()},
             {name: hashlib.sha256(payload).hexdigest() for name, payload in second_files.items()},
         )
+        # A deactivated component leaves the DBL, but boards placed from its
+        # release still reference the model, so the model stays.
+        [model_path] = own_model_paths
+        self.assertTrue(
+            self.service.deactivate_component(component["id"], actor="designer@example.com", reason="obsolete")
+        )
+        self.component_ids.remove(str(component["id"]))
+        third_dbl = self.service.export_kicad_dbl_bundle()
+        third_root = Path(third_dbl["export_root"])
+        self.assertNotIn(
+            "PcbLib/Prism_Test.pretty/R_Test.kicad_mod",
+            {path.relative_to(third_root).as_posix() for path in third_root.rglob("*")},
+        )
+        self.assertEqual((third_root / model_path).read_bytes(), first_files[model_path])
+        self.assertEqual(
+            third_dbl["model_count"],
+            sum(1 for path in (third_root / "3DModels").rglob("*") if path.is_file()),
+        )
+
+    def test_placed_footprint_embeds_the_model_of_each_revision(self) -> None:
+        self._install_deterministic_preview_renderer()
+        component = self._component("embed-" + uuid.uuid4().hex[:8])
+        footprint = self.service.import_footprint(
+            component["id"],
+            upload_name="R_Embed.kicad_mod",
+            payload=(
+                b'(footprint "R_Embed" (version 20240108) (generator "test")\n'
+                b'  (model "${KICAD8_3DMODEL_DIR}/R_Embed.step")\n)\n'
+            ),
+            target_library="Prism_Embed",
+            selected_footprint="R_Embed",
+            actor="designer@example.com",
+        )["component"]
+        footprint_id = next(a["id"] for a in footprint["assets"] if a["asset_type"] == "footprint")
+        # Real STEP files compress well; a model is embedded only when that
+        # does not grow the placement, which tiny models cannot satisfy.
+        models = [
+            b"ISO-10303-21;" + tag + b";\n" + b"#1=CARTESIAN_POINT('',(0.,0.,0.));\n" * 200 + b"END-ISO-10303-21;\n"
+            for tag in (b"rev1", b"rev2")
+        ]
+        revision_ids = []
+        for model in models:
+            # Each revision replaces the model with a same-named, different file.
+            self.service.detach_asset(component["id"], "3dmodel", actor="designer@example.com")
+            revision_ids.append(
+                self.service.attach_auxiliary_asset(
+                    component["id"],
+                    asset_type="3dmodel",
+                    upload_name="R_Embed.step",
+                    payload=model,
+                    target_library="Prism_Embed",
+                    actor="designer@example.com",
+                )["component"]["revision_id"]
+            )
+
+        def embedded(revision_id: str) -> tuple[str, bytes]:
+            asset = self.service.get_asset_by_id(footprint_id, revision_id=revision_id)
+            assert asset is not None
+            text = asset["payload"].decode("utf-8")
+            name = re.search(r'\(model "kicad-embed://([^"]+)"', text).group(1)
+            data = re.search(r"\(data \|(.*?)\|", text, re.S).group(1)
+            return name, zstandard.ZstdDecompressor().decompress(base64.b64decode(re.sub(r"\s", "", data)))
+
+        first, second = embedded(revision_ids[0]), embedded(revision_ids[1])
+        self.assertNotEqual(first[0], second[0])
+        self.assertEqual(
+            [hashlib.sha256(first[1]).hexdigest(), hashlib.sha256(second[1]).hexdigest()],
+            [hashlib.sha256(model).hexdigest() for model in models],
+        )
+        self.assertEqual(embedded(revision_ids[0]), first)
+
+        self.service.import_symbol_library(
+            component["id"],
+            upload_name="R_Embed.kicad_sym",
+            payload=b'''(kicad_symbol_lib (version 20231120) (generator "test")
+              (symbol "R_Embed"
+                (property "Reference" "R" (at 0 0 0) (effects (font (size 1.27 1.27))))
+                (property "Value" "R_Embed" (at 0 0 0) (effects (font (size 1.27 1.27))))
+              )
+            )''',
+            target_library="Prism_Embed",
+            selected_symbol="R_Embed",
+            actor="designer@example.com",
+        )
+        head = self.service.get_component(component["id"])
+        assert head is not None
+        self.service.set_release_status(component["id"], "in_progress", actor="designer@example.com")
+        self.service.set_release_status(component["id"], "qa_review", actor="designer@example.com")
+        approved = self.service.set_release_status(
+            component["id"], "done", actor="qa@example.com", actor_role="qa",
+            expected_revision_id=head["revision_id"], expected_manifest_hash=head["manifest_hash"],
+        )
+        self.service.set_release_status(
+            component["id"], "released", actor="designer@example.com", actor_role="designer",
+            expected_revision_id=approved["revision_id"], expected_manifest_hash=approved["manifest_hash"],
+        )
+
+        # The footprint carries the model, so the 3dmodel asset is not shipped.
+        manifest = self.service.build_manifest(component["id"], "https://prism.example")
+        inline = self.service.build_inline_bundle(component["id"])
+        assert manifest is not None and inline is not None
+        inline_entries = json.loads(base64.b64decode(inline["data"]))
+        self.assertEqual(sorted(a["asset_type"] for a in manifest["assets"]), ["footprint", "symbol"])
+        self.assertEqual(sorted(e["type"] for e in inline_entries), ["footprint", "symbol"])
+        footprint_entry = next(e for e in inline_entries if e["type"] == "footprint")
+        self.assertIn(b"kicad-embed://" + second[0].encode(), base64.b64decode(footprint_entry["content"]))
+        self.assertEqual(
+            next(a["sha256"] for a in manifest["assets"] if a["asset_type"] == "footprint"),
+            footprint_entry["checksum"],
+        )
+
+        # A model that falls back to the external path is still shipped.
+        with patch("app.services.catalog.placement_payloads.EMBED_MAX_FOOTPRINT_BYTES", 0):
+            fallback = self.service.build_manifest(component["id"], "https://prism.example")
+        assert fallback is not None
+        self.assertEqual(
+            sorted(a["asset_type"] for a in fallback["assets"]), ["3dmodel", "footprint", "symbol"]
+        )
+
+        # With embedding turned off the placement ships every model, as before.
+        with patch("app.core.config.settings.REMOTE_PROVIDER_EMBED_3D_MODELS", False):
+            off = self.service.build_manifest(component["id"], "https://prism.example")
+            off_footprint = self.service.get_asset_by_id(footprint_id, revision_id=revision_ids[1])
+        assert off is not None and off_footprint is not None
+        self.assertEqual(sorted(a["asset_type"] for a in off["assets"]), ["3dmodel", "footprint", "symbol"])
+        self.assertNotIn(b"kicad-embed://", off_footprint["payload"])
+        self.assertIn(b"/remote_3d/R_Embed.step", off_footprint["payload"])
+
+        # A model whose stored file is gone leaves the footprint placeable with
+        # the external path; the model's own download reports the loss.
+        model_url = next(a["download_url"] for a in off["assets"] if a["asset_type"] == "3dmodel")
+        model_id = urlsplit(model_url).path.rsplit("/", 1)[-1]
+        model_asset = self.service.get_asset_by_id(model_id, revision_id=revision_ids[1])
+        assert model_asset is not None
+        Path(str(model_asset["canonical_path"])).unlink()
+        placement_payloads.clear_embedded_footprint_cache()
+        with self.assertLogs("app.services.catalog.placement_payloads", "WARNING"):
+            purged_footprint = self.service.get_asset_by_id(footprint_id, revision_id=revision_ids[1])
+        assert purged_footprint is not None
+        self.assertNotIn(b"kicad-embed://", purged_footprint["payload"])
 
     def test_non_default_representation_drives_manifest_and_inline_pair(self) -> None:
         component = self._component("representations-" + uuid.uuid4().hex[:8])
