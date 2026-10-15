@@ -246,14 +246,16 @@ class ServiceCore:
             "glbKey": found["glb"]["key"], "boundsMm": found["glb"]["bounds"],
             "alignment": {k: found["alignment"][k] for k in ("offsetMm", "rotationDeg", "scale")}}
 
-    def _queue_pinned_conversions(self, pins: Iterable[tuple[str, str]], caller: Caller) -> None:
+    def _queue_pinned_conversions(self, pins: Iterable[tuple[str, str]], caller: Caller) -> int:
         """Queue the catalog's GLB conversion for each pinned ``(component, revision)`` whose STEP models
-        have none yet. Never once a job for that key has ended: a read neither retries a failed or cancelled
+        have none yet, and return how many have a conversion queued or running (a scene reader polls
+        while any has). Never once a job for that key has ended: a read neither retries a failed or cancelled
         attempt nor repeats a completed one that left no GLB; Convert on the part (with ``revisionId``) does.
         The caller must already hold ``catalog_write``."""
         from app.services.catalog import models as catalog_models
         from app.services.catalog_job_service import catalog_jobs
 
+        converting = 0
         for component_id, revision_id in sorted(set(pins)):
             try:
                 listed = self._catalog().list_models(component_id, revision_id)
@@ -269,8 +271,10 @@ class ServiceCore:
                     continue
                 catalog_jobs.enqueue("catalog_model_glb", {"componentId": component_id, "revisionId": revision_id},
                                      created_by=caller.email, idempotency_key=key)
+                converting += 1
             except Exception:
                 logger.exception("Could not queue the models of %s@%s for conversion", component_id, revision_id)
+        return converting
 
     # ------------------------------------------------------------------
     # Git tracking hooks shared by the Git and Snapshot areas (P2 §21)

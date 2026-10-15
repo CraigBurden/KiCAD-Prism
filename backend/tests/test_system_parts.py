@@ -279,6 +279,7 @@ class SceneConvertPermissionTest(unittest.TestCase):
                 asyncio.run(systems_api.get_scene("sys", user))
                 self.assertIs(service.scene.call_args.kwargs["may_convert_models"], expected)
 
+
 class PinnedHousingTest(PartCase):
     """A harness end's housing is drawn from the part revision the end pins (§17.3), like an instance (#698)."""
 
@@ -325,12 +326,15 @@ class PinnedHousingTest(PartCase):
             self.assertIsNone(self.housing(end_id))
             enqueue.assert_not_called()
             self.assertIsNone(self.housing(end_id, may_convert_models=True))
-            enqueue.assert_called_once_with("catalog_model_glb", {"componentId": self.part_id, "revisionId": revision},
+            self.assertEqual(self.service.scene(DESIGNER, self.sid, may_convert_models=True)["modelsConverting"], 1,
+                             "the writer's scene polls until the conversion settles")
+            enqueue.assert_called_with("catalog_model_glb", {"componentId": self.part_id, "revisionId": revision},
                                             created_by=DESIGNER.email,
                                             idempotency_key=f"catalog_model_glb:{self.part_id}@{revision}:{converter}")
             with mock.patch.object(catalog_worker_tasks, "catalog_service", self.catalog):
                 catalog_worker_tasks.run_model_glb(mock.Mock(payload=enqueue.call_args.args[1]))
             self.assertEqual(self.housing(end_id)["glbKey"], catalog_models.glb_key(self.model["stepSha256"], converter))
+            self.assertEqual(self.service.scene(DESIGNER, self.sid, may_convert_models=True)["modelsConverting"], 0)
 
     def test_the_models_route_lists_a_pinned_revision(self) -> None:
         _end_id, revision = self.end_with_part()

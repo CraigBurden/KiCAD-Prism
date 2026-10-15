@@ -39,11 +39,11 @@ export function summarizeScene(scene: SystemScene): SceneSummary {
   return summary;
 }
 
-/** Re-read the scene while bundles build or boxes are still being extracted; otherwise stop. */
+/** Re-read the scene while bundles build, boxes are still being extracted or pinned models convert; otherwise stop. */
 export function scenePollDelay(scene: SystemScene | null): number | null {
   if (!scene) return null;
   const summary = summarizeScene(scene);
-  return summary.building.length || summary.unplaced.length ? 5000 : null;
+  return summary.building.length || summary.unplaced.length || scene.modelsConverting ? 5000 : null;
 }
 
 export function webgpuAvailable(): boolean {

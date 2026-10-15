@@ -189,6 +189,11 @@ describe("BoardDetail ports and subsystems", () => {
         identity: "ENC-1", latestReleasedRevisionId: null, systemId: null, snapshotName: null },
     });
     const document = systemDocument([enclosure]);
+    const reader = renderInSession(<BoardDetail systemId="sys_1" document={document} instance={enclosure} canEdit={false} />,
+      { document });
+    expect(await screen.findByText("Not converted")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Convert the pinned revision's models" })).toBeNull();
+    reader.unmount();
     renderInSession(<BoardDetail systemId="sys_1" document={document} instance={enclosure} canEdit canConvertModels />,
       { document });
     expect(await screen.findByText("Not converted")).toBeTruthy();

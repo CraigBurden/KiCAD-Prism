@@ -1,54 +1,40 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { toast } from "sonner";
 import { RefreshCw } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
-import { convertModels, listModels } from "@/components/workspace/catalog-client";
-import { pollUntil } from "@/lib/server-state";
+import { convertModelsAndWait } from "@/components/workspace/library-component-models";
 
-/** The STEP models of a pinned catalog revision: null while unknown, else how many have a GLB. */
-type ModelState = { total: number; converted: number } | null;
-
-function counted(items: { glb: unknown }[] | undefined): ModelState {
-  return Array.isArray(items) ? { total: items.length, converted: items.filter((model) => model.glb).length } : null;
-}
+import { sessionReads } from "./session/session-reads";
+import { useSessionRead, useSystemSession } from "./session/use-system-session";
 
 /**
- * A pinned revision's models (CONTRACTS_P2 §18.2): read when `enabled`, and converted on request. The
- * conversion is that revision's, never the component's current one.
+ * A pinned revision's models (CONTRACTS_P2 §18.2), read once per revision for every view that shows it
+ * when `enabled`, and converted on request: that revision's, never the component's current one. Once the
+ * conversion settles, the models and the 3D scene are read again, so the model replaces the proxy box.
  */
 function usePinnedModels(componentId: string, revisionId: string, enabled: boolean) {
-  const key = `${componentId}@${revisionId}`;
-  const [state, setState] = useState<{ key: string; models: ModelState } | null>(null);
+  const { session } = useSystemSession();
+  const spec = sessionReads.pinnedModels(componentId, revisionId);
+  const items = useSessionRead(enabled ? spec : null).data;
   const [converting, setConverting] = useState(false);
-
-  useEffect(() => {
-    if (!enabled) return;
-    const controller = new AbortController();
-    listModels(componentId, controller.signal, revisionId)
-      .then((body) => setState({ key, models: counted(body.items) }))
-      .catch(() => !controller.signal.aborted && setState({ key, models: null }));
-    return () => controller.abort();
-  }, [componentId, revisionId, key, enabled]);
+  const models = Array.isArray(items) ? { total: items.length, converted: items.filter((model) => model.glb).length } : null;
 
   const convert = async () => {
     setConverting(true);
     try {
-      await convertModels(componentId, revisionId);
-      const done = await pollUntil(async () => {
-        const models = counted((await listModels(componentId, undefined, revisionId)).items);
-        setState({ key, models });
-        return Boolean(models && models.converted === models.total);
-      }, { intervalMs: 2000, delayFirst: true, maxTicks: 60 });
+      const done = await convertModelsAndWait(componentId, () => undefined, revisionId);
       if (!done) toast.info("Conversion still running");
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Could not convert the models");
     } finally {
       setConverting(false);
+      session.refresh(spec.key);
+      session.refresh(sessionReads.scene().key);
     }
   };
 
-  return { models: state?.key === key ? state.models : null, converting, convert };
+  return { models, converting, convert };
 }
 
 function ConvertButton({ converting, onConvert }: { converting: boolean; onConvert: () => void }) {

@@ -203,7 +203,8 @@ class PlacementMixin:
         may generate bundles (designer or admin, as on the board's 3D tab). A visible
         module or part, or a visible harness end's housing part, whose pinned revision
         has STEP models but no GLB gets their conversion queued when the reader may
-        write the catalog (``may_convert_models``).
+        write the catalog (``may_convert_models``); ``modelsConverting`` counts those
+        with a conversion queued or running, so that reader re-reads until they settle.
         """
 
         with self._tx(consistent=True) as store:
@@ -237,7 +238,7 @@ class PlacementMixin:
             instances = ((o.component_id, o.revision_id) for o in tree.occurrences
                          if o.kind in ("module", "part") and o.component_id and o.revision_id and o.path in shown
                          and not (interface_of(o) or {}).get("model"))
-            self._queue_pinned_conversions(itertools.chain(instances, housings), caller)
+            built["modelsConverting"] = self._queue_pinned_conversions(itertools.chain(instances, housings), caller)
         root = placement["results"].get("")
         built["placement"] = {k: root[k] for k in ("roots", "mismatches", "unusable", "ignoredOverrides")} \
             if root else None
