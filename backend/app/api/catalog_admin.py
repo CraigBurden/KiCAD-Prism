@@ -550,7 +550,7 @@ def accept_project_import_proposal(
     user: AuthenticatedUser = Depends(require_catalog_writer),
 ):
     _project_import_proposal_for_user(proposal_id, user)
-    with value_errors_as(400):
+    with value_errors_as(400, keep_typed=True):
         return catalog_service.accept_project_import_proposal(
             proposal_id,
             metadata_overrides=payload.metadata_overrides,

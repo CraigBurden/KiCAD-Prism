@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import sys
 import tempfile
+import threading
 import unittest
 import uuid
 from pathlib import Path
@@ -23,6 +24,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from app.core.errors import NotFound  # noqa: E402
 from app.services import catalog_worker_tasks  # noqa: E402
+from app.services.catalog.asset_files import lock_and_check_asset_bytes  # noqa: E402
+from app.services.catalog.asset_links import CatalogAssetLinks  # noqa: E402
+from app.services.catalog.conflicts import CatalogConflict  # noqa: E402
 from app.services.component_catalog_service_postgres import (  # noqa: E402
     ComponentCatalogPostgresService,
 )
@@ -371,6 +375,118 @@ class SupersededStepPurgeTests(unittest.TestCase):
         self.assertTrue(audit["valid"], audit)
         self.assertEqual(audit["purged_asset_ids"], [scratch_id])
 
+    def _abandoned_scratch_model(self) -> tuple[dict, str]:
+        """A released part whose draft head dropped a scratch STEP the purge may delete."""
+        released, old_model = self._released_part_with_model()
+        draft = self._replace_model_in_draft(released, old_model)
+        with_scratch = self._attach_model(str(released["id"]), "scratch")
+        [scratch_id] = set(self._model_ids(with_scratch)) - set(self._model_ids(draft))
+        self._detach(with_scratch, scratch_id)
+        return released, scratch_id
+
+    def _link_on_new_draft(self, conn, component_id: str, asset_id: str) -> None:
+        """Link an existing asset to a new draft head, as a project import does; the caller commits."""
+        revision = self.service.revisions.clone_revision(
+            conn, component_id, actor=ACTOR, change_kind="asset", change_summary="Link the scratch model again",
+        )
+        asset = dict(conn.execute("SELECT * FROM assets WHERE id = %s", (asset_id,)).fetchone())
+        CatalogAssetLinks.link_asset_to_revision(conn, str(revision["id"]), asset, required=False)
+
+    def test_purge_skips_a_model_whose_link_is_not_committed_yet(self) -> None:
+        released, scratch_id = self._abandoned_scratch_model()
+
+        with self.service.connection() as linker:
+            self._link_on_new_draft(linker, str(released["id"]), scratch_id)
+            self.assertNotIn(scratch_id, self._purge()["asset_ids"])
+            linker.commit()
+
+        self.assertTrue(self._step_path(scratch_id).is_file())
+        # The committed draft head now protects the model on later runs too.
+        self.assertNotIn(scratch_id, self._purge()["asset_ids"])
+        self.assertTrue(self._step_path(scratch_id).is_file())
+
+    def test_purge_rechecks_a_candidate_linked_after_its_snapshot(self) -> None:
+        released, scratch_id = self._abandoned_scratch_model()
+        test = self
+
+        class LinkAfterCandidates:
+            """Commit a link on another connection right after the purge picks its candidates."""
+
+            def __init__(self, conn) -> None:
+                self._conn = conn
+
+            def __getattr__(self, name):
+                return getattr(self._conn, name)
+
+            def execute(self, sql, params=()):
+                cursor = self._conn.execute(sql, params)
+                if "superseded_models" in sql:
+                    with test.service.connection() as linker:
+                        test._link_on_new_draft(linker, str(released["id"]), scratch_id)
+                        linker.commit()
+                return cursor
+
+        with self.service.connection() as conn:
+            result = self.service.asset_files.purge_superseded_step_files(
+                LinkAfterCandidates(conn), self.service.runtime, job_id=f"job-{self.token}"
+            )
+            conn.commit()
+
+        self.assertNotIn(scratch_id, result["asset_ids"])
+        self.assertTrue(self._step_path(scratch_id).is_file())
+
+    def test_a_linker_waits_for_a_purge_in_progress_then_is_refused(self) -> None:
+        released, scratch_id = self._abandoned_scratch_model()
+        outcome: list[BaseException] = []
+        unlinking, release_unlink = threading.Event(), threading.Event()
+        real_unlink = Path.unlink
+
+        def slow_unlink(path: Path, *args, **kwargs) -> None:
+            unlinking.set()
+            release_unlink.wait(30)
+            real_unlink(path, *args, **kwargs)
+
+        def link() -> None:
+            with self.service.connection() as linker:
+                try:
+                    self._link_on_new_draft(linker, str(released["id"]), scratch_id)
+                    linker.commit()
+                except BaseException as exc:  # noqa: BLE001 - reported to the test thread
+                    outcome.append(exc)
+                    linker.rollback()
+
+        results: list[dict] = []
+        with patch.object(Path, "unlink", autospec=True, side_effect=slow_unlink):
+            purge = threading.Thread(target=lambda: results.append(self._purge()))
+            purge.start()
+            self.assertTrue(unlinking.wait(30), "the purge never reached the unlink")
+            # The ledger row is committed and the file is still there: the purge holds the asset lock.
+            linker = threading.Thread(target=link)
+            linker.start()
+            linker.join(timeout=1.0)
+            self.assertTrue(linker.is_alive(), "the linker did not wait for the purge's asset lock")
+            release_unlink.set()
+            purge.join(timeout=30)
+        linker.join(timeout=30)
+
+        self.assertFalse(linker.is_alive())
+        self.assertIn(scratch_id, results[0]["asset_ids"])
+        [error] = outcome
+        self.assertIsInstance(error, CatalogConflict)
+        self.assertEqual(error.code, "asset_bytes_missing")
+
+    def test_linking_a_purged_model_is_refused_until_it_is_uploaded_again(self) -> None:
+        released, _old_model, scratch_id = self._purged_draft_model()
+
+        with self.service.connection() as linker:
+            with self.assertRaises(CatalogConflict) as raised:
+                self._link_on_new_draft(linker, str(released["id"]), scratch_id)
+            linker.rollback()
+        self.assertEqual(raised.exception.code, "asset_bytes_missing")
+        self.assertEqual(raised.exception.status_code, 409)
+
+        self._relink_purged_model(released, scratch_id)
+
     def _abandoned_draft_models(self, count: int) -> tuple[dict, list[str]]:
         """A released part whose head draft dropped ``count`` scratch STEPs, all purge-eligible."""
         released, old_model = self._released_part_with_model()
@@ -432,6 +548,32 @@ class SupersededStepPurgeTests(unittest.TestCase):
         for row in rows:
             self.assertRegex(row["purged_at"], r"^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{6}\+00:00$")
         self.assertTrue(self.service.verify_component_audit_chain(str(released["id"]))["valid"])
+
+    def test_linkers_taking_two_models_in_opposite_orders_do_not_deadlock(self) -> None:
+        _released, [first, second] = self._abandoned_draft_models(2)
+
+        with self.service.connection() as one, self.service.connection() as two:
+            for conn in (one, two):
+                conn.execute("SET lock_timeout = '2s'")
+            lock_and_check_asset_bytes(one, first)
+            lock_and_check_asset_bytes(two, second)
+            # Exclusive linker locks would make each wait for the other here.
+            lock_and_check_asset_bytes(one, second)
+            lock_and_check_asset_bytes(two, first)
+            # A purge still skips both while either linker is open.
+            self.assertEqual(self._purge()["asset_ids"], [])
+            one.rollback()
+            two.rollback()
+
+        self.assertEqual(sorted(self._purge()["asset_ids"]), sorted([first, second]))
+
+    def test_the_link_byte_check_streams_the_file(self) -> None:
+        _released, [scratch_id] = self._abandoned_draft_models(1)
+
+        with self.service.connection() as conn:
+            with patch.object(Path, "read_bytes", autospec=True, side_effect=AssertionError("read whole file")):
+                lock_and_check_asset_bytes(conn, scratch_id)
+            conn.rollback()
 
     def test_purge_ledger_is_migrated_and_append_only(self) -> None:
         _released, _old_model, scratch_id = self._purged_draft_model()

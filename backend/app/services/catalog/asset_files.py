@@ -14,7 +14,8 @@ import uuid
 
 from app.core.errors import NotFound
 from app.services import kicad_library_reader
-from app.services.catalog.normalization import sanitize_name, sha256_bytes
+from app.services.catalog.conflicts import CatalogConflict
+from app.services.catalog.normalization import sanitize_name, sha256_bytes, sha256_file
 from app.services.catalog.runtime import CatalogRuntime
 
 
@@ -36,6 +37,46 @@ PROTECTED_REVISION_SQL = """
     OR revision.release_status = 'released'
     OR EXISTS (SELECT 1 FROM component_release_records record WHERE record.revision_id = revision.id)
 """
+
+
+ASSET_BYTES_MISSING_CODE = "asset_bytes_missing"
+
+
+def asset_bytes_lock_key(sha256: str) -> str:
+    """The advisory-lock key that serializes the STEP purge with linking an asset.
+
+    One lock per content hash (``hashtext('catalog-asset:' || sha256)``), so
+    asset rows sharing bytes share the lock. A linker takes it shared until it
+    commits, so linkers never wait for each other and cannot deadlock however
+    many models one transaction links, in whatever order. The purge only tries
+    it exclusively, so it never waits either.
+    """
+    return f"catalog-asset:{sha256}"
+
+
+def lock_and_check_asset_bytes(conn: Any, asset_id: str, *, local_path: Path | None = None) -> None:
+    """Before linking a 3D model, wait out a running purge and require its bytes.
+
+    The file is written before any lock is taken, so a purge can delete it
+    between the write and the link. Once this holds the asset's lock, the
+    purge has either already unlinked the file (so refuse) or cannot take the
+    lock until this commits (and will then see this link and keep the file).
+    The hash is streamed, so a large STEP is never read into memory.
+
+    ``local_path`` is where this process sees the file, for an importer whose
+    row records the running service's path (``--runtime-store-root``).
+    """
+    row = conn.execute("SELECT canonical_path, sha256 FROM assets WHERE id = %s", (asset_id,)).fetchone()
+    if row is None:
+        return
+    sha256 = str(row["sha256"])
+    conn.execute("SELECT pg_advisory_xact_lock_shared(hashtext(%s))", (asset_bytes_lock_key(sha256),)).fetchone()
+    path = local_path or Path(str(row["canonical_path"] or ""))
+    if not path.is_file() or sha256_file(path) != sha256:
+        raise CatalogConflict(
+            "The 3D model file is missing from the catalog store; upload it again",
+            code=ASSET_BYTES_MISSING_CODE,
+        )
 
 
 def purge_excuses_missing_file(conn: Any, asset_id: str) -> bool:
@@ -179,6 +220,41 @@ class CatalogAssetFiles:
         return CatalogAssetFiles.asset_root(runtime, asset_type) / safe_library / safe_name
 
     @staticmethod
+    def _purge_locked_file(conn: Any, row: Any, path: Path, *, job_id: str) -> bool:
+        """Under the asset's lock: re-check eligibility, commit the ledger row, then unlink."""
+        relinked = conn.execute(
+            f"""
+            SELECT 1
+            FROM revision_assets link
+            JOIN component_revisions revision ON revision.id = link.revision_id
+            JOIN components component ON component.id = revision.component_id
+            WHERE link.asset_id = %s AND ({PROTECTED_REVISION_SQL})
+            LIMIT 1
+            """,
+            (row["id"],),
+        ).fetchone()
+        if relinked:
+            return False
+        conn.execute(
+            f"""
+            INSERT INTO catalog_asset_file_purges (id, asset_id, sha256, canonical_path, reason, job_id, purged_at)
+            VALUES (%s, %s, %s, %s, 'superseded_draft_step', %s, {DATABASE_NOW_ISO_SQL})
+            """,
+            (str(uuid.uuid4()), row["id"], row["sha256"], str(row["canonical_path"]), job_id),
+        )
+        conn.commit()
+        try:
+            path.unlink()
+        except FileNotFoundError:
+            pass
+        except OSError:
+            logger.warning(
+                "Could not purge superseded STEP file %s; the next maintenance run retries", path, exc_info=True
+            )
+            return False
+        return True
+
+    @staticmethod
     def purge_superseded_step_files(
         conn: Any, runtime: CatalogRuntime, *, job_id: str = "", pinned_revision_ids: Iterable[str] = ()
     ) -> dict[str, Any]:
@@ -200,6 +276,14 @@ class CatalogAssetFiles:
         excuses a missing file, and the next run, which still finds the asset
         eligible, deletes it. This commits ``conn``. Audit verification accepts
         a missing never-released draft STEP only through that row.
+
+        Each candidate is purged only under its ``asset_bytes_lock_key`` lock,
+        after re-checking under it that no protected revision links the asset.
+        The purge only tries the lock: an asset being linked right now is
+        skipped until the next run, so the purge never waits and cannot
+        deadlock with a linker. It is a session lock, held across the ledger
+        commit until the file is unlinked, so a linker of that asset waits for
+        the unlink and then refuses the missing file.
         """
         rows = conn.execute(
             f"""
@@ -238,6 +322,8 @@ class CatalogAssetFiles:
             """,
             (sorted({str(value) for value in pinned_revision_ids}), "%.step", "%.stp"),
         ).fetchall()
+        # Commit the read, and with it the connection's search_path, before any per-file rollback.
+        conn.commit()
         purged: list[str] = []
         for row in rows:
             path = Path(str(row["canonical_path"] or "")).resolve()
@@ -249,32 +335,28 @@ class CatalogAssetFiles:
                 continue
             if not path.is_file():
                 continue
-            conn.execute(
-                f"""
-                INSERT INTO catalog_asset_file_purges (id, asset_id, sha256, canonical_path, reason, job_id, purged_at)
-                VALUES (%s, %s, %s, %s, 'superseded_draft_step', %s, {DATABASE_NOW_ISO_SQL})
-                """,
-                (str(uuid.uuid4()), row["id"], row["sha256"], str(row["canonical_path"]), job_id),
-            )
-            conn.commit()
-            try:
-                path.unlink()
-            except FileNotFoundError:
-                pass
-            except OSError:
-                logger.warning(
-                    "Could not purge superseded STEP file %s; the next maintenance run retries", path, exc_info=True
-                )
+            lock_key = asset_bytes_lock_key(str(row["sha256"]))
+            locked = conn.execute("SELECT pg_try_advisory_lock(hashtext(%s)) AS locked", (lock_key,)).fetchone()
+            if not locked["locked"]:
                 continue
-            purged.append(str(row["id"]))
+            try:
+                if CatalogAssetFiles._purge_locked_file(conn, row, path, job_id=job_id):
+                    purged.append(str(row["id"]))
+            finally:
+                # Ends a skipped re-check or a failed statement; a purged file's row is already committed.
+                conn.rollback()
+                conn.execute("SELECT pg_advisory_unlock(hashtext(%s))", (lock_key,))
+                conn.commit()
         return {"purged": len(purged), "asset_ids": purged}
 
 
 __all__ = [
+    "ASSET_BYTES_MISSING_CODE",
     "CatalogAssetFiles",
     "content_type_for_asset",
     "discover_footprint_name_in_text",
     "discover_symbol_names_in_text",
+    "lock_and_check_asset_bytes",
     "purge_excuses_missing_file",
     "raise_if_asset_purged",
 ]
