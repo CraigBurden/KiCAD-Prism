@@ -204,6 +204,28 @@ class FootprintRewriteTests(unittest.TestCase):
             self._rewrite(["${M}/i̇.step"], assets), ["${KIPRJMOD}/RemoteLibrary/remote_3d/İ.step"]
         )
 
+    def test_stem_matches_a_model_whose_extension_differs(self) -> None:
+        assets = ["/store/3dmodel/Lib/alpha.step", "/store/3dmodel/Lib/Zeta_Cap.step"]
+        out = "${KIPRJMOD}/RemoteLibrary/remote_3d/"
+        self.assertEqual(
+            self._rewrite(["${M}/zeta cap.wrl", "${M}/legacy.wrl"], assets),
+            [out + "Zeta_Cap.step", out + "alpha.step"],
+        )
+
+    def test_full_name_wins_over_stem_match(self) -> None:
+        assets = ["/store/3dmodel/Lib/part.step", "/store/3dmodel/Lib/part.wrl"]
+        out = "${KIPRJMOD}/RemoteLibrary/remote_3d/"
+        self.assertEqual(
+            self._rewrite(["${M}/part.wrl", "${M}/part.step"], assets), [out + "part.wrl", out + "part.step"]
+        )
+
+    def test_ambiguous_stem_falls_back_to_position(self) -> None:
+        assets = ["/store/3dmodel/Lib/part.step", "/store/3dmodel/Lib/part.stp", "/store/3dmodel/Lib/z.step"]
+        out = "${KIPRJMOD}/RemoteLibrary/remote_3d/"
+        self.assertEqual(
+            self._rewrite(["${M}/z.wrl", "${M}/part.wrl"], assets), [out + "z.step", out + "part.step"]
+        )
+
     def test_single_asset_keeps_positional_pick_for_several_nodes(self) -> None:
         out = "${KIPRJMOD}/RemoteLibrary/remote_3d/R.step"
         assets = ["/store/3dmodel/Lib/R.step"]
