@@ -195,11 +195,13 @@ class PlacementMixin:
                 ignoredOverrides=[{**o, "member": iid(o["member"])} for o in solved["ignoredOverrides"]])
         return out
 
-    def scene(self, caller: Caller, system_id: str) -> dict:
+    def scene(self, caller: Caller, system_id: str, *, may_convert_models: bool = False) -> dict:
         """``GET …/scene`` (§20): every occurrence placed, with the board bundles to draw them.
 
         A visible board whose bundle is missing gets a build queued when the reader
-        may generate bundles (designer or admin, as on the board's 3D tab).
+        may generate bundles (designer or admin, as on the board's 3D tab). A visible
+        module or part whose pinned revision has STEP models but no GLB gets their
+        conversion queued when the reader may write the catalog (``may_convert_models``).
         """
 
         with self._tx(consistent=True) as store:
@@ -226,6 +228,11 @@ class PlacementMixin:
 
         built = scene_module.build(system_id, version, tree.occurrences, shown, interface_of, asset,
                                    placement=placement)
+        if may_convert_models:
+            self._queue_pinned_conversions(
+                ((o.component_id, o.revision_id) for o in tree.occurrences
+                 if o.kind in ("module", "part") and o.component_id and o.revision_id and o.path in shown
+                 and not (interface_of(o) or {}).get("model")), caller)
         built["harnesses"] = scene_module.redact_harnesses(harnesses, shown)
         root = placement["results"].get("")
         built["placement"] = {k: root[k] for k in ("roots", "mismatches", "unusable", "ignoredOverrides")} \

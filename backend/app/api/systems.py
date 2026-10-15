@@ -15,7 +15,7 @@ from fastapi import APIRouter, Body, Depends, File, Form, HTTPException, Query, 
 from fastapi.responses import JSONResponse, PlainTextResponse
 from pydantic import BaseModel, ConfigDict, Field
 
-from app.core import preconditions
+from app.core import policy, preconditions
 from app.core.security import AuthenticatedUser, require_designer, require_viewer
 from app.services.systems import csv_import, links as link_rules
 from app.services.systems import service as system_service
@@ -341,7 +341,9 @@ async def get_hierarchy(system_id: str, user: AuthenticatedUser = Depends(requir
 @router.get("/{system_id}/scene")
 async def get_scene(system_id: str, user: AuthenticatedUser = Depends(require_viewer)):
     """P2 §20: every occurrence placed, with the board bundles that draw it."""
-    return await _run(lambda: system_service.service.scene(_caller(user), system_id))
+    may_convert_models = policy.allows(user, "catalog_write")
+    return await _run(lambda: system_service.service.scene(_caller(user), system_id,
+                                                           may_convert_models=may_convert_models))
 
 
 @router.get("/{system_id}/instances/{instance_id}/interface")

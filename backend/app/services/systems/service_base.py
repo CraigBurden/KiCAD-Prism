@@ -11,11 +11,11 @@ import re
 from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Any, Callable, ContextManager, Iterator, Mapping, Optional, Sequence
+from typing import Any, Callable, ContextManager, Iterable, Iterator, Mapping, Optional, Sequence
 
 from app.core.roles import Role
 from app.services.systems import exports as exports_module, git_tracking, modules, visibility
-from app.services.systems.bundles import BundleSource
+from app.services.systems.bundles import BundleSource, latest_job
 from app.services.systems.interface_extractor import EXTRACTOR_VERSION
 from app.services.systems.jobs import (
     enqueue_extraction,
@@ -218,30 +218,57 @@ class ServiceCore:
         except Exception:  # the catalog is a separate service; the ports still link
             logger.exception("Could not read the connectors of module %s", revision["componentId"])
             connectors = None
-        return modules.as_interface(revision.get("interface"), connectors, self._catalog_model(revision["componentId"]))
+        return modules.as_interface(revision.get("interface"), connectors,
+                                    self._catalog_model(revision["componentId"], revision_id))
 
     def _part_interface(self, revision_id: str) -> Optional[dict]:
         """A mechanical part (P2 §24.1) as an interface with no ports: its model and aligned bounds."""
         revision = self._catalog_revision(revision_id)
         if revision is None:
             return None
-        return modules.as_interface({"units": []}, None, self._catalog_model(revision["componentId"]))
+        return modules.as_interface({"units": []}, None, self._catalog_model(revision["componentId"], revision_id))
 
     def _child_interface(self, revision_id: str) -> Optional[dict]:
         """reconcile.ChildLoader: a catalog revision's exports as an interface artifact."""
         revision = self._catalog_revision(revision_id)
         return exports_module.as_interface(revision.get("interface")) if revision else None
 
-    def _catalog_model(self, component_id: str) -> Optional[dict]:
-        """A catalog component's first converted model with its alignment (§18.2), or None."""
+    def _catalog_model(self, component_id: str, revision_id: str) -> Optional[dict]:
+        """A catalog revision's first converted model with its alignment (§18.2), or None."""
         try:
-            found = next((m for m in self._catalog().list_models(component_id) if m["glb"]), None)
+            found = next((m for m in self._catalog().list_models(component_id, revision_id) if m["glb"]), None)
         except Exception:
             logger.debug("No model for component %s", component_id, exc_info=True)
             found = None
         return None if found is None else {
             "glbKey": found["glb"]["key"], "boundsMm": found["glb"]["bounds"],
             "alignment": {k: found["alignment"][k] for k in ("offsetMm", "rotationDeg", "scale")}}
+
+    def _queue_pinned_conversions(self, pins: Iterable[tuple[str, str]], caller: Caller) -> None:
+        """Queue the catalog's GLB conversion for each pinned ``(component, revision)`` whose STEP models
+        have none yet. Never once a job for that key has ended: a read neither retries a failed or cancelled
+        attempt nor repeats a completed one that left no GLB; Convert on the part (with ``revisionId``) does.
+        The caller must already hold ``catalog_write``."""
+        from app.services.catalog import models as catalog_models
+        from app.services.catalog_job_service import catalog_jobs
+
+        for component_id, revision_id in sorted(set(pins)):
+            try:
+                listed = self._catalog().list_models(component_id, revision_id)
+            except (LookupError, ValueError) as refused:  # deactivated, or not a part or module: nothing to convert
+                logger.debug("No models to convert for %s@%s: %s", component_id, revision_id, refused)
+                continue
+            try:
+                if not listed or any(m["glb"] for m in listed):
+                    continue
+                key = catalog_models.conversion_job_key(component_id, revision_id)
+                last = latest_job("catalog_model_glb", key)
+                if last and last["status"] in ("completed", "failed", "cancelled"):
+                    continue
+                catalog_jobs.enqueue("catalog_model_glb", {"componentId": component_id, "revisionId": revision_id},
+                                     created_by=caller.email, idempotency_key=key)
+            except Exception:
+                logger.exception("Could not queue the models of %s@%s for conversion", component_id, revision_id)
 
     # ------------------------------------------------------------------
     # Git tracking hooks shared by the Git and Snapshot areas (P2 §21)
