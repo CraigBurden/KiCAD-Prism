@@ -190,10 +190,11 @@ class CatalogSystemItemsFacade:
 
     # Connector placement on modules (CONTRACTS_P2 §3.6) ----------------------------
 
-    def module_connectors(self, component_id: str) -> dict[str, Any]:
+    def module_connectors(self, component_id: str, revision_id: str | None = None) -> dict[str, Any]:
+        """The connectors of the module at ``revision_id`` (a pinned revision; default: the current one)."""
         self._initialize()
         with self._connect() as conn:
-            return module_connectors.list_connectors(conn, component_id)
+            return module_connectors.list_connectors(conn, component_id, revision_id)
 
     def connector_geometry(self, part_id: str) -> dict[str, Any]:
         """A part as a module connector would use it: footprint geometry at the origin and its model."""

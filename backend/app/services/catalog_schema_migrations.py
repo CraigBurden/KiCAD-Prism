@@ -287,6 +287,22 @@ def _asset_file_purges(conn: Any) -> None:
     )
 
 
+def _module_connector_part_revision(conn: Any) -> None:
+    """System Builder P2 (CONTRACTS_P2 §3.6): the connector part's revision a module placement draws.
+
+    Placing a connector records its part's current revision, so a later revision of that part (a new
+    footprint or model) does not move the module's ports until the connector is placed again. Existing
+    placements take the part's current revision: what they draw today.
+    """
+    conn.execute("ALTER TABLE catalog_module_connectors ADD COLUMN IF NOT EXISTS part_revision_id TEXT")
+    conn.execute(
+        """
+        UPDATE catalog_module_connectors placed SET part_revision_id = part.current_revision_id
+        FROM components part WHERE part.id = placed.part_id AND placed.part_revision_id IS NULL
+        """
+    )
+
+
 MIGRATIONS: tuple[tuple[int, str, Migration], ...] = (
     (0, "baseline", _baseline),
     (1, "portable_column_types", _portable_column_types),
@@ -298,6 +314,7 @@ MIGRATIONS: tuple[tuple[int, str, Migration], ...] = (
     (7, "module_connectors", _module_connectors),
     (8, "revision_assets_asset_index", _revision_assets_asset_index),
     (9, "asset_file_purges", _asset_file_purges),
+    (10, "module_connector_part_revision", _module_connector_part_revision),
 )
 
 # Migrations that a long-lived branch database recorded under an earlier number.

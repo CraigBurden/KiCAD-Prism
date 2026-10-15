@@ -296,7 +296,7 @@ def redact_harnesses(harnesses: Sequence[Mapping[str, Any]], shown: Mapping[str,
                          "occurrence": end["occurrence"] if entry else None,
                          "reference": end["reference"] if open_board else None,
                          # SB2-44: what the browser needs to pose the end (§17.6); never for a restricted board.
-                         "part": end.get("part"),
+                         "part": end.get("part"), "partRevisionId": end.get("partRevisionId"),
                          "connector": end.get("connector") if open_board else None,
                          # SB2-47: the part's model (catalog data, not the board's).
                          "housing": end.get("housing")})

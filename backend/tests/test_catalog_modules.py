@@ -21,6 +21,7 @@ STEP = Path(__file__).resolve().parents[2] / "fixtures" / "release-studio" / "us
 # A made-up 2×5 header (pads 1–10) from the SB2-21 fixtures: the connector part placed on the module (SB2-48b).
 CONNECTOR = (Path(__file__).resolve().parent / "fixtures" / "system_builder" / "p2" / "sources" / "mezz_base" / "F0"
              / "PrismFixture.pretty" / "Conn_Custom_2x05.kicad_mod")
+OTHER_STEP = STEP.parent / "CYPD3177-24LQXQT.stp"
 TOP = {"originMm": [0.0, 0.0, 10.0], "normal": [0.0, 0.0, 1.0], "quarterTurns": 0}
 
 
@@ -213,6 +214,40 @@ class ModuleItemsTest(unittest.TestCase):
         events = [e["event_type"] for e in self.service.list_component_audit_events(component_id)]
         self.assertIn("component.module_connector_placed", events)
         self.assertIn("component.module_connector_removed", events)
+
+    def test_a_connector_keeps_the_part_revision_it_was_placed_with(self) -> None:
+        """#698: a newer revision of the connector part never changes a placed connector until it is placed again."""
+        component_id = self.modelled_module()
+        part = self.connector_part()
+        self.attach(part, "3dmodel", STEP.name, STEP.read_bytes())
+        [first] = self.service.system_items.convert_models(part)
+        placed_revision = str(self.service.get_component(part)["current_revision_id"])
+        self.service.system_items.set_module_connector(component_id, "A", part, TOP, actor="author@example.com")
+        self.service.detach_asset(part, "3dmodel", actor="author@example.com")
+        self.attach(part, "3dmodel", OTHER_STEP.name, OTHER_STEP.read_bytes())
+        [head] = self.service.system_items.convert_models(part)
+        self.assertNotEqual(head["glb"]["key"], first["glb"]["key"])
+
+        connector = self.service.system_items.module_connectors(component_id)["units"][0]["connector"]
+        self.assertEqual((connector["part"]["revisionId"], connector["model"]["glbKey"]),
+                         (placed_revision, first["glb"]["key"]))
+        self.assertEqual(len(connector["geometry"]["pads"]), 10, "the placed revision's footprint")
+        replaced = self.service.system_items.set_module_connector(component_id, "A", part, TOP,
+                                                                  actor="author@example.com")
+        connector = replaced["units"][0]["connector"]
+        self.assertEqual((connector["part"]["revisionId"], connector["model"]["glbKey"]),
+                         (str(self.service.get_component(part)["current_revision_id"]), head["glb"]["key"]))
+
+    def test_connectors_list_the_units_of_a_pinned_module_revision(self) -> None:
+        component_id = self.modelled_module()
+        pinned = str(self.service.get_component(component_id)["current_revision_id"])
+        self.attach(component_id, "symbol", "TEST_IMU.kicad_sym",
+                    module_symbol().replace('(number "9"', '(number "10"').encode())
+        pads = lambda listed: [u["pads"] for u in listed["units"]]
+        self.assertEqual(pads(self.service.system_items.module_connectors(component_id))[1], ["7", "8", "10"])
+        self.assertEqual(pads(self.service.system_items.module_connectors(component_id, pinned))[1], ["7", "8", "9"])
+        with self.assertRaisesRegex(LookupError, "revision not found"):
+            self.service.system_items.module_connectors(component_id, "no-such-revision")
 
     def test_a_new_symbol_replaces_the_module_s_symbol(self) -> None:
         """A module has one symbol, its interface: a re-import replaces it rather than adding a second

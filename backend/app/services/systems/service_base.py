@@ -207,14 +207,15 @@ class ServiceCore:
 
     def _module_interface(self, revision_id: str) -> Optional[dict]:
         """A module revision's connectors as an interface artifact (§5.6): its units, the connector
-        parts placed on it today (§3.6) and its model. Placements or a model the catalog can't give
-        leave the ports without geometry (they link but can't mate)."""
+        parts placed on it today (§3.6), each at the part revision recorded when it was placed, and its
+        model. Placements or a model the catalog can't give leave the ports without geometry (they link
+        but can't mate)."""
         revision = self._catalog_revision(revision_id)
         if revision is None:
             return None
         catalog = self._catalog()
         try:
-            connectors = catalog.module_connectors(revision["componentId"])
+            connectors = catalog.module_connectors(revision["componentId"], revision_id)
         except Exception:  # the catalog is a separate service; the ports still link
             logger.exception("Could not read the connectors of module %s", revision["componentId"])
             connectors = None
@@ -233,8 +234,9 @@ class ServiceCore:
         revision = self._catalog_revision(revision_id)
         return exports_module.as_interface(revision.get("interface")) if revision else None
 
-    def _catalog_model(self, component_id: str, revision_id: str) -> Optional[dict]:
-        """A catalog revision's first converted model with its alignment (§18.2), or None."""
+    def _catalog_model(self, component_id: str, revision_id: Optional[str]) -> Optional[dict]:
+        """A catalog revision's first converted model with its alignment (§18.2), or None. A revision of
+        None reads the component's current one (a harness end recorded before revisions were)."""
         try:
             found = next((m for m in self._catalog().list_models(component_id, revision_id) if m["glb"]), None)
         except Exception:

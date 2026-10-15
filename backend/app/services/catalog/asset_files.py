@@ -267,7 +267,8 @@ class CatalogAssetFiles:
         released revision, or once it has ever been released, so released STEP
         evidence is never deleted. A revision in ``pinned_revision_ids`` (one a
         System Builder instance or harness end pins, which the catalog cannot see)
-        is protected too.
+        is protected too, and so is the part revision a module connector placement
+        records (CONTRACTS_P2 §3.6).
 
         Each file's ``catalog_asset_file_purges`` row is committed before the
         file is unlinked, one file at a time, so a crash never leaves a deleted
@@ -309,6 +310,7 @@ class CatalogAssetFiles:
                 JOIN component_revisions revision ON revision.id = link.revision_id
                 JOIN components component ON component.id = revision.component_id
                 WHERE ({PROTECTED_REVISION_SQL}) OR revision.id = ANY(%s::text[])
+                   OR revision.id IN (SELECT part_revision_id FROM catalog_module_connectors)
             )
             SELECT DISTINCT asset.id, asset.canonical_path, asset.sha256
             FROM superseded_models superseded

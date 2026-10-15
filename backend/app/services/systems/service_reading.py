@@ -257,25 +257,20 @@ class ReadingCore:
 
     def _attach_housings(self, harnesses: Sequence[dict]) -> None:
         """Give each harness end with a part its model (§18.2, SB2-47): ``housing {glbKey, boundsMm,
-        alignment}`` from the part's first STEP model with a converted GLB, else null. A catalog that
-        can't be read leaves every end without one: housings then draw as proxy boxes."""
-        models: dict[str, Optional[dict]] = {}
+        alignment}`` from the first STEP model with a converted GLB among the assets of the part revision
+        the end pins (§17.3), else null. A catalog that can't be read leaves every end without one:
+        housings then draw as proxy boxes."""
+        models: dict[tuple[str, Optional[str]], Optional[dict]] = {}
         for harness in harnesses:
             for end in harness["ends"]:
                 part = end.get("part")
                 if not part:
                     end["housing"] = None
                     continue
-                if part not in models:
-                    try:
-                        found = next((m for m in self._catalog().list_models(part) if m["glb"]), None)
-                    except Exception:  # the catalog is optional here: no model, a proxy box
-                        logger.debug("No housing model for part %s", part, exc_info=True)
-                        found = None
-                    models[part] = None if found is None else {
-                        "glbKey": found["glb"]["key"], "boundsMm": found["glb"]["bounds"],
-                        "alignment": {k: found["alignment"][k] for k in ("offsetMm", "rotationDeg", "scale")}}
-                end["housing"] = models[part]
+                key = (part, end.get("partRevisionId"))
+                if key not in models:
+                    models[key] = self._catalog_model(*key)
+                end["housing"] = models[key]
 
     def _harness_checks(self, loaded: LoadedSystem) -> dict:
         """The root level's harnesses routed where the System 3D view draws them (§17.10), by harness

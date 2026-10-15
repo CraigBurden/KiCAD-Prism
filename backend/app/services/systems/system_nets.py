@@ -242,7 +242,7 @@ def harness_layout(root: Level) -> list[dict]:
                           "occurrence": located[end_id][0] if located[end_id] else None,
                           "reference": (located[end_id][2] or None) if located[end_id] else None,
                           "portKey": located[end_id][1] if located[end_id] else None,
-                          "part": end["part"]}
+                          "part": end["part"], "partRevisionId": end["partRevisionId"]}
                          for end_id, end in sorted(ends.items(), key=lambda item: item[1]["ordinal"])],
                 "wires": [{"id": wire["id"], "from": wire["from"][0], "to": wire["to"][0],
                            "gaugeAwg": wire.get("gaugeAwg")} for wire in wires],
@@ -263,8 +263,9 @@ def export_source(level: Optional[Level], export_id: str) -> Optional[str]:
 
 
 def _harness(harness: Mapping[str, Any]) -> tuple[dict[str, dict], list[dict]]:
-    """``(end ID -> {ordinal, mates, pinMap}, wires)`` for store rows or manifest harnesses; ``mates`` is
-    ``(instance ID, port key or export ID, reference)`` or None."""
+    """``(end ID -> {ordinal, mates, pinMap, part, partRevisionId}, wires)`` for store rows or manifest
+    harnesses; ``mates`` is ``(instance ID, port key or export ID, reference)`` or None, ``part`` the block's
+    catalog component and ``partRevisionId`` the revision it pins (§17.3)."""
     ends = {}
     for end in harness["ends"]:
         if "mates_instance_id" in end:
@@ -277,8 +278,12 @@ def _harness(harness: Mapping[str, Any]) -> tuple[dict[str, dict], list[dict]]:
             mates = ((raw["instanceId"], raw.get("portKey") or raw.get("exportId"),
                       baseline.get("reference") or baseline.get("name") or "") if raw else None)
             pin_map = end.get("pinMap")
-        part = end.get("catalog_component_id") if "mates_instance_id" in end else (end.get("part") or {}).get("componentId")
-        ends[end["id"]] = {"ordinal": end["ordinal"], "mates": mates, "pinMap": pin_map or {}, "part": part}
+        if "mates_instance_id" in end:
+            part, part_revision = end.get("catalog_component_id"), end.get("catalog_revision_id")
+        else:
+            part, part_revision = (end.get("part") or {}).get("componentId"), (end.get("part") or {}).get("revisionId")
+        ends[end["id"]] = {"ordinal": end["ordinal"], "mates": mates, "pinMap": pin_map or {}, "part": part,
+                           "partRevisionId": part_revision if part else None}
     wires = []
     for wire in harness["wires"]:
         if "from_end" in wire:

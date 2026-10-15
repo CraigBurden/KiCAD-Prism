@@ -101,10 +101,19 @@ def _triple(text: str | None, name: str) -> list[float] | None:
     return values
 
 
+def _require_revision(component_id: str, revision_id: str | None) -> None:
+    """404 unless ``revisionId`` (when given) is a revision of that component."""
+    if revision_id and not catalog_service.get_component_revision(component_id, revision_id):
+        raise HTTPException(status_code=404, detail="Component revision not found")
+
+
 @router.get("/components/{component_id}/models")
-def list_models(component_id: str, user: AuthenticatedUser = Depends(require_catalog_browser)):
-    """CONTRACTS_P2 §18.2: STEP models with their GLB and alignment."""
-    return _mates_call(lambda: catalog_service.system_items.list_models(component_id))
+def list_models(component_id: str, revision_id: str | None = Query(None, alias="revisionId"),
+                user: AuthenticatedUser = Depends(require_catalog_browser)):
+    """CONTRACTS_P2 §18.2: STEP models with their GLB and alignment, of the current revision or of
+    ``revisionId`` (a pinned one)."""
+    _require_revision(component_id, revision_id)
+    return _mates_call(lambda: catalog_service.system_items.list_models(component_id, revision_id))
 
 
 @router.post("/components/{component_id}/models/convert")
@@ -112,8 +121,7 @@ def convert_models(component_id: str, revision_id: str | None = Query(None, alia
                    user: AuthenticatedUser = Depends(require_catalog_writer)):
     """Queue GLB conversion of the current revision's STEP models, or of ``revisionId``'s (a pinned one)."""
     _mates_call(lambda: catalog_service.system_items.list_models(component_id))  # 404/422 before queueing
-    if revision_id and not catalog_service.get_component_revision(component_id, revision_id):
-        raise HTTPException(status_code=404, detail="Component revision not found")
+    _require_revision(component_id, revision_id)
     payload = {"componentId": component_id, **({"revisionId": revision_id} if revision_id else {})}
     job = catalog_jobs.enqueue("catalog_model_glb", payload, created_by=user.email,
                                idempotency_key=catalog_models.conversion_job_key(component_id, revision_id))
