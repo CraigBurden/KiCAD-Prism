@@ -49,6 +49,8 @@ describe("catalog client", () => {
     ["approveMetadataBatchFields", () => catalog.approveMetadataBatchFields("b1"), "/api/catalog/metadata/batches/b1/approve-fields", "POST"],
     ["getMetadataJob", () => catalog.getMetadataJob("j1"), "/api/catalog/metadata/jobs/j1", "GET"],
     ["getReleaseQueue", () => catalog.getReleaseQueue(new URLSearchParams({ page: "2" }), signal), "/api/catalog/release-queue?page=2", "GET"],
+    ["getCatalogHealth", () => catalog.getCatalogHealth(), "/api/catalog/health", "GET"],
+    ["getCatalogHealth with file check", () => catalog.getCatalogHealth({ checkFiles: true }), "/api/catalog/health?check_files=true", "GET"],
     ["listImportSessions", () => catalog.listImportSessions(signal), "/api/catalog/import-sessions", "GET"],
     ["listImportProposals", () => catalog.listImportProposals("s1", signal), "/api/catalog/import-sessions/s1/proposals", "GET"],
     ["listFolderImportRoots", () => catalog.listFolderImportRoots(), "/api/catalog/import-sources/folder-roots", "GET"],

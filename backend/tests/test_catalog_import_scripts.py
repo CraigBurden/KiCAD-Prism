@@ -394,6 +394,57 @@ class CatalogImportScriptTests(unittest.TestCase):
             (self.store / "revisions" / added["symbol"]["sha256"] / f"symbols/TestSymbols/{symbol}.kicad_sym").resolve(),
         )
 
+    def test_kicad_library_assets_dry_run_writes_no_files_or_rows(self) -> None:
+        # --dry-run reports what an import would do; it creates no store directory,
+        # asset file or asset row, for a fresh store and for changed content in an
+        # existing one.
+        module = _load_script("import_kicad_library_assets")
+        source = self.root / "kicad"
+        (source / "symbols").mkdir(parents=True)
+        (source / "footprints" / "TestFootprints.pretty").mkdir(parents=True)
+        (source / "3D" / "TestModels").mkdir(parents=True)
+        (source / "spice").mkdir(parents=True)
+        symbol, footprint = f"Sensor_{self.token}", f"SOIC8_{self.token}"
+        symbol_file = source / "symbols" / "TestSymbols.kicad_sym"
+        footprint_file = source / "footprints" / "TestFootprints.pretty" / f"{footprint}.kicad_mod"
+        model_file = source / "3D" / "TestModels" / f"Model_{self.token}.step"
+        spice_file = source / "spice" / f"Model_{self.token}.lib"
+        symbol_file.write_text(SYMBOL_LIBRARY.format(name=symbol), encoding="utf-8")
+        footprint_file.write_text(FOOTPRINT.format(name=footprint), encoding="utf-8")
+        model_file.write_bytes(b"ISO-10303-21; original\n")
+        spice_file.write_text(".model D1 D\n", encoding="utf-8")
+        names = (symbol, footprint, model_file.name, spice_file.name)
+        assets_sql = "SELECT id FROM assets WHERE target_name IN (%s, %s, %s, %s) ORDER BY id"
+        options = ["--database-url", POSTGRES_URL, "--no-previews", "--skip-symbol-upgrade"]
+
+        fresh_store = self.root / "dry-run-store"
+        code, report = _run(module, [str(source), "--store-root", str(fresh_store), *options, "--dry-run"])
+
+        self.assertEqual((code, report["errors"]), (0, []))
+        self.assertEqual(
+            {key: report[key] for key in ("symbols_written", "footprints_written", "models_written", "spice_written")},
+            {"symbols_written": 1, "footprints_written": 1, "models_written": 1, "spice_written": 1},
+        )
+        self.assertEqual((report["assets_indexed"], report["indexed_db"]), (0, False))
+        self.assertFalse(fresh_store.exists())
+        self.assertEqual(self._rows(assets_sql, *names), [])
+
+        code, report = _run(module, [str(source), "--store-root", str(self.store), *options])
+        self.assertEqual((code, report["errors"]), (0, []))
+        rows_before = self._rows(assets_sql, *names)
+        files_before = {path: path.read_bytes() for path in self.store.rglob("*") if path.is_file()}
+        dirs_before = {path for path in self.store.rglob("*") if path.is_dir()}
+        symbol_file.write_text(SYMBOL_LIBRARY.format(name=symbol).replace("(end 1 -1)", "(end 2 -2)"), encoding="utf-8")
+        footprint_file.write_text(FOOTPRINT.format(name=footprint).replace("test body", "changed body"), encoding="utf-8")
+        model_file.write_bytes(b"ISO-10303-21; changed\n")
+
+        code, report = _run(module, [str(source), "--store-root", str(self.store), *options, "--dry-run", "--overwrite"])
+
+        self.assertEqual((code, report["errors"]), (0, []))
+        self.assertEqual({path: path.read_bytes() for path in self.store.rglob("*") if path.is_file()}, files_before)
+        self.assertEqual({path for path in self.store.rglob("*") if path.is_dir()}, dirs_before)
+        self.assertEqual(self._rows(assets_sql, *names), rows_before)
+
     def test_database_library_import_takes_its_slug_through_the_component_writer(self) -> None:
         # AC-28 writer row: slugs are allocated under the writer's lock against the catalog,
         # not only against the import's own batch.

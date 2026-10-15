@@ -330,6 +330,35 @@ that placed DBL footprints before this change keep the old paths; run "Update
 footprints from library" once to pick up the new ones. There is no automatic
 migration.
 
+## DBL keys no longer depend on export order
+
+Earlier exports gave components that share a DBL key (`Part Number Nocolon`,
+for example the same manufacturer part number from two manufacturers, or parts
+keyed by an identical value) suffixes `_2`, `_3`, ... in export order, so a key
+could move to another part between exports. Now the oldest component keeps the
+bare key and each other one gets `_` plus the first eight characters of its
+component id ([key rule](LIBRARY_MANAGER.md#kicad-dbl-export)). Each affected
+part changes key once, at the first export after the upgrade; keys without a
+collision are unchanged.
+
+Designs that placed a part under an `_N` key must be re-pointed to the new key.
+To find them:
+
+1. Before the first new export, keep a copy of the current bundle's
+   `Prism.sqlite` and list the old suffixed keys, for each table:
+   `sqlite3 Prism.sqlite 'SELECT "Part Number Nocolon", "Manufacturer", "Manufacturer Part Number" FROM "<category>"'`,
+   keeping the keys that end in `_<digits>`.
+2. Run the export and read the same columns from the new `Prism.sqlite` to map
+   each manufacturer and part number to its new key.
+3. Search the projects for the old keys:
+   `grep -rnE '"Part Number" "[^"]*_[0-9]+"' --include='*.kicad_sch' <projects>`
+   (the DBL copies the key into each placed symbol's `Part Number` field), and
+   change those symbols in KiCad to the new key ("Change Symbol" from the
+   `Prism` library).
+
+A key that only looks suffixed (an MPN that really ends in `_2`) is unaffected;
+step 1 shows which keys were generated.
+
 ## Release Studio configurations in a monorepo subproject
 
 Earlier releases read a monorepo subproject's committed Release Studio

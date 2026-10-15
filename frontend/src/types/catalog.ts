@@ -569,6 +569,18 @@ export interface CatalogReleaseQueueResponse extends PaginatedComponents {
   };
 }
 
+/** `GET /api/catalog/health`. `released_assets_missing_on_disk` is null unless
+ * an admin asked for the disk check (`check_files=true`). */
+export interface CatalogHealth {
+  total_components: number;
+  released: number;
+  place_ready: number;
+  missing_files: number;
+  released_assets_missing_on_disk: number | null;
+  preview_failed: number;
+  validation: Record<CatalogValidationStatus, number>;
+}
+
 export interface SelectionRequiredResponse {
   mode: "selection_required";
   discovered_symbols?: string[];

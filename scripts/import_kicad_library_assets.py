@@ -174,7 +174,6 @@ def _write_canonical_file(
     overwrite: bool,
     stats: ImportStats,
 ) -> Path:
-    destination.parent.mkdir(parents=True, exist_ok=True)
     if destination.exists():
         if _same_bytes(destination, payload):
             stats.reused_existing_files += 1
@@ -182,6 +181,7 @@ def _write_canonical_file(
         if not overwrite:
             raise ValueError(f"Canonical asset conflict at {destination}")
     if dry_run:
+        # A dry run reports the destination; it creates neither the file nor its directory.
         return destination
     # Never rewrite an existing canonical file: revisions already linked to it keep
     # their bytes, and changed content goes to an immutable revisions/<sha256>/ path.
@@ -665,7 +665,7 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--no-previews", action="store_true", help="Skip symbol/footprint preview generation.")
     parser.add_argument("--skip-symbol-upgrade", action="store_true", help="Do not run kicad-cli sym upgrade before splitting symbols.")
     parser.add_argument("--overwrite", action="store_true", help="Store changed content as a new immutable file instead of writing suffixed names (symbols, footprints) or refusing (3D models, SPICE).")
-    parser.add_argument("--dry-run", action="store_true", help="Report what would be imported without writing files or DB rows.")
+    parser.add_argument("--dry-run", action="store_true", help="Report what would be imported without writing asset files, store directories or DB rows.")
     parser.add_argument("--strict", action="store_true", help="Exit non-zero when any asset fails to import.")
     parser.add_argument(
         "--jobs",
@@ -717,17 +717,18 @@ def main() -> int:
     conn_context = None
     fatal_error = False
     try:
-        if args.dry_run:
-            service.runtime.ensure_storage_dirs()
-        elif args.no_index_db:
-            service.runtime.ensure_storage_dirs()
-        else:
-            service.initialize()
-            conn_context = service.connection()
-            conn = conn_context.__enter__()
-            if jobs > 1:
-                print("--jobs is ignored while indexing DB rows directly; use --no-index-db for parallel file import.", file=sys.stderr)
-                jobs = 1
+        # A dry run only reads the store and opens no catalog connection: it
+        # writes no asset files, directories or DB rows.
+        if not args.dry_run:
+            if args.no_index_db:
+                service.runtime.ensure_storage_dirs()
+            else:
+                service.initialize()
+                conn_context = service.connection()
+                conn = conn_context.__enter__()
+                if jobs > 1:
+                    print("--jobs is ignored while indexing DB rows directly; use --no-index-db for parallel file import.", file=sys.stderr)
+                    jobs = 1
 
         _import_symbols(
             source_root,
