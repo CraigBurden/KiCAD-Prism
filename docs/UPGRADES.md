@@ -342,6 +342,28 @@ git mv .prism/release-studio/configurations/release.yaml \
 Or open it in Settings for the subproject and save it again. A project at the
 repository root is unaffected.
 
+## Release Studio pins 3D models outside the closure
+
+Earlier releases recorded a board's 3D models outside the repository, such as
+the stock `${KICAD9_3DMODEL_DIR}` library, as advisory and left their bytes out
+of the input closure. The cover render and the assembly views open those
+models, so a release now resolves each one as KiCad does and hashes its bytes
+into the input closure digest.
+
+- **One new build key.** The first build of an existing board that uses stock or
+  other host models after the upgrade gets a new input closure digest, and so a
+  new candidate, even with an unchanged commit and configuration. Later builds
+  are stable again while the model files do not change.
+- **Non-hermetic where the variable is unset.** A worker without the variable
+  (for example no `KICAD9_3DMODEL_DIR` in its environment) cannot read those
+  models, so the build reports them as unreadable and itself as non-hermetic.
+  Set the variable on every worker to the same model library to keep builds
+  hermetic and their digests equal across workers.
+
+Only regular files are hashed, up to 256 MiB each. A model that is a device, a
+FIFO, larger than that, or a repository symlink that leads out of the
+repository is unreadable, and the build non-hermetic.
+
 ## Why the catalog gate is gone
 
 Until [`catalog_schema_migrations.py`](../backend/app/services/catalog_schema_migrations.py)
