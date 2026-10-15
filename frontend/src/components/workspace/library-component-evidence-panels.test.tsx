@@ -30,8 +30,20 @@ describe("AuditPanel verification failure", () => {
         expect(screen.queryByText(/First invalid event/)).not.toBeInTheDocument();
     });
 
+    it("says no events are recorded when the chain is empty", () => {
+        renderAudit(failed({ reason: "missing_audit_events", event_count: 0, verified_count: 0, head_hash: "" }));
+        expect(screen.getByText("No audit events recorded")).toBeInTheDocument();
+        expect(screen.queryByText(/First invalid event/)).not.toBeInTheDocument();
+    });
+
+    it("shows the anchored head when the chain head does not match it", () => {
+        renderAudit(failed({ reason: "audit_head_mismatch", anchored_head_hash: "def" }));
+        expect(screen.getByText("Audit head does not match the anchored head: def")).toBeInTheDocument();
+        expect(screen.queryByText(/First invalid event/)).not.toBeInTheDocument();
+    });
+
     it("names the event when an event breaks the chain", () => {
-        renderAudit(failed({ first_invalid_event_id: "event-3" }));
+        renderAudit(failed({ reason: "audit_hash_mismatch", first_invalid_event_id: "event-3" }));
         expect(screen.getByText("First invalid event: event-3")).toBeInTheDocument();
     });
 });

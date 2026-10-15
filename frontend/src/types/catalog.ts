@@ -293,6 +293,7 @@ export interface CatalogAuditVerification {
   first_invalid_asset_id?: string;
   reason?: string;
   head_hash: string;
+  anchored_head_hash?: string;
 }
 
 export interface CatalogComponentUsage {

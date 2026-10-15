@@ -706,18 +706,21 @@ export function WhereUsedPanel({ usage, projects }: { usage: CatalogComponentUsa
   );
 }
 
-// The chain can be intact while a revision manifest or a stored asset file no
-// longer matches; the backend then names that record instead of an event.
+// Only hash and sequence failures name an event; the other reasons name a
+// revision or asset record, or no record at all.
 function auditFailureDetail(verification: CatalogAuditVerification) {
-  if (!verification.first_invalid_event_id) {
-    if (verification.first_invalid_revision_id) {
-      return `Revision manifest mismatch: ${verification.first_invalid_revision_id}`;
-    }
-    if (verification.first_invalid_asset_id) {
-      return `Asset file missing or changed: ${verification.first_invalid_asset_id}`;
-    }
+  switch (verification.reason) {
+    case "missing_audit_events":
+      return "No audit events recorded";
+    case "audit_head_mismatch":
+      return `Audit head does not match the anchored head: ${verification.anchored_head_hash || "none"}`;
+    case "revision_manifest_mismatch":
+      return `Revision manifest mismatch: ${verification.first_invalid_revision_id ?? ""}`;
+    case "asset_content_mismatch":
+      return `Asset file missing or changed: ${verification.first_invalid_asset_id ?? ""}`;
+    default:
+      return `First invalid event: ${verification.first_invalid_event_id}`;
   }
-  return `First invalid event: ${verification.first_invalid_event_id}`;
 }
 
 export function AuditPanel({
