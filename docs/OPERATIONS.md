@@ -352,13 +352,15 @@ advertises the correct public origin.
 
 `scripts/check_catalog_asset_files.py` lists every revision-linked asset file
 that is missing or no longer matches its sha256, grouped as
-`placement_broken` (a released head), `history_broken` (older releases), and
-`draft_only`. It exits 1 while `placement_broken` is not empty. Run it with
+`placement_broken` (the released head of an active part), `history_broken`
+(older releases and deactivated parts), and `draft_only`. It exits 1 while `placement_broken` is not empty. Run it with
 `docker compose run --rm --no-deps backend python scripts/check_catalog_asset_files.py`.
 Add `--restore` to look for exact sha256 copies of missing files. It searches
 the catalog object store first and then each `--search DIR` (volume backups,
 library checkouts, `RemoteLibrary/remote_3d/`; mount them into the container).
 It is a dry run until `--apply` is added and never changes the object store.
+`--database-url` selects the database for both the catalog and the object-store
+ledger. Restored files get the same mode as the store's other files.
 It writes only inside the catalog store and refuses paths behind a symlink. It
 never replaces an existing file, so a file with different content is only
 reported. These checks assume that no untrusted user changes the catalog store's

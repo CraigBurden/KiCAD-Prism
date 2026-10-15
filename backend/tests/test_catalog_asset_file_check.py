@@ -8,6 +8,7 @@ import hashlib
 import importlib.util
 import io
 import json
+import stat
 import sys
 import tempfile
 import unittest
@@ -200,6 +201,43 @@ class CatalogAssetFileCheckTests(unittest.TestCase):
             "placement_broken": [], "history_broken": [], "draft_only": [models["draft"]["id"]],
         })
 
+    def test_a_deactivated_part_is_release_history_not_placement(self) -> None:
+        models = self._fixture()
+        live = models["live"]
+        live["path"].unlink()
+        component_id = next(item for item in self._run()[1]["placement_broken"]
+                            if item["asset_id"] == live["id"])["component_ids"][0]
+        self.service.deactivate_component(component_id, actor="integration-test@local", reason="retired")
+
+        code, report = self._run()
+        self.assertEqual(self._groups(report, {live["id"]}), {
+            "placement_broken": [], "history_broken": [live["id"]], "draft_only": [],
+        })
+        # Other suites share this database; the exit status follows placement_broken alone.
+        self.assertEqual(code, 1 if report["placement_broken"] else 0)
+
+    def test_database_url_also_selects_the_object_store_ledger(self) -> None:
+        live = self._fixture()["live"]
+        live["path"].unlink()
+
+        class RecordingStore:
+            def __init__(self) -> None:
+                self.databases: list[str | None] = []
+
+            def locate(self, _sha256: str, *, conn=None) -> None:
+                name = conn.execute("SELECT current_database() AS name").fetchone()["name"] if conn else None
+                self.databases.append(name)
+                return None
+
+        expected = urlsplit(CATALOG_URL).path.lstrip("/")
+        for argv, databases in ((["--restore"], {None}), (["--restore", "--database-url", CATALOG_URL], {expected})):
+            store = RecordingStore()
+            with contextlib.redirect_stdout(io.StringIO()):
+                check_script.main(argv, service=self.service, artifact_store=store)
+            with self.subTest(argv=argv):
+                self.assertTrue(store.databases)
+                self.assertEqual(set(store.databases), databases)
+
     def test_dry_run_reads_an_archived_object_without_restoring_it(self) -> None:
         models = self._fixture()
         live = models["live"]
@@ -352,6 +390,13 @@ class CatalogAssetRestoreDestinationTests(unittest.TestCase):
         self.assertEqual([item["asset_id"] for item in result["restored"]], ["asset-4"])
         self.assertEqual(list(self.outside.iterdir()), [])
         self.assertEqual((self.store / "3dmodels" / "Lib" / "model.step").read_bytes(), self.PAYLOAD)
+
+    def test_a_restored_file_gets_the_mode_of_the_store_files(self) -> None:
+        sibling = self.store / "3dmodels" / "sibling.step"
+        sibling.write_bytes(self.PAYLOAD)  # how the catalog writes its files
+        destination = self.store / "3dmodels" / "model.step"
+        self.assertEqual([item["asset_id"] for item in self._restore(str(destination))["restored"]], ["asset-0"])
+        self.assertEqual(stat.S_IMODE(destination.stat().st_mode), stat.S_IMODE(sibling.stat().st_mode))
 
     def test_a_corrupt_archive_falls_back_to_a_search_copy(self) -> None:
         corrupt = self.root / "corrupt.gz"

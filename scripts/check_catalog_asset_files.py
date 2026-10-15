@@ -4,7 +4,7 @@
 Every ``assets`` row linked to a revision is checked: its ``canonical_path``
 must exist and hash to the row's ``sha256``. Findings are grouped by impact:
 
-- ``placement_broken``: linked to a component's ``released_revision_id``;
+- ``placement_broken``: linked to an active component's ``released_revision_id``;
 - ``history_broken``: linked to a released revision or a release record;
 - ``draft_only``: everything else.
 
@@ -24,6 +24,7 @@ symlink inside it, are refused; an existing directory entry is never replaced.
 from __future__ import annotations
 
 import argparse
+import contextlib
 import gzip
 import hashlib
 import json
@@ -48,7 +49,8 @@ LINKED_ASSETS_SQL = """
     SELECT
         asset.id, asset.asset_type, asset.canonical_path, asset.sha256, asset.size_bytes,
         bool_or(EXISTS (
-            SELECT 1 FROM components component WHERE component.released_revision_id = link.revision_id
+            SELECT 1 FROM components component
+            WHERE component.released_revision_id = link.revision_id AND component.is_active = 1
         )) AS placement,
         bool_or(revision.release_status = 'released' OR EXISTS (
             SELECT 1 FROM component_release_records record WHERE record.revision_id = link.revision_id
@@ -122,10 +124,12 @@ class SearchIndex:
         return None
 
 
-def object_store_source(artifact_store: Any, sha256: str) -> tuple[Path, bool] | None:
-    """The object store's copy as ``(path, gzipped)``, found read-only (nothing is restored)."""
+def object_store_source(artifact_store: Any, sha256: str, conn: Any = None) -> tuple[Path, bool] | None:
+    """The object store's copy as ``(path, gzipped)``, found read-only (nothing is restored).
 
-    row = artifact_store.locate(sha256)
+    ``conn`` is the ``--database-url`` connection; without it the store uses its own."""
+
+    row = artifact_store.locate(sha256) if conn is None else artifact_store.locate(sha256, conn=conn)
     if row is None:
         return None
     if row["storage_state"] in {"available", "quarantined"} and row["object_path"]:
@@ -178,6 +182,7 @@ def restore_missing(
     artifact_store: Any,
     search: SearchIndex,
     apply: bool,
+    locate_conn: Any = None,
 ) -> dict[str, Any]:
     result: dict[str, Any] = {"applied": apply, "restored": [], "refused": [], "skipped": [], "unresolved": []}
     for group in GROUPS:
@@ -190,7 +195,7 @@ def restore_missing(
             if destination is None:
                 result["refused"].append({**entry, "reason": reason})
                 continue
-            found = object_store_source(artifact_store, item["sha256"])
+            found = object_store_source(artifact_store, item["sha256"], locate_conn)
             origin = "object_store"
             if found is None or not source_matches(*found, item["sha256"]):
                 path = search.find(item["sha256"], item["size_bytes"])
@@ -212,6 +217,14 @@ def restore_missing(
     return result
 
 
+def stored_file_mode() -> int:
+    """The mode the catalog gives its files: ``write_bytes`` under the process umask."""
+
+    mask = os.umask(0o022)
+    os.umask(mask)
+    return 0o666 & ~mask
+
+
 def write_verified(store_root: Path, source: tuple[Path, bool], destination: Path, sha256: str) -> None:
     """Copy verified bytes to ``destination``; never replaces any existing directory entry."""
 
@@ -220,6 +233,7 @@ def write_verified(store_root: Path, source: tuple[Path, bool], destination: Pat
         raise ValueError("symlink inside the catalog store")
     handle, temporary = tempfile.mkstemp(dir=destination.parent, prefix=f".{destination.name}.")
     try:
+        os.fchmod(handle, stored_file_mode())  # mkstemp creates 0600; match the store's other files
         digest = hashlib.sha256()
         with os.fdopen(handle, "wb") as output, open_source(*source) as stream:
             for chunk in iter(lambda: stream.read(1024 * 1024), b""):
@@ -267,10 +281,13 @@ def main(argv: list[str] | None = None, *, service: Any = None, artifact_store: 
     if args.restore:
         if artifact_store is None:
             from app.services.local_artifact_store import artifact_store  # noqa: PLC0415
-        result = restore_missing(
-            report, store_root=store_root, artifact_store=artifact_store,
-            search=SearchIndex(args.search), apply=args.apply,
-        )
+        with contextlib.ExitStack() as stack:
+            # --database-url names the catalog and its object ledger alike.
+            locate_conn = stack.enter_context(service.connection()) if args.database_url else None
+            result = restore_missing(
+                report, store_root=store_root, artifact_store=artifact_store,
+                search=SearchIndex(args.search), apply=args.apply, locate_conn=locate_conn,
+            )
         report["restore"] = result
         if args.apply:
             placement_broken -= sum(1 for item in result["restored"] if item["group"] == "placement_broken")
