@@ -1764,6 +1764,7 @@ class ReleaseStudioPostgresSchemaTests(unittest.TestCase):
                 (54, "system_harness_outputs"),
                 (55, "project_path_settings"),
                 (56, "release_studio_model_inputs"),
+                (57, "job_retention_indexes"),
             ],
         )
 

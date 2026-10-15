@@ -9,6 +9,7 @@ from pathlib import Path
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response
 
+from app.api._helpers import preview_file_response
 from app.core.errors import value_errors_as
 from app.core.security import AuthenticatedUser, require_remote_symbol_reader
 from app.services import provider_auth_service, provider_revisions
@@ -459,6 +460,7 @@ async def get_asset_content(
 @router.get("/api/remote-provider/previews/{preview_id}")
 async def download_preview(
     preview_id: str,
+    request: Request,
     user: AuthenticatedUser = Depends(require_remote_symbol_reader),
 ):
     _ = user
@@ -467,8 +469,9 @@ async def download_preview(
         raise HTTPException(status_code=404, detail="Preview not found")
     if preview.status != "ready" or not preview.file_path:
         raise HTTPException(status_code=404, detail="Preview is not available")
-    return FileResponse(
-        preview.file_path,
-        media_type=preview.content_type,
-        headers={"Cache-Control": "public, max-age=3600, immutable"},
+    return preview_file_response(
+        request,
+        Path(preview.file_path),
+        preview.content_type,
+        {"Cache-Control": "public, max-age=3600, immutable"},
     )

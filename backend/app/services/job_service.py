@@ -8,6 +8,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Iterable, Mapping, Sequence
 
+from app.services import job_lease_recovery
 from app.services.postgres_database import database
 from app.services.workspace_service import workspace
 
@@ -308,7 +309,7 @@ class JobService:
             raise ValueError("lease_seconds must be at least 10")
         with self._connect() as conn:
             conn.execute("SET search_path TO workspace, public")
-            self._finalize_expired_cancellations(conn, worker_pool)
+            job_lease_recovery.recover_dead_attempts(conn, worker_pool, self._release_claims, self._event)
             self._release_non_authoritative_claims(conn)
             conn.commit()
             candidate_ids = conn.execute(
@@ -530,46 +531,6 @@ class JobService:
               )
             """
         )
-
-    def _finalize_expired_cancellations(self, conn: Any, worker_pool: str) -> None:
-        """Fence dead cancelling attempts so they cannot block dedup or resources."""
-
-        rows = conn.execute(
-            """
-            SELECT id, fence
-            FROM ws_jobs
-            WHERE worker_pool = %s
-              AND status = 'cancel_requested'
-              AND lease_expires_at IS NOT NULL
-              AND lease_expires_at < NOW()
-            ORDER BY created_at, id
-            FOR UPDATE SKIP LOCKED
-            LIMIT 128
-            """,
-            (worker_pool,),
-        ).fetchall()
-        for row in rows:
-            job_id = str(row["id"])
-            old_fence = int(row["fence"] or 0)
-            conn.execute(
-                """
-                UPDATE ws_jobs
-                SET status = 'cancelled', stage = 'cancelled',
-                    message = 'Cancelled after worker lease expired',
-                    fence = fence + 1, completed_at = NOW(),
-                    heartbeat_at = NOW(), lease_owner = '',
-                    lease_expires_at = NULL, updated_at = NOW()
-                WHERE id = %s AND fence = %s AND status = 'cancel_requested'
-                """,
-                (job_id, old_fence),
-            )
-            self._release_claims(conn, job_id, old_fence)
-            self._event(
-                conn,
-                job_id,
-                "cancelled_after_lease_expiry",
-                details={"previous_fence": old_fence, "fence": old_fence + 1},
-            )
 
     @staticmethod
     def _assign_slots(
