@@ -18,6 +18,8 @@ from app.services.project_component_import_service import (  # noqa: E402
     run_project_import_session,
 )
 from app.services import project_service  # noqa: E402
+from app.services.catalog.metadata_fields import CatalogMetadataFields  # noqa: E402
+from app.services.catalog.placement_payloads import rewrite_symbol_payload  # noqa: E402
 
 
 class ProjectComponentImportServiceTests(unittest.TestCase):
@@ -159,6 +161,90 @@ class ProjectComponentImportServiceTests(unittest.TestCase):
         self.assertFalse(any("sheet" in code or "uuid" in code for code in warning_codes))
         self.assertNotIn("Sheetname", first["metadata"]["fields"])
         self.assertNotIn("kicad_sheet_path_names", first["metadata"]["fields"])
+
+    def test_placement_stamp_is_instance_context_in_any_case(self) -> None:
+        first_component = self._component("R1", component_uid="cmp-1")
+        second_component = self._component("R8", component_uid="cmp-8")
+        first_component["fields"].update({"Prism_Component": "c-1", "Prism_Revision": "rev-1"})
+        second_component["fields"].update({"PRISM_COMPONENT": "c-1", "prism_revision": "rev-2"})
+
+        first = _proposal(first_component, project_id="p1", source_revision="abc")
+        second = _proposal(second_component, project_id="p1", source_revision="abc")
+        for proposal in (first, second):
+            self.assertFalse(any("prism" in key.casefold() for key in proposal["metadata"]["fields"]))
+        _merge_proposal(first, second)
+
+        warning_codes = {finding["code"] for finding in first["findings"]}
+        self.assertFalse(any("prism" in code for code in warning_codes))
+        self.assertFalse(any("prism" in key.casefold() for key in first["metadata"]["fields"]))
+        self.assertFalse(any("prism" in key.casefold() for key in first["metadata"].get("alternatives", {})))
+
+    def test_placement_stamp_does_not_split_the_fallback_dedupe_key(self) -> None:
+        unstamped = self._component("R1", component_uid="cmp-1")
+        unstamped["fields"]["Manufacturer"] = ""
+        stamped = self._component("R8", component_uid="cmp-8")
+        stamped["fields"].update({"Manufacturer": "", "Prism_Component": "c-1", "Prism_Revision": "rev-2"})
+
+        self.assertEqual(
+            _proposal(unstamped, project_id="p1", source_revision="abc")["dedupe_key"],
+            _proposal(stamped, project_id="p1", source_revision="abc")["dedupe_key"],
+        )
+
+    def test_field_creation_harvest_and_placement_agree_on_stamp_names(self) -> None:
+        symbol = (
+            '(kicad_symbol_lib (version 20231120) (generator "prism")\n'
+            '  (symbol "R_Test"\n'
+            '    (property "Reference" "R" (at 0 0 0)\n'
+            "      (effects (font (size 1.27 1.27)))\n"
+            "    )\n"
+            '    (property "{name}" "stored" (at 0 0 0)\n'
+            "      (effects (font (size 1.27 1.27)) hide)\n"
+            "    )\n"
+            "  )\n"
+            ")\n"
+        )
+        cases = {
+            "Prism_Revision": True,
+            "prism revision": True,
+            "prism-revision": True,
+            "PRISM_REVISION": True,
+            "prismrevision": False,
+            "prism__revision": False,
+        }
+        for name, reserved in cases.items():
+            with self.subTest(name=name):
+                if reserved:
+                    with self.assertRaisesRegex(ValueError, "reserved"):
+                        CatalogMetadataFields.prepare_create_field({"key": name})
+                else:
+                    self.assertEqual(CatalogMetadataFields.prepare_create_field({"key": name}).field_key, name)
+
+                component = self._component("R1", component_uid="cmp-1")
+                component["fields"].update({name: "custom", "prism_internal_sku": "SKU-7"})
+                fields = _proposal(component, project_id="p1", source_revision="abc")["metadata"]["fields"]
+                self.assertEqual(name not in fields, reserved)
+                self.assertEqual(fields["prism_internal_sku"], "SKU-7")
+
+                catalog = {
+                    "id": "c1",
+                    "revision_id": "r1",
+                    "extra_fields": {name: "custom", "prism_internal_sku": "SKU-7"},
+                }
+                payload = symbol.replace("{name}", name).encode("utf-8")
+                # The catalog field overrides the stored property of the same name.
+                kept = f'(property "{name}" "custom"'.encode()
+                stamped = rewrite_symbol_payload(payload, "lib:FP", catalog, stamp=True)
+                self.assertEqual(kept in stamped, not reserved)
+                self.assertEqual(b'"custom"' in stamped, not reserved)
+                self.assertNotIn(b'"stored"', stamped)
+                self.assertIn(b'(property "prism_internal_sku" "SKU-7"', stamped)
+                self.assertEqual(stamped.count(b'(property "Prism_Revision" '), 1)
+                self.assertIn(b'(property "Prism_Revision" "r1"', stamped)
+                # Unstamped output (DBL) keeps every name, as before the stamp existed.
+                unstamped = rewrite_symbol_payload(payload, "lib:FP", catalog)
+                self.assertIn(kept, unstamped)
+                self.assertIn(b'(property "prism_internal_sku" "SKU-7"', unstamped)
+                self.assertNotIn(b'(property "Prism_Revision" "r1"', unstamped)
 
     def test_selected_component_can_resolve_by_any_stable_anchor(self) -> None:
         component = self._component("R1", component_uid="cmp-1")
