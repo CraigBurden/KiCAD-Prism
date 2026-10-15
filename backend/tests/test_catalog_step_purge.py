@@ -24,6 +24,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from app.core.errors import NotFound  # noqa: E402
 from app.services import catalog_worker_tasks  # noqa: E402
+from app.services.catalog.asset_files import lock_and_check_asset_bytes  # noqa: E402
 from app.services.catalog.asset_links import CatalogAssetLinks  # noqa: E402
 from app.services.catalog.conflicts import CatalogConflict  # noqa: E402
 from app.services.component_catalog_service_postgres import (  # noqa: E402
@@ -547,6 +548,32 @@ class SupersededStepPurgeTests(unittest.TestCase):
         for row in rows:
             self.assertRegex(row["purged_at"], r"^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{6}\+00:00$")
         self.assertTrue(self.service.verify_component_audit_chain(str(released["id"]))["valid"])
+
+    def test_linkers_taking_two_models_in_opposite_orders_do_not_deadlock(self) -> None:
+        _released, [first, second] = self._abandoned_draft_models(2)
+
+        with self.service.connection() as one, self.service.connection() as two:
+            for conn in (one, two):
+                conn.execute("SET lock_timeout = '2s'")
+            lock_and_check_asset_bytes(one, first)
+            lock_and_check_asset_bytes(two, second)
+            # Exclusive linker locks would make each wait for the other here.
+            lock_and_check_asset_bytes(one, second)
+            lock_and_check_asset_bytes(two, first)
+            # A purge still skips both while either linker is open.
+            self.assertEqual(self._purge()["asset_ids"], [])
+            one.rollback()
+            two.rollback()
+
+        self.assertEqual(sorted(self._purge()["asset_ids"]), sorted([first, second]))
+
+    def test_the_link_byte_check_streams_the_file(self) -> None:
+        _released, [scratch_id] = self._abandoned_draft_models(1)
+
+        with self.service.connection() as conn:
+            with patch.object(Path, "read_bytes", autospec=True, side_effect=AssertionError("read whole file")):
+                lock_and_check_asset_bytes(conn, scratch_id)
+            conn.rollback()
 
     def test_purge_ledger_is_migrated_and_append_only(self) -> None:
         _released, _old_model, scratch_id = self._purged_draft_model()

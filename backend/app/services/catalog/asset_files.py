@@ -15,7 +15,7 @@ import uuid
 from app.core.errors import NotFound
 from app.services import kicad_library_reader
 from app.services.catalog.conflicts import CatalogConflict
-from app.services.catalog.normalization import sanitize_name, sha256_bytes
+from app.services.catalog.normalization import sanitize_name, sha256_bytes, sha256_file
 from app.services.catalog.runtime import CatalogRuntime
 
 
@@ -46,8 +46,10 @@ def asset_bytes_lock_key(sha256: str) -> str:
     """The advisory-lock key that serializes the STEP purge with linking an asset.
 
     One lock per content hash (``hashtext('catalog-asset:' || sha256)``), so
-    asset rows sharing bytes share the lock. Both sides take it as a
-    transaction lock: it is held until the holder commits.
+    asset rows sharing bytes share the lock. A linker takes it shared until it
+    commits, so linkers never wait for each other and cannot deadlock however
+    many models one transaction links, in whatever order. The purge only tries
+    it exclusively, so it never waits either.
     """
     return f"catalog-asset:{sha256}"
 
@@ -56,9 +58,10 @@ def lock_and_check_asset_bytes(conn: Any, asset_id: str, *, local_path: Path | N
     """Before linking a 3D model, wait out a running purge and require its bytes.
 
     The file is written before any lock is taken, so a purge can delete it
-    between the write and the link. Under the asset's lock the purge either
-    already committed (the file is gone, so refuse) or has not started on it
-    (it will see this link and keep the file).
+    between the write and the link. Once this holds the asset's lock, the
+    purge has either already unlinked the file (so refuse) or cannot take the
+    lock until this commits (and will then see this link and keep the file).
+    The hash is streamed, so a large STEP is never read into memory.
 
     ``local_path`` is where this process sees the file, for an importer whose
     row records the running service's path (``--runtime-store-root``).
@@ -67,9 +70,9 @@ def lock_and_check_asset_bytes(conn: Any, asset_id: str, *, local_path: Path | N
     if row is None:
         return
     sha256 = str(row["sha256"])
-    conn.execute("SELECT pg_advisory_xact_lock(hashtext(%s))", (asset_bytes_lock_key(sha256),)).fetchone()
+    conn.execute("SELECT pg_advisory_xact_lock_shared(hashtext(%s))", (asset_bytes_lock_key(sha256),)).fetchone()
     path = local_path or Path(str(row["canonical_path"] or ""))
-    if not path.is_file() or sha256_bytes(path.read_bytes()) != sha256:
+    if not path.is_file() or sha256_file(path) != sha256:
         raise CatalogConflict(
             "The 3D model file is missing from the catalog store; upload it again",
             code=ASSET_BYTES_MISSING_CODE,
