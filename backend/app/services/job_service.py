@@ -8,6 +8,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Iterable, Mapping, Sequence
 
+from app.services import job_lease_recovery
 from app.services.postgres_database import database
 from app.services.workspace_service import workspace
 
@@ -308,8 +309,7 @@ class JobService:
             raise ValueError("lease_seconds must be at least 10")
         with self._connect() as conn:
             conn.execute("SET search_path TO workspace, public")
-            self._finalize_expired_cancellations(conn, worker_pool)
-            self._end_unleased_attempts(conn, worker_pool)
+            job_lease_recovery.recover_dead_attempts(conn, worker_pool, self._release_claims, self._event)
             self._release_non_authoritative_claims(conn)
             conn.commit()
             candidate_ids = conn.execute(
@@ -531,104 +531,6 @@ class JobService:
               )
             """
         )
-
-    def _finalize_expired_cancellations(self, conn: Any, worker_pool: str) -> None:
-        """Fence dead cancelling attempts so they cannot block dedup or resources."""
-
-        rows = conn.execute(
-            """
-            SELECT id, fence
-            FROM ws_jobs
-            WHERE worker_pool = %s
-              AND status = 'cancel_requested'
-              AND lease_expires_at IS NOT NULL
-              AND lease_expires_at < NOW()
-            ORDER BY created_at, id
-            FOR UPDATE SKIP LOCKED
-            LIMIT 128
-            """,
-            (worker_pool,),
-        ).fetchall()
-        for row in rows:
-            job_id = str(row["id"])
-            old_fence = int(row["fence"] or 0)
-            conn.execute(
-                """
-                UPDATE ws_jobs
-                SET status = 'cancelled', stage = 'cancelled',
-                    message = 'Cancelled after worker lease expired',
-                    fence = fence + 1, completed_at = NOW(),
-                    heartbeat_at = NOW(), lease_owner = '',
-                    lease_expires_at = NULL, updated_at = NOW()
-                WHERE id = %s AND fence = %s AND status = 'cancel_requested'
-                """,
-                (job_id, old_fence),
-            )
-            self._release_claims(conn, job_id, old_fence)
-            self._event(
-                conn,
-                job_id,
-                "cancelled_after_lease_expiry",
-                details={"previous_fence": old_fence, "fence": old_fence + 1},
-            )
-
-    def _end_unleased_attempts(self, conn: Any, worker_pool: str) -> None:
-        """End active jobs that hold no lease, which no worker can own or reclaim.
-
-        Every claim sets a lease in the same statement that makes a job
-        ``running``, so such a row predates leases (or was edited by hand).
-        Expired-lease recovery only matches rows with a lease, so these stayed
-        "running" forever, blocking dedup for their artifact key. They are
-        failed rather than retried: whatever enqueued them may no longer exist.
-        """
-
-        rows = conn.execute(
-            """
-            SELECT id, fence, status
-            FROM ws_jobs
-            WHERE worker_pool = %s
-              AND status IN ('running', 'cancel_requested')
-              AND lease_expires_at IS NULL
-            ORDER BY created_at, id
-            FOR UPDATE SKIP LOCKED
-            LIMIT 128
-            """,
-            (worker_pool,),
-        ).fetchall()
-        for row in rows:
-            job_id = str(row["id"])
-            old_fence = int(row["fence"] or 0)
-            cancelling = row["status"] == "cancel_requested"
-            conn.execute(
-                """
-                UPDATE ws_jobs
-                SET status = %s, stage = %s, message = %s,
-                    error_code = CASE WHEN %s THEN error_code ELSE 'orphaned' END,
-                    error_message = CASE WHEN %s THEN error_message ELSE %s END,
-                    fence = fence + 1, completed_at = NOW(),
-                    lease_owner = '', updated_at = NOW()
-                WHERE id = %s AND fence = %s
-                  AND status = %s AND lease_expires_at IS NULL
-                """,
-                (
-                    "cancelled" if cancelling else "failed",
-                    "cancelled" if cancelling else "failed",
-                    "Cancelled: no worker held this job" if cancelling else "No worker held this job",
-                    cancelling,
-                    cancelling,
-                    "The job was active without a worker lease, so no worker could finish or reclaim it.",
-                    job_id,
-                    old_fence,
-                    row["status"],
-                ),
-            )
-            self._release_claims(conn, job_id, old_fence)
-            self._event(
-                conn,
-                job_id,
-                "ended_without_lease",
-                details={"previous_status": row["status"], "previous_fence": old_fence, "fence": old_fence + 1},
-            )
 
     @staticmethod
     def _assign_slots(
@@ -1746,68 +1648,6 @@ class JobService:
             ).fetchall()
             conn.commit()
         return len(rows)
-
-    def job_ids(self) -> set[str]:
-        self.initialize()
-        with self._connect() as conn:
-            self._set_workspace_search_path(conn)
-            return {str(row["id"]) for row in conn.execute("SELECT id FROM ws_jobs").fetchall()}
-
-    def prune_terminal_jobs(
-        self,
-        *,
-        routine_kinds: Sequence[str],
-        routine_retention_seconds: int,
-        retention_seconds: int,
-        batch: int = 5000,
-    ) -> list[str]:
-        """Delete one batch of finished jobs past retention; returns their log paths.
-
-        Events go with them (ON DELETE CASCADE). A job is kept while anything
-        still points at it: a 3D readiness row (which would cascade away), an
-        artifact (pruned on its own schedule first), a release build, or being
-        the newest job of its kind and key (status lookups read that one).
-        """
-
-        self.initialize()
-        with self._connect() as conn:
-            self._set_workspace_search_path(conn)
-            rows = conn.execute(
-                """
-                WITH doomed AS (
-                    SELECT job.id
-                    FROM ws_jobs job
-                    WHERE job.status IN ('completed', 'failed', 'cancelled')
-                      AND COALESCE(job.completed_at, job.updated_at) < NOW() - (
-                          CASE WHEN job.kind = ANY(%s) THEN %s ELSE %s END * INTERVAL '1 second')
-                      AND NOT EXISTS (SELECT 1 FROM ws_webgpu_ready ready WHERE ready.source_job_id = job.id)
-                      AND NOT EXISTS (SELECT 1 FROM ws_artifacts artifact WHERE artifact.source_job_id = job.id)
-                      AND NOT EXISTS (SELECT 1 FROM ws_release_builds build WHERE build.job_id = job.id)
-                      AND NOT (
-                          COALESCE(job.artifact_key, '') <> ''
-                          AND NOT EXISTS (
-                              SELECT 1 FROM ws_jobs newer
-                              WHERE newer.kind = job.kind
-                                AND newer.artifact_key = job.artifact_key
-                                AND newer.created_at > job.created_at
-                          )
-                      )
-                    ORDER BY COALESCE(job.completed_at, job.updated_at)
-                    LIMIT %s
-                )
-                DELETE FROM ws_jobs job USING doomed
-                WHERE job.id = doomed.id
-                RETURNING job.log_path
-                """,
-                (
-                    list(routine_kinds),
-                    max(0, int(routine_retention_seconds)),
-                    max(0, int(retention_seconds)),
-                    max(1, int(batch)),
-                ),
-            ).fetchall()
-            conn.commit()
-        return [str(row["log_path"]) for row in rows if row["log_path"]]
 
     def invalidate_artifact(self, artifact_id: str, *, reason: str) -> bool:
         """Invalidate a missing/corrupt artifact without changing its source job."""
