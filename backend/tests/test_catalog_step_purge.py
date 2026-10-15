@@ -178,6 +178,19 @@ class SupersededStepPurgeTests(unittest.TestCase):
         self.assertFalse(scratch_path.exists())
         self.assertTrue(self._step_path(str(old_model["id"])).is_file())
 
+    def test_draft_step_pinned_outside_the_catalog_is_kept(self) -> None:
+        released, old_model = self._released_part_with_model()
+        draft = self._replace_model_in_draft(released, old_model)
+        with_scratch = self._attach_model(str(released["id"]), "scratch")
+        [scratch_id] = set(self._model_ids(with_scratch)) - set(self._model_ids(draft))
+        scratch_path = self._step_path(scratch_id)
+        self._detach(with_scratch, scratch_id)
+
+        result = self.service.purge_superseded_step_files(pinned_revision_ids=[with_scratch["revision_id"]])
+
+        self.assertNotIn(scratch_id, result["asset_ids"])
+        self.assertTrue(scratch_path.is_file(), "a draft STEP pinned by a System Builder system was purged")
+
     def _archived_release_with_model(self) -> tuple[dict, dict]:
         """A released revision archived in place: released_revision_id is cleared."""
 

@@ -5,7 +5,7 @@ import time
 import uuid
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Any, Callable, Iterator
+from typing import Any, Callable, Iterable, Iterator
 
 from app.services.catalog.collaborators import build_catalog_collaborators
 from app.services.catalog.component_history import CatalogComponentHistoryReads
@@ -459,11 +459,11 @@ class ComponentCatalogDomainService:
             conn.commit()
         return self.get_project_import_proposal(proposal_id) or {}
 
-    def purge_superseded_step_files(self) -> dict[str, Any]:
-        """Purge obsolete STEP bytes while preserving immutable revision evidence."""
+    def purge_superseded_step_files(self, *, pinned_revision_ids: Iterable[str] = ()) -> dict[str, Any]:
+        """Purge obsolete STEP bytes, keeping revision evidence and revisions pinned outside the catalog."""
         self.initialize()
         with self._connect() as conn:
-            return self._asset_files.purge_superseded_step_files(conn, self._runtime_for_compat())
+            return self._asset_files.purge_superseded_step_files(conn, self._runtime_for_compat(), pinned_revision_ids=pinned_revision_ids)
 
     def cleanup_resolved_import_staging(self, *, older_than: str) -> dict[str, Any]:
         """Remove regenerable staged copies after every proposal is resolved."""

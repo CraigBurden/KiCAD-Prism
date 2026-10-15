@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import mimetypes
 from pathlib import Path
-from typing import Any
+from typing import Any, Iterable
 
 from app.services import kicad_library_reader
 from app.services.catalog.normalization import sanitize_name, sha256_bytes
@@ -118,7 +118,9 @@ class CatalogAssetFiles:
         return CatalogAssetFiles.asset_root(runtime, asset_type) / safe_library / safe_name
 
     @staticmethod
-    def purge_superseded_step_files(conn: Any, runtime: CatalogRuntime) -> dict[str, Any]:
+    def purge_superseded_step_files(
+        conn: Any, runtime: CatalogRuntime, *, pinned_revision_ids: Iterable[str] = ()
+    ) -> dict[str, Any]:
         """Purge obsolete STEP bytes while preserving immutable revision evidence.
 
         The asset row, hash, revision link, and audit history remain intact. A file
@@ -126,8 +128,10 @@ class CatalogAssetFiles:
         different 3D model and no revision linking the asset, in any component, is
         protected. A revision is protected while it is its component's current or
         released revision, or once it has ever been released, so released STEP
-        evidence is never deleted. Purging a never-released draft STEP still
-        makes audit-chain verification report ``asset_content_mismatch``.
+        evidence is never deleted. A revision in ``pinned_revision_ids`` (one a
+        System Builder instance or harness end pins, which the catalog cannot see)
+        is protected too. Purging a never-released draft STEP still makes
+        audit-chain verification report ``asset_content_mismatch``.
         """
         rows = conn.execute(
             """
@@ -155,6 +159,7 @@ class CatalogAssetFiles:
                 WHERE revision.id = component.current_revision_id
                    OR revision.id = component.released_revision_id
                    OR revision.release_status = 'released'
+                   OR revision.id = ANY(%s::text[])
                    OR EXISTS (
                        SELECT 1 FROM component_release_records record
                        WHERE record.revision_id = revision.id
@@ -170,7 +175,7 @@ class CatalogAssetFiles:
                 OR lower(asset.canonical_path) LIKE %s
               )
             """,
-            ("%.step", "%.stp"),
+            (sorted({str(value) for value in pinned_revision_ids}), "%.step", "%.stp"),
         ).fetchall()
         purged: list[str] = []
         for row in rows:
