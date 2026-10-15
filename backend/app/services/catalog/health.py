@@ -29,7 +29,7 @@ class CatalogHealth:
         self._component_queries = component_queries
         self._klc = klc
 
-    def report(self, conn: Any) -> dict[str, Any]:
+    def report(self, conn: Any, *, check_released_files: bool = False) -> dict[str, Any]:
         validation_counts = {
             status: 0
             for status in (
@@ -74,24 +74,8 @@ class CatalogHealth:
             """,
             (PREVIEW_STATUS_FAILED,),
         ).fetchone()
-        # missing_files reflects the head revision only; a draft head can hide
-        # a released revision whose files were removed from disk.
-        released_asset_rows = conn.iter_rows(
-            """
-            SELECT c.id AS component_id, asset.canonical_path
-            FROM components c
-            JOIN revision_assets ra ON ra.revision_id = c.released_revision_id
-            JOIN assets asset ON asset.id = ra.asset_id
-            WHERE c.is_active = 1 AND c.released_revision_id <> ''
-            """,
-            batch_size=HEALTH_PAGE_SIZE,
-        )
-        released_missing_files = len(
-            {
-                row["component_id"]
-                for row in released_asset_rows
-                if not Path(str(row["canonical_path"] or "")).is_file()
-            }
+        released_assets_missing_on_disk = (
+            self._released_assets_missing_on_disk(conn) if check_released_files else None
         )
         return {
             "enabled": bool(settings.CATALOG_KLC_ENABLED),
@@ -101,11 +85,39 @@ class CatalogHealth:
             "total_components": total_components,
             "released": released,
             "place_ready": place_ready,
+            # Head revisions that are not place-ready (no symbol or footprint
+            # linked); this does not look at files on disk.
             "missing_files": missing_files,
-            "released_missing_files": released_missing_files,
+            # Opt-in (admin): None unless the caller asked for the disk check.
+            "released_assets_missing_on_disk": released_assets_missing_on_disk,
             "preview_failed": int(preview_failed_row["count"] if preview_failed_row else 0),
             "validation": validation_counts,
         }
+
+
+    def _released_assets_missing_on_disk(self, conn: Any) -> int:
+        """Count active components whose released revision links an asset file
+        that no longer exists on disk (for example removed by artifact
+        maintenance). ``missing_files`` cannot show this: it counts head
+        revisions without a linked symbol or footprint and never looks at
+        disk. Each distinct path is stat'ed once; nothing is hashed."""
+        components_by_path: dict[str, set[str]] = {}
+        for row in conn.iter_rows(
+            """
+            SELECT c.id AS component_id, asset.canonical_path
+            FROM components c
+            JOIN revision_assets ra ON ra.revision_id = c.released_revision_id
+            JOIN assets asset ON asset.id = ra.asset_id
+            WHERE c.is_active = 1 AND c.released_revision_id <> ''
+            """,
+            batch_size=HEALTH_PAGE_SIZE,
+        ):
+            components_by_path.setdefault(str(row["canonical_path"] or ""), set()).add(str(row["component_id"]))
+        broken: set[str] = set()
+        for path, component_ids in components_by_path.items():
+            if not Path(path).is_file():
+                broken |= component_ids
+        return len(broken)
 
 
 __all__ = ["HEALTH_PAGE_SIZE", "CatalogHealth"]

@@ -689,17 +689,19 @@ class ComponentCatalogPostgresIntegrationTests(unittest.TestCase):
         self.assertNotEqual(draft["revision_id"], released["revision_id"])
         self.assertNotIn(released_step["id"], [asset["id"] for asset in draft["assets"]])
 
-        self.assertEqual(self.service.catalog_health()["released_missing_files"], 0)
+        # The disk check is opt-in; the default report never stats asset files.
+        self.assertIsNone(self.service.catalog_health()["released_assets_missing_on_disk"])
+        self.assertEqual(self.service.catalog_health(check_released_files=True)["released_assets_missing_on_disk"], 0)
 
         store = Path(self.tempdir.name)
         (released_step_file,) = [path for path in store.rglob("*.step") if b"DRAFT" not in path.read_bytes()]
         released_step_file.unlink()
-        self.assertEqual(self.service.catalog_health()["released_missing_files"], 1)
+        self.assertEqual(self.service.catalog_health(check_released_files=True)["released_assets_missing_on_disk"], 1)
 
         # The count is per component, not per missing file.
         (footprint_file,) = list(store.rglob("*.kicad_mod"))
         footprint_file.unlink()
-        self.assertEqual(self.service.catalog_health()["released_missing_files"], 1)
+        self.assertEqual(self.service.catalog_health(check_released_files=True)["released_assets_missing_on_disk"], 1)
 
     def test_stale_asset_upload_and_link_do_not_advance_head(self) -> None:
         component = self._component("asset-rev-" + uuid.uuid4().hex[:8])

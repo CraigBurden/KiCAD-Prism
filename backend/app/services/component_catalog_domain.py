@@ -1071,10 +1071,10 @@ class ComponentCatalogDomainService:
         with self._connect() as conn:
             return self._klc_validation.report_path(conn, self._runtime_for_compat(), run_id, report_name)
 
-    def catalog_health(self) -> dict[str, Any]:
+    def catalog_health(self, *, check_released_files: bool = False) -> dict[str, Any]:
         self.initialize()
         with self._connect() as conn:
-            return self._catalog_health.report(conn)
+            return self._catalog_health.report(conn, check_released_files=check_released_files)
 
     def regenerate_component_previews(self, component_id: str, *, actor: str = "") -> dict[str, Any]:
         _ = actor  # previews carry no actor; kept for the historical signature

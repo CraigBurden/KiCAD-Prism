@@ -297,9 +297,14 @@ def release_queue(
 
 
 @router.get("/health")
-def catalog_health(user: AuthenticatedUser = Depends(require_catalog_reader)):
-    _ = user
-    return catalog_service.catalog_health()
+def catalog_health(
+    check_files: bool = Query(default=False),
+    user: AuthenticatedUser = Depends(require_catalog_reader),
+):
+    # The per-file disk check stats every released asset; only admins may ask for it.
+    if check_files:
+        policy.authorize(user, "catalog_admin")
+    return catalog_service.catalog_health(check_released_files=check_files)
 
 
 @router.post("/import-sessions/projects", status_code=202)
