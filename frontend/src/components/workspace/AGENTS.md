@@ -82,7 +82,8 @@ the server enforces on accept, and edit custom field values through
 `library-folder-discovery-dialog.tsx`. Import produces proposals that a human
 remediates before acceptance; the grid is the remediation surface.
 
-**Catalog and release** — `library-catalog-workspace.tsx`,
+**Catalog and release** — `library-catalog-workspace.tsx` (its header carries
+`library-catalog-file-check.tsx`, the admin's on-demand released-file disk check),
 `library-manager-workspace.tsx`, `library-bulk-edit-workspace.tsx`,
 `library-release-queue.tsx`. Release transitions are governed on the backend —
 the frontend requests a transition, it does not decide one.
