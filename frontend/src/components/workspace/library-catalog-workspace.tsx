@@ -53,7 +53,7 @@ import {
   WORKFLOW_BADGE_VARIANT,
 } from "@/lib/catalog-badges";
 import { PermissionHint } from "@/components/ui/permission-hint";
-import { canWriteCatalog } from "@/lib/roles";
+import { canAdministerCatalog, canWriteCatalog } from "@/lib/roles";
 import { useServerState } from "@/lib/server-state";
 import { cn } from "@/lib/utils";
 import type { User } from "@/types/auth";
@@ -63,6 +63,7 @@ import type {
   CatalogValidationStatus,
   WorkflowStage,
 } from "@/types/catalog";
+import { LibraryCatalogFileCheck } from "./library-catalog-file-check";
 import { LibraryComponentQuickView } from "./library-component-quick-view";
 
 const PAGE_SIZE = 100;
@@ -469,6 +470,7 @@ export function LibraryCatalogWorkspace({
             <div className="flex items-center gap-2"><Database className="h-5 w-5 text-primary" /><h2 className="text-lg font-semibold">Component Catalog</h2></div>
           </div>
           <div className="flex items-center gap-2">
+            {canAdministerCatalog(user?.role) ? <LibraryCatalogFileCheck /> : null}
             <Button size="sm" variant="outline" aria-label="Refresh component catalog" disabled={loading} onClick={refreshCatalog}><RefreshCw className={cn("h-3.5 w-3.5", loading && "animate-spin")} /> Refresh</Button>
             {/* Shown disabled rather than hidden: a reader who cannot find the
                 button assumes the feature is missing, where a disabled one that

@@ -21,6 +21,7 @@ import type {
   CatalogComponent,
   CatalogComponentUsage,
   CatalogComponentValidationEvidence,
+  CatalogHealth,
   CatalogMetadataBatch,
   CatalogMetadataField,
   CatalogMetadataGridPreferences,
@@ -338,6 +339,13 @@ export function metadataBatchReportUrl(batchId: string): string {
 
 export function getReleaseQueue(params: URLSearchParams, signal?: AbortSignal) {
   return fetchJson<CatalogReleaseQueueResponse>(`${CATALOG}/release-queue?${params.toString()}`, withSignal(signal));
+}
+
+// -------------------------------------------------------------------- health
+
+/** `checkFiles` stats every released asset file on disk; admins only. */
+export function getCatalogHealth({ checkFiles = false }: { checkFiles?: boolean } = {}) {
+  return fetchJson<CatalogHealth>(`${CATALOG}/health${checkFiles ? "?check_files=true" : ""}`, undefined, "Failed to check catalog health");
 }
 
 // -------------------------------------------------------------------- import
