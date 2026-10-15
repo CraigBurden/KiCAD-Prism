@@ -2,7 +2,7 @@
 
 A board, schematic, drawing sheet, library table, project file or Release
 Studio YAML names other files through ``${VAR}`` paths, library-table URIs and
-absolute model paths.  ``closure.py`` resolves what this module finds.
+3D model paths.  ``closure.py`` resolves what this module finds.
 """
 
 from __future__ import annotations
@@ -11,6 +11,8 @@ import json
 import re
 from pathlib import Path
 from typing import Any, Iterable, Mapping
+
+from app.release_studio.closure_models import EMBEDDED_PREFIX, is_model_reference
 
 VARIABLE_RE = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)\}")
 # Variables the executor binds at run time rather than the project supplying.
@@ -68,7 +70,7 @@ def structured_path_references(
     name = Path(path).name.casefold()
     uri_values: list[str] = []
     scalar_values: list[str] = []
-    absolute_models: list[str] = []
+    models: list[str] = []
     try:
         if name in {"fp-lib-table", "sym-lib-table"} or suffix in {
             ".kicad_pcb",
@@ -90,11 +92,12 @@ def structured_path_references(
                         suffix == ".kicad_pcb"
                         and str(form[0]).casefold() == "model"
                         and len(form) > 1
-                        and str(form[1]).startswith("/")
+                        and _is_model_path(str(form[1]))
                     ):
-                        # No variable, so the generic scan below skips it, but
-                        # the tools still open it.
-                        absolute_models.append(str(form[1]))
+                        # Absolute, relative, `:alias:` and `$(VAR)` forms
+                        # carry no `${VAR}`, so the generic scan below skips
+                        # them, but the tools still open them.
+                        models.append(str(form[1]))
                 elif isinstance(form, str):
                     scalar_values.append(str(form))
         elif suffix == ".kicad_pro":
@@ -120,7 +123,19 @@ def structured_path_references(
         raise ClosureError(f"cannot parse closure input {path}: {exc}") from exc
 
     variable_values = [value for value in scalar_values if is_path_reference(value)]
-    return uri_values, variable_values + absolute_models
+    return uri_values, variable_values + models
+
+
+def _is_model_path(value: str) -> bool:
+    """A ``(model ...)`` value the tools open from disk.
+
+    A ``kicad-embed://`` model is read out of the board, which the closure
+    already pins.  An absolute path is kept whatever its suffix, as before.
+    """
+
+    if value.startswith(EMBEDDED_PREFIX):
+        return False
+    return value.startswith("/") or is_model_reference(value)
 
 
 def _walk_structured_values(value: Any) -> Iterable[Any]:

@@ -5,6 +5,10 @@ the input closure (``closure.py``) records where each one resolves and, for a
 model outside the closure, the hash of its bytes.  This module holds that
 resolution; ``closure.py`` turns its placement into a ``ResolvedLibraryPath``.
 
+A hashed host model is staged as it is hashed, and the materialized board is
+pointed at the staged copy (``rewrite_model_references``), so the tools read the
+bytes the closure pinned rather than whatever the host path holds later.
+
 Only regular files are read, and never more than ``HOST_MODEL_MAX_BYTES``: a
 board may name ``/dev/zero``, a FIFO, or a symlink anywhere on the worker, and
 none of those may stall a build or put a host file's digest in a closure.
@@ -17,14 +21,23 @@ import json
 import os
 import re
 import stat
+import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, Mapping
 
-from app.release_studio.closure_references import VARIABLE_RE
-# Any variable form KiCad expands: `${VAR}`, `$(VAR)`, or a bare `$VAR`.
-_ANY_VARIABLE_RE = re.compile(r"\$(?:\{|\(|[A-Za-z_])")
+# A variable as KiCad 10.0.4 expands it (`KIwxExpandEnvVars`, `common.cpp`):
+# `${NAME}`, `$(NAME)` or a bare `$NAME`, the name a run of letters, digits,
+# `_` and `:`.
+_VARIABLE_RE = re.compile(
+    r"\$(?:\{(?P<curly>[A-Za-z0-9_:]+)\}"
+    r"|\((?P<round>[A-Za-z0-9_:]+)\)"
+    r"|(?P<bare>[A-Za-z0-9_:]+))"
+)
 _URI_RE = re.compile(r"^[A-Za-z][A-Za-z0-9+.-]*://")
+# A model KiCad reads out of the board itself (`kicad-embed://`); its bytes are
+# the board's, so it is no reference to resolve.
+EMBEDDED_PREFIX = "kicad-embed://"
 # Suffixes of 3D models.  A footprint's `(model ...)` node names one of these,
 # and boards routinely carry stale ones whose case or extension no longer
 # matches anything on disk.
@@ -44,6 +57,19 @@ _LOADABLE_SUFFIXES = (
     ".step", ".stp", ".stpz", ".stepz", ".step.gz", ".stp.gz", ".igs", ".iges",
     ".wrl", ".wrz", ".x3d", ".idf", ".emn",
 )
+# The `:alias:` names every KiCad 10.0.4 process knows: the predefined path
+# variables (`env_vars.cpp`) less the two `GetKicadPaths` filters out
+# (`filename_resolver.cpp`).  Any other alias is a variable the worker's own
+# `kicad_common.json` may define, so it fails closed.
+_ALIASES = frozenset(
+    {
+        "KICAD10_3DMODEL_DIR",
+        "KICAD10_SYMBOL_DIR",
+        "KICAD10_TEMPLATE_DIR",
+        "KICAD10_3RD_PARTY",
+        "KICAD_USER_TEMPLATE_DIR",
+    }
+)
 # Larger than any real STEP model; a file past it is `unreadable`, not hashed.
 HOST_MODEL_MAX_BYTES = 256 * 1024 * 1024
 # A project file is small JSON; this bounds a hostile one.
@@ -53,12 +79,27 @@ _CHUNK = 1024 * 1024
 
 @dataclass(frozen=True, slots=True)
 class ModelPlacement:
-    """Where a model reference resolves: the fields of a ``ResolvedLibraryPath``."""
+    """Where a model reference resolves: the fields of a ``ResolvedLibraryPath``.
+
+    ``target`` is not part of the record.  It is the absolute path the build
+    tools must open instead of the reference as written -- the staged copy of
+    a hashed host model, or the file a relative or ``:alias:`` form resolved
+    to -- so they read exactly the bytes the closure pinned.
+    """
 
     location: str
     resolved_path: str = ""
     advisory: bool = False
     digest: str = ""
+    target: str = ""
+
+    def record(self) -> dict[str, object]:
+        return {
+            "location": self.location,
+            "resolved_path": self.resolved_path,
+            "advisory": self.advisory,
+            "digest": self.digest,
+        }
 
 
 def is_model_reference(reference: str) -> bool:
@@ -82,13 +123,21 @@ def resolve_model(
     destination: Path,
     destination_root: Path,
     toolchain_roots: Mapping[str, Path],
+    project_root: Path | None = None,
+    stage: Path | None = None,
 ) -> ModelPlacement:
     """Resolve a 3D model reference once, the way the build tools find it.
 
     As in KiCad 10.0.4's ``FILENAME_RESOLVER::ResolvePath``: backslashes become
-    slashes, then each variable resolves from the project's ``text_variables``
-    before ``KIPRJMOD`` and the environment (``ExpandEnvVarSubstitutions``,
-    ``common.cpp``), then the path is normalized.  Only then is it placed:
+    slashes, then every ``${VAR}``, ``$(VAR)`` and ``$VAR`` resolves from the
+    project's ``text_variables`` before ``KIPRJMOD`` and the environment
+    (``ExpandEnvVarSubstitutions``, ``common.cpp``), then the path is
+    normalized.  A relative result of a reference that does not start with a
+    variable is looked up in the project directory (*project_root*); one that
+    is not there would fall through to the tool's working directory, the
+    footprint library and the stock model directory, so it fails closed.  An
+    ``:alias:path`` form resolves through one of KiCad's predefined path
+    variables.  Only then is it placed:
 
     - in the closure: recorded as before; a missing file is advisory, except a
       ``.wrl``/``.wrz`` KiCad may replace with a STEP model from elsewhere;
@@ -97,8 +146,9 @@ def resolve_model(
       and fingerprint a worker's files;
     - outside it: a regular file whose written and resolved names both carry a
       suffix KiCad's 3D plugins load is hashed into ``digest``
-      (``location="host"``); anything else, or a file over
-      ``HOST_MODEL_MAX_BYTES``, is ``unreadable`` and the build is non-hermetic.
+      (``location="host"``) and, given *stage*, copied there as it is hashed;
+      anything else, or a file over ``HOST_MODEL_MAX_BYTES``, is
+      ``unreadable`` and the build is non-hermetic.
 
     ``lookup`` gives ``KIPRJMOD`` and Prism's own bindings, or None.  The tools
     inherit the worker's environment (``kicad_tools.py``) plus ``KIPRJMOD``;
@@ -107,31 +157,33 @@ def resolve_model(
     mount points agree.
     """
 
-    expanded = reference.replace("\\", "/")
-    for _ in range(8):
-        match = VARIABLE_RE.search(expanded)
-        if match is None:
-            break
-        name = match.group(1)
+    def value(name: str) -> str:
         if name in project_variables:
-            value = project_variables[name]
-        else:
-            value = lookup(name)
-            if value is None:
-                value = str(model_env.get(name) or "")
-        if not value:
-            return ModelPlacement("unreadable")
-        expanded = expanded[: match.start()] + value.replace("\\", "/") + expanded[match.end() :]
+            return project_variables[name]
+        found = lookup(name)
+        return found if found is not None else str(model_env.get(name) or "")
+
+    written_form = reference.replace("\\", "/")
+    expanded = _expand(written_form, value)
     # Fail closed wherever KiCad's resolution is not reproduced exactly: a
-    # variable left over (nested `$(VAR)`, `$VAR`, or more than the bounded
-    # depth), a relative result (KiCad resolves it against the tool's working
-    # directory), or a URI or home-relative path.
-    if (
-        _ANY_VARIABLE_RE.search(expanded)
-        or _URI_RE.match(expanded)
-        or not Path(expanded).is_absolute()
-    ):
+    # variable that is unset or left over, a URI, or a home-relative path.
+    if expanded is None or _URI_RE.match(expanded) or expanded.startswith("~"):
         return ModelPlacement("unreadable")
+    pinned_form = False  # the tools must be pointed at the file Prism chose
+    if expanded.startswith(":"):
+        alias, _, relative = expanded[1:].partition(":")
+        root = value(alias) if alias in _ALIASES else ""
+        if not relative or not root or "$" in root or not Path(root).is_absolute():
+            return ModelPlacement("unreadable")
+        expanded, pinned_form = f"{root.rstrip('/')}/{relative}", True
+    elif not Path(expanded).is_absolute():
+        # A reference that starts with a variable is looked up only in the
+        # tool's working directory, which is no closure input.
+        if written_form.startswith(("${", "$(")) or project_root is None:
+            return ModelPlacement("unreadable")
+        expanded, pinned_form = os.path.join(os.path.abspath(project_root), expanded), True
+    elif not written_form.startswith(("${", "$(", "/")):
+        pinned_form = True  # a bare `$VAR`: missing, KiCad searches further
     written = Path(os.path.normpath(expanded))
     try:
         # KiCad checks the path as written before it normalizes `..`, so
@@ -140,6 +192,7 @@ def resolve_model(
         resolved = written.resolve(strict=False)
     except (OSError, RuntimeError):
         return ModelPlacement("unreadable")
+    target = str(written) if pinned_form else ""
 
     inside = _relative(resolved, destination_root)
     if inside is None:
@@ -153,18 +206,95 @@ def resolve_model(
             if toolchain_relative is None:
                 continue
             if exists:
-                return ModelPlacement("toolchain", f"toolchain:{name}/{toolchain_relative}")
+                return ModelPlacement(
+                    "toolchain", f"toolchain:{name}/{toolchain_relative}", target=target
+                )
+            if pinned_form:
+                return ModelPlacement("unreadable")
             return ModelPlacement("missing", advisory=True)
     else:
         if exists:
-            return ModelPlacement("closure", inside or ".")
+            return ModelPlacement("closure", inside or ".", target=target)
+        if pinned_form:
+            return ModelPlacement("unreadable")
         if Path(expanded).suffix.casefold() in _SUBSTITUTED_SUFFIXES:
             return ModelPlacement("substitutable")
         return ModelPlacement("missing", advisory=True)
     if not exists or not (_is_loadable(written) and _is_loadable(resolved)):
         return ModelPlacement("unreadable")
-    digest = _hash_regular_file(resolved, HOST_MODEL_MAX_BYTES)
-    return ModelPlacement("host", digest=digest) if digest else ModelPlacement("unreadable")
+    if stage is None:
+        digest = _hash_regular_file(resolved, HOST_MODEL_MAX_BYTES)
+        return ModelPlacement("host", digest=digest) if digest else ModelPlacement("unreadable")
+    staged = _stage_regular_file(resolved, HOST_MODEL_MAX_BYTES, stage)
+    if staged is None:
+        return ModelPlacement("unreadable")
+    digest, copy = staged
+    return ModelPlacement("host", digest=digest, target=str(copy))
+
+
+def rewrite_model_references(board: Path, targets: Mapping[str, str]) -> int:
+    """Point *board*'s ``(model ...)`` nodes named in *targets* at their files.
+
+    The board in the materialized closure is rewritten, never the repository:
+    its closure record was taken from Git before this runs.  Only the model
+    path token changes, so every other byte the tools read stays the
+    committed one.  Returns how many nodes were rewritten.
+    """
+
+    if not targets:
+        return 0
+    from kicad_monkey import parse_sexp
+
+    text = board.read_text(encoding="utf-8")
+    count = 0
+
+    def replace(match: re.Match[str]) -> str:
+        nonlocal count
+        try:
+            value = str(parse_sexp(f"(model {match.group(2)})")[1])
+        except Exception:  # noqa: BLE001 - an unparsable token is left alone
+            return match.group(0)
+        target = targets.get(value)
+        if target is None:
+            return match.group(0)
+        count += 1
+        quoted = target.replace("\\", "\\\\").replace('"', '\\"')
+        return f'{match.group(1)}"{quoted}"'
+
+    rewritten = _MODEL_NODE_RE.sub(replace, text)
+    if count:
+        board.write_text(rewritten, encoding="utf-8")
+    return count
+
+
+_MODEL_NODE_RE = re.compile(r'(\(model\s+)("(?:[^"\\]|\\.)*"|[^\s()"]+)')
+
+
+def _expand(text: str, value: Callable[[str], str]) -> str | None:
+    """Expand every variable in *text*, or None where one is unset or left over.
+
+    KiCad re-expands a result that still holds a variable; eight rounds is
+    deeper than any real project nests them.
+    """
+
+    for _ in range(8):
+        if "$" not in text:
+            return text
+        missing = False
+
+        def substitute(match: re.Match[str]) -> str:
+            nonlocal missing
+            name = match.group("curly") or match.group("round") or match.group("bare")
+            found = value(name)
+            if not found:
+                missing = True
+                return ""
+            return found.replace("\\", "/")
+
+        text = _VARIABLE_RE.sub(substitute, text)
+        if missing:
+            return None
+    return None if "$" in text else text
 
 
 def project_text_variables(project_file: Path, destination_root: Path) -> dict[str, str]:
@@ -240,3 +370,32 @@ def _hash_regular_file(path: Path, limit: int) -> str | None:
 def _read_regular_file(path: Path, limit: int) -> bytes | None:
     parts: list[bytes] = []
     return b"".join(parts) if _regular_file_chunks(path, limit, parts.append) else None
+
+
+def _stage_regular_file(path: Path, limit: int, stage: Path) -> tuple[str, Path] | None:
+    """Copy *path* into *stage* while hashing it: the copy holds the hashed bytes.
+
+    Read once, so a file changed after it was hashed cannot reach the tools.
+    The copy lands at ``<stage>/<sha256>/<name>``: KiCad picks a 3D plugin by
+    the name's suffix, and equal bytes under one name are staged once.
+    """
+
+    stage.mkdir(parents=True, exist_ok=True)
+    digest = hashlib.sha256()
+    descriptor, temporary = tempfile.mkstemp(dir=stage, prefix=".staging-")
+    try:
+        with os.fdopen(descriptor, "wb") as handle:
+            def consume(chunk: bytes) -> None:
+                digest.update(chunk)
+                handle.write(chunk)
+
+            if not _regular_file_chunks(path, limit, consume):
+                return None
+        copy = stage / digest.hexdigest() / path.name
+        copy.parent.mkdir(exist_ok=True)
+        os.replace(temporary, copy)
+        os.chmod(copy, 0o444)
+        return digest.hexdigest(), copy
+    finally:
+        if os.path.exists(temporary):
+            os.unlink(temporary)
