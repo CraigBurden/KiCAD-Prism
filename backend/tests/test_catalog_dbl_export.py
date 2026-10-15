@@ -4,9 +4,11 @@ atomic rebuild, stable keys and the exported library tables."""
 from __future__ import annotations
 
 import hashlib
+import os
 from pathlib import Path
 import sys
 import tempfile
+import time
 from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
@@ -258,6 +260,27 @@ class DblModelExportTests(unittest.TestCase):
         fp_lib_table = (self.export_root / "fp-lib-table").read_text()
         self.assertIn('(name "Prism_Test")', fp_lib_table)
         self.assertNotIn("Prism_Alternate", fp_lib_table)
+
+    def test_old_leftovers_of_an_interrupted_export_are_swept_and_recent_ones_kept(self) -> None:
+        step = b"ISO-10303-21;rev1;END-ISO-10303-21;"
+        assets, component = self._revision("r1", step, "3dmodel/Prism_Test/R_Test.step")
+        self.root.mkdir(exist_ok=True)
+        stale_build = self.root / ".export.build-stale"
+        stale_old = self.root / ".export.old-stale"
+        recent_build = self.root / ".export.build-recent"
+        unrelated = self.root / ".other.build-stale"
+        for path in (stale_build, stale_old, recent_build, unrelated):
+            (path / "SchLib").mkdir(parents=True)
+        two_hours_ago = time.time() - 7200
+        for path in (stale_build, stale_old, unrelated):
+            os.utime(path, (two_hours_ago, two_hours_ago))
+
+        self._export({"r1": assets}, [], component)
+
+        self.assertEqual(
+            sorted(path.name for path in self.root.iterdir()),
+            [".export.build-recent", ".other.build-stale", "export", "store"],
+        )
 
 
 class DblPartNumberTests(unittest.TestCase):

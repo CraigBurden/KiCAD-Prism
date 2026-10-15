@@ -14,6 +14,7 @@ from pathlib import Path
 import re
 import shutil
 import sqlite3
+import time
 from typing import Any
 import uuid
 
@@ -45,6 +46,9 @@ DBL_WINDOWS_FILENAME = "Prism_Windows.kicad_dbl"
 DBL_LINUX_CONNECTION = "Driver={SQLite3};Database=${CWD}/Prism.sqlite;"
 DBL_WINDOWS_CONNECTION = "Driver={SQLite3 ODBC Driver};Database=${CWD}/Prism.sqlite;"
 DBL_MODEL_DIR = "3DModels"
+# Exports are not serialized, so a build or retired directory is only swept
+# once it is old enough that no running export can still own it.
+DBL_LEFTOVER_MAX_AGE_SECONDS = 3600
 
 
 def quote_identifier(identifier: str) -> str:
@@ -312,6 +316,7 @@ class CatalogDblExport:
         """
         export_root = runtime.export_root
         export_root.parent.mkdir(parents=True, exist_ok=True)
+        sweep_leftovers(export_root)
         build_root = _sibling(export_root, "build")
         build_root.mkdir()
         try:
@@ -461,6 +466,26 @@ def _sibling(export_root: Path, role: str) -> Path:
     return export_root.parent / f".{export_root.name}.{role}-{uuid.uuid4().hex}"
 
 
+def sweep_leftovers(export_root: Path, *, max_age_seconds: float = DBL_LEFTOVER_MAX_AGE_SECONDS) -> list[Path]:
+    """Remove build and retired siblings an interrupted export left behind.
+
+    Only directories last modified more than ``max_age_seconds`` ago are
+    removed: a concurrent export may still own a newer one.
+    """
+    cutoff = time.time() - max_age_seconds
+    removed: list[Path] = []
+    for role in ("build", "old"):
+        for path in sorted(export_root.parent.glob(f".{export_root.name}.{role}-*")):
+            try:
+                stale = path.is_dir() and not path.is_symlink() and path.stat().st_mtime < cutoff
+            except OSError:
+                continue
+            if stale:
+                shutil.rmtree(path, ignore_errors=True)
+                removed.append(path)
+    return removed
+
+
 def _swap_in(build_root: Path, export_root: Path) -> None:
     """Replace ``export_root`` with ``build_root``; the old bundle is restored if the swap fails."""
     if not export_root.exists():
@@ -479,6 +504,7 @@ def _swap_in(build_root: Path, export_root: Path) -> None:
 __all__ = [
     "DBL_COMMON_COLUMNS",
     "DBL_KEY_COLUMN",
+    "DBL_LEFTOVER_MAX_AGE_SECONDS",
     "DBL_LINUX_FILENAME",
     "DBL_MODEL_DIR",
     "DBL_WINDOWS_FILENAME",
@@ -489,6 +515,7 @@ __all__ = [
     "dbl_part_numbers",
     "dbl_row_for_component",
     "dbl_symbol_library_name",
+    "sweep_leftovers",
     "part_number_nocolon",
     "quote_identifier",
     "sexpr_string",

@@ -191,7 +191,8 @@ Replace the export directory as a unit.
 Each export is built in a hidden sibling directory and renamed into place, so a
 failed export leaves the previous bundle untouched. The export directory's parent
 must therefore be writable, and the export directory itself must not be a mount
-point. `sym-lib-table` and `fp-lib-table` list only the libraries in the bundle.
+point. An export removes build directories an interrupted export left behind once
+they are an hour old. `sym-lib-table` and `fp-lib-table` list only the libraries in the bundle.
 
 The DBL key (`Part Number Nocolon`) is the manufacturer part number, or the value
 when there is none, with colons and whitespace replaced by `_`. When several
