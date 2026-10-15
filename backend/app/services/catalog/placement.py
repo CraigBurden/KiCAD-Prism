@@ -84,7 +84,7 @@ class CatalogPlacement:
         representation, assets = self.placement_assets(conn, component["revision_id"], representation_id)
         manifest_assets = []
         for raw_asset in assets:
-            asset = materialize_asset(raw_asset, assets, component)
+            asset = materialize_asset(raw_asset, assets, component, stamp=True)
             manifest_assets.append(
                 {
                     "asset_type": asset["asset_type"],
@@ -124,7 +124,7 @@ class CatalogPlacement:
         representation, assets = self.placement_assets(conn, component["revision_id"], representation_id)
         bundle_entries = []
         for raw_asset in assets:
-            asset = materialize_asset(raw_asset, assets, component)
+            asset = materialize_asset(raw_asset, assets, component, stamp=True)
             bundle_entries.append(
                 {
                     "type": asset["asset_type"],
@@ -189,7 +189,7 @@ class CatalogPlacement:
                 component_row = self._revision_kernel.component_row(conn, str(revision["component_id"]))
                 if component_row:
                     component = self._read_models.component_payload(conn, component_row, revision)
-        return materialize_asset(asset, assets_for_revision, component)
+        return materialize_asset(asset, assets_for_revision, component, stamp=True)
 
 
 __all__ = ["NOT_PLACEABLE_MESSAGE", "CatalogPlacement"]

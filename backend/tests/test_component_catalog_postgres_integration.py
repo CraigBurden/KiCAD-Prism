@@ -1083,6 +1083,9 @@ class ComponentCatalogPostgresIntegrationTests(unittest.TestCase):
             [entry["type"] for entry in inline_entries],
             ["symbol", "footprint", "3dmodel", "spice"],
         )
+        inline_symbol = base64.b64decode(inline_entries[0]["content"]).decode("utf-8")
+        self.assertIn(f'(property "Prism_Component" "{component["id"]}"', inline_symbol)
+        self.assertIn(f'(property "Prism_Revision" "{released["released_revision_id"]}"', inline_symbol)
         for entry in inline_entries:
             self.assertEqual(
                 hashlib.sha256(base64.b64decode(entry["content"])).hexdigest(),
