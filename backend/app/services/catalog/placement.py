@@ -14,6 +14,7 @@ import base64
 import json
 from typing import Any
 
+from app.core.config import settings
 from app.services.catalog.asset_types import AUXILIARY_ASSET_TYPES
 from app.services.catalog.component_read_models import CatalogComponentReadModels
 from app.services.catalog.placement_payloads import materialize_asset
@@ -75,7 +76,9 @@ class CatalogPlacement:
     ) -> list[tuple[dict[str, Any], dict[str, Any]]]:
         """Materialize assets in order, leaving out models the footprint embeds."""
         materialized = {
-            str(asset["id"]): materialize_asset(asset, assets, component, embed_models=True)
+            str(asset["id"]): materialize_asset(
+                asset, assets, component, embed_models=settings.REMOTE_PROVIDER_EMBED_3D_MODELS
+            )
             for asset in assets
             if asset["asset_type"] != "3dmodel"
         }
@@ -205,7 +208,9 @@ class CatalogPlacement:
                 component_row = self._revision_kernel.component_row(conn, str(revision["component_id"]))
                 if component_row:
                     component = self._read_models.component_payload(conn, component_row, revision)
-        return materialize_asset(asset, assets_for_revision, component, embed_models=True)
+        return materialize_asset(
+            asset, assets_for_revision, component, embed_models=settings.REMOTE_PROVIDER_EMBED_3D_MODELS
+        )
 
 
 __all__ = ["NOT_PLACEABLE_MESSAGE", "CatalogPlacement"]

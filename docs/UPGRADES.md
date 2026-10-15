@@ -342,6 +342,20 @@ git mv .prism/release-studio/configurations/release.yaml \
 Or open it in Settings for the subproject and save it again. A project at the
 repository root is unaffected.
 
+## Placed footprints embed their 3D models
+
+KiCad placements now carry 3D models inside the footprint as KiCad embedded
+files (see [3D models](REMOTE_SYMBOL_PROVIDER.md#3d-models)). After upgrading:
+
+- Each placed part can add up to 4 MiB to the board file, since the board
+  stores the embedded model data.
+- The placed footprint's bytes change, so its `sha256` in the part manifest
+  changes once for every component with a 3D model.
+- Embedded models leave the manifest and inline bundle as separate `3dmodel`
+  entries; models that are not embedded are still listed.
+
+Set `REMOTE_PROVIDER_EMBED_3D_MODELS=false` to keep the previous behaviour.
+
 ## Why the catalog gate is gone
 
 Until [`catalog_schema_migrations.py`](../backend/app/services/catalog_schema_migrations.py)

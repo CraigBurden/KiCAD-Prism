@@ -22,6 +22,7 @@ import zstandard
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
+from app.services.catalog import placement_payloads  # noqa: E402
 from app.services.catalog.asset_imports import CatalogAssetImports  # noqa: E402
 from app.services.catalog.asset_registry import CatalogAssetRegistry  # noqa: E402
 from app.services.catalog.postgres_runtime import CatalogPostgresConnection, PostgresCatalogRuntime  # noqa: E402
@@ -1353,6 +1354,28 @@ class ComponentCatalogPostgresIntegrationTests(unittest.TestCase):
         self.assertEqual(
             sorted(a["asset_type"] for a in fallback["assets"]), ["3dmodel", "footprint", "symbol"]
         )
+
+        # With embedding turned off the placement ships every model, as before.
+        with patch("app.core.config.settings.REMOTE_PROVIDER_EMBED_3D_MODELS", False):
+            off = self.service.build_manifest(component["id"], "https://prism.example")
+            off_footprint = self.service.get_asset_by_id(footprint_id, revision_id=revision_ids[1])
+        assert off is not None and off_footprint is not None
+        self.assertEqual(sorted(a["asset_type"] for a in off["assets"]), ["3dmodel", "footprint", "symbol"])
+        self.assertNotIn(b"kicad-embed://", off_footprint["payload"])
+        self.assertIn(b"/remote_3d/R_Embed.step", off_footprint["payload"])
+
+        # A model whose stored file is gone leaves the footprint placeable with
+        # the external path; the model's own download reports the loss.
+        model_url = next(a["download_url"] for a in off["assets"] if a["asset_type"] == "3dmodel")
+        model_id = urlsplit(model_url).path.rsplit("/", 1)[-1]
+        model_asset = self.service.get_asset_by_id(model_id, revision_id=revision_ids[1])
+        assert model_asset is not None
+        Path(str(model_asset["canonical_path"])).unlink()
+        placement_payloads.clear_embedded_footprint_cache()
+        with self.assertLogs("app.services.catalog.placement_payloads", "WARNING"):
+            purged_footprint = self.service.get_asset_by_id(footprint_id, revision_id=revision_ids[1])
+        assert purged_footprint is not None
+        self.assertNotIn(b"kicad-embed://", purged_footprint["payload"])
 
     def test_non_default_representation_drives_manifest_and_inline_pair(self) -> None:
         component = self._component("representations-" + uuid.uuid4().hex[:8])
