@@ -5,6 +5,10 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 import unittest
+from unittest.mock import MagicMock, patch
+
+from fastapi import FastAPI
+from fastapi.testclient import TestClient
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
@@ -75,6 +79,33 @@ class CatalogConflictHttpTests(unittest.TestCase):
         raised = _raised_through_route(asset_referenced_conflict("still attached"))
         self.assertEqual(raised.status_code, 409)
         self.assertEqual(raised.body(), {"detail": "still attached", "code": ASSET_REFERENCED_CODE})  # D14: flat
+
+
+class ProjectImportAcceptRouteTests(unittest.TestCase):
+    def test_a_purged_model_answers_409_asset_bytes_missing(self) -> None:
+        from app.api import catalog_admin
+        from app.core import errors
+        from app.core.security import AuthenticatedUser
+
+        app = FastAPI()
+        errors.install_error_handlers(app)
+        app.include_router(catalog_admin.router)
+        user = AuthenticatedUser(email="designer@example.com", name="Designer", role="designer")
+        app.dependency_overrides[catalog_admin.require_catalog_writer] = lambda: user
+        service = MagicMock()
+        service.get_project_import_proposal.return_value = {"session_id": "session-1"}
+        service.get_project_import_session.return_value = {"created_by": user.email}
+        service.accept_project_import_proposal.side_effect = CatalogConflict(
+            "The 3D model file is missing from the catalog store; upload it again", code="asset_bytes_missing"
+        )
+
+        with patch.object(catalog_admin, "catalog_service", service):
+            response = TestClient(app, raise_server_exceptions=False).post(
+                "/api/catalog/import-proposals/proposal-1/accept", json={}
+            )
+
+        self.assertEqual(response.status_code, 409, response.text)
+        self.assertEqual(response.json()["code"], "asset_bytes_missing")
 
 
 if __name__ == "__main__":

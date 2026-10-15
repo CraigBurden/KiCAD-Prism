@@ -459,12 +459,6 @@ class ComponentCatalogDomainService:
             conn.commit()
         return self.get_project_import_proposal(proposal_id) or {}
 
-    def purge_superseded_step_files(self) -> dict[str, Any]:
-        """Purge obsolete STEP bytes while preserving immutable revision evidence."""
-        self.initialize()
-        with self._connect() as conn:
-            return self._asset_files.purge_superseded_step_files(conn, self._runtime_for_compat())
-
     def cleanup_resolved_import_staging(self, *, older_than: str) -> dict[str, Any]:
         """Remove regenerable staged copies after every proposal is resolved."""
         self.initialize()
