@@ -1173,7 +1173,7 @@ class ComponentCatalogPostgresIntegrationTests(unittest.TestCase):
                 "PcbLib/Prism_Test.pretty/R_Test.kicad_mod": "8d4ef2234c867094a30e793fdbff4975a78a98742ac72825b5fef2c2c5355461",
                 "Prism_Linux.kicad_dbl": "86cacbfb2c4f192082191bf6cfd4a386cb89672ffb4747ebea6cd538c379064d",
                 "Prism_Windows.kicad_dbl": "5f8b5b8128abd1fd8021eac341c104b152f407a179a5df6c2e6c6c8efd20ad14",
-                "SchLib/Prism_PG-R-assets-<token>_Prism_Test_R_Test.kicad_sym": "f005b31dc8b9553ea528ad253896bab79c9c69ea1e1dac0a683bbcc4dc8d9fbe",
+                "SchLib/Prism_PG-R-assets-<token>_Prism_Test_R_Test.kicad_sym": "744cb38e7b6297ef1bfa6e2e3f9825998c9be6f8339d0e5363da34b6f6a07c44",
                 "fp-lib-table": "149d573ae28f732acb912b6707b02f0851c7c250d3f698b6e7a92269e2cc3c86",
                 "sym-lib-table": "a97a151e180b2945dbd6a81a3cbc00d4a7edcb17488f371d5fe24f43a1805fbf",
             },
@@ -1242,6 +1242,15 @@ class ComponentCatalogPostgresIntegrationTests(unittest.TestCase):
                 dbl_conn.execute('SELECT COUNT(*) FROM "Uncategorized"').fetchone(),
                 (1,),
             )
+        # The exported symbol must name the footprint the bundle registers.
+        exported_symbol = next(
+            payload.decode("utf-8")
+            for name, payload in first_files.items()
+            if name.startswith("SchLib/")
+        )
+        self.assertIn('(property "Footprint" "Prism_Test:R_Test"', exported_symbol)
+        self.assertEqual(dbl_row[-1], "Prism_Test:R_Test")
+        self.assertIn("PcbLib/Prism_Test.pretty/R_Test.kicad_mod", first_files)
         second_dbl = self.service.export_kicad_dbl_bundle()
         second_root = Path(second_dbl["export_root"])
         second_files = {

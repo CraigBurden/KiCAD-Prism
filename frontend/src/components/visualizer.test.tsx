@@ -70,6 +70,33 @@ describe("Visualizer through the ecad-viewer adapter", () => {
         expect(screen.queryByTestId("webgpu-3d-tab")).toBeNull();
     });
 
+    it("hands the schematic its project, page layout and subsheets with the root, in one load", async () => {
+        // Support files arriving after the sheet would reload the whole design.
+        const project = { filename: "board.kicad_pro", content: "{}" };
+        const layout = { filename: "frame.kicad_wks", content: "(kicad_wks)" };
+        const sub = { filename: "Subsheets/power.kicad_sch", content: "(kicad_sch power)" };
+        vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+            const url = String(input);
+            const path = new URL(url, "http://prism.test").pathname;
+            if (path.endsWith("/viewer/support-files")) return json({ files: [project, layout] });
+            if (path.endsWith("/schematic/subsheets")) {
+                return json({ files: [{ name: sub.filename, url: "/files/Subsheets/power.kicad_sch" }] });
+            }
+            if (path.endsWith("/files/Subsheets/power.kicad_sch")) return new Response(sub.content);
+            return serve(url);
+        }));
+        renderVisualizer();
+        await waitFor(() => expect(viewers()).toHaveLength(1));
+        const [sch] = viewers();
+        await waitFor(() => expect(sch.replaceSources).toHaveBeenCalled());
+        expect(sch.replaceSources).toHaveBeenCalledTimes(1);
+        expect(sch.replaceSources).toHaveBeenCalledWith({
+            revisionKey: "schematic:p1:latest",
+            sources: [{ filename: "root.kicad_sch", content: "(kicad_sch root)" }, project, layout, sub],
+        });
+        expect(sch.appendSources).not.toHaveBeenCalled();
+    });
+
     it("mounts the board when schematic insets turn on", async () => {
         renderVisualizer();
         await waitFor(() => expect(viewers()).toHaveLength(1));

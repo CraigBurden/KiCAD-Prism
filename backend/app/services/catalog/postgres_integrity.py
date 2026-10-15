@@ -10,7 +10,7 @@ from app.services.catalog.postgres_runtime import PostgresCatalogRuntime
 logger = logging.getLogger(__name__)
 
 POSTGRES_SEARCH_VERSION = "catalog-search-v3"
-POSTGRES_INTEGRITY_GUARDS_VERSION = "catalog-integrity-guards-v5"
+POSTGRES_INTEGRITY_GUARDS_VERSION = "catalog-integrity-guards-v6"
 
 
 def ensure_postgres_search_indexes(runtime: PostgresCatalogRuntime) -> None:
@@ -135,6 +135,7 @@ def ensure_postgres_integrity_guards(runtime: PostgresCatalogRuntime) -> None:
             "catalog_audit_events": "UPDATE OR DELETE",
             "component_review_decisions": "UPDATE OR DELETE",
             "component_release_records": "UPDATE OR DELETE",
+            "catalog_asset_file_purges": "UPDATE OR DELETE",
             "components": "DELETE",
             "component_revisions": "DELETE",
             "asset_previews": "UPDATE OR DELETE",

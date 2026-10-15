@@ -262,6 +262,31 @@ def _revision_assets_asset_index(conn: Any) -> None:
     )
 
 
+def _asset_file_purges(conn: Any) -> None:
+    """Append-only ledger of asset files that artifact maintenance deleted on purpose.
+
+    The asset row and its hash stay; this row is what lets audit verification
+    and asset reads tell an intended purge from a lost file. The integrity
+    guards reject UPDATE and DELETE on it.
+    """
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS catalog_asset_file_purges (
+            id             TEXT PRIMARY KEY,
+            asset_id       TEXT NOT NULL REFERENCES assets(id) ON DELETE CASCADE,
+            sha256         TEXT NOT NULL,
+            canonical_path TEXT NOT NULL,
+            reason         TEXT NOT NULL,
+            job_id         TEXT NOT NULL DEFAULT '',
+            purged_at      TEXT NOT NULL
+        )
+        """
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS catalog_asset_file_purges_asset_idx ON catalog_asset_file_purges (asset_id)"
+    )
+
+
 MIGRATIONS: tuple[tuple[int, str, Migration], ...] = (
     (0, "baseline", _baseline),
     (1, "portable_column_types", _portable_column_types),
@@ -272,6 +297,7 @@ MIGRATIONS: tuple[tuple[int, str, Migration], ...] = (
     (6, "agent_tokens_registry", _agent_tokens_registry),
     (7, "module_connectors", _module_connectors),
     (8, "revision_assets_asset_index", _revision_assets_asset_index),
+    (9, "asset_file_purges", _asset_file_purges),
 )
 
 # Migrations that a long-lived branch database recorded under an earlier number.
