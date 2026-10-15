@@ -131,18 +131,25 @@ def preview_svg(step: bytes, alignment: Mapping[str, Any], view: str,
 # Storage (catalog migration 5)
 
 
-def step_assets(conn: Any, component_id: str) -> list[dict[str, Any]]:
-    """The current revision's ``3dmodel`` assets that are STEP files."""
+def conversion_job_key(component_id: str, revision_id: Optional[str] = None) -> str:
+    """The ``catalog_model_glb`` job key: per component (its current revision) or pinned revision, and per
+    converter, so a new Geometer converts again rather than reusing the old converter's completed job."""
+    return f"catalog_model_glb:{component_id}" + (f"@{revision_id}" if revision_id else "") + f":{converter_id()}"
+
+
+def step_assets(conn: Any, component_id: str, revision_id: Optional[str] = None) -> list[dict[str, Any]]:
+    """A revision's ``3dmodel`` assets that are STEP files: ``revision_id`` of this component, else the current one."""
     rows = conn.execute(
         """
         SELECT a.id, a.name, a.canonical_path, a.sha256
-        FROM components c
-        JOIN revision_assets ra ON ra.revision_id = c.current_revision_id AND ra.asset_type = '3dmodel'
+        FROM component_revisions cr
+        JOIN components c ON c.id = cr.component_id
+        JOIN revision_assets ra ON ra.revision_id = cr.id AND ra.asset_type = '3dmodel'
         JOIN assets a ON a.id = ra.asset_id
-        WHERE c.id = %s
+        WHERE c.id = %s AND cr.id = COALESCE(%s, c.current_revision_id)
         ORDER BY a.name, a.id
         """,
-        (component_id,),
+        (component_id, revision_id),
     ).fetchall()
     return [dict(r) for r in rows if str(r["canonical_path"]).lower().endswith(STEP_SUFFIXES)]
 
