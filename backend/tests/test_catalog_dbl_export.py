@@ -4,11 +4,9 @@ atomic rebuild, stable keys and the exported library tables."""
 from __future__ import annotations
 
 import hashlib
-import os
 from pathlib import Path
 import sys
 import tempfile
-import time
 from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
@@ -43,14 +41,21 @@ class _Result:
     def fetchall(self) -> list[dict]:
         return self._rows
 
+    def fetchone(self) -> dict | None:
+        return self._rows[0] if self._rows else None
+
 
 class _Conn:
-    """Answers the released-revision model query from a fixed row list."""
+    """Answers the released-revision model query from a fixed row list and records advisory locks."""
 
     def __init__(self, released_rows: list[dict]) -> None:
         self.released_rows = released_rows
+        self.locks: list[str] = []
 
     def execute(self, sql: str, params: tuple = ()) -> _Result:
+        if "pg_advisory_xact_lock" in sql:
+            self.locks.append(params[0])
+            return _Result([{}])
         assert "component_release_records" in sql
         return _Result(self.released_rows)
 
@@ -112,7 +117,8 @@ class DblModelExportTests(unittest.TestCase):
     def _export(self, assets_by_revision: dict, released_rows: list[dict], component: dict | None) -> dict:
         exporter = CatalogDblExport(_Placement(assets_by_revision))
         runtime = SimpleNamespace(export_root=self.export_root)
-        return exporter.export_bundle(_Conn(released_rows), runtime, [component] if component else [], [])
+        self.conn = _Conn(released_rows)
+        return exporter.export_bundle(self.conn, runtime, [component] if component else [], [])
 
     def _revision(self, revision_id: str, step: bytes, step_relative: str) -> tuple[list[dict], dict]:
         symbol = self._asset(f"{revision_id}-sym", "symbol", "symbol/Prism_Test/R_Test.kicad_sym", SYMBOL.encode())
@@ -261,25 +267,19 @@ class DblModelExportTests(unittest.TestCase):
         self.assertIn('(name "Prism_Test")', fp_lib_table)
         self.assertNotIn("Prism_Alternate", fp_lib_table)
 
-    def test_old_leftovers_of_an_interrupted_export_are_swept_and_recent_ones_kept(self) -> None:
+    def test_exports_are_serialized_and_sweep_every_leftover_of_an_interrupted_export(self) -> None:
         step = b"ISO-10303-21;rev1;END-ISO-10303-21;"
         assets, component = self._revision("r1", step, "3dmodel/Prism_Test/R_Test.step")
-        self.root.mkdir(exist_ok=True)
-        stale_build = self.root / ".export.build-stale"
-        stale_old = self.root / ".export.old-stale"
-        recent_build = self.root / ".export.build-recent"
-        unrelated = self.root / ".other.build-stale"
-        for path in (stale_build, stale_old, recent_build, unrelated):
+        leftovers = [self.root / ".export.build-crashed", self.root / ".export.old-crashed"]
+        unrelated = self.root / ".other.build-crashed"
+        for path in (*leftovers, unrelated):
             (path / "SchLib").mkdir(parents=True)
-        two_hours_ago = time.time() - 7200
-        for path in (stale_build, stale_old, unrelated):
-            os.utime(path, (two_hours_ago, two_hours_ago))
 
         self._export({"r1": assets}, [], component)
 
+        self.assertEqual(self.conn.locks, [f"prism-catalog-dbl-export:{self.export_root}"])
         self.assertEqual(
-            sorted(path.name for path in self.root.iterdir()),
-            [".export.build-recent", ".other.build-stale", "export", "store"],
+            sorted(path.name for path in self.root.iterdir()), [".other.build-crashed", "export", "store"]
         )
 
 
