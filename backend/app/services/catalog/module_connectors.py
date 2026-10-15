@@ -145,6 +145,14 @@ def list_connectors(conn: Any, component_id: str, revision_id: Optional[str] = N
     return {"units": out, "orphans": sorted(rows), "complete": bool(out) and not unplaced(out)}
 
 
+def placed_part_revisions(conn: Any) -> list[str]:
+    """Every part revision a connector placement records: artifact maintenance keeps their STEP files."""
+    rows = conn.execute(
+        "SELECT DISTINCT part_revision_id FROM catalog_module_connectors WHERE part_revision_id IS NOT NULL"
+    ).fetchall()
+    return [str(row["part_revision_id"]) for row in rows]
+
+
 def unplaced(units: list[dict[str, Any]]) -> list[str]:
     """Units without a usable connector: none placed, a part without a footprint, or pads it lacks."""
     return [u["key"] for u in units
@@ -207,5 +215,5 @@ def assert_placed(conn: Any, component_id: str) -> None:
         raise ValueError(f"Cannot release a module revision until every connector is placed: {', '.join(missing)}")
 
 
-__all__ = ["assert_placed", "list_connectors", "part_geometry", "part_model", "remove_connector", "require_module",
-           "set_connector", "unplaced"]
+__all__ = ["assert_placed", "list_connectors", "part_geometry", "part_model", "placed_part_revisions",
+           "remove_connector", "require_module", "set_connector", "unplaced"]

@@ -19,6 +19,7 @@ from app.services.job_runtime import (
     PermanentJobError,
     RetryableJobError,
 )
+from app.services.catalog import module_connectors
 from app.services.catalog.conflicts import CatalogConflict
 from app.services.project_component_import_service import run_project_import_session
 from app.services.library_folder_import_service import run_folder_import_session
@@ -167,11 +168,16 @@ def run_folder_import(context: JobContext) -> dict[str, Any]:
 
 
 def purge_superseded_step_files(*, job_id: str = "", pinned_revision_ids: Iterable[str] = ()) -> dict[str, Any]:
-    """Delete abandoned draft STEP files and commit their purge-ledger rows."""
+    """Delete abandoned draft STEP files and commit their purge-ledger rows.
+
+    ``pinned_revision_ids`` (System Builder's pins) gains the part revisions module connector
+    placements record (CONTRACTS_P2 §3.6); the purge keeps every one's files.
+    """
     catalog_service.initialize()
     with catalog_service.connection() as conn:
+        pinned = {*pinned_revision_ids, *module_connectors.placed_part_revisions(conn)}
         result = catalog_service.asset_files.purge_superseded_step_files(
-            conn, catalog_service.runtime, job_id=job_id, pinned_revision_ids=pinned_revision_ids
+            conn, catalog_service.runtime, job_id=job_id, pinned_revision_ids=pinned
         )
         conn.commit()
     return result

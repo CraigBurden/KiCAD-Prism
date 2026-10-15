@@ -220,18 +220,19 @@ class CatalogAssetFiles:
         return CatalogAssetFiles.asset_root(runtime, asset_type) / safe_library / safe_name
 
     @staticmethod
-    def _purge_locked_file(conn: Any, row: Any, path: Path, *, job_id: str) -> bool:
-        """Under the asset's lock: re-check eligibility, commit the ledger row, then unlink."""
+    def _purge_locked_file(conn: Any, row: Any, path: Path, *, job_id: str, pinned: list[str]) -> bool:
+        """Under the asset's lock: re-check eligibility (``pinned`` revisions protect too), commit the
+        ledger row, then unlink."""
         relinked = conn.execute(
             f"""
             SELECT 1
             FROM revision_assets link
             JOIN component_revisions revision ON revision.id = link.revision_id
             JOIN components component ON component.id = revision.component_id
-            WHERE link.asset_id = %s AND ({PROTECTED_REVISION_SQL})
+            WHERE link.asset_id = %s AND (({PROTECTED_REVISION_SQL}) OR revision.id = ANY(%s::text[]))
             LIMIT 1
             """,
-            (row["id"],),
+            (row["id"], pinned),
         ).fetchone()
         if relinked:
             return False
@@ -266,9 +267,8 @@ class CatalogAssetFiles:
         protected. A revision is protected while it is its component's current or
         released revision, or once it has ever been released, so released STEP
         evidence is never deleted. A revision in ``pinned_revision_ids`` (one a
-        System Builder instance or harness end pins, which the catalog cannot see)
-        is protected too, and so is the part revision a module connector placement
-        records (CONTRACTS_P2 §3.6).
+        System Builder instance, harness end or module connector placement pins)
+        is protected too, in the candidate query and in the re-check under the lock.
 
         Each file's ``catalog_asset_file_purges`` row is committed before the
         file is unlinked, one file at a time, so a crash never leaves a deleted
@@ -286,6 +286,7 @@ class CatalogAssetFiles:
         commit until the file is unlinked, so a linker of that asset waits for
         the unlink and then refuses the missing file.
         """
+        pinned = sorted({str(value) for value in pinned_revision_ids})
         rows = conn.execute(
             f"""
             WITH current_models AS (
@@ -310,7 +311,6 @@ class CatalogAssetFiles:
                 JOIN component_revisions revision ON revision.id = link.revision_id
                 JOIN components component ON component.id = revision.component_id
                 WHERE ({PROTECTED_REVISION_SQL}) OR revision.id = ANY(%s::text[])
-                   OR revision.id IN (SELECT part_revision_id FROM catalog_module_connectors)
             )
             SELECT DISTINCT asset.id, asset.canonical_path, asset.sha256
             FROM superseded_models superseded
@@ -322,7 +322,7 @@ class CatalogAssetFiles:
                 OR lower(asset.canonical_path) LIKE %s
               )
             """,
-            (sorted({str(value) for value in pinned_revision_ids}), "%.step", "%.stp"),
+            (pinned, "%.step", "%.stp"),
         ).fetchall()
         # Commit the read, and with it the connection's search_path, before any per-file rollback.
         conn.commit()
@@ -342,7 +342,7 @@ class CatalogAssetFiles:
             if not locked["locked"]:
                 continue
             try:
-                if CatalogAssetFiles._purge_locked_file(conn, row, path, job_id=job_id):
+                if CatalogAssetFiles._purge_locked_file(conn, row, path, job_id=job_id, pinned=pinned):
                     purged.append(str(row["id"]))
             finally:
                 # Ends a skipped re-check or a failed statement; a purged file's row is already committed.
