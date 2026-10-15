@@ -96,6 +96,19 @@ the component detail, part manifest, inline bundle, and signed asset download
 flows. Unknown and incomplete IDs are rejected rather than silently falling
 back.
 
+## Placed symbol provenance
+
+Placed symbols carry two hidden properties after the catalog metadata
+fields: `Prism_Component` (the catalog component id) and `Prism_Revision`
+(the released revision id that was served), both as lowercase UUID text.
+KiCad copies them onto the placed instance, so a committed schematic records
+which catalog revision each part came from. Both names are reserved, matched
+the way custom field keys are (`prism-revision` and `Prism Revision` count,
+`prismrevision` does not): a custom metadata field cannot use them, placement
+replaces any stamp already in the stored symbol, and a project import treats
+them as per-placement context rather than part metadata. The DBL export does
+not add these properties.
+
 ## Search and recovery
 
 The finder pages through the catalog rather than truncating it to the first

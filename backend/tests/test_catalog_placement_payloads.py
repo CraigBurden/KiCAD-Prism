@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 import sys
+import tempfile
 import unittest
 from unittest.mock import patch
 
@@ -12,11 +13,14 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from app.core.config import settings  # noqa: E402
 from app.services.catalog.asset_files import CatalogAssetFiles  # noqa: E402
 from app.services.catalog.dbl_export import (  # noqa: E402
+    CatalogDblExport,
+    dbl_footprint_ref,
     dbl_symbol_library_name,
     part_number_nocolon,
     quote_identifier,
     sexpr_string,
 )
+from app.services.catalog.metadata_normalization import is_reserved_stamp_key  # noqa: E402
 from app.services.catalog.placement_payloads import (  # noqa: E402
     remote_library_nickname,
     rewrite_footprint_payload,
@@ -72,6 +76,91 @@ class SymbolRewriteTests(unittest.TestCase):
             rewrite_symbol_payload(SYMBOL.encode("utf-8"), "remote_prism_fp:R_0402", component),
             rewritten.encode("utf-8"),
         )
+
+    def test_placement_stamp_is_hidden_last_and_idempotent(self) -> None:
+        component = {
+            "id": "0F1E2D3C-0000-4000-8000-000000000001",
+            "revision_id": "0f1e2d3c-0000-4000-8000-0000000000a1",
+            "value": "10k",
+            "extra_fields": {"Tolerance": "1%", "Prism_Revision": "spoof", "prism_component": "spoof"},
+        }
+        stamped = rewrite_symbol_payload(SYMBOL.encode("utf-8"), "lib:FP", component, stamp=True)
+        text = stamped.decode("utf-8")
+        names = [line.split('"')[1] for line in text.splitlines() if line.strip().startswith("(property ")]
+        self.assertEqual(names[-3:], ["Tolerance", "Prism_Component", "Prism_Revision"])
+        self.assertEqual(sum(name.lower().startswith("prism_") for name in names), 2)
+        self.assertIn(
+            '(property "Prism_Component" "0f1e2d3c-0000-4000-8000-000000000001" (at 0 0 0)\n'
+            "      (effects (font (size 1.27 1.27)) hide)\n",
+            text,
+        )
+        self.assertIn(
+            '(property "Prism_Revision" "0f1e2d3c-0000-4000-8000-0000000000a1" (at 0 0 0)\n'
+            "      (effects (font (size 1.27 1.27)) hide)\n",
+            text,
+        )
+        self.assertNotIn("spoof", text)
+        # Same inputs give the same bytes, and re-placing the stamped output
+        # (or a stored symbol that already carries a stamp) does not duplicate it.
+        self.assertEqual(rewrite_symbol_payload(SYMBOL.encode("utf-8"), "lib:FP", component, stamp=True), stamped)
+        self.assertEqual(rewrite_symbol_payload(stamped, "lib:FP", component, stamp=True), stamped)
+
+        next_revision = {**component, "revision_id": "0f1e2d3c-0000-4000-8000-0000000000a2"}
+        restamped = rewrite_symbol_payload(stamped, "lib:FP", next_revision, stamp=True).decode("utf-8")
+        self.assertIn('(property "Prism_Revision" "0f1e2d3c-0000-4000-8000-0000000000a2"', restamped)
+        self.assertNotIn("0000000000a1", restamped)
+        self.assertEqual(restamped.count('(property "Prism_Revision"'), 1)
+
+    def test_stamp_is_opt_in_and_needs_both_catalog_ids(self) -> None:
+        component = {"id": "c1", "revision_id": "r1", "value": "10k"}
+        unstamped = rewrite_symbol_payload(SYMBOL.encode("utf-8"), "lib:FP", component).decode("utf-8")
+        self.assertNotIn("Prism_", unstamped)
+        no_revision = rewrite_symbol_payload(SYMBOL.encode("utf-8"), "lib:FP", {"id": "c1"}, stamp=True)
+        self.assertNotIn(b"Prism_", no_revision)
+
+    def test_reserved_stamp_keys_follow_custom_field_canonicalization(self) -> None:
+        for name in ("Prism_Component", "prism_revision", "prism-revision", " Prism Revision "):
+            self.assertTrue(is_reserved_stamp_key(name), name)
+        for name in ("prismrevision", "prism__revision", "Prism_Revision_Note", ""):
+            self.assertFalse(is_reserved_stamp_key(name), name)
+
+    def test_only_the_two_stamp_names_are_reserved(self) -> None:
+        component = {
+            "id": "c1",
+            "revision_id": "r1",
+            "value": "10k",
+            "extra_fields": {"prism_internal_sku": "SKU-7", "Prism_Revision": "custom"},
+        }
+        stored = SYMBOL.replace(
+            '    (symbol "R_Test_0_1"',
+            '    (property "prism_component" "stale" (at 0 0 0)\n'
+            "      (effects (font (size 1.27 1.27)) hide)\n"
+            "    )\n"
+            '    (symbol "R_Test_0_1"',
+        ).encode("utf-8")
+
+        def names(payload: bytes) -> list[str]:
+            return [
+                line.split('"')[1]
+                for line in payload.decode("utf-8").splitlines()
+                if line.strip().startswith("(property ")
+            ]
+
+        # Without the stamp (the DBL export) the output is what it was before
+        # the stamp existed: nothing reserved is dropped or added.
+        unstamped = rewrite_symbol_payload(stored, "lib:FP", component)
+        self.assertEqual(
+            names(unstamped)[:4] + names(unstamped)[-3:],
+            ["Reference", "Value", "Footprint", "prism_component", "SAP Code", "Prism_Revision", "prism_internal_sku"],
+        )
+        self.assertIn(b'(property "Prism_Revision" "custom"', unstamped)
+        self.assertIn(b'(property "prism_component" "stale"', unstamped)
+
+        stamped = rewrite_symbol_payload(stored, "lib:FP", component, stamp=True)
+        self.assertEqual(names(stamped)[-3:], ["prism_internal_sku", "Prism_Component", "Prism_Revision"])
+        self.assertIn(b'(property "prism_internal_sku" "SKU-7"', stamped)
+        self.assertNotIn(b"stale", stamped)
+        self.assertNotIn(b"custom", stamped)
 
     def test_symbol_without_properties_is_returned_unchanged(self) -> None:
         payload = b'(kicad_symbol_lib (version 1) (generator "x")\n  (symbol "Bare"\n  )\n)\n'
@@ -287,3 +376,54 @@ class DblNamingTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class DblSymbolFootprintTests(unittest.TestCase):
+    """The exported symbol's ``Footprint`` always equals the row's ``LibFootprint``."""
+
+    def _export_symbol(self, component: dict) -> str:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            symbol_path = root / "R_Test.kicad_sym"
+            symbol_path.write_text(SYMBOL, encoding="utf-8")
+            footprint_path = root / "R_0402.kicad_mod"
+            footprint_path.write_text('(footprint "R_0402")\n', encoding="utf-8")
+            assets = [
+                {"asset_type": "symbol", "canonical_path": str(symbol_path), "target_library": "Lib", "target_name": "R_Test"},
+                {"asset_type": "footprint", "canonical_path": str(footprint_path), "target_library": "Prism_FP", "target_name": "R_0402"},
+            ]
+
+            class Placement:
+                def placement_assets(self, conn, revision_id):
+                    return None, assets
+
+            export_root = root / "export"
+            CatalogDblExport(Placement()).collect_dbl_assets(None, component, "PN", export_root)
+            return next((export_root / "SchLib").glob("*.kicad_sym")).read_text(encoding="utf-8")
+
+    def test_default_footprint_is_named_in_the_symbol(self) -> None:
+        component = {
+            "revision_id": "r1",
+            "representations": [
+                {
+                    "is_default": True,
+                    "symbol": {"target_library": "Lib", "target_name": "R_Test"},
+                    "footprint": {"target_library": "Prism_FP", "target_name": "R_0402"},
+                }
+            ],
+        }
+        self.assertEqual(dbl_footprint_ref(component), "Prism_FP:R_0402")
+        self.assertIn('(property "Footprint" "Prism_FP:R_0402"', self._export_symbol(component))
+
+    def test_default_without_footprint_never_falls_back_to_the_remote_library(self) -> None:
+        component = {
+            "revision_id": "r1",
+            "representations": [
+                {"is_default": True, "symbol": {"target_library": "Lib", "target_name": "R_Test"}, "footprint": None},
+            ],
+        }
+        self.assertEqual(dbl_footprint_ref(component), "")
+        exported = self._export_symbol(component)
+        self.assertIn('(property "Footprint" ""', exported)
+        self.assertNotIn("remote_", exported)
+        self.assertNotIn("Old:FP", exported)

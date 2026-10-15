@@ -275,6 +275,8 @@ class CatalogRevisionKernel:
                 current["id"],
             ),
         )
+        # Copies the head's links, and the STEP purge never deletes a head's
+        # model, so this needs no asset_files.lock_and_check_asset_bytes.
         conn.execute(
             """
             INSERT INTO revision_assets (revision_id, asset_type, asset_id, required, created_at, updated_at)

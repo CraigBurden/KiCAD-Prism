@@ -342,6 +342,33 @@ git mv .prism/release-studio/configurations/release.yaml \
 Or open it in Settings for the subproject and save it again. A project at the
 repository root is unaffected.
 
+## Placed symbols carry a catalog revision stamp
+
+Remote placement (part manifest, inline bundle, and signed asset download) now
+adds two hidden properties to every symbol it serves: `Prism_Component` and
+`Prism_Revision`, the catalog component and released revision ids (see
+[Remote Symbol Provider](REMOTE_SYMBOL_PROVIDER.md#placed-symbol-provenance)).
+Three things change once:
+
+- **Symbol bytes and manifest hashes.** Every served symbol's bytes, and so its
+  `sha256` in the placement manifest, change on the first request after the
+  upgrade. Output is byte-stable again from then on. The manifest and bundle
+  shapes do not change, so `provider_version` stays; a client that caches by
+  hash downloads each symbol once more.
+- **Reserved field keys.** `prism_component` and `prism_revision` become
+  reserved custom field keys, matched after key canonicalization (`Prism
+  Revision` and `prism-revision` count, `prismrevision` does not). Creating a
+  field with either key is refused. A field created earlier under one of them
+  keeps its catalog values, but placement no longer writes it into symbols:
+  the stamp replaces it. To keep such a value in KiCad, move it to a field with
+  another key. Project imports treat the two properties as per-placement
+  context, not part metadata.
+- **BOM columns.** Parts placed after the upgrade carry the two properties, so
+  a KiCad BOM that exports all symbol fields gains `Prism_Component` and
+  `Prism_Revision` columns. A BOM preset that lists its fields is unaffected.
+
+The DBL export does not stamp symbols; its files are unchanged.
+
 ## Placed footprints embed their 3D models
 
 KiCad placements now carry 3D models inside the footprint as KiCad embedded

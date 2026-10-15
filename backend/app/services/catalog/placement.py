@@ -12,9 +12,11 @@ from __future__ import annotations
 
 import base64
 import json
+from pathlib import Path
 from typing import Any
 
 from app.core.config import settings
+from app.services.catalog.asset_files import raise_if_asset_purged
 from app.services.catalog.asset_types import AUXILIARY_ASSET_TYPES
 from app.services.catalog.component_read_models import CatalogComponentReadModels
 from app.services.catalog.placement_payloads import materialize_asset
@@ -77,7 +79,7 @@ class CatalogPlacement:
         """Materialize assets in order, leaving out models the footprint embeds."""
         materialized = {
             str(asset["id"]): materialize_asset(
-                asset, assets, component, embed_models=settings.REMOTE_PROVIDER_EMBED_3D_MODELS
+                asset, assets, component, stamp=True, embed_models=settings.REMOTE_PROVIDER_EMBED_3D_MODELS
             )
             for asset in assets
             if asset["asset_type"] != "3dmodel"
@@ -86,7 +88,10 @@ class CatalogPlacement:
             model_id for asset in materialized.values() for model_id in asset.get("embedded_model_ids", [])
         }
         return [
-            (raw_asset, materialized.get(str(raw_asset["id"])) or materialize_asset(raw_asset, assets, component))
+            (
+                raw_asset,
+                materialized.get(str(raw_asset["id"])) or materialize_asset(raw_asset, assets, component, stamp=True),
+            )
             for raw_asset in assets
             if str(raw_asset["id"]) not in embedded
         ]
@@ -188,6 +193,8 @@ class CatalogPlacement:
         if not row:
             return None
         asset = dict(row)
+        if not Path(str(asset["canonical_path"])).is_file():
+            raise_if_asset_purged(conn, asset_id)
         effective_revision_id = revision_id
         if not effective_revision_id:
             link = conn.execute(
@@ -209,7 +216,7 @@ class CatalogPlacement:
                 if component_row:
                     component = self._read_models.component_payload(conn, component_row, revision)
         return materialize_asset(
-            asset, assets_for_revision, component, embed_models=settings.REMOTE_PROVIDER_EMBED_3D_MODELS
+            asset, assets_for_revision, component, stamp=True, embed_models=settings.REMOTE_PROVIDER_EMBED_3D_MODELS
         )
 
 

@@ -1,11 +1,12 @@
 """Rewrite stored KiCad files into the payloads desktop KiCad places.
 
-Symbols gain the component's metadata properties and a footprint reference
-that points at the remote library nickname; footprints have their 3D model
-paths redirected to the remote provider destination, or embedded in the
-footprint when a model reader is given. These rewrites are pure and
-byte-stable for identical inputs, which is what keeps manifest hashes and
-inline bundles reproducible.
+Symbols gain the component's metadata properties, a footprint reference
+that points at the remote library nickname and, for remote placement, a
+hidden stamp naming the catalog component and revision; footprints have
+their 3D model paths redirected to the remote provider destination, or
+embedded in the footprint when a model reader is given. These rewrites are
+pure and byte-stable for identical inputs, which is what keeps manifest
+hashes and inline bundles reproducible.
 """
 
 from __future__ import annotations
@@ -31,6 +32,7 @@ from app.services.catalog.metadata_descriptors import (
     SYMBOL_METADATA_FIELD_ORDER,
     SYMBOL_METADATA_LABEL_TO_KEY,
 )
+from app.services.catalog.metadata_normalization import PLACEMENT_STAMP_FIELDS, is_reserved_stamp_key
 from app.services.catalog.normalization import sanitize_name, sha256_bytes
 
 
@@ -45,6 +47,15 @@ logger = logging.getLogger(__name__)
 _EMBEDDED_FOOTPRINT_CACHE_SIZE = 32
 _embedded_footprint_cache: OrderedDict[tuple[Any, ...], tuple[bytes, tuple[int, ...]]] = OrderedDict()
 _embedded_footprint_cache_lock = threading.Lock()
+
+
+def placement_stamp_fields(component: dict[str, Any] | None) -> dict[str, str]:
+    """Return the stamp in field order, or nothing without both catalog ids."""
+    component_id = str((component or {}).get("id") or "").strip().lower()
+    revision_id = str((component or {}).get("revision_id") or "").strip().lower()
+    if not component_id or not revision_id:
+        return {}
+    return dict(zip(PLACEMENT_STAMP_FIELDS, (component_id, revision_id)))
 
 
 def remote_library_nickname(library_name: str) -> str:
@@ -67,13 +78,18 @@ def symbol_property_block(name: str, value: str, *, indent: str = "    ", hidden
     )
 
 
-def symbol_metadata_fields(component: dict[str, Any] | None) -> dict[str, str]:
+def symbol_metadata_fields(component: dict[str, Any] | None, *, stamp: bool = False) -> dict[str, str]:
     if not component:
         return {label: "" for label in SYMBOL_METADATA_FIELD_ORDER}
     fields = {label: str(component.get(key) or "") for label, key in SYMBOL_METADATA_LABEL_TO_KEY.items()}
     for key, value in sorted(dict(component.get("extra_fields") or {}).items()):
         normalized_key = str(key).strip()
-        if normalized_key and normalized_key not in fields and normalized_key not in {"Reference", "Footprint"}:
+        if (
+            normalized_key
+            and normalized_key not in fields
+            and normalized_key not in {"Reference", "Footprint"}
+            and not (stamp and is_reserved_stamp_key(normalized_key))
+        ):
             fields[normalized_key] = str(value or "")
     return fields
 
@@ -121,6 +137,8 @@ def rewrite_symbol_payload(
     payload: bytes,
     footprint_ref: str | None,
     component: dict[str, Any] | None = None,
+    *,
+    stamp: bool = False,
 ) -> bytes:
     text = payload.decode("utf-8")
     first_symbol_index = text.find('(symbol "')
@@ -136,14 +154,16 @@ def rewrite_symbol_payload(
     if not extracted_blocks:
         return payload
 
+    if stamp:
+        extracted_blocks = [(name, block) for name, block in extracted_blocks if not is_reserved_stamp_key(name)]
     existing_blocks = {name: block for name, block in extracted_blocks}
     ordered_names = [name for name, _ in extracted_blocks]
-    metadata_fields = symbol_metadata_fields(component)
+    metadata_fields = symbol_metadata_fields(component, stamp=stamp)
     custom_blocks = {
         label: symbol_property_block(label, value, indent=indent, hidden=label != "Value")
         for label, value in metadata_fields.items()
     }
-    if footprint_ref:
+    if footprint_ref is not None:
         custom_blocks["Footprint"] = symbol_property_block("Footprint", footprint_ref, indent=indent)
     elif "Footprint" in existing_blocks:
         custom_blocks["Footprint"] = existing_blocks["Footprint"]
@@ -156,6 +176,10 @@ def rewrite_symbol_payload(
             ordered_names.append(property_name)
     if "Footprint" not in ordered_names:
         ordered_names.append("Footprint")
+    if stamp:
+        for property_name, value in placement_stamp_fields(component).items():
+            custom_blocks[property_name] = symbol_property_block(property_name, value, indent=indent)
+            ordered_names.append(property_name)
 
     rebuilt_blocks = [
         custom_blocks.get(property_name, existing_blocks.get(property_name, ""))
@@ -413,13 +437,18 @@ def materialize_asset(
     assets_for_revision: list[dict[str, Any]],
     component: dict[str, Any] | None = None,
     *,
+    footprint_ref: str | None = None,
+    stamp: bool = False,
     embed_models: bool = False,
 ) -> dict[str, Any]:
     """Read one stored asset and return it with its placement payload attached.
 
-    ``embed_models`` embeds the footprint's 3D models (see
-    ``rewrite_footprint_payload``) and lists them in ``embedded_model_ids``;
-    placement sets it, DBL export does not.
+    ``footprint_ref`` overrides the symbol's ``Footprint`` value (``""`` clears
+    it); by default it is the remote provider's ``remote_<library>:<name>``.
+    ``stamp`` adds the catalog revision stamp to symbols, and ``embed_models``
+    embeds the footprint's 3D models (see ``rewrite_footprint_payload``) and
+    lists them in ``embedded_model_ids``. Remote provider placement sets both;
+    the DBL export sets neither, keeping its file contract.
     """
     path = Path(str(asset["canonical_path"]))
     payload = path.read_bytes()
@@ -428,12 +457,11 @@ def materialize_asset(
         footprint_asset = next(
             (candidate for candidate in assets_for_revision if candidate["asset_type"] == "footprint"), None
         )
-        footprint_ref = None
-        if footprint_asset:
+        if footprint_ref is None and footprint_asset:
             footprint_ref = (
                 f"{remote_library_nickname(str(footprint_asset['target_library']))}:{footprint_asset['target_name']}"
             )
-        payload = rewrite_symbol_payload(payload, footprint_ref, component)
+        payload = rewrite_symbol_payload(payload, footprint_ref, component, stamp=stamp)
     elif asset["asset_type"] == "footprint":
         models = [candidate for candidate in assets_for_revision if candidate["asset_type"] == "3dmodel"]
         if embed_models:
@@ -458,6 +486,7 @@ __all__ = [
     "escape_symbol_property_value",
     "extract_top_level_symbol_properties",
     "materialize_asset",
+    "placement_stamp_fields",
     "remote_library_nickname",
     "rewrite_footprint_payload",
     "rewrite_symbol_payload",
