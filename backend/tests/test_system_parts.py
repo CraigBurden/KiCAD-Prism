@@ -169,6 +169,7 @@ class PartTest(PartCase):
         for refused in (LookupError("Component not found"), ValueError("only parts and modules carry models")):
             with self.subTest(refused=type(refused).__name__), mock.patch.object(self.service, "_catalog") as catalog, \
                     mock.patch("app.services.catalog_job_service.catalog_jobs.enqueue") as enqueue, \
+                    mock.patch("app.services.systems.service_base.latest_jobs", return_value={}), \
                     self.assertLogs("app.services.systems.service", level="DEBUG") as logs:
                 catalog.return_value.list_models.side_effect = refused
                 self.service._queue_pinned_conversions([(self.part_id, "rev")], DESIGNER)
