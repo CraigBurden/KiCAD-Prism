@@ -176,10 +176,15 @@ def confined_destination(store_root: Path, canonical_path: str) -> tuple[Path | 
 
     root = store_root.resolve()
     destination = Path(os.path.normpath(asset_path(root, canonical_path)))
-    try:
-        parts = destination.relative_to(root).parts
-    except ValueError:
+    # A symlink above the store (macOS /var -> /private/var) is where the store lives, not an
+    # escape: accept the root as the caller spelled it too, and check from the resolved root.
+    for base in (root, Path(os.path.normpath(store_root.absolute()))):
+        with contextlib.suppress(ValueError):
+            parts = destination.relative_to(base).parts
+            break
+    else:
         return None, "outside the catalog store"
+    destination = root.joinpath(*parts)
     if not parts:
         return None, "outside the catalog store"
     current = root
