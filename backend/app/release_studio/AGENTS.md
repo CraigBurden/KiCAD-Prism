@@ -32,7 +32,7 @@ as a spurious change in a customer's release comparison.**
 | `pipeline.py` | Build waves (`run_build_waves`: checks, positions, BOM, assembly Cruncher, vendors, artwork, in that order) plus the phase skeleton and progress tracking. Phases: closure, checks, assembly, documents, package. |
 | `steps.py` | Individual `kicad-cli` invocations. Each step is its own process. |
 | `jobset.py` | KiCad jobset translation, pinned to the KiCad 10.0.4 executor. |
-| `closure.py` | Resolves every input a build depends on. Outputs are never closure inputs. |
+| `closure.py` · `closure_references.py` · `closure_models.py` | Resolves every input a build depends on. Outputs are never closure inputs. `closure_references.py` finds the path references in design files; `closure_models.py` resolves and hashes 3D models the way KiCad opens them. |
 | `inputs.py` · `source.py` | Input discovery and revision sourcing. |
 | `document_pipeline.py` | Gathers typed `DocumentInputs` and writes composed sheets as a member-producing step. |
 | `documents/` | Document generation — `documents/acquisition.py` acquires views, `documents/engine.py` composes sheets, the rest render. |

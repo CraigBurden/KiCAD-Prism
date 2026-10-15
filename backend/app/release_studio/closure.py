@@ -15,31 +15,23 @@ against small local Git repositories in tests.
 from __future__ import annotations
 
 import hashlib
-import json
 import os
 import re
 import stat
 import subprocess
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any, Iterable, Mapping, Sequence
 
 from app.release_studio.canonical import sha256_canonical
+from app.release_studio.closure_models import is_model_reference, project_text_variables, resolve_model
+from app.release_studio.closure_references import VARIABLE_RE as _VARIABLE_RE, structured_path_references
 from app.services import project_revision
 
 
 _LFS_POINTER_VERSION = "version https://git-lfs.github.com/spec/v1"
 _SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 _RESOURCE_DIGEST_RE = _SHA256_RE
-_VARIABLE_RE = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)\}")
-# Any variable form KiCad expands: `${VAR}`, `$(VAR)`, or a bare `$VAR`.
-_ANY_VARIABLE_RE = re.compile(r"\$(?:\{|\(|[A-Za-z_])")
-# Variables the executor binds at run time rather than the project supplying.
-# `JOBSET_OUTPUT_WORK_PATH` is KiCad's temporary output directory for a
-# `special_execute` job (pinned source `common/jobs/job_special_execute.h:26`);
-# it names an output, never an input, so it cannot resolve into the closure.
-_TOOL_PROVIDED_VARIABLES = frozenset({"JOBSET_OUTPUT_WORK_PATH"})
-
 # `.kicad_jobset` is deliberately absent.  A jobset's variables name *outputs*
 # and a `special_execute` job carries an arbitrary command line whose paths are
 # that command's own concern, not project inputs -- the reference jobset invokes
@@ -69,18 +61,6 @@ _UNRESOLVED_WORDING = {
         "with a same-name STEP model from outside it"
     ),
 }
-
-# Suffixes of 3D models.  A footprint's `(model ...)` node names one of these,
-# and boards routinely carry stale ones whose case or extension no longer
-# matches anything on disk.
-_ADVISORY_SUFFIXES = {
-    ".step", ".stp", ".stpz", ".wrl", ".wrz", ".vrml", ".x3d", ".igs", ".iges",
-    ".wings",
-}
-# A missing `.wrl`/`.wrz` is not an absence every worker shares: kicad-cli
-# swaps in a same-stem STEP model found on its search paths
-# (`3d_cache.cpp`, `MODEL_SUBSTITUTION::IsWrlExtension`, KiCad 10.0.4).
-_SUBSTITUTED_SUFFIXES = {".wrl", ".wrz"}
 
 # `(property "Sheetfile" "Subsheets/Power.kicad_sch")` -- how a hierarchical
 # sheet names the file it instantiates (`sch_io_kicad_sexpr_parser.cpp`).
@@ -203,12 +183,8 @@ class ResolvedLibraryPath:
     ``advisory`` marks a reference worth recording and not worth refusing a
     release for: a 3D model whose path stays inside the closure but names no
     file.  Every worker sees the same absence, so it is still reported, just
-    never as a reason the build is non-hermetic.
-
-    A 3D model outside the closure is different.  The cover render and the
-    assembly views open it with the worker's environment, so its bytes are
-    hashed into ``digest`` (``location="host"``) or, when the build cannot
-    read it, it is ``unreadable`` and the build is non-hermetic.
+    never as a reason the build is non-hermetic.  ``digest`` pins a model
+    outside the closure (``location="host"``); see ``closure_models.py``.
     """
 
     source_path: str
@@ -987,18 +963,6 @@ def _sheet_references(destination: Path, schematic: str) -> list[str]:
     return children
 
 
-def _is_advisory_reference(reference: str) -> bool:
-    """Whether *reference* names a 3D model.
-
-    Judged by suffix, which is what a ``(model ...)`` node carries.  The
-    alternative -- deciding from the s-expression node the path sits in --
-    would need a board parser here for no extra accuracy: nothing else in a
-    board file points at a ``.step`` or a ``.wrl``.
-    """
-
-    return Path(reference.replace("\\", "/")).suffix.casefold() in _ADVISORY_SUFFIXES
-
-
 def _join_relative(base: str, reference: str) -> str | None:
     """Resolve *reference* against *base*, or ``None`` if it leaves the tree.
 
@@ -1042,7 +1006,7 @@ def _resolve_project_paths(
             continue
         if item.path.rsplit("/", 1)[-1].casefold() in {"fp-lib-table", "sym-lib-table"}:
             text = _read_materialized_text(destination, item.path)
-            table_references, variable_references = _structured_path_references(
+            table_references, variable_references = structured_path_references(
                 item.path, text, library_table=True
             )
             for reference in table_references:
@@ -1051,17 +1015,32 @@ def _resolve_project_paths(
                 references.append((item.path, reference, "library_table"))
         elif _is_path_input(item.path):
             text = _read_materialized_text(destination, item.path)
-            _, variable_references = _structured_path_references(item.path, text)
+            _, variable_references = structured_path_references(item.path, text)
             for reference in variable_references:
                 references.append((item.path, reference, "project_path"))
 
     deduped = sorted(set(references), key=lambda item: item)
     resolved: list[ResolvedLibraryPath] = []
+    text_variables: dict[str, dict[str, str]] = {}  # per board, parsed once
     for source, reference, kind in deduped:
-        if _is_advisory_reference(reference):
+        if is_model_reference(reference):
             # The cover render and the assembly views open every model, so a
             # model is resolved the way KiCad resolves it, not as a library path.
-            resolved.append(_resolve_model(resolver, source, reference, model_env))
+            if source not in text_variables:
+                project_file = Path(source).with_suffix(".kicad_pro").as_posix()
+                text_variables[source] = project_text_variables(
+                    _materialized_path(destination, project_file), resolver.destination_root
+                )
+            placement = resolve_model(
+                reference,
+                project_variables=text_variables[source],
+                lookup=resolver.binding,
+                model_env=model_env,
+                destination=destination,
+                destination_root=resolver.destination_root,
+                toolchain_roots={spec.name: spec.root for spec in toolchain_specs},
+            )
+            resolved.append(ResolvedLibraryPath(source, reference, **asdict(placement)))
             continue
         try:
             resolved.append(resolver.resolve(source, reference, kind))
@@ -1080,122 +1059,6 @@ def _resolve_project_paths(
                 )
             )
     return resolved, sorted(resolver.bindings.values(), key=lambda binding: binding.name)
-
-
-def _resolve_model(
-    resolver: "_PathResolver",
-    source_path: str,
-    reference: str,
-    model_env: Mapping[str, str],
-) -> ResolvedLibraryPath:
-    """Resolve a 3D model reference once, the way the build tools find it.
-
-    As in KiCad 10.0.4's ``FILENAME_RESOLVER::ResolvePath``: backslashes become
-    slashes, then each variable resolves from the project's ``text_variables``
-    before ``KIPRJMOD`` and the environment (``ExpandEnvVarSubstitutions``,
-    ``common.cpp``), then the path is normalized.  Only then is it placed:
-
-    - in the closure: recorded as before; a missing file is advisory, except a
-      ``.wrl``/``.wrz`` KiCad may replace with a STEP model from elsewhere;
-    - outside it: its bytes are hashed into ``digest`` (``location="host"``),
-      or it is ``unreadable`` and the build is non-hermetic.
-
-    The tools inherit the worker's environment (``kicad_tools.py``) plus
-    ``KIPRJMOD``; ``model_env`` stands for it.  The record keeps the reference
-    as written and never the expanded root, so two workers with the same bytes
-    under different mount points agree.
-    """
-
-    def record(location: str, resolved_path: str = "", **extra: Any) -> ResolvedLibraryPath:
-        return ResolvedLibraryPath(
-            source_path=source_path,
-            reference=reference,
-            resolved_path=resolved_path,
-            location=location,
-            **extra,
-        )
-
-    project_variables = _project_text_variables(resolver.destination, source_path)
-    expanded = reference.replace("\\", "/")
-    for _ in range(8):
-        match = _VARIABLE_RE.search(expanded)
-        if match is None:
-            break
-        name = match.group(1)
-        if name in project_variables:
-            value = project_variables[name]
-        else:
-            try:
-                # KIPRJMOD and Prism's own bindings, recorded as before.
-                value = resolver._value(name)
-            except ExternalPathError:
-                value = str(model_env.get(name) or "")
-        if not value:
-            return record("unreadable")
-        expanded = expanded[: match.start()] + value.replace("\\", "/") + expanded[match.end() :]
-    # Fail closed wherever KiCad's resolution is not reproduced exactly: a
-    # variable left over (nested `$(VAR)`, `$VAR`, or more than the bounded
-    # depth), a relative result (KiCad resolves it against the tool's working
-    # directory), or a URI or home-relative path.
-    if (
-        _ANY_VARIABLE_RE.search(expanded)
-        or re.match(r"^[A-Za-z][A-Za-z0-9+.-]*://", expanded)
-        or not Path(expanded).is_absolute()
-    ):
-        return record("unreadable")
-    try:
-        # KiCad checks the path as written before it normalizes `..`, so
-        # `missing/../part.step` is absent even when `part.step` exists.
-        exists = Path(expanded).exists()
-        resolved = Path(os.path.normpath(expanded)).resolve(strict=False)
-    except (OSError, RuntimeError):
-        return record("unreadable")
-
-    inside: str | None = None
-    try:
-        inside = resolved.relative_to(resolver.destination_root).as_posix() or "."
-    except ValueError:
-        for spec in resolver.toolchain_specs.values():
-            try:
-                toolchain_relative = resolved.relative_to(spec.root).as_posix()
-            except ValueError:
-                continue
-            if exists:
-                return record("toolchain", f"toolchain:{spec.name}/{toolchain_relative}")
-            return record("missing", advisory=True)
-    if inside is not None:
-        if exists:
-            return record("closure", inside)
-        if Path(expanded).suffix.casefold() in _SUBSTITUTED_SUFFIXES:
-            return record("substitutable")
-        return record("missing", advisory=True)
-    if not exists:
-        return record("unreadable")
-
-    digest = hashlib.sha256()
-    try:
-        with resolved.open("rb") as handle:
-            for chunk in iter(lambda: handle.read(1024 * 1024), b""):
-                digest.update(chunk)
-    except OSError:
-        return record("unreadable")
-    return record("host", digest=digest.hexdigest())
-
-
-def _project_text_variables(destination: Path, board_path: str) -> dict[str, str]:
-    """The ``text_variables`` of the project file next to *board_path*."""
-
-    project_file = _materialized_path(
-        destination, str(Path(board_path).with_suffix(".kicad_pro").as_posix())
-    )
-    try:
-        payload = json.loads(project_file.read_text(encoding="utf-8"))
-    except (OSError, ValueError):
-        return {}
-    variables = payload.get("text_variables") if isinstance(payload, dict) else None
-    if not isinstance(variables, dict):
-        return {}
-    return {str(name): str(value) for name, value in variables.items()}
 
 
 class _PathResolver:
@@ -1276,6 +1139,13 @@ class _PathResolver:
             expanded = expanded[: match.start()] + replacement + expanded[match.end() :]
         raise ClosureError(f"environment variable expansion is recursive: {reference!r}")
 
+    def binding(self, name: str) -> str | None:
+        """``_value``, or None where it refuses; a model then asks the environment."""
+        try:
+            return self._value(name)
+        except ExternalPathError:
+            return None
+
     def _value(self, name: str) -> str:
         if name == "KIPRJMOD":
             value = self.project_rel
@@ -1328,42 +1198,6 @@ def _is_path_input(path: str) -> bool:
     }
 
 
-def _is_path_reference(value: str) -> bool:
-    """Does this substituted value name a filesystem path?
-
-    A bare ``${VAR}`` is not enough.  KiCad substitutes built-in *text*
-    variables into ordinary field and drawing-sheet content -- ``${DNP}``,
-    ``${REFERENCE}``, ``${VALUE}``, ``${ISSUE_DATE}`` and friends -- and
-    treating those as library paths fails a build closed on a board that is
-    perfectly hermetic.  A real path either carries a separator
-    (``${KIPRJMOD}/../common``) or names a path variable outright.
-
-    Library-table ``(uri ...)`` values do not come through here; they are
-    already known to be paths and are resolved unconditionally.
-    """
-
-    if not _VARIABLE_RE.search(value):
-        return False
-    if any(
-        match.group(1).upper() in _TOOL_PROVIDED_VARIABLES
-        for match in _VARIABLE_RE.finditer(value)
-    ):
-        # KiCad binds these itself at run time and they name *outputs*, so they
-        # are not closure inputs and must not fail resolution.
-        return False
-    if "/" in value or "\\" in value:
-        return True
-    match = _VARIABLE_RE.fullmatch(value.strip())
-    return match is not None and _is_path_variable(match.group(1))
-
-
-def _is_path_variable(name: str) -> bool:
-    """KiCad's path variables are ``KIPRJMOD`` and the ``*_DIR`` family."""
-
-    upper = name.upper()
-    return upper == "KIPRJMOD" or upper.endswith("_DIR") or upper.endswith("_PATH")
-
-
 def _read_materialized_text(destination: Path, relative_path: str) -> str:
     path = _materialized_path(destination, relative_path)
     try:
@@ -1371,80 +1205,6 @@ def _read_materialized_text(destination: Path, relative_path: str) -> str:
     except UnicodeDecodeError:
         # Binary inputs cannot contain a meaningful KiCad path reference.
         return ""
-
-
-def _structured_path_references(
-    path: str,
-    text: str,
-    *,
-    library_table: bool = False,
-) -> tuple[list[str], list[str]]:
-    """Read path-bearing values through format owners, never delimiters."""
-
-    suffix = Path(path).suffix.casefold()
-    name = Path(path).name.casefold()
-    uri_values: list[str] = []
-    scalar_values: list[str] = []
-    absolute_models: list[str] = []
-    try:
-        if name in {"fp-lib-table", "sym-lib-table"} or suffix in {
-            ".kicad_pcb",
-            ".kicad_sch",
-            ".kicad_wks",
-        }:
-            from kicad_monkey import parse_sexp
-
-            tree = parse_sexp(text)
-            for form in _walk_structured_values(tree):
-                if isinstance(form, list) and form:
-                    if (
-                        library_table
-                        and str(form[0]).casefold() == "uri"
-                        and len(form) > 1
-                    ):
-                        uri_values.append(str(form[1]))
-                    elif (
-                        suffix == ".kicad_pcb"
-                        and str(form[0]).casefold() == "model"
-                        and len(form) > 1
-                        and str(form[1]).startswith("/")
-                    ):
-                        # No variable, so the generic scan below skips it, but
-                        # the tools still open it.
-                        absolute_models.append(str(form[1]))
-                elif isinstance(form, str):
-                    scalar_values.append(str(form))
-        elif suffix == ".kicad_pro":
-            payload = json.loads(text)
-            scalar_values.extend(
-                str(value)
-                for value in _walk_structured_values(payload)
-                if isinstance(value, str)
-            )
-        elif suffix in {".yaml", ".yml"}:
-            import yaml
-
-            payload = yaml.safe_load(text)
-            scalar_values.extend(
-                str(value)
-                for value in _walk_structured_values(payload)
-                if isinstance(value, str)
-            )
-    except Exception as exc:
-        raise ClosureError(f"cannot parse closure input {path}: {exc}") from exc
-
-    variable_values = [value for value in scalar_values if _is_path_reference(value)]
-    return uri_values, variable_values + absolute_models
-
-
-def _walk_structured_values(value: Any) -> Iterable[Any]:
-    yield value
-    if isinstance(value, Mapping):
-        for child in value.values():
-            yield from _walk_structured_values(child)
-    elif isinstance(value, (list, tuple)):
-        for child in value:
-            yield from _walk_structured_values(child)
 
 
 def _sorted_records(records: Iterable[Any]) -> list[dict[str, Any]]:

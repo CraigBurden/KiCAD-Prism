@@ -4,11 +4,15 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import shutil
 import tempfile
+import time
 import unittest
 from pathlib import Path
+from unittest import mock
 
+from app.release_studio import closure as closure_module, closure_models
 from app.release_studio.canonical import sha256_canonical
 from app.release_studio.closure import (
     ClosureError,
@@ -526,6 +530,15 @@ class ReleaseStudioClosureTests(unittest.TestCase):
         text_variables: dict[str, str] | None = None,
         model_env: dict[str, str] | None = None,
     ) -> str:
+        return self._model_record(name, reference, text_variables, model_env).location
+
+    def _model_record(
+        self,
+        name: str,
+        reference: str,
+        text_variables: dict[str, str] | None = None,
+        model_env: dict[str, str] | None = None,
+    ) -> object:
         self.repo.joinpath("hardware/board/model.step").write_bytes(b"payload\n")
         self.repo.joinpath("hardware/board/board.kicad_pro").write_text(
             json.dumps({"text_variables": text_variables or {}}), encoding="utf-8"
@@ -547,7 +560,71 @@ class ReleaseStudioClosureTests(unittest.TestCase):
         (record,) = [
             item for item in closure.library_references if item.reference == reference
         ]
-        return record.location
+        return record
+
+    def test_a_closure_symlink_out_of_the_closure_is_unreadable(self) -> None:
+        # A repository symlink must not make the build read and fingerprint a
+        # worker's file, nor stall on an endless device.
+        outside = self.root / "secret/host.step"
+        outside.parent.mkdir()
+        outside.write_bytes(b"host secret\n")
+        for name, target in (("outside-file", outside), ("dev-zero", Path("/dev/zero"))):
+            with self.subTest(name):
+                link = self.repo / f"hardware/board/{name}.step"
+                link.symlink_to(target)
+                started = time.monotonic()
+                record = self._model_record(f"symlink-{name}", f"${{KIPRJMOD}}/{name}.step")
+                self.assertLess(time.monotonic() - started, 30)
+                self.assertEqual((record.location, record.digest), ("unreadable", ""))
+                link.unlink()
+
+    def test_a_host_model_that_is_not_a_regular_file_is_unreadable(self) -> None:
+        host = self.root / "special"
+        host.mkdir()
+        os.mkfifo(host / "pipe.step")
+        (host / "device.step").symlink_to("/dev/zero")
+        for name in ("pipe", "device"):
+            with self.subTest(name):
+                started = time.monotonic()
+                record = self._model_record(
+                    f"special-{name}", f"${{MODELS}}/{name}.step", model_env={"MODELS": str(host)}
+                )
+                self.assertLess(time.monotonic() - started, 30)
+                self.assertEqual((record.location, record.digest), ("unreadable", ""))
+
+    def test_a_host_model_over_the_size_cap_is_unreadable(self) -> None:
+        host = self.root / "large-models"
+        host.mkdir()
+        (host / "large.step").write_bytes(b"x" * 64)
+        (host / "small.step").write_bytes(b"x" * 16)
+        with mock.patch.object(closure_models, "HOST_MODEL_MAX_BYTES", 32):
+            large = self._model_record(
+                "large-model", "${MODELS}/large.step", model_env={"MODELS": str(host)}
+            )
+            small = self._model_record(
+                "small-model", "${MODELS}/small.step", model_env={"MODELS": str(host)}
+            )
+        self.assertEqual((large.location, large.digest), ("unreadable", ""))
+        self.assertEqual(small.digest, hashlib.sha256(b"x" * 16).hexdigest())
+
+    def test_a_boards_project_variables_are_read_once(self) -> None:
+        self.repo.joinpath("hardware/board/model.step").write_bytes(b"payload\n")
+        self.repo.joinpath("hardware/board/board.kicad_pcb").write_text(
+            '(kicad_pcb (version 20240108) '
+            '(footprint "R" (model "${KIPRJMOD}/model.step")) '
+            '(footprint "C" (model "${KIPRJMOD}/missing.step")))\n',
+            encoding="utf-8",
+        )
+        commit = commit_all(self.repo, "two models on one board")
+        with mock.patch.object(
+            closure_module,
+            "project_text_variables",
+            wraps=closure_models.project_text_variables,
+        ) as read:
+            materialize_input_closure(
+                self.repo, commit, self.root / "read-once", relative_path="hardware/board"
+            )
+        self.assertEqual(read.call_count, 1)
 
     def test_models_kicad_resolves_differently_fail_closed(self) -> None:
         # Where Prism cannot reproduce KiCad's resolution exactly, the model
@@ -875,7 +952,7 @@ class PathReferenceDiscriminationTests(unittest.TestCase):
     """
 
     def test_builtin_text_variables_are_not_path_references(self) -> None:
-        from app.release_studio.closure import _is_path_reference
+        from app.release_studio.closure_references import is_path_reference
 
         for value in (
             "${DNP}",
@@ -895,10 +972,10 @@ class PathReferenceDiscriminationTests(unittest.TestCase):
             "${JOBSET_OUTPUT_WORK_PATH}/archive.zip",
         ):
             with self.subTest(value=value):
-                self.assertFalse(_is_path_reference(value))
+                self.assertFalse(is_path_reference(value))
 
     def test_genuine_path_references_are_still_detected(self) -> None:
-        from app.release_studio.closure import _is_path_reference
+        from app.release_studio.closure_references import is_path_reference
 
         for value in (
             "${KIPRJMOD}",
@@ -909,7 +986,7 @@ class PathReferenceDiscriminationTests(unittest.TestCase):
             "some/relative/${VAR}/path",
         ):
             with self.subTest(value=value):
-                self.assertTrue(_is_path_reference(value))
+                self.assertTrue(is_path_reference(value))
 
     def test_a_board_using_text_variables_still_closes(self) -> None:
         """End to end: a DNP-annotated board must not be rejected."""
