@@ -1,4 +1,5 @@
-"""DBL export of 3D models: content-addressed paths, earlier releases, missing files."""
+"""DBL export: 3D models (content-addressed paths, earlier releases, missing files),
+atomic rebuild, stable keys and the exported library tables."""
 
 from __future__ import annotations
 
@@ -13,7 +14,7 @@ from unittest.mock import patch
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from app.core.config import settings  # noqa: E402
-from app.services.catalog.dbl_export import CatalogDblExport  # noqa: E402
+from app.services.catalog.dbl_export import CatalogDblExport, dbl_part_numbers  # noqa: E402
 from app.services.catalog.placement_payloads import materialize_asset  # noqa: E402
 
 
@@ -40,14 +41,21 @@ class _Result:
     def fetchall(self) -> list[dict]:
         return self._rows
 
+    def fetchone(self) -> dict | None:
+        return self._rows[0] if self._rows else None
+
 
 class _Conn:
-    """Answers the released-revision model query from a fixed row list."""
+    """Answers the released-revision model query from a fixed row list and records advisory locks."""
 
     def __init__(self, released_rows: list[dict]) -> None:
         self.released_rows = released_rows
+        self.locks: list[str] = []
 
     def execute(self, sql: str, params: tuple = ()) -> _Result:
+        if "pg_advisory_xact_lock" in sql:
+            self.locks.append(params[0])
+            return _Result([{}])
         assert "component_release_records" in sql
         return _Result(self.released_rows)
 
@@ -109,7 +117,8 @@ class DblModelExportTests(unittest.TestCase):
     def _export(self, assets_by_revision: dict, released_rows: list[dict], component: dict | None) -> dict:
         exporter = CatalogDblExport(_Placement(assets_by_revision))
         runtime = SimpleNamespace(export_root=self.export_root)
-        return exporter.export_bundle(_Conn(released_rows), runtime, [component] if component else [], [])
+        self.conn = _Conn(released_rows)
+        return exporter.export_bundle(self.conn, runtime, [component] if component else [], [])
 
     def _revision(self, revision_id: str, step: bytes, step_relative: str) -> tuple[list[dict], dict]:
         symbol = self._asset(f"{revision_id}-sym", "symbol", "symbol/Prism_Test/R_Test.kicad_sym", SYMBOL.encode())
@@ -209,6 +218,103 @@ class DblModelExportTests(unittest.TestCase):
             b'(footprint "R_Test"\n'
             b'  (model "${KIPRJMOD}/RemoteLibrary/remote_3d/R_Test.step" (offset (xyz 0 0 0)))\n)\n',
         )
+
+    def test_a_failed_export_leaves_the_previous_bundle_intact(self) -> None:
+        step = b"ISO-10303-21;rev1;END-ISO-10303-21;"
+        assets, component = self._revision("r1", step, "3dmodel/Prism_Test/R_Test.step")
+        released = [{"component_id": "c1", "revision_id": "r1", **assets[2]}]
+        self._export({"r1": assets}, released, component)
+        before = {
+            path.relative_to(self.export_root): path.read_bytes()
+            for path in sorted(self.export_root.rglob("*"))
+            if path.is_file()
+        }
+
+        broken = {**component, "revision_id": "r-missing"}
+        with self.assertRaises(KeyError):
+            self._export({"r1": assets}, released, broken)
+
+        after = {
+            path.relative_to(self.export_root): path.read_bytes()
+            for path in sorted(self.export_root.rglob("*"))
+            if path.is_file()
+        }
+        self.assertEqual(after, before)
+        self.assertEqual(sorted(path.name for path in self.root.iterdir()), ["export", "store"])
+
+    def test_a_successful_export_replaces_the_bundle_and_leaves_no_siblings(self) -> None:
+        step = b"ISO-10303-21;rev1;END-ISO-10303-21;"
+        assets, component = self._revision("r1", step, "3dmodel/Prism_Test/R_Test.step")
+        self.export_root.mkdir(parents=True)
+        (self.export_root / "stale.txt").write_text("from an older export")
+
+        result = self._export({"r1": assets}, [], component)
+
+        self.assertEqual(result["export_root"], str(self.export_root))
+        self.assertFalse((self.export_root / "stale.txt").exists())
+        self.assertTrue((self.export_root / "Prism.sqlite").is_file())
+        self.assertEqual(sorted(path.name for path in self.root.iterdir()), ["export", "store"])
+
+    def test_fp_lib_table_lists_only_exported_footprint_libraries(self) -> None:
+        step = b"ISO-10303-21;rev1;END-ISO-10303-21;"
+        assets, component = self._revision("r1", step, "3dmodel/Prism_Test/R_Test.step")
+        # A non-default representation's footprint is on the component but never exported.
+        alternate = {**assets[1], "id": "r1-fp-alt", "target_library": "Prism_Alternate"}
+        component["assets"] = [*component["assets"], alternate]
+        self._export({"r1": assets}, [], component)
+
+        fp_lib_table = (self.export_root / "fp-lib-table").read_text()
+        self.assertIn('(name "Prism_Test")', fp_lib_table)
+        self.assertNotIn("Prism_Alternate", fp_lib_table)
+
+    def test_exports_are_serialized_and_sweep_every_leftover_of_an_interrupted_export(self) -> None:
+        step = b"ISO-10303-21;rev1;END-ISO-10303-21;"
+        assets, component = self._revision("r1", step, "3dmodel/Prism_Test/R_Test.step")
+        leftovers = [self.root / ".export.build-crashed", self.root / ".export.old-crashed"]
+        unrelated = self.root / ".other.build-crashed"
+        for path in (*leftovers, unrelated):
+            (path / "SchLib").mkdir(parents=True)
+
+        self._export({"r1": assets}, [], component)
+
+        self.assertEqual(self.conn.locks, [f"prism-catalog-dbl-export:{self.export_root}"])
+        self.assertEqual(
+            sorted(path.name for path in self.root.iterdir()), [".other.build-crashed", "export", "store"]
+        )
+
+
+class DblPartNumberTests(unittest.TestCase):
+    @staticmethod
+    def _part(component_id: str, mpn: str, created_at: str, value: str = "") -> dict:
+        return {"id": component_id, "mpn": mpn, "value": value, "component_created_at": created_at}
+
+    def test_keys_do_not_depend_on_component_order(self) -> None:
+        parts = [
+            self._part("bbbbbbbb-2", "LM:358", "2026-02-01"),
+            self._part("aaaaaaaa-1", "LM 358", "2026-01-01"),
+            self._part("cccccccc-3", "LM358", "2026-03-01"),
+        ]
+        expected = {"aaaaaaaa-1": "LM_358", "bbbbbbbb-2": "LM_358_bbbbbbbb", "cccccccc-3": "LM358"}
+        self.assertEqual(dbl_part_numbers(parts), expected)
+        self.assertEqual(dbl_part_numbers(list(reversed(parts))), expected)
+
+    def test_a_newer_look_alike_never_renames_an_existing_key(self) -> None:
+        older = self._part("ffffffff-old", "", "2026-01-01", value="10k")
+        newer = self._part("00000000-new", "", "2026-05-01", value="10k")
+        self.assertEqual(dbl_part_numbers([older]), {"ffffffff-old": "10k"})
+        self.assertEqual(
+            dbl_part_numbers([newer, older]), {"ffffffff-old": "10k", "00000000-new": "10k_00000000"}
+        )
+
+    def test_suffixed_keys_that_still_collide_use_the_whole_id(self) -> None:
+        parts = [
+            self._part("p0", "X", "2026-01-01"),
+            self._part("abcdefgh-1", "X", "2026-02-01"),
+            self._part("abcdefgh-2", "X", "2026-03-01"),
+        ]
+        keys = dbl_part_numbers(parts)
+        self.assertEqual(keys, {"p0": "X", "abcdefgh-1": "X_abcdefgh-1", "abcdefgh-2": "X_abcdefgh-2"})
+        self.assertEqual(len(set(keys.values())), 3)
 
 
 if __name__ == "__main__":
