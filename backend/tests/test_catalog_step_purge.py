@@ -371,6 +371,68 @@ class SupersededStepPurgeTests(unittest.TestCase):
         self.assertTrue(audit["valid"], audit)
         self.assertEqual(audit["purged_asset_ids"], [scratch_id])
 
+    def _abandoned_draft_models(self, count: int) -> tuple[dict, list[str]]:
+        """A released part whose head draft dropped ``count`` scratch STEPs, all purge-eligible."""
+        released, old_model = self._released_part_with_model()
+        head = self._replace_model_in_draft(released, old_model)
+        scratch_ids: list[str] = []
+        for index in range(count):
+            with_scratch = self._attach_model(str(released["id"]), f"scratch-{index}")
+            [scratch_id] = set(self._model_ids(with_scratch)) - set(self._model_ids(head))
+            head = self._detach(with_scratch, scratch_id)
+            scratch_ids.append(scratch_id)
+        return released, scratch_ids
+
+    def _ledger_rows(self, asset_id: str) -> list[dict]:
+        with self.service.connection() as conn:
+            return [dict(row) for row in conn.execute(
+                "SELECT purged_at FROM catalog_asset_file_purges WHERE asset_id = %s ORDER BY purged_at",
+                (asset_id,),
+            ).fetchall()]
+
+    def test_a_crash_mid_purge_keeps_the_ledger_row_of_every_deleted_file(self) -> None:
+        released, scratch_ids = self._abandoned_draft_models(2)
+        paths = {asset_id: self._step_path(asset_id) for asset_id in scratch_ids}
+        real_unlink = Path.unlink
+        calls: list[Path] = []
+
+        def unlink_then_crash(path: Path, *args, **kwargs) -> None:
+            if calls:
+                raise SystemExit("worker killed mid-purge")
+            calls.append(path)
+            real_unlink(path, *args, **kwargs)
+
+        with patch.object(Path, "unlink", autospec=True, side_effect=unlink_then_crash):
+            with self.assertRaises(SystemExit):
+                self._purge()
+
+        deleted = [asset_id for asset_id, path in paths.items() if not path.exists()]
+        self.assertEqual(len(deleted), 1)
+        self.assertEqual(len(self._ledger_rows(deleted[0])), 1, "a deleted STEP lost its purge-ledger row")
+        self.assertTrue(self.service.verify_component_audit_chain(str(released["id"]))["valid"])
+
+    def test_a_failed_unlink_keeps_the_file_and_the_next_run_deletes_it(self) -> None:
+        released, [scratch_id] = self._abandoned_draft_models(1)
+        path = self._step_path(scratch_id)
+
+        with patch.object(Path, "unlink", autospec=True, side_effect=PermissionError("read-only store")):
+            first = self._purge()
+
+        self.assertNotIn(scratch_id, first["asset_ids"])
+        self.assertTrue(path.is_file())
+        self.assertTrue(self.service.verify_component_audit_chain(str(released["id"]))["valid"])
+        self.assertIsNotNone(self.service.get_asset_by_id(scratch_id), "a present file reads normally")
+
+        second = self._purge()
+
+        self.assertIn(scratch_id, second["asset_ids"])
+        self.assertFalse(path.exists())
+        rows = self._ledger_rows(scratch_id)
+        self.assertEqual(len(rows), 2)
+        for row in rows:
+            self.assertRegex(row["purged_at"], r"^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{6}\+00:00$")
+        self.assertTrue(self.service.verify_component_audit_chain(str(released["id"]))["valid"])
+
     def test_purge_ledger_is_migrated_and_append_only(self) -> None:
         _released, _old_model, scratch_id = self._purged_draft_model()
         with self.service.connection() as conn:

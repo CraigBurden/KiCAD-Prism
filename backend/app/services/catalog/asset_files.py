@@ -14,13 +14,18 @@ import uuid
 
 from app.core.errors import NotFound
 from app.services import kicad_library_reader
-from app.services.catalog.normalization import sanitize_name, sha256_bytes, utc_now_iso
+from app.services.catalog.normalization import sanitize_name, sha256_bytes
 from app.services.catalog.runtime import CatalogRuntime
 
 
 STEP_SUFFIXES = frozenset({".step", ".stp"})
 
 logger = logging.getLogger(__name__)
+
+
+# The database clock as the catalog's ISO-8601 text, so purge times never
+# depend on a worker's clock.
+DATABASE_NOW_ISO_SQL = """to_char(clock_timestamp() AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"+00:00"')"""
 
 
 # A revision whose STEP bytes the purge must keep (aliases ``revision`` and
@@ -188,11 +193,13 @@ class CatalogAssetFiles:
         System Builder instance or harness end pins, which the catalog cannot see)
         is protected too.
 
-        Each deleted file gets a ``catalog_asset_file_purges`` row, inserted
-        before the unlink inside a savepoint: a failed unlink rolls back its
-        row, so the ledger never names a file that is still there. The caller
-        commits. Audit verification accepts a missing never-released draft STEP
-        only through that row.
+        Each file's ``catalog_asset_file_purges`` row is committed before the
+        file is unlinked, one file at a time, so a crash never leaves a deleted
+        file without its row. The reverse failure is benign: a row whose unlink
+        failed or never ran names a file that is still there, the row only
+        excuses a missing file, and the next run, which still finds the asset
+        eligible, deletes it. This commits ``conn``. Audit verification accepts
+        a missing never-released draft STEP only through that row.
         """
         rows = conn.execute(
             f"""
@@ -242,22 +249,23 @@ class CatalogAssetFiles:
                 continue
             if not path.is_file():
                 continue
-            conn.execute("SAVEPOINT step_purge")
             conn.execute(
-                """
+                f"""
                 INSERT INTO catalog_asset_file_purges (id, asset_id, sha256, canonical_path, reason, job_id, purged_at)
-                VALUES (%s, %s, %s, %s, 'superseded_draft_step', %s, %s)
+                VALUES (%s, %s, %s, %s, 'superseded_draft_step', %s, {DATABASE_NOW_ISO_SQL})
                 """,
-                (str(uuid.uuid4()), row["id"], row["sha256"], str(row["canonical_path"]), job_id, utc_now_iso()),
+                (str(uuid.uuid4()), row["id"], row["sha256"], str(row["canonical_path"]), job_id),
             )
+            conn.commit()
             try:
                 path.unlink()
+            except FileNotFoundError:
+                pass
             except OSError:
-                logger.warning("Could not purge superseded STEP file %s", path, exc_info=True)
-                conn.execute("ROLLBACK TO SAVEPOINT step_purge")
+                logger.warning(
+                    "Could not purge superseded STEP file %s; the next maintenance run retries", path, exc_info=True
+                )
                 continue
-            finally:
-                conn.execute("RELEASE SAVEPOINT step_purge")
             purged.append(str(row["id"]))
         return {"purged": len(purged), "asset_ids": purged}
 
