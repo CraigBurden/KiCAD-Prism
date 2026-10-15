@@ -23,7 +23,7 @@ from app.services.catalog.normalization import sanitize_name, sha256_bytes
 
 
 _TOP_LEVEL_PROPERTY_RE = re.compile(r'^([ \t]+)\(property "([^"]+)" ')
-_MODEL_RE = re.compile(r'\(model\s+"[^"]+"')
+_MODEL_RE = re.compile(r'\(model\s+"([^"]+)"')
 
 
 def remote_library_nickname(library_name: str) -> str:
@@ -156,16 +156,48 @@ def rewrite_footprint_payload(
     destination = settings.REMOTE_PROVIDER_DESTINATION_DIR.rstrip("/")
     if destination in {"/RemoteLibrary", "$/RemoteLibrary"}:
         destination = "${KIPRJMOD}/RemoteLibrary"
-    model_index = 0
+    model_names = [
+        Path(str(model.get("canonical_path") or model.get("name") or "model.step")).name for model in models
+    ]
+    node_names = [re.split(r"[/\\]", match.group(1))[-1] for match in _MODEL_RE.finditer(text)]
+    # Assets arrive sorted by library, name and hash, not in node order, so
+    # each node first looks for the one asset its file name identifies: exact
+    # name, upload-sanitized name, then both case-insensitively, then the
+    # stem alone so a footprint naming foo.wrl finds the catalog's foo.step.
+    # A tier only claims when exactly one asset matches. Assets no node names
+    # then fill the unmatched nodes in order. A single asset keeps the
+    # positional pick so its output never changes.
+    assigned: dict[int, int] = {}
+    if len(models) > 1:
+        tiers = (
+            str,
+            lambda name: sanitize_name(name, ""),
+            str.casefold,
+            lambda name: sanitize_name(name, "").casefold(),
+            lambda name: Path(sanitize_name(name, "").casefold()).stem,
+        )
+        for node_index, node_name in enumerate(node_names):
+            for key in tiers:
+                node_key = key(node_name)
+                candidates = [index for index, name in enumerate(model_names) if node_key and key(name) == node_key]
+                if len(candidates) == 1:
+                    assigned[node_index] = candidates[0]
+                    break
+    unclaimed = iter([index for index in range(len(models)) if index not in assigned.values()])
+    for node_index in range(len(node_names)):
+        if node_index not in assigned:
+            model_index = next(unclaimed, None)
+            if model_index is not None:
+                assigned[node_index] = model_index
+    node_counter = 0
 
     def replace_model(match: re.Match[str]) -> str:
-        nonlocal model_index
-        if model_index >= len(models):
+        nonlocal node_counter
+        model_index = assigned.get(node_counter)
+        node_counter += 1
+        if model_index is None:
             return match.group(0)
-        model = models[model_index]
-        model_index += 1
-        model_name = Path(str(model.get("canonical_path") or model.get("name") or "model.step")).name
-        model_path = f"{destination}/{prefix}_3d/{model_name}"
+        model_path = f"{destination}/{prefix}_3d/{model_names[model_index]}"
         return f'(model "{model_path}"'
 
     return _MODEL_RE.sub(replace_model, text).encode("utf-8")
