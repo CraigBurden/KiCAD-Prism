@@ -619,6 +619,93 @@ class ComponentCatalogPostgresIntegrationTests(unittest.TestCase):
         self.assertEqual(len(self.service.list_component_revisions(component["id"])), 2)
         self.assertTrue(self.service.verify_component_audit_chain(component["id"])["valid"])
 
+    def test_health_reports_released_revision_with_missing_files(self) -> None:
+        self._install_deterministic_preview_renderer()
+        component = self._component("health-" + uuid.uuid4().hex[:8])
+        self.service.import_symbol_library(
+            component["id"],
+            upload_name="R_Health.kicad_sym",
+            payload=b'''(kicad_symbol_lib (version 20231120) (generator "test")
+              (symbol "R_Health"
+                (property "Reference" "R" (at 0 0 0) (effects (font (size 1.27 1.27))))
+                (property "Value" "10k" (at 0 0 0) (effects (font (size 1.27 1.27))))
+              )
+            )''',
+            target_library="Prism_Test",
+            selected_symbol="R_Health",
+            actor="designer@example.com",
+        )
+        self.service.import_footprint(
+            component["id"],
+            upload_name="R_Health.kicad_mod",
+            payload=b'(footprint "R_Health" (version 20240108) (generator "test"))',
+            target_library="Prism_Test",
+            selected_footprint="R_Health",
+            actor="designer@example.com",
+        )
+        with_model = self.service.attach_auxiliary_asset(
+            component["id"],
+            asset_type="3dmodel",
+            upload_name="R_Health.step",
+            payload=b"ISO-10303-21;END-ISO-10303-21;",
+            target_library="Prism_Test",
+            actor="designer@example.com",
+        )["component"]
+        self.service.set_release_status(component["id"], "in_progress", actor="designer@example.com")
+        self.service.set_release_status(component["id"], "qa_review", actor="designer@example.com")
+        approved = self.service.set_release_status(
+            component["id"],
+            "done",
+            actor="qa@example.com",
+            actor_role="qa",
+            expected_revision_id=with_model["revision_id"],
+            expected_manifest_hash=with_model["manifest_hash"],
+        )
+        released = self.service.set_release_status(
+            component["id"],
+            "released",
+            actor="designer@example.com",
+            actor_role="designer",
+            expected_revision_id=approved["revision_id"],
+            expected_manifest_hash=approved["manifest_hash"],
+        )
+        self.assertEqual(released["release_status"], "released")
+
+        released_step = next(asset for asset in released["assets"] if asset["asset_type"] == "3dmodel")
+
+        # A draft head that no longer links the released STEP must not hide it.
+        self.service.attach_auxiliary_asset(
+            component["id"],
+            asset_type="3dmodel",
+            upload_name="R_Health_Draft.step",
+            payload=b"ISO-10303-21;DRAFT;END-ISO-10303-21;",
+            target_library="Prism_Test",
+            actor="designer@example.com",
+        )
+        head = self.service.get_component(component["id"]) or {}
+        draft = self.service.detach_asset_by_id(
+            component["id"],
+            released_step["id"],
+            expected_revision_id=head["revision_id"],
+            actor="designer@example.com",
+        )["component"]
+        self.assertNotEqual(draft["revision_id"], released["revision_id"])
+        self.assertNotIn(released_step["id"], [asset["id"] for asset in draft["assets"]])
+
+        # The disk check is opt-in; the default report never stats asset files.
+        self.assertIsNone(self.service.catalog_health()["released_assets_missing_on_disk"])
+        self.assertEqual(self.service.catalog_health(check_released_files=True)["released_assets_missing_on_disk"], 0)
+
+        store = Path(self.tempdir.name)
+        (released_step_file,) = [path for path in store.rglob("*.step") if b"DRAFT" not in path.read_bytes()]
+        released_step_file.unlink()
+        self.assertEqual(self.service.catalog_health(check_released_files=True)["released_assets_missing_on_disk"], 1)
+
+        # The count is per component, not per missing file.
+        (footprint_file,) = list(store.rglob("*.kicad_mod"))
+        footprint_file.unlink()
+        self.assertEqual(self.service.catalog_health(check_released_files=True)["released_assets_missing_on_disk"], 1)
+
     def test_stale_asset_upload_and_link_do_not_advance_head(self) -> None:
         component = self._component("asset-rev-" + uuid.uuid4().hex[:8])
         self._import_symbol(str(self._component("asset-donor-" + uuid.uuid4().hex[:8])["id"]), "DonorSym")
