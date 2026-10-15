@@ -294,6 +294,53 @@ class ModuleItemsTest(unittest.TestCase):
         self.service.system_items.remove_module_connector(component_id, "A", actor="author@example.com")
         self.assertIn(str(scratch["id"]), purge())
 
+    def test_a_connector_s_recorded_draft_step_is_never_quarantined(self) -> None:
+        """Issue #698 (D1): connector part revisions protect a draft STEP from quarantine, and a
+        quarantined STEP a connector comes to record again is restored when its grace period ends."""
+        from unittest.mock import patch
+
+        from app.services import catalog_worker_tasks
+
+        component_id = self.modelled_module()
+        part = self.connector_part()
+        self.attach(part, "3dmodel", "scratch.step", f"ISO-10303-21;/* {uuid.uuid4().hex} */END-ISO-10303-21;".encode())
+        scratch_revision = str(self.service.get_component(part)["revision_id"])
+        [scratch] = [a for a in self.service.get_component(part)["assets"] if a["asset_type"] == "3dmodel"]
+        with self.service.connection() as conn:
+            path = Path(str(conn.execute("SELECT canonical_path FROM assets WHERE id = %s",
+                                         (scratch["id"],)).fetchone()["canonical_path"]))
+        self.attach(part, "3dmodel", "next.step", f"ISO-10303-21;/* {uuid.uuid4().hex} */END-ISO-10303-21;".encode())
+        head = self.service.get_component(part)
+        self.service.detach_asset_by_id(part, str(scratch["id"]), expected_revision_id=head["revision_id"],
+                                        actor="author@example.com")
+
+        def purge(grace_days: int = 30) -> dict:
+            with (
+                patch.object(catalog_worker_tasks, "catalog_service", self.service),
+                patch("app.core.config.settings.CATALOG_DRAFT_MODEL_QUARANTINE_DAYS", grace_days),
+            ):
+                return catalog_worker_tasks.purge_superseded_step_files()
+
+        def record_scratch_revision() -> None:
+            self.service.system_items.set_module_connector(component_id, "A", part, TOP, actor="author@example.com")
+            with self.service.connection() as conn:
+                conn.execute("UPDATE catalog_module_connectors SET part_revision_id = %s WHERE component_id = %s",
+                             (scratch_revision, component_id))
+                conn.commit()
+
+        record_scratch_revision()
+        for grace_days in (30, 0):
+            self.assertNotIn(str(scratch["id"]), purge(grace_days)["asset_ids"])
+            self.assertTrue(path.is_file(), "a connector's recorded draft STEP was quarantined")
+
+        self.service.system_items.remove_module_connector(component_id, "A", actor="author@example.com")
+        self.assertIn(str(scratch["id"]), purge()["asset_ids"])
+        self.assertFalse(path.exists())
+        record_scratch_revision()
+        expired = purge(0)["expired"]
+        self.assertEqual(expired["restored_asset_ids"], [str(scratch["id"])])
+        self.assertTrue(path.is_file(), "a quarantined STEP a connector records again was deleted")
+
     def test_connectors_list_the_units_of_a_pinned_module_revision(self) -> None:
         component_id = self.modelled_module()
         pinned = str(self.service.get_component(component_id)["current_revision_id"])

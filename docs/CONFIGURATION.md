@@ -79,7 +79,10 @@ helper transports regardless of allowlist settings.
 ### Catalog and Remote Symbol Provider
 
 Catalog settings control artifact roots, import limits, KLC validation, release
-gating, DBL export, worker concurrency, and retention. Provider settings control
+gating, DBL export, worker concurrency, and retention. Artifact maintenance moves
+a superseded never-released draft STEP file to quarantine and deletes it after
+`CATALOG_DRAFT_MODEL_QUARANTINE_DAYS` (default `30`; `0` deletes it in the same
+run); see [Catalog metadata exists but placement fails](OPERATIONS.md#catalog-metadata-exists-but-placement-fails). Provider settings control
 the OAuth client ID, token lifetimes, library prefix, project destination
 directory, and whether placed 3D models are embedded in the footprint
 (`REMOTE_PROVIDER_EMBED_3D_MODELS`, default `true`; see

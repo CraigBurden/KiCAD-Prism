@@ -589,6 +589,16 @@ class Settings(PipelineSettings):
         description="Run the local archive/quarantine/GC policy once per day.",
     )
 
+    CATALOG_DRAFT_MODEL_QUARANTINE_DAYS: int = Field(
+        default=30,
+        ge=0,
+        description=(
+            "Days a superseded never-released draft STEP file waits in the catalog store's quarantine "
+            "before artifact maintenance deletes it; until then it can be restored. 0 deletes it in the "
+            "same maintenance run."
+        ),
+    )
+
     CATALOG_IMPORT_ROOTS: str = Field(
         default="",
         description=(

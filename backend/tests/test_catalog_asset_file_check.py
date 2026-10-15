@@ -24,6 +24,7 @@ sys.path.insert(0, str(BACKEND_ROOT))
 from app.services.catalog.asset_imports import CatalogAssetImports  # noqa: E402
 from app.services.catalog.asset_registry import CatalogAssetRegistry  # noqa: E402
 from app.services.catalog.preview_pipeline import CatalogPreviewPipeline  # noqa: E402
+from app.services.catalog.step_quarantine import StepQuarantine  # noqa: E402
 from app.services.catalog.preview_renderer import CatalogPreviewRenderer, PREVIEW_STATUS_READY  # noqa: E402
 from app.services.component_catalog_service_postgres import ComponentCatalogPostgresService  # noqa: E402
 from app.services.local_artifact_store import LocalArtifactStore  # noqa: E402
@@ -113,6 +114,7 @@ class CatalogAssetFileCheckTests(unittest.TestCase):
             self.service.deactivate_component, component["id"], actor="integration-test@local", reason="cleanup"
         )
         component_id = str(component["id"])
+        self.component_id = component_id
         self.service.import_symbol_library(
             component_id, upload_name="R_Check.kicad_sym",
             payload=b'(kicad_symbol_lib (version 20231120) (generator "test") (symbol "R_Check"'
@@ -165,6 +167,57 @@ class CatalogAssetFileCheckTests(unittest.TestCase):
         _code, report = self._run()
         live = next(item for item in report["placement_broken"] if item["asset_id"] == models["live"]["id"])
         self.assertEqual(live["problem"], "sha256_mismatch")
+
+    def _supersede_draft(self, models: dict[str, dict]) -> None:
+        """Replace the never-released ``draft`` model, so the purge may take it."""
+        self.service.detach_asset(self.component_id, "3dmodel", actor="designer@example.com")
+        models["next"] = self._attach_model(self.component_id, "next")
+
+    def test_a_quarantined_draft_is_reported_and_moved_back_by_restore(self) -> None:
+        models = self._fixture()
+        self._supersede_draft(models)
+        draft = models["draft"]
+        with self.service.connection() as conn:
+            purged = StepQuarantine.purge_superseded_step_files(conn, self.service.runtime, job_id="check-test")
+        self.assertIn(draft["id"], purged["asset_ids"])
+
+        _code, report = self._run()
+        [item] = [item for item in report["draft_only"] if item["asset_id"] == draft["id"]]
+        self.assertEqual(item["ledger"], "quarantined")
+        self.assertIn(draft["id"], [entry["asset_id"] for entry in report["quarantine"]])
+
+        _code, report = self._run("--restore")
+        self.assertIn(draft["id"], [item["asset_id"] for item in report["restore"]["unquarantined"]["restored"]])
+        self.assertFalse(draft["path"].exists(), "a dry run moved a file")
+
+        _code, report = self._run("--restore", "--apply")
+        [restored] = [item for item in report["restore"]["unquarantined"]["restored"]
+                      if item["asset_id"] == draft["id"]]
+        self.assertEqual(restored["outcome"], "restored")
+        self.assertEqual(draft["path"].read_bytes(), self._step("draft"))
+        self.assertNotIn(draft["id"], [entry["asset_id"] for entry in self._run()[1]["quarantine"]])
+
+    def test_record_legacy_records_lost_draft_files_only_with_apply(self) -> None:
+        models = self._fixture()
+        self._supersede_draft(models)
+        models["draft"]["path"].unlink()
+        models["old"]["path"].unlink()
+
+        _code, report = self._run("--record-legacy")
+        listed = [item["asset_id"] for item in report["record_legacy"]["assets"]]
+        self.assertIn(models["draft"]["id"], listed)
+        self.assertNotIn(models["old"]["id"], listed, "released history must be restored, not recorded")
+        self.assertFalse(report["record_legacy"]["applied"])
+        [item] = [item for item in report["draft_only"] if item["asset_id"] == models["draft"]["id"]]
+        self.assertEqual(item["ledger"], "")
+
+        _code, report = self._run("--record-legacy", "--apply")
+        self.assertIn(models["draft"]["id"], [item["asset_id"] for item in report["record_legacy"]["assets"]])
+        _code, report = self._run()
+        [item] = [item for item in report["draft_only"] if item["asset_id"] == models["draft"]["id"]]
+        self.assertEqual(item["ledger"], "purged")
+        [old] = [item for item in report["history_broken"] if item["asset_id"] == models["old"]["id"]]
+        self.assertEqual(old["ledger"], "")
 
     def test_restore_writes_only_exact_sha256_copies(self) -> None:
         models = self._fixture()

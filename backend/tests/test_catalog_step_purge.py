@@ -5,7 +5,8 @@
 while ``released_revision_id`` moves only on release, so a draft that replaces
 the 3D model must not let maintenance delete the model placement still serves.
 
-A model it may delete, an abandoned draft's, is recorded in the append-only
+A model it may remove, an abandoned draft's, first moves to quarantine and is
+deleted only after the grace period; each step is recorded in the append-only
 purge ledger, so audit verification and asset reads can tell the intended
 purge from a lost file.
 """
@@ -27,6 +28,7 @@ from app.services import catalog_worker_tasks  # noqa: E402
 from app.services.catalog.asset_files import lock_and_check_asset_bytes  # noqa: E402
 from app.services.catalog.asset_links import CatalogAssetLinks  # noqa: E402
 from app.services.catalog.conflicts import CatalogConflict  # noqa: E402
+from app.services.catalog.step_quarantine import StepQuarantine  # noqa: E402
 from app.services.component_catalog_service_postgres import (  # noqa: E402
     ComponentCatalogPostgresService,
 )
@@ -56,9 +58,12 @@ class SupersededStepPurgeTests(unittest.TestCase):
         self.addCleanup(self.service.close)
         self.token = uuid.uuid4().hex[:10]
 
-    def _purge(self, pinned_revision_ids: tuple[str, ...] = ()) -> dict:
+    def _purge(self, pinned_revision_ids: tuple[str, ...] = (), *, grace_days: int = 30) -> dict:
         """Run the maintenance purge, which commits its ledger rows, against this service."""
-        with patch.object(catalog_worker_tasks, "catalog_service", self.service):
+        with (
+            patch.object(catalog_worker_tasks, "catalog_service", self.service),
+            patch("app.core.config.settings.CATALOG_DRAFT_MODEL_QUARANTINE_DAYS", grace_days),
+        ):
             return catalog_worker_tasks.purge_superseded_step_files(
                 job_id=f"job-{self.token}", pinned_revision_ids=pinned_revision_ids
             )
@@ -295,14 +300,21 @@ class SupersededStepPurgeTests(unittest.TestCase):
             ).fetchone()
         self.assertEqual((row["job_id"], row["reason"]), (f"job-{self.token}", "superseded_draft_step"))
 
-    def test_reading_a_purged_model_is_a_typed_not_found(self) -> None:
+    def test_reading_a_quarantined_model_is_a_typed_not_found(self) -> None:
         _released, _old_model, scratch_id = self._purged_draft_model()
 
         for read in (self.service.get_asset_by_id, self.service.catalog_asset_source):
             with self.subTest(read=read.__name__), self.assertRaises(NotFound) as raised:
                 read(scratch_id)
-            self.assertEqual(raised.exception.code, "asset_purged")
+            self.assertEqual(raised.exception.code, "asset_quarantined")
             self.assertEqual(raised.exception.status_code, 404)
+
+        self._purge(grace_days=0)
+
+        for read in (self.service.get_asset_by_id, self.service.catalog_asset_source):
+            with self.subTest(read=read.__name__, after="grace period"), self.assertRaises(NotFound) as raised:
+                read(scratch_id)
+            self.assertEqual(raised.exception.code, "asset_purged")
 
     def test_missing_file_without_a_ledger_row_is_still_invalid(self) -> None:
         released, old_model = self._released_part_with_model()
@@ -427,7 +439,7 @@ class SupersededStepPurgeTests(unittest.TestCase):
                 return cursor
 
         with self.service.connection() as conn:
-            result = self.service.asset_files.purge_superseded_step_files(
+            result = StepQuarantine.purge_superseded_step_files(
                 LinkAfterCandidates(conn), self.service.runtime, job_id=f"job-{self.token}"
             )
             conn.commit()
@@ -439,12 +451,12 @@ class SupersededStepPurgeTests(unittest.TestCase):
         released, scratch_id = self._abandoned_scratch_model()
         outcome: list[BaseException] = []
         unlinking, release_unlink = threading.Event(), threading.Event()
-        real_unlink = Path.unlink
+        real_rename = Path.rename
 
-        def slow_unlink(path: Path, *args, **kwargs) -> None:
+        def slow_rename(path: Path, *args, **kwargs):
             unlinking.set()
             release_unlink.wait(30)
-            real_unlink(path, *args, **kwargs)
+            return real_rename(path, *args, **kwargs)
 
         def link() -> None:
             with self.service.connection() as linker:
@@ -456,10 +468,10 @@ class SupersededStepPurgeTests(unittest.TestCase):
                     linker.rollback()
 
         results: list[dict] = []
-        with patch.object(Path, "unlink", autospec=True, side_effect=slow_unlink):
+        with patch.object(Path, "rename", autospec=True, side_effect=slow_rename):
             purge = threading.Thread(target=lambda: results.append(self._purge()))
             purge.start()
-            self.assertTrue(unlinking.wait(30), "the purge never reached the unlink")
+            self.assertTrue(unlinking.wait(30), "the purge never reached the move")
             # The ledger row is committed and the file is still there: the purge holds the asset lock.
             linker = threading.Thread(target=link)
             linker.start()
@@ -502,36 +514,36 @@ class SupersededStepPurgeTests(unittest.TestCase):
     def _ledger_rows(self, asset_id: str) -> list[dict]:
         with self.service.connection() as conn:
             return [dict(row) for row in conn.execute(
-                "SELECT purged_at FROM catalog_asset_file_purges WHERE asset_id = %s ORDER BY purged_at",
+                "SELECT purged_at, event FROM catalog_asset_file_purges WHERE asset_id = %s ORDER BY purged_at",
                 (asset_id,),
             ).fetchall()]
 
-    def test_a_crash_mid_purge_keeps_the_ledger_row_of_every_deleted_file(self) -> None:
+    def test_a_crash_mid_purge_keeps_the_ledger_row_of_every_moved_file(self) -> None:
         released, scratch_ids = self._abandoned_draft_models(2)
         paths = {asset_id: self._step_path(asset_id) for asset_id in scratch_ids}
-        real_unlink = Path.unlink
+        real_rename = Path.rename
         calls: list[Path] = []
 
-        def unlink_then_crash(path: Path, *args, **kwargs) -> None:
+        def rename_then_crash(path: Path, *args, **kwargs):
             if calls:
                 raise SystemExit("worker killed mid-purge")
             calls.append(path)
-            real_unlink(path, *args, **kwargs)
+            return real_rename(path, *args, **kwargs)
 
-        with patch.object(Path, "unlink", autospec=True, side_effect=unlink_then_crash):
+        with patch.object(Path, "rename", autospec=True, side_effect=rename_then_crash):
             with self.assertRaises(SystemExit):
                 self._purge()
 
         deleted = [asset_id for asset_id, path in paths.items() if not path.exists()]
         self.assertEqual(len(deleted), 1)
-        self.assertEqual(len(self._ledger_rows(deleted[0])), 1, "a deleted STEP lost its purge-ledger row")
+        self.assertEqual(len(self._ledger_rows(deleted[0])), 1, "a moved STEP lost its purge-ledger row")
         self.assertTrue(self.service.verify_component_audit_chain(str(released["id"]))["valid"])
 
-    def test_a_failed_unlink_keeps_the_file_and_the_next_run_deletes_it(self) -> None:
+    def test_a_failed_move_keeps_the_file_and_the_next_run_quarantines_it(self) -> None:
         released, [scratch_id] = self._abandoned_draft_models(1)
         path = self._step_path(scratch_id)
 
-        with patch.object(Path, "unlink", autospec=True, side_effect=PermissionError("read-only store")):
+        with patch.object(Path, "rename", autospec=True, side_effect=PermissionError("read-only store")):
             first = self._purge()
 
         self.assertNotIn(scratch_id, first["asset_ids"])
@@ -544,7 +556,7 @@ class SupersededStepPurgeTests(unittest.TestCase):
         self.assertIn(scratch_id, second["asset_ids"])
         self.assertFalse(path.exists())
         rows = self._ledger_rows(scratch_id)
-        self.assertEqual(len(rows), 2)
+        self.assertEqual([row["event"] for row in rows], ["quarantined", "quarantine_failed", "quarantined"])
         for row in rows:
             self.assertRegex(row["purged_at"], r"^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{6}\+00:00$")
         self.assertTrue(self.service.verify_component_audit_chain(str(released["id"]))["valid"])
@@ -574,6 +586,128 @@ class SupersededStepPurgeTests(unittest.TestCase):
             with patch.object(Path, "read_bytes", autospec=True, side_effect=AssertionError("read whole file")):
                 lock_and_check_asset_bytes(conn, scratch_id)
             conn.rollback()
+
+    # -- quarantine (issue #698, D1) -------------------------------------------
+
+    def _events(self, asset_id: str) -> list[dict]:
+        with self.service.connection() as conn:
+            return [dict(row) for row in conn.execute(
+                "SELECT id, event, reason, quarantine_path, quarantine_id FROM catalog_asset_file_purges "
+                "WHERE asset_id = %s ORDER BY purged_at::timestamptz",
+                (asset_id,),
+            ).fetchall()]
+
+    def test_purge_moves_the_file_to_quarantine_and_keeps_it_for_the_grace_period(self) -> None:
+        released, [scratch_id] = self._abandoned_draft_models(1)
+        path = self._step_path(scratch_id)
+        payload = path.read_bytes()
+
+        self.assertIn(scratch_id, self._purge()["asset_ids"])
+
+        self.assertFalse(path.exists())
+        [entry] = self._events(scratch_id)
+        self.assertEqual((entry["event"], entry["reason"]), ("quarantined", "superseded_draft_step"))
+        quarantined = Path(entry["quarantine_path"])
+        self.assertEqual(quarantined.parent.parent, self.service.runtime.store_root / "quarantine")
+        self.assertEqual(quarantined.read_bytes(), payload)
+
+        later = self._purge()
+        self.assertEqual(later["expired"]["deleted"], 0)
+        self.assertTrue(quarantined.is_file(), "a quarantined STEP was deleted inside its grace period")
+        self.assertTrue(self.service.verify_component_audit_chain(str(released["id"]))["valid"])
+
+    def test_after_the_grace_period_the_quarantined_copy_is_deleted_and_recorded(self) -> None:
+        released, [scratch_id] = self._abandoned_draft_models(1)
+        self._purge()
+        [entry] = self._events(scratch_id)
+
+        result = self._purge(grace_days=0)
+
+        self.assertEqual(result["expired"]["deleted_asset_ids"], [scratch_id])
+        self.assertFalse(Path(entry["quarantine_path"]).exists())
+        self.assertFalse(Path(entry["quarantine_path"]).parent.exists())
+        events = self._events(scratch_id)
+        self.assertEqual([row["event"] for row in events], ["quarantined", "deleted"])
+        self.assertEqual(events[1]["quarantine_id"], entry["id"])
+        audit = self.service.verify_component_audit_chain(str(released["id"]))
+        self.assertTrue(audit["valid"], audit)
+        self.assertEqual(audit["purged_asset_ids"], [scratch_id])
+        self.assertEqual(self._purge(grace_days=0)["expired"]["deleted"], 0, "a closed entry was handled twice")
+
+    def test_a_quarantined_file_can_be_restored_and_is_not_quarantined_again(self) -> None:
+        released, [scratch_id] = self._abandoned_draft_models(1)
+        path = self._step_path(scratch_id)
+        payload = path.read_bytes()
+        self._purge()
+
+        with self.service.connection() as conn:
+            restored = StepQuarantine.restore(conn, self.service.runtime, scratch_id, job_id="operator")
+
+        self.assertEqual(restored["outcome"], "restored")
+        self.assertEqual(path.read_bytes(), payload)
+        self.assertEqual([row["event"] for row in self._events(scratch_id)], ["quarantined", "restored"])
+        self.assertIsNotNone(self.service.get_asset_by_id(scratch_id))
+        self.assertTrue(self.service.verify_component_audit_chain(str(released["id"]))["valid"])
+
+        self.assertNotIn(scratch_id, self._purge(grace_days=0)["asset_ids"])
+        self.assertTrue(path.is_file(), "a restored STEP was quarantined again before it was linked again")
+        with self.service.connection() as conn, self.assertRaises(NotFound) as raised:
+            StepQuarantine.restore(conn, self.service.runtime, scratch_id)
+        self.assertEqual(raised.exception.code, "quarantine_entry_not_found")
+
+        relinked = self._attach_model(str(released["id"]), "scratch-0")
+        self.assertIn(scratch_id, self._model_ids(relinked))
+        self._detach(relinked, scratch_id)
+        self.assertIn(scratch_id, self._purge()["asset_ids"], "a relinked then abandoned STEP is purged again")
+
+    def test_a_quarantined_file_pinned_again_is_restored_instead_of_deleted(self) -> None:
+        released, old_model = self._released_part_with_model()
+        draft = self._replace_model_in_draft(released, old_model)
+        with_scratch = self._attach_model(str(released["id"]), "scratch")
+        [scratch_id] = set(self._model_ids(with_scratch)) - set(self._model_ids(draft))
+        path = self._step_path(scratch_id)
+        self._detach(with_scratch, scratch_id)
+        self._purge()
+        self.assertFalse(path.exists())
+
+        result = self._purge((with_scratch["revision_id"],), grace_days=0)
+
+        self.assertEqual(result["expired"]["restored_asset_ids"], [scratch_id])
+        self.assertTrue(path.is_file(), "a quarantined STEP a System Builder pin needs was deleted")
+        self.assertEqual(self._events(scratch_id)[-1]["reason"], "protected_again")
+
+    def test_record_legacy_accounts_for_draft_files_lost_before_the_ledger(self) -> None:
+        released, model = self._released_part_with_model()
+        draft = self._replace_model_in_draft(released, model)
+        with_scratch = self._attach_model(str(released["id"]), "scratch")
+        [scratch_id] = set(self._model_ids(with_scratch)) - set(self._model_ids(draft))
+        self._detach(with_scratch, scratch_id)
+        # The pre-ledger purge deleted the file and wrote nothing; it also deleted released models.
+        self._step_path(scratch_id).unlink()
+        self._step_path(str(model["id"])).unlink()
+        self.assertFalse(self.service.verify_component_audit_chain(str(released["id"]))["valid"])
+
+        with self.service.connection() as conn:
+            losses = {str(row["id"]) for row in StepQuarantine.legacy_losses(conn)}
+            conn.rollback()
+        self.assertIn(scratch_id, losses)
+        self.assertNotIn(str(model["id"]), losses, "a released model's loss must be restored, not recorded")
+        with self.service.connection() as conn:
+            StepQuarantine.record_legacy_losses(conn, job_id=f"legacy-{self.token}")
+        with self.service.connection() as conn:
+            self.assertNotIn(scratch_id, {str(row["id"]) for row in StepQuarantine.legacy_losses(conn)})
+            conn.rollback()
+
+        [entry] = self._events(scratch_id)
+        self.assertEqual((entry["event"], entry["reason"]), ("purged", "legacy_pre_ledger"))
+        # Only the released model is still unaccounted for.
+        self._assert_invalid_at(str(released["id"]), str(model["id"]))
+
+    def test_quarantine_events_are_migrated(self) -> None:
+        with self.service.connection() as conn:
+            step = conn.execute("SELECT name FROM catalog_schema_versions WHERE version = 11").fetchone()
+            conn.rollback()
+        self.assertEqual(step["name"], "asset_file_purge_events")
 
     def test_purge_ledger_is_migrated_and_append_only(self) -> None:
         _released, _old_model, scratch_id = self._purged_draft_model()

@@ -499,6 +499,34 @@ before it have no model rows and `self_contained` NULL.
   under the build's staging directory, so a host file changed during a build
   cannot reach the outputs.
 
+## Superseded draft STEP files wait in quarantine
+
+**Data-loss window.** From v3.0.0-alpha up to and including v4.0.0-alpha, and
+on `dev` until #684 (merged 2026-10-15), daily artifact maintenance
+(`CATALOG_RETENTION_ENABLED=true`) could delete the STEP file of a released
+revision: it kept only the models of each component's head, so opening a
+draft that replaced a model let the next run delete the released model.
+Placement of that part then fails with a missing file, and its audit chain
+reports `asset_content_mismatch`. Never-released draft models were deleted
+too, with no record, until the purge ledger (#691, catalog step 9). After
+upgrading from any release in that window:
+
+1. run `scripts/check_catalog_asset_files.py`; a non-empty `placement_broken`
+   or `history_broken` is a released model that was lost;
+2. restore those with `--restore --search DIR --apply` from a volume backup,
+   the source library checkout, or users' `RemoteLibrary/remote_3d/` folders;
+3. run `--record-legacy --apply` to record the never-released draft models
+   the old purge deleted, so their components' audit chains verify again.
+
+Catalog step 11 (`asset_file_purge_events`) adds `event`, `quarantine_path`
+and `quarantine_id` to the purge ledger; rows from step 9 become `purged`.
+From this release on, maintenance moves a superseded never-released draft STEP
+to `quarantine/` under the catalog store instead of deleting it, and deletes it
+only after `CATALOG_DRAFT_MODEL_QUARANTINE_DAYS` (default 30). Until then
+`--restore --apply` moves it back. Back up the catalog store's `quarantine/`
+directory with the rest of the store. Reads of a quarantined model answer 404
+`asset_quarantined` (`asset_purged` once it is deleted).
+
 ## Why the catalog gate is gone
 
 Until [`catalog_schema_migrations.py`](../backend/app/services/catalog_schema_migrations.py)

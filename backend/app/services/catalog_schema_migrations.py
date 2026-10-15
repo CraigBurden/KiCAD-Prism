@@ -303,6 +303,31 @@ def _module_connector_part_revision(conn: Any) -> None:
     )
 
 
+def _asset_file_purge_events(conn: Any) -> None:
+    """Quarantine before purge (issue #698, D1): each ledger row records one event.
+
+    Rows written before this step deleted their file at once and keep
+    ``event = 'purged'``. ``quarantine_path`` is where a ``quarantined`` file
+    waits out the grace period; ``quarantine_id`` names the ``quarantined`` row
+    a ``restored``, ``deleted`` or ``quarantine_failed`` row closes
+    (``catalog/step_quarantine.py``). Adding columns does not fire the
+    append-only guards.
+    """
+    conn.execute(
+        "ALTER TABLE catalog_asset_file_purges ADD COLUMN IF NOT EXISTS event TEXT NOT NULL DEFAULT 'purged'"
+    )
+    conn.execute(
+        "ALTER TABLE catalog_asset_file_purges ADD COLUMN IF NOT EXISTS quarantine_path TEXT NOT NULL DEFAULT ''"
+    )
+    conn.execute(
+        "ALTER TABLE catalog_asset_file_purges ADD COLUMN IF NOT EXISTS quarantine_id TEXT NOT NULL DEFAULT ''"
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS catalog_asset_file_purges_quarantine_idx "
+        "ON catalog_asset_file_purges (quarantine_id) WHERE quarantine_id <> ''"
+    )
+
+
 MIGRATIONS: tuple[tuple[int, str, Migration], ...] = (
     (0, "baseline", _baseline),
     (1, "portable_column_types", _portable_column_types),
@@ -315,6 +340,7 @@ MIGRATIONS: tuple[tuple[int, str, Migration], ...] = (
     (8, "revision_assets_asset_index", _revision_assets_asset_index),
     (9, "asset_file_purges", _asset_file_purges),
     (10, "module_connector_part_revision", _module_connector_part_revision),
+    (11, "asset_file_purge_events", _asset_file_purge_events),
 )
 
 # Migrations that a long-lived branch database recorded under an earlier number.

@@ -16,12 +16,12 @@ from pathlib import Path
 from typing import Any
 
 from app.core.config import settings
-from app.services.catalog.asset_files import raise_if_asset_purged
 from app.services.catalog.asset_types import AUXILIARY_ASSET_TYPES
 from app.services.catalog.component_read_models import CatalogComponentReadModels
 from app.services.catalog.placement_payloads import materialize_asset
 from app.services.catalog.revision_kernel import CatalogRevisionKernel
 from app.services.catalog.signed_urls import CatalogAssetUrlSigner
+from app.services.catalog.step_quarantine import raise_if_asset_purged
 
 
 NOT_PLACEABLE_MESSAGE = "Component is not placeable because it is not released or required files are missing"
