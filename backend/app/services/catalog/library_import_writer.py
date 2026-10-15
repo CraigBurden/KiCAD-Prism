@@ -25,6 +25,7 @@ from pathlib import Path
 from typing import Any, Iterable
 import uuid
 
+from app.services.catalog.asset_files import lock_and_check_asset_bytes
 from app.services.catalog.asset_registry import CatalogAssetRegistry
 from app.services.catalog.component_writer import (
     METADATA_INSERT_COLUMNS,
@@ -146,7 +147,8 @@ class CatalogLibraryImportWriter:
         runtime_store_root: Path | None,
     ) -> dict[str, Any]:
         """Register a canonical file; with ``runtime_store_root`` the row records
-        the path the running service will see instead of the local one."""
+        the path the running service will see instead of the local one, and
+        ``local_path`` keeps the local one for ``link_asset``'s byte check."""
         local_path = canonical_path.resolve()
         asset = CatalogAssetRegistry.register_asset(
             self._runtime,
@@ -166,7 +168,7 @@ class CatalogLibraryImportWriter:
             conn.execute("UPDATE assets SET canonical_path = %s WHERE id = %s", (runtime_path, asset["id"]))
             asset = dict(asset)
             asset["canonical_path"] = runtime_path
-        return asset
+        return {**asset, "local_path": str(local_path)}
 
     # -- components ----------------------------------------------------------
 
@@ -256,6 +258,9 @@ class CatalogLibraryImportWriter:
     ) -> None:
         """Attach an asset; ``bind_ready_previews`` also binds a symbol's or
         footprint's newest ready preview of each kind to the revision."""
+        if asset["asset_type"] == "3dmodel":
+            local_path = asset.get("local_path")
+            lock_and_check_asset_bytes(conn, str(asset["id"]), local_path=Path(local_path) if local_path else None)
         conn.execute(
             """
             INSERT INTO revision_assets (revision_id, asset_type, asset_id, required, created_at, updated_at)

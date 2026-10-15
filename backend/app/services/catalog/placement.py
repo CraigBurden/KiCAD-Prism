@@ -2,15 +2,21 @@
 
 A placement is always anchored to one representation (a symbol/footprint pair)
 on a released revision. Auxiliary 3D/SPICE assets ride along with whichever
-representation is selected.
+representation is selected, except 3D models embedded in the footprint: KiCad
+only writes a shipped model to its remote 3D folder, nothing references it
+once the footprint carries it, and every shipped asset counts against KiCad's
+one download budget.
 """
 
 from __future__ import annotations
 
 import base64
 import json
+from pathlib import Path
 from typing import Any
 
+from app.core.config import settings
+from app.services.catalog.asset_files import raise_if_asset_purged
 from app.services.catalog.asset_types import AUXILIARY_ASSET_TYPES
 from app.services.catalog.component_read_models import CatalogComponentReadModels
 from app.services.catalog.placement_payloads import materialize_asset
@@ -67,6 +73,30 @@ class CatalogPlacement:
         return dict(row), assets
 
     @staticmethod
+    def _placement_payloads(
+        assets: list[dict[str, Any]], component: dict[str, Any]
+    ) -> list[tuple[dict[str, Any], dict[str, Any]]]:
+        """Materialize assets in order, leaving out models the footprint embeds."""
+        materialized = {
+            str(asset["id"]): materialize_asset(
+                asset, assets, component, stamp=True, embed_models=settings.REMOTE_PROVIDER_EMBED_3D_MODELS
+            )
+            for asset in assets
+            if asset["asset_type"] != "3dmodel"
+        }
+        embedded = {
+            model_id for asset in materialized.values() for model_id in asset.get("embedded_model_ids", [])
+        }
+        return [
+            (
+                raw_asset,
+                materialized.get(str(raw_asset["id"])) or materialize_asset(raw_asset, assets, component, stamp=True),
+            )
+            for raw_asset in assets
+            if str(raw_asset["id"]) not in embedded
+        ]
+
+    @staticmethod
     def _require_placeable(component: dict[str, Any]) -> None:
         if not component["place_enabled"]:
             raise ValueError(NOT_PLACEABLE_MESSAGE)
@@ -81,8 +111,7 @@ class CatalogPlacement:
         self._require_placeable(component)
         representation, assets = self.placement_assets(conn, component["revision_id"], representation_id)
         manifest_assets = []
-        for raw_asset in assets:
-            asset = materialize_asset(raw_asset, assets, component)
+        for raw_asset, asset in self._placement_payloads(assets, component):
             manifest_assets.append(
                 {
                     "asset_type": asset["asset_type"],
@@ -121,8 +150,7 @@ class CatalogPlacement:
         self._require_placeable(component)
         representation, assets = self.placement_assets(conn, component["revision_id"], representation_id)
         bundle_entries = []
-        for raw_asset in assets:
-            asset = materialize_asset(raw_asset, assets, component)
+        for _, asset in self._placement_payloads(assets, component):
             bundle_entries.append(
                 {
                     "type": asset["asset_type"],
@@ -165,6 +193,8 @@ class CatalogPlacement:
         if not row:
             return None
         asset = dict(row)
+        if not Path(str(asset["canonical_path"])).is_file():
+            raise_if_asset_purged(conn, asset_id)
         effective_revision_id = revision_id
         if not effective_revision_id:
             link = conn.execute(
@@ -185,7 +215,9 @@ class CatalogPlacement:
                 component_row = self._revision_kernel.component_row(conn, str(revision["component_id"]))
                 if component_row:
                     component = self._read_models.component_payload(conn, component_row, revision)
-        return materialize_asset(asset, assets_for_revision, component)
+        return materialize_asset(
+            asset, assets_for_revision, component, stamp=True, embed_models=settings.REMOTE_PROVIDER_EMBED_3D_MODELS
+        )
 
 
 __all__ = ["NOT_PLACEABLE_MESSAGE", "CatalogPlacement"]
