@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 import sys
+import tempfile
 import unittest
 from unittest.mock import patch
 
@@ -12,6 +13,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from app.core.config import settings  # noqa: E402
 from app.services.catalog.asset_files import CatalogAssetFiles  # noqa: E402
 from app.services.catalog.dbl_export import (  # noqa: E402
+    CatalogDblExport,
+    dbl_footprint_ref,
     dbl_symbol_library_name,
     part_number_nocolon,
     quote_identifier,
@@ -287,3 +290,54 @@ class DblNamingTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class DblSymbolFootprintTests(unittest.TestCase):
+    """The exported symbol's ``Footprint`` always equals the row's ``LibFootprint``."""
+
+    def _export_symbol(self, component: dict) -> str:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            symbol_path = root / "R_Test.kicad_sym"
+            symbol_path.write_text(SYMBOL, encoding="utf-8")
+            footprint_path = root / "R_0402.kicad_mod"
+            footprint_path.write_text('(footprint "R_0402")\n', encoding="utf-8")
+            assets = [
+                {"asset_type": "symbol", "canonical_path": str(symbol_path), "target_library": "Lib", "target_name": "R_Test"},
+                {"asset_type": "footprint", "canonical_path": str(footprint_path), "target_library": "Prism_FP", "target_name": "R_0402"},
+            ]
+
+            class Placement:
+                def placement_assets(self, conn, revision_id):
+                    return None, assets
+
+            export_root = root / "export"
+            CatalogDblExport(Placement()).collect_dbl_assets(None, component, "PN", export_root)
+            return next((export_root / "SchLib").glob("*.kicad_sym")).read_text(encoding="utf-8")
+
+    def test_default_footprint_is_named_in_the_symbol(self) -> None:
+        component = {
+            "revision_id": "r1",
+            "representations": [
+                {
+                    "is_default": True,
+                    "symbol": {"target_library": "Lib", "target_name": "R_Test"},
+                    "footprint": {"target_library": "Prism_FP", "target_name": "R_0402"},
+                }
+            ],
+        }
+        self.assertEqual(dbl_footprint_ref(component), "Prism_FP:R_0402")
+        self.assertIn('(property "Footprint" "Prism_FP:R_0402"', self._export_symbol(component))
+
+    def test_default_without_footprint_never_falls_back_to_the_remote_library(self) -> None:
+        component = {
+            "revision_id": "r1",
+            "representations": [
+                {"is_default": True, "symbol": {"target_library": "Lib", "target_name": "R_Test"}, "footprint": None},
+            ],
+        }
+        self.assertEqual(dbl_footprint_ref(component), "")
+        exported = self._export_symbol(component)
+        self.assertIn('(property "Footprint" ""', exported)
+        self.assertNotIn("remote_", exported)
+        self.assertNotIn("Old:FP", exported)

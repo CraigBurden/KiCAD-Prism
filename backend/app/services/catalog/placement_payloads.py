@@ -122,7 +122,7 @@ def rewrite_symbol_payload(
         label: symbol_property_block(label, value, indent=indent, hidden=label != "Value")
         for label, value in metadata_fields.items()
     }
-    if footprint_ref:
+    if footprint_ref is not None:
         custom_blocks["Footprint"] = symbol_property_block("Footprint", footprint_ref, indent=indent)
     elif "Footprint" in existing_blocks:
         custom_blocks["Footprint"] = existing_blocks["Footprint"]
@@ -207,16 +207,21 @@ def materialize_asset(
     asset: dict[str, Any],
     assets_for_revision: list[dict[str, Any]],
     component: dict[str, Any] | None = None,
+    *,
+    footprint_ref: str | None = None,
 ) -> dict[str, Any]:
-    """Read one stored asset and return it with its placement payload attached."""
+    """Read one stored asset and return it with its placement payload attached.
+
+    ``footprint_ref`` overrides the symbol's ``Footprint`` value (``""`` clears
+    it); by default it is the remote provider's ``remote_<library>:<name>``.
+    """
     path = Path(str(asset["canonical_path"]))
     payload = path.read_bytes()
     if asset["asset_type"] == "symbol":
         footprint_asset = next(
             (candidate for candidate in assets_for_revision if candidate["asset_type"] == "footprint"), None
         )
-        footprint_ref = None
-        if footprint_asset:
+        if footprint_ref is None and footprint_asset:
             footprint_ref = (
                 f"{remote_library_nickname(str(footprint_asset['target_library']))}:{footprint_asset['target_name']}"
             )

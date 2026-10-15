@@ -16,6 +16,7 @@ IMMUTABLE_TRIGGER_TABLES = (
     "catalog_audit_events",
     "component_review_decisions",
     "component_release_records",
+    "catalog_asset_file_purges",
     "components",
     "component_revisions",
     "asset_previews",
