@@ -169,7 +169,9 @@ class CatalogDblExport:
         exported_models = {} if exported_models is None else exported_models
         missing_models = [] if missing_models is None else missing_models
         _, assets = self._placement.placement_assets(conn, component["revision_id"])
-        footprint_ref = dbl_footprint_ref(component) or None
+        # Exactly what ``LibFootprint`` says, empty included: without a default
+        # footprint the symbol must not name the remote provider's library.
+        footprint_ref = dbl_footprint_ref(component)
         for raw_asset in assets:
             if raw_asset["asset_type"] not in {"symbol", "footprint"}:
                 continue

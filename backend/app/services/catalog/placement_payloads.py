@@ -122,7 +122,7 @@ def rewrite_symbol_payload(
         label: symbol_property_block(label, value, indent=indent, hidden=label != "Value")
         for label, value in metadata_fields.items()
     }
-    if footprint_ref:
+    if footprint_ref is not None:
         custom_blocks["Footprint"] = symbol_property_block("Footprint", footprint_ref, indent=indent)
     elif "Footprint" in existing_blocks:
         custom_blocks["Footprint"] = existing_blocks["Footprint"]
@@ -189,9 +189,9 @@ def materialize_asset(
 ) -> dict[str, Any]:
     """Read one stored asset and return it with its placement payload attached.
 
-    ``footprint_ref`` overrides the symbol's ``Footprint`` value; by default it
-    is the remote provider's ``remote_<library>:<name>``. ``model_path`` is
-    passed to :func:`rewrite_footprint_payload`.
+    ``footprint_ref`` overrides the symbol's ``Footprint`` value (``""`` clears
+    it); by default it is the remote provider's ``remote_<library>:<name>``.
+    ``model_path`` is passed to :func:`rewrite_footprint_payload`.
     """
     path = Path(str(asset["canonical_path"]))
     payload = path.read_bytes()
