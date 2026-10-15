@@ -1,4 +1,4 @@
-import { useId } from "react";
+import { useId, useState } from "react";
 import { ShieldAlert } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
@@ -54,9 +54,29 @@ export function UnpinnedModelsAck({
     );
 }
 
-/** The keys an acknowledged approve or publish sends; empty when nothing needs one. */
-export function acknowledgedModelKeys(models: UnpinnedModel[], checked: boolean): string[] {
-    return checked ? models.map((model) => model.key) : [];
+function sameKeys(left: string[], right: string[]): boolean {
+    if (left.length !== right.length) return false;
+    const sorted = [...right].sort();
+    return [...left].sort().every((key, index) => key === sorted[index]);
+}
+
+/**
+ * The acknowledgement of *this* build's unpinned models. A tick names the
+ * build and the exact keys it covered, so selecting another build, or a
+ * changed list, reads as unacknowledged rather than carrying the tick over.
+ */
+export function useModelAcknowledgement(buildId: string, models: UnpinnedModel[]) {
+    const [given, setGiven] = useState<{ buildId: string; keys: string[] } | null>(null);
+    const keys = models.map((model) => model.key);
+    const acknowledged = Boolean(given && given.buildId === buildId && sameKeys(given.keys, keys));
+    return {
+        acknowledged,
+        /** Whether approve/publish may proceed: nothing to acknowledge, or acknowledged. */
+        satisfied: keys.length === 0 || acknowledged,
+        setAcknowledged: (checked: boolean) => setGiven(checked ? { buildId, keys } : null),
+        /** The keys the request sends; empty when not acknowledged. */
+        keys: acknowledged ? keys : [],
+    };
 }
 
 export default UnpinnedModelsAck;

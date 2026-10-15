@@ -6,7 +6,7 @@ import { HoldToConfirmButton } from "@/components/ui/hold-to-confirm-button";
 import * as api from "../api";
 import type { BuildDetail } from "../types";
 import type { RunFn } from "../shared";
-import { UnpinnedModelsAck, acknowledgedModelKeys } from "../UnpinnedModels";
+import { UnpinnedModelsAck, useModelAcknowledgement } from "../UnpinnedModels";
 
 export function PublishStep({
     projectId,
@@ -24,7 +24,6 @@ export function PublishStep({
     const forge = detail.forge;
     const forgeName = forge?.name || "GitHub or GitLab";
     const [publishedUrl, setPublishedUrl] = useState("");
-    const [acknowledged, setAcknowledged] = useState(false);
     const forgeUrl = detail.forge_release?.url || detail.approvals?.published?.forge_url || publishedUrl;
     const ready = detail.build.status === "succeeded";
     const tag = String(detail.configuration?.revision || "");
@@ -32,6 +31,7 @@ export function PublishStep({
     const notes = String(detail.configuration?.release_notes || "");
     const gates = detail.approvals;
     const unpinned = gates?.unpinned_models ?? [];
+    const acknowledgement = useModelAcknowledgement(detail.build.id, unpinned);
     const publishing = busy === "publish";
     const canPublish = Boolean(
         canMutate
@@ -39,7 +39,7 @@ export function PublishStep({
         && tag.trim()
         && !publishing
         && (gates ? gates.can_publish : false)
-        && (unpinned.length === 0 || acknowledged),
+        && acknowledgement.satisfied,
     );
     const selfContained = detail.candidate?.self_contained;
     const tokenHint = forge && !forge.token_configured ? forge.token_hint : "";
@@ -69,7 +69,7 @@ export function PublishStep({
                 tag: tag.trim(),
                 title: tag.trim(),
                 notes,
-                acknowledged_models: acknowledgedModelKeys(unpinned, acknowledged),
+                acknowledged_models: acknowledgement.keys,
             });
             setPublishedUrl(result.release.url);
         });
@@ -109,8 +109,8 @@ export function PublishStep({
             </dl>
             <UnpinnedModelsAck
                 models={unpinned}
-                checked={acknowledged}
-                onCheckedChange={setAcknowledged}
+                checked={acknowledgement.acknowledged}
+                onCheckedChange={acknowledgement.setAcknowledged}
                 disabled={!canMutate || publishing}
             />
             <HoldToConfirmButton

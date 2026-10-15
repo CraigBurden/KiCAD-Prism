@@ -23,7 +23,7 @@ import { cn } from "@/lib/utils";
 
 import * as api from "../api";
 import { shortDigest } from "../flow";
-import { UnpinnedModelsAck, acknowledgedModelKeys } from "../UnpinnedModels";
+import { UnpinnedModelsAck, useModelAcknowledgement } from "../UnpinnedModels";
 import {
     DocumentSheetPreview,
     MemberViewer,
@@ -277,7 +277,7 @@ function SignOffCards({
     const published = Boolean(approvals?.published);
     const electrical = approvals?.electrical_errors ?? [];
     const unpinned = approvals?.unpinned_models ?? [];
-    const [acknowledged, setAcknowledged] = useState(false);
+    const acknowledgement = useModelAcknowledgement(buildId, unpinned);
     const canApprove = Boolean(approvals?.can_approve_designer || approvals?.can_approve_qa);
     const shared = {
         electrical,
@@ -287,16 +287,16 @@ function SignOffCards({
         onRefresh,
         projectId,
         buildId,
-        acknowledgement: unpinned.length > 0 && !acknowledged ? "missing" as const : "given" as const,
-        acknowledgedModels: acknowledgedModelKeys(unpinned, acknowledged),
+        acknowledgement: acknowledgement.satisfied ? "given" as const : "missing" as const,
+        acknowledgedModels: acknowledgement.keys,
     };
     return (
         <div className="space-y-2">
             {!published && canApprove ? (
                 <UnpinnedModelsAck
                     models={unpinned}
-                    checked={acknowledged}
-                    onCheckedChange={setAcknowledged}
+                    checked={acknowledgement.acknowledged}
+                    onCheckedChange={acknowledgement.setAcknowledged}
                     disabled={Boolean(busy)}
                 />
             ) : null}

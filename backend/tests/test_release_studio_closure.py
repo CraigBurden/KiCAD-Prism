@@ -1085,6 +1085,49 @@ if __name__ == "__main__":
     unittest.main()
 
 
+class ModelNodeRewriteTests(unittest.TestCase):
+    def test_a_token_unquotes_as_the_closure_reader_reads_it(self) -> None:
+        from kicad_monkey import parse_sexp
+
+        for token in (
+            "/abs/part.step",
+            '"plain.step"',
+            '"C:\\\\models\\\\part.step"',
+            '"a \\"quoted\\" name.step"',
+            '"tab\\there.step"',
+            '"keep\\(this.step"',
+        ):
+            with self.subTest(token):
+                self.assertEqual(
+                    closure_models.unquote_token(token),
+                    str(parse_sexp(f"(model {token})")[1]),
+                )
+
+    def test_escaped_references_are_rewritten_and_misses_are_logged(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            board = Path(directory) / "board.kicad_pcb"
+            board.write_text(
+                '(kicad_pcb (footprint "R" (model "dir\\\\a \\"b\\".step") (offset (xyz 0 0 0))) '
+                "(footprint \"C\" (model bare.step)))\n",
+                encoding="utf-8",
+            )
+            with self.assertLogs(closure_models.logger, level="WARNING") as logs:
+                count = closure_models.rewrite_model_references(
+                    board,
+                    {
+                        'dir\\a "b".step': '/stage/x/a "b".step',
+                        "bare.step": "/stage/y/bare.step",
+                        "absent.step": "/stage/z/absent.step",
+                    },
+                )
+            self.assertEqual(count, 2)
+            text = board.read_text(encoding="utf-8")
+            self.assertIn('(model "/stage/x/a \\"b\\".step") (offset', text)
+            self.assertIn('(model "/stage/y/bare.step")', text)
+            self.assertIn("absent.step", "\n".join(logs.output))
+            self.assertIn("board.kicad_pcb", "\n".join(logs.output))
+
+
 class PathReferenceDiscriminationTests(unittest.TestCase):
     """KiCad text variables are not library paths.
 

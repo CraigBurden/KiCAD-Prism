@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import os
 import re
 import stat
@@ -25,6 +26,8 @@ import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, Mapping
+
+logger = logging.getLogger(__name__)
 
 # A variable as KiCad 10.0.4 expands it (`KIwxExpandEnvVars`, `common.cpp`):
 # `${NAME}`, `$(NAME)` or a bare `$NAME`, the name a run of letters, digits,
@@ -238,35 +241,55 @@ def rewrite_model_references(board: Path, targets: Mapping[str, str]) -> int:
     The board in the materialized closure is rewritten, never the repository:
     its closure record was taken from Git before this runs.  Only the model
     path token changes, so every other byte the tools read stays the
-    committed one.  Returns how many nodes were rewritten.
+    committed one.  Returns how many of *targets* were rewritten; one left
+    untouched is logged.
     """
 
     if not targets:
         return 0
-    from kicad_monkey import parse_sexp
-
     text = board.read_text(encoding="utf-8")
-    count = 0
+    rewritten_references: set[str] = set()
 
     def replace(match: re.Match[str]) -> str:
-        nonlocal count
-        try:
-            value = str(parse_sexp(f"(model {match.group(2)})")[1])
-        except Exception:  # noqa: BLE001 - an unparsable token is left alone
-            return match.group(0)
+        value = unquote_token(match.group(2))
         target = targets.get(value)
         if target is None:
             return match.group(0)
-        count += 1
+        rewritten_references.add(value)
         quoted = target.replace("\\", "\\\\").replace('"', '\\"')
         return f'{match.group(1)}"{quoted}"'
 
     rewritten = _MODEL_NODE_RE.sub(replace, text)
-    if count:
+    if rewritten_references:
         board.write_text(rewritten, encoding="utf-8")
-    return count
+    missed = sorted(set(targets) - rewritten_references)
+    if missed:
+        # The tools then open these as written, not the pinned file.
+        logger.warning(
+            "Release Studio could not point %d model node(s) of %s at their pinned "
+            "files: %s",
+            len(missed),
+            board.name,
+            ", ".join(missed),
+        )
+    return len(rewritten_references)
 
 
+def unquote_token(token: str) -> str:
+    """A ``(model ...)`` token's value, as the closure's s-expression reader gives it.
+
+    A bare token is its own value.  In a quoted one ``\\\\`` and ``\\"`` stand
+    for the character, ``\\n``, ``\\r`` and ``\\t`` for the control
+    character, and any other backslash is kept (kicad-monkey's lexer).
+    """
+
+    if len(token) < 2 or not (token.startswith('"') and token.endswith('"')):
+        return token
+    return _ESCAPE_RE.sub(lambda match: _ESCAPES.get(match.group(1), match.group(0)), token[1:-1])
+
+
+_ESCAPES = {"\\": "\\", '"': '"', "n": "\n", "r": "\r", "t": "\t"}
+_ESCAPE_RE = re.compile(r"\\(.)", re.DOTALL)
 _MODEL_NODE_RE = re.compile(r'(\(model\s+)("(?:[^"\\]|\\.)*"|[^\s()"]+)')
 
 
