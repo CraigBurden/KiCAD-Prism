@@ -7,6 +7,7 @@ USB-PD fixture), since the gate only needs one to exist.
 
 from __future__ import annotations
 
+import hashlib
 import os
 import tempfile
 import unittest
@@ -236,6 +237,21 @@ class ModuleItemsTest(unittest.TestCase):
             self.service.system_items.set_module_connector(component_id, "A", part, dict(TOP, normal=[0, 0, 0]))
         with self.assertRaisesRegex(ValueError, "only modules"):
             self.service.system_items.set_module_connector(part, "A", part, TOP)
+
+    def test_a_released_module_s_model_never_ships_in_the_dbl(self) -> None:
+        """Modules are not KiCad library parts: their STEP stays out of the DBL bundle (CONTRACTS_P2 §3.1)."""
+        component_id = self.module()
+        self.attach(component_id, "symbol", "TEST_IMU.kicad_sym", module_symbol().encode())
+        # Unique bytes, so no part released by another test can ship the same content path.
+        step = STEP.read_bytes() + f"\n/* {component_id} */\n".encode()
+        self.attach(component_id, "3dmodel", STEP.name, step)
+        self.place_all(component_id)
+        self.release(component_id)
+
+        exported = self.service.export_kicad_dbl_bundle()
+        sha_prefix = hashlib.sha256(step).hexdigest()[:16]
+        self.assertFalse((Path(exported["export_root"]) / "3DModels" / sha_prefix).exists())
+        self.assertEqual([m for m in exported["missing_models"] if m["component_id"] == component_id], [])
 
     def test_parts_stay_parts(self) -> None:
         part = self.service.create_manual_component(

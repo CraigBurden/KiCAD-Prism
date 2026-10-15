@@ -80,8 +80,10 @@ helper transports regardless of allowlist settings.
 
 Catalog settings control artifact roots, import limits, KLC validation, release
 gating, DBL export, worker concurrency, and retention. Provider settings control
-the OAuth client ID, token lifetimes, library prefix, and project destination
-directory.
+the OAuth client ID, token lifetimes, library prefix, project destination
+directory, and whether placed 3D models are embedded in the footprint
+(`REMOTE_PROVIDER_EMBED_3D_MODELS`, default `true`; see
+[3D models](REMOTE_SYMBOL_PROVIDER.md#3d-models)).
 
 In Compose environment files, preserve the KiCad project variable with:
 

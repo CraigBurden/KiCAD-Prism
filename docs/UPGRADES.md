@@ -320,6 +320,16 @@ committed version, so Sync fast-forwards again without a manual step. A file
 that supplied no values, and an untracked file (which never blocks Sync), are
 left in place. To share the settings with the team, commit them upstream.
 
+## DBL footprints reference bundled 3D models
+
+Earlier DBL exports wrote footprints whose model paths pointed at
+`${KIPRJMOD}/RemoteLibrary/remote_3d/...`, which exists only where the Remote
+Symbol Provider placed the same part. The export now ships the models under
+`3DModels/` and footprints reference `${PRISM_LIB_DIR}/3DModels/...`. Boards
+that placed DBL footprints before this change keep the old paths; run "Update
+footprints from library" once to pick up the new ones. There is no automatic
+migration.
+
 ## Release Studio configurations in a monorepo subproject
 
 Earlier releases read a monorepo subproject's committed Release Studio
@@ -341,6 +351,77 @@ git mv .prism/release-studio/configurations/release.yaml \
 
 Or open it in Settings for the subproject and save it again. A project at the
 repository root is unaffected.
+
+## Placed symbols carry a catalog revision stamp
+
+Remote placement (part manifest, inline bundle, and signed asset download) now
+adds two hidden properties to every symbol it serves: `Prism_Component` and
+`Prism_Revision`, the catalog component and released revision ids (see
+[Remote Symbol Provider](REMOTE_SYMBOL_PROVIDER.md#placed-symbol-provenance)).
+Three things change once:
+
+- **Symbol bytes and manifest hashes.** Every served symbol's bytes, and so its
+  `sha256` in the placement manifest, change on the first request after the
+  upgrade. Output is byte-stable again from then on. The manifest and bundle
+  shapes do not change, so `provider_version` stays; a client that caches by
+  hash downloads each symbol once more.
+- **Reserved field keys.** `prism_component` and `prism_revision` become
+  reserved custom field keys, matched after key canonicalization (`Prism
+  Revision` and `prism-revision` count, `prismrevision` does not). Creating a
+  field with either key is refused. A field created earlier under one of them
+  keeps its catalog values, but placement no longer writes it into symbols:
+  the stamp replaces it. To keep such a value in KiCad, move it to a field with
+  another key. Project imports treat the two properties as per-placement
+  context, not part metadata.
+- **BOM columns.** Parts placed after the upgrade carry the two properties, so
+  a KiCad BOM that exports all symbol fields gains `Prism_Component` and
+  `Prism_Revision` columns. A BOM preset that lists its fields is unaffected.
+
+The DBL export does not stamp symbols; its files are unchanged.
+
+## Placed footprints embed their 3D models
+
+KiCad placements now carry 3D models inside the footprint as KiCad embedded
+files (see [3D models](REMOTE_SYMBOL_PROVIDER.md#3d-models)). After upgrading:
+
+- Each placed part can add up to 4 MiB to the board file, since the board
+  stores the embedded (compressed) model data.
+- The placed footprint's bytes change, so its `sha256` in the part manifest
+  changes once for every component with a 3D model.
+- Embedded models leave the manifest and inline bundle as separate `3dmodel`
+  entries; models that are not embedded are still listed.
+
+Set `REMOTE_PROVIDER_EMBED_3D_MODELS=false` to keep the previous behaviour.
+
+## Bulk import overwrite flags keep existing files
+
+`--overwrite-assets` (`scripts/import_database_library.py`,
+`scripts/import_footprint_library.py`) and `--overwrite`
+(`scripts/import_kicad_library_assets.py`) no longer rewrite a canonical asset
+file whose content changed. The file at its familiar path, for example
+`footprints/<Library>.pretty/<Name>.kicad_mod`, keeps its old bytes, because
+revisions already linked to it, released ones included, record those bytes'
+sha256. The changed content is written to `revisions/<sha256>/<same relative
+path>` under the catalog store, and the rows this import creates point there.
+Identical content is still reused in place.
+
+The asset browser lists only the familiar paths, so it keeps offering the old
+file there. Picking it links the old content, not the imported one; to use the
+new content, link the asset the import created or upload the file to the part.
+
+Two modes leave files no row describes:
+
+- `--replace-catalog` (`import_database_library.py`) clears the rows first, so nothing links the old file at
+  the familiar path any more, but it stays on disk and in the browser, and the
+  new rows point at `revisions/<sha256>/`. To have the replacement land at the
+  familiar paths, take a backup and move the affected `symbols/`,
+  `footprints/`, and `3dmodels/` files out of the catalog store before the
+  import.
+- `--no-index-db` writes files only, so changed content under
+  `revisions/<sha256>/` is referenced by nothing. Run the same import again
+  without `--no-index-db` to register it, or delete those directories once
+  `SELECT canonical_path FROM catalog.assets WHERE canonical_path LIKE
+  '%/revisions/<sha256>/%'` returns no row for them.
 
 ## Release Studio pins 3D models outside the closure
 
