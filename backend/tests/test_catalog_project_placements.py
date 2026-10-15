@@ -7,7 +7,6 @@ and the report says which have a newer released revision.
 
 from __future__ import annotations
 
-import subprocess
 import sys
 import tempfile
 import unittest
@@ -24,6 +23,7 @@ from app.services.catalog.placement_stamp import placed_symbols, read_stamp  # n
 from app.services.catalog.project_placements import CatalogProjectPlacements  # noqa: E402
 from app.services.component_catalog_service_postgres import ComponentCatalogPostgresService  # noqa: E402
 from support.postgres import CATALOG_URL, requires_scratch_postgres  # noqa: E402
+from support.repo import init_repo  # noqa: E402
 
 ACTOR = "designer@example.com"
 COMPONENT = "0b1c2d3e-0000-4000-8000-000000000001"
@@ -122,9 +122,15 @@ class _CatalogParts(unittest.TestCase):
         self.addCleanup(self.service.deactivate_component, component_id, actor="usage-test@local", reason="cleanup")
         self.service.import_symbol_library(
             component_id, upload_name="R_Usage.kicad_sym",
+            # Laid out as KiCad writes it: placement rewrites one property per line, and
+            # without kicad-cli (CI) the upload is stored as given.
             payload=(
-                '(kicad_symbol_lib (version 20231120) (generator "test") (symbol "R_Usage"'
-                ' (property "Reference" "R" (at 0 0 0)) (property "Value" "10k" (at 0 0 0))))'
+                '(kicad_symbol_lib (version 20231120) (generator "test")\n'
+                '  (symbol "R_Usage"\n'
+                '    (property "Reference" "R" (at 0 0 0) (effects (font (size 1.27 1.27))))\n'
+                '    (property "Value" "10k" (at 0 0 0) (effects (font (size 1.27 1.27))))\n'
+                "  )\n"
+                ")\n"
             ).encode(),
             target_library=self.library, selected_symbol="R_Usage", actor=ACTOR,
         )
@@ -225,32 +231,20 @@ class ProjectPlacementTests(_CatalogParts):
 class CommitScanTests(_CatalogParts):
     """The service reads a commit's schematics from Git, not the working tree."""
 
-    def _git(self, *args: str) -> str:
-        return subprocess.run(
-            ["git", "-C", str(self.repo), *args], check=True, capture_output=True, text=True,
-            env={"GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@example.com", "GIT_COMMITTER_NAME": "t",
-                 "GIT_COMMITTER_EMAIL": "t@example.com", "PATH": "/usr/bin:/bin:/usr/local/bin:/opt/homebrew/bin",
-                 "HOME": str(self.root)},
-        ).stdout.strip()
-
     def test_scan_records_the_committed_schematic_and_report_defaults_to_head(self) -> None:
         released = self._released_part()
         lib_id = f"remote_{self.library.lower()}:R_Usage"
-        self.repo = self.root / "repo"
-        board = self.repo / "board"
-        (board / "sub").mkdir(parents=True)
-        self._git("init", "-q")
-        (board / "main.kicad_sch").write_text(
-            schematic(instance(lib_id, ["R1"], {"Reference": "R1", **self._placed_fields(released)})), encoding="utf-8"
-        )
-        (board / "sub" / "child.kicad_sch").write_text(schematic(), encoding="utf-8")
-        (board / "main.kicad_sch-bak").write_text("ignored", encoding="utf-8")
-        self._git("add", "-A")
-        self._git("commit", "-q", "-m", "board")
-        commit = self._git("rev-parse", "HEAD")
+        repo = self.root / "repo"
+        commit = init_repo(repo, {
+            "board/main.kicad_sch": schematic(
+                instance(lib_id, ["R1"], {"Reference": "R1", **self._placed_fields(released)})
+            ),
+            "board/sub/child.kicad_sch": schematic(),
+            "board/main.kicad_sch-bak": "ignored",
+        }, message="board")
         # Uncommitted edits are not scanned.
-        (board / "main.kicad_sch").write_text(schematic(), encoding="utf-8")
-        location = project_revision.ProjectLocation(self.repo.resolve(), "board")
+        (repo / "board" / "main.kicad_sch").write_text(schematic(), encoding="utf-8")
+        location = project_revision.ProjectLocation(repo.resolve(), "board")
 
         with (
             patch.object(project_revision, "locate_id", return_value=location),
