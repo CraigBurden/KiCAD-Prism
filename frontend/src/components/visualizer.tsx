@@ -112,22 +112,15 @@ const buildViewerKey = (
 ) => `${kind}:${projectId}:${commit ?? "latest"}`;
 
 /** A load that failed for good; the adapter has already retried a lost decode race. */
-function reportLoadError(stage: "root" | "rest", cause: unknown) {
-    if (stage === "root") {
-        // Left unhandled this surfaced only as an uncaught rejection in the
-        // console, with the sheet stuck half-drawn and no hint why.
-        console.error("[Visualizer] Could not load the sheet", cause);
-        toast.error(
-            cause instanceof Error && cause.message
-                ? `Could not draw this sheet: ${cause.message}`
-                : "Could not draw this sheet.",
-        );
-        return;
-    }
-    // Same shape as the root load: an unhandled rejection here left the
-    // extra sheets missing and the viewer never marked ready.
-    console.error("[Visualizer] Could not load the remaining sheets", cause);
-    toast.error("Some sheets in this design could not be drawn.");
+function reportLoadError(cause: unknown) {
+    // Left unhandled this surfaced only as an uncaught rejection in the
+    // console, with the sheet stuck half-drawn and no hint why.
+    console.error("[Visualizer] Could not load the sheet", cause);
+    toast.error(
+        cause instanceof Error && cause.message
+            ? `Could not draw this sheet: ${cause.message}`
+            : "Could not draw this sheet.",
+    );
 }
 
 type EcadViewerHostProps = {
@@ -144,7 +137,9 @@ function EcadViewerHost({ viewer, revisionKey, sources, active, viewportInsets }
     const right = viewportInsets.right ?? 0;
     const top = viewportInsets.top ?? 0;
     const bottom = viewportInsets.bottom ?? 0;
-    useLayoutEffect(() => viewer.load(revisionKey, sources), [revisionKey, sources, viewer]);
+    useLayoutEffect(() => {
+        viewer.load(revisionKey, sources);
+    }, [revisionKey, sources, viewer]);
     useEffect(() => viewer.setActive(active), [active, viewer]);
     useLayoutEffect(
         () => viewer.setViewportInsets({ left, right, top, bottom }),
@@ -206,7 +201,8 @@ export function Visualizer({ projectId, user, commit, active: viewerActive = tru
     const pcb = useEcadViewer(viewers.pcb);
     const [schematicContent, setSchematicContent] = useState<string | null>(null);
     const [subsheets, setSubsheets] = useState<EcadSource[]>([]);
-    const [viewerSupportFiles, setViewerSupportFiles] = useState<EcadSource[]>([]);
+    // Null until the request settles; the viewers wait for it.
+    const [viewerSupportFiles, setViewerSupportFiles] = useState<EcadSource[] | null>(null);
     const [pcbContent, setPcbContent] = useState<string | null>(null);
     const [ibomUrl, setIbomUrl] = useState<string | null>(null);
     const [schematicContentLoaded, setSchematicContentLoaded] = useState(false);
@@ -404,9 +400,8 @@ export function Visualizer({ projectId, user, commit, active: viewerActive = tru
             const baseUrl = `/api/projects/${projectId}`;
 
             try {
-                const [ibomRes, supportRes, mentionsRes] = await Promise.all([
+                const [ibomRes, mentionsRes] = await Promise.all([
                     fetchApi(appendCommit(`${baseUrl}/ibom`), { signal }),
-                    fetchApi(appendCommit(`${baseUrl}/viewer/support-files`), { signal }),
                     fetchApi(`${baseUrl}/comments/mention-candidates`, { signal }),
                 ]);
                 if (cancelled) return;
@@ -415,13 +410,6 @@ export function Visualizer({ projectId, user, commit, active: viewerActive = tru
                     setIbomUrl(appendCommit(`${baseUrl}/ibom`));
                 } else {
                     setIbomUrl(null);
-                }
-                if (supportRes.ok) {
-                    const payload = await supportRes.json() as { files?: EcadSource[] };
-                    if (cancelled) return;
-                    setViewerSupportFiles(payload.files ?? []);
-                } else {
-                    setViewerSupportFiles([]);
                 }
                 if (mentionsRes.ok) {
                     const candidates = await mentionsRes.json() as MentionCandidate[];
@@ -446,6 +434,41 @@ export function Visualizer({ projectId, user, commit, active: viewerActive = tru
             controller.abort();
         };
     }, [projectId, appendCommit]);
+
+    // The .kicad_pro and page layout the viewers load with each document. A
+    // failed request settles to no files: the sheet still draws, with KiCad's
+    // default page layout. Both viewers wait for it, as files arriving after
+    // the sheet would reload the whole design.
+    useEffect(() => {
+        const controller = new AbortController();
+        let cancelled = false;
+
+        const fetchSupportFiles = async () => {
+            let files: EcadSource[] = [];
+            try {
+                const response = await fetchApi(
+                    appendCommit(`/api/projects/${projectId}/viewer/support-files`),
+                    { signal: controller.signal },
+                );
+                if (response.ok) {
+                    const payload = await response.json() as { files?: EcadSource[] };
+                    files = payload.files ?? [];
+                }
+            } catch (err) {
+                if (!cancelled && !isAbortError(err)) {
+                    console.error("Error loading viewer support files", err);
+                }
+            }
+            if (cancelled) return;
+            setViewerSupportFiles(files);
+        };
+
+        void fetchSupportFiles();
+        return () => {
+            cancelled = true;
+            controller.abort();
+        };
+    }, [appendCommit, projectId]);
 
     useEffect(() => {
         if (semanticIndex) return;
@@ -1193,12 +1216,14 @@ export function Visualizer({ projectId, user, commit, active: viewerActive = tru
         [schematicContent],
     );
     const schematicSources = useMemo<EcadSource[]>(
-        () => (schematicRootSource ? [schematicRootSource, ...viewerSupportFiles, ...subsheets] : []),
+        () => (schematicRootSource
+            ? [schematicRootSource, ...(viewerSupportFiles ?? []), ...subsheets]
+            : []),
         [schematicRootSource, subsheets, viewerSupportFiles],
     );
     const pcbSources = useMemo<EcadSource[]>(
         () => (pcbContent
-            ? [{ filename: "board.kicad_pcb", content: pcbContent }, ...viewerSupportFiles]
+            ? [{ filename: "board.kicad_pcb", content: pcbContent }, ...(viewerSupportFiles ?? [])]
             : []),
         [pcbContent, viewerSupportFiles],
     );
@@ -1291,7 +1316,7 @@ export function Visualizer({ projectId, user, commit, active: viewerActive = tru
                 <div className="relative min-w-0 flex-1 overflow-hidden">
                     {/* Schematic View - always mounted after first visit */}
                     <div aria-hidden={activeTab !== "sch"} className={`absolute inset-0 z-10 transition-opacity duration-200 ${activeTab === "sch" ? "visible pointer-events-auto opacity-100" : "invisible pointer-events-none opacity-0"}`}>
-                        {schematicContentLoaded ? (
+                        {schematicContentLoaded && viewerSupportFiles ? (
                             schematicSources.length > 0 ? (
                                 <div className="relative h-full min-w-0 overflow-hidden">
                                     <div className="absolute inset-0 min-h-0 min-w-0">
@@ -1336,7 +1361,7 @@ export function Visualizer({ projectId, user, commit, active: viewerActive = tru
 
                     {/* PCB View - always mounted after first visit */}
                     <div aria-hidden={activeTab !== "pcb"} className={`absolute inset-0 z-10 transition-opacity duration-200 ${activeTab === "pcb" ? "visible pointer-events-auto opacity-100" : "invisible pointer-events-none opacity-0"}`}>
-                        {!modes.mounted.pcb ? null : pcbContentLoaded ? (
+                        {!modes.mounted.pcb ? null : pcbContentLoaded && viewerSupportFiles ? (
                             pcbSources.length > 0 ? (
                                 <div className="relative h-full min-w-0 overflow-hidden">
                                     <div className="absolute inset-0 min-h-0 min-w-0">
