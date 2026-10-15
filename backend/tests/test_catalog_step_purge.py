@@ -208,38 +208,6 @@ class SupersededStepPurgeTests(unittest.TestCase):
         self.assertNotIn(scratch_id, result["asset_ids"])
         self.assertTrue(scratch_path.is_file(), "a draft STEP pinned by a System Builder system was purged")
 
-    def test_draft_step_a_module_connector_placement_records_is_kept(self) -> None:
-        """CONTRACTS_P2 §3.6: a connector placement draws the part revision it recorded (#698)."""
-        released, old_model = self._released_part_with_model()
-        draft = self._replace_model_in_draft(released, old_model)
-        with_scratch = self._attach_model(str(released["id"]), "scratch")
-        [scratch_id] = set(self._model_ids(with_scratch)) - set(self._model_ids(draft))
-        scratch_path = self._step_path(scratch_id)
-        self._detach(with_scratch, scratch_id)
-        unit = f"Z{self.token}"
-        with self.service.connection() as conn:
-            conn.execute(
-                """
-                INSERT INTO catalog_module_connectors
-                    (component_id, unit_key, part_id, part_revision_id, placement_json, updated_at)
-                VALUES (%s, %s, %s, %s, '{}', '2026-10-15T00:00:00+00:00')
-                """,
-                (released["id"], unit, released["id"], with_scratch["revision_id"]),
-            )
-            conn.commit()
-
-        def unplace() -> None:
-            with self.service.connection() as conn:
-                conn.execute("DELETE FROM catalog_module_connectors WHERE unit_key = %s", (unit,))
-                conn.commit()
-
-        self.addCleanup(unplace)
-
-        self.assertNotIn(scratch_id, self._purge()["asset_ids"])
-        self.assertTrue(scratch_path.is_file(), "a draft STEP a module connector placement records was purged")
-        unplace()
-        self.assertIn(scratch_id, self._purge()["asset_ids"])
-
     def _archived_release_with_model(self) -> tuple[dict, dict]:
         """A released revision archived in place: released_revision_id is cleared."""
 

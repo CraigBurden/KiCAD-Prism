@@ -50,6 +50,8 @@ class ModuleConnectorRequest(BaseModel):
     normal: list[float] = Field(min_length=3, max_length=3)
     quarterTurns: int = Field(default=0, ge=0, le=3)
     axis: str | None = Field(default=None, max_length=8)
+    # Take the part's current revision; otherwise moving the same part keeps the one it recorded (§3.6).
+    updatePartRevision: bool = False
 
 
 def _connectors_call(action):
@@ -72,9 +74,9 @@ def connector_geometry(component_id: str, user: AuthenticatedUser = Depends(requ
 @router.put("/components/{component_id}/module-connectors/{unit_key}")
 def place_module_connector(component_id: str, unit_key: str, body: ModuleConnectorRequest,
                            user: AuthenticatedUser = Depends(require_catalog_writer)):
-    placement = body.model_dump(exclude={"partId"})
+    placement = body.model_dump(exclude={"partId", "updatePartRevision"})
     return _connectors_call(lambda: catalog_service.system_items.set_module_connector(
-        component_id, unit_key, body.partId, placement, actor=user.email))
+        component_id, unit_key, body.partId, placement, actor=user.email, update_part_revision=body.updatePartRevision))
 
 
 @router.delete("/components/{component_id}/module-connectors/{unit_key}")

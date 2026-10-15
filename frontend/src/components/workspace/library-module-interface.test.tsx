@@ -1,11 +1,11 @@
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { CatalogComponent } from "@/types/catalog";
 
 vi.mock("./catalog-client");
 
-import { listModels, listModuleConnectors } from "./catalog-client";
+import { listModels, listModuleConnectors, saveModuleConnector } from "./catalog-client";
 import { faceLabel } from "./library-module-connector-dialog";
 import { ModuleConnectorsPanel } from "./library-module-interface";
 
@@ -67,6 +67,19 @@ describe("module connectors", () => {
     expect(screen.getByRole("button", { name: /Place connector/ })).toBeTruthy();
     expect(screen.getByText(/Place every connector before releasing/)).toBeTruthy();
     expect(screen.getByText(/units the symbol no longer has: C/)).toBeTruthy();
+  });
+
+  it("moves a connector to its part's current revision only when asked (#698)", async () => {
+    const stale = { ...placedA, part: { ...HEADER, revisionId: "hdr-1", currentRevisionId: "hdr-2" } };
+    const connectors = { units: [{ key: "A", name: "POWER", pads: ["1", "2"], connector: stale }], orphans: [], complete: true };
+    serve(connectors, true);
+    vi.mocked(saveModuleConnector).mockResolvedValue(connectors as never);
+    render(<ModuleConnectorsPanel canMutate component={module({
+      assets: [{ asset_type: "3dmodel", name: "imu.step" }] as CatalogComponent["assets"], interface: { units: UNITS.slice(0, 1) },
+    })} />);
+    fireEvent.click(await screen.findByRole("button", { name: "Use the part's current revision" }));
+    await waitFor(() => expect(saveModuleConnector).toHaveBeenCalledWith("cmp", "A",
+      { partId: "hdr", ...placedA.placement, updatePartRevision: true }));
   });
 
   it("asks for a converted model before placing", async () => {

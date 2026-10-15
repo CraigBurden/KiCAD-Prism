@@ -20,7 +20,8 @@ export interface ModuleConnectorUnit {
   name: string;
   pads: string[];
   connector: {
-    part: MatingPart;
+    /** At the revision the placement recorded; `currentRevisionId` is the part's current one (#698). */
+    part: MatingPart & { revisionId?: string | null; currentRevisionId?: string | null };
     placement: ModulePlacement;
     geometry: ConnectorGeometry | null;
     footprintPose: unknown;

@@ -87,18 +87,21 @@ def part_model(conn: Any, part_id: str, revision_id: Optional[str] = None) -> Op
 
 
 def _part_summary(conn: Any, part_id: str, revision_id: Optional[str]) -> dict[str, Any]:
-    """``{componentId, revisionId, name, mpn, manufacturer}`` as the part reads at the placed revision."""
+    """``{componentId, revisionId, currentRevisionId, name, mpn, manufacturer}`` as the part reads at the
+    placed revision; ``currentRevisionId`` is its current one, which "update" would take."""
     row = conn.execute(
         """
-        SELECT c.id, r.id AS revision_id, r.name, r.mpn, r.manufacturer FROM components c
+        SELECT c.id, c.current_revision_id, r.id AS revision_id, r.name, r.mpn, r.manufacturer FROM components c
         LEFT JOIN component_revisions r ON r.component_id = c.id AND r.id = COALESCE(%s, c.current_revision_id)
         WHERE c.id = %s
         """,
         (revision_id, part_id),
     ).fetchone()
     if row is None:
-        return {"componentId": part_id, "revisionId": revision_id, "name": "", "mpn": "", "manufacturer": ""}
-    return {**catalog_mates.summary(dict(row)), "revisionId": row["revision_id"]}
+        return {"componentId": part_id, "revisionId": revision_id, "currentRevisionId": None, "name": "", "mpn": "",
+                "manufacturer": ""}
+    return {**catalog_mates.summary(dict(row)), "revisionId": row["revision_id"],
+            "currentRevisionId": row["current_revision_id"]}
 
 
 def _rows(conn: Any, component_id: str) -> dict[str, dict[str, Any]]:
@@ -148,14 +151,26 @@ def unplaced(units: list[dict[str, Any]]) -> list[str]:
             if not u["connector"] or u["connector"]["geometry"] is None or u["connector"]["missingPads"]]
 
 
+def _kept_revision(conn: Any, component_id: str, unit_key: str, part_id: str) -> Optional[str]:
+    """The part revision an existing placement of ``part_id`` on this unit recorded, or None."""
+    row = conn.execute(
+        "SELECT part_id, part_revision_id FROM catalog_module_connectors WHERE component_id = %s AND unit_key = %s",
+        (component_id, unit_key),
+    ).fetchone()
+    return row["part_revision_id"] if row and str(row["part_id"]) == part_id else None
+
+
 def set_connector(conn: Any, component_id: str, unit_key: str, part_id: str, placement: Mapping[str, Any], *,
-                  actor: str, now: str) -> dict[str, Any]:
+                  actor: str, now: str, update_part_revision: bool = False) -> dict[str, Any]:
+    """Place a connector part on a unit, or move it. Placing a part records its current revision; moving the
+    same part keeps the revision it recorded unless ``update_part_revision`` asks for the current one."""
     require_module(conn, component_id)
     units = {str(u["key"]): u for u in _interface(conn, component_id).get("units") or []}
     unit = units.get(unit_key)
     if unit is None:
         raise LookupError(f"The module's symbol has no unit {unit_key}")
-    revision_id = catalog_mates.require_part(conn, part_id).get("current_revision_id")
+    current = catalog_mates.require_part(conn, part_id).get("current_revision_id")
+    revision_id = (None if update_part_revision else _kept_revision(conn, component_id, unit_key, part_id)) or current
     geometry = part_geometry(conn, part_id, revision_id)
     if geometry is None:
         raise ValueError("The connector part has no footprint with pads")
