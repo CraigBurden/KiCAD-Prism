@@ -156,9 +156,10 @@ describe("typed readers", () => {
     stubFetch(() => new Response("zip", { status: 200 }));
     // Node 24's Response.blob() builds the test environment's (jsdom) Blob, which has no text().
     const blob = await fetchBlob("/api/projects/p/asset/x.zip");
-    const body = await new Promise((resolve) => {
+    const body = await new Promise((resolve, reject) => {
       const reader = new FileReader();
       reader.onload = () => resolve(reader.result);
+      reader.onerror = () => reject(reader.error);
       reader.readAsText(blob);
     });
     expect(body).toBe("zip");
