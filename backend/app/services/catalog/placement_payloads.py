@@ -10,9 +10,11 @@ inline bundles reproducible.
 
 from __future__ import annotations
 
-from collections import Counter
+from collections import Counter, OrderedDict
+import logging
 from pathlib import Path
 import re
+import threading
 from typing import Any, Callable
 
 from app.core.config import settings
@@ -34,6 +36,14 @@ from app.services.catalog.normalization import sanitize_name, sha256_bytes
 _TOP_LEVEL_PROPERTY_RE = re.compile(r'^([ \t]+)\(property "([^"]+)" ')
 _MODEL_RE = re.compile(r'\(model\s+"([^"]+)"')
 _MODEL_INDENT_RE = re.compile(r'^([ \t]*)\(model\s+"', re.MULTILINE)
+
+logger = logging.getLogger(__name__)
+
+# Embedded footprints by everything that decides their bytes, so a manifest
+# and the download that follows it compress each model once per process.
+_EMBEDDED_FOOTPRINT_CACHE_SIZE = 32
+_embedded_footprint_cache: OrderedDict[tuple[Any, ...], tuple[bytes, tuple[int, ...]]] = OrderedDict()
+_embedded_footprint_cache_lock = threading.Lock()
 
 
 def remote_library_nickname(library_name: str) -> str:
@@ -157,7 +167,7 @@ def rewrite_footprint_payload(
     payload: bytes,
     asset: dict[str, Any],
     model_assets: list[dict[str, Any]] | None = None,
-    read_model: Callable[[dict[str, Any]], bytes] | None = None,
+    read_model: Callable[[dict[str, Any]], bytes | None] | None = None,
 ) -> bytes:
     """Point each matched ``(model ...)`` at its placed model.
 
@@ -165,10 +175,10 @@ def rewrite_footprint_payload(
     content-unique ``kicad-embed://`` name, so the board that receives the
     footprint pins the model, when the footprint grows by no more than the
     model's raw size (the embedded model is no longer shipped, so the
-    placement never grows) and the added forms stay within
+    placement never grows) and the raw models embedded so far stay within
     ``EMBED_MAX_FOOTPRINT_BYTES`` (models are taken in node order). Other
-    models, and every model without a reader, keep the shared remote
-    destination path.
+    models, models the reader returns ``None`` for, and every model without
+    a reader keep the shared remote destination path.
     """
     return _rewrite_footprint(payload, list(model_assets or []), read_model)[0]
 
@@ -176,12 +186,13 @@ def rewrite_footprint_payload(
 def _rewrite_footprint(
     payload: bytes,
     models: list[dict[str, Any]],
-    read_model: Callable[[dict[str, Any]], bytes] | None,
-) -> tuple[bytes, list[dict[str, Any]]]:
-    """Rewrite model paths; also return the model assets that were embedded."""
+    read_model: Callable[[dict[str, Any]], bytes | None] | None,
+) -> tuple[bytes, list[dict[str, Any]], bool]:
+    """Rewrite model paths; also return the embedded model assets and
+    whether every model the reader was asked for could be read."""
     text = payload.decode("utf-8")
     if not models or "(model " not in text:
-        return payload, []
+        return payload, [], True
     prefix = sanitize_name(settings.REMOTE_PROVIDER_LIBRARY_PREFIX, "remote").lower()
     destination = settings.REMOTE_PROVIDER_DESTINATION_DIR.rstrip("/")
     if destination in {"/RemoteLibrary", "$/RemoteLibrary"}:
@@ -235,7 +246,7 @@ def _rewrite_footprint(
         return f'(model "{model_path}"'
 
     text = _MODEL_RE.sub(replace_model, text)
-    return placed_path.finish(text).encode("utf-8"), placed_path.embedded_models
+    return placed_path.finish(text).encode("utf-8"), placed_path.embedded_models, placed_path.complete
 
 
 class _ModelPathBuilder:
@@ -253,7 +264,7 @@ class _ModelPathBuilder:
         model_names: list[str],
         node_counts: Counter[int],
         external_dir: str,
-        read_model: Callable[[dict[str, Any]], bytes] | None,
+        read_model: Callable[[dict[str, Any]], bytes | None] | None,
     ) -> None:
         self._models = models
         self._model_names = model_names
@@ -269,6 +280,9 @@ class _ModelPathBuilder:
         self._paths: dict[int, str] = {}
         self._embedded_bytes = 0
         self.embedded_models: list[dict[str, Any]] = []
+        # False once the reader skipped a model (missing or over the cap);
+        # such output is not cached, so a restored file is picked up.
+        self.complete = True
 
     def __call__(self, model_index: int) -> str:
         if model_index not in self._paths:
@@ -281,6 +295,11 @@ class _ModelPathBuilder:
         if self._read_model is None:
             return external_path
         data = self._read_model(self._models[model_index])
+        # The cap counts raw bytes, so an oversized model is skipped before
+        # it is hashed or compressed.
+        if data is None or self._embedded_bytes + len(data) > EMBED_MAX_FOOTPRINT_BYTES:
+            self.complete = self.complete and data is not None
+            return external_path
         embedded_name = embedded_model_name(model_name, data)
         embedded_path = f"kicad-embed://{embedded_name}"
         form = self._forms.get(embedded_name)
@@ -294,11 +313,11 @@ class _ModelPathBuilder:
         growth = (form_bytes + self._block_bytes if form_bytes else 0) + self._node_counts[model_index] * (
             len(embedded_path.encode("utf-8")) - len(external_path.encode("utf-8"))
         )
-        if growth > len(data) or self._embedded_bytes + form_bytes > EMBED_MAX_FOOTPRINT_BYTES:
+        if growth > len(data):
             return external_path
         if form_bytes:
             self._forms[embedded_name] = form
-            self._embedded_bytes += form_bytes
+            self._embedded_bytes += len(data)
         self.embedded_models.append(self._models[model_index])
         return embedded_path
 
@@ -306,8 +325,72 @@ class _ModelPathBuilder:
         return add_embedded_files(text, list(self._forms.values()), self._indent, self._unit)
 
 
-def _read_canonical_bytes(asset: dict[str, Any]) -> bytes:
-    return Path(str(asset["canonical_path"])).read_bytes()
+def _read_canonical_bytes(asset: dict[str, Any]) -> bytes | None:
+    """Read a model to embed, or ``None`` to keep it external.
+
+    A model larger than the whole cap is skipped from its size alone. A
+    missing file (artifact maintenance may purge one) is not embedded, so the
+    footprint still places and the model's own download reports the loss.
+    """
+    path = Path(str(asset["canonical_path"]))
+    try:
+        if path.stat().st_size > EMBED_MAX_FOOTPRINT_BYTES:
+            return None
+        return path.read_bytes()
+    except FileNotFoundError:
+        logger.warning("3D model %s has no file; keeping it external", asset.get("id") or path.name)
+        return None
+
+
+def _embedded_footprint_key(footprint: dict[str, Any], models: list[dict[str, Any]]) -> tuple[Any, ...] | None:
+    """Everything that decides an embedded footprint's bytes, or ``None``."""
+    hashes = [footprint.get("sha256"), *(model.get("sha256") for model in models)]
+    if not all(hashes):
+        return None
+    return (
+        tuple(str(value) for value in hashes),
+        tuple(str(model.get("canonical_path") or model.get("name") or "") for model in models),
+        settings.REMOTE_PROVIDER_LIBRARY_PREFIX,
+        settings.REMOTE_PROVIDER_DESTINATION_DIR,
+        EMBED_MAX_FOOTPRINT_BYTES,
+    )
+
+
+def clear_embedded_footprint_cache() -> None:
+    """Forget every cached embedded footprint."""
+    with _embedded_footprint_cache_lock:
+        _embedded_footprint_cache.clear()
+
+
+def _embed_footprint(
+    asset: dict[str, Any], payload: bytes, models: list[dict[str, Any]]
+) -> tuple[bytes, list[dict[str, Any]]]:
+    """Embed the footprint's models, reusing a recent identical result.
+
+    A footprint the embedder cannot rewrite falls back to the external model
+    paths instead of failing the whole placement.
+    """
+    key = _embedded_footprint_key(asset, models)
+    if key is not None:
+        with _embedded_footprint_cache_lock:
+            cached = _embedded_footprint_cache.get(key)
+            if cached is not None:
+                _embedded_footprint_cache.move_to_end(key)
+        if cached is not None:
+            return cached[0], [models[index] for index in cached[1]]
+    try:
+        rewritten, embedded, complete = _rewrite_footprint(payload, models, _read_canonical_bytes)
+    except ValueError:
+        logger.warning("Footprint %s could not embed its 3D models; keeping them external", asset.get("id"), exc_info=True)
+        return _rewrite_footprint(payload, models, None)[:2]
+    if key is not None and complete:
+        indexes = tuple(next(i for i, model in enumerate(models) if model is chosen) for chosen in embedded)
+        with _embedded_footprint_cache_lock:
+            _embedded_footprint_cache[key] = (rewritten, indexes)
+            _embedded_footprint_cache.move_to_end(key)
+            while len(_embedded_footprint_cache) > _EMBEDDED_FOOTPRINT_CACHE_SIZE:
+                _embedded_footprint_cache.popitem(last=False)
+    return rewritten, embedded
 
 
 def materialize_asset(
@@ -337,13 +420,12 @@ def materialize_asset(
             )
         payload = rewrite_symbol_payload(payload, footprint_ref, component)
     elif asset["asset_type"] == "footprint":
-        payload, embedded_models = _rewrite_footprint(
-            payload,
-            [candidate for candidate in assets_for_revision if candidate["asset_type"] == "3dmodel"],
-            _read_canonical_bytes if embed_models else None,
-        )
+        models = [candidate for candidate in assets_for_revision if candidate["asset_type"] == "3dmodel"]
         if embed_models:
+            payload, embedded_models = _embed_footprint(asset, payload, models)
             extra["embedded_model_ids"] = [str(model["id"]) for model in embedded_models]
+        else:
+            payload = _rewrite_footprint(payload, models, None)[0]
     return {
         **asset,
         **extra,
@@ -357,6 +439,7 @@ def materialize_asset(
 
 __all__ = [
     "SYMBOL_METADATA_FIELD_ORDER",
+    "clear_embedded_footprint_cache",
     "escape_symbol_property_value",
     "extract_top_level_symbol_properties",
     "materialize_asset",

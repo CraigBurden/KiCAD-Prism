@@ -24,14 +24,14 @@ import struct
 
 import zstandard
 
-# Bytes of (file ...) forms one footprint may carry. KiCad charges every
-# manifest asset against one aggregate max_download_bytes budget (16 MiB
-# advertised by Prism). An embedded model is not shipped as a separate 3dmodel
-# asset, so for a compressible model like STEP the shipment shrinks, but the
-# footprint itself grows by this much at most. 4 MiB of base64 is about
-# 3 MiB of zstd data (a STEP model of roughly 15-30 MiB), leaves most of the
-# budget to the symbol, SPICE model and any model that falls back, and bounds
-# the board-file growth per part. The inline bundle base64-encodes the
+# Raw model bytes one footprint may embed, checked before a model is hashed
+# or compressed so an oversized STEP costs a stat, not a zstd pass. KiCad
+# charges every manifest asset against one aggregate max_download_bytes budget
+# (16 MiB advertised by Prism). An embedded model is not shipped as a separate
+# 3dmodel asset, and a model is embedded only when its form is no larger than
+# its raw file, so the footprint grows by this much at most: it leaves most of
+# the budget to the symbol, SPICE model and any model that falls back, and
+# bounds the board-file growth per part. The inline bundle base64-encodes the
 # footprint twice more, so an embedded model costs about 2.37x its compressed
 # size there, plus line wrapping and JSON.
 EMBED_MAX_FOOTPRINT_BYTES = 4 * 1024 * 1024

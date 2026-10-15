@@ -222,14 +222,19 @@ class FootprintEmbeddingTests(unittest.TestCase):
                 self.assertEqual(set(placed["embedded_model_ids"]), expected_embedded[case])
                 self.assertLessEqual(shipment(True), shipment(False))
 
-    def test_footprint_cap_boundary(self) -> None:
+    def test_footprint_cap_boundary_counts_raw_model_bytes(self) -> None:
         model = step_model(b"cap")
         name = embedded_model_name("R_0402.step", model)
-        form_size = len(embedded_file_form(name, model, compress_model(model), "\t\t", "\t").encode("utf-8"))
-        with patch.object(placement_payloads, "EMBED_MAX_FOOTPRINT_BYTES", form_size):
+        with patch.object(placement_payloads, "EMBED_MAX_FOOTPRINT_BYTES", len(model)):
             self.assertIn(f'(model "kicad-embed://{name}"', rewrite(FOOTPRINT, model))
-        with patch.object(placement_payloads, "EMBED_MAX_FOOTPRINT_BYTES", form_size - 1):
+        with (
+            patch.object(placement_payloads, "EMBED_MAX_FOOTPRINT_BYTES", len(model) - 1),
+            patch.object(placement_payloads, "compress_model") as compress,
+            patch.object(placement_payloads, "embedded_model_name") as name_model,
+        ):
             text = rewrite(FOOTPRINT, model)
+        compress.assert_not_called()
+        name_model.assert_not_called()
         self.assertIn('(model "${KIPRJMOD}/RemoteLibrary/remote_3d/R_0402.step"', text)
         self.assertNotIn("embedded_files", text)
 
@@ -237,19 +242,13 @@ class FootprintEmbeddingTests(unittest.TestCase):
         payload = FOOTPRINT.replace(b"\t(model ", b'\t(model "Z_other.step")\n\t(model ')
         models = [MODEL_ASSET, {"canonical_path": "/store/3dmodels/Lib/Z_other.step"}]
         data = {"R_0402.step": step_model(b"first"), "Z_other.step": step_model(b"second")}
-        forms = {
-            file_name: embedded_file_form(
-                embedded_model_name(file_name, raw), raw, compress_model(raw), "\t\t", "\t"
-            ).encode("utf-8")
-            for file_name, raw in data.items()
-        }
         with (
             patch.object(settings, "REMOTE_PROVIDER_LIBRARY_PREFIX", "remote"),
             patch.object(settings, "REMOTE_PROVIDER_DESTINATION_DIR", "${KIPRJMOD}/RemoteLibrary"),
             patch.object(
                 placement_payloads,
                 "EMBED_MAX_FOOTPRINT_BYTES",
-                len(forms["Z_other.step"]) + len(forms["R_0402.step"]) - 1,
+                len(data["Z_other.step"]) + len(data["R_0402.step"]) - 1,
             ),
         ):
             text = rewrite_footprint_payload(
@@ -301,6 +300,85 @@ class FootprintEmbeddingTests(unittest.TestCase):
         self.assertEqual(text.count("(embedded_files"), 1)
         self.assertIn('(name "font.ttf")\n\t\t\t(type font)\n\t\t)\n\t\t(file\n\t\t\t(name "R_0402-', text)
 
+
+
+class MaterializedFootprintTests(unittest.TestCase):
+    """Embedding through ``materialize_asset``, as placement reads stored files."""
+
+    def setUp(self) -> None:
+        placement_payloads.clear_embedded_footprint_cache()
+        self.addCleanup(placement_payloads.clear_embedded_footprint_cache)
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        self.root = Path(tmp.name)
+        self.model_bytes = step_model(b"stored")
+        self.model = self._asset("m1", "3dmodel", "R_0402.step", self.model_bytes)
+        self.footprint = self._asset("fp", "footprint", "R_0402.kicad_mod", FOOTPRINT)
+        for name, value in (
+            ("REMOTE_PROVIDER_LIBRARY_PREFIX", "remote"),
+            ("REMOTE_PROVIDER_DESTINATION_DIR", "${KIPRJMOD}/RemoteLibrary"),
+        ):
+            patcher = patch.object(settings, name, value)
+            patcher.start()
+            self.addCleanup(patcher.stop)
+
+    def _asset(self, asset_id: str, asset_type: str, name: str, data: bytes) -> dict:
+        path = self.root / name
+        path.write_bytes(data)
+        return {
+            "id": asset_id,
+            "asset_type": asset_type,
+            "canonical_path": str(path),
+            "sha256": hashlib.sha256(data).hexdigest(),
+        }
+
+    def _place(self) -> dict:
+        return materialize_asset(self.footprint, [self.footprint, self.model], {}, embed_models=True)
+
+    def test_missing_model_file_keeps_the_model_external(self) -> None:
+        Path(self.model["canonical_path"]).unlink()
+        with self.assertLogs("app.services.catalog.placement_payloads", "WARNING"):
+            placed = self._place()
+        self.assertEqual(placed["embedded_model_ids"], [])
+        self.assertIn(b'(model "${KIPRJMOD}/RemoteLibrary/remote_3d/R_0402.step"', placed["payload"])
+
+    def test_model_larger_than_the_cap_is_skipped_without_reading_it(self) -> None:
+        with (
+            patch.object(placement_payloads, "EMBED_MAX_FOOTPRINT_BYTES", len(self.model_bytes) - 1),
+            patch.object(Path, "read_bytes", autospec=True, side_effect=Path.read_bytes) as read,
+        ):
+            placed = self._place()
+        self.assertEqual([call.args[0].name for call in read.call_args_list], ["R_0402.kicad_mod"])
+        self.assertEqual(placed["embedded_model_ids"], [])
+
+    def test_malformed_footprint_falls_back_to_external_models(self) -> None:
+        Path(self.footprint["canonical_path"]).write_bytes(FOOTPRINT[: -len(b")\n")])
+        with self.assertLogs("app.services.catalog.placement_payloads", "WARNING"):
+            placed = self._place()
+        self.assertEqual(placed["embedded_model_ids"], [])
+        self.assertIn(b'(model "${KIPRJMOD}/RemoteLibrary/remote_3d/R_0402.step"', placed["payload"])
+        self.assertNotIn(b"embedded_files", placed["payload"])
+
+    def test_identical_placements_compress_each_model_once(self) -> None:
+        with patch.object(placement_payloads, "compress_model", wraps=compress_model) as compress:
+            first, second = self._place(), self._place()
+        self.assertEqual(compress.call_count, 1)
+        self.assertEqual(first["payload"], second["payload"])
+        self.assertEqual(second["embedded_model_ids"], ["m1"])
+        with patch.object(placement_payloads, "EMBED_MAX_FOOTPRINT_BYTES", 0):
+            self.assertEqual(self._place()["embedded_model_ids"], [])
+
+    def test_a_missing_model_is_not_cached(self) -> None:
+        Path(self.model["canonical_path"]).unlink()
+        with self.assertLogs("app.services.catalog.placement_payloads", "WARNING"):
+            self.assertEqual(self._place()["embedded_model_ids"], [])
+        Path(self.model["canonical_path"]).write_bytes(self.model_bytes)
+        self.assertEqual(self._place()["embedded_model_ids"], ["m1"])
+
+    def test_embedding_off_keeps_the_destination_path(self) -> None:
+        placed = materialize_asset(self.footprint, [self.footprint, self.model], {}, embed_models=False)
+        self.assertNotIn("embedded_model_ids", placed)
+        self.assertIn(b'(model "${KIPRJMOD}/RemoteLibrary/remote_3d/R_0402.step"', placed["payload"])
 
 if __name__ == "__main__":
     unittest.main()
