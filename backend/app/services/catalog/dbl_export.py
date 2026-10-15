@@ -15,6 +15,7 @@ import re
 import shutil
 import sqlite3
 from typing import Any
+import uuid
 
 from app.services.catalog.normalization import sanitize_name, sha256_bytes
 from app.services.catalog.placement import CatalogPlacement
@@ -44,6 +45,7 @@ DBL_WINDOWS_FILENAME = "Prism_Windows.kicad_dbl"
 DBL_LINUX_CONNECTION = "Driver={SQLite3};Database=${CWD}/Prism.sqlite;"
 DBL_WINDOWS_CONNECTION = "Driver={SQLite3 ODBC Driver};Database=${CWD}/Prism.sqlite;"
 DBL_MODEL_DIR = "3DModels"
+DBL_EXPORT_LOCK_PREFIX = "prism-catalog-dbl-export:"
 
 
 def quote_identifier(identifier: str) -> str:
@@ -58,6 +60,40 @@ def part_number_nocolon(value: str) -> str:
     cleaned = re.sub(r":+", "_", value.strip())
     cleaned = re.sub(r"\s+", "_", cleaned)
     return cleaned or "PART"
+
+
+def dbl_part_numbers(components: list[dict[str, Any]]) -> dict[str, str]:
+    """Map component id to its DBL key (``Part Number Nocolon``).
+
+    The key is the manufacturer part number (else the value, else the
+    component id) with runs of colons and whitespace replaced by ``_``. When
+    several exported components share a key, the oldest (component creation
+    time, then id) keeps it and each other one gets ``_`` plus the first eight
+    characters of its own component id; should that still collide, the whole
+    id is used. The key therefore depends only on the set of exported
+    components, never on their order, and adding a newer look-alike part never
+    renames an existing one.
+    """
+    groups: dict[str, list[dict[str, Any]]] = {}
+    for component in components:
+        base = part_number_nocolon(component["mpn"] or component["value"] or component["id"])
+        groups.setdefault(base, []).append(component)
+    keys: dict[str, str] = {}
+    contested: list[tuple[str, dict[str, Any]]] = []
+    for base, members in groups.items():
+        members.sort(key=lambda c: (str(c.get("component_created_at") or ""), str(c["id"])))
+        keys[str(members[0]["id"])] = base
+        contested.extend((base, member) for member in members[1:])
+    taken = set(keys.values())
+    short_keys = [(f"{base}_{part_number_nocolon(str(c['id'])[:8])}", base, c) for base, c in contested]
+    short_counts: dict[str, int] = {}
+    for key, _, _ in short_keys:
+        short_counts[key] = short_counts.get(key, 0) + 1
+    for key, base, component in short_keys:
+        if key in taken or short_counts[key] > 1:
+            key = f"{base}_{part_number_nocolon(str(component['id']))}"
+        keys[str(component["id"])] = key
+    return keys
 
 
 def dbl_symbol_library_name(part_number: str, symbol_asset: dict[str, Any] | None) -> str:
@@ -270,10 +306,48 @@ class CatalogDblExport:
         components: list[dict[str, Any]],
         metadata_fields: list[dict[str, Any]],
     ) -> dict[str, Any]:
-        """Rebuild the export root from ``components`` (already released and placeable)."""
+        """Rebuild the export root from ``components`` (already released and placeable).
+
+        The bundle is written to a sibling directory and swapped in by rename,
+        so a failed export leaves the previous bundle untouched. Exports to the
+        same root are serialized by a transaction-scoped advisory lock on
+        ``conn``, held until the caller ends the transaction, so any build or
+        retired sibling found here belongs to an interrupted export.
+        """
         export_root = runtime.export_root
-        if export_root.exists():
-            shutil.rmtree(export_root)
+        conn.execute(
+            "SELECT pg_advisory_xact_lock(hashtext(%s))", (f"{DBL_EXPORT_LOCK_PREFIX}{export_root}",)
+        ).fetchone()
+        export_root.parent.mkdir(parents=True, exist_ok=True)
+        sweep_leftovers(export_root)
+        build_root = _sibling(export_root, "build")
+        build_root.mkdir()
+        try:
+            summary = self._write_bundle(conn, build_root, components, metadata_fields)
+            _swap_in(build_root, export_root)
+        except BaseException:
+            shutil.rmtree(build_root, ignore_errors=True)
+            raise
+        return {
+            "export_root": str(export_root),
+            "component_count": summary["component_count"],
+            "category_count": summary["category_count"],
+            "sqlite_path": str(export_root / "Prism.sqlite"),
+            "linux_dbl": str(export_root / DBL_LINUX_FILENAME),
+            "windows_dbl": str(export_root / DBL_WINDOWS_FILENAME),
+            "sym_lib_table": str(export_root / "sym-lib-table"),
+            "fp_lib_table": str(export_root / "fp-lib-table"),
+            "model_count": summary["model_count"],
+            "missing_models": summary["missing_models"],
+        }
+
+    def _write_bundle(
+        self,
+        conn: Any,
+        export_root: Path,
+        components: list[dict[str, Any]],
+        metadata_fields: list[dict[str, Any]],
+    ) -> dict[str, Any]:
         (export_root / "SchLib").mkdir(parents=True, exist_ok=True)
         (export_root / "PcbLib").mkdir(parents=True, exist_ok=True)
 
@@ -285,19 +359,13 @@ class CatalogDblExport:
         ]
         effective_columns = (*DBL_COMMON_COLUMNS, *(field["key"] for field in custom_fields))
         db_path = export_root / "Prism.sqlite"
-        used_part_numbers: set[str] = set()
+        part_numbers = dbl_part_numbers(components)
         grouped_rows: dict[str, list[dict[str, str]]] = {}
         exported_models: dict[str, str] = {}
         missing_models: list[dict[str, Any]] = []
 
         for component in components:
-            base_part = part_number_nocolon(component["mpn"] or component["value"] or component["id"])
-            part_number = base_part
-            counter = 2
-            while part_number in used_part_numbers:
-                part_number = f"{base_part}_{counter}"
-                counter += 1
-            used_part_numbers.add(part_number)
+            part_number = part_numbers[str(component["id"])]
             category = component["category"] or "Uncategorized"
             grouped_rows.setdefault(category, []).append(
                 dbl_row_for_component(component, part_number, custom_fields)
@@ -366,14 +434,9 @@ class CatalogDblExport:
         )
 
         symbol_libraries = sorted(path.stem for path in (export_root / "SchLib").glob("*.kicad_sym"))
-        footprint_libraries = sorted(
-            {
-                asset["target_library"]
-                for component in components
-                for asset in component["assets"]
-                if asset["asset_type"] == "footprint"
-            }
-        )
+        # Only libraries actually written: a component's other footprints
+        # (non-default representations) are never exported.
+        footprint_libraries = sorted(path.stem for path in (export_root / "PcbLib").glob("*.pretty"))
         sym_lines = [
             "(sym_lib_table",
             f'  (lib (name "Prism")(type "Database")(uri "${{PRISM_LIB_DIR}}/{DBL_LINUX_FILENAME}")(options "")(descr ""))',
@@ -394,22 +457,52 @@ class CatalogDblExport:
         (export_root / "fp-lib-table").write_text("\n".join(fp_lines) + "\n", encoding="utf-8")
 
         return {
-            "export_root": str(export_root),
             "component_count": len(components),
             "category_count": len(grouped_rows),
-            "sqlite_path": str(db_path),
-            "linux_dbl": str(export_root / DBL_LINUX_FILENAME),
-            "windows_dbl": str(export_root / DBL_WINDOWS_FILENAME),
-            "sym_lib_table": str(export_root / "sym-lib-table"),
-            "fp_lib_table": str(export_root / "fp-lib-table"),
             "model_count": len(exported_models),
             "missing_models": unique_missing_models,
         }
 
 
+def _sibling(export_root: Path, role: str) -> Path:
+    """A unique hidden directory next to ``export_root``, on the same filesystem so renames are atomic."""
+    return export_root.parent / f".{export_root.name}.{role}-{uuid.uuid4().hex}"
+
+
+def sweep_leftovers(export_root: Path) -> list[Path]:
+    """Remove build and retired siblings an interrupted export left behind.
+
+    Call only while holding the export lock: a running export's build
+    directory looks exactly like a leftover.
+    """
+    removed: list[Path] = []
+    for role in ("build", "old"):
+        for path in sorted(export_root.parent.glob(f".{export_root.name}.{role}-*")):
+            if path.is_dir() and not path.is_symlink():
+                shutil.rmtree(path, ignore_errors=True)
+                removed.append(path)
+    return removed
+
+
+def _swap_in(build_root: Path, export_root: Path) -> None:
+    """Replace ``export_root`` with ``build_root``; the old bundle is restored if the swap fails."""
+    if not export_root.exists():
+        build_root.rename(export_root)
+        return
+    retired = _sibling(export_root, "old")
+    export_root.rename(retired)
+    try:
+        build_root.rename(export_root)
+    except BaseException:
+        retired.rename(export_root)
+        raise
+    shutil.rmtree(retired, ignore_errors=True)
+
+
 __all__ = [
     "DBL_COMMON_COLUMNS",
     "DBL_KEY_COLUMN",
+    "DBL_EXPORT_LOCK_PREFIX",
     "DBL_LINUX_FILENAME",
     "DBL_MODEL_DIR",
     "DBL_WINDOWS_FILENAME",
@@ -417,8 +510,10 @@ __all__ = [
     "dbl_footprint_ref",
     "dbl_model_path",
     "dbl_model_relpath",
+    "dbl_part_numbers",
     "dbl_row_for_component",
     "dbl_symbol_library_name",
+    "sweep_leftovers",
     "part_number_nocolon",
     "quote_identifier",
     "sexpr_string",

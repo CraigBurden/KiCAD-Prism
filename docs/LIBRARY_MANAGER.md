@@ -188,6 +188,20 @@ file is missing or no longer matches its recorded hash once in
 `missing_models`; those are left out of the bundle.
 Replace the export directory as a unit.
 
+Each export is built in a hidden sibling directory and renamed into place, so a
+failed export leaves the previous bundle untouched. The export directory's parent
+must therefore be writable, and the export directory itself must not be a mount
+point. Exports to the same directory run one at a time (a PostgreSQL advisory lock
+held for the whole export), and each one first removes any build directory an
+interrupted export left behind. `sym-lib-table` and `fp-lib-table` list only the libraries in the bundle.
+
+The DBL key (`Part Number Nocolon`) is the manufacturer part number, or the value
+when there is none, with colons and whitespace replaced by `_`. When several
+exported components share a key, the oldest component keeps it and each other
+one gets `_` plus the first eight characters of its component id (the whole id
+if that still collides). Keys do not depend on export order, and adding a newer
+part with the same key never renames an existing one.
+
 ## Governance checklist
 
 Define before production use:
