@@ -184,6 +184,18 @@ class DblModelExportTests(unittest.TestCase):
             ],
         )
 
+    def test_a_missing_model_shared_by_many_releases_is_reported_once(self) -> None:
+        step = b"ISO-10303-21;rev1;END-ISO-10303-21;"
+        assets, component = self._revision("r1", step, "3dmodel/Prism_Test/R_Test.step")
+        Path(assets[2]["canonical_path"]).unlink()
+        released = [{"component_id": "c1", "revision_id": f"r{index}", **assets[2]} for index in range(1, 6)]
+        result = self._export({"r1": assets}, released, component)
+
+        self.assertEqual(
+            result["missing_models"],
+            [{"component_id": "c1", "revision_id": "r1", "asset_id": "r1-step", "reason": "file_missing"}],
+        )
+
     def test_remote_provider_footprint_bytes_are_unchanged(self) -> None:
         step = b"ISO-10303-21;rev1;END-ISO-10303-21;"
         assets, _ = self._revision("r1", step, "3dmodel/Prism_Test/R_Test.step")

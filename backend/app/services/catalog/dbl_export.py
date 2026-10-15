@@ -20,6 +20,7 @@ from app.services.catalog.normalization import sanitize_name, sha256_bytes
 from app.services.catalog.placement import CatalogPlacement
 from app.services.catalog.placement_payloads import materialize_asset
 from app.services.catalog.runtime import CatalogRuntime
+from app.services.catalog.system_items import KIND_PART
 
 
 DBL_COMMON_COLUMNS: tuple[str, ...] = (
@@ -201,20 +202,24 @@ class CatalogDblExport:
         exported_models: dict[str, str],
         missing_models: list[dict[str, Any]],
     ) -> None:
-        """Export the models of every revision ever released, of any component.
+        """Export the models of every revision ever released, of any library part.
 
         Boards keep referencing a model after its component moves to a newer
         release or is deactivated, so this does not follow the exported set.
+        Modules and assemblies are never library parts (``is_library_part``),
+        so their models never ship.
         """
         rows = conn.execute(
             """
             SELECT DISTINCT rr.component_id, rr.revision_id, a.*
             FROM component_release_records rr
+            JOIN components c ON c.id = rr.component_id
             JOIN revision_assets ra ON ra.revision_id = rr.revision_id
             JOIN assets a ON a.id = ra.asset_id
-            WHERE a.asset_type = '3dmodel'
+            WHERE a.asset_type = '3dmodel' AND c.kind = %s
             ORDER BY rr.component_id, rr.revision_id, a.sha256, a.id
-            """
+            """,
+            (KIND_PART,),
         ).fetchall()
         for row in rows:
             model = dict(row)
@@ -299,13 +304,14 @@ class CatalogDblExport:
             )
             self.collect_dbl_assets(conn, component, part_number, export_root, exported_models, missing_models)
         self.collect_released_models(conn, export_root, exported_models, missing_models)
-        # The current revision's models are seen again through its release record.
-        reported: set[tuple[str, ...]] = set()
+        # The current revision's models are seen again through its release
+        # record, and an unchanged model is shared by every later revision:
+        # report each stored model once, at the first revision that names it.
+        reported: set[str] = set()
         unique_missing_models: list[dict[str, Any]] = []
         for entry in missing_models:
-            key = (entry["component_id"], entry["revision_id"], entry["asset_id"], entry["reason"])
-            if key not in reported:
-                reported.add(key)
+            if entry["asset_id"] not in reported:
+                reported.add(entry["asset_id"])
                 unique_missing_models.append(entry)
 
         with sqlite3.connect(db_path) as dbl_conn:

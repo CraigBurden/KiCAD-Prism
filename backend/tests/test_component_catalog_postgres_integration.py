@@ -1156,10 +1156,17 @@ class ComponentCatalogPostgresIntegrationTests(unittest.TestCase):
             for path in first_root.rglob("*")
             if path.is_file()
         }
+        # Earlier tests in a shared database leave released models of their
+        # own; only this component's model is compared.
+        own_model_prefixes = {
+            f"3DModels/{asset['sha256'][:16]}/" for asset in released["assets"] if asset["asset_type"] == "3dmodel"
+        }
+        exported_model_paths = {name for name in first_files if name.startswith("3DModels/")}
+        own_model_paths = {name for name in exported_model_paths if name[: len("3DModels/") + 17] in own_model_prefixes}
         normalized_dbl_files = {
             FIXTURE_TOKEN.sub("assets-<token>", name): _normalize_contract_bytes(payload)
             for name, payload in first_files.items()
-            if name != "Prism.sqlite"
+            if name != "Prism.sqlite" and (name not in exported_model_paths or name in own_model_paths)
         }
         self.assertEqual(
             {
@@ -1251,7 +1258,8 @@ class ComponentCatalogPostgresIntegrationTests(unittest.TestCase):
         self.assertIn("PcbLib/Prism_Test.pretty/R_Test.kicad_mod", first_files)
         # Earlier tests in a shared database may leave release records whose
         # files went with their temporary stores; only this component counts.
-        self.assertEqual(first_dbl["model_count"], 1)
+        self.assertEqual(len(own_model_paths), 1)
+        self.assertEqual(first_dbl["model_count"], len(exported_model_paths))
         self.assertEqual(
             [item for item in first_dbl["missing_models"] if item["component_id"] == component["id"]], []
         )
@@ -1269,7 +1277,7 @@ class ComponentCatalogPostgresIntegrationTests(unittest.TestCase):
         )
         # A deactivated component leaves the DBL, but boards placed from its
         # release still reference the model, so the model stays.
-        model_path = next(name for name in first_files if name.startswith("3DModels/"))
+        [model_path] = own_model_paths
         self.assertTrue(
             self.service.deactivate_component(component["id"], actor="designer@example.com", reason="obsolete")
         )
@@ -1281,7 +1289,10 @@ class ComponentCatalogPostgresIntegrationTests(unittest.TestCase):
             {path.relative_to(third_root).as_posix() for path in third_root.rglob("*")},
         )
         self.assertEqual((third_root / model_path).read_bytes(), first_files[model_path])
-        self.assertEqual(third_dbl["model_count"], 1)
+        self.assertEqual(
+            third_dbl["model_count"],
+            sum(1 for path in (third_root / "3DModels").rglob("*") if path.is_file()),
+        )
 
     def test_non_default_representation_drives_manifest_and_inline_pair(self) -> None:
         component = self._component("representations-" + uuid.uuid4().hex[:8])
