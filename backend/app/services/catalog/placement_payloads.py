@@ -381,7 +381,9 @@ def _embed_footprint(
     try:
         rewritten, embedded, complete = _rewrite_footprint(payload, models, _read_canonical_bytes)
     except ValueError:
-        logger.warning("Footprint %s could not embed its 3D models; keeping them external", asset.get("id"), exc_info=True)
+        logger.warning(
+            "Footprint %s could not embed its 3D models; keeping them external", asset.get("id"), exc_info=True
+        )
         return _rewrite_footprint(payload, models, None)[:2]
     if key is not None and complete:
         indexes = tuple(next(i for i, model in enumerate(models) if model is chosen) for chosen in embedded)
