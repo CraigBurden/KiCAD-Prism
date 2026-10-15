@@ -55,10 +55,12 @@ class SupersededStepPurgeTests(unittest.TestCase):
         self.addCleanup(self.service.close)
         self.token = uuid.uuid4().hex[:10]
 
-    def _purge(self) -> dict:
+    def _purge(self, pinned_revision_ids: tuple[str, ...] = ()) -> dict:
         """Run the maintenance purge, which commits its ledger rows, against this service."""
         with patch.object(catalog_worker_tasks, "catalog_service", self.service):
-            return catalog_worker_tasks.purge_superseded_step_files(job_id=f"job-{self.token}")
+            return catalog_worker_tasks.purge_superseded_step_files(
+                job_id=f"job-{self.token}", pinned_revision_ids=pinned_revision_ids
+            )
 
     def _released_part_with_model(self) -> tuple[dict, dict]:
         """A released part whose revision carries one STEP model."""
@@ -191,6 +193,19 @@ class SupersededStepPurgeTests(unittest.TestCase):
         self.assertIn(scratch_id, result["asset_ids"])
         self.assertFalse(scratch_path.exists())
         self.assertTrue(self._step_path(str(old_model["id"])).is_file())
+
+    def test_draft_step_pinned_outside_the_catalog_is_kept(self) -> None:
+        released, old_model = self._released_part_with_model()
+        draft = self._replace_model_in_draft(released, old_model)
+        with_scratch = self._attach_model(str(released["id"]), "scratch")
+        [scratch_id] = set(self._model_ids(with_scratch)) - set(self._model_ids(draft))
+        scratch_path = self._step_path(scratch_id)
+        self._detach(with_scratch, scratch_id)
+
+        result = self._purge(pinned_revision_ids=(with_scratch["revision_id"],))
+
+        self.assertNotIn(scratch_id, result["asset_ids"])
+        self.assertTrue(scratch_path.is_file(), "a draft STEP pinned by a System Builder system was purged")
 
     def _archived_release_with_model(self) -> tuple[dict, dict]:
         """A released revision archived in place: released_revision_id is cleared."""
@@ -399,6 +414,9 @@ class SupersededStepPurgeTests(unittest.TestCase):
             def __init__(self, conn) -> None:
                 self._conn = conn
 
+            def __getattr__(self, name):
+                return getattr(self._conn, name)
+
             def execute(self, sql, params=()):
                 cursor = self._conn.execute(sql, params)
                 if "superseded_models" in sql:
@@ -416,9 +434,16 @@ class SupersededStepPurgeTests(unittest.TestCase):
         self.assertNotIn(scratch_id, result["asset_ids"])
         self.assertTrue(self._step_path(scratch_id).is_file())
 
-    def test_a_linker_waits_for_an_uncommitted_purge_then_is_refused(self) -> None:
+    def test_a_linker_waits_for_a_purge_in_progress_then_is_refused(self) -> None:
         released, scratch_id = self._abandoned_scratch_model()
         outcome: list[BaseException] = []
+        unlinking, release_unlink = threading.Event(), threading.Event()
+        real_unlink = Path.unlink
+
+        def slow_unlink(path: Path, *args, **kwargs) -> None:
+            unlinking.set()
+            release_unlink.wait(30)
+            real_unlink(path, *args, **kwargs)
 
         def link() -> None:
             with self.service.connection() as linker:
@@ -429,19 +454,22 @@ class SupersededStepPurgeTests(unittest.TestCase):
                     outcome.append(exc)
                     linker.rollback()
 
-        with self.service.connection() as purge:
-            result = self.service.asset_files.purge_superseded_step_files(
-                purge, self.service.runtime, job_id=f"job-{self.token}"
-            )
-            self.assertIn(scratch_id, result["asset_ids"])
+        results: list[dict] = []
+        with patch.object(Path, "unlink", autospec=True, side_effect=slow_unlink):
+            purge = threading.Thread(target=lambda: results.append(self._purge()))
+            purge.start()
+            self.assertTrue(unlinking.wait(30), "the purge never reached the unlink")
+            # The ledger row is committed and the file is still there: the purge holds the asset lock.
             linker = threading.Thread(target=link)
             linker.start()
             linker.join(timeout=1.0)
             self.assertTrue(linker.is_alive(), "the linker did not wait for the purge's asset lock")
-            purge.commit()
+            release_unlink.set()
+            purge.join(timeout=30)
         linker.join(timeout=30)
 
         self.assertFalse(linker.is_alive())
+        self.assertIn(scratch_id, results[0]["asset_ids"])
         [error] = outcome
         self.assertIsInstance(error, CatalogConflict)
         self.assertEqual(error.code, "asset_bytes_missing")
@@ -457,6 +485,68 @@ class SupersededStepPurgeTests(unittest.TestCase):
         self.assertEqual(raised.exception.status_code, 409)
 
         self._relink_purged_model(released, scratch_id)
+
+    def _abandoned_draft_models(self, count: int) -> tuple[dict, list[str]]:
+        """A released part whose head draft dropped ``count`` scratch STEPs, all purge-eligible."""
+        released, old_model = self._released_part_with_model()
+        head = self._replace_model_in_draft(released, old_model)
+        scratch_ids: list[str] = []
+        for index in range(count):
+            with_scratch = self._attach_model(str(released["id"]), f"scratch-{index}")
+            [scratch_id] = set(self._model_ids(with_scratch)) - set(self._model_ids(head))
+            head = self._detach(with_scratch, scratch_id)
+            scratch_ids.append(scratch_id)
+        return released, scratch_ids
+
+    def _ledger_rows(self, asset_id: str) -> list[dict]:
+        with self.service.connection() as conn:
+            return [dict(row) for row in conn.execute(
+                "SELECT purged_at FROM catalog_asset_file_purges WHERE asset_id = %s ORDER BY purged_at",
+                (asset_id,),
+            ).fetchall()]
+
+    def test_a_crash_mid_purge_keeps_the_ledger_row_of_every_deleted_file(self) -> None:
+        released, scratch_ids = self._abandoned_draft_models(2)
+        paths = {asset_id: self._step_path(asset_id) for asset_id in scratch_ids}
+        real_unlink = Path.unlink
+        calls: list[Path] = []
+
+        def unlink_then_crash(path: Path, *args, **kwargs) -> None:
+            if calls:
+                raise SystemExit("worker killed mid-purge")
+            calls.append(path)
+            real_unlink(path, *args, **kwargs)
+
+        with patch.object(Path, "unlink", autospec=True, side_effect=unlink_then_crash):
+            with self.assertRaises(SystemExit):
+                self._purge()
+
+        deleted = [asset_id for asset_id, path in paths.items() if not path.exists()]
+        self.assertEqual(len(deleted), 1)
+        self.assertEqual(len(self._ledger_rows(deleted[0])), 1, "a deleted STEP lost its purge-ledger row")
+        self.assertTrue(self.service.verify_component_audit_chain(str(released["id"]))["valid"])
+
+    def test_a_failed_unlink_keeps_the_file_and_the_next_run_deletes_it(self) -> None:
+        released, [scratch_id] = self._abandoned_draft_models(1)
+        path = self._step_path(scratch_id)
+
+        with patch.object(Path, "unlink", autospec=True, side_effect=PermissionError("read-only store")):
+            first = self._purge()
+
+        self.assertNotIn(scratch_id, first["asset_ids"])
+        self.assertTrue(path.is_file())
+        self.assertTrue(self.service.verify_component_audit_chain(str(released["id"]))["valid"])
+        self.assertIsNotNone(self.service.get_asset_by_id(scratch_id), "a present file reads normally")
+
+        second = self._purge()
+
+        self.assertIn(scratch_id, second["asset_ids"])
+        self.assertFalse(path.exists())
+        rows = self._ledger_rows(scratch_id)
+        self.assertEqual(len(rows), 2)
+        for row in rows:
+            self.assertRegex(row["purged_at"], r"^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{6}\+00:00$")
+        self.assertTrue(self.service.verify_component_audit_chain(str(released["id"]))["valid"])
 
     def test_purge_ledger_is_migrated_and_append_only(self) -> None:
         _released, _old_model, scratch_id = self._purged_draft_model()
