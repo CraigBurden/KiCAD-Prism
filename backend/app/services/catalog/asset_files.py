@@ -9,7 +9,7 @@ from __future__ import annotations
 import logging
 import mimetypes
 from pathlib import Path
-from typing import Any
+from typing import Any, Iterable
 import uuid
 
 from app.core.errors import NotFound
@@ -174,7 +174,9 @@ class CatalogAssetFiles:
         return CatalogAssetFiles.asset_root(runtime, asset_type) / safe_library / safe_name
 
     @staticmethod
-    def purge_superseded_step_files(conn: Any, runtime: CatalogRuntime, *, job_id: str = "") -> dict[str, Any]:
+    def purge_superseded_step_files(
+        conn: Any, runtime: CatalogRuntime, *, job_id: str = "", pinned_revision_ids: Iterable[str] = ()
+    ) -> dict[str, Any]:
         """Purge obsolete STEP bytes while preserving immutable revision evidence.
 
         The asset row, hash, revision link, and audit history remain intact. A file
@@ -182,7 +184,9 @@ class CatalogAssetFiles:
         different 3D model and no revision linking the asset, in any component, is
         protected. A revision is protected while it is its component's current or
         released revision, or once it has ever been released, so released STEP
-        evidence is never deleted.
+        evidence is never deleted. A revision in ``pinned_revision_ids`` (one a
+        System Builder instance or harness end pins, which the catalog cannot see)
+        is protected too.
 
         Each deleted file gets a ``catalog_asset_file_purges`` row, inserted
         before the unlink inside a savepoint: a failed unlink rolls back its
@@ -213,7 +217,7 @@ class CatalogAssetFiles:
                 FROM revision_assets link
                 JOIN component_revisions revision ON revision.id = link.revision_id
                 JOIN components component ON component.id = revision.component_id
-                WHERE {PROTECTED_REVISION_SQL}
+                WHERE ({PROTECTED_REVISION_SQL}) OR revision.id = ANY(%s::text[])
             )
             SELECT DISTINCT asset.id, asset.canonical_path, asset.sha256
             FROM superseded_models superseded
@@ -225,7 +229,7 @@ class CatalogAssetFiles:
                 OR lower(asset.canonical_path) LIKE %s
               )
             """,
-            ("%.step", "%.stp"),
+            (sorted({str(value) for value in pinned_revision_ids}), "%.step", "%.stp"),
         ).fetchall()
         purged: list[str] = []
         for row in rows:
