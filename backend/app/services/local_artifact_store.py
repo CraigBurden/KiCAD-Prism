@@ -6,6 +6,7 @@ import json
 import os
 import shutil
 import uuid
+import contextlib
 from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
@@ -297,6 +298,28 @@ class LocalArtifactStore:
             )
             conn.commit()
         return destination
+
+    def locate(self, sha256: str, *, conn: Any = None) -> dict[str, str] | None:
+        """Where an object's bytes live, without restoring or touching it (read-only).
+
+        ``conn`` reads another database's ledger (a script's ``--database-url``);
+        its transaction is rolled back, which also undoes the ``SET LOCAL``."""
+        with contextlib.ExitStack() as stack:
+            if conn is None:
+                conn = stack.enter_context(self._connect())
+            else:
+                conn.execute("SET LOCAL search_path TO operations, catalog, public")
+            row = None
+            # An uninitialized ledger has no table; this method never creates it.
+            if conn.execute("SELECT to_regclass('catalog_artifacts') AS relation").fetchone()["relation"]:
+                row = conn.execute(
+                    "SELECT storage_state, object_path, archived_path FROM catalog_artifacts WHERE sha256 = %s",
+                    (sha256,),
+                ).fetchone()
+            conn.rollback()
+        if not row:
+            return None
+        return {key: str(row[key] or "") for key in ("storage_state", "object_path", "archived_path")}
 
     def materialize(self, sha256: str, destination: Path) -> Path:
         source = self.ensure_available(sha256)
