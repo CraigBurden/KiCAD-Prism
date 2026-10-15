@@ -131,9 +131,45 @@ class PartTest(PartCase):
         old, new = f"test-{uuid.uuid4().hex}", f"test-{uuid.uuid4().hex}"
         first = self.read_and_convert(part, old)
         self.assertIsNone(self.drawn_key(part, new), "the old converter's GLB is not the new one's")
-        second = self.read_and_convert(part, new, last_job={"status": "completed"})
+        second = self.read_and_convert(part, new)  # the new converter's key has no job yet
         self.assertNotEqual(second.call_args.kwargs["idempotency_key"], first.call_args.kwargs["idempotency_key"])
         self.assertEqual(self.drawn_key(part, new), catalog_models.glb_key(self.model["stepSha256"], new))
+
+    def test_a_read_queues_a_pinned_revision_once_on_the_real_queue(self) -> None:
+        """Reads while the job is queued join it; once it has completed without a GLB, reads queue nothing."""
+        from app.services.job_service import jobs
+        from app.services.systems.jobs import workspace_connection
+
+        jobs.initialize()
+        _part, pinned = self.pin_then_move_the_head()
+        converter = f"test-{uuid.uuid4().hex}"
+
+        def queued(key: str) -> list[str]:
+            with workspace_connection() as conn:
+                rows = conn.execute("SELECT id FROM ws_jobs WHERE kind = 'catalog_model_glb' AND artifact_key = %s",
+                                    (key,)).fetchall()
+            return [str(r["id"]) for r in rows]
+
+        with mock.patch.object(catalog_models, "converter_id", return_value=converter):
+            key = catalog_models.conversion_job_key(self.part_id, pinned)
+            self.service.scene(DESIGNER, self.sid, may_convert_models=True)
+            self.service.scene(DESIGNER, self.sid, may_convert_models=True)
+            [job] = queued(key)
+            with workspace_connection() as conn:
+                conn.execute("UPDATE ws_jobs SET status = 'completed' WHERE id = %s", (job,))
+                conn.commit()
+            self.service.scene(DESIGNER, self.sid, may_convert_models=True)
+            self.assertEqual(queued(key), [job], "a completed job that left no GLB is not queued again")
+
+    def test_a_pinned_component_without_models_is_skipped_without_a_traceback(self) -> None:
+        for refused in (LookupError("Component not found"), ValueError("only parts and modules carry models")):
+            with self.subTest(refused=type(refused).__name__), mock.patch.object(self.service, "_catalog") as catalog, \
+                    mock.patch("app.services.catalog_job_service.catalog_jobs.enqueue") as enqueue, \
+                    self.assertLogs("app.services.systems.service", level="DEBUG") as logs:
+                catalog.return_value.list_models.side_effect = refused
+                self.service._queue_pinned_conversions([(self.part_id, "rev")], DESIGNER)
+            enqueue.assert_not_called()
+            self.assertEqual([(r.levelname, r.exc_info) for r in logs.records], [("DEBUG", None)])
 
     def test_convert_takes_only_a_revision_of_that_component(self) -> None:
         other = self.catalog.create_manual_component(

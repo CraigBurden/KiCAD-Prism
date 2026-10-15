@@ -246,19 +246,24 @@ class ServiceCore:
 
     def _queue_pinned_conversions(self, pins: Iterable[tuple[str, str]], caller: Caller) -> None:
         """Queue the catalog's GLB conversion for each pinned ``(component, revision)`` whose STEP models
-        have none yet. Never after a failed or cancelled attempt: a read does not retry, Convert on the
-        part (with ``revisionId``) does. The caller must already hold ``catalog_write``."""
+        have none yet. Never once a job for that key has ended: a read neither retries a failed or cancelled
+        attempt nor repeats a completed one that left no GLB; Convert on the part (with ``revisionId``) does.
+        The caller must already hold ``catalog_write``."""
         from app.services.catalog import models as catalog_models
         from app.services.catalog_job_service import catalog_jobs
 
         for component_id, revision_id in sorted(set(pins)):
             try:
                 listed = self._catalog().list_models(component_id, revision_id)
+            except (LookupError, ValueError) as refused:  # deactivated, or not a part or module: nothing to convert
+                logger.debug("No models to convert for %s@%s: %s", component_id, revision_id, refused)
+                continue
+            try:
                 if not listed or any(m["glb"] for m in listed):
                     continue
                 key = catalog_models.conversion_job_key(component_id, revision_id)
                 last = latest_job("catalog_model_glb", key)
-                if last and last["status"] in ("failed", "cancelled"):
+                if last and last["status"] in ("completed", "failed", "cancelled"):
                     continue
                 catalog_jobs.enqueue("catalog_model_glb", {"componentId": component_id, "revisionId": revision_id},
                                      created_by=caller.email, idempotency_key=key)
