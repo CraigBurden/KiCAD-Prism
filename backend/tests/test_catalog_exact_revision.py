@@ -102,9 +102,14 @@ class ExactRevisionTests(unittest.TestCase):
         self.addCleanup(self.service.deactivate_component, component_id, actor="exact-test@local", reason="cleanup")
         self.service.import_symbol_library(
             component_id, upload_name="R_Exact.kicad_sym",
+            # Laid out as KiCad writes it: without kicad-cli (CI) the upload is kept as given.
             payload=(
-                '(kicad_symbol_lib (version 20231120) (generator "test") (symbol "R_Exact"'
-                ' (property "Reference" "R" (at 0 0 0)) (property "Value" "10k" (at 0 0 0))))'
+                '(kicad_symbol_lib (version 20231120) (generator "test")\n'
+                '  (symbol "R_Exact"\n'
+                '    (property "Reference" "R" (at 0 0 0) (effects (font (size 1.27 1.27))))\n'
+                '    (property "Value" "10k" (at 0 0 0) (effects (font (size 1.27 1.27))))\n'
+                "  )\n"
+                ")\n"
             ).encode(),
             target_library=f"Exact_{self.token}", selected_symbol="R_Exact", actor=ACTOR,
         )
