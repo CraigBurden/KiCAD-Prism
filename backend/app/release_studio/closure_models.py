@@ -36,6 +36,14 @@ _MODEL_SUFFIXES = {
 # swaps in a same-stem STEP model found on its search paths
 # (`3d_cache.cpp`, `MODEL_SUBSTITUTION::IsWrlExtension`, KiCad 10.0.4).
 _SUBSTITUTED_SUFFIXES = {".wrl", ".wrz"}
+# Names KiCad 10.0.4's 3D plugins load (`plugins/3d/oce/oce.cpp`,
+# `plugins/3d/vrml/plugin.cpp`, `plugins/3d/idf/s3d_plugin_idf.cpp`).  A host
+# file is hashed only when both the written and the resolved name end in one,
+# so a board cannot make a build fingerprint `/etc/...` or `~/.ssh/...`.
+_LOADABLE_SUFFIXES = (
+    ".step", ".stp", ".stpz", ".stepz", ".step.gz", ".stp.gz", ".igs", ".iges",
+    ".wrl", ".wrz", ".x3d", ".idf", ".emn",
+)
 # Larger than any real STEP model; a file past it is `unreadable`, not hashed.
 HOST_MODEL_MAX_BYTES = 256 * 1024 * 1024
 # A project file is small JSON; this bounds a hostile one.
@@ -87,7 +95,8 @@ def resolve_model(
     - written inside the closure but resolving outside it through a symlink:
       ``unreadable``, never hashed, so a repository cannot make a build read
       and fingerprint a worker's files;
-    - outside it: a regular file's bytes are hashed into ``digest``
+    - outside it: a regular file whose written and resolved names both carry a
+      suffix KiCad's 3D plugins load is hashed into ``digest``
       (``location="host"``); anything else, or a file over
       ``HOST_MODEL_MAX_BYTES``, is ``unreadable`` and the build is non-hermetic.
 
@@ -152,7 +161,7 @@ def resolve_model(
         if Path(expanded).suffix.casefold() in _SUBSTITUTED_SUFFIXES:
             return ModelPlacement("substitutable")
         return ModelPlacement("missing", advisory=True)
-    if not exists:
+    if not exists or not (_is_loadable(written) and _is_loadable(resolved)):
         return ModelPlacement("unreadable")
     digest = _hash_regular_file(resolved, HOST_MODEL_MAX_BYTES)
     return ModelPlacement("host", digest=digest) if digest else ModelPlacement("unreadable")
@@ -178,6 +187,10 @@ def project_text_variables(project_file: Path, destination_root: Path) -> dict[s
     if not isinstance(variables, dict):
         return {}
     return {str(name): str(value) for name, value in variables.items()}
+
+
+def _is_loadable(path: Path) -> bool:
+    return path.name.casefold().endswith(_LOADABLE_SUFFIXES)
 
 
 def _relative(path: Path, root: Path) -> str | None:

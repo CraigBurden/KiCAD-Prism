@@ -360,9 +360,12 @@ into the input closure digest.
   Set the variable on every worker to the same model library to keep builds
   hermetic and their digests equal across workers.
 
-Only regular files are hashed, up to 256 MiB each. A model that is a device, a
-FIFO, larger than that, or a repository symlink that leads out of the
-repository is unreadable, and the build non-hermetic.
+Only regular files are hashed, up to 256 MiB each, and only when both the
+written and the resolved name end in a suffix KiCad's 3D plugins load (`.step`,
+`.stp`, `.stpz`, `.stepz`, `.step.gz`, `.stp.gz`, `.igs`, `.iges`, `.wrl`,
+`.wrz`, `.x3d`, `.idf`, `.emn`). Any other host file, a device, a FIFO, a larger
+file, or a repository symlink that leads out of the repository is unreadable,
+and the build non-hermetic.
 
 ## Why the catalog gate is gone
 

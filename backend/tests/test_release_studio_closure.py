@@ -592,6 +592,27 @@ class ReleaseStudioClosureTests(unittest.TestCase):
                 self.assertLess(time.monotonic() - started, 30)
                 self.assertEqual((record.location, record.digest), ("unreadable", ""))
 
+    def test_a_host_file_that_is_not_a_3d_model_is_never_hashed(self) -> None:
+        host = self.root / "host-files"
+        host.mkdir()
+        (host / "backend.env").write_bytes(b"SECRET=1\n")
+        (host / "disguised.step").symlink_to(host / "backend.env")
+        cases = {
+            # Absolute, no symlink: the model scan picks it up, KiCad would open it.
+            "absolute": (f"{host}/backend.env.vrml", None),
+            # A model name that resolves to a file KiCad's 3D plugins do not load.
+            "disguised": ("${MODELS}/disguised.step", {"MODELS": str(host)}),
+        }
+        (host / "backend.env.vrml").write_bytes(b"SECRET=1\n")
+        for name, (reference, env) in cases.items():
+            with self.subTest(name):
+                record = self._model_record(f"non-model-{name}", reference, model_env=env)
+                self.assertEqual((record.location, record.digest), ("unreadable", ""))
+        # A board naming a plain host file never gets its bytes hashed.
+        plain = self._model_record("non-model-plain", f"{host}/backend.env")
+        self.assertEqual(plain.digest, "")
+        self.assertIn(plain.location, {"external", "unreadable"})
+
     def test_a_host_model_over_the_size_cap_is_unreadable(self) -> None:
         host = self.root / "large-models"
         host.mkdir()
