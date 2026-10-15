@@ -7,6 +7,8 @@ import { EcadViewer, EcadViewerPair } from "./ecad-viewer";
 
 const root = { filename: "root.kicad_sch", content: "(kicad_sch)" };
 const sub = { filename: "Subsheets/a.kicad_sch", content: "(kicad_sch a)" };
+const project = { filename: "board.kicad_pro", content: "{}" };
+const layout = { filename: "frame.kicad_wks", content: "(kicad_wks)" };
 const settle = () => new Promise((resolve) => setTimeout(resolve, 0));
 
 const pcbState = (layers: EcadPcbViewState["layers"]): EcadPcbViewState => ({
@@ -47,30 +49,38 @@ describe("EcadViewer readiness", () => {
         expect(ready).toHaveBeenCalledWith({ revisionKey: "rev-1" });
     });
 
-    it("appends the other sheets after the root and is ready only then", async () => {
+    it("loads the project, page layout and other sheets with the root, in one call", async () => {
+        // The element does not repaint for appended sources: a root painted
+        // ahead of its .kicad_pro kept KiCad's default title block and stale
+        // DNP marks until a variant switch repainted it.
         const element = fakeEcadViewer();
         const viewer = track(new EcadViewer("sch"));
         viewer.attach(element);
-        viewer.load("rev-1", [root, sub]);
+        viewer.load("rev-1", [root, project, layout, sub]);
         await settle();
-        expect(element.appendSources).toHaveBeenCalledWith({ revisionKey: "rev-1", sources: [sub] });
-        expect(element.replaceSources.mock.invocationCallOrder[0]).toBeLessThan(element.appendSources.mock.invocationCallOrder[0]);
+        expect(element.replaceSources).toHaveBeenCalledTimes(1);
+        expect(element.replaceSources).toHaveBeenCalledWith({ revisionKey: "rev-1", sources: [root, project, layout, sub] });
+        expect(element.appendSources).not.toHaveBeenCalled();
         expect(viewer.isReady("rev-1")).toBe(true);
         expect(viewer.getSnapshot().generation).toBe(1);
     });
 
-    it("re-appends without reloading the root when only the other sheets change", async () => {
+    it("ignores a repeated load and reloads everything when a source changes", async () => {
         const element = fakeEcadViewer();
         const viewer = track(new EcadViewer("sch"));
         viewer.attach(element);
-        viewer.load("rev-1", [root, sub]);
+        const sources = [root, sub];
+        viewer.load("rev-1", sources);
+        viewer.load("rev-1", sources);
         await settle();
+        expect(element.replaceSources).toHaveBeenCalledTimes(1);
         const next = { ...sub, content: "(kicad_sch b)" };
         viewer.load("rev-1", [root, next]);
         expect(viewer.isReady("rev-1")).toBe(false);
         await settle();
-        expect(element.replaceSources).toHaveBeenCalledTimes(1);
-        expect(element.appendSources).toHaveBeenLastCalledWith({ revisionKey: "rev-1", sources: [next] });
+        expect(element.replaceSources).toHaveBeenCalledTimes(2);
+        expect(element.replaceSources).toHaveBeenLastCalledWith({ revisionKey: "rev-1", sources: [root, next] });
+        expect(element.appendSources).not.toHaveBeenCalled();
         expect(viewer.getSnapshot().generation).toBe(2);
     });
 
@@ -87,7 +97,7 @@ describe("EcadViewer readiness", () => {
 
         element.replaceSources.mockRejectedValue(new Error("broken"));
         viewer.load("rev-2", [root]);
-        await vi.waitFor(() => expect(onLoadError).toHaveBeenCalledWith("root", expect.objectContaining({ message: "broken" })));
+        await vi.waitFor(() => expect(onLoadError).toHaveBeenCalledWith(expect.objectContaining({ message: "broken" })));
         expect(viewer.isReady("rev-2")).toBe(false);
     });
 
@@ -104,17 +114,18 @@ describe("EcadViewer readiness", () => {
         expect(viewer.getSnapshot().readyRevision).toBeNull();
     });
 
-    it("cancels an append that a newer one replaced", async () => {
+    it("reports only the newest of two overlapping loads ready", async () => {
         const element = fakeEcadViewer();
         const viewer = track(new EcadViewer("sch"));
         const ready = vi.fn();
         viewer.on("ready", ready);
         viewer.attach(element);
-        const cancel = viewer.load("rev-1", [root, sub]);
-        cancel();
+        viewer.load("rev-1", [root, sub]);
+        viewer.load("rev-2", [root, sub]);
         await settle();
-        expect(element.appendSources).not.toHaveBeenCalled();
-        expect(ready).not.toHaveBeenCalled();
+        expect(ready).toHaveBeenCalledTimes(1);
+        expect(ready).toHaveBeenCalledWith({ revisionKey: "rev-2" });
+        expect(viewer.isReady("rev-2")).toBe(true);
     });
 });
 
