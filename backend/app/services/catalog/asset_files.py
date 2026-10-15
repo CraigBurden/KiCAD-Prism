@@ -6,16 +6,77 @@ here keep the catalog's historical names for it.
 
 from __future__ import annotations
 
+import logging
 import mimetypes
 from pathlib import Path
 from typing import Any, Iterable
+import uuid
 
+from app.core.errors import NotFound
 from app.services import kicad_library_reader
 from app.services.catalog.normalization import sanitize_name, sha256_bytes
 from app.services.catalog.runtime import CatalogRuntime
 
 
 STEP_SUFFIXES = frozenset({".step", ".stp"})
+
+logger = logging.getLogger(__name__)
+
+
+# The database clock as the catalog's ISO-8601 text, so purge times never
+# depend on a worker's clock.
+DATABASE_NOW_ISO_SQL = """to_char(clock_timestamp() AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"+00:00"')"""
+
+
+# A revision whose STEP bytes the purge must keep (aliases ``revision`` and
+# ``component``): a head, a released revision, or one that was ever released.
+PROTECTED_REVISION_SQL = """
+    revision.id = component.current_revision_id
+    OR revision.id = component.released_revision_id
+    OR revision.release_status = 'released'
+    OR EXISTS (SELECT 1 FROM component_release_records record WHERE record.revision_id = revision.id)
+"""
+
+
+def purge_excuses_missing_file(conn: Any, asset_id: str) -> bool:
+    """Whether a purge-ledger row still accounts for this asset's missing file.
+
+    The asset must still be purge-eligible (no revision linking it is
+    protected), and the latest ledger row for its bytes must be newer than
+    every link to it: a link made after the purge, such as re-uploading the
+    same bytes, voids the old row until a new purge records the file again.
+    """
+    row = conn.execute(
+        f"""
+        SELECT 1 AS present
+        FROM assets asset
+        WHERE asset.id = %s
+          AND NOT EXISTS (
+              SELECT 1
+              FROM revision_assets link
+              JOIN component_revisions revision ON revision.id = link.revision_id
+              JOIN components component ON component.id = revision.component_id
+              WHERE link.asset_id = asset.id AND ({PROTECTED_REVISION_SQL})
+          )
+          AND (
+              SELECT max(purge.purged_at::timestamptz)
+              FROM catalog_asset_file_purges purge
+              WHERE purge.asset_id = asset.id AND purge.sha256 = asset.sha256
+          ) > (
+              SELECT max(link.created_at::timestamptz)
+              FROM revision_assets link
+              WHERE link.asset_id = asset.id
+          )
+        """,
+        (asset_id,),
+    ).fetchone()
+    return row is not None
+
+
+def raise_if_asset_purged(conn: Any, asset_id: str) -> None:
+    """Refuse a read of an asset whose file artifact maintenance deleted on purpose."""
+    if purge_excuses_missing_file(conn, asset_id):
+        raise NotFound("The asset's file was purged by artifact maintenance", code="asset_purged")
 
 
 def discover_symbol_names_in_text(text: str) -> list[str]:
@@ -119,7 +180,7 @@ class CatalogAssetFiles:
 
     @staticmethod
     def purge_superseded_step_files(
-        conn: Any, runtime: CatalogRuntime, *, pinned_revision_ids: Iterable[str] = ()
+        conn: Any, runtime: CatalogRuntime, *, job_id: str = "", pinned_revision_ids: Iterable[str] = ()
     ) -> dict[str, Any]:
         """Purge obsolete STEP bytes while preserving immutable revision evidence.
 
@@ -130,11 +191,18 @@ class CatalogAssetFiles:
         released revision, or once it has ever been released, so released STEP
         evidence is never deleted. A revision in ``pinned_revision_ids`` (one a
         System Builder instance or harness end pins, which the catalog cannot see)
-        is protected too. Purging a never-released draft STEP still makes
-        audit-chain verification report ``asset_content_mismatch``.
+        is protected too.
+
+        Each file's ``catalog_asset_file_purges`` row is committed before the
+        file is unlinked, one file at a time, so a crash never leaves a deleted
+        file without its row. The reverse failure is benign: a row whose unlink
+        failed or never ran names a file that is still there, the row only
+        excuses a missing file, and the next run, which still finds the asset
+        eligible, deletes it. This commits ``conn``. Audit verification accepts
+        a missing never-released draft STEP only through that row.
         """
         rows = conn.execute(
-            """
+            f"""
             WITH current_models AS (
                 SELECT revision.component_id, link.asset_id
                 FROM components component
@@ -156,16 +224,9 @@ class CatalogAssetFiles:
                 FROM revision_assets link
                 JOIN component_revisions revision ON revision.id = link.revision_id
                 JOIN components component ON component.id = revision.component_id
-                WHERE revision.id = component.current_revision_id
-                   OR revision.id = component.released_revision_id
-                   OR revision.release_status = 'released'
-                   OR revision.id = ANY(%s::text[])
-                   OR EXISTS (
-                       SELECT 1 FROM component_release_records record
-                       WHERE record.revision_id = revision.id
-                   )
+                WHERE ({PROTECTED_REVISION_SQL}) OR revision.id = ANY(%s::text[])
             )
-            SELECT DISTINCT asset.id, asset.canonical_path
+            SELECT DISTINCT asset.id, asset.canonical_path, asset.sha256
             FROM superseded_models superseded
             JOIN assets asset ON asset.id = superseded.asset_id
             LEFT JOIN protected_models protected ON protected.asset_id = superseded.asset_id
@@ -186,9 +247,26 @@ class CatalogAssetFiles:
                 continue
             if path.suffix.lower() not in STEP_SUFFIXES:
                 continue
-            if path.is_file():
+            if not path.is_file():
+                continue
+            conn.execute(
+                f"""
+                INSERT INTO catalog_asset_file_purges (id, asset_id, sha256, canonical_path, reason, job_id, purged_at)
+                VALUES (%s, %s, %s, %s, 'superseded_draft_step', %s, {DATABASE_NOW_ISO_SQL})
+                """,
+                (str(uuid.uuid4()), row["id"], row["sha256"], str(row["canonical_path"]), job_id),
+            )
+            conn.commit()
+            try:
                 path.unlink()
-                purged.append(str(row["id"]))
+            except FileNotFoundError:
+                pass
+            except OSError:
+                logger.warning(
+                    "Could not purge superseded STEP file %s; the next maintenance run retries", path, exc_info=True
+                )
+                continue
+            purged.append(str(row["id"]))
         return {"purged": len(purged), "asset_ids": purged}
 
 
@@ -197,4 +275,6 @@ __all__ = [
     "content_type_for_asset",
     "discover_footprint_name_in_text",
     "discover_symbol_names_in_text",
+    "purge_excuses_missing_file",
+    "raise_if_asset_purged",
 ]

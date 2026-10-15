@@ -127,7 +127,8 @@ class PinnedDraftStepTest(PartCase):
 
         with patch("app.services.systems.jobs.workspace_connection", self.connect):
             pins = catalog_worker_tasks.system_pinned_catalog_revisions()
-        return self.catalog.purge_superseded_step_files(pinned_revision_ids=pins)
+        with patch.object(catalog_worker_tasks, "catalog_service", self.catalog):
+            return catalog_worker_tasks.purge_superseded_step_files(pinned_revision_ids=pins)
 
     def test_a_part_instance_pin_keeps_its_draft_step(self) -> None:
         old_id, old_step = self.attach_model()

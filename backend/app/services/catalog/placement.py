@@ -9,8 +9,10 @@ from __future__ import annotations
 
 import base64
 import json
+from pathlib import Path
 from typing import Any
 
+from app.services.catalog.asset_files import raise_if_asset_purged
 from app.services.catalog.asset_types import AUXILIARY_ASSET_TYPES
 from app.services.catalog.component_read_models import CatalogComponentReadModels
 from app.services.catalog.placement_payloads import materialize_asset
@@ -165,6 +167,8 @@ class CatalogPlacement:
         if not row:
             return None
         asset = dict(row)
+        if not Path(str(asset["canonical_path"])).is_file():
+            raise_if_asset_purged(conn, asset_id)
         effective_revision_id = revision_id
         if not effective_revision_id:
             link = conn.execute(

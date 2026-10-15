@@ -4,6 +4,10 @@
 ``components.current_revision_id``. Opening a draft moves that pointer at once,
 while ``released_revision_id`` moves only on release, so a draft that replaces
 the 3D model must not let maintenance delete the model placement still serves.
+
+A model it may delete, an abandoned draft's, is recorded in the append-only
+purge ledger, so audit verification and asset reads can tell the intended
+purge from a lost file.
 """
 
 from __future__ import annotations
@@ -17,6 +21,8 @@ from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
+from app.core.errors import NotFound  # noqa: E402
+from app.services import catalog_worker_tasks  # noqa: E402
 from app.services.component_catalog_service_postgres import (  # noqa: E402
     ComponentCatalogPostgresService,
 )
@@ -45,6 +51,13 @@ class SupersededStepPurgeTests(unittest.TestCase):
         self.service.initialize()
         self.addCleanup(self.service.close)
         self.token = uuid.uuid4().hex[:10]
+
+    def _purge(self, pinned_revision_ids: tuple[str, ...] = ()) -> dict:
+        """Run the maintenance purge, which commits its ledger rows, against this service."""
+        with patch.object(catalog_worker_tasks, "catalog_service", self.service):
+            return catalog_worker_tasks.purge_superseded_step_files(
+                job_id=f"job-{self.token}", pinned_revision_ids=pinned_revision_ids
+            )
 
     def _released_part_with_model(self) -> tuple[dict, dict]:
         """A released part whose revision carries one STEP model."""
@@ -142,7 +155,7 @@ class SupersededStepPurgeTests(unittest.TestCase):
         placed = self.service.get_component(str(released["id"]), released_only=True)
         self.assertEqual(placed["revision_id"], released["revision_id"], "placement still serves the released revision")
 
-        result = self.service.purge_superseded_step_files()
+        result = self._purge()
 
         self.assertNotIn(str(old_model["id"]), result["asset_ids"])
         self.assertTrue(old_path.is_file(), "the released revision's STEP was purged")
@@ -157,7 +170,7 @@ class SupersededStepPurgeTests(unittest.TestCase):
         self.assertNotEqual(second["revision_id"], first["revision_id"])
         self.assertNotIn(str(old_model["id"]), self._model_ids(second))
 
-        result = self.service.purge_superseded_step_files()
+        result = self._purge()
 
         self.assertNotIn(str(old_model["id"]), result["asset_ids"])
         self.assertTrue(old_path.is_file(), "an earlier released revision's STEP was purged")
@@ -172,7 +185,7 @@ class SupersededStepPurgeTests(unittest.TestCase):
         head = self._detach(with_scratch, scratch_id)
         self.assertNotIn(scratch_id, self._model_ids(head))
 
-        result = self.service.purge_superseded_step_files()
+        result = self._purge()
 
         self.assertIn(scratch_id, result["asset_ids"])
         self.assertFalse(scratch_path.exists())
@@ -186,7 +199,7 @@ class SupersededStepPurgeTests(unittest.TestCase):
         scratch_path = self._step_path(scratch_id)
         self._detach(with_scratch, scratch_id)
 
-        result = self.service.purge_superseded_step_files(pinned_revision_ids=[with_scratch["revision_id"]])
+        result = self._purge(pinned_revision_ids=(with_scratch["revision_id"],))
 
         self.assertNotIn(scratch_id, result["asset_ids"])
         self.assertTrue(scratch_path.is_file(), "a draft STEP pinned by a System Builder system was purged")
@@ -214,7 +227,7 @@ class SupersededStepPurgeTests(unittest.TestCase):
         self.assertNotIn(str(old_model["id"]), self._model_ids(draft))
         self.assertTrue(self.service.list_component_release_records(str(archived["id"])))
 
-        result = self.service.purge_superseded_step_files()
+        result = self._purge()
 
         self.assertNotIn(str(old_model["id"]), result["asset_ids"])
         self.assertTrue(old_path.is_file(), "an archived release's STEP was purged")
@@ -229,7 +242,7 @@ class SupersededStepPurgeTests(unittest.TestCase):
         other_draft = self._replace_model_in_draft(other, shared_model)
         self.assertNotIn(str(shared_model["id"]), self._model_ids(other_draft))
 
-        result = self.service.purge_superseded_step_files()
+        result = self._purge()
 
         self.assertNotIn(str(shared_model["id"]), result["asset_ids"])
         self.assertTrue(shared_path.is_file(), "a STEP shared with another component's archived release was purged")
@@ -250,10 +263,191 @@ class SupersededStepPurgeTests(unittest.TestCase):
         self.assertEqual(self._released_revision_id(str(part["id"])), "")
         self.assertNotEqual(draft["revision_id"], part["revision_id"])
 
-        result = self.service.purge_superseded_step_files()
+        result = self._purge()
 
         self.assertNotIn(model_id, result["asset_ids"])
         self.assertTrue(model_path.is_file(), "a legacy released revision's STEP was purged")
+
+    def _purged_draft_model(self) -> tuple[dict, dict, str]:
+        """A released part whose head draft dropped a scratch STEP that maintenance purged."""
+        released, old_model = self._released_part_with_model()
+        draft = self._replace_model_in_draft(released, old_model)
+        with_scratch = self._attach_model(str(released["id"]), "scratch")
+        [scratch_id] = set(self._model_ids(with_scratch)) - set(self._model_ids(draft))
+        self._detach(with_scratch, scratch_id)
+        self.assertIn(scratch_id, self._purge()["asset_ids"])
+        return released, old_model, scratch_id
+
+    def test_purged_draft_model_keeps_the_audit_chain_valid(self) -> None:
+        released, _old_model, scratch_id = self._purged_draft_model()
+
+        audit = self.service.verify_component_audit_chain(str(released["id"]))
+
+        self.assertTrue(audit["valid"], audit)
+        self.assertEqual(audit["purged_asset_ids"], [scratch_id])
+        with self.service.connection() as conn:
+            row = conn.execute(
+                "SELECT job_id, reason FROM catalog_asset_file_purges WHERE asset_id = %s", (scratch_id,)
+            ).fetchone()
+        self.assertEqual((row["job_id"], row["reason"]), (f"job-{self.token}", "superseded_draft_step"))
+
+    def test_reading_a_purged_model_is_a_typed_not_found(self) -> None:
+        _released, _old_model, scratch_id = self._purged_draft_model()
+
+        for read in (self.service.get_asset_by_id, self.service.catalog_asset_source):
+            with self.subTest(read=read.__name__), self.assertRaises(NotFound) as raised:
+                read(scratch_id)
+            self.assertEqual(raised.exception.code, "asset_purged")
+            self.assertEqual(raised.exception.status_code, 404)
+
+    def test_missing_file_without_a_ledger_row_is_still_invalid(self) -> None:
+        released, old_model = self._released_part_with_model()
+        draft = self._replace_model_in_draft(released, old_model)
+        with_scratch = self._attach_model(str(released["id"]), "scratch")
+        [scratch_id] = set(self._model_ids(with_scratch)) - set(self._model_ids(draft))
+        self._detach(with_scratch, scratch_id)
+        self._step_path(scratch_id).unlink()
+
+        audit = self.service.verify_component_audit_chain(str(released["id"]))
+
+        self.assertFalse(audit["valid"])
+        self.assertEqual(audit["reason"], "asset_content_mismatch")
+        self.assertEqual(audit["first_invalid_asset_id"], scratch_id)
+
+    def test_a_ledger_row_never_excuses_a_released_model(self) -> None:
+        released, model = self._released_part_with_model()
+        path = self._step_path(str(model["id"]))
+        with self.service.connection() as conn:
+            conn.execute(
+                """
+                INSERT INTO catalog_asset_file_purges (id, asset_id, sha256, canonical_path, reason, purged_at)
+                SELECT %s, id, sha256, canonical_path, 'test', '2026-01-01T00:00:00+00:00' FROM assets WHERE id = %s
+                """,
+                (uuid.uuid4().hex, str(model["id"])),
+            )
+            conn.commit()
+        path.unlink()
+
+        audit = self.service.verify_component_audit_chain(str(released["id"]))
+
+        self.assertFalse(audit["valid"])
+        self.assertEqual(audit["first_invalid_asset_id"], str(model["id"]))
+
+    def _relink_purged_model(self, released: dict, scratch_id: str) -> dict:
+        """Upload the purged bytes again: the asset row is reused and its file restored."""
+        relinked = self._attach_model(str(released["id"]), "scratch")
+        self.assertIn(scratch_id, self._model_ids(relinked))
+        self.assertTrue(self._step_path(scratch_id).is_file())
+        return relinked
+
+    def _assert_invalid_at(self, component_id: str, asset_id: str) -> None:
+        audit = self.service.verify_component_audit_chain(component_id)
+        self.assertFalse(audit["valid"], audit)
+        self.assertEqual(audit["reason"], "asset_content_mismatch")
+        self.assertEqual(audit["first_invalid_asset_id"], asset_id)
+
+    def test_an_old_ledger_row_does_not_excuse_a_relinked_model(self) -> None:
+        released, _old_model, scratch_id = self._purged_draft_model()
+        self._relink_purged_model(released, scratch_id)
+        self._step_path(scratch_id).unlink()
+
+        self._assert_invalid_at(str(released["id"]), scratch_id)
+        with self.assertRaises(FileNotFoundError):
+            self.service.get_asset_by_id(scratch_id)
+
+    def test_a_relinked_model_abandoned_again_needs_a_new_ledger_row(self) -> None:
+        released, _old_model, scratch_id = self._purged_draft_model()
+        relinked = self._relink_purged_model(released, scratch_id)
+        self._detach(relinked, scratch_id)
+        path = self._step_path(scratch_id)
+        payload = path.read_bytes()
+        path.unlink()
+
+        self._assert_invalid_at(str(released["id"]), scratch_id)
+
+        path.write_bytes(payload)
+        self.assertIn(scratch_id, self._purge()["asset_ids"])
+        audit = self.service.verify_component_audit_chain(str(released["id"]))
+        self.assertTrue(audit["valid"], audit)
+        self.assertEqual(audit["purged_asset_ids"], [scratch_id])
+
+    def _abandoned_draft_models(self, count: int) -> tuple[dict, list[str]]:
+        """A released part whose head draft dropped ``count`` scratch STEPs, all purge-eligible."""
+        released, old_model = self._released_part_with_model()
+        head = self._replace_model_in_draft(released, old_model)
+        scratch_ids: list[str] = []
+        for index in range(count):
+            with_scratch = self._attach_model(str(released["id"]), f"scratch-{index}")
+            [scratch_id] = set(self._model_ids(with_scratch)) - set(self._model_ids(head))
+            head = self._detach(with_scratch, scratch_id)
+            scratch_ids.append(scratch_id)
+        return released, scratch_ids
+
+    def _ledger_rows(self, asset_id: str) -> list[dict]:
+        with self.service.connection() as conn:
+            return [dict(row) for row in conn.execute(
+                "SELECT purged_at FROM catalog_asset_file_purges WHERE asset_id = %s ORDER BY purged_at",
+                (asset_id,),
+            ).fetchall()]
+
+    def test_a_crash_mid_purge_keeps_the_ledger_row_of_every_deleted_file(self) -> None:
+        released, scratch_ids = self._abandoned_draft_models(2)
+        paths = {asset_id: self._step_path(asset_id) for asset_id in scratch_ids}
+        real_unlink = Path.unlink
+        calls: list[Path] = []
+
+        def unlink_then_crash(path: Path, *args, **kwargs) -> None:
+            if calls:
+                raise SystemExit("worker killed mid-purge")
+            calls.append(path)
+            real_unlink(path, *args, **kwargs)
+
+        with patch.object(Path, "unlink", autospec=True, side_effect=unlink_then_crash):
+            with self.assertRaises(SystemExit):
+                self._purge()
+
+        deleted = [asset_id for asset_id, path in paths.items() if not path.exists()]
+        self.assertEqual(len(deleted), 1)
+        self.assertEqual(len(self._ledger_rows(deleted[0])), 1, "a deleted STEP lost its purge-ledger row")
+        self.assertTrue(self.service.verify_component_audit_chain(str(released["id"]))["valid"])
+
+    def test_a_failed_unlink_keeps_the_file_and_the_next_run_deletes_it(self) -> None:
+        released, [scratch_id] = self._abandoned_draft_models(1)
+        path = self._step_path(scratch_id)
+
+        with patch.object(Path, "unlink", autospec=True, side_effect=PermissionError("read-only store")):
+            first = self._purge()
+
+        self.assertNotIn(scratch_id, first["asset_ids"])
+        self.assertTrue(path.is_file())
+        self.assertTrue(self.service.verify_component_audit_chain(str(released["id"]))["valid"])
+        self.assertIsNotNone(self.service.get_asset_by_id(scratch_id), "a present file reads normally")
+
+        second = self._purge()
+
+        self.assertIn(scratch_id, second["asset_ids"])
+        self.assertFalse(path.exists())
+        rows = self._ledger_rows(scratch_id)
+        self.assertEqual(len(rows), 2)
+        for row in rows:
+            self.assertRegex(row["purged_at"], r"^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{6}\+00:00$")
+        self.assertTrue(self.service.verify_component_audit_chain(str(released["id"]))["valid"])
+
+    def test_purge_ledger_is_migrated_and_append_only(self) -> None:
+        _released, _old_model, scratch_id = self._purged_draft_model()
+        with self.service.connection() as conn:
+            step = conn.execute("SELECT name FROM catalog_schema_versions WHERE version = 9").fetchone()
+            self.assertEqual(step["name"], "asset_file_purges")
+            conn.rollback()
+            # A rollback also drops the connection's search_path, so qualify the table.
+            for statement in (
+                "DELETE FROM catalog.catalog_asset_file_purges WHERE asset_id = %s",
+                "UPDATE catalog.catalog_asset_file_purges SET reason = 'edited' WHERE asset_id = %s",
+            ):
+                with self.subTest(statement=statement.split()[0]):
+                    with self.assertRaisesRegex(Exception, "immutable catalog evidence"):
+                        conn.execute(statement, (scratch_id,))
+                    conn.rollback()
 
 
 if __name__ == "__main__":

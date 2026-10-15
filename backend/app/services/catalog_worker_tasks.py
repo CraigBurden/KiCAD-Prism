@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any, Callable
+from typing import Any, Callable, Iterable
 from datetime import datetime, timedelta, timezone
 
 from app.core.config import settings
@@ -166,6 +166,17 @@ def run_folder_import(context: JobContext) -> dict[str, Any]:
     return {"session_id": session_id, "proposal_count": int((session or {}).get("proposal_count") or 0)}
 
 
+def purge_superseded_step_files(*, job_id: str = "", pinned_revision_ids: Iterable[str] = ()) -> dict[str, Any]:
+    """Delete abandoned draft STEP files and commit their purge-ledger rows."""
+    catalog_service.initialize()
+    with catalog_service.connection() as conn:
+        result = catalog_service.asset_files.purge_superseded_step_files(
+            conn, catalog_service.runtime, job_id=job_id, pinned_revision_ids=pinned_revision_ids
+        )
+        conn.commit()
+    return result
+
+
 def system_pinned_catalog_revisions() -> list[str]:
     """Catalog revisions System Builder pins; the STEP purge keeps their files.
 
@@ -212,7 +223,7 @@ def run_artifact_maintenance(context: JobContext) -> dict[str, Any]:
     staging_cleanup = job_artifacts.cleanup_stale_staging()
     git_cache_rows_purged = git_read_cache.prune()
     _step(context, progress=80, message="Purging superseded STEP payloads")
-    step_result = catalog_service.purge_superseded_step_files(pinned_revision_ids=system_pinned_catalog_revisions())
+    step_result = purge_superseded_step_files(job_id=context.job_id, pinned_revision_ids=system_pinned_catalog_revisions())
     staging = catalog_service.cleanup_resolved_import_staging(
         older_than=(datetime.now(timezone.utc) - timedelta(days=30)).isoformat()
     )
