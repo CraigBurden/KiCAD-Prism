@@ -857,6 +857,15 @@ class ReleaseStudioClosureTests(unittest.TestCase):
         model.write_bytes(b"hashed bytes\n")
         self.assertEqual(build("unstaged", None).digest, staged.digest)
         self.assertNotIn(str(stage), str(staged.to_dict()))
+        # The rewritten board never ships: a board has no canonicalizer, so it
+        # cannot become a dossier member.
+        from app.release_studio.dossier import DossierError, canonicalizer_for
+
+        with self.assertRaises(DossierError):
+            canonicalizer_for("hardware/board/board.kicad_pcb", "")
+        # The read-only copies go with the job's staging directory.
+        shutil.rmtree(stage)
+        self.assertFalse(stage.exists())
 
     def test_a_model_missing_from_the_closure_is_advisory_not_a_blocker(self) -> None:
         # Boards routinely carry stale `(model ...)` paths whose case or
