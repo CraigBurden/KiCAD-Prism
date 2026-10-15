@@ -8,6 +8,9 @@ function read<T>(key: string, follows: readonly Topic[], keep: boolean, load: (r
 
 const VERSION: readonly Topic[] = ["version"];
 
+/** The key prefix of every `pinnedModels` read, refreshed together when conversions settle. */
+export const PINNED_MODELS_PREFIX = "models:";
+
 /**
  * AC-15: every read the System Builder makes of an open system, with what makes it stale.
  * `keep` says whether the last value stays shown while a newer one loads, as each read
@@ -45,7 +48,7 @@ export const sessionReads = {
     read(`diff:${snapshotId}:${against}`, VERSION, false, (reads) => reads.diffSnapshot(snapshotId, against)),
   /** The STEP models of a catalog revision an instance or harness end pins (§18.2): one read per revision. */
   pinnedModels: (componentId: string, revisionId: string) =>
-    read(`models:${componentId}@${revisionId}`, [], true,
+    read(`${PINNED_MODELS_PREFIX}${componentId}@${revisionId}`, [], true,
       async (_reads, signal) => (await listModels(componentId, signal, revisionId)).items ?? null),
   endSuggestions: (harnessId: string, endId: string) =>
     read(`suggestions:${harnessId}:${endId}`, VERSION, false, (reads) => reads.getEndSuggestions(harnessId, endId)),

@@ -325,6 +325,11 @@ export class SystemSession {
     this.fetch(entry);
   }
 
+  /** Read again now every open read whose key starts with `prefix` (a family, such as the pinned models). */
+  refreshPrefix(prefix: string): void {
+    for (const key of [...this.entries.keys()]) if (key.startsWith(prefix)) this.refresh(key);
+  }
+
   /** Put a value just written (the diagram's saved layout) where the read keeps it. */
   store(key: string, value: unknown): void {
     const entry = this.entries.get(key);

@@ -1,11 +1,11 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { RefreshCw } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { convertModelsAndWait } from "@/components/workspace/library-component-models";
 
-import { sessionReads } from "./session/session-reads";
+import { PINNED_MODELS_PREFIX, sessionReads } from "./session/session-reads";
 import { useSessionRead, useSystemSession } from "./session/use-system-session";
 
 /**
@@ -35,6 +35,19 @@ function usePinnedModels(componentId: string, revisionId: string, enabled: boole
   };
 
   return { models, converting, convert };
+}
+
+/**
+ * The scene's `modelsConverting` (conversions a scene read queued) dropped to zero: every pinned-models
+ * read (inspector facts, harness ends) is read again, so none stays "Not converted".
+ */
+export function useConversionsSettled(converting: number) {
+  const { session } = useSystemSession();
+  const was = useRef(converting);
+  useEffect(() => {
+    if (was.current > 0 && converting === 0) session.refreshPrefix(PINNED_MODELS_PREFIX);
+    was.current = converting;
+  }, [converting, session]);
 }
 
 function ConvertButton({ converting, onConvert }: { converting: boolean; onConvert: () => void }) {

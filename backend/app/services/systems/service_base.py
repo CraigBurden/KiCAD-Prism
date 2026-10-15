@@ -15,7 +15,7 @@ from typing import Any, Callable, ContextManager, Iterable, Iterator, Mapping, O
 
 from app.core.roles import Role
 from app.services.systems import exports as exports_module, git_tracking, modules, visibility
-from app.services.systems.bundles import BundleSource, latest_job
+from app.services.systems.bundles import BundleSource, latest_jobs
 from app.services.systems.interface_extractor import EXTRACTOR_VERSION
 from app.services.systems.jobs import (
     enqueue_extraction,
@@ -251,12 +251,26 @@ class ServiceCore:
         have none yet, and return how many have a conversion queued or running (a scene reader polls
         while any has). Never once a job for that key has ended: a read neither retries a failed or cancelled
         attempt nor repeats a completed one that left no GLB; Convert on the part (with ``revisionId``) does.
+        The pins' latest jobs are read in one query, and a pin whose job is still active costs nothing more,
+        so the scene's poll while conversions run asks the catalog only about pins with no job yet.
         The caller must already hold ``catalog_write``."""
         from app.services.catalog import models as catalog_models
         from app.services.catalog_job_service import catalog_jobs
 
+        keys = {pin: catalog_models.conversion_job_key(*pin) for pin in sorted(set(pins))}
+        try:
+            last = latest_jobs("catalog_model_glb", keys.values())
+        except Exception:
+            logger.exception("Could not read the model conversion jobs")
+            return 0
         converting = 0
-        for component_id, revision_id in sorted(set(pins)):
+        for (component_id, revision_id), key in keys.items():
+            status = (last.get(key) or {}).get("status")
+            if status in ("completed", "failed", "cancelled"):
+                continue
+            if status:  # queued or running: it settles by itself
+                converting += 1
+                continue
             try:
                 listed = self._catalog().list_models(component_id, revision_id)
             except (LookupError, ValueError) as refused:  # deactivated, or not a part or module: nothing to convert
@@ -264,10 +278,6 @@ class ServiceCore:
                 continue
             try:
                 if not listed or any(m["glb"] for m in listed):
-                    continue
-                key = catalog_models.conversion_job_key(component_id, revision_id)
-                last = latest_job("catalog_model_glb", key)
-                if last and last["status"] in ("completed", "failed", "cancelled"):
                     continue
                 catalog_jobs.enqueue("catalog_model_glb", {"componentId": component_id, "revisionId": revision_id},
                                      created_by=caller.email, idempotency_key=key)

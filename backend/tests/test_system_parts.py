@@ -97,7 +97,8 @@ class PartTest(PartCase):
         """A designer's scene read under ``converter``, which must queue the pinned revision's conversion
         and draw nothing yet; the queued job is then run as the catalog worker would."""
         with mock.patch.object(catalog_models, "converter_id", return_value=converter), \
-                mock.patch("app.services.systems.service_base.latest_job", return_value=last_job), \
+                mock.patch("app.services.systems.service_base.latest_jobs",
+                           side_effect=lambda kind, keys: {k: last_job for k in keys} if last_job else {}), \
                 mock.patch("app.services.catalog_job_service.catalog_jobs.enqueue") as enqueue:
             scene = self.service.scene(DESIGNER, self.sid, may_convert_models=True)
             [occurrence] = [o for o in scene["occurrences"] if o["instanceId"] == part["id"]]
@@ -119,7 +120,8 @@ class PartTest(PartCase):
         with mock.patch.object(catalog_models, "converter_id", return_value=converter), \
                 mock.patch("app.services.catalog_job_service.catalog_jobs.enqueue") as enqueue:
             self.service.scene(DESIGNER, self.sid)  # a reader without catalog_write
-            with mock.patch("app.services.systems.service_base.latest_job", return_value={"status": "failed"}):
+            with mock.patch("app.services.systems.service_base.latest_jobs",
+                            side_effect=lambda kind, keys: {k: {"status": "failed"} for k in keys}):
                 self.service.scene(DESIGNER, self.sid, may_convert_models=True)  # a read never retries a failure
             enqueue.assert_not_called()
         enqueue = self.read_and_convert(part, converter)
@@ -172,6 +174,18 @@ class PartTest(PartCase):
                 self.service._queue_pinned_conversions([(self.part_id, "rev")], DESIGNER)
             enqueue.assert_not_called()
             self.assertEqual([(r.levelname, r.exc_info) for r in logs.records], [("DEBUG", None)])
+
+    def test_a_poll_while_a_conversion_runs_asks_the_catalog_nothing(self) -> None:
+        """#698 review: the scene re-reads every 5 s while models convert; an active job settles by itself."""
+        pins = [(self.part_id, "rev-a"), (self.part_id, "rev-b")]
+        with mock.patch.object(self.service, "_catalog") as catalog, \
+                mock.patch("app.services.systems.service_base.latest_jobs",
+                           side_effect=lambda kind, keys: {k: {"status": "running"} for k in keys}) as jobs, \
+                mock.patch("app.services.catalog_job_service.catalog_jobs.enqueue") as enqueue:
+            self.assertEqual(self.service._queue_pinned_conversions(pins, DESIGNER), 2)
+        jobs.assert_called_once()
+        catalog.return_value.list_models.assert_not_called()
+        enqueue.assert_not_called()
 
     def test_convert_takes_only_a_revision_of_that_component(self) -> None:
         other = self.catalog.create_manual_component(
@@ -321,7 +335,7 @@ class PinnedHousingTest(PartCase):
         self.move_the_head()
         converter = f"test-{uuid.uuid4().hex}"
         with mock.patch.object(catalog_models, "converter_id", return_value=converter), \
-                mock.patch("app.services.systems.service_base.latest_job", return_value=None), \
+                mock.patch("app.services.systems.service_base.latest_jobs", return_value={}), \
                 mock.patch("app.services.catalog_job_service.catalog_jobs.enqueue") as enqueue:
             self.assertIsNone(self.housing(end_id))
             enqueue.assert_not_called()
