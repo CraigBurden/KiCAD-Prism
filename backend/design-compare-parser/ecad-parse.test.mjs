@@ -1,7 +1,7 @@
 /**
  * Semantic properties of the object index that M2 will diff against.
  *
- * Run with `node --test scripts/` -- Node 22's built-in runner, so this needs
+ * Run with `node --test scripts/` -- Node 24's built-in runner, so this needs
  * no dependency the backend image does not already have.
  *
  * The reconciliation check in ecad-parse.mjs already proves the index accounts

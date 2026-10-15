@@ -154,7 +154,14 @@ describe("typed readers", () => {
     stubFetch(() => new Response("<html>icd</html>", { status: 200 }));
     await expect(fetchText("/api/systems/s/icd.html")).resolves.toBe("<html>icd</html>");
     stubFetch(() => new Response("zip", { status: 200 }));
-    expect(await (await fetchBlob("/api/projects/p/asset/x.zip")).text()).toBe("zip");
+    // Node 24's Response.blob() builds the test environment's (jsdom) Blob, which has no text().
+    const blob = await fetchBlob("/api/projects/p/asset/x.zip");
+    const body = await new Promise((resolve) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(reader.result);
+      reader.readAsText(blob);
+    });
+    expect(body).toBe("zip");
 
     stubFetch(jsonResponse(404, { detail: "Not found" }));
     expect(await rejection(fetchText("/api/systems/s/icd.html", undefined, "The ICD could not be generated"))).toMatchObject({
