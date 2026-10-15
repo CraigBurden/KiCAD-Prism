@@ -1126,23 +1126,23 @@ class ComponentCatalogDomainService:
         return self.deactivate_component(component_id, actor=actor, reason=reason)
 
     def build_manifest(
-        self, component_id: str, base_url: str, representation_id: str = ""
+        self, component_id: str, base_url: str, representation_id: str = "", revision_id: str = ""
     ) -> dict[str, Any] | None:
         self.initialize()
-        component = self.get_component(component_id, include_inactive=False, released_only=True)
-        if not component:
-            return None
         with self._connect() as conn:
+            component = self._placement.placeable_component(conn, component_id, revision_id)
+            if not component:
+                return None
             return self._placement.build_manifest(conn, component, base_url, representation_id)
 
     def build_inline_bundle(
-        self, component_id: str, representation_id: str = ""
+        self, component_id: str, representation_id: str = "", revision_id: str = ""
     ) -> dict[str, Any] | None:
         self.initialize()
-        component = self.get_component(component_id, include_inactive=False, released_only=True)
-        if not component:
-            return None
         with self._connect() as conn:
+            component = self._placement.placeable_component(conn, component_id, revision_id)
+            if not component:
+                return None
             return self._placement.build_inline_bundle(conn, component, representation_id)
 
     def get_asset_by_id(

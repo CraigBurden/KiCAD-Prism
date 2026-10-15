@@ -16,6 +16,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 from app.core.config import settings
+from app.core.errors import NotFound
 from app.services.catalog.asset_types import AUXILIARY_ASSET_TYPES
 from app.services.catalog.component_read_models import CatalogComponentReadModels
 from app.services.catalog.placement_payloads import materialize_asset
@@ -98,6 +99,52 @@ class CatalogPlacement:
             for raw_asset in assets
             if str(raw_asset["id"]) not in embedded
         ]
+
+    @staticmethod
+    def released_revisions(conn: Any, component_id: str) -> list[dict[str, Any]]:
+        """The component's revisions placement may serve, newest first: ever released and still released.
+
+        A revision archived after release is left out; drafts never appear.
+        """
+        rows = conn.execute(
+            """
+            SELECT revision.id, revision.version, min(record.created_at) AS released_at
+            FROM component_revisions revision
+            JOIN component_release_records record ON record.revision_id = revision.id
+            WHERE revision.component_id = %s AND revision.release_status = 'released'
+            GROUP BY revision.id, revision.version
+            ORDER BY revision.version DESC
+            """,
+            (component_id,),
+        ).fetchall()
+        return [
+            {"revision_id": str(row["id"]), "version": int(row["version"]), "released_at": str(row["released_at"])}
+            for row in rows
+        ]
+
+    def placeable_component(self, conn: Any, component_id: str, revision_id: str = "") -> dict[str, Any] | None:
+        """The released component payload placement serves (issue #698, D4).
+
+        Without ``revision_id``, the component's current released revision.
+        With it, that exact revision, when it belongs to the component, was
+        released and is not archived, and the component is active and still
+        released; anything else, a draft above all, is a typed 404
+        ``revision_not_released`` and never served. ``None`` means the
+        component itself is not placeable (unknown, inactive or unreleased).
+        """
+        if not revision_id:
+            return self._read_models.get_component(conn, component_id, include_inactive=False, released_only=True)
+        component, current = self._revision_kernel.active_revision_row(conn, component_id, released=True)
+        if not component or not current or not component["is_active"]:
+            return None
+        revision = self._revision_kernel.revision_row(conn, revision_id)
+        if (
+            not revision
+            or str(revision["component_id"]) != str(component["id"])
+            or revision_id not in {item["revision_id"] for item in self.released_revisions(conn, component_id)}
+        ):
+            raise NotFound("The component has no released revision with this id", code="revision_not_released")
+        return self._read_models.component_payload(conn, component, revision, released_view=True)
 
     @staticmethod
     def _require_placeable(component: dict[str, Any]) -> None:

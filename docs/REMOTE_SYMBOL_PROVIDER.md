@@ -96,6 +96,26 @@ the component detail, part manifest, inline bundle, and signed asset download
 flows. Unknown and incomplete IDs are rejected rather than silently falling
 back.
 
+## Placing an earlier released revision
+
+From `provider_version` `0.4.0` the component detail, part manifest and inline
+bundle take an optional `revision` query parameter: the id of one of the
+component's released revisions. The detail lists them as `released_revisions`
+(`revision_id`, `version`, `released_at`, newest first) and names the revision
+it describes in `revision_id`; its `manifest_url` and `inline_url` carry the
+chosen `revision`, and the signed asset URLs of that manifest name it as `rev`.
+The placed symbols are stamped with that revision. Only revisions that were
+released and are not archived qualify: a draft, an archived revision, another
+component's revision or an unknown id is refused with 404
+`revision_not_released`, never served. Without `revision` the current release
+is served, as before.
+
+KiCad needs no change for this: the KiCad 10 Remote Symbols panel shows Prism's
+own page and places whatever manifest or inline bundle that page sends
+(`PLACE_COMPONENT`). The panel shows a revision selector next to the
+representation selector when a part has more than one released revision; it
+defaults to the latest.
+
 ## Placed symbol provenance
 
 Placed symbols carry two hidden properties after the catalog metadata
@@ -143,8 +163,22 @@ credentials.
 ## Parts payload contract (parts_v1)
 
 Clients must read `provider_version` from the discovery metadata before
-assuming payload fields. Version `0.3.0` is a breaking change to the parts
-payload:
+assuming payload fields.
+
+`0.4.0` (issue #698) is additive for clients. It records two payload changes
+that shipped under `0.3.0`, and adds one request parameter:
+
+- placed symbols carry the hidden `Prism_Component` and `Prism_Revision`
+  properties, and both names are reserved
+  ([Placed symbol provenance](#placed-symbol-provenance));
+- placed footprints embed their 3D models, and an embedded model is no longer
+  a separate `3dmodel` asset in the manifest or inline bundle
+  ([3D models](#3d-models));
+- new: the optional `revision` parameter and the `released_revisions` and
+  `revision_id` detail fields
+  ([Placing an earlier released revision](#placing-an-earlier-released-revision)).
+
+Version `0.3.0` is a breaking change to the parts payload:
 
 Removed in `0.3.0` — the flat inventory fields
 `stock_known`, `stock_quantity`, `stock_uom`, `inventory_status`,
@@ -206,7 +240,7 @@ with the raw model shipped instead. Models that are not embedded
 the shared `<destination>/<prefix>_3d/<name>` path, which is not pinned, and
 are still shipped. A footprint whose text cannot take an `embedded_files`
 block is placed with external model paths and logged. Footprint embedding
-needs no new discovery fields, so `provider_version` is unchanged.
+needs no new discovery fields; `provider_version` `0.4.0` records the change.
 
 Prism keeps the compressed copy of each model it embeds under the catalog
 store (`embedded-models/`) and reuses it, so a placed footprint's bytes do not
@@ -232,7 +266,8 @@ they are:
 - still being authored or reviewed;
 - archived or inactive;
 - missing a required symbol or footprint;
-- not the current released revision.
+- not the current released revision, unless a placement names an earlier
+  released revision explicitly.
 
 A blank provider can therefore indicate catalog state rather than an
 authentication failure.

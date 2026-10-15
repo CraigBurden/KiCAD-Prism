@@ -392,8 +392,8 @@ Three things change once:
 - **Symbol bytes and manifest hashes.** Every served symbol's bytes, and so its
   `sha256` in the placement manifest, change on the first request after the
   upgrade. Output is byte-stable again from then on. The manifest and bundle
-  shapes do not change, so `provider_version` stays; a client that caches by
-  hash downloads each symbol once more.
+  shapes do not change; `provider_version` `0.4.0` records the change (see
+  below). A client that caches by hash downloads each symbol once more.
 - **Reserved field keys.** `prism_component` and `prism_revision` become
   reserved custom field keys, matched after key canonicalization (`Prism
   Revision` and `prism-revision` count, `prismrevision` does not). Creating a
@@ -447,6 +447,17 @@ upgrade does not change placed bytes. Back it up with the rest of the store; a
 missing copy is recreated on the next placement. Boards placed before
 embedding are not changed; `scripts/report_unpinned_board_models.py` lists
 their unpinned models.
+
+## Remote provider 0.4.0: placing an earlier released revision
+
+Discovery metadata now reports `provider_version` `0.4.0`. It records the
+stamped symbols and embedded footprint models above, and adds an optional
+`revision` parameter to the component detail, part manifest and inline bundle
+so a released project can place the exact released revision it used
+(`released_revisions` in the detail lists them). Clients that ignore the new
+fields keep getting the current release. Drafts and archived revisions are
+never served (404 `revision_not_released`). See
+[Placing an earlier released revision](REMOTE_SYMBOL_PROVIDER.md#placing-an-earlier-released-revision).
 
 ## Bulk import overwrite flags keep existing files
 
