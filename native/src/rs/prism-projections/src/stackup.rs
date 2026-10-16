@@ -8,8 +8,10 @@
 //! The producer reads the board's own tree (never the core's typed `PcbView`),
 //! because the golden did: the layer table, the stackup, the vias and the
 //! `(general (thickness …))` form are all read straight from the tokens. The
-//! tree helpers of [`tree`] mirror `stackup_build.py`'s, so a bare token and a
-//! quoted one give the same string kicad_monkey's tokenizer produced.
+//! tree is the shared, once-parsed [`crate::BoardModel::tree`], so the stackup
+//! build parses the board no more than the bundle already did. The tree helpers
+//! of [`tree`] mirror `stackup_build.py`'s, so a bare token and a quoted one
+//! give the same string kicad_monkey's tokenizer produced.
 //!
 //! A project without a board gets the empty form (`stackup_build.py:empty_form`)
 //! (bundle-format.md §2.1); the contract has no explicit empty form.
@@ -78,12 +80,24 @@ const EDGE_CONNECTORS: [&str; 2] = ["yes", "bevelled"];
 /// Build `projections/stackup.json` from the single parse of the revision.
 pub fn produce(input: &ProjectionInput<'_>) -> Result<Produced<StackupA0>, ProjectionError> {
     let (value, warnings) = match input.board {
-        Some(board) => read::build(board.text, board.path)?,
+        Some(board) => read::build(board.tree().map_err(parse_error)?, board.path)?,
         None => (records::empty_form(), Vec::new()),
     };
     let mut produced = document(NAME, value)?;
     produced.warnings = warnings;
     Ok(produced)
+}
+
+/// R6's copper order for `route_metrics`: the stackup member's `copperLayers`
+/// (`stackup_build.py:222-228`, rule 7) from the shared board tree, without
+/// building the whole member. The rule lives once, in [`read::copper_order`].
+pub(crate) fn copper_layers(board: &crate::BoardModel<'_>) -> Result<Vec<String>, ProjectionError> {
+    read::copper_order(board.tree().map_err(parse_error)?, board.path)
+}
+
+/// The stackup wording for a shared-tree parse failure (`stackup_build.py:175`).
+fn parse_error(error: ProjectionError) -> ProjectionError {
+    ProjectionError::new(format!("{NAME}: the board does not parse: {error}"))
 }
 
 #[cfg(test)]
@@ -98,7 +112,8 @@ mod tests {
     /// Build a document from a board body wrapped in `(kicad_pcb …)`.
     fn build_board(body: &str) -> (Value, Vec<ProducerWarning>) {
         let text = format!("(kicad_pcb {body})");
-        let (value, warnings) = build(&text, "boards/demo.kicad_pcb").expect("the board builds");
+        let root = prism_kicad_core::parse(&text).expect("the board parses");
+        let (value, warnings) = build(&root, "boards/demo.kicad_pcb").expect("the board builds");
         serde_json::from_value::<StackupA0>(value.clone()).expect("the document decodes");
         (value, warnings)
     }
@@ -251,6 +266,23 @@ mod tests {
             )
         );
         assert_eq!(value["copperLayers"], json!(["F.Cu"]));
+    }
+
+    #[test]
+    fn the_shared_copper_order_matches_the_document() {
+        // The route-metrics path (`copper_layers`) reads the same rule as the
+        // member, from the same shared tree.
+        let text = "(kicad_pcb (layers (0 \"F.Cu\" signal) (2 \"B.Cu\" signal)) \
+            (setup (stackup (layer \"F.Cu\" (type \"copper\")) \
+            (layer \"dielectric 1\" (type \"core\")) \
+            (layer \"B.Cu\" (type \"copper\")))))";
+        let view = prism_kicad_core::PcbView::parse(text, prism_kicad_core::PcbLimits::default())
+            .expect("the board parses");
+        let board = crate::BoardModel::new("boards/demo.kicad_pcb", text, &view);
+        assert_eq!(
+            copper_layers(&board).expect("the copper order"),
+            vec!["F.Cu".to_owned(), "B.Cu".to_owned()]
+        );
     }
 
     #[test]

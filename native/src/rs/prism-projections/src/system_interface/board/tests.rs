@@ -25,11 +25,7 @@ fn board(body: &str) -> String {
 /// Build the board and run the scan.
 fn facts(text: &str) -> BoardFacts {
     let view = PcbView::parse(text, PcbLimits::default()).expect("board parses");
-    let board = BoardModel {
-        path: "test.kicad_pcb",
-        text,
-        view: &view,
-    };
+    let board = BoardModel::new("test.kicad_pcb", text, &view);
     super::scan(&board).expect("scan succeeds")
 }
 
@@ -223,11 +219,7 @@ fn geometry_oracle() {
             Some(path) => {
                 let text = fs::read_to_string(path).expect("board text");
                 let view = PcbView::parse(&text, PcbLimits::default()).expect("board parses");
-                let board = BoardModel {
-                    path: path.to_str().expect("board path"),
-                    text: &text,
-                    view: &view,
-                };
+                let board = BoardModel::new(path.to_str().expect("board path"), &text, &view);
                 super::scan(&board).expect("scan")
             }
             None => BoardFacts::default(),
