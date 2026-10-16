@@ -250,7 +250,7 @@ class _Run:
                 refilled = kicad_steps.refill_board(sources, self.config, self.work / "refill", cancel=self.cancel)
             except kicad_steps.KicadStepFailed as error:
                 raise RetryableJobError(str(error), code="zone-refill-failed", retry_after_seconds=30) from error
-            args += ["--refilled-board", str(refilled), "--refill-tool", self.generator.kicad_version]
+            args += ["--refilled-board", str(refilled), "--refill-tool", self._tool_version()]
         self.cli(args, "board")
         return self._reopen("board")
 
@@ -263,10 +263,16 @@ class _Run:
             raise RetryableJobError(str(error), code="glb-export-failed", retry_after_seconds=30) from error
         self.details["models_cache_hit"] = hit
         args = ["bundle", "build", "--stage", "models", "--in", str(self.archive_path), "-o", str(self.archive_path),
-                "--models-glb", str(glb), "--models-tool", self.generator.kicad_version, "--revision-key", self.revision_key,
+                "--models-glb", str(glb), "--models-tool", self._tool_version(), "--revision-key", self.revision_key,
                 *cli.limits("models")]
         self.cli(args, "models")
         return self._reopen("models")
+
+    def _tool_version(self) -> str:
+        try:
+            return kicad_steps.worker_kicad_version()
+        except kicad_steps.KicadStepFailed as error:
+            raise RetryableJobError(str(error), code="kicad-version-unknown", retry_after_seconds=30) from error
 
     def _board_inputs(self, archive: Archive) -> list[str]:
         project = str(self.config["project_file"])

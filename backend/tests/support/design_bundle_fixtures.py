@@ -78,7 +78,7 @@ esac
 FAKE_KICAD_CLI = r"""#!/bin/sh
 # Stands in for kicad-cli: sch upgrade <file>; pcb export glb ... --output <out> <board>.
 echo "$*" >> "$FAKE_KICAD_LOG"
-if [ "$1" = "--version" ]; then echo 10.0.6; exit 0; fi
+if [ "$1" = "--version" ]; then echo 10.0.7; exit 0; fi
 if [ "$1 $2" = "sch upgrade" ]; then sed -i.bak 's/(version 202[0-9]*)/(version 20260306)/' "$3" && rm -f "$3.bak"; exit 0; fi
 if [ -n "$FAKE_KICAD_FAIL_GLB" ]; then echo "glb: injected failure" >&2; exit 1; fi
 out=""; while [ $# -gt 0 ]; do if [ "$1" = "--output" ]; then out="$2"; fi; shift; done

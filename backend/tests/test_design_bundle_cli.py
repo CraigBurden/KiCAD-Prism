@@ -47,19 +47,19 @@ class StubCliTests(unittest.TestCase):
                 "-o", str(self.out), "--revision-key", RK, "--config", str(self._config(**extra)), *cli.limits("parse")]
         return cli.run(args, timeout_seconds=60, expect="prism.cli.build_result.a0")
 
-    def _board(self, *, refill: bool = True) -> cli.CliRun:
+    def _board(self, *, refill: bool = True, tool: str = "10.0.6") -> cli.CliRun:
         args = ["bundle", "build", "--stage", "board", "--in", str(self.out), "-o", str(self.out)]
         if refill:
             refilled = self.tmp / "demo.kicad_pcb"
             refilled.write_text("(kicad_pcb (version 20260206) (refilled))\n", encoding="utf-8")
-            args += ["--refilled-board", str(refilled), "--refill-tool", "10.0.6"]
+            args += ["--refilled-board", str(refilled), "--refill-tool", tool]
         return cli.run(args, timeout_seconds=60, expect="prism.cli.build_result.a0")
 
-    def _models(self) -> cli.CliRun:
+    def _models(self, tool: str = "10.0.6") -> cli.CliRun:
         glb = self.tmp / "components.glb"
         glb.write_bytes(b"glTF\x02\x00\x00\x00" + b"\0" * 12)
         args = ["bundle", "build", "--stage", "models", "--in", str(self.out), "-o", str(self.out),
-                "--models-glb", str(glb), "--models-tool", "10.0.6"]
+                "--models-glb", str(glb), "--models-tool", tool]
         return cli.run(args, timeout_seconds=60, expect="prism.cli.build_result.a0")
 
     def _archive(self):
@@ -117,6 +117,19 @@ class StubCliTests(unittest.TestCase):
         self.assertEqual(caught.exception.exit_code, 2)
         self.assertEqual(cli.upgraded_args([{"path": "a.kicad_pcb", "upgraded_from_version": 20241229}]),
                          ["--upgraded", "a.kicad_pcb=20241229"])
+
+    def test_a_later_patch_release_of_kicad_serves_the_generator(self) -> None:
+        """decisions.md, KiCad patch releases: --refill-tool/--models-tool match the generator's major.minor."""
+
+        self._parse()
+        with self.assertRaises(cli.CliFailure) as caught:
+            self._board(tool="10.1.0")
+        self.assertEqual((caught.exception.exit_code, caught.exception.code), (7, "kicad-version-mismatch"))
+        self.assertEqual(self._board(tool="10.0.7").exit_code, 0)
+        with self.assertRaises(cli.CliFailure) as caught:
+            self._models(tool="10.1.0")
+        self.assertEqual(caught.exception.code, "kicad-version-mismatch")
+        self.assertEqual(self._models(tool="10.0.7").exit_code, 0)
 
     def test_saved_fills_refuse_a_refilled_board(self) -> None:
         self._parse(zone_fills="saved")

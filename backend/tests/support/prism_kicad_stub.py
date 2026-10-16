@@ -99,6 +99,12 @@ def generator_bytes(doc: dict[str, Any]) -> bytes:
     return json.dumps(top, separators=(",", ":"), ensure_ascii=True).encode("ascii")
 
 
+def same_kicad_release(tool: str, pinned: str) -> bool:
+    """decisions.md, KiCad patch releases: a tool serves a generator of the same major.minor."""
+
+    return tool.split(".")[:2] == pinned.split(".")[:2]
+
+
 def modes(command: str, stage: str | None = None) -> list[str]:
     found = []
     for item in filter(None, (part.strip() for part in os.environ.get("PRISM_KICAD_STUB_MODE", "").split(","))):
@@ -469,7 +475,7 @@ def build_board(positionals: list[str], options: dict[str, Any]) -> NoReturn:
     if not saved and "--refilled-board" not in options:
         error(7, "zone-fills-mismatch", "refill mode needs --refilled-board", stage="board", argument="refilled-board")
     gen = manifest["generator"]
-    if not saved and options["--refill-tool"] != gen["kicad_version"]:
+    if not saved and not same_kicad_release(options["--refill-tool"], gen["kicad_version"]):
         error(7, "kicad-version-mismatch", "--refill-tool is not the generator's KiCad", stage="board", argument="refill-tool")
     active = apply_modes("bundle build", "board")
     added: list[str] = []
@@ -512,7 +518,7 @@ def build_models(positionals: list[str], options: dict[str, Any]) -> NoReturn:
         error(7, "stage-not-applicable", "stage models is skipped in --in", stage="models")
     if stages["board"]["status"] != "complete" or stages["models"]["status"] != "pending":
         error(7, "stage-order", "stage models needs board complete", stage="models")
-    if options["--models-tool"] != manifest["generator"]["kicad_version"]:
+    if not same_kicad_release(options["--models-tool"], manifest["generator"]["kicad_version"]):
         error(7, "kicad-version-mismatch", "--models-tool is not the generator's KiCad", stage="models", argument="models-tool")
     apply_modes("bundle build", "models")
     data = Path(options["--models-glb"]).read_bytes()

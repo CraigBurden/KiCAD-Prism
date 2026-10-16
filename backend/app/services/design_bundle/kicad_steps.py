@@ -41,6 +41,23 @@ class KicadStepFailed(RuntimeError):
     """A KiCad step failed or timed out; retried by the job, never recorded."""
 
 
+_RELEASE = re.compile(r"(\d+)\.(\d+)\.(\d+)")
+
+
+def worker_kicad_version() -> str:
+    """The worker's ``kicad-cli version`` as ``X.Y.Z``: what ``--refill-tool`` and ``--models-tool`` state.
+
+    The CLI accepts any patch release of the generator's major.minor
+    (decisions.md, KiCad patch releases), so K reports the KiCad that ran.
+    """
+
+    tool = kicad_tools.kicad_cli()
+    match = _RELEASE.search(tool.version() if tool.available() else "")
+    if match is None:
+        raise KicadStepFailed("kicad-cli did not report a release version")
+    return match.group(0)
+
+
 def file_version(path: Path) -> int | None:
     """A KiCad s-expression file's ``(version N)``, from its head."""
 

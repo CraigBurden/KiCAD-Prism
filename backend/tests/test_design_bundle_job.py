@@ -90,9 +90,10 @@ class DesignBundleJobTests(_Workspace, unittest.TestCase):
         self.assertEqual(config["board"], "board/demo.kicad_pcb")
         self.assertEqual(config["excluded_dirs"], ["board/Design-Outputs", "board/Manufacturing-Outputs"])
         self.assertIn("max-memory-bytes=4294967296", parse)
-        self.assertEqual(board[board.index("--refill-tool") + 1], "10.0.6")
+        self.assertEqual(board[board.index("--refill-tool") + 1], "10.0.7")  # the worker KiCad, a later patch release
         self.assertEqual(Path(board[board.index("--in") + 1]), Path(board[board.index("-o") + 1]))
         self.assertIn("--models-glb", models)
+        self.assertEqual(models[models.index("--models-tool") + 1], "10.0.7")
         self.assertIn("refill", self.kicad_log.read_text())
 
         row = rows.get_bundle("p1", payload["bundle_key"])

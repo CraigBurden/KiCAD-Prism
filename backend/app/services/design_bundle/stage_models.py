@@ -32,7 +32,7 @@ def cache_root() -> Path:
     return Path(settings.KICAD_PROJECTS_ROOT).expanduser() / ".kicad-prism" / "bundle-models-cache"
 
 
-def cache_key(record: Mapping[str, Any], generator: Generator) -> str:
+def cache_key(record: Mapping[str, Any], generator: Generator, tool_version: str = "") -> str:
     board = record["config"].get("board")
     entries = record["entries"]
     board_id = next((e["object_id"] for e in entries if e["path"] == board), "")
@@ -42,6 +42,8 @@ def cache_key(record: Mapping[str, Any], generator: Generator) -> str:
         "models": models,
         "kicad_version": generator.kicad_version,
         "models_procedure": generator.models_procedure,
+        # The KiCad that exports may be a later patch release of the generator's (decisions.md).
+        "tool_version": tool_version,
     }
     return hashlib.sha256(json.dumps(material, sort_keys=True, separators=(",", ":")).encode("utf-8")).hexdigest()
 
@@ -56,7 +58,9 @@ def export_components_glb(
 ) -> tuple[Path, bool]:
     """``$JOB/models/components.glb`` for the record's board; returns ``(path, cache_hit)``."""
 
-    key = cache_key(record, generator)
+    from app.services.design_bundle.kicad_steps import worker_kicad_version
+
+    key = cache_key(record, generator, worker_kicad_version())
     cached = cache_root() / f"{key}.glb"
     output_dir = work / "models"
     output_dir.mkdir(parents=True, exist_ok=True)
