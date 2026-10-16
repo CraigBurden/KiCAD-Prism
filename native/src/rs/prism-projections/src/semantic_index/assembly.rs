@@ -12,7 +12,7 @@ pub(crate) mod variants;
 
 use super::{Placements, State};
 use crate::{ProjectionError, ProjectionInput, SchematicModel};
-use serde_json::{Value, json};
+use serde_json::{Map, Value, json};
 
 /// The contract's empty `assembly`.
 pub(super) fn empty() -> Value {
@@ -44,4 +44,18 @@ pub(super) fn build(
     value["diagnostics"] = Value::Array(diagnostics);
     join::project(&mut value, &mut state.components, placements);
     Ok(value)
+}
+
+/// `build_assembly_state(design)["default"]["components"]` with no catalog
+/// (interface_extractor.py:386-387): the default state per reference, before
+/// the join's key translation.
+pub(crate) fn default_components(
+    input: &ProjectionInput<'_>,
+    schematic: &SchematicModel<'_>,
+) -> Result<Map<String, Value>, ProjectionError> {
+    let mut value = state::build(input, schematic, &[])?;
+    Ok(match value["default"]["components"].take() {
+        Value::Object(components) => components,
+        _ => Map::new(),
+    })
 }

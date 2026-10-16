@@ -119,7 +119,7 @@ All numbers are `_round`ed (`ie:168-170`). Frames: "board" is `SB2` §14.2 (KiCa
 | `…/geometry/courtyard` | `SystemInterfaceCourtyard` \| null | — | required; null without courtyard graphics | `ie:180-196`, `:237-242` | `fr:84-92`; `mt:100-102`; `ffr:139-150`; `fmt:135-137` | items on a layer whose name contains `CrtYd` |
 | `…/geometry/courtyard/minMm` | `SystemInterfaceMmPair` | mm | `[x, y]`, footprint frame | `ie:240-242` | `fr:92`; `mt:101` | arcs by start/mid/end only (not true extent) |
 | `…/geometry/courtyard/maxMm` | `SystemInterfaceMmPair` | mm | `[x, y]`, footprint frame | `ie:240-242` | `fr:92`; `mt:102` | — |
-| `…/geometry/model` | `SystemInterfaceModelRef` \| null | — | required; null without a visible model | `ie:199-210` (first model without `(hide)` / `(hide yes)`) | none at runtime (`ffr:29`; "M1 never loads it", `SB2` §14.6) | digested only |
+| `…/geometry/model` | `SystemInterfaceModelRef` \| null | — | required; null without a model | `ie:199-210`: the first model. `_model` skips a model whose `to_sexp()` holds `(hide)` / `(hide yes)`, but km `Model.to_sexp()` never writes `hide` (km `kicad_model.py:58-63`), so today a hidden model is never skipped (golden `rs-cynthion` U1) | none at runtime (`ffr:29`; "M1 never loads it", `SB2` §14.6) | digested only |
 | `…/geometry/model/path` | string | — | required | `ie:205` | none | unresolved, variables kept |
 | `…/geometry/model/offsetMm` | number[3] | mm | `[x, y, z]` | `ie:206` | none | — |
 | `…/geometry/model/rotationDeg` | `Degrees`[3] | deg | `[x, y, z]` | `ie:207` | none | — |
@@ -269,6 +269,8 @@ These are **not** divergences. P5 reproduces them, and WP-G's runner flags them 
 - arcs in courtyards bounded by three points, but outline arcs by their true extent;
 - `boardThicknessMm` null for a zero thickness;
 - the `items` outline fallback's text-size estimate (unless the open question decides otherwise).
+- the first model per footprint for `geometry/model`, hidden or not (see the row);
+- **not reproduced:** a board `gr_text` box in the `items` fallback. km's `GrText` has no `get_bounds` of its own and inherits `ToPolyMixin.get_bounds`, which renders FreeType glyph outlines from a host font (km `kicad_text.KiCadTextRenderer`), so today's box depends on the machine's fonts. P5 uses the estimate of km's other board `GrText` (km `kicad_pcb_graphics.py:92-111`). On `rs-cynthion` this changes the board's `get_bounds` (`maxMm[0]` 200.16 today against 420.30), but its outline comes from Edge.Cuts, so no fixture's member changes. A board with no Edge.Cuts and board text would diverge; record it under this table if one appears.
 
 ## Example provenance
 
