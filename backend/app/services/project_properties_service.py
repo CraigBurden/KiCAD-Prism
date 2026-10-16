@@ -5,6 +5,11 @@ version, generator, paper, uuid, title block -- all sit in the first few
 hundred bytes, so there is never a reason to pull a 57 MB board into memory to
 find them.
 
+``card_from_project_member`` maps the bundle's ``projections/project.json``
+member -- the same facts in the new shape (ADR §8, flag ``PROJECT_METADATA``)
+-- back to the dicts the readers below produce, so the switch between the two
+sources changes nothing downstream.
+
 Board geometry does not live in the header and is not derived here at all. It
 comes from ``kicad-cli`` via ``kicad_board_stats_service``; see that module for
 why. This one used to scan the whole board for Edge.Cuts graphics, which was
@@ -20,7 +25,7 @@ from __future__ import annotations
 import re
 from dataclasses import replace
 from pathlib import Path
-from typing import Mapping, Optional
+from typing import Any, Mapping, Optional
 
 from app.services import kicad_text_variables
 
@@ -335,4 +340,85 @@ def compute_pcb_metadata(
         "dimensions_mm": facts.get("dimensions_mm"),
         "thickness_mm": facts.get("thickness_mm"),
         "title_block": _parse_title_block(text, context),
+    }
+
+
+def _strip_project_directory(project_dir: str, path: str) -> str:
+    """The document's path relative to the project directory, today's card spelling.
+
+    The bundle member's paths are repository-relative (conventions §8); the card
+    has always shown them relative to the project directory, so the two agree
+    only for a project at the repository root and the anchor's directory has to
+    come off here. The fallback is the path as-is, the same shape the parity
+    adapter uses for a document that is not below the anchor.
+    """
+    if not project_dir:
+        return path
+    prefix = project_dir.rstrip("/") + "/"
+    return path[len(prefix):] if path.startswith(prefix) else path
+
+
+def _expanded_title_block(document: Mapping[str, Any]) -> Optional[dict]:
+    """The two title-block fields the panel shows, from ``expandedTitleBlock``.
+
+    The member drops a field whose expansion is empty (conventions §10) while
+    today's card keeps it as ``""``; defaulting to ``""`` gives back today's
+    value. ``expandedTitleBlock`` is present exactly when the file has a
+    ``(title_block)``, which is exactly when today's parser returns a dict.
+    """
+    block = document.get("expandedTitleBlock")
+    if block is None:
+        return None
+    return {"title": block.get("title", ""), "date": block.get("date", "")}
+
+
+def _document_card(
+    member: Mapping[str, Any],
+    kind: str,
+    board_facts: Optional[Mapping[str, Any]] = None,
+) -> Optional[dict]:
+    """One document of a ``prism.project.a0`` member as today's card dict.
+
+    Keys and values match ``compute_schematic_metadata`` / ``compute_pcb_metadata``
+    exactly: the header fields are the member's, and a board adds the kicad-cli
+    size and thickness the caller read from the checkout. ``None`` when the
+    member has no document of ``kind`` -- the same answer today's readers give
+    for a project without that file.
+    """
+    project_file = str(member.get("projectFile") or "")
+    project_dir = project_file.rsplit("/", 1)[0] if "/" in project_file else ""
+    for document in member.get("documents") or []:
+        if document.get("kind") != kind:
+            continue
+        path = str(document.get("path") or "")
+        card = {
+            "path": _strip_project_directory(project_dir, path),
+            "filename": path.rsplit("/", 1)[-1],
+            "version": document.get("formatVersion"),
+            "generator": document.get("generator"),
+            "generator_version": document.get("generatorVersion"),
+            "title_block": _expanded_title_block(document),
+        }
+        if kind == "board":
+            facts = board_facts or {}
+            card["dimensions_mm"] = facts.get("dimensions_mm")
+            card["thickness_mm"] = facts.get("thickness_mm")
+        return card
+    return None
+
+
+def card_from_project_member(
+    member: Mapping[str, Any], board_facts: Optional[Mapping[str, Any]] = None
+) -> dict[str, Optional[dict]]:
+    """The card's ``schematic`` and ``pcb`` dicts from a ``prism.project.a0`` member.
+
+    The field map's "Card" rule (project.md, "How a golden is produced"): the
+    root schematic and board documents' header fields and expanded title block,
+    in the shape today's ``compute_schematic_metadata`` / ``compute_pcb_metadata``
+    return. The caller still resolves board size and thickness through
+    ``kicad-cli`` (ADR §2.1), so they are passed in, not read from the member.
+    """
+    return {
+        "schematic": _document_card(member, "root-schematic"),
+        "pcb": _document_card(member, "board", board_facts),
     }
