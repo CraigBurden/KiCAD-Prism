@@ -1,4 +1,7 @@
-# Structural Rust policy enforced by Rack through wn-dev-std.
+# Structural Rust policy for native/, enforced by scripts/rust_hygiene.sh
+# (Prism's port of the fork's wn-dev-std check; the native-hygiene CI job).
+# Limits may only be tightened. New or increased debt against the baseline
+# fails; scripts/rust_hygiene.sh --prune drops paid-off entries.
 schema = 1
 mode = "ratchet"
 baseline = "rust-hygiene-baseline.json"
