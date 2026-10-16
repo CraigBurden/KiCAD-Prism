@@ -143,7 +143,7 @@ async def get_project_schematic(
             not_found_detail="Schematic not found",
         )
         return _commit_file_response(commit_file, inline=True)
-    
+
     path = project_service.find_schematic_file(
         project.path, project_service.project_anchor(project)
     )
@@ -201,13 +201,13 @@ async def get_project_subsheets(
             for sheet in subsheets
         ]
         return {"files": subsheet_urls}
-    
+
     main_path = project_service.find_schematic_file(
         project.path, project_service.project_anchor(project)
     )
     if not main_path:
         raise HTTPException(status_code=404, detail="Schematic not found")
-        
+
     subsheets = sorted(project_service.get_subsheets(project.path, main_path))
     # Convert filenames to URLs
     subsheet_urls = [{"name": s, "url": f"/api/projects/{project_id}/asset/{s}"} for s in subsheets]
@@ -340,7 +340,7 @@ async def get_project_pcb(
             not_found_detail="PCB not found",
         )
         return _commit_file_response(commit_file, inline=True)
-    
+
     path = project_service.find_pcb_file(
         project.path, project_service.project_anchor(project)
     )
@@ -364,7 +364,7 @@ async def get_project_3d_model(
             inline=True,
             headers={"Cache-Control": "public, max-age=300"},
         )
-    
+
     path = project_service.find_3d_model(project.path)
     if not path:
         raise HTTPException(status_code=404, detail="3D model not found")
