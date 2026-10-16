@@ -21,17 +21,27 @@ so quoted strings and escaped quotes never confuse the form walk, and it reads
 the revision through ``project_source_snapshot`` so a commit never leaks
 working-tree names. No kicad-monkey call and no private ``projects.py`` helper
 is involved; the API layer supplies a role-validated project.
+
+With ``PRISM_DESIGN_SOURCE_SEMANTIC_INDEX=bundle`` (ADR §8, §9.6) a commit's
+catalog is read from the bundle member ``projections/semantic-index.json``
+instead: the member's ``assembly.catalog`` is today's ``variants`` and the
+member's own diagnostics are today's ``diagnostics``. The bundle is keyed by
+revision and serves every commit with those sources, so the working tree (which
+has no revision key) always discovers from source, and so does any commit whose
+member is not ready yet — the rollout fallback ``design_bundle.consumer`` owns.
 """
 
 from __future__ import annotations
 
 import json
+import logging
 from copy import deepcopy
 from functools import lru_cache
 from types import SimpleNamespace
 from pathlib import Path
 from typing import Any, Optional
 
+from app.services import project_revision
 from app.services.variant_source_scan import scan_source
 from app.services.project_source_snapshot import (
     ProjectSourceSnapshot,
@@ -40,7 +50,17 @@ from app.services.project_source_snapshot import (
     source_files,
 )
 
+logger = logging.getLogger(__name__)
+
 SCHEMA = "prism.project_variants_a0"
+
+#: The semantic index member a bundled catalog answers from (bundle-format.md §2).
+SEMANTIC_INDEX_MEMBER = "projections/semantic-index.json"
+
+#: Today's catalog-diagnostic keys, in the order ``_CatalogBuilder`` inserts
+#: them, so a bundle-derived diagnostic serializes byte-for-byte as the source
+#: scan does (the ``case_mismatch``/``source_unparseable`` shapes).
+_CATALOG_DIAGNOSTIC_KEYS = ("code", "severity", "source", "path", "message", "detail")
 
 SOURCE_PROJECT = "project"
 SOURCE_PCB = "pcb"
@@ -232,6 +252,98 @@ def _relative(snapshot: ProjectSourceSnapshot, path: Path) -> str:
         return path.name
 
 
+def _project_relative(path: str, project_dir: str) -> str:
+    """A bundle ``RepoPath`` in today's project-relative spelling (D9).
+
+    The bundle spells paths relative to its source root (the repository root,
+    conventions §8); today's catalog spells them relative to the project
+    directory. A path outside the project directory keeps today's bare-name
+    fallback (``_relative``).
+    """
+
+    if project_dir and path.startswith(project_dir + "/"):
+        return path[len(project_dir) + 1:]
+    if project_dir:
+        return path.rsplit("/", 1)[-1]
+    return path
+
+
+def _catalog_diagnostic(diagnostic: Any, project_dir: str) -> dict[str, Any]:
+    """One catalog diagnostic from the bundle, in today's key order and paths."""
+
+    shaped = {
+        key: diagnostic[key]
+        for key in _CATALOG_DIAGNOSTIC_KEYS
+        if key in diagnostic
+    }
+    if "path" in shaped:
+        shaped["path"] = _project_relative(str(shaped["path"]), project_dir)
+    return shaped
+
+
+def _catalog_body_from_assembly(assembly: Any, project_dir: str) -> dict[str, Any]:
+    """Today's catalog body (``variants`` + ``diagnostics``) from an ``assembly``.
+
+    ``assembly`` is the bundle member's ``assembly`` block (ADR §9.6): its
+    ``catalog`` is today's ``variants`` in catalog order, and the catalog's own
+    diagnostics are the members of ``assembly.diagnostics`` that carry a
+    ``source`` — only ``_CatalogBuilder`` writes that key, so the resolver's
+    diagnostics (``source-state-mismatch`` and friends) stay out. Values are
+    copied out so the caller never shares or mutates the parsed member.
+    """
+
+    variants = [
+        {
+            "name": entry["name"],
+            "description": entry["description"],
+            "sources": list(entry["sources"]),
+        }
+        for entry in (assembly.get("catalog") or [])
+    ]
+    diagnostics = [
+        _catalog_diagnostic(diagnostic, project_dir)
+        for diagnostic in (assembly.get("diagnostics") or [])
+        if "source" in diagnostic
+    ]
+    return {"variants": variants, "diagnostics": diagnostics}
+
+
+def _catalog_body_from_bundle(project: Any, resolved_commit: str) -> Optional[dict[str, Any]]:
+    """The bundle's catalog body for a commit, or ``None`` to serve legacy.
+
+    ``None`` is the rollout fallback ``design_bundle.consumer`` defines: the
+    switch is ``legacy``, the member is pending or failed, or the member is a
+    final non-member (``skipped``/``not-applicable``). A member that is ready
+    but unreadable is treated the same way — a bundle-side fault must never
+    break the legacy answer.
+    """
+
+    from app.services.design_bundle.consumer import bundle_read
+
+    read = bundle_read(
+        "SEMANTIC_INDEX",
+        str(getattr(project, "id", "")),
+        resolved_commit,
+        [SEMANTIC_INDEX_MEMBER],
+    )
+    if read is None or not read.ready(SEMANTIC_INDEX_MEMBER):
+        return None
+    try:
+        document = read.json(SEMANTIC_INDEX_MEMBER)
+        assembly = document.get("assembly") if isinstance(document, dict) else None
+        if not isinstance(assembly, dict):
+            return None
+        return _catalog_body_from_assembly(
+            assembly, project_revision.locate(project).relative_path
+        )
+    except Exception:  # noqa: BLE001 - a bundle-side fault must not break the legacy path
+        logger.exception(
+            "design bundle: could not read %s for %s@%s; serving legacy",
+            SEMANTIC_INDEX_MEMBER, getattr(project, "id", ""), resolved_commit,
+        )
+        return None
+
+
 def discover_variant_catalog(
     project: Any, commit: Optional[str] = None
 ) -> dict[str, Any]:
@@ -240,19 +352,27 @@ def discover_variant_catalog(
     ``project`` must already have passed the caller's role check; this service
     performs no authorization. ``commit`` is any ref accepted by the semantic
     index (resolved to a SHA here), or ``None`` for the working tree.
+
+    A commit answers from its bundle member when the semantic-index switch is
+    ``bundle`` and the member is ready; every other case (the working tree, the
+    switch off, a member not ready) discovers from source, unchanged.
     """
 
     source_revision_key, resolved_commit = project_revision_identity(project, commit)
-    result = deepcopy(_discover_cached(
-        str(project.path), getattr(project, "project_file", None),
-        source_revision_key, resolved_commit,
-    ))
+    body = None
+    if resolved_commit is not None:
+        body = _catalog_body_from_bundle(project, resolved_commit)
+    if body is None:
+        body = deepcopy(_discover_cached(
+            str(project.path), getattr(project, "project_file", None),
+            source_revision_key, resolved_commit,
+        ))
     return {
         "schema": SCHEMA,
         "projectId": str(getattr(project, "id", "")),
         "commit": resolved_commit,
         "sourceRevisionKey": source_revision_key,
-        **result,
+        **body,
     }
 
 

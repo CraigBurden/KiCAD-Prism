@@ -283,6 +283,23 @@ class ViewerSourceBundleTests(_BundleFixture):
         response = self.serve(route, mode="bundle", bundle=bundle, commit=self.repo, project_id=PROJECT_ID)
         self.assert_same(response, self.serve(route, mode="legacy", commit=self.repo, project_id=PROJECT_ID))
 
+    def test_the_working_tree_never_opens_a_bundle(self) -> None:
+        # A request without a commit is the working tree, which may hold
+        # uncommitted changes no bundle carries: it stays legacy in bundle mode.
+        routes = (
+            viewer_sources.get_project_schematic,
+            viewer_sources.get_project_pcb,
+            viewer_sources.get_project_subsheets,
+            viewer_sources.get_project_viewer_support_files,
+        )
+        for route in routes:
+            with self.subTest(route=route.__name__), \
+                    mock.patch.object(settings, "PRISM_DESIGN_SOURCE_PROJECT_METADATA", "bundle"), \
+                    mock.patch.object(viewer_sources, "get_project_for_role_or_404", return_value=self.project), \
+                    mock.patch.object(reader, "open_revision") as open_revision:
+                asyncio.run(route(user=self.user, commit=None, project_id=PROJECT_ID))
+                open_revision.assert_not_called()
+
     # -- /pcb --------------------------------------------------------------
 
     def test_pcb_at_a_commit_matches_legacy(self) -> None:

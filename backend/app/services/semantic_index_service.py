@@ -20,6 +20,7 @@ from app.services import (
     kicad_library_reader,
     path_config_service,
     project_revision,
+    semantic_index_bundle,
     semantic_index_nets,
     semantic_index_variants,
     semantic_visualizer_service,
@@ -291,7 +292,19 @@ def _prune_other_builds(project_id: str, source_revision_key: str) -> None:
             shutil.rmtree(stale, ignore_errors=True)
 
 
+def _bundle_ready(project: Any, commit: str | None) -> Any:
+    """The opened bundle when a commit's member is ready, else ``None`` (``semantic_index_bundle``)."""
+
+    if not commit or not semantic_index_bundle.enabled():
+        return None
+    location = project_revision.locate(project)
+    return semantic_index_bundle.ready(str(project.id), project_revision.resolve_commit(location, commit))
+
+
 def get_or_build(project: Any, commit: str | None = None) -> dict[str, Any]:
+    if (read := _bundle_ready(project, commit)) is not None:
+        return read.json(semantic_index_bundle.MEMBER)
+
     source_revision_key, _resolved_commit = _revision_identity(project, commit)
     path = artifact_path(str(project.id), source_revision_key)
     if path.is_file():
@@ -303,12 +316,15 @@ def get_or_build(project: Any, commit: str | None = None) -> dict[str, Any]:
         return _build_and_store(project, commit, source_revision_key, path)
 
 
-def artifact_file(project: Any, commit: str | None = None) -> tuple[Path, str]:
+def artifact_file(project: Any, commit: str | None = None) -> semantic_index_bundle.ArtifactFile:
     """The stored index file and its revision key, built first if missing, never parsed.
 
     Readers that only pass the index on (the identity endpoint) start from
     this, so a request no longer holds the whole index as Python objects.
     """
+
+    if (read := _bundle_ready(project, commit)) is not None:
+        return semantic_index_bundle.artifact(read)
 
     source_revision_key, _resolved_commit = _revision_identity(project, commit)
     path = artifact_path(str(project.id), source_revision_key)
@@ -316,10 +332,13 @@ def artifact_file(project: Any, commit: str | None = None) -> tuple[Path, str]:
         with _lock(str(project.id), source_revision_key):
             if not path.is_file():
                 _build_and_store(project, commit, source_revision_key, path)
-    return path, source_revision_key
+    return semantic_index_bundle.ArtifactFile(path, source_revision_key, generator_cache_tag())
 
 
 def get_existing(project: Any, commit: str | None = None) -> dict[str, Any] | None:
+    if (read := _bundle_ready(project, commit)) is not None:
+        return read.json(semantic_index_bundle.MEMBER)
+
     source_revision_key, _resolved_commit = _revision_identity(project, commit)
     path = artifact_path(str(project.id), source_revision_key)
     if not path.is_file():
@@ -328,6 +347,9 @@ def get_existing(project: Any, commit: str | None = None) -> dict[str, Any] | No
 
 
 def generate(project: Any, commit: str | None = None, *, force: bool = False) -> dict[str, Any]:
+    if (read := _bundle_ready(project, commit)) is not None:
+        return read.json(semantic_index_bundle.MEMBER)
+
     source_revision_key, _resolved_commit = _revision_identity(project, commit)
     path = artifact_path(str(project.id), source_revision_key)
     with _lock(str(project.id), source_revision_key):
@@ -337,6 +359,9 @@ def generate(project: Any, commit: str | None = None, *, force: bool = False) ->
 
 
 def get_status(project: Any, commit: str | None = None) -> dict[str, Any]:
+    if (read := _bundle_ready(project, commit)) is not None:
+        return semantic_index_bundle.status(read, str(project.id), _generator_record())
+
     source_revision_key, resolved_commit = _revision_identity(project, commit)
     path = artifact_path(str(project.id), source_revision_key)
     return {
@@ -345,13 +370,17 @@ def get_status(project: Any, commit: str | None = None) -> dict[str, Any]:
         "sourceRevisionKey": source_revision_key,
         "commit": resolved_commit,
         "available": path.is_file(),
-        "generator": {
-            "name": GENERATOR_NAME,
-            "version": GENERATOR_VERSION,
-            "build": GENERATOR_BUILD,
-            "cacheTag": generator_cache_tag(),
-            "kicadMonkeyVersion": _kicad_monkey_version(),
-        },
+        "generator": _generator_record(),
+    }
+
+
+def _generator_record() -> dict[str, str]:
+    return {
+        "name": GENERATOR_NAME,
+        "version": GENERATOR_VERSION,
+        "build": GENERATOR_BUILD,
+        "cacheTag": generator_cache_tag(),
+        "kicadMonkeyVersion": _kicad_monkey_version(),
     }
 
 

@@ -139,6 +139,9 @@ resolver leaves to the caller); `semantic_index_service.py` publishes the
 `assembly` block, joins it onto existing `componentUid`s, and hashes the three
 modules into `GENERATOR_BUILD`. Resolver semantics belong to the frozen
 design-variant contract packet (issue #169), not to this file.
+With `PRISM_DESIGN_SOURCE_SEMANTIC_INDEX=bundle`, `semantic_index_bundle.py`
+serves a commit's index from the bundle's semantic-index member
+(a1); the working tree and a member not ready stay on the legacy build.
 
 ## Design comparison
 

@@ -44,8 +44,14 @@ def _project_metadata_bundle(
     member is not ready yet (it queues the ``design_bundle`` job) or when a member
     failed. The projection is requested up front because the mapping needs it to
     name the sources; the effective configuration is read from the same opening.
+
+    A request without a commit is the working tree, which a bundle (keyed by a
+    commit's sources) cannot represent when it holds uncommitted changes, so it
+    always takes the legacy path.
     """
 
+    if not commit:
+        return None
     return bundle_read(
         "PROJECT_METADATA",
         project_id,
@@ -94,19 +100,6 @@ def _bundle_commit_response(
         member = f"sources/{source.repo_path}"
         cached = read.extract([member]) / member
     return _commit_file_response(_BundleCommitFile(source, cached), inline=inline, headers=headers)
-
-
-def _bundle_worktree_response(
-    read: viewer_sources_bundle.BundleRead,
-    source: viewer_sources_bundle.SourceFile,
-    *,
-    headers: Optional[dict[str, str]] = None,
-):
-    """Serve a bundle source member as the legacy working-tree ``FileResponse`` does."""
-
-    member = f"sources/{source.repo_path}"
-    path = read.extract([member]) / member
-    return FileResponse(path, headers=dict(headers or {}))
 
 
 def _worksheet_path_key(path: str | Path) -> tuple[int, int, str]:
@@ -221,9 +214,7 @@ async def get_project_schematic(
     if read is not None:
         source = viewer_sources_bundle.schematic(read)
         if source is not None:
-            if commit:
-                return _bundle_commit_response(read, source, inline=True)
-            return _bundle_worktree_response(read, source)
+            return _bundle_commit_response(read, source, inline=True)
 
     if commit:
         config = _path_config_from_commit(project, commit)
@@ -438,9 +429,7 @@ async def get_project_pcb(
     if read is not None:
         source = viewer_sources_bundle.pcb(read)
         if source is not None:
-            if commit:
-                return _bundle_commit_response(read, source, inline=True)
-            return _bundle_worktree_response(read, source)
+            return _bundle_commit_response(read, source, inline=True)
 
     if commit:
         config = _path_config_from_commit(project, commit)
