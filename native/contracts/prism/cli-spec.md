@@ -35,7 +35,7 @@ Citations follow [`conventions.md`](conventions.md): a bare path is in this repo
    - the refilled board, by `pcbnew` ZONE_FILLER, unless the effective configuration says `zone_fills: "saved"` (§5.2.3);
    - the GLB, by `kicad-cli pcb export glb`.
 
-   `--refill-tool` and `--models-tool` must equal the generator id's `kicad_version`. A failing KiCad step is retried by the backend and never recorded, and never replaced by the saved fills.
+   `--refill-tool` and `--models-tool` must have the generator id's `kicad_version` major.minor; patch releases are tolerated (maintainer decision). A failing KiCad step is retried by the backend and never recorded, and never replaced by the saved fills.
 5. **The design's own content is recorded, not lost.** When the design's content fails a stage or one of its members, the CLI still writes the archive, records the outcome in the manifest and exits **9**:
    - a malformed file, a missing sheet or an unsupported format gives stage `failed`;
    - a failing projection, `design.json` or materializer gives stage `partial`.
@@ -396,7 +396,7 @@ A source over a parser limit (`max-sexpr-depth`, `max-sexpr-nodes`, `max-sexpr-s
   - It is limited by `max-source-file-bytes`, must be a regular UTF-8 file, and must parse as a `.kicad_pcb`. Otherwise exit 3, `refilled-board-invalid`, with the parse position.
   - **Identity check.** Its footprint UUIDs, as a set, must equal those of the source board in `--in`. Otherwise exit 7, `refilled-board-mismatch`.
   - A refill changes zone fills and the file-format version only. `pcbnew.SaveBoard` upgrades a KiCad 9 board to the running KiCad's format, as observed on `fixtures/release-studio/usb-pd`: `(version 20241229)` became `(version 20260206)`.
-- `--refill-tool <ver>` must equal the generator id's `kicad_version`. Otherwise exit 7, `kicad-version-mismatch`.
+- `--refill-tool <ver>` must have the major.minor of the generator id's `kicad_version` (`10.0.7` is accepted for `10.0.6`). Otherwise exit 7, `kicad-version-mismatch`.
 
 **Work:**
 1. Materialize the refilled board with the source `.kicad_pro`, as a1 does (sim: `src/prism-bundle/src/build.rs:390-397`). In saved mode, materialize `sources/<config.board>` from `--in` instead. A board without a stated stackup takes KiCad's default and warns `kicad-default-stackup`, as a1 does (`build.rs:296-306`).
@@ -418,7 +418,7 @@ Saved fills are a per-project choice, never a fallback (maintainer decision, dec
   - version 2;
   - a header length equal to the file size;
   - a first chunk of type `JSON` that parses.
-- `--models-tool <ver>` must equal `kicad_version`. Otherwise exit 7, `kicad-version-mismatch`.
+- `--models-tool <ver>` must have the major.minor of `kicad_version`. Otherwise exit 7, `kicad-version-mismatch`.
 - **No viewer input.** a1's transitional viewer assets (role `viewer-asset`, sim: `src/prism-bundle/src/build.rs:193-246`) are not bundle members (maintainer decision, decisions.md). The mesh 3D tab and System Builder 3D keep reading the semantic-visualizer store until WP-C5 retires it.
 
 **Canonicalization.** `kicad-cli pcb export glb` is not deterministic. KiCad 10.0.6 writes:
@@ -721,7 +721,7 @@ Codes are `DiagnosticCode` (kebab-case). A code never changes meaning; a new mea
 | `stage-order` | error | precondition / 7 | a prerequisite stage of `--in` is not in the required status |
 | `stage-not-applicable` | error | precondition / 7 | the requested stage is `skipped` in `--in` |
 | `revision-key-mismatch`, `config-mismatch` | error | precondition / 7 | an assertion of §5.2.1 check 5 failed, or `--config` names another project file, or `--key-record` disagrees with `--revision-key`, `--config` or a member (§5.2.2). For `revision-key`, `--project` ≠ `config.project_file`. |
-| `kicad-version-mismatch` | error | precondition / 7 | `--refill-tool` or `--models-tool` ≠ `kicad_version` |
+| `kicad-version-mismatch` | error | precondition / 7 | `--refill-tool` or `--models-tool` has another major.minor than `kicad_version` |
 | `refilled-board-mismatch` | error | precondition / 7 | the refilled board's footprint UUID set differs from the source board's |
 | `zone-fills-mismatch` | error | precondition / 7 | stage `board`: `--refilled-board`/`--refill-tool` given although `--in` records `zone_fills: "saved"`, or missing although it does not (§5.2.3) |
 | `models-glb-name` | error | precondition / 7 | the GLB was not exported as `components.glb` |

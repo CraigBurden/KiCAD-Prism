@@ -22,7 +22,7 @@
         },
         "kicad_version": {
             "$ref": "#/$defs/CliReleaseVersion",
-            "description": "KiCad version of the KiCad-produced members (the refilled board and\n`components.glb`), exactly as `kicad-cli version` prints it. It also\npins KiCad's stock 3D model library. `--refill-tool` and\n`--models-tool` must equal it."
+            "description": "KiCad version of the KiCad-produced members (the refilled board and\n`components.glb`), exactly as `kicad-cli version` prints it. It also\npins KiCad's stock 3D model library. `--refill-tool` and\n`--models-tool` must have its major.minor; patch releases are tolerated."
         },
         "member_schemas": {
             "type": "array",
