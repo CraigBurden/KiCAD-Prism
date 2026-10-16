@@ -13,21 +13,19 @@ import sys
 import threading
 import time
 from pathlib import Path, PurePosixPath
-from typing import TYPE_CHECKING, Any, Callable, Iterable, Iterator, Self
+from typing import Any, Callable, Iterable, Iterator
 
 from app.core.config import settings
 from app.services import (
     kicad_library_reader,
     path_config_service,
     project_revision,
+    semantic_index_bundle,
     semantic_index_nets,
     semantic_index_variants,
     semantic_visualizer_service,
 )
 from app.services.kicad_monkey_design_adapter import KiCadMonkeyDesign
-
-if TYPE_CHECKING:  # annotations only; _bundle_ready imports the consumer lazily
-    from app.services.design_bundle.consumer import BundleRead
 
 
 SCHEMA = "prism.semantic_index_a0"
@@ -39,11 +37,6 @@ GENERATOR_VERSION = "0.2.0"
 #: modules' source, so any edit, a comment or a refactor, discarded every
 #: project's stored index and rebuilt it (minutes on a large board).
 GENERATOR_BUILD = "r1"
-
-#: The bundle member that serves this consumer when the switch is ``bundle``;
-#: its bytes are ``prism.semantic_index.a1`` (native/contracts/prism/
-#: field-maps/semantic-index.md, bundle-format.md §2.1).
-BUNDLE_MEMBER = "projections/semantic-index.json"
 
 _LOCKS: dict[str, threading.Lock] = {}
 _LOCKS_GUARD = threading.Lock()
@@ -299,41 +292,18 @@ def _prune_other_builds(project_id: str, source_revision_key: str) -> None:
             shutil.rmtree(stale, ignore_errors=True)
 
 
-def _bundle_ready(project: Any, commit: str | None) -> BundleRead | None:
-    """The bundle's semantic-index member for a commit request, or ``None`` for the legacy index.
+def _bundle_ready(project: Any, commit: str | None) -> Any:
+    """The opened bundle when a commit's member is ready, else ``None`` (``semantic_index_bundle``)."""
 
-    The bundle serves a commit, not the working tree: a request without one has
-    no design revision key to look a bundle up by, and its index is today's.
-    ``bundle_read`` itself answers ``None`` when the switch is legacy, a member
-    is not ready yet (it queues the build) or the bundle failed; a member that
-    is final but not ready here (``not-applicable``, e.g. a project with no root
-    schematic) is likewise left to today's code.  The switch is checked before
-    the commit is resolved, so the legacy path never locates the repository or
-    opens a bundle for a request it will not serve.
-    """
-
-    if not commit:
-        return None
-    # Imported here: the bundle package pulls in the job runtime and store, and
-    # this module is imported by that runtime's handlers.
-    from app.services.design_bundle import consumer as design_bundle
-
-    if design_bundle.source("SEMANTIC_INDEX") != "bundle":
+    if not commit or not semantic_index_bundle.enabled():
         return None
     location = project_revision.locate(project)
-    resolved = project_revision.resolve_commit(location, commit)
-    read = design_bundle.bundle_read(
-        "SEMANTIC_INDEX", str(project.id), resolved, [BUNDLE_MEMBER]
-    )
-    if read is None or not read.ready(BUNDLE_MEMBER):
-        return None
-    return read
+    return semantic_index_bundle.ready(str(project.id), project_revision.resolve_commit(location, commit))
 
 
 def get_or_build(project: Any, commit: str | None = None) -> dict[str, Any]:
-    read = _bundle_ready(project, commit)
-    if read is not None:
-        return read.json(BUNDLE_MEMBER)
+    if (read := _bundle_ready(project, commit)) is not None:
+        return read.json(semantic_index_bundle.MEMBER)
 
     source_revision_key, _resolved_commit = _revision_identity(project, commit)
     path = artifact_path(str(project.id), source_revision_key)
@@ -346,42 +316,15 @@ def get_or_build(project: Any, commit: str | None = None) -> dict[str, Any]:
         return _build_and_store(project, commit, source_revision_key, path)
 
 
-class ArtifactFile(tuple):
-    """``(path, revision_key)`` and the generator the identity route's ETag names (ADR G9).
-
-    A tuple so callers keep unpacking ``path, revision_key``; ``generator`` is
-    what the ETag puts after the revision key — today's
-    :func:`generator_cache_tag`, or the bundle's generator digest when the file
-    is the bundle's member.  A bundle-served file must use the bundle's digest:
-    the legacy cache tag would identify one revision by two different
-    generators.
-    """
-
-    def __new__(cls, path: Path, revision_key: str, generator: str) -> Self:
-        result = super().__new__(cls, (path, revision_key))
-        result.generator = generator
-        return result
-
-
-def artifact_file(project: Any, commit: str | None = None) -> ArtifactFile:
+def artifact_file(project: Any, commit: str | None = None) -> semantic_index_bundle.ArtifactFile:
     """The stored index file and its revision key, built first if missing, never parsed.
 
     Readers that only pass the index on (the identity endpoint) start from
-    this, so a request no longer holds the whole index as Python objects.  With
-    the bundle switch, a ready member's file is extracted into the verified
-    cache instead and its design revision key and generator digest are
-    returned, which is what the route's ETag needs (ADR §5, G9).
+    this, so a request no longer holds the whole index as Python objects.
     """
 
-    read = _bundle_ready(project, commit)
-    if read is not None:
-        opened = read.opened
-        directory = read.extract([BUNDLE_MEMBER])
-        return ArtifactFile(
-            directory / BUNDLE_MEMBER,
-            str(opened.revision_key),
-            opened.generator_digest,
-        )
+    if (read := _bundle_ready(project, commit)) is not None:
+        return semantic_index_bundle.artifact(read)
 
     source_revision_key, _resolved_commit = _revision_identity(project, commit)
     path = artifact_path(str(project.id), source_revision_key)
@@ -389,13 +332,12 @@ def artifact_file(project: Any, commit: str | None = None) -> ArtifactFile:
         with _lock(str(project.id), source_revision_key):
             if not path.is_file():
                 _build_and_store(project, commit, source_revision_key, path)
-    return ArtifactFile(path, source_revision_key, generator_cache_tag())
+    return semantic_index_bundle.ArtifactFile(path, source_revision_key, generator_cache_tag())
 
 
 def get_existing(project: Any, commit: str | None = None) -> dict[str, Any] | None:
-    read = _bundle_ready(project, commit)
-    if read is not None:
-        return read.json(BUNDLE_MEMBER)
+    if (read := _bundle_ready(project, commit)) is not None:
+        return read.json(semantic_index_bundle.MEMBER)
 
     source_revision_key, _resolved_commit = _revision_identity(project, commit)
     path = artifact_path(str(project.id), source_revision_key)
@@ -405,17 +347,8 @@ def get_existing(project: Any, commit: str | None = None) -> dict[str, Any] | No
 
 
 def generate(project: Any, commit: str | None = None, *, force: bool = False) -> dict[str, Any]:
-    """Build (or, with the bundle switch, read) the index and return it.
-
-    A stored bundle is never rebuilt: a ready member is returned whatever
-    ``force`` says, because a stage only moves from ``pending`` to final
-    (ADR §5).  When the member is not ready, ``_bundle_ready`` has queued the
-    bundle and today's build runs as the fallback.
-    """
-
-    read = _bundle_ready(project, commit)
-    if read is not None:
-        return read.json(BUNDLE_MEMBER)
+    if (read := _bundle_ready(project, commit)) is not None:
+        return read.json(semantic_index_bundle.MEMBER)
 
     source_revision_key, _resolved_commit = _revision_identity(project, commit)
     path = artifact_path(str(project.id), source_revision_key)
@@ -426,35 +359,8 @@ def generate(project: Any, commit: str | None = None, *, force: bool = False) ->
 
 
 def get_status(project: Any, commit: str | None = None) -> dict[str, Any]:
-    """The index's readiness and identity for the status route.
-
-    With the bundle switch and a ready member, ``available`` is ``True``,
-    ``sourceRevisionKey`` is the design revision key (ADR §5, D2), not today's
-    32-hex semantic key, and ``commit`` is the resolved commit.  ``cacheTag`` is
-    the bundle's generator digest; the member carries no generator record, so
-    the other ``generator`` fields keep the values today's index would report —
-    they name the Prism semantic-index generator and the runtime's kicad-monkey,
-    not the bundle's ``prism-kicad``.  Every other case — the switch off, a
-    member not ready, a working-tree request — keeps today's response unchanged.
-    """
-
-    read = _bundle_ready(project, commit)
-    if read is not None:
-        opened = read.opened
-        return {
-            "schema": "prism.semantic_index_status_a0",
-            "projectId": str(project.id),
-            "sourceRevisionKey": str(opened.revision_key),
-            "commit": opened.commit,
-            "available": True,
-            "generator": {
-                "name": GENERATOR_NAME,
-                "version": GENERATOR_VERSION,
-                "build": GENERATOR_BUILD,
-                "cacheTag": opened.generator_digest,
-                "kicadMonkeyVersion": _kicad_monkey_version(),
-            },
-        }
+    if (read := _bundle_ready(project, commit)) is not None:
+        return semantic_index_bundle.status(read, str(project.id), _generator_record())
 
     source_revision_key, resolved_commit = _revision_identity(project, commit)
     path = artifact_path(str(project.id), source_revision_key)
@@ -464,13 +370,17 @@ def get_status(project: Any, commit: str | None = None) -> dict[str, Any]:
         "sourceRevisionKey": source_revision_key,
         "commit": resolved_commit,
         "available": path.is_file(),
-        "generator": {
-            "name": GENERATOR_NAME,
-            "version": GENERATOR_VERSION,
-            "build": GENERATOR_BUILD,
-            "cacheTag": generator_cache_tag(),
-            "kicadMonkeyVersion": _kicad_monkey_version(),
-        },
+        "generator": _generator_record(),
+    }
+
+
+def _generator_record() -> dict[str, str]:
+    return {
+        "name": GENERATOR_NAME,
+        "version": GENERATOR_VERSION,
+        "build": GENERATOR_BUILD,
+        "cacheTag": generator_cache_tag(),
+        "kicadMonkeyVersion": _kicad_monkey_version(),
     }
 
 
