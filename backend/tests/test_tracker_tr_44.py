@@ -51,7 +51,6 @@ except ImportError:  # pragma: no cover
 
 ROOT = Path(__file__).resolve().parents[2]
 DOCS = ROOT / "docs" / "tracker-integration"
-OPERATIONS = (ROOT / "docs" / "OPERATIONS.md").read_text(encoding="utf-8")
 F3 = json.loads((DOCS / "fixtures" / "F03.json").read_text(encoding="utf-8"))
 F5 = json.loads((DOCS / "fixtures" / "F05.json").read_text(encoding="utf-8"))
 
