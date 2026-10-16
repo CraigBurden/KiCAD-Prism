@@ -1,0 +1,1637 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$id": "urn:prism:schema:prism.board_objects:a0",
+    "type": "object",
+    "properties": {
+        "schema": {
+            "type": "string",
+            "const": "prism.board_objects.a0",
+            "description": "Schema id of this document."
+        },
+        "documents": {
+            "type": "array",
+            "items": {
+                "$ref": "#/$defs/BoardObjectsDocument"
+            },
+            "description": "One entry per `.kicad_sch`, `.kicad_pcb`, `.kicad_pro` and `.kicad_dru`\nmember of the bundle's `sources/`, which is the closure the build read\nfor this project (bundle-format.md §2.2), never the repository-wide key\nsource set, so another project's files appear only when this project\nreferences them. Files that yield no object are included. Sorted by\n`path` in code point order; `path` is unique. A file the producer cannot\nparse is left out and reported as a warning of stage `parse` in\n`bundle.json`. Empty only when the closure has none of these files."
+        }
+    },
+    "required": [
+        "schema",
+        "documents"
+    ],
+    "unevaluatedProperties": {
+        "not": {}
+    },
+    "description": "Every addressable object and review-only settings object of the project's\nKiCad documents, for Design Comparison.",
+    "title": "Board objects a0",
+    "$defs": {
+        "BoardObjectsDocument": {
+            "type": "object",
+            "properties": {
+                "path": {
+                    "$ref": "#/$defs/RepoPath",
+                    "description": "The document's repository-relative path. With an object's `uuid` it\nforms the object's ObjectRef `<path>#<uuid>`, Design Comparison's object\nkey (`ecad-diff.mjs:93-95`). Today's `documentPath`\n(`ecad-parse.mjs:1689`) is relative to the project directory instead;\nthe ids change once, by decision (conventions.md §8)."
+                },
+                "objects": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/$defs/BoardObjectsObject"
+                    },
+                    "description": "The document's objects that carry a KiCad uuid, in file order: ordered\nby the byte offset of each object's opening parenthesis, so a footprint\nprecedes its pads and a symbol its pins. `uuid` is unique within the\narray: when two forms of one document carry the same uuid only the\nlater one is kept and stage `parse` gets a warning. Always empty for a\n`.kicad_pro` or `.kicad_dru` document."
+                },
+                "reviewOnlyObjects": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/$defs/BoardObjectsReviewOnlyObject"
+                    },
+                    "description": "The document's review-only objects, sorted by `id` in code point order;\n`id` is unique (of two objects with one id, the one today's index\nemits later is kept, as its keyed map does). `.kicad_pro`: every kind\nexcept `custom-rule`, `fabrication-output` and `bus_alias`;\n`.kicad_dru`: `custom-rule`; `.kicad_pcb`: `fabrication-output`;\n`.kicad_sch`: `bus_alias`. Empty when the document has none."
+                }
+            },
+            "required": [
+                "path",
+                "objects",
+                "reviewOnlyObjects"
+            ],
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "The objects of one KiCad document."
+        },
+        "RepoPath": {
+            "type": "string",
+            "pattern": "^(?:[^/\\\\:.][^/\\\\:]*|\\.[^/\\\\:.][^/\\\\:]*|\\.\\.[^/\\\\:]+)(?:/(?:[^/\\\\:.][^/\\\\:]*|\\.[^/\\\\:.][^/\\\\:]*|\\.\\.[^/\\\\:]+))*$",
+            "description": "Repository-relative POSIX path, exactly as `git ls-tree` names the entry:\n`/`-separated, case preserved, no leading `/`, no empty, `.` or `..`\nsegment, no backslash and no `:`. The same character rule as ArchivePath.\nIt is the only path type in bundle documents: a file has one spelling\nwhichever project in the repository refers to it, and a file outside the\nproject directory needs no `..`."
+        },
+        "BoardObjectsObject": {
+            "oneOf": [
+                {
+                    "$ref": "#/$defs/BoardObjectsSymbol"
+                },
+                {
+                    "$ref": "#/$defs/BoardObjectsPin"
+                },
+                {
+                    "$ref": "#/$defs/BoardObjectsSheet"
+                },
+                {
+                    "$ref": "#/$defs/BoardObjectsSheetPin"
+                },
+                {
+                    "$ref": "#/$defs/BoardObjectsWire"
+                },
+                {
+                    "$ref": "#/$defs/BoardObjectsBus"
+                },
+                {
+                    "$ref": "#/$defs/BoardObjectsJunction"
+                },
+                {
+                    "$ref": "#/$defs/BoardObjectsNoConnect"
+                },
+                {
+                    "$ref": "#/$defs/BoardObjectsBusEntry"
+                },
+                {
+                    "$ref": "#/$defs/BoardObjectsLabel"
+                },
+                {
+                    "$ref": "#/$defs/BoardObjectsGraphic"
+                },
+                {
+                    "$ref": "#/$defs/BoardObjectsImage"
+                },
+                {
+                    "$ref": "#/$defs/BoardObjectsTable"
+                },
+                {
+                    "$ref": "#/$defs/BoardObjectsFootprint"
+                },
+                {
+                    "$ref": "#/$defs/BoardObjectsPad"
+                },
+                {
+                    "$ref": "#/$defs/BoardObjectsZone"
+                },
+                {
+                    "$ref": "#/$defs/BoardObjectsFootprintGraphic"
+                },
+                {
+                    "$ref": "#/$defs/BoardObjectsFootprintText"
+                },
+                {
+                    "$ref": "#/$defs/BoardObjectsTrack"
+                },
+                {
+                    "$ref": "#/$defs/BoardObjectsArc"
+                },
+                {
+                    "$ref": "#/$defs/BoardObjectsVia"
+                },
+                {
+                    "$ref": "#/$defs/BoardObjectsGroup"
+                }
+            ],
+            "description": "One object with a KiCad uuid. The variant is chosen by `kind`; the field\nmap lists each kind's KiCad forms."
+        },
+        "BoardObjectsReviewOnlyObject": {
+            "type": "object",
+            "properties": {
+                "kind": {
+                    "$ref": "#/$defs/BoardObjectsReviewOnlyKind",
+                    "description": "Kind of object."
+                },
+                "id": {
+                    "$ref": "#/$defs/BoardObjectsReviewOnlyId",
+                    "description": "The object's id; with the document path it forms Design Comparison's key `<path>#<id>`."
+                },
+                "name": {
+                    "type": "string",
+                    "minLength": 1,
+                    "description": "The object's display name: the class name, net pattern, rule name, alias name, exclusion label, pin-type pair, or the fixed name of a singleton kind."
+                },
+                "reviewFields": {
+                    "$ref": "#/$defs/RecordBoardObjectsReviewValue",
+                    "description": "Review fields, serialized with keys in code point order; keys are review labels, which for the settings kinds are derived from KiCad's own setting keys (field map, \"Review fields\"). Never empty except for a `net-class` whose class sets no value."
+                }
+            },
+            "required": [
+                "kind",
+                "id",
+                "name",
+                "reviewFields"
+            ],
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "A settings or definition object with no KiCad uuid, reviewed only by its fields (`ecad-parse.mjs:533-551`, `:553-858`, `:1051-1066`, `:1586-1591`)."
+        },
+        "BoardObjectsSymbol": {
+            "type": "object",
+            "properties": {
+                "kind": {
+                    "type": "string",
+                    "const": "symbol",
+                    "description": "Kind of object."
+                },
+                "uuid": {
+                    "$ref": "#/$defs/KiCadUuid",
+                    "description": "The object's KiCad uuid: its `(uuid …)`. Older files are upgraded by\nKiCad before parse (bundle-format.md §2.2), so `(tstamp …)` never\nreaches the parser. An object without an id\nis not listed, as today (`ecad-parse.mjs:940-944`, `:1351-1353`); an\nobject whose id is not a canonical uuid is not listed either (today it\nis) and stage `parse` gets a warning."
+                },
+                "contentDigest": {
+                    "$ref": "#/$defs/BoardObjectsContentDigest",
+                    "description": "Digest of the object's authored content, today's `hash` (`ecad-parse.mjs:952`, `:1366-1374`); see the scalar's doc and the field map."
+                },
+                "libId": {
+                    "$ref": "#/$defs/LibId",
+                    "description": "The symbol's `(lib_id …)` as written. Absent when the form has none."
+                },
+                "at": {
+                    "$ref": "#/$defs/PointNm",
+                    "description": "The symbol's anchor, `(at x y …)`, in the schematic page frame (+y down). Absent when the form has no `(at …)`."
+                },
+                "rotationDeg": {
+                    "$ref": "#/$defs/Degrees",
+                    "description": "The angle of the symbol's `(at x y angle)` as written; 0 when the form omits it. Present exactly when `at` is."
+                },
+                "mirror": {
+                    "$ref": "#/$defs/BoardObjectsMirror",
+                    "description": "The symbol's `(mirror …)`. Absent when the symbol is not mirrored."
+                },
+                "dnp": {
+                    "type": "boolean",
+                    "description": "True when the symbol's own `(dnp …)` is `yes`; false otherwise, including when it is absent. Sheet-level DNP is not folded in."
+                },
+                "inBom": {
+                    "type": "boolean",
+                    "description": "False when the symbol's own `(in_bom …)` is `no`; true otherwise, including when it is absent."
+                },
+                "onBoard": {
+                    "type": "boolean",
+                    "description": "False when the symbol's own `(on_board …)` is `no`; true otherwise, including when it is absent."
+                },
+                "refdes": {
+                    "$ref": "#/$defs/Refdes",
+                    "description": "The reference designator: the first non-empty `(reference …)` of the\nsymbol's `(instances …)`, else its `(default_instance (reference …))`,\nelse its `Reference` property (`ecad-parse.mjs:879-891`). Includes\npower (`#PWR01`) and unannotated (`R?`) references. Absent when none of\nthese is non-empty."
+                },
+                "kiidPaths": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/$defs/KiidPath"
+                    },
+                    "description": "Every occurrence path of the symbol, schematic form: each\n`(instances (project … (path P …)))` entry's P (without a trailing `/`)\nfollowed by `/<uuid>` (`ecad-parse.mjs:867-877`). Each path once,\nsorted in code point order. Empty when the symbol has no instance path."
+                },
+                "instances": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/$defs/BoardObjectsSymbolInstance"
+                    },
+                    "description": "The symbol's instances, in file order over every `(project …)` and its\n`(path …)` entries; when there is none, one entry holding only the\n`(default_instance (reference …))`, if there is one\n(`ecad-parse.mjs:893-912`). Empty when the symbol has neither."
+                },
+                "properties": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/$defs/BoardObjectsSchematicProperty"
+                    },
+                    "description": "The symbol's `(property …)` fields, in file order (`ecad-parse.mjs:914-928`)."
+                },
+                "reviewFields": {
+                    "$ref": "#/$defs/RecordBoardObjectsReviewValue",
+                    "description": "Review fields, serialized with keys in code point order; keys are review labels (today: `Unit`). Field map, \"Review fields\"."
+                }
+            },
+            "required": [
+                "kind",
+                "uuid",
+                "contentDigest",
+                "dnp",
+                "inBom",
+                "onBoard",
+                "kiidPaths",
+                "instances",
+                "properties",
+                "reviewFields"
+            ],
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "A placed schematic symbol: KiCad `(symbol (lib_id …) …)` (`ecad-parse.mjs:958-985`)."
+        },
+        "BoardObjectsPin": {
+            "type": "object",
+            "properties": {
+                "kind": {
+                    "type": "string",
+                    "const": "pin",
+                    "description": "Kind of object."
+                },
+                "uuid": {
+                    "$ref": "#/$defs/KiCadUuid",
+                    "description": "The object's KiCad uuid: its `(uuid …)`. Older files are upgraded by\nKiCad before parse (bundle-format.md §2.2), so `(tstamp …)` never\nreaches the parser. An object without an id\nis not listed, as today (`ecad-parse.mjs:940-944`, `:1351-1353`); an\nobject whose id is not a canonical uuid is not listed either (today it\nis) and stage `parse` gets a warning."
+                },
+                "contentDigest": {
+                    "$ref": "#/$defs/BoardObjectsContentDigest",
+                    "description": "Digest of the object's authored content, today's `hash` (`ecad-parse.mjs:952`, `:1366-1374`); see the scalar's doc and the field map."
+                },
+                "parentUuid": {
+                    "$ref": "#/$defs/KiCadUuid",
+                    "description": "Uuid of the symbol the pin belongs to. Absent only when that symbol has no valid uuid."
+                },
+                "number": {
+                    "$ref": "#/$defs/PadNumber",
+                    "description": "The pin number as written. Absent when the form has none."
+                },
+                "refdes": {
+                    "$ref": "#/$defs/Refdes",
+                    "description": "The parent symbol's `refdes`. Absent when the parent has none."
+                },
+                "at": {
+                    "$ref": "#/$defs/PointNm",
+                    "description": "The parent symbol's anchor (a pin instance has no position of its own), schematic page frame. Absent when the symbol has no `(at …)`."
+                },
+                "reviewFields": {
+                    "$ref": "#/$defs/RecordBoardObjectsReviewValue",
+                    "description": "Review fields, serialized with keys in code point order; keys are review labels (`Pin number`)."
+                }
+            },
+            "required": [
+                "kind",
+                "uuid",
+                "contentDigest",
+                "reviewFields"
+            ],
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "A pin instance of a placed symbol: `(pin \"<number>\" (uuid …))` inside the symbol (`ecad-parse.mjs:986-1002`)."
+        },
+        "BoardObjectsSheet": {
+            "type": "object",
+            "properties": {
+                "kind": {
+                    "type": "string",
+                    "const": "sheet",
+                    "description": "Kind of object."
+                },
+                "uuid": {
+                    "$ref": "#/$defs/KiCadUuid",
+                    "description": "The object's KiCad uuid: its `(uuid …)`. Older files are upgraded by\nKiCad before parse (bundle-format.md §2.2), so `(tstamp …)` never\nreaches the parser. An object without an id\nis not listed, as today (`ecad-parse.mjs:940-944`, `:1351-1353`); an\nobject whose id is not a canonical uuid is not listed either (today it\nis) and stage `parse` gets a warning."
+                },
+                "contentDigest": {
+                    "$ref": "#/$defs/BoardObjectsContentDigest",
+                    "description": "Digest of the object's authored content, today's `hash` (`ecad-parse.mjs:952`, `:1366-1374`); see the scalar's doc and the field map."
+                },
+                "at": {
+                    "$ref": "#/$defs/PointNm",
+                    "description": "The sheet box's `(at x y)` corner, schematic page frame. Absent when the form has no `(at …)`."
+                },
+                "kiidPaths": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/$defs/KiidPath"
+                    },
+                    "description": "Every instance path of the sheet, schematic form: each\n`(instances (project … (path P …)))` entry's P followed by `/<uuid>`.\nEach once, sorted in code point order. Empty when it has none."
+                },
+                "properties": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/$defs/BoardObjectsSchematicProperty"
+                    },
+                    "description": "The sheet's `(property …)` fields (`Sheetname`, `Sheetfile`, user fields), in file order."
+                }
+            },
+            "required": [
+                "kind",
+                "uuid",
+                "contentDigest",
+                "kiidPaths",
+                "properties"
+            ],
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "A hierarchical sheet: KiCad `(sheet …)` (`ecad-parse.mjs:1005-1015`). Today's index gives it no review fields."
+        },
+        "BoardObjectsSheetPin": {
+            "type": "object",
+            "properties": {
+                "kind": {
+                    "type": "string",
+                    "const": "sheet-pin",
+                    "description": "Kind of object."
+                },
+                "uuid": {
+                    "$ref": "#/$defs/KiCadUuid",
+                    "description": "The object's KiCad uuid: its `(uuid …)`. Older files are upgraded by\nKiCad before parse (bundle-format.md §2.2), so `(tstamp …)` never\nreaches the parser. An object without an id\nis not listed, as today (`ecad-parse.mjs:940-944`, `:1351-1353`); an\nobject whose id is not a canonical uuid is not listed either (today it\nis) and stage `parse` gets a warning."
+                },
+                "contentDigest": {
+                    "$ref": "#/$defs/BoardObjectsContentDigest",
+                    "description": "Digest of the object's authored content, today's `hash` (`ecad-parse.mjs:952`, `:1366-1374`); see the scalar's doc and the field map."
+                },
+                "parentUuid": {
+                    "$ref": "#/$defs/KiCadUuid",
+                    "description": "Uuid of the sheet the pin belongs to. Absent only when that sheet has no valid uuid."
+                },
+                "name": {
+                    "type": "string",
+                    "description": "The pin's name as written. Absent when the form has none."
+                },
+                "text": {
+                    "type": "string",
+                    "description": "The same value as `name` (today's index emits both). Absent exactly when `name` is."
+                },
+                "at": {
+                    "$ref": "#/$defs/PointNm",
+                    "description": "The pin's `(at x y …)`, schematic page frame. Absent when the form has none."
+                },
+                "rotationDeg": {
+                    "$ref": "#/$defs/Degrees",
+                    "description": "The angle of the pin's `(at x y angle)` as written; 0 when omitted. Present exactly when `at` is."
+                },
+                "reviewFields": {
+                    "$ref": "#/$defs/RecordBoardObjectsReviewValue",
+                    "description": "Review fields, serialized with keys in code point order; keys are review labels (`Sheet pin`, `Electrical type`)."
+                }
+            },
+            "required": [
+                "kind",
+                "uuid",
+                "contentDigest",
+                "reviewFields"
+            ],
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "A sheet pin: `(pin \"<name>\" <type> …)` inside a sheet (`ecad-parse.mjs:1016-1036`)."
+        },
+        "BoardObjectsWire": {
+            "type": "object",
+            "properties": {
+                "kind": {
+                    "type": "string",
+                    "const": "wire",
+                    "description": "Kind of object."
+                },
+                "uuid": {
+                    "$ref": "#/$defs/KiCadUuid",
+                    "description": "The object's KiCad uuid: its `(uuid …)`. Older files are upgraded by\nKiCad before parse (bundle-format.md §2.2), so `(tstamp …)` never\nreaches the parser. An object without an id\nis not listed, as today (`ecad-parse.mjs:940-944`, `:1351-1353`); an\nobject whose id is not a canonical uuid is not listed either (today it\nis) and stage `parse` gets a warning."
+                },
+                "contentDigest": {
+                    "$ref": "#/$defs/BoardObjectsContentDigest",
+                    "description": "Digest of the object's authored content, today's `hash` (`ecad-parse.mjs:952`, `:1366-1374`); see the scalar's doc and the field map."
+                },
+                "at": {
+                    "$ref": "#/$defs/PointNm",
+                    "description": "Centroid of the wire's `(pts …)` points, schematic page frame, computed by the field map's centroid rule. Absent when it has no point."
+                },
+                "reviewFields": {
+                    "$ref": "#/$defs/RecordBoardObjectsReviewValue",
+                    "description": "Review fields, serialized with keys in code point order; keys are review labels (`Stroke`)."
+                }
+            },
+            "required": [
+                "kind",
+                "uuid",
+                "contentDigest",
+                "reviewFields"
+            ],
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "A schematic wire: `(wire (pts …) …)` (`ecad-parse.mjs:1039-1049`)."
+        },
+        "BoardObjectsBus": {
+            "type": "object",
+            "properties": {
+                "kind": {
+                    "type": "string",
+                    "const": "bus",
+                    "description": "Kind of object."
+                },
+                "uuid": {
+                    "$ref": "#/$defs/KiCadUuid",
+                    "description": "The object's KiCad uuid: its `(uuid …)`. Older files are upgraded by\nKiCad before parse (bundle-format.md §2.2), so `(tstamp …)` never\nreaches the parser. An object without an id\nis not listed, as today (`ecad-parse.mjs:940-944`, `:1351-1353`); an\nobject whose id is not a canonical uuid is not listed either (today it\nis) and stage `parse` gets a warning."
+                },
+                "contentDigest": {
+                    "$ref": "#/$defs/BoardObjectsContentDigest",
+                    "description": "Digest of the object's authored content, today's `hash` (`ecad-parse.mjs:952`, `:1366-1374`); see the scalar's doc and the field map."
+                },
+                "at": {
+                    "$ref": "#/$defs/PointNm",
+                    "description": "Centroid of the bus's `(pts …)` points, schematic page frame, computed by the field map's centroid rule. Absent when it has no point."
+                },
+                "reviewFields": {
+                    "$ref": "#/$defs/RecordBoardObjectsReviewValue",
+                    "description": "Review fields, serialized with keys in code point order; keys are review labels (`Stroke`)."
+                }
+            },
+            "required": [
+                "kind",
+                "uuid",
+                "contentDigest",
+                "reviewFields"
+            ],
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "A schematic bus: `(bus (pts …) …)` (`ecad-parse.mjs:1039-1049`)."
+        },
+        "BoardObjectsJunction": {
+            "type": "object",
+            "properties": {
+                "kind": {
+                    "type": "string",
+                    "const": "junction",
+                    "description": "Kind of object."
+                },
+                "uuid": {
+                    "$ref": "#/$defs/KiCadUuid",
+                    "description": "The object's KiCad uuid: its `(uuid …)`. Older files are upgraded by\nKiCad before parse (bundle-format.md §2.2), so `(tstamp …)` never\nreaches the parser. An object without an id\nis not listed, as today (`ecad-parse.mjs:940-944`, `:1351-1353`); an\nobject whose id is not a canonical uuid is not listed either (today it\nis) and stage `parse` gets a warning."
+                },
+                "contentDigest": {
+                    "$ref": "#/$defs/BoardObjectsContentDigest",
+                    "description": "Digest of the object's authored content, today's `hash` (`ecad-parse.mjs:952`, `:1366-1374`); see the scalar's doc and the field map."
+                },
+                "at": {
+                    "$ref": "#/$defs/PointNm",
+                    "description": "The junction's `(at x y)`, schematic page frame. Absent when the form has none."
+                },
+                "reviewFields": {
+                    "$ref": "#/$defs/RecordBoardObjectsReviewValue",
+                    "description": "Review fields, serialized with keys in code point order; keys are review labels (`Diameter`)."
+                }
+            },
+            "required": [
+                "kind",
+                "uuid",
+                "contentDigest",
+                "reviewFields"
+            ],
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "A junction dot: `(junction …)` (`ecad-parse.mjs:1068-1083`)."
+        },
+        "BoardObjectsNoConnect": {
+            "type": "object",
+            "properties": {
+                "kind": {
+                    "type": "string",
+                    "const": "no_connect",
+                    "description": "Kind of object."
+                },
+                "uuid": {
+                    "$ref": "#/$defs/KiCadUuid",
+                    "description": "The object's KiCad uuid: its `(uuid …)`. Older files are upgraded by\nKiCad before parse (bundle-format.md §2.2), so `(tstamp …)` never\nreaches the parser. An object without an id\nis not listed, as today (`ecad-parse.mjs:940-944`, `:1351-1353`); an\nobject whose id is not a canonical uuid is not listed either (today it\nis) and stage `parse` gets a warning."
+                },
+                "contentDigest": {
+                    "$ref": "#/$defs/BoardObjectsContentDigest",
+                    "description": "Digest of the object's authored content, today's `hash` (`ecad-parse.mjs:952`, `:1366-1374`); see the scalar's doc and the field map."
+                },
+                "at": {
+                    "$ref": "#/$defs/PointNm",
+                    "description": "The flag's `(at x y)`, schematic page frame. Absent when the form has none."
+                },
+                "reviewFields": {
+                    "$ref": "#/$defs/RecordBoardObjectsReviewValue",
+                    "description": "Review fields, serialized with keys in code point order; keys are review labels (today always empty)."
+                }
+            },
+            "required": [
+                "kind",
+                "uuid",
+                "contentDigest",
+                "reviewFields"
+            ],
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "A no-connect flag: `(no_connect …)` (`ecad-parse.mjs:1068-1083`)."
+        },
+        "BoardObjectsBusEntry": {
+            "type": "object",
+            "properties": {
+                "kind": {
+                    "type": "string",
+                    "const": "bus_entry",
+                    "description": "Kind of object."
+                },
+                "uuid": {
+                    "$ref": "#/$defs/KiCadUuid",
+                    "description": "The object's KiCad uuid: its `(uuid …)`. Older files are upgraded by\nKiCad before parse (bundle-format.md §2.2), so `(tstamp …)` never\nreaches the parser. An object without an id\nis not listed, as today (`ecad-parse.mjs:940-944`, `:1351-1353`); an\nobject whose id is not a canonical uuid is not listed either (today it\nis) and stage `parse` gets a warning."
+                },
+                "contentDigest": {
+                    "$ref": "#/$defs/BoardObjectsContentDigest",
+                    "description": "Digest of the object's authored content, today's `hash` (`ecad-parse.mjs:952`, `:1366-1374`); see the scalar's doc and the field map."
+                },
+                "at": {
+                    "$ref": "#/$defs/PointNm",
+                    "description": "The entry's `(at x y)`, schematic page frame. Absent when the form has none."
+                },
+                "reviewFields": {
+                    "$ref": "#/$defs/RecordBoardObjectsReviewValue",
+                    "description": "Review fields, serialized with keys in code point order; keys are review labels (`Size`, `Stroke`)."
+                }
+            },
+            "required": [
+                "kind",
+                "uuid",
+                "contentDigest",
+                "reviewFields"
+            ],
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "A bus entry: `(bus_entry …)` (`ecad-parse.mjs:1068-1083`)."
+        },
+        "BoardObjectsLabel": {
+            "type": "object",
+            "properties": {
+                "kind": {
+                    "type": "string",
+                    "const": "label",
+                    "description": "Kind of object."
+                },
+                "uuid": {
+                    "$ref": "#/$defs/KiCadUuid",
+                    "description": "The object's KiCad uuid: its `(uuid …)`. Older files are upgraded by\nKiCad before parse (bundle-format.md §2.2), so `(tstamp …)` never\nreaches the parser. An object without an id\nis not listed, as today (`ecad-parse.mjs:940-944`, `:1351-1353`); an\nobject whose id is not a canonical uuid is not listed either (today it\nis) and stage `parse` gets a warning."
+                },
+                "contentDigest": {
+                    "$ref": "#/$defs/BoardObjectsContentDigest",
+                    "description": "Digest of the object's authored content, today's `hash` (`ecad-parse.mjs:952`, `:1366-1374`); see the scalar's doc and the field map."
+                },
+                "text": {
+                    "type": "string",
+                    "description": "The label's text as written. Absent when the form has none."
+                },
+                "net": {
+                    "type": "string",
+                    "description": "The label's text again: the name the label gives its net on its sheet, not the resolved full net name (`ecad-parse.mjs:1096`). Absent exactly when `text` is."
+                },
+                "at": {
+                    "$ref": "#/$defs/PointNm",
+                    "description": "The label's `(at x y …)`, schematic page frame. Absent when the form has none."
+                },
+                "rotationDeg": {
+                    "$ref": "#/$defs/Degrees",
+                    "description": "The angle of the label's `(at x y angle)` as written; 0 when omitted. Present exactly when `at` is."
+                },
+                "reviewFields": {
+                    "$ref": "#/$defs/RecordBoardObjectsReviewValue",
+                    "description": "Review fields, serialized with keys in code point order; keys are review labels (`Text`)."
+                }
+            },
+            "required": [
+                "kind",
+                "uuid",
+                "contentDigest",
+                "reviewFields"
+            ],
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "A net label of any scope: `(label …)`, `(global_label …)` or `(hierarchical_label …)` (`ecad-parse.mjs:1085-1103`). The scope is part of `contentDigest`, not a field."
+        },
+        "BoardObjectsGraphic": {
+            "type": "object",
+            "properties": {
+                "kind": {
+                    "type": "string",
+                    "const": "graphic",
+                    "description": "Kind of object."
+                },
+                "uuid": {
+                    "$ref": "#/$defs/KiCadUuid",
+                    "description": "The object's KiCad uuid: its `(uuid …)`. Older files are upgraded by\nKiCad before parse (bundle-format.md §2.2), so `(tstamp …)` never\nreaches the parser. An object without an id\nis not listed, as today (`ecad-parse.mjs:940-944`, `:1351-1353`); an\nobject whose id is not a canonical uuid is not listed either (today it\nis) and stage `parse` gets a warning."
+                },
+                "contentDigest": {
+                    "$ref": "#/$defs/BoardObjectsContentDigest",
+                    "description": "Digest of the object's authored content, today's `hash` (`ecad-parse.mjs:952`, `:1366-1374`); see the scalar's doc and the field map."
+                },
+                "at": {
+                    "$ref": "#/$defs/PointNm",
+                    "description": "Position of the drawing in the document frame (schematic page or board,\n+y down): the form's `(at …)` when it has one, else the centroid of its\npoints as the field map's per-form table defines them. Absent for the\nforms the table marks so (a schematic `circle`, a board `dimension`)."
+                },
+                "layer": {
+                    "$ref": "#/$defs/LayerName",
+                    "description": "Board drawings only: the drawing's `(layer …)`. Absent on schematic drawings and when the form has none."
+                },
+                "text": {
+                    "type": "string",
+                    "description": "The drawing's text: schematic `text`/`text_box`, board `gr_text`. Absent on every other form."
+                },
+                "reviewFields": {
+                    "$ref": "#/$defs/RecordBoardObjectsReviewValue",
+                    "description": "Review fields, serialized with keys in code point order; keys are review labels (`Graphic type`, `Text`, `Stroke`, `Fill`)."
+                }
+            },
+            "required": [
+                "kind",
+                "uuid",
+                "contentDigest",
+                "reviewFields"
+            ],
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "A drawing that is not part of a footprint. Schematic: `(polyline …)`,\n`(rectangle …)`, `(arc …)`, `(circle …)`, `(bezier …)`, `(text …)`,\n`(text_box …)` (`ecad-parse.mjs:1105-1118`). Board: `(gr_line …)`,\n`(gr_rect …)`, `(gr_arc …)`, `(gr_circle …)`, `(gr_poly …)`,\n`(gr_text …)`, `(dimension …)` (`ecad-parse.mjs:1557-1571`)."
+        },
+        "BoardObjectsImage": {
+            "type": "object",
+            "properties": {
+                "kind": {
+                    "type": "string",
+                    "const": "image",
+                    "description": "Kind of object."
+                },
+                "uuid": {
+                    "$ref": "#/$defs/KiCadUuid",
+                    "description": "The object's KiCad uuid: its `(uuid …)`. Older files are upgraded by\nKiCad before parse (bundle-format.md §2.2), so `(tstamp …)` never\nreaches the parser. An object without an id\nis not listed, as today (`ecad-parse.mjs:940-944`, `:1351-1353`); an\nobject whose id is not a canonical uuid is not listed either (today it\nis) and stage `parse` gets a warning."
+                },
+                "contentDigest": {
+                    "$ref": "#/$defs/BoardObjectsContentDigest",
+                    "description": "Digest of the object's authored content, today's `hash` (`ecad-parse.mjs:952`, `:1366-1374`); see the scalar's doc and the field map."
+                },
+                "at": {
+                    "$ref": "#/$defs/PointNm",
+                    "description": "The image's `(at x y)` centre, schematic page frame. Absent when the form has none."
+                },
+                "reviewFields": {
+                    "$ref": "#/$defs/RecordBoardObjectsReviewValue",
+                    "description": "Review fields, serialized with keys in code point order; keys are review labels (`Scale`)."
+                }
+            },
+            "required": [
+                "kind",
+                "uuid",
+                "contentDigest",
+                "reviewFields"
+            ],
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "A schematic bitmap: `(image …)` (`ecad-parse.mjs:1120-1125`)."
+        },
+        "BoardObjectsTable": {
+            "type": "object",
+            "properties": {
+                "kind": {
+                    "type": "string",
+                    "const": "table",
+                    "description": "Kind of object."
+                },
+                "uuid": {
+                    "$ref": "#/$defs/KiCadUuid",
+                    "description": "The object's KiCad uuid: its `(uuid …)`. Older files are upgraded by\nKiCad before parse (bundle-format.md §2.2), so `(tstamp …)` never\nreaches the parser. An object without an id\nis not listed, as today (`ecad-parse.mjs:940-944`, `:1351-1353`); an\nobject whose id is not a canonical uuid is not listed either (today it\nis) and stage `parse` gets a warning."
+                },
+                "contentDigest": {
+                    "$ref": "#/$defs/BoardObjectsContentDigest",
+                    "description": "Digest of the object's authored content, today's `hash` (`ecad-parse.mjs:952`, `:1366-1374`); see the scalar's doc and the field map."
+                },
+                "reviewFields": {
+                    "$ref": "#/$defs/RecordBoardObjectsReviewValue",
+                    "description": "Review fields, serialized with keys in code point order; keys are review labels (`Columns`, `Rows`, `Table content`)."
+                }
+            },
+            "required": [
+                "kind",
+                "uuid",
+                "contentDigest",
+                "reviewFields"
+            ],
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "A schematic table: `(table …)` (`ecad-parse.mjs:1126-1134`). It has no position."
+        },
+        "BoardObjectsFootprint": {
+            "type": "object",
+            "properties": {
+                "kind": {
+                    "type": "string",
+                    "const": "footprint",
+                    "description": "Kind of object."
+                },
+                "uuid": {
+                    "$ref": "#/$defs/KiCadUuid",
+                    "description": "The object's KiCad uuid: its `(uuid …)`. Older files are upgraded by\nKiCad before parse (bundle-format.md §2.2), so `(tstamp …)` never\nreaches the parser. An object without an id\nis not listed, as today (`ecad-parse.mjs:940-944`, `:1351-1353`); an\nobject whose id is not a canonical uuid is not listed either (today it\nis) and stage `parse` gets a warning."
+                },
+                "contentDigest": {
+                    "$ref": "#/$defs/BoardObjectsContentDigest",
+                    "description": "Digest of the object's authored content, today's `hash` (`ecad-parse.mjs:952`, `:1366-1374`); see the scalar's doc and the field map."
+                },
+                "libId": {
+                    "$ref": "#/$defs/LibId",
+                    "description": "The footprint's library link, the form's first value, as written. Absent when it is empty."
+                },
+                "at": {
+                    "$ref": "#/$defs/PointNm",
+                    "description": "The footprint's anchor, `(at x y …)`, board frame. Absent when the form has none."
+                },
+                "rotationDeg": {
+                    "$ref": "#/$defs/Degrees",
+                    "description": "The angle of the footprint's `(at x y angle)` as written; 0 when omitted. Present exactly when `at` is."
+                },
+                "layer": {
+                    "$ref": "#/$defs/LayerName",
+                    "description": "The footprint's `(layer …)`: `F.Cu`, or `B.Cu` for a flipped footprint. Absent when the form has none."
+                },
+                "footprintPath": {
+                    "$ref": "#/$defs/KiidPath",
+                    "description": "The footprint's `(path …)`, board form (no root sheet uuid): the occurrence of the symbol it was placed from. Today's `kiidPaths` is the one-entry list of this value. Absent when the footprint has no valid path."
+                },
+                "refdes": {
+                    "$ref": "#/$defs/Refdes",
+                    "description": "The `Reference` field's value (`ecad-parse.mjs:1383-1385`). Absent when it is missing or empty."
+                },
+                "properties": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/$defs/BoardObjectsFootprintProperty"
+                    },
+                    "description": "The footprint's fields, in file order."
+                },
+                "reviewFields": {
+                    "$ref": "#/$defs/RecordBoardObjectsReviewValue",
+                    "description": "Review fields, serialized with keys in code point order; keys are review labels (`Description`, `Attributes`, `Exclude from BOM`, `Exclude from position files`, `Board only`)."
+                }
+            },
+            "required": [
+                "kind",
+                "uuid",
+                "contentDigest",
+                "properties",
+                "reviewFields"
+            ],
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "A footprint placed on the board: `(footprint \"<lib id>\" …)` (`ecad-parse.mjs:1380-1412`)."
+        },
+        "BoardObjectsPad": {
+            "type": "object",
+            "properties": {
+                "kind": {
+                    "type": "string",
+                    "const": "pad",
+                    "description": "Kind of object."
+                },
+                "uuid": {
+                    "$ref": "#/$defs/KiCadUuid",
+                    "description": "The object's KiCad uuid: its `(uuid …)`. Older files are upgraded by\nKiCad before parse (bundle-format.md §2.2), so `(tstamp …)` never\nreaches the parser. An object without an id\nis not listed, as today (`ecad-parse.mjs:940-944`, `:1351-1353`); an\nobject whose id is not a canonical uuid is not listed either (today it\nis) and stage `parse` gets a warning."
+                },
+                "contentDigest": {
+                    "$ref": "#/$defs/BoardObjectsContentDigest",
+                    "description": "Digest of the object's authored content, today's `hash` (`ecad-parse.mjs:952`, `:1366-1374`); see the scalar's doc and the field map."
+                },
+                "parentUuid": {
+                    "$ref": "#/$defs/KiCadUuid",
+                    "description": "Uuid of the footprint the pad belongs to. Absent only when that footprint has no valid uuid."
+                },
+                "number": {
+                    "$ref": "#/$defs/PadNumber",
+                    "description": "The pad number as written; empty for an unnumbered pad. Absent when the form has none."
+                },
+                "refdes": {
+                    "$ref": "#/$defs/Refdes",
+                    "description": "The parent footprint's `refdes`. Absent when it has none."
+                },
+                "at": {
+                    "$ref": "#/$defs/PointNm",
+                    "description": "The pad's `(at x y …)` as written: footprint-local, relative to the footprint anchor before its rotation; a back-side footprint's children are already mirrored in the file. Absent when the form has none."
+                },
+                "rotationDeg": {
+                    "$ref": "#/$defs/Degrees",
+                    "description": "The angle of the pad's `(at x y angle)` as written, which KiCad stores in the board frame (it includes the footprint's rotation); 0 when omitted. Present exactly when `at` is."
+                },
+                "layer": {
+                    "$ref": "#/$defs/BoardObjectsLayerSpec",
+                    "description": "The first entry of the pad's `(layers …)` as written, wildcard sets included. Absent when the pad has no layer."
+                },
+                "net": {
+                    "$ref": "#/$defs/NetName",
+                    "description": "The pad's net, by name. Absent when the pad has no net."
+                },
+                "reviewFields": {
+                    "$ref": "#/$defs/RecordBoardObjectsReviewValue",
+                    "description": "Review fields, serialized with keys in code point order; keys are review labels (`Pad number`, `Pad type`, `Pad shape`, `Size`, `Drill`, `Layers`, `Clearance`, `Solder mask margin`, `Solder paste margin`, `Thermal width`, `Thermal gap`, `Zone connection`)."
+                }
+            },
+            "required": [
+                "kind",
+                "uuid",
+                "contentDigest",
+                "reviewFields"
+            ],
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "A footprint pad: `(pad …)` inside a footprint (`ecad-parse.mjs:1413-1441`)."
+        },
+        "BoardObjectsZone": {
+            "type": "object",
+            "properties": {
+                "kind": {
+                    "type": "string",
+                    "const": "zone",
+                    "description": "Kind of object."
+                },
+                "uuid": {
+                    "$ref": "#/$defs/KiCadUuid",
+                    "description": "The object's KiCad uuid: its `(uuid …)`. Older files are upgraded by\nKiCad before parse (bundle-format.md §2.2), so `(tstamp …)` never\nreaches the parser. An object without an id\nis not listed, as today (`ecad-parse.mjs:940-944`, `:1351-1353`); an\nobject whose id is not a canonical uuid is not listed either (today it\nis) and stage `parse` gets a warning."
+                },
+                "contentDigest": {
+                    "$ref": "#/$defs/BoardObjectsContentDigest",
+                    "description": "Digest of the object's authored content, today's `hash` (`ecad-parse.mjs:952`, `:1366-1374`); see the scalar's doc and the field map."
+                },
+                "parentUuid": {
+                    "$ref": "#/$defs/KiCadUuid",
+                    "description": "Footprint zones only: uuid of the footprint. Absent on board zones and when the footprint has no valid uuid."
+                },
+                "refdes": {
+                    "$ref": "#/$defs/Refdes",
+                    "description": "Footprint zones only: the footprint's `refdes`. Absent on board zones and when the footprint has none."
+                },
+                "at": {
+                    "$ref": "#/$defs/PointNm",
+                    "description": "Centroid of the points of all the zone's `(polygon (pts …))` outlines\n(fill polygons excluded), computed by the field map's centroid rule, in\nthe frame the file stores them: the board frame, except for a footprint\nzone in a board of format 20260616 or later, whose outline is\nfootprint-local (fork: `src/rs/kicad-monkey-core/src/pcb/footprints.rs:36-37`).\nAbsent when the outline has no point."
+                },
+                "layer": {
+                    "$ref": "#/$defs/BoardObjectsLayerSpec",
+                    "description": "The zone's `(layer …)`; a footprint zone without one takes the first entry of its `(layers …)`. As written, wildcard sets included. Absent when there is none."
+                },
+                "net": {
+                    "$ref": "#/$defs/NetName",
+                    "description": "The zone's net: its `(net_name …)` when non-empty, else the name of its `(net …)`. Absent when the zone has no net."
+                },
+                "name": {
+                    "type": "string",
+                    "description": "The zone's `(name …)` as written. Absent when the form has none."
+                },
+                "reviewFields": {
+                    "$ref": "#/$defs/RecordBoardObjectsReviewValue",
+                    "description": "Review fields, serialized with keys in code point order; keys are review labels (`Zone name`, `Zone layers`, `Priority`, `Hatch`, `Pad connection`, `Minimum thickness`, `Keepout`, `Fill rules`)."
+                }
+            },
+            "required": [
+                "kind",
+                "uuid",
+                "contentDigest",
+                "reviewFields"
+            ],
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "A copper zone or rule area, on the board or inside a footprint: `(zone …)` (`ecad-parse.mjs:1442-1460`, `:1543-1555`)."
+        },
+        "BoardObjectsFootprintGraphic": {
+            "type": "object",
+            "properties": {
+                "kind": {
+                    "type": "string",
+                    "const": "footprint-graphic",
+                    "description": "Kind of object."
+                },
+                "uuid": {
+                    "$ref": "#/$defs/KiCadUuid",
+                    "description": "The object's KiCad uuid: its `(uuid …)`. Older files are upgraded by\nKiCad before parse (bundle-format.md §2.2), so `(tstamp …)` never\nreaches the parser. An object without an id\nis not listed, as today (`ecad-parse.mjs:940-944`, `:1351-1353`); an\nobject whose id is not a canonical uuid is not listed either (today it\nis) and stage `parse` gets a warning."
+                },
+                "contentDigest": {
+                    "$ref": "#/$defs/BoardObjectsContentDigest",
+                    "description": "Digest of the object's authored content, today's `hash` (`ecad-parse.mjs:952`, `:1366-1374`); see the scalar's doc and the field map."
+                },
+                "parentUuid": {
+                    "$ref": "#/$defs/KiCadUuid",
+                    "description": "Uuid of the footprint. Absent only when it has no valid uuid."
+                },
+                "refdes": {
+                    "$ref": "#/$defs/Refdes",
+                    "description": "The footprint's `refdes`. Absent when it has none."
+                },
+                "at": {
+                    "$ref": "#/$defs/PointNm",
+                    "description": "Centroid of the drawing's points as the field map's per-form table defines them, footprint-local as the file stores them. Absent when there is no point."
+                },
+                "layer": {
+                    "$ref": "#/$defs/LayerName",
+                    "description": "The drawing's `(layer …)`. Absent when the form has none."
+                },
+                "reviewFields": {
+                    "$ref": "#/$defs/RecordBoardObjectsReviewValue",
+                    "description": "Review fields, serialized with keys in code point order; keys are review labels (`Stroke`, `Fill`)."
+                }
+            },
+            "required": [
+                "kind",
+                "uuid",
+                "contentDigest",
+                "reviewFields"
+            ],
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "A footprint drawing: `(fp_line …)`, `(fp_rect …)`, `(fp_arc …)`, `(fp_circle …)` or `(fp_poly …)` inside a footprint (`ecad-parse.mjs:1461-1477`)."
+        },
+        "BoardObjectsFootprintText": {
+            "type": "object",
+            "properties": {
+                "kind": {
+                    "type": "string",
+                    "const": "footprint-text",
+                    "description": "Kind of object."
+                },
+                "uuid": {
+                    "$ref": "#/$defs/KiCadUuid",
+                    "description": "The object's KiCad uuid: its `(uuid …)`. Older files are upgraded by\nKiCad before parse (bundle-format.md §2.2), so `(tstamp …)` never\nreaches the parser. An object without an id\nis not listed, as today (`ecad-parse.mjs:940-944`, `:1351-1353`); an\nobject whose id is not a canonical uuid is not listed either (today it\nis) and stage `parse` gets a warning."
+                },
+                "contentDigest": {
+                    "$ref": "#/$defs/BoardObjectsContentDigest",
+                    "description": "Digest of the object's authored content, today's `hash` (`ecad-parse.mjs:952`, `:1366-1374`); see the scalar's doc and the field map."
+                },
+                "parentUuid": {
+                    "$ref": "#/$defs/KiCadUuid",
+                    "description": "Uuid of the footprint. Absent only when it has no valid uuid."
+                },
+                "refdes": {
+                    "$ref": "#/$defs/Refdes",
+                    "description": "The footprint's `refdes`. Absent when it has none."
+                },
+                "at": {
+                    "$ref": "#/$defs/PointNm",
+                    "description": "The text's `(at x y …)` as written: footprint-local. Absent when the form has none."
+                },
+                "rotationDeg": {
+                    "$ref": "#/$defs/Degrees",
+                    "description": "The angle of the text's `(at x y angle)` as written; 0 when omitted. Present exactly when `at` is."
+                },
+                "layer": {
+                    "$ref": "#/$defs/LayerName",
+                    "description": "The text's `(layer …)`. Absent when the form has none."
+                },
+                "text": {
+                    "type": "string",
+                    "description": "The text as written (unexpanded variables such as `${REFERENCE}` stay). Absent when the form has none."
+                },
+                "reviewFields": {
+                    "$ref": "#/$defs/RecordBoardObjectsReviewValue",
+                    "description": "Review fields, serialized with keys in code point order; keys are review labels (`Text kind`, `Text`)."
+                }
+            },
+            "required": [
+                "kind",
+                "uuid",
+                "contentDigest",
+                "reviewFields"
+            ],
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "A footprint text: `(fp_text reference|value|user \"…\" …)` inside a footprint (`ecad-parse.mjs:1478-1495`). KiCad 8 and later keep `Reference` and `Value` as properties, not as texts."
+        },
+        "BoardObjectsTrack": {
+            "type": "object",
+            "properties": {
+                "kind": {
+                    "type": "string",
+                    "const": "track",
+                    "description": "Kind of object."
+                },
+                "uuid": {
+                    "$ref": "#/$defs/KiCadUuid",
+                    "description": "The object's KiCad uuid: its `(uuid …)`. Older files are upgraded by\nKiCad before parse (bundle-format.md §2.2), so `(tstamp …)` never\nreaches the parser. An object without an id\nis not listed, as today (`ecad-parse.mjs:940-944`, `:1351-1353`); an\nobject whose id is not a canonical uuid is not listed either (today it\nis) and stage `parse` gets a warning."
+                },
+                "contentDigest": {
+                    "$ref": "#/$defs/BoardObjectsContentDigest",
+                    "description": "Digest of the object's authored content, today's `hash` (`ecad-parse.mjs:952`, `:1366-1374`); see the scalar's doc and the field map."
+                },
+                "at": {
+                    "$ref": "#/$defs/PointNm",
+                    "description": "Centroid of the track's start and end, board frame, computed by the field map's centroid rule. Absent when it has neither."
+                },
+                "layer": {
+                    "$ref": "#/$defs/LayerName",
+                    "description": "The track's `(layer …)`. Absent when the form has none (KiCad 10 writes `(layers …)` for a track with a mask opening; it is then absent)."
+                },
+                "net": {
+                    "$ref": "#/$defs/NetName",
+                    "description": "The track's net, by name. Absent when the track has no net."
+                },
+                "reviewFields": {
+                    "$ref": "#/$defs/RecordBoardObjectsReviewValue",
+                    "description": "Review fields, serialized with keys in code point order; keys are review labels (`Width`)."
+                }
+            },
+            "required": [
+                "kind",
+                "uuid",
+                "contentDigest",
+                "reviewFields"
+            ],
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "A straight track: `(segment …)` (`ecad-parse.mjs:1498-1513`)."
+        },
+        "BoardObjectsArc": {
+            "type": "object",
+            "properties": {
+                "kind": {
+                    "type": "string",
+                    "const": "arc",
+                    "description": "Kind of object."
+                },
+                "uuid": {
+                    "$ref": "#/$defs/KiCadUuid",
+                    "description": "The object's KiCad uuid: its `(uuid …)`. Older files are upgraded by\nKiCad before parse (bundle-format.md §2.2), so `(tstamp …)` never\nreaches the parser. An object without an id\nis not listed, as today (`ecad-parse.mjs:940-944`, `:1351-1353`); an\nobject whose id is not a canonical uuid is not listed either (today it\nis) and stage `parse` gets a warning."
+                },
+                "contentDigest": {
+                    "$ref": "#/$defs/BoardObjectsContentDigest",
+                    "description": "Digest of the object's authored content, today's `hash` (`ecad-parse.mjs:952`, `:1366-1374`); see the scalar's doc and the field map."
+                },
+                "at": {
+                    "$ref": "#/$defs/PointNm",
+                    "description": "Centroid of the arc's start, mid and end points, board frame, computed by the field map's centroid rule. Absent when it has none."
+                },
+                "layer": {
+                    "$ref": "#/$defs/LayerName",
+                    "description": "The arc's `(layer …)`. Absent when the form has none."
+                },
+                "net": {
+                    "$ref": "#/$defs/NetName",
+                    "description": "The arc's net, by name. Absent when the arc has no net."
+                },
+                "reviewFields": {
+                    "$ref": "#/$defs/RecordBoardObjectsReviewValue",
+                    "description": "Review fields, serialized with keys in code point order; keys are review labels (`Width`)."
+                }
+            },
+            "required": [
+                "kind",
+                "uuid",
+                "contentDigest",
+                "reviewFields"
+            ],
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "An arc track: board-level `(arc (start …) (mid …) (end …) …)` (`ecad-parse.mjs:1498-1513`)."
+        },
+        "BoardObjectsVia": {
+            "type": "object",
+            "properties": {
+                "kind": {
+                    "type": "string",
+                    "const": "via",
+                    "description": "Kind of object."
+                },
+                "uuid": {
+                    "$ref": "#/$defs/KiCadUuid",
+                    "description": "The object's KiCad uuid: its `(uuid …)`. Older files are upgraded by\nKiCad before parse (bundle-format.md §2.2), so `(tstamp …)` never\nreaches the parser. An object without an id\nis not listed, as today (`ecad-parse.mjs:940-944`, `:1351-1353`); an\nobject whose id is not a canonical uuid is not listed either (today it\nis) and stage `parse` gets a warning."
+                },
+                "contentDigest": {
+                    "$ref": "#/$defs/BoardObjectsContentDigest",
+                    "description": "Digest of the object's authored content, today's `hash` (`ecad-parse.mjs:952`, `:1366-1374`); see the scalar's doc and the field map."
+                },
+                "at": {
+                    "$ref": "#/$defs/PointNm",
+                    "description": "The via's `(at x y)`, board frame. Absent when the form has none."
+                },
+                "layer": {
+                    "$ref": "#/$defs/LayerName",
+                    "description": "The first entry of `layers`. Absent when `layers` is empty."
+                },
+                "layers": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/$defs/LayerName"
+                    },
+                    "description": "The via's `(layers …)` entries, in file order (its two end layers). Empty when the form has none."
+                },
+                "net": {
+                    "$ref": "#/$defs/NetName",
+                    "description": "The via's net, by name. Absent when the via has no net."
+                },
+                "reviewFields": {
+                    "$ref": "#/$defs/RecordBoardObjectsReviewValue",
+                    "description": "Review fields, serialized with keys in code point order; keys are review labels (`Via type`, `Diameter`, `Drill`, `Layer span`)."
+                }
+            },
+            "required": [
+                "kind",
+                "uuid",
+                "contentDigest",
+                "layers",
+                "reviewFields"
+            ],
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "A via: `(via …)` (`ecad-parse.mjs:1515-1541`)."
+        },
+        "BoardObjectsGroup": {
+            "type": "object",
+            "properties": {
+                "kind": {
+                    "type": "string",
+                    "const": "group",
+                    "description": "Kind of object."
+                },
+                "uuid": {
+                    "$ref": "#/$defs/KiCadUuid",
+                    "description": "The object's KiCad uuid: its `(uuid …)`. Older files are upgraded by\nKiCad before parse (bundle-format.md §2.2), so `(tstamp …)` never\nreaches the parser. An object without an id\nis not listed, as today (`ecad-parse.mjs:940-944`, `:1351-1353`); an\nobject whose id is not a canonical uuid is not listed either (today it\nis) and stage `parse` gets a warning."
+                },
+                "contentDigest": {
+                    "$ref": "#/$defs/BoardObjectsContentDigest",
+                    "description": "Digest of the object's authored content, today's `hash` (`ecad-parse.mjs:952`, `:1366-1374`); see the scalar's doc and the field map."
+                },
+                "name": {
+                    "type": "string",
+                    "description": "The group's name as written; empty for an unnamed group."
+                },
+                "reviewFields": {
+                    "$ref": "#/$defs/RecordBoardObjectsReviewValue",
+                    "description": "Review fields, serialized with keys in code point order; keys are review labels (`Group`, `Members`)."
+                }
+            },
+            "required": [
+                "kind",
+                "uuid",
+                "contentDigest",
+                "name",
+                "reviewFields"
+            ],
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "A board group: `(group \"<name>\" (uuid …) (members …))` (`ecad-parse.mjs:1573-1584`)."
+        },
+        "BoardObjectsReviewOnlyKind": {
+            "type": "string",
+            "enum": [
+                "net-class",
+                "net-class-assignment",
+                "board-constraint",
+                "drc-severity",
+                "routing-preset",
+                "board-default",
+                "teardrop-setting",
+                "zone-setting",
+                "drc-exclusion",
+                "erc-exclusion",
+                "erc-pin-rule",
+                "project-metadata",
+                "custom-rule",
+                "fabrication-output",
+                "bus_alias"
+            ],
+            "description": "Kind of a review-only object: structured settings or definitions that have\nno KiCad uuid and nothing to paint, reviewed by their fields alone\n(`reviewOnly: true` today). Today's spelling is the value with every `-`\nwritten as `_`."
+        },
+        "BoardObjectsReviewOnlyId": {
+            "type": "string",
+            "pattern": "^[a-z]+(?:-[a-z]+)*:[0-9a-f]{16}$",
+            "description": "Identity of a review-only object, unique within its document: today's\nsynthetic id `<kind with _ written as ->:<16 hex digits>`, for example\n`net-class:3f0c…` or `drc-exclusion:1ca4…`. The digits are the first 16\nof the BLAKE2b-512 digest of the JSON text of the object's identity\nstring (`ecad-parse.mjs:252-257`, `:542`); the field map lists the\nidentity string of each kind."
+        },
+        "RecordBoardObjectsReviewValue": {
+            "type": "object",
+            "properties": {},
+            "unevaluatedProperties": {
+                "$ref": "#/$defs/BoardObjectsReviewValue"
+            }
+        },
+        "KiCadUuid": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+            "description": "KiCad object UUID in the canonical form KiCad writes (`KIID::AsString`):\nlowercase hexadecimal, 8-4-4-4-12. Copied from the file, never generated\nor re-cased."
+        },
+        "BoardObjectsContentDigest": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{16}$",
+            "description": "Content digest of one KiCad object: the first 16 hexadecimal digits of the\nSHA-256 of the object's canonical form text (field map, \"contentDigest\").\nThe canonical form keeps the object's own s-expression without its\nidentity (`uuid`, `tstamp`), without data KiCad regenerates\n(`fields_autoplaced`, `filled_polygon`, `render_cache`, an instance path's\n`page`), with its net written by name, with each child object (a\nfootprint's pads, zones, graphics and texts; a symbol's or sheet's pins)\nreplaced by a reference to its uuid, and with only the child forms listed\nfor its form head in the field map. Two objects with the same key have\nequal digests exactly when that content is equal; the value means nothing\nelse and is never compared across keys."
+        },
+        "LibId": {
+            "type": "string",
+            "minLength": 1,
+            "description": "KiCad library identifier as written in the file: `<nickname>:<name>` for a\nsymbol (`Device:R`) or a footprint (`Resistor_SMD:R_0603_1608Metric`). The\nnickname may be absent when the file has none."
+        },
+        "PointNm": {
+            "type": "object",
+            "properties": {
+                "xNm": {
+                    "$ref": "#/$defs/Nanometres",
+                    "description": "X coordinate in nanometres, +x to the right."
+                },
+                "yNm": {
+                    "$ref": "#/$defs/Nanometres",
+                    "description": "Y coordinate in nanometres, +y down."
+                }
+            },
+            "required": [
+                "xNm",
+                "yNm"
+            ],
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "A point in nanometres in KiCad's board frame: +x to the right, +y down, as\nin the file and never flipped. The field holding the point states whether\nit is board-absolute or footprint-local. For camelCase (projection)\ndocuments only."
+        },
+        "Degrees": {
+            "type": "number",
+            "description": "Angle in degrees. In new documents it is as written in the KiCad file:\nnot normalized, not rounded. A parity document may round it as today's\noutput does, and its field says so. A positive angle is a counter-clockwise rotation as KiCad shows\nit on the front side. Each field states the frame its angle is in."
+        },
+        "BoardObjectsMirror": {
+            "type": "string",
+            "enum": [
+                "x",
+                "y"
+            ],
+            "description": "How a schematic symbol is mirrored, KiCad's `(mirror x)` or `(mirror y)`."
+        },
+        "Refdes": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Reference designator as KiCad resolves it for one symbol instance or\nfootprint, for example `R1`, `U3`, `#PWR01` or `R?`. Always a string. A\ncontract states whether it includes virtual (`#`) and unannotated (`?`)\nreferences."
+        },
+        "KiidPath": {
+            "type": "string",
+            "pattern": "^(?:/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})+$",
+            "description": "KiCad KIID path: one or more `/<uuid>` steps, no trailing `/`. Two forms\nexist and every field of this type states which one it holds: the\nschematic form, which starts at the root sheet's UUID (a symbol's\n`(instances (project … (path …)))` entry, plus the symbol UUID for an\noccurrence); and the board form, which omits the root sheet (a footprint's\n`(path …)`)."
+        },
+        "BoardObjectsSymbolInstance": {
+            "type": "object",
+            "properties": {
+                "reference": {
+                    "$ref": "#/$defs/Refdes",
+                    "description": "The instance's `(reference …)`. Absent when it has none or it is empty."
+                },
+                "path": {
+                    "$ref": "#/$defs/KiidPath",
+                    "description": "The occurrence path, schematic form: the instance's path (without a trailing `/`) followed by `/<symbol uuid>`. Absent for the `default_instance` entry or when the path is not a valid KIID path."
+                }
+            },
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "One `(path …)` instance of a placed symbol."
+        },
+        "BoardObjectsSchematicProperty": {
+            "type": "object",
+            "properties": {
+                "name": {
+                    "type": "string",
+                    "description": "The field name as written (`Reference`, `Value`, `Sheetname`, a user field)."
+                },
+                "value": {
+                    "type": "string",
+                    "description": "The field value as written; may be empty."
+                },
+                "at": {
+                    "$ref": "#/$defs/PointNm",
+                    "description": "The field's `(at x y …)`, schematic page frame. Absent when the form has none."
+                },
+                "rotationDeg": {
+                    "$ref": "#/$defs/Degrees",
+                    "description": "The angle of the field's `(at x y angle)` as written; 0 when omitted. Present exactly when `at` is."
+                },
+                "hide": {
+                    "type": "boolean",
+                    "description": "True when the property form itself has `(hide yes)` or a bare `hide` (KiCad 8 and later)."
+                },
+                "effects": {
+                    "$ref": "#/$defs/BoardObjectsTextEffects",
+                    "description": "The field's `(effects …)`. Absent when the form has none."
+                }
+            },
+            "required": [
+                "name",
+                "value",
+                "hide"
+            ],
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "One `(property \"<name>\" \"<value>\" …)` field of a schematic symbol or sheet (`ecad-parse.mjs:914-928`)."
+        },
+        "PadNumber": {
+            "type": "string",
+            "description": "Pad or pin number as written in the file, always a string (`1`, `A1`,\n`EP`). Empty for a pad KiCad leaves unnumbered, such as a mechanical\nnon-plated hole."
+        },
+        "LayerName": {
+            "type": "string",
+            "minLength": 1,
+            "description": "KiCad canonical layer name as the board file's `(layers …)` table spells\nit, for example `F.Cu`, `In1.Cu`, `B.Mask`, `Edge.Cuts` or `User.1`. Never\nthe user-assigned layer name, which a contract carries in a separate\noptional field. Never a wildcard set such as `*.Cu` or `F&B.Cu`."
+        },
+        "BoardObjectsFootprintProperty": {
+            "type": "object",
+            "properties": {
+                "name": {
+                    "type": "string",
+                    "description": "The field name (`Reference`, `Value`, `Footprint`, a user field)."
+                },
+                "value": {
+                    "type": "string",
+                    "description": "The field value as written; may be empty."
+                },
+                "at": {
+                    "$ref": "#/$defs/PointNm",
+                    "description": "The field's `(at x y …)` as written, footprint-local. Absent when the form has none."
+                },
+                "hide": {
+                    "type": "boolean",
+                    "description": "True when the field form has `(hide yes)` or a bare `hide`; false otherwise."
+                }
+            },
+            "required": [
+                "name",
+                "value",
+                "hide"
+            ],
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "One field of a board footprint (field map, \"Footprint properties\")."
+        },
+        "BoardObjectsLayerSpec": {
+            "type": "string",
+            "minLength": 1,
+            "description": "A board layer exactly as the file writes it on a pad or zone: a canonical\nlayer name (`F.Cu`, `In2.Cu`, `B.Mask`) or a KiCad wildcard set (`*.Cu`,\n`F&B.Cu`, `*.Mask`), not expanded. Today's Design Comparison shows and\ncompares the wildcard spelling (`ecad-parse.mjs:1423`, `:1452-1454`)."
+        },
+        "NetName": {
+            "type": "string",
+            "minLength": 1,
+            "description": "KiCad full net name as KiCad resolves it, including the sheet path prefix\nof a local net (`/Power/VBUS`), a global name (`GND`) or a generated name\n(`Net-(R1-Pad2)`, `unconnected-(U1-PA0-Pad3)`). \"No net\" is expressed by\nomitting the field, never by an empty name."
+        },
+        "BoardObjectsReviewValue": {
+            "anyOf": [
+                {
+                    "type": "string",
+                    "description": "A text."
+                },
+                {
+                    "type": "number",
+                    "description": "A number as today's index writes it."
+                },
+                {
+                    "type": "boolean",
+                    "description": "A flag."
+                },
+                {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    },
+                    "description": "A list of texts, in the order today's index writes them."
+                },
+                {
+                    "type": "array",
+                    "items": {
+                        "type": "number"
+                    },
+                    "description": "A list of numbers, in the order today's index writes them."
+                },
+                {
+                    "$ref": "#/$defs/BoardObjectsReviewTable",
+                    "description": "One table of settings (for example a teardrop parameter set)."
+                },
+                {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/$defs/BoardObjectsReviewTable"
+                    },
+                    "description": "A list of tables, in the order today's index writes them."
+                }
+            ],
+            "description": "One review-field value, as Design Comparison shows it: the value today's\nindex writes, unconverted (lengths stay the millimetres the file writes,\nflags stay booleans, `Size` stays a `w × h` text). A presentation value,\nnot a typed fact: typed lengths of this member are the `…Nm` fields. A\nvalue of any other shape is written as its canonical JSON text (field\nmap)."
+        },
+        "Nanometres": {
+            "type": "integer",
+            "description": "Length or coordinate in integer nanometres, KiCad's internal board unit.\nConverted from the file's decimal millimetres as KiCad's own parser does:\nthe double product value_mm * 1e6, rounded half away from zero. A single\ncoordinate or dimension fits KiCad's 32-bit range; sums (for example a\nnet's total track length) may not, hence a safe integer (|n| < 2^53)."
+        },
+        "BoardObjectsTextEffects": {
+            "type": "object",
+            "properties": {
+                "font": {
+                    "$ref": "#/$defs/BoardObjectsFont",
+                    "description": "The `(font …)`. Absent when the effects have none."
+                },
+                "justify": {
+                    "$ref": "#/$defs/BoardObjectsJustify",
+                    "description": "The `(justify …)`. Absent when the effects have none."
+                },
+                "hide": {
+                    "type": "boolean",
+                    "description": "The effects' `hide` flag as written: true for `hide` or `(hide yes)`, false for `(hide no)`. Absent when not written."
+                },
+                "href": {
+                    "type": "string",
+                    "description": "The effects' `(href …)` as written. Absent when not written."
+                }
+            },
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "A text's `(effects …)`, with only what the file writes (`kicad-sexpr-parser.mjs:511-550`, as today's index reads it)."
+        },
+        "BoardObjectsReviewTable": {
+            "type": "object",
+            "properties": {},
+            "unevaluatedProperties": {
+                "$ref": "#/$defs/BoardObjectsReviewScalar"
+            },
+            "description": "A flat table of settings; keys are KiCad's setting keys as written, serialized in code point order."
+        },
+        "BoardObjectsFont": {
+            "type": "object",
+            "properties": {
+                "face": {
+                    "type": "string",
+                    "description": "The `(face …)` font name. Absent when not written."
+                },
+                "size": {
+                    "$ref": "#/$defs/BoardObjectsFontSize",
+                    "description": "The `(size …)`. Absent when not written."
+                },
+                "thicknessNm": {
+                    "$ref": "#/$defs/NonNegativeNanometres",
+                    "description": "The `(thickness …)` stroke width. Absent when not written."
+                },
+                "bold": {
+                    "type": "boolean",
+                    "description": "The `bold` flag as written: true for `bold` or `(bold yes)`, false for `(bold no)`. Absent when not written."
+                },
+                "italic": {
+                    "type": "boolean",
+                    "description": "The `italic` flag as written: true for `italic` or `(italic yes)`, false for `(italic no)`. Absent when not written."
+                },
+                "lineSpacing": {
+                    "type": "number",
+                    "description": "The `(line_spacing …)` factor as written. Absent when not written."
+                },
+                "color": {
+                    "$ref": "#/$defs/BoardObjectsColor",
+                    "description": "The `(color …)`. Absent when not written."
+                }
+            },
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "A text's `(font …)`, with only what the file writes."
+        },
+        "BoardObjectsJustify": {
+            "type": "object",
+            "properties": {
+                "horizontal": {
+                    "$ref": "#/$defs/BoardObjectsHorizontalJustify",
+                    "description": "Horizontal justification."
+                },
+                "vertical": {
+                    "$ref": "#/$defs/BoardObjectsVerticalJustify",
+                    "description": "Vertical justification."
+                },
+                "mirror": {
+                    "type": "boolean",
+                    "description": "True when the justify form contains `mirror`."
+                }
+            },
+            "required": [
+                "horizontal",
+                "vertical",
+                "mirror"
+            ],
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "A text's `(justify …)` as today's index reads it."
+        },
+        "BoardObjectsReviewScalar": {
+            "anyOf": [
+                {
+                    "type": "string",
+                    "description": "A text."
+                },
+                {
+                    "type": "number",
+                    "description": "A number."
+                },
+                {
+                    "type": "boolean",
+                    "description": "A flag."
+                }
+            ],
+            "description": "One scalar in a settings table."
+        },
+        "BoardObjectsFontSize": {
+            "type": "object",
+            "properties": {
+                "heightNm": {
+                    "$ref": "#/$defs/NonNegativeNanometres",
+                    "description": "The first value: glyph height."
+                },
+                "widthNm": {
+                    "$ref": "#/$defs/NonNegativeNanometres",
+                    "description": "The second value: glyph width."
+                }
+            },
+            "required": [
+                "heightNm",
+                "widthNm"
+            ],
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "A font's `(size <height> <width>)`; a missing value is 0."
+        },
+        "NonNegativeNanometres": {
+            "type": "integer",
+            "description": "A Nanometres value that is never negative: a thickness, width, diameter or length.",
+            "minimum": 0
+        },
+        "BoardObjectsColor": {
+            "type": "object",
+            "properties": {
+                "red": {
+                    "type": "number",
+                    "description": "Red, 0 to 255."
+                },
+                "green": {
+                    "type": "number",
+                    "description": "Green, 0 to 255."
+                },
+                "blue": {
+                    "type": "number",
+                    "description": "Blue, 0 to 255."
+                },
+                "alpha": {
+                    "type": "number",
+                    "description": "Alpha, 0 to 1. Absent when not written; readers then use 1."
+                }
+            },
+            "required": [
+                "red",
+                "green",
+                "blue"
+            ],
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "A `(color <r> <g> <b> [<a>])` as written."
+        },
+        "BoardObjectsHorizontalJustify": {
+            "type": "string",
+            "enum": [
+                "left",
+                "right",
+                "center"
+            ],
+            "description": "Horizontal justification of a text, as today's index reads `(justify …)` (`left`/`right`; `center` when neither is written)."
+        },
+        "BoardObjectsVerticalJustify": {
+            "type": "string",
+            "enum": [
+                "top",
+                "bottom",
+                "center"
+            ],
+            "description": "Vertical justification of a text, as today's index reads `(justify …)` (`top`/`bottom`; `center` when neither is written)."
+        }
+    }
+}

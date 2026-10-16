@@ -1,0 +1,256 @@
+{
+  "schema": "prism.revision_key.vectors.a1",
+  "listing_git_version": "2.55.0",
+  "selection": [
+    {
+      "name": "error-config-root-schematic-missing",
+      "scenario": "minimal",
+      "description": "The configured root schematic is not in the listing (the board is).",
+      "object_format": "sha1",
+      "listing": [
+        {
+          "mode": "100644",
+          "type": "blob",
+          "object_id": "dd1a9320250195b8d3987bc40a47827a9275f9bb",
+          "path": "README.md"
+        },
+        {
+          "mode": "100644",
+          "type": "blob",
+          "object_id": "cd71260990222479d114ffc33cfe9ddf3e8622be",
+          "path": "only.kicad_pcb"
+        },
+        {
+          "mode": "100644",
+          "type": "blob",
+          "object_id": "0967ef424bce6791893e9a57bb952f80fd536e93",
+          "path": "only.kicad_pro"
+        }
+      ],
+      "config": {
+        "schema": "prism.revision_key.effective_config.a1",
+        "project_file": "only.kicad_pro",
+        "root_schematic": "only.kicad_sch",
+        "board": "only.kicad_pcb",
+        "excluded_dirs": []
+      },
+      "expected": {
+        "kind": "error",
+        "code": "config-path-missing"
+      }
+    },
+    {
+      "name": "minimal-empty-optional",
+      "scenario": "minimal",
+      "description": "A config with no optional fields and no excluded directories, in a repository with no optional files: only the project file and the board are selected.",
+      "object_format": "sha1",
+      "listing": [
+        {
+          "mode": "100644",
+          "type": "blob",
+          "object_id": "dd1a9320250195b8d3987bc40a47827a9275f9bb",
+          "path": "README.md"
+        },
+        {
+          "mode": "100644",
+          "type": "blob",
+          "object_id": "cd71260990222479d114ffc33cfe9ddf3e8622be",
+          "path": "only.kicad_pcb"
+        },
+        {
+          "mode": "100644",
+          "type": "blob",
+          "object_id": "0967ef424bce6791893e9a57bb952f80fd536e93",
+          "path": "only.kicad_pro"
+        }
+      ],
+      "config": {
+        "schema": "prism.revision_key.effective_config.a1",
+        "project_file": "only.kicad_pro",
+        "excluded_dirs": []
+      },
+      "expected": {
+        "kind": "selected",
+        "entries": [
+          {
+            "path": "only.kicad_pcb",
+            "kind": "regular",
+            "object_id": "cd71260990222479d114ffc33cfe9ddf3e8622be",
+            "category": "kicad-board"
+          },
+          {
+            "path": "only.kicad_pro",
+            "kind": "regular",
+            "object_id": "0967ef424bce6791893e9a57bb952f80fd536e93",
+            "category": "kicad-project"
+          }
+        ],
+        "counts": {
+          "kicad_project": 1,
+          "kicad_schematic": 0,
+          "kicad_board": 1,
+          "kicad_design_rules": 0,
+          "kicad_worksheet": 0,
+          "kicad_jobset": 0,
+          "library_table": 0,
+          "symbol_library": 0,
+          "footprint": 0,
+          "model_3d": 0,
+          "prism_settings": 0,
+          "symlink": 0,
+          "gitlink": 0,
+          "total": 2
+        },
+        "config_canonical": "{\"schema\":\"prism.revision_key.effective_config.a1\",\"project_file\":\"only.kicad_pro\",\"excluded_dirs\":[]}",
+        "config_digest": "b668333e4acd33d4094d69236bbf0e2d7fe5d9ad561b644c48dcffb2190e300b",
+        "revision_key": "de9acaf9fc2f224c5de2902a638f097bc46241411c322237142c4087ed6f086d"
+      }
+    },
+    {
+      "name": "minimal-readme-only-change",
+      "scenario": "minimal",
+      "description": "README.md changed; the key equals minimal-empty-optional.",
+      "object_format": "sha1",
+      "listing": [
+        {
+          "mode": "100644",
+          "type": "blob",
+          "object_id": "140330c2abf709ecc551680718035f58c59aed08",
+          "path": "README.md"
+        },
+        {
+          "mode": "100644",
+          "type": "blob",
+          "object_id": "cd71260990222479d114ffc33cfe9ddf3e8622be",
+          "path": "only.kicad_pcb"
+        },
+        {
+          "mode": "100644",
+          "type": "blob",
+          "object_id": "0967ef424bce6791893e9a57bb952f80fd536e93",
+          "path": "only.kicad_pro"
+        }
+      ],
+      "config": {
+        "schema": "prism.revision_key.effective_config.a1",
+        "project_file": "only.kicad_pro",
+        "excluded_dirs": []
+      },
+      "expected": {
+        "kind": "selected",
+        "entries": [
+          {
+            "path": "only.kicad_pcb",
+            "kind": "regular",
+            "object_id": "cd71260990222479d114ffc33cfe9ddf3e8622be",
+            "category": "kicad-board"
+          },
+          {
+            "path": "only.kicad_pro",
+            "kind": "regular",
+            "object_id": "0967ef424bce6791893e9a57bb952f80fd536e93",
+            "category": "kicad-project"
+          }
+        ],
+        "counts": {
+          "kicad_project": 1,
+          "kicad_schematic": 0,
+          "kicad_board": 1,
+          "kicad_design_rules": 0,
+          "kicad_worksheet": 0,
+          "kicad_jobset": 0,
+          "library_table": 0,
+          "symbol_library": 0,
+          "footprint": 0,
+          "model_3d": 0,
+          "prism_settings": 0,
+          "symlink": 0,
+          "gitlink": 0,
+          "total": 2
+        },
+        "config_canonical": "{\"schema\":\"prism.revision_key.effective_config.a1\",\"project_file\":\"only.kicad_pro\",\"excluded_dirs\":[]}",
+        "config_digest": "b668333e4acd33d4094d69236bbf0e2d7fe5d9ad561b644c48dcffb2190e300b",
+        "revision_key": "de9acaf9fc2f224c5de2902a638f097bc46241411c322237142c4087ed6f086d"
+      }
+    }
+  ],
+  "hashing": [
+    {
+      "name": "hash-all-kinds",
+      "description": "One entry of each kind: regular, executable, symlink, gitlink.",
+      "object_format": "sha1",
+      "config": {
+        "schema": "prism.revision_key.effective_config.a1",
+        "project_file": "x.kicad_pro",
+        "excluded_dirs": []
+      },
+      "entries": [
+        {
+          "path": "x.kicad_pro",
+          "kind": "regular",
+          "object_id": "0123456789abcdef0123456789abcdef01234567",
+          "category": "kicad-project"
+        },
+        {
+          "path": "tools/run.kicad_jobset",
+          "kind": "executable",
+          "object_id": "1123456789abcdef0123456789abcdef01234567",
+          "category": "kicad-jobset"
+        },
+        {
+          "path": "3d",
+          "kind": "symlink",
+          "object_id": "2123456789abcdef0123456789abcdef01234567",
+          "category": "symlink"
+        },
+        {
+          "path": "lib/kicad",
+          "kind": "gitlink",
+          "object_id": "3123456789abcdef0123456789abcdef01234567",
+          "category": "gitlink"
+        }
+      ],
+      "expected": {
+        "config_canonical": "{\"schema\":\"prism.revision_key.effective_config.a1\",\"project_file\":\"x.kicad_pro\",\"excluded_dirs\":[]}",
+        "config_digest": "e36fabedadb0483b5e1133c69a3f968821248634eebf1f3ce98dc908931e4089",
+        "preimage_hex": "707269736d2e7265766973696f6e5f6b65792e6131006f626a6563742d666f726d6174207368613100636f6e666967207b22736368656d61223a22707269736d2e7265766973696f6e5f6b65792e6566666563746976655f636f6e6669672e6131222c2270726f6a6563745f66696c65223a22782e6b696361645f70726f222c226578636c756465645f64697273223a5b5d7d00656e747269657320340031323030303020626c6f6220323132333435363738396162636465663031323334353637383961626364656630313233343536370933640031363030303020636f6d6d69742033313233343536373839616263646566303132333435363738396162636465663031323334353637096c69622f6b696361640031303037353520626c6f62203131323334353637383961626364656630313233343536373839616263646566303132333435363709746f6f6c732f72756e2e6b696361645f6a6f627365740031303036343420626c6f62203031323334353637383961626364656630313233343536373839616263646566303132333435363709782e6b696361645f70726f00",
+        "revision_key": "7c4a276d1d3a388ea7f50601ac88b4a84a5167b680d1f47d3fb22a8b87f7e8d7"
+      }
+    },
+    {
+      "name": "hash-zone-fills-saved",
+      "description": "hash-minimal-config with zone_fills \"saved\": the field follows excluded_dirs.",
+      "object_format": "sha1",
+      "config": {
+        "schema": "prism.revision_key.effective_config.a1",
+        "project_file": "only.kicad_pro",
+        "excluded_dirs": [],
+        "zone_fills": "saved"
+      },
+      "entries": [
+        {
+          "path": "only.kicad_pro",
+          "kind": "regular",
+          "object_id": "dddddddddddddddddddddddddddddddddddddddd",
+          "category": "kicad-project"
+        }
+      ],
+      "expected": {
+        "config_canonical": "{\"schema\":\"prism.revision_key.effective_config.a1\",\"project_file\":\"only.kicad_pro\",\"excluded_dirs\":[],\"zone_fills\":\"saved\"}",
+        "config_digest": "d832d02fe5fa843757e07ea799823dcc4325f696de5065bca4cc1844590062b3",
+        "preimage_hex": "707269736d2e7265766973696f6e5f6b65792e6131006f626a6563742d666f726d6174207368613100636f6e666967207b22736368656d61223a22707269736d2e7265766973696f6e5f6b65792e6566666563746976655f636f6e6669672e6131222c2270726f6a6563745f66696c65223a226f6e6c792e6b696361645f70726f222c226578636c756465645f64697273223a5b5d2c227a6f6e655f66696c6c73223a227361766564227d00656e747269657320310031303036343420626c6f622064646464646464646464646464646464646464646464646464646464646464646464646464646464096f6e6c792e6b696361645f70726f00",
+        "revision_key": "e470ab2dcfde65d54d54bcb954e8656e494c1a66c098388ccfead8e6dab698a3"
+      }
+    }
+  ],
+  "relations": [
+    {
+      "relation": "same-key",
+      "vectors": [
+        "minimal-empty-optional",
+        "minimal-readme-only-change"
+      ],
+      "reason": "README.md is not in the source set."
+    }
+  ]
+}

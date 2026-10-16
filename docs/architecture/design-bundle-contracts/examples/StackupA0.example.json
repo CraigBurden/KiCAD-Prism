@@ -1,0 +1,259 @@
+{
+  "schema": "prism.stackup.a0",
+  "present": true,
+  "boardThicknessNm": 1558400,
+  "stackThicknessNm": 1558400,
+  "layers": [
+    {
+      "name": "F.SilkS",
+      "sublayer": 0,
+      "kind": "silkscreen",
+      "type": "Top Silk Screen",
+      "color": "White"
+    },
+    {
+      "name": "F.Paste",
+      "sublayer": 0,
+      "kind": "paste",
+      "type": "Top Solder Paste"
+    },
+    {
+      "name": "F.Mask",
+      "sublayer": 0,
+      "kind": "soldermask",
+      "type": "Top Solder Mask",
+      "thicknessNm": 10000,
+      "color": "Green"
+    },
+    {
+      "name": "F.Cu",
+      "sublayer": 0,
+      "kind": "copper",
+      "type": "copper",
+      "thicknessNm": 35000
+    },
+    {
+      "name": "dielectric 1",
+      "sublayer": 0,
+      "kind": "dielectric",
+      "type": "prepreg",
+      "thicknessNm": 99400,
+      "material": "3313",
+      "epsilonR": 4.05,
+      "lossTangent": 0
+    },
+    {
+      "name": "In1.Cu",
+      "sublayer": 0,
+      "kind": "copper",
+      "type": "copper",
+      "thicknessNm": 15200
+    },
+    {
+      "name": "dielectric 2",
+      "sublayer": 0,
+      "kind": "dielectric",
+      "type": "core",
+      "thicknessNm": 550000,
+      "material": "FR4",
+      "epsilonR": 4.6,
+      "lossTangent": 0.02
+    },
+    {
+      "name": "In2.Cu",
+      "sublayer": 0,
+      "kind": "copper",
+      "type": "copper",
+      "thicknessNm": 15200
+    },
+    {
+      "name": "dielectric 3",
+      "sublayer": 0,
+      "kind": "dielectric",
+      "type": "prepreg",
+      "thicknessNm": 108800,
+      "material": "2116",
+      "epsilonR": 4.25,
+      "lossTangent": 0
+    },
+    {
+      "name": "In3.Cu",
+      "sublayer": 0,
+      "kind": "copper",
+      "type": "copper",
+      "thicknessNm": 15200
+    },
+    {
+      "name": "dielectric 4",
+      "sublayer": 0,
+      "kind": "dielectric",
+      "type": "core",
+      "thicknessNm": 550000,
+      "material": "FR4",
+      "epsilonR": 4.6,
+      "lossTangent": 0.02
+    },
+    {
+      "name": "In4.Cu",
+      "sublayer": 0,
+      "kind": "copper",
+      "type": "copper",
+      "thicknessNm": 15200
+    },
+    {
+      "name": "dielectric 5",
+      "sublayer": 0,
+      "kind": "dielectric",
+      "type": "prepreg",
+      "thicknessNm": 99400,
+      "material": "3313",
+      "epsilonR": 4.05,
+      "lossTangent": 0
+    },
+    {
+      "name": "B.Cu",
+      "sublayer": 0,
+      "kind": "copper",
+      "type": "copper",
+      "thicknessNm": 35000
+    },
+    {
+      "name": "B.Mask",
+      "sublayer": 0,
+      "kind": "soldermask",
+      "type": "Bottom Solder Mask",
+      "thicknessNm": 10000,
+      "color": "Green"
+    },
+    {
+      "name": "B.Paste",
+      "sublayer": 0,
+      "kind": "paste",
+      "type": "Bottom Solder Paste"
+    },
+    {
+      "name": "B.SilkS",
+      "sublayer": 0,
+      "kind": "silkscreen",
+      "type": "Bottom Silk Screen",
+      "color": "White"
+    }
+  ],
+  "copperLayers": [
+    "F.Cu",
+    "In1.Cu",
+    "In2.Cu",
+    "In3.Cu",
+    "In4.Cu",
+    "B.Cu"
+  ],
+  "settings": {
+    "copperFinish": "None",
+    "dielectricConstraints": false,
+    "edgeConnector": "none",
+    "castellatedPads": false,
+    "edgePlating": false
+  },
+  "maskColors": {
+    "front": "Green",
+    "back": "Green"
+  },
+  "viaSpans": [
+    {
+      "viaType": "blind",
+      "startLayer": "F.Cu",
+      "stopLayer": "In1.Cu",
+      "spanLayers": [
+        "F.Cu",
+        "In1.Cu"
+      ],
+      "count": 2
+    },
+    {
+      "viaType": "through",
+      "startLayer": "F.Cu",
+      "stopLayer": "B.Cu",
+      "spanLayers": [
+        "F.Cu",
+        "In1.Cu",
+        "In2.Cu",
+        "In3.Cu",
+        "In4.Cu",
+        "B.Cu"
+      ],
+      "count": 651
+    },
+    {
+      "viaType": "through",
+      "startLayer": "F.Cu",
+      "stopLayer": "B.Cu",
+      "spanLayers": [
+        "F.Cu",
+        "In1.Cu",
+        "In2.Cu",
+        "In3.Cu",
+        "In4.Cu",
+        "B.Cu"
+      ],
+      "backdrill": {
+        "sizeNm": 600000,
+        "startLayer": "B.Cu",
+        "stopLayer": "In3.Cu"
+      },
+      "tertiaryDrill": {
+        "sizeNm": 550000,
+        "startLayer": "F.Cu",
+        "stopLayer": "In1.Cu"
+      },
+      "count": 1
+    }
+  ],
+  "boardLayers": [
+    {
+      "ordinal": 0,
+      "name": "F.Cu",
+      "type": "signal"
+    },
+    {
+      "ordinal": 1,
+      "name": "In1.Cu",
+      "type": "signal"
+    },
+    {
+      "ordinal": 2,
+      "name": "In2.Cu",
+      "type": "signal"
+    },
+    {
+      "ordinal": 3,
+      "name": "In3.Cu",
+      "type": "signal"
+    },
+    {
+      "ordinal": 4,
+      "name": "In4.Cu",
+      "type": "signal"
+    },
+    {
+      "ordinal": 31,
+      "name": "B.Cu",
+      "type": "signal"
+    },
+    {
+      "ordinal": 32,
+      "name": "B.Adhes",
+      "type": "user",
+      "userName": "B.Adhesive"
+    },
+    {
+      "ordinal": 39,
+      "name": "F.Mask",
+      "type": "user"
+    },
+    {
+      "ordinal": 44,
+      "name": "Edge.Cuts",
+      "type": "user"
+    }
+  ]
+}

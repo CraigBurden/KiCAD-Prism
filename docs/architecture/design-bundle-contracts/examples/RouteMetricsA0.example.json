@@ -1,0 +1,83 @@
+{
+  "schema": "prism.route_metrics.a0",
+  "nets": [
+    {
+      "netName": "/AUX Port/AUX PHY/CLK",
+      "routeLengthNm": 2153921,
+      "viaCount": 0,
+      "usedLayers": [
+        "F.Cu"
+      ],
+      "viaSpans": []
+    },
+    {
+      "netName": "/FPGA Banks 6 and 7/RAM.CK",
+      "routeLengthNm": 18870588,
+      "viaCount": 0,
+      "usedLayers": [
+        "F.Cu"
+      ],
+      "viaSpans": []
+    },
+    {
+      "netName": "/Power Distribution and Monitoring/~{POWER_GOOD}",
+      "routeLengthNm": 133246798,
+      "viaCount": 6,
+      "usedLayers": [
+        "B.Cu",
+        "F.Cu",
+        "In1.Cu",
+        "In2.Cu",
+        "In3.Cu",
+        "In4.Cu"
+      ],
+      "viaSpans": [
+        {
+          "startLayer": "F.Cu",
+          "stopLayer": "B.Cu",
+          "viaCount": 6
+        }
+      ]
+    },
+    {
+      "netName": "GND",
+      "routeLengthNm": 193870304,
+      "viaCount": 210,
+      "usedLayers": [
+        "B.Cu",
+        "F.Cu",
+        "In1.Cu",
+        "In2.Cu",
+        "In3.Cu",
+        "In4.Cu"
+      ],
+      "viaSpans": [
+        {
+          "startLayer": "F.Cu",
+          "stopLayer": "B.Cu",
+          "viaCount": 210
+        }
+      ]
+    },
+    {
+      "netName": "Net-(D1-A)",
+      "routeLengthNm": 0,
+      "viaCount": 4,
+      "usedLayers": [
+        "B.Cu",
+        "F.Cu",
+        "In1.Cu",
+        "In2.Cu",
+        "In3.Cu",
+        "In4.Cu"
+      ],
+      "viaSpans": [
+        {
+          "startLayer": "F.Cu",
+          "stopLayer": "B.Cu",
+          "viaCount": 4
+        }
+      ]
+    }
+  ]
+}

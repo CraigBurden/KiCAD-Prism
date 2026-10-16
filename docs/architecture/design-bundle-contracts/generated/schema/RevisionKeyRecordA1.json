@@ -1,0 +1,317 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$id": "urn:prism:schema:prism.revision_key.record:a1",
+    "type": "object",
+    "properties": {
+        "schema": {
+            "type": "string",
+            "const": "prism.revision_key.record.a1",
+            "description": "Document schema id."
+        },
+        "revision_key": {
+            "$ref": "#/$defs/Sha256Hex",
+            "description": "The design revision key: lowercase hex SHA-256 of the a1 preimage (revision-key.md, \"Hashing\"). Never truncated."
+        },
+        "object_format": {
+            "$ref": "#/$defs/RevisionKeyObjectFormat",
+            "description": "Object format of the repository; hashed into the key."
+        },
+        "source": {
+            "$ref": "#/$defs/RevisionKeySource",
+            "description": "Commit or working tree. Not hashed."
+        },
+        "config": {
+            "$ref": "urn:prism:schema:prism.revision_key.effective_config:a1",
+            "description": "The effective configuration that was hashed, after validation; the default one when `--config` was not given."
+        },
+        "config_digest": {
+            "$ref": "#/$defs/Sha256Hex",
+            "description": "Lowercase hex SHA-256 of the canonical config bytes; the commit index's config column."
+        },
+        "entries": {
+            "type": "array",
+            "items": {
+                "$ref": "#/$defs/RevisionKeyEntry"
+            },
+            "minItems": 1,
+            "description": "The source set, sorted by `path` in code point order (UTF-8 byte order); the order they are hashed in. Always holds the project file."
+        },
+        "counts": {
+            "$ref": "#/$defs/RevisionKeyCounts",
+            "description": "Per-category counts of `entries`."
+        },
+        "warnings": {
+            "type": "array",
+            "items": {
+                "$ref": "#/$defs/Warning"
+            },
+            "description": "Non-fatal findings (for example `lfs-filter-unavailable`), sorted by `code`, then `message`, in code point order. Empty when there are none."
+        }
+    },
+    "required": [
+        "schema",
+        "revision_key",
+        "object_format",
+        "source",
+        "config",
+        "config_digest",
+        "entries",
+        "counts",
+        "warnings"
+    ],
+    "unevaluatedProperties": {
+        "not": {}
+    },
+    "description": "Output of `prism-kicad revision-key`: the key with everything needed to\nrecompute and audit it. Printed on stdout as one compact JSON document\nfollowed by LF (conventions.md §13).",
+    "title": "Revision key record a1",
+    "$defs": {
+        "Sha256Hex": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$",
+            "description": "Lowercase hexadecimal SHA-256 digest: exactly 64 characters, no prefix such as `sha256:`."
+        },
+        "RevisionKeyObjectFormat": {
+            "type": "string",
+            "enum": [
+                "sha1",
+                "sha256"
+            ],
+            "description": "Object format of the repository, as `git rev-parse --show-object-format` prints it."
+        },
+        "RevisionKeySource": {
+            "oneOf": [
+                {
+                    "$ref": "#/$defs/RevisionKeyCommitSource",
+                    "description": "A commit."
+                },
+                {
+                    "$ref": "#/$defs/RevisionKeyWorktreeSource",
+                    "description": "The working tree."
+                }
+            ],
+            "description": "Where the listing came from. The same content gives the same key either way."
+        },
+        "RevisionKeyEntry": {
+            "type": "object",
+            "properties": {
+                "path": {
+                    "$ref": "#/$defs/RepoPath",
+                    "description": "Repository-relative path, exactly the bytes git lists (UTF-8, never Unicode-normalized or case-folded)."
+                },
+                "kind": {
+                    "$ref": "#/$defs/RevisionKeyEntryKind",
+                    "description": "Entry kind, from the git mode and object type."
+                },
+                "object_id": {
+                    "$ref": "#/$defs/GitObjectId",
+                    "description": "Blob id (regular, executable, symlink) or recorded commit id (gitlink), in the repository's object format."
+                },
+                "category": {
+                    "$ref": "#/$defs/RevisionKeySourceCategory",
+                    "description": "Selection rule the entry matched; not hashed."
+                }
+            },
+            "required": [
+                "path",
+                "kind",
+                "object_id",
+                "category"
+            ],
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "One entry of the source set: a tree entry the key hashes."
+        },
+        "RevisionKeyCounts": {
+            "type": "object",
+            "properties": {
+                "kicad_project": {
+                    "$ref": "#/$defs/Count",
+                    "description": "Entries of category `kicad-project`."
+                },
+                "kicad_schematic": {
+                    "$ref": "#/$defs/Count",
+                    "description": "Entries of category `kicad-schematic`."
+                },
+                "kicad_board": {
+                    "$ref": "#/$defs/Count",
+                    "description": "Entries of category `kicad-board`."
+                },
+                "kicad_design_rules": {
+                    "$ref": "#/$defs/Count",
+                    "description": "Entries of category `kicad-design-rules`."
+                },
+                "kicad_worksheet": {
+                    "$ref": "#/$defs/Count",
+                    "description": "Entries of category `kicad-worksheet`."
+                },
+                "kicad_jobset": {
+                    "$ref": "#/$defs/Count",
+                    "description": "Entries of category `kicad-jobset`."
+                },
+                "library_table": {
+                    "$ref": "#/$defs/Count",
+                    "description": "Entries of category `library-table`."
+                },
+                "symbol_library": {
+                    "$ref": "#/$defs/Count",
+                    "description": "Entries of category `symbol-library`."
+                },
+                "footprint": {
+                    "$ref": "#/$defs/Count",
+                    "description": "Entries of category `footprint`."
+                },
+                "model_3d": {
+                    "$ref": "#/$defs/Count",
+                    "description": "Entries of category `model-3d`."
+                },
+                "prism_settings": {
+                    "$ref": "#/$defs/Count",
+                    "description": "Entries of category `prism-settings`."
+                },
+                "symlink": {
+                    "$ref": "#/$defs/Count",
+                    "description": "Entries of category `symlink`."
+                },
+                "gitlink": {
+                    "$ref": "#/$defs/Count",
+                    "description": "Entries of category `gitlink`."
+                },
+                "total": {
+                    "$ref": "#/$defs/Count",
+                    "description": "All selected entries: the sum of the fields above, equal to the length of `entries`."
+                }
+            },
+            "required": [
+                "kicad_project",
+                "kicad_schematic",
+                "kicad_board",
+                "kicad_design_rules",
+                "kicad_worksheet",
+                "kicad_jobset",
+                "library_table",
+                "symbol_library",
+                "footprint",
+                "model_3d",
+                "prism_settings",
+                "symlink",
+                "gitlink",
+                "total"
+            ],
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "Number of selected entries per category. Each field is the count of entries whose `category` is the matching value."
+        },
+        "Warning": {
+            "type": "object",
+            "properties": {
+                "code": {
+                    "$ref": "#/$defs/DiagnosticCode",
+                    "description": "Stable code that tools and tests match on."
+                },
+                "message": {
+                    "type": "string",
+                    "minLength": 1,
+                    "description": "One-sentence explanation for people; its wording may change between versions."
+                }
+            },
+            "required": [
+                "code",
+                "message"
+            ],
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "A finding with a stable code and a human-readable message. Whether it is a\nwarning or an error is given by the array that holds it. Field names are\nthe same in snake_case and camelCase documents."
+        },
+        "RevisionKeyCommitSource": {
+            "type": "object",
+            "properties": {
+                "kind": {
+                    "type": "string",
+                    "const": "commit",
+                    "description": "Variant tag."
+                },
+                "commit": {
+                    "$ref": "#/$defs/GitObjectId",
+                    "description": "The full commit id the given revision resolved to (`git rev-parse --verify <rev>^{commit}`)."
+                }
+            },
+            "required": [
+                "kind",
+                "commit"
+            ],
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "The key was computed from a commit's tree (`--commit`)."
+        },
+        "RevisionKeyWorktreeSource": {
+            "type": "object",
+            "properties": {
+                "kind": {
+                    "type": "string",
+                    "const": "worktree",
+                    "description": "Variant tag."
+                }
+            },
+            "required": [
+                "kind"
+            ],
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "The key was computed from the working tree (`--worktree`): the tree `git add -A` would stage, computed without writing."
+        },
+        "RepoPath": {
+            "type": "string",
+            "pattern": "^(?:[^/\\\\:.][^/\\\\:]*|\\.[^/\\\\:.][^/\\\\:]*|\\.\\.[^/\\\\:]+)(?:/(?:[^/\\\\:.][^/\\\\:]*|\\.[^/\\\\:.][^/\\\\:]*|\\.\\.[^/\\\\:]+))*$",
+            "description": "Repository-relative POSIX path, exactly as `git ls-tree` names the entry:\n`/`-separated, case preserved, no leading `/`, no empty, `.` or `..`\nsegment, no backslash and no `:`. The same character rule as ArchivePath.\nIt is the only path type in bundle documents: a file has one spelling\nwhichever project in the repository refers to it, and a file outside the\nproject directory needs no `..`."
+        },
+        "RevisionKeyEntryKind": {
+            "type": "string",
+            "enum": [
+                "regular",
+                "executable",
+                "symlink",
+                "gitlink"
+            ],
+            "description": "Kind of a source-set entry, fixed by its git tree mode and object type. The\nhashed framing spells each kind as git does (revision-key.md, \"Hashing\")."
+        },
+        "GitObjectId": {
+            "type": "string",
+            "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$",
+            "description": "Git object id in lowercase hexadecimal: 40 characters in a SHA-1\nrepository, 64 in a SHA-256 repository. Used for commit ids and blob ids."
+        },
+        "RevisionKeySourceCategory": {
+            "type": "string",
+            "enum": [
+                "kicad-project",
+                "kicad-schematic",
+                "kicad-board",
+                "kicad-design-rules",
+                "kicad-worksheet",
+                "kicad-jobset",
+                "library-table",
+                "symbol-library",
+                "footprint",
+                "model-3d",
+                "prism-settings",
+                "symlink",
+                "gitlink"
+            ],
+            "description": "Why an entry is in the source set, from its file name (revision-key.md,\n\"Selection\"). Name rules are ASCII case-insensitive. Not hashed: it is\nderived from the path and kind."
+        },
+        "Count": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "A count of things: a non-negative safe integer."
+        },
+        "DiagnosticCode": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$",
+            "description": "Stable machine-readable code of a finding, in lowercase kebab-case, for\nexample `stale-saved-fills` or `net-mismatch`. A code never changes meaning\nonce published; a new meaning gets a new code."
+        }
+    }
+}
