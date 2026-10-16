@@ -1,0 +1,114 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$id": "urn:prism:schema:prism.cli.compare_result:a0",
+    "type": "object",
+    "properties": {
+        "schema": {
+            "type": "string",
+            "const": "prism.cli.compare_result.a0",
+            "description": "Document schema id."
+        },
+        "base": {
+            "$ref": "#/$defs/CliCompareSide",
+            "description": "The `--base` bundle."
+        },
+        "head": {
+            "$ref": "#/$defs/CliCompareSide",
+            "description": "The `--head` bundle."
+        },
+        "counts": {
+            "$ref": "#/$defs/CliCompareCounts",
+            "description": "The change counts of the written delta."
+        }
+    },
+    "required": [
+        "schema",
+        "base",
+        "head",
+        "counts"
+    ],
+    "unevaluatedProperties": {
+        "not": {}
+    },
+    "description": "stdout of `compare` (exit 0), written after `-o` holds the\n`CompareObjectDeltaA0` document (cli-spec.md §5.6).",
+    "title": "prism-kicad compare result a0",
+    "$defs": {
+        "CliCompareSide": {
+            "type": "object",
+            "properties": {
+                "bundle_key": {
+                    "$ref": "#/$defs/Sha256Hex",
+                    "description": "The bundle key of the side's bundle (cli-spec.md §5.1.4), computed from its manifest's revision key and generator id."
+                },
+                "objects": {
+                    "$ref": "#/$defs/Count",
+                    "description": "How many objects the side's `projections/board-objects.json` holds, review-only objects included: today's `objects`."
+                }
+            },
+            "required": [
+                "bundle_key",
+                "objects"
+            ],
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "One side of a `compare` (cli-spec.md §5.6)."
+        },
+        "CliCompareCounts": {
+            "type": "object",
+            "properties": {
+                "added": {
+                    "$ref": "#/$defs/Count",
+                    "description": "Objects only in `--head`."
+                },
+                "removed": {
+                    "$ref": "#/$defs/Count",
+                    "description": "Objects only in `--base`."
+                },
+                "modified": {
+                    "$ref": "#/$defs/Count",
+                    "description": "Objects in both whose content differs."
+                },
+                "unchanged": {
+                    "$ref": "#/$defs/Count",
+                    "description": "Objects in both with equal content, the ignored ones included."
+                },
+                "ignored": {
+                    "$ref": "#/$defs/Count",
+                    "description": "Objects matched across a UUID change or with only generated content changed."
+                },
+                "base_objects": {
+                    "$ref": "#/$defs/Count",
+                    "description": "Objects in `--base`."
+                },
+                "head_objects": {
+                    "$ref": "#/$defs/Count",
+                    "description": "Objects in `--head`."
+                }
+            },
+            "required": [
+                "added",
+                "removed",
+                "modified",
+                "unchanged",
+                "ignored",
+                "base_objects",
+                "head_objects"
+            ],
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "The change counts of a `compare`, equal to `counts` of the delta document written to `-o`."
+        },
+        "Sha256Hex": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$",
+            "description": "Lowercase hexadecimal SHA-256 digest: exactly 64 characters, no prefix such as `sha256:`."
+        },
+        "Count": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "A count of things: a non-negative safe integer."
+        }
+    }
+}

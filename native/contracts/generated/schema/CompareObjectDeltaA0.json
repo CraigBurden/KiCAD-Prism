@@ -1,0 +1,1108 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$id": "urn:prism:schema:prism.compare.object_delta:a0",
+    "type": "object",
+    "properties": {
+        "schema": {
+            "type": "string",
+            "const": "prism.compare.object_delta.a0",
+            "description": "Document schema id."
+        },
+        "base": {
+            "$ref": "#/$defs/CompareObjectDeltaSideA0",
+            "description": "The `--base` side."
+        },
+        "head": {
+            "$ref": "#/$defs/CompareObjectDeltaSideA0",
+            "description": "The `--head` side."
+        },
+        "changes": {
+            "type": "array",
+            "items": {
+                "$ref": "#/$defs/CompareObjectDeltaChangeA0"
+            },
+            "description": "Added, removed and modified objects, sorted by `key` in code point order (D2)."
+        },
+        "ignored": {
+            "type": "array",
+            "items": {
+                "$ref": "#/$defs/CompareObjectDeltaIgnoredA0"
+            },
+            "description": "Objects matched across a UUID or generated-content change, in head object\norder (today's order; Design Comparison compares it as a set)."
+        },
+        "counts": {
+            "$ref": "#/$defs/CompareObjectDeltaCountsA0",
+            "description": "The change counts."
+        },
+        "byKind": {
+            "$ref": "#/$defs/RecordCompareObjectDeltaKindCountsA0",
+            "description": "Per-kind change counts; the keys are `CompareObjectDeltaKind` values, in code point order."
+        },
+        "byReason": {
+            "$ref": "#/$defs/RecordCount",
+            "description": "Change counts per reason; the keys are `CompareObjectDeltaReason` values, in code point order."
+        }
+    },
+    "required": [
+        "schema",
+        "base",
+        "head",
+        "changes",
+        "ignored",
+        "counts",
+        "byKind",
+        "byReason"
+    ],
+    "unevaluatedProperties": {
+        "not": {}
+    },
+    "description": "Design Comparison's object diff between two bundles (`prism-kicad compare`\n`-o`).",
+    "title": "Compare object delta a0",
+    "$defs": {
+        "CompareObjectDeltaSideA0": {
+            "type": "object",
+            "properties": {
+                "bundleKey": {
+                    "$ref": "#/$defs/Sha256Hex",
+                    "description": "The side's bundle key, computed from its manifest's revision key and generator id (cli-spec.md §5.1.4)."
+                },
+                "objects": {
+                    "$ref": "#/$defs/Count",
+                    "description": "How many objects the side's `board-objects.json` holds, review-only objects included."
+                },
+                "nativeObjects": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/$defs/CompareNativeTargetA0"
+                    },
+                    "description": "Every addressable object of the side, in the side's index object order."
+                },
+                "componentObjects": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/$defs/CompareNativeObjectA0"
+                    },
+                    "description": "Every symbol and footprint of the side, in the side's index object order."
+                }
+            },
+            "required": [
+                "bundleKey",
+                "objects",
+                "nativeObjects",
+                "componentObjects"
+            ],
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "One side of the comparison."
+        },
+        "CompareObjectDeltaChangeA0": {
+            "type": "object",
+            "properties": {
+                "key": {
+                    "type": "string",
+                    "description": "The object's key, `<documentPath>#<uuid>`."
+                },
+                "status": {
+                    "$ref": "#/$defs/CompareObjectDeltaStatus",
+                    "description": "How the object relates the two sides; never `ignored` here."
+                },
+                "uuid": {
+                    "type": "string",
+                    "description": "The object's id: its KiCad uuid, or a review-only object's synthetic id\n(`BoardObjectsReviewOnlyId`). With `documentPath` it forms `key`."
+                },
+                "kind": {
+                    "$ref": "#/$defs/CompareObjectDeltaKind",
+                    "description": "Kind of object, today's spelling."
+                },
+                "documentPath": {
+                    "type": "string",
+                    "description": "The document's path, project-relative (D1), for example\n`mini_obc.kicad_pcb`. With `uuid` it forms `key`."
+                },
+                "parentUuid": {
+                    "$ref": "#/$defs/KiCadUuid",
+                    "description": "Uuid of the object's parent (a pad's footprint, a pin's symbol, ...). Absent when there is none."
+                },
+                "at": {
+                    "$ref": "#/$defs/CompareMmPoint",
+                    "description": "The object's position `[x, y]` in millimetres, in that order, in the frame today's index uses for its kind. Absent when the kind has no position."
+                },
+                "rotation": {
+                    "type": "number",
+                    "description": "The object's rotation in degrees as written, `0` when the form omits it. Absent when the kind has no rotation."
+                },
+                "mirror": {
+                    "$ref": "#/$defs/CompareObjectDeltaMirror",
+                    "description": "How a symbol is mirrored. Absent when it is not mirrored."
+                },
+                "layer": {
+                    "type": "string",
+                    "description": "The object's layer as written. Absent when the form has none."
+                },
+                "layers": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    },
+                    "description": "A via's `(layers …)` entries, in file order. Absent unless the object has layers."
+                },
+                "net": {
+                    "type": "string",
+                    "description": "The object's net, by name. Absent when it has no net."
+                },
+                "refdes": {
+                    "type": "string",
+                    "description": "The object's reference designator. Absent when it has none or it is empty."
+                },
+                "libId": {
+                    "type": "string",
+                    "description": "The object's library link as written. Absent when it has none."
+                },
+                "dnp": {
+                    "type": "boolean",
+                    "description": "True when the object is do-not-populate. Absent when the kind has no DNP flag."
+                },
+                "inBom": {
+                    "type": "boolean",
+                    "description": "False when the object is excluded from the BOM. Absent when the kind has no such flag."
+                },
+                "onBoard": {
+                    "type": "boolean",
+                    "description": "False when the object is not on the board. Absent when the kind has no such flag."
+                },
+                "kiidPaths": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    },
+                    "description": "Every occurrence path of a symbol or sheet, schematic form, sorted in code point order. Absent when the kind has none."
+                },
+                "instances": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/$defs/CompareSymbolInstanceA0"
+                    },
+                    "description": "A symbol's instances, in file order. Absent when the kind has none."
+                },
+                "number": {
+                    "type": "string",
+                    "description": "A pad's or pin's number as written; may be empty. Absent when the form has none."
+                },
+                "text": {
+                    "type": "string",
+                    "description": "A label's, sheet pin's or footprint text's text as written. Absent when the form has none."
+                },
+                "name": {
+                    "type": "string",
+                    "description": "A zone's, group's or review-only object's name. Absent when the form has none."
+                },
+                "reviewFields": {
+                    "$ref": "#/$defs/RecordBoardObjectsReviewValue",
+                    "description": "Review fields, with keys in code point order; the keys are review labels. Absent when the kind has none."
+                },
+                "reviewOnly": {
+                    "type": "boolean",
+                    "description": "True for a review-only object. Absent for an object with a KiCad uuid."
+                },
+                "properties": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/$defs/CompareObjectPropertyDeltaA0"
+                    },
+                    "description": "The object's property-delta list\n(`CompareObjectPropertyDeltaA0`), sorted by `name` in code point order,\nnot the object's own property list. Absent when there is no delta."
+                },
+                "base": {
+                    "$ref": "#/$defs/CompareNativeObjectA0",
+                    "description": "The `base`-side object (`modified` and `removed` only). Absent for `added`."
+                },
+                "compare": {
+                    "$ref": "#/$defs/CompareNativeObjectA0",
+                    "description": "The `head`-side object (`added` and `modified` only). Absent for `removed`."
+                },
+                "atBase": {
+                    "$ref": "#/$defs/CompareMmPoint",
+                    "description": "The base object's position in millimetres, `[x, y]` in that order (`modified` only). Absent when it has none."
+                },
+                "reasons": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/$defs/CompareObjectDeltaReason"
+                    },
+                    "description": "The classifier reasons, in the order the classifiers run (`modified` only). Absent for `added` and `removed`."
+                },
+                "positionDelta": {
+                    "$ref": "#/$defs/ComparePositionDeltaA0",
+                    "description": "The object's move (`modified` only). Absent when it did not move or has no position."
+                }
+            },
+            "required": [
+                "key",
+                "status",
+                "uuid",
+                "kind",
+                "documentPath"
+            ],
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "One entry of `changes`: an added, removed or modified object."
+        },
+        "CompareObjectDeltaIgnoredA0": {
+            "type": "object",
+            "properties": {
+                "key": {
+                    "type": "string",
+                    "description": "The object's key, `<documentPath>#<uuid>`."
+                },
+                "status": {
+                    "$ref": "#/$defs/CompareObjectDeltaStatus",
+                    "description": "Always `ignored`."
+                },
+                "reason": {
+                    "$ref": "#/$defs/CompareObjectDeltaIgnoredReason",
+                    "description": "Why the object is ignored."
+                },
+                "uuid": {
+                    "type": "string",
+                    "description": "The object's id: its KiCad uuid, or a review-only object's synthetic id\n(`BoardObjectsReviewOnlyId`). With `documentPath` it forms `key`."
+                },
+                "kind": {
+                    "$ref": "#/$defs/CompareObjectDeltaKind",
+                    "description": "Kind of object, today's spelling."
+                },
+                "documentPath": {
+                    "type": "string",
+                    "description": "The document's path, project-relative (D1), for example\n`mini_obc.kicad_pcb`. With `uuid` it forms `key`."
+                },
+                "parentUuid": {
+                    "$ref": "#/$defs/KiCadUuid",
+                    "description": "Uuid of the object's parent (a pad's footprint, a pin's symbol, ...). Absent when there is none."
+                },
+                "at": {
+                    "$ref": "#/$defs/CompareMmPoint",
+                    "description": "The object's position `[x, y]` in millimetres, in that order, in the frame today's index uses for its kind. Absent when the kind has no position."
+                },
+                "rotation": {
+                    "type": "number",
+                    "description": "The object's rotation in degrees as written, `0` when the form omits it. Absent when the kind has no rotation."
+                },
+                "mirror": {
+                    "$ref": "#/$defs/CompareObjectDeltaMirror",
+                    "description": "How a symbol is mirrored. Absent when it is not mirrored."
+                },
+                "layer": {
+                    "type": "string",
+                    "description": "The object's layer as written. Absent when the form has none."
+                },
+                "layers": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    },
+                    "description": "A via's `(layers …)` entries, in file order. Absent unless the object has layers."
+                },
+                "net": {
+                    "type": "string",
+                    "description": "The object's net, by name. Absent when it has no net."
+                },
+                "refdes": {
+                    "type": "string",
+                    "description": "The object's reference designator. Absent when it has none or it is empty."
+                },
+                "libId": {
+                    "type": "string",
+                    "description": "The object's library link as written. Absent when it has none."
+                },
+                "dnp": {
+                    "type": "boolean",
+                    "description": "True when the object is do-not-populate. Absent when the kind has no DNP flag."
+                },
+                "inBom": {
+                    "type": "boolean",
+                    "description": "False when the object is excluded from the BOM. Absent when the kind has no such flag."
+                },
+                "onBoard": {
+                    "type": "boolean",
+                    "description": "False when the object is not on the board. Absent when the kind has no such flag."
+                },
+                "kiidPaths": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    },
+                    "description": "Every occurrence path of a symbol or sheet, schematic form, sorted in code point order. Absent when the kind has none."
+                },
+                "instances": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/$defs/CompareSymbolInstanceA0"
+                    },
+                    "description": "A symbol's instances, in file order. Absent when the kind has none."
+                },
+                "number": {
+                    "type": "string",
+                    "description": "A pad's or pin's number as written; may be empty. Absent when the form has none."
+                },
+                "text": {
+                    "type": "string",
+                    "description": "A label's, sheet pin's or footprint text's text as written. Absent when the form has none."
+                },
+                "name": {
+                    "type": "string",
+                    "description": "A zone's, group's or review-only object's name. Absent when the form has none."
+                },
+                "reviewFields": {
+                    "$ref": "#/$defs/RecordBoardObjectsReviewValue",
+                    "description": "Review fields, with keys in code point order; the keys are review labels. Absent when the kind has none."
+                },
+                "reviewOnly": {
+                    "type": "boolean",
+                    "description": "True for a review-only object. Absent for an object with a KiCad uuid."
+                },
+                "properties": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/$defs/CompareObjectPropertyA0"
+                    },
+                    "description": "The object's own `(property …)` fields, in file order. Absent when the kind has none."
+                }
+            },
+            "required": [
+                "key",
+                "status",
+                "reason",
+                "uuid",
+                "kind",
+                "documentPath"
+            ],
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "One entry of `ignored`: an object matched across a UUID or generated-content change."
+        },
+        "CompareObjectDeltaCountsA0": {
+            "type": "object",
+            "properties": {
+                "added": {
+                    "$ref": "#/$defs/Count",
+                    "description": "Objects only in `--head`."
+                },
+                "removed": {
+                    "$ref": "#/$defs/Count",
+                    "description": "Objects only in `--base`."
+                },
+                "modified": {
+                    "$ref": "#/$defs/Count",
+                    "description": "Objects in both whose content differs."
+                },
+                "unchanged": {
+                    "$ref": "#/$defs/Count",
+                    "description": "Objects in both with equal content, the ignored ones included."
+                },
+                "ignored": {
+                    "$ref": "#/$defs/Count",
+                    "description": "Objects matched across a UUID change or with only generated content changed."
+                },
+                "baseObjects": {
+                    "$ref": "#/$defs/Count",
+                    "description": "Objects in `--base`."
+                },
+                "headObjects": {
+                    "$ref": "#/$defs/Count",
+                    "description": "Objects in `--head`."
+                }
+            },
+            "required": [
+                "added",
+                "removed",
+                "modified",
+                "unchanged",
+                "ignored",
+                "baseObjects",
+                "headObjects"
+            ],
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "The change counts of a comparison (`ecad-diff.mjs:469-477`)."
+        },
+        "RecordCompareObjectDeltaKindCountsA0": {
+            "type": "object",
+            "properties": {},
+            "unevaluatedProperties": {
+                "$ref": "#/$defs/CompareObjectDeltaKindCountsA0"
+            }
+        },
+        "RecordCount": {
+            "type": "object",
+            "properties": {},
+            "unevaluatedProperties": {
+                "$ref": "#/$defs/Count"
+            }
+        },
+        "Sha256Hex": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$",
+            "description": "Lowercase hexadecimal SHA-256 digest: exactly 64 characters, no prefix such as `sha256:`."
+        },
+        "Count": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "A count of things: a non-negative safe integer."
+        },
+        "CompareNativeTargetA0": {
+            "type": "object",
+            "properties": {
+                "uuid": {
+                    "type": "string",
+                    "description": "The object's id."
+                },
+                "kind": {
+                    "$ref": "#/$defs/CompareObjectDeltaKind",
+                    "description": "Kind of object."
+                },
+                "documentPath": {
+                    "type": "string",
+                    "description": "The document's project-relative path."
+                },
+                "parentUuid": {
+                    "$ref": "#/$defs/KiCadUuid",
+                    "description": "Uuid of the parent. Absent when there is none."
+                },
+                "at": {
+                    "$ref": "#/$defs/CompareMmPoint",
+                    "description": "The object's `[x, y]` position in millimetres, in that order. Absent when it has none."
+                }
+            },
+            "required": [
+                "uuid",
+                "kind",
+                "documentPath"
+            ],
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "One object, as `native_target` carries it (`ecad-diff.mjs:222-230`), for `nativeObjects`."
+        },
+        "CompareNativeObjectA0": {
+            "type": "object",
+            "properties": {
+                "uuid": {
+                    "type": "string",
+                    "description": "The object's id: its KiCad uuid, or a review-only object's synthetic id\n(`BoardObjectsReviewOnlyId`). With `documentPath` it forms `key`."
+                },
+                "kind": {
+                    "$ref": "#/$defs/CompareObjectDeltaKind",
+                    "description": "Kind of object, today's spelling."
+                },
+                "documentPath": {
+                    "type": "string",
+                    "description": "The document's path, project-relative (D1), for example\n`mini_obc.kicad_pcb`. With `uuid` it forms `key`."
+                },
+                "parentUuid": {
+                    "$ref": "#/$defs/KiCadUuid",
+                    "description": "Uuid of the object's parent (a pad's footprint, a pin's symbol, ...). Absent when there is none."
+                },
+                "at": {
+                    "$ref": "#/$defs/CompareMmPoint",
+                    "description": "The object's position `[x, y]` in millimetres, in that order, in the frame today's index uses for its kind. Absent when the kind has no position."
+                },
+                "rotation": {
+                    "type": "number",
+                    "description": "The object's rotation in degrees as written, `0` when the form omits it. Absent when the kind has no rotation."
+                },
+                "mirror": {
+                    "$ref": "#/$defs/CompareObjectDeltaMirror",
+                    "description": "How a symbol is mirrored. Absent when it is not mirrored."
+                },
+                "layer": {
+                    "type": "string",
+                    "description": "The object's layer as written. Absent when the form has none."
+                },
+                "layers": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    },
+                    "description": "A via's `(layers …)` entries, in file order. Absent unless the object has layers."
+                },
+                "net": {
+                    "type": "string",
+                    "description": "The object's net, by name. Absent when it has no net."
+                },
+                "refdes": {
+                    "type": "string",
+                    "description": "The object's reference designator. Absent when it has none or it is empty."
+                },
+                "libId": {
+                    "type": "string",
+                    "description": "The object's library link as written. Absent when it has none."
+                },
+                "dnp": {
+                    "type": "boolean",
+                    "description": "True when the object is do-not-populate. Absent when the kind has no DNP flag."
+                },
+                "inBom": {
+                    "type": "boolean",
+                    "description": "False when the object is excluded from the BOM. Absent when the kind has no such flag."
+                },
+                "onBoard": {
+                    "type": "boolean",
+                    "description": "False when the object is not on the board. Absent when the kind has no such flag."
+                },
+                "kiidPaths": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    },
+                    "description": "Every occurrence path of a symbol or sheet, schematic form, sorted in code point order. Absent when the kind has none."
+                },
+                "instances": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/$defs/CompareSymbolInstanceA0"
+                    },
+                    "description": "A symbol's instances, in file order. Absent when the kind has none."
+                },
+                "number": {
+                    "type": "string",
+                    "description": "A pad's or pin's number as written; may be empty. Absent when the form has none."
+                },
+                "text": {
+                    "type": "string",
+                    "description": "A label's, sheet pin's or footprint text's text as written. Absent when the form has none."
+                },
+                "name": {
+                    "type": "string",
+                    "description": "A zone's, group's or review-only object's name. Absent when the form has none."
+                },
+                "reviewFields": {
+                    "$ref": "#/$defs/RecordBoardObjectsReviewValue",
+                    "description": "Review fields, with keys in code point order; the keys are review labels. Absent when the kind has none."
+                },
+                "reviewOnly": {
+                    "type": "boolean",
+                    "description": "True for a review-only object. Absent for an object with a KiCad uuid."
+                },
+                "properties": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/$defs/CompareObjectPropertyA0"
+                    },
+                    "description": "The object's own `(property …)` fields, in file order: a schematic\nsymbol's or sheet's properties, or a footprint's fields. Absent when the\nkind has none."
+                }
+            },
+            "required": [
+                "uuid",
+                "kind",
+                "documentPath"
+            ],
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "One object as `native_object` carries it (`ecad-diff.mjs:194-220`), for `componentObjects`, `base` and `compare`."
+        },
+        "CompareObjectDeltaStatus": {
+            "type": "string",
+            "enum": [
+                "added",
+                "removed",
+                "modified",
+                "ignored"
+            ],
+            "description": "How an entry relates the two sides."
+        },
+        "CompareObjectDeltaKind": {
+            "type": "string",
+            "enum": [
+                "symbol",
+                "pin",
+                "sheet",
+                "sheet_pin",
+                "wire",
+                "bus",
+                "junction",
+                "no_connect",
+                "bus_entry",
+                "label",
+                "graphic",
+                "image",
+                "table",
+                "footprint",
+                "pad",
+                "zone",
+                "footprint_graphic",
+                "footprint_text",
+                "track",
+                "arc",
+                "via",
+                "group",
+                "net_class",
+                "net_class_assignment",
+                "board_constraint",
+                "drc_severity",
+                "routing_preset",
+                "board_default",
+                "teardrop_setting",
+                "zone_setting",
+                "drc_exclusion",
+                "erc_exclusion",
+                "erc_pin_rule",
+                "project_metadata",
+                "custom_rule",
+                "fabrication_output",
+                "bus_alias"
+            ],
+            "description": "Kind of an object, in today's spelling: the bundle kind\n(`BoardObjectsObject`, `BoardObjectsReviewOnlyKind`) with every `-` written\n`_`."
+        },
+        "KiCadUuid": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+            "description": "KiCad object UUID in the canonical form KiCad writes (`KIID::AsString`):\nlowercase hexadecimal, 8-4-4-4-12. Copied from the file, never generated\nor re-cased."
+        },
+        "CompareMmPoint": {
+            "type": "array",
+            "items": {
+                "type": "number"
+            },
+            "minItems": 2,
+            "maxItems": 2,
+            "description": "A point in millimetres, `[x, y]` in that order, as today's index writes it.\nNo rounding: it is the parsed value."
+        },
+        "CompareObjectDeltaMirror": {
+            "type": "string",
+            "enum": [
+                "x",
+                "y"
+            ],
+            "description": "How a schematic symbol is mirrored, today's parser spelling."
+        },
+        "CompareSymbolInstanceA0": {
+            "type": "object",
+            "properties": {
+                "reference": {
+                    "type": "string",
+                    "description": "The instance's reference. Absent when it has none or it is empty."
+                },
+                "path": {
+                    "type": "string",
+                    "description": "The occurrence path, schematic form. Absent for a `default_instance` entry."
+                }
+            },
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "One `(path …)` instance of a placed symbol (`ecad-diff.mjs` `instances`)."
+        },
+        "RecordBoardObjectsReviewValue": {
+            "type": "object",
+            "properties": {},
+            "unevaluatedProperties": {
+                "$ref": "#/$defs/BoardObjectsReviewValue"
+            }
+        },
+        "CompareObjectPropertyDeltaA0": {
+            "type": "object",
+            "properties": {
+                "name": {
+                    "type": "string",
+                    "description": "The property or review-field name."
+                },
+                "from": {
+                    "$ref": "#/$defs/BoardObjectsReviewValue",
+                    "description": "The base value: a text, a number, a flag, a list (in the order today's index writes it) or a table (keys are KiCad's setting keys). Absent when the property or field is only in the head side."
+                },
+                "to": {
+                    "$ref": "#/$defs/BoardObjectsReviewValue",
+                    "description": "The head value: a text, a number, a flag, a list (in the order today's index writes it) or a table (keys are KiCad's setting keys). Absent when the property or field is only in the base side."
+                },
+                "attributesChanged": {
+                    "type": "boolean",
+                    "description": "True when a property that is present on both sides only moved or was hidden. Absent for a review-field delta."
+                },
+                "fromAttributes": {
+                    "$ref": "#/$defs/ComparePropertyAttributesA0",
+                    "description": "The base property's attributes. Absent for a review-field delta, or when the property is only in the head side."
+                },
+                "toAttributes": {
+                    "$ref": "#/$defs/ComparePropertyAttributesA0",
+                    "description": "The head property's attributes. Absent for a review-field delta, or when the property is only in the base side."
+                }
+            },
+            "required": [
+                "name"
+            ],
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "One property or review-field delta (`ecad-diff.mjs` `property_deltas` and\n`review_field_deltas`). A property delta also carries `attributesChanged` and\n`fromAttributes`/`toAttributes`; a review-field delta carries only `name`,\n`from` and `to`."
+        },
+        "CompareObjectDeltaReason": {
+            "type": "string",
+            "enum": [
+                "moved",
+                "rotated",
+                "mirrored",
+                "layer-changed",
+                "net-changed",
+                "renamed",
+                "lib-changed",
+                "dnp-changed",
+                "re-pathed",
+                "properties-changed",
+                "content-changed"
+            ],
+            "description": "Why a `modified` change was classified, or why an object is in `ignored`.\nThe classifier reasons are `CLASSIFIERS` plus `properties-changed` and\n`content-changed` (`ecad-diff.mjs:32-46`, `:415-435`)."
+        },
+        "ComparePositionDeltaA0": {
+            "type": "object",
+            "properties": {
+                "dx": {
+                    "type": "number",
+                    "description": "Change in x, rounded to 1e-6 mm."
+                },
+                "dy": {
+                    "type": "number",
+                    "description": "Change in y, rounded to 1e-6 mm."
+                },
+                "distance": {
+                    "type": "number",
+                    "description": "`Math.hypot(dx, dy)`, rounded to 1e-6 mm."
+                }
+            },
+            "required": [
+                "dx",
+                "dy",
+                "distance"
+            ],
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "A moved object's position deltas (`ecad-diff.mjs:322-332`), in millimetres."
+        },
+        "CompareObjectDeltaIgnoredReason": {
+            "type": "string",
+            "enum": [
+                "internal-identity-only",
+                "generated-content-only"
+            ],
+            "description": "Why a matched object is only in `ignored` (`ecad-diff.mjs:390-411`)."
+        },
+        "CompareObjectPropertyA0": {
+            "type": "object",
+            "properties": {
+                "name": {
+                    "type": "string",
+                    "description": "The field name."
+                },
+                "value": {
+                    "type": "string",
+                    "description": "The field value as written; may be empty."
+                },
+                "at": {
+                    "$ref": "#/$defs/CompareMmPoint",
+                    "description": "The field's `[x, y]` position in millimetres, in that order. Absent when the form has none."
+                },
+                "rotation": {
+                    "type": "number",
+                    "description": "The field's rotation in degrees as written. Present exactly when the field is at a position."
+                },
+                "hide": {
+                    "type": "boolean",
+                    "description": "True when the field is hidden. Absent unless the form hides it."
+                },
+                "effects": {
+                    "$ref": "#/$defs/CompareTextEffectsA0",
+                    "description": "The field's text effects. Absent when the form has none."
+                }
+            },
+            "required": [
+                "name",
+                "value"
+            ],
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "One `(property \"Name\" \"value\" …)` field of a symbol, sheet or footprint, as today's index carries it."
+        },
+        "CompareObjectDeltaKindCountsA0": {
+            "type": "object",
+            "properties": {
+                "added": {
+                    "$ref": "#/$defs/Count",
+                    "description": "Added objects of this kind."
+                },
+                "removed": {
+                    "$ref": "#/$defs/Count",
+                    "description": "Removed objects of this kind."
+                },
+                "modified": {
+                    "$ref": "#/$defs/Count",
+                    "description": "Modified objects of this kind."
+                }
+            },
+            "required": [
+                "added",
+                "removed",
+                "modified"
+            ],
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "Per-kind change counts (`ecad-diff.mjs:455-463`)."
+        },
+        "BoardObjectsReviewValue": {
+            "anyOf": [
+                {
+                    "type": "string",
+                    "description": "A text."
+                },
+                {
+                    "type": "number",
+                    "description": "A number as today's index writes it."
+                },
+                {
+                    "type": "boolean",
+                    "description": "A flag."
+                },
+                {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    },
+                    "description": "A list of texts, in the order today's index writes them."
+                },
+                {
+                    "type": "array",
+                    "items": {
+                        "type": "number"
+                    },
+                    "description": "A list of numbers, in the order today's index writes them."
+                },
+                {
+                    "$ref": "#/$defs/BoardObjectsReviewTable",
+                    "description": "One table of settings (for example a teardrop parameter set)."
+                },
+                {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/$defs/BoardObjectsReviewTable"
+                    },
+                    "description": "A list of tables, in the order today's index writes them."
+                }
+            ],
+            "description": "One review-field value, as Design Comparison shows it: the value today's\nindex writes, unconverted (lengths stay the millimetres the file writes,\nflags stay booleans, `Size` stays a `w × h` text). A presentation value,\nnot a typed fact: typed lengths of this member are the `…Nm` fields. A\nvalue of any other shape is written as its canonical JSON text (field\nmap)."
+        },
+        "ComparePropertyAttributesA0": {
+            "type": "object",
+            "properties": {
+                "at": {
+                    "$ref": "#/$defs/CompareMmPoint",
+                    "description": "The property's `[x, y]` position in millimetres, in that order. Absent when it has none."
+                },
+                "rotation": {
+                    "type": "number",
+                    "description": "The property's rotation in degrees. Absent when it has none."
+                },
+                "hide": {
+                    "type": "boolean",
+                    "description": "True when the property is hidden; false otherwise."
+                },
+                "effects": {
+                    "$ref": "#/$defs/CompareTextEffectsA0",
+                    "description": "The property's text effects. Absent when it has none."
+                }
+            },
+            "required": [
+                "hide"
+            ],
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "The attributes `attributesChanged` compares (`ecad-diff.mjs:248-263`)."
+        },
+        "CompareTextEffectsA0": {
+            "type": "object",
+            "properties": {
+                "font": {
+                    "$ref": "#/$defs/CompareTextFontA0",
+                    "description": "The `(font …)`. Absent when the effects have none."
+                },
+                "justify": {
+                    "$ref": "#/$defs/CompareTextJustifyA0",
+                    "description": "The `(justify …)`. Absent when the effects have none."
+                },
+                "hide": {
+                    "type": "boolean",
+                    "description": "True when the effects carry a bare `hide`. Absent when it is not written."
+                },
+                "href": {
+                    "type": "string",
+                    "description": "The `(href …)` as written. Absent when it is not written."
+                }
+            },
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "A text's `(effects …)` as the vendored parser reads it."
+        },
+        "BoardObjectsReviewTable": {
+            "type": "object",
+            "properties": {},
+            "unevaluatedProperties": {
+                "$ref": "#/$defs/BoardObjectsReviewScalar"
+            },
+            "description": "A flat table of settings; keys are KiCad's setting keys as written, serialized in code point order."
+        },
+        "CompareTextFontA0": {
+            "type": "object",
+            "properties": {
+                "face": {
+                    "type": "string",
+                    "description": "The `(face …)` font name. Absent when it is not written."
+                },
+                "size": {
+                    "$ref": "#/$defs/CompareFontSizeA0",
+                    "description": "The `(size …)`. Absent when it is not written."
+                },
+                "thickness": {
+                    "type": "number",
+                    "description": "The `(thickness …)` stroke width in millimetres. Absent when it is not written."
+                },
+                "bold": {
+                    "type": "boolean",
+                    "description": "True when the font has a bare `bold`. Absent when it is not written."
+                },
+                "italic": {
+                    "type": "boolean",
+                    "description": "True when the font has a bare `italic`. Absent when it is not written."
+                },
+                "lineSpacing": {
+                    "type": "number",
+                    "description": "The `(line_spacing …)` factor as written. Absent when it is not written."
+                },
+                "color": {
+                    "$ref": "#/$defs/CompareColorA0",
+                    "description": "The `(color …)`. Absent when it is not written."
+                }
+            },
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "A text's `(font …)` as the vendored parser reads it."
+        },
+        "CompareTextJustifyA0": {
+            "type": "object",
+            "properties": {
+                "horiz": {
+                    "$ref": "#/$defs/CompareJustifyHorizontalA0",
+                    "description": "Horizontal justification."
+                },
+                "vert": {
+                    "$ref": "#/$defs/CompareJustifyVerticalA0",
+                    "description": "Vertical justification."
+                },
+                "mirror": {
+                    "type": "boolean",
+                    "description": "True when the justify form contains `mirror`."
+                }
+            },
+            "required": [
+                "horiz",
+                "vert",
+                "mirror"
+            ],
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "A text's `(justify …)` as today's parser reads it."
+        },
+        "BoardObjectsReviewScalar": {
+            "anyOf": [
+                {
+                    "type": "string",
+                    "description": "A text."
+                },
+                {
+                    "type": "number",
+                    "description": "A number."
+                },
+                {
+                    "type": "boolean",
+                    "description": "A flag."
+                }
+            ],
+            "description": "One scalar in a settings table."
+        },
+        "CompareFontSizeA0": {
+            "type": "object",
+            "properties": {
+                "x": {
+                    "type": "number",
+                    "description": "The first value."
+                },
+                "y": {
+                    "type": "number",
+                    "description": "The second value."
+                }
+            },
+            "required": [
+                "x",
+                "y"
+            ],
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "A font's `(size <height> <width>)`, today's `{x, y}`."
+        },
+        "CompareColorA0": {
+            "type": "object",
+            "properties": {
+                "r": {
+                    "type": "number",
+                    "description": "Red, 0 to 1."
+                },
+                "g": {
+                    "type": "number",
+                    "description": "Green, 0 to 1."
+                },
+                "b": {
+                    "type": "number",
+                    "description": "Blue, 0 to 1."
+                },
+                "a": {
+                    "type": "number",
+                    "description": "Alpha, 0 to 1; 1 when the form omits it."
+                }
+            },
+            "required": [
+                "r",
+                "g",
+                "b",
+                "a"
+            ],
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "A `(color <r> <g> <b> [<a>])` as today's parser reads it."
+        },
+        "CompareJustifyHorizontalA0": {
+            "type": "string",
+            "enum": [
+                "left",
+                "right",
+                "center"
+            ],
+            "description": "Horizontal justification of a text."
+        },
+        "CompareJustifyVerticalA0": {
+            "type": "string",
+            "enum": [
+                "top",
+                "bottom",
+                "center"
+            ],
+            "description": "Vertical justification of a text."
+        }
+    }
+}

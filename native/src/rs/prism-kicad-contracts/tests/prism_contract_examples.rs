@@ -34,12 +34,16 @@ fn every_prism_example_round_trips_through_its_generated_type() {
     round_trip::<generated::prism_board_objects_a0::BoardObjectsA0>("BoardObjectsA0");
     round_trip::<generated::prism_bundle_manifest_a2::BundleManifestA2>("BundleManifestA2");
     round_trip::<generated::prism_cli_build_result_a0::CliBuildResultA0>("CliBuildResultA0");
+    round_trip::<generated::prism_cli_compare_result_a0::CliCompareResultA0>("CliCompareResultA0");
     round_trip::<generated::prism_cli_diagnostic_a0::CliDiagnosticA0>("CliDiagnosticA0");
     round_trip::<generated::prism_cli_error_a0::CliErrorA0>("CliErrorA0");
     round_trip::<generated::prism_cli_extract_result_a0::CliExtractResultA0>("CliExtractResultA0");
     round_trip::<generated::prism_cli_project_absent_a0::CliProjectAbsentA0>("CliProjectAbsentA0");
     round_trip::<generated::prism_cli_verify_report_a0::CliVerifyReportA0>("CliVerifyReportA0");
     round_trip::<generated::prism_cli_version_a0::CliVersionA0>("CliVersionA0");
+    round_trip::<generated::prism_compare_object_delta_a0::CompareObjectDeltaA0>(
+        "CompareObjectDeltaA0",
+    );
     round_trip::<generated::prism_occurrences_a0::OccurrencesA0>("OccurrencesA0");
     round_trip::<generated::prism_placements_a0::PlacementsA0>("PlacementsA0");
     round_trip::<generated::prism_project_a0::ProjectA0>("ProjectA0");

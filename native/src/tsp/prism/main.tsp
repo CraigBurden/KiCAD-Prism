@@ -6,6 +6,7 @@ import "./common.tsp";
 import "./board-objects-a0.tsp";
 import "./bundle-manifest-a2.tsp";
 import "./cli-a0.tsp";
+import "./compare-a0.tsp";
 import "./occurrences-a0.tsp";
 import "./placements-a0.tsp";
 import "./project-a0.tsp";
