@@ -160,7 +160,15 @@ argument's value, which may be a host path.*/
 ///    "threads",
 ///    "quiet",
 ///    "base",
-///    "head"
+///    "head",
+///    "view",
+///    "variant",
+///    "vendor",
+///    "request",
+///    "metrics",
+///    "geometer",
+///    "model-dir",
+///    "hlr-cache"
 ///  ]
 ///}
 /// ```
@@ -228,6 +236,22 @@ pub enum CliArgument {
     Base,
     #[serde(rename = "head")]
     Head,
+    #[serde(rename = "view")]
+    View,
+    #[serde(rename = "variant")]
+    Variant,
+    #[serde(rename = "vendor")]
+    Vendor,
+    #[serde(rename = "request")]
+    Request,
+    #[serde(rename = "metrics")]
+    Metrics,
+    #[serde(rename = "geometer")]
+    Geometer,
+    #[serde(rename = "model-dir")]
+    ModelDir,
+    #[serde(rename = "hlr-cache")]
+    HlrCache,
 }
 impl ::std::fmt::Display for CliArgument {
     fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
@@ -257,6 +281,14 @@ impl ::std::fmt::Display for CliArgument {
             Self::Quiet => f.write_str("quiet"),
             Self::Base => f.write_str("base"),
             Self::Head => f.write_str("head"),
+            Self::View => f.write_str("view"),
+            Self::Variant => f.write_str("variant"),
+            Self::Vendor => f.write_str("vendor"),
+            Self::Request => f.write_str("request"),
+            Self::Metrics => f.write_str("metrics"),
+            Self::Geometer => f.write_str("geometer"),
+            Self::ModelDir => f.write_str("model-dir"),
+            Self::HlrCache => f.write_str("hlr-cache"),
         }
     }
 }
@@ -289,6 +321,14 @@ impl ::std::str::FromStr for CliArgument {
             "quiet" => Ok(Self::Quiet),
             "base" => Ok(Self::Base),
             "head" => Ok(Self::Head),
+            "view" => Ok(Self::View),
+            "variant" => Ok(Self::Variant),
+            "vendor" => Ok(Self::Vendor),
+            "request" => Ok(Self::Request),
+            "metrics" => Ok(Self::Metrics),
+            "geometer" => Ok(Self::Geometer),
+            "model-dir" => Ok(Self::ModelDir),
+            "hlr-cache" => Ok(Self::HlrCache),
             _ => Err("invalid value".into()),
         }
     }

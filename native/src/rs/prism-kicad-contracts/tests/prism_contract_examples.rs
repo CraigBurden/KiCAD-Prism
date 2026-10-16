@@ -13,7 +13,7 @@ fn round_trip<T: Serialize + DeserializeOwned>(root: &str) {
         .join(format!("{root}.example.json"));
     let text = std::fs::read_to_string(&path).expect("example");
     let expected: serde_json::Value = serde_json::from_str(&text).expect("example JSON");
-    let typed: T = serde_json::from_str(&text)
+    let typed: T = serde_json::from_value(expected.clone())
         .unwrap_or_else(|error| panic!("{root} does not fit its generated type: {error}"));
     let written = serde_json::to_string(&typed).expect("serialize");
     let actual: serde_json::Value = serde_json::from_str(&written).expect("written JSON");
@@ -31,18 +31,37 @@ fn round_trip<T: Serialize + DeserializeOwned>(root: &str) {
 
 #[test]
 fn every_prism_example_round_trips_through_its_generated_type() {
+    round_trip::<generated::prism_artwork_config_a0::ArtworkConfigA0>("ArtworkConfigA0");
+    round_trip::<generated::prism_assembly_hlr_a0::AssemblyHlrA0>("AssemblyHlrA0");
     round_trip::<generated::prism_board_objects_a0::BoardObjectsA0>("BoardObjectsA0");
     round_trip::<generated::prism_bundle_manifest_a2::BundleManifestA2>("BundleManifestA2");
+    round_trip::<generated::prism_cli_artwork_result_a0::CliArtworkResultA0>("CliArtworkResultA0");
     round_trip::<generated::prism_cli_build_result_a0::CliBuildResultA0>("CliBuildResultA0");
     round_trip::<generated::prism_cli_compare_result_a0::CliCompareResultA0>("CliCompareResultA0");
     round_trip::<generated::prism_cli_diagnostic_a0::CliDiagnosticA0>("CliDiagnosticA0");
+    round_trip::<generated::prism_cli_drawing_sheet_result_a0::CliDrawingSheetResultA0>(
+        "CliDrawingSheetResultA0",
+    );
     round_trip::<generated::prism_cli_error_a0::CliErrorA0>("CliErrorA0");
     round_trip::<generated::prism_cli_extract_result_a0::CliExtractResultA0>("CliExtractResultA0");
     round_trip::<generated::prism_cli_project_absent_a0::CliProjectAbsentA0>("CliProjectAbsentA0");
+    round_trip::<generated::prism_cli_stroke_font_metrics_a0::CliStrokeFontMetricsA0>(
+        "CliStrokeFontMetricsA0",
+    );
+    round_trip::<generated::prism_cli_stroke_text_result_a0::CliStrokeTextResultA0>(
+        "CliStrokeTextResultA0",
+    );
+    round_trip::<generated::prism_cli_vendor_list_a0::CliVendorListA0>("CliVendorListA0");
+    round_trip::<generated::prism_cli_vendor_run_result_a0::CliVendorRunResultA0>(
+        "CliVendorRunResultA0",
+    );
     round_trip::<generated::prism_cli_verify_report_a0::CliVerifyReportA0>("CliVerifyReportA0");
     round_trip::<generated::prism_cli_version_a0::CliVersionA0>("CliVersionA0");
     round_trip::<generated::prism_compare_object_delta_a0::CompareObjectDeltaA0>(
         "CompareObjectDeltaA0",
+    );
+    round_trip::<generated::prism_drawing_sheet_request_a0::DrawingSheetRequestA0>(
+        "DrawingSheetRequestA0",
     );
     round_trip::<generated::prism_occurrences_a0::OccurrencesA0>("OccurrencesA0");
     round_trip::<generated::prism_placements_a0::PlacementsA0>("PlacementsA0");
@@ -59,7 +78,13 @@ fn every_prism_example_round_trips_through_its_generated_type() {
     round_trip::<generated::prism_route_metrics_a0::RouteMetricsA0>("RouteMetricsA0");
     round_trip::<generated::prism_semantic_index_a1::SemanticIndexA1>("SemanticIndexA1");
     round_trip::<generated::prism_stackup_a0::StackupA0>("StackupA0");
+    round_trip::<generated::prism_stroke_text_request_a0::StrokeTextRequestA0>(
+        "StrokeTextRequestA0",
+    );
     round_trip::<generated::prism_system_interface_v1::SystemInterfaceV1>("SystemInterfaceV1");
+    round_trip::<generated::prism_vendor_jlcpcb_config_a0::VendorJlcpcbConfigA0>(
+        "VendorJlcpcbConfigA0",
+    );
 }
 
 /// Numbers as doubles, so `0` and `0.0` compare equal (conventions.md §14).

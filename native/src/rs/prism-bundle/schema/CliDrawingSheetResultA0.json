@@ -1,0 +1,292 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$id": "urn:prism:schema:prism.cli.drawing_sheet_result:a0",
+    "type": "object",
+    "properties": {
+        "schema": {
+            "type": "string",
+            "const": "prism.cli.drawing_sheet_result.a0",
+            "description": "Document schema id."
+        },
+        "ops": {
+            "type": "array",
+            "items": {
+                "$ref": "#/$defs/CliDrawingSheetOp"
+            },
+            "description": "The draw operations, in the order `drawing_sheet_to_ops` returns them: the\ndefault worksheet's on-disk element order, with every repeat expanded in\nplace. The frame's rectangles, lines and title-block text therefore\ninterleave as the worksheet file lists them, not grouped by kind."
+        }
+    },
+    "required": [
+        "schema",
+        "ops"
+    ],
+    "unevaluatedProperties": {
+        "not": {}
+    },
+    "description": "stdout of `drawing-sheet` (exit 0): the default worksheet's draw operations.",
+    "title": "prism-kicad drawing-sheet result a0",
+    "$defs": {
+        "CliDrawingSheetOp": {
+            "oneOf": [
+                {
+                    "$ref": "#/$defs/CliDrawingSheetPoly",
+                    "description": "A polyline."
+                },
+                {
+                    "$ref": "#/$defs/CliDrawingSheetRect",
+                    "description": "A rectangle."
+                },
+                {
+                    "$ref": "#/$defs/CliDrawingSheetText",
+                    "description": "A text run."
+                }
+            ],
+            "description": "One operation of the default drawing sheet, discriminated by `kind`."
+        },
+        "CliDrawingSheetPoly": {
+            "type": "object",
+            "properties": {
+                "kind": {
+                    "type": "string",
+                    "const": "poly",
+                    "description": "Variant tag: a polyline."
+                },
+                "points": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/$defs/CliPointNm"
+                    },
+                    "description": "The polyline's vertices, in draw order, board frame."
+                },
+                "fill": {
+                    "$ref": "#/$defs/CliDrawingSheetFill",
+                    "description": "How the shape is filled, KiCad's token."
+                },
+                "width_nm": {
+                    "$ref": "#/$defs/NonNegativeNanometres",
+                    "description": "Stroke width in nanometres."
+                },
+                "stroke_color": {
+                    "type": "string",
+                    "description": "Stroke colour, `#RRGGBB` or `#RRGGBBAA`."
+                }
+            },
+            "required": [
+                "kind",
+                "points",
+                "fill",
+                "width_nm",
+                "stroke_color"
+            ],
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "One drawn polyline. A polyline of exactly two points is a line\n(`worksheet.py:84-92`)."
+        },
+        "CliDrawingSheetRect": {
+            "type": "object",
+            "properties": {
+                "kind": {
+                    "type": "string",
+                    "const": "rect",
+                    "description": "Variant tag: a rectangle."
+                },
+                "x1_nm": {
+                    "$ref": "#/$defs/Nanometres",
+                    "description": "X of the first corner in nanometres."
+                },
+                "y1_nm": {
+                    "$ref": "#/$defs/Nanometres",
+                    "description": "Y of the first corner in nanometres."
+                },
+                "x2_nm": {
+                    "$ref": "#/$defs/Nanometres",
+                    "description": "X of the opposite corner in nanometres."
+                },
+                "y2_nm": {
+                    "$ref": "#/$defs/Nanometres",
+                    "description": "Y of the opposite corner in nanometres."
+                },
+                "corner_radius_nm": {
+                    "$ref": "#/$defs/NonNegativeNanometres",
+                    "description": "Corner radius in nanometres."
+                },
+                "fill": {
+                    "$ref": "#/$defs/CliDrawingSheetFill",
+                    "description": "How the shape is filled, KiCad's token."
+                },
+                "width_nm": {
+                    "$ref": "#/$defs/NonNegativeNanometres",
+                    "description": "Stroke width in nanometres."
+                },
+                "stroke_color": {
+                    "type": "string",
+                    "description": "Stroke colour, `#RRGGBB` or `#RRGGBBAA`."
+                }
+            },
+            "required": [
+                "kind",
+                "x1_nm",
+                "y1_nm",
+                "x2_nm",
+                "y2_nm",
+                "corner_radius_nm",
+                "fill",
+                "width_nm",
+                "stroke_color"
+            ],
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "One drawn rectangle."
+        },
+        "CliDrawingSheetText": {
+            "type": "object",
+            "properties": {
+                "kind": {
+                    "type": "string",
+                    "const": "text",
+                    "description": "Variant tag: a text run."
+                },
+                "x_nm": {
+                    "$ref": "#/$defs/Nanometres",
+                    "description": "X of the run's alignment point in nanometres."
+                },
+                "y_nm": {
+                    "$ref": "#/$defs/Nanometres",
+                    "description": "Y of the run's alignment point in nanometres."
+                },
+                "text": {
+                    "type": "string",
+                    "description": "The run's text, exactly as it is to be drawn."
+                },
+                "color": {
+                    "type": "string",
+                    "description": "Text colour, `#RRGGBB` or `#RRGGBBAA`."
+                },
+                "orient_deg": {
+                    "$ref": "#/$defs/Degrees",
+                    "description": "Rotation in degrees as written, 0 for the default sheet's horizontal text."
+                },
+                "size_x_nm": {
+                    "$ref": "#/$defs/NonNegativeNanometres",
+                    "description": "Nominal width of one glyph in nanometres."
+                },
+                "size_y_nm": {
+                    "$ref": "#/$defs/NonNegativeNanometres",
+                    "description": "Nominal height of one glyph in nanometres."
+                },
+                "pen_width_nm": {
+                    "$ref": "#/$defs/NonNegativeNanometres",
+                    "description": "Pen width in nanometres."
+                },
+                "h_align": {
+                    "$ref": "#/$defs/CliDrawingSheetHAlign",
+                    "description": "Horizontal alignment about `x_nm`, KiCad's spelling."
+                },
+                "v_align": {
+                    "$ref": "#/$defs/CliDrawingSheetVAlign",
+                    "description": "Vertical alignment about `y_nm`, KiCad's spelling."
+                },
+                "italic": {
+                    "type": "boolean",
+                    "description": "True when the text is italic."
+                },
+                "bold": {
+                    "type": "boolean",
+                    "description": "True when the text is bold."
+                },
+                "multiline": {
+                    "type": "boolean",
+                    "description": "True when the text may span several lines."
+                },
+                "font_face": {
+                    "type": "string",
+                    "description": "The text's font face, for example `Arial`."
+                }
+            },
+            "required": [
+                "kind",
+                "x_nm",
+                "y_nm",
+                "text",
+                "color",
+                "orient_deg",
+                "size_x_nm",
+                "size_y_nm",
+                "pen_width_nm",
+                "h_align",
+                "v_align",
+                "italic",
+                "bold",
+                "multiline",
+                "font_face"
+            ],
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "One drawn text run. Its glyph geometry is `stroke-text`'s: draw the run's\n`text` at (`x_nm`, `y_nm`) with the NewStroke polylines of a\n`StrokeTextRequestA0` run whose size is `size_x_nm`/1e6 mm, aligned by\n`h_align`/`v_align`."
+        },
+        "CliPointNm": {
+            "type": "object",
+            "properties": {
+                "x_nm": {
+                    "$ref": "#/$defs/Nanometres",
+                    "description": "X coordinate in nanometres."
+                },
+                "y_nm": {
+                    "$ref": "#/$defs/Nanometres",
+                    "description": "Y coordinate in nanometres."
+                }
+            },
+            "required": [
+                "x_nm",
+                "y_nm"
+            ],
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "A point in nanometres in KiCad's board frame (+x right, +y down)."
+        },
+        "CliDrawingSheetFill": {
+            "type": "string",
+            "enum": [
+                "NO_FILL",
+                "FILLED_SHAPE",
+                "FILLED_WITH_BG_BODYCOLOR"
+            ],
+            "description": "How a drawn polygon or rectangle is filled, KiCad's spelling."
+        },
+        "NonNegativeNanometres": {
+            "type": "integer",
+            "description": "A Nanometres value that is never negative: a thickness, width, diameter or length.",
+            "minimum": 0
+        },
+        "Nanometres": {
+            "type": "integer",
+            "description": "Length or coordinate in integer nanometres, KiCad's internal board unit.\nConverted from the file's decimal millimetres as KiCad's own parser does:\nthe double product value_mm * 1e6, rounded half away from zero. A single\ncoordinate or dimension fits KiCad's 32-bit range; sums (for example a\nnet's total track length) may not, hence a safe integer (|n| < 2^53)."
+        },
+        "Degrees": {
+            "type": "number",
+            "description": "Angle in degrees. In new documents it is as written in the KiCad file:\nnot normalized, not rounded. A parity document may round it as today's\noutput does, and its field says so. A positive angle is a counter-clockwise rotation as KiCad shows\nit on the front side. Each field states the frame its angle is in."
+        },
+        "CliDrawingSheetHAlign": {
+            "type": "string",
+            "enum": [
+                "GR_TEXT_H_ALIGN_LEFT",
+                "GR_TEXT_H_ALIGN_CENTER",
+                "GR_TEXT_H_ALIGN_RIGHT"
+            ],
+            "description": "Horizontal alignment of a drawn text run, KiCad's spelling."
+        },
+        "CliDrawingSheetVAlign": {
+            "type": "string",
+            "enum": [
+                "GR_TEXT_V_ALIGN_TOP",
+                "GR_TEXT_V_ALIGN_CENTER",
+                "GR_TEXT_V_ALIGN_BOTTOM"
+            ],
+            "description": "Vertical alignment of a drawn text run, KiCad's spelling."
+        }
+    }
+}

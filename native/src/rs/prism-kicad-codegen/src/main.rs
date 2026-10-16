@@ -17,7 +17,7 @@ mod prism_presence;
 
 use prism_presence::{is_nested_option_type, is_option_type};
 
-const SCHEMAS: [(&str, &str); 61] = [
+const SCHEMAS: [(&str, &str); 72] = [
     ("BoardPlotDocument.json", "board_plot_document.rs"),
     ("BoardPlotRequest.json", "board_plot_request.rs"),
     ("BoardPlotResult.json", "board_plot_result.rs"),
@@ -85,19 +85,43 @@ const SCHEMAS: [(&str, &str); 61] = [
     ),
     ("NativeSvgRenderResult.json", "native_svg_render_result.rs"),
     ("NativeError.json", "native_error.rs"),
+    ("ArtworkConfigA0.json", "prism_artwork_config_a0.rs"),
+    ("AssemblyHlrA0.json", "prism_assembly_hlr_a0.rs"),
     ("BoardObjectsA0.json", "prism_board_objects_a0.rs"),
     ("BundleManifestA2.json", "prism_bundle_manifest_a2.rs"),
+    ("CliArtworkResultA0.json", "prism_cli_artwork_result_a0.rs"),
     ("CliBuildResultA0.json", "prism_cli_build_result_a0.rs"),
     ("CliCompareResultA0.json", "prism_cli_compare_result_a0.rs"),
     ("CliDiagnosticA0.json", "prism_cli_diagnostic_a0.rs"),
+    (
+        "CliDrawingSheetResultA0.json",
+        "prism_cli_drawing_sheet_result_a0.rs",
+    ),
     ("CliErrorA0.json", "prism_cli_error_a0.rs"),
     ("CliExtractResultA0.json", "prism_cli_extract_result_a0.rs"),
     ("CliProjectAbsentA0.json", "prism_cli_project_absent_a0.rs"),
+    (
+        "CliStrokeFontMetricsA0.json",
+        "prism_cli_stroke_font_metrics_a0.rs",
+    ),
+    (
+        "CliStrokeTextResultA0.json",
+        "prism_cli_stroke_text_result_a0.rs",
+    ),
+    ("CliVendorListA0.json", "prism_cli_vendor_list_a0.rs"),
+    (
+        "CliVendorRunResultA0.json",
+        "prism_cli_vendor_run_result_a0.rs",
+    ),
     ("CliVerifyReportA0.json", "prism_cli_verify_report_a0.rs"),
     ("CliVersionA0.json", "prism_cli_version_a0.rs"),
     (
         "CompareObjectDeltaA0.json",
         "prism_compare_object_delta_a0.rs",
+    ),
+    (
+        "DrawingSheetRequestA0.json",
+        "prism_drawing_sheet_request_a0.rs",
     ),
     ("OccurrencesA0.json", "prism_occurrences_a0.rs"),
     ("PlacementsA0.json", "prism_placements_a0.rs"),
@@ -117,7 +141,15 @@ const SCHEMAS: [(&str, &str); 61] = [
     ("RouteMetricsA0.json", "prism_route_metrics_a0.rs"),
     ("SemanticIndexA1.json", "prism_semantic_index_a1.rs"),
     ("StackupA0.json", "prism_stackup_a0.rs"),
+    (
+        "StrokeTextRequestA0.json",
+        "prism_stroke_text_request_a0.rs",
+    ),
     ("SystemInterfaceV1.json", "prism_system_interface_v1.rs"),
+    (
+        "VendorJlcpcbConfigA0.json",
+        "prism_vendor_jlcpcb_config_a0.rs",
+    ),
 ];
 
 const PLOTTER_OPERATION_KINDS: [(&str, &str, &str); 14] = [

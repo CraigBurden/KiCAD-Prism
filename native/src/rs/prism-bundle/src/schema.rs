@@ -1,6 +1,6 @@
 //! JSON Schema validation against the Prism contracts.
 //!
-//! The 19 Prism roots in `native/contracts/generated/schema/` are compiled
+//! The 32 Prism roots in `native/contracts/generated/schema/` are compiled
 //! from TypeSpec and committed. This crate carries a byte-identical copy in
 //! `schema/` (a test checks it against the committed files), because the
 //! worker image builds `prism-kicad` from `native/src/rs` alone. Every schema
@@ -22,7 +22,15 @@ use std::collections::BTreeMap;
 use std::sync::OnceLock;
 
 /// The committed Prism schemas, `(file name, text)`.
-pub const SCHEMA_FILES: [(&str, &str); 21] = [
+pub const SCHEMA_FILES: [(&str, &str); 32] = [
+    (
+        "ArtworkConfigA0.json",
+        include_str!("../schema/ArtworkConfigA0.json"),
+    ),
+    (
+        "AssemblyHlrA0.json",
+        include_str!("../schema/AssemblyHlrA0.json"),
+    ),
     (
         "BoardObjectsA0.json",
         include_str!("../schema/BoardObjectsA0.json"),
@@ -30,6 +38,10 @@ pub const SCHEMA_FILES: [(&str, &str); 21] = [
     (
         "BundleManifestA2.json",
         include_str!("../schema/BundleManifestA2.json"),
+    ),
+    (
+        "CliArtworkResultA0.json",
+        include_str!("../schema/CliArtworkResultA0.json"),
     ),
     (
         "CliBuildResultA0.json",
@@ -43,6 +55,10 @@ pub const SCHEMA_FILES: [(&str, &str); 21] = [
         "CliDiagnosticA0.json",
         include_str!("../schema/CliDiagnosticA0.json"),
     ),
+    (
+        "CliDrawingSheetResultA0.json",
+        include_str!("../schema/CliDrawingSheetResultA0.json"),
+    ),
     ("CliErrorA0.json", include_str!("../schema/CliErrorA0.json")),
     (
         "CliExtractResultA0.json",
@@ -51,6 +67,22 @@ pub const SCHEMA_FILES: [(&str, &str); 21] = [
     (
         "CliProjectAbsentA0.json",
         include_str!("../schema/CliProjectAbsentA0.json"),
+    ),
+    (
+        "CliStrokeFontMetricsA0.json",
+        include_str!("../schema/CliStrokeFontMetricsA0.json"),
+    ),
+    (
+        "CliStrokeTextResultA0.json",
+        include_str!("../schema/CliStrokeTextResultA0.json"),
+    ),
+    (
+        "CliVendorListA0.json",
+        include_str!("../schema/CliVendorListA0.json"),
+    ),
+    (
+        "CliVendorRunResultA0.json",
+        include_str!("../schema/CliVendorRunResultA0.json"),
     ),
     (
         "CliVerifyReportA0.json",
@@ -63,6 +95,10 @@ pub const SCHEMA_FILES: [(&str, &str); 21] = [
     (
         "CompareObjectDeltaA0.json",
         include_str!("../schema/CompareObjectDeltaA0.json"),
+    ),
+    (
+        "DrawingSheetRequestA0.json",
+        include_str!("../schema/DrawingSheetRequestA0.json"),
     ),
     (
         "OccurrencesA0.json",
@@ -95,8 +131,16 @@ pub const SCHEMA_FILES: [(&str, &str); 21] = [
     ),
     ("StackupA0.json", include_str!("../schema/StackupA0.json")),
     (
+        "StrokeTextRequestA0.json",
+        include_str!("../schema/StrokeTextRequestA0.json"),
+    ),
+    (
         "SystemInterfaceV1.json",
         include_str!("../schema/SystemInterfaceV1.json"),
+    ),
+    (
+        "VendorJlcpcbConfigA0.json",
+        include_str!("../schema/VendorJlcpcbConfigA0.json"),
     ),
 ];
 
@@ -713,7 +757,7 @@ mod tests {
                 .unwrap_or_else(|error| panic!("{}: {error:?}", path.display()));
             checked += 1;
         }
-        assert_eq!(checked, 21);
+        assert_eq!(checked, 32);
     }
 
     #[test]
