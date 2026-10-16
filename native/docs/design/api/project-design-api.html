@@ -1,0 +1,232 @@
+<!doctype html>
+<html lang="en" data-doc-status="accepted">
+<head>
+  <meta charset="utf-8">
+  <title>KiCad Monkey Project And Design API</title>
+</head>
+<body>
+  <h1>Project And Design API</h1>
+
+  <section
+    data-interface="KiCadProject"
+    data-rack-stratum="L0_foundation"
+    data-test-file="tests/L0_foundation/test_L0_037_project_design_api_cleanup.py"
+    data-test-target="test_project_json_text_variable_and_variant_helpers"
+  >
+    <h2>KiCadProject</h2>
+    <h3>Rationale</h3>
+    <p>
+      Project-level tools need stable access to `.kicad_pro` text variables,
+      variants, KiCad 10 schematic bus aliases, and JSON persistence without
+      depending on raw dictionaries.
+      Project creation tools also need a named aggregate API for assembling a
+      new project folder without overloading the public constructor.
+    </p>
+    <h3>Purpose</h3>
+    <p>
+      Wrap project JSON with typed helpers for text variables, variant lookup,
+      normalized project bus aliases, serialization, and future project
+      metadata. For new project folders,
+      <code>KiCadProject.create(name, directory)</code> starts the writable
+      aggregate that can attach schematics, boards, library tables, worksheet
+      references, and then write the resulting folder.
+    </p>
+    <h3>Construction Model</h3>
+    <p>
+      <code>from_file</code>, <code>from_text</code>, and
+      <code>from_json_dict</code> load existing project JSON. The dataclass
+      constructor keeps its existing project-facade field order for
+      compatibility. New multi-file project assembly uses
+      <code>KiCadProject.create</code>, not positional constructor overloads.
+    </p>
+    <h3>Bus Alias Model</h3>
+    <p>
+      <code>bus_aliases</code> is a fresh computed view of KiCad 10
+      <code>schematic.bus_aliases</code> in <code>raw</code>. Names and string
+      members are trimmed, blank or malformed entries are discarded, member
+      order and duplicates are retained, and a valid empty alias is retained.
+      If malformed JSON keys collide only after trimming, the last project
+      entry wins. Mutating the returned dict has no effect; use
+      <code>set_path("schematic.bus_aliases", value)</code> so serialization,
+      Python compilation, source fingerprints, and native compilation consume
+      the same authoritative JSON.
+    </p>
+    <p>
+      During design compilation, normalized KiCad 10 project aliases override
+      same-name legacy <code>.kicad_sch</code> aliases, including with an empty
+      member list; unrelated legacy aliases remain available. Legacy aliases
+      retain their source-model behavior and are not normalized by this API.
+      Direct compiler entrypoints accept the effective project alias map as
+      explicit context.
+    </p>
+    <h3>Test Requirements</h3>
+    <p>
+      Tests must cover JSON construction, text-variable get/set/remove behavior,
+      variant iteration, project-alias normalization and raw/view mutation
+      consistency, file writing, reload, constructor compatibility, and
+      <code>KiCadProject.create</code> folder assembly. Integration tests must
+      cover Python and native consumers, project-over-legacy precedence,
+      malformed cycles, hierarchy promotion, and Design indexes.
+    </p>
+    <h3>Working Definition</h3>
+    <p>
+      A project facade is public when callers can handle common project metadata
+      without direct raw-JSON mutation, and can create new project folders
+      through a named aggregate operation.
+    </p>
+  </section>
+
+  <section
+    data-interface="KiCadDesign"
+    data-rack-stratum="L0_foundation"
+    data-test-file="tests/L0_foundation/test_L0_037_project_design_api_cleanup.py"
+    data-test-target="test_design_document_query_and_pcb_ir"
+  >
+    <h2>KiCadDesign</h2>
+    <h3>Rationale</h3>
+    <p>
+      Higher-level tools need a design aggregate that can load related project,
+      schematic, and board documents and expose them through one query surface.
+    </p>
+    <h3>Purpose</h3>
+    <p>
+      Aggregate project, schematic, and board objects; dispatch from common file
+      suffixes; expose document queries; and provide design-level IR and JSON
+      entrypoints. The design facade also expands hierarchical sheet
+      instantiations so repeated schematic files can be rendered, indexed, and
+      reviewed as distinct concrete sheet views.
+    </p>
+    <h3>Cost Model</h3>
+    <p>
+      <code>KiCadDesign.from_project_file</code> loads the project JSON and top
+      schematic up front. The adjacent PCB file is parsed lazily when
+      <code>design.pcb</code>, PCB IR, PCB SVG, or design JSON output needs
+      board data. User-facing workflow selection is canonical in
+      <a href="../../guides/project-workflows.html">Project Workflows And
+      Read-Path Selection</a>.
+    </p>
+    <h3>Schematic SVG Linkage</h3>
+    <p>
+      Enriched schematic SVG metadata embeds the KiCad design JSON plus
+      view-local indexes. Applications should resolve a clicked schematic SVG
+      group by checking <code>view_indexes.svg_to_net[group_id]</code> first.
+      That entry returns the KiCad-facing net name and design net uid for the
+      rendered sheet view.
+    </p>
+    <p>
+      Repeated hierarchical sheets share source UUIDs, so design-wide lookups
+      can have multiple candidate nets for the same SVG id. The view-local
+      index is built from the rendered sheet instance path and is the preferred
+      API for interactive schematic highlighting. Use
+      <code>design.indexes.sheet_svg_to_nets</code> and
+      <code>design.indexes.svg_to_nets</code> only for cross-sheet analysis,
+      global search, and diagnostics.
+    </p>
+    <pre><code>const net = svgPayload.view_indexes.svg_to_net[groupId];
+if (net) {
+  highlightNet(net.uid || net.name);
+}</code></pre>
+    <h3>Test Requirements</h3>
+    <p>
+      Tests must cover file dispatch, aggregate object queries, schematic
+      mutators, hierarchy instance navigation, design JSON output, schematic
+      SVG view-local net linkage, and PCB IR delegation.
+    </p>
+    <h3>Working Definition</h3>
+    <p>
+      A design facade is public when CLI and application tools can work from one
+      loaded design object rather than coordinating independent file models.
+    </p>
+  </section>
+
+  <section
+    data-interface="KiCadSchematicInstance"
+    data-rack-stratum="L0_foundation"
+    data-test-file="tests/L0_foundation/test_L0_037_project_design_api_cleanup.py"
+    data-test-target="test_design_schematic_instance_navigation"
+  >
+    <h2>KiCadSchematicInstance</h2>
+    <h3>Rationale</h3>
+    <p>
+      Application tools need to distinguish a schematic source file from each
+      concrete place that file appears in a hierarchical design.
+    </p>
+    <h3>Purpose</h3>
+    <p>
+      Represent one rendered sheet view with its source schematic, human sheet
+      path, KiCad UUID instance path, parent sheet link, sheet numbering, and
+      IR render arguments.
+    </p>
+    <h3>Usage Model</h3>
+    <p>
+      Use <code>KiCadDesign.iter_schematic_instances()</code> to enumerate all
+      concrete sheet views. Use
+      <code>KiCadDesign.schematic_instances_for(source)</code> to answer where
+      a schematic file or object is used, and use
+      <code>child_schematic_instances()</code> /
+      <code>parent_schematic_instance()</code> to navigate between a sheet view
+      and its immediate neighbors.
+    </p>
+    <h3>Test Requirements</h3>
+    <p>
+      Tests must cover repeated use of one child schematic file, source-object
+      and source-path lookup, parent/child navigation, UUID instance paths, and
+      schematic IR argument generation.
+    </p>
+    <h3>Working Definition</h3>
+    <p>
+      A schematic instance record is public when higher-level tools can render
+      and inspect each sheet view without reconstructing KiCad hierarchy paths
+      themselves.
+    </p>
+  </section>
+  <section
+    data-interface="KiCadNativeDesignFacts"
+    data-rack-stratum="L0_foundation"
+    data-test-file="tests/L0_foundation/test_L0_062_native_process_client.py"
+    data-test-target="test_source_bound_design_facts_validate_identity_metadata_and_provenance"
+  >
+    <h2>KiCadNativeDesignFacts</h2>
+    <h3>Rationale</h3>
+    <p>Callers need one immutable result that keeps a native compiled graph and exact version-E netlist bound to the source snapshot and validated process metadata.</p>
+    <h3>Purpose</h3>
+    <p>Carry the validated graph, netlist bytes and hashes, engine version, resource profile, and source-snapshot identity returned by the public native client.</p>
+    <h3>Test Requirements</h3>
+    <p>Tests must prove exact digest, metadata, byte-count, hash, graph-semantic, and netlist-version binding and reject mismatched results.</p>
+    <h3>Working Definition</h3>
+    <p>The result is usable only after strict generated decoding and semantic validation bind every published field to the current source bundle.</p>
+  </section>
+  <section
+    data-interface="KiCadNativeError"
+    data-rack-stratum="L0_foundation"
+    data-test-file="tests/L0_foundation/test_L0_062_native_process_client.py"
+    data-test-target="test_process_capture_terminates_at_independent_byte_ceilings"
+  >
+    <h2>KiCadNativeError</h2>
+    <h3>Rationale</h3>
+    <p>Native resolution, transport, resource, and result-validation failures need one public fail-closed exception boundary without exposing subprocess internals.</p>
+    <h3>Purpose</h3>
+    <p>Report bounded native client failures to library and application callers.</p>
+    <h3>Test Requirements</h3>
+    <p>Tests must cover missing executables, protocol violations, hostile output, independent byte ceilings, timeouts, and invalid identities.</p>
+    <h3>Working Definition</h3>
+    <p>The exception is raised before an invalid or partial native result can be returned or published.</p>
+  </section>
+  <section
+    data-interface="KiCadNativeSvg"
+    data-rack-stratum="L0_foundation"
+    data-test-file="tests/L0_foundation/test_L0_063_native_svg_transport.py"
+    data-test-target="test_svg_client_validates_a1_handshake_and_hashed_result"
+  >
+    <h2>KiCadNativeSvg</h2>
+    <h3>Rationale</h3>
+    <p>SVG text must remain coupled to its engine, document identity, byte count, and content hash after semantic XML validation.</p>
+    <h3>Purpose</h3>
+    <p>Carry a validated native SVG result through the public Python API.</p>
+    <h3>Test Requirements</h3>
+    <p>Tests must verify the handshake, request identity, byte ceiling, hash, XML safety, and hostile-result rejection.</p>
+    <h3>Working Definition</h3>
+    <p>The result contains safe nonempty SVG whose identity, size, and digest exactly match the accepted native response.</p>
+  </section>
+</body>
+</html>
