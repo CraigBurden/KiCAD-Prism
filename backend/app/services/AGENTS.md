@@ -116,6 +116,18 @@ discovery (`kicad_library_discovery.py`), folder import
 component extraction and the semantic index use it. Do not add another
 balancer or property regex.
 
+## Viewer sources
+
+`project_viewer_sources_bundle.py` maps the viewer-source routes
+(`backend/app/api/project_viewer_sources.py`) onto a revision's bundle when
+`PRISM_DESIGN_SOURCE_PROJECT_METADATA=bundle`: the bundle manifest's effective
+configuration names the project file, root schematic and board, and its project
+projection lists the hierarchy's schematics and their resolved drawing sheets.
+It returns `None` wherever the bundle cannot answer, so the route keeps its
+legacy path; it never reads a `.kicad_pro` or scans a directory. The `/3d-model`
+route stays legacy: it serves a committed design-output model, which the bundle
+does not carry.
+
 ## Design variants
 
 `project_source_snapshot.py` resolves a working tree or an exact commit

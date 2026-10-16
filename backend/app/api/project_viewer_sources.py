@@ -11,6 +11,7 @@ from fastapi.responses import FileResponse
 from app.api._helpers import get_project_for_role_or_404
 from app.api.projects import (
     ARCHIVE_DIR_NAMES,
+    COMMIT_FILE_STREAM_BYTES,
     _commit_file_response,
     _files_from_commit,
     _join_relative_paths,
@@ -20,10 +21,92 @@ from app.api.projects import (
     _repo_context,
 )
 from app.core.security import AuthenticatedUser, require_viewer
-from app.services import file_service, path_config_service, project_service, semantic_visualizer_service
+from app.services import (
+    file_service,
+    path_config_service,
+    project_service,
+    project_viewer_sources_bundle as viewer_sources_bundle,
+    semantic_visualizer_service,
+)
+from app.services.design_bundle.consumer import bundle_read
 from app.services.path_config_service import PathConfig
 
 router = APIRouter(dependencies=[Depends(require_viewer)])
+
+
+def _project_metadata_bundle(
+    project_id: str, commit: Optional[str], requested_by: str
+) -> Optional[viewer_sources_bundle.BundleRead]:
+    """The PROJECT_METADATA bundle for a revision, or ``None`` to serve legacy (ADR §8).
+
+    ``bundle_read`` owns the switch and the rollout fallback: it returns ``None``
+    when ``PRISM_DESIGN_SOURCE_PROJECT_METADATA`` is ``legacy``, when a needed
+    member is not ready yet (it queues the ``design_bundle`` job) or when a member
+    failed. The projection is requested up front because the mapping needs it to
+    name the sources; the effective configuration is read from the same opening.
+    """
+
+    return bundle_read(
+        "PROJECT_METADATA",
+        project_id,
+        commit,
+        [viewer_sources_bundle.PROJECT_JSON],
+        requested_by=requested_by,
+    )
+
+
+class _BundleCommitFile:
+    """A ``sources/`` member in the shape ``_commit_file_response`` reads from a commit.
+
+    ``_commit_file_response`` streams a member over ``COMMIT_FILE_STREAM_BYTES``
+    from ``cached_path()``. The bundle reader has already verified a member's
+    bytes, so a large one is handed over as its extracted copy; nothing here
+    re-reads Git.
+    """
+
+    def __init__(self, source: viewer_sources_bundle.SourceFile, cached: Optional[Path] = None) -> None:
+        self.name = source.name
+        self.path = source.repo_path
+        self.content = source.content
+        self._cached = cached
+
+    @property
+    def size(self) -> int:
+        return len(self.content)
+
+    def cached_path(self) -> Path:
+        if self._cached is None:
+            raise HTTPException(status_code=500, detail="Git error: could not read the file")
+        return self._cached
+
+
+def _bundle_commit_response(
+    read: viewer_sources_bundle.BundleRead,
+    source: viewer_sources_bundle.SourceFile,
+    *,
+    inline: bool = True,
+    headers: Optional[dict[str, str]] = None,
+):
+    """Serve a bundle source member exactly like the legacy commit response."""
+
+    cached = None
+    if len(source.content) > COMMIT_FILE_STREAM_BYTES:
+        member = f"sources/{source.repo_path}"
+        cached = read.extract([member]) / member
+    return _commit_file_response(_BundleCommitFile(source, cached), inline=inline, headers=headers)
+
+
+def _bundle_worktree_response(
+    read: viewer_sources_bundle.BundleRead,
+    source: viewer_sources_bundle.SourceFile,
+    *,
+    headers: Optional[dict[str, str]] = None,
+):
+    """Serve a bundle source member as the legacy working-tree ``FileResponse`` does."""
+
+    member = f"sources/{source.repo_path}"
+    path = read.extract([member]) / member
+    return FileResponse(path, headers=dict(headers or {}))
 
 
 def _worksheet_path_key(path: str | Path) -> tuple[int, int, str]:
@@ -134,6 +217,14 @@ async def get_project_schematic(
 ):
     project = get_project_for_role_or_404(project_id, user.role)
 
+    read = _project_metadata_bundle(project_id, commit, user.email)
+    if read is not None:
+        source = viewer_sources_bundle.schematic(read)
+        if source is not None:
+            if commit:
+                return _bundle_commit_response(read, source, inline=True)
+            return _bundle_worktree_response(read, source)
+
     if commit:
         config = _path_config_from_commit(project, commit)
         commit_file = _read_configured_commit_file(
@@ -158,6 +249,12 @@ async def get_project_subsheets(
     user: AuthenticatedUser = Depends(require_viewer),
 ):
     project = get_project_for_role_or_404(project_id, user.role)
+
+    read = _project_metadata_bundle(project_id, commit, user.email)
+    if read is not None:
+        files = viewer_sources_bundle.subsheets(read, project_id, commit)
+        if files is not None:
+            return {"files": files}
 
     if commit:
         config = _path_config_from_commit(project, commit)
@@ -228,6 +325,12 @@ async def get_project_viewer_support_files(
     document: the viewer does not repaint a sheet when they arrive afterwards.
     """
     project = get_project_for_role_or_404(project_id, user.role)
+
+    read = _project_metadata_bundle(project_id, commit, user.email)
+    if read is not None:
+        files = viewer_sources_bundle.support_files(read)
+        if files is not None:
+            return {"files": files}
 
     if commit:
         repo_path, sub_path = _repo_context(project)
@@ -331,6 +434,14 @@ async def get_project_pcb(
 ):
     project = get_project_for_role_or_404(project_id, user.role)
 
+    read = _project_metadata_bundle(project_id, commit, user.email)
+    if read is not None:
+        source = viewer_sources_bundle.pcb(read)
+        if source is not None:
+            if commit:
+                return _bundle_commit_response(read, source, inline=True)
+            return _bundle_worktree_response(read, source)
+
     if commit:
         config = _path_config_from_commit(project, commit)
         commit_file = _read_configured_commit_file(
@@ -348,6 +459,13 @@ async def get_project_pcb(
         raise HTTPException(status_code=404, detail="PCB not found")
     return FileResponse(path)
 
+# The bundle does not carry the file this route serves: today it picks a
+# committed design-output model (``Design-Outputs/*.glb|.step|.stp``), and output
+# directories are excluded from the revision key and so from ``sources/``
+# (ADR §5; bundle-format.md §2.2). A bundle's ``model-3d`` references are the
+# board's own footprint models, different files with different bytes, so serving
+# one here would change the response. The legacy lookup stays until a bundle
+# member for the design-output model exists; it is not approximated.
 @router.get("/{project_id}/3d-model")
 async def get_project_3d_model(
     project_id: str,
