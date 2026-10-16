@@ -7,12 +7,14 @@ on:
       - main
       - feature/release-studio
       - feature/system-builder
+      - feature/native-design-bundle
       - fix/architecture-consolidation
   push:
     branches:
       - dev
       - main
       - feature/release-studio
+      - feature/native-design-bundle
       - fix/architecture-consolidation
   schedule:
     # Live KiCad is not on every feature commit; keep a daily executor check.
