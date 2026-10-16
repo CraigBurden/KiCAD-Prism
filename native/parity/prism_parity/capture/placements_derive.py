@@ -210,9 +210,18 @@ def _entry(shape: str, hard: list[str], divergences: dict[str, list[str]]) -> di
 
 
 def _is_d2(difference: jsonvalue.Difference, rotation: float) -> bool:
-    """D2: a pad or courtyard value through a rotation that is not a multiple of 90°, off by ≤ 1e-4 mm."""
+    """D2: a pad or courtyard value off by ≤ 1e-4 mm, from v1's float-mm rotation against KiCad's integer nm.
 
-    if float(rotation) % 90.0 == 0.0 or difference.kind != "value":
+    The field map states D2 for rotations that are not multiples of 90°. The
+    corpus also shows it at 0°, 90° and 180° (EDA-04903, vme-wren,
+    openswitch-lan969x): there v1's float error is ~1e-14 mm, so a 1e-4
+    difference can only be a value exactly on a 4th-decimal half-tie (e.g.
+    x = 211.49225 mm) that the float rounds to the other side. Either way it
+    is a one-unit display rounding of the same KiCad position.
+    """
+
+    del rotation  # any rotation: see above
+    if difference.kind != "value":
         return False
     if not ("/pads/" in difference.pointer and "/positionMm/" in difference.pointer) and "/courtyard/" not in difference.pointer:
         return False

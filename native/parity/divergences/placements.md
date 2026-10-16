@@ -19,7 +19,9 @@ A correct Rust member equals the golden on every committed fixture, so
 
 - Today: v1 rounds the float-mm rotation to 1e-4 mm. Bundle: KiCad's integer-nm rotation (R9, decisions.md Placements 5), so v1's 4th decimal can differ by one unit.
 - Why: it is KiCad's own pad position (the oracle agrees within 0.5 IPC units).
-- Consumer: P3's SB check only. Fixtures: none (every committed footprint is at a multiple of 90°). The `sb-geometry` check accepts it by rule (≤ 1e-4 mm, rotated footprints only); measured on the W0 arbitrary-angle copies: mezz_base and mezz_top are `divergence D2` (a handful of pads each), usb-pd `equal`.
+- Consumer: P3's SB check only. Fixtures: none (every committed footprint is at a multiple of 90°). The `sb-geometry` check accepts it by rule (≤ 1e-4 mm on a pad or courtyard value); measured on the W0 arbitrary-angle copies: mezz_base and mezz_top are `divergence D2` (a handful of pads each), usb-pd `equal`.
+
+- **Wider than the field map states (corpus, 2026-10-16).** The same one-unit flip occurs at 0°, 90° and 180° when a value sits exactly on a 4th-decimal half-tie. Example: C226 of vme-wren at x = 211.49225 mm. v1's float error (~1e-14 mm) then decides the side. Measured on the corpus: EDA-04903, vme-wren and openswitch-lan969x (J1: 6 pads). The rule therefore applies at any rotation. It is still a display rounding of the same KiCad position. The field map's D2 row should drop "not a multiple of 90°".
 
 ## D3. Courtyard arc or Bézier
 
