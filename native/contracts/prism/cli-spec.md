@@ -21,6 +21,8 @@ Citations follow [`conventions.md`](conventions.md): a bare path is in this repo
 | `CliExtractResultA0` | `prism.cli.extract_result.a0` | stdout of `bundle extract`, exit 0 | `examples/CliExtractResultA0.example.json` |
 | `CliErrorA0` | `prism.cli.error.a0` | stdout of any command, exit 1–7 | `examples/CliErrorA0.example.json` |
 | `CliProjectAbsentA0` | `prism.cli.project_absent.a0` | stdout of `revision-key` and `bundle build --stage parse`, exit 10: the project is absent at this revision | `examples/CliProjectAbsentA0.example.json` |
+| `CliCompareResultA0` | `prism.cli.compare_result.a0` | stdout of `compare`, exit 0 | `examples/CliCompareResultA0.example.json` |
+| `CompareObjectDeltaA0` | `prism.compare.object_delta.a0` | `-o` of `compare` (§5.6); TypeSpec `tsp/prism/compare-a0.tsp` | `examples/CompareObjectDeltaA0.example.json` |
 | `CliDiagnosticA0` | `prism.cli.diagnostic.a0` | every stderr line of every command | `examples/CliDiagnosticA0.example.json` |
 | `RevisionKeyRecordA1` | `prism.revision_key.record.a1` | stdout of `revision-key`, exit 0 | revision-key contract, not defined here |
 
@@ -79,6 +81,8 @@ prism-kicad bundle extract <bundle.prism> <member>... -o <dir> [COMMON]
 
 prism-kicad revision-key <repo> (--commit <rev> | --worktree) --project <rel> [--config <effective.json>] [COMMON]
 
+prism-kicad compare --base <base.prism> --head <head.prism> -o <delta.json> [COMMON]
+
 COMMON: [--limit <name>=<value>]... [--threads <n>] [--quiet]
 ```
 
@@ -135,6 +139,7 @@ The exit code fixes which document it is:
 | `bundle verify` | `CliVerifyReportA0` (`valid`) | — | `CliVerifyReportA0` (`invalid`) | — | `CliErrorA0` |
 | `bundle extract` | `CliExtractResultA0` | — | — | — | `CliErrorA0` |
 | `revision-key` | `RevisionKeyRecordA1` | — | — | `CliProjectAbsentA0` | `CliErrorA0` |
+| `compare` | `CliCompareResultA0`; `-o` holds `CompareObjectDeltaA0` | — | — | — | `CliErrorA0` |
 
 Two cases leave stdout empty:
 - a process killed by a signal;
@@ -553,6 +558,24 @@ This spec fixes only the process contract:
 - It runs in its own process group, so `timeout-ms` kills it too.
 - The repository's own config is read: clean filters for `--worktree` are part of the key's definition (revision-key.md §6).
 
+### 5.6 `compare`
+
+`prism-kicad compare --base <base.prism> --head <head.prism> -o <delta.json>` is Design Comparison's object diff (ADR amendment C2, [`adr-native-design-bundle-amendment-c2.md`](../../../docs/architecture/adr-native-design-bundle-amendment-c2.md)). It is a pure function of the two bundles' `projections/board-objects.json`: no KiCad file, no other member and no repository is read.
+
+- **Arguments.** `--base` and `--head` are bundles; they may name the same file, which gives no changes. `-o` is the delta document. All three are required.
+- **Checks, in order.**
+  1. Each bundle passes the reader checks (§6.2) and manifest checks 1–2 (§5.3). Only `projections/board-objects.json` is inflated, and its size, CRC-32 and SHA-256 are checked while it streams. A failure is exit 3, `bundle-invalid`, with `argument` `base` or `head`.
+  2. The two manifests name the same generator id, byte for byte in canonical form. Otherwise exit 7, `generator-mismatch`: members of two producers are not comparable, and the backend rebuilds the stale bundle.
+  3. Both manifests record the same `config.project_file`. Otherwise exit 7, `anchor-mismatch`.
+  4. Both bundles hold `projections/board-objects.json`: stage `parse` is `complete`, or `partial` without the member in `failed_members`. Otherwise exit 7, `member-not-found`, with `argument` `base` or `head`.
+- **Output.** `-o` receives one `CompareObjectDeltaA0` (`prism.compare.object_delta.a0`), compact UTF-8 JSON with one trailing LF, written atomically: a temp file in the same directory, fsync, rename (§5.2.5, without the self-verify). stdout receives `CliCompareResultA0` after the rename. The document goes to `-o`, not stdout, because a full-board churn lists every object of both sides.
+- **The diff.** `CompareObjectDeltaA0` equals today's `prism.ecad_object_delta_v1` (`backend/design-compare-parser/ecad-diff.mjs`) on the same pair, without its run facts (`root`, `timings`, `peakRssBytes`, `node`) and without `routeMetrics`, which Design Comparison reads from `projections/route-metrics.json`. The amendment lists the expected divergences and the parity traps (§5, §6 there). Two rules are fixed here:
+  - object keys and `documentPath` are relative to the directory of the project file, as today: the anchor's directory is stripped from each member `RepoPath` (D1);
+  - `changes` is sorted by `key` in code point order, and a property delta list by `name` in code point order (D2, divergence `compare-1`).
+- **Exit codes.** 0, or 1–7 as in §4.
+- **Limits.** The reader limits of §7.2 bound the inputs. `max-memory-bytes` and `timeout-ms` have `compare` defaults.
+- **Idempotence.** The same two bundles give byte-identical `-o` and stdout.
+
 ## 6. Archive rules
 
 The archive format belongs to bundle-format.md (§4–§9). The CLI implements it for writing, for `--in`, and for `verify` and `extract`. This section states the rules the CLI enforces, with their finding codes.
@@ -639,8 +662,8 @@ Every limit can be set with `--limit <name>=<value>`, up to its hard bound. Hitt
 | `max-compression-ratio` | 200 | — | each member over 1 MiB when reading | §6.2 |
 | `max-diagnostic-lines` | 10,000 | — | stderr | §3.2 |
 | `max-findings` | 1,000 | — | `bundle verify` findings | §5.3 |
-| `max-memory-bytes` | parse 4 GiB, board 6 GiB, models 2 GiB, verify/extract 2 GiB, revision-key 2 GiB | — | heap (§7.4) | ADR §7's stage `parse` budget is 1.5 GB on EDA-04903, so 4 GiB gives 2.7× headroom. Board is provisional until WP-B measures it. |
-| `timeout-ms` | parse 300,000; board 600,000; models 120,000; verify 600,000; extract 600,000; revision-key 300,000 | — | wall clock from process start (§7.3) | ADR §7: `parse` ≤ 30 s on EDA-04903, so 10×. Board: ADR §4.4's 1–2 min, 5×. Models only copies and canonicalizes. |
+| `max-memory-bytes` | parse 4 GiB, board 6 GiB, models 2 GiB, verify/extract 2 GiB, revision-key 2 GiB, compare 2 GiB | — | heap (§7.4) | ADR §7's stage `parse` budget is 1.5 GB on EDA-04903, so 4 GiB gives 2.7× headroom. Board is provisional until WP-B measures it. |
+| `timeout-ms` | parse 300,000; board 600,000; models 120,000; verify 600,000; extract 600,000; revision-key 300,000; compare 120,000 | — | wall clock from process start (§7.3) | ADR §7: `parse` ≤ 30 s on EDA-04903, so 10×. Board: ADR §4.4's 1–2 min, 5×. Models only copies and canonicalizes. |
 
 `limit` (`CliLimitHit`) has one variant per unit: `bytes` (`limit_bytes`, `observed_bytes?`), `time` (`limit_ms`) and `count` (`limit_count`, `observed_count?`). The variant follows the name's suffix. An observed value is present only for input sizes and counts, which are deterministic. It is absent for `max-memory-bytes`, and `timeout-ms` has none, so no measured value reaches a document.
 
@@ -706,7 +729,7 @@ Codes are `DiagnosticCode` (kebab-case). A code never changes meaning; a new mea
 | `source-not-regular-file` | error | input / 3 | a symbolic link or special file under the source root |
 | `source-path-invalid` | error | input / 3 | a source path is not UTF-8, holds a control character, or breaks `RepoPath` or the length rules |
 | `source-path-collision` | error | input / 3 | two source paths collide under NFC and case folding |
-| `bundle-invalid` | error | input / 3 | `--in`, or the bundle given to `extract`, fails a reader check |
+| `bundle-invalid` | error | input / 3 | `--in`, the bundle given to `extract`, or `--base`/`--head` of `compare` fails a reader check |
 | `refilled-board-invalid` | error | input / 3 | `--refilled-board` is not a parsable `.kicad_pcb` |
 | `models-glb-invalid` | error | input / 3 | `--models-glb` is not a glTF 2.0 binary as §5.2.4 requires |
 | `repo-not-found`, `commit-not-found` | error | input / 3 | `revision-key` (§5.5) |
@@ -717,7 +740,7 @@ Codes are `DiagnosticCode` (kebab-case). A code never changes meaning; a new mea
 | `output-not-directory` | error | output-io / 6 | `extract`'s `-o` is not an existing directory |
 | `stdout-write-failed` | stderr only | output-io / 6 | stdout could not be written; for `bundle build`, `-o` already holds the new archive |
 | `manifest-unsupported` | error, verify finding | precondition / 7 | `bundle.json` is not `prism.bundle.manifest.a2`, for example a1 |
-| `generator-mismatch` | error | precondition / 7 | `--in` was written by another generator id |
+| `generator-mismatch` | error | precondition / 7 | `--in` was written by another generator id; for `compare`, `--base` and `--head` were written by different generator ids |
 | `stage-order` | error | precondition / 7 | a prerequisite stage of `--in` is not in the required status |
 | `stage-not-applicable` | error | precondition / 7 | the requested stage is `skipped` in `--in` |
 | `revision-key-mismatch`, `config-mismatch` | error | precondition / 7 | an assertion of §5.2.1 check 5 failed, or `--config` names another project file, or `--key-record` disagrees with `--revision-key`, `--config` or a member (§5.2.2). For `revision-key`, `--project` ≠ `config.project_file`. |
@@ -726,7 +749,8 @@ Codes are `DiagnosticCode` (kebab-case). A code never changes meaning; a new mea
 | `zone-fills-mismatch` | error | precondition / 7 | stage `board`: `--refilled-board`/`--refill-tool` given although `--in` records `zone_fills: "saved"`, or missing although it does not (§5.2.3) |
 | `models-glb-name` | error | precondition / 7 | the GLB was not exported as `components.glb` |
 | `output-changed` | error | precondition / 7 | `-o` changed between reading `--in` and the rename (§5.2.5) |
-| `member-not-found` | error | precondition / 7 | an `extract` `<member>` selects nothing |
+| `member-not-found` | error | precondition / 7 | an `extract` `<member>` selects nothing; for `compare`, a bundle has no `projections/board-objects.json` (§5.6) |
+| `anchor-mismatch` | error | precondition / 7 | `compare`: the two bundles are of different project files (§5.6) |
 | `archive-path-collision` | error | precondition / 7 | `extract` would overwrite different bytes, or a link or non-directory is in the way |
 | `panic`, `internal-error`, `self-verify-failed` | error | internal / 1 | defects |
 | `model-unavailable` | stage-parse warning in the manifest; warning diagnostic | — | a repository 3D model the worker could not materialize (bundle-format.md §2.2); the bundle is built without it |
@@ -923,3 +947,4 @@ Once WP-B lands, recordings of the real binary can replace the stub test by test
 3. **§4.4, step 6.** The store path is §5's `…/<revision_key>/<generator_digest>.prism`. The bundle key is defined in cli-spec.md §5.1.4.
 4. **§5, Generator id.** Add the refill and GLB procedures (`refill_procedure`, `models_procedure`) and the pack format version.
 5. **§6, the `bundle.json` row.** Each stage records `{status, error?, skip_reason?, failed_members, …}`, shared with `CliStageState`. A content failure of a stage (`failed`) or of a member (`partial`) is recorded in the bundle (cli-spec.md §5.2.7, bundle-format.md §3.2).
+6. **§9.3 and §9.6, `compare` (amendment C2, 2026-10-17, accepted).** The CLI synopsis gains `compare` (§5.6); C2's row produces the object diff with it. Applied to the ADR in the same change, with the rationale in [`adr-native-design-bundle-amendment-c2.md`](../../../docs/architecture/adr-native-design-bundle-amendment-c2.md).

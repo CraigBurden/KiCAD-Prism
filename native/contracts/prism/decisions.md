@@ -149,3 +149,12 @@ The documents are the project's closure (`sources/`), never the repository-wide 
 ## KiCad patch releases (2026-10-16)
 
 1. `--refill-tool` and `--models-tool` must match the generator id's `kicad_version` in major.minor only, so the worker's KiCad 10.0.7 serves a generator pinned at 10.0.6. Patch releases keep the file formats, and their output differences are tolerated. The manifest does not record the patch release that made a refill or GLB, and the bundle key does not cover it.
+
+## Compare, amendment C2 (2026-10-17)
+
+Design Comparison's object diff becomes `prism-kicad compare` (cli-spec.md §5.6; rationale and parity traps in `docs/architecture/adr-native-design-bundle-amendment-c2.md`). The maintainer took the recommended option on each question:
+
+1. **D1, keys.** Object keys and `documentPath` stay relative to the project file's directory, as today, so focus targets, stored comparisons and deep links keep their keys. `compare` strips the anchor's directory from each member `RepoPath`.
+2. **D2, order.** `changes` and each property-delta list are sorted in code point order instead of today's `localeCompare`, whose order depends on the host's locale. Recorded as divergence `compare-1`; only the order of the review list changes.
+3. **D3, objects.** `compare` also emits `nativeObjects` and `componentObjects`, so the mm/nm and kind rebuild rules of `field-maps/board-objects.md` exist only in Rust. `routeMetrics` is not emitted: C2 reads `projections/route-metrics.json`.
+4. **D4, generators.** Bundles written by different generator ids are refused (exit 7, `generator-mismatch`); the backend rebuilds the stale one.
