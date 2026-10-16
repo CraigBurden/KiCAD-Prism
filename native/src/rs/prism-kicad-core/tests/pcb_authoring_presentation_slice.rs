@@ -622,6 +622,10 @@ fn footprint_cache_realization_uses_resolved_text_keep_upright_and_carrier_frame
 }
 
 #[test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "one table of realization-context rejections reads best as a single test"
+)]
 fn footprint_cache_validation_rejects_unresolved_or_wrong_realization_context() {
     let mut unresolved = board();
     unresolved.footprints[0].footprint.properties[0].value = "${MISSING}".to_owned();
