@@ -23,6 +23,7 @@ change:
 | Catalog services | `backend/app/services/AGENTS.md` |
 | Design comparison | `frontend/src/components/design-comparison/AGENTS.md` |
 | Library workspace | `frontend/src/components/workspace/AGENTS.md` |
+| Native KiCad parser and design bundle (Rust) | `native/AGENTS.md` |
 
 ## Task skills
 
