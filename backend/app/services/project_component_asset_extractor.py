@@ -94,12 +94,42 @@ def _sanitize_pad(block: str) -> str:
     return _remove_direct_children(block, {"net", "uuid"})
 
 
+def _placement_angle(at_raw: str) -> tuple[float, str]:
+    """The degrees and the original token of a footprint's ``(at x y angle)``.
+
+    A footprint at orientation 0 has no angle token, so both are empty/zero.
+    """
+    tokens = at_raw[1:-1].split()
+    if len(tokens) < 4:
+        return 0.0, ""
+    try:
+        return float(tokens[3]), tokens[3]
+    except ValueError:
+        return 0.0, ""
+
+
 def _sanitize_footprint(block: str, footprint_ref: str) -> tuple[str, bytes, list[str]]:
     target_name = footprint_ref.rsplit(":", 1)[-1] or "ImportedFootprint"
     model_paths = model_references(block)
+    placement = next(
+        ((start, end, raw) for head, start, end, raw in _direct_children(block) if head == "at"),
+        None,
+    )
+    angle, angle_token = _placement_angle(placement[2]) if placement else (0.0, "")
     # A footprint inside a board names its embedded files and the board holds
     # their data; the models come back as catalog assets instead.
-    sanitized = _remove_direct_children(block, {"at", "uuid", "path", "locked", "tstamp", "embedded_files"})
+    sanitized = _remove_direct_children(block, {"uuid", "path", "locked", "tstamp", "embedded_files"})
+    # The placement angle is kept (position dropped) so the normalizer can return
+    # the footprint to orientation 0: KiCad stores each pad's and text's angle
+    # including the placement angle, so dropping it silently rotates the pads.
+    at_child = next(
+        ((start, end) for head, start, end, _ in _direct_children(sanitized) if head == "at"),
+        None,
+    )
+    if at_child and angle != 0:
+        sanitized = sanitized[:at_child[0]] + f"(at 0 0 {angle_token})" + sanitized[at_child[1]:]
+    elif at_child:
+        sanitized = sanitized[:at_child[0]] + sanitized[at_child[1]:]
     sanitized = re.sub(
         r'(\(property\s+"Reference"\s+")[^"]*(")',
         r'\1REF**\2',
@@ -411,30 +441,56 @@ class ProjectAssetSnapshotIndex:
                     text = text.replace(f'(model "{model_path}"', f'(model "{_replace_quoted(file_name)}"')
                 payload = text.encode("utf-8")
 
-            # A part placed on the back of the board is stored mirrored. Library
-            # footprints are front-side by convention, so undo the placement flip
-            # before the bytes become an immutable catalog asset.
-            normalized = kicad_footprint_normalizer.normalize_to_front(payload, target_name)
+            # A part placed on the back of the board is stored mirrored, and a
+            # part placed at an angle stores every pad and text at that angle.
+            # Library footprints are front-side at orientation 0 by convention,
+            # so undo both before the bytes become an immutable catalog asset.
+            normalized = kicad_footprint_normalizer.normalize_footprint(payload, target_name)
             if normalized.changed:
                 payload = normalized.payload
-                findings.append(
-                    {
-                        "code": "footprint_side_normalized",
-                        "severity": "warning",
-                        "message": (
-                            f"{reference} is placed on the back of the board. Its footprint was "
-                            "flipped to the front so the library copy matches KiCad convention."
-                        ),
-                    }
-                )
-            elif normalized.error:
+                if normalized.flipped:
+                    findings.append(
+                        {
+                            "code": "footprint_side_normalized",
+                            "severity": "warning",
+                            "message": (
+                                f"{reference} is placed on the back of the board. Its footprint was "
+                                "flipped to the front so the library copy matches KiCad convention."
+                            ),
+                        }
+                    )
+                if normalized.rotated:
+                    findings.append(
+                        {
+                            "code": "footprint_rotation_normalized",
+                            "severity": "warning",
+                            "message": (
+                                f"{reference} is placed rotated by "
+                                f"{normalized.rotation_degrees:g}\u00b0; its footprint was returned "
+                                "to 0\u00b0 for the library copy."
+                            ),
+                        }
+                    )
+            elif normalized.error and normalized.flipped:
                 findings.append(
                     {
                         "code": "footprint_side_normalization_failed",
                         "severity": "warning",
                         "message": (
                             f"{reference} is placed on the back of the board and its footprint could "
-                            f"not be flipped to the front ({normalized.error}). It will import mirrored."
+                            f"not be normalised for the library ({normalized.error}). It will import "
+                            "as placed."
+                        ),
+                    }
+                )
+            elif normalized.error and normalized.rotated:
+                findings.append(
+                    {
+                        "code": "footprint_rotation_normalization_failed",
+                        "severity": "warning",
+                        "message": (
+                            f"{reference} is placed rotated and its footprint could not be returned "
+                            f"to 0\u00b0 ({normalized.error}). It will import at its placed angle."
                         ),
                     }
                 )
