@@ -2460,8 +2460,12 @@ pub struct SystemInterfaceV1 {
     a 40-digit SHA-1 (`system_interface_artifacts.commit` check,
     `backend/app/services/workspace_migrations/m026_system_builder.py:186`).
     Not digested.*/
-    #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
-    pub commit: ::std::option::Option<GitObjectId>,
+    #[serde(
+        default,
+        deserialize_with = "crate::deserialize_present_nullable",
+        skip_serializing_if = "::std::option::Option::is_none"
+    )]
+    pub commit: ::std::option::Option<::std::option::Option<GitObjectId>>,
     /**Which extractor produced the artifact (`interface_extractor.py:456`).
     Absent in the bundle member, whose generator `bundle.json` records.
     System Builder keys its artifact cache by `extractor.version`

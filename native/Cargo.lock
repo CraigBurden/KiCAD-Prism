@@ -728,7 +728,7 @@ dependencies = [
 
 [[package]]
 name = "prism-kicad-cli"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "libc",
  "miniz_oxide",
@@ -836,6 +836,7 @@ dependencies = [
  "regex",
  "serde",
  "serde_json",
+ "sha2 0.11.0",
 ]
 
 [[package]]

@@ -13,9 +13,12 @@ mod font_text_contract;
 pub mod generated;
 pub mod materialization_contract;
 mod native_transport_contract;
+mod presence;
 mod schematic_plot_contract;
 mod source_bundle_contract;
 mod validation;
+#[doc(hidden)]
+pub use presence::{deserialize_present_nullable, deserialize_present_nullable_string};
 
 pub use board_plot_contract::validate_board_plot_document;
 pub use compiled_graph_contract::{
@@ -105,16 +108,6 @@ where
     Err(serde::de::Error::custom(
         "schematic producer segments forbid layers",
     ))
-}
-
-#[doc(hidden)]
-pub fn deserialize_present_nullable_string<'de, D>(
-    deserializer: D,
-) -> Result<Option<Option<String>>, D::Error>
-where
-    D: serde::Deserializer<'de>,
-{
-    <Option<String> as serde::Deserialize>::deserialize(deserializer).map(Some)
 }
 
 #[doc(hidden)]
