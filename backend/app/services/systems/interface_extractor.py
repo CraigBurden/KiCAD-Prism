@@ -19,6 +19,12 @@ Sources, all from the pinned kicad-monkey:
   first 3D model reference, unresolved;
 * v8 ``boardOutlineMm`` (CONTRACTS_P2 §14.6) from the board's Edge.Cuts
   graphics, or the extent of all board items when there are none.
+
+With ``PRISM_DESIGN_SOURCE_SYSTEM_BUILDER=bundle`` the artifact of a resolved
+commit is instead mapped from the bundle member ``projections/system-interface.json``
+(``prism.system_interface.v1``), which the bundle key already serves every commit
+with those sources; everything else keeps this extractor (see
+``interface_from_bundle``).
 """
 
 from __future__ import annotations
@@ -26,6 +32,7 @@ from __future__ import annotations
 import hashlib
 import importlib.metadata
 import json
+import logging
 import math
 from collections import defaultdict
 from pathlib import Path
@@ -33,6 +40,8 @@ from typing import Any, Iterable, Mapping
 
 from app.services import semantic_index_variants
 from app.services.systems import connector_detection
+
+logger = logging.getLogger(__name__)
 
 SCHEMA = "prism.system_interface.v1"
 EXTRACTOR_VERSION = "8"
@@ -467,10 +476,19 @@ def extract_interface(
 
 
 def extract_for_revision(project: Any, commit: str) -> dict[str, Any]:
-    """Materialize ``project`` at ``commit`` and extract its interface."""
+    """Materialize ``project`` at ``commit`` and extract its interface.
+
+    With the ``SYSTEM_BUILDER`` switch on and a ready
+    ``projections/system-interface.json`` member for the resolved commit, the
+    artifact is mapped from the bundle (``interface_from_bundle``); every other
+    case — a member not ready, a bundle the switch leaves alone, a working tree —
+    keeps today's extractor on the materialized sources.
+    """
 
     from app.services.project_source_snapshot import project_source_snapshot
 
+    if (from_bundle := _interface_for_commit(project, commit)) is not None:
+        return from_bundle
     with project_source_snapshot(project, commit) as snapshot:
         return extract_interface(
             snapshot.project_file,
@@ -478,6 +496,108 @@ def extract_for_revision(project: Any, commit: str) -> dict[str, Any]:
             commit=snapshot.commit or commit,
             design=load_configured_design(snapshot),
         )
+
+
+def _interface_for_commit(project: Any, commit: str | None) -> dict[str, Any] | None:
+    """The bundle's artifact for ``commit``, resolved without materializing the sources.
+
+    Only a commit with the ``SYSTEM_BUILDER`` switch on reaches the bundle, so
+    the legacy switch and a working tree pay nothing here. A commit that does
+    not resolve is left to the legacy path, which reports it as it always has.
+    """
+
+    if not commit:
+        return None
+    from app.services import project_revision
+    from app.services.design_bundle import consumer
+
+    if consumer.source("SYSTEM_BUILDER") != "bundle":
+        return None
+    try:
+        resolved = project_revision.resolve_commit(project_revision.locate(project), commit)
+    except (project_revision.ProjectNotInRepository, project_revision.RevisionNotFound):
+        return None
+    return interface_from_bundle(str(project.id), resolved)
+
+
+def interface_from_bundle(
+    project_id: str, commit: str | None, *, requested_by: str = ""
+) -> dict[str, Any] | None:
+    """The artifact the bundle holds for a resolved commit, or ``None`` to use the extractor.
+
+    ``bundle_read`` owns the switch and the rollout fallback: it answers ``None``
+    for the ``legacy`` switch, a member that is not ready yet (it queues the
+    build) and a member that failed, and this function then serves the legacy
+    path. A member that is final but not ``ready`` (``skipped``,
+    ``not-applicable``) is no interface either, so it takes the legacy path too.
+    A working tree — no resolved commit, which the bundle key cannot name — can
+    hold uncommitted changes a committed bundle does not carry, so it is never
+    read here.
+    """
+
+    if not commit:
+        return None
+    from app.services.design_bundle.consumer import bundle_read
+
+    read = bundle_read(
+        "SYSTEM_BUILDER", project_id, commit, ["projections/system-interface.json"], requested_by=requested_by
+    )
+    if read is None or not read.ready("projections/system-interface.json"):
+        return None
+    try:
+        member = read.json("projections/system-interface.json")
+    except Exception as error:  # noqa: BLE001 - a bundle-side fault must not break the legacy path
+        logger.warning(
+            "design bundle: the system interface member of %s@%s is unreadable: %s", project_id, commit, error
+        )
+        return None
+    return interface_from_member(
+        member,
+        project_id=project_id,
+        commit=commit,
+        kicad_monkey_version=_bundle_kicad_monkey_version(read),
+    )
+
+
+def interface_from_member(
+    member: Mapping[str, Any], *, project_id: str, commit: str | None, kicad_monkey_version: str
+) -> dict[str, Any]:
+    """The stored artifact from the bundle member: the member plus today's envelope.
+
+    The member carries no ``projectId``, ``commit`` or ``extractor`` — a
+    projection knows neither the project nor the commit (field map, "Expected
+    divergences"). They are outside the digest, so the member's ``digest`` is
+    today's; it is carried through, in ``extract_interface``'s key order, with
+    the envelope first.
+    """
+
+    return {
+        "schema": member["schema"],
+        "projectId": project_id,
+        "commit": commit,
+        "extractor": {"version": EXTRACTOR_VERSION, "kicadMonkeyVersion": kicad_monkey_version},
+        "hasPcb": member["hasPcb"],
+        "boardThicknessMm": member["boardThicknessMm"],
+        "boardOutlineMm": member["boardOutlineMm"],
+        "components": member["components"],
+        "diagnostics": member["diagnostics"],
+        "digest": member["digest"],
+    }
+
+
+def _bundle_kicad_monkey_version(read: Any) -> str:
+    """The bundle generator's ``engine_version``: the parser behind the member.
+
+    The generator id (``CliVersionA0``, ``bundle.json``'s ``generator``) records
+    ``engine_version``, ``kicad_monkey_core``'s ``ENGINE_VERSION`` — the bundle's
+    form of the Python distribution version ``_kicad_monkey_version`` returns.
+    Informational: no reader consumes it (field map).
+    """
+
+    archive = getattr(read.opened, "archive", None)
+    generator = archive.manifest.get("generator") if archive is not None else None
+    version = generator.get("engine_version") if isinstance(generator, Mapping) else None
+    return str(version) if version else _kicad_monkey_version()
 
 
 def load_configured_design(snapshot: Any) -> Any:
