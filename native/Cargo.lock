@@ -674,6 +674,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "prism-bundle"
+version = "0.1.0"
+dependencies = [
+ "prism-kicad-core",
+ "prism-projections",
+]
+
+[[package]]
+name = "prism-kicad-cli"
+version = "0.1.0"
+dependencies = [
+ "prism-bundle",
+]
+
+[[package]]
 name = "prism-kicad-codegen"
 version = "2026.9.7"
 dependencies = [
@@ -756,6 +771,13 @@ dependencies = [
  "serde_json",
  "wasm-bindgen",
  "wasm-bindgen-test",
+]
+
+[[package]]
+name = "prism-projections"
+version = "0.1.0"
+dependencies = [
+ "prism-kicad-core",
 ]
 
 [[package]]

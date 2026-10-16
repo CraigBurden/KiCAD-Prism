@@ -8,6 +8,9 @@ members = [
     "src/rs/prism-kicad-transport",
     "src/rs/prism-kicad-svg",
     "src/rs/prism-kicad-wasm",
+    "src/rs/prism-bundle",
+    "src/rs/prism-kicad-cli",
+    "src/rs/prism-projections",
 ]
 resolver = "3"
 
@@ -30,6 +33,11 @@ too_many_arguments = "deny"
 too_many_lines = "deny"
 
 [workspace.dependencies]
+# Pre-declared for WP-B and the Wave 2 producers (cached, so they resolve offline).
+crc32fast = "1.5.0"
+libm = "0.2.16"
+miniz_oxide = "=0.8.9"
+thiserror = "2"
 anyhow = "1.0.102"
 cap-std = "4.0.2"
 geometer-client = { git = "https://github.com/wavenumber-eng/geometer.git", rev = "703e60029a248801947150f913f77a1cecce2662" }
