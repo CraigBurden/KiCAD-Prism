@@ -15,6 +15,7 @@
 //! jobsets that exist; a failing producer in 5 marks that member failed.
 
 use super::design::{self, Text};
+use super::keys::{source_entry, upgrade_invalid};
 use super::sexpr_check::{self, BOARD_FORMAT, CheckError, SCHEMATIC_FORMAT};
 use super::sheets::{Unresolved, resolve};
 use super::sources::SourceTree;
@@ -27,7 +28,7 @@ use crate::manifest::{
     skipped_board, sort_warnings, source_role, warning,
 };
 use crate::paths::{file_name, is_within, join, parent};
-use crate::revision_key::{Category, EffectiveConfig, ObjectFormat, default_config};
+use crate::revision_key::{Category, EffectiveConfig, default_config};
 use prism_kicad_contracts::generated::prism_revision_key_effective_config_a1 as cfg;
 use prism_kicad_contracts::generated::prism_revision_key_record_a1 as rk;
 use prism_kicad_core::{PcbLimits, PcbView, ProjectDocument, ProjectLimits};
@@ -259,7 +260,7 @@ struct ParseRun<'a> {
     derived: Vec<MemberData>,
 }
 
-fn member(path: &str) -> String {
+pub(super) fn member(path: &str) -> String {
     format!("{SOURCES_PREFIX}{path}")
 }
 
@@ -816,75 +817,6 @@ impl ParseRun<'_> {
             })
         })
     }
-}
-
-/// The key entries of a record, by path.
-fn key_entries(record: &rk::RevisionKeyRecordA1) -> BTreeMap<&str, &rk::RevisionKeyEntry> {
-    record
-        .entries
-        .iter()
-        .map(|entry| (entry.path.0.as_str(), entry))
-        .collect()
-}
-
-fn source_entry(
-    path: &str,
-    bytes: &[u8],
-    executable: bool,
-    record: Option<&rk::RevisionKeyRecordA1>,
-) -> Outcome<a2::BundleManifestSourceEntry> {
-    let kind = if executable {
-        rk::RevisionKeyEntryKind::Executable
-    } else {
-        rk::RevisionKeyEntryKind::Regular
-    };
-    let Some(record) = record else {
-        return entry_json(path, kind, &ObjectFormat::Sha1.blob_id(bytes), None);
-    };
-    let entries = key_entries(record);
-    if let Some(entry) = entries.get(path)
-        && matches!(
-            entry.kind,
-            rk::RevisionKeyEntryKind::Regular | rk::RevisionKeyEntryKind::Executable
-        )
-    {
-        return entry_json(path, entry.kind, &entry.object_id.0, None);
-    }
-    let format = match record.object_format {
-        rk::RevisionKeyObjectFormat::Sha1 => ObjectFormat::Sha1,
-        rk::RevisionKeyObjectFormat::Sha256 => ObjectFormat::Sha256,
-    };
-    let gitlink = record.entries.iter().find(|entry| {
-        entry.kind == rk::RevisionKeyEntryKind::Gitlink
-            && is_within(path, &entry.path.0)
-            && entry.path.0 != path
-    });
-    match gitlink {
-        Some(gitlink) => entry_json(path, kind, &format.blob_id(bytes), Some(&gitlink.path.0)),
-        None => Err(Failure::precondition(
-            "revision-key-mismatch",
-            format!("{} has no entry in --key-record", member(path)),
-        )
-        .argument("key-record")
-        .at_path(member(path))),
-    }
-}
-
-fn upgrade_invalid(message: String) -> Failure {
-    Failure::input("upgrade-record-invalid", message).argument("upgraded")
-}
-
-fn entry_json(
-    path: &str,
-    kind: rk::RevisionKeyEntryKind,
-    object_id: &str,
-    gitlink: Option<&str>,
-) -> Outcome<a2::BundleManifestSourceEntry> {
-    let mut value = serde_json::json!({ "path": path, "kind": kind, "object_id": object_id });
-    if let Some(gitlink) = gitlink {
-        value["gitlink"] = gitlink.into();
-    }
-    serde_json::from_value(value).map_err(internal)
 }
 
 impl ParseRun<'_> {

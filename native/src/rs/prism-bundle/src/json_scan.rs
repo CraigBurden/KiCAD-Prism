@@ -21,57 +21,87 @@ pub enum JsonBound {
 /// number of values (`max_nodes`, `None` for no node limit). Object keys are
 /// not values.
 pub fn scan(text: &[u8], max_depth: usize, max_nodes: Option<usize>) -> Result<(), JsonBound> {
-    let mut stack: Vec<u8> = Vec::new();
-    let mut nodes = 0usize;
-    let mut at = 0usize;
-    let mut expect_key = false;
-    let mut count = || -> Result<(), JsonBound> {
-        nodes += 1;
-        match max_nodes {
-            Some(limit) if nodes > limit => Err(JsonBound::Nodes),
-            _ => Ok(()),
-        }
+    let mut scanner = Scanner {
+        text,
+        max_depth,
+        max_nodes,
+        stack: Vec::new(),
+        nodes: 0,
+        expect_key: false,
     };
+    let mut at = 0usize;
     while at < text.len() {
-        let byte = text[at];
-        match byte {
-            b'"' => {
-                at = skip_string(text, at + 1);
-                if expect_key {
-                    expect_key = false;
-                } else {
-                    count()?;
-                }
-                continue;
-            }
-            b'{' | b'[' => {
-                count()?;
-                if stack.len() >= max_depth {
-                    return Err(JsonBound::Depth);
-                }
-                stack.push(byte);
-                expect_key = byte == b'{';
-            }
-            b'}' | b']' => {
-                stack.pop();
-                expect_key = false;
-            }
-            b',' => expect_key = stack.last() == Some(&b'{'),
-            b':' => expect_key = false,
-            byte if byte.is_ascii_whitespace() => {}
-            _ => {
-                count()?;
-                while at + 1 < text.len()
-                    && !matches!(text[at + 1], b',' | b']' | b'}' | b':' | b'"')
-                    && !text[at + 1].is_ascii_whitespace()
-                {
-                    at += 1;
-                }
-            }
-        }
-        at += 1;
+        at = scanner.step(at)?;
     }
     Ok(())
+}
+
+struct Scanner<'a> {
+    text: &'a [u8],
+    max_depth: usize,
+    max_nodes: Option<usize>,
+    stack: Vec<u8>,
+    nodes: usize,
+    expect_key: bool,
+}
+
+impl Scanner<'_> {
+    fn count(&mut self) -> Result<(), JsonBound> {
+        self.nodes += 1;
+        match self.max_nodes {
+            Some(limit) if self.nodes > limit => Err(JsonBound::Nodes),
+            _ => Ok(()),
+        }
+    }
+
+    /// Consume the token at `at`; return where the next one starts.
+    fn step(&mut self, at: usize) -> Result<usize, JsonBound> {
+        let byte = self.text[at];
+        match byte {
+            b'"' => return self.string(at),
+            b'{' | b'[' => self.open(byte)?,
+            b'}' | b']' => {
+                self.stack.pop();
+                self.expect_key = false;
+            }
+            b',' => self.expect_key = self.stack.last() == Some(&b'{'),
+            b':' => self.expect_key = false,
+            byte if byte.is_ascii_whitespace() => {}
+            _ => return self.scalar(at),
+        }
+        Ok(at + 1)
+    }
+
+    fn string(&mut self, at: usize) -> Result<usize, JsonBound> {
+        if self.expect_key {
+            self.expect_key = false;
+        } else {
+            self.count()?;
+        }
+        Ok(skip_string(self.text, at + 1))
+    }
+
+    fn open(&mut self, byte: u8) -> Result<(), JsonBound> {
+        self.count()?;
+        if self.stack.len() >= self.max_depth {
+            return Err(JsonBound::Depth);
+        }
+        self.stack.push(byte);
+        self.expect_key = byte == b'{';
+        Ok(())
+    }
+
+    fn scalar(&mut self, at: usize) -> Result<usize, JsonBound> {
+        self.count()?;
+        let ends = |byte: &u8| {
+            matches!(byte, b',' | b']' | b'}' | b':' | b'"') || byte.is_ascii_whitespace()
+        };
+        let length = self.text[at..]
+            .iter()
+            .position(ends)
+            .unwrap_or(self.text.len() - at);
+        Ok(at + length.max(1))
+    }
 }
 
 fn skip_string(text: &[u8], mut at: usize) -> usize {

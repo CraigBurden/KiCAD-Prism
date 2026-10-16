@@ -377,26 +377,22 @@ fn i4_config_members(manifest: &Manifest, findings: &mut Vec<Finding>) {
     }
 }
 
-fn i5_statuses(manifest: &Manifest, findings: &mut Vec<Finding>) {
+/// Add the finding of invariant `invariant` unless `holds`.
+fn require(findings: &mut Vec<Finding>, holds: bool, invariant: u8, message: &str) {
+    if !holds {
+        findings.push(inconsistent(invariant, message.to_owned()));
+    }
+}
+
+fn board_status_ok(manifest: &Manifest) -> bool {
     use a2::BundleManifestSkipReason::{EarlierStageFailed, NoBoard};
     let stages = &manifest.stages;
-    if !matches!(
-        stages.parse.status,
-        Status::Complete | Status::Partial | Status::Failed
-    ) {
-        findings.push(inconsistent(
-            5,
-            "stage parse is pending or skipped".to_owned(),
-        ));
-    }
-    let board_skip = if stages.parse.status == Status::Failed {
+    let skip = if stages.parse.status == Status::Failed {
         Some(EarlierStageFailed)
-    } else if manifest.config.board.is_none() {
-        Some(NoBoard)
     } else {
-        None
+        manifest.config.board.is_none().then_some(NoBoard)
     };
-    let board_ok = match board_skip {
+    match skip {
         Some(reason) => {
             stages.board.status == Status::Skipped && stages.board.skip_reason == Some(reason)
         }
@@ -404,30 +400,45 @@ fn i5_statuses(manifest: &Manifest, findings: &mut Vec<Finding>) {
             stages.board.status,
             Status::Pending | Status::Complete | Status::Partial
         ),
-    };
-    if !board_ok {
-        findings.push(inconsistent(
-            5,
-            "stage board's status does not follow stage parse and the config".to_owned(),
-        ));
     }
-    let models = &stages.models;
-    let models_ok = match stages.board.status {
+}
+
+fn models_status_ok(manifest: &Manifest) -> bool {
+    use a2::BundleManifestSkipReason::EarlierStageFailed;
+    let (board, models) = (&manifest.stages.board, &manifest.stages.models);
+    let skipped_for = |reason| models.status == Status::Skipped && models.skip_reason == reason;
+    let follows = match board.status {
         Status::Pending => models.status == Status::Pending,
-        Status::Skipped => {
-            models.status == Status::Skipped && models.skip_reason == stages.board.skip_reason
-        }
-        Status::Partial | Status::Failed => {
-            models.status == Status::Skipped && models.skip_reason == Some(EarlierStageFailed)
-        }
+        Status::Skipped => skipped_for(board.skip_reason),
+        Status::Partial | Status::Failed => skipped_for(Some(EarlierStageFailed)),
         Status::Complete => matches!(models.status, Status::Pending | Status::Complete),
     };
-    if !models_ok || matches!(models.status, Status::Partial | Status::Failed) {
-        findings.push(inconsistent(
-            5,
-            "stage models' status does not follow stage board".to_owned(),
-        ));
-    }
+    follows && !matches!(models.status, Status::Partial | Status::Failed)
+}
+
+fn i5_statuses(manifest: &Manifest, findings: &mut Vec<Finding>) {
+    let parse_final = matches!(
+        manifest.stages.parse.status,
+        Status::Complete | Status::Partial | Status::Failed
+    );
+    require(
+        findings,
+        parse_final,
+        5,
+        "stage parse is pending or skipped",
+    );
+    require(
+        findings,
+        board_status_ok(manifest),
+        5,
+        "stage board's status does not follow stage parse and the config",
+    );
+    require(
+        findings,
+        models_status_ok(manifest),
+        5,
+        "stage models' status does not follow stage board",
+    );
 }
 
 fn i6_records(manifest: &Manifest, view: &StageView<'_>, findings: &mut Vec<Finding>) {
@@ -499,89 +510,92 @@ fn i7_members(manifest: &Manifest, view: &StageView<'_>, findings: &mut Vec<Find
     }
 }
 
+fn has_warning(warnings: &[a2::Warning], code: &str) -> bool {
+    warnings.iter().any(|warning| warning.code.0 == code)
+}
+
 fn i8_fills(manifest: &Manifest, findings: &mut Vec<Finding>) {
     use a2::BundleManifestFillProvenance::{Refilled, Saved};
     let board = &manifest.stages.board;
     let ran = matches!(board.status, Status::Complete | Status::Partial);
-    let saved = manifest.config.zone_fills.is_some();
-    let expected = ran.then_some(if saved { Saved } else { Refilled });
-    if board.fill_provenance != expected {
-        findings.push(inconsistent(
-            8,
-            "fill_provenance does not follow stage board and config.zone_fills".to_owned(),
-        ));
-    }
+    let mode = if manifest.config.zone_fills.is_some() {
+        Saved
+    } else {
+        Refilled
+    };
+    let refilled = board.fill_provenance == Some(Refilled);
+    let is_saved = board.fill_provenance == Some(Saved);
+    let pack = has_member(manifest, MATERIALIZATION_PATH);
     let refilled_member = manifest
         .members
         .iter()
         .any(|member| member.role == Role::RefilledBoard);
-    if refilled_member != (board.fill_provenance == Some(Refilled)) {
-        findings.push(inconsistent(
-            8,
-            "the refilled board is a member exactly when fill_provenance is refilled".to_owned(),
-        ));
+    let warnings_ok = has_warning(&board.warnings, "saved-fills-used") == is_saved
+        && !(is_saved && has_warning(&board.warnings, "stale-saved-fills"));
+    let rules = [
+        (
+            board.fill_provenance == ran.then_some(mode),
+            "fill_provenance does not follow stage board and config.zone_fills",
+        ),
+        (
+            refilled_member == refilled,
+            "the refilled board is a member exactly when fill_provenance is refilled",
+        ),
+        (
+            board.cross_check.is_some() == pack,
+            "cross_check is present exactly with the materialization",
+        ),
+        (
+            board.fill_check.is_some() == (pack && refilled),
+            "fill_check is present exactly with the materialization of a refilled board",
+        ),
+        (
+            warnings_ok,
+            "saved-fills-used is a warning exactly with saved fills, without stale-saved-fills",
+        ),
+    ];
+    for (holds, message) in rules {
+        require(findings, holds, 8, message);
     }
-    let pack = has_member(manifest, MATERIALIZATION_PATH);
-    if board.cross_check.is_some() != pack {
-        findings.push(inconsistent(
-            8,
-            "cross_check is present exactly with the materialization".to_owned(),
-        ));
-    }
-    if board.fill_check.is_some() != (pack && board.fill_provenance == Some(Refilled)) {
-        findings.push(inconsistent(
-            8,
-            "fill_check is present exactly with the materialization of a refilled board".to_owned(),
-        ));
-    }
-    let saved_warning = board
-        .warnings
+}
+
+fn cross_check_status_ok(check: &a2::BundleManifestCrossCheck) -> bool {
+    use a2::BundleManifestCrossCheckStatus::{Failed, Passed, PassedWithWarnings, Skipped};
+    let (warnings, errors) = (check.warnings.is_empty(), check.errors.is_empty());
+    match check.status {
+        Passed => [warnings, errors].iter().all(|holds| *holds),
+        PassedWithWarnings => [!warnings, errors].iter().all(|holds| *holds),
+        Failed => !errors,
+        Skipped => [
+            check.components_compared.0 == 0,
+            check.pads_compared.0 == 0,
+            check.nets_compared.0 == 0,
+            check.mappings.is_empty(),
+            warnings,
+            errors,
+        ]
         .iter()
-        .any(|warning| warning.code.0 == "saved-fills-used");
-    let stale_warning = board
-        .warnings
-        .iter()
-        .any(|warning| warning.code.0 == "stale-saved-fills");
-    let is_saved = board.fill_provenance == Some(Saved);
-    if saved_warning != is_saved || (is_saved && stale_warning) {
-        findings.push(inconsistent(
-            8,
-            "saved-fills-used is a warning exactly with saved fills, without stale-saved-fills"
-                .to_owned(),
-        ));
+        .all(|holds| *holds),
     }
 }
 
 fn i9_cross_check(manifest: &Manifest, findings: &mut Vec<Finding>) {
-    use a2::BundleManifestCrossCheckStatus::{Failed, Passed, PassedWithWarnings, Skipped};
     let Some(check) = &manifest.stages.board.cross_check else {
         return;
     };
-    let ok = match check.status {
-        Passed => check.warnings.is_empty() && check.errors.is_empty(),
-        PassedWithWarnings => !check.warnings.is_empty() && check.errors.is_empty(),
-        Failed => !check.errors.is_empty(),
-        Skipped => {
-            check.components_compared.0 == 0
-                && check.pads_compared.0 == 0
-                && check.nets_compared.0 == 0
-                && check.mappings.is_empty()
-                && check.warnings.is_empty()
-                && check.errors.is_empty()
-        }
-    };
-    if !ok {
-        findings.push(inconsistent(
-            9,
-            "cross_check's status does not follow its findings".to_owned(),
-        ));
-    }
-    if (check.status == Skipped) == has_member(manifest, DESIGN_PATH) {
-        findings.push(inconsistent(
-            9,
-            "cross_check is skipped exactly when design.json is not a member".to_owned(),
-        ));
-    }
+    require(
+        findings,
+        cross_check_status_ok(check),
+        9,
+        "cross_check's status does not follow its findings",
+    );
+    let skipped = check.status == a2::BundleManifestCrossCheckStatus::Skipped;
+    require(
+        findings,
+        skipped != has_member(manifest, DESIGN_PATH),
+        9,
+        "cross_check is skipped exactly when design.json is not a member",
+    );
 }
 
 fn warnings_sorted(warnings: &[a2::Warning]) -> bool {

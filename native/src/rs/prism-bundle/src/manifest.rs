@@ -93,21 +93,26 @@ pub fn is_source_role(role: Role) -> bool {
 /// The role of a source of `category` (bundle-format.md §2.2).
 #[must_use]
 pub fn source_role(category: Category) -> Option<Role> {
-    Some(match category {
-        Category::KicadProject => Role::SourceProject,
-        Category::KicadSchematic => Role::SourceSchematic,
-        Category::KicadBoard => Role::SourceBoard,
-        Category::KicadDesignRules => Role::SourceDesignRules,
-        Category::KicadWorksheet => Role::SourceWorksheet,
-        Category::KicadJobset => Role::SourceJobset,
-        Category::LibraryTable => Role::SourceLibraryTable,
-        Category::SymbolLibrary => Role::SourceSymbolLibrary,
-        Category::Footprint => Role::SourceFootprint,
-        Category::Model3d => Role::Source3dModel,
-        Category::PrismSettings => Role::SourcePrismSettings,
-        Category::Symlink | Category::Gitlink => return None,
-    })
+    SOURCE_ROLES
+        .iter()
+        .find(|(candidate, _)| *candidate == category)
+        .map(|(_, role)| *role)
 }
+
+/// Category to role, one to one; links and gitlinks have no member.
+const SOURCE_ROLES: [(Category, Role); 11] = [
+    (Category::KicadProject, Role::SourceProject),
+    (Category::KicadSchematic, Role::SourceSchematic),
+    (Category::KicadBoard, Role::SourceBoard),
+    (Category::KicadDesignRules, Role::SourceDesignRules),
+    (Category::KicadWorksheet, Role::SourceWorksheet),
+    (Category::KicadJobset, Role::SourceJobset),
+    (Category::LibraryTable, Role::SourceLibraryTable),
+    (Category::SymbolLibrary, Role::SourceSymbolLibrary),
+    (Category::Footprint, Role::SourceFootprint),
+    (Category::Model3d, Role::Source3dModel),
+    (Category::PrismSettings, Role::SourcePrismSettings),
+];
 
 /// The role the name rules give a source file at repository path `path`.
 #[must_use]

@@ -14,6 +14,7 @@ pub mod board;
 pub mod chain;
 pub mod crosscheck;
 mod design;
+mod keys;
 pub mod materialize;
 pub mod models;
 pub mod parse;

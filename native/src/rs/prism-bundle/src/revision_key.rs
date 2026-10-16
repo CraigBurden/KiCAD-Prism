@@ -74,7 +74,31 @@ pub fn validate_config(config: &EffectiveConfig) -> Result<(), KeyError> {
     if config.schema != CONFIG_SCHEMA {
         return Err(invalid(format!("schema must be {CONFIG_SCHEMA}")));
     }
-    let files = [
+    let files = config_files(config);
+    for (field, path, suffix) in files {
+        if let Some(path) = path {
+            check_config_file(field, path, suffix)?;
+        }
+    }
+    for (index, dir) in config.excluded_dirs.iter().enumerate() {
+        check_repo_path("excluded_dirs", dir)?;
+        if index > 0 {
+            check_excluded_order(&config.excluded_dirs[index - 1].0, dir)?;
+        }
+        check_excluded_files(dir, &files)?;
+    }
+    if config.zone_fills == Some(rk::RevisionKeyZoneFills::Refill) {
+        return Err(invalid(
+            "zone_fills is spelled only as \"saved\"; refill is its absence",
+        ));
+    }
+    Ok(())
+}
+
+type ConfigFile<'a> = (&'static str, Option<&'a String>, &'static str);
+
+fn config_files(config: &EffectiveConfig) -> [ConfigFile<'_>; 3] {
+    [
         ("project_file", Some(&config.project_file.0), ".kicad_pro"),
         (
             "root_schematic",
@@ -86,48 +110,44 @@ pub fn validate_config(config: &EffectiveConfig) -> Result<(), KeyError> {
             config.board.as_ref().map(|path| &path.0),
             ".kicad_pcb",
         ),
-    ];
-    for (field, path, suffix) in files {
-        if let Some(path) = path {
-            check_repo_path(field, path)?;
-            if !ends_with_ascii_ci(path, suffix) {
-                return Err(invalid(format!(
-                    "{field} {path:?} does not end in {suffix}"
-                )));
-            }
-        }
+    ]
+}
+
+fn check_config_file(field: &str, path: &str, suffix: &str) -> Result<(), KeyError> {
+    check_repo_path(field, path)?;
+    if ends_with_ascii_ci(path, suffix) {
+        Ok(())
+    } else {
+        Err(invalid(format!(
+            "{field} {path:?} does not end in {suffix}"
+        )))
     }
-    for (index, dir) in config.excluded_dirs.iter().enumerate() {
-        check_repo_path("excluded_dirs", dir)?;
-        if index > 0 {
-            let previous = &config.excluded_dirs[index - 1].0;
-            if previous.as_bytes() >= dir.as_bytes() {
-                return Err(invalid(
-                    "excluded_dirs is not strictly increasing in UTF-8 byte order",
-                ));
-            }
-            if is_within(dir, previous) {
-                return Err(invalid(format!(
-                    "excluded_dirs {dir:?} lies under {previous:?}"
-                )));
-            }
-        }
-        for (field, path, _) in files {
-            if let Some(path) = path
-                && is_within(path, dir)
-            {
-                return Err(invalid(format!(
-                    "excluded_dirs {dir:?} contains the {field}"
-                )));
-            }
-        }
-    }
-    if config.zone_fills == Some(rk::RevisionKeyZoneFills::Refill) {
+}
+
+fn check_excluded_order(previous: &str, dir: &str) -> Result<(), KeyError> {
+    if previous.as_bytes() >= dir.as_bytes() {
         return Err(invalid(
-            "zone_fills is spelled only as \"saved\"; refill is its absence",
+            "excluded_dirs is not strictly increasing in UTF-8 byte order",
         ));
     }
+    if is_within(dir, previous) {
+        return Err(invalid(format!(
+            "excluded_dirs {dir:?} lies under {previous:?}"
+        )));
+    }
     Ok(())
+}
+
+fn check_excluded_files(dir: &str, files: &[ConfigFile<'_>]) -> Result<(), KeyError> {
+    let contained = files
+        .iter()
+        .find(|(_, path, _)| path.is_some_and(|path| is_within(path, dir)));
+    match contained {
+        Some((field, _, _)) => Err(invalid(format!(
+            "excluded_dirs {dir:?} contains the {field}"
+        ))),
+        None => Ok(()),
+    }
 }
 
 /// Parse and validate a config document (any formatting).
@@ -164,44 +184,67 @@ pub type Kind = rk::RevisionKeyEntryKind;
 /// (revision-key.md §5.2), or `None` when it is not selected.
 #[must_use]
 pub fn category_for_name(name: &[u8], is_symlink: bool) -> Option<Category> {
-    let lowered = name.to_ascii_lowercase();
-    let lowered = String::from_utf8_lossy(&lowered);
+    let lowered = String::from_utf8_lossy(&name.to_ascii_lowercase()).into_owned();
     if AUTOSAVE_PREFIXES
         .iter()
         .any(|prefix| lowered.starts_with(prefix))
     {
         return None;
     }
-    let ends = |suffix: &str| lowered.ends_with(suffix);
-    let category = if lowered == "fp-lib-table" || lowered == "sym-lib-table" {
-        Category::LibraryTable
-    } else if lowered == ".prism.json" {
-        Category::PrismSettings
-    } else if ends(".kicad_pro") {
-        Category::KicadProject
-    } else if ends(".kicad_sch") {
-        Category::KicadSchematic
-    } else if ends(".kicad_pcb") {
-        Category::KicadBoard
-    } else if ends(".kicad_dru") {
-        Category::KicadDesignRules
-    } else if ends(".kicad_wks") {
-        Category::KicadWorksheet
-    } else if ends(".kicad_jobset") {
-        Category::KicadJobset
-    } else if ends(".kicad_sym") || ends(".lib") || ends(".dcm") {
-        Category::SymbolLibrary
-    } else if ends(".kicad_mod") {
-        Category::Footprint
-    } else if MODEL_SUFFIXES.iter().any(|suffix| ends(suffix)) {
-        Category::Model3d
-    } else if is_symlink {
-        Category::Symlink
-    } else {
-        return None;
-    };
-    Some(category)
+    NAME_RULES
+        .iter()
+        .find(|(rule, _)| rule.matches(&lowered))
+        .map(|(_, category)| *category)
+        .or_else(|| is_symlink.then_some(Category::Symlink))
 }
+
+/// How a name rule of revision-key.md §5.2 matches a lowered name.
+enum NameRule {
+    Equals(&'static [&'static str]),
+    EndsWith(&'static [&'static str]),
+}
+
+impl NameRule {
+    fn matches(&self, lowered: &str) -> bool {
+        match self {
+            Self::Equals(names) => names.contains(&lowered),
+            Self::EndsWith(suffixes) => suffixes.iter().any(|suffix| lowered.ends_with(suffix)),
+        }
+    }
+}
+
+/// Rules N1, N2, S1–S8 and M, in order.
+const NAME_RULES: [(NameRule, Category); 11] = [
+    (
+        NameRule::Equals(&["fp-lib-table", "sym-lib-table"]),
+        Category::LibraryTable,
+    ),
+    (NameRule::Equals(&[".prism.json"]), Category::PrismSettings),
+    (NameRule::EndsWith(&[".kicad_pro"]), Category::KicadProject),
+    (
+        NameRule::EndsWith(&[".kicad_sch"]),
+        Category::KicadSchematic,
+    ),
+    (NameRule::EndsWith(&[".kicad_pcb"]), Category::KicadBoard),
+    (
+        NameRule::EndsWith(&[".kicad_dru"]),
+        Category::KicadDesignRules,
+    ),
+    (
+        NameRule::EndsWith(&[".kicad_wks"]),
+        Category::KicadWorksheet,
+    ),
+    (
+        NameRule::EndsWith(&[".kicad_jobset"]),
+        Category::KicadJobset,
+    ),
+    (
+        NameRule::EndsWith(&[".kicad_sym", ".lib", ".dcm"]),
+        Category::SymbolLibrary,
+    ),
+    (NameRule::EndsWith(&[".kicad_mod"]), Category::Footprint),
+    (NameRule::EndsWith(&MODEL_SUFFIXES), Category::Model3d),
+];
 
 /// One listing record: `<mode> <type> <id>\t<path>` (revision-key.md §3).
 #[derive(Clone, Debug, PartialEq, Eq)]

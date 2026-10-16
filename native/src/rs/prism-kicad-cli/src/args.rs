@@ -184,43 +184,62 @@ fn collect(command: Command, rest: &[String]) -> Outcome<Raw> {
     };
     let mut index = 0;
     while index < rest.len() {
+        index = raw.take(command, rest, index)?;
+    }
+    Ok(raw)
+}
+
+impl Raw {
+    /// Take the argument at `index`; return the index of the next one.
+    fn take(&mut self, command: Command, rest: &[String], index: usize) -> Outcome<usize> {
         let token = &rest[index];
-        index += 1;
-        let Some(name) = long_name(token).filter(|_| token.starts_with('-') && token.len() > 1)
-        else {
-            raw.positional.push(token.clone());
-            continue;
+        let option = token.starts_with('-') && token.len() > 1;
+        let Some(name) = long_name(token).filter(|_| option) else {
+            self.positional.push(token.clone());
+            return Ok(index + 1);
         };
         if token == "-h" || name == "help" {
-            raw.help = true;
-            continue;
+            self.help = true;
+            return Ok(index + 1);
         }
         let name = static_name(name)
             .filter(|name| allowed(command, name))
             .ok_or_else(|| usage(format!("unknown option {token:?}")))?;
         match name {
-            "worktree" if !raw.worktree => raw.worktree = true,
-            "quiet" if !raw.quiet => raw.quiet = true,
-            "worktree" | "quiet" => {
-                return Err(usage(format!("--{name} is given twice")).argument(name));
-            }
+            "worktree" | "quiet" => self.flag(name).map(|()| index + 1),
             _ => {
                 let value = rest
-                    .get(index)
-                    .ok_or_else(|| usage(format!("--{name} takes a value")).argument(name))?
-                    .clone();
-                index += 1;
-                if name == "limit" {
-                    raw.limits.push(value);
-                } else if name == "upgraded" {
-                    raw.upgraded.push(value);
-                } else if raw.options.insert(name, value).is_some() {
-                    return Err(usage(format!("--{name} is given twice")).argument(name));
-                }
+                    .get(index + 1)
+                    .ok_or_else(|| usage(format!("--{name} takes a value")).argument(name))?;
+                self.value(name, value.clone()).map(|()| index + 2)
             }
         }
     }
-    Ok(raw)
+
+    fn flag(&mut self, name: &'static str) -> Outcome<()> {
+        let slot = if name == "worktree" {
+            &mut self.worktree
+        } else {
+            &mut self.quiet
+        };
+        if *slot {
+            return Err(usage(format!("--{name} is given twice")).argument(name));
+        }
+        *slot = true;
+        Ok(())
+    }
+
+    fn value(&mut self, name: &'static str, value: String) -> Outcome<()> {
+        match name {
+            "limit" => self.limits.push(value),
+            "upgraded" => self.upgraded.push(value),
+            _ if self.options.insert(name, value).is_some() => {
+                return Err(usage(format!("--{name} is given twice")).argument(name));
+            }
+            _ => {}
+        }
+        Ok(())
+    }
 }
 
 fn is_hex64(value: &str) -> bool {
@@ -240,43 +259,58 @@ fn is_release_version(value: &str) -> bool {
         })
 }
 
-fn check_values(raw: &Raw) -> Outcome<(Option<StageArg>, u64)> {
-    if let Some(key) = raw.options.get("revision-key")
-        && !is_hex64(key)
-    {
-        return Err(usage("--revision-key takes 64 lowercase hex digits").argument("revision-key"));
-    }
+fn check_tools(raw: &Raw) -> Outcome<()> {
     for tool in ["refill-tool", "models-tool"] {
-        if let Some(version) = raw.options.get(tool)
-            && !is_release_version(version)
-        {
+        let bad = raw
+            .options
+            .get(tool)
+            .is_some_and(|version| !is_release_version(version));
+        if bad {
+            let argument = if tool == "refill-tool" {
+                "refill-tool"
+            } else {
+                "models-tool"
+            };
             return Err(
-                usage(format!("--{tool} takes a release version such as 10.0.6")).argument(
-                    if tool == "refill-tool" {
-                        "refill-tool"
-                    } else {
-                        "models-tool"
-                    },
-                ),
+                usage(format!("--{tool} takes a release version such as 10.0.6"))
+                    .argument(argument),
             );
         }
     }
-    let stage = match raw.options.get("stage").map(String::as_str) {
-        None => None,
-        Some("parse") => Some(StageArg::Parse),
-        Some("board") => Some(StageArg::Board),
-        Some("models") => Some(StageArg::Models),
-        Some(_) => return Err(usage("--stage takes parse, board or models").argument("stage")),
+    Ok(())
+}
+
+fn stage_of(raw: &Raw) -> Outcome<Option<StageArg>> {
+    match raw.options.get("stage").map(String::as_str) {
+        None => Ok(None),
+        Some("parse") => Ok(Some(StageArg::Parse)),
+        Some("board") => Ok(Some(StageArg::Board)),
+        Some("models") => Ok(Some(StageArg::Models)),
+        Some(_) => Err(usage("--stage takes parse, board or models").argument("stage")),
+    }
+}
+
+fn threads_of(raw: &Raw) -> Outcome<u64> {
+    let Some(value) = raw.options.get("threads") else {
+        return Ok(4);
     };
-    let threads = match raw.options.get("threads") {
-        None => 4,
-        Some(value) => value
-            .parse::<u64>()
-            .ok()
-            .filter(|threads| (1..=64).contains(threads) && !value.starts_with('+'))
-            .ok_or_else(|| usage("--threads takes 1 to 64").argument("threads"))?,
-    };
-    Ok((stage, threads))
+    value
+        .parse::<u64>()
+        .ok()
+        .filter(|threads| (1..=64).contains(threads) && !value.starts_with('+'))
+        .ok_or_else(|| usage("--threads takes 1 to 64").argument("threads"))
+}
+
+fn check_values(raw: &Raw) -> Outcome<(Option<StageArg>, u64)> {
+    let bad_key = raw
+        .options
+        .get("revision-key")
+        .is_some_and(|key| !is_hex64(key));
+    if bad_key {
+        return Err(usage("--revision-key takes 64 lowercase hex digits").argument("revision-key"));
+    }
+    check_tools(raw)?;
+    Ok((stage_of(raw)?, threads_of(raw)?))
 }
 
 fn check_build(raw: &Raw, stage: Option<StageArg>) -> Outcome<()> {
@@ -300,45 +334,57 @@ fn check_build(raw: &Raw, stage: Option<StageArg>) -> Outcome<()> {
             ));
         }
     }
-    for (name, argument) in [("source-root", "source-root"), ("key-record", "key-record")] {
-        if has(name) && !parse {
-            return Err(conflict(
-                format!("--{name} is only for --stage parse"),
-                argument,
-            ));
-        }
+    let rules = build_rules(raw, stage);
+    match rules.iter().find(|(broken, _, _)| *broken) {
+        Some((_, message, argument)) => Err(conflict(*message, argument)),
+        None => Ok(()),
     }
-    if !raw.upgraded.is_empty() && !parse {
-        return Err(conflict("--upgraded is only for --stage parse", "upgraded"));
-    }
-    if has("key-record") && !has("revision-key") {
-        return Err(conflict(
+}
+
+/// The option combinations of `bundle build` (cli-spec.md §2.2): (broken,
+/// message, argument), in the order checked.
+fn build_rules(raw: &Raw, stage: StageArg) -> [(bool, &'static str, &'static str); 7] {
+    let has = |name: &str| raw.options.contains_key(name);
+    let parse = stage == StageArg::Parse;
+    let models = stage == StageArg::Models;
+    let board_only = has("refilled-board") && stage != StageArg::Board;
+    [
+        (
+            has("source-root") && !parse,
+            "--source-root is only for --stage parse",
+            "source-root",
+        ),
+        (
+            has("key-record") && !parse,
+            "--key-record is only for --stage parse",
+            "key-record",
+        ),
+        (
+            !raw.upgraded.is_empty() && !parse,
+            "--upgraded is only for --stage parse",
+            "upgraded",
+        ),
+        (
+            has("key-record") && !has("revision-key"),
             "--key-record requires --revision-key",
             "key-record",
-        ));
-    }
-    if parse == has("in") {
-        return Err(conflict(
+        ),
+        (
+            parse == has("in"),
             "--in is required with board and models and refused with parse",
             "in",
-        ));
-    }
-    if has("refilled-board") != has("refill-tool")
-        || (has("refilled-board") && stage != StageArg::Board)
-    {
-        return Err(conflict(
+        ),
+        (
+            has("refilled-board") != has("refill-tool") || board_only,
             "--refilled-board and --refill-tool go together, with --stage board only",
             "refilled-board",
-        ));
-    }
-    let models = stage == StageArg::Models;
-    if has("models-glb") != models || has("models-tool") != models {
-        return Err(conflict(
+        ),
+        (
+            has("models-glb") != models || has("models-tool") != models,
             "--models-glb and --models-tool go together and only with --stage models",
             "models-glb",
-        ));
-    }
-    Ok(())
+        ),
+    ]
 }
 
 fn check_combinations(command: Command, raw: &Raw, stage: Option<StageArg>) -> Outcome<()> {

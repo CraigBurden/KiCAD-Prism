@@ -355,6 +355,15 @@ struct End {
     central_offset: u32,
 }
 
+/// `Err(finding(code, message))` unless every check holds.
+fn ensure(checks: &[bool], code: &str, message: &str) -> Result<(), ZipError> {
+    if checks.iter().all(|holds| *holds) {
+        Ok(())
+    } else {
+        Err(finding(code, message))
+    }
+}
+
 fn read_end<R: ReadAt + ?Sized>(source: &R, limits: &Limits) -> Result<End, ZipError> {
     let length = source.length();
     if length > limits.get(LimitName::MaxArchiveBytes) {
@@ -364,58 +373,68 @@ fn read_end<R: ReadAt + ?Sized>(source: &R, limits: &Limits) -> Result<End, ZipE
             "the archive",
         )));
     }
-    if length < END_RECORD_BYTES {
-        return Err(finding(
-            "zip-malformed",
-            "the archive is shorter than an end record",
-        ));
-    }
+    ensure(
+        &[length >= END_RECORD_BYTES],
+        "zip-malformed",
+        "the archive is shorter than an end record",
+    )?;
     let end = read_bytes(source, length - END_RECORD_BYTES, 22)?;
-    if u32_at(&end, 0) != END_SIGNATURE {
-        return Err(finding(
-            "zip-malformed",
-            "the end-of-central-directory record is not the last 22 bytes (a comment or trailing data follows it)",
-        ));
-    }
+    ensure(
+        &[u32_at(&end, 0) == END_SIGNATURE],
+        "zip-malformed",
+        "the end-of-central-directory record is not the last 22 bytes (a comment or trailing data follows it)",
+    )?;
     if length >= END_RECORD_BYTES + 20 {
         let locator = read_bytes(source, length - END_RECORD_BYTES - 20, 4)?;
-        if u32_at(&locator, 0) == ZIP64_LOCATOR_SIGNATURE {
-            return Err(finding("zip-unsupported", "the archive has zip64 records"));
-        }
-    }
-    let (disk, central_disk) = (u16_at(&end, 4), u16_at(&end, 6));
-    let (on_disk, total) = (u16_at(&end, 8), u16_at(&end, 10));
-    let record = End {
-        count: total,
-        central_size: u32_at(&end, 12),
-        central_offset: u32_at(&end, 16),
-    };
-    if total == u16::MAX || record.central_size == u32::MAX || record.central_offset == u32::MAX {
-        return Err(finding(
+        ensure(
+            &[u32_at(&locator, 0) != ZIP64_LOCATOR_SIGNATURE],
             "zip-unsupported",
-            "the end record holds zip64 markers",
-        ));
+            "the archive has zip64 records",
+        )?;
     }
-    if disk != 0 || central_disk != 0 || on_disk != total || u16_at(&end, 20) != 0 {
-        return Err(finding(
-            "zip-malformed",
-            "the end record has a disk number, a comment or two different entry counts",
-        ));
-    }
-    if u64::from(total) > limits.get(LimitName::MaxArchiveMembers) {
+    let record = decode_end(&end)?;
+    if u64::from(record.count) > limits.get(LimitName::MaxArchiveMembers) {
         return Err(ZipError::Limit(limits.exceeded(
             LimitName::MaxArchiveMembers,
-            Some(u64::from(total)),
+            Some(u64::from(record.count)),
             "the number of archive members",
         )));
     }
     let central_end = u64::from(record.central_offset) + u64::from(record.central_size);
-    if central_end != length - END_RECORD_BYTES {
-        return Err(finding(
-            "zip-malformed",
-            "the central directory does not end where the end record starts",
-        ));
-    }
+    ensure(
+        &[central_end == length - END_RECORD_BYTES],
+        "zip-malformed",
+        "the central directory does not end where the end record starts",
+    )?;
+    Ok(record)
+}
+
+fn decode_end(end: &[u8]) -> Result<End, ZipError> {
+    let total = u16_at(end, 10);
+    let record = End {
+        count: total,
+        central_size: u32_at(end, 12),
+        central_offset: u32_at(end, 16),
+    };
+    ensure(
+        &[
+            total != u16::MAX,
+            record.central_size != u32::MAX,
+            record.central_offset != u32::MAX,
+        ],
+        "zip-unsupported",
+        "the end record holds zip64 markers",
+    )?;
+    ensure(
+        &[
+            u16_at(end, 4) == 0,
+            u16_at(end, 6) == 0,
+            u16_at(end, 8) == total,
+            u16_at(end, 20) == 0,
+        ],
+        "zip-malformed",
+        "the end record has a disk number, a comment or two different entry counts",
+    )?;
     Ok(record)
 }
 
@@ -432,37 +451,36 @@ fn central_entry(directory: &[u8], at: usize) -> Result<(Central, usize), ZipErr
     let header = directory
         .get(at..at + CENTRAL_HEADER_BYTES)
         .ok_or_else(|| finding("zip-malformed", "a central directory entry is truncated"))?;
-    if u32_at(header, 0) != CENTRAL_SIGNATURE {
-        return Err(finding(
-            "zip-malformed",
-            "a central directory entry has a bad signature",
-        ));
-    }
+    ensure(
+        &[u32_at(header, 0) == CENTRAL_SIGNATURE],
+        "zip-malformed",
+        "a central directory entry has a bad signature",
+    )?;
     let name_length = usize::from(u16_at(header, 28));
-    let (extra, comment) = (u16_at(header, 30), u16_at(header, 32));
-    let (disk, internal, external) = (u16_at(header, 34), u16_at(header, 36), u32_at(header, 38));
     let (compressed, size) = (u32_at(header, 20), u32_at(header, 24));
-    if compressed == u32::MAX || size == u32::MAX {
-        return Err(finding("zip-unsupported", "a member uses zip64 sizes"));
-    }
-    let canonical = u16_at(header, 4) == VERSION
-        && u16_at(header, 6) == VERSION
-        && u16_at(header, 8) == UTF8_NAMES
-        && matches!(u16_at(header, 10), METHOD_STORED | METHOD_DEFLATED)
-        && u16_at(header, 12) == FIXED_TIME
-        && u16_at(header, 14) == FIXED_DATE
-        && extra == 0
-        && comment == 0
-        && disk == 0
-        && internal == 0
-        && external == 0;
-    if !canonical {
-        return Err(finding(
-            "zip-unsupported",
-            "a central directory entry is not version 20, flags 0x0800, stored or deflated, \
-             1980-01-01, without extra field, comment or attributes",
-        ));
-    }
+    ensure(
+        &[compressed != u32::MAX, size != u32::MAX],
+        "zip-unsupported",
+        "a member uses zip64 sizes",
+    )?;
+    ensure(
+        &[
+            u16_at(header, 4) == VERSION,
+            u16_at(header, 6) == VERSION,
+            u16_at(header, 8) == UTF8_NAMES,
+            matches!(u16_at(header, 10), METHOD_STORED | METHOD_DEFLATED),
+            u16_at(header, 12) == FIXED_TIME,
+            u16_at(header, 14) == FIXED_DATE,
+            u16_at(header, 30) == 0,
+            u16_at(header, 32) == 0,
+            u16_at(header, 34) == 0,
+            u16_at(header, 36) == 0,
+            u32_at(header, 38) == 0,
+        ],
+        "zip-unsupported",
+        "a central directory entry is not version 20, flags 0x0800, stored or deflated, \
+         1980-01-01, without extra field, comment or attributes",
+    )?;
     let name_at = at + CENTRAL_HEADER_BYTES;
     let name = directory
         .get(name_at..name_at + name_length)
@@ -502,32 +520,31 @@ fn check_local<R: ReadAt + ?Sized>(
     central: &Central,
     expected_at: u64,
 ) -> Result<u64, ZipError> {
-    if u64::from(central.local_offset) != expected_at {
-        return Err(finding(
-            "zip-malformed",
-            "the entries are not contiguous: a local header is not where the previous entry ends",
-        ));
-    }
+    ensure(
+        &[u64::from(central.local_offset) == expected_at],
+        "zip-malformed",
+        "the entries are not contiguous: a local header is not where the previous entry ends",
+    )?;
     let header = read_bytes(source, expected_at, 30)?;
     let name = read_bytes(source, expected_at + LOCAL_HEADER_BYTES, central.name.len())?;
-    let agrees = u32_at(&header, 0) == LOCAL_SIGNATURE
-        && u16_at(&header, 4) == VERSION
-        && u16_at(&header, 6) == UTF8_NAMES
-        && u16_at(&header, 8) == central.method
-        && u16_at(&header, 10) == FIXED_TIME
-        && u16_at(&header, 12) == FIXED_DATE
-        && u32_at(&header, 14) == central.crc
-        && u32_at(&header, 18) == central.compressed
-        && u32_at(&header, 22) == central.size
-        && usize::from(u16_at(&header, 26)) == central.name.len()
-        && u16_at(&header, 28) == 0
-        && name == central.name;
-    if !agrees {
-        return Err(finding(
-            "zip-malformed",
-            "a local header does not repeat its central directory record",
-        ));
-    }
+    ensure(
+        &[
+            u32_at(&header, 0) == LOCAL_SIGNATURE,
+            u16_at(&header, 4) == VERSION,
+            u16_at(&header, 6) == UTF8_NAMES,
+            u16_at(&header, 8) == central.method,
+            u16_at(&header, 10) == FIXED_TIME,
+            u16_at(&header, 12) == FIXED_DATE,
+            u32_at(&header, 14) == central.crc,
+            u32_at(&header, 18) == central.compressed,
+            u32_at(&header, 22) == central.size,
+            usize::from(u16_at(&header, 26)) == central.name.len(),
+            u16_at(&header, 28) == 0,
+            name == central.name,
+        ],
+        "zip-malformed",
+        "a local header does not repeat its central directory record",
+    )?;
     Ok(expected_at + LOCAL_HEADER_BYTES + u64::try_from(name.len()).unwrap_or(0))
 }
 

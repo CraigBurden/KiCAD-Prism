@@ -97,29 +97,7 @@ impl LimitName {
     /// The name as `--limit` and `CliLimitName` spell it.
     #[must_use]
     pub fn as_str(self) -> &'static str {
-        match self {
-            Self::MaxSourceFiles => "max-source-files",
-            Self::MaxSourceFileBytes => "max-source-file-bytes",
-            Self::MaxTotalSourceBytes => "max-total-source-bytes",
-            Self::MaxPathBytes => "max-path-bytes",
-            Self::MaxSexprDepth => "max-sexpr-depth",
-            Self::MaxSexprNodes => "max-sexpr-nodes",
-            Self::MaxSexprStringBytes => "max-sexpr-string-bytes",
-            Self::MaxJsonDepth => "max-json-depth",
-            Self::MaxJsonNodes => "max-json-nodes",
-            Self::MaxConfigBytes => "max-config-bytes",
-            Self::MaxModelsGlbBytes => "max-models-glb-bytes",
-            Self::MaxMaterializationOperations => "max-materialization-operations",
-            Self::MaxMemberBytes => "max-member-bytes",
-            Self::MaxArchiveBytes => "max-archive-bytes",
-            Self::MaxArchiveMembers => "max-archive-members",
-            Self::MaxTotalUnpackedBytes => "max-total-unpacked-bytes",
-            Self::MaxCompressionRatio => "max-compression-ratio",
-            Self::MaxDiagnosticLines => "max-diagnostic-lines",
-            Self::MaxFindings => "max-findings",
-            Self::MaxMemoryBytes => "max-memory-bytes",
-            Self::TimeoutMs => "timeout-ms",
-        }
+        TABLE[slot(self)].1
     }
 
     /// The limit spelled `name`.
@@ -183,36 +161,82 @@ pub struct Limits {
     values: [u64; LimitName::ALL.len()],
 }
 
+/// Every limit: its name and its default, cli-spec.md §7.2 (in
+/// `LimitName::ALL` order). `max-memory-bytes` and `timeout-ms` depend on
+/// the work ([`memory_default`], [`timeout_default`]).
+const TABLE: [(LimitName, &str, u64); 21] = [
+    (LimitName::MaxSourceFiles, "max-source-files", 16_384),
+    (
+        LimitName::MaxSourceFileBytes,
+        "max-source-file-bytes",
+        128 * MIB,
+    ),
+    (
+        LimitName::MaxTotalSourceBytes,
+        "max-total-source-bytes",
+        2 * GIB,
+    ),
+    (LimitName::MaxPathBytes, "max-path-bytes", 4_096),
+    (LimitName::MaxSexprDepth, "max-sexpr-depth", 128),
+    (LimitName::MaxSexprNodes, "max-sexpr-nodes", 24_000_000),
+    (
+        LimitName::MaxSexprStringBytes,
+        "max-sexpr-string-bytes",
+        64 * MIB,
+    ),
+    (LimitName::MaxJsonDepth, "max-json-depth", 256),
+    (LimitName::MaxJsonNodes, "max-json-nodes", 8_000_000),
+    (LimitName::MaxConfigBytes, "max-config-bytes", MIB),
+    (LimitName::MaxModelsGlbBytes, "max-models-glb-bytes", GIB),
+    (
+        LimitName::MaxMaterializationOperations,
+        "max-materialization-operations",
+        u32::MAX as u64,
+    ),
+    (LimitName::MaxMemberBytes, "max-member-bytes", 2 * GIB),
+    (
+        LimitName::MaxArchiveBytes,
+        "max-archive-bytes",
+        u32::MAX as u64,
+    ),
+    (LimitName::MaxArchiveMembers, "max-archive-members", 32_768),
+    (
+        LimitName::MaxTotalUnpackedBytes,
+        "max-total-unpacked-bytes",
+        8 * GIB,
+    ),
+    (LimitName::MaxCompressionRatio, "max-compression-ratio", 200),
+    (
+        LimitName::MaxDiagnosticLines,
+        "max-diagnostic-lines",
+        10_000,
+    ),
+    (LimitName::MaxFindings, "max-findings", 1_000),
+    (LimitName::MaxMemoryBytes, "max-memory-bytes", 2 * GIB),
+    (LimitName::TimeoutMs, "timeout-ms", 300_000),
+];
+
+fn memory_default(work: Work) -> u64 {
+    match work {
+        Work::Parse => 4 * GIB,
+        Work::Board => 6 * GIB,
+        _ => 2 * GIB,
+    }
+}
+
+fn timeout_default(work: Work) -> u64 {
+    match work {
+        Work::Board | Work::Verify | Work::Extract => 600_000,
+        Work::Models => 120_000,
+        _ => 300_000,
+    }
+}
+
 fn default_value(name: LimitName, work: Work) -> u64 {
     match name {
-        LimitName::MaxSourceFiles => 16_384,
-        LimitName::MaxSourceFileBytes => 128 * MIB,
-        LimitName::MaxTotalSourceBytes => 2 * GIB,
-        LimitName::MaxPathBytes => 4_096,
-        LimitName::MaxSexprDepth => 128,
-        LimitName::MaxSexprNodes => 24_000_000,
-        LimitName::MaxSexprStringBytes => 64 * MIB,
-        LimitName::MaxJsonDepth => 256,
-        LimitName::MaxJsonNodes => 8_000_000,
-        LimitName::MaxConfigBytes => MIB,
-        LimitName::MaxModelsGlbBytes => GIB,
-        LimitName::MaxMaterializationOperations | LimitName::MaxArchiveBytes => u64::from(u32::MAX),
-        LimitName::MaxMemberBytes => 2 * GIB,
-        LimitName::MaxArchiveMembers => 32_768,
-        LimitName::MaxTotalUnpackedBytes => 8 * GIB,
-        LimitName::MaxCompressionRatio => 200,
-        LimitName::MaxDiagnosticLines => 10_000,
-        LimitName::MaxFindings => 1_000,
-        LimitName::MaxMemoryBytes => match work {
-            Work::Parse => 4 * GIB,
-            Work::Board => 6 * GIB,
-            _ => 2 * GIB,
-        },
-        LimitName::TimeoutMs => match work {
-            Work::Board | Work::Verify | Work::Extract => 600_000,
-            Work::Models => 120_000,
-            _ => 300_000,
-        },
+        LimitName::MaxMemoryBytes => memory_default(work),
+        LimitName::TimeoutMs => timeout_default(work),
+        other => TABLE[slot(other)].2,
     }
 }
 
@@ -306,6 +330,13 @@ mod tests {
         assert_eq!(LimitName::TimeoutMs.unit(), LimitUnit::Time);
         assert_eq!(LimitName::MaxMemberBytes.unit(), LimitUnit::Bytes);
         assert_eq!(LimitName::MaxFindings.unit(), LimitUnit::Count);
+    }
+
+    #[test]
+    fn the_table_follows_the_name_order() {
+        for (entry, name) in TABLE.iter().zip(LimitName::ALL) {
+            assert_eq!(entry.0, name);
+        }
     }
 
     #[test]

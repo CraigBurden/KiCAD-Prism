@@ -252,18 +252,17 @@ fn type_matches(name: &str, instance: &Value) -> bool {
         "boolean" => instance.is_boolean(),
         "null" => instance.is_null(),
         "number" => instance.is_number(),
-        "integer" => match instance {
-            Value::Number(number) => {
-                number.is_i64()
-                    || number.is_u64()
-                    || number
-                        .as_f64()
-                        .is_some_and(|value| value.is_finite() && value.fract() == 0.0)
-            }
-            _ => false,
-        },
+        "integer" => is_integer(instance),
         _ => false,
     }
+}
+
+fn is_integer(instance: &Value) -> bool {
+    let Value::Number(number) = instance else {
+        return false;
+    };
+    let whole = |value: f64| value.is_finite() && value.fract() == 0.0;
+    number.is_i64() || number.is_u64() || number.as_f64().is_some_and(whole)
 }
 
 fn json_equal(left: &Value, right: &Value) -> bool {
@@ -332,33 +331,28 @@ impl Validation<'_> {
     ) -> Result<(), Violation> {
         match keyword {
             "$ref" => self.reference(doc, value, instance, pointer),
-            "type" => check_type(value, instance, pointer),
-            "const" if !json_equal(value, instance) => {
-                fail(pointer, format!("must be the constant {value}"))
-            }
-            "enum" => check_enum(value, instance, pointer),
             "properties" | "required" | "unevaluatedProperties" => {
                 self.object(doc, keyword, value, siblings, instance, pointer)
             }
             "items" => self.items(doc, value, instance, pointer),
-            "minItems" | "maxItems" | "uniqueItems" => {
-                check_array_size(keyword, value, instance, pointer)
-            }
             "pattern" | "minLength" => self.string(keyword, value, instance, pointer),
-            "minimum" | "maximum" => check_bound(keyword, value, instance, pointer),
             "anyOf" | "oneOf" => self.combination(doc, keyword, value, instance, pointer),
-            "not" => {
-                let mut scratch = pointer.clone();
-                match self.check(doc, value, instance, &mut scratch) {
-                    Ok(()) => fail(pointer, "matches a schema it must not match".to_owned()),
-                    Err(_) => Ok(()),
-                }
-            }
-            "const" => Ok(()),
-            other => fail(
-                pointer,
-                format!("the validator does not know keyword {other}"),
-            ),
+            "not" => self.negation(doc, value, instance, pointer),
+            other => assertion(other, value, instance, pointer),
+        }
+    }
+
+    fn negation(
+        &self,
+        doc: &str,
+        value: &Value,
+        instance: &Value,
+        pointer: &str,
+    ) -> Result<(), Violation> {
+        let mut scratch = pointer.to_owned();
+        match self.check(doc, value, instance, &mut scratch) {
+            Ok(()) => fail(pointer, "matches a schema it must not match".to_owned()),
+            Err(_) => Ok(()),
         }
     }
 
@@ -521,6 +515,31 @@ impl Validation<'_> {
                 format!("matches {matched} oneOf branches, not one"),
             ),
         }
+    }
+}
+
+/// The keywords that read only the instance.
+fn assertion(
+    keyword: &str,
+    value: &Value,
+    instance: &Value,
+    pointer: &str,
+) -> Result<(), Violation> {
+    match keyword {
+        "type" => check_type(value, instance, pointer),
+        "const" if !json_equal(value, instance) => {
+            fail(pointer, format!("must be the constant {value}"))
+        }
+        "const" => Ok(()),
+        "enum" => check_enum(value, instance, pointer),
+        "minItems" | "maxItems" | "uniqueItems" => {
+            check_array_size(keyword, value, instance, pointer)
+        }
+        "minimum" | "maximum" => check_bound(keyword, value, instance, pointer),
+        other => fail(
+            pointer,
+            format!("the validator does not know keyword {other}"),
+        ),
     }
 }
 

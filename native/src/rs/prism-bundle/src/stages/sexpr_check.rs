@@ -180,12 +180,29 @@ impl<'a> Pass<'a> {
     }
 
     /// `(sheet … (property "Sheetfile" "<file>" …))`, the first per sheet.
+    fn in_sheet_property(&self) -> bool {
+        let heads = [
+            self.heads.get(1).copied().flatten(),
+            self.heads.get(2).copied().flatten(),
+        ];
+        [
+            self.want_sheets,
+            self.depth == 3,
+            heads == [Some("sheet"), Some("property")],
+            !self.sheet_seen,
+        ]
+        .iter()
+        .all(|holds| *holds)
+    }
+
+    fn set_first_arg(&mut self, value: String) {
+        if let Some(arg) = self.first_args.last_mut() {
+            *arg = Some(value);
+        }
+    }
+
     fn sheet_property(&mut self, kind: TokenKind, lexeme: &str, offset: usize) {
-        let in_property = self.want_sheets
-            && self.depth == 3
-            && self.heads.get(1).copied().flatten() == Some("sheet")
-            && self.heads.get(2).copied().flatten() == Some("property");
-        if !in_property || self.sheet_seen {
+        if !self.in_sheet_property() {
             return;
         }
         let value = if kind == TokenKind::QuotedString {
@@ -193,27 +210,19 @@ impl<'a> Pass<'a> {
         } else {
             lexeme.to_owned()
         };
-        let slot = self.first_args.last_mut().and_then(Option::take);
-        match slot {
-            None => {
-                if let Some(arg) = self.first_args.last_mut() {
-                    *arg = Some(value);
-                }
-            }
-            Some(key) => {
-                if key == "Sheetfile" || key == "Sheet file" {
-                    self.scanned.sheets.push(SheetReference {
-                        file: value,
-                        offset,
-                    });
-                    self.sheet_seen = true;
-                }
-                // Only the first two arguments matter; mark the property done.
-                if let Some(arg) = self.first_args.last_mut() {
-                    *arg = Some(String::from("\u{0}done"));
-                }
-            }
+        let Some(key) = self.first_args.last_mut().and_then(Option::take) else {
+            self.set_first_arg(value);
+            return;
+        };
+        if matches!(key.as_str(), "Sheetfile" | "Sheet file") {
+            self.scanned.sheets.push(SheetReference {
+                file: value,
+                offset,
+            });
+            self.sheet_seen = true;
         }
+        // Only the first two arguments matter; mark the property done.
+        self.set_first_arg(String::from("\u{0}done"));
     }
 }
 
@@ -239,61 +248,85 @@ pub fn check(
         pending_version: false,
         scanned: Scanned::default(),
     };
-    let mut roots = 0usize;
-    let mut version_at = None;
+    let mut shape = Shape::default();
     for token in Lexer::new(text) {
         let token = token.map_err(|_| CheckError::Content(syntax_error(member, text)))?;
-        pass.nodes += 1;
-        if pass.nodes > limits.get(LimitName::MaxSexprNodes) {
-            return Err(pass.limit(LimitName::MaxSexprNodes, "has too many s-expression nodes"));
+        if !pass.token(&token, &mut shape)? {
+            return Err(CheckError::Content(syntax_error(member, text)));
+        }
+    }
+    if pass.depth != 0 || shape.roots == 0 {
+        return Err(CheckError::Content(syntax_error(member, text)));
+    }
+    check_format(member, pass.scanned.version, shape.version_at, format)?;
+    Ok(pass.scanned)
+}
+
+/// Root lists seen, and where the root's `(version N)` value is.
+#[derive(Default)]
+struct Shape {
+    roots: usize,
+    version_at: Option<sexpr::Position>,
+}
+
+impl<'a> Pass<'a> {
+    /// Take one token; `Ok(false)` when it breaks the one-root syntax.
+    fn token(&mut self, token: &sexpr::Token<'a>, shape: &mut Shape) -> Result<bool, CheckError> {
+        self.nodes += 1;
+        if self.nodes > self.limits.get(LimitName::MaxSexprNodes) {
+            return Err(self.limit(LimitName::MaxSexprNodes, "has too many s-expression nodes"));
         }
         match token.kind {
             TokenKind::Left => {
-                if pass.depth == 0 {
-                    roots += 1;
-                    if roots > 1 {
-                        return Err(CheckError::Content(syntax_error(member, text)));
-                    }
+                shape.roots += usize::from(self.depth == 0);
+                if shape.roots > 1 {
+                    return Ok(false);
                 }
-                pass.open()?;
+                self.open()?;
             }
-            TokenKind::Right => {
-                if pass.depth == 0 {
-                    return Err(CheckError::Content(syntax_error(member, text)));
-                }
-                pass.depth -= 1;
-                pass.heads.pop();
-                pass.first_args.pop();
-                pass.pending_version = false;
-            }
+            TokenKind::Right if self.depth == 0 => return Ok(false),
+            TokenKind::Right => self.close(),
+            _ if self.depth == 0 => return Ok(false),
             kind => {
-                if pass.depth == 0 {
-                    return Err(CheckError::Content(syntax_error(member, text)));
+                let version = self.depth == 2 && self.pending_version && kind == TokenKind::Integer;
+                if version {
+                    shape.version_at = Some(token.position);
                 }
-                if pass.depth == 2 && pass.pending_version && kind == TokenKind::Integer {
-                    version_at = Some(token.position);
-                }
-                pass.atom(kind, token.lexeme, token.position.offset)?;
+                self.atom(kind, token.lexeme, token.position.offset)?;
             }
         }
+        Ok(true)
     }
-    if pass.depth != 0 || roots == 0 {
-        return Err(CheckError::Content(syntax_error(member, text)));
+
+    fn close(&mut self) {
+        self.depth -= 1;
+        self.heads.pop();
+        self.first_args.pop();
+        self.pending_version = false;
     }
-    if let (Some(version), Some(at)) = (pass.scanned.version, version_at)
-        && version > format
-    {
-        return Err(CheckError::Content(
-            Finding::new(
-                "source-format-unsupported",
-                format!(
-                    "{member} has file format version {version}, newer than {format}, the newest this generator's KiCad writes"
-                ),
-            )
-            .at(location(member, at)),
-        ));
+}
+
+fn check_format(
+    member: &str,
+    version: Option<u64>,
+    at: Option<sexpr::Position>,
+    format: u64,
+) -> Result<(), CheckError> {
+    let (Some(version), Some(at)) = (version, at) else {
+        return Ok(());
+    };
+    if version <= format {
+        return Ok(());
     }
-    Ok(pass.scanned)
+    Err(CheckError::Content(
+        Finding::new(
+            "source-format-unsupported",
+            format!(
+                "{member} has file format version {version}, newer than {format}, the newest this generator's KiCad writes"
+            ),
+        )
+        .at(location(member, at)),
+    ))
 }
 
 #[cfg(test)]

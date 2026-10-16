@@ -29,25 +29,34 @@ pub fn sha256_hex(bytes: &[u8]) -> String {
     hex(&Sha256::digest(bytes))
 }
 
+/// The short escapes of Python's `json.dumps`.
+const SHORT_ESCAPES: [(char, &str); 7] = [
+    ('"', "\\\""),
+    ('\\', "\\\\"),
+    ('\n', "\\n"),
+    ('\r', "\\r"),
+    ('\t', "\\t"),
+    ('\u{8}', "\\b"),
+    ('\u{c}', "\\f"),
+];
+
+fn write_char(out: &mut String, ch: char) {
+    if let Some((_, escape)) = SHORT_ESCAPES.iter().find(|(special, _)| *special == ch) {
+        out.push_str(escape);
+    } else if (' '..='\u{7f}').contains(&ch) {
+        out.push(ch);
+    } else {
+        let mut units = [0u16; 2];
+        for unit in ch.encode_utf16(&mut units) {
+            let _ = write!(out, "\\u{unit:04x}");
+        }
+    }
+}
+
 fn write_string(out: &mut String, text: &str) {
     out.push('"');
     for ch in text.chars() {
-        match ch {
-            '"' => out.push_str("\\\""),
-            '\\' => out.push_str("\\\\"),
-            '\n' => out.push_str("\\n"),
-            '\r' => out.push_str("\\r"),
-            '\t' => out.push_str("\\t"),
-            '\u{8}' => out.push_str("\\b"),
-            '\u{c}' => out.push_str("\\f"),
-            ch if (' '..='\u{7f}').contains(&ch) => out.push(ch),
-            ch => {
-                let mut units = [0u16; 2];
-                for unit in ch.encode_utf16(&mut units) {
-                    let _ = write!(out, "\\u{unit:04x}");
-                }
-            }
-        }
+        write_char(out, ch);
     }
     out.push('"');
 }
