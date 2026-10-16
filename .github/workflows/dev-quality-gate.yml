@@ -617,6 +617,166 @@ jobs:
           command -v cargo-deny >/dev/null || cargo install cargo-deny --version 0.18.3 --locked
           cargo deny check licenses sources
 
+  # The fork's native, wasm32 and hygiene jobs (native/.github/workflows/, ported by WP-F3). Each
+  # calls one entry script in native/scripts/, which runs the same way locally.
+  native-platforms:
+    name: Native workspace (${{ matrix.platform }})
+    # The fork's per-platform materializer job: the producer, pack and bundle tests on the other
+    # platforms the worker and developers run (linux amd64 is native-workspace). Parse-stage
+    # members must be byte-identical across them (decisions.md, Conventions 3).
+    needs: changes
+    if: needs.changes.outputs.native == 'true'
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-24.04-arm
+            platform: linux-arm64
+          - os: macos-15
+            platform: macos-arm64
+
+    defaults:
+      run:
+        working-directory: native
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+
+      - name: Cache the Rust toolchain, crates and build
+        uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5.1.0
+        with:
+          path: |
+            ~/.rustup/toolchains
+            ~/.cargo/registry
+            ~/.cargo/git
+            native/target
+          key: native-platform-${{ matrix.platform }}-${{ hashFiles('native/rust-toolchain.toml', 'native/Cargo.lock') }}
+          restore-keys: native-platform-${{ matrix.platform }}-
+
+      - name: Install the pinned toolchain
+        run: |
+          set -euo pipefail
+          channel="$(sed -n 's/^channel = "\(.*\)"/\1/p' rust-toolchain.toml)"
+          test -n "$channel"
+          if ! command -v rustup >/dev/null; then
+            # Not every runner image (the arm64 partner images) ships rustup.
+            curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal --default-toolchain none
+            echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+            export PATH="$HOME/.cargo/bin:$PATH"
+          fi
+          # rust-toolchain.toml lists rustfmt and clippy; install them with the toolchain.
+          rustup toolchain install "$channel" --profile minimal --component rustfmt --component clippy
+          cargo --version
+
+      - name: Producer, pack, bundle and CLI tests
+        run: scripts/ci_native_platform.sh
+
+  native-wasm32:
+    name: Native wasm32
+    # The fork's wasm32 job (the viewer adapter and the in-browser producer build for
+    # wasm32-unknown-unknown) plus the wasm-bindgen tests its exit gate ran, under Node.
+    needs: changes
+    if: needs.changes.outputs.native == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    defaults:
+      run:
+        working-directory: native
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+
+      - name: Set up Node
+        uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5.0.0
+        with:
+          node-version-file: .node-version
+
+      - name: Cache the Rust toolchain, crates, wasm-bindgen and build
+        uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5.1.0
+        with:
+          path: |
+            ~/.rustup/toolchains
+            ~/.cargo/registry
+            ~/.cargo/git
+            ~/.cargo/bin/wasm-bindgen
+            ~/.cargo/bin/wasm-bindgen-test-runner
+            native/target
+          key: native-wasm32-${{ runner.os }}-${{ hashFiles('native/rust-toolchain.toml', 'native/Cargo.lock') }}
+          restore-keys: native-wasm32-${{ runner.os }}-
+
+      - name: Install the pinned toolchain, wasm32 target and wasm-bindgen
+        run: |
+          set -euo pipefail
+          channel="$(sed -n 's/^channel = "\(.*\)"/\1/p' rust-toolchain.toml)"
+          test -n "$channel"
+          rustup toolchain install "$channel" --profile minimal --component rustfmt --component clippy --target wasm32-unknown-unknown
+          bindgen="$(sed -n '/^name = "wasm-bindgen"$/{n;s/^version = "\(.*\)"$/\1/p;}' Cargo.lock)"
+          if [[ "$(wasm-bindgen-test-runner --version 2>/dev/null | awk '{print $2}')" != "$bindgen" ]]; then
+            cargo install wasm-bindgen-cli --version "$bindgen" --locked --force
+          fi
+
+      - name: wasm32 builds, clippy and wasm-bindgen tests
+        run: scripts/ci_native_wasm32.sh
+
+  native-hygiene:
+    name: Native hygiene
+    # The Rust structural-hygiene ratchet (rust-hygiene.toml against rust-hygiene-baseline.json,
+    # Prism's port of the fork's wn-dev-std check), the parity corpus round trip, and the Prism
+    # contracts (npm ci; npm run check:prism-contracts).
+    needs: changes
+    if: needs.changes.outputs.native == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    defaults:
+      run:
+        working-directory: native
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+
+      - name: Set up Node
+        uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5.0.0
+        with:
+          node-version-file: .node-version
+
+      - name: Set up Python
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
+        with:
+          python-version-file: .python-version
+
+      - name: Cache the Rust toolchain, crates and build
+        uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5.1.0
+        with:
+          path: |
+            ~/.rustup/toolchains
+            ~/.cargo/registry
+            ~/.cargo/git
+            native/target
+          key: native-hygiene-${{ runner.os }}-${{ hashFiles('native/rust-toolchain.toml', 'native/Cargo.lock') }}
+          restore-keys: native-hygiene-${{ runner.os }}-
+
+      - name: Install the pinned toolchain and uv
+        run: |
+          set -euo pipefail
+          channel="$(sed -n 's/^channel = "\(.*\)"/\1/p' rust-toolchain.toml)"
+          test -n "$channel"
+          rustup toolchain install "$channel" --profile minimal --component rustfmt --component clippy
+          version="$(sed -n 's/^ARG UV_VERSION=//p' ../backend/Dockerfile | head -n 1)"
+          test -n "$version"
+          python -m pip install --disable-pip-version-check "uv==${version}"
+
+      - name: Hygiene ratchet, parity corpus and contracts
+        env:
+          PRISM_HYGIENE_PYTHON: python
+        run: scripts/ci_native_hygiene.sh
+
   native-parity:
     name: Native parity
     # Goldens of every bundle projection on the committed fixtures and the parity runner
@@ -957,6 +1117,9 @@ jobs:
       - semantic-viewer
       - native-crate
       - native-workspace
+      - native-platforms
+      - native-wasm32
+      - native-hygiene
       - native-parity
       - design-compare-parser
       - deployment-config
