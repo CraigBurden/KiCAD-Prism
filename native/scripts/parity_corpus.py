@@ -17,11 +17,14 @@ Commands::
 
     parity_corpus.py check                  every committed root exists and holds KiCad sources
     parity_corpus.py list [--suffix .kicad_pcb ...] [--committed-only]
-    parity_corpus.py sexpr-gate [--committed-only]
+    parity_corpus.py sexpr-gate [--committed-only] [--debug]
 
 ``sexpr-gate`` is the fork's corpus lane on Prism's corpus: it pipes every
 source through ``prism-kicad-core``'s ``sexpr_corpus_gate`` example (parse,
 build, reparse, rebuild, compare) and fails on any record that is not ``ok``.
+It builds the example in release unless ``--debug``: CI runs it in the job
+that already built the workspace's tests, where a debug build is nearly free
+and a release build (thin LTO, one codegen unit) takes minutes.
 
 Exit status: 0 pass, 1 a check failed, 2 usage error.
 """
@@ -100,10 +103,10 @@ def check() -> int:
     return 1 if failures else 0
 
 
-def sexpr_gate(*, committed_only: bool) -> int:
+def sexpr_gate(*, committed_only: bool, debug: bool = False) -> int:
     inputs = [p for p in sources(roots(committed_only=committed_only), SEXPR_SUFFIXES) if not NOT_ROUND_TRIP_PARTS & set(p.parts)]
     command = [
-        "cargo", "run", "--locked", "--release", "--quiet",
+        "cargo", "run", "--locked", "--quiet", *([] if debug else ["--release"]),
         "-p", "prism-kicad-core", "--example", "sexpr_corpus_gate",
     ]  # fmt: skip
     result = subprocess.run(
@@ -129,13 +132,15 @@ def main(argv: Sequence[str] | None = None) -> int:
     sub.add_parser("check")
     listing = sub.add_parser("list")
     listing.add_argument("--suffix", action="append", choices=SUFFIXES)
-    for p in (listing, sub.add_parser("sexpr-gate")):
+    gate = sub.add_parser("sexpr-gate")
+    gate.add_argument("--debug", action="store_true", help="build the example without --release")
+    for p in (listing, gate):
         p.add_argument("--committed-only", action="store_true", help=f"ignore {ENV_NAME}")
     args = parser.parse_args(argv)
     if args.command == "check":
         return check()
     if args.command == "sexpr-gate":
-        return sexpr_gate(committed_only=args.committed_only)
+        return sexpr_gate(committed_only=args.committed_only, debug=args.debug)
     for path in sources(roots(committed_only=args.committed_only), tuple(args.suffix or SUFFIXES)):
         print(path)
     return 0
