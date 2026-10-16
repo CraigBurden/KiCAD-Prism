@@ -832,6 +832,7 @@ version = "0.1.0"
 dependencies = [
  "prism-kicad-contracts",
  "prism-kicad-core",
+ "regex",
  "serde",
  "serde_json",
 ]
