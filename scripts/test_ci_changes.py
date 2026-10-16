@@ -48,6 +48,10 @@ class CiChangesTest(unittest.TestCase):
         self.assertIn("design_compare", jobs("backend/design-compare-parser/vendor/kicad-sexpr-parser.mjs"))
         self.assertIn("design_compare", jobs("scripts/compare_object_delta.py"))
 
+    def test_a_native_change_runs_the_native_workspace_and_the_image(self) -> None:
+        self.assertEqual(jobs("native/src/rs/prism-kicad-core/src/lib.rs"), {"native", "image"})
+        self.assertEqual(jobs("native/contracts/prism/conventions.md"), {"native", "image"})
+
     def test_the_agent_runs_alone_for_its_own_code(self) -> None:
         self.assertEqual(jobs("tools/prism_agent/tray.py"), {"agent"})
 

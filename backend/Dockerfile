@@ -3,6 +3,8 @@ ARG KICAD_MONKEY_VARIANT=kicad-monkey-upstream
 ARG NODE_VERSION=24.22.0
 ARG PYTHON_VERSION=3.12.13
 ARG RUST_VERSION=1.95.0
+# native/ pins its own toolchain (native/rust-toolchain.toml).
+ARG NATIVE_RUST_VERSION=1.98.0
 ARG UV_VERSION=0.12.5
 
 # KiCad CLI runtime. Release/source defaults are reproducible and AMD64-only.
@@ -59,6 +61,36 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry \
     && cargo build --release --locked \
     && cp target/release/prism-kicad-native /tmp/prism-kicad-native
 
+# prism-kicad, Prism's KiCad parser and design-bundle CLI (native/, ADR §4.1).
+# Only the binary is built here; native/'s tests and lints run in CI's
+# native-workspace job when native/ changes (ADR §11 G10). The cache mounts
+# keep the crates and the build between image builds.
+#
+# The kicad-cruncher-cli member is left out: its geometer-client git
+# dependency is a ~1 GB repository that cargo clones just to load the
+# workspace, and prism-kicad does not use it. Without the member cargo only
+# prunes the lockfile; the check fails the build unless every (crate, version)
+# it builds was already locked.
+FROM --platform=${KICAD_BASE_PLATFORM} rust:${NATIVE_RUST_VERSION}-bookworm AS prism-kicad-builder
+WORKDIR /build/native
+COPY native/Cargo.toml native/Cargo.lock native/rust-toolchain.toml native/clippy.toml ./
+COPY native/.cargo ./.cargo
+COPY native/src/rs ./src/rs
+COPY native/assets ./assets
+RUN sed -i '/"packages\/kicad_cruncher\/src\/rs\/kicad-cruncher-cli",/d' Cargo.toml \
+    && ! grep -q kicad-cruncher-cli Cargo.toml \
+    && cp Cargo.lock /tmp/Cargo.lock.locked
+RUN --mount=type=cache,target=/usr/local/cargo/registry \
+    --mount=type=cache,target=/usr/local/cargo/git \
+    --mount=type=cache,target=/build/native/target \
+    cargo build --release -p prism-kicad-cli \
+    && awk '/^name = /{n=$3} /^version = /{print n, $3}' /tmp/Cargo.lock.locked | sort -u > /tmp/locked.pairs \
+    && awk '/^name = /{n=$3} /^version = /{print n, $3}' Cargo.lock | sort -u > /tmp/built.pairs \
+    && if [ -n "$(comm -13 /tmp/locked.pairs /tmp/built.pairs)" ]; then \
+         echo "a crate is not at its locked version:" >&2; comm -13 /tmp/locked.pairs /tmp/built.pairs >&2; exit 1; \
+       fi \
+    && cp target/release/prism-kicad /tmp/prism-kicad
+
 FROM ghcr.io/astral-sh/uv:${UV_VERSION} AS uv-bin
 
 FROM --platform=${KICAD_BASE_PLATFORM} ${KICAD_BASE_IMAGE} AS prism-runtime
@@ -83,6 +115,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     python3 \
     python3-venv \
     git \
+    git-lfs \
     openssh-client \
     g++ \
     cmake \
@@ -159,6 +192,7 @@ COPY scripts/ scripts/
 COPY --from=prism-kicad-native-builder \
     /tmp/prism-kicad-native \
     /usr/local/bin/prism-kicad-native
+COPY --from=prism-kicad-builder /tmp/prism-kicad /usr/local/bin/prism-kicad
 COPY --from=remote-provider-panel /panel/dist/remote_provider/ /app/app/static/remote_provider/
 
 # Stable on-disk identity for toolchain_digest / live CI. Written late so the

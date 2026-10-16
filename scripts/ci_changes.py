@@ -40,11 +40,13 @@ OWN: dict[str, tuple[str, ...]] = {
                        "scripts/test_compare_object_delta.py", "scripts/build-ecad-parser.sh",
                        "scripts/ecad-viewer-upstream.lock"),
     "agent": ("tools/*",),
+    # Prism's KiCad parser and design-bundle workspace (native/): fmt, clippy, tests, codegen, licences.
+    "native": ("native/*",),
     "deploy": ("docker-compose*.yml", "deploy/*", "scripts/*", ".env.example", "loadtest/*"),
     "deps": ("*package.json", "*package-lock.json", "requirements/*", "backend/Dockerfile",
              "scripts/verify_dependency_identity.py"),
     # A docker build of the backend image (PRs into feature branches); see ``image_live`` for dev/main.
-    "image": ("backend/Dockerfile", ".dockerignore", "kicad-prism-viewer/*",
+    "image": ("backend/Dockerfile", ".dockerignore", "kicad-prism-viewer/*", "native/*",
               "frontend/src/features/system-builder/placement/*", "requirements/*",
               "scripts/build-prism-clipper2.sh"),
     # The live KiCad job on PRs into dev/main: the image plus what its tests exercise.

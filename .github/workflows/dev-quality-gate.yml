@@ -8,6 +8,8 @@ on:
       - feature/release-studio
       - feature/system-builder
       - feature/native-design-bundle
+      # Work packages of the native design bundle stack on each other (ADR §9.1).
+      - wp/**
       - fix/architecture-consolidation
   push:
     branches:
@@ -41,6 +43,7 @@ jobs:
       viewer: ${{ steps.areas.outputs.viewer }}
       design_compare: ${{ steps.areas.outputs.design_compare }}
       agent: ${{ steps.areas.outputs.agent }}
+      native: ${{ steps.areas.outputs.native }}
       deploy: ${{ steps.areas.outputs.deploy }}
       deps: ${{ steps.areas.outputs.deps }}
       image: ${{ steps.areas.outputs.image }}
@@ -558,6 +561,62 @@ jobs:
       - name: Clippy
         run: cargo clippy --release --locked -- -D warnings
 
+  native-workspace:
+    name: Native workspace
+    # Prism's KiCad parser and design-bundle workspace (native/, ADR §4.1, §9.1): the definition of
+    # done for its Rust, on its pinned toolchain (native/rust-toolchain.toml). Runs only when
+    # native/ changes (ADR §11 G10).
+    needs: changes
+    if: needs.changes.outputs.native == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    defaults:
+      run:
+        working-directory: native
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+
+      - name: Cache the Rust toolchain, crates, cargo-deny and build
+        uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5.1.0
+        with:
+          path: |
+            ~/.rustup/toolchains
+            ~/.cargo/registry
+            ~/.cargo/git
+            ~/.cargo/bin/cargo-deny
+            native/target
+          key: native-workspace-${{ runner.os }}-${{ hashFiles('native/rust-toolchain.toml', 'native/Cargo.lock') }}
+          restore-keys: native-workspace-${{ runner.os }}-
+
+      - name: Install the pinned toolchain
+        run: |
+          set -euo pipefail
+          channel="$(sed -n 's/^channel = "\(.*\)"/\1/p' rust-toolchain.toml)"
+          test -n "$channel"
+          rustup toolchain install "$channel" --profile minimal --component rustfmt --component clippy
+          cargo --version
+
+      - name: Check formatting
+        run: cargo fmt --all --check
+
+      - name: Clippy
+        run: cargo clippy --workspace --all-targets --locked -- -D warnings
+
+      - name: Test
+        run: cargo test --workspace --locked --no-fail-fast
+
+      - name: Generated contract types are current
+        run: cargo run --locked -q -p prism-kicad-codegen -- --check
+
+      - name: Dependency licences and sources
+        run: |
+          set -euo pipefail
+          command -v cargo-deny >/dev/null || cargo install cargo-deny --version 0.18.3 --locked
+          cargo deny check licenses sources
+
   design-compare-parser:
     name: Design compare parser
     # The Node object index and delta the design comparison worker runs (backend/design-compare-parser).
@@ -845,6 +904,7 @@ jobs:
       - agent-plugin
       - semantic-viewer
       - native-crate
+      - native-workspace
       - design-compare-parser
       - deployment-config
       - dependency-identity
