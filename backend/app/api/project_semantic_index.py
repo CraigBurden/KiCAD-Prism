@@ -1,4 +1,5 @@
 """Semantic-index routes of /api/projects (split out of projects.py by WP-S1)."""
+
 import asyncio
 from typing import Optional
 

@@ -1,4 +1,5 @@
 """WebGPU 3D routes of /api/projects (split out of projects.py by WP-S1)."""
+
 import asyncio
 import mimetypes
 from typing import Optional

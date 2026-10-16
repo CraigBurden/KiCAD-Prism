@@ -1,4 +1,5 @@
 """Viewer source routes of /api/projects (split out of projects.py by WP-S1)."""
+
 import json
 from pathlib import Path
 from typing import List, Optional
