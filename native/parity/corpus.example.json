@@ -1,0 +1,19 @@
+{
+  "schema": "prism.parity.corpus.a0",
+  "projects": [
+    {
+      "id": "board-a",
+      "repository": "/absolute/path/to/a/git/repository",
+      "commit": "HEAD",
+      "project": "board-a.kicad_pro",
+      "excludedDirs": ["Design-Outputs", "Manufacturing-Outputs"]
+    },
+    {
+      "id": "board-b",
+      "repository": "/absolute/path/to/a/monorepo",
+      "commit": "0123456789abcdef0123456789abcdef01234567",
+      "project": "hw/board-b/board-b.kicad_pro",
+      "paths": ["hw/board-b", "hw/libraries"]
+    }
+  ]
+}
