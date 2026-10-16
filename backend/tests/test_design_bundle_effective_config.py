@@ -5,16 +5,16 @@ from __future__ import annotations
 import json
 import os
 import shutil
-import subprocess
 import sys
 import tempfile
 import unicodedata
 import unittest
 from pathlib import Path
+from unittest import mock
 
 from app.services.design_bundle import effective_config as ec
 from app.services.design_bundle import revision_key as rk
-from support.repo import git, git_env
+from support.repo import git
 
 USB_PD = Path("/Users/Swaroop/Personal-Projects/USB-PD-Trigger-Board")
 FAKE_LFS_CLEAN = """import hashlib, sys
@@ -181,9 +181,9 @@ class WorkingTreeTests(unittest.TestCase):
         index = self.tmp / f"index-{repo.name}"
         if (gitdir / "index").exists():
             shutil.copyfile(gitdir / "index", index)
-        env = git_env(GIT_INDEX_FILE=str(index))
-        subprocess.run(["git", "-C", str(repo), "add", "-A"], env=env, check=True, capture_output=True)
-        tree = subprocess.run(["git", "-C", str(repo), "write-tree"], env=env, check=True, capture_output=True, text=True).stdout.strip()
+        with mock.patch.dict(os.environ, {"GIT_INDEX_FILE": str(index)}):
+            git(repo, "add", "-A")
+            tree = git(repo, "write-tree")
         listing = rk.parse_ls_tree(rk.git(repo, "ls-tree", "-r", "-z", "--full-tree", tree))
         return rk.compute(listing, config, rk.object_format_of(repo)).revision_key
 
