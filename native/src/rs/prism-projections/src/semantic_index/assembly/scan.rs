@@ -514,6 +514,140 @@ fn is_python_space(character: char) -> bool {
     character.is_whitespace() || ('\u{1c}'..='\u{1f}').contains(&character)
 }
 
+// ---------------------------------------------------------------------------
+// The variant/rule-area diagnostics scans (semantic_index_variants.py:535-561).
+// These run over the raw text (not the masked copy): Python's `_VARIANT_START`,
+// `_RULE_AREA_START` and `_RULE_AREA_FLAGS` are plain `re` searches, and only
+// `kicad_library_reader.form_end` is quote-aware (`_SEXPR_SCAN`, :32-56).
+// ---------------------------------------------------------------------------
+
+/// `kicad_library_reader.form_end(text, start)` (kicad_library_reader.py:35-56):
+/// the offset just past the form opening at `start`, or `None` when the text is
+/// unbalanced or carries an unterminated string.
+pub(super) fn form_end(text: &str, start: usize) -> Option<usize> {
+    let bytes = text.as_bytes();
+    let mut depth = 0i64;
+    let mut at = start;
+    while at < bytes.len() {
+        match bytes[at] {
+            b'"' => {
+                let end = match_string(bytes, at)?;
+                if end == at || bytes[end - 1] != b'"' {
+                    return None;
+                }
+                at = end;
+            }
+            b'(' => {
+                depth += 1;
+                at += 1;
+            }
+            b')' => {
+                depth -= 1;
+                if depth == 0 {
+                    return Some(at + 1);
+                }
+                if depth < 0 {
+                    return None;
+                }
+                at += 1;
+            }
+            _ => at += 1,
+        }
+    }
+    None
+}
+
+/// `form_starts`/`_VARIANT_START`/`_RULE_AREA_START` (`(head(?=\s|\))`) over the
+/// raw text, in order (`kicad_library_reader.py:59-62`).
+fn form_starts(text: &str, head: &str) -> Vec<usize> {
+    let bytes = text.as_bytes();
+    let needle = head.as_bytes();
+    let mut starts = Vec::new();
+    let mut at = 0;
+    while at + 1 + needle.len() <= bytes.len() {
+        if bytes[at] == b'(' && &bytes[at + 1..at + 1 + needle.len()] == needle {
+            let end = at + 1 + needle.len();
+            if end < bytes.len() && (space_len(bytes, end) > 0 || bytes[end] == b')') {
+                starts.push(at);
+                at = end;
+                continue;
+            }
+        }
+        at += 1;
+    }
+    starts
+}
+
+/// `_scan_unsupported_tokens(text, suffix)` (semantic_index_variants.py:535-545):
+/// the first-seen token of `candidates` found inside any `(variant …)` block.
+pub(super) fn unsupported_tokens(text: &str, candidates: &[&str]) -> Vec<String> {
+    let mut found: Vec<String> = Vec::new();
+    for start in form_starts(text, "variant") {
+        let Some(end) = form_end(text, start) else {
+            continue;
+        };
+        let block = &text[start..end];
+        for token in candidates {
+            if !found.iter().any(|seen| seen == token) && block.contains(&format!("({token}")) {
+                found.push((*token).to_owned());
+            }
+        }
+    }
+    found
+}
+
+/// `_scan_rule_areas(text)` (semantic_index_variants.py:548-561): one detail
+/// map per `(rule_area …)` block that sets a recognized flag, in `_RULE_AREA_FLAGS`
+/// order.
+pub(super) fn rule_areas(text: &str) -> Vec<Vec<(&'static str, bool)>> {
+    const FLAGS: [(&str, &str, bool); 4] = [
+        ("dnp", "yes", true),
+        ("in_bom", "no", false),
+        ("on_board", "no", false),
+        ("exclude_from_sim", "yes", true),
+    ];
+    let mut areas = Vec::new();
+    for start in form_starts(text, "rule_area") {
+        let Some(end) = form_end(text, start) else {
+            continue;
+        };
+        let block = &text[start..end];
+        let detail = FLAGS
+            .iter()
+            .filter(|(key, value, _)| contains_flag_expression(block, key, value))
+            .map(|(key, _, flag)| (*key, *flag))
+            .collect::<Vec<_>>();
+        if !detail.is_empty() {
+            areas.push(detail);
+        }
+    }
+    areas
+}
+
+/// `\(key\s+value\)` over the raw block (`_RULE_AREA_FLAGS`, :65-70).
+fn contains_flag_expression(block: &str, key: &str, value: &str) -> bool {
+    let bytes = block.as_bytes();
+    let mut at = 0;
+    while at < bytes.len() {
+        if bytes[at] == b'(' && starts_word(bytes, at + 1, key.as_bytes()) {
+            let mut position = at + 1 + key.len();
+            let mut spaces = 0;
+            while position < bytes.len() && space_len(bytes, position) > 0 {
+                position += space_len(bytes, position);
+                spaces += 1;
+            }
+            if spaces > 0 && starts_word(bytes, position, value.as_bytes()) {
+                let close = position + value.len();
+                if close < bytes.len() && bytes[close] == b')' {
+                    return true;
+                }
+            }
+        }
+        at += 1;
+    }
+    false
+}
+
 #[cfg(test)]
 mod tests {
     use super::scan;
@@ -590,5 +724,53 @@ mod tests {
             "kicad_pcb",
         );
         assert_eq!(records.header, [("A".to_owned(), Some("d".to_owned()))]);
+    }
+
+    /// `_scan_unsupported_tokens` (semantic_index_variants.py:535-545): first
+    /// seen across variant blocks, checked in token order per block.
+    #[test]
+    fn unsupported_tokens_are_first_seen_across_variant_blocks() {
+        let tokens = super::unsupported_tokens(
+            "(kicad_sch (symbol (instances \
+             (path \"/\" (variant (name \"V\") (symbol_override yes))))) \
+             (symbol (instances (path \"/\" (variant (name \"W\") (pin_map_override x))))))",
+            &["symbol_override", "pin_map_override"],
+        );
+        assert_eq!(tokens, ["symbol_override", "pin_map_override"]);
+
+        // A token outside any variant block is not reported.
+        assert!(
+            super::unsupported_tokens("(kicad_sch (symbol_override yes))", &["symbol_override"])
+                .is_empty()
+        );
+    }
+
+    /// `_scan_rule_areas` (semantic_index_variants.py:548-561): one detail map
+    /// per block that sets a recognized flag, in `_RULE_AREA_FLAGS` order.
+    #[test]
+    fn rule_area_flags_are_reported_in_flag_order() {
+        let areas = super::rule_areas(
+            "(kicad_sch (rule_area (polygon) (on_board no) (dnp yes)) \
+             (rule_area (polygon)) \
+             (rule_area (in_bom no) (exclude_from_sim yes)))",
+        );
+        assert_eq!(
+            areas,
+            vec![
+                vec![("dnp", true), ("on_board", false)],
+                vec![("in_bom", false), ("exclude_from_sim", true)],
+            ]
+        );
+        assert!(super::rule_areas("(kicad_sch (rule_area (dnp no)))").is_empty());
+    }
+
+    /// `kicad_library_reader.form_end` (`:35-56`) stops on an unbalanced form
+    /// and never counts parentheses inside a quoted string.
+    #[test]
+    fn form_end_is_quote_aware_and_balanced() {
+        let text = "(a \"(b)\" (c d)) tail";
+        assert_eq!(super::form_end(text, 0), Some(15));
+        assert_eq!(super::form_end("(a (b)", 0), None);
+        assert_eq!(super::form_end("(a \"unterminated)", 0), None);
     }
 }
