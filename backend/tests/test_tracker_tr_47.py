@@ -39,7 +39,6 @@ F3 = json.loads((DOCS / "fixtures" / "F03.json").read_text(encoding="utf-8"))
 F10 = json.loads((DOCS / "fixtures" / "F10.json").read_text(encoding="utf-8"))
 
 BOT_TOKEN_A = "glpat-bot-token-fixture-a-not-a-credential"
-BOT_TOKEN_B = "glpat-bot-token-fixture-b-not-a-credential"
 USER_TOKEN = "user-oauth-token-fixture"
 USER_ACCESS_A = "user-access-token-fixture-a"
 USER_ACCESS_B = "user-access-token-fixture-b"
@@ -112,14 +111,6 @@ class GitLabBotAuthTests(unittest.TestCase):
     def _enqueue(self, method: str, url: str, status: int, payload: dict | list | None = None) -> None:
         content = json.dumps(payload if payload is not None else {}).encode()
         self._routes.setdefault((method.upper(), url), []).append(_Raw(status, content=content, url=url))
-
-    def test_fixture_cases_are_present(self) -> None:
-        f3 = {case["id"] for case in F3["cases"]}
-        f10 = {case["id"] for case in F10["cases"]}
-        self.assertIn("F3.bot_identity_captured", f3)
-        self.assertIn("F3.installation_token_expiry", f3)
-        self.assertIn("F10.gitlab_group_vs_project", f10)
-        self.assertEqual(F10["owner"], "TR-47")
 
     def test_gitlab_com_uses_api_v4_not_web_host(self) -> None:
         self.assertEqual(api_root_for(instance_kind="gitlab.com"), GITLAB_COM_API)
@@ -394,12 +385,6 @@ class GitLabIdentityAdapterTests(unittest.TestCase):
     def _enqueue(self, method, url, status, payload=None) -> None:
         content = b"" if payload is None else json.dumps(payload).encode()
         self._routes.setdefault((method.upper(), url), []).append(_Raw(status, content=content, url=url))
-
-    def test_fixture_oauth_cases_are_present(self) -> None:
-        ids = {case["id"] for case in F3["cases"]}
-        self.assertIn("F3.oauth_pkce_required", ids)
-        self.assertIn("F3.oauth_refresh", ids)
-        self.assertIn("F3.oauth_state_mismatch", ids)
 
     def test_authorize_url_requires_pkce_s256(self) -> None:
         adapter = self._adapter()

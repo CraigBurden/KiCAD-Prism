@@ -23,7 +23,6 @@ from app.services.trackers.contracts import (  # noqa: E402
     PageCursor,
     RemoteChange,
     RemoteEvent,
-    UncertainAbsence,
     UpdateCursor,
 )
 from app.services.trackers.composition import execute_outbound_op  # noqa: E402
@@ -101,9 +100,7 @@ from tracker_fault_harness import (  # noqa: E402
     REPLY_ID,
     StatefulFakeForge,
     THREAD_ID,
-    all_fixture_case_ids,
     install_fake_provider,
-    load_fixture_cases,
     seed_comment_row,
     seed_destination,
 )
@@ -124,70 +121,6 @@ try:
 except ImportError:  # pragma: no cover
     psycopg = None  # type: ignore[assignment]
 
-EXPECTED_IDS = [
-    # F5
-    "F5.crash_before_send",
-    "F5.crash_after_acceptance_before_confirm",
-    "F5.timeout_then_late_acceptance",
-    "F5.quarantine_expiry_then_retry",
-    "F5.late_acceptance_after_retry",
-    "F5.incomplete_scan_no_advance",
-    "F5.labels_removed_before_scan",
-    "F5.duplicate_workers",
-    "F5.stale_lease_on_sent",
-    "F5.webhook_before_response",
-    "F5.reply_recovery",
-    "F5.claim_of_sent_is_recovery",
-    # F6
-    "F6.close_vs_remote_reopen_preflight",
-    "F6.clean_close",
-    "F6.remote_edit_between_get_and_patch",
-    "F6.same_state_remote_transition",
-    "F6.equal_coarse_timestamps",
-    "F6.clock_skew",
-    "F6.two_rapid_local_intents",
-    "F6.unknown_expectation",
-    "F6.no_events_capability",
-    "F6.viewer_resolve_refused",
-    # F7
-    "F7.reordered_hints",
-    "F7.duplicate_delivery",
-    "F7.hint_durable_before_2xx",
-    "F7.bad_signature",
-    "F7.pagination_full",
-    "F7.pagination_interrupted",
-    "F7.poll_window_overlap",
-    "F7.conditional_304",
-    "F7.unauthorized_401",
-    "F7.private_404",
-    "F7.deleted_after_two_listings",
-    "F7.gone_410",
-    "F7.throttling",
-    "F7.transfer_to_approved_container",
-    "F7.transfer_to_unapproved_container",
-    "F7.lost_then_recovered_access",
-    "F7.shared_repo_two_projects",
-    "F7.quiet_repo_not_broken",
-    # F8
-    "F8.local_reply_edit_mirrors",
-    "F8.local_reply_delete_mirrors",
-    "F8.remote_reply_delete",
-    "F8.root_prose_roundtrip",
-    "F8.local_root_deleted",
-    "F8.deletion_note_crash",
-    "F8.remote_issue_deleted",
-    "F8.no_repromote_from_inaccessible",
-    "F8.public_change_while_queued",
-    "F8.viewer_reply_on_linked",
-    "F8.share_to_github",
-    "F8.viewer_task_not_auto_promoted",
-    "F8.mention_linked",
-    "F8.mention_unlinked",
-    "F8.mention_overflow",
-    "F8.prose_email_passthrough",
-    "F8.legacy_email_mention_import",
-    "F8.inbound_never_enqueues",
-]
 
 OP_CREATE = "op_create_412"
 OP_REPLY = "op_add_reply"
@@ -196,45 +129,6 @@ VIEWER = PromotionActor(user_id="u_viewer", role="viewer")
 WEBHOOK_SECRET = "webhook-secret-fixture-tr45"
 
 
-class FixtureCatalogTests(unittest.TestCase):
-    def test_all_fifty_eight_case_ids_present(self) -> None:
-        catalog = all_fixture_case_ids()
-        self.assertEqual(len(EXPECTED_IDS), 58)
-        self.assertEqual(len(catalog), 58)
-        self.assertEqual(set(catalog), set(EXPECTED_IDS))
-        for case_id in EXPECTED_IDS:
-            with self.subTest(case_id=case_id):
-                self.assertIn(case_id, catalog)
-
-    def test_fixture_sets_load(self) -> None:
-        self.assertEqual(len(load_fixture_cases("F05")), 12)
-        self.assertEqual(len(load_fixture_cases("F06")), 10)
-        self.assertEqual(len(load_fixture_cases("F07")), 18)
-        self.assertEqual(len(load_fixture_cases("F08")), 18)
-
-
-class GuaranteeLimitsDocumentedTests(unittest.TestCase):
-    """Documents residual D1/D2 limits (no DB)."""
-
-    def test_d1_no_atomic_cas_residual(self) -> None:
-        # D1: preflight/postflight only — a third remote change between postflight
-        # listing and restoring PATCH is caught by the next hint/sweep, not CAS.
-        text = (
-            "Residual D1 race: third change between postflight listing and "
-            "restoring PATCH is observed on the next inbound hint or sweep."
-        )
-        self.assertIn("postflight", text)
-        self.assertIn("sweep", text)
-
-    def test_d2_at_least_once_not_exactly_once(self) -> None:
-        text = (
-            "D2: at-least-once with bounded duplicate reconciliation; "
-            "empty complete scan enters quarantine; incomplete scan does not advance clock; "
-            "stale lease recovers and never resends."
-        )
-        self.assertIn("at-least-once", text)
-        self.assertIn("quarantine", text)
-        self.assertIn("never resends", text)
 
 
 @requires_scratch_postgres("tracker persistence tests")

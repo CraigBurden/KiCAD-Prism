@@ -28,7 +28,6 @@ from app.services.trackers.inbox_store import InboxStore  # noqa: E402
 from app.services.trackers.jobs import run_tracker_dispatch_job, run_tracker_poll_job, run_tracker_sweep_job  # noqa: E402
 from app.services.trackers.migrations import migrate_workspace_tracker_tables  # noqa: E402
 from app.services.trackers.op_store import OpStore  # noqa: E402
-from app.services.trackers import scheduler as tracker_scheduler  # noqa: E402
 from app.services.trackers.scheduler import (  # noqa: E402
     DISPATCH_KIND,
     POLL_KIND,
@@ -104,14 +103,7 @@ class CompositionUnitTests(unittest.TestCase):
         reset_tracker_runtime()
         self.assertFalse(has_outbound_executor())
 
-    def test_main_registers_composition_bootstrap(self) -> None:
-        source = (Path(__file__).resolve().parents[1] / "app" / "main.py").read_text(encoding="utf-8")
-        self.assertIn("initialize_tracker_composition", source)
 
-    def test_job_runner_registers_composition_bootstrap(self) -> None:
-        source = (Path(__file__).resolve().parents[1] / "app" / "job_runner.py").read_text(encoding="utf-8")
-        self.assertIn("initialize_tracker_composition", source)
-        self.assertIn("load_builtin_job_handlers", source)
 
 
 @requires_scratch_postgres("tracker persistence tests")

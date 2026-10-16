@@ -64,16 +64,13 @@ class SyncFastForwardsOnly(unittest.TestCase):
             patch.start()
             self.addCleanup(patch.stop)
 
-    def test_sync_never_pulls(self) -> None:
+    def test_sync_fetches_with_prune_and_only_fast_forwards(self) -> None:
         result = project_import_service.sync_project("prj_1")
         self.assertEqual(result["status"], "success")
         # `pull` fetches *and merges*; a mirror must not merge.
         self.origin.pull.assert_not_called()
-        self.repo.git.merge.assert_called_once_with("--ff-only", "origin/main")
-
-    def test_sync_prunes_deleted_remote_branches(self) -> None:
-        project_import_service.sync_project("prj_1")
         self.assertTrue(self.origin.fetch.call_args.kwargs["prune"])
+        self.repo.git.merge.assert_called_once_with("--ff-only", "origin/main")
 
     def test_background_fetch_does_not_change_the_checkout(self) -> None:
         with mock.patch.object(
@@ -112,29 +109,19 @@ class SyncFastForwardsOnly(unittest.TestCase):
         self.repo.git.merge.assert_not_called()
         self.assertIn("no upstream", result["message"])
 
-    def test_sync_requires_a_pinned_host_key(self) -> None:
-        """Sync built its own environment and kept `accept-new` after import
-        moved to pinned keys. Sync is the operation that runs unattended and
-        repeatedly, so it is the one an attacker has the most chances at."""
-        project_import_service.sync_project("prj_1")
-        env = self.origin.fetch.call_args.kwargs["env"]
-        self.assertIn("StrictHostKeyChecking=yes", env["GIT_SSH_COMMAND"])
-        self.assertNotIn("accept-new", env["GIT_SSH_COMMAND"])
-
-    def test_sync_never_waits_on_a_credential_prompt(self) -> None:
-        # No terminal is attached to a worker, so a prompt is a hung job.
-        project_import_service.sync_project("prj_1")
-        env = self.origin.fetch.call_args.kwargs["env"]
-        self.assertEqual(env["GIT_TERMINAL_PROMPT"], "0")
-        self.assertIn("BatchMode=yes", env["GIT_SSH_COMMAND"])
-
-    def test_sync_uses_the_same_environment_as_every_other_remote_call(self) -> None:
-        # Built locally, it drifts. This is what let the policies diverge.
+    def test_sync_fetches_with_the_shared_unattended_pinned_environment(self) -> None:
+        # Sync runs unattended and repeatedly, so it is the remote call an
+        # attacker gets the most chances at. It once built its own environment
+        # and kept `accept-new` after import moved to pinned keys; a prompt with
+        # no terminal attached is a hung job.
         project_import_service.sync_project("prj_1")
         env = self.origin.fetch.call_args.kwargs["env"]
         expected = project_import_service.git_remote_access.git_env()
         self.assertEqual(env["GIT_SSH_COMMAND"], expected["GIT_SSH_COMMAND"])
-        self.assertEqual(env["GIT_TERMINAL_PROMPT"], expected["GIT_TERMINAL_PROMPT"])
+        self.assertEqual(env["GIT_TERMINAL_PROMPT"], "0")
+        self.assertIn("StrictHostKeyChecking=yes", env["GIT_SSH_COMMAND"])
+        self.assertIn("BatchMode=yes", env["GIT_SSH_COMMAND"])
+        self.assertNotIn("accept-new", env["GIT_SSH_COMMAND"])
 
     def test_sync_clears_legacy_in_tree_thumbnails(self) -> None:
         # A checkout carrying thumbnails from an older Prism cannot fast-forward

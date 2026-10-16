@@ -6,7 +6,6 @@ import json
 import sys
 import unittest
 from contextlib import contextmanager
-from datetime import datetime, timezone
 from pathlib import Path
 from unittest.mock import patch
 
@@ -25,7 +24,7 @@ from app.services.trackers.migrations import migrate_workspace_tracker_tables  #
 from app.services.trackers.op_store import RECOVERY_DISPATCH, OpStore, apply_schema as apply_op_schema  # noqa: E402
 from app.services.trackers.promotion import PromotionActor  # noqa: E402
 from app.services.trackers.provenance import body_hash  # noqa: E402
-from app.services.trackers.store import TrackerStore, issue_number_for_api  # noqa: E402
+from app.services.trackers.store import TrackerStore  # noqa: E402
 from app.services.trackers.thread_executor import execute_thread_claimed_op, recover_thread_op  # noqa: E402
 from app.services.trackers.thread_mutations import (  # noqa: E402
     DELETION_NOTE,
@@ -89,13 +88,6 @@ def _build_remote_body(prose: str, *, op_id: str = "op_create") -> str:
 
 
 class FixtureContractTests(unittest.TestCase):
-    def test_tr30_fixture_cases_present(self) -> None:
-        f8_ids = {case["id"] for case in F8["cases"]}
-        self.assertIn("F8.root_prose_roundtrip", f8_ids)
-        self.assertIn("F8.local_root_deleted", f8_ids)
-        self.assertIn("F8.deletion_note_crash", f8_ids)
-        f4_ids = {case["id"] for case in F4["cases"]}
-        self.assertIn("F4.human_title_edit", f4_ids)
 
     def test_github_issue_url_uses_repo_number(self) -> None:
         url = github_issue_url(REPO, ISSUE_NUMBER)

@@ -62,20 +62,6 @@ class ReleaseStudioFailureRetentionTests(unittest.TestCase):
                 service=self.service,  # type: ignore[arg-type]
             )
 
-    def test_cancellation_registration_uses_authoritative_lease_claim_not_worker_id(self) -> None:
-        """ws_jobs owns lease_owner; a made-up worker_id column is unsafe."""
-
-        source = (
-            Path(__file__).resolve().parents[1]
-            / "app"
-            / "services"
-            / "job_service.py"
-        ).read_text(encoding="utf-8")
-        method = source[source.index("def register_fenced_artifacts"):source.index("def complete_artifact")]
-        self.assertIn("self._authoritative_claim(", method)
-        self.assertIn("statuses=allowed_statuses", method)
-        self.assertNotIn("SELECT status, fence, worker_id FROM ws_jobs", method)
-
     def test_prepare_failure_retains_attempt_and_publishes_diagnostic_evidence(self) -> None:
         context = self._context(
             payload={

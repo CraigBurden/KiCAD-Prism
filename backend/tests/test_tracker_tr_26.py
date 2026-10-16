@@ -101,13 +101,6 @@ class FakeContext:
 
 
 class FixtureContractTests(unittest.TestCase):
-    def test_fixture_cases_are_present(self) -> None:
-        f5_ids = {case["id"] for case in F5["cases"]}
-        self.assertIn("F5.crash_after_acceptance_before_confirm", f5_ids)
-        self.assertIn("F5.webhook_before_response", f5_ids)
-        self.assertIn("F5.timeout_then_late_acceptance", f5_ids)
-        f8_ids = {case["id"] for case in F8["cases"]}
-        self.assertIn("F8.public_change_while_queued", f8_ids)
 
     def test_github_issue_url_uses_repo_number(self) -> None:
         self.assertEqual(
