@@ -10,7 +10,7 @@ kicad_monkey (native/)
   Imported from https://github.com/krishna-swaroop/kicad_monkey at b6316117,
   a fork of https://github.com/wavenumber-eng/kicad_monkey.
 
-FreeType (native/src/rs/kicad-monkey-core/src/fake_style.rs)
+FreeType (native/src/rs/prism-kicad-core/src/fake_style.rs)
   Portions of this software are copyright (c) 2024 The FreeType Project
   (www.freetype.org). All rights reserved.
   Used under the FreeType License (FTL).

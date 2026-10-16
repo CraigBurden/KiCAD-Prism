@@ -6,10 +6,10 @@ name: Analytic materializer
 on:
   pull_request:
     paths:
-      - "src/rs/kicad-monkey-contracts/**"
-      - "src/rs/kicad-monkey-core/**"
-      - "src/rs/kicad-monkey-materialization-pack/**"
-      - "src/rs/kicad-monkey-wasm/**"
+      - "src/rs/prism-kicad-contracts/**"
+      - "src/rs/prism-kicad-core/**"
+      - "src/rs/prism-kicad-materialization-pack/**"
+      - "src/rs/prism-kicad-wasm/**"
       - "src/tsp/**"
       - "Cargo.toml"
       - "Cargo.lock"
@@ -49,18 +49,18 @@ jobs:
       - uses: dtolnay/rust-toolchain@1.98.0
       - uses: Swatinem/rust-cache@v2
       - name: Contract and pack
-        run: cargo test --locked -p kicad-monkey-contracts -p kicad-monkey-materialization-pack
+        run: cargo test --locked -p prism-kicad-contracts -p prism-kicad-materialization-pack
       - name: Producer
         shell: bash
         run: |
           tests=()
-          for file in src/rs/kicad-monkey-core/tests/board_materialization_*.rs; do
+          for file in src/rs/prism-kicad-core/tests/board_materialization_*.rs; do
             tests+=(--test "$(basename "${file}" .rs)")
           done
-          cargo test --locked -p kicad-monkey-core --lib board_materialization
-          cargo test --locked -p kicad-monkey-core "${tests[@]}"
+          cargo test --locked -p prism-kicad-core --lib board_materialization
+          cargo test --locked -p prism-kicad-core "${tests[@]}"
       - name: Browser adapter (native)
-        run: cargo test --locked -p kicad-monkey-wasm --lib materialization
+        run: cargo test --locked -p prism-kicad-wasm --lib materialization
 
   wasm32:
     name: Materializer (wasm32)
@@ -76,12 +76,12 @@ jobs:
       - name: Producer, contract, and pack build for wasm32
         run: >-
           cargo build --locked --target wasm32-unknown-unknown
-          -p kicad-monkey-contracts -p kicad-monkey-core -p kicad-monkey-materialization-pack
+          -p prism-kicad-contracts -p prism-kicad-core -p prism-kicad-materialization-pack
       - name: Viewer adapter (pack reading and lowering only)
         run: >-
-          cargo clippy --locked --target wasm32-unknown-unknown -p kicad-monkey-wasm
+          cargo clippy --locked --target wasm32-unknown-unknown -p prism-kicad-wasm
           --no-default-features --features materialization -- -D warnings
       - name: In-browser producer
         run: >-
-          cargo check --locked --target wasm32-unknown-unknown -p kicad-monkey-wasm
+          cargo check --locked --target wasm32-unknown-unknown -p prism-kicad-wasm
           --no-default-features --features materialize

@@ -9,8 +9,8 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
-use kicad_monkey_contracts::generated::compiled_schematic_graph::CompiledSchematicGraphA0;
-use kicad_monkey_core::{ENGINE_VERSION, KiCadSchematicInstance};
+use prism_kicad_contracts::generated::compiled_schematic_graph::CompiledSchematicGraphA0;
+use prism_kicad_core::{ENGINE_VERSION, KiCadSchematicInstance};
 use serde::Serialize;
 use serde_json::Value;
 use sha2::{Digest, Sha256};
@@ -1019,7 +1019,7 @@ fn write_staged_bundle(
         pcb_svgs: &pcb_artifacts,
         readme: readme_path,
         design_facts: DesignFactsArtifact {
-            backend: "kicad-monkey-native",
+            backend: "prism-kicad-transport",
             engine_version: ENGINE_VERSION,
             resource_profile: "design-facts-bounded-a1",
             source_snapshot_sha256: &loaded.source_snapshot_sha256,

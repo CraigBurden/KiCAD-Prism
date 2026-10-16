@@ -14,7 +14,7 @@ use kicad_cruncher_cli::pcb_review_svg::{
 use kicad_cruncher_cli::schematic_review_svg::{
     SchematicReviewSvgLimits, build_schematic_review_svgs, build_schematic_review_svgs_with_limits,
 };
-use kicad_monkey_core::{
+use prism_kicad_core::{
     BoardPlotLimits, BoardTextVariables, KiCadNetlist, PcbLimits, board_plot_facts_with_sidecars,
     validate_compiled_schematic_graph,
 };
@@ -216,10 +216,10 @@ fn board_projection_limits_accept_exact_and_reject_one_under() {
     let exact = BoardPlotDocumentLimits {
         max_copper_layers: copper_layers,
         max_contract_bytes: document.serialized_bytes().unwrap(),
-        contract: kicad_monkey_core::BoardPlotContractLimits {
+        contract: prism_kicad_core::BoardPlotContractLimits {
             max_records: document.record_count(),
             max_operations: document.operation_count(),
-            ..kicad_monkey_core::BoardPlotContractLimits::default()
+            ..prism_kicad_core::BoardPlotContractLimits::default()
         },
         ..BoardPlotDocumentLimits::default()
     };
@@ -236,14 +236,14 @@ fn board_projection_limits_accept_exact_and_reject_one_under() {
             ..exact
         },
         BoardPlotDocumentLimits {
-            contract: kicad_monkey_core::BoardPlotContractLimits {
+            contract: prism_kicad_core::BoardPlotContractLimits {
                 max_records: document.record_count() - 1,
                 ..exact.contract
             },
             ..exact
         },
         BoardPlotDocumentLimits {
-            contract: kicad_monkey_core::BoardPlotContractLimits {
+            contract: prism_kicad_core::BoardPlotContractLimits {
                 max_operations: document.operation_count() - 1,
                 ..exact.contract
             },
@@ -470,8 +470,8 @@ fn schematic_review_svg_binds_graph_enrichment_and_black_white_theme() {
 
 fn assert_review_svg(
     artifact: &kicad_cruncher_cli::schematic_review_svg::SchematicReviewSvg,
-    instance: &kicad_monkey_core::KiCadSchematicInstance,
-    graph: &kicad_monkey_contracts::generated::compiled_schematic_graph::CompiledSchematicGraphA0,
+    instance: &prism_kicad_core::KiCadSchematicInstance,
+    graph: &prism_kicad_contracts::generated::compiled_schematic_graph::CompiledSchematicGraphA0,
 ) {
     assert_eq!(artifact.page_occurrence_ref, instance.page_occurrence_ref);
     assert_eq!(artifact.artifact_key, "sch.dwg_scene");

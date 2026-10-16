@@ -3,9 +3,9 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::io::{self, Write};
 
-use kicad_monkey_contracts::generated::board_plot_document::BoardPlotDocumentA0;
-use kicad_monkey_core::{PcbLimits, PcbView, ProjectDocument, ProjectLimits};
-use kicad_monkey_svg::{
+use prism_kicad_contracts::generated::board_plot_document::BoardPlotDocumentA0;
+use prism_kicad_core::{PcbLimits, PcbView, ProjectDocument, ProjectLimits};
+use prism_kicad_svg::{
     SvgMetrics, SvgRenderContextA1, SvgViewport, ViewportPolicy, render_board_document_svg,
 };
 use serde_json::{Value, json};

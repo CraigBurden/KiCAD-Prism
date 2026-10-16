@@ -22,7 +22,7 @@ await emit("src/ts/contracts/pcb-svg-config.ts", await compile(
     cwd: path.dirname(emitted),
   },
 ));
-execFileSync("cargo", ["run", "--locked", "-p", "kicad-monkey-codegen", "--",
+execFileSync("cargo", ["run", "--locked", "-p", "prism-kicad-codegen", "--",
   "--standalone", emitted,
   path.join(pkg, "src/rs/kicad-cruncher-cli/src/pcb_svg/generated.rs"),
   ...(check ? ["--check"] : []),

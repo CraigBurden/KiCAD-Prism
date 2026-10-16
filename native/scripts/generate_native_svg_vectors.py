@@ -124,7 +124,7 @@ def _canonical_sha(value: object) -> str:
 
 
 def _default_executable() -> Path:
-    filename = "kicad-monkey-native.exe" if os.name == "nt" else "kicad-monkey-native"
+    filename = "prism-kicad-transport.exe" if os.name == "nt" else "prism-kicad-transport"
     return ROOT / "target" / "debug" / filename
 
 

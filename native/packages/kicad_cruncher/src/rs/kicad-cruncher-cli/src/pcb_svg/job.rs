@@ -1,11 +1,11 @@
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use kicad_monkey_core::{
+use prism_kicad_core::{
     BoardPlotSourceArtifact, PlotDocumentMetadata, PlotDocumentProjectionLimits,
     PlotProjectionError, ProjectedBoardPlotArtifact, project_board_plot_artifact_a0,
 };
-use kicad_monkey_svg::{
+use prism_kicad_svg::{
     SvgArtifact, SvgError, SvgErrorKind, SvgFitOptions, SvgRenderLimits, SvgViewport,
     ValidatedSvgRenderContextA1, ViewportPolicy, render_board_svg,
 };

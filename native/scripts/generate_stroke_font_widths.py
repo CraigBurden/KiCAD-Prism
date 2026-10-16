@@ -13,7 +13,7 @@ TARGET = (
     ROOT
     / "src"
     / "rs"
-    / "kicad-monkey-core"
+    / "prism-kicad-core"
     / "src"
     / "board_plotter_ir"
     / "stroke_font_widths.rs"

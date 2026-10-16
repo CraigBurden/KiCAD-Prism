@@ -553,99 +553,14 @@ version = "2026.9.7"
 dependencies = [
  "geo",
  "geometer-client",
- "kicad-monkey-contracts",
- "kicad-monkey-core",
- "kicad-monkey-svg",
+ "prism-kicad-contracts",
+ "prism-kicad-core",
+ "prism-kicad-svg",
  "serde",
  "serde_json",
  "sha2 0.11.0",
  "tokio",
  "ttf-parser",
-]
-
-[[package]]
-name = "kicad-monkey-codegen"
-version = "2026.9.7"
-dependencies = [
- "anyhow",
- "prettyplease",
- "schemars",
- "serde_json",
- "syn 2.0.119",
- "typify",
-]
-
-[[package]]
-name = "kicad-monkey-contracts"
-version = "2026.9.7"
-dependencies = [
- "serde",
- "serde_json",
- "sha2 0.11.0",
-]
-
-[[package]]
-name = "kicad-monkey-core"
-version = "2026.9.7"
-dependencies = [
- "harfrust",
- "kicad-monkey-contracts",
- "kicad-monkey-materialization-pack",
- "read-fonts",
- "serde",
- "serde_json",
- "sha2 0.11.0",
- "skrifa",
- "stats_alloc",
- "ttf-parser",
- "unicode-casefold",
- "zstd",
-]
-
-[[package]]
-name = "kicad-monkey-materialization-pack"
-version = "2026.9.7"
-dependencies = [
- "kicad-monkey-contracts",
- "serde",
- "serde_json",
-]
-
-[[package]]
-name = "kicad-monkey-native"
-version = "2026.9.7"
-dependencies = [
- "cap-std",
- "kicad-monkey-contracts",
- "kicad-monkey-core",
- "kicad-monkey-svg",
- "serde",
- "serde_json",
- "sha2 0.11.0",
-]
-
-[[package]]
-name = "kicad-monkey-svg"
-version = "2026.9.7"
-dependencies = [
- "kicad-monkey-contracts",
- "kicad-monkey-core",
- "serde",
- "serde_json",
- "sha2 0.11.0",
-]
-
-[[package]]
-name = "kicad-monkey-wasm"
-version = "2026.9.7"
-dependencies = [
- "kicad-monkey-contracts",
- "kicad-monkey-core",
- "kicad-monkey-materialization-pack",
- "serde",
- "serde_json",
- "wasm-bindgen",
- "wasm-bindgen-test",
 ]
 
 [[package]]
@@ -756,6 +671,113 @@ checksum = "479ca8adacdd7ce8f1fb39ce9ecccbfe93a3f1344b3d0d97f20bc0196208f62b"
 dependencies = [
  "proc-macro2",
  "syn 2.0.119",
+]
+
+[[package]]
+name = "prism-bundle"
+version = "0.1.0"
+dependencies = [
+ "prism-kicad-core",
+ "prism-projections",
+]
+
+[[package]]
+name = "prism-kicad-cli"
+version = "0.1.0"
+dependencies = [
+ "prism-bundle",
+]
+
+[[package]]
+name = "prism-kicad-codegen"
+version = "2026.9.7"
+dependencies = [
+ "anyhow",
+ "prettyplease",
+ "schemars",
+ "serde_json",
+ "syn 2.0.119",
+ "typify",
+]
+
+[[package]]
+name = "prism-kicad-contracts"
+version = "2026.9.7"
+dependencies = [
+ "serde",
+ "serde_json",
+ "sha2 0.11.0",
+]
+
+[[package]]
+name = "prism-kicad-core"
+version = "2026.9.7"
+dependencies = [
+ "harfrust",
+ "prism-kicad-contracts",
+ "prism-kicad-materialization-pack",
+ "read-fonts",
+ "serde",
+ "serde_json",
+ "sha2 0.11.0",
+ "skrifa",
+ "stats_alloc",
+ "ttf-parser",
+ "unicode-casefold",
+ "zstd",
+]
+
+[[package]]
+name = "prism-kicad-materialization-pack"
+version = "2026.9.7"
+dependencies = [
+ "prism-kicad-contracts",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "prism-kicad-svg"
+version = "2026.9.7"
+dependencies = [
+ "prism-kicad-contracts",
+ "prism-kicad-core",
+ "serde",
+ "serde_json",
+ "sha2 0.11.0",
+]
+
+[[package]]
+name = "prism-kicad-transport"
+version = "2026.9.7"
+dependencies = [
+ "cap-std",
+ "prism-kicad-contracts",
+ "prism-kicad-core",
+ "prism-kicad-svg",
+ "serde",
+ "serde_json",
+ "sha2 0.11.0",
+]
+
+[[package]]
+name = "prism-kicad-wasm"
+version = "2026.9.7"
+dependencies = [
+ "prism-kicad-contracts",
+ "prism-kicad-core",
+ "prism-kicad-materialization-pack",
+ "serde",
+ "serde_json",
+ "wasm-bindgen",
+ "wasm-bindgen-test",
+]
+
+[[package]]
+name = "prism-projections"
+version = "0.1.0"
+dependencies = [
+ "prism-kicad-core",
 ]
 
 [[package]]

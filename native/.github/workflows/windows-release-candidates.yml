@@ -44,7 +44,7 @@ jobs:
           npm install --global npm@11.6.2
           npm ci
           npx playwright install chromium webkit
-          cargo build --locked --jobs 4 --package kicad-monkey-native
+          cargo build --locked --jobs 4 --package prism-kicad-transport
       - name: Restore the reviewed public corpus once
         shell: pwsh
         run: |
