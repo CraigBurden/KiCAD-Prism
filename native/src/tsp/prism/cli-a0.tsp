@@ -227,6 +227,30 @@ enum CliArgument {
 
   /** `--head` of `compare` (cli-spec.md §5.6). */
   head,
+
+  /** `--view` of `artwork`: the name of a view of the `ArtworkConfigA0`. */
+  view,
+
+  /** `--variant` of `vendor run` and `artwork`: the variant whose occurrences the run applies. */
+  variant,
+
+  /** `<vendor-id>` of `vendor run`. */
+  vendor,
+
+  /** `--request` of `stroke-text` and `drawing-sheet`. */
+  request,
+
+  /** `--metrics` of `stroke-text`. */
+  metrics,
+
+  /** `--geometer` of `bundle build --stage models`: the pinned Geometer runtime (cli-spec.md §5.2.4). */
+  geometer,
+
+  /** `--model-dir` of `bundle build --stage models`: a KiCad stock 3D model library (cli-spec.md §5.2.4). */
+  modelDir: "model-dir",
+
+  /** `--hlr-cache` of `bundle build --stage models`: the HLR projection cache (cli-spec.md §5.2.4). */
+  hlrCache: "hlr-cache",
 }
 
 /**
@@ -815,4 +839,407 @@ model CliCompareResultA0 {
 
   /** The change counts of the written delta. */
   counts: CliCompareCounts;
+}
+
+// ----------------------------------------------------------- artwork (§5.7)
+
+/** One rendered artwork view and what it drew. */
+model CliArtworkView {
+  /** The view's name, as the `ArtworkConfigA0` gives it and `--view` names it. */
+  name: string;
+
+  /** The SVG's path relative to the output directory, `<view>.svg`. */
+  file: ArchivePath;
+
+  /** SHA-256 of the SVG file's bytes. */
+  sha256: Sha256Hex;
+
+  /** How many footprints the view drew a body region for. */
+  footprints_drawn: Count;
+
+  /** How many reference designators the view placed. */
+  designators_placed: Count;
+
+  /**
+   * Every footprint the view has no body outline for, `<RepoPath>#<KiCadUuid>`,
+   * sorted in code point order: the footprints drawn from the hole envelope or
+   * the pad envelope instead, or with no body region at all.
+   */
+  footprints_without_outline: ObjectRef[];
+}
+
+/** stdout of `artwork` (exit 0). */
+@jsonSchema
+@id("urn:prism:schema:prism.cli.artwork_result:a0")
+@extension("title", "prism-kicad artwork result a0")
+model CliArtworkResultA0 {
+  /** Document schema id. */
+  schema: "prism.cli.artwork_result.a0";
+
+  /** One entry per rendered view, sorted by `name` in code point order. */
+  views: CliArtworkView[];
+}
+
+// ------------------------------------------------------------ vendor (§5.8)
+
+/** What a vendor output file holds. */
+enum CliVendorOutputKind {
+  /** A bill of materials: the components to place. */
+  bom,
+
+  /** A pick-and-place list: where each component goes. */
+  cpl,
+}
+
+/** The file format of a vendor output. */
+enum CliVendorOutputFormat {
+  /** Comma-separated values. */
+  csv,
+
+  /** An Office Open XML spreadsheet. */
+  xlsx,
+}
+
+/** One file a vendor writes: its kind, format and format version. */
+model CliVendorOutput {
+  /** What the file holds. */
+  kind: CliVendorOutputKind;
+
+  /** The file's format. */
+  format: CliVendorOutputFormat;
+
+  /** The format's version, raised when the file's layout changes (cli-spec.md §5.8). */
+  version: CliReleaseVersion;
+}
+
+/** One registered vendor and its outputs. */
+model CliVendor {
+  /** The vendor's id, the `<vendor-id>` of `vendor run` (`jlcpcb`). */
+  id: string;
+
+  /** The vendor's human name. */
+  name: string;
+
+  /** The files the vendor writes, sorted by `kind`, then `format`, each in code point order. */
+  outputs: CliVendorOutput[];
+
+  /** The schema id of the vendor's configuration, for example `prism.vendor.jlcpcb.config.a0`. */
+  config_schema: SchemaId;
+}
+
+/** stdout of `vendor list` (exit 0). */
+@jsonSchema
+@id("urn:prism:schema:prism.cli.vendor_list:a0")
+@extension("title", "prism-kicad vendor list a0")
+model CliVendorListA0 {
+  /** Document schema id. */
+  schema: "prism.cli.vendor_list.a0";
+
+  /** Every registered vendor, sorted by `id` in code point order. */
+  vendors: CliVendor[];
+}
+
+/** One file a vendor run wrote. */
+model CliVendorFile {
+  /** The file's path relative to the output directory. */
+  path: ArchivePath;
+
+  /** SHA-256 of the file's bytes. */
+  sha256: Sha256Hex;
+}
+
+/** One component a vendor run left out of an output, and why. */
+model CliVendorExcludedComponent {
+  /** The component's identity, `<RepoPath>#<KiCadUuid>`. */
+  key: ObjectRef;
+
+  /** Its reference designator, as written. Absent when it has none or it is empty. */
+  reference?: Refdes;
+
+  /** Stable reason code, for example `excluded-from-bom` or `excluded-from-position`. */
+  code: DiagnosticCode;
+
+  /** One-sentence explanation for people. It never contains a host path. */
+  @minLength(1)
+  message: string;
+}
+
+/** stdout of `vendor run` (exit 0). */
+@jsonSchema
+@id("urn:prism:schema:prism.cli.vendor_run_result:a0")
+@extension("title", "prism-kicad vendor run result a0")
+model CliVendorRunResultA0 {
+  /** Document schema id. */
+  schema: "prism.cli.vendor_run_result.a0";
+
+  /** The vendor that ran, its id (`jlcpcb`). */
+  vendor: string;
+
+  /** Every file the run wrote, sorted by `path` in code point order. */
+  files: CliVendorFile[];
+
+  /**
+   * How many rows each of the vendor's tables holds; the keys are the vendor's
+   * table names, for example `bom` and `cpl`, serialized in code point order.
+   */
+  rows: Record<Count>;
+
+  /** Every component the run left out, sorted by `key` in code point order. */
+  excluded: CliVendorExcludedComponent[];
+}
+
+// ---------------------------------------------- stroke text and sheet (§5.9)
+
+/** A point in millimetres, `[x, y]` in that order, as the renderer returns it. */
+@minItems(2)
+@maxItems(2)
+model CliMmPoint is float64[];
+
+/** One polyline in millimetres: its points in stroke order. */
+model CliMmPolyline is CliMmPoint[];
+
+/** One rendered text run. */
+model CliStrokeTextRun {
+  /** The run's polylines in millimetres, in the order the renderer returns them; each polyline is one stroke. */
+  polylines_mm: CliMmPolyline[];
+
+  /** The run's advance width in millimetres: `_calculate_text_width(text) × size_mm`. */
+  advance_mm: float64;
+
+  /**
+   * The code points the NewStroke font has no glyph for, so the run drew them
+   * as nothing (`fonts.unsupported_codepoints`), in ascending numeric order.
+   * Empty when every code point is present.
+   */
+  missing_codepoints: Count[];
+}
+
+/** stdout of `stroke-text --request` (exit 0). */
+@jsonSchema
+@id("urn:prism:schema:prism.cli.stroke_text_result:a0")
+@extension("title", "prism-kicad stroke-text result a0")
+model CliStrokeTextResultA0 {
+  /** Document schema id. */
+  schema: "prism.cli.stroke_text_result.a0";
+
+  /** One entry per run of the request, in the request's run order. */
+  runs: CliStrokeTextRun[];
+}
+
+/**
+ * stdout of `stroke-text --metrics` (exit 0): the NewStroke advance table, so
+ * layout can measure text without a process per string.
+ *
+ * The advance of a string in the renderer's normalized units is the sum, left
+ * to right over the string's Unicode scalar values, of each value below, added
+ * as IEEE-754 doubles; the width in millimetres is that sum times the run's
+ * nominal size. A U+0020 space contributes `space_width`; any other code point
+ * contributes `advances[<decimal code point>]` when present and `0` when
+ * absent (the renderer skips a code point it has no glyph for). This
+ * reproduces kicad_monkey 2026.9.7's
+ * `KiCadStrokeFontRenderer._calculate_text_width` exactly.
+ *
+ * For text containing KiCad markup (`~{}`, `^{}`, `_{}`), the plain-text
+ * contributions inside a `^{}` or `_{}` span are multiplied by
+ * `super_sub_size_multiplier`; a `~{}` span's are not (kicad_monkey's
+ * `_markup_nodes_width` with `styled` false).
+ */
+@jsonSchema
+@id("urn:prism:schema:prism.cli.stroke_font_metrics:a0")
+@extension("title", "prism-kicad stroke font metrics a0")
+model CliStrokeFontMetricsA0 {
+  /** Document schema id. */
+  schema: "prism.cli.stroke_font_metrics.a0";
+
+  /** The advance of one U+0020 space, in the renderer's normalized units. */
+  space_width: float64;
+
+  /** The scale a `^{}`/`_{}` span's glyphs are measured and drawn at (`0.8`). */
+  super_sub_size_multiplier: float64;
+
+  /**
+   * The per-glyph advance table: the keys are the decimal Unicode code points
+   * `"32"` to `"11263"` that the font has a glyph for, serialized in code
+   * point order, and each value is that glyph's advance in the renderer's
+   * normalized units (U+0020 included; the formula uses `space_width` for it).
+   */
+  advances: Record<float64>;
+}
+
+/** Horizontal alignment of a drawn text run, KiCad's spelling. */
+enum CliDrawingSheetHAlign {
+  /** `GR_TEXT_H_ALIGN_LEFT`. */
+  left: "GR_TEXT_H_ALIGN_LEFT",
+
+  /** `GR_TEXT_H_ALIGN_CENTER`. */
+  center: "GR_TEXT_H_ALIGN_CENTER",
+
+  /** `GR_TEXT_H_ALIGN_RIGHT`. */
+  right: "GR_TEXT_H_ALIGN_RIGHT",
+}
+
+/** Vertical alignment of a drawn text run, KiCad's spelling. */
+enum CliDrawingSheetVAlign {
+  /** `GR_TEXT_V_ALIGN_TOP`. */
+  top: "GR_TEXT_V_ALIGN_TOP",
+
+  /** `GR_TEXT_V_ALIGN_CENTER`. */
+  center: "GR_TEXT_V_ALIGN_CENTER",
+
+  /** `GR_TEXT_V_ALIGN_BOTTOM`. */
+  bottom: "GR_TEXT_V_ALIGN_BOTTOM",
+}
+
+/** How a drawn polygon or rectangle is filled, KiCad's spelling. */
+enum CliDrawingSheetFill {
+  /** `NO_FILL`. */
+  noFill: "NO_FILL",
+
+  /** `FILLED_SHAPE`. */
+  filledShape: "FILLED_SHAPE",
+
+  /** `FILLED_WITH_BG_BODYCOLOR`. */
+  filledWithBgBodyColor: "FILLED_WITH_BG_BODYCOLOR",
+}
+
+/** A point in nanometres in KiCad's board frame (+x right, +y down). */
+model CliPointNm {
+  /** X coordinate in nanometres. */
+  x_nm: Nanometres;
+
+  /** Y coordinate in nanometres. */
+  y_nm: Nanometres;
+}
+
+/**
+ * One drawn polyline. A polyline of exactly two points is a line
+ * (`worksheet.py:84-92`).
+ */
+model CliDrawingSheetPoly {
+  /** Variant tag: a polyline. */
+  kind: "poly";
+
+  /** The polyline's vertices, in draw order, board frame. */
+  points: CliPointNm[];
+
+  /** How the shape is filled, KiCad's token. */
+  fill: CliDrawingSheetFill;
+
+  /** Stroke width in nanometres. */
+  width_nm: NonNegativeNanometres;
+
+  /** Stroke colour, `#RRGGBB` or `#RRGGBBAA`. */
+  stroke_color: string;
+}
+
+/** One drawn rectangle. */
+model CliDrawingSheetRect {
+  /** Variant tag: a rectangle. */
+  kind: "rect";
+
+  /** X of the first corner in nanometres. */
+  x1_nm: Nanometres;
+
+  /** Y of the first corner in nanometres. */
+  y1_nm: Nanometres;
+
+  /** X of the opposite corner in nanometres. */
+  x2_nm: Nanometres;
+
+  /** Y of the opposite corner in nanometres. */
+  y2_nm: Nanometres;
+
+  /** Corner radius in nanometres. */
+  corner_radius_nm: NonNegativeNanometres;
+
+  /** How the shape is filled, KiCad's token. */
+  fill: CliDrawingSheetFill;
+
+  /** Stroke width in nanometres. */
+  width_nm: NonNegativeNanometres;
+
+  /** Stroke colour, `#RRGGBB` or `#RRGGBBAA`. */
+  stroke_color: string;
+}
+
+/**
+ * One drawn text run. Its glyph geometry is `stroke-text`'s: draw the run's
+ * `text` at (`x_nm`, `y_nm`) with the NewStroke polylines of a
+ * `StrokeTextRequestA0` run whose size is `size_x_nm`/1e6 mm, aligned by
+ * `h_align`/`v_align`.
+ */
+model CliDrawingSheetText {
+  /** Variant tag: a text run. */
+  kind: "text";
+
+  /** X of the run's alignment point in nanometres. */
+  x_nm: Nanometres;
+
+  /** Y of the run's alignment point in nanometres. */
+  y_nm: Nanometres;
+
+  /** The run's text, exactly as it is to be drawn. */
+  text: string;
+
+  /** Text colour, `#RRGGBB` or `#RRGGBBAA`. */
+  color: string;
+
+  /** Rotation in degrees as written, 0 for the default sheet's horizontal text. */
+  orient_deg: Degrees;
+
+  /** Nominal width of one glyph in nanometres. */
+  size_x_nm: NonNegativeNanometres;
+
+  /** Nominal height of one glyph in nanometres. */
+  size_y_nm: NonNegativeNanometres;
+
+  /** Pen width in nanometres. */
+  pen_width_nm: NonNegativeNanometres;
+
+  /** Horizontal alignment about `x_nm`, KiCad's spelling. */
+  h_align: CliDrawingSheetHAlign;
+
+  /** Vertical alignment about `y_nm`, KiCad's spelling. */
+  v_align: CliDrawingSheetVAlign;
+
+  /** True when the text is italic. */
+  italic: boolean;
+
+  /** True when the text is bold. */
+  bold: boolean;
+
+  /** True when the text may span several lines. */
+  multiline: boolean;
+
+  /** The text's font face, for example `Arial`. */
+  font_face: string;
+}
+
+/** One operation of the default drawing sheet, discriminated by `kind`. */
+@oneOf
+union CliDrawingSheetOp {
+  /** A polyline. */
+  poly: CliDrawingSheetPoly,
+
+  /** A rectangle. */
+  rect: CliDrawingSheetRect,
+
+  /** A text run. */
+  text: CliDrawingSheetText,
+}
+
+/** stdout of `drawing-sheet` (exit 0): the default worksheet's draw operations. */
+@jsonSchema
+@id("urn:prism:schema:prism.cli.drawing_sheet_result:a0")
+@extension("title", "prism-kicad drawing-sheet result a0")
+model CliDrawingSheetResultA0 {
+  /** Document schema id. */
+  schema: "prism.cli.drawing_sheet_result.a0";
+
+  /**
+   * The draw operations, in the order `drawing_sheet_to_ops` returns them: the
+   * page and title-block rectangle first, then the frame, then the title-block
+   * text.
+   */
+  ops: CliDrawingSheetOp[];
 }

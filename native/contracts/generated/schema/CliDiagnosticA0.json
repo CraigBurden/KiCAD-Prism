@@ -100,7 +100,15 @@
                 "threads",
                 "quiet",
                 "base",
-                "head"
+                "head",
+                "view",
+                "variant",
+                "vendor",
+                "request",
+                "metrics",
+                "geometer",
+                "model-dir",
+                "hlr-cache"
             ],
             "description": "A command-line argument a diagnostic or error is about, named as the usage\ntext names it: an option by its long name without the leading `--`, a\npositional argument by its placeholder. Used instead of echoing the\nargument's value, which may be a host path."
         },
