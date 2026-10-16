@@ -205,7 +205,6 @@ builds it in stages (parse, board, models) on the general worker.
 | `PRISM_DESIGN_BUNDLE_THREADS`, `PRISM_DESIGN_BUNDLE_MAX_ATTEMPTS` | `prism-kicad --threads` (default 4); attempts per job before a failing KiCad step ends it (default 3) |
 | `PRISM_DESIGN_BUNDLE_RETENTION_DAYS` | days an unused bundle is kept; branch heads, System Builder baselines and released Release Studio commits are always kept (default 30) |
 | `PRISM_DESIGN_BUNDLE_BACKFILL_INTERVAL_SECONDS` | seconds between backfill ticks, each queuing at most one bundle; 0 disables (default 60) |
-| `PRISM_DESIGN_BUNDLE_BOARD_FORMAT_VERSION`, `_SCHEMATIC_FORMAT_VERSION` | the worker KiCad's file format; older sources are upgraded by KiCad before parse (defaults: KiCad 10.0) |
 | `PRISM_DESIGN_BUNDLE_GLB_TIMEOUT_SECONDS`, `PRISM_DESIGN_BUNDLE_UPGRADE_TIMEOUT_SECONDS` | the component GLB export and each source upgrade (defaults 600 and 900 s) |
 | `PRISM_KICAD_PYTHON`, `PRISM_ZONE_REFILL_TIMEOUT_SECONDS` | KiCad's Python (imports `pcbnew`) for the zone refill and board upgrades, and the refill's timeout (default 900 s) |
 | `PRISM_DESIGN_BUNDLE_CLI_PATH`, `PRISM_DESIGN_BUNDLE_ROOT`, `PRISM_DESIGN_BUNDLE_SCHEMA_DIR` | host overrides for the binary (default `prism-kicad` on PATH), the store and the committed JSON Schema |

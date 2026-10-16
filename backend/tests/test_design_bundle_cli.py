@@ -40,7 +40,10 @@ class StubCliTests(unittest.TestCase):
         return path
 
     def _parse(self, **extra: object) -> cli.CliRun:
-        args = ["bundle", "build", str(self.src / "board/demo.kicad_pro"), "--stage", "parse", "--source-root", str(self.src),
+        return self._parse_with([], **extra)
+
+    def _parse_with(self, more: list[str], **extra: object) -> cli.CliRun:
+        args = ["bundle", "build", *more, str(self.src / "board/demo.kicad_pro"), "--stage", "parse", "--source-root", str(self.src),
                 "-o", str(self.out), "--revision-key", RK, "--config", str(self._config(**extra)), *cli.limits("parse")]
         return cli.run(args, timeout_seconds=60, expect="prism.cli.build_result.a0")
 
@@ -68,7 +71,7 @@ class StubCliTests(unittest.TestCase):
 
     def test_version_is_the_generator_in_canonical_bytes(self) -> None:
         generator = cli.generator()
-        self.assertEqual(generator.digest, "96ec6f85379966983bd1f9d9c78d8eba1b73a61ea9fad54c22189689c83b4add")
+        self.assertEqual(generator.digest, "d32ccf9dccfc4084e4b9f9ab7dea77ef0e1b69f51cacddd9466db8ad735fb82c")
 
     def test_parse_board_models_chain_through_one_archive(self) -> None:
         parsed = self._parse()
@@ -96,6 +99,24 @@ class StubCliTests(unittest.TestCase):
         self.assertTrue(extracted.document["members"])
         logged = [json.loads(line) for line in self.log.read_text().splitlines()]
         self.assertEqual([entry["exit"] for entry in logged][-5:], [0, 0, 0, 0, 0])
+
+    def test_upgraded_sources_are_recorded_and_validated(self) -> None:
+        done = self._parse_with(["--upgraded", "board/demo.kicad_pcb=20241229"])
+        self.assertEqual(done.exit_code, 0)
+        member = self._archive().member("sources/board/demo.kicad_pcb")
+        self.assertEqual(member["source"]["upgraded_from_version"], 20241229)
+        self.assertNotIn("upgraded_from_version", self._archive().member("sources/board/demo.kicad_sch")["source"])
+        self.assertEqual(cli.generator().kicad_file_formats, {"board": 20260206, "schematic": 20260306})
+        for bad in ("board/demo.kicad_pcb=20260206", "board/missing.kicad_sch=20230121"):
+            with self.subTest(bad=bad):
+                with self.assertRaises(cli.CliFailure) as caught:
+                    self._parse_with(["--upgraded", bad])
+                self.assertEqual((caught.exception.exit_code, caught.exception.code), (3, "upgrade-record-invalid"))
+        with self.assertRaises(cli.CliFailure) as caught:
+            self._parse_with(["--upgraded", "board/demo.kicad_pro=1"])
+        self.assertEqual(caught.exception.exit_code, 2)
+        self.assertEqual(cli.upgraded_args([{"path": "a.kicad_pcb", "upgraded_from_version": 20241229}]),
+                         ["--upgraded", "a.kicad_pcb=20241229"])
 
     def test_saved_fills_refuse_a_refilled_board(self) -> None:
         self._parse(zone_fills="saved")

@@ -118,18 +118,24 @@ def _normalized(path: PurePosixPath) -> str | None:
 
 
 def upgrade_sources(
-    src: Path, config: Mapping[str, object], *, cancel: Callable[[], None] | None = None
+    src: Path,
+    config: Mapping[str, object],
+    file_formats: Mapping[str, int],
+    *,
+    cancel: Callable[[], None] | None = None,
 ) -> list[dict[str, object]]:
-    """cli-spec.md §9.4 over the closure's documents; returns ``[{path, upgraded_from_version}]``."""
+    """cli-spec.md §9.4 over the closure's documents; returns ``[{path, upgraded_from_version}]``.
+
+    ``file_formats`` is the generator id's ``kicad_file_formats``: a board or
+    schematic older than its kind's format is upgraded.
+    """
 
     upgraded: list[dict[str, object]] = []
     for path in closure_documents(src, config):
         target = src / path
         version = file_version(target)
         board = path.lower().endswith(".kicad_pcb")
-        current = (
-            settings.PRISM_DESIGN_BUNDLE_BOARD_FORMAT_VERSION if board else settings.PRISM_DESIGN_BUNDLE_SCHEMATIC_FORMAT_VERSION
-        )
+        current = int(file_formats["board" if board else "schematic"])
         if version is None or version >= current:
             continue  # current, newer (stage parse records source-format-unsupported) or unreadable
         if board:

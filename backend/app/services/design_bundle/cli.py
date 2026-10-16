@@ -258,6 +258,15 @@ def generator() -> Generator:
     return found
 
 
+def upgraded_args(upgraded: Sequence[Mapping[str, Any]]) -> list[str]:
+    """One ``--upgraded <path>=<version>`` per source K upgraded (cli-spec.md §5.2.2, §9.4)."""
+
+    args: list[str] = []
+    for item in upgraded:
+        args += ["--upgraded", f"{item['path']}={int(item['upgraded_from_version'])}"]
+    return args
+
+
 def limits(stage: str) -> list[str]:
     """``--limit`` arguments for one stage (cli-spec.md §7.2, K's settings)."""
 

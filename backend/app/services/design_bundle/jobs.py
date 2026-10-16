@@ -77,7 +77,11 @@ def flags_of(key: ProjectKey) -> dict[str, str]:
 
 
 def artifact_key(project_id: str, bundle_key: str) -> str:
-    """The job's dedup key: the bundle key, within its project (bundles are stored per project)."""
+    """The job's dedup key, ``<project_id>:<bundle_key>`` (cli-spec.md §5.1.4).
+
+    The bundle key identifies content, not a project, while bundles are stored
+    per project: two projects with identical sources build their own.
+    """
 
     return f"{project_id}:{bundle_key}"
 
@@ -211,7 +215,9 @@ class _Run:
         record = self.key.record()
         try:
             done = materialize.materialize(self.repo, record, src)
-            upgraded = kicad_steps.upgrade_sources(src, self.config, cancel=self.cancel)
+            upgraded = kicad_steps.upgrade_sources(
+                src, self.config, self.generator.kicad_file_formats, cancel=self.cancel
+            )
         except (materialize.SourceUnavailable, kicad_steps.KicadStepFailed) as error:
             raise RetryableJobError(str(error), code="sources-unavailable", retry_after_seconds=30) from error
         self.details.update(
@@ -225,7 +231,8 @@ class _Run:
         args = [
             "bundle", "build", str(src / self.config["project_file"]), "--stage", "parse",
             "--source-root", str(src), "-o", str(self.archive_path), "--revision-key", self.revision_key,
-            "--key-record", str(key_record), "--config", str(effective), *cli.limits("parse"),
+            "--key-record", str(key_record), "--config", str(effective), *cli.upgraded_args(upgraded),
+            *cli.limits("parse"),
             "--threads", str(settings.PRISM_DESIGN_BUNDLE_THREADS),
         ]
         done_cli = self.cli(args, "parse")

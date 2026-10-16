@@ -61,6 +61,13 @@ class Generator:
         return str(self.document["kicad_version"])
 
     @property
+    def kicad_file_formats(self) -> dict[str, int]:
+        """The ``(version N)`` the parser reads per kind (``board``, ``schematic``); older sources are upgraded."""
+
+        formats = self.document["kicad_file_formats"]
+        return {"board": int(formats["board"]), "schematic": int(formats["schematic"])}
+
+    @property
     def models_procedure(self) -> str:
         return str(self.document["models_procedure"])
 

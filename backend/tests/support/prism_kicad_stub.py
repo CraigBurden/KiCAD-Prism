@@ -51,7 +51,7 @@ CATEGORIES = {1: "internal", 2: "usage", 3: "input", 4: "resource-limit", 5: "ti
 OPTIONS_WITH_VALUE = {
     "--stage", "-o", "--output", "--source-root", "--revision-key", "--key-record", "--config", "--in",
     "--refilled-board", "--refill-tool", "--models-glb", "--models-tool", "--commit", "--project", "--limit",
-    "--threads",
+    "--threads", "--upgraded",
 }
 FLAGS = {"--worktree", "--quiet"}
 _ARGV = list(sys.argv[1:])
@@ -138,7 +138,7 @@ def apply_modes(command: str, stage: str | None = None) -> list[str]:
 
 def parse_options(words: list[str]) -> tuple[list[str], dict[str, Any]]:
     positionals: list[str] = []
-    options: dict[str, Any] = {"--limit": []}
+    options: dict[str, Any] = {"--limit": [], "--upgraded": []}
     index = 0
     while index < len(words):
         word = words[index]
@@ -158,8 +158,8 @@ def parse_options(words: list[str]) -> tuple[list[str], dict[str, Any]]:
                 value = words[index + 1]
                 index += 1
                 key = "-o" if word == "--output" else word
-                if key == "--limit":
-                    options["--limit"].append(value)
+                if key in ("--limit", "--upgraded"):
+                    options[key].append(value)
                 elif key in options:
                     error(2, "usage", f"{word} given twice")
                 else:
@@ -173,6 +173,15 @@ def parse_options(words: list[str]) -> tuple[list[str], dict[str, Any]]:
         name, _, value = limit.partition("=")
         if not name or not value.isdigit():
             error(2, "usage", f"--limit {limit!r} is not <name>=<value>", argument="limit")
+    upgraded: dict[str, int] = {}
+    for item in options["--upgraded"]:
+        path, _, version = item.rpartition("=")
+        if not path.lower().endswith((".kicad_pcb", ".kicad_sch")) or not version.isdigit() or path.startswith("/") or ".." in path.split("/"):
+            error(2, "usage", f"--upgraded {item!r} is not <RepoPath>=<version>", argument="upgraded")
+        if path in upgraded:
+            error(2, "usage", f"--upgraded {path} given twice", argument="upgraded")
+        upgraded[path] = int(version)
+    options["--upgraded"] = upgraded
     if "--threads" in options and not (options["--threads"].isdigit() and 1 <= int(options["--threads"]) <= 64):
         error(2, "usage", "--threads is 1 to 64", argument="threads")
     return positionals, options
@@ -379,6 +388,13 @@ def build_parse(positionals: list[str], options: dict[str, Any]) -> NoReturn:
         members[f"sources/{rel}"] = data
         listed.append({"path": f"sources/{rel}", "role": role, "stage": "parse", "sha256": digest(data), "bytes": len(data), "source": source})
     gen = generator()
+    by_source = {m["source"]["path"]: m for m in listed}
+    for path, version in sorted(options["--upgraded"].items()):
+        kind = "board" if path.lower().endswith(".kicad_pcb") else "schematic"
+        if path not in by_source or version >= gen["kicad_file_formats"][kind]:
+            error(3, "upgrade-record-invalid", f"--upgraded {path}={version} is not an older source member",
+                  argument="upgraded", stage="parse")
+        by_source[path]["source"]["upgraded_from_version"] = version
     schemas = {item["path"]: item["schema"] for item in gen["member_schemas"]}
     parse = empty_stage("complete")
     derived = ([] if "root_schematic" not in config else ["design.json"]) + sorted(PROJECTIONS)
@@ -437,7 +453,7 @@ def load_in(options: dict[str, Any], stage: str) -> tuple[dict[str, Any], dict[s
 
 
 def build_board(positionals: list[str], options: dict[str, Any]) -> NoReturn:
-    if positionals or "--source-root" in options or "--key-record" in options:
+    if positionals or "--source-root" in options or "--key-record" in options or options["--upgraded"]:
         error(2, "option-conflict", "stage board takes --in, not a project")
     if ("--refilled-board" in options) != ("--refill-tool" in options) or "--models-glb" in options:
         error(2, "option-conflict", "--refilled-board and --refill-tool come together")
@@ -488,7 +504,7 @@ def build_board(positionals: list[str], options: dict[str, Any]) -> NoReturn:
 
 
 def build_models(positionals: list[str], options: dict[str, Any]) -> NoReturn:
-    if positionals or ("--models-glb" in options) != ("--models-tool" in options) or "--models-glb" not in options:
+    if positionals or options["--upgraded"] or ("--models-glb" in options) != ("--models-tool" in options) or "--models-glb" not in options:
         error(2, "option-conflict", "stage models needs --models-glb and --models-tool")
     manifest, members = load_in(options, "models")
     stages = manifest["stages"]

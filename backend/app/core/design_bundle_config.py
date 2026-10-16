@@ -100,14 +100,6 @@ class DesignBundleSettings(BaseSettings):
     PRISM_DESIGN_BUNDLE_UPGRADE_TIMEOUT_SECONDS: int = Field(
         default=900, ge=10, description="KiCad's upgrade of one older board or schematic before stage parse."
     )
-    PRISM_DESIGN_BUNDLE_BOARD_FORMAT_VERSION: int = Field(
-        default=20260206,
-        description="The (version ...) the worker KiCad writes for boards; older boards are upgraded (KiCad 10.0).",
-    )
-    PRISM_DESIGN_BUNDLE_SCHEMATIC_FORMAT_VERSION: int = Field(
-        default=20260306,
-        description="The (version ...) the worker KiCad writes for schematics; older ones are upgraded (KiCad 10.0).",
-    )
     PRISM_KICAD_PYTHON: str = Field(
         default="/usr/bin/python3", description="KiCad's Python (imports pcbnew) for the zone refill and board upgrades."
     )

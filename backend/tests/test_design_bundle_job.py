@@ -185,6 +185,10 @@ class DesignBundleJobTests(_Workspace, unittest.TestCase):
         archive = open_archive(store.archive_path("p1", bundle["revision_key"], bundle["generator_digest"]))
         self.assertIn(b"(version 20260206)", archive.read("sources/board/demo.kicad_pcb"))
         member = archive.member("sources/board/demo.kicad_pcb")
+        self.assertEqual(member["source"]["upgraded_from_version"], 20241229)
+        parse = self.builds()[0]
+        self.assertEqual([parse[i + 1] for i, a in enumerate(parse) if a == "--upgraded"],
+                         ["board/demo.kicad_pcb=20241229", "board/Subsheets/power.kicad_sch=20230121"])
         self.assertEqual(member["source"]["object_id"], next(
             e["object_id"] for e in json.loads(Path(self.builds()[0][self.builds()[0].index("--key-record") + 1]).read_text())["entries"]
             if e["path"] == "board/demo.kicad_pcb"))  # the committed blob's key entry
