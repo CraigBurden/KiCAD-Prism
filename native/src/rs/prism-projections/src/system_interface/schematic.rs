@@ -5,9 +5,8 @@
 //!
 //! The build reads the typed schematic netlist once (`schematic.facts`), groups
 //! the occurrences by reference, and joins the board's facts when there is a
-//! board. DNP is the design-variant resolver's default assembly state, read
-//! from the netlist's folded `dnp` flag (`default_dnp`) until the semantic
-//! index's `assembly` is ported.
+//! board. DNP is the design-variant resolver's default assembly state
+//! (`default_dnp`, the semantic index's `assembly` default components).
 
 mod occurrences;
 mod pins;
@@ -288,30 +287,16 @@ fn is_dnp(default_dnp: &BTreeSet<String>, reference: &str) -> bool {
 /// `build_assembly_state(...)["default"]["components"]`, keyed by reference
 /// before the semantic index's key translation (interface_extractor.py:386-387,
 /// :444).
-///
-/// The semantic index's `assembly` is not ported yet, so the default DNP state
-/// is read from the netlist component's `dnp`, which is the same folded
-/// effective flag (`occurrence.effective_dnp || symbol.dnp`,
-/// schematic_effective.rs:122) `build_assembly_state` records in
-/// `_symbol_flags`/`_fold_sheet_flags`. The resolver's `_valid_reference`
-/// (semantic_index_variants.py:115-122) skips empty, `#` and `?` references;
-/// the netlist already omits `#` references.
 fn default_dnp(
-    _input: &ProjectionInput<'_>,
+    input: &ProjectionInput<'_>,
     schematic: &SchematicModel<'_>,
 ) -> Result<BTreeSet<String>, ProjectionError> {
-    let mut references = BTreeSet::new();
-    for component in &schematic.facts.netlist().components {
-        let reference = component.reference.as_str();
-        if component.dnp
-            && !reference.is_empty()
-            && !reference.starts_with('#')
-            && !reference.ends_with('?')
-        {
-            references.insert(reference.to_owned());
-        }
-    }
-    Ok(references)
+    let components = crate::semantic_index::default_components(input, schematic)?;
+    Ok(components
+        .into_iter()
+        .filter(|(_, state)| state.get("dnp").and_then(Value::as_bool) == Some(true))
+        .map(|(reference, _)| reference)
+        .collect())
 }
 
 #[cfg(test)]

@@ -728,7 +728,7 @@ dependencies = [
 
 [[package]]
 name = "prism-kicad-cli"
-version = "0.4.0"
+version = "0.5.0"
 dependencies = [
  "libc",
  "miniz_oxide",
