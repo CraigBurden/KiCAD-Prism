@@ -14,6 +14,7 @@ from typing import Callable, List, Optional, Sequence
 from dataclasses import dataclass
 from git import Repo, RemoteProgress
 from app.services import derived_assets, git_remote_access, project_revision, project_service, path_config_service
+from app.services.design_bundle import jobs as design_bundle_jobs, repo_hydration
 from app.services.git_failures import GitAccessError, as_access_error
 from app.services.git_remote_url import ParsedRemote, RemoteUrlPolicy, parse_remote_url
 from app.services.job_runtime import JobContext, JobResult, PermanentJobError
@@ -962,6 +963,7 @@ def run_project_import_job_v3(context: JobContext) -> JobResult:
                     error, target=git_remote_access.describe_target(parsed), host=parsed.host
                 ) from error
             cloned_in_job = True
+        repo_hydration.hydrate(target_path, env=git_remote_access.git_env())
 
         context.check_cancelled()
         context.progress(
@@ -1250,6 +1252,10 @@ def run_project_sync_job_v3(context: JobContext) -> JobResult:
     from app.services import project_catalog_usage_service
 
     project_catalog_usage_service.project_synced(project_id)  # which library revisions the new HEAD placed
+    try:
+        design_bundle_jobs.queue_for_head(project_id, requested_by="project-sync")
+    except Exception as error:
+        print(f"Could not queue the design bundle for {project_id}: {error}", flush=True)
     return JobResult(
         message=str(result.get("message") or "Sync completed"),
         details=dict(result),
@@ -1306,7 +1312,10 @@ def sync_project(project_id: str, *, fetch_only: bool = False) -> dict:
                 repo.git.merge("--ff-only", tracking.name)
                 message = f"Synced {len(fetch_info)} ref(s)"
 
+        hydration = None
         if not fetch_only:
+            # Design bundles read submodule files and LFS objects (ADR §11 G4).
+            hydration = repo_hydration.hydrate(Path(sync_path), env=env)
             path_config_service.clear_config_cache()
             project_path = row.get('path', '')
             if project_path and os.path.isdir(project_path):
@@ -1317,7 +1326,8 @@ def sync_project(project_id: str, *, fetch_only: bool = False) -> dict:
         return {
             "status": "success",
             "message": message,
-            "path": sync_path
+            "path": sync_path,
+            **({"hydration": hydration} if hydration else {}),
         }
 
     except Exception as e:

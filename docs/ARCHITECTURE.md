@@ -42,6 +42,16 @@ metadata (`ws_artifacts`, release pins) and by `catalog_artifacts` at once, so
 the daily `artifact_maintenance` collection and catalog retention both ask
 every registered owner before removing or moving a file.
 
+Design bundles live in `.kicad-prism/bundles/<project>/<revision key>/`
+([ADR](architecture/adr-native-design-bundle.md) §5): one
+`<generator digest>.prism` archive per revision and generator, written by
+`prism-kicad` and rewritten atomically at the end of each stage, and beside it
+an unpacked cache that can always be deleted. `backend/app/services/design_bundle/`
+is the only Python package that reads them; the workspace tables
+`ws_design_bundle_commit_index`, `ws_design_bundles`, `ws_design_bundle_absences`
+and `ws_design_bundle_flags` record keys, stages, use and the backfill's
+findings. Bundles are rebuilt from Git, so they are a cache for backups.
+
 All three persistence domains must be included in backup and restore procedures.
 See [Operations](OPERATIONS.md).
 

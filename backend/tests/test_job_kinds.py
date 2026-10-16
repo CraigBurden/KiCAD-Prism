@@ -51,6 +51,16 @@ class JobKindRegistryTests(unittest.TestCase):
                 self.assertIs(get_job_handler(name), kind.handler)
                 self.assertGreaterEqual(kind.max_attempts, 1)
 
+    def test_the_design_bundle_kind_holds_its_slot_and_a_legacy_unit(self) -> None:
+        """cli-spec.md §7.4: one design_bundle slot (memory-bounded), plus one semantic_compile unit
+        while legacy consumers still run, under the repository read lock."""
+
+        kind = get_job_kind("design_bundle")
+        self.assertEqual(dict(kind.resources), {"prism_worker": 1, "design_bundle": 1, "semantic_compile": 1})
+        self.assertEqual(PrismWorker.resource_capacities()["design_bundle"], 1)
+        self.assertEqual(kind.lock(JobSubject(project_id="p", repository_id="r")), [{"key": "repository:r", "mode": "read"}])
+        self.assertIsNotNone(kind.settle)
+
     def test_catalog_kinds_run_on_the_catalog_pool_and_nothing_else_does(self) -> None:
         for name in registered_job_kinds():
             kind = get_job_kind(name)

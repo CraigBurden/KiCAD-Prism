@@ -21,6 +21,7 @@ logger = logging.getLogger(__name__)
 # Modules that declare ``JOB_KINDS``.
 KIND_MODULES = (
     "app.services.design_compare_service",
+    "app.services.design_bundle.jobs",
     "app.services.release_studio_build_service",
     "app.services.release_studio_config_service",
     "app.services.project_import_service",
