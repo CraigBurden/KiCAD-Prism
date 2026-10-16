@@ -9,7 +9,7 @@ use prism_kicad_core::PcbFootprint;
 
 /// The footprint inputs of one board, in board file order, with the `(variant …)`
 /// records the fork core does not expose (`siv:470-498`).
-pub(super) fn board_footprints(
+pub(crate) fn board_footprints(
     input: &ProjectionInput<'_>,
 ) -> Result<Vec<FootprintInput>, ProjectionError> {
     let Some(board) = input.board else {

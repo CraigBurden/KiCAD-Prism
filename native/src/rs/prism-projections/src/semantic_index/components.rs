@@ -150,7 +150,7 @@ fn merged_parameters(component: &Value, overlay: Option<&Fields>) -> Fields {
 }
 
 /// `_canonical_fields` (semantic_index_service.py:467-513).
-fn canonical_fields(component: &Value, parameters: &Fields) -> BTreeMap<String, String> {
+pub(crate) fn canonical_fields(component: &Value, parameters: &Fields) -> BTreeMap<String, String> {
     // In the parameters' order, so a later key wins a casefold collision.
     let casefolded = casefolded_parameters(parameters);
     let dnp = resolve_dnp(parameters, &casefolded);

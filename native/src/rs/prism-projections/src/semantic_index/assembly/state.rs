@@ -13,7 +13,7 @@
 mod build;
 mod components;
 mod diagnostics;
-mod footprints;
+pub(crate) mod footprints;
 mod wires;
 
 pub(super) use build::build;
@@ -55,12 +55,12 @@ const DEFAULT_SCHEMATIC_VERSION: i64 = IN_BOM_POSITIVE_SINCE;
 
 /// The five effective flags of one occurrence or component (`siv:44-50`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-struct Flags {
-    dnp: bool,
-    exclude_from_bom: bool,
-    exclude_from_board: bool,
-    exclude_from_sim: bool,
-    exclude_from_pos_files: bool,
+pub(crate) struct Flags {
+    pub(crate) dnp: bool,
+    pub(crate) exclude_from_bom: bool,
+    pub(crate) exclude_from_board: bool,
+    pub(crate) exclude_from_sim: bool,
+    pub(crate) exclude_from_pos_files: bool,
 }
 
 impl Flags {
@@ -106,16 +106,16 @@ struct FootprintState {
 
 /// `_SchematicGraph` (semantic_index_variants.py:100-108): the realized
 /// hierarchy, its source files and the root version.
-struct Graph<'a> {
+pub(crate) struct Graph<'a> {
     index: &'a SchematicBundleIndex,
     occurrences: Vec<&'a SchematicOccurrence>,
-    version: i64,
+    pub(crate) version: i64,
     top_path: String,
     schematic_paths: Vec<String>,
 }
 
 impl<'a> Graph<'a> {
-    fn new(schematic: &'a SchematicModel<'a>) -> Self {
+    pub(crate) fn new(schematic: &'a SchematicModel<'a>) -> Self {
         let index = schematic.index;
         let occurrences = index.occurrences().collect::<Vec<_>>();
         let mut schematic_paths: Vec<String> = Vec::new();
@@ -143,7 +143,7 @@ impl<'a> Graph<'a> {
 
 /// `int(get_value(sexp, "version", KICAD_SCHEMATIC_FILE_VERSION))`
 /// (kicad_sch_schematic.py:390; `kicad_defaults.py:5`).
-fn definition_version(definition: &prism_kicad_core::SchematicDefinition) -> i64 {
+pub(crate) fn definition_version(definition: &prism_kicad_core::SchematicDefinition) -> i64 {
     definition
         .version
         .as_deref()
@@ -152,7 +152,7 @@ fn definition_version(definition: &prism_kicad_core::SchematicDefinition) -> i64
 }
 
 /// `_legacy_in_bom` (semantic_index_variants.py:111-112).
-fn legacy_in_bom(version: i64) -> bool {
+pub(crate) fn legacy_in_bom(version: i64) -> bool {
     version < IN_BOM_POSITIVE_SINCE
 }
 
@@ -162,7 +162,7 @@ fn valid_reference(reference: &str) -> bool {
 }
 
 /// `_fold_sheet_flags` (semantic_index_variants.py:216-233).
-fn fold_sheet_flags(flags: variants::SymbolFlags, ancestors: &[SheetFlags]) -> Flags {
+pub(crate) fn fold_sheet_flags(flags: variants::SymbolFlags, ancestors: &[SheetFlags]) -> Flags {
     let mut folded = Flags {
         dnp: flags.dnp,
         exclude_from_bom: flags.exclude_from_bom,
@@ -182,11 +182,11 @@ fn fold_sheet_flags(flags: variants::SymbolFlags, ancestors: &[SheetFlags]) -> F
 /// The four folded sheet flags `_sheet_flags` returns
 /// (semantic_index_variants.py:176-213).
 #[derive(Clone, Copy, Debug)]
-struct SheetFlags {
-    dnp: bool,
-    exclude_from_bom: bool,
-    exclude_from_board: bool,
-    exclude_from_sim: bool,
+pub(crate) struct SheetFlags {
+    pub(crate) dnp: bool,
+    pub(crate) exclude_from_bom: bool,
+    pub(crate) exclude_from_board: bool,
+    pub(crate) exclude_from_sim: bool,
 }
 
 /// `_select_sheet_variant` (semantic_index_variants.py:163-173).
@@ -254,7 +254,7 @@ fn sheet_flags(
 
 /// The sheet symbol that placed `occurrence`, with the parent's source path and
 /// the sheet's index in it: today's `instance.sheet_symbol`.
-fn sheet_symbol<'a>(
+pub(crate) fn sheet_symbol<'a>(
     graph: &'a Graph<'a>,
     occurrence: &SchematicOccurrence,
 ) -> Option<(&'a SchematicSheet, &'a str, usize)> {
@@ -267,7 +267,7 @@ fn sheet_symbol<'a>(
 
 /// `_ancestor_sheet_flags` (semantic_index_variants.py:261-282): fold the sheet
 /// symbols from `occurrence` up to the root.
-fn ancestor_sheet_flags(
+pub(crate) fn ancestor_sheet_flags(
     input: &ProjectionInput<'_>,
     graph: &Graph<'_>,
     occurrence: &SchematicOccurrence,
@@ -306,7 +306,7 @@ fn ancestor_sheet_flags(
 
 /// Cached `sheet_instances` scan of one source (semantic_index_variants.py uses
 /// `sheet.instances`, which the fork core does not expose).
-fn sheet_records<'a>(
+pub(crate) fn sheet_records<'a>(
     input: &ProjectionInput<'_>,
     cache: &'a mut HashMap<String, Vec<Vec<variants::SheetInstance>>>,
     source_path: &str,
