@@ -23,6 +23,7 @@ is an ADR amendment.
 | `backfill.py`, `retention.py` | The worker's paced backfill of branch heads and bundle retention. |
 | `repo_hydration.py` | Submodules and LFS objects for import and sync. |
 | `reader.py` | How a consumer opens a revision's bundle and reads members. |
+| `consumer.py` | `bundle_read`: a Wave 3 consumer's switch and the rollout fallback (not ready or failed → legacy for this request, job queued). Every consumer goes through it. |
 
 ## Rules
 

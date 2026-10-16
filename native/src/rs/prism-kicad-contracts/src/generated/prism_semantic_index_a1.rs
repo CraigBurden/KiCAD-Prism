@@ -3066,9 +3066,10 @@ pub struct SemanticIndexNet {
     #[serde(
         rename = "netCode",
         default,
+        deserialize_with = "crate::deserialize_present_nullable",
         skip_serializing_if = "::std::option::Option::is_none"
     )]
-    pub net_code: ::std::option::Option<SemanticIndexNetCode>,
+    pub net_code: ::std::option::Option<::std::option::Option<SemanticIndexNetCode>>,
 }
 /**KiCad net number (`(net <n> "<name>")`) from a board that has a net table,
 KiCad 9 format and earlier; 0 is KiCad's "no net" and never appears.*/
