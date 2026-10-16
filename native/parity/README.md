@@ -45,7 +45,10 @@ From `native/parity` (any Python ≥ 3.11, no dependencies):
 python3 -m prism_parity compare --bundles <dir>              # <dir>/<case>.prism or <dir>/<case>/ per case
 python3 -m prism_parity compare <bundle> --case rs-usb-pd    # one bundle: .prism, unpacked, or a dir of <member>.json
   [--members stackup,placements] [--cases a,b] [--require-all] [--validate] [--json report.json] [--quiet]
+python3 -m prism_parity bundles --prism-kicad <bin> --out <dir> [--cases a,b] [--no-upgrade]
 ```
+
+`bundles` builds every fixture's parse-stage bundle into `<dir>/<case>.prism`, preparing each case as `capture` does. With KiCad found (or without `--no-upgrade`), old-format sources are upgraded first. Without KiCad, a case whose golden came from upgraded sources (`rs-cynthion`, `rs-usb-pd`, `rs-synthetic`, `dv-legacy_in_bom`) is skipped and named, and `compare` lists it as missing.
 
 For each case and member the runner:
 
@@ -151,4 +154,4 @@ The `native-parity` job (`.github/workflows/dev-quality-gate.yml`) runs on every
 - `validate.mjs` on every golden;
 - `selftest`.
 
-Each Wave 2 producer adds a step that builds the fixtures' bundles with `prism-kicad` and runs `compare --bundles … --members <its members>`. The corpus is a local or nightly job.
+The projections' own parity runs in the `native-workspace` job ("Projection parity on the committed fixtures"): `bundles --no-upgrade` with its debug `prism-kicad`, then `compare --members $PARITY_MEMBERS`. Each Wave 2 producer adds its members to `PARITY_MEMBERS`. The four upgraded cases and the corpus are a local or nightly job: run `bundles` with KiCad installed.

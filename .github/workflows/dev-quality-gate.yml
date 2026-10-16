@@ -677,6 +677,22 @@ jobs:
       - name: Parity corpus round trip
         run: python3 scripts/parity_corpus.py sexpr-gate --committed-only --debug
 
+      - name: Projection parity on the committed fixtures
+        # Every finished projection against its goldens (ADR §7, §9.4 G): build each fixture's
+        # parse bundle with this debug prism-kicad, then the parity runner. A case whose
+        # sources need KiCad's upgrade is skipped and named (the local job covers it). Each
+        # producer's work package adds its member to PARITY_MEMBERS.
+        env:
+          PARITY_MEMBERS: semantic-index
+        run: |
+          set -euo pipefail
+          cargo build --locked -p prism-kicad-cli
+          cd parity
+          python3 -m prism_parity bundles --prism-kicad ../target/debug/prism-kicad \
+            --out "$RUNNER_TEMP/parity-bundles" --no-upgrade
+          python3 -m prism_parity compare --bundles "$RUNNER_TEMP/parity-bundles" \
+            --members "$PARITY_MEMBERS" --quiet
+
   native-platforms:
     name: Native workspace (${{ matrix.platform }})
     # The fork's per-platform materializer job: the producer, pack and bundle tests on the other
@@ -880,8 +896,8 @@ jobs:
       - name: Runner self-test on hand-made bundles (goldens, and a deliberate change)
         run: python -m prism_parity selftest
 
-      # Once prism-kicad writes a projection (Wave 2), its producer adds a step here that builds
-      # the fixtures' bundles and runs: python -m prism_parity compare --bundles <dir> --members <stem>
+      # The projections' own parity (bundles built by prism-kicad) runs in native-workspace,
+      # on its debug build: "Projection parity on the committed fixtures".
 
   design-compare-parser:
     name: Design compare parser
