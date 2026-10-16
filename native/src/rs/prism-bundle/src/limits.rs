@@ -6,6 +6,13 @@
 
 use crate::finding::{Failure, Outcome};
 
+/// The Design Comparison object-diff engine (`prism-kicad compare`, amendment
+/// C2). `prism-kicad-cli` reaches it through this crate rather than depending
+/// on `prism-projections` directly, which would edit a Cargo manifest
+/// (amendment C2 §2.3 keeps the Cargo manifests unchanged).
+#[cfg(feature = "build")]
+pub use prism_projections::compare;
+
 /// The largest safe JSON integer, the bound of a limit without a hard bound
 /// (every limit value is written into `CliLimitHit` as a `safeint`).
 pub const SAFE_INTEGER: u64 = (1 << 53) - 1;
@@ -148,6 +155,8 @@ pub enum Work {
     Extract,
     /// `revision-key`.
     RevisionKey,
+    /// `compare` (cli-spec.md §5.6).
+    Compare,
     /// `version` and usage errors.
     Other,
 }
@@ -227,7 +236,7 @@ fn memory_default(work: Work) -> u64 {
 fn timeout_default(work: Work) -> u64 {
     match work {
         Work::Board | Work::Verify | Work::Extract => 600_000,
-        Work::Models => 120_000,
+        Work::Models | Work::Compare => 120_000,
         _ => 300_000,
     }
 }
@@ -351,6 +360,14 @@ mod tests {
         assert_eq!(
             Limits::defaults(Work::Models).get(LimitName::TimeoutMs),
             120_000
+        );
+        assert_eq!(
+            Limits::defaults(Work::Compare).get(LimitName::TimeoutMs),
+            120_000
+        );
+        assert_eq!(
+            Limits::defaults(Work::Compare).get(LimitName::MaxMemoryBytes),
+            2 * GIB
         );
         assert_eq!(parse.get(LimitName::MaxArchiveBytes), u64::from(u32::MAX));
     }

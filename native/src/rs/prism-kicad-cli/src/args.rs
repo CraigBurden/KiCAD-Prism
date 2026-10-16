@@ -21,6 +21,8 @@ pub enum Command {
     Extract,
     /// `revision-key`.
     RevisionKey,
+    /// `compare`.
+    Compare,
 }
 
 /// A `bundle build` stage.
@@ -73,11 +75,12 @@ fn work_of(command: Command, stage: Option<StageArg>) -> Work {
         (Command::Verify, _) => Work::Verify,
         (Command::Extract, _) => Work::Extract,
         (Command::RevisionKey, _) => Work::RevisionKey,
+        (Command::Compare, _) => Work::Compare,
         _ => Work::Other,
     }
 }
 
-const VALUE_OPTIONS: [&str; 16] = [
+const VALUE_OPTIONS: [&str; 18] = [
     "output",
     "in",
     "stage",
@@ -91,6 +94,8 @@ const VALUE_OPTIONS: [&str; 16] = [
     "models-tool",
     "commit",
     "project",
+    "base",
+    "head",
     "limit",
     "threads",
     "upgraded",
@@ -114,6 +119,7 @@ fn allowed(command: Command, option: &str) -> bool {
             "models-tool",
         ],
         Command::Extract => &["output"],
+        Command::Compare => &["base", "head", "output"],
         Command::RevisionKey => &["commit", "worktree", "project", "config"],
         _ => &[],
     };
@@ -133,6 +139,7 @@ fn command_words(argv: &[String]) -> Outcome<(Command, usize)> {
         Some("version" | "--version") => Ok((Command::Version, 1)),
         Some("-h" | "--help") | None => Ok((Command::Help, 1)),
         Some("revision-key") => Ok((Command::RevisionKey, 1)),
+        Some("compare") => Ok((Command::Compare, 1)),
         Some("bundle") => match argv.get(1).map(String::as_str) {
             Some("build") => Ok((Command::Build, 2)),
             Some("verify") => Ok((Command::Verify, 2)),
@@ -141,7 +148,7 @@ fn command_words(argv: &[String]) -> Outcome<(Command, usize)> {
         },
         Some(_) => Err(Failure::usage(
             "unknown-command",
-            "the command is not version, bundle build, bundle verify, bundle extract or revision-key",
+            "the command is not version, bundle build, bundle verify, bundle extract, revision-key or compare",
         )
         .argument("command")),
     }
@@ -387,6 +394,24 @@ fn build_rules(raw: &Raw, stage: StageArg) -> [(bool, &'static str, &'static str
     ]
 }
 
+/// The options of `compare` (cli-spec.md §5.6): all three of `--base`,
+/// `--head` and `-o`, and no positional argument.
+fn check_compare(raw: &Raw) -> Outcome<()> {
+    if !raw.options.contains_key("base") {
+        return Err(usage("compare takes --base").argument("base"));
+    }
+    if !raw.options.contains_key("head") {
+        return Err(usage("compare takes --head").argument("head"));
+    }
+    if !raw.options.contains_key("output") {
+        return Err(usage("compare takes -o <delta.json>").argument("output"));
+    }
+    if !raw.positional.is_empty() {
+        return Err(usage("compare takes no positional argument").argument("command"));
+    }
+    Ok(())
+}
+
 fn check_combinations(command: Command, raw: &Raw, stage: Option<StageArg>) -> Outcome<()> {
     match command {
         Command::Build => check_build(raw, stage),
@@ -412,6 +437,7 @@ fn check_combinations(command: Command, raw: &Raw, stage: Option<StageArg>) -> O
         Command::RevisionKey if !raw.options.contains_key("project") => {
             Err(usage("revision-key takes --project").argument("project"))
         }
+        Command::Compare => check_compare(raw),
         Command::Version if !raw.positional.is_empty() => {
             Err(usage("version takes no argument").argument("command"))
         }
@@ -520,6 +546,7 @@ usage:
   prism-kicad bundle extract <bundle.prism> <member>... -o <dir> [COMMON]
   prism-kicad revision-key <repo> (--commit <rev> | --worktree) --project <rel>
               [--config <effective.json>] [COMMON]
+  prism-kicad compare --base <base.prism> --head <head.prism> -o <delta.json> [COMMON]
 
 COMMON: [--limit <name>=<value>]... [--threads <n>] [--quiet]
 
@@ -552,6 +579,9 @@ mod tests {
         assert_eq!(work_of(board.command, board.stage), Work::Board);
         assert!(args("revision-key . --worktree --project x.kicad_pro").is_ok());
         assert_eq!(args("version").unwrap().command, Command::Version);
+        let compare = args("compare --base a.prism --head b.prism -o d.json").unwrap();
+        assert_eq!(compare.command, Command::Compare);
+        assert_eq!(work_of(compare.command, compare.stage), Work::Compare);
     }
 
     #[test]
@@ -585,6 +615,16 @@ mod tests {
         );
         assert_eq!(code("bundle verify b --threads 0"), "usage");
         assert_eq!(code("bundle verify b --stage parse"), "usage");
+    }
+
+    #[test]
+    fn rejects_bad_compare_grammar() {
+        let code = |line: &str| args(line).unwrap_err().finding.code;
+        assert_eq!(code("compare --head b -o d"), "usage");
+        assert_eq!(code("compare --base a -o d"), "usage");
+        assert_eq!(code("compare --base a --head b"), "usage");
+        assert_eq!(code("compare --base a --head b -o d extra"), "usage");
+        assert_eq!(code("compare --base a --head b --base c -o d"), "usage");
     }
 
     #[test]

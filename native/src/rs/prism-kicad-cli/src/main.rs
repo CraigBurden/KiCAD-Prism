@@ -16,6 +16,7 @@ mod args;
 mod atomic;
 mod cmd_build;
 mod cmd_bundle;
+mod cmd_compare;
 mod cmd_revision_key;
 mod git;
 mod inputs;
@@ -161,7 +162,9 @@ fn dispatch(args: &Args, stderr: &Stderr) -> Result<(Value, u8), Failure> {
             cmd_revision_key::KeyOutcome::Record(record) => Ok((record, 0)),
             cmd_revision_key::KeyOutcome::Absent(document) => Ok((document, 10)),
         },
-        Command::Version | Command::Help => Err(Failure::internal("not a dispatched command")),
+        Command::Version | Command::Help | Command::Compare => {
+            Err(Failure::internal("not a dispatched command"))
+        }
     }
 }
 
@@ -200,6 +203,10 @@ fn run(argv: &[String], started: Instant) -> u8 {
             0
         }
         Command::Version => version_command(&stderr),
+        Command::Compare => match cmd_compare::run(&args, &stderr) {
+            Ok(exit) => exit,
+            Err(failure) => fail(&failure, &stderr, stage),
+        },
         _ => match dispatch(&args, &stderr) {
             Ok((document, exit)) => emit(&document, exit, &stderr, stage),
             Err(failure) => fail(&failure, &stderr, stage),
