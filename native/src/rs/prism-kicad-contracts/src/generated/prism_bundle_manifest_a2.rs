@@ -1701,6 +1701,44 @@ impl ::std::fmt::Display for CliJsonPointer {
         self.0.fmt(f)
     }
 }
+///KiCad's current `(version N)` per source format, declared in code point order.
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "description": "KiCad's current `(version N)` per source format, declared in code point order.",
+///  "type": "object",
+///  "required": [
+///    "board",
+///    "schematic"
+///  ],
+///  "properties": {
+///    "board": {
+///      "description": "`.kicad_pcb`, for example `20260206`.",
+///      "type": "integer",
+///      "maximum": 99991231.0,
+///      "minimum": 20000000.0
+///    },
+///    "schematic": {
+///      "description": "`.kicad_sch`, for example `20260306`.",
+///      "type": "integer",
+///      "maximum": 99991231.0,
+///      "minimum": 20000000.0
+///    }
+///  },
+///  "additionalProperties": false
+///}
+/// ```
+/// </details>
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct CliKicadFileFormats {
+    ///`.kicad_pcb`, for example `20260206`.
+    pub board: i64,
+    ///`.kicad_sch`, for example `20260306`.
+    pub schematic: i64,
+}
 /**Where a finding is. Every field is optional; a field is present only when
 it is known. The field names are single words so the model can move to
 common.tsp unchanged and serve camelCase documents too.*/
@@ -2110,6 +2148,7 @@ generator digest and the bundle key are SHA-256 over them.*/
 ///  "required": [
 ///    "crate_version",
 ///    "engine_version",
+///    "kicad_file_formats",
 ///    "kicad_version",
 ///    "member_schemas",
 ///    "models_procedure",
@@ -2126,6 +2165,10 @@ generator digest and the bundle key are SHA-256 over them.*/
 ///    "engine_version": {
 ///      "description": "Version of the parser core crate (`ENGINE_VERSION`, the fork's `kicad-monkey-core`, `prism-kicad-core` after WP-F2).",
 ///      "$ref": "#/$defs/CliReleaseVersion"
+///    },
+///    "kicad_file_formats": {
+///      "description": "The current file formats of `kicad_version`: the `(version N)` KiCad\nwrites. Sources older than them are upgraded before stage `parse`\n(cli-spec.md §9.4), and the parser reads only these formats, so they\ndecide every parsed member's bytes. Raised with `kicad_version`.",
+///      "$ref": "#/$defs/CliKicadFileFormats"
 ///    },
 ///    "kicad_version": {
 ///      "description": "KiCad version of the KiCad-produced members (the refilled board and\n`components.glb`), exactly as `kicad-cli version` prints it. It also\npins KiCad's stock 3D model library. `--refill-tool` and\n`--models-tool` must equal it.",
@@ -2179,6 +2222,11 @@ pub struct CliVersionA0 {
     pub crate_version: CliReleaseVersion,
     ///Version of the parser core crate (`ENGINE_VERSION`, the fork's `kicad-monkey-core`, `prism-kicad-core` after WP-F2).
     pub engine_version: CliReleaseVersion,
+    /**The current file formats of `kicad_version`: the `(version N)` KiCad
+    writes. Sources older than them are upgraded before stage `parse`
+    (cli-spec.md §9.4), and the parser reads only these formats, so they
+    decide every parsed member's bytes. Raised with `kicad_version`.*/
+    pub kicad_file_formats: CliKicadFileFormats,
     /**KiCad version of the KiCad-produced members (the refilled board and
     `components.glb`), exactly as `kicad-cli version` prints it. It also
     pins KiCad's stock 3D model library. `--refill-tool` and

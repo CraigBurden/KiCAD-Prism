@@ -95,6 +95,7 @@
                 "models-tool",
                 "revision-key",
                 "key-record",
+                "upgraded",
                 "config",
                 "commit",
                 "worktree",

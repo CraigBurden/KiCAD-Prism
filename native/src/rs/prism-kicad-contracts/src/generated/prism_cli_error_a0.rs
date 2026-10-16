@@ -151,6 +151,7 @@ argument's value, which may be a host path.*/
 ///    "models-tool",
 ///    "revision-key",
 ///    "key-record",
+///    "upgraded",
 ///    "config",
 ///    "commit",
 ///    "worktree",
@@ -205,6 +206,8 @@ pub enum CliArgument {
     RevisionKey,
     #[serde(rename = "key-record")]
     KeyRecord,
+    #[serde(rename = "upgraded")]
+    Upgraded,
     #[serde(rename = "config")]
     Config,
     #[serde(rename = "commit")]
@@ -238,6 +241,7 @@ impl ::std::fmt::Display for CliArgument {
             Self::ModelsTool => f.write_str("models-tool"),
             Self::RevisionKey => f.write_str("revision-key"),
             Self::KeyRecord => f.write_str("key-record"),
+            Self::Upgraded => f.write_str("upgraded"),
             Self::Config => f.write_str("config"),
             Self::Commit => f.write_str("commit"),
             Self::Worktree => f.write_str("worktree"),
@@ -267,6 +271,7 @@ impl ::std::str::FromStr for CliArgument {
             "models-tool" => Ok(Self::ModelsTool),
             "revision-key" => Ok(Self::RevisionKey),
             "key-record" => Ok(Self::KeyRecord),
+            "upgraded" => Ok(Self::Upgraded),
             "config" => Ok(Self::Config),
             "commit" => Ok(Self::Commit),
             "worktree" => Ok(Self::Worktree),
