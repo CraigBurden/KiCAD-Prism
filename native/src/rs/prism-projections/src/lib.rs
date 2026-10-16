@@ -68,6 +68,8 @@ pub mod semantic_index;
 pub mod stackup;
 pub mod system_interface;
 
+mod python;
+
 use prism_kicad_contracts::generated::prism_revision_key_effective_config_a1::RevisionKeyEffectiveConfigA1;
 use prism_kicad_core::{
     KiCadDesignFacts, PcbView, ProjectDocument, SchematicBundleIndex, SourceBundle,
