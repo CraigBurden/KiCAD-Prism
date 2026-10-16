@@ -153,6 +153,18 @@ class NativeWorkspaceTest(unittest.TestCase):
             self.assertEqual(copy.read_text(), path.read_text())
         self.assertEqual(len(entries), len(json.loads(path.read_text())["violations"]))
 
+    def test_member_lints_must_be_at_least_as_strict_as_the_workspace(self) -> None:
+        workspace = {
+            "rust": {"unsafe_code": "forbid"},
+            "clippy": {"all": {"level": "warn", "priority": -1}, "too_many_lines": "deny"},
+        }
+        own = {"rust": {"unsafe_code": "deny"}, "clippy": {"all": {"level": "warn"}, "too_many_lines": "deny"}}
+        self.assertEqual(rust_hygiene._weaker_lints(workspace, own), [])
+        own["clippy"]["too_many_lines"] = "warn"
+        self.assertEqual(rust_hygiene._weaker_lints(workspace, own), ["clippy.too_many_lines"])
+        self.assertEqual(rust_hygiene._weaker_lints(workspace, {"rust": {"unsafe_code": "warn"}}),
+                         ["rust.unsafe_code", "clippy.all", "clippy.too_many_lines"])
+
 
 if __name__ == "__main__":
     unittest.main()
