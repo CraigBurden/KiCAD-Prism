@@ -84,7 +84,7 @@ jobs:
         run: |
           set -euo pipefail
           channel="$(sed -n 's/^channel = "\(.*\)"/\1/p' rust-toolchain.toml)"
-          rustup toolchain install "$channel" --profile minimal
+          rustup toolchain install "$channel" --profile minimal --component rustfmt --component clippy
           cargo --version
 
       - name: Set up Docker Buildx (linux builds in the worker image's builder)
@@ -123,7 +123,7 @@ jobs:
         run: |
           set -euo pipefail
           channel="$(sed -n 's/^channel = "\(.*\)"/\1/p' rust-toolchain.toml)"
-          rustup toolchain install "$channel" --profile minimal --target wasm32-unknown-unknown
+          rustup toolchain install "$channel" --profile minimal --component rustfmt --component clippy --target wasm32-unknown-unknown
           bindgen="$(sed -n '/^name = "wasm-bindgen"$/{n;s/^version = "\(.*\)"$/\1/p;}' Cargo.lock)"
           cargo install wasm-bindgen-cli --version "$bindgen" --locked
           wasm-bindgen --version

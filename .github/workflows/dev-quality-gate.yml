@@ -667,7 +667,8 @@ jobs:
             echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
             export PATH="$HOME/.cargo/bin:$PATH"
           fi
-          rustup toolchain install "$channel" --profile minimal
+          # rust-toolchain.toml lists rustfmt and clippy; install them with the toolchain.
+          rustup toolchain install "$channel" --profile minimal --component rustfmt --component clippy
           cargo --version
 
       - name: Producer, pack, bundle and CLI tests
@@ -713,7 +714,7 @@ jobs:
           set -euo pipefail
           channel="$(sed -n 's/^channel = "\(.*\)"/\1/p' rust-toolchain.toml)"
           test -n "$channel"
-          rustup toolchain install "$channel" --profile minimal --component clippy --target wasm32-unknown-unknown
+          rustup toolchain install "$channel" --profile minimal --component rustfmt --component clippy --target wasm32-unknown-unknown
           bindgen="$(sed -n '/^name = "wasm-bindgen"$/{n;s/^version = "\(.*\)"$/\1/p;}' Cargo.lock)"
           if [[ "$(wasm-bindgen-test-runner --version 2>/dev/null | awk '{print $2}')" != "$bindgen" ]]; then
             cargo install wasm-bindgen-cli --version "$bindgen" --locked --force
@@ -766,7 +767,7 @@ jobs:
           set -euo pipefail
           channel="$(sed -n 's/^channel = "\(.*\)"/\1/p' rust-toolchain.toml)"
           test -n "$channel"
-          rustup toolchain install "$channel" --profile minimal
+          rustup toolchain install "$channel" --profile minimal --component rustfmt --component clippy
           version="$(sed -n 's/^ARG UV_VERSION=//p' ../backend/Dockerfile | head -n 1)"
           test -n "$version"
           python -m pip install --disable-pip-version-check "uv==${version}"
