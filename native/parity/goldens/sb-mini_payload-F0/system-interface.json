@@ -1,0 +1,469 @@
+{
+ "schema": "prism.system_interface.v1",
+ "hasPcb": false,
+ "boardThicknessMm": null,
+ "boardOutlineMm": null,
+ "components": [
+  {
+   "portKey": "/d3146c74-5e35-516d-8c6e-8aa74fa572ef/34f055d4-6678-5dc4-b79f-232a96428961",
+   "memberKeys": [
+    "/d3146c74-5e35-516d-8c6e-8aa74fa572ef/34f055d4-6678-5dc4-b79f-232a96428961"
+   ],
+   "reference": "J4",
+   "libId": "Connector_Generic:Conn_02x10_Odd_Even",
+   "footprint": "Connector_PinHeader_2.54mm:PinHeader_2x10_P2.54mm_Vertical",
+   "value": "Conn_02x10",
+   "mpn": null,
+   "dnp": false,
+   "candidate": true,
+   "candidateReason": "refdes",
+   "pins": [
+    {
+     "pad": "1",
+     "nets": [
+      "GND"
+     ],
+     "pcbNets": null,
+     "pinNames": [
+      "Pin_1"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "2",
+     "nets": [
+      "GND"
+     ],
+     "pcbNets": null,
+     "pinNames": [
+      "Pin_2"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "3",
+     "nets": [
+      "/SCK_IN"
+     ],
+     "pcbNets": null,
+     "pinNames": [
+      "Pin_3"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "4",
+     "nets": [
+      "/MOSI_IN"
+     ],
+     "pcbNets": null,
+     "pinNames": [
+      "Pin_4"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "5",
+     "nets": [
+      "/MISO_OUT"
+     ],
+     "pcbNets": null,
+     "pinNames": [
+      "Pin_5"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "6",
+     "nets": [
+      "/CS_IN#"
+     ],
+     "pcbNets": null,
+     "pinNames": [
+      "Pin_6"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "7",
+     "nets": [
+      "+3V3_OBC"
+     ],
+     "pcbNets": null,
+     "pinNames": [
+      "Pin_7"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "8",
+     "nets": [
+      "+3V3_OBC"
+     ],
+     "pcbNets": null,
+     "pinNames": [
+      "Pin_8"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "9",
+     "nets": [
+      "/IO0"
+     ],
+     "pcbNets": null,
+     "pinNames": [
+      "Pin_9"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "10",
+     "nets": [
+      "/IO1"
+     ],
+     "pcbNets": null,
+     "pinNames": [
+      "Pin_10"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "11",
+     "nets": [
+      "/IO2"
+     ],
+     "pcbNets": null,
+     "pinNames": [
+      "Pin_11"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "12",
+     "nets": [
+      "/IO3"
+     ],
+     "pcbNets": null,
+     "pinNames": [
+      "Pin_12"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "13",
+     "nets": [
+      "/IO4"
+     ],
+     "pcbNets": null,
+     "pinNames": [
+      "Pin_13"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "14",
+     "nets": [
+      "/IO5"
+     ],
+     "pcbNets": null,
+     "pinNames": [
+      "Pin_14"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "15",
+     "nets": [
+      "/IO6"
+     ],
+     "pcbNets": null,
+     "pinNames": [
+      "Pin_15"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "16",
+     "nets": [
+      "/IO7"
+     ],
+     "pcbNets": null,
+     "pinNames": [
+      "Pin_16"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "17",
+     "nets": [
+      "/RST_IN#"
+     ],
+     "pcbNets": null,
+     "pinNames": [
+      "Pin_17"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "18",
+     "nets": [
+      "/IRQ_OUT#"
+     ],
+     "pcbNets": null,
+     "pinNames": [
+      "Pin_18"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "19",
+     "nets": [],
+     "pcbNets": null,
+     "pinNames": [
+      "Pin_19"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "20",
+     "nets": [],
+     "pcbNets": null,
+     "pinNames": [
+      "Pin_20"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    }
+   ],
+   "geometry": null
+  },
+  {
+   "portKey": "/d3146c74-5e35-516d-8c6e-8aa74fa572ef/58a75445-193f-5b73-8bae-7031f82c3c1e",
+   "memberKeys": [
+    "/d3146c74-5e35-516d-8c6e-8aa74fa572ef/58a75445-193f-5b73-8bae-7031f82c3c1e"
+   ],
+   "reference": "J9",
+   "libId": "Connector_Generic:Conn_01x02",
+   "footprint": "Connector_PinHeader_2.54mm:PinHeader_1x02_P2.54mm_Vertical",
+   "value": "Conn_01x02",
+   "mpn": null,
+   "dnp": false,
+   "candidate": false,
+   "candidateReason": "field",
+   "pins": [
+    {
+     "pad": "1",
+     "nets": [
+      "/PROG_TX"
+     ],
+     "pcbNets": null,
+     "pinNames": [
+      "Pin_1"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "2",
+     "nets": [
+      "/PROG_RX"
+     ],
+     "pcbNets": null,
+     "pinNames": [
+      "Pin_2"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    }
+   ],
+   "geometry": null
+  },
+  {
+   "portKey": "/d3146c74-5e35-516d-8c6e-8aa74fa572ef/fa5dc19a-38e3-5a2d-9e7b-ce5a9ff878e9/21efc24e-7520-56a7-8353-4b2fec7322ec",
+   "memberKeys": [
+    "/d3146c74-5e35-516d-8c6e-8aa74fa572ef/fa5dc19a-38e3-5a2d-9e7b-ce5a9ff878e9/21efc24e-7520-56a7-8353-4b2fec7322ec"
+   ],
+   "reference": "J11",
+   "libId": "Connector_Generic:Conn_01x02",
+   "footprint": "Connector_PinHeader_2.54mm:PinHeader_1x02_P2.54mm_Vertical",
+   "value": "Conn_01x02",
+   "mpn": null,
+   "dnp": false,
+   "candidate": true,
+   "candidateReason": "refdes",
+   "pins": [
+    {
+     "pad": "1",
+     "nets": [
+      "/CH_A/CH_PWR"
+     ],
+     "pcbNets": null,
+     "pinNames": [
+      "Pin_1"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "2",
+     "nets": [
+      "GND"
+     ],
+     "pcbNets": null,
+     "pinNames": [
+      "Pin_2"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    }
+   ],
+   "geometry": null
+  },
+  {
+   "portKey": "/d3146c74-5e35-516d-8c6e-8aa74fa572ef/1be6926c-1f66-559e-b180-22b373d042c4/21efc24e-7520-56a7-8353-4b2fec7322ec",
+   "memberKeys": [
+    "/d3146c74-5e35-516d-8c6e-8aa74fa572ef/1be6926c-1f66-559e-b180-22b373d042c4/21efc24e-7520-56a7-8353-4b2fec7322ec"
+   ],
+   "reference": "J12",
+   "libId": "Connector_Generic:Conn_01x02",
+   "footprint": "Connector_PinHeader_2.54mm:PinHeader_1x02_P2.54mm_Vertical",
+   "value": "Conn_01x02",
+   "mpn": null,
+   "dnp": false,
+   "candidate": true,
+   "candidateReason": "refdes",
+   "pins": [
+    {
+     "pad": "1",
+     "nets": [
+      "/CH_B/CH_PWR"
+     ],
+     "pcbNets": null,
+     "pinNames": [
+      "Pin_1"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "2",
+     "nets": [
+      "GND"
+     ],
+     "pcbNets": null,
+     "pinNames": [
+      "Pin_2"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    }
+   ],
+   "geometry": null
+  },
+  {
+   "portKey": "/d3146c74-5e35-516d-8c6e-8aa74fa572ef/8905aaee-fe73-5e88-a881-5d780581856f",
+   "memberKeys": [
+    "/d3146c74-5e35-516d-8c6e-8aa74fa572ef/8905aaee-fe73-5e88-a881-5d780581856f"
+   ],
+   "reference": "TP1",
+   "libId": "MiniSys:TestPad",
+   "footprint": "MiniSys:TestPad_1.5mm",
+   "value": "TestPad",
+   "mpn": null,
+   "dnp": false,
+   "candidate": true,
+   "candidateReason": "field",
+   "pins": [
+    {
+     "pad": "1",
+     "nets": [
+      "/RST_IN#"
+     ],
+     "pcbNets": null,
+     "pinNames": [
+      "TP"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    }
+   ],
+   "geometry": null
+  }
+ ],
+ "diagnostics": [],
+ "digest": "sha256:bf30390149edf21e264e52d7cc2070419efb96bec67b644543b53959a5970d6c"
+}

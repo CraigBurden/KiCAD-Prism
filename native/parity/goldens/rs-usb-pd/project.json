@@ -1,0 +1,269 @@
+{
+ "schema": "prism.project.a0",
+ "projectFile": "USB-PD-Trigger-Board.kicad_pro",
+ "projectName": "USB-PD-Trigger-Board",
+ "textVariables": {},
+ "netClasses": [
+  {
+   "name": "Default",
+   "trackWidthNm": 200000,
+   "clearanceNm": 200000,
+   "diffPairWidthNm": 200000,
+   "diffPairGapNm": 250000,
+   "viaDiameterNm": 600000,
+   "viaDrillNm": 300000
+  },
+  {
+   "name": "GND"
+  }
+ ],
+ "documents": [
+  {
+   "path": "Subsheets/Output-Connector.kicad_sch",
+   "kind": "schematic",
+   "formatVersion": 20260306,
+   "generator": "eeschema",
+   "generatorVersion": "10.0",
+   "titleBlock": {
+    "date": "2026-01-22",
+    "comments": []
+   },
+   "expandedTitleBlock": {
+    "date": "2026-01-22",
+    "comments": []
+   },
+   "properties": {}
+  },
+  {
+   "path": "USB-PD-Trigger-Board.kicad_pcb",
+   "kind": "board",
+   "formatVersion": 20260206,
+   "generator": "pcbnew",
+   "generatorVersion": "10.0",
+   "properties": {}
+  },
+  {
+   "path": "USB-PD-Trigger-Board.kicad_sch",
+   "kind": "root-schematic",
+   "formatVersion": 20260306,
+   "generator": "eeschema",
+   "generatorVersion": "10.0",
+   "titleBlock": {
+    "title": "USB-PD Trigger Board",
+    "date": "2026-01-22",
+    "rev": "E.1.0.0",
+    "comments": [
+     {
+      "number": 1,
+      "text": "Krishna Swaroop Dhulipalla"
+     }
+    ]
+   },
+   "expandedTitleBlock": {
+    "title": "USB-PD Trigger Board",
+    "date": "2026-01-22",
+    "rev": "E.1.0.0",
+    "comments": [
+     {
+      "number": 1,
+      "text": "Krishna Swaroop Dhulipalla"
+     }
+    ]
+   },
+   "properties": {}
+  }
+ ],
+ "references": [
+  {
+   "kind": "model-3d",
+   "documentPath": "USB-PD-Trigger-Board.kicad_pcb",
+   "raw": "${KICAD9_3DMODEL_DIR}/Capacitor_SMD.3dshapes/C_0603_1608Metric.step",
+   "variables": [
+    "KICAD9_3DMODEL_DIR"
+   ],
+   "target": {
+    "kind": "kicad-library",
+    "variable": "KICAD9_3DMODEL_DIR",
+    "library": "model-3d",
+    "relativePath": "Capacitor_SMD.3dshapes/C_0603_1608Metric.step"
+   }
+  },
+  {
+   "kind": "model-3d",
+   "documentPath": "USB-PD-Trigger-Board.kicad_pcb",
+   "raw": "${KICAD9_3DMODEL_DIR}/Capacitor_SMD.3dshapes/C_0805_2012Metric.step",
+   "variables": [
+    "KICAD9_3DMODEL_DIR"
+   ],
+   "target": {
+    "kind": "kicad-library",
+    "variable": "KICAD9_3DMODEL_DIR",
+    "library": "model-3d",
+    "relativePath": "Capacitor_SMD.3dshapes/C_0805_2012Metric.step"
+   }
+  },
+  {
+   "kind": "model-3d",
+   "documentPath": "USB-PD-Trigger-Board.kicad_pcb",
+   "raw": "${KICAD9_3DMODEL_DIR}/Capacitor_SMD.3dshapes/C_1210_3225Metric.step",
+   "variables": [
+    "KICAD9_3DMODEL_DIR"
+   ],
+   "target": {
+    "kind": "kicad-library",
+    "variable": "KICAD9_3DMODEL_DIR",
+    "library": "model-3d",
+    "relativePath": "Capacitor_SMD.3dshapes/C_1210_3225Metric.step"
+   }
+  },
+  {
+   "kind": "model-3d",
+   "documentPath": "USB-PD-Trigger-Board.kicad_pcb",
+   "raw": "${KICAD9_3DMODEL_DIR}/Diode_SMD.3dshapes/D_0603_1608Metric.step",
+   "variables": [
+    "KICAD9_3DMODEL_DIR"
+   ],
+   "target": {
+    "kind": "kicad-library",
+    "variable": "KICAD9_3DMODEL_DIR",
+    "library": "model-3d",
+    "relativePath": "Diode_SMD.3dshapes/D_0603_1608Metric.step"
+   }
+  },
+  {
+   "kind": "model-3d",
+   "documentPath": "USB-PD-Trigger-Board.kicad_pcb",
+   "raw": "${KICAD9_3DMODEL_DIR}/Diode_SMD.3dshapes/D_SOD-123.step",
+   "variables": [
+    "KICAD9_3DMODEL_DIR"
+   ],
+   "target": {
+    "kind": "kicad-library",
+    "variable": "KICAD9_3DMODEL_DIR",
+    "library": "model-3d",
+    "relativePath": "Diode_SMD.3dshapes/D_SOD-123.step"
+   }
+  },
+  {
+   "kind": "model-3d",
+   "documentPath": "USB-PD-Trigger-Board.kicad_pcb",
+   "raw": "${KICAD9_3DMODEL_DIR}/Package_TO_SOT_SMD.3dshapes/SOT-23.step",
+   "variables": [
+    "KICAD9_3DMODEL_DIR"
+   ],
+   "target": {
+    "kind": "kicad-library",
+    "variable": "KICAD9_3DMODEL_DIR",
+    "library": "model-3d",
+    "relativePath": "Package_TO_SOT_SMD.3dshapes/SOT-23.step"
+   }
+  },
+  {
+   "kind": "model-3d",
+   "documentPath": "USB-PD-Trigger-Board.kicad_pcb",
+   "raw": "${KICAD9_3DMODEL_DIR}/Resistor_SMD.3dshapes/R_0603_1608Metric.step",
+   "variables": [
+    "KICAD9_3DMODEL_DIR"
+   ],
+   "target": {
+    "kind": "kicad-library",
+    "variable": "KICAD9_3DMODEL_DIR",
+    "library": "model-3d",
+    "relativePath": "Resistor_SMD.3dshapes/R_0603_1608Metric.step"
+   }
+  },
+  {
+   "kind": "model-3d",
+   "documentPath": "USB-PD-Trigger-Board.kicad_pcb",
+   "raw": "${KIPRJMOD}/packages3D/796638-2.step",
+   "variables": [
+    "KIPRJMOD"
+   ],
+   "target": {
+    "kind": "repository",
+    "path": "packages3D/796638-2.step",
+    "base": "project-variable",
+    "inSources": true
+   }
+  },
+  {
+   "kind": "model-3d",
+   "documentPath": "USB-PD-Trigger-Board.kicad_pcb",
+   "raw": "${KIPRJMOD}/packages3D/CYPD3177-24LQXQT.stp",
+   "variables": [
+    "KIPRJMOD"
+   ],
+   "target": {
+    "kind": "repository",
+    "path": "packages3D/CYPD3177-24LQXQT.stp",
+    "base": "project-variable",
+    "inSources": true
+   }
+  },
+  {
+   "kind": "model-3d",
+   "documentPath": "USB-PD-Trigger-Board.kicad_pcb",
+   "raw": "${KIPRJMOD}/packages3D/USB4056-03-A_REVA2.step",
+   "variables": [
+    "KIPRJMOD"
+   ],
+   "target": {
+    "kind": "repository",
+    "path": "packages3D/USB4056-03-A_REVA2.step",
+    "base": "project-variable",
+    "inSources": true
+   }
+  },
+  {
+   "kind": "model-3d",
+   "documentPath": "USB-PD-Trigger-Board.kicad_pcb",
+   "raw": "kicad-embed://BSL308PE.stp",
+   "variables": [],
+   "target": {
+    "kind": "embedded",
+    "name": "BSL308PE.stp",
+    "documentPath": "USB-PD-Trigger-Board.kicad_pcb",
+    "footprintUuid": "8ea1ed23-3f8f-42ce-8c56-16f2acc6ed03",
+    "fileType": "model"
+   }
+  },
+  {
+   "kind": "model-3d",
+   "documentPath": "USB-PD-Trigger-Board.kicad_pcb",
+   "raw": "kicad-embed://IRF9358TRPBF.stp",
+   "variables": [],
+   "target": {
+    "kind": "embedded",
+    "name": "IRF9358TRPBF.stp",
+    "documentPath": "USB-PD-Trigger-Board.kicad_pcb",
+    "footprintUuid": "0aef2900-5b76-47c3-a213-e7b22a3034c3",
+    "fileType": "model"
+   }
+  },
+  {
+   "kind": "drawing-sheet",
+   "documentPath": "USB-PD-Trigger-Board.kicad_pro",
+   "field": "/schematic/page_layout_descr_file",
+   "raw": "kicad-embed://Schematic-Page-Template.kicad_wks",
+   "variables": [],
+   "target": {
+    "kind": "unresolved",
+    "reason": "embedded-missing"
+   }
+  },
+  {
+   "kind": "sheet-file",
+   "documentPath": "USB-PD-Trigger-Board.kicad_sch",
+   "sheetUuid": "5eb27ce9-6d8e-40a9-9f6d-8f14c5f68638",
+   "sheetName": "Output Connector",
+   "raw": "Subsheets/Output-Connector.kicad_sch",
+   "variables": [],
+   "target": {
+    "kind": "repository",
+    "path": "Subsheets/Output-Connector.kicad_sch",
+    "base": "document-directory",
+    "inSources": true
+   }
+  }
+ ]
+}

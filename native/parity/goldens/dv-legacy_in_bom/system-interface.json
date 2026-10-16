@@ -1,0 +1,92 @@
+{
+ "schema": "prism.system_interface.v1",
+ "hasPcb": false,
+ "boardThicknessMm": null,
+ "boardOutlineMm": null,
+ "components": [
+  {
+   "portKey": "/973e14f6-cc09-56bb-9cfa-6726cfd8593d/f83e6fc8-026f-519d-aa91-1e8ce63730a5",
+   "memberKeys": [
+    "/973e14f6-cc09-56bb-9cfa-6726cfd8593d/f83e6fc8-026f-519d-aa91-1e8ce63730a5"
+   ],
+   "reference": "R10",
+   "libId": "Device:R",
+   "footprint": "Resistor_SMD:R_0603_1608Metric",
+   "value": "10k",
+   "mpn": null,
+   "dnp": false,
+   "candidate": false,
+   "candidateReason": "none",
+   "pins": [
+    {
+     "pad": "1",
+     "nets": [],
+     "pcbNets": null,
+     "pinNames": [
+      "~"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "2",
+     "nets": [],
+     "pcbNets": null,
+     "pinNames": [
+      "~"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    }
+   ],
+   "geometry": null
+  },
+  {
+   "portKey": "/973e14f6-cc09-56bb-9cfa-6726cfd8593d/330b79bb-a70e-5c71-80e7-c0efa00b66e9",
+   "memberKeys": [
+    "/973e14f6-cc09-56bb-9cfa-6726cfd8593d/330b79bb-a70e-5c71-80e7-c0efa00b66e9"
+   ],
+   "reference": "R11",
+   "libId": "Device:R",
+   "footprint": "Resistor_SMD:R_0603_1608Metric",
+   "value": "22k",
+   "mpn": null,
+   "dnp": false,
+   "candidate": false,
+   "candidateReason": "none",
+   "pins": [
+    {
+     "pad": "1",
+     "nets": [],
+     "pcbNets": null,
+     "pinNames": [
+      "~"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "2",
+     "nets": [],
+     "pcbNets": null,
+     "pinNames": [
+      "~"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    }
+   ],
+   "geometry": null
+  }
+ ],
+ "diagnostics": [],
+ "digest": "sha256:52fb32ffe8ab6bb8f169b6f48bc0184cf1f57b636d9b8758c63b26342c0ce335"
+}

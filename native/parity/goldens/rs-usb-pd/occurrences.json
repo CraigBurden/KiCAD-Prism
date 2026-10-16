@@ -1,0 +1,2962 @@
+{
+ "schema": "prism.occurrences.a0",
+ "sheets": [
+  {
+   "sheetPath": "/6c5f5d69-1c0b-4294-8a58-8db0ec7d5cdf",
+   "dnp": false,
+   "excludeFromBom": false,
+   "excludeFromBoard": false,
+   "excludeFromSim": false,
+   "variants": []
+  },
+  {
+   "sheetPath": "/6c5f5d69-1c0b-4294-8a58-8db0ec7d5cdf/5eb27ce9-6d8e-40a9-9f6d-8f14c5f68638",
+   "dnp": false,
+   "excludeFromBom": false,
+   "excludeFromBoard": false,
+   "excludeFromSim": false,
+   "variants": []
+  }
+ ],
+ "symbols": [
+  {
+   "kiidPath": "/6c5f5d69-1c0b-4294-8a58-8db0ec7d5cdf/04ca4aed-f552-48a3-9a67-c12648920ee3",
+   "sheetPath": "/6c5f5d69-1c0b-4294-8a58-8db0ec7d5cdf",
+   "symbolUuid": "04ca4aed-f552-48a3-9a67-c12648920ee3",
+   "documentPath": "USB-PD-Trigger-Board.kicad_sch",
+   "libId": "Device:R_Small_US",
+   "reference": "R9",
+   "instanceMatched": true,
+   "unit": 1,
+   "dnp": false,
+   "excludeFromBom": false,
+   "excludeFromBoard": false,
+   "excludeFromSim": false,
+   "excludeFromPosFiles": false,
+   "properties": {
+    "Datasheet": "https://www.yageogroup.com/content/datasheet/asset/file/PYU-RC_GROUP_51_ROHS_L",
+    "Description": "Resistor, small US symbol",
+    "Footprint": "Resistor_SMD:R_0603_1608Metric_Pad0.98x0.95mm_HandSolder",
+    "Manufacturer": "YAGEO",
+    "Manufacturer Part Number": "RC0603FR-071KL",
+    "Reference": "R9",
+    "Value": "1k_0.1W_0603",
+    "Vendor": "DigiKey",
+    "Vendor Part Number": "311-1.00KHRDKR-ND"
+   },
+   "bomFields": {
+    "value": "1k_0.1W_0603",
+    "description": "Resistor, small US symbol",
+    "datasheet": "https://www.yageogroup.com/content/datasheet/asset/file/PYU-RC_GROUP_51_ROHS_L",
+    "manufacturer": "YAGEO",
+    "manufacturerPartNumber": "RC0603FR-071KL",
+    "vendor": "DigiKey",
+    "vendorPartNumber": "311-1.00KHRDKR-ND",
+    "footprint": "Resistor_SMD:R_0603_1608Metric_Pad0.98x0.95mm_HandSolder"
+   },
+   "variants": []
+  },
+  {
+   "kiidPath": "/6c5f5d69-1c0b-4294-8a58-8db0ec7d5cdf/0e347ae0-f759-43b2-ab1e-23e64609a182",
+   "sheetPath": "/6c5f5d69-1c0b-4294-8a58-8db0ec7d5cdf",
+   "symbolUuid": "0e347ae0-f759-43b2-ab1e-23e64609a182",
+   "documentPath": "USB-PD-Trigger-Board.kicad_sch",
+   "libId": "Device:R_Small_US",
+   "reference": "R3",
+   "instanceMatched": true,
+   "unit": 1,
+   "dnp": false,
+   "excludeFromBom": false,
+   "excludeFromBoard": false,
+   "excludeFromSim": false,
+   "excludeFromPosFiles": false,
+   "properties": {
+    "Datasheet": "https://www.yageogroup.com/content/datasheet/asset/file/PYU-RC_GROUP_51_ROHS_L",
+    "Description": "Resistor, small US symbol",
+    "Footprint": "Resistor_SMD:R_0603_1608Metric_Pad0.98x0.95mm_HandSolder",
+    "Manufacturer": "YAGEO",
+    "Manufacturer Part Number": "RC0603FR-075K1L",
+    "Reference": "R3",
+    "Value": "5.1k_0.1W_0603",
+    "Vendor": "DigiKey",
+    "Vendor Part Number": "311-5.10KHRDKR-ND"
+   },
+   "bomFields": {
+    "value": "5.1k_0.1W_0603",
+    "description": "Resistor, small US symbol",
+    "datasheet": "https://www.yageogroup.com/content/datasheet/asset/file/PYU-RC_GROUP_51_ROHS_L",
+    "manufacturer": "YAGEO",
+    "manufacturerPartNumber": "RC0603FR-075K1L",
+    "vendor": "DigiKey",
+    "vendorPartNumber": "311-5.10KHRDKR-ND",
+    "footprint": "Resistor_SMD:R_0603_1608Metric_Pad0.98x0.95mm_HandSolder"
+   },
+   "variants": []
+  },
+  {
+   "kiidPath": "/6c5f5d69-1c0b-4294-8a58-8db0ec7d5cdf/14786cd1-ceac-41e7-9323-abb9b6017547",
+   "sheetPath": "/6c5f5d69-1c0b-4294-8a58-8db0ec7d5cdf",
+   "symbolUuid": "14786cd1-ceac-41e7-9323-abb9b6017547",
+   "documentPath": "USB-PD-Trigger-Board.kicad_sch",
+   "libId": "power:VCC",
+   "reference": "#PWR07",
+   "instanceMatched": true,
+   "unit": 1,
+   "dnp": false,
+   "excludeFromBom": false,
+   "excludeFromBoard": false,
+   "excludeFromSim": false,
+   "excludeFromPosFiles": false,
+   "properties": {
+    "Datasheet": "",
+    "Description": "Power symbol creates a global label with name \"VCC\"",
+    "Footprint": "",
+    "Reference": "#PWR07",
+    "Value": "V3P3"
+   },
+   "bomFields": {
+    "value": "V3P3",
+    "description": "Power symbol creates a global label with name \"VCC\""
+   },
+   "variants": []
+  },
+  {
+   "kiidPath": "/6c5f5d69-1c0b-4294-8a58-8db0ec7d5cdf/151e1556-456d-4783-a47c-1619781ba627",
+   "sheetPath": "/6c5f5d69-1c0b-4294-8a58-8db0ec7d5cdf",
+   "symbolUuid": "151e1556-456d-4783-a47c-1619781ba627",
+   "documentPath": "USB-PD-Trigger-Board.kicad_sch",
+   "libId": "power:GND",
+   "reference": "#PWR02",
+   "instanceMatched": true,
+   "unit": 1,
+   "dnp": false,
+   "excludeFromBom": false,
+   "excludeFromBoard": false,
+   "excludeFromSim": false,
+   "excludeFromPosFiles": false,
+   "properties": {
+    "Datasheet": "",
+    "Description": "Power symbol creates a global label with name \"GND\" , ground",
+    "Footprint": "",
+    "Reference": "#PWR02",
+    "Value": "GND"
+   },
+   "bomFields": {
+    "value": "GND",
+    "description": "Power symbol creates a global label with name \"GND\" , ground"
+   },
+   "variants": []
+  },
+  {
+   "kiidPath": "/6c5f5d69-1c0b-4294-8a58-8db0ec7d5cdf/17a44749-9ce8-4bd9-a9f5-4ddf9aeb1c00",
+   "sheetPath": "/6c5f5d69-1c0b-4294-8a58-8db0ec7d5cdf",
+   "symbolUuid": "17a44749-9ce8-4bd9-a9f5-4ddf9aeb1c00",
+   "documentPath": "USB-PD-Trigger-Board.kicad_sch",
+   "libId": "power:VCC",
+   "reference": "#PWR010",
+   "instanceMatched": true,
+   "unit": 1,
+   "dnp": false,
+   "excludeFromBom": false,
+   "excludeFromBoard": false,
+   "excludeFromSim": false,
+   "excludeFromPosFiles": false,
+   "properties": {
+    "Datasheet": "",
+    "Description": "Power symbol creates a global label with name \"VCC\"",
+    "Footprint": "",
+    "Reference": "#PWR010",
+    "Value": "V3P3"
+   },
+   "bomFields": {
+    "value": "V3P3",
+    "description": "Power symbol creates a global label with name \"VCC\""
+   },
+   "variants": []
+  },
+  {
+   "kiidPath": "/6c5f5d69-1c0b-4294-8a58-8db0ec7d5cdf/1a4f4c01-23d2-40e9-861d-b2a9d70a9903",
+   "sheetPath": "/6c5f5d69-1c0b-4294-8a58-8db0ec7d5cdf",
+   "symbolUuid": "1a4f4c01-23d2-40e9-861d-b2a9d70a9903",
+   "documentPath": "USB-PD-Trigger-Board.kicad_sch",
+   "libId": "Device:LED",
+   "reference": "D3",
+   "instanceMatched": true,
+   "unit": 1,
+   "dnp": false,
+   "excludeFromBom": false,
+   "excludeFromBoard": false,
+   "excludeFromSim": false,
+   "excludeFromPosFiles": false,
+   "properties": {
+    "Datasheet": "https://www.rohm.com/datasheet?p=SML-D12U1W&dist=Digi-key&media=referral&source=digi-key.com&campaign=Digi-key",
+    "Description": "Light emitting diode",
+    "Footprint": "Diode_SMD:D_0603_1608Metric_Pad1.05x0.95mm_HandSolder",
+    "Manufacturer": "Rohm Semiconductor",
+    "Manufacturer Part Number": "SML-D12U1WT86",
+    "Reference": "D3",
+    "Sim.Pins": "1=K 2=A",
+    "Value": "LED_R",
+    "Vendor": "Digikey",
+    "Vendor Part Number": "SML-D12U1WT86DKR-ND"
+   },
+   "bomFields": {
+    "value": "LED_R",
+    "description": "Light emitting diode",
+    "datasheet": "https://www.rohm.com/datasheet?p=SML-D12U1W&dist=Digi-key&media=referral&source=digi-key.com&campaign=Digi-key",
+    "manufacturer": "Rohm Semiconductor",
+    "manufacturerPartNumber": "SML-D12U1WT86",
+    "vendor": "Digikey",
+    "vendorPartNumber": "SML-D12U1WT86DKR-ND",
+    "footprint": "Diode_SMD:D_0603_1608Metric_Pad1.05x0.95mm_HandSolder"
+   },
+   "variants": []
+  },
+  {
+   "kiidPath": "/6c5f5d69-1c0b-4294-8a58-8db0ec7d5cdf/1c836e64-116f-4e8d-aeb1-718cd591216f",
+   "sheetPath": "/6c5f5d69-1c0b-4294-8a58-8db0ec7d5cdf",
+   "symbolUuid": "1c836e64-116f-4e8d-aeb1-718cd591216f",
+   "documentPath": "USB-PD-Trigger-Board.kicad_sch",
+   "libId": "power:VCC",
+   "reference": "#PWR05",
+   "instanceMatched": true,
+   "unit": 1,
+   "dnp": false,
+   "excludeFromBom": false,
+   "excludeFromBoard": false,
+   "excludeFromSim": false,
+   "excludeFromPosFiles": false,
+   "properties": {
+    "Datasheet": "",
+    "Description": "Power symbol creates a global label with name \"VCC\"",
+    "Footprint": "",
+    "Reference": "#PWR05",
+    "Value": "V3P3"
+   },
+   "bomFields": {
+    "value": "V3P3",
+    "description": "Power symbol creates a global label with name \"VCC\""
+   },
+   "variants": []
+  },
+  {
+   "kiidPath": "/6c5f5d69-1c0b-4294-8a58-8db0ec7d5cdf/201cfded-736f-4b5c-bc1b-e06881d7bee1",
+   "sheetPath": "/6c5f5d69-1c0b-4294-8a58-8db0ec7d5cdf",
+   "symbolUuid": "201cfded-736f-4b5c-bc1b-e06881d7bee1",
+   "documentPath": "USB-PD-Trigger-Board.kicad_sch",
+   "libId": "power:VCC",
+   "reference": "#PWR04",
+   "instanceMatched": true,
+   "unit": 1,
+   "dnp": false,
+   "excludeFromBom": false,
+   "excludeFromBoard": false,
+   "excludeFromSim": false,
+   "excludeFromPosFiles": false,
+   "properties": {
+    "Datasheet": "",
+    "Description": "Power symbol creates a global label with name \"VCC\"",
+    "Footprint": "",
+    "Reference": "#PWR04",
+    "Value": "VCC_USB_PD_IN"
+   },
+   "bomFields": {
+    "value": "VCC_USB_PD_IN",
+    "description": "Power symbol creates a global label with name \"VCC\""
+   },
+   "variants": []
+  },
+  {
+   "kiidPath": "/6c5f5d69-1c0b-4294-8a58-8db0ec7d5cdf/227531f2-f7a1-4277-9e78-936497be6b73",
+   "sheetPath": "/6c5f5d69-1c0b-4294-8a58-8db0ec7d5cdf",
+   "symbolUuid": "227531f2-f7a1-4277-9e78-936497be6b73",
+   "documentPath": "USB-PD-Trigger-Board.kicad_sch",
+   "libId": "Interface_USB:CYPD3177-24LQ",
+   "reference": "U1",
+   "instanceMatched": true,
+   "unit": 1,
+   "dnp": false,
+   "excludeFromBom": false,
+   "excludeFromBoard": false,
+   "excludeFromSim": false,
+   "excludeFromPosFiles": false,
+   "properties": {
+    "Datasheet": "https://www.infineon.com/dgdl/Infineon-EZ-PD_BCR_Datasheet_USB_Type-C_Port_Controller_for_Power_Sinks-DataSheet-v03_00-EN.pdf?fileId=8ac78c8c7d0d8da4017d0ee7ce9d70ad",
+    "Description": "Stand-alone USB PD controller (with sink Auto-run mode), QFN-24",
+    "Footprint": "Package_DFN_QFN:QFN-24-1EP_4x4mm_P0.5mm_EP2.75x2.75mm",
+    "Manufacturer": "Infineon Technologies",
+    "Manufacturer Part Number": "CYPD3177-24LQXQT",
+    "Reference": "U1",
+    "Value": "CYPD3177-24LQ",
+    "Vendor": "Digikey",
+    "Vendor Part Number": "448-CYPD3177-24LQXQTDKR-ND"
+   },
+   "bomFields": {
+    "value": "CYPD3177-24LQ",
+    "description": "Stand-alone USB PD controller (with sink Auto-run mode), QFN-24",
+    "datasheet": "https://www.infineon.com/dgdl/Infineon-EZ-PD_BCR_Datasheet_USB_Type-C_Port_Controller_for_Power_Sinks-DataSheet-v03_00-EN.pdf?fileId=8ac78c8c7d0d8da4017d0ee7ce9d70ad",
+    "manufacturer": "Infineon Technologies",
+    "manufacturerPartNumber": "CYPD3177-24LQXQT",
+    "vendor": "Digikey",
+    "vendorPartNumber": "448-CYPD3177-24LQXQTDKR-ND",
+    "footprint": "Package_DFN_QFN:QFN-24-1EP_4x4mm_P0.5mm_EP2.75x2.75mm"
+   },
+   "variants": []
+  },
+  {
+   "kiidPath": "/6c5f5d69-1c0b-4294-8a58-8db0ec7d5cdf/2abc7ff5-4469-437b-bae6-66d988c1b2e1",
+   "sheetPath": "/6c5f5d69-1c0b-4294-8a58-8db0ec7d5cdf",
+   "symbolUuid": "2abc7ff5-4469-437b-bae6-66d988c1b2e1",
+   "documentPath": "USB-PD-Trigger-Board.kicad_sch",
+   "libId": "power:VCC",
+   "reference": "#PWR017",
+   "instanceMatched": true,
+   "unit": 1,
+   "dnp": false,
+   "excludeFromBom": false,
+   "excludeFromBoard": false,
+   "excludeFromSim": false,
+   "excludeFromPosFiles": false,
+   "properties": {
+    "Datasheet": "",
+    "Description": "Power symbol creates a global label with name \"VCC\"",
+    "Footprint": "",
+    "Reference": "#PWR017",
+    "Value": "VCC_USB_PD_IN"
+   },
+   "bomFields": {
+    "value": "VCC_USB_PD_IN",
+    "description": "Power symbol creates a global label with name \"VCC\""
+   },
+   "variants": []
+  },
+  {
+   "kiidPath": "/6c5f5d69-1c0b-4294-8a58-8db0ec7d5cdf/351c2824-8aec-4843-8839-820028f794f5",
+   "sheetPath": "/6c5f5d69-1c0b-4294-8a58-8db0ec7d5cdf",
+   "symbolUuid": "351c2824-8aec-4843-8839-820028f794f5",
+   "documentPath": "USB-PD-Trigger-Board.kicad_sch",
+   "libId": "power:GND",
+   "reference": "#PWR01",
+   "instanceMatched": true,
+   "unit": 1,
+   "dnp": false,
+   "excludeFromBom": false,
+   "excludeFromBoard": false,
+   "excludeFromSim": false,
+   "excludeFromPosFiles": false,
+   "properties": {
+    "Datasheet": "",
+    "Description": "Power symbol creates a global label with name \"GND\" , ground",
+    "Footprint": "",
+    "Reference": "#PWR01",
+    "Value": "GND"
+   },
+   "bomFields": {
+    "value": "GND",
+    "description": "Power symbol creates a global label with name \"GND\" , ground"
+   },
+   "variants": []
+  },
+  {
+   "kiidPath": "/6c5f5d69-1c0b-4294-8a58-8db0ec7d5cdf/352cb421-5d6d-47cd-b227-319a62e48a77",
+   "sheetPath": "/6c5f5d69-1c0b-4294-8a58-8db0ec7d5cdf",
+   "symbolUuid": "352cb421-5d6d-47cd-b227-319a62e48a77",
+   "documentPath": "USB-PD-Trigger-Board.kicad_sch",
+   "libId": "Device:R_Small_US",
+   "reference": "R11",
+   "instanceMatched": true,
+   "unit": 1,
+   "dnp": false,
+   "excludeFromBom": false,
+   "excludeFromBoard": false,
+   "excludeFromSim": false,
+   "excludeFromPosFiles": false,
+   "properties": {
+    "Datasheet": "https://www.yageogroup.com/content/datasheet/asset/file/PYU-RC_GROUP_51_ROHS_L",
+    "Description": "Resistor, small US symbol",
+    "Footprint": "Resistor_SMD:R_0603_1608Metric_Pad0.98x0.95mm_HandSolder",
+    "Manufacturer": "YAGEO",
+    "Manufacturer Part Number": "RT0603BRE075KL",
+    "Reference": "R11",
+    "Value": "5k_0.1W_0603",
+    "Vendor": "DigiKey",
+    "Vendor Part Number": "13-RT0603BRE075KLDKR-ND"
+   },
+   "bomFields": {
+    "value": "5k_0.1W_0603",
+    "description": "Resistor, small US symbol",
+    "datasheet": "https://www.yageogroup.com/content/datasheet/asset/file/PYU-RC_GROUP_51_ROHS_L",
+    "manufacturer": "YAGEO",
+    "manufacturerPartNumber": "RT0603BRE075KL",
+    "vendor": "DigiKey",
+    "vendorPartNumber": "13-RT0603BRE075KLDKR-ND",
+    "footprint": "Resistor_SMD:R_0603_1608Metric_Pad0.98x0.95mm_HandSolder"
+   },
+   "variants": []
+  },
+  {
+   "kiidPath": "/6c5f5d69-1c0b-4294-8a58-8db0ec7d5cdf/3c2a4914-84ad-471e-8e8f-4f983d3057b9",
+   "sheetPath": "/6c5f5d69-1c0b-4294-8a58-8db0ec7d5cdf",
+   "symbolUuid": "3c2a4914-84ad-471e-8e8f-4f983d3057b9",
+   "documentPath": "USB-PD-Trigger-Board.kicad_sch",
+   "libId": "Transistor_FET:2N7002",
+   "reference": "Q2",
+   "instanceMatched": true,
+   "unit": 1,
+   "dnp": false,
+   "excludeFromBom": false,
+   "excludeFromBoard": false,
+   "excludeFromSim": false,
+   "excludeFromPosFiles": false,
+   "properties": {
+    "Datasheet": "https://www.onsemi.com/pub/Collateral/NDS7002A-D.PDF",
+    "Description": "0.115A Id, 60V Vds, N-Channel MOSFET, SOT-23",
+    "Footprint": "Package_TO_SOT_SMD:SOT-23",
+    "Manufacturer": "onsemi",
+    "Manufacturer Part Number": "NDS7002A",
+    "Reference": "Q2",
+    "Value": "2N7002",
+    "Vendor": "DigiKey",
+    "Vendor Part Number": "NDS7002ADKR-ND"
+   },
+   "bomFields": {
+    "value": "2N7002",
+    "description": "0.115A Id, 60V Vds, N-Channel MOSFET, SOT-23",
+    "datasheet": "https://www.onsemi.com/pub/Collateral/NDS7002A-D.PDF",
+    "manufacturer": "onsemi",
+    "manufacturerPartNumber": "NDS7002A",
+    "vendor": "DigiKey",
+    "vendorPartNumber": "NDS7002ADKR-ND",
+    "footprint": "Package_TO_SOT_SMD:SOT-23"
+   },
+   "variants": []
+  },
+  {
+   "kiidPath": "/6c5f5d69-1c0b-4294-8a58-8db0ec7d5cdf/3c8612af-6e83-4f69-9d07-5e075fc4c3fd",
+   "sheetPath": "/6c5f5d69-1c0b-4294-8a58-8db0ec7d5cdf",
+   "symbolUuid": "3c8612af-6e83-4f69-9d07-5e075fc4c3fd",
+   "documentPath": "USB-PD-Trigger-Board.kicad_sch",
+   "libId": "Device:R_Small_US",
+   "reference": "R8",
+   "instanceMatched": true,
+   "unit": 1,
+   "dnp": false,
+   "excludeFromBom": false,
+   "excludeFromBoard": false,
+   "excludeFromSim": false,
+   "excludeFromPosFiles": false,
+   "properties": {
+    "Datasheet": "https://www.yageogroup.com/content/datasheet/asset/file/PYU-RC_GROUP_51_ROHS_L",
+    "Description": "Resistor, small US symbol",
+    "Footprint": "Resistor_SMD:R_0603_1608Metric_Pad0.98x0.95mm_HandSolder",
+    "Manufacturer": "YAGEO",
+    "Manufacturer Part Number": "RC0603FR-075K1L",
+    "Reference": "R8",
+    "Value": "5.1k_0.1W_0603",
+    "Vendor": "DigiKey",
+    "Vendor Part Number": "311-5.10KHRDKR-ND"
+   },
+   "bomFields": {
+    "value": "5.1k_0.1W_0603",
+    "description": "Resistor, small US symbol",
+    "datasheet": "https://www.yageogroup.com/content/datasheet/asset/file/PYU-RC_GROUP_51_ROHS_L",
+    "manufacturer": "YAGEO",
+    "manufacturerPartNumber": "RC0603FR-075K1L",
+    "vendor": "DigiKey",
+    "vendorPartNumber": "311-5.10KHRDKR-ND",
+    "footprint": "Resistor_SMD:R_0603_1608Metric_Pad0.98x0.95mm_HandSolder"
+   },
+   "variants": []
+  },
+  {
+   "kiidPath": "/6c5f5d69-1c0b-4294-8a58-8db0ec7d5cdf/3cac89e8-4973-4b79-8949-a9feba27433e",
+   "sheetPath": "/6c5f5d69-1c0b-4294-8a58-8db0ec7d5cdf",
+   "symbolUuid": "3cac89e8-4973-4b79-8949-a9feba27433e",
+   "documentPath": "USB-PD-Trigger-Board.kicad_sch",
+   "libId": "power:VCC",
+   "reference": "#PWR011",
+   "instanceMatched": true,
+   "unit": 1,
+   "dnp": false,
+   "excludeFromBom": false,
+   "excludeFromBoard": false,
+   "excludeFromSim": false,
+   "excludeFromPosFiles": false,
+   "properties": {
+    "Datasheet": "",
+    "Description": "Power symbol creates a global label with name \"VCC\"",
+    "Footprint": "",
+    "Reference": "#PWR011",
+    "Value": "V3P3"
+   },
+   "bomFields": {
+    "value": "V3P3",
+    "description": "Power symbol creates a global label with name \"VCC\""
+   },
+   "variants": []
+  },
+  {
+   "kiidPath": "/6c5f5d69-1c0b-4294-8a58-8db0ec7d5cdf/3f27eb57-6634-4056-bc46-a469f674254f",
+   "sheetPath": "/6c5f5d69-1c0b-4294-8a58-8db0ec7d5cdf",
+   "symbolUuid": "3f27eb57-6634-4056-bc46-a469f674254f",
+   "documentPath": "USB-PD-Trigger-Board.kicad_sch",
+   "libId": "Device:C_Small",
+   "reference": "C5",
+   "instanceMatched": true,
+   "unit": 1,
+   "dnp": false,
+   "excludeFromBom": false,
+   "excludeFromBoard": false,
+   "excludeFromSim": false,
+   "excludeFromPosFiles": false,
+   "properties": {
+    "Datasheet": "https://www.yageogroup.com/content/datasheet/asset/file/KEM_C1002_X7R_SMD",
+    "Description": "Unpolarized capacitor, small symbol",
+    "Footprint": "Capacitor_SMD:C_0603_1608Metric_Pad1.08x0.95mm_HandSolder",
+    "Manufacturer": "KEMET",
+    "Manufacturer Part Number": "C0603C104K5RACTU",
+    "Reference": "C5",
+    "Value": "0.1uF_50V_0603",
+    "Vendor": "Digikey",
+    "Vendor Part Number": "399-C0603C104K5RACTUDKR-ND"
+   },
+   "bomFields": {
+    "value": "0.1uF_50V_0603",
+    "description": "Unpolarized capacitor, small symbol",
+    "datasheet": "https://www.yageogroup.com/content/datasheet/asset/file/KEM_C1002_X7R_SMD",
+    "manufacturer": "KEMET",
+    "manufacturerPartNumber": "C0603C104K5RACTU",
+    "vendor": "Digikey",
+    "vendorPartNumber": "399-C0603C104K5RACTUDKR-ND",
+    "footprint": "Capacitor_SMD:C_0603_1608Metric_Pad1.08x0.95mm_HandSolder"
+   },
+   "variants": []
+  },
+  {
+   "kiidPath": "/6c5f5d69-1c0b-4294-8a58-8db0ec7d5cdf/428ad661-9d9f-4454-a5a4-00ec2fcc6419",
+   "sheetPath": "/6c5f5d69-1c0b-4294-8a58-8db0ec7d5cdf",
+   "symbolUuid": "428ad661-9d9f-4454-a5a4-00ec2fcc6419",
+   "documentPath": "USB-PD-Trigger-Board.kicad_sch",
+   "libId": "power:GND",
+   "reference": "#PWR03",
+   "instanceMatched": true,
+   "unit": 1,
+   "dnp": false,
+   "excludeFromBom": false,
+   "excludeFromBoard": false,
+   "excludeFromSim": false,
+   "excludeFromPosFiles": false,
+   "properties": {
+    "Datasheet": "",
+    "Description": "Power symbol creates a global label with name \"GND\" , ground",
+    "Footprint": "",
+    "Reference": "#PWR03",
+    "Value": "GND"
+   },
+   "bomFields": {
+    "value": "GND",
+    "description": "Power symbol creates a global label with name \"GND\" , ground"
+   },
+   "variants": []
+  },
+  {
+   "kiidPath": "/6c5f5d69-1c0b-4294-8a58-8db0ec7d5cdf/4709d060-f397-4439-942d-8d9067332276",
+   "sheetPath": "/6c5f5d69-1c0b-4294-8a58-8db0ec7d5cdf",
+   "symbolUuid": "4709d060-f397-4439-942d-8d9067332276",
+   "documentPath": "USB-PD-Trigger-Board.kicad_sch",
+   "libId": "Device:R_Small_US",
+   "reference": "R4",
+   "instanceMatched": true,
+   "unit": 1,
+   "dnp": false,
+   "excludeFromBom": false,
+   "excludeFromBoard": false,
+   "excludeFromSim": false,
+   "excludeFromPosFiles": false,
+   "properties": {
+    "Datasheet": "https://www.yageogroup.com/content/datasheet/asset/file/PYU-RC_GROUP_51_ROHS_L",
+    "Description": "Resistor, small US symbol",
+    "Footprint": "Resistor_SMD:R_0603_1608Metric_Pad0.98x0.95mm_HandSolder",
+    "Manufacturer": "YAGEO",
+    "Manufacturer Part Number": "RC0603FR-0710KL",
+    "Reference": "R4",
+    "Value": "10k_0.1W_0603",
+    "Vendor": "DigiKey",
+    "Vendor Part Number": "311-10.0KHRDKR-ND"
+   },
+   "bomFields": {
+    "value": "10k_0.1W_0603",
+    "description": "Resistor, small US symbol",
+    "datasheet": "https://www.yageogroup.com/content/datasheet/asset/file/PYU-RC_GROUP_51_ROHS_L",
+    "manufacturer": "YAGEO",
+    "manufacturerPartNumber": "RC0603FR-0710KL",
+    "vendor": "DigiKey",
+    "vendorPartNumber": "311-10.0KHRDKR-ND",
+    "footprint": "Resistor_SMD:R_0603_1608Metric_Pad0.98x0.95mm_HandSolder"
+   },
+   "variants": []
+  },
+  {
+   "kiidPath": "/6c5f5d69-1c0b-4294-8a58-8db0ec7d5cdf/482e2c4e-3e2f-429a-b4b8-2e30d99878e8",
+   "sheetPath": "/6c5f5d69-1c0b-4294-8a58-8db0ec7d5cdf",
+   "symbolUuid": "482e2c4e-3e2f-429a-b4b8-2e30d99878e8",
+   "documentPath": "USB-PD-Trigger-Board.kicad_sch",
+   "libId": "Pixxel_MOSFETs:BSL308PE",
+   "reference": "Q3",
+   "instanceMatched": true,
+   "unit": 1,
+   "dnp": false,
+   "excludeFromBom": false,
+   "excludeFromBoard": false,
+   "excludeFromSim": false,
+   "excludeFromPosFiles": false,
+   "properties": {
+    "Arrow Part Number": "",
+    "Arrow Price/Stock": "",
+    "Datasheet": "http://uk.rs-online.com/web/p/products/8922172",
+    "Description": "Infineon BSL308PE Dual P-channel MOSFET Transistor, -2 A, -30 V, 6-Pin TSOP",
+    "Footprint": "Pixxel_MOSFETs:BSL308PE-SOT95P250X110-6N",
+    "Height": "1.1",
+    "Manufacturer": "Infineon Technologies",
+    "Manufacturer Part Number": "BSL308PEH6327XTSA1",
+    "Manufacturer_Name": "Infineon",
+    "Manufacturer_Part_Number": "BSL308PE",
+    "Mouser Part Number": "N/A",
+    "Mouser Price/Stock": "https://www.mouser.co.uk/ProductDetail/Infineon-Technologies/BSL308PE?qs=bAKSY%2FctAC43amihai4ZVA%3D%3D",
+    "Reference": "Q3",
+    "Value": "BSL308PE",
+    "Vendor": "DigiKey",
+    "Vendor Part Number": "BSL308PEH6327XTSA1DKR-ND"
+   },
+   "bomFields": {
+    "value": "BSL308PE",
+    "description": "Infineon BSL308PE Dual P-channel MOSFET Transistor, -2 A, -30 V, 6-Pin TSOP",
+    "datasheet": "http://uk.rs-online.com/web/p/products/8922172",
+    "manufacturer": "Infineon Technologies",
+    "manufacturerPartNumber": "BSL308PEH6327XTSA1",
+    "vendor": "DigiKey",
+    "vendorPartNumber": "BSL308PEH6327XTSA1DKR-ND",
+    "footprint": "Pixxel_MOSFETs:BSL308PE-SOT95P250X110-6N"
+   },
+   "variants": []
+  },
+  {
+   "kiidPath": "/6c5f5d69-1c0b-4294-8a58-8db0ec7d5cdf/4efeecca-612f-4509-8f45-9e4161e1b425",
+   "sheetPath": "/6c5f5d69-1c0b-4294-8a58-8db0ec7d5cdf",
+   "symbolUuid": "4efeecca-612f-4509-8f45-9e4161e1b425",
+   "documentPath": "USB-PD-Trigger-Board.kicad_sch",
+   "libId": "Pixxel_MOSFETs:IRF9358TRPBF",
+   "reference": "Q1",
+   "instanceMatched": true,
+   "unit": 2,
+   "dnp": false,
+   "excludeFromBom": false,
+   "excludeFromBoard": false,
+   "excludeFromSim": false,
+   "excludeFromPosFiles": false,
+   "properties": {
+    "Arrow Part Number": "IRF9358TRPBF",
+    "Arrow Price/Stock": "https://www.arrow.com/en/products/irf9358trpbf/infineon-technologies-ag?region=nac",
+    "Datasheet": "https://www.infineon.com/dgdl/Infineon-IRF9358-DataSheet-v01_01-EN.pdf?fileId=5546d462533600a4015356114ffa1da5",
+    "Description": "Infineon IRF9358TRPBF Dual P-channel MOSFET, 9.2 A, 30 V HEXFET, 8-Pin SOIC",
+    "Footprint": "Pixxel_MOSFETs:IRF9358TRPBFSOIC127P600X175-8N",
+    "Height": "1.75",
+    "Manufacturer": "Infineon Technologies",
+    "Manufacturer Part Number": "IRF9358TRPBF",
+    "Manufacturer_Name": "Infineon",
+    "Manufacturer_Part_Number": "IRF9358TRPBF",
+    "Mouser Part Number": "942-IRF9358TRPBF",
+    "Mouser Price/Stock": "https://www.mouser.co.uk/ProductDetail/Infineon-Technologies/IRF9358TRPBF?qs=9%252BKlkBgLFf0UOCipcM2zgA%3D%3D",
+    "Reference": "Q1",
+    "Value": "IRF9358TRPBF",
+    "Vendor": "DigiKey",
+    "Vendor Part Number": "IRF9358TRPBFDKR-ND"
+   },
+   "bomFields": {
+    "value": "IRF9358TRPBF",
+    "description": "Infineon IRF9358TRPBF Dual P-channel MOSFET, 9.2 A, 30 V HEXFET, 8-Pin SOIC",
+    "datasheet": "https://www.infineon.com/dgdl/Infineon-IRF9358-DataSheet-v01_01-EN.pdf?fileId=5546d462533600a4015356114ffa1da5",
+    "manufacturer": "Infineon Technologies",
+    "manufacturerPartNumber": "IRF9358TRPBF",
+    "vendor": "DigiKey",
+    "vendorPartNumber": "IRF9358TRPBFDKR-ND",
+    "footprint": "Pixxel_MOSFETs:IRF9358TRPBFSOIC127P600X175-8N"
+   },
+   "variants": []
+  },
+  {
+   "kiidPath": "/6c5f5d69-1c0b-4294-8a58-8db0ec7d5cdf/5250e01e-db29-420a-bc6f-a029c97932bc",
+   "sheetPath": "/6c5f5d69-1c0b-4294-8a58-8db0ec7d5cdf",
+   "symbolUuid": "5250e01e-db29-420a-bc6f-a029c97932bc",
+   "documentPath": "USB-PD-Trigger-Board.kicad_sch",
+   "libId": "Device:C_Small",
+   "reference": "C7",
+   "instanceMatched": true,
+   "unit": 1,
+   "dnp": false,
+   "excludeFromBom": false,
+   "excludeFromBoard": false,
+   "excludeFromSim": false,
+   "excludeFromPosFiles": false,
+   "properties": {
+    "Datasheet": "https://mm.digikey.com/Volume0/opasdata/d220001/medias/docus/609/CL21B105KBFNNNE_Spec.pdf",
+    "Description": "Unpolarized capacitor, small symbol",
+    "Footprint": "Capacitor_SMD:C_0805_2012Metric_Pad1.18x1.45mm_HandSolder",
+    "Manufacturer": "Samsung Electro-Mechanics",
+    "Manufacturer Part Number": "CL21B105KBFNNNE",
+    "Reference": "C7",
+    "Value": "1uF_50V_0805",
+    "Vendor": "Digikey",
+    "Vendor Part Number": "1276-1029-6-ND"
+   },
+   "bomFields": {
+    "value": "1uF_50V_0805",
+    "description": "Unpolarized capacitor, small symbol",
+    "datasheet": "https://mm.digikey.com/Volume0/opasdata/d220001/medias/docus/609/CL21B105KBFNNNE_Spec.pdf",
+    "manufacturer": "Samsung Electro-Mechanics",
+    "manufacturerPartNumber": "CL21B105KBFNNNE",
+    "vendor": "Digikey",
+    "vendorPartNumber": "1276-1029-6-ND",
+    "footprint": "Capacitor_SMD:C_0805_2012Metric_Pad1.18x1.45mm_HandSolder"
+   },
+   "variants": []
+  },
+  {
+   "kiidPath": "/6c5f5d69-1c0b-4294-8a58-8db0ec7d5cdf/5805d616-d805-4fb8-af9c-fd94df7c2ab6",
+   "sheetPath": "/6c5f5d69-1c0b-4294-8a58-8db0ec7d5cdf",
+   "symbolUuid": "5805d616-d805-4fb8-af9c-fd94df7c2ab6",
+   "documentPath": "USB-PD-Trigger-Board.kicad_sch",
+   "libId": "Device:R_Small_US",
+   "reference": "R14",
+   "instanceMatched": true,
+   "unit": 1,
+   "dnp": false,
+   "excludeFromBom": false,
+   "excludeFromBoard": false,
+   "excludeFromSim": false,
+   "excludeFromPosFiles": false,
+   "properties": {
+    "Datasheet": "https://www.yageogroup.com/content/datasheet/asset/file/PYU-RC_GROUP_51_ROHS_L",
+    "Description": "Resistor, small US symbol",
+    "Footprint": "Resistor_SMD:R_0603_1608Metric_Pad0.98x0.95mm_HandSolder",
+    "Manufacturer": "YAGEO",
+    "Manufacturer Part Number": "RC0603FR-075K1L",
+    "Reference": "R14",
+    "Value": "5.1k_0.1W_0603",
+    "Vendor": "DigiKey",
+    "Vendor Part Number": "311-5.10KHRDKR-ND"
+   },
+   "bomFields": {
+    "value": "5.1k_0.1W_0603",
+    "description": "Resistor, small US symbol",
+    "datasheet": "https://www.yageogroup.com/content/datasheet/asset/file/PYU-RC_GROUP_51_ROHS_L",
+    "manufacturer": "YAGEO",
+    "manufacturerPartNumber": "RC0603FR-075K1L",
+    "vendor": "DigiKey",
+    "vendorPartNumber": "311-5.10KHRDKR-ND",
+    "footprint": "Resistor_SMD:R_0603_1608Metric_Pad0.98x0.95mm_HandSolder"
+   },
+   "variants": []
+  },
+  {
+   "kiidPath": "/6c5f5d69-1c0b-4294-8a58-8db0ec7d5cdf/6121d497-49dc-4f87-9c0c-935884a7d60c",
+   "sheetPath": "/6c5f5d69-1c0b-4294-8a58-8db0ec7d5cdf",
+   "symbolUuid": "6121d497-49dc-4f87-9c0c-935884a7d60c",
+   "documentPath": "USB-PD-Trigger-Board.kicad_sch",
+   "libId": "Device:C_Small",
+   "reference": "C4",
+   "instanceMatched": true,
+   "unit": 1,
+   "dnp": false,
+   "excludeFromBom": false,
+   "excludeFromBoard": false,
+   "excludeFromSim": false,
+   "excludeFromPosFiles": false,
+   "properties": {
+    "Datasheet": "https://www.yageogroup.com/content/datasheet/asset/file/KEM_C1002_X7R_SMD",
+    "Description": "Unpolarized capacitor, small symbol",
+    "Footprint": "Capacitor_SMD:C_0603_1608Metric_Pad1.08x0.95mm_HandSolder",
+    "Manufacturer": "KEMET",
+    "Manufacturer Part Number": "C0603C104K5RACTU",
+    "Reference": "C4",
+    "Value": "0.1uF_50V_0603",
+    "Vendor": "Digikey",
+    "Vendor Part Number": "399-C0603C104K5RACTUDKR-ND"
+   },
+   "bomFields": {
+    "value": "0.1uF_50V_0603",
+    "description": "Unpolarized capacitor, small symbol",
+    "datasheet": "https://www.yageogroup.com/content/datasheet/asset/file/KEM_C1002_X7R_SMD",
+    "manufacturer": "KEMET",
+    "manufacturerPartNumber": "C0603C104K5RACTU",
+    "vendor": "Digikey",
+    "vendorPartNumber": "399-C0603C104K5RACTUDKR-ND",
+    "footprint": "Capacitor_SMD:C_0603_1608Metric_Pad1.08x0.95mm_HandSolder"
+   },
+   "variants": []
+  },
+  {
+   "kiidPath": "/6c5f5d69-1c0b-4294-8a58-8db0ec7d5cdf/6251532c-a768-4cc1-8894-3629f3175848",
+   "sheetPath": "/6c5f5d69-1c0b-4294-8a58-8db0ec7d5cdf",
+   "symbolUuid": "6251532c-a768-4cc1-8894-3629f3175848",
+   "documentPath": "USB-PD-Trigger-Board.kicad_sch",
+   "libId": "power:VCC",
+   "reference": "#PWR015",
+   "instanceMatched": true,
+   "unit": 1,
+   "dnp": false,
+   "excludeFromBom": false,
+   "excludeFromBoard": false,
+   "excludeFromSim": false,
+   "excludeFromPosFiles": false,
+   "properties": {
+    "Datasheet": "",
+    "Description": "Power symbol creates a global label with name \"VCC\"",
+    "Footprint": "",
+    "Reference": "#PWR015",
+    "Value": "VCC_USB_PD_OUT"
+   },
+   "bomFields": {
+    "value": "VCC_USB_PD_OUT",
+    "description": "Power symbol creates a global label with name \"VCC\""
+   },
+   "variants": []
+  },
+  {
+   "kiidPath": "/6c5f5d69-1c0b-4294-8a58-8db0ec7d5cdf/7082d426-b3b2-4551-ada0-b5bbabe85159",
+   "sheetPath": "/6c5f5d69-1c0b-4294-8a58-8db0ec7d5cdf",
+   "symbolUuid": "7082d426-b3b2-4551-ada0-b5bbabe85159",
+   "documentPath": "USB-PD-Trigger-Board.kicad_sch",
+   "libId": "power:GND",
+   "reference": "#PWR09",
+   "instanceMatched": true,
+   "unit": 1,
+   "dnp": false,
+   "excludeFromBom": false,
+   "excludeFromBoard": false,
+   "excludeFromSim": false,
+   "excludeFromPosFiles": false,
+   "properties": {
+    "Datasheet": "",
+    "Description": "Power symbol creates a global label with name \"GND\" , ground",
+    "Footprint": "",
+    "Reference": "#PWR09",
+    "Value": "GND"
+   },
+   "bomFields": {
+    "value": "GND",
+    "description": "Power symbol creates a global label with name \"GND\" , ground"
+   },
+   "variants": []
+  },
+  {
+   "kiidPath": "/6c5f5d69-1c0b-4294-8a58-8db0ec7d5cdf/75fa122e-228e-4732-abe2-19d3d74c69e3",
+   "sheetPath": "/6c5f5d69-1c0b-4294-8a58-8db0ec7d5cdf",
+   "symbolUuid": "75fa122e-228e-4732-abe2-19d3d74c69e3",
+   "documentPath": "USB-PD-Trigger-Board.kicad_sch",
+   "libId": "Device:R_Small_US",
+   "reference": "R10",
+   "instanceMatched": true,
+   "unit": 1,
+   "dnp": false,
+   "excludeFromBom": false,
+   "excludeFromBoard": false,
+   "excludeFromSim": false,
+   "excludeFromPosFiles": false,
+   "properties": {
+    "Datasheet": "https://www.yageogroup.com/content/datasheet/asset/file/PYU-RC_GROUP_51_ROHS_L",
+    "Description": "Resistor, small US symbol",
+    "Footprint": "Resistor_SMD:R_0603_1608Metric_Pad0.98x0.95mm_HandSolder",
+    "Manufacturer": "YAGEO",
+    "Manufacturer Part Number": "RC0603FR-0749K9L",
+    "Reference": "R10",
+    "Value": "49.9k_0.1W_0603",
+    "Vendor": "DigiKey",
+    "Vendor Part Number": "311-49.9KHRDKR-ND"
+   },
+   "bomFields": {
+    "value": "49.9k_0.1W_0603",
+    "description": "Resistor, small US symbol",
+    "datasheet": "https://www.yageogroup.com/content/datasheet/asset/file/PYU-RC_GROUP_51_ROHS_L",
+    "manufacturer": "YAGEO",
+    "manufacturerPartNumber": "RC0603FR-0749K9L",
+    "vendor": "DigiKey",
+    "vendorPartNumber": "311-49.9KHRDKR-ND",
+    "footprint": "Resistor_SMD:R_0603_1608Metric_Pad0.98x0.95mm_HandSolder"
+   },
+   "variants": []
+  },
+  {
+   "kiidPath": "/6c5f5d69-1c0b-4294-8a58-8db0ec7d5cdf/8149a0d2-ffd1-4ca8-ad61-a07f93365785",
+   "sheetPath": "/6c5f5d69-1c0b-4294-8a58-8db0ec7d5cdf",
+   "symbolUuid": "8149a0d2-ffd1-4ca8-ad61-a07f93365785",
+   "documentPath": "USB-PD-Trigger-Board.kicad_sch",
+   "libId": "Device:R_Small_US",
+   "reference": "R12",
+   "instanceMatched": true,
+   "unit": 1,
+   "dnp": false,
+   "excludeFromBom": false,
+   "excludeFromBoard": false,
+   "excludeFromSim": false,
+   "excludeFromPosFiles": false,
+   "properties": {
+    "Datasheet": "https://www.yageogroup.com/content/datasheet/asset/file/PYU-RC_GROUP_51_ROHS_L",
+    "Description": "Resistor, small US symbol",
+    "Footprint": "Resistor_SMD:R_0603_1608Metric_Pad0.98x0.95mm_HandSolder",
+    "Manufacturer": "YAGEO",
+    "Manufacturer Part Number": "RC0603JR-072K4L",
+    "Reference": "R12",
+    "Value": "2.4k_0.1W_0603",
+    "Vendor": "DigiKey",
+    "Vendor Part Number": "311-2.4KGRDKR-ND"
+   },
+   "bomFields": {
+    "value": "2.4k_0.1W_0603",
+    "description": "Resistor, small US symbol",
+    "datasheet": "https://www.yageogroup.com/content/datasheet/asset/file/PYU-RC_GROUP_51_ROHS_L",
+    "manufacturer": "YAGEO",
+    "manufacturerPartNumber": "RC0603JR-072K4L",
+    "vendor": "DigiKey",
+    "vendorPartNumber": "311-2.4KGRDKR-ND",
+    "footprint": "Resistor_SMD:R_0603_1608Metric_Pad0.98x0.95mm_HandSolder"
+   },
+   "variants": []
+  },
+  {
+   "kiidPath": "/6c5f5d69-1c0b-4294-8a58-8db0ec7d5cdf/817338ba-e182-48d0-ab56-862549154614",
+   "sheetPath": "/6c5f5d69-1c0b-4294-8a58-8db0ec7d5cdf",
+   "symbolUuid": "817338ba-e182-48d0-ab56-862549154614",
+   "documentPath": "USB-PD-Trigger-Board.kicad_sch",
+   "libId": "Device:R_Small_US",
+   "reference": "R19",
+   "instanceMatched": true,
+   "unit": 1,
+   "dnp": false,
+   "excludeFromBom": false,
+   "excludeFromBoard": false,
+   "excludeFromSim": false,
+   "excludeFromPosFiles": false,
+   "properties": {
+    "Datasheet": "https://www.yageogroup.com/content/datasheet/asset/file/PYU-RC_GROUP_51_ROHS_L",
+    "Description": "Resistor, small US symbol",
+    "Footprint": "Resistor_SMD:R_0603_1608Metric_Pad0.98x0.95mm_HandSolder",
+    "Manufacturer": "YAGEO",
+    "Manufacturer Part Number": "RC0603FR-07150RL",
+    "Reference": "R19",
+    "Value": "150R_0.1W_0603",
+    "Vendor": "DigiKey",
+    "Vendor Part Number": "311-150HRDKR-ND"
+   },
+   "bomFields": {
+    "value": "150R_0.1W_0603",
+    "description": "Resistor, small US symbol",
+    "datasheet": "https://www.yageogroup.com/content/datasheet/asset/file/PYU-RC_GROUP_51_ROHS_L",
+    "manufacturer": "YAGEO",
+    "manufacturerPartNumber": "RC0603FR-07150RL",
+    "vendor": "DigiKey",
+    "vendorPartNumber": "311-150HRDKR-ND",
+    "footprint": "Resistor_SMD:R_0603_1608Metric_Pad0.98x0.95mm_HandSolder"
+   },
+   "variants": []
+  },
+  {
+   "kiidPath": "/6c5f5d69-1c0b-4294-8a58-8db0ec7d5cdf/81b2a3b5-21a7-4703-a0a5-6339782d589a",
+   "sheetPath": "/6c5f5d69-1c0b-4294-8a58-8db0ec7d5cdf",
+   "symbolUuid": "81b2a3b5-21a7-4703-a0a5-6339782d589a",
+   "documentPath": "USB-PD-Trigger-Board.kicad_sch",
+   "libId": "power:VCC",
+   "reference": "#PWR019",
+   "instanceMatched": true,
+   "unit": 1,
+   "dnp": false,
+   "excludeFromBom": false,
+   "excludeFromBoard": false,
+   "excludeFromSim": false,
+   "excludeFromPosFiles": false,
+   "properties": {
+    "Datasheet": "",
+    "Description": "Power symbol creates a global label with name \"VCC\"",
+    "Footprint": "",
+    "Reference": "#PWR019",
+    "Value": "VCC_USB_PD_IN"
+   },
+   "bomFields": {
+    "value": "VCC_USB_PD_IN",
+    "description": "Power symbol creates a global label with name \"VCC\""
+   },
+   "variants": []
+  },
+  {
+   "kiidPath": "/6c5f5d69-1c0b-4294-8a58-8db0ec7d5cdf/86377633-a9a6-4250-a6c4-251c5670b629",
+   "sheetPath": "/6c5f5d69-1c0b-4294-8a58-8db0ec7d5cdf",
+   "symbolUuid": "86377633-a9a6-4250-a6c4-251c5670b629",
+   "documentPath": "USB-PD-Trigger-Board.kicad_sch",
+   "libId": "Device:R_Small_US",
+   "reference": "R5",
+   "instanceMatched": true,
+   "unit": 1,
+   "dnp": false,
+   "excludeFromBom": false,
+   "excludeFromBoard": false,
+   "excludeFromSim": false,
+   "excludeFromPosFiles": false,
+   "properties": {
+    "Datasheet": "https://www.yageogroup.com/content/datasheet/asset/file/PYU-RC_GROUP_51_ROHS_L",
+    "Description": "Resistor, small US symbol",
+    "Footprint": "Resistor_SMD:R_0603_1608Metric_Pad0.98x0.95mm_HandSolder",
+    "Manufacturer": "YAGEO",
+    "Manufacturer Part Number": "RC0603JR-072K4L",
+    "Reference": "R5",
+    "Value": "2.4k_0.1W_0603",
+    "Vendor": "DigiKey",
+    "Vendor Part Number": "311-2.4KGRDKR-ND"
+   },
+   "bomFields": {
+    "value": "2.4k_0.1W_0603",
+    "description": "Resistor, small US symbol",
+    "datasheet": "https://www.yageogroup.com/content/datasheet/asset/file/PYU-RC_GROUP_51_ROHS_L",
+    "manufacturer": "YAGEO",
+    "manufacturerPartNumber": "RC0603JR-072K4L",
+    "vendor": "DigiKey",
+    "vendorPartNumber": "311-2.4KGRDKR-ND",
+    "footprint": "Resistor_SMD:R_0603_1608Metric_Pad0.98x0.95mm_HandSolder"
+   },
+   "variants": []
+  },
+  {
+   "kiidPath": "/6c5f5d69-1c0b-4294-8a58-8db0ec7d5cdf/8d1148d9-56d4-4311-8c97-50391c9a4d64",
+   "sheetPath": "/6c5f5d69-1c0b-4294-8a58-8db0ec7d5cdf",
+   "symbolUuid": "8d1148d9-56d4-4311-8c97-50391c9a4d64",
+   "documentPath": "USB-PD-Trigger-Board.kicad_sch",
+   "libId": "Device:C_Small",
+   "reference": "C1",
+   "instanceMatched": true,
+   "unit": 1,
+   "dnp": false,
+   "excludeFromBom": false,
+   "excludeFromBoard": false,
+   "excludeFromSim": false,
+   "excludeFromPosFiles": false,
+   "properties": {
+    "Datasheet": "https://mm.digikey.com/Volume0/opasdata/d220001/medias/docus/41/CL32B106KBJNNNE_Spec.pdf",
+    "Description": "Unpolarized capacitor, small symbol",
+    "Footprint": "Capacitor_SMD:C_1210_3225Metric_Pad1.33x2.70mm_HandSolder",
+    "Manufacturer": "Samsung Electro-Mechanics",
+    "Manufacturer Part Number": "CL32B106KBJNNNE",
+    "Reference": "C1",
+    "Value": "10uF_50V_1210",
+    "Vendor": "Digikey",
+    "Vendor Part Number": "1276-3387-6-ND"
+   },
+   "bomFields": {
+    "value": "10uF_50V_1210",
+    "description": "Unpolarized capacitor, small symbol",
+    "datasheet": "https://mm.digikey.com/Volume0/opasdata/d220001/medias/docus/41/CL32B106KBJNNNE_Spec.pdf",
+    "manufacturer": "Samsung Electro-Mechanics",
+    "manufacturerPartNumber": "CL32B106KBJNNNE",
+    "vendor": "Digikey",
+    "vendorPartNumber": "1276-3387-6-ND",
+    "footprint": "Capacitor_SMD:C_1210_3225Metric_Pad1.33x2.70mm_HandSolder"
+   },
+   "variants": []
+  },
+  {
+   "kiidPath": "/6c5f5d69-1c0b-4294-8a58-8db0ec7d5cdf/8e78b33f-2079-4865-84f9-63b902e9e778",
+   "sheetPath": "/6c5f5d69-1c0b-4294-8a58-8db0ec7d5cdf",
+   "symbolUuid": "8e78b33f-2079-4865-84f9-63b902e9e778",
+   "documentPath": "USB-PD-Trigger-Board.kicad_sch",
+   "libId": "Device:D_Zener",
+   "reference": "D1",
+   "instanceMatched": true,
+   "unit": 1,
+   "dnp": false,
+   "excludeFromBom": false,
+   "excludeFromBoard": false,
+   "excludeFromSim": false,
+   "excludeFromPosFiles": false,
+   "properties": {
+    "Datasheet": "https://www.onsemi.com/pdf/datasheet/mmsz2v4t1-d.pdf",
+    "Description": "Zener diode",
+    "Footprint": "Diode_SMD:D_SOD-123",
+    "Manufacturer": "onsemi",
+    "Manufacturer Part Number": "MMSZ10T1G",
+    "Reference": "D1",
+    "Value": "MMSZ10T1G",
+    "Vendor": "Digikey",
+    "Vendor Part Number": "MMSZ10T1GOSDKR-ND"
+   },
+   "bomFields": {
+    "value": "MMSZ10T1G",
+    "description": "Zener diode",
+    "datasheet": "https://www.onsemi.com/pdf/datasheet/mmsz2v4t1-d.pdf",
+    "manufacturer": "onsemi",
+    "manufacturerPartNumber": "MMSZ10T1G",
+    "vendor": "Digikey",
+    "vendorPartNumber": "MMSZ10T1GOSDKR-ND",
+    "footprint": "Diode_SMD:D_SOD-123"
+   },
+   "variants": []
+  },
+  {
+   "kiidPath": "/6c5f5d69-1c0b-4294-8a58-8db0ec7d5cdf/8fdf5d41-73db-4ae8-ab13-6fd5aa705a70",
+   "sheetPath": "/6c5f5d69-1c0b-4294-8a58-8db0ec7d5cdf",
+   "symbolUuid": "8fdf5d41-73db-4ae8-ab13-6fd5aa705a70",
+   "documentPath": "USB-PD-Trigger-Board.kicad_sch",
+   "libId": "Connector:TestPoint",
+   "reference": "TP1",
+   "instanceMatched": true,
+   "unit": 1,
+   "dnp": false,
+   "excludeFromBom": true,
+   "excludeFromBoard": false,
+   "excludeFromSim": false,
+   "excludeFromPosFiles": false,
+   "properties": {
+    "Clock Frequency": "",
+    "Datasheet": "",
+    "Description": "test point",
+    "Footprint": "TestPoint:TestPoint_Pad_D1.0mm",
+    "Manufacturer": "NA",
+    "Manufacturer Part Number": "NA",
+    "Max Supply Voltage": "",
+    "Memory Format": "",
+    "Memory Size": "",
+    "Min Supply Voltage": "",
+    "Power": "",
+    "Power Dissipation (W)": "",
+    "RQjC_top (C/W)": "",
+    "Rate": "",
+    "Reference": "TP1",
+    "Speed": "",
+    "Temp_max (C)": "",
+    "Temp_min (C)": "",
+    "Value": "VIN"
+   },
+   "bomFields": {
+    "value": "VIN",
+    "description": "test point",
+    "manufacturer": "NA",
+    "manufacturerPartNumber": "NA",
+    "footprint": "TestPoint:TestPoint_Pad_D1.0mm"
+   },
+   "variants": []
+  },
+  {
+   "kiidPath": "/6c5f5d69-1c0b-4294-8a58-8db0ec7d5cdf/9065d300-be48-49b4-9dd2-52c2552bcae4",
+   "sheetPath": "/6c5f5d69-1c0b-4294-8a58-8db0ec7d5cdf",
+   "symbolUuid": "9065d300-be48-49b4-9dd2-52c2552bcae4",
+   "documentPath": "USB-PD-Trigger-Board.kicad_sch",
+   "libId": "power:GND",
+   "reference": "#PWR012",
+   "instanceMatched": true,
+   "unit": 1,
+   "dnp": false,
+   "excludeFromBom": false,
+   "excludeFromBoard": false,
+   "excludeFromSim": false,
+   "excludeFromPosFiles": false,
+   "properties": {
+    "Datasheet": "",
+    "Description": "Power symbol creates a global label with name \"GND\" , ground",
+    "Footprint": "",
+    "Reference": "#PWR012",
+    "Value": "GND"
+   },
+   "bomFields": {
+    "value": "GND",
+    "description": "Power symbol creates a global label with name \"GND\" , ground"
+   },
+   "variants": []
+  },
+  {
+   "kiidPath": "/6c5f5d69-1c0b-4294-8a58-8db0ec7d5cdf/99b28bbc-dc36-400c-b0c6-7d017b81bbd2",
+   "sheetPath": "/6c5f5d69-1c0b-4294-8a58-8db0ec7d5cdf",
+   "symbolUuid": "99b28bbc-dc36-400c-b0c6-7d017b81bbd2",
+   "documentPath": "USB-PD-Trigger-Board.kicad_sch",
+   "libId": "power:VCC",
+   "reference": "#PWR013",
+   "instanceMatched": true,
+   "unit": 1,
+   "dnp": false,
+   "excludeFromBom": false,
+   "excludeFromBoard": false,
+   "excludeFromSim": false,
+   "excludeFromPosFiles": false,
+   "properties": {
+    "Datasheet": "",
+    "Description": "Power symbol creates a global label with name \"VCC\"",
+    "Footprint": "",
+    "Reference": "#PWR013",
+    "Value": "V3P3"
+   },
+   "bomFields": {
+    "value": "V3P3",
+    "description": "Power symbol creates a global label with name \"VCC\""
+   },
+   "variants": []
+  },
+  {
+   "kiidPath": "/6c5f5d69-1c0b-4294-8a58-8db0ec7d5cdf/9f066d0f-2d7e-47ec-9737-b1ce39114cc9",
+   "sheetPath": "/6c5f5d69-1c0b-4294-8a58-8db0ec7d5cdf",
+   "symbolUuid": "9f066d0f-2d7e-47ec-9737-b1ce39114cc9",
+   "documentPath": "USB-PD-Trigger-Board.kicad_sch",
+   "libId": "Device:C_Small",
+   "reference": "C8",
+   "instanceMatched": true,
+   "unit": 1,
+   "dnp": false,
+   "excludeFromBom": false,
+   "excludeFromBoard": false,
+   "excludeFromSim": false,
+   "excludeFromPosFiles": false,
+   "properties": {
+    "Datasheet": "https://mm.digikey.com/Volume0/opasdata/d220001/medias/docus/41/CL32B106KBJNNNE_Spec.pdf",
+    "Description": "Unpolarized capacitor, small symbol",
+    "Footprint": "Capacitor_SMD:C_1210_3225Metric_Pad1.33x2.70mm_HandSolder",
+    "Manufacturer": "Samsung Electro-Mechanics",
+    "Manufacturer Part Number": "CL32B106KBJNNNE",
+    "Reference": "C8",
+    "Value": "10uF_50V_1210",
+    "Vendor": "Digikey",
+    "Vendor Part Number": "1276-3387-6-ND"
+   },
+   "bomFields": {
+    "value": "10uF_50V_1210",
+    "description": "Unpolarized capacitor, small symbol",
+    "datasheet": "https://mm.digikey.com/Volume0/opasdata/d220001/medias/docus/41/CL32B106KBJNNNE_Spec.pdf",
+    "manufacturer": "Samsung Electro-Mechanics",
+    "manufacturerPartNumber": "CL32B106KBJNNNE",
+    "vendor": "Digikey",
+    "vendorPartNumber": "1276-3387-6-ND",
+    "footprint": "Capacitor_SMD:C_1210_3225Metric_Pad1.33x2.70mm_HandSolder"
+   },
+   "variants": []
+  },
+  {
+   "kiidPath": "/6c5f5d69-1c0b-4294-8a58-8db0ec7d5cdf/aca7710d-5873-440c-9d84-c5463058c30d",
+   "sheetPath": "/6c5f5d69-1c0b-4294-8a58-8db0ec7d5cdf",
+   "symbolUuid": "aca7710d-5873-440c-9d84-c5463058c30d",
+   "documentPath": "USB-PD-Trigger-Board.kicad_sch",
+   "libId": "Device:C_Small",
+   "reference": "C2",
+   "instanceMatched": true,
+   "unit": 1,
+   "dnp": false,
+   "excludeFromBom": false,
+   "excludeFromBoard": false,
+   "excludeFromSim": false,
+   "excludeFromPosFiles": false,
+   "properties": {
+    "Datasheet": "https://mm.digikey.com/Volume0/opasdata/d220001/medias/docus/609/CL21B105KBFNNNE_Spec.pdf",
+    "Description": "Unpolarized capacitor, small symbol",
+    "Footprint": "Capacitor_SMD:C_0805_2012Metric_Pad1.18x1.45mm_HandSolder",
+    "Manufacturer": "Samsung Electro-Mechanics",
+    "Manufacturer Part Number": "CL21B105KBFNNNE",
+    "Reference": "C2",
+    "Value": "1uF_50V_0805",
+    "Vendor": "Digikey",
+    "Vendor Part Number": "1276-1029-6-ND"
+   },
+   "bomFields": {
+    "value": "1uF_50V_0805",
+    "description": "Unpolarized capacitor, small symbol",
+    "datasheet": "https://mm.digikey.com/Volume0/opasdata/d220001/medias/docus/609/CL21B105KBFNNNE_Spec.pdf",
+    "manufacturer": "Samsung Electro-Mechanics",
+    "manufacturerPartNumber": "CL21B105KBFNNNE",
+    "vendor": "Digikey",
+    "vendorPartNumber": "1276-1029-6-ND",
+    "footprint": "Capacitor_SMD:C_0805_2012Metric_Pad1.18x1.45mm_HandSolder"
+   },
+   "variants": []
+  },
+  {
+   "kiidPath": "/6c5f5d69-1c0b-4294-8a58-8db0ec7d5cdf/b18406bf-2713-4958-b1e0-771b3df16c39",
+   "sheetPath": "/6c5f5d69-1c0b-4294-8a58-8db0ec7d5cdf",
+   "symbolUuid": "b18406bf-2713-4958-b1e0-771b3df16c39",
+   "documentPath": "USB-PD-Trigger-Board.kicad_sch",
+   "libId": "power:GND",
+   "reference": "#PWR06",
+   "instanceMatched": true,
+   "unit": 1,
+   "dnp": false,
+   "excludeFromBom": false,
+   "excludeFromBoard": false,
+   "excludeFromSim": false,
+   "excludeFromPosFiles": false,
+   "properties": {
+    "Datasheet": "",
+    "Description": "Power symbol creates a global label with name \"GND\" , ground",
+    "Footprint": "",
+    "Reference": "#PWR06",
+    "Value": "GND"
+   },
+   "bomFields": {
+    "value": "GND",
+    "description": "Power symbol creates a global label with name \"GND\" , ground"
+   },
+   "variants": []
+  },
+  {
+   "kiidPath": "/6c5f5d69-1c0b-4294-8a58-8db0ec7d5cdf/b36f2c19-7e02-4273-bc43-7dd2b8de5d78",
+   "sheetPath": "/6c5f5d69-1c0b-4294-8a58-8db0ec7d5cdf",
+   "symbolUuid": "b36f2c19-7e02-4273-bc43-7dd2b8de5d78",
+   "documentPath": "USB-PD-Trigger-Board.kicad_sch",
+   "libId": "power:GND",
+   "reference": "#PWR014",
+   "instanceMatched": true,
+   "unit": 1,
+   "dnp": false,
+   "excludeFromBom": false,
+   "excludeFromBoard": false,
+   "excludeFromSim": false,
+   "excludeFromPosFiles": false,
+   "properties": {
+    "Datasheet": "",
+    "Description": "Power symbol creates a global label with name \"GND\" , ground",
+    "Footprint": "",
+    "Reference": "#PWR014",
+    "Value": "GND"
+   },
+   "bomFields": {
+    "value": "GND",
+    "description": "Power symbol creates a global label with name \"GND\" , ground"
+   },
+   "variants": []
+  },
+  {
+   "kiidPath": "/6c5f5d69-1c0b-4294-8a58-8db0ec7d5cdf/b8b28428-b43e-487c-b343-6448c6c3a9fd",
+   "sheetPath": "/6c5f5d69-1c0b-4294-8a58-8db0ec7d5cdf",
+   "symbolUuid": "b8b28428-b43e-487c-b343-6448c6c3a9fd",
+   "documentPath": "USB-PD-Trigger-Board.kicad_sch",
+   "libId": "Device:R_Small_US",
+   "reference": "R7",
+   "instanceMatched": true,
+   "unit": 1,
+   "dnp": true,
+   "excludeFromBom": false,
+   "excludeFromBoard": false,
+   "excludeFromSim": false,
+   "excludeFromPosFiles": false,
+   "properties": {
+    "Datasheet": "https://www.yageogroup.com/content/datasheet/asset/file/PYU-RC_GROUP_51_ROHS_L",
+    "Description": "Resistor, small US symbol",
+    "Footprint": "Resistor_SMD:R_0603_1608Metric_Pad0.98x0.95mm_HandSolder",
+    "Manufacturer": "YAGEO",
+    "Manufacturer Part Number": "RC0603FR-075K1L",
+    "Reference": "R7",
+    "Value": "5.1k_0.1W_0603",
+    "Vendor": "DigiKey",
+    "Vendor Part Number": "311-5.10KHRDKR-ND"
+   },
+   "bomFields": {
+    "value": "5.1k_0.1W_0603",
+    "description": "Resistor, small US symbol",
+    "datasheet": "https://www.yageogroup.com/content/datasheet/asset/file/PYU-RC_GROUP_51_ROHS_L",
+    "manufacturer": "YAGEO",
+    "manufacturerPartNumber": "RC0603FR-075K1L",
+    "vendor": "DigiKey",
+    "vendorPartNumber": "311-5.10KHRDKR-ND",
+    "footprint": "Resistor_SMD:R_0603_1608Metric_Pad0.98x0.95mm_HandSolder"
+   },
+   "variants": []
+  },
+  {
+   "kiidPath": "/6c5f5d69-1c0b-4294-8a58-8db0ec7d5cdf/bd4fe6ce-f9aa-45a7-aafd-dd9010fd15d8",
+   "sheetPath": "/6c5f5d69-1c0b-4294-8a58-8db0ec7d5cdf",
+   "symbolUuid": "bd4fe6ce-f9aa-45a7-aafd-dd9010fd15d8",
+   "documentPath": "USB-PD-Trigger-Board.kicad_sch",
+   "libId": "Device:R_Small_US",
+   "reference": "R16",
+   "instanceMatched": true,
+   "unit": 1,
+   "dnp": false,
+   "excludeFromBom": false,
+   "excludeFromBoard": false,
+   "excludeFromSim": false,
+   "excludeFromPosFiles": false,
+   "properties": {
+    "Datasheet": "https://www.yageogroup.com/content/datasheet/asset/file/PYU-RC_GROUP_51_ROHS_L",
+    "Description": "Resistor, small US symbol",
+    "Footprint": "Resistor_SMD:R_0603_1608Metric_Pad0.98x0.95mm_HandSolder",
+    "Manufacturer": "YAGEO",
+    "Manufacturer Part Number": "RC0603FR-0749K9L",
+    "Reference": "R16",
+    "Value": "49.9k_0.1W_0603",
+    "Vendor": "DigiKey",
+    "Vendor Part Number": "311-49.9KHRDKR-ND"
+   },
+   "bomFields": {
+    "value": "49.9k_0.1W_0603",
+    "description": "Resistor, small US symbol",
+    "datasheet": "https://www.yageogroup.com/content/datasheet/asset/file/PYU-RC_GROUP_51_ROHS_L",
+    "manufacturer": "YAGEO",
+    "manufacturerPartNumber": "RC0603FR-0749K9L",
+    "vendor": "DigiKey",
+    "vendorPartNumber": "311-49.9KHRDKR-ND",
+    "footprint": "Resistor_SMD:R_0603_1608Metric_Pad0.98x0.95mm_HandSolder"
+   },
+   "variants": []
+  },
+  {
+   "kiidPath": "/6c5f5d69-1c0b-4294-8a58-8db0ec7d5cdf/c3249064-dcf7-470d-9aed-5ee5eef91d12",
+   "sheetPath": "/6c5f5d69-1c0b-4294-8a58-8db0ec7d5cdf",
+   "symbolUuid": "c3249064-dcf7-470d-9aed-5ee5eef91d12",
+   "documentPath": "USB-PD-Trigger-Board.kicad_sch",
+   "libId": "Device:C_Small",
+   "reference": "C3",
+   "instanceMatched": true,
+   "unit": 1,
+   "dnp": false,
+   "excludeFromBom": false,
+   "excludeFromBoard": false,
+   "excludeFromSim": false,
+   "excludeFromPosFiles": false,
+   "properties": {
+    "Datasheet": "https://mm.digikey.com/Volume0/opasdata/d220001/medias/docus/609/CL21B105KBFNNNE_Spec.pdf",
+    "Description": "Unpolarized capacitor, small symbol",
+    "Footprint": "Capacitor_SMD:C_0805_2012Metric_Pad1.18x1.45mm_HandSolder",
+    "Manufacturer": "Samsung Electro-Mechanics",
+    "Manufacturer Part Number": "CL21B105KBFNNNE",
+    "Reference": "C3",
+    "Value": "1uF_50V_0805",
+    "Vendor": "Digikey",
+    "Vendor Part Number": "1276-1029-6-ND"
+   },
+   "bomFields": {
+    "value": "1uF_50V_0805",
+    "description": "Unpolarized capacitor, small symbol",
+    "datasheet": "https://mm.digikey.com/Volume0/opasdata/d220001/medias/docus/609/CL21B105KBFNNNE_Spec.pdf",
+    "manufacturer": "Samsung Electro-Mechanics",
+    "manufacturerPartNumber": "CL21B105KBFNNNE",
+    "vendor": "Digikey",
+    "vendorPartNumber": "1276-1029-6-ND",
+    "footprint": "Capacitor_SMD:C_0805_2012Metric_Pad1.18x1.45mm_HandSolder"
+   },
+   "variants": []
+  },
+  {
+   "kiidPath": "/6c5f5d69-1c0b-4294-8a58-8db0ec7d5cdf/c6d70d13-7e5f-4309-88b2-e4cdc8eeb7eb",
+   "sheetPath": "/6c5f5d69-1c0b-4294-8a58-8db0ec7d5cdf",
+   "symbolUuid": "c6d70d13-7e5f-4309-88b2-e4cdc8eeb7eb",
+   "documentPath": "USB-PD-Trigger-Board.kicad_sch",
+   "libId": "Device:R_Small_US",
+   "reference": "R17",
+   "instanceMatched": true,
+   "unit": 1,
+   "dnp": false,
+   "excludeFromBom": false,
+   "excludeFromBoard": false,
+   "excludeFromSim": false,
+   "excludeFromPosFiles": false,
+   "properties": {
+    "Datasheet": "https://www.yageogroup.com/content/datasheet/asset/file/PYU-RC_GROUP_51_ROHS_L",
+    "Description": "Resistor, small US symbol",
+    "Footprint": "Resistor_SMD:R_0603_1608Metric_Pad0.98x0.95mm_HandSolder",
+    "Manufacturer": "YAGEO",
+    "Manufacturer Part Number": "RC0603FR-071KL",
+    "Reference": "R17",
+    "Value": "1k_0.1W_0603",
+    "Vendor": "DigiKey",
+    "Vendor Part Number": "311-1.00KHRDKR-ND"
+   },
+   "bomFields": {
+    "value": "1k_0.1W_0603",
+    "description": "Resistor, small US symbol",
+    "datasheet": "https://www.yageogroup.com/content/datasheet/asset/file/PYU-RC_GROUP_51_ROHS_L",
+    "manufacturer": "YAGEO",
+    "manufacturerPartNumber": "RC0603FR-071KL",
+    "vendor": "DigiKey",
+    "vendorPartNumber": "311-1.00KHRDKR-ND",
+    "footprint": "Resistor_SMD:R_0603_1608Metric_Pad0.98x0.95mm_HandSolder"
+   },
+   "variants": []
+  },
+  {
+   "kiidPath": "/6c5f5d69-1c0b-4294-8a58-8db0ec7d5cdf/c73932bf-3416-4b12-bd83-2593e76a799d",
+   "sheetPath": "/6c5f5d69-1c0b-4294-8a58-8db0ec7d5cdf",
+   "symbolUuid": "c73932bf-3416-4b12-bd83-2593e76a799d",
+   "documentPath": "USB-PD-Trigger-Board.kicad_sch",
+   "libId": "Device:R_Small_US",
+   "reference": "R18",
+   "instanceMatched": true,
+   "unit": 1,
+   "dnp": false,
+   "excludeFromBom": false,
+   "excludeFromBoard": false,
+   "excludeFromSim": false,
+   "excludeFromPosFiles": false,
+   "properties": {
+    "Datasheet": "https://www.yageogroup.com/content/datasheet/asset/file/PYU-RC_GROUP_51_ROHS_L",
+    "Description": "Resistor, small US symbol",
+    "Footprint": "Resistor_SMD:R_0603_1608Metric_Pad0.98x0.95mm_HandSolder",
+    "Manufacturer": "YAGEO",
+    "Manufacturer Part Number": "RC0603FR-0749K9L",
+    "Reference": "R18",
+    "Value": "49.9k_0.1W_0603",
+    "Vendor": "DigiKey",
+    "Vendor Part Number": "311-49.9KHRDKR-ND"
+   },
+   "bomFields": {
+    "value": "49.9k_0.1W_0603",
+    "description": "Resistor, small US symbol",
+    "datasheet": "https://www.yageogroup.com/content/datasheet/asset/file/PYU-RC_GROUP_51_ROHS_L",
+    "manufacturer": "YAGEO",
+    "manufacturerPartNumber": "RC0603FR-0749K9L",
+    "vendor": "DigiKey",
+    "vendorPartNumber": "311-49.9KHRDKR-ND",
+    "footprint": "Resistor_SMD:R_0603_1608Metric_Pad0.98x0.95mm_HandSolder"
+   },
+   "variants": []
+  },
+  {
+   "kiidPath": "/6c5f5d69-1c0b-4294-8a58-8db0ec7d5cdf/ce1b5395-05f1-45e2-a060-3d70966a6e2e",
+   "sheetPath": "/6c5f5d69-1c0b-4294-8a58-8db0ec7d5cdf",
+   "symbolUuid": "ce1b5395-05f1-45e2-a060-3d70966a6e2e",
+   "documentPath": "USB-PD-Trigger-Board.kicad_sch",
+   "libId": "Device:R_Small_US",
+   "reference": "R2",
+   "instanceMatched": true,
+   "unit": 1,
+   "dnp": false,
+   "excludeFromBom": false,
+   "excludeFromBoard": false,
+   "excludeFromSim": false,
+   "excludeFromPosFiles": false,
+   "properties": {
+    "Datasheet": "https://www.yageogroup.com/content/datasheet/asset/file/PYU-RC_GROUP_51_ROHS_L",
+    "Description": "Resistor, small US symbol",
+    "Footprint": "Resistor_SMD:R_0603_1608Metric_Pad0.98x0.95mm_HandSolder",
+    "Manufacturer": "YAGEO",
+    "Manufacturer Part Number": "RC0603FR-075K1L",
+    "Reference": "R2",
+    "Value": "5.1k_0.1W_0603",
+    "Vendor": "DigiKey",
+    "Vendor Part Number": "311-5.10KHRDKR-ND"
+   },
+   "bomFields": {
+    "value": "5.1k_0.1W_0603",
+    "description": "Resistor, small US symbol",
+    "datasheet": "https://www.yageogroup.com/content/datasheet/asset/file/PYU-RC_GROUP_51_ROHS_L",
+    "manufacturer": "YAGEO",
+    "manufacturerPartNumber": "RC0603FR-075K1L",
+    "vendor": "DigiKey",
+    "vendorPartNumber": "311-5.10KHRDKR-ND",
+    "footprint": "Resistor_SMD:R_0603_1608Metric_Pad0.98x0.95mm_HandSolder"
+   },
+   "variants": []
+  },
+  {
+   "kiidPath": "/6c5f5d69-1c0b-4294-8a58-8db0ec7d5cdf/d067140b-e7a8-462a-a255-b2998c5c65c3",
+   "sheetPath": "/6c5f5d69-1c0b-4294-8a58-8db0ec7d5cdf",
+   "symbolUuid": "d067140b-e7a8-462a-a255-b2998c5c65c3",
+   "documentPath": "USB-PD-Trigger-Board.kicad_sch",
+   "libId": "Device:R_Small_US",
+   "reference": "R13",
+   "instanceMatched": true,
+   "unit": 1,
+   "dnp": true,
+   "excludeFromBom": false,
+   "excludeFromBoard": false,
+   "excludeFromSim": false,
+   "excludeFromPosFiles": false,
+   "properties": {
+    "Datasheet": "https://www.yageogroup.com/content/datasheet/asset/file/PYU-RC_GROUP_51_ROHS_L",
+    "Description": "Resistor, small US symbol",
+    "Footprint": "Resistor_SMD:R_0603_1608Metric_Pad0.98x0.95mm_HandSolder",
+    "Manufacturer": "YAGEO",
+    "Manufacturer Part Number": "RC0603FR-075K1L",
+    "Reference": "R13",
+    "Value": "5.1k_0.1W_0603",
+    "Vendor": "DigiKey",
+    "Vendor Part Number": "311-5.10KHRDKR-ND"
+   },
+   "bomFields": {
+    "value": "5.1k_0.1W_0603",
+    "description": "Resistor, small US symbol",
+    "datasheet": "https://www.yageogroup.com/content/datasheet/asset/file/PYU-RC_GROUP_51_ROHS_L",
+    "manufacturer": "YAGEO",
+    "manufacturerPartNumber": "RC0603FR-075K1L",
+    "vendor": "DigiKey",
+    "vendorPartNumber": "311-5.10KHRDKR-ND",
+    "footprint": "Resistor_SMD:R_0603_1608Metric_Pad0.98x0.95mm_HandSolder"
+   },
+   "variants": []
+  },
+  {
+   "kiidPath": "/6c5f5d69-1c0b-4294-8a58-8db0ec7d5cdf/d1ba78b3-599d-4615-ab27-26f5ba309dc7",
+   "sheetPath": "/6c5f5d69-1c0b-4294-8a58-8db0ec7d5cdf",
+   "symbolUuid": "d1ba78b3-599d-4615-ab27-26f5ba309dc7",
+   "documentPath": "USB-PD-Trigger-Board.kicad_sch",
+   "libId": "power:VCC",
+   "reference": "#PWR022",
+   "instanceMatched": true,
+   "unit": 1,
+   "dnp": false,
+   "excludeFromBom": false,
+   "excludeFromBoard": false,
+   "excludeFromSim": false,
+   "excludeFromPosFiles": false,
+   "properties": {
+    "Datasheet": "",
+    "Description": "Power symbol creates a global label with name \"VCC\"",
+    "Footprint": "",
+    "Reference": "#PWR022",
+    "Value": "VCC_USB_SAFE_5V"
+   },
+   "bomFields": {
+    "value": "VCC_USB_SAFE_5V",
+    "description": "Power symbol creates a global label with name \"VCC\""
+   },
+   "variants": []
+  },
+  {
+   "kiidPath": "/6c5f5d69-1c0b-4294-8a58-8db0ec7d5cdf/d3f1784a-6bbd-47cb-804e-67e70ef9bd3e",
+   "sheetPath": "/6c5f5d69-1c0b-4294-8a58-8db0ec7d5cdf",
+   "symbolUuid": "d3f1784a-6bbd-47cb-804e-67e70ef9bd3e",
+   "documentPath": "USB-PD-Trigger-Board.kicad_sch",
+   "libId": "Device:R_Small_US",
+   "reference": "R1",
+   "instanceMatched": true,
+   "unit": 1,
+   "dnp": false,
+   "excludeFromBom": false,
+   "excludeFromBoard": false,
+   "excludeFromSim": false,
+   "excludeFromPosFiles": false,
+   "properties": {
+    "Datasheet": "https://www.yageogroup.com/content/datasheet/asset/file/PYU-RC_GROUP_51_ROHS_L",
+    "Description": "Resistor, small US symbol",
+    "Footprint": "Resistor_SMD:R_0603_1608Metric_Pad0.98x0.95mm_HandSolder",
+    "Manufacturer": "YAGEO",
+    "Manufacturer Part Number": "RC0603FR-075K1L",
+    "Reference": "R1",
+    "Value": "5.1k_0.1W_0603",
+    "Vendor": "DigiKey",
+    "Vendor Part Number": "311-5.10KHRDKR-ND"
+   },
+   "bomFields": {
+    "value": "5.1k_0.1W_0603",
+    "description": "Resistor, small US symbol",
+    "datasheet": "https://www.yageogroup.com/content/datasheet/asset/file/PYU-RC_GROUP_51_ROHS_L",
+    "manufacturer": "YAGEO",
+    "manufacturerPartNumber": "RC0603FR-075K1L",
+    "vendor": "DigiKey",
+    "vendorPartNumber": "311-5.10KHRDKR-ND",
+    "footprint": "Resistor_SMD:R_0603_1608Metric_Pad0.98x0.95mm_HandSolder"
+   },
+   "variants": []
+  },
+  {
+   "kiidPath": "/6c5f5d69-1c0b-4294-8a58-8db0ec7d5cdf/d5bf0e3d-2eb9-45ac-b54e-18a0f80d6c61",
+   "sheetPath": "/6c5f5d69-1c0b-4294-8a58-8db0ec7d5cdf",
+   "symbolUuid": "d5bf0e3d-2eb9-45ac-b54e-18a0f80d6c61",
+   "documentPath": "USB-PD-Trigger-Board.kicad_sch",
+   "libId": "power:GND",
+   "reference": "#PWR018",
+   "instanceMatched": true,
+   "unit": 1,
+   "dnp": false,
+   "excludeFromBom": false,
+   "excludeFromBoard": false,
+   "excludeFromSim": false,
+   "excludeFromPosFiles": false,
+   "properties": {
+    "Datasheet": "",
+    "Description": "Power symbol creates a global label with name \"GND\" , ground",
+    "Footprint": "",
+    "Reference": "#PWR018",
+    "Value": "GND"
+   },
+   "bomFields": {
+    "value": "GND",
+    "description": "Power symbol creates a global label with name \"GND\" , ground"
+   },
+   "variants": []
+  },
+  {
+   "kiidPath": "/6c5f5d69-1c0b-4294-8a58-8db0ec7d5cdf/d6fa79e7-6d56-4d47-b6f6-1e0a80500473",
+   "sheetPath": "/6c5f5d69-1c0b-4294-8a58-8db0ec7d5cdf",
+   "symbolUuid": "d6fa79e7-6d56-4d47-b6f6-1e0a80500473",
+   "documentPath": "USB-PD-Trigger-Board.kicad_sch",
+   "libId": "Pixxel_MOSFETs:BSL308PE",
+   "reference": "Q3",
+   "instanceMatched": true,
+   "unit": 2,
+   "dnp": false,
+   "excludeFromBom": false,
+   "excludeFromBoard": false,
+   "excludeFromSim": false,
+   "excludeFromPosFiles": false,
+   "properties": {
+    "Arrow Part Number": "",
+    "Arrow Price/Stock": "",
+    "Datasheet": "http://uk.rs-online.com/web/p/products/8922172",
+    "Description": "Infineon BSL308PE Dual P-channel MOSFET Transistor, -2 A, -30 V, 6-Pin TSOP",
+    "Footprint": "Pixxel_MOSFETs:BSL308PE-SOT95P250X110-6N",
+    "Height": "1.1",
+    "Manufacturer": "Infineon Technologies",
+    "Manufacturer Part Number": "BSL308PEH6327XTSA1",
+    "Manufacturer_Name": "Infineon",
+    "Manufacturer_Part_Number": "BSL308PE",
+    "Mouser Part Number": "N/A",
+    "Mouser Price/Stock": "https://www.mouser.co.uk/ProductDetail/Infineon-Technologies/BSL308PE?qs=bAKSY%2FctAC43amihai4ZVA%3D%3D",
+    "Reference": "Q3",
+    "Value": "BSL308PE",
+    "Vendor": "DigiKey",
+    "Vendor Part Number": "BSL308PEH6327XTSA1DKR-ND"
+   },
+   "bomFields": {
+    "value": "BSL308PE",
+    "description": "Infineon BSL308PE Dual P-channel MOSFET Transistor, -2 A, -30 V, 6-Pin TSOP",
+    "datasheet": "http://uk.rs-online.com/web/p/products/8922172",
+    "manufacturer": "Infineon Technologies",
+    "manufacturerPartNumber": "BSL308PEH6327XTSA1",
+    "vendor": "DigiKey",
+    "vendorPartNumber": "BSL308PEH6327XTSA1DKR-ND",
+    "footprint": "Pixxel_MOSFETs:BSL308PE-SOT95P250X110-6N"
+   },
+   "variants": []
+  },
+  {
+   "kiidPath": "/6c5f5d69-1c0b-4294-8a58-8db0ec7d5cdf/db315d27-25ab-40a1-9123-f476e5b2d6dc",
+   "sheetPath": "/6c5f5d69-1c0b-4294-8a58-8db0ec7d5cdf",
+   "symbolUuid": "db315d27-25ab-40a1-9123-f476e5b2d6dc",
+   "documentPath": "USB-PD-Trigger-Board.kicad_sch",
+   "libId": "Device:LED",
+   "reference": "D2",
+   "instanceMatched": true,
+   "unit": 1,
+   "dnp": false,
+   "excludeFromBom": false,
+   "excludeFromBoard": false,
+   "excludeFromSim": false,
+   "excludeFromPosFiles": false,
+   "properties": {
+    "Datasheet": "https://www.rohm.com/datasheet?p=SML-D12U1W&dist=Digi-key&media=referral&source=digi-key.com&campaign=Digi-key",
+    "Description": "Light emitting diode",
+    "Footprint": "Diode_SMD:D_0603_1608Metric_Pad1.05x0.95mm_HandSolder",
+    "Manufacturer": "Rohm Semiconductor",
+    "Manufacturer Part Number": "SML-D12U1WT86",
+    "Reference": "D2",
+    "Sim.Pins": "1=K 2=A",
+    "Value": "LED_R",
+    "Vendor": "Digikey",
+    "Vendor Part Number": "SML-D12U1WT86DKR-ND"
+   },
+   "bomFields": {
+    "value": "LED_R",
+    "description": "Light emitting diode",
+    "datasheet": "https://www.rohm.com/datasheet?p=SML-D12U1W&dist=Digi-key&media=referral&source=digi-key.com&campaign=Digi-key",
+    "manufacturer": "Rohm Semiconductor",
+    "manufacturerPartNumber": "SML-D12U1WT86",
+    "vendor": "Digikey",
+    "vendorPartNumber": "SML-D12U1WT86DKR-ND",
+    "footprint": "Diode_SMD:D_0603_1608Metric_Pad1.05x0.95mm_HandSolder"
+   },
+   "variants": []
+  },
+  {
+   "kiidPath": "/6c5f5d69-1c0b-4294-8a58-8db0ec7d5cdf/dc6aebde-96a0-4a44-8cf4-0ad17b59b68d",
+   "sheetPath": "/6c5f5d69-1c0b-4294-8a58-8db0ec7d5cdf",
+   "symbolUuid": "dc6aebde-96a0-4a44-8cf4-0ad17b59b68d",
+   "documentPath": "USB-PD-Trigger-Board.kicad_sch",
+   "libId": "Device:R_Small_US",
+   "reference": "R6",
+   "instanceMatched": true,
+   "unit": 1,
+   "dnp": true,
+   "excludeFromBom": false,
+   "excludeFromBoard": false,
+   "excludeFromSim": false,
+   "excludeFromPosFiles": false,
+   "properties": {
+    "Datasheet": "https://www.yageogroup.com/content/datasheet/asset/file/PYU-RC_GROUP_51_ROHS_L",
+    "Description": "Resistor, small US symbol",
+    "Footprint": "Resistor_SMD:R_0603_1608Metric_Pad0.98x0.95mm_HandSolder",
+    "Manufacturer": "YAGEO",
+    "Manufacturer Part Number": "RC0603FR-075K1L",
+    "Reference": "R6",
+    "Value": "5.1k_0.1W_0603",
+    "Vendor": "DigiKey",
+    "Vendor Part Number": "311-5.10KHRDKR-ND"
+   },
+   "bomFields": {
+    "value": "5.1k_0.1W_0603",
+    "description": "Resistor, small US symbol",
+    "datasheet": "https://www.yageogroup.com/content/datasheet/asset/file/PYU-RC_GROUP_51_ROHS_L",
+    "manufacturer": "YAGEO",
+    "manufacturerPartNumber": "RC0603FR-075K1L",
+    "vendor": "DigiKey",
+    "vendorPartNumber": "311-5.10KHRDKR-ND",
+    "footprint": "Resistor_SMD:R_0603_1608Metric_Pad0.98x0.95mm_HandSolder"
+   },
+   "variants": []
+  },
+  {
+   "kiidPath": "/6c5f5d69-1c0b-4294-8a58-8db0ec7d5cdf/dcf35ca0-be2c-4e7f-97c8-45096c666f2c",
+   "sheetPath": "/6c5f5d69-1c0b-4294-8a58-8db0ec7d5cdf",
+   "symbolUuid": "dcf35ca0-be2c-4e7f-97c8-45096c666f2c",
+   "documentPath": "USB-PD-Trigger-Board.kicad_sch",
+   "libId": "Device:R_Small_US",
+   "reference": "R15",
+   "instanceMatched": true,
+   "unit": 1,
+   "dnp": false,
+   "excludeFromBom": false,
+   "excludeFromBoard": false,
+   "excludeFromSim": false,
+   "excludeFromPosFiles": false,
+   "properties": {
+    "Datasheet": "https://www.yageogroup.com/content/datasheet/asset/file/PYU-RC_GROUP_51_ROHS_L",
+    "Description": "Resistor, small US symbol",
+    "Footprint": "Resistor_SMD:R_0603_1608Metric_Pad0.98x0.95mm_HandSolder",
+    "Manufacturer": "YAGEO",
+    "Manufacturer Part Number": "RC0603FR-071KL",
+    "Reference": "R15",
+    "Value": "1k_0.1W_0603",
+    "Vendor": "DigiKey",
+    "Vendor Part Number": "311-1.00KHRDKR-ND"
+   },
+   "bomFields": {
+    "value": "1k_0.1W_0603",
+    "description": "Resistor, small US symbol",
+    "datasheet": "https://www.yageogroup.com/content/datasheet/asset/file/PYU-RC_GROUP_51_ROHS_L",
+    "manufacturer": "YAGEO",
+    "manufacturerPartNumber": "RC0603FR-071KL",
+    "vendor": "DigiKey",
+    "vendorPartNumber": "311-1.00KHRDKR-ND",
+    "footprint": "Resistor_SMD:R_0603_1608Metric_Pad0.98x0.95mm_HandSolder"
+   },
+   "variants": []
+  },
+  {
+   "kiidPath": "/6c5f5d69-1c0b-4294-8a58-8db0ec7d5cdf/e0bf6507-9d4b-4254-ac7a-4a57bf425153",
+   "sheetPath": "/6c5f5d69-1c0b-4294-8a58-8db0ec7d5cdf",
+   "symbolUuid": "e0bf6507-9d4b-4254-ac7a-4a57bf425153",
+   "documentPath": "USB-PD-Trigger-Board.kicad_sch",
+   "libId": "Pixxel_MOSFETs:IRF9358TRPBF",
+   "reference": "Q1",
+   "instanceMatched": true,
+   "unit": 1,
+   "dnp": false,
+   "excludeFromBom": false,
+   "excludeFromBoard": false,
+   "excludeFromSim": false,
+   "excludeFromPosFiles": false,
+   "properties": {
+    "Arrow Part Number": "IRF9358TRPBF",
+    "Arrow Price/Stock": "https://www.arrow.com/en/products/irf9358trpbf/infineon-technologies-ag?region=nac",
+    "Datasheet": "https://www.infineon.com/dgdl/Infineon-IRF9358-DataSheet-v01_01-EN.pdf?fileId=5546d462533600a4015356114ffa1da5",
+    "Description": "Infineon IRF9358TRPBF Dual P-channel MOSFET, 9.2 A, 30 V HEXFET, 8-Pin SOIC",
+    "Footprint": "Pixxel_MOSFETs:IRF9358TRPBFSOIC127P600X175-8N",
+    "Height": "1.75",
+    "Manufacturer": "Infineon Technologies",
+    "Manufacturer Part Number": "IRF9358TRPBF",
+    "Manufacturer_Name": "Infineon",
+    "Manufacturer_Part_Number": "IRF9358TRPBF",
+    "Mouser Part Number": "942-IRF9358TRPBF",
+    "Mouser Price/Stock": "https://www.mouser.co.uk/ProductDetail/Infineon-Technologies/IRF9358TRPBF?qs=9%252BKlkBgLFf0UOCipcM2zgA%3D%3D",
+    "Reference": "Q1",
+    "Value": "IRF9358TRPBF",
+    "Vendor": "DigiKey",
+    "Vendor Part Number": "IRF9358TRPBFDKR-ND"
+   },
+   "bomFields": {
+    "value": "IRF9358TRPBF",
+    "description": "Infineon IRF9358TRPBF Dual P-channel MOSFET, 9.2 A, 30 V HEXFET, 8-Pin SOIC",
+    "datasheet": "https://www.infineon.com/dgdl/Infineon-IRF9358-DataSheet-v01_01-EN.pdf?fileId=5546d462533600a4015356114ffa1da5",
+    "manufacturer": "Infineon Technologies",
+    "manufacturerPartNumber": "IRF9358TRPBF",
+    "vendor": "DigiKey",
+    "vendorPartNumber": "IRF9358TRPBFDKR-ND",
+    "footprint": "Pixxel_MOSFETs:IRF9358TRPBFSOIC127P600X175-8N"
+   },
+   "variants": []
+  },
+  {
+   "kiidPath": "/6c5f5d69-1c0b-4294-8a58-8db0ec7d5cdf/e642466e-49e7-4e2f-9ddb-79af28e6fdd0",
+   "sheetPath": "/6c5f5d69-1c0b-4294-8a58-8db0ec7d5cdf",
+   "symbolUuid": "e642466e-49e7-4e2f-9ddb-79af28e6fdd0",
+   "documentPath": "USB-PD-Trigger-Board.kicad_sch",
+   "libId": "Device:C_Small",
+   "reference": "C6",
+   "instanceMatched": true,
+   "unit": 1,
+   "dnp": false,
+   "excludeFromBom": false,
+   "excludeFromBoard": false,
+   "excludeFromSim": false,
+   "excludeFromPosFiles": false,
+   "properties": {
+    "Datasheet": "https://mm.digikey.com/Volume0/opasdata/d220001/medias/docus/609/CL21B105KBFNNNE_Spec.pdf",
+    "Description": "Unpolarized capacitor, small symbol",
+    "Footprint": "Capacitor_SMD:C_0805_2012Metric_Pad1.18x1.45mm_HandSolder",
+    "Manufacturer": "Samsung Electro-Mechanics",
+    "Manufacturer Part Number": "CL21B105KBFNNNE",
+    "Reference": "C6",
+    "Value": "1uF_50V_0805",
+    "Vendor": "Digikey",
+    "Vendor Part Number": "1276-1029-6-ND"
+   },
+   "bomFields": {
+    "value": "1uF_50V_0805",
+    "description": "Unpolarized capacitor, small symbol",
+    "datasheet": "https://mm.digikey.com/Volume0/opasdata/d220001/medias/docus/609/CL21B105KBFNNNE_Spec.pdf",
+    "manufacturer": "Samsung Electro-Mechanics",
+    "manufacturerPartNumber": "CL21B105KBFNNNE",
+    "vendor": "Digikey",
+    "vendorPartNumber": "1276-1029-6-ND",
+    "footprint": "Capacitor_SMD:C_0805_2012Metric_Pad1.18x1.45mm_HandSolder"
+   },
+   "variants": []
+  },
+  {
+   "kiidPath": "/6c5f5d69-1c0b-4294-8a58-8db0ec7d5cdf/e997879f-ba31-4f7f-9365-17a4d3d52c19",
+   "sheetPath": "/6c5f5d69-1c0b-4294-8a58-8db0ec7d5cdf",
+   "symbolUuid": "e997879f-ba31-4f7f-9365-17a4d3d52c19",
+   "documentPath": "USB-PD-Trigger-Board.kicad_sch",
+   "libId": "power:VCC",
+   "reference": "#PWR08",
+   "instanceMatched": true,
+   "unit": 1,
+   "dnp": false,
+   "excludeFromBom": false,
+   "excludeFromBoard": false,
+   "excludeFromSim": false,
+   "excludeFromPosFiles": false,
+   "properties": {
+    "Datasheet": "",
+    "Description": "Power symbol creates a global label with name \"VCC\"",
+    "Footprint": "",
+    "Reference": "#PWR08",
+    "Value": "V3P3"
+   },
+   "bomFields": {
+    "value": "V3P3",
+    "description": "Power symbol creates a global label with name \"VCC\""
+   },
+   "variants": []
+  },
+  {
+   "kiidPath": "/6c5f5d69-1c0b-4294-8a58-8db0ec7d5cdf/ebf5d081-77a2-4ab2-a550-9e43917d4e99",
+   "sheetPath": "/6c5f5d69-1c0b-4294-8a58-8db0ec7d5cdf",
+   "symbolUuid": "ebf5d081-77a2-4ab2-a550-9e43917d4e99",
+   "documentPath": "USB-PD-Trigger-Board.kicad_sch",
+   "libId": "power:GND",
+   "reference": "#PWR023",
+   "instanceMatched": true,
+   "unit": 1,
+   "dnp": false,
+   "excludeFromBom": false,
+   "excludeFromBoard": false,
+   "excludeFromSim": false,
+   "excludeFromPosFiles": false,
+   "properties": {
+    "Datasheet": "",
+    "Description": "Power symbol creates a global label with name \"GND\" , ground",
+    "Footprint": "",
+    "Reference": "#PWR023",
+    "Value": "GND"
+   },
+   "bomFields": {
+    "value": "GND",
+    "description": "Power symbol creates a global label with name \"GND\" , ground"
+   },
+   "variants": []
+  },
+  {
+   "kiidPath": "/6c5f5d69-1c0b-4294-8a58-8db0ec7d5cdf/f51d14a3-78cd-4aed-8990-546388f8e0a7",
+   "sheetPath": "/6c5f5d69-1c0b-4294-8a58-8db0ec7d5cdf",
+   "symbolUuid": "f51d14a3-78cd-4aed-8990-546388f8e0a7",
+   "documentPath": "USB-PD-Trigger-Board.kicad_sch",
+   "libId": "power:GND",
+   "reference": "#PWR016",
+   "instanceMatched": true,
+   "unit": 1,
+   "dnp": false,
+   "excludeFromBom": false,
+   "excludeFromBoard": false,
+   "excludeFromSim": false,
+   "excludeFromPosFiles": false,
+   "properties": {
+    "Datasheet": "",
+    "Description": "Power symbol creates a global label with name \"GND\" , ground",
+    "Footprint": "",
+    "Reference": "#PWR016",
+    "Value": "GND"
+   },
+   "bomFields": {
+    "value": "GND",
+    "description": "Power symbol creates a global label with name \"GND\" , ground"
+   },
+   "variants": []
+  },
+  {
+   "kiidPath": "/6c5f5d69-1c0b-4294-8a58-8db0ec7d5cdf/f5ea4711-90c5-43d7-976b-58c72edb2cca",
+   "sheetPath": "/6c5f5d69-1c0b-4294-8a58-8db0ec7d5cdf",
+   "symbolUuid": "f5ea4711-90c5-43d7-976b-58c72edb2cca",
+   "documentPath": "USB-PD-Trigger-Board.kicad_sch",
+   "libId": "Pixxel_Connectors:USB4056-03-A",
+   "reference": "J1",
+   "instanceMatched": true,
+   "unit": 1,
+   "dnp": false,
+   "excludeFromBom": false,
+   "excludeFromBoard": false,
+   "excludeFromSim": false,
+   "excludeFromPosFiles": false,
+   "properties": {
+    "Datasheet": "https://gct.co/files/specs/usb4056-spec.pdf",
+    "Description": "USB C 3.2 REC, HORZ, HYBRID PCB",
+    "Footprint": "Pixxel_Connectors:USB4056-03-A",
+    "Inventory stock": "",
+    "Manufacturer": "GCT",
+    "Manufacturer Name": "",
+    "Manufacturer Part Number": "USB4056-03-A",
+    "Mass (grams)": "",
+    "RQjC": "",
+    "Reference": "J1",
+    "Value": "USB4056-03-A_REVA2",
+    "Vendor": "Digikey",
+    "Vendor Part Number": "2073-USB4056-03-ADKR-ND",
+    "Vendor Price/Stock": ""
+   },
+   "bomFields": {
+    "value": "USB4056-03-A_REVA2",
+    "description": "USB C 3.2 REC, HORZ, HYBRID PCB",
+    "datasheet": "https://gct.co/files/specs/usb4056-spec.pdf",
+    "manufacturer": "GCT",
+    "manufacturerPartNumber": "USB4056-03-A",
+    "vendor": "Digikey",
+    "vendorPartNumber": "2073-USB4056-03-ADKR-ND",
+    "footprint": "Pixxel_Connectors:USB4056-03-A"
+   },
+   "variants": []
+  },
+  {
+   "kiidPath": "/6c5f5d69-1c0b-4294-8a58-8db0ec7d5cdf/5eb27ce9-6d8e-40a9-9f6d-8f14c5f68638/61dd0d84-724e-4469-a0ba-40e39ae8afdf",
+   "sheetPath": "/6c5f5d69-1c0b-4294-8a58-8db0ec7d5cdf/5eb27ce9-6d8e-40a9-9f6d-8f14c5f68638",
+   "symbolUuid": "61dd0d84-724e-4469-a0ba-40e39ae8afdf",
+   "documentPath": "Subsheets/Output-Connector.kicad_sch",
+   "libId": "power:GND",
+   "reference": "#PWR021",
+   "instanceMatched": true,
+   "unit": 1,
+   "dnp": false,
+   "excludeFromBom": false,
+   "excludeFromBoard": false,
+   "excludeFromSim": false,
+   "excludeFromPosFiles": false,
+   "properties": {
+    "Datasheet": "",
+    "Description": "Power symbol creates a global label with name \"GND\" , ground",
+    "Footprint": "",
+    "Reference": "#PWR021",
+    "Value": "GND"
+   },
+   "bomFields": {
+    "value": "GND",
+    "description": "Power symbol creates a global label with name \"GND\" , ground"
+   },
+   "variants": []
+  },
+  {
+   "kiidPath": "/6c5f5d69-1c0b-4294-8a58-8db0ec7d5cdf/5eb27ce9-6d8e-40a9-9f6d-8f14c5f68638/b15171d3-0df1-46fc-8e4c-94f37f448240",
+   "sheetPath": "/6c5f5d69-1c0b-4294-8a58-8db0ec7d5cdf/5eb27ce9-6d8e-40a9-9f6d-8f14c5f68638",
+   "symbolUuid": "b15171d3-0df1-46fc-8e4c-94f37f448240",
+   "documentPath": "Subsheets/Output-Connector.kicad_sch",
+   "libId": "Pixxel_Connectors:796638-2",
+   "reference": "J2",
+   "instanceMatched": true,
+   "unit": 1,
+   "dnp": false,
+   "excludeFromBom": false,
+   "excludeFromBoard": false,
+   "excludeFromSim": false,
+   "excludeFromPosFiles": false,
+   "properties": {
+    "Datasheet": "",
+    "Description": "2 Position Terminal Block Header, Male Pins, Shrouded (4 Side) 0.200\" (5.08mm) 90°, Right Angle Through Hole",
+    "Footprint": "Pixxel_Connectors:796638-2",
+    "Inventory stock": "",
+    "Manufacturer Name": "",
+    "Manufacturer Part Number": "",
+    "Mass (grams)": "",
+    "RQjC": "",
+    "Reference": "J2",
+    "Value": "796638-2",
+    "Vendor": "",
+    "Vendor Part Number": "",
+    "Vendor Price/Stock": ""
+   },
+   "bomFields": {
+    "value": "796638-2",
+    "description": "2 Position Terminal Block Header, Male Pins, Shrouded (4 Side) 0.200\" (5.08mm) 90°, Right Angle Through Hole",
+    "footprint": "Pixxel_Connectors:796638-2"
+   },
+   "variants": []
+  },
+  {
+   "kiidPath": "/6c5f5d69-1c0b-4294-8a58-8db0ec7d5cdf/5eb27ce9-6d8e-40a9-9f6d-8f14c5f68638/b2589ebd-4ff3-4051-93ef-5f0ea312482a",
+   "sheetPath": "/6c5f5d69-1c0b-4294-8a58-8db0ec7d5cdf/5eb27ce9-6d8e-40a9-9f6d-8f14c5f68638",
+   "symbolUuid": "b2589ebd-4ff3-4051-93ef-5f0ea312482a",
+   "documentPath": "Subsheets/Output-Connector.kicad_sch",
+   "libId": "power:VCC",
+   "reference": "#PWR020",
+   "instanceMatched": true,
+   "unit": 1,
+   "dnp": false,
+   "excludeFromBom": false,
+   "excludeFromBoard": false,
+   "excludeFromSim": false,
+   "excludeFromPosFiles": false,
+   "properties": {
+    "Datasheet": "",
+    "Description": "Power symbol creates a global label with name \"VCC\"",
+    "Footprint": "",
+    "Reference": "#PWR020",
+    "Value": "VCC_USB_PD_OUT"
+   },
+   "bomFields": {
+    "value": "VCC_USB_PD_OUT",
+    "description": "Power symbol creates a global label with name \"VCC\""
+   },
+   "variants": []
+  }
+ ],
+ "footprints": [
+  {
+   "uuid": "0a68adf0-7cdc-46be-ae5f-e6c0b6455579",
+   "documentPath": "USB-PD-Trigger-Board.kicad_pcb",
+   "reference": "R15",
+   "dnp": false,
+   "excludeFromBom": false,
+   "excludeFromPosFiles": false,
+   "variants": []
+  },
+  {
+   "uuid": "0aef2900-5b76-47c3-a213-e7b22a3034c3",
+   "documentPath": "USB-PD-Trigger-Board.kicad_pcb",
+   "reference": "Q1",
+   "dnp": false,
+   "excludeFromBom": false,
+   "excludeFromPosFiles": false,
+   "variants": []
+  },
+  {
+   "uuid": "0d1ade47-5557-4371-bafc-b429b5fb3b77",
+   "documentPath": "USB-PD-Trigger-Board.kicad_pcb",
+   "reference": "R3",
+   "dnp": false,
+   "excludeFromBom": false,
+   "excludeFromPosFiles": false,
+   "variants": []
+  },
+  {
+   "uuid": "0fe3d08e-86fc-4dd5-bd2f-bcbc5d801a5d",
+   "documentPath": "USB-PD-Trigger-Board.kicad_pcb",
+   "reference": "R6",
+   "dnp": true,
+   "excludeFromBom": false,
+   "excludeFromPosFiles": false,
+   "variants": []
+  },
+  {
+   "uuid": "16e2cd98-c278-46ff-8a34-c235107a9e22",
+   "documentPath": "USB-PD-Trigger-Board.kicad_pcb",
+   "reference": "D3",
+   "dnp": false,
+   "excludeFromBom": false,
+   "excludeFromPosFiles": false,
+   "variants": []
+  },
+  {
+   "uuid": "1fee74a6-d5b0-4736-90b3-10f410e0ef72",
+   "documentPath": "USB-PD-Trigger-Board.kicad_pcb",
+   "reference": "R19",
+   "dnp": false,
+   "excludeFromBom": false,
+   "excludeFromPosFiles": false,
+   "variants": []
+  },
+  {
+   "uuid": "21727be1-337f-407c-b580-722dde93e672",
+   "documentPath": "USB-PD-Trigger-Board.kicad_pcb",
+   "reference": "C8",
+   "dnp": false,
+   "excludeFromBom": false,
+   "excludeFromPosFiles": false,
+   "variants": []
+  },
+  {
+   "uuid": "23b177b3-8090-40bb-9e81-e7c8260aabd0",
+   "documentPath": "USB-PD-Trigger-Board.kicad_pcb",
+   "reference": "R2",
+   "dnp": false,
+   "excludeFromBom": false,
+   "excludeFromPosFiles": false,
+   "variants": []
+  },
+  {
+   "uuid": "2e50ead5-fc7e-49c9-99e2-61b27e344f00",
+   "documentPath": "USB-PD-Trigger-Board.kicad_pcb",
+   "reference": "R14",
+   "dnp": false,
+   "excludeFromBom": false,
+   "excludeFromPosFiles": false,
+   "variants": []
+  },
+  {
+   "uuid": "30407c37-87cf-4214-b9f4-e845c6688071",
+   "documentPath": "USB-PD-Trigger-Board.kicad_pcb",
+   "reference": "J2",
+   "dnp": false,
+   "excludeFromBom": false,
+   "excludeFromPosFiles": false,
+   "variants": []
+  },
+  {
+   "uuid": "5a230e78-dd12-4c7a-99d4-be1b5d6474db",
+   "documentPath": "USB-PD-Trigger-Board.kicad_pcb",
+   "reference": "R12",
+   "dnp": false,
+   "excludeFromBom": false,
+   "excludeFromPosFiles": false,
+   "variants": []
+  },
+  {
+   "uuid": "5ff23ac1-fcf9-4d14-bebc-4d3e8022205f",
+   "documentPath": "USB-PD-Trigger-Board.kicad_pcb",
+   "reference": "C4",
+   "dnp": false,
+   "excludeFromBom": false,
+   "excludeFromPosFiles": false,
+   "variants": []
+  },
+  {
+   "uuid": "70159a46-b7a2-4026-b49f-6e60b12705ba",
+   "documentPath": "USB-PD-Trigger-Board.kicad_pcb",
+   "reference": "D1",
+   "dnp": false,
+   "excludeFromBom": false,
+   "excludeFromPosFiles": false,
+   "variants": []
+  },
+  {
+   "uuid": "8a050c98-7474-422a-835d-1fa485b64064",
+   "documentPath": "USB-PD-Trigger-Board.kicad_pcb",
+   "reference": "J1",
+   "dnp": false,
+   "excludeFromBom": false,
+   "excludeFromPosFiles": false,
+   "variants": []
+  },
+  {
+   "uuid": "8af121fe-702a-4e38-b536-ba4f9254d2c6",
+   "documentPath": "USB-PD-Trigger-Board.kicad_pcb",
+   "reference": "C6",
+   "dnp": false,
+   "excludeFromBom": false,
+   "excludeFromPosFiles": false,
+   "variants": []
+  },
+  {
+   "uuid": "8ea1ed23-3f8f-42ce-8c56-16f2acc6ed03",
+   "documentPath": "USB-PD-Trigger-Board.kicad_pcb",
+   "reference": "Q3",
+   "dnp": false,
+   "excludeFromBom": false,
+   "excludeFromPosFiles": false,
+   "variants": []
+  },
+  {
+   "uuid": "9402ba55-b21b-40ce-8e46-4bdb172a3f60",
+   "documentPath": "USB-PD-Trigger-Board.kicad_pcb",
+   "reference": "R4",
+   "dnp": false,
+   "excludeFromBom": false,
+   "excludeFromPosFiles": false,
+   "variants": []
+  },
+  {
+   "uuid": "95afd87e-b1e6-4ff7-b16a-020a66ee0fe6",
+   "documentPath": "USB-PD-Trigger-Board.kicad_pcb",
+   "reference": "Q2",
+   "dnp": false,
+   "excludeFromBom": false,
+   "excludeFromPosFiles": false,
+   "variants": []
+  },
+  {
+   "uuid": "9794cc5c-cbdc-4bd7-89e2-9585639f22c2",
+   "documentPath": "USB-PD-Trigger-Board.kicad_pcb",
+   "reference": "C5",
+   "dnp": false,
+   "excludeFromBom": false,
+   "excludeFromPosFiles": false,
+   "variants": []
+  },
+  {
+   "uuid": "a1431be3-b88f-4ae1-ba7e-7ea933021c96",
+   "documentPath": "USB-PD-Trigger-Board.kicad_pcb",
+   "reference": "R5",
+   "dnp": false,
+   "excludeFromBom": false,
+   "excludeFromPosFiles": false,
+   "variants": []
+  },
+  {
+   "uuid": "a503cfc7-8a0b-4f8b-b2d3-3df05615663e",
+   "documentPath": "USB-PD-Trigger-Board.kicad_pcb",
+   "reference": "R18",
+   "dnp": false,
+   "excludeFromBom": false,
+   "excludeFromPosFiles": false,
+   "variants": []
+  },
+  {
+   "uuid": "a5b7d383-4c0d-4a1a-a69e-f66119c1e7dc",
+   "documentPath": "USB-PD-Trigger-Board.kicad_pcb",
+   "reference": "R10",
+   "dnp": false,
+   "excludeFromBom": false,
+   "excludeFromPosFiles": false,
+   "variants": []
+  },
+  {
+   "uuid": "a6ce23eb-8479-49c0-9948-fc9dd668ce14",
+   "documentPath": "USB-PD-Trigger-Board.kicad_pcb",
+   "reference": "C3",
+   "dnp": false,
+   "excludeFromBom": false,
+   "excludeFromPosFiles": false,
+   "variants": []
+  },
+  {
+   "uuid": "b64bcf6b-ce32-4895-9a4c-f7e8ff0a12ad",
+   "documentPath": "USB-PD-Trigger-Board.kicad_pcb",
+   "reference": "R8",
+   "dnp": false,
+   "excludeFromBom": false,
+   "excludeFromPosFiles": false,
+   "variants": []
+  },
+  {
+   "uuid": "bfaf6784-4023-4263-ab4d-6a5cddda2e52",
+   "documentPath": "USB-PD-Trigger-Board.kicad_pcb",
+   "reference": "R16",
+   "dnp": false,
+   "excludeFromBom": false,
+   "excludeFromPosFiles": false,
+   "variants": []
+  },
+  {
+   "uuid": "c297cb91-83c4-4970-923d-bcdce1537d98",
+   "documentPath": "USB-PD-Trigger-Board.kicad_pcb",
+   "reference": "R9",
+   "dnp": false,
+   "excludeFromBom": false,
+   "excludeFromPosFiles": false,
+   "variants": []
+  },
+  {
+   "uuid": "c808dffa-6774-4a04-a5ec-73bba0bb760d",
+   "documentPath": "USB-PD-Trigger-Board.kicad_pcb",
+   "reference": "TP1",
+   "dnp": false,
+   "excludeFromBom": true,
+   "excludeFromPosFiles": true,
+   "variants": []
+  },
+  {
+   "uuid": "deb246bc-03f6-4133-a6eb-c874a4b69417",
+   "documentPath": "USB-PD-Trigger-Board.kicad_pcb",
+   "reference": "C2",
+   "dnp": false,
+   "excludeFromBom": false,
+   "excludeFromPosFiles": false,
+   "variants": []
+  },
+  {
+   "uuid": "e197273d-9659-4fdb-87e0-39a667228b0f",
+   "documentPath": "USB-PD-Trigger-Board.kicad_pcb",
+   "reference": "R13",
+   "dnp": true,
+   "excludeFromBom": false,
+   "excludeFromPosFiles": false,
+   "variants": []
+  },
+  {
+   "uuid": "e5105dc1-4e6a-4ad8-aab5-92d5e635d85f",
+   "documentPath": "USB-PD-Trigger-Board.kicad_pcb",
+   "reference": "C7",
+   "dnp": false,
+   "excludeFromBom": false,
+   "excludeFromPosFiles": false,
+   "variants": []
+  },
+  {
+   "uuid": "e89b1ed6-a54d-41a2-a14c-8a925bb672a4",
+   "documentPath": "USB-PD-Trigger-Board.kicad_pcb",
+   "reference": "C1",
+   "dnp": false,
+   "excludeFromBom": false,
+   "excludeFromPosFiles": false,
+   "variants": []
+  },
+  {
+   "uuid": "e90f7738-99b2-4e9e-8c05-60192001c2ae",
+   "documentPath": "USB-PD-Trigger-Board.kicad_pcb",
+   "reference": "R17",
+   "dnp": false,
+   "excludeFromBom": false,
+   "excludeFromPosFiles": false,
+   "variants": []
+  },
+  {
+   "uuid": "f3d566cb-1632-4efa-90bd-e0d6cafa637b",
+   "documentPath": "USB-PD-Trigger-Board.kicad_pcb",
+   "reference": "R7",
+   "dnp": true,
+   "excludeFromBom": false,
+   "excludeFromPosFiles": false,
+   "variants": []
+  },
+  {
+   "uuid": "f46f6ad8-370d-4255-bc07-304f2ea2bccb",
+   "documentPath": "USB-PD-Trigger-Board.kicad_pcb",
+   "reference": "R1",
+   "dnp": false,
+   "excludeFromBom": false,
+   "excludeFromPosFiles": false,
+   "variants": []
+  },
+  {
+   "uuid": "f63ed382-7ffd-49f9-85cb-f1627653dc89",
+   "documentPath": "USB-PD-Trigger-Board.kicad_pcb",
+   "reference": "R11",
+   "dnp": false,
+   "excludeFromBom": false,
+   "excludeFromPosFiles": false,
+   "variants": []
+  },
+  {
+   "uuid": "fab9ea7a-7645-4bbf-8ffa-c7005fe98543",
+   "documentPath": "USB-PD-Trigger-Board.kicad_pcb",
+   "reference": "U1",
+   "dnp": false,
+   "excludeFromBom": false,
+   "excludeFromPosFiles": false,
+   "variants": []
+  },
+  {
+   "uuid": "fe16d25e-e5a0-49e0-aa02-1cdd5069c768",
+   "documentPath": "USB-PD-Trigger-Board.kicad_pcb",
+   "reference": "D2",
+   "dnp": false,
+   "excludeFromBom": false,
+   "excludeFromPosFiles": false,
+   "variants": []
+  }
+ ],
+ "references": [
+  {
+   "reference": "#PWR01",
+   "symbols": [
+    "/6c5f5d69-1c0b-4294-8a58-8db0ec7d5cdf/351c2824-8aec-4843-8839-820028f794f5"
+   ],
+   "footprints": []
+  },
+  {
+   "reference": "#PWR010",
+   "symbols": [
+    "/6c5f5d69-1c0b-4294-8a58-8db0ec7d5cdf/17a44749-9ce8-4bd9-a9f5-4ddf9aeb1c00"
+   ],
+   "footprints": []
+  },
+  {
+   "reference": "#PWR011",
+   "symbols": [
+    "/6c5f5d69-1c0b-4294-8a58-8db0ec7d5cdf/3cac89e8-4973-4b79-8949-a9feba27433e"
+   ],
+   "footprints": []
+  },
+  {
+   "reference": "#PWR012",
+   "symbols": [
+    "/6c5f5d69-1c0b-4294-8a58-8db0ec7d5cdf/9065d300-be48-49b4-9dd2-52c2552bcae4"
+   ],
+   "footprints": []
+  },
+  {
+   "reference": "#PWR013",
+   "symbols": [
+    "/6c5f5d69-1c0b-4294-8a58-8db0ec7d5cdf/99b28bbc-dc36-400c-b0c6-7d017b81bbd2"
+   ],
+   "footprints": []
+  },
+  {
+   "reference": "#PWR014",
+   "symbols": [
+    "/6c5f5d69-1c0b-4294-8a58-8db0ec7d5cdf/b36f2c19-7e02-4273-bc43-7dd2b8de5d78"
+   ],
+   "footprints": []
+  },
+  {
+   "reference": "#PWR015",
+   "symbols": [
+    "/6c5f5d69-1c0b-4294-8a58-8db0ec7d5cdf/6251532c-a768-4cc1-8894-3629f3175848"
+   ],
+   "footprints": []
+  },
+  {
+   "reference": "#PWR016",
+   "symbols": [
+    "/6c5f5d69-1c0b-4294-8a58-8db0ec7d5cdf/f51d14a3-78cd-4aed-8990-546388f8e0a7"
+   ],
+   "footprints": []
+  },
+  {
+   "reference": "#PWR017",
+   "symbols": [
+    "/6c5f5d69-1c0b-4294-8a58-8db0ec7d5cdf/2abc7ff5-4469-437b-bae6-66d988c1b2e1"
+   ],
+   "footprints": []
+  },
+  {
+   "reference": "#PWR018",
+   "symbols": [
+    "/6c5f5d69-1c0b-4294-8a58-8db0ec7d5cdf/d5bf0e3d-2eb9-45ac-b54e-18a0f80d6c61"
+   ],
+   "footprints": []
+  },
+  {
+   "reference": "#PWR019",
+   "symbols": [
+    "/6c5f5d69-1c0b-4294-8a58-8db0ec7d5cdf/81b2a3b5-21a7-4703-a0a5-6339782d589a"
+   ],
+   "footprints": []
+  },
+  {
+   "reference": "#PWR02",
+   "symbols": [
+    "/6c5f5d69-1c0b-4294-8a58-8db0ec7d5cdf/151e1556-456d-4783-a47c-1619781ba627"
+   ],
+   "footprints": []
+  },
+  {
+   "reference": "#PWR020",
+   "symbols": [
+    "/6c5f5d69-1c0b-4294-8a58-8db0ec7d5cdf/5eb27ce9-6d8e-40a9-9f6d-8f14c5f68638/b2589ebd-4ff3-4051-93ef-5f0ea312482a"
+   ],
+   "footprints": []
+  },
+  {
+   "reference": "#PWR021",
+   "symbols": [
+    "/6c5f5d69-1c0b-4294-8a58-8db0ec7d5cdf/5eb27ce9-6d8e-40a9-9f6d-8f14c5f68638/61dd0d84-724e-4469-a0ba-40e39ae8afdf"
+   ],
+   "footprints": []
+  },
+  {
+   "reference": "#PWR022",
+   "symbols": [
+    "/6c5f5d69-1c0b-4294-8a58-8db0ec7d5cdf/d1ba78b3-599d-4615-ab27-26f5ba309dc7"
+   ],
+   "footprints": []
+  },
+  {
+   "reference": "#PWR023",
+   "symbols": [
+    "/6c5f5d69-1c0b-4294-8a58-8db0ec7d5cdf/ebf5d081-77a2-4ab2-a550-9e43917d4e99"
+   ],
+   "footprints": []
+  },
+  {
+   "reference": "#PWR03",
+   "symbols": [
+    "/6c5f5d69-1c0b-4294-8a58-8db0ec7d5cdf/428ad661-9d9f-4454-a5a4-00ec2fcc6419"
+   ],
+   "footprints": []
+  },
+  {
+   "reference": "#PWR04",
+   "symbols": [
+    "/6c5f5d69-1c0b-4294-8a58-8db0ec7d5cdf/201cfded-736f-4b5c-bc1b-e06881d7bee1"
+   ],
+   "footprints": []
+  },
+  {
+   "reference": "#PWR05",
+   "symbols": [
+    "/6c5f5d69-1c0b-4294-8a58-8db0ec7d5cdf/1c836e64-116f-4e8d-aeb1-718cd591216f"
+   ],
+   "footprints": []
+  },
+  {
+   "reference": "#PWR06",
+   "symbols": [
+    "/6c5f5d69-1c0b-4294-8a58-8db0ec7d5cdf/b18406bf-2713-4958-b1e0-771b3df16c39"
+   ],
+   "footprints": []
+  },
+  {
+   "reference": "#PWR07",
+   "symbols": [
+    "/6c5f5d69-1c0b-4294-8a58-8db0ec7d5cdf/14786cd1-ceac-41e7-9323-abb9b6017547"
+   ],
+   "footprints": []
+  },
+  {
+   "reference": "#PWR08",
+   "symbols": [
+    "/6c5f5d69-1c0b-4294-8a58-8db0ec7d5cdf/e997879f-ba31-4f7f-9365-17a4d3d52c19"
+   ],
+   "footprints": []
+  },
+  {
+   "reference": "#PWR09",
+   "symbols": [
+    "/6c5f5d69-1c0b-4294-8a58-8db0ec7d5cdf/7082d426-b3b2-4551-ada0-b5bbabe85159"
+   ],
+   "footprints": []
+  },
+  {
+   "reference": "C1",
+   "symbols": [
+    "/6c5f5d69-1c0b-4294-8a58-8db0ec7d5cdf/8d1148d9-56d4-4311-8c97-50391c9a4d64"
+   ],
+   "footprints": [
+    "e89b1ed6-a54d-41a2-a14c-8a925bb672a4"
+   ]
+  },
+  {
+   "reference": "C2",
+   "symbols": [
+    "/6c5f5d69-1c0b-4294-8a58-8db0ec7d5cdf/aca7710d-5873-440c-9d84-c5463058c30d"
+   ],
+   "footprints": [
+    "deb246bc-03f6-4133-a6eb-c874a4b69417"
+   ]
+  },
+  {
+   "reference": "C3",
+   "symbols": [
+    "/6c5f5d69-1c0b-4294-8a58-8db0ec7d5cdf/c3249064-dcf7-470d-9aed-5ee5eef91d12"
+   ],
+   "footprints": [
+    "a6ce23eb-8479-49c0-9948-fc9dd668ce14"
+   ]
+  },
+  {
+   "reference": "C4",
+   "symbols": [
+    "/6c5f5d69-1c0b-4294-8a58-8db0ec7d5cdf/6121d497-49dc-4f87-9c0c-935884a7d60c"
+   ],
+   "footprints": [
+    "5ff23ac1-fcf9-4d14-bebc-4d3e8022205f"
+   ]
+  },
+  {
+   "reference": "C5",
+   "symbols": [
+    "/6c5f5d69-1c0b-4294-8a58-8db0ec7d5cdf/3f27eb57-6634-4056-bc46-a469f674254f"
+   ],
+   "footprints": [
+    "9794cc5c-cbdc-4bd7-89e2-9585639f22c2"
+   ]
+  },
+  {
+   "reference": "C6",
+   "symbols": [
+    "/6c5f5d69-1c0b-4294-8a58-8db0ec7d5cdf/e642466e-49e7-4e2f-9ddb-79af28e6fdd0"
+   ],
+   "footprints": [
+    "8af121fe-702a-4e38-b536-ba4f9254d2c6"
+   ]
+  },
+  {
+   "reference": "C7",
+   "symbols": [
+    "/6c5f5d69-1c0b-4294-8a58-8db0ec7d5cdf/5250e01e-db29-420a-bc6f-a029c97932bc"
+   ],
+   "footprints": [
+    "e5105dc1-4e6a-4ad8-aab5-92d5e635d85f"
+   ]
+  },
+  {
+   "reference": "C8",
+   "symbols": [
+    "/6c5f5d69-1c0b-4294-8a58-8db0ec7d5cdf/9f066d0f-2d7e-47ec-9737-b1ce39114cc9"
+   ],
+   "footprints": [
+    "21727be1-337f-407c-b580-722dde93e672"
+   ]
+  },
+  {
+   "reference": "D1",
+   "symbols": [
+    "/6c5f5d69-1c0b-4294-8a58-8db0ec7d5cdf/8e78b33f-2079-4865-84f9-63b902e9e778"
+   ],
+   "footprints": [
+    "70159a46-b7a2-4026-b49f-6e60b12705ba"
+   ]
+  },
+  {
+   "reference": "D2",
+   "symbols": [
+    "/6c5f5d69-1c0b-4294-8a58-8db0ec7d5cdf/db315d27-25ab-40a1-9123-f476e5b2d6dc"
+   ],
+   "footprints": [
+    "fe16d25e-e5a0-49e0-aa02-1cdd5069c768"
+   ]
+  },
+  {
+   "reference": "D3",
+   "symbols": [
+    "/6c5f5d69-1c0b-4294-8a58-8db0ec7d5cdf/1a4f4c01-23d2-40e9-861d-b2a9d70a9903"
+   ],
+   "footprints": [
+    "16e2cd98-c278-46ff-8a34-c235107a9e22"
+   ]
+  },
+  {
+   "reference": "J1",
+   "symbols": [
+    "/6c5f5d69-1c0b-4294-8a58-8db0ec7d5cdf/f5ea4711-90c5-43d7-976b-58c72edb2cca"
+   ],
+   "footprints": [
+    "8a050c98-7474-422a-835d-1fa485b64064"
+   ]
+  },
+  {
+   "reference": "J2",
+   "symbols": [
+    "/6c5f5d69-1c0b-4294-8a58-8db0ec7d5cdf/5eb27ce9-6d8e-40a9-9f6d-8f14c5f68638/b15171d3-0df1-46fc-8e4c-94f37f448240"
+   ],
+   "footprints": [
+    "30407c37-87cf-4214-b9f4-e845c6688071"
+   ]
+  },
+  {
+   "reference": "Q1",
+   "symbols": [
+    "/6c5f5d69-1c0b-4294-8a58-8db0ec7d5cdf/4efeecca-612f-4509-8f45-9e4161e1b425",
+    "/6c5f5d69-1c0b-4294-8a58-8db0ec7d5cdf/e0bf6507-9d4b-4254-ac7a-4a57bf425153"
+   ],
+   "footprints": [
+    "0aef2900-5b76-47c3-a213-e7b22a3034c3"
+   ]
+  },
+  {
+   "reference": "Q2",
+   "symbols": [
+    "/6c5f5d69-1c0b-4294-8a58-8db0ec7d5cdf/3c2a4914-84ad-471e-8e8f-4f983d3057b9"
+   ],
+   "footprints": [
+    "95afd87e-b1e6-4ff7-b16a-020a66ee0fe6"
+   ]
+  },
+  {
+   "reference": "Q3",
+   "symbols": [
+    "/6c5f5d69-1c0b-4294-8a58-8db0ec7d5cdf/482e2c4e-3e2f-429a-b4b8-2e30d99878e8",
+    "/6c5f5d69-1c0b-4294-8a58-8db0ec7d5cdf/d6fa79e7-6d56-4d47-b6f6-1e0a80500473"
+   ],
+   "footprints": [
+    "8ea1ed23-3f8f-42ce-8c56-16f2acc6ed03"
+   ]
+  },
+  {
+   "reference": "R1",
+   "symbols": [
+    "/6c5f5d69-1c0b-4294-8a58-8db0ec7d5cdf/d3f1784a-6bbd-47cb-804e-67e70ef9bd3e"
+   ],
+   "footprints": [
+    "f46f6ad8-370d-4255-bc07-304f2ea2bccb"
+   ]
+  },
+  {
+   "reference": "R10",
+   "symbols": [
+    "/6c5f5d69-1c0b-4294-8a58-8db0ec7d5cdf/75fa122e-228e-4732-abe2-19d3d74c69e3"
+   ],
+   "footprints": [
+    "a5b7d383-4c0d-4a1a-a69e-f66119c1e7dc"
+   ]
+  },
+  {
+   "reference": "R11",
+   "symbols": [
+    "/6c5f5d69-1c0b-4294-8a58-8db0ec7d5cdf/352cb421-5d6d-47cd-b227-319a62e48a77"
+   ],
+   "footprints": [
+    "f63ed382-7ffd-49f9-85cb-f1627653dc89"
+   ]
+  },
+  {
+   "reference": "R12",
+   "symbols": [
+    "/6c5f5d69-1c0b-4294-8a58-8db0ec7d5cdf/8149a0d2-ffd1-4ca8-ad61-a07f93365785"
+   ],
+   "footprints": [
+    "5a230e78-dd12-4c7a-99d4-be1b5d6474db"
+   ]
+  },
+  {
+   "reference": "R13",
+   "symbols": [
+    "/6c5f5d69-1c0b-4294-8a58-8db0ec7d5cdf/d067140b-e7a8-462a-a255-b2998c5c65c3"
+   ],
+   "footprints": [
+    "e197273d-9659-4fdb-87e0-39a667228b0f"
+   ]
+  },
+  {
+   "reference": "R14",
+   "symbols": [
+    "/6c5f5d69-1c0b-4294-8a58-8db0ec7d5cdf/5805d616-d805-4fb8-af9c-fd94df7c2ab6"
+   ],
+   "footprints": [
+    "2e50ead5-fc7e-49c9-99e2-61b27e344f00"
+   ]
+  },
+  {
+   "reference": "R15",
+   "symbols": [
+    "/6c5f5d69-1c0b-4294-8a58-8db0ec7d5cdf/dcf35ca0-be2c-4e7f-97c8-45096c666f2c"
+   ],
+   "footprints": [
+    "0a68adf0-7cdc-46be-ae5f-e6c0b6455579"
+   ]
+  },
+  {
+   "reference": "R16",
+   "symbols": [
+    "/6c5f5d69-1c0b-4294-8a58-8db0ec7d5cdf/bd4fe6ce-f9aa-45a7-aafd-dd9010fd15d8"
+   ],
+   "footprints": [
+    "bfaf6784-4023-4263-ab4d-6a5cddda2e52"
+   ]
+  },
+  {
+   "reference": "R17",
+   "symbols": [
+    "/6c5f5d69-1c0b-4294-8a58-8db0ec7d5cdf/c6d70d13-7e5f-4309-88b2-e4cdc8eeb7eb"
+   ],
+   "footprints": [
+    "e90f7738-99b2-4e9e-8c05-60192001c2ae"
+   ]
+  },
+  {
+   "reference": "R18",
+   "symbols": [
+    "/6c5f5d69-1c0b-4294-8a58-8db0ec7d5cdf/c73932bf-3416-4b12-bd83-2593e76a799d"
+   ],
+   "footprints": [
+    "a503cfc7-8a0b-4f8b-b2d3-3df05615663e"
+   ]
+  },
+  {
+   "reference": "R19",
+   "symbols": [
+    "/6c5f5d69-1c0b-4294-8a58-8db0ec7d5cdf/817338ba-e182-48d0-ab56-862549154614"
+   ],
+   "footprints": [
+    "1fee74a6-d5b0-4736-90b3-10f410e0ef72"
+   ]
+  },
+  {
+   "reference": "R2",
+   "symbols": [
+    "/6c5f5d69-1c0b-4294-8a58-8db0ec7d5cdf/ce1b5395-05f1-45e2-a060-3d70966a6e2e"
+   ],
+   "footprints": [
+    "23b177b3-8090-40bb-9e81-e7c8260aabd0"
+   ]
+  },
+  {
+   "reference": "R3",
+   "symbols": [
+    "/6c5f5d69-1c0b-4294-8a58-8db0ec7d5cdf/0e347ae0-f759-43b2-ab1e-23e64609a182"
+   ],
+   "footprints": [
+    "0d1ade47-5557-4371-bafc-b429b5fb3b77"
+   ]
+  },
+  {
+   "reference": "R4",
+   "symbols": [
+    "/6c5f5d69-1c0b-4294-8a58-8db0ec7d5cdf/4709d060-f397-4439-942d-8d9067332276"
+   ],
+   "footprints": [
+    "9402ba55-b21b-40ce-8e46-4bdb172a3f60"
+   ]
+  },
+  {
+   "reference": "R5",
+   "symbols": [
+    "/6c5f5d69-1c0b-4294-8a58-8db0ec7d5cdf/86377633-a9a6-4250-a6c4-251c5670b629"
+   ],
+   "footprints": [
+    "a1431be3-b88f-4ae1-ba7e-7ea933021c96"
+   ]
+  },
+  {
+   "reference": "R6",
+   "symbols": [
+    "/6c5f5d69-1c0b-4294-8a58-8db0ec7d5cdf/dc6aebde-96a0-4a44-8cf4-0ad17b59b68d"
+   ],
+   "footprints": [
+    "0fe3d08e-86fc-4dd5-bd2f-bcbc5d801a5d"
+   ]
+  },
+  {
+   "reference": "R7",
+   "symbols": [
+    "/6c5f5d69-1c0b-4294-8a58-8db0ec7d5cdf/b8b28428-b43e-487c-b343-6448c6c3a9fd"
+   ],
+   "footprints": [
+    "f3d566cb-1632-4efa-90bd-e0d6cafa637b"
+   ]
+  },
+  {
+   "reference": "R8",
+   "symbols": [
+    "/6c5f5d69-1c0b-4294-8a58-8db0ec7d5cdf/3c8612af-6e83-4f69-9d07-5e075fc4c3fd"
+   ],
+   "footprints": [
+    "b64bcf6b-ce32-4895-9a4c-f7e8ff0a12ad"
+   ]
+  },
+  {
+   "reference": "R9",
+   "symbols": [
+    "/6c5f5d69-1c0b-4294-8a58-8db0ec7d5cdf/04ca4aed-f552-48a3-9a67-c12648920ee3"
+   ],
+   "footprints": [
+    "c297cb91-83c4-4970-923d-bcdce1537d98"
+   ]
+  },
+  {
+   "reference": "TP1",
+   "symbols": [
+    "/6c5f5d69-1c0b-4294-8a58-8db0ec7d5cdf/8fdf5d41-73db-4ae8-ab13-6fd5aa705a70"
+   ],
+   "footprints": [
+    "c808dffa-6774-4a04-a5ec-73bba0bb760d"
+   ]
+  },
+  {
+   "reference": "U1",
+   "symbols": [
+    "/6c5f5d69-1c0b-4294-8a58-8db0ec7d5cdf/227531f2-f7a1-4277-9e78-936497be6b73"
+   ],
+   "footprints": [
+    "fab9ea7a-7645-4bbf-8ffa-c7005fe98543"
+   ]
+  }
+ ],
+ "variantDeclarations": []
+}

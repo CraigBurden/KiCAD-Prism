@@ -1,0 +1,1999 @@
+{
+ "schema": "prism.board_objects.a0",
+ "documents": [
+  {
+   "path": "edge_b.kicad_pcb",
+   "objects": [
+    {
+     "kind": "footprint",
+     "uuid": "ffe11c84-dc17-5743-a076-b5194d4f29a5",
+     "contentDigest": "8b4abe479fd175c0",
+     "libId": "Connector_PinSocket_2.54mm:PinSocket_1x04_P2.54mm_Vertical",
+     "at": {
+      "xNm": 110000000,
+      "yNm": 106000000
+     },
+     "rotationDeg": 0,
+     "layer": "F.Cu",
+     "footprintPath": "/6575bf28-d238-5208-9e0f-bc5b1fc0cd7f/ef8032c9-b453-5a09-a17e-3578b2864f8a",
+     "refdes": "J1",
+     "properties": [
+      {
+       "name": "Reference",
+       "value": "J1",
+       "at": {
+        "xNm": 0,
+        "yNm": -2770000
+       },
+       "hide": false
+      },
+      {
+       "name": "Value",
+       "value": "Socket_1x04_V",
+       "at": {
+        "xNm": 0,
+        "yNm": 10390000
+       },
+       "hide": false
+      },
+      {
+       "name": "Datasheet",
+       "value": "",
+       "at": {
+        "xNm": 0,
+        "yNm": 0
+       },
+       "hide": true
+      },
+      {
+       "name": "Description",
+       "value": "",
+       "at": {
+        "xNm": 0,
+        "yNm": 0
+       },
+       "hide": true
+      },
+      {
+       "name": "KiLib_Generator",
+       "value": "connector/pin_header_socket",
+       "at": {
+        "xNm": 0,
+        "yNm": 0
+       },
+       "hide": true
+      }
+     ],
+     "reviewFields": {
+      "Attributes": "{\"through_hole\":true}",
+      "Board only": false,
+      "Description": "Through hole straight socket strip, 1x04, 2.54mm pitch, single row (from Kicad 4.0.7), script generated",
+      "Exclude from BOM": false,
+      "Exclude from position files": false
+     }
+    },
+    {
+     "kind": "footprint-graphic",
+     "uuid": "bff37daa-d599-5158-97b5-1ce522f59e50",
+     "contentDigest": "072824611742e3c4",
+     "parentUuid": "ffe11c84-dc17-5743-a076-b5194d4f29a5",
+     "refdes": "J1",
+     "at": {
+      "xNm": -1330000,
+      "yNm": 5110000
+     },
+     "layer": "F.SilkS",
+     "reviewFields": {
+      "Stroke": "0.12 mm, solid"
+     }
+    },
+    {
+     "kind": "footprint-graphic",
+     "uuid": "1add3a42-cf9c-533b-bbe8-15055b40d691",
+     "contentDigest": "bd2969d5451fa31c",
+     "parentUuid": "ffe11c84-dc17-5743-a076-b5194d4f29a5",
+     "refdes": "J1",
+     "at": {
+      "xNm": 0,
+      "yNm": 1270000
+     },
+     "layer": "F.SilkS",
+     "reviewFields": {
+      "Stroke": "0.12 mm, solid"
+     }
+    },
+    {
+     "kind": "footprint-graphic",
+     "uuid": "46d3a96c-ee19-5800-b571-ff786418eda0",
+     "contentDigest": "961f9b921bb10823",
+     "parentUuid": "ffe11c84-dc17-5743-a076-b5194d4f29a5",
+     "refdes": "J1",
+     "at": {
+      "xNm": 0,
+      "yNm": 8950000
+     },
+     "layer": "F.SilkS",
+     "reviewFields": {
+      "Stroke": "0.12 mm, solid"
+     }
+    },
+    {
+     "kind": "footprint-graphic",
+     "uuid": "389c9288-ad15-5585-93cf-6ea8985b09ca",
+     "contentDigest": "2c229ce80a586e01",
+     "parentUuid": "ffe11c84-dc17-5743-a076-b5194d4f29a5",
+     "refdes": "J1",
+     "at": {
+      "xNm": 665000,
+      "yNm": -1330000
+     },
+     "layer": "F.SilkS",
+     "reviewFields": {
+      "Stroke": "0.12 mm, solid"
+     }
+    },
+    {
+     "kind": "footprint-graphic",
+     "uuid": "605ba20d-b9d7-5728-bb81-f5b6d929de28",
+     "contentDigest": "ec239d1c8a199823",
+     "parentUuid": "ffe11c84-dc17-5743-a076-b5194d4f29a5",
+     "refdes": "J1",
+     "at": {
+      "xNm": 1330000,
+      "yNm": -665000
+     },
+     "layer": "F.SilkS",
+     "reviewFields": {
+      "Stroke": "0.12 mm, solid"
+     }
+    },
+    {
+     "kind": "footprint-graphic",
+     "uuid": "19e0bf26-0659-580d-bd8e-d6feb44a8d28",
+     "contentDigest": "b85d1f332d835ac2",
+     "parentUuid": "ffe11c84-dc17-5743-a076-b5194d4f29a5",
+     "refdes": "J1",
+     "at": {
+      "xNm": 1330000,
+      "yNm": 5110000
+     },
+     "layer": "F.SilkS",
+     "reviewFields": {
+      "Stroke": "0.12 mm, solid"
+     }
+    },
+    {
+     "kind": "footprint-graphic",
+     "uuid": "d2873a3d-921f-5abb-9464-b7ffbb84a015",
+     "contentDigest": "aaa05117c4538a98",
+     "parentUuid": "ffe11c84-dc17-5743-a076-b5194d4f29a5",
+     "refdes": "J1",
+     "at": {
+      "xNm": 0,
+      "yNm": -1770000
+     },
+     "layer": "F.CrtYd",
+     "reviewFields": {
+      "Stroke": "0.05 mm, solid"
+     }
+    },
+    {
+     "kind": "footprint-graphic",
+     "uuid": "cb3d26c1-4c47-5b3c-9fa6-b9da66905398",
+     "contentDigest": "3e5ea24c6b7e0fc7",
+     "parentUuid": "ffe11c84-dc17-5743-a076-b5194d4f29a5",
+     "refdes": "J1",
+     "at": {
+      "xNm": -1770000,
+      "yNm": 3810000
+     },
+     "layer": "F.CrtYd",
+     "reviewFields": {
+      "Stroke": "0.05 mm, solid"
+     }
+    },
+    {
+     "kind": "footprint-graphic",
+     "uuid": "7f1cf138-94f0-5144-b4f8-659a91984aa7",
+     "contentDigest": "0aa7d7539752174d",
+     "parentUuid": "ffe11c84-dc17-5743-a076-b5194d4f29a5",
+     "refdes": "J1",
+     "at": {
+      "xNm": 1770000,
+      "yNm": 3810000
+     },
+     "layer": "F.CrtYd",
+     "reviewFields": {
+      "Stroke": "0.05 mm, solid"
+     }
+    },
+    {
+     "kind": "footprint-graphic",
+     "uuid": "6d75935e-ecf6-52be-bfc1-c7f907517a4c",
+     "contentDigest": "6cca862ca03ba3be",
+     "parentUuid": "ffe11c84-dc17-5743-a076-b5194d4f29a5",
+     "refdes": "J1",
+     "at": {
+      "xNm": 0,
+      "yNm": 9390000
+     },
+     "layer": "F.CrtYd",
+     "reviewFields": {
+      "Stroke": "0.05 mm, solid"
+     }
+    },
+    {
+     "kind": "footprint-graphic",
+     "uuid": "0ca831d3-bf1f-51cf-b1d2-1254c73d0ac6",
+     "contentDigest": "e9690afc42703b16",
+     "parentUuid": "ffe11c84-dc17-5743-a076-b5194d4f29a5",
+     "refdes": "J1",
+     "at": {
+      "xNm": -317500,
+      "yNm": -1270000
+     },
+     "layer": "F.Fab",
+     "reviewFields": {
+      "Stroke": "0.1 mm, solid"
+     }
+    },
+    {
+     "kind": "footprint-graphic",
+     "uuid": "f613e5d5-32a4-5a0b-86f5-b0e292acf9f8",
+     "contentDigest": "3cba0d4a764a23fd",
+     "parentUuid": "ffe11c84-dc17-5743-a076-b5194d4f29a5",
+     "refdes": "J1",
+     "at": {
+      "xNm": -1270000,
+      "yNm": 3810000
+     },
+     "layer": "F.Fab",
+     "reviewFields": {
+      "Stroke": "0.1 mm, solid"
+     }
+    },
+    {
+     "kind": "footprint-graphic",
+     "uuid": "3a997530-a449-5362-9848-30161f80e4e0",
+     "contentDigest": "439be6160bd6808c",
+     "parentUuid": "ffe11c84-dc17-5743-a076-b5194d4f29a5",
+     "refdes": "J1",
+     "at": {
+      "xNm": 952500,
+      "yNm": -952500
+     },
+     "layer": "F.Fab",
+     "reviewFields": {
+      "Stroke": "0.1 mm, solid"
+     }
+    },
+    {
+     "kind": "footprint-graphic",
+     "uuid": "8d932ad9-432e-55bd-b6af-d5296e2b5dc9",
+     "contentDigest": "7ef781408f174cd9",
+     "parentUuid": "ffe11c84-dc17-5743-a076-b5194d4f29a5",
+     "refdes": "J1",
+     "at": {
+      "xNm": 1270000,
+      "yNm": 4127500
+     },
+     "layer": "F.Fab",
+     "reviewFields": {
+      "Stroke": "0.1 mm, solid"
+     }
+    },
+    {
+     "kind": "footprint-graphic",
+     "uuid": "07034c86-ba3d-55d6-87e1-7d30087b6811",
+     "contentDigest": "8bb4909ae16d372f",
+     "parentUuid": "ffe11c84-dc17-5743-a076-b5194d4f29a5",
+     "refdes": "J1",
+     "at": {
+      "xNm": 0,
+      "yNm": 8890000
+     },
+     "layer": "F.Fab",
+     "reviewFields": {
+      "Stroke": "0.1 mm, solid"
+     }
+    },
+    {
+     "kind": "footprint-text",
+     "uuid": "6d20f919-9d87-513c-a29a-94605509cab7",
+     "contentDigest": "86a9c110394b95a5",
+     "parentUuid": "ffe11c84-dc17-5743-a076-b5194d4f29a5",
+     "refdes": "J1",
+     "at": {
+      "xNm": 0,
+      "yNm": 3810000
+     },
+     "rotationDeg": 90,
+     "layer": "F.Fab",
+     "text": "${REFERENCE}",
+     "reviewFields": {
+      "Text": "${REFERENCE}",
+      "Text kind": "user"
+     }
+    },
+    {
+     "kind": "pad",
+     "uuid": "740ffd8a-0a3e-5b76-9632-835993484950",
+     "contentDigest": "604d852e489e41c1",
+     "parentUuid": "ffe11c84-dc17-5743-a076-b5194d4f29a5",
+     "number": "1",
+     "refdes": "J1",
+     "at": {
+      "xNm": 0,
+      "yNm": 0
+     },
+     "rotationDeg": 0,
+     "layer": "*.Cu",
+     "net": "/E1",
+     "reviewFields": {
+      "Drill": "{\"diameter\":1}",
+      "Layers": "*.Cu, *.Mask",
+      "Pad number": "1",
+      "Pad shape": "rect",
+      "Pad type": "thru_hole",
+      "Size": "1.7 × 1.7"
+     }
+    },
+    {
+     "kind": "pad",
+     "uuid": "d6ecd6d5-39bb-5461-8857-325e99942bdc",
+     "contentDigest": "6829f3342e12a990",
+     "parentUuid": "ffe11c84-dc17-5743-a076-b5194d4f29a5",
+     "number": "2",
+     "refdes": "J1",
+     "at": {
+      "xNm": 0,
+      "yNm": 2540000
+     },
+     "rotationDeg": 0,
+     "layer": "*.Cu",
+     "net": "/E1",
+     "reviewFields": {
+      "Drill": "{\"diameter\":1}",
+      "Layers": "*.Cu, *.Mask",
+      "Pad number": "2",
+      "Pad shape": "circle",
+      "Pad type": "thru_hole",
+      "Size": "1.7 × 1.7"
+     }
+    },
+    {
+     "kind": "pad",
+     "uuid": "6c6d6374-a04e-589b-b55b-c015b28dbffc",
+     "contentDigest": "7a6b551fb1205ee8",
+     "parentUuid": "ffe11c84-dc17-5743-a076-b5194d4f29a5",
+     "number": "3",
+     "refdes": "J1",
+     "at": {
+      "xNm": 0,
+      "yNm": 5080000
+     },
+     "rotationDeg": 0,
+     "layer": "*.Cu",
+     "net": "/E3",
+     "reviewFields": {
+      "Drill": "{\"diameter\":1}",
+      "Layers": "*.Cu, *.Mask",
+      "Pad number": "3",
+      "Pad shape": "circle",
+      "Pad type": "thru_hole",
+      "Size": "1.7 × 1.7"
+     }
+    },
+    {
+     "kind": "pad",
+     "uuid": "a00e0c46-8e89-5e16-bb03-499eb0d0fce3",
+     "contentDigest": "079688ad1cf5929e",
+     "parentUuid": "ffe11c84-dc17-5743-a076-b5194d4f29a5",
+     "number": "4",
+     "refdes": "J1",
+     "at": {
+      "xNm": 0,
+      "yNm": 7620000
+     },
+     "rotationDeg": 0,
+     "layer": "*.Cu",
+     "net": "/E3",
+     "reviewFields": {
+      "Drill": "{\"diameter\":1}",
+      "Layers": "*.Cu, *.Mask",
+      "Pad number": "4",
+      "Pad shape": "circle",
+      "Pad type": "thru_hole",
+      "Size": "1.7 × 1.7"
+     }
+    },
+    {
+     "kind": "footprint",
+     "uuid": "45fed5f8-0c0d-5e7f-b267-4f9b0dee62c1",
+     "contentDigest": "95d135dd86d87a59",
+     "libId": "Connector_PinHeader_2.54mm:PinHeader_1x04_P2.54mm_Horizontal",
+     "at": {
+      "xNm": 105000000,
+      "yNm": 118000000
+     },
+     "rotationDeg": 0,
+     "layer": "F.Cu",
+     "footprintPath": "/6575bf28-d238-5208-9e0f-bc5b1fc0cd7f/c542cab8-c38a-5a49-88f9-e840ed77b534",
+     "refdes": "J2",
+     "properties": [
+      {
+       "name": "Reference",
+       "value": "J2",
+       "at": {
+        "xNm": 4385000,
+        "yNm": -2270000
+       },
+       "hide": false
+      },
+      {
+       "name": "Value",
+       "value": "Header_1x04_RA",
+       "at": {
+        "xNm": 4385000,
+        "yNm": 9890000
+       },
+       "hide": false
+      },
+      {
+       "name": "Datasheet",
+       "value": "",
+       "at": {
+        "xNm": 0,
+        "yNm": 0
+       },
+       "hide": true
+      },
+      {
+       "name": "Description",
+       "value": "",
+       "at": {
+        "xNm": 0,
+        "yNm": 0
+       },
+       "hide": true
+      },
+      {
+       "name": "KiLib_Generator",
+       "value": "connector/pin_header_socket",
+       "at": {
+        "xNm": 0,
+        "yNm": 0
+       },
+       "hide": true
+      }
+     ],
+     "reviewFields": {
+      "Attributes": "{\"through_hole\":true}",
+      "Board only": false,
+      "Description": "Through hole angled pin header, 1x04, 2.54mm pitch, 6mm pin length, single row",
+      "Exclude from BOM": false,
+      "Exclude from position files": false
+     }
+    },
+    {
+     "kind": "footprint-graphic",
+     "uuid": "00806fc5-5c85-507a-a7a3-955860487456",
+     "contentDigest": "edaa4cec6ecbe316",
+     "parentUuid": "45fed5f8-0c0d-5e7f-b267-4f9b0dee62c1",
+     "refdes": "J2",
+     "at": {
+      "xNm": -635000,
+      "yNm": -1270000
+     },
+     "layer": "F.SilkS",
+     "reviewFields": {
+      "Stroke": "0.12 mm, solid"
+     }
+    },
+    {
+     "kind": "footprint-graphic",
+     "uuid": "d8c7c4c3-1349-508e-a05e-788ecce9b084",
+     "contentDigest": "e08f3c9b8bd8e149",
+     "parentUuid": "45fed5f8-0c0d-5e7f-b267-4f9b0dee62c1",
+     "refdes": "J2",
+     "at": {
+      "xNm": -1270000,
+      "yNm": -635000
+     },
+     "layer": "F.SilkS",
+     "reviewFields": {
+      "Stroke": "0.12 mm, solid"
+     }
+    },
+    {
+     "kind": "footprint-graphic",
+     "uuid": "d7325978-65bf-58df-9623-39092061a68f",
+     "contentDigest": "183d284f06e8bd7d",
+     "parentUuid": "45fed5f8-0c0d-5e7f-b267-4f9b0dee62c1",
+     "refdes": "J2",
+     "at": {
+      "xNm": 1233679,
+      "yNm": 2110000
+     },
+     "layer": "F.SilkS",
+     "reviewFields": {
+      "Stroke": "0.12 mm, solid"
+     }
+    },
+    {
+     "kind": "footprint-graphic",
+     "uuid": "0157e1f9-cba4-55ab-89ed-c48d3c76bf78",
+     "contentDigest": "eb8abf53b842f06a",
+     "parentUuid": "45fed5f8-0c0d-5e7f-b267-4f9b0dee62c1",
+     "refdes": "J2",
+     "at": {
+      "xNm": 1233679,
+      "yNm": 2970000
+     },
+     "layer": "F.SilkS",
+     "reviewFields": {
+      "Stroke": "0.12 mm, solid"
+     }
+    },
+    {
+     "kind": "footprint-graphic",
+     "uuid": "52e40844-f566-547e-8fdc-af95b344066c",
+     "contentDigest": "9759ef062243c68e",
+     "parentUuid": "45fed5f8-0c0d-5e7f-b267-4f9b0dee62c1",
+     "refdes": "J2",
+     "at": {
+      "xNm": 1233679,
+      "yNm": 4650000
+     },
+     "layer": "F.SilkS",
+     "reviewFields": {
+      "Stroke": "0.12 mm, solid"
+     }
+    },
+    {
+     "kind": "footprint-graphic",
+     "uuid": "8f452547-a11b-5629-8d59-1e8299b3a76f",
+     "contentDigest": "a6cc5c73d5e2c6c8",
+     "parentUuid": "45fed5f8-0c0d-5e7f-b267-4f9b0dee62c1",
+     "refdes": "J2",
+     "at": {
+      "xNm": 1233679,
+      "yNm": 5510000
+     },
+     "layer": "F.SilkS",
+     "reviewFields": {
+      "Stroke": "0.12 mm, solid"
+     }
+    },
+    {
+     "kind": "footprint-graphic",
+     "uuid": "8f06c4d7-5db9-52e9-a75a-23abf25c45da",
+     "contentDigest": "4dbe36f6fd02ed32",
+     "parentUuid": "45fed5f8-0c0d-5e7f-b267-4f9b0dee62c1",
+     "refdes": "J2",
+     "at": {
+      "xNm": 1233679,
+      "yNm": 7190000
+     },
+     "layer": "F.SilkS",
+     "reviewFields": {
+      "Stroke": "0.12 mm, solid"
+     }
+    },
+    {
+     "kind": "footprint-graphic",
+     "uuid": "a7e94170-2a87-5db8-a066-6764911657ba",
+     "contentDigest": "39338f374fe239f9",
+     "parentUuid": "45fed5f8-0c0d-5e7f-b267-4f9b0dee62c1",
+     "refdes": "J2",
+     "at": {
+      "xNm": 1233679,
+      "yNm": 8050000
+     },
+     "layer": "F.SilkS",
+     "reviewFields": {
+      "Stroke": "0.12 mm, solid"
+     }
+    },
+    {
+     "kind": "footprint-graphic",
+     "uuid": "2ad6e893-87b8-5458-be79-232d027ce61a",
+     "contentDigest": "012331f653bd5c1c",
+     "parentUuid": "45fed5f8-0c0d-5e7f-b267-4f9b0dee62c1",
+     "refdes": "J2",
+     "at": {
+      "xNm": 1275000,
+      "yNm": -430000
+     },
+     "layer": "F.SilkS",
+     "reviewFields": {
+      "Stroke": "0.12 mm, solid"
+     }
+    },
+    {
+     "kind": "footprint-graphic",
+     "uuid": "7af5caeb-0f9d-5bbc-9082-2f81d59a861d",
+     "contentDigest": "b4bf0132b5188a65",
+     "parentUuid": "45fed5f8-0c0d-5e7f-b267-4f9b0dee62c1",
+     "refdes": "J2",
+     "at": {
+      "xNm": 1275000,
+      "yNm": 430000
+     },
+     "layer": "F.SilkS",
+     "reviewFields": {
+      "Stroke": "0.12 mm, solid"
+     }
+    },
+    {
+     "kind": "footprint-graphic",
+     "uuid": "0cc03f34-2f7f-5290-9859-23a124d3a73e",
+     "contentDigest": "5e31b60fd9805804",
+     "parentUuid": "45fed5f8-0c0d-5e7f-b267-4f9b0dee62c1",
+     "refdes": "J2",
+     "at": {
+      "xNm": 2770000,
+      "yNm": 1270000
+     },
+     "layer": "F.SilkS",
+     "reviewFields": {
+      "Stroke": "0.12 mm, solid"
+     }
+    },
+    {
+     "kind": "footprint-graphic",
+     "uuid": "147ab67b-5894-5499-be93-52a0c3669c85",
+     "contentDigest": "7708cb84e3d06c4e",
+     "parentUuid": "45fed5f8-0c0d-5e7f-b267-4f9b0dee62c1",
+     "refdes": "J2",
+     "at": {
+      "xNm": 2770000,
+      "yNm": 3810000
+     },
+     "layer": "F.SilkS",
+     "reviewFields": {
+      "Stroke": "0.12 mm, solid"
+     }
+    },
+    {
+     "kind": "footprint-graphic",
+     "uuid": "a8850c2b-26cb-5ec0-ac93-5d3278aa6aa4",
+     "contentDigest": "95dd3e69e49984a1",
+     "parentUuid": "45fed5f8-0c0d-5e7f-b267-4f9b0dee62c1",
+     "refdes": "J2",
+     "at": {
+      "xNm": 2770000,
+      "yNm": 6350000
+     },
+     "layer": "F.SilkS",
+     "reviewFields": {
+      "Stroke": "0.12 mm, solid"
+     }
+    },
+    {
+     "kind": "footprint-graphic",
+     "uuid": "86d51602-3f74-506e-9320-45620be44004",
+     "contentDigest": "71ab79fe6d46d72c",
+     "parentUuid": "45fed5f8-0c0d-5e7f-b267-4f9b0dee62c1",
+     "refdes": "J2",
+     "at": {
+      "xNm": 7150000,
+      "yNm": 2110000
+     },
+     "layer": "F.SilkS",
+     "reviewFields": {
+      "Stroke": "0.12 mm, solid"
+     }
+    },
+    {
+     "kind": "footprint-graphic",
+     "uuid": "a31d71ea-5162-5635-a3cc-c6794e99ddc9",
+     "contentDigest": "ea0cea515c09d3b8",
+     "parentUuid": "45fed5f8-0c0d-5e7f-b267-4f9b0dee62c1",
+     "refdes": "J2",
+     "at": {
+      "xNm": 7150000,
+      "yNm": 4650000
+     },
+     "layer": "F.SilkS",
+     "reviewFields": {
+      "Stroke": "0.12 mm, solid"
+     }
+    },
+    {
+     "kind": "footprint-graphic",
+     "uuid": "05f6e3c8-c7df-5b32-ab93-2615361f7b45",
+     "contentDigest": "889d50056c073878",
+     "parentUuid": "45fed5f8-0c0d-5e7f-b267-4f9b0dee62c1",
+     "refdes": "J2",
+     "at": {
+      "xNm": 7150000,
+      "yNm": 7190000
+     },
+     "layer": "F.SilkS",
+     "reviewFields": {
+      "Stroke": "0.12 mm, solid"
+     }
+    },
+    {
+     "kind": "footprint-graphic",
+     "uuid": "2d64a45d-7539-59f1-a926-0a2e5318400a",
+     "contentDigest": "34dc435a4152a7f3",
+     "parentUuid": "45fed5f8-0c0d-5e7f-b267-4f9b0dee62c1",
+     "refdes": "J2",
+     "at": {
+      "xNm": 10150000,
+      "yNm": 2540000
+     },
+     "layer": "F.SilkS",
+     "reviewFields": {
+      "Stroke": "0.12 mm, solid"
+     }
+    },
+    {
+     "kind": "footprint-graphic",
+     "uuid": "237c3ddd-8f1a-5b12-8fe7-aa6283be6c43",
+     "contentDigest": "a5a374622c7c208c",
+     "parentUuid": "45fed5f8-0c0d-5e7f-b267-4f9b0dee62c1",
+     "refdes": "J2",
+     "at": {
+      "xNm": 7150000,
+      "yNm": 2970000
+     },
+     "layer": "F.SilkS",
+     "reviewFields": {
+      "Stroke": "0.12 mm, solid"
+     }
+    },
+    {
+     "kind": "footprint-graphic",
+     "uuid": "636fdf48-d393-56d9-b387-aee53739dee8",
+     "contentDigest": "9e92174f0f48ed6b",
+     "parentUuid": "45fed5f8-0c0d-5e7f-b267-4f9b0dee62c1",
+     "refdes": "J2",
+     "at": {
+      "xNm": 10150000,
+      "yNm": 5080000
+     },
+     "layer": "F.SilkS",
+     "reviewFields": {
+      "Stroke": "0.12 mm, solid"
+     }
+    },
+    {
+     "kind": "footprint-graphic",
+     "uuid": "3238d042-8748-5788-bdaa-2597bf0f7c3f",
+     "contentDigest": "095b5dc45de3cb53",
+     "parentUuid": "45fed5f8-0c0d-5e7f-b267-4f9b0dee62c1",
+     "refdes": "J2",
+     "at": {
+      "xNm": 7150000,
+      "yNm": 5510000
+     },
+     "layer": "F.SilkS",
+     "reviewFields": {
+      "Stroke": "0.12 mm, solid"
+     }
+    },
+    {
+     "kind": "footprint-graphic",
+     "uuid": "eabd5f12-2c32-5b1a-925a-b6dc6537d88c",
+     "contentDigest": "1571f23a12fb57ed",
+     "parentUuid": "45fed5f8-0c0d-5e7f-b267-4f9b0dee62c1",
+     "refdes": "J2",
+     "at": {
+      "xNm": 10150000,
+      "yNm": 7620000
+     },
+     "layer": "F.SilkS",
+     "reviewFields": {
+      "Stroke": "0.12 mm, solid"
+     }
+    },
+    {
+     "kind": "footprint-graphic",
+     "uuid": "761d0032-c9c4-5d9c-af9e-e9b6fcf0bec3",
+     "contentDigest": "88aa563ae5dcdb2d",
+     "parentUuid": "45fed5f8-0c0d-5e7f-b267-4f9b0dee62c1",
+     "refdes": "J2",
+     "at": {
+      "xNm": 7150000,
+      "yNm": 8050000
+     },
+     "layer": "F.SilkS",
+     "reviewFields": {
+      "Stroke": "0.12 mm, solid"
+     }
+    },
+    {
+     "kind": "footprint-graphic",
+     "uuid": "92edb958-b03a-5ce6-87e6-d174d41e6675",
+     "contentDigest": "5f94f324944bd811",
+     "parentUuid": "45fed5f8-0c0d-5e7f-b267-4f9b0dee62c1",
+     "refdes": "J2",
+     "at": {
+      "xNm": 2770000,
+      "yNm": 3810000
+     },
+     "layer": "F.SilkS",
+     "reviewFields": {
+      "Fill": "no",
+      "Stroke": "0.12 mm, solid"
+     }
+    },
+    {
+     "kind": "footprint-graphic",
+     "uuid": "5f192b2b-8773-571e-a832-7db9cdeff45b",
+     "contentDigest": "3456dedab478e36a",
+     "parentUuid": "45fed5f8-0c0d-5e7f-b267-4f9b0dee62c1",
+     "refdes": "J2",
+     "at": {
+      "xNm": 7150000,
+      "yNm": 0
+     },
+     "layer": "F.SilkS",
+     "reviewFields": {
+      "Fill": "yes",
+      "Stroke": "0.12 mm, solid"
+     }
+    },
+    {
+     "kind": "footprint-graphic",
+     "uuid": "279f0802-85db-5f32-b1d7-42c5bc8fb5fa",
+     "contentDigest": "f0153f41d7b0c3e9",
+     "parentUuid": "45fed5f8-0c0d-5e7f-b267-4f9b0dee62c1",
+     "refdes": "J2",
+     "at": {
+      "xNm": 4385000,
+      "yNm": 3810000
+     },
+     "layer": "F.CrtYd",
+     "reviewFields": {
+      "Fill": "no",
+      "Stroke": "0.05 mm, solid"
+     }
+    },
+    {
+     "kind": "footprint-graphic",
+     "uuid": "e1926a48-375a-529f-aae4-97704c408e91",
+     "contentDigest": "19f2a02cb4570e30",
+     "parentUuid": "45fed5f8-0c0d-5e7f-b267-4f9b0dee62c1",
+     "refdes": "J2",
+     "at": {
+      "xNm": -320000,
+      "yNm": 0
+     },
+     "layer": "F.Fab",
+     "reviewFields": {
+      "Stroke": "0.1 mm, solid"
+     }
+    },
+    {
+     "kind": "footprint-graphic",
+     "uuid": "e6b3c3f6-b5de-564b-ab50-086891c8a14d",
+     "contentDigest": "364bc73c429ae0ad",
+     "parentUuid": "45fed5f8-0c0d-5e7f-b267-4f9b0dee62c1",
+     "refdes": "J2",
+     "at": {
+      "xNm": 590000,
+      "yNm": -320000
+     },
+     "layer": "F.Fab",
+     "reviewFields": {
+      "Stroke": "0.1 mm, solid"
+     }
+    },
+    {
+     "kind": "footprint-graphic",
+     "uuid": "53c12382-8595-51c3-9e8f-97111775465e",
+     "contentDigest": "dbc1bb7fdd286fb2",
+     "parentUuid": "45fed5f8-0c0d-5e7f-b267-4f9b0dee62c1",
+     "refdes": "J2",
+     "at": {
+      "xNm": 590000,
+      "yNm": 320000
+     },
+     "layer": "F.Fab",
+     "reviewFields": {
+      "Stroke": "0.1 mm, solid"
+     }
+    },
+    {
+     "kind": "footprint-graphic",
+     "uuid": "bc0791ef-40c7-5d4c-bdba-9360c856fd0c",
+     "contentDigest": "9bca99b78bd251c0",
+     "parentUuid": "45fed5f8-0c0d-5e7f-b267-4f9b0dee62c1",
+     "refdes": "J2",
+     "at": {
+      "xNm": -320000,
+      "yNm": 2540000
+     },
+     "layer": "F.Fab",
+     "reviewFields": {
+      "Stroke": "0.1 mm, solid"
+     }
+    },
+    {
+     "kind": "footprint-graphic",
+     "uuid": "0917989b-0bf8-53c3-a08b-a2b2489b2357",
+     "contentDigest": "226762f0d4d5d9f8",
+     "parentUuid": "45fed5f8-0c0d-5e7f-b267-4f9b0dee62c1",
+     "refdes": "J2",
+     "at": {
+      "xNm": 590000,
+      "yNm": 2220000
+     },
+     "layer": "F.Fab",
+     "reviewFields": {
+      "Stroke": "0.1 mm, solid"
+     }
+    },
+    {
+     "kind": "footprint-graphic",
+     "uuid": "969ca183-4045-5cc2-a5db-4b97447be181",
+     "contentDigest": "24ff0f2c165e57e3",
+     "parentUuid": "45fed5f8-0c0d-5e7f-b267-4f9b0dee62c1",
+     "refdes": "J2",
+     "at": {
+      "xNm": 590000,
+      "yNm": 2860000
+     },
+     "layer": "F.Fab",
+     "reviewFields": {
+      "Stroke": "0.1 mm, solid"
+     }
+    },
+    {
+     "kind": "footprint-graphic",
+     "uuid": "4f79c658-8f98-5e79-9c4d-a26e9c115013",
+     "contentDigest": "bc2514a23f552536",
+     "parentUuid": "45fed5f8-0c0d-5e7f-b267-4f9b0dee62c1",
+     "refdes": "J2",
+     "at": {
+      "xNm": -320000,
+      "yNm": 5080000
+     },
+     "layer": "F.Fab",
+     "reviewFields": {
+      "Stroke": "0.1 mm, solid"
+     }
+    },
+    {
+     "kind": "footprint-graphic",
+     "uuid": "348c446b-09b4-5112-b16f-38d63c38f334",
+     "contentDigest": "ef27a9c921510958",
+     "parentUuid": "45fed5f8-0c0d-5e7f-b267-4f9b0dee62c1",
+     "refdes": "J2",
+     "at": {
+      "xNm": 590000,
+      "yNm": 4760000
+     },
+     "layer": "F.Fab",
+     "reviewFields": {
+      "Stroke": "0.1 mm, solid"
+     }
+    },
+    {
+     "kind": "footprint-graphic",
+     "uuid": "fddfed9d-dbee-5d25-b50d-ba161b908116",
+     "contentDigest": "72a4cb72c2bfc773",
+     "parentUuid": "45fed5f8-0c0d-5e7f-b267-4f9b0dee62c1",
+     "refdes": "J2",
+     "at": {
+      "xNm": 590000,
+      "yNm": 5400000
+     },
+     "layer": "F.Fab",
+     "reviewFields": {
+      "Stroke": "0.1 mm, solid"
+     }
+    },
+    {
+     "kind": "footprint-graphic",
+     "uuid": "012e7914-5dd6-5785-8aab-bc24d760c444",
+     "contentDigest": "6a271f582dc212d2",
+     "parentUuid": "45fed5f8-0c0d-5e7f-b267-4f9b0dee62c1",
+     "refdes": "J2",
+     "at": {
+      "xNm": -320000,
+      "yNm": 7620000
+     },
+     "layer": "F.Fab",
+     "reviewFields": {
+      "Stroke": "0.1 mm, solid"
+     }
+    },
+    {
+     "kind": "footprint-graphic",
+     "uuid": "480f2a07-6916-510b-82a7-61040886d007",
+     "contentDigest": "8ba9d10345ccd724",
+     "parentUuid": "45fed5f8-0c0d-5e7f-b267-4f9b0dee62c1",
+     "refdes": "J2",
+     "at": {
+      "xNm": 590000,
+      "yNm": 7300000
+     },
+     "layer": "F.Fab",
+     "reviewFields": {
+      "Stroke": "0.1 mm, solid"
+     }
+    },
+    {
+     "kind": "footprint-graphic",
+     "uuid": "74416957-f830-51c3-901c-55a2afc153bb",
+     "contentDigest": "84d4c73ec30e6234",
+     "parentUuid": "45fed5f8-0c0d-5e7f-b267-4f9b0dee62c1",
+     "refdes": "J2",
+     "at": {
+      "xNm": 590000,
+      "yNm": 7940000
+     },
+     "layer": "F.Fab",
+     "reviewFields": {
+      "Stroke": "0.1 mm, solid"
+     }
+    },
+    {
+     "kind": "footprint-graphic",
+     "uuid": "f5046927-7bb7-532e-b20c-371349f45e5d",
+     "contentDigest": "f58da7c9c04df591",
+     "parentUuid": "45fed5f8-0c0d-5e7f-b267-4f9b0dee62c1",
+     "refdes": "J2",
+     "at": {
+      "xNm": 1817500,
+      "yNm": -952500
+     },
+     "layer": "F.Fab",
+     "reviewFields": {
+      "Stroke": "0.1 mm, solid"
+     }
+    },
+    {
+     "kind": "footprint-graphic",
+     "uuid": "535b0399-8a76-5bd2-9a3f-5c848bbd2f8d",
+     "contentDigest": "3490861f14ce4ede",
+     "parentUuid": "45fed5f8-0c0d-5e7f-b267-4f9b0dee62c1",
+     "refdes": "J2",
+     "at": {
+      "xNm": 1500000,
+      "yNm": 4127500
+     },
+     "layer": "F.Fab",
+     "reviewFields": {
+      "Stroke": "0.1 mm, solid"
+     }
+    },
+    {
+     "kind": "footprint-graphic",
+     "uuid": "8d02b01a-c6f3-549a-bfba-0159688d2d4f",
+     "contentDigest": "843f0c5a00a0fa2e",
+     "parentUuid": "45fed5f8-0c0d-5e7f-b267-4f9b0dee62c1",
+     "refdes": "J2",
+     "at": {
+      "xNm": 3087500,
+      "yNm": -1270000
+     },
+     "layer": "F.Fab",
+     "reviewFields": {
+      "Stroke": "0.1 mm, solid"
+     }
+    },
+    {
+     "kind": "footprint-graphic",
+     "uuid": "c96f5c34-dbc5-5193-8690-076fadb6750e",
+     "contentDigest": "3059409e7908527e",
+     "parentUuid": "45fed5f8-0c0d-5e7f-b267-4f9b0dee62c1",
+     "refdes": "J2",
+     "at": {
+      "xNm": 4040000,
+      "yNm": 3810000
+     },
+     "layer": "F.Fab",
+     "reviewFields": {
+      "Stroke": "0.1 mm, solid"
+     }
+    },
+    {
+     "kind": "footprint-graphic",
+     "uuid": "1f46f522-f2ef-5c11-974d-be5c71c71dc8",
+     "contentDigest": "0c266c8540ee197e",
+     "parentUuid": "45fed5f8-0c0d-5e7f-b267-4f9b0dee62c1",
+     "refdes": "J2",
+     "at": {
+      "xNm": 7040000,
+      "yNm": -320000
+     },
+     "layer": "F.Fab",
+     "reviewFields": {
+      "Stroke": "0.1 mm, solid"
+     }
+    },
+    {
+     "kind": "footprint-graphic",
+     "uuid": "ae7f7463-7f0d-5f81-8e86-c4e7a84d31f4",
+     "contentDigest": "f539e9488e895608",
+     "parentUuid": "45fed5f8-0c0d-5e7f-b267-4f9b0dee62c1",
+     "refdes": "J2",
+     "at": {
+      "xNm": 7040000,
+      "yNm": 320000
+     },
+     "layer": "F.Fab",
+     "reviewFields": {
+      "Stroke": "0.1 mm, solid"
+     }
+    },
+    {
+     "kind": "footprint-graphic",
+     "uuid": "6b366485-80e7-5117-bd42-579eec416fe0",
+     "contentDigest": "f952bfd24b34bd9a",
+     "parentUuid": "45fed5f8-0c0d-5e7f-b267-4f9b0dee62c1",
+     "refdes": "J2",
+     "at": {
+      "xNm": 7040000,
+      "yNm": 2220000
+     },
+     "layer": "F.Fab",
+     "reviewFields": {
+      "Stroke": "0.1 mm, solid"
+     }
+    },
+    {
+     "kind": "footprint-graphic",
+     "uuid": "7bd9a6f4-faed-5361-89b6-2c282605620a",
+     "contentDigest": "b80d6f47d5eb9663",
+     "parentUuid": "45fed5f8-0c0d-5e7f-b267-4f9b0dee62c1",
+     "refdes": "J2",
+     "at": {
+      "xNm": 7040000,
+      "yNm": 2860000
+     },
+     "layer": "F.Fab",
+     "reviewFields": {
+      "Stroke": "0.1 mm, solid"
+     }
+    },
+    {
+     "kind": "footprint-graphic",
+     "uuid": "16d9e225-40c0-5306-b1d9-6f5abe44e13e",
+     "contentDigest": "eb255d0864d160cb",
+     "parentUuid": "45fed5f8-0c0d-5e7f-b267-4f9b0dee62c1",
+     "refdes": "J2",
+     "at": {
+      "xNm": 7040000,
+      "yNm": 4760000
+     },
+     "layer": "F.Fab",
+     "reviewFields": {
+      "Stroke": "0.1 mm, solid"
+     }
+    },
+    {
+     "kind": "footprint-graphic",
+     "uuid": "c88b1bdf-f0c1-592d-8ed1-2843c6b7ded0",
+     "contentDigest": "91e224bd5d2b16af",
+     "parentUuid": "45fed5f8-0c0d-5e7f-b267-4f9b0dee62c1",
+     "refdes": "J2",
+     "at": {
+      "xNm": 7040000,
+      "yNm": 5400000
+     },
+     "layer": "F.Fab",
+     "reviewFields": {
+      "Stroke": "0.1 mm, solid"
+     }
+    },
+    {
+     "kind": "footprint-graphic",
+     "uuid": "e03c951b-b85b-529f-9c57-9ca345ad670e",
+     "contentDigest": "b4aa1afa4a9dc362",
+     "parentUuid": "45fed5f8-0c0d-5e7f-b267-4f9b0dee62c1",
+     "refdes": "J2",
+     "at": {
+      "xNm": 7040000,
+      "yNm": 7300000
+     },
+     "layer": "F.Fab",
+     "reviewFields": {
+      "Stroke": "0.1 mm, solid"
+     }
+    },
+    {
+     "kind": "footprint-graphic",
+     "uuid": "140b0348-7c21-5d9b-98ff-f7e12b0932aa",
+     "contentDigest": "00bcee865d0de6e3",
+     "parentUuid": "45fed5f8-0c0d-5e7f-b267-4f9b0dee62c1",
+     "refdes": "J2",
+     "at": {
+      "xNm": 7040000,
+      "yNm": 7940000
+     },
+     "layer": "F.Fab",
+     "reviewFields": {
+      "Stroke": "0.1 mm, solid"
+     }
+    },
+    {
+     "kind": "footprint-graphic",
+     "uuid": "e372ac67-98df-5722-9dae-2150441433f7",
+     "contentDigest": "f8549bdf45995985",
+     "parentUuid": "45fed5f8-0c0d-5e7f-b267-4f9b0dee62c1",
+     "refdes": "J2",
+     "at": {
+      "xNm": 2770000,
+      "yNm": 8890000
+     },
+     "layer": "F.Fab",
+     "reviewFields": {
+      "Stroke": "0.1 mm, solid"
+     }
+    },
+    {
+     "kind": "footprint-graphic",
+     "uuid": "6e2b78df-8c9b-5f89-9856-49672fea6ab7",
+     "contentDigest": "5b8a9e0a343e100e",
+     "parentUuid": "45fed5f8-0c0d-5e7f-b267-4f9b0dee62c1",
+     "refdes": "J2",
+     "at": {
+      "xNm": 10039999,
+      "yNm": 0
+     },
+     "layer": "F.Fab",
+     "reviewFields": {
+      "Stroke": "0.1 mm, solid"
+     }
+    },
+    {
+     "kind": "footprint-graphic",
+     "uuid": "9ab6336c-200e-51ee-95f9-f2cadf65eb20",
+     "contentDigest": "a98600035c8430ed",
+     "parentUuid": "45fed5f8-0c0d-5e7f-b267-4f9b0dee62c1",
+     "refdes": "J2",
+     "at": {
+      "xNm": 10039999,
+      "yNm": 2540000
+     },
+     "layer": "F.Fab",
+     "reviewFields": {
+      "Stroke": "0.1 mm, solid"
+     }
+    },
+    {
+     "kind": "footprint-graphic",
+     "uuid": "db5efd64-0b94-577c-bec6-df0b6a823be9",
+     "contentDigest": "b41ad3622e711522",
+     "parentUuid": "45fed5f8-0c0d-5e7f-b267-4f9b0dee62c1",
+     "refdes": "J2",
+     "at": {
+      "xNm": 10039999,
+      "yNm": 5080000
+     },
+     "layer": "F.Fab",
+     "reviewFields": {
+      "Stroke": "0.1 mm, solid"
+     }
+    },
+    {
+     "kind": "footprint-graphic",
+     "uuid": "c9bbedee-e108-5f13-b8b4-5486d9a5c34b",
+     "contentDigest": "a150b97ee101ffa0",
+     "parentUuid": "45fed5f8-0c0d-5e7f-b267-4f9b0dee62c1",
+     "refdes": "J2",
+     "at": {
+      "xNm": 10039999,
+      "yNm": 7620000
+     },
+     "layer": "F.Fab",
+     "reviewFields": {
+      "Stroke": "0.1 mm, solid"
+     }
+    },
+    {
+     "kind": "footprint-text",
+     "uuid": "f55fa828-ef71-548a-b68a-aa6f00da3ae7",
+     "contentDigest": "fe4b7e8ac4bc47c5",
+     "parentUuid": "45fed5f8-0c0d-5e7f-b267-4f9b0dee62c1",
+     "refdes": "J2",
+     "at": {
+      "xNm": 2770000,
+      "yNm": 3810000
+     },
+     "rotationDeg": 90,
+     "layer": "F.Fab",
+     "text": "${REFERENCE}",
+     "reviewFields": {
+      "Text": "${REFERENCE}",
+      "Text kind": "user"
+     }
+    },
+    {
+     "kind": "pad",
+     "uuid": "eca155dc-10cd-5057-a48c-9a4466c27fec",
+     "contentDigest": "95b73698bcd3008b",
+     "parentUuid": "45fed5f8-0c0d-5e7f-b267-4f9b0dee62c1",
+     "number": "1",
+     "refdes": "J2",
+     "at": {
+      "xNm": 0,
+      "yNm": 0
+     },
+     "rotationDeg": 0,
+     "layer": "*.Cu",
+     "net": "/C1",
+     "reviewFields": {
+      "Drill": "{\"diameter\":1}",
+      "Layers": "*.Cu, *.Mask",
+      "Pad number": "1",
+      "Pad shape": "rect",
+      "Pad type": "thru_hole",
+      "Size": "1.7 × 1.7"
+     }
+    },
+    {
+     "kind": "pad",
+     "uuid": "b4f1d8b2-c184-5539-b7f5-df8d23acbea2",
+     "contentDigest": "8ede8c520e8c5bf5",
+     "parentUuid": "45fed5f8-0c0d-5e7f-b267-4f9b0dee62c1",
+     "number": "2",
+     "refdes": "J2",
+     "at": {
+      "xNm": 0,
+      "yNm": 2540000
+     },
+     "rotationDeg": 0,
+     "layer": "*.Cu",
+     "net": "/C1",
+     "reviewFields": {
+      "Drill": "{\"diameter\":1}",
+      "Layers": "*.Cu, *.Mask",
+      "Pad number": "2",
+      "Pad shape": "circle",
+      "Pad type": "thru_hole",
+      "Size": "1.7 × 1.7"
+     }
+    },
+    {
+     "kind": "pad",
+     "uuid": "1f9da56d-b412-5ac6-824d-d6da62898c3e",
+     "contentDigest": "8e890993e986fd08",
+     "parentUuid": "45fed5f8-0c0d-5e7f-b267-4f9b0dee62c1",
+     "number": "3",
+     "refdes": "J2",
+     "at": {
+      "xNm": 0,
+      "yNm": 5080000
+     },
+     "rotationDeg": 0,
+     "layer": "*.Cu",
+     "net": "/C3",
+     "reviewFields": {
+      "Drill": "{\"diameter\":1}",
+      "Layers": "*.Cu, *.Mask",
+      "Pad number": "3",
+      "Pad shape": "circle",
+      "Pad type": "thru_hole",
+      "Size": "1.7 × 1.7"
+     }
+    },
+    {
+     "kind": "pad",
+     "uuid": "4f7b1d74-f53b-53b5-aeb4-d17f5c8ce219",
+     "contentDigest": "3e4324c099090e95",
+     "parentUuid": "45fed5f8-0c0d-5e7f-b267-4f9b0dee62c1",
+     "number": "4",
+     "refdes": "J2",
+     "at": {
+      "xNm": 0,
+      "yNm": 7620000
+     },
+     "rotationDeg": 0,
+     "layer": "*.Cu",
+     "net": "/C3",
+     "reviewFields": {
+      "Drill": "{\"diameter\":1}",
+      "Layers": "*.Cu, *.Mask",
+      "Pad number": "4",
+      "Pad shape": "circle",
+      "Pad type": "thru_hole",
+      "Size": "1.7 × 1.7"
+     }
+    },
+    {
+     "kind": "graphic",
+     "uuid": "438c670a-591e-5a60-bfcd-08db2917a4a4",
+     "contentDigest": "54f7ebf055ff11d3",
+     "at": {
+      "xNm": 120000000,
+      "yNm": 115000000
+     },
+     "layer": "Edge.Cuts",
+     "reviewFields": {
+      "Fill": "no",
+      "Stroke": "0.1 mm, solid"
+     }
+    },
+    {
+     "kind": "track",
+     "uuid": "76953de6-3aa2-572e-ace5-39759d31b1d1",
+     "contentDigest": "35026096ce8e2026",
+     "at": {
+      "xNm": 110000000,
+      "yNm": 107270000
+     },
+     "layer": "F.Cu",
+     "net": "/E1",
+     "reviewFields": {
+      "Width": 0.2
+     }
+    },
+    {
+     "kind": "track",
+     "uuid": "95fd061d-af51-5e21-8759-3d9e225e19c7",
+     "contentDigest": "caa95a093d751e8c",
+     "at": {
+      "xNm": 110000000,
+      "yNm": 112350000
+     },
+     "layer": "F.Cu",
+     "net": "/E3",
+     "reviewFields": {
+      "Width": 0.2
+     }
+    },
+    {
+     "kind": "track",
+     "uuid": "f28e1838-1f6a-5b20-aa7b-f880b97f7aba",
+     "contentDigest": "7cd719cc745b5304",
+     "at": {
+      "xNm": 105000000,
+      "yNm": 119270000
+     },
+     "layer": "F.Cu",
+     "net": "/C1",
+     "reviewFields": {
+      "Width": 0.2
+     }
+    },
+    {
+     "kind": "track",
+     "uuid": "edc44739-ef42-564d-85b3-84d1e7502b04",
+     "contentDigest": "1adae45211154989",
+     "at": {
+      "xNm": 105000000,
+      "yNm": 124350000
+     },
+     "layer": "F.Cu",
+     "net": "/C3",
+     "reviewFields": {
+      "Width": 0.2
+     }
+    }
+   ],
+   "reviewOnlyObjects": [
+    {
+     "kind": "fabrication-output",
+     "id": "fabrication-output:fa0df659a79fed73",
+     "name": "Fabrication output settings",
+     "reviewFields": {
+      "Create Gerber job file": true,
+      "Drill marks": 1,
+      "Mirror output": false,
+      "Output directory": "",
+      "Output format": "Gerber",
+      "Plot drawing sheet": false,
+      "Plot layers": [],
+      "Plot on all layers": [],
+      "Sketch pads on fabrication layers": false,
+      "Solder mask expansion (mm)": 0,
+      "Subtract solder mask from silkscreen": false,
+      "Use Gerber X2 attributes": true,
+      "Use Gerber file extensions": false,
+      "Use Gerber net attributes": true,
+      "Use auxiliary origin": false
+     }
+    }
+   ]
+  },
+  {
+   "path": "edge_b.kicad_pro",
+   "objects": [],
+   "reviewOnlyObjects": [
+    {
+     "kind": "net-class",
+     "id": "net-class:5eef40ed135ba38d",
+     "name": "Default",
+     "reviewFields": {
+      "Clearance": 0.2,
+      "Track width": 0.2,
+      "Via diameter": 0.6,
+      "Via drill": 0.3
+     }
+    }
+   ]
+  },
+  {
+   "path": "edge_b.kicad_sch",
+   "objects": [
+    {
+     "kind": "label",
+     "uuid": "2212009e-941f-55a3-a3b5-6b34c2e3f288",
+     "contentDigest": "f5c6bd815a28a8a6",
+     "text": "C3",
+     "net": "C3",
+     "at": {
+      "xNm": 106680000,
+      "yNm": 58420000
+     },
+     "rotationDeg": 180,
+     "reviewFields": {
+      "Text": "C3"
+     }
+    },
+    {
+     "kind": "label",
+     "uuid": "42112cb7-5485-58ff-a650-62afcde0f74e",
+     "contentDigest": "9d7410def73910e2",
+     "text": "E1",
+     "net": "E1",
+     "at": {
+      "xNm": 55880000,
+      "yNm": 53340000
+     },
+     "rotationDeg": 180,
+     "reviewFields": {
+      "Text": "E1"
+     }
+    },
+    {
+     "kind": "label",
+     "uuid": "4988f96e-71e8-5424-bd0e-a260a0414fc9",
+     "contentDigest": "aec5d425f2be172b",
+     "text": "C1",
+     "net": "C1",
+     "at": {
+      "xNm": 106680000,
+      "yNm": 50800000
+     },
+     "rotationDeg": 180,
+     "reviewFields": {
+      "Text": "C1"
+     }
+    },
+    {
+     "kind": "label",
+     "uuid": "5e083845-5301-5423-b2e4-b9eaacb2a34e",
+     "contentDigest": "98a63ab6bffe3f5d",
+     "text": "E3",
+     "net": "E3",
+     "at": {
+      "xNm": 55880000,
+      "yNm": 55880000
+     },
+     "rotationDeg": 180,
+     "reviewFields": {
+      "Text": "E3"
+     }
+    },
+    {
+     "kind": "label",
+     "uuid": "a1488002-ae97-5199-abe9-e4a9b646a53d",
+     "contentDigest": "3639a96f384d8f28",
+     "text": "C3",
+     "net": "C3",
+     "at": {
+      "xNm": 106680000,
+      "yNm": 55880000
+     },
+     "rotationDeg": 180,
+     "reviewFields": {
+      "Text": "C3"
+     }
+    },
+    {
+     "kind": "label",
+     "uuid": "a51ecbca-c340-5e29-8207-ba9383946871",
+     "contentDigest": "4d08cc6cb629d485",
+     "text": "C1",
+     "net": "C1",
+     "at": {
+      "xNm": 106680000,
+      "yNm": 53340000
+     },
+     "rotationDeg": 180,
+     "reviewFields": {
+      "Text": "C1"
+     }
+    },
+    {
+     "kind": "label",
+     "uuid": "b8709f4a-92f4-5d37-b29a-df1ef7ded219",
+     "contentDigest": "6e09abdb85180830",
+     "text": "E3",
+     "net": "E3",
+     "at": {
+      "xNm": 55880000,
+      "yNm": 58420000
+     },
+     "rotationDeg": 180,
+     "reviewFields": {
+      "Text": "E3"
+     }
+    },
+    {
+     "kind": "label",
+     "uuid": "fb0fdca3-7a68-59bf-bddb-197d278b85c3",
+     "contentDigest": "83593334d9a3fd43",
+     "text": "E1",
+     "net": "E1",
+     "at": {
+      "xNm": 55880000,
+      "yNm": 50800000
+     },
+     "rotationDeg": 180,
+     "reviewFields": {
+      "Text": "E1"
+     }
+    },
+    {
+     "kind": "symbol",
+     "uuid": "c542cab8-c38a-5a49-88f9-e840ed77b534",
+     "contentDigest": "5c0f12b02057a0b2",
+     "libId": "PrismFixture:Header_1x04_RA",
+     "at": {
+      "xNm": 111760000,
+      "yNm": 50800000
+     },
+     "rotationDeg": 0,
+     "dnp": false,
+     "inBom": true,
+     "onBoard": true,
+     "refdes": "J2",
+     "kiidPaths": [
+      "/6575bf28-d238-5208-9e0f-bc5b1fc0cd7f/c542cab8-c38a-5a49-88f9-e840ed77b534"
+     ],
+     "instances": [
+      {
+       "reference": "J2",
+       "path": "/6575bf28-d238-5208-9e0f-bc5b1fc0cd7f/c542cab8-c38a-5a49-88f9-e840ed77b534"
+      }
+     ],
+     "properties": [
+      {
+       "name": "Reference",
+       "value": "J2",
+       "at": {
+        "xNm": 115570000,
+        "yNm": 50800000
+       },
+       "rotationDeg": 0,
+       "hide": false,
+       "effects": {
+        "font": {
+         "size": {
+          "heightNm": 1270000,
+          "widthNm": 1270000
+         }
+        }
+       }
+      },
+      {
+       "name": "Value",
+       "value": "Header_1x04_RA",
+       "at": {
+        "xNm": 115570000,
+        "yNm": 52070000
+       },
+       "rotationDeg": 0,
+       "hide": false,
+       "effects": {
+        "font": {
+         "size": {
+          "heightNm": 1270000,
+          "widthNm": 1270000
+         }
+        }
+       }
+      },
+      {
+       "name": "Footprint",
+       "value": "Connector_PinHeader_2.54mm:PinHeader_1x04_P2.54mm_Horizontal",
+       "at": {
+        "xNm": 115570000,
+        "yNm": 53340000
+       },
+       "rotationDeg": 0,
+       "hide": true,
+       "effects": {
+        "font": {
+         "size": {
+          "heightNm": 1270000,
+          "widthNm": 1270000
+         }
+        }
+       }
+      },
+      {
+       "name": "Datasheet",
+       "value": "",
+       "at": {
+        "xNm": 115570000,
+        "yNm": 54610000
+       },
+       "rotationDeg": 0,
+       "hide": true,
+       "effects": {
+        "font": {
+         "size": {
+          "heightNm": 1270000,
+          "widthNm": 1270000
+         }
+        }
+       }
+      },
+      {
+       "name": "Description",
+       "value": "",
+       "at": {
+        "xNm": 115570000,
+        "yNm": 55880000
+       },
+       "rotationDeg": 0,
+       "hide": true,
+       "effects": {
+        "font": {
+         "size": {
+          "heightNm": 1270000,
+          "widthNm": 1270000
+         }
+        }
+       }
+      }
+     ],
+     "reviewFields": {
+      "Unit": 1
+     }
+    },
+    {
+     "kind": "pin",
+     "uuid": "7d52c9f4-2edd-5a2f-9808-d00896396c3f",
+     "contentDigest": "13fe8f8a6def8b7a",
+     "parentUuid": "c542cab8-c38a-5a49-88f9-e840ed77b534",
+     "number": "1",
+     "refdes": "J2",
+     "at": {
+      "xNm": 111760000,
+      "yNm": 50800000
+     },
+     "reviewFields": {
+      "Pin number": "1"
+     }
+    },
+    {
+     "kind": "pin",
+     "uuid": "7baacd9b-5ed9-596c-87eb-0a2b0a69eb13",
+     "contentDigest": "19f666d2c9bdfb78",
+     "parentUuid": "c542cab8-c38a-5a49-88f9-e840ed77b534",
+     "number": "2",
+     "refdes": "J2",
+     "at": {
+      "xNm": 111760000,
+      "yNm": 50800000
+     },
+     "reviewFields": {
+      "Pin number": "2"
+     }
+    },
+    {
+     "kind": "pin",
+     "uuid": "53f858b2-09bb-5e1d-862c-3837b153e911",
+     "contentDigest": "f115308b48b2b923",
+     "parentUuid": "c542cab8-c38a-5a49-88f9-e840ed77b534",
+     "number": "3",
+     "refdes": "J2",
+     "at": {
+      "xNm": 111760000,
+      "yNm": 50800000
+     },
+     "reviewFields": {
+      "Pin number": "3"
+     }
+    },
+    {
+     "kind": "pin",
+     "uuid": "ddda12a6-1026-5191-842f-e76ff0589d8e",
+     "contentDigest": "5e9f7a2776776754",
+     "parentUuid": "c542cab8-c38a-5a49-88f9-e840ed77b534",
+     "number": "4",
+     "refdes": "J2",
+     "at": {
+      "xNm": 111760000,
+      "yNm": 50800000
+     },
+     "reviewFields": {
+      "Pin number": "4"
+     }
+    },
+    {
+     "kind": "symbol",
+     "uuid": "ef8032c9-b453-5a09-a17e-3578b2864f8a",
+     "contentDigest": "1f9bb81d21fad764",
+     "libId": "PrismFixture:Socket_1x04_V",
+     "at": {
+      "xNm": 60960000,
+      "yNm": 50800000
+     },
+     "rotationDeg": 0,
+     "dnp": false,
+     "inBom": true,
+     "onBoard": true,
+     "refdes": "J1",
+     "kiidPaths": [
+      "/6575bf28-d238-5208-9e0f-bc5b1fc0cd7f/ef8032c9-b453-5a09-a17e-3578b2864f8a"
+     ],
+     "instances": [
+      {
+       "reference": "J1",
+       "path": "/6575bf28-d238-5208-9e0f-bc5b1fc0cd7f/ef8032c9-b453-5a09-a17e-3578b2864f8a"
+      }
+     ],
+     "properties": [
+      {
+       "name": "Reference",
+       "value": "J1",
+       "at": {
+        "xNm": 64770000,
+        "yNm": 50800000
+       },
+       "rotationDeg": 0,
+       "hide": false,
+       "effects": {
+        "font": {
+         "size": {
+          "heightNm": 1270000,
+          "widthNm": 1270000
+         }
+        }
+       }
+      },
+      {
+       "name": "Value",
+       "value": "Socket_1x04_V",
+       "at": {
+        "xNm": 64770000,
+        "yNm": 52070000
+       },
+       "rotationDeg": 0,
+       "hide": false,
+       "effects": {
+        "font": {
+         "size": {
+          "heightNm": 1270000,
+          "widthNm": 1270000
+         }
+        }
+       }
+      },
+      {
+       "name": "Footprint",
+       "value": "Connector_PinSocket_2.54mm:PinSocket_1x04_P2.54mm_Vertical",
+       "at": {
+        "xNm": 64770000,
+        "yNm": 53340000
+       },
+       "rotationDeg": 0,
+       "hide": true,
+       "effects": {
+        "font": {
+         "size": {
+          "heightNm": 1270000,
+          "widthNm": 1270000
+         }
+        }
+       }
+      },
+      {
+       "name": "Datasheet",
+       "value": "",
+       "at": {
+        "xNm": 64770000,
+        "yNm": 54610000
+       },
+       "rotationDeg": 0,
+       "hide": true,
+       "effects": {
+        "font": {
+         "size": {
+          "heightNm": 1270000,
+          "widthNm": 1270000
+         }
+        }
+       }
+      },
+      {
+       "name": "Description",
+       "value": "",
+       "at": {
+        "xNm": 64770000,
+        "yNm": 55880000
+       },
+       "rotationDeg": 0,
+       "hide": true,
+       "effects": {
+        "font": {
+         "size": {
+          "heightNm": 1270000,
+          "widthNm": 1270000
+         }
+        }
+       }
+      }
+     ],
+     "reviewFields": {
+      "Unit": 1
+     }
+    },
+    {
+     "kind": "pin",
+     "uuid": "785da3ef-b39f-5077-a62c-3a7ce1674254",
+     "contentDigest": "13fe8f8a6def8b7a",
+     "parentUuid": "ef8032c9-b453-5a09-a17e-3578b2864f8a",
+     "number": "1",
+     "refdes": "J1",
+     "at": {
+      "xNm": 60960000,
+      "yNm": 50800000
+     },
+     "reviewFields": {
+      "Pin number": "1"
+     }
+    },
+    {
+     "kind": "pin",
+     "uuid": "1a17ea30-5128-550f-887e-29a2bd8adb68",
+     "contentDigest": "19f666d2c9bdfb78",
+     "parentUuid": "ef8032c9-b453-5a09-a17e-3578b2864f8a",
+     "number": "2",
+     "refdes": "J1",
+     "at": {
+      "xNm": 60960000,
+      "yNm": 50800000
+     },
+     "reviewFields": {
+      "Pin number": "2"
+     }
+    },
+    {
+     "kind": "pin",
+     "uuid": "c3f213bb-d4cb-5057-860a-f11fb322c8ab",
+     "contentDigest": "f115308b48b2b923",
+     "parentUuid": "ef8032c9-b453-5a09-a17e-3578b2864f8a",
+     "number": "3",
+     "refdes": "J1",
+     "at": {
+      "xNm": 60960000,
+      "yNm": 50800000
+     },
+     "reviewFields": {
+      "Pin number": "3"
+     }
+    },
+    {
+     "kind": "pin",
+     "uuid": "7d98de78-16e8-5857-b957-0a75fcc2c7a1",
+     "contentDigest": "5e9f7a2776776754",
+     "parentUuid": "ef8032c9-b453-5a09-a17e-3578b2864f8a",
+     "number": "4",
+     "refdes": "J1",
+     "at": {
+      "xNm": 60960000,
+      "yNm": 50800000
+     },
+     "reviewFields": {
+      "Pin number": "4"
+     }
+    }
+   ],
+   "reviewOnlyObjects": []
+  }
+ ]
+}

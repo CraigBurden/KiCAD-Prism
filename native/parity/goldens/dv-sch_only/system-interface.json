@@ -1,0 +1,51 @@
+{
+ "schema": "prism.system_interface.v1",
+ "hasPcb": false,
+ "boardThicknessMm": null,
+ "boardOutlineMm": null,
+ "components": [
+  {
+   "portKey": "/68277ee9-365b-5b55-9430-57a0c2afc12d/987acaba-d63d-51fb-aa2b-d86d12a9fc06",
+   "memberKeys": [
+    "/68277ee9-365b-5b55-9430-57a0c2afc12d/987acaba-d63d-51fb-aa2b-d86d12a9fc06"
+   ],
+   "reference": "R1",
+   "libId": "Device:R",
+   "footprint": "Resistor_SMD:R_0603_1608Metric",
+   "value": "10k",
+   "mpn": null,
+   "dnp": false,
+   "candidate": false,
+   "candidateReason": "none",
+   "pins": [
+    {
+     "pad": "1",
+     "nets": [],
+     "pcbNets": null,
+     "pinNames": [
+      "~"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "2",
+     "nets": [],
+     "pcbNets": null,
+     "pinNames": [
+      "~"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    }
+   ],
+   "geometry": null
+  }
+ ],
+ "diagnostics": [],
+ "digest": "sha256:b52286e0d1bd261cb33f98077097ac09976c087977f0ce0f44a69d2de0b5ddec"
+}

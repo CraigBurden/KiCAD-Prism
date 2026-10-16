@@ -1,0 +1,57 @@
+{
+ "schema": "prism.project.a0",
+ "projectFile": "mini_obc.kicad_pro",
+ "projectName": "mini_obc",
+ "textVariables": {},
+ "netClasses": [
+  {
+   "name": "Default",
+   "trackWidthNm": 200000,
+   "clearanceNm": 200000,
+   "viaDiameterNm": 600000,
+   "viaDrillNm": 300000
+  }
+ ],
+ "documents": [
+  {
+   "path": "mini_obc.kicad_pcb",
+   "kind": "board",
+   "formatVersion": 20260206,
+   "generator": "pcbnew",
+   "generatorVersion": "10.0",
+   "properties": {}
+  },
+  {
+   "path": "mini_obc.kicad_sch",
+   "kind": "root-schematic",
+   "formatVersion": 20260306,
+   "generator": "eeschema",
+   "generatorVersion": "10.0",
+   "properties": {}
+  },
+  {
+   "path": "payload_if.kicad_sch",
+   "kind": "schematic",
+   "formatVersion": 20260306,
+   "generator": "eeschema",
+   "generatorVersion": "10.0",
+   "properties": {}
+  }
+ ],
+ "references": [
+  {
+   "kind": "sheet-file",
+   "documentPath": "mini_obc.kicad_sch",
+   "sheetUuid": "0ba14ec3-823d-53e7-a501-824777f27fe6",
+   "sheetName": "Payload IF",
+   "raw": "payload_if.kicad_sch",
+   "variables": [],
+   "target": {
+    "kind": "repository",
+    "path": "payload_if.kicad_sch",
+    "base": "document-directory",
+    "inSources": true
+   }
+  }
+ ]
+}

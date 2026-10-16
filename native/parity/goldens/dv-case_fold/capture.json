@@ -1,0 +1,238 @@
+{
+ "schema": "prism.parity.capture.a0",
+ "case": "dv-case_fold",
+ "kind": "fixture",
+ "sourceRoot": "backend/tests/fixtures/design_variants/case_fold",
+ "project": "casefold.kicad_pro",
+ "inputs": [
+  {
+   "path": "casefold.kicad_pcb",
+   "sha256": "330d05a285056613bf40e8ebad8d4994f7d498ccd0401a755c55e7bed0500408"
+  },
+  {
+   "path": "casefold.kicad_pro",
+   "sha256": "381b80265c38206bfbdc55326c53c6da62085973029576c28f3642da500a666e"
+  },
+  {
+   "path": "casefold.kicad_sch",
+   "sha256": "8eda662c50be36064d4939a5ba06b2f06c6b7ddf3f997484cf38aa780c9bbc15"
+  }
+ ],
+ "producers": {
+  "todayCommit": "88db84f0ad098df7637d67b21a80def1e6109310",
+  "todayDirty": false,
+  "referenceCommit": "6c67ef387cc8df56a532e8dc01abda2e29406865",
+  "kicadMonkey": "2026.9.7",
+  "kicad": "10.0.6",
+  "python": "3.12.13",
+  "node": "24.22.0",
+  "platform": "darwin-arm64"
+ },
+ "members": {
+  "semantic-index": {
+   "status": "captured",
+   "notes": [
+    "today's a0 sourceRevisionKey a2d85f5d52a9d3c65901aba8a7f8721b (stand-in derived from it)"
+   ]
+  },
+  "board-objects": {
+   "status": "captured",
+   "sidecars": [
+    "today-hash"
+   ],
+   "checks": [
+    {
+     "shape": "rebuild",
+     "result": "divergence",
+     "divergences": [
+      "D1"
+     ],
+     "detail": [
+      "2 differences from today, all explained by D1",
+      "/componentObjects/casefold.kicad_sch#d66c2670-2683-5191-8990-241af92e2ac8/properties/2/at/1: today 23.810000000000002 != rebuilt 23.81",
+      "/componentObjects/casefold.kicad_sch#fe94f0c8-d13f-551b-b291-9841938acf71/properties/2/at/1: today 23.810000000000002 != rebuilt 23.81"
+     ]
+    },
+    {
+     "shape": "digest-xcheck",
+     "result": "equal",
+     "detail": [
+      "20 digests"
+     ]
+    }
+   ],
+   "notes": [
+    "3 documents, 20 objects, 2 review-only objects",
+    "rebuild: nativeObjects 22 today / 22 golden, componentObjects 4 / 4"
+   ]
+  },
+  "occurrences": {
+   "status": "captured",
+   "checks": [
+    {
+     "shape": "designCompare.components",
+     "result": "equal"
+    },
+    {
+     "shape": "designCompare.bomRows",
+     "result": "equal"
+    },
+    {
+     "shape": "semanticIndex.assembly.default",
+     "result": "equal"
+    },
+    {
+     "shape": "semanticIndex.components.fields",
+     "result": "divergence",
+     "divergences": [
+      "D6"
+     ],
+     "detail": [
+      "/R1/Description: golden 'Resistor' != member ''",
+      "/R2/Description: golden 'Resistor' != member ''"
+     ]
+    },
+    {
+     "shape": "semanticIndex.components.pcbRefs",
+     "result": "equal"
+    },
+    {
+     "shape": "semanticIndex.sheetInstances",
+     "result": "equal"
+    },
+    {
+     "shape": "systemBuilder.interface.identity",
+     "result": "equal"
+    },
+    {
+     "shape": "catalog.placedSymbols",
+     "result": "equal"
+    },
+    {
+     "shape": "releaseStudio.releaseVariantsProduction.declarations",
+     "result": "equal"
+    },
+    {
+     "shape": "releaseStudio.releaseVariants.declarations",
+     "result": "equal"
+    }
+   ]
+  },
+  "stackup": {
+   "status": "captured",
+   "checks": [
+    {
+     "shape": "rs",
+     "result": "equal"
+    },
+    {
+     "shape": "dc",
+     "result": "equal"
+    },
+    {
+     "shape": "3d",
+     "result": "equal"
+    },
+    {
+     "shape": "topology-layers",
+     "result": "equal"
+    },
+    {
+     "shape": "topology-board",
+     "result": "equal"
+    },
+    {
+     "shape": "mid-plane",
+     "result": "equal"
+    },
+    {
+     "shape": "mid-plane-nm",
+     "result": "equal"
+    },
+    {
+     "shape": "board-looks",
+     "result": "equal"
+    }
+   ],
+   "notes": [
+    "0 stackup entries, 2 copper layers, 0 vias in 0 spans",
+    "mid-plane today 0.8, exact 0.8"
+   ]
+  },
+  "route-metrics": {
+   "status": "captured",
+   "checks": [
+    {
+     "shape": "dc",
+     "result": "equal",
+     "detail": [
+      "0 nets"
+     ]
+    }
+   ],
+   "notes": [
+    "0 nets, 0 vias"
+   ]
+  },
+  "placements": {
+   "status": "captured",
+   "checks": [
+    {
+     "shape": "rs-testpoints",
+     "result": "equal"
+    },
+    {
+     "shape": "rs-population",
+     "result": "equal"
+    },
+    {
+     "shape": "rs-designators",
+     "result": "equal"
+    },
+    {
+     "shape": "sb-geometry",
+     "result": "equal"
+    },
+    {
+     "shape": "sb-outline",
+     "result": "equal"
+    },
+    {
+     "shape": "catalog",
+     "result": "equal"
+    }
+   ],
+   "notes": [
+    "2 footprints, 4 pads, 2 models",
+    "KiCad 10.0.6 ipcd356 oracle: 4 numbered pads within 0.496 IPC units (limit 0.5), 0 over, 0 numbered pads without a record"
+   ]
+  },
+  "project": {
+   "status": "captured",
+   "checks": [
+    {
+     "shape": "card",
+     "result": "equal"
+    },
+    {
+     "shape": "3d.netClasses",
+     "result": "equal"
+    },
+    {
+     "shape": "closure.emptyEnv",
+     "result": "equal"
+    },
+    {
+     "shape": "closure.kicad10Env",
+     "result": "equal"
+    }
+   ]
+  },
+  "system-interface": {
+   "status": "captured",
+   "notes": [
+    "digest sha256:6a3adcebcf1a2a1c1cb101cb6a4a0de5735124330ddba315d7e4b543eb5d3e79"
+   ]
+  }
+ }
+}

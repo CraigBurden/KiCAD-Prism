@@ -1,0 +1,167 @@
+{
+ "schema": "prism.parity.capture.a0",
+ "case": "dv-rule_area",
+ "kind": "fixture",
+ "sourceRoot": "backend/tests/fixtures/design_variants/rule_area",
+ "project": "rule_area.kicad_pro",
+ "inputs": [
+  {
+   "path": "rule_area.kicad_pro",
+   "sha256": "a8079787b9506e125d203cdbb15e737490572fd205cf1561bbae059563e7a3c1"
+  },
+  {
+   "path": "rule_area.kicad_sch",
+   "sha256": "bb37936ceb5754eb1bd36b8a5668b16654f5de67ae0fa8cac2bb8929685b5287"
+  }
+ ],
+ "producers": {
+  "todayCommit": "88db84f0ad098df7637d67b21a80def1e6109310",
+  "todayDirty": false,
+  "referenceCommit": "6c67ef387cc8df56a532e8dc01abda2e29406865",
+  "kicadMonkey": "2026.9.7",
+  "kicad": "10.0.6",
+  "python": "3.12.13",
+  "node": "24.22.0",
+  "platform": "darwin-arm64"
+ },
+ "members": {
+  "semantic-index": {
+   "status": "captured",
+   "notes": [
+    "today's a0 sourceRevisionKey ffdf8775c5bb6fe4c5730c8e5eec461e (stand-in derived from it)"
+   ]
+  },
+  "board-objects": {
+   "status": "captured",
+   "sidecars": [
+    "today-hash"
+   ],
+   "checks": [
+    {
+     "shape": "rebuild",
+     "result": "divergence",
+     "divergences": [
+      "D1"
+     ],
+     "detail": [
+      "2 differences from today, all explained by D1",
+      "/componentObjects/rule_area.kicad_sch#0c5b067b-fa0e-5b53-bdef-a8313254278f/properties/2/at/1: today 23.810000000000002 != rebuilt 23.81",
+      "/componentObjects/rule_area.kicad_sch#d35d922d-5289-5038-b957-d08d95fa48ac/properties/2/at/1: today 23.810000000000002 != rebuilt 23.81"
+     ]
+    },
+    {
+     "shape": "digest-xcheck",
+     "result": "equal",
+     "detail": [
+      "6 digests"
+     ]
+    }
+   ],
+   "notes": [
+    "2 documents, 6 objects, 1 review-only objects",
+    "rebuild: nativeObjects 7 today / 7 golden, componentObjects 2 / 2"
+   ]
+  },
+  "occurrences": {
+   "status": "captured",
+   "checks": [
+    {
+     "shape": "designCompare.components",
+     "result": "equal"
+    },
+    {
+     "shape": "designCompare.bomRows",
+     "result": "equal"
+    },
+    {
+     "shape": "semanticIndex.assembly.default",
+     "result": "equal"
+    },
+    {
+     "shape": "semanticIndex.components.fields",
+     "result": "divergence",
+     "divergences": [
+      "D6"
+     ],
+     "detail": [
+      "/R11/Description: golden 'Resistor' != member ''",
+      "/R13/Description: golden 'Resistor' != member ''"
+     ]
+    },
+    {
+     "shape": "semanticIndex.components.pcbRefs",
+     "result": "equal"
+    },
+    {
+     "shape": "semanticIndex.sheetInstances",
+     "result": "equal"
+    },
+    {
+     "shape": "catalog.placedSymbols",
+     "result": "equal"
+    }
+   ],
+   "notes": [
+    "no board: footprints in the empty form"
+   ]
+  },
+  "stackup": {
+   "status": "captured",
+   "notes": [
+    "no board: empty form (present false, KiCad's default board thickness, every array empty); the stackup contract does not define its empty form explicitly (reported)",
+    "no consumer check: today's shapes need a board (RS/3D raise; DC returns its own {present: false, layers: [], settings: {}})"
+   ]
+  },
+  "route-metrics": {
+   "status": "captured",
+   "checks": [
+    {
+     "shape": "dc",
+     "result": "equal",
+     "detail": [
+      "0 nets"
+     ]
+    }
+   ],
+   "notes": [
+    "0 nets, 0 vias"
+   ]
+  },
+  "placements": {
+   "status": "captured",
+   "notes": [
+    "no board: empty form (R1: footprints [], designators [], no outlineBounds); no consumer check"
+   ]
+  },
+  "project": {
+   "status": "captured",
+   "checks": [
+    {
+     "shape": "card",
+     "result": "equal"
+    },
+    {
+     "shape": "3d.netClasses",
+     "result": "equal"
+    },
+    {
+     "shape": "closure.emptyEnv",
+     "result": "equal"
+    },
+    {
+     "shape": "closure.kicad10Env",
+     "result": "equal"
+    }
+   ],
+   "notes": [
+    "no board: no board document or model references"
+   ]
+  },
+  "system-interface": {
+   "status": "captured",
+   "notes": [
+    "digest sha256:bc614f3a7589f44660593e3b56be67647e37bcd49c1b7176c4c69368a2d5a4f0"
+   ]
+  }
+ }
+}

@@ -1,0 +1,517 @@
+{
+ "schema": "prism.parity.capture.a0",
+ "case": "rs-cynthion",
+ "kind": "fixture",
+ "sourceRoot": "fixtures/release-studio/cynthion",
+ "project": "cynthion.kicad_pro",
+ "inputs": [
+  {
+   "path": "aux_port.kicad_sch",
+   "sha256": "ba41199ae5076115cc8b8cef40bb5cba714a2a5688b683639f5b48824feac5d1",
+   "upgradedFromVersion": 20230121,
+   "upgradedSha256": "4a43fc742c5227dcfc237f4389af9a2d45c1274489075c0e5dc3b5189baf1da4"
+  },
+  {
+   "path": "bank0_1.kicad_sch",
+   "sha256": "ed277189de1fcb3117e19c8559eb65ced828071dc3849ca6217891a30288139a",
+   "upgradedFromVersion": 20230121,
+   "upgradedSha256": "6dd374004430d4501d7fd8c6f99560411042094b970a2cf6f9fccf09c25a2374"
+  },
+  {
+   "path": "bank2_3.kicad_sch",
+   "sha256": "df577460e9c1f77350d725f3a78a2d75b2f842efb79e101c2b6f1226e020e206",
+   "upgradedFromVersion": 20230121,
+   "upgradedSha256": "b10396657adb69bdedb4c03d8e97adf5f900d6f4b2d7d50acb0322f9cfbee547"
+  },
+  {
+   "path": "bank6_7.kicad_sch",
+   "sha256": "26049cd44464b8898b26d8b4db667662c5d90e8799b55bac9330cd9cd5d4c94f",
+   "upgradedFromVersion": 20230121,
+   "upgradedSha256": "c9a2aef4fdc3fd36e3c5a076c51769f1602a2c24cda67ef9ca1839a8fc018dd2"
+  },
+  {
+   "path": "bank8_configuration.kicad_sch",
+   "sha256": "0cfc0e6217cd4300f70613f17711e728965c74b113647f60380d423eac28f073",
+   "upgradedFromVersion": 20230121,
+   "upgradedSha256": "e2cbc8c6c06363bc653c7de6b833f50df505319c9a2dd3b74edad6c76768ceb3"
+  },
+  {
+   "path": "clock_misc.kicad_sch",
+   "sha256": "a5086a486346b3fa2a04e5f6c9e142e2a8184abef57d9ca287fae87550dd45a4",
+   "upgradedFromVersion": 20230121,
+   "upgradedSha256": "cd6191f4389060039289afb7079c56a13d18232292b4e32221b5c9399a2f8ffa"
+  },
+  {
+   "path": "control_port.kicad_sch",
+   "sha256": "23f5a6e8d045101682b4f73b5b88eccdef1dd4d991e67867d9d9cd541fa1117c",
+   "upgradedFromVersion": 20230121,
+   "upgradedSha256": "c6288f7a9b6fe6195e9bbab72ffc942a20cb8f3181093708320125c9debc0acf"
+  },
+  {
+   "path": "cynthion.kicad_dru",
+   "sha256": "ee8179bc25309d3dfdb3057a7599e54fd2453a9f5cb45c01d2372918e88e2ece"
+  },
+  {
+   "path": "cynthion.kicad_jobset",
+   "sha256": "ec4131cc942f26a3ebdf5acd7c4b6b61b6e38ab6fad56a3ba990969da4f05873"
+  },
+  {
+   "path": "cynthion.kicad_pcb",
+   "sha256": "51e978f0e3c02f1b22c6e8013f2d26b309a6724749f27b39abd932545bcd5313",
+   "upgradedFromVersion": 20221018,
+   "upgradedSha256": "337d08ed7810fd8cf0cff1e2d32a42d9e6e61b16f538758d56ba267ae052cac7"
+  },
+  {
+   "path": "cynthion.kicad_pro",
+   "sha256": "1d1cbbd8fce4ea0fcd8eed8a1927cf9194b6d6499594613fd96c82ca38f107d9"
+  },
+  {
+   "path": "cynthion.kicad_sch",
+   "sha256": "eca9bda94e301f054081c860a184768a242c477a9da9aadd6825ba443cdd1d51",
+   "upgradedFromVersion": 20230121,
+   "upgradedSha256": "9399671462426dd079764f8a359097449b6b03d81f03b4c4bd62ea6e4542cf7a"
+  },
+  {
+   "path": "debugger.kicad_sch",
+   "sha256": "b6b012909b89f6b93d39469cad8fa12b9d703400203d91ce13df26e56033102f",
+   "upgradedFromVersion": 20230121,
+   "upgradedSha256": "7714bfa13bd29b182725753629c989f1ff2ea6ab3b9ab3a214bd33067db2fe96"
+  },
+  {
+   "path": "expansion.kicad_sch",
+   "sha256": "8429985c232bf88ae7e240fef67af6e709e8aa0828c762884ae9b44b5450c938",
+   "upgradedFromVersion": 20230121,
+   "upgradedSha256": "f591c87bc4a4251778922b95daba6d5337105868e577624423224628aba470d8"
+  },
+  {
+   "path": "fp-lib-table",
+   "sha256": "c6cde1842d9227c61a08df241a8fbfa0fa37bae8ce1e6abc693d10318c35b5de"
+  },
+  {
+   "path": "indicators_buttons.kicad_sch",
+   "sha256": "5aad4233e019967fa459b1bd1a0dc5a78db41f2ba01396f514f48705fd2d77be",
+   "upgradedFromVersion": 20230121,
+   "upgradedSha256": "d8c9064364018417ddc0364d0485b15d618ec14711218e592ab1d085cf70db71"
+  },
+  {
+   "path": "libraries/cynthion.3dshapes/10132798-031100LF.stp",
+   "sha256": "4495e77a862631c1847bb9a7acbba7c355bc65b17ddb3c048d47b7a8d9098e92"
+  },
+  {
+   "path": "libraries/cynthion.3dshapes/132322.stp",
+   "sha256": "bf0fd9ebcb70430085a155476851d66065bd14f06fc513ce31fd3c7de4f5cd1d"
+  },
+  {
+   "path": "libraries/cynthion.3dshapes/KUSBXHT-SB-AS1N-B30-NF_A.STEP",
+   "sha256": "2afe5bd3fa47af3b559733f9e7abf9fb1d3a551df577e84d951adb03025a1b6e"
+  },
+  {
+   "path": "libraries/cynthion.3dshapes/UE27AC54100.step",
+   "sha256": "6b867e1c1d3a0d6c88005078627fcc32e147bd5019e2e69a61c6f3278537f67b"
+  },
+  {
+   "path": "libraries/cynthion.3dshapes/USB_C_Receptacle_HRO_TYPE-C-31-M-12.step",
+   "sha256": "c5e62198cf185e99216c5307591284fe6b17c1fb1ad17da85d82465f18ff6bf3"
+  },
+  {
+   "path": "libraries/cynthion.3dshapes/quarter.stp",
+   "sha256": "1bb1fdb394b6077d0e331d2afe044ced44c78f7d822927dc219aa546a09da5a1"
+  },
+  {
+   "path": "libraries/cynthion.3dshapes/tc-1109de-a-f.stp",
+   "sha256": "f49c1a131b2917a34cbb184779a2eda10a1ed810150cb26027e3eefba578cea8"
+  },
+  {
+   "path": "libraries/cynthion.pretty/Amphenol_10132798-03.kicad_mod",
+   "sha256": "d284b501ea1f26a5f9e09cbcb54dffc1eb27cae8184f30bc5bacf35a04f606bb"
+  },
+  {
+   "path": "libraries/cynthion.pretty/BGA-24_5x5_6.0x8.0mm.kicad_mod",
+   "sha256": "43f7ce4af39813f5ccd065ff50e205d2e367e5b76999c1816b8dc564bca18056"
+  },
+  {
+   "path": "libraries/cynthion.pretty/BW0033AG-L3.4W0.9H1.8.kicad_mod",
+   "sha256": "103b498abf816fb18722ed9c3b82c5168fdb94ec2f109e45657d3f721640faf7"
+  },
+  {
+   "path": "libraries/cynthion.pretty/CONN-Amphenol-UE27AC54100.kicad_mod",
+   "sha256": "059a557595d8b05a48e58a76a8b4e4c5632e028a37766a0c9d9c4c0937cc214a"
+  },
+  {
+   "path": "libraries/cynthion.pretty/DFN1006-2.kicad_mod",
+   "sha256": "81b0f1450356abcd8a3c08f7b58a3467dfe72e344c69562bdb26b3c71862fcd5"
+  },
+  {
+   "path": "libraries/cynthion.pretty/DSN1006-2.kicad_mod",
+   "sha256": "1fbc354e46636229ea659b5aa13be99bae2d77c0c432363698d01ef85885532b"
+  },
+  {
+   "path": "libraries/cynthion.pretty/D_SOD-123FL.kicad_mod",
+   "sha256": "f585098f80af412fc9518d907810dcc52dcc36ebf1767bec2ed59b0b9563b51f"
+  },
+  {
+   "path": "libraries/cynthion.pretty/Diodes_10-TQFN_ZL.kicad_mod",
+   "sha256": "5cd1c5898ab997ddeacb7e79dc1f4546aa35af27e0c6e33e2c40f6b6d063f528"
+  },
+  {
+   "path": "libraries/cynthion.pretty/Diodes_UQFN2020-12_Type-B.kicad_mod",
+   "sha256": "b21e0a5befddfb0708335f176d3c545387368e674ead9c538fe9f1dcae50dd0e"
+  },
+  {
+   "path": "libraries/cynthion.pretty/L_CommonModeChoke_Murata_DLM0NS.kicad_mod",
+   "sha256": "ddbba1aabcb4c9ea1d901c6f36c6d591c0dc431f928ce10dbea61a4c4f6e10a9"
+  },
+  {
+   "path": "libraries/cynthion.pretty/PinSocket_2x06_P2.54mm_PMOD.kicad_mod",
+   "sha256": "d4462751990160fb99698ec8005cd8775971889dd99452c6ad8b6e4b0d7c84c3"
+  },
+  {
+   "path": "libraries/cynthion.pretty/R_0603_1608Metric_Current_Sense.kicad_mod",
+   "sha256": "7f47dfe7d25b713816c572c0507b27bbf6eb1c39e6325896e37c2bb7c17f4575"
+  },
+  {
+   "path": "libraries/cynthion.pretty/SMA-EDGE.kicad_mod",
+   "sha256": "13cd3f58271d97cf7ca34eabe80df04450ff6e0e9c41e5cff0be7493ebdc86da"
+  },
+  {
+   "path": "libraries/cynthion.pretty/SOD128.kicad_mod",
+   "sha256": "1221f2a1fad90dd73537288784b1bc4e9e4667fea37d47c5dea35478ad8e56e6"
+  },
+  {
+   "path": "libraries/cynthion.pretty/SWD_CONNECTOR_LARGE_BOX.kicad_mod",
+   "sha256": "33c38cae147147211cbc39fda023506b09e9823452ac78a1a6e5f0d714bb1063"
+  },
+  {
+   "path": "libraries/cynthion.pretty/SWITCH-FSMRA.kicad_mod",
+   "sha256": "e97a50a10509b8ea816dfa64193c52406c2b3eb7ecb45619c8c1802a98d68cb0"
+  },
+  {
+   "path": "libraries/cynthion.pretty/SW_Tactile_SPST_Angled_TC-1109DE-B-F.kicad_mod",
+   "sha256": "a8b7c4bbee0aa2b34c5c4f429d7e672fd1cf9ffdad83ce37fa0c6b5456a6d883"
+  },
+  {
+   "path": "libraries/cynthion.pretty/SW_Tactile_SPST_Angled_TS-1002N-09526.kicad_mod",
+   "sha256": "3786eaee3535cba127a62c87bba4d73fd7b22feb58df1255c84f233bc02baf50"
+  },
+  {
+   "path": "libraries/cynthion.pretty/USB-MICROB-FCI-10103592-LONGPADS.kicad_mod",
+   "sha256": "1339b0018f7349eb9ae8713037b0199237f5ee0d803c01217eba3131c3a57330"
+  },
+  {
+   "path": "libraries/cynthion.pretty/USB_A_Kycon_KUSBXHT-SB-AS1N-B30-NF_Horizontal.kicad_mod",
+   "sha256": "9ab3844ef71c0d1dbb5f91f758b50a3b68c6301bf45bf84a3a714ac5417979ab"
+  },
+  {
+   "path": "libraries/cynthion.pretty/USB_C_Receptacle_HRO_TYPE-C-31-M-12.kicad_mod",
+   "sha256": "527cdca2435e4ad514ea1316985a06f97a07f6d37e4d5210dc79e3be10e1a4b1"
+  },
+  {
+   "path": "libraries/cynthion.pretty/Vishay_PowerPAK_SC70-6L_Single.kicad_mod",
+   "sha256": "1c584fccd5c62c704914177ab7f027dd3786c71edf7d30ae187f55f45cb076ec"
+  },
+  {
+   "path": "libraries/cynthion.pretty/WLCSP-16_2.225x2.170mm_Layout4x4_P0.5mm.kicad_mod",
+   "sha256": "d839b40e5e18e91d7f4fd8797fd5659f4225f85bee193740909f06c5b99a1a6a"
+  },
+  {
+   "path": "libraries/cynthion.pretty/X2-DFN1210-8_1.2x1mm_P0.3mm.kicad_mod",
+   "sha256": "95bff8667bf96a45c2c2b8bd8c407926bf61ec06d63cb4a12eaeb4422799665a"
+  },
+  {
+   "path": "libraries/cynthion.pretty/lattice_cabga256.kicad_mod",
+   "sha256": "35eaf4e87954f9a168308d56dba0a6d1d1fc0e10ece82e12592ee863e39a75eb"
+  },
+  {
+   "path": "libraries/cynthion.pretty/usb_tools_logo.kicad_mod",
+   "sha256": "426b2b966c6c44caa1478b7eabfed59786cd3283ef5f4aff7b6508fe23f7c0e2"
+  },
+  {
+   "path": "libraries/fpgas_and_processors.kicad_sym",
+   "sha256": "e83065ff105cf512fffa8a250376c766d5f7528e5b3225d6c17425a4ac1ed781"
+  },
+  {
+   "path": "libraries/support_hardware.dcm",
+   "sha256": "c509d69b821fde9f311c70bbc28439f0708ebd7946e44e37a85eae0434a3a802"
+  },
+  {
+   "path": "libraries/support_hardware.kicad_sym",
+   "sha256": "e42d676ec4d8e0b06a1ec4ce0242df09ffe3928d77a9d7a808dc9106174801a7"
+  },
+  {
+   "path": "libraries/usb.dcm",
+   "sha256": "b12251d8ba1ed09415d87caf8444dce66ce36afebd041ab756c8874ea6380a27"
+  },
+  {
+   "path": "libraries/usb.kicad_sym",
+   "sha256": "528264628c1182f51516781befe6fb87411d6e8f5996b23c7d61bd3d2b862c1a"
+  },
+  {
+   "path": "power_distribution.kicad_sch",
+   "sha256": "5ba25ac233197ed2d3fea9ae421d8283d7695cb9970009fca0b25643f1d97b3a",
+   "upgradedFromVersion": 20230121,
+   "upgradedSha256": "10f8a04e5f92521627bb3cb86730f19f33c69b8455e3c34776658e41ab225a14"
+  },
+  {
+   "path": "power_supplies.kicad_sch",
+   "sha256": "4ea77b5a0fdfafd583f4c18b6597ad94ebc32d27be4beb5e634d79cc5d8bfe8a",
+   "upgradedFromVersion": 20230121,
+   "upgradedSha256": "3d322e706c69f7f13005b25301ced71d8b1edc53ef095d20fea9e258a7ea1387"
+  },
+  {
+   "path": "ram.kicad_sch",
+   "sha256": "0a729d5fab259abce261e9671c0ab141cb3020164b7ddf36f2f1565f2758c0aa",
+   "upgradedFromVersion": 20230121,
+   "upgradedSha256": "4115559644242c7fd2a01c4b774501b0558b26b3a0497b887cc3e39fa6997171"
+  },
+  {
+   "path": "sym-lib-table",
+   "sha256": "f83e542fdfc7fae269499576f4a77f79ed115c1f2ac29ea81fc85f9751b13074"
+  },
+  {
+   "path": "target_port.kicad_sch",
+   "sha256": "be58be3fe30b6ebcc69ba58b7a12b2b0fcc13be62f4f4782a07bb37a579919e4",
+   "upgradedFromVersion": 20230121,
+   "upgradedSha256": "bf22ed0090489496278815218f6565ed36cc01d88d9085982986977045d0446a"
+  },
+  {
+   "path": "type_c.kicad_sch",
+   "sha256": "ab3aa93f465372aaed6c6a3664dba6e112c76451418ceb3c0110c8ac084fdd9e",
+   "upgradedFromVersion": 20230121,
+   "upgradedSha256": "78a361553825970a6bb5607d225b112800bdf9c198403dc52f17b06f29041fc5"
+  },
+  {
+   "path": "usb_phy.kicad_sch",
+   "sha256": "36c9429d6532fde1d566c064a2ae9a41627fa5996b28a6b8f2eb9b4618db09d7",
+   "upgradedFromVersion": 20230121,
+   "upgradedSha256": "1169f0eaaf6c260bae53d4a2914a6ab125adb463a06ad867cf89051f755015f0"
+  }
+ ],
+ "producers": {
+  "todayCommit": "88db84f0ad098df7637d67b21a80def1e6109310",
+  "todayDirty": false,
+  "referenceCommit": "6c67ef387cc8df56a532e8dc01abda2e29406865",
+  "kicadMonkey": "2026.9.7",
+  "kicad": "10.0.6",
+  "python": "3.12.13",
+  "node": "24.22.0",
+  "platform": "darwin-arm64"
+ },
+ "members": {
+  "semantic-index": {
+   "status": "captured",
+   "notes": [
+    "today's a0 sourceRevisionKey 1740b782fef8ae26eb777d87ac4d654e (stand-in derived from it)"
+   ]
+  },
+  "board-objects": {
+   "status": "captured",
+   "sidecars": [
+    "today-hash"
+   ],
+   "checks": [
+    {
+     "shape": "rebuild",
+     "result": "equal"
+    },
+    {
+     "shape": "digest-xcheck",
+     "result": "equal",
+     "detail": [
+      "17172 digests"
+     ]
+    }
+   ],
+   "notes": [
+    "20 documents, 17172 objects, 105 review-only objects",
+    "rebuild: nativeObjects 17277 today / 17277 golden, componentObjects 897 / 897"
+   ]
+  },
+  "occurrences": {
+   "status": "captured",
+   "checks": [
+    {
+     "shape": "designCompare.components",
+     "result": "equal"
+    },
+    {
+     "shape": "designCompare.bomRows",
+     "result": "equal"
+    },
+    {
+     "shape": "semanticIndex.assembly.default",
+     "result": "equal"
+    },
+    {
+     "shape": "semanticIndex.components.fields",
+     "result": "divergence",
+     "divergences": [
+      "D6"
+     ],
+     "detail": [
+      "/C1/Description: golden 'Unpolarized capacitor' != member 'CAP CER 2.2UF 10V X5R 0603'",
+      "/C10/Description: golden 'Unpolarized capacitor' != member 'CAP CER 0.1UF 25V X5R 0402'",
+      "/C11/Description: golden 'Unpolarized capacitor' != member 'CAP CER 0.1UF 25V X5R 0402'",
+      "/C12/Description: golden 'Unpolarized capacitor' != member 'CAP CER 0.1UF 25V X5R 0402'",
+      "/C13/Description: golden 'Unpolarized capacitor' != member 'CAP CER 1UF 6.3V X5R 0402 20%'",
+      "/C14/Description: golden 'Unpolarized capacitor' != member 'CAP CER 0.1UF 25V X5R 0402'",
+      "/C15/Description: golden 'Unpolarized capacitor' != member 'CAP CER 0.1UF 25V X5R 0402'",
+      "/C16/Description: golden 'Unpolarized capacitor' != member 'CAP CER 1UF 6.3V X5R 0402 20%'",
+      "/C17/Description: golden 'Unpolarized capacitor' != member 'CAP CER 1UF 6.3V X5R 0402 20%'",
+      "/C18/Description: golden 'Unpolarized capacitor' != member 'CAP CER 1UF 6.3V X5R 0402 20%'",
+      "... 337 differences in all"
+     ]
+    },
+    {
+     "shape": "semanticIndex.components.pcbRefs",
+     "result": "equal"
+    },
+    {
+     "shape": "semanticIndex.sheetInstances",
+     "result": "equal"
+    },
+    {
+     "shape": "systemBuilder.interface.identity",
+     "result": "equal"
+    },
+    {
+     "shape": "catalog.placedSymbols",
+     "result": "equal"
+    },
+    {
+     "shape": "releaseStudio.releaseVariantsProduction.declarations",
+     "result": "equal"
+    },
+    {
+     "shape": "releaseStudio.releaseVariants.declarations",
+     "result": "equal"
+    }
+   ],
+   "notes": [
+    "systemBuilder.interface: 4 member-only references (netlist pin filter, P5): ['FID1', 'FID2', 'FID3', 'FID4']"
+   ]
+  },
+  "stackup": {
+   "status": "captured",
+   "checks": [
+    {
+     "shape": "rs",
+     "result": "equal"
+    },
+    {
+     "shape": "dc",
+     "result": "equal"
+    },
+    {
+     "shape": "3d",
+     "result": "equal"
+    },
+    {
+     "shape": "topology-layers",
+     "result": "equal"
+    },
+    {
+     "shape": "topology-board",
+     "result": "equal"
+    },
+    {
+     "shape": "mid-plane",
+     "result": "equal"
+    },
+    {
+     "shape": "mid-plane-nm",
+     "result": "equal"
+    },
+    {
+     "shape": "board-looks",
+     "result": "equal"
+    }
+   ],
+   "notes": [
+    "17 stackup entries, 6 copper layers, 651 vias in 1 spans",
+    "mid-plane today 0.7342000000000001, exact 0.7342"
+   ]
+  },
+  "route-metrics": {
+   "status": "captured",
+   "checks": [
+    {
+     "shape": "dc",
+     "result": "equal",
+     "detail": [
+      "336 nets"
+     ]
+    }
+   ],
+   "notes": [
+    "336 nets, 651 vias"
+   ]
+  },
+  "placements": {
+   "status": "captured",
+   "checks": [
+    {
+     "shape": "rs-testpoints",
+     "result": "equal"
+    },
+    {
+     "shape": "rs-population",
+     "result": "equal"
+    },
+    {
+     "shape": "rs-designators",
+     "result": "equal"
+    },
+    {
+     "shape": "sb-geometry",
+     "result": "divergence",
+     "divergences": [
+      "D7"
+     ],
+     "detail": [
+      "D7: /U1/model: today '${KICAD6_3DMODEL_DIR}/Package_DFN_QFN.3dshapes/QFN-16-1EP_3x3mm_P0.5mm_EP1.45x1.45mm.wrl' is hidden in the file; the member's first visible model is '${KICAD6_3DMODEL_DIR}/Package_DFN_QFN.3dshapes/QFN-16-1EP_3x3mm_P0.5mm_EP1.8x1.8mm.wrl'",
+      "D7: /U7/model: today '${KICAD6_3DMODEL_DIR}/Package_SO.3dshapes/SOIC-8_5.23x5.23mm_P1.27mm.wrl' is hidden in the file; the member's first visible model is '${KICAD6_3DMODEL_DIR}/Package_SO.3dshapes/SOIJ-8_5.3x5.3mm_P1.27mm.wrl'"
+     ]
+    },
+    {
+     "shape": "sb-outline",
+     "result": "equal"
+    },
+    {
+     "shape": "catalog",
+     "result": "equal"
+    }
+   ],
+   "notes": [
+    "348 footprints, 1472 pads, 291 models",
+    "KiCad 10.0.6 ipcd356 oracle: 1394 numbered pads within 0.496 IPC units (limit 0.5), 0 over, 0 numbered pads without a record"
+   ]
+  },
+  "project": {
+   "status": "captured",
+   "checks": [
+    {
+     "shape": "card",
+     "result": "equal"
+    },
+    {
+     "shape": "3d.netClasses",
+     "result": "equal"
+    },
+    {
+     "shape": "closure.emptyEnv",
+     "result": "equal"
+    },
+    {
+     "shape": "closure.kicad10Env",
+     "result": "equal"
+    }
+   ]
+  },
+  "system-interface": {
+   "status": "captured",
+   "notes": [
+    "digest sha256:160905ab30f2a731505256725d0d975858ea2adb37f7c779e38230c55bede461"
+   ]
+  }
+ }
+}

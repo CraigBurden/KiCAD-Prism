@@ -1,0 +1,5779 @@
+{
+ "schema": "prism.system_interface.v1",
+ "hasPcb": true,
+ "boardThicknessMm": 1.6,
+ "boardOutlineMm": {
+  "minMm": [
+   108.6,
+   -125.5
+  ],
+  "maxMm": [
+   146.6,
+   -95.6
+  ],
+  "source": "edge_cuts"
+ },
+ "components": [
+  {
+   "portKey": "/6c5f5d69-1c0b-4294-8a58-8db0ec7d5cdf/8d1148d9-56d4-4311-8c97-50391c9a4d64",
+   "memberKeys": [
+    "/6c5f5d69-1c0b-4294-8a58-8db0ec7d5cdf/8d1148d9-56d4-4311-8c97-50391c9a4d64"
+   ],
+   "reference": "C1",
+   "libId": "Device:C_Small",
+   "footprint": "Capacitor_SMD:C_1210_3225Metric_Pad1.33x2.70mm_HandSolder",
+   "value": "10uF_50V_1210",
+   "mpn": "CL32B106KBJNNNE",
+   "dnp": false,
+   "candidate": false,
+   "candidateReason": "none",
+   "pins": [
+    {
+     "pad": "1",
+     "nets": [
+      "VCC_USB_PD_IN"
+     ],
+     "pcbNets": [
+      "VCC_USB_PD_IN"
+     ],
+     "pinNames": null,
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": true
+    },
+    {
+     "pad": "2",
+     "nets": [
+      "GND"
+     ],
+     "pcbNets": [
+      "GND"
+     ],
+     "pinNames": null,
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": true
+    }
+   ],
+   "geometry": {
+    "side": "top",
+    "positionMm": [
+     121.5,
+     -115.4
+    ],
+    "rotationDeg": -90.0,
+    "footprintName": "C_1210_3225Metric_Pad1.33x2.70mm_HandSolder",
+    "pads": [
+     {
+      "pad": "1",
+      "positionMm": [
+       121.5,
+       -113.8375
+      ],
+      "sizeMm": [
+       1.325,
+       2.7
+      ],
+      "shape": "roundrect",
+      "tht": false
+     },
+     {
+      "pad": "2",
+      "positionMm": [
+       121.5,
+       -116.9625
+      ],
+      "sizeMm": [
+       1.325,
+       2.7
+      ],
+      "shape": "roundrect",
+      "tht": false
+     }
+    ],
+    "courtyard": {
+     "minMm": [
+      -2.48,
+      -1.6
+     ],
+     "maxMm": [
+      2.48,
+      1.6
+     ]
+    },
+    "model": {
+     "path": "${KICAD9_3DMODEL_DIR}/Capacitor_SMD.3dshapes/C_1210_3225Metric.step",
+     "offsetMm": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "rotationDeg": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "scale": [
+      1.0,
+      1.0,
+      1.0
+     ]
+    }
+   }
+  },
+  {
+   "portKey": "/6c5f5d69-1c0b-4294-8a58-8db0ec7d5cdf/aca7710d-5873-440c-9d84-c5463058c30d",
+   "memberKeys": [
+    "/6c5f5d69-1c0b-4294-8a58-8db0ec7d5cdf/aca7710d-5873-440c-9d84-c5463058c30d"
+   ],
+   "reference": "C2",
+   "libId": "Device:C_Small",
+   "footprint": "Capacitor_SMD:C_0805_2012Metric_Pad1.18x1.45mm_HandSolder",
+   "value": "1uF_50V_0805",
+   "mpn": "CL21B105KBFNNNE",
+   "dnp": false,
+   "candidate": false,
+   "candidateReason": "none",
+   "pins": [
+    {
+     "pad": "1",
+     "nets": [
+      "VCC_USB_PD_IN"
+     ],
+     "pcbNets": [
+      "VCC_USB_PD_IN"
+     ],
+     "pinNames": null,
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": true
+    },
+    {
+     "pad": "2",
+     "nets": [
+      "Net-(D1-A)"
+     ],
+     "pcbNets": [
+      "Net-(D1-A)"
+     ],
+     "pinNames": null,
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    }
+   ],
+   "geometry": {
+    "side": "top",
+    "positionMm": [
+     124.4,
+     -112.2375
+    ],
+    "rotationDeg": 90.0,
+    "footprintName": "C_0805_2012Metric_Pad1.18x1.45mm_HandSolder",
+    "pads": [
+     {
+      "pad": "1",
+      "positionMm": [
+       124.4,
+       -113.275
+      ],
+      "sizeMm": [
+       1.175,
+       1.45
+      ],
+      "shape": "roundrect",
+      "tht": false
+     },
+     {
+      "pad": "2",
+      "positionMm": [
+       124.4,
+       -111.2
+      ],
+      "sizeMm": [
+       1.175,
+       1.45
+      ],
+      "shape": "roundrect",
+      "tht": false
+     }
+    ],
+    "courtyard": {
+     "minMm": [
+      -1.88,
+      -0.98
+     ],
+     "maxMm": [
+      1.88,
+      0.98
+     ]
+    },
+    "model": {
+     "path": "${KICAD9_3DMODEL_DIR}/Capacitor_SMD.3dshapes/C_0805_2012Metric.step",
+     "offsetMm": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "rotationDeg": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "scale": [
+      1.0,
+      1.0,
+      1.0
+     ]
+    }
+   }
+  },
+  {
+   "portKey": "/6c5f5d69-1c0b-4294-8a58-8db0ec7d5cdf/c3249064-dcf7-470d-9aed-5ee5eef91d12",
+   "memberKeys": [
+    "/6c5f5d69-1c0b-4294-8a58-8db0ec7d5cdf/c3249064-dcf7-470d-9aed-5ee5eef91d12"
+   ],
+   "reference": "C3",
+   "libId": "Device:C_Small",
+   "footprint": "Capacitor_SMD:C_0805_2012Metric_Pad1.18x1.45mm_HandSolder",
+   "value": "1uF_50V_0805",
+   "mpn": "CL21B105KBFNNNE",
+   "dnp": false,
+   "candidate": false,
+   "candidateReason": "none",
+   "pins": [
+    {
+     "pad": "1",
+     "nets": [
+      "Net-(U1-VCCD)"
+     ],
+     "pcbNets": [
+      "Net-(U1-VCCD)"
+     ],
+     "pinNames": null,
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "2",
+     "nets": [
+      "GND"
+     ],
+     "pcbNets": [
+      "GND"
+     ],
+     "pinNames": null,
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": true
+    }
+   ],
+   "geometry": {
+    "side": "top",
+    "positionMm": [
+     124.2,
+     -103.6125
+    ],
+    "rotationDeg": 0.0,
+    "footprintName": "C_0805_2012Metric_Pad1.18x1.45mm_HandSolder",
+    "pads": [
+     {
+      "pad": "1",
+      "positionMm": [
+       123.1625,
+       -103.6125
+      ],
+      "sizeMm": [
+       1.175,
+       1.45
+      ],
+      "shape": "roundrect",
+      "tht": false
+     },
+     {
+      "pad": "2",
+      "positionMm": [
+       125.2375,
+       -103.6125
+      ],
+      "sizeMm": [
+       1.175,
+       1.45
+      ],
+      "shape": "roundrect",
+      "tht": false
+     }
+    ],
+    "courtyard": {
+     "minMm": [
+      -1.88,
+      -0.98
+     ],
+     "maxMm": [
+      1.88,
+      0.98
+     ]
+    },
+    "model": {
+     "path": "${KICAD9_3DMODEL_DIR}/Capacitor_SMD.3dshapes/C_0805_2012Metric.step",
+     "offsetMm": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "rotationDeg": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "scale": [
+      1.0,
+      1.0,
+      1.0
+     ]
+    }
+   }
+  },
+  {
+   "portKey": "/6c5f5d69-1c0b-4294-8a58-8db0ec7d5cdf/6121d497-49dc-4f87-9c0c-935884a7d60c",
+   "memberKeys": [
+    "/6c5f5d69-1c0b-4294-8a58-8db0ec7d5cdf/6121d497-49dc-4f87-9c0c-935884a7d60c"
+   ],
+   "reference": "C4",
+   "libId": "Device:C_Small",
+   "footprint": "Capacitor_SMD:C_0603_1608Metric_Pad1.08x0.95mm_HandSolder",
+   "value": "0.1uF_50V_0603",
+   "mpn": "C0603C104K5RACTU",
+   "dnp": false,
+   "candidate": false,
+   "candidateReason": "none",
+   "pins": [
+    {
+     "pad": "1",
+     "nets": [
+      "V3P3"
+     ],
+     "pcbNets": [
+      "V3P3"
+     ],
+     "pinNames": null,
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": true
+    },
+    {
+     "pad": "2",
+     "nets": [
+      "GND"
+     ],
+     "pcbNets": [
+      "GND"
+     ],
+     "pinNames": null,
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": true
+    }
+   ],
+   "geometry": {
+    "side": "top",
+    "positionMm": [
+     123.1,
+     -106.5125
+    ],
+    "rotationDeg": -90.0,
+    "footprintName": "C_0603_1608Metric_Pad1.08x0.95mm_HandSolder",
+    "pads": [
+     {
+      "pad": "1",
+      "positionMm": [
+       123.1,
+       -105.65
+      ],
+      "sizeMm": [
+       1.075,
+       0.95
+      ],
+      "shape": "roundrect",
+      "tht": false
+     },
+     {
+      "pad": "2",
+      "positionMm": [
+       123.1,
+       -107.375
+      ],
+      "sizeMm": [
+       1.075,
+       0.95
+      ],
+      "shape": "roundrect",
+      "tht": false
+     }
+    ],
+    "courtyard": {
+     "minMm": [
+      -1.65,
+      -0.73
+     ],
+     "maxMm": [
+      1.65,
+      0.73
+     ]
+    },
+    "model": {
+     "path": "${KICAD9_3DMODEL_DIR}/Capacitor_SMD.3dshapes/C_0603_1608Metric.step",
+     "offsetMm": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "rotationDeg": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "scale": [
+      1.0,
+      1.0,
+      1.0
+     ]
+    }
+   }
+  },
+  {
+   "portKey": "/6c5f5d69-1c0b-4294-8a58-8db0ec7d5cdf/3f27eb57-6634-4056-bc46-a469f674254f",
+   "memberKeys": [
+    "/6c5f5d69-1c0b-4294-8a58-8db0ec7d5cdf/3f27eb57-6634-4056-bc46-a469f674254f"
+   ],
+   "reference": "C5",
+   "libId": "Device:C_Small",
+   "footprint": "Capacitor_SMD:C_0603_1608Metric_Pad1.08x0.95mm_HandSolder",
+   "value": "0.1uF_50V_0603",
+   "mpn": "C0603C104K5RACTU",
+   "dnp": false,
+   "candidate": false,
+   "candidateReason": "none",
+   "pins": [
+    {
+     "pad": "1",
+     "nets": [
+      "V3P3"
+     ],
+     "pcbNets": [
+      "V3P3"
+     ],
+     "pinNames": null,
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": true
+    },
+    {
+     "pad": "2",
+     "nets": [
+      "GND"
+     ],
+     "pcbNets": [
+      "GND"
+     ],
+     "pinNames": null,
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": true
+    }
+   ],
+   "geometry": {
+    "side": "top",
+    "positionMm": [
+     124.8,
+     -106.5125
+    ],
+    "rotationDeg": -90.0,
+    "footprintName": "C_0603_1608Metric_Pad1.08x0.95mm_HandSolder",
+    "pads": [
+     {
+      "pad": "1",
+      "positionMm": [
+       124.8,
+       -105.65
+      ],
+      "sizeMm": [
+       1.075,
+       0.95
+      ],
+      "shape": "roundrect",
+      "tht": false
+     },
+     {
+      "pad": "2",
+      "positionMm": [
+       124.8,
+       -107.375
+      ],
+      "sizeMm": [
+       1.075,
+       0.95
+      ],
+      "shape": "roundrect",
+      "tht": false
+     }
+    ],
+    "courtyard": {
+     "minMm": [
+      -1.65,
+      -0.73
+     ],
+     "maxMm": [
+      1.65,
+      0.73
+     ]
+    },
+    "model": {
+     "path": "${KICAD9_3DMODEL_DIR}/Capacitor_SMD.3dshapes/C_0603_1608Metric.step",
+     "offsetMm": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "rotationDeg": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "scale": [
+      1.0,
+      1.0,
+      1.0
+     ]
+    }
+   }
+  },
+  {
+   "portKey": "/6c5f5d69-1c0b-4294-8a58-8db0ec7d5cdf/e642466e-49e7-4e2f-9ddb-79af28e6fdd0",
+   "memberKeys": [
+    "/6c5f5d69-1c0b-4294-8a58-8db0ec7d5cdf/e642466e-49e7-4e2f-9ddb-79af28e6fdd0"
+   ],
+   "reference": "C6",
+   "libId": "Device:C_Small",
+   "footprint": "Capacitor_SMD:C_0805_2012Metric_Pad1.18x1.45mm_HandSolder",
+   "value": "1uF_50V_0805",
+   "mpn": "CL21B105KBFNNNE",
+   "dnp": false,
+   "candidate": false,
+   "candidateReason": "none",
+   "pins": [
+    {
+     "pad": "1",
+     "nets": [
+      "VCC_USB_PD_OUT"
+     ],
+     "pcbNets": [
+      "VCC_USB_PD_OUT"
+     ],
+     "pinNames": null,
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": true
+    },
+    {
+     "pad": "2",
+     "nets": [
+      "Net-(D1-A)"
+     ],
+     "pcbNets": [
+      "Net-(D1-A)"
+     ],
+     "pinNames": null,
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    }
+   ],
+   "geometry": {
+    "side": "top",
+    "positionMm": [
+     134.9,
+     -113.0375
+    ],
+    "rotationDeg": 90.0,
+    "footprintName": "C_0805_2012Metric_Pad1.18x1.45mm_HandSolder",
+    "pads": [
+     {
+      "pad": "1",
+      "positionMm": [
+       134.9,
+       -114.075
+      ],
+      "sizeMm": [
+       1.175,
+       1.45
+      ],
+      "shape": "roundrect",
+      "tht": false
+     },
+     {
+      "pad": "2",
+      "positionMm": [
+       134.9,
+       -112.0
+      ],
+      "sizeMm": [
+       1.175,
+       1.45
+      ],
+      "shape": "roundrect",
+      "tht": false
+     }
+    ],
+    "courtyard": {
+     "minMm": [
+      -1.88,
+      -0.98
+     ],
+     "maxMm": [
+      1.88,
+      0.98
+     ]
+    },
+    "model": {
+     "path": "${KICAD9_3DMODEL_DIR}/Capacitor_SMD.3dshapes/C_0805_2012Metric.step",
+     "offsetMm": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "rotationDeg": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "scale": [
+      1.0,
+      1.0,
+      1.0
+     ]
+    }
+   }
+  },
+  {
+   "portKey": "/6c5f5d69-1c0b-4294-8a58-8db0ec7d5cdf/5250e01e-db29-420a-bc6f-a029c97932bc",
+   "memberKeys": [
+    "/6c5f5d69-1c0b-4294-8a58-8db0ec7d5cdf/5250e01e-db29-420a-bc6f-a029c97932bc"
+   ],
+   "reference": "C7",
+   "libId": "Device:C_Small",
+   "footprint": "Capacitor_SMD:C_0805_2012Metric_Pad1.18x1.45mm_HandSolder",
+   "value": "1uF_50V_0805",
+   "mpn": "CL21B105KBFNNNE",
+   "dnp": false,
+   "candidate": false,
+   "candidateReason": "none",
+   "pins": [
+    {
+     "pad": "1",
+     "nets": [
+      "V3P3"
+     ],
+     "pcbNets": [
+      "V3P3"
+     ],
+     "pinNames": null,
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": true
+    },
+    {
+     "pad": "2",
+     "nets": [
+      "GND"
+     ],
+     "pcbNets": [
+      "GND"
+     ],
+     "pinNames": null,
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": true
+    }
+   ],
+   "geometry": {
+    "side": "top",
+    "positionMm": [
+     126.7,
+     -106.7125
+    ],
+    "rotationDeg": -90.0,
+    "footprintName": "C_0805_2012Metric_Pad1.18x1.45mm_HandSolder",
+    "pads": [
+     {
+      "pad": "1",
+      "positionMm": [
+       126.7,
+       -105.675
+      ],
+      "sizeMm": [
+       1.175,
+       1.45
+      ],
+      "shape": "roundrect",
+      "tht": false
+     },
+     {
+      "pad": "2",
+      "positionMm": [
+       126.7,
+       -107.75
+      ],
+      "sizeMm": [
+       1.175,
+       1.45
+      ],
+      "shape": "roundrect",
+      "tht": false
+     }
+    ],
+    "courtyard": {
+     "minMm": [
+      -1.88,
+      -0.98
+     ],
+     "maxMm": [
+      1.88,
+      0.98
+     ]
+    },
+    "model": {
+     "path": "${KICAD9_3DMODEL_DIR}/Capacitor_SMD.3dshapes/C_0805_2012Metric.step",
+     "offsetMm": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "rotationDeg": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "scale": [
+      1.0,
+      1.0,
+      1.0
+     ]
+    }
+   }
+  },
+  {
+   "portKey": "/6c5f5d69-1c0b-4294-8a58-8db0ec7d5cdf/9f066d0f-2d7e-47ec-9737-b1ce39114cc9",
+   "memberKeys": [
+    "/6c5f5d69-1c0b-4294-8a58-8db0ec7d5cdf/9f066d0f-2d7e-47ec-9737-b1ce39114cc9"
+   ],
+   "reference": "C8",
+   "libId": "Device:C_Small",
+   "footprint": "Capacitor_SMD:C_1210_3225Metric_Pad1.33x2.70mm_HandSolder",
+   "value": "10uF_50V_1210",
+   "mpn": "CL32B106KBJNNNE",
+   "dnp": false,
+   "candidate": false,
+   "candidateReason": "none",
+   "pins": [
+    {
+     "pad": "1",
+     "nets": [
+      "VCC_USB_PD_OUT"
+     ],
+     "pcbNets": [
+      "VCC_USB_PD_OUT"
+     ],
+     "pinNames": null,
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": true
+    },
+    {
+     "pad": "2",
+     "nets": [
+      "GND"
+     ],
+     "pcbNets": [
+      "GND"
+     ],
+     "pinNames": null,
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": true
+    }
+   ],
+   "geometry": {
+    "side": "top",
+    "positionMm": [
+     137.9,
+     -112.5
+    ],
+    "rotationDeg": 90.0,
+    "footprintName": "C_1210_3225Metric_Pad1.33x2.70mm_HandSolder",
+    "pads": [
+     {
+      "pad": "1",
+      "positionMm": [
+       137.9,
+       -114.0625
+      ],
+      "sizeMm": [
+       1.325,
+       2.7
+      ],
+      "shape": "roundrect",
+      "tht": false
+     },
+     {
+      "pad": "2",
+      "positionMm": [
+       137.9,
+       -110.9375
+      ],
+      "sizeMm": [
+       1.325,
+       2.7
+      ],
+      "shape": "roundrect",
+      "tht": false
+     }
+    ],
+    "courtyard": {
+     "minMm": [
+      -2.48,
+      -1.6
+     ],
+     "maxMm": [
+      2.48,
+      1.6
+     ]
+    },
+    "model": {
+     "path": "${KICAD9_3DMODEL_DIR}/Capacitor_SMD.3dshapes/C_1210_3225Metric.step",
+     "offsetMm": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "rotationDeg": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "scale": [
+      1.0,
+      1.0,
+      1.0
+     ]
+    }
+   }
+  },
+  {
+   "portKey": "/6c5f5d69-1c0b-4294-8a58-8db0ec7d5cdf/8e78b33f-2079-4865-84f9-63b902e9e778",
+   "memberKeys": [
+    "/6c5f5d69-1c0b-4294-8a58-8db0ec7d5cdf/8e78b33f-2079-4865-84f9-63b902e9e778"
+   ],
+   "reference": "D1",
+   "libId": "Device:D_Zener",
+   "footprint": "Diode_SMD:D_SOD-123",
+   "value": "MMSZ10T1G",
+   "mpn": "MMSZ10T1G",
+   "dnp": false,
+   "candidate": false,
+   "candidateReason": "none",
+   "pins": [
+    {
+     "pad": "1",
+     "nets": [
+      "Net-(D1-K)"
+     ],
+     "pcbNets": [
+      "Net-(D1-K)"
+     ],
+     "pinNames": [
+      "K"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "2",
+     "nets": [
+      "Net-(D1-A)"
+     ],
+     "pcbNets": [
+      "Net-(D1-A)"
+     ],
+     "pinNames": [
+      "A"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    }
+   ],
+   "geometry": {
+    "side": "top",
+    "positionMm": [
+     130.6,
+     -104.0
+    ],
+    "rotationDeg": 180.0,
+    "footprintName": "D_SOD-123",
+    "pads": [
+     {
+      "pad": "1",
+      "positionMm": [
+       132.25,
+       -104.0
+      ],
+      "sizeMm": [
+       0.9,
+       1.2
+      ],
+      "shape": "roundrect",
+      "tht": false
+     },
+     {
+      "pad": "2",
+      "positionMm": [
+       128.95,
+       -104.0
+      ],
+      "sizeMm": [
+       0.9,
+       1.2
+      ],
+      "shape": "roundrect",
+      "tht": false
+     }
+    ],
+    "courtyard": {
+     "minMm": [
+      -2.35,
+      -1.15
+     ],
+     "maxMm": [
+      2.35,
+      1.15
+     ]
+    },
+    "model": {
+     "path": "${KICAD9_3DMODEL_DIR}/Diode_SMD.3dshapes/D_SOD-123.step",
+     "offsetMm": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "rotationDeg": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "scale": [
+      1.0,
+      1.0,
+      1.0
+     ]
+    }
+   }
+  },
+  {
+   "portKey": "/6c5f5d69-1c0b-4294-8a58-8db0ec7d5cdf/db315d27-25ab-40a1-9123-f476e5b2d6dc",
+   "memberKeys": [
+    "/6c5f5d69-1c0b-4294-8a58-8db0ec7d5cdf/db315d27-25ab-40a1-9123-f476e5b2d6dc"
+   ],
+   "reference": "D2",
+   "libId": "Device:LED",
+   "footprint": "Diode_SMD:D_0603_1608Metric_Pad1.05x0.95mm_HandSolder",
+   "value": "LED_R",
+   "mpn": "SML-D12U1WT86",
+   "dnp": false,
+   "candidate": false,
+   "candidateReason": "none",
+   "pins": [
+    {
+     "pad": "1",
+     "nets": [
+      "Net-(D2-K)"
+     ],
+     "pcbNets": [
+      "Net-(D2-K)"
+     ],
+     "pinNames": [
+      "K"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "2",
+     "nets": [
+      "VCC_USB_PD_IN"
+     ],
+     "pcbNets": [
+      "VCC_USB_PD_IN"
+     ],
+     "pinNames": [
+      "A"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": true
+    }
+   ],
+   "geometry": {
+    "side": "top",
+    "positionMm": [
+     124.8,
+     -117.6
+    ],
+    "rotationDeg": 90.0,
+    "footprintName": "D_0603_1608Metric_Pad1.05x0.95mm_HandSolder",
+    "pads": [
+     {
+      "pad": "1",
+      "positionMm": [
+       124.8,
+       -118.475
+      ],
+      "sizeMm": [
+       1.05,
+       0.95
+      ],
+      "shape": "roundrect",
+      "tht": false
+     },
+     {
+      "pad": "2",
+      "positionMm": [
+       124.8,
+       -116.725
+      ],
+      "sizeMm": [
+       1.05,
+       0.95
+      ],
+      "shape": "roundrect",
+      "tht": false
+     }
+    ],
+    "courtyard": {
+     "minMm": [
+      -1.65,
+      -0.73
+     ],
+     "maxMm": [
+      1.65,
+      0.73
+     ]
+    },
+    "model": {
+     "path": "${KICAD9_3DMODEL_DIR}/Diode_SMD.3dshapes/D_0603_1608Metric.step",
+     "offsetMm": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "rotationDeg": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "scale": [
+      1.0,
+      1.0,
+      1.0
+     ]
+    }
+   }
+  },
+  {
+   "portKey": "/6c5f5d69-1c0b-4294-8a58-8db0ec7d5cdf/1a4f4c01-23d2-40e9-861d-b2a9d70a9903",
+   "memberKeys": [
+    "/6c5f5d69-1c0b-4294-8a58-8db0ec7d5cdf/1a4f4c01-23d2-40e9-861d-b2a9d70a9903"
+   ],
+   "reference": "D3",
+   "libId": "Device:LED",
+   "footprint": "Diode_SMD:D_0603_1608Metric_Pad1.05x0.95mm_HandSolder",
+   "value": "LED_R",
+   "mpn": "SML-D12U1WT86",
+   "dnp": false,
+   "candidate": false,
+   "candidateReason": "none",
+   "pins": [
+    {
+     "pad": "1",
+     "nets": [
+      "Net-(D3-K)"
+     ],
+     "pcbNets": [
+      "Net-(D3-K)"
+     ],
+     "pinNames": [
+      "K"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "2",
+     "nets": [
+      "VCC_USB_SAFE_5V"
+     ],
+     "pcbNets": [
+      "VCC_USB_SAFE_5V"
+     ],
+     "pinNames": [
+      "A"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": true
+    }
+   ],
+   "geometry": {
+    "side": "top",
+    "positionMm": [
+     135.2,
+     -117.2
+    ],
+    "rotationDeg": 90.0,
+    "footprintName": "D_0603_1608Metric_Pad1.05x0.95mm_HandSolder",
+    "pads": [
+     {
+      "pad": "1",
+      "positionMm": [
+       135.2,
+       -118.075
+      ],
+      "sizeMm": [
+       1.05,
+       0.95
+      ],
+      "shape": "roundrect",
+      "tht": false
+     },
+     {
+      "pad": "2",
+      "positionMm": [
+       135.2,
+       -116.325
+      ],
+      "sizeMm": [
+       1.05,
+       0.95
+      ],
+      "shape": "roundrect",
+      "tht": false
+     }
+    ],
+    "courtyard": {
+     "minMm": [
+      -1.65,
+      -0.73
+     ],
+     "maxMm": [
+      1.65,
+      0.73
+     ]
+    },
+    "model": {
+     "path": "${KICAD9_3DMODEL_DIR}/Diode_SMD.3dshapes/D_0603_1608Metric.step",
+     "offsetMm": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "rotationDeg": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "scale": [
+      1.0,
+      1.0,
+      1.0
+     ]
+    }
+   }
+  },
+  {
+   "portKey": "/6c5f5d69-1c0b-4294-8a58-8db0ec7d5cdf/f5ea4711-90c5-43d7-976b-58c72edb2cca",
+   "memberKeys": [
+    "/6c5f5d69-1c0b-4294-8a58-8db0ec7d5cdf/f5ea4711-90c5-43d7-976b-58c72edb2cca"
+   ],
+   "reference": "J1",
+   "libId": "Pixxel_Connectors:USB4056-03-A",
+   "footprint": "Pixxel_Connectors:USB4056-03-A",
+   "value": "USB4056-03-A_REVA2",
+   "mpn": "USB4056-03-A",
+   "dnp": false,
+   "candidate": true,
+   "candidateReason": "refdes",
+   "pins": [
+    {
+     "pad": "A1",
+     "nets": [
+      "GND"
+     ],
+     "pcbNets": [
+      "GND"
+     ],
+     "pinNames": [
+      "GND_A"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": true
+    },
+    {
+     "pad": "A2",
+     "nets": [],
+     "pcbNets": [],
+     "pinNames": [
+      "SSTXP1"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "A3",
+     "nets": [],
+     "pcbNets": [],
+     "pinNames": [
+      "SSTXN1"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "A4",
+     "nets": [
+      "VCC_USB_PD_IN"
+     ],
+     "pcbNets": [
+      "VCC_USB_PD_IN"
+     ],
+     "pinNames": [
+      "VBUS_A"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": true
+    },
+    {
+     "pad": "A5",
+     "nets": [
+      "Net-(J1-CC1)"
+     ],
+     "pcbNets": [
+      "Net-(J1-CC1)"
+     ],
+     "pinNames": [
+      "CC1"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "A6",
+     "nets": [],
+     "pcbNets": [],
+     "pinNames": [
+      "DP1"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "A7",
+     "nets": [],
+     "pcbNets": [],
+     "pinNames": [
+      "DN1"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "A8",
+     "nets": [],
+     "pcbNets": [],
+     "pinNames": [
+      "SBU1"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "A9",
+     "nets": [
+      "VCC_USB_PD_IN"
+     ],
+     "pcbNets": [
+      "VCC_USB_PD_IN"
+     ],
+     "pinNames": [
+      "VBUS_A"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": true
+    },
+    {
+     "pad": "A10",
+     "nets": [],
+     "pcbNets": [],
+     "pinNames": [
+      "SSRXN2"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "A11",
+     "nets": [],
+     "pcbNets": [],
+     "pinNames": [
+      "SSRXP2"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "A12",
+     "nets": [
+      "GND"
+     ],
+     "pcbNets": [
+      "GND"
+     ],
+     "pinNames": [
+      "GND_A"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": true
+    },
+    {
+     "pad": "B1",
+     "nets": [
+      "GND"
+     ],
+     "pcbNets": [
+      "GND"
+     ],
+     "pinNames": [
+      "GND_B"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": true
+    },
+    {
+     "pad": "B2",
+     "nets": [],
+     "pcbNets": [],
+     "pinNames": [
+      "SSTXP2"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "B3",
+     "nets": [],
+     "pcbNets": [],
+     "pinNames": [
+      "SSTXN2"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "B4",
+     "nets": [
+      "VCC_USB_PD_IN"
+     ],
+     "pcbNets": [
+      "VCC_USB_PD_IN"
+     ],
+     "pinNames": [
+      "VBUS_B"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": true
+    },
+    {
+     "pad": "B5",
+     "nets": [
+      "Net-(J1-CC2)"
+     ],
+     "pcbNets": [
+      "Net-(J1-CC2)"
+     ],
+     "pinNames": [
+      "CC2"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "B6",
+     "nets": [],
+     "pcbNets": [],
+     "pinNames": [
+      "DP2"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "B7",
+     "nets": [],
+     "pcbNets": [],
+     "pinNames": [
+      "DN2"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "B8",
+     "nets": [],
+     "pcbNets": [],
+     "pinNames": [
+      "SBU2"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "B9",
+     "nets": [
+      "VCC_USB_PD_IN"
+     ],
+     "pcbNets": [
+      "VCC_USB_PD_IN"
+     ],
+     "pinNames": [
+      "VBUS_B"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": true
+    },
+    {
+     "pad": "B10",
+     "nets": [],
+     "pcbNets": [],
+     "pinNames": [
+      "SSRXN1"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "B11",
+     "nets": [],
+     "pcbNets": [],
+     "pinNames": [
+      "SSRXP1"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "B12",
+     "nets": [
+      "GND"
+     ],
+     "pcbNets": [
+      "GND"
+     ],
+     "pinNames": [
+      "GND_B"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": true
+    },
+    {
+     "pad": "S1",
+     "nets": [
+      "GND"
+     ],
+     "pcbNets": [
+      "GND"
+     ],
+     "pinNames": [
+      "SHELL_GND"
+     ],
+     "pinTypes": [
+      "unspecified"
+     ],
+     "powerNet": true
+    },
+    {
+     "pad": "S2",
+     "nets": [
+      "GND"
+     ],
+     "pcbNets": [
+      "GND"
+     ],
+     "pinNames": [
+      "SHELL_GND"
+     ],
+     "pinTypes": [
+      "unspecified"
+     ],
+     "powerNet": true
+    },
+    {
+     "pad": "S3",
+     "nets": [
+      "GND"
+     ],
+     "pcbNets": [
+      "GND"
+     ],
+     "pinNames": [
+      "SHELL_GND"
+     ],
+     "pinTypes": [
+      "unspecified"
+     ],
+     "powerNet": true
+    },
+    {
+     "pad": "S4",
+     "nets": [
+      "GND"
+     ],
+     "pcbNets": [
+      "GND"
+     ],
+     "pinNames": [
+      "SHELL_GND"
+     ],
+     "pinTypes": [
+      "unspecified"
+     ],
+     "powerNet": true
+    }
+   ],
+   "geometry": {
+    "side": "top",
+    "positionMm": [
+     110.1025,
+     -114.81
+    ],
+    "rotationDeg": -90.0,
+    "footprintName": "USB4056-03-A",
+    "pads": [
+     {
+      "pad": "",
+      "positionMm": [
+       115.7425,
+       -111.21
+      ],
+      "sizeMm": [
+       0.65,
+       0.65
+      ],
+      "shape": "circle",
+      "tht": true
+     },
+     {
+      "pad": "",
+      "positionMm": [
+       115.7425,
+       -118.41
+      ],
+      "sizeMm": [
+       0.95,
+       0.65
+      ],
+      "shape": "oval",
+      "tht": true
+     },
+     {
+      "pad": "A1",
+      "positionMm": [
+       116.3025,
+       -112.06
+      ],
+      "sizeMm": [
+       0.3,
+       0.9
+      ],
+      "shape": "rect",
+      "tht": false
+     },
+     {
+      "pad": "A2",
+      "positionMm": [
+       116.3025,
+       -112.56
+      ],
+      "sizeMm": [
+       0.3,
+       0.9
+      ],
+      "shape": "rect",
+      "tht": false
+     },
+     {
+      "pad": "A3",
+      "positionMm": [
+       116.3025,
+       -113.06
+      ],
+      "sizeMm": [
+       0.3,
+       0.9
+      ],
+      "shape": "rect",
+      "tht": false
+     },
+     {
+      "pad": "A4",
+      "positionMm": [
+       116.3025,
+       -113.56
+      ],
+      "sizeMm": [
+       0.3,
+       0.9
+      ],
+      "shape": "rect",
+      "tht": false
+     },
+     {
+      "pad": "A5",
+      "positionMm": [
+       116.3025,
+       -114.06
+      ],
+      "sizeMm": [
+       0.3,
+       0.9
+      ],
+      "shape": "rect",
+      "tht": false
+     },
+     {
+      "pad": "A6",
+      "positionMm": [
+       116.3025,
+       -114.56
+      ],
+      "sizeMm": [
+       0.3,
+       0.9
+      ],
+      "shape": "rect",
+      "tht": false
+     },
+     {
+      "pad": "A7",
+      "positionMm": [
+       116.3025,
+       -115.06
+      ],
+      "sizeMm": [
+       0.3,
+       0.9
+      ],
+      "shape": "rect",
+      "tht": false
+     },
+     {
+      "pad": "A8",
+      "positionMm": [
+       116.3025,
+       -115.56
+      ],
+      "sizeMm": [
+       0.3,
+       0.9
+      ],
+      "shape": "rect",
+      "tht": false
+     },
+     {
+      "pad": "A9",
+      "positionMm": [
+       116.3025,
+       -116.06
+      ],
+      "sizeMm": [
+       0.3,
+       0.9
+      ],
+      "shape": "rect",
+      "tht": false
+     },
+     {
+      "pad": "A10",
+      "positionMm": [
+       116.3025,
+       -116.56
+      ],
+      "sizeMm": [
+       0.3,
+       0.9
+      ],
+      "shape": "rect",
+      "tht": false
+     },
+     {
+      "pad": "A11",
+      "positionMm": [
+       116.3025,
+       -117.06
+      ],
+      "sizeMm": [
+       0.3,
+       0.9
+      ],
+      "shape": "rect",
+      "tht": false
+     },
+     {
+      "pad": "A12",
+      "positionMm": [
+       116.3025,
+       -117.56
+      ],
+      "sizeMm": [
+       0.3,
+       0.9
+      ],
+      "shape": "rect",
+      "tht": false
+     },
+     {
+      "pad": "B1",
+      "positionMm": [
+       115.0925,
+       -117.61
+      ],
+      "sizeMm": [
+       0.6,
+       0.6
+      ],
+      "shape": "circle",
+      "tht": true
+     },
+     {
+      "pad": "B2",
+      "positionMm": [
+       114.3925,
+       -117.21
+      ],
+      "sizeMm": [
+       0.6,
+       0.6
+      ],
+      "shape": "circle",
+      "tht": true
+     },
+     {
+      "pad": "B3",
+      "positionMm": [
+       114.3925,
+       -116.41
+      ],
+      "sizeMm": [
+       0.6,
+       0.6
+      ],
+      "shape": "circle",
+      "tht": true
+     },
+     {
+      "pad": "B4",
+      "positionMm": [
+       115.0925,
+       -116.01
+      ],
+      "sizeMm": [
+       0.6,
+       0.6
+      ],
+      "shape": "circle",
+      "tht": true
+     },
+     {
+      "pad": "B5",
+      "positionMm": [
+       114.3925,
+       -115.61
+      ],
+      "sizeMm": [
+       0.6,
+       0.6
+      ],
+      "shape": "circle",
+      "tht": true
+     },
+     {
+      "pad": "B6",
+      "positionMm": [
+       115.0925,
+       -115.21
+      ],
+      "sizeMm": [
+       0.6,
+       0.6
+      ],
+      "shape": "circle",
+      "tht": true
+     },
+     {
+      "pad": "B7",
+      "positionMm": [
+       115.0925,
+       -114.41
+      ],
+      "sizeMm": [
+       0.6,
+       0.6
+      ],
+      "shape": "circle",
+      "tht": true
+     },
+     {
+      "pad": "B8",
+      "positionMm": [
+       114.3925,
+       -114.01
+      ],
+      "sizeMm": [
+       0.6,
+       0.6
+      ],
+      "shape": "circle",
+      "tht": true
+     },
+     {
+      "pad": "B9",
+      "positionMm": [
+       115.0925,
+       -113.61
+      ],
+      "sizeMm": [
+       0.6,
+       0.6
+      ],
+      "shape": "circle",
+      "tht": true
+     },
+     {
+      "pad": "B10",
+      "positionMm": [
+       114.3925,
+       -113.21
+      ],
+      "sizeMm": [
+       0.6,
+       0.6
+      ],
+      "shape": "circle",
+      "tht": true
+     },
+     {
+      "pad": "B11",
+      "positionMm": [
+       114.3925,
+       -112.41
+      ],
+      "sizeMm": [
+       0.6,
+       0.6
+      ],
+      "shape": "circle",
+      "tht": true
+     },
+     {
+      "pad": "B12",
+      "positionMm": [
+       115.0925,
+       -112.01
+      ],
+      "sizeMm": [
+       0.6,
+       0.6
+      ],
+      "shape": "circle",
+      "tht": true
+     },
+     {
+      "pad": "S1",
+      "positionMm": [
+       114.5025,
+       -110.68
+      ],
+      "sizeMm": [
+       0.8,
+       1.4
+      ],
+      "shape": "oval",
+      "tht": true
+     },
+     {
+      "pad": "S2",
+      "positionMm": [
+       114.5025,
+       -118.94
+      ],
+      "sizeMm": [
+       0.8,
+       1.4
+      ],
+      "shape": "oval",
+      "tht": true
+     },
+     {
+      "pad": "S3",
+      "positionMm": [
+       110.1025,
+       -110.32
+      ],
+      "sizeMm": [
+       0.8,
+       1.4
+      ],
+      "shape": "oval",
+      "tht": true
+     },
+     {
+      "pad": "S4",
+      "positionMm": [
+       110.1025,
+       -119.3
+      ],
+      "sizeMm": [
+       0.8,
+       1.4
+      ],
+      "shape": "oval",
+      "tht": true
+     }
+    ],
+    "courtyard": {
+     "minMm": [
+      -5.175,
+      -2.78
+     ],
+     "maxMm": [
+      5.175,
+      7.59
+     ]
+    },
+    "model": {
+     "path": "${KIPRJMOD}/packages3D/USB4056-03-A_REVA2.step",
+     "offsetMm": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "rotationDeg": [
+      -90.0,
+      0.0,
+      0.0
+     ],
+     "scale": [
+      1.0,
+      1.0,
+      1.0
+     ]
+    }
+   }
+  },
+  {
+   "portKey": "/6c5f5d69-1c0b-4294-8a58-8db0ec7d5cdf/5eb27ce9-6d8e-40a9-9f6d-8f14c5f68638/b15171d3-0df1-46fc-8e4c-94f37f448240",
+   "memberKeys": [
+    "/6c5f5d69-1c0b-4294-8a58-8db0ec7d5cdf/5eb27ce9-6d8e-40a9-9f6d-8f14c5f68638/b15171d3-0df1-46fc-8e4c-94f37f448240"
+   ],
+   "reference": "J2",
+   "libId": "Pixxel_Connectors:796638-2",
+   "footprint": "Pixxel_Connectors:796638-2",
+   "value": "796638-2",
+   "mpn": null,
+   "dnp": false,
+   "candidate": true,
+   "candidateReason": "refdes",
+   "pins": [
+    {
+     "pad": "1",
+     "nets": [
+      "VCC_USB_PD_OUT"
+     ],
+     "pcbNets": [
+      "VCC_USB_PD_OUT"
+     ],
+     "pinNames": [
+      "1"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": true
+    },
+    {
+     "pad": "2",
+     "nets": [
+      "GND"
+     ],
+     "pcbNets": [
+      "GND"
+     ],
+     "pinNames": [
+      "2"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": true
+    }
+   ],
+   "geometry": {
+    "side": "top",
+    "positionMm": [
+     142.369,
+     -117.35
+    ],
+    "rotationDeg": 90.0,
+    "footprintName": "796638-2",
+    "pads": [
+     {
+      "pad": "1",
+      "positionMm": [
+       142.369,
+       -117.35
+      ],
+      "sizeMm": [
+       2.1,
+       2.1
+      ],
+      "shape": "rect",
+      "tht": true
+     },
+     {
+      "pad": "2",
+      "positionMm": [
+       142.369,
+       -112.27
+      ],
+      "sizeMm": [
+       2.1,
+       2.1
+      ],
+      "shape": "circle",
+      "tht": true
+     }
+    ],
+    "courtyard": {
+     "minMm": [
+      -3.7,
+      -10.25
+     ],
+     "maxMm": [
+      8.78,
+      2.25
+     ]
+    },
+    "model": {
+     "path": "${KIPRJMOD}/packages3D/796638-2.step",
+     "offsetMm": [
+      2.31,
+      -10.0,
+      4.0
+     ],
+     "rotationDeg": [
+      -90.0,
+      0.0,
+      0.0
+     ],
+     "scale": [
+      1.0,
+      1.0,
+      1.0
+     ]
+    }
+   }
+  },
+  {
+   "portKey": "/6c5f5d69-1c0b-4294-8a58-8db0ec7d5cdf/e0bf6507-9d4b-4254-ac7a-4a57bf425153",
+   "memberKeys": [
+    "/6c5f5d69-1c0b-4294-8a58-8db0ec7d5cdf/4efeecca-612f-4509-8f45-9e4161e1b425",
+    "/6c5f5d69-1c0b-4294-8a58-8db0ec7d5cdf/e0bf6507-9d4b-4254-ac7a-4a57bf425153"
+   ],
+   "reference": "Q1",
+   "libId": "Pixxel_MOSFETs:IRF9358TRPBF",
+   "footprint": "Pixxel_MOSFETs:IRF9358TRPBFSOIC127P600X175-8N",
+   "value": "IRF9358TRPBF",
+   "mpn": "IRF9358TRPBF",
+   "dnp": false,
+   "candidate": false,
+   "candidateReason": "none",
+   "pins": [
+    {
+     "pad": "1",
+     "nets": [
+      "Net-(D1-K)"
+     ],
+     "pcbNets": [
+      "Net-(D1-K)"
+     ],
+     "pinNames": [
+      "S2"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "2",
+     "nets": [
+      "Net-(D1-A)"
+     ],
+     "pcbNets": [
+      "Net-(D1-A)"
+     ],
+     "pinNames": [
+      "G2"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "3",
+     "nets": [
+      "Net-(D1-K)"
+     ],
+     "pcbNets": [
+      "Net-(D1-K)"
+     ],
+     "pinNames": [
+      "S1"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "4",
+     "nets": [
+      "Net-(D1-A)"
+     ],
+     "pcbNets": [
+      "Net-(D1-A)"
+     ],
+     "pinNames": [
+      "G1"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "5",
+     "nets": [
+      "VCC_USB_PD_IN"
+     ],
+     "pcbNets": [
+      "VCC_USB_PD_IN"
+     ],
+     "pinNames": [
+      "D1_1"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": true
+    },
+    {
+     "pad": "6",
+     "nets": [
+      "VCC_USB_PD_IN"
+     ],
+     "pcbNets": [
+      "VCC_USB_PD_IN"
+     ],
+     "pinNames": [
+      "D1_2"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": true
+    },
+    {
+     "pad": "7",
+     "nets": [
+      "VCC_USB_PD_OUT"
+     ],
+     "pcbNets": [
+      "VCC_USB_PD_OUT"
+     ],
+     "pinNames": [
+      "D2_1"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": true
+    },
+    {
+     "pad": "8",
+     "nets": [
+      "VCC_USB_PD_OUT"
+     ],
+     "pcbNets": [
+      "VCC_USB_PD_OUT"
+     ],
+     "pinNames": [
+      "D2_2"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": true
+    }
+   ],
+   "geometry": {
+    "side": "top",
+    "positionMm": [
+     130.7,
+     -111.3
+    ],
+    "rotationDeg": -90.0,
+    "footprintName": "IRF9358TRPBFSOIC127P600X175-8N",
+    "pads": [
+     {
+      "pad": "1",
+      "positionMm": [
+       132.605,
+       -108.588
+      ],
+      "sizeMm": [
+       0.7,
+       1.525
+      ],
+      "shape": "rect",
+      "tht": false
+     },
+     {
+      "pad": "2",
+      "positionMm": [
+       131.335,
+       -108.588
+      ],
+      "sizeMm": [
+       0.7,
+       1.525
+      ],
+      "shape": "rect",
+      "tht": false
+     },
+     {
+      "pad": "3",
+      "positionMm": [
+       130.065,
+       -108.588
+      ],
+      "sizeMm": [
+       0.7,
+       1.525
+      ],
+      "shape": "rect",
+      "tht": false
+     },
+     {
+      "pad": "4",
+      "positionMm": [
+       128.795,
+       -108.588
+      ],
+      "sizeMm": [
+       0.7,
+       1.525
+      ],
+      "shape": "rect",
+      "tht": false
+     },
+     {
+      "pad": "5",
+      "positionMm": [
+       128.795,
+       -114.012
+      ],
+      "sizeMm": [
+       0.7,
+       1.525
+      ],
+      "shape": "rect",
+      "tht": false
+     },
+     {
+      "pad": "6",
+      "positionMm": [
+       130.065,
+       -114.012
+      ],
+      "sizeMm": [
+       0.7,
+       1.525
+      ],
+      "shape": "rect",
+      "tht": false
+     },
+     {
+      "pad": "7",
+      "positionMm": [
+       131.335,
+       -114.012
+      ],
+      "sizeMm": [
+       0.7,
+       1.525
+      ],
+      "shape": "rect",
+      "tht": false
+     },
+     {
+      "pad": "8",
+      "positionMm": [
+       132.605,
+       -114.012
+      ],
+      "sizeMm": [
+       0.7,
+       1.525
+      ],
+      "shape": "rect",
+      "tht": false
+     }
+    ],
+    "courtyard": {
+     "minMm": [
+      -3.725,
+      -2.75
+     ],
+     "maxMm": [
+      3.725,
+      2.75
+     ]
+    },
+    "model": {
+     "path": "kicad-embed://IRF9358TRPBF.stp",
+     "offsetMm": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "rotationDeg": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "scale": [
+      1.0,
+      1.0,
+      1.0
+     ]
+    }
+   }
+  },
+  {
+   "portKey": "/6c5f5d69-1c0b-4294-8a58-8db0ec7d5cdf/3c2a4914-84ad-471e-8e8f-4f983d3057b9",
+   "memberKeys": [
+    "/6c5f5d69-1c0b-4294-8a58-8db0ec7d5cdf/3c2a4914-84ad-471e-8e8f-4f983d3057b9"
+   ],
+   "reference": "Q2",
+   "libId": "Transistor_FET:2N7002",
+   "footprint": "Package_TO_SOT_SMD:SOT-23",
+   "value": "2N7002",
+   "mpn": "NDS7002A",
+   "dnp": false,
+   "candidate": false,
+   "candidateReason": "none",
+   "pins": [
+    {
+     "pad": "1",
+     "nets": [
+      "Net-(Q2-G)"
+     ],
+     "pcbNets": [
+      "Net-(Q2-G)"
+     ],
+     "pinNames": [
+      "G"
+     ],
+     "pinTypes": [
+      "input"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "2",
+     "nets": [
+      "GND"
+     ],
+     "pcbNets": [
+      "GND"
+     ],
+     "pinNames": [
+      "S"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": true
+    },
+    {
+     "pad": "3",
+     "nets": [
+      "Net-(Q2-D)"
+     ],
+     "pcbNets": [
+      "Net-(Q2-D)"
+     ],
+     "pinNames": [
+      "D"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    }
+   ],
+   "geometry": {
+    "side": "top",
+    "positionMm": [
+     122.1,
+     -120.2
+    ],
+    "rotationDeg": 90.0,
+    "footprintName": "SOT-23",
+    "pads": [
+     {
+      "pad": "1",
+      "positionMm": [
+       121.15,
+       -121.1375
+      ],
+      "sizeMm": [
+       1.475,
+       0.6
+      ],
+      "shape": "roundrect",
+      "tht": false
+     },
+     {
+      "pad": "2",
+      "positionMm": [
+       123.05,
+       -121.1375
+      ],
+      "sizeMm": [
+       1.475,
+       0.6
+      ],
+      "shape": "roundrect",
+      "tht": false
+     },
+     {
+      "pad": "3",
+      "positionMm": [
+       122.1,
+       -119.2625
+      ],
+      "sizeMm": [
+       1.475,
+       0.6
+      ],
+      "shape": "roundrect",
+      "tht": false
+     }
+    ],
+    "courtyard": {
+     "minMm": [
+      -1.93,
+      -1.7
+     ],
+     "maxMm": [
+      1.93,
+      1.7
+     ]
+    },
+    "model": {
+     "path": "${KICAD9_3DMODEL_DIR}/Package_TO_SOT_SMD.3dshapes/SOT-23.step",
+     "offsetMm": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "rotationDeg": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "scale": [
+      1.0,
+      1.0,
+      1.0
+     ]
+    }
+   }
+  },
+  {
+   "portKey": "/6c5f5d69-1c0b-4294-8a58-8db0ec7d5cdf/482e2c4e-3e2f-429a-b4b8-2e30d99878e8",
+   "memberKeys": [
+    "/6c5f5d69-1c0b-4294-8a58-8db0ec7d5cdf/482e2c4e-3e2f-429a-b4b8-2e30d99878e8",
+    "/6c5f5d69-1c0b-4294-8a58-8db0ec7d5cdf/d6fa79e7-6d56-4d47-b6f6-1e0a80500473"
+   ],
+   "reference": "Q3",
+   "libId": "Pixxel_MOSFETs:BSL308PE",
+   "footprint": "Pixxel_MOSFETs:BSL308PE-SOT95P250X110-6N",
+   "value": "BSL308PE",
+   "mpn": "BSL308PE",
+   "dnp": false,
+   "candidate": false,
+   "candidateReason": "none",
+   "pins": [
+    {
+     "pad": "1",
+     "nets": [
+      "Net-(Q3A-G1)"
+     ],
+     "pcbNets": [
+      "Net-(Q3A-G1)"
+     ],
+     "pinNames": [
+      "G1"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "2",
+     "nets": [
+      "Net-(Q3A-D1)"
+     ],
+     "pcbNets": [
+      "Net-(Q3A-D1)"
+     ],
+     "pinNames": [
+      "S2"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "3",
+     "nets": [
+      "Net-(Q3A-G1)"
+     ],
+     "pcbNets": [
+      "Net-(Q3A-G1)"
+     ],
+     "pinNames": [
+      "G2"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "4",
+     "nets": [
+      "VCC_USB_SAFE_5V"
+     ],
+     "pcbNets": [
+      "VCC_USB_SAFE_5V"
+     ],
+     "pinNames": [
+      "D2"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": true
+    },
+    {
+     "pad": "5",
+     "nets": [
+      "VCC_USB_PD_IN"
+     ],
+     "pcbNets": [
+      "VCC_USB_PD_IN"
+     ],
+     "pinNames": [
+      "S1"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": true
+    },
+    {
+     "pad": "6",
+     "nets": [
+      "Net-(Q3A-D1)"
+     ],
+     "pcbNets": [
+      "Net-(Q3A-D1)"
+     ],
+     "pinNames": [
+      "D1"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    }
+   ],
+   "geometry": {
+    "side": "top",
+    "positionMm": [
+     130.25,
+     -117.4
+    ],
+    "rotationDeg": 90.0,
+    "footprintName": "BSL308PE-SOT95P250X110-6N",
+    "pads": [
+     {
+      "pad": "1",
+      "positionMm": [
+       129.3,
+       -118.6
+      ],
+      "sizeMm": [
+       0.55,
+       0.9
+      ],
+      "shape": "rect",
+      "tht": false
+     },
+     {
+      "pad": "2",
+      "positionMm": [
+       130.25,
+       -118.6
+      ],
+      "sizeMm": [
+       0.55,
+       0.9
+      ],
+      "shape": "rect",
+      "tht": false
+     },
+     {
+      "pad": "3",
+      "positionMm": [
+       131.2,
+       -118.6
+      ],
+      "sizeMm": [
+       0.55,
+       0.9
+      ],
+      "shape": "rect",
+      "tht": false
+     },
+     {
+      "pad": "4",
+      "positionMm": [
+       131.2,
+       -116.2
+      ],
+      "sizeMm": [
+       0.55,
+       0.9
+      ],
+      "shape": "rect",
+      "tht": false
+     },
+     {
+      "pad": "5",
+      "positionMm": [
+       130.25,
+       -116.2
+      ],
+      "sizeMm": [
+       0.55,
+       0.9
+      ],
+      "shape": "rect",
+      "tht": false
+     },
+     {
+      "pad": "6",
+      "positionMm": [
+       129.3,
+       -116.2
+      ],
+      "sizeMm": [
+       0.55,
+       0.9
+      ],
+      "shape": "rect",
+      "tht": false
+     }
+    ],
+    "courtyard": {
+     "minMm": [
+      -1.9,
+      -1.8
+     ],
+     "maxMm": [
+      1.9,
+      1.8
+     ]
+    },
+    "model": {
+     "path": "kicad-embed://BSL308PE.stp",
+     "offsetMm": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "rotationDeg": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "scale": [
+      1.0,
+      1.0,
+      1.0
+     ]
+    }
+   }
+  },
+  {
+   "portKey": "/6c5f5d69-1c0b-4294-8a58-8db0ec7d5cdf/d3f1784a-6bbd-47cb-804e-67e70ef9bd3e",
+   "memberKeys": [
+    "/6c5f5d69-1c0b-4294-8a58-8db0ec7d5cdf/d3f1784a-6bbd-47cb-804e-67e70ef9bd3e"
+   ],
+   "reference": "R1",
+   "libId": "Device:R_Small_US",
+   "footprint": "Resistor_SMD:R_0603_1608Metric_Pad0.98x0.95mm_HandSolder",
+   "value": "5.1k_0.1W_0603",
+   "mpn": "RC0603FR-075K1L",
+   "dnp": false,
+   "candidate": false,
+   "candidateReason": "none",
+   "pins": [
+    {
+     "pad": "1",
+     "nets": [
+      "Net-(J1-CC2)"
+     ],
+     "pcbNets": [
+      "Net-(J1-CC2)"
+     ],
+     "pinNames": null,
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "2",
+     "nets": [
+      "GND"
+     ],
+     "pcbNets": [
+      "GND"
+     ],
+     "pinNames": null,
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": true
+    }
+   ],
+   "geometry": {
+    "side": "top",
+    "positionMm": [
+     113.7,
+     -108.4
+    ],
+    "rotationDeg": 0.0,
+    "footprintName": "R_0603_1608Metric_Pad0.98x0.95mm_HandSolder",
+    "pads": [
+     {
+      "pad": "1",
+      "positionMm": [
+       112.7875,
+       -108.4
+      ],
+      "sizeMm": [
+       0.975,
+       0.95
+      ],
+      "shape": "roundrect",
+      "tht": false
+     },
+     {
+      "pad": "2",
+      "positionMm": [
+       114.6125,
+       -108.4
+      ],
+      "sizeMm": [
+       0.975,
+       0.95
+      ],
+      "shape": "roundrect",
+      "tht": false
+     }
+    ],
+    "courtyard": {
+     "minMm": [
+      -1.65,
+      -0.73
+     ],
+     "maxMm": [
+      1.65,
+      0.73
+     ]
+    },
+    "model": {
+     "path": "${KICAD9_3DMODEL_DIR}/Resistor_SMD.3dshapes/R_0603_1608Metric.step",
+     "offsetMm": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "rotationDeg": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "scale": [
+      1.0,
+      1.0,
+      1.0
+     ]
+    }
+   }
+  },
+  {
+   "portKey": "/6c5f5d69-1c0b-4294-8a58-8db0ec7d5cdf/ce1b5395-05f1-45e2-a060-3d70966a6e2e",
+   "memberKeys": [
+    "/6c5f5d69-1c0b-4294-8a58-8db0ec7d5cdf/ce1b5395-05f1-45e2-a060-3d70966a6e2e"
+   ],
+   "reference": "R2",
+   "libId": "Device:R_Small_US",
+   "footprint": "Resistor_SMD:R_0603_1608Metric_Pad0.98x0.95mm_HandSolder",
+   "value": "5.1k_0.1W_0603",
+   "mpn": "RC0603FR-075K1L",
+   "dnp": false,
+   "candidate": false,
+   "candidateReason": "none",
+   "pins": [
+    {
+     "pad": "1",
+     "nets": [
+      "Net-(J1-CC1)"
+     ],
+     "pcbNets": [
+      "Net-(J1-CC1)"
+     ],
+     "pinNames": null,
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "2",
+     "nets": [
+      "GND"
+     ],
+     "pcbNets": [
+      "GND"
+     ],
+     "pinNames": null,
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": true
+    }
+   ],
+   "geometry": {
+    "side": "top",
+    "positionMm": [
+     118.8,
+     -115.3
+    ],
+    "rotationDeg": -90.0,
+    "footprintName": "R_0603_1608Metric_Pad0.98x0.95mm_HandSolder",
+    "pads": [
+     {
+      "pad": "1",
+      "positionMm": [
+       118.8,
+       -114.3875
+      ],
+      "sizeMm": [
+       0.975,
+       0.95
+      ],
+      "shape": "roundrect",
+      "tht": false
+     },
+     {
+      "pad": "2",
+      "positionMm": [
+       118.8,
+       -116.2125
+      ],
+      "sizeMm": [
+       0.975,
+       0.95
+      ],
+      "shape": "roundrect",
+      "tht": false
+     }
+    ],
+    "courtyard": {
+     "minMm": [
+      -1.65,
+      -0.73
+     ],
+     "maxMm": [
+      1.65,
+      0.73
+     ]
+    },
+    "model": {
+     "path": "${KICAD9_3DMODEL_DIR}/Resistor_SMD.3dshapes/R_0603_1608Metric.step",
+     "offsetMm": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "rotationDeg": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "scale": [
+      1.0,
+      1.0,
+      1.0
+     ]
+    }
+   }
+  },
+  {
+   "portKey": "/6c5f5d69-1c0b-4294-8a58-8db0ec7d5cdf/0e347ae0-f759-43b2-ab1e-23e64609a182",
+   "memberKeys": [
+    "/6c5f5d69-1c0b-4294-8a58-8db0ec7d5cdf/0e347ae0-f759-43b2-ab1e-23e64609a182"
+   ],
+   "reference": "R3",
+   "libId": "Device:R_Small_US",
+   "footprint": "Resistor_SMD:R_0603_1608Metric_Pad0.98x0.95mm_HandSolder",
+   "value": "5.1k_0.1W_0603",
+   "mpn": "RC0603FR-075K1L",
+   "dnp": false,
+   "candidate": false,
+   "candidateReason": "none",
+   "pins": [
+    {
+     "pad": "1",
+     "nets": [
+      "Net-(U1-FLIP)"
+     ],
+     "pcbNets": [
+      "Net-(U1-FLIP)"
+     ],
+     "pinNames": null,
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "2",
+     "nets": [
+      "V3P3"
+     ],
+     "pcbNets": [
+      "V3P3"
+     ],
+     "pinNames": null,
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": true
+    }
+   ],
+   "geometry": {
+    "side": "top",
+    "positionMm": [
+     113.7,
+     -106.6
+    ],
+    "rotationDeg": 180.0,
+    "footprintName": "R_0603_1608Metric_Pad0.98x0.95mm_HandSolder",
+    "pads": [
+     {
+      "pad": "1",
+      "positionMm": [
+       114.6125,
+       -106.6
+      ],
+      "sizeMm": [
+       0.975,
+       0.95
+      ],
+      "shape": "roundrect",
+      "tht": false
+     },
+     {
+      "pad": "2",
+      "positionMm": [
+       112.7875,
+       -106.6
+      ],
+      "sizeMm": [
+       0.975,
+       0.95
+      ],
+      "shape": "roundrect",
+      "tht": false
+     }
+    ],
+    "courtyard": {
+     "minMm": [
+      -1.65,
+      -0.73
+     ],
+     "maxMm": [
+      1.65,
+      0.73
+     ]
+    },
+    "model": {
+     "path": "${KICAD9_3DMODEL_DIR}/Resistor_SMD.3dshapes/R_0603_1608Metric.step",
+     "offsetMm": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "rotationDeg": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "scale": [
+      1.0,
+      1.0,
+      1.0
+     ]
+    }
+   }
+  },
+  {
+   "portKey": "/6c5f5d69-1c0b-4294-8a58-8db0ec7d5cdf/4709d060-f397-4439-942d-8d9067332276",
+   "memberKeys": [
+    "/6c5f5d69-1c0b-4294-8a58-8db0ec7d5cdf/4709d060-f397-4439-942d-8d9067332276"
+   ],
+   "reference": "R4",
+   "libId": "Device:R_Small_US",
+   "footprint": "Resistor_SMD:R_0603_1608Metric_Pad0.98x0.95mm_HandSolder",
+   "value": "10k_0.1W_0603",
+   "mpn": "RC0603FR-0710KL",
+   "dnp": false,
+   "candidate": false,
+   "candidateReason": "none",
+   "pins": [
+    {
+     "pad": "1",
+     "nets": [
+      "VCC_USB_PD_IN"
+     ],
+     "pcbNets": [
+      "VCC_USB_PD_IN"
+     ],
+     "pinNames": null,
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": true
+    },
+    {
+     "pad": "2",
+     "nets": [
+      "Net-(D1-A)"
+     ],
+     "pcbNets": [
+      "Net-(D1-A)"
+     ],
+     "pinNames": null,
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    }
+   ],
+   "geometry": {
+    "side": "top",
+    "positionMm": [
+     126.6,
+     -112.4
+    ],
+    "rotationDeg": 90.0,
+    "footprintName": "R_0603_1608Metric_Pad0.98x0.95mm_HandSolder",
+    "pads": [
+     {
+      "pad": "1",
+      "positionMm": [
+       126.6,
+       -113.3125
+      ],
+      "sizeMm": [
+       0.975,
+       0.95
+      ],
+      "shape": "roundrect",
+      "tht": false
+     },
+     {
+      "pad": "2",
+      "positionMm": [
+       126.6,
+       -111.4875
+      ],
+      "sizeMm": [
+       0.975,
+       0.95
+      ],
+      "shape": "roundrect",
+      "tht": false
+     }
+    ],
+    "courtyard": {
+     "minMm": [
+      -1.65,
+      -0.73
+     ],
+     "maxMm": [
+      1.65,
+      0.73
+     ]
+    },
+    "model": {
+     "path": "${KICAD9_3DMODEL_DIR}/Resistor_SMD.3dshapes/R_0603_1608Metric.step",
+     "offsetMm": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "rotationDeg": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "scale": [
+      1.0,
+      1.0,
+      1.0
+     ]
+    }
+   }
+  },
+  {
+   "portKey": "/6c5f5d69-1c0b-4294-8a58-8db0ec7d5cdf/86377633-a9a6-4250-a6c4-251c5670b629",
+   "memberKeys": [
+    "/6c5f5d69-1c0b-4294-8a58-8db0ec7d5cdf/86377633-a9a6-4250-a6c4-251c5670b629"
+   ],
+   "reference": "R5",
+   "libId": "Device:R_Small_US",
+   "footprint": "Resistor_SMD:R_0603_1608Metric_Pad0.98x0.95mm_HandSolder",
+   "value": "2.4k_0.1W_0603",
+   "mpn": "RC0603JR-072K4L",
+   "dnp": false,
+   "candidate": false,
+   "candidateReason": "none",
+   "pins": [
+    {
+     "pad": "1",
+     "nets": [
+      "V3P3"
+     ],
+     "pcbNets": [
+      "V3P3"
+     ],
+     "pinNames": null,
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": true
+    },
+    {
+     "pad": "2",
+     "nets": [
+      "Net-(U1-ISNK_COARSE)"
+     ],
+     "pcbNets": [
+      "Net-(U1-ISNK_COARSE)"
+     ],
+     "pinNames": null,
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    }
+   ],
+   "geometry": {
+    "side": "top",
+    "positionMm": [
+     116.6,
+     -100.7125
+    ],
+    "rotationDeg": -90.0,
+    "footprintName": "R_0603_1608Metric_Pad0.98x0.95mm_HandSolder",
+    "pads": [
+     {
+      "pad": "1",
+      "positionMm": [
+       116.6,
+       -99.8
+      ],
+      "sizeMm": [
+       0.975,
+       0.95
+      ],
+      "shape": "roundrect",
+      "tht": false
+     },
+     {
+      "pad": "2",
+      "positionMm": [
+       116.6,
+       -101.625
+      ],
+      "sizeMm": [
+       0.975,
+       0.95
+      ],
+      "shape": "roundrect",
+      "tht": false
+     }
+    ],
+    "courtyard": {
+     "minMm": [
+      -1.65,
+      -0.73
+     ],
+     "maxMm": [
+      1.65,
+      0.73
+     ]
+    },
+    "model": {
+     "path": "${KICAD9_3DMODEL_DIR}/Resistor_SMD.3dshapes/R_0603_1608Metric.step",
+     "offsetMm": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "rotationDeg": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "scale": [
+      1.0,
+      1.0,
+      1.0
+     ]
+    }
+   }
+  },
+  {
+   "portKey": "/6c5f5d69-1c0b-4294-8a58-8db0ec7d5cdf/dc6aebde-96a0-4a44-8cf4-0ad17b59b68d",
+   "memberKeys": [
+    "/6c5f5d69-1c0b-4294-8a58-8db0ec7d5cdf/dc6aebde-96a0-4a44-8cf4-0ad17b59b68d"
+   ],
+   "reference": "R6",
+   "libId": "Device:R_Small_US",
+   "footprint": "Resistor_SMD:R_0603_1608Metric_Pad0.98x0.95mm_HandSolder",
+   "value": "5.1k_0.1W_0603",
+   "mpn": "RC0603FR-075K1L",
+   "dnp": true,
+   "candidate": false,
+   "candidateReason": "none",
+   "pins": [
+    {
+     "pad": "1",
+     "nets": [
+      "GND"
+     ],
+     "pcbNets": [
+      "GND"
+     ],
+     "pinNames": null,
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": true
+    },
+    {
+     "pad": "2",
+     "nets": [
+      "Net-(U1-ISNK_COARSE)"
+     ],
+     "pcbNets": [
+      "Net-(U1-ISNK_COARSE)"
+     ],
+     "pinNames": null,
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    }
+   ],
+   "geometry": {
+    "side": "top",
+    "positionMm": [
+     115.0,
+     -100.7125
+    ],
+    "rotationDeg": -90.0,
+    "footprintName": "R_0603_1608Metric_Pad0.98x0.95mm_HandSolder",
+    "pads": [
+     {
+      "pad": "1",
+      "positionMm": [
+       115.0,
+       -99.8
+      ],
+      "sizeMm": [
+       0.975,
+       0.95
+      ],
+      "shape": "roundrect",
+      "tht": false
+     },
+     {
+      "pad": "2",
+      "positionMm": [
+       115.0,
+       -101.625
+      ],
+      "sizeMm": [
+       0.975,
+       0.95
+      ],
+      "shape": "roundrect",
+      "tht": false
+     }
+    ],
+    "courtyard": {
+     "minMm": [
+      -1.65,
+      -0.73
+     ],
+     "maxMm": [
+      1.65,
+      0.73
+     ]
+    },
+    "model": {
+     "path": "${KICAD9_3DMODEL_DIR}/Resistor_SMD.3dshapes/R_0603_1608Metric.step",
+     "offsetMm": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "rotationDeg": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "scale": [
+      1.0,
+      1.0,
+      1.0
+     ]
+    }
+   }
+  },
+  {
+   "portKey": "/6c5f5d69-1c0b-4294-8a58-8db0ec7d5cdf/b8b28428-b43e-487c-b343-6448c6c3a9fd",
+   "memberKeys": [
+    "/6c5f5d69-1c0b-4294-8a58-8db0ec7d5cdf/b8b28428-b43e-487c-b343-6448c6c3a9fd"
+   ],
+   "reference": "R7",
+   "libId": "Device:R_Small_US",
+   "footprint": "Resistor_SMD:R_0603_1608Metric_Pad0.98x0.95mm_HandSolder",
+   "value": "5.1k_0.1W_0603",
+   "mpn": "RC0603FR-075K1L",
+   "dnp": true,
+   "candidate": false,
+   "candidateReason": "none",
+   "pins": [
+    {
+     "pad": "1",
+     "nets": [
+      "V3P3"
+     ],
+     "pcbNets": [
+      "V3P3"
+     ],
+     "pinNames": null,
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": true
+    },
+    {
+     "pad": "2",
+     "nets": [
+      "Net-(U1-ISNK_FINE)"
+     ],
+     "pcbNets": [
+      "Net-(U1-ISNK_FINE)"
+     ],
+     "pinNames": null,
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    }
+   ],
+   "geometry": {
+    "side": "top",
+    "positionMm": [
+     113.3,
+     -100.7125
+    ],
+    "rotationDeg": -90.0,
+    "footprintName": "R_0603_1608Metric_Pad0.98x0.95mm_HandSolder",
+    "pads": [
+     {
+      "pad": "1",
+      "positionMm": [
+       113.3,
+       -99.8
+      ],
+      "sizeMm": [
+       0.975,
+       0.95
+      ],
+      "shape": "roundrect",
+      "tht": false
+     },
+     {
+      "pad": "2",
+      "positionMm": [
+       113.3,
+       -101.625
+      ],
+      "sizeMm": [
+       0.975,
+       0.95
+      ],
+      "shape": "roundrect",
+      "tht": false
+     }
+    ],
+    "courtyard": {
+     "minMm": [
+      -1.65,
+      -0.73
+     ],
+     "maxMm": [
+      1.65,
+      0.73
+     ]
+    },
+    "model": {
+     "path": "${KICAD9_3DMODEL_DIR}/Resistor_SMD.3dshapes/R_0603_1608Metric.step",
+     "offsetMm": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "rotationDeg": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "scale": [
+      1.0,
+      1.0,
+      1.0
+     ]
+    }
+   }
+  },
+  {
+   "portKey": "/6c5f5d69-1c0b-4294-8a58-8db0ec7d5cdf/3c8612af-6e83-4f69-9d07-5e075fc4c3fd",
+   "memberKeys": [
+    "/6c5f5d69-1c0b-4294-8a58-8db0ec7d5cdf/3c8612af-6e83-4f69-9d07-5e075fc4c3fd"
+   ],
+   "reference": "R8",
+   "libId": "Device:R_Small_US",
+   "footprint": "Resistor_SMD:R_0603_1608Metric_Pad0.98x0.95mm_HandSolder",
+   "value": "5.1k_0.1W_0603",
+   "mpn": "RC0603FR-075K1L",
+   "dnp": false,
+   "candidate": false,
+   "candidateReason": "none",
+   "pins": [
+    {
+     "pad": "1",
+     "nets": [
+      "GND"
+     ],
+     "pcbNets": [
+      "GND"
+     ],
+     "pinNames": null,
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": true
+    },
+    {
+     "pad": "2",
+     "nets": [
+      "Net-(U1-ISNK_FINE)"
+     ],
+     "pcbNets": [
+      "Net-(U1-ISNK_FINE)"
+     ],
+     "pinNames": null,
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    }
+   ],
+   "geometry": {
+    "side": "top",
+    "positionMm": [
+     111.7,
+     -100.7125
+    ],
+    "rotationDeg": -90.0,
+    "footprintName": "R_0603_1608Metric_Pad0.98x0.95mm_HandSolder",
+    "pads": [
+     {
+      "pad": "1",
+      "positionMm": [
+       111.7,
+       -99.8
+      ],
+      "sizeMm": [
+       0.975,
+       0.95
+      ],
+      "shape": "roundrect",
+      "tht": false
+     },
+     {
+      "pad": "2",
+      "positionMm": [
+       111.7,
+       -101.625
+      ],
+      "sizeMm": [
+       0.975,
+       0.95
+      ],
+      "shape": "roundrect",
+      "tht": false
+     }
+    ],
+    "courtyard": {
+     "minMm": [
+      -1.65,
+      -0.73
+     ],
+     "maxMm": [
+      1.65,
+      0.73
+     ]
+    },
+    "model": {
+     "path": "${KICAD9_3DMODEL_DIR}/Resistor_SMD.3dshapes/R_0603_1608Metric.step",
+     "offsetMm": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "rotationDeg": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "scale": [
+      1.0,
+      1.0,
+      1.0
+     ]
+    }
+   }
+  },
+  {
+   "portKey": "/6c5f5d69-1c0b-4294-8a58-8db0ec7d5cdf/04ca4aed-f552-48a3-9a67-c12648920ee3",
+   "memberKeys": [
+    "/6c5f5d69-1c0b-4294-8a58-8db0ec7d5cdf/04ca4aed-f552-48a3-9a67-c12648920ee3"
+   ],
+   "reference": "R9",
+   "libId": "Device:R_Small_US",
+   "footprint": "Resistor_SMD:R_0603_1608Metric_Pad0.98x0.95mm_HandSolder",
+   "value": "1k_0.1W_0603",
+   "mpn": "RC0603FR-071KL",
+   "dnp": false,
+   "candidate": false,
+   "candidateReason": "none",
+   "pins": [
+    {
+     "pad": "1",
+     "nets": [
+      "Net-(D1-A)"
+     ],
+     "pcbNets": [
+      "Net-(D1-A)"
+     ],
+     "pinNames": null,
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "2",
+     "nets": [
+      "Net-(U1-VBUS_FET_EN)"
+     ],
+     "pcbNets": [
+      "Net-(U1-VBUS_FET_EN)"
+     ],
+     "pinNames": null,
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    }
+   ],
+   "geometry": {
+    "side": "top",
+    "positionMm": [
+     129.9,
+     -101.8
+    ],
+    "rotationDeg": 180.0,
+    "footprintName": "R_0603_1608Metric_Pad0.98x0.95mm_HandSolder",
+    "pads": [
+     {
+      "pad": "1",
+      "positionMm": [
+       130.8125,
+       -101.8
+      ],
+      "sizeMm": [
+       0.975,
+       0.95
+      ],
+      "shape": "roundrect",
+      "tht": false
+     },
+     {
+      "pad": "2",
+      "positionMm": [
+       128.9875,
+       -101.8
+      ],
+      "sizeMm": [
+       0.975,
+       0.95
+      ],
+      "shape": "roundrect",
+      "tht": false
+     }
+    ],
+    "courtyard": {
+     "minMm": [
+      -1.65,
+      -0.73
+     ],
+     "maxMm": [
+      1.65,
+      0.73
+     ]
+    },
+    "model": {
+     "path": "${KICAD9_3DMODEL_DIR}/Resistor_SMD.3dshapes/R_0603_1608Metric.step",
+     "offsetMm": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "rotationDeg": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "scale": [
+      1.0,
+      1.0,
+      1.0
+     ]
+    }
+   }
+  },
+  {
+   "portKey": "/6c5f5d69-1c0b-4294-8a58-8db0ec7d5cdf/75fa122e-228e-4732-abe2-19d3d74c69e3",
+   "memberKeys": [
+    "/6c5f5d69-1c0b-4294-8a58-8db0ec7d5cdf/75fa122e-228e-4732-abe2-19d3d74c69e3"
+   ],
+   "reference": "R10",
+   "libId": "Device:R_Small_US",
+   "footprint": "Resistor_SMD:R_0603_1608Metric_Pad0.98x0.95mm_HandSolder",
+   "value": "49.9k_0.1W_0603",
+   "mpn": "RC0603FR-0749K9L",
+   "dnp": false,
+   "candidate": false,
+   "candidateReason": "none",
+   "pins": [
+    {
+     "pad": "1",
+     "nets": [
+      "Net-(D1-K)"
+     ],
+     "pcbNets": [
+      "Net-(D1-K)"
+     ],
+     "pinNames": null,
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "2",
+     "nets": [
+      "Net-(D1-A)"
+     ],
+     "pcbNets": [
+      "Net-(D1-A)"
+     ],
+     "pinNames": null,
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    }
+   ],
+   "geometry": {
+    "side": "top",
+    "positionMm": [
+     129.9,
+     -106.0
+    ],
+    "rotationDeg": 180.0,
+    "footprintName": "R_0603_1608Metric_Pad0.98x0.95mm_HandSolder",
+    "pads": [
+     {
+      "pad": "1",
+      "positionMm": [
+       130.8125,
+       -106.0
+      ],
+      "sizeMm": [
+       0.975,
+       0.95
+      ],
+      "shape": "roundrect",
+      "tht": false
+     },
+     {
+      "pad": "2",
+      "positionMm": [
+       128.9875,
+       -106.0
+      ],
+      "sizeMm": [
+       0.975,
+       0.95
+      ],
+      "shape": "roundrect",
+      "tht": false
+     }
+    ],
+    "courtyard": {
+     "minMm": [
+      -1.65,
+      -0.73
+     ],
+     "maxMm": [
+      1.65,
+      0.73
+     ]
+    },
+    "model": {
+     "path": "${KICAD9_3DMODEL_DIR}/Resistor_SMD.3dshapes/R_0603_1608Metric.step",
+     "offsetMm": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "rotationDeg": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "scale": [
+      1.0,
+      1.0,
+      1.0
+     ]
+    }
+   }
+  },
+  {
+   "portKey": "/6c5f5d69-1c0b-4294-8a58-8db0ec7d5cdf/352cb421-5d6d-47cd-b227-319a62e48a77",
+   "memberKeys": [
+    "/6c5f5d69-1c0b-4294-8a58-8db0ec7d5cdf/352cb421-5d6d-47cd-b227-319a62e48a77"
+   ],
+   "reference": "R11",
+   "libId": "Device:R_Small_US",
+   "footprint": "Resistor_SMD:R_0603_1608Metric_Pad0.98x0.95mm_HandSolder",
+   "value": "5k_0.1W_0603",
+   "mpn": "RT0603BRE075KL",
+   "dnp": false,
+   "candidate": false,
+   "candidateReason": "none",
+   "pins": [
+    {
+     "pad": "1",
+     "nets": [
+      "Net-(U1-VBUS_MAX)"
+     ],
+     "pcbNets": [
+      "Net-(U1-VBUS_MAX)"
+     ],
+     "pinNames": null,
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "2",
+     "nets": [
+      "V3P3"
+     ],
+     "pcbNets": [
+      "V3P3"
+     ],
+     "pinNames": null,
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": true
+    }
+   ],
+   "geometry": {
+    "side": "top",
+    "positionMm": [
+     118.2,
+     -100.7125
+    ],
+    "rotationDeg": 90.0,
+    "footprintName": "R_0603_1608Metric_Pad0.98x0.95mm_HandSolder",
+    "pads": [
+     {
+      "pad": "1",
+      "positionMm": [
+       118.2,
+       -101.625
+      ],
+      "sizeMm": [
+       0.975,
+       0.95
+      ],
+      "shape": "roundrect",
+      "tht": false
+     },
+     {
+      "pad": "2",
+      "positionMm": [
+       118.2,
+       -99.8
+      ],
+      "sizeMm": [
+       0.975,
+       0.95
+      ],
+      "shape": "roundrect",
+      "tht": false
+     }
+    ],
+    "courtyard": {
+     "minMm": [
+      -1.65,
+      -0.73
+     ],
+     "maxMm": [
+      1.65,
+      0.73
+     ]
+    },
+    "model": {
+     "path": "${KICAD9_3DMODEL_DIR}/Resistor_SMD.3dshapes/R_0603_1608Metric.step",
+     "offsetMm": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "rotationDeg": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "scale": [
+      1.0,
+      1.0,
+      1.0
+     ]
+    }
+   }
+  },
+  {
+   "portKey": "/6c5f5d69-1c0b-4294-8a58-8db0ec7d5cdf/8149a0d2-ffd1-4ca8-ad61-a07f93365785",
+   "memberKeys": [
+    "/6c5f5d69-1c0b-4294-8a58-8db0ec7d5cdf/8149a0d2-ffd1-4ca8-ad61-a07f93365785"
+   ],
+   "reference": "R12",
+   "libId": "Device:R_Small_US",
+   "footprint": "Resistor_SMD:R_0603_1608Metric_Pad0.98x0.95mm_HandSolder",
+   "value": "2.4k_0.1W_0603",
+   "mpn": "RC0603JR-072K4L",
+   "dnp": false,
+   "candidate": false,
+   "candidateReason": "none",
+   "pins": [
+    {
+     "pad": "1",
+     "nets": [
+      "Net-(U1-VBUS_MAX)"
+     ],
+     "pcbNets": [
+      "Net-(U1-VBUS_MAX)"
+     ],
+     "pinNames": null,
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "2",
+     "nets": [
+      "GND"
+     ],
+     "pcbNets": [
+      "GND"
+     ],
+     "pinNames": null,
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": true
+    }
+   ],
+   "geometry": {
+    "side": "top",
+    "positionMm": [
+     119.8,
+     -100.7125
+    ],
+    "rotationDeg": 90.0,
+    "footprintName": "R_0603_1608Metric_Pad0.98x0.95mm_HandSolder",
+    "pads": [
+     {
+      "pad": "1",
+      "positionMm": [
+       119.8,
+       -101.625
+      ],
+      "sizeMm": [
+       0.975,
+       0.95
+      ],
+      "shape": "roundrect",
+      "tht": false
+     },
+     {
+      "pad": "2",
+      "positionMm": [
+       119.8,
+       -99.8
+      ],
+      "sizeMm": [
+       0.975,
+       0.95
+      ],
+      "shape": "roundrect",
+      "tht": false
+     }
+    ],
+    "courtyard": {
+     "minMm": [
+      -1.65,
+      -0.73
+     ],
+     "maxMm": [
+      1.65,
+      0.73
+     ]
+    },
+    "model": {
+     "path": "${KICAD9_3DMODEL_DIR}/Resistor_SMD.3dshapes/R_0603_1608Metric.step",
+     "offsetMm": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "rotationDeg": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "scale": [
+      1.0,
+      1.0,
+      1.0
+     ]
+    }
+   }
+  },
+  {
+   "portKey": "/6c5f5d69-1c0b-4294-8a58-8db0ec7d5cdf/d067140b-e7a8-462a-a255-b2998c5c65c3",
+   "memberKeys": [
+    "/6c5f5d69-1c0b-4294-8a58-8db0ec7d5cdf/d067140b-e7a8-462a-a255-b2998c5c65c3"
+   ],
+   "reference": "R13",
+   "libId": "Device:R_Small_US",
+   "footprint": "Resistor_SMD:R_0603_1608Metric_Pad0.98x0.95mm_HandSolder",
+   "value": "5.1k_0.1W_0603",
+   "mpn": "RC0603FR-075K1L",
+   "dnp": true,
+   "candidate": false,
+   "candidateReason": "none",
+   "pins": [
+    {
+     "pad": "1",
+     "nets": [
+      "Net-(U1-VBUS_MIN)"
+     ],
+     "pcbNets": [
+      "Net-(U1-VBUS_MIN)"
+     ],
+     "pinNames": null,
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "2",
+     "nets": [
+      "V3P3"
+     ],
+     "pcbNets": [
+      "V3P3"
+     ],
+     "pinNames": null,
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": true
+    }
+   ],
+   "geometry": {
+    "side": "top",
+    "positionMm": [
+     121.4,
+     -100.7125
+    ],
+    "rotationDeg": 90.0,
+    "footprintName": "R_0603_1608Metric_Pad0.98x0.95mm_HandSolder",
+    "pads": [
+     {
+      "pad": "1",
+      "positionMm": [
+       121.4,
+       -101.625
+      ],
+      "sizeMm": [
+       0.975,
+       0.95
+      ],
+      "shape": "roundrect",
+      "tht": false
+     },
+     {
+      "pad": "2",
+      "positionMm": [
+       121.4,
+       -99.8
+      ],
+      "sizeMm": [
+       0.975,
+       0.95
+      ],
+      "shape": "roundrect",
+      "tht": false
+     }
+    ],
+    "courtyard": {
+     "minMm": [
+      -1.65,
+      -0.73
+     ],
+     "maxMm": [
+      1.65,
+      0.73
+     ]
+    },
+    "model": {
+     "path": "${KICAD9_3DMODEL_DIR}/Resistor_SMD.3dshapes/R_0603_1608Metric.step",
+     "offsetMm": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "rotationDeg": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "scale": [
+      1.0,
+      1.0,
+      1.0
+     ]
+    }
+   }
+  },
+  {
+   "portKey": "/6c5f5d69-1c0b-4294-8a58-8db0ec7d5cdf/5805d616-d805-4fb8-af9c-fd94df7c2ab6",
+   "memberKeys": [
+    "/6c5f5d69-1c0b-4294-8a58-8db0ec7d5cdf/5805d616-d805-4fb8-af9c-fd94df7c2ab6"
+   ],
+   "reference": "R14",
+   "libId": "Device:R_Small_US",
+   "footprint": "Resistor_SMD:R_0603_1608Metric_Pad0.98x0.95mm_HandSolder",
+   "value": "5.1k_0.1W_0603",
+   "mpn": "RC0603FR-075K1L",
+   "dnp": false,
+   "candidate": false,
+   "candidateReason": "none",
+   "pins": [
+    {
+     "pad": "1",
+     "nets": [
+      "Net-(U1-VBUS_MIN)"
+     ],
+     "pcbNets": [
+      "Net-(U1-VBUS_MIN)"
+     ],
+     "pinNames": null,
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "2",
+     "nets": [
+      "GND"
+     ],
+     "pcbNets": [
+      "GND"
+     ],
+     "pinNames": null,
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": true
+    }
+   ],
+   "geometry": {
+    "side": "top",
+    "positionMm": [
+     123.0,
+     -100.7125
+    ],
+    "rotationDeg": 90.0,
+    "footprintName": "R_0603_1608Metric_Pad0.98x0.95mm_HandSolder",
+    "pads": [
+     {
+      "pad": "1",
+      "positionMm": [
+       123.0,
+       -101.625
+      ],
+      "sizeMm": [
+       0.975,
+       0.95
+      ],
+      "shape": "roundrect",
+      "tht": false
+     },
+     {
+      "pad": "2",
+      "positionMm": [
+       123.0,
+       -99.8
+      ],
+      "sizeMm": [
+       0.975,
+       0.95
+      ],
+      "shape": "roundrect",
+      "tht": false
+     }
+    ],
+    "courtyard": {
+     "minMm": [
+      -1.65,
+      -0.73
+     ],
+     "maxMm": [
+      1.65,
+      0.73
+     ]
+    },
+    "model": {
+     "path": "${KICAD9_3DMODEL_DIR}/Resistor_SMD.3dshapes/R_0603_1608Metric.step",
+     "offsetMm": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "rotationDeg": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "scale": [
+      1.0,
+      1.0,
+      1.0
+     ]
+    }
+   }
+  },
+  {
+   "portKey": "/6c5f5d69-1c0b-4294-8a58-8db0ec7d5cdf/dcf35ca0-be2c-4e7f-97c8-45096c666f2c",
+   "memberKeys": [
+    "/6c5f5d69-1c0b-4294-8a58-8db0ec7d5cdf/dcf35ca0-be2c-4e7f-97c8-45096c666f2c"
+   ],
+   "reference": "R15",
+   "libId": "Device:R_Small_US",
+   "footprint": "Resistor_SMD:R_0603_1608Metric_Pad0.98x0.95mm_HandSolder",
+   "value": "1k_0.1W_0603",
+   "mpn": "RC0603FR-071KL",
+   "dnp": false,
+   "candidate": false,
+   "candidateReason": "none",
+   "pins": [
+    {
+     "pad": "1",
+     "nets": [
+      "Net-(Q3A-G1)"
+     ],
+     "pcbNets": [
+      "Net-(Q3A-G1)"
+     ],
+     "pinNames": null,
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "2",
+     "nets": [
+      "Net-(U1-SAFE_PWR_EN)"
+     ],
+     "pcbNets": [
+      "Net-(U1-SAFE_PWR_EN)"
+     ],
+     "pinNames": null,
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    }
+   ],
+   "geometry": {
+    "side": "top",
+    "positionMm": [
+     129.5,
+     -122.0
+    ],
+    "rotationDeg": 180.0,
+    "footprintName": "R_0603_1608Metric_Pad0.98x0.95mm_HandSolder",
+    "pads": [
+     {
+      "pad": "1",
+      "positionMm": [
+       130.4125,
+       -122.0
+      ],
+      "sizeMm": [
+       0.975,
+       0.95
+      ],
+      "shape": "roundrect",
+      "tht": false
+     },
+     {
+      "pad": "2",
+      "positionMm": [
+       128.5875,
+       -122.0
+      ],
+      "sizeMm": [
+       0.975,
+       0.95
+      ],
+      "shape": "roundrect",
+      "tht": false
+     }
+    ],
+    "courtyard": {
+     "minMm": [
+      -1.65,
+      -0.73
+     ],
+     "maxMm": [
+      1.65,
+      0.73
+     ]
+    },
+    "model": {
+     "path": "${KICAD9_3DMODEL_DIR}/Resistor_SMD.3dshapes/R_0603_1608Metric.step",
+     "offsetMm": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "rotationDeg": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "scale": [
+      1.0,
+      1.0,
+      1.0
+     ]
+    }
+   }
+  },
+  {
+   "portKey": "/6c5f5d69-1c0b-4294-8a58-8db0ec7d5cdf/bd4fe6ce-f9aa-45a7-aafd-dd9010fd15d8",
+   "memberKeys": [
+    "/6c5f5d69-1c0b-4294-8a58-8db0ec7d5cdf/bd4fe6ce-f9aa-45a7-aafd-dd9010fd15d8"
+   ],
+   "reference": "R16",
+   "libId": "Device:R_Small_US",
+   "footprint": "Resistor_SMD:R_0603_1608Metric_Pad0.98x0.95mm_HandSolder",
+   "value": "49.9k_0.1W_0603",
+   "mpn": "RC0603FR-0749K9L",
+   "dnp": false,
+   "candidate": false,
+   "candidateReason": "none",
+   "pins": [
+    {
+     "pad": "1",
+     "nets": [
+      "Net-(Q2-G)"
+     ],
+     "pcbNets": [
+      "Net-(Q2-G)"
+     ],
+     "pinNames": null,
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "2",
+     "nets": [
+      "GND"
+     ],
+     "pcbNets": [
+      "GND"
+     ],
+     "pinNames": null,
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": true
+    }
+   ],
+   "geometry": {
+    "side": "top",
+    "positionMm": [
+     122.1,
+     -123.0
+    ],
+    "rotationDeg": 0.0,
+    "footprintName": "R_0603_1608Metric_Pad0.98x0.95mm_HandSolder",
+    "pads": [
+     {
+      "pad": "1",
+      "positionMm": [
+       121.1875,
+       -123.0
+      ],
+      "sizeMm": [
+       0.975,
+       0.95
+      ],
+      "shape": "roundrect",
+      "tht": false
+     },
+     {
+      "pad": "2",
+      "positionMm": [
+       123.0125,
+       -123.0
+      ],
+      "sizeMm": [
+       0.975,
+       0.95
+      ],
+      "shape": "roundrect",
+      "tht": false
+     }
+    ],
+    "courtyard": {
+     "minMm": [
+      -1.65,
+      -0.73
+     ],
+     "maxMm": [
+      1.65,
+      0.73
+     ]
+    },
+    "model": {
+     "path": "${KICAD9_3DMODEL_DIR}/Resistor_SMD.3dshapes/R_0603_1608Metric.step",
+     "offsetMm": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "rotationDeg": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "scale": [
+      1.0,
+      1.0,
+      1.0
+     ]
+    }
+   }
+  },
+  {
+   "portKey": "/6c5f5d69-1c0b-4294-8a58-8db0ec7d5cdf/c6d70d13-7e5f-4309-88b2-e4cdc8eeb7eb",
+   "memberKeys": [
+    "/6c5f5d69-1c0b-4294-8a58-8db0ec7d5cdf/c6d70d13-7e5f-4309-88b2-e4cdc8eeb7eb"
+   ],
+   "reference": "R17",
+   "libId": "Device:R_Small_US",
+   "footprint": "Resistor_SMD:R_0603_1608Metric_Pad0.98x0.95mm_HandSolder",
+   "value": "1k_0.1W_0603",
+   "mpn": "RC0603FR-071KL",
+   "dnp": false,
+   "candidate": false,
+   "candidateReason": "none",
+   "pins": [
+    {
+     "pad": "1",
+     "nets": [
+      "Net-(D2-K)"
+     ],
+     "pcbNets": [
+      "Net-(D2-K)"
+     ],
+     "pinNames": null,
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "2",
+     "nets": [
+      "Net-(Q2-D)"
+     ],
+     "pcbNets": [
+      "Net-(Q2-D)"
+     ],
+     "pinNames": null,
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    }
+   ],
+   "geometry": {
+    "side": "top",
+    "positionMm": [
+     125.7,
+     -120.3
+    ],
+    "rotationDeg": 180.0,
+    "footprintName": "R_0603_1608Metric_Pad0.98x0.95mm_HandSolder",
+    "pads": [
+     {
+      "pad": "1",
+      "positionMm": [
+       126.6125,
+       -120.3
+      ],
+      "sizeMm": [
+       0.975,
+       0.95
+      ],
+      "shape": "roundrect",
+      "tht": false
+     },
+     {
+      "pad": "2",
+      "positionMm": [
+       124.7875,
+       -120.3
+      ],
+      "sizeMm": [
+       0.975,
+       0.95
+      ],
+      "shape": "roundrect",
+      "tht": false
+     }
+    ],
+    "courtyard": {
+     "minMm": [
+      -1.65,
+      -0.73
+     ],
+     "maxMm": [
+      1.65,
+      0.73
+     ]
+    },
+    "model": {
+     "path": "${KICAD9_3DMODEL_DIR}/Resistor_SMD.3dshapes/R_0603_1608Metric.step",
+     "offsetMm": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "rotationDeg": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "scale": [
+      1.0,
+      1.0,
+      1.0
+     ]
+    }
+   }
+  },
+  {
+   "portKey": "/6c5f5d69-1c0b-4294-8a58-8db0ec7d5cdf/c73932bf-3416-4b12-bd83-2593e76a799d",
+   "memberKeys": [
+    "/6c5f5d69-1c0b-4294-8a58-8db0ec7d5cdf/c73932bf-3416-4b12-bd83-2593e76a799d"
+   ],
+   "reference": "R18",
+   "libId": "Device:R_Small_US",
+   "footprint": "Resistor_SMD:R_0603_1608Metric_Pad0.98x0.95mm_HandSolder",
+   "value": "49.9k_0.1W_0603",
+   "mpn": "RC0603FR-0749K9L",
+   "dnp": false,
+   "candidate": false,
+   "candidateReason": "none",
+   "pins": [
+    {
+     "pad": "1",
+     "nets": [
+      "VCC_USB_PD_IN"
+     ],
+     "pcbNets": [
+      "VCC_USB_PD_IN"
+     ],
+     "pinNames": null,
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": true
+    },
+    {
+     "pad": "2",
+     "nets": [
+      "Net-(Q3A-G1)"
+     ],
+     "pcbNets": [
+      "Net-(Q3A-G1)"
+     ],
+     "pinNames": null,
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    }
+   ],
+   "geometry": {
+    "side": "top",
+    "positionMm": [
+     129.5,
+     -120.3
+    ],
+    "rotationDeg": 0.0,
+    "footprintName": "R_0603_1608Metric_Pad0.98x0.95mm_HandSolder",
+    "pads": [
+     {
+      "pad": "1",
+      "positionMm": [
+       128.5875,
+       -120.3
+      ],
+      "sizeMm": [
+       0.975,
+       0.95
+      ],
+      "shape": "roundrect",
+      "tht": false
+     },
+     {
+      "pad": "2",
+      "positionMm": [
+       130.4125,
+       -120.3
+      ],
+      "sizeMm": [
+       0.975,
+       0.95
+      ],
+      "shape": "roundrect",
+      "tht": false
+     }
+    ],
+    "courtyard": {
+     "minMm": [
+      -1.65,
+      -0.73
+     ],
+     "maxMm": [
+      1.65,
+      0.73
+     ]
+    },
+    "model": {
+     "path": "${KICAD9_3DMODEL_DIR}/Resistor_SMD.3dshapes/R_0603_1608Metric.step",
+     "offsetMm": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "rotationDeg": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "scale": [
+      1.0,
+      1.0,
+      1.0
+     ]
+    }
+   }
+  },
+  {
+   "portKey": "/6c5f5d69-1c0b-4294-8a58-8db0ec7d5cdf/817338ba-e182-48d0-ab56-862549154614",
+   "memberKeys": [
+    "/6c5f5d69-1c0b-4294-8a58-8db0ec7d5cdf/817338ba-e182-48d0-ab56-862549154614"
+   ],
+   "reference": "R19",
+   "libId": "Device:R_Small_US",
+   "footprint": "Resistor_SMD:R_0603_1608Metric_Pad0.98x0.95mm_HandSolder",
+   "value": "150R_0.1W_0603",
+   "mpn": "RC0603FR-07150RL",
+   "dnp": false,
+   "candidate": false,
+   "candidateReason": "none",
+   "pins": [
+    {
+     "pad": "1",
+     "nets": [
+      "Net-(D3-K)"
+     ],
+     "pcbNets": [
+      "Net-(D3-K)"
+     ],
+     "pinNames": null,
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "2",
+     "nets": [
+      "GND"
+     ],
+     "pcbNets": [
+      "GND"
+     ],
+     "pinNames": null,
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": true
+    }
+   ],
+   "geometry": {
+    "side": "top",
+    "positionMm": [
+     137.4,
+     -117.2
+    ],
+    "rotationDeg": 90.0,
+    "footprintName": "R_0603_1608Metric_Pad0.98x0.95mm_HandSolder",
+    "pads": [
+     {
+      "pad": "1",
+      "positionMm": [
+       137.4,
+       -118.1125
+      ],
+      "sizeMm": [
+       0.975,
+       0.95
+      ],
+      "shape": "roundrect",
+      "tht": false
+     },
+     {
+      "pad": "2",
+      "positionMm": [
+       137.4,
+       -116.2875
+      ],
+      "sizeMm": [
+       0.975,
+       0.95
+      ],
+      "shape": "roundrect",
+      "tht": false
+     }
+    ],
+    "courtyard": {
+     "minMm": [
+      -1.65,
+      -0.73
+     ],
+     "maxMm": [
+      1.65,
+      0.73
+     ]
+    },
+    "model": {
+     "path": "${KICAD9_3DMODEL_DIR}/Resistor_SMD.3dshapes/R_0603_1608Metric.step",
+     "offsetMm": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "rotationDeg": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "scale": [
+      1.0,
+      1.0,
+      1.0
+     ]
+    }
+   }
+  },
+  {
+   "portKey": "/6c5f5d69-1c0b-4294-8a58-8db0ec7d5cdf/8fdf5d41-73db-4ae8-ab13-6fd5aa705a70",
+   "memberKeys": [
+    "/6c5f5d69-1c0b-4294-8a58-8db0ec7d5cdf/8fdf5d41-73db-4ae8-ab13-6fd5aa705a70"
+   ],
+   "reference": "TP1",
+   "libId": "Connector:TestPoint",
+   "footprint": "TestPoint:TestPoint_Pad_D1.0mm",
+   "value": "VIN",
+   "mpn": "NA",
+   "dnp": false,
+   "candidate": false,
+   "candidateReason": "none",
+   "pins": [
+    {
+     "pad": "1",
+     "nets": [
+      "VCC_USB_PD_IN"
+     ],
+     "pcbNets": [
+      "VCC_USB_PD_IN"
+     ],
+     "pinNames": [
+      "1"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": true
+    }
+   ],
+   "geometry": {
+    "side": "top",
+    "positionMm": [
+     122.2,
+     -110.7
+    ],
+    "rotationDeg": 0.0,
+    "footprintName": "TestPoint_Pad_D1.0mm",
+    "pads": [
+     {
+      "pad": "1",
+      "positionMm": [
+       122.2,
+       -110.7
+      ],
+      "sizeMm": [
+       1.0,
+       1.0
+      ],
+      "shape": "circle",
+      "tht": false
+     }
+    ],
+    "courtyard": {
+     "minMm": [
+      -1.0,
+      -1.0
+     ],
+     "maxMm": [
+      1.0,
+      1.0
+     ]
+    },
+    "model": null
+   }
+  },
+  {
+   "portKey": "/6c5f5d69-1c0b-4294-8a58-8db0ec7d5cdf/227531f2-f7a1-4277-9e78-936497be6b73",
+   "memberKeys": [
+    "/6c5f5d69-1c0b-4294-8a58-8db0ec7d5cdf/227531f2-f7a1-4277-9e78-936497be6b73"
+   ],
+   "reference": "U1",
+   "libId": "Interface_USB:CYPD3177-24LQ",
+   "footprint": "Package_DFN_QFN:QFN-24-1EP_4x4mm_P0.5mm_EP2.75x2.75mm",
+   "value": "CYPD3177-24LQ",
+   "mpn": "CYPD3177-24LQXQT",
+   "dnp": false,
+   "candidate": false,
+   "candidateReason": "none",
+   "pins": [
+    {
+     "pad": "1",
+     "nets": [
+      "Net-(U1-VBUS_MIN)"
+     ],
+     "pcbNets": [
+      "Net-(U1-VBUS_MIN)"
+     ],
+     "pinNames": [
+      "VBUS_MIN"
+     ],
+     "pinTypes": [
+      "input"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "2",
+     "nets": [
+      "Net-(U1-VBUS_MAX)"
+     ],
+     "pcbNets": [
+      "Net-(U1-VBUS_MAX)"
+     ],
+     "pinNames": [
+      "VBUS_MAX"
+     ],
+     "pinTypes": [
+      "input"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "3",
+     "nets": [
+      "Net-(U1-VBUS_FET_EN)"
+     ],
+     "pcbNets": [
+      "Net-(U1-VBUS_FET_EN)"
+     ],
+     "pinNames": [
+      "VBUS_FET_EN"
+     ],
+     "pinTypes": [
+      "output"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "4",
+     "nets": [
+      "Net-(U1-SAFE_PWR_EN)"
+     ],
+     "pcbNets": [
+      "Net-(U1-SAFE_PWR_EN)"
+     ],
+     "pinNames": [
+      "SAFE_PWR_EN"
+     ],
+     "pinTypes": [
+      "output"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "5",
+     "nets": [
+      "Net-(U1-ISNK_COARSE)"
+     ],
+     "pcbNets": [
+      "Net-(U1-ISNK_COARSE)"
+     ],
+     "pinNames": [
+      "ISNK_COARSE"
+     ],
+     "pinTypes": [
+      "input"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "6",
+     "nets": [
+      "Net-(U1-ISNK_FINE)"
+     ],
+     "pcbNets": [
+      "Net-(U1-ISNK_FINE)"
+     ],
+     "pinNames": [
+      "ISNK_FINE"
+     ],
+     "pinTypes": [
+      "input"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "7",
+     "nets": [],
+     "pcbNets": [],
+     "pinNames": [
+      "~{HPI_INT}"
+     ],
+     "pinTypes": [
+      "input"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "8",
+     "nets": [],
+     "pcbNets": [],
+     "pinNames": [
+      "GPIO_1"
+     ],
+     "pinTypes": [
+      "bidirectional"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "9",
+     "nets": [
+      "Net-(Q2-G)"
+     ],
+     "pcbNets": [
+      "Net-(Q2-G)"
+     ],
+     "pinNames": [
+      "FAULT"
+     ],
+     "pinTypes": [
+      "output"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "10",
+     "nets": [
+      "Net-(U1-FLIP)"
+     ],
+     "pcbNets": [
+      "Net-(U1-FLIP)"
+     ],
+     "pinNames": [
+      "FLIP"
+     ],
+     "pinTypes": [
+      "output"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "11",
+     "nets": [
+      "VCC_USB_PD_OUT"
+     ],
+     "pcbNets": [
+      "VCC_USB_PD_OUT"
+     ],
+     "pinNames": [
+      "VDC_OUT"
+     ],
+     "pinTypes": [
+      "output"
+     ],
+     "powerNet": true
+    },
+    {
+     "pad": "12",
+     "nets": [],
+     "pcbNets": [],
+     "pinNames": [
+      "HPI_SDA"
+     ],
+     "pinTypes": [
+      "bidirectional"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "13",
+     "nets": [],
+     "pcbNets": [],
+     "pinNames": [
+      "HPI_SCL"
+     ],
+     "pinTypes": [
+      "bidirectional"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "14",
+     "nets": [
+      "Net-(J1-CC2)"
+     ],
+     "pcbNets": [
+      "Net-(J1-CC2)"
+     ],
+     "pinNames": [
+      "CC2"
+     ],
+     "pinTypes": [
+      "bidirectional"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "15",
+     "nets": [
+      "Net-(J1-CC1)"
+     ],
+     "pcbNets": [
+      "Net-(J1-CC1)"
+     ],
+     "pinNames": [
+      "CC1"
+     ],
+     "pinTypes": [
+      "bidirectional"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "16",
+     "nets": [],
+     "pcbNets": [],
+     "pinNames": [
+      "D-"
+     ],
+     "pinTypes": [
+      "no_connect"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "17",
+     "nets": [],
+     "pcbNets": [],
+     "pinNames": [
+      "D+"
+     ],
+     "pinTypes": [
+      "no_connect"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "18",
+     "nets": [
+      "VCC_USB_PD_IN"
+     ],
+     "pcbNets": [
+      "VCC_USB_PD_IN"
+     ],
+     "pinNames": [
+      "VBUS_IN"
+     ],
+     "pinTypes": [
+      "power_in"
+     ],
+     "powerNet": true
+    },
+    {
+     "pad": "19",
+     "nets": [
+      "GND"
+     ],
+     "pcbNets": [
+      "GND"
+     ],
+     "pinNames": [
+      "GND"
+     ],
+     "pinTypes": [
+      "power_in"
+     ],
+     "powerNet": true
+    },
+    {
+     "pad": "20",
+     "nets": [],
+     "pcbNets": [],
+     "pinNames": [
+      "NC"
+     ],
+     "pinTypes": [
+      "no_connect"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "21",
+     "nets": [],
+     "pcbNets": [],
+     "pinNames": [
+      "NC"
+     ],
+     "pinTypes": [
+      "no_connect"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "22",
+     "nets": [
+      "GND"
+     ],
+     "pcbNets": [
+      "GND"
+     ],
+     "pinNames": [
+      "GND"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": true
+    },
+    {
+     "pad": "23",
+     "nets": [
+      "V3P3"
+     ],
+     "pcbNets": [
+      "V3P3"
+     ],
+     "pinNames": [
+      "VDDD"
+     ],
+     "pinTypes": [
+      "power_out"
+     ],
+     "powerNet": true
+    },
+    {
+     "pad": "24",
+     "nets": [
+      "Net-(U1-VCCD)"
+     ],
+     "pcbNets": [
+      "Net-(U1-VCCD)"
+     ],
+     "pinNames": [
+      "VCCD"
+     ],
+     "pinTypes": [
+      "power_out"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "25",
+     "nets": [
+      "GND"
+     ],
+     "pcbNets": [
+      "GND"
+     ],
+     "pinNames": [
+      "GND"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": true
+    }
+   ],
+   "geometry": {
+    "side": "top",
+    "positionMm": [
+     119.025,
+     -106.3625
+    ],
+    "rotationDeg": -90.0,
+    "footprintName": "QFN-24-1EP_4x4mm_P0.5mm_EP2.75x2.75mm",
+    "pads": [
+     {
+      "pad": "",
+      "positionMm": [
+       119.715,
+       -105.6725
+      ],
+      "sizeMm": [
+       1.11,
+       1.11
+      ],
+      "shape": "roundrect",
+      "tht": false
+     },
+     {
+      "pad": "",
+      "positionMm": [
+       118.335,
+       -105.6725
+      ],
+      "sizeMm": [
+       1.11,
+       1.11
+      ],
+      "shape": "roundrect",
+      "tht": false
+     },
+     {
+      "pad": "",
+      "positionMm": [
+       119.715,
+       -107.0525
+      ],
+      "sizeMm": [
+       1.11,
+       1.11
+      ],
+      "shape": "roundrect",
+      "tht": false
+     },
+     {
+      "pad": "",
+      "positionMm": [
+       118.335,
+       -107.0525
+      ],
+      "sizeMm": [
+       1.11,
+       1.11
+      ],
+      "shape": "roundrect",
+      "tht": false
+     },
+     {
+      "pad": "1",
+      "positionMm": [
+       120.275,
+       -104.3875
+      ],
+      "sizeMm": [
+       0.8,
+       0.25
+      ],
+      "shape": "roundrect",
+      "tht": false
+     },
+     {
+      "pad": "2",
+      "positionMm": [
+       119.775,
+       -104.3875
+      ],
+      "sizeMm": [
+       0.8,
+       0.25
+      ],
+      "shape": "roundrect",
+      "tht": false
+     },
+     {
+      "pad": "3",
+      "positionMm": [
+       119.275,
+       -104.3875
+      ],
+      "sizeMm": [
+       0.8,
+       0.25
+      ],
+      "shape": "roundrect",
+      "tht": false
+     },
+     {
+      "pad": "4",
+      "positionMm": [
+       118.775,
+       -104.3875
+      ],
+      "sizeMm": [
+       0.8,
+       0.25
+      ],
+      "shape": "roundrect",
+      "tht": false
+     },
+     {
+      "pad": "5",
+      "positionMm": [
+       118.275,
+       -104.3875
+      ],
+      "sizeMm": [
+       0.8,
+       0.25
+      ],
+      "shape": "roundrect",
+      "tht": false
+     },
+     {
+      "pad": "6",
+      "positionMm": [
+       117.775,
+       -104.3875
+      ],
+      "sizeMm": [
+       0.8,
+       0.25
+      ],
+      "shape": "roundrect",
+      "tht": false
+     },
+     {
+      "pad": "7",
+      "positionMm": [
+       117.05,
+       -105.1125
+      ],
+      "sizeMm": [
+       0.25,
+       0.8
+      ],
+      "shape": "roundrect",
+      "tht": false
+     },
+     {
+      "pad": "8",
+      "positionMm": [
+       117.05,
+       -105.6125
+      ],
+      "sizeMm": [
+       0.25,
+       0.8
+      ],
+      "shape": "roundrect",
+      "tht": false
+     },
+     {
+      "pad": "9",
+      "positionMm": [
+       117.05,
+       -106.1125
+      ],
+      "sizeMm": [
+       0.25,
+       0.8
+      ],
+      "shape": "roundrect",
+      "tht": false
+     },
+     {
+      "pad": "10",
+      "positionMm": [
+       117.05,
+       -106.6125
+      ],
+      "sizeMm": [
+       0.25,
+       0.8
+      ],
+      "shape": "roundrect",
+      "tht": false
+     },
+     {
+      "pad": "11",
+      "positionMm": [
+       117.05,
+       -107.1125
+      ],
+      "sizeMm": [
+       0.25,
+       0.8
+      ],
+      "shape": "roundrect",
+      "tht": false
+     },
+     {
+      "pad": "12",
+      "positionMm": [
+       117.05,
+       -107.6125
+      ],
+      "sizeMm": [
+       0.25,
+       0.8
+      ],
+      "shape": "roundrect",
+      "tht": false
+     },
+     {
+      "pad": "13",
+      "positionMm": [
+       117.775,
+       -108.3375
+      ],
+      "sizeMm": [
+       0.8,
+       0.25
+      ],
+      "shape": "roundrect",
+      "tht": false
+     },
+     {
+      "pad": "14",
+      "positionMm": [
+       118.275,
+       -108.3375
+      ],
+      "sizeMm": [
+       0.8,
+       0.25
+      ],
+      "shape": "roundrect",
+      "tht": false
+     },
+     {
+      "pad": "15",
+      "positionMm": [
+       118.775,
+       -108.3375
+      ],
+      "sizeMm": [
+       0.8,
+       0.25
+      ],
+      "shape": "roundrect",
+      "tht": false
+     },
+     {
+      "pad": "16",
+      "positionMm": [
+       119.275,
+       -108.3375
+      ],
+      "sizeMm": [
+       0.8,
+       0.25
+      ],
+      "shape": "roundrect",
+      "tht": false
+     },
+     {
+      "pad": "17",
+      "positionMm": [
+       119.775,
+       -108.3375
+      ],
+      "sizeMm": [
+       0.8,
+       0.25
+      ],
+      "shape": "roundrect",
+      "tht": false
+     },
+     {
+      "pad": "18",
+      "positionMm": [
+       120.275,
+       -108.3375
+      ],
+      "sizeMm": [
+       0.8,
+       0.25
+      ],
+      "shape": "roundrect",
+      "tht": false
+     },
+     {
+      "pad": "19",
+      "positionMm": [
+       121.0,
+       -107.6125
+      ],
+      "sizeMm": [
+       0.25,
+       0.8
+      ],
+      "shape": "roundrect",
+      "tht": false
+     },
+     {
+      "pad": "20",
+      "positionMm": [
+       121.0,
+       -107.1125
+      ],
+      "sizeMm": [
+       0.25,
+       0.8
+      ],
+      "shape": "roundrect",
+      "tht": false
+     },
+     {
+      "pad": "21",
+      "positionMm": [
+       121.0,
+       -106.6125
+      ],
+      "sizeMm": [
+       0.25,
+       0.8
+      ],
+      "shape": "roundrect",
+      "tht": false
+     },
+     {
+      "pad": "22",
+      "positionMm": [
+       121.0,
+       -106.1125
+      ],
+      "sizeMm": [
+       0.25,
+       0.8
+      ],
+      "shape": "roundrect",
+      "tht": false
+     },
+     {
+      "pad": "23",
+      "positionMm": [
+       121.0,
+       -105.6125
+      ],
+      "sizeMm": [
+       0.25,
+       0.8
+      ],
+      "shape": "roundrect",
+      "tht": false
+     },
+     {
+      "pad": "24",
+      "positionMm": [
+       121.0,
+       -105.1125
+      ],
+      "sizeMm": [
+       0.25,
+       0.8
+      ],
+      "shape": "roundrect",
+      "tht": false
+     },
+     {
+      "pad": "25",
+      "positionMm": [
+       119.025,
+       -106.3625
+      ],
+      "sizeMm": [
+       2.75,
+       2.75
+      ],
+      "shape": "rect",
+      "tht": false
+     }
+    ],
+    "courtyard": {
+     "minMm": [
+      -2.63,
+      -2.63
+     ],
+     "maxMm": [
+      2.63,
+      2.63
+     ]
+    },
+    "model": {
+     "path": "${KIPRJMOD}/packages3D/CYPD3177-24LQXQT.stp",
+     "offsetMm": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "rotationDeg": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "scale": [
+      1.0,
+      1.0,
+      1.0
+     ]
+    }
+   }
+  }
+ ],
+ "diagnostics": [],
+ "digest": "sha256:b9622a24741c6541502f153e37d7bf6b6215a8afcc18ce27ae24a742f55846a7"
+}

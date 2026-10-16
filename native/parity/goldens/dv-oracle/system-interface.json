@@ -1,0 +1,1527 @@
+{
+ "schema": "prism.system_interface.v1",
+ "hasPcb": true,
+ "boardThicknessMm": 1.6,
+ "boardOutlineMm": {
+  "minMm": [
+   0.0,
+   -40.0
+  ],
+  "maxMm": [
+   60.0,
+   0.0
+  ],
+  "source": "edge_cuts"
+ },
+ "components": [
+  {
+   "portKey": "/df45a56d-eafa-53fe-96d8-7823ed0c0fa3/c34fa430-f6b0-55a2-a210-f21b13a3d089",
+   "memberKeys": [
+    "/df45a56d-eafa-53fe-96d8-7823ed0c0fa3/c34fa430-f6b0-55a2-a210-f21b13a3d089"
+   ],
+   "reference": "C1",
+   "libId": "Device:C",
+   "footprint": "Capacitor_SMD:C_0603_1608Metric",
+   "value": "1uF",
+   "mpn": "X-1",
+   "dnp": false,
+   "candidate": false,
+   "candidateReason": "none",
+   "pins": [
+    {
+     "pad": "1",
+     "nets": [],
+     "pcbNets": [],
+     "pinNames": [
+      "~"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "2",
+     "nets": [],
+     "pcbNets": [],
+     "pinNames": [
+      "~"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    }
+   ],
+   "geometry": {
+    "side": "top",
+    "positionMm": [
+     25.0,
+     -5.0
+    ],
+    "rotationDeg": 0.0,
+    "footprintName": "C_0603_1608Metric",
+    "pads": [
+     {
+      "pad": "1",
+      "positionMm": [
+       24.0,
+       -5.0
+      ],
+      "sizeMm": [
+       0.8,
+       0.9
+      ],
+      "shape": "rect",
+      "tht": false
+     },
+     {
+      "pad": "2",
+      "positionMm": [
+       26.0,
+       -5.0
+      ],
+      "sizeMm": [
+       0.8,
+       0.9
+      ],
+      "shape": "rect",
+      "tht": false
+     }
+    ],
+    "courtyard": {
+     "minMm": [
+      -1.5,
+      1.0
+     ],
+     "maxMm": [
+      1.5,
+      1.0
+     ]
+    },
+    "model": {
+     "path": "${KICAD10_3DMODEL_DIR}/Capacitor_SMD.3dshapes/C_0603_1608Metric.step",
+     "offsetMm": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "rotationDeg": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "scale": [
+      1.0,
+      1.0,
+      1.0
+     ]
+    }
+   }
+  },
+  {
+   "portKey": "/df45a56d-eafa-53fe-96d8-7823ed0c0fa3/7d201bda-eaa8-50cb-a4b8-98b6f582e55e",
+   "memberKeys": [
+    "/df45a56d-eafa-53fe-96d8-7823ed0c0fa3/7d201bda-eaa8-50cb-a4b8-98b6f582e55e"
+   ],
+   "reference": "Q1",
+   "libId": "Device:Q_NPN_BEC",
+   "footprint": "Package_TO_SOT_SMD:SOT-23",
+   "value": "BC847",
+   "mpn": null,
+   "dnp": false,
+   "candidate": false,
+   "candidateReason": "none",
+   "pins": [
+    {
+     "pad": "1",
+     "nets": [],
+     "pcbNets": [],
+     "pinNames": [
+      "B"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "2",
+     "nets": [],
+     "pcbNets": [],
+     "pinNames": [
+      "E"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "3",
+     "nets": [],
+     "pcbNets": [],
+     "pinNames": [
+      "C"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    }
+   ],
+   "geometry": {
+    "side": "top",
+    "positionMm": [
+     40.0,
+     -5.0
+    ],
+    "rotationDeg": 0.0,
+    "footprintName": "SOT-23",
+    "pads": [
+     {
+      "pad": "1",
+      "positionMm": [
+       39.0,
+       -5.0
+      ],
+      "sizeMm": [
+       0.8,
+       0.9
+      ],
+      "shape": "rect",
+      "tht": false
+     },
+     {
+      "pad": "2",
+      "positionMm": [
+       40.0,
+       -5.0
+      ],
+      "sizeMm": [
+       0.8,
+       0.9
+      ],
+      "shape": "rect",
+      "tht": false
+     },
+     {
+      "pad": "3",
+      "positionMm": [
+       41.0,
+       -5.0
+      ],
+      "sizeMm": [
+       0.8,
+       0.9
+      ],
+      "shape": "rect",
+      "tht": false
+     }
+    ],
+    "courtyard": {
+     "minMm": [
+      -1.5,
+      1.0
+     ],
+     "maxMm": [
+      1.5,
+      1.0
+     ]
+    },
+    "model": {
+     "path": "${KICAD10_3DMODEL_DIR}/Package_TO_SOT_SMD.3dshapes/SOT-23.step",
+     "offsetMm": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "rotationDeg": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "scale": [
+      1.0,
+      1.0,
+      1.0
+     ]
+    }
+   }
+  },
+  {
+   "portKey": "/df45a56d-eafa-53fe-96d8-7823ed0c0fa3/caa639b3-c965-5f5f-8579-1b1030520a32",
+   "memberKeys": [
+    "/df45a56d-eafa-53fe-96d8-7823ed0c0fa3/caa639b3-c965-5f5f-8579-1b1030520a32"
+   ],
+   "reference": "R1",
+   "libId": "Device:R",
+   "footprint": "Resistor_SMD:R_0603_1608Metric",
+   "value": "10k",
+   "mpn": "R1-BASE",
+   "dnp": false,
+   "candidate": false,
+   "candidateReason": "none",
+   "pins": [
+    {
+     "pad": "1",
+     "nets": [],
+     "pcbNets": [],
+     "pinNames": [
+      "~"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "2",
+     "nets": [],
+     "pcbNets": [],
+     "pinNames": [
+      "~"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    }
+   ],
+   "geometry": {
+    "side": "top",
+    "positionMm": [
+     5.0,
+     -5.0
+    ],
+    "rotationDeg": 0.0,
+    "footprintName": "R_0603_1608Metric",
+    "pads": [
+     {
+      "pad": "1",
+      "positionMm": [
+       4.0,
+       -5.0
+      ],
+      "sizeMm": [
+       0.8,
+       0.9
+      ],
+      "shape": "rect",
+      "tht": false
+     },
+     {
+      "pad": "2",
+      "positionMm": [
+       6.0,
+       -5.0
+      ],
+      "sizeMm": [
+       0.8,
+       0.9
+      ],
+      "shape": "rect",
+      "tht": false
+     }
+    ],
+    "courtyard": {
+     "minMm": [
+      -1.5,
+      1.0
+     ],
+     "maxMm": [
+      1.5,
+      1.0
+     ]
+    },
+    "model": {
+     "path": "${KICAD10_3DMODEL_DIR}/Resistor_SMD.3dshapes/R_0603_1608Metric.step",
+     "offsetMm": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "rotationDeg": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "scale": [
+      1.0,
+      1.0,
+      1.0
+     ]
+    }
+   }
+  },
+  {
+   "portKey": "/df45a56d-eafa-53fe-96d8-7823ed0c0fa3/bdaa41e8-4b3e-516d-b481-b6b06f958325",
+   "memberKeys": [
+    "/df45a56d-eafa-53fe-96d8-7823ed0c0fa3/bdaa41e8-4b3e-516d-b481-b6b06f958325"
+   ],
+   "reference": "R2",
+   "libId": "Device:R",
+   "footprint": "Resistor_SMD:R_0603_1608Metric",
+   "value": "22k",
+   "mpn": null,
+   "dnp": true,
+   "candidate": false,
+   "candidateReason": "none",
+   "pins": [
+    {
+     "pad": "1",
+     "nets": [],
+     "pcbNets": [],
+     "pinNames": [
+      "~"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "2",
+     "nets": [],
+     "pcbNets": [],
+     "pinNames": [
+      "~"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    }
+   ],
+   "geometry": {
+    "side": "top",
+    "positionMm": [
+     10.0,
+     -5.0
+    ],
+    "rotationDeg": 0.0,
+    "footprintName": "R_0603_1608Metric",
+    "pads": [
+     {
+      "pad": "1",
+      "positionMm": [
+       9.0,
+       -5.0
+      ],
+      "sizeMm": [
+       0.8,
+       0.9
+      ],
+      "shape": "rect",
+      "tht": false
+     },
+     {
+      "pad": "2",
+      "positionMm": [
+       11.0,
+       -5.0
+      ],
+      "sizeMm": [
+       0.8,
+       0.9
+      ],
+      "shape": "rect",
+      "tht": false
+     }
+    ],
+    "courtyard": {
+     "minMm": [
+      -1.5,
+      1.0
+     ],
+     "maxMm": [
+      1.5,
+      1.0
+     ]
+    },
+    "model": {
+     "path": "${KICAD10_3DMODEL_DIR}/Resistor_SMD.3dshapes/R_0603_1608Metric.step",
+     "offsetMm": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "rotationDeg": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "scale": [
+      1.0,
+      1.0,
+      1.0
+     ]
+    }
+   }
+  },
+  {
+   "portKey": "/df45a56d-eafa-53fe-96d8-7823ed0c0fa3/4ef94c69-7653-5842-9ae5-ff8865862183",
+   "memberKeys": [
+    "/df45a56d-eafa-53fe-96d8-7823ed0c0fa3/4ef94c69-7653-5842-9ae5-ff8865862183"
+   ],
+   "reference": "R3",
+   "libId": "Device:R",
+   "footprint": "Resistor_SMD:R_0603_1608Metric",
+   "value": "33k",
+   "mpn": null,
+   "dnp": false,
+   "candidate": false,
+   "candidateReason": "none",
+   "pins": [
+    {
+     "pad": "1",
+     "nets": [],
+     "pcbNets": [],
+     "pinNames": [
+      "~"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "2",
+     "nets": [],
+     "pcbNets": [],
+     "pinNames": [
+      "~"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    }
+   ],
+   "geometry": {
+    "side": "top",
+    "positionMm": [
+     15.0,
+     -5.0
+    ],
+    "rotationDeg": 0.0,
+    "footprintName": "R_0603_1608Metric",
+    "pads": [
+     {
+      "pad": "1",
+      "positionMm": [
+       14.0,
+       -5.0
+      ],
+      "sizeMm": [
+       0.8,
+       0.9
+      ],
+      "shape": "rect",
+      "tht": false
+     },
+     {
+      "pad": "2",
+      "positionMm": [
+       16.0,
+       -5.0
+      ],
+      "sizeMm": [
+       0.8,
+       0.9
+      ],
+      "shape": "rect",
+      "tht": false
+     }
+    ],
+    "courtyard": {
+     "minMm": [
+      -1.5,
+      1.0
+     ],
+     "maxMm": [
+      1.5,
+      1.0
+     ]
+    },
+    "model": {
+     "path": "${KICAD10_3DMODEL_DIR}/Resistor_SMD.3dshapes/R_0603_1608Metric.step",
+     "offsetMm": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "rotationDeg": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "scale": [
+      1.0,
+      1.0,
+      1.0
+     ]
+    }
+   }
+  },
+  {
+   "portKey": "/df45a56d-eafa-53fe-96d8-7823ed0c0fa3/23f0e81a-7865-5d18-bd0e-1d11af24fc3d",
+   "memberKeys": [
+    "/df45a56d-eafa-53fe-96d8-7823ed0c0fa3/23f0e81a-7865-5d18-bd0e-1d11af24fc3d"
+   ],
+   "reference": "R4",
+   "libId": "Device:R",
+   "footprint": "Resistor_SMD:R_0603_1608Metric",
+   "value": "47k",
+   "mpn": "R4-BASE",
+   "dnp": false,
+   "candidate": false,
+   "candidateReason": "none",
+   "pins": [
+    {
+     "pad": "1",
+     "nets": [],
+     "pcbNets": [],
+     "pinNames": [
+      "~"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "2",
+     "nets": [],
+     "pcbNets": [],
+     "pinNames": [
+      "~"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    }
+   ],
+   "geometry": {
+    "side": "top",
+    "positionMm": [
+     20.0,
+     -5.0
+    ],
+    "rotationDeg": 0.0,
+    "footprintName": "R_0603_1608Metric",
+    "pads": [
+     {
+      "pad": "1",
+      "positionMm": [
+       19.0,
+       -5.0
+      ],
+      "sizeMm": [
+       0.8,
+       0.9
+      ],
+      "shape": "rect",
+      "tht": false
+     },
+     {
+      "pad": "2",
+      "positionMm": [
+       21.0,
+       -5.0
+      ],
+      "sizeMm": [
+       0.8,
+       0.9
+      ],
+      "shape": "rect",
+      "tht": false
+     }
+    ],
+    "courtyard": {
+     "minMm": [
+      -1.5,
+      1.0
+     ],
+     "maxMm": [
+      1.5,
+      1.0
+     ]
+    },
+    "model": {
+     "path": "${KICAD10_3DMODEL_DIR}/Resistor_SMD.3dshapes/R_0603_1608Metric.step",
+     "offsetMm": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "rotationDeg": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "scale": [
+      1.0,
+      1.0,
+      1.0
+     ]
+    }
+   }
+  },
+  {
+   "portKey": "/df45a56d-eafa-53fe-96d8-7823ed0c0fa3/c33f383d-e37a-5ee0-b3d2-b1d64b3f8476/e466f341-d6de-5757-99d7-3cab7d8daea1/1c78f846-3def-57ae-ac80-247ce4b3b496",
+   "memberKeys": [
+    "/df45a56d-eafa-53fe-96d8-7823ed0c0fa3/c33f383d-e37a-5ee0-b3d2-b1d64b3f8476/e466f341-d6de-5757-99d7-3cab7d8daea1/1c78f846-3def-57ae-ac80-247ce4b3b496"
+   ],
+   "reference": "R6",
+   "libId": "Device:R",
+   "footprint": "Resistor_SMD:R_0603_1608Metric",
+   "value": "0R",
+   "mpn": null,
+   "dnp": false,
+   "candidate": false,
+   "candidateReason": "none",
+   "pins": [
+    {
+     "pad": "1",
+     "nets": [],
+     "pcbNets": [],
+     "pinNames": [
+      "~"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "2",
+     "nets": [],
+     "pcbNets": [],
+     "pinNames": [
+      "~"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    }
+   ],
+   "geometry": {
+    "side": "top",
+    "positionMm": [
+     20.0,
+     -15.0
+    ],
+    "rotationDeg": 0.0,
+    "footprintName": "R_0603_1608Metric",
+    "pads": [
+     {
+      "pad": "1",
+      "positionMm": [
+       19.0,
+       -15.0
+      ],
+      "sizeMm": [
+       0.8,
+       0.9
+      ],
+      "shape": "rect",
+      "tht": false
+     },
+     {
+      "pad": "2",
+      "positionMm": [
+       21.0,
+       -15.0
+      ],
+      "sizeMm": [
+       0.8,
+       0.9
+      ],
+      "shape": "rect",
+      "tht": false
+     }
+    ],
+    "courtyard": {
+     "minMm": [
+      -1.5,
+      1.0
+     ],
+     "maxMm": [
+      1.5,
+      1.0
+     ]
+    },
+    "model": {
+     "path": "${KICAD10_3DMODEL_DIR}/Resistor_SMD.3dshapes/R_0603_1608Metric.step",
+     "offsetMm": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "rotationDeg": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "scale": [
+      1.0,
+      1.0,
+      1.0
+     ]
+    }
+   }
+  },
+  {
+   "portKey": "/df45a56d-eafa-53fe-96d8-7823ed0c0fa3/2b37a7b5-50d3-5e47-8b5a-0eb89cbfd3a1/900d8d20-7de0-547f-a978-fd9a5c67007c",
+   "memberKeys": [
+    "/df45a56d-eafa-53fe-96d8-7823ed0c0fa3/2b37a7b5-50d3-5e47-8b5a-0eb89cbfd3a1/900d8d20-7de0-547f-a978-fd9a5c67007c"
+   ],
+   "reference": "R7",
+   "libId": "Device:R",
+   "footprint": "Resistor_SMD:R_0603_1608Metric",
+   "value": "100R",
+   "mpn": "CH-BASE",
+   "dnp": false,
+   "candidate": false,
+   "candidateReason": "none",
+   "pins": [
+    {
+     "pad": "1",
+     "nets": [],
+     "pcbNets": [],
+     "pinNames": [
+      "~"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "2",
+     "nets": [],
+     "pcbNets": [],
+     "pinNames": [
+      "~"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    }
+   ],
+   "geometry": {
+    "side": "top",
+    "positionMm": [
+     25.0,
+     -15.0
+    ],
+    "rotationDeg": 0.0,
+    "footprintName": "R_0603_1608Metric",
+    "pads": [
+     {
+      "pad": "1",
+      "positionMm": [
+       24.0,
+       -15.0
+      ],
+      "sizeMm": [
+       0.8,
+       0.9
+      ],
+      "shape": "rect",
+      "tht": false
+     },
+     {
+      "pad": "2",
+      "positionMm": [
+       26.0,
+       -15.0
+      ],
+      "sizeMm": [
+       0.8,
+       0.9
+      ],
+      "shape": "rect",
+      "tht": false
+     }
+    ],
+    "courtyard": {
+     "minMm": [
+      -1.5,
+      1.0
+     ],
+     "maxMm": [
+      1.5,
+      1.0
+     ]
+    },
+    "model": {
+     "path": "${KICAD10_3DMODEL_DIR}/Resistor_SMD.3dshapes/R_0603_1608Metric.step",
+     "offsetMm": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "rotationDeg": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "scale": [
+      1.0,
+      1.0,
+      1.0
+     ]
+    }
+   }
+  },
+  {
+   "portKey": "/df45a56d-eafa-53fe-96d8-7823ed0c0fa3/a3f95ab9-d212-5d48-93ad-8aff8aef4abf/900d8d20-7de0-547f-a978-fd9a5c67007c",
+   "memberKeys": [
+    "/df45a56d-eafa-53fe-96d8-7823ed0c0fa3/a3f95ab9-d212-5d48-93ad-8aff8aef4abf/900d8d20-7de0-547f-a978-fd9a5c67007c"
+   ],
+   "reference": "R8",
+   "libId": "Device:R",
+   "footprint": "Resistor_SMD:R_0603_1608Metric",
+   "value": "100R",
+   "mpn": "CH-BASE",
+   "dnp": false,
+   "candidate": false,
+   "candidateReason": "none",
+   "pins": [
+    {
+     "pad": "1",
+     "nets": [],
+     "pcbNets": [],
+     "pinNames": [
+      "~"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "2",
+     "nets": [],
+     "pcbNets": [],
+     "pinNames": [
+      "~"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    }
+   ],
+   "geometry": {
+    "side": "top",
+    "positionMm": [
+     30.0,
+     -15.0
+    ],
+    "rotationDeg": 0.0,
+    "footprintName": "R_0603_1608Metric",
+    "pads": [
+     {
+      "pad": "1",
+      "positionMm": [
+       29.0,
+       -15.0
+      ],
+      "sizeMm": [
+       0.8,
+       0.9
+      ],
+      "shape": "rect",
+      "tht": false
+     },
+     {
+      "pad": "2",
+      "positionMm": [
+       31.0,
+       -15.0
+      ],
+      "sizeMm": [
+       0.8,
+       0.9
+      ],
+      "shape": "rect",
+      "tht": false
+     }
+    ],
+    "courtyard": {
+     "minMm": [
+      -1.5,
+      1.0
+     ],
+     "maxMm": [
+      1.5,
+      1.0
+     ]
+    },
+    "model": {
+     "path": "${KICAD10_3DMODEL_DIR}/Resistor_SMD.3dshapes/R_0603_1608Metric.step",
+     "offsetMm": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "rotationDeg": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "scale": [
+      1.0,
+      1.0,
+      1.0
+     ]
+    }
+   }
+  },
+  {
+   "portKey": "/df45a56d-eafa-53fe-96d8-7823ed0c0fa3/a902666b-3af7-54fc-b81f-3efbe0ea2470",
+   "memberKeys": [
+    "/df45a56d-eafa-53fe-96d8-7823ed0c0fa3/a902666b-3af7-54fc-b81f-3efbe0ea2470"
+   ],
+   "reference": "R9",
+   "libId": "Device:R",
+   "footprint": "Resistor_SMD:R_0603_1608Metric",
+   "value": "1k",
+   "mpn": null,
+   "dnp": false,
+   "candidate": false,
+   "candidateReason": "none",
+   "pins": [
+    {
+     "pad": "1",
+     "nets": [],
+     "pcbNets": null,
+     "pinNames": [
+      "~"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "2",
+     "nets": [],
+     "pcbNets": null,
+     "pinNames": [
+      "~"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    }
+   ],
+   "geometry": null
+  },
+  {
+   "portKey": "/df45a56d-eafa-53fe-96d8-7823ed0c0fa3/c33f383d-e37a-5ee0-b3d2-b1d64b3f8476/a9a5553f-6467-5f4c-99ec-239d47111690",
+   "memberKeys": [
+    "/df45a56d-eafa-53fe-96d8-7823ed0c0fa3/c33f383d-e37a-5ee0-b3d2-b1d64b3f8476/a9a5553f-6467-5f4c-99ec-239d47111690"
+   ],
+   "reference": "R12",
+   "libId": "Device:R",
+   "footprint": "Resistor_SMD:R_0603_1608Metric",
+   "value": "4k7",
+   "mpn": null,
+   "dnp": false,
+   "candidate": false,
+   "candidateReason": "none",
+   "pins": [
+    {
+     "pad": "1",
+     "nets": [],
+     "pcbNets": [],
+     "pinNames": [
+      "~"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "2",
+     "nets": [],
+     "pcbNets": [],
+     "pinNames": [
+      "~"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    }
+   ],
+   "geometry": {
+    "side": "top",
+    "positionMm": [
+     15.0,
+     -15.0
+    ],
+    "rotationDeg": 0.0,
+    "footprintName": "R_0603_1608Metric",
+    "pads": [
+     {
+      "pad": "1",
+      "positionMm": [
+       14.0,
+       -15.0
+      ],
+      "sizeMm": [
+       0.8,
+       0.9
+      ],
+      "shape": "rect",
+      "tht": false
+     },
+     {
+      "pad": "2",
+      "positionMm": [
+       16.0,
+       -15.0
+      ],
+      "sizeMm": [
+       0.8,
+       0.9
+      ],
+      "shape": "rect",
+      "tht": false
+     }
+    ],
+    "courtyard": {
+     "minMm": [
+      -1.5,
+      1.0
+     ],
+     "maxMm": [
+      1.5,
+      1.0
+     ]
+    },
+    "model": {
+     "path": "${KICAD10_3DMODEL_DIR}/Resistor_SMD.3dshapes/R_0603_1608Metric.step",
+     "offsetMm": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "rotationDeg": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "scale": [
+      1.0,
+      1.0,
+      1.0
+     ]
+    }
+   }
+  },
+  {
+   "portKey": "/df45a56d-eafa-53fe-96d8-7823ed0c0fa3/3e98b5e2-e4d0-5512-91f4-b35191971034",
+   "memberKeys": [
+    "/df45a56d-eafa-53fe-96d8-7823ed0c0fa3/1be1d8dc-a710-5986-ba18-62d6bc021e6b",
+    "/df45a56d-eafa-53fe-96d8-7823ed0c0fa3/3e98b5e2-e4d0-5512-91f4-b35191971034"
+   ],
+   "reference": "U1",
+   "libId": "Oracle:DualAmp",
+   "footprint": "Package_SO:SOIC-8_3.9x4.9mm_P1.27mm",
+   "value": "DualAmp",
+   "mpn": null,
+   "dnp": false,
+   "candidate": false,
+   "candidateReason": "none",
+   "pins": [
+    {
+     "pad": "1",
+     "nets": [],
+     "pcbNets": [],
+     "pinNames": [
+      "IN"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "2",
+     "nets": [],
+     "pcbNets": [],
+     "pinNames": [
+      "OUT"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "3",
+     "nets": [],
+     "pcbNets": [],
+     "pinNames": [
+      "IN"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "4",
+     "nets": [],
+     "pcbNets": [],
+     "pinNames": [
+      "OUT"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    }
+   ],
+   "geometry": {
+    "side": "top",
+    "positionMm": [
+     32.0,
+     -5.0
+    ],
+    "rotationDeg": 0.0,
+    "footprintName": "SOIC-8_3.9x4.9mm_P1.27mm",
+    "pads": [
+     {
+      "pad": "1",
+      "positionMm": [
+       31.0,
+       -5.0
+      ],
+      "sizeMm": [
+       0.8,
+       0.9
+      ],
+      "shape": "rect",
+      "tht": false
+     },
+     {
+      "pad": "2",
+      "positionMm": [
+       31.286,
+       -5.0
+      ],
+      "sizeMm": [
+       0.8,
+       0.9
+      ],
+      "shape": "rect",
+      "tht": false
+     },
+     {
+      "pad": "3",
+      "positionMm": [
+       31.571,
+       -5.0
+      ],
+      "sizeMm": [
+       0.8,
+       0.9
+      ],
+      "shape": "rect",
+      "tht": false
+     },
+     {
+      "pad": "4",
+      "positionMm": [
+       31.857,
+       -5.0
+      ],
+      "sizeMm": [
+       0.8,
+       0.9
+      ],
+      "shape": "rect",
+      "tht": false
+     },
+     {
+      "pad": "5",
+      "positionMm": [
+       32.143,
+       -5.0
+      ],
+      "sizeMm": [
+       0.8,
+       0.9
+      ],
+      "shape": "rect",
+      "tht": false
+     },
+     {
+      "pad": "6",
+      "positionMm": [
+       32.429,
+       -5.0
+      ],
+      "sizeMm": [
+       0.8,
+       0.9
+      ],
+      "shape": "rect",
+      "tht": false
+     },
+     {
+      "pad": "7",
+      "positionMm": [
+       32.714,
+       -5.0
+      ],
+      "sizeMm": [
+       0.8,
+       0.9
+      ],
+      "shape": "rect",
+      "tht": false
+     },
+     {
+      "pad": "8",
+      "positionMm": [
+       33.0,
+       -5.0
+      ],
+      "sizeMm": [
+       0.8,
+       0.9
+      ],
+      "shape": "rect",
+      "tht": false
+     }
+    ],
+    "courtyard": {
+     "minMm": [
+      -1.5,
+      1.0
+     ],
+     "maxMm": [
+      1.5,
+      1.0
+     ]
+    },
+    "model": {
+     "path": "${KICAD10_3DMODEL_DIR}/Package_SO.3dshapes/SOIC-8_3.9x4.9mm_P1.27mm.step",
+     "offsetMm": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "rotationDeg": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "scale": [
+      1.0,
+      1.0,
+      1.0
+     ]
+    }
+   }
+  },
+  {
+   "portKey": "/df45a56d-eafa-53fe-96d8-7823ed0c0fa3/c33f383d-e37a-5ee0-b3d2-b1d64b3f8476/a5cfa1a3-dfa6-506d-9fc0-fdb3dcd9a7e5",
+   "memberKeys": [
+    "/df45a56d-eafa-53fe-96d8-7823ed0c0fa3/c33f383d-e37a-5ee0-b3d2-b1d64b3f8476/a5cfa1a3-dfa6-506d-9fc0-fdb3dcd9a7e5"
+   ],
+   "reference": "U2",
+   "libId": "Oracle:DualAmp",
+   "footprint": "Package_SO:SOIC-8_3.9x4.9mm_P1.27mm",
+   "value": "DualAmp",
+   "mpn": null,
+   "dnp": false,
+   "candidate": false,
+   "candidateReason": "none",
+   "pins": [
+    {
+     "pad": "1",
+     "nets": [],
+     "pcbNets": [],
+     "pinNames": [
+      "IN"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "2",
+     "nets": [],
+     "pcbNets": [],
+     "pinNames": [
+      "OUT"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    }
+   ],
+   "geometry": {
+    "side": "top",
+    "positionMm": [
+     5.0,
+     -15.0
+    ],
+    "rotationDeg": 0.0,
+    "footprintName": "SOIC-8_3.9x4.9mm_P1.27mm",
+    "pads": [
+     {
+      "pad": "1",
+      "positionMm": [
+       4.0,
+       -15.0
+      ],
+      "sizeMm": [
+       0.8,
+       0.9
+      ],
+      "shape": "rect",
+      "tht": false
+     },
+     {
+      "pad": "2",
+      "positionMm": [
+       4.286,
+       -15.0
+      ],
+      "sizeMm": [
+       0.8,
+       0.9
+      ],
+      "shape": "rect",
+      "tht": false
+     },
+     {
+      "pad": "3",
+      "positionMm": [
+       4.571,
+       -15.0
+      ],
+      "sizeMm": [
+       0.8,
+       0.9
+      ],
+      "shape": "rect",
+      "tht": false
+     },
+     {
+      "pad": "4",
+      "positionMm": [
+       4.857,
+       -15.0
+      ],
+      "sizeMm": [
+       0.8,
+       0.9
+      ],
+      "shape": "rect",
+      "tht": false
+     },
+     {
+      "pad": "5",
+      "positionMm": [
+       5.143,
+       -15.0
+      ],
+      "sizeMm": [
+       0.8,
+       0.9
+      ],
+      "shape": "rect",
+      "tht": false
+     },
+     {
+      "pad": "6",
+      "positionMm": [
+       5.429,
+       -15.0
+      ],
+      "sizeMm": [
+       0.8,
+       0.9
+      ],
+      "shape": "rect",
+      "tht": false
+     },
+     {
+      "pad": "7",
+      "positionMm": [
+       5.714,
+       -15.0
+      ],
+      "sizeMm": [
+       0.8,
+       0.9
+      ],
+      "shape": "rect",
+      "tht": false
+     },
+     {
+      "pad": "8",
+      "positionMm": [
+       6.0,
+       -15.0
+      ],
+      "sizeMm": [
+       0.8,
+       0.9
+      ],
+      "shape": "rect",
+      "tht": false
+     }
+    ],
+    "courtyard": {
+     "minMm": [
+      -1.5,
+      1.0
+     ],
+     "maxMm": [
+      1.5,
+      1.0
+     ]
+    },
+    "model": {
+     "path": "${KICAD10_3DMODEL_DIR}/Package_SO.3dshapes/SOIC-8_3.9x4.9mm_P1.27mm.step",
+     "offsetMm": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "rotationDeg": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "scale": [
+      1.0,
+      1.0,
+      1.0
+     ]
+    }
+   }
+  }
+ ],
+ "diagnostics": [],
+ "digest": "sha256:a26c851cd5ac4362d58143ac099b262c90aeed18ec4e098adb881502bc94a645"
+}

@@ -1,0 +1,110 @@
+{
+ "schema": "prism.occurrences.a0",
+ "sheets": [
+  {
+   "sheetPath": "/c8bd9f5d-9fab-5609-afe3-e3bc0fbbd678",
+   "dnp": false,
+   "excludeFromBom": false,
+   "excludeFromBoard": false,
+   "excludeFromSim": false,
+   "variants": []
+  }
+ ],
+ "symbols": [
+  {
+   "kiidPath": "/c8bd9f5d-9fab-5609-afe3-e3bc0fbbd678/1a380b84-f41f-5cc2-bb67-d18a42a0f525",
+   "sheetPath": "/c8bd9f5d-9fab-5609-afe3-e3bc0fbbd678",
+   "symbolUuid": "1a380b84-f41f-5cc2-bb67-d18a42a0f525",
+   "documentPath": "mezz_top.kicad_sch",
+   "libId": "PrismFixture:ADF6_4x30",
+   "reference": "J2",
+   "instanceMatched": true,
+   "unit": 1,
+   "dnp": false,
+   "excludeFromBom": false,
+   "excludeFromBoard": false,
+   "excludeFromSim": false,
+   "excludeFromPosFiles": false,
+   "properties": {
+    "Datasheet": "",
+    "Description": "",
+    "Footprint": "PrismFixture:Samtec_ADF6-30-03.5-L-4-0-A",
+    "Reference": "J2",
+    "Value": "ADF6_4x30"
+   },
+   "bomFields": {
+    "value": "ADF6_4x30",
+    "footprint": "PrismFixture:Samtec_ADF6-30-03.5-L-4-0-A"
+   },
+   "variants": []
+  },
+  {
+   "kiidPath": "/c8bd9f5d-9fab-5609-afe3-e3bc0fbbd678/3b3eaf96-7cfc-5073-9f70-2f5cf849f3b8",
+   "sheetPath": "/c8bd9f5d-9fab-5609-afe3-e3bc0fbbd678",
+   "symbolUuid": "3b3eaf96-7cfc-5073-9f70-2f5cf849f3b8",
+   "documentPath": "mezz_top.kicad_sch",
+   "libId": "PrismFixture:ADF6_4x30",
+   "reference": "J1",
+   "instanceMatched": true,
+   "unit": 1,
+   "dnp": false,
+   "excludeFromBom": false,
+   "excludeFromBoard": false,
+   "excludeFromSim": false,
+   "excludeFromPosFiles": false,
+   "properties": {
+    "Datasheet": "",
+    "Description": "",
+    "Footprint": "PrismFixture:Samtec_ADF6-30-03.5-L-4-0-A",
+    "Reference": "J1",
+    "Value": "ADF6_4x30"
+   },
+   "bomFields": {
+    "value": "ADF6_4x30",
+    "footprint": "PrismFixture:Samtec_ADF6-30-03.5-L-4-0-A"
+   },
+   "variants": []
+  }
+ ],
+ "footprints": [
+  {
+   "uuid": "86fc2e09-1dde-523f-abee-0a0dcf2c3de1",
+   "documentPath": "mezz_top.kicad_pcb",
+   "reference": "J2",
+   "dnp": false,
+   "excludeFromBom": false,
+   "excludeFromPosFiles": false,
+   "variants": []
+  },
+  {
+   "uuid": "f90250f8-7166-5a79-aaa5-4cb259efc35c",
+   "documentPath": "mezz_top.kicad_pcb",
+   "reference": "J1",
+   "dnp": false,
+   "excludeFromBom": false,
+   "excludeFromPosFiles": false,
+   "variants": []
+  }
+ ],
+ "references": [
+  {
+   "reference": "J1",
+   "symbols": [
+    "/c8bd9f5d-9fab-5609-afe3-e3bc0fbbd678/3b3eaf96-7cfc-5073-9f70-2f5cf849f3b8"
+   ],
+   "footprints": [
+    "f90250f8-7166-5a79-aaa5-4cb259efc35c"
+   ]
+  },
+  {
+   "reference": "J2",
+   "symbols": [
+    "/c8bd9f5d-9fab-5609-afe3-e3bc0fbbd678/1a380b84-f41f-5cc2-bb67-d18a42a0f525"
+   ],
+   "footprints": [
+    "86fc2e09-1dde-523f-abee-0a0dcf2c3de1"
+   ]
+  }
+ ],
+ "variantDeclarations": []
+}
