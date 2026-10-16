@@ -31,9 +31,9 @@ mod sheets;
 mod state;
 
 use crate::{Produced, ProjectionError, ProjectionInput, document};
+pub(crate) use assembly::default_components;
 use prism_kicad_contracts::generated::prism_semantic_index_a1::SemanticIndexA1;
 use serde_json::Value;
-pub(crate) use assembly::default_components;
 pub(crate) use state::{Placement, Placements, State, stable_uid, string};
 
 /// The member's schema id.
