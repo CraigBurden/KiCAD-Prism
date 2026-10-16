@@ -18,8 +18,9 @@ use super::detection::classify;
 use super::numbers::natural_cmp;
 use crate::{ProjectionError, ProjectionInput, SchematicModel};
 use pins::PinEntry;
-use prism_kicad_core::KiCadNetlistComponent;
+use prism_kicad_core::{KiCadNetlist, KiCadNetlistComponent};
 use serde_json::{Value, json};
+use std::cmp::Ordering;
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 
 /// `_MPN_FIELDS` (interface_extractor.py:339): the field names `_mpn` tries, in
@@ -42,12 +43,7 @@ pub(super) fn project(
     board: Option<&BoardFacts>,
 ) -> Result<(Vec<Value>, Vec<Value>), ProjectionError> {
     let netlist = schematic.facts.netlist();
-    // `components_by_reference` (interface_extractor.py:372-375) is a dict
-    // comprehension, so the *last* netlist component with a reference wins.
-    let mut netlist_components: HashMap<&str, &KiCadNetlistComponent> = HashMap::new();
-    for component in &netlist.components {
-        netlist_components.insert(component.reference.as_str(), component);
-    }
+    let netlist_components = netlist_components(netlist);
     let pins_by_pad = pins::schematic_pins(netlist);
     let power_nets = power::power_net_names(schematic.index);
     let mut references = occurrences::occurrences(schematic.index);
@@ -120,17 +116,7 @@ pub(super) fn project(
     }
 
     // `sorted(diagnostics, key=(code, portKey or "", pad or ""))` (:461-463).
-    diagnostics.sort_by(|left, right| {
-        left.code
-            .cmp(right.code)
-            .then_with(|| left.port_key.cmp(&right.port_key))
-            .then_with(|| {
-                left.pad
-                    .as_deref()
-                    .unwrap_or("")
-                    .cmp(right.pad.as_deref().unwrap_or(""))
-            })
-    });
+    diagnostics.sort_by(diagnostic_key);
     Ok((
         components,
         diagnostics
@@ -138,6 +124,30 @@ pub(super) fn project(
             .map(Diagnostic::into_value)
             .collect(),
     ))
+}
+
+/// `components_by_reference` (interface_extractor.py:372-375): a dict
+/// comprehension, so the *last* netlist component with a reference wins.
+fn netlist_components(netlist: &KiCadNetlist) -> HashMap<&str, &KiCadNetlistComponent> {
+    let mut by_reference: HashMap<&str, &KiCadNetlistComponent> = HashMap::new();
+    for component in &netlist.components {
+        by_reference.insert(component.reference.as_str(), component);
+    }
+    by_reference
+}
+
+/// `sorted(diagnostics, key=(code, portKey or "", pad or ""))`
+/// (interface_extractor.py:461-463).
+fn diagnostic_key(left: &Diagnostic, right: &Diagnostic) -> Ordering {
+    left.code
+        .cmp(right.code)
+        .then_with(|| left.port_key.cmp(&right.port_key))
+        .then_with(|| {
+            left.pad
+                .as_deref()
+                .unwrap_or("")
+                .cmp(right.pad.as_deref().unwrap_or(""))
+        })
 }
 
 /// `for pad in sorted(pads, key=_natural)` (interface_extractor.py:413-432): one

@@ -7,7 +7,7 @@
 //! so its own writer gives neither sorted keys nor Python's float spelling;
 //! this writer does both, over the same [`Value`] the member decodes from.
 
-use serde_json::Value;
+use serde_json::{Map, Value};
 use sha2::{Digest, Sha256};
 use std::fmt::Write as _;
 
@@ -42,32 +42,38 @@ fn write_value(out: &mut String, value: &Value) {
             out.push_str(&crate::python::float(number.as_f64().unwrap_or(f64::NAN)));
         }
         Value::String(text) => write_string(out, text),
-        Value::Array(items) => {
-            out.push('[');
-            for (position, item) in items.iter().enumerate() {
-                if position > 0 {
-                    out.push(',');
-                }
-                write_value(out, item);
-            }
-            out.push(']');
-        }
-        Value::Object(map) => {
-            // `sort_keys=True`: code point order, which is byte order in UTF-8.
-            let mut entries: Vec<_> = map.iter().collect();
-            entries.sort_unstable_by(|left, right| left.0.cmp(right.0));
-            out.push('{');
-            for (position, (key, item)) in entries.into_iter().enumerate() {
-                if position > 0 {
-                    out.push(',');
-                }
-                write_string(out, key);
-                out.push(':');
-                write_value(out, item);
-            }
-            out.push('}');
-        }
+        Value::Array(items) => write_array(out, items),
+        Value::Object(map) => write_object(out, map),
     }
+}
+
+/// A JSON array: its items, comma-separated, wrapped in `[]`.
+fn write_array(out: &mut String, items: &[Value]) {
+    out.push('[');
+    for (position, item) in items.iter().enumerate() {
+        if position > 0 {
+            out.push(',');
+        }
+        write_value(out, item);
+    }
+    out.push(']');
+}
+
+/// A JSON object with `sort_keys=True`: code point order, which is byte order
+/// in UTF-8.
+fn write_object(out: &mut String, map: &Map<String, Value>) {
+    let mut entries: Vec<_> = map.iter().collect();
+    entries.sort_unstable_by(|left, right| left.0.cmp(right.0));
+    out.push('{');
+    for (position, (key, item)) in entries.into_iter().enumerate() {
+        if position > 0 {
+            out.push(',');
+        }
+        write_string(out, key);
+        out.push(':');
+        write_value(out, item);
+    }
+    out.push('}');
 }
 
 /// `ensure_ascii=False`: only `"`, `\` and U+0000-U+001F are escaped, with
