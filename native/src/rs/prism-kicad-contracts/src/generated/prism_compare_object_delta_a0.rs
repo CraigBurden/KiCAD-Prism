@@ -2511,8 +2511,8 @@ impl ::std::default::Default for CompareTextEffectsA0 {
 ///      "description": "True when the font has a bare `italic`. Absent when it is not written.",
 ///      "type": "boolean"
 ///    },
-///    "lineSpacing": {
-///      "description": "The `(line_spacing …)` factor as written. Absent when it is not written.",
+///    "line_spacing": {
+///      "description": "The `(line_spacing …)` factor as written. Absent when it is not written. Parity exemption: today's key is snake case (`kicad-sexpr-parser.mjs`), which is why the font models live in this file of their own (conventions.md, Field naming: one family per file).",
 ///      "type": "number"
 ///    },
 ///    "size": {
@@ -2546,12 +2546,8 @@ pub struct CompareTextFontA0 {
     ///True when the font has a bare `italic`. Absent when it is not written.
     #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
     pub italic: ::std::option::Option<bool>,
-    ///The `(line_spacing …)` factor as written. Absent when it is not written.
-    #[serde(
-        rename = "lineSpacing",
-        default,
-        skip_serializing_if = "::std::option::Option::is_none"
-    )]
+    ///The `(line_spacing …)` factor as written. Absent when it is not written. Parity exemption: today's key is snake case (`kicad-sexpr-parser.mjs`), which is why the font models live in this file of their own (conventions.md, Field naming: one family per file).
+    #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
     pub line_spacing: ::std::option::Option<f64>,
     ///The `(color …)`. Absent when it is not written.
     #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]

@@ -87,6 +87,7 @@ prism-kicad compare --base <base.prism> --head <head.prism> -o <delta.json> [COM
   3. loads `-o`.
 - The not-ready policy is unchanged (`native-bundle-consumer-not-ready-policy`): when either bundle is not ready, the job queues the build and serves today's Node path for that request until R1.
 - Working-tree comparisons stay legacy.
+- Today's `revision_components` (`design_compare_occurrences.py:129`) reads each side's `root`, the snapshot directory, to rescan the schematics for sheet-level DNP and exclude-from-BOM. `root` is a host path and is dropped. In bundle mode C2 takes those flags from `projections/occurrences.json`, which already folds them along the sheet path.
 
 ## 4. Contract: `prism.compare.object_delta.a0`
 

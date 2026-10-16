@@ -1,9 +1,11 @@
 import "@typespec/json-schema";
 import "./common.tsp";
+import "./compare-font-a0.tsp";
 import "./board-objects-a0.tsp";
 
 using TypeSpec.JsonSchema;
 using Prism.Contracts.Common;
+using Prism.Contracts.CompareFontA0;
 using Prism.Contracts.BoardObjectsA0;
 
 /**
@@ -388,54 +390,6 @@ model CompareTextEffectsA0 {
 
   /** The `(href …)` as written. Absent when it is not written. */
   href?: string;
-}
-
-/** A text's `(font …)` as the vendored parser reads it. */
-model CompareTextFontA0 {
-  /** The `(face …)` font name. Absent when it is not written. */
-  face?: string;
-
-  /** The `(size …)`. Absent when it is not written. */
-  size?: CompareFontSizeA0;
-
-  /** The `(thickness …)` stroke width in millimetres. Absent when it is not written. */
-  thickness?: float64;
-
-  /** True when the font has a bare `bold`. Absent when it is not written. */
-  bold?: boolean;
-
-  /** True when the font has a bare `italic`. Absent when it is not written. */
-  italic?: boolean;
-
-  /** The `(line_spacing …)` factor as written. Absent when it is not written. */
-  lineSpacing?: float64;
-
-  /** The `(color …)`. Absent when it is not written. */
-  color?: CompareColorA0;
-}
-
-/** A font's `(size <height> <width>)`, today's `{x, y}`. */
-model CompareFontSizeA0 {
-  /** The first value. */
-  x: float64;
-
-  /** The second value. */
-  y: float64;
-}
-
-/** A `(color <r> <g> <b> [<a>])` as today's parser reads it. */
-model CompareColorA0 {
-  /** Red, 0 to 1. */
-  r: float64;
-
-  /** Green, 0 to 1. */
-  g: float64;
-
-  /** Blue, 0 to 1. */
-  b: float64;
-
-  /** Alpha, 0 to 1; 1 when the form omits it. */
-  a: float64;
 }
 
 /** A text's `(justify …)` as today's parser reads it. */

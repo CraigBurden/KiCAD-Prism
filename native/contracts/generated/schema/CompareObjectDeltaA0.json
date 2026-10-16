@@ -977,9 +977,9 @@
                     "type": "boolean",
                     "description": "True when the font has a bare `italic`. Absent when it is not written."
                 },
-                "lineSpacing": {
+                "line_spacing": {
                     "type": "number",
-                    "description": "The `(line_spacing …)` factor as written. Absent when it is not written."
+                    "description": "The `(line_spacing …)` factor as written. Absent when it is not written. Parity exemption: today's key is snake case (`kicad-sexpr-parser.mjs`), which is why the font models live in this file of their own (conventions.md, Field naming: one family per file)."
                 },
                 "color": {
                     "$ref": "#/$defs/CompareColorA0",

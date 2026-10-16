@@ -69,8 +69,8 @@ Pointers are RFC 6901, with `*` for every element of an array and `{key}` for ev
 | `…/componentObjects/*`, `…/base`, `…/compare` (`CompareNativeObjectA0`) | every object field plus `properties?` | mm | `properties` in file order | ed:194-220, ep:914-928, ep:1201-1234 | dcn:209-213; dco:150-154 | same |
 | `CompareSymbolInstanceA0` (`reference?`, `path?`) | strings | — | — | ed:212 (ep:893-912) | dco:155-165 | same |
 | `CompareObjectPropertyA0` (`name`, `value`, `at?`, `rotation?`, `hide?`, `effects?`) | — | mm/° | `name`, `value` required; `hide` is `true`-only for schematic properties | ed:238-279 (ep:914-928, ep:1201-1234) | dcn:209-213; dco:150-154 | same; a footprint property has no `rotation`/`effects` |
-| `CompareTextEffectsA0` (`font?`, `justify?`, `hide?`, `href?`) | — | — | — | ep:925 (parser `kicad-sexpr-parser.mjs:511-550`) | dcn:216-227 | same parser shape. **One rename**: the parser's `font.line_spacing` is written `lineSpacing` (a file must be one naming family, conventions §5); see "Naming" |
-| `CompareTextFontA0` (`face?`, `size?`, `thickness?`, `bold?`, `italic?`, `lineSpacing?`, `color?`) | — | mm | — | parser `font` | dcn:216-227 | same |
+| `CompareTextEffectsA0` (`font?`, `justify?`, `hide?`, `href?`) | — | — | — | ep:925 (parser `kicad-sexpr-parser.mjs:511-550`) | dcn:216-227 | same parser shape; the font models are in `compare-font-a0.tsp` (see "Naming") |
+| `CompareTextFontA0` (`face?`, `size?`, `thickness?`, `bold?`, `italic?`, `line_spacing?`, `color?`) | — | mm | — | parser `font` | dcn:216-227 | same |
 | `CompareFontSizeA0` (`x`, `y`) / `CompareColorA0` (`r`,`g`,`b`,`a`) | numbers | — | required | parser `T.vec2`, `T.color` | dcn:216-227 | same |
 | `CompareTextJustifyA0` (`horiz`, `vert`, `mirror`) | enums, boolean | — | required | parser `justify` | dcn:216-227 | same |
 | `CompareObjectPropertyDeltaA0` (`name`, `from?`, `to?`, `attributesChanged?`, `fromAttributes?`, `toAttributes?`) | — | mm | — | ed:238-279 (`property_deltas`), ed:298-309 (`review_field_deltas`) | dcn:289-299 | a review-field delta carries only `name`, `from`, `to` |
@@ -93,7 +93,7 @@ Pointers are RFC 6901, with `*` for every element of an array and `{key}` for ev
 
 ## Naming
 
-This file is a parity document and keeps today's names except for the parser's `font.line_spacing`, written `lineSpacing`. The conventions' naming-family rule (one family per file, enforced by `check-contract.mjs`) has no parity exemption in the linter; every other field today is camelCase, so the single snake key is renamed. Today's real diffs do not emit that key; the bundle's `BoardObjectsFont` makes the same rename (`field-maps/board-objects.md`).
+This is a parity document and keeps every one of today's names, `font.line_spacing` included. A contract file holds one naming family (conventions §5, enforced by `check-contract.mjs`), and that key is today's only snake-case one, so the font models (`CompareTextFontA0`, `CompareFontSizeA0`, `CompareColorA0`) live in their own file, `native/src/tsp/prism/compare-font-a0.tsp`. Today's real diffs on the 16 validation pairs do not emit the key. (`BoardObjectsFont` spells it `lineSpacing`, under the bundle's own naming; the Rust engine writes `line_spacing` here.)
 
 ## Example provenance
 
