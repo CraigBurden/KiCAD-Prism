@@ -713,67 +713,7 @@ fn str_atom(form: Option<&Sexp>, index: usize) -> Option<String> {
 
 /// `project.py:78-87` and fork `worksheet.rs:926-933`: a scalar as text.
 fn scalar(value: &Sexp) -> String {
-    match value {
-        Sexp::Atom(value) | Sexp::Quoted(value) => value.clone(),
-        Sexp::Integer(value) => value.to_string(),
-        Sexp::Float(value) => python_float(*value),
-        Sexp::List(_) => String::new(),
-    }
-}
-
-/// Python's `str(float)` (`repr`, the shortest round-trip digits): fixed
-/// notation with at least one fractional digit when the decimal exponent is in
-/// `-4..16`, otherwise `d[.ddd]e±XX` with at least two exponent digits. The
-/// prototype's `str_atom` applies it to kicad_monkey's floats (`1.0`, `1e3`).
-fn python_float(value: f64) -> String {
-    if !value.is_finite() {
-        return if value.is_nan() {
-            "nan".to_owned()
-        } else if value > 0.0 {
-            "inf".to_owned()
-        } else {
-            "-inf".to_owned()
-        };
-    }
-    // `{:e}` gives the shortest round-trip digits: `-1.5e3`, `1e-5`, `0e0`.
-    let scientific = format!("{value:e}");
-    let (mantissa, exponent) = scientific.split_once('e').unwrap_or((&scientific, "0"));
-    let exponent: i32 = exponent.parse().unwrap_or(0);
-    let (sign, mantissa) = mantissa
-        .strip_prefix('-')
-        .map_or(("", mantissa), |rest| ("-", rest));
-    let digits: String = mantissa.chars().filter(char::is_ascii_digit).collect();
-    if (-4..16).contains(&exponent) {
-        let point = exponent + 1;
-        let (whole, fraction) = if point <= 0 {
-            let zeros = "0".repeat(usize::try_from(-point).unwrap_or(0));
-            ("0".to_owned(), format!("{zeros}{digits}"))
-        } else {
-            let point = usize::try_from(point).unwrap_or(0);
-            if digits.len() <= point {
-                (format!("{digits:0<point$}"), String::new())
-            } else {
-                (digits[..point].to_owned(), digits[point..].to_owned())
-            }
-        };
-        let fraction = if fraction.is_empty() {
-            "0".to_owned()
-        } else {
-            fraction
-        };
-        format!("{sign}{whole}.{fraction}")
-    } else {
-        let mantissa = if digits.len() > 1 {
-            format!("{}.{}", &digits[..1], &digits[1..])
-        } else {
-            digits
-        };
-        let exponent_sign = if exponent < 0 { '-' } else { '+' };
-        format!(
-            "{sign}{mantissa}e{exponent_sign}{:02}",
-            exponent.unsigned_abs()
-        )
-    }
+    crate::python::token(value).unwrap_or_default()
 }
 
 /// `project.py:115-117`: a canonical UUID child, else `None`.
@@ -2276,28 +2216,5 @@ mod tests {
         assert_eq!(normalize(&[], "a/./b/../c"), ["a", "c"]);
         assert_eq!(normalize(&["x".to_owned()], "../y"), ["y"]);
         assert_eq!(normalize(&[], "../../y"), ["..", "..", "y"]);
-    }
-
-    #[test]
-    fn floats_print_as_python_str() {
-        let cases = [
-            (1.0, "1.0"),
-            (1000.0, "1000.0"),
-            (1.5, "1.5"),
-            (-0.5, "-0.5"),
-            (0.0, "0.0"),
-            (-0.0, "-0.0"),
-            (0.0001, "0.0001"),
-            (0.00001, "1e-05"),
-            (1.25e-7, "1.25e-07"),
-            (1e15, "1000000000000000.0"),
-            (1e16, "1e+16"),
-            (1.5e300, "1.5e+300"),
-            (0.1, "0.1"),
-            (123.456, "123.456"),
-        ];
-        for (value, text) in cases {
-            assert_eq!(super::python_float(value), text, "{value:e}");
-        }
     }
 }
