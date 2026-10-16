@@ -1765,6 +1765,9 @@ class ReleaseStudioPostgresSchemaTests(unittest.TestCase):
                 (55, "project_path_settings"),
                 (56, "release_studio_model_inputs"),
                 (57, "job_retention_indexes"),
+                (100, "design_bundle_commit_index"),
+                (101, "design_bundles"),
+                (102, "design_bundle_outcomes"),
             ],
         )
 
