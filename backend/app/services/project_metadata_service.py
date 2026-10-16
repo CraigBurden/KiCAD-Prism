@@ -161,7 +161,9 @@ def _board_facts(pcb_path: Optional[str]) -> tuple[dict[str, Any], str]:
 
     kicad-cli failure is not an error here. A deployment without the toolchain,
     or a board it refuses, still yields a usable card -- one without a size on
-    it. ``""`` labels "no stats", which the card and the job details both read;
+    it. Failing the whole job would leave the panel with nothing at all, which
+    is strictly worse and would also make the toolchain a hard dependency of
+    browsing the workspace. ``""`` labels "no stats", which the card and the job details both read;
     it is what distinguishes a board with no outline from an unavailable tool.
     """
     if not pcb_path:

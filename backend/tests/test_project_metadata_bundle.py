@@ -163,6 +163,18 @@ class CardMappingTests(unittest.TestCase):
         self.assertEqual(card["pcb"]["thickness_mm"], 1.6)
         self.assertIsNone(card["pcb"]["title_block"])
 
+    def test_a_document_outside_the_project_directory_shows_its_file_name(self) -> None:
+        # Today's ``_relative_or_name``: a path that is not below the project
+        # directory is shown by its name.
+        self.assertEqual(
+            project_properties_service._strip_project_directory("sub", "other/proj.kicad_pcb"),
+            "proj.kicad_pcb",
+        )
+        self.assertEqual(
+            project_properties_service._strip_project_directory("sub", "sub/deep/a.kicad_sch"),
+            "deep/a.kicad_sch",
+        )
+
     def test_absent_documents_and_an_empty_title_block(self) -> None:
         member = {
             "projectFile": "proj.kicad_pro",

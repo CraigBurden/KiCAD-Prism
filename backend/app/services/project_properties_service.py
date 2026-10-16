@@ -349,13 +349,13 @@ def _strip_project_directory(project_dir: str, path: str) -> str:
     The bundle member's paths are repository-relative (conventions §8); the card
     has always shown them relative to the project directory, so the two agree
     only for a project at the repository root and the anchor's directory has to
-    come off here. The fallback is the path as-is, the same shape the parity
-    adapter uses for a document that is not below the anchor.
+    come off here. A document outside the project directory is shown by its file
+    name, as ``_relative_or_name`` does today.
     """
     if not project_dir:
         return path
     prefix = project_dir.rstrip("/") + "/"
-    return path[len(prefix):] if path.startswith(prefix) else path
+    return path[len(prefix):] if path.startswith(prefix) else path.rsplit("/", 1)[-1]
 
 
 def _expanded_title_block(document: Mapping[str, Any]) -> Optional[dict]:
