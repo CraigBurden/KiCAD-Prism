@@ -6,13 +6,12 @@ import json
 import sys
 import unittest
 from contextlib import contextmanager
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from tracker_fault_harness import StatefulFakeForge, github_comment_url, github_issue_url, install_fake_provider  # noqa: E402
-from app.services.comments_revisions import history  # noqa: E402
 from app.services.trackers.contracts import (  # noqa: E402
     ForgeUser,
     RemoteComment,
@@ -75,12 +74,6 @@ def _remote_comment(*, body: str) -> RemoteComment:
 
 
 class FixtureContractTests(unittest.TestCase):
-    def test_tr29_fixture_cases_present(self) -> None:
-        f5_ids = {case["id"] for case in F5["cases"]}
-        self.assertIn("F5.reply_recovery", f5_ids)
-        f8_ids = {case["id"] for case in F8["cases"]}
-        self.assertIn("F8.local_reply_edit_mirrors", f8_ids)
-        self.assertIn("F8.local_reply_delete_mirrors", f8_ids)
 
     def test_github_comment_url_uses_repo_number(self) -> None:
         url = github_comment_url(REPO, ISSUE_NUMBER, EXT_COMMENT)

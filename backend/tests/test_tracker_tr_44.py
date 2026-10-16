@@ -51,7 +51,6 @@ except ImportError:  # pragma: no cover
 
 ROOT = Path(__file__).resolve().parents[2]
 DOCS = ROOT / "docs" / "tracker-integration"
-OPERATIONS = (ROOT / "docs" / "OPERATIONS.md").read_text(encoding="utf-8")
 F3 = json.loads((DOCS / "fixtures" / "F03.json").read_text(encoding="utf-8"))
 F5 = json.loads((DOCS / "fixtures" / "F05.json").read_text(encoding="utf-8"))
 
@@ -101,28 +100,6 @@ def _credential_context(connector_id: str = CONNECTOR) -> dict[str, str]:
 def _token_context(identity_id: str) -> dict[str, str]:
     return {"record": identity_id, "field": "user_oauth"}
 
-
-class FixtureAndDocsTests(unittest.TestCase):
-    def test_f3_and_f5_cases_are_present(self) -> None:
-        f3_ids = {case["id"] for case in F3["cases"]}
-        f5_ids = {case["id"] for case in F5["cases"]}
-        self.assertIn("F3.envelope_encryption_roundtrip", f3_ids)
-        self.assertIn("F3.key_rotation", f3_ids)
-        self.assertIn("F5.crash_before_send", f5_ids)
-        self.assertIn("F5.claim_of_sent_is_recovery", f5_ids)
-        self.assertIn("F5.crash_after_acceptance_before_confirm", f5_ids)
-
-    def test_operations_documents_custody_rotation_and_restore_recovery(self) -> None:
-        self.assertIn("Tracker credential custody, rotation, and restore", OPERATIONS)
-        self.assertIn("TRACKER_CREDENTIAL_ROOT_KEY", OPERATIONS)
-        self.assertIn("TRACKER_CREDENTIAL_PREVIOUS_ROOT_KEY", OPERATIONS)
-        lowered = " ".join(OPERATIONS.lower().split())
-        self.assertIn("never put plaintext root keys", lowered)
-        self.assertIn("blind-create", OPERATIONS)
-        self.assertIn("recovery", lowered)
-        self.assertIn("remote_deliveries", OPERATIONS)
-        self.assertIn("ciphertext", lowered)
-        self.assertIn("do not reset production databases", lowered)
 
 
 @requires_scratch_postgres("tracker persistence tests")

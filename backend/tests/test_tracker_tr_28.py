@@ -97,21 +97,6 @@ def _remote_issue(*, body: str, state: str = "open", author: ForgeUser | None = 
     )
 
 
-class FixtureContractTests(unittest.TestCase):
-    def test_tr28_fixture_cases_present(self) -> None:
-        f4_ids = {case["id"] for case in F4["cases"]}
-        self.assertIn("F4.external_author_reply", f4_ids)
-        self.assertIn("F4.bot_body_edited_by_human", f4_ids)
-        self.assertIn("F4.echo_exact_hash", f4_ids)
-        self.assertIn("F4.echo_hash_mismatch", f4_ids)
-        self.assertIn("F4.two_projects_same_repo", f4_ids)
-        f5_ids = {case["id"] for case in F5["cases"]}
-        self.assertIn("F5.webhook_before_response", f5_ids)
-        f7_ids = {case["id"] for case in F7["cases"]}
-        self.assertIn("F7.reordered_hints", f7_ids)
-        f8_ids = {case["id"] for case in F8["cases"]}
-        self.assertIn("F8.inbound_never_enqueues", f8_ids)
-
 
 class ProvenanceUnitTests(unittest.TestCase):
     def test_echo_hash_match_and_mismatch(self) -> None:

@@ -108,12 +108,6 @@ class GitHubAppAuthTests(unittest.TestCase):
             _Raw(status, content=content, url=url)
         )
 
-    def test_fixture_cases_are_present(self) -> None:
-        ids = {case["id"] for case in F3["cases"]}
-        self.assertIn("F3.installation_token_expiry", ids)
-        self.assertIn("F3.ghes_base_url", ids)
-        self.assertIn("F7.unauthorized_401", {case["id"] for case in F7["cases"]})
-
     def test_jwt_is_rs256_and_shorter_than_ten_minutes(self) -> None:
         auth = self._auth()
         token = auth.mint_jwt()

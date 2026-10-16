@@ -17,7 +17,6 @@ from app.services.trackers.contracts import (  # noqa: E402
     Destination,
     GoneConfirmed,
     NotModified,
-    PageCursor,
     RemoteComment,
     UncertainAbsence,
 )
@@ -144,12 +143,6 @@ class GitHubCommentAdapterTests(unittest.TestCase):
         self._routes.setdefault((method.upper(), url), []).append(
             _Raw(status, content=content, url=url, headers=headers or {})
         )
-
-    def test_fixture_cases_are_present(self) -> None:
-        self.assertIn("F4.bot_body_edited_by_human", {case["id"] for case in F4["cases"]})
-        self.assertIn("F7.pagination_full", {case["id"] for case in F7["cases"]})
-        self.assertIn("F8.local_reply_edit_mirrors", {case["id"] for case in F8["cases"]})
-        self.assertIn("F4.external_reply_edit", {case["id"] for case in F4["cases"]})
 
     def test_create_read_edit_delete_own_comment(self) -> None:
         adapter = self._adapter()

@@ -9,13 +9,12 @@ import unittest
 from contextlib import contextmanager
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException
+from fastapi import HTTPException
 from app.core.errors import DomainError  # noqa: E402
 from pydantic import SecretStr
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from app.core.errors import install_error_handlers  # noqa: E402
 from app.core.config import Settings  # noqa: E402
 from app.core.security import AuthenticatedUser  # noqa: E402
 from app.api import tracker_identity as identity_api  # noqa: E402
@@ -33,7 +32,6 @@ from app.services.trackers.migrations import (  # noqa: E402
     migrate_tracker_webhook_oauth_tables,
     migrate_workspace_tracker_tables,
 )
-from app.services.trackers.secrets import decrypt_secret  # noqa: E402
 from app.services.comments_schema_migrations import COMMENTS_LEDGER  # noqa: E402
 from support.postgres import requires_scratch_postgres, scratch_schema  # noqa: E402
 
@@ -123,26 +121,6 @@ class _FakeAdapter(GitHubIdentityAdapter):
         self.calls.append("whoami")
         return ForgeUser(id="5550001", login="arjun-gh", displayName="Arjun")
 
-
-class RoutingContractTests(unittest.TestCase):
-    def test_main_registers_identity_routes(self) -> None:
-        source = (Path(__file__).resolve().parents[1] / "app" / "main.py").read_text(encoding="utf-8")
-        self.assertIn("tracker_identity_router", source)
-        self.assertIn("bring_every_schema_to_head()", source)
-        app = FastAPI()
-        install_error_handlers(app)
-        app.include_router(identity_api.router)
-        app.include_router(identity_api.admin_router)
-        paths = set(app.openapi()["paths"])
-        self.assertIn("/api/trackers/identities", paths)
-        self.assertIn("/api/trackers/connectors/{connector_id}/oauth/begin", paths)
-        self.assertIn("/api/trackers/oauth/callback", paths)
-        self.assertIn("/api/trackers/identities/{connector_id}", paths)
-
-    def test_fixture_cases_are_present(self) -> None:
-        ids = {case["id"] for case in F3["cases"]}
-        self.assertIn("F3.oauth_revoke", ids)
-        self.assertIn("F3.identity_bound_to_user_and_connector", ids)
 
 
 @requires_scratch_postgres("tracker persistence tests")

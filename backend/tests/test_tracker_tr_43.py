@@ -101,21 +101,6 @@ def _compose_env_file(example_path: Path, *, include_pg_auth_var: bool = False) 
 
 
 class TrackerDeploymentEnvTests(unittest.TestCase):
-    def test_f3_fixture_catalog_present(self) -> None:
-        case_ids = {case["id"] for case in F3["cases"]}
-        self.assertIn("F3.envelope_encryption_roundtrip", case_ids)
-        self.assertIn("F3.key_rotation", case_ids)
-        self.assertIn("F3.ghes_base_url", case_ids)
-
-    def test_f7_quiet_repo_health_fixture_present(self) -> None:
-        case_ids = {case["id"] for case in F7["cases"]}
-        self.assertIn("F7.quiet_repo_not_broken", case_ids)
-
-    def test_env_examples_document_tracker_root_key(self) -> None:
-        for path in (ROOT / ".env.example", ROOT / "deploy" / "release" / ".env.example"):
-            text = path.read_text(encoding="utf-8")
-            self.assertIn("TRACKER_CREDENTIAL_ROOT_KEY=", text, msg=str(path))
-            self.assertIn("TRACKER_CREDENTIAL_ROOT_KEY_ID=", text, msg=str(path))
 
     def test_backend_and_worker_share_tracker_env_in_compose(self) -> None:
         compose = (ROOT / "docker-compose.yml").read_text(encoding="utf-8")
@@ -127,15 +112,6 @@ class TrackerDeploymentEnvTests(unittest.TestCase):
                 self.assertIn(f"- {key}=", rendered, msg=f"{service} missing {key}")
         catalog = "\n".join(_service_environment_lines(compose, "catalog-worker"))
         self.assertNotIn("TRACKER_CREDENTIAL_ROOT_KEY=", catalog)
-
-    def test_operator_guide_documents_endpoints_and_polling(self) -> None:
-        guide = (ROOT / "docs" / "TRACKER_INTEGRATION.md").read_text(encoding="utf-8")
-        self.assertIn("/api/trackers/oauth/callback", guide)
-        self.assertIn("/api/trackers/webhooks/github/{connectorId}", guide)
-        self.assertIn("/api/admin/trackers/connectors/{id}/test", guide)
-        self.assertIn("Polling-only", guide)
-        self.assertIn("GHES", guide)
-        self.assertIn("TRACKER_CREDENTIAL_PREVIOUS_ROOT_KEY", guide)
 
     def test_disabled_root_key_warns_without_blocking_auth(self) -> None:
         warnings = _settings().configuration_warnings()

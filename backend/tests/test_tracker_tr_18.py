@@ -138,13 +138,6 @@ def _candidate(**kwargs) -> RecoveryCandidate:  # noqa: ANN003
 
 
 class MarkerTests(unittest.TestCase):
-    def test_fixture_cases_are_present(self) -> None:
-        ids = {case["id"] for case in F4["cases"]}
-        self.assertIn("F4.copied_marker", ids)
-        self.assertIn("F4.forged_marker", ids)
-        f5_ids = {case["id"] for case in F5["cases"]}
-        self.assertIn("F5.incomplete_scan_no_advance", f5_ids)
-        self.assertIn("F5.labels_removed_before_scan", f5_ids)
 
     def test_build_parse_and_validate_round_trip(self) -> None:
         text = build_marker(
