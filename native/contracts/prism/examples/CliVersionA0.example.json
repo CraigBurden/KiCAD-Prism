@@ -2,6 +2,10 @@
   "schema": "prism.cli.version.a0",
   "crate_version": "0.1.0",
   "engine_version": "2026.9.7",
+  "kicad_file_formats": {
+    "board": 20260206,
+    "schematic": 20260306
+  },
   "kicad_version": "10.0.6",
   "member_schemas": [
     {

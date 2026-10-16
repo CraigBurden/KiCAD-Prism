@@ -4,6 +4,10 @@
     "schema": "prism.cli.version.a0",
     "crate_version": "0.1.0",
     "engine_version": "2026.9.7",
+    "kicad_file_formats": {
+      "board": 20260206,
+      "schematic": 20260306
+    },
     "kicad_version": "10.0.6",
     "member_schemas": [
       {
@@ -57,7 +61,7 @@
     "upgrade_procedure": "kicad-seeded-upgrade-a0"
   },
   "revision_key": "faea5ace66f591553c21fdcb2555e5a67e6e2fe73b7d17663375ac6f809206f5",
-  "bundle_key": "c9d2d6de14ed0a32a372c8ba00fe06bf9c335df03d2048d9761de74d3963711c",
+  "bundle_key": "d59a758370bd428e43a3482505c9273caa9a12353345fbc2fe5f3db8e8de0e07",
   "config": {
     "schema": "prism.revision_key.effective_config.a1",
     "project_file": "USB-PD-Trigger-Board.kicad_pro",
