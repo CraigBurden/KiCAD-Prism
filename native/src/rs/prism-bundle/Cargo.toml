@@ -21,5 +21,17 @@ reader = []
 build = ["reader", "dep:prism-kicad-core", "dep:prism-projections"]
 
 [dependencies]
+cap-std.workspace = true
+crc32fast.workspace = true
+miniz_oxide.workspace = true
+prism-kicad-contracts = { path = "../prism-kicad-contracts" }
 prism-kicad-core = { path = "../prism-kicad-core", optional = true }
+prism-kicad-materialization-pack = { path = "../prism-kicad-materialization-pack" }
 prism-projections = { path = "../prism-projections", optional = true }
+regex.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sha1_smol.workspace = true
+sha2.workspace = true
+unicode-casefold.workspace = true
+unicode-normalization.workspace = true

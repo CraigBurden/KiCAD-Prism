@@ -1,0 +1,981 @@
+//! Stage `parse` (cli-spec.md §5.2.2): select the source set, read the
+//! design once, build `design.json` and every projection, and record the
+//! closure the build read as `sources/` (bundle-format.md §2.2).
+//!
+//! Order of work, which fixes which failure is reported first:
+//! 1. the project file (UTF-8, JSON);
+//! 2. the root schematic and every sheet it reaches, breadth first;
+//! 3. the board;
+//! 4. the rules beside the project, its two library tables and every jobset;
+//! 5. the model, `design.json` and the eight projections;
+//! 6. the files `projections/project.json` references inside the sources.
+//!
+//! A content failure in 1–3 ends the stage `failed` with the archive holding
+//! the files read so far plus the project file, root schematic, board and
+//! jobsets that exist; a failing producer in 5 marks that member failed.
+
+use super::design::{self, Text};
+use super::sexpr_check::{self, BOARD_FORMAT, CheckError, SCHEMATIC_FORMAT};
+use super::sheets::{Unresolved, resolve};
+use super::sources::SourceTree;
+use super::{Built, Generator, MemberData, Reporter, internal};
+use crate::finding::{Failure, Finding, Location, Outcome};
+use crate::limits::{LimitName, Limits};
+use crate::manifest::{
+    BOARD_ID, DESIGN_PATH, DESIGN_SCHEMA, MANIFEST_SCHEMA, PROJECTIONS, Role, SOURCES_PREFIX,
+    Stage, Status, a2, json_bytes, member_failure, models_stage, pending_board, retype,
+    skipped_board, sort_warnings, source_role, warning,
+};
+use crate::paths::{file_name, is_within, join, parent};
+use crate::revision_key::{Category, EffectiveConfig, ObjectFormat, default_config};
+use prism_kicad_contracts::generated::prism_revision_key_effective_config_a1 as cfg;
+use prism_kicad_contracts::generated::prism_revision_key_record_a1 as rk;
+use prism_kicad_core::{PcbLimits, PcbView, ProjectDocument, ProjectLimits};
+use serde_json::Value;
+use std::collections::{BTreeMap, BTreeSet, VecDeque};
+use std::path::{Path, PathBuf};
+
+/// The inputs of stage parse.
+pub struct ParseRequest<'a> {
+    /// `<project.kicad_pro>`, a host path.
+    pub project: &'a Path,
+    /// `--source-root`; the project file's directory when absent.
+    pub source_root: Option<&'a Path>,
+    /// `--config`, validated.
+    pub config: Option<EffectiveConfig>,
+    /// `--revision-key`.
+    pub revision_key: Option<String>,
+    /// `--key-record`, validated against its schema.
+    pub key_record: Option<rk::RevisionKeyRecordA1>,
+    /// This binary's generator id.
+    pub generator: &'a Generator,
+    /// The invocation's limits.
+    pub limits: &'a Limits,
+    /// Diagnostics sink.
+    pub reporter: &'a dyn Reporter,
+}
+
+/// What stage parse produced.
+#[derive(Debug)]
+pub enum ParseOutcome {
+    /// A bundle, `complete`, `partial` or `failed`.
+    Built(Box<Built>),
+    /// Nothing is at the project path: the project is absent (exit 10).
+    ProjectAbsent(String),
+}
+
+fn lexical(path: &Path) -> PathBuf {
+    let absolute = if path.is_absolute() {
+        path.to_path_buf()
+    } else {
+        std::env::current_dir().unwrap_or_default().join(path)
+    };
+    let mut out = PathBuf::new();
+    for component in absolute.components() {
+        match component {
+            std::path::Component::ParentDir => {
+                out.pop();
+            }
+            std::path::Component::CurDir => {}
+            other => out.push(other.as_os_str()),
+        }
+    }
+    out
+}
+
+/// The canonical form of `path`: its existing parent resolved, the name kept.
+fn anchored(path: &Path) -> PathBuf {
+    let path = lexical(path);
+    match (path.parent(), path.file_name()) {
+        (Some(dir), Some(name)) => {
+            std::fs::canonicalize(dir).map_or(path.clone(), |dir| dir.join(name))
+        }
+        _ => path,
+    }
+}
+
+fn repo_path(path: &Path, root: &Path) -> Option<String> {
+    let relative = path.strip_prefix(root).ok()?;
+    let parts: Option<Vec<&str>> = relative
+        .components()
+        .map(|part| part.as_os_str().to_str())
+        .collect();
+    let joined = parts?.join("/");
+    (!joined.is_empty()).then_some(joined)
+}
+
+struct Located {
+    root: PathBuf,
+    project: String,
+}
+
+fn locate(request: &ParseRequest<'_>) -> Outcome<Result<Located, String>> {
+    let name = request
+        .project
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or_default();
+    if !name.to_ascii_lowercase().ends_with(".kicad_pro") {
+        return Err(Failure::input(
+            "project-not-kicad-pro",
+            "the project file does not end in .kicad_pro",
+        )
+        .argument("project-file"));
+    }
+    let root_argument = match request.source_root {
+        Some(root) => root.to_path_buf(),
+        None => lexical(request.project)
+            .parent()
+            .map(Path::to_path_buf)
+            .unwrap_or_default(),
+    };
+    let root = std::fs::canonicalize(&root_argument).map_err(|_| {
+        Failure::input("input-not-found", "the source root does not exist").argument("source-root")
+    })?;
+    if !root.is_dir() {
+        return Err(Failure::input(
+            "input-not-regular-file",
+            "the source root is not a directory",
+        )
+        .argument("source-root"));
+    }
+    let project = repo_path(&anchored(request.project), &root).ok_or_else(|| {
+        Failure::input(
+            "source-outside-root",
+            "the project file is outside the source root",
+        )
+        .argument("project-file")
+    })?;
+    if let Some(config) = &request.config
+        && config.project_file.0 != project
+    {
+        return Err(Failure::precondition(
+            "config-mismatch",
+            format!(
+                "--config names project file {:?}, not {project:?}",
+                config.project_file.0
+            ),
+        )
+        .argument("config"));
+    }
+    match std::fs::symlink_metadata(root.join(&project)) {
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(Err(project)),
+        Ok(metadata) if !metadata.file_type().is_file() => {
+            return Err(Failure::input(
+                "input-not-regular-file",
+                "the project file is not a regular file",
+            )
+            .argument("project-file"));
+        }
+        Err(error) => {
+            return Err(Failure::input(
+                "input-not-found",
+                format!("the project file could not be read: {error}"),
+            )
+            .argument("project-file"));
+        }
+        Ok(_) => {}
+    }
+    Ok(Ok(Located { root, project }))
+}
+
+/// Run stage parse.
+pub fn run(request: &ParseRequest<'_>) -> Outcome<ParseOutcome> {
+    let located = match locate(request)? {
+        Ok(located) => located,
+        Err(project) => return Ok(ParseOutcome::ProjectAbsent(project)),
+    };
+    let excluded: Vec<String> = request
+        .config
+        .as_ref()
+        .map(|config| {
+            config
+                .excluded_dirs
+                .iter()
+                .map(|dir| dir.0.clone())
+                .collect()
+        })
+        .unwrap_or_default();
+    let tree = SourceTree::scan(&located.root, &excluded, request.limits)?;
+    let config = match &request.config {
+        Some(config) => config.clone(),
+        None => default_config(&located.project, |path| tree.contains(path)),
+    };
+    check_key_record(request, &config)?;
+    request.reporter.info(
+        "sources-selected",
+        &format!("{} files are in the source set", tree.selected().count()),
+    );
+    let mut stage = ParseRun {
+        request,
+        tree: &tree,
+        config,
+        warnings: Vec::new(),
+        failed: Vec::new(),
+        derived: Vec::new(),
+    };
+    let error = stage.parse()?;
+    stage
+        .finish(error)
+        .map(|built| ParseOutcome::Built(Box::new(built)))
+}
+
+fn check_key_record(request: &ParseRequest<'_>, config: &EffectiveConfig) -> Outcome<()> {
+    let Some(record) = &request.key_record else {
+        return Ok(());
+    };
+    if request.revision_key.as_deref() != Some(record.revision_key.0.as_str()) {
+        return Err(Failure::precondition(
+            "revision-key-mismatch",
+            "--key-record holds another revision key than --revision-key",
+        )
+        .argument("key-record"));
+    }
+    let canonical = |config: &EffectiveConfig| crate::revision_key::canonical_config(config);
+    if canonical(&record.config) != canonical(config) {
+        return Err(Failure::precondition(
+            "config-mismatch",
+            "--key-record was computed for another effective configuration",
+        )
+        .argument("key-record"));
+    }
+    Ok(())
+}
+
+struct Design {
+    project: Text,
+    sheets: Vec<Text>,
+    board: Option<Text>,
+}
+
+struct ParseRun<'a> {
+    request: &'a ParseRequest<'a>,
+    tree: &'a SourceTree,
+    config: EffectiveConfig,
+    warnings: Vec<a2::Warning>,
+    failed: Vec<a2::BundleManifestMemberFailure>,
+    derived: Vec<MemberData>,
+}
+
+fn member(path: &str) -> String {
+    format!("{SOURCES_PREFIX}{path}")
+}
+
+fn missing(path: &str, at: Option<Location>) -> Finding {
+    let finding = Finding::new(
+        "source-missing",
+        format!("{} is not in the source set", member(path)),
+    );
+    finding.at(at.unwrap_or_else(|| Location::path(member(path))))
+}
+
+fn recorded(error: CheckError) -> Outcome<Finding> {
+    match error {
+        CheckError::Content(finding) => Ok(finding),
+        CheckError::Limit(failure) => Err(failure),
+    }
+}
+
+impl ParseRun<'_> {
+    fn limits(&self) -> &Limits {
+        self.request.limits
+    }
+
+    fn read(&self, path: &str) -> Outcome<Vec<u8>> {
+        self.tree
+            .read(path)?
+            .ok_or_else(|| internal(format!("{} vanished from the source set", member(path))))
+    }
+
+    /// Read and check the project file, the hierarchy and the board.
+    fn parse(&mut self) -> Outcome<Option<Finding>> {
+        let design = match self.read_design()? {
+            Ok(design) => design,
+            Err(finding) => {
+                self.read_anchors()?;
+                self.read_jobsets()?;
+                return Ok(Some(finding));
+            }
+        };
+        self.read_companions()?;
+        self.read_jobsets()?;
+        self.build_model(&design)
+    }
+
+    fn read_anchors(&self) -> Outcome<()> {
+        let config = &self.config;
+        for path in [
+            Some(&config.project_file),
+            config.root_schematic.as_ref(),
+            config.board.as_ref(),
+        ]
+        .into_iter()
+        .flatten()
+        {
+            self.tree.read(path)?;
+        }
+        Ok(())
+    }
+
+    fn read_jobsets(&self) -> Outcome<()> {
+        let jobsets: Vec<String> = self
+            .tree
+            .selected()
+            .filter(|(_, info)| info.category == Category::KicadJobset)
+            .map(|(path, _)| path.clone())
+            .collect();
+        for path in jobsets {
+            self.tree.read(&path)?;
+        }
+        Ok(())
+    }
+
+    /// The rules file beside the project and its two library tables.
+    fn read_companions(&self) -> Outcome<()> {
+        let project = &self.config.project_file.0;
+        let dir = parent(project);
+        let name = file_name(project);
+        let stem = &name[..name.len() - ".kicad_pro".len()];
+        for companion in [
+            format!("{stem}.kicad_dru"),
+            "fp-lib-table".to_owned(),
+            "sym-lib-table".to_owned(),
+        ] {
+            self.tree.read(&join(dir, &companion))?;
+        }
+        Ok(())
+    }
+
+    fn read_project(&self) -> Outcome<Result<Text, Finding>> {
+        let path = self.config.project_file.0.clone();
+        let at = member(&path);
+        let bytes = self.read(&path)?;
+        let Ok(text) = String::from_utf8(bytes.clone()) else {
+            let valid = std::str::from_utf8(&bytes).map_or_else(|error| error.valid_up_to(), |_| 0);
+            return Ok(Err(Finding::new(
+                "source-not-utf8",
+                format!("{at} is not UTF-8 text"),
+            )
+            .at(Location::at_offset(&at, &bytes, valid))));
+        };
+        crate::reader::json_bounds(text.as_bytes(), self.limits(), true, &at)?;
+        if let Err(error) = serde_json::from_str::<serde::de::IgnoredAny>(&text) {
+            return Ok(Err(json_error(&at, &text, &error)));
+        }
+        Ok(Ok(Text { path, text }))
+    }
+
+    fn read_design(&mut self) -> Outcome<Result<Design, Finding>> {
+        let project = match self.read_project()? {
+            Ok(project) => project,
+            Err(finding) => return Ok(Err(finding)),
+        };
+        let sheets = match &self.config.root_schematic {
+            Some(root) => match self.read_hierarchy(&root.0.clone())? {
+                Ok(sheets) => sheets,
+                Err(finding) => return Ok(Err(finding)),
+            },
+            None => Vec::new(),
+        };
+        let board = match self.config.board.clone() {
+            Some(board) => match self.read_checked(&board.0, BOARD_FORMAT, None)? {
+                Ok((text, _)) => Some(Text {
+                    path: board.0,
+                    text,
+                }),
+                Err(finding) => return Ok(Err(finding)),
+            },
+            None => None,
+        };
+        Ok(Ok(Design {
+            project,
+            sheets,
+            board,
+        }))
+    }
+
+    /// Read one KiCad file, failing `source-missing` (at `referrer`, when a
+    /// reference led to it) if it is not in the source set.
+    fn read_checked(
+        &self,
+        path: &str,
+        format: u64,
+        referrer: Option<Location>,
+    ) -> Outcome<Result<(String, Vec<sexpr_check::SheetReference>), Finding>> {
+        if !self.tree.contains(path) {
+            return Ok(Err(missing(path, referrer)));
+        }
+        let bytes = self.read(path)?;
+        match sexpr_check::check(&member(path), &bytes, format, self.limits()) {
+            Ok(scanned) => {
+                let text = String::from_utf8(bytes).map_err(internal)?;
+                Ok(Ok((text, scanned.sheets)))
+            }
+            Err(error) => recorded(error).map(Err),
+        }
+    }
+
+    fn read_hierarchy(&self, root: &str) -> Outcome<Result<Vec<Text>, Finding>> {
+        let mut seen = BTreeSet::from([root.to_owned()]);
+        let mut queue = VecDeque::from([(root.to_owned(), None)]);
+        let mut sheets = Vec::new();
+        while let Some((path, referrer)) = queue.pop_front() {
+            let (text, references) = match self.read_checked(&path, SCHEMATIC_FORMAT, referrer)? {
+                Ok(read) => read,
+                Err(finding) => return Ok(Err(finding)),
+            };
+            for reference in references {
+                let at = Location::at_offset(member(&path), text.as_bytes(), reference.offset);
+                let child = resolve(&path, &reference.file)
+                    .map_err(|why| outside(&path, &reference.file, why, &at))?;
+                if seen.insert(child.clone()) {
+                    queue.push_back((child, Some(at)));
+                }
+            }
+            sheets.push(Text { path, text });
+        }
+        Ok(Ok(sheets))
+    }
+}
+
+fn outside(parent_path: &str, reference: &str, why: Unresolved, at: &Location) -> Failure {
+    let what = match why {
+        Unresolved::Absolute => "is absolute",
+        Unresolved::Outside => "leaves the source root",
+        Unresolved::Empty => "is empty",
+    };
+    Failure::input(
+        "source-outside-root",
+        format!(
+            "the sheet file {reference:?} in {} {what}",
+            member(parent_path)
+        ),
+    )
+    .argument("source-root")
+    .at(at.clone())
+}
+
+fn json_error(at: &str, text: &str, error: &serde_json::Error) -> Finding {
+    let line = error.line().max(1);
+    let column = error.column().max(1);
+    let line_start: usize = text
+        .split_inclusive('\n')
+        .take(line - 1)
+        .map(str::len)
+        .sum();
+    let offset = text[line_start.min(text.len())..]
+        .char_indices()
+        .nth(column - 1)
+        .map_or(text.len(), |(index, _)| line_start + index);
+    let wide = |value: usize| u64::try_from(value).unwrap_or(u64::MAX);
+    Finding::new(
+        "source-unparseable",
+        format!("{at} is not valid JSON: {error}"),
+    )
+    .at(Location::text(at, wide(line), wide(column), wide(offset)))
+}
+
+fn pcb_limits(limits: &Limits) -> PcbLimits {
+    PcbLimits {
+        max_source_bytes: limits.get_usize(LimitName::MaxSourceFileBytes),
+        max_depth: limits.get_usize(LimitName::MaxSexprDepth).saturating_add(1),
+        ..PcbLimits::default()
+    }
+}
+
+fn project_limits(limits: &Limits) -> ProjectLimits {
+    ProjectLimits {
+        max_source_bytes: limits.get_usize(LimitName::MaxSourceFileBytes),
+        max_json_nodes: limits.get_usize(LimitName::MaxJsonNodes),
+        max_json_depth: limits.get_usize(LimitName::MaxJsonDepth),
+        ..ProjectLimits::default()
+    }
+}
+
+/// The parsed model, borrowed by the projections.
+struct Model<'d> {
+    document: ProjectDocument,
+    board: Option<PcbView<'d>>,
+}
+
+impl ParseRun<'_> {
+    fn parse_model<'d>(&self, design: &'d Design) -> Outcome<Result<Model<'d>, Finding>> {
+        let at = member(&design.project.path);
+        let document = match ProjectDocument::parse(
+            design.project.text.clone(),
+            project_limits(self.limits()),
+        ) {
+            Ok(document) => document,
+            Err(error) if error.kind == prism_kicad_core::ProjectErrorKind::ResourceLimit => {
+                return Err(self
+                    .limits()
+                    .exceeded(LimitName::MaxJsonNodes, None, &at)
+                    .at_path(at));
+            }
+            Err(error) => {
+                return Ok(Err(Finding::new(
+                    "source-unparseable",
+                    format!("{at}: {}", error.message),
+                )
+                .at_path(at)));
+            }
+        };
+        let board = match &design.board {
+            Some(board) => match PcbView::parse(&board.text, pcb_limits(self.limits())) {
+                Ok(view) => Some(view),
+                Err(error) => {
+                    let at = member(&board.path);
+                    if error.kind == prism_kicad_core::sexpr::ErrorKind::ResourceLimit {
+                        return Err(self
+                            .limits()
+                            .exceeded(LimitName::MaxSexprNodes, None, &at)
+                            .at_path(at));
+                    }
+                    let finding = Finding::new("source-unparseable", error.message.to_string());
+                    let wide = |value: usize| u64::try_from(value).unwrap_or(u64::MAX);
+                    return Ok(Err(match error.position {
+                        Some(position) => finding.at(Location::text(
+                            at,
+                            wide(position.line),
+                            wide(position.column),
+                            wide(position.offset),
+                        )),
+                        None => finding.at_path(at),
+                    }));
+                }
+            },
+            None => None,
+        };
+        Ok(Ok(Model { document, board }))
+    }
+
+    fn fail_member(&mut self, path: &str, code: &str, message: String) -> Outcome<()> {
+        let finding = Finding::new(code, message.clone()).at_path(path);
+        self.request.reporter.error(&finding);
+        self.failed
+            .push(member_failure(path, code, message).map_err(internal)?);
+        Ok(())
+    }
+
+    fn add_json(&mut self, path: &str, schema: &str, value: &impl serde::Serialize) -> Outcome<()> {
+        let bytes = json_bytes(value);
+        self.limits().check(
+            LimitName::MaxMemberBytes,
+            u64::try_from(bytes.len()).unwrap_or(u64::MAX),
+            path,
+        )?;
+        self.derived.push(MemberData {
+            path: path.to_owned(),
+            role: if path == DESIGN_PATH {
+                Role::Design
+            } else {
+                Role::Projection
+            },
+            bytes,
+            schema: Some(schema.to_owned()),
+            source: None,
+        });
+        Ok(())
+    }
+
+    fn design_failed(&mut self, message: &str) -> Outcome<()> {
+        self.fail_member(
+            DESIGN_PATH,
+            "design-build-failed",
+            format!("design.json could not be built: {message}"),
+        )
+    }
+
+    fn build_model(&mut self, design: &Design) -> Outcome<Option<Finding>> {
+        let model = match self.parse_model(design)? {
+            Ok(model) => model,
+            Err(finding) => return Ok(Some(finding)),
+        };
+        let parts = self.schematic_parts(design);
+        let facts = match &parts {
+            Some(Ok((bundle, index))) => {
+                Some(design::facts(index, bundle, project_limits(self.limits())))
+            }
+            _ => None,
+        };
+        let mut design_json = None;
+        match (&parts, &facts) {
+            (Some(Ok((_, index))), Some(Ok(facts))) => {
+                let board = design
+                    .board
+                    .as_ref()
+                    .zip(model.board.as_ref())
+                    .map(|(text, view)| (text.path.as_str(), view));
+                match design::design_json(index, facts, &design.project, &design.sheets, board) {
+                    Ok(value) => design_json = Some(value),
+                    Err(message) => self.design_failed(&message)?,
+                }
+            }
+            (Some(Err(message)), _) | (_, Some(Err(message))) => self.design_failed(message)?,
+            _ => {}
+        }
+        if let Some(value) = &design_json {
+            self.add_json(DESIGN_PATH, DESIGN_SCHEMA, value)?;
+        }
+        let root = self
+            .config
+            .root_schematic
+            .as_ref()
+            .map(|root| root.0.clone())
+            .unwrap_or_default();
+        let schematic = match (&parts, &facts) {
+            (Some(Ok((bundle, index))), Some(Ok(facts))) => {
+                Some(prism_projections::SchematicModel {
+                    root: &root,
+                    bundle,
+                    index,
+                    facts,
+                })
+            }
+            _ => None,
+        };
+        self.project(design, &model, schematic.as_ref(), design_json.as_ref())?;
+        Ok(None)
+    }
+
+    fn schematic_parts(
+        &self,
+        design: &Design,
+    ) -> Option<
+        Result<
+            (
+                prism_kicad_core::SourceBundle,
+                prism_kicad_core::SchematicBundleIndex,
+            ),
+            String,
+        >,
+    > {
+        self.config.root_schematic.as_ref()?;
+        Some(
+            design::source_bundle(&design.project, &design.sheets, Default::default()).and_then(
+                |bundle| {
+                    let index = design::index(&bundle, Default::default())?;
+                    Ok((bundle, index))
+                },
+            ),
+        )
+    }
+}
+
+/// Every projection: its member path, schema id and producer, serialized.
+type Producer = fn(
+    &prism_projections::ProjectionInput<'_>,
+) -> Result<(Value, Vec<prism_projections::ProducerWarning>), String>;
+
+fn produced<T: serde::Serialize>(
+    result: Result<prism_projections::Produced<T>, prism_projections::ProjectionError>,
+) -> Result<(Value, Vec<prism_projections::ProducerWarning>), String> {
+    let produced = result.map_err(|error| error.message)?;
+    let value = serde_json::to_value(&produced.document).map_err(|error| error.to_string())?;
+    Ok((value, produced.warnings))
+}
+
+const PRODUCERS: [Producer; 8] = [
+    |input| produced(prism_projections::board_objects::produce(input)),
+    |input| produced(prism_projections::occurrences::produce(input)),
+    |input| produced(prism_projections::placements::produce(input)),
+    |input| produced(prism_projections::project::produce(input)),
+    |input| produced(prism_projections::route_metrics::produce(input)),
+    |input| produced(prism_projections::semantic_index::produce(input)),
+    |input| produced(prism_projections::stackup::produce(input)),
+    |input| produced(prism_projections::system_interface::produce(input)),
+];
+
+impl ParseRun<'_> {
+    fn project(
+        &mut self,
+        design: &Design,
+        model: &Model<'_>,
+        schematic: Option<&prism_projections::SchematicModel<'_>>,
+        design_json: Option<&Value>,
+    ) -> Outcome<()> {
+        let config: cfg::RevisionKeyEffectiveConfigA1 = retype(&self.config).map_err(internal)?;
+        let project = prism_projections::ProjectModel {
+            path: &design.project.path,
+            text: &design.project.text,
+            document: &model.document,
+        };
+        let board = design
+            .board
+            .as_ref()
+            .zip(model.board.as_ref())
+            .map(|(text, view)| prism_projections::BoardModel {
+                path: &text.path,
+                text: &text.text,
+                view,
+            });
+        let input = prism_projections::ProjectionInput {
+            config: &config,
+            revision_key: self.request.revision_key.as_deref(),
+            sources: self.tree,
+            project: &project,
+            schematic,
+            board: board.as_ref(),
+            design: design_json,
+        };
+        for ((path, schema), producer) in PROJECTIONS.into_iter().zip(PRODUCERS) {
+            let result = producer(&input);
+            if let Some(failure) = self.tree.take_failure() {
+                return Err(failure);
+            }
+            match result {
+                Ok((value, warnings))
+                    if value.get("schema").and_then(Value::as_str) == Some(schema) =>
+                {
+                    for produced in warnings {
+                        self.warn(&produced.code, produced.message)?;
+                    }
+                    if path == "projections/project.json" {
+                        self.read_references(&value)?;
+                    }
+                    self.add_json(path, schema, &value)?;
+                }
+                Ok(_) => {
+                    return Err(internal(format!(
+                        "the {path} producer wrote another schema"
+                    )));
+                }
+                Err(message) => self.fail_member(
+                    path,
+                    "projection-failed",
+                    format!("{path} could not be built: {message}"),
+                )?,
+            }
+        }
+        Ok(())
+    }
+
+    fn warn(&mut self, code: &str, message: String) -> Outcome<()> {
+        self.request
+            .reporter
+            .warning(&Finding::new(code, message.clone()));
+        self.warnings
+            .push(warning(code, message).map_err(internal)?);
+        Ok(())
+    }
+
+    /// Read every repository target `projections/project.json` finds in the
+    /// sources, and warn `model-unavailable` for a model the key lists but
+    /// the source root lacks (bundle-format.md §2.2).
+    fn read_references(&mut self, project: &Value) -> Outcome<()> {
+        let references = project
+            .get("references")
+            .and_then(Value::as_array)
+            .cloned()
+            .unwrap_or_default();
+        for reference in references {
+            let target = &reference["target"];
+            if target["kind"] != "repository" {
+                continue;
+            }
+            let Some(path) = target["path"].as_str() else {
+                continue;
+            };
+            if target["inSources"] == true {
+                self.read_target(path)?;
+            } else if reference["kind"] == "model-3d" && self.key_lists(path) {
+                self.warn(
+                    "model-unavailable",
+                    format!("the 3D model {} is in the revision key but was not materialized; the bundle is built without it", member(path)),
+                )?;
+            }
+        }
+        Ok(())
+    }
+
+    fn read_target(&self, path: &str) -> Outcome<()> {
+        if self.tree.contains(path) {
+            self.tree.read(path)?;
+            return Ok(());
+        }
+        let below: Vec<String> = self
+            .tree
+            .selected()
+            .filter(|(candidate, _)| is_within(candidate, path))
+            .map(|(candidate, _)| candidate.clone())
+            .collect();
+        for candidate in below {
+            self.tree.read(&candidate)?;
+        }
+        Ok(())
+    }
+
+    fn key_lists(&self, path: &str) -> bool {
+        self.request.key_record.as_ref().is_some_and(|record| {
+            record.entries.iter().any(|entry| {
+                entry.path.0 == path
+                    || (entry.kind == rk::RevisionKeyEntryKind::Gitlink
+                        && is_within(path, &entry.path.0))
+            })
+        })
+    }
+}
+
+/// The key entries of a record, by path.
+fn key_entries(record: &rk::RevisionKeyRecordA1) -> BTreeMap<&str, &rk::RevisionKeyEntry> {
+    record
+        .entries
+        .iter()
+        .map(|entry| (entry.path.0.as_str(), entry))
+        .collect()
+}
+
+fn source_entry(
+    path: &str,
+    bytes: &[u8],
+    executable: bool,
+    record: Option<&rk::RevisionKeyRecordA1>,
+) -> Outcome<a2::BundleManifestSourceEntry> {
+    let kind = if executable {
+        rk::RevisionKeyEntryKind::Executable
+    } else {
+        rk::RevisionKeyEntryKind::Regular
+    };
+    let Some(record) = record else {
+        return entry_json(path, kind, &ObjectFormat::Sha1.blob_id(bytes), None);
+    };
+    let entries = key_entries(record);
+    if let Some(entry) = entries.get(path)
+        && matches!(
+            entry.kind,
+            rk::RevisionKeyEntryKind::Regular | rk::RevisionKeyEntryKind::Executable
+        )
+    {
+        return entry_json(path, entry.kind, &entry.object_id.0, None);
+    }
+    let format = match record.object_format {
+        rk::RevisionKeyObjectFormat::Sha1 => ObjectFormat::Sha1,
+        rk::RevisionKeyObjectFormat::Sha256 => ObjectFormat::Sha256,
+    };
+    let gitlink = record.entries.iter().find(|entry| {
+        entry.kind == rk::RevisionKeyEntryKind::Gitlink
+            && is_within(path, &entry.path.0)
+            && entry.path.0 != path
+    });
+    match gitlink {
+        Some(gitlink) => entry_json(path, kind, &format.blob_id(bytes), Some(&gitlink.path.0)),
+        None => Err(Failure::precondition(
+            "revision-key-mismatch",
+            format!("{} has no entry in --key-record", member(path)),
+        )
+        .argument("key-record")
+        .at_path(member(path))),
+    }
+}
+
+fn entry_json(
+    path: &str,
+    kind: rk::RevisionKeyEntryKind,
+    object_id: &str,
+    gitlink: Option<&str>,
+) -> Outcome<a2::BundleManifestSourceEntry> {
+    let mut value = serde_json::json!({ "path": path, "kind": kind, "object_id": object_id });
+    if let Some(gitlink) = gitlink {
+        value["gitlink"] = gitlink.into();
+    }
+    serde_json::from_value(value).map_err(internal)
+}
+
+impl ParseRun<'_> {
+    fn source_members(&self) -> Outcome<Vec<MemberData>> {
+        let record = self.request.key_record.as_ref();
+        let mut members = Vec::new();
+        for (path, bytes) in self.tree.read_files() {
+            let info = self
+                .tree
+                .info(&path)
+                .ok_or_else(|| internal("a read file left the source set"))?;
+            let role = source_role(info.category).ok_or_else(|| internal("a link was read"))?;
+            let source = source_entry(&path, &bytes, info.executable, record)?;
+            self.limits().check(
+                LimitName::MaxMemberBytes,
+                u64::try_from(bytes.len()).unwrap_or(u64::MAX),
+                &member(&path),
+            )?;
+            members.push(MemberData {
+                path: member(&path),
+                role,
+                bytes,
+                schema: None,
+                source: Some(source),
+            });
+        }
+        Ok(members)
+    }
+
+    fn stage_record(&mut self, error: Option<Finding>) -> Outcome<a2::BundleManifestParseStage> {
+        sort_warnings(&mut self.warnings);
+        self.failed.sort_by(|a, b| a.path.0.cmp(&b.path.0));
+        let status = match (&error, self.failed.is_empty()) {
+            (Some(_), _) => Status::Failed,
+            (None, false) => Status::Partial,
+            (None, true) => Status::Complete,
+        };
+        if let Some(finding) = &error {
+            self.request.reporter.error(finding);
+        }
+        Ok(a2::BundleManifestParseStage {
+            status,
+            error: error
+                .as_ref()
+                .map(crate::manifest::cli_finding)
+                .transpose()
+                .map_err(internal)?,
+            warnings: self.warnings.clone(),
+            failed_members: if error.is_some() {
+                Vec::new()
+            } else {
+                self.failed.clone()
+            },
+        })
+    }
+
+    fn finish(mut self, error: Option<Finding>) -> Outcome<Built> {
+        use a2::BundleManifestSkipReason::{EarlierStageFailed, NoBoard};
+        let failed = error.is_some();
+        let parse = self.stage_record(error)?;
+        let (board, models) = if failed {
+            (
+                skipped_board(EarlierStageFailed),
+                models_stage(Status::Skipped, Some(EarlierStageFailed)),
+            )
+        } else if self.config.board.is_none() {
+            (
+                skipped_board(NoBoard),
+                models_stage(Status::Skipped, Some(NoBoard)),
+            )
+        } else {
+            (pending_board(), models_stage(Status::Pending, None))
+        };
+        let mut members = self.source_members()?;
+        if !failed {
+            members.append(&mut self.derived);
+        }
+        let generator = &self.request.generator;
+        let revision_key = self.request.revision_key.clone();
+        let bundle_key = revision_key
+            .as_deref()
+            .map(|key| crate::generator::bundle_key(key, &generator.bytes));
+        let manifest = a2::BundleManifestA2 {
+            schema: MANIFEST_SCHEMA.to_owned(),
+            generator: generator.document.clone(),
+            revision_key: revision_key.map(a2::Sha256Hex),
+            bundle_key: bundle_key.map(a2::Sha256Hex),
+            config: retype(&self.config).map_err(internal)?,
+            board_id: a2::BundleManifestBoardId(BOARD_ID.to_owned()),
+            stages: a2::BundleManifestStages {
+                parse,
+                board,
+                models,
+            },
+            members: Vec::new(),
+        };
+        let written = members.iter().map(|member| member.path.clone()).collect();
+        Ok(Built::assemble(Stage::Parse, manifest, members, written))
+    }
+}

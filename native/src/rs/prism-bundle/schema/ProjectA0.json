@@ -1,0 +1,589 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$id": "urn:prism:schema:prism.project:a0",
+    "type": "object",
+    "properties": {
+        "schema": {
+            "type": "string",
+            "const": "prism.project.a0",
+            "description": "Document schema id."
+        },
+        "projectFile": {
+            "$ref": "#/$defs/RepoPath",
+            "description": "The project's anchor: the repository-relative path of the `.kicad_pro`, equal to the manifest's `config.project_file`."
+        },
+        "projectName": {
+            "type": "string",
+            "minLength": 1,
+            "description": "KiCad's `${PROJECTNAME}`: the `.kicad_pro` file name without its last suffix."
+        },
+        "textVariables": {
+            "$ref": "#/$defs/RecordString",
+            "description": "The `.kicad_pro` `text_variables`, keyed by variable name, keys in code point order; values as written. Empty when the file has none."
+        },
+        "netClasses": {
+            "type": "array",
+            "items": {
+                "$ref": "#/$defs/ProjectNetClass"
+            },
+            "description": "The `.kicad_pro` net classes, in file order (`net_settings.classes[]`). Empty when the file has none."
+        },
+        "documents": {
+            "type": "array",
+            "items": {
+                "$ref": "#/$defs/ProjectDocument"
+            },
+            "description": "The root schematic, every schematic file reached from it (each once, however many sheets instantiate it), and the board, sorted by `path` in code point order. Empty when the project has neither a schematic nor a board."
+        },
+        "references": {
+            "type": "array",
+            "items": {
+                "$ref": "#/$defs/ProjectPathReference"
+            },
+            "description": "Every path reference of the scanned files, sorted by `documentPath`,\nthen `kind`, then `raw`, then `sheetUuid`, then `field`, then\n`libraryName`, then the embedded target's `footprintUuid`, each in code\npoint order, an absent value before any present one. No two entries are\nequal. The scanned files are the `.kicad_pro`, `documents`, the\nproject's `fp-lib-table` and `sym-lib-table`, and every drawing-sheet\nfile a `drawing-sheet` reference resolves to inside the sources."
+        }
+    },
+    "required": [
+        "schema",
+        "projectFile",
+        "projectName",
+        "textVariables",
+        "netClasses",
+        "documents",
+        "references"
+    ],
+    "unevaluatedProperties": {
+        "not": {}
+    },
+    "description": "`projections/project.json`: the project file's facts, the header of every\nschematic file of the hierarchy and of the board, and every path\nreference they make. Empty form: a project without a schematic or a board\nlists only what the files it has state.",
+    "title": "Project a0",
+    "$defs": {
+        "RepoPath": {
+            "type": "string",
+            "pattern": "^(?:[^/\\\\:.][^/\\\\:]*|\\.[^/\\\\:.][^/\\\\:]*|\\.\\.[^/\\\\:]+)(?:/(?:[^/\\\\:.][^/\\\\:]*|\\.[^/\\\\:.][^/\\\\:]*|\\.\\.[^/\\\\:]+))*$",
+            "description": "Repository-relative POSIX path, exactly as `git ls-tree` names the entry:\n`/`-separated, case preserved, no leading `/`, no empty, `.` or `..`\nsegment, no backslash and no `:`. The same character rule as ArchivePath.\nIt is the only path type in bundle documents: a file has one spelling\nwhichever project in the repository refers to it, and a file outside the\nproject directory needs no `..`."
+        },
+        "RecordString": {
+            "type": "object",
+            "properties": {},
+            "unevaluatedProperties": {
+                "type": "string"
+            }
+        },
+        "ProjectNetClass": {
+            "type": "object",
+            "properties": {
+                "name": {
+                    "type": "string",
+                    "minLength": 1,
+                    "description": "The class name, `name`."
+                },
+                "trackWidthNm": {
+                    "$ref": "#/$defs/NonNegativeNanometres",
+                    "description": "`track_width`."
+                },
+                "clearanceNm": {
+                    "$ref": "#/$defs/NonNegativeNanometres",
+                    "description": "`clearance`."
+                },
+                "diffPairWidthNm": {
+                    "$ref": "#/$defs/NonNegativeNanometres",
+                    "description": "`diff_pair_width`."
+                },
+                "diffPairGapNm": {
+                    "$ref": "#/$defs/NonNegativeNanometres",
+                    "description": "`diff_pair_gap`."
+                },
+                "viaDiameterNm": {
+                    "$ref": "#/$defs/NonNegativeNanometres",
+                    "description": "`via_diameter`."
+                },
+                "viaDrillNm": {
+                    "$ref": "#/$defs/NonNegativeNanometres",
+                    "description": "`via_drill`."
+                }
+            },
+            "required": [
+                "name"
+            ],
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "One net class of the `.kicad_pro` (`net_settings.classes[]`). A value is\nabsent when the class does not state it: KiCad 9 and later then use the\n`Default` class's value. Values are the file's millimetres converted to\nnanometres (conventions.md §6)."
+        },
+        "ProjectDocument": {
+            "type": "object",
+            "properties": {
+                "path": {
+                    "$ref": "#/$defs/RepoPath",
+                    "description": "The file's repository-relative path."
+                },
+                "kind": {
+                    "$ref": "#/$defs/ProjectDocumentKind",
+                    "description": "Root schematic, other schematic, or board."
+                },
+                "formatVersion": {
+                    "$ref": "#/$defs/ProjectFileFormatVersion",
+                    "description": "The file's `(version N)`. Absent when the form is missing or not an integer."
+                },
+                "generator": {
+                    "type": "string",
+                    "description": "The file's `(generator …)`, quoted or bare, for example `eeschema` or `pcbnew`. Absent when the form is missing."
+                },
+                "generatorVersion": {
+                    "type": "string",
+                    "description": "The file's `(generator_version \"…\")`, for example `9.0` (KiCad 8 and later). Absent when the form is missing."
+                },
+                "titleBlock": {
+                    "$ref": "#/$defs/ProjectTitleBlock",
+                    "description": "The file's own `(title_block …)` as written. Absent when the file has none."
+                },
+                "expandedTitleBlock": {
+                    "$ref": "#/$defs/ProjectTitleBlock",
+                    "description": "`titleBlock` with its text variables expanded by today's rule\n(`backend/app/services/kicad_text_variables.py`; field map,\n\"Title-block expansion\"): `${NAME}` takes, from lowest to highest\nprecedence, this title block's fields (`TITLE`, `ISSUE_DATE`,\n`REVISION`, `COMPANY`, `COMMENT1`…`COMMENT9`, the empty string for an\nabsent one), this file's `properties`, the project's `textVariables`,\n`PROJECTNAME` and `FILENAME` (this file's name); a reference to anything\nelse (`${CURRENT_DATE}`, `${#}`) stays as written. Present exactly when\n`titleBlock` is. It has the same fields, except that a field or comment\nwhose expansion is empty is absent."
+                },
+                "properties": {
+                    "$ref": "#/$defs/RecordString",
+                    "description": "The file's top-level `(property \"<name>\" \"<value>\")` forms, keyed by name; KiCad 8 and later write the project's text variables into a board this way. Keys in code point order; an empty name is skipped; when a name repeats, the last form wins. Empty for a schematic, which has no top-level properties."
+                }
+            },
+            "required": [
+                "path",
+                "kind",
+                "properties"
+            ],
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "One schematic file of the hierarchy, or the board."
+        },
+        "ProjectPathReference": {
+            "type": "object",
+            "properties": {
+                "kind": {
+                    "$ref": "#/$defs/ProjectReferenceKind",
+                    "description": "Which setting or form holds the reference."
+                },
+                "documentPath": {
+                    "$ref": "#/$defs/RepoPath",
+                    "description": "The repository-relative path of the file that holds the reference: the `.kicad_pro`, a schematic of the hierarchy, the board, a library table, or a drawing-sheet file."
+                },
+                "sheetUuid": {
+                    "$ref": "#/$defs/KiCadUuid",
+                    "description": "UUID of the `(sheet …)` that holds the reference. Present exactly when `kind` is `sheet-file`; it equals the `sheetSymbolUuid` of the semantic index's `sheetInstances[]` that the sheet places."
+                },
+                "sheetName": {
+                    "type": "string",
+                    "minLength": 1,
+                    "description": "The sheet's first `Sheetname` (or `Sheet name`) property as written. Present exactly when `kind` is `sheet-file` and that property has non-empty text."
+                },
+                "libraryName": {
+                    "type": "string",
+                    "minLength": 1,
+                    "description": "The library nickname, the row's `(name …)`. Present exactly when `kind` is `footprint-library` or `symbol-library`; unique within its table."
+                },
+                "field": {
+                    "type": "string",
+                    "minLength": 1,
+                    "description": "Where in the file the text sits. Present exactly when `kind` is\n`drawing-sheet` or `text-path`. In the `.kicad_pro`, the RFC 6901 JSON\nPointer of the value (`/schematic/page_layout_descr_file`). In an\ns-expression file, the property name when the text is the value of a\n`(property \"<name>\" …)` form, otherwise the head token of the list the\ntext is an element of (`descr`)."
+                },
+                "raw": {
+                    "type": "string",
+                    "minLength": 1,
+                    "description": "The reference exactly as written, after s-expression or JSON string unescaping, `${KIPRJMOD}` and other variables unexpanded; never empty. Its resolved repository path, if any, is `target.path`."
+                },
+                "variables": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/$defs/ProjectVariableName"
+                    },
+                    "description": "Names of the variables the expansion substituted, in any round, sorted in code point order, without repeats. Empty when the text holds none."
+                },
+                "target": {
+                    "$ref": "#/$defs/ProjectPathTarget",
+                    "description": "Where the reference leads."
+                }
+            },
+            "required": [
+                "kind",
+                "documentPath",
+                "raw",
+                "variables",
+                "target"
+            ],
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "One path reference: the text as written, the variables its expansion\nused, and where it leads. The resolution algorithm is normative in\n`field-maps/project.md`, \"Resolution\"; in short: variables are expanded\n(`PROJECTNAME` and the project's text variables first, then `KIPRJMOD`\nand KiCad's library variables, up to 8 rounds), `\\` becomes `/`, and the\nresult is classified by its form."
+        },
+        "NonNegativeNanometres": {
+            "type": "integer",
+            "description": "A Nanometres value that is never negative: a thickness, width, diameter or length.",
+            "minimum": 0
+        },
+        "ProjectDocumentKind": {
+            "type": "string",
+            "enum": [
+                "root-schematic",
+                "schematic",
+                "board"
+            ],
+            "description": "What a project document is."
+        },
+        "ProjectFileFormatVersion": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "A KiCad s-expression file format version, the integer of the file's\n`(version N)` form: a date written as YYYYMMDD, for example `20241229`\n(KiCad 9) or `20260206` (KiCad 10)."
+        },
+        "ProjectTitleBlock": {
+            "type": "object",
+            "properties": {
+                "title": {
+                    "type": "string",
+                    "minLength": 1,
+                    "description": "`(title \"…\")`, KiCad's `${TITLE}`."
+                },
+                "date": {
+                    "type": "string",
+                    "minLength": 1,
+                    "description": "`(date \"…\")`, KiCad's `${ISSUE_DATE}`, as written (not parsed as a date)."
+                },
+                "rev": {
+                    "type": "string",
+                    "minLength": 1,
+                    "description": "`(rev \"…\")`, KiCad's `${REVISION}`."
+                },
+                "company": {
+                    "type": "string",
+                    "minLength": 1,
+                    "description": "`(company \"…\")`, KiCad's `${COMPANY}`."
+                },
+                "comments": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/$defs/ProjectTitleBlockComment"
+                    },
+                    "description": "The `(comment N \"…\")` forms with N from 1 to 9 and non-empty text, sorted by `number` in numeric order; when a number repeats, the last form in the file wins. Empty when there are none."
+                }
+            },
+            "required": [
+                "comments"
+            ],
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "A `(title_block …)` form. Each field is present exactly when the form has\nit with non-empty text; an empty string is treated as absent (KiCad writes\nno empty title-block fields). This is the fork's `KiCadTitleBlock`, whose\nempty strings stand for absent fields."
+        },
+        "ProjectReferenceKind": {
+            "type": "string",
+            "enum": [
+                "sheet-file",
+                "footprint-library",
+                "symbol-library",
+                "model-3d",
+                "drawing-sheet",
+                "text-path"
+            ],
+            "description": "Which KiCad file setting or form holds a path reference."
+        },
+        "KiCadUuid": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+            "description": "KiCad object UUID in the canonical form KiCad writes (`KIID::AsString`):\nlowercase hexadecimal, 8-4-4-4-12. Copied from the file, never generated\nor re-cased."
+        },
+        "ProjectVariableName": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_:]+$",
+            "description": "Name of a path variable as written between `${` and `}` or `$(` and `)`:\nASCII letters, digits, `_` and `:`, as KiCad's expander reads them\n(`common.cpp`, `KIwxExpandEnvVars`)."
+        },
+        "ProjectPathTarget": {
+            "oneOf": [
+                {
+                    "$ref": "#/$defs/ProjectRepositoryTarget",
+                    "description": "Inside the repository."
+                },
+                {
+                    "$ref": "#/$defs/ProjectOutsideRepositoryTarget",
+                    "description": "Above the repository root."
+                },
+                {
+                    "$ref": "#/$defs/ProjectAbsoluteTarget",
+                    "description": "An absolute path."
+                },
+                {
+                    "$ref": "#/$defs/ProjectKiCadLibraryTarget",
+                    "description": "Below a KiCad library directory."
+                },
+                {
+                    "$ref": "#/$defs/ProjectEmbeddedTarget",
+                    "description": "An embedded file."
+                },
+                {
+                    "$ref": "#/$defs/ProjectUnresolvedTarget",
+                    "description": "Not resolvable from the sources."
+                }
+            ],
+            "description": "Where a path reference leads. The variant is chosen by `kind`."
+        },
+        "ProjectTitleBlockComment": {
+            "type": "object",
+            "properties": {
+                "number": {
+                    "$ref": "#/$defs/ProjectTitleBlockCommentNumber",
+                    "description": "The comment's number."
+                },
+                "text": {
+                    "type": "string",
+                    "minLength": 1,
+                    "description": "The comment's text; never empty."
+                }
+            },
+            "required": [
+                "number",
+                "text"
+            ],
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "One numbered comment of a title block."
+        },
+        "ProjectRepositoryTarget": {
+            "type": "object",
+            "properties": {
+                "kind": {
+                    "type": "string",
+                    "const": "repository",
+                    "description": "Variant tag."
+                },
+                "path": {
+                    "$ref": "#/$defs/RepoPath",
+                    "description": "The target's repository-relative path: the base directory's repository\npath joined with the reference and normalized lexically (`.` dropped,\neach `..` cancels the segment before it). Its bundle member is\n`sources/<path>`."
+                },
+                "base": {
+                    "$ref": "#/$defs/ProjectPathBase",
+                    "description": "The directory the path was joined to."
+                },
+                "inSources": {
+                    "type": "boolean",
+                    "description": "True when the revision key's source set, as K materializes it, holds\nthe target: the file `path`, or, for a directory target such as a\n`.pretty` footprint library, at least one file below it. Such a target\nis read by the build and so is a member `sources/<path>` (the closure,\nbundle-format.md §2.2). False means the file\nis missing from the commit, or present but outside the revision key's\nsource set (for example under an excluded directory, or a file type the\nsource set does not select)."
+                }
+            },
+            "required": [
+                "kind",
+                "path",
+                "base",
+                "inSources"
+            ],
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "The reference resolves to a path inside the repository."
+        },
+        "ProjectOutsideRepositoryTarget": {
+            "type": "object",
+            "properties": {
+                "kind": {
+                    "type": "string",
+                    "const": "outside-repository",
+                    "description": "Variant tag."
+                },
+                "path": {
+                    "type": "string",
+                    "minLength": 1,
+                    "description": "The target relative to the repository root, normalized lexically: one or\nmore leading `..` segments, then the rest. Not a RepoPath, since it\nnames no file of the repository."
+                },
+                "base": {
+                    "$ref": "#/$defs/ProjectPathBase",
+                    "description": "The directory the path was joined to."
+                }
+            },
+            "required": [
+                "kind",
+                "path",
+                "base"
+            ],
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "The reference climbs above the repository root: KiCad would read a file the commit does not hold."
+        },
+        "ProjectAbsoluteTarget": {
+            "type": "object",
+            "properties": {
+                "kind": {
+                    "type": "string",
+                    "const": "absolute",
+                    "description": "Variant tag."
+                },
+                "path": {
+                    "type": "string",
+                    "minLength": 1,
+                    "description": "The expanded path with every `\\` replaced by `/` and normalized lexically, as the source file states it; never a path of the build host."
+                }
+            },
+            "required": [
+                "kind",
+                "path"
+            ],
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "The reference is an absolute path after expansion (`/…`, or a drive letter such as `C:/…`)."
+        },
+        "ProjectKiCadLibraryTarget": {
+            "type": "object",
+            "properties": {
+                "kind": {
+                    "type": "string",
+                    "const": "kicad-library",
+                    "description": "Variant tag."
+                },
+                "variable": {
+                    "$ref": "#/$defs/ProjectVariableName",
+                    "description": "The library variable as written, for example `KICAD9_3DMODEL_DIR` or `KISYS3DMOD`. A KiCad of another major version substitutes its own directory when this one is not set in its environment (`common.cpp`, `KIwxExpandEnvVars`); readers apply that rule, this document does not."
+                },
+                "library": {
+                    "$ref": "#/$defs/ProjectKiCadLibrary",
+                    "description": "Which library directory the variable names."
+                },
+                "relativePath": {
+                    "$ref": "#/$defs/ProjectLibraryRelativePath",
+                    "description": "The rest of the path below that directory, normalized lexically, for example `Resistor_SMD.3dshapes/R_0603_1608Metric.step`."
+                }
+            },
+            "required": [
+                "kind",
+                "variable",
+                "library",
+                "relativePath"
+            ],
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "The reference starts with one of KiCad's library variables, or names one as a `:<alias>:` form."
+        },
+        "ProjectEmbeddedTarget": {
+            "type": "object",
+            "properties": {
+                "kind": {
+                    "type": "string",
+                    "const": "embedded",
+                    "description": "Variant tag."
+                },
+                "name": {
+                    "type": "string",
+                    "minLength": 1,
+                    "description": "The embedded file's name, the text after `kicad-embed://`, equal to its `(name …)`."
+                },
+                "documentPath": {
+                    "$ref": "#/$defs/RepoPath",
+                    "description": "The repository-relative path of the document whose `(embedded_files …)` form holds it: the board, or the root schematic for the schematic drawing sheet."
+                },
+                "footprintUuid": {
+                    "$ref": "#/$defs/KiCadUuid",
+                    "description": "UUID of the footprint whose own `(embedded_files …)` holds it. Absent when the document-level form holds it. A model is looked up in its footprint's embedded files first, then in the board's."
+                },
+                "fileType": {
+                    "$ref": "#/$defs/ProjectEmbeddedFileType",
+                    "description": "The embedded file's `(type …)`."
+                }
+            },
+            "required": [
+                "kind",
+                "name",
+                "documentPath",
+                "fileType"
+            ],
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "The reference is `kicad-embed://<name>` and an embedded file of the lookup order holds that name."
+        },
+        "ProjectUnresolvedTarget": {
+            "type": "object",
+            "properties": {
+                "kind": {
+                    "type": "string",
+                    "const": "unresolved",
+                    "description": "Variant tag."
+                },
+                "reason": {
+                    "$ref": "#/$defs/ProjectUnresolvedReason",
+                    "description": "Why."
+                },
+                "variable": {
+                    "$ref": "#/$defs/ProjectVariableName",
+                    "description": "The variable concerned. Present exactly when `reason` is\n`undefined-variable` or `nondeterministic-variable` (the first such\nreference, in text order, of the expansion round that stopped), or\n`misplaced-variable` (the variable of the first marker, in text order,\nthat does not start the text)."
+                }
+            },
+            "required": [
+                "kind",
+                "reason"
+            ],
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "The reference cannot be resolved from the sources alone."
+        },
+        "ProjectTitleBlockCommentNumber": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 9,
+            "description": "Number of a title-block comment, as in `(comment N \"…\")`: 1 to 9."
+        },
+        "ProjectPathBase": {
+            "type": "string",
+            "enum": [
+                "project-variable",
+                "project-directory",
+                "document-directory"
+            ],
+            "description": "Which directory a relative or `${KIPRJMOD}` path was joined to."
+        },
+        "ProjectKiCadLibrary": {
+            "type": "string",
+            "enum": [
+                "model-3d",
+                "symbol",
+                "footprint",
+                "template",
+                "third-party",
+                "user-template"
+            ],
+            "description": "One of KiCad's own library directories, which the KiCad installation\ndefines through predefined path variables (`env_vars.cpp`). `<N>` is one\nor more ASCII digits, any version."
+        },
+        "ProjectLibraryRelativePath": {
+            "type": "string",
+            "pattern": "^(?:[^/\\\\:.][^/\\\\:]*|\\.[^/\\\\:.][^/\\\\:]*|\\.\\.[^/\\\\:]+)(?:/(?:[^/\\\\:.][^/\\\\:]*|\\.[^/\\\\:.][^/\\\\:]*|\\.\\.[^/\\\\:]+))*$",
+            "description": "A path below one of KiCad's library directories: `/`-separated, relative,\nno empty, `.` or `..` segment, no backslash and no `:`. The same\ncharacter rule as Common's RepoPath."
+        },
+        "ProjectEmbeddedFileType": {
+            "type": "string",
+            "enum": [
+                "model",
+                "worksheet",
+                "datasheet",
+                "font",
+                "other"
+            ],
+            "description": "The `(type …)` of a `(file …)` in an `(embedded_files …)` form, spelled as KiCad writes it."
+        },
+        "ProjectUnresolvedReason": {
+            "type": "string",
+            "enum": [
+                "undefined-variable",
+                "nondeterministic-variable",
+                "misplaced-variable",
+                "variable-loop",
+                "uri",
+                "home-relative",
+                "alias",
+                "embedded-missing",
+                "outside-library-root",
+                "empty-path",
+                "unrepresentable-path"
+            ],
+            "description": "Why a reference could not be resolved from the sources alone."
+        }
+    }
+}
