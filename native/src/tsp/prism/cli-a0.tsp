@@ -198,6 +198,9 @@ enum CliArgument {
   /** `--key-record` of `bundle build --stage parse`. */
   keyRecord: "key-record",
 
+  /** An `--upgraded` of `bundle build --stage parse`: a source the backend upgraded from an older KiCad file format (cli-spec.md §9.4). */
+  upgraded,
+
   /** `--config`. */
   config,
 
@@ -487,6 +490,19 @@ model CliVersionMemberSchema {
 
 // --------------------------------------------------------------------- roots
 
+/** KiCad's current `(version N)` per source format, declared in code point order. */
+model CliKicadFileFormats {
+  /** `.kicad_pcb`, for example `20260206`. */
+  @minValue(20000000)
+  @maxValue(99991231)
+  board: safeint;
+
+  /** `.kicad_sch`, for example `20260306`. */
+  @minValue(20000000)
+  @maxValue(99991231)
+  schematic: safeint;
+}
+
 /**
  * The generator id: the stdout of `prism-kicad version`. It states everything
  * that decides the bytes of a bundle besides the sources (ADR §5), and is
@@ -514,6 +530,14 @@ model CliVersionA0 {
 
   /** Version of the parser core crate (`ENGINE_VERSION`, the fork's `kicad-monkey-core`, `prism-kicad-core` after WP-F2). */
   engine_version: CliReleaseVersion;
+
+  /**
+   * The current file formats of `kicad_version`: the `(version N)` KiCad
+   * writes. Sources older than them are upgraded before stage `parse`
+   * (cli-spec.md §9.4), and the parser reads only these formats, so they
+   * decide every parsed member's bytes. Raised with `kicad_version`.
+   */
+  kicad_file_formats: CliKicadFileFormats;
 
   /**
    * KiCad version of the KiCad-produced members (the refilled board and
