@@ -707,11 +707,7 @@ impl ParseRun<'_> {
             .board
             .as_ref()
             .zip(model.board.as_ref())
-            .map(|(text, view)| prism_projections::BoardModel {
-                path: &text.path,
-                text: &text.text,
-                view,
-            });
+            .map(|(text, view)| prism_projections::BoardModel::new(&text.path, &text.text, view));
         let input = prism_projections::ProjectionInput {
             config: &config,
             revision_key: self.request.revision_key.as_deref(),

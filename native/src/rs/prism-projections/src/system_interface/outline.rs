@@ -276,11 +276,7 @@ mod tests {
     fn a_zero_thickness_is_null() {
         let text = "(kicad_pcb (version 20240108) (general (thickness 0)))";
         let view = PcbView::parse(text, PcbLimits::default()).unwrap();
-        let board = crate::BoardModel {
-            path: "board.kicad_pcb",
-            text,
-            view: &view,
-        };
+        let board = crate::BoardModel::new("board.kicad_pcb", text, &view);
         assert_eq!(super::thickness(&board).unwrap(), None);
     }
 
@@ -288,11 +284,7 @@ mod tests {
     fn a_missing_thickness_defaults_to_1_6() {
         let text = "(kicad_pcb (version 20240108) (general))";
         let view = PcbView::parse(text, PcbLimits::default()).unwrap();
-        let board = crate::BoardModel {
-            path: "board.kicad_pcb",
-            text,
-            view: &view,
-        };
+        let board = crate::BoardModel::new("board.kicad_pcb", text, &view);
         assert_eq!(super::thickness(&board).unwrap(), Some(1.6));
     }
 }

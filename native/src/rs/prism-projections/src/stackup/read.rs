@@ -17,18 +17,15 @@ use prism_kicad_core::Sexp;
 use serde_json::{Map, Value, json};
 
 /// `build` (`stackup_build.py:173-298`): `(document, warnings)` for one
-/// `.kicad_pcb` text.
+/// `.kicad_pcb` text, from the shared board tree.
 pub(super) fn build(
-    board_text: &str,
+    root: &Sexp,
     board_path: &str,
 ) -> Result<(Value, Vec<ProducerWarning>), ProjectionError> {
-    let root = prism_kicad_core::parse(board_text).map_err(|error| {
-        ProjectionError::new(format!("{NAME}: the board does not parse: {error}"))
-    })?;
-    if !is_form(&root, "kicad_pcb") {
+    if !is_form(root, "kicad_pcb") {
         return Err(ProjectionError::new(format!("{NAME}: not a kicad_pcb")));
     }
-    let root_items = form_children(&root);
+    let root_items = form_children(root);
     let mut warnings: Vec<ProducerWarning> = Vec::new();
 
     let board_thickness = board_thickness(root_items)?;
@@ -56,6 +53,30 @@ pub(super) fn build(
         board_layers,
     };
     Ok((document.to_value(), warnings))
+}
+
+/// R6's copper order for `route_metrics`: the stackup member's `copperLayers`
+/// (`stackup_build.py:222-228`, rule 7) from the shared tree alone, without
+/// building the rest of the member. It reads the same layer table and stackup
+/// forms as [`build`] and applies the one shared rule
+/// (`summary::copper_layers`), so the value is exactly `build`'s.
+pub(super) fn copper_order(root: &Sexp, board_path: &str) -> Result<Vec<String>, ProjectionError> {
+    if !is_form(root, "kicad_pcb") {
+        return Err(ProjectionError::new(format!("{NAME}: not a kicad_pcb")));
+    }
+    let root_items = form_children(root);
+    let mut warnings: Vec<ProducerWarning> = Vec::new();
+    let (_, table_copper) = read_board_layers(root_items, &mut warnings, board_path)?;
+    let stackup = read_stackup(root_items, &mut warnings, board_path)?;
+    let present = stackup.is_some();
+    let layers = stackup.map_or_else(Vec::new, |stackup| stackup.layers);
+    Ok(copper_layers(
+        present,
+        &layers,
+        &table_copper,
+        &mut warnings,
+        board_path,
+    ))
 }
 
 /// `(general (thickness …))` (`stackup_build.py:183-184`), or KiCad's default.

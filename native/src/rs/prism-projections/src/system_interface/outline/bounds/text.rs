@@ -5,7 +5,7 @@
 
 use super::{Bounds, board_error};
 use crate::{BoardModel, ProjectionError};
-use prism_kicad_core::sexpr::{Sexp, parse};
+use prism_kicad_core::sexpr::Sexp;
 
 /// `kicad_property.KICAD_DEFAULT_TEXT_SIZE_MM` / `kicad_fp_text` font default.
 const DEFAULT_TEXT_SIZE: f64 = 1.27;
@@ -15,12 +15,11 @@ const DEFAULT_TEXT_SIZE: f64 = 1.27;
 /// posed estimate is `kicad_pcb_graphics.GrText.get_bounds`
 /// (`km:kicad_pcb_graphics.py:92-111`).
 pub(super) fn board_text_boxes(board: &BoardModel<'_>) -> Result<Vec<Bounds>, ProjectionError> {
-    let root = parse(board.text).map_err(board_error)?;
-    let Sexp::List(items) = root else {
+    let Sexp::List(items) = board.tree().map_err(board_error)? else {
         return Ok(Vec::new());
     };
     let mut boxes = Vec::new();
-    for item in &items {
+    for item in items {
         let Sexp::List(form) = item else { continue };
         if form.first().and_then(atom) != Some("gr_text") {
             continue;

@@ -157,7 +157,7 @@ impl Bounds {
     }
 }
 
-fn board_error(error: prism_kicad_core::Error) -> ProjectionError {
+fn board_error(error: impl std::fmt::Display) -> ProjectionError {
     ProjectionError::new(format!(
         "projections/system-interface.json: the board could not be read: {error}"
     ))
@@ -201,11 +201,7 @@ mod tests {
                     continue;
                 }
             };
-            let board = crate::BoardModel {
-                path: board_path,
-                text: &text,
-                view: &view,
-            };
+            let board = crate::BoardModel::new(board_path, &text, &view);
             // Board box.
             let actual = board_bounds(&board).expect("board bounds");
             match expected_box(&entry["bounds"]) {
