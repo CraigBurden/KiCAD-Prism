@@ -116,6 +116,20 @@ discovery (`kicad_library_discovery.py`), folder import
 component extraction and the semantic index use it. Do not add another
 balancer or property regex.
 
+## Project component import
+
+`project_component_import_service.py` scans one session's projects into catalog
+proposals. `project_component_asset_extractor.py` is the legacy asset scanner:
+one recursive walk per snapshot, looked up by UUID or reference.
+`project_component_bundle_assets.py` is the bundle path
+(`PRISM_DESIGN_SOURCE_CATALOG_IMPORT=bundle`): it joins a component through the
+bundle's occurrences and placements projections, sources the symbol and
+footprint from the project's own symbol and footprint library tables, and
+resolves 3D models from the bundle's project projection. Both indexes
+expose the same `extract_component_assets` contract; the shared
+`footprint_land_pattern` in the extractor separates a real copper land-pattern
+conflict from a cosmetic footprint variant.
+
 ## Viewer sources
 
 `project_viewer_sources_bundle.py` maps the viewer-source routes

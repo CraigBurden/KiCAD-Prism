@@ -4,6 +4,7 @@ import hashlib
 import json
 import logging
 import re
+from pathlib import Path
 from typing import Any
 
 from app.services import project_service, semantic_index_service
@@ -13,6 +14,11 @@ from app.services.component_catalog_service import catalog_service
 from app.services.project_component_asset_extractor import (
     ContentAddressedAssetStager,
     build_project_asset_index,
+    footprint_land_pattern,
+)
+from app.services.project_component_bundle_assets import (
+    BUNDLE_MEMBER_PATHS,
+    ProjectBundleAssetIndex,
 )
 
 logger = logging.getLogger(__name__)
@@ -291,6 +297,33 @@ def _merge_metadata(target: dict[str, Any], incoming: dict[str, Any]) -> list[di
     return findings
 
 
+def _conflict_subjects(*provenances: list[dict[str, Any]]) -> str:
+    """The source projects and references behind a conflict, for its message."""
+
+    subjects: list[str] = []
+    seen: set[tuple[str, str]] = set()
+    for provenance in provenances:
+        for source in _alternative_sources(provenance):
+            key = (source.get("projectId", ""), source.get("reference", ""))
+            if key in seen:
+                continue
+            seen.add(key)
+            subjects.append(" ".join(part for part in key if part))
+    return ", ".join(subjects)
+
+
+def _asset_land_pattern(asset: dict[str, Any]) -> tuple[tuple[object, ...], ...] | None:
+    """The staged footprint's copper land pattern, or ``None`` when it cannot be read."""
+
+    path = str(asset.get("staged_path") or "")
+    if not path:
+        return None
+    try:
+        return footprint_land_pattern(Path(path).read_bytes())
+    except OSError:
+        return None
+
+
 def _merge_proposal(target: dict[str, Any], incoming: dict[str, Any]) -> None:
     target["findings"].extend(_merge_metadata(target, incoming))
     target["provenance"].extend(incoming["provenance"])
@@ -298,33 +331,104 @@ def _merge_proposal(target: dict[str, Any], incoming: dict[str, Any]) -> None:
     references.update(incoming["metadata"].get("references") or [])
     target["metadata"]["references"] = sorted(references)
     existing_assets = {(item["asset_type"], item["sha256"]) for item in target["assets"]}
-    types_by_hash = {item["asset_type"]: item["sha256"] for item in target["assets"]}
+    first_by_type = {item["asset_type"]: item for item in target["assets"]}
     for asset in incoming["assets"]:
         identity = (asset["asset_type"], asset["sha256"])
         if identity in existing_assets:
             continue
-        existing_hash = types_by_hash.get(asset["asset_type"])
-        if (
-            existing_hash
-            and existing_hash != asset["sha256"]
-            and asset["asset_type"] in {"symbol", "footprint"}
-        ):
+        existing = first_by_type.get(asset["asset_type"])
+        if existing is None:
+            target["assets"].append(asset)
+            first_by_type[asset["asset_type"]] = asset
+            existing_assets.add(identity)
+            continue
+        if existing["sha256"] == asset["sha256"]:
+            existing_assets.add(identity)
+            continue
+        subjects = _conflict_subjects(list(target["provenance"]), list(incoming["provenance"]))
+        if asset["asset_type"] == "symbol":
             target["findings"].append(
                 {
-                    "code": f"conflicting_{asset['asset_type']}_assets",
+                    "code": "conflicting_symbol_assets",
                     "severity": "error",
                     "message": (
-                        f"Projects contain different {asset['asset_type']} content "
-                        "for the same component identity."
+                        "Projects contain different symbol content for the same component "
+                        f"identity ({subjects})."
                     ),
                 }
             )
-        target["assets"].append(asset)
+            target["assets"].append(asset)
+        elif asset["asset_type"] == "footprint":
+            # Two footprints for one identity conflict only when their copper
+            # land pattern differs. A difference outside the pads (silk,
+            # courtyard, fab, text, 3D model) is a reviewable variant, and the
+            # first copy is kept either way.
+            first_pattern = _asset_land_pattern(existing)
+            incoming_pattern = _asset_land_pattern(asset)
+            if first_pattern is None or incoming_pattern is None or first_pattern != incoming_pattern:
+                target["findings"].append(
+                    {
+                        "code": "conflicting_footprint_land_pattern",
+                        "severity": "error",
+                        "message": (
+                            "Projects contain different copper land patterns for the same "
+                            f"component identity ({subjects})."
+                        ),
+                    }
+                )
+            else:
+                target["findings"].append(
+                    {
+                        "code": "footprint_variants_cosmetic",
+                        "severity": "warning",
+                        "message": (
+                            "Projects contain footprints that differ only outside the copper "
+                            f"land pattern ({subjects})."
+                        ),
+                    }
+                )
+        else:
+            target["assets"].append(asset)
         existing_assets.add(identity)
     existing_findings = {(item["code"], item["message"]) for item in target["findings"]}
     for finding in incoming["findings"]:
         if (finding["code"], finding["message"]) not in existing_findings:
             target["findings"].append(finding)
+
+
+def _bundle_asset_index(
+    project_id: str,
+    commit: str | None,
+    stager: ContentAddressedAssetStager,
+    *,
+    requested_by: str = "",
+) -> ProjectBundleAssetIndex | None:
+    """The bundle's asset index for a revision, or ``None`` to serve the legacy path.
+
+    ``bundle_read`` owns the switch: it returns ``None`` for the ``legacy``
+    switch, for a member that is not ready yet (it queues the build) and for a
+    member that failed, and this then returns ``None`` so the caller scans the
+    checkout as before. A working-tree request (no resolved commit) never opens
+    a bundle, and a bundle-side fault while the members are opened is logged
+    and also falls back, so a broken bundle cannot fail the import.
+    """
+
+    if not commit:
+        return None
+    from app.services.design_bundle import consumer
+
+    read = consumer.bundle_read(
+        "CATALOG_IMPORT", project_id, commit, BUNDLE_MEMBER_PATHS, requested_by=requested_by
+    )
+    if read is None or not all(read.ready(path) for path in BUNDLE_MEMBER_PATHS):
+        return None
+    try:
+        return ProjectBundleAssetIndex(read, stager=stager)
+    except Exception:  # noqa: BLE001 - any bundle-side fault must serve the legacy path
+        logger.exception(
+            "design bundle: CATALOG_IMPORT could not index %s@%s; serving legacy", project_id, commit
+        )
+        return None
 
 
 def run_project_import_session(session_id: str) -> None:
@@ -357,9 +461,15 @@ def run_project_import_session(session_id: str) -> None:
                 continue
             with semantic_index_service._project_file_for_revision(
                 project, source_revision or None
-            ) as (project_file, _):
-                project_root = project_file.parent
-                asset_index = build_project_asset_index(project_root, stager=stager)
+            ) as (project_file, resolved_commit):
+                asset_index = _bundle_asset_index(
+                    str(project_id),
+                    resolved_commit,
+                    stager,
+                    requested_by=str(session.get("created_by") or ""),
+                )
+                if asset_index is None:
+                    asset_index = build_project_asset_index(project_file.parent, stager=stager)
                 for component in components:
                     assets, findings, resolved = asset_index.extract_component_assets(component)
                     candidate = _proposal(
