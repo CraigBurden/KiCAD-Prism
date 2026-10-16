@@ -530,13 +530,10 @@ pub(super) fn form_end(text: &str, start: usize) -> Option<usize> {
     let mut at = start;
     while at < bytes.len() {
         match bytes[at] {
-            b'"' => {
-                let end = match_string(bytes, at)?;
-                if end == at || bytes[end - 1] != b'"' {
-                    return None;
-                }
-                at = end;
-            }
+            // `_SEXPR_SCAN`'s string alternative needs a closing quote; a
+            // string without one (including `"…\"` at the end of the text,
+            // whose last quote is escaped) leaves a bare `"`: no form end.
+            b'"' => at = match_quoted(bytes, at)?,
             b'(' => {
                 depth += 1;
                 at += 1;
@@ -772,5 +769,13 @@ mod tests {
         assert_eq!(super::form_end(text, 0), Some(15));
         assert_eq!(super::form_end("(a (b)", 0), None);
         assert_eq!(super::form_end("(a \"unterminated)", 0), None);
+    }
+
+    #[test]
+    fn form_end_refuses_an_unterminated_string() {
+        // kicad_library_reader.form_end: a bare quote returns None.
+        assert_eq!(super::form_end("(a \"x\")", 0), Some(7));
+        assert_eq!(super::form_end("(a \"x\\\"", 0), None);
+        assert_eq!(super::form_end("(a \"x\\\n\")", 0), None);
     }
 }

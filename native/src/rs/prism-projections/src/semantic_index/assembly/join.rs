@@ -8,46 +8,45 @@
 //! rewritten; a reference the index carries more than once keeps the reference
 //! key and gets a `reference-collision` diagnostic naming every candidate.
 
-use crate::semantic_index::string;
+use crate::semantic_index::{Placements, string};
 use serde_json::{Map, Value, json};
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 /// `_project_onto_components(block, components, schematic_placements)`
-/// (semantic_index_variants.py:948-1037). The component/schematicRef mutations
-/// (`fields` `DNP`/`In BOM`, `schematicRefs[].occurrenceId`) belong to the
-/// components pass, which already produces them; this port applies only the
-/// assembly-block changes.
-pub(super) fn project(block: &mut Value, components: &[Value]) {
+/// (semantic_index_variants.py:948-1037): rewrite the assembly block's
+/// reference keys to `componentUid`s, and stamp each component's `DNP` /
+/// `In BOM` fields and its `schematicRefs[].occurrenceId`.
+pub(super) fn project(block: &mut Value, components: &mut [Value], placements: &Placements) {
     let references = ReferenceIndex::build(components);
+    // The reference-keyed default states, before their keys are translated.
+    let default_states = block
+        .get("default")
+        .and_then(|default| default.get("components"))
+        .and_then(Value::as_object)
+        .cloned()
+        .unwrap_or_default();
     translate_keys(block, &references);
     stamp_identity(block, &references);
+    stamp_components(components, &references, &default_states, placements);
     append_collisions(block, &references);
     stamp_diagnostics(block, &references);
 }
 
-/// The index components grouped by reference, with the ambiguous and unique
-/// sets the join needs (`siv:963-976`).
-struct ReferenceIndex<'a> {
-    grouped: Vec<(String, Vec<&'a Value>)>,
+/// The index components grouped by reference (`siv:963-976`): positions in
+/// `components`, and the `componentUid` of each reference that has exactly one.
+struct ReferenceIndex {
+    grouped: BTreeMap<String, Vec<usize>>,
+    uids: Vec<String>,
     ambiguous: BTreeSet<String>,
-    unique: Vec<(String, String)>,
 }
 
-impl<'a> ReferenceIndex<'a> {
-    fn build(components: &'a [Value]) -> Self {
-        let mut grouped: Vec<(String, Vec<&Value>)> = Vec::new();
-        for component in components {
+impl ReferenceIndex {
+    fn build(components: &[Value]) -> Self {
+        let mut grouped: BTreeMap<String, Vec<usize>> = BTreeMap::new();
+        for (position, component) in components.iter().enumerate() {
             let reference = string(component.get("reference"));
-            if reference.is_empty() {
-                continue;
-            }
-            if let Some(entry) = grouped
-                .iter_mut()
-                .find(|(candidate, _)| candidate == &reference)
-            {
-                entry.1.push(component);
-            } else {
-                grouped.push((reference, vec![component]));
+            if !reference.is_empty() {
+                grouped.entry(reference).or_default().push(position);
             }
         }
         let ambiguous = grouped
@@ -55,42 +54,102 @@ impl<'a> ReferenceIndex<'a> {
             .filter(|(_, entries)| entries.len() > 1)
             .map(|(reference, _)| reference.clone())
             .collect();
-        let unique = grouped
+        let uids = components
             .iter()
-            .filter(|(_, entries)| entries.len() == 1)
-            .map(|(reference, entries)| (reference.clone(), string(entries[0].get("componentUid"))))
+            .map(|component| string(component.get("componentUid")))
             .collect();
         Self {
             grouped,
+            uids,
             ambiguous,
-            unique,
         }
     }
 
     fn unique_uid(&self, reference: &str) -> Option<String> {
-        self.unique
-            .iter()
-            .find(|(candidate, _)| candidate == reference)
-            .map(|(_, uid)| uid.clone())
+        match self.grouped.get(reference).map(Vec::as_slice) {
+            Some(&[only]) => Some(self.uids[only].clone()),
+            _ => None,
+        }
     }
 
     fn component_uids(&self, reference: &str) -> Vec<String> {
         self.grouped
-            .iter()
-            .find(|(candidate, _)| candidate == reference)
-            .map(|(_, entries)| {
-                entries
-                    .iter()
-                    .map(|entry| string(entry.get("componentUid")))
-                    .collect()
-            })
+            .get(reference)
+            .map(|entries| entries.iter().map(|&at| self.uids[at].clone()).collect())
             .unwrap_or_default()
     }
 }
 
+/// The component side of the join (`siv:997-1009`): `fields.DNP` and
+/// `fields["In BOM"]` from the reference's default state, and each
+/// `schematicRefs[]`'s `occurrenceId` (`_occurrence_id_for_ref`, :916-945).
+fn stamp_components(
+    components: &mut [Value],
+    references: &ReferenceIndex,
+    default_states: &Map<String, Value>,
+    placements: &Placements,
+) {
+    for (reference, entries) in &references.grouped {
+        let state = default_states.get(reference);
+        for &at in entries {
+            let Some(component) = components[at].as_object_mut() else {
+                continue;
+            };
+            if let Some(state) = state {
+                let flag = |key: &str| state.get(key).and_then(Value::as_bool).unwrap_or(false);
+                let fields = component
+                    .entry("fields")
+                    .or_insert_with(|| Value::Object(Map::new()));
+                if let Some(fields) = fields.as_object_mut() {
+                    fields.insert(
+                        "DNP".to_owned(),
+                        json!(if flag("dnp") { "Yes" } else { "No" }),
+                    );
+                    fields.insert(
+                        "In BOM".to_owned(),
+                        json!(if flag("excludeFromBom") { "No" } else { "Yes" }),
+                    );
+                }
+            }
+            if let Some(refs) = component
+                .get_mut("schematicRefs")
+                .and_then(Value::as_array_mut)
+            {
+                for schematic_ref in refs {
+                    if let Some(id) = occurrence_id_for_ref(schematic_ref, placements)
+                        && let Some(object) = schematic_ref.as_object_mut()
+                    {
+                        object.insert("occurrenceId".to_owned(), json!(id));
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// `_occurrence_id_for_ref` (semantic_index_variants.py:916-945): the first
+/// placement of the ref's symbol whose human sheet path agrees (or is empty).
+fn occurrence_id_for_ref(schematic_ref: &Value, placements: &Placements) -> Option<String> {
+    let symbol_uuid = string(schematic_ref.get("symbolUuid"));
+    if symbol_uuid.is_empty() {
+        return None;
+    }
+    let human_path = string(schematic_ref.get("sheetInstancePath"));
+    placements
+        .get(&symbol_uuid)?
+        .iter()
+        .find(|placement| {
+            !placement.sheet_instance_path.is_empty()
+                && (human_path.is_empty()
+                    || placement.sheet_path.is_empty()
+                    || placement.sheet_path == human_path)
+        })
+        .map(|placement| format!("{}/{symbol_uuid}", placement.sheet_instance_path))
+}
+
 /// `_translate_component_keys` over the default and every variant map
 /// (`siv:978-985`).
-fn translate_keys(block: &mut Value, references: &ReferenceIndex<'_>) {
+fn translate_keys(block: &mut Value, references: &ReferenceIndex) {
     if let Some(default) = block.get_mut("default").and_then(Value::as_object_mut)
         && let Some(states) = default
             .get("components")
@@ -120,7 +179,7 @@ fn translate_keys(block: &mut Value, references: &ReferenceIndex<'_>) {
 
 /// Stamp `componentUid` on the default occurrences and footprints
 /// (`siv:987-995`).
-fn stamp_identity(block: &mut Value, references: &ReferenceIndex<'_>) {
+fn stamp_identity(block: &mut Value, references: &ReferenceIndex) {
     let Some(default) = block.get_mut("default").and_then(Value::as_object_mut) else {
         return;
     };
@@ -152,7 +211,7 @@ fn stamp_identity(block: &mut Value, references: &ReferenceIndex<'_>) {
 
 /// The `reference-collision` diagnostics for ambiguous references not already
 /// reported by the assembly state (`siv:1011-1030`).
-fn append_collisions(block: &mut Value, references: &ReferenceIndex<'_>) {
+fn append_collisions(block: &mut Value, references: &ReferenceIndex) {
     let diagnosed = block
         .get("diagnostics")
         .and_then(Value::as_array)
@@ -193,7 +252,7 @@ fn append_collisions(block: &mut Value, references: &ReferenceIndex<'_>) {
 
 /// Stamp `componentUid` on diagnostics with a unique reference
 /// (`siv:1031-1037`).
-fn stamp_diagnostics(block: &mut Value, references: &ReferenceIndex<'_>) {
+fn stamp_diagnostics(block: &mut Value, references: &ReferenceIndex) {
     let Some(diagnostics) = block.get_mut("diagnostics").and_then(Value::as_array_mut) else {
         return;
     };
@@ -212,7 +271,7 @@ fn stamp_diagnostics(block: &mut Value, references: &ReferenceIndex<'_>) {
 }
 
 /// `_translate_component_keys` (semantic_index_variants.py:906-913).
-fn translate(states: &Map<String, Value>, references: &ReferenceIndex<'_>) -> Map<String, Value> {
+fn translate(states: &Map<String, Value>, references: &ReferenceIndex) -> Map<String, Value> {
     let mut translated = Map::new();
     for (reference, state) in states {
         let key = references
@@ -241,8 +300,8 @@ mod tests {
             "variants": [{"name": "Lite", "components": {"R1": {"dnp": false}}}],
             "diagnostics": [],
         });
-        let components = vec![component("R1", "cmp:a"), component("R1", "cmp:b")];
-        project(&mut block, &components);
+        let mut components = vec![component("R1", "cmp:a"), component("R1", "cmp:b")];
+        project(&mut block, &mut components, &Placements::new());
         assert_eq!(block["default"]["components"]["R1"], json!({"dnp": true}));
         assert_eq!(
             block["variants"][0]["components"]["R1"],
@@ -270,7 +329,11 @@ mod tests {
             "variants": [],
             "diagnostics": [],
         });
-        project(&mut block, &[component("R1", "cmp:a")]);
+        project(
+            &mut block,
+            &mut [component("R1", "cmp:a")],
+            &Placements::new(),
+        );
         assert_eq!(
             block["default"]["components"]["cmp:a"],
             json!({"dnp": true})
@@ -298,7 +361,7 @@ mod tests {
             "variants": [],
             "diagnostics": [],
         });
-        project(&mut block, &[]);
+        project(&mut block, &mut [], &Placements::new());
         assert_eq!(
             block["default"]["footprints"]["u9"]["componentUid"],
             Value::Null

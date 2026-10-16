@@ -64,7 +64,7 @@ pub fn produce(input: &ProjectionInput<'_>) -> Result<Produced<SemanticIndexA1>,
         board::project(board, &mut state, &mut claims)?;
         claims.reconcile(&mut state);
     }
-    let assembly = assembly::build(input, schematic, &state, &placements)?;
+    let assembly = assembly::build(input, schematic, &mut state, &placements)?;
     let mut value = state.into_document(&key);
     value["assembly"] = assembly;
     serde_json::from_value(value)

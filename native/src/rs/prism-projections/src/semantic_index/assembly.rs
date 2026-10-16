@@ -32,8 +32,8 @@ pub(super) fn empty() -> Value {
 pub(super) fn build(
     input: &ProjectionInput<'_>,
     schematic: &SchematicModel<'_>,
-    state: &State,
-    _placements: &Placements,
+    state: &mut State,
+    placements: &Placements,
 ) -> Result<Value, ProjectionError> {
     let catalog = catalog::discover(input)?;
     let mut value = state::build(input, schematic, &catalog.entries)?;
@@ -42,6 +42,6 @@ pub(super) fn build(
         diagnostics.append(existing);
     }
     value["diagnostics"] = Value::Array(diagnostics);
-    join::project(&mut value, &state.components);
+    join::project(&mut value, &mut state.components, placements);
     Ok(value)
 }
