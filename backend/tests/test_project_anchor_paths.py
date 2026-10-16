@@ -335,7 +335,7 @@ class HistoricalRevisionsHonourTheAnchor(unittest.TestCase):
         self.assertEqual(config.pcb, merged["pcb"])
 
     def test_default_commit_globs_select_the_anchored_schematic(self) -> None:
-        from app.api import projects as projects_api
+        from app.api import project_viewer_sources as viewer_sources
         from app.services import project_service
 
         project = project_service.Project(
@@ -349,17 +349,17 @@ class HistoricalRevisionsHonourTheAnchor(unittest.TestCase):
         expected = object()
         with (
             mock.patch.object(
-                projects_api.file_service,
+                viewer_sources.file_service,
                 "find_files_in_commit",
                 return_value=["base.kicad_sch", "top.kicad_sch"],
             ),
             mock.patch.object(
-                projects_api,
+                viewer_sources,
                 "_read_commit_file",
                 return_value=expected,
             ) as read_file,
         ):
-            result = projects_api._read_configured_commit_file(
+            result = viewer_sources._read_configured_commit_file(
                 project,
                 "deadbeef",
                 "*.kicad_sch",
@@ -371,7 +371,7 @@ class HistoricalRevisionsHonourTheAnchor(unittest.TestCase):
 
     def test_a_missing_anchored_file_does_not_select_a_sibling(self) -> None:
         from fastapi import HTTPException
-        from app.api import projects as projects_api
+        from app.api import project_viewer_sources as viewer_sources
         from app.services import project_service
 
         project = project_service.Project(
@@ -383,12 +383,12 @@ class HistoricalRevisionsHonourTheAnchor(unittest.TestCase):
             project_file="top.kicad_pro",
         )
         with mock.patch.object(
-            projects_api.file_service,
+            viewer_sources.file_service,
             "find_files_in_commit",
             return_value=["base.kicad_pcb"],
         ):
             with self.assertRaises(HTTPException) as raised:
-                projects_api._read_configured_commit_file(
+                viewer_sources._read_configured_commit_file(
                     project,
                     "deadbeef",
                     "*.kicad_pcb",
@@ -397,7 +397,7 @@ class HistoricalRevisionsHonourTheAnchor(unittest.TestCase):
         self.assertEqual(raised.exception.status_code, 404)
 
     def test_sibling_root_schematics_are_not_loaded_as_subsheets(self) -> None:
-        from app.api import projects as projects_api
+        from app.api import project_viewer_sources as viewer_sources
         from app.services import project_service
 
         project = project_service.Project(
@@ -409,7 +409,7 @@ class HistoricalRevisionsHonourTheAnchor(unittest.TestCase):
             project_file="top.kicad_pro",
         )
         self.assertEqual(
-            projects_api._sibling_root_schematic_names(
+            viewer_sources._sibling_root_schematic_names(
                 project, ["base.kicad_pro", "top.kicad_pro"]
             ),
             {"base.kicad_sch"},
