@@ -60,12 +60,15 @@ async def get_semantic_index_identity(
     with caller_errors((ValueError, 400), (RuntimeError, 503)):
         # The stored file goes out as is: parsing and re-serializing a large
         # board's index held tens of MB per request, and the process kept them.
-        path, source_revision_key = await asyncio.to_thread(
+        artifact = await asyncio.to_thread(
             semantic_index_service.artifact_file,
             project,
             commit,
         )
-        etag = f'"{source_revision_key}-{semantic_index_service.generator_cache_tag()}"'
+        path, source_revision_key = artifact
+        # ADR G9: a bundle-served file is identified by the design revision key
+        # and the bundle's generator digest, not the legacy cache tag.
+        etag = f'"{source_revision_key}-{artifact.generator}"'
         headers = {"Cache-Control": "private, max-age=300", "ETag": etag}
         if request.headers.get("if-none-match") == etag:
             return Response(status_code=304, headers=headers)
