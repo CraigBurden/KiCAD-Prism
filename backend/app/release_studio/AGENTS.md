@@ -41,6 +41,7 @@ as a spurious change in a customer's release comparison.**
 | `vendors/` | Vendor-specific packaging (`vendors/jlcpcb.py`, `vendors/pack.py`, `vendors/registry.py`). |
 | `dossier.py` | Final manifest and evidence assembly. |
 | `projections.py` · `semantic.py` · `impedance.py` | Derived views over the build. |
+| `bundle_projections.py` | The five board projections (`stackup`, `population`, `testpoints`, `designators`, `variants`) rebuilt from design-bundle members when `PRISM_DESIGN_SOURCE_RELEASE_STUDIO=bundle`: pure functions of the member documents, with `board_projections_from_bundle` the one bundle-reader seam. |
 | `ipc.py` | Worker process boundary. |
 
 Every `kicad-cli` and `kicad-cruncher` run goes through the tools

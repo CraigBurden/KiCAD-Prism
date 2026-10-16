@@ -204,6 +204,7 @@ def _gather_document_inputs(
 ) -> tuple[DocumentInputs, list[str], dict[str, Any]]:
     """Project board facts into a typed document-input record."""
 
+    from app.release_studio import bundle_projections
     from app.release_studio.projections import (
         board_designators,
         load_board_model,
@@ -245,40 +246,60 @@ def _gather_document_inputs(
     parsed_pcb = None
     fallback_reason = None
     if board is not None and board.is_file():
-        # One parse for both projections.  On a 35 MB board this is over two
-        # minutes of work, and doing it twice for the same file was the
-        # single largest avoidable cost in a build.
-        model = _project("board model", lambda: load_board_model(board), (None, None))
-        stackup = _project("stackup", lambda: project_stackup(board, model=model), {})
-        if stackup.get("source") == "kicad_monkey.fallback":
-            warnings.append(
-                "documentation: stackup used the kicad_monkey targeted fallback "
-                f"({stackup.get('fallback_reason') or 'typed model rejected the board'})"
-            )
-        # Schematic variants live in the *project* file, not the schematic:
-        # `schematic_settings.cpp:266` reads them from `.kicad_pro`.
-        project_file = board.with_suffix(".kicad_pro")
-        # Only a *typed* model can answer the variant question; the targeted
-        # stackup fallback has no footprints, so that case re-parses.
-        parsed_pcb, fallback_reason = model
-        variants = _project(
-            "variants",
-            lambda: project_variants(
-                board,
-                project_file if project_file.is_file() else None,
-                pcb=None if fallback_reason else parsed_pcb,
+        # With PRISM_DESIGN_SOURCE_RELEASE_STUDIO=bundle and a resolved commit,
+        # the five board projections come from the bundle members; every other
+        # case (legacy switch, a working tree, a member not ready or failed, any
+        # read fault) keeps today's kicad_monkey path below.  A ready bundle
+        # never parses the board here.
+        bundled = _project(
+            "bundle board projections",
+            lambda: bundle_projections.board_projections_from_bundle(
+                str(candidate.get("project_id") or ""),
+                str(candidate.get("commit_sha") or "") or None,
             ),
-            {},
+            None,
         )
-        testpoints = _project(
-            "testpoints", lambda: project_testpoints(board, model=model), {}
-        )
-        population = _project(
-            "population", lambda: project_population(board, model=model), {}
-        )
-        designators = _project(
-            "designators", lambda: board_designators(board, model=model), ()
-        )
+        if bundled is not None:
+            stackup = bundled["stackup"]
+            variants = bundled["variants"]
+            testpoints = bundled["testpoints"]
+            population = bundled["population"]
+            designators = bundled["designators"]
+        else:
+            # One parse for both projections.  On a 35 MB board this is over two
+            # minutes of work, and doing it twice for the same file was the
+            # single largest avoidable cost in a build.
+            model = _project("board model", lambda: load_board_model(board), (None, None))
+            stackup = _project("stackup", lambda: project_stackup(board, model=model), {})
+            if stackup.get("source") == "kicad_monkey.fallback":
+                warnings.append(
+                    "documentation: stackup used the kicad_monkey targeted fallback "
+                    f"({stackup.get('fallback_reason') or 'typed model rejected the board'})"
+                )
+            # Schematic variants live in the *project* file, not the schematic:
+            # `schematic_settings.cpp:266` reads them from `.kicad_pro`.
+            project_file = board.with_suffix(".kicad_pro")
+            # Only a *typed* model can answer the variant question; the targeted
+            # stackup fallback has no footprints, so that case re-parses.
+            parsed_pcb, fallback_reason = model
+            variants = _project(
+                "variants",
+                lambda: project_variants(
+                    board,
+                    project_file if project_file.is_file() else None,
+                    pcb=None if fallback_reason else parsed_pcb,
+                ),
+                {},
+            )
+            testpoints = _project(
+                "testpoints", lambda: project_testpoints(board, model=model), {}
+            )
+            population = _project(
+                "population", lambda: project_population(board, model=model), {}
+            )
+            designators = _project(
+                "designators", lambda: board_designators(board, model=model), ()
+            )
 
     placements = _placements(output_root / "assembly/positions.csv")
     projections: dict[str, Any] = {
