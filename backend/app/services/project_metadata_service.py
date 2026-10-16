@@ -6,7 +6,9 @@ board size -- change only when the files change, so they are computed once per
 import or sync and stored. ``/properties`` is then a single row read.
 
 Board size comes from ``kicad-cli``; header fields come from a bounded read of
-the file's first 256 KB. Neither is derived from a full-file scan of our own.
+the file's first 256 KB, or from the bundle's ``projections/project.json``
+member when the ``PROJECT_METADATA`` switch is ``bundle`` and the member is
+ready (ADR §8). Neither is derived from a full-file scan of our own.
 """
 
 from __future__ import annotations
@@ -154,6 +156,26 @@ def compute_repository_facts(repo_path: str, relative_path: Optional[str]) -> di
     }
 
 
+def _board_facts(pcb_path: Optional[str]) -> tuple[dict[str, Any], str]:
+    """The reduced ``kicad-cli`` stats for a board, and the source label.
+
+    kicad-cli failure is not an error here. A deployment without the toolchain,
+    or a board it refuses, still yields a usable card -- one without a size on
+    it. Failing the whole job would leave the panel with nothing at all, which
+    is strictly worse and would also make the toolchain a hard dependency of
+    browsing the workspace. ``""`` labels "no stats", which the card and the job details both read;
+    it is what distinguishes a board with no outline from an unavailable tool.
+    """
+    if not pcb_path:
+        return {}, ""
+    try:
+        stats = kicad_board_stats_service.export_board_stats(pcb_path)
+        return kicad_board_stats_service.board_facts(stats), kicad_board_stats_service.SOURCE
+    except kicad_board_stats_service.BoardStatsUnavailable as error:
+        logger.warning("Board statistics unavailable for %s: %s", pcb_path, error)
+        return {}, ""
+
+
 def compute_project_metadata(
     project_path: str,
     schematic_path: Optional[str],
@@ -163,12 +185,6 @@ def compute_project_metadata(
 ) -> dict[str, Any]:
     """Read what the files say about themselves.
 
-    kicad-cli failure is not an error here. A deployment without the toolchain,
-    or a board it refuses, still yields a usable card -- one without a size on
-    it. Failing the whole job would leave the panel with nothing at all, which
-    is strictly worse and would also make the toolchain a hard dependency of
-    browsing the workspace.
-
     ``anchor`` picks the project's own ``.kicad_pro`` when a directory holds
     more than one, and that project's ``text_variables`` expand the title
     block fields of both documents.
@@ -176,15 +192,7 @@ def compute_project_metadata(
     project_file = locate_project_file(project_path, anchor)
     project_variables, project_name = _read_project_text_variables(project_file)
 
-    board_facts: dict[str, Any] = {}
-    stats_source = ""
-    if pcb_path:
-        try:
-            stats = kicad_board_stats_service.export_board_stats(pcb_path)
-            board_facts = kicad_board_stats_service.board_facts(stats)
-            stats_source = kicad_board_stats_service.SOURCE
-        except kicad_board_stats_service.BoardStatsUnavailable as error:
-            logger.warning("Board statistics unavailable for %s: %s", pcb_path, error)
+    board_facts, stats_source = _board_facts(pcb_path)
 
     return {
         "schematic": project_properties_service.compute_schematic_metadata(
@@ -205,6 +213,43 @@ def compute_project_metadata(
     }
 
 
+def _bundle_file_metadata(
+    project_id: str,
+    pcb_path: Optional[str],
+    files_fingerprint: str,
+) -> Optional[dict[str, Any]]:
+    """The card's file metadata from the bundle member, or ``None`` for the legacy path.
+
+    ``bundle_read`` answers ``None`` for the ``legacy`` switch, a member that is
+    not ready yet (it queues the build) and a member that failed, and this
+    function then falls through to the legacy readers unchanged. A member that
+    is ready is mapped to exactly the dicts ``compute_project_metadata`` produces,
+    with board size and thickness still read from the checkout's board, so the
+    switch only changes who computes the card.
+    """
+    from app.services.design_bundle import consumer
+
+    opened = consumer.bundle_read(
+        "PROJECT_METADATA", project_id, None, ["projections/project.json"]
+    )
+    if opened is None or not opened.ready("projections/project.json"):
+        return None
+    try:
+        member = opened.json("projections/project.json")
+    except Exception as error:  # noqa: BLE001 - a bad member must not lose the card
+        logger.warning("Could not read the project member for %s: %s", project_id, error)
+        return None
+
+    board_facts, stats_source = _board_facts(pcb_path)
+    card = project_properties_service.card_from_project_member(member, board_facts)
+    return {
+        "schematic": card["schematic"],
+        "pcb": card["pcb"],
+        "source_fingerprint": files_fingerprint,
+        "board_stats_source": stats_source,
+    }
+
+
 def refresh_project_metadata(
     project_id: str,
     project_path: str,
@@ -221,6 +266,11 @@ def refresh_project_metadata(
     pass -- 30 s on a large board -- and a push that only moved HEAD is not a
     reason to pay it. Repository facts are always recomputed: they are the
     cheap half and they are what a push actually changes.
+
+    When the files have changed, a ready ``projections/project.json`` bundle
+    member supplies the header fields (ADR §8, flag ``PROJECT_METADATA``);
+    otherwise the legacy readers read the checkout. Either way the stored row
+    and the fingerprint are the same.
     """
     stored = workspace.get_project_metadata(project_id)
     files_fingerprint = source_fingerprint(
@@ -236,9 +286,11 @@ def refresh_project_metadata(
             "reused_file_metadata": True,
         }
     else:
-        computed = compute_project_metadata(
-            project_path, schematic_path, pcb_path, anchor=anchor
-        )
+        computed = _bundle_file_metadata(project_id, pcb_path, files_fingerprint)
+        if computed is None:
+            computed = compute_project_metadata(
+                project_path, schematic_path, pcb_path, anchor=anchor
+            )
         computed["reused_file_metadata"] = False
 
     repository: Optional[dict[str, Any]] = None
