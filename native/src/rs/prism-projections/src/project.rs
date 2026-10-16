@@ -1,42 +1,40 @@
-//! `projections/project.json` (`prism.project.a0`). Filled by WP-P4; until then
-//! [`produce`] returns the contract's empty form for every project
-//! (bundle-format.md §2.1). The interface is in the crate docs.
+//! `projections/project.json` (`prism.project.a0`), WP-P4.
+//!
+//! A faithful port of the golden producer `native/parity/prism_parity/capture/project.py`
+//! (`produce` and its helpers, lines 50-649), which the committed goldens were
+//! captured with. The normative rules are in
+//! `native/contracts/prism/field-maps/project.md`: "Scanning", "Resolution
+//! (normative)" and "Title-block expansion (normative)".
+//!
+//! One `Producer` walks the project's `.kicad_pro` (as JSON), the root
+//! schematic and every sheet it reaches, the board, the project's two library
+//! tables and every drawing sheet a reference resolves to. It emits one header
+//! per schematic file and the board, and every path reference the files make.
+//! S-expression files are parsed with the fork's own parser
+//! (`prism_kicad_core::parse_with_limits`); every extra file is read through
+//! `Sources::read`, which makes it a bundle `sources/` member.
+//!
+//! The port is grouped by concern, one submodule per part of the field map:
+//!
+//! - [`reference`]: the target a reference resolves to and the contract enums;
+//! - [`resolver`]: "Resolution (normative)";
+//! - [`sexpr`]: the fork's `Sexp` accessors;
+//! - [`title_block`]: "Title-block expansion (normative)";
+//! - [`text_paths`]: the `text-path` scan;
+//! - [`producer`]: the `produce` run over the whole project.
 
-use crate::{Produced, ProjectionError, ProjectionInput, document};
-use prism_kicad_contracts::generated::prism_project_a0::ProjectA0;
-use serde_json::json;
+mod producer;
+mod reference;
+mod resolver;
+mod sexpr;
+mod text_paths;
+mod title_block;
+
+#[cfg(test)]
+mod tests;
+
+pub use producer::produce;
 
 /// The member's schema id.
 pub const SCHEMA: &str = "prism.project.a0";
 const NAME: &str = "projections/project.json";
-
-/// Build `projections/project.json` from the single parse of the revision.
-pub fn produce(input: &ProjectionInput<'_>) -> Result<Produced<ProjectA0>, ProjectionError> {
-    let project_file = &input.config.project_file.0;
-    let name = project_file.rsplit('/').next().unwrap_or(project_file);
-    let project_name = name.rsplit_once('.').map_or(name, |(stem, _)| stem);
-    document(
-        NAME,
-        json!({
-            "schema": SCHEMA,
-            "projectFile": project_file,
-            "projectName": project_name,
-            "textVariables": {},
-            "netClasses": [],
-            "documents": [],
-            "references": [],
-        }),
-    )
-}
-
-#[cfg(test)]
-mod tests {
-    #[test]
-    fn the_empty_form_decodes() {
-        crate::test_support::with_bare_project(|input| {
-            let produced = super::produce(input).unwrap();
-            let value = serde_json::to_value(&produced.document).unwrap();
-            assert_eq!(value["schema"], super::SCHEMA);
-        });
-    }
-}
