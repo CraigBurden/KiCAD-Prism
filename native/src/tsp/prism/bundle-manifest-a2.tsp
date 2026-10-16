@@ -342,7 +342,7 @@ model BundleManifestBoardStage {
   /** Where the materialized board's zone fills came from: `saved` exactly when `config.zone_fills` is `saved`, else `refilled`. Present exactly when `status` is `complete` or `partial`. */
   fill_provenance?: BundleManifestFillProvenance;
 
-  /** The committed board's saved fills compared with the refill. Present exactly when the `materialization` member is present and `fill_provenance` is `refilled`. A refill is always made by `generator.refill_procedure` with `generator.kicad_version`; with saved fills no refill and no comparison run (cli-spec.md §5.2.3). */
+  /** The committed board's saved fills compared with the refill. Present exactly when the `materialization` member is present and `fill_provenance` is `refilled`. A refill is always made by `generator.refill_procedure` with a KiCad of `generator.kicad_version`'s major.minor; with saved fills no refill and no comparison run (cli-spec.md §5.2.3). */
   fill_check?: BundleManifestFillCheck;
 
   /** The binding table checked against `design.json`. Present exactly when the `materialization` member is present. */

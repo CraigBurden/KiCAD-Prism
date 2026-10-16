@@ -543,7 +543,7 @@ model CliVersionA0 {
    * KiCad version of the KiCad-produced members (the refilled board and
    * `components.glb`), exactly as `kicad-cli version` prints it. It also
    * pins KiCad's stock 3D model library. `--refill-tool` and
-   * `--models-tool` must equal it.
+   * `--models-tool` must have its major.minor; patch releases are tolerated.
    */
   kicad_version: CliReleaseVersion;
 

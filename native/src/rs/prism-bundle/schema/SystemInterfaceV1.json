@@ -1,0 +1,671 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$id": "urn:prism:schema:prism.system_interface:v1",
+    "type": "object",
+    "properties": {
+        "schema": {
+            "type": "string",
+            "const": "prism.system_interface.v1",
+            "description": "Schema id (`interface_extractor.py:37`), unchanged since extractor version 1. It is part of the digested body."
+        },
+        "projectId": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Prism project id the artifact was extracted for, `str(project.id)`\n(`interface_extractor.py:454`, from `extract_for_revision` at `:477`).\nAbsent in the bundle member, which does not know the project; present in\nevery artifact the extractor writes and in every artifact System Builder\nstores or serves (`systems/store_reviews.py:379`, read by the frontend's\n`InstanceInterface.projectId`, `frontend/src/types/system.ts:380`). Not\ndigested."
+        },
+        "commit": {
+            "anyOf": [
+                {
+                    "$ref": "#/$defs/GitObjectId"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Git commit the artifact was extracted at (`interface_extractor.py:455`,\nfrom `extract_for_revision` at `:478`). Absent in the bundle member,\nwhich is keyed by revision key, not by commit. Null when the extractor\nran on a working tree without a commit (`commit=None` passed to\n`extract_interface`, as the test suite does); the stored artifacts always hold\na 40-digit SHA-1 (`system_interface_artifacts.commit` check,\n`backend/app/services/workspace_migrations/m026_system_builder.py:186`).\nNot digested."
+        },
+        "extractor": {
+            "$ref": "#/$defs/SystemInterfaceExtractor",
+            "description": "Which extractor produced the artifact (`interface_extractor.py:456`).\nAbsent in the bundle member, whose generator `bundle.json` records.\nSystem Builder keys its artifact cache by `extractor.version`\n(`systems/store_reviews.py:380`). Not digested."
+        },
+        "hasPcb": {
+            "type": "boolean",
+            "description": "Whether the design has a board: the configured `.kicad_pcb` exists\n(`interface_extractor.py:380-382`, `:457`). When false, `boardThicknessMm`,\n`boardOutlineMm`, every `pcbNets` and every `geometry` are null."
+        },
+        "boardThicknessMm": {
+            "anyOf": [
+                {
+                    "type": "number"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Board thickness in millimetres from the board's `(general (thickness …))`,\nrounded to 1e-4 mm (`interface_extractor.py:458`). Null when there is no\nboard, or when the board's thickness is missing or zero."
+        },
+        "boardOutlineMm": {
+            "anyOf": [
+                {
+                    "$ref": "#/$defs/SystemInterfaceBoardOutline"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Axis-aligned bounds of the board outline in the board frame (+y up),\nextractor v8 (`interface_extractor.py:304-321`, `:459`;\n`CONTRACTS_P2.md` §14.6). Null when there is no board, or when the board\nhas no Edge.Cuts graphic and no items with bounds."
+        },
+        "components": {
+            "type": "array",
+            "items": {
+                "$ref": "#/$defs/SystemInterfaceComponent"
+            },
+            "description": "Every placed symbol reference that has at least one schematic pin, one\nentry per reference (all units of a multi-unit symbol together), sorted\nby `reference` in natural order (conventions.md §9, `_natural`,\n`interface_extractor.py:89-92`, `:391`); `reference` is unique. A placed\nsymbol counts when it has a `lib_id` and an instance record for its sheet\npath with a non-empty reference (`:104-120`). Virtual references starting\nwith `#` are excluded; unannotated references (containing `?`) are\nincluded. Empty when no symbol has pins."
+        },
+        "diagnostics": {
+            "type": "array",
+            "items": {
+                "$ref": "#/$defs/SystemInterfaceDiagnostic"
+            },
+            "description": "Extraction diagnostics, sorted by `code`, then `portKey`, then `pad`\n(null as the empty string), each in code point order\n(`interface_extractor.py:461-463`). Empty when there are none."
+        },
+        "digest": {
+            "$ref": "#/$defs/SystemInterfaceDigest",
+            "description": "SHA-256 over the canonical JSON of this document without `digest`,\n`extractor`, `projectId` and `commit` (`interface_digest`,\n`interface_extractor.py:52-62`, `:465`). Two revisions with the same\ninterface facts have the same digest whatever their project, commit or\nextractor build. The Rust producer computes it over the same bytes\nPython does (field map, \"Digest\")."
+        }
+    },
+    "required": [
+        "schema",
+        "hasPcb",
+        "boardThicknessMm",
+        "boardOutlineMm",
+        "components",
+        "diagnostics",
+        "digest"
+    ],
+    "unevaluatedProperties": {
+        "not": {}
+    },
+    "description": "One project's System Builder interface: every placed symbol reference with\npins, keyed by occurrence, with the schematic nets of each pin, the board\npad nets for the PCB-sync warning, the footprint geometry, the board\nthickness and outline, extraction diagnostics, and a digest over all of\nthose facts. A project with no board has `hasPcb` false and every board\nfield null. The bundle member is a pure function of the parsed sources: it\ncarries `digest` but not `projectId`, `commit` or `extractor`.",
+    "title": "System interface v1",
+    "$defs": {
+        "GitObjectId": {
+            "type": "string",
+            "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$",
+            "description": "Git object id in lowercase hexadecimal: 40 characters in a SHA-1\nrepository, 64 in a SHA-256 repository. Used for commit ids and blob ids."
+        },
+        "SystemInterfaceExtractor": {
+            "type": "object",
+            "properties": {
+                "version": {
+                    "type": "string",
+                    "const": "8",
+                    "description": "`EXTRACTOR_VERSION` (`interface_extractor.py:38`). This contract is the\npayload of version 8; an artifact of another version has a different\nshape and is a different contract."
+                },
+                "kicadMonkeyVersion": {
+                    "type": "string",
+                    "minLength": 1,
+                    "description": "Today: the version of the Python `kicad-monkey` distribution that parsed\nthe sources, or `workspace` when it is not installed as a distribution\n(`_kicad_monkey_version`, `interface_extractor.py:78-82`). An artifact\nthat C4 builds from a bundle member carries the bundle's generator id\nhere instead. Informational: nothing reads it."
+                }
+            },
+            "required": [
+                "version",
+                "kicadMonkeyVersion"
+            ],
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "The extractor that produced an artifact (`interface_extractor.py:456`)."
+        },
+        "SystemInterfaceBoardOutline": {
+            "type": "object",
+            "properties": {
+                "minMm": {
+                    "$ref": "#/$defs/SystemInterfaceMmPair",
+                    "description": "Smallest x and smallest y, `[x, y]` in that order, in millimetres, board frame (+y up), rounded to 1e-4 mm."
+                },
+                "maxMm": {
+                    "$ref": "#/$defs/SystemInterfaceMmPair",
+                    "description": "Largest x and largest y, `[x, y]` in that order, in millimetres, board frame (+y up), rounded to 1e-4 mm."
+                },
+                "source": {
+                    "$ref": "#/$defs/SystemInterfaceOutlineSource",
+                    "description": "What was bounded."
+                }
+            },
+            "required": [
+                "minMm",
+                "maxMm",
+                "source"
+            ],
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "Bounds of the board outline (extractor v8, `interface_extractor.py:304-321`;\n`CONTRACTS_P2.md` §14.6): line centres, not stroke edges; arcs by their\ntrue extent (ends plus every axis extreme they sweep), circles by centre\nplus or minus radius, polygons and Bézier curves by their points."
+        },
+        "SystemInterfaceComponent": {
+            "type": "object",
+            "properties": {
+                "portKey": {
+                    "$ref": "#/$defs/KiidPath",
+                    "description": "Port key: the occurrence key of the lowest unit number present, ties\nbroken by occurrence key in code point order (`CONTRACTS.md` §2.3,\n`interface_extractor.py:392`, `:396`). An occurrence key is a KIID path\nin the schematic form: the containing sheet instance's path from the\nroot sheet's UUID, then `/<symbol uuid>` (`:122`). Always an element of\n`memberKeys`."
+                },
+                "memberKeys": {
+                    "$ref": "#/$defs/SystemInterfaceMemberKeys",
+                    "description": "Occurrence keys (schematic-form KIID paths) of every unit of this\nreference, sorted in code point order (`interface_extractor.py:437`).\nRepeated sheets give distinct keys for one symbol UUID."
+                },
+                "reference": {
+                    "$ref": "#/$defs/Refdes",
+                    "description": "Reference designator as the symbol instance resolves it for its sheet\npath (`interface_extractor.py:118`). Never starts with `#`; may contain\n`?` when unannotated."
+                },
+                "libId": {
+                    "$ref": "#/$defs/LibId",
+                    "description": "The `lib_id` of the lowest unit's placed symbol, as written (`interface_extractor.py:398`)."
+                },
+                "footprint": {
+                    "type": "string",
+                    "description": "Footprint library link of the netlist component with this reference, as\nwritten (`interface_extractor.py:399`). Empty when the symbol has no\nfootprint or the netlist has no component with this reference."
+                },
+                "value": {
+                    "type": "string",
+                    "description": "Value field of the netlist component with this reference\n(`interface_extractor.py:441`). Empty when it has none or the netlist has\nno such component."
+                },
+                "mpn": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/$defs/SystemInterfaceMpn"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "Manufacturer part number, extractor v7 (`interface_extractor.py:443`,\n`CONTRACTS_P2.md` §18.1). Null when no MPN-style field has a non-empty\nvalue."
+                },
+                "dnp": {
+                    "type": "boolean",
+                    "description": "Do-not-populate in the design's default assembly, from the\ndesign-variant resolver with the sheet fold\n(`interface_extractor.py:386-387`, `:444`;\n`backend/app/services/semantic_index_variants.py:752-800`, the default\n`components` map keyed by reference). False when the resolver has no\nentry for the reference, which includes every reference ending in `?`\n(`_valid_reference`, `semantic_index_variants.py:115-122`), even with\n`(dnp yes)`."
+                },
+                "candidate": {
+                    "type": "boolean",
+                    "description": "Whether connector detection makes this component a port candidate (`CONTRACTS.md` §4.1)."
+                },
+                "candidateReason": {
+                    "$ref": "#/$defs/SystemInterfaceCandidateReason",
+                    "description": "The detection rule that decided `candidate`."
+                },
+                "pins": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/$defs/SystemInterfacePin"
+                    },
+                    "minItems": 1,
+                    "description": "One entry per distinct schematic pad number of this reference across\nall its units, sorted by `pad` in natural order (conventions.md §9,\n`interface_extractor.py:413`); `pad` is unique. Never empty: a reference\nwith no schematic pin is not a component."
+                },
+                "geometry": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/$defs/SystemInterfaceGeometry"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "Footprint geometry, extractor v6 (`interface_extractor.py:213-262`,\n`:448`; `CONTRACTS_P2.md` §14.6), from the first board footprint (file\norder) whose `Reference` property equals `reference`. Null when there is\nno board or no footprint has that `Reference` property."
+                }
+            },
+            "required": [
+                "portKey",
+                "memberKeys",
+                "reference",
+                "libId",
+                "footprint",
+                "value",
+                "mpn",
+                "dnp",
+                "candidate",
+                "candidateReason",
+                "pins",
+                "geometry"
+            ],
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "One component: every unit occurrence of one reference designator\n(`interface_extractor.py:95-124`, `:391-450`; `CONTRACTS.md` §2.2-§3)."
+        },
+        "SystemInterfaceDiagnostic": {
+            "type": "object",
+            "properties": {
+                "code": {
+                    "$ref": "#/$defs/SystemInterfaceDiagnosticCode",
+                    "description": "What was found."
+                },
+                "portKey": {
+                    "$ref": "#/$defs/KiidPath",
+                    "description": "`portKey` of the component concerned."
+                },
+                "pad": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/$defs/SystemInterfacePinPad"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "The pad concerned for `pin_net_ambiguous`. Null for the two `unannotated_*` codes, which concern the whole component."
+                },
+                "detail": {
+                    "type": "string",
+                    "minLength": 1,
+                    "description": "Fixed English text, part of the digest: `<reference> is not annotated`\nfor `unannotated_*`, `<reference>.<pad> carries <n> schematic nets` for\n`pin_net_ambiguous`, `<n>` in decimal."
+                }
+            },
+            "required": [
+                "code",
+                "portKey",
+                "pad",
+                "detail"
+            ],
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "One extraction diagnostic (`interface_extractor.py:402-420`)."
+        },
+        "SystemInterfaceDigest": {
+            "type": "string",
+            "pattern": "^sha256:[0-9a-f]{64}$",
+            "description": "Interface digest: `sha256:` followed by 64 lowercase hex digits. SHA-256\nover the UTF-8 bytes of Python's\n`json.dumps(body, sort_keys=True, separators=(\",\", \":\"), ensure_ascii=False)`,\nwhere `body` is the document without `digest`, `extractor`, `projectId` and\n`commit` (`interface_extractor.py:42-62`). The exact byte rules are in\n`field-maps/system-interface.md` (\"Digest\")."
+        },
+        "SystemInterfaceMmPair": {
+            "type": "array",
+            "items": {
+                "type": "number"
+            },
+            "minItems": 2,
+            "maxItems": 2,
+            "description": "A point or size in millimetres, `[x, y]` (or `[width, height]`), each an\nIEEE double rounded to 1e-4 mm as `_round` does\n(`interface_extractor.py:168-170`). The field holding it states its frame."
+        },
+        "SystemInterfaceOutlineSource": {
+            "type": "string",
+            "enum": [
+                "edge_cuts",
+                "items"
+            ],
+            "description": "What `boardOutlineMm` bounds (`interface_extractor.py:304-321`)."
+        },
+        "KiidPath": {
+            "type": "string",
+            "pattern": "^(?:/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})+$",
+            "description": "KiCad KIID path: one or more `/<uuid>` steps, no trailing `/`. Two forms\nexist and every field of this type states which one it holds: the\nschematic form, which starts at the root sheet's UUID (a symbol's\n`(instances (project … (path …)))` entry, plus the symbol UUID for an\noccurrence); and the board form, which omits the root sheet (a footprint's\n`(path …)`)."
+        },
+        "SystemInterfaceMemberKeys": {
+            "type": "array",
+            "items": {
+                "$ref": "#/$defs/KiidPath"
+            },
+            "minItems": 1,
+            "uniqueItems": true,
+            "description": "The occurrence keys of every unit of one component, sorted in code point\norder, without duplicates, never empty (`interface_extractor.py:437`)."
+        },
+        "Refdes": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Reference designator as KiCad resolves it for one symbol instance or\nfootprint, for example `R1`, `U3`, `#PWR01` or `R?`. Always a string. A\ncontract states whether it includes virtual (`#`) and unannotated (`?`)\nreferences."
+        },
+        "LibId": {
+            "type": "string",
+            "minLength": 1,
+            "description": "KiCad library identifier as written in the file: `<nickname>:<name>` for a\nsymbol (`Device:R`) or a footprint (`Resistor_SMD:R_0603_1608Metric`). The\nnickname may be absent when the file has none."
+        },
+        "SystemInterfaceMpn": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Manufacturer part number of a component: the first non-empty value, with\nsurrounding whitespace removed, of the fields `MPN`,\n`Manufacturer_Part_Number`, `Manufacturer Part Number`, `MFR_PN`,\n`Mfr. No.` and `Mfr No`, field names compared case-insensitively after\ntrimming (`interface_extractor.py:339-345`)."
+        },
+        "SystemInterfaceCandidateReason": {
+            "type": "string",
+            "enum": [
+                "field",
+                "refdes",
+                "library",
+                "none"
+            ],
+            "description": "Which connector-detection rule decided `candidate`\n(`connector_detection.classify`,\n`backend/app/services/systems/connector_detection.py:42-65`; rule order\nfrozen in `CONTRACTS.md` §4.1). Other System Builder code builds\ninterface-shaped documents with `module` or `export` here\n(`systems/modules.py:67`, `systems/exports.py:41`); those are not this\nartifact and never appear in it."
+        },
+        "SystemInterfacePin": {
+            "type": "object",
+            "properties": {
+                "pad": {
+                    "$ref": "#/$defs/SystemInterfacePinPad",
+                    "description": "Pad number of the pin."
+                },
+                "nets": {
+                    "$ref": "#/$defs/SystemInterfaceNetSet",
+                    "description": "Full hierarchical schematic net names of the pin, captured from the\ncompiled schematic netlist before any board overlay (`CONTRACTS.md` §3),\nas a sorted set (`SystemInterfaceNetSet`): code point order. Empty when\nthe pin is unconnected; KiCad's `unconnected-(…)` names are removed. More\nthan one element is the `pin_net_ambiguous` case."
+                },
+                "pcbNets": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/$defs/SystemInterfaceNetSet"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "Net names of the board pads with this pad number on every board\nfootprint whose `Reference` property equals `reference` (all of them,\nnot only the first), as a sorted set (code point order) with the same\nfiltering as `nets`; empty when those pads have no net\n(`interface_extractor.py:148-165`, `:421`, `:426`). Null when there is no\nboard, or when no such footprint has a pad with this number."
+                },
+                "pinNames": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/$defs/SystemInterfacePinNameSet"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "Pin names of the pins sharing this pad, sorted in code point order\n(`interface_extractor.py:141-142`, `:427`). Null when none of them has a\nnon-empty name. Best effort; never drives drift (`CONTRACTS.md` §3)."
+                },
+                "pinTypes": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/$defs/SystemInterfacePinTypeSet"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "Electrical types of the pins sharing this pad, sorted in code point\norder of their values (`interface_extractor.py:143-144`, `:428`). Null\nwhen none of them has a type. Best effort; never drives drift."
+                },
+                "powerNet": {
+                    "type": "boolean",
+                    "description": "Extractor v5 (`CONTRACTS_P2.md` §8.4): true when any name in `nets` is\nthe `Value` of a placed symbol whose library symbol has the `power`\nflag, anywhere in the hierarchy (`interface_extractor.py:324-336`,\n`:430`). False for a pin with no net."
+                }
+            },
+            "required": [
+                "pad",
+                "nets",
+                "pcbNets",
+                "pinNames",
+                "pinTypes",
+                "powerNet"
+            ],
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "One logical pin: every schematic pin of the reference that shares one pad\nnumber (`CONTRACTS.md` §2.4, `interface_extractor.py:127-145`, `:413-432`)."
+        },
+        "SystemInterfaceGeometry": {
+            "type": "object",
+            "properties": {
+                "side": {
+                    "$ref": "#/$defs/SystemInterfaceFootprintSide",
+                    "description": "Board side of the footprint, from its layer (`interface_extractor.py:243-245`)."
+                },
+                "positionMm": {
+                    "$ref": "#/$defs/SystemInterfaceMmPair",
+                    "description": "Footprint anchor `[x, y]`, in that order, in millimetres in the board frame (+y up): KiCad's `(at x y)` with y negated."
+                },
+                "rotationDeg": {
+                    "$ref": "#/$defs/Degrees",
+                    "description": "Footprint rotation in degrees as the board file writes it (KiCad's\ncounter-clockwise angle, `(at x y angle)`, 0 when absent), not\nnormalized, rounded to 1e-4 (`interface_extractor.py:216`, `:247`)."
+                },
+                "footprintName": {
+                    "type": "string",
+                    "description": "The footprint's library link after its last `:`\n(`interface_extractor.py:248`). Empty when the footprint has no library\nlink."
+                },
+                "pads": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/$defs/SystemInterfacePad"
+                    },
+                    "description": "Every pad of the footprint, sorted by `pad` in natural order\n(conventions.md §9, `interface_extractor.py:236`); pads with the same\nnumber (including several unnumbered pads) all appear, in the\nfootprint's file order (a stable sort). Empty for a footprint with no\npads."
+                },
+                "courtyard": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/$defs/SystemInterfaceCourtyard"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "Axis-aligned bounds of the footprint's `F.CrtYd`/`B.CrtYd` graphics in\nthe footprint's own frame (+y up, before rotation and flip)\n(`interface_extractor.py:180-196`, `:237-242`). Null when the footprint\nhas no courtyard graphic."
+                },
+                "model": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/$defs/SystemInterfaceModelRef"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "The footprint's first 3D model that is not hidden, unresolved\n(`interface_extractor.py:199-210`). Null when it has none."
+                }
+            },
+            "required": [
+                "side",
+                "positionMm",
+                "rotationDeg",
+                "footprintName",
+                "pads",
+                "courtyard",
+                "model"
+            ],
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "Where one component's footprint sits on the board, extractor v6\n(`interface_extractor.py:213-252`; `CONTRACTS_P2.md` §14.6). Numbers are\nrounded to 1e-4."
+        },
+        "SystemInterfaceDiagnosticCode": {
+            "type": "string",
+            "enum": [
+                "unannotated_connector",
+                "unannotated_component",
+                "pin_net_ambiguous"
+            ],
+            "description": "Code of an extraction diagnostic (`interface_extractor.py:402-420`). The\nvalues are today's snake_case strings, not kebab-case DiagnosticCodes: a\nparity document keeps today's values."
+        },
+        "SystemInterfacePinPad": {
+            "type": "string",
+            "description": "Pad number of a schematic pin as the compiled schematic netlist reports it\n(kicad_monkey's terminal `pin`): never empty, because a terminal with an\nempty pin is skipped (`interface_extractor.py:137-138`) and KiCad's `~`\nplaceholder is read as empty (kicad_monkey 2026.9.7\n`kicad_netlist_compiler.py:406-408`). Always a string: `01`, `1` and `A1`\nare distinct (`CONTRACTS.md` §2.4).",
+            "minLength": 1
+        },
+        "SystemInterfaceNetSet": {
+            "type": "array",
+            "items": {
+                "$ref": "#/$defs/NetName"
+            },
+            "uniqueItems": true,
+            "description": "A set of KiCad net names, sorted in code point order (Python `sorted()` on\n`str`), without duplicates, without the empty name and without KiCad's\ngenerated `unconnected-(…)` names (`normalized_nets`,\n`interface_extractor.py:47-49`). Empty when no named net remains."
+        },
+        "SystemInterfacePinNameSet": {
+            "type": "array",
+            "items": {
+                "$ref": "#/$defs/SystemInterfacePinName"
+            },
+            "minItems": 1,
+            "uniqueItems": true,
+            "description": "A non-empty set of pin names, sorted in code point order, without\nduplicates (`interface_extractor.py:427`)."
+        },
+        "SystemInterfacePinTypeSet": {
+            "type": "array",
+            "items": {
+                "$ref": "#/$defs/SystemInterfacePinType"
+            },
+            "minItems": 1,
+            "uniqueItems": true,
+            "description": "A non-empty set of pin electrical types, sorted in code point order of\ntheir string values, without duplicates (`interface_extractor.py:428`)."
+        },
+        "SystemInterfaceFootprintSide": {
+            "type": "string",
+            "enum": [
+                "top",
+                "bottom"
+            ],
+            "description": "Board side of a placed footprint in System Builder's spelling\n(`CONTRACTS_P2.md` §14.6), not Common's `Side`: a parity document keeps\ntoday's values."
+        },
+        "Degrees": {
+            "type": "number",
+            "description": "Angle in degrees. In new documents it is as written in the KiCad file:\nnot normalized, not rounded. A parity document may round it as today's\noutput does, and its field says so. A positive angle is a counter-clockwise rotation as KiCad shows\nit on the front side. Each field states the frame its angle is in."
+        },
+        "SystemInterfacePad": {
+            "type": "object",
+            "properties": {
+                "pad": {
+                    "$ref": "#/$defs/PadNumber",
+                    "description": "Pad number as the board file writes it; empty for an unnumbered pad (a mounting or alignment hole)."
+                },
+                "positionMm": {
+                    "$ref": "#/$defs/SystemInterfaceMmPair",
+                    "description": "Pad centre `[x, y]`, in that order, in millimetres in the board frame (+y up): the pad's\nfootprint-local `(at …)` rotated by the footprint angle about the anchor,\nadded to the anchor, y negated (`interface_extractor.py:220-224`, `:231`)."
+                },
+                "sizeMm": {
+                    "$ref": "#/$defs/SystemInterfaceMmPair",
+                    "description": "Pad `(size w h)` as `[width, height]`, in that order, in millimetres, in the pad's own frame, unrotated; 0 for a missing dimension."
+                },
+                "shape": {
+                    "$ref": "#/$defs/SystemInterfacePadShape",
+                    "description": "Pad shape."
+                },
+                "tht": {
+                    "type": "boolean",
+                    "description": "True for a `thru_hole` or `np_thru_hole` pad (`interface_extractor.py:228`, `:234`)."
+                }
+            },
+            "required": [
+                "pad",
+                "positionMm",
+                "sizeMm",
+                "shape",
+                "tht"
+            ],
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "One footprint pad (`interface_extractor.py:226-235`)."
+        },
+        "SystemInterfaceCourtyard": {
+            "type": "object",
+            "properties": {
+                "minMm": {
+                    "$ref": "#/$defs/SystemInterfaceMmPair",
+                    "description": "Smallest x and smallest y, `[x, y]` in that order, in millimetres, footprint frame (+y up, before\nrotation and flip), over line and rectangle ends, arc start, mid and end\npoints (not the arc's true extent), circle boxes and polygon points."
+                },
+                "maxMm": {
+                    "$ref": "#/$defs/SystemInterfaceMmPair",
+                    "description": "Largest x and largest y, `[x, y]` in that order, in millimetres, footprint frame (+y up, before rotation and flip)."
+                }
+            },
+            "required": [
+                "minMm",
+                "maxMm"
+            ],
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "Courtyard bounds in the footprint's own frame (`interface_extractor.py:237-242`)."
+        },
+        "SystemInterfaceModelRef": {
+            "type": "object",
+            "properties": {
+                "path": {
+                    "type": "string",
+                    "description": "Model path exactly as the board file writes it, environment variables such as `${KICAD10_3DMODEL_DIR}` kept."
+                },
+                "offsetMm": {
+                    "$ref": "#/$defs/SystemInterfaceMmTriple",
+                    "description": "The model's `(offset (xyz …))` `[x, y, z]` in millimetres, rounded to 1e-4 mm; in that order."
+                },
+                "rotationDeg": {
+                    "$ref": "#/$defs/SystemInterfaceDegTriple",
+                    "description": "The model's `(rotate (xyz …))` `[x, y, z]` in degrees, rounded to 1e-4; in that order."
+                },
+                "scale": {
+                    "$ref": "#/$defs/SystemInterfaceScaleTriple",
+                    "description": "The model's `(scale (xyz …))` `[x, y, z]`, rounded to 1e-4; in that order."
+                }
+            },
+            "required": [
+                "path",
+                "offsetMm",
+                "rotationDeg",
+                "scale"
+            ],
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "A footprint's 3D model reference, unresolved (`interface_extractor.py:199-210`).\nA model with `(hide)` or `(hide yes)` is skipped."
+        },
+        "NetName": {
+            "type": "string",
+            "minLength": 1,
+            "description": "KiCad full net name as KiCad resolves it, including the sheet path prefix\nof a local net (`/Power/VBUS`), a global name (`GND`) or a generated name\n(`Net-(R1-Pad2)`, `unconnected-(U1-PA0-Pad3)`). \"No net\" is expressed by\nomitting the field, never by an empty name."
+        },
+        "SystemInterfacePinName": {
+            "type": "string",
+            "minLength": 1,
+            "description": "A pin name as the symbol's library pin writes it (kicad_monkey's terminal\n`pin_name`), never empty. Kept exactly as written, including KiCad's `~`\n(a KiCad 9 file's \"no name\") and overbar markup such as `~{RESET}`."
+        },
+        "SystemInterfacePinType": {
+            "type": "string",
+            "enum": [
+                "input",
+                "output",
+                "bidirectional",
+                "tri_state",
+                "passive",
+                "free",
+                "unspecified",
+                "power_in",
+                "power_out",
+                "open_collector",
+                "open_emitter",
+                "no_connect"
+            ],
+            "description": "Electrical type of a schematic pin as the compiled netlist reports it:\nKiCad's pin type token, lower case, as the symbol file writes it\n(kicad_monkey 2026.9.7 `kicad_sch_enums.py:12-37`, `PinElectricalType`;\nthe netlist copies its value, `kicad_netlist_compiler.py:1086-1092`). A\nlibrary pin with no type reads as `unspecified`; the pre-2021 token\n`unconnected` reads as `no_connect`. Not the semantic index's upper-case\nspelling."
+        },
+        "PadNumber": {
+            "type": "string",
+            "description": "Pad or pin number as written in the file, always a string (`1`, `A1`,\n`EP`). Empty for a pad KiCad leaves unnumbered, such as a mechanical\nnon-plated hole."
+        },
+        "SystemInterfacePadShape": {
+            "type": "string",
+            "enum": [
+                "circle",
+                "rect",
+                "oval",
+                "trapezoid",
+                "roundrect",
+                "custom"
+            ],
+            "description": "Pad shape: the name of kicad_monkey's `PadShape` member in lower case\n(`interface_extractor.py:233`; kicad_monkey 2026.9.7 `kicad_base.py:93-99`),\nwhich is KiCad's pad shape token. A pad with any other token fails the\nboard parse, so no other value occurs."
+        },
+        "SystemInterfaceMmTriple": {
+            "type": "array",
+            "items": {
+                "type": "number"
+            },
+            "minItems": 3,
+            "maxItems": 3,
+            "description": "Three millimetre values `[x, y, z]`, each rounded to 1e-4 mm as `_round`\ndoes (`interface_extractor.py:168-170`)."
+        },
+        "SystemInterfaceDegTriple": {
+            "type": "array",
+            "items": {
+                "$ref": "#/$defs/Degrees"
+            },
+            "minItems": 3,
+            "maxItems": 3,
+            "description": "Three angles in degrees `[x, y, z]`, each rounded to 1e-4 as `_round` does\n(`interface_extractor.py:168-170`)."
+        },
+        "SystemInterfaceScaleTriple": {
+            "type": "array",
+            "items": {
+                "type": "number"
+            },
+            "minItems": 3,
+            "maxItems": 3,
+            "description": "Three unitless factors `[x, y, z]`, each rounded to 1e-4 as `_round` does\n(`interface_extractor.py:168-170`)."
+        }
+    }
+}

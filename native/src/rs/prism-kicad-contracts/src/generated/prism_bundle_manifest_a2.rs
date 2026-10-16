@@ -236,7 +236,7 @@ impl ::std::fmt::Display for BundleManifestBoardId {
 ///      }
 ///    },
 ///    "fill_check": {
-///      "description": "The committed board's saved fills compared with the refill. Present exactly when the `materialization` member is present and `fill_provenance` is `refilled`. A refill is always made by `generator.refill_procedure` with `generator.kicad_version`; with saved fills no refill and no comparison run (cli-spec.md §5.2.3).",
+///      "description": "The committed board's saved fills compared with the refill. Present exactly when the `materialization` member is present and `fill_provenance` is `refilled`. A refill is always made by `generator.refill_procedure` with a KiCad of `generator.kicad_version`'s major.minor; with saved fills no refill and no comparison run (cli-spec.md §5.2.3).",
 ///      "$ref": "#/$defs/BundleManifestFillCheck"
 ///    },
 ///    "fill_provenance": {
@@ -277,7 +277,7 @@ pub struct BundleManifestBoardStage {
     ///Where the materialized board's zone fills came from: `saved` exactly when `config.zone_fills` is `saved`, else `refilled`. Present exactly when `status` is `complete` or `partial`.
     #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
     pub fill_provenance: ::std::option::Option<BundleManifestFillProvenance>,
-    ///The committed board's saved fills compared with the refill. Present exactly when the `materialization` member is present and `fill_provenance` is `refilled`. A refill is always made by `generator.refill_procedure` with `generator.kicad_version`; with saved fills no refill and no comparison run (cli-spec.md §5.2.3).
+    ///The committed board's saved fills compared with the refill. Present exactly when the `materialization` member is present and `fill_provenance` is `refilled`. A refill is always made by `generator.refill_procedure` with a KiCad of `generator.kicad_version`'s major.minor; with saved fills no refill and no comparison run (cli-spec.md §5.2.3).
     #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
     pub fill_check: ::std::option::Option<BundleManifestFillCheck>,
     ///The binding table checked against `design.json`. Present exactly when the `materialization` member is present.
@@ -2171,7 +2171,7 @@ generator digest and the bundle key are SHA-256 over them.*/
 ///      "$ref": "#/$defs/CliKicadFileFormats"
 ///    },
 ///    "kicad_version": {
-///      "description": "KiCad version of the KiCad-produced members (the refilled board and\n`components.glb`), exactly as `kicad-cli version` prints it. It also\npins KiCad's stock 3D model library. `--refill-tool` and\n`--models-tool` must equal it.",
+///      "description": "KiCad version of the KiCad-produced members (the refilled board and\n`components.glb`), exactly as `kicad-cli version` prints it. It also\npins KiCad's stock 3D model library. `--refill-tool` and\n`--models-tool` must have its major.minor; patch releases are tolerated.",
 ///      "$ref": "#/$defs/CliReleaseVersion"
 ///    },
 ///    "member_schemas": {
@@ -2230,7 +2230,7 @@ pub struct CliVersionA0 {
     /**KiCad version of the KiCad-produced members (the refilled board and
     `components.glb`), exactly as `kicad-cli version` prints it. It also
     pins KiCad's stock 3D model library. `--refill-tool` and
-    `--models-tool` must equal it.*/
+    `--models-tool` must have its major.minor; patch releases are tolerated.*/
     pub kicad_version: CliReleaseVersion,
     /**Every member this generator writes with a schema (`bundle.json`,
     `design.json`, the materialization and every projection) and its schema

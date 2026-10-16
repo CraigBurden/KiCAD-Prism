@@ -145,3 +145,7 @@ The documents are the project's closure (`sources/`), never the repository-wide 
 1. **Upgrade record.** Stage parse takes one `--upgraded <path>=<version>` per source K upgraded, and the manifest records `upgraded_from_version` on that member (cli-spec.md §5.2.2, §9.4). The key record is unchanged: the revision key covers the committed blobs, and an upgrade must not change it.
 2. **File formats in the generator id.** `CliVersionA0` gains `kicad_file_formats` (`board`, `schematic`), the `(version N)` of `kicad_version`, raised with it. Sources older than these are the ones upgraded. The bundle-key vectors of cli-spec.md §5.1.5 are recomputed: generator digest `d32ccf9d…`.
 3. **Dedup scope.** The bundle key identifies content, not a project. K dedups `design_bundle` jobs on `<project_id>:<bundle_key>`, matching the per-project store (cli-spec.md §5.1.4).
+
+## KiCad patch releases (2026-10-16)
+
+1. `--refill-tool` and `--models-tool` must match the generator id's `kicad_version` in major.minor only, so the worker's KiCad 10.0.7 serves a generator pinned at 10.0.6. Patch releases keep the file formats, and their output differences are tolerated. The manifest does not record the patch release that made a refill or GLB, and the bundle key does not cover it.

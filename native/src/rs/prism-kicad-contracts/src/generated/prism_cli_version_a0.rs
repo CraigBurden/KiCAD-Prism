@@ -407,7 +407,7 @@ generator digest and the bundle key are SHA-256 over them.*/
 ///      "$ref": "#/$defs/CliKicadFileFormats"
 ///    },
 ///    "kicad_version": {
-///      "description": "KiCad version of the KiCad-produced members (the refilled board and\n`components.glb`), exactly as `kicad-cli version` prints it. It also\npins KiCad's stock 3D model library. `--refill-tool` and\n`--models-tool` must equal it.",
+///      "description": "KiCad version of the KiCad-produced members (the refilled board and\n`components.glb`), exactly as `kicad-cli version` prints it. It also\npins KiCad's stock 3D model library. `--refill-tool` and\n`--models-tool` must have its major.minor; patch releases are tolerated.",
 ///      "$ref": "#/$defs/CliReleaseVersion"
 ///    },
 ///    "member_schemas": {
@@ -466,7 +466,7 @@ pub struct CliVersionA0 {
     /**KiCad version of the KiCad-produced members (the refilled board and
     `components.glb`), exactly as `kicad-cli version` prints it. It also
     pins KiCad's stock 3D model library. `--refill-tool` and
-    `--models-tool` must equal it.*/
+    `--models-tool` must have its major.minor; patch releases are tolerated.*/
     pub kicad_version: CliReleaseVersion,
     /**Every member this generator writes with a schema (`bundle.json`,
     `design.json`, the materialization and every projection) and its schema

@@ -1,8 +1,63 @@
 //! Prism's design-bundle projections, one module per `projections/*.json`
 //! member (ADR §6). Each producer reads the single parsed model and writes
 //! its contract in `native/src/tsp/prism/`; the rules for every field are in
-//! `native/contracts/prism/field-maps/`. WP-F2 declares every module once, so
-//! the Wave 2 producers (P1–P5) each fill only their own file.
+//! `native/contracts/prism/field-maps/`. WP-F2 declared every module once,
+//! WP-B fixed the shared interface below, and the Wave 2 producers (P1–P5)
+//! each fill only their own file.
+//!
+//! # The interface (fixed by WP-B)
+//!
+//! Every module exports exactly one producer with this signature:
+//!
+//! ```text
+//! pub fn produce(input: &ProjectionInput<'_>) -> Result<Produced<Root>, ProjectionError>
+//! ```
+//!
+//! | Module | Member | `Root` (generated in `prism-kicad-contracts`) | WP |
+//! |---|---|---|---|
+//! | [`semantic_index`] | `projections/semantic-index.json` | `prism_semantic_index_a1::SemanticIndexA1` | P1 |
+//! | [`board_objects`] | `projections/board-objects.json` | `prism_board_objects_a0::BoardObjectsA0` | P2 |
+//! | [`occurrences`] | `projections/occurrences.json` | `prism_occurrences_a0::OccurrencesA0` | P2 |
+//! | [`route_metrics`] | `projections/route-metrics.json` | `prism_route_metrics_a0::RouteMetricsA0` | P2 |
+//! | [`stackup`] | `projections/stackup.json` | `prism_stackup_a0::StackupA0` | P3 |
+//! | [`placements`] | `projections/placements.json` | `prism_placements_a0::PlacementsA0` | P3 |
+//! | [`project`] | `projections/project.json` | `prism_project_a0::ProjectA0` | P4 |
+//! | [`system_interface`] | `projections/system-interface.json` | `prism_system_interface_v1::SystemInterfaceV1` | P5 |
+//!
+//! Rules every producer follows:
+//!
+//! - **Inputs.** [`ProjectionInput`] holds everything stage parse parsed, once:
+//!   the effective configuration, the project file, the schematic model
+//!   (source bundle, hierarchy index and design facts) when there is a root
+//!   schematic, the board view when there is a board, and `design.json` when
+//!   it was built. A producer parses nothing else, except the extra files it
+//!   reads through [`Sources`] (library tables, drawing sheets, the
+//!   libraries they name). Every file read through [`Sources::read`] becomes a
+//!   `sources/` member: the bundle carries exactly the closure the build read
+//!   (bundle-format.md §2.2).
+//! - **Empty form.** A projection whose inputs are absent (no board, no root
+//!   schematic) returns its contract's empty form; it is never left out
+//!   (bundle-format.md §2.1). Until a P-WP fills its module, the module
+//!   returns that empty form for every project.
+//! - **Failure.** A producer that cannot build its document from the model
+//!   returns [`ProjectionError`]; the bundle records that member in
+//!   `stages.parse.failed_members` with code `projection-failed` and writes
+//!   every other member (stage parse `partial`). This includes a model input
+//!   the configuration names but `input` lacks: `config.root_schematic` set
+//!   while [`ProjectionInput::schematic`] is `None` means the core could not
+//!   build the schematic model (`design.json` then failed as well).
+//! - **Warnings.** [`Produced::warnings`] go to `stages.parse.warnings`, with
+//!   the codes the projection's field map documents. Messages name files by
+//!   their repository path, never a host path.
+//! - **Determinism.** The document serializes with `serde_json` in
+//!   declaration order (maps are `BTreeMap`), and its bytes are the same on
+//!   every architecture: transcendental functions go through the `libm` crate
+//!   (conventions.md §14). No wall-clock time, host path or provenance (the
+//!   manifest records provenance once; the semantic index's
+//!   `sourceRevisionKey` is the one envelope value, from
+//!   [`ProjectionInput::revision_key`]).
+//! - **Paths.** Every path is a repository-relative `RepoPath`; files belong to
+//!   the project only through `config` (conventions.md §8).
 
 pub mod board_objects;
 pub mod occurrences;
@@ -12,3 +67,185 @@ pub mod route_metrics;
 pub mod semantic_index;
 pub mod stackup;
 pub mod system_interface;
+
+use prism_kicad_contracts::generated::prism_revision_key_effective_config_a1::RevisionKeyEffectiveConfigA1;
+use prism_kicad_core::{
+    KiCadDesignFacts, PcbView, ProjectDocument, SchematicBundleIndex, SourceBundle,
+};
+use serde::de::DeserializeOwned;
+use std::fmt;
+
+/// The source set stage parse may read: every file under the source root that
+/// the revision key's name rules select, minus the excluded directories.
+pub trait Sources {
+    /// Repository paths of every file in the source set, in code point order.
+    fn paths(&self) -> Vec<String>;
+
+    /// The bytes of the source-set file at repository path `path`, or `None`
+    /// when no such file is in the source set. Reading a file makes it a
+    /// `sources/` member of the bundle.
+    fn read(&self, path: &str) -> Option<Vec<u8>>;
+}
+
+/// The project file.
+pub struct ProjectModel<'a> {
+    /// Its repository path: `config.project_file`.
+    pub path: &'a str,
+    /// Its text.
+    pub text: &'a str,
+    /// The core's parse.
+    pub document: &'a ProjectDocument,
+}
+
+/// The schematic model, built once from the root schematic and every sheet
+/// it reaches.
+pub struct SchematicModel<'a> {
+    /// The root schematic's repository path: `config.root_schematic`.
+    pub root: &'a str,
+    /// The project file and every reached schematic, as the core reads them;
+    /// the source paths are repository paths.
+    pub bundle: &'a SourceBundle,
+    /// The realized hierarchy.
+    pub index: &'a SchematicBundleIndex,
+    /// The compiled graph and netlist.
+    pub facts: &'a KiCadDesignFacts<'a>,
+}
+
+/// The board.
+pub struct BoardModel<'a> {
+    /// Its repository path: `config.board`.
+    pub path: &'a str,
+    /// Its text as committed (stage parse never sees the refilled board).
+    pub text: &'a str,
+    /// The core's indexed view of it.
+    pub view: &'a PcbView<'a>,
+}
+
+/// Everything a producer may read: the single parse of one revision.
+pub struct ProjectionInput<'a> {
+    /// The effective configuration the bundle records.
+    pub config: &'a RevisionKeyEffectiveConfigA1,
+    /// The design revision key the build was given, if any.
+    pub revision_key: Option<&'a str>,
+    /// The source set, for producers that read further files.
+    pub sources: &'a dyn Sources,
+    /// The project file.
+    pub project: &'a ProjectModel<'a>,
+    /// The schematic model, when `config.root_schematic` is set and the core
+    /// built it.
+    pub schematic: Option<&'a SchematicModel<'a>>,
+    /// The board, when `config.board` is set.
+    pub board: Option<&'a BoardModel<'a>>,
+    /// `design.json` (`kicad_monkey.design.a0`), when it was built.
+    pub design: Option<&'a serde_json::Value>,
+}
+
+/// A producer warning for `stages.parse.warnings`.
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub struct ProducerWarning {
+    /// Stable kebab-case code from the projection's field map.
+    pub code: String,
+    /// One sentence; never a host path.
+    pub message: String,
+}
+
+/// A produced document and its warnings.
+#[derive(Clone, Debug)]
+pub struct Produced<T> {
+    /// The member's content.
+    pub document: T,
+    /// Warnings for the manifest.
+    pub warnings: Vec<ProducerWarning>,
+}
+
+impl<T> Produced<T> {
+    /// A document without warnings.
+    pub fn new(document: T) -> Self {
+        Self {
+            document,
+            warnings: Vec::new(),
+        }
+    }
+}
+
+/// Why a producer could not build its document from the model; recorded as
+/// `projection-failed`.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ProjectionError {
+    /// One sentence naming the projection and the cause; never a host path.
+    pub message: String,
+}
+
+impl ProjectionError {
+    /// An error with `message`.
+    pub fn new(message: impl Into<String>) -> Self {
+        Self {
+            message: message.into(),
+        }
+    }
+}
+
+impl fmt::Display for ProjectionError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str(&self.message)
+    }
+}
+
+impl std::error::Error for ProjectionError {}
+
+/// Decode a contract document from JSON (used by the empty forms).
+pub(crate) fn document<T: DeserializeOwned>(
+    name: &str,
+    value: serde_json::Value,
+) -> Result<Produced<T>, ProjectionError> {
+    serde_json::from_value(value)
+        .map(Produced::new)
+        .map_err(|error| {
+            ProjectionError::new(format!("{name}: the empty form does not decode: {error}"))
+        })
+}
+
+#[cfg(test)]
+pub(crate) mod test_support {
+    use super::*;
+
+    pub struct NoSources;
+
+    impl Sources for NoSources {
+        fn paths(&self) -> Vec<String> {
+            Vec::new()
+        }
+
+        fn read(&self, _path: &str) -> Option<Vec<u8>> {
+            None
+        }
+    }
+
+    /// Run `check` with an input for a project that has no schematic and no
+    /// board.
+    pub fn with_bare_project(check: impl FnOnce(&ProjectionInput<'_>)) {
+        let config: RevisionKeyEffectiveConfigA1 = serde_json::from_value(serde_json::json!({
+            "schema": "prism.revision_key.effective_config.a1",
+            "project_file": "dir/demo.kicad_pro",
+            "excluded_dirs": [],
+        }))
+        .unwrap();
+        let text = "{}";
+        let document = ProjectDocument::parse(text.to_owned(), Default::default()).unwrap();
+        let project = ProjectModel {
+            path: "dir/demo.kicad_pro",
+            text,
+            document: &document,
+        };
+        let input = ProjectionInput {
+            config: &config,
+            revision_key: None,
+            sources: &NoSources,
+            project: &project,
+            schematic: None,
+            board: None,
+            design: None,
+        };
+        check(&input);
+    }
+}

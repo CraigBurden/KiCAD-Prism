@@ -14,3 +14,6 @@ workspace = true
 
 [dependencies]
 prism-kicad-core = { path = "../prism-kicad-core" }
+prism-kicad-contracts = { path = "../prism-kicad-contracts" }
+serde_json.workspace = true
+serde.workspace = true

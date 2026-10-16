@@ -177,12 +177,48 @@ def compiler_policy_failures(root: Path) -> list[str]:
         level = level.get("level") if isinstance(level, dict) else level
         if str(level).lower() not in ("deny", "forbid"):
             failures.append(f"Cargo.toml workspace.lints.clippy.{lint} must be deny or forbid")
+    workspace_lints = workspace.get("lints") if isinstance(workspace.get("lints"), dict) else {}
     for member in _strings(workspace.get("members")):
         manifest = _load_toml(root / member / "Cargo.toml")
         member_lints = manifest.get("lints")
-        if not (isinstance(member_lints, dict) and member_lints.get("workspace") is True):
-            failures.append(f"{member}/Cargo.toml must inherit the workspace lints ([lints] workspace = true)")
+        if isinstance(member_lints, dict) and member_lints.get("workspace") is True:
+            continue
+        weaker = _weaker_lints(workspace_lints, member_lints if isinstance(member_lints, dict) else {})
+        if weaker:
+            failures.append(
+                f"{member}/Cargo.toml must inherit the workspace lints ([lints] workspace = true)"
+                f" or declare each at least as strictly; weaker: {', '.join(weaker)}"
+            )
     return failures
+
+
+_LEVELS = {"allow": 0, "warn": 1, "deny": 2, "forbid": 3}
+# Cargo cannot inherit the workspace lints and override one, so a crate that
+# needs `unsafe` (the CLI's allocator and signal handlers) declares them itself
+# with `unsafe_code = "deny"`, which `#[allow]` can lift item by item.
+_RELAXABLE = {("rust", "unsafe_code"): "deny"}
+
+
+def _lint_level(value: object) -> int:
+    level = value.get("level") if isinstance(value, dict) else value
+    return _LEVELS.get(str(level).lower(), -1)
+
+
+def _weaker_lints(workspace_lints: dict, member_lints: dict) -> list[str]:
+    """Workspace lints the member leaves out or sets below the workspace's level."""
+    weaker = []
+    for group, table in workspace_lints.items():
+        if not isinstance(table, dict):
+            continue
+        own = member_lints.get(group) if isinstance(member_lints.get(group), dict) else {}
+        for lint, value in table.items():
+            required = _lint_level(value)
+            floor = _RELAXABLE.get((group, lint))
+            if floor is not None:
+                required = min(required, _LEVELS[floor])
+            if _lint_level(own.get(lint)) < required:
+                weaker.append(f"{group}.{lint}")
+    return weaker
 
 
 def coverage_failures(root: Path, policy: Policy) -> list[str]:
