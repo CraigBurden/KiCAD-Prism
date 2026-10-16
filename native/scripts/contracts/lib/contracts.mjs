@@ -15,7 +15,29 @@ import { SyntaxKind } from "@typespec/compiler/ast";
 import Ajv2020 from "ajv/dist/2020.js";
 import addFormats from "ajv-formats";
 
-export const STAGE_DEFAULT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
+export const STAGE_DEFAULT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..", "..");
+
+/**
+ * Where a contract root keeps its parts. In `native/` (after WP-F1) the
+ * TypeSpec is in src/tsp/prism, the examples and docs in contracts/prism and
+ * the JSON Schemas in contracts/generated/schema, shared with the fork's. A
+ * self-contained tree (tsp/prism, examples, generated/schema side by side),
+ * as the W0 staging directory and the scripts' own tests use, still works.
+ */
+export function layout(stage) {
+  if (fs.existsSync(path.join(stage, "src", "tsp", "prism"))) {
+    return {
+      tsp: path.join(stage, "src", "tsp", "prism"),
+      examples: path.join(stage, "contracts", "prism", "examples"),
+      generated: path.join(stage, "contracts", "generated", "schema"),
+    };
+  }
+  return {
+    tsp: path.join(stage, "tsp", "prism"),
+    examples: path.join(stage, "examples"),
+    generated: path.join(stage, "generated", "schema"),
+  };
+}
 export const URN_PREFIX = "urn:prism:schema:";
 export const COMMON_NAMESPACE = "Prism.Contracts.Common";
 export const CONTRACT_NAMESPACE_PREFIX = "Prism.Contracts.";
@@ -764,7 +786,7 @@ export function formatFindings(findings) {
 
 /** Every .tsp under tsp/prism, recursively, as absolute paths. */
 export function listTspFiles(stage) {
-  const root = path.join(stage, "tsp", "prism");
+  const root = layout(stage).tsp;
   const out = [];
   const walk = (dir) => {
     for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {

@@ -1,8 +1,8 @@
 # Design revision key (`prism.revision_key.a1`)
 
 - **Status:** W0 draft for maintainer review. Once accepted, a change to anything normative here is a new key version (`a2`) and an ADR amendment, because it changes every stored key.
-- **Parent:** [ADR §5](../adr-native-design-bundle.md) (revision key and storage), §4.4 (staged data flow), §11 G3–G6.
-- **Contract:** [`tsp/prism/revision-key-a1.tsp`](tsp/prism/revision-key-a1.tsp): `RevisionKeyEffectiveConfigA1`, `RevisionKeyRecordA1`, `RevisionKeyVectorsA1`. Field map: [`field-maps/revision-key.md`](field-maps/revision-key.md).
+- **Parent:** [ADR §5](../../../docs/architecture/adr-native-design-bundle.md) (revision key and storage), §4.4 (staged data flow), §11 G3–G6.
+- **Contract:** [`tsp/prism/revision-key-a1.tsp`](../../src/tsp/prism/revision-key-a1.tsp): `RevisionKeyEffectiveConfigA1`, `RevisionKeyRecordA1`, `RevisionKeyVectorsA1`. Field map: [`field-maps/revision-key.md`](field-maps/revision-key.md).
 - **Vectors:** [`revision-key-vectors.json`](revision-key-vectors.json) (30 selection vectors, 7 hashing vectors, 13 key relations).
 - **Implemented by:** WP-K (Python reference in `backend/app/services/design_bundle/`, effective-config resolution, commit index) and WP-B (Rust reference in `prism-kicad revision-key`). Both must reproduce every vector before anything else uses the key.
 

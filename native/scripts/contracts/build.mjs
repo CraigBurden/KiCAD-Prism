@@ -26,6 +26,7 @@ import path from "node:path";
 
 import {
   STAGE_DEFAULT,
+  layout,
   URN_PREFIX,
   compareSchemaDirs,
   compileWithEmit,
@@ -87,9 +88,9 @@ function clearPrismSchemas(dir) {
 async function main() {
   const args = parseArgs(process.argv.slice(2));
   const stage = args.stage;
-  const generated = path.join(stage, "generated", "schema");
-  const examplesDir = path.join(stage, "examples");
-  const entry = path.join(stage, "tsp", "prism", "main.tsp");
+  const generated = layout(stage).generated;
+  const examplesDir = layout(stage).examples;
+  const entry = path.join(layout(stage).tsp, "main.tsp");
   if (!fs.existsSync(entry)) throw fail(`missing ${entry}`);
 
   let failed = 0;

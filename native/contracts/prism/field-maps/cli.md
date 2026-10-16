@@ -59,7 +59,7 @@ Pointers are RFC 6901 with two extensions: `*` is every element of an array,
 | `/location/line` | `CliOneBased` | line | optional | fork: `sexpr.rs:65` (`Position.line`, one-based) | K, as above | — |
 | `/location/column` | `CliOneBased` | Unicode scalar values | optional | fork: `sexpr.rs:67` (`Position.column`, one-based Unicode-scalar) | K, as above | — |
 | `/location/offset` | `ByteCount` | bytes | optional | fork: `sexpr.rs:63` (`Position.offset`, zero-based) | K; the ecad-viewer source jump | — |
-| `/location/pointer` | `CliJsonPointer` | — | optional | ajv `instancePath` in today's validation (`docs/architecture/design-bundle-contracts/scripts/lib/contracts.mjs`, `describeAjvError`) | K, tests | new |
+| `/location/pointer` | `CliJsonPointer` | — | optional | ajv `instancePath` in today's validation (`native/scripts/contracts/lib/contracts.mjs`, `describeAjvError`) | K, tests | new |
 | `/location/uuid` | `KiCadUuid` | — | optional | conventions.md §8 ("skipping the object and reporting a Warning"); a1 cross-check names objects by refdes (sim: `src/prism-bundle/src/crosscheck.rs`) | K: cross-probe to the object | new |
 | `/limit` | `CliLimitHit` | — | optional; present for `limit-exceeded` and `diagnostics-truncated` | fork: `NativeErrorKind::resource_limit` (fork: `src/tsp/kicad_monkey/native-transport-a0.tsp:33-39`) and its messages (fork: `src/rs/kicad-monkey-native/src/lib.rs:502-504`) | K: shows which limit to raise | new structure; the fork had text only |
 | `/limit/kind` | `"bytes"` \| `"time"` \| `"count"` | — | required in `limit`; the variant tag of `CliLimitHit` (`@oneOf`), following the limit name's unit suffix | cli-spec.md §7.2 | K: which value field to read | — |

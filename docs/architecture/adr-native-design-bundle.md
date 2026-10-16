@@ -174,7 +174,7 @@ declaring which members they need; they wait only for those
   - the *effective* project configuration: the resolved project-file path and the path overrides (§11, G6). A settings change stored in Prism's database changes the key, just as a commit does.
   - every `(path, git blob id)` in the source set, sorted.
 
-  The source set is repository-wide, by kind (`contracts/prism/revision-key.md` §5): `.kicad_pro`, `.kicad_sch`, `.kicad_pcb`, `.kicad_dru`, `.kicad_wks`, `.kicad_jobset`, `fp-lib-table`, `sym-lib-table`, `.prism.json`, the project libraries (`.kicad_sym`, `.kicad_mod`, `.lib`, `.dcm`), every 3D model file in the repository, and every symlink and gitlink. Output directories and KiCad autosaves are excluded. A change to any project's files therefore changes the key of every project in the same repository; narrowing this is a later optimisation. The project is selected by its anchor, exactly the stored project file, never by directory; an anchor missing from the tree means the project is absent at that revision. A bundle's `sources/` holds only the closure the build read, each member cross-referenced to its key entry.
+  The source set is repository-wide, by kind (`native/contracts/prism/revision-key.md` §5): `.kicad_pro`, `.kicad_sch`, `.kicad_pcb`, `.kicad_dru`, `.kicad_wks`, `.kicad_jobset`, `fp-lib-table`, `sym-lib-table`, `.prism.json`, the project libraries (`.kicad_sym`, `.kicad_mod`, `.lib`, `.dcm`), every 3D model file in the repository, and every symlink and gitlink. Output directories and KiCad autosaves are excluded. A change to any project's files therefore changes the key of every project in the same repository; narrowing this is a later optimisation. The project is selected by its anchor, exactly the stored project file, never by directory; an anchor missing from the tree means the project is absent at that revision. A bundle's `sources/` holds only the closure the build read, each member cross-referenced to its key entry.
 
   A commit's key comes from `git ls-tree` alone. A working tree's comes from git's blob hashing of the files on disk. The same content gives the same key either way. Gitlinks (submodules) contribute their commit id. LFS files contribute their pointer's blob id, which changes with the content.
 - **Generator id:** `prism-kicad version` JSON. It holds:
@@ -182,7 +182,7 @@ declaring which members they need; they wait only for those
   - the KiCad version used for the KiCad-produced members, which also pins KiCad's stock 3D model library;
   - the pinned procedures for those members (`refill_procedure`, `models_procedure`, and `upgrade_procedure` for sources older than the KiCad's file format, which KiCad upgrades before parse) and the materialization pack format version.
 
-  Its canonical bytes and the bundle-key framing are in `contracts/prism/cli-spec.md` §5.1.
+  Its canonical bytes and the bundle-key framing are in `native/contracts/prism/cli-spec.md` §5.1.
 
   It is bumped explicitly, never derived from binary or source bytes.
 - **Bundle key:** sha256(revision key, generator id).
@@ -197,7 +197,7 @@ declaring which members they need; they wait only for those
 
 ## 6. Bundle members (`prism.bundle.manifest` a2)
 
-Each member has a role, a schema id, sha256, size and the stage that wrote it in the manifest. Projections carry no provenance (no revision key, generator, commit or project id): `bundle.json` records it once, so a projection whose inputs did not change keeps its bytes across revisions. No member carries a wall-clock time. Schema ids are `prism.<name>.<version>`, with JSON Schema `$id` `urn:prism:schema:prism.<name>:<version>` (the semantic index moves from today's `prism.semantic_index_a0` to `prism.semantic_index.a1`; `prism.system_interface.v1` keeps its id). Every path in a bundle document is repository-relative, and files belong to a project only through its anchor and effective configuration, never by directory, so projects that share a directory are distinct (issue #681). A project absent at a revision is an explicit outcome, not a failure. Conventions: `contracts/prism/conventions.md`. Projections are written by `prism-projections` from the single parsed model. Their schemas are TypeSpec in `native/src/tsp/prism/`, compiled to JSON Schema in `native/contracts/generated/schema/` and to Rust through `codegen`. Python validates members against the same JSON Schema.
+Each member has a role, a schema id, sha256, size and the stage that wrote it in the manifest. Projections carry no provenance (no revision key, generator, commit or project id): `bundle.json` records it once, so a projection whose inputs did not change keeps its bytes across revisions. No member carries a wall-clock time. Schema ids are `prism.<name>.<version>`, with JSON Schema `$id` `urn:prism:schema:prism.<name>:<version>` (the semantic index moves from today's `prism.semantic_index_a0` to `prism.semantic_index.a1`; `prism.system_interface.v1` keeps its id). Every path in a bundle document is repository-relative, and files belong to a project only through its anchor and effective configuration, never by directory, so projects that share a directory are distinct (issue #681). A project absent at a revision is an explicit outcome, not a failure. Conventions: `native/contracts/prism/conventions.md`. Projections are written by `prism-projections` from the single parsed model. Their schemas are TypeSpec in `native/src/tsp/prism/`, compiled to JSON Schema in `native/contracts/generated/schema/` and to Rust through `codegen`. Python validates members against the same JSON Schema.
 
 | Member | Stage | Schema | Contents | Consumers |
 |---|---|---|---|---|
@@ -216,7 +216,7 @@ Each member has a role, a schema id, sha256, size and the stage that wrote it in
 | `materialization/board.kmpack` | board | `kicad_monkey.materialization.a0` | analytic board | 3D tab, System Builder 3D, Simulation Studio |
 | `viewer/models/components.glb` | models | — | component bodies from `kicad-cli` | 3D tab, System Builder 3D and collision meshes |
 
-The Python topology compiler's viewer assets are not bundle members. The mesh 3D tab and System Builder 3D keep reading the old `semantic-visualizer/` store until WP-C5 retires it (`contracts/prism/decisions.md`).
+The Python topology compiler's viewer assets are not bundle members. The mesh 3D tab and System Builder 3D keep reading the old `semantic-visualizer/` store until WP-C5 retires it (`native/contracts/prism/decisions.md`).
 
 ## 7. Parity and correctness
 
@@ -273,7 +273,7 @@ A consumer's flag flips to `bundle` by default in the PR that proves its parity.
   - `.github/workflows/*` (L);
   - the root `.gitignore` (L), whose installer rule is anchored to `/generated/` so committed JSON Schema is not hidden;
   - `native/src/rs/prism-projections/src/lib.rs` (F2, which declares every module up front for P1–P5);
-  - the complete list, with one owner per file per wave and how ownership passes on, is the ownership map (`contracts/prism/ownership.md` §1, §4). In short:
+  - the complete list, with one owner per file per wave and how ownership passes on, is the ownership map (`native/contracts/prism/ownership.md` §1, §4). In short:
     - a WP edits only `AGENTS.md` files inside its own directories, and the integration agent applies the root and `services/` map lines once per wave;
     - after a WP merges, its shared files pass to the integration agent of the wave, who applies requested changes as separate commits;
     - an earlier WP creates a stub for a file a later WP fills;
@@ -304,7 +304,7 @@ Wave 4  removal (serial)              R1 → R2 → R3 | R4 → X
 
 | WP | Deliverable | Owns | Accept |
 |---|---|---|---|
-| W0 | ADR accepted (this document). Bundle manifest a2 and every §6 projection as TypeSpec, with one example each. CLI spec. Revision-key spec with test vectors. Ownership map. | `native/src/tsp/prism/` (written as a patch applied after F1's import, or in a staging dir `docs/architecture/design-bundle-contracts/` until then), `docs/architecture/adr-native-design-bundle.md` | Schemas validate their examples. The test vectors give the same key from a Python and a Rust reference implementation (written as the first commits of K and B). The maintainer reviews before Wave 1. |
+| W0 | ADR accepted (this document). Bundle manifest a2 and every §6 projection as TypeSpec, with one example each. CLI spec. Revision-key spec with test vectors. Ownership map. | `native/src/tsp/prism/` and `native/contracts/prism/` (staged in `docs/architecture/design-bundle-contracts/` until F1's import, then moved), `docs/architecture/adr-native-design-bundle.md` | Schemas validate their examples. The test vectors give the same key from a Python and a Rust reference implementation (written as the first commits of K and B). The maintainer reviews before Wave 1. |
 
 Merge order and its reasons are in the ownership map (§3). Nothing may land under `native/` before F1's `git subtree add`, so G and F0's `native/LICENSES.md` follow F1.
 
@@ -315,7 +315,7 @@ The CLI spec (`prism-kicad`):
 - `bundle verify <bundle>`
 - `bundle extract <bundle> <member>... -o <dir>`
 - `revision-key <repo> (--commit <sha> | --worktree) --project <rel> [--config <effective.json>]`, exactly one of `--commit` and `--worktree`
-- Full grammar, streams, exit codes (including 9, recorded content failure, and 10, project absent), limits and the backend integration: `contracts/prism/cli-spec.md`.
+- Full grammar, streams, exit codes (including 9, recorded content failure, and 10, project absent), limits and the backend integration: `native/contracts/prism/cli-spec.md`.
 - `version`
 
 Exit codes, stderr diagnostics, resource limits (§11, G8) and timeouts are part of the spec.
