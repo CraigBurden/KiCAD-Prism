@@ -101,7 +101,7 @@ What each stage can reach, and when the next one runs:
 
 Stage-specific fields of stage board:
 - `fill_provenance` is present exactly when board is `complete` or `partial`: `saved` exactly when `config.zone_fills` is `saved`, else `refilled`. With `saved`, the stage's `warnings` hold `saved-fills-used` (the materialized fills were not refilled and may be stale) and no `stale-saved-fills`.
-- `cross_check` is present exactly when `materialization/board.kmpack` is; `fill_check` exactly when it is and `fill_provenance` is `refilled`. A refill is always made with `generator.kicad_version` by `generator.refill_procedure`.
+- `cross_check` is present exactly when `materialization/board.kmpack` is; `fill_check` exactly when it is and `fill_provenance` is `refilled`. A refill is always made by `generator.refill_procedure` with a KiCad of `generator.kicad_version`'s major.minor.
 
 A `pending` or `skipped` stage has empty `warnings` and no optional field except `skip_reason`.
 
