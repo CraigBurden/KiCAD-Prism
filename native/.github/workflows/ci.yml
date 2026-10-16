@@ -1,0 +1,259 @@
+name: CI
+
+on:
+  workflow_dispatch:
+  pull_request:
+  push:
+    branches: [main]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+  CARGO_BUILD_JOBS: "4"
+  RUST_TEST_THREADS: "2"
+
+permissions:
+  contents: read
+
+jobs:
+  changes:
+    name: classify as fast, python, or full
+    runs-on: ubuntu-latest
+    outputs:
+      scope: ${{ steps.scope.outputs.scope }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Classify changed paths
+        id: scope
+        shell: bash
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BEFORE_SHA: ${{ github.event.before }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.sha }}
+        run: |
+          if [[ "${EVENT_NAME}" == "workflow_dispatch" ]]; then
+            : > changed-paths.txt
+          elif [[ "${EVENT_NAME}" == "pull_request" ]]; then
+            git diff --name-only "${BASE_SHA}..${HEAD_SHA}" > changed-paths.txt
+          elif [[ -n "${BEFORE_SHA}" && "${BEFORE_SHA}" != "0000000000000000000000000000000000000000" ]]; then
+            git diff --name-only "${BEFORE_SHA}..${HEAD_SHA}" > changed-paths.txt
+          else
+            git ls-files > changed-paths.txt
+          fi
+          python scripts/classify_ci_scope.py \
+            --event "${EVENT_NAME}" \
+            --paths-file changed-paths.txt \
+            --github-output "${GITHUB_OUTPUT}"
+
+  workflow-validation:
+    name: workflow and policy contracts
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - name: Run CI policy contract tests
+        run: uv run --no-project --with pyyaml python scripts/test_ci_policy.py
+
+  python-provider:
+    name: Python provider and package contract
+    needs: changes
+    if: needs.changes.outputs.scope != 'fast'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - name: Set up Python and packages
+        run: |
+          uv python install 3.14
+          uv sync --all-packages --all-extras
+      - name: Restore the public corpus
+        run: |
+          uv run --extra test python scripts/kicad_corpus_archive.py metadata
+          uv run --extra test python scripts/kicad_corpus_archive.py restore --check-zip
+          uv run --extra test python scripts/package_kicad_corpus.py --check
+      - name: Run Monkey Python gates
+        shell: bash
+        run: |
+          uv run --extra test python -m pytest -q \
+            tests/L0_foundation/test_L0_0[0-3]*.py \
+            tests/L0_foundation/test_L0_04[0-5]_*.py \
+            --ignore=tests/L0_foundation/test_L0_044_rust_sexpr_core.py
+          uv run --extra test python -m pytest -q tests/L99_signoff
+          uv run --all-packages --all-extras python -m pytest tests/cross_package -q
+      - name: Run Cruncher Python-provider gates without native migration gates
+        working-directory: packages/kicad_cruncher
+        shell: bash
+        run: |
+          uv run --package kicad-cruncher --extra test pytest -q tests/L0_public_cli
+          uv run --package kicad-cruncher --extra test pytest -q tests/L3_public_workflows/test_L3_00[1-7]*.py
+          uv run --package kicad-cruncher --extra test pytest -q tests/L99_signoff
+      - name: Build and check both Python packages
+        shell: bash
+        run: |
+          git diff --exit-code
+          git diff --cached --exit-code
+          UNTRACKED="$(git status --porcelain --untracked-files=all)"
+          if [[ -n "${UNTRACKED}" ]]; then
+            echo "Refusing to build with untracked source files:" >&2
+            printf '%s\n' "${UNTRACKED}" >&2
+            exit 1
+          fi
+          uv build --sdist --out-dir dist
+          MONKEY_SDIST="$(find dist -maxdepth 1 -name 'kicad_monkey-*.tar.gz' -print -quit)"
+          test -n "${MONKEY_SDIST}"
+          uv build "${MONKEY_SDIST}" --wheel --out-dir dist
+          (cd packages/kicad_cruncher && uv build --sdist --wheel --out-dir dist)
+          uv run --extra test twine check dist/* packages/kicad_cruncher/dist/*
+      - name: Run installed-package compatibility
+        run: |
+          uv run --extra test python tests/support_scripts/install_test.py
+          uv run --package kicad-cruncher --extra test python packages/kicad_cruncher/tests/support_scripts/install_test.py
+          uv run --extra test python tests/support_scripts/toolchain_install_test.py
+      - name: Bind the universal wheel to this main commit
+        if: github.event_name != 'pull_request' && needs.changes.outputs.scope == 'full'
+        shell: bash
+        run: |
+          mkdir universal-dist
+          cp dist/kicad_monkey-*-py3-none-any.whl universal-dist/
+          MONKEY_VERSION="$(python -c 'import tomllib; print(tomllib.load(open("pyproject.toml","rb"))["project"]["version"])')"
+          python scripts/universal_release_candidate.py write universal-dist \
+            --git-sha "${GITHUB_SHA}" --run-id "${GITHUB_RUN_ID}" \
+            --workflow "${GITHUB_WORKFLOW}" --version "${MONKEY_VERSION}"
+          python scripts/universal_release_candidate.py verify universal-dist \
+            --git-sha "${GITHUB_SHA}" --run-id "${GITHUB_RUN_ID}" \
+            --expected-version "${MONKEY_VERSION}"
+          python scripts/check_release_artifact_paths.py universal-dist \
+            --forbid "${GITHUB_WORKSPACE}" --forbid "${HOME}" \
+            --forbid "${RUNNER_TEMP}"
+      - uses: actions/upload-artifact@v4
+        if: github.event_name != 'pull_request' && needs.changes.outputs.scope == 'full'
+        with:
+          name: monkey-universal-candidate
+          path: universal-dist/*
+          if-no-files-found: error
+          retention-days: 14
+
+  windows-provider-smoke:
+    name: Windows native-provider dependency smoke
+    needs: changes
+    if: needs.changes.outputs.scope == 'python'
+    runs-on: windows-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - uses: dtolnay/rust-toolchain@1.98.0
+      - uses: Swatinem/rust-cache@v2
+      - name: Build the native helper and smoke the selected Python provider
+        shell: pwsh
+        run: |
+          uv sync --all-packages --all-extras
+          cargo build --locked --jobs 4 --package kicad-monkey-native
+          uv run --package kicad-cruncher --extra test pytest `
+            packages/kicad_cruncher/tests/L3_public_workflows/test_L3_008_native_physical_provider.py::test_native_provider_is_no_fallback_enriched_and_cached -q
+
+  phase5-exit:
+    needs: changes
+    if: needs.changes.outputs.scope == 'full'
+    uses: ./.github/workflows/phase5-exit.yml
+
+  windows-release-candidates:
+    needs: changes
+    if: needs.changes.outputs.scope == 'full'
+    uses: ./.github/workflows/windows-release-candidates.yml
+
+  geometer-platform-smoke:
+    name: Geometer process (${{ matrix.platform }})
+    needs: changes
+    if: needs.changes.outputs.scope == 'full'
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-22.04
+            platform: linux-x64
+          - os: ubuntu-22.04-arm
+            platform: linux-arm64
+          - os: macos-15
+            platform: macos-arm64
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@1.98.0
+      - uses: Swatinem/rust-cache@v2
+      - name: Stage the pinned release runtime
+        shell: bash
+        run: |
+          runtime="${RUNNER_TEMP}/geometer-runtime"
+          executable="$(python3 packages/kicad_cruncher/scripts/fetch-geometer-runtime.py \
+            --platform '${{ matrix.platform }}' --destination "${runtime}")"
+          test -x "${executable}"
+          {
+            echo "GEOMETER_EXECUTABLE=${executable}"
+            echo "KCR_REQUIRE_GEOMETER_TEST=1"
+          } >> "${GITHUB_ENV}"
+      - name: Build the native CLI and exercise the process boundary
+        run: |
+          cargo build --locked --release --package kicad-cruncher-cli
+          cargo test --locked --package kicad-cruncher-cli \
+            --test geometer_process --test toon_preview_process
+
+  ci-success:
+    name: CI success
+    if: always()
+    needs:
+      - changes
+      - workflow-validation
+      - python-provider
+      - windows-provider-smoke
+      - phase5-exit
+      - windows-release-candidates
+      - geometer-platform-smoke
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require every selected scope job
+        shell: bash
+        env:
+          SCOPE: ${{ needs.changes.outputs.scope }}
+          CHANGES: ${{ needs.changes.result }}
+          WORKFLOW_VALIDATION: ${{ needs.workflow-validation.result }}
+          PYTHON_PROVIDER: ${{ needs.python-provider.result }}
+          WINDOWS_PROVIDER_SMOKE: ${{ needs.windows-provider-smoke.result }}
+          PHASE5_EXIT: ${{ needs.phase5-exit.result }}
+          WINDOWS_RELEASE_CANDIDATES: ${{ needs.windows-release-candidates.result }}
+          GEOMETER_PLATFORM_SMOKE: ${{ needs.geometer-platform-smoke.result }}
+        run: |
+          test "${CHANGES}" = success
+          test "${WORKFLOW_VALIDATION}" = success
+          case "${SCOPE}" in
+            fast)
+              test "${PYTHON_PROVIDER}" = skipped
+              test "${WINDOWS_PROVIDER_SMOKE}" = skipped
+              test "${PHASE5_EXIT}" = skipped
+              test "${WINDOWS_RELEASE_CANDIDATES}" = skipped
+              test "${GEOMETER_PLATFORM_SMOKE}" = skipped
+              ;;
+            python)
+              test "${PYTHON_PROVIDER}" = success
+              test "${WINDOWS_PROVIDER_SMOKE}" = success
+              test "${PHASE5_EXIT}" = skipped
+              test "${WINDOWS_RELEASE_CANDIDATES}" = skipped
+              test "${GEOMETER_PLATFORM_SMOKE}" = skipped
+              ;;
+            full)
+              test "${PYTHON_PROVIDER}" = success
+              test "${WINDOWS_PROVIDER_SMOKE}" = skipped
+              test "${PHASE5_EXIT}" = success
+              test "${WINDOWS_RELEASE_CANDIDATES}" = success
+              test "${GEOMETER_PLATFORM_SMOKE}" = success
+              ;;
+            *) exit 1 ;;
+          esac
