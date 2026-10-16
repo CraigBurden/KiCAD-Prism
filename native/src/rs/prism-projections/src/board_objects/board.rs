@@ -105,14 +105,11 @@ fn layer_name_of(value: Option<&Value>) -> Option<String> {
 }
 
 fn layer_of(item: &Node, head: &str) -> Option<String> {
-    item.child(head).and_then(|child| {
-        if let Some(name) = tree::text_at(child, 1) {
-            if !name.is_empty() {
-                return Some(name);
-            }
-        }
-        None
-    })
+    item.child(head)
+        .and_then(|child| match tree::text_at(child, 1) {
+            Some(name) if !name.is_empty() => Some(name),
+            _ => None,
+        })
 }
 
 // ---------------------------------------------------------------- footprints
@@ -212,15 +209,15 @@ fn footprint_properties(footprint: &Node) -> Vec<Value> {
         let found = footprint.children("fp_text").find(|text| {
             tree::text_at(text, 1).is_some_and(|value| value.eq_ignore_ascii_case(kind))
         });
-        if let Some(found) = found {
-            if let Some(value) = tree::text_at(found, 2) {
-                properties.push(json!({
-                    "name": name,
-                    "value": value,
-                    "at": tree::point(found.child("at")).map(|(x, y)| vec![x, y]),
-                    "hide": shapes::atom_flag(found, "hide").unwrap_or(false),
-                }));
-            }
+        if let Some(found) = found
+            && let Some(value) = tree::text_at(found, 2)
+        {
+            properties.push(json!({
+                "name": name,
+                "value": value,
+                "at": tree::point(found.child("at")).map(|(x, y)| vec![x, y]),
+                "hide": shapes::atom_flag(found, "hide").unwrap_or(false),
+            }));
         }
     }
     properties
@@ -638,10 +635,10 @@ fn zone_layer(zone: &Node) -> Option<String> {
 }
 
 fn zone_net(zone: &Node, nets: &[(f64, String)]) -> Option<String> {
-    if let Some(name) = tree::child_text(zone, "net_name") {
-        if !name.is_empty() {
-            return Some(name);
-        }
+    if let Some(name) = tree::child_text(zone, "net_name")
+        && !name.is_empty()
+    {
+        return Some(name);
     }
     net_name_of(zone, nets)
 }
@@ -680,14 +677,22 @@ fn drawing_at(drawing: &Node, ends: &[&str]) -> Option<Value> {
     if let Some(point) = tree::point(drawing.child("at")) {
         return point_value(Some(point));
     }
-    let pts = tree::pts_points(drawing);
-    if !pts.is_empty() {
-        return centroid_value(pts);
+    // Only `gr_poly`/`fp_poly` (and the schematic poly forms) carry a flat
+    // `(pts (xy …)…)`; a `dimension`'s `pts` is a nested list the reference
+    // reads as no point (field map, "Positions per form").
+    if matches!(
+        drawing.head(),
+        Some("gr_poly" | "fp_poly" | "polyline" | "bezier")
+    ) {
+        let pts = tree::pts_points(drawing);
+        if !pts.is_empty() {
+            return centroid_value(pts);
+        }
     }
     let points: Vec<(Option<f64>, Option<f64>)> = ends
         .iter()
         .filter_map(|name| drawing.child(name))
-        .filter_map(|node| Some(vec2_point(node)))
+        .map(vec2_point)
         .collect();
     centroid_value(points)
 }

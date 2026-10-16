@@ -198,10 +198,8 @@ pub fn unbalanced(text: &str) -> Option<String> {
                 }
             }
             b'(' => opened.push(index),
-            b')' => {
-                if opened.pop().is_none() {
-                    return Some(format!("unbalanced closing parenthesis at offset {index}"));
-                }
+            b')' if opened.pop().is_none() => {
+                return Some(format!("unbalanced closing parenthesis at offset {index}"));
             }
             _ => {}
         }
@@ -241,18 +239,25 @@ pub fn number(text: &str) -> Option<f64> {
             continue;
         }
         if byte == b'x' || byte == b'X' {
-            index += 1;
-            while index < bytes.len() {
-                if !(bytes[index].is_ascii_hexdigit() || bytes[index] == b'_') {
-                    return None;
-                }
-                index += 1;
-            }
-            return parse_hex(&text.replacen('_', "", 1));
+            return classify_hex(text, index);
         }
         return None;
     }
     text.parse::<f64>().ok()
+}
+
+/// The `x`/`X` branch of `classify_numeric`: every remaining byte must be a
+/// hex digit or `_`, then `parseInt(text.replace("_", ""), 16)`.
+fn classify_hex(text: &str, mut index: usize) -> Option<f64> {
+    let bytes = text.as_bytes();
+    index += 1;
+    while index < bytes.len() {
+        if !(bytes[index].is_ascii_hexdigit() || bytes[index] == b'_') {
+            return None;
+        }
+        index += 1;
+    }
+    parse_hex(&text.replacen('_', "", 1))
 }
 
 /// `parseInt(text, 16)`: an optional sign, an optional `0x`, then hex digits.

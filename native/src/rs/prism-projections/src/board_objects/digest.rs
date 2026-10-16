@@ -49,13 +49,12 @@ fn walk(node: &Node, parent_head: Option<&str>, context: &Context, index: &mut D
     let Node::List { items, start } = node else {
         return;
     };
-    if let Some(id) = identity_of(node) {
-        if is_canonical_uuid(&id) {
-            if let Some(allow) = allow_for(node, parent_head, context.board) {
-                let text = canonical_text(node, &allow, context);
-                index.map.insert(id, (*start, sha256_16(&text)));
-            }
-        }
+    if let Some(id) = identity_of(node)
+        && is_canonical_uuid(&id)
+        && let Some(allow) = allow_for(node, parent_head, context.board)
+    {
+        let text = canonical_text(node, &allow, context);
+        index.map.insert(id, (*start, sha256_16(&text)));
     }
     let head = node.head().map(str::to_owned);
     for child in items {
@@ -100,41 +99,53 @@ fn set(list: &'static str) -> BTreeSet<&'static str> {
 }
 
 fn allow_list(head: &str) -> Option<BTreeSet<&'static str>> {
-    let list = match head {
-        "footprint" => FOOTPRINT,
-        "pad" => PAD,
-        "zone" => ZONE,
-        "fp_line" | "gr_line" => LINE,
-        "fp_circle" | "gr_circle" => CIRCLE,
-        "fp_arc" | "gr_arc" => ARC,
-        "fp_poly" | "gr_poly" => POLY,
-        "fp_rect" | "gr_rect" => RECT,
-        "fp_text" => FP_TEXT,
-        "gr_text" => GR_TEXT,
-        "dimension" => DIMENSION,
-        "segment" => SEGMENT,
-        "via" => VIA,
-        "group" => GROUP,
-        "symbol" => SYMBOL,
-        "sheet" => SHEET,
-        "wire" | "bus" => WIRE,
-        "bus_entry" => BUS_ENTRY,
-        "junction" => JUNCTION,
-        "no_connect" => NO_CONNECT,
-        "label" => LABEL,
-        "global_label" => GLOBAL_LABEL,
-        "hierarchical_label" => HIERARCHICAL_LABEL,
-        "polyline" | "bezier" => BEZIER,
-        "rectangle" => RECTANGLE,
-        "circle" => CIRCLE_SCH,
-        "text" => TEXT,
-        "text_box" => TEXT_BOX,
-        "image" => IMAGE,
-        "table" => TABLE,
-        _ => return None,
-    };
+    let list = ALLOW_TABLE
+        .iter()
+        .find(|(name, _)| *name == head)
+        .map(|(_, list)| *list)?;
     Some(set(list))
 }
+
+/// The allow-lists of the field map's table, by form head.
+const ALLOW_TABLE: &[(&str, &str)] = &[
+    ("footprint", FOOTPRINT),
+    ("pad", PAD),
+    ("zone", ZONE),
+    ("fp_line", LINE),
+    ("gr_line", LINE),
+    ("fp_circle", CIRCLE),
+    ("gr_circle", CIRCLE),
+    ("fp_arc", ARC),
+    ("gr_arc", ARC),
+    ("fp_poly", POLY),
+    ("gr_poly", POLY),
+    ("fp_rect", RECT),
+    ("gr_rect", RECT),
+    ("fp_text", FP_TEXT),
+    ("gr_text", GR_TEXT),
+    ("dimension", DIMENSION),
+    ("segment", SEGMENT),
+    ("via", VIA),
+    ("group", GROUP),
+    ("symbol", SYMBOL),
+    ("sheet", SHEET),
+    ("wire", WIRE),
+    ("bus", WIRE),
+    ("bus_entry", BUS_ENTRY),
+    ("junction", JUNCTION),
+    ("no_connect", NO_CONNECT),
+    ("label", LABEL),
+    ("global_label", GLOBAL_LABEL),
+    ("hierarchical_label", HIERARCHICAL_LABEL),
+    ("polyline", BEZIER),
+    ("bezier", BEZIER),
+    ("rectangle", RECTANGLE),
+    ("circle", CIRCLE_SCH),
+    ("text", TEXT),
+    ("text_box", TEXT_BOX),
+    ("image", IMAGE),
+    ("table", TABLE),
+];
 
 const FOOTPRINT: &str = "version embedded_fonts generator locked placed layer tedit at descr tags sheetname sheetfile path autoplace_cost90 autoplace_cost180 solder_mask_margin solder_paste_margin solder_paste_ratio clearance zone_connect thermal_width thermal_gap attr variant property model";
 const PAD: &str = "locked at size rect_delta layers remove_unused_layers keep_end_layers roundrect_rratio chamfer_ratio chamfer pinfunction pintype die_length solder_mask_margin solder_paste_margin solder_paste_margin_ratio clearance thermal_width thermal_gap thermal_bridge_angle zone_connect drill net options primitives";
@@ -238,39 +249,77 @@ fn emit_children<'a>(
     path: &[&str],
 ) -> String {
     let head = form.head().unwrap_or_default();
-    let children = child_object_heads(head);
     let mut parts: Vec<String> = Vec::new();
     for child in items {
-        let Node::List { .. } = child else {
-            parts.push(emit(child, context, depth + 1, path));
-            continue;
-        };
-        let child_head = child.head().unwrap_or_default();
-        if IDENTITY.contains(&child_head) || GENERATED.contains(&child_head) {
-            continue;
+        if let Some(part) = child_part(child, form, context, depth, path, head) {
+            parts.push(part);
         }
-        if child_head == "page" && head == "path" && path.contains(&"instances") {
-            continue;
-        }
-        if depth == 0 && child_head == "net" && NET_CARRIERS.contains(&head) {
-            let name = resolve_net(child, form, context);
-            if !name.is_empty() {
-                parts.push(format!("(net {})", json_string(&name)));
-            }
-            continue;
-        }
-        if depth == 0 && children.contains(&child_head) {
-            match child_object_id(child) {
-                Some(id) => parts.push(format!("({child_head} {})", json_string(&id))),
-                None => parts.push(format!("({child_head})")),
-            }
-            continue;
-        }
-        let mut extended = path.to_vec();
-        extended.push(head);
-        parts.push(emit(child, context, depth + 1, &extended));
     }
     format!("({})", parts.join(" "))
+}
+
+/// The canonical text of one child, or `None` when it is dropped. `head` is
+/// the current form's head.
+fn child_part(
+    child: &Node,
+    form: &Node,
+    context: &Context,
+    depth: usize,
+    path: &[&str],
+    head: &str,
+) -> Option<String> {
+    let Node::List { .. } = child else {
+        return Some(emit(child, context, depth + 1, path));
+    };
+    let child_head = child.head().unwrap_or_default();
+    if IDENTITY.contains(&child_head) || GENERATED.contains(&child_head) {
+        return None;
+    }
+    if child_head == "page" && head == "path" && path.contains(&"instances") {
+        return None;
+    }
+    if let Some(part) = net_part(child, form, context, depth, head) {
+        return part;
+    }
+    if let Some(part) = reference_part(child, child_head, depth, head) {
+        return part;
+    }
+    let mut extended = path.to_vec();
+    extended.push(head);
+    Some(emit(child, context, depth + 1, &extended))
+}
+
+/// A `(net …)` on a depth-0 net carrier, by name (`Some(None)` drops an empty
+/// name); `None` when the child is not a net reference at all.
+fn net_part(
+    child: &Node,
+    form: &Node,
+    context: &Context,
+    depth: usize,
+    head: &str,
+) -> Option<Option<String>> {
+    if depth != 0 || child.head() != Some("net") || !NET_CARRIERS.contains(&head) {
+        return None;
+    }
+    let name = resolve_net(child, form, context);
+    Some((!name.is_empty()).then(|| format!("(net {})", json_string(&name))))
+}
+
+/// A depth-0 child object, replaced by its uuid reference (`Some(None)` for a
+/// missing id); `None` when the child is not a child-object head.
+fn reference_part(
+    child: &Node,
+    child_head: &str,
+    depth: usize,
+    head: &str,
+) -> Option<Option<String>> {
+    if depth != 0 || !child_object_heads(head).contains(&child_head) {
+        return None;
+    }
+    Some(Some(match child_object_id(child) {
+        Some(id) => format!("({child_head} {})", json_string(&id)),
+        None => format!("({child_head})"),
+    }))
 }
 
 fn child_object_id(node: &Node) -> Option<String> {
@@ -281,33 +330,31 @@ fn child_object_id(node: &Node) -> Option<String> {
 /// Step 3 (`board_objects_sexpr.mjs:161-184`). `form` is the object's own
 /// form, so a zone can prefer its `(net_name …)`.
 fn resolve_net(net_node: &Node, form: &Node, context: &Context) -> String {
-    if form.head() == Some("zone") {
-        if let Some(name) = form
+    if form.head() == Some("zone")
+        && let Some(name) = form
             .child("net_name")
             .and_then(|child| child.items())
             .and_then(|items| items.get(1))
             .and_then(Node::text)
-        {
-            if !name.is_empty() {
-                return name.to_owned();
-            }
-        }
+        && !name.is_empty()
+    {
+        return name.to_owned();
     }
     let items = net_node.items().unwrap_or_default();
     let first = items.get(1);
     let second = items.get(2);
-    if let Some(Node::Atom(value)) = first {
-        if is_number_token(value) {
-            let named = second.and_then(Node::text).unwrap_or_default();
-            if !named.is_empty() {
-                return named.to_owned();
-            }
-            return context
-                .net_table
-                .get(&canonical_number(value))
-                .cloned()
-                .unwrap_or_default();
+    if let Some(Node::Atom(value)) = first
+        && is_number_token(value)
+    {
+        let named = second.and_then(Node::text).unwrap_or_default();
+        if !named.is_empty() {
+            return named.to_owned();
         }
+        return context
+            .net_table
+            .get(&canonical_number(value))
+            .cloned()
+            .unwrap_or_default();
     }
     if let Some(value) = first.and_then(Node::text) {
         return value.to_owned();
@@ -322,11 +369,11 @@ fn net_table(root: &Node) -> BTreeMap<String, String> {
             continue;
         }
         let items = child.items().unwrap_or_default();
-        if let Some(Node::Atom(code)) = items.get(1) {
-            if is_number_token(code) {
-                let name = items.get(2).and_then(Node::text).unwrap_or_default();
-                table.insert(canonical_number(code), name.to_owned());
-            }
+        if let Some(Node::Atom(code)) = items.get(1)
+            && is_number_token(code)
+        {
+            let name = items.get(2).and_then(Node::text).unwrap_or_default();
+            table.insert(canonical_number(code), name.to_owned());
         }
     }
     table
@@ -341,24 +388,36 @@ pub fn is_number_token(text: &str) -> bool {
         return false;
     }
     let before = consume_digits(bytes, &mut index);
-    let mut after = 0;
-    if index < bytes.len() && bytes[index] == b'.' {
-        index += 1;
-        after = consume_digits(bytes, &mut index);
-    }
+    let after = consume_fraction(bytes, &mut index);
     if before == 0 && after == 0 {
         return false;
     }
-    if index < bytes.len() && matches!(bytes[index], b'e' | b'E') {
-        index += 1;
-        if index < bytes.len() && matches!(bytes[index], b'+' | b'-') {
-            index += 1;
-        }
-        if consume_digits(bytes, &mut index) == 0 {
-            return false;
-        }
+    if !consume_exponent(bytes, &mut index) {
+        return false;
     }
     index == bytes.len()
+}
+
+/// Consume an optional `.digits`; returns how many fractional digits.
+fn consume_fraction(bytes: &[u8], index: &mut usize) -> usize {
+    if *index < bytes.len() && bytes[*index] == b'.' {
+        *index += 1;
+        return consume_digits(bytes, index);
+    }
+    0
+}
+
+/// Consume an optional `[eE][+-]?digits`; `false` when an exponent is present
+/// but has no digits.
+fn consume_exponent(bytes: &[u8], index: &mut usize) -> bool {
+    if *index >= bytes.len() || !matches!(bytes[*index], b'e' | b'E') {
+        return true;
+    }
+    *index += 1;
+    if *index < bytes.len() && matches!(bytes[*index], b'+' | b'-') {
+        *index += 1;
+    }
+    consume_digits(bytes, index) != 0
 }
 
 fn consume_digits(bytes: &[u8], index: &mut usize) -> usize {
@@ -479,6 +538,65 @@ mod tests {
         let roots = tree::parse(text);
         let root = roots.into_iter().next().unwrap();
         index(&root, board)
+    }
+
+    const SYMBOL_UUID: &str = "00000000-0000-0000-0000-00000000000a";
+
+    fn symbol_digest(body: &str) -> String {
+        let text = format!("(kicad_sch (symbol (lib_id \"a\") (uuid \"{SYMBOL_UUID}\"){body}))");
+        let index = digest_of(&text, false);
+        index.get(SYMBOL_UUID).unwrap().1.to_owned()
+    }
+
+    #[test]
+    fn dropped_heads_are_dropped_at_any_depth() {
+        // `render_cache` is a generated head, dropped nested inside a kept
+        // `property` (field map, "contentDigest" step 2).
+        let base = symbol_digest(" (property \"Reference\" \"R1\")");
+        let with_cache = symbol_digest(
+            " (property \"Reference\" \"R1\" (render_cache (polygon (pts (xy 1 2)))))",
+        );
+        assert_eq!(base, with_cache);
+    }
+
+    #[test]
+    fn an_instance_page_is_dropped_below_a_path() {
+        let one = symbol_digest(
+            " (instances (project \"p\" (path \"/\" (reference \"R1\") (page \"1\"))))",
+        );
+        let two = symbol_digest(
+            " (instances (project \"p\" (path \"/\" (reference \"R1\") (page \"2\"))))",
+        );
+        assert_eq!(one, two);
+    }
+
+    #[test]
+    fn nets_resolve_by_name_from_the_board_table() {
+        let uuid = "00000000-0000-0000-0000-00000000000c";
+        let by_code = format!(
+            "(kicad_pcb (net 5 \"GND\") (segment (uuid \"{uuid}\") (start 0 0) (end 1 0) (layer \"F.Cu\") (net 5)))"
+        );
+        let by_name = format!(
+            "(kicad_pcb (net 5 \"GND\") (segment (uuid \"{uuid}\") (start 0 0) (end 1 0) (layer \"F.Cu\") (net 5 \"GND\")))"
+        );
+        let without = format!(
+            "(kicad_pcb (net 5 \"GND\") (segment (uuid \"{uuid}\") (start 0 0) (end 1 0) (layer \"F.Cu\")))"
+        );
+        let index = digest_of(&by_code, true);
+        let index_by_name = digest_of(&by_name, true);
+        let index_without = digest_of(&without, true);
+        assert_eq!(
+            index.get(uuid).unwrap().1,
+            index_by_name.get(uuid).unwrap().1
+        );
+        // An empty net (net 0) is dropped, so a net-less segment matches.
+        let empty_net = format!(
+            "(kicad_pcb (segment (uuid \"{uuid}\") (start 0 0) (end 1 0) (layer \"F.Cu\") (net 0 \"\")))"
+        );
+        assert_eq!(
+            index_without.get(uuid).unwrap().1,
+            digest_of(&empty_net, true).get(uuid).unwrap().1
+        );
     }
 
     #[test]

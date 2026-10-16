@@ -83,29 +83,33 @@ fn write_json(value: &Value, out: &mut String) {
         Value::Bool(flag) => out.push_str(if *flag { "true" } else { "false" }),
         Value::Number(number) => out.push_str(&es_number(number.as_f64().unwrap_or(0.0))),
         Value::String(text) => write_json_string(text, out),
-        Value::Array(items) => {
-            out.push('[');
-            for (index, item) in items.iter().enumerate() {
-                if index > 0 {
-                    out.push(',');
-                }
-                write_json(item, out);
-            }
-            out.push(']');
-        }
-        Value::Object(map) => {
-            out.push('{');
-            for (index, (key, item)) in map.iter().enumerate() {
-                if index > 0 {
-                    out.push(',');
-                }
-                write_json_string(key, out);
-                out.push(':');
-                write_json(item, out);
-            }
-            out.push('}');
-        }
+        Value::Array(items) => write_array(items, out),
+        Value::Object(map) => write_object(map, out),
     }
+}
+
+fn write_array(items: &[Value], out: &mut String) {
+    out.push('[');
+    for (index, item) in items.iter().enumerate() {
+        if index > 0 {
+            out.push(',');
+        }
+        write_json(item, out);
+    }
+    out.push(']');
+}
+
+fn write_object(map: &Map<String, Value>, out: &mut String) {
+    out.push('{');
+    for (index, (key, item)) in map.iter().enumerate() {
+        if index > 0 {
+            out.push(',');
+        }
+        write_json_string(key, out);
+        out.push(':');
+        write_json(item, out);
+    }
+    out.push('}');
 }
 
 /// ECMAScript `JSON.stringify` of a string (`ecad-parse.mjs:252-257`).

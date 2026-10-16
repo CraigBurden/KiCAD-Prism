@@ -232,7 +232,7 @@ pub(crate) fn zone_hatch(node: &Node) -> Value {
         .items()
         .and_then(|items| items.get(2))
         .and_then(Node::text)
-        .and_then(|text| tree::number(&text))
+        .and_then(tree::number)
     {
         out.insert("pitch".to_owned(), number(pitch));
     }

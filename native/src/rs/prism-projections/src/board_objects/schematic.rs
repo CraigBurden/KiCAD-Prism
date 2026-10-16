@@ -16,15 +16,41 @@ pub(crate) fn document(
     warnings: &mut Vec<ProducerWarning>,
 ) -> super::DocumentParts {
     let mut document = Document::new(path, root, false);
+    collect(&mut document, root);
+
+    let mut review_only = Vec::new();
+    review::bus_aliases(root, &mut review_only);
+    review_only = review::finish_review(review_only);
+    let (objects, document_warnings) = document.finish();
+    warnings.extend(document_warnings);
+    super::DocumentParts {
+        objects,
+        review_only,
+    }
+}
+
+/// `index_schematic`'s object loops (`ecad-parse.mjs:958-1134`), split into
+/// groups so each stays simple.
+fn collect(document: &mut Document, root: &Node) {
+    symbols_sheets(document, root);
+    wires_connects(document, root);
+    labels_graphics(document, root);
+    images_tables(document, root);
+}
+
+fn symbols_sheets(document: &mut Document, root: &Node) {
     for symbol in root.children("symbol") {
-        symbols(&mut document, symbol);
+        symbols(document, symbol);
     }
     for sheet in root.children("sheet") {
-        sheets(&mut document, sheet);
+        sheets(document, sheet);
     }
+}
+
+fn wires_connects(document: &mut Document, root: &Node) {
     for (head, kind) in [("wire", "wire"), ("bus", "bus")] {
         for item in root.children(head) {
-            wires(&mut document, item, kind);
+            wires(document, item, kind);
         }
     }
     for (head, kind) in [
@@ -33,16 +59,15 @@ pub(crate) fn document(
         ("bus_entry", "bus_entry"),
     ] {
         for item in root.children(head) {
-            connect(&mut document, item, kind);
+            connect(document, item, kind);
         }
     }
-    for (head, _) in [
-        ("label", "label"),
-        ("global_label", "label"),
-        ("hierarchical_label", "label"),
-    ] {
+}
+
+fn labels_graphics(document: &mut Document, root: &Node) {
+    for head in ["label", "global_label", "hierarchical_label"] {
         for item in root.children(head) {
-            labels(&mut document, item);
+            labels(document, item);
         }
     }
     for head in [
@@ -55,24 +80,17 @@ pub(crate) fn document(
         "text_box",
     ] {
         for item in root.children(head) {
-            graphics(&mut document, item, head);
+            graphics(document, item, head);
         }
     }
+}
+
+fn images_tables(document: &mut Document, root: &Node) {
     for item in root.children("image") {
-        images(&mut document, item);
+        images(document, item);
     }
     for item in root.children("table") {
-        tables(&mut document, item);
-    }
-
-    let mut review_only = Vec::new();
-    review::bus_aliases(root, &mut review_only);
-    review_only = review::finish_review(review_only);
-    let (objects, document_warnings) = document.finish();
-    warnings.extend(document_warnings);
-    super::DocumentParts {
-        objects,
-        review_only,
+        tables(document, item);
     }
 }
 
@@ -391,10 +409,10 @@ fn symbol_reference(symbol: &Node) -> Option<String> {
     if let Some(instances) = symbol.child("instances") {
         for project in instances.children("project") {
             for path in project.children("path") {
-                if let Some(reference) = tree::child_text(path, "reference") {
-                    if !reference.is_empty() {
-                        return Some(reference);
-                    }
+                if let Some(reference) = tree::child_text(path, "reference")
+                    && !reference.is_empty()
+                {
+                    return Some(reference);
                 }
             }
         }
@@ -402,10 +420,9 @@ fn symbol_reference(symbol: &Node) -> Option<String> {
     if let Some(reference) = symbol
         .child("default_instance")
         .and_then(|default| tree::child_text(default, "reference"))
+        && !reference.is_empty()
     {
-        if !reference.is_empty() {
-            return Some(reference);
-        }
+        return Some(reference);
     }
     for property in symbol.children("property") {
         if tree::text_at(property, 1).as_deref() == Some("Reference") {
@@ -418,16 +435,17 @@ fn symbol_reference(symbol: &Node) -> Option<String> {
 /// `kiid_paths` (`ecad-parse.mjs:867-877`).
 fn kiid_paths(item: &Node, uuid: &str) -> Vec<String> {
     let mut paths: Vec<String> = Vec::new();
-    if let Some(instances) = item.child("instances") {
-        for project in instances.children("project") {
-            for path in project.children("path") {
-                if let Some(text) = tree::text_at(path, 1) {
-                    if !text.is_empty() {
-                        let joined = format!("{}/{uuid}", text.trim_end_matches('/'));
-                        if !paths.contains(&joined) {
-                            paths.push(joined);
-                        }
-                    }
+    let Some(instances) = item.child("instances") else {
+        return paths;
+    };
+    for project in instances.children("project") {
+        for path in project.children("path") {
+            if let Some(text) = tree::text_at(path, 1)
+                && !text.is_empty()
+            {
+                let joined = format!("{}/{uuid}", text.trim_end_matches('/'));
+                if !paths.contains(&joined) {
+                    paths.push(joined);
                 }
             }
         }
@@ -459,31 +477,40 @@ fn symbol_instances(document: &mut Document, symbol: &Node, uuid: &str) -> Vec<V
                 let reference = tree::child_text(path, "reference").unwrap_or_default();
                 let mut entry = Map::new();
                 insert(&mut entry, "reference", refdes(Some(reference)));
-                if let Some(text) = tree::text_at(path, 1) {
-                    if !text.is_empty() {
-                        let joined = format!("{}/{uuid}", text.trim_end_matches('/'));
-                        if is_kiid_path(&joined) {
-                            insert(&mut entry, "path", Some(joined));
-                        } else {
-                            document.invalid_path();
-                        }
-                    }
+                if let Some(text) = tree::text_at(path, 1)
+                    && !text.is_empty()
+                {
+                    add_instance_path(document, &mut entry, &text, uuid);
                 }
                 instances.push(Value::Object(entry));
             }
         }
     }
-    if instances.is_empty() {
-        if let Some(reference) = symbol
+    if instances.is_empty()
+        && let Some(reference) = symbol
             .child("default_instance")
             .and_then(|default| tree::child_text(default, "reference"))
-        {
-            if !reference.is_empty() {
-                instances.push(json!({"reference": reference}));
-            }
-        }
+        && !reference.is_empty()
+    {
+        instances.push(json!({"reference": reference}));
     }
     instances
+}
+
+/// Insert an instance's `path`, marking an invalid KIID path
+/// (`capture/board_objects.py:349-353`).
+fn add_instance_path(
+    document: &mut Document,
+    entry: &mut Map<String, Value>,
+    text: &str,
+    uuid: &str,
+) {
+    let joined = format!("{}/{uuid}", text.trim_end_matches('/'));
+    if is_kiid_path(&joined) {
+        insert(entry, "path", Some(joined));
+    } else {
+        document.invalid_path();
+    }
 }
 
 /// `symbol_properties` (`ecad-parse.mjs:914-928`) mapped to member properties.
@@ -595,10 +622,10 @@ fn center_point(form: &Node, name: &str) -> (Option<f64>, Option<f64>) {
     let Some(node) = form.child(name) else {
         return (None, None);
     };
-    if let Some(xy) = node.child("xy") {
-        if let (Some(x), Some(y)) = (tree::number_at(xy, 1), tree::number_at(xy, 2)) {
-            return (Some(x), Some(y));
-        }
+    if let Some(xy) = node.child("xy")
+        && let (Some(x), Some(y)) = (tree::number_at(xy, 1), tree::number_at(xy, 2))
+    {
+        return (Some(x), Some(y));
     }
     if let (Some(x), Some(y)) = (tree::number_at(node, 1), tree::number_at(node, 2)) {
         return (Some(x), Some(y));
@@ -639,6 +666,6 @@ fn insert(map: &mut Map<String, Value>, key: &str, value: impl IntoValue) {
 pub(crate) fn is_kiid_path(text: &str) -> bool {
     text.split('/')
         .skip(1)
-        .all(|part| super::digest::is_canonical_uuid(part))
+        .all(super::digest::is_canonical_uuid)
         && text.starts_with('/')
 }

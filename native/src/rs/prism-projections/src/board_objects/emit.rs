@@ -133,3 +133,46 @@ impl IntoValue for Option<String> {
         self.map(Value::String)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::board_objects::tree;
+    use serde_json::Map;
+
+    fn root(text: &str) -> Node {
+        tree::parse(text).into_iter().next().expect("one root")
+    }
+
+    #[test]
+    fn a_non_canonical_uuid_is_dropped_with_a_warning() {
+        // Divergence 4.
+        let text = "(kicad_sch (symbol (lib_id \"a\") (uuid \"aaaa-0201\")))";
+        let parsed = root(text);
+        let node = parsed.child("symbol").unwrap();
+        let mut document = Document::new("board.kicad_sch", &parsed, false);
+        document.add(node, "symbol", "aaaa-0201", Map::new());
+        let (objects, warnings) = document.finish();
+        assert!(objects.is_empty());
+        assert_eq!(warnings.len(), 1);
+        assert_eq!(warnings[0].code, "board-objects-invalid-uuid");
+    }
+
+    #[test]
+    fn a_duplicate_uuid_keeps_the_later_form_with_a_warning() {
+        // Divergence 7.
+        let uuid = "00000000-0000-0000-0000-00000000000d";
+        let text = format!(
+            "(kicad_sch (symbol (lib_id \"first\") (uuid \"{uuid}\")) (symbol (lib_id \"second\") (uuid \"{uuid}\")))"
+        );
+        let parsed = root(&text);
+        let mut document = Document::new("board.kicad_sch", &parsed, false);
+        for symbol in parsed.children("symbol") {
+            document.add(symbol, "symbol", uuid, Map::new());
+        }
+        let (objects, warnings) = document.finish();
+        assert_eq!(objects.len(), 1);
+        assert_eq!(warnings.len(), 1);
+        assert_eq!(warnings[0].code, "board-objects-duplicate-uuid");
+    }
+}
