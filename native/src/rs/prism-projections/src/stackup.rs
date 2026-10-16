@@ -129,15 +129,9 @@ fn second(form: &Sexp) -> Option<&Sexp> {
     }
 }
 
-/// A token as a string; `None` for a form. Numbers are only reachable on a
-/// malformed file, where a KiCad token here is an atom or a quoted string.
+/// `str(token)` (Python's `str` of a kicad_monkey token); `None` for a form.
 fn py_str(raw: &Sexp) -> Option<String> {
-    match raw {
-        Sexp::List(_) => None,
-        Sexp::Atom(value) | Sexp::Quoted(value) => Some(value.clone()),
-        Sexp::Integer(value) => Some(value.to_string()),
-        Sexp::Float(value) => Some(value.to_string()),
-    }
+    crate::python::token(raw)
 }
 
 /// `text` (`stackup_build.py:59-65`): a token as a string, `None` for a form
