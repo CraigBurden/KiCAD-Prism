@@ -72,9 +72,10 @@ mod python;
 
 use prism_kicad_contracts::generated::prism_revision_key_effective_config_a1::RevisionKeyEffectiveConfigA1;
 use prism_kicad_core::{
-    KiCadDesignFacts, PcbView, ProjectDocument, SchematicBundleIndex, SourceBundle,
+    KiCadDesignFacts, PcbView, ProjectDocument, SchematicBundleIndex, Sexp, SourceBundle,
 };
 use serde::de::DeserializeOwned;
+use std::cell::OnceCell;
 use std::fmt;
 
 /// The source set stage parse may read: every file under the source root that
@@ -121,6 +122,39 @@ pub struct BoardModel<'a> {
     pub text: &'a str,
     /// The core's indexed view of it.
     pub view: &'a PcbView<'a>,
+    /// Its S-expression tree, parsed once from [`BoardModel::text`] on first
+    /// use by [`BoardModel::tree`] and shared by every producer that needs the
+    /// tokens, so a bundle build parses the board at most once more than the
+    /// view already does.
+    tree: OnceCell<Result<Sexp, ProjectionError>>,
+}
+
+impl<'a> BoardModel<'a> {
+    /// A board model whose tree is not built yet.
+    pub fn new(path: &'a str, text: &'a str, view: &'a PcbView<'a>) -> Self {
+        Self {
+            path,
+            text,
+            view,
+            tree: OnceCell::new(),
+        }
+    }
+
+    /// The board's S-expression tree (`prism_kicad_core::parse`), parsed from
+    /// [`BoardModel::text`] on first use and reused by every later caller.
+    ///
+    /// The fork parser is the one `stackup` and the system-interface outline
+    /// used directly before, so the tokens are identical; the error carries
+    /// only the parser's own message, so each caller keeps its own wording.
+    pub fn tree(&self) -> Result<&Sexp, ProjectionError> {
+        self.tree
+            .get_or_init(|| {
+                prism_kicad_core::parse(self.text)
+                    .map_err(|error| ProjectionError::new(error.to_string()))
+            })
+            .as_ref()
+            .map_err(ProjectionError::clone)
+    }
 }
 
 /// Everything a producer may read: the single parse of one revision.

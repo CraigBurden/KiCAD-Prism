@@ -10,8 +10,9 @@
 //!
 //! The inputs are the fork's single board parse (`BoardModel.view`): its
 //! top-level `segment`, `arc` and `via` forms only (field map:31). The copper
-//! order R6 needs is the produced `prism.stackup.a0` `copperLayers`, read by
-//! calling [`crate::stackup::produce`] rather than restating its rule.
+//! order R6 needs is the produced `prism.stackup.a0` `copperLayers`, read
+//! through [`crate::stackup::copper_layers`] from the shared board tree rather
+//! than by building the whole stackup member or restating its rule.
 //!
 //! A project without a board gets the empty form (bundle-format.md §2.1):
 //! `{"schema": …, "nets": []}`. Rules are grouped into [`accumulate`] (R1,
@@ -41,12 +42,7 @@ pub fn produce(input: &ProjectionInput<'_>) -> Result<Produced<RouteMetricsA0>, 
         return document(NAME, json!({"schema": SCHEMA, "nets": []}));
     };
     // R6's copper order is the stackup member's own rule; do not restate it.
-    let copper: Vec<String> = crate::stackup::produce(input)?
-        .document
-        .copper_layers
-        .into_iter()
-        .map(String::from)
-        .collect();
+    let copper = crate::stackup::copper_layers(board)?;
     let nets = accumulate::accumulate(board.view, &copper)?;
     Ok(Produced::new(build_document(nets)?))
 }
