@@ -14,7 +14,7 @@ use typify::{TypeSpace, TypeSpaceSettings};
 mod config_projection;
 mod materialization_projection;
 
-const SCHEMAS: [(&str, &str); 40] = [
+const SCHEMAS: [(&str, &str); 59] = [
     ("BoardPlotDocument.json", "board_plot_document.rs"),
     ("BoardPlotRequest.json", "board_plot_request.rs"),
     ("BoardPlotResult.json", "board_plot_result.rs"),
@@ -82,6 +82,34 @@ const SCHEMAS: [(&str, &str); 40] = [
     ),
     ("NativeSvgRenderResult.json", "native_svg_render_result.rs"),
     ("NativeError.json", "native_error.rs"),
+    ("BoardObjectsA0.json", "prism_board_objects_a0.rs"),
+    ("BundleManifestA2.json", "prism_bundle_manifest_a2.rs"),
+    ("CliBuildResultA0.json", "prism_cli_build_result_a0.rs"),
+    ("CliDiagnosticA0.json", "prism_cli_diagnostic_a0.rs"),
+    ("CliErrorA0.json", "prism_cli_error_a0.rs"),
+    ("CliExtractResultA0.json", "prism_cli_extract_result_a0.rs"),
+    ("CliProjectAbsentA0.json", "prism_cli_project_absent_a0.rs"),
+    ("CliVerifyReportA0.json", "prism_cli_verify_report_a0.rs"),
+    ("CliVersionA0.json", "prism_cli_version_a0.rs"),
+    ("OccurrencesA0.json", "prism_occurrences_a0.rs"),
+    ("PlacementsA0.json", "prism_placements_a0.rs"),
+    ("ProjectA0.json", "prism_project_a0.rs"),
+    (
+        "RevisionKeyEffectiveConfigA1.json",
+        "prism_revision_key_effective_config_a1.rs",
+    ),
+    (
+        "RevisionKeyRecordA1.json",
+        "prism_revision_key_record_a1.rs",
+    ),
+    (
+        "RevisionKeyVectorsA1.json",
+        "prism_revision_key_vectors_a1.rs",
+    ),
+    ("RouteMetricsA0.json", "prism_route_metrics_a0.rs"),
+    ("SemanticIndexA1.json", "prism_semantic_index_a1.rs"),
+    ("StackupA0.json", "prism_stackup_a0.rs"),
+    ("SystemInterfaceV1.json", "prism_system_interface_v1.rs"),
 ];
 
 const PLOTTER_OPERATION_KINDS: [(&str, &str, &str); 14] = [
@@ -481,15 +509,46 @@ fn main() -> Result<()> {
         flatten_board_footprint_operation_extensions(schema_name, &mut schema)?;
         project_schematic_request_fields(schema_name, &mut schema)?;
         project_native_external_references(schema_name, &mut schema)?;
+        inline_prism_external_roots(&schema_root, &mut schema)?;
+        strip_prism_patterns(&mut schema);
+        if schema
+            .get("$id")
+            .and_then(Value::as_str)
+            .is_some_and(|id| id.starts_with("urn:prism:schema:"))
+        {
+            // Name the generated root after its model (BundleManifestA2,
+            // CliVersionA0), not after its human title.
+            let model = schema_name.trim_end_matches(".json").to_owned();
+            schema["title"] = Value::String(model);
+        }
         project_native_handshake_tuple(schema_name, &mut schema)?;
         project_for_typify(&mut schema);
         promote_disjoint_record_unions(&mut schema);
         project_tri_state_via_drill_layers(&mut schema);
-        let generated = project_generated_presence(
+        let is_prism = schema
+            .get("$id")
+            .and_then(Value::as_str)
+            .is_some_and(|id| id.starts_with("urn:prism:schema:"));
+        let declared_order = if is_prism {
+            declared_property_order(&schema)
+        } else {
+            BTreeMap::new()
+        };
+        let kind_constants = if is_prism {
+            variant_kind_constants(&schema)
+        } else {
+            BTreeMap::new()
+        };
+        let mut generated = project_generated_presence(
             schema_name,
             &published_schema,
             generate(schema_name, schema)?,
         )?;
+        if is_prism {
+            generated = buffer_untagged_through_value(schema_name, &generated, &kind_constants)?;
+            generated = restore_declared_field_order(schema_name, &generated, &declared_order)?;
+            generated = rustfmt(&generated)?;
+        }
         expected.insert(output_root.join(output_name), generated);
         modules.push(output_name.trim_end_matches(".rs"));
     }
@@ -1189,9 +1248,17 @@ pub(crate) fn project_kind_deserializer(
 }
 
 fn generate(schema_name: &str, value: Value) -> Result<String> {
+    let is_prism = value
+        .get("$id")
+        .and_then(Value::as_str)
+        .is_some_and(|id| id.starts_with("urn:prism:schema:"));
     let schema: RootSchema = serde_json::from_value(value)?;
     let mut settings = TypeSpaceSettings::default();
     settings.with_struct_builder(false);
+    if is_prism {
+        // conventions.md §9: maps serialize with keys in code point order.
+        settings.with_map_type("::std::collections::BTreeMap");
+    }
     settings.with_replacement(
         "JavaScriptSafeInteger",
         "crate::JavaScriptSafeInteger",
@@ -1547,4 +1614,524 @@ fn project_for_typify(value: &mut Value) {
         }
         _ => {}
     }
+}
+
+/// Prism's roots embed other Prism roots by `$id` (`urn:prism:schema:…`), which
+/// typify cannot follow. Copy each referenced root into `$defs` under its
+/// title-free root name and point the reference there, recursively. Two
+/// different definitions under one name are an error, never merged.
+fn inline_prism_external_roots(schema_root: &std::path::Path, schema: &mut Value) -> Result<()> {
+    const PREFIX: &str = "urn:prism:schema:";
+    let mut by_id: BTreeMap<String, (String, Value)> = BTreeMap::new();
+    for entry in fs::read_dir(schema_root)? {
+        let path = entry?.path();
+        if path.extension().and_then(|e| e.to_str()) != Some("json") {
+            continue;
+        }
+        let root: Value = serde_json::from_slice(&fs::read(&path)?)?;
+        if let Some(id) = root.get("$id").and_then(Value::as_str)
+            && id.starts_with(PREFIX)
+        {
+            let name = path
+                .file_stem()
+                .and_then(|n| n.to_str())
+                .context("schema file name")?
+                .to_owned();
+            by_id.insert(id.to_owned(), (name, root));
+        }
+    }
+    let mut pending: Vec<String> = Vec::new();
+    collect_prism_references(schema, PREFIX, &mut pending);
+    let mut inlined = BTreeSet::new();
+    while let Some(id) = pending.pop() {
+        if !inlined.insert(id.clone()) {
+            continue;
+        }
+        let (name, root) = by_id
+            .get(&id)
+            .with_context(|| format!("unknown Prism schema {id}"))?
+            .clone();
+        let mut body = root.clone();
+        let nested = body
+            .as_object_mut()
+            .context("Prism root is not an object")?
+            .remove("$defs");
+        if let Some(object) = body.as_object_mut() {
+            object.remove("$schema");
+            object.remove("$id");
+        }
+        collect_prism_references(&body, PREFIX, &mut pending);
+        let mut additions = vec![(name, body)];
+        if let Some(Value::Object(definitions)) = nested {
+            for (key, value) in definitions {
+                collect_prism_references(&value, PREFIX, &mut pending);
+                additions.push((key, value));
+            }
+        }
+        let defs = schema
+            .as_object_mut()
+            .context("schema is not an object")?
+            .entry("$defs")
+            .or_insert_with(|| Value::Object(serde_json::Map::new()))
+            .as_object_mut()
+            .context("$defs is not an object")?;
+        for (key, value) in additions {
+            match defs.get(&key) {
+                Some(existing) if *existing != value => {
+                    bail!("inlining {id}: $defs/{key} already holds a different definition")
+                }
+                Some(_) => {}
+                None => {
+                    defs.insert(key, value);
+                }
+            }
+        }
+    }
+    rewrite_prism_references(schema, PREFIX, &by_id);
+    Ok(())
+}
+
+fn collect_prism_references(value: &Value, prefix: &str, out: &mut Vec<String>) {
+    match value {
+        Value::Object(object) => {
+            if let Some(reference) = object.get("$ref").and_then(Value::as_str)
+                && reference.starts_with(prefix)
+            {
+                out.push(reference.to_owned());
+            }
+            for child in object.values() {
+                collect_prism_references(child, prefix, out);
+            }
+        }
+        Value::Array(items) => items
+            .iter()
+            .for_each(|item| collect_prism_references(item, prefix, out)),
+        _ => {}
+    }
+}
+
+fn rewrite_prism_references(
+    value: &mut Value,
+    prefix: &str,
+    by_id: &BTreeMap<String, (String, Value)>,
+) {
+    match value {
+        Value::Object(object) => {
+            if let Some(Value::String(reference)) = object.get_mut("$ref")
+                && reference.starts_with(prefix)
+                && let Some((name, _)) = by_id.get(reference.as_str())
+            {
+                *reference = format!("#/$defs/{name}");
+            }
+            for child in object.values_mut() {
+                rewrite_prism_references(child, prefix, by_id);
+            }
+        }
+        Value::Array(items) => items
+            .iter_mut()
+            .for_each(|item| rewrite_prism_references(item, prefix, by_id)),
+        _ => {}
+    }
+}
+
+/// Prism's string grammars (paths, ids, digests) stay in JSON Schema, which
+/// the bundle tests and K's reader validate against; like the fork's fixed
+/// tags above, they are not compiled into the generated Rust, which would need
+/// a regex runtime. Applies only to Prism roots. Also promotes scalar unions
+/// (see `promote_disjoint_scalar_union`).
+fn strip_prism_patterns(schema: &mut Value) {
+    if !schema
+        .get("$id")
+        .and_then(Value::as_str)
+        .is_some_and(|id| id.starts_with("urn:prism:schema:"))
+    {
+        return;
+    }
+    fn walk(value: &mut Value) {
+        match value {
+            Value::Object(object) => {
+                object.remove("pattern");
+                promote_disjoint_scalar_union(object);
+                object.values_mut().for_each(walk);
+            }
+            Value::Array(items) => items.iter_mut().for_each(walk),
+            _ => {}
+        }
+    }
+    walk(schema);
+}
+
+/// TypeSpec writes a union of scalars and models without `@oneOf` as `anyOf`,
+/// which typify turns into a struct of flattened options that cannot hold a
+/// bare value. When the members' JSON types are pairwise distinct (string,
+/// number, boolean, object, null, and arrays told apart by element type),
+/// exactly one can match, so `oneOf`
+/// says the same thing and typify generates an untagged enum.
+fn promote_disjoint_scalar_union(object: &mut serde_json::Map<String, Value>) {
+    let Some(Value::Array(members)) = object.get("anyOf") else {
+        return;
+    };
+    let mut kinds = BTreeSet::new();
+    for member in members {
+        let kind = match member.get("type").and_then(Value::as_str) {
+            Some("integer") | Some("number") => "number".to_owned(),
+            // Arrays are disjoint when their element types are.
+            Some("array") => {
+                let items = member.get("items").unwrap_or(&Value::Null);
+                match (
+                    items.get("type").and_then(Value::as_str),
+                    items.get("$ref").and_then(Value::as_str),
+                ) {
+                    (Some("integer") | Some("number"), _) => "array:number".to_owned(),
+                    (Some(item), _) => format!("array:{item}"),
+                    (None, Some(_)) => "array:object".to_owned(),
+                    (None, None) => return,
+                }
+            }
+            Some(other) => other.to_owned(),
+            // A reference to a named model or record is an object.
+            None if member.get("$ref").is_some() => "object".to_owned(),
+            None => return,
+        };
+        if !kinds.insert(kind) {
+            return;
+        }
+    }
+    if let Some(members) = object.remove("anyOf") {
+        object.insert("oneOf".to_owned(), members);
+    }
+}
+
+/// serde_json's `arbitrary_precision` feature, which the workspace enables,
+/// breaks numbers inside a derived `#[serde(untagged)]` enum: serde buffers the
+/// input and a decimal comes back as serde_json's private number map. For
+/// Prism modules, an untagged enum therefore derives only `Serialize`, and
+/// its `Deserialize` reads a `serde_json::Value`, which keeps numbers intact,
+/// then tries the variants in declared order, as `untagged` does.
+fn buffer_untagged_through_value(
+    schema_name: &str,
+    source: &str,
+    kind_constants: &BTreeMap<String, String>,
+) -> Result<String> {
+    let mut file = syn::parse_file(source)
+        .with_context(|| format!("parse generated Rust for {schema_name}"))?;
+    let mut impls = Vec::new();
+    for item in &mut file.items {
+        let syn::Item::Enum(item_enum) = item else {
+            continue;
+        };
+        let untagged = item_enum.attrs.iter().any(|attribute| {
+            attribute.path().is_ident("serde")
+                && attribute
+                    .parse_args::<syn::Ident>()
+                    .is_ok_and(|ident| ident == "untagged")
+        });
+        if !untagged {
+            continue;
+        }
+        let name = item_enum.ident.to_string();
+        let mut attempts = String::new();
+        for variant in &item_enum.variants {
+            let syn::Fields::Unnamed(fields) = &variant.fields else {
+                bail!(
+                    "{schema_name}: untagged {name}::{} is not a one-field tuple variant",
+                    variant.ident
+                );
+            };
+            if fields.unnamed.len() != 1 {
+                bail!(
+                    "{schema_name}: untagged {name}::{} has {} fields",
+                    variant.ident,
+                    fields.unnamed.len()
+                );
+            }
+            let field = &fields.unnamed[0].ty;
+            let ty = prettyplease::unparse(&syn::parse_quote!(type T = #field;))
+                .trim()
+                .trim_start_matches("type T = ")
+                .trim_end_matches(';')
+                .to_owned();
+            // A @oneOf union of models: each variant's first property is a
+            // `kind` constant (conventions.md §12). typify types `kind` as a
+            // plain string, so dispatch on it exactly instead of trying.
+            if let Some(kind) = kind_constants.get(&ty) {
+                attempts.push_str(&format!(
+                    "if value.get(\"kind\").and_then(::serde_json::Value::as_str) == Some({kind:?}) {{ return ::serde_json::from_value::<{ty}>(value).map(Self::{}).map_err(<D::Error as ::serde::de::Error>::custom); }}\n",
+                    variant.ident
+                ));
+            } else {
+                attempts.push_str(&format!(
+                    "if let Ok(inner) = ::serde_json::from_value::<{ty}>(value.clone()) {{ return Ok(Self::{}(inner)); }}\n",
+                    variant.ident
+                ));
+            }
+        }
+        for attribute in &mut item_enum.attrs {
+            if attribute.path().is_ident("derive") {
+                let paths: syn::punctuated::Punctuated<syn::Path, syn::Token![,]> =
+                    attribute.parse_args_with(syn::punctuated::Punctuated::parse_terminated)?;
+                let kept: Vec<String> = paths
+                    .iter()
+                    .filter(|path| {
+                        path.segments
+                            .last()
+                            .is_none_or(|last| last.ident != "Deserialize")
+                    })
+                    .map(|path| {
+                        prettyplease::unparse(&syn::parse_quote!(type T = #path;))
+                            .trim()
+                            .trim_start_matches("type T = ")
+                            .trim_end_matches(';')
+                            .to_owned()
+                    })
+                    .collect();
+                *attribute = syn::parse_str::<syn::DeriveInput>(&format!(
+                    "#[derive({})] struct S;",
+                    kept.join(", ")
+                ))?
+                .attrs
+                .remove(0);
+            }
+        }
+        impls.push(format!(
+            "impl<'de> ::serde::Deserialize<'de> for {name} {{\n\
+             #[allow(clippy::too_many_lines, reason = \"generated: one dispatch arm per union variant\")]\n\
+             fn deserialize<D: ::serde::Deserializer<'de>>(deserializer: D) -> ::std::result::Result<Self, D::Error> {{\n\
+             let value = <::serde_json::Value as ::serde::Deserialize>::deserialize(deserializer)?;\n\
+             {attempts}\
+             Err(<D::Error as ::serde::de::Error>::custom(\"data did not match any variant of untagged enum {name}\"))\n\
+             }}\n}}\n"
+        ));
+    }
+    for source in impls {
+        file.items
+            .push(syn::parse_str(&source).context("parse generated Deserialize impl")?);
+    }
+    Ok(prettyplease::unparse(&file))
+}
+
+/// Property names in declared order, for the root (under its `title`) and for
+/// every `$defs` entry. typify reads properties through schemars' sorted map,
+/// so its structs come out in alphabetical order; conventions.md §13 wants
+/// Prism members written in declared order, `schema` first.
+fn declared_property_order(schema: &Value) -> BTreeMap<String, (Vec<String>, BTreeSet<String>)> {
+    let mut order = BTreeMap::new();
+    let mut add = |name: &str, definition: &Value| {
+        if let Some(properties) = definition.get("properties").and_then(Value::as_object) {
+            let required = definition
+                .get("required")
+                .and_then(Value::as_array)
+                .map(|names| {
+                    names
+                        .iter()
+                        .filter_map(Value::as_str)
+                        .map(str::to_owned)
+                        .collect()
+                })
+                .unwrap_or_default();
+            order.insert(
+                name.to_owned(),
+                (properties.keys().cloned().collect(), required),
+            );
+        }
+    };
+    if let Some(title) = schema.get("title").and_then(Value::as_str) {
+        add(title, schema);
+    }
+    if let Some(definitions) = schema.get("$defs").and_then(Value::as_object) {
+        for (name, definition) in definitions {
+            add(name, definition);
+        }
+    }
+    order
+}
+
+fn restore_declared_field_order(
+    schema_name: &str,
+    source: &str,
+    order: &BTreeMap<String, (Vec<String>, BTreeSet<String>)>,
+) -> Result<String> {
+    let mut file = syn::parse_file(source)
+        .with_context(|| format!("parse generated Rust for {schema_name}"))?;
+    for item in &mut file.items {
+        let syn::Item::Struct(item_struct) = item else {
+            continue;
+        };
+        let Some((properties, required)) = order.get(&item_struct.ident.to_string()) else {
+            continue;
+        };
+        let syn::Fields::Named(fields) = &mut item_struct.fields else {
+            continue;
+        };
+        let json_name = |field: &syn::Field| -> String {
+            for attribute in &field.attrs {
+                if !attribute.path().is_ident("serde") {
+                    continue;
+                }
+                let mut renamed = None;
+                let _ = attribute.parse_nested_meta(|meta| {
+                    if meta.path.is_ident("rename") {
+                        renamed = Some(meta.value()?.parse::<syn::LitStr>()?.value());
+                    } else if meta.input.peek(syn::Token![=]) {
+                        let _ = meta.value()?.parse::<syn::Expr>()?;
+                    }
+                    Ok(())
+                });
+                if let Some(renamed) = renamed {
+                    return renamed;
+                }
+            }
+            field
+                .ident
+                .as_ref()
+                .map(|ident| ident.to_string().trim_start_matches("r#").to_owned())
+                .unwrap_or_default()
+        };
+        let mut sorted: Vec<syn::Field> = fields.named.iter().cloned().collect();
+        let position = |field: &syn::Field| {
+            let name = json_name(field);
+            properties
+                .iter()
+                .position(|property| *property == name)
+                .unwrap_or(usize::MAX)
+        };
+        if sorted.iter().any(|field| position(field) == usize::MAX) {
+            bail!(
+                "{schema_name}: {} has a field outside its declared properties",
+                item_struct.ident
+            );
+        }
+        sorted.sort_by_key(position);
+        for field in &mut sorted {
+            let optional = !required.contains(&json_name(field));
+            drop_empty_collection_skip(field)?;
+            if optional {
+                wrap_optional_collection(field)?;
+            }
+        }
+        fields.named = sorted.into_iter().collect();
+    }
+    Ok(prettyplease::unparse(&file))
+}
+
+/// For every `$defs` model whose `kind` property is a string constant, its name
+/// and that constant: the discriminators of Prism's `@oneOf` unions.
+fn variant_kind_constants(schema: &Value) -> BTreeMap<String, String> {
+    let mut constants = BTreeMap::new();
+    if let Some(definitions) = schema.get("$defs").and_then(Value::as_object) {
+        for (name, definition) in definitions {
+            if let Some(kind) = definition
+                .pointer("/properties/kind/const")
+                .and_then(Value::as_str)
+            {
+                constants.insert(name.clone(), kind.to_owned());
+            }
+        }
+    }
+    constants
+}
+
+/// typify skips an empty optional array or map on output
+/// (`skip_serializing_if = "…is_empty"`). Prism writes `[]` and `{}` whenever
+/// the value is present: arrays and maps are always present in new documents
+/// (conventions.md §10), and parity documents reproduce today's empty lists.
+/// Only `Option` fields are skipped when absent.
+fn drop_empty_collection_skip(field: &mut syn::Field) -> Result<()> {
+    for attribute in &mut field.attrs {
+        if !attribute.path().is_ident("serde") {
+            continue;
+        }
+        let mut kept: Vec<String> = Vec::new();
+        let mut dropped = false;
+        attribute.parse_nested_meta(|meta| {
+            let path = meta
+                .path
+                .get_ident()
+                .map(ToString::to_string)
+                .unwrap_or_default();
+            if meta.input.peek(syn::Token![=]) {
+                let value: syn::Expr = meta.value()?.parse()?;
+                let text = prettyplease::unparse(&syn::parse_quote!(const C: () = #value;));
+                if path == "skip_serializing_if" && text.contains("is_empty") {
+                    dropped = true;
+                } else {
+                    let value = text
+                        .trim()
+                        .trim_start_matches("const C: () = ")
+                        .trim_end_matches(';')
+                        .to_owned();
+                    kept.push(format!("{path} = {value}"));
+                }
+            } else {
+                kept.push(path);
+            }
+            Ok(())
+        })?;
+        if dropped {
+            *attribute = syn::parse_str::<syn::DeriveInput>(&format!(
+                "#[serde({})] struct S;",
+                kept.join(", ")
+            ))?
+            .attrs
+            .remove(0);
+        }
+    }
+    Ok(())
+}
+
+/// typify gives an optional array or map `#[serde(default)]`, so an absent
+/// field reads back as empty and is written as `[]`. Absent and empty are
+/// different JSON values (conventions.md §10, and parity documents reproduce
+/// today's absent fields), so an optional collection becomes an `Option`.
+fn wrap_optional_collection(field: &mut syn::Field) -> Result<()> {
+    let syn::Type::Path(path) = &field.ty else {
+        return Ok(());
+    };
+    let Some(last) = path.path.segments.last() else {
+        return Ok(());
+    };
+    if !matches!(last.ident.to_string().as_str(), "Vec" | "BTreeMap") {
+        return Ok(());
+    }
+    let inner = field.ty.clone();
+    field.ty = syn::parse_quote!(::std::option::Option<#inner>);
+    for attribute in &mut field.attrs {
+        if !attribute.path().is_ident("serde") {
+            continue;
+        }
+        let mut kept: Vec<String> = Vec::new();
+        attribute.parse_nested_meta(|meta| {
+            let path = meta
+                .path
+                .get_ident()
+                .map(ToString::to_string)
+                .unwrap_or_default();
+            if meta.input.peek(syn::Token![=]) {
+                let value: syn::Expr = meta.value()?.parse()?;
+                if path == "rename" {
+                    let text = prettyplease::unparse(&syn::parse_quote!(const C: () = #value;));
+                    kept.push(format!(
+                        "rename = {}",
+                        text.trim()
+                            .trim_start_matches("const C: () = ")
+                            .trim_end_matches(';')
+                    ));
+                }
+            }
+            Ok(())
+        })?;
+        kept.push("default".to_owned());
+        kept.push("skip_serializing_if = \"::std::option::Option::is_none\"".to_owned());
+        *attribute = syn::parse_str::<syn::DeriveInput>(&format!(
+            "#[serde({})] struct S;",
+            kept.join(", ")
+        ))?
+        .attrs
+        .remove(0);
+        return Ok(());
+    }
+    field.attrs.push(syn::parse_quote!(
+        #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+    ));
+    Ok(())
 }
