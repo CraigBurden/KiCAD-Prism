@@ -33,6 +33,7 @@ from app.services.catalog.kicad_embedded_files import (
     embedded_model_name,
     original_model_name,
 )
+from app.services import kicad_footprint_normalizer
 from app.services.design_bundle import reader
 from app.services.design_bundle.archive import open_archive
 from app.services.design_bundle.consumer import BundleRead
@@ -589,6 +590,29 @@ class ProjectBundleAssetTests(BundleFixture):
             self.assertNotIn(board_only, fallback)
         self.assertIn('(property "Reference" "REF**"', fallback)
         self.assertIn('(pad "1" smd rect (at 0 0) (size 1 1)', fallback)
+
+    def test_a_rotated_board_fallback_is_returned_to_zero_degrees(self) -> None:
+        self.project = project_doc(
+            footprint_target={"kind": "absolute", "path": "/opt/libs/Acme.pretty"},
+        )
+        self.sources["demo.kicad_pcb"] = board_text().replace("\t\t(at 10 20)\n", "\t\t(at 10 20 90)\n")
+        self.placements = placements_doc(board_span(self.sources["demo.kicad_pcb"]))
+        seen: list[bytes] = []
+
+        def normalize(payload: bytes, _name: str) -> kicad_footprint_normalizer.NormalizedFootprint:
+            seen.append(payload)
+            return kicad_footprint_normalizer.NormalizedFootprint(
+                payload=payload.replace(b"(at 0 0 90)", b""), changed=True, rotated=True, rotation_degrees=90.0
+            )
+
+        with mock.patch.object(kicad_footprint_normalizer, "normalize_footprint", side_effect=normalize):
+            assets, findings, _resolved = self.extract()
+
+        # The placement angle reaches the normalizer; the position does not.
+        self.assertIn(b"(at 0 0 90)", seen[0])
+        self.assertNotIn(b"(at 10 20", seen[0])
+        self.assertIn("footprint_rotation_normalized", {finding["code"] for finding in findings})
+        self.assertNotIn("(at 0 0 90)", self.payload(self.by_type(assets, "footprint")))
 
     def test_a_board_land_pattern_change_is_reported(self) -> None:
         self.sources["demo.kicad_pcb"] = board_text(pad_one_size="3 3")

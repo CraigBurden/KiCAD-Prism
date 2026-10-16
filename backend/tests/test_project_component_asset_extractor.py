@@ -10,6 +10,7 @@ BACKEND_ROOT = Path(__file__).resolve().parents[1]
 if str(BACKEND_ROOT) not in sys.path:
     sys.path.insert(0, str(BACKEND_ROOT))
 
+from app.services.kicad_footprint_normalizer import NormalizedFootprint  # noqa: E402
 from app.services.project_component_asset_extractor import (  # noqa: E402
     ContentAddressedAssetStager,
     build_project_asset_index,
@@ -60,7 +61,13 @@ class ProjectComponentAssetExtractorTests(unittest.TestCase):
                 "pcbRefs": [{"footprintUuid": "footprint-uuid"}],
             }
 
-            assets, findings, resolved = extract_component_assets(root, component, staging_dir=root / "staging")
+            # U12 is placed at 90 degrees; returning it to 0 needs pcbnew, which
+            # test_kicad_footprint_rotation covers. Here the bytes pass through.
+            with mock.patch(
+                "app.services.kicad_footprint_normalizer.normalize_footprint",
+                side_effect=lambda payload, _name: NormalizedFootprint(payload=payload, changed=False),
+            ):
+                assets, findings, resolved = extract_component_assets(root, component, staging_dir=root / "staging")
 
             self.assertEqual([asset["asset_type"] for asset in assets], ["symbol", "footprint", "3dmodel"])
             self.assertEqual(findings, [])

@@ -45,6 +45,7 @@ from app.services.project_component_asset_extractor import (
     _symbol_library_payload,
     _write_staged_asset,
     footprint_land_pattern,
+    footprint_normalization_findings,
     sanitize_board_footprint,
 )
 
@@ -413,30 +414,10 @@ class ProjectBundleAssetIndex:
         if board_block is not None:
             board_version = library_header(board_text)[0] if board_text else "20240108"
             _, board_payload, _model_paths = sanitize_board_footprint(board_block, lib_id, version=board_version)
-            normalized = kicad_footprint_normalizer.normalize_to_front(board_payload, footprint_name)
+            normalized = kicad_footprint_normalizer.normalize_footprint(board_payload, footprint_name)
             if normalized.changed:
                 board_payload = normalized.payload
-                findings.append(
-                    {
-                        "code": "footprint_side_normalized",
-                        "severity": "warning",
-                        "message": (
-                            f"{reference} is placed on the back of the board. Its footprint was "
-                            "flipped to the front so the library copy matches KiCad convention."
-                        ),
-                    }
-                )
-            elif normalized.error:
-                findings.append(
-                    {
-                        "code": "footprint_side_normalization_failed",
-                        "severity": "warning",
-                        "message": (
-                            f"{reference} is placed on the back of the board and its footprint could "
-                            f"not be flipped to the front ({normalized.error}). It will import mirrored."
-                        ),
-                    }
-                )
+            findings.extend(footprint_normalization_findings(reference, normalized))
 
         library = self._footprint_libraries.get(nickname)
         library_path = ""
