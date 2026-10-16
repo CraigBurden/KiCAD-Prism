@@ -119,17 +119,14 @@ impl Walk<'_> {
 
     /// A `(variant …)` header or instance record (`variant_source_scan.py:90-114`).
     fn visit_variant(&mut self, form: &Form, depth: i64, parent: Option<Tag>) -> Option<()> {
-        let is_header = self.root == "kicad_pcb" && parent == Some(Tag::Variants) && depth == 2;
-        let is_record = (self.root == "kicad_pcb" && parent == Some(Tag::Footprint))
-            || (self.root == "kicad_sch"
-                && parent == Some(Tag::Path)
-                && self.parents.iter().any(|(_, tag)| *tag == Tag::Instances));
+        let is_header = self.is_variant_header(depth, parent);
+        let is_record = self.is_variant_record(parent);
         if !is_header && !is_record {
             return Some(());
         }
         let end = end_of_form(self.mask, form.start)?;
         let (name, description) = variant_fields(self.text, self.mask, form.tag_end, end)?;
-        let Some(name) = name.filter(|name| !name.is_empty() && name != "< Default >") else {
+        let Some(name) = meaningful_variant_name(name) else {
             return Some(());
         };
         if is_header {
@@ -138,6 +135,22 @@ impl Walk<'_> {
             self.records.names.push(name);
         }
         Some(())
+    }
+
+    /// `root == "kicad_pcb" and parent == "variants" and depth == 2`
+    /// (`variant_source_scan.py:91-92`).
+    fn is_variant_header(&self, depth: i64, parent: Option<Tag>) -> bool {
+        self.root == "kicad_pcb" && parent == Some(Tag::Variants) && depth == 2
+    }
+
+    /// `root == "kicad_pcb" and parent == "footprint"`, or `root ==
+    /// "kicad_sch"` under a `(path …)` inside an `(instances …)`
+    /// (`variant_source_scan.py:93-95`).
+    fn is_variant_record(&self, parent: Option<Tag>) -> bool {
+        (self.root == "kicad_pcb" && parent == Some(Tag::Footprint))
+            || (self.root == "kicad_sch"
+                && parent == Some(Tag::Path)
+                && self.parents.iter().any(|(_, tag)| *tag == Tag::Instances))
     }
 }
 
@@ -169,42 +182,42 @@ fn variant_fields(
     Some((name, description))
 }
 
+/// The name a record keeps (`variant_source_scan.py:97-98`): non-empty and not
+/// the reserved `< Default >` header name.
+fn meaningful_variant_name(name: Option<String>) -> Option<String> {
+    name.filter(|name| !name.is_empty() && name != "< Default >")
+}
+
 /// The `_NAME` form (`variant_source_scan.py:19`): `(name "…")` or
 /// `(description "…")` exactly, returning `(key, quoted token)`.
-fn name_form(slice: &str) -> Option<(&str, &str)> {
+fn name_form(slice: &str) -> Option<(&'static str, &str)> {
     let bytes = slice.as_bytes();
     if bytes.first() != Some(&b'(') {
         return None;
     }
-    let mut at = 1;
-    while at < bytes.len() && space_len(bytes, at) > 0 {
-        at += space_len(bytes, at);
-    }
-    let key = if starts_word(bytes, at, b"name") {
-        at += "name".len();
-        "name"
-    } else if starts_word(bytes, at, b"description") {
-        at += "description".len();
-        "description"
-    } else {
-        return None;
-    };
-    if at >= bytes.len() || space_len(bytes, at) == 0 {
+    let (key, after_key) = name_key(bytes, skip_spaces(bytes, 1))?;
+    if after_key >= bytes.len() || space_len(bytes, after_key) == 0 {
         return None;
     }
-    while at < bytes.len() && space_len(bytes, at) > 0 {
-        at += space_len(bytes, at);
-    }
-    let token_start = at;
-    let token_end = match_quoted(bytes, at)?;
-    let mut after = token_end;
-    while after < bytes.len() && space_len(bytes, after) > 0 {
-        after += space_len(bytes, after);
-    }
+    let token_start = skip_spaces(bytes, after_key);
+    let token_end = match_quoted(bytes, token_start)?;
+    let after = skip_spaces(bytes, token_end);
     if after + 1 != bytes.len() || bytes[after] != b')' {
         return None;
     }
     Some((key, &slice[token_start..token_end]))
+}
+
+/// `_NAME`'s `name`/`description` alternation, returning the key and the offset
+/// just past it (`variant_source_scan.py:19`).
+fn name_key(bytes: &[u8], at: usize) -> Option<(&'static str, usize)> {
+    if starts_word(bytes, at, b"name") {
+        Some(("name", at + "name".len()))
+    } else if starts_word(bytes, at, b"description") {
+        Some(("description", at + "description".len()))
+    } else {
+        None
+    }
 }
 
 /// The `_PROPERTY` form (`variant_source_scan.py:20`): `(property "…" "…")`,
@@ -214,32 +227,30 @@ fn property_pair(text: &str, start: usize) -> Option<(&str, &str)> {
     if start >= bytes.len() || bytes[start] != b'(' {
         return None;
     }
-    let mut at = start + 1;
-    while at < bytes.len() && space_len(bytes, at) > 0 {
-        at += space_len(bytes, at);
-    }
+    let at = skip_spaces(bytes, start + 1);
     if !starts_word(bytes, at, b"property") {
         return None;
     }
-    at += "property".len();
-    if at >= bytes.len() || space_len(bytes, at) == 0 {
+    let after_key = at + "property".len();
+    if after_key >= bytes.len() || space_len(bytes, after_key) == 0 {
         return None;
     }
-    while at < bytes.len() && space_len(bytes, at) > 0 {
-        at += space_len(bytes, at);
-    }
-    let key_start = at;
-    let key_end = match_quoted(bytes, at)?;
-    at = key_end;
-    if at >= bytes.len() || space_len(bytes, at) == 0 {
+    let key_start = skip_spaces(bytes, after_key);
+    let key_end = match_quoted(bytes, key_start)?;
+    if key_end >= bytes.len() || space_len(bytes, key_end) == 0 {
         return None;
     }
-    while at < bytes.len() && space_len(bytes, at) > 0 {
-        at += space_len(bytes, at);
-    }
-    let value_start = at;
-    let value_end = match_quoted(bytes, at)?;
+    let value_start = skip_spaces(bytes, key_end);
+    let value_end = match_quoted(bytes, value_start)?;
     Some((&text[key_start..key_end], &text[value_start..value_end]))
+}
+
+/// The `\s*` run from `at`, returning the offset just past it.
+fn skip_spaces(bytes: &[u8], mut at: usize) -> usize {
+    while at < bytes.len() && space_len(bytes, at) > 0 {
+        at += space_len(bytes, at);
+    }
+    at
 }
 
 /// `json.loads` on a quoted token (`variant_source_scan.py:107`, `:117-118`).
@@ -343,25 +354,25 @@ fn match_tag(mask: &[u8], at: usize) -> Option<(Tag, usize)> {
 fn has_relevant_form(text: &str) -> bool {
     let bytes = text.as_bytes();
     for (at, &byte) in bytes.iter().enumerate() {
-        if byte != b'(' {
-            continue;
-        }
-        let mut word = at + 1;
-        while word < bytes.len() && space_len(bytes, word) > 0 {
-            word += space_len(bytes, word);
-        }
-        if !starts_word(bytes, word, b"variant") {
-            continue;
-        }
-        let mut end = word + "variant".len();
-        if end < bytes.len() && bytes[end] == b's' {
-            end += 1;
-        }
-        if end >= bytes.len() || space_len(bytes, end) > 0 || bytes[end] == b')' {
+        if byte == b'(' && variant_form_at(bytes, at) {
             return true;
         }
     }
     false
+}
+
+/// `\(\s*variant s? (?=\s|\))` at the `(` at `at` (`_RELEVANT`,
+/// `variant_source_scan.py:16`).
+fn variant_form_at(bytes: &[u8], at: usize) -> bool {
+    let word = skip_spaces(bytes, at + 1);
+    if !starts_word(bytes, word, b"variant") {
+        return false;
+    }
+    let mut end = word + "variant".len();
+    if end < bytes.len() && bytes[end] == b's' {
+        end += 1;
+    }
+    end >= bytes.len() || space_len(bytes, end) > 0 || bytes[end] == b')'
 }
 
 /// Mask every quoted span (`variant_source_scan.py:54-61`), returning the mask
@@ -514,6 +525,137 @@ fn is_python_space(character: char) -> bool {
     character.is_whitespace() || ('\u{1c}'..='\u{1f}').contains(&character)
 }
 
+// ---------------------------------------------------------------------------
+// The variant/rule-area diagnostics scans (semantic_index_variants.py:535-561).
+// These run over the raw text (not the masked copy): Python's `_VARIANT_START`,
+// `_RULE_AREA_START` and `_RULE_AREA_FLAGS` are plain `re` searches, and only
+// `kicad_library_reader.form_end` is quote-aware (`_SEXPR_SCAN`, :32-56).
+// ---------------------------------------------------------------------------
+
+/// `kicad_library_reader.form_end(text, start)` (kicad_library_reader.py:35-56):
+/// the offset just past the form opening at `start`, or `None` when the text is
+/// unbalanced or carries an unterminated string.
+pub(super) fn form_end(text: &str, start: usize) -> Option<usize> {
+    let bytes = text.as_bytes();
+    let mut depth = 0i64;
+    let mut at = start;
+    while at < bytes.len() {
+        match bytes[at] {
+            // `_SEXPR_SCAN`'s string alternative needs a closing quote; a
+            // string without one (including `"…\"` at the end of the text,
+            // whose last quote is escaped) leaves a bare `"`: no form end.
+            b'"' => at = match_quoted(bytes, at)?,
+            b'(' => {
+                depth += 1;
+                at += 1;
+            }
+            b')' => {
+                depth -= 1;
+                if depth == 0 {
+                    return Some(at + 1);
+                }
+                if depth < 0 {
+                    return None;
+                }
+                at += 1;
+            }
+            _ => at += 1,
+        }
+    }
+    None
+}
+
+/// `form_starts`/`_VARIANT_START`/`_RULE_AREA_START` (`(head(?=\s|\))`) over the
+/// raw text, in order (`kicad_library_reader.py:59-62`).
+fn form_starts(text: &str, head: &str) -> Vec<usize> {
+    let bytes = text.as_bytes();
+    let needle = head.as_bytes();
+    let mut starts = Vec::new();
+    let mut at = 0;
+    while at + 1 + needle.len() <= bytes.len() {
+        if bytes[at] == b'(' && &bytes[at + 1..at + 1 + needle.len()] == needle {
+            let end = at + 1 + needle.len();
+            if end < bytes.len() && (space_len(bytes, end) > 0 || bytes[end] == b')') {
+                starts.push(at);
+                at = end;
+                continue;
+            }
+        }
+        at += 1;
+    }
+    starts
+}
+
+/// `_scan_unsupported_tokens(text, suffix)` (semantic_index_variants.py:535-545):
+/// the first-seen token of `candidates` found inside any `(variant …)` block.
+pub(super) fn unsupported_tokens(text: &str, candidates: &[&str]) -> Vec<String> {
+    let mut found: Vec<String> = Vec::new();
+    for start in form_starts(text, "variant") {
+        let Some(end) = form_end(text, start) else {
+            continue;
+        };
+        let block = &text[start..end];
+        for token in candidates {
+            if !found.iter().any(|seen| seen == token) && block.contains(&format!("({token}")) {
+                found.push((*token).to_owned());
+            }
+        }
+    }
+    found
+}
+
+/// `_scan_rule_areas(text)` (semantic_index_variants.py:548-561): one detail
+/// map per `(rule_area …)` block that sets a recognized flag, in `_RULE_AREA_FLAGS`
+/// order.
+pub(super) fn rule_areas(text: &str) -> Vec<Vec<(&'static str, bool)>> {
+    const FLAGS: [(&str, &str, bool); 4] = [
+        ("dnp", "yes", true),
+        ("in_bom", "no", false),
+        ("on_board", "no", false),
+        ("exclude_from_sim", "yes", true),
+    ];
+    let mut areas = Vec::new();
+    for start in form_starts(text, "rule_area") {
+        let Some(end) = form_end(text, start) else {
+            continue;
+        };
+        let block = &text[start..end];
+        let detail = FLAGS
+            .iter()
+            .filter(|(key, value, _)| contains_flag_expression(block, key, value))
+            .map(|(key, _, flag)| (*key, *flag))
+            .collect::<Vec<_>>();
+        if !detail.is_empty() {
+            areas.push(detail);
+        }
+    }
+    areas
+}
+
+/// `\(key\s+value\)` over the raw block (`_RULE_AREA_FLAGS`, :65-70).
+fn contains_flag_expression(block: &str, key: &str, value: &str) -> bool {
+    let bytes = block.as_bytes();
+    let mut at = 0;
+    while at < bytes.len() {
+        if bytes[at] == b'(' && starts_word(bytes, at + 1, key.as_bytes()) {
+            let mut position = at + 1 + key.len();
+            let mut spaces = 0;
+            while position < bytes.len() && space_len(bytes, position) > 0 {
+                position += space_len(bytes, position);
+                spaces += 1;
+            }
+            if spaces > 0 && starts_word(bytes, position, value.as_bytes()) {
+                let close = position + value.len();
+                if close < bytes.len() && bytes[close] == b')' {
+                    return true;
+                }
+            }
+        }
+        at += 1;
+    }
+    false
+}
+
 #[cfg(test)]
 mod tests {
     use super::scan;
@@ -590,5 +732,61 @@ mod tests {
             "kicad_pcb",
         );
         assert_eq!(records.header, [("A".to_owned(), Some("d".to_owned()))]);
+    }
+
+    /// `_scan_unsupported_tokens` (semantic_index_variants.py:535-545): first
+    /// seen across variant blocks, checked in token order per block.
+    #[test]
+    fn unsupported_tokens_are_first_seen_across_variant_blocks() {
+        let tokens = super::unsupported_tokens(
+            "(kicad_sch (symbol (instances \
+             (path \"/\" (variant (name \"V\") (symbol_override yes))))) \
+             (symbol (instances (path \"/\" (variant (name \"W\") (pin_map_override x))))))",
+            &["symbol_override", "pin_map_override"],
+        );
+        assert_eq!(tokens, ["symbol_override", "pin_map_override"]);
+
+        // A token outside any variant block is not reported.
+        assert!(
+            super::unsupported_tokens("(kicad_sch (symbol_override yes))", &["symbol_override"])
+                .is_empty()
+        );
+    }
+
+    /// `_scan_rule_areas` (semantic_index_variants.py:548-561): one detail map
+    /// per block that sets a recognized flag, in `_RULE_AREA_FLAGS` order.
+    #[test]
+    fn rule_area_flags_are_reported_in_flag_order() {
+        let areas = super::rule_areas(
+            "(kicad_sch (rule_area (polygon) (on_board no) (dnp yes)) \
+             (rule_area (polygon)) \
+             (rule_area (in_bom no) (exclude_from_sim yes)))",
+        );
+        assert_eq!(
+            areas,
+            vec![
+                vec![("dnp", true), ("on_board", false)],
+                vec![("in_bom", false), ("exclude_from_sim", true)],
+            ]
+        );
+        assert!(super::rule_areas("(kicad_sch (rule_area (dnp no)))").is_empty());
+    }
+
+    /// `kicad_library_reader.form_end` (`:35-56`) stops on an unbalanced form
+    /// and never counts parentheses inside a quoted string.
+    #[test]
+    fn form_end_is_quote_aware_and_balanced() {
+        let text = "(a \"(b)\" (c d)) tail";
+        assert_eq!(super::form_end(text, 0), Some(15));
+        assert_eq!(super::form_end("(a (b)", 0), None);
+        assert_eq!(super::form_end("(a \"unterminated)", 0), None);
+    }
+
+    #[test]
+    fn form_end_refuses_an_unterminated_string() {
+        // kicad_library_reader.form_end: a bare quote returns None.
+        assert_eq!(super::form_end("(a \"x\")", 0), Some(7));
+        assert_eq!(super::form_end("(a \"x\\\"", 0), None);
+        assert_eq!(super::form_end("(a \"x\\\n\")", 0), None);
     }
 }

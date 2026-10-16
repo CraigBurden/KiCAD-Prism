@@ -66,6 +66,12 @@ def cmd_compare(args) -> int:
     return compare.main(args)
 
 
+def cmd_bundles(args) -> int:
+    from . import build
+
+    return build.main(args)
+
+
 def cmd_selftest(args) -> int:
     from . import selftest
 
@@ -102,6 +108,13 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--quiet", action="store_true", help="print only failures and the summary")
     p.add_argument("--validate", action="store_true", help="also validate each member against its schema (needs node and native/node_modules)")
     p.set_defaults(func=cmd_compare)
+
+    p = sub.add_parser("bundles", help="build every fixture's parse-stage bundle with prism-kicad")
+    p.add_argument("--prism-kicad", required=True, help="the prism-kicad binary")
+    p.add_argument("--out", required=True, help="directory for <case>.prism")
+    p.add_argument("--cases", default="all", help="comma-separated case ids")
+    p.add_argument("--no-upgrade", action="store_true", help="do not look for KiCad: skip cases whose sources need its upgrade")
+    p.set_defaults(func=cmd_bundles)
 
     p = sub.add_parser("selftest", help="run the runner on the goldens themselves and on a deliberate change")
     p.add_argument("--goldens", default=str(fx.GOLDENS_DIR))

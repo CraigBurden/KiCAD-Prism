@@ -34,6 +34,37 @@ const REQUIRED_BOM_FIELDS: [&str; 17] = [
 /// `_TRUTHY_FLAGS` (semantic_index_service.py:438).
 const TRUTHY_FLAGS: [&str; 5] = ["1", "true", "yes", "y", "dnp"];
 
+/// The `_canonical_fields` parameter lookups (`pick`), in the constant's order
+/// (semantic_index_service.py:493-511): `(field, aliases)`. `Value`,
+/// `Description` and `Footprint` additionally fall back to the component's own
+/// value through `or_pick`.
+const CANONICAL_PICKS: [(&str, &[&str]); 15] = [
+    ("Value", &[]),
+    ("Description", &[]),
+    (
+        "Datasheet",
+        &["Data Sheet", "Datasheet URL", "Datasheet Link"],
+    ),
+    ("Manufacturer", &["MFR", "Mfr"]),
+    (
+        "Manufacturer Part Number",
+        &["MPN", "Mfr Part", "Mfr Part Number"],
+    ),
+    ("Vendor", &["Supplier"]),
+    (
+        "Vendor Part Number",
+        &["VPN", "Supplier Part Number", "Supplier PN"],
+    ),
+    ("Footprint", &[]),
+    ("Mass (g)", &["Mass", "Weight (g)"]),
+    ("RQjC (C/W)", &["RθJC (C/W)", "RthJC"]),
+    ("RQjC_top (C/W)", &["RθJC_top (C/W)", "RthJC Top"]),
+    ("Temp_max (C)", &["Max Temperature", "Tj Max"]),
+    ("Temp_min (C)", &["Min Temperature", "Tj Min"]),
+    ("Power Dissipation (W)", &["Power Dissipation", "Pd (W)"]),
+    ("Rate", &["Rating"]),
+];
+
 /// Append every designated component of `design.json` to `state.components`
 /// and fill `componentByReference`, `componentBySchematicUuid` and
 /// `state.component_by_reference`.
@@ -121,106 +152,65 @@ fn merged_parameters(component: &Value, overlay: Option<&Fields>) -> Fields {
 /// `_canonical_fields` (semantic_index_service.py:467-513).
 fn canonical_fields(component: &Value, parameters: &Fields) -> BTreeMap<String, String> {
     // In the parameters' order, so a later key wins a casefold collision.
-    let casefolded: BTreeMap<String, String> = parameters
-        .iter()
-        .map(|(key, value)| (folded_key(key), value.clone()))
-        .collect();
-    let pick = |name: &str, aliases: &[&str]| -> String {
-        std::iter::once(name)
-            .chain(aliases.iter().copied())
-            .find_map(|candidate| {
-                casefolded
-                    .get(&folded_key(candidate))
-                    .filter(|value| !value.is_empty())
-                    .cloned()
-            })
-            .unwrap_or_default()
-    };
+    let casefolded = casefolded_parameters(parameters);
     let dnp = resolve_dnp(parameters, &casefolded);
-    let in_bom_raw = casefolded
-        .get("kicadinbom")
-        .map_or("", String::as_str)
-        .trim();
-    let in_bom = if !in_bom_raw.is_empty() && !is_truthy_flag(in_bom_raw) {
-        "No"
-    } else {
-        "Yes"
-    };
+    let in_bom = in_bom_value(&casefolded);
     let mut fields = BTreeMap::new();
-    fields.insert(
-        "Value".to_owned(),
-        or_pick(string(component.get("value")), pick("Value", &[])),
-    );
+    for (name, aliases) in CANONICAL_PICKS {
+        let picked = pick(&casefolded, name, aliases);
+        let value = match name {
+            "Value" => or_pick(string(component.get("value")), picked),
+            "Description" => or_pick(string(component.get("description")), picked),
+            "Footprint" => or_pick(string(component.get("footprint")), picked),
+            _ => picked,
+        };
+        fields.insert(name.to_owned(), value);
+    }
     fields.insert("DNP".to_owned(), dnp);
     fields.insert("In BOM".to_owned(), in_bom.to_owned());
-    fields.insert(
-        "Description".to_owned(),
-        or_pick(
-            string(component.get("description")),
-            pick("Description", &[]),
-        ),
-    );
-    fields.insert(
-        "Datasheet".to_owned(),
-        pick(
-            "Datasheet",
-            &["Data Sheet", "Datasheet URL", "Datasheet Link"],
-        ),
-    );
-    fields.insert(
-        "Manufacturer".to_owned(),
-        pick("Manufacturer", &["MFR", "Mfr"]),
-    );
-    fields.insert(
-        "Manufacturer Part Number".to_owned(),
-        pick(
-            "Manufacturer Part Number",
-            &["MPN", "Mfr Part", "Mfr Part Number"],
-        ),
-    );
-    fields.insert("Vendor".to_owned(), pick("Vendor", &["Supplier"]));
-    fields.insert(
-        "Vendor Part Number".to_owned(),
-        pick(
-            "Vendor Part Number",
-            &["VPN", "Supplier Part Number", "Supplier PN"],
-        ),
-    );
-    fields.insert(
-        "Footprint".to_owned(),
-        or_pick(string(component.get("footprint")), pick("Footprint", &[])),
-    );
-    fields.insert(
-        "Mass (g)".to_owned(),
-        pick("Mass (g)", &["Mass", "Weight (g)"]),
-    );
-    fields.insert(
-        "RQjC (C/W)".to_owned(),
-        pick("RQjC (C/W)", &["RθJC (C/W)", "RthJC"]),
-    );
-    fields.insert(
-        "RQjC_top (C/W)".to_owned(),
-        pick("RQjC_top (C/W)", &["RθJC_top (C/W)", "RthJC Top"]),
-    );
-    fields.insert(
-        "Temp_max (C)".to_owned(),
-        pick("Temp_max (C)", &["Max Temperature", "Tj Max"]),
-    );
-    fields.insert(
-        "Temp_min (C)".to_owned(),
-        pick("Temp_min (C)", &["Min Temperature", "Tj Min"]),
-    );
-    fields.insert(
-        "Power Dissipation (W)".to_owned(),
-        pick("Power Dissipation (W)", &["Power Dissipation", "Pd (W)"]),
-    );
-    fields.insert("Rate".to_owned(), pick("Rate", &["Rating"]));
     for (key, value) in parameters.iter() {
         if !REQUIRED_BOM_FIELDS.contains(&key.as_str()) {
             fields.insert(key.clone(), value.clone());
         }
     }
     fields
+}
+
+/// `{re.sub(r"[^a-z0-9]", "", key.casefold()): value}` over the parameters
+/// (semantic_index_service.py:474, :483), in their order.
+fn casefolded_parameters(parameters: &Fields) -> BTreeMap<String, String> {
+    parameters
+        .iter()
+        .map(|(key, value)| (folded_key(key), value.clone()))
+        .collect()
+}
+
+/// The `pick(name, *aliases)` lookup (semantic_index_service.py:475-482): the
+/// first candidate whose casefolded value is non-empty.
+fn pick(casefolded: &BTreeMap<String, String>, name: &str, aliases: &[&str]) -> String {
+    std::iter::once(name)
+        .chain(aliases.iter().copied())
+        .find_map(|candidate| {
+            casefolded
+                .get(&folded_key(candidate))
+                .filter(|value| !value.is_empty())
+                .cloned()
+        })
+        .unwrap_or_default()
+}
+
+/// `_canonical_fields`'s `In BOM` (semantic_index_service.py:504-509): a
+/// non-empty, non-truthy `KiCadInBom` is `"No"`, everything else `"Yes"`.
+fn in_bom_value(casefolded: &BTreeMap<String, String>) -> &'static str {
+    let raw = casefolded
+        .get("kicadinbom")
+        .map_or("", String::as_str)
+        .trim();
+    if !raw.is_empty() && !is_truthy_flag(raw) {
+        "No"
+    } else {
+        "Yes"
+    }
 }
 
 /// `_resolve_dnp` (semantic_index_service.py:441-464).

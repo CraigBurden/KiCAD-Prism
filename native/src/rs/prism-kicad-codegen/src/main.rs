@@ -13,6 +13,9 @@ use typify::{TypeSpace, TypeSpaceSettings};
 
 mod config_projection;
 mod materialization_projection;
+mod prism_presence;
+
+use prism_presence::{is_nested_option_type, is_option_type};
 
 const SCHEMAS: [(&str, &str); 59] = [
     ("BoardPlotDocument.json", "board_plot_document.rs"),
@@ -545,6 +548,11 @@ fn main() -> Result<()> {
             generate(schema_name, schema)?,
         )?;
         if is_prism {
+            generated = prism_presence::project_optional_nullable(
+                schema_name,
+                &published_schema,
+                generated,
+            )?;
             generated = buffer_untagged_through_value(schema_name, &generated, &kind_constants)?;
             generated = restore_declared_field_order(schema_name, &generated, &declared_order)?;
             generated = rustfmt(&generated)?;
@@ -1054,31 +1062,6 @@ fn has_deserializer(field: &syn::Field, needle: &str) -> bool {
         attribute.path().is_ident("serde")
             && matches!(&attribute.meta, syn::Meta::List(list) if list.tokens.to_string().contains(needle))
     })
-}
-
-fn is_option_type(ty: &syn::Type) -> bool {
-    let syn::Type::Path(path) = ty else {
-        return false;
-    };
-    path.path
-        .segments
-        .last()
-        .is_some_and(|segment| segment.ident == "Option")
-}
-
-fn is_nested_option_type(ty: &syn::Type) -> bool {
-    let syn::Type::Path(path) = ty else {
-        return false;
-    };
-    let Some(segment) = path.path.segments.last() else {
-        return false;
-    };
-    let syn::PathArguments::AngleBracketed(arguments) = &segment.arguments else {
-        return false;
-    };
-    arguments.args.iter().any(
-        |argument| matches!(argument, syn::GenericArgument::Type(inner) if is_option_type(inner)),
-    )
 }
 
 fn schema_presence_rules(

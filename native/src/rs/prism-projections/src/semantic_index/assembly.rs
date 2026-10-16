@@ -5,7 +5,10 @@
 //! (`_project_onto_components`, :948-1037).
 
 mod catalog;
+mod join;
 mod scan;
+mod state;
+mod variants;
 
 use super::{Placements, State};
 use crate::{ProjectionError, ProjectionInput, SchematicModel};
@@ -23,16 +26,22 @@ pub(super) fn empty() -> Value {
     })
 }
 
-/// Build `assembly` for the revision.
+/// Build `assembly` for the revision: the catalog, then the state, with the
+/// catalog's diagnostics ahead of the resolver's, then the join onto the
+/// index's `componentUid`s (`assemble_semantic_index`, :1040-1071).
 pub(super) fn build(
     input: &ProjectionInput<'_>,
-    _schematic: &SchematicModel<'_>,
-    _state: &State,
-    _placements: &Placements,
+    schematic: &SchematicModel<'_>,
+    state: &mut State,
+    placements: &Placements,
 ) -> Result<Value, ProjectionError> {
     let catalog = catalog::discover(input)?;
-    let mut value = empty();
-    value["catalog"] = Value::Array(catalog.entries);
-    value["diagnostics"] = Value::Array(catalog.diagnostics);
+    let mut value = state::build(input, schematic, &catalog.entries)?;
+    let mut diagnostics = catalog.diagnostics;
+    if let Some(existing) = value.get_mut("diagnostics").and_then(Value::as_array_mut) {
+        diagnostics.append(existing);
+    }
+    value["diagnostics"] = Value::Array(diagnostics);
+    join::project(&mut value, &mut state.components, placements);
     Ok(value)
 }
