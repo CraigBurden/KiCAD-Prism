@@ -21,7 +21,7 @@ pub(crate) fn py_str(item: &Sexp) -> String {
     match item {
         Sexp::Atom(value) | Sexp::Quoted(value) => value.clone(),
         Sexp::Integer(value) => value.to_string(),
-        Sexp::Float(value) => py_float(*value),
+        Sexp::Float(value) => crate::python::float(*value),
         Sexp::List(values) => {
             let inner = values.iter().map(py_repr).collect::<Vec<_>>().join(", ");
             format!("[{inner}]")
@@ -50,16 +50,6 @@ fn py_repr(item: &Sexp) -> String {
     match item {
         Sexp::Atom(value) | Sexp::Quoted(value) => py_repr_str(value),
         _ => py_str(item),
-    }
-}
-
-/// Python `str(float)` for the shortest round-trip form; only reached for a
-/// numeric head or scalar, which KiCad never writes.
-fn py_float(value: f64) -> String {
-    if value.is_finite() && value == value.trunc() && value.abs() < 1e16 {
-        format!("{value:.1}")
-    } else {
-        format!("{value}")
     }
 }
 

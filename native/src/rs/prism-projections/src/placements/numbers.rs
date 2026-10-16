@@ -10,7 +10,9 @@
 /// `f64::round` is defined to round half-way cases away from zero, the same
 /// rule the Python producer spells `copysign(floor(abs(value) + 0.5), value)`.
 pub(crate) fn kiround(value: f64) -> i64 {
-    value.round() as i64
+    // `copysign(floor(|v| + 0.5), v)` literally: the addition can round up
+    // (0.49999999999999994 + 0.5 == 1.0), where `f64::round` would not.
+    (value.abs() + 0.5).floor().copysign(value) as i64
 }
 
 /// Millimetres to integer nanometres, conventions §6 (`placements_build.py:53-56`).
@@ -65,6 +67,14 @@ mod tests {
         assert_eq!(nm(-0.000_000_5), -1);
         assert_eq!(nm(0.0), 0);
         assert_eq!(nm(-0.0), 0);
+    }
+
+    #[test]
+    fn kiround_keeps_the_addition_rounding() {
+        assert_eq!(kiround(0.499_999_999_999_999_94), 1);
+        assert_eq!(kiround(-0.499_999_999_999_999_94), -1);
+        assert_eq!(kiround(2.5), 3);
+        assert_eq!(kiround(-2.5), -3);
     }
 
     #[test]
