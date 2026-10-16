@@ -1,15 +1,24 @@
-"""Normalise an extracted footprint to the front side of the board.
+"""Normalise an extracted footprint to a library footprint.
 
-A footprint placed on the back of a PCB is stored mirrored: back copper, silk and
-fab layers, mirrored text justification, and geometry that is *not* a simple
-coordinate negation - KiCad also carries a 180 degree orientation and reorders
-items. Importing those bytes straight into the library yields a footprint that
-renders back-to-front in previews and is wrong for any other board.
+A footprint copied out of a board is stored the way the board placed it, not the
+way a library stores it. Two placements leak through into the bytes:
 
-The transform is reproduced with KiCad's own `FOOTPRINT::Flip`, which is an exact
-involution, rather than with regular expressions over the S-expression text. A
-hand-rolled geometric flip would corrupt pad positions silently, which is far
-worse than the mirrored preview it set out to fix.
+* A part on the back of the board is stored mirrored: back copper, silk and fab
+  layers, mirrored text justification, and geometry that is *not* a simple
+  coordinate negation - KiCad also carries a 180 degree orientation and reorders
+  items. Importing those bytes straight into the library yields a footprint that
+  renders back-to-front in previews and is wrong for any other board.
+* A part rotated on the board stores every pad's and text's angle *including*
+  the placement angle, so a part placed at 90 degrees imports with its pads
+  rotated by 90 degrees. The placement position and angle live on the
+  footprint's own ``(at x y angle)``; the extractor keeps only the angle, and
+  the footprint is returned to orientation 0 here.
+
+Both transforms are reproduced with KiCad's own geometry - ``FOOTPRINT::Flip``
+and ``FOOTPRINT::SetOrientationDegrees(0)`` - rather than with regular
+expressions over the S-expression text. A hand-rolled geometric flip or rotation
+would corrupt pad positions silently, which is far worse than the wrong preview
+it set out to fix.
 
 `pcbnew` is loaded in a subprocess. It is a heavyweight native module that
 segfaults rather than raising when misused, and an import worker must not die
@@ -35,6 +44,9 @@ class NormalizedFootprint:
     payload: bytes
     changed: bool
     error: str = ""
+    flipped: bool = False
+    rotated: bool = False
+    rotation_degrees: float = 0.0
 
 
 def _looks_back_side(payload: bytes) -> bool:
@@ -47,9 +59,56 @@ def _looks_back_side(payload: bytes) -> bool:
     return False
 
 
-def normalize_to_front(payload: bytes, target_name: str) -> NormalizedFootprint:
-    """Return front-side footprint bytes, or the original when nothing is needed."""
-    if not _looks_back_side(payload):
+def _footprint_rotation_degrees(payload: bytes) -> float:
+    """The footprint's own placement angle, or 0.0 when it carries none.
+
+    Only the top-level ``(at …)`` of the footprint counts. A pad's or a
+    property's angle is relative to the placed footprint and must not be
+    mistaken for the placement rotation, so the scan tracks parenthesis depth
+    and ignores everything nested below the footprint's direct children.
+    """
+    text = payload[:8192].decode("utf-8", errors="replace")
+    depth = 0
+    in_string = False
+    escaped = False
+    for index, char in enumerate(text):
+        if in_string:
+            if escaped:
+                escaped = False
+            elif char == "\\":
+                escaped = True
+            elif char == '"':
+                in_string = False
+            continue
+        if char == '"':
+            in_string = True
+        elif char == "(":
+            depth += 1
+            follows = text[index + 3:index + 4]
+            if depth == 2 and text.startswith("(at", index) and follows in ("", " ", "\t", "\n", ")"):
+                end = text.find(")", index)
+                tokens = text[index + 1:end].split()
+                if len(tokens) >= 4:
+                    try:
+                        return float(tokens[3])
+                    except ValueError:
+                        return 0.0
+                return 0.0
+        elif char == ")":
+            depth -= 1
+    return 0.0
+
+
+def normalize_footprint(payload: bytes, target_name: str) -> NormalizedFootprint:
+    """Return library footprint bytes: front side, orientation 0, or unchanged.
+
+    A footprint already on the front at orientation 0 is returned verbatim
+    without spawning KiCad. Anything else is rewritten by KiCad itself, which
+    owns the geometry that a correct flip and un-rotation require.
+    """
+    flipped = _looks_back_side(payload)
+    rotation = _footprint_rotation_degrees(payload)
+    if not flipped and rotation == 0:
         return NormalizedFootprint(payload=payload, changed=False)
 
     safe_name = "".join(char for char in target_name if char.isalnum() or char in "-_.") or "footprint"
@@ -64,28 +123,47 @@ def normalize_to_front(payload: bytes, target_name: str) -> NormalizedFootprint:
 
         try:
             completed = subprocess.run(
-                [sys.executable, "-m", "app.services.kicad_footprint_normalizer",
+                [_python_executable(), "-m", "app.services.kicad_footprint_normalizer",
                  str(source), str(output), safe_name],
                 capture_output=True,
                 text=True,
                 timeout=NORMALIZE_TIMEOUT_SECONDS,
             )
         except (subprocess.SubprocessError, OSError) as error:
-            logger.warning("Footprint side normalisation could not run: %s", error)
-            return NormalizedFootprint(payload=payload, changed=False, error=str(error))
+            logger.warning("Footprint normalisation could not run: %s", error)
+            return NormalizedFootprint(
+                payload=payload, changed=False, error=str(error), flipped=flipped, rotated=rotation != 0
+            )
 
         if completed.returncode != 0:
             detail = (completed.stderr or "").strip().splitlines()
             message = detail[-1] if detail else f"exit code {completed.returncode}"
-            logger.warning("Footprint side normalisation failed for %s: %s", target_name, message)
-            return NormalizedFootprint(payload=payload, changed=False, error=message)
+            logger.warning("Footprint normalisation failed for %s: %s", target_name, message)
+            return NormalizedFootprint(
+                payload=payload, changed=False, error=message, flipped=flipped, rotated=rotation != 0
+            )
 
         produced = output / f"{safe_name}.kicad_mod"
         if not produced.is_file():
             return NormalizedFootprint(
-                payload=payload, changed=False, error="normaliser produced no footprint"
+                payload=payload,
+                changed=False,
+                error="normaliser produced no footprint",
+                flipped=flipped,
+                rotated=rotation != 0,
             )
-        return NormalizedFootprint(payload=produced.read_bytes(), changed=True)
+        return NormalizedFootprint(
+            payload=produced.read_bytes(),
+            changed=True,
+            flipped=flipped,
+            rotated=rotation != 0,
+            rotation_degrees=rotation,
+        )
+
+
+def _python_executable() -> str:
+    """Interpreter that can import `pcbnew`: the backend runs on KiCad's Python."""
+    return sys.executable
 
 
 def _main(argv: list[str]) -> int:
@@ -106,12 +184,11 @@ def _main(argv: list[str]) -> int:
         return 3
     board.Add(footprint)
 
-    if not footprint.IsFlipped():
-        print("already front side", file=sys.stderr)
-        return 4
-
-    footprint.Flip(footprint.GetPosition(), False)
-    # Placement rotation is not part of a library footprint's identity.
+    # Undo the placement flip first: `Flip` mirrors about the footprint origin and
+    # re-adds a 180 degree orientation, so the un-rotation has to follow it to
+    # land on the library's front-side orientation 0.
+    if footprint.IsFlipped():
+        footprint.Flip(footprint.GetPosition(), False)
     footprint.SetOrientationDegrees(0)
 
     plugin = pcbnew.PCB_IO_MGR.FindPlugin(pcbnew.PCB_IO_MGR.KICAD_SEXP)
