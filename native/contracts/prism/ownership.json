@@ -63,7 +63,7 @@
           "note": "the ADR; changed only by a maintainer-approved amendment PR"
         },
         {
-          "path": "docs/architecture/design-bundle-contracts/**",
+          "path": "native/contracts/prism/**",
           "status": "dev",
           "note": "the staging dir; untracked in the W0 worktree until W0 commits; removed by the W0 move"
         },
@@ -4167,7 +4167,7 @@
     {
       "adrSection": "§9.3",
       "adrNames": "native/src/tsp/prism/",
-      "actualPath": "docs/architecture/design-bundle-contracts/tsp/prism/ until the W0 move"
+      "actualPath": "native/src/tsp/prism/ (moved by the W0 move)"
     },
     {
       "adrSection": "§9.4 F0",

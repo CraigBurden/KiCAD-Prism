@@ -2,7 +2,7 @@
 
 - **Status:** W0 draft for maintainer review. Once accepted, the rules here change only by an ADR amendment, like the contracts themselves.
 - **Applies to:** every file under `tsp/prism/`, every example under `examples/` and every field map under `field-maps/`. After WP-F1 the same rules apply to `native/src/tsp/prism/`.
-- **Parent:** [`../adr-native-design-bundle.md`](../adr-native-design-bundle.md), §4.4, §5, §6, §7 and §9.
+- **Parent:** [`../adr-native-design-bundle.md`](../../../docs/architecture/adr-native-design-bundle.md), §4.4, §5, §6, §7 and §9.
 
 Citations: a bare path is in this repository (`dev` plus the ADR). `fork:` is kicad_monkey at `b6316117` (the Rust that WP-F1 imports). `sim:` is prism-sim-studio. `ref:` is the reference branch `feature/analytic-pack-spike`.
 

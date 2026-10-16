@@ -21,6 +21,7 @@ import path from "node:path";
 
 import {
   STAGE_DEFAULT,
+  layout,
   compareSchemaDirs,
   compileWithEmit,
   compileWithOtherToolchain,
@@ -82,7 +83,7 @@ async function main() {
     console.log(`  ${label.padEnd(30, ".")} ${status}${detail ? ` ${detail}` : ""}`);
   try {
     console.log(`check-contract ${shown} (TypeSpec ${compilerVersion()}, Node ${process.version})`);
-    if (!isInside(args.file, path.join(stage, "tsp", "prism"))) {
+    if (!isInside(args.file, layout(stage).tsp)) {
       console.log(`  note: ${shown} is outside tsp/prism; compiled with the staging dir's tspconfig.yaml`);
     }
 
@@ -138,7 +139,7 @@ async function main() {
     }
 
     // 5. Validate the documents.
-    const examplesDir = path.join(stage, "examples");
+    const examplesDir = layout(stage).examples;
     for (const doc of args.documents) {
       const shownDoc = rel(stage, doc.path);
       let parsed;

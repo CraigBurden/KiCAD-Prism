@@ -1,8 +1,8 @@
 # `prism-kicad` command-line specification (a0)
 
 - **Status:** W0 draft for maintainer review. It is frozen with the other W0 contracts. After that it changes only by an ADR amendment.
-- **Parent:** [`../adr-native-design-bundle.md`](../adr-native-design-bundle.md), §2.1, §4.4, §5, §6, §7, §9.3 and §11 (G8).
-- **JSON contracts:** [`tsp/prism/cli-a0.tsp`](tsp/prism/cli-a0.tsp), namespace `Prism.Contracts.CliA0`. Field map: [`field-maps/cli.md`](field-maps/cli.md). One example per root in `examples/`.
+- **Parent:** [`../adr-native-design-bundle.md`](../../../docs/architecture/adr-native-design-bundle.md), §2.1, §4.4, §5, §6, §7, §9.3 and §11 (G8).
+- **JSON contracts:** [`tsp/prism/cli-a0.tsp`](../../src/tsp/prism/cli-a0.tsp), namespace `Prism.Contracts.CliA0`. Field map: [`field-maps/cli.md`](field-maps/cli.md). One example per root in `examples/`.
 - **Companion specs.** This spec owns the command line: arguments, streams, exit codes, the generator id and bundle key, CLI limits, and how the backend calls the CLI. Two other specs own the rest:
   - [`bundle-format.md`](bundle-format.md), the manifest contract, owns the archive: member layout, stage records, readiness, the unpacked cache;
   - [`revision-key.md`](revision-key.md) owns the revision key, its source-set selection and the effective configuration.

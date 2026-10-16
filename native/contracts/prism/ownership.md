@@ -1,7 +1,7 @@
 # Ownership map: native design bundle work packages
 
 - **Status:** W0 draft for maintainer review. An accepted ADR amendment that moves a path updates this file in the same PR.
-- **Parent:** [`../adr-native-design-bundle.md`](../adr-native-design-bundle.md), §9.
+- **Parent:** [`../adr-native-design-bundle.md`](../../../docs/architecture/adr-native-design-bundle.md), §9.
 - **Data:** [`ownership.json`](ownership.json) holds the same map for scripts and agents; §11 lists its fields. The tables in §3, §4, §5, §9, §10 and §13 are rendered from it; §13 lists every WP's paths.
 - **Verified against:** dev `0e2346c7` (the integration branch), the reference branch `6c67ef38` plus its uncommitted `semantic_index_board.py` and `semantic_index_service.py`, and the fork at `b6316117`.
 
@@ -287,7 +287,7 @@ Every path the ADR names, where it really is. "ref-only" and "new" entries are w
 | §9.1 | backend/app/core/config.py | backend/app/core/config.py | Settings also inherits backend/app/core/pipeline_config.py (config.py:36); 1071 of 1,200 lines used |
 | §9.1 | docker-compose.yml and backend/Dockerfile | docker-compose.yml, docker-compose.loadtest.yml, docker-compose.proxy.yml, docker-compose.local-kicad-monkey.yml, deploy/release/compose.yml, backend/Dockerfile, frontend/Dockerfile, .dockerignore | five compose files and three image files |
 | §9.1 | .github/workflows/* | .github/workflows/dev-quality-gate.yml, docker-publish.yml, build-plugin.yml | plus scripts/ci_changes.py, which decides which jobs a PR runs |
-| §9.3 | native/src/tsp/prism/ | docs/architecture/design-bundle-contracts/tsp/prism/ until the W0 move |  |
+| §9.3 | native/src/tsp/prism/ | native/src/tsp/prism/ (moved from the staging dir by the W0 move) |  |
 | §9.4 F0 | native/LICENSES.md | native/LICENSES.md, landing after F1 | native/ must not exist before `git subtree add --prefix=native` |
 | §9.4 F0 | NOTICE | NOTICE | new |
 | §9.4 K | job registration | backend/app/services/job_handlers.py (KIND_MODULES) and backend/app/services/job_kinds.py (_CAPACITIES) |  |
@@ -554,7 +554,7 @@ Every path a WP may edit in its wave, from `ownership.json` `/workPackages`. "AD
 | Path | Status | Note |
 |---|---|---|
 | `docs/architecture/adr-native-design-bundle.md` | dev | the ADR; changed only by a maintainer-approved amendment PR |
-| `docs/architecture/design-bundle-contracts/**` | dev | the staging dir; untracked in the W0 worktree until W0 commits; removed by the W0 move |
+| `native/src/tsp/prism/**`, `native/contracts/prism/**`, `native/scripts/contracts/**` | dev | the W0 contracts, moved from `docs/architecture/design-bundle-contracts/` by the W0 move |
 | `native/contracts/generated/schema/BoardObjectsA0.json` | new | generated from W0's TypeSpec; never edited by hand |
 | `native/contracts/generated/schema/BundleManifestA2.json` | new | generated from W0's TypeSpec; never edited by hand |
 | `native/contracts/generated/schema/CliBuildResultA0.json` | new | generated from W0's TypeSpec; never edited by hand |

@@ -1,8 +1,8 @@
 # Design bundle archive format (`.prism`, manifest a2)
 
 - **Status:** W0 draft for maintainer review. Once accepted it changes only by an ADR amendment, like the contracts.
-- **Parent:** [`../adr-native-design-bundle.md`](../adr-native-design-bundle.md) §4.4, §5, §6, §7 and §11 (G2, G8).
-- **Manifest:** `bundle.json`, schema `prism.bundle.manifest.a2`, root `BundleManifestA2` in [`tsp/prism/bundle-manifest-a2.tsp`](tsp/prism/bundle-manifest-a2.tsp). Field-by-field traceability and the a1 → a2 mapping are in [`field-maps/bundle-manifest.md`](field-maps/bundle-manifest.md).
+- **Parent:** [`../adr-native-design-bundle.md`](../../../docs/architecture/adr-native-design-bundle.md) §4.4, §5, §6, §7 and §11 (G2, G8).
+- **Manifest:** `bundle.json`, schema `prism.bundle.manifest.a2`, root `BundleManifestA2` in [`tsp/prism/bundle-manifest-a2.tsp`](../../src/tsp/prism/bundle-manifest-a2.tsp). Field-by-field traceability and the a1 → a2 mapping are in [`field-maps/bundle-manifest.md`](field-maps/bundle-manifest.md).
 - **Companion:** [`cli-spec.md`](cli-spec.md) specifies the `prism-kicad` process that writes and checks bundles: stage chaining (§5.2), atomic writes (§5.2.5), what is recorded on failure (§5.2.7), the reader's zip checks (§6.2) and the limits (§7). This document owns the archive layout, the member set, the stage semantics a reader relies on, the unpacked cache, and the reader's manifest-level checks. Where both say the same thing they must agree; §11 lists the points where the two W0 drafts still differ.
 - **Implemented by:** WP-B (`prism-bundle` writer and reader, `prism-kicad bundle verify`), WP-K (`backend/app/services/design_bundle/` reader, store, unpacked cache, job). Every other WP reads members only through those two.
 - **Lineage:** a1's writer and reader (sim: `src/prism-bundle/src/zip.rs`, `reader.rs`, `build.rs`) and the reference branch's unpacker (ref: `backend/app/services/project_bundle.py:103-146`). Citations follow `conventions.md`: a bare path is in this repository, `sim:` is prism-sim-studio, `ref:` is `feature/analytic-pack-spike`, `fork:` is kicad_monkey at `b6316117`.
