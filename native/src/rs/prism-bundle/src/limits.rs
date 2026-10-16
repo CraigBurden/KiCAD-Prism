@@ -9,7 +9,7 @@ use crate::finding::{Failure, Outcome};
 /// The Design Comparison object-diff engine (`prism-kicad compare`, amendment
 /// C2). `prism-kicad-cli` reaches it through this crate rather than depending
 /// on `prism-projections` directly, which would edit a Cargo manifest
-/// (amendment C2 §2.3 keeps the Cargo manifests unchanged).
+/// (amendment C2 §2 item 3 keeps the Cargo manifests unchanged).
 #[cfg(feature = "build")]
 pub use prism_projections::compare;
 

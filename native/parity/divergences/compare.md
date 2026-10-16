@@ -11,7 +11,7 @@
   parity runner does not read one; this file is the record the amendment C2 §5
   asks for.
 
-`compare` is a parity document. The two entries below are the only places its
+`compare` is a parity document. The three entries below are the only places its
 output may differ from a golden.
 
 ## compare-1. `changes` and property deltas in code point order (D2)
@@ -62,15 +62,32 @@ output may differ from a golden.
   `compare` copies. On the parity harness this pair reports those 64
   differences and nothing else; every other pair is equal.
 
+## compare-3. `nativeObjects` in member order
+
+- Case: every pair. `base.nativeObjects` and `head.nativeObjects` hold the same
+  objects as today's, in a different order.
+- Today: `base.objects.map(native_target)` (`ecad-diff.mjs:497`, `:505`), the
+  order the Node parser walked the files.
+- `compare`: the order of `projections/board-objects.json`'s objects, which the
+  member fixes (board-objects field map).
+- Why the new output is right: the walk order is a property of the old
+  parser, not of the design; the member's order is deterministic.
+- Consumer affected: none. The only reader,
+  `backend/app/services/design_compare_nodes.py` `_native_index`, builds a
+  dict keyed by `uuid`, and no harness pair has a repeated `uuid` in
+  `nativeObjects`. `componentObjects`, which `design_compare_occurrences.py`
+  reads in order, is in today's order on every pair.
+- Fixtures: the parity harness compares `nativeObjects` as a set and reports
+  the order as a note, on all 16 pairs.
+
 ## Note. The anchor precondition on the anchor directory
 
 `compare` refuses `--base`/`--head` whose `config.project_file`s have
 different directories (exit 7, `anchor-mismatch`), because object keys and
 `documentPath` are relative to the anchor's directory (D1): two projects in one
-directory share a key space. cli-spec.md §5.6 speaks of the same
-`config.project_file`; the parity harness's `synthetic-usbpd` pair
+directory share a key space. The parity harness's `synthetic-usbpd` pair
 (`synthetic.kicad_pro` and `USB-PD-Trigger-Board.kicad_pro`) is two anchors in
 one directory (both at the repository root) and is expected to compare, which
 is why the check is on the directory. A pair whose anchors are in different
-directories is refused. This is a wording clarification for the cli-spec, not
-an output divergence.
+directories is refused. cli-spec.md §5.6 and amendment C2 §3.2 item 4 now say
+so; this is not an output divergence.
