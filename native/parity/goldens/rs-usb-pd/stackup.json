@@ -1,0 +1,155 @@
+{
+ "schema": "prism.stackup.a0",
+ "present": false,
+ "boardThicknessNm": 1600000,
+ "layers": [],
+ "copperLayers": [
+  "F.Cu",
+  "B.Cu"
+ ],
+ "maskColors": {},
+ "viaSpans": [
+  {
+   "viaType": "through",
+   "startLayer": "F.Cu",
+   "stopLayer": "B.Cu",
+   "spanLayers": [
+    "F.Cu",
+    "B.Cu"
+   ],
+   "count": 21
+  }
+ ],
+ "boardLayers": [
+  {
+   "ordinal": 0,
+   "name": "F.Cu",
+   "type": "signal"
+  },
+  {
+   "ordinal": 2,
+   "name": "B.Cu",
+   "type": "signal"
+  },
+  {
+   "ordinal": 9,
+   "name": "F.Adhes",
+   "type": "user",
+   "userName": "F.Adhesive"
+  },
+  {
+   "ordinal": 11,
+   "name": "B.Adhes",
+   "type": "user",
+   "userName": "B.Adhesive"
+  },
+  {
+   "ordinal": 13,
+   "name": "F.Paste",
+   "type": "user"
+  },
+  {
+   "ordinal": 15,
+   "name": "B.Paste",
+   "type": "user"
+  },
+  {
+   "ordinal": 5,
+   "name": "F.SilkS",
+   "type": "user",
+   "userName": "F.Silkscreen"
+  },
+  {
+   "ordinal": 7,
+   "name": "B.SilkS",
+   "type": "user",
+   "userName": "B.Silkscreen"
+  },
+  {
+   "ordinal": 1,
+   "name": "F.Mask",
+   "type": "user"
+  },
+  {
+   "ordinal": 3,
+   "name": "B.Mask",
+   "type": "user"
+  },
+  {
+   "ordinal": 17,
+   "name": "Dwgs.User",
+   "type": "user",
+   "userName": "User.Drawings"
+  },
+  {
+   "ordinal": 19,
+   "name": "Cmts.User",
+   "type": "user",
+   "userName": "User.Comments"
+  },
+  {
+   "ordinal": 21,
+   "name": "Eco1.User",
+   "type": "user",
+   "userName": "User.Eco1"
+  },
+  {
+   "ordinal": 23,
+   "name": "Eco2.User",
+   "type": "user",
+   "userName": "User.Eco2"
+  },
+  {
+   "ordinal": 25,
+   "name": "Edge.Cuts",
+   "type": "user"
+  },
+  {
+   "ordinal": 27,
+   "name": "Margin",
+   "type": "user"
+  },
+  {
+   "ordinal": 31,
+   "name": "F.CrtYd",
+   "type": "user",
+   "userName": "F.Courtyard"
+  },
+  {
+   "ordinal": 29,
+   "name": "B.CrtYd",
+   "type": "user",
+   "userName": "B.Courtyard"
+  },
+  {
+   "ordinal": 35,
+   "name": "F.Fab",
+   "type": "user"
+  },
+  {
+   "ordinal": 33,
+   "name": "B.Fab",
+   "type": "user"
+  },
+  {
+   "ordinal": 39,
+   "name": "User.1",
+   "type": "user"
+  },
+  {
+   "ordinal": 41,
+   "name": "User.2",
+   "type": "user"
+  },
+  {
+   "ordinal": 43,
+   "name": "User.3",
+   "type": "user"
+  },
+  {
+   "ordinal": 45,
+   "name": "User.4",
+   "type": "user"
+  }
+ ]
+}

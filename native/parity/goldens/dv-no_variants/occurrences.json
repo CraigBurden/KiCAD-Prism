@@ -1,0 +1,65 @@
+{
+ "schema": "prism.occurrences.a0",
+ "sheets": [
+  {
+   "sheetPath": "/68e59b49-11f7-5e1b-97a8-9b70a56c6a06",
+   "dnp": false,
+   "excludeFromBom": false,
+   "excludeFromBoard": false,
+   "excludeFromSim": false,
+   "variants": []
+  }
+ ],
+ "symbols": [
+  {
+   "kiidPath": "/68e59b49-11f7-5e1b-97a8-9b70a56c6a06/b66904c4-ce01-5338-8a05-f248bd2fefae",
+   "sheetPath": "/68e59b49-11f7-5e1b-97a8-9b70a56c6a06",
+   "symbolUuid": "b66904c4-ce01-5338-8a05-f248bd2fefae",
+   "documentPath": "plain.kicad_sch",
+   "libId": "Device:R",
+   "reference": "R1",
+   "instanceMatched": true,
+   "unit": 1,
+   "dnp": false,
+   "excludeFromBom": false,
+   "excludeFromBoard": false,
+   "excludeFromSim": false,
+   "excludeFromPosFiles": false,
+   "properties": {
+    "Datasheet": "",
+    "Description": "",
+    "Footprint": "Resistor_SMD:R_0603_1608Metric",
+    "Reference": "R1",
+    "Value": "10k"
+   },
+   "bomFields": {
+    "value": "10k",
+    "footprint": "Resistor_SMD:R_0603_1608Metric"
+   },
+   "variants": []
+  }
+ ],
+ "footprints": [
+  {
+   "uuid": "88322bda-6cf9-5219-94c9-e6fbd6d08eb1",
+   "documentPath": "plain.kicad_pcb",
+   "reference": "R1",
+   "dnp": false,
+   "excludeFromBom": false,
+   "excludeFromPosFiles": false,
+   "variants": []
+  }
+ ],
+ "references": [
+  {
+   "reference": "R1",
+   "symbols": [
+    "/68e59b49-11f7-5e1b-97a8-9b70a56c6a06/b66904c4-ce01-5338-8a05-f248bd2fefae"
+   ],
+   "footprints": [
+    "88322bda-6cf9-5219-94c9-e6fbd6d08eb1"
+   ]
+  }
+ ],
+ "variantDeclarations": []
+}

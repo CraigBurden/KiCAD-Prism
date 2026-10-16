@@ -1,0 +1,10 @@
+{
+ "schema": "prism.stackup.a0",
+ "present": false,
+ "boardThicknessNm": 1600000,
+ "layers": [],
+ "copperLayers": [],
+ "maskColors": {},
+ "viaSpans": [],
+ "boardLayers": []
+}

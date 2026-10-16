@@ -1,0 +1,1392 @@
+{
+ "schema": "prism.project.a0",
+ "projectFile": "cynthion.kicad_pro",
+ "projectName": "cynthion",
+ "textVariables": {
+  "COPYRIGHT": "Copyright 2019-2024 Great Scott Gadgets",
+  "DATE": "2024-08-27",
+  "LICENSE": "Licensed under the CERN-OHL-P v2",
+  "TITLE": "Cynthion",
+  "VERSION": "1.4.0"
+ },
+ "netClasses": [
+  {
+   "name": "Default",
+   "trackWidthNm": 127000,
+   "clearanceNm": 127000,
+   "diffPairWidthNm": 127000,
+   "diffPairGapNm": 127000,
+   "viaDiameterNm": 457200,
+   "viaDrillNm": 203200
+  },
+  {
+   "name": "Thin",
+   "trackWidthNm": 100000,
+   "clearanceNm": 100000,
+   "diffPairWidthNm": 127000,
+   "diffPairGapNm": 127000,
+   "viaDiameterNm": 457200,
+   "viaDrillNm": 203200
+  }
+ ],
+ "documents": [
+  {
+   "path": "aux_port.kicad_sch",
+   "kind": "schematic",
+   "formatVersion": 20260306,
+   "generator": "eeschema",
+   "generatorVersion": "10.0",
+   "titleBlock": {
+    "title": "${TITLE}",
+    "date": "${DATE}",
+    "rev": "${VERSION}",
+    "company": "${COPYRIGHT}",
+    "comments": [
+     {
+      "number": 1,
+      "text": "${LICENSE}"
+     }
+    ]
+   },
+   "expandedTitleBlock": {
+    "title": "Cynthion",
+    "date": "2024-08-27",
+    "rev": "1.4.0",
+    "company": "Copyright 2019-2024 Great Scott Gadgets",
+    "comments": [
+     {
+      "number": 1,
+      "text": "Licensed under the CERN-OHL-P v2"
+     }
+    ]
+   },
+   "properties": {}
+  },
+  {
+   "path": "bank0_1.kicad_sch",
+   "kind": "schematic",
+   "formatVersion": 20260306,
+   "generator": "eeschema",
+   "generatorVersion": "10.0",
+   "titleBlock": {
+    "title": "${TITLE}",
+    "date": "${DATE}",
+    "rev": "${VERSION}",
+    "company": "${COPYRIGHT}",
+    "comments": [
+     {
+      "number": 1,
+      "text": "${LICENSE}"
+     }
+    ]
+   },
+   "expandedTitleBlock": {
+    "title": "Cynthion",
+    "date": "2024-08-27",
+    "rev": "1.4.0",
+    "company": "Copyright 2019-2024 Great Scott Gadgets",
+    "comments": [
+     {
+      "number": 1,
+      "text": "Licensed under the CERN-OHL-P v2"
+     }
+    ]
+   },
+   "properties": {}
+  },
+  {
+   "path": "bank2_3.kicad_sch",
+   "kind": "schematic",
+   "formatVersion": 20260306,
+   "generator": "eeschema",
+   "generatorVersion": "10.0",
+   "titleBlock": {
+    "title": "${TITLE}",
+    "date": "${DATE}",
+    "rev": "${VERSION}",
+    "company": "${COPYRIGHT}",
+    "comments": [
+     {
+      "number": 1,
+      "text": "${LICENSE}"
+     }
+    ]
+   },
+   "expandedTitleBlock": {
+    "title": "Cynthion",
+    "date": "2024-08-27",
+    "rev": "1.4.0",
+    "company": "Copyright 2019-2024 Great Scott Gadgets",
+    "comments": [
+     {
+      "number": 1,
+      "text": "Licensed under the CERN-OHL-P v2"
+     }
+    ]
+   },
+   "properties": {}
+  },
+  {
+   "path": "bank6_7.kicad_sch",
+   "kind": "schematic",
+   "formatVersion": 20260306,
+   "generator": "eeschema",
+   "generatorVersion": "10.0",
+   "titleBlock": {
+    "title": "${TITLE}",
+    "date": "${DATE}",
+    "rev": "${VERSION}",
+    "company": "${COPYRIGHT}",
+    "comments": [
+     {
+      "number": 1,
+      "text": "${LICENSE}"
+     }
+    ]
+   },
+   "expandedTitleBlock": {
+    "title": "Cynthion",
+    "date": "2024-08-27",
+    "rev": "1.4.0",
+    "company": "Copyright 2019-2024 Great Scott Gadgets",
+    "comments": [
+     {
+      "number": 1,
+      "text": "Licensed under the CERN-OHL-P v2"
+     }
+    ]
+   },
+   "properties": {}
+  },
+  {
+   "path": "bank8_configuration.kicad_sch",
+   "kind": "schematic",
+   "formatVersion": 20260306,
+   "generator": "eeschema",
+   "generatorVersion": "10.0",
+   "titleBlock": {
+    "title": "${TITLE}",
+    "date": "${DATE}",
+    "rev": "${VERSION}",
+    "company": "${COPYRIGHT}",
+    "comments": [
+     {
+      "number": 1,
+      "text": "${LICENSE}"
+     }
+    ]
+   },
+   "expandedTitleBlock": {
+    "title": "Cynthion",
+    "date": "2024-08-27",
+    "rev": "1.4.0",
+    "company": "Copyright 2019-2024 Great Scott Gadgets",
+    "comments": [
+     {
+      "number": 1,
+      "text": "Licensed under the CERN-OHL-P v2"
+     }
+    ]
+   },
+   "properties": {}
+  },
+  {
+   "path": "clock_misc.kicad_sch",
+   "kind": "schematic",
+   "formatVersion": 20260306,
+   "generator": "eeschema",
+   "generatorVersion": "10.0",
+   "titleBlock": {
+    "title": "${TITLE}",
+    "date": "${DATE}",
+    "rev": "${VERSION}",
+    "company": "${COPYRIGHT}",
+    "comments": [
+     {
+      "number": 1,
+      "text": "${LICENSE}"
+     }
+    ]
+   },
+   "expandedTitleBlock": {
+    "title": "Cynthion",
+    "date": "2024-08-27",
+    "rev": "1.4.0",
+    "company": "Copyright 2019-2024 Great Scott Gadgets",
+    "comments": [
+     {
+      "number": 1,
+      "text": "Licensed under the CERN-OHL-P v2"
+     }
+    ]
+   },
+   "properties": {}
+  },
+  {
+   "path": "control_port.kicad_sch",
+   "kind": "schematic",
+   "formatVersion": 20260306,
+   "generator": "eeschema",
+   "generatorVersion": "10.0",
+   "titleBlock": {
+    "title": "${TITLE}",
+    "date": "${DATE}",
+    "rev": "${VERSION}",
+    "company": "${COPYRIGHT}",
+    "comments": [
+     {
+      "number": 1,
+      "text": "${LICENSE}"
+     }
+    ]
+   },
+   "expandedTitleBlock": {
+    "title": "Cynthion",
+    "date": "2024-08-27",
+    "rev": "1.4.0",
+    "company": "Copyright 2019-2024 Great Scott Gadgets",
+    "comments": [
+     {
+      "number": 1,
+      "text": "Licensed under the CERN-OHL-P v2"
+     }
+    ]
+   },
+   "properties": {}
+  },
+  {
+   "path": "cynthion.kicad_pcb",
+   "kind": "board",
+   "formatVersion": 20260206,
+   "generator": "pcbnew",
+   "generatorVersion": "10.0",
+   "titleBlock": {
+    "title": "${TITLE}",
+    "date": "${DATE}",
+    "rev": "${VERSION}",
+    "company": "${COPYRIGHT}",
+    "comments": [
+     {
+      "number": 1,
+      "text": "${LICENSE}"
+     }
+    ]
+   },
+   "expandedTitleBlock": {
+    "title": "Cynthion",
+    "date": "2024-08-27",
+    "rev": "1.4.0",
+    "company": "Copyright 2019-2024 Great Scott Gadgets",
+    "comments": [
+     {
+      "number": 1,
+      "text": "Licensed under the CERN-OHL-P v2"
+     }
+    ]
+   },
+   "properties": {
+    "COPYRIGHT": "Copyright 2019-2024 Great Scott Gadgets",
+    "DATE": "2024-08-27",
+    "LICENSE": "Licensed under the CERN-OHL-P v2",
+    "TITLE": "Cynthion",
+    "VERSION": "1.4.0"
+   }
+  },
+  {
+   "path": "cynthion.kicad_sch",
+   "kind": "root-schematic",
+   "formatVersion": 20260306,
+   "generator": "eeschema",
+   "generatorVersion": "10.0",
+   "titleBlock": {
+    "title": "${TITLE}",
+    "date": "${DATE}",
+    "rev": "${VERSION}",
+    "company": "${COPYRIGHT}",
+    "comments": [
+     {
+      "number": 1,
+      "text": "${LICENSE}"
+     }
+    ]
+   },
+   "expandedTitleBlock": {
+    "title": "Cynthion",
+    "date": "2024-08-27",
+    "rev": "1.4.0",
+    "company": "Copyright 2019-2024 Great Scott Gadgets",
+    "comments": [
+     {
+      "number": 1,
+      "text": "Licensed under the CERN-OHL-P v2"
+     }
+    ]
+   },
+   "properties": {}
+  },
+  {
+   "path": "debugger.kicad_sch",
+   "kind": "schematic",
+   "formatVersion": 20260306,
+   "generator": "eeschema",
+   "generatorVersion": "10.0",
+   "titleBlock": {
+    "title": "${TITLE}",
+    "date": "${DATE}",
+    "rev": "${VERSION}",
+    "company": "${COPYRIGHT}",
+    "comments": [
+     {
+      "number": 1,
+      "text": "${LICENSE}"
+     }
+    ]
+   },
+   "expandedTitleBlock": {
+    "title": "Cynthion",
+    "date": "2024-08-27",
+    "rev": "1.4.0",
+    "company": "Copyright 2019-2024 Great Scott Gadgets",
+    "comments": [
+     {
+      "number": 1,
+      "text": "Licensed under the CERN-OHL-P v2"
+     }
+    ]
+   },
+   "properties": {}
+  },
+  {
+   "path": "expansion.kicad_sch",
+   "kind": "schematic",
+   "formatVersion": 20260306,
+   "generator": "eeschema",
+   "generatorVersion": "10.0",
+   "titleBlock": {
+    "title": "${TITLE}",
+    "date": "${DATE}",
+    "rev": "${VERSION}",
+    "company": "${COPYRIGHT}",
+    "comments": [
+     {
+      "number": 1,
+      "text": "${LICENSE}"
+     }
+    ]
+   },
+   "expandedTitleBlock": {
+    "title": "Cynthion",
+    "date": "2024-08-27",
+    "rev": "1.4.0",
+    "company": "Copyright 2019-2024 Great Scott Gadgets",
+    "comments": [
+     {
+      "number": 1,
+      "text": "Licensed under the CERN-OHL-P v2"
+     }
+    ]
+   },
+   "properties": {}
+  },
+  {
+   "path": "indicators_buttons.kicad_sch",
+   "kind": "schematic",
+   "formatVersion": 20260306,
+   "generator": "eeschema",
+   "generatorVersion": "10.0",
+   "titleBlock": {
+    "title": "${TITLE}",
+    "date": "${DATE}",
+    "rev": "${VERSION}",
+    "company": "${COPYRIGHT}",
+    "comments": [
+     {
+      "number": 1,
+      "text": "${LICENSE}"
+     }
+    ]
+   },
+   "expandedTitleBlock": {
+    "title": "Cynthion",
+    "date": "2024-08-27",
+    "rev": "1.4.0",
+    "company": "Copyright 2019-2024 Great Scott Gadgets",
+    "comments": [
+     {
+      "number": 1,
+      "text": "Licensed under the CERN-OHL-P v2"
+     }
+    ]
+   },
+   "properties": {}
+  },
+  {
+   "path": "power_distribution.kicad_sch",
+   "kind": "schematic",
+   "formatVersion": 20260306,
+   "generator": "eeschema",
+   "generatorVersion": "10.0",
+   "titleBlock": {
+    "title": "${TITLE}",
+    "date": "${DATE}",
+    "rev": "${VERSION}",
+    "company": "${COPYRIGHT}",
+    "comments": [
+     {
+      "number": 1,
+      "text": "${LICENSE}"
+     }
+    ]
+   },
+   "expandedTitleBlock": {
+    "title": "Cynthion",
+    "date": "2024-08-27",
+    "rev": "1.4.0",
+    "company": "Copyright 2019-2024 Great Scott Gadgets",
+    "comments": [
+     {
+      "number": 1,
+      "text": "Licensed under the CERN-OHL-P v2"
+     }
+    ]
+   },
+   "properties": {}
+  },
+  {
+   "path": "power_supplies.kicad_sch",
+   "kind": "schematic",
+   "formatVersion": 20260306,
+   "generator": "eeschema",
+   "generatorVersion": "10.0",
+   "titleBlock": {
+    "title": "${TITLE}",
+    "date": "${DATE}",
+    "rev": "${VERSION}",
+    "company": "${COPYRIGHT}",
+    "comments": [
+     {
+      "number": 1,
+      "text": "${LICENSE}"
+     }
+    ]
+   },
+   "expandedTitleBlock": {
+    "title": "Cynthion",
+    "date": "2024-08-27",
+    "rev": "1.4.0",
+    "company": "Copyright 2019-2024 Great Scott Gadgets",
+    "comments": [
+     {
+      "number": 1,
+      "text": "Licensed under the CERN-OHL-P v2"
+     }
+    ]
+   },
+   "properties": {}
+  },
+  {
+   "path": "ram.kicad_sch",
+   "kind": "schematic",
+   "formatVersion": 20260306,
+   "generator": "eeschema",
+   "generatorVersion": "10.0",
+   "titleBlock": {
+    "title": "${TITLE}",
+    "date": "${DATE}",
+    "rev": "${VERSION}",
+    "company": "${COPYRIGHT}",
+    "comments": [
+     {
+      "number": 1,
+      "text": "${LICENSE}"
+     }
+    ]
+   },
+   "expandedTitleBlock": {
+    "title": "Cynthion",
+    "date": "2024-08-27",
+    "rev": "1.4.0",
+    "company": "Copyright 2019-2024 Great Scott Gadgets",
+    "comments": [
+     {
+      "number": 1,
+      "text": "Licensed under the CERN-OHL-P v2"
+     }
+    ]
+   },
+   "properties": {}
+  },
+  {
+   "path": "target_port.kicad_sch",
+   "kind": "schematic",
+   "formatVersion": 20260306,
+   "generator": "eeschema",
+   "generatorVersion": "10.0",
+   "titleBlock": {
+    "title": "${TITLE}",
+    "date": "${DATE}",
+    "rev": "${VERSION}",
+    "company": "${COPYRIGHT}",
+    "comments": [
+     {
+      "number": 1,
+      "text": "${LICENSE}"
+     }
+    ]
+   },
+   "expandedTitleBlock": {
+    "title": "Cynthion",
+    "date": "2024-08-27",
+    "rev": "1.4.0",
+    "company": "Copyright 2019-2024 Great Scott Gadgets",
+    "comments": [
+     {
+      "number": 1,
+      "text": "Licensed under the CERN-OHL-P v2"
+     }
+    ]
+   },
+   "properties": {}
+  },
+  {
+   "path": "type_c.kicad_sch",
+   "kind": "schematic",
+   "formatVersion": 20260306,
+   "generator": "eeschema",
+   "generatorVersion": "10.0",
+   "titleBlock": {
+    "title": "${TITLE}",
+    "date": "${DATE}",
+    "rev": "${VERSION}",
+    "company": "${COPYRIGHT}",
+    "comments": [
+     {
+      "number": 1,
+      "text": "${LICENSE}"
+     }
+    ]
+   },
+   "expandedTitleBlock": {
+    "title": "Cynthion",
+    "date": "2024-08-27",
+    "rev": "1.4.0",
+    "company": "Copyright 2019-2024 Great Scott Gadgets",
+    "comments": [
+     {
+      "number": 1,
+      "text": "Licensed under the CERN-OHL-P v2"
+     }
+    ]
+   },
+   "properties": {}
+  },
+  {
+   "path": "usb_phy.kicad_sch",
+   "kind": "schematic",
+   "formatVersion": 20260306,
+   "generator": "eeschema",
+   "generatorVersion": "10.0",
+   "titleBlock": {
+    "title": "${TITLE}",
+    "date": "${DATE}",
+    "rev": "${VERSION}",
+    "company": "${COPYRIGHT}",
+    "comments": [
+     {
+      "number": 1,
+      "text": "${LICENSE}"
+     }
+    ]
+   },
+   "expandedTitleBlock": {
+    "title": "Cynthion",
+    "date": "2024-08-27",
+    "rev": "1.4.0",
+    "company": "Copyright 2019-2024 Great Scott Gadgets",
+    "comments": [
+     {
+      "number": 1,
+      "text": "Licensed under the CERN-OHL-P v2"
+     }
+    ]
+   },
+   "properties": {}
+  }
+ ],
+ "references": [
+  {
+   "kind": "sheet-file",
+   "documentPath": "aux_port.kicad_sch",
+   "sheetUuid": "821a7ccd-e154-4207-89e2-0af03a062d97",
+   "sheetName": "AUX Type C Controller",
+   "raw": "type_c.kicad_sch",
+   "variables": [],
+   "target": {
+    "kind": "repository",
+    "path": "type_c.kicad_sch",
+    "base": "document-directory",
+    "inSources": true
+   }
+  },
+  {
+   "kind": "sheet-file",
+   "documentPath": "aux_port.kicad_sch",
+   "sheetUuid": "6ef06f1e-62a2-438c-8ab4-363586d03e74",
+   "sheetName": "AUX PHY",
+   "raw": "usb_phy.kicad_sch",
+   "variables": [],
+   "target": {
+    "kind": "repository",
+    "path": "usb_phy.kicad_sch",
+    "base": "document-directory",
+    "inSources": true
+   }
+  },
+  {
+   "kind": "sheet-file",
+   "documentPath": "control_port.kicad_sch",
+   "sheetUuid": "86be2f0e-7bb1-42d8-87bc-4230c6dbd013",
+   "sheetName": "CONTROL PHY",
+   "raw": "usb_phy.kicad_sch",
+   "variables": [],
+   "target": {
+    "kind": "repository",
+    "path": "usb_phy.kicad_sch",
+    "base": "document-directory",
+    "inSources": true
+   }
+  },
+  {
+   "kind": "model-3d",
+   "documentPath": "cynthion.kicad_pcb",
+   "raw": "$(KIPRJMOD)/libraries/cynthion.3dshapes/10132798-031100LF.stp",
+   "variables": [
+    "KIPRJMOD"
+   ],
+   "target": {
+    "kind": "repository",
+    "path": "libraries/cynthion.3dshapes/10132798-031100LF.stp",
+    "base": "project-variable",
+    "inSources": true
+   }
+  },
+  {
+   "kind": "model-3d",
+   "documentPath": "cynthion.kicad_pcb",
+   "raw": "$(KIPRJMOD)/libraries/cynthion.3dshapes/KUSBXHT-SB-AS1N-B30-NF_A.STEP",
+   "variables": [
+    "KIPRJMOD"
+   ],
+   "target": {
+    "kind": "repository",
+    "path": "libraries/cynthion.3dshapes/KUSBXHT-SB-AS1N-B30-NF_A.STEP",
+    "base": "project-variable",
+    "inSources": true
+   }
+  },
+  {
+   "kind": "model-3d",
+   "documentPath": "cynthion.kicad_pcb",
+   "raw": "$(KIPRJMOD)/libraries/cynthion.3dshapes/USB_C_Receptacle_HRO_TYPE-C-31-M-12.step",
+   "variables": [
+    "KIPRJMOD"
+   ],
+   "target": {
+    "kind": "repository",
+    "path": "libraries/cynthion.3dshapes/USB_C_Receptacle_HRO_TYPE-C-31-M-12.step",
+    "base": "project-variable",
+    "inSources": true
+   }
+  },
+  {
+   "kind": "model-3d",
+   "documentPath": "cynthion.kicad_pcb",
+   "raw": "$(KIPRJMOD)/libraries/cynthion.3dshapes/tc-1109de-a-f.stp",
+   "variables": [
+    "KIPRJMOD"
+   ],
+   "target": {
+    "kind": "repository",
+    "path": "libraries/cynthion.3dshapes/tc-1109de-a-f.stp",
+    "base": "project-variable",
+    "inSources": true
+   }
+  },
+  {
+   "kind": "model-3d",
+   "documentPath": "cynthion.kicad_pcb",
+   "raw": "${KICAD6_3DMODEL_DIR}/Capacitor_SMD.3dshapes/C_0402_1005Metric.wrl",
+   "variables": [
+    "KICAD6_3DMODEL_DIR"
+   ],
+   "target": {
+    "kind": "kicad-library",
+    "variable": "KICAD6_3DMODEL_DIR",
+    "library": "model-3d",
+    "relativePath": "Capacitor_SMD.3dshapes/C_0402_1005Metric.wrl"
+   }
+  },
+  {
+   "kind": "model-3d",
+   "documentPath": "cynthion.kicad_pcb",
+   "raw": "${KICAD6_3DMODEL_DIR}/Capacitor_SMD.3dshapes/C_0603_1608Metric.wrl",
+   "variables": [
+    "KICAD6_3DMODEL_DIR"
+   ],
+   "target": {
+    "kind": "kicad-library",
+    "variable": "KICAD6_3DMODEL_DIR",
+    "library": "model-3d",
+    "relativePath": "Capacitor_SMD.3dshapes/C_0603_1608Metric.wrl"
+   }
+  },
+  {
+   "kind": "model-3d",
+   "documentPath": "cynthion.kicad_pcb",
+   "raw": "${KICAD6_3DMODEL_DIR}/Connector_IDC.3dshapes/IDC-Header_2x05_P2.54mm_Vertical.wrl",
+   "variables": [
+    "KICAD6_3DMODEL_DIR"
+   ],
+   "target": {
+    "kind": "kicad-library",
+    "variable": "KICAD6_3DMODEL_DIR",
+    "library": "model-3d",
+    "relativePath": "Connector_IDC.3dshapes/IDC-Header_2x05_P2.54mm_Vertical.wrl"
+   }
+  },
+  {
+   "kind": "model-3d",
+   "documentPath": "cynthion.kicad_pcb",
+   "raw": "${KICAD6_3DMODEL_DIR}/Connector_PinSocket_2.54mm.3dshapes/PinSocket_2x06_P2.54mm_Horizontal.wrl",
+   "variables": [
+    "KICAD6_3DMODEL_DIR"
+   ],
+   "target": {
+    "kind": "kicad-library",
+    "variable": "KICAD6_3DMODEL_DIR",
+    "library": "model-3d",
+    "relativePath": "Connector_PinSocket_2.54mm.3dshapes/PinSocket_2x06_P2.54mm_Horizontal.wrl"
+   }
+  },
+  {
+   "kind": "model-3d",
+   "documentPath": "cynthion.kicad_pcb",
+   "raw": "${KICAD6_3DMODEL_DIR}/Crystal.3dshapes/Crystal_SMD_3225-4Pin_3.2x2.5mm.wrl",
+   "variables": [
+    "KICAD6_3DMODEL_DIR"
+   ],
+   "target": {
+    "kind": "kicad-library",
+    "variable": "KICAD6_3DMODEL_DIR",
+    "library": "model-3d",
+    "relativePath": "Crystal.3dshapes/Crystal_SMD_3225-4Pin_3.2x2.5mm.wrl"
+   }
+  },
+  {
+   "kind": "model-3d",
+   "documentPath": "cynthion.kicad_pcb",
+   "raw": "${KICAD6_3DMODEL_DIR}/Diode_SMD.3dshapes/D_SMA.wrl",
+   "variables": [
+    "KICAD6_3DMODEL_DIR"
+   ],
+   "target": {
+    "kind": "kicad-library",
+    "variable": "KICAD6_3DMODEL_DIR",
+    "library": "model-3d",
+    "relativePath": "Diode_SMD.3dshapes/D_SMA.wrl"
+   }
+  },
+  {
+   "kind": "model-3d",
+   "documentPath": "cynthion.kicad_pcb",
+   "raw": "${KICAD6_3DMODEL_DIR}/Diode_SMD.3dshapes/D_SOD-123F.wrl",
+   "variables": [
+    "KICAD6_3DMODEL_DIR"
+   ],
+   "target": {
+    "kind": "kicad-library",
+    "variable": "KICAD6_3DMODEL_DIR",
+    "library": "model-3d",
+    "relativePath": "Diode_SMD.3dshapes/D_SOD-123F.wrl"
+   }
+  },
+  {
+   "kind": "model-3d",
+   "documentPath": "cynthion.kicad_pcb",
+   "raw": "${KICAD6_3DMODEL_DIR}/LED_SMD.3dshapes/LED_0603_1608Metric.wrl",
+   "variables": [
+    "KICAD6_3DMODEL_DIR"
+   ],
+   "target": {
+    "kind": "kicad-library",
+    "variable": "KICAD6_3DMODEL_DIR",
+    "library": "model-3d",
+    "relativePath": "LED_SMD.3dshapes/LED_0603_1608Metric.wrl"
+   }
+  },
+  {
+   "kind": "model-3d",
+   "documentPath": "cynthion.kicad_pcb",
+   "raw": "${KICAD6_3DMODEL_DIR}/Package_BGA.3dshapes/BGA-256_14.0x14.0mm_Layout16x16_P0.8mm_Ball0.45mm_Pad0.32mm_NSMD.step",
+   "variables": [
+    "KICAD6_3DMODEL_DIR"
+   ],
+   "target": {
+    "kind": "kicad-library",
+    "variable": "KICAD6_3DMODEL_DIR",
+    "library": "model-3d",
+    "relativePath": "Package_BGA.3dshapes/BGA-256_14.0x14.0mm_Layout16x16_P0.8mm_Ball0.45mm_Pad0.32mm_NSMD.step"
+   }
+  },
+  {
+   "kind": "model-3d",
+   "documentPath": "cynthion.kicad_pcb",
+   "raw": "${KICAD6_3DMODEL_DIR}/Package_BGA.3dshapes/BGA-25_6.35x6.35mm_Layout5x5_P1.27mm.step",
+   "variables": [
+    "KICAD6_3DMODEL_DIR"
+   ],
+   "target": {
+    "kind": "kicad-library",
+    "variable": "KICAD6_3DMODEL_DIR",
+    "library": "model-3d",
+    "relativePath": "Package_BGA.3dshapes/BGA-25_6.35x6.35mm_Layout5x5_P1.27mm.step"
+   }
+  },
+  {
+   "kind": "model-3d",
+   "documentPath": "cynthion.kicad_pcb",
+   "raw": "${KICAD6_3DMODEL_DIR}/Package_DFN_QFN.3dshapes/DFN-6-1EP_2x2mm_P0.65mm_EP1x1.6mm.wrl",
+   "variables": [
+    "KICAD6_3DMODEL_DIR"
+   ],
+   "target": {
+    "kind": "kicad-library",
+    "variable": "KICAD6_3DMODEL_DIR",
+    "library": "model-3d",
+    "relativePath": "Package_DFN_QFN.3dshapes/DFN-6-1EP_2x2mm_P0.65mm_EP1x1.6mm.wrl"
+   }
+  },
+  {
+   "kind": "model-3d",
+   "documentPath": "cynthion.kicad_pcb",
+   "raw": "${KICAD6_3DMODEL_DIR}/Package_DFN_QFN.3dshapes/DFN-8-1EP_2x2mm_P0.5mm_EP1.05x1.75mm.wrl",
+   "variables": [
+    "KICAD6_3DMODEL_DIR"
+   ],
+   "target": {
+    "kind": "kicad-library",
+    "variable": "KICAD6_3DMODEL_DIR",
+    "library": "model-3d",
+    "relativePath": "Package_DFN_QFN.3dshapes/DFN-8-1EP_2x2mm_P0.5mm_EP1.05x1.75mm.wrl"
+   }
+  },
+  {
+   "kind": "model-3d",
+   "documentPath": "cynthion.kicad_pcb",
+   "raw": "${KICAD6_3DMODEL_DIR}/Package_DFN_QFN.3dshapes/DFN-8-1EP_3x3mm_P0.65mm_EP1.55x2.4mm.wrl",
+   "variables": [
+    "KICAD6_3DMODEL_DIR"
+   ],
+   "target": {
+    "kind": "kicad-library",
+    "variable": "KICAD6_3DMODEL_DIR",
+    "library": "model-3d",
+    "relativePath": "Package_DFN_QFN.3dshapes/DFN-8-1EP_3x3mm_P0.65mm_EP1.55x2.4mm.wrl"
+   }
+  },
+  {
+   "kind": "model-3d",
+   "documentPath": "cynthion.kicad_pcb",
+   "raw": "${KICAD6_3DMODEL_DIR}/Package_DFN_QFN.3dshapes/QFN-16-1EP_3x3mm_P0.5mm_EP1.45x1.45mm.wrl",
+   "variables": [
+    "KICAD6_3DMODEL_DIR"
+   ],
+   "target": {
+    "kind": "kicad-library",
+    "variable": "KICAD6_3DMODEL_DIR",
+    "library": "model-3d",
+    "relativePath": "Package_DFN_QFN.3dshapes/QFN-16-1EP_3x3mm_P0.5mm_EP1.45x1.45mm.wrl"
+   }
+  },
+  {
+   "kind": "model-3d",
+   "documentPath": "cynthion.kicad_pcb",
+   "raw": "${KICAD6_3DMODEL_DIR}/Package_DFN_QFN.3dshapes/QFN-16-1EP_3x3mm_P0.5mm_EP1.8x1.8mm.wrl",
+   "variables": [
+    "KICAD6_3DMODEL_DIR"
+   ],
+   "target": {
+    "kind": "kicad-library",
+    "variable": "KICAD6_3DMODEL_DIR",
+    "library": "model-3d",
+    "relativePath": "Package_DFN_QFN.3dshapes/QFN-16-1EP_3x3mm_P0.5mm_EP1.8x1.8mm.wrl"
+   }
+  },
+  {
+   "kind": "model-3d",
+   "documentPath": "cynthion.kicad_pcb",
+   "raw": "${KICAD6_3DMODEL_DIR}/Package_DFN_QFN.3dshapes/QFN-24-1EP_4x4mm_P0.5mm_EP2.6x2.6mm.wrl",
+   "variables": [
+    "KICAD6_3DMODEL_DIR"
+   ],
+   "target": {
+    "kind": "kicad-library",
+    "variable": "KICAD6_3DMODEL_DIR",
+    "library": "model-3d",
+    "relativePath": "Package_DFN_QFN.3dshapes/QFN-24-1EP_4x4mm_P0.5mm_EP2.6x2.6mm.wrl"
+   }
+  },
+  {
+   "kind": "model-3d",
+   "documentPath": "cynthion.kicad_pcb",
+   "raw": "${KICAD6_3DMODEL_DIR}/Package_DFN_QFN.3dshapes/UQFN-10_1.4x1.8mm_P0.4mm.wrl",
+   "variables": [
+    "KICAD6_3DMODEL_DIR"
+   ],
+   "target": {
+    "kind": "kicad-library",
+    "variable": "KICAD6_3DMODEL_DIR",
+    "library": "model-3d",
+    "relativePath": "Package_DFN_QFN.3dshapes/UQFN-10_1.4x1.8mm_P0.4mm.wrl"
+   }
+  },
+  {
+   "kind": "model-3d",
+   "documentPath": "cynthion.kicad_pcb",
+   "raw": "${KICAD6_3DMODEL_DIR}/Package_DFN_QFN.3dshapes/VQFN-24-1EP_4x4mm_P0.5mm_EP2.45x2.45mm.wrl",
+   "variables": [
+    "KICAD6_3DMODEL_DIR"
+   ],
+   "target": {
+    "kind": "kicad-library",
+    "variable": "KICAD6_3DMODEL_DIR",
+    "library": "model-3d",
+    "relativePath": "Package_DFN_QFN.3dshapes/VQFN-24-1EP_4x4mm_P0.5mm_EP2.45x2.45mm.wrl"
+   }
+  },
+  {
+   "kind": "model-3d",
+   "documentPath": "cynthion.kicad_pcb",
+   "raw": "${KICAD6_3DMODEL_DIR}/Package_DFN_QFN.3dshapes/WQFN-14-1EP_2.5x2.5mm_P0.5mm_EP1.45x1.45mm.wrl",
+   "variables": [
+    "KICAD6_3DMODEL_DIR"
+   ],
+   "target": {
+    "kind": "kicad-library",
+    "variable": "KICAD6_3DMODEL_DIR",
+    "library": "model-3d",
+    "relativePath": "Package_DFN_QFN.3dshapes/WQFN-14-1EP_2.5x2.5mm_P0.5mm_EP1.45x1.45mm.wrl"
+   }
+  },
+  {
+   "kind": "model-3d",
+   "documentPath": "cynthion.kicad_pcb",
+   "raw": "${KICAD6_3DMODEL_DIR}/Package_SO.3dshapes/SOIC-8_5.23x5.23mm_P1.27mm.wrl",
+   "variables": [
+    "KICAD6_3DMODEL_DIR"
+   ],
+   "target": {
+    "kind": "kicad-library",
+    "variable": "KICAD6_3DMODEL_DIR",
+    "library": "model-3d",
+    "relativePath": "Package_SO.3dshapes/SOIC-8_5.23x5.23mm_P1.27mm.wrl"
+   }
+  },
+  {
+   "kind": "model-3d",
+   "documentPath": "cynthion.kicad_pcb",
+   "raw": "${KICAD6_3DMODEL_DIR}/Package_SO.3dshapes/SOIJ-8_5.3x5.3mm_P1.27mm.wrl",
+   "variables": [
+    "KICAD6_3DMODEL_DIR"
+   ],
+   "target": {
+    "kind": "kicad-library",
+    "variable": "KICAD6_3DMODEL_DIR",
+    "library": "model-3d",
+    "relativePath": "Package_SO.3dshapes/SOIJ-8_5.3x5.3mm_P1.27mm.wrl"
+   }
+  },
+  {
+   "kind": "model-3d",
+   "documentPath": "cynthion.kicad_pcb",
+   "raw": "${KICAD6_3DMODEL_DIR}/Package_TO_SOT_SMD.3dshapes/SOT-23-3.wrl",
+   "variables": [
+    "KICAD6_3DMODEL_DIR"
+   ],
+   "target": {
+    "kind": "kicad-library",
+    "variable": "KICAD6_3DMODEL_DIR",
+    "library": "model-3d",
+    "relativePath": "Package_TO_SOT_SMD.3dshapes/SOT-23-3.wrl"
+   }
+  },
+  {
+   "kind": "model-3d",
+   "documentPath": "cynthion.kicad_pcb",
+   "raw": "${KICAD6_3DMODEL_DIR}/Package_TO_SOT_SMD.3dshapes/SOT-23-5.wrl",
+   "variables": [
+    "KICAD6_3DMODEL_DIR"
+   ],
+   "target": {
+    "kind": "kicad-library",
+    "variable": "KICAD6_3DMODEL_DIR",
+    "library": "model-3d",
+    "relativePath": "Package_TO_SOT_SMD.3dshapes/SOT-23-5.wrl"
+   }
+  },
+  {
+   "kind": "model-3d",
+   "documentPath": "cynthion.kicad_pcb",
+   "raw": "${KICAD6_3DMODEL_DIR}/Package_TO_SOT_SMD.3dshapes/SOT-363_SC-70-6.wrl",
+   "variables": [
+    "KICAD6_3DMODEL_DIR"
+   ],
+   "target": {
+    "kind": "kicad-library",
+    "variable": "KICAD6_3DMODEL_DIR",
+    "library": "model-3d",
+    "relativePath": "Package_TO_SOT_SMD.3dshapes/SOT-363_SC-70-6.wrl"
+   }
+  },
+  {
+   "kind": "model-3d",
+   "documentPath": "cynthion.kicad_pcb",
+   "raw": "${KICAD6_3DMODEL_DIR}/Resistor_SMD.3dshapes/R_0402_1005Metric.wrl",
+   "variables": [
+    "KICAD6_3DMODEL_DIR"
+   ],
+   "target": {
+    "kind": "kicad-library",
+    "variable": "KICAD6_3DMODEL_DIR",
+    "library": "model-3d",
+    "relativePath": "Resistor_SMD.3dshapes/R_0402_1005Metric.wrl"
+   }
+  },
+  {
+   "kind": "model-3d",
+   "documentPath": "cynthion.kicad_pcb",
+   "raw": "${KICAD6_3DMODEL_DIR}/Resistor_SMD.3dshapes/R_0603_1608Metric.wrl",
+   "variables": [
+    "KICAD6_3DMODEL_DIR"
+   ],
+   "target": {
+    "kind": "kicad-library",
+    "variable": "KICAD6_3DMODEL_DIR",
+    "library": "model-3d",
+    "relativePath": "Resistor_SMD.3dshapes/R_0603_1608Metric.wrl"
+   }
+  },
+  {
+   "kind": "model-3d",
+   "documentPath": "cynthion.kicad_pcb",
+   "raw": "${KICAD6_3DMODEL_DIR}/Resistor_SMD.3dshapes/R_Array_Convex_2x0402.wrl",
+   "variables": [
+    "KICAD6_3DMODEL_DIR"
+   ],
+   "target": {
+    "kind": "kicad-library",
+    "variable": "KICAD6_3DMODEL_DIR",
+    "library": "model-3d",
+    "relativePath": "Resistor_SMD.3dshapes/R_Array_Convex_2x0402.wrl"
+   }
+  },
+  {
+   "kind": "model-3d",
+   "documentPath": "cynthion.kicad_pcb",
+   "raw": "${KICAD6_3DMODEL_DIR}/Resistor_SMD.3dshapes/R_Array_Convex_4x0402.wrl",
+   "variables": [
+    "KICAD6_3DMODEL_DIR"
+   ],
+   "target": {
+    "kind": "kicad-library",
+    "variable": "KICAD6_3DMODEL_DIR",
+    "library": "model-3d",
+    "relativePath": "Resistor_SMD.3dshapes/R_Array_Convex_4x0402.wrl"
+   }
+  },
+  {
+   "kind": "sheet-file",
+   "documentPath": "cynthion.kicad_sch",
+   "sheetUuid": "00000000-0000-0000-0000-00005dd754d4",
+   "sheetName": "AUX Port",
+   "raw": "aux_port.kicad_sch",
+   "variables": [],
+   "target": {
+    "kind": "repository",
+    "path": "aux_port.kicad_sch",
+    "base": "document-directory",
+    "inSources": true
+   }
+  },
+  {
+   "kind": "sheet-file",
+   "documentPath": "cynthion.kicad_sch",
+   "sheetUuid": "d6473fd6-7fca-4f4e-a434-76243f5aa389",
+   "sheetName": "FPGA Banks 0 and 1",
+   "raw": "bank0_1.kicad_sch",
+   "variables": [],
+   "target": {
+    "kind": "repository",
+    "path": "bank0_1.kicad_sch",
+    "base": "document-directory",
+    "inSources": true
+   }
+  },
+  {
+   "kind": "sheet-file",
+   "documentPath": "cynthion.kicad_sch",
+   "sheetUuid": "88637316-1688-4ac4-b530-3f2433cec3c1",
+   "sheetName": "FPGA Banks 2 and 3",
+   "raw": "bank2_3.kicad_sch",
+   "variables": [],
+   "target": {
+    "kind": "repository",
+    "path": "bank2_3.kicad_sch",
+    "base": "document-directory",
+    "inSources": true
+   }
+  },
+  {
+   "kind": "sheet-file",
+   "documentPath": "cynthion.kicad_sch",
+   "sheetUuid": "398ed715-d319-4823-8f52-c02f43302105",
+   "sheetName": "FPGA Banks 6 and 7",
+   "raw": "bank6_7.kicad_sch",
+   "variables": [],
+   "target": {
+    "kind": "repository",
+    "path": "bank6_7.kicad_sch",
+    "base": "document-directory",
+    "inSources": true
+   }
+  },
+  {
+   "kind": "sheet-file",
+   "documentPath": "cynthion.kicad_sch",
+   "sheetUuid": "f93ff067-5e9f-4565-b018-6e1ef186681c",
+   "sheetName": "FPGA Bank 8 and Configuration Flash",
+   "raw": "bank8_configuration.kicad_sch",
+   "variables": [],
+   "target": {
+    "kind": "repository",
+    "path": "bank8_configuration.kicad_sch",
+    "base": "document-directory",
+    "inSources": true
+   }
+  },
+  {
+   "kind": "sheet-file",
+   "documentPath": "cynthion.kicad_sch",
+   "sheetUuid": "07741d92-cb3b-401f-9c7e-29f688af7269",
+   "sheetName": "Clock and Miscellaneous",
+   "raw": "clock_misc.kicad_sch",
+   "variables": [],
+   "target": {
+    "kind": "repository",
+    "path": "clock_misc.kicad_sch",
+    "base": "document-directory",
+    "inSources": true
+   }
+  },
+  {
+   "kind": "sheet-file",
+   "documentPath": "cynthion.kicad_sch",
+   "sheetUuid": "00000000-0000-0000-0000-00005dcd9772",
+   "sheetName": "CONTROL Port",
+   "raw": "control_port.kicad_sch",
+   "variables": [],
+   "target": {
+    "kind": "repository",
+    "path": "control_port.kicad_sch",
+    "base": "document-directory",
+    "inSources": true
+   }
+  },
+  {
+   "kind": "sheet-file",
+   "documentPath": "cynthion.kicad_sch",
+   "sheetUuid": "00000000-0000-0000-0000-00005dcaa6d2",
+   "sheetName": "Debugger",
+   "raw": "debugger.kicad_sch",
+   "variables": [],
+   "target": {
+    "kind": "repository",
+    "path": "debugger.kicad_sch",
+    "base": "document-directory",
+    "inSources": true
+   }
+  },
+  {
+   "kind": "sheet-file",
+   "documentPath": "cynthion.kicad_sch",
+   "sheetUuid": "90959d77-de16-430a-a341-d55720164855",
+   "sheetName": "Expansion Interfaces",
+   "raw": "expansion.kicad_sch",
+   "variables": [],
+   "target": {
+    "kind": "repository",
+    "path": "expansion.kicad_sch",
+    "base": "document-directory",
+    "inSources": true
+   }
+  },
+  {
+   "kind": "sheet-file",
+   "documentPath": "cynthion.kicad_sch",
+   "sheetUuid": "c0a1b8fd-bfd5-4925-b24e-24a40b8a6b17",
+   "sheetName": "LEDs and Buttons",
+   "raw": "indicators_buttons.kicad_sch",
+   "variables": [],
+   "target": {
+    "kind": "repository",
+    "path": "indicators_buttons.kicad_sch",
+    "base": "document-directory",
+    "inSources": true
+   }
+  },
+  {
+   "kind": "sheet-file",
+   "documentPath": "cynthion.kicad_sch",
+   "sheetUuid": "490fda6e-4eae-4b35-a875-405b51914829",
+   "sheetName": "Power Distribution and Monitoring",
+   "raw": "power_distribution.kicad_sch",
+   "variables": [],
+   "target": {
+    "kind": "repository",
+    "path": "power_distribution.kicad_sch",
+    "base": "document-directory",
+    "inSources": true
+   }
+  },
+  {
+   "kind": "sheet-file",
+   "documentPath": "cynthion.kicad_sch",
+   "sheetUuid": "00000000-0000-0000-0000-00005da7baf4",
+   "sheetName": "Power Supplies",
+   "raw": "power_supplies.kicad_sch",
+   "variables": [],
+   "target": {
+    "kind": "repository",
+    "path": "power_supplies.kicad_sch",
+    "base": "document-directory",
+    "inSources": true
+   }
+  },
+  {
+   "kind": "sheet-file",
+   "documentPath": "cynthion.kicad_sch",
+   "sheetUuid": "00000000-0000-0000-0000-00005de77fe3",
+   "sheetName": "RAM",
+   "raw": "ram.kicad_sch",
+   "variables": [],
+   "target": {
+    "kind": "repository",
+    "path": "ram.kicad_sch",
+    "base": "document-directory",
+    "inSources": true
+   }
+  },
+  {
+   "kind": "sheet-file",
+   "documentPath": "cynthion.kicad_sch",
+   "sheetUuid": "00000000-0000-0000-0000-00005dddb747",
+   "sheetName": "TARGET Port",
+   "raw": "target_port.kicad_sch",
+   "variables": [],
+   "target": {
+    "kind": "repository",
+    "path": "target_port.kicad_sch",
+    "base": "document-directory",
+    "inSources": true
+   }
+  },
+  {
+   "kind": "footprint-library",
+   "documentPath": "fp-lib-table",
+   "libraryName": "cynthion",
+   "raw": "${KIPRJMOD}/libraries/cynthion.pretty",
+   "variables": [
+    "KIPRJMOD"
+   ],
+   "target": {
+    "kind": "repository",
+    "path": "libraries/cynthion.pretty",
+    "base": "project-variable",
+    "inSources": true
+   }
+  },
+  {
+   "kind": "symbol-library",
+   "documentPath": "sym-lib-table",
+   "libraryName": "fpgas_and_processors",
+   "raw": "${KIPRJMOD}/libraries/fpgas_and_processors.kicad_sym",
+   "variables": [
+    "KIPRJMOD"
+   ],
+   "target": {
+    "kind": "repository",
+    "path": "libraries/fpgas_and_processors.kicad_sym",
+    "base": "project-variable",
+    "inSources": true
+   }
+  },
+  {
+   "kind": "symbol-library",
+   "documentPath": "sym-lib-table",
+   "libraryName": "support_hardware",
+   "raw": "${KIPRJMOD}/libraries/support_hardware.kicad_sym",
+   "variables": [
+    "KIPRJMOD"
+   ],
+   "target": {
+    "kind": "repository",
+    "path": "libraries/support_hardware.kicad_sym",
+    "base": "project-variable",
+    "inSources": true
+   }
+  },
+  {
+   "kind": "symbol-library",
+   "documentPath": "sym-lib-table",
+   "libraryName": "usb",
+   "raw": "${KIPRJMOD}/libraries/usb.kicad_sym",
+   "variables": [
+    "KIPRJMOD"
+   ],
+   "target": {
+    "kind": "repository",
+    "path": "libraries/usb.kicad_sym",
+    "base": "project-variable",
+    "inSources": true
+   }
+  },
+  {
+   "kind": "sheet-file",
+   "documentPath": "target_port.kicad_sch",
+   "sheetUuid": "92d64a9f-2dc8-401c-9690-4ead9b9ce144",
+   "sheetName": "TARGET Type C Controller",
+   "raw": "type_c.kicad_sch",
+   "variables": [],
+   "target": {
+    "kind": "repository",
+    "path": "type_c.kicad_sch",
+    "base": "document-directory",
+    "inSources": true
+   }
+  },
+  {
+   "kind": "sheet-file",
+   "documentPath": "target_port.kicad_sch",
+   "sheetUuid": "6fe66c21-f87e-45b5-9c98-390633af1111",
+   "sheetName": "TARGET PHY",
+   "raw": "usb_phy.kicad_sch",
+   "variables": [],
+   "target": {
+    "kind": "repository",
+    "path": "usb_phy.kicad_sch",
+    "base": "document-directory",
+    "inSources": true
+   }
+  }
+ ]
+}

@@ -1,0 +1,249 @@
+{
+ "schema": "prism.parity.capture.a0",
+ "case": "rs-usb-pd",
+ "kind": "fixture",
+ "sourceRoot": "fixtures/release-studio/usb-pd",
+ "project": "USB-PD-Trigger-Board.kicad_pro",
+ "inputs": [
+  {
+   "path": "Outputs.kicad_jobset",
+   "sha256": "9e2054841f9f7e79cbd067048d319b34a305f836ddd1b4a90603e5e8fb53347d"
+  },
+  {
+   "path": "Subsheets/Output-Connector.kicad_sch",
+   "sha256": "9b6cc1f3cc5ac14b32567ebe08afb3742286349a822a04f34490e7f7037af2e5",
+   "upgradedFromVersion": 20250114,
+   "upgradedSha256": "1f53c6c67d0479eb8a1d78c79e8384ed1200aed4ff4e1f95b34a845f817062e9"
+  },
+  {
+   "path": "USB-PD-Trigger-Board.kicad_pcb",
+   "sha256": "1f67670223a49806959ddf53c11baae9618959011e9de05cba82f5e95ad7c700",
+   "upgradedFromVersion": 20241229,
+   "upgradedSha256": "1cf24499fc328ce4b36426d44aae842dad57730eda5374999b43c88e3223bf87"
+  },
+  {
+   "path": "USB-PD-Trigger-Board.kicad_pro",
+   "sha256": "49add01bb4343f97215018b6b6b871b0d2330697fbd3278709a6b74d89e74bef"
+  },
+  {
+   "path": "USB-PD-Trigger-Board.kicad_sch",
+   "sha256": "258d7516c6d51c17aa19e171b1a8e9e4279ab3486d2efe5a22e062eb8a969a92",
+   "upgradedFromVersion": 20250114,
+   "upgradedSha256": "7de9ec1555fa58580c29e1e0196be3b009cfa947361ff521be4dcf8135e373e4"
+  },
+  {
+   "path": "packages3D/796638-2.step",
+   "sha256": "110ef5e5dac9547cd859e8dce0138098c57f4e37128da9ff51da889f8801a87f"
+  },
+  {
+   "path": "packages3D/CYPD3177-24LQXQT.stp",
+   "sha256": "2c3483eafced00e2e8867ec71b588ef0048bee6a0c0157ec47d4e1fe92ad94d5"
+  },
+  {
+   "path": "packages3D/USB4056-03-A_REVA2.step",
+   "sha256": "054081719a32b05ea9dfd650dcaf768c1cb0c7eb2b27036a4bbf2221228e9513"
+  }
+ ],
+ "producers": {
+  "todayCommit": "88db84f0ad098df7637d67b21a80def1e6109310",
+  "todayDirty": false,
+  "referenceCommit": "6c67ef387cc8df56a532e8dc01abda2e29406865",
+  "kicadMonkey": "2026.9.7",
+  "kicad": "10.0.6",
+  "python": "3.12.13",
+  "node": "24.22.0",
+  "platform": "darwin-arm64"
+ },
+ "members": {
+  "semantic-index": {
+   "status": "captured",
+   "notes": [
+    "today's a0 sourceRevisionKey c9d014a6c189e1e7f1bcfa8ab5d5dd78 (stand-in derived from it)"
+   ]
+  },
+  "board-objects": {
+   "status": "captured",
+   "sidecars": [
+    "today-hash"
+   ],
+   "checks": [
+    {
+     "shape": "rebuild",
+     "result": "equal"
+    },
+    {
+     "shape": "digest-xcheck",
+     "result": "equal",
+     "detail": [
+      "1338 digests"
+     ]
+    }
+   ],
+   "notes": [
+    "4 documents, 1338 objects, 88 review-only objects",
+    "rebuild: nativeObjects 1426 today / 1426 golden, componentObjects 99 / 99"
+   ]
+  },
+  "occurrences": {
+   "status": "captured",
+   "checks": [
+    {
+     "shape": "designCompare.components",
+     "result": "equal"
+    },
+    {
+     "shape": "designCompare.bomRows",
+     "result": "equal"
+    },
+    {
+     "shape": "semanticIndex.assembly.default",
+     "result": "equal"
+    },
+    {
+     "shape": "semanticIndex.components.fields",
+     "result": "equal"
+    },
+    {
+     "shape": "semanticIndex.components.pcbRefs",
+     "result": "equal"
+    },
+    {
+     "shape": "semanticIndex.sheetInstances",
+     "result": "equal"
+    },
+    {
+     "shape": "systemBuilder.interface.identity",
+     "result": "equal"
+    },
+    {
+     "shape": "catalog.placedSymbols",
+     "result": "equal"
+    },
+    {
+     "shape": "releaseStudio.releaseVariantsProduction.declarations",
+     "result": "equal"
+    },
+    {
+     "shape": "releaseStudio.releaseVariants.declarations",
+     "result": "equal"
+    }
+   ]
+  },
+  "stackup": {
+   "status": "captured",
+   "checks": [
+    {
+     "shape": "rs",
+     "result": "equal"
+    },
+    {
+     "shape": "dc",
+     "result": "equal"
+    },
+    {
+     "shape": "3d",
+     "result": "equal"
+    },
+    {
+     "shape": "topology-layers",
+     "result": "equal"
+    },
+    {
+     "shape": "topology-board",
+     "result": "equal"
+    },
+    {
+     "shape": "mid-plane",
+     "result": "equal"
+    },
+    {
+     "shape": "mid-plane-nm",
+     "result": "equal"
+    },
+    {
+     "shape": "board-looks",
+     "result": "equal"
+    }
+   ],
+   "notes": [
+    "0 stackup entries, 2 copper layers, 21 vias in 1 spans",
+    "mid-plane today 0.8, exact 0.8"
+   ]
+  },
+  "route-metrics": {
+   "status": "captured",
+   "checks": [
+    {
+     "shape": "dc",
+     "result": "equal",
+     "detail": [
+      "23 nets"
+     ]
+    }
+   ],
+   "notes": [
+    "23 nets, 21 vias"
+   ]
+  },
+  "placements": {
+   "status": "captured",
+   "checks": [
+    {
+     "shape": "rs-testpoints",
+     "result": "equal"
+    },
+    {
+     "shape": "rs-population",
+     "result": "equal"
+    },
+    {
+     "shape": "rs-designators",
+     "result": "equal"
+    },
+    {
+     "shape": "sb-geometry",
+     "result": "equal"
+    },
+    {
+     "shape": "sb-outline",
+     "result": "equal"
+    },
+    {
+     "shape": "catalog",
+     "result": "equal"
+    }
+   ],
+   "notes": [
+    "37 footprints, 139 pads, 36 models",
+    "KiCad 10.0.6 ipcd356 oracle: 133 numbered pads within 0.496 IPC units (limit 0.5), 0 over, 0 numbered pads without a record"
+   ]
+  },
+  "project": {
+   "status": "captured",
+   "checks": [
+    {
+     "shape": "card",
+     "result": "equal"
+    },
+    {
+     "shape": "3d.netClasses",
+     "result": "equal"
+    },
+    {
+     "shape": "closure.emptyEnv",
+     "result": "equal"
+    },
+    {
+     "shape": "closure.kicad10Env",
+     "result": "equal"
+    }
+   ]
+  },
+  "system-interface": {
+   "status": "captured",
+   "notes": [
+    "digest sha256:b9622a24741c6541502f153e37d7bf6b6215a8afcc18ce27ae24a742f55846a7"
+   ]
+  }
+ }
+}

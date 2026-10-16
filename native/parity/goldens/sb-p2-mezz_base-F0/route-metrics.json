@@ -1,0 +1,1085 @@
+{
+ "schema": "prism.route_metrics.a0",
+ "nets": [
+  {
+   "netName": "/A_A01",
+   "routeLengthNm": 960000,
+   "viaCount": 0,
+   "usedLayers": [
+    "F.Cu"
+   ],
+   "viaSpans": []
+  },
+  {
+   "netName": "/A_A02",
+   "routeLengthNm": 960000,
+   "viaCount": 0,
+   "usedLayers": [
+    "F.Cu"
+   ],
+   "viaSpans": []
+  },
+  {
+   "netName": "/A_A03",
+   "routeLengthNm": 960000,
+   "viaCount": 0,
+   "usedLayers": [
+    "F.Cu"
+   ],
+   "viaSpans": []
+  },
+  {
+   "netName": "/A_A04",
+   "routeLengthNm": 960000,
+   "viaCount": 0,
+   "usedLayers": [
+    "F.Cu"
+   ],
+   "viaSpans": []
+  },
+  {
+   "netName": "/A_A05",
+   "routeLengthNm": 960000,
+   "viaCount": 0,
+   "usedLayers": [
+    "F.Cu"
+   ],
+   "viaSpans": []
+  },
+  {
+   "netName": "/A_A06",
+   "routeLengthNm": 960000,
+   "viaCount": 0,
+   "usedLayers": [
+    "F.Cu"
+   ],
+   "viaSpans": []
+  },
+  {
+   "netName": "/A_A07",
+   "routeLengthNm": 960000,
+   "viaCount": 0,
+   "usedLayers": [
+    "F.Cu"
+   ],
+   "viaSpans": []
+  },
+  {
+   "netName": "/A_A08",
+   "routeLengthNm": 960000,
+   "viaCount": 0,
+   "usedLayers": [
+    "F.Cu"
+   ],
+   "viaSpans": []
+  },
+  {
+   "netName": "/A_A09",
+   "routeLengthNm": 960000,
+   "viaCount": 0,
+   "usedLayers": [
+    "F.Cu"
+   ],
+   "viaSpans": []
+  },
+  {
+   "netName": "/A_A10",
+   "routeLengthNm": 960000,
+   "viaCount": 0,
+   "usedLayers": [
+    "F.Cu"
+   ],
+   "viaSpans": []
+  },
+  {
+   "netName": "/A_A11",
+   "routeLengthNm": 960000,
+   "viaCount": 0,
+   "usedLayers": [
+    "F.Cu"
+   ],
+   "viaSpans": []
+  },
+  {
+   "netName": "/A_A12",
+   "routeLengthNm": 960000,
+   "viaCount": 0,
+   "usedLayers": [
+    "F.Cu"
+   ],
+   "viaSpans": []
+  },
+  {
+   "netName": "/A_A13",
+   "routeLengthNm": 960000,
+   "viaCount": 0,
+   "usedLayers": [
+    "F.Cu"
+   ],
+   "viaSpans": []
+  },
+  {
+   "netName": "/A_A14",
+   "routeLengthNm": 960000,
+   "viaCount": 0,
+   "usedLayers": [
+    "F.Cu"
+   ],
+   "viaSpans": []
+  },
+  {
+   "netName": "/A_A15",
+   "routeLengthNm": 960000,
+   "viaCount": 0,
+   "usedLayers": [
+    "F.Cu"
+   ],
+   "viaSpans": []
+  },
+  {
+   "netName": "/A_A16",
+   "routeLengthNm": 960000,
+   "viaCount": 0,
+   "usedLayers": [
+    "F.Cu"
+   ],
+   "viaSpans": []
+  },
+  {
+   "netName": "/A_A17",
+   "routeLengthNm": 960000,
+   "viaCount": 0,
+   "usedLayers": [
+    "F.Cu"
+   ],
+   "viaSpans": []
+  },
+  {
+   "netName": "/A_A18",
+   "routeLengthNm": 960000,
+   "viaCount": 0,
+   "usedLayers": [
+    "F.Cu"
+   ],
+   "viaSpans": []
+  },
+  {
+   "netName": "/A_A19",
+   "routeLengthNm": 960000,
+   "viaCount": 0,
+   "usedLayers": [
+    "F.Cu"
+   ],
+   "viaSpans": []
+  },
+  {
+   "netName": "/A_A20",
+   "routeLengthNm": 960000,
+   "viaCount": 0,
+   "usedLayers": [
+    "F.Cu"
+   ],
+   "viaSpans": []
+  },
+  {
+   "netName": "/A_A21",
+   "routeLengthNm": 960000,
+   "viaCount": 0,
+   "usedLayers": [
+    "F.Cu"
+   ],
+   "viaSpans": []
+  },
+  {
+   "netName": "/A_A22",
+   "routeLengthNm": 960000,
+   "viaCount": 0,
+   "usedLayers": [
+    "F.Cu"
+   ],
+   "viaSpans": []
+  },
+  {
+   "netName": "/A_A23",
+   "routeLengthNm": 960000,
+   "viaCount": 0,
+   "usedLayers": [
+    "F.Cu"
+   ],
+   "viaSpans": []
+  },
+  {
+   "netName": "/A_A24",
+   "routeLengthNm": 960000,
+   "viaCount": 0,
+   "usedLayers": [
+    "F.Cu"
+   ],
+   "viaSpans": []
+  },
+  {
+   "netName": "/A_A25",
+   "routeLengthNm": 960000,
+   "viaCount": 0,
+   "usedLayers": [
+    "F.Cu"
+   ],
+   "viaSpans": []
+  },
+  {
+   "netName": "/A_A26",
+   "routeLengthNm": 960000,
+   "viaCount": 0,
+   "usedLayers": [
+    "F.Cu"
+   ],
+   "viaSpans": []
+  },
+  {
+   "netName": "/A_A27",
+   "routeLengthNm": 960000,
+   "viaCount": 0,
+   "usedLayers": [
+    "F.Cu"
+   ],
+   "viaSpans": []
+  },
+  {
+   "netName": "/A_A28",
+   "routeLengthNm": 960000,
+   "viaCount": 0,
+   "usedLayers": [
+    "F.Cu"
+   ],
+   "viaSpans": []
+  },
+  {
+   "netName": "/A_A29",
+   "routeLengthNm": 960000,
+   "viaCount": 0,
+   "usedLayers": [
+    "F.Cu"
+   ],
+   "viaSpans": []
+  },
+  {
+   "netName": "/A_A30",
+   "routeLengthNm": 960000,
+   "viaCount": 0,
+   "usedLayers": [
+    "F.Cu"
+   ],
+   "viaSpans": []
+  },
+  {
+   "netName": "/A_C01",
+   "routeLengthNm": 960000,
+   "viaCount": 0,
+   "usedLayers": [
+    "F.Cu"
+   ],
+   "viaSpans": []
+  },
+  {
+   "netName": "/A_C02",
+   "routeLengthNm": 960000,
+   "viaCount": 0,
+   "usedLayers": [
+    "F.Cu"
+   ],
+   "viaSpans": []
+  },
+  {
+   "netName": "/A_C03",
+   "routeLengthNm": 960000,
+   "viaCount": 0,
+   "usedLayers": [
+    "F.Cu"
+   ],
+   "viaSpans": []
+  },
+  {
+   "netName": "/A_C04",
+   "routeLengthNm": 960000,
+   "viaCount": 0,
+   "usedLayers": [
+    "F.Cu"
+   ],
+   "viaSpans": []
+  },
+  {
+   "netName": "/A_C05",
+   "routeLengthNm": 960000,
+   "viaCount": 0,
+   "usedLayers": [
+    "F.Cu"
+   ],
+   "viaSpans": []
+  },
+  {
+   "netName": "/A_C06",
+   "routeLengthNm": 960000,
+   "viaCount": 0,
+   "usedLayers": [
+    "F.Cu"
+   ],
+   "viaSpans": []
+  },
+  {
+   "netName": "/A_C07",
+   "routeLengthNm": 960000,
+   "viaCount": 0,
+   "usedLayers": [
+    "F.Cu"
+   ],
+   "viaSpans": []
+  },
+  {
+   "netName": "/A_C08",
+   "routeLengthNm": 960000,
+   "viaCount": 0,
+   "usedLayers": [
+    "F.Cu"
+   ],
+   "viaSpans": []
+  },
+  {
+   "netName": "/A_C09",
+   "routeLengthNm": 960000,
+   "viaCount": 0,
+   "usedLayers": [
+    "F.Cu"
+   ],
+   "viaSpans": []
+  },
+  {
+   "netName": "/A_C10",
+   "routeLengthNm": 960000,
+   "viaCount": 0,
+   "usedLayers": [
+    "F.Cu"
+   ],
+   "viaSpans": []
+  },
+  {
+   "netName": "/A_C11",
+   "routeLengthNm": 960000,
+   "viaCount": 0,
+   "usedLayers": [
+    "F.Cu"
+   ],
+   "viaSpans": []
+  },
+  {
+   "netName": "/A_C12",
+   "routeLengthNm": 960000,
+   "viaCount": 0,
+   "usedLayers": [
+    "F.Cu"
+   ],
+   "viaSpans": []
+  },
+  {
+   "netName": "/A_C13",
+   "routeLengthNm": 960000,
+   "viaCount": 0,
+   "usedLayers": [
+    "F.Cu"
+   ],
+   "viaSpans": []
+  },
+  {
+   "netName": "/A_C14",
+   "routeLengthNm": 960000,
+   "viaCount": 0,
+   "usedLayers": [
+    "F.Cu"
+   ],
+   "viaSpans": []
+  },
+  {
+   "netName": "/A_C15",
+   "routeLengthNm": 960000,
+   "viaCount": 0,
+   "usedLayers": [
+    "F.Cu"
+   ],
+   "viaSpans": []
+  },
+  {
+   "netName": "/A_C16",
+   "routeLengthNm": 960000,
+   "viaCount": 0,
+   "usedLayers": [
+    "F.Cu"
+   ],
+   "viaSpans": []
+  },
+  {
+   "netName": "/A_C17",
+   "routeLengthNm": 960000,
+   "viaCount": 0,
+   "usedLayers": [
+    "F.Cu"
+   ],
+   "viaSpans": []
+  },
+  {
+   "netName": "/A_C18",
+   "routeLengthNm": 960000,
+   "viaCount": 0,
+   "usedLayers": [
+    "F.Cu"
+   ],
+   "viaSpans": []
+  },
+  {
+   "netName": "/A_C19",
+   "routeLengthNm": 960000,
+   "viaCount": 0,
+   "usedLayers": [
+    "F.Cu"
+   ],
+   "viaSpans": []
+  },
+  {
+   "netName": "/A_C20",
+   "routeLengthNm": 960000,
+   "viaCount": 0,
+   "usedLayers": [
+    "F.Cu"
+   ],
+   "viaSpans": []
+  },
+  {
+   "netName": "/A_C21",
+   "routeLengthNm": 960000,
+   "viaCount": 0,
+   "usedLayers": [
+    "F.Cu"
+   ],
+   "viaSpans": []
+  },
+  {
+   "netName": "/A_C22",
+   "routeLengthNm": 960000,
+   "viaCount": 0,
+   "usedLayers": [
+    "F.Cu"
+   ],
+   "viaSpans": []
+  },
+  {
+   "netName": "/A_C23",
+   "routeLengthNm": 960000,
+   "viaCount": 0,
+   "usedLayers": [
+    "F.Cu"
+   ],
+   "viaSpans": []
+  },
+  {
+   "netName": "/A_C24",
+   "routeLengthNm": 960000,
+   "viaCount": 0,
+   "usedLayers": [
+    "F.Cu"
+   ],
+   "viaSpans": []
+  },
+  {
+   "netName": "/A_C25",
+   "routeLengthNm": 960000,
+   "viaCount": 0,
+   "usedLayers": [
+    "F.Cu"
+   ],
+   "viaSpans": []
+  },
+  {
+   "netName": "/A_C26",
+   "routeLengthNm": 960000,
+   "viaCount": 0,
+   "usedLayers": [
+    "F.Cu"
+   ],
+   "viaSpans": []
+  },
+  {
+   "netName": "/A_C27",
+   "routeLengthNm": 960000,
+   "viaCount": 0,
+   "usedLayers": [
+    "F.Cu"
+   ],
+   "viaSpans": []
+  },
+  {
+   "netName": "/A_C28",
+   "routeLengthNm": 960000,
+   "viaCount": 0,
+   "usedLayers": [
+    "F.Cu"
+   ],
+   "viaSpans": []
+  },
+  {
+   "netName": "/A_C29",
+   "routeLengthNm": 960000,
+   "viaCount": 0,
+   "usedLayers": [
+    "F.Cu"
+   ],
+   "viaSpans": []
+  },
+  {
+   "netName": "/A_C30",
+   "routeLengthNm": 960000,
+   "viaCount": 0,
+   "usedLayers": [
+    "F.Cu"
+   ],
+   "viaSpans": []
+  },
+  {
+   "netName": "/B_A01",
+   "routeLengthNm": 960000,
+   "viaCount": 0,
+   "usedLayers": [
+    "F.Cu"
+   ],
+   "viaSpans": []
+  },
+  {
+   "netName": "/B_A02",
+   "routeLengthNm": 960000,
+   "viaCount": 0,
+   "usedLayers": [
+    "F.Cu"
+   ],
+   "viaSpans": []
+  },
+  {
+   "netName": "/B_A03",
+   "routeLengthNm": 960000,
+   "viaCount": 0,
+   "usedLayers": [
+    "F.Cu"
+   ],
+   "viaSpans": []
+  },
+  {
+   "netName": "/B_A04",
+   "routeLengthNm": 960000,
+   "viaCount": 0,
+   "usedLayers": [
+    "F.Cu"
+   ],
+   "viaSpans": []
+  },
+  {
+   "netName": "/B_A05",
+   "routeLengthNm": 960000,
+   "viaCount": 0,
+   "usedLayers": [
+    "F.Cu"
+   ],
+   "viaSpans": []
+  },
+  {
+   "netName": "/B_A06",
+   "routeLengthNm": 960000,
+   "viaCount": 0,
+   "usedLayers": [
+    "F.Cu"
+   ],
+   "viaSpans": []
+  },
+  {
+   "netName": "/B_A07",
+   "routeLengthNm": 960000,
+   "viaCount": 0,
+   "usedLayers": [
+    "F.Cu"
+   ],
+   "viaSpans": []
+  },
+  {
+   "netName": "/B_A08",
+   "routeLengthNm": 960000,
+   "viaCount": 0,
+   "usedLayers": [
+    "F.Cu"
+   ],
+   "viaSpans": []
+  },
+  {
+   "netName": "/B_A09",
+   "routeLengthNm": 960000,
+   "viaCount": 0,
+   "usedLayers": [
+    "F.Cu"
+   ],
+   "viaSpans": []
+  },
+  {
+   "netName": "/B_A10",
+   "routeLengthNm": 960000,
+   "viaCount": 0,
+   "usedLayers": [
+    "F.Cu"
+   ],
+   "viaSpans": []
+  },
+  {
+   "netName": "/B_A11",
+   "routeLengthNm": 960000,
+   "viaCount": 0,
+   "usedLayers": [
+    "F.Cu"
+   ],
+   "viaSpans": []
+  },
+  {
+   "netName": "/B_A12",
+   "routeLengthNm": 960000,
+   "viaCount": 0,
+   "usedLayers": [
+    "F.Cu"
+   ],
+   "viaSpans": []
+  },
+  {
+   "netName": "/B_A13",
+   "routeLengthNm": 960000,
+   "viaCount": 0,
+   "usedLayers": [
+    "F.Cu"
+   ],
+   "viaSpans": []
+  },
+  {
+   "netName": "/B_A14",
+   "routeLengthNm": 960000,
+   "viaCount": 0,
+   "usedLayers": [
+    "F.Cu"
+   ],
+   "viaSpans": []
+  },
+  {
+   "netName": "/B_A15",
+   "routeLengthNm": 960000,
+   "viaCount": 0,
+   "usedLayers": [
+    "F.Cu"
+   ],
+   "viaSpans": []
+  },
+  {
+   "netName": "/B_A16",
+   "routeLengthNm": 960000,
+   "viaCount": 0,
+   "usedLayers": [
+    "F.Cu"
+   ],
+   "viaSpans": []
+  },
+  {
+   "netName": "/B_A17",
+   "routeLengthNm": 960000,
+   "viaCount": 0,
+   "usedLayers": [
+    "F.Cu"
+   ],
+   "viaSpans": []
+  },
+  {
+   "netName": "/B_A18",
+   "routeLengthNm": 960000,
+   "viaCount": 0,
+   "usedLayers": [
+    "F.Cu"
+   ],
+   "viaSpans": []
+  },
+  {
+   "netName": "/B_A19",
+   "routeLengthNm": 960000,
+   "viaCount": 0,
+   "usedLayers": [
+    "F.Cu"
+   ],
+   "viaSpans": []
+  },
+  {
+   "netName": "/B_A20",
+   "routeLengthNm": 960000,
+   "viaCount": 0,
+   "usedLayers": [
+    "F.Cu"
+   ],
+   "viaSpans": []
+  },
+  {
+   "netName": "/B_A21",
+   "routeLengthNm": 960000,
+   "viaCount": 0,
+   "usedLayers": [
+    "F.Cu"
+   ],
+   "viaSpans": []
+  },
+  {
+   "netName": "/B_A22",
+   "routeLengthNm": 960000,
+   "viaCount": 0,
+   "usedLayers": [
+    "F.Cu"
+   ],
+   "viaSpans": []
+  },
+  {
+   "netName": "/B_A23",
+   "routeLengthNm": 960000,
+   "viaCount": 0,
+   "usedLayers": [
+    "F.Cu"
+   ],
+   "viaSpans": []
+  },
+  {
+   "netName": "/B_A24",
+   "routeLengthNm": 960000,
+   "viaCount": 0,
+   "usedLayers": [
+    "F.Cu"
+   ],
+   "viaSpans": []
+  },
+  {
+   "netName": "/B_A25",
+   "routeLengthNm": 960000,
+   "viaCount": 0,
+   "usedLayers": [
+    "F.Cu"
+   ],
+   "viaSpans": []
+  },
+  {
+   "netName": "/B_A26",
+   "routeLengthNm": 960000,
+   "viaCount": 0,
+   "usedLayers": [
+    "F.Cu"
+   ],
+   "viaSpans": []
+  },
+  {
+   "netName": "/B_A27",
+   "routeLengthNm": 960000,
+   "viaCount": 0,
+   "usedLayers": [
+    "F.Cu"
+   ],
+   "viaSpans": []
+  },
+  {
+   "netName": "/B_A28",
+   "routeLengthNm": 960000,
+   "viaCount": 0,
+   "usedLayers": [
+    "F.Cu"
+   ],
+   "viaSpans": []
+  },
+  {
+   "netName": "/B_A29",
+   "routeLengthNm": 960000,
+   "viaCount": 0,
+   "usedLayers": [
+    "F.Cu"
+   ],
+   "viaSpans": []
+  },
+  {
+   "netName": "/B_A30",
+   "routeLengthNm": 960000,
+   "viaCount": 0,
+   "usedLayers": [
+    "F.Cu"
+   ],
+   "viaSpans": []
+  },
+  {
+   "netName": "/B_C01",
+   "routeLengthNm": 960000,
+   "viaCount": 0,
+   "usedLayers": [
+    "F.Cu"
+   ],
+   "viaSpans": []
+  },
+  {
+   "netName": "/B_C02",
+   "routeLengthNm": 960000,
+   "viaCount": 0,
+   "usedLayers": [
+    "F.Cu"
+   ],
+   "viaSpans": []
+  },
+  {
+   "netName": "/B_C03",
+   "routeLengthNm": 960000,
+   "viaCount": 0,
+   "usedLayers": [
+    "F.Cu"
+   ],
+   "viaSpans": []
+  },
+  {
+   "netName": "/B_C04",
+   "routeLengthNm": 960000,
+   "viaCount": 0,
+   "usedLayers": [
+    "F.Cu"
+   ],
+   "viaSpans": []
+  },
+  {
+   "netName": "/B_C05",
+   "routeLengthNm": 960000,
+   "viaCount": 0,
+   "usedLayers": [
+    "F.Cu"
+   ],
+   "viaSpans": []
+  },
+  {
+   "netName": "/B_C06",
+   "routeLengthNm": 960000,
+   "viaCount": 0,
+   "usedLayers": [
+    "F.Cu"
+   ],
+   "viaSpans": []
+  },
+  {
+   "netName": "/B_C07",
+   "routeLengthNm": 960000,
+   "viaCount": 0,
+   "usedLayers": [
+    "F.Cu"
+   ],
+   "viaSpans": []
+  },
+  {
+   "netName": "/B_C08",
+   "routeLengthNm": 960000,
+   "viaCount": 0,
+   "usedLayers": [
+    "F.Cu"
+   ],
+   "viaSpans": []
+  },
+  {
+   "netName": "/B_C09",
+   "routeLengthNm": 960000,
+   "viaCount": 0,
+   "usedLayers": [
+    "F.Cu"
+   ],
+   "viaSpans": []
+  },
+  {
+   "netName": "/B_C10",
+   "routeLengthNm": 960000,
+   "viaCount": 0,
+   "usedLayers": [
+    "F.Cu"
+   ],
+   "viaSpans": []
+  },
+  {
+   "netName": "/B_C11",
+   "routeLengthNm": 960000,
+   "viaCount": 0,
+   "usedLayers": [
+    "F.Cu"
+   ],
+   "viaSpans": []
+  },
+  {
+   "netName": "/B_C12",
+   "routeLengthNm": 960000,
+   "viaCount": 0,
+   "usedLayers": [
+    "F.Cu"
+   ],
+   "viaSpans": []
+  },
+  {
+   "netName": "/B_C13",
+   "routeLengthNm": 960000,
+   "viaCount": 0,
+   "usedLayers": [
+    "F.Cu"
+   ],
+   "viaSpans": []
+  },
+  {
+   "netName": "/B_C14",
+   "routeLengthNm": 960000,
+   "viaCount": 0,
+   "usedLayers": [
+    "F.Cu"
+   ],
+   "viaSpans": []
+  },
+  {
+   "netName": "/B_C15",
+   "routeLengthNm": 960000,
+   "viaCount": 0,
+   "usedLayers": [
+    "F.Cu"
+   ],
+   "viaSpans": []
+  },
+  {
+   "netName": "/B_C16",
+   "routeLengthNm": 960000,
+   "viaCount": 0,
+   "usedLayers": [
+    "F.Cu"
+   ],
+   "viaSpans": []
+  },
+  {
+   "netName": "/B_C17",
+   "routeLengthNm": 960000,
+   "viaCount": 0,
+   "usedLayers": [
+    "F.Cu"
+   ],
+   "viaSpans": []
+  },
+  {
+   "netName": "/B_C18",
+   "routeLengthNm": 960000,
+   "viaCount": 0,
+   "usedLayers": [
+    "F.Cu"
+   ],
+   "viaSpans": []
+  },
+  {
+   "netName": "/B_C19",
+   "routeLengthNm": 960000,
+   "viaCount": 0,
+   "usedLayers": [
+    "F.Cu"
+   ],
+   "viaSpans": []
+  },
+  {
+   "netName": "/B_C20",
+   "routeLengthNm": 960000,
+   "viaCount": 0,
+   "usedLayers": [
+    "F.Cu"
+   ],
+   "viaSpans": []
+  },
+  {
+   "netName": "/B_C21",
+   "routeLengthNm": 960000,
+   "viaCount": 0,
+   "usedLayers": [
+    "F.Cu"
+   ],
+   "viaSpans": []
+  },
+  {
+   "netName": "/B_C22",
+   "routeLengthNm": 960000,
+   "viaCount": 0,
+   "usedLayers": [
+    "F.Cu"
+   ],
+   "viaSpans": []
+  },
+  {
+   "netName": "/B_C23",
+   "routeLengthNm": 960000,
+   "viaCount": 0,
+   "usedLayers": [
+    "F.Cu"
+   ],
+   "viaSpans": []
+  },
+  {
+   "netName": "/B_C24",
+   "routeLengthNm": 960000,
+   "viaCount": 0,
+   "usedLayers": [
+    "F.Cu"
+   ],
+   "viaSpans": []
+  },
+  {
+   "netName": "/B_C25",
+   "routeLengthNm": 960000,
+   "viaCount": 0,
+   "usedLayers": [
+    "F.Cu"
+   ],
+   "viaSpans": []
+  },
+  {
+   "netName": "/B_C26",
+   "routeLengthNm": 960000,
+   "viaCount": 0,
+   "usedLayers": [
+    "F.Cu"
+   ],
+   "viaSpans": []
+  },
+  {
+   "netName": "/B_C27",
+   "routeLengthNm": 960000,
+   "viaCount": 0,
+   "usedLayers": [
+    "F.Cu"
+   ],
+   "viaSpans": []
+  },
+  {
+   "netName": "/B_C28",
+   "routeLengthNm": 960000,
+   "viaCount": 0,
+   "usedLayers": [
+    "F.Cu"
+   ],
+   "viaSpans": []
+  },
+  {
+   "netName": "/B_C29",
+   "routeLengthNm": 960000,
+   "viaCount": 0,
+   "usedLayers": [
+    "F.Cu"
+   ],
+   "viaSpans": []
+  },
+  {
+   "netName": "/B_C30",
+   "routeLengthNm": 960000,
+   "viaCount": 0,
+   "usedLayers": [
+    "F.Cu"
+   ],
+   "viaSpans": []
+  }
+ ]
+}

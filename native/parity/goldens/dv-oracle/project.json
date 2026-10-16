@@ -1,0 +1,199 @@
+{
+ "schema": "prism.project.a0",
+ "projectFile": "variants_oracle.kicad_pro",
+ "projectName": "variants_oracle",
+ "textVariables": {},
+ "netClasses": [
+  {
+   "name": "Default",
+   "trackWidthNm": 200000,
+   "clearanceNm": 200000,
+   "viaDiameterNm": 600000,
+   "viaDrillNm": 300000
+  }
+ ],
+ "documents": [
+  {
+   "path": "antenna.kicad_sch",
+   "kind": "schematic",
+   "formatVersion": 20260306,
+   "generator": "eeschema",
+   "generatorVersion": "10.0",
+   "properties": {}
+  },
+  {
+   "path": "channel.kicad_sch",
+   "kind": "schematic",
+   "formatVersion": 20260306,
+   "generator": "eeschema",
+   "generatorVersion": "10.0",
+   "properties": {}
+  },
+  {
+   "path": "variants_oracle.kicad_pcb",
+   "kind": "board",
+   "formatVersion": 20260206,
+   "generator": "pcbnew",
+   "generatorVersion": "10.0",
+   "properties": {}
+  },
+  {
+   "path": "variants_oracle.kicad_sch",
+   "kind": "root-schematic",
+   "formatVersion": 20260306,
+   "generator": "eeschema",
+   "generatorVersion": "10.0",
+   "properties": {}
+  },
+  {
+   "path": "wireless.kicad_sch",
+   "kind": "schematic",
+   "formatVersion": 20260306,
+   "generator": "eeschema",
+   "generatorVersion": "10.0",
+   "properties": {}
+  }
+ ],
+ "references": [
+  {
+   "kind": "model-3d",
+   "documentPath": "variants_oracle.kicad_pcb",
+   "raw": "${KICAD10_3DMODEL_DIR}/Capacitor_SMD.3dshapes/C_0603_1608Metric.step",
+   "variables": [
+    "KICAD10_3DMODEL_DIR"
+   ],
+   "target": {
+    "kind": "kicad-library",
+    "variable": "KICAD10_3DMODEL_DIR",
+    "library": "model-3d",
+    "relativePath": "Capacitor_SMD.3dshapes/C_0603_1608Metric.step"
+   }
+  },
+  {
+   "kind": "model-3d",
+   "documentPath": "variants_oracle.kicad_pcb",
+   "raw": "${KICAD10_3DMODEL_DIR}/Connector_PinHeader_2.54mm.3dshapes/PinHeader_1x02_P2.54mm_Vertical.step",
+   "variables": [
+    "KICAD10_3DMODEL_DIR"
+   ],
+   "target": {
+    "kind": "kicad-library",
+    "variable": "KICAD10_3DMODEL_DIR",
+    "library": "model-3d",
+    "relativePath": "Connector_PinHeader_2.54mm.3dshapes/PinHeader_1x02_P2.54mm_Vertical.step"
+   }
+  },
+  {
+   "kind": "model-3d",
+   "documentPath": "variants_oracle.kicad_pcb",
+   "raw": "${KICAD10_3DMODEL_DIR}/Package_SO.3dshapes/SOIC-8_3.9x4.9mm_P1.27mm.step",
+   "variables": [
+    "KICAD10_3DMODEL_DIR"
+   ],
+   "target": {
+    "kind": "kicad-library",
+    "variable": "KICAD10_3DMODEL_DIR",
+    "library": "model-3d",
+    "relativePath": "Package_SO.3dshapes/SOIC-8_3.9x4.9mm_P1.27mm.step"
+   }
+  },
+  {
+   "kind": "model-3d",
+   "documentPath": "variants_oracle.kicad_pcb",
+   "raw": "${KICAD10_3DMODEL_DIR}/Package_TO_SOT_SMD.3dshapes/SOT-23.step",
+   "variables": [
+    "KICAD10_3DMODEL_DIR"
+   ],
+   "target": {
+    "kind": "kicad-library",
+    "variable": "KICAD10_3DMODEL_DIR",
+    "library": "model-3d",
+    "relativePath": "Package_TO_SOT_SMD.3dshapes/SOT-23.step"
+   }
+  },
+  {
+   "kind": "model-3d",
+   "documentPath": "variants_oracle.kicad_pcb",
+   "raw": "${KICAD10_3DMODEL_DIR}/Package_TO_SOT_SMD.3dshapes/SOT-89-3.step",
+   "variables": [
+    "KICAD10_3DMODEL_DIR"
+   ],
+   "target": {
+    "kind": "kicad-library",
+    "variable": "KICAD10_3DMODEL_DIR",
+    "library": "model-3d",
+    "relativePath": "Package_TO_SOT_SMD.3dshapes/SOT-89-3.step"
+   }
+  },
+  {
+   "kind": "model-3d",
+   "documentPath": "variants_oracle.kicad_pcb",
+   "raw": "${KICAD10_3DMODEL_DIR}/Resistor_SMD.3dshapes/R_0603_1608Metric.step",
+   "variables": [
+    "KICAD10_3DMODEL_DIR"
+   ],
+   "target": {
+    "kind": "kicad-library",
+    "variable": "KICAD10_3DMODEL_DIR",
+    "library": "model-3d",
+    "relativePath": "Resistor_SMD.3dshapes/R_0603_1608Metric.step"
+   }
+  },
+  {
+   "kind": "sheet-file",
+   "documentPath": "variants_oracle.kicad_sch",
+   "sheetUuid": "2b37a7b5-50d3-5e47-8b5a-0eb89cbfd3a1",
+   "sheetName": "CH_A",
+   "raw": "channel.kicad_sch",
+   "variables": [],
+   "target": {
+    "kind": "repository",
+    "path": "channel.kicad_sch",
+    "base": "document-directory",
+    "inSources": true
+   }
+  },
+  {
+   "kind": "sheet-file",
+   "documentPath": "variants_oracle.kicad_sch",
+   "sheetUuid": "a3f95ab9-d212-5d48-93ad-8aff8aef4abf",
+   "sheetName": "CH_B",
+   "raw": "channel.kicad_sch",
+   "variables": [],
+   "target": {
+    "kind": "repository",
+    "path": "channel.kicad_sch",
+    "base": "document-directory",
+    "inSources": true
+   }
+  },
+  {
+   "kind": "sheet-file",
+   "documentPath": "variants_oracle.kicad_sch",
+   "sheetUuid": "c33f383d-e37a-5ee0-b3d2-b1d64b3f8476",
+   "sheetName": "Wireless",
+   "raw": "wireless.kicad_sch",
+   "variables": [],
+   "target": {
+    "kind": "repository",
+    "path": "wireless.kicad_sch",
+    "base": "document-directory",
+    "inSources": true
+   }
+  },
+  {
+   "kind": "sheet-file",
+   "documentPath": "wireless.kicad_sch",
+   "sheetUuid": "e466f341-d6de-5757-99d7-3cab7d8daea1",
+   "sheetName": "Antenna",
+   "raw": "antenna.kicad_sch",
+   "variables": [],
+   "target": {
+    "kind": "repository",
+    "path": "antenna.kicad_sch",
+    "base": "document-directory",
+    "inSources": true
+   }
+  }
+ ]
+}

@@ -1,0 +1,7142 @@
+{
+ "schema": "prism.system_interface.v1",
+ "hasPcb": true,
+ "boardThicknessMm": 1.6,
+ "boardOutlineMm": {
+  "minMm": [
+   100.0,
+   -140.0
+  ],
+  "maxMm": [
+   150.0,
+   -100.0
+  ],
+  "source": "edge_cuts"
+ },
+ "components": [
+  {
+   "portKey": "/c8bd9f5d-9fab-5609-afe3-e3bc0fbbd678/3b3eaf96-7cfc-5073-9f70-2f5cf849f3b8",
+   "memberKeys": [
+    "/c8bd9f5d-9fab-5609-afe3-e3bc0fbbd678/3b3eaf96-7cfc-5073-9f70-2f5cf849f3b8"
+   ],
+   "reference": "J1",
+   "libId": "PrismFixture:ADF6_4x30",
+   "footprint": "PrismFixture:Samtec_ADF6-30-03.5-L-4-0-A",
+   "value": "ADF6_4x30",
+   "mpn": null,
+   "dnp": false,
+   "candidate": true,
+   "candidateReason": "refdes",
+   "pins": [
+    {
+     "pad": "A01",
+     "nets": [
+      "/A_A01"
+     ],
+     "pcbNets": [
+      "/A_A01"
+     ],
+     "pinNames": [
+      "A01"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "A02",
+     "nets": [
+      "/A_A02"
+     ],
+     "pcbNets": [
+      "/A_A02"
+     ],
+     "pinNames": [
+      "A02"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "A03",
+     "nets": [
+      "/A_A03"
+     ],
+     "pcbNets": [
+      "/A_A03"
+     ],
+     "pinNames": [
+      "A03"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "A04",
+     "nets": [
+      "/A_A04"
+     ],
+     "pcbNets": [
+      "/A_A04"
+     ],
+     "pinNames": [
+      "A04"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "A05",
+     "nets": [
+      "/A_A05"
+     ],
+     "pcbNets": [
+      "/A_A05"
+     ],
+     "pinNames": [
+      "A05"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "A06",
+     "nets": [
+      "/A_A06"
+     ],
+     "pcbNets": [
+      "/A_A06"
+     ],
+     "pinNames": [
+      "A06"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "A07",
+     "nets": [
+      "/A_A07"
+     ],
+     "pcbNets": [
+      "/A_A07"
+     ],
+     "pinNames": [
+      "A07"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "A08",
+     "nets": [
+      "/A_A08"
+     ],
+     "pcbNets": [
+      "/A_A08"
+     ],
+     "pinNames": [
+      "A08"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "A09",
+     "nets": [
+      "/A_A09"
+     ],
+     "pcbNets": [
+      "/A_A09"
+     ],
+     "pinNames": [
+      "A09"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "A10",
+     "nets": [
+      "/A_A10"
+     ],
+     "pcbNets": [
+      "/A_A10"
+     ],
+     "pinNames": [
+      "A10"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "A11",
+     "nets": [
+      "/A_A11"
+     ],
+     "pcbNets": [
+      "/A_A11"
+     ],
+     "pinNames": [
+      "A11"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "A12",
+     "nets": [
+      "/A_A12"
+     ],
+     "pcbNets": [
+      "/A_A12"
+     ],
+     "pinNames": [
+      "A12"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "A13",
+     "nets": [
+      "/A_A13"
+     ],
+     "pcbNets": [
+      "/A_A13"
+     ],
+     "pinNames": [
+      "A13"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "A14",
+     "nets": [
+      "/A_A14"
+     ],
+     "pcbNets": [
+      "/A_A14"
+     ],
+     "pinNames": [
+      "A14"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "A15",
+     "nets": [
+      "/A_A15"
+     ],
+     "pcbNets": [
+      "/A_A15"
+     ],
+     "pinNames": [
+      "A15"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "A16",
+     "nets": [
+      "/A_A16"
+     ],
+     "pcbNets": [
+      "/A_A16"
+     ],
+     "pinNames": [
+      "A16"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "A17",
+     "nets": [
+      "/A_A17"
+     ],
+     "pcbNets": [
+      "/A_A17"
+     ],
+     "pinNames": [
+      "A17"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "A18",
+     "nets": [
+      "/A_A18"
+     ],
+     "pcbNets": [
+      "/A_A18"
+     ],
+     "pinNames": [
+      "A18"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "A19",
+     "nets": [
+      "/A_A19"
+     ],
+     "pcbNets": [
+      "/A_A19"
+     ],
+     "pinNames": [
+      "A19"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "A20",
+     "nets": [
+      "/A_A20"
+     ],
+     "pcbNets": [
+      "/A_A20"
+     ],
+     "pinNames": [
+      "A20"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "A21",
+     "nets": [
+      "/A_A21"
+     ],
+     "pcbNets": [
+      "/A_A21"
+     ],
+     "pinNames": [
+      "A21"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "A22",
+     "nets": [
+      "/A_A22"
+     ],
+     "pcbNets": [
+      "/A_A22"
+     ],
+     "pinNames": [
+      "A22"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "A23",
+     "nets": [
+      "/A_A23"
+     ],
+     "pcbNets": [
+      "/A_A23"
+     ],
+     "pinNames": [
+      "A23"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "A24",
+     "nets": [
+      "/A_A24"
+     ],
+     "pcbNets": [
+      "/A_A24"
+     ],
+     "pinNames": [
+      "A24"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "A25",
+     "nets": [
+      "/A_A25"
+     ],
+     "pcbNets": [
+      "/A_A25"
+     ],
+     "pinNames": [
+      "A25"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "A26",
+     "nets": [
+      "/A_A26"
+     ],
+     "pcbNets": [
+      "/A_A26"
+     ],
+     "pinNames": [
+      "A26"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "A27",
+     "nets": [
+      "/A_A27"
+     ],
+     "pcbNets": [
+      "/A_A27"
+     ],
+     "pinNames": [
+      "A27"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "A28",
+     "nets": [
+      "/A_A28"
+     ],
+     "pcbNets": [
+      "/A_A28"
+     ],
+     "pinNames": [
+      "A28"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "A29",
+     "nets": [
+      "/A_A29"
+     ],
+     "pcbNets": [
+      "/A_A29"
+     ],
+     "pinNames": [
+      "A29"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "A30",
+     "nets": [
+      "/A_A30"
+     ],
+     "pcbNets": [
+      "/A_A30"
+     ],
+     "pinNames": [
+      "A30"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "B01",
+     "nets": [
+      "/A_A01"
+     ],
+     "pcbNets": [
+      "/A_A01"
+     ],
+     "pinNames": [
+      "B01"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "B02",
+     "nets": [
+      "/A_A02"
+     ],
+     "pcbNets": [
+      "/A_A02"
+     ],
+     "pinNames": [
+      "B02"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "B03",
+     "nets": [
+      "/A_A03"
+     ],
+     "pcbNets": [
+      "/A_A03"
+     ],
+     "pinNames": [
+      "B03"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "B04",
+     "nets": [
+      "/A_A04"
+     ],
+     "pcbNets": [
+      "/A_A04"
+     ],
+     "pinNames": [
+      "B04"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "B05",
+     "nets": [
+      "/A_A05"
+     ],
+     "pcbNets": [
+      "/A_A05"
+     ],
+     "pinNames": [
+      "B05"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "B06",
+     "nets": [
+      "/A_A06"
+     ],
+     "pcbNets": [
+      "/A_A06"
+     ],
+     "pinNames": [
+      "B06"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "B07",
+     "nets": [
+      "/A_A07"
+     ],
+     "pcbNets": [
+      "/A_A07"
+     ],
+     "pinNames": [
+      "B07"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "B08",
+     "nets": [
+      "/A_A08"
+     ],
+     "pcbNets": [
+      "/A_A08"
+     ],
+     "pinNames": [
+      "B08"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "B09",
+     "nets": [
+      "/A_A09"
+     ],
+     "pcbNets": [
+      "/A_A09"
+     ],
+     "pinNames": [
+      "B09"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "B10",
+     "nets": [
+      "/A_A10"
+     ],
+     "pcbNets": [
+      "/A_A10"
+     ],
+     "pinNames": [
+      "B10"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "B11",
+     "nets": [
+      "/A_A11"
+     ],
+     "pcbNets": [
+      "/A_A11"
+     ],
+     "pinNames": [
+      "B11"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "B12",
+     "nets": [
+      "/A_A12"
+     ],
+     "pcbNets": [
+      "/A_A12"
+     ],
+     "pinNames": [
+      "B12"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "B13",
+     "nets": [
+      "/A_A13"
+     ],
+     "pcbNets": [
+      "/A_A13"
+     ],
+     "pinNames": [
+      "B13"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "B14",
+     "nets": [
+      "/A_A14"
+     ],
+     "pcbNets": [
+      "/A_A14"
+     ],
+     "pinNames": [
+      "B14"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "B15",
+     "nets": [
+      "/A_A15"
+     ],
+     "pcbNets": [
+      "/A_A15"
+     ],
+     "pinNames": [
+      "B15"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "B16",
+     "nets": [
+      "/A_A16"
+     ],
+     "pcbNets": [
+      "/A_A16"
+     ],
+     "pinNames": [
+      "B16"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "B17",
+     "nets": [
+      "/A_A17"
+     ],
+     "pcbNets": [
+      "/A_A17"
+     ],
+     "pinNames": [
+      "B17"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "B18",
+     "nets": [
+      "/A_A18"
+     ],
+     "pcbNets": [
+      "/A_A18"
+     ],
+     "pinNames": [
+      "B18"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "B19",
+     "nets": [
+      "/A_A19"
+     ],
+     "pcbNets": [
+      "/A_A19"
+     ],
+     "pinNames": [
+      "B19"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "B20",
+     "nets": [
+      "/A_A20"
+     ],
+     "pcbNets": [
+      "/A_A20"
+     ],
+     "pinNames": [
+      "B20"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "B21",
+     "nets": [
+      "/A_A21"
+     ],
+     "pcbNets": [
+      "/A_A21"
+     ],
+     "pinNames": [
+      "B21"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "B22",
+     "nets": [
+      "/A_A22"
+     ],
+     "pcbNets": [
+      "/A_A22"
+     ],
+     "pinNames": [
+      "B22"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "B23",
+     "nets": [
+      "/A_A23"
+     ],
+     "pcbNets": [
+      "/A_A23"
+     ],
+     "pinNames": [
+      "B23"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "B24",
+     "nets": [
+      "/A_A24"
+     ],
+     "pcbNets": [
+      "/A_A24"
+     ],
+     "pinNames": [
+      "B24"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "B25",
+     "nets": [
+      "/A_A25"
+     ],
+     "pcbNets": [
+      "/A_A25"
+     ],
+     "pinNames": [
+      "B25"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "B26",
+     "nets": [
+      "/A_A26"
+     ],
+     "pcbNets": [
+      "/A_A26"
+     ],
+     "pinNames": [
+      "B26"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "B27",
+     "nets": [
+      "/A_A27"
+     ],
+     "pcbNets": [
+      "/A_A27"
+     ],
+     "pinNames": [
+      "B27"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "B28",
+     "nets": [
+      "/A_A28"
+     ],
+     "pcbNets": [
+      "/A_A28"
+     ],
+     "pinNames": [
+      "B28"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "B29",
+     "nets": [
+      "/A_A29"
+     ],
+     "pcbNets": [
+      "/A_A29"
+     ],
+     "pinNames": [
+      "B29"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "B30",
+     "nets": [
+      "/A_A30"
+     ],
+     "pcbNets": [
+      "/A_A30"
+     ],
+     "pinNames": [
+      "B30"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "C01",
+     "nets": [
+      "/A_C01"
+     ],
+     "pcbNets": [
+      "/A_C01"
+     ],
+     "pinNames": [
+      "C01"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "C02",
+     "nets": [
+      "/A_C02"
+     ],
+     "pcbNets": [
+      "/A_C02"
+     ],
+     "pinNames": [
+      "C02"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "C03",
+     "nets": [
+      "/A_C03"
+     ],
+     "pcbNets": [
+      "/A_C03"
+     ],
+     "pinNames": [
+      "C03"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "C04",
+     "nets": [
+      "/A_C04"
+     ],
+     "pcbNets": [
+      "/A_C04"
+     ],
+     "pinNames": [
+      "C04"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "C05",
+     "nets": [
+      "/A_C05"
+     ],
+     "pcbNets": [
+      "/A_C05"
+     ],
+     "pinNames": [
+      "C05"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "C06",
+     "nets": [
+      "/A_C06"
+     ],
+     "pcbNets": [
+      "/A_C06"
+     ],
+     "pinNames": [
+      "C06"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "C07",
+     "nets": [
+      "/A_C07"
+     ],
+     "pcbNets": [
+      "/A_C07"
+     ],
+     "pinNames": [
+      "C07"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "C08",
+     "nets": [
+      "/A_C08"
+     ],
+     "pcbNets": [
+      "/A_C08"
+     ],
+     "pinNames": [
+      "C08"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "C09",
+     "nets": [
+      "/A_C09"
+     ],
+     "pcbNets": [
+      "/A_C09"
+     ],
+     "pinNames": [
+      "C09"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "C10",
+     "nets": [
+      "/A_C10"
+     ],
+     "pcbNets": [
+      "/A_C10"
+     ],
+     "pinNames": [
+      "C10"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "C11",
+     "nets": [
+      "/A_C11"
+     ],
+     "pcbNets": [
+      "/A_C11"
+     ],
+     "pinNames": [
+      "C11"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "C12",
+     "nets": [
+      "/A_C12"
+     ],
+     "pcbNets": [
+      "/A_C12"
+     ],
+     "pinNames": [
+      "C12"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "C13",
+     "nets": [
+      "/A_C13"
+     ],
+     "pcbNets": [
+      "/A_C13"
+     ],
+     "pinNames": [
+      "C13"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "C14",
+     "nets": [
+      "/A_C14"
+     ],
+     "pcbNets": [
+      "/A_C14"
+     ],
+     "pinNames": [
+      "C14"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "C15",
+     "nets": [
+      "/A_C15"
+     ],
+     "pcbNets": [
+      "/A_C15"
+     ],
+     "pinNames": [
+      "C15"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "C16",
+     "nets": [
+      "/A_C16"
+     ],
+     "pcbNets": [
+      "/A_C16"
+     ],
+     "pinNames": [
+      "C16"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "C17",
+     "nets": [
+      "/A_C17"
+     ],
+     "pcbNets": [
+      "/A_C17"
+     ],
+     "pinNames": [
+      "C17"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "C18",
+     "nets": [
+      "/A_C18"
+     ],
+     "pcbNets": [
+      "/A_C18"
+     ],
+     "pinNames": [
+      "C18"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "C19",
+     "nets": [
+      "/A_C19"
+     ],
+     "pcbNets": [
+      "/A_C19"
+     ],
+     "pinNames": [
+      "C19"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "C20",
+     "nets": [
+      "/A_C20"
+     ],
+     "pcbNets": [
+      "/A_C20"
+     ],
+     "pinNames": [
+      "C20"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "C21",
+     "nets": [
+      "/A_C21"
+     ],
+     "pcbNets": [
+      "/A_C21"
+     ],
+     "pinNames": [
+      "C21"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "C22",
+     "nets": [
+      "/A_C22"
+     ],
+     "pcbNets": [
+      "/A_C22"
+     ],
+     "pinNames": [
+      "C22"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "C23",
+     "nets": [
+      "/A_C23"
+     ],
+     "pcbNets": [
+      "/A_C23"
+     ],
+     "pinNames": [
+      "C23"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "C24",
+     "nets": [
+      "/A_C24"
+     ],
+     "pcbNets": [
+      "/A_C24"
+     ],
+     "pinNames": [
+      "C24"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "C25",
+     "nets": [
+      "/A_C25"
+     ],
+     "pcbNets": [
+      "/A_C25"
+     ],
+     "pinNames": [
+      "C25"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "C26",
+     "nets": [
+      "/A_C26"
+     ],
+     "pcbNets": [
+      "/A_C26"
+     ],
+     "pinNames": [
+      "C26"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "C27",
+     "nets": [
+      "/A_C27"
+     ],
+     "pcbNets": [
+      "/A_C27"
+     ],
+     "pinNames": [
+      "C27"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "C28",
+     "nets": [
+      "/A_C28"
+     ],
+     "pcbNets": [
+      "/A_C28"
+     ],
+     "pinNames": [
+      "C28"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "C29",
+     "nets": [
+      "/A_C29"
+     ],
+     "pcbNets": [
+      "/A_C29"
+     ],
+     "pinNames": [
+      "C29"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "C30",
+     "nets": [
+      "/A_C30"
+     ],
+     "pcbNets": [
+      "/A_C30"
+     ],
+     "pinNames": [
+      "C30"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "D01",
+     "nets": [
+      "/A_C01"
+     ],
+     "pcbNets": [
+      "/A_C01"
+     ],
+     "pinNames": [
+      "D01"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "D02",
+     "nets": [
+      "/A_C02"
+     ],
+     "pcbNets": [
+      "/A_C02"
+     ],
+     "pinNames": [
+      "D02"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "D03",
+     "nets": [
+      "/A_C03"
+     ],
+     "pcbNets": [
+      "/A_C03"
+     ],
+     "pinNames": [
+      "D03"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "D04",
+     "nets": [
+      "/A_C04"
+     ],
+     "pcbNets": [
+      "/A_C04"
+     ],
+     "pinNames": [
+      "D04"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "D05",
+     "nets": [
+      "/A_C05"
+     ],
+     "pcbNets": [
+      "/A_C05"
+     ],
+     "pinNames": [
+      "D05"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "D06",
+     "nets": [
+      "/A_C06"
+     ],
+     "pcbNets": [
+      "/A_C06"
+     ],
+     "pinNames": [
+      "D06"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "D07",
+     "nets": [
+      "/A_C07"
+     ],
+     "pcbNets": [
+      "/A_C07"
+     ],
+     "pinNames": [
+      "D07"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "D08",
+     "nets": [
+      "/A_C08"
+     ],
+     "pcbNets": [
+      "/A_C08"
+     ],
+     "pinNames": [
+      "D08"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "D09",
+     "nets": [
+      "/A_C09"
+     ],
+     "pcbNets": [
+      "/A_C09"
+     ],
+     "pinNames": [
+      "D09"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "D10",
+     "nets": [
+      "/A_C10"
+     ],
+     "pcbNets": [
+      "/A_C10"
+     ],
+     "pinNames": [
+      "D10"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "D11",
+     "nets": [
+      "/A_C11"
+     ],
+     "pcbNets": [
+      "/A_C11"
+     ],
+     "pinNames": [
+      "D11"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "D12",
+     "nets": [
+      "/A_C12"
+     ],
+     "pcbNets": [
+      "/A_C12"
+     ],
+     "pinNames": [
+      "D12"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "D13",
+     "nets": [
+      "/A_C13"
+     ],
+     "pcbNets": [
+      "/A_C13"
+     ],
+     "pinNames": [
+      "D13"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "D14",
+     "nets": [
+      "/A_C14"
+     ],
+     "pcbNets": [
+      "/A_C14"
+     ],
+     "pinNames": [
+      "D14"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "D15",
+     "nets": [
+      "/A_C15"
+     ],
+     "pcbNets": [
+      "/A_C15"
+     ],
+     "pinNames": [
+      "D15"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "D16",
+     "nets": [
+      "/A_C16"
+     ],
+     "pcbNets": [
+      "/A_C16"
+     ],
+     "pinNames": [
+      "D16"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "D17",
+     "nets": [
+      "/A_C17"
+     ],
+     "pcbNets": [
+      "/A_C17"
+     ],
+     "pinNames": [
+      "D17"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "D18",
+     "nets": [
+      "/A_C18"
+     ],
+     "pcbNets": [
+      "/A_C18"
+     ],
+     "pinNames": [
+      "D18"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "D19",
+     "nets": [
+      "/A_C19"
+     ],
+     "pcbNets": [
+      "/A_C19"
+     ],
+     "pinNames": [
+      "D19"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "D20",
+     "nets": [
+      "/A_C20"
+     ],
+     "pcbNets": [
+      "/A_C20"
+     ],
+     "pinNames": [
+      "D20"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "D21",
+     "nets": [
+      "/A_C21"
+     ],
+     "pcbNets": [
+      "/A_C21"
+     ],
+     "pinNames": [
+      "D21"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "D22",
+     "nets": [
+      "/A_C22"
+     ],
+     "pcbNets": [
+      "/A_C22"
+     ],
+     "pinNames": [
+      "D22"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "D23",
+     "nets": [
+      "/A_C23"
+     ],
+     "pcbNets": [
+      "/A_C23"
+     ],
+     "pinNames": [
+      "D23"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "D24",
+     "nets": [
+      "/A_C24"
+     ],
+     "pcbNets": [
+      "/A_C24"
+     ],
+     "pinNames": [
+      "D24"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "D25",
+     "nets": [
+      "/A_C25"
+     ],
+     "pcbNets": [
+      "/A_C25"
+     ],
+     "pinNames": [
+      "D25"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "D26",
+     "nets": [
+      "/A_C26"
+     ],
+     "pcbNets": [
+      "/A_C26"
+     ],
+     "pinNames": [
+      "D26"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "D27",
+     "nets": [
+      "/A_C27"
+     ],
+     "pcbNets": [
+      "/A_C27"
+     ],
+     "pinNames": [
+      "D27"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "D28",
+     "nets": [
+      "/A_C28"
+     ],
+     "pcbNets": [
+      "/A_C28"
+     ],
+     "pinNames": [
+      "D28"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "D29",
+     "nets": [
+      "/A_C29"
+     ],
+     "pcbNets": [
+      "/A_C29"
+     ],
+     "pinNames": [
+      "D29"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "D30",
+     "nets": [
+      "/A_C30"
+     ],
+     "pcbNets": [
+      "/A_C30"
+     ],
+     "pinNames": [
+      "D30"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    }
+   ],
+   "geometry": {
+    "side": "bottom",
+    "positionMm": [
+     125.0,
+     -105.0
+    ],
+    "rotationDeg": 0.0,
+    "footprintName": "Samtec_ADF6-30-03.5-L-4-0-A",
+    "pads": [
+     {
+      "pad": "",
+      "positionMm": [
+       114.39,
+       -105.0
+      ],
+      "sizeMm": [
+       0.95,
+       0.95
+      ],
+      "shape": "circle",
+      "tht": true
+     },
+     {
+      "pad": "",
+      "positionMm": [
+       135.61,
+       -106.27
+      ],
+      "sizeMm": [
+       0.95,
+       0.95
+      ],
+      "shape": "circle",
+      "tht": true
+     },
+     {
+      "pad": "A01",
+      "positionMm": [
+       134.2075,
+       -103.25
+      ],
+      "sizeMm": [
+       0.356,
+       0.356
+      ],
+      "shape": "circle",
+      "tht": false
+     },
+     {
+      "pad": "A02",
+      "positionMm": [
+       133.5725,
+       -103.25
+      ],
+      "sizeMm": [
+       0.356,
+       0.356
+      ],
+      "shape": "circle",
+      "tht": false
+     },
+     {
+      "pad": "A03",
+      "positionMm": [
+       132.9375,
+       -103.25
+      ],
+      "sizeMm": [
+       0.356,
+       0.356
+      ],
+      "shape": "circle",
+      "tht": false
+     },
+     {
+      "pad": "A04",
+      "positionMm": [
+       132.3025,
+       -103.25
+      ],
+      "sizeMm": [
+       0.356,
+       0.356
+      ],
+      "shape": "circle",
+      "tht": false
+     },
+     {
+      "pad": "A05",
+      "positionMm": [
+       131.6675,
+       -103.25
+      ],
+      "sizeMm": [
+       0.356,
+       0.356
+      ],
+      "shape": "circle",
+      "tht": false
+     },
+     {
+      "pad": "A06",
+      "positionMm": [
+       131.0325,
+       -103.25
+      ],
+      "sizeMm": [
+       0.356,
+       0.356
+      ],
+      "shape": "circle",
+      "tht": false
+     },
+     {
+      "pad": "A07",
+      "positionMm": [
+       130.3975,
+       -103.25
+      ],
+      "sizeMm": [
+       0.356,
+       0.356
+      ],
+      "shape": "circle",
+      "tht": false
+     },
+     {
+      "pad": "A08",
+      "positionMm": [
+       129.7625,
+       -103.25
+      ],
+      "sizeMm": [
+       0.356,
+       0.356
+      ],
+      "shape": "circle",
+      "tht": false
+     },
+     {
+      "pad": "A09",
+      "positionMm": [
+       129.1275,
+       -103.25
+      ],
+      "sizeMm": [
+       0.356,
+       0.356
+      ],
+      "shape": "circle",
+      "tht": false
+     },
+     {
+      "pad": "A10",
+      "positionMm": [
+       128.4925,
+       -103.25
+      ],
+      "sizeMm": [
+       0.356,
+       0.356
+      ],
+      "shape": "circle",
+      "tht": false
+     },
+     {
+      "pad": "A11",
+      "positionMm": [
+       127.8575,
+       -103.25
+      ],
+      "sizeMm": [
+       0.356,
+       0.356
+      ],
+      "shape": "circle",
+      "tht": false
+     },
+     {
+      "pad": "A12",
+      "positionMm": [
+       127.2225,
+       -103.25
+      ],
+      "sizeMm": [
+       0.356,
+       0.356
+      ],
+      "shape": "circle",
+      "tht": false
+     },
+     {
+      "pad": "A13",
+      "positionMm": [
+       126.5875,
+       -103.25
+      ],
+      "sizeMm": [
+       0.356,
+       0.356
+      ],
+      "shape": "circle",
+      "tht": false
+     },
+     {
+      "pad": "A14",
+      "positionMm": [
+       125.9525,
+       -103.25
+      ],
+      "sizeMm": [
+       0.356,
+       0.356
+      ],
+      "shape": "circle",
+      "tht": false
+     },
+     {
+      "pad": "A15",
+      "positionMm": [
+       125.3175,
+       -103.25
+      ],
+      "sizeMm": [
+       0.356,
+       0.356
+      ],
+      "shape": "circle",
+      "tht": false
+     },
+     {
+      "pad": "A16",
+      "positionMm": [
+       124.6825,
+       -103.25
+      ],
+      "sizeMm": [
+       0.356,
+       0.356
+      ],
+      "shape": "circle",
+      "tht": false
+     },
+     {
+      "pad": "A17",
+      "positionMm": [
+       124.0475,
+       -103.25
+      ],
+      "sizeMm": [
+       0.356,
+       0.356
+      ],
+      "shape": "circle",
+      "tht": false
+     },
+     {
+      "pad": "A18",
+      "positionMm": [
+       123.4125,
+       -103.25
+      ],
+      "sizeMm": [
+       0.356,
+       0.356
+      ],
+      "shape": "circle",
+      "tht": false
+     },
+     {
+      "pad": "A19",
+      "positionMm": [
+       122.7775,
+       -103.25
+      ],
+      "sizeMm": [
+       0.356,
+       0.356
+      ],
+      "shape": "circle",
+      "tht": false
+     },
+     {
+      "pad": "A20",
+      "positionMm": [
+       122.1425,
+       -103.25
+      ],
+      "sizeMm": [
+       0.356,
+       0.356
+      ],
+      "shape": "circle",
+      "tht": false
+     },
+     {
+      "pad": "A21",
+      "positionMm": [
+       121.5075,
+       -103.25
+      ],
+      "sizeMm": [
+       0.356,
+       0.356
+      ],
+      "shape": "circle",
+      "tht": false
+     },
+     {
+      "pad": "A22",
+      "positionMm": [
+       120.8725,
+       -103.25
+      ],
+      "sizeMm": [
+       0.356,
+       0.356
+      ],
+      "shape": "circle",
+      "tht": false
+     },
+     {
+      "pad": "A23",
+      "positionMm": [
+       120.2375,
+       -103.25
+      ],
+      "sizeMm": [
+       0.356,
+       0.356
+      ],
+      "shape": "circle",
+      "tht": false
+     },
+     {
+      "pad": "A24",
+      "positionMm": [
+       119.6025,
+       -103.25
+      ],
+      "sizeMm": [
+       0.356,
+       0.356
+      ],
+      "shape": "circle",
+      "tht": false
+     },
+     {
+      "pad": "A25",
+      "positionMm": [
+       118.9675,
+       -103.25
+      ],
+      "sizeMm": [
+       0.356,
+       0.356
+      ],
+      "shape": "circle",
+      "tht": false
+     },
+     {
+      "pad": "A26",
+      "positionMm": [
+       118.3325,
+       -103.25
+      ],
+      "sizeMm": [
+       0.356,
+       0.356
+      ],
+      "shape": "circle",
+      "tht": false
+     },
+     {
+      "pad": "A27",
+      "positionMm": [
+       117.6975,
+       -103.25
+      ],
+      "sizeMm": [
+       0.356,
+       0.356
+      ],
+      "shape": "circle",
+      "tht": false
+     },
+     {
+      "pad": "A28",
+      "positionMm": [
+       117.0625,
+       -103.25
+      ],
+      "sizeMm": [
+       0.356,
+       0.356
+      ],
+      "shape": "circle",
+      "tht": false
+     },
+     {
+      "pad": "A29",
+      "positionMm": [
+       116.4275,
+       -103.25
+      ],
+      "sizeMm": [
+       0.356,
+       0.356
+      ],
+      "shape": "circle",
+      "tht": false
+     },
+     {
+      "pad": "A30",
+      "positionMm": [
+       115.7925,
+       -103.25
+      ],
+      "sizeMm": [
+       0.356,
+       0.356
+      ],
+      "shape": "circle",
+      "tht": false
+     },
+     {
+      "pad": "B01",
+      "positionMm": [
+       134.2075,
+       -104.21
+      ],
+      "sizeMm": [
+       0.356,
+       0.356
+      ],
+      "shape": "circle",
+      "tht": false
+     },
+     {
+      "pad": "B02",
+      "positionMm": [
+       133.5725,
+       -104.21
+      ],
+      "sizeMm": [
+       0.356,
+       0.356
+      ],
+      "shape": "circle",
+      "tht": false
+     },
+     {
+      "pad": "B03",
+      "positionMm": [
+       132.9375,
+       -104.21
+      ],
+      "sizeMm": [
+       0.356,
+       0.356
+      ],
+      "shape": "circle",
+      "tht": false
+     },
+     {
+      "pad": "B04",
+      "positionMm": [
+       132.3025,
+       -104.21
+      ],
+      "sizeMm": [
+       0.356,
+       0.356
+      ],
+      "shape": "circle",
+      "tht": false
+     },
+     {
+      "pad": "B05",
+      "positionMm": [
+       131.6675,
+       -104.21
+      ],
+      "sizeMm": [
+       0.356,
+       0.356
+      ],
+      "shape": "circle",
+      "tht": false
+     },
+     {
+      "pad": "B06",
+      "positionMm": [
+       131.0325,
+       -104.21
+      ],
+      "sizeMm": [
+       0.356,
+       0.356
+      ],
+      "shape": "circle",
+      "tht": false
+     },
+     {
+      "pad": "B07",
+      "positionMm": [
+       130.3975,
+       -104.21
+      ],
+      "sizeMm": [
+       0.356,
+       0.356
+      ],
+      "shape": "circle",
+      "tht": false
+     },
+     {
+      "pad": "B08",
+      "positionMm": [
+       129.7625,
+       -104.21
+      ],
+      "sizeMm": [
+       0.356,
+       0.356
+      ],
+      "shape": "circle",
+      "tht": false
+     },
+     {
+      "pad": "B09",
+      "positionMm": [
+       129.1275,
+       -104.21
+      ],
+      "sizeMm": [
+       0.356,
+       0.356
+      ],
+      "shape": "circle",
+      "tht": false
+     },
+     {
+      "pad": "B10",
+      "positionMm": [
+       128.4925,
+       -104.21
+      ],
+      "sizeMm": [
+       0.356,
+       0.356
+      ],
+      "shape": "circle",
+      "tht": false
+     },
+     {
+      "pad": "B11",
+      "positionMm": [
+       127.8575,
+       -104.21
+      ],
+      "sizeMm": [
+       0.356,
+       0.356
+      ],
+      "shape": "circle",
+      "tht": false
+     },
+     {
+      "pad": "B12",
+      "positionMm": [
+       127.2225,
+       -104.21
+      ],
+      "sizeMm": [
+       0.356,
+       0.356
+      ],
+      "shape": "circle",
+      "tht": false
+     },
+     {
+      "pad": "B13",
+      "positionMm": [
+       126.5875,
+       -104.21
+      ],
+      "sizeMm": [
+       0.356,
+       0.356
+      ],
+      "shape": "circle",
+      "tht": false
+     },
+     {
+      "pad": "B14",
+      "positionMm": [
+       125.9525,
+       -104.21
+      ],
+      "sizeMm": [
+       0.356,
+       0.356
+      ],
+      "shape": "circle",
+      "tht": false
+     },
+     {
+      "pad": "B15",
+      "positionMm": [
+       125.3175,
+       -104.21
+      ],
+      "sizeMm": [
+       0.356,
+       0.356
+      ],
+      "shape": "circle",
+      "tht": false
+     },
+     {
+      "pad": "B16",
+      "positionMm": [
+       124.6825,
+       -104.21
+      ],
+      "sizeMm": [
+       0.356,
+       0.356
+      ],
+      "shape": "circle",
+      "tht": false
+     },
+     {
+      "pad": "B17",
+      "positionMm": [
+       124.0475,
+       -104.21
+      ],
+      "sizeMm": [
+       0.356,
+       0.356
+      ],
+      "shape": "circle",
+      "tht": false
+     },
+     {
+      "pad": "B18",
+      "positionMm": [
+       123.4125,
+       -104.21
+      ],
+      "sizeMm": [
+       0.356,
+       0.356
+      ],
+      "shape": "circle",
+      "tht": false
+     },
+     {
+      "pad": "B19",
+      "positionMm": [
+       122.7775,
+       -104.21
+      ],
+      "sizeMm": [
+       0.356,
+       0.356
+      ],
+      "shape": "circle",
+      "tht": false
+     },
+     {
+      "pad": "B20",
+      "positionMm": [
+       122.1425,
+       -104.21
+      ],
+      "sizeMm": [
+       0.356,
+       0.356
+      ],
+      "shape": "circle",
+      "tht": false
+     },
+     {
+      "pad": "B21",
+      "positionMm": [
+       121.5075,
+       -104.21
+      ],
+      "sizeMm": [
+       0.356,
+       0.356
+      ],
+      "shape": "circle",
+      "tht": false
+     },
+     {
+      "pad": "B22",
+      "positionMm": [
+       120.8725,
+       -104.21
+      ],
+      "sizeMm": [
+       0.356,
+       0.356
+      ],
+      "shape": "circle",
+      "tht": false
+     },
+     {
+      "pad": "B23",
+      "positionMm": [
+       120.2375,
+       -104.21
+      ],
+      "sizeMm": [
+       0.356,
+       0.356
+      ],
+      "shape": "circle",
+      "tht": false
+     },
+     {
+      "pad": "B24",
+      "positionMm": [
+       119.6025,
+       -104.21
+      ],
+      "sizeMm": [
+       0.356,
+       0.356
+      ],
+      "shape": "circle",
+      "tht": false
+     },
+     {
+      "pad": "B25",
+      "positionMm": [
+       118.9675,
+       -104.21
+      ],
+      "sizeMm": [
+       0.356,
+       0.356
+      ],
+      "shape": "circle",
+      "tht": false
+     },
+     {
+      "pad": "B26",
+      "positionMm": [
+       118.3325,
+       -104.21
+      ],
+      "sizeMm": [
+       0.356,
+       0.356
+      ],
+      "shape": "circle",
+      "tht": false
+     },
+     {
+      "pad": "B27",
+      "positionMm": [
+       117.6975,
+       -104.21
+      ],
+      "sizeMm": [
+       0.356,
+       0.356
+      ],
+      "shape": "circle",
+      "tht": false
+     },
+     {
+      "pad": "B28",
+      "positionMm": [
+       117.0625,
+       -104.21
+      ],
+      "sizeMm": [
+       0.356,
+       0.356
+      ],
+      "shape": "circle",
+      "tht": false
+     },
+     {
+      "pad": "B29",
+      "positionMm": [
+       116.4275,
+       -104.21
+      ],
+      "sizeMm": [
+       0.356,
+       0.356
+      ],
+      "shape": "circle",
+      "tht": false
+     },
+     {
+      "pad": "B30",
+      "positionMm": [
+       115.7925,
+       -104.21
+      ],
+      "sizeMm": [
+       0.356,
+       0.356
+      ],
+      "shape": "circle",
+      "tht": false
+     },
+     {
+      "pad": "C01",
+      "positionMm": [
+       134.2075,
+       -105.79
+      ],
+      "sizeMm": [
+       0.356,
+       0.356
+      ],
+      "shape": "circle",
+      "tht": false
+     },
+     {
+      "pad": "C02",
+      "positionMm": [
+       133.5725,
+       -105.79
+      ],
+      "sizeMm": [
+       0.356,
+       0.356
+      ],
+      "shape": "circle",
+      "tht": false
+     },
+     {
+      "pad": "C03",
+      "positionMm": [
+       132.9375,
+       -105.79
+      ],
+      "sizeMm": [
+       0.356,
+       0.356
+      ],
+      "shape": "circle",
+      "tht": false
+     },
+     {
+      "pad": "C04",
+      "positionMm": [
+       132.3025,
+       -105.79
+      ],
+      "sizeMm": [
+       0.356,
+       0.356
+      ],
+      "shape": "circle",
+      "tht": false
+     },
+     {
+      "pad": "C05",
+      "positionMm": [
+       131.6675,
+       -105.79
+      ],
+      "sizeMm": [
+       0.356,
+       0.356
+      ],
+      "shape": "circle",
+      "tht": false
+     },
+     {
+      "pad": "C06",
+      "positionMm": [
+       131.0325,
+       -105.79
+      ],
+      "sizeMm": [
+       0.356,
+       0.356
+      ],
+      "shape": "circle",
+      "tht": false
+     },
+     {
+      "pad": "C07",
+      "positionMm": [
+       130.3975,
+       -105.79
+      ],
+      "sizeMm": [
+       0.356,
+       0.356
+      ],
+      "shape": "circle",
+      "tht": false
+     },
+     {
+      "pad": "C08",
+      "positionMm": [
+       129.7625,
+       -105.79
+      ],
+      "sizeMm": [
+       0.356,
+       0.356
+      ],
+      "shape": "circle",
+      "tht": false
+     },
+     {
+      "pad": "C09",
+      "positionMm": [
+       129.1275,
+       -105.79
+      ],
+      "sizeMm": [
+       0.356,
+       0.356
+      ],
+      "shape": "circle",
+      "tht": false
+     },
+     {
+      "pad": "C10",
+      "positionMm": [
+       128.4925,
+       -105.79
+      ],
+      "sizeMm": [
+       0.356,
+       0.356
+      ],
+      "shape": "circle",
+      "tht": false
+     },
+     {
+      "pad": "C11",
+      "positionMm": [
+       127.8575,
+       -105.79
+      ],
+      "sizeMm": [
+       0.356,
+       0.356
+      ],
+      "shape": "circle",
+      "tht": false
+     },
+     {
+      "pad": "C12",
+      "positionMm": [
+       127.2225,
+       -105.79
+      ],
+      "sizeMm": [
+       0.356,
+       0.356
+      ],
+      "shape": "circle",
+      "tht": false
+     },
+     {
+      "pad": "C13",
+      "positionMm": [
+       126.5875,
+       -105.79
+      ],
+      "sizeMm": [
+       0.356,
+       0.356
+      ],
+      "shape": "circle",
+      "tht": false
+     },
+     {
+      "pad": "C14",
+      "positionMm": [
+       125.9525,
+       -105.79
+      ],
+      "sizeMm": [
+       0.356,
+       0.356
+      ],
+      "shape": "circle",
+      "tht": false
+     },
+     {
+      "pad": "C15",
+      "positionMm": [
+       125.3175,
+       -105.79
+      ],
+      "sizeMm": [
+       0.356,
+       0.356
+      ],
+      "shape": "circle",
+      "tht": false
+     },
+     {
+      "pad": "C16",
+      "positionMm": [
+       124.6825,
+       -105.79
+      ],
+      "sizeMm": [
+       0.356,
+       0.356
+      ],
+      "shape": "circle",
+      "tht": false
+     },
+     {
+      "pad": "C17",
+      "positionMm": [
+       124.0475,
+       -105.79
+      ],
+      "sizeMm": [
+       0.356,
+       0.356
+      ],
+      "shape": "circle",
+      "tht": false
+     },
+     {
+      "pad": "C18",
+      "positionMm": [
+       123.4125,
+       -105.79
+      ],
+      "sizeMm": [
+       0.356,
+       0.356
+      ],
+      "shape": "circle",
+      "tht": false
+     },
+     {
+      "pad": "C19",
+      "positionMm": [
+       122.7775,
+       -105.79
+      ],
+      "sizeMm": [
+       0.356,
+       0.356
+      ],
+      "shape": "circle",
+      "tht": false
+     },
+     {
+      "pad": "C20",
+      "positionMm": [
+       122.1425,
+       -105.79
+      ],
+      "sizeMm": [
+       0.356,
+       0.356
+      ],
+      "shape": "circle",
+      "tht": false
+     },
+     {
+      "pad": "C21",
+      "positionMm": [
+       121.5075,
+       -105.79
+      ],
+      "sizeMm": [
+       0.356,
+       0.356
+      ],
+      "shape": "circle",
+      "tht": false
+     },
+     {
+      "pad": "C22",
+      "positionMm": [
+       120.8725,
+       -105.79
+      ],
+      "sizeMm": [
+       0.356,
+       0.356
+      ],
+      "shape": "circle",
+      "tht": false
+     },
+     {
+      "pad": "C23",
+      "positionMm": [
+       120.2375,
+       -105.79
+      ],
+      "sizeMm": [
+       0.356,
+       0.356
+      ],
+      "shape": "circle",
+      "tht": false
+     },
+     {
+      "pad": "C24",
+      "positionMm": [
+       119.6025,
+       -105.79
+      ],
+      "sizeMm": [
+       0.356,
+       0.356
+      ],
+      "shape": "circle",
+      "tht": false
+     },
+     {
+      "pad": "C25",
+      "positionMm": [
+       118.9675,
+       -105.79
+      ],
+      "sizeMm": [
+       0.356,
+       0.356
+      ],
+      "shape": "circle",
+      "tht": false
+     },
+     {
+      "pad": "C26",
+      "positionMm": [
+       118.3325,
+       -105.79
+      ],
+      "sizeMm": [
+       0.356,
+       0.356
+      ],
+      "shape": "circle",
+      "tht": false
+     },
+     {
+      "pad": "C27",
+      "positionMm": [
+       117.6975,
+       -105.79
+      ],
+      "sizeMm": [
+       0.356,
+       0.356
+      ],
+      "shape": "circle",
+      "tht": false
+     },
+     {
+      "pad": "C28",
+      "positionMm": [
+       117.0625,
+       -105.79
+      ],
+      "sizeMm": [
+       0.356,
+       0.356
+      ],
+      "shape": "circle",
+      "tht": false
+     },
+     {
+      "pad": "C29",
+      "positionMm": [
+       116.4275,
+       -105.79
+      ],
+      "sizeMm": [
+       0.356,
+       0.356
+      ],
+      "shape": "circle",
+      "tht": false
+     },
+     {
+      "pad": "C30",
+      "positionMm": [
+       115.7925,
+       -105.79
+      ],
+      "sizeMm": [
+       0.356,
+       0.356
+      ],
+      "shape": "circle",
+      "tht": false
+     },
+     {
+      "pad": "D01",
+      "positionMm": [
+       134.2075,
+       -106.75
+      ],
+      "sizeMm": [
+       0.356,
+       0.356
+      ],
+      "shape": "circle",
+      "tht": false
+     },
+     {
+      "pad": "D02",
+      "positionMm": [
+       133.5725,
+       -106.75
+      ],
+      "sizeMm": [
+       0.356,
+       0.356
+      ],
+      "shape": "circle",
+      "tht": false
+     },
+     {
+      "pad": "D03",
+      "positionMm": [
+       132.9375,
+       -106.75
+      ],
+      "sizeMm": [
+       0.356,
+       0.356
+      ],
+      "shape": "circle",
+      "tht": false
+     },
+     {
+      "pad": "D04",
+      "positionMm": [
+       132.3025,
+       -106.75
+      ],
+      "sizeMm": [
+       0.356,
+       0.356
+      ],
+      "shape": "circle",
+      "tht": false
+     },
+     {
+      "pad": "D05",
+      "positionMm": [
+       131.6675,
+       -106.75
+      ],
+      "sizeMm": [
+       0.356,
+       0.356
+      ],
+      "shape": "circle",
+      "tht": false
+     },
+     {
+      "pad": "D06",
+      "positionMm": [
+       131.0325,
+       -106.75
+      ],
+      "sizeMm": [
+       0.356,
+       0.356
+      ],
+      "shape": "circle",
+      "tht": false
+     },
+     {
+      "pad": "D07",
+      "positionMm": [
+       130.3975,
+       -106.75
+      ],
+      "sizeMm": [
+       0.356,
+       0.356
+      ],
+      "shape": "circle",
+      "tht": false
+     },
+     {
+      "pad": "D08",
+      "positionMm": [
+       129.7625,
+       -106.75
+      ],
+      "sizeMm": [
+       0.356,
+       0.356
+      ],
+      "shape": "circle",
+      "tht": false
+     },
+     {
+      "pad": "D09",
+      "positionMm": [
+       129.1275,
+       -106.75
+      ],
+      "sizeMm": [
+       0.356,
+       0.356
+      ],
+      "shape": "circle",
+      "tht": false
+     },
+     {
+      "pad": "D10",
+      "positionMm": [
+       128.4925,
+       -106.75
+      ],
+      "sizeMm": [
+       0.356,
+       0.356
+      ],
+      "shape": "circle",
+      "tht": false
+     },
+     {
+      "pad": "D11",
+      "positionMm": [
+       127.8575,
+       -106.75
+      ],
+      "sizeMm": [
+       0.356,
+       0.356
+      ],
+      "shape": "circle",
+      "tht": false
+     },
+     {
+      "pad": "D12",
+      "positionMm": [
+       127.2225,
+       -106.75
+      ],
+      "sizeMm": [
+       0.356,
+       0.356
+      ],
+      "shape": "circle",
+      "tht": false
+     },
+     {
+      "pad": "D13",
+      "positionMm": [
+       126.5875,
+       -106.75
+      ],
+      "sizeMm": [
+       0.356,
+       0.356
+      ],
+      "shape": "circle",
+      "tht": false
+     },
+     {
+      "pad": "D14",
+      "positionMm": [
+       125.9525,
+       -106.75
+      ],
+      "sizeMm": [
+       0.356,
+       0.356
+      ],
+      "shape": "circle",
+      "tht": false
+     },
+     {
+      "pad": "D15",
+      "positionMm": [
+       125.3175,
+       -106.75
+      ],
+      "sizeMm": [
+       0.356,
+       0.356
+      ],
+      "shape": "circle",
+      "tht": false
+     },
+     {
+      "pad": "D16",
+      "positionMm": [
+       124.6825,
+       -106.75
+      ],
+      "sizeMm": [
+       0.356,
+       0.356
+      ],
+      "shape": "circle",
+      "tht": false
+     },
+     {
+      "pad": "D17",
+      "positionMm": [
+       124.0475,
+       -106.75
+      ],
+      "sizeMm": [
+       0.356,
+       0.356
+      ],
+      "shape": "circle",
+      "tht": false
+     },
+     {
+      "pad": "D18",
+      "positionMm": [
+       123.4125,
+       -106.75
+      ],
+      "sizeMm": [
+       0.356,
+       0.356
+      ],
+      "shape": "circle",
+      "tht": false
+     },
+     {
+      "pad": "D19",
+      "positionMm": [
+       122.7775,
+       -106.75
+      ],
+      "sizeMm": [
+       0.356,
+       0.356
+      ],
+      "shape": "circle",
+      "tht": false
+     },
+     {
+      "pad": "D20",
+      "positionMm": [
+       122.1425,
+       -106.75
+      ],
+      "sizeMm": [
+       0.356,
+       0.356
+      ],
+      "shape": "circle",
+      "tht": false
+     },
+     {
+      "pad": "D21",
+      "positionMm": [
+       121.5075,
+       -106.75
+      ],
+      "sizeMm": [
+       0.356,
+       0.356
+      ],
+      "shape": "circle",
+      "tht": false
+     },
+     {
+      "pad": "D22",
+      "positionMm": [
+       120.8725,
+       -106.75
+      ],
+      "sizeMm": [
+       0.356,
+       0.356
+      ],
+      "shape": "circle",
+      "tht": false
+     },
+     {
+      "pad": "D23",
+      "positionMm": [
+       120.2375,
+       -106.75
+      ],
+      "sizeMm": [
+       0.356,
+       0.356
+      ],
+      "shape": "circle",
+      "tht": false
+     },
+     {
+      "pad": "D24",
+      "positionMm": [
+       119.6025,
+       -106.75
+      ],
+      "sizeMm": [
+       0.356,
+       0.356
+      ],
+      "shape": "circle",
+      "tht": false
+     },
+     {
+      "pad": "D25",
+      "positionMm": [
+       118.9675,
+       -106.75
+      ],
+      "sizeMm": [
+       0.356,
+       0.356
+      ],
+      "shape": "circle",
+      "tht": false
+     },
+     {
+      "pad": "D26",
+      "positionMm": [
+       118.3325,
+       -106.75
+      ],
+      "sizeMm": [
+       0.356,
+       0.356
+      ],
+      "shape": "circle",
+      "tht": false
+     },
+     {
+      "pad": "D27",
+      "positionMm": [
+       117.6975,
+       -106.75
+      ],
+      "sizeMm": [
+       0.356,
+       0.356
+      ],
+      "shape": "circle",
+      "tht": false
+     },
+     {
+      "pad": "D28",
+      "positionMm": [
+       117.0625,
+       -106.75
+      ],
+      "sizeMm": [
+       0.356,
+       0.356
+      ],
+      "shape": "circle",
+      "tht": false
+     },
+     {
+      "pad": "D29",
+      "positionMm": [
+       116.4275,
+       -106.75
+      ],
+      "sizeMm": [
+       0.356,
+       0.356
+      ],
+      "shape": "circle",
+      "tht": false
+     },
+     {
+      "pad": "D30",
+      "positionMm": [
+       115.7925,
+       -106.75
+      ],
+      "sizeMm": [
+       0.356,
+       0.356
+      ],
+      "shape": "circle",
+      "tht": false
+     }
+    ],
+    "courtyard": {
+     "minMm": [
+      -12.135,
+      -2.75
+     ],
+     "maxMm": [
+      12.135,
+      2.75
+     ]
+    },
+    "model": {
+     "path": "${KIPRJMOD}/../../../vendor/samtec/ADF6-30-03.5-L-4-0-A-TR.stp",
+     "offsetMm": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "rotationDeg": [
+      -90.0,
+      0.0,
+      0.0
+     ],
+     "scale": [
+      1.0,
+      1.0,
+      1.0
+     ]
+    }
+   }
+  },
+  {
+   "portKey": "/c8bd9f5d-9fab-5609-afe3-e3bc0fbbd678/1a380b84-f41f-5cc2-bb67-d18a42a0f525",
+   "memberKeys": [
+    "/c8bd9f5d-9fab-5609-afe3-e3bc0fbbd678/1a380b84-f41f-5cc2-bb67-d18a42a0f525"
+   ],
+   "reference": "J2",
+   "libId": "PrismFixture:ADF6_4x30",
+   "footprint": "PrismFixture:Samtec_ADF6-30-03.5-L-4-0-A",
+   "value": "ADF6_4x30",
+   "mpn": null,
+   "dnp": false,
+   "candidate": true,
+   "candidateReason": "refdes",
+   "pins": [
+    {
+     "pad": "A01",
+     "nets": [
+      "/B_A01"
+     ],
+     "pcbNets": [
+      "/B_A01"
+     ],
+     "pinNames": [
+      "A01"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "A02",
+     "nets": [
+      "/B_A02"
+     ],
+     "pcbNets": [
+      "/B_A02"
+     ],
+     "pinNames": [
+      "A02"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "A03",
+     "nets": [
+      "/B_A03"
+     ],
+     "pcbNets": [
+      "/B_A03"
+     ],
+     "pinNames": [
+      "A03"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "A04",
+     "nets": [
+      "/B_A04"
+     ],
+     "pcbNets": [
+      "/B_A04"
+     ],
+     "pinNames": [
+      "A04"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "A05",
+     "nets": [
+      "/B_A05"
+     ],
+     "pcbNets": [
+      "/B_A05"
+     ],
+     "pinNames": [
+      "A05"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "A06",
+     "nets": [
+      "/B_A06"
+     ],
+     "pcbNets": [
+      "/B_A06"
+     ],
+     "pinNames": [
+      "A06"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "A07",
+     "nets": [
+      "/B_A07"
+     ],
+     "pcbNets": [
+      "/B_A07"
+     ],
+     "pinNames": [
+      "A07"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "A08",
+     "nets": [
+      "/B_A08"
+     ],
+     "pcbNets": [
+      "/B_A08"
+     ],
+     "pinNames": [
+      "A08"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "A09",
+     "nets": [
+      "/B_A09"
+     ],
+     "pcbNets": [
+      "/B_A09"
+     ],
+     "pinNames": [
+      "A09"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "A10",
+     "nets": [
+      "/B_A10"
+     ],
+     "pcbNets": [
+      "/B_A10"
+     ],
+     "pinNames": [
+      "A10"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "A11",
+     "nets": [
+      "/B_A11"
+     ],
+     "pcbNets": [
+      "/B_A11"
+     ],
+     "pinNames": [
+      "A11"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "A12",
+     "nets": [
+      "/B_A12"
+     ],
+     "pcbNets": [
+      "/B_A12"
+     ],
+     "pinNames": [
+      "A12"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "A13",
+     "nets": [
+      "/B_A13"
+     ],
+     "pcbNets": [
+      "/B_A13"
+     ],
+     "pinNames": [
+      "A13"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "A14",
+     "nets": [
+      "/B_A14"
+     ],
+     "pcbNets": [
+      "/B_A14"
+     ],
+     "pinNames": [
+      "A14"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "A15",
+     "nets": [
+      "/B_A15"
+     ],
+     "pcbNets": [
+      "/B_A15"
+     ],
+     "pinNames": [
+      "A15"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "A16",
+     "nets": [
+      "/B_A16"
+     ],
+     "pcbNets": [
+      "/B_A16"
+     ],
+     "pinNames": [
+      "A16"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "A17",
+     "nets": [
+      "/B_A17"
+     ],
+     "pcbNets": [
+      "/B_A17"
+     ],
+     "pinNames": [
+      "A17"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "A18",
+     "nets": [
+      "/B_A18"
+     ],
+     "pcbNets": [
+      "/B_A18"
+     ],
+     "pinNames": [
+      "A18"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "A19",
+     "nets": [
+      "/B_A19"
+     ],
+     "pcbNets": [
+      "/B_A19"
+     ],
+     "pinNames": [
+      "A19"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "A20",
+     "nets": [
+      "/B_A20"
+     ],
+     "pcbNets": [
+      "/B_A20"
+     ],
+     "pinNames": [
+      "A20"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "A21",
+     "nets": [
+      "/B_A21"
+     ],
+     "pcbNets": [
+      "/B_A21"
+     ],
+     "pinNames": [
+      "A21"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "A22",
+     "nets": [
+      "/B_A22"
+     ],
+     "pcbNets": [
+      "/B_A22"
+     ],
+     "pinNames": [
+      "A22"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "A23",
+     "nets": [
+      "/B_A23"
+     ],
+     "pcbNets": [
+      "/B_A23"
+     ],
+     "pinNames": [
+      "A23"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "A24",
+     "nets": [
+      "/B_A24"
+     ],
+     "pcbNets": [
+      "/B_A24"
+     ],
+     "pinNames": [
+      "A24"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "A25",
+     "nets": [
+      "/B_A25"
+     ],
+     "pcbNets": [
+      "/B_A25"
+     ],
+     "pinNames": [
+      "A25"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "A26",
+     "nets": [
+      "/B_A26"
+     ],
+     "pcbNets": [
+      "/B_A26"
+     ],
+     "pinNames": [
+      "A26"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "A27",
+     "nets": [
+      "/B_A27"
+     ],
+     "pcbNets": [
+      "/B_A27"
+     ],
+     "pinNames": [
+      "A27"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "A28",
+     "nets": [
+      "/B_A28"
+     ],
+     "pcbNets": [
+      "/B_A28"
+     ],
+     "pinNames": [
+      "A28"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "A29",
+     "nets": [
+      "/B_A29"
+     ],
+     "pcbNets": [
+      "/B_A29"
+     ],
+     "pinNames": [
+      "A29"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "A30",
+     "nets": [
+      "/B_A30"
+     ],
+     "pcbNets": [
+      "/B_A30"
+     ],
+     "pinNames": [
+      "A30"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "B01",
+     "nets": [
+      "/B_A01"
+     ],
+     "pcbNets": [
+      "/B_A01"
+     ],
+     "pinNames": [
+      "B01"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "B02",
+     "nets": [
+      "/B_A02"
+     ],
+     "pcbNets": [
+      "/B_A02"
+     ],
+     "pinNames": [
+      "B02"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "B03",
+     "nets": [
+      "/B_A03"
+     ],
+     "pcbNets": [
+      "/B_A03"
+     ],
+     "pinNames": [
+      "B03"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "B04",
+     "nets": [
+      "/B_A04"
+     ],
+     "pcbNets": [
+      "/B_A04"
+     ],
+     "pinNames": [
+      "B04"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "B05",
+     "nets": [
+      "/B_A05"
+     ],
+     "pcbNets": [
+      "/B_A05"
+     ],
+     "pinNames": [
+      "B05"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "B06",
+     "nets": [
+      "/B_A06"
+     ],
+     "pcbNets": [
+      "/B_A06"
+     ],
+     "pinNames": [
+      "B06"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "B07",
+     "nets": [
+      "/B_A07"
+     ],
+     "pcbNets": [
+      "/B_A07"
+     ],
+     "pinNames": [
+      "B07"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "B08",
+     "nets": [
+      "/B_A08"
+     ],
+     "pcbNets": [
+      "/B_A08"
+     ],
+     "pinNames": [
+      "B08"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "B09",
+     "nets": [
+      "/B_A09"
+     ],
+     "pcbNets": [
+      "/B_A09"
+     ],
+     "pinNames": [
+      "B09"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "B10",
+     "nets": [
+      "/B_A10"
+     ],
+     "pcbNets": [
+      "/B_A10"
+     ],
+     "pinNames": [
+      "B10"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "B11",
+     "nets": [
+      "/B_A11"
+     ],
+     "pcbNets": [
+      "/B_A11"
+     ],
+     "pinNames": [
+      "B11"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "B12",
+     "nets": [
+      "/B_A12"
+     ],
+     "pcbNets": [
+      "/B_A12"
+     ],
+     "pinNames": [
+      "B12"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "B13",
+     "nets": [
+      "/B_A13"
+     ],
+     "pcbNets": [
+      "/B_A13"
+     ],
+     "pinNames": [
+      "B13"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "B14",
+     "nets": [
+      "/B_A14"
+     ],
+     "pcbNets": [
+      "/B_A14"
+     ],
+     "pinNames": [
+      "B14"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "B15",
+     "nets": [
+      "/B_A15"
+     ],
+     "pcbNets": [
+      "/B_A15"
+     ],
+     "pinNames": [
+      "B15"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "B16",
+     "nets": [
+      "/B_A16"
+     ],
+     "pcbNets": [
+      "/B_A16"
+     ],
+     "pinNames": [
+      "B16"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "B17",
+     "nets": [
+      "/B_A17"
+     ],
+     "pcbNets": [
+      "/B_A17"
+     ],
+     "pinNames": [
+      "B17"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "B18",
+     "nets": [
+      "/B_A18"
+     ],
+     "pcbNets": [
+      "/B_A18"
+     ],
+     "pinNames": [
+      "B18"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "B19",
+     "nets": [
+      "/B_A19"
+     ],
+     "pcbNets": [
+      "/B_A19"
+     ],
+     "pinNames": [
+      "B19"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "B20",
+     "nets": [
+      "/B_A20"
+     ],
+     "pcbNets": [
+      "/B_A20"
+     ],
+     "pinNames": [
+      "B20"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "B21",
+     "nets": [
+      "/B_A21"
+     ],
+     "pcbNets": [
+      "/B_A21"
+     ],
+     "pinNames": [
+      "B21"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "B22",
+     "nets": [
+      "/B_A22"
+     ],
+     "pcbNets": [
+      "/B_A22"
+     ],
+     "pinNames": [
+      "B22"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "B23",
+     "nets": [
+      "/B_A23"
+     ],
+     "pcbNets": [
+      "/B_A23"
+     ],
+     "pinNames": [
+      "B23"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "B24",
+     "nets": [
+      "/B_A24"
+     ],
+     "pcbNets": [
+      "/B_A24"
+     ],
+     "pinNames": [
+      "B24"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "B25",
+     "nets": [
+      "/B_A25"
+     ],
+     "pcbNets": [
+      "/B_A25"
+     ],
+     "pinNames": [
+      "B25"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "B26",
+     "nets": [
+      "/B_A26"
+     ],
+     "pcbNets": [
+      "/B_A26"
+     ],
+     "pinNames": [
+      "B26"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "B27",
+     "nets": [
+      "/B_A27"
+     ],
+     "pcbNets": [
+      "/B_A27"
+     ],
+     "pinNames": [
+      "B27"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "B28",
+     "nets": [
+      "/B_A28"
+     ],
+     "pcbNets": [
+      "/B_A28"
+     ],
+     "pinNames": [
+      "B28"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "B29",
+     "nets": [
+      "/B_A29"
+     ],
+     "pcbNets": [
+      "/B_A29"
+     ],
+     "pinNames": [
+      "B29"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "B30",
+     "nets": [
+      "/B_A30"
+     ],
+     "pcbNets": [
+      "/B_A30"
+     ],
+     "pinNames": [
+      "B30"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "C01",
+     "nets": [
+      "/B_C01"
+     ],
+     "pcbNets": [
+      "/B_C01"
+     ],
+     "pinNames": [
+      "C01"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "C02",
+     "nets": [
+      "/B_C02"
+     ],
+     "pcbNets": [
+      "/B_C02"
+     ],
+     "pinNames": [
+      "C02"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "C03",
+     "nets": [
+      "/B_C03"
+     ],
+     "pcbNets": [
+      "/B_C03"
+     ],
+     "pinNames": [
+      "C03"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "C04",
+     "nets": [
+      "/B_C04"
+     ],
+     "pcbNets": [
+      "/B_C04"
+     ],
+     "pinNames": [
+      "C04"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "C05",
+     "nets": [
+      "/B_C05"
+     ],
+     "pcbNets": [
+      "/B_C05"
+     ],
+     "pinNames": [
+      "C05"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "C06",
+     "nets": [
+      "/B_C06"
+     ],
+     "pcbNets": [
+      "/B_C06"
+     ],
+     "pinNames": [
+      "C06"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "C07",
+     "nets": [
+      "/B_C07"
+     ],
+     "pcbNets": [
+      "/B_C07"
+     ],
+     "pinNames": [
+      "C07"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "C08",
+     "nets": [
+      "/B_C08"
+     ],
+     "pcbNets": [
+      "/B_C08"
+     ],
+     "pinNames": [
+      "C08"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "C09",
+     "nets": [
+      "/B_C09"
+     ],
+     "pcbNets": [
+      "/B_C09"
+     ],
+     "pinNames": [
+      "C09"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "C10",
+     "nets": [
+      "/B_C10"
+     ],
+     "pcbNets": [
+      "/B_C10"
+     ],
+     "pinNames": [
+      "C10"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "C11",
+     "nets": [
+      "/B_C11"
+     ],
+     "pcbNets": [
+      "/B_C11"
+     ],
+     "pinNames": [
+      "C11"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "C12",
+     "nets": [
+      "/B_C12"
+     ],
+     "pcbNets": [
+      "/B_C12"
+     ],
+     "pinNames": [
+      "C12"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "C13",
+     "nets": [
+      "/B_C13"
+     ],
+     "pcbNets": [
+      "/B_C13"
+     ],
+     "pinNames": [
+      "C13"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "C14",
+     "nets": [
+      "/B_C14"
+     ],
+     "pcbNets": [
+      "/B_C14"
+     ],
+     "pinNames": [
+      "C14"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "C15",
+     "nets": [
+      "/B_C15"
+     ],
+     "pcbNets": [
+      "/B_C15"
+     ],
+     "pinNames": [
+      "C15"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "C16",
+     "nets": [
+      "/B_C16"
+     ],
+     "pcbNets": [
+      "/B_C16"
+     ],
+     "pinNames": [
+      "C16"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "C17",
+     "nets": [
+      "/B_C17"
+     ],
+     "pcbNets": [
+      "/B_C17"
+     ],
+     "pinNames": [
+      "C17"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "C18",
+     "nets": [
+      "/B_C18"
+     ],
+     "pcbNets": [
+      "/B_C18"
+     ],
+     "pinNames": [
+      "C18"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "C19",
+     "nets": [
+      "/B_C19"
+     ],
+     "pcbNets": [
+      "/B_C19"
+     ],
+     "pinNames": [
+      "C19"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "C20",
+     "nets": [
+      "/B_C20"
+     ],
+     "pcbNets": [
+      "/B_C20"
+     ],
+     "pinNames": [
+      "C20"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "C21",
+     "nets": [
+      "/B_C21"
+     ],
+     "pcbNets": [
+      "/B_C21"
+     ],
+     "pinNames": [
+      "C21"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "C22",
+     "nets": [
+      "/B_C22"
+     ],
+     "pcbNets": [
+      "/B_C22"
+     ],
+     "pinNames": [
+      "C22"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "C23",
+     "nets": [
+      "/B_C23"
+     ],
+     "pcbNets": [
+      "/B_C23"
+     ],
+     "pinNames": [
+      "C23"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "C24",
+     "nets": [
+      "/B_C24"
+     ],
+     "pcbNets": [
+      "/B_C24"
+     ],
+     "pinNames": [
+      "C24"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "C25",
+     "nets": [
+      "/B_C25"
+     ],
+     "pcbNets": [
+      "/B_C25"
+     ],
+     "pinNames": [
+      "C25"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "C26",
+     "nets": [
+      "/B_C26"
+     ],
+     "pcbNets": [
+      "/B_C26"
+     ],
+     "pinNames": [
+      "C26"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "C27",
+     "nets": [
+      "/B_C27"
+     ],
+     "pcbNets": [
+      "/B_C27"
+     ],
+     "pinNames": [
+      "C27"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "C28",
+     "nets": [
+      "/B_C28"
+     ],
+     "pcbNets": [
+      "/B_C28"
+     ],
+     "pinNames": [
+      "C28"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "C29",
+     "nets": [
+      "/B_C29"
+     ],
+     "pcbNets": [
+      "/B_C29"
+     ],
+     "pinNames": [
+      "C29"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "C30",
+     "nets": [
+      "/B_C30"
+     ],
+     "pcbNets": [
+      "/B_C30"
+     ],
+     "pinNames": [
+      "C30"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "D01",
+     "nets": [
+      "/B_C01"
+     ],
+     "pcbNets": [
+      "/B_C01"
+     ],
+     "pinNames": [
+      "D01"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "D02",
+     "nets": [
+      "/B_C02"
+     ],
+     "pcbNets": [
+      "/B_C02"
+     ],
+     "pinNames": [
+      "D02"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "D03",
+     "nets": [
+      "/B_C03"
+     ],
+     "pcbNets": [
+      "/B_C03"
+     ],
+     "pinNames": [
+      "D03"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "D04",
+     "nets": [
+      "/B_C04"
+     ],
+     "pcbNets": [
+      "/B_C04"
+     ],
+     "pinNames": [
+      "D04"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "D05",
+     "nets": [
+      "/B_C05"
+     ],
+     "pcbNets": [
+      "/B_C05"
+     ],
+     "pinNames": [
+      "D05"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "D06",
+     "nets": [
+      "/B_C06"
+     ],
+     "pcbNets": [
+      "/B_C06"
+     ],
+     "pinNames": [
+      "D06"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "D07",
+     "nets": [
+      "/B_C07"
+     ],
+     "pcbNets": [
+      "/B_C07"
+     ],
+     "pinNames": [
+      "D07"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "D08",
+     "nets": [
+      "/B_C08"
+     ],
+     "pcbNets": [
+      "/B_C08"
+     ],
+     "pinNames": [
+      "D08"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "D09",
+     "nets": [
+      "/B_C09"
+     ],
+     "pcbNets": [
+      "/B_C09"
+     ],
+     "pinNames": [
+      "D09"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "D10",
+     "nets": [
+      "/B_C10"
+     ],
+     "pcbNets": [
+      "/B_C10"
+     ],
+     "pinNames": [
+      "D10"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "D11",
+     "nets": [
+      "/B_C11"
+     ],
+     "pcbNets": [
+      "/B_C11"
+     ],
+     "pinNames": [
+      "D11"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "D12",
+     "nets": [
+      "/B_C12"
+     ],
+     "pcbNets": [
+      "/B_C12"
+     ],
+     "pinNames": [
+      "D12"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "D13",
+     "nets": [
+      "/B_C13"
+     ],
+     "pcbNets": [
+      "/B_C13"
+     ],
+     "pinNames": [
+      "D13"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "D14",
+     "nets": [
+      "/B_C14"
+     ],
+     "pcbNets": [
+      "/B_C14"
+     ],
+     "pinNames": [
+      "D14"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "D15",
+     "nets": [
+      "/B_C15"
+     ],
+     "pcbNets": [
+      "/B_C15"
+     ],
+     "pinNames": [
+      "D15"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "D16",
+     "nets": [
+      "/B_C16"
+     ],
+     "pcbNets": [
+      "/B_C16"
+     ],
+     "pinNames": [
+      "D16"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "D17",
+     "nets": [
+      "/B_C17"
+     ],
+     "pcbNets": [
+      "/B_C17"
+     ],
+     "pinNames": [
+      "D17"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "D18",
+     "nets": [
+      "/B_C18"
+     ],
+     "pcbNets": [
+      "/B_C18"
+     ],
+     "pinNames": [
+      "D18"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "D19",
+     "nets": [
+      "/B_C19"
+     ],
+     "pcbNets": [
+      "/B_C19"
+     ],
+     "pinNames": [
+      "D19"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "D20",
+     "nets": [
+      "/B_C20"
+     ],
+     "pcbNets": [
+      "/B_C20"
+     ],
+     "pinNames": [
+      "D20"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "D21",
+     "nets": [
+      "/B_C21"
+     ],
+     "pcbNets": [
+      "/B_C21"
+     ],
+     "pinNames": [
+      "D21"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "D22",
+     "nets": [
+      "/B_C22"
+     ],
+     "pcbNets": [
+      "/B_C22"
+     ],
+     "pinNames": [
+      "D22"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "D23",
+     "nets": [
+      "/B_C23"
+     ],
+     "pcbNets": [
+      "/B_C23"
+     ],
+     "pinNames": [
+      "D23"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "D24",
+     "nets": [
+      "/B_C24"
+     ],
+     "pcbNets": [
+      "/B_C24"
+     ],
+     "pinNames": [
+      "D24"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "D25",
+     "nets": [
+      "/B_C25"
+     ],
+     "pcbNets": [
+      "/B_C25"
+     ],
+     "pinNames": [
+      "D25"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "D26",
+     "nets": [
+      "/B_C26"
+     ],
+     "pcbNets": [
+      "/B_C26"
+     ],
+     "pinNames": [
+      "D26"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "D27",
+     "nets": [
+      "/B_C27"
+     ],
+     "pcbNets": [
+      "/B_C27"
+     ],
+     "pinNames": [
+      "D27"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "D28",
+     "nets": [
+      "/B_C28"
+     ],
+     "pcbNets": [
+      "/B_C28"
+     ],
+     "pinNames": [
+      "D28"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "D29",
+     "nets": [
+      "/B_C29"
+     ],
+     "pcbNets": [
+      "/B_C29"
+     ],
+     "pinNames": [
+      "D29"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "D30",
+     "nets": [
+      "/B_C30"
+     ],
+     "pcbNets": [
+      "/B_C30"
+     ],
+     "pinNames": [
+      "D30"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    }
+   ],
+   "geometry": {
+    "side": "bottom",
+    "positionMm": [
+     126.5,
+     -135.0
+    ],
+    "rotationDeg": 0.0,
+    "footprintName": "Samtec_ADF6-30-03.5-L-4-0-A",
+    "pads": [
+     {
+      "pad": "",
+      "positionMm": [
+       115.89,
+       -135.0
+      ],
+      "sizeMm": [
+       0.95,
+       0.95
+      ],
+      "shape": "circle",
+      "tht": true
+     },
+     {
+      "pad": "",
+      "positionMm": [
+       137.11,
+       -136.27
+      ],
+      "sizeMm": [
+       0.95,
+       0.95
+      ],
+      "shape": "circle",
+      "tht": true
+     },
+     {
+      "pad": "A01",
+      "positionMm": [
+       135.7075,
+       -133.25
+      ],
+      "sizeMm": [
+       0.356,
+       0.356
+      ],
+      "shape": "circle",
+      "tht": false
+     },
+     {
+      "pad": "A02",
+      "positionMm": [
+       135.0725,
+       -133.25
+      ],
+      "sizeMm": [
+       0.356,
+       0.356
+      ],
+      "shape": "circle",
+      "tht": false
+     },
+     {
+      "pad": "A03",
+      "positionMm": [
+       134.4375,
+       -133.25
+      ],
+      "sizeMm": [
+       0.356,
+       0.356
+      ],
+      "shape": "circle",
+      "tht": false
+     },
+     {
+      "pad": "A04",
+      "positionMm": [
+       133.8025,
+       -133.25
+      ],
+      "sizeMm": [
+       0.356,
+       0.356
+      ],
+      "shape": "circle",
+      "tht": false
+     },
+     {
+      "pad": "A05",
+      "positionMm": [
+       133.1675,
+       -133.25
+      ],
+      "sizeMm": [
+       0.356,
+       0.356
+      ],
+      "shape": "circle",
+      "tht": false
+     },
+     {
+      "pad": "A06",
+      "positionMm": [
+       132.5325,
+       -133.25
+      ],
+      "sizeMm": [
+       0.356,
+       0.356
+      ],
+      "shape": "circle",
+      "tht": false
+     },
+     {
+      "pad": "A07",
+      "positionMm": [
+       131.8975,
+       -133.25
+      ],
+      "sizeMm": [
+       0.356,
+       0.356
+      ],
+      "shape": "circle",
+      "tht": false
+     },
+     {
+      "pad": "A08",
+      "positionMm": [
+       131.2625,
+       -133.25
+      ],
+      "sizeMm": [
+       0.356,
+       0.356
+      ],
+      "shape": "circle",
+      "tht": false
+     },
+     {
+      "pad": "A09",
+      "positionMm": [
+       130.6275,
+       -133.25
+      ],
+      "sizeMm": [
+       0.356,
+       0.356
+      ],
+      "shape": "circle",
+      "tht": false
+     },
+     {
+      "pad": "A10",
+      "positionMm": [
+       129.9925,
+       -133.25
+      ],
+      "sizeMm": [
+       0.356,
+       0.356
+      ],
+      "shape": "circle",
+      "tht": false
+     },
+     {
+      "pad": "A11",
+      "positionMm": [
+       129.3575,
+       -133.25
+      ],
+      "sizeMm": [
+       0.356,
+       0.356
+      ],
+      "shape": "circle",
+      "tht": false
+     },
+     {
+      "pad": "A12",
+      "positionMm": [
+       128.7225,
+       -133.25
+      ],
+      "sizeMm": [
+       0.356,
+       0.356
+      ],
+      "shape": "circle",
+      "tht": false
+     },
+     {
+      "pad": "A13",
+      "positionMm": [
+       128.0875,
+       -133.25
+      ],
+      "sizeMm": [
+       0.356,
+       0.356
+      ],
+      "shape": "circle",
+      "tht": false
+     },
+     {
+      "pad": "A14",
+      "positionMm": [
+       127.4525,
+       -133.25
+      ],
+      "sizeMm": [
+       0.356,
+       0.356
+      ],
+      "shape": "circle",
+      "tht": false
+     },
+     {
+      "pad": "A15",
+      "positionMm": [
+       126.8175,
+       -133.25
+      ],
+      "sizeMm": [
+       0.356,
+       0.356
+      ],
+      "shape": "circle",
+      "tht": false
+     },
+     {
+      "pad": "A16",
+      "positionMm": [
+       126.1825,
+       -133.25
+      ],
+      "sizeMm": [
+       0.356,
+       0.356
+      ],
+      "shape": "circle",
+      "tht": false
+     },
+     {
+      "pad": "A17",
+      "positionMm": [
+       125.5475,
+       -133.25
+      ],
+      "sizeMm": [
+       0.356,
+       0.356
+      ],
+      "shape": "circle",
+      "tht": false
+     },
+     {
+      "pad": "A18",
+      "positionMm": [
+       124.9125,
+       -133.25
+      ],
+      "sizeMm": [
+       0.356,
+       0.356
+      ],
+      "shape": "circle",
+      "tht": false
+     },
+     {
+      "pad": "A19",
+      "positionMm": [
+       124.2775,
+       -133.25
+      ],
+      "sizeMm": [
+       0.356,
+       0.356
+      ],
+      "shape": "circle",
+      "tht": false
+     },
+     {
+      "pad": "A20",
+      "positionMm": [
+       123.6425,
+       -133.25
+      ],
+      "sizeMm": [
+       0.356,
+       0.356
+      ],
+      "shape": "circle",
+      "tht": false
+     },
+     {
+      "pad": "A21",
+      "positionMm": [
+       123.0075,
+       -133.25
+      ],
+      "sizeMm": [
+       0.356,
+       0.356
+      ],
+      "shape": "circle",
+      "tht": false
+     },
+     {
+      "pad": "A22",
+      "positionMm": [
+       122.3725,
+       -133.25
+      ],
+      "sizeMm": [
+       0.356,
+       0.356
+      ],
+      "shape": "circle",
+      "tht": false
+     },
+     {
+      "pad": "A23",
+      "positionMm": [
+       121.7375,
+       -133.25
+      ],
+      "sizeMm": [
+       0.356,
+       0.356
+      ],
+      "shape": "circle",
+      "tht": false
+     },
+     {
+      "pad": "A24",
+      "positionMm": [
+       121.1025,
+       -133.25
+      ],
+      "sizeMm": [
+       0.356,
+       0.356
+      ],
+      "shape": "circle",
+      "tht": false
+     },
+     {
+      "pad": "A25",
+      "positionMm": [
+       120.4675,
+       -133.25
+      ],
+      "sizeMm": [
+       0.356,
+       0.356
+      ],
+      "shape": "circle",
+      "tht": false
+     },
+     {
+      "pad": "A26",
+      "positionMm": [
+       119.8325,
+       -133.25
+      ],
+      "sizeMm": [
+       0.356,
+       0.356
+      ],
+      "shape": "circle",
+      "tht": false
+     },
+     {
+      "pad": "A27",
+      "positionMm": [
+       119.1975,
+       -133.25
+      ],
+      "sizeMm": [
+       0.356,
+       0.356
+      ],
+      "shape": "circle",
+      "tht": false
+     },
+     {
+      "pad": "A28",
+      "positionMm": [
+       118.5625,
+       -133.25
+      ],
+      "sizeMm": [
+       0.356,
+       0.356
+      ],
+      "shape": "circle",
+      "tht": false
+     },
+     {
+      "pad": "A29",
+      "positionMm": [
+       117.9275,
+       -133.25
+      ],
+      "sizeMm": [
+       0.356,
+       0.356
+      ],
+      "shape": "circle",
+      "tht": false
+     },
+     {
+      "pad": "A30",
+      "positionMm": [
+       117.2925,
+       -133.25
+      ],
+      "sizeMm": [
+       0.356,
+       0.356
+      ],
+      "shape": "circle",
+      "tht": false
+     },
+     {
+      "pad": "B01",
+      "positionMm": [
+       135.7075,
+       -134.21
+      ],
+      "sizeMm": [
+       0.356,
+       0.356
+      ],
+      "shape": "circle",
+      "tht": false
+     },
+     {
+      "pad": "B02",
+      "positionMm": [
+       135.0725,
+       -134.21
+      ],
+      "sizeMm": [
+       0.356,
+       0.356
+      ],
+      "shape": "circle",
+      "tht": false
+     },
+     {
+      "pad": "B03",
+      "positionMm": [
+       134.4375,
+       -134.21
+      ],
+      "sizeMm": [
+       0.356,
+       0.356
+      ],
+      "shape": "circle",
+      "tht": false
+     },
+     {
+      "pad": "B04",
+      "positionMm": [
+       133.8025,
+       -134.21
+      ],
+      "sizeMm": [
+       0.356,
+       0.356
+      ],
+      "shape": "circle",
+      "tht": false
+     },
+     {
+      "pad": "B05",
+      "positionMm": [
+       133.1675,
+       -134.21
+      ],
+      "sizeMm": [
+       0.356,
+       0.356
+      ],
+      "shape": "circle",
+      "tht": false
+     },
+     {
+      "pad": "B06",
+      "positionMm": [
+       132.5325,
+       -134.21
+      ],
+      "sizeMm": [
+       0.356,
+       0.356
+      ],
+      "shape": "circle",
+      "tht": false
+     },
+     {
+      "pad": "B07",
+      "positionMm": [
+       131.8975,
+       -134.21
+      ],
+      "sizeMm": [
+       0.356,
+       0.356
+      ],
+      "shape": "circle",
+      "tht": false
+     },
+     {
+      "pad": "B08",
+      "positionMm": [
+       131.2625,
+       -134.21
+      ],
+      "sizeMm": [
+       0.356,
+       0.356
+      ],
+      "shape": "circle",
+      "tht": false
+     },
+     {
+      "pad": "B09",
+      "positionMm": [
+       130.6275,
+       -134.21
+      ],
+      "sizeMm": [
+       0.356,
+       0.356
+      ],
+      "shape": "circle",
+      "tht": false
+     },
+     {
+      "pad": "B10",
+      "positionMm": [
+       129.9925,
+       -134.21
+      ],
+      "sizeMm": [
+       0.356,
+       0.356
+      ],
+      "shape": "circle",
+      "tht": false
+     },
+     {
+      "pad": "B11",
+      "positionMm": [
+       129.3575,
+       -134.21
+      ],
+      "sizeMm": [
+       0.356,
+       0.356
+      ],
+      "shape": "circle",
+      "tht": false
+     },
+     {
+      "pad": "B12",
+      "positionMm": [
+       128.7225,
+       -134.21
+      ],
+      "sizeMm": [
+       0.356,
+       0.356
+      ],
+      "shape": "circle",
+      "tht": false
+     },
+     {
+      "pad": "B13",
+      "positionMm": [
+       128.0875,
+       -134.21
+      ],
+      "sizeMm": [
+       0.356,
+       0.356
+      ],
+      "shape": "circle",
+      "tht": false
+     },
+     {
+      "pad": "B14",
+      "positionMm": [
+       127.4525,
+       -134.21
+      ],
+      "sizeMm": [
+       0.356,
+       0.356
+      ],
+      "shape": "circle",
+      "tht": false
+     },
+     {
+      "pad": "B15",
+      "positionMm": [
+       126.8175,
+       -134.21
+      ],
+      "sizeMm": [
+       0.356,
+       0.356
+      ],
+      "shape": "circle",
+      "tht": false
+     },
+     {
+      "pad": "B16",
+      "positionMm": [
+       126.1825,
+       -134.21
+      ],
+      "sizeMm": [
+       0.356,
+       0.356
+      ],
+      "shape": "circle",
+      "tht": false
+     },
+     {
+      "pad": "B17",
+      "positionMm": [
+       125.5475,
+       -134.21
+      ],
+      "sizeMm": [
+       0.356,
+       0.356
+      ],
+      "shape": "circle",
+      "tht": false
+     },
+     {
+      "pad": "B18",
+      "positionMm": [
+       124.9125,
+       -134.21
+      ],
+      "sizeMm": [
+       0.356,
+       0.356
+      ],
+      "shape": "circle",
+      "tht": false
+     },
+     {
+      "pad": "B19",
+      "positionMm": [
+       124.2775,
+       -134.21
+      ],
+      "sizeMm": [
+       0.356,
+       0.356
+      ],
+      "shape": "circle",
+      "tht": false
+     },
+     {
+      "pad": "B20",
+      "positionMm": [
+       123.6425,
+       -134.21
+      ],
+      "sizeMm": [
+       0.356,
+       0.356
+      ],
+      "shape": "circle",
+      "tht": false
+     },
+     {
+      "pad": "B21",
+      "positionMm": [
+       123.0075,
+       -134.21
+      ],
+      "sizeMm": [
+       0.356,
+       0.356
+      ],
+      "shape": "circle",
+      "tht": false
+     },
+     {
+      "pad": "B22",
+      "positionMm": [
+       122.3725,
+       -134.21
+      ],
+      "sizeMm": [
+       0.356,
+       0.356
+      ],
+      "shape": "circle",
+      "tht": false
+     },
+     {
+      "pad": "B23",
+      "positionMm": [
+       121.7375,
+       -134.21
+      ],
+      "sizeMm": [
+       0.356,
+       0.356
+      ],
+      "shape": "circle",
+      "tht": false
+     },
+     {
+      "pad": "B24",
+      "positionMm": [
+       121.1025,
+       -134.21
+      ],
+      "sizeMm": [
+       0.356,
+       0.356
+      ],
+      "shape": "circle",
+      "tht": false
+     },
+     {
+      "pad": "B25",
+      "positionMm": [
+       120.4675,
+       -134.21
+      ],
+      "sizeMm": [
+       0.356,
+       0.356
+      ],
+      "shape": "circle",
+      "tht": false
+     },
+     {
+      "pad": "B26",
+      "positionMm": [
+       119.8325,
+       -134.21
+      ],
+      "sizeMm": [
+       0.356,
+       0.356
+      ],
+      "shape": "circle",
+      "tht": false
+     },
+     {
+      "pad": "B27",
+      "positionMm": [
+       119.1975,
+       -134.21
+      ],
+      "sizeMm": [
+       0.356,
+       0.356
+      ],
+      "shape": "circle",
+      "tht": false
+     },
+     {
+      "pad": "B28",
+      "positionMm": [
+       118.5625,
+       -134.21
+      ],
+      "sizeMm": [
+       0.356,
+       0.356
+      ],
+      "shape": "circle",
+      "tht": false
+     },
+     {
+      "pad": "B29",
+      "positionMm": [
+       117.9275,
+       -134.21
+      ],
+      "sizeMm": [
+       0.356,
+       0.356
+      ],
+      "shape": "circle",
+      "tht": false
+     },
+     {
+      "pad": "B30",
+      "positionMm": [
+       117.2925,
+       -134.21
+      ],
+      "sizeMm": [
+       0.356,
+       0.356
+      ],
+      "shape": "circle",
+      "tht": false
+     },
+     {
+      "pad": "C01",
+      "positionMm": [
+       135.7075,
+       -135.79
+      ],
+      "sizeMm": [
+       0.356,
+       0.356
+      ],
+      "shape": "circle",
+      "tht": false
+     },
+     {
+      "pad": "C02",
+      "positionMm": [
+       135.0725,
+       -135.79
+      ],
+      "sizeMm": [
+       0.356,
+       0.356
+      ],
+      "shape": "circle",
+      "tht": false
+     },
+     {
+      "pad": "C03",
+      "positionMm": [
+       134.4375,
+       -135.79
+      ],
+      "sizeMm": [
+       0.356,
+       0.356
+      ],
+      "shape": "circle",
+      "tht": false
+     },
+     {
+      "pad": "C04",
+      "positionMm": [
+       133.8025,
+       -135.79
+      ],
+      "sizeMm": [
+       0.356,
+       0.356
+      ],
+      "shape": "circle",
+      "tht": false
+     },
+     {
+      "pad": "C05",
+      "positionMm": [
+       133.1675,
+       -135.79
+      ],
+      "sizeMm": [
+       0.356,
+       0.356
+      ],
+      "shape": "circle",
+      "tht": false
+     },
+     {
+      "pad": "C06",
+      "positionMm": [
+       132.5325,
+       -135.79
+      ],
+      "sizeMm": [
+       0.356,
+       0.356
+      ],
+      "shape": "circle",
+      "tht": false
+     },
+     {
+      "pad": "C07",
+      "positionMm": [
+       131.8975,
+       -135.79
+      ],
+      "sizeMm": [
+       0.356,
+       0.356
+      ],
+      "shape": "circle",
+      "tht": false
+     },
+     {
+      "pad": "C08",
+      "positionMm": [
+       131.2625,
+       -135.79
+      ],
+      "sizeMm": [
+       0.356,
+       0.356
+      ],
+      "shape": "circle",
+      "tht": false
+     },
+     {
+      "pad": "C09",
+      "positionMm": [
+       130.6275,
+       -135.79
+      ],
+      "sizeMm": [
+       0.356,
+       0.356
+      ],
+      "shape": "circle",
+      "tht": false
+     },
+     {
+      "pad": "C10",
+      "positionMm": [
+       129.9925,
+       -135.79
+      ],
+      "sizeMm": [
+       0.356,
+       0.356
+      ],
+      "shape": "circle",
+      "tht": false
+     },
+     {
+      "pad": "C11",
+      "positionMm": [
+       129.3575,
+       -135.79
+      ],
+      "sizeMm": [
+       0.356,
+       0.356
+      ],
+      "shape": "circle",
+      "tht": false
+     },
+     {
+      "pad": "C12",
+      "positionMm": [
+       128.7225,
+       -135.79
+      ],
+      "sizeMm": [
+       0.356,
+       0.356
+      ],
+      "shape": "circle",
+      "tht": false
+     },
+     {
+      "pad": "C13",
+      "positionMm": [
+       128.0875,
+       -135.79
+      ],
+      "sizeMm": [
+       0.356,
+       0.356
+      ],
+      "shape": "circle",
+      "tht": false
+     },
+     {
+      "pad": "C14",
+      "positionMm": [
+       127.4525,
+       -135.79
+      ],
+      "sizeMm": [
+       0.356,
+       0.356
+      ],
+      "shape": "circle",
+      "tht": false
+     },
+     {
+      "pad": "C15",
+      "positionMm": [
+       126.8175,
+       -135.79
+      ],
+      "sizeMm": [
+       0.356,
+       0.356
+      ],
+      "shape": "circle",
+      "tht": false
+     },
+     {
+      "pad": "C16",
+      "positionMm": [
+       126.1825,
+       -135.79
+      ],
+      "sizeMm": [
+       0.356,
+       0.356
+      ],
+      "shape": "circle",
+      "tht": false
+     },
+     {
+      "pad": "C17",
+      "positionMm": [
+       125.5475,
+       -135.79
+      ],
+      "sizeMm": [
+       0.356,
+       0.356
+      ],
+      "shape": "circle",
+      "tht": false
+     },
+     {
+      "pad": "C18",
+      "positionMm": [
+       124.9125,
+       -135.79
+      ],
+      "sizeMm": [
+       0.356,
+       0.356
+      ],
+      "shape": "circle",
+      "tht": false
+     },
+     {
+      "pad": "C19",
+      "positionMm": [
+       124.2775,
+       -135.79
+      ],
+      "sizeMm": [
+       0.356,
+       0.356
+      ],
+      "shape": "circle",
+      "tht": false
+     },
+     {
+      "pad": "C20",
+      "positionMm": [
+       123.6425,
+       -135.79
+      ],
+      "sizeMm": [
+       0.356,
+       0.356
+      ],
+      "shape": "circle",
+      "tht": false
+     },
+     {
+      "pad": "C21",
+      "positionMm": [
+       123.0075,
+       -135.79
+      ],
+      "sizeMm": [
+       0.356,
+       0.356
+      ],
+      "shape": "circle",
+      "tht": false
+     },
+     {
+      "pad": "C22",
+      "positionMm": [
+       122.3725,
+       -135.79
+      ],
+      "sizeMm": [
+       0.356,
+       0.356
+      ],
+      "shape": "circle",
+      "tht": false
+     },
+     {
+      "pad": "C23",
+      "positionMm": [
+       121.7375,
+       -135.79
+      ],
+      "sizeMm": [
+       0.356,
+       0.356
+      ],
+      "shape": "circle",
+      "tht": false
+     },
+     {
+      "pad": "C24",
+      "positionMm": [
+       121.1025,
+       -135.79
+      ],
+      "sizeMm": [
+       0.356,
+       0.356
+      ],
+      "shape": "circle",
+      "tht": false
+     },
+     {
+      "pad": "C25",
+      "positionMm": [
+       120.4675,
+       -135.79
+      ],
+      "sizeMm": [
+       0.356,
+       0.356
+      ],
+      "shape": "circle",
+      "tht": false
+     },
+     {
+      "pad": "C26",
+      "positionMm": [
+       119.8325,
+       -135.79
+      ],
+      "sizeMm": [
+       0.356,
+       0.356
+      ],
+      "shape": "circle",
+      "tht": false
+     },
+     {
+      "pad": "C27",
+      "positionMm": [
+       119.1975,
+       -135.79
+      ],
+      "sizeMm": [
+       0.356,
+       0.356
+      ],
+      "shape": "circle",
+      "tht": false
+     },
+     {
+      "pad": "C28",
+      "positionMm": [
+       118.5625,
+       -135.79
+      ],
+      "sizeMm": [
+       0.356,
+       0.356
+      ],
+      "shape": "circle",
+      "tht": false
+     },
+     {
+      "pad": "C29",
+      "positionMm": [
+       117.9275,
+       -135.79
+      ],
+      "sizeMm": [
+       0.356,
+       0.356
+      ],
+      "shape": "circle",
+      "tht": false
+     },
+     {
+      "pad": "C30",
+      "positionMm": [
+       117.2925,
+       -135.79
+      ],
+      "sizeMm": [
+       0.356,
+       0.356
+      ],
+      "shape": "circle",
+      "tht": false
+     },
+     {
+      "pad": "D01",
+      "positionMm": [
+       135.7075,
+       -136.75
+      ],
+      "sizeMm": [
+       0.356,
+       0.356
+      ],
+      "shape": "circle",
+      "tht": false
+     },
+     {
+      "pad": "D02",
+      "positionMm": [
+       135.0725,
+       -136.75
+      ],
+      "sizeMm": [
+       0.356,
+       0.356
+      ],
+      "shape": "circle",
+      "tht": false
+     },
+     {
+      "pad": "D03",
+      "positionMm": [
+       134.4375,
+       -136.75
+      ],
+      "sizeMm": [
+       0.356,
+       0.356
+      ],
+      "shape": "circle",
+      "tht": false
+     },
+     {
+      "pad": "D04",
+      "positionMm": [
+       133.8025,
+       -136.75
+      ],
+      "sizeMm": [
+       0.356,
+       0.356
+      ],
+      "shape": "circle",
+      "tht": false
+     },
+     {
+      "pad": "D05",
+      "positionMm": [
+       133.1675,
+       -136.75
+      ],
+      "sizeMm": [
+       0.356,
+       0.356
+      ],
+      "shape": "circle",
+      "tht": false
+     },
+     {
+      "pad": "D06",
+      "positionMm": [
+       132.5325,
+       -136.75
+      ],
+      "sizeMm": [
+       0.356,
+       0.356
+      ],
+      "shape": "circle",
+      "tht": false
+     },
+     {
+      "pad": "D07",
+      "positionMm": [
+       131.8975,
+       -136.75
+      ],
+      "sizeMm": [
+       0.356,
+       0.356
+      ],
+      "shape": "circle",
+      "tht": false
+     },
+     {
+      "pad": "D08",
+      "positionMm": [
+       131.2625,
+       -136.75
+      ],
+      "sizeMm": [
+       0.356,
+       0.356
+      ],
+      "shape": "circle",
+      "tht": false
+     },
+     {
+      "pad": "D09",
+      "positionMm": [
+       130.6275,
+       -136.75
+      ],
+      "sizeMm": [
+       0.356,
+       0.356
+      ],
+      "shape": "circle",
+      "tht": false
+     },
+     {
+      "pad": "D10",
+      "positionMm": [
+       129.9925,
+       -136.75
+      ],
+      "sizeMm": [
+       0.356,
+       0.356
+      ],
+      "shape": "circle",
+      "tht": false
+     },
+     {
+      "pad": "D11",
+      "positionMm": [
+       129.3575,
+       -136.75
+      ],
+      "sizeMm": [
+       0.356,
+       0.356
+      ],
+      "shape": "circle",
+      "tht": false
+     },
+     {
+      "pad": "D12",
+      "positionMm": [
+       128.7225,
+       -136.75
+      ],
+      "sizeMm": [
+       0.356,
+       0.356
+      ],
+      "shape": "circle",
+      "tht": false
+     },
+     {
+      "pad": "D13",
+      "positionMm": [
+       128.0875,
+       -136.75
+      ],
+      "sizeMm": [
+       0.356,
+       0.356
+      ],
+      "shape": "circle",
+      "tht": false
+     },
+     {
+      "pad": "D14",
+      "positionMm": [
+       127.4525,
+       -136.75
+      ],
+      "sizeMm": [
+       0.356,
+       0.356
+      ],
+      "shape": "circle",
+      "tht": false
+     },
+     {
+      "pad": "D15",
+      "positionMm": [
+       126.8175,
+       -136.75
+      ],
+      "sizeMm": [
+       0.356,
+       0.356
+      ],
+      "shape": "circle",
+      "tht": false
+     },
+     {
+      "pad": "D16",
+      "positionMm": [
+       126.1825,
+       -136.75
+      ],
+      "sizeMm": [
+       0.356,
+       0.356
+      ],
+      "shape": "circle",
+      "tht": false
+     },
+     {
+      "pad": "D17",
+      "positionMm": [
+       125.5475,
+       -136.75
+      ],
+      "sizeMm": [
+       0.356,
+       0.356
+      ],
+      "shape": "circle",
+      "tht": false
+     },
+     {
+      "pad": "D18",
+      "positionMm": [
+       124.9125,
+       -136.75
+      ],
+      "sizeMm": [
+       0.356,
+       0.356
+      ],
+      "shape": "circle",
+      "tht": false
+     },
+     {
+      "pad": "D19",
+      "positionMm": [
+       124.2775,
+       -136.75
+      ],
+      "sizeMm": [
+       0.356,
+       0.356
+      ],
+      "shape": "circle",
+      "tht": false
+     },
+     {
+      "pad": "D20",
+      "positionMm": [
+       123.6425,
+       -136.75
+      ],
+      "sizeMm": [
+       0.356,
+       0.356
+      ],
+      "shape": "circle",
+      "tht": false
+     },
+     {
+      "pad": "D21",
+      "positionMm": [
+       123.0075,
+       -136.75
+      ],
+      "sizeMm": [
+       0.356,
+       0.356
+      ],
+      "shape": "circle",
+      "tht": false
+     },
+     {
+      "pad": "D22",
+      "positionMm": [
+       122.3725,
+       -136.75
+      ],
+      "sizeMm": [
+       0.356,
+       0.356
+      ],
+      "shape": "circle",
+      "tht": false
+     },
+     {
+      "pad": "D23",
+      "positionMm": [
+       121.7375,
+       -136.75
+      ],
+      "sizeMm": [
+       0.356,
+       0.356
+      ],
+      "shape": "circle",
+      "tht": false
+     },
+     {
+      "pad": "D24",
+      "positionMm": [
+       121.1025,
+       -136.75
+      ],
+      "sizeMm": [
+       0.356,
+       0.356
+      ],
+      "shape": "circle",
+      "tht": false
+     },
+     {
+      "pad": "D25",
+      "positionMm": [
+       120.4675,
+       -136.75
+      ],
+      "sizeMm": [
+       0.356,
+       0.356
+      ],
+      "shape": "circle",
+      "tht": false
+     },
+     {
+      "pad": "D26",
+      "positionMm": [
+       119.8325,
+       -136.75
+      ],
+      "sizeMm": [
+       0.356,
+       0.356
+      ],
+      "shape": "circle",
+      "tht": false
+     },
+     {
+      "pad": "D27",
+      "positionMm": [
+       119.1975,
+       -136.75
+      ],
+      "sizeMm": [
+       0.356,
+       0.356
+      ],
+      "shape": "circle",
+      "tht": false
+     },
+     {
+      "pad": "D28",
+      "positionMm": [
+       118.5625,
+       -136.75
+      ],
+      "sizeMm": [
+       0.356,
+       0.356
+      ],
+      "shape": "circle",
+      "tht": false
+     },
+     {
+      "pad": "D29",
+      "positionMm": [
+       117.9275,
+       -136.75
+      ],
+      "sizeMm": [
+       0.356,
+       0.356
+      ],
+      "shape": "circle",
+      "tht": false
+     },
+     {
+      "pad": "D30",
+      "positionMm": [
+       117.2925,
+       -136.75
+      ],
+      "sizeMm": [
+       0.356,
+       0.356
+      ],
+      "shape": "circle",
+      "tht": false
+     }
+    ],
+    "courtyard": {
+     "minMm": [
+      -12.135,
+      -2.75
+     ],
+     "maxMm": [
+      12.135,
+      2.75
+     ]
+    },
+    "model": {
+     "path": "${KIPRJMOD}/../../../vendor/samtec/ADF6-30-03.5-L-4-0-A-TR.stp",
+     "offsetMm": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "rotationDeg": [
+      -90.0,
+      0.0,
+      0.0
+     ],
+     "scale": [
+      1.0,
+      1.0,
+      1.0
+     ]
+    }
+   }
+  }
+ ],
+ "diagnostics": [],
+ "digest": "sha256:d7d45a050ac4965f49a27a8ec3d5c7e947eac8da97ae46bee148343c6109d5f0"
+}

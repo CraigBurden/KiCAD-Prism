@@ -1,0 +1,49 @@
+{
+ "schema": "prism.project.a0",
+ "projectFile": "casefold.kicad_pro",
+ "projectName": "casefold",
+ "textVariables": {},
+ "netClasses": [
+  {
+   "name": "Default",
+   "trackWidthNm": 200000,
+   "clearanceNm": 200000,
+   "viaDiameterNm": 600000,
+   "viaDrillNm": 300000
+  }
+ ],
+ "documents": [
+  {
+   "path": "casefold.kicad_pcb",
+   "kind": "board",
+   "formatVersion": 20260206,
+   "generator": "pcbnew",
+   "generatorVersion": "10.0",
+   "properties": {}
+  },
+  {
+   "path": "casefold.kicad_sch",
+   "kind": "root-schematic",
+   "formatVersion": 20260306,
+   "generator": "eeschema",
+   "generatorVersion": "10.0",
+   "properties": {}
+  }
+ ],
+ "references": [
+  {
+   "kind": "model-3d",
+   "documentPath": "casefold.kicad_pcb",
+   "raw": "${KICAD10_3DMODEL_DIR}/Resistor_SMD.3dshapes/R_0603_1608Metric.step",
+   "variables": [
+    "KICAD10_3DMODEL_DIR"
+   ],
+   "target": {
+    "kind": "kicad-library",
+    "variable": "KICAD10_3DMODEL_DIR",
+    "library": "model-3d",
+    "relativePath": "Resistor_SMD.3dshapes/R_0603_1608Metric.step"
+   }
+  }
+ ]
+}

@@ -1,0 +1,26 @@
+{
+ "schema": "prism.project.a0",
+ "projectFile": "rule_area.kicad_pro",
+ "projectName": "rule_area",
+ "textVariables": {},
+ "netClasses": [
+  {
+   "name": "Default",
+   "trackWidthNm": 200000,
+   "clearanceNm": 200000,
+   "viaDiameterNm": 600000,
+   "viaDrillNm": 300000
+  }
+ ],
+ "documents": [
+  {
+   "path": "rule_area.kicad_sch",
+   "kind": "root-schematic",
+   "formatVersion": 20260306,
+   "generator": "eeschema",
+   "generatorVersion": "10.0",
+   "properties": {}
+  }
+ ],
+ "references": []
+}

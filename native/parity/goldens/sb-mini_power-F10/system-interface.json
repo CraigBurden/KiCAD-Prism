@@ -1,0 +1,365 @@
+{
+ "schema": "prism.system_interface.v1",
+ "hasPcb": true,
+ "boardThicknessMm": 1.6,
+ "boardOutlineMm": {
+  "minMm": [
+   6.5,
+   -18.47
+  ],
+  "maxMm": [
+   53.5,
+   -6.5
+  ],
+  "source": "items"
+ },
+ "components": [
+  {
+   "portKey": "/bf4216d1-fbe3-5c54-8514-d58b47dc3ddc/9fbb0e4e-6313-5ab5-88fd-43d9f13fc52f",
+   "memberKeys": [
+    "/bf4216d1-fbe3-5c54-8514-d58b47dc3ddc/9fbb0e4e-6313-5ab5-88fd-43d9f13fc52f"
+   ],
+   "reference": "J1",
+   "libId": "Connector_Generic:Conn_01x04",
+   "footprint": "Connector_PinHeader_2.54mm:PinHeader_1x04_P2.54mm_Vertical",
+   "value": "Conn_01x04",
+   "mpn": null,
+   "dnp": false,
+   "candidate": true,
+   "candidateReason": "refdes",
+   "pins": [
+    {
+     "pad": "1",
+     "nets": [
+      "VOUT_28V"
+     ],
+     "pcbNets": [
+      "VOUT_28V"
+     ],
+     "pinNames": [
+      "Pin_1"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "2",
+     "nets": [
+      "GND"
+     ],
+     "pcbNets": [
+      "GND"
+     ],
+     "pinNames": [
+      "Pin_2"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "3",
+     "nets": [
+      "/PG_OUT"
+     ],
+     "pcbNets": [
+      "/PG_OUT"
+     ],
+     "pinNames": [
+      "Pin_3"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "4",
+     "nets": [
+      "/EN_IN"
+     ],
+     "pcbNets": [
+      "/EN_IN"
+     ],
+     "pinNames": [
+      "Pin_4"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    }
+   ],
+   "geometry": {
+    "side": "top",
+    "positionMm": [
+     10.0,
+     -10.0
+    ],
+    "rotationDeg": 0.0,
+    "footprintName": "PinHeader_1x04_P2.54mm_Vertical",
+    "pads": [
+     {
+      "pad": "1",
+      "positionMm": [
+       10.0,
+       -10.0
+      ],
+      "sizeMm": [
+       1.7,
+       1.7
+      ],
+      "shape": "circle",
+      "tht": true
+     },
+     {
+      "pad": "2",
+      "positionMm": [
+       10.0,
+       -12.54
+      ],
+      "sizeMm": [
+       1.7,
+       1.7
+      ],
+      "shape": "circle",
+      "tht": true
+     },
+     {
+      "pad": "3",
+      "positionMm": [
+       10.0,
+       -15.08
+      ],
+      "sizeMm": [
+       1.7,
+       1.7
+      ],
+      "shape": "circle",
+      "tht": true
+     },
+     {
+      "pad": "4",
+      "positionMm": [
+       10.0,
+       -17.62
+      ],
+      "sizeMm": [
+       1.7,
+       1.7
+      ],
+      "shape": "circle",
+      "tht": true
+     }
+    ],
+    "courtyard": null,
+    "model": null
+   }
+  },
+  {
+   "portKey": "/bf4216d1-fbe3-5c54-8514-d58b47dc3ddc/2d5d8653-9cc7-5154-98b5-b1ccdceb4207",
+   "memberKeys": [
+    "/bf4216d1-fbe3-5c54-8514-d58b47dc3ddc/2d5d8653-9cc7-5154-98b5-b1ccdceb4207"
+   ],
+   "reference": "J3",
+   "libId": "MiniSys:Conn_Split_2x2",
+   "footprint": "MiniSys:Conn_Split_2x2",
+   "value": "Conn_Split_2x2",
+   "mpn": null,
+   "dnp": false,
+   "candidate": true,
+   "candidateReason": "refdes",
+   "pins": [
+    {
+     "pad": "3",
+     "nets": [
+      "/PAY_PWR"
+     ],
+     "pcbNets": [
+      "/PAY_PWR"
+     ],
+     "pinNames": [
+      "B1"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "4",
+     "nets": [
+      "GND"
+     ],
+     "pcbNets": [
+      "GND"
+     ],
+     "pinNames": [
+      "B2"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    }
+   ],
+   "geometry": {
+    "side": "top",
+    "positionMm": [
+     30.0,
+     -10.0
+    ],
+    "rotationDeg": 0.0,
+    "footprintName": "Conn_Split_2x2",
+    "pads": [
+     {
+      "pad": "1",
+      "positionMm": [
+       30.0,
+       -10.0
+      ],
+      "sizeMm": [
+       1.7,
+       1.7
+      ],
+      "shape": "circle",
+      "tht": true
+     },
+     {
+      "pad": "2",
+      "positionMm": [
+       30.0,
+       -12.54
+      ],
+      "sizeMm": [
+       1.7,
+       1.7
+      ],
+      "shape": "circle",
+      "tht": true
+     },
+     {
+      "pad": "3",
+      "positionMm": [
+       30.0,
+       -15.08
+      ],
+      "sizeMm": [
+       1.7,
+       1.7
+      ],
+      "shape": "circle",
+      "tht": true
+     },
+     {
+      "pad": "4",
+      "positionMm": [
+       30.0,
+       -17.62
+      ],
+      "sizeMm": [
+       1.7,
+       1.7
+      ],
+      "shape": "circle",
+      "tht": true
+     }
+    ],
+    "courtyard": null,
+    "model": null
+   }
+  },
+  {
+   "portKey": "/bf4216d1-fbe3-5c54-8514-d58b47dc3ddc/3c61606f-5968-5d63-a864-46e169956912",
+   "memberKeys": [
+    "/bf4216d1-fbe3-5c54-8514-d58b47dc3ddc/3c61606f-5968-5d63-a864-46e169956912"
+   ],
+   "reference": "J8",
+   "libId": "Connector_Generic:Conn_01x02",
+   "footprint": "Connector_PinHeader_2.54mm:PinHeader_1x02_P2.54mm_Vertical",
+   "value": "Conn_01x02",
+   "mpn": null,
+   "dnp": true,
+   "candidate": true,
+   "candidateReason": "refdes",
+   "pins": [
+    {
+     "pad": "1",
+     "nets": [
+      "/DEBUG_TX"
+     ],
+     "pcbNets": [
+      "/DEBUG_TX"
+     ],
+     "pinNames": [
+      "Pin_1"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "2",
+     "nets": [
+      "GND"
+     ],
+     "pcbNets": [
+      "GND"
+     ],
+     "pinNames": [
+      "Pin_2"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    }
+   ],
+   "geometry": {
+    "side": "top",
+    "positionMm": [
+     50.0,
+     -10.0
+    ],
+    "rotationDeg": 0.0,
+    "footprintName": "PinHeader_1x02_P2.54mm_Vertical",
+    "pads": [
+     {
+      "pad": "1",
+      "positionMm": [
+       50.0,
+       -10.0
+      ],
+      "sizeMm": [
+       1.7,
+       1.7
+      ],
+      "shape": "circle",
+      "tht": true
+     },
+     {
+      "pad": "2",
+      "positionMm": [
+       50.0,
+       -12.54
+      ],
+      "sizeMm": [
+       1.7,
+       1.7
+      ],
+      "shape": "circle",
+      "tht": true
+     }
+    ],
+    "courtyard": null,
+    "model": null
+   }
+  }
+ ],
+ "diagnostics": [],
+ "digest": "sha256:583ec68a7a5b3030e3c1f3478b507d3e326c9934d61b09da78bd2055249d2dc0"
+}

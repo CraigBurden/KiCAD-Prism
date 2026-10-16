@@ -777,6 +777,58 @@ jobs:
           PRISM_HYGIENE_PYTHON: python
         run: scripts/ci_native_hygiene.sh
 
+  native-parity:
+    name: Native parity
+    # Goldens of every bundle projection on the committed fixtures and the parity runner
+    # (native/parity/, ADR §7, §9.4 G). Runs when native/ or a committed fixture changes; the
+    # private corpus is a local job (native/parity/README.md).
+    needs: changes
+    if: needs.changes.outputs.native == 'true' || needs.changes.outputs.backend == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    defaults:
+      run:
+        working-directory: native/parity
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+
+      - name: Set up Python
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
+        with:
+          python-version-file: .python-version
+
+      - name: Set up Node.js
+        uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5.0.0
+        with:
+          node-version-file: .node-version
+          cache: npm
+          cache-dependency-path: native/package-lock.json
+
+      - name: Install the contract toolchain (ajv)
+        working-directory: native
+        env:
+          PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: "1"
+        run: npm ci --ignore-scripts
+
+      - name: Runner unit tests
+        run: python -m unittest discover -s tests -v
+
+      - name: Goldens match the committed fixtures they were captured from
+        run: python -m prism_parity inputs
+
+      - name: Goldens validate against the frozen contracts
+        working-directory: native
+        run: node parity/validate.mjs --quiet parity/goldens
+
+      - name: Runner self-test on hand-made bundles (goldens, and a deliberate change)
+        run: python -m prism_parity selftest
+
+      # Once prism-kicad writes a projection (Wave 2), its producer adds a step here that builds
+      # the fixtures' bundles and runs: python -m prism_parity compare --bundles <dir> --members <stem>
+
   design-compare-parser:
     name: Design compare parser
     # The Node object index and delta the design comparison worker runs (backend/design-compare-parser).
@@ -1068,6 +1120,7 @@ jobs:
       - native-platforms
       - native-wasm32
       - native-hygiene
+      - native-parity
       - design-compare-parser
       - deployment-config
       - dependency-identity

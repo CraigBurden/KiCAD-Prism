@@ -1,0 +1,93 @@
+{
+ "schema": "prism.project.a0",
+ "projectFile": "edge_a.kicad_pro",
+ "projectName": "edge_a",
+ "textVariables": {},
+ "netClasses": [
+  {
+   "name": "Default",
+   "trackWidthNm": 200000,
+   "clearanceNm": 200000,
+   "viaDiameterNm": 600000,
+   "viaDrillNm": 300000
+  }
+ ],
+ "documents": [
+  {
+   "path": "edge_a.kicad_pcb",
+   "kind": "board",
+   "formatVersion": 20260206,
+   "generator": "pcbnew",
+   "generatorVersion": "10.0",
+   "properties": {}
+  },
+  {
+   "path": "edge_a.kicad_sch",
+   "kind": "root-schematic",
+   "formatVersion": 20260306,
+   "generator": "eeschema",
+   "generatorVersion": "10.0",
+   "properties": {}
+  }
+ ],
+ "references": [
+  {
+   "kind": "model-3d",
+   "documentPath": "edge_a.kicad_pcb",
+   "raw": "${KICAD10_3DMODEL_DIR}/Connector_PinHeader_2.54mm.3dshapes/PinHeader_1x04_P2.54mm_Horizontal.step",
+   "variables": [
+    "KICAD10_3DMODEL_DIR"
+   ],
+   "target": {
+    "kind": "kicad-library",
+    "variable": "KICAD10_3DMODEL_DIR",
+    "library": "model-3d",
+    "relativePath": "Connector_PinHeader_2.54mm.3dshapes/PinHeader_1x04_P2.54mm_Horizontal.step"
+   }
+  },
+  {
+   "kind": "model-3d",
+   "documentPath": "edge_a.kicad_pcb",
+   "raw": "${KICAD10_3DMODEL_DIR}/Connector_PinSocket_2.54mm.3dshapes/PinSocket_1x04_P2.54mm_Horizontal.step",
+   "variables": [
+    "KICAD10_3DMODEL_DIR"
+   ],
+   "target": {
+    "kind": "kicad-library",
+    "variable": "KICAD10_3DMODEL_DIR",
+    "library": "model-3d",
+    "relativePath": "Connector_PinSocket_2.54mm.3dshapes/PinSocket_1x04_P2.54mm_Horizontal.step"
+   }
+  },
+  {
+   "kind": "footprint-library",
+   "documentPath": "fp-lib-table",
+   "libraryName": "PrismFixture",
+   "raw": "${KIPRJMOD}/PrismFixture.pretty",
+   "variables": [
+    "KIPRJMOD"
+   ],
+   "target": {
+    "kind": "repository",
+    "path": "PrismFixture.pretty",
+    "base": "project-variable",
+    "inSources": true
+   }
+  },
+  {
+   "kind": "symbol-library",
+   "documentPath": "sym-lib-table",
+   "libraryName": "PrismFixture",
+   "raw": "${KIPRJMOD}/PrismFixture.kicad_sym",
+   "variables": [
+    "KIPRJMOD"
+   ],
+   "target": {
+    "kind": "repository",
+    "path": "PrismFixture.kicad_sym",
+    "base": "project-variable",
+    "inSources": true
+   }
+  }
+ ]
+}

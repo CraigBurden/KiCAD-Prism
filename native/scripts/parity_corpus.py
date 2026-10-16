@@ -9,7 +9,7 @@ cruncher corpus. Prism's corpus is its parity corpus:
 
 - committed, run on every PR: the roots in ``COMMITTED`` below (Release Studio's
   and System Builder's fixtures, the design-variant fixtures, the cruncher
-  corpus) and ``native/parity/`` once WP-G lands it;
+  corpus), which ``native/parity/fixtures.json`` also draws its cases from;
 - private, nightly or local: every directory in ``PRISM_PARITY_CORPUS``
   (``os.pathsep``-separated), such as the developer instance's projects.
 
@@ -40,8 +40,9 @@ NATIVE = Path(__file__).resolve().parents[1]
 REPO = NATIVE.parent
 ENV_NAME = "PRISM_PARITY_CORPUS"
 SUFFIXES = (".kicad_pcb", ".kicad_sch", ".kicad_pro", ".kicad_sym", ".kicad_mod", ".kicad_wks", ".kicad_dru")
-# Repository-relative committed roots. A root that must exist is required;
-# native/parity is WP-G's and appears when it merges.
+# Repository-relative committed roots. A root that must exist is required.
+# native/parity (WP-G) holds goldens and the runner, not KiCad sources: its
+# fixtures.json points at the roots below, so it is not a corpus root itself.
 COMMITTED: tuple[tuple[str, bool], ...] = (
     ("fixtures/release-studio/usb-pd", True),
     ("fixtures/release-studio/synthetic", True),
@@ -49,7 +50,6 @@ COMMITTED: tuple[tuple[str, bool], ...] = (
     ("backend/tests/fixtures/design_variants", True),
     ("backend/tests/fixtures/system_builder", True),
     ("native/packages/kicad_cruncher/tests/corpus/kicad/projects", True),
-    ("native/parity", False),
 )
 # Single-expression s-expression files (.kicad_pro is JSON; .kicad_dru holds several expressions).
 SEXPR_SUFFIXES = (".kicad_pcb", ".kicad_sch", ".kicad_sym", ".kicad_mod", ".kicad_wks")

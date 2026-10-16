@@ -1,0 +1,78 @@
+{
+ "schema": "prism.project.a0",
+ "projectFile": "mezz_base.kicad_pro",
+ "projectName": "mezz_base",
+ "textVariables": {},
+ "netClasses": [
+  {
+   "name": "Default",
+   "trackWidthNm": 200000,
+   "clearanceNm": 200000,
+   "viaDiameterNm": 600000,
+   "viaDrillNm": 300000
+  }
+ ],
+ "documents": [
+  {
+   "path": "mezz_base.kicad_pcb",
+   "kind": "board",
+   "formatVersion": 20260206,
+   "generator": "pcbnew",
+   "generatorVersion": "10.0",
+   "properties": {}
+  },
+  {
+   "path": "mezz_base.kicad_sch",
+   "kind": "root-schematic",
+   "formatVersion": 20260306,
+   "generator": "eeschema",
+   "generatorVersion": "10.0",
+   "properties": {}
+  }
+ ],
+ "references": [
+  {
+   "kind": "footprint-library",
+   "documentPath": "fp-lib-table",
+   "libraryName": "PrismFixture",
+   "raw": "${KIPRJMOD}/PrismFixture.pretty",
+   "variables": [
+    "KIPRJMOD"
+   ],
+   "target": {
+    "kind": "repository",
+    "path": "PrismFixture.pretty",
+    "base": "project-variable",
+    "inSources": true
+   }
+  },
+  {
+   "kind": "model-3d",
+   "documentPath": "mezz_base.kicad_pcb",
+   "raw": "${KIPRJMOD}/../../../vendor/samtec/ADM6-30-03.5-L-4-0-A-TR.stp",
+   "variables": [
+    "KIPRJMOD"
+   ],
+   "target": {
+    "kind": "outside-repository",
+    "path": "../../../vendor/samtec/ADM6-30-03.5-L-4-0-A-TR.stp",
+    "base": "project-variable"
+   }
+  },
+  {
+   "kind": "symbol-library",
+   "documentPath": "sym-lib-table",
+   "libraryName": "PrismFixture",
+   "raw": "${KIPRJMOD}/PrismFixture.kicad_sym",
+   "variables": [
+    "KIPRJMOD"
+   ],
+   "target": {
+    "kind": "repository",
+    "path": "PrismFixture.kicad_sym",
+    "base": "project-variable",
+    "inSources": true
+   }
+  }
+ ]
+}
