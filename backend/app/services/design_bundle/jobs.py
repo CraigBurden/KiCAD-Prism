@@ -1,0 +1,378 @@
+"""The ``design_bundle`` job (ADR §4.4, cli-spec.md §9.1).
+
+One job runs every stage of one bundle key, in order, and is deduplicated on
+the bundle key. It resumes from the stored archive: a stage only moves from
+``pending`` to final, so a retried job runs only the stages still pending.
+
+```text
+0. generator    prism-kicad version -> generator digest, bundle key
+   key          the commit's revision key (effective config, commit index)
+1. materialize  $JOB/src (LFS, gitlinks); upgrade older boards and schematics;
+                effective.json and key-record.json
+2. parse        prism-kicad bundle build --stage parse -o <store>
+3. refill       pcbnew ZONE_FILLER (not with zone_fills "saved")
+4. board        prism-kicad bundle build --stage board --in <store> -o <store>
+5. models       kicad-cli pcb export glb (stage_models, cached)
+6. models       prism-kicad bundle build --stage models --in <store> -o <store>
+```
+
+After every stage the job re-reads ``bundle.json`` and publishes readiness:
+the ``ws_design_bundles`` row's stages and the job's progress. A failing KiCad
+step or an internal CLI failure is retried; after the last attempt the stage
+stays ``pending`` and the job ends failed (bundle-format.md §3.1). A project
+whose anchor is not in the tree is recorded as absent: no key, no bundle, no
+retry.
+"""
+
+from __future__ import annotations
+
+import json
+import logging
+from pathlib import Path
+from typing import Any, Mapping
+
+from app.core.config import settings
+from app.services import project_revision
+from app.services.design_bundle import cli, kicad_steps, manifest as manifest_rules, materialize, rows, stage_models, store
+from app.services.design_bundle.archive import Archive
+from app.services.design_bundle.effective_config import ProjectKey, ProjectRef, key_at_commit
+from app.services.design_bundle.generator import Generator
+from app.services.job_kinds import JobKind, JobSubject, repository_lock
+from app.services.job_runtime import JobContext, JobResult, PermanentJobError, RetryableJobError
+
+logger = logging.getLogger(__name__)
+
+KIND = "design_bundle"
+_STAGE_PERCENT = {"parse": 40, "board": 75, "models": 95}
+FLAG_NOTES = ("board-unresolved", "schematic-unresolved", "prism-json-invalid")
+
+
+def _workspace():
+    from app.services.workspace_service import workspace
+
+    return workspace
+
+
+# ------------------------------------------------------------------ keying
+
+
+def project_key(row: Mapping[str, Any], commit: str | None = None) -> ProjectKey:
+    """The project's key at ``commit`` (its checkout's ``HEAD`` when ``None``)."""
+
+    location = project_revision.locate(row)
+    return key_at_commit(location.repo_root, ProjectRef.from_row(row), commit or "HEAD")
+
+
+def flags_of(key: ProjectKey) -> dict[str, str]:
+    """What the backfill records about a project at its HEAD (decisions.md, revision key 7)."""
+
+    if key.absent:
+        return {"project-absent": f"{key.absent_project_file} is not in the tree"}
+    details = {
+        "board-unresolved": "the board no longer resolves by the project's anchor; set its path in the project settings",
+        "schematic-unresolved": "the root schematic no longer resolves by the project's anchor; set its path",
+        "prism-json-invalid": "the committed .prism.json is not a JSON object",
+    }
+    return {note: details[note] for note in key.notes if note in details}
+
+
+def artifact_key(project_id: str, bundle_key: str) -> str:
+    """The job's dedup key: the bundle key, within its project (bundles are stored per project)."""
+
+    return f"{project_id}:{bundle_key}"
+
+
+def bundle_ready(project_id: str, bundle_key: str, *, connect: rows.Connect | None = None) -> bool:
+    row = rows.get_bundle(project_id, bundle_key, connect=connect)
+    return bool(row and row["state"] == "complete")
+
+
+def start_design_bundle_job(
+    project_id: str,
+    *,
+    commit: str | None = None,
+    requested_by: str = "",
+    priority: int | None = None,
+    head: bool = False,
+) -> str | None:
+    """Queue the bundle of ``project_id`` at ``commit`` (default ``HEAD``) on demand.
+
+    Returns the job id; ``None`` when the project is absent at that commit or
+    its bundle is already complete. Raises ``cli.CliUnavailable`` when
+    ``prism-kicad`` is not installed.
+    """
+
+    row = _workspace().get_project_by_id(project_id)
+    if not row:
+        return None
+    key = project_key(row, commit)
+    if key.absent:
+        rows.record_absence(project_id, str(key.commit), str(key.absent_project_file))
+        return None
+    generator = cli.generator()
+    revision_key = key.key.revision_key  # type: ignore[union-attr]
+    bundle_key = generator.bundle_key(revision_key)
+    if bundle_ready(project_id, bundle_key):
+        return None
+    queued = DESIGN_BUNDLE.enqueue(
+        {
+            "project_id": project_id,
+            "commit": key.commit,
+            "revision_key": revision_key,
+            "bundle_key": bundle_key,
+            "project_file_rel": str(row.get("project_file_rel") or ""),
+            "head": bool(head or commit is None),
+        },
+        subject=JobSubject.of_project(row, project_id),
+        artifact_key=artifact_key(project_id, bundle_key),
+        requested_by=requested_by,
+        priority=priority,
+    )
+    rows.upsert_bundle(
+        bundle_key=bundle_key, project_id=project_id, revision_key=revision_key, generator_digest=generator.digest,
+        commit=key.commit, state="queued", job_id=str(queued["job_id"]),
+    )
+    return str(queued["job_id"])
+
+
+def queue_for_head(project_id: str, *, requested_by: str = "") -> str | None:
+    """After an import or a sync: the HEAD bundle, when ``PRISM_DESIGN_BUNDLE_AUTO_BUILD`` is on."""
+
+    if not settings.PRISM_DESIGN_BUNDLE_AUTO_BUILD:
+        return None
+    return start_design_bundle_job(project_id, requested_by=requested_by, head=True)
+
+
+# --------------------------------------------------------------------- run
+
+
+class _Run:
+    """One attempt of one bundle key."""
+
+    def __init__(self, context: JobContext, row: Mapping[str, Any], key: ProjectKey, generator: Generator) -> None:
+        self.context = context
+        self.project_id = str(row["id"])
+        self.repo = project_revision.locate(row).repo_root
+        self.key = key
+        self.config: dict[str, Any] = dict(key.config or {})
+        self.revision_key = key.key.revision_key  # type: ignore[union-attr]
+        self.generator = generator
+        self.bundle_key = generator.bundle_key(self.revision_key)
+        self.work = context.staging_dir
+        self.archive_path = store.prepare(self.project_id, self.revision_key, generator.digest)
+        self.details: dict[str, Any] = {
+            "project_id": self.project_id,
+            "commit": key.commit,
+            "revision_key": self.revision_key,
+            "bundle_key": self.bundle_key,
+            "generator_digest": generator.digest,
+            "config_digest": key.key.config_digest,  # type: ignore[union-attr]
+            "invocations": [],
+            "stderr": [],
+        }
+
+    def cancel(self) -> None:
+        self.context.check_cancelled()
+
+    def open(self) -> Archive | None:
+        return store.open_bundle(self.project_id, self.revision_key, self.generator.digest, self.bundle_key)
+
+    def cli(self, args: list[str], stage: str) -> cli.CliRun:
+        try:
+            done = cli.run(args, timeout_seconds=cli.outer_timeout(stage), expect="prism.cli.build_result.a0", cancel=self.cancel)
+        except cli.CliFailure as failure:
+            self.details["invocations"].append({"command": f"bundle build {stage}", "exit": failure.exit_code})
+            if failure.retryable:
+                raise RetryableJobError(f"prism-kicad stage {stage}: {failure}", code=failure.code) from failure
+            raise PermanentJobError(f"prism-kicad stage {stage}: {failure}", code=failure.code) from failure
+        self.details["invocations"].append({**done.summary(), "stage": stage})
+        self.details["stderr"].extend(line for line in done.stderr_lines if not isinstance(line, dict) or line.get("severity") != "info")
+        return done
+
+    def publish(self, archive: Archive, stage: str) -> None:
+        statuses = manifest_rules.statuses(archive.manifest)
+        state = "complete" if manifest_rules.all_final(archive.manifest) else "building"
+        rows.upsert_bundle(
+            bundle_key=self.bundle_key, project_id=self.project_id, revision_key=self.revision_key,
+            generator_digest=self.generator.digest, commit=self.key.commit, state=state, stages=statuses,
+            job_id=self.context.job_id, archive_bytes=self.archive_path.stat().st_size,
+        )
+        self.details["stages"] = statuses
+        self.context.progress(
+            stage=f"bundle-{stage}", message=f"Design bundle: stage {stage} {statuses[stage]}",
+            percent=_STAGE_PERCENT[stage], force=True,
+        )
+
+    # -- stages ---------------------------------------------------------------
+
+    def parse(self) -> Archive | None:
+        self.context.progress(stage="bundle-materialize", message="Materializing design sources", percent=5, force=True)
+        src = self.work / "src"
+        record = self.key.record()
+        try:
+            done = materialize.materialize(self.repo, record, src)
+            upgraded = kicad_steps.upgrade_sources(src, self.config, cancel=self.cancel)
+        except (materialize.SourceUnavailable, kicad_steps.KicadStepFailed) as error:
+            raise RetryableJobError(str(error), code="sources-unavailable", retry_after_seconds=30) from error
+        self.details.update(
+            files=done.files, lfs_hydrated=done.lfs_hydrated, unavailable_models=done.unavailable_models,
+            unavailable_gitlinks=done.unavailable_gitlinks, upgraded=upgraded,
+        )
+        effective, key_record = self.work / "effective.json", self.work / "key-record.json"
+        effective.write_text(json.dumps(self.config, ensure_ascii=False), encoding="utf-8")
+        key_record.write_text(json.dumps(record, ensure_ascii=False), encoding="utf-8")
+        self.context.progress(stage="bundle-parse", message="Design bundle: stage parse", percent=15, force=True)
+        args = [
+            "bundle", "build", str(src / self.config["project_file"]), "--stage", "parse",
+            "--source-root", str(src), "-o", str(self.archive_path), "--revision-key", self.revision_key,
+            "--key-record", str(key_record), "--config", str(effective), *cli.limits("parse"),
+            "--threads", str(settings.PRISM_DESIGN_BUNDLE_THREADS),
+        ]
+        done_cli = self.cli(args, "parse")
+        if done_cli.exit_code == 10:
+            return None
+        return self._reopen("parse")
+
+    def board(self, archive: Archive) -> Archive:
+        args = ["bundle", "build", "--stage", "board", "--in", str(self.archive_path), "-o", str(self.archive_path),
+                "--revision-key", self.revision_key, *cli.limits("board")]
+        if self.config.get("zone_fills") != "saved":
+            sources = self._sources(archive, self._board_inputs(archive))
+            self.context.progress(stage="bundle-refill", message="Refilling zones with pcbnew", percent=50, force=True)
+            try:
+                refilled = kicad_steps.refill_board(sources, self.config, self.work / "refill", cancel=self.cancel)
+            except kicad_steps.KicadStepFailed as error:
+                raise RetryableJobError(str(error), code="zone-refill-failed", retry_after_seconds=30) from error
+            args += ["--refilled-board", str(refilled), "--refill-tool", self.generator.kicad_version]
+        self.cli(args, "board")
+        return self._reopen("board")
+
+    def models(self, archive: Archive) -> Archive:
+        sources = self._sources(archive, ["sources/"])
+        self.context.progress(stage="bundle-glb", message="Exporting component models", percent=85, force=True)
+        try:
+            glb, hit = stage_models.export_components_glb(sources, self.key.record(), self.generator, self.work, cancel=self.cancel)
+        except kicad_steps.KicadStepFailed as error:
+            raise RetryableJobError(str(error), code="glb-export-failed", retry_after_seconds=30) from error
+        self.details["models_cache_hit"] = hit
+        args = ["bundle", "build", "--stage", "models", "--in", str(self.archive_path), "-o", str(self.archive_path),
+                "--models-glb", str(glb), "--models-tool", self.generator.kicad_version, "--revision-key", self.revision_key,
+                *cli.limits("models")]
+        self.cli(args, "models")
+        return self._reopen("models")
+
+    def _board_inputs(self, archive: Archive) -> list[str]:
+        project = str(self.config["project_file"])
+        wanted = [f"sources/{self.config['board']}", f"sources/{project}"]
+        rules = f"sources/{project[: -len('.kicad_pro')]}.kicad_dru"
+        return wanted + ([rules] if archive.member(rules) else [])
+
+    def _sources(self, archive: Archive, paths: list[str]) -> Path:
+        base = store.extract(archive, self.project_id, self.revision_key, self.generator.digest, paths)
+        return base / "sources"
+
+    def _reopen(self, stage: str) -> Archive:
+        archive = self.open()
+        if archive is None:
+            raise RetryableJobError(f"stage {stage} left no valid archive", code="archive-invalid")
+        self.publish(archive, stage)
+        return archive
+
+
+def run_design_bundle_job(context: JobContext) -> JobResult:
+    payload = context.payload
+    project_id = str(payload["project_id"])
+    row = _workspace().get_project_by_id(project_id)
+    if not row:
+        raise PermanentJobError("Project not found", code="project-not-found")
+    if str(row.get("project_file_rel") or "") != str(payload.get("project_file_rel") or ""):
+        raise RetryableJobError("Project anchor changed after the design bundle was queued; retry the job")
+    commit = str(payload["commit"])
+    context.progress(stage="bundle-key", message="Computing the design revision key", percent=1, force=True)
+    key = project_key(row, commit)
+    if payload.get("head"):
+        rows.set_flags(project_id, str(key.commit), flags_of(key))
+    if key.absent:
+        rows.record_absence(project_id, commit, str(key.absent_project_file))
+        return JobResult(
+            message="The project is not present at this revision",
+            details={"project_id": project_id, "commit": commit, "absent": True, "project_file": key.absent_project_file},
+        )
+    try:
+        generator = cli.generator()
+    except cli.CliUnavailable as error:
+        raise PermanentJobError(str(error), code="cli-unavailable") from error
+    except cli.CliFailure as failure:
+        raise RetryableJobError(f"prism-kicad version: {failure}", code=failure.code) from failure
+    rows.index_key(project_id, str(key.commit), key.key.config_digest, key.key.revision_key)  # type: ignore[union-attr]
+    run = _Run(context, row, key, generator)
+    rows.upsert_bundle(
+        bundle_key=run.bundle_key, project_id=project_id, revision_key=run.revision_key,
+        generator_digest=generator.digest, commit=key.commit, state="building", job_id=context.job_id,
+    )
+    archive = run.open()
+    if archive is None:
+        archive = run.parse()
+        if archive is None:  # the CLI found the project absent: the key and the tree disagree
+            raise PermanentJobError("prism-kicad reported the project absent although the key selected it", code="project-absent")
+    _remove_superseded(run)
+    while (stage := manifest_rules.next_stage(archive.manifest)) is not None:
+        archive = run.board(archive) if stage == "board" else run.models(archive)
+    run.publish(archive, "models")
+    statuses = manifest_rules.statuses(archive.manifest)
+    run.details["stages"] = statuses
+    return JobResult(message=f"Design bundle ready: {', '.join(f'{k} {v}' for k, v in statuses.items())}", details=run.details)
+
+
+def _remove_superseded(run: _Run) -> None:
+    """ADR §5: a revision's bundles of older generators go once a new one is stored."""
+
+    superseded = rows.superseded_generators(run.project_id, run.revision_key, run.generator.digest)
+    store.remove_other_generators(run.project_id, run.revision_key, run.generator.digest)
+    rows.delete_bundles(run.project_id, superseded)
+
+
+# ------------------------------------------------------------- end of job
+
+
+def settle_design_bundle_end(job: Mapping[str, Any]) -> bool:
+    """End hook: a bundle whose job ended without completing is marked failed with its error."""
+
+    if job.get("status") not in ("failed", "cancelled"):
+        return False
+    payload = job.get("payload") or {}
+    bundle_key, project_id = str(payload.get("bundle_key") or ""), str(payload.get("project_id") or "")
+    found = rows.get_bundle(project_id, bundle_key) if bundle_key and project_id else None
+    if not found or found["state"] not in ("queued", "building") or found.get("job_id") != str(job.get("id") or job.get("job_id")):
+        return False
+    rows.upsert_bundle(
+        bundle_key=bundle_key, project_id=found["project_id"], revision_key=found["revision_key"],
+        generator_digest=found["generator_digest"], commit=found.get("commit_sha"), state="failed",
+        error=str(job.get("error_message") or job.get("status")),
+    )
+    return True
+
+
+def _unsettled_bundles() -> list[str]:
+    with rows.default_connect() as conn:
+        found = conn.execute(
+            """SELECT j.id FROM ws_design_bundles b JOIN ws_jobs j ON j.id = b.job_id
+               WHERE b.state IN ('queued', 'building') AND j.status IN ('failed', 'cancelled')
+               ORDER BY j.updated_at DESC LIMIT 100"""
+        ).fetchall()
+    return [str(item["id"]) for item in found]
+
+
+DESIGN_BUNDLE = JobKind(
+    KIND,
+    run_design_bundle_job,
+    # cli-spec.md §7.4: while legacy consumers still run, a bundle build also
+    # holds one semantic_compile unit, sharing the legacy memory budget.
+    resources={"prism_worker": 1, "design_bundle": 1, "semantic_compile": 1},
+    lock=repository_lock("read"),
+    max_attempts=settings.PRISM_DESIGN_BUNDLE_MAX_ATTEMPTS,
+    priority=150,
+    settle=settle_design_bundle_end,
+    orphans=_unsettled_bundles,
+)
+JOB_KINDS = (DESIGN_BUNDLE,)

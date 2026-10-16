@@ -1,0 +1,237 @@
+"""The design_bundle job end to end with the stub CLI and fake KiCad tools, on a scratch workspace schema.
+
+Covers ADR §4.4 staged readiness, cli-spec.md §9 (argv, refill, saved fills,
+upgrade, models), the commit index, project absence, LFS and dedup on the
+bundle key.
+"""
+
+from __future__ import annotations
+
+import hashlib
+import json
+import tempfile
+import unittest
+from pathlib import Path
+from unittest import mock
+
+from psycopg.types.json import Jsonb
+
+from app.core.config import settings
+from app.services.design_bundle import jobs, manifest, reader, rows, store
+from app.services.design_bundle.archive import open_archive
+from app.services.job_runtime import PermanentJobError, RetryableJobError
+from app.services.workspace_schema_migrations import WORKSPACE_LEDGER
+from app.services.workspace_service import workspace
+from in_memory_jobs import InMemoryJobService, claimed_context
+from support.design_bundle_fixtures import PROJECT_FILES, install_fake_kicad, install_stub, project_repo, set_modes
+from support.postgres import requires_scratch_postgres, scratch_schema, seed_project, seed_repository
+from support.repo import git
+
+
+class _Workspace:
+    """A scratch workspace schema the bundle code and WorkspaceService both read."""
+
+    def setUp(self) -> None:  # type: ignore[misc]
+        self.tmp = Path(self.enterContext(tempfile.TemporaryDirectory()))
+        self.scratch = scratch_schema(self, "design_bundle", ledgers=(WORKSPACE_LEDGER,))
+        self.enterContext(mock.patch.object(rows, "default_connect", self.scratch.connection))
+        self.enterContext(mock.patch.object(workspace, "_connect", self.scratch.connection))
+        self.enterContext(mock.patch.object(settings, "KICAD_PROJECTS_ROOT", str(self.tmp / "projects")))
+        self.enterContext(mock.patch.object(settings, "PRISM_DESIGN_BUNDLE_ROOT", ""))
+        self.queue = InMemoryJobService()
+        self.seen: dict[str, dict] = {}
+        self.enterContext(mock.patch("app.services.job_service.jobs", self.queue))
+        self.stub_log = install_stub(self)
+        self.kicad_log = install_fake_kicad(self)
+
+    def add_project(self, project_id: str = "p1", repo_id: str = "r1", *, files=None, **columns) -> Path:
+        repo = project_repo(self.tmp / "projects" / "clones" / repo_id, files)
+        with self.scratch.connection() as conn:
+            seed_repository(conn, repo_id, clone_path=f"clones/{repo_id}")
+            seed_project(conn, project_id, repo_id, relative_path="board", project_file_rel="demo.kicad_pro", **columns)
+        return repo
+
+    def run_job(self, job_id: str):
+        """Run (or re-run, as a retried attempt) the queued job ``job_id``."""
+
+        if job_id not in self.seen:
+            self.seen[job_id] = self.queue.rows.pop(job_id)
+        row = self.seen[job_id]
+        context = claimed_context(
+            self.queue, row["kind"], row["payload"], state_root=self.tmp / "state"
+        )
+        return jobs.run_design_bundle_job(context)
+
+    def invocations(self) -> list[list[str]]:
+        return [json.loads(line)["argv"] for line in self.stub_log.read_text().splitlines()]
+
+    def builds(self) -> list[list[str]]:
+        return [argv for argv in self.invocations() if argv[:2] == ["bundle", "build"]]
+
+
+@requires_scratch_postgres("the design_bundle job")
+class DesignBundleJobTests(_Workspace, unittest.TestCase):
+    def test_all_stages_build_one_archive_with_the_specified_argv(self) -> None:
+        repo = self.add_project()
+        job_id = jobs.start_design_bundle_job("p1", requested_by="test")
+        payload = self.queue.rows[job_id]["payload"]
+        self.assertEqual(payload["commit"], git(repo, "rev-parse", "HEAD"))
+        self.assertEqual(self.queue.rows[job_id]["artifact_key"], f"p1:{payload['bundle_key']}")  # dedup on the bundle key
+        self.assertEqual(self.queue.rows[job_id]["resource_requirements"], {"prism_worker": 1, "design_bundle": 1, "semantic_compile": 1})
+        result = self.run_job(job_id)
+        self.assertEqual(result.details["stages"], {"parse": "complete", "board": "complete", "models": "complete"})
+
+        parse, board, models = self.builds()
+        options = dict(zip(parse[3::2], parse[4::2]))
+        self.assertEqual(options["--stage"], "parse")
+        self.assertEqual(options["--revision-key"], payload["revision_key"])
+        self.assertTrue(parse[2].endswith("/src/board/demo.kicad_pro"))
+        config = json.loads(Path(options["--config"]).read_text())
+        self.assertEqual(config["board"], "board/demo.kicad_pcb")
+        self.assertEqual(config["excluded_dirs"], ["board/Design-Outputs", "board/Manufacturing-Outputs"])
+        self.assertIn("max-memory-bytes=4294967296", parse)
+        self.assertEqual(board[board.index("--refill-tool") + 1], "10.0.6")
+        self.assertEqual(Path(board[board.index("--in") + 1]), Path(board[board.index("-o") + 1]))
+        self.assertIn("--models-glb", models)
+        self.assertIn("refill", self.kicad_log.read_text())
+
+        row = rows.get_bundle("p1", payload["bundle_key"])
+        self.assertEqual((row["state"], row["stages"]["models"]), ("complete", "complete"))
+        self.assertEqual(rows.lookup_key("p1", payload["commit"], result.details["config_digest"]), payload["revision_key"])
+        archive = open_archive(store.archive_path("p1", payload["revision_key"], row["generator_digest"]))
+        self.assertEqual(manifest.violations(archive.manifest), [])
+        refilled = archive.read("refilled/demo.kicad_pcb").decode()
+        self.assertTrue(refilled.endswith("(refilled)\n"))
+        self.assertEqual(result.details["invocations"][0]["stage"], "parse")
+        # A complete bundle is not queued again; the stub saw three builds and one version probe.
+        self.assertIsNone(jobs.start_design_bundle_job("p1"))
+        self.assertEqual(len(self.builds()), 3)
+
+    def test_staged_readiness_parse_members_are_readable_while_the_board_stage_retries(self) -> None:
+        self.add_project()
+        job_id = jobs.start_design_bundle_job("p1")
+        with mock.patch.dict("os.environ", {"FAKE_KICAD_FAIL": "1"}):
+            with self.assertRaises(RetryableJobError) as caught:
+                self.run_job(job_id)
+        self.assertEqual(caught.exception.code, "zone-refill-failed")
+        payload = self.seen[job_id]["payload"]
+        bundle = rows.get_bundle("p1", payload["bundle_key"])
+        self.assertEqual((bundle["state"], bundle["stages"]), ("building", {"parse": "complete", "board": "pending", "models": "pending"}))
+        # A consumer of parse members proceeds; one of board members waits.
+        with mock.patch.object(rows, "job_status", return_value="retry_wait"):
+            opened = reader.open_revision("p1")
+        states = reader.member_states(opened, ["projections/semantic-index.json", "materialization/board.kmpack", "design.json"])
+        self.assertEqual(states, {"projections/semantic-index.json": "ready", "materialization/board.kmpack": "pending", "design.json": "ready"})
+        self.assertEqual(opened.read_json("projections/stackup.json")["schema"], "prism.stackup.a0")
+        extracted = opened.extract(["sources/board/demo.kicad_sch"])
+        self.assertTrue((extracted / "sources/board/demo.kicad_sch").is_file())
+        # The retried attempt resumes from the stored archive: no second parse.
+        result = self.run_job(job_id)
+        self.assertEqual(result.details["stages"]["models"], "complete")
+        self.assertEqual([argv[argv.index("--stage") + 1] for argv in self.builds()], ["parse", "board", "models"])
+
+    def test_saved_zone_fills_skip_the_refill(self) -> None:
+        self.add_project(path_settings=Jsonb({"zone_fills": "saved"}))
+        result = self.run_job(jobs.start_design_bundle_job("p1"))
+        self.assertEqual(result.details["stages"]["board"], "complete")
+        board = self.builds()[1]
+        self.assertNotIn("--refilled-board", board)
+        self.assertNotIn("refill", self.kicad_log.read_text())
+        bundle = rows.get_bundle("p1", result.details["bundle_key"])
+        archive = open_archive(store.archive_path("p1", bundle["revision_key"], bundle["generator_digest"]))
+        self.assertEqual(archive.manifest["stages"]["board"]["fill_provenance"], "saved")
+        self.assertEqual(archive.manifest["config"]["zone_fills"], "saved")
+
+    def test_a_recorded_parse_failure_ends_the_job_with_later_stages_skipped(self) -> None:
+        self.add_project()
+        set_modes("bundle build:parse=failed")
+        result = self.run_job(jobs.start_design_bundle_job("p1"))
+        self.assertEqual(result.details["stages"], {"parse": "failed", "board": "skipped", "models": "skipped"})
+        self.assertEqual(len(self.builds()), 1)
+        self.assertEqual(rows.get_bundle("p1", result.details["bundle_key"])["state"], "complete")
+
+    def test_cli_failures_are_retryable_or_permanent_by_exit_code(self) -> None:
+        self.add_project()
+        job_id = jobs.start_design_bundle_job("p1")
+        set_modes("bundle build:parse=exit:5")
+        with self.assertRaises(RetryableJobError):
+            self.run_job(job_id)
+        set_modes("bundle build:parse=exit:3")
+        with self.assertRaises(PermanentJobError):
+            self.run_job(job_id)
+        self.assertFalse(any(store.root().rglob("*.prism")))
+
+    def test_an_absent_project_has_no_key_and_no_bundle(self) -> None:
+        repo = self.add_project()
+        git(repo, "rm", "-q", "board/demo.kicad_pro")
+        git(repo, "-c", "commit.gpgsign=false", "commit", "-q", "-m", "gone")
+        self.assertIsNone(jobs.start_design_bundle_job("p1"))
+        head = git(repo, "rev-parse", "HEAD")
+        self.assertTrue(rows.is_absent("p1", head, "board/demo.kicad_pro"))
+        self.assertEqual(self.queue.rows, {})
+
+    def test_older_boards_are_upgraded_before_parse(self) -> None:
+        files = {**PROJECT_FILES, "board/demo.kicad_pcb": "(kicad_pcb (version 20241229) (generator \"pcbnew\"))\n",
+                 "board/Subsheets/power.kicad_sch": "(kicad_sch (version 20230121))\n",
+                 "board/demo.kicad_sch": '(kicad_sch (version 20260306)\n  (property "Sheetfile" "Subsheets/power.kicad_sch")\n)\n'}
+        self.add_project(files=files)
+        result = self.run_job(jobs.start_design_bundle_job("p1"))
+        self.assertEqual(
+            result.details["upgraded"],
+            [{"path": "board/demo.kicad_pcb", "upgraded_from_version": 20241229},
+             {"path": "board/Subsheets/power.kicad_sch", "upgraded_from_version": 20230121}],
+        )
+        bundle = rows.get_bundle("p1", result.details["bundle_key"])
+        archive = open_archive(store.archive_path("p1", bundle["revision_key"], bundle["generator_digest"]))
+        self.assertIn(b"(version 20260206)", archive.read("sources/board/demo.kicad_pcb"))
+        member = archive.member("sources/board/demo.kicad_pcb")
+        self.assertEqual(member["source"]["object_id"], next(
+            e["object_id"] for e in json.loads(Path(self.builds()[0][self.builds()[0].index("--key-record") + 1]).read_text())["entries"]
+            if e["path"] == "board/demo.kicad_pcb"))  # the committed blob's key entry
+
+    def test_lfs_models_are_left_out_when_unavailable_but_design_sources_are_not(self) -> None:
+        pointer = "version https://git-lfs.github.com/spec/v1\noid sha256:%s\nsize 12\n" % ("0" * 64)
+        self.add_project(files={**PROJECT_FILES, "lib/models/part.step": pointer})
+        result = self.run_job(jobs.start_design_bundle_job("p1"))
+        self.assertEqual(result.details["unavailable_models"], ["lib/models/part.step"])
+        self.assertEqual(result.details["stages"]["parse"], "complete")
+
+    def test_an_lfs_design_source_without_its_object_fails_the_attempt(self) -> None:
+        content = b"(kicad_sch (version 20260306))\n"
+        pointer = "version https://git-lfs.github.com/spec/v1\noid sha256:%s\nsize %d\n" % (hashlib.sha256(content).hexdigest(), len(content))
+        repo = self.add_project(files={**PROJECT_FILES, "board/Subsheets/power.kicad_sch": pointer})
+        job_id = jobs.start_design_bundle_job("p1")
+        with self.assertRaises(RetryableJobError) as caught:
+            self.run_job(job_id)
+        self.assertEqual(caught.exception.code, "sources-unavailable")
+        # Hydrated from the local LFS store, the same commit builds.
+        common = repo / ".git" / "lfs" / "objects" / pointer.split("sha256:")[1][:2] / pointer.split("sha256:")[1][2:4]
+        common.mkdir(parents=True)
+        (common / hashlib.sha256(content).hexdigest()).write_bytes(content)
+        self.assertEqual(self.run_job(job_id).details["lfs_hydrated"], ["board/Subsheets/power.kicad_sch"])
+
+    def test_the_end_hook_marks_a_failed_job_s_bundle(self) -> None:
+        self.add_project()
+        job_id = jobs.start_design_bundle_job("p1")
+        payload = self.queue.rows[job_id]["payload"]
+        ended = {"id": job_id, "status": "failed", "payload": payload, "error_message": "pcbnew kept failing"}
+        self.assertTrue(jobs.settle_design_bundle_end(ended))
+        self.assertEqual(rows.get_bundle("p1", payload["bundle_key"])["state"], "failed")
+        self.assertFalse(jobs.settle_design_bundle_end(ended))  # idempotent
+
+    def test_import_and_sync_queue_only_with_auto_build(self) -> None:
+        self.add_project()
+        self.assertIsNone(jobs.queue_for_head("p1"))
+        with mock.patch.object(settings, "PRISM_DESIGN_BUNDLE_AUTO_BUILD", True):
+            self.assertTrue(jobs.queue_for_head("p1"))
+            from app.services import project_import_followups
+
+            with mock.patch("app.services.project_import_service.start_project_metadata_job", return_value="m"), \
+                 mock.patch("app.services.project_import_service.start_thumbnail_job", return_value="t"):
+                outcomes = project_import_followups.schedule_import_follow_ups(["p1"])
+        operations = {item["operation"]: item for item in outcomes}
+        self.assertEqual(operations["design_bundle"]["status"], "queued")  # deduplicated on the bundle key
+
+
+if __name__ == "__main__":
+    unittest.main()
