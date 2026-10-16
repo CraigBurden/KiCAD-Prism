@@ -38,8 +38,13 @@ from app.services import path_config_service
 
 logger = logging.getLogger(__name__)
 
-#: Fields a Prism edit may store; the same set the in-tree writer used to keep.
-STORED_FIELDS = (*path_config_service.PATH_FIELDS, "project_name", "description", "workflows", "portfolio")
+#: Fields a Prism edit may store: the set the in-tree writer used to keep, plus
+#: ``zone_fills``, a Prism-only setting the committed file never holds. ``"saved"``
+#: builds the design bundle's board stage from the board's saved zone fills
+#: instead of a pcbnew refill; it is part of the revision key (revision-key.md §4.4).
+STORED_FIELDS = (*path_config_service.PATH_FIELDS, "project_name", "description", "workflows", "portfolio", "zone_fills")
+ZONE_FILLS_VALUES = ("saved", "")
+_IN_TREE_FIELDS = tuple(field for field in STORED_FIELDS if field != "zone_fills")
 
 # Other processes (workers) see an edit within this many seconds.
 _INDEX_TTL_SECONDS = 2.0
@@ -116,6 +121,13 @@ def save(project: Any, config: path_config_service.PathConfig) -> Dict[str, Any]
         raise ValueError(f"Project '{project_id}' not found")
     stored: Dict[str, Any] = dict(row.get("path_settings") or {})
     updates = config.dict(exclude_none=True)
+    zone_fills = updates.get("zone_fills")
+    if zone_fills is not None and (not isinstance(zone_fills, str) or zone_fills.strip() not in ZONE_FILLS_VALUES):
+        from app.core.errors import Invalid
+
+        raise Invalid('zone_fills is "saved" or unset ("")', code="zone_fills_invalid")
+    if isinstance(zone_fills, str):
+        updates["zone_fills"] = zone_fills.strip()
     stored.update({field: updates[field] for field in STORED_FIELDS if field in updates})
     if not workspace.update_project(project_id, path_settings=Jsonb(stored)):
         raise ValueError(f"Project '{project_id}' not found")
@@ -174,7 +186,7 @@ def prism_written_settings(checkout: Path, anchor: Optional[str]) -> Dict[str, A
     before = path_config_service.config_for_anchor(committed, anchor)
     return {
         field: now[field]
-        for field in STORED_FIELDS
+        for field in _IN_TREE_FIELDS
         if field in now and now[field] != before.get(field)
     }
 
