@@ -220,16 +220,20 @@ class ExtractForRevisionTests(unittest.TestCase):
 
     @contextmanager
     def _snapshot(self, project, commit):
+        self.snapshots += 1
         yield SimpleNamespace(
             root=Path("/snapshot"), project_file=Path("/snapshot/p.kicad_pro"), commit=commit
         )
 
     def _extract(self, source: str, opened: _Opened, commit: str | None = SHA):
         project = SimpleNamespace(id="prj-1")
+        self.snapshots = 0
         with mock.patch.object(settings, "PRISM_DESIGN_SOURCE_SYSTEM_BUILDER", source), \
                 mock.patch.object(consumer.reader, "open_revision", return_value=opened) as open_revision, \
                 mock.patch.object(ie, "extract_interface", return_value={"legacy": True}) as extract, \
                 mock.patch.object(ie, "load_configured_design", return_value=None), \
+                mock.patch("app.services.project_revision.locate", return_value=SimpleNamespace()), \
+                mock.patch("app.services.project_revision.resolve_commit", side_effect=lambda _where, ref: ref), \
                 mock.patch("app.services.project_source_snapshot.project_source_snapshot", new=self._snapshot):
             result = ie.extract_for_revision(project, commit)
         return result, open_revision, extract
@@ -239,6 +243,7 @@ class ExtractForRevisionTests(unittest.TestCase):
         result, open_revision, extract = self._extract("bundle", opened)
 
         extract.assert_not_called()
+        self.assertEqual(self.snapshots, 0, "a ready member never materializes the sources")
         self.assertEqual(result["projectId"], "prj-1")
         self.assertEqual(result["commit"], SHA)
 

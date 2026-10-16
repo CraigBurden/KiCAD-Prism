@@ -487,16 +487,37 @@ def extract_for_revision(project: Any, commit: str) -> dict[str, Any]:
 
     from app.services.project_source_snapshot import project_source_snapshot
 
+    if (from_bundle := _interface_for_commit(project, commit)) is not None:
+        return from_bundle
     with project_source_snapshot(project, commit) as snapshot:
-        from_bundle = interface_from_bundle(str(project.id), snapshot.commit)
-        if from_bundle is not None:
-            return from_bundle
         return extract_interface(
             snapshot.project_file,
             project_id=str(project.id),
             commit=snapshot.commit or commit,
             design=load_configured_design(snapshot),
         )
+
+
+def _interface_for_commit(project: Any, commit: str | None) -> dict[str, Any] | None:
+    """The bundle's artifact for ``commit``, resolved without materializing the sources.
+
+    Only a commit with the ``SYSTEM_BUILDER`` switch on reaches the bundle, so
+    the legacy switch and a working tree pay nothing here. A commit that does
+    not resolve is left to the legacy path, which reports it as it always has.
+    """
+
+    if not commit:
+        return None
+    from app.services import project_revision
+    from app.services.design_bundle import consumer
+
+    if consumer.source("SYSTEM_BUILDER") != "bundle":
+        return None
+    try:
+        resolved = project_revision.resolve_commit(project_revision.locate(project), commit)
+    except (project_revision.ProjectNotInRepository, project_revision.RevisionNotFound):
+        return None
+    return interface_from_bundle(str(project.id), resolved)
 
 
 def interface_from_bundle(
