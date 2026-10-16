@@ -1,0 +1,13 @@
+{
+  "schema": "prism.cli.diagnostic.a0",
+  "severity": "error",
+  "code": "source-unparseable",
+  "message": "Unbalanced opening parenthesis",
+  "stage": "parse",
+  "location": {
+    "path": "sources/broken.kicad_sch",
+    "line": 1,
+    "column": 1,
+    "offset": 0
+  }
+}

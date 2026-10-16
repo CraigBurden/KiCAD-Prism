@@ -1,0 +1,23 @@
+{
+  "name": "@prism/design-bundle-contracts",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "TypeSpec contracts for the Prism design bundle (W0 staging; moves to native/ after WP-F1).",
+  "engines": {
+    "node": "24.22.0"
+  },
+  "scripts": {
+    "check": "tsp compile tsp/prism/main.tsp --config tspconfig.yaml --no-emit",
+    "build": "node scripts/build.mjs",
+    "validate": "node scripts/build.mjs --validate-only",
+    "verify": "node scripts/build.mjs --check",
+    "check-contract": "node scripts/check-contract.mjs"
+  },
+  "devDependencies": {
+    "@typespec/compiler": "1.16.0",
+    "@typespec/json-schema": "1.16.0",
+    "ajv": "8.20.0",
+    "ajv-formats": "3.0.1"
+  }
+}

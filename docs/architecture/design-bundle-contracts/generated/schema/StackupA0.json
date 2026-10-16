@@ -1,0 +1,366 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$id": "urn:prism:schema:prism.stackup:a0",
+    "type": "object",
+    "properties": {
+        "schema": {
+            "type": "string",
+            "const": "prism.stackup.a0",
+            "description": "Schema id of this document."
+        },
+        "present": {
+            "type": "boolean",
+            "description": "True when the board file has a `(setup (stackup …))` form, even an empty\none. False otherwise: `layers` is then empty, `settings` is absent and\n`copperLayers` comes from the layer table."
+        },
+        "boardThicknessNm": {
+            "$ref": "#/$defs/NonNegativeNanometres",
+            "description": "Board thickness from `(general (thickness …))`, in nanometres. KiCad's\ndefault of 1.6 mm (1600000) when the file has no such form, as KiCad and\nboth parsers read it. This is the design setting, not the stackup sum\n(`stackThicknessNm`); the two may differ."
+        },
+        "stackThicknessNm": {
+            "$ref": "#/$defs/NonNegativeNanometres",
+            "description": "Sum of `thicknessNm` over every entry of `layers` whose kind is copper,\ndielectric or soldermask, sub-layers included. Absent when `present` is\nfalse, when `layers` has no such entry, or when any such entry has no\n`thicknessNm`."
+        },
+        "layers": {
+            "type": "array",
+            "items": {
+                "$ref": "#/$defs/StackupLayer"
+            },
+            "description": "The stackup's entries in stack order from front to back: the order of\nthe `(layer …)` forms inside `(stackup …)`, which KiCad writes front to\nback. A dielectric with `addsublayer` tokens contributes one entry per\nsub-layer, consecutive and in file order, with `sublayer` 0, 1, 2, ….\nEmpty when `present` is false."
+        },
+        "copperLayers": {
+            "type": "array",
+            "items": {
+                "$ref": "#/$defs/LayerName"
+            },
+            "description": "The board's copper layers in stack order from front to back. When\n`present` is true: the names of the `layers` entries whose kind is\ncopper, in their order. Otherwise: the names of the `boardLayers` rows\nthat end in `.Cu`, in file order (KiCad writes copper rows front to\nback). Via spans are resolved against this order."
+        },
+        "settings": {
+            "$ref": "#/$defs/StackupSettings",
+            "description": "The stackup's board-level fabrication settings. Absent when `present` is\nfalse."
+        },
+        "maskColors": {
+            "$ref": "#/$defs/StackupMaskColors",
+            "description": "Solder mask colour per side, copied from the `color` of the `F.Mask` and\n`B.Mask` entries of `layers`. Each side is absent when the stackup has no\nsuch entry or the entry has no colour."
+        },
+        "viaSpans": {
+            "type": "array",
+            "items": {
+                "$ref": "#/$defs/StackupViaSpan"
+            },
+            "description": "Every top-level `(via …)` of the board, grouped by technology, span and\nback/tertiary drilling, with the number of vias in each group. Sorted\nby: the index of `startLayer` in `copperLayers` (absent or not in\n`copperLayers` sorts after every index), then the index of `stopLayer`\nlikewise, then `viaType` in code point order of its JSON value, then\n`startLayer` and `stopLayer` in code point order (absent as the empty\nstring), then `backdrill`, then `tertiaryDrill`; a drill compares absent\nbefore present, then by `sizeNm` (absent first, then numeric order), then\n`startLayer` and `stopLayer` in code point order (absent as the empty\nstring). Empty when the board has no via."
+        },
+        "boardLayers": {
+            "type": "array",
+            "items": {
+                "$ref": "#/$defs/StackupBoardLayer"
+            },
+            "description": "The board's `(layers …)` table, one row per declared layer, in file\norder. Empty only for a board file without a layer table."
+        }
+    },
+    "required": [
+        "schema",
+        "present",
+        "boardThicknessNm",
+        "layers",
+        "copperLayers",
+        "maskColors",
+        "viaSpans",
+        "boardLayers"
+    ],
+    "unevaluatedProperties": {
+        "not": {}
+    },
+    "description": "Projection of a board's stackup, fabrication settings, layer table and via\ntechnology. All lengths are integer nanometres converted from the file's\nmillimetres as conventions.md §6 states.",
+    "title": "Stackup a0",
+    "$defs": {
+        "NonNegativeNanometres": {
+            "type": "integer",
+            "description": "A Nanometres value that is never negative: a thickness, width, diameter or length.",
+            "minimum": 0
+        },
+        "StackupLayer": {
+            "type": "object",
+            "properties": {
+                "name": {
+                    "type": "string",
+                    "minLength": 1,
+                    "description": "The name the `(layer \"<name>\" …)` form gives: a canonical board layer\nname (`F.SilkS`, `F.Mask`, `F.Cu`, `In1.Cu`) or `dielectric <n>` for a\ndielectric. Every sub-layer of one dielectric repeats the name."
+                },
+                "sublayer": {
+                    "$ref": "#/$defs/Count",
+                    "description": "Position of this entry among the sub-layers of its `(layer …)` form: 0\nfor the values before the first bare `addsublayer` token, n for the\nvalues after the n-th one. Only dielectrics have sub-layers, so every\nother entry has 0."
+                },
+                "kind": {
+                    "$ref": "#/$defs/StackupLayerKind",
+                    "description": "Prism's classification of the entry, from its name."
+                },
+                "type": {
+                    "$ref": "#/$defs/StackupLayerType",
+                    "description": "The form's `(type \"…\")`, repeated on every sub-layer. Absent when the\nform has none or a value outside the KiCad set."
+                },
+                "thicknessNm": {
+                    "$ref": "#/$defs/StackupPositiveNanometres",
+                    "description": "Thickness of this entry or sub-layer from its `(thickness <mm> [locked])`,\nin nanometres. Absent when it is not written or written as zero, which\nKiCad and today's readers treat as unspecified; never 0."
+                },
+                "material": {
+                    "type": "string",
+                    "minLength": 1,
+                    "description": "Material from `(material \"…\")` of this entry or sub-layer, as written\n(for example `FR4`, `3313`, `Not specified`). Absent when not written or\nempty."
+                },
+                "epsilonR": {
+                    "type": "number",
+                    "description": "Relative permittivity εr from `(epsilon_r …)` of this entry or\nsub-layer, as written, including 0. Absent when not written."
+                },
+                "lossTangent": {
+                    "type": "number",
+                    "description": "Loss tangent tan δ from `(loss_tangent …)` of this entry or sub-layer,\nas written, including 0. Absent when not written."
+                },
+                "color": {
+                    "type": "string",
+                    "minLength": 1,
+                    "description": "Colour from `(color \"…\")` of this entry or sub-layer, as written: a\nKiCad colour name (`Green`, `White`, `FR4 natural`) or a custom\n`#RRGGBBAA`. Absent when not written or empty."
+                }
+            },
+            "required": [
+                "name",
+                "sublayer",
+                "kind"
+            ],
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "One entry of the physical stackup: a `(layer …)` form of `(stackup …)`,\nor one sub-layer of a dielectric form that has `addsublayer` tokens."
+        },
+        "LayerName": {
+            "type": "string",
+            "minLength": 1,
+            "description": "KiCad canonical layer name as the board file's `(layers …)` table spells\nit, for example `F.Cu`, `In1.Cu`, `B.Mask`, `Edge.Cuts` or `User.1`. Never\nthe user-assigned layer name, which a contract carries in a separate\noptional field. Never a wildcard set such as `*.Cu` or `F&B.Cu`."
+        },
+        "StackupSettings": {
+            "type": "object",
+            "properties": {
+                "copperFinish": {
+                    "type": "string",
+                    "minLength": 1,
+                    "description": "Copper finish from `(copper_finish \"…\")`, as written (for example\n`None`, `ENIG`, `HAL lead-free`). KiCad writes the literal `None` for no\nfinish. Absent when the token is not written or empty."
+                },
+                "dielectricConstraints": {
+                    "type": "boolean",
+                    "description": "Impedance-controlled build, from `(dielectric_constraints yes|no)`.\nFalse when the token is absent, as KiCad reads it."
+                },
+                "edgeConnector": {
+                    "$ref": "#/$defs/StackupEdgeConnector",
+                    "description": "Edge-card connector setting from `(edge_connector …)`; `none` when absent."
+                },
+                "castellatedPads": {
+                    "type": "boolean",
+                    "description": "Castellated pads, from `(castellated_pads yes)`. False when absent."
+                },
+                "edgePlating": {
+                    "type": "boolean",
+                    "description": "Plated board edge, from `(edge_plating yes)`. False when absent."
+                }
+            },
+            "required": [
+                "dielectricConstraints",
+                "edgeConnector",
+                "castellatedPads",
+                "edgePlating"
+            ],
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "The board-level settings that close a `(stackup …)` form."
+        },
+        "StackupMaskColors": {
+            "type": "object",
+            "properties": {
+                "front": {
+                    "type": "string",
+                    "minLength": 1,
+                    "description": "`color` of the stackup's `F.Mask` entry. Absent when there is none."
+                },
+                "back": {
+                    "type": "string",
+                    "minLength": 1,
+                    "description": "`color` of the stackup's `B.Mask` entry. Absent when there is none;\nreaders that need a colour then use `front`, as the 3D tab does."
+                }
+            },
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "A solder mask colour for each side of the board."
+        },
+        "StackupViaSpan": {
+            "type": "object",
+            "properties": {
+                "viaType": {
+                    "$ref": "#/$defs/StackupViaType",
+                    "description": "Technology of every via in the group."
+                },
+                "startLayer": {
+                    "$ref": "#/$defs/LayerName",
+                    "description": "First layer of the vias' `(layers \"<a>\" \"<b>\")`, as written. Absent when\nthe form names no layer."
+                },
+                "stopLayer": {
+                    "$ref": "#/$defs/LayerName",
+                    "description": "Second layer of the vias' `(layers \"<a>\" \"<b>\")`, as written. Absent\nwhen the form names fewer than two layers."
+                },
+                "spanLayers": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/$defs/LayerName"
+                    },
+                    "description": "The copper layers the vias cross, `startLayer` to `stopLayer` inclusive,\nin stack order from front to back as `copperLayers` orders them, whatever\nthe order of `startLayer` and `stopLayer`. Empty when either is absent or\nnot in `copperLayers`."
+                },
+                "backdrill": {
+                    "$ref": "#/$defs/StackupViaDrill",
+                    "description": "The vias' `(backdrill …)`. Absent when the vias have none, or one with\nneither a size nor layers."
+                },
+                "tertiaryDrill": {
+                    "$ref": "#/$defs/StackupViaDrill",
+                    "description": "The vias' `(tertiary_drill …)`. Absent when the vias have none, or one\nwith neither a size nor layers."
+                },
+                "count": {
+                    "$ref": "#/$defs/StackupPositiveCount",
+                    "description": "Number of vias in the group, at least 1."
+                }
+            },
+            "required": [
+                "viaType",
+                "spanLayers",
+                "count"
+            ],
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "A group of vias that share a technology, a layer pair and back/tertiary\ndrilling. Via size and drill diameter are not part of the group."
+        },
+        "StackupBoardLayer": {
+            "type": "object",
+            "properties": {
+                "ordinal": {
+                    "$ref": "#/$defs/Count",
+                    "description": "The layer's ordinal, the integer that opens the row, as written."
+                },
+                "name": {
+                    "$ref": "#/$defs/LayerName",
+                    "description": "The layer's canonical name."
+                },
+                "type": {
+                    "$ref": "#/$defs/StackupBoardLayerType",
+                    "description": "The row's type token. Absent when the row has none or a token outside\nthe KiCad set."
+                },
+                "userName": {
+                    "type": "string",
+                    "minLength": 1,
+                    "description": "The user-assigned layer name, the row's optional fourth element, as\nwritten. Absent when not written or empty."
+                }
+            },
+            "required": [
+                "ordinal",
+                "name"
+            ],
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "One row of the board's `(layers …)` table: `(<ordinal> \"<name>\" <type> [\"<user name>\"])`."
+        },
+        "Count": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "A count of things: a non-negative safe integer."
+        },
+        "StackupLayerKind": {
+            "type": "string",
+            "enum": [
+                "copper",
+                "dielectric",
+                "soldermask",
+                "silkscreen",
+                "paste",
+                "other"
+            ],
+            "description": "Prism's classification of a stackup entry, from the entry's name alone\n(KiCad types a stackup item by its layer, not by its `type` string): a\nname ending in `.Cu` is copper; `F.Mask`/`B.Mask` solder mask;\n`F.Paste`/`B.Paste` paste; `F.SilkS`/`B.SilkS` silkscreen; a name starting\nwith `dielectric` a dielectric; anything else other. Today's readers,\nwhich classify by `type`, agree on every KiCad-written stackup."
+        },
+        "StackupLayerType": {
+            "type": "string",
+            "enum": [
+                "Top Silk Screen",
+                "Top Solder Paste",
+                "Top Solder Mask",
+                "copper",
+                "core",
+                "prepreg",
+                "Bottom Solder Mask",
+                "Bottom Solder Paste",
+                "Bottom Silk Screen"
+            ],
+            "description": "The `(type \"…\")` of a stackup `(layer …)` form, spelled exactly as KiCad\nwrites it (`board_stackup.cpp`). The member names are TypeSpec identifiers\nonly; the JSON value is the KiCad string."
+        },
+        "StackupPositiveNanometres": {
+            "type": "integer",
+            "description": "A stated, non-zero length in nanometres: at least 1.",
+            "minimum": 1
+        },
+        "StackupEdgeConnector": {
+            "type": "string",
+            "enum": [
+                "none",
+                "yes",
+                "bevelled"
+            ],
+            "description": "The stackup's `(edge_connector …)` setting, spelled as KiCad writes it.\nKiCad writes the token only for `yes` and `bevelled`; its absence is\n`none`."
+        },
+        "StackupViaType": {
+            "type": "string",
+            "enum": [
+                "through",
+                "blind",
+                "buried",
+                "micro"
+            ],
+            "description": "A via's technology: the bare header token of its `(via …)` form. KiCad\nwrites no token for a through via."
+        },
+        "StackupViaDrill": {
+            "type": "object",
+            "properties": {
+                "sizeNm": {
+                    "$ref": "#/$defs/NonNegativeNanometres",
+                    "description": "Drill diameter from the form's `(size <mm>)`, in nanometres. Absent when not written."
+                },
+                "startLayer": {
+                    "$ref": "#/$defs/LayerName",
+                    "description": "First layer of the form's `(layers \"<a>\" \"<b>\")`, as written. Absent when not written."
+                },
+                "stopLayer": {
+                    "$ref": "#/$defs/LayerName",
+                    "description": "Second layer of the form's `(layers \"<a>\" \"<b>\")`, as written. Absent when not written."
+                }
+            },
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "A back drill or tertiary drill of a via: its diameter and the layers it removes copper between."
+        },
+        "StackupPositiveCount": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "A count that is at least 1."
+        },
+        "StackupBoardLayerType": {
+            "type": "string",
+            "enum": [
+                "signal",
+                "power",
+                "mixed",
+                "jumper",
+                "auxiliary",
+                "front",
+                "back",
+                "user"
+            ],
+            "description": "The type token of one row of the board's `(layers …)` table, spelled as\nKiCad writes it (`LAYER::ShowType`)."
+        }
+    }
+}

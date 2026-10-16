@@ -93,7 +93,9 @@ native/                                    the fork's root, imported with histor
   tests/parity/ and the Rust-referenced fixtures (licence-cleared, §4.2)
   scripts/ (the Rust, contract and release scripts)
   parity/                                  NEW: Prism parity runner, golden-diff rules, divergences.md
-  LICENSE (MIT, Wavenumber LLC), NOTICE    kept as imported; the root NOTICE points to it
+  contracts/prism/                         NEW: W0's examples, field maps, conventions and specs (beside the TypeSpec)
+  scripts/contracts/                       NEW: W0's contract check and build scripts
+  LICENSE (MIT, Wavenumber LLC)            kept as imported (the fork has no NOTICE); the new root NOTICE points to it
 kicad-prism-viewer/native/                 prism-kicad-native and prism-clipper2 join the workspace in WP-R3
 backend/app/services/design_bundle/        the only Python package that knows the bundle format
 ```
@@ -155,7 +157,7 @@ design_bundle job (prism-worker)                                      one per bu
                 4. prism-kicad bundle build --stage board             materialization/board.kmpack
   stage models  5. kicad-cli pcb export glb --no-board-body           viewer/models/components.glb
                    (cached by board + model blobs + KiCad version)
-  store         6. <bundle key>.prism, unpack on first use
+  store         6. .kicad-prism/bundles/<project_id>/<revision_key>/<generator_digest>.prism (§5), unpack on first use
         ▼
 consumers read members through backend/app/services/design_bundle,
 declaring which members they need; they wait only for those
@@ -172,12 +174,15 @@ declaring which members they need; they wait only for those
   - the *effective* project configuration: the resolved project-file path and the path overrides (§11, G6). A settings change stored in Prism's database changes the key, just as a commit does.
   - every `(path, git blob id)` in the source set, sorted.
 
-  The source set is: `.kicad_pro`, `.kicad_sch`, `.kicad_pcb`, `.kicad_dru`, `.kicad_wks`, `.kicad_jobset`, `fp-lib-table`, `sym-lib-table`, `.prism.json`, and every 3D model file under the repository that the board references.
+  The source set is repository-wide, by kind (`contracts/prism/revision-key.md` §5): `.kicad_pro`, `.kicad_sch`, `.kicad_pcb`, `.kicad_dru`, `.kicad_wks`, `.kicad_jobset`, `fp-lib-table`, `sym-lib-table`, `.prism.json`, the project libraries (`.kicad_sym`, `.kicad_mod`, `.lib`, `.dcm`), every 3D model file in the repository, and every symlink and gitlink. Output directories and KiCad autosaves are excluded. A change to any project's files therefore changes the key of every project in the same repository; narrowing this is a later optimisation. The project is selected by its anchor, exactly the stored project file, never by directory; an anchor missing from the tree means the project is absent at that revision. A bundle's `sources/` holds only the closure the build read, each member cross-referenced to its key entry.
 
   A commit's key comes from `git ls-tree` alone. A working tree's comes from git's blob hashing of the files on disk. The same content gives the same key either way. Gitlinks (submodules) contribute their commit id. LFS files contribute their pointer's blob id, which changes with the content.
 - **Generator id:** `prism-kicad version` JSON. It holds:
   - the crate version, manifest version and projection schema versions;
-  - the KiCad version used for the KiCad-produced members, which also pins KiCad's stock 3D model library.
+  - the KiCad version used for the KiCad-produced members, which also pins KiCad's stock 3D model library;
+  - the pinned procedures for those members (`refill_procedure`, `models_procedure`, and `upgrade_procedure` for sources older than the KiCad's file format, which KiCad upgrades before parse) and the materialization pack format version.
+
+  Its canonical bytes and the bundle-key framing are in `contracts/prism/cli-spec.md` §5.1.
 
   It is bumped explicitly, never derived from binary or source bytes.
 - **Bundle key:** sha256(revision key, generator id).
@@ -192,11 +197,11 @@ declaring which members they need; they wait only for those
 
 ## 6. Bundle members (`prism.bundle.manifest` a2)
 
-Each member has a role, a schema id, sha256, size and the stage that wrote it in the manifest. Projections are written by `prism-projections` from the single parsed model. Their schemas are TypeSpec in `native/src/tsp/prism/`, compiled to JSON Schema in `native/contracts/generated/schema/` and to Rust through `codegen`. Python validates members against the same JSON Schema.
+Each member has a role, a schema id, sha256, size and the stage that wrote it in the manifest. Projections carry no provenance (no revision key, generator, commit or project id): `bundle.json` records it once, so a projection whose inputs did not change keeps its bytes across revisions. No member carries a wall-clock time. Schema ids are `prism.<name>.<version>`, with JSON Schema `$id` `urn:prism:schema:prism.<name>:<version>` (the semantic index moves from today's `prism.semantic_index_a0` to `prism.semantic_index.a1`; `prism.system_interface.v1` keeps its id). Every path in a bundle document is repository-relative, and files belong to a project only through its anchor and effective configuration, never by directory, so projects that share a directory are distinct (issue #681). A project absent at a revision is an explicit outcome, not a failure. Conventions: `contracts/prism/conventions.md`. Projections are written by `prism-projections` from the single parsed model. Their schemas are TypeSpec in `native/src/tsp/prism/`, compiled to JSON Schema in `native/contracts/generated/schema/` and to Rust through `codegen`. Python validates members against the same JSON Schema.
 
 | Member | Stage | Schema | Contents | Consumers |
 |---|---|---|---|---|
-| `bundle.json` | all | `prism.bundle.manifest.a2` | members, stages, revision key, generator id, effective config, fill provenance, cross-check, warnings | all |
+| `bundle.json` | all | `prism.bundle.manifest.a2` | members, stages, revision key, generator id, effective config, fill provenance, cross-check, warnings. Each stage records its status, error, skip reason and failed members: a content failure of a stage (`failed`) or of a member (`partial`) is recorded in the bundle, while limits and timeouts never are (cli-spec.md §5.2.7) | all |
 | `sources/**` | parse | — | the source set as committed (LFS hydrated) | browser viewers, KiCad-output jobs |
 | `design.json` | parse | `kicad_monkey.design.a0` | design model | Simulation Studio engines, projections |
 | `projections/semantic-index.json` | parse | `prism.semantic_index.a1` | components, nets, terminals, sheets, buses, 12 indexes, assembly (variants). Adds: `pinName`, `pinType`, `libraryRef`, and per terminal both `netName` (pad-resolved) and `schematicNetName` | identity endpoint, inspector, search, BOM table, variants UI and API, component import, Release Studio, Simulation Studio board facts |
@@ -210,7 +215,8 @@ Each member has a role, a schema id, sha256, size and the stage that wrote it in
 | `refilled/<stem>.kicad_pcb` | board | — | board after the zone refill | materializer, KiCad-output jobs |
 | `materialization/board.kmpack` | board | `kicad_monkey.materialization.a0` | analytic board | 3D tab, System Builder 3D, Simulation Studio |
 | `viewer/models/components.glb` | models | — | component bodies from `kicad-cli` | 3D tab, System Builder 3D and collision meshes |
-| `viewer/**` (transitional) | models | existing viewer contract | topology/scene assets until WP-C5 retires the Python compiler | 3D tab (mesh), System Builder 3D |
+
+The Python topology compiler's viewer assets are not bundle members. The mesh 3D tab and System Builder 3D keep reading the old `semantic-visualizer/` store until WP-C5 retires it (`contracts/prism/decisions.md`).
 
 ## 7. Parity and correctness
 
@@ -219,11 +225,11 @@ Each member has a role, a schema id, sha256, size and the stage that wrote it in
   - the committed demo fixtures;
   - public KiCad projects whose licences allow it. The kicad_cruncher test projects' licences are checked in F0 before use.
 - **Comparison rules:**
-  - byte-identical after removing `generatedAt`, unless a documented divergence (`native/parity/divergences.md`) is accepted;
+  - JSON value equality after removing each contract's documented non-semantic fields: objects compare as key sets (absent differs from `null`), arrays in order, numbers as IEEE-754 doubles, strings by code point. A documented divergence (`native/parity/divergences.md`) may be accepted;
   - every divergence names the case, why the new output is right, and which consumer is affected.
 - **KiCad oracle:** `kicad-cli sch export netlist` and `pcb export stats` on the same corpus check nets and counts against KiCad itself, not only against Prism's previous output.
 - **CI:** committed fixtures run on every PR (`native-parity` job). The full corpus is a nightly or local job, because private projects are not committed.
-- **Determinism:** the same inputs give a byte-identical bundle (fixed timestamps, sorted members, stable maps). A test builds twice and compares.
+- **Determinism:** the same inputs give a byte-identical bundle (fixed timestamps, sorted members, stable maps). A test builds twice and compares. KiCad-produced members are canonicalized by `prism-kicad` (the GLB's wall-clock `asset.extras.generated_at` is fixed, cli-spec.md §5.2.4); the refill and GLB procedures are pinned in the generator id. Parse-stage JSON members are also byte-identical across linux arm64, linux amd64 and macOS builds; `board.kmpack` is byte-identical only for the same binary on the same architecture.
 - **Budgets** (EDA-04903, 57 MB board, in the worker image):
   - stage `parse`: ≤ 30 s, peak ≤ 1.5 GB;
   - the index projection alone: ≤ 5 s.
@@ -265,7 +271,14 @@ A consumer's flag flips to `bundle` by default in the PR that proves its parity.
   - `backend/app/core/config.py` (K owns the new flags);
   - `docker-compose.yml` and `backend/Dockerfile` (L);
   - `.github/workflows/*` (L);
-  - `prism-projections/src/lib.rs` (P1).
+  - the root `.gitignore` (L), whose installer rule is anchored to `/generated/` so committed JSON Schema is not hidden;
+  - `native/src/rs/prism-projections/src/lib.rs` (F2, which declares every module up front for P1–P5);
+  - the complete list, with one owner per file per wave and how ownership passes on, is the ownership map (`contracts/prism/ownership.md` §1, §4). In short:
+    - a WP edits only `AGENTS.md` files inside its own directories, and the integration agent applies the root and `services/` map lines once per wave;
+    - after a WP merges, its shared files pass to the integration agent of the wave, who applies requested changes as separate commits;
+    - an earlier WP creates a stub for a file a later WP fills;
+    - build outputs (the served viewer bundle) are rebuilt by the integration agent, never merged;
+    - every schema migration takes a number from the reserved blocks (workspace 100–129, catalog 100–109; ownership.md §5).
 - **Contracts first:** Wave 1+ code against the Wave 0 contracts and CLI spec, never against each other's work in progress. A WP that needs a contract change stops and reports it.
 - **Definition of done for every WP:**
   - its acceptance tests pass;
@@ -281,10 +294,10 @@ A consumer's flag flips to `bundle` by default in the PR that proves its parity.
 
 ```text
 Wave 0  contracts (serial)            W0
-Wave 1  foundations (parallel)        F0 F1 F3 B K G L     (F1 needs F0; F2 follows F1)
-Wave 2  projections (parallel)        P1 P2 P3 P4 P5 V1    (need F2, B; parity needs G)
-Wave 3  consumers (parallel)          C1 C2 C3 C4 C5 C6 C7 (each needs its projections and K)
-Wave 4  removal (parallel)            R1 R2 R3 R4 X
+Wave 1  foundations                   F0 → F1 → W0 move → F2 → L, then F3 B G K (and F0's native/LICENSES.md)
+Wave 2  projections (parallel)        S1 P1 P2 P3 P4 P5, then V1 (after K, B and P4)
+Wave 3  consumers (parallel)          C1 C2 C3 C4a C5 C7 C8, then C6 (after C1) and C4b (after C5)
+Wave 4  removal (serial)              R1 → R2 → R3 | R4 → X
 ```
 
 ### 9.3 Wave 0: contracts (one agent, serial; blocks everything)
@@ -293,11 +306,16 @@ Wave 4  removal (parallel)            R1 R2 R3 R4 X
 |---|---|---|---|
 | W0 | ADR accepted (this document). Bundle manifest a2 and every §6 projection as TypeSpec, with one example each. CLI spec. Revision-key spec with test vectors. Ownership map. | `native/src/tsp/prism/` (written as a patch applied after F1's import, or in a staging dir `docs/architecture/design-bundle-contracts/` until then), `docs/architecture/adr-native-design-bundle.md` | Schemas validate their examples. The test vectors give the same key from a Python and a Rust reference implementation (written as the first commits of K and B). The maintainer reviews before Wave 1. |
 
+Merge order and its reasons are in the ownership map (§3). Nothing may land under `native/` before F1's `git subtree add`, so G and F0's `native/LICENSES.md` follow F1.
+
 The CLI spec (`prism-kicad`):
-- `bundle build <project.kicad_pro> -o <out.prism> --stage parse|board [--refilled-board <pcb> --refill-tool <ver>] [--models-glb <glb>] [--revision-key <hex>] [--config <effective.json>]`
+- `bundle build <project.kicad_pro> --stage parse -o <out.prism> [--source-root <dir>] [--revision-key <hex>] [--key-record <record.json>] [--config <effective.json>]`
+- `bundle build --stage board --in <bundle> -o <out.prism> [--refilled-board <pcb> --refill-tool <ver>] [--revision-key <hex>] [--config <effective.json>]` (the refilled board is omitted when the configuration uses saved fills)
+- `bundle build --stage models --in <bundle> -o <out.prism> --models-glb <glb> --models-tool <ver>`
 - `bundle verify <bundle>`
 - `bundle extract <bundle> <member>... -o <dir>`
-- `revision-key <repo> [--commit <sha> | --worktree] --project <rel> [--config <effective.json>]`
+- `revision-key <repo> (--commit <sha> | --worktree) --project <rel> [--config <effective.json>]`, exactly one of `--commit` and `--worktree`
+- Full grammar, streams, exit codes (including 9, recorded content failure, and 10, project absent), limits and the backend integration: `contracts/prism/cli-spec.md`.
 - `version`
 
 Exit codes, stderr diagnostics, resource limits (§11, G8) and timeouts are part of the spec.
@@ -321,6 +339,7 @@ Every P-WP owns one module `native/src/rs/prism-projections/src/<name>.rs`, its 
 
 | WP | Projection(s) | Port from | Accept |
 |---|---|---|---|
+| S1 | Behaviour-free split of `backend/app/api/projects.py` and `backend/app/services/project_service.py` into scoped routers and job modules, so that C1, C5 and C8 never edit one file | the two files and their new modules (ownership.md, S1) | identical route table (a test asserts it) and the full suite green |
 | P1 | `semantic-index`, including assembly/variants, `pinName`/`pinType`/`libraryRef` and `schematicNetName` | `semantic_index_service.py`, `semantic_index_variants.py`, `semantic_index_nets.py`, the instance-field scan; the reference branch for the added fields | identical to goldens on the corpus (8/8, `generatedAt` excluded); ≤ 5 s on EDA-04903 |
 | P2 | `board-objects`, `occurrences`, `route-metrics` | `design-compare-parser/ecad-parse.mjs`, `design_compare_occurrences.py`, the route digest, `placement_stamp.py` (usage) | Design Comparison's `changes`/`nativeObjects`/`componentObjects`/`routeMetrics` reproduced from the members for every pair in the comparison test suite |
 | P3 | `stackup`, `placements` (including outline, courtyard, models, mask colours) | `release_studio/projections.py`, `design_compare_artifacts._extract_stackup`, `pcb_extract.py` stackup, `board_looks.py` (reference branch), `systems/interface_extractor.py` geometry | a superset of the three stackup shapes; Release Studio and System Builder goldens match |
@@ -335,17 +354,19 @@ Every P-WP owns one module `native/src/rs/prism-projections/src/<name>.rs`, its 
 | C1 | Semantic index consumers:<br>• the identity endpoint serves the member;<br>• component import and the variants API (`variant_catalog_service`) read `assembly`;<br>• Release Studio's index digest;<br>• the API never builds an index | `semantic_index_service.py` (becomes a reader), `api/projects.py` index routes, `api/project_variants.py`, `variant_catalog_service.py`, `project_component_import_service.py` | P1, K | inspector, search, BOM table, variants and cross-probe unchanged (frontend tests plus a browser check on EDA-04903); identity served from a file with ETag; frontend types updated for a1's added fields |
 | C2 | Design Comparison:<br>• semantics from `semantic-index`;<br>• deltas, objects, components and route metrics from P2;<br>• stackup from P3;<br>• Node `ecad-diff` retired;<br>• Gerbers keyed by bundle key;<br>• overlay sources from `sources/` | `design_compare_*.py`, `fabrication_compare_service.py` (keying only), `backend/design-compare-parser/` (removal), `frontend/.../design-comparison/revision-sources.ts` | P1, P2, P3, K | full comparison test suite; same review groups on a recorded set of real pairs; first comparison of two cold commits no slower than today (stage `parse` only) |
 | C3 | Release Studio:<br>• projections from P3 and P4;<br>• the index from P1;<br>• kicad-cli steps read `sources/` and `refilled/`;<br>• the testpoint-only board and model rewrites stay KiCad-file writes, from bundle sources | `release_studio/projections.py`, `document_pipeline.py`, `closure*.py`, `source.py` | P1, P3, P4, K | dossier and evidence digests identical on the Release Studio fixtures; no `KiCadPcb` load remains |
-| C4 | System Builder:<br>• interface from P5, cached by revision key;<br>• 3D scene from the bundle via `bundles.py`: `materialization`, `viewer/models/components.glb`, mid-plane from `stackup`, the same `bundleToBoard` frame;<br>• collision meshes from the bundle GLB;<br>• STEP export reads `sources/` | `backend/app/services/systems/` (interface, bundles, collision meshes, step export), `frontend/src/features/system-builder/scene-3d-tab.tsx` loaders only | P3, P5, V1, K | `test_system_e2e_replay` and scene tests pass; same frames and mid-planes on the corpus systems; the `<prism-semantic-viewer mode="system">` placing flow works in a browser check |
+| C4a | System Builder interface: from P5, cached by revision key; drift and digests; the System Builder frontend readers of interface and placement fields | `backend/app/services/systems/` (interface, drift, digests), `api/systems*.py`, `frontend/src/types/system.ts`, `frontend/src/lib/systems-api.ts`, `placement/frames.ts`, `placement/mate.ts`, `findings-ui.tsx` | P3, P5, K | `test_system_e2e_replay` passes; identical interface digests on the System Builder fixtures |
+| C4b | System Builder 3D scene, after C5: from the bundle via `bundles.py` (`materialization`, `viewer/models/components.glb`, mid-plane from `stackup`, the same `bundleToBoard` frame); collision meshes from the bundle GLB; STEP export reads `sources/` | `backend/app/services/systems/` (bundles, collision meshes, step export), `frontend/src/features/system-builder/scene-3d-tab.tsx` loaders only | P3, V1, K, C5 | scene tests pass; same frames and mid-planes on the corpus systems; the `<prism-semantic-viewer mode="system">` placing flow works in a browser check |
 | C5 | 3D tab on the analytic model:<br>• port the reference branch's analytic renderer, 2D layer view and mask colours onto bundle members;<br>• selection and cross-probe through `semantic-index`;<br>• retire the Python topology compiler and mesh path for the 3D tab | `frontend/src/components/webgpu-3d-tab.tsx` and the analytic renderer, `semantic_visualizer_service.py` (becomes a thin bundle reader), `kicad-prism-viewer/` 3D pieces (removal in R2) | V1, P3, K | visual check on EDA-04903, USB-PD-Trigger-Board and one System Builder board; no `topology_compiler` process |
 | C6 | Simulation Studio:<br>• port the reference branch's `backend/app/sim_studio/` and `frontend/src/components/sim-studio/` onto bundles;<br>• board facts from `semantic-index` (`pinName`, `pinType`, `libraryRef`);<br>• runs hard-link the bundle by key and gate on `cross_check`;<br>• run retention as on the reference branch;<br>• prism-sim-studio switches to Prism's `prism-bundle` (reader) and pack crate | `backend/app/sim_studio/`, `frontend/src/components/sim-studio/`, workspace migrations for setups/runs/layouts (new numbers after dev's), prism-sim-studio dependency PR | P1, B, K | DC IR drop end to end on EDA-04903 with the sim-worker; prism-sim-studio CI green against the pinned Prism commit |
 | C7 | Catalog project component import and usage:<br>• project sides read `occurrences`, `placements` and `sources/` instead of scanning;<br>• the `pcbnew` footprint flip stays | `project_component_asset_extractor.py`, `project_catalog_usage_service.py`, `catalog/placement_stamp.py` project paths | P2, P3, K | `test_project_component_import_service.py` and the catalog Postgres integration pass |
+| C8 | Project metadata (`PRISM_DESIGN_SOURCE_PROJECT_METADATA`): the project card, properties sheet and viewer-source routes read `projections/project.json` and `sources/`; the API process no longer parses `.kicad_pro` | `project_metadata_service.py`, `project_properties_service.py`, `kicad_text_variables.py`, the properties-sheet and viewer-source routes (after S1's split) | P4, K, S1 | project card and properties identical on the fixtures; no `KiCadProject` import left |
 
 ### 9.7 Wave 4: removal and enforcement
 
 | WP | Deliverable | Accept |
 |---|---|---|
 | R1 | Flip all flags to `bundle`; delete the legacy paths and the flags | suite green with no `legacy` branch left |
-| R2 | Remove:<br>• `kicad-prism-viewer/pipeline/topology_compiler` (3D parts);<br>• `backend/design-compare-parser/`;<br>• `kicad_monkey_design_adapter.py`;<br>• the Python `kicad-monkey` and `kicad-cruncher` requirements (Release Studio calls the imported cruncher CLI) | `requirements/runtime.in` has no `kicad-monkey`; image size and build time reported |
+| R2 | Remove:<br>• `kicad-prism-viewer/pipeline/topology_compiler` (3D parts);<br>• `backend/design-compare-parser/`;<br>• `kicad_monkey_design_adapter.py`;<br>• every revision parse through Python `kicad-monkey`. Release Studio's Python cruncher tools (`pcb-svg`, `bom`, `pnp`) and its stroke-font and drawing-sheet rendering, and the catalog's library-file imports, stay as allow-listed tool uses until a later ADR ports them onto Prism's parser and `kicad-cli` (decisions.md, Ownership map items 1–2) | no revision parse imports `kicad-monkey`; the allow-listed modules are the only importers (X); image size and build time reported |
 | R3 | `prism-kicad-native` and `prism-clipper2` move onto the imported core (or are absorbed into `prism-projections`) | no crate depends on `wavenumber-eng/kicad_monkey` |
 | R4 | Remove the superseded stores and tables (§8) with a migration; one-off cleanup of the old directories | no reader of the old stores remains; space reclaimed reported |
 | X | Architecture test: no module under `backend/app` imports a KiCad parser or opens `.kicad_*` files, outside `design_bundle/`, the KiCad-output jobs and the catalog library reader | `backend/tests/test_design_source_boundary.py` |
@@ -361,7 +382,7 @@ Every P-WP owns one module `native/src/rs/prism-projections/src/<name>.rs`, its 
   - reports a contract gap and stops, rather than editing a frozen contract or another WP's paths;
   - does not touch the live instance;
   - leaves deployment to the maintainer.
-- **Sizing:** Wave 1 has 7 agents (F1 → F2 serial inside it), Wave 2 has 6, Wave 3 has 7 and Wave 4 has 5, each with a verifier.
+- **Sizing:** Wave 1 has 8 work packages (F0 → F1 → F2 → L serial, then F3, B, G and K in parallel), Wave 2 has 7, Wave 3 has 9 and Wave 4 has 5 (serial), each with a verifier.
 
 ## 10. Decided defaults
 
@@ -379,7 +400,7 @@ Every P-WP owns one module `native/src/rs/prism-projections/src/<name>.rs`, its 
 | G1 | A full bundle per commit (refill, materialize, GLB) would make the first Design Comparison of two cold commits slower than today's schematic-only work | staged readiness (§4.4): comparison needs stage `parse` only |
 | G2 | Bundles store sources and the refilled board, duplicating git objects. Per-commit bundles for comparisons grow storage. | deflated members, retention by use (§5), sizes reported by K; revisit storing `sources/` by blob reference if growth matters |
 | G3 | 3D models resolve through `KICAD*_3DMODEL_DIR` (KiCad's stock library in the image) as well as from the repository | the repository's model files are in the revision key; the stock library is pinned by the KiCad version in the generator id |
-| G4 | LFS files and gitlinks (submodules) | source materialization reuses Release Studio's closure handling (LFS hydration, gitlinks) |
+| G4 | LFS files and gitlinks (submodules) | source materialization reuses Release Studio's closure handling (LFS hydration, gitlinks). Prism's sync initializes submodules recursively and fetches LFS objects (K); the worker image has `git-lfs` (L; it has none today). A design source that cannot be materialized blocks the bundle and the job retries; an unavailable 3D model does not: it is recorded as `model-unavailable` and the GLB is built without it (example: Openswitch's models in an uninitialized `kicad-libraries` submodule) |
 | G5 | Multi-project repositories share files and libraries | the key includes the project anchor; bundles are per project |
 | G6 | Settings stored in Prism's database override the committed `.prism.json` and change which files are the project | the effective configuration is part of the revision key and recorded in the manifest |
 | G7 | First deploy would rebuild every project at once | lazy builds plus a paced backfill (§8) |
@@ -391,3 +412,4 @@ Every P-WP owns one module `native/src/rs/prism-projections/src/<name>.rs`, its 
 | G13 | Shared `Cargo.lock` and generated contracts conflict between parallel WPs | single owners (§9.1); WPs ask the owner for dependency or contract changes |
 | G14 | KiCad version support | KiCad 9 and 10 formats, as the core supports today; the worker image's KiCad (10.0.x) for KiCad outputs; KiCad 11 work is owned here |
 | G15 | Contract evolution needs the TypeSpec/npm toolchain inside `native/` | imported with the rest (§4.1); runs under Node 24.22.0 |
+| G16 | `design.json` has no schema | owed; C6 adds the TypeSpec and JSON Schema (decisions.md) |
