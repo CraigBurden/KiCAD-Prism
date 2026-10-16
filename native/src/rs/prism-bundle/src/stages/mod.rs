@@ -231,6 +231,33 @@ impl<'a> StageRecord<'a> {
     }
 }
 
+/// Whether a KiCad that produced an input (`--refill-tool`, `--models-tool`)
+/// may serve a generator pinned at `kicad_version`: the same major.minor,
+/// any patch release (cli-spec.md §5.2.3, decisions.md "KiCad patch
+/// releases").
+#[must_use]
+pub fn same_kicad_release(tool: &str, kicad_version: &str) -> bool {
+    let minor = |version: &str| {
+        let mut parts = version.split('.');
+        (
+            parts.next().map(str::to_owned),
+            parts.next().map(str::to_owned),
+        )
+    };
+    minor(tool) == minor(kicad_version)
+}
+
 pub(crate) fn internal(error: impl std::fmt::Display) -> Failure {
     Failure::internal(error.to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn patch_releases_serve_the_pinned_kicad() {
+        assert!(super::same_kicad_release("10.0.6", "10.0.6"));
+        assert!(super::same_kicad_release("10.0.7", "10.0.6"));
+        assert!(!super::same_kicad_release("10.1.0", "10.0.6"));
+        assert!(!super::same_kicad_release("11.0.0", "10.0.6"));
+    }
 }

@@ -67,11 +67,11 @@ fn check_mode(request: &BoardRequest<'_>) -> Outcome<()> {
             "the bundle's configuration refills zones; --refilled-board and --refill-tool are required",
         )
         .argument("refilled-board")),
-        (Some(refilled), false) if refilled.tool != request.generator.document.kicad_version.0 => {
+        (Some(refilled), false) if !super::same_kicad_release(&refilled.tool, &request.generator.document.kicad_version.0) => {
             Err(Failure::precondition(
                 "kicad-version-mismatch",
                 format!(
-                    "--refill-tool {} is not the generator's KiCad {}",
+                    "--refill-tool {} is not the major.minor of the generator's KiCad {}",
                     refilled.tool, request.generator.document.kicad_version.0
                 ),
             )

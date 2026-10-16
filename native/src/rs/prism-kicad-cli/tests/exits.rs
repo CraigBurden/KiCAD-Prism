@@ -427,10 +427,13 @@ fn stage_preconditions_exit_seven() {
         precondition(&board_args(a, o, None, "")),
         "zone-fills-mismatch"
     );
-    assert_eq!(
-        precondition(&board_args(a, o, Some(&case.refilled), "10.0.7")),
-        "kicad-version-mismatch"
-    );
+    for other in ["10.1.0", "11.0.0"] {
+        assert_eq!(
+            precondition(&board_args(a, o, Some(&case.refilled), other)),
+            "kicad-version-mismatch",
+            "{other}"
+        );
+    }
     let other = recording(
         "fixtures/release-studio/synthetic",
         "synthetic.kicad_pcb",
@@ -453,6 +456,34 @@ fn stage_preconditions_exit_seven() {
         "stage-not-applicable"
     );
     assert!(!o.exists(), "-o is untouched on every failure");
+}
+
+#[test]
+fn a_kicad_patch_release_serves_the_pinned_generator() {
+    let case = seven("patch-release");
+    let a = &case.archive;
+    let mut board = board_args(a, a, Some(&case.refilled), "10.0.7");
+    board.push("--quiet".to_owned());
+    let built = run(&board.iter().map(String::as_str).collect::<Vec<_>>());
+    assert_eq!(built.code, 0, "{}", built.document);
+    let mut models = models_args(a, a, &case.glb);
+    let tool = models.iter().position(|arg| arg == "10.0.6").unwrap();
+    models[tool] = "10.0.7".to_owned();
+    assert_eq!(
+        run(&models.iter().map(String::as_str).collect::<Vec<_>>()).code,
+        0
+    );
+    let refused = models_args(a, &case.out, &case.glb)
+        .into_iter()
+        .map(|arg| {
+            if arg == "10.0.6" {
+                "11.0.0".to_owned()
+            } else {
+                arg
+            }
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(precondition(&refused), "kicad-version-mismatch");
 }
 
 #[test]

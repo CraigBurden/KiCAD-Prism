@@ -148,11 +148,11 @@ pub fn run(request: ModelsRequest<'_>) -> Outcome<Built> {
         request.revision_key,
         request.config,
     )?;
-    if request.tool != request.generator.document.kicad_version.0 {
+    if !super::same_kicad_release(&request.tool, &request.generator.document.kicad_version.0) {
         return Err(Failure::precondition(
             "kicad-version-mismatch",
             format!(
-                "--models-tool {} is not the generator's KiCad {}",
+                "--models-tool {} is not the major.minor of the generator's KiCad {}",
                 request.tool, request.generator.document.kicad_version.0
             ),
         )
