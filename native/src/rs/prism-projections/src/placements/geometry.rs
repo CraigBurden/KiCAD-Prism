@@ -70,55 +70,71 @@ pub(crate) fn arc_points(a: (f64, f64), m: (f64, f64), b: (f64, f64)) -> Vec<(f6
 /// R8: the characteristic points of one graphic, in its written frame
 /// (`placements_build.py:150-176`).
 pub(crate) fn graphic_points(form: &Sexp, kind: &str) -> Vec<(f64, f64)> {
-    let mut out = Vec::new();
     match kind {
-        "line" | "rect" => {
-            for name in ["start", "end"] {
-                if let Some(point) = xy(child(Some(form), name)) {
-                    out.push(point);
-                }
-            }
+        "line" | "rect" => segment_points(form),
+        "circle" => circle_points(form),
+        "arc" => arc_points_of(form),
+        "poly" | "curve" => poly_points(form, kind),
+        _ => Vec::new(),
+    }
+}
+
+/// A line's or rectangle's written `(start …)` and `(end …)`
+/// (`placements_build.py:150-153`).
+fn segment_points(form: &Sexp) -> Vec<(f64, f64)> {
+    let mut out = Vec::new();
+    for name in ["start", "end"] {
+        if let Some(point) = xy(child(Some(form), name)) {
+            out.push(point);
         }
-        "circle" => {
-            if let (Some(centre), Some(end)) = (
-                xy(child(Some(form), "center")),
-                xy(child(Some(form), "end")),
-            ) {
-                let radius = libm::hypot(end.0 - centre.0, end.1 - centre.1);
-                out.push((centre.0 - radius, centre.1 - radius));
-                out.push((centre.0 + radius, centre.1 + radius));
+    }
+    out
+}
+
+/// A circle's bounding-box corners, from its centre and one end
+/// (`placements_build.py:154-159`).
+fn circle_points(form: &Sexp) -> Vec<(f64, f64)> {
+    let (Some(centre), Some(end)) = (
+        xy(child(Some(form), "center")),
+        xy(child(Some(form), "end")),
+    ) else {
+        return Vec::new();
+    };
+    let radius = libm::hypot(end.0 - centre.0, end.1 - centre.1);
+    vec![
+        (centre.0 - radius, centre.1 - radius),
+        (centre.0 + radius, centre.1 + radius),
+    ]
+}
+
+/// An arc's characteristic points, from `(start …)`, `(mid …)` and `(end …)`
+/// (`placements_build.py:160-163`).
+fn arc_points_of(form: &Sexp) -> Vec<(f64, f64)> {
+    let (Some(a), Some(m), Some(b)) = (
+        xy(child(Some(form), "start")),
+        xy(child(Some(form), "mid")),
+        xy(child(Some(form), "end")),
+    ) else {
+        return Vec::new();
+    };
+    arc_points(a, m, b)
+}
+
+/// A polygon's or Bezier curve's `(pts …)`: every `(xy …)` element and, for a
+/// polygon only, every `(arc …)` element (`placements_build.py:164-176`).
+fn poly_points(form: &Sexp, kind: &str) -> Vec<(f64, f64)> {
+    let Some(elements) = child(Some(form), "pts").and_then(as_list) else {
+        return Vec::new();
+    };
+    let mut out = Vec::new();
+    for element in elements.get(1..).unwrap_or_default() {
+        if is_form(element, Some("xy")) {
+            if let Some(point) = xy(Some(element)) {
+                out.push(point);
             }
+        } else if kind == "poly" && is_form(element, Some("arc")) {
+            out.extend(arc_points_of(element));
         }
-        "arc" => {
-            if let (Some(a), Some(m), Some(b)) = (
-                xy(child(Some(form), "start")),
-                xy(child(Some(form), "mid")),
-                xy(child(Some(form), "end")),
-            ) {
-                out.extend(arc_points(a, m, b));
-            }
-        }
-        "poly" | "curve" => {
-            if let Some(elements) = child(Some(form), "pts").and_then(as_list) {
-                for element in elements.get(1..).unwrap_or_default() {
-                    if is_form(element, Some("xy")) {
-                        if let Some(point) = xy(Some(element)) {
-                            out.push(point);
-                        }
-                    } else if kind == "poly"
-                        && is_form(element, Some("arc"))
-                        && let (Some(a), Some(m), Some(b)) = (
-                            xy(child(Some(element), "start")),
-                            xy(child(Some(element), "mid")),
-                            xy(child(Some(element), "end")),
-                        )
-                    {
-                        out.extend(arc_points(a, m, b));
-                    }
-                }
-            }
-        }
-        _ => {}
     }
     out
 }
@@ -140,25 +156,19 @@ pub(crate) fn point_bounds(points: &[(f64, f64)]) -> Option<((f64, f64), (f64, f
 
 /// `EDA_ANGLE::Sin`/`Cos` for θ in [0, 360) (`placements_build.py:188-198`).
 pub(crate) fn eda_sin_cos(theta: f64) -> (f64, f64) {
-    if theta == 0.0 {
-        (0.0, 1.0)
-    } else if theta == 90.0 {
-        (1.0, 0.0)
-    } else if theta == 180.0 {
-        (0.0, -1.0)
-    } else if theta == 270.0 {
-        (-1.0, 0.0)
-    } else if theta == 45.0 {
-        (SQRT1_2, SQRT1_2)
-    } else if theta == 135.0 {
-        (SQRT1_2, -SQRT1_2)
-    } else if theta == 225.0 {
-        (-SQRT1_2, -SQRT1_2)
-    } else if theta == 315.0 {
-        (-SQRT1_2, SQRT1_2)
-    } else {
-        let radians = theta * PI / 180.0;
-        (libm::sin(radians), libm::cos(radians))
+    match theta {
+        0.0 => (0.0, 1.0),
+        90.0 => (1.0, 0.0),
+        180.0 => (0.0, -1.0),
+        270.0 => (-1.0, 0.0),
+        45.0 => (SQRT1_2, SQRT1_2),
+        135.0 => (SQRT1_2, -SQRT1_2),
+        225.0 => (-SQRT1_2, -SQRT1_2),
+        315.0 => (-SQRT1_2, SQRT1_2),
+        _ => {
+            let radians = theta * PI / 180.0;
+            (libm::sin(radians), libm::cos(radians))
+        }
     }
 }
 
