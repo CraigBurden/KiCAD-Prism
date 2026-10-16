@@ -188,6 +188,32 @@ constrained host. Unless noted, an empty value means the default.
 | `PRISM_CAIRO_LIBRARY_DIR` | macOS hosts only: directory holding `libcairo.2.dylib` for Release Studio PDFs |
 | `PRISM_RELEASE`, `PRISM_REVISION`, `PRISM_BUILD_DATE` | build identity reported by `/api/health/live`; release images set them |
 
+### Design bundles
+
+A design bundle is one parse of a project revision by `prism-kicad`, stored as
+`KICAD_PROJECTS_ROOT/.kicad-prism/bundles/<project>/<revision key>/<generator>.prism`
+([ADR](architecture/adr-native-design-bundle.md)). The `design_bundle` job
+builds it in stages (parse, board, models) on the general worker.
+
+| Setting | Purpose |
+| --- | --- |
+| `PRISM_DESIGN_SOURCE_SEMANTIC_INDEX`, `_DESIGN_COMPARISON`, `_RELEASE_STUDIO`, `_SYSTEM_BUILDER`, `_VIEWER_3D`, `_PROJECT_METADATA`, `_CATALOG_IMPORT` | each consumer's source: `legacy` (default, its own KiCad parsing) or `bundle` |
+| `PRISM_DESIGN_BUNDLE_AUTO_BUILD` | queue the HEAD bundle after every import and sync, and run the paced backfill of branch heads (default `false`: bundles are built on demand) |
+| `PRISM_DESIGN_BUNDLE_CONCURRENCY` | capacity of the `design_bundle` slot (default 1); the backfill uses the same slot |
+| `PRISM_DESIGN_BUNDLE_*_MEMORY_BYTES`, `_*_TIMEOUT_MS` (PARSE, BOARD, MODELS) | per-stage heap cap and wall timeout passed to `prism-kicad` (defaults 4/6/2 GiB, 300/600/120 s) |
+| `PRISM_DESIGN_BUNDLE_MEMORY_BUDGET_BYTES` | worker memory for the slot; startup refuses `CONCURRENCY x (largest cap + 1.25 GiB)` above it (default 8 GiB) |
+| `PRISM_DESIGN_BUNDLE_THREADS`, `PRISM_DESIGN_BUNDLE_MAX_ATTEMPTS` | `prism-kicad --threads` (default 4); attempts per job before a failing KiCad step ends it (default 3) |
+| `PRISM_DESIGN_BUNDLE_RETENTION_DAYS` | days an unused bundle is kept; branch heads, System Builder baselines and released Release Studio commits are always kept (default 30) |
+| `PRISM_DESIGN_BUNDLE_BACKFILL_INTERVAL_SECONDS` | seconds between backfill ticks, each queuing at most one bundle; 0 disables (default 60) |
+| `PRISM_DESIGN_BUNDLE_BOARD_FORMAT_VERSION`, `_SCHEMATIC_FORMAT_VERSION` | the worker KiCad's file format; older sources are upgraded by KiCad before parse (defaults: KiCad 10.0) |
+| `PRISM_DESIGN_BUNDLE_GLB_TIMEOUT_SECONDS`, `PRISM_DESIGN_BUNDLE_UPGRADE_TIMEOUT_SECONDS` | the component GLB export and each source upgrade (defaults 600 and 900 s) |
+| `PRISM_KICAD_PYTHON`, `PRISM_ZONE_REFILL_TIMEOUT_SECONDS` | KiCad's Python (imports `pcbnew`) for the zone refill and board upgrades, and the refill's timeout (default 900 s) |
+| `PRISM_DESIGN_BUNDLE_CLI_PATH`, `PRISM_DESIGN_BUNDLE_ROOT`, `PRISM_DESIGN_BUNDLE_SCHEMA_DIR` | host overrides for the binary (default `prism-kicad` on PATH), the store and the committed JSON Schema |
+
+A project's `zone_fills` setting, stored in Prism (`"saved"` or unset), builds
+the board stage from the board's saved zone fills instead of a pcbnew refill.
+It is part of the revision key, so changing it rebuilds the project's bundles.
+
 ### Live comments and issue trackers
 
 `PRISM_COMMENT_LIVE_ENABLED=true` enables live comment delivery; set it to
@@ -253,7 +279,11 @@ Resolution order, highest first:
 4. Conventional fallbacks.
 
 Paths are relative to the registered project root. A past revision is read with
-that revision's committed `.prism.json`.
+that revision's committed `.prism.json`; design bundles also apply the stored
+settings at past revisions, and attribute a board or schematic to a project only
+through its project file (a glob matches only the file named like it), never by
+directory. The backfill flags projects whose board or schematic no longer
+resolves that way; set their paths explicitly.
 
 The schema currently accepts `workflows`, `portfolio`, and additional fields for
 forward compatibility. Arbitrary `workflows` entries are not executed as

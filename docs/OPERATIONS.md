@@ -293,6 +293,28 @@ Monitor:
 - catalog import and validation duration;
 - PostgreSQL connection-pool saturation.
 
+Design bundles (`.kicad-prism/bundles`) are kept by use. An hourly pass on the
+general worker keeps the bundles of branch heads, System Builder baselines and
+released Release Studio commits, removes the rest after
+`PRISM_DESIGN_BUNDLE_RETENTION_DAYS` unused, and sweeps old unpacked-cache
+versions, archives no row names and `prism-kicad`'s stale temporary files. The
+worker logs each pass's counts (`Design bundle retention: ...`).
+
+With `PRISM_DESIGN_BUNDLE_AUTO_BUILD=true`, the first deploy does not rebuild
+every project at once: the worker's backfill queues at most one branch-head
+bundle per `PRISM_DESIGN_BUNDLE_BACKFILL_INTERVAL_SECONDS`, and only while no
+`design_bundle` job is active. It records in `ws_design_bundle_flags` each
+project whose board or root schematic no longer resolves by its project file
+(`board-unresolved`, `schematic-unresolved`), whose committed `.prism.json` is
+invalid, or whose project file is missing at HEAD (`project-absent`). Fix a
+flagged project by setting its board or schematic path in the project settings;
+the flag clears at the next backfill or build of its HEAD.
+
+A `design_bundle` job that fails in a KiCad step (zone refill, GLB export,
+source upgrade) is retried; after its last attempt the stage stays pending and
+the bundle row is marked `failed` with the error. The next sync or request
+queues it again.
+
 Use configured artifact and partial-output retention. Do not delete unknown
 content inside `.kicad-prism` manually. Confirm whether it is authoritative data
 or a regenerable cache first.
