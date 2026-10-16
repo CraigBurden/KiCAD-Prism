@@ -16,6 +16,10 @@
             "$ref": "#/$defs/CliReleaseVersion",
             "description": "Version of the parser core crate (`ENGINE_VERSION`, the fork's `kicad-monkey-core`, `prism-kicad-core` after WP-F2)."
         },
+        "kicad_file_formats": {
+            "$ref": "#/$defs/CliKicadFileFormats",
+            "description": "The current file formats of `kicad_version`: the `(version N)` KiCad\nwrites. Sources older than them are upgraded before stage `parse`\n(cli-spec.md §9.4), and the parser reads only these formats, so they\ndecide every parsed member's bytes. Raised with `kicad_version`."
+        },
         "kicad_version": {
             "$ref": "#/$defs/CliReleaseVersion",
             "description": "KiCad version of the KiCad-produced members (the refilled board and\n`components.glb`), exactly as `kicad-cli version` prints it. It also\npins KiCad's stock 3D model library. `--refill-tool` and\n`--models-tool` must equal it."
@@ -51,6 +55,7 @@
         "schema",
         "crate_version",
         "engine_version",
+        "kicad_file_formats",
         "kicad_version",
         "member_schemas",
         "models_procedure",
@@ -68,6 +73,31 @@
             "type": "string",
             "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$",
             "description": "A release version of three dot-separated decimal numbers without leading\nzeros, for example `0.1.0` (SemVer), `2026.9.7` (the fork's CalVer) or\n`10.0.6` (KiCad, as `kicad-cli version` prints it). Printable ASCII only,\nwhich keeps the generator id's canonical form unambiguous (cli-spec.md §5.1)."
+        },
+        "CliKicadFileFormats": {
+            "type": "object",
+            "properties": {
+                "board": {
+                    "type": "integer",
+                    "minimum": 20000000,
+                    "maximum": 99991231,
+                    "description": "`.kicad_pcb`, for example `20260206`."
+                },
+                "schematic": {
+                    "type": "integer",
+                    "minimum": 20000000,
+                    "maximum": 99991231,
+                    "description": "`.kicad_sch`, for example `20260306`."
+                }
+            },
+            "required": [
+                "board",
+                "schematic"
+            ],
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "KiCad's current `(version N)` per source format, declared in code point order."
         },
         "CliVersionMemberSchema": {
             "type": "object",

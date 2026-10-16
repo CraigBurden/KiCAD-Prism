@@ -66,7 +66,7 @@ prism-kicad version
 
 prism-kicad bundle build <project.kicad_pro> --stage parse -o <out.prism>
             [--source-root <dir>] [--revision-key <hex>] [--key-record <record.json>]
-            [--config <effective.json>] [COMMON]
+            [--upgraded <path>=<version>]... [--config <effective.json>] [COMMON]
 prism-kicad bundle build --stage board  --in <bundle.prism> -o <out.prism>
             --refilled-board <board.kicad_pcb> --refill-tool <kicad-version>
             [--revision-key <hex>] [--config <effective.json>] [COMMON]
@@ -88,7 +88,7 @@ COMMON: [--limit <name>=<value>]... [--threads <n>] [--quiet]
   - Options may appear anywhere after the command words.
   - An option takes its value as the next argument (`--stage parse`). The `--name=value` form is not accepted.
   - `-o` is short for `--output`.
-  - No option may be given twice, except `--limit` with different names.
+  - No option may be given twice, except `--limit` with different names and `--upgraded` with different paths.
 - **Positional arguments** are `<project.kicad_pro>`, `<bundle.prism>`, `<member>` and `<repo>`.
 - **Paths** are host paths, absolute or relative to the working directory, and must be valid UTF-8. They are never echoed in any output. An error about an argument names it with `CliArgument`, for example `argument: "refilled-board"`.
 - **Value syntax** is checked before any work. A violation is exit 2, `usage`.
@@ -96,10 +96,11 @@ COMMON: [--limit <name>=<value>]... [--threads <n>] [--quiet]
   - `--refill-tool` and `--models-tool`: a `CliReleaseVersion`, such as `10.0.6`.
   - `--stage`: `parse`, `board` or `models`.
   - `--threads`: 1 to 64, the range of kicad-cruncher's `--workers` (fork: `.../kicad-cruncher-cli/src/lib.rs:413-424`). The default is min(available parallelism, 4). Output never depends on it.
+  - `--upgraded`: `<path>=<version>`, where `<path>` is a `RepoPath` ending in `.kicad_pcb` or `.kicad_sch` and `<version>` is the file's original `(version N)`, a decimal integer (§9.4).
   - `--limit`: `<name>=<value>`, where `<name>` is a `CliLimitName` and `<value>` a decimal integer from 0 to the limit's hard bound (§7.2).
   - `--quiet` drops `info` diagnostics.
 - **Combinations.** A violation is exit 2, `option-conflict`.
-  - `<project.kicad_pro>`, `--source-root` and `--key-record` only with `--stage parse`; `--key-record` requires `--revision-key`.
+  - `<project.kicad_pro>`, `--source-root`, `--key-record` and `--upgraded` only with `--stage parse`; `--key-record` requires `--revision-key`.
   - `--in` is required with `board` and `models`, and refused with `parse`.
   - `--refilled-board` and `--refill-tool` together, only with `board`. Whether stage `board` requires or refuses them depends on the configuration recorded in `--in`, so that check is a precondition (§5.2.3, `zone-fills-mismatch`), not a usage error.
   - `--models-glb` and `--models-tool` together, only with `models`, and required there.
@@ -214,6 +215,7 @@ Across CPU architectures (maintainer decision, conventions.md §14): every parse
 |---|---|---|
 | `crate_version` | a1's `prism_bundle` (sim: `src/prism-bundle/src/bin/prism-bundle.rs:221`, `env!("CARGO_PKG_VERSION")`) | the explicit bump knob (§5.1.2) |
 | `engine_version` | a1's `design_engine` (sim: `prism-bundle.rs:224`), `kicad_monkey_core::ENGINE_VERSION` (fork: `src/rs/kicad-monkey-core/src/lib.rs:10`) | the core that parses everything |
+| `kicad_file_formats` | measured from KiCad 10.0.6 output (board `20260206`, schematic `20260306`; maintainer decision) | the parser reads only these formats, since older sources are upgraded to them first (§9.4), so they decide every parsed member's bytes |
 | `kicad_version` | a1 records the refill tool's version per bundle (sim: `src/prism-bundle/src/build.rs:335`); ref passes `kicad-cli version` (ref: `backend/app/sim_studio/runs.py:134-136`); the 3D GLB cache key uses it (`kicad-prism-viewer/pipeline/topology_compiler/kicad_cli_export.py:178`) | ADR §5: the KiCad version of the KiCad-produced members, which also pins the stock 3D models (G3) |
 | `member_schemas` | a1 lists `member_schema` per member (sim: `contracts/contracts/bundle.tsp:37-38`) and pins the materializer schema (`:54-57`) | ADR §5: "manifest version and projection schema versions"; checked by bundle-format.md invariant I3 |
 | `models_procedure` | today's component export argv (`kicad_cli_export.py:135-143`) | the GLB is a member, and its procedure decides its bytes (§9.3) |
@@ -234,7 +236,7 @@ The generator id is bumped explicitly, never derived from binary or source bytes
   - the archive writer, including a `miniz_oxide` update that changes its output (bundle-format.md §4.3);
   - the GLB canonicalization;
   - an output-affecting constant such as the materialization tile size.
-- `kicad_version` is raised with the worker image's KiCad (WP-L), in the same PR.
+- `kicad_version` is raised with the worker image's KiCad (WP-L), in the same PR, and `kicad_file_formats` with it, to the `(version N)` that KiCad writes.
 - `member_schemas` is updated with every new member schema version.
 
 **Enforcement (WP-B).** `native/src/rs/prism-kicad-cli/tests/generator_pin.rs` builds every committed fixture through all stages. It compares each member's SHA-256 with a committed table keyed by the generator digest, so a changed member under an unchanged digest fails CI. The KiCad-produced inputs come from committed recordings, so the test needs no KiCad.
@@ -277,7 +279,7 @@ bundle_key       = lowercase_hex(SHA-256(
 - The domain prefix is versioned. A change of framing uses `prism.bundle_key.a1` and needs an ADR amendment.
 - The revision key has a fixed length, so the framing is unambiguous. The second `0x00` keeps it readable.
 - When `--revision-key` is given, the CLI writes the revision key and the bundle key into the manifest (`revision_key`, `bundle_key`; bundle-format.md invariant I11). Readers check the bundle key (bundle-format.md §9 step 5).
-- **Storage path** (ADR §5, bundle-format.md §8): `.kicad-prism/bundles/<project_id>/<revision_key>/<generator_digest>.prism`. The bundle key names the bundle wherever one name is needed: K's dedup key, the job's `artifact_key`, ETags.
+- **Storage path** (ADR §5, bundle-format.md §8): `.kicad-prism/bundles/<project_id>/<revision_key>/<generator_digest>.prism`. The bundle key names the bundle wherever one name is needed: the job's `artifact_key` and ETags. It identifies content, not a project, while storage is per project, so K's job dedup key is `<project_id>:<bundle_key>` (maintainer decision): two projects with identical sources build and store their own bundles.
 - Shell recipe (bash), for tests: `{ printf 'prism.bundle_key.a0\0%s\0' "$rk"; prism-kicad version | head -c -1; } | sha256sum`.
 
 #### 5.1.5 Test vectors
@@ -285,22 +287,22 @@ bundle_key       = lowercase_hex(SHA-256(
 The vectors use the generator id in `examples/CliVersionA0.example.json`:
 - crate 0.1.0;
 - engine 2026.9.7;
-- KiCad 10.0.6;
+- KiCad 10.0.6, with file formats board `20260206` and schematic `20260306`;
 - pack format 0;
 - all three procedures at a0;
 - the eleven member schemas of ADR §6.
 
-Its generator bytes are 1061 bytes long. Its `generator_digest` is `96ec6f85379966983bd1f9d9c78d8eba1b73a61ea9fad54c22189689c83b4add`.
+Its generator bytes are 1122 bytes long. Its `generator_digest` is `d32ccf9dccfc4084e4b9f9ab7dea77ef0e1b69f51cacddd9466db8ad735fb82c`.
 
 | revision_key | bundle_key |
 |---|---|
-| `0000000000000000000000000000000000000000000000000000000000000000` | `a770ec388a61b8a8ef2c01295535d9de7f95179d4a8022fabcd87fb61bbe5931` |
-| `e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855` | `0b76554173eed259619144a418069ac2faa88e28fcd6dee63690c8a12d0e5d27` |
-| `42e41c598a193d09f6917ee92b7c71e52e9e15a251a63b7a955ef41beb841f34` | `e3a06226c5b2b6ea030d3cb9ad9f023738f9b37210f36528fbf7b8892349f05b` |
+| `0000000000000000000000000000000000000000000000000000000000000000` | `e6ab4edd790af8cbb4afd150db63aa6df5f4a087778dce00597c19035fdb5069` |
+| `e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855` | `775106309b02f0b095de315ee7c9a79ff349a21bfb01c58a0d3e2d6a16556524` |
+| `42e41c598a193d09f6917ee92b7c71e52e9e15a251a63b7a955ef41beb841f34` | `bf3d0663c4bf8eb7cbea4e251b30d910198f43b0d4d4da05d537665ae46b7e24` |
 
 Changing only `kicad_version`, to `10.0.7`:
-- `generator_digest` becomes `5e5139338678128c4351c31a18d02b771cadfcffa2b6374152c6d2d9319e3322`;
-- the all-zero revision key gives `d55467222f57b0c2877280f44145ff8372cf22961529d78690e6450bb2418d80`.
+- `generator_digest` becomes `46d03769928b812a78dff62e01945649b668b76b6fd512ec9efd0a403fd1d960`;
+- the all-zero revision key gives `55c345ad04d8f55eb120f8f61291519f70fd3377aad74811da7a44bac717ffc4`.
 
 These values were computed by the Python above and checked with the shell recipe. WP-B (Rust) and WP-K (Python) both reproduce them, the same acceptance as the revision-key vectors (ADR §9.3).
 
@@ -356,6 +358,7 @@ The final archive of `parse → board → models` is therefore the same whatever
 - **Selector.** It uses the same Rust selector as `revision-key --worktree` (revision-key.md, "Selection"), applied to the files under the source root with the effective configuration's `excluded_dirs`, to find the source set the parse may read. A materialized submodule's files are selected like any other file, by name, while the key holds only the gitlink.
 - **Members.** Each file of the source set that the parse reads becomes the member `sources/<RepoPath>`, with its bytes unchanged. A selected file no reference reaches is not a member.
 - **Key entries.** `--key-record <record.json>` is the `RevisionKeyRecordA1` of the revision, as `revision-key` printed it; one that is not valid against its schema is exit 3, `key-record-invalid`. Its `revision_key` must equal `--revision-key` and its `config` the effective configuration; otherwise exit 7, `revision-key-mismatch` or `config-mismatch`. Each member's `source` (`path`, `kind`, `object_id`) is copied from its entry, or from the gitlink entry above it plus the file's blob id in the submodule. A member with neither is exit 7, `revision-key-mismatch`. Without `--key-record` (local and test builds), `kind` comes from the executable bit and `object_id` is the SHA-1 blob id of the bytes as `git hash-object --no-filters` computes it, which matches the key only when no clean filter or LFS applies.
+- **Upgrades.** Each `--upgraded <path>=<version>` names a source K upgraded before the parse (§9.4). The member `sources/<path>` records `upgraded_from_version: <version>` (bundle-format.md §2.2), and its `source` keeps the committed blob's key entry. A path that is not a member, or a version not older than `kicad_file_formats` for its kind, is exit 3, `upgrade-record-invalid`. The CLI does not compare the member's bytes with the version: they are already upgraded.
 - **Links.** The selector never follows a symbolic link. A link or special file under the source root is exit 3, `source-not-regular-file`. K does not materialize symlink entries (bundle-format.md §2.2).
 - **Other exit-3 failures:**
   - `source-outside-root`: the project file, or a file a source references, resolves outside the source root. For example, a sheet at `../common/x.kicad_sch` under the default root. With the repository root as source root, as in the job, this means a reference that leaves the repository.
@@ -698,6 +701,7 @@ Codes are `DiagnosticCode` (kebab-case). A code never changes meaning; a new mea
 | `project-not-kicad-pro` | error | input / 3 | `<project.kicad_pro>` does not end in `.kicad_pro` |
 | `config-invalid` | error | input / 3 | `--config` is not a valid `RevisionKeyEffectiveConfigA1` |
 | `key-record-invalid` | error | input / 3 | `--key-record` is not a valid `RevisionKeyRecordA1` |
+| `upgrade-record-invalid` | error | input / 3 | an `--upgraded` names a path that is not a member, or a version not older than `kicad_file_formats` for its kind (§5.2.2) |
 | `source-outside-root` | error | input / 3 | the project, or a file a source references, resolves outside the source root |
 | `source-not-regular-file` | error | input / 3 | a symbolic link or special file under the source root |
 | `source-path-invalid` | error | input / 3 | a source path is not UTF-8, holds a control character, or breaks `RepoPath` or the length rules |
@@ -816,7 +820,7 @@ Two refills of usb-pd with KiCad 10.0.6 on one host gave byte-identical boards (
 
 Maintainer decision: the parser and every contract handle only the current file format of the worker's KiCad (`kicad_version`). Older sources are upgraded by KiCad itself, which handles backwards compatibility.
 
-1. **Select.** Every `.kicad_pcb` and `.kicad_sch` in `$JOB/src` that the closure reads and whose `(version N)` is older than the worker KiCad's current format. A file in the current format is not touched. A file newer than it is left alone, and stage parse records `source-format-unsupported`.
+1. **Select.** Every `.kicad_pcb` and `.kicad_sch` in `$JOB/src` that the closure reads and whose `(version N)` is older than the generator id's `kicad_file_formats` for its kind. A file in the current format is not touched. A file newer than it is left alone, and stage parse records `source-format-unsupported`.
 2. **Boards.** Copy the board, and its `.kicad_pro` named after the board's stem, into an empty scratch directory. Run with KiCad's Python (`PRISM_KICAD_PYTHON -I`), under `kicad_tools.isolated_env`, with a timeout:
    ```python
    import sys, pcbnew
@@ -826,7 +830,7 @@ Maintainer decision: the parser and every contract handle only the current file 
    ```
    Copy only the `.kicad_pcb` back over the file in `$JOB/src`. The seed makes the ids KiCad creates for items the old file lacked identical on every run. Without it, `kicad-cli pcb upgrade` gives a KiCad 7 board about 1,600 random UUIDs per run (measured on cynthion).
 3. **Schematics.** `kicad-cli sch upgrade <file>` in place, with the same environment and timeout. It is byte-deterministic on cynthion's 19 KiCad 7 sheets.
-4. **Record.** K passes the list of upgraded paths and their original versions to stage parse, and the manifest records `upgraded_from_version` on each such member (bundle-format.md §2.2).
+4. **Record.** K passes one `--upgraded <path>=<version>` per upgraded file, with its original `(version N)`, to stage parse, and the manifest records `upgraded_from_version` on each such member (§5.2.2, bundle-format.md §2.2). The revision key is unaffected: it covers the committed blobs, not the upgraded bytes.
 5. **Failures.** These fail the job step, which is retried like the refill; nothing is recorded. After `max_attempts` there is no archive and the job ends failed.
 
 Measured on EDA-04903 (57 MB, KiCad 8 format): 8.2 s and 0.8 GB peak. It runs only for old files, and outside the CLI's parse budget (ADR §7).
