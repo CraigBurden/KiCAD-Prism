@@ -158,7 +158,9 @@ argument's value, which may be a host path.*/
 ///    "project",
 ///    "limit",
 ///    "threads",
-///    "quiet"
+///    "quiet",
+///    "base",
+///    "head"
 ///  ]
 ///}
 /// ```
@@ -222,6 +224,10 @@ pub enum CliArgument {
     Threads,
     #[serde(rename = "quiet")]
     Quiet,
+    #[serde(rename = "base")]
+    Base,
+    #[serde(rename = "head")]
+    Head,
 }
 impl ::std::fmt::Display for CliArgument {
     fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
@@ -249,6 +255,8 @@ impl ::std::fmt::Display for CliArgument {
             Self::Limit => f.write_str("limit"),
             Self::Threads => f.write_str("threads"),
             Self::Quiet => f.write_str("quiet"),
+            Self::Base => f.write_str("base"),
+            Self::Head => f.write_str("head"),
         }
     }
 }
@@ -279,6 +287,8 @@ impl ::std::str::FromStr for CliArgument {
             "limit" => Ok(Self::Limit),
             "threads" => Ok(Self::Threads),
             "quiet" => Ok(Self::Quiet),
+            "base" => Ok(Self::Base),
+            "head" => Ok(Self::Head),
             _ => Err("invalid value".into()),
         }
     }

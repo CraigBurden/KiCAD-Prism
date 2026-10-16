@@ -1,0 +1,487 @@
+{
+  "schema": "prism.compare.object_delta.a0",
+  "base": {
+    "bundleKey": "0000000000000000000000000000000000000000000000000000000000000000",
+    "objects": 4,
+    "nativeObjects": [
+      {
+        "uuid": "41cb3e30-ae93-59fc-a249-9fea22d02d6a",
+        "kind": "pad",
+        "documentPath": "mini_obc.kicad_pcb",
+        "parentUuid": "4ae3c5e4-b9f5-5461-97e0-da329a279776",
+        "at": [
+          0,
+          7.62
+        ]
+      },
+      {
+        "uuid": "1eb93fd0-bb35-5448-9ca3-16d8a0cd0927",
+        "kind": "symbol",
+        "documentPath": "mini_obc.kicad_sch",
+        "at": [
+          40,
+          40
+        ]
+      },
+      {
+        "uuid": "3b68a2fc-48d3-5f32-9f14-2a1b21ad2477",
+        "kind": "footprint",
+        "documentPath": "mini_obc.kicad_pcb",
+        "at": [
+          50,
+          10
+        ]
+      },
+      {
+        "uuid": "d888b17c-feaf-55f6-b191-4344e04b84b1",
+        "kind": "pad",
+        "documentPath": "mini_obc.kicad_pcb",
+        "parentUuid": "3b68a2fc-48d3-5f32-9f14-2a1b21ad2477",
+        "at": [
+          0,
+          0
+        ]
+      }
+    ],
+    "componentObjects": [
+      {
+        "uuid": "1eb93fd0-bb35-5448-9ca3-16d8a0cd0927",
+        "kind": "symbol",
+        "documentPath": "mini_obc.kicad_sch",
+        "at": [
+          40,
+          40
+        ],
+        "rotation": 0,
+        "refdes": "J2",
+        "libId": "Connector_Generic:Conn_01x04",
+        "dnp": false,
+        "inBom": true,
+        "onBoard": true,
+        "reviewFields": {
+          "Unit": 1
+        }
+      },
+      {
+        "uuid": "3b68a2fc-48d3-5f32-9f14-2a1b21ad2477",
+        "kind": "footprint",
+        "documentPath": "mini_obc.kicad_pcb",
+        "at": [
+          50,
+          10
+        ],
+        "rotation": 0,
+        "layer": "F.Cu",
+        "refdes": "J6",
+        "libId": "Connector_PinHeader_2.54mm:PinHeader_1x04_P2.54mm_Vertical",
+        "reviewFields": {
+          "Attributes": "{\"through_hole\":true}"
+        }
+      }
+    ]
+  },
+  "head": {
+    "bundleKey": "1111111111111111111111111111111111111111111111111111111111111111",
+    "objects": 4,
+    "nativeObjects": [
+      {
+        "uuid": "b7166583-df55-57f2-be89-b3baaba27ce4",
+        "kind": "pad",
+        "documentPath": "mini_obc.kicad_pcb",
+        "parentUuid": "72ae8fe1-e431-5fc9-9ba0-7684ffcddfa3",
+        "at": [
+          0,
+          2.54
+        ]
+      },
+      {
+        "uuid": "1eb93fd0-bb35-5448-9ca3-16d8a0cd0927",
+        "kind": "symbol",
+        "documentPath": "mini_obc.kicad_sch",
+        "at": [
+          40,
+          40
+        ]
+      },
+      {
+        "uuid": "3b68a2fc-48d3-5f32-9f14-2a1b21ad2477",
+        "kind": "footprint",
+        "documentPath": "mini_obc.kicad_pcb",
+        "at": [
+          30,
+          10
+        ]
+      },
+      {
+        "uuid": "d888b17c-feaf-55f6-b191-4344e04b84b1",
+        "kind": "pad",
+        "documentPath": "mini_obc.kicad_pcb",
+        "parentUuid": "3b68a2fc-48d3-5f32-9f14-2a1b21ad2477",
+        "at": [
+          0,
+          0
+        ]
+      }
+    ],
+    "componentObjects": [
+      {
+        "uuid": "1eb93fd0-bb35-5448-9ca3-16d8a0cd0927",
+        "kind": "symbol",
+        "documentPath": "mini_obc.kicad_sch",
+        "at": [
+          40,
+          40
+        ],
+        "rotation": 0,
+        "refdes": "J12",
+        "libId": "Connector_Generic:Conn_01x04",
+        "dnp": false,
+        "inBom": true,
+        "onBoard": true,
+        "reviewFields": {
+          "Unit": 1
+        }
+      },
+      {
+        "uuid": "3b68a2fc-48d3-5f32-9f14-2a1b21ad2477",
+        "kind": "footprint",
+        "documentPath": "mini_obc.kicad_pcb",
+        "at": [
+          30,
+          10
+        ],
+        "rotation": 0,
+        "layer": "F.Cu",
+        "refdes": "J6",
+        "libId": "Connector_PinHeader_2.54mm:PinHeader_1x04_P2.54mm_Vertical",
+        "reviewFields": {
+          "Attributes": "{\"through_hole\":true}"
+        }
+      }
+    ]
+  },
+  "changes": [
+    {
+      "key": "mini_obc.kicad_pcb#b7166583-df55-57f2-be89-b3baaba27ce4",
+      "status": "added",
+      "uuid": "b7166583-df55-57f2-be89-b3baaba27ce4",
+      "kind": "pad",
+      "documentPath": "mini_obc.kicad_pcb",
+      "parentUuid": "72ae8fe1-e431-5fc9-9ba0-7684ffcddfa3",
+      "at": [
+        0,
+        2.54
+      ],
+      "rotation": 0,
+      "layer": "*.Cu",
+      "net": "GND",
+      "refdes": "J12",
+      "number": "2",
+      "reviewFields": {
+        "Pad number": "2"
+      },
+      "properties": [
+        {
+          "name": "Drill",
+          "to": "{\"diameter\":1}"
+        },
+        {
+          "name": "Layer",
+          "to": "*.Cu"
+        }
+      ],
+      "compare": {
+        "uuid": "b7166583-df55-57f2-be89-b3baaba27ce4",
+        "kind": "pad",
+        "documentPath": "mini_obc.kicad_pcb",
+        "parentUuid": "72ae8fe1-e431-5fc9-9ba0-7684ffcddfa3",
+        "at": [
+          0,
+          2.54
+        ],
+        "rotation": 0,
+        "layer": "*.Cu",
+        "net": "GND",
+        "refdes": "J12",
+        "number": "2",
+        "reviewFields": {
+          "Pad number": "2"
+        }
+      }
+    },
+    {
+      "key": "mini_obc.kicad_pcb#41cb3e30-ae93-59fc-a249-9fea22d02d6a",
+      "status": "removed",
+      "uuid": "41cb3e30-ae93-59fc-a249-9fea22d02d6a",
+      "kind": "pad",
+      "documentPath": "mini_obc.kicad_pcb",
+      "parentUuid": "4ae3c5e4-b9f5-5461-97e0-da329a279776",
+      "at": [
+        0,
+        7.62
+      ],
+      "rotation": 0,
+      "layer": "*.Cu",
+      "net": "/PWR_EN",
+      "refdes": "J2",
+      "number": "4",
+      "reviewFields": {
+        "Pad number": "4"
+      },
+      "properties": [
+        {
+          "name": "Drill",
+          "from": "{\"diameter\":1}"
+        },
+        {
+          "name": "Layer",
+          "from": "*.Cu"
+        }
+      ],
+      "base": {
+        "uuid": "41cb3e30-ae93-59fc-a249-9fea22d02d6a",
+        "kind": "pad",
+        "documentPath": "mini_obc.kicad_pcb",
+        "parentUuid": "4ae3c5e4-b9f5-5461-97e0-da329a279776",
+        "at": [
+          0,
+          7.62
+        ],
+        "rotation": 0,
+        "layer": "*.Cu",
+        "net": "/PWR_EN",
+        "refdes": "J2",
+        "number": "4",
+        "reviewFields": {
+          "Pad number": "4"
+        }
+      }
+    },
+    {
+      "key": "mini_obc.kicad_sch#1eb93fd0-bb35-5448-9ca3-16d8a0cd0927",
+      "status": "modified",
+      "uuid": "1eb93fd0-bb35-5448-9ca3-16d8a0cd0927",
+      "kind": "symbol",
+      "documentPath": "mini_obc.kicad_sch",
+      "at": [
+        40,
+        40
+      ],
+      "rotation": 0,
+      "refdes": "J12",
+      "libId": "Connector_Generic:Conn_01x04",
+      "dnp": false,
+      "inBom": true,
+      "onBoard": true,
+      "reviewFields": {
+        "Unit": 1
+      },
+      "properties": [
+        {
+          "name": "Reference",
+          "from": "J2",
+          "to": "J12",
+          "attributesChanged": false,
+          "fromAttributes": {
+            "at": [
+              43.81,
+              40
+            ],
+            "rotation": 0,
+            "hide": false,
+            "effects": {
+              "font": {
+                "size": {
+                  "x": 1.27,
+                  "y": 1.27
+                }
+              }
+            }
+          },
+          "toAttributes": {
+            "at": [
+              43.81,
+              40
+            ],
+            "rotation": 0,
+            "hide": false,
+            "effects": {
+              "font": {
+                "size": {
+                  "x": 1.27,
+                  "y": 1.27
+                }
+              }
+            }
+          }
+        }
+      ],
+      "base": {
+        "uuid": "1eb93fd0-bb35-5448-9ca3-16d8a0cd0927",
+        "kind": "symbol",
+        "documentPath": "mini_obc.kicad_sch",
+        "at": [
+          40,
+          40
+        ],
+        "rotation": 0,
+        "refdes": "J2",
+        "libId": "Connector_Generic:Conn_01x04",
+        "dnp": false,
+        "inBom": true,
+        "onBoard": true,
+        "reviewFields": {
+          "Unit": 1
+        }
+      },
+      "compare": {
+        "uuid": "1eb93fd0-bb35-5448-9ca3-16d8a0cd0927",
+        "kind": "symbol",
+        "documentPath": "mini_obc.kicad_sch",
+        "at": [
+          40,
+          40
+        ],
+        "rotation": 0,
+        "refdes": "J12",
+        "libId": "Connector_Generic:Conn_01x04",
+        "dnp": false,
+        "inBom": true,
+        "onBoard": true,
+        "reviewFields": {
+          "Unit": 1
+        }
+      },
+      "atBase": [
+        40,
+        40
+      ],
+      "reasons": [
+        "renamed"
+      ]
+    },
+    {
+      "key": "mini_obc.kicad_pcb#3b68a2fc-48d3-5f32-9f14-2a1b21ad2477",
+      "status": "modified",
+      "uuid": "3b68a2fc-48d3-5f32-9f14-2a1b21ad2477",
+      "kind": "footprint",
+      "documentPath": "mini_obc.kicad_pcb",
+      "at": [
+        30,
+        10
+      ],
+      "rotation": 0,
+      "layer": "F.Cu",
+      "refdes": "J6",
+      "libId": "Connector_PinHeader_2.54mm:PinHeader_1x04_P2.54mm_Vertical",
+      "reviewFields": {
+        "Attributes": "{\"through_hole\":true}"
+      },
+      "properties": [
+        {
+          "name": "Position",
+          "from": "50, 10",
+          "to": "30, 10"
+        }
+      ],
+      "base": {
+        "uuid": "3b68a2fc-48d3-5f32-9f14-2a1b21ad2477",
+        "kind": "footprint",
+        "documentPath": "mini_obc.kicad_pcb",
+        "at": [
+          50,
+          10
+        ],
+        "rotation": 0,
+        "layer": "F.Cu",
+        "refdes": "J6",
+        "libId": "Connector_PinHeader_2.54mm:PinHeader_1x04_P2.54mm_Vertical",
+        "reviewFields": {
+          "Attributes": "{\"through_hole\":true}"
+        }
+      },
+      "compare": {
+        "uuid": "3b68a2fc-48d3-5f32-9f14-2a1b21ad2477",
+        "kind": "footprint",
+        "documentPath": "mini_obc.kicad_pcb",
+        "at": [
+          30,
+          10
+        ],
+        "rotation": 0,
+        "layer": "F.Cu",
+        "refdes": "J6",
+        "libId": "Connector_PinHeader_2.54mm:PinHeader_1x04_P2.54mm_Vertical",
+        "reviewFields": {
+          "Attributes": "{\"through_hole\":true}"
+        }
+      },
+      "atBase": [
+        50,
+        10
+      ],
+      "reasons": [
+        "moved"
+      ],
+      "positionDelta": {
+        "dx": -20,
+        "dy": 0,
+        "distance": 20
+      }
+    }
+  ],
+  "ignored": [
+    {
+      "key": "mini_obc.kicad_pcb#b5134d5d-67a6-5738-b53d-a38bcc16ab32",
+      "status": "ignored",
+      "reason": "internal-identity-only",
+      "uuid": "b5134d5d-67a6-5738-b53d-a38bcc16ab32",
+      "kind": "pad",
+      "documentPath": "mini_obc.kicad_pcb",
+      "parentUuid": "fa790f2e-84fa-54a2-bf0c-d4c87ff7e17d",
+      "at": [
+        0,
+        0
+      ],
+      "rotation": 0,
+      "layer": "*.Cu",
+      "net": "GND",
+      "refdes": "J7",
+      "number": "1",
+      "reviewFields": {
+        "Pad number": "1",
+        "Pad type": "thru_hole"
+      }
+    }
+  ],
+  "counts": {
+    "added": 1,
+    "removed": 1,
+    "modified": 2,
+    "unchanged": 1,
+    "ignored": 1,
+    "baseObjects": 4,
+    "headObjects": 4
+  },
+  "byKind": {
+    "footprint": {
+      "added": 0,
+      "removed": 0,
+      "modified": 1
+    },
+    "pad": {
+      "added": 1,
+      "removed": 1,
+      "modified": 0
+    },
+    "symbol": {
+      "added": 0,
+      "removed": 0,
+      "modified": 1
+    }
+  },
+  "byReason": {
+    "moved": 1,
+    "renamed": 1
+  }
+}

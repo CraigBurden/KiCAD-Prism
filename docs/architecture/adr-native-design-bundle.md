@@ -1,6 +1,6 @@
 # ADR: Prism-native KiCad parser and the design bundle
 
-- **Status:** Accepted (2026-10-16)
+- **Status:** Accepted (2026-10-16); amended 2026-10-17 (C2, [`adr-native-design-bundle-amendment-c2.md`](adr-native-design-bundle-amendment-c2.md))
 - **Deciders:** Prism maintainers
 - **Supersedes:** the per-feature KiCad loading described in `docs/plans/kicad-monkey-*.md`
 - **Reference branch:** `feature/analytic-pack-spike` (analytic 3D tab, Simulation Studio, `board.prism` a1). It is reference only: code may be copied from it, it is never merged.
@@ -315,6 +315,7 @@ The CLI spec (`prism-kicad`):
 - `bundle verify <bundle>`
 - `bundle extract <bundle> <member>... -o <dir>`
 - `revision-key <repo> (--commit <sha> | --worktree) --project <rel> [--config <effective.json>]`, exactly one of `--commit` and `--worktree`
+- `compare --base <base.prism> --head <head.prism> -o <delta.json>`: Design Comparison's object diff over the two bundles' `board-objects` (amendment C2, cli-spec.md §5.6)
 - Full grammar, streams, exit codes (including 9, recorded content failure, and 10, project absent), limits and the backend integration: `native/contracts/prism/cli-spec.md`.
 - `version`
 
@@ -352,7 +353,7 @@ Every P-WP owns one module `native/src/rs/prism-projections/src/<name>.rs`, its 
 | WP | Consumer | Owns | Needs | Accept |
 |---|---|---|---|---|
 | C1 | Semantic index consumers:<br>• the identity endpoint serves the member;<br>• component import and the variants API (`variant_catalog_service`) read `assembly`;<br>• Release Studio's index digest;<br>• the API never builds an index | `semantic_index_service.py` (becomes a reader), `api/projects.py` index routes, `api/project_variants.py`, `variant_catalog_service.py`, `project_component_import_service.py` | P1, K | inspector, search, BOM table, variants and cross-probe unchanged (frontend tests plus a browser check on EDA-04903); identity served from a file with ETag; frontend types updated for a1's added fields |
-| C2 | Design Comparison:<br>• semantics from `semantic-index`;<br>• deltas, objects, components and route metrics from P2;<br>• stackup from P3;<br>• Node `ecad-diff` retired;<br>• Gerbers keyed by bundle key;<br>• overlay sources from `sources/` | `design_compare_*.py`, `fabrication_compare_service.py` (keying only), `backend/design-compare-parser/` (removal), `frontend/.../design-comparison/revision-sources.ts` | P1, P2, P3, K | full comparison test suite; same review groups on a recorded set of real pairs; first comparison of two cold commits no slower than today (stage `parse` only) |
+| C2 | Design Comparison:<br>• semantics from `semantic-index`;<br>• object deltas, native objects and components from `prism-kicad compare` over `board-objects` (amendment C2);<br>• route metrics from `route-metrics`;<br>• stackup from P3;<br>• Node `ecad-diff` retired;<br>• Gerbers keyed by bundle key;<br>• overlay sources from `sources/` | `design_compare_*.py`, `fabrication_compare_service.py` (keying only), `backend/design-compare-parser/` (removal), `frontend/.../design-comparison/revision-sources.ts`, `native/src/rs/prism-projections/src/compare/`, `native/src/rs/prism-kicad-cli/src/cmd_compare.rs`, the `compare` parity member | P1, P2, P3, K | full comparison test suite; same review groups on a recorded set of real pairs; first comparison of two cold commits no slower than today (stage `parse` only); `prism-kicad compare` equals today's `ecad-diff` on every pair of the comparison suite, the W0 prototype pairs and one corpus pair per project, after the documented divergences; two parse-ready EDA-04903 bundles compare in ≤ 2 s with a peak of ≤ 500 MB in the worker image |
 | C3 | Release Studio:<br>• projections from P3 and P4;<br>• the index from P1;<br>• kicad-cli steps read `sources/` and `refilled/`;<br>• the testpoint-only board and model rewrites stay KiCad-file writes, from bundle sources | `release_studio/projections.py`, `document_pipeline.py`, `closure*.py`, `source.py` | P1, P3, P4, K | dossier and evidence digests identical on the Release Studio fixtures; no `KiCadPcb` load remains |
 | C4a | System Builder interface: from P5, cached by revision key; drift and digests; the System Builder frontend readers of interface and placement fields | `backend/app/services/systems/` (interface, drift, digests), `api/systems*.py`, `frontend/src/types/system.ts`, `frontend/src/lib/systems-api.ts`, `placement/frames.ts`, `placement/mate.ts`, `findings-ui.tsx` | P3, P5, K | `test_system_e2e_replay` passes; identical interface digests on the System Builder fixtures |
 | C4b | System Builder 3D scene, after C5: from the bundle via `bundles.py` (`materialization`, `viewer/models/components.glb`, mid-plane from `stackup`, the same `bundleToBoard` frame); collision meshes from the bundle GLB; STEP export reads `sources/` | `backend/app/services/systems/` (bundles, collision meshes, step export), `frontend/src/features/system-builder/scene-3d-tab.tsx` loaders only | P3, V1, K, C5 | scene tests pass; same frames and mid-planes on the corpus systems; the `<prism-semantic-viewer mode="system">` placing flow works in a browser check |
@@ -392,6 +393,7 @@ Every P-WP owns one module `native/src/rs/prism-projections/src/<name>.rs`, its 
 4. kicad-cruncher's Rust is imported and owned. Release Studio keeps calling it as a tool.
 5. No Python bindings. The MCP server will call `prism-kicad`.
 6. `wn-geometer` and the Geometer C SDK remain pinned external dependencies. Replacing them is out of scope.
+7. Design Comparison's object diff is produced in Rust (`prism-kicad compare`); its semantic diff stays in Python (amendment C2, [`adr-native-design-bundle-amendment-c2.md`](adr-native-design-bundle-amendment-c2.md)).
 
 ## 11. Risks and gaps found in review
 
@@ -413,3 +415,4 @@ Every P-WP owns one module `native/src/rs/prism-projections/src/<name>.rs`, its 
 | G14 | KiCad version support | KiCad 9 and 10 formats, as the core supports today; the worker image's KiCad (10.0.x) for KiCad outputs; KiCad 11 work is owned here |
 | G15 | Contract evolution needs the TypeSpec/npm toolchain inside `native/` | imported with the rest (§4.1); runs under Node 24.22.0 |
 | G16 | `design.json` has no schema | owed; C6 adds the TypeSpec and JSON Schema (decisions.md) |
+| G17 | Today's Design Comparison change order comes from `localeCompare`, so it depends on the host's locale | `prism-kicad compare` orders changes in code point order, a documented divergence (amendment C2, D2) |

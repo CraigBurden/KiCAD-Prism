@@ -221,6 +221,12 @@ enum CliArgument {
 
   /** `--quiet`. */
   quiet,
+
+  /** `--base` of `compare` (cli-spec.md §5.6). */
+  base,
+
+  /** `--head` of `compare` (cli-spec.md §5.6). */
+  head,
 }
 
 /**
@@ -755,4 +761,58 @@ model CliProjectAbsentA0 {
 
   /** The full commit id the revision resolved to, for `revision-key --commit`. Absent for `--worktree` and for `bundle build`. */
   commit?: GitObjectId;
+}
+
+/** One side of a `compare` (cli-spec.md §5.6). */
+model CliCompareSide {
+  /** The bundle key of the side's bundle (cli-spec.md §5.1.4), computed from its manifest's revision key and generator id. */
+  bundle_key: Sha256Hex;
+
+  /** How many objects the side's `projections/board-objects.json` holds, review-only objects included: today's `objects`. */
+  objects: Count;
+}
+
+/** The change counts of a `compare`, equal to `counts` of the delta document written to `-o`. */
+model CliCompareCounts {
+  /** Objects only in `--head`. */
+  added: Count;
+
+  /** Objects only in `--base`. */
+  removed: Count;
+
+  /** Objects in both whose content differs. */
+  modified: Count;
+
+  /** Objects in both with equal content, the ignored ones included. */
+  unchanged: Count;
+
+  /** Objects matched across a UUID change or with only generated content changed. */
+  ignored: Count;
+
+  /** Objects in `--base`. */
+  base_objects: Count;
+
+  /** Objects in `--head`. */
+  head_objects: Count;
+}
+
+/**
+ * stdout of `compare` (exit 0), written after `-o` holds the
+ * `CompareObjectDeltaA0` document (cli-spec.md §5.6).
+ */
+@jsonSchema
+@id("urn:prism:schema:prism.cli.compare_result:a0")
+@extension("title", "prism-kicad compare result a0")
+model CliCompareResultA0 {
+  /** Document schema id. */
+  schema: "prism.cli.compare_result.a0";
+
+  /** The `--base` bundle. */
+  base: CliCompareSide;
+
+  /** The `--head` bundle. */
+  head: CliCompareSide;
+
+  /** The change counts of the written delta. */
+  counts: CliCompareCounts;
 }

@@ -17,7 +17,7 @@ mod prism_presence;
 
 use prism_presence::{is_nested_option_type, is_option_type};
 
-const SCHEMAS: [(&str, &str); 59] = [
+const SCHEMAS: [(&str, &str); 61] = [
     ("BoardPlotDocument.json", "board_plot_document.rs"),
     ("BoardPlotRequest.json", "board_plot_request.rs"),
     ("BoardPlotResult.json", "board_plot_result.rs"),
@@ -88,12 +88,17 @@ const SCHEMAS: [(&str, &str); 59] = [
     ("BoardObjectsA0.json", "prism_board_objects_a0.rs"),
     ("BundleManifestA2.json", "prism_bundle_manifest_a2.rs"),
     ("CliBuildResultA0.json", "prism_cli_build_result_a0.rs"),
+    ("CliCompareResultA0.json", "prism_cli_compare_result_a0.rs"),
     ("CliDiagnosticA0.json", "prism_cli_diagnostic_a0.rs"),
     ("CliErrorA0.json", "prism_cli_error_a0.rs"),
     ("CliExtractResultA0.json", "prism_cli_extract_result_a0.rs"),
     ("CliProjectAbsentA0.json", "prism_cli_project_absent_a0.rs"),
     ("CliVerifyReportA0.json", "prism_cli_verify_report_a0.rs"),
     ("CliVersionA0.json", "prism_cli_version_a0.rs"),
+    (
+        "CompareObjectDeltaA0.json",
+        "prism_compare_object_delta_a0.rs",
+    ),
     ("OccurrencesA0.json", "prism_occurrences_a0.rs"),
     ("PlacementsA0.json", "prism_placements_a0.rs"),
     ("ProjectA0.json", "prism_project_a0.rs"),

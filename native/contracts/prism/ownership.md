@@ -878,6 +878,7 @@ Every path a WP may edit in its wave, from `ownership.json` `/workPackages`. "AD
 - Flag: `PRISM_DESIGN_SOURCE_DESIGN_COMPARISON`.
 - ADR Owns: `design_compare_*.py`; `fabrication_compare_service.py (keying only)`; `backend/design-compare-parser/ (removal)`; `frontend/.../design-comparison/revision-sources.ts`.
 - Depends (ADR): K, P1, P2, P3; depends (this map): K, P1, P2, P3; merges after: —.
+- Amendment C2 (2026-10-17): the object diff moves to Rust as `prism-kicad compare`. Its contracts (`native/src/tsp/prism/compare-a0.tsp`, `CliCompareResultA0` in `cli-a0.tsp`, their schemas, Rust bindings and examples) land in the amendment's contracts PR, not in C2.
 - backend/design-compare-parser/ removal moves to R2: the legacy flag value still runs it until Wave 4 (§8), and its CI job, Dockerfile line and ci_changes area are L's/R2's files.
 
 | Path | Status | Note |
@@ -893,6 +894,9 @@ Every path a WP may edit in its wave, from `ownership.json` `/workPackages`. "AD
 | `backend/tests/test_fabrication_compare_service.py` | dev |  |
 | `docs/design-comparison/**` | dev |  |
 | `frontend/src/components/design-comparison/**` | dev | widened from revision-sources.ts; no other WP edits here |
+| `native/src/rs/prism-projections/src/compare.rs`, `native/src/rs/prism-projections/src/compare/**` | new | the object diff engine (amendment C2); `prism-projections/src/lib.rs` gains `pub mod compare;` through its owner |
+| `native/src/rs/prism-kicad-cli/src/cmd_compare.rs` | new | the `compare` command (cli-spec.md §5.6); the CLI's argument table and dispatch gain it through their owner |
+| `native/parity/divergences/compare.md`, the `compare` parity member's capture and pairs | new | divergence `compare-1` (code point order, amendment C2 D2) |
 
 ### C3: Release Studio (wave 3, ADR §9.6)
 
