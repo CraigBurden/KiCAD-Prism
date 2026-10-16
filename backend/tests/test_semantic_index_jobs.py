@@ -6,9 +6,6 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest import mock
 
-# Importing project_service first breaks the project_service <-> semantic_index_jobs
-# import cycle: project_service re-exports these names only once it is fully defined.
-from app.services import project_service  # noqa: F401  (import-order anchor)
 from app.services import job_service, semantic_index_jobs
 from app.services.job_runtime import PreparedArtifact
 

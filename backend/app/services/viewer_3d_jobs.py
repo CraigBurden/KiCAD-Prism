@@ -9,8 +9,15 @@ from app.services import semantic_index_service
 from app.services.job_artifact_service import job_artifacts
 from app.services.job_kinds import JobKind, repository_lock
 from app.services.job_runtime import JobContext, JobResult
-from app.services.project_service import _workspace_row_to_project
 from app.services.workspace_service import workspace
+
+
+def _workspace_row_to_project(row: dict):
+    # Looked up in project_service at call time: no import cycle whichever module is imported
+    # first, and a patch of project_service._workspace_row_to_project still reaches this job.
+    from app.services import project_service
+
+    return project_service._workspace_row_to_project(row)
 
 
 def webgpu_artifact_key(row: dict, commit: str | None, *, force: bool = False) -> str:
