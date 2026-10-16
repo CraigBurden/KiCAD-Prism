@@ -96,33 +96,47 @@ fn stamp_components(
                 continue;
             };
             if let Some(state) = state {
-                let flag = |key: &str| state.get(key).and_then(Value::as_bool).unwrap_or(false);
-                let fields = component
-                    .entry("fields")
-                    .or_insert_with(|| Value::Object(Map::new()));
-                if let Some(fields) = fields.as_object_mut() {
-                    fields.insert(
-                        "DNP".to_owned(),
-                        json!(if flag("dnp") { "Yes" } else { "No" }),
-                    );
-                    fields.insert(
-                        "In BOM".to_owned(),
-                        json!(if flag("excludeFromBom") { "No" } else { "Yes" }),
-                    );
-                }
+                stamp_component_fields(component, state);
             }
-            if let Some(refs) = component
-                .get_mut("schematicRefs")
-                .and_then(Value::as_array_mut)
-            {
-                for schematic_ref in refs {
-                    if let Some(id) = occurrence_id_for_ref(schematic_ref, placements)
-                        && let Some(object) = schematic_ref.as_object_mut()
-                    {
-                        object.insert("occurrenceId".to_owned(), json!(id));
-                    }
-                }
-            }
+            stamp_schematic_refs(component, placements);
+        }
+    }
+}
+
+/// `fields.DNP` and `fields["In BOM"]` from the reference's default state
+/// (`siv:997-1008`): `DNP` is the `dnp` flag, `In BOM` the negation of
+/// `excludeFromBom`.
+fn stamp_component_fields(component: &mut Map<String, Value>, state: &Value) {
+    let flag = |key: &str| state.get(key).and_then(Value::as_bool).unwrap_or(false);
+    let fields = component
+        .entry("fields")
+        .or_insert_with(|| Value::Object(Map::new()));
+    if let Some(fields) = fields.as_object_mut() {
+        fields.insert(
+            "DNP".to_owned(),
+            json!(if flag("dnp") { "Yes" } else { "No" }),
+        );
+        fields.insert(
+            "In BOM".to_owned(),
+            json!(if flag("excludeFromBom") { "No" } else { "Yes" }),
+        );
+    }
+}
+
+/// Each `schematicRefs[]`'s `occurrenceId` (`siv:1009`, `_occurrence_id_for_ref`
+/// :916-945).
+fn stamp_schematic_refs(component: &mut Map<String, Value>, placements: &Placements) {
+    let Some(refs) = component
+        .get_mut("schematicRefs")
+        .and_then(Value::as_array_mut)
+    else {
+        return;
+    };
+    for schematic_ref in refs {
+        if let Some(id) = occurrence_id_for_ref(schematic_ref, placements)
+            && let Some(object) = schematic_ref.as_object_mut()
+        {
+            object.insert("occurrenceId".to_owned(), json!(id));
         }
     }
 }

@@ -246,30 +246,15 @@ fn group_schematic_refs(graphical: &Map<String, Value>, placements: &Placements)
         (Bucket::Label, &labels),
         (Bucket::Junction, &junctions),
     ] {
-        for source_uuid in values {
-            let Some(source_placements) = placements.get(source_uuid) else {
-                unplaced.bucket_mut(bucket).push(source_uuid.clone());
-                continue;
-            };
-            for placement in source_placements {
-                let key = (
-                    placement.sheet_instance_path.clone(),
-                    placement.page.clone(),
-                );
-                let index = *by_key.entry(key).or_insert_with(|| {
-                    refs.push(SchematicRef::placed(placement));
-                    refs.len() - 1
-                });
-                let item = &mut refs[index];
-                let bucket_uuids = item.bucket_mut(bucket);
-                if !bucket_uuids.contains(source_uuid) {
-                    bucket_uuids.push(source_uuid.clone());
-                }
-                if bucket == Bucket::Label && counted_labels.contains(source_uuid) {
-                    item.label_instance_count += 1;
-                }
-            }
-        }
+        accumulate_bucket(
+            &mut refs,
+            &mut by_key,
+            &mut unplaced,
+            placements,
+            bucket,
+            values,
+            &counted_labels,
+        );
     }
 
     let mut out: Vec<Value> = refs.iter().map(ref_to_value).collect();
@@ -286,6 +271,44 @@ fn group_schematic_refs(graphical: &Map<String, Value>, placements: &Placements)
         out.push(ref_to_value(&unplaced));
     }
     out
+}
+
+/// Fold one bucket's source uuids into the refs, in first-seen order, grouping
+/// placed uuids by `(sheetInstancePath, page)` and collecting the rest in
+/// `unplaced` (semantic_index_service.py:748-774).
+fn accumulate_bucket(
+    refs: &mut Vec<SchematicRef>,
+    by_key: &mut HashMap<(String, String), usize>,
+    unplaced: &mut SchematicRef,
+    placements: &Placements,
+    bucket: Bucket,
+    values: &[String],
+    counted_labels: &BTreeSet<String>,
+) {
+    for source_uuid in values {
+        let Some(source_placements) = placements.get(source_uuid) else {
+            unplaced.bucket_mut(bucket).push(source_uuid.clone());
+            continue;
+        };
+        for placement in source_placements {
+            let key = (
+                placement.sheet_instance_path.clone(),
+                placement.page.clone(),
+            );
+            let index = *by_key.entry(key).or_insert_with(|| {
+                refs.push(SchematicRef::placed(placement));
+                refs.len() - 1
+            });
+            let item = &mut refs[index];
+            let bucket_uuids = item.bucket_mut(bucket);
+            if !bucket_uuids.contains(source_uuid) {
+                bucket_uuids.push(source_uuid.clone());
+            }
+            if bucket == Bucket::Label && counted_labels.contains(source_uuid) {
+                item.label_instance_count += 1;
+            }
+        }
+    }
 }
 
 /// A terminal's pin uuid is appended to the refs whose `sheetInstancePath`

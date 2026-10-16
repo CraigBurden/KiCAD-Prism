@@ -10,7 +10,7 @@
 //! net.
 
 use super::{State, string};
-use serde_json::{Value, json};
+use serde_json::{Map, Value, json};
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 
 /// Today's `SplitNetClaims` (semantic_index_nets.py:30-66): which schematic
@@ -254,29 +254,51 @@ fn absorb(state: &mut State, board_index: usize, schematic_index: usize, schemat
     let Some(board) = state.nets[board_index].as_object_mut() else {
         return;
     };
+    absorb_aliases(board, schematic_name, schematic_aliases);
+    absorb_sheets(board, schematic_sheets);
+    if string(board.get("netClass")).is_empty() {
+        board.insert("netClass".to_owned(), Value::String(schematic_class));
+    }
+    if let Some(refs) = board.get_mut("schematicRefs").and_then(Value::as_array_mut) {
+        refs.extend(schematic_refs);
+    }
+}
+
+/// The schematic name and aliases become the board net's aliases, skipping the
+/// board's own name and any repeat (semantic_index_nets.py:127-133).
+fn absorb_aliases(
+    board: &mut Map<String, Value>,
+    schematic_name: &str,
+    schematic_aliases: Vec<Value>,
+) {
     let board_name = board
         .get("name")
         .map(|value| string(Some(value)))
         .unwrap_or_default();
-    if let Some(aliases) = board
+    let Some(aliases) = board
         .entry("aliases".to_owned())
         .or_insert_with(|| json!([]))
         .as_array_mut()
+    else {
+        return;
+    };
+    for alias in std::iter::once(Value::String(schematic_name.to_owned())).chain(schematic_aliases)
     {
-        for alias in
-            std::iter::once(Value::String(schematic_name.to_owned())).chain(schematic_aliases)
+        let alias = string(Some(&alias));
+        if !alias.is_empty()
+            && alias != board_name
+            && !aliases
+                .iter()
+                .any(|value| value.as_str() == Some(alias.as_str()))
         {
-            let alias = string(Some(&alias));
-            if !alias.is_empty()
-                && alias != board_name
-                && !aliases
-                    .iter()
-                    .any(|value| value.as_str() == Some(alias.as_str()))
-            {
-                aliases.push(Value::String(alias));
-            }
+            aliases.push(Value::String(alias));
         }
     }
+}
+
+/// The schematic net's `sourceSheets` move over without repeats
+/// (semantic_index_nets.py:134-136).
+fn absorb_sheets(board: &mut Map<String, Value>, schematic_sheets: Vec<Value>) {
     board
         .entry("sourceSheets".to_owned())
         .or_insert_with(|| json!([]));
@@ -286,12 +308,6 @@ fn absorb(state: &mut State, board_index: usize, schematic_index: usize, schemat
                 sheets.push(sheet);
             }
         }
-    }
-    if string(board.get("netClass")).is_empty() {
-        board.insert("netClass".to_owned(), Value::String(schematic_class));
-    }
-    if let Some(refs) = board.get_mut("schematicRefs").and_then(Value::as_array_mut) {
-        refs.extend(schematic_refs);
     }
 }
 

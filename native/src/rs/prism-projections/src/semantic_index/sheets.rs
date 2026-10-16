@@ -23,6 +23,15 @@ pub(super) fn project(
     schematic: &SchematicModel<'_>,
     state: &mut State,
 ) -> Result<Placements, ProjectionError> {
+    let placements = build_sheet_instances(schematic, state);
+    fill_parent_pages(state);
+    fill_sheet_indexes(state);
+    Ok(placements)
+}
+
+/// One `sheetInstances` entry per realized occurrence, and the placements of
+/// its source items (semantic_index_service.py:589-708).
+fn build_sheet_instances(schematic: &SchematicModel<'_>, state: &mut State) -> Placements {
     let index = schematic.index;
     let mut placements = Placements::new();
 
@@ -78,8 +87,12 @@ pub(super) fn project(
         append_buses(&mut placements, definition, &placement, state);
     }
 
-    // `parentPage` after every instance, from the instance-path → page map
-    // (semantic_index_service.py:710-716).
+    placements
+}
+
+/// `parentPage` after every instance, from the instance-path → page map
+/// (semantic_index_service.py:710-716).
+fn fill_parent_pages(state: &mut State) {
     let pages_by_instance = state
         .sheet_instances
         .iter()
@@ -101,9 +114,11 @@ pub(super) fn project(
             object.insert("parentPage".to_owned(), parent_page);
         }
     }
+}
 
-    // `indexes.sheetInstanceByPath` and `indexes.busByUid`
-    // (semantic_index_service.py:867-874).
+/// `indexes.sheetInstanceByPath` and `indexes.busByUid`
+/// (semantic_index_service.py:867-874).
+fn fill_sheet_indexes(state: &mut State) {
     for (index, item) in state.sheet_instances.iter().enumerate() {
         if let Some(path) = item.get("sheetInstancePath").and_then(Value::as_str)
             && !path.is_empty()
@@ -121,8 +136,6 @@ pub(super) fn project(
             state.indexes.bus_by_uid.insert(uid.to_owned(), index);
         }
     }
-
-    Ok(placements)
 }
 
 /// `_string(value) or fallback` for the one non-null default today uses.

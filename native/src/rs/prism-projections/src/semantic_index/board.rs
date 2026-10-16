@@ -13,7 +13,7 @@
 use super::reconcile::SplitNetClaims;
 use super::{State, stable_uid, string};
 use crate::{BoardModel, ProjectionError};
-use prism_kicad_core::PcbNetRef;
+use prism_kicad_core::{PcbNetRef, PcbView};
 use serde_json::{Value, json};
 use std::collections::HashMap;
 
@@ -36,9 +36,16 @@ pub(super) fn project(
     claims: &mut SplitNetClaims,
 ) -> Result<(), ProjectionError> {
     let view = board.view;
+    let references = reference_properties(view)?;
+    let pads_by_footprint = pads_by_footprint(view)?;
+    project_footprints(view, &references, &pads_by_footprint, state, claims)?;
+    project_board_items(view, state)?;
+    Ok(())
+}
 
-    // `_property_map(footprint)` (:516-522) over each footprint, keeping the
-    // last `Reference` (a dict's later write wins) by footprint index.
+/// `_property_map(footprint)` (:516-522) over each footprint, keeping the last
+/// `Reference` (a dict's later write wins) by footprint index.
+fn reference_properties(view: &PcbView<'_>) -> Result<HashMap<usize, String>, ProjectionError> {
     let mut references: HashMap<usize, String> = HashMap::new();
     for property in view.footprint_properties() {
         let property = property.map_err(board_error)?;
@@ -46,13 +53,18 @@ pub(super) fn project(
             references.insert(property.footprint_index, property.value);
         }
     }
+    Ok(references)
+}
 
-    // Pads in board file order, grouped by their footprint; the view yields
-    // every pad once, in source order.
-    let mut pads_by_footprint: HashMap<usize, Vec<PadRecord>> = HashMap::new();
+/// Pads in board file order, grouped by their footprint; the view yields every
+/// pad once, in source order.
+fn pads_by_footprint(
+    view: &PcbView<'_>,
+) -> Result<HashMap<usize, Vec<PadRecord>>, ProjectionError> {
+    let mut grouped: HashMap<usize, Vec<PadRecord>> = HashMap::new();
     for pad in view.pads() {
         let pad = pad.map_err(board_error)?;
-        pads_by_footprint
+        grouped
             .entry(pad.footprint_index)
             .or_default()
             .push(PadRecord {
@@ -61,7 +73,18 @@ pub(super) fn project(
                 net: pad.net,
             });
     }
+    Ok(grouped)
+}
 
+/// Attach each footprint's component ref and pads
+/// (semantic_index_service.py:1068-1111).
+fn project_footprints(
+    view: &PcbView<'_>,
+    references: &HashMap<usize, String>,
+    pads_by_footprint: &HashMap<usize, Vec<PadRecord>>,
+    state: &mut State,
+    claims: &mut SplitNetClaims,
+) -> Result<(), ProjectionError> {
     let empty_pads = Vec::new();
     for (footprint_index, footprint) in view.footprints().enumerate() {
         let footprint = footprint.map_err(board_error)?;
@@ -87,8 +110,11 @@ pub(super) fn project(
             project_pad(state, claims, &reference, pad);
         }
     }
+    Ok(())
+}
 
-    // Segments, arcs, vias and zones, in that order (:1113-1127).
+/// Segments, arcs, vias and zones, in that order (:1113-1127).
+fn project_board_items(view: &PcbView<'_>, state: &mut State) -> Result<(), ProjectionError> {
     for segment in view.segments() {
         let segment = segment.map_err(board_error)?;
         record_board_item(
@@ -115,7 +141,6 @@ pub(super) fn project(
             &zone.net,
         );
     }
-
     Ok(())
 }
 
