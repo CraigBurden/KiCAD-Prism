@@ -683,7 +683,7 @@ jobs:
         # sources need KiCad's upgrade is skipped and named (the local job covers it). Each
         # producer's work package adds its member to PARITY_MEMBERS.
         env:
-          PARITY_MEMBERS: semantic-index,project,stackup,placements,system-interface
+          PARITY_MEMBERS: semantic-index,project,stackup,placements,system-interface,board-objects,occurrences,route-metrics
         run: |
           set -euo pipefail
           cargo build --locked -p prism-kicad-cli

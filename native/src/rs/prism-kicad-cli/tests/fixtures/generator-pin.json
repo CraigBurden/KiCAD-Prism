@@ -1,13 +1,13 @@
 {
-  "generator_digest": "efcbb776a94653f7ca51867f852c3012d76d8c2555a1b1d445d51ff1df1e584f",
+  "generator_digest": "e3ddccae177a2d64f21fd081684a61e905ae23b03449912fc9901f3a3f4d781d",
   "fixtures": {
     "fixtures/release-studio/cynthion": {
       "design.json": "bff2346eb8a07411618885de3afd57ee56d36fff2d04477e7023bb2e605494a4",
-      "projections/board-objects.json": "86f6d2529b855cad5628518d780d52b653922d8a450441a58f08272603cf65f0",
-      "projections/occurrences.json": "27ce897a486a584ec6580979b7ef5f09194821a38fce34fe2c6789c4cd3174f9",
+      "projections/board-objects.json": "3e4110624fe34a3622c329c1dcc190d7db530744def6aba6d43d6d56a9c2fe25",
+      "projections/occurrences.json": "1ff21d597b2d969948b3552139d27c0dd2f0ac2215dd828e15a4ab136a234563",
       "projections/placements.json": "0c6c9e5a26f56cd32ee282990a470a68fbb44767dd901f08ff65b09d028e7f19",
       "projections/project.json": "0bcadb23c804c9820b59df91fe71c46388efa25cead2699bc2fd31faadc57d72",
-      "projections/route-metrics.json": "c9e08126abd11f01518cd4949958639ceb02d343e5539d15f9d9f4441877fcf7",
+      "projections/route-metrics.json": "b6870e5c5c6bc96b90e521ac5409b361115a458b3c62e6a22563d0b1bc4bb057",
       "projections/semantic-index.json": "1e42eefbe39b7b15f6eb3c32a1f4eabf134f6230e740dacf1129ed59120d886c",
       "projections/stackup.json": "903e3bc543739aa39d0178c6770ade8fe094e30ee7b04872836a77d8a0a6001f",
       "projections/system-interface.json": "f4d250df53629d476e39a7d350c93137b80f9346a66604a7daf25cec9f56642e",
@@ -72,11 +72,11 @@
     },
     "fixtures/release-studio/synthetic": {
       "design.json": "193c723939046041954af0935dad0bd596d3566fc4e4e756d8d347dc25e33c43",
-      "projections/board-objects.json": "86f6d2529b855cad5628518d780d52b653922d8a450441a58f08272603cf65f0",
-      "projections/occurrences.json": "27ce897a486a584ec6580979b7ef5f09194821a38fce34fe2c6789c4cd3174f9",
+      "projections/board-objects.json": "236c90284b663abaae341d1b7ce454dec92dccad7d6a3a76e2cd29b5f5f17c56",
+      "projections/occurrences.json": "9b5649efad4aeffc90ea4bbdea7cef8a5cec0e255d1087cc0845e0e6551b430b",
       "projections/placements.json": "622687831be9f66ba79309360fa5eaf9a3baa0c91213589c3cbba641cf3e142d",
       "projections/project.json": "c50f854d1b70ad4e2e93d5dd5f8e18eadb26429fbd8b3c5659dd7905d61f78f9",
-      "projections/route-metrics.json": "c9e08126abd11f01518cd4949958639ceb02d343e5539d15f9d9f4441877fcf7",
+      "projections/route-metrics.json": "bcda87e20350798fef802e470605f5da94c33ae4d7d04b76accde97ca2eb0781",
       "projections/semantic-index.json": "de63dc4ada7a57fc6f691cb560d99ab59638fdac1bf807f59b44cbdd3c5a7c93",
       "projections/stackup.json": "bc229a2b5d85ee9dbfa6d52ab39db3c83e57e7dd6e1d37a40a0ac42c30bf3b54",
       "projections/system-interface.json": "5062a1bb120824ae96823541a2df70e8b33d522f5f38875658b28b12280b6714",
@@ -89,11 +89,11 @@
     },
     "fixtures/release-studio/usb-pd": {
       "design.json": "41300342f421803c99b603d17fe53ae8aeb82d682a23e3a3abb203f396799766",
-      "projections/board-objects.json": "86f6d2529b855cad5628518d780d52b653922d8a450441a58f08272603cf65f0",
-      "projections/occurrences.json": "27ce897a486a584ec6580979b7ef5f09194821a38fce34fe2c6789c4cd3174f9",
+      "projections/board-objects.json": "3b6f7dc095ff48642ff230f948b8837d3d06c0b9b20498f20c7f68798527f97f",
+      "projections/occurrences.json": "710972b15ab03dd93af4e507ee603e1adba6c25f2b73e95584ac38df18c13107",
       "projections/placements.json": "8bb5729b0855f00ce6e7bf7e1e6e89a07e68c1ba97ad6e7167e50591e7e6e8bd",
       "projections/project.json": "c883dcee01766a97f7074f7f1f208d2fc5df9b3262232f503143d1ddc324f930",
-      "projections/route-metrics.json": "c9e08126abd11f01518cd4949958639ceb02d343e5539d15f9d9f4441877fcf7",
+      "projections/route-metrics.json": "974f2416fa43bf1e056d566e20051feea8bc7351e0a0269e87ba6f5c341464dc",
       "projections/semantic-index.json": "3ac0993bf5659f9337ec6d16449d4821715a04367cb2a37994209bb8c9b230d4",
       "projections/stackup.json": "6ffcdbfbc61fb5d3d4fd90c7440d812dbe67695174f7b1fc868e6fe64c249ea0",
       "projections/system-interface.json": "f5c3f6197598b7270f79bf6563fa7b32f30c07d6268e2b4852bbacf3a6b2d9d1",
@@ -110,8 +110,8 @@
     },
     "backend/tests/fixtures/design_variants/case_fold": {
       "design.json": "ae5c6cbec49638bfb51c0d0a1e6912493afd8180349b80d0eeb7104aa6a4dcdd",
-      "projections/board-objects.json": "86f6d2529b855cad5628518d780d52b653922d8a450441a58f08272603cf65f0",
-      "projections/occurrences.json": "27ce897a486a584ec6580979b7ef5f09194821a38fce34fe2c6789c4cd3174f9",
+      "projections/board-objects.json": "946a25b23913401e10f362e8d5f4610452ed99cf274ce2a120edccdac8aa7a0c",
+      "projections/occurrences.json": "3f4eb9d2e652cf1691145f6b6beb4d2699ba53f1e55613386cce9512519781d7",
       "projections/placements.json": "bfc88c28a6a9109ddc9d8027f46b21800f6b194e697307d43983c1f17367fa09",
       "projections/project.json": "cd466a2449d643f1b6fb7b25e7a39b012924619a5b2b5e2a74f4c76891387b5a",
       "projections/route-metrics.json": "c9e08126abd11f01518cd4949958639ceb02d343e5539d15f9d9f4441877fcf7",
@@ -125,10 +125,10 @@
       "viewer/models/components.glb": "583b42e28a5909645c807b3e117f65d466eea57f3598ed55b665622527a81b92"
     },
     "backend/tests/fixtures/design_variants/kicad11_tokens": {
-      "bundle.json": "62a157e48a59d38ec8941f8106d8a20d5f6826a451fde50182cae80a080a3c4b",
+      "bundle.json": "9e3e8fb85ad6935d04563d9ac37caea2dfc368022cbec7aabf7a425e96cd5187",
       "design.json": "897f59674825ebe8590525120cb08ac08e15accdd21fc412fce1f4345820d017",
-      "projections/board-objects.json": "86f6d2529b855cad5628518d780d52b653922d8a450441a58f08272603cf65f0",
-      "projections/occurrences.json": "27ce897a486a584ec6580979b7ef5f09194821a38fce34fe2c6789c4cd3174f9",
+      "projections/board-objects.json": "624ef4196e69b43300cc20303cc23fa143eb20de4b723f7a7a6c4945a8884941",
+      "projections/occurrences.json": "db4fa985987a3e7c8892ec4e252ca341f542b0efdc507643bbdf4182a710f74b",
       "projections/placements.json": "90ca3c6bcc8afc6830338765a2361d57d85832ae3437766016f092505c81112d",
       "projections/project.json": "edc51ff939b6c562423d69b96178014501245649190861d93168f99086e7413e",
       "projections/route-metrics.json": "c9e08126abd11f01518cd4949958639ceb02d343e5539d15f9d9f4441877fcf7",
@@ -140,10 +140,10 @@
       "sources/k11.kicad_sch": "f8fddbc98634ddcd98498849c5d3301d42417d72f6048ce51da236ef569158bb"
     },
     "backend/tests/fixtures/design_variants/legacy_in_bom": {
-      "bundle.json": "1f2f2771a639b735718015ddb23d7a5255afd5940fc73e8a2a7bed268dd8a29e",
+      "bundle.json": "632e268bb9d3d2a431a8d0a97b6bb999425943ab9ca6090e84518222f9158f93",
       "design.json": "4253f45a0f5187e7ff0857b0d5265d69f563baa7f6f70ee0113e0e7c694f5ed3",
-      "projections/board-objects.json": "86f6d2529b855cad5628518d780d52b653922d8a450441a58f08272603cf65f0",
-      "projections/occurrences.json": "27ce897a486a584ec6580979b7ef5f09194821a38fce34fe2c6789c4cd3174f9",
+      "projections/board-objects.json": "50af79df6c0812cb0fa47f845ae046cded5c8fa5cbdb0ae3a4f374fa0fcd3ee6",
+      "projections/occurrences.json": "d490cc946fe5a0329a84cf47b1eb99dfc6f8a4ab16d7370c6fbd25688f5abac5",
       "projections/placements.json": "ea075debf6d3823f41343a09e4e3f5b1d05fa4431cdf015fefb1c0d6a30a28e8",
       "projections/project.json": "33db4fd6b02d5b60f90a6f05b70d1da1116e5e93e63622d944c45354a2c254cb",
       "projections/route-metrics.json": "c9e08126abd11f01518cd4949958639ceb02d343e5539d15f9d9f4441877fcf7",
@@ -154,15 +154,15 @@
       "sources/legacy.kicad_sch": "ee6a7e16efdba47dd519749764a4e7870e3f9438629b9497aef9ceec8ce68c2e"
     },
     "backend/tests/fixtures/design_variants/malformed": {
-      "bundle.json": "cf1c70b6882c8df2a57a7b42219ce927342c0f406161f3b30c5d915299509372",
+      "bundle.json": "03f4c1e5f1beb0c42610a9d8e2a2dbdd14a2534d2df66037c8209f5712837e05",
       "sources/broken.kicad_pcb": "1e81b1f4bf86a0b732bd593c46bdcd5202f0a44a59ef517eb464a008979641b0",
       "sources/broken.kicad_pro": "41eee78536b07d3ff81dbf62e186402272afbeb12362793965489d50e729eed6",
       "sources/broken.kicad_sch": "8be1f0272a62ebe5604a0bc442b4652c5ed2b368a64549e9fa9198d47fc13521"
     },
     "backend/tests/fixtures/design_variants/no_variants": {
       "design.json": "3d3f8f29b46932b1191b0d277c0f14f1784b01d8bcca6f0a313722a396902189",
-      "projections/board-objects.json": "86f6d2529b855cad5628518d780d52b653922d8a450441a58f08272603cf65f0",
-      "projections/occurrences.json": "27ce897a486a584ec6580979b7ef5f09194821a38fce34fe2c6789c4cd3174f9",
+      "projections/board-objects.json": "83c76e6689afbda8d77303e3874e194643bec87180409e3262e1d4099139e170",
+      "projections/occurrences.json": "05a00eaec69abf4d88b2f87e66040377f4286db890aa6f600e351d4f9fd5eb05",
       "projections/placements.json": "005795e819b588aae77363db2c892cfe6277ac0768f5e60ab75be2a46f58e58e",
       "projections/project.json": "6a6396b2e18bf86aa7f2f4f630fd3974a59d4cb3c9edf27efef567b3a11e9e0f",
       "projections/route-metrics.json": "c9e08126abd11f01518cd4949958639ceb02d343e5539d15f9d9f4441877fcf7",
@@ -177,8 +177,8 @@
     },
     "backend/tests/fixtures/design_variants/oracle": {
       "design.json": "1ef3df47e1b3693ac3bfc81d3dc8aad949bfeb2128ec111c68869735d828321c",
-      "projections/board-objects.json": "86f6d2529b855cad5628518d780d52b653922d8a450441a58f08272603cf65f0",
-      "projections/occurrences.json": "27ce897a486a584ec6580979b7ef5f09194821a38fce34fe2c6789c4cd3174f9",
+      "projections/board-objects.json": "22e966f7f2d1e1f7e40c1b845b3d9b98d9ed74416a114a37af59a4b9fea1a21d",
+      "projections/occurrences.json": "8c1ae9001afcf673028ff8bdab5ecf64aa2bfa8de2d2326318d076cef2fe82dc",
       "projections/placements.json": "f66f5a98c76a947220e745e43c952c8501fe6d725a92cbcb41de326fcfe225a6",
       "projections/project.json": "8f46441d74eaa077b502080a05083adc67086f9105eec65862516c5e7a0f0ac9",
       "projections/route-metrics.json": "c9e08126abd11f01518cd4949958639ceb02d343e5539d15f9d9f4441877fcf7",
@@ -196,8 +196,8 @@
     },
     "backend/tests/fixtures/design_variants/oracle_rev2": {
       "design.json": "9064aeee8945d2a67af2444b04f0269d22b8d4dc77871925c2b8d49692a98dfd",
-      "projections/board-objects.json": "86f6d2529b855cad5628518d780d52b653922d8a450441a58f08272603cf65f0",
-      "projections/occurrences.json": "27ce897a486a584ec6580979b7ef5f09194821a38fce34fe2c6789c4cd3174f9",
+      "projections/board-objects.json": "4abe4cd47571652b3dcd05e9993d3773e554d7534a62a2422a753772cb01dbdf",
+      "projections/occurrences.json": "30c4c05691b8524772617666485cc8bb80407fe21e0c2ef8cbb8d49327a38da3",
       "projections/placements.json": "dd1b24e1f3757d7e24181edc6718a6a0973c951e181fdac5c3fe3c4cd31db080",
       "projections/project.json": "8f46441d74eaa077b502080a05083adc67086f9105eec65862516c5e7a0f0ac9",
       "projections/route-metrics.json": "c9e08126abd11f01518cd4949958639ceb02d343e5539d15f9d9f4441877fcf7",
@@ -214,10 +214,10 @@
       "viewer/models/components.glb": "d2dbe40dac4c832cf4187c778f8bb5886467fd44d73968b7a5cdfd0e122cc9bd"
     },
     "backend/tests/fixtures/design_variants/rule_area": {
-      "bundle.json": "8186e9871ba73d30546999eb91b7be53855fee0df9f7cf507cc2e3fdc28887bc",
+      "bundle.json": "09848df950ec2be8589b6d93bd7d14023f7054f19b443f0a33e75c0c466971be",
       "design.json": "2de0c4e0cb3db17e06134b8777b973b96e51bdd9f3610e667ea37ff93155c055",
-      "projections/board-objects.json": "86f6d2529b855cad5628518d780d52b653922d8a450441a58f08272603cf65f0",
-      "projections/occurrences.json": "27ce897a486a584ec6580979b7ef5f09194821a38fce34fe2c6789c4cd3174f9",
+      "projections/board-objects.json": "669c3fde67190442283ec412a70c3c8242e70fa610f647e06a4e4474f6289751",
+      "projections/occurrences.json": "67cfb9336007feebe86d9d179a004cde4ba83d8cf9f2df2d6138b6321bfda9b1",
       "projections/placements.json": "ea075debf6d3823f41343a09e4e3f5b1d05fa4431cdf015fefb1c0d6a30a28e8",
       "projections/project.json": "75045a64c32b80ea0f7ab53c04d3b03141de2c90ecc464ecf028477ce4191cf5",
       "projections/route-metrics.json": "c9e08126abd11f01518cd4949958639ceb02d343e5539d15f9d9f4441877fcf7",
@@ -228,10 +228,10 @@
       "sources/rule_area.kicad_sch": "bb37936ceb5754eb1bd36b8a5668b16654f5de67ae0fa8cac2bb8929685b5287"
     },
     "backend/tests/fixtures/design_variants/sch_only": {
-      "bundle.json": "ed58d57af218dd50d0f071945311d952186de54222318938015404d4627c8c87",
+      "bundle.json": "fd52af2302aebe447f7c5f831886a8a85254e64d87f3256bd754ba60f185bf85",
       "design.json": "35df4bddbee739b40f9cfd16e92d4daf5ca1651d3e60eb7e2048f5a6e47e5795",
-      "projections/board-objects.json": "86f6d2529b855cad5628518d780d52b653922d8a450441a58f08272603cf65f0",
-      "projections/occurrences.json": "27ce897a486a584ec6580979b7ef5f09194821a38fce34fe2c6789c4cd3174f9",
+      "projections/board-objects.json": "cb320b1dcbf5c8ea542870ec0202d62ac72cfb41945e85e0b6197986eb0c0fcd",
+      "projections/occurrences.json": "410463b4f096e1a476d2f8694e5972f6c5680a63fb04e3aa870612f57b6efb67",
       "projections/placements.json": "ea075debf6d3823f41343a09e4e3f5b1d05fa4431cdf015fefb1c0d6a30a28e8",
       "projections/project.json": "c58341f691cf1f9b4c18f3bd0e2d697725487fc1d6fefaca49c059878bed6693",
       "projections/route-metrics.json": "c9e08126abd11f01518cd4949958639ceb02d343e5539d15f9d9f4441877fcf7",
@@ -243,11 +243,11 @@
     },
     "backend/tests/fixtures/system_builder/p2/sources/ambiguous/F0": {
       "design.json": "645ea2e9e8671df5f28f648ebbdd03876334d8438e6a3b953a302f785fbad823",
-      "projections/board-objects.json": "86f6d2529b855cad5628518d780d52b653922d8a450441a58f08272603cf65f0",
-      "projections/occurrences.json": "27ce897a486a584ec6580979b7ef5f09194821a38fce34fe2c6789c4cd3174f9",
+      "projections/board-objects.json": "b09a72b908df7a6c2aabe3693e7f3277d6130d197afd9689f9095aac70adf076",
+      "projections/occurrences.json": "4256837fd4d64b3d7ea582c27c4614e7812456fe4e699a970b7133007e8f2887",
       "projections/placements.json": "f037fc25e384b712d86dc33c04ee7371c09e6c36e84b22b8112e9773ba11695a",
       "projections/project.json": "3ab42cc6f6b0d8859a09018d65c4865788eec87fe9c63dcd8bc2282011e7f7fa",
-      "projections/route-metrics.json": "c9e08126abd11f01518cd4949958639ceb02d343e5539d15f9d9f4441877fcf7",
+      "projections/route-metrics.json": "a45dc90d28256738eb9655698fecb5782884b3b15f82267b4cd335ec7a63d8d0",
       "projections/semantic-index.json": "c7290fca67c504f52e9595c21cdf20025016cb87b7ee5b0b86f08ee84042d21b",
       "projections/stackup.json": "88d1a9315892c85b5330bb42330e213addba2f6a51756e40c34b2c45360a7dc6",
       "projections/system-interface.json": "dea908247206fb72bb51ca89f63b1ee011736bf5142a92202778054dc7d5da52",
@@ -265,11 +265,11 @@
     },
     "backend/tests/fixtures/system_builder/p2/sources/edge_a/F0": {
       "design.json": "e07da3e9111b02dd8c6bc8ee8dca930778ccee13e1edf22795bda7e53c559d90",
-      "projections/board-objects.json": "86f6d2529b855cad5628518d780d52b653922d8a450441a58f08272603cf65f0",
-      "projections/occurrences.json": "27ce897a486a584ec6580979b7ef5f09194821a38fce34fe2c6789c4cd3174f9",
+      "projections/board-objects.json": "aed195306e3705294a5ad47fe55afba3486abc90cf9d962f3ad4ba21c738bf2d",
+      "projections/occurrences.json": "2c3b1c20ac7cfae511cbb8097568caead9772e136af87dc88e2c5ea13a4595f0",
       "projections/placements.json": "e81cbdcd175021d3de6b62dd3b83bdfc605497178fe02ab929fa2ab101130aca",
       "projections/project.json": "e01289f4531d4be835935d6db817b7c393ce13afa02b7d0e9698595bd1622c07",
-      "projections/route-metrics.json": "c9e08126abd11f01518cd4949958639ceb02d343e5539d15f9d9f4441877fcf7",
+      "projections/route-metrics.json": "d2dd321a9c49fa37150fb9026753ddf5383e030b7c68ff303466c89e2b87fd73",
       "projections/semantic-index.json": "54a4594fc3088376f95d6580f897525ea75523d59e9c1b0472f9a49192a1496a",
       "projections/stackup.json": "88d1a9315892c85b5330bb42330e213addba2f6a51756e40c34b2c45360a7dc6",
       "projections/system-interface.json": "774b00c5a94c81678180a231dd441d30809b9fc8941b50f0e6983b199c10c59f",
@@ -287,11 +287,11 @@
     },
     "backend/tests/fixtures/system_builder/p2/sources/edge_b/F0": {
       "design.json": "8f337ff063a24795b829a272a71e8c8fc77896472b8750e2290f7759b4059c56",
-      "projections/board-objects.json": "86f6d2529b855cad5628518d780d52b653922d8a450441a58f08272603cf65f0",
-      "projections/occurrences.json": "27ce897a486a584ec6580979b7ef5f09194821a38fce34fe2c6789c4cd3174f9",
+      "projections/board-objects.json": "b39f54a187dc2cf6f1bb2cf4f3676040dbc8f2e7c5927473b0ab66bcc011afd5",
+      "projections/occurrences.json": "bf150c12a4afe50d6a35100fc254cbbc10cc07cf992dac07dc30db8454020558",
       "projections/placements.json": "85232f12ed86dd8d74fe8a060c82438919454b27bf36a180c0902f2b510f9710",
       "projections/project.json": "191b500c35e634555813f81b3979cf5d707e54f273a8f82e8b54032872af75ab",
-      "projections/route-metrics.json": "c9e08126abd11f01518cd4949958639ceb02d343e5539d15f9d9f4441877fcf7",
+      "projections/route-metrics.json": "d2dd321a9c49fa37150fb9026753ddf5383e030b7c68ff303466c89e2b87fd73",
       "projections/semantic-index.json": "e0196a58a0b779a250f16e40e563303e3010f7c7dc568d5ccc32410930512a6c",
       "projections/stackup.json": "88d1a9315892c85b5330bb42330e213addba2f6a51756e40c34b2c45360a7dc6",
       "projections/system-interface.json": "25c7bc0e9b047253bcbc8e08ff57b30a351786b8e07d0c9c55f2060b40c9eaae",
@@ -309,11 +309,11 @@
     },
     "backend/tests/fixtures/system_builder/p2/sources/mezz_base/F0": {
       "design.json": "be61c37261d5c93ab97abe31a64e1d4be4596ccbeff56983deb8e38c006ea909",
-      "projections/board-objects.json": "86f6d2529b855cad5628518d780d52b653922d8a450441a58f08272603cf65f0",
-      "projections/occurrences.json": "27ce897a486a584ec6580979b7ef5f09194821a38fce34fe2c6789c4cd3174f9",
+      "projections/board-objects.json": "a3b443862581de8f5e853425ef3a8f8d765a37e472dffc5d05a3f8d3a5b51f9d",
+      "projections/occurrences.json": "9bafdfa90ff1f6015ec08127ce18d1186902c7505bb0360311cd01519a7983e9",
       "projections/placements.json": "596356c403c43c61511f8b76ffe2c7e86d7b4c837fdedb013b7702f394f9d67c",
       "projections/project.json": "f3eea1ee614ee87bbca090cfcba8169ddd2d53b0991939d999e8ea12070bdf3a",
-      "projections/route-metrics.json": "c9e08126abd11f01518cd4949958639ceb02d343e5539d15f9d9f4441877fcf7",
+      "projections/route-metrics.json": "7e723eb9d15e12baf46c709927cffc30f69adcd5db7849586439403b2510f7d2",
       "projections/semantic-index.json": "57d857f3cc23b14cbd714768744b7b7207b894cc9d7cd7c3111a4575bd403b67",
       "projections/stackup.json": "88d1a9315892c85b5330bb42330e213addba2f6a51756e40c34b2c45360a7dc6",
       "projections/system-interface.json": "993732222a92893a23246ab7ba8effb5933b1584082ad0ebfa05144c41e2c6b6",
@@ -331,11 +331,11 @@
     },
     "backend/tests/fixtures/system_builder/p2/sources/mezz_top/F0": {
       "design.json": "e8ad05c3e81576da6aee41460f9fd1ac523645e4b790911aa1123fcba4e52c1c",
-      "projections/board-objects.json": "86f6d2529b855cad5628518d780d52b653922d8a450441a58f08272603cf65f0",
-      "projections/occurrences.json": "27ce897a486a584ec6580979b7ef5f09194821a38fce34fe2c6789c4cd3174f9",
+      "projections/board-objects.json": "56bbdea7eed68c88c02bd33d2b056355c7c1cba689405e47dfc986fc2fa1e275",
+      "projections/occurrences.json": "b35dfc062734539215c3cf27962ae3cef007313bcb93ae584e2aa08690f55750",
       "projections/placements.json": "4fa94e1ddd58709cf576003c371f1e53c3b9e0ee4f09c3304fc0b075b2365466",
       "projections/project.json": "d6321aad036d796b1537b4aa4c620112d7621cf3777f62af2d320b48f0bb9656",
-      "projections/route-metrics.json": "c9e08126abd11f01518cd4949958639ceb02d343e5539d15f9d9f4441877fcf7",
+      "projections/route-metrics.json": "e0359b3f6ebe90b9493b39e2d7bd8e6db2770e979b1a6f06a570a66a11b50402",
       "projections/semantic-index.json": "fc3f9bb7b1bc77432e5a463e858b47b39e19da574920a200c8d516b7decea3fa",
       "projections/stackup.json": "88d1a9315892c85b5330bb42330e213addba2f6a51756e40c34b2c45360a7dc6",
       "projections/system-interface.json": "b42b10aa77b8943fae27f44befd27471baaf4ea21ddae2cfed8b346cf90e2abb",
@@ -353,11 +353,11 @@
     },
     "backend/tests/fixtures/system_builder/p2/sources/mezz_top/F1": {
       "design.json": "77e443258049f44834a83b22bda29019fd6c17cc20214196e1a2236ffd02a825",
-      "projections/board-objects.json": "86f6d2529b855cad5628518d780d52b653922d8a450441a58f08272603cf65f0",
-      "projections/occurrences.json": "27ce897a486a584ec6580979b7ef5f09194821a38fce34fe2c6789c4cd3174f9",
+      "projections/board-objects.json": "f3cafb919d9b23bb831b0ff311324927bd2007d8abf5733235339a0dba9e93b7",
+      "projections/occurrences.json": "8db4f0c8cbc857f96e33f8153381894e5b97567331e55c124e490da5dffce24e",
       "projections/placements.json": "78f947288564edae43c89583d2d8a72e2503bc61f998aa54495ac2a4a866c04f",
       "projections/project.json": "d6321aad036d796b1537b4aa4c620112d7621cf3777f62af2d320b48f0bb9656",
-      "projections/route-metrics.json": "c9e08126abd11f01518cd4949958639ceb02d343e5539d15f9d9f4441877fcf7",
+      "projections/route-metrics.json": "e0359b3f6ebe90b9493b39e2d7bd8e6db2770e979b1a6f06a570a66a11b50402",
       "projections/semantic-index.json": "f54a6a966f1efcceff8f3104dc14fcc1affd95bf97e5765fe91875617f5d865f",
       "projections/stackup.json": "88d1a9315892c85b5330bb42330e213addba2f6a51756e40c34b2c45360a7dc6",
       "projections/system-interface.json": "7025a15f7d4be334fdaaafdebfb46bf75cc3c58eb5107af0b66cc6df88129048",
@@ -375,8 +375,8 @@
     },
     "backend/tests/fixtures/system_builder/sources/mini_obc/F0": {
       "design.json": "4378918018a5c20c855650fc7d3846481c4ee57bbe945de53e338af445d792ce",
-      "projections/board-objects.json": "86f6d2529b855cad5628518d780d52b653922d8a450441a58f08272603cf65f0",
-      "projections/occurrences.json": "27ce897a486a584ec6580979b7ef5f09194821a38fce34fe2c6789c4cd3174f9",
+      "projections/board-objects.json": "99f7f876e1f9cfff678089929d1e7df3368c50b051eb7515f9d079f3fd97dd34",
+      "projections/occurrences.json": "28940aa848403eb30d88b3686800d2f347b7797267de9ac8559ebfb6c6e0b91a",
       "projections/placements.json": "ef2348a79efa4ae28ed69c7a039d7c2983a4cf5d501b568388a55e0038bd13ba",
       "projections/project.json": "e03a5fc6b93550a2ca4275f5edc659d99e6e0c6f954a2900c1bbd74d5d8d9f08",
       "projections/route-metrics.json": "c9e08126abd11f01518cd4949958639ceb02d343e5539d15f9d9f4441877fcf7",
@@ -392,8 +392,8 @@
     },
     "backend/tests/fixtures/system_builder/sources/mini_obc/F1": {
       "design.json": "2abbbdc677e1d5f2f5733d68c7e072d831699083ac2c0d1f88a95a960b09c4d6",
-      "projections/board-objects.json": "86f6d2529b855cad5628518d780d52b653922d8a450441a58f08272603cf65f0",
-      "projections/occurrences.json": "27ce897a486a584ec6580979b7ef5f09194821a38fce34fe2c6789c4cd3174f9",
+      "projections/board-objects.json": "4920c5b64dc11089b295aa15da8cdcded1c79a60134bbeabcb4b06f742e3cf59",
+      "projections/occurrences.json": "28940aa848403eb30d88b3686800d2f347b7797267de9ac8559ebfb6c6e0b91a",
       "projections/placements.json": "021da6ebdf12dc23eeac68f42d6823a04f88176db45fa5ce72a9cd4adea15a13",
       "projections/project.json": "e03a5fc6b93550a2ca4275f5edc659d99e6e0c6f954a2900c1bbd74d5d8d9f08",
       "projections/route-metrics.json": "c9e08126abd11f01518cd4949958639ceb02d343e5539d15f9d9f4441877fcf7",
@@ -409,8 +409,8 @@
     },
     "backend/tests/fixtures/system_builder/sources/mini_obc/F11.1": {
       "design.json": "2abbbdc677e1d5f2f5733d68c7e072d831699083ac2c0d1f88a95a960b09c4d6",
-      "projections/board-objects.json": "86f6d2529b855cad5628518d780d52b653922d8a450441a58f08272603cf65f0",
-      "projections/occurrences.json": "27ce897a486a584ec6580979b7ef5f09194821a38fce34fe2c6789c4cd3174f9",
+      "projections/board-objects.json": "4920c5b64dc11089b295aa15da8cdcded1c79a60134bbeabcb4b06f742e3cf59",
+      "projections/occurrences.json": "28940aa848403eb30d88b3686800d2f347b7797267de9ac8559ebfb6c6e0b91a",
       "projections/placements.json": "021da6ebdf12dc23eeac68f42d6823a04f88176db45fa5ce72a9cd4adea15a13",
       "projections/project.json": "e03a5fc6b93550a2ca4275f5edc659d99e6e0c6f954a2900c1bbd74d5d8d9f08",
       "projections/route-metrics.json": "c9e08126abd11f01518cd4949958639ceb02d343e5539d15f9d9f4441877fcf7",
@@ -426,8 +426,8 @@
     },
     "backend/tests/fixtures/system_builder/sources/mini_obc/F11.2": {
       "design.json": "6e0494b11389b35c3003a2a770e08eb17467a41a914ae8c140d56c58d90f5333",
-      "projections/board-objects.json": "86f6d2529b855cad5628518d780d52b653922d8a450441a58f08272603cf65f0",
-      "projections/occurrences.json": "27ce897a486a584ec6580979b7ef5f09194821a38fce34fe2c6789c4cd3174f9",
+      "projections/board-objects.json": "66f366531190f8dda8b7339fe81d265aca8bdd07d7a5e9a2bc3f067954fca212",
+      "projections/occurrences.json": "28940aa848403eb30d88b3686800d2f347b7797267de9ac8559ebfb6c6e0b91a",
       "projections/placements.json": "021da6ebdf12dc23eeac68f42d6823a04f88176db45fa5ce72a9cd4adea15a13",
       "projections/project.json": "e03a5fc6b93550a2ca4275f5edc659d99e6e0c6f954a2900c1bbd74d5d8d9f08",
       "projections/route-metrics.json": "c9e08126abd11f01518cd4949958639ceb02d343e5539d15f9d9f4441877fcf7",
@@ -443,8 +443,8 @@
     },
     "backend/tests/fixtures/system_builder/sources/mini_obc/F2": {
       "design.json": "e12513804407f351ce7dabed0e719e567955c51ea4506d991adf99746bd414dd",
-      "projections/board-objects.json": "86f6d2529b855cad5628518d780d52b653922d8a450441a58f08272603cf65f0",
-      "projections/occurrences.json": "27ce897a486a584ec6580979b7ef5f09194821a38fce34fe2c6789c4cd3174f9",
+      "projections/board-objects.json": "04dd66d821ac65afe41143cbe7eeb82bf0ec32a2462fab1b15a52406b22a578b",
+      "projections/occurrences.json": "f9513e183c6716669d303e3e76973ee2e655cb3d552aea98801477b0accd8571",
       "projections/placements.json": "916b7c3205cb968e1b4b4c725183facd66a0b0745c2a577c7dfb069b247c6b3e",
       "projections/project.json": "e03a5fc6b93550a2ca4275f5edc659d99e6e0c6f954a2900c1bbd74d5d8d9f08",
       "projections/route-metrics.json": "c9e08126abd11f01518cd4949958639ceb02d343e5539d15f9d9f4441877fcf7",
@@ -460,8 +460,8 @@
     },
     "backend/tests/fixtures/system_builder/sources/mini_obc/F3": {
       "design.json": "11b4c4225c0bc19fedcc16a1e0a9a30dd4964c4a30aa111b8f7b4e1042f1e9c4",
-      "projections/board-objects.json": "86f6d2529b855cad5628518d780d52b653922d8a450441a58f08272603cf65f0",
-      "projections/occurrences.json": "27ce897a486a584ec6580979b7ef5f09194821a38fce34fe2c6789c4cd3174f9",
+      "projections/board-objects.json": "57871fee8ec6705385c208787ba10e91505d6dd2012e4d30ce9daf4bd50de19b",
+      "projections/occurrences.json": "4c5f2cf9d8c957b9f404540980f70aa7e1a21e0c4cb90330ab9807f82b29918e",
       "projections/placements.json": "9dffc76c4917bb669ad931b4b2e6708da0a54bdee5a7a1ce3fe8b891d765addc",
       "projections/project.json": "e03a5fc6b93550a2ca4275f5edc659d99e6e0c6f954a2900c1bbd74d5d8d9f08",
       "projections/route-metrics.json": "c9e08126abd11f01518cd4949958639ceb02d343e5539d15f9d9f4441877fcf7",
@@ -477,8 +477,8 @@
     },
     "backend/tests/fixtures/system_builder/sources/mini_obc/F4": {
       "design.json": "230dfa6f45ef869751f6fa0204b3a8c693e3c6a050eb23178e9bcf4d94f4c962",
-      "projections/board-objects.json": "86f6d2529b855cad5628518d780d52b653922d8a450441a58f08272603cf65f0",
-      "projections/occurrences.json": "27ce897a486a584ec6580979b7ef5f09194821a38fce34fe2c6789c4cd3174f9",
+      "projections/board-objects.json": "a3f849d29b343adc0b7e0ad24455e2a63b0af0e0f63acbd2ec4708f6e1fdb381",
+      "projections/occurrences.json": "e6a9febd55f73558d8103bb88ebbcc6b198d0608cf6966d63c7402d37a1b87ad",
       "projections/placements.json": "eab25aa731ac1416fe32240246e2812d787d2eb54ece72b0a1c8fd875b007430",
       "projections/project.json": "e03a5fc6b93550a2ca4275f5edc659d99e6e0c6f954a2900c1bbd74d5d8d9f08",
       "projections/route-metrics.json": "c9e08126abd11f01518cd4949958639ceb02d343e5539d15f9d9f4441877fcf7",
@@ -494,8 +494,8 @@
     },
     "backend/tests/fixtures/system_builder/sources/mini_obc/F5": {
       "design.json": "2bd8da77ee813d9b390bd6fb741649d05480071c30bbb303b395feb088a9517d",
-      "projections/board-objects.json": "86f6d2529b855cad5628518d780d52b653922d8a450441a58f08272603cf65f0",
-      "projections/occurrences.json": "27ce897a486a584ec6580979b7ef5f09194821a38fce34fe2c6789c4cd3174f9",
+      "projections/board-objects.json": "ebbb11b417e36f3d8782f69787cf3b4e40f6ef5cda28d20b15c5e2032b93357a",
+      "projections/occurrences.json": "28940aa848403eb30d88b3686800d2f347b7797267de9ac8559ebfb6c6e0b91a",
       "projections/placements.json": "e74cf9892a8f5aac4783cfb7c368826335d8122785b21c7023dabc3e74dd25a6",
       "projections/project.json": "575652513600ba37781e756bf3abcc052bf06f99991f33042195bce2f1dd4c75",
       "projections/route-metrics.json": "c9e08126abd11f01518cd4949958639ceb02d343e5539d15f9d9f4441877fcf7",
@@ -511,8 +511,8 @@
     },
     "backend/tests/fixtures/system_builder/sources/mini_obc/F6": {
       "design.json": "4378918018a5c20c855650fc7d3846481c4ee57bbe945de53e338af445d792ce",
-      "projections/board-objects.json": "86f6d2529b855cad5628518d780d52b653922d8a450441a58f08272603cf65f0",
-      "projections/occurrences.json": "27ce897a486a584ec6580979b7ef5f09194821a38fce34fe2c6789c4cd3174f9",
+      "projections/board-objects.json": "99f7f876e1f9cfff678089929d1e7df3368c50b051eb7515f9d079f3fd97dd34",
+      "projections/occurrences.json": "28940aa848403eb30d88b3686800d2f347b7797267de9ac8559ebfb6c6e0b91a",
       "projections/placements.json": "ef2348a79efa4ae28ed69c7a039d7c2983a4cf5d501b568388a55e0038bd13ba",
       "projections/project.json": "e03a5fc6b93550a2ca4275f5edc659d99e6e0c6f954a2900c1bbd74d5d8d9f08",
       "projections/route-metrics.json": "c9e08126abd11f01518cd4949958639ceb02d343e5539d15f9d9f4441877fcf7",
@@ -528,8 +528,8 @@
     },
     "backend/tests/fixtures/system_builder/sources/mini_obc/F7": {
       "design.json": "c7b020e51ade55482b522c8cc9e0bee695b40ce425a4e4fa1283b6cd97e3550a",
-      "projections/board-objects.json": "86f6d2529b855cad5628518d780d52b653922d8a450441a58f08272603cf65f0",
-      "projections/occurrences.json": "27ce897a486a584ec6580979b7ef5f09194821a38fce34fe2c6789c4cd3174f9",
+      "projections/board-objects.json": "b8ce0b17edfe2be325f13100ce1a88af4f69c36f0c01656d4172d9c86e532cd9",
+      "projections/occurrences.json": "28940aa848403eb30d88b3686800d2f347b7797267de9ac8559ebfb6c6e0b91a",
       "projections/placements.json": "31f4ecb42eb84f73446a81f4bf13e848321d4e91917c19c0c4e05fd4d0e64dfc",
       "projections/project.json": "e03a5fc6b93550a2ca4275f5edc659d99e6e0c6f954a2900c1bbd74d5d8d9f08",
       "projections/route-metrics.json": "c9e08126abd11f01518cd4949958639ceb02d343e5539d15f9d9f4441877fcf7",
@@ -545,8 +545,8 @@
     },
     "backend/tests/fixtures/system_builder/sources/mini_obc/F8": {
       "design.json": "9b7b554b65c27903ffb31b3eefe7e589234c4b5240b898e1c71c5db83661e678",
-      "projections/board-objects.json": "86f6d2529b855cad5628518d780d52b653922d8a450441a58f08272603cf65f0",
-      "projections/occurrences.json": "27ce897a486a584ec6580979b7ef5f09194821a38fce34fe2c6789c4cd3174f9",
+      "projections/board-objects.json": "84a461356b6ffb28cea3c2fdadde82057806a69cc0a6b2023711bbbb5f350b0a",
+      "projections/occurrences.json": "28940aa848403eb30d88b3686800d2f347b7797267de9ac8559ebfb6c6e0b91a",
       "projections/placements.json": "ef2348a79efa4ae28ed69c7a039d7c2983a4cf5d501b568388a55e0038bd13ba",
       "projections/project.json": "e03a5fc6b93550a2ca4275f5edc659d99e6e0c6f954a2900c1bbd74d5d8d9f08",
       "projections/route-metrics.json": "c9e08126abd11f01518cd4949958639ceb02d343e5539d15f9d9f4441877fcf7",
@@ -562,8 +562,8 @@
     },
     "backend/tests/fixtures/system_builder/sources/mini_obc/F9": {
       "design.json": "8919df43f0b1b3f864299dfb55fbba321794d0a88f1f3e38a6035edcb3797b20",
-      "projections/board-objects.json": "86f6d2529b855cad5628518d780d52b653922d8a450441a58f08272603cf65f0",
-      "projections/occurrences.json": "27ce897a486a584ec6580979b7ef5f09194821a38fce34fe2c6789c4cd3174f9",
+      "projections/board-objects.json": "d5123013a9934b9fddbac82d5e78bf255a35d4431f81b2a9adaf10c35e0e159f",
+      "projections/occurrences.json": "0c0f315e6b34c6dd5241f3e801015f0e62648ebb79fad8c2b6c3f9fc432bc79a",
       "projections/placements.json": "4564f7e3b130daf5418eaf2c3406189c6395acf96500dde0801b15945194cda8",
       "projections/project.json": "e03a5fc6b93550a2ca4275f5edc659d99e6e0c6f954a2900c1bbd74d5d8d9f08",
       "projections/route-metrics.json": "c9e08126abd11f01518cd4949958639ceb02d343e5539d15f9d9f4441877fcf7",
@@ -578,10 +578,10 @@
       "viewer/models/components.glb": "0c71008fdfaa5afb747e85098f5e8e005ad20a515022c2e95a1d3eb6f314efa1"
     },
     "backend/tests/fixtures/system_builder/sources/mini_payload/F0": {
-      "bundle.json": "5e7cc4bca80f2170c010a01f4d103a39370f375b617bfeadcd8fc285f4a53b0e",
+      "bundle.json": "fd9d080054eeaf5cb5bd461079ed64a57bb5ec62da0ef189f5d487989a951ee1",
       "design.json": "c9faf8aa1fa8b6a1143056df0e1502b0cdfcf4a86b2e98b8e8e3d5beeef2793a",
-      "projections/board-objects.json": "86f6d2529b855cad5628518d780d52b653922d8a450441a58f08272603cf65f0",
-      "projections/occurrences.json": "27ce897a486a584ec6580979b7ef5f09194821a38fce34fe2c6789c4cd3174f9",
+      "projections/board-objects.json": "7e404e9c026479f7f0b970545531298fa6e4cfaa9fc31a7094f12715b8aa99af",
+      "projections/occurrences.json": "3b88ea110a64d2d2e288a86d1d1bf872ea012857f32426d4ee0763ec55599d6c",
       "projections/placements.json": "ea075debf6d3823f41343a09e4e3f5b1d05fa4431cdf015fefb1c0d6a30a28e8",
       "projections/project.json": "be71768a51efbac3ce5eacc048109fa4c6519471f0e707858b938f35d7b4e358",
       "projections/route-metrics.json": "c9e08126abd11f01518cd4949958639ceb02d343e5539d15f9d9f4441877fcf7",
@@ -594,8 +594,8 @@
     },
     "backend/tests/fixtures/system_builder/sources/mini_power/F0": {
       "design.json": "3efd3707e21e78556f36c7babcb5dfc129a596afd0545ac0fd9ee5eeacc3e70d",
-      "projections/board-objects.json": "86f6d2529b855cad5628518d780d52b653922d8a450441a58f08272603cf65f0",
-      "projections/occurrences.json": "27ce897a486a584ec6580979b7ef5f09194821a38fce34fe2c6789c4cd3174f9",
+      "projections/board-objects.json": "fb2ea74ccb1e0092dd1f38c5aa1f2c1a62f328e48c1187af74b29fae945a76c3",
+      "projections/occurrences.json": "561f09f9973a3cbbb6ac76a3d7a7841920c6c94a64540f165fb41392ce9e0112",
       "projections/placements.json": "53c7a083c897a9d3a548f1c13202c5eb23a98f6291d7a021573caed9a1e5ec68",
       "projections/project.json": "f50bc8b8d5c478e1ec283f86a9993e6e243098264260a86f099562a27f4703b1",
       "projections/route-metrics.json": "c9e08126abd11f01518cd4949958639ceb02d343e5539d15f9d9f4441877fcf7",
@@ -610,8 +610,8 @@
     },
     "backend/tests/fixtures/system_builder/sources/mini_power/F10": {
       "design.json": "be0424a466d1ec7984793ceba6678dfeec6d0b402652b4becc6f0238e8d2a867",
-      "projections/board-objects.json": "86f6d2529b855cad5628518d780d52b653922d8a450441a58f08272603cf65f0",
-      "projections/occurrences.json": "27ce897a486a584ec6580979b7ef5f09194821a38fce34fe2c6789c4cd3174f9",
+      "projections/board-objects.json": "36170e8f30364da118522e0c9a5a74090fe2efea32554158e00d3e02bb46fc30",
+      "projections/occurrences.json": "b593176efaf45060a93d7bb870d04c8b00d3e9946d59ac17e308c4808f15e087",
       "projections/placements.json": "7338862020614fb5107ac2aaffd611284b37f4330b773189e9b7d5d30dd59a7c",
       "projections/project.json": "f50bc8b8d5c478e1ec283f86a9993e6e243098264260a86f099562a27f4703b1",
       "projections/route-metrics.json": "c9e08126abd11f01518cd4949958639ceb02d343e5539d15f9d9f4441877fcf7",
@@ -628,111 +628,111 @@
   "per_target": {
     "aarch64-macos": {
       "fixtures/release-studio/cynthion": {
-        "bundle.json": "7b202462163f3da7b16022b65dd0c78beeaf59d1848b16287b89493c73d64d95",
+        "bundle.json": "7e6ab556fb83d2603bf367a7786914d2499bba1f1c0a4534f8229c30ed6cbc2d",
         "materialization/board.kmpack": "ad1825ca4e339d22c402c8bc04b87f26b6bc69bdc710eae63b59e3809a9929dc"
       },
       "fixtures/release-studio/synthetic": {
-        "bundle.json": "4e536e50b2b3f3593f5346a07cda101878f0baa03bc3aeb75bb93e9206f06c7f",
+        "bundle.json": "3d0155e06113bbd1aad4b16667af282f33017c9349153b489d86505385d32449",
         "materialization/board.kmpack": "dcc62fb087ffc4ae052a8ab1186f5add54dfbdfbfd7ff556381c6522a8f70a21"
       },
       "fixtures/release-studio/usb-pd": {
-        "bundle.json": "81562cf8814f369a2face628290008cea5e5d134354c4bd5b1a06bc5e04b0b7d",
+        "bundle.json": "53db56d7a2b75ea867d33fd90930bb521cf7267a03d7eca22544e55c229e403e",
         "materialization/board.kmpack": "273028521ffbb0130b21e001092c020e22ed655c67eef89c800a23b996a02f64"
       },
       "backend/tests/fixtures/design_variants/case_fold": {
-        "bundle.json": "66fad8ca9598d5becfbdfe3170e0ddbb855b43810a3fd0059623350018150a4c",
+        "bundle.json": "958f883ba0b5c498014da193de3e16ae72ac11745ed77ec5d6aa32e11b980c95",
         "materialization/board.kmpack": "5875c3b37ea59a7dd58a900470459c403f9d24ade2cbbcc43347fb1f32b34753"
       },
       "backend/tests/fixtures/design_variants/no_variants": {
-        "bundle.json": "58914e8025d837e8eb39c5e9381ef41373bd5b848b25168fd5ac9b806688755d",
+        "bundle.json": "4e016c0e849c51d3e9ca636b2249a0a50a30479d7ea0dfff385486263eec7e95",
         "materialization/board.kmpack": "09a8c152c28696c7e7525aae941914e756c91358df58efa84aa14dfc229cf1af"
       },
       "backend/tests/fixtures/design_variants/oracle": {
-        "bundle.json": "52e2cc769528d7f10da4d7bbed742fa9ee6517cfb2fbc8bc39d3586ce406919a",
+        "bundle.json": "b0a4d1af96f05fa584c3b720b47e93ccbf780c81d153dc904129155faca387d6",
         "materialization/board.kmpack": "c0858822e4975fd9f11567500aaf9f06726f827c68dd8688818e14b22a88dbc6"
       },
       "backend/tests/fixtures/design_variants/oracle_rev2": {
-        "bundle.json": "af4e1291ddc9004501f18c6b682e15616931696d4ce43a43ec2b18d6da6340b9",
+        "bundle.json": "b70ab2aa054ffd490b8bccc5b30f029a69ef85f78529a16513d3fdfd1729e776",
         "materialization/board.kmpack": "c0cc54a7f8bbb8aa9b1ac9267f98c909011c6e9e1ad7b98feb1864d6f2b02df3"
       },
       "backend/tests/fixtures/system_builder/p2/sources/ambiguous/F0": {
-        "bundle.json": "48783a541d7d43b340882c263d7c4fa1cade53000d4fa92ce05120b6c2eb61a0",
+        "bundle.json": "d91a05cb14556004845b26831ff3bbe88d19f5c58f144ba6199ae44e924b4b9c",
         "materialization/board.kmpack": "ab42c03e8dfdd22e0deec47cd2d5ac99bee3a6f6799ea1ec627d7394dd688055"
       },
       "backend/tests/fixtures/system_builder/p2/sources/edge_a/F0": {
-        "bundle.json": "807daa5452e7c4a310c34f93e617c133fc6532b57ab1ac5cf3ba8bdb579bae3b",
+        "bundle.json": "606da89ef505f5229ef16065731141b147e39f1622a4526a6070d613da6d9961",
         "materialization/board.kmpack": "74d6175f0c752a10d03ed4945f4dd3baddf8e1fa4ab2a4c10ab425ea1d7c384f"
       },
       "backend/tests/fixtures/system_builder/p2/sources/edge_b/F0": {
-        "bundle.json": "135b30a27b97b9da6c6d261d223d821bf70d2201691f115788b1239263dcdb3b",
+        "bundle.json": "4629d0321787619f49b3907b3fdd1b10968652bd4f2e36b18a5e8c4563300772",
         "materialization/board.kmpack": "d881a29366e3725dd0f66c69ac04d5cbf0990606db4940569eb1bd0d4cb7b348"
       },
       "backend/tests/fixtures/system_builder/p2/sources/mezz_base/F0": {
-        "bundle.json": "76e8a02b4c7e6a98d4b96566ca80078fc631675335e5550882a9897048bc9b9f",
+        "bundle.json": "064737cb70d9d0664f1c201f9c6ff630ffe3be9bd76cee254a850157812d460f",
         "materialization/board.kmpack": "711fd02db548dd434683a8ea34ba5b232e8de2f6c542063746df4e8d97377b21"
       },
       "backend/tests/fixtures/system_builder/p2/sources/mezz_top/F0": {
-        "bundle.json": "7750761202ed759f411b5eb7094ef2ad79b83c34c23eadc9e852b5a3b4a42876",
+        "bundle.json": "e849b9f69405228ee4b523d012bc3f5f3d0c199723f00ac41fee84d6cb1bd263",
         "materialization/board.kmpack": "f654bc46427b6fa382291786ea53d629c635af3d1791e3123d597d2498a0f708"
       },
       "backend/tests/fixtures/system_builder/p2/sources/mezz_top/F1": {
-        "bundle.json": "ba3f7bcd3f439575e9be355c3668983c88a35f1084da076ad57ed703e1ab2ab1",
+        "bundle.json": "fc13425f9a137cfb2fc37d089287ceabd8193f4a681f1df94b85b29035b4f572",
         "materialization/board.kmpack": "afc0a20640a5fa68614a9dbf9afb26c40ee8fdd8a25d3bd539e83cb528982e7d"
       },
       "backend/tests/fixtures/system_builder/sources/mini_obc/F0": {
-        "bundle.json": "0643c4f1ad47d15de602a7c63e8bbcd730e958a218b06a32260ab686ca99d4fa",
+        "bundle.json": "94402eba4930c88b2f2c4aae10946e581c72fee174356c9f88414bc889f8873b",
         "materialization/board.kmpack": "9d07cef56acbbef4edca6488c36c3b9e7935c36690b9be2f17fec2ab2563485e"
       },
       "backend/tests/fixtures/system_builder/sources/mini_obc/F1": {
-        "bundle.json": "8a6f4bf81249237ba7c3f1497ec930301fe28b2e8340974ec89a4d1185ddf8b7",
+        "bundle.json": "bc0ca3ff8253c759c575997d720a1b8123af3e33faf7041b99cd033c86a7aa19",
         "materialization/board.kmpack": "cb1fa302fd66e99b90d6d3188b66c0e651f6f2d58e5c36324c024e36c9ca8798"
       },
       "backend/tests/fixtures/system_builder/sources/mini_obc/F11.1": {
-        "bundle.json": "8a6f4bf81249237ba7c3f1497ec930301fe28b2e8340974ec89a4d1185ddf8b7",
+        "bundle.json": "bc0ca3ff8253c759c575997d720a1b8123af3e33faf7041b99cd033c86a7aa19",
         "materialization/board.kmpack": "cb1fa302fd66e99b90d6d3188b66c0e651f6f2d58e5c36324c024e36c9ca8798"
       },
       "backend/tests/fixtures/system_builder/sources/mini_obc/F11.2": {
-        "bundle.json": "b418de52bdd57b9f6174eed153e8a237699c5227e154d273a01e10791b26ea00",
+        "bundle.json": "58ca771bc19152081d35d684a23ca38313cea1f036e28ba574b58b8046a9997c",
         "materialization/board.kmpack": "9855dc24126d58aa44dc74139d7f8d9f2dee124dd1add06969facdbbafd13255"
       },
       "backend/tests/fixtures/system_builder/sources/mini_obc/F2": {
-        "bundle.json": "59730c0a6955e9016990b62169a9e0e20e356e8693b4a78b479d684312b2cd01",
+        "bundle.json": "4a9bbe64732854e72d1047297670211a5ed1673b56632d32d5a915866ab0db51",
         "materialization/board.kmpack": "9f68f8807385848f60260b233a193eab16242721746e379c039e7a5b1fd99a23"
       },
       "backend/tests/fixtures/system_builder/sources/mini_obc/F3": {
-        "bundle.json": "7ef4badb2644d71b399e115786a1a18bcd5fdc346b6623889b7fcb0d98112eaf",
+        "bundle.json": "14a399c048b8045cd671b1907d25e954bfbcf86f919d8102e95149b6b0f103ef",
         "materialization/board.kmpack": "816791ca34d63ddd6c383165e4840f1e42036ac7bcf1f863e0a5049ff72076e3"
       },
       "backend/tests/fixtures/system_builder/sources/mini_obc/F4": {
-        "bundle.json": "e9ab24a32aef40e55d74d9384db8572165227610b6761b381d71b2e5be5c58bd",
+        "bundle.json": "1e629590d188db0ba06647a01bd332d7d7989d90487d174746445e18c956c4c3",
         "materialization/board.kmpack": "72701ebe8c21739ddc8448ef6cc389be11b3fa2c4deb630ad190de9e1d9e3285"
       },
       "backend/tests/fixtures/system_builder/sources/mini_obc/F5": {
-        "bundle.json": "74baba756a3b04c5e6b2d915fd102c80dda4ec0a6fc5073520df657a0f4e0fcf",
+        "bundle.json": "be3c30ba4652b5cabb9a45221483baa3ac94cc30540628dde1260903975ad4f7",
         "materialization/board.kmpack": "70fcaeb0a9f58766eb2615d5b0332ec901f9aff22679ba446b26122d819ea825"
       },
       "backend/tests/fixtures/system_builder/sources/mini_obc/F6": {
-        "bundle.json": "0643c4f1ad47d15de602a7c63e8bbcd730e958a218b06a32260ab686ca99d4fa",
+        "bundle.json": "94402eba4930c88b2f2c4aae10946e581c72fee174356c9f88414bc889f8873b",
         "materialization/board.kmpack": "9d07cef56acbbef4edca6488c36c3b9e7935c36690b9be2f17fec2ab2563485e"
       },
       "backend/tests/fixtures/system_builder/sources/mini_obc/F7": {
-        "bundle.json": "74a4e9a9991d0b7dec841d145b5d32e62103b23cd32be11174c4b0aefe7ad9b5",
+        "bundle.json": "d01354560a02c54f97bbce9a58a9b82c5909bdaf9ed25ec1f35d77459dd3eab2",
         "materialization/board.kmpack": "01e5c6476cdcdb794a19eb1c9fc9bbe671c707fa5d7d9811e645fd408ce135ad"
       },
       "backend/tests/fixtures/system_builder/sources/mini_obc/F8": {
-        "bundle.json": "4b8d422ad543f38ec488b8b4353fa237d3db1fd510f784c1960dab08a3d8cd09",
+        "bundle.json": "8ab12798b89b74a3abb10d6da414b75ab86052c2f02476dc13e9db2d24c1e5fc",
         "materialization/board.kmpack": "9d07cef56acbbef4edca6488c36c3b9e7935c36690b9be2f17fec2ab2563485e"
       },
       "backend/tests/fixtures/system_builder/sources/mini_obc/F9": {
-        "bundle.json": "617c2061d630375a660fed66a55d6ca719411b95a6fc582a768e1d7568b698f4",
+        "bundle.json": "ea49987af978176984426b7c641fcbec3511865ee230e70b2f66d98e30a9b9ce",
         "materialization/board.kmpack": "2a620a738b7d2ae1234db76168912cc8e19de3101b188201bcaaae155bcf63fd"
       },
       "backend/tests/fixtures/system_builder/sources/mini_power/F0": {
-        "bundle.json": "7dd4c360a0757e32b3122e9b9841b8cc7c5c79dd779c626d964399f8c8699b6b",
+        "bundle.json": "449d48a6087ce6247a9f7f6e5b96a55a01bcb19da1dfcb36fcc3ed6fc494c064",
         "materialization/board.kmpack": "cf81b81476f48ebfa6af4f239e22d13e54a301d10e9a2f8a671bc97df66a0071"
       },
       "backend/tests/fixtures/system_builder/sources/mini_power/F10": {
-        "bundle.json": "56a01953f07ed03563bec7f4b93c59b7f30cc4d35bb182f9da69e41db0b38624",
+        "bundle.json": "b8d3ffa6064d96796c08e9b1de59fb1ee833b5c75995660a4fe9c91c71393cfc",
         "materialization/board.kmpack": "58c7246c57c6b2a064cb10290cd1483b74d9286ffad718435d76a0aeb0555784"
       }
     }
