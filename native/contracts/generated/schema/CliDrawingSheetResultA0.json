@@ -13,7 +13,7 @@
             "items": {
                 "$ref": "#/$defs/CliDrawingSheetOp"
             },
-            "description": "The draw operations, in the order `drawing_sheet_to_ops` returns them: the\npage and title-block rectangle first, then the frame, then the title-block\ntext."
+            "description": "The draw operations, in the order `drawing_sheet_to_ops` returns them: the\ndefault worksheet's on-disk element order, with every repeat expanded in\nplace. The frame's rectangles, lines and title-block text therefore\ninterleave as the worksheet file lists them, not grouped by kind."
         }
     },
     "required": [

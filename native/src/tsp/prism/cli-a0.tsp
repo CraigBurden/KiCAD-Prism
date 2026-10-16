@@ -1238,8 +1238,9 @@ model CliDrawingSheetResultA0 {
 
   /**
    * The draw operations, in the order `drawing_sheet_to_ops` returns them: the
-   * page and title-block rectangle first, then the frame, then the title-block
-   * text.
+   * default worksheet's on-disk element order, with every repeat expanded in
+   * place. The frame's rectangles, lines and title-block text therefore
+   * interleave as the worksheet file lists them, not grouped by kind.
    */
   ops: CliDrawingSheetOp[];
 }
