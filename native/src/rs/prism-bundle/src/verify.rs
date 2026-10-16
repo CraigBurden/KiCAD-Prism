@@ -668,3 +668,59 @@ fn i12_sources(manifest: &Manifest, findings: &mut Vec<Finding>) {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn example() -> Manifest {
+        serde_json::from_str(include_str!(
+            "../../../../contracts/prism/examples/BundleManifestA2.example.json"
+        ))
+        .unwrap()
+    }
+
+    #[test]
+    fn the_contract_example_satisfies_every_invariant() {
+        assert_eq!(invariants(&example()), Vec::new());
+    }
+
+    #[test]
+    fn broken_records_are_stage_inconsistent() {
+        let mut manifest = example();
+        manifest.stages.models.status = Status::Partial;
+        let findings = invariants(&manifest);
+        assert!(
+            findings
+                .iter()
+                .all(|finding| finding.code == "stage-inconsistent")
+        );
+        assert!(
+            findings
+                .iter()
+                .any(|finding| finding.message.starts_with("I5")),
+            "{findings:?}"
+        );
+        let mut manifest = example();
+        manifest.members.reverse();
+        assert!(
+            invariants(&manifest)
+                .iter()
+                .any(|finding| finding.message.starts_with("I1"))
+        );
+        let mut manifest = example();
+        manifest.bundle_key = Some(a2::Sha256Hex("0".repeat(64)));
+        assert!(
+            invariants(&manifest)
+                .iter()
+                .any(|finding| finding.message.starts_with("I11"))
+        );
+        let mut manifest = example();
+        manifest.stages.board.fill_provenance = None;
+        assert!(
+            invariants(&manifest)
+                .iter()
+                .any(|finding| finding.message.starts_with("I8"))
+        );
+    }
+}

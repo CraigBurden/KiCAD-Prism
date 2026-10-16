@@ -7,7 +7,7 @@
 //! it the files under the source root, by the same name rules.
 
 use crate::generator::{hex, sha256_hex};
-use crate::paths::{check_path, file_name, is_within};
+use crate::paths::{PathProblem, file_name, has_path_form, is_within};
 use prism_kicad_contracts::generated::prism_revision_key_record_a1 as rk;
 use sha2::{Digest, Sha256};
 
@@ -55,9 +55,18 @@ fn ends_with_ascii_ci(path: &str, suffix: &str) -> bool {
         && name[name.len() - suffix.len()..].eq_ignore_ascii_case(suffix.as_bytes())
 }
 
+/// A `RepoPath` is the `ArchivePath` character rule only: the control
+/// character and length rules of bundle-format.md §5 apply to archive
+/// members, not to the key (vector `hash-escaping`).
 fn check_repo_path(field: &str, path: &str) -> Result<(), KeyError> {
-    check_path(path, usize::MAX)
-        .map_err(|problem| invalid(format!("{field} {path:?} {}", problem.describe())))
+    if has_path_form(path) {
+        Ok(())
+    } else {
+        Err(invalid(format!(
+            "{field} {path:?} {}",
+            PathProblem::Form.describe()
+        )))
+    }
 }
 
 /// Validate an effective configuration (revision-key.md §4.1).
@@ -352,7 +361,7 @@ fn select_record(
     };
     let text = std::str::from_utf8(path)
         .ok()
-        .filter(|text| check_path(text, usize::MAX).is_ok())
+        .filter(|text| has_path_form(text))
         .ok_or_else(|| {
             key_error(
                 "unrepresentable-path",

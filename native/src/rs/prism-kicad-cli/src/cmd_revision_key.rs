@@ -431,7 +431,7 @@ fn effective_config(
 }
 
 fn check_project(project: &str) -> Outcome<()> {
-    let valid = prism_bundle::paths::check_path(project, usize::MAX).is_ok()
+    let valid = prism_bundle::paths::has_path_form(project)
         && project.to_ascii_lowercase().ends_with(".kicad_pro");
     if valid {
         Ok(())

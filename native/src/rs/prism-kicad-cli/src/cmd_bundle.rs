@@ -3,9 +3,9 @@
 use crate::args::Args;
 use crate::cmd_build::stage_states;
 use crate::inputs;
-use prism_bundle::stages::Generator;
 use prism_bundle::manifest::finding_json;
 use prism_bundle::reader::BundleReader;
+use prism_bundle::stages::Generator;
 use prism_bundle::verify::{Depth, verify};
 use prism_bundle::zip::FileSource;
 use prism_bundle::{Failure, Outcome};

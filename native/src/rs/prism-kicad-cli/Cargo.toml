@@ -35,3 +35,6 @@ prism-kicad-materialization-pack = { path = "../prism-kicad-materialization-pack
 serde.workspace = true
 serde_json.workspace = true
 sha2.workspace = true
+
+[dev-dependencies]
+miniz_oxide.workspace = true

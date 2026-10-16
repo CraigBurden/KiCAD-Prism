@@ -5,8 +5,8 @@
 //! the same inputs, `kicad_version` with the worker image's KiCad, and
 //! `member_schemas` with every member schema version.
 
-use prism_bundle::stages::Generator;
 use prism_bundle::manifest::{a2, member_schemas};
+use prism_bundle::stages::Generator;
 use prism_bundle::{Failure, Outcome};
 
 /// The KiCad of the KiCad-produced members (the refilled board, the GLB).

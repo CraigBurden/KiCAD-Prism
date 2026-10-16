@@ -5,8 +5,8 @@
 //! file and leaves `-o` as it was.
 
 use crate::process;
-use prism_bundle::stages::Built;
 use prism_bundle::generator::{hex, sha256_hex};
+use prism_bundle::stages::Built;
 use prism_bundle::verify::{Depth, verify};
 use prism_bundle::zip::{FileSource, ZipIndex};
 use prism_bundle::{Failure, Limits, Outcome};
