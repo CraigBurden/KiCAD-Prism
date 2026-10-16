@@ -2,7 +2,7 @@
 //! (semantic_index_service.py:879-910) with `_canonical_fields` and
 //! `_resolve_dnp` (:438-513) and `REQUIRED_BOM_FIELDS` (:43-61).
 
-use super::fields::SourceFields;
+use super::fields::{Fields, SourceFields};
 use super::{State, stable_uid, string};
 use serde_json::{Value, json};
 use std::collections::BTreeMap;
@@ -103,36 +103,24 @@ pub(super) fn project(design: &Value, source_fields: &SourceFields, state: &mut 
 
 /// The component's parameters after `_string`, overlaid by the scanned
 /// schematic fields (semantic_index_service.py:469-472, :884-887).
-fn merged_parameters(
-    component: &Value,
-    overlay: Option<&BTreeMap<String, String>>,
-) -> BTreeMap<String, String> {
-    let mut parameters: BTreeMap<String, String> = component
-        .get("parameters")
-        .and_then(Value::as_object)
-        .map(|object| {
-            object
-                .iter()
-                .filter(|(key, _)| !key.is_empty())
-                .map(|(key, value)| (key.clone(), string(Some(value))))
-                .collect()
-        })
-        .unwrap_or_default();
-    if let Some(overlay) = overlay {
-        parameters.extend(
-            overlay
-                .iter()
-                .map(|(key, value)| (key.clone(), value.clone())),
-        );
+fn merged_parameters(component: &Value, overlay: Option<&Fields>) -> Fields {
+    // `design.json` keeps the parameters' source order (serde_json's
+    // `preserve_order`), today's dict order.
+    let mut parameters = Fields::default();
+    if let Some(object) = component.get("parameters").and_then(Value::as_object) {
+        for (key, value) in object.iter().filter(|(key, _)| !key.is_empty()) {
+            parameters.set(key.clone(), string(Some(value)));
+        }
+    }
+    for (key, value) in overlay.into_iter().flat_map(Fields::iter) {
+        parameters.set(key.clone(), value.clone());
     }
     parameters
 }
 
 /// `_canonical_fields` (semantic_index_service.py:467-513).
-fn canonical_fields(
-    component: &Value,
-    parameters: &BTreeMap<String, String>,
-) -> BTreeMap<String, String> {
+fn canonical_fields(component: &Value, parameters: &Fields) -> BTreeMap<String, String> {
+    // In the parameters' order, so a later key wins a casefold collision.
     let casefolded: BTreeMap<String, String> = parameters
         .iter()
         .map(|(key, value)| (folded_key(key), value.clone()))
@@ -227,7 +215,7 @@ fn canonical_fields(
         pick("Power Dissipation (W)", &["Power Dissipation", "Pd (W)"]),
     );
     fields.insert("Rate".to_owned(), pick("Rate", &["Rating"]));
-    for (key, value) in parameters {
+    for (key, value) in parameters.iter() {
         if !REQUIRED_BOM_FIELDS.contains(&key.as_str()) {
             fields.insert(key.clone(), value.clone());
         }
@@ -236,10 +224,7 @@ fn canonical_fields(
 }
 
 /// `_resolve_dnp` (semantic_index_service.py:441-464).
-fn resolve_dnp(
-    parameters: &BTreeMap<String, String>,
-    casefolded: &BTreeMap<String, String>,
-) -> String {
+fn resolve_dnp(parameters: &Fields, casefolded: &BTreeMap<String, String>) -> String {
     let explicit = casefolded.get("kicaddnp").map_or("", String::as_str).trim();
     if !explicit.is_empty() {
         return yes_no(is_truthy_flag(explicit)).to_owned();
@@ -277,15 +262,37 @@ fn truthy_json(value: &Value) -> bool {
 
 /// `re.sub(r"[^a-z0-9]", "", key.casefold())` (semantic_index_service.py:474, :483).
 fn folded_key(key: &str) -> String {
-    key.chars()
+    casefold(key)
+        .chars()
         .filter(char::is_ascii_alphanumeric)
-        .map(|character| character.to_ascii_lowercase())
         .collect()
 }
 
 /// `value.casefold() in _TRUTHY_FLAGS` (semantic_index_service.py:454, :462).
 fn is_truthy_flag(value: &str) -> bool {
-    TRUTHY_FLAGS.contains(&value.to_ascii_lowercase().as_str())
+    TRUTHY_FLAGS.contains(&casefold(value).as_str())
+}
+
+/// Python's `str.casefold()` as far as it can reach ASCII: Unicode lowercase,
+/// plus the full foldings that lowercase lacks and that end in ASCII letters
+/// (`ß`, `ẞ`, long `ſ` and the Latin ligatures). Other non-ASCII results never
+/// survive `[^a-z0-9]` or match a flag, so they need no folding here.
+fn casefold(text: &str) -> String {
+    let mut folded = String::with_capacity(text.len());
+    for character in text.chars() {
+        match character {
+            'ß' | 'ẞ' => folded.push_str("ss"),
+            'ſ' => folded.push('s'),
+            'ﬀ' => folded.push_str("ff"),
+            'ﬁ' => folded.push_str("fi"),
+            'ﬂ' => folded.push_str("fl"),
+            'ﬃ' => folded.push_str("ffi"),
+            'ﬄ' => folded.push_str("ffl"),
+            'ﬅ' | 'ﬆ' => folded.push_str("st"),
+            other => folded.extend(other.to_lowercase()),
+        }
+    }
+    folded
 }
 
 /// `"Yes"`/`"No"` for a truthy flag.
@@ -296,4 +303,42 @@ fn yes_no(flag: bool) -> &'static str {
 /// `base or picked` after `_string` (semantic_index_service.py:494, :503).
 fn or_pick(base: String, picked: String) -> String {
     if base.is_empty() { picked } else { base }
+}
+
+#[cfg(test)]
+mod order_tests {
+    use super::{Fields, canonical_fields, folded_key, merged_parameters};
+    use serde_json::json;
+
+    #[test]
+    fn a_later_key_wins_a_casefold_collision_in_source_order() {
+        // Source order puts the space-separated key last, the reverse of code
+        // point order: today's dict keeps it, so its value wins.
+        let component = json!({"parameters": {
+            "Manufacturer_Part_Number": "SHORT",
+            "Manufacturer Part Number": "LONG",
+        }});
+        let parameters = merged_parameters(&component, None);
+        let fields = canonical_fields(&component, &parameters);
+        assert_eq!(fields["Manufacturer Part Number"], "LONG");
+    }
+
+    #[test]
+    fn the_overlay_updates_in_place_and_appends_new_keys() {
+        let component = json!({"parameters": {"MPN": "A", "Value": "10k"}});
+        let mut overlay = Fields::default();
+        overlay.set("Mfr Part".to_owned(), "C".to_owned());
+        overlay.set("MPN".to_owned(), "B".to_owned());
+        let parameters = merged_parameters(&component, Some(&overlay));
+        let keys: Vec<_> = parameters.iter().map(|(key, _)| key.as_str()).collect();
+        assert_eq!(keys, ["MPN", "Value", "Mfr Part"]);
+        assert_eq!(parameters.get("MPN"), Some("B"));
+    }
+
+    #[test]
+    fn folding_matches_python_casefold() {
+        assert_eq!(folded_key("Maß (g)"), "massg");
+        assert_eq!(folded_key("RθJC (C/W)"), "rjccw");
+        assert_eq!(folded_key("\u{212a}icad_DNP"), "kicaddnp");
+    }
 }

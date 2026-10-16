@@ -11,7 +11,41 @@ use crate::{ProjectionError, ProjectionInput, SchematicModel};
 use std::collections::BTreeMap;
 
 /// Placed-symbol uuid → its fields as written in the schematic text.
-pub(super) type SourceFields = BTreeMap<String, BTreeMap<String, String>>;
+pub(super) type SourceFields = BTreeMap<String, Fields>;
+
+/// Name → value in first-insertion order, a later write replacing the value in
+/// place: a Python `dict`. Today's code resolves casefold collisions by that
+/// order (the later key wins), so a sorted map would not do.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub(super) struct Fields(Vec<(String, String)>);
+
+impl Fields {
+    /// `fields[key] = value`.
+    pub fn set(&mut self, key: String, value: String) {
+        match self.0.iter_mut().find(|(name, _)| *name == key) {
+            Some(entry) => entry.1 = value,
+            None => self.0.push((key, value)),
+        }
+    }
+
+    /// `fields.get(key)`.
+    pub fn get(&self, key: &str) -> Option<&str> {
+        self.0
+            .iter()
+            .find(|(name, _)| name == key)
+            .map(|(_, value)| value.as_str())
+    }
+
+    /// No entries.
+    pub fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
+
+    /// The entries in insertion order.
+    pub fn iter(&self) -> impl Iterator<Item = (&String, &String)> {
+        self.0.iter().map(|(key, value)| (key, value))
+    }
+}
 
 /// Scan every schematic beside the project for placed symbols' fields.
 ///
@@ -197,15 +231,15 @@ fn uuid_in(block: &str) -> Option<String> {
 /// Every `(property "Name" "Value")` in a block, unescaped; a later duplicate
 /// wins — `_PROPERTY` and `kicad_library_reader.symbol_properties`
 /// (kicad_library_reader.py:208-215, :83).
-fn symbol_properties(block: &str) -> BTreeMap<String, String> {
-    let mut fields = BTreeMap::new();
+fn symbol_properties(block: &str) -> Fields {
+    let mut fields = Fields::default();
     let mut index = 0;
     while let Some(start) = find_form_head(block, "property", index) {
         match match_property(block, start) {
             Some((key, value, end)) => {
                 let key = unescape(key);
                 if !key.is_empty() {
-                    fields.insert(key, unescape(value));
+                    fields.set(key, unescape(value));
                 }
                 index = end;
             }
