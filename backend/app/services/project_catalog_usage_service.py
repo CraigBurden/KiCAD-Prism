@@ -1,9 +1,16 @@
 """Library usage of a project commit: which catalog revision it placed (issue #698).
 
-The one entry point for the scan job and the API. It reads a commit's
-schematics from Git (``project_revision``), so a scan describes exactly that
-commit and never the working tree, resolves their symbols through
-``catalog/project_placements.py`` and owns the catalog transaction around it.
+The one entry point for the scan job and the API. It reads a commit's symbols
+from Git (``project_revision``), so a scan describes exactly that commit and
+never the working tree, resolves them through ``catalog/project_placements.py``
+and owns the catalog transaction around it.
+
+With the ``CATALOG_IMPORT`` switch on ``bundle`` (ADR §8, §9.6 C7), a ready
+``projections/occurrences.json`` member (``prism.occurrences.a0``) supplies the
+symbols instead of materializing and scanning the commit's schematics; the two
+sources give the same ``PlacedSymbol`` list (``placed_symbols_from_occurrences``).
+Every other answer of ``bundle_read`` -- the ``legacy`` switch, a member that is
+not ready yet and one that failed -- keeps the schematic scan.
 
 A scan is queued after every successful project sync (best effort) and on
 request; it runs on the catalog worker (``project_catalog_usage`` in
@@ -16,10 +23,10 @@ import hashlib
 import logging
 from pathlib import Path
 import tempfile
-from typing import Any
+from typing import Any, Mapping
 
 from app.services import project_revision
-from app.services.catalog.placement_stamp import PlacedSymbol, placed_symbols
+from app.services.catalog.placement_stamp import PlacedSymbol, placed_symbols, read_stamp
 from app.services.catalog.project_placements import CatalogProjectPlacements
 
 logger = logging.getLogger(__name__)
@@ -29,6 +36,9 @@ JOB_TYPE = "project_catalog_usage"
 #: The schematics of one commit, generated files (autosaves, backups) left out.
 SCHEMATICS = project_revision.SourceSet("schematics", suffixes=frozenset({".kicad_sch"}), skip_generated=True)
 
+#: The bundle member the catalog usage scanner reads (bundle-format.md §2.1).
+OCCURRENCES_MEMBER = "projections/occurrences.json"
+
 
 def _catalog():
     from app.services.component_catalog_service import catalog_service
@@ -37,8 +47,101 @@ def _catalog():
     return catalog_service
 
 
-def read_commit_symbols(location: project_revision.ProjectLocation, commit: str) -> list[PlacedSymbol]:
-    """Every symbol instance in the project's schematics at ``commit``."""
+def read_commit_symbols(
+    location: project_revision.ProjectLocation, commit: str, *, project_id: str = ""
+) -> list[PlacedSymbol]:
+    """Every symbol instance in the project's schematics at ``commit``.
+
+    With ``project_id`` (the project of the resolved ``commit``) and the
+    ``CATALOG_IMPORT`` switch on ``bundle``, a ready
+    ``projections/occurrences.json`` member is mapped instead of scanning;
+    otherwise -- the ``legacy`` switch, a member not ready yet or one that
+    failed -- the commit's schematics are materialized and scanned, unchanged.
+    """
+    if project_id:
+        member = _occurrences_member(project_id, commit)
+        if member is not None:
+            return placed_symbols_from_occurrences(member, location.relative_path)
+    return _scan_commit_symbols(location, commit)
+
+
+def _occurrences_member(project_id: str, commit: str) -> Mapping[str, Any] | None:
+    """A ready ``projections/occurrences.json`` member, or ``None`` to serve the scan.
+
+    ``bundle_read`` answers ``None`` for the ``legacy`` switch, a member that is
+    not ready yet (it queues the build) and a member that failed, and this
+    function then falls through to the schematic scan. ``commit`` is a resolved
+    commit id: a working tree holds changes a bundle does not carry and never
+    reaches this function (``scan`` resolves the ref first).
+    """
+    from app.services.design_bundle import consumer
+
+    opened = consumer.bundle_read("CATALOG_IMPORT", project_id, commit, [OCCURRENCES_MEMBER])
+    if opened is None or not opened.ready(OCCURRENCES_MEMBER):
+        return None
+    try:
+        return opened.json(OCCURRENCES_MEMBER)
+    except Exception as error:  # noqa: BLE001 - a bad member must not lose the scan
+        logger.warning("Could not read the occurrences member for %s@%s: %s", project_id, commit, error)
+        return None
+
+
+def placed_symbols_from_occurrences(member: Mapping[str, Any], project_dir: str = "") -> list[PlacedSymbol]:
+    """The scan's ``PlacedSymbol`` list from a ``prism.occurrences.a0`` member.
+
+    The field map's "Catalog usage" rule (occurrences.md): one ``PlacedSymbol``
+    per distinct ``(documentPath, symbolUuid)``, ``references`` the distinct
+    references of its occurrences, ``libId``/``properties`` as written, and the
+    stamp from ``properties``. Today's scanner lists symbols per schematic file
+    in path order and per occurrence in file order, so the groups follow
+    ``documentPath`` and then first appearance. ``documentPath`` is a repository
+    ``RepoPath`` and today's ``schematic`` is relative to the project directory,
+    so ``project_dir`` comes off; a document outside it keeps its repository path.
+    """
+    grouped: dict[tuple[str, str], dict[str, Any]] = {}
+    order: list[tuple[str, str]] = []
+    for occurrence in member.get("symbols") or []:
+        document = _project_relative(project_dir, str(occurrence.get("documentPath") or ""))
+        key = (document, str(occurrence.get("symbolUuid") or ""))
+        group = grouped.get(key)
+        if group is None:
+            group = grouped[key] = {
+                "lib_id": str(occurrence.get("libId") or ""),
+                "properties": occurrence.get("properties") or {},
+                "references": [],
+            }
+            order.append(key)
+        reference = str(occurrence.get("reference") or "")
+        if reference:
+            group["references"].append(reference)
+    # ``order`` is first-appearance order; a stable sort by ``documentPath``
+    # leaves a file's symbols in the order the file writes them.
+    order.sort(key=lambda key: key[0])
+    symbols: list[PlacedSymbol] = []
+    for key in order:
+        group = grouped[key]
+        symbols.append(
+            PlacedSymbol(
+                schematic=key[0],
+                symbol_uuid=key[1],
+                lib_id=group["lib_id"],
+                references=tuple(dict.fromkeys(group["references"])),
+                properties=group["properties"],
+                stamp=read_stamp(group["properties"]),
+            )
+        )
+    return symbols
+
+
+def _project_relative(project_dir: str, document_path: str) -> str:
+    """The member's repository path as today's project-relative ``schematic`` spelling."""
+    prefix = project_dir.strip("/")
+    prefix = f"{prefix}/" if prefix else ""
+    return document_path[len(prefix):] if prefix and document_path.startswith(prefix) else document_path
+
+
+def _scan_commit_symbols(location: project_revision.ProjectLocation, commit: str) -> list[PlacedSymbol]:
+    """Materialize the commit's schematics and read every symbol instance from them."""
     symbols: list[PlacedSymbol] = []
     with tempfile.TemporaryDirectory(prefix="project-catalog-usage-") as tmp:
         root = Path(tmp)
@@ -57,7 +160,7 @@ def scan(project_id: str, commit: str = "HEAD") -> dict[str, Any]:
     """Scan one commit (``HEAD`` of the checkout by default) and record what it placed."""
     location = project_revision.locate_id(project_id)
     resolved = project_revision.resolve_commit(location, commit or "HEAD")
-    symbols = read_commit_symbols(location, resolved)
+    symbols = read_commit_symbols(location, resolved, project_id=project_id)
     service = _catalog()
     with service.connection() as conn:
         rows, counts = CatalogProjectPlacements.resolve(conn, symbols)
@@ -114,4 +217,14 @@ def project_synced(project_id: str) -> None:
         logger.exception("Could not queue the library usage scan for %s", project_id)
 
 
-__all__ = ["JOB_TYPE", "SCHEMATICS", "project_synced", "read_commit_symbols", "report", "scan", "start_scan"]
+__all__ = [
+    "JOB_TYPE",
+    "OCCURRENCES_MEMBER",
+    "SCHEMATICS",
+    "placed_symbols_from_occurrences",
+    "project_synced",
+    "read_commit_symbols",
+    "report",
+    "scan",
+    "start_scan",
+]
