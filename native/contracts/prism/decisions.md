@@ -4,7 +4,7 @@ Decisions taken on the open questions raised while authoring Wave 0. The numbers
 
 ## Ownership map (2026-10-16)
 
-1. **R2 and Release Studio's Python tools.** Option (a), for now. Python kicad_monkey and kicad-cruncher stay installed for Release Studio's tool uses only: `pcb-svg`, `bom` and `pnp`, and the stroke font and drawing-sheet rendering. R2's acceptance becomes "no revision parse imports kicad-monkey", and X allow-lists the four modules.
+1. **R2 and Release Studio's Python tools.** *Superseded on 2026-10-17 by amendment C3 (see "Release Studio, amendment C3" below).* Option (a), for now. Python kicad_monkey and kicad-cruncher stay installed for Release Studio's tool uses only: `pcb-svg`, `bom` and `pnp`, and the stroke font and drawing-sheet rendering. R2's acceptance becomes "no revision parse imports kicad-monkey", and X allow-lists the four modules.
    - Follow-up: these features are easy to rebuild from Prism's own parser output plus `kicad-cli`. Porting them is a later ADR, after which both Python packages go.
 2. **Catalog library-file imports** (`mates`, `module_connectors`, `module_interface`). Option (a): they stay until the library ADR, and X allow-lists them.
 3. **S1** (Wave 2: a behaviour-free split of `api/projects.py` and `project_service.py`). Option (a): added.
@@ -158,3 +158,17 @@ Design Comparison's object diff becomes `prism-kicad compare` (cli-spec.md §5.6
 2. **D2, order.** `changes` and each property-delta list are sorted in code point order instead of today's `localeCompare`, whose order depends on the host's locale. Recorded as divergence `compare-1`; only the order of the review list changes.
 3. **D3, objects.** `compare` also emits `nativeObjects` and `componentObjects`, so the mm/nm and kind rebuild rules of `field-maps/board-objects.md` exist only in Rust. `routeMetrics` is not emitted: C2 reads `projections/route-metrics.json`.
 4. **D4, generators.** Bundles written by different generator ids are refused (exit 7, `generator-mismatch`); the backend rebuilds the stale one.
+
+## Release Studio, amendment C3 (2026-10-17)
+
+The maintainer decided (`docs/architecture/adr-native-design-bundle-amendment-c3.md`):
+
+1. **No Cruncher.** `kicad-cruncher` and Release Studio's Python `kicad_monkey` uses are dropped and re-implemented in Rust. This supersedes Ownership map item 1; item 2 (the catalog's library-file imports) stands.
+2. **Assembly artwork** is a Rust port of Cruncher's `pcb-svg` (`prism-kicad artwork`), keeping the STEP-model hidden-line outlines through the pinned `geometer-client`, vendored into `native/third_party/`, with the Geometer runtime in the image.
+3. **HLR** results are a bundle member of stage `models` (`models/assembly-hlr.json`), cached by model bytes, pose and options.
+4. **Vendor files** come from `prism-kicad vendor`, a registry of vendor modules over one BOM/placement core, JLCPCB first; Release Studio's vendor selection reads the registry.
+5. **Sheet text and frame** come from `prism-kicad stroke-text` and `drawing-sheet` over the core's NewStroke and default worksheet.
+6. **Fills:** board kicad-cli steps read `refilled/`, schematic steps `sources/`.
+7. **Scope fingerprint:** hashes an a0-compatible view of the semantic index (closes field-map semantic-index D8).
+8. **No testpoint-only board and no viewport workaround:** `artwork` selects footprints and applies the canvas itself.
+9. **`placements` a1** adds the board's aux axis origin, which the vendor placement files need.

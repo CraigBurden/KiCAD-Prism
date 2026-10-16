@@ -903,7 +903,7 @@ Every path a WP may edit in its wave, from `ownership.json` `/workPackages`. "AD
 - Flag: `PRISM_DESIGN_SOURCE_RELEASE_STUDIO`.
 - ADR Owns: `release_studio/projections.py`; `document_pipeline.py`; `closure*.py`; `source.py`.
 - Depends (ADR): K, P1, P3, P4; depends (this map): K, P1, P3, P4; merges after: —.
-- documents/fonts.py and documents/worksheet.py render with Python kicad_monkey (stroke font, drawing sheet) and the Python kicad-cruncher runs pcb-svg, bom and pnp: none is a revision parse, and none has a Rust replacement today (open question).
+- Amendment C3 (2026-10-17): Release Studio drops Cruncher and Python kicad_monkey. C3 also owns the new crates `native/src/rs/prism-artwork/` and `native/src/rs/prism-vendors/` (with their `native/Cargo.toml` members), `native/third_party/geometer-client/`, the `models`-stage HLR member in `prism-bundle` and its job step, and the Dockerfile's Geometer runtime step (through L's owner). Contracts land in the amendment's contracts PR.
 
 | Path | Status | Note |
 |---|---|---|

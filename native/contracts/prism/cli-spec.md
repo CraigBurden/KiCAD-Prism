@@ -23,6 +23,11 @@ Citations follow [`conventions.md`](conventions.md): a bare path is in this repo
 | `CliProjectAbsentA0` | `prism.cli.project_absent.a0` | stdout of `revision-key` and `bundle build --stage parse`, exit 10: the project is absent at this revision | `examples/CliProjectAbsentA0.example.json` |
 | `CliCompareResultA0` | `prism.cli.compare_result.a0` | stdout of `compare`, exit 0 | `examples/CliCompareResultA0.example.json` |
 | `CompareObjectDeltaA0` | `prism.compare.object_delta.a0` | `-o` of `compare` (§5.6); TypeSpec `tsp/prism/compare-a0.tsp` | `examples/CompareObjectDeltaA0.example.json` |
+| `CliArtworkResultA0` | `prism.cli.artwork_result.a0` | stdout of `artwork` (§5.7) | `examples/CliArtworkResultA0.example.json` |
+| `CliVendorListA0`, `CliVendorRunResultA0` | `prism.cli.vendor_list.a0`, `prism.cli.vendor_run_result.a0` | stdout of `vendor list` / `vendor run` (§5.8) | one example each |
+| `CliStrokeTextResultA0`, `CliStrokeFontMetricsA0`, `CliDrawingSheetResultA0` | `prism.cli.stroke_text_result.a0`, `prism.cli.stroke_font_metrics.a0`, `prism.cli.drawing_sheet_result.a0` | stdout of `stroke-text` / `drawing-sheet` (§5.9) | one example each |
+| `StrokeTextRequestA0`, `DrawingSheetRequestA0`, `ArtworkConfigA0`, `VendorJlcpcbConfigA0` | `prism.stroke_text.request.a0`, `prism.drawing_sheet.request.a0`, `prism.artwork.config.a0`, `prism.vendor.jlcpcb.config.a0` | inputs of §5.7–§5.9 | one example each |
+| `AssemblyHlrA0` | `prism.assembly_hlr.a0` | bundle member `models/assembly-hlr.json`, stage `models` (§5.2.4) | `examples/AssemblyHlrA0.example.json` |
 | `CliDiagnosticA0` | `prism.cli.diagnostic.a0` | every stderr line of every command | `examples/CliDiagnosticA0.example.json` |
 | `RevisionKeyRecordA1` | `prism.revision_key.record.a1` | stdout of `revision-key`, exit 0 | revision-key contract, not defined here |
 
@@ -83,6 +88,12 @@ prism-kicad revision-key <repo> (--commit <rev> | --worktree) --project <rel> [-
 
 prism-kicad compare --base <base.prism> --head <head.prism> -o <delta.json> [COMMON]
 
+prism-kicad artwork --in <bundle.prism> --config <artwork.json> --view <name>... -o <dir> [--variant <name>] [COMMON]
+prism-kicad vendor list [COMMON]
+prism-kicad vendor run <vendor-id> --in <bundle.prism> --config <cfg.json> -o <dir> [--variant <name>] [COMMON]
+prism-kicad stroke-text (--request <runs.json> | --metrics) [COMMON]
+prism-kicad drawing-sheet --request <sheet.json> [COMMON]
+
 COMMON: [--limit <name>=<value>]... [--threads <n>] [--quiet]
 ```
 
@@ -140,6 +151,10 @@ The exit code fixes which document it is:
 | `bundle extract` | `CliExtractResultA0` | — | — | — | `CliErrorA0` |
 | `revision-key` | `RevisionKeyRecordA1` | — | — | `CliProjectAbsentA0` | `CliErrorA0` |
 | `compare` | `CliCompareResultA0`; `-o` holds `CompareObjectDeltaA0` | — | — | — | `CliErrorA0` |
+| `artwork` | `CliArtworkResultA0` | — | — | — | `CliErrorA0` |
+| `vendor list` / `vendor run` | `CliVendorListA0` / `CliVendorRunResultA0` | — | — | — | `CliErrorA0` |
+| `stroke-text` | `CliStrokeTextResultA0` (`--request`) or `CliStrokeFontMetricsA0` (`--metrics`) | — | — | — | `CliErrorA0` |
+| `drawing-sheet` | `CliDrawingSheetResultA0` | — | — | — | `CliErrorA0` |
 
 Two cases leave stdout empty:
 - a process killed by a signal;
@@ -441,6 +456,16 @@ Both observed exports canonicalize to the same bytes, `ec4b495a…` (1,360,412 b
 
 The stage only checks, canonicalizes and copies files the backend produced, so it ends `complete` or fails without writing. A failing GLB export is the backend's, retried and never recorded (§9.3).
 
+**Assembly HLR (amendment C3, §3.1; implemented with chunk D).** Stage `models` also writes `models/assembly-hlr.json` (`AssemblyHlrA0`):
+- **Extra inputs:**
+  - `--geometer <exe>`, the pinned Geometer runtime. Its version must be the one `hlr_procedure` names, else exit 7, `geometer-version-mismatch`; if it cannot be started, exit 1, `geometer-unavailable`, which K retries.
+  - `--model-dir <VAR>=<dir>`, repeatable, the KiCad stock 3D model library the generator id's KiCad version pins.
+  - `--hlr-cache <dir>`, optional.
+- **Model resolution:** for each footprint, its first `.step`/`.stp` model: from `sources/` (repository), through `--model-dir` (`kicad-library`), or from embedded files (`kicad-embed://`).
+- **The CLI runs Geometer here.** That is the one external program it runs: §0 item 4 still holds for KiCad. A per-footprint failure (`model-unavailable`, `model-not-step`, `projection-failed`) is recorded in the member and does not fail the stage.
+- **Cache:** keyed by the STEP bytes' sha256, the pose's rotation and scale, the HLR options and the runtime version. Its entries are reused after board translation and rotation about the board normal.
+- **Generator id:** gains `hlr_procedure` (runtime version and options), so changing either is a generator bump.
+
 #### 5.2.5 Atomicity
 
 1. **Temp file.** The CLI creates `<dir>/.<name>.prism-kicad-<pid>-<n>.tmp` in `-o`'s directory with `O_CREAT|O_EXCL`, so the final rename never crosses a file system. This is the cruncher's pattern, applied to a file instead of a directory (fork: `.../kicad-cruncher-cli/src/design_bundle.rs:453-475`). If `-o`'s directory is missing, it is exit 6, `output-write-failed`. The CLI does not create directories.
@@ -575,6 +600,43 @@ This spec fixes only the process contract:
 - **Exit codes.** 0, or 1–7 as in §4.
 - **Limits.** The reader limits of §7.2 bound the inputs. `max-memory-bytes` and `timeout-ms` have `compare` defaults.
 - **Idempotence.** The same two bundles give byte-identical `-o` and stdout.
+
+### 5.7 `artwork`
+
+Release Studio's assembly and testpoint views (amendment C3 §3.2), a port of Cruncher 2026.9.7 `pcb-svg` (`kicad_cruncher_cmd_pcb_svg.py`, `kicad_cruncher_pcb_svg_compositor.py`).
+
+- **Input:**
+  - the board: `refilled/<stem>.kicad_pcb` when the bundle has it, else `sources/` (saved fills), parsed once by the core;
+  - body outlines from `models/assembly-hlr.json`;
+  - designators and variants from `placements` and `occurrences`;
+  - `--config` is an `ArtworkConfigA0`; each `--view` must name one of its views, else exit 2, `view-unknown`.
+- **Stages required:** `parse`, `board` (or saved fills) and `models`, else exit 7, `stage-order`.
+- **Output:** `<dir>/<view>.svg` per view, written atomically, and `CliArtworkResultA0` on stdout: per view, the file's sha256, the footprints drawn, the designators placed, and the footprints without a body outline.
+- **Rules:**
+  - footprint selection by `selector_overrides`;
+  - layer tokens and styles from the config;
+  - designators by region fitting inside the HLR outline, else the hole envelope, else the pad envelope;
+  - the canvas from `global.canvas` (`board_outline` plus `margin_mm`).
+- **Idempotence:** the same bundle, config, views and generator give byte-identical files and stdout.
+
+### 5.8 `vendor`
+
+- **`vendor list`** prints `CliVendorListA0`: each vendor's `id`, name, outputs (file kind, format, version) and config schema id. The list is fixed by the binary.
+- **`vendor run <vendor-id>`** reads `projections/occurrences.json` and `projections/placements.json`; `placements` a1 provides the aux origin. It writes the vendor's files to `<dir>` atomically and prints `CliVendorRunResultA0` (files, sha256, row counts, and any components it excluded and why).
+  - An unknown id is exit 2, `vendor-unknown`.
+  - `--config` is the vendor's config schema; for JLCPCB, `VendorJlcpcbConfigA0`.
+- **JLCPCB:**
+  - BOM columns `Comment, Designator, Footprint, JLCPCB Part #` and CPL columns `Designator, Layer, Mid X, Mid Y, Rotation`;
+  - Cruncher 2026.9.7's grouping, order and decimal rules, and its coordinates relative to the aux origin with y negated;
+  - CSV and XLSX output.
+- **Parity:** CSVs byte-identical and XLSX cell-identical to Cruncher's on the fixtures (amendment C3 §4).
+
+### 5.9 `stroke-text` and `drawing-sheet`
+
+- **`stroke-text --request <runs.json>`** takes a `StrokeTextRequestA0`, a batch of runs, each `{text, x_mm, y_mm, size_mm, h_align, v_align}`. It prints `CliStrokeTextResultA0`: per run, the NewStroke polylines in mm, the advance width and the code points the font lacks.
+- **`stroke-text --metrics`** prints `CliStrokeFontMetricsA0`, the per-glyph advance table, so layout can measure text without a process per string.
+- **`drawing-sheet --request <sheet.json>`** takes a `DrawingSheetRequestA0`: page size in nm, paper name, title block, comments 1–4, sheet index and count, file name, sheet path and name, and KiCad version. It prints `CliDrawingSheetResultA0`, the default worksheet's operations: lines, rectangles, polylines and text runs with their stroke-text geometry.
+- **Parity:** equal to Python kicad_monkey's `kicad_stroke_font` and `drawing_sheet_to_ops(load_default_drawing_sheet(), …)` within 1e-9 mm (amendment C3 §4).
 
 ## 6. Archive rules
 
@@ -751,6 +813,10 @@ Codes are `DiagnosticCode` (kebab-case). A code never changes meaning; a new mea
 | `output-changed` | error | precondition / 7 | `-o` changed between reading `--in` and the rename (§5.2.5) |
 | `member-not-found` | error | precondition / 7 | an `extract` `<member>` selects nothing; for `compare`, a bundle has no `projections/board-objects.json` (§5.6) |
 | `anchor-mismatch` | error | precondition / 7 | `compare`: the two bundles are of different project files (§5.6) |
+| `view-unknown`, `vendor-unknown` | error | usage / 2 | `artwork --view` names no view of the config; `vendor run` names no registered vendor (§5.7, §5.8) |
+| `geometer-version-mismatch` | error | precondition / 7 | stage `models`: `--geometer` is not the runtime `hlr_procedure` names (§5.2.4) |
+| `geometer-unavailable` | error | internal / 1 | stage `models`: the Geometer runtime could not be started; K retries (§5.2.4) |
+| `model-not-step`, `projection-failed` | `models/assembly-hlr.json` per footprint | — | the footprint's first model is not STEP, or Geometer could not project it (§5.2.4); with `model-unavailable`, these are recorded, not failures |
 | `archive-path-collision` | error | precondition / 7 | `extract` would overwrite different bytes, or a link or non-directory is in the way |
 | `panic`, `internal-error`, `self-verify-failed` | error | internal / 1 | defects |
 | `model-unavailable` | stage-parse warning in the manifest; warning diagnostic | — | a repository 3D model the worker could not materialize (bundle-format.md §2.2); the bundle is built without it |
@@ -948,3 +1014,4 @@ Once WP-B lands, recordings of the real binary can replace the stub test by test
 4. **§5, Generator id.** Add the refill and GLB procedures (`refill_procedure`, `models_procedure`) and the pack format version.
 5. **§6, the `bundle.json` row.** Each stage records `{status, error?, skip_reason?, failed_members, …}`, shared with `CliStageState`. A content failure of a stage (`failed`) or of a member (`partial`) is recorded in the bundle (cli-spec.md §5.2.7, bundle-format.md §3.2).
 6. **§9.3 and §9.6, `compare` (amendment C2, 2026-10-17, accepted).** The CLI synopsis gains `compare` (§5.6); C2's row produces the object diff with it. Applied to the ADR in the same change, with the rationale in [`adr-native-design-bundle-amendment-c2.md`](../../../docs/architecture/adr-native-design-bundle-amendment-c2.md).
+7. **§2.1, §6, §9.3, §9.6, §10 item 4 and R2: Release Studio without Cruncher (amendment C3, 2026-10-17, accepted).** New §5.7–§5.9 and the HLR part of §5.2.4. Applied to the ADR in the same change; rationale in [`adr-native-design-bundle-amendment-c3.md`](../../../docs/architecture/adr-native-design-bundle-amendment-c3.md).
