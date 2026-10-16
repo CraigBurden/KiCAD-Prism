@@ -1,0 +1,68 @@
+# WP-F1 import allow-list for `git filter-repo --paths-from-file`.
+# Paths are relative to the root of krishna-swaroop/kicad_monkey at b6316117.
+# Only these paths survive, in every commit of the imported history; everything
+# else (the Python provider and its tests, the corpus archive pointer, KiCad
+# library symbol fixtures) is removed from all history. A trailing `/` keeps a
+# whole directory. See docs/architecture/native-provenance.md.
+
+# Licence and workspace
+LICENSE
+README.md
+ARCHITECTURE.md
+CHANGELOG.md
+CONTRIBUTING.md
+.gitattributes
+.gitignore
+.cargo/
+Cargo.toml
+Cargo.lock
+rust-toolchain.toml
+clippy.toml
+rust-hygiene.toml
+rust-hygiene-baseline.json
+
+# Rust crates
+src/rs/
+
+# Contract pipeline (TypeSpec -> JSON Schema -> Rust codegen, TypeScript bindings)
+src/tsp/
+src/ts/
+contracts/
+package.json
+package-lock.json
+tspconfig.yaml
+tsconfig.contracts.json
+
+# Build, test-vector and release scripts; tools
+scripts/
+tools/
+
+# Assets the crates embed (CC0 Newstroke fonts) and the theme files
+assets/
+
+# Test data the Rust tests read
+tests/parity/
+tests/cases/project_bus_alias_hierarchy/
+tests/L1_parsing/cases/worksheets/
+
+# kicad-cruncher: the Rust CLI, its contracts, scripts, the pinned Geometer
+# runtime manifest, and the corpus projects its tests read
+packages/kicad_cruncher/LICENSE
+packages/kicad_cruncher/README.md
+packages/kicad_cruncher/CHANGELOG.md
+packages/kicad_cruncher/.gitattributes
+packages/kicad_cruncher/.gitignore
+packages/kicad_cruncher/tspconfig.yaml
+packages/kicad_cruncher/src/rs/
+packages/kicad_cruncher/src/tsp/
+packages/kicad_cruncher/src/ts/
+packages/kicad_cruncher/scripts/
+packages/kicad_cruncher/runtimes/
+packages/kicad_cruncher/tests/corpus/
+
+# Design records of the imported code
+docs/
+packages/kicad_cruncher/docs/
+
+# The fork's CI, for WP-F3 to port into Prism's workflows
+.github/workflows/
