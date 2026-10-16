@@ -11,13 +11,13 @@ use serde_json::{Map, Value};
 
 /// An ordered field map (raw KiCad field name → value). Insertion-ordered, as
 /// today's `dict`.
-pub(super) type Fields = Map<String, Value>;
+pub(crate) type Fields = Map<String, Value>;
 
 /// One `(variant …)` override record, the union of the fields the three
 /// carriers expose (`kicad_variants.py:30-54`). `None` means the token was
 /// absent ("same as base").
 #[derive(Clone, Debug, Default, PartialEq)]
-pub(super) struct VariantRecord {
+pub(crate) struct VariantRecord {
     pub name: String,
     pub dnp: Option<bool>,
     pub exclude_from_bom: Option<bool>,
@@ -32,7 +32,7 @@ pub(super) struct VariantRecord {
 /// One `SchSheetInstance` (`kicad_sch_sheet.py:206-234`): an instance path and
 /// its variant records inside a `(sheet …)` form.
 #[derive(Clone, Debug, Default, PartialEq)]
-pub(super) struct SheetInstance {
+pub(crate) struct SheetInstance {
     pub path: String,
     pub variants: Vec<VariantRecord>,
 }
@@ -40,7 +40,7 @@ pub(super) struct SheetInstance {
 /// The resolved symbol state `EffectiveSymbolProperties`
 /// (`kicad_variants.py:268-280`).
 #[derive(Clone, Debug)]
-pub(super) struct ResolvedSymbol {
+pub(crate) struct ResolvedSymbol {
     pub reference: String,
     pub dnp: bool,
     pub exclude_from_sim: bool,
@@ -64,7 +64,7 @@ pub(super) struct ResolvedFootprint {
 /// A footprint as the resolver reads it: the base fields and flags plus the
 /// scanned `(variant …)` records.
 #[derive(Clone, Debug)]
-pub(super) struct FootprintInput {
+pub(crate) struct FootprintInput {
     pub uuid: String,
     pub reference: String,
     pub fields: Fields,
@@ -137,7 +137,7 @@ pub(super) fn has_symbol_instance(symbol: &SchematicPlacedSymbol, sheet_path: &s
 }
 
 /// `resolve_symbol` (`kicad_variants.py:408-478`), including `_select_symbol_instance_variant`.
-pub(super) fn resolve_symbol(
+pub(crate) fn resolve_symbol(
     symbol: &SchematicPlacedSymbol,
     variant_name: Option<&str>,
     sheet_path: &str,
@@ -271,7 +271,7 @@ pub(super) fn select_footprint_variant<'a>(
 
 /// The symbol flags `_symbol_flags` (`semantic_index_variants.py:145-160`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(super) struct SymbolFlags {
+pub(crate) struct SymbolFlags {
     pub dnp: bool,
     pub exclude_from_bom: bool,
     pub exclude_from_board: bool,
@@ -280,7 +280,7 @@ pub(super) struct SymbolFlags {
 }
 
 /// `_symbol_flags(resolved, record, version)` (`semantic_index_variants.py:145-160`).
-pub(super) fn symbol_flags(
+pub(crate) fn symbol_flags(
     resolved: &ResolvedSymbol,
     record: Option<&SchematicSymbolInstanceVariant>,
     legacy_in_bom: bool,

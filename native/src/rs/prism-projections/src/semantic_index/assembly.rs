@@ -7,8 +7,8 @@
 mod catalog;
 mod join;
 mod scan;
-mod state;
-mod variants;
+pub(crate) mod state;
+pub(crate) mod variants;
 
 use super::{Placements, State};
 use crate::{ProjectionError, ProjectionInput, SchematicModel};

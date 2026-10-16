@@ -21,10 +21,10 @@
 //! 6. [`assembly`]: the variant catalog, the assembly state and its join onto
 //!    the components (`assemble_semantic_index`).
 
-mod assembly;
+pub(crate) mod assembly;
 mod board;
-mod components;
-mod fields;
+pub(crate) mod components;
+pub(crate) mod fields;
 mod nets;
 mod reconcile;
 mod sheets;

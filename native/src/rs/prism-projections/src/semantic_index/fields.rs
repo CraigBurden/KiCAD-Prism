@@ -17,7 +17,7 @@ pub(super) type SourceFields = BTreeMap<String, Fields>;
 /// place: a Python `dict`. Today's code resolves casefold collisions by that
 /// order (the later key wins), so a sorted map would not do.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
-pub(super) struct Fields(Vec<(String, String)>);
+pub(crate) struct Fields(Vec<(String, String)>);
 
 impl Fields {
     /// `fields[key] = value`.
