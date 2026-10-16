@@ -8,7 +8,7 @@ use kicad_cruncher_cli::pcb_svg::geometer::{
     GEOMETER_C_ABI_GENERATION, GEOMETER_RELEASE, NativeGeometer,
 };
 use kicad_cruncher_cli::pcb_svg::models::read_embedded_models;
-use kicad_monkey_core::{PcbLimits, PcbView};
+use prism_kicad_core::{PcbLimits, PcbView};
 
 #[test]
 fn released_process_runs_one_pass_embedded_step_illustration() {

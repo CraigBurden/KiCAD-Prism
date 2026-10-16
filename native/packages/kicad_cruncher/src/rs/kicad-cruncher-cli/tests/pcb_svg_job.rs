@@ -1,11 +1,11 @@
 use std::{fs, path::PathBuf, sync::Arc};
 
 use kicad_cruncher_cli::pcb_svg::PcbSvgJob;
-use kicad_monkey_core::{
+use prism_kicad_core::{
     BoardNetClassAssignments, BoardPlotLimits, BoardTextVariables, PcbLimits, PlotDocumentMetadata,
     board_plot_artifact_with_sidecars,
 };
-use kicad_monkey_svg::{
+use prism_kicad_svg::{
     LayerPattern, LayerSelection, SvgBackground, SvgColor, SvgContextLimits, SvgFitOptions,
     SvgRenderContextA1, SvgRenderLimits, SvgStyleOverride, SvgViewport,
 };
@@ -304,7 +304,7 @@ fn generated_config_preserves_empty_overrides_and_nullable_presence() {
 #[test]
 fn model_reader_reports_external_and_unsupported_embedded_references() {
     use kicad_cruncher_cli::pcb_svg::models::read_embedded_models;
-    use kicad_monkey_core::PcbView;
+    use prism_kicad_core::PcbView;
     let source = r#"(kicad_pcb (version 20240108) (generator pcbnew)
         (footprint "Test" (layer "F.Cu") (property "Reference" "J1")
             (model "local.step")
@@ -324,7 +324,7 @@ fn model_reader_reports_external_and_unsupported_embedded_references() {
 #[test]
 fn model_reader_keeps_owner_scope_and_shares_repeated_payloads() {
     use kicad_cruncher_cli::pcb_svg::models::read_embedded_models;
-    use kicad_monkey_core::PcbView;
+    use prism_kicad_core::PcbView;
     // Small checksummed compressed payloads exercise resource resolution, not STEP parsing.
     let source = r#"(kicad_pcb
       (footprint "Local" (property "Reference" "U1")

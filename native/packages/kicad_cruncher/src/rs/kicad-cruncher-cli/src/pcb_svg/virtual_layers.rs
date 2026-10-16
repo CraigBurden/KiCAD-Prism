@@ -3,11 +3,11 @@
 use std::collections::BTreeMap;
 use std::fmt::Write;
 
-use kicad_monkey_core::{
+use prism_kicad_core::{
     PcbFootprint, PcbGraphic, PcbGraphicKind, PcbHoleOwner, PcbHoleShape, PcbPoint,
     PcbPolygonPoint, PcbProfileOwner, PcbSetup, PcbVia, PcbView,
 };
-use kicad_monkey_svg::SvgViewport;
+use prism_kicad_svg::SvgViewport;
 
 use super::preview::{ToonPreviewError, ToonStyleSettings};
 
@@ -811,7 +811,7 @@ fn number(value: f64) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use kicad_monkey_core::PcbLimits;
+    use prism_kicad_core::PcbLimits;
     use std::{fs, path::PathBuf};
 
     #[test]

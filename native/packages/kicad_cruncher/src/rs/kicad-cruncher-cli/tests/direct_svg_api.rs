@@ -1,10 +1,10 @@
 use std::{fs, path::PathBuf};
 
-use kicad_monkey_contracts::generated::{
+use prism_kicad_contracts::generated::{
     board_plot_document::BoardPlotDocumentA0, footprint_plot_document::FootprintPlotDocumentA0,
     schematic_plot_document::SchematicPlotDocumentA0, symbol_plot_document::SymbolPlotDocumentA0,
 };
-use kicad_monkey_svg::{
+use prism_kicad_svg::{
     SvgColor, SvgContextLimits, SvgRenderContextA1, SvgRenderLimits, SvgSemanticRole,
     SvgStyleOverride, SvgViewport, ViewportPolicy, render_board_document_svg, render_footprint_svg,
     render_schematic_svg, render_symbol_svg,

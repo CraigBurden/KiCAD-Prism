@@ -3,7 +3,7 @@ use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use crate::design::sha256_hex;
-use kicad_monkey_core::{
+use prism_kicad_core::{
     EmbeddedDataPresence, EmbeddedDecodeLimits, EmbeddedFileOwner, Error, PcbEmbeddedFile,
     PcbModelReference, PcbView,
 };

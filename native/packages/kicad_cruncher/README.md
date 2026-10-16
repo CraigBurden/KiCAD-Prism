@@ -42,7 +42,7 @@ uv run --package kicad-cruncher python -m kicad_cruncher version
 ```
 
 Within the universal wheel's Python module path, Windows x64 selects the
-installed Monkey wheel's `kicad-monkey-native` sidecar for PCB physical-base
+installed Monkey wheel's `prism-kicad-transport` sidecar for PCB physical-base
 SVG, compiled schematic graphs, and version-E netlists; a native failure is
 terminal and is never retried through the corresponding Python implementation.
 Linux and macOS retain the Python providers for that module path. The

@@ -155,7 +155,7 @@ jobs:
         shell: pwsh
         run: |
           uv sync --all-packages --all-extras
-          cargo build --locked --jobs 4 --package kicad-monkey-native
+          cargo build --locked --jobs 4 --package prism-kicad-transport
           uv run --package kicad-cruncher --extra test pytest `
             packages/kicad_cruncher/tests/L3_public_workflows/test_L3_008_native_physical_provider.py::test_native_provider_is_no_fallback_enriched_and_cached -q
 

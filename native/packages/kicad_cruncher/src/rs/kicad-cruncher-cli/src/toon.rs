@@ -9,7 +9,7 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::time::{Duration, Instant};
 
-use kicad_monkey_core::{PcbLimits, PcbView};
+use prism_kicad_core::{PcbLimits, PcbView};
 use serde_json::json;
 use sha2::{Digest, Sha256};
 

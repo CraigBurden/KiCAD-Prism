@@ -8,20 +8,20 @@ use std::io::{self, Read};
 use std::path::{Component, Path, PathBuf};
 use std::sync::Arc;
 
-use kicad_monkey_contracts::generated::compiled_schematic_graph::CompiledSchematicGraphA0;
-use kicad_monkey_contracts::generated::schematic_plot_document::SchematicPlotDocumentA0;
-use kicad_monkey_contracts::generated::shaping_record::ShapingInput;
-use kicad_monkey_contracts::generated::source_bundle_manifest::{
+use prism_kicad_contracts::generated::compiled_schematic_graph::CompiledSchematicGraphA0;
+use prism_kicad_contracts::generated::schematic_plot_document::SchematicPlotDocumentA0;
+use prism_kicad_contracts::generated::shaping_record::ShapingInput;
+use prism_kicad_contracts::generated::source_bundle_manifest::{
     CanonicalUint64Decimal, SourceBundleManifestA0, SourceBundleSource, SourceKind, SourceSlot,
 };
-use kicad_monkey_core::schematic_embedded::{
+use prism_kicad_core::schematic_embedded::{
     SchematicEmbeddedFile, SchematicEmbeddedLimits, schematic_embedded_files,
 };
-use kicad_monkey_core::{
+use prism_kicad_core::{
     BoardBoundsLimits, BoardPlotContractLimits, BoardPlotFactsBuildProfile,
     project_board_plot_document_a0,
 };
-use kicad_monkey_core::{
+use prism_kicad_core::{
     BoardNetClassAssignments, BoardPlotLimits, BoardTextVariables, KiCadDesignJsonPaths,
     KiCadDesignPcb, KiCadDesignSourcePath, KiCadNetlist, KiCadNetlistJsonMetadata,
     KiCadNetlistLimits, KiCadSchematicInstance, PcbLimits, PcbView, PlotterTextCacheLimits,
@@ -37,7 +37,7 @@ use kicad_monkey_core::{
     schematic_plot_document_with_sheets, schematic_plot_document_with_sheets_profiled,
     validate_compiled_schematic_graph,
 };
-use kicad_monkey_svg::{
+use prism_kicad_svg::{
     SvgMetrics, SvgRenderContextA1, SvgRenderLimits, SvgViewport, ViewportPolicy,
     render_schematic_svg,
 };
@@ -1915,7 +1915,7 @@ fn requested_font_faces(
 fn collect_font_faces(source: &str, faces: &mut BTreeSet<String>) -> Result<(), DesignError> {
     const MAX_FACES: usize = 64;
     const MAX_FACE_BYTES: usize = 64 * 1024;
-    let mut lexer = kicad_monkey_core::Lexer::new(source);
+    let mut lexer = prism_kicad_core::Lexer::new(source);
     let mut expecting_head = false;
     let mut expecting_face = false;
     while let Some(token) = lexer

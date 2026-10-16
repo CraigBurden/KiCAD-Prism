@@ -1,13 +1,13 @@
 [workspace]
 members = [
     "packages/kicad_cruncher/src/rs/kicad-cruncher-cli",
-    "src/rs/kicad-monkey-codegen",
-    "src/rs/kicad-monkey-contracts",
-    "src/rs/kicad-monkey-core",
-    "src/rs/kicad-monkey-materialization-pack",
-    "src/rs/kicad-monkey-native",
-    "src/rs/kicad-monkey-svg",
-    "src/rs/kicad-monkey-wasm",
+    "src/rs/prism-kicad-codegen",
+    "src/rs/prism-kicad-contracts",
+    "src/rs/prism-kicad-core",
+    "src/rs/prism-kicad-materialization-pack",
+    "src/rs/prism-kicad-transport",
+    "src/rs/prism-kicad-svg",
+    "src/rs/prism-kicad-wasm",
 ]
 resolver = "3"
 

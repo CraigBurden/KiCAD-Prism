@@ -1,0 +1,36 @@
+[package]
+name = "prism-kicad-wasm"
+description = "Browser WASM adapters for KiCad Monkey byte operations"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+publish = false
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[lints]
+workspace = true
+
+[features]
+default = ["sexpr", "footprint", "symbol", "board", "materialization", "materialize"]
+sexpr = []
+footprint = []
+symbol = []
+board = []
+materialization = ["dep:prism-kicad-materialization-pack"]
+materialize = ["materialization"]
+
+[dependencies]
+prism-kicad-contracts = { path = "../prism-kicad-contracts" }
+prism-kicad-core = { path = "../prism-kicad-core", default-features = false }
+prism-kicad-materialization-pack = { path = "../prism-kicad-materialization-pack", optional = true }
+serde.workspace = true
+serde_json.workspace = true
+wasm-bindgen.workspace = true
+
+[dev-dependencies]
+wasm-bindgen-test.workspace = true

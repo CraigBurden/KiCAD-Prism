@@ -19,12 +19,12 @@ use geo::{
 use geometer_client::ModelIllustrationGeometry;
 use geometer_client::contracts::{MeshIllustrationGeometryA0, ModelIllustrationGeometryRequestA0};
 use geometer_client::contracts::{ModelIllustrationGeometryResultA0, Validate};
-use kicad_monkey_core::{
+use prism_kicad_core::{
     BoardNetClassAssignments, BoardPlotLimits, BoardTextVariables, PcbFootprint, PcbLimits,
     PcbModelReference, PcbPad, PcbPadPrimitiveGeometry, PcbPoint, PcbPolygonPoint, PcbView,
     PlotDocumentMetadata, board_plot_artifact_with_sidecars,
 };
-use kicad_monkey_svg::{
+use prism_kicad_svg::{
     LayerPattern, LayerSelection, SvgBackground, SvgColor, SvgContextLimits, SvgFillMode,
     SvgFitOptions, SvgRenderContextA1, SvgRenderLimits, SvgStyleOverride, SvgViewport,
 };
@@ -1743,7 +1743,7 @@ fn canonical_toon_layer(layer: &str, side: BoardSide) -> Result<&'static str, To
 fn compose_footprint_physical(
     view: &PcbView<'_>,
     footprints: &[PcbFootprint],
-    base: Arc<kicad_monkey_svg::SvgArtifact>,
+    base: Arc<prism_kicad_svg::SvgArtifact>,
     prefix: &str,
     reference: &str,
     footprint_index: usize,
@@ -1801,7 +1801,7 @@ fn compose_footprint_physical(
 
 fn base_context(
     side: BoardSide,
-) -> Result<kicad_monkey_svg::ValidatedSvgRenderContextA1, ToonPreviewError> {
+) -> Result<prism_kicad_svg::ValidatedSvgRenderContextA1, ToonPreviewError> {
     let color = |value| SvgColor::parse(value).map_err(error);
     let filled = |value| {
         color(value).map(|color| {
@@ -1841,7 +1841,7 @@ fn base_context(
 fn copper_context(
     side: BoardSide,
     configured_color: &str,
-) -> Result<kicad_monkey_svg::ValidatedSvgRenderContextA1, ToonPreviewError> {
+) -> Result<prism_kicad_svg::ValidatedSvgRenderContextA1, ToonPreviewError> {
     let color = |value| SvgColor::parse(value).map_err(error);
     let copper = format!("{}.Cu", side.prefix());
     let copper_color = color(configured_color)?;
@@ -1866,7 +1866,7 @@ fn copper_context(
 fn single_layer_context(
     layer: &str,
     color: &str,
-) -> Result<kicad_monkey_svg::ValidatedSvgRenderContextA1, ToonPreviewError> {
+) -> Result<prism_kicad_svg::ValidatedSvgRenderContextA1, ToonPreviewError> {
     let color = SvgColor::parse(color).map_err(error)?;
     SvgRenderContextA1::builder()
         .background(SvgBackground::Transparent)
@@ -2246,7 +2246,7 @@ mod tests {
     #[test]
     fn illustration_request_matches_altium_toon_linework() {
         let model = PcbModelReference {
-            owner: kicad_monkey_core::PcbFootprintMemberOwner::StandaloneFootprint,
+            owner: prism_kicad_core::PcbFootprintMemberOwner::StandaloneFootprint,
             footprint_index: 0,
             path: "model.step".to_owned(),
             offset: [0.0; 3],

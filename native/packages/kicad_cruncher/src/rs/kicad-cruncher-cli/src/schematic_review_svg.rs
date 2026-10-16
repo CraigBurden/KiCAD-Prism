@@ -3,10 +3,10 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::io::{self, Write};
 
-use kicad_monkey_contracts::generated::compiled_schematic_graph::{
+use prism_kicad_contracts::generated::compiled_schematic_graph::{
     CompiledSchematicGraphA0, GraphicalArtifactLink, PageOccurrence,
 };
-use kicad_monkey_core::{KiCadSchematicInstance, validate_compiled_schematic_graph};
+use prism_kicad_core::{KiCadSchematicInstance, validate_compiled_schematic_graph};
 use serde::Serialize;
 use serde_json::value::RawValue;
 use serde_json::{Value, json};
