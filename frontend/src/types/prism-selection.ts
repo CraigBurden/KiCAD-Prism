@@ -94,6 +94,8 @@ export interface SemanticComponent {
     reference: string;
     value?: string;
     footprint?: string;
+    /** a1: the symbol's library link (`lib_id`), possibly empty. */
+    libraryRef?: string;
     fields?: Record<string, string | number | boolean | null>;
     schematicRefs?: SemanticSchematicRef[];
     pcbRefs?: SemanticPcbRef[];
@@ -120,6 +122,11 @@ export interface SemanticTerminal {
     netName?: string;
     schematicPinUuid?: string;
     pcbPadUuid?: string;
+    /** a1: the netlist pin record's name and electrical type, when it listed the pin. */
+    pinName?: string;
+    pinType?: string;
+    /** a1: the schematic netlist's name for the terminal's net. */
+    schematicNetName?: string;
 }
 
 export interface SemanticIndexMaps {
@@ -239,7 +246,8 @@ export interface AssemblyState {
 export type PhysicalVisibility = "visible" | "hidden" | "ambiguous" | "absent";
 
 export interface PrismSemanticIndex {
-    schema: "prism.semantic_index_a0";
+    /** a0: today's Python index; a1: the design bundle's `projections/semantic-index.json` (additive). */
+    schema: "prism.semantic_index_a0" | "prism.semantic_index.a1";
     sourceRevisionKey: string;
     generator?: {
         name: string;
