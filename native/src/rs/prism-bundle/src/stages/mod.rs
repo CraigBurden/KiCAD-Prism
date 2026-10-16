@@ -18,6 +18,8 @@ pub mod materialize;
 pub mod models;
 pub mod parse;
 mod sexpr_check;
+
+pub use sexpr_check::{BOARD_FORMAT, SCHEMATIC_FORMAT};
 mod sheets;
 pub mod sources;
 pub mod stackup;

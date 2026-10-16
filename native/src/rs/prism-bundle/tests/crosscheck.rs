@@ -51,6 +51,7 @@ fn parse(dir: &Path) -> Built {
         config: None,
         revision_key: None,
         key_record: None,
+        upgraded: Default::default(),
         generator: &generator,
         limits: &limits,
         reporter: &Silent,

@@ -147,6 +147,7 @@ fn parse(args: &Args, generator: &Generator, stderr: &Stderr) -> Outcome<BuildOu
         config,
         revision_key: args.option("revision-key").map(str::to_owned),
         key_record,
+        upgraded: args.upgraded.clone(),
         generator,
         limits: &args.limits,
         reporter: stderr,

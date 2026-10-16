@@ -43,6 +43,8 @@ pub struct Args {
     pub positional: Vec<String>,
     /// Options with a value, by long name.
     pub options: BTreeMap<&'static str, String>,
+    /// `--upgraded`, by repository path.
+    pub upgraded: BTreeMap<String, u64>,
     /// `--worktree`.
     pub worktree: bool,
     /// `--quiet`.
@@ -75,7 +77,7 @@ fn work_of(command: Command, stage: Option<StageArg>) -> Work {
     }
 }
 
-const VALUE_OPTIONS: [&str; 15] = [
+const VALUE_OPTIONS: [&str; 16] = [
     "output",
     "in",
     "stage",
@@ -91,6 +93,7 @@ const VALUE_OPTIONS: [&str; 15] = [
     "project",
     "limit",
     "threads",
+    "upgraded",
 ];
 
 fn allowed(command: Command, option: &str) -> bool {
@@ -103,6 +106,7 @@ fn allowed(command: Command, option: &str) -> bool {
             "source-root",
             "revision-key",
             "key-record",
+            "upgraded",
             "config",
             "refilled-board",
             "refill-tool",
@@ -162,6 +166,7 @@ struct Raw {
     positional: Vec<String>,
     options: BTreeMap<&'static str, String>,
     limits: Vec<String>,
+    upgraded: Vec<String>,
     worktree: bool,
     quiet: bool,
     help: bool,
@@ -172,6 +177,7 @@ fn collect(command: Command, rest: &[String]) -> Outcome<Raw> {
         positional: Vec::new(),
         options: BTreeMap::new(),
         limits: Vec::new(),
+        upgraded: Vec::new(),
         worktree: false,
         quiet: false,
         help: false,
@@ -206,6 +212,8 @@ fn collect(command: Command, rest: &[String]) -> Outcome<Raw> {
                 index += 1;
                 if name == "limit" {
                     raw.limits.push(value);
+                } else if name == "upgraded" {
+                    raw.upgraded.push(value);
                 } else if raw.options.insert(name, value).is_some() {
                     return Err(usage(format!("--{name} is given twice")).argument(name));
                 }
@@ -300,6 +308,9 @@ fn check_build(raw: &Raw, stage: Option<StageArg>) -> Outcome<()> {
             ));
         }
     }
+    if !raw.upgraded.is_empty() && !parse {
+        return Err(conflict("--upgraded is only for --stage parse", "upgraded"));
+    }
     if has("key-record") && !has("revision-key") {
         return Err(conflict(
             "--key-record requires --revision-key",
@@ -390,10 +401,12 @@ pub fn parse(argv: &[String]) -> Outcome<Args> {
         }
         seen.push(name);
     }
+    let upgraded = upgrades(&raw.upgraded)?;
     Ok(Args {
         command,
         positional: raw.positional,
         options: raw.options,
+        upgraded,
         worktree: raw.worktree,
         quiet: raw.quiet,
         threads,
@@ -402,11 +415,39 @@ pub fn parse(argv: &[String]) -> Outcome<Args> {
     })
 }
 
+/// Parse every `--upgraded <path>=<version>` (cli-spec.md §2.2): a `RepoPath`
+/// ending in `.kicad_pcb` or `.kicad_sch`, a decimal version, distinct paths.
+fn upgrades(values: &[String]) -> Outcome<BTreeMap<String, u64>> {
+    let mut upgraded = BTreeMap::new();
+    for value in values {
+        let bad = || {
+            usage("--upgraded takes <path>=<version>: a repository path ending in .kicad_pcb or .kicad_sch and a decimal version")
+                .argument("upgraded")
+        };
+        let (path, version) = value.rsplit_once('=').ok_or_else(bad)?;
+        let lowered = path.to_ascii_lowercase();
+        let kind_ok = lowered.ends_with(".kicad_pcb") || lowered.ends_with(".kicad_sch");
+        let digits = !version.is_empty() && version.bytes().all(|byte| byte.is_ascii_digit());
+        let version: u64 = digits
+            .then(|| version.parse().ok())
+            .flatten()
+            .ok_or_else(bad)?;
+        if !kind_ok || !prism_bundle::paths::has_path_form(path) {
+            return Err(bad());
+        }
+        if upgraded.insert(path.to_owned(), version).is_some() {
+            return Err(usage(format!("--upgraded names {path:?} twice")).argument("upgraded"));
+        }
+    }
+    Ok(upgraded)
+}
+
 fn help_args() -> Args {
     Args {
         command: Command::Help,
         positional: Vec::new(),
         options: BTreeMap::new(),
+        upgraded: BTreeMap::new(),
         worktree: false,
         quiet: false,
         threads: 4,
@@ -422,7 +463,7 @@ usage:
   prism-kicad version
   prism-kicad bundle build <project.kicad_pro> --stage parse -o <out.prism>
               [--source-root <dir>] [--revision-key <hex>] [--key-record <record.json>]
-              [--config <effective.json>] [COMMON]
+              [--upgraded <path>=<version>]... [--config <effective.json>] [COMMON]
   prism-kicad bundle build --stage board --in <bundle.prism> -o <out.prism>
               [--refilled-board <board.kicad_pcb> --refill-tool <kicad-version>]
               [--revision-key <hex>] [--config <effective.json>] [COMMON]
@@ -498,5 +539,30 @@ mod tests {
         );
         assert_eq!(code("bundle verify b --threads 0"), "usage");
         assert_eq!(code("bundle verify b --stage parse"), "usage");
+    }
+
+    #[test]
+    fn checks_upgrade_records() {
+        let code = |line: &str| args(line).unwrap_err().finding.code;
+        assert_eq!(
+            code("bundle build --in a -o a --stage board --upgraded x.kicad_sch=1"),
+            "option-conflict"
+        );
+        assert_eq!(
+            code("bundle build p --stage parse -o a --upgraded x.kicad_pro=1"),
+            "usage"
+        );
+        assert_eq!(
+            code("bundle build p --stage parse -o a --upgraded x.kicad_sch=v7"),
+            "usage"
+        );
+        assert_eq!(
+            code(
+                "bundle build p --stage parse -o a --upgraded x.kicad_sch=1 --upgraded x.kicad_sch=2"
+            ),
+            "usage"
+        );
+        let upgraded = args("bundle build p --stage parse -o a --upgraded a/x.kicad_sch=20230121 --upgraded b.kicad_pcb=20221018").unwrap();
+        assert_eq!(upgraded.upgraded.get("a/x.kicad_sch"), Some(&20_230_121));
     }
 }

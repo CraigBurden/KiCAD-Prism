@@ -47,6 +47,8 @@ pub struct ParseRequest<'a> {
     pub revision_key: Option<String>,
     /// `--key-record`, validated against its schema.
     pub key_record: Option<rk::RevisionKeyRecordA1>,
+    /// `--upgraded`: the original `(version N)` of each source K upgraded.
+    pub upgraded: BTreeMap<String, u64>,
     /// This binary's generator id.
     pub generator: &'a Generator,
     /// The invocation's limits.
@@ -868,6 +870,10 @@ fn source_entry(
     }
 }
 
+fn upgrade_invalid(message: String) -> Failure {
+    Failure::input("upgrade-record-invalid", message).argument("upgraded")
+}
+
 fn entry_json(
     path: &str,
     kind: rk::RevisionKeyEntryKind,
@@ -891,7 +897,8 @@ impl ParseRun<'_> {
                 .info(&path)
                 .ok_or_else(|| internal("a read file left the source set"))?;
             let role = source_role(info.category).ok_or_else(|| internal("a link was read"))?;
-            let source = source_entry(&path, &bytes, info.executable, record)?;
+            let mut source = source_entry(&path, &bytes, info.executable, record)?;
+            source.upgraded_from_version = self.upgraded_from(&path)?;
             self.limits().check(
                 LimitName::MaxMemberBytes,
                 u64::try_from(bytes.len()).unwrap_or(u64::MAX),
@@ -906,6 +913,45 @@ impl ParseRun<'_> {
             });
         }
         Ok(members)
+    }
+
+    /// The `--upgraded` version of `path`, checked against the generator's
+    /// file formats (cli-spec.md §5.2.2 "Upgrades").
+    fn upgraded_from(&self, path: &str) -> Outcome<Option<i64>> {
+        let Some(&version) = self.request.upgraded.get(path) else {
+            return Ok(None);
+        };
+        let formats = &self.request.generator.document.kicad_file_formats;
+        let current = if path.to_ascii_lowercase().ends_with(".kicad_pcb") {
+            formats.board
+        } else {
+            formats.schematic
+        };
+        let version = i64::try_from(version).unwrap_or(i64::MAX);
+        if version >= current {
+            return Err(upgrade_invalid(format!(
+                "--upgraded gives {} version {version}, not older than the generator's format {current}",
+                member(path)
+            )));
+        }
+        Ok(Some(version))
+    }
+
+    /// Every `--upgraded` path must be a member.
+    fn check_upgraded(&self) -> Outcome<()> {
+        let read = self.tree.read_files();
+        match self
+            .request
+            .upgraded
+            .keys()
+            .find(|path| !read.contains_key(*path))
+        {
+            Some(path) => Err(upgrade_invalid(format!(
+                "--upgraded names {}, which is not a member",
+                member(path)
+            ))),
+            None => Ok(()),
+        }
     }
 
     fn stage_record(&mut self, error: Option<Finding>) -> Outcome<a2::BundleManifestParseStage> {
@@ -952,6 +998,7 @@ impl ParseRun<'_> {
         } else {
             (pending_board(), models_stage(Status::Pending, None))
         };
+        self.check_upgraded()?;
         let mut members = self.source_members()?;
         if !failed {
             members.append(&mut self.derived);

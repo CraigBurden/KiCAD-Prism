@@ -124,23 +124,23 @@ mod tests {
     fn the_cli_spec_vectors_hold() {
         let document: Value = serde_json::from_str(EXAMPLE).unwrap();
         let bytes = canonical(&document);
-        assert_eq!(bytes.len(), 1061);
+        assert_eq!(bytes.len(), 1122);
         assert_eq!(
             digest(&bytes),
-            "96ec6f85379966983bd1f9d9c78d8eba1b73a61ea9fad54c22189689c83b4add"
+            "d32ccf9dccfc4084e4b9f9ab7dea77ef0e1b69f51cacddd9466db8ad735fb82c"
         );
         let vectors = [
             (
                 "0000000000000000000000000000000000000000000000000000000000000000",
-                "a770ec388a61b8a8ef2c01295535d9de7f95179d4a8022fabcd87fb61bbe5931",
+                "e6ab4edd790af8cbb4afd150db63aa6df5f4a087778dce00597c19035fdb5069",
             ),
             (
                 "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-                "0b76554173eed259619144a418069ac2faa88e28fcd6dee63690c8a12d0e5d27",
+                "775106309b02f0b095de315ee7c9a79ff349a21bfb01c58a0d3e2d6a16556524",
             ),
             (
                 "42e41c598a193d09f6917ee92b7c71e52e9e15a251a63b7a955ef41beb841f34",
-                "e3a06226c5b2b6ea030d3cb9ad9f023738f9b37210f36528fbf7b8892349f05b",
+                "bf3d0663c4bf8eb7cbea4e251b30d910198f43b0d4d4da05d537665ae46b7e24",
             ),
         ];
         for (revision_key, expected) in vectors {
@@ -151,11 +151,11 @@ mod tests {
         let bytes = canonical(&bumped);
         assert_eq!(
             digest(&bytes),
-            "5e5139338678128c4351c31a18d02b771cadfcffa2b6374152c6d2d9319e3322"
+            "46d03769928b812a78dff62e01945649b668b76b6fd512ec9efd0a403fd1d960"
         );
         assert_eq!(
             bundle_key(&"0".repeat(64), &bytes),
-            "d55467222f57b0c2877280f44145ff8372cf22961529d78690e6450bb2418d80"
+            "55c345ad04d8f55eb120f8f61291519f70fd3377aad74811da7a44bac717ffc4"
         );
     }
 

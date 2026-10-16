@@ -12,9 +12,11 @@ use crate::finding::{Failure, Finding, Location};
 use crate::limits::{LimitName, Limits};
 use prism_kicad_core::sexpr::{self, Lexer, TokenKind};
 
-/// The newest schematic format KiCad 10.0.6 writes (`(version …)`).
+/// The newest schematic format KiCad 10.0.6 writes (`(version …)`):
+/// `generator.kicad_file_formats.schematic`.
 pub const SCHEMATIC_FORMAT: u64 = 20_260_306;
-/// The newest board format KiCad 10.0.6 writes.
+/// The newest board format KiCad 10.0.6 writes:
+/// `generator.kicad_file_formats.board`.
 pub const BOARD_FORMAT: u64 = 20_260_206;
 
 /// A `Sheetfile` reference of a top-level sheet.

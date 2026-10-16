@@ -284,6 +284,48 @@ fn recorded_content_failures_exit_nine() {
 }
 
 #[test]
+fn upgrade_records_are_kept_or_refused() {
+    let tree = source_tree(&[("p.kicad_pro", "{}"), ("p.kicad_sch", SHEET)]);
+    let out = tree.join("o.prism");
+    let build = |upgraded: &str| {
+        run(&[
+            "bundle",
+            "build",
+            s(&tree.join("p.kicad_pro")),
+            "--stage",
+            "parse",
+            "-o",
+            s(&out),
+            "--upgraded",
+            upgraded,
+            "--quiet",
+        ])
+    };
+    assert_eq!(build("p.kicad_sch=20230121").code, 0);
+    let limits = Limits::defaults(Work::Verify);
+    let reader = BundleReader::open(std::fs::read(&out).unwrap(), &limits).unwrap();
+    let sheet = reader
+        .manifest()
+        .members
+        .iter()
+        .find(|member| member.path.0 == "sources/p.kicad_sch")
+        .unwrap();
+    assert_eq!(
+        sheet.source.as_ref().unwrap().upgraded_from_version,
+        Some(20_230_121)
+    );
+    for refused in ["p.kicad_sch=20260306", "gone.kicad_sch=20230121"] {
+        let failed = build(refused);
+        assert_eq!(
+            (failed.code, failed.code_field()),
+            (3, "upgrade-record-invalid"),
+            "{refused}"
+        );
+        assert_eq!(failed.document["argument"], "upgraded");
+    }
+}
+
+#[test]
 fn absent_projects_exit_ten() {
     let dir = scratch("exit-ten");
     let absent = run(&[

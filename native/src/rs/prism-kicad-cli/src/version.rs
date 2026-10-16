@@ -10,6 +10,8 @@ use prism_bundle::stages::Generator;
 use prism_bundle::{Failure, Outcome};
 
 /// The KiCad of the KiCad-produced members (the refilled board, the GLB).
+/// Raise `prism_bundle::stages::{BOARD_FORMAT, SCHEMATIC_FORMAT}` with it: the
+/// `(version N)` it writes, `kicad_file_formats` in the generator id.
 pub const KICAD_VERSION: &str = "10.0.6";
 
 /// The generator document of this binary.
@@ -18,6 +20,10 @@ pub fn generator() -> Outcome<Generator> {
         "schema": "prism.cli.version.a0",
         "crate_version": env!("CARGO_PKG_VERSION"),
         "engine_version": prism_kicad_core::ENGINE_VERSION,
+        "kicad_file_formats": {
+            "board": prism_bundle::stages::BOARD_FORMAT,
+            "schematic": prism_bundle::stages::SCHEMATIC_FORMAT,
+        },
         "kicad_version": KICAD_VERSION,
         "member_schemas": member_schemas()
             .into_iter()
