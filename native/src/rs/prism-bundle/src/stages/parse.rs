@@ -19,7 +19,7 @@ use super::keys::{source_entry, upgrade_invalid};
 use super::sexpr_check::{self, BOARD_FORMAT, CheckError, SCHEMATIC_FORMAT};
 use super::sheets::{Unresolved, resolve};
 use super::sources::SourceTree;
-use super::{Built, Generator, MemberData, Reporter, internal};
+use super::{Built, Generator, MemberData, Reporter, internal, producers};
 use crate::finding::{Failure, Finding, Location, Outcome};
 use crate::limits::{LimitName, Limits};
 use crate::manifest::{
@@ -245,10 +245,10 @@ fn check_key_record(request: &ParseRequest<'_>, config: &EffectiveConfig) -> Out
     Ok(())
 }
 
-struct Design {
-    project: Text,
-    sheets: Vec<Text>,
-    board: Option<Text>,
+pub(super) struct Design {
+    pub(super) project: Text,
+    pub(super) sheets: Vec<Text>,
+    pub(super) board: Option<Text>,
 }
 
 struct ParseRun<'a> {
@@ -601,25 +601,6 @@ impl ParseRun<'_> {
             }
             _ => None,
         };
-        let mut design_json = None;
-        match (&parts, &facts) {
-            (Some(Ok((_, index))), Some(Ok(facts))) => {
-                let board = design
-                    .board
-                    .as_ref()
-                    .zip(model.board.as_ref())
-                    .map(|(text, view)| (text.path.as_str(), view));
-                match design::design_json(index, facts, &design.project, &design.sheets, board) {
-                    Ok(value) => design_json = Some(value),
-                    Err(message) => self.design_failed(&message)?,
-                }
-            }
-            (Some(Err(message)), _) | (_, Some(Err(message))) => self.design_failed(message)?,
-            _ => {}
-        }
-        if let Some(value) = &design_json {
-            self.add_json(DESIGN_PATH, DESIGN_SCHEMA, value)?;
-        }
         let root = self
             .config
             .root_schematic
@@ -637,7 +618,18 @@ impl ParseRun<'_> {
             }
             _ => None,
         };
-        self.project(design, &model, schematic.as_ref(), design_json.as_ref())?;
+        // `design.json` is built beside the producers that do not read it
+        // (`project`); a schematic or facts failure is recorded first, as
+        // before.
+        let design_inputs = match (&parts, &facts) {
+            (Some(Ok((_, index))), Some(Ok(facts))) => Some((index, facts)),
+            (Some(Err(message)), _) | (_, Some(Err(message))) => {
+                self.design_failed(message)?;
+                None
+            }
+            _ => None,
+        };
+        self.project(design, &model, schematic.as_ref(), design_inputs)?;
         Ok(None)
     }
 
@@ -665,37 +657,16 @@ impl ParseRun<'_> {
     }
 }
 
-/// Every projection: its member path, schema id and producer, serialized.
-type Producer = fn(
-    &prism_projections::ProjectionInput<'_>,
-) -> Result<(Value, Vec<prism_projections::ProducerWarning>), String>;
-
-fn produced<T: serde::Serialize>(
-    result: Result<prism_projections::Produced<T>, prism_projections::ProjectionError>,
-) -> Result<(Value, Vec<prism_projections::ProducerWarning>), String> {
-    let produced = result.map_err(|error| error.message)?;
-    let value = serde_json::to_value(&produced.document).map_err(|error| error.to_string())?;
-    Ok((value, produced.warnings))
-}
-
-const PRODUCERS: [Producer; 8] = [
-    |input| produced(prism_projections::board_objects::produce(input)),
-    |input| produced(prism_projections::occurrences::produce(input)),
-    |input| produced(prism_projections::placements::produce(input)),
-    |input| produced(prism_projections::project::produce(input)),
-    |input| produced(prism_projections::route_metrics::produce(input)),
-    |input| produced(prism_projections::semantic_index::produce(input)),
-    |input| produced(prism_projections::stackup::produce(input)),
-    |input| produced(prism_projections::system_interface::produce(input)),
-];
-
 impl ParseRun<'_> {
     fn project(
         &mut self,
         design: &Design,
         model: &Model<'_>,
         schematic: Option<&prism_projections::SchematicModel<'_>>,
-        design_json: Option<&Value>,
+        design_inputs: Option<(
+            &prism_kicad_core::SchematicBundleIndex,
+            &prism_kicad_core::KiCadDesignFacts<'_>,
+        )>,
     ) -> Outcome<()> {
         let config: cfg::RevisionKeyEffectiveConfigA1 = retype(&self.config).map_err(internal)?;
         let project = prism_projections::ProjectModel {
@@ -708,6 +679,11 @@ impl ParseRun<'_> {
             .as_ref()
             .zip(model.board.as_ref())
             .map(|(text, view)| prism_projections::BoardModel::new(&text.path, &text.text, view));
+        let design_board = design
+            .board
+            .as_ref()
+            .zip(model.board.as_ref())
+            .map(|(text, view)| (text.path.as_str(), view));
         let input = prism_projections::ProjectionInput {
             config: &config,
             revision_key: self.request.revision_key.as_deref(),
@@ -715,13 +691,21 @@ impl ParseRun<'_> {
             project: &project,
             schematic,
             board: board.as_ref(),
-            design: design_json,
+            design: None,
         };
-        for ((path, schema), producer) in PROJECTIONS.into_iter().zip(PRODUCERS) {
-            let result = producer(&input);
-            if let Some(failure) = self.tree.take_failure() {
-                return Err(failure);
-            }
+        // The producers only read their input, so they run at once; their
+        // results are then recorded one by one, in the fixed order, so the
+        // members, warnings and failures do not depend on which finished first.
+        let (design_json, results) = producers::run(&input, design_inputs, design, design_board);
+        match design_json {
+            Some(Ok(value)) => self.add_json(DESIGN_PATH, DESIGN_SCHEMA, &value)?,
+            Some(Err(message)) => self.design_failed(&message)?,
+            None => {}
+        }
+        if let Some(failure) = self.tree.take_failure() {
+            return Err(failure);
+        }
+        for ((path, schema), result) in PROJECTIONS.into_iter().zip(results) {
             match result {
                 Ok((value, warnings))
                     if value.get("schema").and_then(Value::as_str) == Some(schema) =>

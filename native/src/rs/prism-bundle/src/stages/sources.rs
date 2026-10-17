@@ -16,11 +16,11 @@ use crate::finding::{Failure, Outcome};
 use crate::limits::{LimitName, Limits};
 use crate::paths::{PathProblem, check_path, first_collision};
 use crate::revision_key::{Category, category_for_name};
-use std::cell::RefCell;
 use std::collections::BTreeMap;
 use std::os::unix::ffi::OsStrExt;
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
+use std::sync::{Mutex, MutexGuard, PoisonError};
 
 /// One selected file.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -37,8 +37,10 @@ pub struct SourceInfo {
 pub struct SourceTree {
     root: PathBuf,
     files: BTreeMap<String, SourceInfo>,
-    read: RefCell<BTreeMap<String, Vec<u8>>>,
-    failure: RefCell<Option<Failure>>,
+    read: Mutex<BTreeMap<String, Vec<u8>>>,
+    /// Read failures by path. Producers run in parallel, so the reported
+    /// failure is the first by path, not the first in time.
+    failure: Mutex<BTreeMap<String, Failure>>,
     max_file_bytes: u64,
 }
 
@@ -190,8 +192,8 @@ impl SourceTree {
         Ok(Self {
             root: root.to_path_buf(),
             files,
-            read: RefCell::new(BTreeMap::new()),
-            failure: RefCell::new(None),
+            read: Mutex::new(BTreeMap::new()),
+            failure: Mutex::new(BTreeMap::new()),
             max_file_bytes: limits.get(LimitName::MaxSourceFileBytes),
         })
     }
@@ -216,7 +218,7 @@ impl SourceTree {
     /// Read `path`, recording it as a member. `None` when it is not in the
     /// source set.
     pub fn read(&self, path: &str) -> Outcome<Option<Vec<u8>>> {
-        if let Some(bytes) = self.read.borrow().get(path) {
+        if let Some(bytes) = locked(&self.read).get(path) {
             return Ok(Some(bytes.clone()));
         }
         if !self.files.contains_key(path) {
@@ -242,22 +244,30 @@ impl SourceTree {
             .at_path(format!("sources/{path}")));
         }
         let bytes = std::fs::read(&host).map_err(|error| read_failure(path, &error))?;
-        self.read
-            .borrow_mut()
-            .insert(path.to_owned(), bytes.clone());
+        locked(&self.read).insert(path.to_owned(), bytes.clone());
         Ok(Some(bytes))
     }
 
     /// Every file read so far, by path.
     #[must_use]
     pub fn read_files(&self) -> BTreeMap<String, Vec<u8>> {
-        self.read.borrow().clone()
+        locked(&self.read).clone()
     }
 
-    /// The first failure a projection's read hit, if any.
+    /// The failure of the first path, in code point order, that a
+    /// projection's read could not read, if any; clears every recorded one.
     pub fn take_failure(&self) -> Option<Failure> {
-        self.failure.borrow_mut().take()
+        std::mem::take(&mut *locked(&self.failure))
+            .into_values()
+            .next()
     }
+}
+
+/// `mutex`'s guard. A producer that panicked mid-read cannot leave the map
+/// half-written (every update is one insert), so a poisoned lock is still
+/// sound to read.
+fn locked<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
+    mutex.lock().unwrap_or_else(PoisonError::into_inner)
 }
 
 fn read_failure(path: &str, error: &std::io::Error) -> Failure {
@@ -278,7 +288,9 @@ impl prism_projections::Sources for SourceTree {
         match SourceTree::read(self, path) {
             Ok(bytes) => bytes,
             Err(failure) => {
-                self.failure.borrow_mut().get_or_insert(failure);
+                locked(&self.failure)
+                    .entry(path.to_owned())
+                    .or_insert(failure);
                 None
             }
         }
