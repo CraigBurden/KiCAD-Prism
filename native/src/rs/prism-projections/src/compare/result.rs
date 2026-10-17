@@ -1,4 +1,4 @@
-//! `prism.design_compare.result.a0`: every Design Comparison tab except
+//! `prism.design_compare.result.a1`: every Design Comparison tab except
 //! fabrication, from two revisions' members (ADR amendment C2r §2 item 1).
 //!
 //! [`build`] runs the object diff ([`super::diff_entries`]) and hands each tab
@@ -18,11 +18,12 @@ mod project_diff;
 mod review;
 mod route_metrics;
 mod stackup;
+mod targets;
 
 pub use review::{ReviewChange, VisualRole, VisualSide, VisualStatus, VisualTarget};
 
 use super::{CompareError, Entries, diff};
-use prism_kicad_contracts::generated::prism_design_compare_result_a0 as dc;
+use prism_kicad_contracts::generated::prism_design_compare_result_a1 as dc;
 use prism_kicad_contracts::generated::prism_occurrences_a0::OccurrencesA0;
 use prism_kicad_contracts::generated::prism_route_metrics_a0::RouteMetricsA0;
 use prism_kicad_contracts::generated::prism_semantic_index_a1::SemanticIndexA1;
@@ -89,7 +90,7 @@ pub fn project_dir(project_file: &str) -> &str {
 /// command's stdout (`CliCompareResultA0`).
 pub struct Output {
     /// The `-o` document.
-    pub result: dc::DesignCompareResultA0,
+    pub result: dc::DesignCompareResultA1,
     /// The object diff's `counts` (added, removed, modified, unchanged,
     /// ignored, baseObjects, headObjects).
     pub object_counts: Value,
@@ -129,6 +130,8 @@ pub fn build(base: Revision, head: Revision, options: Options) -> Result<Output,
     hydrate::build(&base_entries, &head_entries, &mut schematic);
     drop(base_entries);
     drop(head_entries);
+    targets::attach(&mut schematic);
+    targets::attach(&mut pcb);
     // ecad-viewer's diffs are built in the change order (objects, then
     // connectivity; design_compare_service.py:1167-1171), before the tabs sort.
     let project_diff = project_diff::build(&schematic, &pcb, &files);
@@ -139,8 +142,8 @@ pub fn build(base: Revision, head: Revision, options: Options) -> Result<Output,
         pcb: summary(&pcb),
         bom: bom.summary.clone(),
     };
-    let result = dc::DesignCompareResultA0 {
-        schema: "prism.design_compare.result.a0".to_owned(),
+    let result = dc::DesignCompareResultA1 {
+        schema: "prism.design_compare.result.a1".to_owned(),
         base: identity.0,
         head: identity.1,
         files,

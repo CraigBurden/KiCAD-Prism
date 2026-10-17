@@ -6,7 +6,7 @@ using Prism.Contracts.Common;
 
 /**
  * ecad-viewer's comparison input, `prism.kicad_project_diff_v1`, embedded as
- * `projectDiff` in `DesignCompareResultA0` (amendment C2r §2 item 2).
+ * `projectDiff` in `DesignCompareResultA1` (amendment C2r §2 item 2).
  *
  * This is a **mirror contract**: it types the document ecad-viewer reads today
  * (`frontend/src/components/design-comparison/types.ts:280-338`, passed with

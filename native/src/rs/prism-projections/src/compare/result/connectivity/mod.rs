@@ -30,7 +30,7 @@ mod tests;
 
 use super::ReviewChange;
 use super::Revision;
-use prism_kicad_contracts::generated::prism_design_compare_result_a0 as dc;
+use prism_kicad_contracts::generated::prism_design_compare_result_a1 as dc;
 
 /// What a change does, from which sides are present.
 #[derive(Clone, Copy, PartialEq, Eq)]

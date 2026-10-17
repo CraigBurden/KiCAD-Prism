@@ -97,8 +97,8 @@ pub const SCHEMA_FILES: [(&str, &str); 33] = [
         include_str!("../schema/CompareObjectDeltaA0.json"),
     ),
     (
-        "DesignCompareResultA0.json",
-        include_str!("../schema/DesignCompareResultA0.json"),
+        "DesignCompareResultA1.json",
+        include_str!("../schema/DesignCompareResultA1.json"),
     ),
     (
         "DrawingSheetRequestA0.json",

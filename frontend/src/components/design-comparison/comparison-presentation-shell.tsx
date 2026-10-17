@@ -931,7 +931,7 @@ export function ComparisonPresentationShell({
                 unresolvedSelectionKeyRef.current = applicationKey;
                 setSelectionDiagnostic(null);
                 const hasVisualTarget = allChanges.some(
-                    (change) => (change.details?.visualTargets?.length ?? 0) > 0,
+                    (change) => (change.details.targets?.length ?? 0) > 0,
                 );
                 setSelectionNotice(selection && hasVisualTarget
                     ? "The selected KiCad object could not be resolved on the canvas; use the structured old/new evidence for review."

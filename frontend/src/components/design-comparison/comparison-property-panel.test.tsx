@@ -14,9 +14,11 @@ function change(overrides: Partial<ChangeItem> = {}): ChangeItem {
         classification: "primary",
         label: "R33",
         reference: "R33",
-        object_kind: "symbol",
+        objectKind: "symbol",
         page: "CurrentSensing.kicad_sch",
         reasons: ["symbol-fields-changed"],
+        fields: {},
+        details: {},
         ...overrides,
     };
 }
@@ -181,8 +183,8 @@ describe("comparison property panel", () => {
             changes: [change({
                 domain: "pcb",
                 category: "nets",
-                object_kind: "track",
-                reference: null,
+                objectKind: "track",
+                reference: undefined,
                 net: "GND",
                 reasons: ["layer-changed"],
                 fields: { Layer: { old: "F.Cu", new: "In1.Cu" } },
@@ -209,7 +211,9 @@ describe("comparison property panel", () => {
 
     it("says so when a change resolved to no canvas target", () => {
         const unresolved = group({
-            changes: [change({ source_id_compare: "abc-123" })],
+            changes: [change({
+                head: { sourceId: "abc-123", documentPath: "CurrentSensing.kicad_sch", layers: [] },
+            })],
         });
         render(<ComparisonPropertyPanel group={unresolved} bom={bom} />);
 
@@ -226,8 +230,8 @@ describe("comparison property panel", () => {
             changes: [change({
                 domain: "pcb",
                 category: "rules",
-                object_kind: "drc_exclusion",
-                reference: null,
+                objectKind: "drc-exclusion",
+                reference: undefined,
                 net: 0 as unknown as string,
             })],
         });

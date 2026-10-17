@@ -22,15 +22,19 @@ every consumer.
 
 A new object kind is three hops:
 
-1. Parse it in `backend/design-compare-parser/ecad-parse.mjs` (the parser owns
-   kind names). If the parser's form name is not the canonical kind, map it in
-   `CANONICAL_KINDS` there; the index emits canonical kinds only, so nothing
-   downstream knows raw spellings. Test it with `npm test` in that folder.
-   Derive the base and comparison revisions independently; absence on one side
+1. Emit it in the board-objects member
+   (`native/src/rs/prism-projections/src/board_objects/`; its contract
+   `native/src/tsp/prism/board-objects-a0.tsp` owns kind names, spelled with
+   `-`). Derive the base and head revisions independently; absence on one side
    remains absence.
-2. Classify it in `_node_classification` in
-   `backend/app/services/design_compare_nodes.py`: category and
-   primary/secondary are the backend's.
+2. Classify it in `prism-kicad compare`
+   (`native/src/rs/prism-projections/src/compare/result/objects.rs`): category
+   and primary/secondary are `compare`'s. Until R1 removes the backend's legacy
+   path, also parse it in `backend/design-compare-parser/ecad-parse.mjs` (map
+   its form name in `CANONICAL_KINDS`) and classify it in `_node_classification`
+   in `backend/app/services/design_compare_nodes.py`;
+   `frontend/src/components/design-comparison/legacy-v3-result.ts` re-spells the
+   legacy `_` kinds.
 3. Add one row to
    `frontend/src/components/design-comparison/comparison-change-kinds.ts`
    (domain, reviewer noun, traits) and its expectation row in
@@ -47,8 +51,10 @@ Only when the change needs it:
   `backend/app/services/design_compare_occurrences.py`.
 - Durable output beyond the result payload:
   `backend/app/services/design_compare_artifacts.py`.
-- A new visual-target role: the `role` union in
-  `frontend/src/components/design-comparison/types.ts`.
+- A new target role: `DesignCompareTargetRole` in
+  `native/src/tsp/prism/design-compare-a1.tsp` (a contract change, so a new
+  version) and its mirror in
+  `frontend/src/components/design-comparison/design-compare-result.ts`.
 - A new reason code: reviewer verbs in
   `frontend/src/components/design-comparison/comparison-change-vocabulary.ts`
   and facts in

@@ -103,8 +103,8 @@ pub const SCHEMAS: [(&str, &str); 73] = [
         "prism_compare_object_delta_a0.rs",
     ),
     (
-        "DesignCompareResultA0.json",
-        "prism_design_compare_result_a0.rs",
+        "DesignCompareResultA1.json",
+        "prism_design_compare_result_a1.rs",
     ),
     (
         "DrawingSheetRequestA0.json",

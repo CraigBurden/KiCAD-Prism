@@ -163,14 +163,15 @@ Design Comparison's object diff becomes `prism-kicad compare` (cli-spec.md §5.6
 
 Design Comparison is computed by `prism-kicad compare` instead of a port of Node's diff plus Python assembly (rationale and benchmark in `docs/architecture/adr-native-design-bundle-amendment-c2r.md`). Decided by the maintainer:
 
-1. **Every tab in Rust.** `compare` emits the Schematic and PCB changes, connectivity, BOM, stackup and route metrics as `DesignCompareResultA0`, plus ecad-viewer's `KiCadProjectDiffBundle` in today's format. Fabrication stays `kicad-cli` in Python. Supersedes C2's D3 and D4's object-delta output; C2's D1 and D2 stand.
+1. **Every tab in Rust.** `compare` emits the Schematic and PCB changes, connectivity, BOM, stackup and route metrics as `DesignCompareResultA1` (a0 until step 6), plus ecad-viewer's `KiCadProjectDiffBundle` in today's format. Fabrication stays `kicad-cli` in Python. Supersedes C2's D3 and D4's object-delta output; C2's D1 and D2 stand.
 2. **ecad-viewer's input is fixed.** Property value types follow the KiCad property, not the JSON text.
 3. **Bundles or source trees.** A commit with no bundle yet is compared from its source tree with only Design Comparison's producers, in memory; the full bundle is built alongside.
 4. **Store-time validation.** K validates member schemas once per stored archive with `bundle verify`; reads check structure, identity and digests only (bundle-format.md §9).
-5. **Q1, stored comparisons.** The frontend reads both `prism.semantic_comparison_v3` and the new result until R1; stored v3 results are not converted.
+5. **Q1, stored comparisons.** The frontend reads both `prism.semantic_comparison_v3` and the new result until R1; stored v3 results are not converted. *Revised 2026-10-18 (step 6):* the tabs read only the new result, and a v3 result, which the legacy path still writes until the gate, is read into that shape on load (`legacy-v3-result.ts`, deleted with the legacy path). The maintainer has no stored comparisons to keep.
 6. **Q2, review logic.** Labels, classification, net pairing and the net-rename derivation move from Python into `compare`; review grouping and presentation policy stay in the frontend.
 7. **Q3, bundles on push.** Not part of C2; source-tree mode removes the cold-path cost.
 8. **Gate.** C2 switches on only after C2r §5's acceptance and the cold EDA-04903 benchmark pass, and the maintainer agrees.
+9. **Targets (step 6, 2026-10-18).** The result is `prism.design_compare.result.a1`: a0 plus `details.targets`, today's visual targets slimmed to what the review list reads (kind, role, document, position, sheet path, reference). Without them the review list's presentation and search change (field map, "Targets"). a0 is removed.
 
 ## Release Studio, amendment C3 (2026-10-17)
 

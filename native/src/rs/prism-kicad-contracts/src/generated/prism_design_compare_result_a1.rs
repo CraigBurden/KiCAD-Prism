@@ -773,6 +773,13 @@ pub struct DesignCompareChange {
 ///    "sheetChange": {
 ///      "description": "The sheet the object is on. Absent when it did not change.",
 ///      "$ref": "#/$defs/DesignCompareSheetDelta"
+///    },
+///    "targets": {
+///      "description": "The objects ecad-viewer highlights for the change: base-side targets first, then head-side, each in the order the change's evidence lists them (field map, \"Targets\"). One entry per object and sheet instance. Absent when there are none, as for a change with `reviewOnly`.",
+///      "type": "array",
+///      "items": {
+///        "$ref": "#/$defs/DesignCompareTarget"
+///      }
 ///    }
 ///  },
 ///  "additionalProperties": false
@@ -813,6 +820,9 @@ pub struct DesignCompareChangeDetails {
         skip_serializing_if = "::std::option::Option::is_none"
     )]
     pub sheet_change: ::std::option::Option<DesignCompareSheetDelta>,
+    ///The objects ecad-viewer highlights for the change: base-side targets first, then head-side, each in the order the change's evidence lists them (field map, "Targets"). One entry per object and sheet instance. Absent when there are none, as for a change with `reviewOnly`.
+    #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+    pub targets: ::std::option::Option<::std::vec::Vec<DesignCompareTarget>>,
 }
 impl ::std::default::Default for DesignCompareChangeDetails {
     fn default() -> Self {
@@ -822,6 +832,7 @@ impl ::std::default::Default for DesignCompareChangeDetails {
             label_instances: Default::default(),
             review_only: Default::default(),
             sheet_change: Default::default(),
+            targets: Default::default(),
         }
     }
 }
@@ -1536,8 +1547,8 @@ impl ::std::convert::TryFrom<::std::string::String> for DesignCompareReason {
 ///
 /// ```json
 ///{
-///  "$id": "urn:prism:schema:prism.design_compare.result:a0",
-///  "title": "DesignCompareResultA0",
+///  "$id": "urn:prism:schema:prism.design_compare.result:a1",
+///  "title": "DesignCompareResultA1",
 ///  "description": "Every Design Comparison tab except fabrication between two revisions\n(`prism-kicad compare -o`).",
 ///  "type": "object",
 ///  "required": [
@@ -1589,7 +1600,7 @@ impl ::std::convert::TryFrom<::std::string::String> for DesignCompareReason {
 ///    "schema": {
 ///      "description": "Document schema id.",
 ///      "type": "string",
-///      "const": "prism.design_compare.result.a0"
+///      "const": "prism.design_compare.result.a1"
 ///    },
 ///    "schematic": {
 ///      "description": "The Schematic tab.",
@@ -1606,7 +1617,7 @@ impl ::std::convert::TryFrom<::std::string::String> for DesignCompareReason {
 /// </details>
 #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
 #[serde(deny_unknown_fields)]
-pub struct DesignCompareResultA0 {
+pub struct DesignCompareResultA1 {
     ///Document schema id.
     pub schema: ::std::string::String,
     ///The base (old) revision.
@@ -1809,6 +1820,79 @@ impl ::std::default::Default for DesignCompareSheetDelta {
             new: Default::default(),
             old: Default::default(),
         }
+    }
+}
+///The pane a target is drawn in.
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "description": "The pane a target is drawn in.",
+///  "type": "string",
+///  "enum": [
+///    "base",
+///    "head"
+///  ]
+///}
+/// ```
+/// </details>
+#[derive(
+    ::serde::Deserialize,
+    ::serde::Serialize,
+    Clone,
+    Copy,
+    Debug,
+    Eq,
+    Hash,
+    Ord,
+    PartialEq,
+    PartialOrd,
+)]
+pub enum DesignCompareSide {
+    #[serde(rename = "base")]
+    Base,
+    #[serde(rename = "head")]
+    Head,
+}
+impl ::std::fmt::Display for DesignCompareSide {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+        match *self {
+            Self::Base => f.write_str("base"),
+            Self::Head => f.write_str("head"),
+        }
+    }
+}
+impl ::std::str::FromStr for DesignCompareSide {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        match value {
+            "base" => Ok(Self::Base),
+            "head" => Ok(Self::Head),
+            _ => Err("invalid value".into()),
+        }
+    }
+}
+impl ::std::convert::TryFrom<&str> for DesignCompareSide {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl ::std::convert::TryFrom<&::std::string::String> for DesignCompareSide {
+    type Error = self::error::ConversionError;
+    fn try_from(
+        value: &::std::string::String,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl ::std::convert::TryFrom<::std::string::String> for DesignCompareSide {
+    type Error = self::error::ConversionError;
+    fn try_from(
+        value: ::std::string::String,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
     }
 }
 ///One KiCad source file of a revision, as the file list and the overlay show it.
@@ -2088,6 +2172,279 @@ pub struct DesignCompareSummary {
     pub removed: Count,
     ///Changed entries.
     pub changed: Count,
+}
+///One object ecad-viewer highlights for a change. The review list reads the targets' kinds, roles, documents, positions and references; `projectDiff` is built from the same targets.
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "description": "One object ecad-viewer highlights for a change. The review list reads the targets' kinds, roles, documents, positions and references; `projectDiff` is built from the same targets.",
+///  "type": "object",
+///  "required": [
+///    "side",
+///    "sourceId"
+///  ],
+///  "properties": {
+///    "at": {
+///      "description": "The object's position. Absent for an object without one.",
+///      "$ref": "#/$defs/PointNm"
+///    },
+///    "documentPath": {
+///      "description": "The document the object is in, relative to the project directory. Absent when it is not known.",
+///      "type": "string"
+///    },
+///    "kind": {
+///      "description": "The object's kind as the board-objects member names it, for example `pin` or `sheet-pin`. Absent when the target is only a role (a net's terminal with no pin object of its own).",
+///      "type": "string"
+///    },
+///    "reference": {
+///      "description": "The component reference designator the object belongs to. Absent when it belongs to none.",
+///      "$ref": "#/$defs/Refdes"
+///    },
+///    "role": {
+///      "description": "How the object is drawn. Absent when it has no role beyond its `kind`.",
+///      "$ref": "#/$defs/DesignCompareTargetRole"
+///    },
+///    "sheetPath": {
+///      "description": "The sheet instance path of a schematic object (`/` for the root sheet). Absent on the board, and for a schematic object whose instance is not known.",
+///      "type": "string"
+///    },
+///    "side": {
+///      "description": "The pane the object is drawn in: `base` for the base revision's object, `head` for the head's.",
+///      "$ref": "#/$defs/DesignCompareSide"
+///    },
+///    "sourceId": {
+///      "description": "The object's native identity in that revision: its UUID, or for a terminal its pin's UUID (its symbol's when the pin has none).",
+///      "type": "string"
+///    }
+///  },
+///  "additionalProperties": false
+///}
+/// ```
+/// </details>
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct DesignCompareTarget {
+    ///The pane the object is drawn in: `base` for the base revision's object, `head` for the head's.
+    pub side: DesignCompareSide,
+    ///The object's native identity in that revision: its UUID, or for a terminal its pin's UUID (its symbol's when the pin has none).
+    #[serde(rename = "sourceId")]
+    pub source_id: ::std::string::String,
+    ///The object's kind as the board-objects member names it, for example `pin` or `sheet-pin`. Absent when the target is only a role (a net's terminal with no pin object of its own).
+    #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+    pub kind: ::std::option::Option<::std::string::String>,
+    ///How the object is drawn. Absent when it has no role beyond its `kind`.
+    #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+    pub role: ::std::option::Option<DesignCompareTargetRole>,
+    ///The document the object is in, relative to the project directory. Absent when it is not known.
+    #[serde(
+        rename = "documentPath",
+        default,
+        skip_serializing_if = "::std::option::Option::is_none"
+    )]
+    pub document_path: ::std::option::Option<::std::string::String>,
+    ///The object's position. Absent for an object without one.
+    #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+    pub at: ::std::option::Option<PointNm>,
+    ///The sheet instance path of a schematic object (`/` for the root sheet). Absent on the board, and for a schematic object whose instance is not known.
+    #[serde(
+        rename = "sheetPath",
+        default,
+        skip_serializing_if = "::std::option::Option::is_none"
+    )]
+    pub sheet_path: ::std::option::Option<::std::string::String>,
+    ///The component reference designator the object belongs to. Absent when it belongs to none.
+    #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+    pub reference: ::std::option::Option<Refdes>,
+}
+///How a target is drawn and reviewed: the object's own kind, or the part it plays in the change (a net's `terminal`, a component's `component`).
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "description": "How a target is drawn and reviewed: the object's own kind, or the part it plays in the change (a net's `terminal`, a component's `component`).",
+///  "type": "string",
+///  "enum": [
+///    "component",
+///    "wire",
+///    "bus",
+///    "bus-entry",
+///    "label",
+///    "junction",
+///    "terminal",
+///    "sheet",
+///    "sheet-pin",
+///    "symbol",
+///    "no-connect",
+///    "graphic",
+///    "footprint",
+///    "pad",
+///    "track",
+///    "arc",
+///    "via",
+///    "zone",
+///    "footprint-graphic",
+///    "footprint-text",
+///    "image",
+///    "table",
+///    "group",
+///    "net-class",
+///    "net-class-assignment"
+///  ]
+///}
+/// ```
+/// </details>
+#[derive(
+    ::serde::Deserialize,
+    ::serde::Serialize,
+    Clone,
+    Copy,
+    Debug,
+    Eq,
+    Hash,
+    Ord,
+    PartialEq,
+    PartialOrd,
+)]
+pub enum DesignCompareTargetRole {
+    #[serde(rename = "component")]
+    Component,
+    #[serde(rename = "wire")]
+    Wire,
+    #[serde(rename = "bus")]
+    Bus,
+    #[serde(rename = "bus-entry")]
+    BusEntry,
+    #[serde(rename = "label")]
+    Label,
+    #[serde(rename = "junction")]
+    Junction,
+    #[serde(rename = "terminal")]
+    Terminal,
+    #[serde(rename = "sheet")]
+    Sheet,
+    #[serde(rename = "sheet-pin")]
+    SheetPin,
+    #[serde(rename = "symbol")]
+    Symbol,
+    #[serde(rename = "no-connect")]
+    NoConnect,
+    #[serde(rename = "graphic")]
+    Graphic,
+    #[serde(rename = "footprint")]
+    Footprint,
+    #[serde(rename = "pad")]
+    Pad,
+    #[serde(rename = "track")]
+    Track,
+    #[serde(rename = "arc")]
+    Arc,
+    #[serde(rename = "via")]
+    Via,
+    #[serde(rename = "zone")]
+    Zone,
+    #[serde(rename = "footprint-graphic")]
+    FootprintGraphic,
+    #[serde(rename = "footprint-text")]
+    FootprintText,
+    #[serde(rename = "image")]
+    Image,
+    #[serde(rename = "table")]
+    Table,
+    #[serde(rename = "group")]
+    Group,
+    #[serde(rename = "net-class")]
+    NetClass,
+    #[serde(rename = "net-class-assignment")]
+    NetClassAssignment,
+}
+impl ::std::fmt::Display for DesignCompareTargetRole {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+        match *self {
+            Self::Component => f.write_str("component"),
+            Self::Wire => f.write_str("wire"),
+            Self::Bus => f.write_str("bus"),
+            Self::BusEntry => f.write_str("bus-entry"),
+            Self::Label => f.write_str("label"),
+            Self::Junction => f.write_str("junction"),
+            Self::Terminal => f.write_str("terminal"),
+            Self::Sheet => f.write_str("sheet"),
+            Self::SheetPin => f.write_str("sheet-pin"),
+            Self::Symbol => f.write_str("symbol"),
+            Self::NoConnect => f.write_str("no-connect"),
+            Self::Graphic => f.write_str("graphic"),
+            Self::Footprint => f.write_str("footprint"),
+            Self::Pad => f.write_str("pad"),
+            Self::Track => f.write_str("track"),
+            Self::Arc => f.write_str("arc"),
+            Self::Via => f.write_str("via"),
+            Self::Zone => f.write_str("zone"),
+            Self::FootprintGraphic => f.write_str("footprint-graphic"),
+            Self::FootprintText => f.write_str("footprint-text"),
+            Self::Image => f.write_str("image"),
+            Self::Table => f.write_str("table"),
+            Self::Group => f.write_str("group"),
+            Self::NetClass => f.write_str("net-class"),
+            Self::NetClassAssignment => f.write_str("net-class-assignment"),
+        }
+    }
+}
+impl ::std::str::FromStr for DesignCompareTargetRole {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        match value {
+            "component" => Ok(Self::Component),
+            "wire" => Ok(Self::Wire),
+            "bus" => Ok(Self::Bus),
+            "bus-entry" => Ok(Self::BusEntry),
+            "label" => Ok(Self::Label),
+            "junction" => Ok(Self::Junction),
+            "terminal" => Ok(Self::Terminal),
+            "sheet" => Ok(Self::Sheet),
+            "sheet-pin" => Ok(Self::SheetPin),
+            "symbol" => Ok(Self::Symbol),
+            "no-connect" => Ok(Self::NoConnect),
+            "graphic" => Ok(Self::Graphic),
+            "footprint" => Ok(Self::Footprint),
+            "pad" => Ok(Self::Pad),
+            "track" => Ok(Self::Track),
+            "arc" => Ok(Self::Arc),
+            "via" => Ok(Self::Via),
+            "zone" => Ok(Self::Zone),
+            "footprint-graphic" => Ok(Self::FootprintGraphic),
+            "footprint-text" => Ok(Self::FootprintText),
+            "image" => Ok(Self::Image),
+            "table" => Ok(Self::Table),
+            "group" => Ok(Self::Group),
+            "net-class" => Ok(Self::NetClass),
+            "net-class-assignment" => Ok(Self::NetClassAssignment),
+            _ => Err("invalid value".into()),
+        }
+    }
+}
+impl ::std::convert::TryFrom<&str> for DesignCompareTargetRole {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl ::std::convert::TryFrom<&::std::string::String> for DesignCompareTargetRole {
+    type Error = self::error::ConversionError;
+    fn try_from(
+        value: &::std::string::String,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl ::std::convert::TryFrom<::std::string::String> for DesignCompareTargetRole {
+    type Error = self::error::ConversionError;
+    fn try_from(
+        value: ::std::string::String,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
 }
 ///ecad-viewer's comparison input.
 ///

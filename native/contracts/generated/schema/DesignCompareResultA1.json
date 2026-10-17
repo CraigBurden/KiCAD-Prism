@@ -1,11 +1,11 @@
 {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
-    "$id": "urn:prism:schema:prism.design_compare.result:a0",
+    "$id": "urn:prism:schema:prism.design_compare.result:a1",
     "type": "object",
     "properties": {
         "schema": {
             "type": "string",
-            "const": "prism.design_compare.result.a0",
+            "const": "prism.design_compare.result.a1",
             "description": "Document schema id."
         },
         "base": {
@@ -66,7 +66,7 @@
         "not": {}
     },
     "description": "Every Design Comparison tab except fabrication between two revisions\n(`prism-kicad compare -o`).",
-    "title": "Design compare result a0",
+    "title": "Design compare result a1",
     "$defs": {
         "DesignCompareRevision": {
             "type": "object",
@@ -702,6 +702,13 @@
                 "sheetChange": {
                     "$ref": "#/$defs/DesignCompareSheetDelta",
                     "description": "The sheet the object is on. Absent when it did not change."
+                },
+                "targets": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/$defs/DesignCompareTarget"
+                    },
+                    "description": "The objects ecad-viewer highlights for the change: base-side targets first, then head-side, each in the order the change's evidence lists them (field map, \"Targets\"). One entry per object and sheet instance. Absent when there are none, as for a change with `reviewOnly`."
                 }
             },
             "unevaluatedProperties": {
@@ -970,6 +977,51 @@
             },
             "description": "A sheet on both sides."
         },
+        "DesignCompareTarget": {
+            "type": "object",
+            "properties": {
+                "side": {
+                    "$ref": "#/$defs/DesignCompareSide",
+                    "description": "The pane the object is drawn in: `base` for the base revision's object, `head` for the head's."
+                },
+                "sourceId": {
+                    "type": "string",
+                    "description": "The object's native identity in that revision: its UUID, or for a terminal its pin's UUID (its symbol's when the pin has none)."
+                },
+                "kind": {
+                    "type": "string",
+                    "description": "The object's kind as the board-objects member names it, for example `pin` or `sheet-pin`. Absent when the target is only a role (a net's terminal with no pin object of its own)."
+                },
+                "role": {
+                    "$ref": "#/$defs/DesignCompareTargetRole",
+                    "description": "How the object is drawn. Absent when it has no role beyond its `kind`."
+                },
+                "documentPath": {
+                    "type": "string",
+                    "description": "The document the object is in, relative to the project directory. Absent when it is not known."
+                },
+                "at": {
+                    "$ref": "#/$defs/PointNm",
+                    "description": "The object's position. Absent for an object without one."
+                },
+                "sheetPath": {
+                    "type": "string",
+                    "description": "The sheet instance path of a schematic object (`/` for the root sheet). Absent on the board, and for a schematic object whose instance is not known."
+                },
+                "reference": {
+                    "$ref": "#/$defs/Refdes",
+                    "description": "The component reference designator the object belongs to. Absent when it belongs to none."
+                }
+            },
+            "required": [
+                "side",
+                "sourceId"
+            ],
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "One object ecad-viewer highlights for a change. The review list reads the targets' kinds, roles, documents, positions and references; `projectDiff` is built from the same targets."
+        },
         "KiCadUuid": {
             "type": "string",
             "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
@@ -1169,6 +1221,45 @@
                 }
             ],
             "description": "One review-field value, as Design Comparison shows it: the value today's\nindex writes, unconverted (lengths stay the millimetres the file writes,\nflags stay booleans, `Size` stays a `w × h` text). A presentation value,\nnot a typed fact: typed lengths of this member are the `…Nm` fields. A\nvalue of any other shape is written as its canonical JSON text (field\nmap)."
+        },
+        "DesignCompareSide": {
+            "type": "string",
+            "enum": [
+                "base",
+                "head"
+            ],
+            "description": "The pane a target is drawn in."
+        },
+        "DesignCompareTargetRole": {
+            "type": "string",
+            "enum": [
+                "component",
+                "wire",
+                "bus",
+                "bus-entry",
+                "label",
+                "junction",
+                "terminal",
+                "sheet",
+                "sheet-pin",
+                "symbol",
+                "no-connect",
+                "graphic",
+                "footprint",
+                "pad",
+                "track",
+                "arc",
+                "via",
+                "zone",
+                "footprint-graphic",
+                "footprint-text",
+                "image",
+                "table",
+                "group",
+                "net-class",
+                "net-class-assignment"
+            ],
+            "description": "How a target is drawn and reviewed: the object's own kind, or the part it plays in the change (a net's `terminal`, a component's `component`)."
         },
         "KiCadProjectDiffChangeKind": {
             "type": "string",

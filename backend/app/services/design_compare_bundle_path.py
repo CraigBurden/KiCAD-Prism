@@ -8,7 +8,7 @@ pipeline (C2r §2 items 4-7, §9 step 5):
 1. sides        each revision from its stored bundle (the five members compare
                 reads are ready), else from its source tree, materialized as the
                 design_bundle job does; the bundle build is queued either way
-2. compare      prism-kicad compare -> DesignCompareResultA0, every tab except fabrication
+2. compare      prism-kicad compare -> DesignCompareResultA1, every tab except fabrication
 3. publish      the result as the job's partial artifact (fabrication still building)
 4. fabrication  kicad-cli Gerbers per side, cached by bundle key; today's image diff
 5. publish      the v2 manifest: one sidecar per tab, fabrication and its layer renders
@@ -52,7 +52,7 @@ MEMBERS = (
     "projections/stackup.json",
     "projections/route-metrics.json",
 )
-RESULT_SCHEMA = "prism.design_compare.result.a0"
+RESULT_SCHEMA = "prism.design_compare.result.a1"
 MANIFEST_SCHEMA = "prism.design_compare_bundle_v2"
 #: The result's tabs, each served as its own sidecar under the same name.
 TABS = ("files", "schematic", "pcb", "bom", "stackup", "routeMetrics", "projectDiff")

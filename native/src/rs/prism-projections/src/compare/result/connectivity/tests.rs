@@ -7,7 +7,7 @@ use super::input::View;
 use super::targets::{self, Buckets};
 use super::{nets, structure};
 use crate::compare::entry::{self, Entry};
-use prism_kicad_contracts::generated::prism_design_compare_result_a0 as dc;
+use prism_kicad_contracts::generated::prism_design_compare_result_a1 as dc;
 use prism_kicad_contracts::generated::prism_occurrences_a0::OccurrencesA0;
 use prism_kicad_contracts::generated::prism_semantic_index_a1::SemanticIndexA1;
 use serde_json::{Value, json};

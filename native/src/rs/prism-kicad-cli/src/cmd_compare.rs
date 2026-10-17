@@ -1,5 +1,5 @@
 //! `compare` (cli-spec.md §5.6, ADR amendment C2r §3): every Design
-//! Comparison tab except fabrication, as `DesignCompareResultA0`.
+//! Comparison tab except fabrication, as `DesignCompareResultA1`.
 //!
 //! Each side is a bundle (`--base`, `--head`) or, when its commit has no
 //! bundle yet, a source tree (`--base-src`, `--head-src`). A source tree runs

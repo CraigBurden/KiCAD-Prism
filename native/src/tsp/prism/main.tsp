@@ -10,7 +10,7 @@ import "./bundle-manifest-a2.tsp";
 import "./cli-a0.tsp";
 import "./compare-a0.tsp";
 import "./compare-font-a0.tsp";
-import "./design-compare-a0.tsp";
+import "./design-compare-a1.tsp";
 import "./drawing-sheet-a0.tsp";
 import "./kicad-project-diff-v1.tsp";
 import "./occurrences-a0.tsp";

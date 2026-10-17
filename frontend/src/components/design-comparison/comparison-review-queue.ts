@@ -17,6 +17,7 @@ import {
     meaningfulFieldEntries,
     objectKind,
     pageFor,
+    unionLayers,
 } from "./comparison-change-facts";
 import { kindNoun } from "./comparison-change-kinds";
 import type { ChangeGroup } from "./comparison-review-groups";
@@ -272,14 +273,9 @@ export function groupDocumentEntries(group: ChangeGroup): GroupDocumentEntry[] {
         const paths = new Set<string>();
         for (const path of [
             change.page,
-            change.base_item?.path,
-            change.base_item?.page,
-            change.compare_item?.path,
-            change.compare_item?.page,
-            ...(change.details?.visualTargets ?? []).flatMap((target) => [
-                target.documentPath,
-                target.page,
-            ]),
+            change.base?.documentPath,
+            change.head?.documentPath,
+            ...(change.details.targets ?? []).map((target) => target.documentPath),
         ]) {
             if (path) paths.add(path);
         }
@@ -383,7 +379,7 @@ export function groupMatchesSearch(group: ChangeGroup, search: string): boolean 
             change.page,
             ...(change.reasons ?? []),
             ...Object.keys(change.fields ?? {}),
-            ...(change.layers ?? []),
+            ...unionLayers(change),
         );
     }
     return values.some((value) => String(value ?? "").toLocaleLowerCase().includes(query));

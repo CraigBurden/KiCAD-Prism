@@ -94,8 +94,8 @@ so; this is not an output divergence.
 
 # The Design Comparison result (amendment C2r)
 
-- Document: `compare`'s `prism.design_compare.result.a0` (root
-  `DesignCompareResultA0`), every tab except fabrication.
+- Document: `compare`'s `prism.design_compare.result.a1` (root
+  `DesignCompareResultA1`), every tab except fabrication.
 - Reference: today's `prism.semantic_comparison_v3` result on the 18 recorded
   C2r pairs, converted by `field-maps/design-compare.md`.
 - Rule: amendment U §3.1. Only differences a user can see are entries; each
@@ -103,7 +103,9 @@ so; this is not an output divergence.
   once, at the end, so a reviewer knows they were looked at.
 - Status by tab (2026-10-17): every tab except fabrication is done (C2r
   step 4, chunks 1–5) and equals the reference on all 18 pairs. Chunks 4
-  (connectivity) and 5 (`projectDiff`) added no divergence.
+  (connectivity) and 5 (`projectDiff`) added no divergence. Step 6
+  (2026-10-18) checked the review list the frontend builds from it: compare-6
+  and compare-7.
 
 ## compare-4. Structure changes carry both sides
 
@@ -136,6 +138,38 @@ Each is recorded, with its fixtures, in the member's own file:
 - **Change order** and **sub-nanometre coordinates**: compare-1 and compare-2
   above.
 
+## compare-6. The review list's order
+
+- Case: every pair. Today's changes arrive in the order Node's sets happen to
+  emit them, which has no structure (a page's pins, wires and symbols
+  interleave). `compare` writes each tab sorted by `id`, a content hash.
+- Before: where a group holds several changes, its summary, its "at x, y"
+  position and its "item N" ordinal came from whichever change arrived first,
+  so a group of a removed and an added part read "DNP: false → —" or
+  "DNP: — → false" depending on that order.
+- Now: the frontend orders the review list itself (`reviewOrder`,
+  `comparison-review-noise.ts`): page, then removed before changed before
+  added, then top to bottom and left to right, then id. A mixed group
+  summarises its old object first, and ordinals and positions follow the page.
+- Why: the frontend owns presentation order (C2r Q2), and an order that
+  follows the drawing reads the same on every run.
+- Pairs: all 18. With the same order applied to today's result, the review
+  read through the legacy reader equals today's on all 237 groups, and
+  `compare`'s on all but the summaries of compare-7.
+
+## compare-7. Field order in a group's summary
+
+- Case: a change whose summary shows two fields, on the 18 pairs 50 groups,
+  nearly all net structure changes (`instances`, `connections`) and sheet
+  instances (`page`, `sheetPath`).
+- Before: the first two fields in the order Python built the change, for
+  example "instances: 0 → 1 · connections: 0 → 1".
+- Now: the first two in name order, "connections: 0 → 1 · instances: 0 → 1".
+- Why: the result's `fields` is a map, written in code point order of its keys
+  (contract conventions); its order carries no meaning to keep.
+- Pairs: obc-F0-F1, obc-F0-F4, obc-F0-F11.1, obc-F0-F11.2, power-F0-F10,
+  synthetic-usbpd.
+
 ## Pending
 
 - **Property value types** (`projectDiff`, chunk 5) are not a divergence.
@@ -144,11 +178,6 @@ Each is recorded, with its fixtures, in the member's own file:
   all 895 numeric values of the 18 pairs, and ecad-viewer parses `type` but does
   not render it. No reference has a list value, which today would be written as
   its Python `str()`.
-- **Order of the review list** (C2r step 6): the result sorts each tab's
-  `changes` by `id`, a content hash, which is not an order to show. The
-  frontend owns presentation order. Step 6 either keeps today's visible order
-  or adds an entry here.
-
 ## Not divergences
 
 - **BOM columns.** Native output uses today's defaults (Reference, Value,
