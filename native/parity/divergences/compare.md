@@ -91,3 +91,82 @@ one directory (both at the repository root) and is expected to compare, which
 is why the check is on the directory. A pair whose anchors are in different
 directories is refused. cli-spec.md §5.6 and amendment C2 §3.2 item 4 now say
 so; this is not an output divergence.
+
+# The Design Comparison result (amendment C2r)
+
+- Document: `compare`'s `prism.design_compare.result.a0` (root
+  `DesignCompareResultA0`), every tab except fabrication.
+- Reference: today's `prism.semantic_comparison_v3` result on the 18 recorded
+  C2r pairs, converted by `field-maps/design-compare.md`.
+- Rule: amendment U §3.1. Only differences a user can see are entries; each
+  says what the user saw before and sees now. Invisible differences are listed
+  once, at the end, so a reviewer knows they were looked at.
+- Status by tab (2026-10-17): `files`, `bom`, `stackup`, `routeMetrics` and the
+  object changes of `schematic` and `pcb` are done (C2r chunks 1–3). The
+  connectivity changes (chunk 4) and `projectDiff` (chunk 5) add their entries
+  when they land.
+
+## compare-4. Structure changes carry both sides
+
+- Case: a change to a sheet instance or a bus, which today's semantic
+  comparison reports with source ids but no `base_item` or `compare_item`
+  (`design_compare_semantics.py:290-460`).
+- Before: the review card names the change, but its before and after panels are
+  empty.
+- Now: `base` and `head` are filled from the structure's visual targets, with
+  the same fields as any other object's sides: source id, page, position,
+  layers.
+- Why: every change carries its identity the same way, so the property panel
+  and the review groups need no special case. Field map `design-compare.md`,
+  "Expected divergences", row 2.
+- Pairs: every pair with a sheet-instance or bus change. The harness reference
+  has the sides already, because the converter fills them the same way.
+
+## compare-5. Inherited from the members
+
+These change a Design Comparison tab because the member they read changed.
+Each is recorded, with its fixtures, in the member's own file:
+
+- **Used layers of a net** (`routeMetrics`): every copper layer a via spans, not
+  only its two end layers. [`route-metrics.md`](route-metrics.md) D7.
+- **Stackup without dielectric constraints** (`stackup`): no spurious
+  "changed" on the setting when neither board writes the token.
+  [`stackup.md`](stackup.md) D4.
+- **Net names** (`schematic`, `pcb`): the reconciled net name.
+  [`semantic-index.md`](semantic-index.md) D7.
+- **Change order** and **sub-nanometre coordinates**: compare-1 and compare-2
+  above.
+
+## Pending
+
+- **Property value types** (`projectDiff`, chunk 5) are not a divergence.
+  The rule is: a number is `int` when it is integral, `double` otherwise,
+  `bool` for a flag and `string` for text. It equals today's Python types on
+  all 895 numeric values of the 18 pairs, and ecad-viewer parses `type` but does
+  not render it. No reference has a list value, which today would be written as
+  its Python `str()`.
+- **Order of the review list** (C2r step 6): the result sorts each tab's
+  `changes` by `id`, a content hash, which is not an order to show. The
+  frontend owns presentation order. Step 6 either keeps today's visible order
+  or adds an entry here.
+
+## Not divergences
+
+- **BOM columns.** Native output uses today's defaults (Reference, Value,
+  Footprint, Datasheet) when `.prism.json` names no `bom.fields`. The first
+  recorded references lacked Datasheet because the harness mocked the setting
+  to empty. They were regenerated, so this is a reference fix, not a change
+  the user sees.
+- **Route lengths** are shown as today, to 4 decimal millimetres. The result
+  stores them as nanometres of that rounded value.
+
+## Invisible differences
+
+None of these changes a rendered value, an order or a count:
+
+- an integral number written `0.0` where today wrote `0` (chunk 3; the harness
+  compares numbers by value);
+- map key order;
+- `objectKind` spelled with hyphens (`sheet-pin`, `board-constraint`), the
+  member's vocabulary. The new frontend (C2r step 6) reads it and shows the same labels;
+- `nativeObjects` order (compare-3).
