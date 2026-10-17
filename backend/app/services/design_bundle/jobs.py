@@ -28,8 +28,9 @@ from __future__ import annotations
 
 import json
 import logging
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Mapping
+from typing import Any, Callable, Mapping
 
 from app.core.config import settings
 from app.services import project_revision
@@ -147,6 +148,50 @@ def queue_for_head(project_id: str, *, requested_by: str = "") -> str | None:
     return start_design_bundle_job(project_id, requested_by=requested_by, head=True)
 
 
+# ------------------------------------------------------------- sources
+
+
+@dataclass(frozen=True)
+class PreparedSources:
+    """One revision's design sources as stage parse reads them (cli-spec.md §9.1 step 1)."""
+
+    src: Path
+    effective: Path
+    key_record: Path
+    upgraded: list[dict[str, Any]]
+    materialized: materialize.Materialized
+
+
+def prepare_sources(
+    repo: Path,
+    key: ProjectKey,
+    generator: Generator,
+    work: Path,
+    *,
+    cancel: Callable[[], None],
+) -> PreparedSources:
+    """Materialize the key's source set into ``work/src``, upgrade older files, write the config and key record.
+
+    The design-bundle job's parse step and Design Comparison's source-tree mode
+    both use it, so a source tree ``compare`` reads is the tree stage parse
+    would read. A source that cannot be materialized, or a KiCad upgrade that
+    fails, is retryable.
+    """
+
+    src = work / "src"
+    record = key.record()
+    config = dict(key.config or {})
+    try:
+        done = materialize.materialize(repo, record, src)
+        upgraded = kicad_steps.upgrade_sources(src, config, generator.kicad_file_formats, cancel=cancel)
+    except (materialize.SourceUnavailable, kicad_steps.KicadStepFailed) as error:
+        raise RetryableJobError(str(error), code="sources-unavailable", retry_after_seconds=30) from error
+    effective, key_record = work / "effective.json", work / "key-record.json"
+    effective.write_text(json.dumps(config, ensure_ascii=False), encoding="utf-8")
+    key_record.write_text(json.dumps(record, ensure_ascii=False), encoding="utf-8")
+    return PreparedSources(src, effective, key_record, list(upgraded), done)
+
+
 # --------------------------------------------------------------------- run
 
 
@@ -255,22 +300,13 @@ class _Run:
 
     def parse(self) -> Archive | None:
         self.context.progress(stage="bundle-materialize", message="Materializing design sources", percent=5, force=True)
-        src = self.work / "src"
-        record = self.key.record()
-        try:
-            done = materialize.materialize(self.repo, record, src)
-            upgraded = kicad_steps.upgrade_sources(
-                src, self.config, self.generator.kicad_file_formats, cancel=self.cancel
-            )
-        except (materialize.SourceUnavailable, kicad_steps.KicadStepFailed) as error:
-            raise RetryableJobError(str(error), code="sources-unavailable", retry_after_seconds=30) from error
+        prepared = prepare_sources(self.repo, self.key, self.generator, self.work, cancel=self.cancel)
+        src, effective, key_record, upgraded = prepared.src, prepared.effective, prepared.key_record, prepared.upgraded
+        done = prepared.materialized
         self.details.update(
             files=done.files, lfs_hydrated=done.lfs_hydrated, unavailable_models=done.unavailable_models,
             unavailable_gitlinks=done.unavailable_gitlinks, upgraded=upgraded,
         )
-        effective, key_record = self.work / "effective.json", self.work / "key-record.json"
-        effective.write_text(json.dumps(self.config, ensure_ascii=False), encoding="utf-8")
-        key_record.write_text(json.dumps(record, ensure_ascii=False), encoding="utf-8")
         self.context.progress(stage="bundle-parse", message="Design bundle: stage parse", percent=15, force=True)
         args = [
             "bundle", "build", str(src / self.config["project_file"]), "--stage", "parse",

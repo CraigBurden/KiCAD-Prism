@@ -159,6 +159,16 @@ serves a commit's index from the bundle's semantic-index member
 
 ## Design comparison
 
+With `PRISM_DESIGN_SOURCE_DESIGN_COMPARISON=bundle` at enqueue time, a
+comparison runs `design_compare_bundle_path.py` instead (ADR amendment C2r
+§9 step 5): each side from its bundle, or from its source tree materialized
+as the `design_bundle` job does (`design_bundle/jobs.py` `prepare_sources`);
+`prism-kicad compare` computes every tab but fabrication; fabrication stays
+`kicad-cli`, cached by bundle key; the artifact is the
+`prism.design_compare_bundle_v2` manifest. There is no legacy fallback on that
+path. Everything below describes the legacy pipeline, the default until the
+C2r gate.
+
 `design_compare_service.py` orchestrates; `design_compare_nodes.py` turns
 the parser's object delta into change records; `design_compare_occurrences.py`
 owns a revision's component occurrences (fields in the project BOM's mapping
