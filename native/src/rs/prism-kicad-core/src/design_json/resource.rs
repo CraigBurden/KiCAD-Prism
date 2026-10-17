@@ -307,8 +307,8 @@ fn preflight_pcb(
     budget.items(counts.footprints.saturating_mul(3))?;
     budget.items(counts.footprint_properties.saturating_mul(2))?;
     budget.text(pcb.source_filename, 1)?;
-    for footprint in pcb.view.footprints() {
-        let footprint = footprint.map_err(|error| {
+    for footprint in pcb.view.decoded_footprints() {
+        let footprint = footprint.as_ref().map_err(|error| {
             KiCadDesignJsonError::context("could not preflight PCB footprint", error)
         })?;
         for value in [
@@ -322,8 +322,8 @@ fn preflight_pcb(
         budget.text(&footprint.library_link, 2)?;
         budget.text(&footprint.description, 2)?;
     }
-    for property in pcb.view.footprint_properties() {
-        let property = property.map_err(|error| {
+    for property in pcb.view.decoded_footprint_properties() {
+        let property = property.as_ref().map_err(|error| {
             KiCadDesignJsonError::context("could not preflight PCB footprint property", error)
         })?;
         budget.text(&property.name, 1)?;

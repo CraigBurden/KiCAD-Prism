@@ -47,10 +47,12 @@ pub(super) fn project(
 /// `Reference` (a dict's later write wins) by footprint index.
 fn reference_properties(view: &PcbView<'_>) -> Result<HashMap<usize, String>, ProjectionError> {
     let mut references: HashMap<usize, String> = HashMap::new();
-    for property in view.footprint_properties() {
-        let property = property.map_err(board_error)?;
+    for property in view.decoded_footprint_properties() {
+        let property = property
+            .as_ref()
+            .map_err(|error| board_error(error.clone()))?;
         if property.name == REFERENCE_PROPERTY {
-            references.insert(property.footprint_index, property.value);
+            references.insert(property.footprint_index, property.value.clone());
         }
     }
     Ok(references)
@@ -62,15 +64,15 @@ fn pads_by_footprint(
     view: &PcbView<'_>,
 ) -> Result<HashMap<usize, Vec<PadRecord>>, ProjectionError> {
     let mut grouped: HashMap<usize, Vec<PadRecord>> = HashMap::new();
-    for pad in view.pads() {
-        let pad = pad.map_err(board_error)?;
+    for pad in view.decoded_pads() {
+        let pad = pad.as_ref().map_err(|error| board_error(error.clone()))?;
         grouped
             .entry(pad.footprint_index)
             .or_default()
             .push(PadRecord {
-                uuid: pad.uuid.unwrap_or_default(),
-                number: pad.number,
-                net: pad.net,
+                uuid: pad.uuid.clone().unwrap_or_default(),
+                number: pad.number.clone(),
+                net: pad.net.clone(),
             });
     }
     Ok(grouped)
@@ -86,28 +88,30 @@ fn project_footprints(
     claims: &mut SplitNetClaims,
 ) -> Result<(), ProjectionError> {
     let empty_pads = Vec::new();
-    for (footprint_index, footprint) in view.footprints().enumerate() {
-        let footprint = footprint.map_err(board_error)?;
+    for (footprint_index, footprint) in view.decoded_footprints().iter().enumerate() {
+        let footprint = footprint
+            .as_ref()
+            .map_err(|error| board_error(error.clone()))?;
         let reference = references
             .get(&footprint_index)
-            .cloned()
+            .map(String::as_str)
             .unwrap_or_default();
-        let footprint_uuid = footprint.uuid.unwrap_or_default();
+        let footprint_uuid = footprint.uuid.as_deref().unwrap_or_default();
         // `component_by_reference.get(reference)` (:1072-1077).
-        if let Some(&component_index) = state.component_by_reference.get(&reference) {
-            push_component_pcb_ref(state, component_index, &footprint_uuid);
+        if let Some(&component_index) = state.component_by_reference.get(reference) {
+            push_component_pcb_ref(state, component_index, footprint_uuid);
             if !footprint_uuid.is_empty() {
                 state
                     .indexes
                     .component_by_pcb_footprint_uuid
-                    .insert(footprint_uuid.clone(), component_index);
+                    .insert(footprint_uuid.to_owned(), component_index);
             }
         }
         let pads = pads_by_footprint
             .get(&footprint_index)
             .unwrap_or(&empty_pads);
         for pad in pads {
-            project_pad(state, claims, &reference, pad);
+            project_pad(state, claims, reference, pad);
         }
     }
     Ok(())
@@ -115,29 +119,41 @@ fn project_footprints(
 
 /// Segments, arcs, vias and zones, in that order (:1113-1127).
 fn project_board_items(view: &PcbView<'_>, state: &mut State) -> Result<(), ProjectionError> {
-    for segment in view.segments() {
-        let segment = segment.map_err(board_error)?;
+    for segment in view.decoded_segments() {
+        let segment = segment
+            .as_ref()
+            .map_err(|error| board_error(error.clone()))?;
         record_board_item(
             state,
             "trackUuids",
-            &segment.uuid.unwrap_or_default(),
+            segment.uuid.as_deref().unwrap_or_default(),
             &segment.net,
         );
     }
-    for arc in view.arcs() {
-        let arc = arc.map_err(board_error)?;
-        record_board_item(state, "arcUuids", &arc.uuid.unwrap_or_default(), &arc.net);
+    for arc in view.decoded_arcs() {
+        let arc = arc.as_ref().map_err(|error| board_error(error.clone()))?;
+        record_board_item(
+            state,
+            "arcUuids",
+            arc.uuid.as_deref().unwrap_or_default(),
+            &arc.net,
+        );
     }
-    for via in view.vias() {
-        let via = via.map_err(board_error)?;
-        record_board_item(state, "viaUuids", &via.uuid.unwrap_or_default(), &via.net);
+    for via in view.decoded_vias() {
+        let via = via.as_ref().map_err(|error| board_error(error.clone()))?;
+        record_board_item(
+            state,
+            "viaUuids",
+            via.uuid.as_deref().unwrap_or_default(),
+            &via.net,
+        );
     }
-    for zone in view.zones() {
-        let zone = zone.map_err(board_error)?;
+    for zone in view.decoded_zones() {
+        let zone = zone.as_ref().map_err(|error| board_error(error.clone()))?;
         record_board_item(
             state,
             "zoneUuids",
-            &zone.uuid.unwrap_or_default(),
+            zone.uuid.as_deref().unwrap_or_default(),
             &zone.net,
         );
     }

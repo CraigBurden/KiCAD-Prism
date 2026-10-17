@@ -40,9 +40,9 @@ pub(super) fn accumulate(
 ) -> Result<BTreeMap<String, NetMetric>, ProjectionError> {
     let mut nets = BTreeMap::new();
     merge_tracks(&mut nets, view)?;
-    for via in view.vias() {
-        let via = via.map_err(board_error)?;
-        add_via(&mut nets, &via, copper);
+    for via in view.decoded_vias() {
+        let via = via.as_ref().map_err(|error| board_error(error.clone()))?;
+        add_via(&mut nets, via, copper);
     }
     Ok(nets)
 }
@@ -54,10 +54,10 @@ fn merge_tracks(
     nets: &mut BTreeMap<String, NetMetric>,
     view: &PcbView<'_>,
 ) -> Result<(), ProjectionError> {
-    let mut segments = view.segments();
-    let mut arcs = view.arcs();
-    let mut segment = segments.next().transpose().map_err(board_error)?;
-    let mut arc = arcs.next().transpose().map_err(board_error)?;
+    let mut segments = view.decoded_segments().iter();
+    let mut arcs = view.decoded_arcs().iter();
+    let mut segment = next_record(&mut segments)?;
+    let mut arc = next_record(&mut arcs)?;
     while segment.is_some() || arc.is_some() {
         let take_segment = match (&segment, &arc) {
             (Some(segment), Some(arc)) => segment.source_range.start <= arc.source_range.start,
@@ -66,17 +66,28 @@ fn merge_tracks(
         };
         if take_segment {
             if let Some(item) = segment.take() {
-                add_segment(nets, &item);
+                add_segment(nets, item);
             }
-            segment = segments.next().transpose().map_err(board_error)?;
+            segment = next_record(&mut segments)?;
         } else {
             if let Some(item) = arc.take() {
-                add_arc(nets, &item);
+                add_arc(nets, item);
             }
-            arc = arcs.next().transpose().map_err(board_error)?;
+            arc = next_record(&mut arcs)?;
         }
     }
     Ok(())
+}
+
+/// Pull the next successfully decoded record, surfacing the first error.
+fn next_record<'a, T>(
+    iter: &mut std::slice::Iter<'a, Result<T, CoreError>>,
+) -> Result<Option<&'a T>, ProjectionError> {
+    match iter.next() {
+        Some(Ok(value)) => Ok(Some(value)),
+        Some(Err(error)) => Err(board_error(error.clone())),
+        None => Ok(None),
+    }
 }
 
 /// R2, R5 for one `segment` form (`ecad-parse.mjs:1498-1504`).

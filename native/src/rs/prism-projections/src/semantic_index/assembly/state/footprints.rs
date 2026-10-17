@@ -5,39 +5,55 @@
 use super::super::variants::{self, FootprintInput};
 use super::FootprintState;
 use crate::{ProjectionError, ProjectionInput};
-use prism_kicad_core::PcbFootprint;
+use std::sync::Arc;
 
 /// The footprint inputs of one board, in board file order, with the `(variant …)`
 /// records the fork core does not expose (`siv:470-498`).
+///
+/// The result is built once and cached on [`crate::BoardModel`]: the semantic
+/// index and `occurrences` both ask for it, and their producers run in
+/// parallel on the same input.
 pub(crate) fn board_footprints(
     input: &ProjectionInput<'_>,
-) -> Result<Vec<FootprintInput>, ProjectionError> {
+) -> Result<Arc<[FootprintInput]>, ProjectionError> {
     let Some(board) = input.board else {
-        return Ok(Vec::new());
+        return Ok(Arc::from(Vec::<FootprintInput>::new()));
     };
+    board
+        .assembly_footprints
+        .get_or_init(|| decode(board))
+        .as_ref()
+        .map(Arc::clone)
+        .map_err(|error| error.clone())
+}
+
+/// Decode the board's footprint inputs from the shared view.
+fn decode(board: &crate::BoardModel<'_>) -> Result<Arc<[FootprintInput]>, ProjectionError> {
     let view = board.view;
-    let footprints = view
-        .footprints()
-        .collect::<Result<Vec<PcbFootprint>, _>>()
-        .map_err(|error| ProjectionError::new(format!("assembly: {error}")))?;
+    let footprints = view.decoded_footprints();
+    let assembly_error =
+        |error: &prism_kicad_core::Error| ProjectionError::new(format!("assembly: {error}"));
     let mut properties: Vec<Vec<(String, String)>> = vec![Vec::new(); footprints.len()];
-    for property in view.footprint_properties() {
-        let property =
-            property.map_err(|error| ProjectionError::new(format!("assembly: {error}")))?;
+    for property in view.decoded_footprint_properties() {
+        let property = property.as_ref().map_err(assembly_error)?;
         if let Some(slot) = properties.get_mut(property.footprint_index) {
-            slot.push((property.name, property.value));
+            slot.push((property.name.clone(), property.value.clone()));
         }
     }
-    Ok(footprints
-        .into_iter()
-        .zip(properties)
-        .map(|(footprint, properties)| {
-            let uuid = footprint.uuid.clone().unwrap_or_default();
-            let slice = board.text.get(footprint.source_range.clone()).unwrap_or("");
-            let variants = variants::footprint_variants(slice);
-            variants::footprint_input(uuid, &properties, &footprint.attributes, variants)
-        })
-        .collect())
+    let mut inputs = Vec::with_capacity(footprints.len());
+    for footprint in footprints {
+        let footprint = footprint.as_ref().map_err(assembly_error)?;
+        let uuid = footprint.uuid.as_deref().unwrap_or_default();
+        let slice = board.text.get(footprint.source_range.clone()).unwrap_or("");
+        let variants = variants::footprint_variants(slice);
+        inputs.push(variants::footprint_input(
+            uuid.to_owned(),
+            properties.get(inputs.len()).map_or(&[], Vec::as_slice),
+            &footprint.attributes,
+            variants,
+        ));
+    }
+    Ok(Arc::from(inputs))
 }
 
 /// `_footprint_state` (semantic_index_variants.py:470-491). Today's `order` is

@@ -52,20 +52,29 @@ pub(super) fn board_bounds(board: &BoardModel<'_>) -> Result<Option<[f64; 4]>, P
     for footprint in footprint::footprint_bounds(board)? {
         bounds.merge(Bounds::from_array(footprint));
     }
-    for segment in board.view.segments() {
-        bounds.merge(graphics::segment_box(&segment.map_err(board_error)?));
+    for segment in board.view.decoded_segments() {
+        let segment = segment
+            .as_ref()
+            .map_err(|error| board_error(error.clone()))?;
+        bounds.merge(graphics::segment_box(segment));
     }
-    for via in board.view.vias() {
-        bounds.merge(graphics::via_box(&via.map_err(board_error)?));
+    for via in board.view.decoded_vias() {
+        let via = via.as_ref().map_err(|error| board_error(error.clone()))?;
+        bounds.merge(graphics::via_box(via));
     }
-    for arc in board.view.arcs() {
-        bounds.merge(arc::routing_arc_box(&arc.map_err(board_error)?));
+    for arc in board.view.decoded_arcs() {
+        let arc = arc.as_ref().map_err(|error| board_error(error.clone()))?;
+        bounds.merge(arc::routing_arc_box(arc));
     }
-    for zone in board.view.zones() {
-        bounds.merge(graphics::zone_box(&zone.map_err(board_error)?));
+    for zone in board.view.decoded_zones() {
+        let zone = zone.as_ref().map_err(|error| board_error(error.clone()))?;
+        bounds.merge(graphics::zone_box(zone));
     }
-    for graphic in board.view.graphics() {
-        bounds.merge(graphics::board_graphic_box(&graphic.map_err(board_error)?));
+    for graphic in board.view.decoded_graphics() {
+        let graphic = graphic
+            .as_ref()
+            .map_err(|error| board_error(error.clone()))?;
+        bounds.merge(graphics::board_graphic_box(graphic));
     }
     // Board-level `gr_text`, the renderer fallback (module docs).
     for text in text::board_text_boxes(board)? {

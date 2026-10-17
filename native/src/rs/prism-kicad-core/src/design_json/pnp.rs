@@ -17,21 +17,21 @@ pub(super) fn pnp_json(
     let raw_components = netlist_json["components"]
         .as_array()
         .map_or(&[][..], Vec::as_slice);
-    let mut footprint_parameters = BTreeMap::<usize, BTreeMap<String, String>>::new();
-    for property in pcb.view.footprint_properties() {
-        let property = property.map_err(|error| {
+    let mut footprint_parameters = BTreeMap::<usize, BTreeMap<&str, &str>>::new();
+    for property in pcb.view.decoded_footprint_properties() {
+        let property = property.as_ref().map_err(|error| {
             KiCadDesignJsonError::context("could not read PCB footprint property", error)
         })?;
         if !property.name.is_empty() {
             footprint_parameters
                 .entry(property.footprint_index)
                 .or_default()
-                .insert(property.name, property.value);
+                .insert(property.name.as_str(), property.value.as_str());
         }
     }
     let mut placements = Vec::new();
-    for (footprint_index, footprint) in pcb.view.footprints().enumerate() {
-        let footprint = footprint.map_err(|error| {
+    for (footprint_index, footprint) in pcb.view.decoded_footprints().iter().enumerate() {
+        let footprint = footprint.as_ref().map_err(|error| {
             KiCadDesignJsonError::context("could not read PCB footprint", error)
         })?;
         let reference = footprint.reference.as_deref().unwrap_or("");
@@ -70,7 +70,7 @@ pub(super) fn pnp_json(
             "rotation": round4(footprint.angle.unwrap_or(0.0)),
             "description": description,
             "parameters": parameters,
-            "kicad_uuid": footprint.uuid.unwrap_or_default(),
+            "kicad_uuid": footprint.uuid.as_deref().unwrap_or_default(),
         }));
     }
     placements.sort_by(|left, right| {

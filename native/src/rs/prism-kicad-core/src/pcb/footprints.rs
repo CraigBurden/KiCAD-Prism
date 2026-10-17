@@ -81,31 +81,6 @@ pub struct PcbFootprintTextBox {
 }
 
 impl<'a> PcbView<'a> {
-    /// Iterate requested footprint properties in board and child source order.
-    pub fn footprint_properties(
-        &self,
-    ) -> impl Iterator<Item = Result<PcbFootprintProperty, Error>> + '_ {
-        self.footprint_properties
-            .iter()
-            .filter(move |_| self.selection.contains(PcbFamily::FootprintProperties))
-            .map(|indexed| footprint_property_from_span(self.source, indexed, self.limits))
-    }
-
-    /// Iterate requested non-text footprint graphics in board and child source order.
-    pub fn footprint_graphics(
-        &self,
-    ) -> impl Iterator<Item = Result<PcbFootprintGraphic, Error>> + '_ {
-        self.footprint_graphics
-            .iter()
-            .filter(move |_| self.selection.contains(PcbFamily::FootprintGraphics))
-            .map(|indexed| {
-                Ok(PcbFootprintGraphic {
-                    footprint_index: indexed.parent_index,
-                    graphic: graphic_from_span(self.source, &indexed.span, self.limits)?,
-                })
-            })
-    }
-
     /// Iterate footprint-local text in board and child source order.
     pub fn footprint_texts(&self) -> impl Iterator<Item = Result<PcbFootprintText, Error>> + '_ {
         self.footprint_texts

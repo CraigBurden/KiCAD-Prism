@@ -125,7 +125,7 @@ fn courtyard(points: &[(f64, f64)]) -> Value {
 /// golden `rs-cynthion` U1 confirms it. The field map's "first model without
 /// `(hide)`" (field-maps/system-interface.md:122) describes intent, not
 /// behaviour; P5 reproduces the behaviour.
-fn model(footprint: &Footprint) -> Value {
+fn model(footprint: &Footprint<'_>) -> Value {
     let Some(model) = footprint.model.as_ref() else {
         return Value::Null;
     };
@@ -154,7 +154,7 @@ fn model(footprint: &Footprint) -> Value {
 /// whether it is a through hole. `pad_type`/`shape` are kicad_monkey's enum
 /// names lower-cased (`kicad_base.py:93-99`, `kicad_pad.py:451`); the core's
 /// tokens are already those spellings.
-fn pad_geometry(frame: &BoardFrame, pad: &Pad) -> Value {
+fn pad_geometry(frame: &BoardFrame, pad: &Pad<'_>) -> Value {
     let kind = pad.kind.to_ascii_lowercase();
     json!({
         "pad": pad.number,
@@ -168,17 +168,17 @@ fn pad_geometry(frame: &BoardFrame, pad: &Pad) -> Value {
 /// `_footprint_geometry` (interface_extractor.py:213-252): one placed
 /// footprint's v6 geometry, every number `_round`ed and pads stably sorted by
 /// `_natural` pad number.
-pub(super) fn footprint_geometry(footprint: &Footprint) -> Value {
+pub(super) fn footprint_geometry(footprint: &Footprint<'_>) -> Value {
     let frame = BoardFrame::new(footprint.at_x, footprint.at_y, footprint.angle);
     // Stable `_natural` sort: equal pad numbers keep file order (Python's
     // `list.sort`, interface_extractor.py:236).
-    let mut ordered: Vec<&Pad> = footprint.pads.iter().collect();
-    ordered.sort_by(|left, right| natural_cmp(&left.number, &right.number));
+    let mut ordered: Vec<&Pad<'_>> = footprint.pads.iter().collect();
+    ordered.sort_by(|left, right| natural_cmp(left.number, right.number));
     let pads: Vec<Value> = ordered
         .iter()
         .map(|pad| pad_geometry(&frame, pad))
         .collect();
-    let side = if footprint.layer.as_deref().unwrap_or("").starts_with("B.") {
+    let side = if footprint.layer.unwrap_or("").starts_with("B.") {
         "bottom"
     } else {
         "top"

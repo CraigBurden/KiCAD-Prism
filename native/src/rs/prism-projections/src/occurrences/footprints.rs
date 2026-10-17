@@ -17,7 +17,8 @@ pub(crate) fn project(
         return Ok(Vec::new());
     };
     let mut footprints = Vec::new();
-    for footprint in state_footprints::board_footprints(input)? {
+    let board_footprints = state_footprints::board_footprints(input)?;
+    for footprint in board_footprints.iter() {
         if !support::is_canonical_uuid(&footprint.uuid) {
             warnings.push(support::warning(
                 "occurrences-footprint-without-uuid",
