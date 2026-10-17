@@ -5,35 +5,37 @@
 //! inflated (exit 3, `bundle-invalid`); the same generator id in canonical form
 //! (exit 7, `generator-mismatch`); the same project anchor (exit 7,
 //! `anchor-mismatch`); both members present (exit 7, `member-not-found`).
-//! `-o` is written atomically; stdout carries the `CliCompareResultA0` after
-//! the rename.
+//! `-o` is written atomically and streamed (the document is never held as one
+//! value); stdout carries the `CliCompareResultA0`, validated, after the
+//! rename.
 
 use crate::args::Args;
 use crate::inputs;
 use crate::output::{Diagnostic, Severity, Stderr};
 use prism_bundle::finding::Finding;
-use prism_bundle::limits::compare::{anchor_directory, diff};
-use prism_bundle::manifest::{self, Status};
+use prism_bundle::limits::compare::{
+    CompareError, Delta, Entries, anchor_directory, diff_entries, entries,
+};
+use prism_bundle::manifest::Status;
 use prism_bundle::reader::BundleReader;
 use prism_bundle::zip::FileSource;
 use prism_bundle::{Failure, Limits, Outcome, generator, schema};
-use prism_kicad_contracts::generated::prism_compare_object_delta_a0::CompareObjectDeltaA0;
 use serde_json::{Value, json};
-use std::io::Write;
+use std::io::{BufWriter, Write};
 use std::path::{Path, PathBuf};
 
 /// The one member `compare` reads (cli-spec.md §5.6).
 const BOARD_OBJECTS: &str = "projections/board-objects.json";
-/// The `-o` document's schema id.
-const DELTA_SCHEMA: &str = "prism.compare.object_delta.a0";
 /// The stdout document's schema id.
 const RESULT_SCHEMA: &str = "prism.cli.compare_result.a0";
 
-/// One side: an opened bundle with its member read, plus the identity the
-/// result carries.
+/// One side: an opened bundle with its member's entries, plus the identity
+/// the result carries. The member's parsed JSON is dropped as soon as the
+/// entries exist, so the two documents are never in memory together with the
+/// diff.
 struct Side {
     reader: BundleReader<FileSource>,
-    document: Option<Value>,
+    entries: Option<Result<Entries, CompareError>>,
     anchor: String,
     generator: Vec<u8>,
     bundle_key: String,
@@ -42,30 +44,23 @@ struct Side {
 /// Run `compare`; the process exit code.
 pub fn run(args: &Args, stderr: &Stderr) -> Outcome<u8> {
     let limits = &args.limits;
-    let base = open_side(argument(args, "base"), limits, "base")?;
-    let head = open_side(argument(args, "head"), limits, "head")?;
+    let mut base = open_side(argument(args, "base"), limits, "base")?;
+    let mut head = open_side(argument(args, "head"), limits, "head")?;
     check_generator(&base, &head)?;
     check_anchor(&base, &head)?;
     require_member(&base, "base")?;
     require_member(&head, "head")?;
-    let (Some(base_document), Some(head_document)) = (&base.document, &head.document) else {
+    let (Some(base_entries), Some(head_entries)) = (base.entries.take(), head.entries.take())
+    else {
         return Err(Failure::internal("compare lost a member it required"));
     };
-    let document = diff(
-        base_document,
-        anchor_directory(&base.anchor),
-        head_document,
-        anchor_directory(&head.anchor),
-    )
-    .map_err(|error| Failure::internal(format!("the compare engine failed: {}", error.message)))?;
-
-    let mut value = serde_json::to_value(&document)
-        .map_err(|error| Failure::internal(format!("the delta does not serialize: {error}")))?;
-    value["base"]["bundleKey"] = Value::from(base.bundle_key.clone());
-    value["head"]["bundleKey"] = Value::from(head.bundle_key.clone());
-    validate(DELTA_SCHEMA, &value)?;
-    write_json(argument(args, "output"), &value)?;
-    emit_result(&document, &base, &head, stderr)
+    let engine = |error: CompareError| {
+        Failure::internal(format!("the compare engine failed: {}", error.message))
+    };
+    let mut delta = diff_entries(base_entries.map_err(engine)?, head_entries.map_err(engine)?);
+    delta.set_bundle_keys(&base.bundle_key, &head.bundle_key);
+    write_json(argument(args, "output"), &delta)?;
+    emit_result(&delta, &base, &head, stderr)
 }
 
 fn argument<'a>(args: &'a Args, name: &str) -> &'a Path {
@@ -89,11 +84,6 @@ fn open_side(path: &Path, limits: &Limits, side: &'static str) -> Outcome<Side> 
         .argument(side)
     })?;
     let reader = BundleReader::open(source, limits).map_err(|error| error.failure(side))?;
-    let document = match reader.member(BOARD_OBJECTS) {
-        None => None,
-        Some(Ok(bytes)) => Some(parse_member(&bytes, side)?),
-        Some(Err(finding)) => return Err(member_invalid(finding, side)),
-    };
     let generator = reader
         .manifest_read()
         .value
@@ -101,6 +91,15 @@ fn open_side(path: &Path, limits: &Limits, side: &'static str) -> Outcome<Side> 
         .map(generator::canonical)
         .unwrap_or_default();
     let anchor = reader.manifest().config.project_file.as_str().to_owned();
+    let entries = match reader.member(BOARD_OBJECTS) {
+        None => None,
+        Some(Ok(bytes)) => {
+            let document = parse_member(&bytes, side)?;
+            drop(bytes);
+            Some(entries(&document, anchor_directory(&anchor)))
+        }
+        Some(Err(finding)) => return Err(member_invalid(finding, side)),
+    };
     let bundle_key = reader
         .manifest()
         .bundle_key
@@ -116,7 +115,7 @@ fn open_side(path: &Path, limits: &Limits, side: &'static str) -> Outcome<Side> 
         .unwrap_or_else(|| "0".repeat(64));
     Ok(Side {
         reader,
-        document,
+        entries,
         anchor,
         generator,
         bundle_key,
@@ -182,7 +181,7 @@ fn require_member(side: &Side, name: &'static str) -> Outcome<()> {
         _ => false,
     };
     let listed = side.reader.index().entry(BOARD_OBJECTS).is_some();
-    if side.document.is_some() && listed && ready {
+    if side.entries.is_some() && listed && ready {
         Ok(())
     } else {
         Err(Failure::precondition(
@@ -209,7 +208,7 @@ fn output_failed(message: impl Into<String>) -> Failure {
 /// Write `document` to `-o` atomically: a hidden exclusive temp file in the
 /// same directory, fsynced, then renamed (cli-spec.md §5.2.5, without the
 /// self-verify).
-fn write_json(path: &Path, document: &Value) -> Outcome<()> {
+fn write_json(path: &Path, document: &Delta) -> Outcome<()> {
     let name = path
         .file_name()
         .and_then(|name| name.to_str())
@@ -221,16 +220,21 @@ fn write_json(path: &Path, document: &Value) -> Outcome<()> {
     if !dir.is_dir() {
         return Err(output_failed("-o's directory does not exist"));
     }
-    let bytes = manifest::json_bytes(document);
     let temp = dir.join(format!(".{name}.prism-kicad-{}.tmp", std::process::id()));
-    let mut file = std::fs::OpenOptions::new()
+    let file = std::fs::OpenOptions::new()
         .write(true)
         .create_new(true)
         .open(&temp)
         .map_err(|error| output_failed(format!("the temp file could not be created: {error}")))?;
     crate::process::register_temp_file(Some(temp.clone()));
-    let written = file.write_all(&bytes).and_then(|()| file.sync_all());
-    drop(file);
+    // Streamed: the document is several times its inputs and is never held
+    // as one value (`compare::Delta`). Compact, with one trailing LF.
+    let mut writer = BufWriter::new(file);
+    let written = serde_json::to_writer(&mut writer, document)
+        .map_err(std::io::Error::other)
+        .and_then(|()| writer.write_all(b"\n"))
+        .and_then(|()| writer.into_inner().map_err(|error| error.into_error()))
+        .and_then(|file| file.sync_all());
     if let Err(error) = written {
         cleanup(&temp);
         return Err(output_failed(format!(
@@ -255,25 +259,21 @@ fn cleanup(temp: &Path) {
     crate::process::register_temp_file(None);
 }
 
-fn emit_result(
-    document: &CompareObjectDeltaA0,
-    base: &Side,
-    head: &Side,
-    stderr: &Stderr,
-) -> Outcome<u8> {
-    let counts = &document.counts;
+fn emit_result(delta: &Delta, base: &Side, head: &Side, stderr: &Stderr) -> Outcome<u8> {
+    let counts = delta.counts();
+    let (base_objects, head_objects) = delta.objects();
     let result = json!({
         "schema": RESULT_SCHEMA,
-        "base": {"bundle_key": base.bundle_key, "objects": document.base.objects.0},
-        "head": {"bundle_key": head.bundle_key, "objects": document.head.objects.0},
+        "base": {"bundle_key": base.bundle_key, "objects": base_objects},
+        "head": {"bundle_key": head.bundle_key, "objects": head_objects},
         "counts": {
-            "added": counts.added.0,
-            "removed": counts.removed.0,
-            "modified": counts.modified.0,
-            "unchanged": counts.unchanged.0,
-            "ignored": counts.ignored.0,
-            "base_objects": counts.base_objects.0,
-            "head_objects": counts.head_objects.0,
+            "added": counts["added"],
+            "removed": counts["removed"],
+            "modified": counts["modified"],
+            "unchanged": counts["unchanged"],
+            "ignored": counts["ignored"],
+            "base_objects": counts["baseObjects"],
+            "head_objects": counts["headObjects"],
         },
     });
     validate(RESULT_SCHEMA, &result)?;

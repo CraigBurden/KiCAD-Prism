@@ -104,8 +104,17 @@ pub struct Entry {
     pub combined_review_fields: BTreeMap<String, Value>,
 }
 
+/// One side's rebuilt index entries, opaque outside the engine.
+pub struct Entries(pub(crate) Vec<Entry>);
+
 /// Rebuild the entries of `document` (a `board-objects` member), stripping
-/// `anchor_dir` from every document path (D1).
+/// `anchor_dir` from every document path (D1). The member's parsed JSON can be
+/// dropped afterwards: nothing borrows from it.
+pub fn entries(document: &Value, anchor_dir: &str) -> Result<Entries, CompareError> {
+    build(document, anchor_dir).map(Entries)
+}
+
+/// [`entries`], as the plain list.
 pub fn build(document: &Value, anchor_dir: &str) -> Result<Vec<Entry>, CompareError> {
     let documents = document
         .get("documents")
@@ -160,7 +169,7 @@ fn object_entry(value: &Value, document_path: &str) -> Result<Entry, CompareErro
     let kind = normalize_kind(required(value, "kind")?);
     let uuid = required(value, "uuid")?.to_owned();
     let hash = required(value, "contentDigest")?.to_owned();
-    let review_fields = value.get("reviewFields").cloned();
+    let review_fields = value.get("reviewFields").cloned().map(json::ecma);
     Ok(Entry {
         key: key_of(document_path, &uuid),
         document_path: document_path.to_owned(),
@@ -198,7 +207,7 @@ fn object_entry(value: &Value, document_path: &str) -> Result<Entry, CompareErro
 fn review_only_entry(value: &Value, document_path: &str) -> Result<Entry, CompareError> {
     let kind = normalize_kind(required(value, "kind")?);
     let uuid = required(value, "id")?.to_owned();
-    let review_fields = value.get("reviewFields").cloned();
+    let review_fields = value.get("reviewFields").cloned().map(json::ecma);
     let hash = canonical(review_fields.as_ref().unwrap_or(&Value::Null));
     Ok(Entry {
         key: key_of(document_path, &uuid),
@@ -665,7 +674,8 @@ mod tests {
             &json!("PAYLOAD_RESET#")
         );
         let object = native_object(entry);
-        assert_eq!(object["at"], json!([0.0, 40.64]));
+        // ECMAScript number text (T3): `0`, not `0.0`.
+        assert_eq!(object["at"], json!([0, 40.64]));
         assert_eq!(object["reviewFields"], json!({"Pad number": "17"}));
     }
 
