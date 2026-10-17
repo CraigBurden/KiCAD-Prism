@@ -58,7 +58,6 @@ struct Producer<'a> {
     stem: String,
     project_name: String,
     text_variables: BTreeMap<String, String>,
-    source_set: BTreeSet<String>,
     pro: Value,
     warnings: Vec<ProducerWarning>,
     documents: Vec<Value>,
@@ -82,7 +81,6 @@ impl<'a> Producer<'a> {
             stem,
             project_file,
             text_variables,
-            source_set: input.sources.paths().into_iter().collect(),
             pro,
             warnings: Vec::new(),
             documents: Vec::new(),
@@ -149,7 +147,7 @@ impl<'a> Producer<'a> {
             project_name: &self.project_name,
             text_variables: &self.text_variables,
             project_dir: &self.project_dir,
-            sources: &self.source_set,
+            sources: self.sources,
         };
         resolver.resolve(raw, kind, document_path, stack)
     }
@@ -227,7 +225,7 @@ impl<'a> Producer<'a> {
     /// `project.py:521-555`: the root schematic and every sheet it reaches.
     fn scan_schematics(&mut self) -> Result<(), ProjectionError> {
         let root = self.repo(&format!("{}.kicad_sch", self.stem));
-        if !self.source_set.contains(&root) {
+        if !self.sources.exists(&root) {
             return Ok(());
         }
         let mut queue = VecDeque::from([root.clone()]);
@@ -290,7 +288,7 @@ impl<'a> Producer<'a> {
     /// `project.py:557-582`: the board and its `model-3d` references.
     fn scan_board(&mut self) -> Result<(), ProjectionError> {
         let board = self.repo(&format!("{}.kicad_pcb", self.stem));
-        if !self.source_set.contains(&board) {
+        if !self.sources.exists(&board) {
             return Ok(());
         }
         let tree = self.board_tree(&board)?;
@@ -373,7 +371,7 @@ impl<'a> Producer<'a> {
             ("sym-lib-table", RefKind::SymbolLibrary),
         ] {
             let table_path = self.repo(name);
-            if !self.source_set.contains(&table_path) {
+            if !self.sources.exists(&table_path) {
                 continue;
             }
             let tree = self.read_sexpr(&table_path)?;

@@ -168,7 +168,7 @@ pub fn run(request: ModelsRequest<'_>) -> Outcome<Built> {
     members.push(MemberData {
         path: MODELS_PATH.to_owned(),
         role: Role::ComponentModels,
-        bytes: glb,
+        bytes: std::sync::Arc::from(glb),
         schema: None,
         source: None,
     });

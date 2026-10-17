@@ -222,7 +222,7 @@ pub fn run(request: &BoardRequest<'_>) -> Outcome<Built> {
         work.members.push(MemberData {
             path: refilled_member.clone(),
             role: Role::RefilledBoard,
-            bytes: refilled.bytes.clone(),
+            bytes: std::sync::Arc::from(refilled.bytes.clone()),
             schema: None,
             source: None,
         });
@@ -331,7 +331,7 @@ fn materialize(
     work.members.push(MemberData {
         path: MATERIALIZATION_PATH.to_owned(),
         role: Role::Materialization,
-        bytes: materialized.pack,
+        bytes: std::sync::Arc::from(materialized.pack),
         schema: Some(MATERIALIZATION_SCHEMA.to_owned()),
         source: None,
     });

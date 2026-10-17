@@ -7,7 +7,9 @@
 //! parse: the helpers mirror `kicad_library_reader`'s regexes
 //! (`kicad_library_reader.py:32-71`, `:208-215`).
 
-use crate::{ProjectionError, ProjectionInput, SchematicModel};
+use crate::{ProjectionError, SchematicModel};
+use prism_kicad_contracts::generated::source_bundle_manifest::SourceKind;
+use prism_kicad_core::SourceBundle;
 use std::collections::BTreeMap;
 
 /// Placed-symbol uuid → its fields as written in the schematic text.
@@ -47,45 +49,28 @@ impl Fields {
     }
 }
 
-/// Scan every schematic beside the project for placed symbols' fields.
+/// Scan the reached schematics for placed symbols' fields.
 ///
-/// Today's `_schematic_instance_fields` walks `project_file.parent.rglob("*.kicad_sch")`,
-/// sorted, skipping the files `project_revision.is_generated` calls generated
-/// (semantic_index_service.py:411-414). The bundle's source set is that
-/// directory's files already selected by the revision key's name rules, so its
-/// `.kicad_sch` paths stand in for the walk, in the same code point order.
-pub(super) fn scan(
-    input: &ProjectionInput<'_>,
-    _schematic: &SchematicModel<'_>,
-) -> Result<SourceFields, ProjectionError> {
+/// The scan reads the `.kicad_sch` sources of [`SchematicModel::bundle`] — the
+/// root schematic and every sheet it reaches — in code point order, from the
+/// bytes stage parse already holds. It does not walk the project directory and
+/// makes no [`Sources`](crate::Sources) call: an unreached copy of a sheet (a
+/// backup, an old revision) is not the design and must not overwrite a reached
+/// sheet's fields (divergence D10).
+pub(super) fn scan(schematic: &SchematicModel<'_>) -> Result<SourceFields, ProjectionError> {
+    Ok(bundle_fields(schematic.bundle))
+}
+
+/// The field scan over one schematic bundle, in the bundle's code point order.
+fn bundle_fields(bundle: &SourceBundle) -> SourceFields {
     let mut fields = SourceFields::new();
-    let project_dir = project_directory(input.project.path);
-    for path in input.sources.paths() {
-        if !path.ends_with(".kicad_sch") || !under_project_dir(&path, project_dir) {
+    for source in bundle.sources() {
+        if source.kind() != SourceKind::Schematic {
             continue;
         }
-        let Some(bytes) = input.sources.read(&path) else {
-            continue;
-        };
-        scan_text(&String::from_utf8_lossy(&bytes), &mut fields);
+        scan_text(&String::from_utf8_lossy(source.bytes()), &mut fields);
     }
-    Ok(fields)
-}
-
-/// The repository directory of the project file, `project_file.parent`.
-fn project_directory(project_path: &str) -> &str {
-    project_path
-        .rfind('/')
-        .map_or("", |index| &project_path[..index])
-}
-
-/// Whether `path` lies under `project_dir` (the root directory when empty).
-fn under_project_dir(path: &str, project_dir: &str) -> bool {
-    if project_dir.is_empty() {
-        return true;
-    }
-    path.strip_prefix(project_dir)
-        .is_some_and(|rest| rest.starts_with('/'))
+    fields
 }
 
 /// Apply the scan to one schematic's text (semantic_index_service.py:416-434).
@@ -278,4 +263,84 @@ fn match_property(block: &str, start: usize) -> Option<(&str, &str, usize)> {
 /// `\\`, in that order.
 fn unescape(value: &str) -> String {
     value.replace("\\\"", "\"").replace("\\\\", "\\")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use prism_kicad_contracts::generated::source_bundle_manifest::{
+        SourceBundleManifestA0, SourceBundleSource,
+    };
+    use prism_kicad_core::SourceBundleLimits;
+
+    /// One schematic with a placed symbol `u` whose `Value` is `value`.
+    fn schematic(value: &str) -> String {
+        format!(
+            "(kicad_sch\n  (uuid \"sheet\")\n  (lib_symbols\n    (symbol \"Demo:One\"\n      (symbol \"Demo:One_1_1\"\n        (pin passive line (at 0 0 0) (name \"P\") (number \"1\")))))\n  (symbol (lib_id \"Demo:One\") (at 0 0 0) (uuid \"u\")\n    (property \"Reference\" \"R1\") (property \"Value\" \"{value}\")))"
+        )
+    }
+
+    fn descriptor(path: &str, kind: SourceKind, slot: u32, bytes: &[u8]) -> SourceBundleSource {
+        SourceBundleSource {
+            kind,
+            path: path.to_owned(),
+            slot: slot.into(),
+            source_bytes: bytes.len().to_string().into(),
+        }
+    }
+
+    /// A bundle of the given schematics, in path order, beside one project file.
+    fn bundle(schematics: &[(&str, String)]) -> SourceBundle {
+        let project = b"{}".to_vec();
+        let mut buffers = vec![project];
+        let mut sources = vec![descriptor(
+            "proj/demo.kicad_pro",
+            SourceKind::Project,
+            0,
+            &buffers[0],
+        )];
+        for (index, (path, text)) in schematics.iter().enumerate() {
+            buffers.push(text.as_bytes().to_vec());
+            let slot = u32::try_from(index + 1).expect("a small fixture");
+            sources.push(descriptor(
+                path,
+                SourceKind::Schematic,
+                slot,
+                text.as_bytes(),
+            ));
+        }
+        let manifest = SourceBundleManifestA0 {
+            project_path: Some("proj/demo.kicad_pro".to_owned()),
+            root_schematic_path: schematics[0].0.to_owned(),
+            schema: "kicad_monkey.source_bundle_manifest.a0".to_owned(),
+            sources,
+            type_: "kicad_monkey.source_bundle_manifest".to_owned(),
+            version: "a0".to_owned(),
+        };
+        SourceBundle::from_manifest(manifest, buffers, SourceBundleLimits::default())
+            .expect("a valid schematic bundle")
+    }
+
+    #[test]
+    fn an_unreached_copy_does_not_change_the_fields() {
+        // The design reaches only `proj/root.kicad_sch`.
+        let design = bundle(&[("proj/root.kicad_sch", schematic("REAL"))]);
+        assert_eq!(
+            bundle_fields(&design).get("u").unwrap().get("Value"),
+            Some("REAL")
+        );
+
+        // An unreached, earlier-sorting copy with the same symbol UUID would
+        // win the first-inserted field if the scan walked the directory. The
+        // bundle does not hold it, so it cannot (divergence D10).
+        let directory = bundle(&[
+            ("proj/old/root.kicad_sch", schematic("STALE")),
+            ("proj/root.kicad_sch", schematic("REAL")),
+        ]);
+        assert_eq!(
+            bundle_fields(&directory).get("u").unwrap().get("Value"),
+            Some("STALE"),
+            "the fixture copies must differ for this regression to mean anything"
+        );
+    }
 }

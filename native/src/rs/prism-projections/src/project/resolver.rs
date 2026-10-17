@@ -7,6 +7,8 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
+use crate::Sources;
+
 use super::reference::{Base, EmbeddedLayer, Library, Reason, RefKind, Target, unresolved};
 use super::sexpr::find_byte;
 
@@ -146,7 +148,7 @@ pub(super) struct Resolver<'a> {
     pub(super) project_name: &'a str,
     pub(super) text_variables: &'a BTreeMap<String, String>,
     pub(super) project_dir: &'a [String],
-    pub(super) sources: &'a BTreeSet<String>,
+    pub(super) sources: &'a dyn Sources,
 }
 
 impl Resolver<'_> {
@@ -232,13 +234,7 @@ impl Resolver<'_> {
     /// `project.py:215-219`: whether the materialized source set holds `path`
     /// or a file below it.
     fn in_sources(&self, path: &str) -> bool {
-        if self.sources.contains(path) {
-            return true;
-        }
-        let prefix = format!("{path}/");
-        self.sources
-            .iter()
-            .any(|source| source.starts_with(&prefix))
+        self.sources.exists(path) || !self.sources.list(path, &[]).is_empty()
     }
 
     /// `project.py:221-274`: resolve one raw reference.

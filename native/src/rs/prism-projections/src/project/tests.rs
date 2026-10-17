@@ -1,7 +1,9 @@
 //! Unit tests for the producer's resolution (`project.py:167-303`) and the
 //! text-path and title-block rules.
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
+
+use crate::test_support::SetSources;
 
 use super::reference::{EmbeddedLayer, Reason, RefKind, Target};
 use super::resolver::{Resolver, normalize};
@@ -15,8 +17,8 @@ fn variables(pairs: &[(&str, &str)]) -> BTreeMap<String, String> {
         .collect()
 }
 
-fn sources(paths: &[&str]) -> BTreeSet<String> {
-    paths.iter().map(|path| (*path).to_owned()).collect()
+fn sources(paths: &[&str]) -> SetSources {
+    SetSources::of(paths)
 }
 
 fn target(
@@ -24,7 +26,7 @@ fn target(
     kind: RefKind,
     project_dir: &[&str],
     text_variables: &BTreeMap<String, String>,
-    sources_set: &BTreeSet<String>,
+    sources_set: &SetSources,
 ) -> (Vec<String>, Target) {
     let project_dir: Vec<String> = project_dir.iter().map(|s| (*s).to_owned()).collect();
     let resolver = Resolver {
@@ -47,7 +49,7 @@ fn embedded_without_a_match_is_embedded_missing() {
         RefKind::Model3d,
         &[],
         &BTreeMap::new(),
-        &BTreeSet::new(),
+        &SetSources::default(),
     );
     assert!(is_reason(&target, Reason::EmbeddedMissing));
 }
@@ -59,7 +61,7 @@ fn embedded_outside_the_embeddable_kinds_is_a_uri() {
         RefKind::SheetFile,
         &[],
         &BTreeMap::new(),
-        &BTreeSet::new(),
+        &SetSources::default(),
     );
     assert!(is_reason(&target, Reason::Uri));
 }
@@ -71,7 +73,7 @@ fn a_home_relative_path_is_home_relative() {
         RefKind::Model3d,
         &[],
         &BTreeMap::new(),
-        &BTreeSet::new(),
+        &SetSources::default(),
     );
     assert!(is_reason(&target, Reason::HomeRelative));
 }
@@ -83,7 +85,7 @@ fn a_uri_is_a_uri() {
         RefKind::Model3d,
         &[],
         &BTreeMap::new(),
-        &BTreeSet::new(),
+        &SetSources::default(),
     );
     assert!(is_reason(&target, Reason::Uri));
 }
@@ -95,7 +97,7 @@ fn an_alias_of_a_library_variable_is_a_kicad_library() {
         RefKind::Model3d,
         &[],
         &BTreeMap::new(),
-        &BTreeSet::new(),
+        &SetSources::default(),
     );
     assert!(variables.is_empty());
     match target {
@@ -119,7 +121,7 @@ fn an_unknown_alias_is_an_alias() {
         RefKind::Model3d,
         &[],
         &BTreeMap::new(),
-        &BTreeSet::new(),
+        &SetSources::default(),
     );
     assert!(is_reason(&target, Reason::Alias));
 }
@@ -131,7 +133,7 @@ fn climbing_above_the_repository_is_outside_repository() {
         RefKind::Model3d,
         &[],
         &BTreeMap::new(),
-        &BTreeSet::new(),
+        &SetSources::default(),
     );
     assert_eq!(variables, ["KIPRJMOD"]);
     match target {
@@ -151,7 +153,7 @@ fn a_text_variable_cycle_is_a_variable_loop() {
         RefKind::Model3d,
         &[],
         &text_variables,
-        &BTreeSet::new(),
+        &SetSources::default(),
     );
     assert!(is_reason(&target, Reason::VariableLoop));
 }
@@ -163,7 +165,7 @@ fn a_marker_that_does_not_start_the_text_is_misplaced() {
         RefKind::Model3d,
         &[],
         &BTreeMap::new(),
-        &BTreeSet::new(),
+        &SetSources::default(),
     );
     assert_eq!(variables, ["KIPRJMOD"]);
     match target {
@@ -182,7 +184,7 @@ fn a_nondeterministic_variable_names_the_variable() {
         RefKind::Model3d,
         &[],
         &BTreeMap::new(),
-        &BTreeSet::new(),
+        &SetSources::default(),
     );
     match target {
         Target::Unresolved { reason, variable } => {
@@ -200,7 +202,7 @@ fn an_undefined_variable_names_the_variable() {
         RefKind::FootprintLibrary,
         &[],
         &BTreeMap::new(),
-        &BTreeSet::new(),
+        &SetSources::default(),
     );
     assert!(variables.is_empty());
     match target {
@@ -283,7 +285,7 @@ fn an_absolute_path_is_normalized() {
         RefKind::FootprintLibrary,
         &[],
         &BTreeMap::new(),
-        &BTreeSet::new(),
+        &SetSources::default(),
     );
     match target {
         Target::Absolute { path } => assert_eq!(path, "/opt/libs/Host.pretty"),
@@ -298,7 +300,7 @@ fn a_library_path_climbing_above_its_root_is_outside_library_root() {
         RefKind::Model3d,
         &[],
         &BTreeMap::new(),
-        &BTreeSet::new(),
+        &SetSources::default(),
     );
     assert!(is_reason(&target, Reason::OutsideLibraryRoot));
 }
@@ -310,7 +312,7 @@ fn a_project_marker_alone_is_an_empty_path() {
         RefKind::FootprintLibrary,
         &[],
         &BTreeMap::new(),
-        &BTreeSet::new(),
+        &SetSources::default(),
     );
     assert!(is_reason(&target, Reason::EmptyPath));
 }
@@ -323,7 +325,7 @@ fn a_text_variable_is_used_before_a_library_variable() {
         RefKind::Model3d,
         &[],
         &text_variables,
-        &BTreeSet::new(),
+        &SetSources::default(),
     );
     assert_eq!(variables, ["KICAD9_3DMODEL_DIR"]);
     match target {
@@ -344,7 +346,7 @@ fn an_embedded_file_matches_the_lookup_order() {
         project_name: "demo",
         text_variables: &BTreeMap::new(),
         project_dir: &[],
-        sources: &BTreeSet::new(),
+        sources: &SetSources::default(),
     };
     let (_, target) = resolver.resolve(
         "kicad-embed://BSL308PE.stp",

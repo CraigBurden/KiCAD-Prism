@@ -28,13 +28,14 @@ use crate::manifest::{
     skipped_board, sort_warnings, source_role, warning,
 };
 use crate::paths::{file_name, is_within, join, parent};
-use crate::revision_key::{Category, EffectiveConfig, default_config};
+use crate::revision_key::{EffectiveConfig, default_config};
 use prism_kicad_contracts::generated::prism_revision_key_effective_config_a1 as cfg;
 use prism_kicad_contracts::generated::prism_revision_key_record_a1 as rk;
 use prism_kicad_core::{PcbLimits, PcbView, ProjectDocument, ProjectLimits};
 use serde_json::Value;
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 /// The inputs of stage parse.
 pub struct ParseRequest<'a> {
@@ -208,7 +209,7 @@ pub fn run(request: &ParseRequest<'_>) -> Outcome<ParseOutcome> {
     let tree = SourceTree::scan(&located.root, &excluded, request.limits)?;
     let config = match &request.config {
         Some(config) => config.clone(),
-        None => default_config(&located.project, |path| tree.contains(path)),
+        None => default_config(&located.project, |path| tree.exists(path)),
     };
     check_key_record(request, &config)?;
     request.reporter.info(
@@ -290,7 +291,7 @@ impl ParseRun<'_> {
         self.request.limits
     }
 
-    fn read(&self, path: &str) -> Outcome<Vec<u8>> {
+    fn read(&self, path: &str) -> Outcome<Arc<[u8]>> {
         self.tree
             .read(path)?
             .ok_or_else(|| internal(format!("{} vanished from the source set", member(path))))
@@ -327,13 +328,7 @@ impl ParseRun<'_> {
     }
 
     fn read_jobsets(&self) -> Outcome<()> {
-        let jobsets: Vec<String> = self
-            .tree
-            .selected()
-            .filter(|(_, info)| info.category == Category::KicadJobset)
-            .map(|(path, _)| path.clone())
-            .collect();
-        for path in jobsets {
+        for path in self.tree.list("", &[".kicad_jobset"]) {
             self.tree.read(&path)?;
         }
         Ok(())
@@ -359,7 +354,7 @@ impl ParseRun<'_> {
         let path = self.config.project_file.0.clone();
         let at = member(&path);
         let bytes = self.read(&path)?;
-        let Ok(text) = String::from_utf8(bytes.clone()) else {
+        let Ok(text) = String::from_utf8(bytes.to_vec()) else {
             let valid = std::str::from_utf8(&bytes).map_or_else(|error| error.valid_up_to(), |_| 0);
             return Ok(Err(Finding::new(
                 "source-not-utf8",
@@ -411,13 +406,13 @@ impl ParseRun<'_> {
         format: u64,
         referrer: Option<Location>,
     ) -> Outcome<Result<(String, Vec<sexpr_check::SheetReference>), Finding>> {
-        if !self.tree.contains(path) {
+        if !self.tree.exists(path) {
             return Ok(Err(missing(path, referrer)));
         }
         let bytes = self.read(path)?;
         match sexpr_check::check(&member(path), &bytes, format, self.limits()) {
             Ok(scanned) => {
-                let text = String::from_utf8(bytes).map_err(internal)?;
+                let text = String::from_utf8(bytes.to_vec()).map_err(internal)?;
                 Ok(Ok((text, scanned.sheets)))
             }
             Err(error) => recorded(error).map(Err),
@@ -580,7 +575,7 @@ impl ParseRun<'_> {
             } else {
                 Role::Projection
             },
-            bytes,
+            bytes: Arc::from(bytes),
             schema: Some(schema.to_owned()),
             source: None,
         });
@@ -784,17 +779,11 @@ impl ParseRun<'_> {
     }
 
     fn read_target(&self, path: &str) -> Outcome<()> {
-        if self.tree.contains(path) {
+        if self.tree.exists(path) {
             self.tree.read(path)?;
             return Ok(());
         }
-        let below: Vec<String> = self
-            .tree
-            .selected()
-            .filter(|(candidate, _)| is_within(candidate, path))
-            .map(|(candidate, _)| candidate.clone())
-            .collect();
-        for candidate in below {
+        for candidate in self.tree.list(path, &[]) {
             self.tree.read(&candidate)?;
         }
         Ok(())
