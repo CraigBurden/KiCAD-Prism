@@ -104,7 +104,7 @@ pub use design_json::{
     KiCadDesignJsonError, KiCadDesignJsonLimits, KiCadDesignJsonPaths, KiCadDesignPcb,
     KiCadDesignSourcePath, KiCadSchematicInstance, build_kicad_design_facts,
     build_kicad_design_facts_profiled, build_kicad_design_json, build_kicad_design_json_profiled,
-    build_kicad_design_json_with_limits,
+    build_kicad_design_json_with_limits, build_kicad_design_semantic_inputs,
 };
 pub use document_metadata::{KiCadPaper, KiCadTitleBlock};
 pub use embedded_resource::{

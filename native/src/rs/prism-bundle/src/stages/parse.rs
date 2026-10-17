@@ -59,6 +59,8 @@ pub struct ParseRequest<'a> {
     /// The projection members to produce, by path; `None` produces all of
     /// them. `compare` on a source tree asks for the five it reads (amendment
     /// C2r §2 item 4); a member not asked for is neither written nor failed.
+    /// Without `design.json` among them, only the `components` and `nets` the
+    /// semantic index reads are built.
     pub projections: Option<&'a [&'a str]>,
 }
 

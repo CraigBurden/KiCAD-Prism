@@ -276,6 +276,23 @@ pub fn build_kicad_design_json_profiled(
     )
 }
 
+/// The two parts of `design.json` the semantic index reads, `components` and
+/// `nets`, equal to theirs in [`build_kicad_design_json`], without the rest:
+/// no resource preflight, pick-and-place, hierarchy, compiled graph, indexes
+/// or output-limit serialization. For a run that writes no `design.json`
+/// (`prism-kicad compare`).
+pub fn build_kicad_design_semantic_inputs(
+    index: &SchematicBundleIndex,
+    facts: &KiCadDesignFacts<'_>,
+) -> Result<Value, KiCadDesignJsonError> {
+    validate_facts_binding(index, facts)?;
+    let netlist = facts.netlist();
+    let mut netlist_json = build_kicad_netlist_json(netlist, KiCadNetlistJsonMetadata::default());
+    let components = components::components_json(netlist, &netlist_json);
+    let nets = netlist_json["nets"].take();
+    Ok(json!({"components": components, "nets": nets}))
+}
+
 #[allow(
     clippy::too_many_lines,
     reason = "the profiled builder preserves one ordered Design JSON assembly flow"
