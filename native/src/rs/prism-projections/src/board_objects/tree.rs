@@ -161,26 +161,38 @@ fn push<'a>(roots: &mut Vec<Node<'a>>, stack: &mut [(usize, Vec<Node<'a>>)], nod
 /// no backslash escape is borrowed from `text`; one with an escape is decoded
 /// into an owned `String`.
 fn read_string(text: &str, start: usize) -> (Cow<'_, str>, usize) {
+    let (end, escaped) = scan_string(text, start);
+    if escaped {
+        return decode_string(text, start, end);
+    }
+    let next = if end < text.len() { end + 1 } else { end };
+    (Cow::Borrowed(&text[start..end]), next)
+}
+
+/// The index of the closing quote (or the end of the text) and whether a
+/// backslash escape was seen before it.
+fn scan_string(text: &str, start: usize) -> (usize, bool) {
     let bytes = text.as_bytes();
     let mut index = start;
     let mut escaped = false;
     while index < bytes.len() {
         match bytes[index] {
             b'"' => break,
-            b'\\' if index + 1 < bytes.len() => {
+            b'\\' => {
                 escaped = true;
-                index += 1;
+                index += usize::from(index + 1 < bytes.len());
             }
-            b'\\' => escaped = true,
             _ => {}
         }
         index += 1;
     }
-    if !escaped {
-        let next = if index < bytes.len() { index + 1 } else { index };
-        return (Cow::Borrowed(&text[start..index]), next);
-    }
-    let mut out = String::with_capacity(index.saturating_sub(start));
+    (index, escaped)
+}
+
+/// Decode a quoted string that carries at least one escape.
+fn decode_string(text: &str, start: usize, end: usize) -> (Cow<'_, str>, usize) {
+    let bytes = text.as_bytes();
+    let mut out = String::with_capacity(end.saturating_sub(start));
     let mut index = start;
     while index < bytes.len() {
         match bytes[index] {

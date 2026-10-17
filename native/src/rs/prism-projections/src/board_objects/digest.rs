@@ -85,7 +85,10 @@ fn object_digest(node: &Node<'_>, parent_head: Option<&str>, context: &Context) 
 fn identity_of<'n, 'a>(node: &'n Node<'a>) -> Option<&'n str> {
     for key in IDENTITY {
         if let Some(child) = node.child(key)
-            && let Some(value) = child.items().and_then(|items| items.get(1)).and_then(Node::text)
+            && let Some(value) = child
+                .items()
+                .and_then(|items| items.get(1))
+                .and_then(Node::text)
         {
             return Some(value);
         }
@@ -317,43 +320,53 @@ fn write_piece<'n, 'a, S: Canon>(
     first: &mut bool,
 ) -> bool {
     let head = form.head();
-    if matches!(child, Node::List { .. }) {
-        let child_head = child.head().unwrap_or_default();
-        if IDENTITY.contains(&child_head) || GENERATED.contains(&child_head) {
-            return false;
-        }
-        if child_head == "page" && head == Some("path") && path.contains(&"instances") {
-            return false;
-        }
-        if let Some(name) = net_part(child, form, context, depth, head) {
-            if !name.is_empty() {
-                separator(sink, first);
-                sink.raw("(net ");
-                write_json_string(sink, &name);
-                sink.raw(")");
-            }
-            return true;
-        }
-        if depth == 0 && child_object_heads(head.unwrap_or_default()).contains(&child_head) {
-            separator(sink, first);
-            sink.byte(b'(');
-            sink.raw(child_head);
-            if let Some(id) = child_object_id(child) {
-                sink.byte(b' ');
-                write_json_string(sink, id);
-            }
-            sink.byte(b')');
-            return true;
-        }
+    if !matches!(child, Node::List { .. }) {
         separator(sink, first);
-        let mut extended = path.to_vec();
-        extended.push(head.unwrap_or_default());
-        write_text(sink, child, context, depth + 1, &extended);
+        write_leaf(sink, child);
+        return true;
+    }
+    let child_head = child.head().unwrap_or_default();
+    if dropped_head(child_head, head, path) {
+        return false;
+    }
+    if let Some(name) = net_part(child, form, context, depth, head) {
+        if !name.is_empty() {
+            separator(sink, first);
+            sink.raw("(net ");
+            write_json_string(sink, &name);
+            sink.raw(")");
+        }
+        return true;
+    }
+    if depth == 0 && child_object_heads(head.unwrap_or_default()).contains(&child_head) {
+        separator(sink, first);
+        write_reference(sink, child_head, child);
         return true;
     }
     separator(sink, first);
-    write_leaf(sink, child);
+    let mut extended = path.to_vec();
+    extended.push(head.unwrap_or_default());
+    write_text(sink, child, context, depth + 1, &extended);
     true
+}
+
+/// Whether a child list is dropped at any depth (identity, generated, or an
+/// instance path's `page`).
+fn dropped_head(child_head: &str, head: Option<&str>, path: &[&str]) -> bool {
+    IDENTITY.contains(&child_head)
+        || GENERATED.contains(&child_head)
+        || (child_head == "page" && head == Some("path") && path.contains(&"instances"))
+}
+
+/// Write a child object as `(<head> "<uuid>")`, or `(<head>)` without an id.
+fn write_reference<S: Canon>(sink: &mut S, child_head: &str, child: &Node<'_>) {
+    sink.byte(b'(');
+    sink.raw(child_head);
+    if let Some(id) = child_object_id(child) {
+        sink.byte(b' ');
+        write_json_string(sink, id);
+    }
+    sink.byte(b')');
 }
 
 fn separator<S: Canon>(sink: &mut S, first: &mut bool) {
@@ -401,7 +414,9 @@ fn net_part(
     depth: usize,
     head: Option<&str>,
 ) -> Option<String> {
-    if depth != 0 || child.head() != Some("net") || !NET_CARRIERS.contains(&head.unwrap_or_default())
+    if depth != 0
+        || child.head() != Some("net")
+        || !NET_CARRIERS.contains(&head.unwrap_or_default())
     {
         return None;
     }

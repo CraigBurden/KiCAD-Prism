@@ -543,7 +543,11 @@ fn valid_paths(document: &mut Document, paths: Vec<String>) -> Vec<bo::KiidPath>
 
 /// `symbol_instances` (`ecad-parse.mjs:893-912`) mapped to member instances
 /// (`capture/board_objects.py:349-353`).
-fn symbol_instances(document: &mut Document, symbol: &Node<'_>, uuid: &str) -> Vec<bo::BoardObjectsSymbolInstance> {
+fn symbol_instances(
+    document: &mut Document,
+    symbol: &Node<'_>,
+    uuid: &str,
+) -> Vec<bo::BoardObjectsSymbolInstance> {
     let mut instances = Vec::new();
     if let Some(node) = symbol.child("instances") {
         for project in node.children("project") {
@@ -616,7 +620,8 @@ fn refdes(value: Option<String>) -> Option<bo::Refdes> {
 }
 
 fn child_bool(node: &Node<'_>, name: &str) -> Option<bool> {
-    shapes::atom_flag(node, name).or_else(|| tree::child_text(node, name).map(|text| shapes::boolean(&text)))
+    shapes::atom_flag(node, name)
+        .or_else(|| tree::child_text(node, name).map(|text| shapes::boolean(&text)))
 }
 
 /// The `(mirror …)` value as the contract's enum.

@@ -119,7 +119,10 @@ pub(crate) fn parse_nonempty<T: std::str::FromStr>(text: String) -> Option<T> {
 
 /// The `rotationDeg` of an `(at …)` form, present exactly when the position is.
 #[must_use]
-pub(crate) fn rotation_deg(point: Option<(f64, f64)>, at: Option<&Node<'_>>) -> Option<bo::Degrees> {
+pub(crate) fn rotation_deg(
+    point: Option<(f64, f64)>,
+    at: Option<&Node<'_>>,
+) -> Option<bo::Degrees> {
     point.and(super::tree::rotation(at)).map(bo::Degrees)
 }
 
@@ -139,7 +142,11 @@ mod tests {
         let parsed = root(text);
         let node = parsed.child("symbol").unwrap();
         let mut document = Document::new("board.kicad_sch", &parsed, false);
-        document.add(node, "aaaa-0201", bo::BoardObjectsObject::Group(tag("group")));
+        document.add(
+            node,
+            "aaaa-0201",
+            bo::BoardObjectsObject::Group(tag("group")),
+        );
         let (objects, warnings) = document.finish();
         assert!(objects.is_empty());
         assert_eq!(warnings.len(), 1);

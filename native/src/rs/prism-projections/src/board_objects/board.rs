@@ -95,10 +95,12 @@ fn net_name_of(item: &Node<'_>, nets: &[(f64, String)]) -> Option<String> {
 /// `layer_of(item, head)` (`ecad-parse.mjs:1187-1192`): a non-empty `(head …)`
 /// name, as a layer.
 fn layer_of(item: &Node<'_>, head: &str) -> Option<bo::LayerName> {
-    let name = item.child(head).and_then(|child| match tree::text_at(child, 1) {
-        Some(name) if !name.is_empty() => Some(name),
-        _ => None,
-    })?;
+    let name = item
+        .child(head)
+        .and_then(|child| match tree::text_at(child, 1) {
+            Some(name) if !name.is_empty() => Some(name),
+            _ => None,
+        })?;
     parse_nonempty(name)
 }
 
@@ -114,10 +116,12 @@ fn layer_spec_name(name: Option<&String>) -> Option<bo::BoardObjectsLayerSpec> {
 
 /// The `(head …)` name of a form, as a layer spec.
 fn layer_spec_of(item: &Node<'_>, head: &str) -> Option<bo::BoardObjectsLayerSpec> {
-    let name = item.child(head).and_then(|child| match tree::text_at(child, 1) {
-        Some(name) if !name.is_empty() => Some(name),
-        _ => None,
-    })?;
+    let name = item
+        .child(head)
+        .and_then(|child| match tree::text_at(child, 1) {
+            Some(name) if !name.is_empty() => Some(name),
+            _ => None,
+        })?;
     parse_nonempty(name)
 }
 
@@ -266,7 +270,10 @@ fn footprint_review_fields(footprint: &Node<'_>) -> review::ReviewRecord {
             tree::child_text(footprint, "descr").map(review::text),
         ),
         ("Attributes", review::object_text(attr.as_ref())),
-        ("Exclude from BOM", Some(review::flag(flag("exclude_from_bom")))),
+        (
+            "Exclude from BOM",
+            Some(review::flag(flag("exclude_from_bom"))),
+        ),
         (
             "Exclude from position files",
             Some(review::flag(flag("exclude_from_pos_files"))),
@@ -443,7 +450,12 @@ fn footprint_graphics(
 }
 
 /// `index_board` footprint texts (`ecad-parse.mjs:1478-1495`).
-fn footprint_texts(document: &mut Document, text: &Node<'_>, parent: &str, reference: &Option<String>) {
+fn footprint_texts(
+    document: &mut Document,
+    text: &Node<'_>,
+    parent: &str,
+    reference: &Option<String>,
+) {
     let Some(uuid) = identity(text) else {
         return;
     };

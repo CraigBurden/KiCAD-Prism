@@ -48,9 +48,7 @@ pub(crate) fn flag(value: bool) -> ReviewValue {
 /// `entry(fields)`: drop absent and null, keep `false`, `0` and `""`
 /// (`ecad-parse.mjs:328-336`).
 #[must_use]
-pub(crate) fn entry(
-    pairs: Vec<(&'static str, Option<ReviewValue>)>,
-) -> ReviewRecord {
+pub(crate) fn entry(pairs: Vec<(&'static str, Option<ReviewValue>)>) -> ReviewRecord {
     let mut out = BTreeMap::new();
     for (key, value) in pairs {
         if let Some(value) = value {
@@ -64,7 +62,9 @@ pub(crate) fn entry(
 fn review_value(value: &Value) -> ReviewValue {
     match value {
         Value::String(text) => bo::BoardObjectsReviewValue::Variant0(text.clone()),
-        Value::Number(number) => bo::BoardObjectsReviewValue::Variant1(number.as_f64().unwrap_or(0.0)),
+        Value::Number(number) => {
+            bo::BoardObjectsReviewValue::Variant1(number.as_f64().unwrap_or(0.0))
+        }
         Value::Bool(flag) => bo::BoardObjectsReviewValue::Variant2(*flag),
         Value::Array(items) => review_array(items),
         Value::Object(map) => bo::BoardObjectsReviewValue::Variant5(review_table(map)),
@@ -77,11 +77,18 @@ fn review_array(items: &[Value]) -> ReviewValue {
         bo::BoardObjectsReviewValue::Variant3(items.iter().map(text_of).collect())
     } else if items.iter().all(Value::is_number) {
         bo::BoardObjectsReviewValue::Variant4(
-            items.iter().map(|item| item.as_f64().unwrap_or(0.0)).collect(),
+            items
+                .iter()
+                .map(|item| item.as_f64().unwrap_or(0.0))
+                .collect(),
         )
     } else {
         bo::BoardObjectsReviewValue::Variant6(
-            items.iter().filter_map(Value::as_object).map(review_table).collect(),
+            items
+                .iter()
+                .filter_map(Value::as_object)
+                .map(review_table)
+                .collect(),
         )
     }
 }
@@ -185,21 +192,32 @@ pub(crate) fn graphic_review_fields(
 #[must_use]
 pub(crate) fn zone_review_fields(zone: &Value) -> ReviewRecord {
     let layers: Vec<String> = match zone.get("layers") {
-        Some(Value::Array(items)) => items.iter().filter_map(|item| item.as_str().map(str::to_owned)).collect(),
+        Some(Value::Array(items)) => items
+            .iter()
+            .filter_map(|item| item.as_str().map(str::to_owned))
+            .collect(),
         _ => match zone.get("layer").and_then(Value::as_str) {
             Some(layer) if !layer.is_empty() => vec![layer.to_owned()],
             _ => Vec::new(),
         },
     };
     entry(vec![
-        ("Zone name", zone.get("name").and_then(Value::as_str).map(text)),
+        (
+            "Zone name",
+            zone.get("name").and_then(Value::as_str).map(text),
+        ),
         ("Zone layers", list_text(&layers)),
-        ("Priority", zone.get("priority").and_then(Value::as_f64).map(number)),
+        (
+            "Priority",
+            zone.get("priority").and_then(Value::as_f64).map(number),
+        ),
         ("Hatch", object_text(zone.get("hatch"))),
         ("Pad connection", object_text(zone.get("connect_pads"))),
         (
             "Minimum thickness",
-            zone.get("min_thickness").and_then(Value::as_f64).map(number),
+            zone.get("min_thickness")
+                .and_then(Value::as_f64)
+                .map(number),
         ),
         ("Keepout", object_text(zone.get("keepout"))),
         ("Fill rules", object_text(zone.get("fill"))),
@@ -277,7 +295,11 @@ pub(crate) fn finish_review(objects: Vec<Value>) -> Vec<bo::BoardObjectsReviewOn
 fn review_only_object(object: &Value) -> Option<bo::BoardObjectsReviewOnlyObject> {
     let kind = kind_enum(object.get("kind").and_then(Value::as_str)?)?;
     let id = bo::BoardObjectsReviewOnlyId(
-        object.get("id").and_then(Value::as_str).unwrap_or_default().to_owned(),
+        object
+            .get("id")
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .to_owned(),
     );
     let name = object
         .get("name")
@@ -297,7 +319,9 @@ fn review_only_object(object: &Value) -> Option<bo::BoardObjectsReviewOnlyObject
 fn record_from_value(value: &Value) -> ReviewRecord {
     match value {
         Value::Object(map) => bo::RecordBoardObjectsReviewValue(
-            map.iter().map(|(key, child)| (key.clone(), review_value(child))).collect(),
+            map.iter()
+                .map(|(key, child)| (key.clone(), review_value(child)))
+                .collect(),
         ),
         _ => bo::RecordBoardObjectsReviewValue(BTreeMap::new()),
     }
@@ -313,19 +337,46 @@ fn kind_enum(kind: &str) -> Option<bo::BoardObjectsReviewOnlyKind> {
 
 const REVIEW_KINDS: &[(&str, bo::BoardObjectsReviewOnlyKind)] = &[
     ("net-class", bo::BoardObjectsReviewOnlyKind::NetClass),
-    ("net-class-assignment", bo::BoardObjectsReviewOnlyKind::NetClassAssignment),
-    ("board-constraint", bo::BoardObjectsReviewOnlyKind::BoardConstraint),
+    (
+        "net-class-assignment",
+        bo::BoardObjectsReviewOnlyKind::NetClassAssignment,
+    ),
+    (
+        "board-constraint",
+        bo::BoardObjectsReviewOnlyKind::BoardConstraint,
+    ),
     ("drc-severity", bo::BoardObjectsReviewOnlyKind::DrcSeverity),
-    ("routing-preset", bo::BoardObjectsReviewOnlyKind::RoutingPreset),
-    ("board-default", bo::BoardObjectsReviewOnlyKind::BoardDefault),
-    ("teardrop-setting", bo::BoardObjectsReviewOnlyKind::TeardropSetting),
+    (
+        "routing-preset",
+        bo::BoardObjectsReviewOnlyKind::RoutingPreset,
+    ),
+    (
+        "board-default",
+        bo::BoardObjectsReviewOnlyKind::BoardDefault,
+    ),
+    (
+        "teardrop-setting",
+        bo::BoardObjectsReviewOnlyKind::TeardropSetting,
+    ),
     ("zone-setting", bo::BoardObjectsReviewOnlyKind::ZoneSetting),
-    ("drc-exclusion", bo::BoardObjectsReviewOnlyKind::DrcExclusion),
-    ("erc-exclusion", bo::BoardObjectsReviewOnlyKind::ErcExclusion),
+    (
+        "drc-exclusion",
+        bo::BoardObjectsReviewOnlyKind::DrcExclusion,
+    ),
+    (
+        "erc-exclusion",
+        bo::BoardObjectsReviewOnlyKind::ErcExclusion,
+    ),
     ("erc-pin-rule", bo::BoardObjectsReviewOnlyKind::ErcPinRule),
-    ("project-metadata", bo::BoardObjectsReviewOnlyKind::ProjectMetadata),
+    (
+        "project-metadata",
+        bo::BoardObjectsReviewOnlyKind::ProjectMetadata,
+    ),
     ("custom-rule", bo::BoardObjectsReviewOnlyKind::CustomRule),
-    ("fabrication-output", bo::BoardObjectsReviewOnlyKind::FabricationOutput),
+    (
+        "fabrication-output",
+        bo::BoardObjectsReviewOnlyKind::FabricationOutput,
+    ),
     ("bus_alias", bo::BoardObjectsReviewOnlyKind::BusAlias),
 ];
 
