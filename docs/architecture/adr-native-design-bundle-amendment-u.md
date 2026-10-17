@@ -92,17 +92,33 @@ Measured on EDA-04903 (57 MB board) in a throwaway container from the worker ima
   - Stages `board` and `models` stay on demand.
   - The paced backfill of branch heads (parent §8) stays.
 - **Reuse by read set.**
-  - Stage `parse` records its read set in `bundle.json`: every repository path the build read, with its object id, and every path it looked up and did not find. A missing sheet, a library-table entry or a 3D-model lookup are examples of the latter.
-  - **Rule:** if the read set's paths have the same object ids in a new tree, and its absent paths are still absent, the build would read the same bytes and produce the same parse-stage members.
+  - Stage `parse` records its read set in `bundle.json`:
+    - every repository path a producer read, with its object id;
+    - every path whose existence it tested, with its object id or "absent";
+    - every directory listing it made, as directory, suffixes and the paths it returned.
+  - **Rule:** if every recorded path has the same object id (or is still absent) in a new tree, and every listing returns the same paths, the build would read the same bytes and produce the same parse-stage members.
   - So for a new revision key with no bundle, Prism looks for a stored bundle of the same project, effective configuration and generator whose read set holds in the new tree.
   - On a match, it records `(project, revision key) → bundle key` in the commit index's alias table instead of building.
   - A consumer that is given a revision key reads through the alias.
   - The revision-key algorithm (`prism.revision_key.a1`) does not change, so no stored key changes.
-- **Stages after `parse`.** Reuse covers stage `parse`, which is what the background builds produce. A later stage built for an aliased key is written to the shared bundle, so every key that reuses it gains that stage.
+- **Producers read only what they need.**
+  - The read set is only as narrow as the producers' reads, so `Sources` (`prism-projections`) replaces "every path of the source set" with three recorded queries:
+    - read a path;
+    - test that a path exists;
+    - list one directory by suffix.
+  - No producer may depend on the whole source set.
+  - `board-objects` covers the project's own documents, selected by anchor and effective configuration as the parent ADR requires (§6): the project file, its `.kicad_dru`, the board and every schematic the root schematic reaches.
+  - Today it takes every `.kicad_sch`, `.kicad_pcb`, `.kicad_pro` and `.kicad_dru` in the repository-wide source set. In a multi-project repository, a comparison of one project therefore shows the files of the others.
+  - The change is user-visible (§3.1). Design Comparison no longer lists other projects' files, or schematic files the design does not reach. It is recorded in `native/parity/divergences/board-objects.md`.
+- **Stages after `parse`.**
+  - Reuse covers stage `parse` only. Stage `models` reads 3D-model files that the parse read set does not cover.
+  - When a later stage is needed for an aliased revision key, Prism first runs `prism-kicad bundle rekey`. It copies the shared bundle's parse-stage members unchanged into a new archive for that key, with `bundle.json` rewritten for the key. Nothing is parsed, and the result equals a fresh stage-`parse` build of that key.
+  - The key's later stages are then built on its own archive.
 - **Contract changes, in the work package:**
-  - `bundle-format.md` and `prism.bundle.manifest` gain the read set (a2 → a3 if the schema version must change);
+  - `bundle-format.md` and `prism.bundle.manifest` gain the read set (a3);
+  - `cli-spec.md` gains the read set's recording and `bundle rekey`;
   - `revision-key.md` §10 gains the alias table;
-  - `cli-spec.md` gains how a build reports the paths it looked up and did not find.
+  - the generator id is bumped.
 
 ## 4. Consequences
 
@@ -112,13 +128,22 @@ Measured on EDA-04903 (57 MB board) in a throwaway container from the worker ima
   - items 2, 3 and 5 are in progress. They are kept because they bring stage `parse` towards its budgets;
   - item 4, typed members in `compare`, is now required by decision 5;
   - item 6, memory, is required by the stage `parse` peak budget.
-- **New work package K2 (warm by default).**
-  - Owns: the background prebuild after sync, read-set recording in stage `parse` (`prism-bundle`), the alias table and its lookup (`backend/app/services/design_bundle/`), and the contract text of §3.3.
+- **New work packages K2a and K2b (warm by default).**
+  - **K2a (native)** owns:
+    - the recorded `Sources` queries and the producers' move onto them, including `board-objects`' project scope;
+    - the read set in `bundle.json`;
+    - `bundle rekey`;
+    - the contract text of §3.3.
+  - **K2b (backend)** owns:
+    - the background prebuild after sync, as parse-only jobs;
+    - the alias table, its lookup and retention;
+    - the rekey before a later stage.
   - Accept:
     - the prebuild runs paced on a sync of EDA-04903's repository;
     - a commit that changes only an unrelated project reuses the previous bundle;
-    - a commit that changes a sheet, a library table or a referenced model does not;
-    - a commit that adds a file at a path in the read set's absent paths does not.
+    - a commit that changes a sheet, a library table or the board does not;
+    - a commit that adds a file a recorded existence test or listing would now find does not;
+    - a rekeyed archive equals a fresh stage-`parse` build of its key, byte for byte.
 - **Wave plan.** Unchanged: every consumer migrates (decision 4).
 
 ## 5. Text changes applied with this amendment
