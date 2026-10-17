@@ -170,8 +170,23 @@ pub fn diff(
     head_document: &Value,
     head_dir: &str,
 ) -> Result<CompareObjectDeltaA0, CompareError> {
-    let base = entry::build(base_document, base_dir)?;
-    let head = entry::build(head_document, head_dir)?;
+    let base = entry::entries(base_document, base_dir)?;
+    let head = entry::entries(head_document, head_dir)?;
+    let delta = diff_entries(base, head);
+    serde_json::to_value(&delta)
+        .and_then(serde_json::from_value)
+        .map_err(|error| {
+            CompareError::new(format!(
+                "the compare document does not fit its schema: {error}"
+            ))
+        })
+}
+
+/// [`diff`] over entries already rebuilt with [`entry::entries`]: the CLI
+/// drops each member's parsed JSON as soon as its entries exist, and writes
+/// the returned [`output::Delta`] without building it as one value.
+pub fn diff_entries(base: entry::Entries, head: entry::Entries) -> output::Delta {
+    let (base, head) = (base.0, head.0);
     let mut matcher = Matcher::new(&base, &head);
     matcher.native_identity();
     matcher.pair(entry::authored_identity, Reason::InternalOnly);
@@ -205,8 +220,9 @@ pub fn diff(
             changes.push(output::removed(before));
         }
     }
+    drop(matcher);
     changes.sort_by(|left, right| left.key.cmp(&right.key));
-    output::document(&base, &head, &changes, &ignored, unchanged)
+    output::document(base, head, changes, ignored, unchanged)
 }
 
 #[cfg(test)]
@@ -229,6 +245,24 @@ mod tests {
 
     fn diff_docs(base: &Value, head: &Value) -> CompareObjectDeltaA0 {
         diff(base, "", head, "").unwrap()
+    }
+
+    #[test]
+    fn the_streamed_document_equals_the_typed_one() {
+        let base = document("d.kicad_pcb", json!([pad("u1", "a"), pad("u2", "b")]));
+        let head = document("d.kicad_pcb", json!([pad("u1", "a2"), pad("u3", "c")]));
+        let delta = diff_entries(
+            entry::entries(&base, "").unwrap(),
+            entry::entries(&head, "").unwrap(),
+        );
+        let streamed: Value = serde_json::from_slice(&serde_json::to_vec(&delta).unwrap()).unwrap();
+        // The typed document goes through `f64`, which writes `0.0`; compare
+        // values with the streamed document's ECMAScript number text.
+        let typed =
+            super::super::json::ecma(serde_json::to_value(diff_docs(&base, &head)).unwrap());
+        assert_eq!(streamed, typed);
+        assert_eq!(delta.objects(), (2, 2));
+        assert_eq!(delta.counts()["added"], json!(1));
     }
 
     #[test]

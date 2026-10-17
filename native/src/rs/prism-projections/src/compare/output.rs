@@ -1,11 +1,10 @@
 //! Building the `prism.compare.object_delta.a0` document from the diff's
 //! changes (`ecad-diff.mjs:376-481`).
 
-use super::CompareError;
 use super::classify::{self, MergedDelta};
 use super::entry::{self, Entry};
 use super::json;
-use prism_kicad_contracts::generated::prism_compare_object_delta_a0::CompareObjectDeltaA0;
+use serde::ser::{Serialize, SerializeMap, SerializeSeq, Serializer};
 use serde_json::{Map, Value};
 use std::collections::BTreeMap;
 
@@ -109,37 +108,121 @@ pub fn ignored(after: &Entry, reason: &'static str) -> Value {
 }
 
 /// The whole `CompareObjectDeltaA0` document.
+/// The whole `prism.compare.object_delta.a0` document, serialized on demand.
+///
+/// `nativeObjects` and `componentObjects` list every object of both sides, so
+/// the document is several times the size of the inputs. It is never built as
+/// one value: each element is made as it is written and dropped again, which
+/// keeps the peak heap to the two sides' entries and the changes.
+pub struct Delta {
+    base: Vec<Entry>,
+    head: Vec<Entry>,
+    base_key: String,
+    head_key: String,
+    changes: Vec<Value>,
+    ignored: Vec<Value>,
+    counts: Value,
+    by_kind: Value,
+    by_reason: Value,
+}
+
+impl Delta {
+    /// The `counts` record, as written.
+    pub fn counts(&self) -> &Value {
+        &self.counts
+    }
+
+    /// The number of objects on each side, `(base, head)`.
+    pub fn objects(&self) -> (usize, usize) {
+        (self.base.len(), self.head.len())
+    }
+
+    /// Set the two sides' `bundleKey` (the CLI knows them; the engine does not).
+    pub fn set_bundle_keys(&mut self, base: &str, head: &str) {
+        base.clone_into(&mut self.base_key);
+        head.clone_into(&mut self.head_key);
+    }
+}
+
+impl Serialize for Delta {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        let mut map = serializer.serialize_map(Some(8))?;
+        map.serialize_entry("schema", "prism.compare.object_delta.a0")?;
+        map.serialize_entry("base", &Side(&self.base, &self.base_key))?;
+        map.serialize_entry("head", &Side(&self.head, &self.head_key))?;
+        map.serialize_entry("changes", &self.changes)?;
+        map.serialize_entry("ignored", &self.ignored)?;
+        map.serialize_entry("counts", &self.counts)?;
+        map.serialize_entry("byKind", &self.by_kind)?;
+        map.serialize_entry("byReason", &self.by_reason)?;
+        map.end()
+    }
+}
+
+/// One side of the document: `bundleKey`, `objects`, `nativeObjects`, `componentObjects`.
+struct Side<'a>(&'a [Entry], &'a str);
+
+impl Serialize for Side<'_> {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        let Side(entries, key) = *self;
+        let mut map = serializer.serialize_map(Some(4))?;
+        map.serialize_entry("bundleKey", key)?;
+        map.serialize_entry("objects", &(entries.len() as u64))?;
+        map.serialize_entry("nativeObjects", &Each(entries, Pick::Native))?;
+        map.serialize_entry("componentObjects", &Each(entries, Pick::Component))?;
+        map.end()
+    }
+}
+
+#[derive(Clone, Copy)]
+enum Pick {
+    /// Every entry, as `native_target`.
+    Native,
+    /// Symbols and footprints, as `native_object`.
+    Component,
+}
+
+/// A side's entries as one list, each element built while it is written.
+struct Each<'a>(&'a [Entry], Pick);
+
+impl Serialize for Each<'_> {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        let Each(entries, pick) = *self;
+        let mut seq = serializer.serialize_seq(None)?;
+        for entry in entries {
+            match pick {
+                Pick::Native => seq.serialize_element(&entry::native_target(entry))?,
+                Pick::Component if matches!(entry.kind.as_str(), "symbol" | "footprint") => {
+                    seq.serialize_element(&entry::native_object(entry))?;
+                }
+                Pick::Component => {}
+            }
+        }
+        seq.end()
+    }
+}
+
+/// Assemble the document from the diff's outcome; the entries move in.
 pub fn document(
-    base: &[Entry],
-    head: &[Entry],
-    changes: &[Change],
-    ignored: &[Value],
+    base: Vec<Entry>,
+    head: Vec<Entry>,
+    changes: Vec<Change>,
+    ignored: Vec<Value>,
     unchanged: usize,
-) -> Result<CompareObjectDeltaA0, CompareError> {
-    let mut document = Map::new();
-    json::set(
-        &mut document,
-        "schema",
-        Value::from("prism.compare.object_delta.a0"),
-    );
-    json::set(&mut document, "base", side(base));
-    json::set(&mut document, "head", side(head));
-    json::set(
-        &mut document,
-        "changes",
-        Value::Array(changes.iter().map(|change| change.value.clone()).collect()),
-    );
-    json::set(&mut document, "ignored", Value::Array(ignored.to_vec()));
+) -> Delta {
     let (counts, by_kind, by_reason) =
-        tally(changes, ignored.len(), base.len(), head.len(), unchanged);
-    json::set(&mut document, "counts", counts);
-    json::set(&mut document, "byKind", by_kind);
-    json::set(&mut document, "byReason", by_reason);
-    serde_json::from_value(Value::Object(document)).map_err(|error| {
-        CompareError::new(format!(
-            "the compare document does not fit its schema: {error}"
-        ))
-    })
+        tally(&changes, ignored.len(), base.len(), head.len(), unchanged);
+    Delta {
+        base,
+        head,
+        base_key: "0".repeat(64),
+        head_key: "0".repeat(64),
+        changes: changes.into_iter().map(|change| change.value).collect(),
+        ignored,
+        counts,
+        by_kind,
+        by_reason,
+    }
 }
 
 fn change(
@@ -207,27 +290,6 @@ fn merge(target: &mut Map<String, Value>, source: Value) {
     if let Value::Object(map) = source {
         target.extend(map);
     }
-}
-
-fn side(entries: &[Entry]) -> Value {
-    json::object_of([
-        ("bundleKey", Value::from("0".repeat(64))),
-        ("objects", Value::from(entries.len() as u64)),
-        (
-            "nativeObjects",
-            Value::Array(entries.iter().map(entry::native_target).collect()),
-        ),
-        (
-            "componentObjects",
-            Value::Array(
-                entries
-                    .iter()
-                    .filter(|entry| matches!(entry.kind.as_str(), "symbol" | "footprint"))
-                    .map(entry::native_object)
-                    .collect(),
-            ),
-        ),
-    ])
 }
 
 #[allow(

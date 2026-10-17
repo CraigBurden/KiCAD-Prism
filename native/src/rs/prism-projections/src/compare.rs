@@ -28,8 +28,9 @@ mod json;
 mod numbers;
 mod output;
 
-pub use diff::diff;
-pub use entry::anchor_directory;
+pub use diff::{diff, diff_entries};
+pub use entry::{Entries, anchor_directory, entries};
+pub use output::Delta;
 
 use std::fmt;
 

@@ -2,17 +2,35 @@
 //! number is written through [`number`], which folds `-0` to `0` exactly as
 //! ECMAScript `JSON.stringify` does (`ecad-diff.mjs:97-107`).
 
+use super::numbers::ecma_number;
 use serde_json::{Map, Value};
 
 /// A `[x, y]` point in millimetres, today's `at`.
 pub type Point = [f64; 2];
 
-/// `value` as a JSON number, with `-0` normalised to `0`.
+/// `value` as a JSON number written as ECMAScript writes it (T3): `152`, not
+/// `152.0`, and `-0` as `0`. `Value::from(f64)` would write `152.0`, which a
+/// reader such as Python parses as a float where today's output gave an
+/// integer (Design Comparison's document diff shows that type).
 pub fn number(value: f64) -> Value {
-    if value == 0.0 {
-        Value::from(0.0)
-    } else {
-        Value::from(value)
+    ecma_number(value)
+        .parse::<serde_json::Number>()
+        .map_or(Value::Null, Value::Number)
+}
+
+/// `value` with every number rewritten as [`number`] writes it. The member
+/// writes review fields with Rust's float text (`1.0`); today's output is
+/// `JSON.stringify`'s, which never writes a fractional zero.
+pub fn ecma(value: Value) -> Value {
+    match value {
+        Value::Number(text) => text.as_f64().map_or(Value::Number(text), number),
+        Value::Array(items) => Value::Array(items.into_iter().map(ecma).collect()),
+        Value::Object(map) => Value::Object(
+            map.into_iter()
+                .map(|(key, item)| (key, ecma(item)))
+                .collect(),
+        ),
+        other => other,
     }
 }
 
@@ -72,5 +90,28 @@ pub fn set_opt_bool(map: &mut Map<String, Value>, key: &str, value: Option<bool>
 pub fn set_opt_strings(map: &mut Map<String, Value>, key: &str, value: &Option<Vec<String>>) {
     if let Some(value) = value {
         set(map, key, strings(value));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn numbers_are_written_as_ecmascript_writes_them() {
+        assert_eq!(serde_json::to_string(&number(152.0)).unwrap(), "152");
+        assert_eq!(serde_json::to_string(&number(-0.0)).unwrap(), "0");
+        assert_eq!(serde_json::to_string(&number(23.81)).unwrap(), "23.81");
+        assert_eq!(serde_json::to_string(&number(-1.5)).unwrap(), "-1.5");
+    }
+
+    #[test]
+    fn member_numbers_lose_their_fractional_zero() {
+        let member: Value =
+            serde_json::from_str(r#"{"Unit":1.0,"Pads":[2.0,2.5],"Name":"R1"}"#).unwrap();
+        assert_eq!(
+            serde_json::to_string(&ecma(member)).unwrap(),
+            r#"{"Unit":1,"Pads":[2,2.5],"Name":"R1"}"#
+        );
     }
 }
