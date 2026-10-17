@@ -5,11 +5,10 @@
 //! (`project.py:225-274`) and classifies what is left into a
 //! [`Target`](super::reference::Target) (`project.py:276-303`).
 
-use regex::Regex;
 use std::collections::{BTreeMap, BTreeSet};
-use std::sync::LazyLock;
 
 use super::reference::{Base, EmbeddedLayer, Library, Reason, RefKind, Target, unresolved};
+use super::sexpr::find_byte;
 
 /// `kicad-embed://`, the embedded-file scheme (`project.py:142`).
 const EMBED_PREFIX: &str = "kicad-embed://";
@@ -19,28 +18,118 @@ const PRJ_MARKER: &str = "\u{0}PRJ\u{0}";
 const LIB_PREFIX: &str = "\u{0}LIB:";
 
 /// `project.py:138`: `${NAME}`, `$(NAME)` or a bare `$NAME`, `NAME` one or more
-/// of `[A-Za-z0-9_:]` (`field map`, Resolution step 2).
-static VAR: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"\$(?:\{([A-Za-z0-9_:]+)\}|\(([A-Za-z0-9_:]+)\)|([A-Za-z0-9_:]+))")
-        .expect("the variable pattern is a fixed valid regex")
-});
-/// `project.py:140`: a URI scheme (`field map`, Classification 4.2).
-static URI: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"^[A-Za-z][A-Za-z0-9+.-]*://").expect("the URI pattern is a fixed valid regex")
-});
-/// `project.py:141`: a Windows drive prefix.
-static DRIVE: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r"^[A-Za-z]:/").expect("the drive pattern is a fixed valid regex"));
-/// `project.py:144`: a project or library marker (`field map`, Resolution step 3).
-static MARKER: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new("\u{0}(?:PRJ|LIB:[A-Za-z0-9_:]+)\u{0}")
-        .expect("the marker pattern is a fixed valid regex")
-});
-/// `project.py:148`: a KiCad library variable of any version (`env_vars.cpp`).
-static LIBRARY_VAR: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"^KICAD[0-9]+_(3DMODEL_DIR|SYMBOL_DIR|FOOTPRINT_DIR|TEMPLATE_DIR|3RD_PARTY)$")
-        .expect("the library pattern is a fixed valid regex")
-});
+/// of `[A-Za-z0-9_:]` (`field map`, Resolution step 2). Returns
+/// `(name_start, name_end, end)` for the `$` at `bytes[start]`.
+pub(super) fn var_at(bytes: &[u8], start: usize) -> Option<(usize, usize, usize)> {
+    let next = *bytes.get(start + 1)?;
+    let (name_start, terminator) = match next {
+        b'{' => (start + 2, b'}'),
+        b'(' => (start + 2, b')'),
+        _ => (start + 1, 0),
+    };
+    let mut end = name_start;
+    while let Some(&byte) = bytes.get(end) {
+        if byte.is_ascii_alphanumeric() || byte == b'_' || byte == b':' {
+            end += 1;
+        } else {
+            break;
+        }
+    }
+    if end == name_start {
+        return None;
+    }
+    if terminator != 0 {
+        return (bytes.get(end) == Some(&terminator)).then_some((name_start, end, end + 1));
+    }
+    Some((name_start, end, end))
+}
+
+/// Whether `text` holds any `${NAME}` / `$(NAME)` / `$NAME` (`VAR.is_match`).
+fn has_var(text: &str) -> bool {
+    let bytes = text.as_bytes();
+    let mut cursor = 0;
+    while let Some(start) = find_byte(bytes, b'$', cursor) {
+        if var_at(bytes, start).is_some() {
+            return true;
+        }
+        cursor = start + 1;
+    }
+    false
+}
+
+/// `project.py:140`: a URI scheme `^[A-Za-z][A-Za-z0-9+.-]*://`
+/// (`field map`, Classification 4.2).
+pub(super) fn is_uri(text: &str) -> bool {
+    let bytes = text.as_bytes();
+    if !bytes.first().is_some_and(u8::is_ascii_alphabetic) {
+        return false;
+    }
+    let mut end = 1;
+    while let Some(&byte) = bytes.get(end) {
+        if byte.is_ascii_alphanumeric() || matches!(byte, b'+' | b'.' | b'-') {
+            end += 1;
+        } else {
+            break;
+        }
+    }
+    bytes.get(end) == Some(&b':')
+        && bytes.get(end + 1) == Some(&b'/')
+        && bytes.get(end + 2) == Some(&b'/')
+}
+
+/// `project.py:141`: a Windows drive prefix `^[A-Za-z]:/`.
+pub(super) fn is_drive(text: &str) -> bool {
+    let bytes = text.as_bytes();
+    bytes.len() >= 3 && bytes[0].is_ascii_alphabetic() && bytes[1] == b':' && bytes[2] == b'/'
+}
+
+/// `project.py:144`: a project or library marker, `\0(?:PRJ|LIB:[A-Za-z0-9_:]+)\0`.
+/// Returns the end of the marker at the `\0` at `bytes[at]`, if any (a `\0` is
+/// not a `\n`, so the marker rule is a direct byte scan).
+pub(super) fn marker_at(bytes: &[u8], at: usize) -> Option<usize> {
+    let rest = bytes.get(at..)?;
+    if rest.starts_with(PRJ_MARKER.as_bytes()) {
+        return Some(at + PRJ_MARKER.len());
+    }
+    if !rest.starts_with(LIB_PREFIX.as_bytes()) {
+        return None;
+    }
+    let name_start = at + LIB_PREFIX.len();
+    let mut end = name_start;
+    while bytes.get(end).is_some_and(is_marker_char) {
+        end += 1;
+    }
+    (end > name_start && bytes.get(end) == Some(&0)).then_some(end + 1)
+}
+
+/// `[A-Za-z0-9_:]` of a `LIB:` marker's name.
+fn is_marker_char(byte: &u8) -> bool {
+    byte.is_ascii_alphanumeric() || *byte == b'_' || *byte == b':'
+}
+
+/// `project.py:148`: a KiCad library variable of any version, anchored at both
+/// ends (`env_vars.cpp`). Returns the directory suffix.
+pub(super) fn versioned_library(name: &str) -> Option<&str> {
+    let bytes = name.as_bytes();
+    if !bytes.starts_with(b"KICAD") {
+        return None;
+    }
+    let mut end = 5;
+    let digits_start = end;
+    while bytes.get(end).is_some_and(u8::is_ascii_digit) {
+        end += 1;
+    }
+    if end == digits_start || bytes.get(end) != Some(&b'_') {
+        return None;
+    }
+    match &name[end + 1..] {
+        suffix
+        @ ("3DMODEL_DIR" | "SYMBOL_DIR" | "FOOTPRINT_DIR" | "TEMPLATE_DIR" | "3RD_PARTY") => {
+            Some(suffix)
+        }
+        _ => None,
+    }
+}
 
 /// `project.py:139`: variables whose value depends on the time or the checkout.
 const NONDET: [&str; 5] = [
@@ -66,7 +155,7 @@ impl Resolver<'_> {
         let mut text = raw.replace('\\', "/");
         let mut used = BTreeSet::new();
         for _ in 0..8 {
-            if !VAR.is_match(&text) {
+            if !has_var(&text) {
                 return (text, used, None);
             }
             let (next, failure) = self.expand_once(&text, &mut used);
@@ -75,7 +164,7 @@ impl Resolver<'_> {
                 return (text, used, Some(target));
             }
         }
-        if VAR.is_match(&text) {
+        if has_var(&text) {
             return (text, used, Some(unresolved(Reason::VariableLoop, None)));
         }
         (text, used, None)
@@ -83,29 +172,29 @@ impl Resolver<'_> {
 
     /// One expansion round (`project.py:185-209`).
     fn expand_once(&self, text: &str, used: &mut BTreeSet<String>) -> (String, Option<Target>) {
-        let mut out = String::new();
+        let mut out = String::with_capacity(text.len());
         let mut last = 0;
         let mut failure = None;
-        for captures in VAR.captures_iter(text) {
-            let Some(whole) = captures.get(0) else {
+        let bytes = text.as_bytes();
+        let mut cursor = 0;
+        while let Some(start) = find_byte(bytes, b'$', cursor) {
+            let Some((name_start, name_end, end)) = var_at(bytes, start) else {
+                cursor = start + 1;
                 continue;
             };
-            out.push_str(&text[last..whole.start()]);
-            last = whole.end();
+            out.push_str(&text[last..start]);
+            last = end;
+            cursor = end;
             if failure.is_some() {
-                out.push_str(whole.as_str());
+                out.push_str(&text[start..end]);
                 continue;
             }
-            let name = captures
-                .get(1)
-                .or_else(|| captures.get(2))
-                .or_else(|| captures.get(3))
-                .map_or("", |group| group.as_str());
+            let name = &text[name_start..name_end];
             match self.substitute(name, used) {
                 Ok(value) => out.push_str(&value),
                 Err(target) => {
                     failure = Some(target);
-                    out.push_str(whole.as_str());
+                    out.push_str(&text[start..end]);
                 }
             }
         }
@@ -183,7 +272,7 @@ impl Resolver<'_> {
         if let Some(rest) = text.strip_prefix(EMBED_PREFIX) {
             return self.embedded(rest, kind, embedded_stack);
         }
-        if URI.is_match(text) {
+        if is_uri(text) {
             return unresolved(Reason::Uri, None);
         }
         if text.starts_with('~') {
@@ -315,15 +404,35 @@ impl Resolver<'_> {
 /// `project.py:228-231`: the first marker not at position 0, when any marker is
 /// misplaced.
 fn misplaced_marker(text: &str) -> Option<&str> {
-    let markers: Vec<_> = MARKER.find_iter(text).collect();
-    if markers.is_empty() || (markers[0].start() == 0 && markers.len() == 1) {
+    let bytes = text.as_bytes();
+    let mut first: Option<(usize, usize)> = None;
+    let mut second: Option<(usize, usize)> = None;
+    let mut count = 0usize;
+    let mut cursor = 0;
+    while let Some(at) = find_byte(bytes, 0, cursor) {
+        match marker_at(bytes, at) {
+            Some(end) => {
+                count += 1;
+                if first.is_none() {
+                    first = Some((at, end));
+                } else if second.is_none() {
+                    second = Some((at, end));
+                }
+                cursor = end;
+            }
+            None => cursor = at + 1,
+        }
+    }
+    let (first_start, first_end) = first?;
+    if first_start == 0 && count == 1 {
         return None;
     }
-    let bad = if markers[0].start() == 0 {
-        markers[1].as_str()
+    let (start, end) = if first_start == 0 {
+        second?
     } else {
-        markers[0].as_str()
+        (first_start, first_end)
     };
+    let bad = &text[start..end];
     if bad == PRJ_MARKER {
         Some("KIPRJMOD")
     } else {
@@ -333,10 +442,8 @@ fn misplaced_marker(text: &str) -> Option<&str> {
 
 /// `project.py:147-153`: a KiCad library variable's directory.
 fn library_of(name: &str) -> Option<Library> {
-    if let Some(captures) = LIBRARY_VAR.captures(name) {
-        return captures
-            .get(1)
-            .and_then(|group| library_dir(group.as_str()));
+    if let Some(suffix) = versioned_library(name) {
+        return library_dir(suffix);
     }
     legacy_library(name)
 }
@@ -367,7 +474,7 @@ fn legacy_library(name: &str) -> Option<Library> {
 
 /// `project.py:260-271`: absolute-path normalization.
 fn absolute(text: &str) -> Target {
-    let drive = if DRIVE.is_match(text) { &text[..2] } else { "" };
+    let drive = if is_drive(text) { &text[..2] } else { "" };
     let mut stack: Vec<&str> = Vec::new();
     for segment in text[drive.len()..].split('/') {
         if segment.is_empty() || segment == "." {
@@ -387,7 +494,7 @@ fn absolute(text: &str) -> Target {
 /// `project.py:225-274`: a `/`-rooted or drive-prefixed path. Split out so the
 /// classification order stays one branch per test.
 fn is_absolute_form(text: &str) -> bool {
-    text.starts_with('/') || DRIVE.is_match(text)
+    text.starts_with('/') || is_drive(text)
 }
 
 /// `project.py:120-134`: join `rest` to `base` lexically.

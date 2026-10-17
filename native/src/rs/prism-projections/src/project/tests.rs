@@ -395,3 +395,363 @@ fn normalize_drops_dots_and_cancels_dot_dot() {
     assert_eq!(normalize(&["x".to_owned()], "../y"), ["y"]);
     assert_eq!(normalize(&[], "../../y"), ["..", "..", "y"]);
 }
+
+/// The regex each hand-written scanner replaces. Every scanner's behavior is
+/// compared with its regex over generated and curated edge cases, so the two
+/// stay in step.
+#[cfg(test)]
+mod scanner_parity {
+    use std::collections::BTreeMap;
+
+    use regex::Regex;
+
+    use super::super::resolver::{is_drive, is_uri, marker_at, var_at, versioned_library};
+    use super::super::sexpr::is_canonical_uuid;
+    use super::super::text_paths::{closure_var_at, is_path_reference};
+    use super::super::title_block::{tb_expand, tb_var_at};
+
+    /// Every string over `alphabet` of length at most `max_len`, with "" first.
+    fn generated(alphabet: &[char], max_len: usize) -> Vec<String> {
+        let mut out = vec![String::new()];
+        let mut level = vec![String::new()];
+        for _ in 0..max_len {
+            let mut next = Vec::new();
+            for prefix in &level {
+                for &symbol in alphabet {
+                    let mut text = prefix.clone();
+                    text.push(symbol);
+                    next.push(text);
+                }
+            }
+            out.extend(next.iter().cloned());
+            level = next;
+        }
+        out
+    }
+
+    /// The scanner's match at `$` compared with the regex's leftmost match at
+    /// that same position (a match starting later is not a match here).
+    fn assert_var_at(regex: &Regex, text: &str, start: usize) {
+        let scanner = var_at(text.as_bytes(), start);
+        let sliced = &text[start..];
+        let found = regex.find(sliced).filter(|found| found.start() == 0);
+        match (scanner, found) {
+            (Some((name_start, name_end, end)), Some(found)) => {
+                let captures = regex.captures(sliced).unwrap();
+                let group = captures
+                    .get(1)
+                    .or_else(|| captures.get(2))
+                    .or_else(|| captures.get(3))
+                    .unwrap();
+                assert_eq!(&text[name_start..name_end], group.as_str(), "{text:?}");
+                assert_eq!(end, start + found.end(), "{text:?}");
+            }
+            (None, None) => {}
+            _ => panic!("scanner and regex disagree at {start} of {text:?}"),
+        }
+    }
+
+    #[test]
+    fn resolver_var_scanner_matches_its_regex() {
+        let regex = Regex::new(r"\$(?:\{([A-Za-z0-9_:]+)\}|\(([A-Za-z0-9_:]+)\)|([A-Za-z0-9_:]+))")
+            .unwrap();
+        let mut cases: Vec<String> = [
+            "", "$", "${", "$}", "$(A)", "${A}", "$A", "$A_B", "$A:B", "$(A B)", "$${A}",
+            "${A}{B}", "$-", "${-}", "a$b c$d",
+        ]
+        .iter()
+        .map(|text| (*text).to_owned())
+        .collect();
+        cases.extend(generated(&['$', '{', '}', '(', ')', 'A', '_', ':'], 4));
+        for case in cases {
+            for start in 0..case.len() {
+                if case.as_bytes()[start] == b'$' {
+                    assert_var_at(&regex, &case, start);
+                }
+            }
+        }
+    }
+
+    fn find_bytes(bytes: &[u8], needle: u8) -> Vec<usize> {
+        bytes
+            .iter()
+            .enumerate()
+            .filter(|(_, byte)| **byte == needle)
+            .map(|(index, _)| index)
+            .collect()
+    }
+
+    fn assert_closure_var_at(regex: &Regex, text: &str, start: usize) {
+        let scanner = closure_var_at(text.as_bytes(), start);
+        let sliced = &text[start..];
+        let found = regex.find(sliced).filter(|found| found.start() == 0);
+        match (scanner, found) {
+            (Some((name_start, name_end, end)), Some(found)) => {
+                let name = regex.captures(sliced).unwrap().get(1).unwrap();
+                assert_eq!(&text[name_start..name_end], name.as_str(), "{text:?}");
+                assert_eq!(end, start + found.end(), "{text:?}");
+            }
+            (None, None) => {}
+            _ => panic!("scanner and regex disagree at {start} of {text:?}"),
+        }
+    }
+
+    /// The exact rule `is_path_reference` replaces (`project.py:310-323`).
+    fn path_reference_reference(value: &str) -> bool {
+        let regex = Regex::new(r"\$\{([A-Za-z_][A-Za-z0-9_]*)\}").unwrap();
+        if !regex.is_match(value) {
+            return false;
+        }
+        if regex.captures_iter(value).any(|captures| {
+            captures.get(1).is_some_and(|name| {
+                name.as_str()
+                    .eq_ignore_ascii_case("JOBSET_OUTPUT_WORK_PATH")
+            })
+        }) {
+            return false;
+        }
+        if value.contains('/') || value.contains('\\') {
+            return true;
+        }
+        let trimmed = value.trim();
+        let Some(captures) = regex.captures(trimmed) else {
+            return false;
+        };
+        if captures.get(0).map(|whole| whole.range()) != Some(0..trimmed.len()) {
+            return false;
+        }
+        let name = captures
+            .get(1)
+            .map_or("", |group| group.as_str())
+            .to_ascii_uppercase();
+        name == "KIPRJMOD" || name.ends_with("_DIR") || name.ends_with("_PATH")
+    }
+
+    #[test]
+    fn path_reference_scanner_matches_its_regex() {
+        let regex = Regex::new(r"\$\{([A-Za-z_][A-Za-z0-9_]*)\}").unwrap();
+        let mut cases: Vec<String> = [
+            "",
+            "$",
+            "${}",
+            "${A}",
+            "${_}",
+            "${A0_}",
+            "$${A}",
+            "${A{B}}",
+            "${A}}",
+            "${café}",
+            "\u{a0}${MY_DIR}\u{a0}",
+            "\t${MY_PATH}",
+            "${JOBSET_OUTPUT_WORK_PATH}",
+            "${jobset_output_work_path}/x",
+            "${A}/x",
+            "x${A}/y",
+            "a\\b${A}",
+            "${a_DIR}",
+            "${a_path}",
+            "${KIPRJMOD}",
+            "${kiprjmod}",
+            "${a_DIREXTRA}",
+            "plain text",
+            "${}${A}",
+            "${A}\n",
+        ]
+        .iter()
+        .map(|text| (*text).to_owned())
+        .collect();
+        cases.extend(generated(&['$', '{', '}', 'A', '_', '/', '\\', ' '], 4));
+        for case in &cases {
+            assert_eq!(
+                is_path_reference(case),
+                path_reference_reference(case),
+                "{case:?}"
+            );
+        }
+        for case in &cases {
+            for start in find_bytes(case.as_bytes(), b'$') {
+                assert_closure_var_at(&regex, case, start);
+            }
+        }
+    }
+
+    #[test]
+    fn resolver_classification_scanners_match_their_regexes() {
+        let uri = Regex::new(r"^[A-Za-z][A-Za-z0-9+.-]*://").unwrap();
+        let drive = Regex::new(r"^[A-Za-z]:/").unwrap();
+        let library = Regex::new(
+            r"^KICAD[0-9]+_(3DMODEL_DIR|SYMBOL_DIR|FOOTPRINT_DIR|TEMPLATE_DIR|3RD_PARTY)$",
+        )
+        .unwrap();
+        let mut cases: Vec<String> = [
+            "",
+            "https://example.com/a.step",
+            "file:///x",
+            "a+.-://",
+            "1://",
+            "://",
+            "C:/x",
+            "c:/x",
+            "C:\\x",
+            "KICAD9_3DMODEL_DIR",
+            "KICAD10_3RD_PARTY",
+            "KICAD_SYMBOL_DIR",
+            "KICAD9_3DMODEL_DIRX",
+            "KICAD__3DMODEL_DIR",
+        ]
+        .iter()
+        .map(|text| (*text).to_owned())
+        .collect();
+        cases.extend(generated(&['a', ':', '/', '+', '-', '.', '1'], 3));
+        for case in cases {
+            assert_eq!(is_uri(&case), uri.is_match(&case), "{case:?}");
+            assert_eq!(is_drive(&case), drive.is_match(&case), "{case:?}");
+            let expected = library
+                .captures(&case)
+                .and_then(|captures| captures.get(1))
+                .map(|group| group.as_str());
+            assert_eq!(versioned_library(&case), expected, "{case:?}");
+        }
+    }
+
+    #[test]
+    fn marker_scanner_matches_its_regex() {
+        let regex = Regex::new("\u{0}(?:PRJ|LIB:[A-Za-z0-9_:]+)\u{0}").unwrap();
+        let mut cases: Vec<String> = [
+            "",
+            "\u{0}PRJ\u{0}",
+            "\u{0}LIB:Device\u{0}",
+            "\u{0}LIB:\u{0}",
+            "x\u{0}PRJ\u{0}y",
+            "\u{0}LIB:A:B_C\u{0}",
+            "\u{0}LIB:x",
+            "\u{0}PRJ",
+            "\u{0}LIB:A\u{0}PRJ\u{0}",
+        ]
+        .iter()
+        .map(|text| (*text).to_owned())
+        .collect();
+        cases.extend(generated(&['\u{0}', 'P', 'R', 'J', 'L', 'I', 'B', ':'], 5));
+        for case in cases {
+            let expected: Vec<usize> = regex.find_iter(&case).map(|found| found.end()).collect();
+            let bytes = case.as_bytes();
+            let mut actual = Vec::new();
+            let mut cursor = 0;
+            while let Some(at) = find_bytes(&bytes[cursor..], 0)
+                .first()
+                .map(|rel| cursor + rel)
+            {
+                match marker_at(bytes, at) {
+                    Some(end) => {
+                        actual.push(end);
+                        cursor = end;
+                    }
+                    None => cursor = at + 1,
+                }
+            }
+            assert_eq!(actual, expected, "{case:?}");
+        }
+    }
+
+    #[test]
+    fn title_block_scanner_matches_its_regex() {
+        let regex = Regex::new(r"\$\{(.+?)\}").unwrap();
+        let mut cases: Vec<String> = [
+            "",
+            "$",
+            "${}",
+            "${A}",
+            "${}}",
+            "${A{B}}",
+            "${A\nB}",
+            "x${A}y${B}",
+            "${\u{e9}}",
+            "$${A}",
+        ]
+        .iter()
+        .map(|text| (*text).to_owned())
+        .collect();
+        cases.extend(generated(&['$', '{', '}', 'A', '\n'], 4));
+        for case in cases {
+            for start in find_bytes(case.as_bytes(), b'$') {
+                let scanner = tb_var_at(case.as_bytes(), start);
+                let sliced = &case[start..];
+                let found = regex
+                    .captures(sliced)
+                    .filter(|captures| captures.get(0).unwrap().start() == 0);
+                match (scanner, found) {
+                    (Some((content_start, content_end, end)), Some(captures)) => {
+                        let whole = captures.get(0).unwrap();
+                        let group = captures.get(1).unwrap();
+                        assert_eq!(&case[content_start..content_end], group.as_str());
+                        assert_eq!(end, start + whole.end(), "{case:?}");
+                    }
+                    (None, None) => {}
+                    _ => panic!("scanner and regex disagree at {start} of {case:?}"),
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn title_block_expansion_matches_a_regex_expander() {
+        let variables = BTreeMap::from([
+            ("A".to_owned(), "${B}".to_owned()),
+            ("B".to_owned(), "value".to_owned()),
+            ("EMPTY".to_owned(), String::new()),
+        ]);
+        let mut cases: Vec<String> = ["", "plain", "${A}", "${#}", "${}", "${A}}", "${B}${A}"]
+            .iter()
+            .map(|text| (*text).to_owned())
+            .collect();
+        cases.extend(generated(&['$', '{', '}', 'A', 'B'], 4));
+        for case in cases {
+            assert_eq!(
+                tb_expand(&case, &variables),
+                expand_with_regex(&case, &variables, 0),
+                "{case:?}"
+            );
+        }
+    }
+
+    fn expand_with_regex(text: &str, variables: &BTreeMap<String, String>, depth: u8) -> String {
+        let regex = Regex::new(r"\$\{(.+?)\}").unwrap();
+        let mut out = String::new();
+        let mut last = 0;
+        for captures in regex.captures_iter(text) {
+            let whole = captures.get(0).unwrap();
+            out.push_str(&text[last..whole.start()]);
+            last = whole.end();
+            let name = captures.get(1).unwrap().as_str();
+            match variables.get(name) {
+                Some(value) if depth >= 10 => out.push_str(value),
+                Some(value) => out.push_str(&expand_with_regex(value, variables, depth + 1)),
+                None => out.push_str(whole.as_str()),
+            }
+        }
+        out.push_str(&text[last..]);
+        out
+    }
+
+    #[test]
+    fn uuid_scanner_matches_its_regex() {
+        let regex =
+            Regex::new(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$").unwrap();
+        let mut cases = vec![
+            String::new(),
+            "8ea1ed23-3f8f-42ce-8c56-16f2acc6ed03".to_owned(),
+            "8EA1ED23-3f8f-42ce-8c56-16f2acc6ed03".to_owned(),
+            "8ea1ed23-3f8f-42ce-8c56-16f2acc6ed0".to_owned(),
+            "8ea1ed233f8f42ce8c5616f2acc6ed03".to_owned(),
+            "gea1ed23-3f8f-42ce-8c56-16f2acc6ed03".to_owned(),
+        ];
+        for index in 0..36 {
+            let mut candidate: Vec<u8> = b"8ea1ed23-3f8f-42ce-8c56-16f2acc6ed03".to_vec();
+            candidate[index] = if candidate[index] == b'0' { b'9' } else { b'0' };
+            cases.push(String::from_utf8(candidate).unwrap());
+        }
+        for case in cases {
+            assert_eq!(is_canonical_uuid(&case), regex.is_match(&case), "{case:?}");
+        }
+    }
+}

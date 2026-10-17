@@ -5,10 +5,13 @@
 //! a reference resolves to, then sorts and serializes the document
 //! (`project.py:631-649`). [`produce`] is the member's entry point.
 
-use crate::{Produced, ProducerWarning, ProjectionError, ProjectionInput, Sources, document};
+use crate::{
+    BoardModel, Produced, ProducerWarning, ProjectionError, ProjectionInput, Sources, document,
+};
 use prism_kicad_contracts::generated::prism_project_a0::ProjectA0;
 use prism_kicad_core::{Limits, Sexp, parse_with_limits};
 use serde_json::{Map, Value};
+use std::borrow::Cow;
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 
 use super::reference::{EmbeddedLayer, RefKind, Target};
@@ -49,6 +52,7 @@ struct RefExtra<'a> {
 /// The state of one `produce` run (`project.py:443-649`).
 struct Producer<'a> {
     sources: &'a dyn Sources,
+    board_model: Option<&'a BoardModel<'a>>,
     project_file: String,
     project_dir: Vec<String>,
     stem: String,
@@ -59,7 +63,7 @@ struct Producer<'a> {
     warnings: Vec<ProducerWarning>,
     documents: Vec<Value>,
     references: Vec<Value>,
-    scanned: Vec<Scanned>,
+    scanned: Vec<Scanned<'a>>,
     root_embedded: BTreeMap<String, String>,
     board_embedded: BTreeMap<String, String>,
 }
@@ -72,6 +76,7 @@ impl<'a> Producer<'a> {
         let stem = project_stem(&project_file);
         Self {
             sources: input.sources,
+            board_model: input.board,
             project_dir: dir_segments(&project_file),
             project_name: stem.clone(),
             stem,
@@ -115,6 +120,21 @@ impl<'a> Producer<'a> {
         parse_with_limits(text, Limits::default()).map_err(|error| {
             ProjectionError::new(format!("{NAME}: {path} does not parse: {error}"))
         })
+    }
+
+    /// `project.py:557-582`: the board's tree. The parse stage already owns a
+    /// tree for the board it read (shared through [`BoardModel::tree`]); reuse
+    /// it when it is this path, otherwise parse once here. Wrapped so the error
+    /// text stays the producer's own.
+    fn board_tree(&self, board: &str) -> Result<Cow<'a, Sexp>, ProjectionError> {
+        if let Some(model) = self.board_model
+            && model.path == board
+        {
+            return model.tree().map(Cow::Borrowed).map_err(|error| {
+                ProjectionError::new(format!("{NAME}: {board} does not parse: {error}"))
+            });
+        }
+        self.read_sexpr(board).map(Cow::Owned)
     }
 
     /// Resolve one reference from the producer's configuration.
@@ -233,7 +253,7 @@ impl<'a> Producer<'a> {
             }
             self.scanned.push(Scanned {
                 path,
-                tree,
+                tree: Cow::Owned(tree),
                 kind: ScanKind::Schematic,
             });
         }
@@ -273,7 +293,7 @@ impl<'a> Producer<'a> {
         if !self.source_set.contains(&board) {
             return Ok(());
         }
-        let tree = self.read_sexpr(&board)?;
+        let tree = self.board_tree(&board)?;
         let document = self.header(&tree, &board, "board");
         self.documents.push(document);
         self.board_embedded = embedded_files(&tree);
@@ -363,7 +383,7 @@ impl<'a> Producer<'a> {
             }
             self.scanned.push(Scanned {
                 path: table_path,
-                tree,
+                tree: Cow::Owned(tree),
                 kind: ScanKind::Library,
             });
         }
@@ -440,7 +460,7 @@ impl<'a> Producer<'a> {
                 let tree = self.read_sexpr(&path)?;
                 self.scanned.push(Scanned {
                     path,
-                    tree,
+                    tree: Cow::Owned(tree),
                     kind: ScanKind::DrawingSheet,
                 });
             }
@@ -474,15 +494,15 @@ impl<'a> Producer<'a> {
         for entry in &scanned {
             let typed = typed_atoms(&entry.tree, entry.kind);
             for (field, value) in sexpr_text_paths(&entry.tree, &typed) {
-                if seen.insert((entry.path.clone(), field.clone(), value.clone())) {
+                if seen.insert((entry.path.clone(), field.to_owned(), value.to_owned())) {
                     let extra = RefExtra {
-                        field: Some(&field),
+                        field: Some(field),
                         ..RefExtra::default()
                     };
                     self.add_ref(
                         RefKind::TextPath,
                         entry.path.as_str(),
-                        Some(&value),
+                        Some(value),
                         extra,
                         &[],
                     );
