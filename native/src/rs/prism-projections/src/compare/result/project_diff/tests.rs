@@ -1,5 +1,5 @@
 use super::*;
-use prism_kicad_contracts::generated::prism_design_compare_result_a0 as dc;
+use prism_kicad_contracts::generated::prism_design_compare_result_a1 as dc;
 
 fn target(
     side: VisualSide,

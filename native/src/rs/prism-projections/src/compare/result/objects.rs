@@ -16,7 +16,7 @@ use super::super::entry::Entry;
 use super::super::output::Status;
 use super::{ReviewChange, VisualRole, VisualSide, VisualStatus, VisualTarget};
 use crate::semantic_index::stable_uid;
-use prism_kicad_contracts::generated::prism_design_compare_result_a0 as dc;
+use prism_kicad_contracts::generated::prism_design_compare_result_a1 as dc;
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, BTreeSet};
@@ -482,7 +482,7 @@ fn reason_of(reason: &str) -> dc::DesignCompareReason {
         .unwrap_or(dc::DesignCompareReason::ContentChanged)
 }
 
-fn object_kind(kind: &str) -> Option<String> {
+pub(super) fn object_kind(kind: &str) -> Option<String> {
     (!kind.is_empty()).then(|| kind.replace('_', "-"))
 }
 

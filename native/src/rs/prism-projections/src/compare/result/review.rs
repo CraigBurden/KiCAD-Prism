@@ -1,9 +1,9 @@
 //! A review change and its visual targets: what the object and connectivity
-//! tabs produce, and what [`super::project_diff`] turns into ecad-viewer's
-//! native changes. Visual targets never reach the result document (field map,
-//! "details/visualTargets": internal).
+//! tabs produce, what [`super::project_diff`] turns into ecad-viewer's native
+//! changes, and what the targets module writes as the change's
+//! `details.targets` (field map, "Targets").
 
-use prism_kicad_contracts::generated::prism_design_compare_result_a0 as dc;
+use prism_kicad_contracts::generated::prism_design_compare_result_a1 as dc;
 
 /// One change of the Schematic or PCB tab, with the objects ecad-viewer
 /// highlights for it.

@@ -13,7 +13,7 @@
 
 use super::super::entry::Entry;
 use super::{ReviewChange, VisualRole, VisualSide, VisualTarget};
-use prism_kicad_contracts::generated::prism_design_compare_result_a0 as dc;
+use prism_kicad_contracts::generated::prism_design_compare_result_a1 as dc;
 use std::collections::HashMap;
 
 /// Hydrate every schematic change against the two revisions' board objects.

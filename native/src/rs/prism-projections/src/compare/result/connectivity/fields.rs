@@ -1,7 +1,7 @@
 //! Field-delta builders shared by the net and structure changes, and the
 //! change's field map (`RecordDesignCompareFieldDelta`).
 
-use prism_kicad_contracts::generated::prism_design_compare_result_a0 as dc;
+use prism_kicad_contracts::generated::prism_design_compare_result_a1 as dc;
 use std::collections::BTreeMap;
 
 /// The change's `fields`, keyed by display name.

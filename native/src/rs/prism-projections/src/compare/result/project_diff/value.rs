@@ -6,7 +6,7 @@
 //! `2^53`, `double` otherwise. A list or table is written as its display text;
 //! no recorded pair carries one, but the encoding stays defined.
 
-use prism_kicad_contracts::generated::prism_design_compare_result_a0 as dc;
+use prism_kicad_contracts::generated::prism_design_compare_result_a1 as dc;
 
 /// `_property_deltas`: the change's fields, in code point order.
 pub(super) fn property_deltas(

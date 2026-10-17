@@ -87,7 +87,7 @@ fn the_same_bundle_twice_has_no_changes() {
     let finished = compare(&archive, &archive, &out);
     assert_eq!(finished.code, 0, "{}", finished.document);
     let result: Value = serde_json::from_slice(&std::fs::read(&out).unwrap()).unwrap();
-    assert_eq!(result["schema"], "prism.design_compare.result.a0");
+    assert_eq!(result["schema"], "prism.design_compare.result.a1");
     assert!(
         result["schematic"]["changes"]
             .as_array()
@@ -108,7 +108,7 @@ fn the_same_bundle_twice_has_no_changes() {
             {"path": "p.kicad_sch", "filename": "p.kicad_sch"},
         ])
     );
-    prism_bundle::schema::validate("prism.design_compare.result.a0", &result).unwrap();
+    prism_bundle::schema::validate("prism.design_compare.result.a1", &result).unwrap();
     let document = &finished.document;
     assert_eq!(document["schema"], "prism.cli.compare_result.a0");
     assert_eq!(document["counts"]["added"], 0);

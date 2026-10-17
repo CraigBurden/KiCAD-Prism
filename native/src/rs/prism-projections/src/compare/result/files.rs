@@ -4,7 +4,7 @@
 //! (`backend/app/services/project_revision.py` `is_generated`).
 
 use super::{Revision, project_dir};
-use prism_kicad_contracts::generated::prism_design_compare_result_a0 as dc;
+use prism_kicad_contracts::generated::prism_design_compare_result_a1 as dc;
 
 const SUFFIXES: [&str; 3] = [".kicad_sch", ".kicad_pcb", ".kicad_pro"];
 const GENERATED_DIRS: [&str; 6] = [

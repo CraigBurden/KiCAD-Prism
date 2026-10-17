@@ -60,8 +60,8 @@ fn every_prism_example_round_trips_through_its_generated_type() {
     round_trip::<generated::prism_compare_object_delta_a0::CompareObjectDeltaA0>(
         "CompareObjectDeltaA0",
     );
-    round_trip::<generated::prism_design_compare_result_a0::DesignCompareResultA0>(
-        "DesignCompareResultA0",
+    round_trip::<generated::prism_design_compare_result_a1::DesignCompareResultA1>(
+        "DesignCompareResultA1",
     );
     round_trip::<generated::prism_drawing_sheet_request_a0::DrawingSheetRequestA0>(
         "DrawingSheetRequestA0",

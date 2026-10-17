@@ -8,7 +8,7 @@ use super::fields::{Fields, count_delta, text_delta};
 use super::input::{Fingerprint, Pair, View, terminal_name};
 use super::pairing::{self, NetPair};
 use super::targets::{self, Buckets};
-use prism_kicad_contracts::generated::prism_design_compare_result_a0 as dc;
+use prism_kicad_contracts::generated::prism_design_compare_result_a1 as dc;
 use prism_kicad_contracts::generated::prism_semantic_index_a1::SemanticIndexNet;
 use std::collections::BTreeSet;
 

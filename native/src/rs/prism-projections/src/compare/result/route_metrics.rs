@@ -7,7 +7,7 @@
 use std::collections::BTreeMap;
 
 use super::Revision;
-use prism_kicad_contracts::generated::prism_design_compare_result_a0 as dc;
+use prism_kicad_contracts::generated::prism_design_compare_result_a1 as dc;
 use prism_kicad_contracts::generated::prism_route_metrics_a0::{RouteMetricsA0, RouteMetricsNet};
 use prism_kicad_contracts::generated::prism_stackup_a0::StackupA0;
 

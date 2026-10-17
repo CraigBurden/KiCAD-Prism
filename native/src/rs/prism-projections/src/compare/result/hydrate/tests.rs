@@ -1,7 +1,7 @@
 use super::super::VisualStatus;
 use super::*;
 use crate::compare::entry::build;
-use prism_kicad_contracts::generated::prism_design_compare_result_a0 as dc;
+use prism_kicad_contracts::generated::prism_design_compare_result_a1 as dc;
 use serde_json::{Value, json};
 
 fn entries(doc: &str, objects: Value) -> Vec<Entry> {

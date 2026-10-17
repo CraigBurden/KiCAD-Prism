@@ -47,7 +47,7 @@ pub mod prism_cli_vendor_run_result_a0;
 pub mod prism_cli_verify_report_a0;
 pub mod prism_cli_version_a0;
 pub mod prism_compare_object_delta_a0;
-pub mod prism_design_compare_result_a0;
+pub mod prism_design_compare_result_a1;
 pub mod prism_drawing_sheet_request_a0;
 pub mod prism_occurrences_a0;
 pub mod prism_placements_a0;

@@ -18,11 +18,11 @@ producer reads the single parsed model and returns its contract from
   amendments C2 and C2r). The object diff (`diff.rs`, `entry.rs`,
   `classify.rs`, `output.rs`) is the port of
   `backend/design-compare-parser/ecad-diff.mjs`; `compare::result::build`
-  turns two revisions' typed members into `DesignCompareResultA0`
-  (`prism.design_compare.result.a0`), one module per tab under
+  turns two revisions' typed members into `DesignCompareResultA1`
+  (`prism.design_compare.result.a1`), one module per tab under
   `src/compare/result/` (`files`, `objects`, `connectivity`, `bom`,
-  `stackup`, `route_metrics`, `project_diff`; `review` holds the internal
-  visual targets). The spec of each field is
+  `stackup`, `route_metrics`, `project_diff`; `review` holds the visual
+  targets). The spec of each field is
   `native/contracts/prism/field-maps/design-compare.md`. The command is
   `native/src/rs/prism-kicad-cli/src/cmd_compare.rs`; a divergence from
   today's output is recorded in `native/parity/divergences/compare.md`. The

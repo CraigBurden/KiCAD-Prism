@@ -15,7 +15,7 @@
 mod value;
 
 use super::{ReviewChange, VisualRole, VisualSide, VisualStatus, VisualTarget};
-use prism_kicad_contracts::generated::prism_design_compare_result_a0 as dc;
+use prism_kicad_contracts::generated::prism_design_compare_result_a1 as dc;
 use std::borrow::Cow;
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 
