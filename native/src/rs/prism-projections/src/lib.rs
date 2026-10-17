@@ -76,12 +76,12 @@ use prism_kicad_core::{
     KiCadDesignFacts, PcbView, ProjectDocument, SchematicBundleIndex, Sexp, SourceBundle,
 };
 use serde::de::DeserializeOwned;
-use std::cell::OnceCell;
 use std::fmt;
+use std::sync::OnceLock;
 
 /// The source set stage parse may read: every file under the source root that
 /// the revision key's name rules select, minus the excluded directories.
-pub trait Sources {
+pub trait Sources: Sync {
     /// Repository paths of every file in the source set, in code point order.
     fn paths(&self) -> Vec<String>;
 
@@ -127,7 +127,7 @@ pub struct BoardModel<'a> {
     /// use by [`BoardModel::tree`] and shared by every producer that needs the
     /// tokens, so a bundle build parses the board at most once more than the
     /// view already does.
-    tree: OnceCell<Result<Sexp, ProjectionError>>,
+    tree: OnceLock<Result<Sexp, ProjectionError>>,
 }
 
 impl<'a> BoardModel<'a> {
@@ -137,7 +137,7 @@ impl<'a> BoardModel<'a> {
             path,
             text,
             view,
-            tree: OnceCell::new(),
+            tree: OnceLock::new(),
         }
     }
 

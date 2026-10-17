@@ -57,6 +57,26 @@ fn encode(data: &[u8]) -> (u16, std::borrow::Cow<'_, [u8]>) {
     (METHOD_STORED, std::borrow::Cow::Borrowed(data))
 }
 
+/// A member encoded for the archive: its method, written bytes and CRC-32.
+/// Encoding is the expensive part of a write and needs no writer, so callers
+/// can run it on other threads ([`encode_member`], [`ZipWriter::add_encoded`]).
+pub struct Encoded<'a> {
+    method: u16,
+    body: std::borrow::Cow<'a, [u8]>,
+    crc: u32,
+}
+
+/// Encode `data` as [`ZipWriter::add`] does.
+#[must_use]
+pub fn encode_member(data: &[u8]) -> Encoded<'_> {
+    let (method, body) = encode(data);
+    Encoded {
+        method,
+        body,
+        crc: crc32(data),
+    }
+}
+
 #[derive(Clone, Copy)]
 struct Header {
     method: u16,
@@ -127,6 +147,18 @@ impl<W: Write> ZipWriter<W> {
     /// Append member `name` with `data`. The name must already be a valid
     /// archive path.
     pub fn add(&mut self, name: &str, data: &[u8], limits: &Limits) -> Result<(), WriteError> {
+        self.add_encoded(name, data, &encode_member(data), limits)
+    }
+
+    /// Add `data` as `name`, already encoded by [`encode_member`]. The archive
+    /// bytes equal [`ZipWriter::add`]'s.
+    pub fn add_encoded(
+        &mut self,
+        name: &str,
+        data: &[u8],
+        encoded: &Encoded<'_>,
+        limits: &Limits,
+    ) -> Result<(), WriteError> {
         self.count += 1;
         if self.count > self.max_members {
             return Err(WriteError::Limit(Box::new(too_large(
@@ -147,10 +179,10 @@ impl<W: Write> ZipWriter<W> {
                 name,
             ))));
         }
-        let (method, body) = encode(data);
+        let body = &encoded.body;
         let header = Header {
-            method,
-            crc: crc32(data),
+            method: encoded.method,
+            crc: encoded.crc,
             compressed: u32::try_from(body.len()).map_err(|_| WriteError::internal("member"))?,
             size: u32::try_from(data.len()).map_err(|_| WriteError::internal("member"))?,
             name_length: u16::try_from(name.len()).map_err(|_| WriteError::internal("name"))?,
@@ -163,7 +195,7 @@ impl<W: Write> ZipWriter<W> {
         local.extend_from_slice(&fields);
         local.extend_from_slice(name.as_bytes());
         self.write_out(&local, limits)?;
-        self.write_out(&body, limits)?;
+        self.write_out(body, limits)?;
         self.central
             .extend_from_slice(&CENTRAL_SIGNATURE.to_le_bytes());
         self.central.extend_from_slice(&VERSION.to_le_bytes());

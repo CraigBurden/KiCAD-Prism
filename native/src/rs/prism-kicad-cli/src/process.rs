@@ -25,7 +25,21 @@ static TEMP_FILE: Mutex<Option<PathBuf>> = Mutex::new(None);
 /// diagnostic without allocating, then `_exit(4)`.
 pub struct CountingAllocator;
 
-fn reserve(bytes: usize) -> bool {
+/// What a thread takes from [`LIVE`] at a time. Each thread keeps between 0
+/// and twice this as its own spare, so [`LIVE`] can run ahead of the real heap
+/// by at most twice this per thread, and the threads that run the parse
+/// stage's producers do not all update one atomic on every allocation.
+const CREDIT_CHUNK: usize = 1 << 20;
+
+thread_local! {
+    /// Bytes this thread holds in [`LIVE`] but has not allocated yet. A
+    /// `const`-initialized `Cell` has no destructor, so reading it never
+    /// allocates; a thread's spare at exit stays counted (at most
+    /// `2 * CREDIT_CHUNK`).
+    static CREDIT: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
+fn reserve_shared(bytes: usize) -> bool {
     let before = LIVE.fetch_add(bytes, Ordering::Relaxed);
     if before.saturating_add(bytes) > LIMIT.load(Ordering::Relaxed) {
         LIVE.fetch_sub(bytes, Ordering::Relaxed);
@@ -34,8 +48,50 @@ fn reserve(bytes: usize) -> bool {
     true
 }
 
+fn reserve(bytes: usize) -> bool {
+    CREDIT
+        .try_with(|credit| {
+            let have = credit.get();
+            if have >= bytes {
+                credit.set(have - bytes);
+                return true;
+            }
+            let missing = bytes - have;
+            // Take a chunk more than is missing, so the next allocations stay
+            // local; near the limit, take exactly what is missing.
+            if reserve_shared(missing.saturating_add(CREDIT_CHUNK)) {
+                credit.set(CREDIT_CHUNK);
+                true
+            } else if reserve_shared(missing) {
+                credit.set(0);
+                true
+            } else {
+                false
+            }
+        })
+        .unwrap_or_else(|_| reserve_shared(bytes))
+}
+
 fn release(bytes: usize) {
-    LIVE.fetch_sub(bytes, Ordering::Relaxed);
+    let returned = CREDIT.try_with(|credit| {
+        let have = credit.get().saturating_add(bytes);
+        if have > 2 * CREDIT_CHUNK {
+            credit.set(CREDIT_CHUNK);
+            have - CREDIT_CHUNK
+        } else {
+            credit.set(have);
+            0
+        }
+    });
+    match returned {
+        Ok(0) => {}
+        Ok(excess) => {
+            LIVE.fetch_sub(excess, Ordering::Relaxed);
+        }
+        Err(_) => {
+            LIVE.fetch_sub(bytes, Ordering::Relaxed);
+        }
+    }
 }
 
 /// Write `bytes` to file descriptor `fd` with `write(2)`, retrying partial

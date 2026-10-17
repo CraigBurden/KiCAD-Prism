@@ -18,6 +18,7 @@ mod keys;
 pub mod materialize;
 pub mod models;
 pub mod parse;
+mod producers;
 mod sexpr_check;
 
 pub use sexpr_check::{BOARD_FORMAT, SCHEMATIC_FORMAT};
@@ -155,9 +156,9 @@ impl Built {
         writer
             .add(MANIFEST_PATH, &self.manifest_bytes, limits)
             .map_err(map)?;
-        for member in &self.members {
+        for (member, encoded) in self.members.iter().zip(encode_all(&self.members)) {
             writer
-                .add(&member.path, &member.bytes, limits)
+                .add_encoded(&member.path, &member.bytes, &encoded, limits)
                 .map_err(map)?;
         }
         writer.finish(limits).map_err(map)
@@ -168,6 +169,44 @@ impl Built {
     pub fn stage_record(&self) -> StageRecord<'_> {
         StageRecord::of(&self.manifest, self.stage)
     }
+}
+
+/// Every member encoded for the archive, in `members` order. Deflate is
+/// most of a write, and members are independent, so they are encoded on up to
+/// eight threads; the archive is still written in member order.
+fn encode_all(members: &[MemberData]) -> Vec<crate::zip::Encoded<'_>> {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    let workers = std::thread::available_parallelism()
+        .map_or(1, std::num::NonZero::get)
+        .clamp(1, 8)
+        .min(members.len().max(1));
+    let next = AtomicUsize::new(0);
+    let mut encoded: Vec<(usize, crate::zip::Encoded<'_>)> = std::thread::scope(|scope| {
+        let handles: Vec<_> = (0..workers)
+            .map(|_| {
+                scope.spawn(|| {
+                    let mut done = Vec::new();
+                    loop {
+                        let index = next.fetch_add(1, Ordering::Relaxed);
+                        let Some(member) = members.get(index) else {
+                            break done;
+                        };
+                        done.push((index, crate::zip::encode_member(&member.bytes)));
+                    }
+                })
+            })
+            .collect();
+        handles
+            .into_iter()
+            .flat_map(|handle| {
+                handle
+                    .join()
+                    .unwrap_or_else(|panic| std::panic::resume_unwind(panic))
+            })
+            .collect()
+    });
+    encoded.sort_by_key(|(index, _)| *index);
+    encoded.into_iter().map(|(_, encoded)| encoded).collect()
 }
 
 /// The shared fields of one stage record.

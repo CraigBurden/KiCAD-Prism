@@ -756,7 +756,7 @@ So the CLI's own timeout normally fires first, and K gets a clean `CliErrorA0`.
 ### 7.4 Memory cap
 
 **In the CLI:**
-1. **Counting allocator.** A global allocator tracks live heap bytes. It refuses any allocation that would take them over `max-memory-bytes`. Before refusing, it:
+1. **Counting allocator.** A global allocator tracks live heap bytes. It refuses any allocation that would take them over `max-memory-bytes`. Each thread takes its count from the shared total in 1 MiB steps and keeps at most 2 MiB spare, so threads that allocate at once (the parse stage runs its producers in parallel) do not contend on one counter; the total runs ahead of the real heap by at most 2 MiB per thread. Before refusing, it:
    - writes a fixed, pre-serialized `CliErrorA0` to stdout (category `resource-limit`, code `limit-exceeded`, `limit: {kind: "bytes", name: "max-memory-bytes", limit_bytes}`) and a diagnostic to stderr, using raw `write(2)` with no allocation;
    - calls `_exit(4)`.
 
