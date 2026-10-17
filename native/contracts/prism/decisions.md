@@ -195,3 +195,11 @@ Rationale in `docs/architecture/adr-native-design-bundle-amendment-u.md`. Decide
 3. **Warm by default** (U §3.3). Background stage-`parse` builds after each sync, and reuse of a stored bundle by its read set through an alias table. `prism.revision_key.a1` is unchanged. This supersedes C2r's Q3 ("bundles on push: not part of C2"). New WP-K2.
 4. **Every consumer migrates.** The wave plan is unchanged.
 5. **Typed values inside Rust.** Producers return typed values; `compare` reads them directly in source-tree mode. Members stay JSON, byte for byte.
+
+## Warm bundles, amendment K2 (2026-10-17)
+
+Rationale in `docs/architecture/adr-native-design-bundle-amendment-k2.md`. Decided by the maintainer, each as recommended:
+
+1. **Q1: one archive per read set.** Stages board and models run on the archive's own `sources/`. Every revision key whose read set holds shares that archive, all stages included, through the alias table. `bundle rekey` (amendment U) is dropped; `prism-kicad bundle reuse` checks a read set against a key record.
+2. **Q2: a design key, not a revision key, in members.** `prism.semantic_index.a2` replaces `sourceRevisionKey` with `designKey`, computed from the configuration digest and the read set. Consumers take the revision they asked for from the request; `compare` takes both revision keys as arguments in both modes.
+3. **Q3: the jobset rule stays repository-wide.** Narrowing it belongs to C3.

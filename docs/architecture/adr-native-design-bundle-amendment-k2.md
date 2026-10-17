@@ -1,6 +1,6 @@
 # ADR amendment K2: warm bundles
 
-- **Status:** Proposed (2026-10-17). Q1–Q3 (§2) need the maintainer's decision. Each has a recommended option, and the rules of §3 assume it. When it is accepted, the text changes of §6 are applied in the same pull request. The contract changes (§3.7) land with WP-K2a.
+- **Status:** Accepted (2026-10-17). The maintainer took the recommended option for Q1–Q3 (§2), which the rules of §3 assume. The text changes of §6 are applied in the same pull request. The contract changes (§3.7) land with WP-K2a.
 - **Revises:** [amendment U](adr-native-design-bundle-amendment-u.md) §3.3 ("Stages after `parse`") and §4 (K2a, K2b and their acceptance). The rest of U §3.3 stands: background builds, reuse by read set, producers reading only what they need, and `board-objects`' project scope.
 - **Parent:** [`adr-native-design-bundle.md`](adr-native-design-bundle.md) §5 (storage), §8 (first deploy). It also changes [`bundle-format.md`](../../native/contracts/prism/bundle-format.md) §2.2 and §3.4, [`cli-spec.md`](../../native/contracts/prism/cli-spec.md) §5.2 and §9.1, and [`revision-key.md`](../../native/contracts/prism/revision-key.md) §10.
 
@@ -223,7 +223,7 @@ Notes on the rule:
 - **Semantic index a2:** C1's readers (the frontend's cross-probe guard and the comment anchor service) switch from `sourceRevisionKey` to `designKey`.
 - **Nothing else changes for a consumer.** Members keep their bytes apart from the fields listed in §4.
 
-## 6. Text changes when accepted
+## 6. Text changes applied with this amendment
 
 - Amendment U §3.3: "Stages after `parse`" is replaced by a pointer to §3.5. §4's K2a and K2b ownership and acceptance lists point to §4 here.
 - Parent ADR: status line, and §10 item 9.

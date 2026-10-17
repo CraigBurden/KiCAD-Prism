@@ -1,6 +1,6 @@
 # ADR: Prism-native KiCad parser and the design bundle
 
-- **Status:** Accepted (2026-10-16); amended 2026-10-17 (C2, [`adr-native-design-bundle-amendment-c2.md`](adr-native-design-bundle-amendment-c2.md); C2r, [`adr-native-design-bundle-amendment-c2r.md`](adr-native-design-bundle-amendment-c2r.md); C3, [`adr-native-design-bundle-amendment-c3.md`](adr-native-design-bundle-amendment-c3.md); U, [`adr-native-design-bundle-amendment-u.md`](adr-native-design-bundle-amendment-u.md))
+- **Status:** Accepted (2026-10-16); amended 2026-10-17 (C2, [`adr-native-design-bundle-amendment-c2.md`](adr-native-design-bundle-amendment-c2.md); C2r, [`adr-native-design-bundle-amendment-c2r.md`](adr-native-design-bundle-amendment-c2r.md); C3, [`adr-native-design-bundle-amendment-c3.md`](adr-native-design-bundle-amendment-c3.md); U, [`adr-native-design-bundle-amendment-u.md`](adr-native-design-bundle-amendment-u.md); K2, [`adr-native-design-bundle-amendment-k2.md`](adr-native-design-bundle-amendment-k2.md))
 - **Deciders:** Prism maintainers
 - **Supersedes:** the per-feature KiCad loading described in `docs/plans/kicad-monkey-*.md`
 - **Reference branch:** `feature/analytic-pack-spike` (analytic 3D tab, Simulation Studio, `board.prism` a1). It is reference only: code may be copied from it, it is never merged.
@@ -398,6 +398,7 @@ Every P-WP owns one module `native/src/rs/prism-projections/src/<name>.rs`, its 
 6. `wn-geometer` and the Geometer C SDK remain pinned external dependencies. Replacing them is out of scope.
 7. Design Comparison is computed in Rust (`prism-kicad compare`), from bundles or source trees; ecad-viewer's input format is unchanged (amendment C2r, [`adr-native-design-bundle-amendment-c2r.md`](adr-native-design-bundle-amendment-c2r.md), revising C2).
 8. Parity is what the user sees; each user journey has a budget and performance work stops when it is met; bundles are warm by default; Rust passes typed values internally and writes JSON only at the file boundary; every consumer migrates (amendment U, [`adr-native-design-bundle-amendment-u.md`](adr-native-design-bundle-amendment-u.md)).
+9. Revisions whose read set holds share one stored archive, all stages included; members carry a design key, never a revision key (amendment K2, [`adr-native-design-bundle-amendment-k2.md`](adr-native-design-bundle-amendment-k2.md)).
 
 ## 11. Risks and gaps found in review
 
