@@ -61,7 +61,7 @@
     "upgrade_procedure": "kicad-seeded-upgrade-a0"
   },
   "revision_key": "faea5ace66f591553c21fdcb2555e5a67e6e2fe73b7d17663375ac6f809206f5",
-  "bundle_key": "d59a758370bd428e43a3482505c9273caa9a12353345fbc2fe5f3db8e8de0e07",
+  "bundle_key": "e07cc22a402108b4588da59e9319e3a6cae1a2c4eb98ff42d4eb8eedf2c6df09",
   "config": {
     "schema": "prism.revision_key.effective_config.a1",
     "project_file": "USB-PD-Trigger-Board.kicad_pro",
