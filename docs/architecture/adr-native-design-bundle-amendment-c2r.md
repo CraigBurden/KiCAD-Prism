@@ -91,7 +91,7 @@ prism-kicad compare --base-src <project.kicad_pro> --head-src <project.kicad_pro
 
 ## 4. Contracts (written in the contracts PR)
 
-- **`prism.design_compare.result.a0`** (root `DesignCompareResultA0`), `native/src/tsp/prism/design-compare-a0.tsp`. Camel case, units as the conventions require, except where a field mirrors ecad-viewer's input. It holds:
+- **`prism.design_compare.result.a0`** (root `DesignCompareResultA0`), `native/src/tsp/prism/design-compare-a0.tsp`; *a1 since step 6 (2026-10-18), adding `details.targets`, which the review list reads (`decisions.md`, C2r item 9)*. Camel case, units as the conventions require, except where a field mirrors ecad-viewer's input. It holds:
   - `base` and `head`: revision identity (bundle key or the source-tree's revision key), anchor, file list;
   - `schematic` and `pcb`: changes and summaries;
   - `connectivity`: net and terminal changes;

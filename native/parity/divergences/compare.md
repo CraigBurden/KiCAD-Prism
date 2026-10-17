@@ -94,8 +94,8 @@ so; this is not an output divergence.
 
 # The Design Comparison result (amendment C2r)
 
-- Document: `compare`'s `prism.design_compare.result.a0` (root
-  `DesignCompareResultA0`), every tab except fabrication.
+- Document: `compare`'s `prism.design_compare.result.a1` (root
+  `DesignCompareResultA1`), every tab except fabrication.
 - Reference: today's `prism.semantic_comparison_v3` result on the 18 recorded
   C2r pairs, converted by `field-maps/design-compare.md`.
 - Rule: amendment U §3.1. Only differences a user can see are entries; each

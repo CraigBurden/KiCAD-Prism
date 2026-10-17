@@ -1,5 +1,5 @@
 {
-  "schema": "prism.design_compare.result.a0",
+  "schema": "prism.design_compare.result.a1",
   "base": {
     "revisionKey": "eca22096db72414e61a4935c802f9b270d8fe470bc528887a4dd6e106fad5cf8",
     "bundleKey": "eca22096db72414e61a4935c802f9b270d8fe470bc528887a4dd6e106fad5cf8",
@@ -69,7 +69,22 @@
             "new": "Payload Interface"
           }
         },
-        "details": {},
+        "details": {
+          "targets": [
+            {
+              "side": "head",
+              "sourceId": "0ba14ec3-823d-53e7-a501-824777f27fe6",
+              "kind": "sheet",
+              "role": "sheet",
+              "documentPath": "mini_obc.kicad_sch",
+              "at": {
+                "xNm": 150000000,
+                "yNm": 40000000
+              },
+              "sheetPath": "/74f07384-d08c-505c-891f-7c1260a18a6b"
+            }
+          ]
+        },
         "base": {
           "sourceId": "0ba14ec3-823d-53e7-a501-824777f27fe6",
           "documentPath": "mini_obc.kicad_sch",
@@ -108,7 +123,58 @@
             "new": "/Payload Interface/GPIO4"
           }
         },
-        "details": {},
+        "details": {
+          "targets": [
+            {
+              "side": "base",
+              "sourceId": "64483cce-f1e8-52bf-acb6-ed10e93d6ad6",
+              "kind": "label",
+              "role": "label",
+              "documentPath": "payload_if.kicad_sch",
+              "at": {
+                "xNm": 54920000,
+                "yNm": 70480000
+              },
+              "sheetPath": "/74f07384-d08c-505c-891f-7c1260a18a6b/0ba14ec3-823d-53e7-a501-824777f27fe6"
+            },
+            {
+              "side": "base",
+              "sourceId": "caae6589-afa4-53e4-9948-31e608dfad62",
+              "kind": "pin",
+              "role": "terminal",
+              "documentPath": "payload_if.kicad_sch",
+              "at": {
+                "xNm": 60000000,
+                "yNm": 40000000
+              },
+              "sheetPath": "/74f07384-d08c-505c-891f-7c1260a18a6b/0ba14ec3-823d-53e7-a501-824777f27fe6"
+            },
+            {
+              "side": "head",
+              "sourceId": "64483cce-f1e8-52bf-acb6-ed10e93d6ad6",
+              "kind": "label",
+              "role": "label",
+              "documentPath": "payload_if.kicad_sch",
+              "at": {
+                "xNm": 54920000,
+                "yNm": 70480000
+              },
+              "sheetPath": "/74f07384-d08c-505c-891f-7c1260a18a6b/0ba14ec3-823d-53e7-a501-824777f27fe6"
+            },
+            {
+              "side": "head",
+              "sourceId": "caae6589-afa4-53e4-9948-31e608dfad62",
+              "kind": "pin",
+              "role": "terminal",
+              "documentPath": "payload_if.kicad_sch",
+              "at": {
+                "xNm": 60000000,
+                "yNm": 40000000
+              },
+              "sheetPath": "/74f07384-d08c-505c-891f-7c1260a18a6b/0ba14ec3-823d-53e7-a501-824777f27fe6"
+            }
+          ]
+        },
         "base": {
           "sourceId": "64483cce-f1e8-52bf-acb6-ed10e93d6ad6",
           "documentPath": "payload_if.kicad_sch",
@@ -141,7 +207,58 @@
             "new": "/Payload Interface/GPIO3"
           }
         },
-        "details": {},
+        "details": {
+          "targets": [
+            {
+              "side": "base",
+              "sourceId": "46ba6352-8ceb-5381-a48b-d3db955af14b",
+              "kind": "label",
+              "role": "label",
+              "documentPath": "payload_if.kicad_sch",
+              "at": {
+                "xNm": 54920000,
+                "yNm": 67940000
+              },
+              "sheetPath": "/74f07384-d08c-505c-891f-7c1260a18a6b/0ba14ec3-823d-53e7-a501-824777f27fe6"
+            },
+            {
+              "side": "base",
+              "sourceId": "5101ffa7-2160-5395-b862-b85644b3ba87",
+              "kind": "pin",
+              "role": "terminal",
+              "documentPath": "payload_if.kicad_sch",
+              "at": {
+                "xNm": 60000000,
+                "yNm": 40000000
+              },
+              "sheetPath": "/74f07384-d08c-505c-891f-7c1260a18a6b/0ba14ec3-823d-53e7-a501-824777f27fe6"
+            },
+            {
+              "side": "head",
+              "sourceId": "46ba6352-8ceb-5381-a48b-d3db955af14b",
+              "kind": "label",
+              "role": "label",
+              "documentPath": "payload_if.kicad_sch",
+              "at": {
+                "xNm": 54920000,
+                "yNm": 67940000
+              },
+              "sheetPath": "/74f07384-d08c-505c-891f-7c1260a18a6b/0ba14ec3-823d-53e7-a501-824777f27fe6"
+            },
+            {
+              "side": "head",
+              "sourceId": "5101ffa7-2160-5395-b862-b85644b3ba87",
+              "kind": "pin",
+              "role": "terminal",
+              "documentPath": "payload_if.kicad_sch",
+              "at": {
+                "xNm": 60000000,
+                "yNm": 40000000
+              },
+              "sheetPath": "/74f07384-d08c-505c-891f-7c1260a18a6b/0ba14ec3-823d-53e7-a501-824777f27fe6"
+            }
+          ]
+        },
         "base": {
           "sourceId": "46ba6352-8ceb-5381-a48b-d3db955af14b",
           "documentPath": "payload_if.kicad_sch",
@@ -180,7 +297,22 @@
             "new": "/Payload Interface/GPIO7"
           }
         },
-        "details": {},
+        "details": {
+          "targets": [
+            {
+              "side": "head",
+              "sourceId": "d0b3ec25-625b-59e7-9534-600fc7f684cd",
+              "kind": "pad",
+              "role": "component",
+              "documentPath": "mini_obc.kicad_pcb",
+              "at": {
+                "xNm": 0,
+                "yNm": 38100000
+              },
+              "reference": "J7"
+            }
+          ]
+        },
         "base": {
           "sourceId": "d0b3ec25-625b-59e7-9534-600fc7f684cd",
           "parentSourceId": "a2556416-c65d-5d8a-8e8a-b281d42a9a32",
@@ -233,7 +365,22 @@
             "new": "/Payload Interface/SPI_MOSI"
           }
         },
-        "details": {},
+        "details": {
+          "targets": [
+            {
+              "side": "head",
+              "sourceId": "52b93250-8e5a-598d-9bb4-0867b158b217",
+              "kind": "pad",
+              "role": "component",
+              "documentPath": "mini_obc.kicad_pcb",
+              "at": {
+                "xNm": 0,
+                "yNm": 7620000
+              },
+              "reference": "J7"
+            }
+          ]
+        },
         "base": {
           "sourceId": "52b93250-8e5a-598d-9bb4-0867b158b217",
           "parentSourceId": "a2556416-c65d-5d8a-8e8a-b281d42a9a32",
@@ -286,7 +433,22 @@
             "new": "/Payload Interface/SPI_SCK"
           }
         },
-        "details": {},
+        "details": {
+          "targets": [
+            {
+              "side": "head",
+              "sourceId": "beaaf9a6-70cd-5ea2-b946-60c001f21fa1",
+              "kind": "pad",
+              "role": "component",
+              "documentPath": "mini_obc.kicad_pcb",
+              "at": {
+                "xNm": 0,
+                "yNm": 5080000
+              },
+              "reference": "J7"
+            }
+          ]
+        },
         "base": {
           "sourceId": "beaaf9a6-70cd-5ea2-b946-60c001f21fa1",
           "parentSourceId": "a2556416-c65d-5d8a-8e8a-b281d42a9a32",

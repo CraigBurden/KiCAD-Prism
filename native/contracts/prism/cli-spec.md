@@ -589,7 +589,7 @@ This spec fixes only the process contract:
 
 ### 5.6 `compare`
 
-`prism-kicad compare` computes every Design Comparison tab except fabrication between two revisions, as `DesignCompareResultA0` (`prism.design_compare.result.a0`; field map `field-maps/design-compare.md`), with ecad-viewer's `KiCadProjectDiffBundleV1` inside it (ADR amendment C2r, [`adr-native-design-bundle-amendment-c2r.md`](../../../docs/architecture/adr-native-design-bundle-amendment-c2r.md); its checks and keys come from amendment C2, [`adr-native-design-bundle-amendment-c2.md`](../../../docs/architecture/adr-native-design-bundle-amendment-c2.md)). It is a pure function of its two revisions: no repository, no host path and no clock reaches the output.
+`prism-kicad compare` computes every Design Comparison tab except fabrication between two revisions, as `DesignCompareResultA1` (`prism.design_compare.result.a1`; field map `field-maps/design-compare.md`), with ecad-viewer's `KiCadProjectDiffBundleV1` inside it (ADR amendment C2r, [`adr-native-design-bundle-amendment-c2r.md`](../../../docs/architecture/adr-native-design-bundle-amendment-c2r.md); its checks and keys come from amendment C2, [`adr-native-design-bundle-amendment-c2.md`](../../../docs/architecture/adr-native-design-bundle-amendment-c2.md)). It is a pure function of its two revisions: no repository, no host path and no clock reaches the output.
 
 - **Arguments.** Each side is a bundle or a source tree:
   - `--base <bundle.prism>` / `--head <bundle.prism>`: a stored bundle. The two may name the same file, which gives no changes.
@@ -601,7 +601,7 @@ This spec fixes only the process contract:
   2. The two sides name the same generator id, byte for byte in canonical form (a source tree's is the running CLI's). Otherwise exit 7, `generator-mismatch`: members of two producers are not comparable, and the backend rebuilds the stale bundle.
   3. Both sides' `config.project_file` lie in the same directory. Otherwise exit 7, `anchor-mismatch`. Object keys and document paths are relative to that directory, so two project files in one directory share a key space and compare.
   4. Each side holds the five members: stage `parse` is `complete`, or `partial` without the member in `failed_members`. Otherwise exit 7, `member-not-found`, with `argument` `base` or `head`.
-- **Output.** `-o` receives one `DesignCompareResultA0`, compact UTF-8 JSON with one trailing LF, streamed and written atomically: a temp file in the same directory, fsync, rename (§5.2.5, without the self-verify). stdout receives `CliCompareResultA0` after the rename: each side's revision key, bundle key (absent for a source tree) and object count, and the object diff's counts.
+- **Output.** `-o` receives one `DesignCompareResultA1`, compact UTF-8 JSON with one trailing LF, streamed and written atomically: a temp file in the same directory, fsync, rename (§5.2.5, without the self-verify). stdout receives `CliCompareResultA0` after the rename: each side's revision key, bundle key (absent for a source tree) and object count, and the object diff's counts.
 - **Rules fixed here:**
   - document paths and object keys are relative to the directory of the project file (C2 D1);
   - changes are sorted by `id`, and every map's keys in code point order (C2 D2, divergence `compare-1`);

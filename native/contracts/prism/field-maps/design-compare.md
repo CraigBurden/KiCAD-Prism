@@ -1,6 +1,8 @@
-# Field map: `-o` of `prism-kicad compare` (`prism.design_compare.result.a0`)
+# Field map: `-o` of `prism-kicad compare` (`prism.design_compare.result.a1`)
 
-Root model `DesignCompareResultA0` in `tsp/prism/design-compare-a0.tsp`; its `projectDiff` is `KiCadProjectDiffBundleV1` in `tsp/prism/kicad-project-diff-v1.tsp`. Example `examples/DesignCompareResultA0.example.json`.
+Root model `DesignCompareResultA1` in `tsp/prism/design-compare-a1.tsp`; its `projectDiff` is `KiCadProjectDiffBundleV1` in `tsp/prism/kicad-project-diff-v1.tsp`. Example `examples/DesignCompareResultA1.example.json`.
+
+a1 replaces a0 (C2r step 6). It adds `details.targets` (below, "Targets"): the inventory of 2026-10-17 missed that the review list reads today's visual targets, and without them 71 of the 237 review groups of the 18 harness pairs changed presentation and 65 lost their reference.
 Written by: `prism-kicad compare` (ADR amendment C2r, `native/src/rs/prism-projections/src/compare/`). Stage: none (a comparison, not a bundle member).
 
 It replaces today's `prism.semantic_comparison_v3` (`DesignCompareResult`, `frontend/src/components/design-comparison/types.ts:412-437`) for every tab except fabrication. It is **not** a parity document: C2r §5 accepts it by review groups, counts and ecad-viewer's resolution counters, not by bytes. This map gives each of today's fields' fate (moved, renamed, converted or dropped) and abbreviates today's code as:
@@ -22,7 +24,7 @@ Pointers are RFC 6901 with `*` for every element of an array and `{key}` for eve
 
 | Field (JSON pointer) | Type | Unit | Order / nullability | Today's source (path:line) | Consumers | Note |
 |---|---|---|---|---|---|---|
-| `/schema` | const `"prism.design_compare.result.a0"` | — | required | today `"prism.semantic_comparison_v3"` (dcs:1072) | the result loader | the frontend reads both until R1 (C2r Q1) |
+| `/schema` | const `"prism.design_compare.result.a1"` | — | required | today `"prism.semantic_comparison_v3"` (dcs:1072) | the result loader | until R1, the frontend reads a v3 result into this shape (`legacy-v3-result.ts`) |
 | `/base`, `/head` | `DesignCompareRevision` | — | required | today `base`/`head` commit SHAs (dcs:1073-1075), unread | the result loader, sidecar keys | identity moves from commit SHA to revision key |
 | `/base/revisionKey` | `Sha256Hex` | — | required | new | job artifact key | the commit's revision key (revision-key.md) |
 | `/base/bundleKey` | `Sha256Hex` | — | optional; absent for a source-tree side | new | K | which bundle was read |
@@ -57,13 +59,13 @@ Pointers are RFC 6901 with `*` for every element of an array and `{key}` for eve
 | `…/*/reasons` | `DesignCompareReason[]` | — | required; never empty | dcn:408-409, dcm:755 | review noise, policy, property model | closed set (`t:124-145`) |
 | `…/*/fields` | `Record<DesignCompareFieldDelta>` | — | required; keys are field display names | dcn:289-299, dcm `fields` | review groups, queue, property model | same keys; a side without a value omits it instead of writing `null` |
 | `…/*/fields/{key}/old`, `…/new` | `BoardObjectsReviewValue` | — | optional | dcn:295 (`from`/`to` of `properties`), dcn:298 (`attributes`) | property model | same values |
-| `…/*/details` | `DesignCompareChangeDetails` | — | required | dcn:410-413, dcm `details` | presentation shell, property model | the review evidence below; `visualTargets` moves into `compare` |
+| `…/*/details` | `DesignCompareChangeDetails` | — | required | dcn:410-413, dcm `details` | presentation shell, property model | the review evidence below |
 | `…/*/details/reviewOnly` | const `true` | — | optional; absent = false | dcn:412 | review policy | same |
 | `…/*/details/connectivity` | `DesignCompareConnectivity` | — | optional | dcm `details.connectivity` | property model | terminals sorted |
 | `…/*/details/instanceCount`, `…/labelInstances` | `DesignCompareCountDelta` | — | optional | dcm | property model | same |
 | `…/*/details/sheetChange` | `DesignCompareSheetDelta` | — | optional | dcm | property model | same; absent sides omitted |
 | — | — | — | — | `details.fieldDeltas`, `details.netInstances`, `details.instanceReplacement` | — | **dropped**: unread |
-| — | — | — | — | `details.visualTargets` (dcn:300-347, dcm:133-245) | — | **internal**: `compare` uses it to build `projectDiff` (today `dds:152-235` reads it); no frontend reader |
+| `…/*/details/targets` | `DesignCompareTarget[]` | — | optional; absent when empty | `details.visualTargets` (dcn:300-347, dcm:133-245) | review policy, review queue, change facts, review groups, property model | **renamed** and slimmed; see "Targets". `compare` also builds `projectDiff` from them (today `dds:152-235`) |
 | `…/*/base`, `…/*/head` | `DesignCompareChangeSide` | — | optional; `base` absent for `added`, `head` absent for `removed` | `base_item`/`compare_item` (dcn:387-406, dcm `_native_item`), `source_id_*`, `parent_source_id_*`, `position_*` | property model, review groups, revision sources, workspace | **merged**: each side's object once |
 | `…/*/base/sourceId` | string | — | required | `source_id_base` / `base_item.source_id` (dcn:265-266) | property model, workspace, revision sources | today also `uuid` (compare or base), **dropped** as a duplicate |
 | `…/*/base/parentSourceId` | `KiCadUuid` | — | optional | `parent_source_id_base` (dcn:384) | change facts | same |
@@ -74,6 +76,22 @@ Pointers are RFC 6901 with `*` for every element of an array and `{key}` for eve
 | `…/*/base/reference`, `…/base/net` | `Refdes`, `NetName` | — | optional | `base_item.reference`, `.net` | review queue | same |
 | — | — | — | — | `position_delta` (dcn:386), `source_side` (dcn:289), `affected_source_ids_base`, `affected_source_ids_compare` (dcm:743-744) | — | **dropped**: unread |
 | — | — | — | — | `derivedFrom` (`t:114`) | — | not in the result: the frontend computes it (`comparison-review-noise.ts:211`; C2r Q2) |
+
+### Targets
+
+`…/*/details/targets` is today's `details.visualTargets`, entry for entry and in the same order: base-side targets first, then head-side, each in the order the change's evidence lists them. A target without a source id is left out. An object's change gives one target per KIID path (dcn `targets_for`), and a net or structure change's targets are merged by side, status, source id and sheet path (dcm `_dedupe_visual_targets`), so one object drawn on two sheet instances is two entries.
+
+| Field (JSON pointer) | Type | Unit | Order / nullability | Today's source (path:line) | Consumers | Note |
+|---|---|---|---|---|---|---|
+| `…/targets/*/side` | `DesignCompareSide` | — | required | `side` | — | `reference` written `base`, `comparison` written `head` |
+| `…/targets/*/sourceId` | string | — | required | `sourceId` | — | same |
+| `…/targets/*/kind` | string | — | optional | `kind` | review policy (`objectKinds`) | spelled as the board-objects member spells kinds (`footprint-graphic`); absent replaces `null` and `""` |
+| `…/targets/*/role` | `DesignCompareTargetRole` | — | optional | `role` | review policy (`objectKinds`) | closed set; today's role is the object's kind when it has no role of its own (for example `pin`, `text`), and then `role` is absent and `kind` carries it |
+| `…/targets/*/documentPath` | string | — | optional | `documentPath`, else `page` | review queue, change facts (`pageFor`) | today written twice |
+| `…/targets/*/at` | `PointNm` | nm | optional | `at` | review groups (the label's position) | today `[x, y]` mm; × 1e6, rounded half up |
+| `…/targets/*/sheetPath` | string | — | optional | `sheetPath` | — | keeps one object's entries on two sheet instances apart |
+| `…/targets/*/reference` | `Refdes` | — | optional | `reference` | change facts (`referenceFor`), search | same |
+| — | — | — | — | `status`, `parentSourceId`, `pin` | — | **dropped**: unread (`kind` already says added, removed or changed; ecad-viewer reads `projectDiff`) |
 
 ### BOM
 
@@ -135,4 +153,4 @@ There is no byte golden (C2r §5). The reference for acceptance is today's `pris
 
 ## Example provenance
 
-`examples/DesignCompareResultA0.example.json` is the mini_obc F0 → F5 pair (`backend/tests/fixtures/system_builder/sources/mini_obc/F0` and `F5`, the parity cases `sb-mini_obc-F0` and `sb-mini_obc-F5`): today's `run_comparison` result, converted by the rules above. It is trimmed to the first three changes of each tab (with their `projectDiff` entries and navigation) and three nets of route metrics per side. `bundleKey` and `revisionKey` are the SHA-256 of the two parse-stage bundles built from those cases.
+`examples/DesignCompareResultA1.example.json` is the mini_obc F0 → F5 pair (`backend/tests/fixtures/system_builder/sources/mini_obc/F0` and `F5`, the parity cases `sb-mini_obc-F0` and `sb-mini_obc-F5`): today's `run_comparison` result, converted by the rules above. It is trimmed to the first three changes of each tab (with their `projectDiff` entries and navigation) and three nets of route metrics per side. `bundleKey` and `revisionKey` are the SHA-256 of the two parse-stage bundles built from those cases.

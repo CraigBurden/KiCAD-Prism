@@ -10,14 +10,18 @@ using Prism.Contracts.KicadProjectDiffV1;
 
 /**
  * The output document of `prism-kicad compare` (`-o`, cli-spec.md §5.6), schema
- * `prism.design_compare.result.a0`: every Design Comparison tab except
+ * `prism.design_compare.result.a1`: every Design Comparison tab except
  * fabrication, computed in Rust from two bundles or source trees (ADR
  * amendment C2r).
  *
- * It replaces the backend's `prism.semantic_comparison_v3`
- * (`frontend/src/components/design-comparison/types.ts:412-437`) for new
- * comparisons; the frontend reads both until R1 (C2r Q1). The backend adds
+ * It replaces the backend's `prism.semantic_comparison_v3` for new
+ * comparisons. Until R1 removes the backend's legacy path, the frontend reads
+ * a v3 result into this shape (`legacy-v3-result.ts`). The backend adds
  * fabrication and stores the result as the job's artifact.
+ *
+ * a1 differs from a0 only by `details.targets`: the review list reads the
+ * targets' kinds, roles and references, which a0 left out (C2r step 6). a0 is
+ * removed; no stored bundle holds a comparison result.
  *
  * `projectDiff` is ecad-viewer's input in ecad-viewer's own format
  * (`kicad-project-diff-v1.tsp`). Every other field follows the conventions:
@@ -25,7 +29,7 @@ using Prism.Contracts.KicadProjectDiffV1;
  * omitted. The field map (`field-maps/design-compare.md`) gives each of
  * today's fields' fate.
  */
-namespace Prism.Contracts.DesignCompareA0;
+namespace Prism.Contracts.DesignCompareA1;
 
 // -------------------------------------------------------------------- enums
 
@@ -257,6 +261,123 @@ model DesignCompareChangeDetails {
 
   /** The sheet the object is on. Absent when it did not change. */
   sheetChange?: DesignCompareSheetDelta;
+
+  /** The objects ecad-viewer highlights for the change: base-side targets first, then head-side, each in the order the change's evidence lists them (field map, "Targets"). One entry per object and sheet instance. Absent when there are none, as for a change with `reviewOnly`. */
+  targets?: DesignCompareTarget[];
+}
+
+/** The pane a target is drawn in. */
+enum DesignCompareSide {
+  /** The base revision's pane. */
+  base,
+
+  /** The head revision's pane. */
+  head,
+}
+
+/** How a target is drawn and reviewed: the object's own kind, or the part it plays in the change (a net's `terminal`, a component's `component`). */
+enum DesignCompareTargetRole {
+  /** A component the object belongs to, drawn as the whole part. */
+  component,
+
+  /** A schematic wire. */
+  wire,
+
+  /** A schematic bus or bus alias. */
+  bus,
+
+  /** A bus entry. */
+  busEntry: "bus-entry",
+
+  /** A net label, or a power symbol drawn as one. */
+  label,
+
+  /** A junction dot. */
+  junction,
+
+  /** A net's terminal: the pin of a component the net connects. */
+  terminal,
+
+  /** A hierarchical sheet instance. */
+  sheet,
+
+  /** A hierarchical sheet pin. */
+  sheetPin: "sheet-pin",
+
+  /** A schematic symbol. */
+  symbol,
+
+  /** A no-connect flag. */
+  noConnect: "no-connect",
+
+  /** An authored drawing. */
+  graphic,
+
+  /** A footprint. */
+  footprint,
+
+  /** A footprint pad. */
+  pad,
+
+  /** A track segment. */
+  track,
+
+  /** A track arc. */
+  arc,
+
+  /** A via. */
+  via,
+
+  /** A zone. */
+  zone,
+
+  /** A footprint's drawing. */
+  footprintGraphic: "footprint-graphic",
+
+  /** A footprint's text. */
+  footprintText: "footprint-text",
+
+  /** An image. */
+  image,
+
+  /** A table. */
+  table,
+
+  /** A group. */
+  group,
+
+  /** A net class. */
+  netClass: "net-class",
+
+  /** A net class assignment. */
+  netClassAssignment: "net-class-assignment",
+}
+
+/** One object ecad-viewer highlights for a change. The review list reads the targets' kinds, roles, documents, positions and references; `projectDiff` is built from the same targets. */
+model DesignCompareTarget {
+  /** The pane the object is drawn in: `base` for the base revision's object, `head` for the head's. */
+  side: DesignCompareSide;
+
+  /** The object's native identity in that revision: its UUID, or for a terminal its pin's UUID (its symbol's when the pin has none). */
+  sourceId: string;
+
+  /** The object's kind as the board-objects member names it, for example `pin` or `sheet-pin`. Absent when the target is only a role (a net's terminal with no pin object of its own). */
+  kind?: string;
+
+  /** How the object is drawn. Absent when it has no role beyond its `kind`. */
+  role?: DesignCompareTargetRole;
+
+  /** The document the object is in, relative to the project directory. Absent when it is not known. */
+  documentPath?: string;
+
+  /** The object's position. Absent for an object without one. */
+  at?: PointNm;
+
+  /** The sheet instance path of a schematic object (`/` for the root sheet). Absent on the board, and for a schematic object whose instance is not known. */
+  sheetPath?: string;
+
+  /** The component reference designator the object belongs to. Absent when it belongs to none. */
+  reference?: Refdes;
 }
 
 /** One side of a changed object: where it is in that revision. */
@@ -489,11 +610,11 @@ model DesignCompareCounts {
  * (`prism-kicad compare -o`).
  */
 @jsonSchema
-@id("urn:prism:schema:prism.design_compare.result:a0")
-@extension("title", "Design compare result a0")
-model DesignCompareResultA0 {
+@id("urn:prism:schema:prism.design_compare.result:a1")
+@extension("title", "Design compare result a1")
+model DesignCompareResultA1 {
   /** Document schema id. */
-  schema: "prism.design_compare.result.a0";
+  schema: "prism.design_compare.result.a1";
 
   /** The base (old) revision. */
   base: DesignCompareRevision;
