@@ -29,6 +29,8 @@ from app.services import (
     project_revision,
     semantic_index_service,
 )
+from app.services import design_compare_bundle_path
+from app.services.design_bundle import cli as design_bundle_cli, consumer as design_bundle_consumer
 from app.services.design_compare_benchmark import DesignCompareBenchmark
 from app.services.job_artifact_service import job_artifacts
 from app.services.job_kinds import JobKind, JobSubject, repository_lock
@@ -555,30 +557,40 @@ def _export_fabrication(
     board = _find_pcb(snap, anchor)
     if board is None:
         return {"present": False, "reason": "no board file in this revision"}
-    output = cache / "fabrication"
+    return _plot_fabrication(board, cache / "fabrication", cache / "fabrication.staging", commit[:7], logs)
+
+
+def _plot_fabrication(board: Path, output: Path, staging: Path, label: str, logs: List[str]) -> Dict[str, Any]:
+    """Plot ``board``'s Gerber package into ``output`` once, through ``staging``.
+
+    ``output`` counts as complete only with its marker file; anything else is
+    an interrupted export and is plotted again. ``label`` names the revision
+    in the logs. The legacy path and the bundle path
+    (``design_compare_bundle_path``) share it.
+    """
+
     if (output / _FABRICATION_COMPLETE_MARKER).is_file():
         return {"present": True, "dir": str(output)}
     # Incomplete leftover from an interrupted export — do not reuse.
     if output.exists():
         shutil.rmtree(output, ignore_errors=True)
-    staging = cache / "fabrication.staging"
     if staging.exists():
         shutil.rmtree(staging, ignore_errors=True)
     ok, message = fabrication_compare_service.export_gerbers(board, staging)
     if not ok:
-        logs.append(f"Gerber export failed for {commit[:7]}: {message}")
+        logs.append(f"Gerber export failed for {label}: {message}")
         shutil.rmtree(staging, ignore_errors=True)
         return {"present": False, "reason": message}
     # A missing drill program costs the drill layers, not the whole package, so
     # it is a warning on an otherwise usable fabrication comparison.
     drilled, drill_message = fabrication_compare_service.export_drill(board, staging)
     if not drilled:
-        logs.append(f"Drill export failed for {commit[:7]}: {drill_message}")
+        logs.append(f"Drill export failed for {label}: {drill_message}")
     # Marker last inside staging, then promote atomically so a crash mid-plot
     # never leaves a directory that the next run would treat as complete.
     (staging / _FABRICATION_COMPLETE_MARKER).write_text("1", encoding="utf-8")
     staging.replace(output)
-    logs.append(f"Plotted fabrication output for {commit[:7]}")
+    logs.append(f"Plotted fabrication output for {label}")
     return {
         "present": True,
         "dir": str(output),
@@ -1182,6 +1194,47 @@ def _complete_comparison(
     }
 
 
+def _prepare_render_sidecars(
+    context: JobContext,
+    fabrication: Dict[str, Any],
+    *,
+    artifact_key: str,
+    generator_version: str,
+) -> tuple[List[Any], Dict[str, Dict[str, Any]]]:
+    """Layer artwork as one sidecar per layer per revision, so a reviewer fetches
+    only the layer they opened, not every plotted layer on the board.
+
+    Rewrites each layer's ``render`` to the sidecar names, in place. The
+    legacy and the bundle path share it.
+    """
+
+    render_artifacts: List[Any] = []
+    render_manifest: Dict[str, Dict[str, Any]] = {}
+    for layer in (fabrication.get("layers") or []):
+        render = layer.get("render") or {}
+        for side in list(render):
+            source = Path(str(render[side]))
+            if not source.is_file():
+                render.pop(side, None)
+                continue
+            name = f"fab:{layer.get('name')}:{side}"
+            prepared = job_artifacts.prepare_file(
+                context,
+                source,
+                kind="design_compare_sidecar",
+                artifact_key=f"{artifact_key}:sidecar:{name}",
+                media_type="image/svg+xml",
+                generator_version=generator_version,
+                readiness="sidecar",
+            )
+            render_artifacts.append(prepared)
+            render_manifest[name] = _manifest_entry(prepared)
+            # The payload carries the sidecar's name; the API turns names into
+            # URLs in one place, for every sidecar alike.
+            render[side] = name
+    return render_artifacts, render_manifest
+
+
 def _prepare_comparison_bundle(
     context: JobContext,
     result: Dict[str, Any],
@@ -1202,33 +1255,10 @@ def _prepare_comparison_bundle(
             "files",
         )
     }
-    # Layer artwork is one sidecar per layer per revision so a reviewer fetches
-    # only the layer they opened, not every plotted layer on the board.
-    render_artifacts: List[Any] = []
-    render_manifest: Dict[str, Dict[str, Any]] = {}
-    for layer in ((result.get("fabrication") or {}).get("layers") or []):
-        render = layer.get("render") or {}
-        for side in list(render):
-            source = Path(str(render[side]))
-            if not source.is_file():
-                render.pop(side, None)
-                continue
-            name = f"fab:{layer.get('name')}:{side}"
-            prepared = job_artifacts.prepare_file(
-                context,
-                source,
-                kind="design_compare_sidecar",
-                artifact_key=f"{artifact_key}:sidecar:{name}",
-                media_type="image/svg+xml",
-                generator_version=semantic_index_service.generator_cache_tag(),
-                readiness="sidecar",
-            )
-            render_artifacts.append(prepared)
-            render_manifest[name] = _manifest_entry(prepared)
-            # The payload carries the sidecar's name; the API turns names into
-            # URLs in one place, for every sidecar alike.
-            render[side] = name
-
+    render_artifacts, render_manifest = _prepare_render_sidecars(
+        context, result.get("fabrication") or {}, artifact_key=artifact_key,
+        generator_version=semantic_index_service.generator_cache_tag(),
+    )
     payloads = {
         "core": core,
         "schematic": result.get("schematic") or {},
@@ -1310,31 +1340,39 @@ def start_design_compare_job(
     row = workspace.get_project_by_id(project_id)
     if not row:
         raise ValueError(f"Project '{project_id}' not found")
+    # The pipeline is chosen when the comparison is queued, so a switch flipped
+    # while it waits never changes what a queued job runs (C2r §9 step 5).
+    bundle_path = design_bundle_consumer.source("DESIGN_COMPARISON") == "bundle"
+    identity: Dict[str, Any] = {
+        "project": project_id,
+        "projectFileRel": str(row.get("project_file_rel") or ""),
+        "base": base,
+        "head": head,
+        "includeUnchanged": include_unchanged,
+    }
+    if bundle_path:
+        identity.update(pipeline=design_compare_bundle_path.PIPELINE, generator=design_bundle_cli.generator().digest)
+    else:
+        identity.update(
+            cacheSchema=_CACHE_SCHEMA,
+            initialCacheSchema=_INITIAL_CACHE_SCHEMA,
+            generator=semantic_index_service.generator_cache_tag(),
+        )
     artifact_key = hashlib.sha256(
-        json.dumps(
-            {
-                "project": project_id,
-                "projectFileRel": str(row.get("project_file_rel") or ""),
-                "base": base,
-                "head": head,
-                "includeUnchanged": include_unchanged,
-                "cacheSchema": _CACHE_SCHEMA,
-                "initialCacheSchema": _INITIAL_CACHE_SCHEMA,
-                "generator": semantic_index_service.generator_cache_tag(),
-            },
-            sort_keys=True,
-            separators=(",", ":"),
-        ).encode("utf-8")
+        json.dumps(identity, sort_keys=True, separators=(",", ":")).encode("utf-8")
     ).hexdigest()
+    payload: Dict[str, Any] = {
+        "project_id": project_id,
+        "base": base,
+        "head": head,
+        "include_unchanged": include_unchanged,
+        "artifact_key": artifact_key,
+        "project_file_rel": str(row.get("project_file_rel") or ""),
+    }
+    if bundle_path:
+        payload.update(pipeline=design_compare_bundle_path.PIPELINE, requested_by=requested_by)
     queued = DESIGN_COMPARE.enqueue(
-        {
-            "project_id": project_id,
-            "base": base,
-            "head": head,
-            "include_unchanged": include_unchanged,
-            "artifact_key": artifact_key,
-            "project_file_rel": str(row.get("project_file_rel") or ""),
-        },
+        payload,
         subject=JobSubject.of_project(row, project_id),
         artifact_key=artifact_key,
         requested_by=requested_by,
@@ -1612,6 +1650,12 @@ def run_design_compare_job_v3(context: JobContext) -> JobResult:
             "Project anchor changed after the comparison was queued; retry the comparison"
         )
     location = project_revision.locate_id(project_id)
+    if payload.get("pipeline") == design_compare_bundle_path.PIPELINE:
+        return design_compare_bundle_path.run_job(
+            context,
+            base=_resolve_revision(location.repo_root, str(payload["base"])),
+            head=_resolve_revision(location.repo_root, str(payload["head"])),
+        )
     request = ComparisonRequest(
         project_id=project_id,
         repo_path=location.repo_root,
