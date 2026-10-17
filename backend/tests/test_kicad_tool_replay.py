@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import json
+import os
 import tempfile
+import time
 import unittest
 from pathlib import Path
 
@@ -60,6 +62,26 @@ class ReplayToolTests(unittest.TestCase):
         # Each recorded run answers once.
         again = replay.run(["pcb", "export", "gerbers", "--output", str(target / "out" / "b.gbr")], timeout=5)
         self.assertEqual(again.returncode, 127)
+
+    def test_an_output_timed_before_the_run_is_still_recorded(self) -> None:
+        # The kernel's file clock can trail time.time_ns(); the output's time is
+        # set a second back to stand for that. The untouched input is not recorded.
+        staging = self.root / "staging"
+        (staging / "out").mkdir(parents=True)
+        board = staging / "b.kicad_pcb"
+        board.write_text("board")
+        os.utime(board, ns=(1, 1))
+
+        def plot(args, **_kwargs):
+            output = Path(args[args.index("--output") + 1])
+            output.write_text("gerber bytes")
+            past = time.time_ns() - 1_000_000_000
+            os.utime(output, ns=(past, past))
+            return ToolResult(0, "")
+
+        recorder = RecordingTool(FakeTool(plot), {"staging": staging})
+        recorder.run(["pcb", "export", "gerbers", "--output", str(staging / "out" / "b.gbr"), str(board)], timeout=5)
+        self.assertEqual(list(recorder.commands[0]["outputs"]), ["<staging>/out/b.gbr"])
 
     def test_a_host_path_outside_the_roots_cannot_be_recorded(self) -> None:
         recorder = RecordingTool(FakeTool(), {"staging": self.root / "staging"})
