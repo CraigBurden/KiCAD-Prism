@@ -29,11 +29,19 @@ fn members(project_file: &str, index: &mut SemanticIndexA2, occurrences: &mut Oc
         return;
     }
     let strip = |path: &mut String| *path = strip_directory(directory, path);
+    semantic_pages(index, &strip);
+    occurrence_pages(occurrences, &strip);
+}
+
+/// The semantic index's pages: net and component refs, sheet instances, buses.
+fn semantic_pages(index: &mut SemanticIndexA2, strip: &impl Fn(&mut String)) {
     for net in &mut index.nets {
-        for reference in &mut net.schematic_refs {
-            if let Some(page) = &mut reference.page {
-                strip(&mut page.0);
-            }
+        for page in net
+            .schematic_refs
+            .iter_mut()
+            .filter_map(|r| r.page.as_mut())
+        {
+            strip(&mut page.0);
         }
     }
     for component in &mut index.components {
@@ -48,12 +56,17 @@ fn members(project_file: &str, index: &mut SemanticIndexA2, occurrences: &mut Oc
         }
     }
     for bus in &mut index.buses {
-        match bus {
-            SemanticIndexBus::Wire(wire) => strip(&mut wire.page.0),
-            SemanticIndexBus::Entry(entry) => strip(&mut entry.page.0),
-            SemanticIndexBus::Alias(alias) => strip(&mut alias.page.0),
-        }
+        let page = match bus {
+            SemanticIndexBus::Wire(wire) => &mut wire.page,
+            SemanticIndexBus::Entry(entry) => &mut entry.page,
+            SemanticIndexBus::Alias(alias) => &mut alias.page,
+        };
+        strip(&mut page.0);
     }
+}
+
+/// The occurrences' symbol and footprint documents.
+fn occurrence_pages(occurrences: &mut OccurrencesA0, strip: &impl Fn(&mut String)) {
     for symbol in &mut occurrences.symbols {
         strip(&mut symbol.document_path.0);
     }
