@@ -13,6 +13,7 @@ use prism_kicad_core::{
     KiCadDesignFacts, KiCadDesignJsonPaths, KiCadDesignPcb, KiCadDesignSourcePath,
     KiCadNetlistLimits, PcbView, ProjectLimits, SchematicBundleIndex, SchematicBundleLimits,
     SourceBundle, SourceBundleLimits, build_kicad_design_facts, build_kicad_design_json,
+    build_kicad_design_semantic_inputs,
 };
 use serde_json::Value;
 
@@ -121,4 +122,14 @@ pub fn design_json(
     });
     build_kicad_design_json(index, facts, &paths(project, sheets), pcb, true)
         .map_err(|error| error.to_string())
+}
+
+/// The `components` and `nets` the semantic index reads, for a run that does
+/// not write `design.json` (`compare`): the same values [`design_json`]
+/// carries, without building the rest of it.
+pub fn semantic_inputs(
+    index: &SchematicBundleIndex,
+    facts: &KiCadDesignFacts<'_>,
+) -> Result<Value, String> {
+    build_kicad_design_semantic_inputs(index, facts).map_err(|error| error.to_string())
 }

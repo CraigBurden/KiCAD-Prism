@@ -3,7 +3,7 @@
 
 use super::design;
 use super::parse::Design;
-use crate::manifest::PROJECTIONS;
+use crate::manifest::{DESIGN_PATH, PROJECTIONS};
 use serde_json::Value;
 
 /// Every projection: its member path, schema id and producer, serialized.
@@ -77,10 +77,18 @@ pub(super) fn run(
                 }
             })
             .collect();
+        // A run that does not write `design.json` (`compare`) builds only the
+        // `components` and `nets` the semantic index reads; its failure is
+        // still reported as `design.json`'s.
+        let full = wanted(DESIGN_PATH);
         let design_json = design_inputs
             .filter(|_| semantic.is_some())
             .map(|(index, facts)| {
-                design::design_json(index, facts, &design.project, &design.sheets, design_board)
+                if full {
+                    design::design_json(index, facts, &design.project, &design.sheets, design_board)
+                } else {
+                    design::semantic_inputs(index, facts)
+                }
             });
         let with_design = prism_projections::ProjectionInput {
             design: design_json.as_ref().and_then(|built| built.as_ref().ok()),
@@ -97,6 +105,7 @@ pub(super) fn run(
                 None => None,
             })
             .collect();
+        let design_json = design_json.filter(|built| full || built.is_err());
         (design_json, results)
     })
 }

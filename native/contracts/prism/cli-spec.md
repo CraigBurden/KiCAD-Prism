@@ -593,7 +593,7 @@ This spec fixes only the process contract:
 
 - **Arguments.** Each side is a bundle or a source tree:
   - `--base <bundle.prism>` / `--head <bundle.prism>`: a stored bundle. The two may name the same file, which gives no changes.
-  - `--base-src <project.kicad_pro>` / `--head-src …`: a source tree, for a commit with no bundle yet. It takes `--<side>-revision-key <hex>` (required; the result's identity), and optionally `--<side>-source-root`, `--<side>-config` and `--<side>-upgraded <path>=<version>`, with `bundle build --stage parse`'s meaning. `compare` runs the parse stage's own code with only the five producers it reads (`board-objects`, `semantic-index`, `occurrences`, `stackup`, `route-metrics`), in memory: no archive, no deflate, no verify. A source tree and its bundle give the same result, apart from the side's `bundleKey`.
+  - `--base-src <project.kicad_pro>` / `--head-src …`: a source tree, for a commit with no bundle yet. It takes `--<side>-revision-key <hex>` (required; the result's identity), and optionally `--<side>-source-root`, `--<side>-config` and `--<side>-upgraded <path>=<version>`, with `bundle build --stage parse`'s meaning. `compare` runs the parse stage's own code with only the five producers it reads (`board-objects`, `semantic-index`, `occurrences`, `stackup`, `route-metrics`), in memory: no archive, no deflate, no verify. Of `design.json` it builds only the `components` and `nets` the semantic index reads. A source tree and its bundle give the same result, apart from the side's `bundleKey`.
   - `--include-unchanged` lists unchanged BOM rows too.
   - `-o <result.json>` is required.
 - **Checks, in order.**
