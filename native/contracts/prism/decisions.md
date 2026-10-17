@@ -185,3 +185,13 @@ The maintainer decided (`docs/architecture/adr-native-design-bundle-amendment-c3
 7. **Scope fingerprint:** hashes an a0-compatible view of the semantic index (closes field-map semantic-index D8).
 8. **No testpoint-only board and no viewport workaround:** `artwork` selects footprints and applies the canvas itself.
 9. **`placements` a1** adds the board's aux axis origin, which the vendor placement files need.
+
+## What the user sees, amendment U (2026-10-17)
+
+Rationale in `docs/architecture/adr-native-design-bundle-amendment-u.md`. Decided by the maintainer:
+
+1. **Parity is what the user sees.** Byte stability stays only where a machine reads the output (ecad-viewer's input, member determinism, `compare`'s two modes, prism-sim-studio's formats, vendor files). Every other difference must be invisible or a reviewed improvement, listed in `native/parity/divergences/<consumer>.md`. Legacy quirks are not reproduced. References that already match byte for byte stay.
+2. **Budgets per journey** (U §3.2). Performance work stops when a journey's budgets are met.
+3. **Warm by default** (U §3.3). Background stage-`parse` builds after each sync, and reuse of a stored bundle by its read set through an alias table. `prism.revision_key.a1` is unchanged. This supersedes C2r's Q3 ("bundles on push: not part of C2"). New WP-K2.
+4. **Every consumer migrates.** The wave plan is unchanged.
+5. **Typed values inside Rust.** Producers return typed values; `compare` reads them directly in source-tree mode. Members stay JSON, byte for byte.

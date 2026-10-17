@@ -1,6 +1,6 @@
 # ADR: Prism-native KiCad parser and the design bundle
 
-- **Status:** Accepted (2026-10-16); amended 2026-10-17 (C2, [`adr-native-design-bundle-amendment-c2.md`](adr-native-design-bundle-amendment-c2.md); C2r, [`adr-native-design-bundle-amendment-c2r.md`](adr-native-design-bundle-amendment-c2r.md); C3, [`adr-native-design-bundle-amendment-c3.md`](adr-native-design-bundle-amendment-c3.md))
+- **Status:** Accepted (2026-10-16); amended 2026-10-17 (C2, [`adr-native-design-bundle-amendment-c2.md`](adr-native-design-bundle-amendment-c2.md); C2r, [`adr-native-design-bundle-amendment-c2r.md`](adr-native-design-bundle-amendment-c2r.md); C3, [`adr-native-design-bundle-amendment-c3.md`](adr-native-design-bundle-amendment-c3.md); U, [`adr-native-design-bundle-amendment-u.md`](adr-native-design-bundle-amendment-u.md))
 - **Deciders:** Prism maintainers
 - **Supersedes:** the per-feature KiCad loading described in `docs/plans/kicad-monkey-*.md`
 - **Reference branch:** `feature/analytic-pack-spike` (analytic 3D tab, Simulation Studio, `board.prism` a1). It is reference only: code may be copied from it, it is never merged.
@@ -225,13 +225,13 @@ The Python topology compiler's viewer assets are not bundle members. The mesh 3D
   - the corpus: the projects on the developer instance (EDA-04903 and 7 others), System Builder's fixture systems, and Release Studio's fixtures;
   - the committed demo fixtures;
   - public KiCad projects whose licences allow it. The kicad_cruncher test projects' licences are checked in F0 before use.
-- **Comparison rules:**
+- **Comparison rules** (superseded for new and unmerged work by amendment U §3.1: parity means what the user sees; byte stability only where a machine reads the output):
   - JSON value equality after removing each contract's documented non-semantic fields: objects compare as key sets (absent differs from `null`), arrays in order, numbers as IEEE-754 doubles, strings by code point. A documented divergence (`native/parity/divergences.md`) may be accepted;
   - every divergence names the case, why the new output is right, and which consumer is affected.
 - **KiCad oracle:** `kicad-cli sch export netlist` and `pcb export stats` on the same corpus check nets and counts against KiCad itself, not only against Prism's previous output.
 - **CI:** committed fixtures run on every PR (`native-parity` job). The full corpus is a nightly or local job, because private projects are not committed.
 - **Determinism:** the same inputs give a byte-identical bundle (fixed timestamps, sorted members, stable maps). A test builds twice and compares. KiCad-produced members are canonicalized by `prism-kicad` (the GLB's wall-clock `asset.extras.generated_at` is fixed, cli-spec.md §5.2.4); the refill and GLB procedures are pinned in the generator id. Parse-stage JSON members are also byte-identical across linux arm64, linux amd64 and macOS builds; `board.kmpack` is byte-identical only for the same binary on the same architecture.
-- **Budgets** (EDA-04903, 57 MB board, in the worker image):
+- **Budgets** (superseded by amendment U §3.2, which sets a budget per user journey; EDA-04903, 57 MB board, in the worker image):
   - stage `parse`: ≤ 30 s, peak ≤ 1.5 GB;
   - the index projection alone: ≤ 5 s.
   - The API process never parses a KiCad file (WP-X).
@@ -251,6 +251,7 @@ A consumer's flag flips to `bundle` by default in the PR that proves its parity.
 
 **First deploy:**
 - Bundles are built lazily on demand, plus a paced backfill of branch heads (one `design_bundle` slot). This replaces the cliff of every project rebuilding at once.
+- After each sync, stage `parse` is also built in the background for the new commits of tracked branches, and a new revision key reuses a stored bundle whose read set it leaves unchanged (amendment U §3.3, WP-K2).
 - The old stores are removed by WP-R4 once their consumers are on bundles:
   - `semantic-index/` and `semantic-visualizer/`;
   - the Design Comparison revision cache;
@@ -396,18 +397,19 @@ Every P-WP owns one module `native/src/rs/prism-projections/src/<name>.rs`, its 
 5. No Python bindings. The MCP server will call `prism-kicad`.
 6. `wn-geometer` and the Geometer C SDK remain pinned external dependencies. Replacing them is out of scope.
 7. Design Comparison is computed in Rust (`prism-kicad compare`), from bundles or source trees; ecad-viewer's input format is unchanged (amendment C2r, [`adr-native-design-bundle-amendment-c2r.md`](adr-native-design-bundle-amendment-c2r.md), revising C2).
+8. Parity is what the user sees; each user journey has a budget and performance work stops when it is met; bundles are warm by default; Rust passes typed values internally and writes JSON only at the file boundary; every consumer migrates (amendment U, [`adr-native-design-bundle-amendment-u.md`](adr-native-design-bundle-amendment-u.md)).
 
 ## 11. Risks and gaps found in review
 
 | # | Gap | Resolution in this ADR |
 |---|---|---|
-| G1 | A full bundle per commit (refill, materialize, GLB) would make the first Design Comparison of two cold commits slower than today's schematic-only work | staged readiness (§4.4): comparison needs stage `parse` only. Measured on EDA-04903 this was not enough (C2r §1.2); resolved by `compare`'s source-tree mode and a faster parse stage, gated by C2r §5 |
-| G2 | Bundles store sources and the refilled board, duplicating git objects. Per-commit bundles for comparisons grow storage. | deflated members, retention by use (§5), sizes reported by K; revisit storing `sources/` by blob reference if growth matters |
+| G1 | A full bundle per commit (refill, materialize, GLB) would make the first Design Comparison of two cold commits slower than today's schematic-only work | staged readiness (§4.4): comparison needs stage `parse` only. Measured on EDA-04903 this was not enough (C2r §1.2); resolved by `compare`'s source-tree mode and a faster parse stage, gated by C2r §5. Amendment U §3.3 adds background parse-stage builds and reuse by read set, so most comparisons find both bundles stored. |
+| G2 | Bundles store sources and the refilled board, duplicating git objects. Per-commit bundles for comparisons grow storage. | deflated members, retention by use (§5), sizes reported by K; revisit storing `sources/` by blob reference if growth matters. Reuse by read set (amendment U §3.3) also stops commits that do not touch a project from adding bundles for it. |
 | G3 | 3D models resolve through `KICAD*_3DMODEL_DIR` (KiCad's stock library in the image) as well as from the repository | the repository's model files are in the revision key; the stock library is pinned by the KiCad version in the generator id |
 | G4 | LFS files and gitlinks (submodules) | source materialization reuses Release Studio's closure handling (LFS hydration, gitlinks). Prism's sync initializes submodules recursively and fetches LFS objects (K); the worker image has `git-lfs` (L; it has none today). A design source that cannot be materialized blocks the bundle and the job retries; an unavailable 3D model does not: it is recorded as `model-unavailable` and the GLB is built without it (example: Openswitch's models in an uninitialized `kicad-libraries` submodule) |
 | G5 | Multi-project repositories share files and libraries | the key includes the project anchor; bundles are per project |
 | G6 | Settings stored in Prism's database override the committed `.prism.json` and change which files are the project | the effective configuration is part of the revision key and recorded in the manifest |
-| G7 | First deploy would rebuild every project at once | lazy builds plus a paced backfill (§8) |
+| G7 | First deploy would rebuild every project at once | lazy builds plus a paced backfill (§8). The background prebuild after sync (amendment U §3.3) is paced through the same slot. |
 | G8 | Bundles are built from untrusted repositories | parser limits (already in the core), a per-build timeout and memory cap in the CLI spec, zip path checks on read; a fuzzing target is follow-up work |
 | G9 | The identity endpoint's schema changes (a0 → a1, additive) | frontend types updated in C1; ETag includes the generator id |
 | G10 | A Rust workspace of this size lengthens image builds and CI | cached dependency layers in the Dockerfile; `native` CI jobs run only when `native/` changes |
