@@ -50,6 +50,7 @@ Measured on the 33 committed fixtures (32 goldens; `dv-malformed` has none, see 
 ## D11. Documents outside the closure
 
 - Today: every parsed kind under the project directory. Bundle: the project's closure.
+- Implemented in K2a: before it, the producer took every document of the repository-wide source set.
 - Fixtures: every listed document is the anchor's `.kicad_pro`/`.kicad_pcb`/`.kicad_dru` or a schematic reachable from the root sheet; 0 outside the closure. Runner: nothing.
 
 ## D13. Repository-relative paths

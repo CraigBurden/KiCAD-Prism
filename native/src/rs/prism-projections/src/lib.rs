@@ -81,14 +81,27 @@ use std::sync::{Arc, OnceLock};
 
 /// The source set stage parse may read: every file under the source root that
 /// the revision key's name rules select, minus the excluded directories.
+///
+/// A producer asks for exactly what it needs through these three queries
+/// (ADR amendment K2 §3.1), never for the set as a whole: a successful [`read`]
+/// becomes a `sources/` member, a miss or an [`exists`] is a *probe*, and every
+/// [`list`] is a *listing*. Stage parse records all three so a bundle's read
+/// set is exact.
+///
+/// [`read`]: Sources::read
+/// [`exists`]: Sources::exists
+/// [`list`]: Sources::list
 pub trait Sources: Sync {
-    /// Repository paths of every file in the source set, in code point order.
-    fn paths(&self) -> Vec<String>;
+    /// The bytes of `path`, shared, or `None` when it is not in the source set.
+    fn read(&self, path: &str) -> Option<Arc<[u8]>>;
 
-    /// The bytes of the source-set file at repository path `path`, or `None`
-    /// when no such file is in the source set. Reading a file makes it a
-    /// `sources/` member of the bundle.
-    fn read(&self, path: &str) -> Option<Vec<u8>>;
+    /// Whether `path` is in the source set.
+    fn exists(&self, path: &str) -> bool;
+
+    /// The source-set paths under `dir` (`""` = the repository root), at any
+    /// depth, whose lowered name ends with one of `suffixes` (any name when
+    /// empty), in code point order.
+    fn list(&self, dir: &str, suffixes: &[&str]) -> Vec<String>;
 }
 
 /// The project file.
@@ -256,12 +269,60 @@ pub(crate) mod test_support {
     pub struct NoSources;
 
     impl Sources for NoSources {
-        fn paths(&self) -> Vec<String> {
-            Vec::new()
+        fn read(&self, _path: &str) -> Option<Arc<[u8]>> {
+            None
         }
 
-        fn read(&self, _path: &str) -> Option<Vec<u8>> {
+        fn exists(&self, _path: &str) -> bool {
+            false
+        }
+
+        fn list(&self, _dir: &str, _suffixes: &[&str]) -> Vec<String> {
+            Vec::new()
+        }
+    }
+
+    /// A test source set over a fixed list of repository paths. It reads no
+    /// bytes (a test that needs bytes builds them in), but answers `exists` and
+    /// `list` like [`crate::Sources`]'s contract.
+    #[derive(Default)]
+    pub struct SetSources(pub std::collections::BTreeSet<String>);
+
+    impl SetSources {
+        /// The set of `paths`.
+        pub fn of(paths: &[&str]) -> Self {
+            Self(paths.iter().map(|path| (*path).to_owned()).collect())
+        }
+    }
+
+    impl Sources for SetSources {
+        fn read(&self, _path: &str) -> Option<Arc<[u8]>> {
             None
+        }
+
+        fn exists(&self, path: &str) -> bool {
+            self.0.contains(path)
+        }
+
+        fn list(&self, dir: &str, suffixes: &[&str]) -> Vec<String> {
+            let prefix = if dir.is_empty() {
+                String::new()
+            } else {
+                format!("{dir}/")
+            };
+            let suffixes: Vec<String> = suffixes.iter().map(|s| s.to_ascii_lowercase()).collect();
+            self.0
+                .range(prefix.clone()..)
+                .take_while(|path| path.starts_with(&prefix))
+                .filter(|path| {
+                    suffixes.is_empty() || {
+                        let name = path.rsplit('/').next().unwrap_or(path);
+                        let lowered = name.to_ascii_lowercase();
+                        suffixes.iter().any(|suffix| lowered.ends_with(suffix))
+                    }
+                })
+                .cloned()
+                .collect()
         }
     }
 

@@ -326,7 +326,9 @@ impl Builder {
 
 /// `_read_text` (`variant_catalog_service.py:53-57`): UTF-8 only, else `None`.
 fn read_text(sources: &dyn Sources, path: &str) -> Option<String> {
-    String::from_utf8(sources.read(path)?).ok()
+    std::str::from_utf8(&sources.read(path)?)
+        .ok()
+        .map(str::to_owned)
 }
 
 /// The parent directory of a repository path, `""` at the root.

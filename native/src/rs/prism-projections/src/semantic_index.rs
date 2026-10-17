@@ -57,7 +57,7 @@ pub fn produce(input: &ProjectionInput<'_>) -> Result<Produced<SemanticIndexA1>,
     };
     let mut state = State::default();
     let placements = sheets::project(input, schematic, &mut state)?;
-    let source_fields = fields::scan(input, schematic)?;
+    let source_fields = fields::scan(schematic)?;
     components::project(design, &source_fields, &mut state);
     nets::project(design, &placements, &mut state);
     if let Some(board) = input.board {

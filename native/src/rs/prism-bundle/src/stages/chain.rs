@@ -28,7 +28,7 @@ impl Input {
         self.members
             .iter()
             .find(|member| member.path == path)
-            .map(|member| member.bytes.as_slice())
+            .map(|member| member.bytes.as_ref())
     }
 }
 
@@ -53,7 +53,7 @@ pub fn load<R: ReadAt>(reader: &BundleReader<R>) -> Outcome<Input> {
         members.push(MemberData {
             path: record.path.0.clone(),
             role: record.role,
-            bytes,
+            bytes: std::sync::Arc::from(bytes),
             schema: record.member_schema.as_ref().map(|schema| schema.0.clone()),
             source: record.source.clone(),
         });

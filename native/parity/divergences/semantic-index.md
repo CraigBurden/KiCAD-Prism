@@ -62,3 +62,12 @@ No divergence makes a correct P1 output differ from the golden on a committed fi
 - Fixtures: every committed fixture has `project_dir == ""`, so this is the identity (28 goldens equal W0's value for value; see the capture report).
 - Checked on a copy of `design_variants/oracle` placed under `hw/`: 5 `page`, 4 `parentPage` and 5 `sheetInstanceUid` values change, and nothing else does.
 - Runner: nothing to do.
+
+## D10. Field scan over the reached schematics
+
+- Today: every `.kicad_sch` under the project directory, later files overwriting earlier ones by symbol UUID.
+- Bundle: the root schematic and the sheets it reaches.
+- Why: an unreached copy of a sheet (backup, old revision) is not the design.
+- Consumer: component fields in the semantic index and the BOM.
+- Fixtures: no committed fixture has an unreached schematic copy (`board-objects.md` D11: 0 documents outside the closure on all 33), so every golden is unchanged. The 21 C2r bundle-gate trees build byte-identical archives with and without this change.
+- Runner: nothing to do.

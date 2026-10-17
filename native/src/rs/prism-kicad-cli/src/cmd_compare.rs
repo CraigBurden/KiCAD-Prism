@@ -31,6 +31,7 @@ use serde_json::{Value, json};
 use std::collections::BTreeMap;
 use std::io::{BufWriter, Write};
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 const BOARD_OBJECTS: &str = "projections/board-objects.json";
 const SEMANTIC_INDEX: &str = "projections/semantic-index.json";
@@ -56,8 +57,8 @@ struct Side {
     name: &'static str,
     generator: Vec<u8>,
     identity: RevisionIdentity,
-    members: BTreeMap<&'static str, Vec<u8>>,
-    prism_settings: Option<Vec<u8>>,
+    members: BTreeMap<&'static str, Arc<[u8]>>,
+    prism_settings: Option<Arc<[u8]>>,
     sources: Vec<String>,
 }
 
@@ -123,7 +124,7 @@ fn open_bundle(path: &Path, limits: &Limits, side: &'static str) -> Outcome<Side
         match reader.member(member) {
             None => {}
             Some(Ok(bytes)) => {
-                members.insert(member, bytes);
+                members.insert(member, Arc::from(bytes));
             }
             Some(Err(finding)) => return Err(member_invalid(finding, side)),
         }
@@ -144,7 +145,7 @@ fn open_bundle(path: &Path, limits: &Limits, side: &'static str) -> Outcome<Side
     let project_file = manifest.config.project_file.as_str().to_owned();
     let settings_path = format!("sources/{}", settings_path(&project_file));
     let prism_settings = match reader.member(&settings_path) {
-        Some(Ok(bytes)) => Some(bytes),
+        Some(Ok(bytes)) => Some(Arc::from(bytes)),
         Some(Err(finding)) => return Err(member_invalid(finding, side)),
         None => None,
     };
@@ -190,7 +191,7 @@ fn member_invalid(finding: Finding, side: &'static str) -> Failure {
 /// or `partial` without it among `failed_members` (exit 7, `member-not-found`).
 fn require_members(
     manifest: &Manifest,
-    members: &BTreeMap<&'static str, Vec<u8>>,
+    members: &BTreeMap<&'static str, Arc<[u8]>>,
     listed: impl Fn(&str) -> bool,
     side: &'static str,
 ) -> Outcome<()> {
@@ -252,12 +253,12 @@ fn open_source(args: &Args, side: &'static str, stderr: &Stderr) -> Outcome<Side
             .argument(side_source(side)));
         }
     };
-    let mut by_path: BTreeMap<String, Vec<u8>> = built
+    let mut by_path: BTreeMap<String, Arc<[u8]>> = built
         .members
         .into_iter()
         .map(|member| (member.path, member.bytes))
         .collect();
-    let members: BTreeMap<&'static str, Vec<u8>> = MEMBERS
+    let members: BTreeMap<&'static str, Arc<[u8]>> = MEMBERS
         .iter()
         .filter_map(|member| by_path.remove(*member).map(|bytes| (*member, bytes)))
         .collect();

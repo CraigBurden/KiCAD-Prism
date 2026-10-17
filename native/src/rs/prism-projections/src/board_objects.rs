@@ -2,9 +2,12 @@
 //! rules for every field are in `native/contracts/prism/field-maps/board-objects.md`;
 //! it replaces today's Node object index (`backend/design-compare-parser/ecad-parse.mjs`).
 //!
-//! Every `.kicad_sch`, `.kicad_pcb`, `.kicad_pro` and `.kicad_dru` of the
-//! bundle's source set becomes one `documents[]` entry, keyed by its
-//! repository-relative path and sorted by path. Each document is tokenized
+//! Every document of the project's own closure becomes one `documents[]`
+//! entry, keyed by its repository-relative path and sorted by path: the
+//! project file, the `.kicad_dru` beside it (absent is fine), the board, and
+//! the schematics the root schematic reaches (`SchematicModel::bundle`).
+//! Another project's files, and a schematic the design never reaches, are not
+//! this project's documents (divergence D11). Each document is tokenized
 //! once ([`tree`]); the same tree gives the objects, the file order and every
 //! "as written" value, and [`digest`] gives each object's `contentDigest`.
 //! Review-only settings objects come from [`review`]. A document that cannot
@@ -20,9 +23,10 @@ mod schematic;
 mod tree;
 mod units;
 
-use crate::{Produced, ProducerWarning, ProjectionError, ProjectionInput};
+use crate::{Produced, ProducerWarning, ProjectionError, ProjectionInput, SchematicModel};
 use prism_kicad_contracts::generated::prism_board_objects_a0 as bo;
 use prism_kicad_contracts::generated::prism_board_objects_a0::BoardObjectsA0;
+use prism_kicad_contracts::generated::source_bundle_manifest::SourceKind;
 
 /// The member's schema id.
 pub const SCHEMA: &str = "prism.board_objects.a0";
@@ -36,7 +40,7 @@ pub const SCHEMA: &str = "prism.board_objects.a0";
 pub fn produce(input: &ProjectionInput<'_>) -> Result<Produced<BoardObjectsA0>, ProjectionError> {
     let mut warnings = Vec::new();
     let mut documents: Vec<bo::BoardObjectsDocument> = Vec::new();
-    for path in input.sources.paths() {
+    for path in project_documents(input.schematic, input) {
         let Some(kind) = DocumentKind::of(&path) else {
             continue;
         };
@@ -64,6 +68,52 @@ pub fn produce(input: &ProjectionInput<'_>) -> Result<Produced<BoardObjectsA0>, 
             documents,
         },
         warnings,
+    })
+}
+
+/// The project's documents, in code point order without duplicates: the
+/// project file, the `.kicad_dru` beside it, the board, and the reached
+/// schematics. The schematic model lists the reached schematics; without it,
+/// `config.root_schematic` stands in alone (ADR amendment K2 §3.2).
+fn project_documents(
+    schematic: Option<&SchematicModel<'_>>,
+    input: &ProjectionInput<'_>,
+) -> Vec<String> {
+    let mut paths: Vec<String> = vec![input.config.project_file.0.clone()];
+    if let Some(rules) = design_rules_path(&input.config.project_file.0) {
+        paths.push(rules);
+    }
+    if let Some(board) = &input.config.board {
+        paths.push(board.0.clone());
+    }
+    match schematic {
+        Some(model) => {
+            for source in model.bundle.sources() {
+                if source.kind() == SourceKind::Schematic {
+                    paths.push(source.path().to_owned());
+                }
+            }
+        }
+        None => {
+            if let Some(root) = &input.config.root_schematic {
+                paths.push(root.0.clone());
+            }
+        }
+    }
+    paths.sort();
+    paths.dedup();
+    paths
+}
+
+/// The design-rules file beside the project file, the one `read_companions`
+/// reads in stage parse (`<project dir>/<stem>.kicad_dru`).
+fn design_rules_path(project_file: &str) -> Option<String> {
+    let (dir, name) = project_file.rsplit_once('/').unwrap_or(("", project_file));
+    let stem = name.strip_suffix(".kicad_pro")?;
+    Some(if dir.is_empty() {
+        format!("{stem}.kicad_dru")
+    } else {
+        format!("{dir}/{stem}.kicad_dru")
     })
 }
 
@@ -161,6 +211,30 @@ fn unreadable(path: &str) -> ProducerWarning {
 
 #[cfg(test)]
 mod tests {
+    use super::*;
+    use crate::{ProjectModel, Sources};
+    use prism_kicad_contracts::generated::prism_revision_key_effective_config_a1::RevisionKeyEffectiveConfigA1;
+    use prism_kicad_core::ProjectDocument;
+    use std::collections::BTreeMap;
+    use std::sync::Arc;
+
+    /// A source set that serves the bytes it holds.
+    struct MapSources(BTreeMap<String, Vec<u8>>);
+
+    impl Sources for MapSources {
+        fn read(&self, path: &str) -> Option<Arc<[u8]>> {
+            self.0.get(path).map(|bytes| Arc::from(bytes.as_slice()))
+        }
+
+        fn exists(&self, path: &str) -> bool {
+            self.0.contains_key(path)
+        }
+
+        fn list(&self, _dir: &str, _suffixes: &[&str]) -> Vec<String> {
+            Vec::new()
+        }
+    }
+
     #[test]
     fn the_empty_form_decodes() {
         crate::test_support::with_bare_project(|input| {
@@ -169,5 +243,59 @@ mod tests {
             assert_eq!(value["schema"], super::SCHEMA);
             assert_eq!(value["documents"].as_array().unwrap().len(), 0);
         });
+    }
+
+    #[test]
+    fn only_the_anchors_documents_are_emitted() {
+        let config: RevisionKeyEffectiveConfigA1 = serde_json::from_value(serde_json::json!({
+            "schema": "prism.revision_key.effective_config.a1",
+            "project_file": "proj/a.kicad_pro",
+            "root_schematic": "proj/a.kicad_sch",
+            "board": "proj/a.kicad_pcb",
+            "excluded_dirs": [],
+        }))
+        .unwrap();
+        let board = b"(kicad_pcb (version 20240101))";
+        let sources = MapSources(BTreeMap::from([
+            ("proj/a.kicad_pro".to_owned(), b"{}".to_vec()),
+            ("proj/a.kicad_pcb".to_owned(), board.to_vec()),
+            (
+                "proj/a.kicad_sch".to_owned(),
+                b"(kicad_sch (version 20240101))".to_vec(),
+            ),
+            ("proj/b.kicad_pro".to_owned(), b"{}".to_vec()),
+            ("proj/b.kicad_pcb".to_owned(), board.to_vec()),
+            (
+                "proj/b.kicad_sch".to_owned(),
+                b"(kicad_sch (version 20240101))".to_vec(),
+            ),
+        ]));
+        let text = "{}";
+        let document = ProjectDocument::parse(text.to_owned(), Default::default()).unwrap();
+        let project = ProjectModel {
+            path: "proj/a.kicad_pro",
+            text,
+            document: &document,
+        };
+        let input = ProjectionInput {
+            config: &config,
+            revision_key: None,
+            sources: &sources,
+            project: &project,
+            schematic: None,
+            board: None,
+            design: None,
+        };
+        let produced = super::produce(&input).unwrap();
+        let paths: Vec<&str> = produced
+            .document
+            .documents
+            .iter()
+            .map(|document| document.path.0.as_str())
+            .collect();
+        assert_eq!(
+            paths,
+            ["proj/a.kicad_pcb", "proj/a.kicad_pro", "proj/a.kicad_sch"]
+        );
     }
 }

@@ -31,6 +31,7 @@ use crate::limits::Limits;
 use crate::manifest::{MANIFEST_PATH, Manifest, Role, Stage, a2, to_bytes};
 use crate::zip::{WriteError, ZipWriter};
 use std::io::Write;
+use std::sync::Arc;
 
 /// Where progress and findings go while a stage runs (stderr, in the CLI).
 pub trait Reporter {
@@ -79,8 +80,8 @@ pub struct MemberData {
     pub path: String,
     /// Role.
     pub role: Role,
-    /// Uncompressed bytes.
-    pub bytes: Vec<u8>,
+    /// Uncompressed bytes, shared with every reader that produced them.
+    pub bytes: Arc<[u8]>,
     /// `member_schema`, for structured members.
     pub schema: Option<String>,
     /// The key entry of a source member.
