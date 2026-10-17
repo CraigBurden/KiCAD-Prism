@@ -100,7 +100,7 @@ prism-kicad compare --base-src <project.kicad_pro> --head-src <project.kicad_pro
   - `counts` and `diagnostics`.
 - **`prism.kicad_project_diff.v1`** (root `KiCadProjectDiffBundleV1`), typing ecad-viewer's input exactly as `types.ts:280-338` and `ecad-viewer.d.ts` define it today. It is a mirror contract: its spelling is ecad-viewer's, and a change to it is an ecad-viewer change.
 - A field map, `field-maps/design-compare.md`, maps each of today's `DesignCompareResult` fields (`types.ts:412-437`) to the new contract or records its removal.
-- `prism.compare.object_delta.a0` and `CompareObjectDeltaA0` are removed. `CliCompareResultA0` gets the new counts.
+- `prism.compare.object_delta.a0` and `CompareObjectDeltaA0` are removed, and `CliCompareResultA0` gets the new counts, by the pull request that switches `compare` to the new output (§9 step 4): today's engine is built on their generated types.
 
 ## 5. Parity and acceptance
 
