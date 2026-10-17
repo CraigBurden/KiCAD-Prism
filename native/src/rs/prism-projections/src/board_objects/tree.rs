@@ -13,24 +13,31 @@
 //! (digest reader, `board_objects_sexpr.mjs:31-38`); every other escape keeps
 //! its character, as `listify` does (`kicad-sexpr-parser.mjs:97-119`). Neither
 //! difference occurs in a KiCad file Prism parses.
+//!
+//! Every node borrows the source document: an unquoted token is a `&str` slice
+//! of it, and a quoted string is a slice too unless it carries an escape (then
+//! it is the one decoded `String`). A parse therefore allocates only the
+//! per-list child vectors, never one owned token text per token.
+
+use std::borrow::Cow;
 
 /// One s-expression node. Lists carry the byte offset of their opening
 /// parenthesis so objects can be ordered in file order (field map, document
 /// `objects` order).
 #[derive(Clone, Debug, PartialEq)]
-pub enum Node {
+pub enum Node<'a> {
     /// A parenthesized list, with the byte offset of its `(`.
-    List { items: Vec<Node>, start: usize },
-    /// An unquoted token, exactly as written.
-    Atom(String),
-    /// A quoted string after escape decoding.
-    Str(String),
+    List { items: Vec<Node<'a>>, start: usize },
+    /// An unquoted token, a slice of the source, exactly as written.
+    Atom(&'a str),
+    /// A quoted string after escape decoding (borrowed when it has no escape).
+    Str(Cow<'a, str>),
 }
 
-impl Node {
+impl<'a> Node<'a> {
     /// The list's items, or `None` for a leaf.
     #[must_use]
-    pub fn items(&self) -> Option<&[Node]> {
+    pub fn items(&self) -> Option<&[Node<'a>]> {
         match self {
             Node::List { items, .. } => Some(items),
             _ => None,
@@ -50,7 +57,8 @@ impl Node {
     #[must_use]
     pub fn text(&self) -> Option<&str> {
         match self {
-            Node::Atom(text) | Node::Str(text) => Some(text),
+            Node::Atom(text) => Some(text),
+            Node::Str(text) => Some(text.as_ref()),
             Node::List { .. } => None,
         }
     }
@@ -69,7 +77,7 @@ impl Node {
     }
 
     /// The direct child lists whose head is `name`, in file order.
-    pub fn children<'a>(&'a self, name: &'a str) -> impl Iterator<Item = &'a Node> + 'a {
+    pub fn children<'t>(&'t self, name: &'t str) -> impl Iterator<Item = &'t Node<'a>> + 't {
         self.items()
             .into_iter()
             .flatten()
@@ -78,7 +86,7 @@ impl Node {
 
     /// The first direct child list whose head is `name`.
     #[must_use]
-    pub fn child(&self, name: &str) -> Option<&Node> {
+    pub fn child(&self, name: &str) -> Option<&Node<'a>> {
         self.items()?
             .iter()
             .find(|child| child.head() == Some(name))
@@ -86,7 +94,7 @@ impl Node {
 
     /// The list elements after the head, as a slice.
     #[must_use]
-    pub fn rest(&self) -> &[Node] {
+    pub fn rest(&self) -> &[Node<'a>] {
         self.items().map_or(
             &[],
             |items| {
@@ -97,17 +105,17 @@ impl Node {
 }
 
 /// Parse `text` into its top-level forms, tolerating unbalanced parentheses
-/// as both reference readers do.
+/// as both reference readers do. The nodes borrow `text`.
 #[must_use]
-pub fn parse(text: &str) -> Vec<Node> {
+pub fn parse(text: &str) -> Vec<Node<'_>> {
     let bytes = text.as_bytes();
-    let mut roots: Vec<Node> = Vec::new();
-    let mut stack: Vec<(usize, Vec<Node>)> = Vec::new();
+    let mut roots: Vec<Node> = Vec::with_capacity(4);
+    let mut stack: Vec<(usize, Vec<Node>)> = Vec::with_capacity(16);
     let mut index = 0usize;
     while index < bytes.len() {
         match bytes[index] {
             b'(' => {
-                stack.push((index, Vec::new()));
+                stack.push((index, Vec::with_capacity(4)));
                 index += 1;
             }
             b')' => {
@@ -133,18 +141,14 @@ pub fn parse(text: &str) -> Vec<Node> {
                 {
                     index += 1;
                 }
-                push(
-                    &mut roots,
-                    &mut stack,
-                    Node::Atom(text[start..index].to_owned()),
-                );
+                push(&mut roots, &mut stack, Node::Atom(&text[start..index]));
             }
         }
     }
     roots
 }
 
-fn push(roots: &mut Vec<Node>, stack: &mut [(usize, Vec<Node>)], node: Node) {
+fn push<'a>(roots: &mut Vec<Node<'a>>, stack: &mut [(usize, Vec<Node<'a>>)], node: Node<'a>) {
     if let Some((_, items)) = stack.last_mut() {
         items.push(node);
     } else {
@@ -153,14 +157,46 @@ fn push(roots: &mut Vec<Node>, stack: &mut [(usize, Vec<Node>)], node: Node) {
 }
 
 /// Read a quoted string starting after the opening quote at `start`; returns
-/// the decoded value and the index just past the closing quote.
-fn read_string(text: &str, start: usize) -> (String, usize) {
+/// the decoded value and the index just past the closing quote. A string with
+/// no backslash escape is borrowed from `text`; one with an escape is decoded
+/// into an owned `String`.
+fn read_string(text: &str, start: usize) -> (Cow<'_, str>, usize) {
+    let (end, escaped) = scan_string(text, start);
+    if escaped {
+        return decode_string(text, start, end);
+    }
+    let next = if end < text.len() { end + 1 } else { end };
+    (Cow::Borrowed(&text[start..end]), next)
+}
+
+/// The index of the closing quote (or the end of the text) and whether a
+/// backslash escape was seen before it.
+fn scan_string(text: &str, start: usize) -> (usize, bool) {
     let bytes = text.as_bytes();
-    let mut out = String::new();
+    let mut index = start;
+    let mut escaped = false;
+    while index < bytes.len() {
+        match bytes[index] {
+            b'"' => break,
+            b'\\' => {
+                escaped = true;
+                index += usize::from(index + 1 < bytes.len());
+            }
+            _ => {}
+        }
+        index += 1;
+    }
+    (index, escaped)
+}
+
+/// Decode a quoted string that carries at least one escape.
+fn decode_string(text: &str, start: usize, end: usize) -> (Cow<'_, str>, usize) {
+    let bytes = text.as_bytes();
+    let mut out = String::with_capacity(end.saturating_sub(start));
     let mut index = start;
     while index < bytes.len() {
         match bytes[index] {
-            b'"' => return (out, index + 1),
+            b'"' => return (Cow::Owned(out), index + 1),
             b'\\' if index + 1 < bytes.len() => {
                 let next = bytes[index + 1];
                 match next {
@@ -178,7 +214,7 @@ fn read_string(text: &str, start: usize) -> (String, usize) {
             }
         }
     }
-    (out, index)
+    (Cow::Owned(out), index)
 }
 
 /// Where an s-expression file's lists do not balance, as the fork's reader
@@ -285,7 +321,7 @@ fn parse_hex(text: &str) -> Option<f64> {
 
 /// The leaf text at `index` of a form, if it is not a list (`scalar_child`).
 #[must_use]
-pub fn text_at(form: &Node, index: usize) -> Option<String> {
+pub fn text_at(form: &Node<'_>, index: usize) -> Option<String> {
     form.items()
         .and_then(|items| items.get(index))
         .and_then(Node::text)
@@ -294,7 +330,7 @@ pub fn text_at(form: &Node, index: usize) -> Option<String> {
 
 /// The `item[1]` text of the first child list with head `head`.
 #[must_use]
-pub fn child_text(form: &Node, head: &str) -> Option<String> {
+pub fn child_text(form: &Node<'_>, head: &str) -> Option<String> {
     form.child(head)
         .and_then(|child| child.items())
         .and_then(|items| items.get(1))
@@ -304,26 +340,26 @@ pub fn child_text(form: &Node, head: &str) -> Option<String> {
 
 /// The numeric value at `index` of a form, if it is a number.
 #[must_use]
-pub fn number_at(form: &Node, index: usize) -> Option<f64> {
+pub fn number_at(form: &Node<'_>, index: usize) -> Option<f64> {
     text_at(form, index).and_then(|text| number(&text))
 }
 
 /// The numeric `item[1]` of the first child list with head `head`.
 #[must_use]
-pub fn child_number(form: &Node, head: &str) -> Option<f64> {
+pub fn child_number(form: &Node<'_>, head: &str) -> Option<f64> {
     child_text(form, head).and_then(|text| number(&text))
 }
 
 /// The items of the first child list with head `head`.
 #[must_use]
-pub fn child_items<'a>(form: &'a Node, head: &str) -> Option<&'a [Node]> {
+pub fn child_items<'t, 'a>(form: &'t Node<'a>, head: &str) -> Option<&'t [Node<'a>]> {
     form.child(head).and_then(Node::items)
 }
 
 /// The `(at x y …)` position, or `None` when it has no numeric `x`/`y`
 /// (`ecad-parse.mjs:302-308`).
 #[must_use]
-pub fn point(at: Option<&Node>) -> Option<(f64, f64)> {
+pub fn point(at: Option<&Node<'_>>) -> Option<(f64, f64)> {
     let at = at?;
     let x = number_at(at, 1)?;
     let y = number_at(at, 2)?;
@@ -333,7 +369,7 @@ pub fn point(at: Option<&Node>) -> Option<(f64, f64)> {
 /// The rotation of an `(at x y angle …)` form, defaulting to 0
 /// (`kicad-sexpr-parser.mjs:483-501`).
 #[must_use]
-pub fn rotation(at: Option<&Node>) -> Option<f64> {
+pub fn rotation(at: Option<&Node<'_>>) -> Option<f64> {
     let at = at?;
     Some(number_at(at, 3).unwrap_or(0.0))
 }
@@ -341,7 +377,7 @@ pub fn rotation(at: Option<&Node>) -> Option<f64> {
 /// Every `(xy x y)` point of a `(pts …)` list, with absent coordinates as
 /// `None`.
 #[must_use]
-pub fn points(items: &[Node]) -> Vec<(Option<f64>, Option<f64>)> {
+pub fn points(items: &[Node<'_>]) -> Vec<(Option<f64>, Option<f64>)> {
     items
         .iter()
         .filter(|item| item.head() == Some("xy"))
@@ -351,7 +387,7 @@ pub fn points(items: &[Node]) -> Vec<(Option<f64>, Option<f64>)> {
 
 /// Every `(xy x y)` point of a form's `(pts …)` child.
 #[must_use]
-pub fn pts_points(form: &Node) -> Vec<(Option<f64>, Option<f64>)> {
+pub fn pts_points(form: &Node<'_>) -> Vec<(Option<f64>, Option<f64>)> {
     child_items(form, "pts").map_or_else(Vec::new, points)
 }
 
@@ -376,7 +412,7 @@ mod tests {
         );
         assert_eq!(
             root.child("generator").unwrap().items().unwrap()[1],
-            Node::Str("eeschema".to_owned())
+            Node::Str("eeschema".into())
         );
     }
 
