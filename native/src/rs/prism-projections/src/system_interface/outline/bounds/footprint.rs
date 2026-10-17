@@ -15,48 +15,57 @@ use prism_kicad_core::{
 pub(super) fn footprint_bounds(board: &BoardModel<'_>) -> Result<Vec<[f64; 4]>, ProjectionError> {
     let children = FootprintChildren::scan(board)?;
     let mut result = Vec::new();
-    for (index, footprint) in board.view.footprints().enumerate() {
-        let footprint = footprint.map_err(board_error)?;
-        result.push(footprint_box(&footprint, &children, index).into_array());
+    for (index, footprint) in board.view.decoded_footprints().iter().enumerate() {
+        let footprint = footprint
+            .as_ref()
+            .map_err(|error| board_error(error.clone()))?;
+        result.push(footprint_box(footprint, &children, index).into_array());
     }
     Ok(result)
 }
 
-/// The footprint-local child collections bucketed once by `footprint_index`.
+/// The footprint-local child collections bucketed once by `footprint_index`;
+/// the memoized families borrow the view's decoded siblings, the one-shot text
+/// families own theirs.
 #[derive(Default)]
-struct FootprintChildren {
-    pads: Vec<Vec<PcbPad>>,
-    graphics: Vec<Vec<PcbGraphic>>,
+struct FootprintChildren<'v> {
+    pads: Vec<Vec<&'v PcbPad>>,
+    graphics: Vec<Vec<&'v PcbGraphic>>,
     texts: Vec<Vec<PcbFootprintText>>,
     text_boxes: Vec<Vec<PcbFootprintTextBox>>,
-    properties: Vec<Vec<PcbFootprintProperty>>,
+    properties: Vec<Vec<&'v PcbFootprintProperty>>,
 }
 
-impl FootprintChildren {
-    fn scan(board: &BoardModel<'_>) -> Result<Self, ProjectionError> {
+impl<'v> FootprintChildren<'v> {
+    fn scan(board: &'v BoardModel<'_>) -> Result<Self, ProjectionError> {
+        let view = board.view;
         let mut children = Self::default();
-        for pad in board.view.pads() {
-            let pad = pad.map_err(board_error)?;
+        for pad in view.decoded_pads() {
+            let pad = pad.as_ref().map_err(|error| board_error(error.clone()))?;
             push_at(&mut children.pads, pad.footprint_index, pad);
         }
-        for graphic in board.view.footprint_graphics() {
-            let graphic = graphic.map_err(board_error)?;
+        for graphic in view.decoded_footprint_graphics() {
+            let graphic = graphic
+                .as_ref()
+                .map_err(|error| board_error(error.clone()))?;
             push_at(
                 &mut children.graphics,
                 graphic.footprint_index,
-                graphic.graphic,
+                &graphic.graphic,
             );
         }
-        for text in board.view.footprint_texts() {
+        for text in view.footprint_texts() {
             let text = text.map_err(board_error)?;
             push_at(&mut children.texts, text.footprint_index, text);
         }
-        for text_box in board.view.footprint_text_boxes() {
+        for text_box in view.footprint_text_boxes() {
             let text_box = text_box.map_err(board_error)?;
             push_at(&mut children.text_boxes, text_box.footprint_index, text_box);
         }
-        for property in board.view.footprint_properties() {
-            let property = property.map_err(board_error)?;
+        for property in view.decoded_footprint_properties() {
+            let property = property
+                .as_ref()
+                .map_err(|error| board_error(error.clone()))?;
             push_at(&mut children.properties, property.footprint_index, property);
         }
         Ok(children)
@@ -71,7 +80,11 @@ fn push_at<T>(slots: &mut Vec<Vec<T>>, index: usize, value: T) {
 }
 
 /// `Footprint.get_bounds` (`km:kicad_pcb_footprint.py:553-605`).
-fn footprint_box(footprint: &PcbFootprint, children: &FootprintChildren, index: usize) -> Bounds {
+fn footprint_box(
+    footprint: &PcbFootprint,
+    children: &FootprintChildren<'_>,
+    index: usize,
+) -> Bounds {
     let at_x = footprint.at_x.unwrap_or(0.0);
     let at_y = footprint.at_y.unwrap_or(0.0);
     let angle = footprint.angle.unwrap_or(0.0);
@@ -82,7 +95,7 @@ fn footprint_box(footprint: &PcbFootprint, children: &FootprintChildren, index: 
         at_x,
         at_y,
         angle,
-        pad_box,
+        |pad: &&PcbPad| pad_box(pad),
     );
     merge_children(
         children.graphics.get(index).map(Vec::as_slice),
@@ -90,7 +103,7 @@ fn footprint_box(footprint: &PcbFootprint, children: &FootprintChildren, index: 
         at_x,
         at_y,
         angle,
-        fp_graphic_box,
+        |graphic: &&PcbGraphic| fp_graphic_box(graphic),
     );
     merge_children(
         children.texts.get(index).map(Vec::as_slice),
@@ -98,7 +111,7 @@ fn footprint_box(footprint: &PcbFootprint, children: &FootprintChildren, index: 
         at_x,
         at_y,
         angle,
-        fp_text_box,
+        |text: &PcbFootprintText| fp_text_box(text),
     );
     merge_children(
         children.text_boxes.get(index).map(Vec::as_slice),
@@ -106,7 +119,7 @@ fn footprint_box(footprint: &PcbFootprint, children: &FootprintChildren, index: 
         at_x,
         at_y,
         angle,
-        fp_text_box_box,
+        |text_box: &PcbFootprintTextBox| fp_text_box_box(text_box),
     );
     merge_children(
         children.properties.get(index).map(Vec::as_slice),
@@ -114,7 +127,7 @@ fn footprint_box(footprint: &PcbFootprint, children: &FootprintChildren, index: 
         at_x,
         at_y,
         angle,
-        property_box,
+        |property: &&PcbFootprintProperty| property_box(property),
     );
     bounds
 }

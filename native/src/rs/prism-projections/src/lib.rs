@@ -77,7 +77,7 @@ use prism_kicad_core::{
 };
 use serde::de::DeserializeOwned;
 use std::fmt;
-use std::sync::OnceLock;
+use std::sync::{Arc, OnceLock};
 
 /// The source set stage parse may read: every file under the source root that
 /// the revision key's name rules select, minus the excluded directories.
@@ -128,6 +128,12 @@ pub struct BoardModel<'a> {
     /// tokens, so a bundle build parses the board at most once more than the
     /// view already does.
     tree: OnceLock<Result<Sexp, ProjectionError>>,
+    /// The assembly footprint inputs, built once on first use by
+    /// `semantic_index::assembly::state::footprints::board_footprints` and
+    /// shared with `occurrences`, whose producer runs in parallel.
+    pub(crate) assembly_footprints: OnceLock<
+        Result<Arc<[crate::semantic_index::assembly::variants::FootprintInput]>, ProjectionError>,
+    >,
 }
 
 impl<'a> BoardModel<'a> {
@@ -138,6 +144,7 @@ impl<'a> BoardModel<'a> {
             text,
             view,
             tree: OnceLock::new(),
+            assembly_footprints: OnceLock::new(),
         }
     }
 

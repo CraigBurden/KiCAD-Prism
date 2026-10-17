@@ -18,6 +18,7 @@ use super::{
 use crate::{ProjectionError, ProjectionInput, SchematicModel};
 use serde_json::{Map, Value, json};
 use std::collections::HashMap;
+use std::sync::Arc;
 
 /// Build the pre-join assembly block `build_assembly_state` returns
 /// (semantic_index_variants.py:752-903). Catalog diagnostics are prepended by
@@ -94,7 +95,7 @@ fn catalog_variant_names(catalog: &[Value]) -> Vec<String> {
 struct Defaults {
     occurrences: Vec<(String, OccurrenceState)>,
     components: Vec<(String, ComponentState)>,
-    footprint_inputs: Vec<FootprintInput>,
+    footprint_inputs: Arc<[FootprintInput]>,
     footprints: Vec<FootprintState>,
     groups: FootprintGroups,
 }
@@ -103,7 +104,7 @@ impl Defaults {
     fn new(
         occurrences: &[OccurrenceState],
         components: &[(String, ComponentState)],
-        footprint_inputs: Vec<FootprintInput>,
+        footprint_inputs: Arc<[FootprintInput]>,
     ) -> Self {
         let footprints = footprint_states(&footprint_inputs, None);
         let groups = FootprintGroups::new(&footprints);

@@ -23,6 +23,7 @@ mod extended;
 mod footprints;
 mod indexing;
 mod manufacturing;
+mod memo;
 mod pads;
 mod padstacks;
 mod physical;
@@ -765,6 +766,7 @@ pub struct PcbView<'a> {
     counts: PcbCounts,
     limits: PcbLimits,
     selection: PcbSelection,
+    decoded: memo::PcbDecoded,
 }
 
 impl<'a> PcbView<'a> {
@@ -846,6 +848,7 @@ impl<'a> PcbView<'a> {
             counts: index.counts,
             limits,
             selection,
+            decoded: memo::PcbDecoded::default(),
         })
     }
 
@@ -876,129 +879,6 @@ impl<'a> PcbView<'a> {
                 .as_deref()
                 .is_none_or(|head| !is_known_top_level(head))
         })
-    }
-
-    pub fn layers(&self) -> impl Iterator<Item = Result<PcbLayer, Error>> + '_ {
-        self.layer_forms
-            .iter()
-            .filter(move |_| self.selection.contains(PcbFamily::Layers))
-            .map(|span| layer_from_span(self.source, span))
-    }
-
-    pub fn nets(&self) -> impl Iterator<Item = Result<PcbNet, Error>> + '_ {
-        self.nets
-            .iter()
-            .filter(move |_| self.selection.contains(PcbFamily::Nets))
-            .map(|span| net_from_span(self.source, span))
-    }
-
-    pub fn properties(&self) -> impl Iterator<Item = Result<PcbProperty, Error>> + '_ {
-        self.properties
-            .iter()
-            .filter(move |_| self.selection.contains(PcbFamily::Properties))
-            .map(|span| property_from_span(self.source, span))
-    }
-
-    pub fn footprints(&self) -> impl Iterator<Item = Result<PcbFootprint, Error>> + '_ {
-        self.footprints
-            .iter()
-            .filter(move |_| self.selection.contains(PcbFamily::Footprints))
-            .map(|indexed| footprint_from_span(self.source, indexed, self.limits))
-    }
-
-    pub fn pads(&self) -> impl Iterator<Item = Result<PcbPad, Error>> + '_ {
-        self.pads
-            .iter()
-            .filter(move |_| self.selection.contains(PcbFamily::Pads))
-            .map(|indexed| {
-                pads::pad_from_span(self.source, indexed, self.limits).map(|mut pad| {
-                    pad.net = self.net_resolver.resolve(pad.net);
-                    pad
-                })
-            })
-    }
-
-    pub fn models(&self) -> impl Iterator<Item = Result<PcbModelReference, Error>> + '_ {
-        self.models
-            .iter()
-            .filter(move |_| self.selection.contains(PcbFamily::Models))
-            .map(|indexed| model_from_span(self.source, indexed, self.limits))
-    }
-
-    pub fn segments(&self) -> impl Iterator<Item = Result<PcbSegment, Error>> + '_ {
-        self.segments
-            .iter()
-            .filter(move |_| self.selection.contains(PcbFamily::Segments))
-            .map(|span| {
-                segment_from_span(self.source, span, self.limits).map(|mut segment| {
-                    segment.net = self.net_resolver.resolve(segment.net);
-                    segment
-                })
-            })
-    }
-
-    pub fn vias(&self) -> impl Iterator<Item = Result<PcbVia, Error>> + '_ {
-        self.vias
-            .iter()
-            .filter(move |_| self.selection.contains(PcbFamily::Vias))
-            .map(|span| {
-                vias::via_from_span(self.source, span, self.limits).map(|mut via| {
-                    via.net = self.net_resolver.resolve(via.net);
-                    via
-                })
-            })
-    }
-
-    pub fn zones(&self) -> impl Iterator<Item = Result<PcbZone, Error>> + '_ {
-        self.zones
-            .iter()
-            .filter(move |_| self.selection.contains(PcbFamily::Zones))
-            .map(|span| {
-                zones::zone_from_span(self.source, span, self.limits).map(|mut zone| {
-                    zone.net = self.net_resolver.resolve(zone.net);
-                    zone
-                })
-            })
-    }
-
-    pub fn graphics(&self) -> impl Iterator<Item = Result<PcbGraphic, Error>> + '_ {
-        self.graphics
-            .iter()
-            .filter(move |_| self.selection.contains(PcbFamily::Graphics))
-            .map(|span| graphic_from_span(self.source, span, self.limits))
-    }
-
-    pub fn arcs(&self) -> impl Iterator<Item = Result<PcbRoutingArc, Error>> + '_ {
-        self.arcs
-            .iter()
-            .filter(move |_| self.selection.contains(PcbFamily::Arcs))
-            .map(|span| {
-                routing_arc_from_span(self.source, span, self.limits).map(|mut arc| {
-                    arc.net = self.net_resolver.resolve(arc.net);
-                    arc
-                })
-            })
-    }
-
-    pub fn dimensions(&self) -> impl Iterator<Item = Result<PcbDimension, Error>> + '_ {
-        self.dimensions
-            .iter()
-            .filter(move |_| self.selection.contains(PcbFamily::Dimensions))
-            .map(|span| dimension_from_span(self.source, span, self.limits))
-    }
-
-    pub fn groups(&self) -> impl Iterator<Item = Result<PcbGroup, Error>> + '_ {
-        self.groups
-            .iter()
-            .filter(move |_| self.selection.contains(PcbFamily::Groups))
-            .map(|span| group_from_span(self.source, span, self.limits))
-    }
-
-    pub fn generated_items(&self) -> impl Iterator<Item = Result<PcbGeneratedItem, Error>> + '_ {
-        self.generated_items
-            .iter()
-            .filter(move |_| self.selection.contains(PcbFamily::GeneratedItems))
-            .map(|span| generated_from_span(self.source, span, self.limits))
     }
 }
 
