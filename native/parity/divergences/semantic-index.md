@@ -14,7 +14,7 @@ One runner entry, D1's a2 envelope, applies to every case: the goldens hold the 
 - Why: a member is keyed by revision key, not by commit. The generator is recorded in `bundle.json`. A wall-clock time would break determinism.
 - Consumer: C1 (`frontend/src/types/prism-selection.ts` literal type, ETag); K (job details).
 - Fixtures: all 32 goldens.
-- Runner: rule `semantic-index/envelope-a2` (`divergences.py`), cases `["*"]`. The golden transform writes the a1 envelope, so the rule sets the golden's `schema` to a2 until the goldens are recaptured; `sourceRevisionKey` and `designKey` are non-semantic in `members.py`.
+- Runner: rule `semantic-index/envelope-a2` (`divergences.py`), cases `["*"]`. The golden transform writes the a1 envelope, so until the goldens are recaptured the rule sets the golden's `schema` to a2 and moves its `sourceRevisionKey` to `designKey`, as an a2 producer writes it. The key's value is non-semantic under either name (`members.py`).
 
 ## D2. Revision key
 
