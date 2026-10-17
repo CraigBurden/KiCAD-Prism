@@ -12,4 +12,5 @@ Today's output of every bundle projection on the committed fixtures, in each con
 - `prism_parity/oracle.py`: the KiCad oracle.
 - `prism_parity/corpus.py`: the private corpus. Its manifests and goldens never enter the repository.
 - `divergences/<member>.md` and `.json`: each belongs to the member's producer WP (P1–P5, V1). `divergences.md` is the index.
+- `component_models_check.py`: V1's acceptance check, the models stage's GLB against today's export with the same `kicad-cli` (`divergences/component-models.md`). It needs KiCad, so CI does not run it.
 - Checks: `python3 -m unittest discover -s tests`, `python3 -m prism_parity inputs`, `python3 -m prism_parity selftest`, and `node parity/validate.mjs parity/goldens` (from `native/`). CI's `native-parity` job runs them.
