@@ -31,8 +31,6 @@ impl Status {
 
 /// One entry of `changes`.
 pub struct Change {
-    /// The object's key.
-    pub key: String,
     /// The object's kind, today's spelling.
     pub kind: String,
     /// How it relates the two sides.
@@ -44,35 +42,31 @@ pub struct Change {
 }
 
 /// An `added` change (`ecad-diff.mjs:380-388`).
-pub fn added(after: &Entry) -> Change {
-    let deltas = classify::review_field_deltas(None, Some(after));
+pub fn added(after: &Entry, reasons: &[&'static str], deltas: &[MergedDelta]) -> Change {
     let mut map = change_map(after, Status::Added);
-    set_properties(&mut map, &deltas);
+    set_properties(&mut map, deltas);
     json::set(&mut map, "compare", entry::native_object(after));
-    change(after, Status::Added, Vec::new(), map)
+    change(after, Status::Added, reasons.to_vec(), map)
 }
 
 /// A `removed` change (`ecad-diff.mjs:441-453`).
-pub fn removed(before: &Entry) -> Change {
-    let deltas = classify::review_field_deltas(Some(before), None);
+pub fn removed(before: &Entry, reasons: &[&'static str], deltas: &[MergedDelta]) -> Change {
     let mut map = change_map(before, Status::Removed);
-    set_properties(&mut map, &deltas);
+    set_properties(&mut map, deltas);
     json::set(&mut map, "base", entry::native_object(before));
-    change(before, Status::Removed, Vec::new(), map)
+    change(before, Status::Removed, reasons.to_vec(), map)
 }
 
-/// A `modified` change (`ecad-diff.mjs:415-438`).
-pub fn modified(before: &Entry, after: &Entry) -> Change {
-    let mut reasons = classify::classify(before, after);
-    let deltas = classify::merged_property_deltas(before, after);
-    if classify::properties_changed(&deltas) {
-        reasons.push("properties-changed");
-    }
-    if reasons.is_empty() {
-        reasons.push("content-changed");
-    }
+/// A `modified` change (`ecad-diff.mjs:415-438`), with its reasons and deltas
+/// already computed by [`super::diff::outcome`].
+pub fn modified(
+    before: &Entry,
+    after: &Entry,
+    reasons: &[&'static str],
+    deltas: &[MergedDelta],
+) -> Change {
     let mut map = change_map(after, Status::Modified);
-    set_properties(&mut map, &deltas);
+    set_properties(&mut map, deltas);
     json::set(&mut map, "base", entry::native_object(before));
     json::set(&mut map, "compare", entry::native_object(after));
     if let Some(at) = before.at {
@@ -94,7 +88,7 @@ pub fn modified(before: &Entry, after: &Entry) -> Change {
         "reasons",
         Value::Array(reasons.iter().map(|reason| Value::from(*reason)).collect()),
     );
-    change(after, Status::Modified, reasons, map)
+    change(after, Status::Modified, reasons.to_vec(), map)
 }
 
 /// An `ignored` entry (`ecad-diff.mjs:390-411`).
@@ -232,7 +226,6 @@ fn change(
     map: Map<String, Value>,
 ) -> Change {
     Change {
-        key: entry.key.clone(),
         kind: entry.kind.clone(),
         status,
         reasons,
@@ -292,6 +285,28 @@ fn merge(target: &mut Map<String, Value>, source: Value) {
     }
 }
 
+/// The `counts` record of the document (`ecad-diff.mjs:466-481`), shared by
+/// [`document`] and [`super::diff::Outcome::counts`].
+pub fn counts_value(
+    added: u64,
+    removed: u64,
+    modified: u64,
+    unchanged: usize,
+    ignored: usize,
+    base_objects: usize,
+    head_objects: usize,
+) -> Value {
+    json::object_of([
+        ("added", Value::from(added)),
+        ("removed", Value::from(removed)),
+        ("modified", Value::from(modified)),
+        ("unchanged", Value::from(unchanged as u64)),
+        ("ignored", Value::from(ignored as u64)),
+        ("baseObjects", Value::from(base_objects as u64)),
+        ("headObjects", Value::from(head_objects as u64)),
+    ])
+}
+
 #[allow(
     clippy::type_complexity,
     reason = "one small record per level: counts, per-kind and per-reason tallies"
@@ -328,15 +343,15 @@ fn tally(
             *by_reason.entry(reason).or_insert(0) += 1;
         }
     }
-    let counts = json::object_of([
-        ("added", Value::from(added)),
-        ("removed", Value::from(removed)),
-        ("modified", Value::from(modified)),
-        ("unchanged", Value::from(unchanged as u64)),
-        ("ignored", Value::from(ignored as u64)),
-        ("baseObjects", Value::from(base_objects as u64)),
-        ("headObjects", Value::from(head_objects as u64)),
-    ]);
+    let counts = counts_value(
+        added,
+        removed,
+        modified,
+        unchanged,
+        ignored,
+        base_objects,
+        head_objects,
+    );
     let kind_counts = Value::Object(
         by_kind
             .into_iter()

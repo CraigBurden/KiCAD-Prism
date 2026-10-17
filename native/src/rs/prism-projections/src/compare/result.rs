@@ -20,7 +20,7 @@ mod stackup;
 
 pub use review::{ReviewChange, VisualRole, VisualSide, VisualStatus, VisualTarget};
 
-use super::{CompareError, Entries, diff_entries};
+use super::{CompareError, Entries, diff};
 use prism_kicad_contracts::generated::prism_design_compare_result_a0 as dc;
 use prism_kicad_contracts::generated::prism_occurrences_a0::OccurrencesA0;
 use prism_kicad_contracts::generated::prism_route_metrics_a0::RouteMetricsA0;
@@ -100,7 +100,7 @@ pub struct Output {
 ///
 /// # Errors
 ///
-/// When the object diff's document does not hold together.
+/// Never today; the signature keeps room for a tab that can fail.
 pub fn build(base: Revision, head: Revision, options: Options) -> Result<Output, CompareError> {
     let files = files::build(&base, &head);
     let stackup = stackup::build(&base.stackup, &head.stackup);
@@ -108,11 +108,17 @@ pub fn build(base: Revision, head: Revision, options: Options) -> Result<Output,
     let bom = bom::build(&base, &head, options);
     let connectivity = connectivity::build(&base, &head);
     let identity = (revision(&base.identity), revision(&head.identity));
-    let delta = diff_entries(base.objects, head.objects);
-    let objects = objects::build(&delta)?;
-    let object_counts = delta.counts().clone();
-    let object_totals = delta.objects();
-    drop(delta);
+    let base_entries = base.objects.0;
+    let head_entries = head.objects.0;
+    let (objects, object_counts, object_totals) = {
+        let outcome = diff::outcome(&base_entries, &head_entries);
+        let objects = objects::build(&base_entries, &head_entries, &outcome);
+        let counts = outcome.counts(base_entries.len(), head_entries.len());
+        (objects, counts, (base_entries.len(), head_entries.len()))
+    };
+    // C2r chunk 4: hydration reads the entries here
+    drop(base_entries);
+    drop(head_entries);
 
     let mut schematic = Vec::new();
     let mut pcb = Vec::new();

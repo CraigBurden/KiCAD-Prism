@@ -69,6 +69,8 @@ pub enum VisualRole {
     Group,
     NetClass,
     NetClassAssignment,
+    /// A native kind with no role of its own; the target keeps its `kind`.
+    Other,
 }
 
 /// One object ecad-viewer highlights for a change.
