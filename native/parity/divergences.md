@@ -17,6 +17,7 @@ The field map's "Expected divergences" table is the source of each id. A diverge
 | `placements` | P3 | [placements.md](divergences/placements.md) | none | — |
 | `project` | P4 | [project.md](divergences/project.md) | none | — |
 | `system-interface` | P5 | [system-interface.md](divergences/system-interface.md) | none | — |
+| `component-models` | V1 | [component-models.md](divergences/component-models.md) | none (checked by `component_models_check.py`, not the runner) | — |
 
 Expected refusals: `dv-malformed`'s sources are rejected by today's code, so stage parse must fail. `capture.json` records today's error for every member, and the runner reports `expected-refusal` when the bundle has no such member, or fails with `unexpected-member` when it has one.
 
