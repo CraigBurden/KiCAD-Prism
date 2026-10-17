@@ -1,6 +1,6 @@
 # ADR amendment: Design Comparison's object diff in Rust (`prism-kicad compare`)
 
-- **Status:** Accepted (2026-10-17), with the recommended option for each of D1–D4 (§7). Its text is applied to the parent ADR, `native/contracts/prism/cli-spec.md` (§5.6), `decisions.md` and `ownership.md`, and the TypeSpec lands in the same pull request, as for the earlier contract amendment (#727).
+- **Status:** Accepted (2026-10-17), with the recommended option for each of D1–D4 (§7). **Partly superseded (2026-10-17)** by [amendment C2r](adr-native-design-bundle-amendment-c2r.md): §2 items 1, 2 and 5, §3.3–§3.4, §4, §5 and D3–D4. D1, D2 and §3.1–§3.2 stand. Its text is applied to the parent ADR, `native/contracts/prism/cli-spec.md` (§5.6), `decisions.md` and `ownership.md`, and the TypeSpec lands in the same pull request, as for the earlier contract amendment (#727).
 - **Parent:** [`adr-native-design-bundle.md`](adr-native-design-bundle.md): §2 item 6, §9.3 (CLI synopsis), §9.6 (C2 row), §10, §11.
 - **Decided before this draft:** the maintainer chose, on 2026-10-17, to rewrite Design Comparison's diff engine in Rust instead of porting it to Python. The other consumers (C1, C3, C4a, C7, C8) stay thin Python readers.
 

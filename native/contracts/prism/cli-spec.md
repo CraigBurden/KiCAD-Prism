@@ -86,7 +86,11 @@ prism-kicad bundle extract <bundle.prism> <member>... -o <dir> [COMMON]
 
 prism-kicad revision-key <repo> (--commit <rev> | --worktree) --project <rel> [--config <effective.json>] [COMMON]
 
-prism-kicad compare --base <base.prism> --head <head.prism> -o <delta.json> [COMMON]
+prism-kicad compare --base <base.prism> --head <head.prism> -o <result.json> [COMMON]
+prism-kicad compare --base-src <project.kicad_pro> --head-src <project.kicad_pro>
+            [--base-source-root <dir>] [--head-source-root <dir>]
+            [--base-upgraded <path>=<version>]... [--head-upgraded <path>=<version>]...
+            [--config <effective.json>] -o <result.json> [COMMON]
 
 prism-kicad artwork --in <bundle.prism> --config <artwork.json> --view <name>... -o <dir> [--variant <name>] [COMMON]
 prism-kicad vendor list [COMMON]
@@ -585,6 +589,8 @@ This spec fixes only the process contract:
 
 ### 5.6 `compare`
 
+> **Revised by amendment C2r** ([`adr-native-design-bundle-amendment-c2r.md`](../../../docs/architecture/adr-native-design-bundle-amendment-c2r.md), 2026-10-17). `compare` computes every Design Comparison tab except fabrication, as `DesignCompareResultA0` with ecad-viewer's `KiCadProjectDiffBundle` inside it. Each side is a bundle (`--base`/`--head`) or, when a commit has no bundle yet, a source tree (`--base-src`/`--head-src`, with `bundle build --stage parse`'s inputs), on which `compare` runs only the producers it reads, in memory. Both modes give byte-identical output. The checks below stand for a bundle side; a source-tree side fails as `bundle build --stage parse` does. The **Output** and **The diff** items below describe the object-delta output that C2r replaces; they are rewritten by C2r's contracts pull request.
+
 `prism-kicad compare --base <base.prism> --head <head.prism> -o <delta.json>` is Design Comparison's object diff (ADR amendment C2, [`adr-native-design-bundle-amendment-c2.md`](../../../docs/architecture/adr-native-design-bundle-amendment-c2.md)). It is a pure function of the two bundles' `projections/board-objects.json`: no KiCad file, no other member and no repository is read.
 
 - **Arguments.** `--base` and `--head` are bundles; they may name the same file, which gives no changes. `-o` is the delta document. All three are required.
@@ -1014,4 +1020,5 @@ Once WP-B lands, recordings of the real binary can replace the stub test by test
 4. **§5, Generator id.** Add the refill and GLB procedures (`refill_procedure`, `models_procedure`) and the pack format version.
 5. **§6, the `bundle.json` row.** Each stage records `{status, error?, skip_reason?, failed_members, …}`, shared with `CliStageState`. A content failure of a stage (`failed`) or of a member (`partial`) is recorded in the bundle (cli-spec.md §5.2.7, bundle-format.md §3.2).
 6. **§9.3 and §9.6, `compare` (amendment C2, 2026-10-17, accepted).** The CLI synopsis gains `compare` (§5.6); C2's row produces the object diff with it. Applied to the ADR in the same change, with the rationale in [`adr-native-design-bundle-amendment-c2.md`](../../../docs/architecture/adr-native-design-bundle-amendment-c2.md).
-7. **§2.1, §6, §9.3, §9.6, §10 item 4 and R2: Release Studio without Cruncher (amendment C3, 2026-10-17, accepted).** New §5.7–§5.9 and the HLR part of §5.2.4. Applied to the ADR in the same change; rationale in [`adr-native-design-bundle-amendment-c3.md`](../../../docs/architecture/adr-native-design-bundle-amendment-c3.md).
+7. **§9.6 and §10 item 7, Design Comparison in Rust (amendment C2r, 2026-10-17, accepted).** `compare` computes every tab except fabrication, from bundles or source trees; ecad-viewer's input is unchanged; the backend validates member schemas once per stored archive (bundle-format.md §9). Applied to the ADR in the same change, with the rationale in [`adr-native-design-bundle-amendment-c2r.md`](../../../docs/architecture/adr-native-design-bundle-amendment-c2r.md).
+8. **§2.1, §6, §9.3, §9.6, §10 item 4 and R2: Release Studio without Cruncher (amendment C3, 2026-10-17, accepted).** New §5.7–§5.9 and the HLR part of §5.2.4. Applied to the ADR in the same change; rationale in [`adr-native-design-bundle-amendment-c3.md`](../../../docs/architecture/adr-native-design-bundle-amendment-c3.md).

@@ -296,6 +296,8 @@ Every reader (WP-B's Rust reader, `bundle verify`, `bundle extract` and `--in`; 
    - `kicad_monkey.materialization.a0`: check the pack preamble (magic `KMMATPK\0` and a supported pack format version equal to `generator.pack_format_version`: fork `src/rs/kicad-monkey-materialization-pack/src/lib.rs:51-54`) and validate the header with the pack reader, as `prism-geometry` does (sim: `src/prism-geometry/src/lib.rs:82-118`).
    A reader that does not know an id cannot read that member; it treats it as missing and does not reject the bundle.
 
+   **K's reader runs step 7 once per stored archive** (amendment C2r §2 item 9). When it stores an archive it runs `prism-kicad bundle verify`, every step on every member, and records the outcome with the archive. Its later reads of that archive run steps 1–6 only: the SHA-256 of step 6 ties the bytes read to the bytes that were validated. An archive whose verify failed is treated as rejected. The Rust reader, `bundle verify`, `extract` and `--in` are unchanged.
+
 A reader that fails steps 1–5 rejects the whole archive. K treats a rejected archive like a missing one: it deletes it and queues a rebuild, as the reference branch does with a damaged unpack (ref: `backend/app/services/semantic_visualizer_service.py:410-416`).
 
 ## 10. Differences from a1 at archive level
