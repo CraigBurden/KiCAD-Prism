@@ -56,6 +56,10 @@ pub struct ParseRequest<'a> {
     pub limits: &'a Limits,
     /// Diagnostics sink.
     pub reporter: &'a dyn Reporter,
+    /// The projection members to produce, by path; `None` produces all of
+    /// them. `compare` on a source tree asks for the five it reads (amendment
+    /// C2r §2 item 4); a member not asked for is neither written nor failed.
+    pub projections: Option<&'a [&'a str]>,
 }
 
 /// What stage parse produced.
@@ -696,7 +700,10 @@ impl ParseRun<'_> {
         // The producers only read their input, so they run at once; their
         // results are then recorded one by one, in the fixed order, so the
         // members, warnings and failures do not depend on which finished first.
-        let (design_json, results) = producers::run(&input, design_inputs, design, design_board);
+        let only = self.request.projections;
+        let wanted = move |path: &str| only.is_none_or(|paths| paths.contains(&path));
+        let (design_json, results) =
+            producers::run(&input, design_inputs, design, design_board, &wanted);
         match design_json {
             Some(Ok(value)) => self.add_json(DESIGN_PATH, DESIGN_SCHEMA, &value)?,
             Some(Err(message)) => self.design_failed(&message)?,
@@ -706,6 +713,9 @@ impl ParseRun<'_> {
             return Err(failure);
         }
         for ((path, schema), result) in PROJECTIONS.into_iter().zip(results) {
+            let Some(result) = result else {
+                continue;
+            };
             match result {
                 Ok((value, warnings))
                     if value.get("schema").and_then(Value::as_str) == Some(schema) =>

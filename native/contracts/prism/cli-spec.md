@@ -589,23 +589,26 @@ This spec fixes only the process contract:
 
 ### 5.6 `compare`
 
-> **Revised by amendment C2r** ([`adr-native-design-bundle-amendment-c2r.md`](../../../docs/architecture/adr-native-design-bundle-amendment-c2r.md), 2026-10-17). `compare` computes every Design Comparison tab except fabrication, as `DesignCompareResultA0` with ecad-viewer's `KiCadProjectDiffBundle` inside it. Each side is a bundle (`--base`/`--head`) or, when a commit has no bundle yet, a source tree (`--base-src`/`--head-src`, with `bundle build --stage parse`'s inputs), on which `compare` runs only the producers it reads, in memory. Both modes give byte-identical output. The checks below stand for a bundle side; a source-tree side fails as `bundle build --stage parse` does. The **Output** and **The diff** items below describe today's object-delta output; C2r replaces it with `DesignCompareResultA0` (`prism.design_compare.result.a0`, `field-maps/design-compare.md`), and these items are rewritten when `compare` switches to it (C2r §9 step 4).
+`prism-kicad compare` computes every Design Comparison tab except fabrication between two revisions, as `DesignCompareResultA0` (`prism.design_compare.result.a0`; field map `field-maps/design-compare.md`), with ecad-viewer's `KiCadProjectDiffBundleV1` inside it (ADR amendment C2r, [`adr-native-design-bundle-amendment-c2r.md`](../../../docs/architecture/adr-native-design-bundle-amendment-c2r.md); its checks and keys come from amendment C2, [`adr-native-design-bundle-amendment-c2.md`](../../../docs/architecture/adr-native-design-bundle-amendment-c2.md)). It is a pure function of its two revisions: no repository, no host path and no clock reaches the output.
 
-`prism-kicad compare --base <base.prism> --head <head.prism> -o <delta.json>` is Design Comparison's object diff (ADR amendment C2, [`adr-native-design-bundle-amendment-c2.md`](../../../docs/architecture/adr-native-design-bundle-amendment-c2.md)). It is a pure function of the two bundles' `projections/board-objects.json`: no KiCad file, no other member and no repository is read.
-
-- **Arguments.** `--base` and `--head` are bundles; they may name the same file, which gives no changes. `-o` is the delta document. All three are required.
+- **Arguments.** Each side is a bundle or a source tree:
+  - `--base <bundle.prism>` / `--head <bundle.prism>`: a stored bundle. The two may name the same file, which gives no changes.
+  - `--base-src <project.kicad_pro>` / `--head-src …`: a source tree, for a commit with no bundle yet. It takes `--<side>-revision-key <hex>` (required; the result's identity), and optionally `--<side>-source-root`, `--<side>-config` and `--<side>-upgraded <path>=<version>`, with `bundle build --stage parse`'s meaning. `compare` runs the parse stage's own code with only the five producers it reads (`board-objects`, `semantic-index`, `occurrences`, `stackup`, `route-metrics`), in memory: no archive, no deflate, no verify. A source tree and its bundle give the same result, apart from the side's `bundleKey`.
+  - `--include-unchanged` lists unchanged BOM rows too.
+  - `-o <result.json>` is required.
 - **Checks, in order.**
-  1. Each bundle passes the reader checks (§6.2) and manifest checks 1–2 (§5.3). Only `projections/board-objects.json` is inflated, and its size, CRC-32 and SHA-256 are checked while it streams. A failure is exit 3, `bundle-invalid`, with `argument` `base` or `head`.
-  2. The two manifests name the same generator id, byte for byte in canonical form. Otherwise exit 7, `generator-mismatch`: members of two producers are not comparable, and the backend rebuilds the stale bundle.
-  3. Both manifests' `config.project_file` lie in the same directory. Otherwise exit 7, `anchor-mismatch`. Object keys and `documentPath` are relative to that directory, so two project files in one directory share a key space and compare.
-  4. Both bundles hold `projections/board-objects.json`: stage `parse` is `complete`, or `partial` without the member in `failed_members`. Otherwise exit 7, `member-not-found`, with `argument` `base` or `head`.
-- **Output.** `-o` receives one `CompareObjectDeltaA0` (`prism.compare.object_delta.a0`), compact UTF-8 JSON with one trailing LF, written atomically: a temp file in the same directory, fsync, rename (§5.2.5, without the self-verify). stdout receives `CliCompareResultA0` after the rename. The document goes to `-o`, not stdout, because a full-board churn lists every object of both sides.
-- **The diff.** `CompareObjectDeltaA0` equals today's `prism.ecad_object_delta_v1` (`backend/design-compare-parser/ecad-diff.mjs`) on the same pair, without its run facts (`root`, `timings`, `peakRssBytes`, `node`) and without `routeMetrics`, which Design Comparison reads from `projections/route-metrics.json`. The amendment lists the expected divergences and the parity traps (§5, §6 there). Two rules are fixed here:
-  - object keys and `documentPath` are relative to the directory of the project file, as today: the anchor's directory is stripped from each member `RepoPath` (D1);
-  - `changes` is sorted by `key` in code point order, and a property delta list by `name` in code point order (D2, divergence `compare-1`).
+  1. Each bundle passes the reader checks (§6.2) and manifest checks 1–2 (§5.3). Only the five members and `sources/<project dir>/.prism.json` are inflated, and each is checked for size, CRC-32 and SHA-256 while it streams. A failure is exit 3, `bundle-invalid`, with `argument` `base` or `head`. A source tree fails as `bundle build --stage parse` does.
+  2. The two sides name the same generator id, byte for byte in canonical form (a source tree's is the running CLI's). Otherwise exit 7, `generator-mismatch`: members of two producers are not comparable, and the backend rebuilds the stale bundle.
+  3. Both sides' `config.project_file` lie in the same directory. Otherwise exit 7, `anchor-mismatch`. Object keys and document paths are relative to that directory, so two project files in one directory share a key space and compare.
+  4. Each side holds the five members: stage `parse` is `complete`, or `partial` without the member in `failed_members`. Otherwise exit 7, `member-not-found`, with `argument` `base` or `head`.
+- **Output.** `-o` receives one `DesignCompareResultA0`, compact UTF-8 JSON with one trailing LF, streamed and written atomically: a temp file in the same directory, fsync, rename (§5.2.5, without the self-verify). stdout receives `CliCompareResultA0` after the rename: each side's revision key, bundle key (absent for a source tree) and object count, and the object diff's counts.
+- **Rules fixed here:**
+  - document paths and object keys are relative to the directory of the project file (C2 D1);
+  - changes are sorted by `id`, and every map's keys in code point order (C2 D2, divergence `compare-1`);
+  - the BOM columns are the head revision's `.prism.json` `bom.fields`, else `Reference`, `Value`, `Footprint`, `Datasheet`.
 - **Exit codes.** 0, or 1–7 as in §4.
-- **Limits.** The reader limits of §7.2 bound the inputs. `max-memory-bytes` and `timeout-ms` have `compare` defaults.
-- **Idempotence.** The same two bundles give byte-identical `-o` and stdout.
+- **Limits.** The reader limits of §7.2 bound the inputs. `max-memory-bytes` and `timeout-ms` have `compare` defaults; when either side is a source tree, the command takes the parse stage's defaults instead, since it runs that stage.
+- **Idempotence.** The same two sides give byte-identical `-o` and stdout.
 
 ### 5.7 `artwork`
 

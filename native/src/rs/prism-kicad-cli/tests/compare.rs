@@ -1,5 +1,6 @@
-//! `compare` (cli-spec.md §5.6): the same bundle twice, the three
-//! precondition refusals, a bad bundle and usage errors.
+//! `compare` (cli-spec.md §5.6, amendment C2r §3): the same bundle twice,
+//! a source tree against its own bundle, the three precondition refusals, a
+//! bad bundle and usage errors.
 
 mod support;
 
@@ -77,26 +78,75 @@ fn compare_code_field(base: &Path, head: &Path, out: &Path) -> String {
     failed.code_field().to_owned()
 }
 
+const ZERO_KEY: &str = "0000000000000000000000000000000000000000000000000000000000000000";
+
 #[test]
 fn the_same_bundle_twice_has_no_changes() {
     let archive = parse_bundle("compare-self");
-    let out = archive.with_file_name("delta.json");
+    let out = archive.with_file_name("result.json");
     let finished = compare(&archive, &archive, &out);
     assert_eq!(finished.code, 0, "{}", finished.document);
-    let delta: Value = serde_json::from_slice(&std::fs::read(&out).unwrap()).unwrap();
-    assert_eq!(delta["schema"], "prism.compare.object_delta.a0");
-    assert!(delta["changes"].as_array().unwrap().is_empty());
-    assert_eq!(delta["counts"]["added"], 0);
-    assert_eq!(delta["counts"]["unchanged"], delta["base"]["objects"]);
-    assert_eq!(
-        finished.document["counts"]["base_objects"],
-        delta["counts"]["baseObjects"]
+    let result: Value = serde_json::from_slice(&std::fs::read(&out).unwrap()).unwrap();
+    assert_eq!(result["schema"], "prism.design_compare.result.a0");
+    assert!(
+        result["schematic"]["changes"]
+            .as_array()
+            .unwrap()
+            .is_empty()
     );
+    assert!(result["pcb"]["changes"].as_array().unwrap().is_empty());
+    for tab in ["schematic", "pcb", "bom"] {
+        assert_eq!(
+            result["counts"][tab],
+            serde_json::json!({"added": 0, "removed": 0, "changed": 0})
+        );
+    }
     assert_eq!(
-        finished.document["counts"]["head_objects"],
-        delta["counts"]["headObjects"]
+        result["files"]["base"],
+        serde_json::json!([
+            {"path": "p.kicad_pro", "filename": "p.kicad_pro"},
+            {"path": "p.kicad_sch", "filename": "p.kicad_sch"},
+        ])
     );
-    assert_eq!(finished.document["schema"], "prism.cli.compare_result.a0");
+    prism_bundle::schema::validate("prism.design_compare.result.a0", &result).unwrap();
+    let document = &finished.document;
+    assert_eq!(document["schema"], "prism.cli.compare_result.a0");
+    assert_eq!(document["counts"]["added"], 0);
+    assert_eq!(
+        document["counts"]["unchanged"],
+        document["counts"]["base_objects"]
+    );
+    assert_eq!(document["base"]["revision_key"], ZERO_KEY);
+}
+
+#[test]
+fn a_source_tree_compares_as_its_bundle_does() {
+    let archive = parse_bundle("compare-source");
+    let dir = archive.parent().unwrap();
+    let from_bundles = dir.join("bundles.json");
+    let from_sources = dir.join("sources.json");
+    assert_eq!(compare(&archive, &archive, &from_bundles).code, 0);
+    let project = dir.join("p.kicad_pro");
+    let finished = run(&[
+        "compare",
+        "--base-src",
+        s(&project),
+        "--base-revision-key",
+        ZERO_KEY,
+        "--head",
+        s(&archive),
+        "-o",
+        s(&from_sources),
+        "--quiet",
+    ]);
+    assert_eq!(finished.code, 0, "{}", finished.document);
+    let mut bundles: Value =
+        serde_json::from_slice(&std::fs::read(&from_bundles).unwrap()).unwrap();
+    let sources: Value = serde_json::from_slice(&std::fs::read(&from_sources).unwrap()).unwrap();
+    // Only the identity differs: a source tree has no bundle key.
+    assert!(sources["base"].get("bundleKey").is_none());
+    bundles["base"].as_object_mut().unwrap().remove("bundleKey");
+    assert_eq!(bundles, sources);
 }
 
 #[test]
@@ -157,6 +207,62 @@ fn usage_errors_exit_two() {
         vec!["compare", "--base", "a.prism"],
         vec!["compare", "--base", "a.prism", "--head", "b.prism"],
         vec!["compare", "--base", "a.prism", "--head", "b.prism", "-o"],
+        // A side is a bundle or a source tree, never both.
+        vec![
+            "compare",
+            "--base",
+            "a.prism",
+            "--base-src",
+            "p.kicad_pro",
+            "--head",
+            "b.prism",
+            "-o",
+            "r.json",
+        ],
+        // A source tree needs its revision key, a hex one.
+        vec![
+            "compare",
+            "--base-src",
+            "p.kicad_pro",
+            "--head",
+            "b.prism",
+            "-o",
+            "r.json",
+        ],
+        vec![
+            "compare",
+            "--base-src",
+            "p.kicad_pro",
+            "--base-revision-key",
+            "xyz",
+            "--head",
+            "b.prism",
+            "-o",
+            "r.json",
+        ],
+        // Source-tree inputs only with a source tree.
+        vec![
+            "compare",
+            "--base",
+            "a.prism",
+            "--base-source-root",
+            "d",
+            "--head",
+            "b.prism",
+            "-o",
+            "r.json",
+        ],
+        vec![
+            "compare",
+            "--base",
+            "a.prism",
+            "--base-upgraded",
+            "p.kicad_sch=20230121",
+            "--head",
+            "b.prism",
+            "-o",
+            "r.json",
+        ],
     ] {
         let failed = run(&args);
         assert_eq!(failed.code, 2, "{args:?}");

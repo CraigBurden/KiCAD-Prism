@@ -14,11 +14,16 @@ producer reads the single parsed model and returns its contract from
   `src/placements/` (projections/placements.json, P3),
   `src/project/` (projections/project.json, P4),
   `src/system_interface/` (projections/system-interface.json, P5).
-- `src/compare.rs`, `src/compare/` — Design Comparison's object diff, the Rust
-  port of `backend/design-compare-parser/ecad-diff.mjs` (ADR amendment C2).
-  `compare::diff` is a pure function of two `board-objects` documents and each
-  side's project directory; it returns `CompareObjectDeltaA0`
-  (`prism.compare.object_delta.a0`). The command is
-  `native/src/rs/prism-kicad-cli/src/cmd_compare.rs`; a parity difference is
-  recorded in `native/parity/divergences/compare.md`. The engine reads no
-  bundle, no KiCad file and no repository.
+- `src/compare.rs`, `src/compare/` — Design Comparison in Rust (ADR
+  amendments C2 and C2r). The object diff (`diff.rs`, `entry.rs`,
+  `classify.rs`, `output.rs`) is the port of
+  `backend/design-compare-parser/ecad-diff.mjs`; `compare::result::build`
+  turns two revisions' typed members into `DesignCompareResultA0`
+  (`prism.design_compare.result.a0`), one module per tab under
+  `src/compare/result/` (`files`, `objects`, `connectivity`, `bom`,
+  `stackup`, `route_metrics`, `project_diff`; `review` holds the internal
+  visual targets). The spec of each field is
+  `native/contracts/prism/field-maps/design-compare.md`. The command is
+  `native/src/rs/prism-kicad-cli/src/cmd_compare.rs`; a divergence from
+  today's output is recorded in `native/parity/divergences/compare.md`. The
+  engine reads no bundle, no KiCad file and no repository.

@@ -10,15 +10,15 @@
         },
         "base": {
             "$ref": "#/$defs/CliCompareSide",
-            "description": "The `--base` bundle."
+            "description": "The `--base` side."
         },
         "head": {
             "$ref": "#/$defs/CliCompareSide",
-            "description": "The `--head` bundle."
+            "description": "The `--head` side."
         },
         "counts": {
             "$ref": "#/$defs/CliCompareCounts",
-            "description": "The change counts of the written delta."
+            "description": "The object diff's counts."
         }
     },
     "required": [
@@ -36,9 +36,13 @@
         "CliCompareSide": {
             "type": "object",
             "properties": {
+                "revision_key": {
+                    "$ref": "#/$defs/Sha256Hex",
+                    "description": "The side's revision key: the bundle manifest's, or `--<side>-revision-key` for a source tree (amendment C2r §3)."
+                },
                 "bundle_key": {
                     "$ref": "#/$defs/Sha256Hex",
-                    "description": "The bundle key of the side's bundle (cli-spec.md §5.1.4), computed from its manifest's revision key and generator id."
+                    "description": "The bundle key of the side's bundle (cli-spec.md §5.1.4), computed from its manifest's revision key and generator id. Absent for a source tree."
                 },
                 "objects": {
                     "$ref": "#/$defs/Count",
@@ -46,7 +50,7 @@
                 }
             },
             "required": [
-                "bundle_key",
+                "revision_key",
                 "objects"
             ],
             "unevaluatedProperties": {
@@ -98,7 +102,7 @@
             "unevaluatedProperties": {
                 "not": {}
             },
-            "description": "The change counts of a `compare`, equal to `counts` of the delta document written to `-o`."
+            "description": "The object diff's counts of a `compare`: the board-objects objects added, removed, modified, unchanged and ignored."
         },
         "Sha256Hex": {
             "type": "string",

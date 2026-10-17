@@ -228,6 +228,39 @@ enum CliArgument {
   /** `--head` of `compare` (cli-spec.md §5.6). */
   head,
 
+  /** `--base-src` of `compare`: the base revision's `<project.kicad_pro>` in a source tree (amendment C2r §3). */
+  baseSrc: "base-src",
+
+  /** `--head-src` of `compare`: the head revision's `<project.kicad_pro>` in a source tree. */
+  headSrc: "head-src",
+
+  /** `--base-source-root` of `compare`, as `--source-root` of `bundle build`. */
+  baseSourceRoot: "base-source-root",
+
+  /** `--head-source-root` of `compare`. */
+  headSourceRoot: "head-source-root",
+
+  /** `--base-config` of `compare`, as `--config` of `bundle build`. */
+  baseConfig: "base-config",
+
+  /** `--head-config` of `compare`. */
+  headConfig: "head-config",
+
+  /** `--base-revision-key` of `compare`: the base source tree's revision key. */
+  baseRevisionKey: "base-revision-key",
+
+  /** `--head-revision-key` of `compare`. */
+  headRevisionKey: "head-revision-key",
+
+  /** `--base-upgraded` of `compare`, as `--upgraded` of `bundle build`. */
+  baseUpgraded: "base-upgraded",
+
+  /** `--head-upgraded` of `compare`. */
+  headUpgraded: "head-upgraded",
+
+  /** `--include-unchanged` of `compare`: list unchanged BOM rows too. */
+  includeUnchanged: "include-unchanged",
+
   /** `--view` of `artwork`: the name of a view of the `ArtworkConfigA0`. */
   view,
 
@@ -789,14 +822,17 @@ model CliProjectAbsentA0 {
 
 /** One side of a `compare` (cli-spec.md §5.6). */
 model CliCompareSide {
-  /** The bundle key of the side's bundle (cli-spec.md §5.1.4), computed from its manifest's revision key and generator id. */
-  bundle_key: Sha256Hex;
+  /** The side's revision key: the bundle manifest's, or `--<side>-revision-key` for a source tree (amendment C2r §3). */
+  revision_key: Sha256Hex;
+
+  /** The bundle key of the side's bundle (cli-spec.md §5.1.4), computed from its manifest's revision key and generator id. Absent for a source tree. */
+  bundle_key?: Sha256Hex;
 
   /** How many objects the side's `projections/board-objects.json` holds, review-only objects included: today's `objects`. */
   objects: Count;
 }
 
-/** The change counts of a `compare`, equal to `counts` of the delta document written to `-o`. */
+/** The object diff's counts of a `compare`: the board-objects objects added, removed, modified, unchanged and ignored. */
 model CliCompareCounts {
   /** Objects only in `--head`. */
   added: Count;
@@ -831,13 +867,13 @@ model CliCompareResultA0 {
   /** Document schema id. */
   schema: "prism.cli.compare_result.a0";
 
-  /** The `--base` bundle. */
+  /** The `--base` side. */
   base: CliCompareSide;
 
-  /** The `--head` bundle. */
+  /** The `--head` side. */
   head: CliCompareSide;
 
-  /** The change counts of the written delta. */
+  /** The object diff's counts. */
   counts: CliCompareCounts;
 }
 

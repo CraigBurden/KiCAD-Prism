@@ -24,13 +24,13 @@ pub mod error {
         }
     }
 }
-///The change counts of a `compare`, equal to `counts` of the delta document written to `-o`.
+///The object diff's counts of a `compare`: the board-objects objects added, removed, modified, unchanged and ignored.
 ///
 /// <details><summary>JSON schema</summary>
 ///
 /// ```json
 ///{
-///  "description": "The change counts of a `compare`, equal to `counts` of the delta document written to `-o`.",
+///  "description": "The object diff's counts of a `compare`: the board-objects objects added, removed, modified, unchanged and ignored.",
 ///  "type": "object",
 ///  "required": [
 ///    "added",
@@ -112,15 +112,15 @@ pub struct CliCompareCounts {
 ///  ],
 ///  "properties": {
 ///    "base": {
-///      "description": "The `--base` bundle.",
+///      "description": "The `--base` side.",
 ///      "$ref": "#/$defs/CliCompareSide"
 ///    },
 ///    "counts": {
-///      "description": "The change counts of the written delta.",
+///      "description": "The object diff's counts.",
 ///      "$ref": "#/$defs/CliCompareCounts"
 ///    },
 ///    "head": {
-///      "description": "The `--head` bundle.",
+///      "description": "The `--head` side.",
 ///      "$ref": "#/$defs/CliCompareSide"
 ///    },
 ///    "schema": {
@@ -138,11 +138,11 @@ pub struct CliCompareCounts {
 pub struct CliCompareResultA0 {
     ///Document schema id.
     pub schema: ::std::string::String,
-    ///The `--base` bundle.
+    ///The `--base` side.
     pub base: CliCompareSide,
-    ///The `--head` bundle.
+    ///The `--head` side.
     pub head: CliCompareSide,
-    ///The change counts of the written delta.
+    ///The object diff's counts.
     pub counts: CliCompareCounts,
 }
 ///One side of a `compare` (cli-spec.md §5.6).
@@ -154,17 +154,21 @@ pub struct CliCompareResultA0 {
 ///  "description": "One side of a `compare` (cli-spec.md §5.6).",
 ///  "type": "object",
 ///  "required": [
-///    "bundle_key",
-///    "objects"
+///    "objects",
+///    "revision_key"
 ///  ],
 ///  "properties": {
 ///    "bundle_key": {
-///      "description": "The bundle key of the side's bundle (cli-spec.md §5.1.4), computed from its manifest's revision key and generator id.",
+///      "description": "The bundle key of the side's bundle (cli-spec.md §5.1.4), computed from its manifest's revision key and generator id. Absent for a source tree.",
 ///      "$ref": "#/$defs/Sha256Hex"
 ///    },
 ///    "objects": {
 ///      "description": "How many objects the side's `projections/board-objects.json` holds, review-only objects included: today's `objects`.",
 ///      "$ref": "#/$defs/Count"
+///    },
+///    "revision_key": {
+///      "description": "The side's revision key: the bundle manifest's, or `--<side>-revision-key` for a source tree (amendment C2r §3).",
+///      "$ref": "#/$defs/Sha256Hex"
 ///    }
 ///  },
 ///  "additionalProperties": false
@@ -174,8 +178,11 @@ pub struct CliCompareResultA0 {
 #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
 #[serde(deny_unknown_fields)]
 pub struct CliCompareSide {
-    ///The bundle key of the side's bundle (cli-spec.md §5.1.4), computed from its manifest's revision key and generator id.
-    pub bundle_key: Sha256Hex,
+    ///The side's revision key: the bundle manifest's, or `--<side>-revision-key` for a source tree (amendment C2r §3).
+    pub revision_key: Sha256Hex,
+    ///The bundle key of the side's bundle (cli-spec.md §5.1.4), computed from its manifest's revision key and generator id. Absent for a source tree.
+    #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+    pub bundle_key: ::std::option::Option<Sha256Hex>,
     ///How many objects the side's `projections/board-objects.json` holds, review-only objects included: today's `objects`.
     pub objects: Count,
 }

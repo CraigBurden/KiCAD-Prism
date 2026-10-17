@@ -47,6 +47,12 @@ pub struct Args {
     pub options: BTreeMap<&'static str, String>,
     /// `--upgraded`, by repository path.
     pub upgraded: BTreeMap<String, u64>,
+    /// `compare --base-upgraded`, by repository path.
+    pub base_upgraded: BTreeMap<String, u64>,
+    /// `compare --head-upgraded`, by repository path.
+    pub head_upgraded: BTreeMap<String, u64>,
+    /// `compare --include-unchanged`.
+    pub include_unchanged: bool,
     /// `--worktree`.
     pub worktree: bool,
     /// `--quiet`.
@@ -80,7 +86,7 @@ fn work_of(command: Command, stage: Option<StageArg>) -> Work {
     }
 }
 
-const VALUE_OPTIONS: [&str; 18] = [
+const VALUE_OPTIONS: [&str; 28] = [
     "output",
     "in",
     "stage",
@@ -96,6 +102,16 @@ const VALUE_OPTIONS: [&str; 18] = [
     "project",
     "base",
     "head",
+    "base-src",
+    "head-src",
+    "base-source-root",
+    "head-source-root",
+    "base-config",
+    "head-config",
+    "base-revision-key",
+    "head-revision-key",
+    "base-upgraded",
+    "head-upgraded",
     "limit",
     "threads",
     "upgraded",
@@ -119,7 +135,22 @@ fn allowed(command: Command, option: &str) -> bool {
             "models-tool",
         ],
         Command::Extract => &["output"],
-        Command::Compare => &["base", "head", "output"],
+        Command::Compare => &[
+            "base",
+            "head",
+            "output",
+            "base-src",
+            "head-src",
+            "base-source-root",
+            "head-source-root",
+            "base-config",
+            "head-config",
+            "base-revision-key",
+            "head-revision-key",
+            "base-upgraded",
+            "head-upgraded",
+            "include-unchanged",
+        ],
         Command::RevisionKey => &["commit", "worktree", "project", "config"],
         _ => &[],
     };
@@ -165,7 +196,7 @@ fn long_name(token: &str) -> Option<&str> {
 fn static_name(name: &str) -> Option<&'static str> {
     VALUE_OPTIONS
         .into_iter()
-        .chain(["worktree", "quiet", "help"])
+        .chain(["worktree", "quiet", "include-unchanged", "help"])
         .find(|candidate| *candidate == name)
 }
 
@@ -174,6 +205,9 @@ struct Raw {
     options: BTreeMap<&'static str, String>,
     limits: Vec<String>,
     upgraded: Vec<String>,
+    base_upgraded: Vec<String>,
+    head_upgraded: Vec<String>,
+    include_unchanged: bool,
     worktree: bool,
     quiet: bool,
     help: bool,
@@ -185,6 +219,9 @@ fn collect(command: Command, rest: &[String]) -> Outcome<Raw> {
         options: BTreeMap::new(),
         limits: Vec::new(),
         upgraded: Vec::new(),
+        base_upgraded: Vec::new(),
+        head_upgraded: Vec::new(),
+        include_unchanged: false,
         worktree: false,
         quiet: false,
         help: false,
@@ -213,7 +250,7 @@ impl Raw {
             .filter(|name| allowed(command, name))
             .ok_or_else(|| usage(format!("unknown option {token:?}")))?;
         match name {
-            "worktree" | "quiet" => self.flag(name).map(|()| index + 1),
+            "worktree" | "quiet" | "include-unchanged" => self.flag(name).map(|()| index + 1),
             _ => {
                 let value = rest
                     .get(index + 1)
@@ -224,10 +261,10 @@ impl Raw {
     }
 
     fn flag(&mut self, name: &'static str) -> Outcome<()> {
-        let slot = if name == "worktree" {
-            &mut self.worktree
-        } else {
-            &mut self.quiet
+        let slot = match name {
+            "worktree" => &mut self.worktree,
+            "include-unchanged" => &mut self.include_unchanged,
+            _ => &mut self.quiet,
         };
         if *slot {
             return Err(usage(format!("--{name} is given twice")).argument(name));
@@ -240,6 +277,8 @@ impl Raw {
         match name {
             "limit" => self.limits.push(value),
             "upgraded" => self.upgraded.push(value),
+            "base-upgraded" => self.base_upgraded.push(value),
+            "head-upgraded" => self.head_upgraded.push(value),
             _ if self.options.insert(name, value).is_some() => {
                 return Err(usage(format!("--{name} is given twice")).argument(name));
             }
@@ -394,22 +433,60 @@ fn build_rules(raw: &Raw, stage: StageArg) -> [(bool, &'static str, &'static str
     ]
 }
 
-/// The options of `compare` (cli-spec.md §5.6): all three of `--base`,
-/// `--head` and `-o`, and no positional argument.
+/// The options of `compare` (cli-spec.md §5.6, amendment C2r §3): each side
+/// is a bundle (`--base`, `--head`) or a source tree (`--base-src`,
+/// `--head-src`) with its revision key; a source tree's other inputs only
+/// with it; `-o`; no positional argument.
 fn check_compare(raw: &Raw) -> Outcome<()> {
-    if !raw.options.contains_key("base") {
-        return Err(usage("compare takes --base").argument("base"));
-    }
-    if !raw.options.contains_key("head") {
-        return Err(usage("compare takes --head").argument("head"));
+    for side in ["base", "head"] {
+        check_compare_side(raw, side)?;
     }
     if !raw.options.contains_key("output") {
-        return Err(usage("compare takes -o <delta.json>").argument("output"));
+        return Err(usage("compare takes -o <result.json>").argument("output"));
     }
     if !raw.positional.is_empty() {
         return Err(usage("compare takes no positional argument").argument("command"));
     }
     Ok(())
+}
+
+/// One side of `compare`: a bundle or a source tree, the source tree's
+/// inputs only with it, and its revision key.
+fn check_compare_side(raw: &Raw, side: &str) -> Outcome<()> {
+    let has = |suffix: &str| raw.options.contains_key(format!("{side}{suffix}").as_str());
+    let refuse = |message: String, option: &str| {
+        Err(usage(message).argument(static_name(option).unwrap_or("base")))
+    };
+    let source = has("-src");
+    if has("") == source {
+        return refuse(
+            format!("compare takes exactly one of --{side} and --{side}-src"),
+            side,
+        );
+    }
+    let upgraded = if side == "base" {
+        &raw.base_upgraded
+    } else {
+        &raw.head_upgraded
+    };
+    let source_only = [
+        (has("-source-root"), "-source-root"),
+        (has("-config"), "-config"),
+        (!upgraded.is_empty(), "-upgraded"),
+        (has("-revision-key"), "-revision-key"),
+    ];
+    if let Some((_, option)) = source_only.iter().find(|(given, _)| *given && !source) {
+        let name = format!("{side}{option}");
+        return refuse(format!("--{name} is only for --{side}-src"), &name);
+    }
+    let key = format!("{side}-revision-key");
+    match raw.options.get(key.as_str()) {
+        None if source => refuse(format!("--{side}-src takes --{key}"), &key),
+        Some(value) if !is_hex64(value) => {
+            refuse(format!("--{key} takes 64 lowercase hex digits"), &key)
+        }
+        _ => Ok(()),
+    }
 }
 
 fn check_combinations(command: Command, raw: &Raw, stage: Option<StageArg>) -> Outcome<()> {
@@ -462,7 +539,14 @@ pub fn parse(argv: &[String]) -> Outcome<Args> {
     }
     let (stage, threads) = check_values(&raw)?;
     check_combinations(command, &raw, stage)?;
-    let mut limits = Limits::defaults(work_of(command, stage));
+    // A source-tree side of `compare` runs the parse stage, so the command
+    // takes the parse stage's limits (cli-spec.md §5.6).
+    let source_tree = raw.options.contains_key("base-src") || raw.options.contains_key("head-src");
+    let work = match work_of(command, stage) {
+        Work::Compare if source_tree => Work::Parse,
+        work => work,
+    };
+    let mut limits = Limits::defaults(work);
     let mut seen: Vec<LimitName> = Vec::new();
     for argument in &raw.limits {
         let name = limits.apply(argument)?;
@@ -473,12 +557,17 @@ pub fn parse(argv: &[String]) -> Outcome<Args> {
         }
         seen.push(name);
     }
-    let upgraded = upgrades(&raw.upgraded)?;
+    let upgraded = upgrades(&raw.upgraded, "upgraded")?;
+    let base_upgraded = upgrades(&raw.base_upgraded, "base-upgraded")?;
+    let head_upgraded = upgrades(&raw.head_upgraded, "head-upgraded")?;
     Ok(Args {
         command,
         positional: raw.positional,
         options: raw.options,
         upgraded,
+        base_upgraded,
+        head_upgraded,
+        include_unchanged: raw.include_unchanged,
         worktree: raw.worktree,
         quiet: raw.quiet,
         threads,
@@ -489,12 +578,12 @@ pub fn parse(argv: &[String]) -> Outcome<Args> {
 
 /// Parse every `--upgraded <path>=<version>` (cli-spec.md §2.2): a `RepoPath`
 /// ending in `.kicad_pcb` or `.kicad_sch`, a decimal version, distinct paths.
-fn upgrades(values: &[String]) -> Outcome<BTreeMap<String, u64>> {
+fn upgrades(values: &[String], option: &'static str) -> Outcome<BTreeMap<String, u64>> {
     let mut upgraded = BTreeMap::new();
     for value in values {
         let bad = || {
-            usage("--upgraded takes <path>=<version>: a repository path ending in .kicad_pcb or .kicad_sch and a decimal version")
-                .argument("upgraded")
+            usage(format!("--{option} takes <path>=<version>: a repository path ending in .kicad_pcb or .kicad_sch and a decimal version"))
+                .argument(option)
         };
         let (path, version) = value.rsplit_once('=').ok_or_else(bad)?;
         let lowered = path.to_ascii_lowercase();
@@ -508,7 +597,7 @@ fn upgrades(values: &[String]) -> Outcome<BTreeMap<String, u64>> {
             return Err(bad());
         }
         if upgraded.insert(path.to_owned(), version).is_some() {
-            return Err(usage(format!("--upgraded names {path:?} twice")).argument("upgraded"));
+            return Err(usage(format!("--{option} names {path:?} twice")).argument(option));
         }
     }
     Ok(upgraded)
@@ -520,6 +609,9 @@ fn help_args() -> Args {
         positional: Vec::new(),
         options: BTreeMap::new(),
         upgraded: BTreeMap::new(),
+        base_upgraded: BTreeMap::new(),
+        head_upgraded: BTreeMap::new(),
+        include_unchanged: false,
         worktree: false,
         quiet: false,
         threads: 4,
@@ -546,7 +638,11 @@ usage:
   prism-kicad bundle extract <bundle.prism> <member>... -o <dir> [COMMON]
   prism-kicad revision-key <repo> (--commit <rev> | --worktree) --project <rel>
               [--config <effective.json>] [COMMON]
-  prism-kicad compare --base <base.prism> --head <head.prism> -o <delta.json> [COMMON]
+  prism-kicad compare (--base <base.prism> | --base-src <project.kicad_pro>
+              --base-revision-key <hex> [--base-source-root <dir>]
+              [--base-config <effective.json>] [--base-upgraded <path>=<version>]...)
+              (--head <head.prism> | --head-src … as for the base)
+              [--include-unchanged] -o <result.json> [COMMON]
 
 COMMON: [--limit <name>=<value>]... [--threads <n>] [--quiet]
 
@@ -582,6 +678,16 @@ mod tests {
         let compare = args("compare --base a.prism --head b.prism -o d.json").unwrap();
         assert_eq!(compare.command, Command::Compare);
         assert_eq!(work_of(compare.command, compare.stage), Work::Compare);
+        // A source-tree side runs the parse stage, so it gets that stage's limits.
+        let key = "0".repeat(64);
+        let source = args(&format!(
+            "compare --base-src p.kicad_pro --base-revision-key {key} --head b.prism -o r.json"
+        ))
+        .unwrap();
+        assert_eq!(
+            source.limits.get(LimitName::TimeoutMs),
+            Limits::defaults(Work::Parse).get(LimitName::TimeoutMs)
+        );
     }
 
     #[test]
