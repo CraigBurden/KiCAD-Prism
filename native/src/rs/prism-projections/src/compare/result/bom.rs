@@ -1,7 +1,8 @@
 //! The BOM tab (`/bom`): each revision's BOM rows from `occurrences`
 //! (`field-maps/occurrences.md` "Design Comparison BOM rows"), diffed by
 //! reference (`backend/app/services/bom_diff_service.py` `diff_boms`). The
-//! columns are the head revision's `.prism.json` `bom.fields`, then every
+//! columns are `Reference`, the head revision's `.prism.json` `bom.fields` (by
+//! default `Reference`, `Value`, `Footprint`, `Datasheet`), then every
 //! column the rows carry (`backend/app/services/design_compare_bundle_inputs.py`
 //! `revision_components`, `design_compare_occurrences.py` `bom_rows`).
 //!
@@ -43,26 +44,6 @@ const CANONICAL_LABELS: [&str; 17] = [
     "Rate",
 ];
 
-/// `bomFields` keys and the canonical labels they fill
-/// (`design_compare_bundle_inputs._BOM_FIELD_LABELS`).
-const BOM_FIELD_LABELS: [(&str, &str); 15] = [
-    ("value", "Value"),
-    ("description", "Description"),
-    ("datasheet", "Datasheet"),
-    ("manufacturer", "Manufacturer"),
-    ("manufacturerPartNumber", "Manufacturer Part Number"),
-    ("vendor", "Vendor"),
-    ("vendorPartNumber", "Vendor Part Number"),
-    ("footprint", "Footprint"),
-    ("mass", "Mass (g)"),
-    ("rqjc", "RQjC (C/W)"),
-    ("rqjcTop", "RQjC_top (C/W)"),
-    ("tempMax", "Temp_max (C)"),
-    ("tempMin", "Temp_min (C)"),
-    ("powerDissipation", "Power Dissipation (W)"),
-    ("rate", "Rate"),
-];
-
 /// `_bom_fields`'s raw flag names; they become the `DNP` / `In BOM` labels and
 /// are never extras.
 const RAW_FLAGS: [&str; 2] = ["kicad_dnp", "kicad_in_bom"];
@@ -70,48 +51,52 @@ const RAW_FLAGS: [&str; 2] = ["kicad_dnp", "kicad_in_bom"];
 /// The reference labels `diff_boms` never exposes as columns.
 const CLI_REFERENCE_ALIASES: [&str; 3] = ["Refs", "Ref", "references"];
 
-/// One BOM row, keyed by column name.
-type Row = BTreeMap<String, String>;
+/// The columns when the head revision's `.prism.json` names none
+/// (`design_compare_service._comparison_bom_fields`).
+const DEFAULT_COLUMNS: [&str; 4] = ["Reference", "Value", "Footprint", "Datasheet"];
 
-/// One component occurrence, reduced to what the BOM reads.
-struct Component {
-    reference: String,
-    /// `properties.Value`, today's preferred `Value` text.
-    value: String,
-    /// `properties.Footprint`, today's preferred `Footprint` text.
-    footprint: String,
-    /// The 17 canonical labels, the extras, and the folded `DNP` / `In BOM`.
-    fields: BTreeMap<String, String>,
+/// One BOM row, keyed by column name. Every text borrows from the
+/// `occurrences` member (or is a `'static` flag text); only the result owns
+/// strings.
+type Row<'a> = BTreeMap<&'a str, &'a str>;
+
+/// One revision's BOM: the rows keyed by reference (the last row of a
+/// multi-unit reference wins, as `diff_boms` keys them) and the column names
+/// of every row, the replaced ones included.
+struct Bom<'a> {
+    rows: BTreeMap<&'a str, Row<'a>>,
+    detected: BTreeSet<&'a str>,
 }
 
 pub(super) fn build(base: &Revision, head: &Revision, options: Options) -> dc::DesignCompareBom {
-    let base_rows = bom_rows(&components(&base.occurrences));
-    let head_rows = bom_rows(&components(&head.occurrences));
+    let base_rows = bom_rows(&base.occurrences);
+    let head_rows = bom_rows(&head.occurrences);
+    let configured = fields(head);
+    let configured: Vec<&str> = configured.iter().map(String::as_str).collect();
     let (changes, summary, columns) = diff_boms(
         &base_rows,
         &head_rows,
-        &fields(head),
+        &configured,
         options.include_unchanged,
     );
     dc::DesignCompareBom {
-        fields: columns,
+        fields: columns.into_iter().map(str::to_owned).collect(),
         changes,
         summary,
     }
 }
 
 /// The BOM columns configured by the head revision's `.prism.json`
-/// `bom.fields`, when it is a non-empty list of texts. An unconfigured project
-/// contributes none: the columns are then the detected ones alone
-/// (`diff_boms` prepends `Reference` and appends every detected field). The
-/// C2-a bundle path reads no configured columns, so the result matches it.
+/// `bom.fields` when it is a non-empty list of texts, else
+/// [`DEFAULT_COLUMNS`] (`_comparison_bom_fields`). `diff_boms` prepends
+/// `Reference` and appends every detected column.
 pub(super) fn fields(head: &Revision) -> Vec<String> {
     columns_from_settings(head.prism_settings.as_ref())
 }
 
 fn columns_from_settings(settings: Option<&serde_json::Value>) -> Vec<String> {
     settings
-        .and_then(|settings| settings.get("bom")?.get("fields")?.as_array().cloned())
+        .and_then(|settings| settings.get("bom")?.get("fields")?.as_array())
         .map(|fields| {
             fields
                 .iter()
@@ -119,215 +104,196 @@ fn columns_from_settings(settings: Option<&serde_json::Value>) -> Vec<String> {
                 .collect::<Vec<_>>()
         })
         .filter(|fields| !fields.is_empty())
-        .unwrap_or_default()
-}
-
-/// One component per symbol occurrence, in `occurrences` order
-/// (`design_compare_bundle_inputs.revision_components`): power symbols and
-/// occurrences without a reference are skipped.
-fn components(occurrences: &OccurrencesA0) -> Vec<Component> {
-    let mut components = Vec::new();
-    for symbol in &occurrences.symbols {
-        let reference = symbol.reference.as_ref().map_or("", |value| value.as_str());
-        if reference.is_empty() || is_power_symbol(symbol) {
-            continue;
-        }
-        components.push(Component {
-            reference: reference.to_owned(),
-            value: property(symbol, "Value"),
-            footprint: property(symbol, "Footprint"),
-            fields: symbol_fields(symbol),
-        });
-    }
-    components
+        .unwrap_or_else(|| DEFAULT_COLUMNS.map(str::to_owned).to_vec())
 }
 
 /// A power port or `PWR_FLAG`: lib id starting with `power:` after case
 /// folding (`design_compare_occurrences.is_power_symbol`).
 fn is_power_symbol(symbol: &OccurrencesSymbol) -> bool {
-    symbol.lib_id.as_str().to_lowercase().starts_with("power:")
-}
-
-fn property(symbol: &OccurrencesSymbol, name: &str) -> String {
-    symbol.properties.0.get(name).cloned().unwrap_or_default()
+    symbol
+        .lib_id
+        .as_str()
+        .get(..6)
+        .is_some_and(|prefix| prefix.eq_ignore_ascii_case("power:"))
 }
 
 /// The occurrence's BOM fields: the canonical labels from `bomFields` and the
 /// folded flags, plus every property that is not a canonical label
 /// (`design_compare_occurrences._bom_fields` over `_canonical_fields`).
-fn symbol_fields(symbol: &OccurrencesSymbol) -> BTreeMap<String, String> {
-    let mut fields = BTreeMap::new();
-    fields.insert("DNP".to_owned(), yes_no(symbol.dnp));
-    fields.insert("In BOM".to_owned(), yes_no(!symbol.exclude_from_bom));
-    let values = bom_field_values(&symbol.bom_fields);
-    for (key, label) in BOM_FIELD_LABELS {
-        let value = values.get(key).and_then(|value| *value).unwrap_or("");
-        fields.insert(label.to_owned(), value.to_owned());
+fn symbol_fields(symbol: &OccurrencesSymbol) -> Row<'_> {
+    let mut fields = Row::new();
+    fields.insert("DNP", yes_no(symbol.dnp));
+    fields.insert("In BOM", yes_no(!symbol.exclude_from_bom));
+    for (label, value) in bom_field_values(&symbol.bom_fields) {
+        fields.insert(label, value.unwrap_or(""));
     }
     for (key, value) in &symbol.properties.0 {
         let is_extra =
             !key.is_empty() && !is_canonical_label(key) && !RAW_FLAGS.contains(&key.as_str());
         if is_extra {
-            fields.insert(key.clone(), value.clone());
+            fields.insert(key, value);
         }
     }
     fields
 }
 
-/// `bomFields` by its member key, for the label lookup above.
-fn bom_field_values(bom_fields: &OccurrencesBomFields) -> BTreeMap<&'static str, Option<&str>> {
-    let mut values = BTreeMap::new();
-    values.insert("value", bom_fields.value.as_deref());
-    values.insert("description", bom_fields.description.as_deref());
-    values.insert("datasheet", bom_fields.datasheet.as_deref());
-    values.insert("manufacturer", bom_fields.manufacturer.as_deref());
-    values.insert(
-        "manufacturerPartNumber",
-        bom_fields.manufacturer_part_number.as_deref(),
-    );
-    values.insert("vendor", bom_fields.vendor.as_deref());
-    values.insert("vendorPartNumber", bom_fields.vendor_part_number.as_deref());
-    values.insert("footprint", bom_fields.footprint.as_deref());
-    values.insert("mass", bom_fields.mass.as_deref());
-    values.insert("rqjc", bom_fields.rqjc.as_deref());
-    values.insert("rqjcTop", bom_fields.rqjc_top.as_deref());
-    values.insert("tempMax", bom_fields.temp_max.as_deref());
-    values.insert("tempMin", bom_fields.temp_min.as_deref());
-    values.insert("powerDissipation", bom_fields.power_dissipation.as_deref());
-    values.insert("rate", bom_fields.rate.as_deref());
-    values
+/// `bomFields` by canonical label (`_BOM_FIELD_LABELS`).
+fn bom_field_values(bom_fields: &OccurrencesBomFields) -> [(&'static str, Option<&str>); 15] {
+    let b = bom_fields;
+    [
+        ("Value", b.value.as_deref()),
+        ("Description", b.description.as_deref()),
+        ("Datasheet", b.datasheet.as_deref()),
+        ("Manufacturer", b.manufacturer.as_deref()),
+        (
+            "Manufacturer Part Number",
+            b.manufacturer_part_number.as_deref(),
+        ),
+        ("Vendor", b.vendor.as_deref()),
+        ("Vendor Part Number", b.vendor_part_number.as_deref()),
+        ("Footprint", b.footprint.as_deref()),
+        ("Mass (g)", b.mass.as_deref()),
+        ("RQjC (C/W)", b.rqjc.as_deref()),
+        ("RQjC_top (C/W)", b.rqjc_top.as_deref()),
+        ("Temp_max (C)", b.temp_max.as_deref()),
+        ("Temp_min (C)", b.temp_min.as_deref()),
+        ("Power Dissipation (W)", b.power_dissipation.as_deref()),
+        ("Rate", b.rate.as_deref()),
+    ]
 }
 
 fn is_canonical_label(key: &str) -> bool {
     CANONICAL_LABELS.contains(&key)
 }
 
-fn yes_no(value: bool) -> String {
-    if value {
-        "Yes".to_owned()
-    } else {
-        "No".to_owned()
-    }
+fn yes_no(value: bool) -> &'static str {
+    if value { "Yes" } else { "No" }
 }
 
-/// The BOM rows KiCad puts in the BOM, sorted by reference
-/// (`design_compare_occurrences.bom_rows`). A row carries every field the
-/// occurrence has, with `Reference`, `Value` and `Footprint` preferred from
-/// the component.
-fn bom_rows(components: &[Component]) -> Vec<Row> {
-    let mut rows: Vec<Row> = Vec::new();
-    for component in components {
-        let reference = component.reference.trim();
-        if reference.is_empty() {
-            continue;
+/// The rows KiCad puts in the BOM (`design_compare_bundle_inputs.revision_components`,
+/// `design_compare_occurrences.bom_rows`, then `diff_boms`' keying). A row
+/// carries every field the occurrence has, with `Reference`, `Value` and
+/// `Footprint` preferred from the component's own properties.
+fn bom_rows(occurrences: &OccurrencesA0) -> Bom<'_> {
+    let mut bom = Bom {
+        rows: BTreeMap::new(),
+        detected: BTreeSet::new(),
+    };
+    for symbol in &occurrences.symbols {
+        if let Some((reference, row)) = bom_row(symbol) {
+            bom.detected.extend(
+                row.keys()
+                    .copied()
+                    .filter(|key| !key.is_empty() && !CLI_REFERENCE_ALIASES.contains(key)),
+            );
+            bom.rows.insert(reference, row);
         }
-        let mut row: Row = component
-            .fields
-            .iter()
-            .filter(|(key, _)| !key.is_empty())
-            .map(|(key, value)| (key.clone(), value.clone()))
-            .collect();
-        let in_bom = row
-            .get("In BOM")
-            .map_or("Yes", String::as_str)
-            .trim()
-            .to_lowercase();
-        if in_bom == "no" {
-            continue;
-        }
-        let value = preferred(&component.value, row.get("Value"));
-        let footprint = preferred(&component.footprint, row.get("Footprint"));
-        row.insert("Reference".to_owned(), reference.to_owned());
-        row.insert("Value".to_owned(), value);
-        row.insert("Footprint".to_owned(), footprint);
-        rows.push(row);
     }
-    rows.sort_by(|left, right| reference_of(left).cmp(reference_of(right)));
-    rows
+    bom
+}
+
+fn bom_row(symbol: &OccurrencesSymbol) -> Option<(&str, Row<'_>)> {
+    let reference = symbol.reference.as_ref().map_or("", |value| value.as_str());
+    if reference.is_empty() || is_power_symbol(symbol) {
+        return None;
+    }
+    let reference = reference.trim();
+    if reference.is_empty() {
+        return None;
+    }
+    let mut row = symbol_fields(symbol);
+    let in_bom = row.get("In BOM").copied().unwrap_or("Yes").trim();
+    if in_bom.eq_ignore_ascii_case("no") {
+        return None;
+    }
+    let value = preferred(property(symbol, "Value"), row.get("Value").copied());
+    let footprint = preferred(property(symbol, "Footprint"), row.get("Footprint").copied());
+    row.insert("Reference", reference);
+    row.insert("Value", value);
+    row.insert("Footprint", footprint);
+    Some((reference, row))
+}
+
+fn property<'a>(symbol: &'a OccurrencesSymbol, name: &str) -> &'a str {
+    symbol.properties.0.get(name).map_or("", String::as_str)
 }
 
 /// Today's `Value` / `Footprint`: the component's own text first, then the
 /// field's, else empty (`bom_rows`).
-fn preferred(component_value: &str, field_value: Option<&String>) -> String {
-    if !component_value.is_empty() {
-        component_value.to_owned()
+fn preferred<'a>(component_value: &'a str, field_value: Option<&'a str>) -> &'a str {
+    if component_value.is_empty() {
+        field_value.unwrap_or("")
     } else {
-        field_value.cloned().unwrap_or_default()
+        component_value
     }
 }
 
-fn reference_of(row: &Row) -> &str {
-    row.get("Reference").map_or("", String::as_str)
-}
-
-/// Diff the two sides by reference (`bom_diff_service.diff_boms`): rows are
-/// keyed by reference, so the last row of a multi-unit reference wins; the
+/// Diff the two sides by reference (`bom_diff_service.diff_boms`); the
 /// columns are `Reference`, the configured fields, then every detected field.
-fn diff_boms(
-    old_rows: &[Row],
-    new_rows: &[Row],
-    configured: &[String],
+#[allow(
+    clippy::type_complexity,
+    reason = "the three parts of the tab, borrowed until the caller owns them"
+)]
+fn diff_boms<'a>(
+    old: &Bom<'a>,
+    new: &Bom<'a>,
+    configured: &[&'a str],
     include_unchanged: bool,
 ) -> (
     Vec<dc::DesignCompareBomRow>,
     dc::DesignCompareSummary,
-    Vec<String>,
+    Vec<&'a str>,
 ) {
-    let old_map = row_map(old_rows);
-    let new_map = row_map(new_rows);
-    let mut references: BTreeSet<&str> = BTreeSet::new();
-    references.extend(old_map.keys().map(String::as_str));
-    references.extend(new_map.keys().map(String::as_str));
-    let fields = columns(old_rows, new_rows, configured);
+    let fields = columns(old, new, configured);
+    let (old_rows, new_rows) = (&old.rows, &new.rows);
+    let mut references: BTreeSet<&str> = old_rows.keys().copied().collect();
+    references.extend(new_rows.keys().copied());
 
     let mut changes = Vec::new();
     let (mut added, mut removed, mut changed) = (0u64, 0u64, 0u64);
     for reference in references {
-        let old = old_map.get(reference);
-        let new = new_map.get(reference);
-        match (old, new) {
+        let change = match (old_rows.get(reference), new_rows.get(reference)) {
             (None, Some(new)) => {
                 added += 1;
-                changes.push(row_change(
-                    reference,
-                    dc::DesignCompareBomStatus::Added,
-                    None,
-                    Some(snapshot(&fields, new)),
-                    None,
-                ));
+                Some((dc::DesignCompareBomStatus::Added, None, Some(new), None))
             }
             (Some(old), None) => {
                 removed += 1;
-                changes.push(row_change(
-                    reference,
-                    dc::DesignCompareBomStatus::Removed,
-                    Some(snapshot(&fields, old)),
-                    None,
-                    None,
-                ));
+                Some((dc::DesignCompareBomStatus::Removed, Some(old), None, None))
             }
             (Some(old), Some(new)) => {
                 let diffs = field_diffs(&fields, old, new);
                 if !diffs.is_empty() {
                     changed += 1;
-                    changes.push(row_change(
-                        reference,
+                    Some((
                         dc::DesignCompareBomStatus::Changed,
-                        Some(snapshot(&fields, old)),
-                        Some(snapshot(&fields, new)),
+                        Some(old),
+                        Some(new),
                         Some(dc::RecordDesignCompareBomFieldDiff(diffs)),
-                    ));
+                    ))
                 } else if include_unchanged {
-                    changes.push(row_change(
-                        reference,
+                    Some((
                         dc::DesignCompareBomStatus::Unchanged,
-                        Some(snapshot(&fields, old)),
-                        Some(snapshot(&fields, new)),
+                        Some(old),
+                        Some(new),
                         None,
-                    ));
+                    ))
+                } else {
+                    None
                 }
             }
-            (None, None) => {}
+            (None, None) => None,
+        };
+        if let Some((status, old, new, diffs)) = change {
+            changes.push(dc::DesignCompareBomRow {
+                ref_: reference
+                    .parse()
+                    .expect("a BOM reference is non-empty and non-blank"),
+                status,
+                old: old.map(|row| snapshot(&fields, row)),
+                new: new.map(|row| snapshot(&fields, row)),
+                diffs,
+            });
         }
     }
     let summary = dc::DesignCompareSummary {
@@ -338,65 +304,46 @@ fn diff_boms(
     (changes, summary, fields)
 }
 
-/// `{reference: row}`; a duplicate reference keeps the last row.
-fn row_map(rows: &[Row]) -> BTreeMap<String, Row> {
-    let mut map = BTreeMap::new();
-    for row in rows {
-        let reference = reference_of(row).trim();
-        if !reference.is_empty() {
-            map.insert(reference.to_owned(), row.clone());
-        }
-    }
-    map
-}
-
 /// The columns: `Reference`, the configured fields, then every detected field
 /// in code point order, deduplicated preserving the first occurrence.
-fn columns(old_rows: &[Row], new_rows: &[Row], configured: &[String]) -> Vec<String> {
-    let mut detected: BTreeSet<&str> = BTreeSet::new();
-    for row in old_rows.iter().chain(new_rows) {
-        for key in row.keys() {
-            if !key.is_empty() && !CLI_REFERENCE_ALIASES.contains(&key.as_str()) {
-                detected.insert(key);
-            }
-        }
-    }
-    let mut fields = Vec::new();
+fn columns<'a>(old: &Bom<'a>, new: &Bom<'a>, configured: &[&'a str]) -> Vec<&'a str> {
+    let detected = old.detected.union(&new.detected).copied();
     let mut seen = BTreeSet::new();
-    let ordered = std::iter::once("Reference".to_owned())
-        .chain(configured.iter().cloned())
-        .chain(detected.into_iter().map(str::to_owned));
-    for field in ordered {
-        if seen.insert(field.clone()) {
-            fields.push(field);
-        }
-    }
-    fields
+    std::iter::once("Reference")
+        .chain(configured.iter().copied())
+        .chain(detected)
+        .filter(|field| seen.insert(*field))
+        .collect()
 }
 
 /// A row's text for every column, absent columns as empty.
-fn snapshot(fields: &[String], row: &Row) -> dc::RecordString {
+fn snapshot(fields: &[&str], row: &Row<'_>) -> dc::RecordString {
     dc::RecordString(
         fields
             .iter()
-            .map(|field| (field.clone(), row.get(field).cloned().unwrap_or_default()))
+            .map(|field| {
+                (
+                    (*field).to_owned(),
+                    row.get(field).copied().unwrap_or("").to_owned(),
+                )
+            })
             .collect(),
     )
 }
 
 /// The columns that differ, with each side's text.
 fn field_diffs(
-    fields: &[String],
-    old: &Row,
-    new: &Row,
+    fields: &[&str],
+    old: &Row<'_>,
+    new: &Row<'_>,
 ) -> BTreeMap<String, dc::DesignCompareBomFieldDiff> {
     let mut diffs = BTreeMap::new();
     for field in fields {
-        let old_value = old.get(field).map_or("", String::as_str);
-        let new_value = new.get(field).map_or("", String::as_str);
+        let old_value = old.get(field).copied().unwrap_or("");
+        let new_value = new.get(field).copied().unwrap_or("");
         if old_value != new_value {
             diffs.insert(
-                field.clone(),
+                (*field).to_owned(),
                 dc::DesignCompareBomFieldDiff {
                     old: old_value.to_owned(),
                     new: new_value.to_owned(),
@@ -407,30 +354,13 @@ fn field_diffs(
     diffs
 }
 
-fn row_change(
-    reference: &str,
-    status: dc::DesignCompareBomStatus,
-    old: Option<dc::RecordString>,
-    new: Option<dc::RecordString>,
-    diffs: Option<dc::RecordDesignCompareBomFieldDiff>,
-) -> dc::DesignCompareBomRow {
-    dc::DesignCompareBomRow {
-        ref_: reference
-            .parse()
-            .expect("a BOM reference is non-empty and non-blank"),
-        status,
-        old,
-        new,
-        diffs,
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use serde_json::json;
 
     fn symbol(
+        reference: &str,
         properties: serde_json::Value,
         bom_fields: serde_json::Value,
         dnp: bool,
@@ -442,7 +372,7 @@ mod tests {
             "symbolUuid": "uuid",
             "documentPath": "board.kicad_sch",
             "libId": "Device:R",
-            "reference": "R1",
+            "reference": reference,
             "instanceMatched": true,
             "unit": 1,
             "dnp": dnp,
@@ -457,30 +387,45 @@ mod tests {
         .unwrap()
     }
 
-    fn row(reference: &str, value: &str) -> Row {
-        BTreeMap::from([
-            ("Reference".to_owned(), reference.to_owned()),
-            ("Value".to_owned(), value.to_owned()),
-        ])
+    fn occurrences(symbols: Vec<OccurrencesSymbol>) -> OccurrencesA0 {
+        let mut document: OccurrencesA0 = serde_json::from_value(json!({
+            "schema": "prism.occurrences.a0",
+            "sheets": [],
+            "symbols": [],
+            "footprints": [],
+            "references": [],
+            "variantDeclarations": []
+        }))
+        .unwrap();
+        document.symbols = symbols;
+        document
+    }
+
+    fn bom<'a>(rows: &[(&'a str, &'a str)]) -> Bom<'a> {
+        let mut bom = Bom {
+            rows: BTreeMap::new(),
+            detected: BTreeSet::new(),
+        };
+        for (reference, value) in rows {
+            let row = Row::from([("Reference", *reference), ("Value", *value)]);
+            bom.detected.extend(row.keys().copied());
+            bom.rows.insert(reference, row);
+        }
+        bom
     }
 
     #[test]
     fn canonical_text_comes_from_bom_fields_and_extras_from_properties() {
         let symbol = symbol(
-            json!({
-                "Value": "R_old",
-                "Reference": "R1",
-                "DNP": "ignored",
-                "Custom": "c",
-                "kicad_dnp": "ignored"
-            }),
+            "R1",
+            json!({"Value": "R_old", "Reference": "R1", "DNP": "ignored", "Custom": "c", "kicad_dnp": "ignored"}),
             json!({"value": "R_new", "datasheet": "ds"}),
             true,
             false,
         );
         let fields = symbol_fields(&symbol);
         // The 15 canonical labels are present, taken from `bomFields`.
-        for (_, label) in BOM_FIELD_LABELS {
+        for (label, _) in bom_field_values(&symbol.bom_fields) {
             assert!(fields.contains_key(label), "missing {label}");
         }
         assert_eq!(fields["Value"], "R_new");
@@ -495,55 +440,57 @@ mod tests {
     }
 
     #[test]
-    fn bom_rows_filters_out_of_bom_components_and_prefers_the_component_text() {
-        let components = vec![
-            Component {
-                reference: "R1".to_owned(),
-                value: "v1".to_owned(),
-                footprint: "f1".to_owned(),
-                fields: BTreeMap::from([
-                    ("In BOM".to_owned(), "Yes".to_owned()),
-                    ("Value".to_owned(), "field".to_owned()),
-                    ("Footprint".to_owned(), "field".to_owned()),
-                ]),
-            },
-            Component {
-                reference: "R2".to_owned(),
-                value: String::new(),
-                footprint: String::new(),
-                fields: BTreeMap::from([("In BOM".to_owned(), "No".to_owned())]),
-            },
-            Component {
-                reference: " R3 ".to_owned(),
-                value: String::new(),
-                footprint: String::new(),
-                fields: BTreeMap::from([
-                    ("In BOM".to_owned(), "Yes".to_owned()),
-                    ("Value".to_owned(), "fallback".to_owned()),
-                    ("Footprint".to_owned(), "fallback".to_owned()),
-                ]),
-            },
-        ];
-        let rows = bom_rows(&components);
-        assert_eq!(rows.len(), 2);
-        assert_eq!(reference_of(&rows[0]), "R1");
-        assert_eq!(rows[0]["Value"], "v1");
-        assert_eq!(rows[0]["Footprint"], "f1");
-        assert_eq!(reference_of(&rows[1]), "R3");
-        assert_eq!(rows[1]["Value"], "fallback");
-        assert_eq!(rows[1]["Footprint"], "fallback");
+    fn bom_rows_filter_out_of_bom_parts_and_prefer_the_component_text() {
+        let document = occurrences(vec![
+            symbol(
+                "R1",
+                json!({"Value": "v1", "Footprint": "f1"}),
+                json!({"value": "field", "footprint": "field"}),
+                false,
+                false,
+            ),
+            symbol("R2", json!({}), json!({}), false, true),
+            symbol(
+                " R3 ",
+                json!({}),
+                json!({"value": "fallback", "footprint": "fallback"}),
+                false,
+                false,
+            ),
+        ]);
+        let bom = bom_rows(&document);
+        assert_eq!(
+            bom.rows.keys().copied().collect::<Vec<_>>(),
+            vec!["R1", "R3"]
+        );
+        assert_eq!(bom.rows["R1"]["Value"], "v1");
+        assert_eq!(bom.rows["R1"]["Footprint"], "f1");
+        assert_eq!(bom.rows["R3"]["Reference"], "R3");
+        assert_eq!(bom.rows["R3"]["Value"], "fallback");
+    }
+
+    #[test]
+    fn a_replaced_unit_still_contributes_its_columns() {
+        let document = occurrences(vec![
+            symbol("U1", json!({"Only A": "x"}), json!({}), false, false),
+            symbol("U1", json!({}), json!({}), false, false),
+        ]);
+        let bom = bom_rows(&document);
+        assert!(!bom.rows["U1"].contains_key("Only A"));
+        assert!(bom.detected.contains("Only A"));
     }
 
     #[test]
     fn diff_boms_reports_added_removed_and_the_detected_columns() {
-        let old = vec![row("R1", "a"), row("R2", "b")];
-        let new = vec![row("R1", "a"), row("R3", "c")];
+        let old = bom(&[("R1", "a"), ("R2", "b")]);
+        let new = bom(&[("R1", "a"), ("R3", "c")]);
         let (changes, summary, fields) = diff_boms(&old, &new, &[], false);
         // `Reference` first, then every detected column in code point order.
         assert_eq!(fields, vec!["Reference", "Value"]);
-        assert_eq!(summary.added.0, 1);
-        assert_eq!(summary.removed.0, 1);
-        assert_eq!(summary.changed.0, 0);
+        assert_eq!(
+            (summary.added.0, summary.removed.0, summary.changed.0),
+            (1, 1, 0)
+        );
         assert_eq!(changes.len(), 2);
         assert_eq!(changes[0].ref_, "R2".parse().unwrap());
         assert_eq!(changes[0].status, dc::DesignCompareBomStatus::Removed);
@@ -557,8 +504,8 @@ mod tests {
 
     #[test]
     fn diff_boms_reports_changed_and_optionally_unchanged() {
-        let old = vec![row("R1", "a"), row("R9", "z")];
-        let new = vec![row("R1", "b"), row("R9", "z")];
+        let old = bom(&[("R1", "a"), ("R9", "z")]);
+        let new = bom(&[("R1", "b"), ("R9", "z")]);
         let (changes, summary, _) = diff_boms(&old, &new, &[], false);
         assert_eq!(summary.changed.0, 1);
         assert_eq!(changes.len(), 1);
@@ -570,21 +517,25 @@ mod tests {
         let (changes, summary, _) = diff_boms(&old, &new, &[], true);
         assert_eq!(summary.changed.0, 1);
         assert_eq!(changes.len(), 2);
-        assert_eq!(changes[0].status, dc::DesignCompareBomStatus::Changed);
         assert_eq!(changes[1].status, dc::DesignCompareBomStatus::Unchanged);
         assert!(changes[1].diffs.is_none());
     }
 
     #[test]
-    fn configured_fields_only_when_the_project_names_them() {
-        assert_eq!(columns_from_settings(None), Vec::<String>::new());
+    fn configured_columns_come_first_and_default_when_unset() {
+        let defaults: Vec<String> = DEFAULT_COLUMNS.map(str::to_owned).to_vec();
+        assert_eq!(columns_from_settings(None), defaults);
+        assert_eq!(columns_from_settings(Some(&json!({"bom": {}}))), defaults);
         assert_eq!(
-            columns_from_settings(Some(&json!({"bom": {}}))),
-            Vec::<String>::new()
+            columns_from_settings(Some(&json!({"bom": {"fields": []}}))),
+            defaults
         );
         assert_eq!(
-            columns_from_settings(Some(&json!({"bom": {"fields": ["Reference", "Value"]}}))),
-            vec!["Reference", "Value"]
+            columns_from_settings(Some(&json!({"bom": {"fields": ["MPN", "Value"]}}))),
+            vec!["MPN", "Value"]
         );
+        let old = bom(&[("R1", "a")]);
+        let (_, _, fields) = diff_boms(&old, &old, &["Value", "Footprint", "Datasheet"], false);
+        assert_eq!(fields, vec!["Reference", "Value", "Footprint", "Datasheet"]);
     }
 }
