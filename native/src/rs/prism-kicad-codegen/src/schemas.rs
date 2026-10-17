@@ -1,6 +1,6 @@
 //! Every schema the codegen turns into Rust: `(<schema file>, <generated module file>)`.
 
-pub const SCHEMAS: [(&str, &str); 72] = [
+pub const SCHEMAS: [(&str, &str); 73] = [
     ("BoardPlotDocument.json", "board_plot_document.rs"),
     ("BoardPlotRequest.json", "board_plot_request.rs"),
     ("BoardPlotResult.json", "board_plot_result.rs"),
@@ -101,6 +101,10 @@ pub const SCHEMAS: [(&str, &str); 72] = [
     (
         "CompareObjectDeltaA0.json",
         "prism_compare_object_delta_a0.rs",
+    ),
+    (
+        "DesignCompareResultA0.json",
+        "prism_design_compare_result_a0.rs",
     ),
     (
         "DrawingSheetRequestA0.json",

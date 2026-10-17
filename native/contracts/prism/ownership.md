@@ -897,7 +897,7 @@ Every path a WP may edit in its wave, from `ownership.json` `/workPackages`. "AD
 | `native/src/rs/prism-projections/src/compare.rs`, `native/src/rs/prism-projections/src/compare/**` | new | the object diff engine (amendment C2); `prism-projections/src/lib.rs` gains `pub mod compare;` through its owner |
 | `native/src/rs/prism-kicad-cli/src/cmd_compare.rs` | new | the `compare` command (cli-spec.md §5.6); the CLI's argument table and dispatch gain it through their owner |
 | `native/parity/divergences/compare.md`, the `compare` parity member's capture and pairs | new | divergence `compare-1` (code point order, amendment C2 D2) |
-| `native/src/tsp/prism/design-compare-a0.tsp`, `native/src/tsp/prism/kicad-project-diff-v1.tsp`, `native/contracts/prism/field-maps/design-compare.md` | new | amendment C2r's contracts; `compare-a0.tsp` is removed by the same pull request |
+| `native/src/tsp/prism/design-compare-a0.tsp`, `native/src/tsp/prism/kicad-project-diff-v1.tsp`, `native/contracts/prism/field-maps/design-compare.md` | new | amendment C2r's contracts; `compare-a0.tsp` is removed when `compare` switches to the new output (C2r §9 step 4) |
 
 ### C3: Release Studio (wave 3, ADR §9.6)
 
