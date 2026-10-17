@@ -110,7 +110,7 @@ fn scalar(value: &Value) -> Option<bo::BoardObjectsReviewScalar> {
 /// `vector_text` (`ecad-parse.mjs:338-345`): the two coordinates of a
 /// `(size x y)` shape as `"<x> × <y>"`.
 #[must_use]
-pub(crate) fn vector_text(node: Option<&Node>) -> Option<ReviewValue> {
+pub(crate) fn vector_text(node: Option<&Node<'_>>) -> Option<ReviewValue> {
     let node = node?;
     let x = tree::number_at(node, 1).unwrap_or(0.0);
     let y = tree::number_at(node, 2).unwrap_or(0.0);
@@ -147,7 +147,7 @@ pub(crate) fn object_text(value: Option<&Value>) -> Option<ReviewValue> {
 
 /// `stroke_text` (`ecad-parse.mjs:356-362`), from the `(stroke …)` form.
 #[must_use]
-pub(crate) fn stroke_text(stroke: Option<&Node>) -> Option<ReviewValue> {
+pub(crate) fn stroke_text(stroke: Option<&Node<'_>>) -> Option<ReviewValue> {
     let stroke = stroke?;
     let mut parts: Vec<String> = Vec::new();
     if let Some(width) = tree::child_number(stroke, "width") {
@@ -170,7 +170,7 @@ pub(crate) fn stroke_text(stroke: Option<&Node>) -> Option<ReviewValue> {
 pub(crate) fn graphic_review_fields(
     kind: Option<&str>,
     text_value: Option<&str>,
-    stroke: Option<&Node>,
+    stroke: Option<&Node<'_>>,
     fill: Option<ReviewValue>,
 ) -> ReviewRecord {
     entry(vec![
@@ -616,7 +616,7 @@ impl SexprReader<'_> {
 // ---------------------------------------------------------- board / bus alias
 
 /// `bus_alias` review objects from a schematic (`ecad-parse.mjs:1051-1066`).
-pub(crate) fn bus_aliases(schematic: &Node, objects: &mut Vec<Value>) {
+pub(crate) fn bus_aliases(schematic: &Node<'_>, objects: &mut Vec<Value>) {
     for alias in schematic.children("bus_alias") {
         let name = tree::text_at(alias, 1)
             .unwrap_or_default()
@@ -647,7 +647,7 @@ pub(crate) fn bus_aliases(schematic: &Node, objects: &mut Vec<Value>) {
 
 /// `fabrication_output_fields` (`ecad-parse.mjs:1247-1284`).
 #[must_use]
-pub(crate) fn fabrication_output(board_root: &Node) -> Value {
+pub(crate) fn fabrication_output(board_root: &Node<'_>) -> Value {
     let setup = board_root.child("setup");
     let plot = setup.and_then(|setup| setup.child("pcbplotparams"));
     let layers: Vec<Value> = board_root
@@ -750,7 +750,7 @@ fn entry_value(pairs: Vec<(&str, Option<Value>)>) -> Value {
     Value::Object(out)
 }
 
-fn layers_of(items: &[Node]) -> Vec<Value> {
+fn layers_of(items: &[Node<'_>]) -> Vec<Value> {
     items
         .iter()
         .filter_map(|layer| {

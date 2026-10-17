@@ -11,7 +11,9 @@ use std::fmt::Write as _;
 
 /// A digest index over one document's forms: canonical uuid → (byte offset of
 /// the form, digest). A later form with the same uuid wins
-/// (`board_objects_sexpr.mjs:69-79`).
+/// (`board_objects_sexpr.mjs:69-79`) — including a nested form that shares a
+/// uuid with the object that contains it, as a `dimension` and its `gr_text`
+/// do, so the digest is indexed by a whole-tree walk, not at emission.
 #[derive(Debug, Default)]
 pub struct DigestIndex {
     map: BTreeMap<String, (usize, String)>,
@@ -30,32 +32,21 @@ impl DigestIndex {
 /// Index every form of `root` (the file's single top-level form) whose id is a
 /// canonical uuid and whose head has an allow-list.
 #[must_use]
-pub fn index(root: &Node, board: bool) -> DigestIndex {
-    let net_table = if board {
-        net_table(root)
-    } else {
-        BTreeMap::new()
-    };
-    let context = Context { board, net_table };
+pub fn index(root: &Node<'_>, board: bool) -> DigestIndex {
+    let context = Context::new(root, board);
     let mut index = DigestIndex::default();
     walk(root, None, &context, &mut index);
     index
 }
 
-struct Context {
-    board: bool,
-    net_table: BTreeMap<String, String>,
-}
-
-fn walk(node: &Node, parent_head: Option<&str>, context: &Context, index: &mut DigestIndex) {
+fn walk(node: &Node<'_>, parent_head: Option<&str>, context: &Context, index: &mut DigestIndex) {
     let Node::List { items, start } = node else {
         return;
     };
     if let Some(id) = identity_of(node)
         && is_canonical_uuid(id)
-        && let Some((allow, children)) = allow_for(node, parent_head, context.board)
+        && let Some(digest) = object_digest(node, parent_head, context)
     {
-        let digest = digest_form(node, allow, children, context);
         index.map.insert(id.to_owned(), (*start, digest));
     }
     let head = node.head();
@@ -64,9 +55,34 @@ fn walk(node: &Node, parent_head: Option<&str>, context: &Context, index: &mut D
     }
 }
 
+/// The document context a digest needs: whether it is a board, and the board's
+/// `(net <code> "<name>")` table.
+struct Context {
+    board: bool,
+    net_table: BTreeMap<String, String>,
+}
+
+impl Context {
+    fn new(root: &Node<'_>, board: bool) -> Self {
+        let net_table = if board {
+            net_table(root)
+        } else {
+            BTreeMap::new()
+        };
+        Self { board, net_table }
+    }
+}
+
+/// The `contentDigest` of one object form, or `None` when its head has no
+/// allow-list. `parent_head` distinguishes a sheet `pin` from a symbol `pin`.
+fn object_digest(node: &Node<'_>, parent_head: Option<&str>, context: &Context) -> Option<String> {
+    let (allow, children) = allow_for(node, parent_head, context.board)?;
+    Some(digest_form(node, allow, children, context))
+}
+
 /// The object's own id: its direct `(uuid …)`, else `(tstamp …)`
 /// (`board_objects_sexpr.mjs:59-66`).
-fn identity_of(node: &Node) -> Option<&str> {
+fn identity_of<'n, 'a>(node: &'n Node<'a>) -> Option<&'n str> {
     for key in IDENTITY {
         if let Some(child) = node.child(key)
             && let Some(value) = child.items().and_then(|items| items.get(1)).and_then(Node::text)
@@ -79,7 +95,7 @@ fn identity_of(node: &Node) -> Option<&str> {
 
 /// The allow-list of a form, or `None` when its head is not an object head.
 fn allow_for(
-    form: &Node,
+    form: &Node<'_>,
     parent_head: Option<&str>,
     board: bool,
 ) -> Option<(&'static str, &'static [&'static str])> {
@@ -236,7 +252,7 @@ impl Canon for sha2::Sha256 {
 /// The digest of one object form: SHA-256 of its canonical text, first 16 hex
 /// digits.
 fn digest_form(
-    form: &Node,
+    form: &Node<'_>,
     allow: &'static str,
     children: &'static [&'static str],
     context: &Context,
@@ -249,9 +265,9 @@ fn digest_form(
 
 /// Step 1: keep only the allowed direct child lists (and child objects), then
 /// emit the form.
-fn write_form<S: Canon>(
+fn write_form<'n, 'a, S: Canon>(
     sink: &mut S,
-    form: &Node,
+    form: &'n Node<'a>,
     allow: &'static str,
     children: &'static [&'static str],
     context: &Context,
@@ -273,10 +289,10 @@ fn write_form<S: Canon>(
 
 /// Emit a list's children; `head` is the list's own head and `first` tracks
 /// whether a separator is due.
-fn write_children<'a, S: Canon>(
+fn write_children<'n, 'a, S: Canon>(
     sink: &mut S,
-    items: impl IntoIterator<Item = &'a Node>,
-    form: &Node,
+    items: impl IntoIterator<Item = &'n Node<'a>>,
+    form: &'n Node<'a>,
     context: &Context,
     depth: usize,
     path: &[&str],
@@ -291,10 +307,10 @@ fn write_children<'a, S: Canon>(
 
 /// Write one child, or return `false` when the child was not a top-level kept
 /// child (so `write_form` can try the next). Writes the space separator itself.
-fn write_piece<S: Canon>(
+fn write_piece<'n, 'a, S: Canon>(
     sink: &mut S,
-    child: &Node,
-    form: &Node,
+    child: &'n Node<'a>,
+    form: &'n Node<'a>,
     context: &Context,
     depth: usize,
     path: &[&str],
@@ -349,14 +365,20 @@ fn separator<S: Canon>(sink: &mut S, first: &mut bool) {
 }
 
 /// `emit(node, depth, path)` (`board_objects_sexpr.mjs:129-156`).
-fn write_text<S: Canon>(sink: &mut S, node: &Node, context: &Context, depth: usize, path: &[&str]) {
+fn write_text<'n, 'a, S: Canon>(
+    sink: &mut S,
+    node: &'n Node<'a>,
+    context: &Context,
+    depth: usize,
+    path: &[&str],
+) {
     match node {
         Node::List { items, .. } => write_children(sink, items.iter(), node, context, depth, path),
         leaf => write_leaf(sink, leaf),
     }
 }
 
-fn write_leaf<S: Canon>(sink: &mut S, node: &Node) {
+fn write_leaf<S: Canon>(sink: &mut S, node: &Node<'_>) {
     match node {
         Node::Str(value) => write_json_string(sink, value),
         Node::Atom(value) => {
@@ -373,8 +395,8 @@ fn write_leaf<S: Canon>(sink: &mut S, node: &Node) {
 /// A `(net …)` on a depth-0 net carrier, by name (`None` when the child is not
 /// a net reference at all; an empty name drops the child).
 fn net_part(
-    child: &Node,
-    form: &Node,
+    child: &Node<'_>,
+    form: &Node<'_>,
     context: &Context,
     depth: usize,
     head: Option<&str>,
@@ -386,14 +408,14 @@ fn net_part(
     Some(resolve_net(child, form, context))
 }
 
-fn child_object_id(node: &Node) -> Option<&str> {
+fn child_object_id<'n, 'a>(node: &'n Node<'a>) -> Option<&'n str> {
     let id = identity_of(node)?;
     is_canonical_uuid(id).then_some(id)
 }
 
 /// Step 3 (`board_objects_sexpr.mjs:161-184`). `form` is the object's own
 /// form, so a zone can prefer its `(net_name …)`.
-fn resolve_net(net_node: &Node, form: &Node, context: &Context) -> String {
+fn resolve_net(net_node: &Node<'_>, form: &Node<'_>, context: &Context) -> String {
     if form.head() == Some("zone")
         && let Some(name) = form
             .child("net_name")
@@ -426,7 +448,7 @@ fn resolve_net(net_node: &Node, form: &Node, context: &Context) -> String {
     String::new()
 }
 
-fn net_table(root: &Node) -> BTreeMap<String, String> {
+fn net_table(root: &Node<'_>) -> BTreeMap<String, String> {
     let mut table = BTreeMap::new();
     for child in root.items().unwrap_or_default() {
         if child.head() != Some("net") {

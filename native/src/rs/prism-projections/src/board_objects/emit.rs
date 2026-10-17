@@ -22,7 +22,7 @@ pub(crate) struct Document {
 
 impl Document {
     #[must_use]
-    pub(crate) fn new(path: &str, root: &Node, board: bool) -> Self {
+    pub(crate) fn new(path: &str, root: &Node<'_>, board: bool) -> Self {
         Self {
             path: path.to_owned(),
             index: digest::index(root, board),
@@ -44,7 +44,7 @@ impl Document {
 
     /// Add one object; `uuid` must be the form's own id. Non-canonical uuids
     /// are dropped with a warning (divergence 4).
-    pub(crate) fn add(&mut self, node: &Node, uuid: &str, object: bo::BoardObjectsObject) {
+    pub(crate) fn add(&mut self, node: &Node<'_>, uuid: &str, object: bo::BoardObjectsObject) {
         if !is_canonical_uuid(uuid) {
             self.invalid += 1;
             self.warnings.push(ProducerWarning {
@@ -98,7 +98,7 @@ impl Document {
 /// The form's own id: its `(uuid …)`, else `(tstamp …)`
 /// (`ecad-parse.mjs:1350`).
 #[must_use]
-pub(crate) fn identity(node: &Node) -> Option<String> {
+pub(crate) fn identity(node: &Node<'_>) -> Option<String> {
     super::tree::child_text(node, "uuid").or_else(|| super::tree::child_text(node, "tstamp"))
 }
 
@@ -119,7 +119,7 @@ pub(crate) fn parse_nonempty<T: std::str::FromStr>(text: String) -> Option<T> {
 
 /// The `rotationDeg` of an `(at …)` form, present exactly when the position is.
 #[must_use]
-pub(crate) fn rotation_deg(point: Option<(f64, f64)>, at: Option<&Node>) -> Option<bo::Degrees> {
+pub(crate) fn rotation_deg(point: Option<(f64, f64)>, at: Option<&Node<'_>>) -> Option<bo::Degrees> {
     point.and(super::tree::rotation(at)).map(bo::Degrees)
 }
 
@@ -128,7 +128,7 @@ mod tests {
     use super::*;
     use crate::board_objects::tree;
 
-    fn root(text: &str) -> Node {
+    fn root(text: &str) -> Node<'_> {
         tree::parse(text).into_iter().next().expect("one root")
     }
 

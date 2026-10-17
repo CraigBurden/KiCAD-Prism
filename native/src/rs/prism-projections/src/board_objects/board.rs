@@ -13,7 +13,7 @@ use serde_json::{Map, Value};
 #[must_use]
 pub(crate) fn document(
     path: &str,
-    root: &Node,
+    root: &Node<'_>,
     warnings: &mut Vec<ProducerWarning>,
 ) -> super::DocumentParts {
     let mut document = Document::new(path, root, true);
@@ -65,7 +65,7 @@ pub(crate) fn document(
 }
 
 /// The board net table, `number -> name` (`ecad-parse.mjs:1293`).
-fn nets_by_code(root: &Node) -> Vec<(f64, String)> {
+fn nets_by_code(root: &Node<'_>) -> Vec<(f64, String)> {
     root.children("net")
         .filter_map(|net| {
             let number = tree::number_at(net, 1)?;
@@ -75,7 +75,7 @@ fn nets_by_code(root: &Node) -> Vec<(f64, String)> {
 }
 
 /// `net_name_of` (`ecad-parse.mjs:1167-1179`).
-fn net_name_of(item: &Node, nets: &[(f64, String)]) -> Option<String> {
+fn net_name_of(item: &Node<'_>, nets: &[(f64, String)]) -> Option<String> {
     let net = item.child("net")?;
     let name = tree::text_at(net, 1).unwrap_or_default();
     let number = tree::number_at(net, 1);
@@ -94,7 +94,7 @@ fn net_name_of(item: &Node, nets: &[(f64, String)]) -> Option<String> {
 
 /// `layer_of(item, head)` (`ecad-parse.mjs:1187-1192`): a non-empty `(head …)`
 /// name, as a layer.
-fn layer_of(item: &Node, head: &str) -> Option<bo::LayerName> {
+fn layer_of(item: &Node<'_>, head: &str) -> Option<bo::LayerName> {
     let name = item.child(head).and_then(|child| match tree::text_at(child, 1) {
         Some(name) if !name.is_empty() => Some(name),
         _ => None,
@@ -113,7 +113,7 @@ fn layer_spec_name(name: Option<&String>) -> Option<bo::BoardObjectsLayerSpec> {
 }
 
 /// The `(head …)` name of a form, as a layer spec.
-fn layer_spec_of(item: &Node, head: &str) -> Option<bo::BoardObjectsLayerSpec> {
+fn layer_spec_of(item: &Node<'_>, head: &str) -> Option<bo::BoardObjectsLayerSpec> {
     let name = item.child(head).and_then(|child| match tree::text_at(child, 1) {
         Some(name) if !name.is_empty() => Some(name),
         _ => None,
@@ -122,7 +122,7 @@ fn layer_spec_of(item: &Node, head: &str) -> Option<bo::BoardObjectsLayerSpec> {
 }
 
 /// The text items after the head of a `(head …)` list (`skip(1)`).
-fn text_list(node: Option<&Node>) -> Vec<String> {
+fn text_list(node: Option<&Node<'_>>) -> Vec<String> {
     node.and_then(Node::items)
         .map(|items| {
             items
@@ -135,7 +135,7 @@ fn text_list(node: Option<&Node>) -> Vec<String> {
 }
 
 /// The layer names of a `(layers …)` list, each as a `LayerName`.
-fn layer_list(node: Option<&Node>) -> Vec<bo::LayerName> {
+fn layer_list(node: Option<&Node<'_>>) -> Vec<bo::LayerName> {
     text_list(node)
         .iter()
         .filter_map(|name| parse_nonempty(name.clone()))
@@ -145,7 +145,7 @@ fn layer_list(node: Option<&Node>) -> Vec<bo::LayerName> {
 // ---------------------------------------------------------------- footprints
 
 /// `index_board` footprints and their children (`ecad-parse.mjs:1380-1496`).
-fn footprints(document: &mut Document, footprint: &Node, nets: &[(f64, String)]) {
+fn footprints(document: &mut Document, footprint: &Node<'_>, nets: &[(f64, String)]) {
     let Some(uuid) = identity(footprint) else {
         return;
     };
@@ -191,7 +191,7 @@ fn footprints(document: &mut Document, footprint: &Node, nets: &[(f64, String)])
 }
 
 /// `footprint_properties` (`ecad-parse.mjs:1201-1234`).
-fn footprint_properties(footprint: &Node) -> Vec<bo::BoardObjectsFootprintProperty> {
+fn footprint_properties(footprint: &Node<'_>) -> Vec<bo::BoardObjectsFootprintProperty> {
     let kicad8: Vec<bo::BoardObjectsFootprintProperty> = footprint
         .children("property")
         .map(|property| footprint_property(property, false))
@@ -229,7 +229,7 @@ fn footprint_properties(footprint: &Node) -> Vec<bo::BoardObjectsFootprintProper
 }
 
 /// One footprint property; the legacy form has no `at` and no `hide`.
-fn footprint_property(node: &Node, legacy: bool) -> bo::BoardObjectsFootprintProperty {
+fn footprint_property(node: &Node<'_>, legacy: bool) -> bo::BoardObjectsFootprintProperty {
     bo::BoardObjectsFootprintProperty {
         name: tree::text_at(node, 1).unwrap_or_default(),
         value: tree::text_at(node, 2).unwrap_or_default(),
@@ -242,7 +242,7 @@ fn footprint_property(node: &Node, legacy: bool) -> bo::BoardObjectsFootprintPro
     }
 }
 
-fn footprint_path(document: &mut Document, footprint: &Node) -> Option<bo::KiidPath> {
+fn footprint_path(document: &mut Document, footprint: &Node<'_>) -> Option<bo::KiidPath> {
     let path = tree::child_text(footprint, "path")?;
     if super::schematic::is_kiid_path(&path) {
         Some(bo::KiidPath(path))
@@ -252,7 +252,7 @@ fn footprint_path(document: &mut Document, footprint: &Node) -> Option<bo::KiidP
     }
 }
 
-fn footprint_review_fields(footprint: &Node) -> review::ReviewRecord {
+fn footprint_review_fields(footprint: &Node<'_>) -> review::ReviewRecord {
     let attr = footprint.child("attr").map(attr_fields);
     let flag = |name: &str| {
         attr.as_ref()
@@ -276,7 +276,7 @@ fn footprint_review_fields(footprint: &Node) -> review::ReviewRecord {
 }
 
 /// The `(attr …)` shape (`parseFootprint`, `kicad-sexpr-parser.mjs:1206-1219`).
-fn attr_fields(node: &Node) -> Value {
+fn attr_fields(node: &Node<'_>) -> Value {
     let mut out = Map::new();
     for flag in [
         "through_hole",
@@ -299,7 +299,7 @@ fn attr_fields(node: &Node) -> Value {
 /// `index_board` pads (`ecad-parse.mjs:1413-1441`).
 fn pads(
     document: &mut Document,
-    pad: &Node,
+    pad: &Node<'_>,
     parent: &str,
     reference: &Option<String>,
     nets: &[(f64, String)],
@@ -326,7 +326,7 @@ fn pads(
     document.add(pad, &uuid, bo::BoardObjectsObject::Pad(object));
 }
 
-fn pad_review_fields(pad: &Node, layers: &[String]) -> review::ReviewRecord {
+fn pad_review_fields(pad: &Node<'_>, layers: &[String]) -> review::ReviewRecord {
     review::entry(vec![
         ("Pad number", tree::text_at(pad, 1).map(review::text)),
         ("Pad type", tree::text_at(pad, 2).map(review::text)),
@@ -365,7 +365,7 @@ fn pad_review_fields(pad: &Node, layers: &[String]) -> review::ReviewRecord {
 }
 
 /// The `(drill …)` shape (`parsePad`, `kicad-sexpr-parser.mjs:974-982`).
-fn drill_fields(node: &Node) -> Value {
+fn drill_fields(node: &Node<'_>) -> Value {
     let mut out = Map::new();
     if node.rest().iter().any(|token| token.text() == Some("oval")) {
         out.insert("oval".to_owned(), Value::Bool(true));
@@ -390,7 +390,7 @@ fn drill_fields(node: &Node) -> Value {
 /// `index_board` footprint zones (`ecad-parse.mjs:1442-1460`).
 fn footprint_zones(
     document: &mut Document,
-    zone: &Node,
+    zone: &Node<'_>,
     parent: &str,
     reference: &Option<String>,
     nets: &[(f64, String)],
@@ -417,7 +417,7 @@ fn footprint_zones(
 /// `index_board` footprint graphics (`ecad-parse.mjs:1461-1477`).
 fn footprint_graphics(
     document: &mut Document,
-    drawing: &Node,
+    drawing: &Node<'_>,
     parent: &str,
     reference: &Option<String>,
 ) {
@@ -443,7 +443,7 @@ fn footprint_graphics(
 }
 
 /// `index_board` footprint texts (`ecad-parse.mjs:1478-1495`).
-fn footprint_texts(document: &mut Document, text: &Node, parent: &str, reference: &Option<String>) {
+fn footprint_texts(document: &mut Document, text: &Node<'_>, parent: &str, reference: &Option<String>) {
     let Some(uuid) = identity(text) else {
         return;
     };
@@ -469,7 +469,7 @@ fn footprint_texts(document: &mut Document, text: &Node, parent: &str, reference
     document.add(text, &uuid, bo::BoardObjectsObject::FootprintText(object));
 }
 
-fn fp_text_layer(text: &Node) -> Option<bo::LayerName> {
+fn fp_text_layer(text: &Node<'_>) -> Option<bo::LayerName> {
     let layer = text.child("layer")?;
     let name = tree::text_at(layer, 1).filter(|name| !name.is_empty())?;
     parse_nonempty(name)
@@ -478,7 +478,7 @@ fn fp_text_layer(text: &Node) -> Option<bo::LayerName> {
 // ------------------------------------------------------------------- tracks
 
 /// `index_board` segments and arcs (`ecad-parse.mjs:1498-1513`).
-fn segments(document: &mut Document, item: &Node, nets: &[(f64, String)]) {
+fn segments(document: &mut Document, item: &Node<'_>, nets: &[(f64, String)]) {
     let Some(uuid) = identity(item) else {
         return;
     };
@@ -513,7 +513,7 @@ fn segments(document: &mut Document, item: &Node, nets: &[(f64, String)]) {
 }
 
 /// `index_board` vias (`ecad-parse.mjs:1515-1541`).
-fn vias(document: &mut Document, via: &Node, nets: &[(f64, String)]) {
+fn vias(document: &mut Document, via: &Node<'_>, nets: &[(f64, String)]) {
     let Some(uuid) = identity(via) else {
         return;
     };
@@ -546,7 +546,7 @@ fn vias(document: &mut Document, via: &Node, nets: &[(f64, String)]) {
 
 /// `type` of a via (`parseVia`, `kicad-sexpr-parser.mjs:1282`): a bare
 /// `blind`/`micro`/`through-hole` token.
-fn via_type(via: &Node) -> Option<String> {
+fn via_type(via: &Node<'_>) -> Option<String> {
     via.rest()
         .iter()
         .filter_map(Node::text)
@@ -555,7 +555,7 @@ fn via_type(via: &Node) -> Option<String> {
 }
 
 /// `index_board` zones (`ecad-parse.mjs:1543-1555`).
-fn zones(document: &mut Document, zone: &Node, nets: &[(f64, String)]) {
+fn zones(document: &mut Document, zone: &Node<'_>, nets: &[(f64, String)]) {
     let Some(uuid) = identity(zone) else {
         return;
     };
@@ -576,7 +576,7 @@ fn zones(document: &mut Document, zone: &Node, nets: &[(f64, String)]) {
 }
 
 /// The zone shape for review fields (`parseZone`, `kicad-sexpr-parser.mjs:1133`).
-fn zone_shape(zone: &Node) -> Value {
+fn zone_shape(zone: &Node<'_>) -> Value {
     let mut out = Map::new();
     if let Some(name) = tree::child_text(zone, "name") {
         out.insert("name".to_owned(), Value::String(name));
@@ -614,7 +614,7 @@ fn zone_shape(zone: &Node) -> Value {
 }
 
 /// The zone's `(layer …)`, else the first of its `(layers …)`, as a layer spec.
-fn zone_layer_spec(zone: &Node) -> Option<bo::BoardObjectsLayerSpec> {
+fn zone_layer_spec(zone: &Node<'_>) -> Option<bo::BoardObjectsLayerSpec> {
     if let Some(layer) = tree::child_text(zone, "layer") {
         return parse_nonempty(layer);
     }
@@ -625,7 +625,7 @@ fn zone_layer_spec(zone: &Node) -> Option<bo::BoardObjectsLayerSpec> {
         .and_then(|text| parse_nonempty(text.to_owned()))
 }
 
-fn zone_net(zone: &Node, nets: &[(f64, String)]) -> Option<bo::NetName> {
+fn zone_net(zone: &Node<'_>, nets: &[(f64, String)]) -> Option<bo::NetName> {
     if let Some(name) = tree::child_text(zone, "net_name")
         && !name.is_empty()
     {
@@ -635,7 +635,7 @@ fn zone_net(zone: &Node, nets: &[(f64, String)]) -> Option<bo::NetName> {
 }
 
 /// `zone.polygons.flatMap(poly => poly.pts ?? [])` (`ecad-parse.mjs:1449-1451`).
-fn zone_polygon_points(zone: &Node) -> Vec<(Option<f64>, Option<f64>)> {
+fn zone_polygon_points(zone: &Node<'_>) -> Vec<(Option<f64>, Option<f64>)> {
     let mut points = Vec::new();
     for polygon in zone.children("polygon") {
         points.extend(tree::pts_points(polygon));
@@ -644,7 +644,7 @@ fn zone_polygon_points(zone: &Node) -> Vec<(Option<f64>, Option<f64>)> {
 }
 
 /// `index_board` board graphics (`ecad-parse.mjs:1557-1571`).
-fn drawings(document: &mut Document, drawing: &Node) {
+fn drawings(document: &mut Document, drawing: &Node<'_>) {
     let Some(uuid) = identity(drawing) else {
         return;
     };
@@ -666,7 +666,7 @@ fn drawings(document: &mut Document, drawing: &Node) {
 }
 
 /// `drawing_review_fields` (`ecad-parse.mjs:364-371`) for a board drawing.
-fn board_drawing_review_fields(drawing: &Node) -> review::ReviewRecord {
+fn board_drawing_review_fields(drawing: &Node<'_>) -> review::ReviewRecord {
     review::graphic_review_fields(
         None,
         tree::text_at(drawing, 1).as_deref(),
@@ -677,7 +677,7 @@ fn board_drawing_review_fields(drawing: &Node) -> review::ReviewRecord {
 
 /// `point_of(at) ?? centroid(pts) ?? centroid([start, mid, end])`
 /// (`ecad-parse.mjs:1562-1565`).
-fn drawing_at(drawing: &Node, ends: &[&str]) -> Option<bo::PointNm> {
+fn drawing_at(drawing: &Node<'_>, ends: &[&str]) -> Option<bo::PointNm> {
     if let Some(point) = tree::point(drawing.child("at")) {
         return Some(point_nm(point));
     }
@@ -701,12 +701,12 @@ fn drawing_at(drawing: &Node, ends: &[&str]) -> Option<bo::PointNm> {
     centroid_point(points)
 }
 
-fn vec2_point(node: &Node) -> (Option<f64>, Option<f64>) {
+fn vec2_point(node: &Node<'_>) -> (Option<f64>, Option<f64>) {
     (tree::number_at(node, 1), tree::number_at(node, 2))
 }
 
 /// `index_board` groups (`ecad-parse.mjs:1573-1584`).
-fn groups(document: &mut Document, group: &Node) {
+fn groups(document: &mut Document, group: &Node<'_>) {
     let Some(uuid) = identity(group) else {
         return;
     };

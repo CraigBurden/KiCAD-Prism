@@ -12,7 +12,7 @@ use prism_kicad_contracts::generated::prism_board_objects_a0 as bo;
 #[must_use]
 pub(crate) fn document(
     path: &str,
-    root: &Node,
+    root: &Node<'_>,
     warnings: &mut Vec<ProducerWarning>,
 ) -> super::DocumentParts {
     let mut document = Document::new(path, root, false);
@@ -31,14 +31,14 @@ pub(crate) fn document(
 
 /// `index_schematic`'s object loops (`ecad-parse.mjs:958-1134`), split into
 /// groups so each stays simple.
-fn collect(document: &mut Document, root: &Node) {
+fn collect(document: &mut Document, root: &Node<'_>) {
     symbols_sheets(document, root);
     wires_connects(document, root);
     labels_graphics(document, root);
     images_tables(document, root);
 }
 
-fn symbols_sheets(document: &mut Document, root: &Node) {
+fn symbols_sheets(document: &mut Document, root: &Node<'_>) {
     for symbol in root.children("symbol") {
         symbols(document, symbol);
     }
@@ -47,7 +47,7 @@ fn symbols_sheets(document: &mut Document, root: &Node) {
     }
 }
 
-fn wires_connects(document: &mut Document, root: &Node) {
+fn wires_connects(document: &mut Document, root: &Node<'_>) {
     for (head, kind) in [("wire", "wire"), ("bus", "bus")] {
         for item in root.children(head) {
             wires(document, item, kind);
@@ -64,7 +64,7 @@ fn wires_connects(document: &mut Document, root: &Node) {
     }
 }
 
-fn labels_graphics(document: &mut Document, root: &Node) {
+fn labels_graphics(document: &mut Document, root: &Node<'_>) {
     for head in ["label", "global_label", "hierarchical_label"] {
         for item in root.children(head) {
             labels(document, item);
@@ -85,7 +85,7 @@ fn labels_graphics(document: &mut Document, root: &Node) {
     }
 }
 
-fn images_tables(document: &mut Document, root: &Node) {
+fn images_tables(document: &mut Document, root: &Node<'_>) {
     for item in root.children("image") {
         images(document, item);
     }
@@ -95,7 +95,7 @@ fn images_tables(document: &mut Document, root: &Node) {
 }
 
 /// `index_schematic` symbols and their pins (`ecad-parse.mjs:958-1003`).
-fn symbols(document: &mut Document, symbol: &Node) {
+fn symbols(document: &mut Document, symbol: &Node<'_>) {
     let Some(uuid) = identity(symbol) else {
         return;
     };
@@ -133,7 +133,7 @@ fn symbols(document: &mut Document, symbol: &Node) {
 
 fn symbol_pin(
     document: &mut Document,
-    pin: &Node,
+    pin: &Node<'_>,
     parent: &str,
     reference: &Option<String>,
     at: Option<(f64, f64)>,
@@ -157,7 +157,7 @@ fn symbol_pin(
 }
 
 /// `index_schematic` sheets and their pins (`ecad-parse.mjs:1005-1037`).
-fn sheets(document: &mut Document, sheet: &Node) {
+fn sheets(document: &mut Document, sheet: &Node<'_>) {
     let Some(uuid) = identity(sheet) else {
         return;
     };
@@ -177,7 +177,7 @@ fn sheets(document: &mut Document, sheet: &Node) {
     }
 }
 
-fn sheet_pin(document: &mut Document, pin: &Node, parent: &str) {
+fn sheet_pin(document: &mut Document, pin: &Node<'_>, parent: &str) {
     let Some(uuid) = identity(pin) else {
         return;
     };
@@ -203,7 +203,7 @@ fn sheet_pin(document: &mut Document, pin: &Node, parent: &str) {
 }
 
 /// `index_schematic` wires and buses (`ecad-parse.mjs:1039-1049`).
-fn wires(document: &mut Document, item: &Node, kind: &str) {
+fn wires(document: &mut Document, item: &Node<'_>, kind: &str) {
     let Some(uuid) = identity(item) else {
         return;
     };
@@ -232,7 +232,7 @@ fn wires(document: &mut Document, item: &Node, kind: &str) {
 
 /// `index_schematic` junctions, no-connects and bus entries
 /// (`ecad-parse.mjs:1068-1083`).
-fn connect(document: &mut Document, item: &Node, kind: &str) {
+fn connect(document: &mut Document, item: &Node<'_>, kind: &str) {
     let Some(uuid) = identity(item) else {
         return;
     };
@@ -273,7 +273,7 @@ fn connect(document: &mut Document, item: &Node, kind: &str) {
 }
 
 /// `index_schematic` labels (`ecad-parse.mjs:1085-1103`).
-fn labels(document: &mut Document, item: &Node) {
+fn labels(document: &mut Document, item: &Node<'_>) {
     let Some(uuid) = identity(item) else {
         return;
     };
@@ -294,7 +294,7 @@ fn labels(document: &mut Document, item: &Node) {
 }
 
 /// `index_schematic` drawings (`ecad-parse.mjs:1105-1118`).
-fn graphics(document: &mut Document, item: &Node, head: &str) {
+fn graphics(document: &mut Document, item: &Node<'_>, head: &str) {
     let Some(uuid) = identity(item) else {
         return;
     };
@@ -313,7 +313,7 @@ fn graphics(document: &mut Document, item: &Node, head: &str) {
     document.add(item, &uuid, bo::BoardObjectsObject::Graphic(object));
 }
 
-fn graphic_at(item: &Node, head: &str) -> Option<bo::PointNm> {
+fn graphic_at(item: &Node<'_>, head: &str) -> Option<bo::PointNm> {
     if let Some(point) = tree::point(item.child("at")) {
         return Some(point_nm(point));
     }
@@ -326,7 +326,7 @@ fn graphic_at(item: &Node, head: &str) -> Option<bo::PointNm> {
     None
 }
 
-fn graphic_review_fields(item: &Node, head: &str) -> review::ReviewRecord {
+fn graphic_review_fields(item: &Node<'_>, head: &str) -> review::ReviewRecord {
     let text_value = if matches!(head, "text" | "text_box") {
         tree::text_at(item, 1)
     } else {
@@ -344,7 +344,7 @@ fn graphic_review_fields(item: &Node, head: &str) -> review::ReviewRecord {
 }
 
 /// `index_schematic` images (`ecad-parse.mjs:1120-1125`).
-fn images(document: &mut Document, item: &Node) {
+fn images(document: &mut Document, item: &Node<'_>) {
     let Some(uuid) = identity(item) else {
         return;
     };
@@ -361,7 +361,7 @@ fn images(document: &mut Document, item: &Node) {
 }
 
 /// `index_schematic` tables (`ecad-parse.mjs:1126-1134`).
-fn tables(document: &mut Document, item: &Node) {
+fn tables(document: &mut Document, item: &Node<'_>) {
     let Some(uuid) = identity(item) else {
         return;
     };
@@ -401,7 +401,7 @@ fn tables(document: &mut Document, item: &Node) {
 // ------------------------------------------------------------------ helpers
 
 /// A `(property …)` field of a symbol or sheet, typed.
-fn property(node: &Node) -> bo::BoardObjectsSchematicProperty {
+fn property(node: &Node<'_>) -> bo::BoardObjectsSchematicProperty {
     let at = tree::point(node.child("at"));
     bo::BoardObjectsSchematicProperty {
         name: tree::text_at(node, 1).unwrap_or_default(),
@@ -414,7 +414,7 @@ fn property(node: &Node) -> bo::BoardObjectsSchematicProperty {
 }
 
 /// `effects()` (`capture/board_objects.py:225-253`), typed.
-fn text_effects(node: &Node) -> bo::BoardObjectsTextEffects {
+fn text_effects(node: &Node<'_>) -> bo::BoardObjectsTextEffects {
     bo::BoardObjectsTextEffects {
         font: node.child("font").map(font_shape),
         justify: node.child("justify").map(justify_shape),
@@ -423,7 +423,7 @@ fn text_effects(node: &Node) -> bo::BoardObjectsTextEffects {
     }
 }
 
-fn font_shape(node: &Node) -> bo::BoardObjectsFont {
+fn font_shape(node: &Node<'_>) -> bo::BoardObjectsFont {
     bo::BoardObjectsFont {
         face: tree::child_text(node, "face"),
         size: node.child("size").map(|size| bo::BoardObjectsFontSize {
@@ -443,7 +443,7 @@ fn font_shape(node: &Node) -> bo::BoardObjectsFont {
     }
 }
 
-fn color_shape(node: &Node) -> bo::BoardObjectsColor {
+fn color_shape(node: &Node<'_>) -> bo::BoardObjectsColor {
     let channel = |index: usize| {
         tree::number_at(node, index)
             .map(|value| ((value / 255.0) * 255.0).round())
@@ -457,7 +457,7 @@ fn color_shape(node: &Node) -> bo::BoardObjectsColor {
     }
 }
 
-fn justify_shape(node: &Node) -> bo::BoardObjectsJustify {
+fn justify_shape(node: &Node<'_>) -> bo::BoardObjectsJustify {
     let mut horizontal = bo::BoardObjectsHorizontalJustify::Center;
     let mut vertical = bo::BoardObjectsVerticalJustify::Center;
     let mut mirror = false;
@@ -479,7 +479,7 @@ fn justify_shape(node: &Node) -> bo::BoardObjectsJustify {
 }
 
 /// `symbol_reference` (`ecad-parse.mjs:879-891`).
-fn symbol_reference(symbol: &Node) -> Option<String> {
+fn symbol_reference(symbol: &Node<'_>) -> Option<String> {
     if let Some(instances) = symbol.child("instances") {
         for project in instances.children("project") {
             for path in project.children("path") {
@@ -507,7 +507,7 @@ fn symbol_reference(symbol: &Node) -> Option<String> {
 }
 
 /// `kiid_paths` (`ecad-parse.mjs:867-877`).
-fn kiid_paths(item: &Node, uuid: &str) -> Vec<String> {
+fn kiid_paths(item: &Node<'_>, uuid: &str) -> Vec<String> {
     let mut paths: Vec<String> = Vec::new();
     let Some(instances) = item.child("instances") else {
         return paths;
@@ -543,7 +543,7 @@ fn valid_paths(document: &mut Document, paths: Vec<String>) -> Vec<bo::KiidPath>
 
 /// `symbol_instances` (`ecad-parse.mjs:893-912`) mapped to member instances
 /// (`capture/board_objects.py:349-353`).
-fn symbol_instances(document: &mut Document, symbol: &Node, uuid: &str) -> Vec<bo::BoardObjectsSymbolInstance> {
+fn symbol_instances(document: &mut Document, symbol: &Node<'_>, uuid: &str) -> Vec<bo::BoardObjectsSymbolInstance> {
     let mut instances = Vec::new();
     if let Some(node) = symbol.child("instances") {
         for project in node.children("project") {
@@ -589,13 +589,13 @@ fn add_instance_path(document: &mut Document, text: &str, uuid: &str) -> Option<
 }
 
 /// `symbol_properties` (`ecad-parse.mjs:914-928`) mapped to member properties.
-fn symbol_properties(item: &Node) -> Vec<bo::BoardObjectsSchematicProperty> {
+fn symbol_properties(item: &Node<'_>) -> Vec<bo::BoardObjectsSchematicProperty> {
     item.children("property").map(property).collect()
 }
 
 /// `parseCenterOrStartOrEnd` (`kicad-sexpr-parser.mjs:2687-2696`): the two
 /// coordinates, or `(0, 0)` for anything unreadable.
-fn center_point(form: &Node, name: &str) -> (Option<f64>, Option<f64>) {
+fn center_point(form: &Node<'_>, name: &str) -> (Option<f64>, Option<f64>) {
     let Some(node) = form.child(name) else {
         return (None, None);
     };
@@ -615,7 +615,7 @@ fn refdes(value: Option<String>) -> Option<bo::Refdes> {
     parse_nonempty(value.filter(|text| !text.is_empty())?)
 }
 
-fn child_bool(node: &Node, name: &str) -> Option<bool> {
+fn child_bool(node: &Node<'_>, name: &str) -> Option<bool> {
     shapes::atom_flag(node, name).or_else(|| tree::child_text(node, name).map(|text| shapes::boolean(&text)))
 }
 
