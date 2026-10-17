@@ -2,7 +2,7 @@
 //! (`ecad-diff.mjs:338-481`).
 
 use super::CompareError;
-use super::classify;
+use super::classify::{self, MergedDelta};
 use super::entry::{self, Entry};
 use super::numbers::utf16_cmp;
 use super::output;
@@ -182,12 +182,110 @@ pub fn diff(
         })
 }
 
-/// [`diff`] over entries already rebuilt with [`entry::entries`]: the CLI
-/// drops each member's parsed JSON as soon as its entries exist, and writes
-/// the returned [`output::Delta`] without building it as one value.
-pub fn diff_entries(base: entry::Entries, head: entry::Entries) -> output::Delta {
-    let (base, head) = (base.0, head.0);
-    let mut matcher = Matcher::new(&base, &head);
+/// One matched, added or removed object, typed: the entries it relates and the
+/// classification its change carries. The identity fields borrow the entries.
+pub struct Pair<'a> {
+    /// The object's key (`documentPath#uuid`); the order [`Outcome`] is sorted
+    /// by.
+    pub key: &'a str,
+    /// The base side's index, present unless the object is `added`.
+    pub before: Option<usize>,
+    /// The head side's index, present unless the object is `removed`.
+    pub after: Option<usize>,
+    /// How the two sides relate.
+    pub status: output::Status,
+    /// The classifier reasons of a `modified` pair; empty otherwise.
+    pub reasons: Vec<&'static str>,
+    /// The property and review-field deltas, computed once.
+    pub deltas: Vec<MergedDelta>,
+}
+
+/// The typed object diff: every change, the ignored pairs and the unchanged
+/// count. [`diff_entries`] renders it as the `prism.compare.object_delta.a0`
+/// document; the object tab reads it directly.
+pub struct Outcome<'a> {
+    /// The changes, sorted by key as today.
+    pub changes: Vec<Pair<'a>>,
+    /// Head indexes the diff ignored, with the reason.
+    pub ignored: Vec<(usize, &'static str)>,
+    /// The number of matched, unchanged objects.
+    pub unchanged: usize,
+}
+
+impl Outcome<'_> {
+    /// The object counts `Output.object_counts` carries, without a [`output::Delta`].
+    #[must_use]
+    pub fn counts(&self, base_objects: usize, head_objects: usize) -> Value {
+        let (mut added, mut removed, mut modified) = (0u64, 0u64, 0u64);
+        for pair in &self.changes {
+            match pair.status {
+                output::Status::Added => added += 1,
+                output::Status::Removed => removed += 1,
+                output::Status::Modified => modified += 1,
+            }
+        }
+        output::counts_value(
+            added,
+            removed,
+            modified,
+            self.unchanged,
+            self.ignored.len(),
+            base_objects,
+            head_objects,
+        )
+    }
+}
+
+fn added_pair(after: &Entry, index: usize) -> Pair<'_> {
+    Pair {
+        key: &after.key,
+        before: None,
+        after: Some(index),
+        status: output::Status::Added,
+        reasons: Vec::new(),
+        deltas: classify::review_field_deltas(None, Some(after)),
+    }
+}
+
+fn removed_pair(before: &Entry, index: usize) -> Pair<'_> {
+    Pair {
+        key: &before.key,
+        before: Some(index),
+        after: None,
+        status: output::Status::Removed,
+        reasons: Vec::new(),
+        deltas: classify::review_field_deltas(Some(before), None),
+    }
+}
+
+fn modified_pair<'a>(
+    before: &'a Entry,
+    after: &'a Entry,
+    before_index: usize,
+    after_index: usize,
+) -> Pair<'a> {
+    let deltas = classify::merged_property_deltas(before, after);
+    let mut reasons = classify::classify(before, after);
+    if classify::properties_changed(&deltas) {
+        reasons.push("properties-changed");
+    }
+    if reasons.is_empty() {
+        reasons.push("content-changed");
+    }
+    Pair {
+        key: &after.key,
+        before: Some(before_index),
+        after: Some(after_index),
+        status: output::Status::Modified,
+        reasons,
+        deltas,
+    }
+}
+
+/// The typed pass of [`diff_entries`]: identity matching, the change list and
+/// the reasons and deltas each change carries.
+pub fn outcome<'a>(base: &'a [Entry], head: &'a [Entry]) -> Outcome<'a> {
+    let mut matcher = Matcher::new(base, head);
     matcher.native_identity();
     matcher.pair(entry::authored_identity, Reason::InternalOnly);
     matcher.pair(entry::sheet_pin_slot_identity, Reason::SheetPinSlot);
@@ -197,17 +295,19 @@ pub fn diff_entries(base: entry::Entries, head: entry::Entries) -> output::Delta
     let mut unchanged = 0usize;
     for (head_index, after) in head.iter().enumerate() {
         match matcher.matches.get(&head_index) {
-            None => changes.push(output::added(after)),
+            None => changes.push(added_pair(after, head_index)),
             Some(found) if found.reason == Reason::InternalOnly => {
-                ignored.push(output::ignored(after, "internal-identity-only"));
+                ignored.push((head_index, "internal-identity-only"));
                 unchanged += 1;
             }
             Some(found) => {
                 let before = &base[found.base];
                 match pair_outcome(before, after) {
-                    PairOutcome::Modified => changes.push(output::modified(before, after)),
+                    PairOutcome::Modified => {
+                        changes.push(modified_pair(before, after, found.base, head_index));
+                    }
                     PairOutcome::GeneratedContentOnly => {
-                        ignored.push(output::ignored(after, "generated-content-only"));
+                        ignored.push((head_index, "generated-content-only"));
                         unchanged += 1;
                     }
                     PairOutcome::Unchanged => unchanged += 1,
@@ -217,11 +317,54 @@ pub fn diff_entries(base: entry::Entries, head: entry::Entries) -> output::Delta
     }
     for (index, before) in base.iter().enumerate() {
         if !matcher.matched_base[index] {
-            changes.push(output::removed(before));
+            changes.push(removed_pair(before, index));
         }
     }
     drop(matcher);
-    changes.sort_by(|left, right| left.key.cmp(&right.key));
+    changes.sort_by(|left, right| left.key.cmp(right.key));
+    Outcome {
+        changes,
+        ignored,
+        unchanged,
+    }
+}
+
+/// [`diff`] over entries already rebuilt with [`entry::entries`]: the CLI
+/// drops each member's parsed JSON as soon as its entries exist, and writes
+/// the returned [`output::Delta`] without building it as one value.
+pub fn diff_entries(base: entry::Entries, head: entry::Entries) -> output::Delta {
+    let (base, head) = (base.0, head.0);
+    let (changes, ignored, unchanged) = {
+        let outcome = outcome(&base, &head);
+        let changes = outcome
+            .changes
+            .iter()
+            .map(|pair| match pair.status {
+                output::Status::Added => output::added(
+                    &head[pair.after.expect("an added pair has an after side")],
+                    &pair.reasons,
+                    &pair.deltas,
+                ),
+                output::Status::Removed => output::removed(
+                    &base[pair.before.expect("a removed pair has a before side")],
+                    &pair.reasons,
+                    &pair.deltas,
+                ),
+                output::Status::Modified => output::modified(
+                    &base[pair.before.expect("a modified pair has a before side")],
+                    &head[pair.after.expect("a modified pair has an after side")],
+                    &pair.reasons,
+                    &pair.deltas,
+                ),
+            })
+            .collect();
+        let ignored = outcome
+            .ignored
+            .iter()
+            .map(|&(index, reason)| output::ignored(&head[index], reason))
+            .collect();
+        (changes, ignored, outcome.unchanged)
+    };
     output::document(base, head, changes, ignored, unchanged)
 }
 
