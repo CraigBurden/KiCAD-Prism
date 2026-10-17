@@ -35,9 +35,18 @@ const change = (
     classification: "primary",
     label: "U1",
     reference: "U1",
-    semantic_id: "cmp:u1",
-    source_id_base: kind === "added" ? null : source,
-    source_id_compare: kind === "removed" ? null : source,
+    semanticId: "cmp:u1",
+    reasons: [kind === "added"
+        ? "object-added"
+        : kind === "removed" ? "object-removed" : "content-changed"],
+    fields: {},
+    details: {},
+    ...(kind === "added"
+        ? {}
+        : { base: { sourceId: source, documentPath: "board.kicad_pcb", layers: [] } }),
+    ...(kind === "removed"
+        ? {}
+        : { head: { sourceId: source, documentPath: "board.kicad_pcb", layers: [] } }),
 });
 
 describe("semantic comparison state", () => {
@@ -46,10 +55,10 @@ describe("semantic comparison state", () => {
             ...change("net-change", "changed", "pin-1"),
             domain: "schematic",
             category: "components",
-            reference: null,
+            reference: undefined,
             net: "/USB/USB_D_P",
             label: "/USB/USB_D_P",
-            semantic_id: "net:usb-d-p",
+            semanticId: "net:usb-d-p",
             reasons: ["connectivity-changed"],
         }]);
 
@@ -61,9 +70,9 @@ describe("semantic comparison state", () => {
         const groups = groupChanges([{
             ...change("zone-change", "changed", "zone-1"),
             category: "zones",
-            object_kind: "zone",
+            objectKind: "zone",
             net: "GND",
-            semantic_id: "obj:zone-1",
+            semanticId: "obj:zone-1",
         }]);
 
         expect(groups).toHaveLength(1);
@@ -76,7 +85,7 @@ describe("semantic comparison state", () => {
             domain: "schematic",
             reference: "#PWR0118",
             label: "#PWR0118",
-            object_kind: "symbol",
+            objectKind: "symbol",
         }]);
 
         expect(groups[0]?.category).toBe("nets");
@@ -115,7 +124,6 @@ describe("semantic comparison state", () => {
                 ...change("component-multi-sheet", "changed", "multi-sheet"),
                 domain: "schematic" as const,
                 page: "root.kicad_sch",
-                alsoOnPages: ["root.kicad_sch", "power.kicad_sch"],
             },
         ];
         const groups = [{ id: "components", changes }];

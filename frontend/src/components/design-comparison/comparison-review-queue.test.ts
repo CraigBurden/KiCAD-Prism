@@ -16,7 +16,11 @@ import type { ChangeItem } from "./types";
  * covered by `comparison-review-groups.test.ts`.
  */
 
-function schematicChange(overrides: Partial<ChangeItem> = {}): ChangeItem {
+type ChangeSpec = Partial<ChangeItem> & { layers?: string[] };
+
+function schematicChange(overrides: ChangeSpec = {}): ChangeItem {
+    const { layers, ...rest } = overrides;
+    const sideLayers = layers ?? [];
     return {
         id: "change-1",
         kind: "changed",
@@ -25,11 +29,15 @@ function schematicChange(overrides: Partial<ChangeItem> = {}): ChangeItem {
         classification: "primary",
         label: "U1",
         reference: "U1",
-        semantic_id: "cmp:u1",
-        object_kind: "symbol",
+        semanticId: "cmp:u1",
+        objectKind: "symbol",
         page: "main.kicad_sch",
         reasons: ["properties-changed"],
-        ...overrides,
+        fields: {},
+        details: {},
+        base: { sourceId: "base-1", documentPath: "main.kicad_sch", layers: sideLayers },
+        head: { sourceId: "head-1", documentPath: "main.kicad_sch", layers: sideLayers },
+        ...rest,
     };
 }
 
@@ -38,15 +46,15 @@ describe("review ownership and counts", () => {
         const footprintRotation = groupChanges([schematicChange({
             domain: "pcb",
             category: "components",
-            object_kind: "footprint",
+            objectKind: "footprint",
             reasons: ["rotated"],
             layers: ["B.Cu"],
         })])[0]!;
         const netRename = groupChanges([schematicChange({
             domain: "pcb",
             category: "nets",
-            reference: null,
-            object_kind: "track",
+            reference: undefined,
+            objectKind: "track",
             net: "PMOD_A4",
             reasons: ["net-changed"],
             fields: { Net: { old: "PMOD_A3", new: "PMOD_A4" } },
@@ -54,16 +62,16 @@ describe("review ownership and counts", () => {
         const boardOutline = groupChanges([schematicChange({
             domain: "pcb",
             category: "graphics",
-            reference: null,
-            object_kind: "graphic",
+            reference: undefined,
+            objectKind: "graphic",
             layers: ["Edge.Cuts"],
             reasons: ["moved"],
         })])[0]!;
         const constraint = groupChanges([schematicChange({
             domain: "pcb",
             category: "rules",
-            reference: null,
-            object_kind: "board_constraint",
+            reference: undefined,
+            objectKind: "board_constraint",
         })])[0]!;
 
         expect(reviewImpactForGroup(footprintRotation)).toBe("fabrication");
@@ -74,15 +82,15 @@ describe("review ownership and counts", () => {
 
     it("counts review items, not parser events, per status", () => {
         const groups = groupChanges([
-            schematicChange({ id: "a", semantic_id: "cmp:u1" }),
+            schematicChange({ id: "a", semanticId: "cmp:u1" }),
             // Same component: one review item, so one modification counted.
-            schematicChange({ id: "b", semantic_id: "cmp:u1" }),
+            schematicChange({ id: "b", semanticId: "cmp:u1" }),
             schematicChange({
                 id: "c",
                 kind: "added",
                 label: "R7",
                 reference: "R7",
-                semantic_id: "cmp:r7",
+                semanticId: "cmp:r7",
             }),
         ]);
 
@@ -99,9 +107,9 @@ describe("review ownership and counts", () => {
                 id: "outline",
                 domain: "pcb",
                 category: "graphics",
-                reference: null,
-                object_kind: "graphic",
-                semantic_id: "gfx:outline",
+                reference: undefined,
+                objectKind: "graphic",
+                semanticId: "gfx:outline",
                 layers: ["Edge.Cuts"],
                 reasons: ["moved"],
             }),
@@ -109,8 +117,8 @@ describe("review ownership and counts", () => {
                 id: "fp-1",
                 domain: "pcb",
                 category: "components",
-                object_kind: "footprint",
-                semantic_id: "fp:u1",
+                objectKind: "footprint",
+                semanticId: "fp:u1",
                 reasons: ["rotated"],
                 layers: ["F.Cu"],
             }),
@@ -120,8 +128,8 @@ describe("review ownership and counts", () => {
                 category: "components",
                 label: "R7",
                 reference: "R7",
-                object_kind: "footprint",
-                semantic_id: "fp:r7",
+                objectKind: "footprint",
+                semanticId: "fp:r7",
                 reasons: ["moved"],
                 layers: ["F.Cu"],
             }),
