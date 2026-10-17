@@ -12,6 +12,7 @@
 mod bom;
 mod connectivity;
 mod files;
+mod hydrate;
 mod objects;
 mod project_diff;
 mod review;
@@ -116,10 +117,6 @@ pub fn build(base: Revision, head: Revision, options: Options) -> Result<Output,
         let counts = outcome.counts(base_entries.len(), head_entries.len());
         (objects, counts, (base_entries.len(), head_entries.len()))
     };
-    // C2r chunk 4: hydration reads the entries here
-    drop(base_entries);
-    drop(head_entries);
-
     let mut schematic = Vec::new();
     let mut pcb = Vec::new();
     for change in objects.into_iter().chain(connectivity) {
@@ -128,9 +125,15 @@ pub fn build(base: Revision, head: Revision, options: Options) -> Result<Output,
             dc::DesignCompareDomain::Pcb => pcb.push(change),
         }
     }
+    // C2r chunk 5: hydration reads the entries here, before they are dropped.
+    hydrate::build(&base_entries, &head_entries, &mut schematic);
+    drop(base_entries);
+    drop(head_entries);
+    // ecad-viewer's diffs are built in the change order (objects, then
+    // connectivity; design_compare_service.py:1167-1171), before the tabs sort.
+    let project_diff = project_diff::build(&schematic, &pcb, &files);
     schematic.sort_by(|a, b| a.change.id.cmp(&b.change.id));
     pcb.sort_by(|a, b| a.change.id.cmp(&b.change.id));
-    let project_diff = project_diff::build(&schematic, &pcb, &files);
     let counts = dc::DesignCompareCounts {
         schematic: summary(&schematic),
         pcb: summary(&pcb),
