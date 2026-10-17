@@ -8,10 +8,11 @@
 
 import { humanize, verbForProperty } from "./comparison-change-vocabulary";
 import { kindsWith } from "./comparison-change-kinds";
+import { pointMm, type PointNm } from "./design-compare-result";
 import type {
     ChangeItem,
-    FieldDiffValue,
-    PcbDiff,
+    DesignCompareResult,
+    FieldDelta,
     RouteMetrics,
 } from "./types";
 
@@ -37,7 +38,7 @@ const HIDDEN_FIELDS = new Set(["Reference", "Qty", "DNP", "In BOM"]);
 const ROUTING_OBJECT_KINDS = kindsWith("copper");
 
 function isRouting(change: ChangeItem): boolean {
-    return ROUTING_OBJECT_KINDS.has(change.object_kind ?? "");
+    return ROUTING_OBJECT_KINDS.has(change.objectKind ?? "");
 }
 
 /**
@@ -132,16 +133,16 @@ export function formatValue(value: unknown): string {
 }
 
 function fieldPair(
-    value: FieldDiffValue,
+    value: FieldDelta | undefined,
 ): { oldValue: unknown; newValue: unknown } {
-    if (value && typeof value === "object" && !Array.isArray(value)) {
-        return { oldValue: value.old, newValue: value.new };
-    }
-    return { oldValue: null, newValue: value };
+    return { oldValue: value?.old, newValue: value?.new };
 }
 
-function positionText(value?: [number, number] | null): string | null {
-    return value ? `${value[0]}, ${value[1]}` : null;
+/** A position in millimetres, as KiCad shows it. */
+function positionText(value?: PointNm): string | null {
+    if (!value) return null;
+    const [x, y] = pointMm(value);
+    return `${x}, ${y}`;
 }
 
 function withoutSchematicPlacement(value: unknown): unknown {
@@ -161,7 +162,7 @@ function withoutSchematicPlacement(value: unknown): unknown {
 
 function schematicPlacementOnlyField(
     label: string,
-    value: FieldDiffValue,
+    value: FieldDelta,
 ): boolean {
     const folded = label.trim().toLocaleLowerCase();
     if (folded === "position") return true;
@@ -226,7 +227,7 @@ export function propertyDeltas(changes: ChangeItem[]): PropertyDelta[] {
             }
             if (
                 changes.length > 1
-                && FOOTPRINT_PRIMITIVE_KINDS.has(change.object_kind ?? "")
+                && FOOTPRINT_PRIMITIVE_KINDS.has(change.objectKind ?? "")
                 && FOOTPRINT_PRIMITIVE_FIELDS.has(foldedLabel)
             ) {
                 continue;
@@ -241,8 +242,8 @@ export function propertyDeltas(changes: ChangeItem[]): PropertyDelta[] {
         // centroid crowds out the electrical evidence; one exact object still
         // gets its old/new position.
         if (changes.length === 1) {
-            const oldPosition = positionText(change.position_base);
-            const newPosition = positionText(change.position_compare);
+            const oldPosition = positionText(change.base?.at);
+            const newPosition = positionText(change.head?.at);
             if ((oldPosition || newPosition) && oldPosition !== newPosition) {
                 push({
                     id: `${change.id}:position`,
@@ -280,28 +281,33 @@ const ROUTE_METRIC_ROWS: ReadonlyArray<{
     id: string;
     label: string;
     key: keyof RouteMetrics;
-    /** Metrics carrying a physical length are shown with their unit. */
-    millimetres?: boolean;
+    /** A length in nanometres, shown in millimetres with its unit. */
+    length?: boolean;
 }> = [
     {
         id: "route:length",
         label: "Route length",
-        key: "centerline_length_mm",
-        millimetres: true,
+        key: "routeLengthNm",
+        length: true,
     },
-    { id: "route:vias", label: "Via count", key: "via_count" },
-    { id: "route:layers", label: "Used layers", key: "used_layers" },
+    { id: "route:vias", label: "Via count", key: "viaCount" },
+    { id: "route:layers", label: "Used layers", key: "usedLayers" },
     {
         id: "route:barrel",
         label: "Via barrel",
-        key: "via_barrel_length_mm",
-        millimetres: true,
+        key: "viaBarrelLengthNm",
+        length: true,
     },
 ];
 
+/** Millimetres to four decimals, as the route metrics were always shown. */
+function lengthText(nanometres: number): string {
+    return `${Number((nanometres / 1_000_000).toFixed(4))} mm`;
+}
+
 export function routeMetricRows(
     changes: ChangeItem[],
-    metrics?: PcbDiff["route_metrics"],
+    metrics?: DesignCompareResult["routeMetrics"],
 ): PropertyDelta[] {
     const routingChanges = changes.filter(
         (change) => change.net && isRouting(change),
@@ -332,7 +338,7 @@ export function routeMetricRows(
     const oldNet = sideNet("old");
     const newNet = sideNet("new");
     const oldMetric = oldNet ? metrics.base[oldNet] : undefined;
-    const newMetric = newNet ? metrics.compare[newNet] : undefined;
+    const newMetric = newNet ? metrics.head[newNet] : undefined;
     if (!oldMetric && !newMetric) return [];
 
     const value = (
@@ -340,8 +346,8 @@ export function routeMetricRows(
         row: (typeof ROUTE_METRIC_ROWS)[number],
     ): unknown => {
         const raw = metric?.[row.key];
-        if (raw === null || raw === undefined) return null;
-        return row.millimetres ? `${raw} mm` : raw;
+        if (raw === undefined) return null;
+        return row.length && typeof raw === "number" ? lengthText(raw) : raw;
     };
     return ROUTE_METRIC_ROWS.map((row) => ({
         id: row.id,
@@ -364,12 +370,11 @@ export type ChangeEvidenceMode = "visual" | "structured" | "unresolved";
  * legitimate non-geometric change.
  */
 export function changeEvidenceMode(changes: ChangeItem[]): ChangeEvidenceMode {
-    if (changes.some((change) => (change.details?.visualTargets?.length ?? 0) > 0)) {
+    if (changes.some((change) => (change.details.targets?.length ?? 0) > 0)) {
         return "visual";
     }
     const expectsCanvasTarget = (change: ChangeItem): boolean =>
-        !change.details?.reviewOnly
-        && Boolean(change.source_id_base || change.source_id_compare);
+        !change.details.reviewOnly && Boolean(change.base || change.head);
     return changes.some(expectsCanvasTarget) ? "unresolved" : "structured";
 }
 

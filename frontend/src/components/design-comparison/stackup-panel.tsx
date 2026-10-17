@@ -1,4 +1,5 @@
 import { cn } from "@/lib/utils";
+import { NM_PER_MM } from "./design-compare-result";
 import type { StackupDiff, StackupLayer, StackupSettings } from "./types";
 
 interface StackupPanelProps {
@@ -9,14 +10,14 @@ function rowsDiffer(a: StackupLayer | undefined, b: StackupLayer | undefined): b
     if (!a || !b) return true;
     return a.name !== b.name
         || a.type !== b.type
-        || (a.thickness ?? null) !== (b.thickness ?? null)
-        || (a.material ?? null) !== (b.material ?? null)
-        || (a.color ?? null) !== (b.color ?? null)
-        || (a.epsilon_r ?? null) !== (b.epsilon_r ?? null)
-        || (a.loss_tangent ?? null) !== (b.loss_tangent ?? null);
+        || a.thicknessNm !== b.thicknessNm
+        || a.material !== b.material
+        || a.color !== b.color
+        || a.epsilonR !== b.epsilonR
+        || a.lossTangent !== b.lossTangent;
 }
 
-function settingText(value: boolean | string | null | undefined): string {
+function settingText(value: boolean | string | undefined): string {
     if (value === true) return "Enabled";
     if (value === false) return "Disabled";
     return value || "—";
@@ -57,12 +58,12 @@ function StackupTable({
             )}>
                 <span>
                     <span className="text-muted-foreground">Copper finish </span>
-                    <span className="font-medium">{settingText(settings.copper_finish)}</span>
+                    <span className="font-medium">{settingText(settings.copperFinish)}</span>
                 </span>
                 <span>
                     <span className="text-muted-foreground">Dielectric constraints </span>
                     <span className="font-medium">
-                        {settingText(settings.dielectric_constraints)}
+                        {settingText(settings.dielectricConstraints)}
                     </span>
                 </span>
             </div>
@@ -109,7 +110,7 @@ function StackupTable({
                                                 aria-hidden="true"
                                                 className={cn(
                                                     "size-2 shrink-0 rounded-sm",
-                                                    /copper/i.test(layer.type)
+                                                    /copper/i.test(layer.type ?? "")
                                                         ? "bg-amber-500"
                                                         : "bg-muted-foreground/30",
                                                 )}
@@ -126,16 +127,18 @@ function StackupTable({
                                         {layer.type}
                                     </td>
                                     <td className="border-b px-3 py-2 text-right font-mono tabular-nums">
-                                        {layer.thickness != null ? layer.thickness.toFixed(4) : "—"}
+                                        {layer.thicknessNm !== undefined
+                                            ? (layer.thicknessNm / NM_PER_MM).toFixed(4)
+                                            : "—"}
                                     </td>
                                     <td className="border-b px-3 py-2 text-muted-foreground">
                                         {layer.material || "—"}
                                     </td>
                                     <td className="border-b px-3 py-2 text-right font-mono tabular-nums">
-                                        {layer.epsilon_r ?? "—"}
+                                        {layer.epsilonR ?? "—"}
                                     </td>
                                     <td className="border-b px-3 py-2 text-right font-mono tabular-nums">
-                                        {layer.loss_tangent ?? "—"}
+                                        {layer.lossTangent ?? "—"}
                                     </td>
                                     <td className="border-b px-3 py-2 text-muted-foreground">
                                         {layer.color || "—"}
@@ -202,16 +205,16 @@ export function StackupPanel({ stackup }: StackupPanelProps) {
                     accent="old"
                     layers={stackup.base}
                     otherLayers={stackup.head}
-                    settings={stackup.base_settings ?? {}}
-                    otherSettings={stackup.head_settings ?? {}}
+                    settings={stackup.baseSettings}
+                    otherSettings={stackup.headSettings}
                 />
                 <StackupTable
                     title="New stackup"
                     accent="new"
                     layers={stackup.head}
                     otherLayers={stackup.base}
-                    settings={stackup.head_settings ?? {}}
-                    otherSettings={stackup.base_settings ?? {}}
+                    settings={stackup.headSettings}
+                    otherSettings={stackup.baseSettings}
                 />
             </div>
         </section>

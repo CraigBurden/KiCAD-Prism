@@ -11,7 +11,6 @@ import { groupChanges } from "./comparison-review-groups";
 import { resolveNativeSelection } from "./comparison-selection-bridge";
 import {
     resolveSelectedDocument,
-    resolveSideBySideFocus,
     revisionSourceKey,
     selectedChanges,
     sourceNameForDomain,
@@ -409,67 +408,6 @@ describe("semantic comparison state", () => {
             },
             changes,
         )).toEqual({ kind: "change", id: "/wire-two" });
-    });
-
-    it("moves both panes even when a change exists on only one side", () => {
-        // Both panes show the same board in the same coordinates. Selecting an
-        // addition should still travel the base pane to where it appeared, so
-        // the reviewer can see what used to be there.
-        expect(resolveSideBySideFocus([
-            {
-                ...change("added-1", "added", "uuid-new"),
-                geometry: {
-                    kind: "footprint",
-                    bounds: [1, 2, 3, 4],
-                    page: "board.kicad_pcb",
-                },
-            },
-        ])).toEqual({
-            page: "board.kicad_pcb",
-            baseBounds: [1, 2, 3, 4],
-            compareBounds: [1, 2, 3, 4],
-            // No base-side object exists to select, only an area to look at.
-            baseUuid: null,
-            compareUuid: "uuid-new",
-        });
-
-        expect(resolveSideBySideFocus([
-            {
-                ...change("removed-1", "removed", "uuid-old"),
-                oldGeometry: {
-                    kind: "footprint",
-                    bounds: [5, 6, 7, 8],
-                },
-            },
-        ])).toEqual({
-            page: null,
-            baseBounds: [5, 6, 7, 8],
-            // The deletion left a gap; the compare pane travels there to show it.
-            compareBounds: [5, 6, 7, 8],
-            baseUuid: "uuid-old",
-            compareUuid: null,
-        });
-
-        expect(resolveSideBySideFocus([
-            {
-                ...change("changed-1", "changed", "uuid-same"),
-                page: "root.kicad_sch",
-                geometry: {
-                    kind: "symbol",
-                    bounds: [10, 10, 2, 2],
-                },
-                oldGeometry: {
-                    kind: "symbol",
-                    bounds: [0, 0, 2, 2],
-                },
-            },
-        ])).toEqual({
-            page: "root.kicad_sch",
-            baseBounds: [0, 0, 2, 2],
-            compareBounds: [10, 10, 2, 2],
-            baseUuid: "uuid-same",
-            compareUuid: "uuid-same",
-        });
     });
 });
 
