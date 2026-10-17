@@ -161,6 +161,17 @@ argument's value, which may be a host path.*/
 ///    "quiet",
 ///    "base",
 ///    "head",
+///    "base-src",
+///    "head-src",
+///    "base-source-root",
+///    "head-source-root",
+///    "base-config",
+///    "head-config",
+///    "base-revision-key",
+///    "head-revision-key",
+///    "base-upgraded",
+///    "head-upgraded",
+///    "include-unchanged",
 ///    "view",
 ///    "variant",
 ///    "vendor",
@@ -236,6 +247,28 @@ pub enum CliArgument {
     Base,
     #[serde(rename = "head")]
     Head,
+    #[serde(rename = "base-src")]
+    BaseSrc,
+    #[serde(rename = "head-src")]
+    HeadSrc,
+    #[serde(rename = "base-source-root")]
+    BaseSourceRoot,
+    #[serde(rename = "head-source-root")]
+    HeadSourceRoot,
+    #[serde(rename = "base-config")]
+    BaseConfig,
+    #[serde(rename = "head-config")]
+    HeadConfig,
+    #[serde(rename = "base-revision-key")]
+    BaseRevisionKey,
+    #[serde(rename = "head-revision-key")]
+    HeadRevisionKey,
+    #[serde(rename = "base-upgraded")]
+    BaseUpgraded,
+    #[serde(rename = "head-upgraded")]
+    HeadUpgraded,
+    #[serde(rename = "include-unchanged")]
+    IncludeUnchanged,
     #[serde(rename = "view")]
     View,
     #[serde(rename = "variant")]
@@ -281,6 +314,17 @@ impl ::std::fmt::Display for CliArgument {
             Self::Quiet => f.write_str("quiet"),
             Self::Base => f.write_str("base"),
             Self::Head => f.write_str("head"),
+            Self::BaseSrc => f.write_str("base-src"),
+            Self::HeadSrc => f.write_str("head-src"),
+            Self::BaseSourceRoot => f.write_str("base-source-root"),
+            Self::HeadSourceRoot => f.write_str("head-source-root"),
+            Self::BaseConfig => f.write_str("base-config"),
+            Self::HeadConfig => f.write_str("head-config"),
+            Self::BaseRevisionKey => f.write_str("base-revision-key"),
+            Self::HeadRevisionKey => f.write_str("head-revision-key"),
+            Self::BaseUpgraded => f.write_str("base-upgraded"),
+            Self::HeadUpgraded => f.write_str("head-upgraded"),
+            Self::IncludeUnchanged => f.write_str("include-unchanged"),
             Self::View => f.write_str("view"),
             Self::Variant => f.write_str("variant"),
             Self::Vendor => f.write_str("vendor"),
@@ -321,6 +365,17 @@ impl ::std::str::FromStr for CliArgument {
             "quiet" => Ok(Self::Quiet),
             "base" => Ok(Self::Base),
             "head" => Ok(Self::Head),
+            "base-src" => Ok(Self::BaseSrc),
+            "head-src" => Ok(Self::HeadSrc),
+            "base-source-root" => Ok(Self::BaseSourceRoot),
+            "head-source-root" => Ok(Self::HeadSourceRoot),
+            "base-config" => Ok(Self::BaseConfig),
+            "head-config" => Ok(Self::HeadConfig),
+            "base-revision-key" => Ok(Self::BaseRevisionKey),
+            "head-revision-key" => Ok(Self::HeadRevisionKey),
+            "base-upgraded" => Ok(Self::BaseUpgraded),
+            "head-upgraded" => Ok(Self::HeadUpgraded),
+            "include-unchanged" => Ok(Self::IncludeUnchanged),
             "view" => Ok(Self::View),
             "variant" => Ok(Self::Variant),
             "vendor" => Ok(Self::Vendor),

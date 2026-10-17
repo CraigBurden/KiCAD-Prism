@@ -151,6 +151,7 @@ fn parse(args: &Args, generator: &Generator, stderr: &Stderr) -> Outcome<BuildOu
         generator,
         limits: &args.limits,
         reporter: stderr,
+        projections: None,
     };
     match prism_bundle::stages::parse::run(&request)? {
         ParseOutcome::ProjectAbsent(project_file) => Ok(BuildOutcome {

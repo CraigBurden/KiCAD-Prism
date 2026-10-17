@@ -27,6 +27,7 @@ mod entry;
 mod json;
 mod numbers;
 mod output;
+pub mod result;
 
 pub use diff::{diff, diff_entries};
 pub use entry::{Entries, anchor_directory, entries};

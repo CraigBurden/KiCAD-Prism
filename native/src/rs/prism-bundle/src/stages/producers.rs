@@ -31,10 +31,12 @@ pub(super) const PRODUCERS: [Producer; 8] = [
 ];
 
 /// What [`PRODUCERS`] and `design.json` give: `design.json` (absent without
-/// a schematic model) and each producer's result, in [`PROJECTIONS`] order.
+/// a schematic model, or when the semantic index is not wanted) and each
+/// producer's result, in [`PROJECTIONS`] order (`None` for a producer that is
+/// not wanted).
 pub(super) type ProducerResults = (
     Option<Result<Value, String>>,
-    Vec<Result<(Value, Vec<prism_projections::ProducerWarning>), String>>,
+    Vec<Option<Result<(Value, Vec<prism_projections::ProducerWarning>), String>>>,
 );
 
 /// Run the producers at once, and build `design.json` beside them. Only the
@@ -49,6 +51,7 @@ pub(super) fn run(
     )>,
     design: &Design,
     design_board: Option<(&str, &prism_kicad_core::PcbView<'_>)>,
+    wanted: &(dyn Fn(&str) -> bool + Sync),
 ) -> ProducerResults {
     std::thread::scope(|scope| {
         let joined = |handle: std::thread::ScopedJoinHandle<'_, _>| {
@@ -61,16 +64,24 @@ pub(super) fn run(
         let semantic = PROJECTIONS
             .iter()
             .position(|(path, _)| *path == "projections/semantic-index.json");
+        let semantic = semantic.filter(|index| wanted(PROJECTIONS[*index].0));
         let handles: Vec<_> = PRODUCERS
             .iter()
+            .zip(PROJECTIONS)
             .enumerate()
-            .map(|(index, producer)| {
-                (Some(index) != semantic).then(|| scope.spawn(|| producer(input)))
+            .map(|(index, (producer, (path, _)))| {
+                if Some(index) == semantic || !wanted(path) {
+                    None
+                } else {
+                    Some(scope.spawn(|| producer(input)))
+                }
             })
             .collect();
-        let design_json = design_inputs.map(|(index, facts)| {
-            design::design_json(index, facts, &design.project, &design.sheets, design_board)
-        });
+        let design_json = design_inputs
+            .filter(|_| semantic.is_some())
+            .map(|(index, facts)| {
+                design::design_json(index, facts, &design.project, &design.sheets, design_board)
+            });
         let with_design = prism_projections::ProjectionInput {
             design: design_json.as_ref().and_then(|built| built.as_ref().ok()),
             ..*input
@@ -79,9 +90,11 @@ pub(super) fn run(
         let mut semantic_result = semantic_result;
         let results = handles
             .into_iter()
-            .map(|handle| match handle {
-                Some(handle) => joined(handle),
-                None => semantic_result.take().unwrap_or_else(|| Err(String::new())),
+            .enumerate()
+            .map(|(index, handle)| match handle {
+                Some(handle) => Some(joined(handle)),
+                None if Some(index) == semantic => semantic_result.take(),
+                None => None,
             })
             .collect();
         (design_json, results)
