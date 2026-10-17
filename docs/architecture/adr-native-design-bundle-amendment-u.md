@@ -1,6 +1,6 @@
 # ADR amendment U: what the user sees
 
-- **Status:** Accepted (2026-10-17). The maintainer took decisions 1, 2, 3 and 5 as proposed. They rejected the proposed narrowing of decision 4: every consumer of the parent ADR still migrates. This text is applied to the parent ADR and `decisions.md` in the same pull request. The contract changes of §3.3 land with their work package.
+- **Status:** Accepted (2026-10-17). The maintainer took decisions 1, 2, 3 and 5 as proposed. They rejected the proposed narrowing of decision 4: every consumer of the parent ADR still migrates. This text is applied to the parent ADR and `decisions.md` in the same pull request. The contract changes of §3.3 land with their work package. §3.3 "Stages after `parse`" and §4's K2a and K2b lists are revised by amendment K2 (2026-10-17).
 - **Parent:** [`adr-native-design-bundle.md`](adr-native-design-bundle.md): §5 (storage), §7 (parity and budgets), §8 (first deploy), §10, §11 G2 and G7. It applies to every amendment (C2, C2r, C3) and to every work package that has not merged.
 
 ## 1. Context
@@ -110,13 +110,10 @@ Measured on EDA-04903 (57 MB board) in a throwaway container from the worker ima
   - `board-objects` covers the project's own documents, selected by anchor and effective configuration as the parent ADR requires (§6): the project file, its `.kicad_dru`, the board and every schematic the root schematic reaches.
   - Today it takes every `.kicad_sch`, `.kicad_pcb`, `.kicad_pro` and `.kicad_dru` in the repository-wide source set. In a multi-project repository, a comparison of one project therefore shows the files of the others.
   - The change is user-visible (§3.1). Design Comparison no longer lists other projects' files, or schematic files the design does not reach. It is recorded in `native/parity/divergences/board-objects.md`.
-- **Stages after `parse`.**
-  - Reuse covers stage `parse` only. Stage `models` reads 3D-model files that the parse read set does not cover.
-  - When a later stage is needed for an aliased revision key, Prism first runs `prism-kicad bundle rekey`. It copies the shared bundle's parse-stage members unchanged into a new archive for that key, with `bundle.json` rewritten for the key. Nothing is parsed, and the result equals a fresh stage-`parse` build of that key.
-  - The key's later stages are then built on its own archive.
+- **Stages after `parse`.** Superseded by amendment K2 §3.5 ([`adr-native-design-bundle-amendment-k2.md`](adr-native-design-bundle-amendment-k2.md)): stages board and models run on the archive's own `sources/`, so revisions whose read set holds share one archive, all stages included, and there is no `bundle rekey`.
 - **Contract changes, in the work package:**
   - `bundle-format.md` and `prism.bundle.manifest` gain the read set (a3);
-  - `cli-spec.md` gains the read set's recording and `bundle rekey`;
+  - `cli-spec.md` gains the read set's recording and `bundle reuse` (amendment K2 §3.7);
   - `revision-key.md` §10 gains the alias table;
   - the generator id is bumped.
 
@@ -128,22 +125,7 @@ Measured on EDA-04903 (57 MB board) in a throwaway container from the worker ima
   - items 2, 3 and 5 are in progress. They are kept because they bring stage `parse` towards its budgets;
   - item 4, typed members in `compare`, is now required by decision 5;
   - item 6, memory, is required by the stage `parse` peak budget.
-- **New work packages K2a and K2b (warm by default).**
-  - **K2a (native)** owns:
-    - the recorded `Sources` queries and the producers' move onto them, including `board-objects`' project scope;
-    - the read set in `bundle.json`;
-    - `bundle rekey`;
-    - the contract text of §3.3.
-  - **K2b (backend)** owns:
-    - the background prebuild after sync, as parse-only jobs;
-    - the alias table, its lookup and retention;
-    - the rekey before a later stage.
-  - Accept:
-    - the prebuild runs paced on a sync of EDA-04903's repository;
-    - a commit that changes only an unrelated project reuses the previous bundle;
-    - a commit that changes a sheet, a library table or the board does not;
-    - a commit that adds a file a recorded existence test or listing would now find does not;
-    - a rekeyed archive equals a fresh stage-`parse` build of its key, byte for byte.
+- **New work packages K2a and K2b (warm by default).** Their ownership and acceptance are in amendment K2 §4, which replaces the lists first written here (they named `bundle rekey`, which K2 removes).
 - **Wave plan.** Unchanged: every consumer migrates (decision 4).
 
 ## 5. Text changes applied with this amendment
