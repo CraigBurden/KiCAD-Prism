@@ -288,3 +288,9 @@ def timeout_ms(stage: str) -> int:
 
 def outer_timeout(stage: str) -> float:
     return timeout_ms(stage) / 1000 + OUTER_TIMEOUT_MARGIN_SECONDS
+
+
+def verify_outer_timeout() -> float:
+    """The outer bound for ``bundle verify``, which has its own setting (C2r §2 item 9)."""
+
+    return settings.PRISM_DESIGN_BUNDLE_VERIFY_TIMEOUT_MS / 1000 + OUTER_TIMEOUT_MARGIN_SECONDS

@@ -3,6 +3,8 @@
 ```text
 <root>/<project_id>/<revision_key>/
   <generator_digest>.prism        the archive, rewritten per stage by prism-kicad
+  <generator_digest>.prism.verified
+                                  the manifest_sha256 `bundle verify` accepted (C2r §2 item 9)
   <generator_digest>/             unpacked cache; can always be deleted
     <manifest_sha256>/            one archive version
       bundle.json                 written first
@@ -14,7 +16,9 @@ store only creates directories, opens and validates archives, extracts
 members, and deletes. A file in a version directory is always verified: it is
 written to a temporary name beside its target, checked for size and SHA-256,
 then renamed, and nothing below a version directory is ever followed through a
-symbolic link.
+symbolic link. The marker beside the archive records that ``bundle verify``
+accepted its current manifest; it gates step 7 on reads (bundle-format.md §9)
+and is removed with the archive.
 """
 
 from __future__ import annotations
@@ -63,6 +67,41 @@ def archive_path(project_id: str, revision_key: str, generator_digest: str) -> P
     return revision_dir(project_id, revision_key) / f"{generator_digest}.prism"
 
 
+def marker_path(project_id: str, revision_key: str, generator_digest: str) -> Path:
+    _checked(project_id, revision_key, generator_digest)
+    return revision_dir(project_id, revision_key) / f"{generator_digest}.prism.verified"
+
+
+def write_marker(archive: Archive, project_id: str, revision_key: str, generator_digest: str) -> None:
+    """Record that ``bundle verify`` accepted ``archive``'s current manifest.
+
+    The content is the verified ``manifest_sha256``, one trailing LF. It is
+    written to a temporary name in the same directory and renamed, so a reader
+    sees either the previous marker or the new one, never a partial line.
+    """
+
+    path = marker_path(project_id, revision_key, generator_digest)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temp = path.parent / f".{path.name}.prism-kicad-{os.getpid()}-{time.monotonic_ns()}.tmp"
+    try:
+        with open(temp, "w", encoding="ascii", newline="\n") as handle:
+            handle.write(archive.manifest_sha256 + "\n")
+        os.replace(temp, path)
+    except BaseException:
+        temp.unlink(missing_ok=True)
+        raise
+
+
+def _marked_manifest(path: Path) -> str | None:
+    try:
+        info = os.lstat(path)
+        if not stat.S_ISREG(info.st_mode) or info.st_size > 80:
+            return None
+        return path.read_text(encoding="ascii").strip()
+    except (OSError, UnicodeDecodeError):
+        return None
+
+
 def cache_dir(project_id: str, revision_key: str, generator_digest: str) -> Path:
     _checked(project_id, revision_key, generator_digest)
     return revision_dir(project_id, revision_key) / generator_digest
@@ -87,15 +126,21 @@ def open_bundle(project_id: str, revision_key: str, generator_digest: str, bundl
     if not path.is_file():
         return None
     try:
-        return open_archive(path, expected_bundle_key=bundle_key)
+        archive = open_archive(path, expected_bundle_key=bundle_key)
     except BundleInvalid as error:
         logger.warning("Deleting rejected bundle %s: %s", path, error)
         delete(project_id, revision_key, generator_digest)
         return None
+    # A marker that names another manifest is stale: the archive was rewritten
+    # since it was verified, so step 7 runs as usual.
+    if _marked_manifest(marker_path(project_id, revision_key, generator_digest)) == archive.manifest_sha256:
+        archive.verified = True
+    return archive
 
 
 def delete(project_id: str, revision_key: str, generator_digest: str) -> None:
     archive_path(project_id, revision_key, generator_digest).unlink(missing_ok=True)
+    marker_path(project_id, revision_key, generator_digest).unlink(missing_ok=True)
     shutil.rmtree(cache_dir(project_id, revision_key, generator_digest), ignore_errors=True)
     _remove_empty(revision_dir(project_id, revision_key))
 
@@ -116,7 +161,12 @@ def remove_other_generators(project_id: str, revision_key: str, keep_digest: str
     if not directory.is_dir():
         return removed
     for item in directory.iterdir():
-        digest = item.name[: -len(".prism")] if item.name.endswith(".prism") else item.name
+        for suffix in (".prism.verified", ".prism"):
+            if item.name.endswith(suffix):
+                digest = item.name[: -len(suffix)]
+                break
+        else:
+            digest = item.name
         if _HEX64.match(digest) and digest != keep_digest:
             if item.is_dir() and not item.is_symlink():
                 shutil.rmtree(item, ignore_errors=True)

@@ -83,6 +83,11 @@ class DesignBundleSettings(BaseSettings):
     PRISM_DESIGN_BUNDLE_PARSE_TIMEOUT_MS: int = Field(default=300_000, ge=1_000)
     PRISM_DESIGN_BUNDLE_BOARD_TIMEOUT_MS: int = Field(default=600_000, ge=1_000)
     PRISM_DESIGN_BUNDLE_MODELS_TIMEOUT_MS: int = Field(default=120_000, ge=1_000)
+    PRISM_DESIGN_BUNDLE_VERIFY_TIMEOUT_MS: int = Field(
+        default=300_000,
+        ge=1_000,
+        description="`prism-kicad bundle verify` when an archive is stored (bundle-format.md §9).",
+    )
     PRISM_DESIGN_BUNDLE_PARSE_MEMORY_BYTES: int = Field(default=4 * GIB, ge=64 * 1024**2)
     PRISM_DESIGN_BUNDLE_BOARD_MEMORY_BYTES: int = Field(default=6 * GIB, ge=64 * 1024**2)
     PRISM_DESIGN_BUNDLE_MODELS_MEMORY_BYTES: int = Field(default=2 * GIB, ge=64 * 1024**2)

@@ -201,6 +201,7 @@ builds it in stages (parse, board, models) on the general worker.
 | `PRISM_DESIGN_BUNDLE_AUTO_BUILD` | queue the HEAD bundle after every import and sync, and run the paced backfill of branch heads (default `false`: bundles are built on demand) |
 | `PRISM_DESIGN_BUNDLE_CONCURRENCY` | capacity of the `design_bundle` slot (default 1); the backfill uses the same slot |
 | `PRISM_DESIGN_BUNDLE_*_MEMORY_BYTES`, `_*_TIMEOUT_MS` (PARSE, BOARD, MODELS) | per-stage heap cap and wall timeout passed to `prism-kicad` (defaults 4/6/2 GiB, 300/600/120 s) |
+| `PRISM_DESIGN_BUNDLE_VERIFY_TIMEOUT_MS` | `prism-kicad bundle verify` when an archive is stored (default 300 s) |
 | `PRISM_DESIGN_BUNDLE_MEMORY_BUDGET_BYTES` | worker memory for the slot; startup refuses `CONCURRENCY x (largest cap + 1.25 GiB)` above it (default 8 GiB) |
 | `PRISM_DESIGN_BUNDLE_THREADS`, `PRISM_DESIGN_BUNDLE_MAX_ATTEMPTS` | `prism-kicad --threads` (default 4); attempts per job before a failing KiCad step ends it (default 3) |
 | `PRISM_DESIGN_BUNDLE_RETENTION_DAYS` | days an unused bundle is kept; branch heads, System Builder baselines and released Release Studio commits are always kept (default 30) |
