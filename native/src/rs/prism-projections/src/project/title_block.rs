@@ -6,17 +6,35 @@
 //! depth 10 ([`tb_expand`], `project.py:366-383`).
 
 use prism_kicad_core::Sexp;
-use regex::Regex;
 use serde_json::{Map, Value};
 use std::collections::BTreeMap;
-use std::sync::LazyLock;
 
-use super::sexpr::{as_list, child, children, str_atom};
+use super::sexpr::{as_list, child, children, find_byte, str_atom};
 
-/// `project.py:363`: `\$\{(.+?)\}`, the title-block expander.
-static TB_VAR: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"\$\{(.+?)\}").expect("the title-block pattern is a fixed valid regex")
-});
+/// `project.py:363`: `\$\{(.+?)\}`, the title-block expander. The `.` matches
+/// any char but `\n`, and `+?` is one or more, non-greedy: the match at the `$`
+/// in `bytes[start]` closes at the first `}` before a newline, `(content_start,
+/// content_end, end)`.
+pub(super) fn tb_var_at(bytes: &[u8], start: usize) -> Option<(usize, usize, usize)> {
+    if bytes.get(start + 1) != Some(&b'{') {
+        return None;
+    }
+    let content_start = start + 2;
+    if bytes.get(content_start).is_none_or(|&byte| byte == b'\n') {
+        return None;
+    }
+    let mut end = content_start + 1;
+    while let Some(&byte) = bytes.get(end) {
+        if byte == b'\n' {
+            return None;
+        }
+        if byte == b'}' {
+            return Some((content_start, end, end + 1));
+        }
+        end += 1;
+    }
+    None
+}
 
 /// `project.py:385-398`: a `(title_block …)` as written.
 pub(super) struct TitleBlock {
@@ -175,19 +193,23 @@ pub(super) fn tb_expand(text: &str, variables: &BTreeMap<String, String>) -> Str
 
 /// One recursively substituted pass (`project.py:369-378`).
 fn expand_title(text: &str, variables: &BTreeMap<String, String>, depth: u8) -> String {
-    let mut out = String::new();
+    let mut out = String::with_capacity(text.len());
     let mut last = 0;
-    for captures in TB_VAR.captures_iter(text) {
-        let Some(whole) = captures.get(0) else {
+    let bytes = text.as_bytes();
+    let mut cursor = 0;
+    while let Some(start) = find_byte(bytes, b'$', cursor) {
+        let Some((content_start, content_end, end)) = tb_var_at(bytes, start) else {
+            cursor = start + 1;
             continue;
         };
-        out.push_str(&text[last..whole.start()]);
-        last = whole.end();
-        let name = captures.get(1).map_or("", |group| group.as_str());
+        out.push_str(&text[last..start]);
+        last = end;
+        cursor = end;
+        let name = &text[content_start..content_end];
         match variables.get(name) {
             Some(value) if depth >= 10 => out.push_str(value),
             Some(value) => out.push_str(&expand_title(value, variables, depth + 1)),
-            None => out.push_str(whole.as_str()),
+            None => out.push_str(&text[start..end]),
         }
     }
     out.push_str(&text[last..]);

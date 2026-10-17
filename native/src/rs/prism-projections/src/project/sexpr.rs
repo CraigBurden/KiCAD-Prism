@@ -2,15 +2,32 @@
 //! expander, the `text-path` scan and the producer (`project.py:90-117`).
 
 use prism_kicad_core::Sexp;
-use regex::Regex;
 use std::collections::BTreeMap;
-use std::sync::LazyLock;
 
-/// `project.py:47`: a canonical KiCad UUID (`KIID::AsString`).
-static UUID: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$")
-        .expect("the UUID pattern is a fixed valid regex")
-});
+/// The next index of `byte` in `bytes` at or after `from` (`memchr`-style).
+pub(super) fn find_byte(bytes: &[u8], byte: u8, from: usize) -> Option<usize> {
+    bytes
+        .get(from..)?
+        .iter()
+        .position(|&candidate| candidate == byte)
+        .map(|index| index + from)
+}
+
+/// `project.py:47`: a canonical KiCad UUID (`KIID::AsString`),
+/// `^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`.
+pub(super) fn is_canonical_uuid(text: &str) -> bool {
+    let bytes = text.as_bytes();
+    if bytes.len() != 36 {
+        return false;
+    }
+    bytes.iter().enumerate().all(|(index, &byte)| {
+        if matches!(index, 8 | 13 | 18 | 23) {
+            byte == b'-'
+        } else {
+            byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte)
+        }
+    })
+}
 
 /// A borrowed `Sexp` list, or `None` for a scalar.
 pub(super) fn as_list(form: &Sexp) -> Option<&[Sexp]> {
@@ -66,7 +83,7 @@ pub(super) fn scalar(value: &Sexp) -> String {
 /// `project.py:115-117`: a canonical UUID child, else `None`.
 pub(super) fn uuid_of(form: &Sexp) -> Option<String> {
     let value = str_atom(child(form, "uuid"), 1)?;
-    UUID.is_match(&value).then_some(value)
+    is_canonical_uuid(&value).then_some(value)
 }
 
 /// `project.py:426-437`: a `(embedded_files …)` map, name to file type.
@@ -114,8 +131,20 @@ pub(super) fn is_scalar_at(form: &Sexp, index: usize) -> bool {
 /// name in `names` (`project.py:536-540`, `:542-544`).
 pub(super) fn is_named_property(property: &Sexp, names: &[&str]) -> bool {
     as_list(property).is_some_and(|values| values.len() >= 3)
-        && matches!(str_atom(Some(property), 1).as_deref(), Some(name) if names.contains(&name))
+        && scalar_at_is(property, 1, names)
         && is_scalar_at(property, 2)
+}
+
+/// Whether the scalar at `index` equals one of `names`, borrowing a string atom
+/// instead of allocating its `str()`.
+fn scalar_at_is(form: &Sexp, index: usize, names: &[&str]) -> bool {
+    match atom(Some(form), index) {
+        Some(Sexp::Atom(text) | Sexp::Quoted(text)) => names.contains(&text.as_str()),
+        Some(value @ (Sexp::Integer(_) | Sexp::Float(_))) => {
+            names.contains(&scalar(value).as_str())
+        }
+        _ => false,
+    }
 }
 
 /// `project.py:536-540`: a `Sheetfile` / `Sheet file` property with a scalar value.
