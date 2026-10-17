@@ -101,10 +101,9 @@ so; this is not an output divergence.
 - Rule: amendment U §3.1. Only differences a user can see are entries; each
   says what the user saw before and sees now. Invisible differences are listed
   once, at the end, so a reviewer knows they were looked at.
-- Status by tab (2026-10-17): `files`, `bom`, `stackup`, `routeMetrics` and the
-  object changes of `schematic` and `pcb` are done (C2r chunks 1–3). The
-  connectivity changes (chunk 4) and `projectDiff` (chunk 5) add their entries
-  when they land.
+- Status by tab (2026-10-17): every tab except fabrication is done (C2r
+  step 4, chunks 1–5) and equals the reference on all 18 pairs. Chunks 4
+  (connectivity) and 5 (`projectDiff`) added no divergence.
 
 ## compare-4. Structure changes carry both sides
 
