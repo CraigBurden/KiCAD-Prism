@@ -15,7 +15,7 @@ from unittest import mock
 
 from app.core.config import settings
 from app.services.design_bundle import manifest as rules
-from app.services.design_bundle import store
+from app.services.design_bundle import schemas, store
 from app.services.design_bundle.archive import BundleInvalid, open_archive
 from app.services.design_bundle.generator import bundle_key
 from support import prism_kicad_stub as stub
@@ -203,6 +203,57 @@ class StoreTests(unittest.TestCase):
         (base / "projections/stackup.json").symlink_to("/etc/hosts")
         with self.assertRaises(BundleInvalid):
             store.extract(archive, "proj-1", RK, self.digest, ["projections/stackup.json"])
+
+    def test_a_matching_marker_skips_step_7_but_step_6_still_fails_on_a_changed_member(self) -> None:
+        archive = store.open_bundle("proj-1", RK, self.digest, self.manifest["bundle_key"])
+        self.assertFalse(archive.verified)
+        store.write_marker(archive, "proj-1", RK, self.digest)
+        marker = store.marker_path("proj-1", RK, self.digest)
+        self.assertEqual(marker.read_text(), archive.manifest_sha256 + "\n")
+        opened = store.open_bundle("proj-1", RK, self.digest, self.manifest["bundle_key"])
+        self.assertTrue(opened.verified)
+        with mock.patch.object(schemas, "validate") as validate:
+            self.assertEqual(opened.read("projections/stackup.json"), self.members["projections/stackup.json"])
+            validate.assert_not_called()
+        # Same manifest and marker, one changed member byte: step 6 still rejects it.
+        altered = dict(self.members)
+        data = altered["projections/stackup.json"]
+        altered["projections/stackup.json"] = b"X" + data[1:]
+        _write(self.path, self.manifest, altered)
+        opened = store.open_bundle("proj-1", RK, self.digest, self.manifest["bundle_key"])
+        self.assertTrue(opened.verified)
+        with self.assertRaises(BundleInvalid) as caught:
+            opened.read("projections/stackup.json")
+        self.assertEqual(caught.exception.code, "member-digest-mismatch")
+
+    def test_an_absent_or_stale_marker_still_runs_step_7(self) -> None:
+        for marker_text in (None, "0" * 64 + "\n"):
+            with self.subTest(marker=marker_text):
+                marker = store.marker_path("proj-1", RK, self.digest)
+                marker.unlink(missing_ok=True)
+                if marker_text is not None:
+                    marker.write_text(marker_text)
+                opened = store.open_bundle("proj-1", RK, self.digest, self.manifest["bundle_key"])
+                self.assertFalse(opened.verified)
+                with mock.patch.object(schemas, "validate") as validate:
+                    self.assertEqual(opened.read("projections/stackup.json"), self.members["projections/stackup.json"])
+                validate.assert_called_once()
+
+    def test_deleting_or_superseding_a_generator_removes_the_marker(self) -> None:
+        archive = store.open_bundle("proj-1", RK, self.digest, self.manifest["bundle_key"])
+        store.write_marker(archive, "proj-1", RK, self.digest)
+        marker = store.marker_path("proj-1", RK, self.digest)
+        self.assertEqual(store.remove_other_generators("proj-1", RK, self.digest), [])
+        self.assertTrue(marker.is_file())  # the kept generator keeps its marker
+        self.assertEqual(store.remove_other_generators("proj-1", RK, "d" * 64), [self.digest])
+        self.assertFalse(marker.exists())
+        self.assertFalse(self.path.exists())
+        self.path = store.prepare("proj-1", RK, self.digest)
+        _write(self.path, self.manifest, self.members)
+        archive = store.open_bundle("proj-1", RK, self.digest, self.manifest["bundle_key"])
+        store.write_marker(archive, "proj-1", RK, self.digest)
+        store.delete("proj-1", RK, self.digest)
+        self.assertFalse(marker.exists())
 
     def test_a_rejected_archive_is_deleted_like_a_missing_one(self) -> None:
         self.path.write_bytes(self.path.read_bytes() + b"junk")

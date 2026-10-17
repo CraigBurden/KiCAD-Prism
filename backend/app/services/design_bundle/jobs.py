@@ -193,7 +193,51 @@ class _Run:
         self.details["stderr"].extend(line for line in done.stderr_lines if not isinstance(line, dict) or line.get("severity") != "info")
         return done
 
+    def verify(self, archive: Archive, stage: str) -> Archive:
+        """Run ``bundle verify`` once for the archive's manifest, before it is published (C2r §2 item 9).
+
+        A marker naming this manifest means another attempt already verified it;
+        step 6 still ties every later read to the bytes that verify accepted.
+        """
+
+        if archive.verified:
+            return archive
+        try:
+            done = cli.run(
+                ["bundle", "verify", str(self.archive_path)],
+                timeout_seconds=cli.verify_outer_timeout(),
+                expect="prism.cli.verify_report.a0",
+                cancel=self.cancel,
+            )
+        except cli.CliFailure as failure:
+            self.details["invocations"].append({"command": "bundle verify", "exit": failure.exit_code})
+            if failure.retryable:
+                raise RetryableJobError(f"prism-kicad bundle verify: {failure}", code=failure.code) from failure
+            raise PermanentJobError(f"prism-kicad bundle verify: {failure}", code=failure.code) from failure
+        self.details["invocations"].append({**done.summary(), "stage": stage})
+        self.details["stderr"].extend(
+            line for line in done.stderr_lines if not isinstance(line, dict) or line.get("severity") != "info"
+        )
+        report = done.document or {}
+        if done.exit_code == 8 or report.get("status") == "invalid":
+            findings = report.get("findings") or []
+            first = findings[0] if findings else {}
+            reason = str(first.get("message") or "the archive is invalid")
+            if first.get("code"):
+                reason = f"{first['code']}: {reason}"
+            logger.error("Deleting bundle %s that failed its own verify: %s", self.archive_path, reason)
+            store.delete(self.project_id, self.revision_key, self.generator.digest)
+            raise RetryableJobError(f"prism-kicad bundle verify: {reason}", code="bundle-verify-failed")
+        if done.exit_code != 0:
+            raise RetryableJobError(
+                f"prism-kicad bundle verify exited {done.exit_code}", code=f"exit-{done.exit_code}"
+            )
+        store.write_marker(archive, self.project_id, self.revision_key, self.generator.digest)
+        archive.verified = True
+        return archive
+
     def publish(self, archive: Archive, stage: str) -> None:
+        archive = self.verify(archive, stage)
         statuses = manifest_rules.statuses(archive.manifest)
         state = "complete" if manifest_rules.all_final(archive.manifest) else "building"
         rows.upsert_bundle(

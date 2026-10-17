@@ -224,6 +224,55 @@ class DesignBundleJobTests(_Workspace, unittest.TestCase):
         self.assertEqual(rows.get_bundle("p1", payload["bundle_key"])["state"], "failed")
         self.assertFalse(jobs.settle_design_bundle_end(ended))  # idempotent
 
+    def test_bundle_verify_runs_once_per_stored_archive_and_writes_the_marker(self) -> None:
+        self.add_project()
+        result = self.run_job(jobs.start_design_bundle_job("p1"))
+        revision_key, digest = result.details["revision_key"], result.details["generator_digest"]
+        archive = open_archive(store.archive_path("p1", revision_key, digest))
+        marker = store.marker_path("p1", revision_key, digest)
+        self.assertEqual(marker.read_text(), archive.manifest_sha256 + "\n")
+        verifies = [argv for argv in self.invocations() if argv[:2] == ["bundle", "verify"]]
+        self.assertEqual(len(verifies), 3)  # one after each stage's new archive version
+        self.assertEqual(verifies[0][2], str(store.archive_path("p1", revision_key, digest)))
+
+    def test_a_reopened_archive_whose_marker_matches_is_not_verified_again(self) -> None:
+        self.add_project()
+        job_id = jobs.start_design_bundle_job("p1")
+        self.run_job(job_id)
+        before = len([argv for argv in self.invocations() if argv[:2] == ["bundle", "verify"]])
+        self.run_job(job_id)  # every stage is final: the archive is reopened, not rebuilt
+        after = len([argv for argv in self.invocations() if argv[:2] == ["bundle", "verify"]])
+        self.assertEqual(before, 3)
+        self.assertEqual(after, before)
+
+    def test_an_archive_that_fails_its_own_verify_is_deleted_and_retried(self) -> None:
+        self.add_project()
+        job_id = jobs.start_design_bundle_job("p1")
+        payload = self.queue.rows[job_id]["payload"]
+        digest = rows.get_bundle("p1", payload["bundle_key"])["generator_digest"]
+        real_run, verify_calls = jobs.cli.run, []
+
+        def run(args, **kwargs):
+            if list(args[:2]) == ["bundle", "verify"]:
+                verify_calls.append(list(args))
+                if len(verify_calls) == 2:  # parse verified; the board version fails its own verify
+                    return jobs.cli.CliRun(
+                        argv=("prism-kicad", *map(str, args)), exit_code=8,
+                        document={"schema": "prism.cli.verify_report.a0", "status": "invalid",
+                                  "stages": [], "members_checked": 0,
+                                  "findings": [{"code": "member-digest-mismatch",
+                                                "message": "projections/board-objects.json differs"}]},
+                    )
+            return real_run(args, **kwargs)
+
+        with mock.patch.object(jobs.cli, "run", side_effect=run):
+            with self.assertRaises(RetryableJobError) as caught:
+                self.run_job(job_id)
+        self.assertEqual(caught.exception.code, "bundle-verify-failed")
+        self.assertIn("projections/board-objects.json differs", str(caught.exception))
+        self.assertFalse(store.archive_path("p1", payload["revision_key"], digest).exists())
+        self.assertFalse(store.marker_path("p1", payload["revision_key"], digest).exists())
+
     def test_import_and_sync_queue_only_with_auto_build(self) -> None:
         self.add_project()
         self.assertIsNone(jobs.queue_for_head("p1"))

@@ -8,7 +8,9 @@ size is bounded before anything is inflated (ADR §11 G8).
 
 :func:`open_archive` runs steps 1-5 and returns an :class:`Archive`;
 ``Archive.read`` runs steps 6-7 for one member. A failure raises
-:class:`BundleInvalid` with the CLI's finding code.
+:class:`BundleInvalid` with the CLI's finding code. An archive that the store
+has had ``bundle verify`` accept (amendment C2r §2 item 9) carries
+``verified=True`` and its reads run step 6 only.
 """
 
 from __future__ import annotations
@@ -117,6 +119,7 @@ class Archive:
     manifest_bytes: bytes
     entries: dict[str, Entry]
     limits: Limits = field(default_factory=Limits)
+    verified: bool = False
 
     @property
     def manifest_sha256(self) -> str:
@@ -126,7 +129,11 @@ class Archive:
         return next((m for m in self.manifest["members"] if m["path"] == path), None)
 
     def read(self, path: str, *, structured: bool = True) -> bytes:
-        """Steps 6 and 7 for one member: bounded inflate, size, CRC, SHA-256, schema."""
+        """Steps 6 and 7 for one member: bounded inflate, size, CRC, SHA-256, schema.
+
+        ``verified`` skips step 7 only (C2r §2 item 9): step 6 still ties the
+        bytes read to the bytes ``bundle verify`` accepted.
+        """
 
         member = self.member(path)
         if member is None:
@@ -135,7 +142,7 @@ class Archive:
             data = b"".join(_inflate(handle, self.entries[path], path))
         if hashlib.sha256(data).hexdigest() != member["sha256"]:
             raise BundleInvalid("member-digest-mismatch", f"{path} does not match its sha256", path)
-        if structured:
+        if structured and not self.verified:
             check_structured(member, data, self.manifest, self.limits)
         return data
 
