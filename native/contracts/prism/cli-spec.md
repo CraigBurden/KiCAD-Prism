@@ -540,7 +540,7 @@ Checks, in order:
    - Every JSON member with a schema id in `member_schemas` validates against that schema: `member-schema-invalid`, with `pointer`.
    - `materialization/board.kmpack` opens with the pack reader and its header validates, as a1's verify does (sim: `prism-bundle.rs:186-201`); otherwise `member-unreadable`.
    - `design.json` has no published JSON Schema in the fork (fork: `contracts/generated/schema/` holds none), so only its `schema` field is checked.
-5. **Stage states and invariants** (bundle-format.md §3.4, I1–I13; I14 when `--key-record` is given): `stage-inconsistent`, with the invariant's number in the message. For example:
+5. **Stage states and invariants** (bundle-format.md §3.4, I1–I13; I14 is stage parse's own check): `stage-inconsistent`, with the invariant's number in the message. For example:
    - `board` `complete` requires `materialization/board.kmpack`;
    - a `failed` stage has none of its members;
    - `bundle_key` recomputes from `revision_key` and `generator` (I11).

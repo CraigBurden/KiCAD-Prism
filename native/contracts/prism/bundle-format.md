@@ -183,7 +183,7 @@ WP-B's `bundle verify` checks all of them (cli-spec.md §5.3 check 5, `stage-inc
 - **I11** `bundle_key` is present exactly when `revision_key` is, and equals `SHA-256("prism.bundle_key.a0" 0x00 revision_key 0x00 generator_bytes)` over the generator's canonical bytes (cli-spec.md §5.1.3–§5.1.4).
 - **I12** `source` is present exactly on the `source-*` members, and its `path` is the member's `path` without `sources/`.
 - **I13** `read_set.probes` is sorted by `path`, `read_set.listings` by `directory` and then `suffixes` (element by element), and `read_set.gitlinks` by `path`, each in code point order and without duplicates. Each listing's `suffixes` and `paths` are sorted and free of duplicates, and every listed path lies below its `directory`. No probe names a source member's path.
-- **I14** When `--key-record` is given (cli-spec.md §5.3), the read set holds in the build's own key record: `bundle reuse` of the archive against that record holds (cli-spec.md §5.10).
+- **I14** The read set holds in the build's own key record: `bundle reuse` of the archive against the `--key-record` stage parse was given holds (cli-spec.md §5.10). Stage parse checks it before it writes the archive; a violation is a defect (exit 1, `internal`). `bundle verify` has no key record and does not check it.
 
 ## 4. Zip encoding
 
