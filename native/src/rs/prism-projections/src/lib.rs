@@ -60,6 +60,7 @@
 //!   the project only through `config` (conventions.md §8).
 
 pub mod board_objects;
+pub mod compare;
 pub mod occurrences;
 pub mod placements;
 pub mod project;

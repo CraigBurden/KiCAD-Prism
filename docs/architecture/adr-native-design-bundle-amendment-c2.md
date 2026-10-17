@@ -63,7 +63,7 @@ prism-kicad compare --base <base.prism> --head <head.prism> -o <delta.json> [COM
 1. Only `board-objects.json` is read from each bundle. Each bundle passes the reader checks of cli-spec §6.2 and manifest checks 1–2 of §5.3. The member of each bundle is checked for size, CRC-32 and SHA-256 while it streams; the other members are not inflated. A failure is exit 3, `bundle-invalid`.
 2. Both bundles name the same generator id. Otherwise exit 7, `generator-mismatch` (the existing code, widened to `compare`), because two producers' members are not comparable. The backend gets this case only when a bundle is stale, and rebuilds it.
 3. Both members are present: stage `parse` is `complete`, or `partial` without the member in `failed_members`. Otherwise exit 7, `member-not-found` (widened to `compare`), with no result. Design Comparison then shows today's "object diff unavailable" state for that pair.
-4. The two bundles are for the same project anchor (`config.project_file`). A different anchor is exit 7, with the new code `anchor-mismatch`. A comparison across a rename of the project file is not a C2 feature.
+4. The two bundles' project anchors (`config.project_file`) lie in the same directory, the base of the object keys (D1). Anchors in different directories are exit 7, with the new code `anchor-mismatch`. Two project files in one directory, as in a rename of the `.kicad_pro`, share a key space and compare. A comparison across a move of the project directory is not a C2 feature.
 
 ### 3.3 Output
 

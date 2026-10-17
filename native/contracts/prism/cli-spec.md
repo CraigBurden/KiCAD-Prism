@@ -591,7 +591,7 @@ This spec fixes only the process contract:
 - **Checks, in order.**
   1. Each bundle passes the reader checks (§6.2) and manifest checks 1–2 (§5.3). Only `projections/board-objects.json` is inflated, and its size, CRC-32 and SHA-256 are checked while it streams. A failure is exit 3, `bundle-invalid`, with `argument` `base` or `head`.
   2. The two manifests name the same generator id, byte for byte in canonical form. Otherwise exit 7, `generator-mismatch`: members of two producers are not comparable, and the backend rebuilds the stale bundle.
-  3. Both manifests record the same `config.project_file`. Otherwise exit 7, `anchor-mismatch`.
+  3. Both manifests' `config.project_file` lie in the same directory. Otherwise exit 7, `anchor-mismatch`. Object keys and `documentPath` are relative to that directory, so two project files in one directory share a key space and compare.
   4. Both bundles hold `projections/board-objects.json`: stage `parse` is `complete`, or `partial` without the member in `failed_members`. Otherwise exit 7, `member-not-found`, with `argument` `base` or `head`.
 - **Output.** `-o` receives one `CompareObjectDeltaA0` (`prism.compare.object_delta.a0`), compact UTF-8 JSON with one trailing LF, written atomically: a temp file in the same directory, fsync, rename (§5.2.5, without the self-verify). stdout receives `CliCompareResultA0` after the rename. The document goes to `-o`, not stdout, because a full-board churn lists every object of both sides.
 - **The diff.** `CompareObjectDeltaA0` equals today's `prism.ecad_object_delta_v1` (`backend/design-compare-parser/ecad-diff.mjs`) on the same pair, without its run facts (`root`, `timings`, `peakRssBytes`, `node`) and without `routeMetrics`, which Design Comparison reads from `projections/route-metrics.json`. The amendment lists the expected divergences and the parity traps (§5, §6 there). Two rules are fixed here:
@@ -812,7 +812,7 @@ Codes are `DiagnosticCode` (kebab-case). A code never changes meaning; a new mea
 | `models-glb-name` | error | precondition / 7 | the GLB was not exported as `components.glb` |
 | `output-changed` | error | precondition / 7 | `-o` changed between reading `--in` and the rename (§5.2.5) |
 | `member-not-found` | error | precondition / 7 | an `extract` `<member>` selects nothing; for `compare`, a bundle has no `projections/board-objects.json` (§5.6) |
-| `anchor-mismatch` | error | precondition / 7 | `compare`: the two bundles are of different project files (§5.6) |
+| `anchor-mismatch` | error | precondition / 7 | `compare`: the two bundles' project files are in different directories (§5.6) |
 | `view-unknown`, `vendor-unknown` | error | usage / 2 | `artwork --view` names no view of the config; `vendor run` names no registered vendor (§5.7, §5.8) |
 | `geometer-version-mismatch` | error | precondition / 7 | stage `models`: `--geometer` is not the runtime `hlr_procedure` names (§5.2.4) |
 | `geometer-unavailable` | error | internal / 1 | stage `models`: the Geometer runtime could not be started; K retries (§5.2.4) |
