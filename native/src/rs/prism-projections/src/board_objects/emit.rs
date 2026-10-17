@@ -1,16 +1,19 @@
 //! Collects one document's objects: file order, duplicate handling,
 //! `contentDigest`, and the stage-`parse` warnings (`capture/board_objects.py:453-502`).
+//!
+//! Objects are built as the bundle's generated structs, never as
+//! `serde_json::Value`, so the parse stage serializes one typed document.
 
 use super::digest::{self, DigestIndex, is_canonical_uuid};
 use super::tree::Node;
 use crate::ProducerWarning;
-use serde_json::{Map, Value};
+use prism_kicad_contracts::generated::prism_board_objects_a0 as bo;
 use std::collections::BTreeMap;
 
 pub(crate) struct Document {
     path: String,
     index: DigestIndex,
-    objects: Vec<(usize, String, Value)>,
+    objects: Vec<(usize, String, bo::BoardObjectsObject)>,
     warnings: Vec<ProducerWarning>,
     duplicates: usize,
     invalid: usize,
@@ -31,9 +34,17 @@ impl Document {
         }
     }
 
+    /// The `contentDigest` of the object with `uuid`.
+    #[must_use]
+    pub(crate) fn digest(&self, uuid: &str) -> String {
+        self.index
+            .get(uuid)
+            .map_or_else(String::new, |(_, digest)| digest.to_owned())
+    }
+
     /// Add one object; `uuid` must be the form's own id. Non-canonical uuids
     /// are dropped with a warning (divergence 4).
-    pub(crate) fn add(&mut self, node: &Node, kind: &str, uuid: &str, fields: Map<String, Value>) {
+    pub(crate) fn add(&mut self, node: &Node, uuid: &str, object: bo::BoardObjectsObject) {
         if !is_canonical_uuid(uuid) {
             self.invalid += 1;
             self.warnings.push(ProducerWarning {
@@ -42,19 +53,7 @@ impl Document {
             });
             return;
         }
-        let digest = self
-            .index
-            .get(uuid)
-            .map_or_else(String::new, |(_, digest)| digest.to_owned());
-        let mut object = Map::new();
-        object.insert("kind".to_owned(), Value::String(kind.to_owned()));
-        object.insert("uuid".to_owned(), Value::String(uuid.to_owned()));
-        object.insert("contentDigest".to_owned(), Value::String(digest));
-        for (key, value) in fields {
-            object.insert(key, value);
-        }
-        self.objects
-            .push((node.start(), uuid.to_owned(), Value::Object(object)));
+        self.objects.push((node.start(), uuid.to_owned(), object));
     }
 
     /// Record an invalid KIID path (divergence 5).
@@ -64,10 +63,10 @@ impl Document {
 
     /// File order, unique uuids (the later form wins), with warnings.
     #[must_use]
-    pub(crate) fn finish(mut self) -> (Vec<Value>, Vec<ProducerWarning>) {
-        let mut by_uuid: BTreeMap<String, (usize, Value)> = BTreeMap::new();
-        for (start, uuid, value) in self.objects.drain(..) {
-            if by_uuid.insert(uuid.clone(), (start, value)).is_some() {
+    pub(crate) fn finish(mut self) -> (Vec<bo::BoardObjectsObject>, Vec<ProducerWarning>) {
+        let mut by_uuid: BTreeMap<String, (usize, bo::BoardObjectsObject)> = BTreeMap::new();
+        for (start, uuid, object) in self.objects.drain(..) {
+            if by_uuid.insert(uuid.clone(), (start, object)).is_some() {
                 self.duplicates += 1;
                 self.warnings.push(ProducerWarning {
                     code: "board-objects-duplicate-uuid".to_owned(),
@@ -87,10 +86,10 @@ impl Document {
                 ),
             });
         }
-        let mut items: Vec<(usize, Value)> = by_uuid.into_values().collect();
+        let mut items: Vec<(usize, bo::BoardObjectsObject)> = by_uuid.into_values().collect();
         items.sort_by_key(|(start, _)| *start);
         (
-            items.into_iter().map(|(_, value)| value).collect(),
+            items.into_iter().map(|(_, object)| object).collect(),
             self.warnings,
         )
     }
@@ -103,42 +102,31 @@ pub(crate) fn identity(node: &Node) -> Option<String> {
     super::tree::child_text(node, "uuid").or_else(|| super::tree::child_text(node, "tstamp"))
 }
 
-/// A value an object field map accepts: `Value`, `Option<Value>`, `String` or
-/// `Option<String>`.
-pub(crate) trait IntoValue {
-    /// The value as an optional JSON value.
-    fn into_value(self) -> Option<Value>;
-}
-
-impl IntoValue for Value {
-    fn into_value(self) -> Option<Value> {
-        Some(self)
+/// A point in nanometres from a millimetre `(x, y)`.
+#[must_use]
+pub(crate) fn point_nm(point: (f64, f64)) -> bo::PointNm {
+    bo::PointNm {
+        x_nm: bo::Nanometres(super::units::mm_to_nm(point.0)),
+        y_nm: bo::Nanometres(super::units::mm_to_nm(point.1)),
     }
 }
 
-impl IntoValue for Option<Value> {
-    fn into_value(self) -> Option<Value> {
-        self
-    }
+/// A non-empty newtype: `None` when `text` fails its `FromStr` (empty).
+#[must_use]
+pub(crate) fn parse_nonempty<T: std::str::FromStr>(text: String) -> Option<T> {
+    text.parse::<T>().ok()
 }
 
-impl IntoValue for String {
-    fn into_value(self) -> Option<Value> {
-        Some(Value::String(self))
-    }
-}
-
-impl IntoValue for Option<String> {
-    fn into_value(self) -> Option<Value> {
-        self.map(Value::String)
-    }
+/// The `rotationDeg` of an `(at …)` form, present exactly when the position is.
+#[must_use]
+pub(crate) fn rotation_deg(point: Option<(f64, f64)>, at: Option<&Node>) -> Option<bo::Degrees> {
+    point.and(super::tree::rotation(at)).map(bo::Degrees)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::board_objects::tree;
-    use serde_json::Map;
 
     fn root(text: &str) -> Node {
         tree::parse(text).into_iter().next().expect("one root")
@@ -151,7 +139,7 @@ mod tests {
         let parsed = root(text);
         let node = parsed.child("symbol").unwrap();
         let mut document = Document::new("board.kicad_sch", &parsed, false);
-        document.add(node, "symbol", "aaaa-0201", Map::new());
+        document.add(node, "aaaa-0201", bo::BoardObjectsObject::Group(tag("group")));
         let (objects, warnings) = document.finish();
         assert!(objects.is_empty());
         assert_eq!(warnings.len(), 1);
@@ -168,11 +156,21 @@ mod tests {
         let parsed = root(&text);
         let mut document = Document::new("board.kicad_sch", &parsed, false);
         for symbol in parsed.children("symbol") {
-            document.add(symbol, "symbol", uuid, Map::new());
+            document.add(symbol, uuid, bo::BoardObjectsObject::Group(tag("group")));
         }
         let (objects, warnings) = document.finish();
         assert_eq!(objects.len(), 1);
         assert_eq!(warnings.len(), 1);
         assert_eq!(warnings[0].code, "board-objects-duplicate-uuid");
+    }
+
+    fn tag(name: &str) -> bo::BoardObjectsGroup {
+        bo::BoardObjectsGroup {
+            kind: "group".to_owned(),
+            uuid: bo::KiCadUuid("00000000-0000-0000-0000-000000000000".to_owned()),
+            content_digest: bo::BoardObjectsContentDigest(String::new()),
+            name: name.to_owned(),
+            review_fields: bo::RecordBoardObjectsReviewValue(std::collections::BTreeMap::new()),
+        }
     }
 }

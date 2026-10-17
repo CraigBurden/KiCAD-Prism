@@ -2,6 +2,11 @@
 //! "Review-only ids and names"), a port of `ecad-parse.mjs:222-551`,
 //! `:553-858`, `:1051-1066`, `:1586-1591` and the transform in
 //! `capture/board_objects.py:214-502`.
+//!
+//! The per-object review fields are the bundle's generated types
+//! ([`super::emit`]), never a `Value` tree. The review-only settings objects
+//! (a few hundred per project) stay on `Value` internally and are converted
+//! once, at collection.
 
 mod project;
 pub(crate) mod shapes;
@@ -10,23 +15,202 @@ pub(crate) use project::project;
 
 use super::blake2b;
 use super::tree::{self, Node};
-use super::units::{canonical, es_number, json_string, json_text};
+use super::units::{canonical, es_number, json_text};
+use prism_kicad_contracts::generated::prism_board_objects_a0 as bo;
 use serde_json::{Map, Value, json};
 use std::collections::BTreeMap;
 
-/// `entry(fields)`: drop undefined and null, keep `false`, `0` and `""`
+/// A review record (a map of label → value, serialized in code point order).
+pub(crate) type ReviewRecord = bo::RecordBoardObjectsReviewValue;
+/// One review-field value.
+pub(crate) type ReviewValue = bo::BoardObjectsReviewValue;
+
+// --------------------------------------------------------- typed review values
+
+/// A text review value.
+#[must_use]
+pub(crate) fn text(value: impl Into<String>) -> ReviewValue {
+    bo::BoardObjectsReviewValue::Variant0(value.into())
+}
+
+/// A number review value.
+#[must_use]
+pub(crate) fn number(value: f64) -> ReviewValue {
+    bo::BoardObjectsReviewValue::Variant1(value)
+}
+
+/// A flag review value.
+#[must_use]
+pub(crate) fn flag(value: bool) -> ReviewValue {
+    bo::BoardObjectsReviewValue::Variant2(value)
+}
+
+/// `entry(fields)`: drop absent and null, keep `false`, `0` and `""`
 /// (`ecad-parse.mjs:328-336`).
 #[must_use]
-pub(crate) fn entry(pairs: Vec<(&str, Option<Value>)>) -> Value {
-    let mut out = Map::new();
+pub(crate) fn entry(
+    pairs: Vec<(&'static str, Option<ReviewValue>)>,
+) -> ReviewRecord {
+    let mut out = BTreeMap::new();
     for (key, value) in pairs {
-        if let Some(value) = value
-            && !value.is_null()
-        {
+        if let Some(value) = value {
             out.insert(key.to_owned(), value);
         }
     }
-    Value::Object(out)
+    bo::RecordBoardObjectsReviewValue(out)
+}
+
+/// The typed review value of a small JSON shape.
+fn review_value(value: &Value) -> ReviewValue {
+    match value {
+        Value::String(text) => bo::BoardObjectsReviewValue::Variant0(text.clone()),
+        Value::Number(number) => bo::BoardObjectsReviewValue::Variant1(number.as_f64().unwrap_or(0.0)),
+        Value::Bool(flag) => bo::BoardObjectsReviewValue::Variant2(*flag),
+        Value::Array(items) => review_array(items),
+        Value::Object(map) => bo::BoardObjectsReviewValue::Variant5(review_table(map)),
+        Value::Null => bo::BoardObjectsReviewValue::Variant0(String::new()),
+    }
+}
+
+fn review_array(items: &[Value]) -> ReviewValue {
+    if items.iter().all(Value::is_string) {
+        bo::BoardObjectsReviewValue::Variant3(items.iter().map(text_of).collect())
+    } else if items.iter().all(Value::is_number) {
+        bo::BoardObjectsReviewValue::Variant4(
+            items.iter().map(|item| item.as_f64().unwrap_or(0.0)).collect(),
+        )
+    } else {
+        bo::BoardObjectsReviewValue::Variant6(
+            items.iter().filter_map(Value::as_object).map(review_table).collect(),
+        )
+    }
+}
+
+fn review_table(map: &Map<String, Value>) -> bo::BoardObjectsReviewTable {
+    bo::BoardObjectsReviewTable(
+        map.iter()
+            .filter_map(|(key, value)| scalar(value).map(|scalar| (key.clone(), scalar)))
+            .collect(),
+    )
+}
+
+fn scalar(value: &Value) -> Option<bo::BoardObjectsReviewScalar> {
+    match value {
+        Value::String(text) => Some(bo::BoardObjectsReviewScalar::String(text.clone())),
+        Value::Number(number) => Some(bo::BoardObjectsReviewScalar::Number(
+            number.as_f64().unwrap_or(0.0),
+        )),
+        Value::Bool(flag) => Some(bo::BoardObjectsReviewScalar::Boolean(*flag)),
+        _ => None,
+    }
+}
+
+// ------------------------------------------------------------ review values
+
+/// `vector_text` (`ecad-parse.mjs:338-345`): the two coordinates of a
+/// `(size x y)` shape as `"<x> × <y>"`.
+#[must_use]
+pub(crate) fn vector_text(node: Option<&Node>) -> Option<ReviewValue> {
+    let node = node?;
+    let x = tree::number_at(node, 1).unwrap_or(0.0);
+    let y = tree::number_at(node, 2).unwrap_or(0.0);
+    Some(text(format!("{} × {}", es_number(x), es_number(y))))
+}
+
+/// `list_text` (`ecad-parse.mjs:347-349`).
+#[must_use]
+pub(crate) fn list_text(values: &[String]) -> Option<ReviewValue> {
+    let parts: Vec<&str> = values
+        .iter()
+        .map(String::as_str)
+        .filter(|value| !value.is_empty())
+        .collect();
+    if parts.is_empty() {
+        None
+    } else {
+        Some(text(parts.join(", ")))
+    }
+}
+
+/// `object_text` (`ecad-parse.mjs:351-354`).
+#[must_use]
+pub(crate) fn object_text(value: Option<&Value>) -> Option<ReviewValue> {
+    let value = value?;
+    if value.is_null() {
+        return None;
+    }
+    if is_falsy(value) || !value.is_object() {
+        return Some(review_value(value));
+    }
+    Some(text(json_text(&canonical(value))))
+}
+
+/// `stroke_text` (`ecad-parse.mjs:356-362`), from the `(stroke …)` form.
+#[must_use]
+pub(crate) fn stroke_text(stroke: Option<&Node>) -> Option<ReviewValue> {
+    let stroke = stroke?;
+    let mut parts: Vec<String> = Vec::new();
+    if let Some(width) = tree::child_number(stroke, "width") {
+        parts.push(format!("{} mm", es_number(width)));
+    }
+    if let Some(kind) = tree::child_text(stroke, "type")
+        && !kind.is_empty()
+    {
+        parts.push(kind);
+    }
+    if parts.is_empty() {
+        Some(text(json_text(&canonical(&shapes::stroke(stroke)))))
+    } else {
+        Some(text(parts.join(", ")))
+    }
+}
+
+/// `graphic_review_fields` (`ecad-parse.mjs:364-371`).
+#[must_use]
+pub(crate) fn graphic_review_fields(
+    kind: Option<&str>,
+    text_value: Option<&str>,
+    stroke: Option<&Node>,
+    fill: Option<ReviewValue>,
+) -> ReviewRecord {
+    entry(vec![
+        ("Graphic type", kind.map(text)),
+        ("Text", text_value.map(text)),
+        ("Stroke", stroke_text(stroke)),
+        ("Fill", fill),
+    ])
+}
+
+/// `zone_review_fields` (`ecad-parse.mjs:373-384`).
+#[must_use]
+pub(crate) fn zone_review_fields(zone: &Value) -> ReviewRecord {
+    let layers: Vec<String> = match zone.get("layers") {
+        Some(Value::Array(items)) => items.iter().filter_map(|item| item.as_str().map(str::to_owned)).collect(),
+        _ => match zone.get("layer").and_then(Value::as_str) {
+            Some(layer) if !layer.is_empty() => vec![layer.to_owned()],
+            _ => Vec::new(),
+        },
+    };
+    entry(vec![
+        ("Zone name", zone.get("name").and_then(Value::as_str).map(text)),
+        ("Zone layers", list_text(&layers)),
+        ("Priority", zone.get("priority").and_then(Value::as_f64).map(number)),
+        ("Hatch", object_text(zone.get("hatch"))),
+        ("Pad connection", object_text(zone.get("connect_pads"))),
+        (
+            "Minimum thickness",
+            zone.get("min_thickness").and_then(Value::as_f64).map(number),
+        ),
+        ("Keepout", object_text(zone.get("keepout"))),
+        ("Fill rules", object_text(zone.get("fill"))),
+    ])
+}
+
+/// `is_falsy` (`ecad-parse.mjs`): `null`, `false`, `0` and `""`.
+fn is_falsy(value: &Value) -> bool {
+    matches!(value, Value::Null | Value::Bool(false))
+        || value.as_f64() == Some(0.0)
+        || value.as_str() == Some("")
 }
 
 /// `content_hash(value)`: BLAKE2b-512 of the canonical JSON text, first 16 hex
@@ -45,18 +229,6 @@ pub(crate) fn review_id(kind_today: &str, identity: &str) -> String {
         kind_today.replace('_', "-"),
         content_hash(&Value::String(identity.to_owned()))
     )
-}
-
-/// Dedupe by `id` (later wins) and sort by `id` (`capture/board_objects.py:491-496`).
-#[must_use]
-pub(crate) fn finish_review(objects: Vec<Value>) -> Vec<Value> {
-    let mut by_id: BTreeMap<String, Value> = BTreeMap::new();
-    for object in objects {
-        if let Some(id) = object.get("id").and_then(Value::as_str) {
-            by_id.insert(id.to_owned(), object);
-        }
-    }
-    by_id.into_values().collect()
 }
 
 /// `push_review_object` (`ecad-parse.mjs:533-551`); returns whether it emitted.
@@ -86,137 +258,79 @@ pub(crate) fn push_review(
     true
 }
 
-// ------------------------------------------------------------ review values
-
-/// `vector_text` (`ecad-parse.mjs:338-345`).
+/// Dedupe by `id` (later wins), sort by `id`, and type the result
+/// (`capture/board_objects.py:491-496`).
 #[must_use]
-pub(crate) fn vector_text(value: Option<&Value>) -> Option<Value> {
-    let value = value?;
-    if is_falsy(value) {
-        return None;
+pub(crate) fn finish_review(objects: Vec<Value>) -> Vec<bo::BoardObjectsReviewOnlyObject> {
+    let mut by_id: BTreeMap<String, Value> = BTreeMap::new();
+    for object in objects {
+        if let Some(id) = object.get("id").and_then(Value::as_str) {
+            by_id.insert(id.to_owned(), object);
+        }
     }
-    if let Value::Array(items) = value {
-        let parts: Vec<String> = items.iter().map(js_string).collect();
-        return Some(Value::String(parts.join(" × ")));
-    }
-    if let Value::Object(map) = value
-        && let (Some(x), Some(y)) = (
-            map.get("x").and_then(Value::as_f64),
-            map.get("y").and_then(Value::as_f64),
-        )
-    {
-        return Some(Value::String(format!(
-            "{} × {}",
-            es_number(x),
-            es_number(y)
-        )));
-    }
-    Some(Value::String(json_text(&canonical(value))))
+    by_id
+        .into_values()
+        .filter_map(|object| review_only_object(&object))
+        .collect()
 }
 
-/// `list_text` (`ecad-parse.mjs:347-349`).
-#[must_use]
-pub(crate) fn list_text(values: &[Value]) -> Option<Value> {
-    let parts: Vec<String> = values
+fn review_only_object(object: &Value) -> Option<bo::BoardObjectsReviewOnlyObject> {
+    let kind = kind_enum(object.get("kind").and_then(Value::as_str)?)?;
+    let id = bo::BoardObjectsReviewOnlyId(
+        object.get("id").and_then(Value::as_str).unwrap_or_default().to_owned(),
+    );
+    let name = object
+        .get("name")
+        .and_then(Value::as_str)
+        .unwrap_or_default()
+        .parse()
+        .ok()?;
+    let fields = object.get("reviewFields").unwrap_or(&Value::Null);
+    Some(bo::BoardObjectsReviewOnlyObject {
+        kind,
+        id,
+        name,
+        review_fields: record_from_value(fields),
+    })
+}
+
+fn record_from_value(value: &Value) -> ReviewRecord {
+    match value {
+        Value::Object(map) => bo::RecordBoardObjectsReviewValue(
+            map.iter().map(|(key, child)| (key.clone(), review_value(child))).collect(),
+        ),
+        _ => bo::RecordBoardObjectsReviewValue(BTreeMap::new()),
+    }
+}
+
+/// The member kind of a review-only object, by its serialized spelling.
+fn kind_enum(kind: &str) -> Option<bo::BoardObjectsReviewOnlyKind> {
+    REVIEW_KINDS
         .iter()
-        .filter(|value| !is_falsy(value))
-        .map(js_string)
-        .collect();
-    if parts.is_empty() {
-        None
-    } else {
-        Some(Value::String(parts.join(", ")))
-    }
+        .find(|(name, _)| *name == kind)
+        .map(|(_, value)| *value)
 }
 
-/// `object_text` (`ecad-parse.mjs:351-354`).
-#[must_use]
-pub(crate) fn object_text(value: Option<&Value>) -> Option<Value> {
-    let value = value?;
-    if is_falsy(value) || !value.is_object() {
-        return Some(value.clone());
-    }
-    Some(Value::String(json_text(&canonical(value))))
-}
-
-/// `stroke_text` (`ecad-parse.mjs:356-362`).
-#[must_use]
-pub(crate) fn stroke_text(stroke: Option<&Value>) -> Option<Value> {
-    let stroke = stroke?;
-    if is_falsy(stroke) {
-        return None;
-    }
-    let map = stroke.as_object()?;
-    let mut parts: Vec<String> = Vec::new();
-    if let Some(width) = map.get("width")
-        && !width.is_null()
-    {
-        parts.push(format!("{} mm", js_string(width)));
-    }
-    if let Some(kind) = map.get("type")
-        && !is_falsy(kind)
-    {
-        parts.push(js_string(kind));
-    }
-    if parts.is_empty() {
-        Some(Value::String(json_text(&canonical(stroke))))
-    } else {
-        Some(Value::String(parts.join(", ")))
-    }
-}
-
-/// `graphic_review_fields` (`ecad-parse.mjs:364-371`).
-#[must_use]
-pub(crate) fn graphic_review_fields(item: &Value) -> Value {
-    entry(vec![
-        (
-            "Graphic type",
-            item.get("type").cloned().filter(|v| !v.is_null()),
-        ),
-        ("Text", item.get("text").cloned().filter(|v| !v.is_null())),
-        ("Stroke", stroke_text(item.get("stroke"))),
-        ("Fill", object_text(item.get("fill"))),
-    ])
-}
-
-/// `zone_review_fields` (`ecad-parse.mjs:373-384`).
-#[must_use]
-pub(crate) fn zone_review_fields(zone: &Value) -> Value {
-    let layers: Vec<Value> = match zone.get("layers") {
-        Some(Value::Array(items)) => items.clone(),
-        _ => match zone.get("layer") {
-            Some(layer) if !is_falsy(layer) => vec![layer.clone()],
-            _ => Vec::new(),
-        },
-    };
-    entry(vec![
-        (
-            "Zone name",
-            zone.get("name").cloned().filter(|v| !v.is_null()),
-        ),
-        ("Zone layers", list_text(&layers)),
-        (
-            "Priority",
-            zone.get("priority").cloned().filter(|v| !v.is_null()),
-        ),
-        ("Hatch", object_text(zone.get("hatch"))),
-        ("Pad connection", object_text(zone.get("connect_pads"))),
-        (
-            "Minimum thickness",
-            zone.get("min_thickness").cloned().filter(|v| !v.is_null()),
-        ),
-        ("Keepout", object_text(zone.get("keepout"))),
-        ("Fill rules", object_text(zone.get("fill"))),
-    ])
-}
-
-fn is_falsy(value: &Value) -> bool {
-    matches!(value, Value::Null | Value::Bool(false))
-        || value.as_f64() == Some(0.0)
-        || value.as_str() == Some("")
-}
+const REVIEW_KINDS: &[(&str, bo::BoardObjectsReviewOnlyKind)] = &[
+    ("net-class", bo::BoardObjectsReviewOnlyKind::NetClass),
+    ("net-class-assignment", bo::BoardObjectsReviewOnlyKind::NetClassAssignment),
+    ("board-constraint", bo::BoardObjectsReviewOnlyKind::BoardConstraint),
+    ("drc-severity", bo::BoardObjectsReviewOnlyKind::DrcSeverity),
+    ("routing-preset", bo::BoardObjectsReviewOnlyKind::RoutingPreset),
+    ("board-default", bo::BoardObjectsReviewOnlyKind::BoardDefault),
+    ("teardrop-setting", bo::BoardObjectsReviewOnlyKind::TeardropSetting),
+    ("zone-setting", bo::BoardObjectsReviewOnlyKind::ZoneSetting),
+    ("drc-exclusion", bo::BoardObjectsReviewOnlyKind::DrcExclusion),
+    ("erc-exclusion", bo::BoardObjectsReviewOnlyKind::ErcExclusion),
+    ("erc-pin-rule", bo::BoardObjectsReviewOnlyKind::ErcPinRule),
+    ("project-metadata", bo::BoardObjectsReviewOnlyKind::ProjectMetadata),
+    ("custom-rule", bo::BoardObjectsReviewOnlyKind::CustomRule),
+    ("fabrication-output", bo::BoardObjectsReviewOnlyKind::FabricationOutput),
+    ("bus_alias", bo::BoardObjectsReviewOnlyKind::BusAlias),
+];
 
 /// ECMAScript `String(value)` for the values review texts join.
+#[must_use]
 pub(crate) fn js_string(value: &Value) -> String {
     match value {
         Value::Null => "null".to_owned(),
@@ -230,6 +344,7 @@ pub(crate) fn js_string(value: &Value) -> String {
 }
 
 /// ECMAScript `String(value)` for a JSON value (`ecad-parse.mjs:492-498`).
+#[must_use]
 pub(crate) fn text_of(value: &Value) -> String {
     match value {
         Value::String(text) => text.clone(),
@@ -310,7 +425,7 @@ pub(crate) fn humanize_setting(key: &str) -> String {
 
 /// `index_design_rules` (`ecad-parse.mjs:811-858`).
 #[must_use]
-pub(crate) fn design_rules(_path: &str, text: &str) -> Vec<Value> {
+pub(crate) fn design_rules(_path: &str, text: &str) -> Vec<bo::BoardObjectsReviewOnlyObject> {
     let Ok(roots) = parse_sexpressions(text) else {
         return Vec::new();
     };
@@ -381,7 +496,7 @@ fn sexpr_text(value: &Value) -> String {
                 .chars()
                 .any(|character| character.is_whitespace() || matches!(character, '(' | ')'))
             {
-                json_string(&text)
+                super::units::json_string(&text)
             } else {
                 text
             }
@@ -522,7 +637,7 @@ pub(crate) fn bus_aliases(schematic: &Node, objects: &mut Vec<Value>) {
             })
             .unwrap_or_default();
         let joined = members.iter().map(js_string).collect::<Vec<_>>().join(", ");
-        let fields = entry(vec![
+        let fields = entry_value(vec![
             ("Bus alias", Some(Value::String(name.clone()))),
             ("Members", Some(Value::String(joined))),
         ]);
@@ -556,7 +671,7 @@ pub(crate) fn fabrication_output(board_root: &Node) -> Value {
     let text_pair = |key: &str| plot.and_then(|plot| tree::child_text(plot, key));
     let boolean_pair = |key: &str| text_pair(key).map(|text| Value::Bool(shapes::boolean(&text)));
     let clear = |key: &str| setup.and_then(|setup| tree::child_number(setup, key));
-    entry(vec![
+    entry_value(vec![
         (
             "Solder mask expansion (mm)",
             clear("pad_to_mask_clearance").map(shapes::number),
@@ -618,6 +733,21 @@ pub(crate) fn fabrication_output(board_root: &Node) -> Value {
         ("Mirror output", boolean_pair("mirror")),
         ("Drill marks", pair("drillshape").map(shapes::number)),
     ])
+}
+
+/// `entry(fields)`: drop undefined and null, keep `false`, `0` and `""`
+/// (`ecad-parse.mjs:328-336`), for the review-only path.
+#[must_use]
+fn entry_value(pairs: Vec<(&str, Option<Value>)>) -> Value {
+    let mut out = Map::new();
+    for (key, value) in pairs {
+        if let Some(value) = value
+            && !value.is_null()
+        {
+            out.insert(key.to_owned(), value);
+        }
+    }
+    Value::Object(out)
 }
 
 fn layers_of(items: &[Node]) -> Vec<Value> {

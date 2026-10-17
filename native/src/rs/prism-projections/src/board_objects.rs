@@ -21,17 +21,21 @@ mod tree;
 mod units;
 
 use crate::{Produced, ProducerWarning, ProjectionError, ProjectionInput};
+use prism_kicad_contracts::generated::prism_board_objects_a0 as bo;
 use prism_kicad_contracts::generated::prism_board_objects_a0::BoardObjectsA0;
-use serde_json::{Value, json};
 
 /// The member's schema id.
 pub const SCHEMA: &str = "prism.board_objects.a0";
-const NAME: &str = "projections/board-objects.json";
 
 /// Build `projections/board-objects.json` from the single parse of the revision.
+///
+/// The documents are the generated contract types, built directly; the parse
+/// stage serializes them once, so no `serde_json::Value` tree is ever made for
+/// an object. Each `.kicad_sch`/`.kicad_pcb` tree is dropped as soon as its
+/// document is emitted.
 pub fn produce(input: &ProjectionInput<'_>) -> Result<Produced<BoardObjectsA0>, ProjectionError> {
     let mut warnings = Vec::new();
-    let mut documents: Vec<Value> = Vec::new();
+    let mut documents: Vec<bo::BoardObjectsDocument> = Vec::new();
     for path in input.sources.paths() {
         let Some(kind) = DocumentKind::of(&path) else {
             continue;
@@ -43,65 +47,79 @@ pub fn produce(input: &ProjectionInput<'_>) -> Result<Produced<BoardObjectsA0>, 
             warnings.push(unreadable(&path));
             continue;
         };
-        let parts = match kind {
-            DocumentKind::Schematic | DocumentKind::Board => {
-                if tree::unbalanced(text).is_some() {
-                    warnings.push(unreadable(&path));
-                    continue;
-                }
-                let roots = tree::parse(text);
-                let Some(root) = roots.into_iter().next() else {
-                    warnings.push(unreadable(&path));
-                    continue;
-                };
-                let board = matches!(kind, DocumentKind::Board);
-                if board {
-                    board::document(&path, &root, &mut warnings)
-                } else {
-                    schematic::document(&path, &root, &mut warnings)
-                }
-            }
-            DocumentKind::Project => match review::project(&path, text, &mut warnings) {
-                Some(review) => DocumentParts::review_only(review),
-                None => {
-                    warnings.push(unreadable(&path));
-                    continue;
-                }
-            },
-            DocumentKind::DesignRules => {
-                if tree::unbalanced(text).is_some() {
-                    warnings.push(unreadable(&path));
-                    continue;
-                }
-                DocumentParts::review_only(review::design_rules(&path, text))
-            }
+        let parts = document(&path, text, kind, &mut warnings);
+        let Some(parts) = parts else {
+            continue;
         };
-        documents.push(json!({
-            "path": path,
-            "objects": parts.objects,
-            "reviewOnlyObjects": parts.review_only,
-        }));
+        documents.push(bo::BoardObjectsDocument {
+            path: bo::RepoPath(path),
+            objects: parts.objects,
+            review_only_objects: parts.review_only,
+        });
     }
-    documents.sort_by(|left, right| {
-        left["path"]
-            .as_str()
-            .unwrap_or_default()
-            .cmp(right["path"].as_str().unwrap_or_default())
-    });
-    let value = json!({"schema": SCHEMA, "documents": documents});
-    let document: BoardObjectsA0 = serde_json::from_value(value)
-        .map_err(|error| ProjectionError::new(format!("{NAME}: {error}")))?;
-    Ok(Produced { document, warnings })
+    documents.sort_by(|left, right| left.path.0.cmp(&right.path.0));
+    Ok(Produced {
+        document: BoardObjectsA0 {
+            schema: SCHEMA.to_owned(),
+            documents,
+        },
+        warnings,
+    })
+}
+
+/// One document's objects and review-only objects, or `None` when it cannot be
+/// read (a warning is recorded).
+fn document(
+    path: &str,
+    text: &str,
+    kind: DocumentKind,
+    warnings: &mut Vec<ProducerWarning>,
+) -> Option<DocumentParts> {
+    match kind {
+        DocumentKind::Schematic | DocumentKind::Board => {
+            if tree::unbalanced(text).is_some() {
+                warnings.push(unreadable(path));
+                return None;
+            }
+            let roots = tree::parse(text);
+            let root = roots.into_iter().next();
+            let Some(root) = root else {
+                warnings.push(unreadable(path));
+                return None;
+            };
+            let parts = if matches!(kind, DocumentKind::Board) {
+                board::document(path, &root, warnings)
+            } else {
+                schematic::document(path, &root, warnings)
+            };
+            drop(root);
+            Some(parts)
+        }
+        DocumentKind::Project => match review::project(path, text, warnings) {
+            Some(review) => Some(DocumentParts::review_only(review)),
+            None => {
+                warnings.push(unreadable(path));
+                None
+            }
+        },
+        DocumentKind::DesignRules => {
+            if tree::unbalanced(text).is_some() {
+                warnings.push(unreadable(path));
+                return None;
+            }
+            Some(DocumentParts::review_only(review::design_rules(path, text)))
+        }
+    }
 }
 
 /// One document's objects and review-only objects.
 pub(crate) struct DocumentParts {
-    pub objects: Vec<Value>,
-    pub review_only: Vec<Value>,
+    pub objects: Vec<bo::BoardObjectsObject>,
+    pub review_only: Vec<bo::BoardObjectsReviewOnlyObject>,
 }
 
 impl DocumentParts {
-    fn review_only(review_only: Vec<Value>) -> Self {
+    fn review_only(review_only: Vec<bo::BoardObjectsReviewOnlyObject>) -> Self {
         Self {
             objects: Vec::new(),
             review_only,
@@ -110,6 +128,7 @@ impl DocumentParts {
 }
 
 /// The four parsed kinds (field map, "Inputs").
+#[derive(Clone, Copy)]
 enum DocumentKind {
     Schematic,
     Board,

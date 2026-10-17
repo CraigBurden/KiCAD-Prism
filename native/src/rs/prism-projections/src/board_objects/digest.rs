@@ -1,10 +1,12 @@
 //! `contentDigest`: the canonical-text digest of one KiCad form (field map,
 //! "contentDigest"), a port of the reference
 //! `native/parity/prism_parity/capture/board_objects_sexpr.mjs:81-249`.
+//!
+//! The canonical text is never materialized: the walk feeds the SHA-256 state
+//! directly, so an object's digest costs one hash, not a `String` plus a hash.
 
 use super::tree::Node;
-use super::units::json_string;
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
 use std::fmt::Write as _;
 
 /// A digest index over one document's forms: canonical uuid → (byte offset of
@@ -50,60 +52,64 @@ fn walk(node: &Node, parent_head: Option<&str>, context: &Context, index: &mut D
         return;
     };
     if let Some(id) = identity_of(node)
-        && is_canonical_uuid(&id)
-        && let Some(allow) = allow_for(node, parent_head, context.board)
+        && is_canonical_uuid(id)
+        && let Some((allow, children)) = allow_for(node, parent_head, context.board)
     {
-        let text = canonical_text(node, &allow, context);
-        index.map.insert(id, (*start, sha256_16(&text)));
+        let digest = digest_form(node, allow, children, context);
+        index.map.insert(id.to_owned(), (*start, digest));
     }
-    let head = node.head().map(str::to_owned);
+    let head = node.head();
     for child in items {
-        walk(child, head.as_deref(), context, index);
+        walk(child, head, context, index);
     }
 }
 
 /// The object's own id: its direct `(uuid …)`, else `(tstamp …)`
 /// (`board_objects_sexpr.mjs:59-66`).
-fn identity_of(node: &Node) -> Option<String> {
-    for key in ["uuid", "tstamp"] {
-        if let Some(child) = node.child(key) {
-            let items = child.items()?;
-            if let Some(value) = items.get(1).and_then(Node::text) {
-                return Some(value.to_owned());
-            }
+fn identity_of(node: &Node) -> Option<&str> {
+    for key in IDENTITY {
+        if let Some(child) = node.child(key)
+            && let Some(value) = child.items().and_then(|items| items.get(1)).and_then(Node::text)
+        {
+            return Some(value);
         }
     }
     None
 }
 
+/// The allow-list of a form, or `None` when its head is not an object head.
 fn allow_for(
     form: &Node,
     parent_head: Option<&str>,
     board: bool,
-) -> Option<BTreeSet<&'static str>> {
+) -> Option<(&'static str, &'static [&'static str])> {
     let head = form.head()?;
-    match head {
-        "arc" => Some(if board { set(BOARD_ARC) } else { set(SCH_ARC) }),
-        "pin" => Some(if parent_head == Some("sheet") {
-            set(SHEET_PIN)
-        } else {
-            set(SYMBOL_PIN)
-        }),
-        "module" => Some(set(FOOTPRINT)),
-        _ => allow_list(head),
-    }
+    let allow = match head {
+        "arc" => {
+            if board {
+                BOARD_ARC
+            } else {
+                SCH_ARC
+            }
+        }
+        "pin" => {
+            if parent_head == Some("sheet") {
+                SHEET_PIN
+            } else {
+                SYMBOL_PIN
+            }
+        }
+        "module" => FOOTPRINT,
+        _ => allow_list(head)?,
+    };
+    Some((allow, child_object_heads(head)))
 }
 
-fn set(list: &'static str) -> BTreeSet<&'static str> {
-    list.split_whitespace().collect()
-}
-
-fn allow_list(head: &str) -> Option<BTreeSet<&'static str>> {
-    let list = ALLOW_TABLE
+fn allow_list(head: &str) -> Option<&'static str> {
+    ALLOW_TABLE
         .iter()
         .find(|(name, _)| *name == head)
-        .map(|(_, list)| *list)?;
-    Some(set(list))
+        .map(|(_, list)| *list)
 }
 
 /// The allow-lists of the field map's table, by form head.
@@ -205,126 +211,184 @@ fn child_object_heads(head: &str) -> &'static [&'static str] {
     }
 }
 
-fn canonical_text(form: &Node, allow: &BTreeSet<&str>, context: &Context) -> String {
-    let children = child_object_heads(form.head().unwrap_or_default());
-    // Step 1: keep only the allowed direct child lists (and child objects).
-    let mut kept: Vec<&Node> = Vec::new();
-    if let Some(items) = form.items() {
-        for (position, child) in items.iter().enumerate() {
-            if position == 0 || matches!(child, Node::Atom(_) | Node::Str(_)) {
-                kept.push(child);
-                continue;
-            }
-            let head = child.head().unwrap_or_default();
-            if allow.contains(head) || children.contains(&head) {
-                kept.push(child);
-            }
-        }
-    }
-    emit_children(kept, form, context, 0, &[])
+/// Whether `list` (a space-separated head list) contains `head`.
+fn list_contains(list: &str, head: &str) -> bool {
+    list.split_whitespace().any(|word| word == head)
 }
 
-/// `emit(node, depth, path)` (`board_objects_sexpr.mjs:129-156`).
-fn emit(node: &Node, context: &Context, depth: usize, path: &[&str]) -> String {
-    match node {
-        Node::Str(value) => json_string(value),
-        Node::Atom(value) => {
-            if is_number_token(value) {
-                canonical_number(value)
-            } else {
-                value.clone()
-            }
-        }
-        Node::List { items, .. } => emit_children(items.iter(), node, context, depth, path),
+/// The SHA-256 sink the canonical text is streamed into.
+trait Canon {
+    fn raw(&mut self, text: &str);
+    fn byte(&mut self, byte: u8);
+}
+
+impl Canon for sha2::Sha256 {
+    fn raw(&mut self, text: &str) {
+        use sha2::Digest as _;
+        self.update(text.as_bytes());
+    }
+    fn byte(&mut self, byte: u8) {
+        use sha2::Digest as _;
+        self.update([byte]);
     }
 }
 
-/// Emit a list's children; `form` is the list itself (a zone needs its own
-/// `(net_name …)`).
-fn emit_children<'a>(
+/// The digest of one object form: SHA-256 of its canonical text, first 16 hex
+/// digits.
+fn digest_form(
+    form: &Node,
+    allow: &'static str,
+    children: &'static [&'static str],
+    context: &Context,
+) -> String {
+    use sha2::Digest as _;
+    let mut hasher = sha2::Sha256::new();
+    write_form(&mut hasher, form, allow, children, context);
+    hex16(&hasher.finalize())
+}
+
+/// Step 1: keep only the allowed direct child lists (and child objects), then
+/// emit the form.
+fn write_form<S: Canon>(
+    sink: &mut S,
+    form: &Node,
+    allow: &'static str,
+    children: &'static [&'static str],
+    context: &Context,
+) {
+    sink.byte(b'(');
+    let mut first = true;
+    for (position, child) in form.items().unwrap_or_default().iter().enumerate() {
+        if position != 0
+            && matches!(child, Node::List { .. })
+            && !list_contains(allow, child.head().unwrap_or_default())
+            && !children.contains(&child.head().unwrap_or_default())
+        {
+            continue;
+        }
+        write_piece(sink, child, form, context, 0, &[], &mut first);
+    }
+    sink.byte(b')');
+}
+
+/// Emit a list's children; `head` is the list's own head and `first` tracks
+/// whether a separator is due.
+fn write_children<'a, S: Canon>(
+    sink: &mut S,
     items: impl IntoIterator<Item = &'a Node>,
     form: &Node,
     context: &Context,
     depth: usize,
     path: &[&str],
-) -> String {
-    let head = form.head().unwrap_or_default();
-    let mut parts: Vec<String> = Vec::new();
+) {
+    sink.byte(b'(');
+    let mut first = true;
     for child in items {
-        if let Some(part) = child_part(child, form, context, depth, path, head) {
-            parts.push(part);
-        }
+        write_piece(sink, child, form, context, depth, path, &mut first);
     }
-    format!("({})", parts.join(" "))
+    sink.byte(b')');
 }
 
-/// The canonical text of one child, or `None` when it is dropped. `head` is
-/// the current form's head.
-fn child_part(
+/// Write one child, or return `false` when the child was not a top-level kept
+/// child (so `write_form` can try the next). Writes the space separator itself.
+fn write_piece<S: Canon>(
+    sink: &mut S,
     child: &Node,
     form: &Node,
     context: &Context,
     depth: usize,
     path: &[&str],
-    head: &str,
-) -> Option<String> {
-    let Node::List { .. } = child else {
-        return Some(emit(child, context, depth + 1, path));
-    };
-    let child_head = child.head().unwrap_or_default();
-    if IDENTITY.contains(&child_head) || GENERATED.contains(&child_head) {
-        return None;
+    first: &mut bool,
+) -> bool {
+    let head = form.head();
+    if matches!(child, Node::List { .. }) {
+        let child_head = child.head().unwrap_or_default();
+        if IDENTITY.contains(&child_head) || GENERATED.contains(&child_head) {
+            return false;
+        }
+        if child_head == "page" && head == Some("path") && path.contains(&"instances") {
+            return false;
+        }
+        if let Some(name) = net_part(child, form, context, depth, head) {
+            if !name.is_empty() {
+                separator(sink, first);
+                sink.raw("(net ");
+                write_json_string(sink, &name);
+                sink.raw(")");
+            }
+            return true;
+        }
+        if depth == 0 && child_object_heads(head.unwrap_or_default()).contains(&child_head) {
+            separator(sink, first);
+            sink.byte(b'(');
+            sink.raw(child_head);
+            if let Some(id) = child_object_id(child) {
+                sink.byte(b' ');
+                write_json_string(sink, id);
+            }
+            sink.byte(b')');
+            return true;
+        }
+        separator(sink, first);
+        let mut extended = path.to_vec();
+        extended.push(head.unwrap_or_default());
+        write_text(sink, child, context, depth + 1, &extended);
+        return true;
     }
-    if child_head == "page" && head == "path" && path.contains(&"instances") {
-        return None;
-    }
-    if let Some(part) = net_part(child, form, context, depth, head) {
-        return part;
-    }
-    if let Some(part) = reference_part(child, child_head, depth, head) {
-        return part;
-    }
-    let mut extended = path.to_vec();
-    extended.push(head);
-    Some(emit(child, context, depth + 1, &extended))
+    separator(sink, first);
+    write_leaf(sink, child);
+    true
 }
 
-/// A `(net …)` on a depth-0 net carrier, by name (`Some(None)` drops an empty
-/// name); `None` when the child is not a net reference at all.
+fn separator<S: Canon>(sink: &mut S, first: &mut bool) {
+    if *first {
+        *first = false;
+    } else {
+        sink.byte(b' ');
+    }
+}
+
+/// `emit(node, depth, path)` (`board_objects_sexpr.mjs:129-156`).
+fn write_text<S: Canon>(sink: &mut S, node: &Node, context: &Context, depth: usize, path: &[&str]) {
+    match node {
+        Node::List { items, .. } => write_children(sink, items.iter(), node, context, depth, path),
+        leaf => write_leaf(sink, leaf),
+    }
+}
+
+fn write_leaf<S: Canon>(sink: &mut S, node: &Node) {
+    match node {
+        Node::Str(value) => write_json_string(sink, value),
+        Node::Atom(value) => {
+            if is_number_token(value) {
+                sink.raw(&canonical_number(value));
+            } else {
+                sink.raw(value);
+            }
+        }
+        Node::List { .. } => {}
+    }
+}
+
+/// A `(net …)` on a depth-0 net carrier, by name (`None` when the child is not
+/// a net reference at all; an empty name drops the child).
 fn net_part(
     child: &Node,
     form: &Node,
     context: &Context,
     depth: usize,
-    head: &str,
-) -> Option<Option<String>> {
-    if depth != 0 || child.head() != Some("net") || !NET_CARRIERS.contains(&head) {
+    head: Option<&str>,
+) -> Option<String> {
+    if depth != 0 || child.head() != Some("net") || !NET_CARRIERS.contains(&head.unwrap_or_default())
+    {
         return None;
     }
-    let name = resolve_net(child, form, context);
-    Some((!name.is_empty()).then(|| format!("(net {})", json_string(&name))))
+    Some(resolve_net(child, form, context))
 }
 
-/// A depth-0 child object, replaced by its uuid reference (`Some(None)` for a
-/// missing id); `None` when the child is not a child-object head.
-fn reference_part(
-    child: &Node,
-    child_head: &str,
-    depth: usize,
-    head: &str,
-) -> Option<Option<String>> {
-    if depth != 0 || !child_object_heads(head).contains(&child_head) {
-        return None;
-    }
-    Some(Some(match child_object_id(child) {
-        Some(id) => format!("({child_head} {})", json_string(&id)),
-        None => format!("({child_head})"),
-    }))
-}
-
-fn child_object_id(node: &Node) -> Option<String> {
+fn child_object_id(node: &Node) -> Option<&str> {
     let id = identity_of(node)?;
-    is_canonical_uuid(&id).then_some(id)
+    is_canonical_uuid(id).then_some(id)
 }
 
 /// Step 3 (`board_objects_sexpr.mjs:161-184`). `form` is the object's own
@@ -378,6 +442,40 @@ fn net_table(root: &Node) -> BTreeMap<String, String> {
     }
     table
 }
+
+/// ECMAScript `JSON.stringify` of a string, written straight to the sink.
+fn write_json_string<S: Canon>(sink: &mut S, text: &str) {
+    sink.byte(b'"');
+    for character in text.chars() {
+        match character {
+            '"' => sink.raw("\\\""),
+            '\\' => sink.raw("\\\\"),
+            '\u{0008}' => sink.raw("\\b"),
+            '\u{000c}' => sink.raw("\\f"),
+            '\n' => sink.raw("\\n"),
+            '\r' => sink.raw("\\r"),
+            '\t' => sink.raw("\\t"),
+            character if (character as u32) < 0x20 => {
+                let mut buffer = [0u8; 6];
+                let code = character as u32;
+                buffer[0] = b'\\';
+                buffer[1] = b'u';
+                buffer[2] = b'0';
+                buffer[3] = b'0';
+                buffer[4] = HEX[(code >> 4) as usize & 0xf];
+                buffer[5] = HEX[code as usize & 0xf];
+                sink.raw(std::str::from_utf8(&buffer).unwrap_or(""));
+            }
+            character => {
+                let mut buffer = [0u8; 4];
+                sink.raw(character.encode_utf8(&mut buffer));
+            }
+        }
+    }
+    sink.byte(b'"');
+}
+
+const HEX: &[u8; 16] = b"0123456789abcdef";
 
 /// `^[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?$` (`board_objects_sexpr.mjs:82`).
 #[must_use]
@@ -488,11 +586,8 @@ pub fn is_canonical_uuid(text: &str) -> bool {
         })
 }
 
-fn sha256_16(text: &str) -> String {
-    use sha2::{Digest, Sha256};
-    let mut hasher = Sha256::new();
-    hasher.update(text.as_bytes());
-    let digest = hasher.finalize();
+/// The first 16 hex digits of a SHA-256 digest.
+fn hex16(digest: &[u8]) -> String {
     let mut out = String::with_capacity(16);
     for byte in digest.iter().take(8) {
         let _ = write!(out, "{byte:02x}");
@@ -504,6 +599,13 @@ fn sha256_16(text: &str) -> String {
 mod tests {
     use super::*;
     use crate::board_objects::tree;
+
+    fn sha256_16(text: &str) -> String {
+        use sha2::Digest as _;
+        let mut hasher = sha2::Sha256::new();
+        hasher.update(text.as_bytes());
+        hex16(&hasher.finalize())
+    }
 
     #[test]
     fn numbers_canonicalize_exactly() {

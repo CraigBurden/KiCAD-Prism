@@ -64,68 +64,6 @@ pub(crate) fn sch_fill(node: &Node) -> Value {
     Value::Object(out)
 }
 
-/// A `(font …)` shape (`parseEffects`, `kicad-sexpr-parser.mjs:511-526`).
-#[must_use]
-pub(crate) fn font(node: &Node) -> Value {
-    let mut out = Map::new();
-    if let Some(face) = tree::child_text(node, "face") {
-        out.insert("face".to_owned(), Value::String(face));
-    }
-    if let Some(size) = node.child("size") {
-        out.insert("size".to_owned(), vec2(size));
-    }
-    if let Some(thickness) = tree::child_number(node, "thickness") {
-        out.insert("thickness".to_owned(), number(thickness));
-    }
-    if let Some(flag) = atom_flag(node, "bold") {
-        out.insert("bold".to_owned(), Value::Bool(flag));
-    }
-    if let Some(flag) = atom_flag(node, "italic") {
-        out.insert("italic".to_owned(), Value::Bool(flag));
-    }
-    if let Some(spacing) = tree::child_number(node, "line_spacing") {
-        out.insert("line_spacing".to_owned(), number(spacing));
-    }
-    if let Some(child) = node.child("color") {
-        out.insert("color".to_owned(), color(child));
-    }
-    Value::Object(out)
-}
-
-/// The `(effects …)` shape (`parseEffects`, `kicad-sexpr-parser.mjs:511-550`).
-#[must_use]
-pub(crate) fn effects(node: &Node) -> Value {
-    let mut out = Map::new();
-    if let Some(child) = node.child("font") {
-        out.insert("font".to_owned(), font(child));
-    }
-    if let Some(child) = node.child("justify") {
-        out.insert("justify".to_owned(), justify(child));
-    }
-    if let Some(flag) = atom_flag(node, "hide") {
-        out.insert("hide".to_owned(), Value::Bool(flag));
-    }
-    if let Some(href) = tree::child_text(node, "href") {
-        out.insert("href".to_owned(), Value::String(href));
-    }
-    Value::Object(out)
-}
-
-fn justify(node: &Node) -> Value {
-    let mut horizontal = "center";
-    let mut vertical = "center";
-    let mut mirror = false;
-    for item in node.items().unwrap_or_default().iter().skip(1) {
-        match item.text() {
-            Some("left" | "right") => horizontal = item.text().unwrap_or("center"),
-            Some("top" | "bottom") => vertical = item.text().unwrap_or("center"),
-            Some("mirror") => mirror = true,
-            _ => {}
-        }
-    }
-    json!({"horiz": horizontal, "vert": vertical, "mirror": mirror})
-}
-
 /// A `(name x y)` vec2 shape (`T.vec2`, `kicad-sexpr-parser.mjs:272-275`).
 #[must_use]
 pub(crate) fn vec2(node: &Node) -> Value {

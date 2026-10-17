@@ -2,9 +2,12 @@
 //! `ecad-parse.mjs:553-739`) and their transform
 //! (`capture/board_objects.py:453-497`).
 
-use super::{entry, finish_review, humanize_setting, js_string, push_review, review_id, text_of};
+use super::{
+    entry_value, finish_review, humanize_setting, js_string, push_review, review_id, text_of,
+};
 use crate::ProducerWarning;
 use crate::board_objects::units::{canonical, es_number, json_text, round6};
+use prism_kicad_contracts::generated::prism_board_objects_a0 as bo;
 use serde_json::{Map, Value, json};
 
 fn push_unchecked(
@@ -95,7 +98,7 @@ fn routing_preset_fields(settings: &Value) -> Value {
         .get("track_widths")
         .filter(|v| !v.is_null())
         .map(canonical);
-    entry(vec![
+    entry_value(vec![
         ("Track widths (mm)", track_widths),
         (
             "Via presets (mm)",
@@ -145,7 +148,7 @@ fn exclusion_details(signature: &str, erc: bool) -> (String, Value) {
     };
     let affected = objects.iter().filter(|object| !object.is_empty()).count();
     let count = json!(affected);
-    let fields = entry(vec![
+    let fields = entry_value(vec![
         ("Violation", Some(Value::String(violation_label))),
         ("Location", location.map(Value::String)),
         (
@@ -187,7 +190,7 @@ const ERC_PIN_TYPES: [&str; 12] = [
 
 fn net_class_review_fields(net_class: &Value) -> Value {
     let get = |key: &str| net_class.get(key).cloned().filter(|v| !v.is_null());
-    entry(vec![
+    entry_value(vec![
         ("Clearance", get("clearance")),
         ("Track width", get("track_width")),
         ("Via diameter", get("via_diameter")),
@@ -209,7 +212,7 @@ pub(crate) fn project(
     _path: &str,
     text: &str,
     _warnings: &mut Vec<ProducerWarning>,
-) -> Option<Vec<Value>> {
+) -> Option<Vec<bo::BoardObjectsReviewOnlyObject>> {
     let project: Value = serde_json::from_str(text).ok()?;
     let mut objects = Vec::new();
     project_net_settings(&mut objects, &project);
@@ -263,7 +266,7 @@ fn project_net_settings(objects: &mut Vec<Value>, project: &Value) {
             if name.is_empty() {
                 continue;
             }
-            let fields = entry(vec![
+            let fields = entry_value(vec![
                 ("Net pattern", Some(Value::String(name.clone()))),
                 ("Net class", Some(assigned.clone()).filter(|v| !v.is_null())),
             ]);
@@ -282,7 +285,7 @@ fn project_net_settings(objects: &mut Vec<Value>, project: &Value) {
         if name.is_empty() {
             continue;
         }
-        let fields = entry(vec![
+        let fields = entry_value(vec![
             ("Net pattern", Some(Value::String(name.clone()))),
             (
                 "Net class",
@@ -332,7 +335,7 @@ fn project_settings(objects: &mut Vec<Value>, project: &Value) {
         "Board drawing defaults",
         flattened_value(design.get("defaults")),
     );
-    let teardrop = entry(vec![
+    let teardrop = entry_value(vec![
         (
             "Options",
             design
@@ -355,7 +358,7 @@ fn project_settings(objects: &mut Vec<Value>, project: &Value) {
         "Teardrop settings",
         teardrop,
     );
-    let zone = entry(vec![
+    let zone = entry_value(vec![
         (
             "Allow external fillets",
             design
@@ -424,7 +427,7 @@ fn project_erc_pin_rules(objects: &mut Vec<Value>, project: &Value) {
                 .get(right)
                 .map_or_else(|| format!("Pin type {right}"), |name| (*name).to_owned());
             let name = format!("{left_name} ↔ {right_name}");
-            let fields = entry(vec![
+            let fields = entry_value(vec![
                 ("Pin type A", Some(Value::String(left_name))),
                 ("Pin type B", Some(Value::String(right_name))),
                 ("Severity", Some(Value::String(erc_severity(level)))),
