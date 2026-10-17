@@ -1,0 +1,248 @@
+{
+  "schema": "prism.assembly_hlr.a0",
+  "options": {
+    "projectionAlgorithm": "exact",
+    "outlineAlgorithm": "mesh-shadow",
+    "curveMode": "native_arcs",
+    "samplesPerCurve": 24,
+    "roundDigits": 3,
+    "includeVisible": true,
+    "includeOutline": true,
+    "unionPolygons": true
+  },
+  "runtime": {
+    "geometerVersion": "2026.9.7"
+  },
+  "footprints": [
+    {
+      "documentPath": "fixtures/release-studio/usb-pd/USB-PD-Trigger-Board.kicad_pcb",
+      "uuid": "0a68adf0-7cdc-46be-ae5f-e6c0b6455579",
+      "reference": "R15",
+      "side": "front",
+      "stepModel": {
+        "reference": "${KICAD9_3DMODEL_DIR}/Resistor_SMD.3dshapes/R_0603_1608Metric.step"
+      },
+      "status": "model-unavailable"
+    },
+    {
+      "documentPath": "fixtures/release-studio/usb-pd/USB-PD-Trigger-Board.kicad_pcb",
+      "uuid": "0aef2900-5b76-47c3-a213-e7b22a3034c3",
+      "reference": "Q1",
+      "side": "front",
+      "stepModel": {
+        "reference": "kicad-embed://IRF9358TRPBF.stp",
+        "sha256": "1e11c0c44b9efc8cfa5f4e2a13198281671d37c20c67e53be854208f6efeb83d"
+      },
+      "pose": {
+        "positionNm": {
+          "xNm": 130700000,
+          "yNm": 111300000
+        },
+        "rotationDeg": -90,
+        "modelOffset": {
+          "xNm": 0,
+          "yNm": 0,
+          "zNm": 0
+        },
+        "modelRotation": {
+          "xDeg": 0,
+          "yDeg": 0,
+          "zDeg": 0
+        },
+        "modelScale": {
+          "x": 1,
+          "y": 1,
+          "z": 1
+        }
+      },
+      "outline": {
+        "segments": [
+          {
+            "startNm": {
+              "xNm": 128250000,
+              "yNm": 113250000
+            },
+            "endNm": {
+              "xNm": 128585000,
+              "yNm": 113250000
+            }
+          },
+          {
+            "startNm": {
+              "xNm": 128585000,
+              "yNm": 113250000
+            },
+            "endNm": {
+              "xNm": 128585000,
+              "yNm": 114300000
+            }
+          }
+        ],
+        "arcs": []
+      },
+      "detail": {
+        "segments": [
+          {
+            "startNm": {
+              "xNm": 128585000,
+              "yNm": 108300000
+            },
+            "endNm": {
+              "xNm": 129005000,
+              "yNm": 108300000
+            }
+          },
+          {
+            "startNm": {
+              "xNm": 128585000,
+              "yNm": 108300000
+            },
+            "endNm": {
+              "xNm": 128585000,
+              "yNm": 108542000
+            }
+          }
+        ],
+        "arcs": [
+          {
+            "startNm": {
+              "xNm": 130700000,
+              "yNm": 111300000
+            },
+            "endNm": {
+              "xNm": 130700000,
+              "yNm": 111300000
+            },
+            "centerNm": {
+              "xNm": 132515000,
+              "yNm": 109985000
+            },
+            "radiusNm": 244000,
+            "extentDeg": 359.9999823999061,
+            "ccw": true,
+            "fullCircle": true
+          }
+        ]
+      }
+    },
+    {
+      "documentPath": "fixtures/release-studio/usb-pd/USB-PD-Trigger-Board.kicad_pcb",
+      "uuid": "8a050c98-7474-422a-835d-1fa485b64064",
+      "reference": "J1",
+      "side": "front",
+      "stepModel": {
+        "reference": "${KIPRJMOD}/packages3D/USB4056-03-A_REVA2.step",
+        "sha256": "054081719a32b05ea9dfd650dcaf768c1cb0c7eb2b27036a4bbf2221228e9513"
+      },
+      "pose": {
+        "positionNm": {
+          "xNm": 110102500,
+          "yNm": 114810000
+        },
+        "rotationDeg": -90,
+        "modelOffset": {
+          "xNm": 0,
+          "yNm": 0,
+          "zNm": 0
+        },
+        "modelRotation": {
+          "xDeg": -90,
+          "yDeg": 0,
+          "zDeg": 0
+        },
+        "modelScale": {
+          "x": 1,
+          "y": 1,
+          "z": 1
+        }
+      },
+      "outline": {
+        "segments": [
+          {
+            "startNm": {
+              "xNm": 107572500,
+              "yNm": 110373000
+            },
+            "endNm": {
+              "xNm": 107572500,
+              "yNm": 119280000
+            }
+          },
+          {
+            "startNm": {
+              "xNm": 107572500,
+              "yNm": 119280000
+            },
+            "endNm": {
+              "xNm": 109752500,
+              "yNm": 119280000
+            }
+          }
+        ],
+        "arcs": []
+      },
+      "detail": {
+        "segments": [
+          {
+            "startNm": {
+              "xNm": 117028500,
+              "yNm": 109885000
+            },
+            "endNm": {
+              "xNm": 115542500,
+              "yNm": 109937000
+            }
+          },
+          {
+            "startNm": {
+              "xNm": 117038500,
+              "yNm": 109885000
+            },
+            "endNm": {
+              "xNm": 117039500,
+              "yNm": 109885000
+            }
+          }
+        ],
+        "arcs": [
+          {
+            "startNm": {
+              "xNm": 117028500,
+              "yNm": 109885000
+            },
+            "endNm": {
+              "xNm": 117442500,
+              "yNm": 110285000
+            },
+            "centerNm": {
+              "xNm": 117042500,
+              "yNm": 110285000
+            },
+            "radiusNm": 400000,
+            "extentDeg": 92.00000505149482,
+            "ccw": true,
+            "fullCircle": false
+          },
+          {
+            "startNm": {
+              "xNm": 117039500,
+              "yNm": 110185000
+            },
+            "endNm": {
+              "xNm": 117142500,
+              "yNm": 110285000
+            },
+            "centerNm": {
+              "xNm": 117042500,
+              "yNm": 110285000
+            },
+            "radiusNm": 100000,
+            "extentDeg": 92.00000505149482,
+            "ccw": true,
+            "fullCircle": false
+          }
+        ]
+      }
+    }
+  ]
+}

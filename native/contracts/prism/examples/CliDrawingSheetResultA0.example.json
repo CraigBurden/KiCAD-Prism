@@ -1,0 +1,49 @@
+{
+  "schema": "prism.cli.drawing_sheet_result.a0",
+  "ops": [
+    {
+      "kind": "rect",
+      "x1_nm": 177000000,
+      "y1_nm": 166000000,
+      "x2_nm": 285000000,
+      "y2_nm": 198000000,
+      "corner_radius_nm": 0,
+      "fill": "NO_FILL",
+      "width_nm": 152400,
+      "stroke_color": "#840000FF"
+    },
+    {
+      "kind": "poly",
+      "points": [
+        {
+          "x_nm": 60000000,
+          "y_nm": 12000000
+        },
+        {
+          "x_nm": 60000000,
+          "y_nm": 10000000
+        }
+      ],
+      "fill": "NO_FILL",
+      "width_nm": 152400,
+      "stroke_color": "#840000FF"
+    },
+    {
+      "kind": "text",
+      "x_nm": 35000000,
+      "y_nm": 11000000,
+      "text": "1",
+      "color": "#840000FF",
+      "orient_deg": 0,
+      "size_x_nm": 1300000,
+      "size_y_nm": 1300000,
+      "pen_width_nm": 152400,
+      "h_align": "GR_TEXT_H_ALIGN_LEFT",
+      "v_align": "GR_TEXT_V_ALIGN_CENTER",
+      "italic": false,
+      "bold": false,
+      "multiline": false,
+      "font_face": "Arial"
+    }
+  ]
+}

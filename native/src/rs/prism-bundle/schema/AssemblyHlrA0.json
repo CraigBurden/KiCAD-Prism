@@ -1,0 +1,513 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$id": "urn:prism:schema:prism.assembly_hlr:a0",
+    "type": "object",
+    "properties": {
+        "schema": {
+            "type": "string",
+            "const": "prism.assembly_hlr.a0",
+            "description": "Document schema id."
+        },
+        "options": {
+            "$ref": "#/$defs/AssemblyHlrOptions",
+            "description": "The HLR options every footprint's projection used."
+        },
+        "runtime": {
+            "$ref": "#/$defs/AssemblyHlrRuntime",
+            "description": "The Geometer runtime the projection used."
+        },
+        "footprints": {
+            "type": "array",
+            "items": {
+                "$ref": "#/$defs/AssemblyHlrFootprint"
+            },
+            "description": "Every footprint that names a 3D model, sorted by `documentPath`, then\n`uuid`, each in code point order; a footprint with no model at all is not\nlisted. Footprints with a resolvable STEP model carry `pose`, `outline` and\n`detail`; the others carry a `status`."
+        }
+    },
+    "required": [
+        "schema",
+        "options",
+        "runtime",
+        "footprints"
+    ],
+    "unevaluatedProperties": {
+        "not": {}
+    },
+    "description": "The HLR projection of every footprint that names a 3D model, the bundle\nmember `models/assembly-hlr.json` (stage `models`).",
+    "title": "Prism assembly HLR a0",
+    "$defs": {
+        "AssemblyHlrOptions": {
+            "type": "object",
+            "properties": {
+                "projectionAlgorithm": {
+                    "$ref": "#/$defs/AssemblyHlrProjectionAlgorithm",
+                    "description": "The projection algorithm, when the config set one. Absent when Geometer's default applies."
+                },
+                "outlineAlgorithm": {
+                    "$ref": "#/$defs/AssemblyHlrOutlineAlgorithm",
+                    "description": "The outline (silhouette) algorithm."
+                },
+                "curveMode": {
+                    "$ref": "#/$defs/AssemblyHlrCurveMode",
+                    "description": "The curve output mode."
+                },
+                "samplesPerCurve": {
+                    "$ref": "#/$defs/Count",
+                    "description": "How many segments one curve samples into when `curveMode` is `polyline`."
+                },
+                "roundDigits": {
+                    "$ref": "#/$defs/Count",
+                    "description": "Decimal digits retained in the projected geometry."
+                },
+                "includeVisible": {
+                    "type": "boolean",
+                    "description": "Include the visible internal edges (`detail`)."
+                },
+                "includeOutline": {
+                    "type": "boolean",
+                    "description": "Include the silhouette (`outline`)."
+                },
+                "unionPolygons": {
+                    "type": "boolean",
+                    "description": "Union outline polygons before rendering."
+                },
+                "meshLinearDeflection": {
+                    "type": "number",
+                    "description": "Mesh linear deflection in millimetres, when set. Absent when Geometer's default applies."
+                },
+                "meshAngularDeflection": {
+                    "type": "number",
+                    "description": "Mesh angular deflection in radians, when set. Absent when Geometer's default applies."
+                },
+                "meshRelative": {
+                    "type": "boolean",
+                    "description": "Whether the mesh deflections are relative to the model size, when set. Absent when Geometer's default applies."
+                },
+                "hlrAngleTolerance": {
+                    "type": "number",
+                    "description": "The hidden-line-removal angle tolerance in degrees, when set. Absent when Geometer's default applies."
+                },
+                "edgeFlags": {
+                    "$ref": "#/$defs/RecordBoolean",
+                    "description": "The per-edge-family visibility flags passed to Geometer. The keys are\nGeometer's flag names (for example `edge_v_outline`), serialized in code\npoint order. Absent when no flags were set."
+                }
+            },
+            "required": [
+                "outlineAlgorithm",
+                "curveMode",
+                "samplesPerCurve",
+                "roundDigits",
+                "includeVisible",
+                "includeOutline",
+                "unionPolygons"
+            ],
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "The HLR options every footprint's projection used. The values are the\noptions passed to Geometer, so a consumer can reproduce the projection from\nthe model bytes. The projection's side is not here: it is each footprint's\nown `side`."
+        },
+        "AssemblyHlrRuntime": {
+            "type": "object",
+            "properties": {
+                "geometerVersion": {
+                    "type": "string",
+                    "description": "The Geometer runtime's version string, exactly as `geometer.version()`\nreports it, for example `2026.9.7`. It is part of the generator id's\n`hlr_procedure`."
+                }
+            },
+            "required": [
+                "geometerVersion"
+            ],
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "The Geometer runtime the projection used."
+        },
+        "AssemblyHlrFootprint": {
+            "type": "object",
+            "properties": {
+                "documentPath": {
+                    "$ref": "#/$defs/RepoPath",
+                    "description": "The board file's repository-relative path."
+                },
+                "uuid": {
+                    "$ref": "#/$defs/KiCadUuid",
+                    "description": "The footprint's `(uuid …)`, as written."
+                },
+                "reference": {
+                    "$ref": "#/$defs/Refdes",
+                    "description": "The footprint's reference designator, as written. Absent when it has none or it is empty."
+                },
+                "side": {
+                    "$ref": "#/$defs/Side",
+                    "description": "The footprint's side: `back` when its `(layer …)` starts with `B.`."
+                },
+                "stepModel": {
+                    "$ref": "#/$defs/AssemblyHlrModel",
+                    "description": "The footprint's first STEP model. Absent when it names no `.step`/`.stp` model (`model-not-step`)."
+                },
+                "pose": {
+                    "$ref": "#/$defs/AssemblyHlrPose",
+                    "description": "The model's pose. Present exactly when the model was projected (`outline` and `detail` are present)."
+                },
+                "outline": {
+                    "$ref": "#/$defs/AssemblyHlrEdges",
+                    "description": "The silhouette edges, board frame. Present exactly when the projection succeeded."
+                },
+                "detail": {
+                    "$ref": "#/$defs/AssemblyHlrEdges",
+                    "description": "The visible-internal edges, board frame. Present exactly when the projection succeeded."
+                },
+                "status": {
+                    "$ref": "#/$defs/AssemblyHlrStatus",
+                    "description": "Why the footprint has no geometry. Present exactly when `outline` and\n`detail` are absent; absent when the projection succeeded."
+                }
+            },
+            "required": [
+                "documentPath",
+                "uuid",
+                "side"
+            ],
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "One footprint's model, pose and projected geometry, or the reason it has none."
+        },
+        "AssemblyHlrProjectionAlgorithm": {
+            "type": "string",
+            "enum": [
+                "poly",
+                "exact",
+                "fast"
+            ],
+            "description": "The projection algorithm: Geometer's `projection_algorithm` token, kept verbatim."
+        },
+        "AssemblyHlrOutlineAlgorithm": {
+            "type": "string",
+            "enum": [
+                "hlr-close",
+                "mesh-shadow",
+                "fast-mesh-shadow"
+            ],
+            "description": "The outline (silhouette) algorithm: Geometer's `outline_algorithm` token, kept verbatim."
+        },
+        "AssemblyHlrCurveMode": {
+            "type": "string",
+            "enum": [
+                "native_arcs",
+                "polyline"
+            ],
+            "description": "A footprint's projection curve output mode: Geometer's `curve_mode` token, kept verbatim."
+        },
+        "Count": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "A count of things: a non-negative safe integer."
+        },
+        "RecordBoolean": {
+            "type": "object",
+            "properties": {},
+            "unevaluatedProperties": {
+                "type": "boolean"
+            }
+        },
+        "RepoPath": {
+            "type": "string",
+            "pattern": "^(?:[^/\\\\:.][^/\\\\:]*|\\.[^/\\\\:.][^/\\\\:]*|\\.\\.[^/\\\\:]+)(?:/(?:[^/\\\\:.][^/\\\\:]*|\\.[^/\\\\:.][^/\\\\:]*|\\.\\.[^/\\\\:]+))*$",
+            "description": "Repository-relative POSIX path, exactly as `git ls-tree` names the entry:\n`/`-separated, case preserved, no leading `/`, no empty, `.` or `..`\nsegment, no backslash and no `:`. The same character rule as ArchivePath.\nIt is the only path type in bundle documents: a file has one spelling\nwhichever project in the repository refers to it, and a file outside the\nproject directory needs no `..`."
+        },
+        "KiCadUuid": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+            "description": "KiCad object UUID in the canonical form KiCad writes (`KIID::AsString`):\nlowercase hexadecimal, 8-4-4-4-12. Copied from the file, never generated\nor re-cased."
+        },
+        "Refdes": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Reference designator as KiCad resolves it for one symbol instance or\nfootprint, for example `R1`, `U3`, `#PWR01` or `R?`. Always a string. A\ncontract states whether it includes virtual (`#`) and unannotated (`?`)\nreferences."
+        },
+        "Side": {
+            "type": "string",
+            "enum": [
+                "front",
+                "back"
+            ],
+            "description": "Board side of a footprint, pad or graphic."
+        },
+        "AssemblyHlrModel": {
+            "type": "object",
+            "properties": {
+                "reference": {
+                    "type": "string",
+                    "description": "The model reference as written in the footprint's `(model …)`: a\n`${VAR}`-relative path, a repository-relative path, or a `kicad-embed://`\nreference."
+                },
+                "sha256": {
+                    "$ref": "#/$defs/Sha256Hex",
+                    "description": "SHA-256 of the STEP file's bytes. Absent when the bytes could not be resolved (`model-unavailable`)."
+                }
+            },
+            "required": [
+                "reference"
+            ],
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "The footprint's first STEP model and the digest of its bytes."
+        },
+        "AssemblyHlrPose": {
+            "type": "object",
+            "properties": {
+                "positionNm": {
+                    "$ref": "#/$defs/PointNm",
+                    "description": "Board-absolute anchor of the footprint: its `(at x y)` in KiCad's board frame."
+                },
+                "rotationDeg": {
+                    "$ref": "#/$defs/Degrees",
+                    "description": "The footprint's orientation in degrees, as written, not normalized."
+                },
+                "modelOffset": {
+                    "$ref": "#/$defs/AssemblyHlrVector3Nm",
+                    "description": "The model's `(offset x y z)` as written, in nanometres."
+                },
+                "modelRotation": {
+                    "$ref": "#/$defs/AssemblyHlrRotation3Deg",
+                    "description": "The model's `(rotate x y z)` as written, in degrees."
+                },
+                "modelScale": {
+                    "$ref": "#/$defs/AssemblyHlrScale3",
+                    "description": "The model's `(scale x y z)` as written."
+                }
+            },
+            "required": [
+                "positionNm",
+                "rotationDeg",
+                "modelOffset",
+                "modelRotation",
+                "modelScale"
+            ],
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "The pose of the footprint's model: the footprint's placement on the board,\nplus the model's own offset, rotation and scale, exactly the inputs of\nCruncher's `kicad_model_local_pose`."
+        },
+        "AssemblyHlrEdges": {
+            "type": "object",
+            "properties": {
+                "segments": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/$defs/AssemblyHlrSegment"
+                    },
+                    "description": "The straight edges, in the order Geometer returned them after Cruncher's\ndeduplication (endpoints ordered and duplicates removed)."
+                },
+                "arcs": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/$defs/AssemblyHlrArc"
+                    },
+                    "description": "The circular edges, in the order Geometer returned them after Cruncher's deduplication."
+                }
+            },
+            "required": [
+                "segments",
+                "arcs"
+            ],
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "A projected edge set: its segments and arcs."
+        },
+        "AssemblyHlrStatus": {
+            "type": "string",
+            "enum": [
+                "model-unavailable",
+                "model-not-step",
+                "projection-failed"
+            ],
+            "description": "Why a footprint's body was not projected."
+        },
+        "Sha256Hex": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$",
+            "description": "Lowercase hexadecimal SHA-256 digest: exactly 64 characters, no prefix such as `sha256:`."
+        },
+        "PointNm": {
+            "type": "object",
+            "properties": {
+                "xNm": {
+                    "$ref": "#/$defs/Nanometres",
+                    "description": "X coordinate in nanometres, +x to the right."
+                },
+                "yNm": {
+                    "$ref": "#/$defs/Nanometres",
+                    "description": "Y coordinate in nanometres, +y down."
+                }
+            },
+            "required": [
+                "xNm",
+                "yNm"
+            ],
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "A point in nanometres in KiCad's board frame: +x to the right, +y down, as\nin the file and never flipped. The field holding the point states whether\nit is board-absolute or footprint-local. For camelCase (projection)\ndocuments only."
+        },
+        "Degrees": {
+            "type": "number",
+            "description": "Angle in degrees. In new documents it is as written in the KiCad file:\nnot normalized, not rounded. A parity document may round it as today's\noutput does, and its field says so. A positive angle is a counter-clockwise rotation as KiCad shows\nit on the front side. Each field states the frame its angle is in."
+        },
+        "AssemblyHlrVector3Nm": {
+            "type": "object",
+            "properties": {
+                "xNm": {
+                    "$ref": "#/$defs/Nanometres",
+                    "description": "X component in nanometres."
+                },
+                "yNm": {
+                    "$ref": "#/$defs/Nanometres",
+                    "description": "Y component in nanometres."
+                },
+                "zNm": {
+                    "$ref": "#/$defs/Nanometres",
+                    "description": "Z component in nanometres."
+                }
+            },
+            "required": [
+                "xNm",
+                "yNm",
+                "zNm"
+            ],
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "A three-dimensional vector in nanometres."
+        },
+        "AssemblyHlrRotation3Deg": {
+            "type": "object",
+            "properties": {
+                "xDeg": {
+                    "$ref": "#/$defs/Degrees",
+                    "description": "Rotation about x, in degrees as written."
+                },
+                "yDeg": {
+                    "$ref": "#/$defs/Degrees",
+                    "description": "Rotation about y, in degrees as written."
+                },
+                "zDeg": {
+                    "$ref": "#/$defs/Degrees",
+                    "description": "Rotation about z, in degrees as written."
+                }
+            },
+            "required": [
+                "xDeg",
+                "yDeg",
+                "zDeg"
+            ],
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "A three-dimensional rotation in degrees."
+        },
+        "AssemblyHlrScale3": {
+            "type": "object",
+            "properties": {
+                "x": {
+                    "type": "number",
+                    "description": "X scale factor."
+                },
+                "y": {
+                    "type": "number",
+                    "description": "Y scale factor."
+                },
+                "z": {
+                    "type": "number",
+                    "description": "Z scale factor."
+                }
+            },
+            "required": [
+                "x",
+                "y",
+                "z"
+            ],
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "A three-dimensional scale factor."
+        },
+        "AssemblyHlrSegment": {
+            "type": "object",
+            "properties": {
+                "startNm": {
+                    "$ref": "#/$defs/PointNm",
+                    "description": "The edge's start point, board frame."
+                },
+                "endNm": {
+                    "$ref": "#/$defs/PointNm",
+                    "description": "The edge's end point, board frame."
+                }
+            },
+            "required": [
+                "startNm",
+                "endNm"
+            ],
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "One straight edge of a projected edge set."
+        },
+        "AssemblyHlrArc": {
+            "type": "object",
+            "properties": {
+                "startNm": {
+                    "$ref": "#/$defs/PointNm",
+                    "description": "The arc's start point, board frame."
+                },
+                "endNm": {
+                    "$ref": "#/$defs/PointNm",
+                    "description": "The arc's end point, board frame."
+                },
+                "centerNm": {
+                    "$ref": "#/$defs/PointNm",
+                    "description": "The arc's center point, board frame."
+                },
+                "radiusNm": {
+                    "$ref": "#/$defs/NonNegativeNanometres",
+                    "description": "The arc's radius in nanometres."
+                },
+                "extentDeg": {
+                    "$ref": "#/$defs/Degrees",
+                    "description": "The arc's angular extent in degrees, from Geometer's `extent_rad`."
+                },
+                "ccw": {
+                    "type": "boolean",
+                    "description": "True when the arc runs counter-clockwise from `startNm` to `endNm`."
+                },
+                "fullCircle": {
+                    "type": "boolean",
+                    "description": "True when the arc is a full circle, in which case `startNm` and `endNm` coincide."
+                }
+            },
+            "required": [
+                "startNm",
+                "endNm",
+                "centerNm",
+                "radiusNm",
+                "extentDeg",
+                "ccw",
+                "fullCircle"
+            ],
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "One circular edge of a projected edge set, the fields Geometer returns."
+        },
+        "Nanometres": {
+            "type": "integer",
+            "description": "Length or coordinate in integer nanometres, KiCad's internal board unit.\nConverted from the file's decimal millimetres as KiCad's own parser does:\nthe double product value_mm * 1e6, rounded half away from zero. A single\ncoordinate or dimension fits KiCad's 32-bit range; sums (for example a\nnet's total track length) may not, hence a safe integer (|n| < 2^53)."
+        },
+        "NonNegativeNanometres": {
+            "type": "integer",
+            "description": "A Nanometres value that is never negative: a thickness, width, diameter or length.",
+            "minimum": 0
+        }
+    }
+}

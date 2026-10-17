@@ -1,6 +1,6 @@
 # ADR: Prism-native KiCad parser and the design bundle
 
-- **Status:** Accepted (2026-10-16); amended 2026-10-17 (C2, [`adr-native-design-bundle-amendment-c2.md`](adr-native-design-bundle-amendment-c2.md); C2r, [`adr-native-design-bundle-amendment-c2r.md`](adr-native-design-bundle-amendment-c2r.md))
+- **Status:** Accepted (2026-10-16); amended 2026-10-17 (C2, [`adr-native-design-bundle-amendment-c2.md`](adr-native-design-bundle-amendment-c2.md); C2r, [`adr-native-design-bundle-amendment-c2r.md`](adr-native-design-bundle-amendment-c2r.md); C3, [`adr-native-design-bundle-amendment-c3.md`](adr-native-design-bundle-amendment-c3.md))
 - **Deciders:** Prism maintainers
 - **Supersedes:** the per-feature KiCad loading described in `docs/plans/kicad-monkey-*.md`
 - **Reference branch:** `feature/analytic-pack-spike` (analytic 3D tab, Simulation Studio, `board.prism` a1). It is reference only: code may be copied from it, it is never merged.
@@ -54,7 +54,7 @@ Consequences measured on a live instance:
   They run KiCad on sources taken from the bundle, keyed by the bundle key plus the KiCad version. Gerbers and drill files stay outside the bundle (decided, §10).
 - **The browser viewers.** The Schematic and PCB tabs and the Design Comparison overlay keep parsing raw files in ecad-viewer, served from the bundle's `sources/`. The imported `wasm` crate makes a later move to one parser in the browser possible (separate ADR).
 - **Library files** (`.kicad_sym`, `.kicad_mod` in the catalog). These are not project revisions. They stay with `kicad_library_reader` until a later ADR; the imported `symbol_library` module is the starting point.
-- **kicad-cruncher as a tool.** Release Studio keeps calling it for assembly SVGs and JLCPCB BOM/PnP. Its Rust CLI is imported with the rest, so Prism owns the source from now on (decided, §10).
+- ~~**kicad-cruncher as a tool.**~~ Superseded by amendment C3 ([`adr-native-design-bundle-amendment-c3.md`](adr-native-design-bundle-amendment-c3.md)): Release Studio no longer calls Cruncher. Its assembly views, vendor BOM/PnP files and sheet text come from `prism-kicad` (`artwork`, `vendor`, `stroke-text`, `drawing-sheet`) and the bundle member `models/assembly-hlr.json`. The imported Rust Cruncher CLI is harvested for that work and then removed (R2).
 
 ## 3. Consequences
 
@@ -116,7 +116,7 @@ The import takes everything Rust in the fork at `b6316117`. That is upstream `bc
 | wasm | 5k | — | one parser in the browser (Schematic/PCB tabs, comparison overlay, analytic lowering client-side) |
 | native | 2.3k | — | superseded by `prism-kicad`; kept so the workspace builds and tests as imported |
 | codegen | 1.8k | regenerating contracts when a schema changes | — |
-| kicad-cruncher-cli | — | still invoked as a tool by Release Studio | assembly views, BOM/PnP owned in Rust |
+| kicad-cruncher-cli | — | harvested into `prism-artwork` and `prism-vendors` (amendment C3), then removed in R2 | assembly views, BOM/PnP owned in Rust |
 | core modules unused at first: plot contracts, `pcb_authoring`, `symbol_library`, `sexpr_mutation`, `schematic_embedded` | ~11k | — | writing KiCad files (Release Studio staged boards, catalog placement rewrites, maybe the footprint flip), catalog libraries, KiCad 9/10 embedded files |
 
 - **Build size:** the worker's `prism-kicad` binary enables only the features it needs. The other crates build and test in CI.
@@ -215,6 +215,7 @@ Each member has a role, a schema id, sha256, size and the stage that wrote it in
 | `refilled/<stem>.kicad_pcb` | board | — | board after the zone refill | materializer, KiCad-output jobs |
 | `materialization/board.kmpack` | board | `kicad_monkey.materialization.a0` | analytic board | 3D tab, System Builder 3D, Simulation Studio |
 | `viewer/models/components.glb` | models | — | component bodies from `kicad-cli` | 3D tab, System Builder 3D and collision meshes |
+| `models/assembly-hlr.json` | models | `prism.assembly_hlr.a0` | per footprint, the hidden-line outline and detail edges of its first STEP model in board coordinates, or why there are none (amendment C3) | Release Studio assembly and testpoint artwork |
 
 The Python topology compiler's viewer assets are not bundle members. The mesh 3D tab and System Builder 3D keep reading the old `semantic-visualizer/` store until WP-C5 retires it (`native/contracts/prism/decisions.md`).
 
@@ -316,6 +317,7 @@ The CLI spec (`prism-kicad`):
 - `bundle extract <bundle> <member>... -o <dir>`
 - `revision-key <repo> (--commit <sha> | --worktree) --project <rel> [--config <effective.json>]`, exactly one of `--commit` and `--worktree`
 - `compare --base <base.prism> --head <head.prism> -o <delta.json>`: Design Comparison's object diff over the two bundles' `board-objects` (amendment C2, cli-spec.md §5.6)
+- `artwork`, `vendor list` / `vendor run`, `stroke-text`, `drawing-sheet`: Release Studio's artwork, vendor files and sheet text (amendment C3, cli-spec.md §5.7–§5.9)
 - Full grammar, streams, exit codes (including 9, recorded content failure, and 10, project absent), limits and the backend integration: `native/contracts/prism/cli-spec.md`.
 - `version`
 
@@ -354,7 +356,7 @@ Every P-WP owns one module `native/src/rs/prism-projections/src/<name>.rs`, its 
 |---|---|---|---|---|
 | C1 | Semantic index consumers:<br>• the identity endpoint serves the member;<br>• component import and the variants API (`variant_catalog_service`) read `assembly`;<br>• Release Studio's index digest;<br>• the API never builds an index | `semantic_index_service.py` (becomes a reader), `api/projects.py` index routes, `api/project_variants.py`, `variant_catalog_service.py`, `project_component_import_service.py` | P1, K | inspector, search, BOM table, variants and cross-probe unchanged (frontend tests plus a browser check on EDA-04903); identity served from a file with ETag; frontend types updated for a1's added fields |
 | C2 | Design Comparison (amendment C2r):<br>• every tab except fabrication computed by `prism-kicad compare`, from bundles or, when a commit has none yet, from its source tree;<br>• ecad-viewer's diff bundle (`KiCadProjectDiffBundle`) from `compare`, in today's format;<br>• a new review contract for the tabs;<br>• fabrication from `kicad-cli`, keyed by bundle key;<br>• Node `ecad-diff` and the Python assembly retired;<br>• overlay sources from `sources/` | `design_compare_*.py`, `document_diff_service.py` (bundle path), `fabrication_compare_service.py` (keying only), `backend/design-compare-parser/` (removal), `frontend/src/components/design-comparison/**`, `native/src/rs/prism-projections/src/compare/`, `native/src/rs/prism-kicad-cli/src/cmd_compare.rs`, the parse stage's scheduling, the `compare` parity member | P1, P2, P3, K | full comparison test suite; same review groups, counts and changed objects as today on a recorded set of real pairs, after the documented divergences; ecad-viewer's resolution counters equal or better on those pairs; bundle and source-tree modes byte-identical; on a cold two-commit EDA-04903 comparison in the worker image, every tab except fabrication before today's first result and every tab by today's complete result (C2r §5) |
-| C3 | Release Studio:<br>• projections from P3 and P4;<br>• the index from P1;<br>• kicad-cli steps read `sources/` and `refilled/`;<br>• the testpoint-only board and model rewrites stay KiCad-file writes, from bundle sources | `release_studio/projections.py`, `document_pipeline.py`, `closure*.py`, `source.py` | P1, P3, P4, K | dossier and evidence digests identical on the Release Studio fixtures; no `KiCadPcb` load remains |
+| C3 | Release Studio (amendment C3):<br>• projections from P3 and P4, variants from P2;<br>• the index from P1, the scope fingerprint over an a0-compatible view;<br>• board kicad-cli steps on `refilled/`, schematic steps on `sources/`;<br>• assembly and testpoint artwork from `prism-kicad artwork` and `models/assembly-hlr.json`;<br>• vendor files from `prism-kicad vendor`;<br>• sheet text and frame from `prism-kicad stroke-text` and `drawing-sheet`;<br>• no Cruncher and no Python kicad_monkey; model rewrites stay KiCad-file writes from bundle sources | `release_studio/**`, `release_studio_build_service.py`, `release_studio_model_inputs.py`, the new crates `prism-artwork` and `prism-vendors`, `native/third_party/geometer-client/`, the `models`-stage HLR member | P1, P2, P3, P4, V1, K | the targets of amendment C3 §4: vendor CSVs byte-identical, XLSX cell-identical, stroke text, drawing sheet and HLR equal to today's, the scope fingerprint unchanged, the dossier digest changing once as divergence `rs-1` (and `rs-2` for stale saved fills); no `kicad_monkey`, `kicad_cruncher` or `geometer` import under Release Studio |
 | C4a | System Builder interface: from P5, cached by revision key; drift and digests; the System Builder frontend readers of interface and placement fields | `backend/app/services/systems/` (interface, drift, digests), `api/systems*.py`, `frontend/src/types/system.ts`, `frontend/src/lib/systems-api.ts`, `placement/frames.ts`, `placement/mate.ts`, `findings-ui.tsx` | P3, P5, K | `test_system_e2e_replay` passes; identical interface digests on the System Builder fixtures |
 | C4b | System Builder 3D scene, after C5: from the bundle via `bundles.py` (`materialization`, `viewer/models/components.glb`, mid-plane from `stackup`, the same `bundleToBoard` frame); collision meshes from the bundle GLB; STEP export reads `sources/` | `backend/app/services/systems/` (bundles, collision meshes, step export), `frontend/src/features/system-builder/scene-3d-tab.tsx` loaders only | P3, V1, K, C5 | scene tests pass; same frames and mid-planes on the corpus systems; the `<prism-semantic-viewer mode="system">` placing flow works in a browser check |
 | C5 | 3D tab on the analytic model:<br>• port the reference branch's analytic renderer, 2D layer view and mask colours onto bundle members;<br>• selection and cross-probe through `semantic-index`;<br>• retire the Python topology compiler and mesh path for the 3D tab | `frontend/src/components/webgpu-3d-tab.tsx` and the analytic renderer, `semantic_visualizer_service.py` (becomes a thin bundle reader), `kicad-prism-viewer/` 3D pieces (removal in R2) | V1, P3, K | visual check on EDA-04903, USB-PD-Trigger-Board and one System Builder board; no `topology_compiler` process |
@@ -367,7 +369,7 @@ Every P-WP owns one module `native/src/rs/prism-projections/src/<name>.rs`, its 
 | WP | Deliverable | Accept |
 |---|---|---|
 | R1 | Flip all flags to `bundle`; delete the legacy paths and the flags | suite green with no `legacy` branch left |
-| R2 | Remove:<br>• `kicad-prism-viewer/pipeline/topology_compiler` (3D parts);<br>• `backend/design-compare-parser/`;<br>• `kicad_monkey_design_adapter.py`;<br>• every revision parse through Python `kicad-monkey`. Release Studio's Python cruncher tools (`pcb-svg`, `bom`, `pnp`) and its stroke-font and drawing-sheet rendering, and the catalog's library-file imports, stay as allow-listed tool uses until a later ADR ports them onto Prism's parser and `kicad-cli` (decisions.md, Ownership map items 1–2) | no revision parse imports `kicad-monkey`; the allow-listed modules are the only importers (X); image size and build time reported |
+| R2 | Remove:<br>• `kicad-prism-viewer/pipeline/topology_compiler` (3D parts);<br>• `backend/design-compare-parser/`;<br>• `kicad_monkey_design_adapter.py`;<br>• every revision parse through Python `kicad-monkey`. The catalog's library-file imports stay as allow-listed tool uses until a later ADR ports them onto Prism's parser (decisions.md, Ownership map item 2). Release Studio's former tool uses are gone with C3 (amendment C3), and R2 also removes `kicad-cruncher-cli` from the workspace | no revision parse imports `kicad-monkey`; the allow-listed modules are the only importers (X); image size and build time reported |
 | R3 | `prism-kicad-native` and `prism-clipper2` move onto the imported core (or are absorbed into `prism-projections`) | no crate depends on `wavenumber-eng/kicad_monkey` |
 | R4 | Remove the superseded stores and tables (§8) with a migration; one-off cleanup of the old directories | no reader of the old stores remains; space reclaimed reported |
 | X | Architecture test: no module under `backend/app` imports a KiCad parser or opens `.kicad_*` files, outside `design_bundle/`, the KiCad-output jobs and the catalog library reader | `backend/tests/test_design_source_boundary.py` |
@@ -390,7 +392,7 @@ Every P-WP owns one module `native/src/rs/prism-projections/src/<name>.rs`, its 
 1. Projections that only read parsed facts (including `system-interface`) are produced in Rust.
 2. Gerbers and drill files stay outside the bundle, keyed by bundle key.
 3. Catalog library parsing moves onto the imported core in a later ADR.
-4. kicad-cruncher's Rust is imported and owned. Release Studio keeps calling it as a tool.
+4. ~~kicad-cruncher's Rust is imported and owned. Release Studio keeps calling it as a tool.~~ Superseded by amendment C3: Cruncher is dropped; its logic is re-implemented in `prism-artwork` and `prism-vendors`.
 5. No Python bindings. The MCP server will call `prism-kicad`.
 6. `wn-geometer` and the Geometer C SDK remain pinned external dependencies. Replacing them is out of scope.
 7. Design Comparison is computed in Rust (`prism-kicad compare`), from bundles or source trees; ecad-viewer's input format is unchanged (amendment C2r, [`adr-native-design-bundle-amendment-c2r.md`](adr-native-design-bundle-amendment-c2r.md), revising C2).

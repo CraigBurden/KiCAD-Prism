@@ -1,0 +1,21 @@
+{
+  "schema": "prism.stroke_text.request.a0",
+  "runs": [
+    {
+      "text": "R12",
+      "x_mm": 20,
+      "y_mm": 40,
+      "size_mm": 1.27,
+      "h_align": "left",
+      "v_align": "bottom"
+    },
+    {
+      "text": "TP7",
+      "x_mm": 60,
+      "y_mm": 40,
+      "size_mm": 2.5,
+      "h_align": "center",
+      "v_align": "center"
+    }
+  ]
+}

@@ -1,0 +1,27 @@
+{
+  "schema": "prism.vendor.jlcpcb.config.a0",
+  "variants": {
+    "mode": "base",
+    "names": [],
+    "include_base": true
+  },
+  "bom": {
+    "outputs": [
+      "jlc-csv",
+      "jlc-xlsx"
+    ],
+    "group_fields": [
+      "value",
+      "footprint"
+    ],
+    "include_dnp": false,
+    "split_dnp": false
+  },
+  "pnp": {
+    "outputs": [
+      "jlc-cpl",
+      "jlc-cpl-xlsx"
+    ],
+    "units": "mm"
+  }
+}

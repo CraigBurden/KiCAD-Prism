@@ -1,0 +1,32 @@
+{
+  "schema": "prism.cli.vendor_list.a0",
+  "vendors": [
+    {
+      "id": "jlcpcb",
+      "name": "JLCPCB",
+      "outputs": [
+        {
+          "kind": "bom",
+          "format": "csv",
+          "version": "1.0.0"
+        },
+        {
+          "kind": "bom",
+          "format": "xlsx",
+          "version": "1.0.0"
+        },
+        {
+          "kind": "cpl",
+          "format": "csv",
+          "version": "1.0.0"
+        },
+        {
+          "kind": "cpl",
+          "format": "xlsx",
+          "version": "1.0.0"
+        }
+      ],
+      "config_schema": "prism.vendor.jlcpcb.config.a0"
+    }
+  ]
+}
