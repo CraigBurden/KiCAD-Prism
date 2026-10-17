@@ -10,7 +10,7 @@
    two pointers, and nothing else.
 3. The same changed bundle with a temporary divergence file that accepts the
    two changes: the runner must exit 0 and report ``equal-with-divergences``.
-4. A changed non-semantic field (the semantic index's ``sourceRevisionKey``)
+4. A changed non-semantic field (the semantic index's ``designKey``)
    must not count.
 5. Where a route-metrics golden is changed by the accepted D7 rule, a member
    equal to the rule's output must pass as ``equal-with-divergences`` and the
@@ -192,13 +192,14 @@ def main(args: argparse.Namespace) -> int:
     # 4. Non-semantic fields do not count.
     si_case = next((c for c in cases if "semantic-index" in documents[c]), None)
     if si_case:
-        doc = copy.deepcopy(documents[si_case]["semantic-index"])
-        doc["sourceRevisionKey"] = "0" * 64
+        # From what a correct producer writes (the a2 envelope, D1), not the a1 golden.
+        doc = copy.deepcopy(members[si_case]["semantic-index"])
+        doc["designKey"] = "0" * 64
         with tempfile.TemporaryDirectory() as tmp:
             _write_bundle(Path(tmp), si_case, {"semantic-index": doc})
             code, out, report = _run(["compare", str(Path(tmp) / si_case), "--case", si_case,
                                       "--goldens", str(goldens.root), "--members", "semantic-index"])
-        expect(code == 0, f"4. a different sourceRevisionKey is non-semantic ({si_case}): exit {code}")
+        expect(code == 0, f"4. a different designKey is non-semantic ({si_case}): exit {code}")
 
     # 5. The accepted route-metrics D7 rule.
     rule = dv.RULES["route-metrics/via-spans-used-layers"]
