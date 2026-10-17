@@ -725,7 +725,7 @@ export function Visualizer({ projectId, user, commit, active: viewerActive = tru
     }, [activeTab, globalSelection, notifyClientReady, semanticIndex, viewers]);
 
     useEffect(() => {
-        const revisionKey = semanticIndex?.sourceRevisionKey ?? commit ?? undefined;
+        const revisionKey = semanticIndex?.designKey ?? semanticIndex?.sourceRevisionKey ?? commit ?? undefined;
         const offSelection = viewers.on("selection", (detail) => {
             lastSelectionRef.current = detail;
             const normalized = normalizeEcadSelection(detail, revisionKey);
@@ -756,7 +756,7 @@ export function Visualizer({ projectId, user, commit, active: viewerActive = tru
             offProbe();
             offNets();
         };
-    }, [commit, clearGlobalSelection, crossProbeGlobal, selectGlobal, semanticIndex?.sourceRevisionKey, toggleNetForSelection, viewers]);
+    }, [commit, clearGlobalSelection, crossProbeGlobal, selectGlobal, semanticIndex?.designKey ?? semanticIndex?.sourceRevisionKey, toggleNetForSelection, viewers]);
 
     // Project the collection onto the board. Keyed on the ready generation so
     // nets accumulated before the board finished loading are applied once it
@@ -800,14 +800,14 @@ export function Visualizer({ projectId, user, commit, active: viewerActive = tru
         const unregisterSchematic = registerClient({
             id: "visualizer-schematic",
             context: "SCH",
-            revisionKey: semanticIndex?.sourceRevisionKey ?? commit ?? undefined,
+            revisionKey: semanticIndex?.designKey ?? semanticIndex?.sourceRevisionKey ?? commit ?? undefined,
             isReady: () => viewers.sch.isReady(buildViewerKey("schematic", projectId, commit)),
             applySelection: (selection) => applySelection(viewers.sch, "SCH", selection),
         });
         const unregisterPcb = registerClient({
             id: "visualizer-pcb",
             context: "PCB",
-            revisionKey: semanticIndex?.sourceRevisionKey ?? commit ?? undefined,
+            revisionKey: semanticIndex?.designKey ?? semanticIndex?.sourceRevisionKey ?? commit ?? undefined,
             isReady: () => viewers.pcb.isReady(buildViewerKey("pcb", projectId, commit)),
             applySelection: (selection) => applySelection(viewers.pcb, "PCB", selection),
         });
