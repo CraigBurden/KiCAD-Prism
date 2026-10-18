@@ -43,6 +43,9 @@ export function withSentinels(values) {
  * `bounds` the slice's board-millimetre extent. Without the stencil feature
  * only add shapes draw (no subtracts, no regions); `stats().degraded` says so.
  */
+/** Pixels a slice's scissor reaches past its projected extent (MSAA, dilated shapes, wall shading). */
+const SCISSOR_MARGIN_PX = 2;
+
 /** How far (mm) a conformal mask's step stands off its copper, clearing the copper's wall. */
 export const STEP_CLEARANCE_MM = 0.0005;
 
@@ -1034,6 +1037,54 @@ export class AnalyticRenderer {
 
   encodeSlice(pass, pipelines, face, mode, layerOffsets, look) {
     const slice = this.drawnSlice(face);
+    // Only where the slice can be: its stencil steps cover the whole viewport otherwise.
+    // (A pick draws everything: its view may not be this frame's.)
+    const rect = pipelines === this.pipelines.pick ? undefined : this.sliceRect(slice, layerOffsets);
+    if (rect === null) return;
+    if (rect) pass.setScissorRect(rect.x, rect.y, rect.width, rect.height);
+    this.encodeSliceIn(pass, pipelines, slice, mode, layerOffsets, look);
+    if (rect) pass.setScissorRect(this.viewport.x, this.viewport.y, this.viewport.width, this.viewport.height);
+  }
+
+  /**
+   * The viewport pixels `slice` can cover in this frame (its board extent
+   * between its lowest and highest face, lifted by its layers' offsets,
+   * projected, grown by SCISSOR_MARGIN_PX): `{ x, y, width, height }`;
+   * `undefined` for the whole viewport (no viewport or view known, or a
+   * corner behind the eye); null when it lies off screen.
+   */
+  sliceRect(slice, layerOffsets) {
+    const viewport = this.viewport;
+    const matrix = this.viewMatrix;
+    if (!viewport || !matrix || !slice.bounds) return undefined;
+    const [a, b] = slice.offsetLayers || [slice.layerId, slice.layerId];
+    const lift = 0.5 * ((layerOffsets?.[a] || 0) + (layerOffsets?.[b] || 0));
+    const zs = [slice.z, slice.zBottom ?? slice.z, slice.zTop ?? slice.z, slice.zLow ?? slice.z].map((z) => z + lift);
+    const [x0, y0, x1, y1] = slice.bounds;
+    let [left, top, right, bottom] = [Infinity, Infinity, -Infinity, -Infinity];
+    for (const x of [x0 / 1000, x1 / 1000]) {
+      for (const y of [-y0 / 1000, -y1 / 1000]) {
+        for (const z of [Math.min(...zs), Math.max(...zs)]) {
+          const w = matrix[3] * x + matrix[7] * y + matrix[11] * z + matrix[15];
+          if (!(w > 1e-9)) return undefined;
+          const px = viewport.x + ((matrix[0] * x + matrix[4] * y + matrix[8] * z + matrix[12]) / w + 1) * 0.5 * viewport.width;
+          const py = viewport.y + (1 - (matrix[1] * x + matrix[5] * y + matrix[9] * z + matrix[13]) / w) * 0.5 * viewport.height;
+          left = Math.min(left, px);
+          right = Math.max(right, px);
+          top = Math.min(top, py);
+          bottom = Math.max(bottom, py);
+        }
+      }
+    }
+    const x = Math.max(viewport.x, Math.floor(left - SCISSOR_MARGIN_PX));
+    const y = Math.max(viewport.y, Math.floor(top - SCISSOR_MARGIN_PX));
+    const xEnd = Math.min(viewport.x + viewport.width, Math.ceil(right + SCISSOR_MARGIN_PX));
+    const yEnd = Math.min(viewport.y + viewport.height, Math.ceil(bottom + SCISSOR_MARGIN_PX));
+    if (xEnd <= x || yEnd <= y) return null;
+    return { x, y, width: xEnd - x, height: yEnd - y };
+  }
+
+  encodeSliceIn(pass, pipelines, slice, mode, layerOffsets, look) {
     this.writeSlice(slice, layerOffsets, look);
     pass.setBindGroup(0, slice.bindGroup);
     if (this.stencil) this.encodeStencilled(pass, pipelines, slice, mode);
