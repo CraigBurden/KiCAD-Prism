@@ -46,6 +46,10 @@ node tests/browser/pixel-diff/run.mjs \
   - a page error;
   - a view that never settles.
 
+Builds from V2a on draw the board with 4× multisampling (`renderer.js`, from the analytic spike), so a
+mesh-path capture compared with a build before V2a differs at shape edges only. Read such a
+diff by its visible share, not its pixel count.
+
 ## How a capture works
 
 `probe.js` loads before the element. It wraps `requestAnimationFrame` so that after each frame

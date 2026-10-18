@@ -1,6 +1,10 @@
 import { vi } from "vitest";
 
 import type {
+    PrismAnalyticHit,
+    PrismAnalyticReading,
+    PrismAnalyticRelief,
+    PrismAnalyticStats,
     PrismSemanticViewerElement,
     PrismSemanticViewState,
     PrismSystemSceneHarnessState,
@@ -52,6 +56,7 @@ export class FakeSemanticViewer extends HTMLElement implements PrismSemanticView
     readonly setShowComponents = vi.fn();
     readonly setShowPlaceholders = vi.fn();
     readonly setRealisticColors = vi.fn();
+    readonly setBoardLayerVisible = vi.fn();
     readonly setSeparation = vi.fn();
     readonly showNetLayers = vi.fn();
     readonly pickAt = vi.fn(async (): Promise<PrismViewerPick | null> => null);
@@ -63,6 +68,18 @@ export class FakeSemanticViewer extends HTMLElement implements PrismSemanticView
     readonly insetSurfaceZ = vi.fn(() => 0);
     readonly releaseInset = vi.fn();
     readonly onSceneChange = vi.fn(() => () => {});
+    readonly loadAnalyticPack = vi.fn(async (): Promise<PrismAnalyticStats | null> => null);
+    readonly setAnalyticOverlay = vi.fn();
+    readonly setAnalyticVectors = vi.fn(() => null);
+    readonly setAnalyticStyle = vi.fn(() => null);
+    readonly analyticColormaps = vi.fn(() => null);
+    readonly analyticAt = vi.fn(async (): Promise<PrismAnalyticHit | null> => null);
+    readonly analyticProbe = vi.fn((): PrismAnalyticReading | null => null);
+    readonly setClickSelect = vi.fn();
+    readonly setAnalyticRelief = vi.fn((): PrismAnalyticRelief | null => null);
+    readonly projectPoint = vi.fn((): { x: number; y: number } | null => null);
+    readonly analyticStats = vi.fn((): PrismAnalyticStats | null => null);
+    readonly unloadAnalyticPack = vi.fn();
 
     /** A click in the view. */
     pick(selection: PrismSystemViewerSelection | null): void {

@@ -4,7 +4,7 @@
   "source": {
     "repository": "this repository",
     "crate": "prism-kicad-wasm",
-    "native_src_rs_tree": "7e93a96f5cf2ad4fe65ac0f12119c1de56f9d416",
+    "native_src_rs_tree": "aaf1d7a849702c0133709aa20bfd9b8c3fd57d98",
     "license": "MIT"
   },
   "build": {
