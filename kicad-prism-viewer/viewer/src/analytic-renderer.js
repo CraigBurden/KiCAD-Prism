@@ -6,6 +6,7 @@ import {
   ANALYTIC_WALL_SHADER,
   BARREL_INSTANCE_BYTES,
   BARREL_VIEW_BYTES,
+  GHOST_VERTICES,
   WALL_INSTANCE_BYTES,
   BATCH_WORDS,
   COVER_WORDS,
@@ -349,8 +350,9 @@ export class AnalyticRenderer {
         { binding: 2, visibility: all, buffer: { type: "read-only-storage" } },
         { binding: 3, visibility: GPUShaderStage.FRAGMENT, buffer: { type: "read-only-storage" } },
         { binding: 4, visibility: all, buffer: { type: "read-only-storage" } },
-        { binding: 5, visibility: GPUShaderStage.FRAGMENT, buffer: { type: "read-only-storage" } },
-        { binding: 6, visibility: GPUShaderStage.FRAGMENT, buffer: { type: "read-only-storage" } },
+        // Nets and their emphasis: the vertex stage reads them too (ghost barrels, vs_ghost).
+        { binding: 5, visibility: all, buffer: { type: "read-only-storage" } },
+        { binding: 6, visibility: all, buffer: { type: "read-only-storage" } },
         { binding: 7, visibility: GPUShaderStage.FRAGMENT, buffer: { type: "uniform" } },
       ],
     });
@@ -359,8 +361,8 @@ export class AnalyticRenderer {
     const make = (format, pick) => this.device.createRenderPipeline({
       label: `analytic-barrel${pick ? "-pick" : ""}`,
       layout,
-      vertex: { module, entryPoint: "vs_barrel" },
-      fragment: { module, entryPoint: pick ? "fs_barrel_pick" : "fs_barrel", targets: [{ format }] },
+      vertex: { module, entryPoint: "vs_barrel", constants: { PICK_PASS: pick ? 1 : 0 } },
+      fragment: { module, entryPoint: pick ? "fs_barrel_pick" : "fs_barrel", targets: [{ format }], constants: { PICK_PASS: pick ? 1 : 0 } },
       // The box's triangles face inward: only its far side draws, once per
       // pixel of its silhouette, also with the eye inside it. The fragment
       // writes the tube's own depth.
@@ -369,6 +371,16 @@ export class AnalyticRenderer {
       multisample: { count: pick ? 1 : this.samples },
     });
     this.barrelPipelines = { color: make(this.renderer.format, false), pick: make("rg32uint", true) };
+    // Ghost barrels: translucent, after the opaque geometry, writing no depth.
+    this.ghostPipeline = this.device.createRenderPipeline({
+      label: "analytic-ghost-barrel",
+      layout,
+      vertex: { module, entryPoint: "vs_ghost" },
+      fragment: { module, entryPoint: "fs_ghost", targets: [{ format: this.renderer.format, blend: BLEND }] },
+      primitive: { topology: "triangle-list", cullMode: "none" },
+      depthStencil: { format: this.renderer.depthFormat, depthWriteEnabled: false, depthCompare: "greater" },
+      multisample: { count: this.samples },
+    });
     this.barrelView = this.device.createBuffer({ label: "analytic-barrel-view", size: BARREL_VIEW_BYTES, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
     this.layerOffsets = this.device.createBuffer({ label: "analytic-layer-offsets", size: 256 * 4, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST });
     this.viewScratch = new ArrayBuffer(BARREL_VIEW_BYTES);
@@ -446,6 +458,9 @@ export class AnalyticRenderer {
     // Solid: shown, opaque, and not separated (the viewer then hides inner copper).
     words[15] = this.boardShown(context) && (context.boardOpacity ?? 1) >= 0.999 && this.renderer.innerCopperMode !== "all" ? 1 : 0;
     floats.set(this.overlay.range, 16);
+    // Separated: any layer lifted off its place (see `ghosted` in the barrel shader).
+    this.separated = Boolean(layerOffsets) && Array.prototype.some.call(layerOffsets, (offset) => Math.abs(offset) > 1e-12);
+    words[18] = this.separated ? 1 : 0;
     // A plated edge (the stackup's edge_plating) is copper, as the barrels are.
     floats.set(this.edgePlated ? [...(this.renderer.barrelColor || [0.55, 0.35, 0.16]).slice(0, 3), wallOpacity] : [...laminate.slice(0, 3), wallOpacity], 20);
     floats.set([...(this.boardLooks().soldermask?.color || [0.06, 0.16, 0.11]).slice(0, 3), 1], 24);
@@ -495,6 +510,19 @@ export class AnalyticRenderer {
     pass.setPipeline(pick ? this.barrelPipelines.pick : this.barrelPipelines.color);
     pass.setBindGroup(0, this.barrels.bindGroup);
     pass.draw(36, this.barrels.count);
+    return 1;
+  }
+
+  /**
+   * Draw the barrels a separated stack shows as ghosts (low translucent
+   * tubes; see `vs_ghost`), after the opaque geometry. Nothing while the
+   * stack is together: every barrel is then exact.
+   */
+  encodeGhostBarrels(pass) {
+    if (!this.barrels || !this.separated) return 0;
+    pass.setPipeline(this.ghostPipeline);
+    pass.setBindGroup(0, this.barrels.bindGroup);
+    pass.draw(GHOST_VERTICES, this.barrels.count);
     return 1;
   }
 

@@ -928,6 +928,13 @@ export const WALL_INSTANCE_BYTES = 48;
  * layer). The view's eye is the camera in homogeneous world coordinates:
  * w = 0 for an orthographic view, whose xyz is then the view direction.
  */
+/** Sides of the low tube a ghost barrel draws (vs_ghost). */
+export const GHOST_SIDES = 12;
+/** A ghost barrel's opacity. */
+export const GHOST_ALPHA = 0.3;
+/** Vertices a ghost barrel draws: two triangles per side. */
+export const GHOST_VERTICES = GHOST_SIDES * 6;
+
 export const ANALYTIC_BARREL_SHADER = /* wgsl */ `
 struct Globals {
   viewProjection: mat4x4f,
@@ -951,7 +958,10 @@ struct View {
   board: u32,
   padding2: u32,
   range: vec2f,
-  padding3: vec2f,
+  // 1 while any layer is lifted off its place (the stack separated): only the
+  // lit nets' barrels draw exact; the rest are ghosts (vs_ghost).
+  separated: u32,
+  padding3: u32,
   // The board's side walls (laminate, or plating on a plated edge).
   edgeColor: vec4f,
   // What covers or plugs a via from one side: the solder mask's colour.
@@ -974,6 +984,8 @@ struct Barrel {
 @group(0) @binding(6) var<storage, read> netMask: array<u32>;
 
 const PICK_TAG = ${ANALYTIC_PICK_TAG}u;
+// 1 in the pick pipeline: every barrel stays pickable, ghost or not.
+override PICK_PASS: u32 = 0u;
 const FAR = 1e30;
 fn netLit(operation: u32) -> bool {
   let net = select(0u, nets[operation], operation < arrayLength(&nets));
@@ -1028,7 +1040,53 @@ struct BarrelOut {
   out.position = globals.viewProjection * vec4f(world, 1.0);
   out.world = world;
   out.barrel = index;
+  // A separated stack draws only the lit nets' barrels exact: the rest are
+  // ghosts (vs_ghost), and their boxes collapse here, before any fragment.
+  // Net isolation hides the unlit ones in every pass.
+  let unlit = !netLit(b.ids.x);
+  if ((PICK_PASS == 0u && ghosted(b)) || (view.isolate == 1u && unlit)) { out.position = vec4f(0.0); }
   return out;
+}
+
+fn ghosted(b: Barrel) -> bool {
+  return view.separated == 1u && !netLit(b.ids.x);
+}
+
+/** Sides of a ghost barrel's tube. */
+const GHOST_SIDES = ${GHOST_SIDES}u;
+
+struct GhostOut {
+  @builtin(position) position: vec4f,
+  @location(0) normal: vec3f,
+};
+
+// A barrel off the lit nets in a separated stack: a low tube of GHOST_SIDES
+// sides around its hole's outline (a stadium for a slot), between its
+// layers' lifted faces. Barrels drawn exact collapse here instead.
+@vertex fn vs_ghost(@builtin(vertex_index) vertex: u32, @builtin(instance_index) index: u32) -> GhostOut {
+  let b = barrels[index];
+  var out: GhostOut;
+  if (!ghosted(b) || ((b.ids.w & UNPLATED) != 0u && view.board == 0u)) {
+    out.position = vec4f(0.0);
+    return out;
+  }
+  // Two triangles per side: corners (side, bottom), (side + 1, bottom), (side, top), ...
+  var corners = array<vec2u, 6>(vec2u(0u, 0u), vec2u(1u, 0u), vec2u(0u, 1u), vec2u(1u, 0u), vec2u(1u, 1u), vec2u(0u, 1u));
+  let corner = corners[vertex % 6u];
+  let angle = f32(vertex / 6u + corner.x) * 6.2831853 / f32(GHOST_SIDES);
+  let radial = vec2f(cos(angle), sin(angle));
+  let local = radial * b.size.x + vec2f(sign(radial.x) * b.shape.z, 0.0);
+  let z = span(b);
+  let world = vec3f(b.shape.xy + turn(local, b.shape.w), select(z.y, z.x, corner.y == 1u));
+  out.position = globals.viewProjection * vec4f(world, 1.0);
+  out.normal = vec3f(turn(radial, b.shape.w), 0.0);
+  return out;
+}
+
+@fragment fn fs_ghost(input: GhostOut) -> @location(0) vec4f {
+  let light = normalize(globals.lightDirection.xyz);
+  let shade = 0.55 + 0.45 * abs(dot(normalize(input.normal), light));
+  return vec4f(view.color.rgb * shade, ${GHOST_ALPHA});
 }
 
 // Where a ray (origin o, direction d, in the tube's frame) is inside the

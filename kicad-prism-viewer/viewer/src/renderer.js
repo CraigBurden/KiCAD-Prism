@@ -2230,7 +2230,11 @@ export class Renderer {
       triangles += 12 * this.countFor(3);
       draws += 1;
     }
-    if (analyticContext) draws += this.analytic.encodeBlended(pass, layerOffsets, panel.layerId ? new Set([panel.layerId]) : visibleLayers, analyticContext);
+    if (analyticContext) {
+      // Barrels off the lit nets, in a separated stack: translucent, before the other blended layers.
+      draws += this.analytic.encodeGhostBarrels(pass);
+      draws += this.analytic.encodeBlended(pass, layerOffsets, panel.layerId ? new Set([panel.layerId]) : visibleLayers, analyticContext);
+    }
     this.drawBlended(pass, blendedEntries, pipelines, indirect);
     return { triangles, draws };
   }
