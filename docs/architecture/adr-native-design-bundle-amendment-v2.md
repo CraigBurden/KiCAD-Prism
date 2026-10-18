@@ -128,15 +128,20 @@ After V2b merges, a spike studies generating each wire's geometry from a node gr
 
 ## 7. Acceptance and budgets
 
-The table is a proposal (Q4): V2a measures each journey on the current mesh path and the analytic path, and the maintainer sets the budgets from those numbers.
+V2a step 1 measured the 3D tab's journeys on today's mesh path and on the analytic path (`native/parity/benchmarks/README.md`, "3D journeys"). The budgets below are proposed from those numbers; the maintainer sets them before V2a merges (Q4). System Builder's and Simulation Studio's journeys are measured the same way in V2b and V2c.
 
-| Journey | Proposed budget |
-|---|---|
-| 3D tab, warm commit: first board frame after the tab opens | ≤ 1.5 s on EDA-04903 |
-| 3D tab, warm commit: parts drawn | ≤ 3 s |
-| System Builder scene, warm system of five boards: every board drawn | ≤ 3 s |
-| Harness node drag: curve and tube redrawn | same frame (≤ 16 ms on the five-board system) |
-| Simulation result, run on a warm bundle: first overlay frame after choosing the result | ≤ 1 s for EDA-04903's DC result; no geometry downloaded |
+| Journey | Today, mesh path | Analytic path, spike as is | Proposed budget |
+|---|---|---|---|
+| 3D tab, warm commit: first board frame (EDA-04903) | 0.46–0.55 s | 2.8–3.2 s (lowering 2.1 s on the main thread) | ≤ 1.0 s for the outer copper and mask; every layer ≤ 1.5 s |
+| 3D tab, warm commit, opened again (same bundle) | as above | as above | ≤ 0.5 s (lowered slices cached by bundle key) |
+| 3D tab, warm commit: parts drawn (USB-PD-Trigger-Board) | 0.09–0.16 s | same GLB | ≤ the board frame + 1 s |
+| Bytes before the board shows (EDA-04903) | 39 MB | 27.8 MB | no more than today's |
+| Cold commit: board shown (EDA-04903, KiCad 8, container) | does not build in 8 GB (113 s and 2.1 GB on the Mac) | stage `board` done at 118.6 s, 2.2 GB peak | ≤ 120 s and ≤ 3 GB; the zone refill (76 s) is the cost to cut if this is lowered |
+| System Builder scene, warm system of five boards: every board drawn | measured in V2b | | ≤ 3 s (to confirm in V2b) |
+| Harness node drag: curve and tube redrawn | measured in V2b | | same frame (≤ 16 ms) |
+| Simulation result, run on a warm bundle: first overlay frame | measured in V2c | | ≤ 1 s; no geometry downloaded |
+
+Browser times are headless Chrome on an Apple-silicon Mac (10 CPUs) with assets on loopback; backend times are the worker-image container (V2a step 1). To meet the first row, V2a lowers in a pool of workers instead of one (the spike's worker fell back to the main thread), and lowers the outer copper and mask before the inner layers.
 
 And per work package:
 - **V2a (C5):** visual check on EDA-04903, USB-PD-Trigger-Board and one System Builder board; no `topology_compiler` process and no `webgpu_3d` job; selection and cross-probe through the semantic index.

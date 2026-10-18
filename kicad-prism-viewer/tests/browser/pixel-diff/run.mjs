@@ -24,7 +24,7 @@ const buildDir = mkdtempSync(join(tmpdir(), "vt-builds-"));
 
 const log = (...parts) => console.log(`[${new Date().toISOString().slice(11, 19)}]`, ...parts);
 
-const summary = { startedAt: new Date().toISOString(), options: { ...options }, builds: {}, boards: {}, diffs: [], perf: [], failures: [] };
+const summary = { startedAt: new Date().toISOString(), options: { ...options }, builds: {}, boards: {}, diffs: [], perf: [], loads: [], failures: [] };
 
 try {
   for (const build of options.builds) {
@@ -79,6 +79,13 @@ async function runOne({ chrome, server, board, build, rep, captures }) {
     await waitFor(page, "window.__vtElementLoaded === true", 30000, `${label}: element module`);
     await page.evaluate(`window.__vtProbe.mount(${JSON.stringify(`/bundles/${board.name}/bundle.json`)}, ${JSON.stringify({ width: options.width, height: options.height })})`);
     log(`${label} ready in ${((Date.now() - started) / 1000).toFixed(1)} s`);
+    if (options.load && rep !== "perf") {
+      await settle(page, `${label} load`);
+      const times = await page.evaluate("window.__vtProbe.loadTimes()");
+      const bytes = page.bytesLoaded ?? null;
+      summary.loads.push({ board: board.name, build: build.name, rep, ...times, bytes });
+      log(`${label}: ready ${times.readyMs} ms, first drawn ${times.firstDrawnMs} ms, components ${times.componentsMs} ms, last change ${times.lastChangeMs} ms`);
+    }
     // Perf gets a load of its own, so the orbit starts from the loaded camera.
     if (rep === "perf") {
       await settle(page, `${label} perf`);
@@ -159,6 +166,12 @@ function report() {
     const pair = `${entry.a.split("/").slice(1).join("/")} ↔ ${entry.b.split("/").slice(1).join("/")}`;
     console.log(`${entry.board.padEnd(10)} ${entry.view.padEnd(10)} ${entry.kind.padEnd(6)} ${pair.padEnd(47)} ${String(entry.pixels ?? "n/a").padStart(7)} ${String(entry.maxDelta ?? "").padStart(5)}${entry.strict ? "  strict" : ""}`);
   }
+  if (summary.loads.length) {
+    console.log("\nboard      build        rep  ready ms  first ms  parts ms  last ms     MB");
+    for (const l of summary.loads) {
+      console.log(`${l.board.padEnd(10)} ${l.build.padEnd(12)} ${String(l.rep).padStart(3)} ${String(l.readyMs).padStart(9)} ${String(l.firstDrawnMs).padStart(9)} ${String(l.componentsMs).padStart(9)} ${String(l.lastChangeMs).padStart(8)} ${l.bytes === null ? "" : (l.bytes / 1e6).toFixed(1).padStart(6)}`);
+    }
+  }
   if (summary.perf.length) {
     console.log("\nboard      build        frames  int p50  int p95  cpu p95  gpu p50  gpu p95  tris       MB");
     for (const p of summary.perf) {
@@ -217,6 +230,7 @@ function parseArgs(argv) {
     strict: ["default", "exploded", "top"],
     repeat: 2,
     perf: false,
+    load: false,
     orbitMs: 4000,
     width: 1280,
     height: 800,
@@ -243,6 +257,7 @@ function parseArgs(argv) {
     else if (flag === "--strict") parsed.strict = value().split(",").filter(Boolean);
     else if (flag === "--repeat") parsed.repeat = Math.max(1, Number(value()));
     else if (flag === "--perf") parsed.perf = true;
+    else if (flag === "--load") parsed.load = true;
     else if (flag === "--orbit-ms") parsed.orbitMs = Number(value());
     else if (flag === "--size") [parsed.width, parsed.height] = value().split("x").map(Number);
     else if (flag === "--scale") parsed.scale = Number(value());
