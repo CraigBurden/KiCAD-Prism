@@ -144,7 +144,7 @@ does not carry.
 
 ## 3D tab
 
-With `PRISM_DESIGN_SOURCE_VIEWER_3D=bundle`, `viewer_3d_bundle.py` serves the
+With `PRISM_DESIGN_SOURCE_VIEWER_3D=bundle` (the default since V2a step 4), `viewer_3d_bundle.py` serves the
 3D tab from the design bundle (ADR amendment V2): the status the tab already
 reads, built from the pack's and the parts GLB's readiness (opening the
 revision queues its `design_bundle` build), the viewer's

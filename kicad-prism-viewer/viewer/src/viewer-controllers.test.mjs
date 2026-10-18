@@ -13,6 +13,7 @@ import {
   emphasisChange,
   gpuBudgetBytes,
   installModeMembers,
+  isSelectionEcho,
   normalizeEmphasisSets,
   selectionTarget,
 } from "./viewer-controllers.js";
@@ -52,6 +53,12 @@ function fakeScene(overrides = {}) {
     onSceneChange(listener) {
       scene.sceneListeners.add(listener);
       return () => scene.sceneListeners.delete(listener);
+    },
+    // The viewer's last emitted selection, taken once (main.js's takeEcho).
+    takeEcho(selection) {
+      const echo = isSelectionEcho(selection, scene.emitted);
+      scene.emitted = null;
+      return echo;
     },
     ...overrides,
   };
@@ -98,6 +105,32 @@ test("board mode selects quietly, at the named occurrence first, and frames", ()
   calls.length = 0;
   board.setSelection(null);
   assert.deepEqual(calls, [["quietly"], ["clearSelection", "quiet"]]);
+});
+
+test("the host echoing the viewer's own selection changes nothing, once", () => {
+  // A pad click emits a terminal; the host sends back its reference and pin only.
+  const pad = { kind: "terminal", reference: "R16", pin: "2", netName: "VBUS", netCode: 4, featureId: 1073742000 };
+  assert.equal(isSelectionEcho({ reference: "R16", pin: "2" }, pad), true);
+  assert.equal(isSelectionEcho({ reference: "R16" }, pad), false, "the part is a new selection");
+  assert.equal(isSelectionEcho({ reference: "R16", pin: "1" }, pad), false);
+  // A net under the host's own uid, by name or code.
+  const net = { kind: "net", netName: "GND", netUid: "GND", netCode: 1 };
+  assert.equal(isSelectionEcho({ netName: "GND", netUid: "net:ccdd", netCode: 1 }, net), true);
+  assert.equal(isSelectionEcho({ netCode: 1 }, net), true);
+  assert.equal(isSelectionEcho({ netName: "VBUS" }, net), false);
+  assert.equal(isSelectionEcho({ occurrence: "/a", netName: "GND" }, net), false);
+  assert.equal(isSelectionEcho(null, net), false);
+
+  const board = new BoardModeController();
+  const { port, calls, scene } = fakeScene();
+  board.attach(port);
+  calls.length = 0;
+  scene.emitted = pad;
+  board.setSelection({ reference: "R16", pin: "2" });
+  assert.deepEqual(calls, [], "the echo leaves the pad's net probe and the camera alone");
+  // The same request again is the host's own: it selects and frames.
+  board.setSelection({ reference: "R16", pin: "2" });
+  assert.deepEqual(calls, [["quietly"], ["selectComponent", "R16", true, "quiet"]]);
 });
 
 test("system mode selects on the placement: a stand-in as itself, a board's part, or the board", () => {

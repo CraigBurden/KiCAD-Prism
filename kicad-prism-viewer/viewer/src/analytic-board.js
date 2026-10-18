@@ -18,6 +18,7 @@ import { lowerSlicesInWorkers, sliceWeights } from "./analytic-lower-client.js";
 import { BOARD_RECORD_KEY, boardRecord, decodeLowered, loweredSliceKey, markLoweringCached, readLowered, writeLowered } from "./analytic-lower-cache.js";
 import { rasterizeBoardClip } from "./analytic-clip.js";
 import { maskSteps, stepKey } from "./analytic-prepare.js";
+import { ANALYTIC_OPERATION_FEATURES } from "./analytic-scene.js";
 import { AnalyticRenderer } from "./analytic-renderer.js";
 
 /**
@@ -209,6 +210,37 @@ export async function analyticFeatureId(state, operationIndex) {
   const net = state.netIds?.[operationIndex] || 0;
   const feature = candidates.find((item) => Number(item.netId) === net) || candidates[0];
   return feature ? Number(feature.id) : 0;
+}
+
+/**
+ * What a click on pack operation `operationIndex` selects, as a scene
+ * feature id, from the operation's binding (V2a): a footprint's own graphics
+ * select its component (its feature in `scene.componentFeatures`); a pad
+ * selects its terminal (reference, pad and net); any other copper (a track,
+ * a via, a zone) its net. The terminal or net feature is made here, once, as
+ * `ANALYTIC_OPERATION_FEATURES` plus the index. 0 when the operation names
+ * nothing a selection can hold.
+ */
+export async function analyticOperationFeature(state, operationIndex, scene) {
+  const id = ANALYTIC_OPERATION_FEATURES + operationIndex;
+  if (scene.features.has(id)) return id;
+  const binding = await state.pack.binding(operationIndex);
+  if (!binding) return 0;
+  const reference = String(binding.refdes || "");
+  const pad = String(binding.pad_number || "");
+  if (reference && !pad) return Number(scene.componentFeatures.get(reference)?.featureId || 0);
+  const netId = Number(state.netIds?.[operationIndex] || 0);
+  if (!pad && !netId) return 0;
+  scene.features.set(id, {
+    id,
+    kind: String(binding.source_kind || "copper"),
+    ...(reference ? { designator: reference } : {}),
+    ...(pad ? { padNumber: pad } : {}),
+    netId,
+    sourceUid: String(binding.source_uid || ""),
+    bounds: null,
+  });
+  return id;
 }
 
 /**

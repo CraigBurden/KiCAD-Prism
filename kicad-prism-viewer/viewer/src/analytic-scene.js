@@ -107,6 +107,40 @@ export function analyticBoundsMm(header) {
 }
 
 /**
+ * First feature id of the analytic components (one each, in header order), and
+ * of the features a click on a pack operation makes (`ANALYTIC_OPERATION_FEATURES`
+ * plus its index, below 2^32). Components count from 1: their ids index the
+ * renderer's hidden-feature mask (DNP, hidden parts), which is as long as the
+ * largest id, so they stay small and dense; nothing else in an analytic scene
+ * takes a low id.
+ */
+export const ANALYTIC_COMPONENT_FEATURES = 1;
+export const ANALYTIC_OPERATION_FEATURES = 0x40000000;
+
+/**
+ * A component's extent as a scene feature's `boundsMm` (x, board y, height
+ * up the stack, millimetres, the stack centred on 0): its body bounds placed
+ * by its affine, from its side's outer face up by its body height (1 mm when
+ * the footprint names none). Null without body bounds; the parts' models
+ * widen it when they load.
+ */
+export function componentBoundsMm(component, boardThicknessMm) {
+  const body = component?.body_bounds;
+  const affine = component?.affine;
+  if (!body || !affine) return null;
+  let [x0, y0, x1, y1] = [Infinity, Infinity, -Infinity, -Infinity];
+  for (const [x, y] of [[body.min_x_nm, body.min_y_nm], [body.max_x_nm, body.min_y_nm], [body.min_x_nm, body.max_y_nm], [body.max_x_nm, body.max_y_nm]]) {
+    const bx = (affine.m11 * x + affine.m12 * y + Number(affine.tx_nm)) / 1e6;
+    const by = (affine.m21 * x + affine.m22 * y + Number(affine.ty_nm)) / 1e6;
+    [x0, y0, x1, y1] = [Math.min(x0, bx), Math.min(y0, by), Math.max(x1, bx), Math.max(y1, by)];
+  }
+  const height = component.body_height_nm ? Number(component.body_height_nm) / 1e6 : 1;
+  const face = boardThicknessMm / 2;
+  const [low, high] = component.side === "back" ? [-face - height, -face] : [face, face + height];
+  return [x0, y0, low, x1, y1, high];
+}
+
+/**
  * A scene manifest for the board viewer, in the shape the mesh path's scene
  * manifest has (`prism.semantic_gltf_a0`): layers, nets, components and the
  * glTF-frame bounding box, with no tiles, barrels or object features. The
@@ -119,18 +153,20 @@ export function analyticSceneManifest(header, stackup = null) {
     if (!net?.name) continue;
     nets.push({ id: nets.length, uid: String(net.key || net.name), name: String(net.name), netClass: String(net.net_class || ""), aliases: [] });
   }
+  const thickness = Number(header?.stack?.board_thickness_nm || 0) / 1e6;
   const components = (header?.components || []).map((component, index) => ({
     id: index + 1,
-    featureId: 0,
+    // Each its own feature: the parts' GLB nodes take it, and a click or a cross-probe selects it.
+    featureId: ANALYTIC_COMPONENT_FEATURES + index,
     uid: String(component.source_uid || ""),
     designator: String(component.refdes || ""),
     footprint: String(component.footprint || ""),
     side: component.side || null,
     nodeIndex: null,
     meshNames: [],
+    boundsMm: componentBoundsMm(component, thickness),
   }));
   const extent = analyticBoundsMm(header);
-  const thickness = Number(header?.stack?.board_thickness_nm || 0) / 1e6;
   // glTF frame, metres: x right, y up the stack, z down the board (as the mesh manifest's bbox).
   const bbox = extent
     ? { min: [extent[0] / 1000, -thickness / 2000, extent[1] / 1000], max: [extent[2] / 1000, thickness / 2000, extent[3] / 1000] }
@@ -138,6 +174,8 @@ export function analyticSceneManifest(header, stackup = null) {
   return {
     schema: "prism.analytic_scene.a0",
     bbox,
+    // The parts' GLB is KiCad's, whose board runs from 0 up to its thickness; this board is centred.
+    componentsZOffsetMm: -thickness / 2,
     layers,
     copperLayerIds: layers.filter((layer) => layer.role === "copper").map((layer) => layer.id),
     nets,

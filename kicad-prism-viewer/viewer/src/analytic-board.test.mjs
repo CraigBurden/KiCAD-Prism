@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { describeAnalyticHit, fieldAlongRay, operationSliceKey, planArrows, sampleFieldRaster } from "./analytic-board.js";
+import { analyticOperationFeature, describeAnalyticHit, fieldAlongRay, operationSliceKey, planArrows, sampleFieldRaster } from "./analytic-board.js";
+import { ANALYTIC_OPERATION_FEATURES } from "./analytic-scene.js";
 
 // A 4 x 2 raster of v = x (mm) on a 1 mm pitch, origin at (0, 0); one hole.
 const field = {
@@ -159,4 +160,27 @@ test("no arrow sits at an edge texel, where copper does not surround it", () => 
     assert.ok(x >= 2.5 && x <= 7.5 && y >= 2.5 && y <= 7.5, `${x}, ${y}`);
   }
   assert.equal(arrows.count, 100);
+});
+
+test("a click selects a pad's terminal, a footprint's component, or copper's net", async () => {
+  const bindings = [
+    { refdes: "U1", pad_number: "4", source_kind: "pad", source_uid: "p4" },
+    { refdes: "U1", source_kind: "footprint_graphic", source_uid: "g1" },
+    { source_kind: "track", source_uid: "t1" },
+    { source_kind: "board_profile", source_uid: "b" },
+  ];
+  let reads = 0;
+  const state = { pack: { binding: async (index) => { reads += 1; return bindings[index] ?? null; } }, netIds: new Uint32Array([7, 0, 9, 0]) };
+  const scene = { features: new Map(), componentFeatures: new Map([["U1", { featureId: 123 }]]) };
+  const pad = await analyticOperationFeature(state, 0, scene);
+  assert.equal(pad, ANALYTIC_OPERATION_FEATURES);
+  assert.deepEqual(scene.features.get(pad), { id: pad, kind: "pad", designator: "U1", padNumber: "4", netId: 7, sourceUid: "p4", bounds: null });
+  assert.equal(await analyticOperationFeature(state, 1, scene), 123, "a footprint's graphic is its component");
+  const track = await analyticOperationFeature(state, 2, scene);
+  assert.deepEqual(scene.features.get(track), { id: track, kind: "track", netId: 9, sourceUid: "t1", bounds: null });
+  assert.equal(await analyticOperationFeature(state, 3, scene), 0, "the board outline selects nothing");
+  assert.equal(await analyticOperationFeature(state, 9, scene), 0, "no binding, no feature");
+  const before = reads;
+  assert.equal(await analyticOperationFeature(state, 0, scene), pad);
+  assert.equal(reads, before, "a feature made once is not read again");
 });

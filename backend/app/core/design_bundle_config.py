@@ -7,7 +7,8 @@ map, WP-K).
 
 - `PRISM_DESIGN_SOURCE_<CONSUMER>`: each consumer's switch, `legacy` or
   `bundle` (ADR §8). The PR that proves a consumer's parity flips its default:
-  Design Comparison's is `bundle` (amendment C2r); the rest are `legacy`.
+  Design Comparison's is `bundle` (amendment C2r), as is the 3D tab's
+  (amendment V2a); the rest are `legacy`.
 - `PRISM_DESIGN_BUNDLE_*`: the `design_bundle` job, its resource slot, the
   per-stage limits it passes to `prism-kicad` (cli-spec.md §7), the store and
   its retention, and the paced backfill.
@@ -49,7 +50,11 @@ class DesignBundleSettings(BaseSettings):
         default="legacy", description="System Builder interface and 3D scene: today's extractor, or bundle members."
     )
     PRISM_DESIGN_SOURCE_VIEWER_3D: DesignSource = Field(
-        default="legacy", description="3D tab: the topology compiler's store, or the bundle's materialization."
+        default="bundle",
+        description=(
+            "3D tab: the bundle's analytic model (default since V2a step 4), or `legacy`, the topology"
+            " compiler's meshes, until V2a step 5 removes them."
+        ),
     )
     PRISM_DESIGN_SOURCE_PROJECT_METADATA: DesignSource = Field(
         default="legacy", description="Project card, properties and viewer sources: the checkout, or bundle members."

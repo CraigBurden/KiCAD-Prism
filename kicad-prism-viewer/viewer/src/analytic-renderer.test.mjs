@@ -340,3 +340,23 @@ test("the stackup's mask and paste fill in when no mesh layer gives them", () =>
   assert.equal(withStackupLooks({ soldermask: mesh }, stackup).soldermask, mesh);
   assert.deepEqual(withStackupLooks({}, null), {});
 });
+
+test("the 2D view lays a layer's slices flat at its place in the grid", () => {
+  const renderer = Object.create(AnalyticRenderer.prototype);
+  renderer.uniformScratch = new ArrayBuffer(256);
+  renderer.overlay = { mode: 0, range: [0, 1] };
+  renderer.renderer = { innerCopperMode: "all" };
+  let written = null;
+  renderer.device = { queue: { writeBuffer: (_buffer, _offset, data) => { written = new Float32Array(data.slice(0)); } } };
+  const slice = { layerId: 4, z: 0.0008, color: [1, 0, 0, 1], bounds: [0, 0, 10, 10], uniform: {} };
+  renderer.context = { flat: new Map([[4, { layerId: 4, offset: [0.03, -0.01, 0], z: 0.0008 }]]) };
+  renderer.writeSlice(slice, null);
+  assert.equal(written[4], 0, "z to 0");
+  assert.deepEqual([written[44], written[45]].map((v) => +v.toFixed(6)), [0.03, -0.01]);
+  // In 3D it stays where it is.
+  renderer.context = {};
+  renderer.writeSlice(slice, null);
+  assert.deepEqual([+written[4].toFixed(6), written[44], written[45]], [0.0008, 0, 0]);
+  // The flat shift sits where the shader's Slice struct puts it (after clipPad, 44 floats in).
+  assert.match(ANALYTIC_SHADER, /clipPad: u32,\s*\/\/[^\n]*\n[^\n]*\n\s*flatShift: vec2f,/);
+});

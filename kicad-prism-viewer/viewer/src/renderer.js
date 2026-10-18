@@ -824,6 +824,9 @@ export const BASE_SHADERS = Object.freeze({
   cull: CULL_SHADER,
 });
 
+/** No exploded offsets: the 2D view lays each layer flat on its own. */
+const FLAT_LAYER_OFFSETS = new Float32Array(256);
+
 export class Renderer {
   static async create(canvas, { sampleCount = 4 } = {}) {
     if (!navigator.gpu) throw new Error("WebGPU is unavailable in this browser");
@@ -2118,6 +2121,39 @@ export class Renderer {
   }
 
   /**
+   * The 2D view (compare mode) of an analytic board: `[{ layerId, offset, z }]`
+   * for each shown copper layer the board's slices draw, `offset` its place
+   * in the layer grid (world metres), `z` its height. Empty otherwise.
+   */
+  analyticFlatLayers(options) {
+    if (!this.analytic || !options.compareMode) return [];
+    const layers = [];
+    for (const layerId of options.visibleLayers || []) {
+      const z = this.analytic.layerZ(Number(layerId));
+      if (z === null) continue;
+      layers.push({ layerId: Number(layerId), offset: options.compareOffsets?.get(layerId) || options.compareOffsets?.get(Number(layerId)) || [0, 0, 0], z });
+    }
+    return layers;
+  }
+
+  /**
+   * An analytic board's copper in the 2D view, into the panel's pass: each
+   * layer laid flat at its place in the grid, as the mesh copper is
+   * (`compareOffset`, z to 0), inner layers included; no board, mask or barrels.
+   */
+  encodeFlatLayers(pass, matrix, layers, isolateNet, pick) {
+    const flat = new Map(layers.map((layer) => [layer.layerId, layer]));
+    const context = { matrix, flat, isolateNet, showBoard: false };
+    const innerCopperMode = this.innerCopperMode;
+    this.innerCopperMode = "all";
+    try {
+      return this.analytic.encodeInto(pass, FLAT_LAYER_OFFSETS, new Set(flat.keys()), pick, context);
+    } finally {
+      this.innerCopperMode = innerCopperMode;
+    }
+  }
+
+  /**
    * IN-60: draw one panel into targets of the caller's (an inset), not
    * the main canvas. Its own submit, so it never shares the globals or draw
    * slots of the main frame's; nothing the main frame reads is touched, so
@@ -2220,6 +2256,10 @@ export class Renderer {
       draws += this.analytic.encodeBarrels(pass, layerOffsets, panel.matrix);
       // Result arrows lie on the copper just drawn.
       draws += this.analytic.encodeArrows(pass);
+    }
+    if (this.analytic && compareMode) {
+      const layers = this.analyticFlatLayers({ compareMode, visibleLayers, compareOffsets });
+      if (layers.length) draws += this.encodeFlatLayers(pass, panel.matrix, layers, isolateNet, false);
     }
     if (!compareMode && this.barrels && !this.analytic?.hasBarrels() && (panel.layerId === 0 || visibleLayers.has(panel.layerId))) {
       this.writeBarrelDraw(isolateNet);
@@ -2515,6 +2555,10 @@ export class Renderer {
       const layers = panel.layerId ? new Set([panel.layerId]) : options.visibleLayers;
       this.analytic.encodeInto(pass, options.layerOffsets, layers, true, { matrix: panel.matrix, panelLayer: panel.layerId, isolateNet: options.isolateNet, showBoard: options.showBoard });
       this.analytic.encodeBarrels(pass, options.layerOffsets, panel.matrix, true);
+    }
+    if (this.analytic && options.compareMode) {
+      const layers = this.analyticFlatLayers(options);
+      if (layers.length) this.encodeFlatLayers(pass, panel.matrix, layers, options.isolateNet, true);
     }
   }
 
