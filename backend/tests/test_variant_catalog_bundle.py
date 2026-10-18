@@ -221,6 +221,14 @@ class SwitchTests(unittest.TestCase):
         self.assertIsNone(working_tree["commit"])
         self.assertEqual(self._legacy_names(), ["Lite"])
 
+    def test_a_project_without_an_id_never_opens_a_bundle(self) -> None:
+        # Release Studio once passed a checkout path with no id; the lookup
+        # then failed with a traceback on every Source step.
+        self.project = SimpleNamespace(path=self.project.path, project_file="main.kicad_pro")
+        result, open_revision = self._discover(_Opened("ready", {"assembly": {}}), "bundle")
+        open_revision.assert_not_called()
+        self.assertEqual([entry["name"] for entry in result["variants"]], ["Lite"])
+
     def test_an_unreadable_ready_member_falls_back(self) -> None:
         class _Broken(_Opened):
             def read_json(self, path):

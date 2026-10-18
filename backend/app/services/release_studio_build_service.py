@@ -749,7 +749,7 @@ def run_release_studio_build_job(context: JobContext) -> JobResult:
 
         try:
             discovered = discover_source(
-                repo_root, candidate["commit_sha"], relative_path
+                repo_root, candidate["commit_sha"], relative_path, project_id=project_id
             )
         except Exception:
             discovered = {}

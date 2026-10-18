@@ -151,7 +151,7 @@ export function LibraryImportCenter({ projects, user, initialSessionId }: Librar
     () => sessions.find((session) => session.id === selectedSessionId),
     [selectedSessionId, sessions]
   );
-  const { proposals, loadProposals } = useImportSessionProposals(selectedSessionId);
+  const { proposals, loadProposals } = useImportSessionProposals(selectedSessionId, selectedSession?.status);
   const hasActiveScan = sessions.some((session) => session.status === "queued" || session.status === "scanning");
 
   const loadSessions = useCallback(async (signal?: AbortSignal) => {

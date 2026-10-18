@@ -8,7 +8,13 @@ export function isAbortError(reason: unknown): boolean {
   return (reason instanceof DOMException || reason instanceof Error) && reason.name === "AbortError";
 }
 
-export function useImportSessionProposals(selectedSessionId: string) {
+/**
+ * The proposals of the selected import session. They are read again whenever
+ * the session's `status` changes: the poll that sees a scan finish also stops
+ * the poll, which aborts that tick's own proposals read, so the finished list
+ * would otherwise never load.
+ */
+export function useImportSessionProposals(selectedSessionId: string, status?: string) {
   const [proposalsBySessionId, setProposalsBySessionId] = useState<
     Record<string, ProjectComponentImportProposal[]>
   >({});
@@ -30,7 +36,7 @@ export function useImportSessionProposals(selectedSessionId: string) {
       toast.error(error instanceof Error ? error.message : "Failed to load import proposals");
     });
     return () => controller.abort();
-  }, [loadProposals, selectedSessionId]);
+  }, [loadProposals, selectedSessionId, status]);
 
   return {
     proposals: proposalsBySessionId[selectedSessionId] ?? [],
