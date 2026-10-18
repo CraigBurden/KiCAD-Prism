@@ -1,9 +1,12 @@
 """Bundle retention (ADR §5, §11 G2; bundle-format.md §8).
 
-Kept always: the bundles of every branch head, of System Builder instances'
-baseline commits and of released Release Studio commits (Simulation Studio's
-kept runs join when WP-C6 lands). Every other bundle goes once it has been
-unused for ``PRISM_DESIGN_BUNDLE_RETENTION_DAYS``. A bundle whose job is still
+Kept always: the bundles of every commit the prebuild keeps warm (branch
+heads, each branch's newest ``PRISM_DESIGN_BUNDLE_PREBUILD_COMMITS`` commits,
+every tagged commit), of System Builder instances' baseline commits and of
+released Release Studio commits (Simulation Studio's kept runs join when WP-C6
+lands), and every bundle an alias row points to (ADR amendment K2). An alias
+of an unkept revision goes once unused for ``PRISM_DESIGN_BUNDLE_RETENTION_DAYS``;
+every other bundle goes once unused for as long. A bundle whose job is still
 queued or building is never removed.
 
 Also swept: unpacked-cache versions that are not the archive's current one
@@ -23,9 +26,9 @@ from pathlib import Path
 from typing import Any
 
 from app.core.config import settings
-from app.services.design_bundle import rows, store
+from app.services.design_bundle import reuse, rows, store
 from app.services.design_bundle.archive import BundleInvalid, open_archive
-from app.services.design_bundle.backfill import branch_heads, repo_of
+from app.services.design_bundle.backfill import repo_of
 
 logger = logging.getLogger(__name__)
 
@@ -41,8 +44,8 @@ def _as_utc(value: Any) -> datetime:
 
 def kept_commits(project: dict[str, Any], *, connect: rows.Connect | None = None) -> set[str]:
     repo = repo_of(project)
-    heads = set(branch_heads(repo)) if repo.is_dir() else set()
-    return heads | rows.pinned_commits(str(project["id"]), connect=connect)
+    warm = set(reuse.prebuild_commits(repo)) if repo.is_dir() else set()
+    return warm | rows.pinned_commits(str(project["id"]), connect=connect)
 
 
 def run(*, now: datetime | None = None, connect: rows.Connect | None = None) -> dict[str, Any]:
@@ -50,25 +53,34 @@ def run(*, now: datetime | None = None, connect: rows.Connect | None = None) -> 
 
     now = now or datetime.now(timezone.utc)
     cutoff = now - timedelta(days=settings.PRISM_DESIGN_BUNDLE_RETENTION_DAYS)
-    report = {"kept": 0, "removed": 0, "orphan_archives": 0, "cache_versions": 0, "index_rows": 0, "temp_files": 0}
+    report = {
+        "kept": 0, "removed": 0, "aliases_removed": 0, "orphan_archives": 0, "cache_versions": 0, "index_rows": 0,
+        "temp_files": 0,
+    }
     known: set[tuple[str, str, str]] = set()
     for project in rows.projects(connect=connect):
         project_id = str(project["id"])
         keep_commits = kept_commits(project, connect=connect)
         keep_keys = rows.keys_for_commits(project_id, keep_commits, connect=connect)
+        report["aliases_removed"] += rows.prune_aliases(
+            project_id, sorted(keep_keys), older_than_days=settings.PRISM_DESIGN_BUNDLE_RETENTION_DAYS, connect=connect
+        )
+        aliased = {str(alias["bundle_key"]) for alias in rows.aliases(project_id, connect=connect)}
         doomed: list[str] = []
         for bundle in rows.bundles(project_id, connect=connect):
             identity = (project_id, str(bundle["revision_key"]), str(bundle["generator_digest"]))
             active = bundle["state"] in ("queued", "building") and rows.job_status(bundle.get("job_id"), connect=connect) in (
                 "queued", "running", "retry_wait", "cancel_requested",
             )
-            if bundle["revision_key"] in keep_keys or active or _as_utc(bundle["last_used_at"]) >= cutoff:
+            kept = bundle["revision_key"] in keep_keys or bundle["bundle_key"] in aliased
+            if kept or active or _as_utc(bundle["last_used_at"]) >= cutoff:
                 known.add(identity)
                 report["kept"] += 1
                 report["cache_versions"] += _prune_cache(*identity)
                 continue
             store.delete(*identity)
             doomed.append(str(bundle["bundle_key"]))
+        rows.delete_aliases(project_id, bundle_keys=doomed, connect=connect)
         rows.delete_bundles(project_id, doomed, connect=connect)
         report["removed"] += len(doomed)
         report["index_rows"] += rows.prune_index(

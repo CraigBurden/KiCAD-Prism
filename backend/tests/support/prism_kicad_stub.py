@@ -9,7 +9,8 @@ bytes and the bundle key, never on archive bytes or messages.
 
 Failure injection, ``PRISM_KICAD_STUB_MODE``: a comma-separated list of
 ``<command>[:<stage>]=<mode>`` with ``<command>`` one of ``version``,
-``bundle build``, ``bundle verify``, ``bundle extract``, ``revision-key``, and
+``bundle build``, ``bundle verify``, ``bundle extract``, ``bundle reuse``,
+``revision-key``, and
 ``<mode>`` one of ``exit:<1-7>``, ``failed``, ``partial``, ``absent``, ``hang``,
 ``crash``, ``garbage-stderr``. ``PRISM_KICAD_STUB_LOG`` names a file that gets
 one ``{"argv": [...], "exit": n}`` line per invocation.
@@ -603,6 +604,54 @@ def extract(positionals: list[str], options: dict[str, Any]) -> NoReturn:
     raise Exit(0, {"schema": "prism.cli.extract_result.a0", "members": members})
 
 
+def reuse(positionals: list[str], options: dict[str, Any]) -> NoReturn:
+    """cli-spec.md §5.10: whether a stored bundle serves another revision key."""
+
+    if positionals or "--in" not in options or "--key-record" not in options or "-o" in options or "--stage" in options:
+        error(2, "usage", "bundle reuse takes --in and --key-record, no positionals, -o or --stage", argument="in")
+    apply_modes("bundle reuse")
+    try:
+        manifest = json.loads(dict(read_zip(Path(options["--in"])))["bundle.json"])
+    except (OSError, ValueError, struct.error, IndexError, KeyError):
+        error(3, "bundle-invalid", "--in is not a bundle", argument="in")
+    if not isinstance(manifest, dict):
+        error(3, "bundle-invalid", "--in is not a bundle", argument="in")
+    try:
+        record = json.loads(Path(options["--key-record"]).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        error(3, "key-record-invalid", "--key-record is not JSON", argument="key-record")
+    if not isinstance(record, dict) or not all(key in record for key in ("revision_key", "config", "entries")):
+        error(3, "key-record-invalid", "--key-record is not a key record", argument="key-record")
+    failure: dict[str, Any] | None = None
+    if record["config"] != manifest.get("config"):
+        failure = {"condition": "config", "message": "the record's configuration is not the bundle's"}
+    elif manifest.get("generator") != generator():
+        failure = {"condition": "generator", "message": "the bundle was written by another generator"}
+    elif any(w.get("code") == "model-unavailable" for w in manifest.get("stages", {}).get("parse", {}).get("warnings", [])):
+        failure = {"condition": "model-unavailable", "message": "the bundle recorded an unavailable model"}
+    else:
+        entries = {(entry.get("path"), entry.get("object_id")) for entry in record["entries"]}
+        missing = sorted(
+            member["source"]["path"]
+            for member in manifest.get("members", [])
+            if "source" in member and (member["source"].get("path"), member["source"].get("object_id")) not in entries
+        )
+        if missing:
+            failure = {"condition": "read", "message": "a source member is not an entry of the record", "path": missing[0]}
+    bundle_key = manifest.get("bundle_key") or hashlib.sha256(
+        b"prism.bundle_key.a0\0" + str(manifest["revision_key"]).encode("ascii") + b"\0" + generator_bytes(generator())
+    ).hexdigest()
+    document: dict[str, Any] = {
+        "schema": "prism.cli.reuse_result.a0",
+        "holds": failure is None,
+        "bundle_key": bundle_key,
+        "revision_key": record["revision_key"],
+    }
+    if failure is not None:
+        document["failure"] = failure
+    raise Exit(0, document)
+
+
 def revision_key(positionals: list[str], options: dict[str, Any]) -> NoReturn:
     if len(positionals) != 1 or ("--commit" in options) == ("--worktree" in options) or "--project" not in options:
         error(2, "usage", "revision-key <repo> (--commit <rev> | --worktree) --project <rel>")
@@ -621,13 +670,15 @@ def main(argv: list[str]) -> NoReturn:
     if argv[0] == "revision-key":
         positionals, options = parse_options(argv[1:])
         revision_key(positionals, options)
-    if argv[0] != "bundle" or len(argv) < 2 or argv[1] not in ("build", "verify", "extract"):
+    if argv[0] != "bundle" or len(argv) < 2 or argv[1] not in ("build", "verify", "extract", "reuse"):
         error(2, "unknown-command", "unknown command", argument="command")
     positionals, options = parse_options(argv[2:])
     if argv[1] == "verify":
         verify(positionals, options)
     if argv[1] == "extract":
         extract(positionals, options)
+    if argv[1] == "reuse":
+        reuse(positionals, options)
     stage = options.get("--stage")
     if stage not in ("parse", "board", "models"):
         error(2, "usage", "--stage is parse, board or models", argument="stage")

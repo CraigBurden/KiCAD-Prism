@@ -20,7 +20,9 @@ is an ADR amendment.
 | `cli.py` | Runs `prism-kicad`: exit codes, stdout validation, timeouts, cancel, peak memory. |
 | `materialize.py`, `kicad_steps.py`, `stage_models.py` | What the job does around the CLI: sources (LFS, gitlinks), the seeded upgrade, the zone refill, the component GLB. `stage_models.py` passes to WP-V1 in Wave 2. |
 | `jobs.py` | The `design_bundle` job kind and how it is queued. |
-| `backfill.py`, `retention.py` | The worker's paced backfill of branch heads and bundle retention. |
+| `reuse.py` | Warm bundles (ADR amendment K2): which archive serves a revision key (its own, else an alias row), `prism-kicad bundle reuse` against a few candidates before a build, and the commits the prebuild keeps warm (branch windows and tags). |
+| `backfill.py`, `retention.py` | The worker's paced prebuild (alias or queue, one build at a time) and bundle retention, which keeps the prebuild set and every aliased archive. |
+| `regenerate.py` | A designer's forced rebuild of one commit's or a whole project's design data, skipping reuse. |
 | `repo_hydration.py` | Submodules and LFS objects for import and sync. |
 | `reader.py` | How a consumer opens a revision's bundle and reads members. |
 | `consumer.py` | `bundle_read`: a Wave 3 consumer's switch and the rollout fallback (not ready or failed → legacy for this request, job queued). Every consumer goes through it. |

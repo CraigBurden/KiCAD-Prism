@@ -1768,6 +1768,7 @@ class ReleaseStudioPostgresSchemaTests(unittest.TestCase):
                 (100, "design_bundle_commit_index"),
                 (101, "design_bundles"),
                 (102, "design_bundle_outcomes"),
+                (103, "design_bundle_aliases"),
             ],
         )
 

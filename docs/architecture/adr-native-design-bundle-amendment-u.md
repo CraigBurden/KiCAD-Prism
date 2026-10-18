@@ -87,7 +87,7 @@ Measured on EDA-04903 (57 MB board) in a throwaway container from the worker ima
 ### 3.3 Warm by default (extends parent §5 and §8)
 
 - **Background builds.**
-  - After each sync, Prism queues stage `parse` for the new commits of every tracked branch, newest first: up to `PRISM_DESIGN_BUNDLE_PREBUILD_COMMITS` per branch (default 20).
+  - After each sync, Prism queues stage `parse` for the new commits of every tracked branch, newest first: up to `PRISM_DESIGN_BUNDLE_PREBUILD_COMMITS` per branch (default 20; amendment K2 §7 makes it 10 plus every tagged commit, and adds a forced rebuild).
   - The builds use the existing `design_bundle` slot and its dedup on the bundle key.
   - Stages `board` and `models` stay on demand.
   - The paced backfill of branch heads (parent §8) stays.
