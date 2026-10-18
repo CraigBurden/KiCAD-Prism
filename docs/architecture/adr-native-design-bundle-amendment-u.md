@@ -84,9 +84,8 @@ The 3D journeys' budgets (set on 2026-10-18, amendment V2 §7) are measured in h
 
 | Journey | Budget |
 |---|---|
-| 3D tab, warm commit: first board frame (outer copper and mask) | ≤ 1.0 s; every layer ≤ 1.5 s |
+| 3D tab, warm commit: board shown whole (every layer and the parts, held back until all are drawn) | ≤ 1.5 s |
 | 3D tab, warm commit, opened again (same bundle) | ≤ 0.5 s |
-| 3D tab, warm commit: parts drawn | ≤ the board frame + 1 s |
 | Bytes before the board shows | no more than the mesh path's (39 MB on EDA-04903) |
 | Cold commit: board shown | ≤ 120 s; peak ≤ 3 GB |
 | System Builder scene, warm system of five boards: every board drawn | ≤ 3 s (confirmed in V2b) |

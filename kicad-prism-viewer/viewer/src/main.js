@@ -53,7 +53,7 @@ import { analyticWasmKey, analyticWasmUrl, DEFAULT_TOLERANCE_NM, openAnalyticPac
 import { isLoweringCached } from "./analytic-lower-cache.js";
 import { LowerPool } from "./analytic-lower-client.js";
 import { AnalyticRenderer } from "./analytic-renderer.js";
-import { analyticBoardLooks, analyticSceneManifest, firstPhaseKeys } from "./analytic-scene.js";
+import { analyticBoardLooks, analyticSceneManifest } from "./analytic-scene.js";
 import { analyticFeatureId, applyAnalyticOverlay, applyAnalyticStyle, applyAnalyticVectors, attachAnalyticPack, describeAnalyticHit, fieldAlongRay, netIdByName, operationSliceKey, reliefSlices } from "./analytic-board.js";
 import { FieldRelief } from "./field-relief.js";
 import { barrelsAtCopperFaces } from "./barrel-records.js";
@@ -734,12 +734,12 @@ async function openAnalyticSource(b, token, performanceTimings) {
 }
 
 /**
- * V2a: draw an analytic bundle's board, the outer copper and masks first (the
- * first frame, V2 §7), then every slice. Lowered slices are cached by the
- * bundle's key, so a board opened again lowers nothing. Resolves to the
- * board's runtime bounds once the first phase is attached.
+ * V2a: draw an analytic bundle's board, every slice at once: the board shows
+ * whole, never layer by layer. Lowered slices are cached by the bundle's key,
+ * so a board opened again lowers nothing. Resolves to the board's runtime
+ * bounds once it is attached.
  */
-async function loadAnalyticBoard(token, b, performanceTimings, onPerformanceEvent) {
+async function loadAnalyticBoard(token, b, performanceTimings) {
   const source = b.analyticSource;
   const generation = ++analyticGeneration;
   // No mesh board carries the mask and silkscreen looks: they come from the stackup.
@@ -759,32 +759,17 @@ async function loadAnalyticBoard(token, b, performanceTimings, onPerformanceEven
     pool: source.pool,
   };
   const started = performance.now();
-  const first = await attachAnalyticPack({ ...common, only: firstPhaseKeys(source.pack.header) });
+  const full = await attachAnalyticPack(common);
+  source.pool?.close();
+  source.pool = null;
   if (generation !== analyticGeneration || !viewerSessionActive(token) || !b.renderer) {
-    first.analytic.destroy();
-    source.pool?.close();
+    full.analytic.destroy();
     return null;
   }
-  b.renderer.setAnalytic(first.analytic);
-  b.analytic = first;
-  performanceTimings.analytic_first_phase_ms = performance.now() - started;
-  performanceTimings.analytic_first_phase = first.timings;
-  void attachAnalyticPack({ ...common, lowered: first.lowered, netIds: first.netIds }).then((full) => {
-    source.pool?.close();
-    source.pool = null;
-    if (generation !== analyticGeneration || !viewerSessionActive(token) || !b.renderer) {
-      full.analytic.destroy();
-      return;
-    }
-    b.renderer.setAnalytic(full.analytic);
-    b.analytic = full;
-    onPerformanceEvent?.({
-      schema: "prism.semantic_viewer_performance.a0",
-      milestone: "analytic-complete",
-      elapsed_ms: performance.now() - started,
-      timings: full.timings,
-    });
-  }).catch((error) => console.warn("[prism-semantic-viewer] analytic board failed", error));
+  b.renderer.setAnalytic(full.analytic);
+  b.analytic = full;
+  performanceTimings.analytic_board_ms = performance.now() - started;
+  performanceTimings.analytic_board = full.timings;
   return runtimeBoundsFromGltf(b.scene.manifest.bbox);
 }
 
@@ -1081,7 +1066,7 @@ async function boot(token, performanceTimings = {}, onPerformanceEvent = null) {
   applyCopperColors();
   started = performance.now();
   const boardBounds = board.analyticSource
-    ? await loadAnalyticBoard(token, board, performanceTimings, onPerformanceEvent)
+    ? await loadAnalyticBoard(token, board, performanceTimings)
     : await loadBoard(token);
   performanceTimings.board_fetch_parse_upload_ms = performance.now() - started;
   if (!viewerSessionActive(token)) return;
@@ -1111,7 +1096,10 @@ async function boot(token, performanceTimings = {}, onPerformanceEvent = null) {
   statusEl.textContent = stageLabels[board.viewerReadiness.stage] || "Loading 3D assets";
   if (board.semanticGeometry.assets?.components_glb && !board.deferComponents) {
     const componentsStarted = performance.now();
-    void loadComponents(token).then(() => {
+    // An analytic board shows once, whole: board and parts together (V2a).
+    const components = loadComponents(token);
+    if (board.analytic) await components.catch(() => {});
+    void components.then(() => {
       if (!viewerSessionActive(token)) return;
       addFootprintPlaceholders(boardBounds);
       onPerformanceEvent?.({

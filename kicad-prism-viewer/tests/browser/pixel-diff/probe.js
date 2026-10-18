@@ -39,7 +39,8 @@
   const grab = (at) => {
     const canvas = viewport();
     if (!canvas || !canvas.width || !canvas.height) return;
-    if (scratch.width !== canvas.width || scratch.height !== canvas.height) {
+    // The scratch canvas starts at the viewport's default 300x150: make its context then too.
+    if (!context || scratch.width !== canvas.width || scratch.height !== canvas.height) {
       scratch.width = canvas.width;
       scratch.height = canvas.height;
       context = scratch.getContext("2d", { willReadFrequently: true });

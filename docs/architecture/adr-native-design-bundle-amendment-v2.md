@@ -132,16 +132,18 @@ V2a step 1 measured the 3D tab's journeys on today's mesh path and on the analyt
 
 | Journey | Today, mesh path | Analytic path, spike as is | Analytic path, V2a step 2 | Budget |
 |---|---|---|---|---|
-| 3D tab, warm commit: first board frame (EDA-04903) | 0.46–0.55 s | 2.8–3.2 s (lowering 2.1 s on the main thread) | 0.71–1.0 s for the outer copper and mask; every layer 1.12–1.48 s | ≤ 1.0 s for the outer copper and mask; every layer ≤ 1.5 s |
-| 3D tab, warm commit, opened again (same bundle) | as above | as above | 0.42–0.46 s | ≤ 0.5 s (lowered slices cached by bundle key) |
-| 3D tab, warm commit: parts drawn (USB-PD-Trigger-Board) | 0.09–0.16 s | same GLB | measured in step 4 | ≤ the board frame + 1 s |
+| 3D tab, warm commit: board shown whole, every layer and the parts (EDA-04903) | first board frame 0.46–0.55 s, parts after | 2.8–3.2 s (lowering 2.1 s on the main thread) | 1.38–1.72 s | ≤ 1.5 s |
+| 3D tab, warm commit, opened again (same bundle) | as above | as above | 0.58–0.72 s | ≤ 0.5 s (lowered slices cached by bundle key) |
+| 3D tab, warm commit: board shown whole (USB-PD-Trigger-Board) | 0.09–0.16 s to the parts | same GLB | 0.10–0.14 s; opened again 0.06–0.13 s | within the rows above |
 | Bytes before the board shows (EDA-04903) | 39 MB | 27.8 MB | measured in step 3 | no more than today's |
 | Cold commit: board shown (EDA-04903, KiCad 8, container) | does not build in 8 GB (113 s and 2.1 GB on the Mac) | stage `board` done at 118.6 s, 2.2 GB peak | measured in step 3 | ≤ 120 s and ≤ 3 GB; the zone refill (76 s) is the cost to cut if this is lowered |
 | System Builder scene, warm system of five boards: every board drawn | measured in V2b | | | ≤ 3 s (to confirm in V2b) |
 | Harness node drag: curve and tube redrawn | measured in V2b | | | same frame (≤ 16 ms) |
 | Simulation result, run on a warm bundle: first overlay frame | measured in V2c | | | ≤ 1 s; no geometry downloaded |
 
-Browser times are headless Chrome on an Apple-silicon Mac (10 CPUs) with assets on loopback; backend times are the worker-image container (V2a step 1). To meet the first row, V2a lowers in a pool of workers instead of one (the spike's worker fell back to the main thread), and lowers the outer copper and mask before the inner layers.
+Browser times are headless Chrome on an Apple-silicon Mac (10 CPUs) with assets on loopback; backend times are the worker-image container (V2a step 1). To meet the first row, V2a lowers in a pool of workers instead of one (the spike's worker fell back to the main thread).
+
+The board shows whole (maintainer, 2026-10-18): the viewer holds the board back until every layer and the parts are drawn, so nothing appears layer by layer and no load work runs while the board is on screen. This replaced a first frame of the outer copper and mask (0.71–1.0 s, budget ≤ 1.0 s), whose later layers popped in and froze the view for up to 0.3 s when they landed; the first two rows were restated for it. Step 2 misses both rows: on a reopen the board's GPU buffers are built on the main thread (296 ms), the pack is opened there (141 ms) and 29 cached slices are read one by one (138 ms). The next V2a pull request moves that work into the lowering workers and the cache.
 
 And per work package:
 - **V2a (C5):** visual check on EDA-04903, USB-PD-Trigger-Board and one System Builder board; no `topology_compiler` process and no `webgpu_3d` job; selection and cross-probe through the semantic index.

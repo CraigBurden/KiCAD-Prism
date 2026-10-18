@@ -222,4 +222,4 @@ Rationale in `docs/architecture/adr-native-design-bundle-amendment-v2.md`. Decid
 9. **Q1, the cold 3D path:** the build enters the ordinary `design_bundle` queue; no priority and no prebuild action. The view shows where it waits and draws the board when stage `board` publishes.
 10. **Q2:** the Python and TypeScript harness curves stay through V2b; V2-R decides whether one Rust crate replaces them.
 11. **Q3:** today's System Builder routes call the operations service during V2b and are removed in its last pull request.
-12. **Q4, 3D budgets:** V2a measures the journeys first; the maintainer sets the budgets before V2a merges. Set on 2026-10-18: V2 §7's proposed budgets, accepted as proposed and copied into amendment U §3.2.
+12. **Q4, 3D budgets:** V2a measures the journeys first; the maintainer sets the budgets before V2a merges. Set on 2026-10-18: V2 §7's proposed budgets, accepted as proposed and copied into amendment U §3.2. The same day the maintainer chose to show the board whole (held back until every layer and the parts are drawn); the first-frame row became "board shown whole ≤ 1.5 s".

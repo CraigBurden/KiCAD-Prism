@@ -147,39 +147,6 @@ export function analyticSceneManifest(header, stackup = null) {
   };
 }
 
-/**
- * The order in which to lower a pack's slices so the board shows soonest:
- * the outer copper and mask first (what the default view sees), then the
- * dielectrics, paste and silkscreen, then the inner copper.
- */
-export function loweringOrder(header) {
-  const slices = [...(header?.stack?.slices || [])].sort((a, b) => a.order - b.order);
-  const conductors = slices.filter((slice) => slice.role === "conductor");
-  const outer = new Set([conductors[0]?.key, conductors[conductors.length - 1]?.key].filter(Boolean));
-  const rank = (slice) => {
-    if (outer.has(slice.key) || slice.role === "solder_mask") return 0;
-    if (slice.role === "conductor") return 2;
-    return 1;
-  };
-  return slices.map((slice, index) => ({ key: slice.key, rank: rank(slice), index }))
-    .sort((a, b) => a.rank - b.rank || a.index - b.index)
-    .map((entry) => entry.key);
-}
-
-/**
- * The slices of the first frame, as a Set: the outer copper, the masks, and
- * the topmost dielectric (the board body the clip is drawn from; V2a).
- */
-export function firstPhaseKeys(header) {
-  const slices = [...(header?.stack?.slices || [])].sort((a, b) => a.order - b.order);
-  const conductors = slices.filter((slice) => slice.role === "conductor");
-  const keys = new Set([conductors[0]?.key, conductors[conductors.length - 1]?.key].filter(Boolean));
-  for (const slice of slices) if (slice.role === "solder_mask") keys.add(slice.key);
-  const body = slices.find((slice) => slice.role === "dielectric");
-  if (body) keys.add(body.key);
-  return keys;
-}
-
 // The mesh compiler's mask and paste looks (topology_compiler/board_looks.py): linear RGBA.
 const MASK_LOOKS = {
   green: [0.06, 0.16, 0.11, 0.83],

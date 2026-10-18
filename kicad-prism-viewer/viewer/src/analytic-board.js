@@ -66,7 +66,7 @@ export function copperPlane(entries, layerId, bottom = false) {
 // still current: lowering is asynchronous, and attaching a stale board would destroy the current one.
 export async function attachAnalyticPack({
   renderer, layers, colorFor, bytes, wasm, toleranceNm, nets = [], features = [], boardZOffsetMm = 0,
-  pack: openPack = null, only = null, lowered: alreadyLowered = null, cache = null, pool = null, netIds: knownNetIds = null,
+  pack: openPack = null, cache = null, pool = null, netIds: knownNetIds = null,
 }) {
   // Milliseconds per phase, reported in the stats: where a large board's load goes.
   const timings = {};
@@ -76,7 +76,7 @@ export async function attachAnalyticPack({
     timings[name] = Math.round(now - mark);
     mark = now;
   };
-  // A second phase reuses the first's open pack (`pack`) and lowered slices (`lowered`).
+  // The caller may have opened the pack already (`pack`), while the pack's bytes reached the workers.
   const pack = openPack || await openAnalyticPack(bytes, { wasm });
   lap("open");
   const zOffset = copperZOffset(renderer.entries, layers, boardZOffsetMm);
@@ -85,12 +85,9 @@ export async function attachAnalyticPack({
   const started = performance.now();
   // The WASM lowering runs in a worker so a large board does not freeze the page;
   // whatever the worker cannot give is lowered here, as before.
-  // `only` (a set of slice keys) draws part of the board, for a first frame
-  // before the rest is lowered (V2 §7: outer copper and mask first).
-  const wanted = only ? planned.filter((slice) => only.has(slice.key)) : planned;
-  const keys = [...new Set(wanted.map((slice) => slice.key))];
+  const keys = [...new Set(planned.map((slice) => slice.key))];
   const tolerance = toleranceNm ?? DEFAULT_TOLERANCE_NM;
-  const lowered = new Map(alreadyLowered || []);
+  const lowered = new Map();
   const cacheIdentity = cache ? { cacheKey: cache.cacheKey, wasmKey: analyticWasmKey(), toleranceNm: tolerance } : null;
   if (cacheIdentity) {
     const pending = keys.filter((key) => !lowered.has(key));
@@ -107,10 +104,9 @@ export async function attachAnalyticPack({
   for (const key of missing) fresh.set(key, fromWorkers?.get(key) ?? pack.lowerSlice(key, toleranceNm));
   for (const [key, value] of fresh) lowered.set(key, value);
   const written = cacheIdentity && fresh.size ? writeLowered(cache.store, cacheIdentity, fresh) : Promise.resolve();
-  // A full load (no `only`) leaves every slice stored: say so, for the next open.
-  if (cacheIdentity && !only) void markLoweringCached(cache.store, cacheIdentity, Promise.all([written, cache.pending || Promise.resolve()]));
-  if (cache && only) cache.pending = written;
-  const slices = wanted.map((slice) => ({
+  // Every slice is stored once the writes land: say so, for the next open.
+  if (cacheIdentity) void markLoweringCached(cache.store, cacheIdentity, written);
+  const slices = planned.map((slice) => ({
     ...slice,
     color: slice.role === "copper" ? colorFor(byId.get(slice.layerId)) : slice.color || [1, 1, 1, 1],
     lowered: lowered.get(slice.key),
@@ -149,7 +145,7 @@ export async function attachAnalyticPack({
     featuresBySource.get(feature.sourceUid).push(feature);
   }
   lap("features");
-  return { pack, analytic, unmatched, lowerMs, timings, zOffset, operations: operationCount(pack.header), overlay: null, netIds, featuresBySource, barrelOperations, lowered, partial: Boolean(only) };
+  return { pack, analytic, unmatched, lowerMs, timings, zOffset, operations: operationCount(pack.header), overlay: null, netIds, featuresBySource, barrelOperations, lowered };
 }
 
 /**

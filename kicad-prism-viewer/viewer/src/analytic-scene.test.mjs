@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { analyticBoundsMm, analyticLayers, analyticSceneManifest, loweringOrder } from "./analytic-scene.js";
+import { analyticBoundsMm, analyticLayers, analyticSceneManifest } from "./analytic-scene.js";
 
 // The stack of a two-layer board as a bundle's pack records it (USB-PD-Trigger-Board).
 const HEADER = {
@@ -58,22 +58,4 @@ test("the manifest has the mesh scene's shape", () => {
   assert.deepEqual(manifest.nets.map((net) => [net.id, net.name]), [[0, ""], [1, "GND"]]);
   assert.deepEqual(manifest.components.map((c) => [c.designator, c.uid]), [["R15", "0a68adf0"]]);
   assert.deepEqual([manifest.tiles, manifest.barrels, manifest.objectFeatures], [[], [], []]);
-});
-
-test("the outer copper and masks are lowered first, inner copper last", () => {
-  const header = { stack: { slices: [
-    { key: "silk.front", order: 0, role: "silkscreen" },
-    { key: "mask.front", order: 1, role: "solder_mask" },
-    { key: "copper.front", order: 2, role: "conductor" },
-    { key: "dielectric.1", order: 3, role: "dielectric" },
-    { key: "copper.in1", order: 4, role: "conductor" },
-    { key: "dielectric.2", order: 5, role: "dielectric" },
-    { key: "copper.back", order: 6, role: "conductor" },
-    { key: "mask.back", order: 7, role: "solder_mask" },
-  ] } };
-  assert.deepEqual(loweringOrder(header), [
-    "mask.front", "copper.front", "copper.back", "mask.back",
-    "silk.front", "dielectric.1", "dielectric.2",
-    "copper.in1",
-  ]);
 });
