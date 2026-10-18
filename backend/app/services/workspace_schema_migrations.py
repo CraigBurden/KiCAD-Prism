@@ -69,6 +69,7 @@ from app.services.workspace_migrations import m057_job_retention_indexes
 from app.services.workspace_migrations import m100_design_bundle_commit_index
 from app.services.workspace_migrations import m101_design_bundles
 from app.services.workspace_migrations import m102_design_bundle_outcomes
+from app.services.workspace_migrations import m103_design_bundle_aliases
 
 
 Migration = Callable[[Any], None]
@@ -132,6 +133,7 @@ MIGRATIONS: tuple[tuple[int, str, Migration], ...] = (
     (100, "design_bundle_commit_index", m100_design_bundle_commit_index.migrate),
     (101, "design_bundles", m101_design_bundles.migrate),
     (102, "design_bundle_outcomes", m102_design_bundle_outcomes.migrate),
+    (103, "design_bundle_aliases", m103_design_bundle_aliases.migrate),
 )
 
 # Migrations that a long-lived branch database recorded under an earlier number.

@@ -129,7 +129,26 @@ class DesignBundleSettings(BaseSettings):
     PRISM_DESIGN_BUNDLE_BACKFILL_INTERVAL_SECONDS: int = Field(
         default=60,
         ge=0,
-        description="Seconds between backfill ticks; each queues at most one branch-head bundle. 0 disables it.",
+        description=(
+            "Seconds between prebuild ticks; each aliases the commits it can to stored bundles and "
+            "queues at most one build. 0 disables it."
+        ),
+    )
+    PRISM_DESIGN_BUNDLE_PREBUILD_COMMITS: int = Field(
+        default=10,
+        ge=0,
+        description=(
+            "How many of each branch's newest commits (first parent) the background prebuild keeps "
+            "bundles for, besides every tagged commit. 0 prebuilds branch heads and tags only."
+        ),
+    )
+    PRISM_DESIGN_BUNDLE_REUSE_CANDIDATES: int = Field(
+        default=3,
+        ge=0,
+        description=(
+            "How many stored bundles a new revision is checked against with prism-kicad bundle reuse "
+            "before it is built. 0 disables reuse."
+        ),
     )
 
     @model_validator(mode="after")

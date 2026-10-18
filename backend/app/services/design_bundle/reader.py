@@ -1,8 +1,8 @@
 """How a consumer reads bundle members (bundle-format.md §3.3, §8, §9).
 
 A consumer names the revision and the members it needs. :func:`open_revision`
-keys the revision, opens the stored archive if there is
-one, and answers readiness per member; ``read_json`` and ``extract`` return
+keys the revision, opens the archive that serves it (its own, else the one an
+alias row points to, ADR amendment K2 §3.6) and answers readiness per member; ``read_json`` and ``extract`` return
 verified bytes or files. Nothing here builds a bundle: ``queue=True`` asks for
 one when the archive is missing or pending, deduplicated on the bundle key.
 """
@@ -14,7 +14,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Iterable, Mapping
 
-from app.services.design_bundle import cli, jobs, rows, store
+from app.services.design_bundle import cli, jobs, reuse, rows, store
 from app.services.design_bundle.archive import Archive
 from app.services.design_bundle.manifest import Readiness, readiness
 
@@ -23,6 +23,13 @@ _ACTIVE = ("queued", "running", "retry_wait", "cancel_requested")
 
 @dataclass
 class OpenedRevision:
+    """A revision as a consumer reads it.
+
+    ``revision_key`` is the key asked for, which is what a consumer reports.
+    ``bundle_key`` names the archive that serves it, built for
+    ``archive_revision_key``: another revision's when ``aliased``.
+    """
+
     project_id: str
     commit: str | None
     revision_key: str | None
@@ -31,6 +38,8 @@ class OpenedRevision:
     archive: Archive | None
     job_active: bool
     absent: bool = False
+    archive_revision_key: str | None = None
+    aliased: bool = False
 
     def readiness(self, paths: Iterable[str]) -> dict[str, Readiness]:
         manifest = self.archive.manifest if self.archive is not None else None
@@ -41,6 +50,8 @@ class OpenedRevision:
             raise LookupError("the bundle is not stored yet")
         if self.bundle_key:
             rows.touch_bundle(self.project_id, self.bundle_key)
+        if self.aliased and self.revision_key:
+            rows.touch_alias(self.project_id, self.revision_key, self.generator_digest)
         return self.archive
 
     def read(self, path: str) -> bytes:
@@ -55,8 +66,9 @@ class OpenedRevision:
         """Members as files in the archive's verified version directory (§8)."""
 
         archive = self._need()
-        assert self.revision_key is not None
-        return store.extract(archive, self.project_id, self.revision_key, self.generator_digest, paths)
+        stored_as = self.archive_revision_key or self.revision_key
+        assert stored_as is not None
+        return store.extract(archive, self.project_id, stored_as, self.generator_digest, paths)
 
 
 def open_revision(project_id: str, commit: str | None = None, *, queue: bool = False, requested_by: str = "") -> OpenedRevision:
@@ -72,16 +84,24 @@ def open_revision(project_id: str, commit: str | None = None, *, queue: bool = F
     if key.absent:
         return OpenedRevision(project_id, key.commit, None, generator.digest, None, None, False, absent=True)
     revision_key = key.key.revision_key  # type: ignore[union-attr]
-    bundle_key = generator.bundle_key(revision_key)
-    archive = store.open_bundle(project_id, revision_key, generator.digest, bundle_key)
+    resolved = reuse.resolve(project_id, revision_key, generator)
+    bundle_key = resolved.bundle_key if resolved else generator.bundle_key(revision_key)
+    stored_as = resolved.archive_revision_key if resolved else revision_key
+    aliased = bool(resolved and resolved.aliased)
+    archive = store.open_bundle(project_id, stored_as, generator.digest, bundle_key)
     bundle = rows.get_bundle(project_id, bundle_key)
     active = bool(bundle and rows.job_status(bundle.get("job_id")) in _ACTIVE)
     complete = archive is not None and all(
         archive.manifest["stages"][stage]["status"] != "pending" for stage in ("parse", "board", "models")
     )
     if queue and not active and not complete:
-        active = bool(jobs.start_design_bundle_job(project_id, commit=key.commit, requested_by=requested_by))
-    return OpenedRevision(project_id, key.commit, revision_key, generator.digest, bundle_key, archive, active)
+        # An aliased archive's later stages are its own revision's job.
+        build_commit = (bundle or {}).get("commit_sha") if aliased else key.commit
+        active = bool(jobs.start_design_bundle_job(project_id, commit=build_commit or key.commit, requested_by=requested_by))
+    return OpenedRevision(
+        project_id, key.commit, revision_key, generator.digest, bundle_key, archive, active,
+        archive_revision_key=stored_as, aliased=aliased,
+    )
 
 
 def member_states(opened: OpenedRevision, paths: Iterable[str]) -> Mapping[str, str]:

@@ -1,4 +1,7 @@
-"""The paced backfill of branch heads (ADR §8) and bundle retention (ADR §5), on a scratch workspace."""
+"""The paced backfill (ADR §8, amendment K2 §7) and bundle retention (ADR §5), on a scratch workspace.
+
+Reuse, the prebuild set and aliases are in ``test_design_bundle_reuse.py``.
+"""
 
 from __future__ import annotations
 
@@ -42,7 +45,8 @@ class BackfillTests(_Workspace, unittest.TestCase):
         # Paced: nothing more while a design_bundle job is active.
         with self.scratch.connection() as conn:
             seed_job(conn, "active-1", "design_bundle", "running")
-        self.assertEqual(backfill.tick(self.state)["skipped"], "a design_bundle job is active")
+        paced = backfill.tick(self.state)
+        self.assertEqual((paced["busy"], paced["queued"]), ("a design_bundle job is active", None))
         with self.scratch.connection() as conn:
             conn.execute("UPDATE ws_jobs SET status='completed' WHERE id='active-1'")
         second = backfill.tick(self.state)["queued"]
@@ -103,12 +107,32 @@ class RetentionTests(_Workspace, unittest.TestCase):
         self.assertNotEqual(old["revision_key"], head["revision_key"])
         self._age(old["bundle_key"], 40)
         self._age(head["bundle_key"], 40)
-        report = retention.run()
+        with mock.patch.object(settings, "PRISM_DESIGN_BUNDLE_PREBUILD_COMMITS", 0):  # heads and tags only
+            report = retention.run()
         self.assertEqual(report["removed"], 1)
         self.assertIsNone(rows.get_bundle("p1", old["bundle_key"]))
         self.assertFalse(store.archive_path("p1", old["revision_key"], old["generator_digest"]).exists())
         self.assertIsNotNone(rows.get_bundle("p1", head["bundle_key"]))  # a branch head, however old its last use
         self.assertTrue(store.archive_path("p1", head["revision_key"], head["generator_digest"]).exists())
+
+    def test_a_branch_window_and_tags_stay(self) -> None:
+        repo = self.add_project()
+        tagged = self._bundle(git(repo, "rev-parse", "HEAD"))
+        git(repo, "tag", "v1")
+        (repo / "board/demo.kicad_sch").write_text("(kicad_sch (version 20260306) (v2))\n", encoding="utf-8")
+        git(repo, "-c", "commit.gpgsign=false", "commit", "-qam", "v2")
+        windowed = self._bundle(git(repo, "rev-parse", "HEAD"))
+        (repo / "board/demo.kicad_sch").write_text("(kicad_sch (version 20260306) (v3))\n", encoding="utf-8")
+        git(repo, "-c", "commit.gpgsign=false", "commit", "-qam", "v3")
+        self._age(tagged["bundle_key"], 400)
+        self._age(windowed["bundle_key"], 400)
+        with mock.patch.object(settings, "PRISM_DESIGN_BUNDLE_PREBUILD_COMMITS", 2):
+            report = retention.run()
+        self.assertEqual(report["removed"], 0)  # the tag, and HEAD~1 inside the window of 2
+        with mock.patch.object(settings, "PRISM_DESIGN_BUNDLE_PREBUILD_COMMITS", 0):
+            report = retention.run()
+        self.assertEqual(report["removed"], 1)  # the window is gone; the tag stays
+        self.assertIsNotNone(rows.get_bundle("p1", tagged["bundle_key"]))
 
     def test_recently_used_and_pinned_commits_stay(self) -> None:
         repo = self.add_project()

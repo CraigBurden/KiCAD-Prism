@@ -22,6 +22,7 @@ import {
 } from "@/components/ui/tooltip";
 import { Settings, RefreshCw, Check, AlertCircle, FileSearch } from "lucide-react";
 import { fetchApi, fetchJson } from "@/lib/api";
+import { DesignDataSection } from "@/components/design-data-section";
 
 interface PathConfig {
     schematic?: string;
@@ -391,6 +392,13 @@ export function PathConfigDialog({ projectId, open, onOpenChange }: PathConfigDi
                                 )}
                             </div>
                         ))}
+
+                        <Separator />
+
+                        {/* The settings button only mounts this dialog for users who
+                            may manage the project (ProjectDetailPage gates it on
+                            canManageProjects), so editing is always allowed here. */}
+                        <DesignDataSection projectId={projectId} canEdit={true} />
                     </div>
                 </ScrollArea>
 

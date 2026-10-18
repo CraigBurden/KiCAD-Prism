@@ -7,6 +7,9 @@ the bundle key. It resumes from the stored archive: a stage only moves from
 ```text
 0. generator    prism-kicad version -> generator digest, bundle key
    key          the commit's revision key (effective config, commit index)
+   reuse        prism-kicad bundle reuse against a few stored bundles; on a
+                hold, an alias row and no build (ADR amendment K2 §3.3).
+                Skipped for a forced rebuild.
 1. materialize  $JOB/src (LFS, gitlinks); upgrade older boards and schematics;
                 effective.json and key-record.json
 2. parse        prism-kicad bundle build --stage parse -o <store>
@@ -34,7 +37,16 @@ from typing import Any, Callable, Mapping
 
 from app.core.config import settings
 from app.services import project_revision
-from app.services.design_bundle import cli, kicad_steps, manifest as manifest_rules, materialize, rows, stage_models, store
+from app.services.design_bundle import (
+    cli,
+    kicad_steps,
+    manifest as manifest_rules,
+    materialize,
+    reuse,
+    rows,
+    stage_models,
+    store,
+)
 from app.services.design_bundle.archive import Archive
 from app.services.design_bundle.effective_config import ProjectKey, ProjectRef, key_at_commit
 from app.services.design_bundle.generator import Generator
@@ -99,12 +111,14 @@ def start_design_bundle_job(
     requested_by: str = "",
     priority: int | None = None,
     head: bool = False,
+    force: bool = False,
 ) -> str | None:
     """Queue the bundle of ``project_id`` at ``commit`` (default ``HEAD``) on demand.
 
     Returns the job id; ``None`` when the project is absent at that commit or
-    its bundle is already complete. Raises ``cli.CliUnavailable`` when
-    ``prism-kicad`` is not installed.
+    its bundle is already complete or served through an alias. ``force``
+    queues a build that skips reuse (a regenerate). Raises
+    ``cli.CliUnavailable`` when ``prism-kicad`` is not installed.
     """
 
     row = _workspace().get_project_by_id(project_id)
@@ -117,7 +131,9 @@ def start_design_bundle_job(
     generator = cli.generator()
     revision_key = key.key.revision_key  # type: ignore[union-attr]
     bundle_key = generator.bundle_key(revision_key)
-    if bundle_ready(project_id, bundle_key):
+    if not force and (
+        bundle_ready(project_id, bundle_key) or rows.get_alias(project_id, revision_key, generator.digest)
+    ):
         return None
     queued = DESIGN_BUNDLE.enqueue(
         {
@@ -127,6 +143,7 @@ def start_design_bundle_job(
             "bundle_key": bundle_key,
             "project_file_rel": str(row.get("project_file_rel") or ""),
             "head": bool(head or commit is None),
+            "force": bool(force),
         },
         subject=JobSubject.of_project(row, project_id),
         artifact_key=artifact_key(project_id, bundle_key),
@@ -402,6 +419,9 @@ def run_design_bundle_job(context: JobContext) -> JobResult:
     except cli.CliFailure as failure:
         raise RetryableJobError(f"prism-kicad version: {failure}", code=failure.code) from failure
     rows.index_key(project_id, str(key.commit), key.key.config_digest, key.key.revision_key)  # type: ignore[union-attr]
+    served = _served_by_reuse(context, row, key, generator)
+    if served is not None:
+        return served
     run = _Run(context, row, key, generator)
     rows.upsert_bundle(
         bundle_key=run.bundle_key, project_id=project_id, revision_key=run.revision_key,
@@ -419,6 +439,37 @@ def run_design_bundle_job(context: JobContext) -> JobResult:
     statuses = manifest_rules.statuses(archive.manifest)
     run.details["stages"] = statuses
     return JobResult(message=f"Design bundle ready: {', '.join(f'{k} {v}' for k, v in statuses.items())}", details=run.details)
+
+
+def _served_by_reuse(context: JobContext, row: Mapping[str, Any], key: ProjectKey, generator: Generator) -> JobResult | None:
+    """Alias the key to a stored bundle whose read set holds, instead of building (K2 §3.3).
+
+    Not for a forced rebuild, nor when the key's own archive exists (a build
+    to resume). On a hold the queued row of the key's own bundle goes: the
+    key is served through the alias.
+    """
+
+    project_id = str(row["id"])
+    revision_key = key.key.revision_key  # type: ignore[union-attr]
+    own = generator.bundle_key(revision_key)
+    if context.payload.get("force") or store.open_bundle(project_id, revision_key, generator.digest, own) is not None:
+        return None
+    context.progress(stage="bundle-reuse", message="Looking for a stored bundle that serves this revision", percent=2, force=True)
+    repo = project_revision.locate(row).repo_root
+    try:
+        served_by = reuse.try_reuse(project_id, repo, key, generator, context.staging_dir, cancel=context.check_cancelled)
+    except cli.CliUnavailable as error:
+        raise PermanentJobError(str(error), code="cli-unavailable") from error
+    if served_by is None:
+        return None
+    rows.delete_bundles(project_id, [own])
+    return JobResult(
+        message="Served by a stored bundle whose read set holds",
+        details={
+            "project_id": project_id, "commit": key.commit, "revision_key": revision_key,
+            "bundle_key": served_by, "aliased": True, "generator_digest": generator.digest,
+        },
+    )
 
 
 def _remove_superseded(run: _Run) -> None:

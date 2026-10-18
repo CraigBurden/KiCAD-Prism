@@ -204,8 +204,10 @@ builds it in stages (parse, board, models) on the general worker.
 | `PRISM_DESIGN_BUNDLE_VERIFY_TIMEOUT_MS` | `prism-kicad bundle verify` when an archive is stored (default 300 s) |
 | `PRISM_DESIGN_BUNDLE_MEMORY_BUDGET_BYTES` | worker memory for the slot; startup refuses `CONCURRENCY x (largest cap + 1.25 GiB)` above it (default 8 GiB) |
 | `PRISM_DESIGN_BUNDLE_THREADS`, `PRISM_DESIGN_BUNDLE_MAX_ATTEMPTS` | `prism-kicad --threads` (default 4); attempts per job before a failing KiCad step ends it (default 3) |
-| `PRISM_DESIGN_BUNDLE_RETENTION_DAYS` | days an unused bundle is kept; branch heads, System Builder baselines and released Release Studio commits are always kept (default 30) |
-| `PRISM_DESIGN_BUNDLE_BACKFILL_INTERVAL_SECONDS` | seconds between backfill ticks, each queuing at most one bundle; 0 disables (default 60) |
+| `PRISM_DESIGN_BUNDLE_RETENTION_DAYS` | days an unused bundle or alias is kept; the prebuild's commits (branch heads, each branch's newest commits, tags), System Builder baselines, released Release Studio commits and every bundle an alias points to are always kept (default 30) |
+| `PRISM_DESIGN_BUNDLE_BACKFILL_INTERVAL_SECONDS` | seconds between prebuild ticks; each aliases what it can and queues at most one build; 0 disables (default 60) |
+| `PRISM_DESIGN_BUNDLE_PREBUILD_COMMITS` | how many of each branch's newest commits (first parent) the background prebuild keeps bundles for, besides every tagged commit; 0 prebuilds branch heads and tags only (default 10) |
+| `PRISM_DESIGN_BUNDLE_REUSE_CANDIDATES` | how many stored bundles a new revision is checked against with `prism-kicad bundle reuse` before it is built; 0 disables reuse (default 3) |
 | `PRISM_DESIGN_BUNDLE_GLB_TIMEOUT_SECONDS`, `PRISM_DESIGN_BUNDLE_UPGRADE_TIMEOUT_SECONDS` | the component GLB export and each source upgrade (defaults 600 and 900 s) |
 | `PRISM_KICAD_PYTHON`, `PRISM_ZONE_REFILL_TIMEOUT_SECONDS` | KiCad's Python (imports `pcbnew`) for the zone refill and board upgrades, and the refill's timeout (default 900 s) |
 | `PRISM_DESIGN_BUNDLE_CLI_PATH`, `PRISM_DESIGN_BUNDLE_ROOT`, `PRISM_DESIGN_BUNDLE_SCHEMA_DIR` | host overrides for the binary (default `prism-kicad` on PATH), the store and the committed JSON Schema |

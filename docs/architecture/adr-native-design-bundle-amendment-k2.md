@@ -230,3 +230,21 @@ Notes on the rule:
 - Amendment U §3.3: "Stages after `parse`" is replaced by a pointer to §3.5. §4's K2a and K2b ownership and acceptance lists point to §4 here.
 - Parent ADR: status line, and §10 item 9.
 - `decisions.md`: a section for this amendment.
+
+## 7. Changes decided while building K2b (2026-10-18)
+
+The maintainer changed the prebuild while K2b was being built:
+
+- **What is kept warm.** Each tracked branch's newest `PRISM_DESIGN_BUNDLE_PREBUILD_COMMITS` commits along the first parent (default **10**, not U §3.3's 20), plus **every tagged commit**, lightweight or annotated. Retention keeps the bundles of all of them, besides branch heads and the pinned commits of parent §5.
+- **How it runs.** The paced backfill (parent §8) walks that set every tick. A commit with no bundle and no alias is keyed. If `bundle reuse` holds against one of `PRISM_DESIGN_BUNDLE_REUSE_CANDIDATES` stored bundles (default 3), the commit gets an alias row with no build. Candidates are the first parent's bundle, then the project's newest. Otherwise its build is queued, at most one per tick and only while the `design_bundle` slot is free. An on-demand job tries the same reuse before it builds. HEAD is still queued directly after each sync.
+- **Forced rebuild.** A designer can rebuild a project's design data from Project settings (`POST /api/projects/{id}/design-bundles/regenerate`):
+  - **one commit** (HEAD): the commit's alias goes, and so do its own archive and every alias that pointed to that archive. A build that skips reuse is queued;
+  - **the whole project:** every archive and alias goes, HEAD is rebuilt without reuse, and the prebuild rebuilds the rest.
+
+  It is refused while a build of the project is active. A generator bump still rebuilds everything on its own; this path is for a bundle that looks wrong.
+- **Alias retention.** An alias row records `last_used_at`. An alias of a revision outside the kept set goes once it has been unused for `PRISM_DESIGN_BUNDLE_RETENTION_DAYS`. An archive stays while any alias points to it, and its aliases go with it.
+- **GLB cache key.** §3.5 named the bundle key. The existing key is kept: the board's object id, the repository models' object ids, the KiCad version and the models procedure. Every revision an archive serves has the same board and model files, so the existing key already pins what the export reads. It also lets two archives that differ only in a sheet share one export.
+- **Reuse rate on the gate corpus.** Over the last 20 first-parent commits of each of the eight gate repositories, 82 commits had the project at its anchor. 15 of them (18%) need no build because their revision key does not change: CI files, READMEs and PDFs. No other commit was served by reuse, because every commit that changed the key also changed a file stage parse reads: a board, a sheet, the rules or a footprint library. Reuse pays off where the corpus has no example, a change to another project in the same repository or to a file parse never reads; `prism-kicad`'s and the backend's tests cover both.
+- **Split.** K2b lands in two steps:
+  - step A: everything above, alias reads and the status routes' identity;
+  - step B: the comment-anchor migration (§3.6), which changes the comments code.
