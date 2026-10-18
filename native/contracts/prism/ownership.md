@@ -880,6 +880,7 @@ Every path a WP may edit in its wave, from `ownership.json` `/workPackages`. "AD
 - ADR Owns: `design_compare_*.py`; `fabrication_compare_service.py (keying only)`; `backend/design-compare-parser/ (removal)`; `frontend/.../design-comparison/revision-sources.ts`.
 - Depends (ADR): K, P1, P2, P3; depends (this map): K, P1, P2, P3; merges after: —.
 - Amendment C2 (2026-10-17): the object diff moves to Rust as `prism-kicad compare`. Its contracts (`native/src/tsp/prism/compare-a0.tsp`, `CliCompareResultA0` in `cli-a0.tsp`, their schemas, Rust bindings and examples) land in the amendment's contracts PR, not in C2.
+- C2r switch (2026-10-18): `compare-a0.tsp` and `compare-font-a0.tsp` are removed; the stdout document is `CliCompareResultA1` in `native/src/tsp/prism/cli-compare-a1.tsp` (C2 owns it), with field map `field-maps/cli-compare.md`.
 - backend/design-compare-parser/ removal moves to R2: the legacy flag value still runs it until Wave 4 (§8), and its CI job, Dockerfile line and ci_changes area are L's/R2's files.
 
 | Path | Status | Note |
@@ -898,7 +899,7 @@ Every path a WP may edit in its wave, from `ownership.json` `/workPackages`. "AD
 | `native/src/rs/prism-projections/src/compare.rs`, `native/src/rs/prism-projections/src/compare/**` | new | the object diff engine (amendment C2); `prism-projections/src/lib.rs` gains `pub mod compare;` through its owner |
 | `native/src/rs/prism-kicad-cli/src/cmd_compare.rs` | new | the `compare` command (cli-spec.md §5.6); the CLI's argument table and dispatch gain it through their owner |
 | `native/parity/divergences/compare.md`, the `compare` parity member's capture and pairs | new | divergence `compare-1` (code point order, amendment C2 D2) |
-| `native/src/tsp/prism/design-compare-a1.tsp` (a0 until C2r step 6), `native/src/tsp/prism/kicad-project-diff-v1.tsp`, `native/contracts/prism/field-maps/design-compare.md` | new | amendment C2r's contracts; `compare-a0.tsp` is removed when `compare` switches to the new output (C2r §9 step 4) |
+| `native/src/tsp/prism/design-compare-a1.tsp` (a0 until C2r step 6), `native/src/tsp/prism/kicad-project-diff-v1.tsp`, `native/src/tsp/prism/cli-compare-a1.tsp`, `native/contracts/prism/field-maps/design-compare.md`, `native/contracts/prism/field-maps/cli-compare.md` | new | amendment C2r's contracts; `compare-a0.tsp` was removed at the switch (C2r §4), and `cli-compare-a1.tsp` with `field-maps/cli-compare.md` joined them |
 
 ### C3: Release Studio (wave 3, ADR §9.6)
 

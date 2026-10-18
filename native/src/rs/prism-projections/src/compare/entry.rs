@@ -431,64 +431,6 @@ fn insert_bool(fields: &mut BTreeMap<String, Value>, label: &str, value: Option<
     }
 }
 
-/// `native_object` (`ecad-diff.mjs:194-220`): the object as a change, an
-/// `ignored` entry or a `componentObjects` entry carries it.
-pub fn native_object(entry: &Entry) -> Value {
-    let mut map = Map::new();
-    json::set(&mut map, "uuid", Value::from(entry.uuid.clone()));
-    json::set(&mut map, "kind", Value::from(entry.kind.clone()));
-    json::set(
-        &mut map,
-        "documentPath",
-        Value::from(entry.document_path.clone()),
-    );
-    json::set_opt_str(&mut map, "parentUuid", &entry.parent_uuid);
-    json::set_opt_point(&mut map, "at", entry.at);
-    json::set_opt_number(&mut map, "rotation", entry.rotation);
-    json::set_opt_str(&mut map, "mirror", &entry.mirror);
-    json::set_opt_str(&mut map, "layer", &entry.layer);
-    json::set_opt_strings(&mut map, "layers", &entry.layers);
-    json::set_opt_str(&mut map, "net", &entry.net);
-    json::set_opt_str(&mut map, "refdes", &entry.refdes);
-    json::set_opt_str(&mut map, "libId", &entry.lib_id);
-    json::set_opt_bool(&mut map, "dnp", entry.dnp);
-    json::set_opt_bool(&mut map, "inBom", entry.in_bom);
-    json::set_opt_bool(&mut map, "onBoard", entry.on_board);
-    json::set_opt_strings(&mut map, "kiidPaths", &entry.kiid_paths);
-    if let Some(instances) = &entry.instances {
-        json::set(&mut map, "instances", instances_value(instances));
-    }
-    if let Some(properties) = &entry.properties {
-        json::set(&mut map, "properties", properties_value(properties));
-    }
-    json::set_opt_str(&mut map, "number", &entry.number);
-    json::set_opt_str(&mut map, "text", &entry.text);
-    json::set_opt_str(&mut map, "name", &entry.name);
-    if let Some(review_fields) = &entry.review_fields {
-        json::set(&mut map, "reviewFields", review_fields.clone());
-    }
-    json::set_opt_bool(&mut map, "reviewOnly", entry.review_only);
-    Value::Object(map)
-}
-
-/// `native_target` (`ecad-diff.mjs:222-230`): an object as `nativeObjects`
-/// carries it.
-pub fn native_target(entry: &Entry) -> Value {
-    let mut map = Map::new();
-    json::set(&mut map, "uuid", Value::from(entry.uuid.clone()));
-    json::set(&mut map, "kind", Value::from(entry.kind.clone()));
-    json::set(
-        &mut map,
-        "documentPath",
-        Value::from(entry.document_path.clone()),
-    );
-    json::set_opt_str(&mut map, "parentUuid", &entry.parent_uuid);
-    if let Some(at) = entry.at {
-        json::set(&mut map, "at", json::point(at));
-    }
-    Value::Object(map)
-}
-
 fn instances_value(instances: &[Instance]) -> Value {
     Value::Array(
         instances
@@ -673,10 +615,6 @@ mod tests {
             entry.combined_review_fields.get("Net").unwrap(),
             &json!("PAYLOAD_RESET#")
         );
-        let object = native_object(entry);
-        // ECMAScript number text (T3): `0`, not `0.0`.
-        assert_eq!(object["at"], json!([0, 40.64]));
-        assert_eq!(object["reviewFields"], json!({"Pad number": "17"}));
     }
 
     #[test]

@@ -119,12 +119,8 @@ fn the_same_bundle_twice_has_no_changes() {
     );
     prism_bundle::schema::validate("prism.design_compare.result.a1", &result).unwrap();
     let document = &finished.document;
-    assert_eq!(document["schema"], "prism.cli.compare_result.a0");
-    assert_eq!(document["counts"]["added"], 0);
-    assert_eq!(
-        document["counts"]["unchanged"],
-        document["counts"]["base_objects"]
-    );
+    assert_eq!(document["schema"], "prism.cli.compare_result.a1");
+    assert_eq!(document["counts"], result["counts"]);
     assert_eq!(document["base"]["revision_key"], ZERO_KEY);
 }
 

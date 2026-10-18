@@ -22,8 +22,8 @@ Citations follow [`conventions.md`](conventions.md): a bare path is in this repo
 | `CliReuseResultA0` | `prism.cli.reuse_result.a0` | stdout of `bundle reuse`, exit 0 (§5.10) | `examples/CliReuseResultA0.example.json` |
 | `CliErrorA0` | `prism.cli.error.a0` | stdout of any command, exit 1–7 | `examples/CliErrorA0.example.json` |
 | `CliProjectAbsentA0` | `prism.cli.project_absent.a0` | stdout of `revision-key` and `bundle build --stage parse`, exit 10: the project is absent at this revision | `examples/CliProjectAbsentA0.example.json` |
-| `CliCompareResultA0` | `prism.cli.compare_result.a0` | stdout of `compare`, exit 0 | `examples/CliCompareResultA0.example.json` |
-| `CompareObjectDeltaA0` | `prism.compare.object_delta.a0` | `-o` of `compare` (§5.6); TypeSpec `tsp/prism/compare-a0.tsp` | `examples/CompareObjectDeltaA0.example.json` |
+| `CliCompareResultA1` | `prism.cli.compare_result.a1` | stdout of `compare`, exit 0; TypeSpec `tsp/prism/cli-compare-a1.tsp` | `examples/CliCompareResultA1.example.json` |
+| `DesignCompareResultA1` | `prism.design_compare.result.a1` | `-o` of `compare` (§5.6); TypeSpec `tsp/prism/design-compare-a1.tsp` | `examples/DesignCompareResultA1.example.json` |
 | `CliArtworkResultA0` | `prism.cli.artwork_result.a0` | stdout of `artwork` (§5.7) | `examples/CliArtworkResultA0.example.json` |
 | `CliVendorListA0`, `CliVendorRunResultA0` | `prism.cli.vendor_list.a0`, `prism.cli.vendor_run_result.a0` | stdout of `vendor list` / `vendor run` (§5.8) | one example each |
 | `CliStrokeTextResultA0`, `CliStrokeFontMetricsA0`, `CliDrawingSheetResultA0` | `prism.cli.stroke_text_result.a0`, `prism.cli.stroke_font_metrics.a0`, `prism.cli.drawing_sheet_result.a0` | stdout of `stroke-text` / `drawing-sheet` (§5.9) | one example each |
@@ -158,7 +158,7 @@ The exit code fixes which document it is:
 | `bundle verify` | `CliVerifyReportA0` (`valid`) | — | `CliVerifyReportA0` (`invalid`) | — | `CliErrorA0` |
 | `bundle extract` | `CliExtractResultA0` | — | — | — | `CliErrorA0` |
 | `revision-key` | `RevisionKeyRecordA1` | — | — | `CliProjectAbsentA0` | `CliErrorA0` |
-| `compare` | `CliCompareResultA0`; `-o` holds `CompareObjectDeltaA0` | — | — | — | `CliErrorA0` |
+| `compare` | `CliCompareResultA1`; `-o` holds `DesignCompareResultA1` | — | — | — | `CliErrorA0` |
 | `artwork` | `CliArtworkResultA0` | — | — | — | `CliErrorA0` |
 | `vendor list` / `vendor run` | `CliVendorListA0` / `CliVendorRunResultA0` | — | — | — | `CliErrorA0` |
 | `stroke-text` | `CliStrokeTextResultA0` (`--request`) or `CliStrokeFontMetricsA0` (`--metrics`) | — | — | — | `CliErrorA0` |
@@ -612,7 +612,7 @@ This spec fixes only the process contract:
   2. The two sides name the same generator id, byte for byte in canonical form (a source tree's is the running CLI's). Otherwise exit 7, `generator-mismatch`: members of two producers are not comparable, and the backend rebuilds the stale bundle.
   3. Both sides' `config.project_file` lie in the same directory. Otherwise exit 7, `anchor-mismatch`. Object keys and document paths are relative to that directory, so two project files in one directory share a key space and compare.
   4. Each side holds the five members: stage `parse` is `complete`, or `partial` without the member in `failed_members`. Otherwise exit 7, `member-not-found`, with `argument` `base` or `head`.
-- **Output.** `-o` receives one `DesignCompareResultA1`, compact UTF-8 JSON with one trailing LF, streamed and written atomically: a temp file in the same directory, fsync, rename (§5.2.5, without the self-verify). stdout receives `CliCompareResultA0` after the rename: each side's revision key, bundle key (absent for a source tree) and object count, and the object diff's counts.
+- **Output.** `-o` receives one `DesignCompareResultA1`, compact UTF-8 JSON with one trailing LF, streamed and written atomically: a temp file in the same directory, fsync, rename (§5.2.5, without the self-verify). stdout receives `CliCompareResultA1` after the rename: each side's revision key, bundle key (absent for a source tree) and object count, and the result's per-tab `counts`. (a0 carried the object diff's counts of the removed `prism.compare.object_delta.a0`; ADR amendment C2r §4.)
 - **Rules fixed here:**
   - document paths and object keys are relative to the directory of the project file (C2 D1);
   - changes are sorted by `id`, and every map's keys in code point order (C2 D2, divergence `compare-1`);

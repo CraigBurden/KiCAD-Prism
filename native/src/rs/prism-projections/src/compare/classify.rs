@@ -7,7 +7,6 @@
 
 use super::entry::{Entry, Property};
 use super::json::{self, Point};
-use super::numbers::{hypot2, round6};
 use serde_json::{Map, Value};
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -35,8 +34,6 @@ pub struct MergedDelta {
     pub from: Option<Value>,
     /// The head value.
     pub to: Option<Value>,
-    /// True when this is a property delta (attributes and `attributesChanged`).
-    pub property: bool,
     /// True when a property present on both sides only moved or was hidden.
     pub attributes_changed: bool,
     /// The base property's attributes.
@@ -123,20 +120,6 @@ fn same_content_fields(before: &Entry, after: &Entry) -> bool {
         && before.review_only == after.review_only
 }
 
-/// `position_delta` (`ecad-diff.mjs:322-332`): the rounded move, absent when
-/// the object has no position or did not move.
-pub fn position_delta(before: &Entry, after: &Entry) -> Option<(f64, f64, f64)> {
-    let (Some(from), Some(to)) = (before.at, after.at) else {
-        return None;
-    };
-    let dx = round6(to[0] - from[0]);
-    let dy = round6(to[1] - from[1]);
-    if dx == 0.0 && dy == 0.0 {
-        return None;
-    }
-    Some((dx, dy, round6(hypot2(dx, dy))))
-}
-
 /// `review_field_deltas` (`ecad-diff.mjs:298-309`), sorted by `name` (D2).
 pub fn review_field_deltas(before: Option<&Entry>, after: Option<&Entry>) -> Vec<MergedDelta> {
     let empty = BTreeMap::new();
@@ -154,7 +137,6 @@ pub fn review_field_deltas(before: Option<&Entry>, after: Option<&Entry>) -> Vec
             name: name.clone(),
             from: from.cloned(),
             to: to.cloned(),
-            property: false,
             attributes_changed: false,
             from_attributes: None,
             to_attributes: None,
@@ -209,7 +191,6 @@ fn property_deltas(before: &Entry, after: &Entry) -> Vec<MergedDelta> {
             name: name.to_owned(),
             from: from.map(|property| Value::from(property.value.clone())),
             to: to.map(|property| Value::from(property.value.clone())),
-            property: true,
             attributes_changed: from.is_some() && to.is_some() && from_attributes != to_attributes,
             from_attributes,
             to_attributes,
@@ -345,6 +326,5 @@ mod tests {
         assert!(!properties_changed(&deltas));
         assert_eq!(deltas.len(), 1);
         assert_eq!(deltas[0].name, "Net");
-        assert!(!deltas[0].property);
     }
 }

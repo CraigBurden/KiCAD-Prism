@@ -5,8 +5,9 @@
 module so `config.py` stays untouched while the bundle work lands (ownership
 map, WP-K).
 
-- `PRISM_DESIGN_SOURCE_<CONSUMER>`: each consumer's switch, `legacy` (default)
-  or `bundle` (ADR §8). The PR that proves a consumer's parity flips its default.
+- `PRISM_DESIGN_SOURCE_<CONSUMER>`: each consumer's switch, `legacy` or
+  `bundle` (ADR §8). The PR that proves a consumer's parity flips its default:
+  Design Comparison's is `bundle` (amendment C2r); the rest are `legacy`.
 - `PRISM_DESIGN_BUNDLE_*`: the `design_bundle` job, its resource slot, the
   per-stage limits it passes to `prism-kicad` (cli-spec.md §7), the store and
   its retention, and the paced backfill.
@@ -35,7 +36,11 @@ class DesignBundleSettings(BaseSettings):
         default="legacy", description="Semantic index: today's Python index, or the bundle's semantic-index member."
     )
     PRISM_DESIGN_SOURCE_DESIGN_COMPARISON: DesignSource = Field(
-        default="legacy", description="Design Comparison: today's parsers, or bundle members."
+        default="bundle",
+        description=(
+            "Design Comparison: `prism-kicad compare` over bundles or source trees (default since the C2r"
+            " switch), or `legacy`, today's parsers, until R1 removes them."
+        ),
     )
     PRISM_DESIGN_SOURCE_RELEASE_STUDIO: DesignSource = Field(
         default="legacy", description="Release Studio projections and closure: today's readers, or bundle members."
@@ -57,10 +62,12 @@ class DesignBundleSettings(BaseSettings):
     # The design_bundle job
     # ===========================================
     PRISM_DESIGN_BUNDLE_AUTO_BUILD: bool = Field(
-        default=False,
+        default=True,
         description=(
             "Queue a design bundle for the project's HEAD after every import and sync, and run the "
-            "paced backfill of branch heads. Off: bundles are built only on demand."
+            "paced prebuild of each branch's newest commits and every tagged commit (ADR amendment "
+            "K2 §7). On by default since the C2r switch, which relies on warm bundles (C2r §10). "
+            "Off: bundles are built only on demand."
         ),
     )
     PRISM_DESIGN_BUNDLE_CLI_PATH: str = Field(

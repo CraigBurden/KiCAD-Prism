@@ -3,8 +3,9 @@
  * into the review document's shape, by the rules of
  * `native/contracts/prism/field-maps/design-compare.md`.
  *
- * The legacy path stays the default until the C2r gate flips Design
- * Comparison to `prism-kicad compare`; R1 deletes it, and this file with it.
+ * Design Comparison defaults to `prism-kicad compare` since the C2r switch;
+ * the legacy path runs only with `PRISM_DESIGN_SOURCE_DESIGN_COMPARISON=legacy`
+ * until R1 deletes it, and this file with it.
  * Nothing else in this directory may read a v3 field.
  */
 

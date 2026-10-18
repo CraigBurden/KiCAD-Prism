@@ -275,7 +275,8 @@ class DesignBundleJobTests(_Workspace, unittest.TestCase):
 
     def test_import_and_sync_queue_only_with_auto_build(self) -> None:
         self.add_project()
-        self.assertIsNone(jobs.queue_for_head("p1"))
+        with mock.patch.object(settings, "PRISM_DESIGN_BUNDLE_AUTO_BUILD", False):
+            self.assertIsNone(jobs.queue_for_head("p1"))
         with mock.patch.object(settings, "PRISM_DESIGN_BUNDLE_AUTO_BUILD", True):
             self.assertTrue(jobs.queue_for_head("p1"))
             from app.services import project_import_followups

@@ -1,13 +1,10 @@
 //! The diff itself: identity matching and the change list
 //! (`ecad-diff.mjs:338-481`).
 
-use super::CompareError;
 use super::classify::{self, MergedDelta};
 use super::entry::{self, Entry};
 use super::numbers::utf16_cmp;
 use super::output;
-use prism_kicad_contracts::generated::prism_compare_object_delta_a0::CompareObjectDeltaA0;
-use serde_json::Value;
 use std::collections::HashMap;
 
 /// Why two objects were matched.
@@ -136,9 +133,9 @@ fn index(entries: &[Entry]) -> HashMap<String, usize> {
 /// What a matched, non-internal-identity pair is (`ecad-diff.mjs:400-414`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum PairOutcome {
-    /// Equal content: `unchanged`.
+    /// Equal content: no change.
     Unchanged,
-    /// Equal authored content with a changed generated digest: `ignored`.
+    /// Equal authored content with a changed generated digest: no change.
     GeneratedContentOnly,
     /// Content differs: a `modified` change.
     Modified,
@@ -156,30 +153,6 @@ fn pair_outcome(before: &Entry, after: &Entry) -> PairOutcome {
     } else {
         PairOutcome::Unchanged
     }
-}
-
-/// Design Comparison's object diff of two `board-objects` documents
-/// (`ecad-diff.mjs:338-519`), without the run facts and `routeMetrics`.
-///
-/// `base_dir` and `head_dir` are the anchors' directories: the two
-/// `config.project_file` values, whose directories are stripped from every
-/// document path (D1).
-pub fn diff(
-    base_document: &Value,
-    base_dir: &str,
-    head_document: &Value,
-    head_dir: &str,
-) -> Result<CompareObjectDeltaA0, CompareError> {
-    let base = entry::entries(base_document, base_dir)?;
-    let head = entry::entries(head_document, head_dir)?;
-    let delta = diff_entries(base, head);
-    serde_json::to_value(&delta)
-        .and_then(serde_json::from_value)
-        .map_err(|error| {
-            CompareError::new(format!(
-                "the compare document does not fit its schema: {error}"
-            ))
-        })
 }
 
 /// One matched, added or removed object, typed: the entries it relates and the
@@ -200,40 +173,11 @@ pub struct Pair<'a> {
     pub deltas: Vec<MergedDelta>,
 }
 
-/// The typed object diff: every change, the ignored pairs and the unchanged
-/// count. [`diff_entries`] renders it as the `prism.compare.object_delta.a0`
-/// document; the object tab reads it directly.
+/// The typed object diff: every change, in key order. The object tab reads it
+/// ([`super::result`]).
 pub struct Outcome<'a> {
     /// The changes, sorted by key as today.
     pub changes: Vec<Pair<'a>>,
-    /// Head indexes the diff ignored, with the reason.
-    pub ignored: Vec<(usize, &'static str)>,
-    /// The number of matched, unchanged objects.
-    pub unchanged: usize,
-}
-
-impl Outcome<'_> {
-    /// The object counts `Output.object_counts` carries, without a [`output::Delta`].
-    #[must_use]
-    pub fn counts(&self, base_objects: usize, head_objects: usize) -> Value {
-        let (mut added, mut removed, mut modified) = (0u64, 0u64, 0u64);
-        for pair in &self.changes {
-            match pair.status {
-                output::Status::Added => added += 1,
-                output::Status::Removed => removed += 1,
-                output::Status::Modified => modified += 1,
-            }
-        }
-        output::counts_value(
-            added,
-            removed,
-            modified,
-            self.unchanged,
-            self.ignored.len(),
-            base_objects,
-            head_objects,
-        )
-    }
 }
 
 fn added_pair(after: &Entry, index: usize) -> Pair<'_> {
@@ -282,8 +226,9 @@ fn modified_pair<'a>(
     }
 }
 
-/// The typed pass of [`diff_entries`]: identity matching, the change list and
-/// the reasons and deltas each change carries.
+/// The typed pass: identity matching, the change list and the reasons and
+/// deltas each change carries. Pairs that are unchanged, or that only matched
+/// across a UUID change, carry no change.
 pub fn outcome<'a>(base: &'a [Entry], head: &'a [Entry]) -> Outcome<'a> {
     let mut matcher = Matcher::new(base, head);
     matcher.native_identity();
@@ -291,26 +236,14 @@ pub fn outcome<'a>(base: &'a [Entry], head: &'a [Entry]) -> Outcome<'a> {
     matcher.pair(entry::sheet_pin_slot_identity, Reason::SheetPinSlot);
 
     let mut changes = Vec::new();
-    let mut ignored = Vec::new();
-    let mut unchanged = 0usize;
     for (head_index, after) in head.iter().enumerate() {
         match matcher.matches.get(&head_index) {
             None => changes.push(added_pair(after, head_index)),
-            Some(found) if found.reason == Reason::InternalOnly => {
-                ignored.push((head_index, "internal-identity-only"));
-                unchanged += 1;
-            }
+            Some(found) if found.reason == Reason::InternalOnly => {}
             Some(found) => {
                 let before = &base[found.base];
-                match pair_outcome(before, after) {
-                    PairOutcome::Modified => {
-                        changes.push(modified_pair(before, after, found.base, head_index));
-                    }
-                    PairOutcome::GeneratedContentOnly => {
-                        ignored.push((head_index, "generated-content-only"));
-                        unchanged += 1;
-                    }
-                    PairOutcome::Unchanged => unchanged += 1,
+                if pair_outcome(before, after) == PairOutcome::Modified {
+                    changes.push(modified_pair(before, after, found.base, head_index));
                 }
             }
         }
@@ -322,57 +255,13 @@ pub fn outcome<'a>(base: &'a [Entry], head: &'a [Entry]) -> Outcome<'a> {
     }
     drop(matcher);
     changes.sort_by(|left, right| left.key.cmp(right.key));
-    Outcome {
-        changes,
-        ignored,
-        unchanged,
-    }
-}
-
-/// [`diff`] over entries already rebuilt with [`entry::entries`]: the CLI
-/// drops each member's parsed JSON as soon as its entries exist, and writes
-/// the returned [`output::Delta`] without building it as one value.
-pub fn diff_entries(base: entry::Entries, head: entry::Entries) -> output::Delta {
-    let (base, head) = (base.0, head.0);
-    let (changes, ignored, unchanged) = {
-        let outcome = outcome(&base, &head);
-        let changes = outcome
-            .changes
-            .iter()
-            .map(|pair| match pair.status {
-                output::Status::Added => output::added(
-                    &head[pair.after.expect("an added pair has an after side")],
-                    &pair.reasons,
-                    &pair.deltas,
-                ),
-                output::Status::Removed => output::removed(
-                    &base[pair.before.expect("a removed pair has a before side")],
-                    &pair.reasons,
-                    &pair.deltas,
-                ),
-                output::Status::Modified => output::modified(
-                    &base[pair.before.expect("a modified pair has a before side")],
-                    &head[pair.after.expect("a modified pair has an after side")],
-                    &pair.reasons,
-                    &pair.deltas,
-                ),
-            })
-            .collect();
-        let ignored = outcome
-            .ignored
-            .iter()
-            .map(|&(index, reason)| output::ignored(&head[index], reason))
-            .collect();
-        (changes, ignored, outcome.unchanged)
-    };
-    output::document(base, head, changes, ignored, unchanged)
+    Outcome { changes }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use prism_kicad_contracts::generated::prism_compare_object_delta_a0::CompareObjectDeltaReason as CompareReason;
-    use serde_json::json;
+    use serde_json::{Value, json};
 
     fn document(path: &str, objects: Value) -> Value {
         json!({
@@ -386,48 +275,52 @@ mod tests {
                "at": {"xNm": 0, "yNm": 0}, "rotationDeg": 0.0, "layer": "F.Cu"})
     }
 
-    fn diff_docs(base: &Value, head: &Value) -> CompareObjectDeltaA0 {
-        diff(base, "", head, "").unwrap()
-    }
-
-    #[test]
-    fn the_streamed_document_equals_the_typed_one() {
-        let base = document("d.kicad_pcb", json!([pad("u1", "a"), pad("u2", "b")]));
-        let head = document("d.kicad_pcb", json!([pad("u1", "a2"), pad("u3", "c")]));
-        let delta = diff_entries(
-            entry::entries(&base, "").unwrap(),
-            entry::entries(&head, "").unwrap(),
-        );
-        let streamed: Value = serde_json::from_slice(&serde_json::to_vec(&delta).unwrap()).unwrap();
-        // The typed document goes through `f64`, which writes `0.0`; compare
-        // values with the streamed document's ECMAScript number text.
-        let typed =
-            super::super::json::ecma(serde_json::to_value(diff_docs(&base, &head)).unwrap());
-        assert_eq!(streamed, typed);
-        assert_eq!(delta.objects(), (2, 2));
-        assert_eq!(delta.counts()["added"], json!(1));
+    fn sides(base: &Value, head: &Value) -> (Vec<Entry>, Vec<Entry>) {
+        (
+            entry::build(base, "").unwrap(),
+            entry::build(head, "").unwrap(),
+        )
     }
 
     #[test]
     fn the_same_member_twice_has_no_changes() {
         let side = document("d.kicad_pcb", json!([pad("u1", "a"), pad("u2", "b")]));
-        let delta = diff_docs(&side, &side);
-        assert!(delta.changes.is_empty());
-        assert_eq!(delta.counts.unchanged.0, 2);
-        assert_eq!(delta.counts.base_objects.0, 2);
-        assert_eq!(delta.counts.head_objects.0, 2);
+        let (base, head) = sides(&side, &side);
+        let found = outcome(&base, &head);
+        assert!(found.changes.is_empty());
+    }
+
+    #[test]
+    fn added_removed_and_modified_are_sorted_by_key() {
+        let (base, head) = sides(
+            &document("d.kicad_pcb", json!([pad("u1", "a"), pad("u2", "b")])),
+            &document("d.kicad_pcb", json!([pad("u1", "a2"), pad("u3", "c")])),
+        );
+        let found = outcome(&base, &head);
+        let statuses: Vec<_> = found
+            .changes
+            .iter()
+            .map(|pair| (pair.key, pair.status))
+            .collect();
+        assert_eq!(
+            statuses,
+            [
+                ("d.kicad_pcb#u1", output::Status::Modified),
+                ("d.kicad_pcb#u2", output::Status::Removed),
+                ("d.kicad_pcb#u3", output::Status::Added),
+            ]
+        );
     }
 
     #[test]
     fn internal_identity_only_pairs_across_a_uuid_change() {
         // Same authored content, different uuid: `internal-identity-only`.
-        let base = document("d.kicad_pcb", json!([pad("u1", "same")]));
-        let head = document("d.kicad_pcb", json!([pad("u2", "same")]));
-        let delta = diff_docs(&base, &head);
-        assert!(delta.changes.is_empty());
-        assert_eq!(delta.ignored.len(), 1);
-        assert_eq!(delta.counts.ignored.0, 1);
-        assert_eq!(delta.counts.unchanged.0, 1);
+        let (base, head) = sides(
+            &document("d.kicad_pcb", json!([pad("u1", "same")])),
+            &document("d.kicad_pcb", json!([pad("u2", "same")])),
+        );
+        let found = outcome(&base, &head);
+        assert!(found.changes.is_empty());
     }
 
     #[test]
@@ -436,11 +329,12 @@ mod tests {
             json!({"kind": "sheet-pin", "uuid": uuid, "contentDigest": uuid,
                    "parentUuid": "p", "name": name, "at": {"xNm": 0, "yNm": 0}, "rotationDeg": 0.0})
         };
-        let base = document("d.kicad_sch", json!([pin("u1", "A")]));
-        let head = document("d.kicad_sch", json!([pin("u2", "B")]));
-        let delta = diff_docs(&base, &head);
-        assert!(delta.ignored.is_empty());
-        assert_eq!(delta.changes.len(), 1);
+        let (base, head) = sides(
+            &document("d.kicad_sch", json!([pin("u1", "A")])),
+            &document("d.kicad_sch", json!([pin("u2", "B")])),
+        );
+        let found = outcome(&base, &head);
+        assert_eq!(found.changes.len(), 1);
     }
 
     #[test]
@@ -456,8 +350,6 @@ mod tests {
             pair_outcome(&before, &after),
             PairOutcome::GeneratedContentOnly
         );
-        let ignored = output::ignored(&after, "generated-content-only");
-        assert_eq!(ignored["reason"], json!("generated-content-only"));
     }
 
     fn entry_from(value: Value) -> Entry {
@@ -467,16 +359,12 @@ mod tests {
 
     #[test]
     fn modification_reasons_and_content_changed_fallback() {
-        let base = document("d.kicad_pcb", json!([pad("u1", "a")]));
-        let head = document(
-            "d.kicad_pcb",
-            json!([{"kind": "pad", "uuid": "u1", "contentDigest": "b",
-                    "at": {"xNm": 0, "yNm": 0}, "rotationDeg": 0.0, "layer": "F.Cu"}]),
+        let (base, head) = sides(
+            &document("d.kicad_pcb", json!([pad("u1", "a")])),
+            &document("d.kicad_pcb", json!([pad("u1", "b")])),
         );
-        let delta = diff_docs(&base, &head);
-        assert_eq!(delta.changes.len(), 1);
-        let reasons = delta.changes[0].reasons.as_ref().unwrap();
-        assert_eq!(reasons.len(), 1);
-        assert_eq!(reasons[0], CompareReason::ContentChanged);
+        let found = outcome(&base, &head);
+        assert_eq!(found.changes.len(), 1);
+        assert_eq!(found.changes[0].reasons, ["content-changed"]);
     }
 }

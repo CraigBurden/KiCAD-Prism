@@ -12,7 +12,7 @@
 //! 7, `generator-mismatch`); project files in one directory (exit 7,
 //! `anchor-mismatch`); every member present (exit 7, `member-not-found`).
 //! `-o` is written atomically and streamed; stdout carries the
-//! `CliCompareResultA0`, validated, after the rename.
+//! `CliCompareResultA1`, validated, after the rename.
 
 use crate::args::Args;
 use crate::inputs;
@@ -48,7 +48,7 @@ const MEMBERS: [&str; 5] = [
     ROUTE_METRICS,
 ];
 /// The stdout document's schema id.
-const RESULT_SCHEMA: &str = "prism.cli.compare_result.a0";
+const RESULT_SCHEMA: &str = "prism.cli.compare_result.a1";
 /// The project's committed settings, which hold the BOM columns.
 const PRISM_SETTINGS: &str = ".prism.json";
 
@@ -473,7 +473,6 @@ fn emit_result(
     head: &RevisionIdentity,
     stderr: &Stderr,
 ) -> Outcome<u8> {
-    let counts = &output.object_counts;
     let side = |identity: &RevisionIdentity, objects: usize| {
         let mut value = json!({"revision_key": identity.revision_key, "objects": objects});
         if let Some(key) = &identity.bundle_key {
@@ -485,15 +484,7 @@ fn emit_result(
         "schema": RESULT_SCHEMA,
         "base": side(base, output.objects.0),
         "head": side(head, output.objects.1),
-        "counts": {
-            "added": counts["added"],
-            "removed": counts["removed"],
-            "modified": counts["modified"],
-            "unchanged": counts["unchanged"],
-            "ignored": counts["ignored"],
-            "base_objects": counts["baseObjects"],
-            "head_objects": counts["headObjects"],
-        },
+        "counts": &output.result.counts,
     });
     validate(RESULT_SCHEMA, &result)?;
     if crate::output::stdout(&result) {
