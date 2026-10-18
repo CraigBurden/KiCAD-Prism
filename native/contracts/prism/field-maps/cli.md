@@ -10,6 +10,7 @@ Root models in `tsp/prism/cli-a0.tsp`. The CLI's behaviour is in [`../cli-spec.m
 | `CliBuildResultA0` | `prism.cli.build_result.a0` | `examples/CliBuildResultA0.example.json` | stdout of `bundle build`, exit 0 or 9 |
 | `CliVerifyReportA0` | `prism.cli.verify_report.a0` | `examples/CliVerifyReportA0.example.json` | stdout of `bundle verify`, exit 0 or 8 |
 | `CliExtractResultA0` | `prism.cli.extract_result.a0` | `examples/CliExtractResultA0.example.json` | stdout of `bundle extract`, exit 0 |
+| `CliReuseResultA0` | `prism.cli.reuse_result.a0` | `examples/CliReuseResultA0.example.json` | stdout of `bundle reuse`, exit 0 whether or not the read set holds |
 | `CliProjectAbsentA0` | `prism.cli.project_absent.a0` | `examples/CliProjectAbsentA0.example.json` | stdout of `revision-key` and `bundle build --stage parse`, exit 10 |
 
 - **Written by:** WP-B, `native/src/rs/prism-kicad-cli/`. These documents are not bundle members.
@@ -249,6 +250,7 @@ Archive digests come from a Python stand-in writer that uses zlib, not miniz_oxi
   - the canonicalized GLB.
 
   The replacement is a1's materialization of the saved fills (`5532b16e…`, 160,312 bytes), simulating a corrupted store file. Eleven listed members are checked and one finding results: seven sources (the closure, no jobset; revision-key.md §12 Q3), `design.json`, the materialization, the refilled board and the GLB. The count was 12 with the jobset before Q3 was decided, and is adjusted by hand.
+- **`CliReuseResultA0.example.json`**: hand-written, not a run. A bundle whose stage parse probed `fp-lib-table` and found none, asked about a revision that adds one: condition 5 (`probe`) of cli-spec.md §5.10. The keys are placeholders.
 - **`CliProjectAbsentA0.example.json`**: the outcome the selection vector `error-project-absent` gives through `revision-key`: the configured `Missing.kicad_pro` is not in the listing. `commit` is left out because the vector holds a listing, not a commit id, as with `--worktree`.
 - **`CliExtractResultA0.example.json`**: `bundle extract <usb-pd bundle> bundle.json sources/ -o <dir>`.
   - The seven source members are the closure the build read (revision-key.md §12, Q3): project, root and sub-sheet, board, and the three repository STEP models the board references through `${KIPRJMOD}/packages3D`. Stock `${KICAD9_3DMODEL_DIR}` models and the two `kicad-embed://` models are not repository files. The jobset of usb-pd's source set is read by no reference, so it is not a member; it was removed by hand after Q3.

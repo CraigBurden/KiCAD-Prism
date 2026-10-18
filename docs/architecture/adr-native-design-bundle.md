@@ -316,8 +316,9 @@ The CLI spec (`prism-kicad`):
 - `bundle build --stage models --in <bundle> -o <out.prism> --models-glb <glb> --models-tool <ver>`
 - `bundle verify <bundle>`
 - `bundle extract <bundle> <member>... -o <dir>`
+- `bundle reuse --in <bundle> --key-record <record.json>`: whether a stored bundle serves another revision key of its project (amendment K2 §3.3, cli-spec.md §5.10)
 - `revision-key <repo> (--commit <sha> | --worktree) --project <rel> [--config <effective.json>]`, exactly one of `--commit` and `--worktree`
-- `compare --base <base.prism> --head <head.prism> -o <delta.json>`: Design Comparison's object diff over the two bundles' `board-objects` (amendment C2, cli-spec.md §5.6)
+- `compare (--base <base.prism> | --base-src <project.kicad_pro>) --base-revision-key <hex> (--head … as for the base) --head-revision-key <hex> -o <result.json>`: every Design Comparison tab except fabrication, from bundles or source trees (amendments C2r and K2, cli-spec.md §5.6)
 - `artwork`, `vendor list` / `vendor run`, `stroke-text`, `drawing-sheet`: Release Studio's artwork, vendor files and sheet text (amendment C3, cli-spec.md §5.7–§5.9)
 - Full grammar, streams, exit codes (including 9, recorded content failure, and 10, project absent), limits and the backend integration: `native/contracts/prism/cli-spec.md`.
 - `version`

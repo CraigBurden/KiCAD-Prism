@@ -158,6 +158,7 @@ fn dispatch(args: &Args, stderr: &Stderr) -> Result<(Value, u8), Failure> {
             Ok((document, if valid { 0 } else { 8 }))
         }
         Command::Extract => Ok((cmd_bundle::extract_command(args)?, 0)),
+        Command::Reuse => Ok((cmd_bundle::reuse_command(args, &generator)?, 0)),
         Command::RevisionKey => match cmd_revision_key::run(args)? {
             cmd_revision_key::KeyOutcome::Record(record) => Ok((record, 0)),
             cmd_revision_key::KeyOutcome::Absent(document) => Ok((document, 10)),

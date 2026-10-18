@@ -309,6 +309,9 @@ pub fn in_declaration_order(value: &Value) -> Result<Value, String> {
         "prism.cli.extract_result.a0" => {
             retyped::<contract::prism_cli_extract_result_a0::CliExtractResultA0>(value)
         }
+        "prism.cli.reuse_result.a0" => {
+            retyped::<contract::prism_cli_reuse_result_a0::CliReuseResultA0>(value)
+        }
         "prism.cli.error.a0" => retyped::<contract::prism_cli_error_a0::CliErrorA0>(value),
         "prism.cli.project_absent.a0" => {
             retyped::<contract::prism_cli_project_absent_a0::CliProjectAbsentA0>(value)

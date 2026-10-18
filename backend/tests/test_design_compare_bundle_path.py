@@ -103,10 +103,10 @@ def run(stages: FakeStages, tmp_path: Path, **kwargs: Any) -> tuple[bundle_path.
 # ------------------------------------------------------------------ modes
 
 
-def test_a_bundle_side_passes_its_archive(tmp_path: Path) -> None:
+def test_a_bundle_side_passes_its_archive_and_the_requested_key(tmp_path: Path) -> None:
     side = bundle_side("base", BASE, tmp_path / "b.prism")
     assert side.mode == "bundle"
-    assert side.compare_args() == ["--base", str(tmp_path / "b.prism")]
+    assert side.compare_args() == ["--base", str(tmp_path / "b.prism"), "--base-revision-key", "1" * 64]
 
 
 def test_a_source_tree_side_passes_parse_inputs(tmp_path: Path) -> None:
@@ -126,7 +126,10 @@ def test_two_bundles_compare_without_parse_limits(tmp_path: Path) -> None:
                          "head": bundle_side("head", HEAD, tmp_path / "b.prism")})
     outcome, _ = run(stages, tmp_path, include_unchanged=True)
     (args, source_tree), = stages.calls
-    assert args[:4] == ["--base", str(tmp_path / "a.prism"), "--head", str(tmp_path / "b.prism")]
+    assert args[:8] == [
+        "--base", str(tmp_path / "a.prism"), "--base-revision-key", "1" * 64,
+        "--head", str(tmp_path / "b.prism"), "--head-revision-key", "1" * 64,
+    ]
     assert args[-1] == "--include-unchanged"
     assert source_tree is False
     assert outcome.modes == {"base": "bundle", "head": "bundle"}
