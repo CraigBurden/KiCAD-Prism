@@ -24,85 +24,18 @@ pub mod error {
         }
     }
 }
-///The object diff's counts of a `compare`: the board-objects objects added, removed, modified, unchanged and ignored.
-///
-/// <details><summary>JSON schema</summary>
-///
-/// ```json
-///{
-///  "description": "The object diff's counts of a `compare`: the board-objects objects added, removed, modified, unchanged and ignored.",
-///  "type": "object",
-///  "required": [
-///    "added",
-///    "base_objects",
-///    "head_objects",
-///    "ignored",
-///    "modified",
-///    "removed",
-///    "unchanged"
-///  ],
-///  "properties": {
-///    "added": {
-///      "description": "Objects only in `--head`.",
-///      "$ref": "#/$defs/Count"
-///    },
-///    "base_objects": {
-///      "description": "Objects in `--base`.",
-///      "$ref": "#/$defs/Count"
-///    },
-///    "head_objects": {
-///      "description": "Objects in `--head`.",
-///      "$ref": "#/$defs/Count"
-///    },
-///    "ignored": {
-///      "description": "Objects matched across a UUID change or with only generated content changed.",
-///      "$ref": "#/$defs/Count"
-///    },
-///    "modified": {
-///      "description": "Objects in both whose content differs.",
-///      "$ref": "#/$defs/Count"
-///    },
-///    "removed": {
-///      "description": "Objects only in `--base`.",
-///      "$ref": "#/$defs/Count"
-///    },
-///    "unchanged": {
-///      "description": "Objects in both with equal content, the ignored ones included.",
-///      "$ref": "#/$defs/Count"
-///    }
-///  },
-///  "additionalProperties": false
-///}
-/// ```
-/// </details>
-#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
-#[serde(deny_unknown_fields)]
-pub struct CliCompareCounts {
-    ///Objects only in `--head`.
-    pub added: Count,
-    ///Objects only in `--base`.
-    pub removed: Count,
-    ///Objects in both whose content differs.
-    pub modified: Count,
-    ///Objects in both with equal content, the ignored ones included.
-    pub unchanged: Count,
-    ///Objects matched across a UUID change or with only generated content changed.
-    pub ignored: Count,
-    ///Objects in `--base`.
-    pub base_objects: Count,
-    ///Objects in `--head`.
-    pub head_objects: Count,
-}
 /**stdout of `compare` (exit 0), written after `-o` holds the
-`CompareObjectDeltaA0` document (cli-spec.md §5.6).*/
+`DesignCompareResultA1` document (cli-spec.md §5.6). a1 replaced a0's object
+diff counts with the result's per-tab counts when `prism.compare.object_delta.a0`
+was removed (ADR amendment C2r §4).*/
 ///
 /// <details><summary>JSON schema</summary>
 ///
 /// ```json
 ///{
-///  "$id": "urn:prism:schema:prism.cli.compare_result:a0",
-///  "title": "CliCompareResultA0",
-///  "description": "stdout of `compare` (exit 0), written after `-o` holds the\n`CompareObjectDeltaA0` document (cli-spec.md §5.6).",
+///  "$id": "urn:prism:schema:prism.cli.compare_result:a1",
+///  "title": "CliCompareResultA1",
+///  "description": "stdout of `compare` (exit 0), written after `-o` holds the\n`DesignCompareResultA1` document (cli-spec.md §5.6). a1 replaced a0's object\ndiff counts with the result's per-tab counts when `prism.compare.object_delta.a0`\nwas removed (ADR amendment C2r §4).",
 ///  "type": "object",
 ///  "required": [
 ///    "base",
@@ -116,8 +49,8 @@ pub struct CliCompareCounts {
 ///      "$ref": "#/$defs/CliCompareSide"
 ///    },
 ///    "counts": {
-///      "description": "The object diff's counts.",
-///      "$ref": "#/$defs/CliCompareCounts"
+///      "description": "The result's change counts per tab: its `counts`.",
+///      "$ref": "#/$defs/DesignCompareCounts"
 ///    },
 ///    "head": {
 ///      "description": "The `--head` side.",
@@ -126,7 +59,7 @@ pub struct CliCompareCounts {
 ///    "schema": {
 ///      "description": "Document schema id.",
 ///      "type": "string",
-///      "const": "prism.cli.compare_result.a0"
+///      "const": "prism.cli.compare_result.a1"
 ///    }
 ///  },
 ///  "additionalProperties": false
@@ -135,15 +68,15 @@ pub struct CliCompareCounts {
 /// </details>
 #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
 #[serde(deny_unknown_fields)]
-pub struct CliCompareResultA0 {
+pub struct CliCompareResultA1 {
     ///Document schema id.
     pub schema: ::std::string::String,
     ///The `--base` side.
     pub base: CliCompareSide,
     ///The `--head` side.
     pub head: CliCompareSide,
-    ///The object diff's counts.
-    pub counts: CliCompareCounts,
+    ///The result's change counts per tab: its `counts`.
+    pub counts: DesignCompareCounts,
 }
 ///One side of a `compare` (cli-spec.md §5.6).
 ///
@@ -167,7 +100,7 @@ pub struct CliCompareResultA0 {
 ///      "$ref": "#/$defs/Count"
 ///    },
 ///    "revision_key": {
-///      "description": "The side's revision key: the bundle manifest's, or `--<side>-revision-key` for a source tree (amendment C2r §3).",
+///      "description": "The side's revision key, from `--<side>-revision-key` in both modes (ADR amendment K2 §3.6).",
 ///      "$ref": "#/$defs/Sha256Hex"
 ///    }
 ///  },
@@ -178,7 +111,7 @@ pub struct CliCompareResultA0 {
 #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
 #[serde(deny_unknown_fields)]
 pub struct CliCompareSide {
-    ///The side's revision key: the bundle manifest's, or `--<side>-revision-key` for a source tree (amendment C2r §3).
+    ///The side's revision key, from `--<side>-revision-key` in both modes (ADR amendment K2 §3.6).
     pub revision_key: Sha256Hex,
     ///The bundle key of the side's bundle (cli-spec.md §5.1.4), computed from its manifest's revision key and generator id. Absent for a source tree.
     #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
@@ -239,6 +172,88 @@ impl ::std::fmt::Display for Count {
     fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
         self.0.fmt(f)
     }
+}
+///Change counts per tab.
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "description": "Change counts per tab.",
+///  "type": "object",
+///  "required": [
+///    "bom",
+///    "pcb",
+///    "schematic"
+///  ],
+///  "properties": {
+///    "bom": {
+///      "description": "The BOM tab's rows.",
+///      "$ref": "#/$defs/DesignCompareSummary"
+///    },
+///    "pcb": {
+///      "description": "The PCB tab's changes.",
+///      "$ref": "#/$defs/DesignCompareSummary"
+///    },
+///    "schematic": {
+///      "description": "The Schematic tab's changes.",
+///      "$ref": "#/$defs/DesignCompareSummary"
+///    }
+///  },
+///  "additionalProperties": false
+///}
+/// ```
+/// </details>
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct DesignCompareCounts {
+    ///The Schematic tab's changes.
+    pub schematic: DesignCompareSummary,
+    ///The PCB tab's changes.
+    pub pcb: DesignCompareSummary,
+    ///The BOM tab's rows.
+    pub bom: DesignCompareSummary,
+}
+///Added, removed and changed counts.
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "description": "Added, removed and changed counts.",
+///  "type": "object",
+///  "required": [
+///    "added",
+///    "changed",
+///    "removed"
+///  ],
+///  "properties": {
+///    "added": {
+///      "description": "Added entries.",
+///      "$ref": "#/$defs/Count"
+///    },
+///    "changed": {
+///      "description": "Changed entries.",
+///      "$ref": "#/$defs/Count"
+///    },
+///    "removed": {
+///      "description": "Removed entries.",
+///      "$ref": "#/$defs/Count"
+///    }
+///  },
+///  "additionalProperties": false
+///}
+/// ```
+/// </details>
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct DesignCompareSummary {
+    ///Added entries.
+    pub added: Count,
+    ///Removed entries.
+    pub removed: Count,
+    ///Changed entries.
+    pub changed: Count,
 }
 ///Lowercase hexadecimal SHA-256 digest: exactly 64 characters, no prefix such as `sha256:`.
 ///

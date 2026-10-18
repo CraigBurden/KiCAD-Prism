@@ -877,62 +877,7 @@ model CliProjectAbsentA0 {
   commit?: GitObjectId;
 }
 
-/** One side of a `compare` (cli-spec.md §5.6). */
-model CliCompareSide {
-  /** The side's revision key: the bundle manifest's, or `--<side>-revision-key` for a source tree (amendment C2r §3). */
-  revision_key: Sha256Hex;
-
-  /** The bundle key of the side's bundle (cli-spec.md §5.1.4), computed from its manifest's revision key and generator id. Absent for a source tree. */
-  bundle_key?: Sha256Hex;
-
-  /** How many objects the side's `projections/board-objects.json` holds, review-only objects included: today's `objects`. */
-  objects: Count;
-}
-
-/** The object diff's counts of a `compare`: the board-objects objects added, removed, modified, unchanged and ignored. */
-model CliCompareCounts {
-  /** Objects only in `--head`. */
-  added: Count;
-
-  /** Objects only in `--base`. */
-  removed: Count;
-
-  /** Objects in both whose content differs. */
-  modified: Count;
-
-  /** Objects in both with equal content, the ignored ones included. */
-  unchanged: Count;
-
-  /** Objects matched across a UUID change or with only generated content changed. */
-  ignored: Count;
-
-  /** Objects in `--base`. */
-  base_objects: Count;
-
-  /** Objects in `--head`. */
-  head_objects: Count;
-}
-
-/**
- * stdout of `compare` (exit 0), written after `-o` holds the
- * `CompareObjectDeltaA0` document (cli-spec.md §5.6).
- */
-@jsonSchema
-@id("urn:prism:schema:prism.cli.compare_result:a0")
-@extension("title", "prism-kicad compare result a0")
-model CliCompareResultA0 {
-  /** Document schema id. */
-  schema: "prism.cli.compare_result.a0";
-
-  /** The `--base` side. */
-  base: CliCompareSide;
-
-  /** The `--head` side. */
-  head: CliCompareSide;
-
-  /** The object diff's counts. */
-  counts: CliCompareCounts;
-}
+// compare (§5.6): `cli-compare-a1.tsp` (ADR amendment C2r §4).
 
 // ----------------------------------------------------------- artwork (§5.7)
 

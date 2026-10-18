@@ -1396,6 +1396,7 @@
       "mergeAfter": [],
       "notes": [
         "Amendment C2 (2026-10-17): the object diff moves to Rust as `prism-kicad compare`. Its contracts (native/src/tsp/prism/compare-a0.tsp, CliCompareResultA0 in cli-a0.tsp, their schemas, Rust bindings and examples) land in the amendment's contracts PR, not in C2.",
+        "C2r switch (2026-10-18): compare-a0.tsp and compare-font-a0.tsp are removed; the stdout document is CliCompareResultA1 in native/src/tsp/prism/cli-compare-a1.tsp (C2 owns it), with field map field-maps/cli-compare.md.",
         "backend/design-compare-parser/ removal moves to R2: the legacy flag value still runs it until Wave 4 (§8), and its CI job, Dockerfile line and ci_changes area are L's/R2's files."
       ]
     },

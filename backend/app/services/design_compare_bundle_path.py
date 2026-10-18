@@ -1,8 +1,8 @@
 """Design Comparison's bundle path: ``prism-kicad compare``, passed through (ADR amendment C2r).
 
 When the comparison was queued with ``PRISM_DESIGN_SOURCE_DESIGN_COMPARISON``
-set to ``bundle``, the ``design_compare`` job runs here instead of the legacy
-pipeline (C2r §2 items 4-7, §9 step 5):
+set to ``bundle`` (the default since the C2r switch), the ``design_compare``
+job runs here instead of the legacy pipeline (C2r §2 items 4-7, §9 step 5):
 
 ```text
 1. sides        both revisions at once, each from its stored bundle (the five
@@ -19,8 +19,8 @@ pipeline (C2r §2 items 4-7, §9 step 5):
 
 There is no fallback to the legacy result: a side without a ready bundle is
 compared from its source tree, and a ``compare`` failure fails the job, so the
-C2r gate sees every failure. The legacy path (``design_compare_service``) is
-untouched and stays the default until the gate passes.
+C2r gate sees every failure (decision F1). The legacy path
+(``design_compare_service``) stays selectable with ``legacy`` until R1 deletes it.
 """
 
 from __future__ import annotations
@@ -187,7 +187,7 @@ class BundlePathStages:
         return cli.run(
             ["compare", *args, *stage_limits],
             timeout_seconds=cli.outer_timeout("parse"),
-            expect="prism.cli.compare_result.a0",
+            expect="prism.cli.compare_result.a1",
             cancel=cancel,
         )
 

@@ -511,7 +511,14 @@ class DesignComparisonPicksTheAnchoredProject(unittest.TestCase):
                 design_compare_service.v3_jobs,
                 "enqueue",
                 return_value={"job_id": "job_compare"},
-            ) as enqueue:
+            ) as enqueue, mock.patch.object(
+                # The bundle path (the default) keys on the CLI's generator and binary.
+                design_compare_service.design_bundle_cli,
+                "generator",
+                return_value=mock.Mock(digest="0" * 64),
+            ), mock.patch.object(
+                design_compare_service.design_bundle_cli, "binary_digest", return_value="1" * 64
+            ):
                 design_compare_service.start_design_compare_job(
                     "prj_shared", "base", "head"
                 )

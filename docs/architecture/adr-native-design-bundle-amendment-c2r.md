@@ -164,3 +164,14 @@ Each step lands as its own PR into `feature/native-design-bundle`. Already finis
 5. **Backend pass-through** (main thread): mode decision, fabrication, the job artifact; the legacy path kept behind the switch.
 6. **Frontend** (main thread): the new contract; v3 kept for stored results (Q1); the ecad-viewer hand-off unchanged.
 7. **Gate** (main thread): §5's acceptance on the recorded pairs, ecad-viewer counters from a browser check, and the cold EDA-04903 benchmark. The switch flips only after the gate passes and the maintainer agrees.
+
+## 10. The switch (2026-10-18)
+
+`PRISM_DESIGN_SOURCE_DESIGN_COMPARISON` now defaults to `bundle`. The gate (§5, step 7) did not pass on every item, and the maintainer switched anyway:
+- **Review parity:** passed. 1,971 review groups over the 18 recorded pairs and 6 corpus pairs differ only where `native/parity/divergences/compare.md` records it.
+- **ecad-viewer resolution:** passed. No document is worse (37 equal, 11 better).
+- **Modes:** bundle mode and source-tree mode give byte-identical `-o` on every pair.
+- **Cold EDA-04903** (`native/parity/benchmarks/README.md`, "Cold Design Comparison"): not passed. The first result takes 50.9 s against today's 28.1 s; every tab takes 63.3 s against 62.6 s; the largest process is 2.7 GB against 1.7 GB. The KiCad 8 → 10 upgrade and two full parses cause it. On a design already saved by KiCad 10, the first result is within a few seconds of today's and every tab about 20 s sooner.
+- **Why it is accepted:** with ADR amendment K2's warm bundles (the prebuild of each branch's newest commits and every tagged commit), a comparison of two prebuilt commits reads bundles and takes 3 s. The cold path is the exception: a commit outside the prebuild set, or a deployment with `PRISM_DESIGN_BUNDLE_AUTO_BUILD` off.
+- **F1, no fallback:** a `compare` failure fails the comparison; it never falls back to the legacy path. `legacy` stays selectable until R1 deletes it.
+- **The switch PR** removes `prism.compare.object_delta.a0` (`compare-a0.tsp`, `compare-font-a0.tsp`, its example, field map, schema and Rust bindings) and the engine code only its writer used. `compare`'s stdout becomes `prism.cli.compare_result.a1` (`cli-compare-a1.tsp`), whose `counts` are the result's per-tab counts (§4).

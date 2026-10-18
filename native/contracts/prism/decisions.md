@@ -172,6 +172,7 @@ Design Comparison is computed by `prism-kicad compare` instead of a port of Node
 7. **Q3, bundles on push.** Not part of C2; source-tree mode removes the cold-path cost.
 8. **Gate.** C2 switches on only after C2r §5's acceptance and the cold EDA-04903 benchmark pass, and the maintainer agrees.
 9. **Targets (step 6, 2026-10-18).** The result is `prism.design_compare.result.a1`: a0 plus `details.targets`, today's visual targets slimmed to what the review list reads (kind, role, document, position, sheet path, reference). Without them the review list's presentation and search change (field map, "Targets"). a0 is removed.
+10. **The switch (2026-10-18).** Design Comparison defaults to `bundle`. Review parity, the ecad-viewer counters and mode equality passed. The cold EDA-04903 benchmark did not: 50.9 s to the first result against 28.1 s, and 2.7 GB against 1.7 GB. The maintainer accepted it because K2's warm bundles make prebuilt comparisons take about 3 s. No legacy fallback (F1). `prism.compare.object_delta.a0` is removed, and `compare`'s stdout is `prism.cli.compare_result.a1` with per-tab counts. Amendment C2r §10.
 
 ## Release Studio, amendment C3 (2026-10-17)
 

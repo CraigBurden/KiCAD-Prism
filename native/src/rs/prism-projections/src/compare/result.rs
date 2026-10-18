@@ -1,9 +1,9 @@
 //! `prism.design_compare.result.a1`: every Design Comparison tab except
 //! fabrication, from two revisions' members (ADR amendment C2r §2 item 1).
 //!
-//! [`build`] runs the object diff ([`super::diff_entries`]) and hands each tab
+//! [`build`] runs the object diff (`diff::outcome`) and hands each tab
 //! to its module. A tab module is a pure function of typed members (and, for
-//! the object changes, the object delta): no file access, no Node or Python
+//! the object changes, the typed diff): no file access, no Node or Python
 //! shape kept for its own sake. The field map
 //! (`native/contracts/prism/field-maps/design-compare.md`) is the spec of each
 //! field; the C2r harness compares every tab with the reference results of the
@@ -88,14 +88,11 @@ pub fn project_dir(project_file: &str) -> &str {
     super::anchor_directory(project_file)
 }
 
-/// What [`build`] gives: the document, and the object diff's counts for the
-/// command's stdout (`CliCompareResultA0`).
+/// What [`build`] gives: the document, and each side's object count for the
+/// command's stdout (`CliCompareResultA1`).
 pub struct Output {
     /// The `-o` document.
     pub result: dc::DesignCompareResultA1,
-    /// The object diff's `counts` (added, removed, modified, unchanged,
-    /// ignored, baseObjects, headObjects).
-    pub object_counts: Value,
     /// The number of objects on each side, `(base, head)`.
     pub objects: (usize, usize),
 }
@@ -122,11 +119,10 @@ pub fn build(
     let identity = (revision(&base.identity), revision(&head.identity));
     let base_entries = base.objects.0;
     let head_entries = head.objects.0;
-    let (objects, object_counts, object_totals) = {
+    let object_totals = (base_entries.len(), head_entries.len());
+    let objects = {
         let outcome = diff::outcome(&base_entries, &head_entries);
-        let objects = objects::build(&base_entries, &head_entries, &outcome);
-        let counts = outcome.counts(base_entries.len(), head_entries.len());
-        (objects, counts, (base_entries.len(), head_entries.len()))
+        objects::build(&base_entries, &head_entries, &outcome)
     };
     let mut schematic = Vec::new();
     let mut pcb = Vec::new();
@@ -171,7 +167,6 @@ pub fn build(
     };
     Ok(Output {
         result,
-        object_counts,
         objects: object_totals,
     })
 }

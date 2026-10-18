@@ -1,11 +1,12 @@
-//! Design Comparison's object diff in Rust (ADR amendment C2): the port of
-//! `diff_indexes` in `backend/design-compare-parser/ecad-diff.mjs`.
+//! Design Comparison in Rust (ADR amendments C2 and C2r): `prism-kicad
+//! compare`'s engine. [`result::build`] turns two revisions' projections into
+//! the `prism.design_compare.result.a1` document, every tab except fabrication.
 //!
-//! [`diff`] is a pure function of the two bundles'
-//! `projections/board-objects.json` documents and each side's project
-//! directory. It returns the `prism.compare.object_delta.a0` document
-//! (`CompareObjectDeltaA0`), which equals today's `prism.ecad_object_delta_v1`
-//! field for field, minus its run facts.
+//! The object diff at its core is the port of `diff_indexes` in
+//! `backend/design-compare-parser/ecad-diff.mjs`: identity matching and
+//! classification over the two `projections/board-objects.json` documents.
+//! It is typed only (`diff::Outcome`) and read by the object tab; its output
+//! is the comparison document above (C2r §4).
 //!
 //! Object keys and `documentPath` are project-relative: the anchor's
 //! directory is stripped from every member `RepoPath` (decision D1). `changes`
@@ -29,9 +30,7 @@ mod numbers;
 mod output;
 pub mod result;
 
-pub use diff::{diff, diff_entries};
 pub use entry::{Entries, anchor_directory, entries};
-pub use output::Delta;
 
 use std::fmt;
 

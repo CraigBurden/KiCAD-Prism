@@ -1,10 +1,12 @@
 # Divergences: compare
 
-- Command: `prism-kicad compare` (cli-spec.md §5.6); the `-o` document is
-  `prism.compare.object_delta.a0` (root `CompareObjectDeltaA0`).
+- Command: `prism-kicad compare` (cli-spec.md §5.6). The entries below were
+  recorded against its first document, `prism.compare.object_delta.a0`, which
+  the C2r switch removed (ADR amendment C2r §4); the object diff inside today's
+  `prism.design_compare.result.a1` keeps the same rules.
 - Engine: `native/src/rs/prism-projections/src/compare/` (amendment C2
   §2 item 3).
-- Field map: [`field-maps/compare.md`](../../contracts/prism/field-maps/compare.md).
+- Field map: [`field-maps/design-compare.md`](../../contracts/prism/field-maps/design-compare.md).
 - Golden: the 16 pairs of the C2 parity harness, today's
   `backend/design-compare-parser/ecad-diff.mjs` output transformed per D1–D3.
 - `divergences/compare.json`: none. `compare` is not a bundle member, so the
@@ -22,9 +24,8 @@ output may differ from a golden.
   `deltas.sort((a, b) => a.name.localeCompare(b.name))`
   (`ecad-diff.mjs:278`, `:308`, `:319`, `:465`), ICU collation under the
   host's `LANG`.
-- `compare`: `key` and `name` in Unicode code point order (Rust `str::cmp`; the
-  `CompareObjectDeltaChangeA0.properties` and `CompareObjectDeltaA0.changes`
-  documentation).
+- `compare`: `key` and `name` in Unicode code point order (Rust `str::cmp`,
+  `prism-projections/src/compare/diff.rs` and `classify.rs`).
 - Why the new output is right: ICU collation depends on the host locale, so
   today's order is not a property of the inputs. Code point order is, and it
   matches `sorted()` in Python (`_node_changes`) and `Array.prototype.toSorted`

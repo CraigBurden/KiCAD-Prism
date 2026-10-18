@@ -37,7 +37,7 @@ fn every_prism_example_round_trips_through_its_generated_type() {
     round_trip::<generated::prism_bundle_manifest_a3::BundleManifestA3>("BundleManifestA3");
     round_trip::<generated::prism_cli_artwork_result_a0::CliArtworkResultA0>("CliArtworkResultA0");
     round_trip::<generated::prism_cli_build_result_a0::CliBuildResultA0>("CliBuildResultA0");
-    round_trip::<generated::prism_cli_compare_result_a0::CliCompareResultA0>("CliCompareResultA0");
+    round_trip::<generated::prism_cli_compare_result_a1::CliCompareResultA1>("CliCompareResultA1");
     round_trip::<generated::prism_cli_diagnostic_a0::CliDiagnosticA0>("CliDiagnosticA0");
     round_trip::<generated::prism_cli_drawing_sheet_result_a0::CliDrawingSheetResultA0>(
         "CliDrawingSheetResultA0",
@@ -58,9 +58,6 @@ fn every_prism_example_round_trips_through_its_generated_type() {
     );
     round_trip::<generated::prism_cli_verify_report_a0::CliVerifyReportA0>("CliVerifyReportA0");
     round_trip::<generated::prism_cli_version_a0::CliVersionA0>("CliVersionA0");
-    round_trip::<generated::prism_compare_object_delta_a0::CompareObjectDeltaA0>(
-        "CompareObjectDeltaA0",
-    );
     round_trip::<generated::prism_design_compare_result_a1::DesignCompareResultA1>(
         "DesignCompareResultA1",
     );

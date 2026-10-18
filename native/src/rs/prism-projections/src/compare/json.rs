@@ -65,34 +65,6 @@ pub fn set_opt_str(map: &mut Map<String, Value>, key: &str, value: &Option<Strin
     }
 }
 
-/// Insert a millimetre point only when it is present.
-pub fn set_opt_point(map: &mut Map<String, Value>, key: &str, value: Option<Point>) {
-    if let Some(value) = value {
-        set(map, key, point(value));
-    }
-}
-
-/// Insert `key: value` as a JSON number only when `value` is present.
-pub fn set_opt_number(map: &mut Map<String, Value>, key: &str, value: Option<f64>) {
-    if let Some(value) = value {
-        set(map, key, number(value));
-    }
-}
-
-/// Insert `key: value` as a JSON flag only when `value` is present.
-pub fn set_opt_bool(map: &mut Map<String, Value>, key: &str, value: Option<bool>) {
-    if let Some(value) = value {
-        set(map, key, Value::from(value));
-    }
-}
-
-/// Insert a list of strings only when it is present.
-pub fn set_opt_strings(map: &mut Map<String, Value>, key: &str, value: &Option<Vec<String>>) {
-    if let Some(value) = value {
-        set(map, key, strings(value));
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
