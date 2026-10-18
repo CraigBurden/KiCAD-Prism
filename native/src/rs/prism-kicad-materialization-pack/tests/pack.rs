@@ -58,6 +58,19 @@ fn a_pack_round_trips_exactly_and_deterministically() {
 }
 
 #[test]
+fn a_reader_that_owns_its_bytes_reads_the_same() {
+    let original = document();
+    let bytes = encode_pack(&original).expect("encode");
+    let borrowed = PackReader::open(&bytes, PackLimits::default()).expect("open");
+    let owned = PackReader::open_owned(bytes.clone(), PackLimits::default()).expect("open");
+    assert_eq!(
+        serde_json::to_string(&owned.document().expect("document")).expect("json"),
+        serde_json::to_string(&borrowed.document().expect("document")).expect("json")
+    );
+    assert!(PackReader::open_owned(bytes[..16].to_vec(), PackLimits::default()).is_err());
+}
+
+#[test]
 fn the_reader_rejects_bad_preambles_truncation_and_oversize() {
     let bytes = encode_pack(&document()).expect("encode");
     let mut wrong_magic = bytes.clone();

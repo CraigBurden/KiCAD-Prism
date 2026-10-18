@@ -14,6 +14,7 @@ use prism_kicad_contracts::generated::materialization_document::{
 use prism_kicad_contracts::materialization_contract::{
     validate_materialization_document, validate_materialization_header,
 };
+use std::borrow::Cow;
 
 /// Bytes of the section directory before its per-chunk entries.
 const DIRECTORY_HEAD: usize = 72;
@@ -178,15 +179,40 @@ fn decode_preamble_and_header(
 
 /// A pack opened for reading: its header (with binding and chunk directory,
 /// validated), the string table, and where each chunk block lies. Chunks are
-/// decoded on demand.
+/// decoded on demand. It borrows its bytes ([`PackReader::open`]) or owns them
+/// ([`PackReader::open_owned`]), so a long-lived reader parses the header once.
 pub struct PackReader<'a> {
-    bytes: &'a [u8],
+    bytes: Cow<'a, [u8]>,
     header: MaterializationDocumentA0,
     strings: Vec<String>,
     blocks: Vec<(usize, usize)>,
     slices: Vec<String>,
     nets: Vec<String>,
     linear: Vec<[f64; 4]>,
+}
+
+impl PackReader<'static> {
+    /// [`PackReader::open`], keeping `bytes`.
+    pub fn open_owned(bytes: Vec<u8>, limits: PackLimits) -> Result<Self, PackError> {
+        let PackReader {
+            header,
+            strings,
+            blocks,
+            slices,
+            nets,
+            linear,
+            ..
+        } = PackReader::open(&bytes, limits)?;
+        Ok(PackReader {
+            bytes: Cow::Owned(bytes),
+            header,
+            strings,
+            blocks,
+            slices,
+            nets,
+            linear,
+        })
+    }
 }
 
 impl<'a> PackReader<'a> {
@@ -233,7 +259,7 @@ impl<'a> PackReader<'a> {
             blocks.push((offset, length));
         }
         Ok(Self {
-            bytes,
+            bytes: Cow::Borrowed(bytes),
             header,
             strings,
             blocks,
