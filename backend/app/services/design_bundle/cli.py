@@ -10,6 +10,7 @@ records its wall time and peak resident memory (``wait4``'s ``ru_maxrss``).
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import shutil
@@ -255,6 +256,37 @@ def generator() -> Generator:
     found = Generator(done.document or {})
     with _generator_lock:
         _generators[(path, stamp)] = found
+    return found
+
+
+_digests: dict[tuple[str, float, int], str] = {}
+
+
+def binary_digest() -> str:
+    """SHA-256 of the ``prism-kicad`` executable; cached per binary, its mtime and size.
+
+    The generator id names what the bundles hold, so a fix to ``compare`` that
+    leaves every member alone keeps it. A cached comparison is keyed by this
+    digest too, so any new binary computes its comparisons afresh.
+    """
+
+    path = executable()
+    try:
+        status = os.stat(path)
+        stamp = (path, status.st_mtime, status.st_size)
+    except OSError:
+        stamp = (path, 0.0, 0)
+    with _generator_lock:
+        cached = _digests.get(stamp)
+    if cached is not None:
+        return cached
+    digest = hashlib.sha256()
+    with open(path, "rb") as binary:
+        for chunk in iter(lambda: binary.read(1 << 20), b""):
+            digest.update(chunk)
+    found = digest.hexdigest()
+    with _generator_lock:
+        _digests[stamp] = found
     return found
 
 

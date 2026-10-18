@@ -56,6 +56,7 @@ fn parse(dir: &Path) -> Built {
         limits: &limits,
         reporter: &Silent,
         projections: None,
+        in_memory: false,
     };
     match prism_bundle::stages::parse::run(&request).unwrap() {
         ParseOutcome::Built(built) => *built,

@@ -5,12 +5,15 @@ set to ``bundle``, the ``design_compare`` job runs here instead of the legacy
 pipeline (C2r §2 items 4-7, §9 step 5):
 
 ```text
-1. sides        each revision from its stored bundle (the five members compare
-                reads are ready), else from its source tree, materialized as the
-                design_bundle job does; the bundle build is queued either way
-2. compare      prism-kicad compare -> DesignCompareResultA1, every tab except fabrication
+1. sides        both revisions at once, each from its stored bundle (the five
+                members compare reads are ready), else from its source tree,
+                materialized as the design_bundle job does, sharing one upgrade
+                cache; the bundle build is queued either way
+2. compare      prism-kicad compare -> DesignCompareResultA1, every tab except
+                fabrication; meanwhile kicad-cli plots each side's Gerbers,
+                once per bundle key and cached by it
 3. publish      the result as the job's partial artifact (fabrication still building)
-4. fabrication  kicad-cli Gerbers per side, cached by bundle key; today's image diff
+4. fabrication  today's image diff of the two plots
 5. publish      the v2 manifest: one sidecar per tab, fabrication and its layer renders
 ```
 
@@ -27,12 +30,13 @@ import logging
 import shutil
 import tempfile
 import time
+from concurrent.futures import Future, ThreadPoolExecutor
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Mapping, Optional
 
 from app.services import project_revision
-from app.services.design_bundle import cli, consumer, jobs as bundle_jobs
+from app.services.design_bundle import cli, consumer, jobs as bundle_jobs, kicad_steps
 from app.services.design_compare_artifacts import _diff_fabrication, _manifest_entry
 from app.services.design_compare_benchmark import DesignCompareBenchmark
 from app.services.job_artifact_service import job_artifacts
@@ -137,6 +141,10 @@ class ComparisonInputs:
 class BundlePathStages:
     """The bundle path's side effects, one method each; tests replace them."""
 
+    def __init__(self) -> None:
+        # One comparison's two source sets upgrade a file they share once.
+        self.upgrades = kicad_steps.UpgradeCache()
+
     def side(self, inputs: ComparisonInputs, name: str, commit: str, work: Path, cancel: Callable[[], None]) -> Side:
         row = workspace.get_project_by_id(inputs.project_id)
         if not row:
@@ -161,7 +169,9 @@ class BundlePathStages:
                 code="project-absent",
             )
         assert key.key is not None
-        prepared = bundle_jobs.prepare_sources(inputs.repo_path, key, generator, work / name, cancel=cancel)
+        prepared = bundle_jobs.prepare_sources(
+            inputs.repo_path, key, generator, work / name, cancel=cancel, upgrade_cache=self.upgrades
+        )
         revision_key = key.key.revision_key
         return Side(
             name, commit, revision_key, generator.bundle_key(revision_key), dict(key.config or {}), prepared=prepared,
@@ -295,49 +305,86 @@ def run_comparison(
     check_cancelled: Callable[[], None] = lambda: None,
     render_dir: Optional[Path] = None,
 ) -> Outcome:
-    """Compare, publish every tab but fabrication, then add fabrication; return the complete result."""
+    """Compare, publish every tab but fabrication, then add fabrication; return the complete result.
+
+    The two sides are read at once, and their Gerbers are plotted while
+    ``compare`` runs, so fabrication is not on the first result's path.
+    """
 
     stages = stages or BundlePathStages()
     heartbeat("Reading both revisions…", 5)
-    sides: Dict[str, Side] = {}
-    for name, commit in (("base", inputs.base), ("head", inputs.head)):
+    commits = {"base": inputs.base, "head": inputs.head}
+
+    def read_side(name: str) -> Side:
         with benchmark.span(f"side-{name}"):
-            sides[name] = stages.side(inputs, name, commit, work, check_cancelled)
+            return stages.side(inputs, name, commits[name], work, check_cancelled)
+
+    with ThreadPoolExecutor(max_workers=2, thread_name_prefix="compare-side") as pool:
+        futures = {name: pool.submit(read_side, name) for name in commits}
+        sides: Dict[str, Side] = {name: future.result() for name, future in futures.items()}
     modes = {name: side.mode for name, side in sides.items()}
     check_cancelled()
-    heartbeat("Comparing revisions…", 30)
-    output = work / "result.json"
-    args = [*sides["base"].compare_args(), *sides["head"].compare_args(), "-o", str(output)]
-    if inputs.include_unchanged:
-        args.append("--include-unchanged")
-    try:
-        with benchmark.span("compare-cli"):
-            run = stages.compare(args, source_tree="source-tree" in modes.values(), cancel=check_cancelled)
-    except cli.CliFailure as failure:
-        raise _cli_error(failure) from failure
-    result = json.loads(output.read_text(encoding="utf-8"))
-    if result.get("schema") != RESULT_SCHEMA:
-        raise PermanentJobError(f"prism-kicad compare wrote {result.get('schema')!r}", code="result-schema")
-    result["readiness"] = _readiness("building")
-    publisher.publish_partial(result, _details(result, inputs, modes, version=1))
 
-    check_cancelled()
-    heartbeat("Plotting fabrication output…", 75)
-    logs: List[str] = []
-    with benchmark.span("fabrication"):
+    logs: Dict[str, List[str]] = {name: [] for name in sides}
+    with ThreadPoolExecutor(max_workers=2, thread_name_prefix="compare-fabrication") as plotting:
+        plots = _start_fabrication(plotting, stages, sides, work, logs, benchmark)
+        heartbeat("Comparing revisions…", 30)
+        output = work / "result.json"
+        args = [*sides["base"].compare_args(), *sides["head"].compare_args(), "-o", str(output)]
+        if inputs.include_unchanged:
+            args.append("--include-unchanged")
         try:
-            exports = {name: {"fabrication": stages.fabrication(side, work, logs)} for name, side in sides.items()}
-            fabrication = _diff_fabrication(exports["base"], exports["head"], render_dir)
-            state = "ready"
-        except Exception:  # noqa: BLE001 - fabrication degrades its own domain only, as on the legacy path
-            logger.exception("Fabrication comparison failed")
-            fabrication, state = None, "failed"
-    for message in logs:
+            with benchmark.span("compare-cli"):
+                run = stages.compare(args, source_tree="source-tree" in modes.values(), cancel=check_cancelled)
+        except cli.CliFailure as failure:
+            raise _cli_error(failure) from failure
+        result = json.loads(output.read_text(encoding="utf-8"))
+        if result.get("schema") != RESULT_SCHEMA:
+            raise PermanentJobError(f"prism-kicad compare wrote {result.get('schema')!r}", code="result-schema")
+        result["readiness"] = _readiness("building")
+        publisher.publish_partial(result, _details(result, inputs, modes, version=1))
+
+        check_cancelled()
+        heartbeat("Plotting fabrication output…", 75)
+        with benchmark.span("fabrication"):
+            try:
+                exports = {name: {"fabrication": plots[name].result()} for name in sides}
+                fabrication = _diff_fabrication(exports["base"], exports["head"], render_dir)
+                state = "ready"
+            except Exception:  # noqa: BLE001 - fabrication degrades its own domain only, as on the legacy path
+                logger.exception("Fabrication comparison failed")
+                fabrication, state = None, "failed"
+    plotted = [message for name in sides for message in logs[name]]
+    for message in plotted:
         print(f"[fabrication] {message}", flush=True)
     complete = {**result, "readiness": _readiness(state)}
     if fabrication is not None:
         complete["fabrication"] = fabrication
-    return Outcome(complete, modes, run, logs)
+    return Outcome(complete, modes, run, plotted)
+
+
+def _start_fabrication(
+    pool: ThreadPoolExecutor,
+    stages: BundlePathStages,
+    sides: Mapping[str, Side],
+    work: Path,
+    logs: Mapping[str, List[str]],
+    benchmark: DesignCompareBenchmark,
+) -> Dict[str, Future]:
+    """Plot each side's Gerbers in the background, once per bundle key (two plots of one key would race)."""
+
+    by_key: Dict[str, Future] = {}
+    plots: Dict[str, Future] = {}
+    for name, side in sides.items():
+        if side.bundle_key not in by_key:
+
+            def plot(name: str = name, side: Side = side) -> Dict[str, Any]:
+                with benchmark.span(f"fabrication-{name}"):
+                    return stages.fabrication(side, work, logs[name])
+
+            by_key[side.bundle_key] = pool.submit(plot)
+        plots[name] = by_key[side.bundle_key]
+    return plots
 
 
 def _details(result: Mapping[str, Any], inputs: ComparisonInputs, modes: Mapping[str, str], *, version: int) -> Dict[str, Any]:

@@ -16,17 +16,16 @@
 
 use super::design::{self, Text};
 use super::keys::{source_entry, upgrade_invalid};
-use super::producers::ProjectionResult;
 use super::sexpr_check::{self, BOARD_FORMAT, CheckError, SCHEMATIC_FORMAT};
 use super::sheets::{Unresolved, resolve};
 use super::sources::SourceTree;
-use super::{Built, Generator, MemberData, Reporter, internal, producers};
+use super::{Built, Document, Generator, MemberData, Reporter, internal, producers};
 use crate::finding::{Failure, Finding, Location, Outcome};
 use crate::limits::{LimitName, Limits};
 use crate::manifest::{
-    BOARD_ID, DESIGN_PATH, DESIGN_SCHEMA, MANIFEST_SCHEMA, PROJECTIONS, Role, SOURCES_PREFIX,
-    Stage, Status, a3, json_bytes, member_failure, models_stage, pending_board, retype,
-    skipped_board, sort_warnings, source_role, warning,
+    BOARD_ID, DESIGN_PATH, DESIGN_SCHEMA, MANIFEST_SCHEMA, Role, SOURCES_PREFIX, Stage, Status, a3,
+    json_bytes, member_failure, models_stage, pending_board, retype, skipped_board, sort_warnings,
+    source_role, warning,
 };
 use crate::paths::{file_name, is_within, join, parent};
 use crate::revision_key::{EffectiveConfig, default_config};
@@ -65,6 +64,12 @@ pub struct ParseRequest<'a> {
     /// Without `design.json` among them, only the `components` and `nets` the
     /// semantic index reads are built.
     pub projections: Option<&'a [&'a str]>,
+    /// Keep the projections as documents in [`Built::documents`] instead of
+    /// serializing them: `compare` on a source tree reads them directly, with
+    /// no JSON text between the producers and the engine. They are then not
+    /// members and are not listed in the manifest, so such a build is never
+    /// an archive.
+    pub in_memory: bool,
 }
 
 /// What stage parse produced.
@@ -226,6 +231,7 @@ pub fn run(request: &ParseRequest<'_>) -> Outcome<ParseOutcome> {
         failed: Vec::new(),
         derived: Vec::new(),
         pending_index: None,
+        documents: BTreeMap::new(),
     };
     let error = stage.parse()?;
     stage
@@ -271,7 +277,11 @@ struct ParseRun<'a> {
     /// The semantic index, typed, until the read set is final and its
     /// `designKey` can be set (bundle-format.md §2.3).
     pending_index: Option<Box<SemanticIndexA2>>,
+    /// An in-memory parse's projections (`ParseRequest::in_memory`).
+    documents: BTreeMap<String, Document>,
 }
+
+mod projections;
 
 pub(super) fn member(path: &str) -> String {
     format!("{SOURCES_PREFIX}{path}")
@@ -718,50 +728,6 @@ impl ParseRun<'_> {
         self.record_projections(results)
     }
 
-    /// Record each producer's result, in `PROJECTIONS` order (bundle-format.md
-    /// §3.1): its warnings, the typed semantic index held aside for its
-    /// `designKey`, or a failed member when it could not build.
-    fn record_projections(
-        &mut self,
-        results: Vec<Option<Result<ProjectionResult, String>>>,
-    ) -> Outcome<()> {
-        for ((path, schema), result) in PROJECTIONS.into_iter().zip(results) {
-            let Some(result) = result else {
-                continue;
-            };
-            match result {
-                Ok(ProjectionResult::SemanticIndex { document, warnings }) => {
-                    for produced in warnings {
-                        self.warn(&produced.code, produced.message)?;
-                    }
-                    self.pending_index = Some(document);
-                }
-                Ok(ProjectionResult::Json { value, warnings })
-                    if value.get("schema").and_then(Value::as_str) == Some(schema) =>
-                {
-                    for produced in warnings {
-                        self.warn(&produced.code, produced.message)?;
-                    }
-                    if path == "projections/project.json" {
-                        self.read_references(&value)?;
-                    }
-                    self.add_json(path, schema, &value)?;
-                }
-                Ok(ProjectionResult::Json { .. }) => {
-                    return Err(internal(format!(
-                        "the {path} producer wrote another schema"
-                    )));
-                }
-                Err(message) => self.fail_member(
-                    path,
-                    "projection-failed",
-                    format!("{path} could not be built: {message}"),
-                )?,
-            }
-        }
-        Ok(())
-    }
-
     fn warn(&mut self, code: &str, message: String) -> Outcome<()> {
         self.request
             .reporter
@@ -955,10 +921,10 @@ impl ParseRun<'_> {
         let design_key = crate::read_set::design_key(&config_digest, &members, &read_set);
         if let Some(mut index) = self.pending_index.take() {
             index.design_key = design_key.into();
-            self.add_json(
+            self.keep(
                 "projections/semantic-index.json",
                 "prism.semantic_index.a2",
-                &index,
+                Document::SemanticIndex(index),
             )?;
         }
         if !failed {
@@ -985,6 +951,8 @@ impl ParseRun<'_> {
             members: Vec::new(),
         };
         let written = members.iter().map(|member| member.path.clone()).collect();
-        Ok(Built::assemble(Stage::Parse, manifest, members, written))
+        let mut built = Built::assemble(Stage::Parse, manifest, members, written);
+        built.documents = std::mem::take(&mut self.documents);
+        Ok(built)
     }
 }

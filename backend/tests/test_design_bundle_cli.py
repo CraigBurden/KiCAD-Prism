@@ -213,6 +213,20 @@ class StubCliTests(unittest.TestCase):
             with self.assertRaises(cli.CliUnavailable):
                 cli.executable()
 
+    def test_the_binary_digest_is_the_executables_and_follows_it(self) -> None:
+        import hashlib
+        import os
+        from unittest import mock
+
+        with tempfile.TemporaryDirectory() as tmp:
+            binary = Path(tmp) / "prism-kicad"
+            binary.write_bytes(b"first build")
+            with mock.patch.object(cli, "executable", return_value=str(binary)):
+                self.assertEqual(cli.binary_digest(), hashlib.sha256(b"first build").hexdigest())
+                binary.write_bytes(b"second build, longer")
+                os.utime(binary, (1, 1))
+                self.assertEqual(cli.binary_digest(), hashlib.sha256(b"second build, longer").hexdigest())
+
 
 if __name__ == "__main__":
     unittest.main()

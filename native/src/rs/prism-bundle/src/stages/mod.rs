@@ -30,6 +30,7 @@ use crate::finding::{Failure, Finding, Outcome};
 use crate::limits::Limits;
 use crate::manifest::{MANIFEST_PATH, Manifest, Role, Stage, a3, to_bytes};
 use crate::zip::{WriteError, ZipWriter};
+use std::collections::BTreeMap;
 use std::io::Write;
 use std::sync::Arc;
 
@@ -104,6 +105,19 @@ impl MemberData {
     }
 }
 
+/// A projection kept in memory by an in-memory parse (`ParseRequest::in_memory`)
+/// instead of being serialized as a member.
+#[derive(Clone, Debug)]
+pub enum Document {
+    /// A projection the stage builds as JSON (every one but the semantic index
+    /// and the board objects).
+    Json(serde_json::Value),
+    /// The semantic index, typed, with its `designKey` set.
+    SemanticIndex(Box<prism_kicad_contracts::generated::prism_semantic_index_a2::SemanticIndexA2>),
+    /// The board objects, typed.
+    BoardObjects(Box<prism_kicad_contracts::generated::prism_board_objects_a0::BoardObjectsA0>),
+}
+
 /// A bundle after one stage.
 #[derive(Clone, Debug)]
 pub struct Built {
@@ -117,6 +131,9 @@ pub struct Built {
     pub members: Vec<MemberData>,
     /// Paths this invocation wrote, besides `bundle.json`.
     pub written: Vec<String>,
+    /// An in-memory parse's projections, by member path; they are not in
+    /// `members` nor listed in the manifest. Empty for every other build.
+    pub documents: BTreeMap<String, Document>,
 }
 
 impl Built {
@@ -139,6 +156,7 @@ impl Built {
             manifest_bytes,
             members,
             written,
+            documents: BTreeMap::new(),
         }
     }
 

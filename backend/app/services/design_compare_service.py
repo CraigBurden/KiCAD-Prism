@@ -1351,7 +1351,13 @@ def start_design_compare_job(
         "includeUnchanged": include_unchanged,
     }
     if bundle_path:
-        identity.update(pipeline=design_compare_bundle_path.PIPELINE, generator=design_bundle_cli.generator().digest)
+        # The engine digest as well as the generator: a compare fix that changes
+        # no bundle member must not serve the comparisons cached before it.
+        identity.update(
+            pipeline=design_compare_bundle_path.PIPELINE,
+            generator=design_bundle_cli.generator().digest,
+            engine=design_bundle_cli.binary_digest(),
+        )
     else:
         identity.update(
             cacheSchema=_CACHE_SCHEMA,

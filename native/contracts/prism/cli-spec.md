@@ -954,7 +954,9 @@ Maintainer decision: the parser and every contract handle only the current file 
    pcbnew.SaveBoard(sys.argv[1], board)
    ```
    Copy only the `.kicad_pcb` back over the file in `$JOB/src`. The seed makes the ids KiCad creates for items the old file lacked identical on every run. Without it, `kicad-cli pcb upgrade` gives a KiCad 7 board about 1,600 random UUIDs per run (measured on cynthion).
-3. **Schematics.** `kicad-cli sch upgrade <file>` in place, with the same environment and timeout. It is byte-deterministic on cynthion's 19 KiCad 7 sheets.
+3. **Schematics.** `kicad-cli sch upgrade <file>`, with the same environment and timeout, on a copy in an empty scratch directory beside a copy of the `.kicad_pro` of the same stem, if there is one; the upgraded bytes replace the file in `$JOB/src`. It is byte-deterministic on cynthion's 19 KiCad 7 sheets. A sheet's upgrade reads only itself and that project file: on EDA-04903 (KiCad 8, 43 sheets) the root upgraded in place, alone, beside its sub-sheets in either format, or beside only its project file gives one result, and a sub-sheet gives the same bytes in place, alone or renamed.
+   - **At once.** Because each file is upgraded from its own copies, the files of one source set are upgraded concurrently (K's `PRISM_DESIGN_BUNDLE_UPGRADE_WORKERS`, default 8); the bytes are those of the one-at-a-time procedure. EDA-04903's 42 sheets: 21.1 s one at a time, 9.5 s with 8 workers, in the worker image.
+   - **Once per content.** Within one Design Comparison, both revisions' source sets share an upgrade cache keyed by kind, the file's bytes and the project file's bytes, so a file the two revisions share is upgraded once.
 4. **Record.** K passes one `--upgraded <path>=<version>` per upgraded file, with its original `(version N)`, to stage parse, and the manifest records `upgraded_from_version` on each such member (§5.2.2, bundle-format.md §2.2). The revision key is unaffected: it covers the committed blobs, not the upgraded bytes.
 5. **Failures.** These fail the job step, which is retried like the refill; nothing is recorded. After `max_attempts` there is no archive and the job ends failed.
 
