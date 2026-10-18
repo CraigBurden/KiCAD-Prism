@@ -19,7 +19,7 @@ import {
   STENCIL_STEPS,
 } from "./analytic-shaders.js";
 import { DEFAULT_ANALYTIC_STYLE, RAMP_SIZE, resolveStyle, sampleColormap } from "./analytic-colormaps.js";
-import { planOpenings, withPackedEdges } from "./analytic-prepare.js";
+import { plainSlab, planOpenings, withPackedEdges } from "./analytic-prepare.js";
 
 const BLEND = {
   color: { srcFactor: "src-alpha", dstFactor: "one-minus-src-alpha" },
@@ -371,7 +371,7 @@ export class AnalyticRenderer {
       multisample: { count: pick ? 1 : this.samples },
     });
     this.barrelPipelines = { color: make(this.renderer.format, false), pick: make("rg32uint", true) };
-    // Ghost barrels: translucent, after the opaque geometry, writing no depth.
+    // Ghost barrels: translucent strips facing the eye, after the opaque geometry, writing no depth.
     this.ghostPipeline = this.device.createRenderPipeline({
       label: "analytic-ghost-barrel",
       layout,
@@ -582,6 +582,7 @@ export class AnalyticRenderer {
     this.releaseSlices();
     const shared = new Map();
     this.slices = slices.map((slice) => this.uploadSlice(slice, shared));
+    this.makePlainSlabs(shared);
     this.makeTwins();
     // The board's extent in the world (before exploded offsets), for how big
     // a slab's walls can look (see `wallPixels`).
@@ -737,7 +738,10 @@ export class AnalyticRenderer {
   setBoardClip(clip) {
     if (this.boardClip && this.boardClip !== clip) this.boardClip.texture.destroy();
     this.boardClip = clip;
-    for (const slice of this.slices) slice.bindGroup = this.bindGroup(slice);
+    for (const slice of this.slices) {
+      slice.bindGroup = this.bindGroup(slice);
+      if (slice.plain) slice.plain.bindGroup = this.bindGroup(slice.plain);
+    }
     this.renderer.invalidate?.();
   }
 
@@ -803,7 +807,10 @@ export class AnalyticRenderer {
 
   rebind() {
     this.boundNetMask = this.renderer.netMaskBuffer;
-    for (const slice of this.slices) slice.bindGroup = this.bindGroup(slice);
+    for (const slice of this.slices) {
+      slice.bindGroup = this.bindGroup(slice);
+      if (slice.plain) slice.plain.bindGroup = this.bindGroup(slice.plain);
+    }
     for (const entry of this.twins?.values() || []) for (const twin of Object.values(entry)) twin.bindGroup = this.bindGroup(twin);
     if (this.barrels) this.barrels.bindGroup = this.barrelBindGroup();
     if (this.walls) this.walls.bindGroup = this.wallBindGroup();
@@ -1025,7 +1032,8 @@ export class AnalyticRenderer {
     return drawn;
   }
 
-  encodeSlice(pass, pipelines, slice, mode, layerOffsets, look) {
+  encodeSlice(pass, pipelines, face, mode, layerOffsets, look) {
+    const slice = this.drawnSlice(face);
     this.writeSlice(slice, layerOffsets, look);
     pass.setBindGroup(0, slice.bindGroup);
     if (this.stencil) this.encodeStencilled(pass, pipelines, slice, mode);
@@ -1227,7 +1235,7 @@ export class AnalyticRenderer {
     if (this.walls) bytes += this.walls.count * WALL_INSTANCE_BYTES;
     // A slab's faces share their buffers: each counts once.
     const buffers = new Set();
-    for (const slice of this.slices) {
+    for (const slice of this.slices.flatMap((slice) => (slice.plain ? [slice, slice.plain] : [slice]))) {
       for (const buffer of [slice.shapes, slice.covers, slice.fans, slice.uniform, slice.edges, slice.cuts]) if (buffer) buffers.add(buffer);
       if (slice.field) bytes += slice.field.width * slice.field.height * 4;
     }
@@ -1258,13 +1266,33 @@ export class AnalyticRenderer {
     };
   }
 
+  /**
+   * Each dielectric face's plain slab (`plainSlab`): what a separated stack
+   * draws in its place. Faces lowered once share theirs, as they share
+   * their buffers.
+   */
+  makePlainSlabs(shared) {
+    const plains = new Map();
+    for (const slice of this.slices) {
+      if (slice.role !== "dielectric" || !slice.lowered) continue;
+      if (!plains.has(slice.lowered)) plains.set(slice.lowered, plainSlab(slice.lowered));
+      const plain = plains.get(slice.lowered);
+      if (plain) slice.plain = this.uploadSlice({ ...slice, lowered: plain, plain: null }, shared);
+    }
+  }
+
+  /** The slice a face draws: a separated stack's laminate as its plain slab. */
+  drawnSlice(slice) {
+    return this.separated && slice.plain ? slice.plain : slice;
+  }
+
   releaseSlices() {
     for (const entry of this.twins?.values() || []) for (const twin of Object.values(entry)) twin.uniform.destroy();
     this.twinBuffers?.forEach((buffer) => buffer.destroy());
     this.twinBuffers = [];
     this.twins = new Map();
     const buffers = new Set();
-    for (const slice of this.slices) {
+    for (const slice of this.slices.flatMap((slice) => (slice.plain ? [slice, slice.plain] : [slice]))) {
       for (const buffer of [slice.shapes, slice.covers, slice.fans, slice.uniform, slice.edges, slice.cuts]) if (buffer) buffers.add(buffer);
       slice.field?.texture.destroy();
     }

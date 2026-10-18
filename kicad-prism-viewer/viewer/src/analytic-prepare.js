@@ -3,7 +3,7 @@
 // them and the lowered-slice cache keeps their output. The main thread then
 // only creates buffers; a board opened again prepares nothing.
 
-import { EDGE_SKIRT, EDGE_SUBTRACT, EDGE_WORDS, SHAPE_WORDS } from "./analytic-shaders.js";
+import { COVER_WORDS, EDGE_SKIRT, EDGE_SUBTRACT, EDGE_WORDS, SHAPE_WORDS } from "./analytic-shaders.js";
 
 /** A shape record's bounds on the board (millimetres): its local bounds through its affine. */
 export function recordBounds(words, index) {
@@ -184,4 +184,50 @@ export function maskSteps(slices) {
 /** The cache name of a mask step's openings (see `planOpenings`). */
 export function stepKey(mask, copper) {
   return `step:${mask.key}:${copper.key}`;
+}
+
+/**
+ * A dielectric slice as a plain slab: its regions' contours (the board
+ * outline and cutouts) with no drill holes, as one stencil fan from the
+ * first contour point and one cover over the contours' bounds. A separated
+ * stack draws its laminate so (V2a, maintainer 2026-10-19): the vias there
+ * are ghost tubes, and the holes' tiled fill cost most of an exploded frame.
+ * Null for a slice with no contour.
+ */
+export function plainSlab(lowered) {
+  const edges = lowered.contourEdges || new Float32Array(0);
+  const operations = lowered.contourEdgeOperations || new Uint32Array(0);
+  const kept = [];
+  for (let e = 0; e < operations.length && e * 4 + 3 < edges.length; e += 1) {
+    if (!(operations[e] & EDGE_SUBTRACT)) kept.push(e);
+  }
+  if (!kept.length) return null;
+  const [px, py] = [edges[kept[0] * 4], edges[kept[0] * 4 + 1]];
+  const fanVertices = new Float32Array(kept.length * 6);
+  const bounds = [Infinity, Infinity, -Infinity, -Infinity];
+  const contourEdges = new Float32Array(kept.length * 4);
+  const contourEdgeOperations = new Uint32Array(kept.length);
+  kept.forEach((e, i) => {
+    const [x0, y0, x1, y1] = edges.subarray(e * 4, e * 4 + 4);
+    fanVertices.set([px, py, x0, y0, x1, y1], i * 6);
+    contourEdges.set([x0, y0, x1, y1], i * 4);
+    contourEdgeOperations[i] = operations[e];
+    bounds[0] = Math.min(bounds[0], x0, x1);
+    bounds[1] = Math.min(bounds[1], y0, y1);
+    bounds[2] = Math.max(bounds[2], x0, x1);
+    bounds[3] = Math.max(bounds[3], y0, y1);
+  });
+  // The cover: the region's operation, no flags, then its bounds as float bits.
+  const covers = new Uint32Array(COVER_WORDS);
+  covers[0] = operations[kept[0]];
+  covers.set(new Uint32Array(Float32Array.from(bounds).buffer), 2);
+  return withPackedEdges({
+    shapes: new Uint32Array(0),
+    subtractShapes: 0,
+    fanVertices,
+    covers,
+    batches: new Uint32Array([0, 0, kept.length * 3, 0, 1]),
+    contourEdges,
+    contourEdgeOperations,
+  });
 }

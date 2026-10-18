@@ -928,12 +928,13 @@ export const WALL_INSTANCE_BYTES = 48;
  * layer). The view's eye is the camera in homogeneous world coordinates:
  * w = 0 for an orthographic view, whose xyz is then the view direction.
  */
-/** Sides of the low tube a ghost barrel draws (vs_ghost). */
-export const GHOST_SIDES = 12;
-/** A ghost barrel's opacity. */
-export const GHOST_ALPHA = 0.3;
-/** Vertices a ghost barrel draws: two triangles per side. */
-export const GHOST_VERTICES = GHOST_SIDES * 6;
+/**
+ * A ghost barrel's opacity: a tube's near and far sides of 0.3 over each
+ * other (1 - 0.7 * 0.7), as its one strip draws it.
+ */
+export const GHOST_ALPHA = 0.51;
+/** Vertices a ghost barrel draws: one strip facing the eye. */
+export const GHOST_VERTICES = 6;
 
 export const ANALYTIC_BARREL_SHADER = /* wgsl */ `
 struct Globals {
@@ -1052,17 +1053,17 @@ fn ghosted(b: Barrel) -> bool {
   return view.separated == 1u && !netLit(b.ids.x);
 }
 
-/** Sides of a ghost barrel's tube. */
-const GHOST_SIDES = ${GHOST_SIDES}u;
-
 struct GhostOut {
   @builtin(position) position: vec4f,
-  @location(0) normal: vec3f,
+  // Across the strip, -1 to 1, and the strip's side and toward-eye directions.
+  @location(0) across: f32,
+  @location(1) side: vec3f,
+  @location(2) facing: vec3f,
 };
 
-// A barrel off the lit nets in a separated stack: a low tube of GHOST_SIDES
-// sides around its hole's outline (a stadium for a slot), between its
-// layers' lifted faces. Barrels drawn exact collapse here instead.
+// A barrel off the lit nets in a separated stack: a strip facing the eye,
+// as wide as the hole, between its layers' lifted faces, shaded across its
+// width as the tube it stands for. Barrels drawn exact collapse here instead.
 @vertex fn vs_ghost(@builtin(vertex_index) vertex: u32, @builtin(instance_index) index: u32) -> GhostOut {
   let b = barrels[index];
   var out: GhostOut;
@@ -1070,22 +1071,32 @@ struct GhostOut {
     out.position = vec4f(0.0);
     return out;
   }
-  // Two triangles per side: corners (side, bottom), (side + 1, bottom), (side, top), ...
-  var corners = array<vec2u, 6>(vec2u(0u, 0u), vec2u(1u, 0u), vec2u(0u, 1u), vec2u(1u, 0u), vec2u(1u, 1u), vec2u(0u, 1u));
-  let corner = corners[vertex % 6u];
-  let angle = f32(vertex / 6u + corner.x) * 6.2831853 / f32(GHOST_SIDES);
-  let radial = vec2f(cos(angle), sin(angle));
-  let local = radial * b.size.x + vec2f(sign(radial.x) * b.shape.z, 0.0);
   let z = span(b);
-  let world = vec3f(b.shape.xy + turn(local, b.shape.w), select(z.y, z.x, corner.y == 1u));
+  let centre = vec3f(b.shape.xy, 0.5 * (z.x + z.y));
+  // Toward the eye, in the board's plane (the strip stands upright).
+  var toward = select(-view.eye.xyz, view.eye.xyz / view.eye.w - centre, abs(view.eye.w) > 1e-12);
+  toward = vec3f(toward.xy, 0.0);
+  let flat = length(toward) < 1e-12;
+  let facing = select(normalize(toward), vec3f(0.0, -1.0, 0.0), flat);
+  let side = vec3f(-facing.y, facing.x, 0.0);
+  // A slot's long half (shape.z) along its angle, seen across: its widest extent.
+  let reach = b.size.x + b.shape.z * abs(dot(vec2f(cos(b.shape.w), sin(b.shape.w)), side.xy));
+  var corners = array<vec2f, 6>(vec2f(-1.0, 0.0), vec2f(1.0, 0.0), vec2f(-1.0, 1.0), vec2f(1.0, 0.0), vec2f(1.0, 1.0), vec2f(-1.0, 1.0));
+  let corner = corners[vertex];
+  let world = vec3f(centre.xy + side.xy * corner.x * reach, select(z.y, z.x, corner.y > 0.5));
   out.position = globals.viewProjection * vec4f(world, 1.0);
-  out.normal = vec3f(turn(radial, b.shape.w), 0.0);
+  out.across = corner.x;
+  out.side = side;
+  out.facing = facing;
   return out;
 }
 
 @fragment fn fs_ghost(input: GhostOut) -> @location(0) vec4f {
+  // The tube's normal under this point of the strip.
+  let u = clamp(input.across, -1.0, 1.0);
+  let normal = normalize(input.side * u + input.facing * sqrt(1.0 - u * u));
   let light = normalize(globals.lightDirection.xyz);
-  let shade = 0.55 + 0.45 * abs(dot(normalize(input.normal), light));
+  let shade = 0.55 + 0.45 * abs(dot(normal, light));
   return vec4f(view.color.rgb * shade, ${GHOST_ALPHA});
 }
 

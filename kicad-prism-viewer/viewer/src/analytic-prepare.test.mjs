@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { maskSteps, packEdges, planOpenings, recordBounds } from "./analytic-prepare.js";
-import { EDGE_SKIRT, EDGE_SUBTRACT, EDGE_WORDS, SHAPE_WORDS } from "./analytic-shaders.js";
+import { maskSteps, packEdges, plainSlab, planOpenings, recordBounds } from "./analytic-prepare.js";
+import { COVER_WORDS, EDGE_SKIRT, EDGE_SUBTRACT, EDGE_WORDS, SHAPE_WORDS } from "./analytic-shaders.js";
 
 /** Shape records with an identity affine over the given local boxes. */
 function shapes(boxes) {
@@ -126,4 +126,26 @@ test("each mask with a lower face steps over its side's marking copper", () => {
     { key: "mask.flat", role: "mask", faceDown: false },
   ];
   assert.deepEqual(maskSteps(slices).map(([mask, copper]) => [mask.key, copper.key]), [["mask.front", "copper.front"], ["mask.back", "copper.back"]]);
+});
+
+test("a plain slab is its outline and cutouts as one fan and one cover, without holes", () => {
+  // A 10 x 6 board with a square cutout (clockwise), and a subtracting region's edge to drop.
+  const square = (x0, y0, x1, y1) => [x0, y0, x1, y0, x1, y0, x1, y1, x1, y1, x0, y1, x0, y1, x0, y0];
+  const contourEdges = new Float32Array([...square(0, 0, 10, 6), ...square(4, 2, 6, 4), 1, 1, 2, 2]);
+  const plain = plainSlab({
+    shapes: new Uint32Array(SHAPE_WORDS * 3),
+    subtractShapes: 3,
+    contourEdges,
+    contourEdgeOperations: new Uint32Array([7, 7, 7, 7, 7, 7, 7, 7, (EDGE_SUBTRACT | 9) >>> 0]),
+  });
+  assert.equal(plain.subtractShapes, 0);
+  assert.equal(plain.shapes.length, 0);
+  assert.equal(plain.fanVertices.length, 8 * 6, "one triangle per kept edge");
+  assert.deepEqual([...plain.fanVertices.subarray(0, 2)], [0, 0], "fanned from the first point");
+  assert.deepEqual([...plain.batches], [0, 0, 24, 0, 1]);
+  assert.equal(plain.covers.length, COVER_WORDS);
+  assert.equal(plain.covers[0], 7);
+  assert.deepEqual([...new Float32Array(plain.covers.buffer, 8, 4)], [0, 0, 10, 6]);
+  assert.equal(plain.regionEdges, 8);
+  assert.equal(plainSlab({ contourEdges: new Float32Array(0), contourEdgeOperations: new Uint32Array(0) }), null);
 });
