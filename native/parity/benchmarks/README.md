@@ -87,3 +87,43 @@ In source-tree mode, `compare` used to write each revision's semantic index and 
 | container, after | 31.4 s, 24.2 s | 2,021 MB, 2,177 MB |
 
 On the Mac it is about 9% faster. In the container, where the Gerber plots run at the same time, the difference is within run-to-run noise. Either way it costs 130–260 MB of peak memory, because both revisions' documents are held until the comparison runs.
+
+## 3D journeys, mesh path vs analytic path: 2026-10-18 (amendment V2, V2a step 1)
+
+`results/2026-10-18-v2a-3d-journeys.json` records how today's 3D tab (the Python topology compiler's mesh bundle) and the analytic path (the bundle's `materialization/board.kmpack`, drawn by the spike's analytic renderer) compare. The boards are EDA-04903 (KiCad 8, commit `01a56c3`) and USB-PD-Trigger-Board.
+
+The measurement has two halves (amendment V2 §6, Q4):
+- **Backend, cold:** a throwaway container from the worker image (10 CPUs, 8 GB cap, which is all of Docker's 8.3 GB VM here). `v2a_mesh_build.py` runs the `webgpu_3d` job's build with the image's own code. `v2a_bundle_build.py` runs the bundle's three stages with the feature branch's backend and a Linux `prism-kicad`, as `design_bundle/jobs.py` does.
+- **Browser, warm:** headless Chrome on this Mac (Apple silicon, 10 CPUs, 16 GB), assets on a loopback server, cache off, five loads each. The mesh path uses the pixel-diff harness's new `--load` option. The analytic path uses `v2a_analytic_load.mjs` over the spike branch's viewer.
+
+### Cold: building the 3D assets for one commit
+
+| | EDA-04903 | USB-PD-Trigger-Board |
+|---|---|---|
+| Mesh path, container | killed at the 8 GB cap | 3.7 s (board 2.4 s, parts 3.3 s); 0.3 GB |
+| Mesh path, this Mac (no cap) | 113.3 s; parts at 18.3 s, board only at the end; 2.1 GB | — |
+| Bundle stages, container | 134.6 s; board ready at 118.6 s; 2.2 GB | 3.3 s; board ready at 1.7 s; 0.25 GB |
+
+EDA-04903's bundle breaks down as: materialize and upgrade 13.8 s, stage `parse` 15.7 s, zone refill 76.3 s, materializer 12.7 s, `kicad-cli` GLB 13.0 s, stage `models` 16.0 s in all. The refill is most of it. K2's prebuild pays this once per design change, before anyone opens the tab.
+
+### Warm: what the browser downloads and when the board appears
+
+| | EDA-04903 | USB-PD-Trigger-Board |
+|---|---|---|
+| Mesh path, bytes | 39.0 MB (58 MB bundle, 61 files; tiles stream by view) | 2.7 MB |
+| Mesh path, `ready` (board drawn) | 456–550 ms | 102–157 ms |
+| Mesh path, parts loaded | 499–592 ms | 91–164 ms |
+| Mesh path, picture final | 850–971 ms | 219–261 ms |
+| Analytic path, pack bytes | 27.8 MB | 0.18 MB |
+| Analytic path, pack fetch + `loadAnalyticPack` + first frame | 2,838–3,231 ms | 131–144 ms |
+| of which: open | 161–192 ms | 12–23 ms |
+| of which: lowering (WASM) | 2,125–2,192 ms, on the main thread | 20–33 ms |
+
+- EDA-04903's 3D models do not resolve in this setup (its component GLB is 376 bytes on both paths), so parts are timed on USB-PD only. Both paths draw the same `kicad-cli` GLB.
+- The spike draws the analytic board after mounting a mesh bundle, so its numbers are the extra time to put the pack on screen. With no mesh to load first, V2a's tab costs the element's boot plus these numbers.
+- The spike's lowering ran on the main thread: its worker fell back (`lowerIn: main`). Lowering is per slice and independent, so a worker pool, or lowering the outer copper and mask first, cuts the time to the first board frame. Caching lowered slices by bundle key cuts it on every later open.
+
+### Readings for the budgets
+
+- Warm, the analytic path is slower than the mesh path on a large board today: about 2.9 s against about 0.5 s on EDA-04903. Lowering is the gap; download and open are not.
+- Cold, the analytic path builds where the mesh path cannot: EDA-04903's mesh build does not fit in the 8 GB box, and the bundle's stages peak at 2.2 GB.

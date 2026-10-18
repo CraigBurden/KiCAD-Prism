@@ -25,6 +25,7 @@ node tests/browser/pixel-diff/run.mjs \
 | `--views a,b` | Any of `default` (the loaded camera), `exploded` (separation 0.5), `top`, `bottom` (the viewer's `Z` / `Shift+Z` keys). Default: `default,exploded,top`. Axis views run last, because they move the camera for good. |
 | `--strict a,b` | Views that must match the reference within `--max-px` (default 0). Default: all three. Keep `exploded` strict: outer copper sits under the solder mask, so a copper-only change shows only there. |
 | `--repeat n` | Loads per build (default 2). Load 0 against load 1 of the same build is the noise floor. |
+| `--load` | Time each load from the element's mount: `ready` (the viewer's own event), the first drawn frame, `components-loaded`, the last frame that changed, and the bytes fetched (Chrome's encoded lengths). Printed as a table and stored as `loads` in `summary.json`. |
 | `--perf` | One extra load per build: orbit for `--orbit-ms` (default 4000) with synthetic drags from the loaded camera. |
 | `--size WxH`, `--scale s` | Viewport (default 1280x800) and device pixel ratio (default 1). |
 | `--tolerance n` | A per-channel delta of up to n counts as equal (default 0, exact). |

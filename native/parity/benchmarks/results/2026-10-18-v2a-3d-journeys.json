@@ -1,0 +1,5609 @@
+{
+ "date": "2026-10-18",
+ "purpose": "ADR amendment V2, V2a step 1: 3D journeys, mesh path vs analytic path",
+ "mesh_build_container": {
+  "usbpd": {
+   "board": "usbpd",
+   "wall_s": 3.71,
+   "milestones_s": {
+    "locate_compiler": 0.15,
+    "preflight.version.kicad-cli": 0.58,
+    "preflight.version.node": 0.62,
+    "preflight.version.npm": 0.85,
+    "preflight.node_packages": 0.88,
+    "preflight.python_imports": 0.99,
+    "preflight.total": 0.99,
+    "publish.partial.board-ready": 2.44,
+    "publish.partial.components-ready": 3.34,
+    "compiler.subprocess": 3.6,
+    "bundle.write_and_validate": 3.61,
+    "publish.copy_to_staging": 3.63,
+    "publish.validate_staging": 3.63,
+    "publish.promote": 3.67,
+    "publish.validate_target": 3.68,
+    "publish.total": 3.68,
+    "build.total": 3.68,
+    "status.final_validation": 3.71
+   },
+   "peak_rss_mb": 304,
+   "bundle_bytes": 1974682,
+   "files": 17,
+   "largest": [
+    [
+     "geometry/components.glb",
+     1091852
+    ],
+    [
+     "geometry/base_board.glb",
+     366088
+    ],
+    [
+     "topology.json",
+     204075
+    ],
+    [
+     "scene-gltf/scene.manifest.json",
+     126373
+    ],
+    [
+     "geometry/soldermask.glb",
+     56620
+    ],
+    [
+     "scene-gltf/layer-5-tile-3-2.glb",
+     35320
+    ],
+    [
+     "scene-gltf/layer-5-tile-2-2.glb",
+     32584
+    ],
+    [
+     "scene-gltf/layer-6-tile-2-2.glb",
+     17168
+    ],
+    [
+     "generation-profile.json",
+     9211
+    ],
+    [
+     "scene-gltf/layer-6-tile-3-2.glb",
+     8944
+    ],
+    [
+     "scene-gltf/layer-5-tile-3-3.glb",
+     7692
+    ],
+    [
+     "semantic_geometry.json",
+     4571
+    ]
+   ],
+   "readiness": {
+    "schema": "prism.visualizer_readiness.a0",
+    "stage": "semantic-ready",
+    "progress": 100,
+    "available_assets": [
+     "board",
+     "components",
+     "semantic-geometry",
+     "topology"
+    ],
+    "revision": "1792335618639161547",
+    "updated_at": "2026-10-18T15:00:18.639168+00:00"
+   },
+   "root": "/projects/.kicad-prism/semantic-visualizer/usbpd/39766bd3298f3002d674c5af13c994a4/kicad-prism-webgpu-3d-0.2.0-semantic-gltf-a0-stackup-a2-prism-host-a0_e8b6eef7"
+  },
+  "eda": {
+   "result": "killed (exit -9) at the 8 GB container cap; Docker's VM has 8.3 GB"
+  }
+ },
+ "mesh_build_mac_eda": {
+  "board": "eda",
+  "wall_s": 113.27,
+  "milestones_s": {
+   "locate_compiler": 0.03,
+   "preflight.version.kicad-cli": 0.42,
+   "preflight.version.node": 0.54,
+   "preflight.version.npm": 0.72,
+   "preflight.node_packages": 0.78,
+   "preflight.python_imports": 0.88,
+   "preflight.total": 0.88,
+   "publish.partial.components-ready": 18.32,
+   "compiler.subprocess": 112.56,
+   "bundle.write_and_validate": 112.72,
+   "publish.copy_to_staging": 112.79,
+   "publish.validate_staging": 112.91,
+   "publish.promote": 112.99,
+   "publish.validate_target": 113.11,
+   "publish.total": 113.11,
+   "build.total": 113.13,
+   "status.final_validation": 113.27
+  },
+  "peak_rss_mb": 2116,
+  "bundle_bytes": 57959667,
+  "files": 61,
+  "largest": [
+   [
+    "scene-gltf/scene.manifest.json",
+    13063750
+   ],
+   [
+    "topology.json",
+    11517276
+   ],
+   [
+    "geometry/base_board.glb",
+    6431496
+   ],
+   [
+    "geometry/soldermask.glb",
+    2504020
+   ],
+   [
+    "scene-gltf/layer-4-tile-0-1.glb",
+    1410752
+   ],
+   [
+    "scene-gltf/layer-26-tile-0-1.glb",
+    897728
+   ],
+   [
+    "scene-gltf/layer-14-tile-0-1.glb",
+    897096
+   ],
+   [
+    "scene-gltf/layer-24-tile-0-1.glb",
+    895404
+   ],
+   [
+    "scene-gltf/layer-10-tile-0-1.glb",
+    895400
+   ],
+   [
+    "scene-gltf/layer-20-tile-0-1.glb",
+    895400
+   ],
+   [
+    "scene-gltf/layer-6-tile-0-1.glb",
+    895360
+   ],
+   [
+    "scene-gltf/layer-16-tile-0-1.glb",
+    892948
+   ]
+  ],
+  "readiness": {
+   "schema": "prism.visualizer_readiness.a0",
+   "stage": "semantic-ready",
+   "progress": 100,
+   "available_assets": [
+    "board",
+    "components",
+    "semantic-geometry",
+    "topology"
+   ],
+   "revision": "1792335796776976000",
+   "updated_at": "2026-10-18T15:03:16.777507+00:00"
+  },
+  "root": "<scratch>/out/mesh-eda-mac/.kicad-prism/semantic-visualizer/eda/9f72c9ecc90ad428e0409dc8cb804319/kicad-prism-webgpu-3d-0.2.0-semantic-gltf-a0-stackup-a2-prism-host-a0_6903db3c",
+  "note": "macOS ru_maxrss is in bytes: peak 2.12 GB"
+ },
+ "bundle_build_container": {
+  "eda": {
+   "anchor": "EDA-04903-V1-0.kicad_pro",
+   "commit": "01a56c36ed54f52f278fb8de9a23fb0e3e9e6391",
+   "times_s": {
+    "materialize_and_upgrade": 13.78,
+    "stage_parse": 15.69,
+    "zone_refill": 76.27,
+    "materializer_cli": 12.74,
+    "stage_board": 89.14,
+    "kicad_cli_glb": 12.95,
+    "stage_models": 16.0
+   },
+   "board_ready_s": 118.62,
+   "total_s": 134.61,
+   "peak_rss_mb": 2161,
+   "archive_bytes": 51487333,
+   "pack_bytes": 27751728,
+   "glb_bytes": 376,
+   "stages": {
+    "parse": "complete",
+    "board": "complete",
+    "models": "complete"
+   }
+  },
+  "usbpd": {
+   "anchor": "USB-PD-Trigger-Board.kicad_pro",
+   "commit": "0642b07770533173e731613a031d706c6163395e",
+   "times_s": {
+    "materialize_and_upgrade": 0.29,
+    "stage_parse": 0.4,
+    "zone_refill": 0.68,
+    "materializer_cli": 0.2,
+    "stage_board": 1.01,
+    "kicad_cli_glb": 1.34,
+    "stage_models": 1.55
+   },
+   "board_ready_s": 1.7,
+   "total_s": 3.25,
+   "peak_rss_mb": 246,
+   "archive_bytes": 1690365,
+   "pack_bytes": 175488,
+   "glb_bytes": 1091852,
+   "stages": {
+    "parse": "complete",
+    "board": "complete",
+    "models": "complete"
+   }
+  }
+ },
+ "browser_mesh": [
+  {
+   "board": "usbpd",
+   "build": "mesh",
+   "rep": 0,
+   "readyMs": 156.6,
+   "firstDrawnMs": 69.7,
+   "componentsMs": 103.2,
+   "lastChangeMs": 219.7,
+   "changes": 2,
+   "viewer": {
+    "bundle_fetch_parse_ms": 1.8000000715255737,
+    "bundle_content_length": 0,
+    "bundle_from_cache": false,
+    "bundle_group_total_ms": 16.800000071525574,
+    "mount_and_first_frame_ms": 138,
+    "scene_manifest_fetch_parse_ms": 2.4000000953674316,
+    "scene_manifest_index_ms": 0.19999992847442627,
+    "webgpu_renderer_create_ms": 5.600000023841858,
+    "board_fetch_parse_upload_ms": 29.299999952316284,
+    "controls_and_bindings_ms": 1.600000023841858,
+    "first_frame_wait_ms": 96.89999997615814,
+    "boot_total_ms": 137.19999992847443,
+    "reload_to_visible_ms": 156.10000002384186
+   },
+   "bytes": 2654448
+  },
+  {
+   "board": "usbpd",
+   "build": "mesh",
+   "rep": 1,
+   "readyMs": 143.2,
+   "firstDrawnMs": 59.6,
+   "componentsMs": 94.6,
+   "lastChangeMs": 243,
+   "changes": 3,
+   "viewer": {
+    "bundle_fetch_parse_ms": 3.600000023841858,
+    "bundle_content_length": 0,
+    "bundle_from_cache": false,
+    "bundle_group_total_ms": 17.799999952316284,
+    "mount_and_first_frame_ms": 123.80000007152557,
+    "scene_manifest_fetch_parse_ms": 1.899999976158142,
+    "scene_manifest_index_ms": 0.20000004768371582,
+    "webgpu_renderer_create_ms": 3.299999952316284,
+    "board_fetch_parse_upload_ms": 26.600000023841858,
+    "controls_and_bindings_ms": 0.8000000715255737,
+    "first_frame_wait_ms": 89.29999995231628,
+    "boot_total_ms": 123,
+    "reload_to_visible_ms": 142.80000007152557
+   },
+   "bytes": 2654305
+  },
+  {
+   "board": "usbpd",
+   "build": "mesh",
+   "rep": 2,
+   "readyMs": 141.1,
+   "firstDrawnMs": 61,
+   "componentsMs": 90.9,
+   "lastChangeMs": 261,
+   "changes": 5,
+   "viewer": {
+    "bundle_fetch_parse_ms": 1.899999976158142,
+    "bundle_content_length": 0,
+    "bundle_from_cache": false,
+    "bundle_group_total_ms": 14.100000023841858,
+    "mount_and_first_frame_ms": 125.10000002384186,
+    "scene_manifest_fetch_parse_ms": 2.200000047683716,
+    "scene_manifest_index_ms": 0.2999999523162842,
+    "webgpu_renderer_create_ms": 3.9000000953674316,
+    "board_fetch_parse_upload_ms": 26.5,
+    "controls_and_bindings_ms": 0.7999999523162842,
+    "first_frame_wait_ms": 89.19999992847443,
+    "boot_total_ms": 124.09999990463257,
+    "reload_to_visible_ms": 140.70000004768372
+   },
+   "bytes": 2654305
+  },
+  {
+   "board": "usbpd",
+   "build": "mesh",
+   "rep": 3,
+   "readyMs": 142.1,
+   "firstDrawnMs": 60.2,
+   "componentsMs": 94.7,
+   "lastChangeMs": 226.7,
+   "changes": 3,
+   "viewer": {
+    "bundle_fetch_parse_ms": 2.4000000953674316,
+    "bundle_content_length": 0,
+    "bundle_from_cache": false,
+    "bundle_group_total_ms": 16.600000023841858,
+    "mount_and_first_frame_ms": 123.5,
+    "scene_manifest_fetch_parse_ms": 2.600000023841858,
+    "scene_manifest_index_ms": 0.2999999523162842,
+    "webgpu_renderer_create_ms": 3.899999976158142,
+    "board_fetch_parse_upload_ms": 27.5,
+    "controls_and_bindings_ms": 0.8999999761581421,
+    "first_frame_wait_ms": 86.39999997615814,
+    "boot_total_ms": 122.5,
+    "reload_to_visible_ms": 141.5
+   },
+   "bytes": 2654305
+  },
+  {
+   "board": "usbpd",
+   "build": "mesh",
+   "rep": 4,
+   "readyMs": 102.1,
+   "firstDrawnMs": 40.2,
+   "componentsMs": 163.7,
+   "lastChangeMs": 223.4,
+   "changes": 3,
+   "viewer": {
+    "bundle_fetch_parse_ms": 2.200000047683716,
+    "bundle_content_length": 0,
+    "bundle_from_cache": false,
+    "bundle_group_total_ms": 14.699999928474426,
+    "mount_and_first_frame_ms": 85.39999997615814,
+    "scene_manifest_fetch_parse_ms": 1.7000000476837158,
+    "scene_manifest_index_ms": 0.20000004768371582,
+    "webgpu_renderer_create_ms": 3.700000047683716,
+    "board_fetch_parse_upload_ms": 28,
+    "controls_and_bindings_ms": 0.6999999284744263,
+    "first_frame_wait_ms": 49.10000002384186,
+    "boot_total_ms": 84.60000002384186,
+    "reload_to_visible_ms": 101.39999997615814
+   },
+   "bytes": 2654305
+  },
+  {
+   "board": "eda",
+   "build": "mesh",
+   "rep": 0,
+   "readyMs": 478.1,
+   "firstDrawnMs": 413,
+   "componentsMs": 503,
+   "lastChangeMs": 896.4,
+   "changes": 5,
+   "viewer": {
+    "bundle_fetch_parse_ms": 2.5,
+    "bundle_content_length": 0,
+    "bundle_from_cache": false,
+    "bundle_group_total_ms": 49,
+    "mount_and_first_frame_ms": 427.2999999523163,
+    "scene_manifest_fetch_parse_ms": 56.89999997615814,
+    "scene_manifest_index_ms": 11.899999976158142,
+    "webgpu_renderer_create_ms": 7.799999952316284,
+    "board_fetch_parse_upload_ms": 289.10000002384186,
+    "controls_and_bindings_ms": 0.8999999761581421,
+    "first_frame_wait_ms": 56.799999952316284,
+    "boot_total_ms": 426.39999997615814,
+    "reload_to_visible_ms": 477.5
+   },
+   "bytes": 39024435
+  },
+  {
+   "board": "eda",
+   "build": "mesh",
+   "rep": 1,
+   "readyMs": 484.7,
+   "firstDrawnMs": 400.3,
+   "componentsMs": 510.9,
+   "lastChangeMs": 883.6,
+   "changes": 5,
+   "viewer": {
+    "bundle_fetch_parse_ms": 1.899999976158142,
+    "bundle_content_length": 0,
+    "bundle_from_cache": false,
+    "bundle_group_total_ms": 48.800000071525574,
+    "mount_and_first_frame_ms": 434.39999997615814,
+    "scene_manifest_fetch_parse_ms": 41.700000047683716,
+    "scene_manifest_index_ms": 8.599999904632568,
+    "webgpu_renderer_create_ms": 8,
+    "board_fetch_parse_upload_ms": 304.60000002384186,
+    "controls_and_bindings_ms": 1.3000000715255737,
+    "first_frame_wait_ms": 66.80000007152557,
+    "boot_total_ms": 433.60000002384186,
+    "reload_to_visible_ms": 484.2999999523163
+   },
+   "bytes": 39024435
+  },
+  {
+   "board": "eda",
+   "build": "mesh",
+   "rep": 2,
+   "readyMs": 550.2,
+   "firstDrawnMs": 470.5,
+   "componentsMs": 592.2,
+   "lastChangeMs": 970.5,
+   "changes": 6,
+   "viewer": {
+    "bundle_fetch_parse_ms": 2.8000000715255737,
+    "bundle_content_length": 0,
+    "bundle_from_cache": false,
+    "bundle_group_total_ms": 71.10000002384186,
+    "mount_and_first_frame_ms": 476.7000000476837,
+    "scene_manifest_fetch_parse_ms": 51,
+    "scene_manifest_index_ms": 17,
+    "webgpu_renderer_create_ms": 11,
+    "board_fetch_parse_upload_ms": 325.5,
+    "controls_and_bindings_ms": 1.1999999284744263,
+    "first_frame_wait_ms": 67,
+    "boot_total_ms": 475.3000000715256,
+    "reload_to_visible_ms": 549.7000000476837
+   },
+   "bytes": 39024435
+  },
+  {
+   "board": "eda",
+   "build": "mesh",
+   "rep": 3,
+   "readyMs": 486.7,
+   "firstDrawnMs": 400.3,
+   "componentsMs": 523.1,
+   "lastChangeMs": 850.3,
+   "changes": 5,
+   "viewer": {
+    "bundle_fetch_parse_ms": 1.8000000715255737,
+    "bundle_content_length": 0,
+    "bundle_from_cache": false,
+    "bundle_group_total_ms": 50.39999997615814,
+    "mount_and_first_frame_ms": 434.60000002384186,
+    "scene_manifest_fetch_parse_ms": 41.59999990463257,
+    "scene_manifest_index_ms": 8.700000047683716,
+    "webgpu_renderer_create_ms": 5.699999928474426,
+    "board_fetch_parse_upload_ms": 291.2000000476837,
+    "controls_and_bindings_ms": 1,
+    "first_frame_wait_ms": 83,
+    "boot_total_ms": 433.7999999523163,
+    "reload_to_visible_ms": 486.10000002384186
+   },
+   "bytes": 39024435
+  },
+  {
+   "board": "eda",
+   "build": "mesh",
+   "rep": 4,
+   "readyMs": 455.7,
+   "firstDrawnMs": 384.3,
+   "componentsMs": 499.3,
+   "lastChangeMs": 867.6,
+   "changes": 5,
+   "viewer": {
+    "bundle_fetch_parse_ms": 2.200000047683716,
+    "bundle_content_length": 0,
+    "bundle_from_cache": false,
+    "bundle_group_total_ms": 47.699999928474426,
+    "mount_and_first_frame_ms": 406,
+    "scene_manifest_fetch_parse_ms": 40.5,
+    "scene_manifest_index_ms": 7.600000023841858,
+    "webgpu_renderer_create_ms": 3.799999952316284,
+    "board_fetch_parse_upload_ms": 278.89999997615814,
+    "controls_and_bindings_ms": 0.7999999523162842,
+    "first_frame_wait_ms": 68.69999992847443,
+    "boot_total_ms": 404.89999997615814,
+    "reload_to_visible_ms": 454.89999997615814
+   },
+   "bytes": 39024435
+  }
+ ],
+ "browser_analytic": {
+  "eda": [
+   {
+    "bytes": 27751728,
+    "fetchMs": 32.9,
+    "attachMs": 3006.7,
+    "firstAnalyticFrameMs": 3230.6,
+    "timings": {
+     "release": 0,
+     "open": 170,
+     "lowerIn": "main",
+     "lower": 2177,
+     "slices": 421,
+     "barrels": 4,
+     "walls": 2,
+     "nets": 222,
+     "features": 10,
+     "attach": 0
+    },
+    "slices": [
+     {
+      "key": "dielectric.1",
+      "role": "dielectric",
+      "face": "top",
+      "layerId": 5,
+      "z": 0.0014913999651536346,
+      "shapes": 10120,
+      "subtractShapes": 10120,
+      "regionBatches": 1,
+      "fanVertices": 216306,
+      "covers": 35719,
+      "approximations": {
+       "region_offsets_ignored": 0,
+       "flat_cap_segments": 0,
+       "cubics_flattened": 0
+      }
+     },
+     {
+      "key": "dielectric.1",
+      "role": "dielectric",
+      "face": "bottom",
+      "layerId": 5,
+      "z": 0.0013815999651536348,
+      "shapes": 10120,
+      "subtractShapes": 10120,
+      "regionBatches": 1,
+      "fanVertices": 216306,
+      "covers": 35719,
+      "approximations": {
+       "region_offsets_ignored": 0,
+       "flat_cap_segments": 0,
+       "cubics_flattened": 0
+      }
+     },
+     {
+      "key": "dielectric.2",
+      "role": "dielectric",
+      "face": "top",
+      "layerId": 7,
+      "z": 0.0013638999651536343,
+      "shapes": 10120,
+      "subtractShapes": 10120,
+      "regionBatches": 1,
+      "fanVertices": 216306,
+      "covers": 35719,
+      "approximations": {
+       "region_offsets_ignored": 0,
+       "flat_cap_segments": 0,
+       "cubics_flattened": 0
+      }
+     },
+     {
+      "key": "dielectric.2",
+      "role": "dielectric",
+      "face": "bottom",
+      "layerId": 7,
+      "z": 0.0012540999651536346,
+      "shapes": 10120,
+      "subtractShapes": 10120,
+      "regionBatches": 1,
+      "fanVertices": 216306,
+      "covers": 35719,
+      "approximations": {
+       "region_offsets_ignored": 0,
+       "flat_cap_segments": 0,
+       "cubics_flattened": 0
+      }
+     },
+     {
+      "key": "dielectric.3",
+      "role": "dielectric",
+      "face": "top",
+      "layerId": 9,
+      "z": 0.0012363999651536343,
+      "shapes": 10120,
+      "subtractShapes": 10120,
+      "regionBatches": 1,
+      "fanVertices": 216306,
+      "covers": 35719,
+      "approximations": {
+       "region_offsets_ignored": 0,
+       "flat_cap_segments": 0,
+       "cubics_flattened": 0
+      }
+     },
+     {
+      "key": "dielectric.3",
+      "role": "dielectric",
+      "face": "bottom",
+      "layerId": 9,
+      "z": 0.0011265999651536346,
+      "shapes": 10120,
+      "subtractShapes": 10120,
+      "regionBatches": 1,
+      "fanVertices": 216306,
+      "covers": 35719,
+      "approximations": {
+       "region_offsets_ignored": 0,
+       "flat_cap_segments": 0,
+       "cubics_flattened": 0
+      }
+     },
+     {
+      "key": "dielectric.4",
+      "role": "dielectric",
+      "face": "top",
+      "layerId": 11,
+      "z": 0.0011088999651536343,
+      "shapes": 10120,
+      "subtractShapes": 10120,
+      "regionBatches": 1,
+      "fanVertices": 216306,
+      "covers": 35719,
+      "approximations": {
+       "region_offsets_ignored": 0,
+       "flat_cap_segments": 0,
+       "cubics_flattened": 0
+      }
+     },
+     {
+      "key": "dielectric.4",
+      "role": "dielectric",
+      "face": "bottom",
+      "layerId": 11,
+      "z": 0.0009990999651536346,
+      "shapes": 10120,
+      "subtractShapes": 10120,
+      "regionBatches": 1,
+      "fanVertices": 216306,
+      "covers": 35719,
+      "approximations": {
+       "region_offsets_ignored": 0,
+       "flat_cap_segments": 0,
+       "cubics_flattened": 0
+      }
+     },
+     {
+      "key": "dielectric.5",
+      "role": "dielectric",
+      "face": "top",
+      "layerId": 13,
+      "z": 0.0009813999651536345,
+      "shapes": 10120,
+      "subtractShapes": 10120,
+      "regionBatches": 1,
+      "fanVertices": 216306,
+      "covers": 35719,
+      "approximations": {
+       "region_offsets_ignored": 0,
+       "flat_cap_segments": 0,
+       "cubics_flattened": 0
+      }
+     },
+     {
+      "key": "dielectric.5",
+      "role": "dielectric",
+      "face": "bottom",
+      "layerId": 13,
+      "z": 0.0008625999651536346,
+      "shapes": 10120,
+      "subtractShapes": 10120,
+      "regionBatches": 1,
+      "fanVertices": 216306,
+      "covers": 35719,
+      "approximations": {
+       "region_offsets_ignored": 0,
+       "flat_cap_segments": 0,
+       "cubics_flattened": 0
+      }
+     },
+     {
+      "key": "dielectric.6",
+      "role": "dielectric",
+      "face": "top",
+      "layerId": 15,
+      "z": 0.0008448999651536346,
+      "shapes": 10120,
+      "subtractShapes": 10120,
+      "regionBatches": 1,
+      "fanVertices": 216306,
+      "covers": 35719,
+      "approximations": {
+       "region_offsets_ignored": 0,
+       "flat_cap_segments": 0,
+       "cubics_flattened": 0
+      }
+     },
+     {
+      "key": "dielectric.6",
+      "role": "dielectric",
+      "face": "bottom",
+      "layerId": 15,
+      "z": 0.0007450999651536345,
+      "shapes": 10120,
+      "subtractShapes": 10120,
+      "regionBatches": 1,
+      "fanVertices": 216306,
+      "covers": 35719,
+      "approximations": {
+       "region_offsets_ignored": 0,
+       "flat_cap_segments": 0,
+       "cubics_flattened": 0
+      }
+     },
+     {
+      "key": "dielectric.7",
+      "role": "dielectric",
+      "face": "top",
+      "layerId": 17,
+      "z": 0.0007273999651536346,
+      "shapes": 10120,
+      "subtractShapes": 10120,
+      "regionBatches": 1,
+      "fanVertices": 216306,
+      "covers": 35719,
+      "approximations": {
+       "region_offsets_ignored": 0,
+       "flat_cap_segments": 0,
+       "cubics_flattened": 0
+      }
+     },
+     {
+      "key": "dielectric.7",
+      "role": "dielectric",
+      "face": "bottom",
+      "layerId": 17,
+      "z": 0.0006175999651536345,
+      "shapes": 10120,
+      "subtractShapes": 10120,
+      "regionBatches": 1,
+      "fanVertices": 216306,
+      "covers": 35719,
+      "approximations": {
+       "region_offsets_ignored": 0,
+       "flat_cap_segments": 0,
+       "cubics_flattened": 0
+      }
+     },
+     {
+      "key": "dielectric.8",
+      "role": "dielectric",
+      "face": "top",
+      "layerId": 19,
+      "z": 0.0005998999651536346,
+      "shapes": 10120,
+      "subtractShapes": 10120,
+      "regionBatches": 1,
+      "fanVertices": 216306,
+      "covers": 35719,
+      "approximations": {
+       "region_offsets_ignored": 0,
+       "flat_cap_segments": 0,
+       "cubics_flattened": 0
+      }
+     },
+     {
+      "key": "dielectric.8",
+      "role": "dielectric",
+      "face": "bottom",
+      "layerId": 19,
+      "z": 0.0004900999651536344,
+      "shapes": 10120,
+      "subtractShapes": 10120,
+      "regionBatches": 1,
+      "fanVertices": 216306,
+      "covers": 35719,
+      "approximations": {
+       "region_offsets_ignored": 0,
+       "flat_cap_segments": 0,
+       "cubics_flattened": 0
+      }
+     },
+     {
+      "key": "dielectric.9",
+      "role": "dielectric",
+      "face": "top",
+      "layerId": 21,
+      "z": 0.00047239996515363456,
+      "shapes": 10120,
+      "subtractShapes": 10120,
+      "regionBatches": 1,
+      "fanVertices": 216306,
+      "covers": 35719,
+      "approximations": {
+       "region_offsets_ignored": 0,
+       "flat_cap_segments": 0,
+       "cubics_flattened": 0
+      }
+     },
+     {
+      "key": "dielectric.9",
+      "role": "dielectric",
+      "face": "bottom",
+      "layerId": 21,
+      "z": 0.0003625999651536346,
+      "shapes": 10120,
+      "subtractShapes": 10120,
+      "regionBatches": 1,
+      "fanVertices": 216306,
+      "covers": 35719,
+      "approximations": {
+       "region_offsets_ignored": 0,
+       "flat_cap_segments": 0,
+       "cubics_flattened": 0
+      }
+     },
+     {
+      "key": "dielectric.10",
+      "role": "dielectric",
+      "face": "top",
+      "layerId": 23,
+      "z": 0.0003448999651536346,
+      "shapes": 10120,
+      "subtractShapes": 10120,
+      "regionBatches": 1,
+      "fanVertices": 216306,
+      "covers": 35719,
+      "approximations": {
+       "region_offsets_ignored": 0,
+       "flat_cap_segments": 0,
+       "cubics_flattened": 0
+      }
+     },
+     {
+      "key": "dielectric.10",
+      "role": "dielectric",
+      "face": "bottom",
+      "layerId": 23,
+      "z": 0.00014509996515363463,
+      "shapes": 10120,
+      "subtractShapes": 10120,
+      "regionBatches": 1,
+      "fanVertices": 216306,
+      "covers": 35719,
+      "approximations": {
+       "region_offsets_ignored": 0,
+       "flat_cap_segments": 0,
+       "cubics_flattened": 0
+      }
+     },
+     {
+      "key": "dielectric.11",
+      "role": "dielectric",
+      "face": "top",
+      "layerId": 25,
+      "z": 0.0001273999651536345,
+      "shapes": 10120,
+      "subtractShapes": 10120,
+      "regionBatches": 1,
+      "fanVertices": 216306,
+      "covers": 35719,
+      "approximations": {
+       "region_offsets_ignored": 0,
+       "flat_cap_segments": 0,
+       "cubics_flattened": 0
+      }
+     },
+     {
+      "key": "dielectric.11",
+      "role": "dielectric",
+      "face": "bottom",
+      "layerId": 25,
+      "z": 1.7599965153634485e-05,
+      "shapes": 10120,
+      "subtractShapes": 10120,
+      "regionBatches": 1,
+      "fanVertices": 216306,
+      "covers": 35719,
+      "approximations": {
+       "region_offsets_ignored": 0,
+       "flat_cap_segments": 0,
+       "cubics_flattened": 0
+      }
+     },
+     {
+      "key": "copper.front",
+      "role": "copper",
+      "face": "top",
+      "layerId": 4,
+      "z": 0.0015264999651536345,
+      "shapes": 26273,
+      "subtractShapes": 5060,
+      "regionBatches": 3,
+      "fanVertices": 24921,
+      "covers": 2458,
+      "approximations": {
+       "region_offsets_ignored": 0,
+       "flat_cap_segments": 0,
+       "cubics_flattened": 0
+      }
+     },
+     {
+      "key": "copper.front",
+      "role": "copper",
+      "face": "bottom",
+      "layerId": 4,
+      "z": 0.0014914999651536346,
+      "shapes": 26273,
+      "subtractShapes": 5060,
+      "regionBatches": 3,
+      "fanVertices": 24921,
+      "covers": 2458,
+      "approximations": {
+       "region_offsets_ignored": 0,
+       "flat_cap_segments": 0,
+       "cubics_flattened": 0
+      }
+     },
+     {
+      "key": "copper.in1",
+      "role": "copper",
+      "face": "top",
+      "layerId": 6,
+      "z": 0.0013814999651536345,
+      "shapes": 7607,
+      "subtractShapes": 5060,
+      "regionBatches": 1,
+      "fanVertices": 917244,
+      "covers": 35377,
+      "approximations": {
+       "region_offsets_ignored": 0,
+       "flat_cap_segments": 0,
+       "cubics_flattened": 0
+      }
+     },
+     {
+      "key": "copper.in1",
+      "role": "copper",
+      "face": "bottom",
+      "layerId": 6,
+      "z": 0.0013639999651536344,
+      "shapes": 7607,
+      "subtractShapes": 5060,
+      "regionBatches": 1,
+      "fanVertices": 917244,
+      "covers": 35377,
+      "approximations": {
+       "region_offsets_ignored": 0,
+       "flat_cap_segments": 0,
+       "cubics_flattened": 0
+      }
+     },
+     {
+      "key": "copper.in2",
+      "role": "copper",
+      "face": "top",
+      "layerId": 8,
+      "z": 0.0012539999651536345,
+      "shapes": 9959,
+      "subtractShapes": 5060,
+      "regionBatches": 2,
+      "fanVertices": 19413,
+      "covers": 729,
+      "approximations": {
+       "region_offsets_ignored": 0,
+       "flat_cap_segments": 0,
+       "cubics_flattened": 0
+      }
+     },
+     {
+      "key": "copper.in2",
+      "role": "copper",
+      "face": "bottom",
+      "layerId": 8,
+      "z": 0.0012364999651536344,
+      "shapes": 9959,
+      "subtractShapes": 5060,
+      "regionBatches": 2,
+      "fanVertices": 19413,
+      "covers": 729,
+      "approximations": {
+       "region_offsets_ignored": 0,
+       "flat_cap_segments": 0,
+       "cubics_flattened": 0
+      }
+     },
+     {
+      "key": "copper.in3",
+      "role": "copper",
+      "face": "top",
+      "layerId": 10,
+      "z": 0.0011264999651536347,
+      "shapes": 7583,
+      "subtractShapes": 5060,
+      "regionBatches": 1,
+      "fanVertices": 918177,
+      "covers": 35377,
+      "approximations": {
+       "region_offsets_ignored": 0,
+       "flat_cap_segments": 0,
+       "cubics_flattened": 0
+      }
+     },
+     {
+      "key": "copper.in3",
+      "role": "copper",
+      "face": "bottom",
+      "layerId": 10,
+      "z": 0.0011089999651536346,
+      "shapes": 7583,
+      "subtractShapes": 5060,
+      "regionBatches": 1,
+      "fanVertices": 918177,
+      "covers": 35377,
+      "approximations": {
+       "region_offsets_ignored": 0,
+       "flat_cap_segments": 0,
+       "cubics_flattened": 0
+      }
+     },
+     {
+      "key": "copper.in4",
+      "role": "copper",
+      "face": "top",
+      "layerId": 12,
+      "z": 0.0009989999651536347,
+      "shapes": 10725,
+      "subtractShapes": 5060,
+      "regionBatches": 3,
+      "fanVertices": 10011,
+      "covers": 238,
+      "approximations": {
+       "region_offsets_ignored": 0,
+       "flat_cap_segments": 0,
+       "cubics_flattened": 0
+      }
+     },
+     {
+      "key": "copper.in4",
+      "role": "copper",
+      "face": "bottom",
+      "layerId": 12,
+      "z": 0.0009814999651536346,
+      "shapes": 10725,
+      "subtractShapes": 5060,
+      "regionBatches": 3,
+      "fanVertices": 10011,
+      "covers": 238,
+      "approximations": {
+       "region_offsets_ignored": 0,
+       "flat_cap_segments": 0,
+       "cubics_flattened": 0
+      }
+     },
+     {
+      "key": "copper.in5",
+      "role": "copper",
+      "face": "top",
+      "layerId": 14,
+      "z": 0.0008624999651536345,
+      "shapes": 6536,
+      "subtractShapes": 5060,
+      "regionBatches": 4,
+      "fanVertices": 1192059,
+      "covers": 35578,
+      "approximations": {
+       "region_offsets_ignored": 0,
+       "flat_cap_segments": 0,
+       "cubics_flattened": 0
+      }
+     },
+     {
+      "key": "copper.in5",
+      "role": "copper",
+      "face": "bottom",
+      "layerId": 14,
+      "z": 0.0008449999651536346,
+      "shapes": 6536,
+      "subtractShapes": 5060,
+      "regionBatches": 4,
+      "fanVertices": 1192059,
+      "covers": 35578,
+      "approximations": {
+       "region_offsets_ignored": 0,
+       "flat_cap_segments": 0,
+       "cubics_flattened": 0
+      }
+     },
+     {
+      "key": "copper.in6",
+      "role": "copper",
+      "face": "top",
+      "layerId": 16,
+      "z": 0.0007449999651536345,
+      "shapes": 6223,
+      "subtractShapes": 5060,
+      "regionBatches": 4,
+      "fanVertices": 1224561,
+      "covers": 35857,
+      "approximations": {
+       "region_offsets_ignored": 0,
+       "flat_cap_segments": 0,
+       "cubics_flattened": 0
+      }
+     },
+     {
+      "key": "copper.in6",
+      "role": "copper",
+      "face": "bottom",
+      "layerId": 16,
+      "z": 0.0007274999651536346,
+      "shapes": 6223,
+      "subtractShapes": 5060,
+      "regionBatches": 4,
+      "fanVertices": 1224561,
+      "covers": 35857,
+      "approximations": {
+       "region_offsets_ignored": 0,
+       "flat_cap_segments": 0,
+       "cubics_flattened": 0
+      }
+     },
+     {
+      "key": "copper.in7",
+      "role": "copper",
+      "face": "top",
+      "layerId": 18,
+      "z": 0.0006174999651536345,
+      "shapes": 9481,
+      "subtractShapes": 5060,
+      "regionBatches": 2,
+      "fanVertices": 90297,
+      "covers": 4551,
+      "approximations": {
+       "region_offsets_ignored": 0,
+       "flat_cap_segments": 0,
+       "cubics_flattened": 0
+      }
+     },
+     {
+      "key": "copper.in7",
+      "role": "copper",
+      "face": "bottom",
+      "layerId": 18,
+      "z": 0.0005999999651536346,
+      "shapes": 9481,
+      "subtractShapes": 5060,
+      "regionBatches": 2,
+      "fanVertices": 90297,
+      "covers": 4551,
+      "approximations": {
+       "region_offsets_ignored": 0,
+       "flat_cap_segments": 0,
+       "cubics_flattened": 0
+      }
+     },
+     {
+      "key": "copper.in8",
+      "role": "copper",
+      "face": "top",
+      "layerId": 20,
+      "z": 0.0004899999651536346,
+      "shapes": 7619,
+      "subtractShapes": 5060,
+      "regionBatches": 1,
+      "fanVertices": 918177,
+      "covers": 35377,
+      "approximations": {
+       "region_offsets_ignored": 0,
+       "flat_cap_segments": 0,
+       "cubics_flattened": 0
+      }
+     },
+     {
+      "key": "copper.in8",
+      "role": "copper",
+      "face": "bottom",
+      "layerId": 20,
+      "z": 0.00047249996515363456,
+      "shapes": 7619,
+      "subtractShapes": 5060,
+      "regionBatches": 1,
+      "fanVertices": 918177,
+      "covers": 35377,
+      "approximations": {
+       "region_offsets_ignored": 0,
+       "flat_cap_segments": 0,
+       "cubics_flattened": 0
+      }
+     },
+     {
+      "key": "copper.in9",
+      "role": "copper",
+      "face": "top",
+      "layerId": 22,
+      "z": 0.0003624999651536346,
+      "shapes": 8490,
+      "subtractShapes": 5060,
+      "regionBatches": 4,
+      "fanVertices": 242940,
+      "covers": 7779,
+      "approximations": {
+       "region_offsets_ignored": 0,
+       "flat_cap_segments": 0,
+       "cubics_flattened": 0
+      }
+     },
+     {
+      "key": "copper.in9",
+      "role": "copper",
+      "face": "bottom",
+      "layerId": 22,
+      "z": 0.00034499996515363455,
+      "shapes": 8490,
+      "subtractShapes": 5060,
+      "regionBatches": 4,
+      "fanVertices": 242940,
+      "covers": 7779,
+      "approximations": {
+       "region_offsets_ignored": 0,
+       "flat_cap_segments": 0,
+       "cubics_flattened": 0
+      }
+     },
+     {
+      "key": "copper.in10",
+      "role": "copper",
+      "face": "top",
+      "layerId": 24,
+      "z": 0.0001449999651536346,
+      "shapes": 7597,
+      "subtractShapes": 5060,
+      "regionBatches": 1,
+      "fanVertices": 918177,
+      "covers": 35377,
+      "approximations": {
+       "region_offsets_ignored": 0,
+       "flat_cap_segments": 0,
+       "cubics_flattened": 0
+      }
+     },
+     {
+      "key": "copper.in10",
+      "role": "copper",
+      "face": "bottom",
+      "layerId": 24,
+      "z": 0.0001274999651536346,
+      "shapes": 7597,
+      "subtractShapes": 5060,
+      "regionBatches": 1,
+      "fanVertices": 918177,
+      "covers": 35377,
+      "approximations": {
+       "region_offsets_ignored": 0,
+       "flat_cap_segments": 0,
+       "cubics_flattened": 0
+      }
+     },
+     {
+      "key": "copper.back",
+      "role": "copper",
+      "face": "top",
+      "layerId": 26,
+      "z": 1.7499965153634625e-05,
+      "shapes": 15877,
+      "subtractShapes": 5060,
+      "regionBatches": 3,
+      "fanVertices": 25353,
+      "covers": 2123,
+      "approximations": {
+       "region_offsets_ignored": 0,
+       "flat_cap_segments": 0,
+       "cubics_flattened": 0
+      }
+     },
+     {
+      "key": "copper.back",
+      "role": "copper",
+      "face": "bottom",
+      "layerId": 26,
+      "z": -1.750003484636538e-05,
+      "shapes": 15877,
+      "subtractShapes": 5060,
+      "regionBatches": 3,
+      "fanVertices": 25353,
+      "covers": 2123,
+      "approximations": {
+       "region_offsets_ignored": 0,
+       "flat_cap_segments": 0,
+       "cubics_flattened": 0
+      }
+     },
+     {
+      "key": "mask.front",
+      "role": "mask",
+      "layerId": 3,
+      "z": 0.0015364999651536345,
+      "shapes": 11177,
+      "subtractShapes": 11177,
+      "regionBatches": 2,
+      "fanVertices": 224340,
+      "covers": 36883,
+      "approximations": {
+       "region_offsets_ignored": 0,
+       "flat_cap_segments": 0,
+       "cubics_flattened": 0
+      }
+     },
+     {
+      "key": "mask.back",
+      "role": "mask",
+      "layerId": 27,
+      "z": -2.7500034846365435e-05,
+      "shapes": 6766,
+      "subtractShapes": 6766,
+      "regionBatches": 2,
+      "fanVertices": 223902,
+      "covers": 36833,
+      "approximations": {
+       "region_offsets_ignored": 0,
+       "flat_cap_segments": 0,
+       "cubics_flattened": 0
+      }
+     },
+     {
+      "key": "paste.front",
+      "role": "paste",
+      "layerId": 2,
+      "z": 0.0015274999651536344,
+      "shapes": 10581,
+      "subtractShapes": 5060,
+      "regionBatches": 0,
+      "fanVertices": 0,
+      "covers": 0,
+      "approximations": {
+       "region_offsets_ignored": 0,
+       "flat_cap_segments": 0,
+       "cubics_flattened": 0
+      }
+     },
+     {
+      "key": "paste.back",
+      "role": "paste",
+      "layerId": 28,
+      "z": -1.850003484636538e-05,
+      "shapes": 6190,
+      "subtractShapes": 5060,
+      "regionBatches": 0,
+      "fanVertices": 0,
+      "covers": 0,
+      "approximations": {
+       "region_offsets_ignored": 0,
+       "flat_cap_segments": 0,
+       "cubics_flattened": 0
+      }
+     },
+     {
+      "key": "silkscreen.front",
+      "role": "silk",
+      "layerId": 1,
+      "z": 0.0015384999651536348,
+      "shapes": 21238,
+      "subtractShapes": 5902,
+      "regionBatches": 2,
+      "fanVertices": 13164,
+      "covers": 486,
+      "approximations": {
+       "region_offsets_ignored": 0,
+       "flat_cap_segments": 0,
+       "cubics_flattened": 0
+      }
+     },
+     {
+      "key": "silkscreen.back",
+      "role": "silk",
+      "layerId": 29,
+      "z": -2.950003484636545e-05,
+      "shapes": 8157,
+      "subtractShapes": 5085,
+      "regionBatches": 2,
+      "fanVertices": 3468,
+      "covers": 153,
+      "approximations": {
+       "region_offsets_ignored": 0,
+       "flat_cap_segments": 0,
+       "cubics_flattened": 0
+      }
+     }
+    ],
+    "operations": 143096
+   },
+   {
+    "bytes": 27751728,
+    "fetchMs": 49.3,
+    "attachMs": 2768.7,
+    "firstAnalyticFrameMs": 2888.9,
+    "timings": {
+     "release": 0,
+     "open": 192,
+     "lowerIn": "main",
+     "lower": 2128,
+     "slices": 304,
+     "barrels": 4,
+     "walls": 2,
+     "nets": 133,
+     "features": 6,
+     "attach": 0
+    },
+    "slices": [
+     {
+      "key": "dielectric.1",
+      "role": "dielectric",
+      "face": "top",
+      "layerId": 5,
+      "z": 0.0014913999651536346,
+      "shapes": 10120,
+      "subtractShapes": 10120,
+      "regionBatches": 1,
+      "fanVertices": 216306,
+      "covers": 35719,
+      "approximations": {
+       "region_offsets_ignored": 0,
+       "flat_cap_segments": 0,
+       "cubics_flattened": 0
+      }
+     },
+     {
+      "key": "dielectric.1",
+      "role": "dielectric",
+      "face": "bottom",
+      "layerId": 5,
+      "z": 0.0013815999651536348,
+      "shapes": 10120,
+      "subtractShapes": 10120,
+      "regionBatches": 1,
+      "fanVertices": 216306,
+      "covers": 35719,
+      "approximations": {
+       "region_offsets_ignored": 0,
+       "flat_cap_segments": 0,
+       "cubics_flattened": 0
+      }
+     },
+     {
+      "key": "dielectric.2",
+      "role": "dielectric",
+      "face": "top",
+      "layerId": 7,
+      "z": 0.0013638999651536343,
+      "shapes": 10120,
+      "subtractShapes": 10120,
+      "regionBatches": 1,
+      "fanVertices": 216306,
+      "covers": 35719,
+      "approximations": {
+       "region_offsets_ignored": 0,
+       "flat_cap_segments": 0,
+       "cubics_flattened": 0
+      }
+     },
+     {
+      "key": "dielectric.2",
+      "role": "dielectric",
+      "face": "bottom",
+      "layerId": 7,
+      "z": 0.0012540999651536346,
+      "shapes": 10120,
+      "subtractShapes": 10120,
+      "regionBatches": 1,
+      "fanVertices": 216306,
+      "covers": 35719,
+      "approximations": {
+       "region_offsets_ignored": 0,
+       "flat_cap_segments": 0,
+       "cubics_flattened": 0
+      }
+     },
+     {
+      "key": "dielectric.3",
+      "role": "dielectric",
+      "face": "top",
+      "layerId": 9,
+      "z": 0.0012363999651536343,
+      "shapes": 10120,
+      "subtractShapes": 10120,
+      "regionBatches": 1,
+      "fanVertices": 216306,
+      "covers": 35719,
+      "approximations": {
+       "region_offsets_ignored": 0,
+       "flat_cap_segments": 0,
+       "cubics_flattened": 0
+      }
+     },
+     {
+      "key": "dielectric.3",
+      "role": "dielectric",
+      "face": "bottom",
+      "layerId": 9,
+      "z": 0.0011265999651536346,
+      "shapes": 10120,
+      "subtractShapes": 10120,
+      "regionBatches": 1,
+      "fanVertices": 216306,
+      "covers": 35719,
+      "approximations": {
+       "region_offsets_ignored": 0,
+       "flat_cap_segments": 0,
+       "cubics_flattened": 0
+      }
+     },
+     {
+      "key": "dielectric.4",
+      "role": "dielectric",
+      "face": "top",
+      "layerId": 11,
+      "z": 0.0011088999651536343,
+      "shapes": 10120,
+      "subtractShapes": 10120,
+      "regionBatches": 1,
+      "fanVertices": 216306,
+      "covers": 35719,
+      "approximations": {
+       "region_offsets_ignored": 0,
+       "flat_cap_segments": 0,
+       "cubics_flattened": 0
+      }
+     },
+     {
+      "key": "dielectric.4",
+      "role": "dielectric",
+      "face": "bottom",
+      "layerId": 11,
+      "z": 0.0009990999651536346,
+      "shapes": 10120,
+      "subtractShapes": 10120,
+      "regionBatches": 1,
+      "fanVertices": 216306,
+      "covers": 35719,
+      "approximations": {
+       "region_offsets_ignored": 0,
+       "flat_cap_segments": 0,
+       "cubics_flattened": 0
+      }
+     },
+     {
+      "key": "dielectric.5",
+      "role": "dielectric",
+      "face": "top",
+      "layerId": 13,
+      "z": 0.0009813999651536345,
+      "shapes": 10120,
+      "subtractShapes": 10120,
+      "regionBatches": 1,
+      "fanVertices": 216306,
+      "covers": 35719,
+      "approximations": {
+       "region_offsets_ignored": 0,
+       "flat_cap_segments": 0,
+       "cubics_flattened": 0
+      }
+     },
+     {
+      "key": "dielectric.5",
+      "role": "dielectric",
+      "face": "bottom",
+      "layerId": 13,
+      "z": 0.0008625999651536346,
+      "shapes": 10120,
+      "subtractShapes": 10120,
+      "regionBatches": 1,
+      "fanVertices": 216306,
+      "covers": 35719,
+      "approximations": {
+       "region_offsets_ignored": 0,
+       "flat_cap_segments": 0,
+       "cubics_flattened": 0
+      }
+     },
+     {
+      "key": "dielectric.6",
+      "role": "dielectric",
+      "face": "top",
+      "layerId": 15,
+      "z": 0.0008448999651536346,
+      "shapes": 10120,
+      "subtractShapes": 10120,
+      "regionBatches": 1,
+      "fanVertices": 216306,
+      "covers": 35719,
+      "approximations": {
+       "region_offsets_ignored": 0,
+       "flat_cap_segments": 0,
+       "cubics_flattened": 0
+      }
+     },
+     {
+      "key": "dielectric.6",
+      "role": "dielectric",
+      "face": "bottom",
+      "layerId": 15,
+      "z": 0.0007450999651536345,
+      "shapes": 10120,
+      "subtractShapes": 10120,
+      "regionBatches": 1,
+      "fanVertices": 216306,
+      "covers": 35719,
+      "approximations": {
+       "region_offsets_ignored": 0,
+       "flat_cap_segments": 0,
+       "cubics_flattened": 0
+      }
+     },
+     {
+      "key": "dielectric.7",
+      "role": "dielectric",
+      "face": "top",
+      "layerId": 17,
+      "z": 0.0007273999651536346,
+      "shapes": 10120,
+      "subtractShapes": 10120,
+      "regionBatches": 1,
+      "fanVertices": 216306,
+      "covers": 35719,
+      "approximations": {
+       "region_offsets_ignored": 0,
+       "flat_cap_segments": 0,
+       "cubics_flattened": 0
+      }
+     },
+     {
+      "key": "dielectric.7",
+      "role": "dielectric",
+      "face": "bottom",
+      "layerId": 17,
+      "z": 0.0006175999651536345,
+      "shapes": 10120,
+      "subtractShapes": 10120,
+      "regionBatches": 1,
+      "fanVertices": 216306,
+      "covers": 35719,
+      "approximations": {
+       "region_offsets_ignored": 0,
+       "flat_cap_segments": 0,
+       "cubics_flattened": 0
+      }
+     },
+     {
+      "key": "dielectric.8",
+      "role": "dielectric",
+      "face": "top",
+      "layerId": 19,
+      "z": 0.0005998999651536346,
+      "shapes": 10120,
+      "subtractShapes": 10120,
+      "regionBatches": 1,
+      "fanVertices": 216306,
+      "covers": 35719,
+      "approximations": {
+       "region_offsets_ignored": 0,
+       "flat_cap_segments": 0,
+       "cubics_flattened": 0
+      }
+     },
+     {
+      "key": "dielectric.8",
+      "role": "dielectric",
+      "face": "bottom",
+      "layerId": 19,
+      "z": 0.0004900999651536344,
+      "shapes": 10120,
+      "subtractShapes": 10120,
+      "regionBatches": 1,
+      "fanVertices": 216306,
+      "covers": 35719,
+      "approximations": {
+       "region_offsets_ignored": 0,
+       "flat_cap_segments": 0,
+       "cubics_flattened": 0
+      }
+     },
+     {
+      "key": "dielectric.9",
+      "role": "dielectric",
+      "face": "top",
+      "layerId": 21,
+      "z": 0.00047239996515363456,
+      "shapes": 10120,
+      "subtractShapes": 10120,
+      "regionBatches": 1,
+      "fanVertices": 216306,
+      "covers": 35719,
+      "approximations": {
+       "region_offsets_ignored": 0,
+       "flat_cap_segments": 0,
+       "cubics_flattened": 0
+      }
+     },
+     {
+      "key": "dielectric.9",
+      "role": "dielectric",
+      "face": "bottom",
+      "layerId": 21,
+      "z": 0.0003625999651536346,
+      "shapes": 10120,
+      "subtractShapes": 10120,
+      "regionBatches": 1,
+      "fanVertices": 216306,
+      "covers": 35719,
+      "approximations": {
+       "region_offsets_ignored": 0,
+       "flat_cap_segments": 0,
+       "cubics_flattened": 0
+      }
+     },
+     {
+      "key": "dielectric.10",
+      "role": "dielectric",
+      "face": "top",
+      "layerId": 23,
+      "z": 0.0003448999651536346,
+      "shapes": 10120,
+      "subtractShapes": 10120,
+      "regionBatches": 1,
+      "fanVertices": 216306,
+      "covers": 35719,
+      "approximations": {
+       "region_offsets_ignored": 0,
+       "flat_cap_segments": 0,
+       "cubics_flattened": 0
+      }
+     },
+     {
+      "key": "dielectric.10",
+      "role": "dielectric",
+      "face": "bottom",
+      "layerId": 23,
+      "z": 0.00014509996515363463,
+      "shapes": 10120,
+      "subtractShapes": 10120,
+      "regionBatches": 1,
+      "fanVertices": 216306,
+      "covers": 35719,
+      "approximations": {
+       "region_offsets_ignored": 0,
+       "flat_cap_segments": 0,
+       "cubics_flattened": 0
+      }
+     },
+     {
+      "key": "dielectric.11",
+      "role": "dielectric",
+      "face": "top",
+      "layerId": 25,
+      "z": 0.0001273999651536345,
+      "shapes": 10120,
+      "subtractShapes": 10120,
+      "regionBatches": 1,
+      "fanVertices": 216306,
+      "covers": 35719,
+      "approximations": {
+       "region_offsets_ignored": 0,
+       "flat_cap_segments": 0,
+       "cubics_flattened": 0
+      }
+     },
+     {
+      "key": "dielectric.11",
+      "role": "dielectric",
+      "face": "bottom",
+      "layerId": 25,
+      "z": 1.7599965153634485e-05,
+      "shapes": 10120,
+      "subtractShapes": 10120,
+      "regionBatches": 1,
+      "fanVertices": 216306,
+      "covers": 35719,
+      "approximations": {
+       "region_offsets_ignored": 0,
+       "flat_cap_segments": 0,
+       "cubics_flattened": 0
+      }
+     },
+     {
+      "key": "copper.front",
+      "role": "copper",
+      "face": "top",
+      "layerId": 4,
+      "z": 0.0015264999651536345,
+      "shapes": 26273,
+      "subtractShapes": 5060,
+      "regionBatches": 3,
+      "fanVertices": 24921,
+      "covers": 2458,
+      "approximations": {
+       "region_offsets_ignored": 0,
+       "flat_cap_segments": 0,
+       "cubics_flattened": 0
+      }
+     },
+     {
+      "key": "copper.front",
+      "role": "copper",
+      "face": "bottom",
+      "layerId": 4,
+      "z": 0.0014914999651536346,
+      "shapes": 26273,
+      "subtractShapes": 5060,
+      "regionBatches": 3,
+      "fanVertices": 24921,
+      "covers": 2458,
+      "approximations": {
+       "region_offsets_ignored": 0,
+       "flat_cap_segments": 0,
+       "cubics_flattened": 0
+      }
+     },
+     {
+      "key": "copper.in1",
+      "role": "copper",
+      "face": "top",
+      "layerId": 6,
+      "z": 0.0013814999651536345,
+      "shapes": 7607,
+      "subtractShapes": 5060,
+      "regionBatches": 1,
+      "fanVertices": 917244,
+      "covers": 35377,
+      "approximations": {
+       "region_offsets_ignored": 0,
+       "flat_cap_segments": 0,
+       "cubics_flattened": 0
+      }
+     },
+     {
+      "key": "copper.in1",
+      "role": "copper",
+      "face": "bottom",
+      "layerId": 6,
+      "z": 0.0013639999651536344,
+      "shapes": 7607,
+      "subtractShapes": 5060,
+      "regionBatches": 1,
+      "fanVertices": 917244,
+      "covers": 35377,
+      "approximations": {
+       "region_offsets_ignored": 0,
+       "flat_cap_segments": 0,
+       "cubics_flattened": 0
+      }
+     },
+     {
+      "key": "copper.in2",
+      "role": "copper",
+      "face": "top",
+      "layerId": 8,
+      "z": 0.0012539999651536345,
+      "shapes": 9959,
+      "subtractShapes": 5060,
+      "regionBatches": 2,
+      "fanVertices": 19413,
+      "covers": 729,
+      "approximations": {
+       "region_offsets_ignored": 0,
+       "flat_cap_segments": 0,
+       "cubics_flattened": 0
+      }
+     },
+     {
+      "key": "copper.in2",
+      "role": "copper",
+      "face": "bottom",
+      "layerId": 8,
+      "z": 0.0012364999651536344,
+      "shapes": 9959,
+      "subtractShapes": 5060,
+      "regionBatches": 2,
+      "fanVertices": 19413,
+      "covers": 729,
+      "approximations": {
+       "region_offsets_ignored": 0,
+       "flat_cap_segments": 0,
+       "cubics_flattened": 0
+      }
+     },
+     {
+      "key": "copper.in3",
+      "role": "copper",
+      "face": "top",
+      "layerId": 10,
+      "z": 0.0011264999651536347,
+      "shapes": 7583,
+      "subtractShapes": 5060,
+      "regionBatches": 1,
+      "fanVertices": 918177,
+      "covers": 35377,
+      "approximations": {
+       "region_offsets_ignored": 0,
+       "flat_cap_segments": 0,
+       "cubics_flattened": 0
+      }
+     },
+     {
+      "key": "copper.in3",
+      "role": "copper",
+      "face": "bottom",
+      "layerId": 10,
+      "z": 0.0011089999651536346,
+      "shapes": 7583,
+      "subtractShapes": 5060,
+      "regionBatches": 1,
+      "fanVertices": 918177,
+      "covers": 35377,
+      "approximations": {
+       "region_offsets_ignored": 0,
+       "flat_cap_segments": 0,
+       "cubics_flattened": 0
+      }
+     },
+     {
+      "key": "copper.in4",
+      "role": "copper",
+      "face": "top",
+      "layerId": 12,
+      "z": 0.0009989999651536347,
+      "shapes": 10725,
+      "subtractShapes": 5060,
+      "regionBatches": 3,
+      "fanVertices": 10011,
+      "covers": 238,
+      "approximations": {
+       "region_offsets_ignored": 0,
+       "flat_cap_segments": 0,
+       "cubics_flattened": 0
+      }
+     },
+     {
+      "key": "copper.in4",
+      "role": "copper",
+      "face": "bottom",
+      "layerId": 12,
+      "z": 0.0009814999651536346,
+      "shapes": 10725,
+      "subtractShapes": 5060,
+      "regionBatches": 3,
+      "fanVertices": 10011,
+      "covers": 238,
+      "approximations": {
+       "region_offsets_ignored": 0,
+       "flat_cap_segments": 0,
+       "cubics_flattened": 0
+      }
+     },
+     {
+      "key": "copper.in5",
+      "role": "copper",
+      "face": "top",
+      "layerId": 14,
+      "z": 0.0008624999651536345,
+      "shapes": 6536,
+      "subtractShapes": 5060,
+      "regionBatches": 4,
+      "fanVertices": 1192059,
+      "covers": 35578,
+      "approximations": {
+       "region_offsets_ignored": 0,
+       "flat_cap_segments": 0,
+       "cubics_flattened": 0
+      }
+     },
+     {
+      "key": "copper.in5",
+      "role": "copper",
+      "face": "bottom",
+      "layerId": 14,
+      "z": 0.0008449999651536346,
+      "shapes": 6536,
+      "subtractShapes": 5060,
+      "regionBatches": 4,
+      "fanVertices": 1192059,
+      "covers": 35578,
+      "approximations": {
+       "region_offsets_ignored": 0,
+       "flat_cap_segments": 0,
+       "cubics_flattened": 0
+      }
+     },
+     {
+      "key": "copper.in6",
+      "role": "copper",
+      "face": "top",
+      "layerId": 16,
+      "z": 0.0007449999651536345,
+      "shapes": 6223,
+      "subtractShapes": 5060,
+      "regionBatches": 4,
+      "fanVertices": 1224561,
+      "covers": 35857,
+      "approximations": {
+       "region_offsets_ignored": 0,
+       "flat_cap_segments": 0,
+       "cubics_flattened": 0
+      }
+     },
+     {
+      "key": "copper.in6",
+      "role": "copper",
+      "face": "bottom",
+      "layerId": 16,
+      "z": 0.0007274999651536346,
+      "shapes": 6223,
+      "subtractShapes": 5060,
+      "regionBatches": 4,
+      "fanVertices": 1224561,
+      "covers": 35857,
+      "approximations": {
+       "region_offsets_ignored": 0,
+       "flat_cap_segments": 0,
+       "cubics_flattened": 0
+      }
+     },
+     {
+      "key": "copper.in7",
+      "role": "copper",
+      "face": "top",
+      "layerId": 18,
+      "z": 0.0006174999651536345,
+      "shapes": 9481,
+      "subtractShapes": 5060,
+      "regionBatches": 2,
+      "fanVertices": 90297,
+      "covers": 4551,
+      "approximations": {
+       "region_offsets_ignored": 0,
+       "flat_cap_segments": 0,
+       "cubics_flattened": 0
+      }
+     },
+     {
+      "key": "copper.in7",
+      "role": "copper",
+      "face": "bottom",
+      "layerId": 18,
+      "z": 0.0005999999651536346,
+      "shapes": 9481,
+      "subtractShapes": 5060,
+      "regionBatches": 2,
+      "fanVertices": 90297,
+      "covers": 4551,
+      "approximations": {
+       "region_offsets_ignored": 0,
+       "flat_cap_segments": 0,
+       "cubics_flattened": 0
+      }
+     },
+     {
+      "key": "copper.in8",
+      "role": "copper",
+      "face": "top",
+      "layerId": 20,
+      "z": 0.0004899999651536346,
+      "shapes": 7619,
+      "subtractShapes": 5060,
+      "regionBatches": 1,
+      "fanVertices": 918177,
+      "covers": 35377,
+      "approximations": {
+       "region_offsets_ignored": 0,
+       "flat_cap_segments": 0,
+       "cubics_flattened": 0
+      }
+     },
+     {
+      "key": "copper.in8",
+      "role": "copper",
+      "face": "bottom",
+      "layerId": 20,
+      "z": 0.00047249996515363456,
+      "shapes": 7619,
+      "subtractShapes": 5060,
+      "regionBatches": 1,
+      "fanVertices": 918177,
+      "covers": 35377,
+      "approximations": {
+       "region_offsets_ignored": 0,
+       "flat_cap_segments": 0,
+       "cubics_flattened": 0
+      }
+     },
+     {
+      "key": "copper.in9",
+      "role": "copper",
+      "face": "top",
+      "layerId": 22,
+      "z": 0.0003624999651536346,
+      "shapes": 8490,
+      "subtractShapes": 5060,
+      "regionBatches": 4,
+      "fanVertices": 242940,
+      "covers": 7779,
+      "approximations": {
+       "region_offsets_ignored": 0,
+       "flat_cap_segments": 0,
+       "cubics_flattened": 0
+      }
+     },
+     {
+      "key": "copper.in9",
+      "role": "copper",
+      "face": "bottom",
+      "layerId": 22,
+      "z": 0.00034499996515363455,
+      "shapes": 8490,
+      "subtractShapes": 5060,
+      "regionBatches": 4,
+      "fanVertices": 242940,
+      "covers": 7779,
+      "approximations": {
+       "region_offsets_ignored": 0,
+       "flat_cap_segments": 0,
+       "cubics_flattened": 0
+      }
+     },
+     {
+      "key": "copper.in10",
+      "role": "copper",
+      "face": "top",
+      "layerId": 24,
+      "z": 0.0001449999651536346,
+      "shapes": 7597,
+      "subtractShapes": 5060,
+      "regionBatches": 1,
+      "fanVertices": 918177,
+      "covers": 35377,
+      "approximations": {
+       "region_offsets_ignored": 0,
+       "flat_cap_segments": 0,
+       "cubics_flattened": 0
+      }
+     },
+     {
+      "key": "copper.in10",
+      "role": "copper",
+      "face": "bottom",
+      "layerId": 24,
+      "z": 0.0001274999651536346,
+      "shapes": 7597,
+      "subtractShapes": 5060,
+      "regionBatches": 1,
+      "fanVertices": 918177,
+      "covers": 35377,
+      "approximations": {
+       "region_offsets_ignored": 0,
+       "flat_cap_segments": 0,
+       "cubics_flattened": 0
+      }
+     },
+     {
+      "key": "copper.back",
+      "role": "copper",
+      "face": "top",
+      "layerId": 26,
+      "z": 1.7499965153634625e-05,
+      "shapes": 15877,
+      "subtractShapes": 5060,
+      "regionBatches": 3,
+      "fanVertices": 25353,
+      "covers": 2123,
+      "approximations": {
+       "region_offsets_ignored": 0,
+       "flat_cap_segments": 0,
+       "cubics_flattened": 0
+      }
+     },
+     {
+      "key": "copper.back",
+      "role": "copper",
+      "face": "bottom",
+      "layerId": 26,
+      "z": -1.750003484636538e-05,
+      "shapes": 15877,
+      "subtractShapes": 5060,
+      "regionBatches": 3,
+      "fanVertices": 25353,
+      "covers": 2123,
+      "approximations": {
+       "region_offsets_ignored": 0,
+       "flat_cap_segments": 0,
+       "cubics_flattened": 0
+      }
+     },
+     {
+      "key": "mask.front",
+      "role": "mask",
+      "layerId": 3,
+      "z": 0.0015364999651536345,
+      "shapes": 11177,
+      "subtractShapes": 11177,
+      "regionBatches": 2,
+      "fanVertices": 224340,
+      "covers": 36883,
+      "approximations": {
+       "region_offsets_ignored": 0,
+       "flat_cap_segments": 0,
+       "cubics_flattened": 0
+      }
+     },
+     {
+      "key": "mask.back",
+      "role": "mask",
+      "layerId": 27,
+      "z": -2.7500034846365435e-05,
+      "shapes": 6766,
+      "subtractShapes": 6766,
+      "regionBatches": 2,
+      "fanVertices": 223902,
+      "covers": 36833,
+      "approximations": {
+       "region_offsets_ignored": 0,
+       "flat_cap_segments": 0,
+       "cubics_flattened": 0
+      }
+     },
+     {
+      "key": "paste.front",
+      "role": "paste",
+      "layerId": 2,
+      "z": 0.0015274999651536344,
+      "shapes": 10581,
+      "subtractShapes": 5060,
+      "regionBatches": 0,
+      "fanVertices": 0,
+      "covers": 0,
+      "approximations": {
+       "region_offsets_ignored": 0,
+       "flat_cap_segments": 0,
+       "cubics_flattened": 0
+      }
+     },
+     {
+      "key": "paste.back",
+      "role": "paste",
+      "layerId": 28,
+      "z": -1.850003484636538e-05,
+      "shapes": 6190,
+      "subtractShapes": 5060,
+      "regionBatches": 0,
+      "fanVertices": 0,
+      "covers": 0,
+      "approximations": {
+       "region_offsets_ignored": 0,
+       "flat_cap_segments": 0,
+       "cubics_flattened": 0
+      }
+     },
+     {
+      "key": "silkscreen.front",
+      "role": "silk",
+      "layerId": 1,
+      "z": 0.0015384999651536348,
+      "shapes": 21238,
+      "subtractShapes": 5902,
+      "regionBatches": 2,
+      "fanVertices": 13164,
+      "covers": 486,
+      "approximations": {
+       "region_offsets_ignored": 0,
+       "flat_cap_segments": 0,
+       "cubics_flattened": 0
+      }
+     },
+     {
+      "key": "silkscreen.back",
+      "role": "silk",
+      "layerId": 29,
+      "z": -2.950003484636545e-05,
+      "shapes": 8157,
+      "subtractShapes": 5085,
+      "regionBatches": 2,
+      "fanVertices": 3468,
+      "covers": 153,
+      "approximations": {
+       "region_offsets_ignored": 0,
+       "flat_cap_segments": 0,
+       "cubics_flattened": 0
+      }
+     }
+    ],
+    "operations": 143096
+   },
+   {
+    "bytes": 27751728,
+    "fetchMs": 31.4,
+    "attachMs": 2768.8,
+    "firstAnalyticFrameMs": 2875.1,
+    "timings": {
+     "release": 0,
+     "open": 165,
+     "lowerIn": "main",
+     "lower": 2125,
+     "slices": 331,
+     "barrels": 3,
+     "walls": 2,
+     "nets": 135,
+     "features": 7,
+     "attach": 0
+    },
+    "slices": [
+     {
+      "key": "dielectric.1",
+      "role": "dielectric",
+      "face": "top",
+      "layerId": 5,
+      "z": 0.001456399999065185,
+      "shapes": 10120,
+      "subtractShapes": 10120,
+      "regionBatches": 1,
+      "fanVertices": 216306,
+      "covers": 35719,
+      "approximations": {
+       "region_offsets_ignored": 0,
+       "flat_cap_segments": 0,
+       "cubics_flattened": 0
+      }
+     },
+     {
+      "key": "dielectric.1",
+      "role": "dielectric",
+      "face": "bottom",
+      "layerId": 5,
+      "z": 0.0013465999990651852,
+      "shapes": 10120,
+      "subtractShapes": 10120,
+      "regionBatches": 1,
+      "fanVertices": 216306,
+      "covers": 35719,
+      "approximations": {
+       "region_offsets_ignored": 0,
+       "flat_cap_segments": 0,
+       "cubics_flattened": 0
+      }
+     },
+     {
+      "key": "dielectric.2",
+      "role": "dielectric",
+      "face": "top",
+      "layerId": 7,
+      "z": 0.0013288999990651847,
+      "shapes": 10120,
+      "subtractShapes": 10120,
+      "regionBatches": 1,
+      "fanVertices": 216306,
+      "covers": 35719,
+      "approximations": {
+       "region_offsets_ignored": 0,
+       "flat_cap_segments": 0,
+       "cubics_flattened": 0
+      }
+     },
+     {
+      "key": "dielectric.2",
+      "role": "dielectric",
+      "face": "bottom",
+      "layerId": 7,
+      "z": 0.001219099999065185,
+      "shapes": 10120,
+      "subtractShapes": 10120,
+      "regionBatches": 1,
+      "fanVertices": 216306,
+      "covers": 35719,
+      "approximations": {
+       "region_offsets_ignored": 0,
+       "flat_cap_segments": 0,
+       "cubics_flattened": 0
+      }
+     },
+     {
+      "key": "dielectric.3",
+      "role": "dielectric",
+      "face": "top",
+      "layerId": 9,
+      "z": 0.0012013999990651847,
+      "shapes": 10120,
+      "subtractShapes": 10120,
+      "regionBatches": 1,
+      "fanVertices": 216306,
+      "covers": 35719,
+      "approximations": {
+       "region_offsets_ignored": 0,
+       "flat_cap_segments": 0,
+       "cubics_flattened": 0
+      }
+     },
+     {
+      "key": "dielectric.3",
+      "role": "dielectric",
+      "face": "bottom",
+      "layerId": 9,
+      "z": 0.001091599999065185,
+      "shapes": 10120,
+      "subtractShapes": 10120,
+      "regionBatches": 1,
+      "fanVertices": 216306,
+      "covers": 35719,
+      "approximations": {
+       "region_offsets_ignored": 0,
+       "flat_cap_segments": 0,
+       "cubics_flattened": 0
+      }
+     },
+     {
+      "key": "dielectric.4",
+      "role": "dielectric",
+      "face": "top",
+      "layerId": 11,
+      "z": 0.0010738999990651847,
+      "shapes": 10120,
+      "subtractShapes": 10120,
+      "regionBatches": 1,
+      "fanVertices": 216306,
+      "covers": 35719,
+      "approximations": {
+       "region_offsets_ignored": 0,
+       "flat_cap_segments": 0,
+       "cubics_flattened": 0
+      }
+     },
+     {
+      "key": "dielectric.4",
+      "role": "dielectric",
+      "face": "bottom",
+      "layerId": 11,
+      "z": 0.0009640999990651847,
+      "shapes": 10120,
+      "subtractShapes": 10120,
+      "regionBatches": 1,
+      "fanVertices": 216306,
+      "covers": 35719,
+      "approximations": {
+       "region_offsets_ignored": 0,
+       "flat_cap_segments": 0,
+       "cubics_flattened": 0
+      }
+     },
+     {
+      "key": "dielectric.5",
+      "role": "dielectric",
+      "face": "top",
+      "layerId": 13,
+      "z": 0.000946399999065185,
+      "shapes": 10120,
+      "subtractShapes": 10120,
+      "regionBatches": 1,
+      "fanVertices": 216306,
+      "covers": 35719,
+      "approximations": {
+       "region_offsets_ignored": 0,
+       "flat_cap_segments": 0,
+       "cubics_flattened": 0
+      }
+     },
+     {
+      "key": "dielectric.5",
+      "role": "dielectric",
+      "face": "bottom",
+      "layerId": 13,
+      "z": 0.0008275999990651849,
+      "shapes": 10120,
+      "subtractShapes": 10120,
+      "regionBatches": 1,
+      "fanVertices": 216306,
+      "covers": 35719,
+      "approximations": {
+       "region_offsets_ignored": 0,
+       "flat_cap_segments": 0,
+       "cubics_flattened": 0
+      }
+     },
+     {
+      "key": "dielectric.6",
+      "role": "dielectric",
+      "face": "top",
+      "layerId": 15,
+      "z": 0.000809899999065185,
+      "shapes": 10120,
+      "subtractShapes": 10120,
+      "regionBatches": 1,
+      "fanVertices": 216306,
+      "covers": 35719,
+      "approximations": {
+       "region_offsets_ignored": 0,
+       "flat_cap_segments": 0,
+       "cubics_flattened": 0
+      }
+     },
+     {
+      "key": "dielectric.6",
+      "role": "dielectric",
+      "face": "bottom",
+      "layerId": 15,
+      "z": 0.0007100999990651848,
+      "shapes": 10120,
+      "subtractShapes": 10120,
+      "regionBatches": 1,
+      "fanVertices": 216306,
+      "covers": 35719,
+      "approximations": {
+       "region_offsets_ignored": 0,
+       "flat_cap_segments": 0,
+       "cubics_flattened": 0
+      }
+     },
+     {
+      "key": "dielectric.7",
+      "role": "dielectric",
+      "face": "top",
+      "layerId": 17,
+      "z": 0.000692399999065185,
+      "shapes": 10120,
+      "subtractShapes": 10120,
+      "regionBatches": 1,
+      "fanVertices": 216306,
+      "covers": 35719,
+      "approximations": {
+       "region_offsets_ignored": 0,
+       "flat_cap_segments": 0,
+       "cubics_flattened": 0
+      }
+     },
+     {
+      "key": "dielectric.7",
+      "role": "dielectric",
+      "face": "bottom",
+      "layerId": 17,
+      "z": 0.0005825999990651848,
+      "shapes": 10120,
+      "subtractShapes": 10120,
+      "regionBatches": 1,
+      "fanVertices": 216306,
+      "covers": 35719,
+      "approximations": {
+       "region_offsets_ignored": 0,
+       "flat_cap_segments": 0,
+       "cubics_flattened": 0
+      }
+     },
+     {
+      "key": "dielectric.8",
+      "role": "dielectric",
+      "face": "top",
+      "layerId": 19,
+      "z": 0.000564899999065185,
+      "shapes": 10120,
+      "subtractShapes": 10120,
+      "regionBatches": 1,
+      "fanVertices": 216306,
+      "covers": 35719,
+      "approximations": {
+       "region_offsets_ignored": 0,
+       "flat_cap_segments": 0,
+       "cubics_flattened": 0
+      }
+     },
+     {
+      "key": "dielectric.8",
+      "role": "dielectric",
+      "face": "bottom",
+      "layerId": 19,
+      "z": 0.0004550999990651849,
+      "shapes": 10120,
+      "subtractShapes": 10120,
+      "regionBatches": 1,
+      "fanVertices": 216306,
+      "covers": 35719,
+      "approximations": {
+       "region_offsets_ignored": 0,
+       "flat_cap_segments": 0,
+       "cubics_flattened": 0
+      }
+     },
+     {
+      "key": "dielectric.9",
+      "role": "dielectric",
+      "face": "top",
+      "layerId": 21,
+      "z": 0.0004373999990651849,
+      "shapes": 10120,
+      "subtractShapes": 10120,
+      "regionBatches": 1,
+      "fanVertices": 216306,
+      "covers": 35719,
+      "approximations": {
+       "region_offsets_ignored": 0,
+       "flat_cap_segments": 0,
+       "cubics_flattened": 0
+      }
+     },
+     {
+      "key": "dielectric.9",
+      "role": "dielectric",
+      "face": "bottom",
+      "layerId": 21,
+      "z": 0.00032759999906518494,
+      "shapes": 10120,
+      "subtractShapes": 10120,
+      "regionBatches": 1,
+      "fanVertices": 216306,
+      "covers": 35719,
+      "approximations": {
+       "region_offsets_ignored": 0,
+       "flat_cap_segments": 0,
+       "cubics_flattened": 0
+      }
+     },
+     {
+      "key": "dielectric.10",
+      "role": "dielectric",
+      "face": "top",
+      "layerId": 23,
+      "z": 0.00030989999906518495,
+      "shapes": 10120,
+      "subtractShapes": 10120,
+      "regionBatches": 1,
+      "fanVertices": 216306,
+      "covers": 35719,
+      "approximations": {
+       "region_offsets_ignored": 0,
+       "flat_cap_segments": 0,
+       "cubics_flattened": 0
+      }
+     },
+     {
+      "key": "dielectric.10",
+      "role": "dielectric",
+      "face": "bottom",
+      "layerId": 23,
+      "z": 0.00011009999906518496,
+      "shapes": 10120,
+      "subtractShapes": 10120,
+      "regionBatches": 1,
+      "fanVertices": 216306,
+      "covers": 35719,
+      "approximations": {
+       "region_offsets_ignored": 0,
+       "flat_cap_segments": 0,
+       "cubics_flattened": 0
+      }
+     },
+     {
+      "key": "dielectric.11",
+      "role": "dielectric",
+      "face": "top",
+      "layerId": 25,
+      "z": 9.239999906518484e-05,
+      "shapes": 10120,
+      "subtractShapes": 10120,
+      "regionBatches": 1,
+      "fanVertices": 216306,
+      "covers": 35719,
+      "approximations": {
+       "region_offsets_ignored": 0,
+       "flat_cap_segments": 0,
+       "cubics_flattened": 0
+      }
+     },
+     {
+      "key": "dielectric.11",
+      "role": "dielectric",
+      "face": "bottom",
+      "layerId": 25,
+      "z": -1.7400000934815172e-05,
+      "shapes": 10120,
+      "subtractShapes": 10120,
+      "regionBatches": 1,
+      "fanVertices": 216306,
+      "covers": 35719,
+      "approximations": {
+       "region_offsets_ignored": 0,
+       "flat_cap_segments": 0,
+       "cubics_flattened": 0
+      }
+     },
+     {
+      "key": "copper.front",
+      "role": "copper",
+      "face": "top",
+      "layerId": 4,
+      "z": 0.0014914999990651848,
+      "shapes": 26273,
+      "subtractShapes": 5060,
+      "regionBatches": 3,
+      "fanVertices": 24921,
+      "covers": 2458,
+      "approximations": {
+       "region_offsets_ignored": 0,
+       "flat_cap_segments": 0,
+       "cubics_flattened": 0
+      }
+     },
+     {
+      "key": "copper.front",
+      "role": "copper",
+      "face": "bottom",
+      "layerId": 4,
+      "z": 0.001456499999065185,
+      "shapes": 26273,
+      "subtractShapes": 5060,
+      "regionBatches": 3,
+      "fanVertices": 24921,
+      "covers": 2458,
+      "approximations": {
+       "region_offsets_ignored": 0,
+       "flat_cap_segments": 0,
+       "cubics_flattened": 0
+      }
+     },
+     {
+      "key": "copper.in1",
+      "role": "copper",
+      "face": "top",
+      "layerId": 6,
+      "z": 0.0013464999990651849,
+      "shapes": 7607,
+      "subtractShapes": 5060,
+      "regionBatches": 1,
+      "fanVertices": 917244,
+      "covers": 35377,
+      "approximations": {
+       "region_offsets_ignored": 0,
+       "flat_cap_segments": 0,
+       "cubics_flattened": 0
+      }
+     },
+     {
+      "key": "copper.in1",
+      "role": "copper",
+      "face": "bottom",
+      "layerId": 6,
+      "z": 0.0013289999990651847,
+      "shapes": 7607,
+      "subtractShapes": 5060,
+      "regionBatches": 1,
+      "fanVertices": 917244,
+      "covers": 35377,
+      "approximations": {
+       "region_offsets_ignored": 0,
+       "flat_cap_segments": 0,
+       "cubics_flattened": 0
+      }
+     },
+     {
+      "key": "copper.in2",
+      "role": "copper",
+      "face": "top",
+      "layerId": 8,
+      "z": 0.0012189999990651849,
+      "shapes": 9959,
+      "subtractShapes": 5060,
+      "regionBatches": 2,
+      "fanVertices": 19413,
+      "covers": 729,
+      "approximations": {
+       "region_offsets_ignored": 0,
+       "flat_cap_segments": 0,
+       "cubics_flattened": 0
+      }
+     },
+     {
+      "key": "copper.in2",
+      "role": "copper",
+      "face": "bottom",
+      "layerId": 8,
+      "z": 0.0012014999990651847,
+      "shapes": 9959,
+      "subtractShapes": 5060,
+      "regionBatches": 2,
+      "fanVertices": 19413,
+      "covers": 729,
+      "approximations": {
+       "region_offsets_ignored": 0,
+       "flat_cap_segments": 0,
+       "cubics_flattened": 0
+      }
+     },
+     {
+      "key": "copper.in3",
+      "role": "copper",
+      "face": "top",
+      "layerId": 10,
+      "z": 0.001091499999065185,
+      "shapes": 7583,
+      "subtractShapes": 5060,
+      "regionBatches": 1,
+      "fanVertices": 918177,
+      "covers": 35377,
+      "approximations": {
+       "region_offsets_ignored": 0,
+       "flat_cap_segments": 0,
+       "cubics_flattened": 0
+      }
+     },
+     {
+      "key": "copper.in3",
+      "role": "copper",
+      "face": "bottom",
+      "layerId": 10,
+      "z": 0.001073999999065185,
+      "shapes": 7583,
+      "subtractShapes": 5060,
+      "regionBatches": 1,
+      "fanVertices": 918177,
+      "covers": 35377,
+      "approximations": {
+       "region_offsets_ignored": 0,
+       "flat_cap_segments": 0,
+       "cubics_flattened": 0
+      }
+     },
+     {
+      "key": "copper.in4",
+      "role": "copper",
+      "face": "top",
+      "layerId": 12,
+      "z": 0.0009639999990651849,
+      "shapes": 10725,
+      "subtractShapes": 5060,
+      "regionBatches": 3,
+      "fanVertices": 10011,
+      "covers": 238,
+      "approximations": {
+       "region_offsets_ignored": 0,
+       "flat_cap_segments": 0,
+       "cubics_flattened": 0
+      }
+     },
+     {
+      "key": "copper.in4",
+      "role": "copper",
+      "face": "bottom",
+      "layerId": 12,
+      "z": 0.0009464999990651849,
+      "shapes": 10725,
+      "subtractShapes": 5060,
+      "regionBatches": 3,
+      "fanVertices": 10011,
+      "covers": 238,
+      "approximations": {
+       "region_offsets_ignored": 0,
+       "flat_cap_segments": 0,
+       "cubics_flattened": 0
+      }
+     },
+     {
+      "key": "copper.in5",
+      "role": "copper",
+      "face": "top",
+      "layerId": 14,
+      "z": 0.0008274999990651848,
+      "shapes": 6536,
+      "subtractShapes": 5060,
+      "regionBatches": 4,
+      "fanVertices": 1192059,
+      "covers": 35578,
+      "approximations": {
+       "region_offsets_ignored": 0,
+       "flat_cap_segments": 0,
+       "cubics_flattened": 0
+      }
+     },
+     {
+      "key": "copper.in5",
+      "role": "copper",
+      "face": "bottom",
+      "layerId": 14,
+      "z": 0.0008099999990651849,
+      "shapes": 6536,
+      "subtractShapes": 5060,
+      "regionBatches": 4,
+      "fanVertices": 1192059,
+      "covers": 35578,
+      "approximations": {
+       "region_offsets_ignored": 0,
+       "flat_cap_segments": 0,
+       "cubics_flattened": 0
+      }
+     },
+     {
+      "key": "copper.in6",
+      "role": "copper",
+      "face": "top",
+      "layerId": 16,
+      "z": 0.0007099999990651849,
+      "shapes": 6223,
+      "subtractShapes": 5060,
+      "regionBatches": 4,
+      "fanVertices": 1224561,
+      "covers": 35857,
+      "approximations": {
+       "region_offsets_ignored": 0,
+       "flat_cap_segments": 0,
+       "cubics_flattened": 0
+      }
+     },
+     {
+      "key": "copper.in6",
+      "role": "copper",
+      "face": "bottom",
+      "layerId": 16,
+      "z": 0.0006924999990651849,
+      "shapes": 6223,
+      "subtractShapes": 5060,
+      "regionBatches": 4,
+      "fanVertices": 1224561,
+      "covers": 35857,
+      "approximations": {
+       "region_offsets_ignored": 0,
+       "flat_cap_segments": 0,
+       "cubics_flattened": 0
+      }
+     },
+     {
+      "key": "copper.in7",
+      "role": "copper",
+      "face": "top",
+      "layerId": 18,
+      "z": 0.0005824999990651849,
+      "shapes": 9481,
+      "subtractShapes": 5060,
+      "regionBatches": 2,
+      "fanVertices": 90297,
+      "covers": 4551,
+      "approximations": {
+       "region_offsets_ignored": 0,
+       "flat_cap_segments": 0,
+       "cubics_flattened": 0
+      }
+     },
+     {
+      "key": "copper.in7",
+      "role": "copper",
+      "face": "bottom",
+      "layerId": 18,
+      "z": 0.0005649999990651849,
+      "shapes": 9481,
+      "subtractShapes": 5060,
+      "regionBatches": 2,
+      "fanVertices": 90297,
+      "covers": 4551,
+      "approximations": {
+       "region_offsets_ignored": 0,
+       "flat_cap_segments": 0,
+       "cubics_flattened": 0
+      }
+     },
+     {
+      "key": "copper.in8",
+      "role": "copper",
+      "face": "top",
+      "layerId": 20,
+      "z": 0.00045499999906518495,
+      "shapes": 7619,
+      "subtractShapes": 5060,
+      "regionBatches": 1,
+      "fanVertices": 918177,
+      "covers": 35377,
+      "approximations": {
+       "region_offsets_ignored": 0,
+       "flat_cap_segments": 0,
+       "cubics_flattened": 0
+      }
+     },
+     {
+      "key": "copper.in8",
+      "role": "copper",
+      "face": "bottom",
+      "layerId": 20,
+      "z": 0.0004374999990651849,
+      "shapes": 7619,
+      "subtractShapes": 5060,
+      "regionBatches": 1,
+      "fanVertices": 918177,
+      "covers": 35377,
+      "approximations": {
+       "region_offsets_ignored": 0,
+       "flat_cap_segments": 0,
+       "cubics_flattened": 0
+      }
+     },
+     {
+      "key": "copper.in9",
+      "role": "copper",
+      "face": "top",
+      "layerId": 22,
+      "z": 0.00032749999906518494,
+      "shapes": 8490,
+      "subtractShapes": 5060,
+      "regionBatches": 4,
+      "fanVertices": 242940,
+      "covers": 7779,
+      "approximations": {
+       "region_offsets_ignored": 0,
+       "flat_cap_segments": 0,
+       "cubics_flattened": 0
+      }
+     },
+     {
+      "key": "copper.in9",
+      "role": "copper",
+      "face": "bottom",
+      "layerId": 22,
+      "z": 0.0003099999990651849,
+      "shapes": 8490,
+      "subtractShapes": 5060,
+      "regionBatches": 4,
+      "fanVertices": 242940,
+      "covers": 7779,
+      "approximations": {
+       "region_offsets_ignored": 0,
+       "flat_cap_segments": 0,
+       "cubics_flattened": 0
+      }
+     },
+     {
+      "key": "copper.in10",
+      "role": "copper",
+      "face": "top",
+      "layerId": 24,
+      "z": 0.00010999999906518494,
+      "shapes": 7597,
+      "subtractShapes": 5060,
+      "regionBatches": 1,
+      "fanVertices": 918177,
+      "covers": 35377,
+      "approximations": {
+       "region_offsets_ignored": 0,
+       "flat_cap_segments": 0,
+       "cubics_flattened": 0
+      }
+     },
+     {
+      "key": "copper.in10",
+      "role": "copper",
+      "face": "bottom",
+      "layerId": 24,
+      "z": 9.249999906518495e-05,
+      "shapes": 7597,
+      "subtractShapes": 5060,
+      "regionBatches": 1,
+      "fanVertices": 918177,
+      "covers": 35377,
+      "approximations": {
+       "region_offsets_ignored": 0,
+       "flat_cap_segments": 0,
+       "cubics_flattened": 0
+      }
+     },
+     {
+      "key": "copper.back",
+      "role": "copper",
+      "face": "top",
+      "layerId": 26,
+      "z": -1.7500000934815032e-05,
+      "shapes": 15877,
+      "subtractShapes": 5060,
+      "regionBatches": 3,
+      "fanVertices": 25353,
+      "covers": 2123,
+      "approximations": {
+       "region_offsets_ignored": 0,
+       "flat_cap_segments": 0,
+       "cubics_flattened": 0
+      }
+     },
+     {
+      "key": "copper.back",
+      "role": "copper",
+      "face": "bottom",
+      "layerId": 26,
+      "z": -5.250000093481504e-05,
+      "shapes": 15877,
+      "subtractShapes": 5060,
+      "regionBatches": 3,
+      "fanVertices": 25353,
+      "covers": 2123,
+      "approximations": {
+       "region_offsets_ignored": 0,
+       "flat_cap_segments": 0,
+       "cubics_flattened": 0
+      }
+     },
+     {
+      "key": "mask.front",
+      "role": "mask",
+      "layerId": 3,
+      "z": 0.0015014999990651849,
+      "shapes": 11177,
+      "subtractShapes": 11177,
+      "regionBatches": 2,
+      "fanVertices": 224340,
+      "covers": 36883,
+      "approximations": {
+       "region_offsets_ignored": 0,
+       "flat_cap_segments": 0,
+       "cubics_flattened": 0
+      }
+     },
+     {
+      "key": "mask.back",
+      "role": "mask",
+      "layerId": 27,
+      "z": -6.250000093481509e-05,
+      "shapes": 6766,
+      "subtractShapes": 6766,
+      "regionBatches": 2,
+      "fanVertices": 223902,
+      "covers": 36833,
+      "approximations": {
+       "region_offsets_ignored": 0,
+       "flat_cap_segments": 0,
+       "cubics_flattened": 0
+      }
+     },
+     {
+      "key": "paste.front",
+      "role": "paste",
+      "layerId": 2,
+      "z": 0.0014924999990651847,
+      "shapes": 10581,
+      "subtractShapes": 5060,
+      "regionBatches": 0,
+      "fanVertices": 0,
+      "covers": 0,
+      "approximations": {
+       "region_offsets_ignored": 0,
+       "flat_cap_segments": 0,
+       "cubics_flattened": 0
+      }
+     },
+     {
+      "key": "paste.back",
+      "role": "paste",
+      "layerId": 28,
+      "z": -5.350000093481504e-05,
+      "shapes": 6190,
+      "subtractShapes": 5060,
+      "regionBatches": 0,
+      "fanVertices": 0,
+      "covers": 0,
+      "approximations": {
+       "region_offsets_ignored": 0,
+       "flat_cap_segments": 0,
+       "cubics_flattened": 0
+      }
+     },
+     {
+      "key": "silkscreen.front",
+      "role": "silk",
+      "layerId": 1,
+      "z": 0.0015034999990651851,
+      "shapes": 21238,
+      "subtractShapes": 5902,
+      "regionBatches": 2,
+      "fanVertices": 13164,
+      "covers": 486,
+      "approximations": {
+       "region_offsets_ignored": 0,
+       "flat_cap_segments": 0,
+       "cubics_flattened": 0
+      }
+     },
+     {
+      "key": "silkscreen.back",
+      "role": "silk",
+      "layerId": 29,
+      "z": -6.45000009348151e-05,
+      "shapes": 8157,
+      "subtractShapes": 5085,
+      "regionBatches": 2,
+      "fanVertices": 3468,
+      "covers": 153,
+      "approximations": {
+       "region_offsets_ignored": 0,
+       "flat_cap_segments": 0,
+       "cubics_flattened": 0
+      }
+     }
+    ],
+    "operations": 143096
+   },
+   {
+    "bytes": 27751728,
+    "fetchMs": 33.2,
+    "attachMs": 2858,
+    "firstAnalyticFrameMs": 2952,
+    "timings": {
+     "release": 0,
+     "open": 167,
+     "lowerIn": "main",
+     "lower": 2192,
+     "slices": 343,
+     "barrels": 3,
+     "walls": 2,
+     "nets": 143,
+     "features": 7,
+     "attach": 0
+    },
+    "slices": [
+     {
+      "key": "dielectric.1",
+      "role": "dielectric",
+      "face": "top",
+      "layerId": 5,
+      "z": 0.0014913999651536346,
+      "shapes": 10120,
+      "subtractShapes": 10120,
+      "regionBatches": 1,
+      "fanVertices": 216306,
+      "covers": 35719,
+      "approximations": {
+       "region_offsets_ignored": 0,
+       "flat_cap_segments": 0,
+       "cubics_flattened": 0
+      }
+     },
+     {
+      "key": "dielectric.1",
+      "role": "dielectric",
+      "face": "bottom",
+      "layerId": 5,
+      "z": 0.0013815999651536348,
+      "shapes": 10120,
+      "subtractShapes": 10120,
+      "regionBatches": 1,
+      "fanVertices": 216306,
+      "covers": 35719,
+      "approximations": {
+       "region_offsets_ignored": 0,
+       "flat_cap_segments": 0,
+       "cubics_flattened": 0
+      }
+     },
+     {
+      "key": "dielectric.2",
+      "role": "dielectric",
+      "face": "top",
+      "layerId": 7,
+      "z": 0.0013638999651536343,
+      "shapes": 10120,
+      "subtractShapes": 10120,
+      "regionBatches": 1,
+      "fanVertices": 216306,
+      "covers": 35719,
+      "approximations": {
+       "region_offsets_ignored": 0,
+       "flat_cap_segments": 0,
+       "cubics_flattened": 0
+      }
+     },
+     {
+      "key": "dielectric.2",
+      "role": "dielectric",
+      "face": "bottom",
+      "layerId": 7,
+      "z": 0.0012540999651536346,
+      "shapes": 10120,
+      "subtractShapes": 10120,
+      "regionBatches": 1,
+      "fanVertices": 216306,
+      "covers": 35719,
+      "approximations": {
+       "region_offsets_ignored": 0,
+       "flat_cap_segments": 0,
+       "cubics_flattened": 0
+      }
+     },
+     {
+      "key": "dielectric.3",
+      "role": "dielectric",
+      "face": "top",
+      "layerId": 9,
+      "z": 0.0012363999651536343,
+      "shapes": 10120,
+      "subtractShapes": 10120,
+      "regionBatches": 1,
+      "fanVertices": 216306,
+      "covers": 35719,
+      "approximations": {
+       "region_offsets_ignored": 0,
+       "flat_cap_segments": 0,
+       "cubics_flattened": 0
+      }
+     },
+     {
+      "key": "dielectric.3",
+      "role": "dielectric",
+      "face": "bottom",
+      "layerId": 9,
+      "z": 0.0011265999651536346,
+      "shapes": 10120,
+      "subtractShapes": 10120,
+      "regionBatches": 1,
+      "fanVertices": 216306,
+      "covers": 35719,
+      "approximations": {
+       "region_offsets_ignored": 0,
+       "flat_cap_segments": 0,
+       "cubics_flattened": 0
+      }
+     },
+     {
+      "key": "dielectric.4",
+      "role": "dielectric",
+      "face": "top",
+      "layerId": 11,
+      "z": 0.0011088999651536343,
+      "shapes": 10120,
+      "subtractShapes": 10120,
+      "regionBatches": 1,
+      "fanVertices": 216306,
+      "covers": 35719,
+      "approximations": {
+       "region_offsets_ignored": 0,
+       "flat_cap_segments": 0,
+       "cubics_flattened": 0
+      }
+     },
+     {
+      "key": "dielectric.4",
+      "role": "dielectric",
+      "face": "bottom",
+      "layerId": 11,
+      "z": 0.0009990999651536346,
+      "shapes": 10120,
+      "subtractShapes": 10120,
+      "regionBatches": 1,
+      "fanVertices": 216306,
+      "covers": 35719,
+      "approximations": {
+       "region_offsets_ignored": 0,
+       "flat_cap_segments": 0,
+       "cubics_flattened": 0
+      }
+     },
+     {
+      "key": "dielectric.5",
+      "role": "dielectric",
+      "face": "top",
+      "layerId": 13,
+      "z": 0.0009813999651536345,
+      "shapes": 10120,
+      "subtractShapes": 10120,
+      "regionBatches": 1,
+      "fanVertices": 216306,
+      "covers": 35719,
+      "approximations": {
+       "region_offsets_ignored": 0,
+       "flat_cap_segments": 0,
+       "cubics_flattened": 0
+      }
+     },
+     {
+      "key": "dielectric.5",
+      "role": "dielectric",
+      "face": "bottom",
+      "layerId": 13,
+      "z": 0.0008625999651536346,
+      "shapes": 10120,
+      "subtractShapes": 10120,
+      "regionBatches": 1,
+      "fanVertices": 216306,
+      "covers": 35719,
+      "approximations": {
+       "region_offsets_ignored": 0,
+       "flat_cap_segments": 0,
+       "cubics_flattened": 0
+      }
+     },
+     {
+      "key": "dielectric.6",
+      "role": "dielectric",
+      "face": "top",
+      "layerId": 15,
+      "z": 0.0008448999651536346,
+      "shapes": 10120,
+      "subtractShapes": 10120,
+      "regionBatches": 1,
+      "fanVertices": 216306,
+      "covers": 35719,
+      "approximations": {
+       "region_offsets_ignored": 0,
+       "flat_cap_segments": 0,
+       "cubics_flattened": 0
+      }
+     },
+     {
+      "key": "dielectric.6",
+      "role": "dielectric",
+      "face": "bottom",
+      "layerId": 15,
+      "z": 0.0007450999651536345,
+      "shapes": 10120,
+      "subtractShapes": 10120,
+      "regionBatches": 1,
+      "fanVertices": 216306,
+      "covers": 35719,
+      "approximations": {
+       "region_offsets_ignored": 0,
+       "flat_cap_segments": 0,
+       "cubics_flattened": 0
+      }
+     },
+     {
+      "key": "dielectric.7",
+      "role": "dielectric",
+      "face": "top",
+      "layerId": 17,
+      "z": 0.0007273999651536346,
+      "shapes": 10120,
+      "subtractShapes": 10120,
+      "regionBatches": 1,
+      "fanVertices": 216306,
+      "covers": 35719,
+      "approximations": {
+       "region_offsets_ignored": 0,
+       "flat_cap_segments": 0,
+       "cubics_flattened": 0
+      }
+     },
+     {
+      "key": "dielectric.7",
+      "role": "dielectric",
+      "face": "bottom",
+      "layerId": 17,
+      "z": 0.0006175999651536345,
+      "shapes": 10120,
+      "subtractShapes": 10120,
+      "regionBatches": 1,
+      "fanVertices": 216306,
+      "covers": 35719,
+      "approximations": {
+       "region_offsets_ignored": 0,
+       "flat_cap_segments": 0,
+       "cubics_flattened": 0
+      }
+     },
+     {
+      "key": "dielectric.8",
+      "role": "dielectric",
+      "face": "top",
+      "layerId": 19,
+      "z": 0.0005998999651536346,
+      "shapes": 10120,
+      "subtractShapes": 10120,
+      "regionBatches": 1,
+      "fanVertices": 216306,
+      "covers": 35719,
+      "approximations": {
+       "region_offsets_ignored": 0,
+       "flat_cap_segments": 0,
+       "cubics_flattened": 0
+      }
+     },
+     {
+      "key": "dielectric.8",
+      "role": "dielectric",
+      "face": "bottom",
+      "layerId": 19,
+      "z": 0.0004900999651536344,
+      "shapes": 10120,
+      "subtractShapes": 10120,
+      "regionBatches": 1,
+      "fanVertices": 216306,
+      "covers": 35719,
+      "approximations": {
+       "region_offsets_ignored": 0,
+       "flat_cap_segments": 0,
+       "cubics_flattened": 0
+      }
+     },
+     {
+      "key": "dielectric.9",
+      "role": "dielectric",
+      "face": "top",
+      "layerId": 21,
+      "z": 0.00047239996515363456,
+      "shapes": 10120,
+      "subtractShapes": 10120,
+      "regionBatches": 1,
+      "fanVertices": 216306,
+      "covers": 35719,
+      "approximations": {
+       "region_offsets_ignored": 0,
+       "flat_cap_segments": 0,
+       "cubics_flattened": 0
+      }
+     },
+     {
+      "key": "dielectric.9",
+      "role": "dielectric",
+      "face": "bottom",
+      "layerId": 21,
+      "z": 0.0003625999651536346,
+      "shapes": 10120,
+      "subtractShapes": 10120,
+      "regionBatches": 1,
+      "fanVertices": 216306,
+      "covers": 35719,
+      "approximations": {
+       "region_offsets_ignored": 0,
+       "flat_cap_segments": 0,
+       "cubics_flattened": 0
+      }
+     },
+     {
+      "key": "dielectric.10",
+      "role": "dielectric",
+      "face": "top",
+      "layerId": 23,
+      "z": 0.0003448999651536346,
+      "shapes": 10120,
+      "subtractShapes": 10120,
+      "regionBatches": 1,
+      "fanVertices": 216306,
+      "covers": 35719,
+      "approximations": {
+       "region_offsets_ignored": 0,
+       "flat_cap_segments": 0,
+       "cubics_flattened": 0
+      }
+     },
+     {
+      "key": "dielectric.10",
+      "role": "dielectric",
+      "face": "bottom",
+      "layerId": 23,
+      "z": 0.00014509996515363463,
+      "shapes": 10120,
+      "subtractShapes": 10120,
+      "regionBatches": 1,
+      "fanVertices": 216306,
+      "covers": 35719,
+      "approximations": {
+       "region_offsets_ignored": 0,
+       "flat_cap_segments": 0,
+       "cubics_flattened": 0
+      }
+     },
+     {
+      "key": "dielectric.11",
+      "role": "dielectric",
+      "face": "top",
+      "layerId": 25,
+      "z": 0.0001273999651536345,
+      "shapes": 10120,
+      "subtractShapes": 10120,
+      "regionBatches": 1,
+      "fanVertices": 216306,
+      "covers": 35719,
+      "approximations": {
+       "region_offsets_ignored": 0,
+       "flat_cap_segments": 0,
+       "cubics_flattened": 0
+      }
+     },
+     {
+      "key": "dielectric.11",
+      "role": "dielectric",
+      "face": "bottom",
+      "layerId": 25,
+      "z": 1.7599965153634485e-05,
+      "shapes": 10120,
+      "subtractShapes": 10120,
+      "regionBatches": 1,
+      "fanVertices": 216306,
+      "covers": 35719,
+      "approximations": {
+       "region_offsets_ignored": 0,
+       "flat_cap_segments": 0,
+       "cubics_flattened": 0
+      }
+     },
+     {
+      "key": "copper.front",
+      "role": "copper",
+      "face": "top",
+      "layerId": 4,
+      "z": 0.0015264999651536345,
+      "shapes": 26273,
+      "subtractShapes": 5060,
+      "regionBatches": 3,
+      "fanVertices": 24921,
+      "covers": 2458,
+      "approximations": {
+       "region_offsets_ignored": 0,
+       "flat_cap_segments": 0,
+       "cubics_flattened": 0
+      }
+     },
+     {
+      "key": "copper.front",
+      "role": "copper",
+      "face": "bottom",
+      "layerId": 4,
+      "z": 0.0014914999651536346,
+      "shapes": 26273,
+      "subtractShapes": 5060,
+      "regionBatches": 3,
+      "fanVertices": 24921,
+      "covers": 2458,
+      "approximations": {
+       "region_offsets_ignored": 0,
+       "flat_cap_segments": 0,
+       "cubics_flattened": 0
+      }
+     },
+     {
+      "key": "copper.in1",
+      "role": "copper",
+      "face": "top",
+      "layerId": 6,
+      "z": 0.0013814999651536345,
+      "shapes": 7607,
+      "subtractShapes": 5060,
+      "regionBatches": 1,
+      "fanVertices": 917244,
+      "covers": 35377,
+      "approximations": {
+       "region_offsets_ignored": 0,
+       "flat_cap_segments": 0,
+       "cubics_flattened": 0
+      }
+     },
+     {
+      "key": "copper.in1",
+      "role": "copper",
+      "face": "bottom",
+      "layerId": 6,
+      "z": 0.0013639999651536344,
+      "shapes": 7607,
+      "subtractShapes": 5060,
+      "regionBatches": 1,
+      "fanVertices": 917244,
+      "covers": 35377,
+      "approximations": {
+       "region_offsets_ignored": 0,
+       "flat_cap_segments": 0,
+       "cubics_flattened": 0
+      }
+     },
+     {
+      "key": "copper.in2",
+      "role": "copper",
+      "face": "top",
+      "layerId": 8,
+      "z": 0.0012539999651536345,
+      "shapes": 9959,
+      "subtractShapes": 5060,
+      "regionBatches": 2,
+      "fanVertices": 19413,
+      "covers": 729,
+      "approximations": {
+       "region_offsets_ignored": 0,
+       "flat_cap_segments": 0,
+       "cubics_flattened": 0
+      }
+     },
+     {
+      "key": "copper.in2",
+      "role": "copper",
+      "face": "bottom",
+      "layerId": 8,
+      "z": 0.0012364999651536344,
+      "shapes": 9959,
+      "subtractShapes": 5060,
+      "regionBatches": 2,
+      "fanVertices": 19413,
+      "covers": 729,
+      "approximations": {
+       "region_offsets_ignored": 0,
+       "flat_cap_segments": 0,
+       "cubics_flattened": 0
+      }
+     },
+     {
+      "key": "copper.in3",
+      "role": "copper",
+      "face": "top",
+      "layerId": 10,
+      "z": 0.0011264999651536347,
+      "shapes": 7583,
+      "subtractShapes": 5060,
+      "regionBatches": 1,
+      "fanVertices": 918177,
+      "covers": 35377,
+      "approximations": {
+       "region_offsets_ignored": 0,
+       "flat_cap_segments": 0,
+       "cubics_flattened": 0
+      }
+     },
+     {
+      "key": "copper.in3",
+      "role": "copper",
+      "face": "bottom",
+      "layerId": 10,
+      "z": 0.0011089999651536346,
+      "shapes": 7583,
+      "subtractShapes": 5060,
+      "regionBatches": 1,
+      "fanVertices": 918177,
+      "covers": 35377,
+      "approximations": {
+       "region_offsets_ignored": 0,
+       "flat_cap_segments": 0,
+       "cubics_flattened": 0
+      }
+     },
+     {
+      "key": "copper.in4",
+      "role": "copper",
+      "face": "top",
+      "layerId": 12,
+      "z": 0.0009989999651536347,
+      "shapes": 10725,
+      "subtractShapes": 5060,
+      "regionBatches": 3,
+      "fanVertices": 10011,
+      "covers": 238,
+      "approximations": {
+       "region_offsets_ignored": 0,
+       "flat_cap_segments": 0,
+       "cubics_flattened": 0
+      }
+     },
+     {
+      "key": "copper.in4",
+      "role": "copper",
+      "face": "bottom",
+      "layerId": 12,
+      "z": 0.0009814999651536346,
+      "shapes": 10725,
+      "subtractShapes": 5060,
+      "regionBatches": 3,
+      "fanVertices": 10011,
+      "covers": 238,
+      "approximations": {
+       "region_offsets_ignored": 0,
+       "flat_cap_segments": 0,
+       "cubics_flattened": 0
+      }
+     },
+     {
+      "key": "copper.in5",
+      "role": "copper",
+      "face": "top",
+      "layerId": 14,
+      "z": 0.0008624999651536345,
+      "shapes": 6536,
+      "subtractShapes": 5060,
+      "regionBatches": 4,
+      "fanVertices": 1192059,
+      "covers": 35578,
+      "approximations": {
+       "region_offsets_ignored": 0,
+       "flat_cap_segments": 0,
+       "cubics_flattened": 0
+      }
+     },
+     {
+      "key": "copper.in5",
+      "role": "copper",
+      "face": "bottom",
+      "layerId": 14,
+      "z": 0.0008449999651536346,
+      "shapes": 6536,
+      "subtractShapes": 5060,
+      "regionBatches": 4,
+      "fanVertices": 1192059,
+      "covers": 35578,
+      "approximations": {
+       "region_offsets_ignored": 0,
+       "flat_cap_segments": 0,
+       "cubics_flattened": 0
+      }
+     },
+     {
+      "key": "copper.in6",
+      "role": "copper",
+      "face": "top",
+      "layerId": 16,
+      "z": 0.0007449999651536345,
+      "shapes": 6223,
+      "subtractShapes": 5060,
+      "regionBatches": 4,
+      "fanVertices": 1224561,
+      "covers": 35857,
+      "approximations": {
+       "region_offsets_ignored": 0,
+       "flat_cap_segments": 0,
+       "cubics_flattened": 0
+      }
+     },
+     {
+      "key": "copper.in6",
+      "role": "copper",
+      "face": "bottom",
+      "layerId": 16,
+      "z": 0.0007274999651536346,
+      "shapes": 6223,
+      "subtractShapes": 5060,
+      "regionBatches": 4,
+      "fanVertices": 1224561,
+      "covers": 35857,
+      "approximations": {
+       "region_offsets_ignored": 0,
+       "flat_cap_segments": 0,
+       "cubics_flattened": 0
+      }
+     },
+     {
+      "key": "copper.in7",
+      "role": "copper",
+      "face": "top",
+      "layerId": 18,
+      "z": 0.0006174999651536345,
+      "shapes": 9481,
+      "subtractShapes": 5060,
+      "regionBatches": 2,
+      "fanVertices": 90297,
+      "covers": 4551,
+      "approximations": {
+       "region_offsets_ignored": 0,
+       "flat_cap_segments": 0,
+       "cubics_flattened": 0
+      }
+     },
+     {
+      "key": "copper.in7",
+      "role": "copper",
+      "face": "bottom",
+      "layerId": 18,
+      "z": 0.0005999999651536346,
+      "shapes": 9481,
+      "subtractShapes": 5060,
+      "regionBatches": 2,
+      "fanVertices": 90297,
+      "covers": 4551,
+      "approximations": {
+       "region_offsets_ignored": 0,
+       "flat_cap_segments": 0,
+       "cubics_flattened": 0
+      }
+     },
+     {
+      "key": "copper.in8",
+      "role": "copper",
+      "face": "top",
+      "layerId": 20,
+      "z": 0.0004899999651536346,
+      "shapes": 7619,
+      "subtractShapes": 5060,
+      "regionBatches": 1,
+      "fanVertices": 918177,
+      "covers": 35377,
+      "approximations": {
+       "region_offsets_ignored": 0,
+       "flat_cap_segments": 0,
+       "cubics_flattened": 0
+      }
+     },
+     {
+      "key": "copper.in8",
+      "role": "copper",
+      "face": "bottom",
+      "layerId": 20,
+      "z": 0.00047249996515363456,
+      "shapes": 7619,
+      "subtractShapes": 5060,
+      "regionBatches": 1,
+      "fanVertices": 918177,
+      "covers": 35377,
+      "approximations": {
+       "region_offsets_ignored": 0,
+       "flat_cap_segments": 0,
+       "cubics_flattened": 0
+      }
+     },
+     {
+      "key": "copper.in9",
+      "role": "copper",
+      "face": "top",
+      "layerId": 22,
+      "z": 0.0003624999651536346,
+      "shapes": 8490,
+      "subtractShapes": 5060,
+      "regionBatches": 4,
+      "fanVertices": 242940,
+      "covers": 7779,
+      "approximations": {
+       "region_offsets_ignored": 0,
+       "flat_cap_segments": 0,
+       "cubics_flattened": 0
+      }
+     },
+     {
+      "key": "copper.in9",
+      "role": "copper",
+      "face": "bottom",
+      "layerId": 22,
+      "z": 0.00034499996515363455,
+      "shapes": 8490,
+      "subtractShapes": 5060,
+      "regionBatches": 4,
+      "fanVertices": 242940,
+      "covers": 7779,
+      "approximations": {
+       "region_offsets_ignored": 0,
+       "flat_cap_segments": 0,
+       "cubics_flattened": 0
+      }
+     },
+     {
+      "key": "copper.in10",
+      "role": "copper",
+      "face": "top",
+      "layerId": 24,
+      "z": 0.0001449999651536346,
+      "shapes": 7597,
+      "subtractShapes": 5060,
+      "regionBatches": 1,
+      "fanVertices": 918177,
+      "covers": 35377,
+      "approximations": {
+       "region_offsets_ignored": 0,
+       "flat_cap_segments": 0,
+       "cubics_flattened": 0
+      }
+     },
+     {
+      "key": "copper.in10",
+      "role": "copper",
+      "face": "bottom",
+      "layerId": 24,
+      "z": 0.0001274999651536346,
+      "shapes": 7597,
+      "subtractShapes": 5060,
+      "regionBatches": 1,
+      "fanVertices": 918177,
+      "covers": 35377,
+      "approximations": {
+       "region_offsets_ignored": 0,
+       "flat_cap_segments": 0,
+       "cubics_flattened": 0
+      }
+     },
+     {
+      "key": "copper.back",
+      "role": "copper",
+      "face": "top",
+      "layerId": 26,
+      "z": 1.7499965153634625e-05,
+      "shapes": 15877,
+      "subtractShapes": 5060,
+      "regionBatches": 3,
+      "fanVertices": 25353,
+      "covers": 2123,
+      "approximations": {
+       "region_offsets_ignored": 0,
+       "flat_cap_segments": 0,
+       "cubics_flattened": 0
+      }
+     },
+     {
+      "key": "copper.back",
+      "role": "copper",
+      "face": "bottom",
+      "layerId": 26,
+      "z": -1.750003484636538e-05,
+      "shapes": 15877,
+      "subtractShapes": 5060,
+      "regionBatches": 3,
+      "fanVertices": 25353,
+      "covers": 2123,
+      "approximations": {
+       "region_offsets_ignored": 0,
+       "flat_cap_segments": 0,
+       "cubics_flattened": 0
+      }
+     },
+     {
+      "key": "mask.front",
+      "role": "mask",
+      "layerId": 3,
+      "z": 0.0015364999651536345,
+      "shapes": 11177,
+      "subtractShapes": 11177,
+      "regionBatches": 2,
+      "fanVertices": 224340,
+      "covers": 36883,
+      "approximations": {
+       "region_offsets_ignored": 0,
+       "flat_cap_segments": 0,
+       "cubics_flattened": 0
+      }
+     },
+     {
+      "key": "mask.back",
+      "role": "mask",
+      "layerId": 27,
+      "z": -2.7500034846365435e-05,
+      "shapes": 6766,
+      "subtractShapes": 6766,
+      "regionBatches": 2,
+      "fanVertices": 223902,
+      "covers": 36833,
+      "approximations": {
+       "region_offsets_ignored": 0,
+       "flat_cap_segments": 0,
+       "cubics_flattened": 0
+      }
+     },
+     {
+      "key": "paste.front",
+      "role": "paste",
+      "layerId": 2,
+      "z": 0.0015274999651536344,
+      "shapes": 10581,
+      "subtractShapes": 5060,
+      "regionBatches": 0,
+      "fanVertices": 0,
+      "covers": 0,
+      "approximations": {
+       "region_offsets_ignored": 0,
+       "flat_cap_segments": 0,
+       "cubics_flattened": 0
+      }
+     },
+     {
+      "key": "paste.back",
+      "role": "paste",
+      "layerId": 28,
+      "z": -1.850003484636538e-05,
+      "shapes": 6190,
+      "subtractShapes": 5060,
+      "regionBatches": 0,
+      "fanVertices": 0,
+      "covers": 0,
+      "approximations": {
+       "region_offsets_ignored": 0,
+       "flat_cap_segments": 0,
+       "cubics_flattened": 0
+      }
+     },
+     {
+      "key": "silkscreen.front",
+      "role": "silk",
+      "layerId": 1,
+      "z": 0.0015384999651536348,
+      "shapes": 21238,
+      "subtractShapes": 5902,
+      "regionBatches": 2,
+      "fanVertices": 13164,
+      "covers": 486,
+      "approximations": {
+       "region_offsets_ignored": 0,
+       "flat_cap_segments": 0,
+       "cubics_flattened": 0
+      }
+     },
+     {
+      "key": "silkscreen.back",
+      "role": "silk",
+      "layerId": 29,
+      "z": -2.950003484636545e-05,
+      "shapes": 8157,
+      "subtractShapes": 5085,
+      "regionBatches": 2,
+      "fanVertices": 3468,
+      "covers": 153,
+      "approximations": {
+       "region_offsets_ignored": 0,
+       "flat_cap_segments": 0,
+       "cubics_flattened": 0
+      }
+     }
+    ],
+    "operations": 143096
+   },
+   {
+    "bytes": 27751728,
+    "fetchMs": 34.6,
+    "attachMs": 2728.7,
+    "firstAnalyticFrameMs": 2837.8,
+    "timings": {
+     "release": 0,
+     "open": 161,
+     "lowerIn": "main",
+     "lower": 2125,
+     "slices": 310,
+     "barrels": 3,
+     "walls": 2,
+     "nets": 120,
+     "features": 7,
+     "attach": 0
+    },
+    "slices": [
+     {
+      "key": "dielectric.1",
+      "role": "dielectric",
+      "face": "top",
+      "layerId": 5,
+      "z": 0.0014913999651536346,
+      "shapes": 10120,
+      "subtractShapes": 10120,
+      "regionBatches": 1,
+      "fanVertices": 216306,
+      "covers": 35719,
+      "approximations": {
+       "region_offsets_ignored": 0,
+       "flat_cap_segments": 0,
+       "cubics_flattened": 0
+      }
+     },
+     {
+      "key": "dielectric.1",
+      "role": "dielectric",
+      "face": "bottom",
+      "layerId": 5,
+      "z": 0.0013815999651536348,
+      "shapes": 10120,
+      "subtractShapes": 10120,
+      "regionBatches": 1,
+      "fanVertices": 216306,
+      "covers": 35719,
+      "approximations": {
+       "region_offsets_ignored": 0,
+       "flat_cap_segments": 0,
+       "cubics_flattened": 0
+      }
+     },
+     {
+      "key": "dielectric.2",
+      "role": "dielectric",
+      "face": "top",
+      "layerId": 7,
+      "z": 0.0013638999651536343,
+      "shapes": 10120,
+      "subtractShapes": 10120,
+      "regionBatches": 1,
+      "fanVertices": 216306,
+      "covers": 35719,
+      "approximations": {
+       "region_offsets_ignored": 0,
+       "flat_cap_segments": 0,
+       "cubics_flattened": 0
+      }
+     },
+     {
+      "key": "dielectric.2",
+      "role": "dielectric",
+      "face": "bottom",
+      "layerId": 7,
+      "z": 0.0012540999651536346,
+      "shapes": 10120,
+      "subtractShapes": 10120,
+      "regionBatches": 1,
+      "fanVertices": 216306,
+      "covers": 35719,
+      "approximations": {
+       "region_offsets_ignored": 0,
+       "flat_cap_segments": 0,
+       "cubics_flattened": 0
+      }
+     },
+     {
+      "key": "dielectric.3",
+      "role": "dielectric",
+      "face": "top",
+      "layerId": 9,
+      "z": 0.0012363999651536343,
+      "shapes": 10120,
+      "subtractShapes": 10120,
+      "regionBatches": 1,
+      "fanVertices": 216306,
+      "covers": 35719,
+      "approximations": {
+       "region_offsets_ignored": 0,
+       "flat_cap_segments": 0,
+       "cubics_flattened": 0
+      }
+     },
+     {
+      "key": "dielectric.3",
+      "role": "dielectric",
+      "face": "bottom",
+      "layerId": 9,
+      "z": 0.0011265999651536346,
+      "shapes": 10120,
+      "subtractShapes": 10120,
+      "regionBatches": 1,
+      "fanVertices": 216306,
+      "covers": 35719,
+      "approximations": {
+       "region_offsets_ignored": 0,
+       "flat_cap_segments": 0,
+       "cubics_flattened": 0
+      }
+     },
+     {
+      "key": "dielectric.4",
+      "role": "dielectric",
+      "face": "top",
+      "layerId": 11,
+      "z": 0.0011088999651536343,
+      "shapes": 10120,
+      "subtractShapes": 10120,
+      "regionBatches": 1,
+      "fanVertices": 216306,
+      "covers": 35719,
+      "approximations": {
+       "region_offsets_ignored": 0,
+       "flat_cap_segments": 0,
+       "cubics_flattened": 0
+      }
+     },
+     {
+      "key": "dielectric.4",
+      "role": "dielectric",
+      "face": "bottom",
+      "layerId": 11,
+      "z": 0.0009990999651536346,
+      "shapes": 10120,
+      "subtractShapes": 10120,
+      "regionBatches": 1,
+      "fanVertices": 216306,
+      "covers": 35719,
+      "approximations": {
+       "region_offsets_ignored": 0,
+       "flat_cap_segments": 0,
+       "cubics_flattened": 0
+      }
+     },
+     {
+      "key": "dielectric.5",
+      "role": "dielectric",
+      "face": "top",
+      "layerId": 13,
+      "z": 0.0009813999651536345,
+      "shapes": 10120,
+      "subtractShapes": 10120,
+      "regionBatches": 1,
+      "fanVertices": 216306,
+      "covers": 35719,
+      "approximations": {
+       "region_offsets_ignored": 0,
+       "flat_cap_segments": 0,
+       "cubics_flattened": 0
+      }
+     },
+     {
+      "key": "dielectric.5",
+      "role": "dielectric",
+      "face": "bottom",
+      "layerId": 13,
+      "z": 0.0008625999651536346,
+      "shapes": 10120,
+      "subtractShapes": 10120,
+      "regionBatches": 1,
+      "fanVertices": 216306,
+      "covers": 35719,
+      "approximations": {
+       "region_offsets_ignored": 0,
+       "flat_cap_segments": 0,
+       "cubics_flattened": 0
+      }
+     },
+     {
+      "key": "dielectric.6",
+      "role": "dielectric",
+      "face": "top",
+      "layerId": 15,
+      "z": 0.0008448999651536346,
+      "shapes": 10120,
+      "subtractShapes": 10120,
+      "regionBatches": 1,
+      "fanVertices": 216306,
+      "covers": 35719,
+      "approximations": {
+       "region_offsets_ignored": 0,
+       "flat_cap_segments": 0,
+       "cubics_flattened": 0
+      }
+     },
+     {
+      "key": "dielectric.6",
+      "role": "dielectric",
+      "face": "bottom",
+      "layerId": 15,
+      "z": 0.0007450999651536345,
+      "shapes": 10120,
+      "subtractShapes": 10120,
+      "regionBatches": 1,
+      "fanVertices": 216306,
+      "covers": 35719,
+      "approximations": {
+       "region_offsets_ignored": 0,
+       "flat_cap_segments": 0,
+       "cubics_flattened": 0
+      }
+     },
+     {
+      "key": "dielectric.7",
+      "role": "dielectric",
+      "face": "top",
+      "layerId": 17,
+      "z": 0.0007273999651536346,
+      "shapes": 10120,
+      "subtractShapes": 10120,
+      "regionBatches": 1,
+      "fanVertices": 216306,
+      "covers": 35719,
+      "approximations": {
+       "region_offsets_ignored": 0,
+       "flat_cap_segments": 0,
+       "cubics_flattened": 0
+      }
+     },
+     {
+      "key": "dielectric.7",
+      "role": "dielectric",
+      "face": "bottom",
+      "layerId": 17,
+      "z": 0.0006175999651536345,
+      "shapes": 10120,
+      "subtractShapes": 10120,
+      "regionBatches": 1,
+      "fanVertices": 216306,
+      "covers": 35719,
+      "approximations": {
+       "region_offsets_ignored": 0,
+       "flat_cap_segments": 0,
+       "cubics_flattened": 0
+      }
+     },
+     {
+      "key": "dielectric.8",
+      "role": "dielectric",
+      "face": "top",
+      "layerId": 19,
+      "z": 0.0005998999651536346,
+      "shapes": 10120,
+      "subtractShapes": 10120,
+      "regionBatches": 1,
+      "fanVertices": 216306,
+      "covers": 35719,
+      "approximations": {
+       "region_offsets_ignored": 0,
+       "flat_cap_segments": 0,
+       "cubics_flattened": 0
+      }
+     },
+     {
+      "key": "dielectric.8",
+      "role": "dielectric",
+      "face": "bottom",
+      "layerId": 19,
+      "z": 0.0004900999651536344,
+      "shapes": 10120,
+      "subtractShapes": 10120,
+      "regionBatches": 1,
+      "fanVertices": 216306,
+      "covers": 35719,
+      "approximations": {
+       "region_offsets_ignored": 0,
+       "flat_cap_segments": 0,
+       "cubics_flattened": 0
+      }
+     },
+     {
+      "key": "dielectric.9",
+      "role": "dielectric",
+      "face": "top",
+      "layerId": 21,
+      "z": 0.00047239996515363456,
+      "shapes": 10120,
+      "subtractShapes": 10120,
+      "regionBatches": 1,
+      "fanVertices": 216306,
+      "covers": 35719,
+      "approximations": {
+       "region_offsets_ignored": 0,
+       "flat_cap_segments": 0,
+       "cubics_flattened": 0
+      }
+     },
+     {
+      "key": "dielectric.9",
+      "role": "dielectric",
+      "face": "bottom",
+      "layerId": 21,
+      "z": 0.0003625999651536346,
+      "shapes": 10120,
+      "subtractShapes": 10120,
+      "regionBatches": 1,
+      "fanVertices": 216306,
+      "covers": 35719,
+      "approximations": {
+       "region_offsets_ignored": 0,
+       "flat_cap_segments": 0,
+       "cubics_flattened": 0
+      }
+     },
+     {
+      "key": "dielectric.10",
+      "role": "dielectric",
+      "face": "top",
+      "layerId": 23,
+      "z": 0.0003448999651536346,
+      "shapes": 10120,
+      "subtractShapes": 10120,
+      "regionBatches": 1,
+      "fanVertices": 216306,
+      "covers": 35719,
+      "approximations": {
+       "region_offsets_ignored": 0,
+       "flat_cap_segments": 0,
+       "cubics_flattened": 0
+      }
+     },
+     {
+      "key": "dielectric.10",
+      "role": "dielectric",
+      "face": "bottom",
+      "layerId": 23,
+      "z": 0.00014509996515363463,
+      "shapes": 10120,
+      "subtractShapes": 10120,
+      "regionBatches": 1,
+      "fanVertices": 216306,
+      "covers": 35719,
+      "approximations": {
+       "region_offsets_ignored": 0,
+       "flat_cap_segments": 0,
+       "cubics_flattened": 0
+      }
+     },
+     {
+      "key": "dielectric.11",
+      "role": "dielectric",
+      "face": "top",
+      "layerId": 25,
+      "z": 0.0001273999651536345,
+      "shapes": 10120,
+      "subtractShapes": 10120,
+      "regionBatches": 1,
+      "fanVertices": 216306,
+      "covers": 35719,
+      "approximations": {
+       "region_offsets_ignored": 0,
+       "flat_cap_segments": 0,
+       "cubics_flattened": 0
+      }
+     },
+     {
+      "key": "dielectric.11",
+      "role": "dielectric",
+      "face": "bottom",
+      "layerId": 25,
+      "z": 1.7599965153634485e-05,
+      "shapes": 10120,
+      "subtractShapes": 10120,
+      "regionBatches": 1,
+      "fanVertices": 216306,
+      "covers": 35719,
+      "approximations": {
+       "region_offsets_ignored": 0,
+       "flat_cap_segments": 0,
+       "cubics_flattened": 0
+      }
+     },
+     {
+      "key": "copper.front",
+      "role": "copper",
+      "face": "top",
+      "layerId": 4,
+      "z": 0.0015264999651536345,
+      "shapes": 26273,
+      "subtractShapes": 5060,
+      "regionBatches": 3,
+      "fanVertices": 24921,
+      "covers": 2458,
+      "approximations": {
+       "region_offsets_ignored": 0,
+       "flat_cap_segments": 0,
+       "cubics_flattened": 0
+      }
+     },
+     {
+      "key": "copper.front",
+      "role": "copper",
+      "face": "bottom",
+      "layerId": 4,
+      "z": 0.0014914999651536346,
+      "shapes": 26273,
+      "subtractShapes": 5060,
+      "regionBatches": 3,
+      "fanVertices": 24921,
+      "covers": 2458,
+      "approximations": {
+       "region_offsets_ignored": 0,
+       "flat_cap_segments": 0,
+       "cubics_flattened": 0
+      }
+     },
+     {
+      "key": "copper.in1",
+      "role": "copper",
+      "face": "top",
+      "layerId": 6,
+      "z": 0.0013814999651536345,
+      "shapes": 7607,
+      "subtractShapes": 5060,
+      "regionBatches": 1,
+      "fanVertices": 917244,
+      "covers": 35377,
+      "approximations": {
+       "region_offsets_ignored": 0,
+       "flat_cap_segments": 0,
+       "cubics_flattened": 0
+      }
+     },
+     {
+      "key": "copper.in1",
+      "role": "copper",
+      "face": "bottom",
+      "layerId": 6,
+      "z": 0.0013639999651536344,
+      "shapes": 7607,
+      "subtractShapes": 5060,
+      "regionBatches": 1,
+      "fanVertices": 917244,
+      "covers": 35377,
+      "approximations": {
+       "region_offsets_ignored": 0,
+       "flat_cap_segments": 0,
+       "cubics_flattened": 0
+      }
+     },
+     {
+      "key": "copper.in2",
+      "role": "copper",
+      "face": "top",
+      "layerId": 8,
+      "z": 0.0012539999651536345,
+      "shapes": 9959,
+      "subtractShapes": 5060,
+      "regionBatches": 2,
+      "fanVertices": 19413,
+      "covers": 729,
+      "approximations": {
+       "region_offsets_ignored": 0,
+       "flat_cap_segments": 0,
+       "cubics_flattened": 0
+      }
+     },
+     {
+      "key": "copper.in2",
+      "role": "copper",
+      "face": "bottom",
+      "layerId": 8,
+      "z": 0.0012364999651536344,
+      "shapes": 9959,
+      "subtractShapes": 5060,
+      "regionBatches": 2,
+      "fanVertices": 19413,
+      "covers": 729,
+      "approximations": {
+       "region_offsets_ignored": 0,
+       "flat_cap_segments": 0,
+       "cubics_flattened": 0
+      }
+     },
+     {
+      "key": "copper.in3",
+      "role": "copper",
+      "face": "top",
+      "layerId": 10,
+      "z": 0.0011264999651536347,
+      "shapes": 7583,
+      "subtractShapes": 5060,
+      "regionBatches": 1,
+      "fanVertices": 918177,
+      "covers": 35377,
+      "approximations": {
+       "region_offsets_ignored": 0,
+       "flat_cap_segments": 0,
+       "cubics_flattened": 0
+      }
+     },
+     {
+      "key": "copper.in3",
+      "role": "copper",
+      "face": "bottom",
+      "layerId": 10,
+      "z": 0.0011089999651536346,
+      "shapes": 7583,
+      "subtractShapes": 5060,
+      "regionBatches": 1,
+      "fanVertices": 918177,
+      "covers": 35377,
+      "approximations": {
+       "region_offsets_ignored": 0,
+       "flat_cap_segments": 0,
+       "cubics_flattened": 0
+      }
+     },
+     {
+      "key": "copper.in4",
+      "role": "copper",
+      "face": "top",
+      "layerId": 12,
+      "z": 0.0009989999651536347,
+      "shapes": 10725,
+      "subtractShapes": 5060,
+      "regionBatches": 3,
+      "fanVertices": 10011,
+      "covers": 238,
+      "approximations": {
+       "region_offsets_ignored": 0,
+       "flat_cap_segments": 0,
+       "cubics_flattened": 0
+      }
+     },
+     {
+      "key": "copper.in4",
+      "role": "copper",
+      "face": "bottom",
+      "layerId": 12,
+      "z": 0.0009814999651536346,
+      "shapes": 10725,
+      "subtractShapes": 5060,
+      "regionBatches": 3,
+      "fanVertices": 10011,
+      "covers": 238,
+      "approximations": {
+       "region_offsets_ignored": 0,
+       "flat_cap_segments": 0,
+       "cubics_flattened": 0
+      }
+     },
+     {
+      "key": "copper.in5",
+      "role": "copper",
+      "face": "top",
+      "layerId": 14,
+      "z": 0.0008624999651536345,
+      "shapes": 6536,
+      "subtractShapes": 5060,
+      "regionBatches": 4,
+      "fanVertices": 1192059,
+      "covers": 35578,
+      "approximations": {
+       "region_offsets_ignored": 0,
+       "flat_cap_segments": 0,
+       "cubics_flattened": 0
+      }
+     },
+     {
+      "key": "copper.in5",
+      "role": "copper",
+      "face": "bottom",
+      "layerId": 14,
+      "z": 0.0008449999651536346,
+      "shapes": 6536,
+      "subtractShapes": 5060,
+      "regionBatches": 4,
+      "fanVertices": 1192059,
+      "covers": 35578,
+      "approximations": {
+       "region_offsets_ignored": 0,
+       "flat_cap_segments": 0,
+       "cubics_flattened": 0
+      }
+     },
+     {
+      "key": "copper.in6",
+      "role": "copper",
+      "face": "top",
+      "layerId": 16,
+      "z": 0.0007449999651536345,
+      "shapes": 6223,
+      "subtractShapes": 5060,
+      "regionBatches": 4,
+      "fanVertices": 1224561,
+      "covers": 35857,
+      "approximations": {
+       "region_offsets_ignored": 0,
+       "flat_cap_segments": 0,
+       "cubics_flattened": 0
+      }
+     },
+     {
+      "key": "copper.in6",
+      "role": "copper",
+      "face": "bottom",
+      "layerId": 16,
+      "z": 0.0007274999651536346,
+      "shapes": 6223,
+      "subtractShapes": 5060,
+      "regionBatches": 4,
+      "fanVertices": 1224561,
+      "covers": 35857,
+      "approximations": {
+       "region_offsets_ignored": 0,
+       "flat_cap_segments": 0,
+       "cubics_flattened": 0
+      }
+     },
+     {
+      "key": "copper.in7",
+      "role": "copper",
+      "face": "top",
+      "layerId": 18,
+      "z": 0.0006174999651536345,
+      "shapes": 9481,
+      "subtractShapes": 5060,
+      "regionBatches": 2,
+      "fanVertices": 90297,
+      "covers": 4551,
+      "approximations": {
+       "region_offsets_ignored": 0,
+       "flat_cap_segments": 0,
+       "cubics_flattened": 0
+      }
+     },
+     {
+      "key": "copper.in7",
+      "role": "copper",
+      "face": "bottom",
+      "layerId": 18,
+      "z": 0.0005999999651536346,
+      "shapes": 9481,
+      "subtractShapes": 5060,
+      "regionBatches": 2,
+      "fanVertices": 90297,
+      "covers": 4551,
+      "approximations": {
+       "region_offsets_ignored": 0,
+       "flat_cap_segments": 0,
+       "cubics_flattened": 0
+      }
+     },
+     {
+      "key": "copper.in8",
+      "role": "copper",
+      "face": "top",
+      "layerId": 20,
+      "z": 0.0004899999651536346,
+      "shapes": 7619,
+      "subtractShapes": 5060,
+      "regionBatches": 1,
+      "fanVertices": 918177,
+      "covers": 35377,
+      "approximations": {
+       "region_offsets_ignored": 0,
+       "flat_cap_segments": 0,
+       "cubics_flattened": 0
+      }
+     },
+     {
+      "key": "copper.in8",
+      "role": "copper",
+      "face": "bottom",
+      "layerId": 20,
+      "z": 0.00047249996515363456,
+      "shapes": 7619,
+      "subtractShapes": 5060,
+      "regionBatches": 1,
+      "fanVertices": 918177,
+      "covers": 35377,
+      "approximations": {
+       "region_offsets_ignored": 0,
+       "flat_cap_segments": 0,
+       "cubics_flattened": 0
+      }
+     },
+     {
+      "key": "copper.in9",
+      "role": "copper",
+      "face": "top",
+      "layerId": 22,
+      "z": 0.0003624999651536346,
+      "shapes": 8490,
+      "subtractShapes": 5060,
+      "regionBatches": 4,
+      "fanVertices": 242940,
+      "covers": 7779,
+      "approximations": {
+       "region_offsets_ignored": 0,
+       "flat_cap_segments": 0,
+       "cubics_flattened": 0
+      }
+     },
+     {
+      "key": "copper.in9",
+      "role": "copper",
+      "face": "bottom",
+      "layerId": 22,
+      "z": 0.00034499996515363455,
+      "shapes": 8490,
+      "subtractShapes": 5060,
+      "regionBatches": 4,
+      "fanVertices": 242940,
+      "covers": 7779,
+      "approximations": {
+       "region_offsets_ignored": 0,
+       "flat_cap_segments": 0,
+       "cubics_flattened": 0
+      }
+     },
+     {
+      "key": "copper.in10",
+      "role": "copper",
+      "face": "top",
+      "layerId": 24,
+      "z": 0.0001449999651536346,
+      "shapes": 7597,
+      "subtractShapes": 5060,
+      "regionBatches": 1,
+      "fanVertices": 918177,
+      "covers": 35377,
+      "approximations": {
+       "region_offsets_ignored": 0,
+       "flat_cap_segments": 0,
+       "cubics_flattened": 0
+      }
+     },
+     {
+      "key": "copper.in10",
+      "role": "copper",
+      "face": "bottom",
+      "layerId": 24,
+      "z": 0.0001274999651536346,
+      "shapes": 7597,
+      "subtractShapes": 5060,
+      "regionBatches": 1,
+      "fanVertices": 918177,
+      "covers": 35377,
+      "approximations": {
+       "region_offsets_ignored": 0,
+       "flat_cap_segments": 0,
+       "cubics_flattened": 0
+      }
+     },
+     {
+      "key": "copper.back",
+      "role": "copper",
+      "face": "top",
+      "layerId": 26,
+      "z": 1.7499965153634625e-05,
+      "shapes": 15877,
+      "subtractShapes": 5060,
+      "regionBatches": 3,
+      "fanVertices": 25353,
+      "covers": 2123,
+      "approximations": {
+       "region_offsets_ignored": 0,
+       "flat_cap_segments": 0,
+       "cubics_flattened": 0
+      }
+     },
+     {
+      "key": "copper.back",
+      "role": "copper",
+      "face": "bottom",
+      "layerId": 26,
+      "z": -1.750003484636538e-05,
+      "shapes": 15877,
+      "subtractShapes": 5060,
+      "regionBatches": 3,
+      "fanVertices": 25353,
+      "covers": 2123,
+      "approximations": {
+       "region_offsets_ignored": 0,
+       "flat_cap_segments": 0,
+       "cubics_flattened": 0
+      }
+     },
+     {
+      "key": "mask.front",
+      "role": "mask",
+      "layerId": 3,
+      "z": 0.0015364999651536345,
+      "shapes": 11177,
+      "subtractShapes": 11177,
+      "regionBatches": 2,
+      "fanVertices": 224340,
+      "covers": 36883,
+      "approximations": {
+       "region_offsets_ignored": 0,
+       "flat_cap_segments": 0,
+       "cubics_flattened": 0
+      }
+     },
+     {
+      "key": "mask.back",
+      "role": "mask",
+      "layerId": 27,
+      "z": -2.7500034846365435e-05,
+      "shapes": 6766,
+      "subtractShapes": 6766,
+      "regionBatches": 2,
+      "fanVertices": 223902,
+      "covers": 36833,
+      "approximations": {
+       "region_offsets_ignored": 0,
+       "flat_cap_segments": 0,
+       "cubics_flattened": 0
+      }
+     },
+     {
+      "key": "paste.front",
+      "role": "paste",
+      "layerId": 2,
+      "z": 0.0015274999651536344,
+      "shapes": 10581,
+      "subtractShapes": 5060,
+      "regionBatches": 0,
+      "fanVertices": 0,
+      "covers": 0,
+      "approximations": {
+       "region_offsets_ignored": 0,
+       "flat_cap_segments": 0,
+       "cubics_flattened": 0
+      }
+     },
+     {
+      "key": "paste.back",
+      "role": "paste",
+      "layerId": 28,
+      "z": -1.850003484636538e-05,
+      "shapes": 6190,
+      "subtractShapes": 5060,
+      "regionBatches": 0,
+      "fanVertices": 0,
+      "covers": 0,
+      "approximations": {
+       "region_offsets_ignored": 0,
+       "flat_cap_segments": 0,
+       "cubics_flattened": 0
+      }
+     },
+     {
+      "key": "silkscreen.front",
+      "role": "silk",
+      "layerId": 1,
+      "z": 0.0015384999651536348,
+      "shapes": 21238,
+      "subtractShapes": 5902,
+      "regionBatches": 2,
+      "fanVertices": 13164,
+      "covers": 486,
+      "approximations": {
+       "region_offsets_ignored": 0,
+       "flat_cap_segments": 0,
+       "cubics_flattened": 0
+      }
+     },
+     {
+      "key": "silkscreen.back",
+      "role": "silk",
+      "layerId": 29,
+      "z": -2.950003484636545e-05,
+      "shapes": 8157,
+      "subtractShapes": 5085,
+      "regionBatches": 2,
+      "fanVertices": 3468,
+      "covers": 153,
+      "approximations": {
+       "region_offsets_ignored": 0,
+       "flat_cap_segments": 0,
+       "cubics_flattened": 0
+      }
+     }
+    ],
+    "operations": 143096
+   }
+  ],
+  "usbpd": [
+   {
+    "bytes": 175488,
+    "fetchMs": 2.3,
+    "attachMs": 58.6,
+    "firstAnalyticFrameMs": 144.4,
+    "timings": {
+     "release": 0,
+     "open": 14,
+     "lowerIn": "main",
+     "lower": 33,
+     "slices": 10,
+     "barrels": 1,
+     "walls": 0,
+     "nets": 1,
+     "features": 0,
+     "attach": 0
+    },
+    "slices": [
+     {
+      "key": "copper.front",
+      "role": "copper",
+      "face": "top",
+      "layerId": 5,
+      "z": 0.0016524999932572245,
+      "shapes": 388,
+      "subtractShapes": 41,
+      "regionBatches": 4,
+      "fanVertices": 26214,
+      "covers": 1063,
+      "approximations": {
+       "region_offsets_ignored": 0,
+       "flat_cap_segments": 0,
+       "cubics_flattened": 0
+      }
+     },
+     {
+      "key": "copper.front",
+      "role": "copper",
+      "face": "bottom",
+      "layerId": 5,
+      "z": 0.0016174999932572246,
+      "shapes": 388,
+      "subtractShapes": 41,
+      "regionBatches": 4,
+      "fanVertices": 26214,
+      "covers": 1063,
+      "approximations": {
+       "region_offsets_ignored": 0,
+       "flat_cap_segments": 0,
+       "cubics_flattened": 0
+      }
+     },
+     {
+      "key": "copper.back",
+      "role": "copper",
+      "face": "top",
+      "layerId": 6,
+      "z": 1.749999325722461e-05,
+      "shapes": 109,
+      "subtractShapes": 41,
+      "regionBatches": 2,
+      "fanVertices": 11037,
+      "covers": 1113,
+      "approximations": {
+       "region_offsets_ignored": 0,
+       "flat_cap_segments": 0,
+       "cubics_flattened": 0
+      }
+     },
+     {
+      "key": "copper.back",
+      "role": "copper",
+      "face": "bottom",
+      "layerId": 6,
+      "z": -1.7500006742775394e-05,
+      "shapes": 109,
+      "subtractShapes": 41,
+      "regionBatches": 2,
+      "fanVertices": 11037,
+      "covers": 1113,
+      "approximations": {
+       "region_offsets_ignored": 0,
+       "flat_cap_segments": 0,
+       "cubics_flattened": 0
+      }
+     },
+     {
+      "key": "mask.front",
+      "role": "mask",
+      "layerId": 4,
+      "z": 0.0016724999932572245,
+      "shapes": 298,
+      "subtractShapes": 298,
+      "regionBatches": 2,
+      "fanVertices": 8010,
+      "covers": 1213,
+      "approximations": {
+       "region_offsets_ignored": 0,
+       "flat_cap_segments": 0,
+       "cubics_flattened": 0
+      }
+     },
+     {
+      "key": "mask.back",
+      "role": "mask",
+      "layerId": 7,
+      "z": -3.750000674277537e-05,
+      "shapes": 183,
+      "subtractShapes": 183,
+      "regionBatches": 2,
+      "fanVertices": 8010,
+      "covers": 1213,
+      "approximations": {
+       "region_offsets_ignored": 0,
+       "flat_cap_segments": 0,
+       "cubics_flattened": 0
+      }
+     }
+    ],
+    "operations": 672
+   },
+   {
+    "bytes": 175488,
+    "fetchMs": 1.7,
+    "attachMs": 52.2,
+    "firstAnalyticFrameMs": 131.2,
+    "timings": {
+     "release": 0,
+     "open": 12,
+     "lowerIn": "main",
+     "lower": 29,
+     "slices": 9,
+     "barrels": 1,
+     "walls": 0,
+     "nets": 1,
+     "features": 0,
+     "attach": 0
+    },
+    "slices": [
+     {
+      "key": "copper.front",
+      "role": "copper",
+      "face": "top",
+      "layerId": 5,
+      "z": 0.0016524999932572245,
+      "shapes": 388,
+      "subtractShapes": 41,
+      "regionBatches": 4,
+      "fanVertices": 26214,
+      "covers": 1063,
+      "approximations": {
+       "region_offsets_ignored": 0,
+       "flat_cap_segments": 0,
+       "cubics_flattened": 0
+      }
+     },
+     {
+      "key": "copper.front",
+      "role": "copper",
+      "face": "bottom",
+      "layerId": 5,
+      "z": 0.0016174999932572246,
+      "shapes": 388,
+      "subtractShapes": 41,
+      "regionBatches": 4,
+      "fanVertices": 26214,
+      "covers": 1063,
+      "approximations": {
+       "region_offsets_ignored": 0,
+       "flat_cap_segments": 0,
+       "cubics_flattened": 0
+      }
+     },
+     {
+      "key": "copper.back",
+      "role": "copper",
+      "face": "top",
+      "layerId": 6,
+      "z": 1.749999325722461e-05,
+      "shapes": 109,
+      "subtractShapes": 41,
+      "regionBatches": 2,
+      "fanVertices": 11037,
+      "covers": 1113,
+      "approximations": {
+       "region_offsets_ignored": 0,
+       "flat_cap_segments": 0,
+       "cubics_flattened": 0
+      }
+     },
+     {
+      "key": "copper.back",
+      "role": "copper",
+      "face": "bottom",
+      "layerId": 6,
+      "z": -1.7500006742775394e-05,
+      "shapes": 109,
+      "subtractShapes": 41,
+      "regionBatches": 2,
+      "fanVertices": 11037,
+      "covers": 1113,
+      "approximations": {
+       "region_offsets_ignored": 0,
+       "flat_cap_segments": 0,
+       "cubics_flattened": 0
+      }
+     },
+     {
+      "key": "mask.front",
+      "role": "mask",
+      "layerId": 4,
+      "z": 0.0016724999932572245,
+      "shapes": 298,
+      "subtractShapes": 298,
+      "regionBatches": 2,
+      "fanVertices": 8010,
+      "covers": 1213,
+      "approximations": {
+       "region_offsets_ignored": 0,
+       "flat_cap_segments": 0,
+       "cubics_flattened": 0
+      }
+     },
+     {
+      "key": "mask.back",
+      "role": "mask",
+      "layerId": 7,
+      "z": -3.750000674277537e-05,
+      "shapes": 183,
+      "subtractShapes": 183,
+      "regionBatches": 2,
+      "fanVertices": 8010,
+      "covers": 1213,
+      "approximations": {
+       "region_offsets_ignored": 0,
+       "flat_cap_segments": 0,
+       "cubics_flattened": 0
+      }
+     }
+    ],
+    "operations": 672
+   },
+   {
+    "bytes": 175488,
+    "fetchMs": 1.8,
+    "attachMs": 53.4,
+    "firstAnalyticFrameMs": 134,
+    "timings": {
+     "release": 0,
+     "open": 23,
+     "lowerIn": "main",
+     "lower": 20,
+     "slices": 9,
+     "barrels": 1,
+     "walls": 0,
+     "nets": 1,
+     "features": 0,
+     "attach": 0
+    },
+    "slices": [
+     {
+      "key": "copper.front",
+      "role": "copper",
+      "face": "top",
+      "layerId": 5,
+      "z": 0.0016524999932572245,
+      "shapes": 388,
+      "subtractShapes": 41,
+      "regionBatches": 4,
+      "fanVertices": 26214,
+      "covers": 1063,
+      "approximations": {
+       "region_offsets_ignored": 0,
+       "flat_cap_segments": 0,
+       "cubics_flattened": 0
+      }
+     },
+     {
+      "key": "copper.front",
+      "role": "copper",
+      "face": "bottom",
+      "layerId": 5,
+      "z": 0.0016174999932572246,
+      "shapes": 388,
+      "subtractShapes": 41,
+      "regionBatches": 4,
+      "fanVertices": 26214,
+      "covers": 1063,
+      "approximations": {
+       "region_offsets_ignored": 0,
+       "flat_cap_segments": 0,
+       "cubics_flattened": 0
+      }
+     },
+     {
+      "key": "copper.back",
+      "role": "copper",
+      "face": "top",
+      "layerId": 6,
+      "z": 1.749999325722461e-05,
+      "shapes": 109,
+      "subtractShapes": 41,
+      "regionBatches": 2,
+      "fanVertices": 11037,
+      "covers": 1113,
+      "approximations": {
+       "region_offsets_ignored": 0,
+       "flat_cap_segments": 0,
+       "cubics_flattened": 0
+      }
+     },
+     {
+      "key": "copper.back",
+      "role": "copper",
+      "face": "bottom",
+      "layerId": 6,
+      "z": -1.7500006742775394e-05,
+      "shapes": 109,
+      "subtractShapes": 41,
+      "regionBatches": 2,
+      "fanVertices": 11037,
+      "covers": 1113,
+      "approximations": {
+       "region_offsets_ignored": 0,
+       "flat_cap_segments": 0,
+       "cubics_flattened": 0
+      }
+     },
+     {
+      "key": "mask.front",
+      "role": "mask",
+      "layerId": 4,
+      "z": 0.0016724999932572245,
+      "shapes": 298,
+      "subtractShapes": 298,
+      "regionBatches": 2,
+      "fanVertices": 8010,
+      "covers": 1213,
+      "approximations": {
+       "region_offsets_ignored": 0,
+       "flat_cap_segments": 0,
+       "cubics_flattened": 0
+      }
+     },
+     {
+      "key": "mask.back",
+      "role": "mask",
+      "layerId": 7,
+      "z": -3.750000674277537e-05,
+      "shapes": 183,
+      "subtractShapes": 183,
+      "regionBatches": 2,
+      "fanVertices": 8010,
+      "covers": 1213,
+      "approximations": {
+       "region_offsets_ignored": 0,
+       "flat_cap_segments": 0,
+       "cubics_flattened": 0
+      }
+     }
+    ],
+    "operations": 672
+   },
+   {
+    "bytes": 175488,
+    "fetchMs": 1.6,
+    "attachMs": 55.2,
+    "firstAnalyticFrameMs": 139,
+    "timings": {
+     "release": 0,
+     "open": 13,
+     "lowerIn": "main",
+     "lower": 31,
+     "slices": 9,
+     "barrels": 1,
+     "walls": 0,
+     "nets": 1,
+     "features": 0,
+     "attach": 0
+    },
+    "slices": [
+     {
+      "key": "copper.front",
+      "role": "copper",
+      "face": "top",
+      "layerId": 5,
+      "z": 0.0016524999932572245,
+      "shapes": 388,
+      "subtractShapes": 41,
+      "regionBatches": 4,
+      "fanVertices": 26214,
+      "covers": 1063,
+      "approximations": {
+       "region_offsets_ignored": 0,
+       "flat_cap_segments": 0,
+       "cubics_flattened": 0
+      }
+     },
+     {
+      "key": "copper.front",
+      "role": "copper",
+      "face": "bottom",
+      "layerId": 5,
+      "z": 0.0016174999932572246,
+      "shapes": 388,
+      "subtractShapes": 41,
+      "regionBatches": 4,
+      "fanVertices": 26214,
+      "covers": 1063,
+      "approximations": {
+       "region_offsets_ignored": 0,
+       "flat_cap_segments": 0,
+       "cubics_flattened": 0
+      }
+     },
+     {
+      "key": "copper.back",
+      "role": "copper",
+      "face": "top",
+      "layerId": 6,
+      "z": 1.749999325722461e-05,
+      "shapes": 109,
+      "subtractShapes": 41,
+      "regionBatches": 2,
+      "fanVertices": 11037,
+      "covers": 1113,
+      "approximations": {
+       "region_offsets_ignored": 0,
+       "flat_cap_segments": 0,
+       "cubics_flattened": 0
+      }
+     },
+     {
+      "key": "copper.back",
+      "role": "copper",
+      "face": "bottom",
+      "layerId": 6,
+      "z": -1.7500006742775394e-05,
+      "shapes": 109,
+      "subtractShapes": 41,
+      "regionBatches": 2,
+      "fanVertices": 11037,
+      "covers": 1113,
+      "approximations": {
+       "region_offsets_ignored": 0,
+       "flat_cap_segments": 0,
+       "cubics_flattened": 0
+      }
+     },
+     {
+      "key": "mask.front",
+      "role": "mask",
+      "layerId": 4,
+      "z": 0.0016724999932572245,
+      "shapes": 298,
+      "subtractShapes": 298,
+      "regionBatches": 2,
+      "fanVertices": 8010,
+      "covers": 1213,
+      "approximations": {
+       "region_offsets_ignored": 0,
+       "flat_cap_segments": 0,
+       "cubics_flattened": 0
+      }
+     },
+     {
+      "key": "mask.back",
+      "role": "mask",
+      "layerId": 7,
+      "z": -3.750000674277537e-05,
+      "shapes": 183,
+      "subtractShapes": 183,
+      "regionBatches": 2,
+      "fanVertices": 8010,
+      "covers": 1213,
+      "approximations": {
+       "region_offsets_ignored": 0,
+       "flat_cap_segments": 0,
+       "cubics_flattened": 0
+      }
+     }
+    ],
+    "operations": 672
+   },
+   {
+    "bytes": 175488,
+    "fetchMs": 2.1,
+    "attachMs": 53.8,
+    "firstAnalyticFrameMs": 131,
+    "timings": {
+     "release": 0,
+     "open": 13,
+     "lowerIn": "main",
+     "lower": 30,
+     "slices": 9,
+     "barrels": 1,
+     "walls": 0,
+     "nets": 1,
+     "features": 0,
+     "attach": 0
+    },
+    "slices": [
+     {
+      "key": "copper.front",
+      "role": "copper",
+      "face": "top",
+      "layerId": 5,
+      "z": 0.0016524999932572245,
+      "shapes": 388,
+      "subtractShapes": 41,
+      "regionBatches": 4,
+      "fanVertices": 26214,
+      "covers": 1063,
+      "approximations": {
+       "region_offsets_ignored": 0,
+       "flat_cap_segments": 0,
+       "cubics_flattened": 0
+      }
+     },
+     {
+      "key": "copper.front",
+      "role": "copper",
+      "face": "bottom",
+      "layerId": 5,
+      "z": 0.0016174999932572246,
+      "shapes": 388,
+      "subtractShapes": 41,
+      "regionBatches": 4,
+      "fanVertices": 26214,
+      "covers": 1063,
+      "approximations": {
+       "region_offsets_ignored": 0,
+       "flat_cap_segments": 0,
+       "cubics_flattened": 0
+      }
+     },
+     {
+      "key": "copper.back",
+      "role": "copper",
+      "face": "top",
+      "layerId": 6,
+      "z": 1.749999325722461e-05,
+      "shapes": 109,
+      "subtractShapes": 41,
+      "regionBatches": 2,
+      "fanVertices": 11037,
+      "covers": 1113,
+      "approximations": {
+       "region_offsets_ignored": 0,
+       "flat_cap_segments": 0,
+       "cubics_flattened": 0
+      }
+     },
+     {
+      "key": "copper.back",
+      "role": "copper",
+      "face": "bottom",
+      "layerId": 6,
+      "z": -1.7500006742775394e-05,
+      "shapes": 109,
+      "subtractShapes": 41,
+      "regionBatches": 2,
+      "fanVertices": 11037,
+      "covers": 1113,
+      "approximations": {
+       "region_offsets_ignored": 0,
+       "flat_cap_segments": 0,
+       "cubics_flattened": 0
+      }
+     },
+     {
+      "key": "mask.front",
+      "role": "mask",
+      "layerId": 4,
+      "z": 0.0016724999932572245,
+      "shapes": 298,
+      "subtractShapes": 298,
+      "regionBatches": 2,
+      "fanVertices": 8010,
+      "covers": 1213,
+      "approximations": {
+       "region_offsets_ignored": 0,
+       "flat_cap_segments": 0,
+       "cubics_flattened": 0
+      }
+     },
+     {
+      "key": "mask.back",
+      "role": "mask",
+      "layerId": 7,
+      "z": -3.750000674277537e-05,
+      "shapes": 183,
+      "subtractShapes": 183,
+      "regionBatches": 2,
+      "fanVertices": 8010,
+      "covers": 1213,
+      "approximations": {
+       "region_offsets_ignored": 0,
+       "flat_cap_segments": 0,
+       "cubics_flattened": 0
+      }
+     }
+    ],
+    "operations": 672
+   }
+  ]
+ }
+}

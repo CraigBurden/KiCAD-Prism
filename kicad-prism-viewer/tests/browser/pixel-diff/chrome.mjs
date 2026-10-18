@@ -114,6 +114,7 @@ class Page {
     Object.assign(this, ids);
     this.connection = connection;
     this.inflight = new Set();
+    this.bytesLoaded = 0;
     this.lastNetworkAt = Date.now();
     this.errors = [];
     this.listener = (message) => {
@@ -123,6 +124,7 @@ class Page {
         this.inflight.add(params.requestId);
         this.lastNetworkAt = Date.now();
       } else if (method === "Network.loadingFinished" || method === "Network.loadingFailed") {
+        if (method === "Network.loadingFinished") this.bytesLoaded += params.encodedDataLength || 0;
         this.inflight.delete(params.requestId);
         this.lastNetworkAt = Date.now();
         if (method === "Network.loadingFailed" && !params.canceled) this.errors.push(`request failed: ${params.errorText}`);
