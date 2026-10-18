@@ -50,8 +50,8 @@ import { InsetViews, insetMatrix } from "./inset-view.js";
 import { DEFAULT_GPU_BUDGET_BYTES } from "./viewer-controllers.js";
 import { COLORMAPS, DEFAULT_ANALYTIC_STYLE } from "./analytic-colormaps.js";
 import { analyticWasmKey, analyticWasmUrl, DEFAULT_TOLERANCE_NM, openAnalyticPack } from "./analytic-pack.js";
-import { isLoweringCached } from "./analytic-lower-cache.js";
-import { LowerPool } from "./analytic-lower-client.js";
+import { BOARD_RECORD_KEY, isLoweringCached, readLowered } from "./analytic-lower-cache.js";
+import { hostedPack, LowerPool, MAX_LOWER_WORKERS, storedPack, workerCount } from "./analytic-lower-client.js";
 import { AnalyticRenderer } from "./analytic-renderer.js";
 import { analyticBoardLooks, analyticSceneManifest } from "./analytic-scene.js";
 import { analyticFeatureId, applyAnalyticOverlay, applyAnalyticStyle, applyAnalyticVectors, attachAnalyticPack, describeAnalyticHit, fieldAlongRay, netIdByName, operationSliceKey, reliefSlices } from "./analytic-board.js";
@@ -593,7 +593,7 @@ export async function mountStandaloneViewer(options = {}) {
       const offsets = stackupOffsets();
       const picked = operationSliceKey(board.analytic.pack.header, hit.operationIndex);
       const field = (picked && fieldAlongRay(board.analytic, ray, offsets, picked)) || fieldAlongRay(board.analytic, ray, offsets);
-      const described = describeAnalyticHit(board.analytic, hit.operationIndex, field);
+      const described = await describeAnalyticHit(board.analytic, hit.operationIndex, field);
       return field ? { ...described, marker: surfaceMarker(field.world) } : described;
     },
     analyticStats,
@@ -697,8 +697,8 @@ async function fetchAssetBytes(url, b = board) {
 
 /**
  * V2a (ADR amendment V2 §2.1): open an analytic bundle's pack and build the
- * board scene from its header and the stackup. The pack stays open on
- * `b.analyticSource` for the board's attach.
+ * board scene from its header and the stackup. The pack stays open, in a
+ * worker, on `b.analyticSource` for the board's attach.
  */
 async function openAnalyticSource(b, token, performanceTimings) {
   const assets = b.semanticGeometry.assets || {};
@@ -712,17 +712,25 @@ async function openAnalyticSource(b, token, performanceTimings) {
   performanceTimings.analytic_pack_bytes = bytes.byteLength;
   b.loadedBytes += bytes.byteLength;
   if (!viewerSessionActive(token)) return false;
-  // The lowering workers open the pack while this thread does (V2 §7), unless
-  // a full load of this bundle already stored every lowered slice.
+  // The pack opens in the lowering workers, never on this thread (V2a): one
+  // worker hosts it for the board's life, and a full pool lowers the slices
+  // unless a full load of this bundle already stored every one of them.
   const cacheKey = b.semanticGeometry.cache_key || "";
   const lowered = b.assetCache && cacheKey
     ? await isLoweringCached(b.assetCache, { cacheKey, wasmKey: analyticWasmKey(), toleranceNm: DEFAULT_TOLERANCE_NM })
     : false;
   performanceTimings.analytic_lowering_cached = lowered;
-  const pool = lowered ? null : LowerPool.start(bytes, analyticWasmUrl());
+  const pool = LowerPool.start(bytes, analyticWasmUrl(), lowered ? 1 : workerCount(MAX_LOWER_WORKERS));
   started = performance.now();
-  const pack = await openAnalyticPack(bytes);
+  // A board opened again reads what it needs from the pack in the cache, and waits for no worker.
+  const record = lowered
+    ? (await readLowered(b.assetCache, { cacheKey, wasmKey: analyticWasmKey(), toleranceNm: DEFAULT_TOLERANCE_NM }, [BOARD_RECORD_KEY])).get(BOARD_RECORD_KEY)
+    : null;
+  // Without a worker (a page that cannot start one), this thread opens it after all.
+  const pack = (record && storedPack(record, pool)) || (pool && await hostedPack(pool)) || await openAnalyticPack(bytes);
+  performanceTimings.analytic_pack_from_cache = Boolean(record);
   performanceTimings.analytic_pack_open_ms = performance.now() - started;
+  performanceTimings.analytic_pack_hosted = Boolean(pack.hosted);
   if (!viewerSessionActive(token)) {
     pack.free();
     pool?.close();
@@ -760,10 +768,13 @@ async function loadAnalyticBoard(token, b, performanceTimings) {
   };
   const started = performance.now();
   const full = await attachAnalyticPack(common);
-  source.pool?.close();
+  // The host worker stays for the pack; the rest of the pool goes.
+  if (source.pool && full.pack.hosted) void source.pool.release();
+  else source.pool?.close();
   source.pool = null;
   if (generation !== analyticGeneration || !viewerSessionActive(token) || !b.renderer) {
     full.analytic.destroy();
+    full.pack.free();
     return null;
   }
   b.renderer.setAnalytic(full.analytic);
@@ -6010,7 +6021,7 @@ function pickHitAtEvent(event) {
 async function pickHit(x, y) {
   if (system) return pickSystem(x, y);
   const hit = await pickBoardHit(x, y);
-  if (hit?.kind === "analytic" && board.analytic) return { ...hit, featureId: analyticFeatureId(board.analytic, hit.operationIndex) || null };
+  if (hit?.kind === "analytic" && board.analytic) return { ...hit, featureId: (await analyticFeatureId(board.analytic, hit.operationIndex)) || null };
   return hit;
 }
 

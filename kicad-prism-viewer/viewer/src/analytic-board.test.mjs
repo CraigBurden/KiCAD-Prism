@@ -89,7 +89,7 @@ test("with reach, copper smaller than a texel still stops the ray", () => {
   assert.equal(reached.value, 9);
 });
 
-test("plane copper with a per-operation value reads the raster, not a via barrel", () => {
+test("plane copper with a per-operation value reads the raster, not a via barrel", async () => {
   // The run's per-operation values cover planes as well as barrels; only the pack's barrels are barrels.
   const state = {
     overlay: { kind: "field_grid", quantity: "voltage_v", units: "V", barrels: [0.9, 0.8] },
@@ -97,10 +97,10 @@ test("plane copper with a per-operation value reads the raster, not a via barrel
     pack: { binding: () => null },
   };
   const field = { value: 0.85, sliceKey: "copper.in4", boardMm: [1, 2], world: [0.001, -0.002, 0] };
-  const plane = describeAnalyticHit(state, 0, field);
+  const plane = await describeAnalyticHit(state, 0, field);
   assert.equal(plane.sliceKey, "copper.in4");
   assert.equal(plane.value, 0.85);
-  const barrel = describeAnalyticHit(state, 1, field);
+  const barrel = await describeAnalyticHit(state, 1, field);
   assert.equal(barrel.sliceKey, "via barrel");
   assert.equal(barrel.value, 0.8);
 });

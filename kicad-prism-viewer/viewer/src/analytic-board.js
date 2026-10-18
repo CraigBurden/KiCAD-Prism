@@ -15,8 +15,9 @@ import {
   valueRange,
 } from "./analytic-pack.js";
 import { lowerSlicesInWorkers, sliceWeights } from "./analytic-lower-client.js";
-import { markLoweringCached, readLowered, writeLowered } from "./analytic-lower-cache.js";
+import { BOARD_RECORD_KEY, boardRecord, decodeLowered, markLoweringCached, readLowered, writeLowered } from "./analytic-lower-cache.js";
 import { rasterizeBoardClip } from "./analytic-clip.js";
+import { maskSteps, stepKey } from "./analytic-prepare.js";
 import { AnalyticRenderer } from "./analytic-renderer.js";
 
 /**
@@ -76,8 +77,12 @@ export async function attachAnalyticPack({
     timings[name] = Math.round(now - mark);
     mark = now;
   };
-  // The caller may have opened the pack already (`pack`), while the pack's bytes reached the workers.
+  // The caller may have opened the pack already (`pack`): in the bundle viewer it is
+  // the pool's host worker's (`hostedPack`), and this thread never opens it.
   const pack = openPack || await openAnalyticPack(bytes, { wasm });
+  // Whatever no worker gave is lowered on this thread, from a pack opened here only then.
+  let local = pack.lowerSlice ? pack : null;
+  const localPack = async () => (local ??= await openAnalyticPack(bytes, { wasm }));
   lap("open");
   const zOffset = copperZOffset(renderer.entries, layers, boardZOffsetMm);
   const { planned, unmatched } = planBoardSlices(pack.header, layers, zOffset);
@@ -100,17 +105,33 @@ export async function attachAnalyticPack({
     : pool ? await pool.lower(missing, tolerance, weights)
     : await lowerSlicesInWorkers(bytes, missing, tolerance, wasm ?? analyticWasmUrl(), { weights });
   timings.lowerIn = !missing.length ? "none" : fromWorkers ? "workers" : "main";
+  // Workers send each slice's cache bytes: views over them draw, and the same bytes are stored.
   const fresh = new Map();
-  for (const key of missing) fresh.set(key, fromWorkers?.get(key) ?? pack.lowerSlice(key, toleranceNm));
-  for (const [key, value] of fresh) lowered.set(key, value);
-  const written = cacheIdentity && fresh.size ? writeLowered(cache.store, cacheIdentity, fresh) : Promise.resolve();
-  // Every slice is stored once the writes land: say so, for the next open.
-  if (cacheIdentity) void markLoweringCached(cache.store, cacheIdentity, written);
+  for (const key of missing) {
+    const sent = fromWorkers?.get(key);
+    fresh.set(key, sent || (await localPack()).lowerSlice(key, toleranceNm));
+    lowered.set(key, sent ? decodeLowered(sent) : fresh.get(key));
+  }
   const slices = planned.map((slice) => ({
     ...slice,
     color: slice.role === "copper" ? colorFor(byId.get(slice.layerId)) : slice.color || [1, 1, 1, 1],
     lowered: lowered.get(slice.key),
   }));
+  // The conformal masks' steps, planned in the workers and cached with the slices.
+  const steps = maskSteps(slices);
+  const stepKeys = steps.map(([mask, copper]) => stepKey(mask, copper));
+  const storedSteps = cacheIdentity ? await readLowered(cache.store, cacheIdentity, stepKeys) : new Map();
+  const unplanned = steps.filter((_, index) => !storedSteps.has(stepKeys[index]));
+  const fromPool = unplanned.length && pool ? await pool.steps(unplanned.map(([mask, copper]) => [copper.lowered, mask.lowered])) : [];
+  const freshSteps = new Map();
+  unplanned.forEach(([mask, copper], index) => { if (fromPool[index]) freshSteps.set(stepKey(mask, copper), fromPool[index]); });
+  steps.forEach(([mask], index) => {
+    const sent = freshSteps.get(stepKeys[index]);
+    mask.step = storedSteps.get(stepKeys[index]) || (sent && decodeLowered(sent)) || null;
+  });
+  timings.steps = `${storedSteps.size} cached, ${freshSteps.size} in workers, ${steps.length - storedSteps.size - freshSteps.size} here`;
+  const toWrite = new Map([...fresh, ...freshSteps]);
+  const written = cacheIdentity && toWrite.size ? writeLowered(cache.store, cacheIdentity, toWrite) : Promise.resolve();
   const lowerMs = performance.now() - started;
   lap("lower");
   // Compiled off the frame since boot (main.js); a no-op once they are cached.
@@ -123,7 +144,7 @@ export async function attachAnalyticPack({
   const outline = slices.find((slice) => slice.role === "dielectric" && slice.lowered?.contourEdges?.length)?.lowered.contourEdges;
   // The board clip, from the same outline (V2a; analytic-clip.js).
   const clipMask = rasterizeBoardClip(outline);
-  const barrels = pack.barrels();
+  const barrels = await pack.barrels();
   analytic.setBarrels(planBarrels(pack.header, barrels, slices, outline));
   analytic.setBoardClipMask(clipMask);
   lap("barrels");
@@ -135,9 +156,15 @@ export async function attachAnalyticPack({
   lap("walls");
   // Net glow and isolation read each operation's viewer net.
   // Per pack, not per slice: a later phase passes the first one's.
-  const netIds = knownNetIds || operationNetIds(pack, nets);
+  const netIndices = knownNetIds ? null : await pack.netIndices?.();
+  const netIds = knownNetIds || operationNetIds(netIndices ? { header: pack.header, netIndices: () => netIndices } : pack, nets);
   analytic.setOperationNets(netIds);
   lap("nets");
+  // With the board's record, every slice and step stored: say so, for the next open.
+  if (cacheIdentity) {
+    const record = netIndices ? writeLowered(cache.store, cacheIdentity, new Map([[BOARD_RECORD_KEY, boardRecord(pack.header, barrels, netIndices)]])) : Promise.resolve();
+    void markLoweringCached(cache.store, cacheIdentity, Promise.all([written, record]));
+  }
   const featuresBySource = new Map();
   for (const feature of features || []) {
     if (!feature?.sourceUid) continue;
@@ -145,6 +172,7 @@ export async function attachAnalyticPack({
     featuresBySource.get(feature.sourceUid).push(feature);
   }
   lap("features");
+  if (local && local !== pack) local.free();
   return { pack, analytic, unmatched, lowerMs, timings, zOffset, operations: operationCount(pack.header), overlay: null, netIds, featuresBySource, barrelOperations, lowered };
 }
 
@@ -152,8 +180,8 @@ export async function attachAnalyticPack({
  * The viewer feature an operation came from (by its binding's source uid,
  * preferring one on the operation's net), or 0: what a click on it selects.
  */
-export function analyticFeatureId(state, operationIndex) {
-  const source = state.pack.binding(operationIndex)?.source_uid;
+export async function analyticFeatureId(state, operationIndex) {
+  const source = (await state.pack.binding(operationIndex))?.source_uid;
   const candidates = source ? state.featuresBySource?.get(source) || [] : [];
   const net = state.netIds?.[operationIndex] || 0;
   const feature = candidates.find((item) => Number(item.netId) === net) || candidates[0];
@@ -408,7 +436,7 @@ export function fieldAlongRay(state, ray, layerOffsets, sliceKey = null, layers 
  * value: the operation's own for per-operation overlays, or the field at
  * `field` (from `fieldAlongRay`) for raster overlays.
  */
-export function describeAnalyticHit(state, operationIndex, field = null) {
+export async function describeAnalyticHit(state, operationIndex, field = null) {
   const overlay = state.overlay;
   // A via barrel has its own value; the copper reads the raster.
   const own = overlay?.kind === "operation_values" ? overlay.values[operationIndex] : overlay?.barrels?.[operationIndex];
@@ -418,8 +446,8 @@ export function describeAnalyticHit(state, operationIndex, field = null) {
   if (barrel) field = { ...field, sliceKey: "via barrel" };
   return {
     operationIndex,
-    featureId: analyticFeatureId(state, operationIndex) || null,
-    binding: state.pack.binding(operationIndex),
+    featureId: (await analyticFeatureId(state, operationIndex)) || null,
+    binding: await state.pack.binding(operationIndex),
     ...(Number.isFinite(value) ? { value, quantity: overlay.quantity, units: overlay.units } : {}),
     ...(field ? { sliceKey: field.sliceKey, boardMm: field.boardMm, world: field.world } : {}),
   };

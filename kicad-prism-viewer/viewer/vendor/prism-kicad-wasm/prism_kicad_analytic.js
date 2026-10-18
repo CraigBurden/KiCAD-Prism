@@ -1,5 +1,6 @@
 /**
- * An opened pack: its header, binding, and holes, ready to lower slices.
+ * An opened pack: its reader (header, binding and chunk directory, parsed
+ * once) and holes, ready to lower slices.
  */
 export class AnalyticPack {
     __destroy_into_raw() {

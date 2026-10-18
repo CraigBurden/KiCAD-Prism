@@ -9,9 +9,6 @@ import {
   WALL_INSTANCE_BYTES,
   BATCH_WORDS,
   COVER_WORDS,
-  EDGE_SKIRT,
-  EDGE_SUBTRACT,
-  EDGE_WORDS,
   OVERLAY_FIELD,
   OVERLAY_NONE,
   OVERLAY_VALUES,
@@ -21,6 +18,7 @@ import {
   STENCIL_STEPS,
 } from "./analytic-shaders.js";
 import { DEFAULT_ANALYTIC_STYLE, RAMP_SIZE, resolveStyle, sampleColormap } from "./analytic-colormaps.js";
+import { planOpenings, withPackedEdges } from "./analytic-prepare.js";
 
 const BLEND = {
   color: { srcFactor: "src-alpha", dstFactor: "one-minus-src-alpha" },
@@ -44,22 +42,6 @@ export function withSentinels(values) {
  * `bounds` the slice's board-millimetre extent. Without the stencil feature
  * only add shapes draw (no subtracts, no regions); `stats().degraded` says so.
  */
-/** A shape record's bounds on the board (millimetres): its local bounds through its affine. */
-export function recordBounds(words, index) {
-  const f = new Float32Array(words.buffer, words.byteOffset + index * SHAPE_WORDS * 4, SHAPE_WORDS);
-  const [m11, m12, m21, m22, tx, ty] = [f[4], f[5], f[6], f[7], f[8], f[9]];
-  const box = [Infinity, Infinity, -Infinity, -Infinity];
-  for (const [x, y] of [[f[10], f[11]], [f[12], f[11]], [f[10], f[13]], [f[12], f[13]]]) {
-    const bx = m11 * x + m12 * y + tx;
-    const by = m21 * x + m22 * y + ty;
-    box[0] = Math.min(box[0], bx);
-    box[1] = Math.min(box[1], by);
-    box[2] = Math.max(box[2], bx);
-    box[3] = Math.max(box[3], by);
-  }
-  return box;
-}
-
 /** How far (mm) a conformal mask's step stands off its copper, clearing the copper's wall. */
 export const STEP_CLEARANCE_MM = 0.0005;
 
@@ -619,7 +601,7 @@ export class AnalyticRenderer {
         // openings. It stands a hair off the copper (STEP_CLEARANCE_MM), not a
         // coat's width: the raised mask then lies exactly over the copper,
         // with no translucent band to see the bare wall through.
-        const openings = this.uploadOpenings(copper, slice);
+        const openings = this.uploadOpenings(copper, slice, slice.step);
         const laminate = slice.faceDown ? copper.zTop : copper.zBottom;
         entry.foot = twin(copper, {
           role: "footprint", z: slice.z, dilate: STEP_CLEARANCE_MM, mark: false, walls: false,
@@ -631,59 +613,13 @@ export class AnalyticRenderer {
   }
 
   /**
-   * For a mask's step around `copper`: the copper's shapes with the mask's
-   * opening shapes after them, and the edges and cuts that list, per copper
-   * shape and region edge, the openings that reach it (by bounds).
+   * Upload a mask's step around `copper` (see `planOpenings`): `step` as the
+   * workers prepared it, or planned here.
    */
-  uploadOpenings(copper, mask) {
-    const { lowered } = copper;
-    const openings = mask.lowered.shapes.subarray(0, mask.lowered.subtractShapes * SHAPE_WORDS);
-    const base = lowered.shapes.length / SHAPE_WORDS;
-    const shapes = new Uint32Array(lowered.shapes.length + openings.length);
-    shapes.set(lowered.shapes);
-    shapes.set(openings, lowered.shapes.length);
-    const cells = new Map();
-    const cell = (x, y) => `${Math.floor(x)},${Math.floor(y)}`;
-    const boxes = [];
-    for (let i = 0; i < openings.length / SHAPE_WORDS; i += 1) {
-      const box = recordBounds(openings, i);
-      boxes.push(box);
-      for (let x = Math.floor(box[0]); x <= Math.floor(box[2]); x += 1) {
-        for (let y = Math.floor(box[1]); y <= Math.floor(box[3]); y += 1) {
-          const key = cell(x, y);
-          if (!cells.has(key)) cells.set(key, []);
-          cells.get(key).push(i);
-        }
-      }
-    }
-    const indices = [];
-    const ranges = [];
-    const reach = (box) => {
-      const found = new Set();
-      for (let x = Math.floor(box[0]); x <= Math.floor(box[2]); x += 1) {
-        for (let y = Math.floor(box[1]); y <= Math.floor(box[3]); y += 1) {
-          for (const i of cells.get(cell(x, y)) || []) {
-            const b = boxes[i];
-            if (b[0] <= box[2] && box[0] <= b[2] && b[1] <= box[3] && box[1] <= b[3]) found.add(i);
-          }
-        }
-      }
-      ranges.push(indices.length, found.size);
-      for (const i of found) indices.push(base + i);
-    };
-    // Grown by the coat and a margin: the step lies that far out.
-    const grow = (box) => [box[0] - 0.05, box[1] - 0.05, box[2] + 0.05, box[3] + 0.05];
-    for (let i = lowered.subtractShapes; i < base; i += 1) reach(grow(recordBounds(lowered.shapes, i)));
-    const shapeCount = base - lowered.subtractShapes;
-    const edges = lowered.contourEdges || new Float32Array(0);
-    for (let e = 0; e + 3 < edges.length; e += 4) reach(grow([Math.min(edges[e], edges[e + 2]), Math.min(edges[e + 1], edges[e + 3]), Math.max(edges[e], edges[e + 2]), Math.max(edges[e + 1], edges[e + 3])]));
-    const cuts = {
-      shapeCuts: new Uint32Array(ranges.slice(0, shapeCount * 2)),
-      edgeCuts: new Uint32Array(ranges.slice(shapeCount * 2)),
-      cutIndices: new Uint32Array(indices),
-    };
-    const uploaded = this.uploadEdges({ ...lowered, ...cuts }, `${copper.key}-step`);
-    const shapeBuffer = this.buffer(shapes, GPUBufferUsage.STORAGE, `analytic-step-shapes-${copper.key}`);
+  uploadOpenings(copper, mask, step = null) {
+    const planned = step || planOpenings(copper.lowered, mask.lowered);
+    const uploaded = this.uploadEdges(planned, `${copper.key}-step`);
+    const shapeBuffer = this.buffer(planned.shapes, GPUBufferUsage.STORAGE, `analytic-step-shapes-${copper.key}`);
     this.twinBuffers.push(shapeBuffer, uploaded.edges, uploaded.cuts);
     return { ...uploaded, shapes: shapeBuffer };
   }
@@ -717,53 +653,14 @@ export class AnalyticRenderer {
     return gpu;
   }
 
-  /**
-   * What a slab's walls need. The region edges they rise from,
-   * `EDGE_WORDS` words each: the adding regions' contour edges (a
-   * subtracting region's edges bound nothing drawn), each with its holes'
-   * range. And the cuts: each add shape's holes' range, then the hole
-   * records the ranges name.
-   */
+  /** A slab's walls and cuts (see `packEdges`), packed by the workers or here. */
   uploadEdges(lowered, key) {
-    const edges = lowered.contourEdges || new Float32Array(0);
-    const operations = lowered.contourEdgeOperations || new Uint32Array(0);
-    const shapeCuts = lowered.shapeCuts || new Uint32Array(0);
-    const edgeCuts = lowered.edgeCuts || new Uint32Array(0);
-    const indices = lowered.cutIndices || new Uint32Array(0);
-    // Ranges point past the shapes' ranges, into the records that follow them.
-    const base = shapeCuts.length;
-    const cuts = new Uint32Array(Math.max(1, base + indices.length));
-    for (let i = 0; i < base; i += 2) cuts.set([shapeCuts[i] + base, shapeCuts[i + 1]], i);
-    cuts.set(indices, base);
-    const outlines = lowered.outlineEdges || new Float32Array(0);
-    const shapes = lowered.outlineShapes || new Uint32Array(0);
-    const count = Math.min(edges.length / 4, operations.length);
-    const words = new Uint32Array(Math.max(1, count + shapes.length) * EDGE_WORDS);
-    const bits = new Uint32Array(edges.buffer, edges.byteOffset, edges.length);
-    let kept = 0;
-    for (let edge = 0; edge < count; edge += 1) {
-      if (operations[edge] & EDGE_SUBTRACT) continue;
-      const at = kept * EDGE_WORDS;
-      words.set(bits.subarray(edge * 4, edge * 4 + 4), at);
-      words[at + 4] = operations[edge];
-      words[at + 5] = (edgeCuts[edge * 2] ?? 0) + base;
-      words[at + 6] = edgeCuts[edge * 2 + 1] ?? 0;
-      kept += 1;
-    }
-    const regionEdges = kept;
-    // Then each add shape's outline skirt, tagged with the shape.
-    const outlineBits = new Uint32Array(outlines.buffer, outlines.byteOffset, outlines.length);
-    for (let edge = 0; edge < shapes.length; edge += 1) {
-      const at = kept * EDGE_WORDS;
-      words.set(outlineBits.subarray(edge * 4, edge * 4 + 4), at);
-      words[at + 4] = (EDGE_SKIRT | shapes[edge]) >>> 0;
-      kept += 1;
-    }
+    const { edgeWords, cutWords, regionEdges, skirtEdges } = withPackedEdges(lowered);
     return {
-      edges: this.buffer(words, GPUBufferUsage.STORAGE, `analytic-edges-${key}`),
+      edges: this.buffer(edgeWords, GPUBufferUsage.STORAGE, `analytic-edges-${key}`),
       regionEdges,
-      skirtEdges: kept - regionEdges,
-      cuts: this.buffer(cuts, GPUBufferUsage.STORAGE, `analytic-cuts-${key}`),
+      skirtEdges,
+      cuts: this.buffer(cutWords, GPUBufferUsage.STORAGE, `analytic-cuts-${key}`),
     };
   }
 
