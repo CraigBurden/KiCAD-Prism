@@ -11,9 +11,12 @@ fills.
 
 from __future__ import annotations
 
+import hashlib
 import re
 import shutil
 import tempfile
+import threading
+from concurrent.futures import Future, ThreadPoolExecutor
 from pathlib import Path, PurePosixPath
 from typing import Callable, Mapping
 
@@ -134,44 +137,106 @@ def _normalized(path: PurePosixPath) -> str | None:
     return "/".join(parts) or None
 
 
+class UpgradeCache:
+    """Upgraded bytes by what determines them, shared by the source sets of one comparison.
+
+    A board's upgrade reads the board and the project file copied beside it; a
+    schematic's reads the schematic and the project file of the same stem, if
+    any (cli-spec.md §9.4; a sheet's sub-sheets do not change its output). Two
+    revisions that share a file at the same content upgrade it once.
+    """
+
+    def __init__(self) -> None:
+        self._lock = threading.Lock()
+        self._futures: dict[str, Future[bytes]] = {}
+
+    def get(self, key: str, upgrade: Callable[[], bytes]) -> bytes:
+        with self._lock:
+            future = self._futures.get(key)
+            owner = future is None
+            if owner:
+                future = self._futures[key] = Future()
+        assert future is not None
+        if owner:
+            try:
+                future.set_result(upgrade())
+            except BaseException as error:
+                future.set_exception(error)
+        return future.result()
+
+
 def upgrade_sources(
     src: Path,
     config: Mapping[str, object],
     file_formats: Mapping[str, int],
     *,
     cancel: Callable[[], None] | None = None,
+    cache: UpgradeCache | None = None,
 ) -> list[dict[str, object]]:
     """cli-spec.md §9.4 over the closure's documents; returns ``[{path, upgraded_from_version}]``.
 
     ``file_formats`` is the generator id's ``kicad_file_formats``: a board or
-    schematic older than its kind's format is upgraded.
+    schematic older than its kind's format is upgraded. Each file is upgraded
+    in its own scratch directory with only the project file it reads, so the
+    upgrades run at once (``PRISM_DESIGN_BUNDLE_UPGRADE_WORKERS``) and give the
+    bytes the in-place upgrade gives.
     """
 
-    upgraded: list[dict[str, object]] = []
+    selected: list[tuple[str, int, bool]] = []
     for path in closure_documents(src, config):
-        target = src / path
-        version = file_version(target)
+        version = file_version(src / path)
         board = path.lower().endswith(".kicad_pcb")
         current = int(file_formats["board" if board else "schematic"])
         if version is None or version >= current:
             continue  # current, newer (stage parse records source-format-unsupported) or unreadable
-        if board:
-            _upgrade_board(src, config, target, cancel=cancel)
-        else:
-            _upgrade_schematic(target, cancel=cancel)
-        upgraded.append({"path": path, "upgraded_from_version": version})
-    return upgraded
+        selected.append((path, version, board))
+    if not selected:
+        return []
+    cache = cache or UpgradeCache()
+
+    def upgrade(path: str, board: bool) -> bytes:
+        target = src / path
+        project = _project_beside(src, config, target, board)
+        key = _upgrade_key(board, target.read_bytes(), project.read_bytes() if project else None)
+        upgraded = cache.get(key, lambda: _upgrade_isolated(target, project, board, cancel=cancel))
+        target.write_bytes(upgraded)
+        return upgraded
+
+    workers = min(settings.PRISM_DESIGN_BUNDLE_UPGRADE_WORKERS, len(selected))
+    with ThreadPoolExecutor(max_workers=workers, thread_name_prefix="kicad-upgrade") as pool:
+        futures = [pool.submit(upgrade, path, board) for path, _, board in selected]
+        for future in futures:
+            future.result()
+    return [{"path": path, "upgraded_from_version": version} for path, version, _ in selected]
 
 
-def _upgrade_board(src: Path, config: Mapping[str, object], board: Path, *, cancel: Callable[[], None] | None) -> None:
+def _project_beside(src: Path, config: Mapping[str, object], target: Path, board: bool) -> Path | None:
+    """The project file the upgrade of ``target`` reads: the project's for a board, the same stem's for a schematic."""
+
+    project = src / str(config["project_file"]) if board else target.with_suffix(".kicad_pro")
+    return project if project.is_file() else None
+
+
+def _upgrade_key(board: bool, content: bytes, project: bytes | None) -> str:
+    digest = hashlib.sha256(b"board\0" if board else b"schematic\0")
+    digest.update(hashlib.sha256(content).digest())
+    digest.update(hashlib.sha256(project).digest() if project is not None else b"\0")
+    return digest.hexdigest()
+
+
+def _upgrade_isolated(target: Path, project: Path | None, board: bool, *, cancel: Callable[[], None] | None) -> bytes:
+    """Upgrade a copy of ``target`` beside a copy of ``project`` named after it; return the upgraded bytes."""
+
     with tempfile.TemporaryDirectory(prefix="kicad-upgrade-") as scratch:
-        work = Path(scratch) / board.name
-        shutil.copyfile(board, work)
-        project = src / str(config["project_file"])
-        if project.is_file():
+        work = Path(scratch) / target.name
+        shutil.copyfile(target, work)
+        if project is not None:
             shutil.copyfile(project, work.with_suffix(".kicad_pro"))
-        _run_python(UPGRADE_BOARD_SCRIPT, work, timeout=settings.PRISM_DESIGN_BUNDLE_UPGRADE_TIMEOUT_SECONDS, cancel=cancel)
-        shutil.copyfile(work, board)  # only the .kicad_pcb comes back
+        if board:
+            _run_python(UPGRADE_BOARD_SCRIPT, work, timeout=settings.PRISM_DESIGN_BUNDLE_UPGRADE_TIMEOUT_SECONDS, cancel=cancel)
+        else:
+            _upgrade_schematic(work, cancel=cancel)
+        return work.read_bytes()
 
 
 def _upgrade_schematic(schematic: Path, *, cancel: Callable[[], None] | None) -> None:

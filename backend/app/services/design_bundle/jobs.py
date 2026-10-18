@@ -169,13 +169,15 @@ def prepare_sources(
     work: Path,
     *,
     cancel: Callable[[], None],
+    upgrade_cache: kicad_steps.UpgradeCache | None = None,
 ) -> PreparedSources:
     """Materialize the key's source set into ``work/src``, upgrade older files, write the config and key record.
 
     The design-bundle job's parse step and Design Comparison's source-tree mode
     both use it, so a source tree ``compare`` reads is the tree stage parse
     would read. A source that cannot be materialized, or a KiCad upgrade that
-    fails, is retryable.
+    fails, is retryable. ``upgrade_cache`` lets the two revisions of one
+    comparison upgrade a shared file once.
     """
 
     src = work / "src"
@@ -183,7 +185,9 @@ def prepare_sources(
     config = dict(key.config or {})
     try:
         done = materialize.materialize(repo, record, src)
-        upgraded = kicad_steps.upgrade_sources(src, config, generator.kicad_file_formats, cancel=cancel)
+        upgraded = kicad_steps.upgrade_sources(
+            src, config, generator.kicad_file_formats, cancel=cancel, cache=upgrade_cache
+        )
     except (materialize.SourceUnavailable, kicad_steps.KicadStepFailed) as error:
         raise RetryableJobError(str(error), code="sources-unavailable", retry_after_seconds=30) from error
     effective, key_record = work / "effective.json", work / "key-record.json"
