@@ -62,10 +62,12 @@ class DesignBundleSettings(BaseSettings):
     # The design_bundle job
     # ===========================================
     PRISM_DESIGN_BUNDLE_AUTO_BUILD: bool = Field(
-        default=False,
+        default=True,
         description=(
             "Queue a design bundle for the project's HEAD after every import and sync, and run the "
-            "paced backfill of branch heads. Off: bundles are built only on demand."
+            "paced prebuild of each branch's newest commits and every tagged commit (ADR amendment "
+            "K2 §7). On by default since the C2r switch, which relies on warm bundles (C2r §10). "
+            "Off: bundles are built only on demand."
         ),
     )
     PRISM_DESIGN_BUNDLE_CLI_PATH: str = Field(
