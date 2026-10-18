@@ -3,7 +3,8 @@
 //! A board whose file has no `(stackup ...)` block still has a stackup:
 //! KiCad uses its default one, and Board Setup shows it (35 µm copper on
 //! every layer, 10 µm solder mask, dielectrics sharing the rest of the
-//! stated board thickness). The materializer reads only what the file
+//! stated board thickness, and the silkscreen and paste layers the board's
+//! layer table enables). The materializer reads only what the file
 //! states, so such a board would reach an engine with no copper thickness.
 //! Before materializing, the build writes the stackup KiCad would write
 //! when that board's Board Setup is saved, and the manifest records a
@@ -34,10 +35,47 @@ pub fn with_default_stackup(board: &str) -> Option<String> {
     if dielectric.is_nan() || dielectric <= 0.0 {
         return None;
     }
+    let technical = technical_layers(board);
     let mut block = String::from("\n\t\t(stackup\n");
+    // KiCad's default stackup carries the board's silkscreen and paste layers
+    // too (thickness unstated); without them the materializer drops both.
+    push_technical(&mut block, &technical, &FRONT_TECHNICAL);
     block.push_str(&format!(
         "\t\t\t(layer \"F.Mask\" (type \"Top Solder Mask\") (thickness {MASK_MM}))\n"
     ));
+    push_copper(&mut block, &copper, dielectric);
+    block.push_str(&format!(
+        "\t\t\t(layer \"B.Mask\" (type \"Bottom Solder Mask\") (thickness {MASK_MM}))\n"
+    ));
+    push_technical(&mut block, &technical, &BACK_TECHNICAL);
+    block.push_str("\t\t\t(copper_finish \"None\")\n\t\t\t(dielectric_constraints no)\n\t\t)");
+    let at = board.find("(setup")? + "(setup".len();
+    Some(format!("{}{}{}", &board[..at], block, &board[at..]))
+}
+
+/// Silkscreen and paste above the front mask, outermost first.
+const FRONT_TECHNICAL: [(&str, &str); 2] = [
+    ("F.SilkS", "Top Silk Screen"),
+    ("F.Paste", "Top Solder Paste"),
+];
+/// Paste and silkscreen below the back mask, innermost first.
+const BACK_TECHNICAL: [(&str, &str); 2] = [
+    ("B.Paste", "Bottom Solder Paste"),
+    ("B.SilkS", "Bottom Silk Screen"),
+];
+
+/// The `layers` the board's layer table has, as stackup entries.
+fn push_technical(block: &mut String, present: &[String], layers: &[(&str, &str)]) {
+    for (name, kind) in layers {
+        if present.iter().any(|layer| layer == name) {
+            block.push_str(&format!("\t\t\t(layer \"{name}\" (type \"{kind}\"))\n"));
+        }
+    }
+}
+
+/// Copper layers front to back with a dielectric of `dielectric` mm between each pair.
+fn push_copper(block: &mut String, copper: &[String], dielectric: f64) {
+    let gaps = copper.len() - 1;
     for (index, name) in copper.iter().enumerate() {
         block.push_str(&format!(
             "\t\t\t(layer \"{name}\" (type \"copper\") (thickness {COPPER_MM}))\n"
@@ -56,12 +94,6 @@ pub fn with_default_stackup(board: &str) -> Option<String> {
             ));
         }
     }
-    block.push_str(&format!(
-        "\t\t\t(layer \"B.Mask\" (type \"Bottom Solder Mask\") (thickness {MASK_MM}))\n"
-    ));
-    block.push_str("\t\t\t(copper_finish \"None\")\n\t\t\t(dielectric_constraints no)\n\t\t)");
-    let at = board.find("(setup")? + "(setup".len();
-    Some(format!("{}{}{}", &board[..at], block, &board[at..]))
 }
 
 fn round_um(mm: f64) -> f64 {
@@ -95,6 +127,21 @@ fn copper_layers(board: &str) -> Option<Vec<String>> {
     layers.extend(inner.into_iter().map(|(_, name)| name));
     layers.push("B.Cu".to_owned());
     Some(layers)
+}
+
+/// The silkscreen and paste layers the board's layer table names, by their
+/// canonical names (KiCad 6+ tables give the canonical name first).
+fn technical_layers(board: &str) -> Vec<String> {
+    let Some(table) = top_level_block(board, "(layers") else {
+        return Vec::new();
+    };
+    table
+        .split('"')
+        .skip(1)
+        .step_by(2)
+        .filter(|name| matches!(*name, "F.SilkS" | "B.SilkS" | "F.Paste" | "B.Paste"))
+        .map(str::to_owned)
+        .collect()
 }
 
 /// `(general (thickness N))`, millimetres.
@@ -156,6 +203,39 @@ mod tests {
             "{text}"
         );
         assert!(text.find("(stackup").unwrap() > text.find("(setup").unwrap());
+    }
+
+    #[test]
+    fn the_default_carries_the_boards_silkscreen_and_paste() {
+        // As KiCad saves it: silkscreen, paste and mask outside the copper, front to back.
+        let board = TWO_LAYER.replace(
+            "(9 \"F.Adhes\" user \"F.Adhesive\")",
+            "(13 \"F.Paste\" user)\n\t\t(15 \"B.Paste\" user)\n\t\t(5 \"F.SilkS\" user \"F.Silkscreen\")\n\t\t(7 \"B.SilkS\" user \"B.Silkscreen\")",
+        );
+        let text = with_default_stackup(&board).unwrap();
+        let at = |name: &str| text.find(&format!("(layer \"{name}\"")).unwrap();
+        assert!(
+            text.contains("(layer \"F.SilkS\" (type \"Top Silk Screen\"))"),
+            "{text}"
+        );
+        assert!(text.contains("(layer \"B.Paste\" (type \"Bottom Solder Paste\"))"));
+        let order = [
+            "F.SilkS",
+            "F.Paste",
+            "F.Mask",
+            "F.Cu",
+            "dielectric 1",
+            "B.Cu",
+            "B.Mask",
+            "B.Paste",
+            "B.SilkS",
+        ];
+        assert!(
+            order.windows(2).all(|pair| at(pair[0]) < at(pair[1])),
+            "{text}"
+        );
+        // A board without them gets none (TWO_LAYER enables neither).
+        assert!(!with_default_stackup(TWO_LAYER).unwrap().contains("SilkS"));
     }
 
     #[test]
