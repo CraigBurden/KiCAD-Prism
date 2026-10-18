@@ -2106,6 +2106,7 @@ export class Renderer {
       const viewport = clampViewport(panel.viewport, this.canvas.width, this.canvas.height);
       pass.setViewport(viewport.x, viewport.y, viewport.width, viewport.height, 0, 1);
       pass.setScissorRect(viewport.x, viewport.y, viewport.width, viewport.height);
+      if (this.analytic) this.analytic.viewport = viewport;
       const counted = this.encodeDraws(pass, panel, options);
       triangles += counted.triangles;
       draws += counted.draws;
@@ -2138,6 +2139,7 @@ export class Renderer {
     const viewport = clampViewport(panel.viewport, target.width, target.height);
     pass.setViewport(viewport.x, viewport.y, viewport.width, viewport.height, 0, 1);
     pass.setScissorRect(viewport.x, viewport.y, viewport.width, viewport.height);
+    if (this.analytic) this.analytic.viewport = viewport;
     const counted = this.encodeDraws(pass, panel, options);
     pass.end();
     this.device.queue.submit([encoder.finish()]);
@@ -2230,7 +2232,11 @@ export class Renderer {
       triangles += 12 * this.countFor(3);
       draws += 1;
     }
-    if (analyticContext) draws += this.analytic.encodeBlended(pass, layerOffsets, panel.layerId ? new Set([panel.layerId]) : visibleLayers, analyticContext);
+    if (analyticContext) {
+      // Barrels off the lit nets, in a separated stack: translucent, before the other blended layers.
+      draws += this.analytic.encodeGhostBarrels(pass);
+      draws += this.analytic.encodeBlended(pass, layerOffsets, panel.layerId ? new Set([panel.layerId]) : visibleLayers, analyticContext);
+    }
     this.drawBlended(pass, blendedEntries, pipelines, indirect);
     return { triangles, draws };
   }
@@ -2447,6 +2453,7 @@ export class Renderer {
     const viewport = clampViewport(panel.viewport, this.canvas.width, this.canvas.height);
     pass.setViewport(viewport.x, viewport.y, viewport.width, viewport.height, 0, 1);
     pass.setScissorRect(viewport.x, viewport.y, viewport.width, viewport.height);
+    if (this.analytic) this.analytic.viewport = viewport;
     this.encodePick(pass, panel, options);
     pass.end();
     return this.readPick(encoder, pixelX, pixelY);

@@ -89,6 +89,8 @@ The 3D journeys' budgets (set on 2026-10-18, amendment V2 §7) are measured in h
 | Bytes before the board shows | no more than the mesh path's (39 MB on EDA-04903) |
 | Cold commit: board shown | ≤ 120 s; peak ≤ 3 GB |
 | System Builder scene, warm system of five boards: every board drawn | ≤ 3 s (confirmed in V2b) |
+| 3D tab, inspecting: GPU time per frame orbiting at 2× pixels, every view (assembled, substrate hidden, separated, exploded) | p95 ≤ 16.7 ms |
+| System Builder scene, five boards, exploded: GPU time per frame orbiting at 2× pixels | p95 ≤ 16.7 ms |
 | Harness node drag: curve and tube redrawn | same frame (≤ 16 ms) |
 | Simulation result on a warm bundle: first overlay frame | ≤ 1 s; no geometry downloaded |
 

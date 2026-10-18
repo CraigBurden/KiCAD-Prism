@@ -202,10 +202,10 @@ test("operations carry the viewer's net ids, and name the feature a click select
   const featuresBySource = new Map();
   for (const feature of features) featuresBySource.set(feature.sourceUid, [...(featuresBySource.get(feature.sourceUid) || []), feature]);
   const state = { pack, netIds, featuresBySource };
-  assert.equal(analyticFeatureId(state, 1), 42);
+  assert.equal(await analyticFeatureId(state, 1), 42);
   // Of a source's features, the one on the operation's net.
-  assert.equal(analyticFeatureId(state, 3), 41);
-  assert.equal(analyticFeatureId(state, 0), 0);
+  assert.equal(await analyticFeatureId(state, 3), 41);
+  assert.equal(await analyticFeatureId(state, 0), 0);
   pack.free();
 });
 

@@ -6,12 +6,10 @@ import {
   ANALYTIC_WALL_SHADER,
   BARREL_INSTANCE_BYTES,
   BARREL_VIEW_BYTES,
+  GHOST_VERTICES,
   WALL_INSTANCE_BYTES,
   BATCH_WORDS,
   COVER_WORDS,
-  EDGE_SKIRT,
-  EDGE_SUBTRACT,
-  EDGE_WORDS,
   OVERLAY_FIELD,
   OVERLAY_NONE,
   OVERLAY_VALUES,
@@ -21,6 +19,7 @@ import {
   STENCIL_STEPS,
 } from "./analytic-shaders.js";
 import { DEFAULT_ANALYTIC_STYLE, RAMP_SIZE, resolveStyle, sampleColormap } from "./analytic-colormaps.js";
+import { plainSlab, planOpenings, withPackedEdges } from "./analytic-prepare.js";
 
 const BLEND = {
   color: { srcFactor: "src-alpha", dstFactor: "one-minus-src-alpha" },
@@ -44,21 +43,8 @@ export function withSentinels(values) {
  * `bounds` the slice's board-millimetre extent. Without the stencil feature
  * only add shapes draw (no subtracts, no regions); `stats().degraded` says so.
  */
-/** A shape record's bounds on the board (millimetres): its local bounds through its affine. */
-export function recordBounds(words, index) {
-  const f = new Float32Array(words.buffer, words.byteOffset + index * SHAPE_WORDS * 4, SHAPE_WORDS);
-  const [m11, m12, m21, m22, tx, ty] = [f[4], f[5], f[6], f[7], f[8], f[9]];
-  const box = [Infinity, Infinity, -Infinity, -Infinity];
-  for (const [x, y] of [[f[10], f[11]], [f[12], f[11]], [f[10], f[13]], [f[12], f[13]]]) {
-    const bx = m11 * x + m12 * y + tx;
-    const by = m21 * x + m22 * y + ty;
-    box[0] = Math.min(box[0], bx);
-    box[1] = Math.min(box[1], by);
-    box[2] = Math.max(box[2], bx);
-    box[3] = Math.max(box[3], by);
-  }
-  return box;
-}
+/** Pixels a slice's scissor reaches past its projected extent (MSAA, dilated shapes, wall shading). */
+const SCISSOR_MARGIN_PX = 2;
 
 /** How far (mm) a conformal mask's step stands off its copper, clearing the copper's wall. */
 export const STEP_CLEARANCE_MM = 0.0005;
@@ -367,8 +353,9 @@ export class AnalyticRenderer {
         { binding: 2, visibility: all, buffer: { type: "read-only-storage" } },
         { binding: 3, visibility: GPUShaderStage.FRAGMENT, buffer: { type: "read-only-storage" } },
         { binding: 4, visibility: all, buffer: { type: "read-only-storage" } },
-        { binding: 5, visibility: GPUShaderStage.FRAGMENT, buffer: { type: "read-only-storage" } },
-        { binding: 6, visibility: GPUShaderStage.FRAGMENT, buffer: { type: "read-only-storage" } },
+        // Nets and their emphasis: the vertex stage reads them too (ghost barrels, vs_ghost).
+        { binding: 5, visibility: all, buffer: { type: "read-only-storage" } },
+        { binding: 6, visibility: all, buffer: { type: "read-only-storage" } },
         { binding: 7, visibility: GPUShaderStage.FRAGMENT, buffer: { type: "uniform" } },
       ],
     });
@@ -377,8 +364,8 @@ export class AnalyticRenderer {
     const make = (format, pick) => this.device.createRenderPipeline({
       label: `analytic-barrel${pick ? "-pick" : ""}`,
       layout,
-      vertex: { module, entryPoint: "vs_barrel" },
-      fragment: { module, entryPoint: pick ? "fs_barrel_pick" : "fs_barrel", targets: [{ format }] },
+      vertex: { module, entryPoint: "vs_barrel", constants: { PICK_PASS: pick ? 1 : 0 } },
+      fragment: { module, entryPoint: pick ? "fs_barrel_pick" : "fs_barrel", targets: [{ format }], constants: { PICK_PASS: pick ? 1 : 0 } },
       // The box's triangles face inward: only its far side draws, once per
       // pixel of its silhouette, also with the eye inside it. The fragment
       // writes the tube's own depth.
@@ -387,6 +374,16 @@ export class AnalyticRenderer {
       multisample: { count: pick ? 1 : this.samples },
     });
     this.barrelPipelines = { color: make(this.renderer.format, false), pick: make("rg32uint", true) };
+    // Ghost barrels: translucent strips facing the eye, after the opaque geometry, writing no depth.
+    this.ghostPipeline = this.device.createRenderPipeline({
+      label: "analytic-ghost-barrel",
+      layout,
+      vertex: { module, entryPoint: "vs_ghost" },
+      fragment: { module, entryPoint: "fs_ghost", targets: [{ format: this.renderer.format, blend: BLEND }] },
+      primitive: { topology: "triangle-list", cullMode: "none" },
+      depthStencil: { format: this.renderer.depthFormat, depthWriteEnabled: false, depthCompare: "greater" },
+      multisample: { count: this.samples },
+    });
     this.barrelView = this.device.createBuffer({ label: "analytic-barrel-view", size: BARREL_VIEW_BYTES, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
     this.layerOffsets = this.device.createBuffer({ label: "analytic-layer-offsets", size: 256 * 4, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST });
     this.viewScratch = new ArrayBuffer(BARREL_VIEW_BYTES);
@@ -464,6 +461,9 @@ export class AnalyticRenderer {
     // Solid: shown, opaque, and not separated (the viewer then hides inner copper).
     words[15] = this.boardShown(context) && (context.boardOpacity ?? 1) >= 0.999 && this.renderer.innerCopperMode !== "all" ? 1 : 0;
     floats.set(this.overlay.range, 16);
+    // Separated: any layer lifted off its place (see `ghosted` in the barrel shader).
+    this.separated = Boolean(layerOffsets) && Array.prototype.some.call(layerOffsets, (offset) => Math.abs(offset) > 1e-12);
+    words[18] = this.separated ? 1 : 0;
     // A plated edge (the stackup's edge_plating) is copper, as the barrels are.
     floats.set(this.edgePlated ? [...(this.renderer.barrelColor || [0.55, 0.35, 0.16]).slice(0, 3), wallOpacity] : [...laminate.slice(0, 3), wallOpacity], 20);
     floats.set([...(this.boardLooks().soldermask?.color || [0.06, 0.16, 0.11]).slice(0, 3), 1], 24);
@@ -513,6 +513,19 @@ export class AnalyticRenderer {
     pass.setPipeline(pick ? this.barrelPipelines.pick : this.barrelPipelines.color);
     pass.setBindGroup(0, this.barrels.bindGroup);
     pass.draw(36, this.barrels.count);
+    return 1;
+  }
+
+  /**
+   * Draw the barrels a separated stack shows as ghosts (low translucent
+   * tubes; see `vs_ghost`), after the opaque geometry. Nothing while the
+   * stack is together: every barrel is then exact.
+   */
+  encodeGhostBarrels(pass) {
+    if (!this.barrels || !this.separated) return 0;
+    pass.setPipeline(this.ghostPipeline);
+    pass.setBindGroup(0, this.barrels.bindGroup);
+    pass.draw(GHOST_VERTICES, this.barrels.count);
     return 1;
   }
 
@@ -572,6 +585,7 @@ export class AnalyticRenderer {
     this.releaseSlices();
     const shared = new Map();
     this.slices = slices.map((slice) => this.uploadSlice(slice, shared));
+    this.makePlainSlabs(shared);
     this.makeTwins();
     // The board's extent in the world (before exploded offsets), for how big
     // a slab's walls can look (see `wallPixels`).
@@ -619,7 +633,7 @@ export class AnalyticRenderer {
         // openings. It stands a hair off the copper (STEP_CLEARANCE_MM), not a
         // coat's width: the raised mask then lies exactly over the copper,
         // with no translucent band to see the bare wall through.
-        const openings = this.uploadOpenings(copper, slice);
+        const openings = this.uploadOpenings(copper, slice, slice.step);
         const laminate = slice.faceDown ? copper.zTop : copper.zBottom;
         entry.foot = twin(copper, {
           role: "footprint", z: slice.z, dilate: STEP_CLEARANCE_MM, mark: false, walls: false,
@@ -631,59 +645,13 @@ export class AnalyticRenderer {
   }
 
   /**
-   * For a mask's step around `copper`: the copper's shapes with the mask's
-   * opening shapes after them, and the edges and cuts that list, per copper
-   * shape and region edge, the openings that reach it (by bounds).
+   * Upload a mask's step around `copper` (see `planOpenings`): `step` as the
+   * workers prepared it, or planned here.
    */
-  uploadOpenings(copper, mask) {
-    const { lowered } = copper;
-    const openings = mask.lowered.shapes.subarray(0, mask.lowered.subtractShapes * SHAPE_WORDS);
-    const base = lowered.shapes.length / SHAPE_WORDS;
-    const shapes = new Uint32Array(lowered.shapes.length + openings.length);
-    shapes.set(lowered.shapes);
-    shapes.set(openings, lowered.shapes.length);
-    const cells = new Map();
-    const cell = (x, y) => `${Math.floor(x)},${Math.floor(y)}`;
-    const boxes = [];
-    for (let i = 0; i < openings.length / SHAPE_WORDS; i += 1) {
-      const box = recordBounds(openings, i);
-      boxes.push(box);
-      for (let x = Math.floor(box[0]); x <= Math.floor(box[2]); x += 1) {
-        for (let y = Math.floor(box[1]); y <= Math.floor(box[3]); y += 1) {
-          const key = cell(x, y);
-          if (!cells.has(key)) cells.set(key, []);
-          cells.get(key).push(i);
-        }
-      }
-    }
-    const indices = [];
-    const ranges = [];
-    const reach = (box) => {
-      const found = new Set();
-      for (let x = Math.floor(box[0]); x <= Math.floor(box[2]); x += 1) {
-        for (let y = Math.floor(box[1]); y <= Math.floor(box[3]); y += 1) {
-          for (const i of cells.get(cell(x, y)) || []) {
-            const b = boxes[i];
-            if (b[0] <= box[2] && box[0] <= b[2] && b[1] <= box[3] && box[1] <= b[3]) found.add(i);
-          }
-        }
-      }
-      ranges.push(indices.length, found.size);
-      for (const i of found) indices.push(base + i);
-    };
-    // Grown by the coat and a margin: the step lies that far out.
-    const grow = (box) => [box[0] - 0.05, box[1] - 0.05, box[2] + 0.05, box[3] + 0.05];
-    for (let i = lowered.subtractShapes; i < base; i += 1) reach(grow(recordBounds(lowered.shapes, i)));
-    const shapeCount = base - lowered.subtractShapes;
-    const edges = lowered.contourEdges || new Float32Array(0);
-    for (let e = 0; e + 3 < edges.length; e += 4) reach(grow([Math.min(edges[e], edges[e + 2]), Math.min(edges[e + 1], edges[e + 3]), Math.max(edges[e], edges[e + 2]), Math.max(edges[e + 1], edges[e + 3])]));
-    const cuts = {
-      shapeCuts: new Uint32Array(ranges.slice(0, shapeCount * 2)),
-      edgeCuts: new Uint32Array(ranges.slice(shapeCount * 2)),
-      cutIndices: new Uint32Array(indices),
-    };
-    const uploaded = this.uploadEdges({ ...lowered, ...cuts }, `${copper.key}-step`);
-    const shapeBuffer = this.buffer(shapes, GPUBufferUsage.STORAGE, `analytic-step-shapes-${copper.key}`);
+  uploadOpenings(copper, mask, step = null) {
+    const planned = step || planOpenings(copper.lowered, mask.lowered);
+    const uploaded = this.uploadEdges(planned, `${copper.key}-step`);
+    const shapeBuffer = this.buffer(planned.shapes, GPUBufferUsage.STORAGE, `analytic-step-shapes-${copper.key}`);
     this.twinBuffers.push(shapeBuffer, uploaded.edges, uploaded.cuts);
     return { ...uploaded, shapes: shapeBuffer };
   }
@@ -717,53 +685,14 @@ export class AnalyticRenderer {
     return gpu;
   }
 
-  /**
-   * What a slab's walls need. The region edges they rise from,
-   * `EDGE_WORDS` words each: the adding regions' contour edges (a
-   * subtracting region's edges bound nothing drawn), each with its holes'
-   * range. And the cuts: each add shape's holes' range, then the hole
-   * records the ranges name.
-   */
+  /** A slab's walls and cuts (see `packEdges`), packed by the workers or here. */
   uploadEdges(lowered, key) {
-    const edges = lowered.contourEdges || new Float32Array(0);
-    const operations = lowered.contourEdgeOperations || new Uint32Array(0);
-    const shapeCuts = lowered.shapeCuts || new Uint32Array(0);
-    const edgeCuts = lowered.edgeCuts || new Uint32Array(0);
-    const indices = lowered.cutIndices || new Uint32Array(0);
-    // Ranges point past the shapes' ranges, into the records that follow them.
-    const base = shapeCuts.length;
-    const cuts = new Uint32Array(Math.max(1, base + indices.length));
-    for (let i = 0; i < base; i += 2) cuts.set([shapeCuts[i] + base, shapeCuts[i + 1]], i);
-    cuts.set(indices, base);
-    const outlines = lowered.outlineEdges || new Float32Array(0);
-    const shapes = lowered.outlineShapes || new Uint32Array(0);
-    const count = Math.min(edges.length / 4, operations.length);
-    const words = new Uint32Array(Math.max(1, count + shapes.length) * EDGE_WORDS);
-    const bits = new Uint32Array(edges.buffer, edges.byteOffset, edges.length);
-    let kept = 0;
-    for (let edge = 0; edge < count; edge += 1) {
-      if (operations[edge] & EDGE_SUBTRACT) continue;
-      const at = kept * EDGE_WORDS;
-      words.set(bits.subarray(edge * 4, edge * 4 + 4), at);
-      words[at + 4] = operations[edge];
-      words[at + 5] = (edgeCuts[edge * 2] ?? 0) + base;
-      words[at + 6] = edgeCuts[edge * 2 + 1] ?? 0;
-      kept += 1;
-    }
-    const regionEdges = kept;
-    // Then each add shape's outline skirt, tagged with the shape.
-    const outlineBits = new Uint32Array(outlines.buffer, outlines.byteOffset, outlines.length);
-    for (let edge = 0; edge < shapes.length; edge += 1) {
-      const at = kept * EDGE_WORDS;
-      words.set(outlineBits.subarray(edge * 4, edge * 4 + 4), at);
-      words[at + 4] = (EDGE_SKIRT | shapes[edge]) >>> 0;
-      kept += 1;
-    }
+    const { edgeWords, cutWords, regionEdges, skirtEdges } = withPackedEdges(lowered);
     return {
-      edges: this.buffer(words, GPUBufferUsage.STORAGE, `analytic-edges-${key}`),
+      edges: this.buffer(edgeWords, GPUBufferUsage.STORAGE, `analytic-edges-${key}`),
       regionEdges,
-      skirtEdges: kept - regionEdges,
-      cuts: this.buffer(cuts, GPUBufferUsage.STORAGE, `analytic-cuts-${key}`),
+      skirtEdges,
+      cuts: this.buffer(cutWords, GPUBufferUsage.STORAGE, `analytic-cuts-${key}`),
     };
   }
 
@@ -812,7 +741,10 @@ export class AnalyticRenderer {
   setBoardClip(clip) {
     if (this.boardClip && this.boardClip !== clip) this.boardClip.texture.destroy();
     this.boardClip = clip;
-    for (const slice of this.slices) slice.bindGroup = this.bindGroup(slice);
+    for (const slice of this.slices) {
+      slice.bindGroup = this.bindGroup(slice);
+      if (slice.plain) slice.plain.bindGroup = this.bindGroup(slice.plain);
+    }
     this.renderer.invalidate?.();
   }
 
@@ -878,7 +810,10 @@ export class AnalyticRenderer {
 
   rebind() {
     this.boundNetMask = this.renderer.netMaskBuffer;
-    for (const slice of this.slices) slice.bindGroup = this.bindGroup(slice);
+    for (const slice of this.slices) {
+      slice.bindGroup = this.bindGroup(slice);
+      if (slice.plain) slice.plain.bindGroup = this.bindGroup(slice.plain);
+    }
     for (const entry of this.twins?.values() || []) for (const twin of Object.values(entry)) twin.bindGroup = this.bindGroup(twin);
     if (this.barrels) this.barrels.bindGroup = this.barrelBindGroup();
     if (this.walls) this.walls.bindGroup = this.wallBindGroup();
@@ -1100,7 +1035,56 @@ export class AnalyticRenderer {
     return drawn;
   }
 
-  encodeSlice(pass, pipelines, slice, mode, layerOffsets, look) {
+  encodeSlice(pass, pipelines, face, mode, layerOffsets, look) {
+    const slice = this.drawnSlice(face);
+    // Only where the slice can be: its stencil steps cover the whole viewport otherwise.
+    // (A pick draws everything: its view may not be this frame's.)
+    const rect = pipelines === this.pipelines.pick ? undefined : this.sliceRect(slice, layerOffsets);
+    if (rect === null) return;
+    if (rect) pass.setScissorRect(rect.x, rect.y, rect.width, rect.height);
+    this.encodeSliceIn(pass, pipelines, slice, mode, layerOffsets, look);
+    if (rect) pass.setScissorRect(this.viewport.x, this.viewport.y, this.viewport.width, this.viewport.height);
+  }
+
+  /**
+   * The viewport pixels `slice` can cover in this frame (its board extent
+   * between its lowest and highest face, lifted by its layers' offsets,
+   * projected, grown by SCISSOR_MARGIN_PX): `{ x, y, width, height }`;
+   * `undefined` for the whole viewport (no viewport or view known, or a
+   * corner behind the eye); null when it lies off screen.
+   */
+  sliceRect(slice, layerOffsets) {
+    const viewport = this.viewport;
+    const matrix = this.viewMatrix;
+    if (!viewport || !matrix || !slice.bounds) return undefined;
+    const [a, b] = slice.offsetLayers || [slice.layerId, slice.layerId];
+    const lift = 0.5 * ((layerOffsets?.[a] || 0) + (layerOffsets?.[b] || 0));
+    const zs = [slice.z, slice.zBottom ?? slice.z, slice.zTop ?? slice.z, slice.zLow ?? slice.z].map((z) => z + lift);
+    const [x0, y0, x1, y1] = slice.bounds;
+    let [left, top, right, bottom] = [Infinity, Infinity, -Infinity, -Infinity];
+    for (const x of [x0 / 1000, x1 / 1000]) {
+      for (const y of [-y0 / 1000, -y1 / 1000]) {
+        for (const z of [Math.min(...zs), Math.max(...zs)]) {
+          const w = matrix[3] * x + matrix[7] * y + matrix[11] * z + matrix[15];
+          if (!(w > 1e-9)) return undefined;
+          const px = viewport.x + ((matrix[0] * x + matrix[4] * y + matrix[8] * z + matrix[12]) / w + 1) * 0.5 * viewport.width;
+          const py = viewport.y + (1 - (matrix[1] * x + matrix[5] * y + matrix[9] * z + matrix[13]) / w) * 0.5 * viewport.height;
+          left = Math.min(left, px);
+          right = Math.max(right, px);
+          top = Math.min(top, py);
+          bottom = Math.max(bottom, py);
+        }
+      }
+    }
+    const x = Math.max(viewport.x, Math.floor(left - SCISSOR_MARGIN_PX));
+    const y = Math.max(viewport.y, Math.floor(top - SCISSOR_MARGIN_PX));
+    const xEnd = Math.min(viewport.x + viewport.width, Math.ceil(right + SCISSOR_MARGIN_PX));
+    const yEnd = Math.min(viewport.y + viewport.height, Math.ceil(bottom + SCISSOR_MARGIN_PX));
+    if (xEnd <= x || yEnd <= y) return null;
+    return { x, y, width: xEnd - x, height: yEnd - y };
+  }
+
+  encodeSliceIn(pass, pipelines, slice, mode, layerOffsets, look) {
     this.writeSlice(slice, layerOffsets, look);
     pass.setBindGroup(0, slice.bindGroup);
     if (this.stencil) this.encodeStencilled(pass, pipelines, slice, mode);
@@ -1302,7 +1286,7 @@ export class AnalyticRenderer {
     if (this.walls) bytes += this.walls.count * WALL_INSTANCE_BYTES;
     // A slab's faces share their buffers: each counts once.
     const buffers = new Set();
-    for (const slice of this.slices) {
+    for (const slice of this.slices.flatMap((slice) => (slice.plain ? [slice, slice.plain] : [slice]))) {
       for (const buffer of [slice.shapes, slice.covers, slice.fans, slice.uniform, slice.edges, slice.cuts]) if (buffer) buffers.add(buffer);
       if (slice.field) bytes += slice.field.width * slice.field.height * 4;
     }
@@ -1333,13 +1317,33 @@ export class AnalyticRenderer {
     };
   }
 
+  /**
+   * Each dielectric face's plain slab (`plainSlab`): what a separated stack
+   * draws in its place. Faces lowered once share theirs, as they share
+   * their buffers.
+   */
+  makePlainSlabs(shared) {
+    const plains = new Map();
+    for (const slice of this.slices) {
+      if (slice.role !== "dielectric" || !slice.lowered) continue;
+      if (!plains.has(slice.lowered)) plains.set(slice.lowered, plainSlab(slice.lowered));
+      const plain = plains.get(slice.lowered);
+      if (plain) slice.plain = this.uploadSlice({ ...slice, lowered: plain, plain: null }, shared);
+    }
+  }
+
+  /** The slice a face draws: a separated stack's laminate as its plain slab. */
+  drawnSlice(slice) {
+    return this.separated && slice.plain ? slice.plain : slice;
+  }
+
   releaseSlices() {
     for (const entry of this.twins?.values() || []) for (const twin of Object.values(entry)) twin.uniform.destroy();
     this.twinBuffers?.forEach((buffer) => buffer.destroy());
     this.twinBuffers = [];
     this.twins = new Map();
     const buffers = new Set();
-    for (const slice of this.slices) {
+    for (const slice of this.slices.flatMap((slice) => (slice.plain ? [slice, slice.plain] : [slice]))) {
       for (const buffer of [slice.shapes, slice.covers, slice.fans, slice.uniform, slice.edges, slice.cuts]) if (buffer) buffers.add(buffer);
       slice.field?.texture.destroy();
     }

@@ -38,10 +38,11 @@ pub fn materialize_board_pack(
     encode_pack(&document).map_err(js_error)
 }
 
-/// An opened pack: its header, binding, and holes, ready to lower slices.
+/// An opened pack: its reader (header, binding and chunk directory, parsed
+/// once) and holes, ready to lower slices.
 #[wasm_bindgen]
 pub struct AnalyticPack {
-    bytes: Vec<u8>,
+    reader: PackReader<'static>,
     header: MaterializationDocumentA0,
     holes: Vec<HoleOperation>,
     orders: BTreeMap<String, u32>,
@@ -51,7 +52,8 @@ impl AnalyticPack {
     /// Open and validate `bytes`; holes are gathered once, since they cut
     /// every slice their span crosses.
     pub fn open(bytes: Vec<u8>) -> Result<Self, String> {
-        let reader = PackReader::open(&bytes, PackLimits::default()).map_err(|e| e.to_string())?;
+        let reader =
+            PackReader::open_owned(bytes, PackLimits::default()).map_err(|e| e.to_string())?;
         let mut holes = Vec::new();
         for position in 0..reader.header().chunks.len() {
             let operations = reader.chunk(position).map_err(|e| e.to_string())?;
@@ -64,6 +66,10 @@ impl AnalyticPack {
                     }),
             );
         }
+        Ok(Self::from_parts(reader, holes))
+    }
+
+    fn from_parts(reader: PackReader<'static>, holes: Vec<HoleOperation>) -> Self {
         let header = reader.header().clone();
         let orders = header
             .stack
@@ -71,12 +77,12 @@ impl AnalyticPack {
             .iter()
             .map(|slice| (slice.key.clone(), slice.order))
             .collect();
-        Ok(Self {
-            bytes,
+        Self {
+            reader,
             header,
             holes,
             orders,
-        })
+        }
     }
 
     /// Lower slice `key` (see [`lower::lower_slice`]).
@@ -85,12 +91,10 @@ impl AnalyticPack {
             .orders
             .get(key)
             .ok_or_else(|| format!("unknown slice {key}"))?;
-        let reader =
-            PackReader::open(&self.bytes, PackLimits::default()).map_err(|e| e.to_string())?;
         let mut operations = Vec::new();
         for (position, chunk) in self.header.chunks.iter().enumerate() {
             if chunk.slice_key == key {
-                operations.extend(reader.chunk(position).map_err(|e| e.to_string())?);
+                operations.extend(self.reader.chunk(position).map_err(|e| e.to_string())?);
             }
         }
         let orders = |slice: &str| self.orders.get(slice).copied();

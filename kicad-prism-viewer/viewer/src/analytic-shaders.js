@@ -928,6 +928,14 @@ export const WALL_INSTANCE_BYTES = 48;
  * layer). The view's eye is the camera in homogeneous world coordinates:
  * w = 0 for an orthographic view, whose xyz is then the view direction.
  */
+/**
+ * A ghost barrel's opacity: a tube's near and far sides of 0.3 over each
+ * other (1 - 0.7 * 0.7), as its one strip draws it.
+ */
+export const GHOST_ALPHA = 0.51;
+/** Vertices a ghost barrel draws: one strip facing the eye. */
+export const GHOST_VERTICES = 6;
+
 export const ANALYTIC_BARREL_SHADER = /* wgsl */ `
 struct Globals {
   viewProjection: mat4x4f,
@@ -951,7 +959,10 @@ struct View {
   board: u32,
   padding2: u32,
   range: vec2f,
-  padding3: vec2f,
+  // 1 while any layer is lifted off its place (the stack separated): only the
+  // lit nets' barrels draw exact; the rest are ghosts (vs_ghost).
+  separated: u32,
+  padding3: u32,
   // The board's side walls (laminate, or plating on a plated edge).
   edgeColor: vec4f,
   // What covers or plugs a via from one side: the solder mask's colour.
@@ -974,6 +985,8 @@ struct Barrel {
 @group(0) @binding(6) var<storage, read> netMask: array<u32>;
 
 const PICK_TAG = ${ANALYTIC_PICK_TAG}u;
+// 1 in the pick pipeline: every barrel stays pickable, ghost or not.
+override PICK_PASS: u32 = 0u;
 const FAR = 1e30;
 fn netLit(operation: u32) -> bool {
   let net = select(0u, nets[operation], operation < arrayLength(&nets));
@@ -1028,7 +1041,63 @@ struct BarrelOut {
   out.position = globals.viewProjection * vec4f(world, 1.0);
   out.world = world;
   out.barrel = index;
+  // A separated stack draws only the lit nets' barrels exact: the rest are
+  // ghosts (vs_ghost), and their boxes collapse here, before any fragment.
+  // Net isolation hides the unlit ones in every pass.
+  let unlit = !netLit(b.ids.x);
+  if ((PICK_PASS == 0u && ghosted(b)) || (view.isolate == 1u && unlit)) { out.position = vec4f(0.0); }
   return out;
+}
+
+fn ghosted(b: Barrel) -> bool {
+  return view.separated == 1u && !netLit(b.ids.x);
+}
+
+struct GhostOut {
+  @builtin(position) position: vec4f,
+  // Across the strip, -1 to 1, and the strip's side and toward-eye directions.
+  @location(0) across: f32,
+  @location(1) side: vec3f,
+  @location(2) facing: vec3f,
+};
+
+// A barrel off the lit nets in a separated stack: a strip facing the eye,
+// as wide as the hole, between its layers' lifted faces, shaded across its
+// width as the tube it stands for. Barrels drawn exact collapse here instead.
+@vertex fn vs_ghost(@builtin(vertex_index) vertex: u32, @builtin(instance_index) index: u32) -> GhostOut {
+  let b = barrels[index];
+  var out: GhostOut;
+  if (!ghosted(b) || ((b.ids.w & UNPLATED) != 0u && view.board == 0u)) {
+    out.position = vec4f(0.0);
+    return out;
+  }
+  let z = span(b);
+  let centre = vec3f(b.shape.xy, 0.5 * (z.x + z.y));
+  // Toward the eye, in the board's plane (the strip stands upright).
+  var toward = select(-view.eye.xyz, view.eye.xyz / view.eye.w - centre, abs(view.eye.w) > 1e-12);
+  toward = vec3f(toward.xy, 0.0);
+  let flat = length(toward) < 1e-12;
+  let facing = select(normalize(toward), vec3f(0.0, -1.0, 0.0), flat);
+  let side = vec3f(-facing.y, facing.x, 0.0);
+  // A slot's long half (shape.z) along its angle, seen across: its widest extent.
+  let reach = b.size.x + b.shape.z * abs(dot(vec2f(cos(b.shape.w), sin(b.shape.w)), side.xy));
+  var corners = array<vec2f, 6>(vec2f(-1.0, 0.0), vec2f(1.0, 0.0), vec2f(-1.0, 1.0), vec2f(1.0, 0.0), vec2f(1.0, 1.0), vec2f(-1.0, 1.0));
+  let corner = corners[vertex];
+  let world = vec3f(centre.xy + side.xy * corner.x * reach, select(z.y, z.x, corner.y > 0.5));
+  out.position = globals.viewProjection * vec4f(world, 1.0);
+  out.across = corner.x;
+  out.side = side;
+  out.facing = facing;
+  return out;
+}
+
+@fragment fn fs_ghost(input: GhostOut) -> @location(0) vec4f {
+  // The tube's normal under this point of the strip.
+  let u = clamp(input.across, -1.0, 1.0);
+  let normal = normalize(input.side * u + input.facing * sqrt(1.0 - u * u));
+  let light = normalize(globals.lightDirection.xyz);
+  let shade = 0.55 + 0.45 * abs(dot(normal, light));
+  return vec4f(view.color.rgb * shade, ${GHOST_ALPHA});
 }
 
 // Where a ray (origin o, direction d, in the tube's frame) is inside the

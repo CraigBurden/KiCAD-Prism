@@ -8,9 +8,21 @@
 const MAGIC = 0x4c534c50; // "PLSL", little endian
 const KINDS = { Uint32Array, Float32Array };
 
+/** The cache entry, among the slices, of what the main thread reads from the pack (see `boardRecord`). */
+export const BOARD_RECORD_KEY = ".board";
+
+/**
+ * What the main thread reads from a pack, as one cache entry: the header,
+ * the barrels and every operation's net index. A board opened again reads it
+ * here instead of waiting for a worker to open the pack.
+ */
+export function boardRecord(header, barrels, netIndices) {
+  return { header, barrelFloats: barrels.floats, barrelWords: barrels.words, barrelSkipped: barrels.skipped, netIndices };
+}
+
 /** The cache entry name of one slice. */
 export function loweredSliceKey(cacheKey, wasmKey, toleranceNm, sliceKey) {
-  return `analytic-lowered-a0/${cacheKey}/${wasmKey}/${toleranceNm}/${sliceKey}`;
+  return `analytic-lowered-a1/${cacheKey}/${wasmKey}/${toleranceNm}/${sliceKey}`;
 }
 
 /** A lowered slice as one byte string: a JSON header, then each typed array 4-byte aligned. */
@@ -41,7 +53,11 @@ export function encodeLowered(lowered) {
   return out;
 }
 
-/** The inverse of `encodeLowered`; null for bytes it did not write. */
+/**
+ * The inverse of `encodeLowered`; null for bytes it did not write. The arrays
+ * are views over `bytes` (each 4-byte aligned): nothing is copied, and the
+ * same bytes can go to the cache as they are.
+ */
 export function decodeLowered(bytes) {
   const data = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes);
   if (data.length < 8) return null;
@@ -61,8 +77,8 @@ export function decodeLowered(bytes) {
     if (!Kind) return null;
     const byteLength = length * Kind.BYTES_PER_ELEMENT;
     if (at + byteLength > data.length) return null;
-    // Copy out: the views must own their buffers (they are transferred and uploaded later).
-    lowered[name] = new Kind(data.slice(at, at + byteLength).buffer);
+    if ((data.byteOffset + at) % Kind.BYTES_PER_ELEMENT) return null;
+    lowered[name] = new Kind(data.buffer, data.byteOffset + at, length);
     at += Math.ceil(byteLength / 4) * 4;
   }
   return lowered;
@@ -88,17 +104,20 @@ export async function readLowered(cache, { cacheKey, wasmKey, toleranceNm }, key
   return hits;
 }
 
-/** Store lowered slices in the background; failures are ignored. */
+/**
+ * Store lowered slices in the background, each a slice or its bytes as
+ * `encodeLowered` (in a worker) already wrote them; failures are ignored.
+ */
 export function writeLowered(cache, { cacheKey, wasmKey, toleranceNm }, lowered) {
   if (!cache?.write || !cacheKey) return Promise.resolve();
   return Promise.all([...lowered].map(([key, value]) =>
-    cache.write(loweredSliceKey(cacheKey, wasmKey, toleranceNm, key), encodeLowered(value)).catch(() => undefined),
+    cache.write(loweredSliceKey(cacheKey, wasmKey, toleranceNm, key), value instanceof Uint8Array ? value : encodeLowered(value)).catch(() => undefined),
   )).then(() => undefined);
 }
 
 /** The cache entry that says every slice of a bundle is stored (written after a full load). */
 export function completeKey(cacheKey, wasmKey, toleranceNm) {
-  return `analytic-lowered-a0/${cacheKey}/${wasmKey}/${toleranceNm}/.complete`;
+  return `analytic-lowered-a1/${cacheKey}/${wasmKey}/${toleranceNm}/.complete`;
 }
 
 /** Whether a full load of this bundle stored every slice, so no lowering worker is needed. */
