@@ -128,6 +128,28 @@ impl AnalyticPack {
             .and_then(|position| binding.get(position))
     }
 
+    /// Each of the first `count` operations' net: its position in the
+    /// header's `nets` plus one, 0 for an operation with no net.
+    pub fn operation_net_indices(&self, count: u32) -> Vec<u32> {
+        let positions: BTreeMap<&str, u32> = self
+            .header
+            .nets
+            .iter()
+            .zip(1u32..)
+            .map(|(net, position)| (net.key.as_str(), position))
+            .collect();
+        let mut indices = vec![0u32; count as usize];
+        for entry in &self.header.binding {
+            let Some(key) = entry.net_key.as_deref() else {
+                continue;
+            };
+            if let Some(slot) = indices.get_mut(entry.operation_index as usize) {
+                *slot = positions.get(key).copied().unwrap_or(0);
+            }
+        }
+        indices
+    }
+
     /// The header without binding: identity, scope, stack, nets, classes,
     /// pairs, components, chunk directory, and diagnostics.
     pub fn header_without_binding(&self) -> MaterializationDocumentA0 {
@@ -154,6 +176,13 @@ impl AnalyticPack {
     #[wasm_bindgen(js_name = bindingJson)]
     pub fn binding_json(&self, index: u32) -> Result<String, JsValue> {
         serde_json::to_string(&self.binding(index)).map_err(js_error)
+    }
+
+    /// Every operation's net in one call (see [`Self::operation_net_indices`]),
+    /// in place of one `bindingJson` per operation.
+    #[wasm_bindgen(js_name = operationNetIndices)]
+    pub fn operation_net_indices_js(&self, count: u32) -> Vec<u32> {
+        self.operation_net_indices(count)
     }
 
     /// Lower slice `key`, flattening curves to within `tolerance_nm`.

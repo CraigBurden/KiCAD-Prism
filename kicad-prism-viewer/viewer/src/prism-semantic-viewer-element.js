@@ -1,3 +1,4 @@
+import { ANALYTIC_BUNDLE_SCHEMA } from "./analytic-scene.js";
 import viewerCss from "../styles.css";
 import { AssetCache } from "./asset-cache.js";
 import { absolutizeAssetPaths, bundleIsFinal } from "./bundle-urls.js";
@@ -189,6 +190,17 @@ async function loadBundle(bundleUrl, timings, signal) {
   }
   if (timings) timings.bundle_from_cache = cachedBundle;
   const assetCache = bundleIsFinal(bundle) && cache.enabled ? cache : null;
+  if (bundle.schema === ANALYTIC_BUNDLE_SCHEMA) {
+    // V2a: an analytic bundle names the design bundle's members; the viewer
+    // builds the scene from the pack (main.js openAnalyticSource).
+    const semanticGeometry = { analytic: true, cache_key: bundle.cache_key || "", readiness: bundle.readiness, assets: bundle.assets || {} };
+    return {
+      bundle,
+      topology: {},
+      semanticGeometry: absolutizeAssetPaths(semanticGeometry, absoluteBundleUrl, bundle, cacheKey),
+      assetCache,
+    };
+  }
   if (bundle.schema !== SUPPORTED_SCHEMA) {
     throw new Error(`Unsupported visualizer bundle schema: ${bundle.schema || "missing"}`);
   }

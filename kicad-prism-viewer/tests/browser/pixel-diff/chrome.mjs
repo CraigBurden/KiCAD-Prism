@@ -121,7 +121,11 @@ class Page {
       if (message.sessionId !== this.sessionId) return;
       const { method, params } = message;
       if (method === "Network.requestWillBeSent") {
+        // A dedicated worker's script finishes in the worker's own session, never
+        // this one: the analytic lowering workers would never count as done.
+        if (/\/prism-semantic-viewer-lower\.js(\?|$)/.test(params.request?.url || "")) return;
         this.inflight.add(params.requestId);
+        (this.urls ??= new Map()).set(params.requestId, `${params.type || "?"} ${params.request?.url || ""}`);
         this.lastNetworkAt = Date.now();
       } else if (method === "Network.loadingFinished" || method === "Network.loadingFailed") {
         if (method === "Network.loadingFinished") this.bytesLoaded += params.encodedDataLength || 0;
