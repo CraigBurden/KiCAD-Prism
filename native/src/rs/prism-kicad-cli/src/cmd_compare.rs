@@ -26,7 +26,7 @@ use prism_bundle::reader::BundleReader;
 use prism_bundle::stages::Document;
 use prism_bundle::stages::parse::{ParseOutcome, ParseRequest};
 use prism_bundle::zip::FileSource;
-use prism_bundle::{Failure, Limits, Outcome, generator, schema};
+use prism_bundle::{Failure, Outcome, generator, schema};
 use serde::de::DeserializeOwned;
 use serde_json::{Value, json};
 use std::collections::BTreeMap;
@@ -107,14 +107,18 @@ fn engine(error: CompareError) -> Failure {
 
 fn open(args: &Args, side: &'static str, stderr: &Stderr) -> Outcome<Side> {
     match args.option(side) {
-        Some(path) => open_bundle(Path::new(path), &args.limits, side),
+        Some(path) => open_bundle(Path::new(path), args, side),
         None => open_source(args, side, stderr),
     }
 }
 
 // ------------------------------------------------------------------ bundles
 
-fn open_bundle(path: &Path, limits: &Limits, side: &'static str) -> Outcome<Side> {
+/// A bundle side. Its identity is `--<side>-revision-key`, not the archive's
+/// `revision_key`: through an alias, one bundle serves several revision keys
+/// (ADR amendment K2 §3.6).
+fn open_bundle(path: &Path, args: &Args, side: &'static str) -> Outcome<Side> {
+    let limits = &args.limits;
     inputs::regular_file(path, side)?;
     let unreadable = |error: std::io::Error| {
         Failure::input(
@@ -156,10 +160,10 @@ fn open_bundle(path: &Path, limits: &Limits, side: &'static str) -> Outcome<Side
         Some(Err(finding)) => return Err(member_invalid(finding, side)),
         None => None,
     };
-    let revision_key = manifest
-        .revision_key
-        .as_ref()
-        .map_or_else(|| "0".repeat(64), |key| key.as_str().to_owned());
+    let revision_key = args
+        .option(&format!("{side}-revision-key"))
+        .unwrap_or_default()
+        .to_owned();
     let bundle_key = manifest
         .bundle_key
         .as_ref()

@@ -19,6 +19,8 @@ pub enum Command {
     Verify,
     /// `bundle extract`.
     Extract,
+    /// `bundle reuse`.
+    Reuse,
     /// `revision-key`.
     RevisionKey,
     /// `compare`.
@@ -80,6 +82,8 @@ fn work_of(command: Command, stage: Option<StageArg>) -> Work {
         (Command::Build, _) => Work::Parse,
         (Command::Verify, _) => Work::Verify,
         (Command::Extract, _) => Work::Extract,
+        // Like `verify`, it reads one bundle's manifest.
+        (Command::Reuse, _) => Work::Verify,
         (Command::RevisionKey, _) => Work::RevisionKey,
         (Command::Compare, _) => Work::Compare,
         _ => Work::Other,
@@ -135,6 +139,7 @@ fn allowed(command: Command, option: &str) -> bool {
             "models-tool",
         ],
         Command::Extract => &["output"],
+        Command::Reuse => &["in", "key-record"],
         Command::Compare => &[
             "base",
             "head",
@@ -175,11 +180,12 @@ fn command_words(argv: &[String]) -> Outcome<(Command, usize)> {
             Some("build") => Ok((Command::Build, 2)),
             Some("verify") => Ok((Command::Verify, 2)),
             Some("extract") => Ok((Command::Extract, 2)),
-            _ => Err(Failure::usage("unknown-command", "bundle takes build, verify or extract").argument("command")),
+            Some("reuse") => Ok((Command::Reuse, 2)),
+            _ => Err(Failure::usage("unknown-command", "bundle takes build, verify, extract or reuse").argument("command")),
         },
         Some(_) => Err(Failure::usage(
             "unknown-command",
-            "the command is not version, bundle build, bundle verify, bundle extract, revision-key or compare",
+            "the command is not version, bundle build, bundle verify, bundle extract, bundle reuse, revision-key or compare",
         )
         .argument("command")),
     }
@@ -433,10 +439,25 @@ fn build_rules(raw: &Raw, stage: StageArg) -> [(bool, &'static str, &'static str
     ]
 }
 
+/// The options of `bundle reuse` (cli-spec.md §5.10): `--in` and
+/// `--key-record`, no positional argument.
+fn check_reuse(raw: &Raw) -> Outcome<()> {
+    for option in ["in", "key-record"] {
+        if !raw.options.contains_key(option) {
+            return Err(usage(format!("bundle reuse takes --{option}")).argument(option));
+        }
+    }
+    if raw.positional.is_empty() {
+        Ok(())
+    } else {
+        Err(usage("bundle reuse takes no positional argument").argument("command"))
+    }
+}
+
 /// The options of `compare` (cli-spec.md §5.6, amendment C2r §3): each side
 /// is a bundle (`--base`, `--head`) or a source tree (`--base-src`,
-/// `--head-src`) with its revision key; a source tree's other inputs only
-/// with it; `-o`; no positional argument.
+/// `--head-src`), with its revision key in both modes; a source tree's other
+/// inputs only with it; `-o`; no positional argument.
 fn check_compare(raw: &Raw) -> Outcome<()> {
     for side in ["base", "head"] {
         check_compare_side(raw, side)?;
@@ -451,7 +472,8 @@ fn check_compare(raw: &Raw) -> Outcome<()> {
 }
 
 /// One side of `compare`: a bundle or a source tree, the source tree's
-/// inputs only with it, and its revision key.
+/// inputs only with it, and its revision key, which a bundle may serve among
+/// others (ADR amendment K2 §3.6).
 fn check_compare_side(raw: &Raw, side: &str) -> Outcome<()> {
     let has = |suffix: &str| raw.options.contains_key(format!("{side}{suffix}").as_str());
     let refuse = |message: String, option: &str| {
@@ -473,7 +495,6 @@ fn check_compare_side(raw: &Raw, side: &str) -> Outcome<()> {
         (has("-source-root"), "-source-root"),
         (has("-config"), "-config"),
         (!upgraded.is_empty(), "-upgraded"),
-        (has("-revision-key"), "-revision-key"),
     ];
     if let Some((_, option)) = source_only.iter().find(|(given, _)| *given && !source) {
         let name = format!("{side}{option}");
@@ -481,11 +502,30 @@ fn check_compare_side(raw: &Raw, side: &str) -> Outcome<()> {
     }
     let key = format!("{side}-revision-key");
     match raw.options.get(key.as_str()) {
-        None if source => refuse(format!("--{side}-src takes --{key}"), &key),
+        None => refuse(format!("compare takes --{key}"), &key),
         Some(value) if !is_hex64(value) => {
             refuse(format!("--{key} takes 64 lowercase hex digits"), &key)
         }
         _ => Ok(()),
+    }
+}
+
+/// The options of `revision-key` (cli-spec.md §5.5): one `<repo>`, exactly
+/// one of `--commit` and `--worktree`, and `--project`.
+fn check_revision_key(raw: &Raw) -> Outcome<()> {
+    if raw.positional.len() != 1 {
+        return Err(usage("revision-key takes one <repo>").argument("repo"));
+    }
+    if raw.options.contains_key("commit") == raw.worktree {
+        return Err(conflict(
+            "revision-key takes exactly one of --commit and --worktree",
+            "commit",
+        ));
+    }
+    if raw.options.contains_key("project") {
+        Ok(())
+    } else {
+        Err(usage("revision-key takes --project").argument("project"))
     }
 }
 
@@ -502,18 +542,8 @@ fn check_combinations(command: Command, raw: &Raw, stage: Option<StageArg>) -> O
         Command::Extract if !raw.options.contains_key("output") => {
             Err(usage("bundle extract takes -o <dir>").argument("output"))
         }
-        Command::RevisionKey if raw.positional.len() != 1 => {
-            Err(usage("revision-key takes one <repo>").argument("repo"))
-        }
-        Command::RevisionKey if raw.options.contains_key("commit") == raw.worktree => {
-            Err(conflict(
-                "revision-key takes exactly one of --commit and --worktree",
-                "commit",
-            ))
-        }
-        Command::RevisionKey if !raw.options.contains_key("project") => {
-            Err(usage("revision-key takes --project").argument("project"))
-        }
+        Command::RevisionKey => check_revision_key(raw),
+        Command::Reuse => check_reuse(raw),
         Command::Compare => check_compare(raw),
         Command::Version if !raw.positional.is_empty() => {
             Err(usage("version takes no argument").argument("command"))
@@ -636,12 +666,13 @@ usage:
               [--revision-key <hex>] [--config <effective.json>] [COMMON]
   prism-kicad bundle verify <bundle.prism> [COMMON]
   prism-kicad bundle extract <bundle.prism> <member>... -o <dir> [COMMON]
+  prism-kicad bundle reuse --in <bundle.prism> --key-record <record.json> [COMMON]
   prism-kicad revision-key <repo> (--commit <rev> | --worktree) --project <rel>
               [--config <effective.json>] [COMMON]
   prism-kicad compare (--base <base.prism> | --base-src <project.kicad_pro>
-              --base-revision-key <hex> [--base-source-root <dir>]
-              [--base-config <effective.json>] [--base-upgraded <path>=<version>]...)
-              (--head <head.prism> | --head-src … as for the base)
+              [--base-source-root <dir>] [--base-config <effective.json>]
+              [--base-upgraded <path>=<version>]...) --base-revision-key <hex>
+              (--head <head.prism> | --head-src … as for the base) --head-revision-key <hex>
               [--include-unchanged] -o <result.json> [COMMON]
 
 COMMON: [--limit <name>=<value>]... [--threads <n>] [--quiet]
@@ -675,19 +706,25 @@ mod tests {
         assert_eq!(work_of(board.command, board.stage), Work::Board);
         assert!(args("revision-key . --worktree --project x.kicad_pro").is_ok());
         assert_eq!(args("version").unwrap().command, Command::Version);
-        let compare = args("compare --base a.prism --head b.prism -o d.json").unwrap();
+        let key = "0".repeat(64);
+        let compare = args(&format!(
+            "compare --base a.prism --head b.prism --base-revision-key {key} --head-revision-key {key} -o d.json"
+        ))
+        .unwrap();
         assert_eq!(compare.command, Command::Compare);
         assert_eq!(work_of(compare.command, compare.stage), Work::Compare);
         // A source-tree side runs the parse stage, so it gets that stage's limits.
-        let key = "0".repeat(64);
         let source = args(&format!(
-            "compare --base-src p.kicad_pro --base-revision-key {key} --head b.prism -o r.json"
+            "compare --base-src p.kicad_pro --base-revision-key {key} --head b.prism --head-revision-key {key} -o r.json"
         ))
         .unwrap();
         assert_eq!(
             source.limits.get(LimitName::TimeoutMs),
             Limits::defaults(Work::Parse).get(LimitName::TimeoutMs)
         );
+        let reuse = args("bundle reuse --in a.prism --key-record k.json").unwrap();
+        assert_eq!(reuse.command, Command::Reuse);
+        assert_eq!(reuse.option("key-record"), Some("k.json"));
     }
 
     #[test]
@@ -731,6 +768,30 @@ mod tests {
         assert_eq!(code("compare --base a --head b"), "usage");
         assert_eq!(code("compare --base a --head b -o d extra"), "usage");
         assert_eq!(code("compare --base a --head b --base c -o d"), "usage");
+        // Both modes take each side's revision key (ADR amendment K2 §3.6).
+        let key = "0".repeat(64);
+        assert_eq!(
+            code(&format!(
+                "compare --base a --head b --base-revision-key {key} -o d"
+            )),
+            "usage"
+        );
+        assert_eq!(
+            code(&format!(
+                "compare --base a --head b --base-revision-key {key} --head-revision-key X -o d"
+            )),
+            "usage"
+        );
+    }
+
+    #[test]
+    fn rejects_bad_reuse_grammar() {
+        let code = |line: &str| args(line).unwrap_err().finding.code;
+        assert_eq!(code("bundle reuse --in a"), "usage");
+        assert_eq!(code("bundle reuse --key-record k"), "usage");
+        assert_eq!(code("bundle reuse b --in a --key-record k"), "usage");
+        assert_eq!(code("bundle reuse --in a --key-record k -o d"), "usage");
+        assert_eq!(code("bundle frob"), "unknown-command");
     }
 
     #[test]

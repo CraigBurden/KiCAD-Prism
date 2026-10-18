@@ -93,18 +93,23 @@ class Side:
         return "bundle" if self.read is not None else "source-tree"
 
     def compare_args(self) -> List[str]:
-        """This side's ``compare`` arguments (cli-spec.md §5.6)."""
+        """This side's ``compare`` arguments (cli-spec.md §5.6).
 
+        Both modes pass the revision key: a bundle may serve several, so
+        ``compare`` takes the side's identity from the request, not the archive.
+        """
+
+        identity = [f"--{self.name}-revision-key", self.revision_key]
         if self.read is not None:
             archive = self.read.opened.archive
             assert archive is not None
-            return [f"--{self.name}", str(archive.path)]
+            return [f"--{self.name}", str(archive.path), *identity]
         assert self.prepared is not None
         args = [
             f"--{self.name}-src", str(self.prepared.src / self.config["project_file"]),
             f"--{self.name}-source-root", str(self.prepared.src),
             f"--{self.name}-config", str(self.prepared.effective),
-            f"--{self.name}-revision-key", self.revision_key,
+            *identity,
         ]
         for item in self.prepared.upgraded:
             args += [f"--{self.name}-upgraded", f"{item['path']}={int(item['upgraded_from_version'])}"]

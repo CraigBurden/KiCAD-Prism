@@ -3,9 +3,9 @@
 //! check against the build's own key record that stage parse performs before
 //! it writes the archive (I14, cli-spec.md §5.10 conditions 4–7).
 //!
-//! [`check`] is the function `prism-kicad bundle reuse` reuses for conditions
-//! 4–7 of cli-spec.md §5.10; step C adds conditions 1–3 (config, generator,
-//! model-unavailable) around it.
+//! `prism-kicad bundle reuse` checks conditions 4–7 of cli-spec.md §5.10 with
+//! [`check_sources`], on the source entries and read set a manifest records;
+//! it checks conditions 1–3 (config, generator, model-unavailable) itself.
 
 use crate::manifest::{SOURCES_PREFIX, a3, is_source_role};
 use crate::paths::is_within;
@@ -104,6 +104,42 @@ fn gitlinks(
     found.sort_by(|a, b| a.path.cmp(&b.path));
     found.dedup_by(|a, b| a.path == b.path);
     found
+}
+
+/// The read set a manifest records: the inverse of [`contract`].
+#[must_use]
+pub fn of_contract(read_set: &a3::BundleManifestReadSet) -> ReadSet {
+    use crate::stages::sources::{Gitlink, Listing, Probe};
+    ReadSet {
+        probes: read_set
+            .probes
+            .iter()
+            .map(|probe| Probe {
+                path: probe.path.0.clone(),
+                present: probe.present,
+            })
+            .collect(),
+        listings: read_set
+            .listings
+            .iter()
+            .map(|listing| Listing {
+                directory: match &listing.directory {
+                    a3::BundleManifestListingDirectory::String(directory) => directory.clone(),
+                    a3::BundleManifestListingDirectory::RepoPath(directory) => directory.0.clone(),
+                },
+                suffixes: listing.suffixes.iter().map(|s| s.0.clone()).collect(),
+                paths: listing.paths.iter().map(|path| path.0.clone()).collect(),
+            })
+            .collect(),
+        gitlinks: read_set
+            .gitlinks
+            .iter()
+            .map(|gitlink| Gitlink {
+                path: gitlink.path.0.clone(),
+                commit: gitlink.commit.0.clone(),
+            })
+            .collect(),
+    }
 }
 
 /// The read set as the manifest's JSON form.
@@ -249,7 +285,23 @@ pub fn check(
     members: &[MemberData],
     record: &rk::RevisionKeyRecordA1,
 ) -> Option<Mismatch> {
-    check_reads(members, record)
+    let sources: Vec<&a3::BundleManifestSourceEntry> = members
+        .iter()
+        .filter(|member| is_source_role(member.role))
+        .filter_map(|member| member.source.as_ref())
+        .collect();
+    check_sources(read_set, &sources, record)
+}
+
+/// [`check`] on the source entries a manifest records, for `bundle reuse`,
+/// which reads no member.
+#[must_use]
+pub fn check_sources(
+    read_set: &ReadSet,
+    sources: &[&a3::BundleManifestSourceEntry],
+    record: &rk::RevisionKeyRecordA1,
+) -> Option<Mismatch> {
+    check_reads(sources, record)
         .or_else(|| check_probes(read_set, record))
         .or_else(|| check_listings(read_set, record))
         .or_else(|| check_gitlinks(read_set, record))
@@ -264,16 +316,13 @@ fn below_gitlink(read_set: &ReadSet, path: &str) -> bool {
 }
 
 /// Condition 4: every source member is an entry of the record.
-fn check_reads(members: &[MemberData], record: &rk::RevisionKeyRecordA1) -> Option<Mismatch> {
-    let mut sources: Vec<&MemberData> = members
-        .iter()
-        .filter(|member| is_source_role(member.role))
-        .collect();
-    sources.sort_by(|a, b| a.path.cmp(&b.path));
-    for member in &sources {
-        let Some(source) = &member.source else {
-            continue;
-        };
+fn check_reads(
+    sources: &[&a3::BundleManifestSourceEntry],
+    record: &rk::RevisionKeyRecordA1,
+) -> Option<Mismatch> {
+    let mut sources = sources.to_vec();
+    sources.sort_by(|a, b| a.path.0.cmp(&b.path.0));
+    for source in sources {
         let ok = match &source.gitlink {
             Some(gitlink) => {
                 entry_of(record, &gitlink.0, &[rk::RevisionKeyEntryKind::Gitlink]).is_some()

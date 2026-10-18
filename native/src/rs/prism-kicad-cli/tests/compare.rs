@@ -60,12 +60,21 @@ fn rewrite(archive: &Path, out: &Path, edit: impl FnOnce(&mut Value, &mut Vec<(S
 }
 
 fn compare(base: &Path, head: &Path, out: &Path) -> support::Run {
+    compare_as(base, head, out, ZERO_KEY)
+}
+
+/// `compare` with `base_key` as the base side's revision key.
+fn compare_as(base: &Path, head: &Path, out: &Path, base_key: &str) -> support::Run {
     run(&[
         "compare",
         "--base",
         s(base),
+        "--base-revision-key",
+        base_key,
         "--head",
         s(head),
+        "--head-revision-key",
+        ZERO_KEY,
         "-o",
         s(out),
         "--quiet",
@@ -120,6 +129,22 @@ fn the_same_bundle_twice_has_no_changes() {
 }
 
 #[test]
+fn a_bundle_side_is_the_revision_it_is_asked_for() {
+    // Through an alias one bundle serves several revision keys, so the
+    // identity is the argument, not the archive's `revision_key` (ADR
+    // amendment K2 §3.6).
+    let archive = parse_bundle("compare-identity");
+    let out = archive.with_file_name("result.json");
+    let asked = "ab".repeat(32);
+    let finished = compare_as(&archive, &archive, &out, &asked);
+    assert_eq!(finished.code, 0, "{}", finished.document);
+    assert_eq!(finished.document["base"]["revision_key"], asked.as_str());
+    assert_eq!(finished.document["head"]["revision_key"], ZERO_KEY);
+    let result: Value = serde_json::from_slice(&std::fs::read(&out).unwrap()).unwrap();
+    assert!(result.to_string().contains(&asked));
+}
+
+#[test]
 fn a_source_tree_compares_as_its_bundle_does() {
     let archive = parse_bundle("compare-source");
     let dir = archive.parent().unwrap();
@@ -135,6 +160,8 @@ fn a_source_tree_compares_as_its_bundle_does() {
         ZERO_KEY,
         "--head",
         s(&archive),
+        "--head-revision-key",
+        ZERO_KEY,
         "-o",
         s(&from_sources),
         "--quiet",
@@ -207,6 +234,10 @@ fn usage_errors_exit_two() {
         vec!["compare", "--base", "a.prism"],
         vec!["compare", "--base", "a.prism", "--head", "b.prism"],
         vec!["compare", "--base", "a.prism", "--head", "b.prism", "-o"],
+        // Both modes need each side's revision key (ADR amendment K2 §3.6).
+        vec![
+            "compare", "--base", "a.prism", "--head", "b.prism", "-o", "r.json",
+        ],
         // A side is a bundle or a source tree, never both.
         vec![
             "compare",

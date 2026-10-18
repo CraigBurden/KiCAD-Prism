@@ -195,7 +195,7 @@ enum CliArgument {
   /** `--revision-key`. */
   revisionKey: "revision-key",
 
-  /** `--key-record` of `bundle build --stage parse`. */
+  /** `--key-record` of `bundle build --stage parse` and `bundle reuse`. */
   keyRecord: "key-record",
 
   /** An `--upgraded` of `bundle build --stage parse`: a source the backend upgraded from an older KiCad file format (cli-spec.md §9.4). */
@@ -246,7 +246,7 @@ enum CliArgument {
   /** `--head-config` of `compare`. */
   headConfig: "head-config",
 
-  /** `--base-revision-key` of `compare`: the base source tree's revision key. */
+  /** `--base-revision-key` of `compare`: the base side's revision key, in both modes. */
   baseRevisionKey: "base-revision-key",
 
   /** `--head-revision-key` of `compare`. */
