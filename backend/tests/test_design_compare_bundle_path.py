@@ -249,12 +249,26 @@ def test_the_bundle_switch_queues_the_compare_pipeline(monkeypatch: pytest.Monke
     captured = _enqueue_capture(monkeypatch)
     monkeypatch.setattr(settings, "PRISM_DESIGN_SOURCE_DESIGN_COMPARISON", "bundle")
     monkeypatch.setattr(design_compare_service.design_bundle_cli, "generator", lambda: SimpleNamespace(digest="d" * 64))
+    monkeypatch.setattr(design_compare_service.design_bundle_cli, "binary_digest", lambda: "b" * 64)
     design_compare_service.start_design_compare_job("p1", BASE, HEAD, requested_by="me@example.com")
     monkeypatch.setattr(design_compare_service.design_bundle_cli, "generator", lambda: SimpleNamespace(digest="e" * 64))
     design_compare_service.start_design_compare_job("p1", BASE, HEAD)
     first, second = captured
     assert first["pipeline"] == bundle_path.PIPELINE and first["requested_by"] == "me@example.com"
     assert first["artifact_key"] != second["artifact_key"]  # a new generator is a new result
+
+
+def test_a_new_compare_binary_is_a_new_result_with_the_same_generator(monkeypatch: pytest.MonkeyPatch) -> None:
+    # A compare fix that leaves every bundle member alone keeps the generator id;
+    # the comparisons cached before it must not be served after it.
+    captured = _enqueue_capture(monkeypatch)
+    monkeypatch.setattr(settings, "PRISM_DESIGN_SOURCE_DESIGN_COMPARISON", "bundle")
+    monkeypatch.setattr(design_compare_service.design_bundle_cli, "generator", lambda: SimpleNamespace(digest="d" * 64))
+    for engine in ("b" * 64, "c" * 64, "c" * 64):
+        monkeypatch.setattr(design_compare_service.design_bundle_cli, "binary_digest", lambda engine=engine: engine)
+        design_compare_service.start_design_compare_job("p1", BASE, HEAD)
+    first, second, third = (payload["artifact_key"] for payload in captured)
+    assert first != second and second == third
 
 
 def test_an_ended_partial_bundle_result_settles_with_fabrication_failed(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
