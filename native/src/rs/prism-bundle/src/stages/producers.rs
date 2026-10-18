@@ -9,13 +9,14 @@
 use super::design;
 use super::parse::Design;
 use crate::manifest::{DESIGN_PATH, PROJECTIONS};
+use prism_kicad_contracts::generated::prism_board_objects_a0::BoardObjectsA0;
 use prism_kicad_contracts::generated::prism_semantic_index_a2::SemanticIndexA2;
 use prism_projections::Produced;
 use serde_json::Value;
 
 /// One producer's output.
 pub(super) enum ProjectionResult {
-    /// A document already kept as JSON, as the other seven producers build it.
+    /// A document already kept as JSON, as the other six producers build it.
     Json {
         /// The document.
         value: Value,
@@ -29,6 +30,46 @@ pub(super) enum ProjectionResult {
         /// Its recorded warnings.
         warnings: Vec<prism_projections::ProducerWarning>,
     },
+    /// The board objects, still typed: the largest member, serialized once
+    /// for a bundle and not at all for an in-memory parse.
+    BoardObjects {
+        /// The document.
+        document: Box<BoardObjectsA0>,
+        /// Its recorded warnings.
+        warnings: Vec<prism_projections::ProducerWarning>,
+    },
+}
+
+impl ProjectionResult {
+    /// The schema id the document declares, the document as stage parse keeps
+    /// or serializes it, and its warnings.
+    pub(super) fn into_parts(
+        self,
+    ) -> (
+        Option<String>,
+        super::Document,
+        Vec<prism_projections::ProducerWarning>,
+    ) {
+        match self {
+            Self::Json { value, warnings } => {
+                let schema = value
+                    .get("schema")
+                    .and_then(Value::as_str)
+                    .map(str::to_owned);
+                (schema, super::Document::Json(value), warnings)
+            }
+            Self::SemanticIndex { document, warnings } => (
+                Some(document.schema.clone()),
+                super::Document::SemanticIndex(document),
+                warnings,
+            ),
+            Self::BoardObjects { document, warnings } => (
+                Some(document.schema.clone()),
+                super::Document::BoardObjects(document),
+                warnings,
+            ),
+        }
+    }
 }
 
 type Producer = fn(
@@ -40,10 +81,16 @@ type SemanticProducer = fn(
 )
     -> Result<Produced<SemanticIndexA2>, prism_projections::ProjectionError>;
 
+type BoardObjectsProducer =
+    fn(
+        &prism_projections::ProjectionInput<'_>,
+    ) -> Result<Produced<BoardObjectsA0>, prism_projections::ProjectionError>;
+
 #[derive(Clone, Copy)]
 enum ProducerKind {
     Json(Producer),
     Semantic(SemanticProducer),
+    BoardObjects(BoardObjectsProducer),
 }
 
 fn produced<T: serde::Serialize>(
@@ -66,8 +113,8 @@ fn semantic(
 
 fn board_objects(
     input: &prism_projections::ProjectionInput<'_>,
-) -> Result<(Value, Vec<prism_projections::ProducerWarning>), String> {
-    produced(prism_projections::board_objects::produce(input))
+) -> Result<Produced<BoardObjectsA0>, prism_projections::ProjectionError> {
+    prism_projections::board_objects::produce(input)
 }
 
 fn occurrences(
@@ -113,7 +160,7 @@ fn system_interface(
 }
 
 const PRODUCERS: [ProducerKind; 8] = [
-    ProducerKind::Json(board_objects),
+    ProducerKind::BoardObjects(board_objects),
     ProducerKind::Json(occurrences),
     ProducerKind::Json(placements),
     ProducerKind::Json(project),
@@ -133,6 +180,13 @@ impl ProducerKind {
                 producer(input).map(|(value, warnings)| ProjectionResult::Json { value, warnings })
             }
             Self::Semantic(producer) => semantic(producer(input)),
+            Self::BoardObjects(producer) => {
+                let produced = producer(input).map_err(|error| error.message)?;
+                Ok(ProjectionResult::BoardObjects {
+                    document: Box::new(produced.document),
+                    warnings: produced.warnings,
+                })
+            }
         }
     }
 }

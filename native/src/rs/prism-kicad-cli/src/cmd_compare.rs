@@ -23,6 +23,7 @@ use prism_bundle::limits::compare::result::{self, Options, Output, Revision, Rev
 use prism_bundle::limits::compare::{CompareError, anchor_directory, entries};
 use prism_bundle::manifest::{Manifest, Status};
 use prism_bundle::reader::BundleReader;
+use prism_bundle::stages::Document;
 use prism_bundle::stages::parse::{ParseOutcome, ParseRequest};
 use prism_bundle::zip::FileSource;
 use prism_bundle::{Failure, Limits, Outcome, generator, schema};
@@ -51,13 +52,19 @@ const RESULT_SCHEMA: &str = "prism.cli.compare_result.a0";
 /// The project's committed settings, which hold the BOM columns.
 const PRISM_SETTINGS: &str = ".prism.json";
 
-/// One side, whichever kind: its members' bytes and what the result says
-/// about it.
+/// One member as a side holds it: a bundle's bytes, or the document a source
+/// tree's in-memory parse produced (no JSON text in between).
+enum Member {
+    Bytes(Arc<[u8]>),
+    Document(Document),
+}
+
+/// One side, whichever kind: its members and what the result says about it.
 struct Side {
     name: &'static str,
     generator: Vec<u8>,
     identity: RevisionIdentity,
-    members: BTreeMap<&'static str, Arc<[u8]>>,
+    members: BTreeMap<&'static str, Member>,
     prism_settings: Option<Arc<[u8]>>,
     sources: Vec<String>,
 }
@@ -124,7 +131,7 @@ fn open_bundle(path: &Path, limits: &Limits, side: &'static str) -> Outcome<Side
         match reader.member(member) {
             None => {}
             Some(Ok(bytes)) => {
-                members.insert(member, Arc::from(bytes));
+                members.insert(member, Member::Bytes(Arc::from(bytes)));
             }
             Some(Err(finding)) => return Err(member_invalid(finding, side)),
         }
@@ -191,7 +198,7 @@ fn member_invalid(finding: Finding, side: &'static str) -> Failure {
 /// or `partial` without it among `failed_members` (exit 7, `member-not-found`).
 fn require_members(
     manifest: &Manifest,
-    members: &BTreeMap<&'static str, Arc<[u8]>>,
+    members: &BTreeMap<&'static str, Member>,
     listed: impl Fn(&str) -> bool,
     side: &'static str,
 ) -> Outcome<()> {
@@ -242,6 +249,7 @@ fn open_source(args: &Args, side: &'static str, stderr: &Stderr) -> Outcome<Side
         limits: &args.limits,
         reporter: stderr,
         projections: Some(&MEMBERS),
+        in_memory: true,
     };
     let built = match prism_bundle::stages::parse::run(&request)? {
         ParseOutcome::Built(built) => built,
@@ -258,9 +266,14 @@ fn open_source(args: &Args, side: &'static str, stderr: &Stderr) -> Outcome<Side
         .into_iter()
         .map(|member| (member.path, member.bytes))
         .collect();
-    let members: BTreeMap<&'static str, Arc<[u8]>> = MEMBERS
+    let mut documents = built.documents;
+    let members: BTreeMap<&'static str, Member> = MEMBERS
         .iter()
-        .filter_map(|member| by_path.remove(*member).map(|bytes| (*member, bytes)))
+        .filter_map(|member| {
+            documents
+                .remove(*member)
+                .map(|document| (*member, Member::Document(document)))
+        })
         .collect();
     let manifest = &built.manifest;
     require_members(manifest, &members, |path| members.contains_key(path), side)?;
@@ -321,22 +334,31 @@ fn source_paths(manifest: &Manifest) -> Vec<String> {
     paths
 }
 
-/// The side's typed inputs; each member's JSON is dropped as soon as it is
-/// typed (the object entries once rebuilt).
+/// The side's typed inputs; each member is dropped as soon as it is typed
+/// (the board objects once rebuilt as entries).
 fn revision(mut side: Side) -> Outcome<Revision> {
     let name = side.name;
-    let mut take = |member: &'static str| side.members.remove(member).unwrap_or_default();
-    let board_objects: Value = parse(&take(BOARD_OBJECTS), BOARD_OBJECTS, name)?;
+    let mut take = |member: &'static str| {
+        side.members.remove(member).ok_or_else(|| {
+            Failure::internal(format!("{member} went missing after the member checks"))
+        })
+    };
+    // An in-memory side's board objects are typed; they become a JSON tree only
+    // here, one side at a time, for as long as the entries take to build.
+    let board_objects: Value = typed(take(BOARD_OBJECTS)?, BOARD_OBJECTS, name)?;
     let objects = entries(
         &board_objects,
         anchor_directory(&side.identity.project_file),
     )
     .map_err(engine)?;
     drop(board_objects);
-    let semantic_index = parse(&take(SEMANTIC_INDEX), SEMANTIC_INDEX, name)?;
-    let occurrences = parse(&take(OCCURRENCES), OCCURRENCES, name)?;
-    let stackup = parse(&take(STACKUP), STACKUP, name)?;
-    let route_metrics = parse(&take(ROUTE_METRICS), ROUTE_METRICS, name)?;
+    let semantic_index = match take(SEMANTIC_INDEX)? {
+        Member::Document(Document::SemanticIndex(index)) => *index,
+        member => typed(member, SEMANTIC_INDEX, name)?,
+    };
+    let occurrences = typed(take(OCCURRENCES)?, OCCURRENCES, name)?;
+    let stackup = typed(take(STACKUP)?, STACKUP, name)?;
+    let route_metrics = typed(take(ROUTE_METRICS)?, ROUTE_METRICS, name)?;
     let prism_settings = side
         .prism_settings
         .as_deref()
@@ -353,11 +375,24 @@ fn revision(mut side: Side) -> Outcome<Revision> {
     })
 }
 
-fn parse<T: DeserializeOwned>(bytes: &[u8], member: &str, side: &'static str) -> Outcome<T> {
-    serde_json::from_slice(bytes).map_err(|error| {
+/// A member as its contract's type: parsed from a bundle's bytes, or taken
+/// from an in-memory document. A document reads exactly as its serialized
+/// bytes would, since `json_bytes` is serde_json's own writer.
+fn typed<T: DeserializeOwned>(member: Member, path: &str, side: &'static str) -> Outcome<T> {
+    let result = match member {
+        Member::Bytes(bytes) => serde_json::from_slice(&bytes),
+        Member::Document(Document::Json(value)) => serde_json::from_value(value),
+        Member::Document(Document::SemanticIndex(index)) => {
+            serde_json::to_value(index).and_then(serde_json::from_value)
+        }
+        Member::Document(Document::BoardObjects(objects)) => {
+            serde_json::to_value(objects).and_then(serde_json::from_value)
+        }
+    };
+    result.map_err(|error| {
         Failure::input(
             "bundle-invalid",
-            format!("{member} does not fit its contract: {error}"),
+            format!("{path} does not fit its contract: {error}"),
         )
         .argument(side)
     })
