@@ -45,11 +45,25 @@ def _direct_children(block: str) -> list[tuple[str, int, int, str]]:
     return children
 
 
-def _remove_direct_children(block: str, heads: set[str]) -> str:
-    spans = [(start, end) for head, start, end, _ in _direct_children(block) if head in heads]
-    for start, end in reversed(spans):
+def _cut(block: str, spans: list[tuple[int, int]]) -> str:
+    """Remove ``spans`` from ``block``; a span alone on its line takes the line."""
+
+    for start, end in sorted(spans, reverse=True):
+        line_start = block.rfind("\n", 0, start) + 1
+        line_end = block.find("\n", end)
+        if (
+            line_start > 0
+            and not block[line_start:start].strip()
+            and line_end >= 0
+            and not block[end:line_end].strip()
+        ):
+            start, end = line_start - 1, line_end
         block = block[:start] + block[end:]
     return block
+
+
+def _remove_direct_children(block: str, heads: set[str]) -> str:
+    return _cut(block, [(start, end) for head, start, end, _ in _direct_children(block) if head in heads])
 
 
 def _replace_quoted(value: str) -> str:
@@ -140,9 +154,7 @@ def _remove_named_properties(block: str, names: frozenset[str]) -> str:
         match = re.match(r'\(property\s+"((?:\\.|[^"\\])*)"', raw)
         if match and match.group(1) in names:
             spans.append((start, end))
-    for start, end in reversed(spans):
-        block = block[:start] + block[end:]
-    return block
+    return _cut(block, spans)
 
 
 def _render_library_footprint(
@@ -182,7 +194,7 @@ def _render_library_footprint(
     if at_child and angle != 0:
         sanitized = sanitized[:at_child[0]] + f"(at 0 0 {angle_token})" + sanitized[at_child[1]:]
     elif at_child:
-        sanitized = sanitized[:at_child[0]] + sanitized[at_child[1]:]
+        sanitized = _cut(sanitized, [at_child])
     if strip_properties:
         sanitized = _remove_named_properties(sanitized, strip_properties)
     sanitized = re.sub(

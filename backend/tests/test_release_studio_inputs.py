@@ -222,6 +222,23 @@ class SourceDiscoveryTests(unittest.TestCase):
         self.assertEqual(project.path, str(scoped.resolve()))
         self.assertEqual(project.project_file, "board.kicad_pro")
 
+    def test_source_discovery_hands_the_project_id_to_the_catalog(self) -> None:
+        # The catalog reads the design bundle by project id; an empty id made
+        # every Release Studio lookup miss the bundle with a traceback.
+        files = ["board.kicad_pcb", "board.kicad_sch", "board.kicad_pro"]
+        with (
+            patch("app.release_studio.source._ls_tree", return_value=files),
+            patch("app.release_studio.source._bom_presets", return_value=[]),
+            patch(
+                "app.services.variant_catalog_service.discover_variant_catalog",
+                return_value={"variants": [{"name": "Lite"}]},
+            ) as discover,
+        ):
+            source = discover_source(Path("/unused"), "a" * 40, project_id="prj_1")
+        self.assertEqual(source["variants"], ["default", "Lite"])
+        project, _commit = discover.call_args.args
+        self.assertEqual(project.id, "prj_1")
+
     def test_variant_discovery_failure_offers_only_the_default(self) -> None:
         from app.release_studio import source as source_module
 

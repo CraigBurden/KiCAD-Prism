@@ -70,6 +70,27 @@ describe("useImportSessionProposals", () => {
     expect(result.current.proposals[0]?.session_id).toBe("session-b");
   });
 
+  it("reads the proposals again when the session's scan finishes", async () => {
+    vi.mocked(listImportProposals)
+      .mockResolvedValueOnce({ items: [] })
+      .mockResolvedValueOnce({ items: [proposal("session-a", "R5")] });
+    const { result, rerender } = renderHook(
+      ({ status }) => useImportSessionProposals("session-a", status),
+      { initialProps: { status: "scanning" } },
+    );
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(result.current.proposals).toEqual([]);
+
+    rerender({ status: "staged" });
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(result.current.proposals.map((item) => item.reference)).toEqual(["R5"]);
+    expect(listImportProposals).toHaveBeenCalledTimes(2);
+  });
+
   it("ignores a delayed proposals response after unmount", async () => {
     let finish: ((value: { items: ProjectComponentImportProposal[] }) => void) | undefined;
     vi.mocked(listImportProposals).mockImplementation(async () => new Promise((resolve) => {

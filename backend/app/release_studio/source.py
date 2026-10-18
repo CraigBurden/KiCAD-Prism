@@ -71,13 +71,19 @@ def apply_source_defaults(
 
 
 def discover_source(
-    repo_root: Path | str, commit_sha: str, relative_path: str | None = None
+    repo_root: Path | str,
+    commit_sha: str,
+    relative_path: str | None = None,
+    *,
+    project_id: str = "",
 ) -> dict[str, Any]:
     """List boards, schematics, variants, and BOM presets at *commit_sha*.
 
     ``relative_path`` is the imported project's subdirectory. A monorepo holds
     several projects in one repository, so discovery that ignored it would
-    offer a sibling project's board as this project's default.
+    offer a sibling project's board as this project's default. ``project_id``
+    lets the variant lookup read the project's design bundle; without it the
+    variants are discovered from source.
     """
 
     root = Path(repo_root)
@@ -102,7 +108,9 @@ def discover_source(
         "board": board or "",
         "schematic": schematic or "",
         "project": project or "",
-        "variants": _variant_options(root, commit_sha, relative_path, project or board or schematic),
+        "variants": _variant_options(
+            root, commit_sha, relative_path, project or board or schematic, project_id
+        ),
         "bom_presets": presets,
         "default_bom_preset": presets[0] if presets else _CURRENT_SETTINGS,
         "variant": "",
@@ -195,10 +203,11 @@ def _variant_options(
     commit: str,
     relative_path: str | None,
     project_rel: str | None,
+    project_id: str = "",
 ) -> list[str]:
     """The explicit default plus every named variant at this commit."""
 
-    return [DEFAULT_VARIANT, *_variants(repo_root, commit, relative_path, project_rel)]
+    return [DEFAULT_VARIANT, *_variants(repo_root, commit, relative_path, project_rel, project_id)]
 
 
 @dataclass(frozen=True)
@@ -207,6 +216,7 @@ class _CatalogProject:
 
     path: str
     project_file: str | None = None
+    id: str = ""
 
 
 def _scoped_root(repo_root: Path, relative_path: str | None) -> Path:
@@ -232,6 +242,7 @@ def _variants(
     commit: str,
     relative_path: str | None = None,
     project_rel: str | None = None,
+    project_id: str = "",
 ) -> list[str]:
     """Named variants from the shared catalog discovery (VAR-07/08).
 
@@ -250,6 +261,7 @@ def _variants(
     project = _CatalogProject(
         path=str(scoped_root),
         project_file=_catalog_anchor(repo_root, scoped_root, project_rel),
+        id=project_id,
     )
     from app.services import variant_catalog_service
 

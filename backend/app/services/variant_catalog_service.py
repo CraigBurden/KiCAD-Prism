@@ -320,9 +320,14 @@ def _catalog_body_from_bundle(project: Any, resolved_commit: str) -> Optional[di
 
     from app.services.design_bundle.consumer import bundle_read
 
+    # Bundles are keyed by project id; a caller with only a checkout path
+    # has no bundle to read.
+    project_id = str(getattr(project, "id", "") or "")
+    if not project_id:
+        return None
     read = bundle_read(
         "SEMANTIC_INDEX",
-        str(getattr(project, "id", "")),
+        project_id,
         resolved_commit,
         [SEMANTIC_INDEX_MEMBER],
     )

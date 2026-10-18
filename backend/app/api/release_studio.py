@@ -121,7 +121,10 @@ async def get_source(
 
     try:
         source = discover_source(
-            repo_root, commit_sha, str(project.get("relative_path") or "")
+            repo_root,
+            commit_sha,
+            str(project.get("relative_path") or ""),
+            project_id=project_id,
         )
     except Exception as exc:  # noqa: BLE001
         logger.exception(
