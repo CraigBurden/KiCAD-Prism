@@ -80,6 +80,18 @@ Measured on EDA-04903 (57 MB board) in a throwaway container from the worker ima
 | A projection member read by the backend | ≤ 0.1 s after the bundle is stored (validated once, at store) |
 | Stages `board` and `models` | ≤ today's equivalent Python and `kicad-cli` path for the same consumer |
 
+The 3D journeys' budgets (set on 2026-10-18, amendment V2 §7) are measured in headless Chrome on an Apple-silicon Mac with assets on loopback; the cold commit is measured in the container as above.
+
+| Journey | Budget |
+|---|---|
+| 3D tab, warm commit: board shown whole (every layer and the parts, held back until all are drawn) | ≤ 1.5 s |
+| 3D tab, warm commit, opened again (same bundle) | ≤ 0.5 s |
+| Bytes before the board shows | no more than the mesh path's (39 MB on EDA-04903) |
+| Cold commit: board shown | ≤ 120 s; peak ≤ 3 GB |
+| System Builder scene, warm system of five boards: every board drawn | ≤ 3 s (confirmed in V2b) |
+| Harness node drag: curve and tube redrawn | same frame (≤ 16 ms) |
+| Simulation result on a warm bundle: first overlay frame | ≤ 1 s; no geometry downloaded |
+
 - A pull request that changes a hot path reports the journey's measurement before and after.
 - When every budget of a journey is met, its performance work stops. New work is opened only to meet a budget, or after the maintainer raises one.
 - On 2026-10-17, worst-case peak memory of stage `parse` measured 2.7 GB, so that budget is not yet met.

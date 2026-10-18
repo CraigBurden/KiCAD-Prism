@@ -1,0 +1,24 @@
+{
+  "schema": "prism.vendored_wasm.a0",
+  "purpose": "Reads materialization packs (kicad_monkey.materialization.a0) in the browser and lowers their slices for the analytic renderer.",
+  "source": {
+    "repository": "this repository",
+    "crate": "prism-kicad-wasm",
+    "native_src_rs_tree": "aaf1d7a849702c0133709aa20bfd9b8c3fd57d98",
+    "license": "MIT"
+  },
+  "build": {
+    "target": "wasm32-unknown-unknown",
+    "profile": "release",
+    "features": [
+      "materialization"
+    ],
+    "wasm_bindgen": "0.2.127",
+    "rustc": "rustc 1.98.0 (88d9e12ae 2026-08-18)",
+    "command": "node scripts/build-analytic-wasm.mjs"
+  },
+  "files": {
+    "prism_kicad_analytic.js": "a6a48cb1dccc378630ebe1014b5ba7f235388ff9c3f19e1654445d744401e3c5",
+    "prism_kicad_analytic_bg.wasm": "899363206411aba7c41bd72914a4ecbdb6b20c891697460e68b9098a9c8451db"
+  }
+}

@@ -74,6 +74,15 @@ async function runOne({ chrome, server, board, build, rep, captures }) {
   const label = `${board.name}/${build.name}#${rep}`;
   const page = await chrome.newPage({ width: options.width, height: options.height, deviceScaleFactor: options.scale });
   try {
+    if (options.warm && rep !== "perf") {
+      // Prime: one load in this page's context fills the OPFS cache (the bundle
+      // and the analytic board's lowered slices); the measured load follows.
+      await page.goto(`${server.origin}/harness/harness.html?build=${encodeURIComponent(build.name)}`);
+      await waitFor(page, "window.__vtElementLoaded === true", 30000, `${label}: element module (prime)`);
+      await page.evaluate(`window.__vtProbe.mount(${JSON.stringify(`/bundles/${board.name}/bundle.json`)}, ${JSON.stringify({ width: options.width, height: options.height })})`);
+      await settle(page, `${label} prime`);
+      await sleep(1500); // the cache writes finish in the background
+    }
     const started = Date.now();
     await page.goto(`${server.origin}/harness/harness.html?build=${encodeURIComponent(build.name)}`);
     await waitFor(page, "window.__vtElementLoaded === true", 30000, `${label}: element module`);
@@ -120,7 +129,8 @@ async function settle(page, label) {
     const status = await page.evaluate("window.__vtProbe.frameStatus()");
     if (page.networkIdle(1000) && status.stable >= options.stableFrames && status.stableMs >= 1000) return (Date.now() - started) / 1000;
     if (Date.now() - started > options.timeoutMs) {
-      throw new Error(`${label}: did not settle in ${options.timeoutMs / 1000} s (in flight ${page.inflight.size}, stable ${status.stable}/${options.stableFrames}, frames ${status.frames})`);
+      const pending = [...page.inflight].map((id) => page.urls?.get(id) || id).slice(0, 8).join(", ");
+      throw new Error(`${label}: did not settle in ${options.timeoutMs / 1000} s (in flight ${page.inflight.size}: ${pending}; stable ${status.stable}/${options.stableFrames}, frames ${status.frames})`);
     }
     await sleep(250);
   }
@@ -184,7 +194,7 @@ function report() {
 
 function serve({ builds, boards }) {
   const roots = new Map([["harness", here], ["builds", builds], ...boards.map((board) => [`bundles/${board.name}`, board.dir])]);
-  const types = { ".html": "text/html", ".js": "text/javascript", ".mjs": "text/javascript", ".json": "application/json", ".glb": "model/gltf-binary", ".bin": "application/octet-stream", ".css": "text/css" };
+  const types = { ".html": "text/html", ".js": "text/javascript", ".mjs": "text/javascript", ".json": "application/json", ".glb": "model/gltf-binary", ".bin": "application/octet-stream", ".css": "text/css", ".wasm": "application/wasm" };
   const server = createServer((request, response) => {
     const path = decodeURIComponent(new URL(request.url, "http://localhost").pathname).replace(/^\/+/, "");
     const prefix = [...roots.keys()].filter((key) => path === key || path.startsWith(`${key}/`)).sort((a, b) => b.length - a.length)[0];
@@ -231,6 +241,7 @@ function parseArgs(argv) {
     repeat: 2,
     perf: false,
     load: false,
+    warm: false,
     orbitMs: 4000,
     width: 1280,
     height: 800,
@@ -258,6 +269,7 @@ function parseArgs(argv) {
     else if (flag === "--repeat") parsed.repeat = Math.max(1, Number(value()));
     else if (flag === "--perf") parsed.perf = true;
     else if (flag === "--load") parsed.load = true;
+    else if (flag === "--warm") parsed.warm = true;
     else if (flag === "--orbit-ms") parsed.orbitMs = Number(value());
     else if (flag === "--size") [parsed.width, parsed.height] = value().split("x").map(Number);
     else if (flag === "--scale") parsed.scale = Number(value());

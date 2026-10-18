@@ -26,6 +26,7 @@ node tests/browser/pixel-diff/run.mjs \
 | `--strict a,b` | Views that must match the reference within `--max-px` (default 0). Default: all three. Keep `exploded` strict: outer copper sits under the solder mask, so a copper-only change shows only there. |
 | `--repeat n` | Loads per build (default 2). Load 0 against load 1 of the same build is the noise floor. |
 | `--load` | Time each load from the element's mount: `ready` (the viewer's own event), the first drawn frame, `components-loaded`, the last frame that changed, and the bytes fetched (Chrome's encoded lengths). Printed as a table and stored as `loads` in `summary.json`. |
+| `--warm` | Before each measured load, load the bundle once in the same page, so the browser's OPFS asset cache holds it (and the analytic board's lowered slices): a board opened again. |
 | `--perf` | One extra load per build: orbit for `--orbit-ms` (default 4000) with synthetic drags from the loaded camera. |
 | `--size WxH`, `--scale s` | Viewport (default 1280x800) and device pixel ratio (default 1). |
 | `--tolerance n` | A per-channel delta of up to n counts as equal (default 0, exact). |
@@ -44,6 +45,10 @@ node tests/browser/pixel-diff/run.mjs \
   - a strict view over `--max-px`;
   - a page error;
   - a view that never settles.
+
+Builds from V2a on draw the board with 4× multisampling (`renderer.js`, from the analytic spike), so a
+mesh-path capture compared with a build before V2a differs at shape edges only. Read such a
+diff by its visible share, not its pixel count.
 
 ## How a capture works
 

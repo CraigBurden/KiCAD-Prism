@@ -253,8 +253,17 @@ available.
   Use `.agents/skills/prism-viewer-rebuild/SKILL.md`.
 - `kicad-prism-viewer/` is Prism's semantic viewer source. Its build writes
   `kicad-prism-viewer/dist/prism-semantic-viewer.js` and synchronizes the served
-  `frontend/public/prism-semantic-viewer.js` plus its digest cache key. CI fails
-  when the tracked served files were not regenerated from current source.
+  `frontend/public/prism-semantic-viewer.js` plus its digest cache key, the
+  analytic lowering worker `frontend/public/prism-semantic-viewer-lower.js` and
+  the analytic WASM `frontend/public/prism-kicad-analytic.wasm`. CI fails when
+  the tracked served files were not regenerated from current source.
+- The analytic WASM is built from Prism's own Rust crate
+  `native/src/rs/prism-kicad-wasm` by `npm run build:analytic-wasm` (in
+  `kicad-prism-viewer/`) into `kicad-prism-viewer/viewer/vendor/prism-kicad-wasm/`
+  with a provenance file naming the source tree; rebuild it after changing the
+  crates it compiles. Boards draw from bundles through
+  `kicad-prism-viewer/viewer/src/analytic-board.js` (lowering pool, cache, board
+  clip and renderer in the `analytic-*.js` modules beside it).
 - `frontend/public/three/` is a vendored module tree used through the import map
   in `frontend/index.html` and imports in `frontend/public/3d-viewer.js`. Do not
   classify files there as dead from first-party import search alone.

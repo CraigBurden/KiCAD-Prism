@@ -24,7 +24,7 @@ const cwd = process.cwd();
 process.chdir(viewerRoot);
 buildElement("worktree", join(buildDir, "candidate.js"));
 process.chdir(cwd);
-copyFileSync(join(viewerRoot, "viewer/vendor/kicad-monkey-analytic/kicad_monkey_analytic_bg.wasm"), join(buildDir, "kicad-monkey-analytic.wasm"));
+copyFileSync(join(viewerRoot, "viewer/vendor/prism-kicad-wasm/prism_kicad_analytic_bg.wasm"), join(buildDir, "prism-kicad-analytic.wasm"));
 
 const roots = new Map([["harness", harness], ["builds", buildDir], ["bundle", boardDir]]);
 const types = { ".html": "text/html", ".js": "text/javascript", ".json": "application/json", ".glb": "model/gltf-binary", ".wasm": "application/wasm" };
@@ -62,7 +62,7 @@ try {
         const t0 = performance.now();
         const bytes = await (await fetch("/pack/board.kmpack")).arrayBuffer();
         const fetched = performance.now();
-        const stats = await window.__vtProbe.element.loadAnalyticPack(bytes, { wasm: "/builds/kicad-monkey-analytic.wasm" });
+        const stats = await window.__vtProbe.element.loadAnalyticPack(bytes, { wasm: "/builds/prism-kicad-analytic.wasm" });
         const attached = performance.now();
         let drawn = null;
         for (let i = 0; i < 600; i += 1) {

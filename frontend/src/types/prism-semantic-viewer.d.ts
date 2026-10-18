@@ -39,11 +39,26 @@ export interface PrismSemanticLayerState {
     visible: boolean;
 }
 
+export type PrismSemanticBoardLayerRole = "soldermask" | "silkscreen" | "paste";
+export type PrismSemanticBoardSide = "front" | "back";
+
+/** One side's solder mask, silkscreen or paste, by its KiCad name ("F.Mask", ...). */
+export interface PrismSemanticBoardLayerState {
+    role: PrismSemanticBoardLayerRole;
+    side: PrismSemanticBoardSide;
+    name: string;
+    /** CSS colour. */
+    color: string;
+    visible: boolean;
+}
+
 /** PCB 3D controls the host renders when it sets `hide-panel`. */
 export interface PrismSemanticViewState {
     /** "layer" is the stacked flat layer view. */
     mode: "3d" | "layer";
     layers: PrismSemanticLayerState[];
+    /** Each side's solder mask, silkscreen and paste the stackup lists. */
+    boardLayers?: PrismSemanticBoardLayerState[];
     showBoard: boolean;
     showComponents: boolean;
     /** Boxes standing in for footprints without a 3D model. */
@@ -102,6 +117,8 @@ export interface PrismInsetView {
  * their documented default before one is mounted.
  */
 export interface PrismSemanticViewerCommon {
+    /** Where a world point (metres, the viewer's frame) appears on screen in client px; null off screen. */
+    projectPoint(point: [number, number, number], occurrenceKey?: string): { x: number; y: number } | null;
     /** Safe before ready and after reloads: the last selection is replayed on the next board mount. */
     setSelection(selection: PrismRendererSelection | null): void;
     resize(): void;
@@ -114,6 +131,8 @@ export interface PrismSemanticViewerCommon {
     setShowComponents(visible: boolean): void;
     setShowPlaceholders(visible: boolean): void;
     setRealisticColors(enabled: boolean): void;
+    /** Show or hide one side's solder mask, silkscreen or paste (every placed board in a system scene). */
+    setBoardLayerVisible(role: PrismSemanticBoardLayerRole, side: PrismSemanticBoardSide, visible: boolean): void;
     /** In a system scene, `placement` names one placed board (every placement of the selected board when omitted). */
     setSeparation(value: number, placement?: string | null): void;
     showNetLayers(): void;
@@ -154,6 +173,124 @@ export interface PrismSemanticBoardMode {
     releaseInset(key: string): void;
     /** Called when the main view redrew or the viewer reloaded; returns an unsubscribe. Survives reloads. */
     onSceneChange(listener: () => void): () => void;
+    /**
+     * Analytic spike: draw the board's copper from a kicad_monkey
+     * materialization pack instead of the mesh tiles. Survives reloads.
+     */
+    loadAnalyticPack(bytes: ArrayBuffer | Uint8Array, options?: PrismAnalyticPackOptions): Promise<PrismAnalyticStats | null>;
+    /** Colour the analytic copper from a result; null clears it. Survives reloads. */
+    setAnalyticOverlay(overlay: PrismAnalyticOverlay | null): void;
+    /** How result overlays look; returns the style in force. */
+    setAnalyticStyle(style: Partial<PrismAnalyticStyle>): PrismAnalyticStyle | null;
+    /** The named colormaps' hex stops and the default style. */
+    analyticColormaps(): { colormaps: Record<string, string[]>; defaults: PrismAnalyticStyle } | null;
+    /** Arrows of a vector result on the copper: its components as field grids; null clears them. */
+    setAnalyticVectors(vectors: PrismAnalyticVectors | null): { count: number; max: number; reference: number; spacingMm: number } | null;
+    /**
+     * The field overlay's value under a client point from a CPU ray against the copper slices: no GPU
+     * pick, so cheap per pointer move. No operation or binding; use `analyticAt` for those (and barrels).
+     */
+    analyticProbe(clientX: number, clientY: number): PrismAnalyticReading | null;
+    /**
+     * The field overlay as a relief over one copper layer, in place of the board: heights and colours
+     * from the field, the outline from the exact copper of the overlay's net. Null returns to the board.
+     * Survives reloads and overlay changes; returns the layer shown and those it can show.
+     */
+    setAnalyticRelief(options: { sliceKey?: string; heightShare?: number } | null): PrismAnalyticRelief | null;
+    /** Whether a click on the board selects what is under it (default on); off while a host tool owns clicks. */
+    setClickSelect(enabled: boolean): void;
+    /** The operation under a client point, its binding and overlay value; null off the analytic copper. */
+    analyticAt(clientX: number, clientY: number): Promise<PrismAnalyticHit | null>;
+    analyticStats(): PrismAnalyticStats | null;
+    /** Back to mesh copper. */
+    unloadAnalyticPack(): void;
+}
+
+export interface PrismAnalyticStyle {
+    /** A colormap name, or two or more #rrggbb stops. */
+    fieldColormap: string | string[];
+    arrowColormap: string | string[];
+    /** Arrows across the board's longer side. */
+    arrowDensity: number;
+    /** Arrow half width, as a share of the spacing. */
+    arrowWidth: number;
+    /** The shortest arrow, as a share of the longest. */
+    arrowMinLength: number;
+    /** Outline colour and opacity, 0..1. */
+    arrowOutline: [number, number, number, number];
+}
+
+export interface PrismAnalyticVectors {
+    quantity: string;
+    units: string;
+    /** `prism.sim.field` grids of the board-frame x and y components. */
+    x: PrismAnalyticFieldGrid;
+    y: PrismAnalyticFieldGrid;
+}
+
+export interface PrismAnalyticPackOptions {
+    /** URL or bytes of the analytic WASM; defaults to the one served beside the element. */
+    wasm?: string | URL | ArrayBuffer;
+    /** Flattening tolerance for regions and cubic segments, nm (default 1000). */
+    toleranceNm?: number;
+}
+
+export type PrismAnalyticOverlay =
+    | { kind: "operation_values"; quantity: string; units: string; values: ArrayLike<number> | Record<number, number>; range?: [number, number] }
+    | { kind: "field_tiles"; quantity: string; units: string; tiles: PrismAnalyticFieldTile[]; range?: [number, number] }
+    | { kind: "field_grid"; quantity: string; units: string; grid: PrismAnalyticFieldGrid; values?: Record<number, number>; range?: [number, number] };
+
+/** A prism.sim.field grid document with each slice's values loaded (sim-adr-0018). */
+export interface PrismAnalyticFieldGrid {
+    origin_x_m: number;
+    origin_y_m: number;
+    dx_m: number;
+    dy_m: number;
+    slices: { slice_key: string; ix0: number; iy0: number; nx: number; ny: number; values: Float32Array }[];
+}
+
+export interface PrismAnalyticFieldTile {
+    slice_key: string;
+    origin_nm: [number, number];
+    pitch_nm: number;
+    width: number;
+    height: number;
+    values: Float32Array | number[];
+}
+
+export interface PrismAnalyticHit extends PrismAnalyticReading {
+    operationIndex: number;
+    binding: Record<string, unknown> | null;
+}
+
+/** A relief's layer and the layers a relief can raise (those with a field raster), with their copper cells. */
+export interface PrismAnalyticRelief {
+    sliceKey: string | null;
+    slices: { key: string; layerId: number; cells: number }[];
+}
+
+/** An overlay value read on the copper (what `analyticProbe` returns). */
+export interface PrismAnalyticReading {
+    value?: number;
+    quantity?: string;
+    units?: string;
+    /** Raster overlays: the copper slice and board point (mm) the value was read at. */
+    sliceKey?: string;
+    boardMm?: [number, number];
+    /** World point (m) on the slice's face. */
+    world?: [number, number, number];
+    /** A ring lying on that face, in client px: shows which surface is read. */
+    marker?: { centre: { x: number; y: number }; ring: { x: number; y: number }[] } | null;
+}
+
+export interface PrismAnalyticStats {
+    operations: number;
+    lowerMs: number;
+    unmatched: string[];
+    slices: { key: string; layerId: number; shapes: number; subtractShapes: number; regionBatches: number }[];
+    overlay: number;
+    gpuMemoryBytes: number;
+    degraded: boolean;
 }
 
 /**

@@ -38,6 +38,7 @@ import {
   packBarrelInstances,
   packBarrels,
 } from "./barrel-records.js";
+import { ANALYTIC_PICK_TAG } from "./analytic-shaders.js";
 
 // position unorm16×4 within the primitive's bounds (SB2-89), normal snorm8×4
 // (SB2-84), netId, objectId. SB2-82 dropped the per-primitive layer and material
@@ -59,6 +60,26 @@ const STENCIL_MARKED = { compare: "equal", passOp: "keep" };
 
 // SB2-89: positions are unorm16 within the primitive's bounds; the draw names the bounds.
 const DEQUANT_WGSL = `fn dequant(p: vec3f) -> vec3f { return draw.quantMin.xyz + p * draw.quantSize.xyz; }`;
+
+// A barrel is a stadium tube (a round drill is one of length 0): its plating
+// grows inward from the drill wall, as the finished hole does, so its inner
+// surface sits inside the substrate's drill wall instead of z-fighting it, and
+// end caps close the plating's ring at the copper faces. The unit mesh's x/y
+// is a point on the unit circle (never on its y axis), pushed along the long
+// axis by half the straight length and turned by the record's angle.
+// The caps' outer rim (radiusMix 2) circumscribes the drill circle, so no
+// sliver of the substrate's wall shows between the cap's chords and the copper
+// cut at the true circle; the cap sits just under the copper face, which
+// covers the overhang.
+const BARREL_SEGMENTS = 32;
+const BARREL_RADIUS_WGSL = `  let plating = input.dimensions.w - input.dimensions.z;
+  let rim = select(1.0, ${(1 / Math.cos(Math.PI / BARREL_SEGMENTS)).toFixed(6)}, input.radiusMix > 1.5);
+  let radius = mix(max(input.dimensions.z - plating, input.dimensions.z * 0.5), input.dimensions.z, min(input.radiusMix, 1.0)) * rim;
+  let turn = vec2f(cos(input.shape.y), sin(input.shape.y));
+  let local = vec2f(input.unit.x * radius + select(-input.shape.x, input.shape.x, input.unit.x >= 0.0), input.unit.y * radius);
+  let planar = vec2f(local.x * turn.x - local.y * turn.y, local.x * turn.y + local.y * turn.x);
+  let turnedNormal = vec3f(input.normal.x * turn.x - input.normal.y * turn.y, input.normal.x * turn.y + input.normal.y * turn.x, input.normal.z);
+`;
 
 const MAIN_SOURCE = `
 struct Globals {
@@ -250,17 +271,16 @@ struct Output {
 ${hook("vs-out")}  @location(3) @interpolate(flat) visible: u32,
 };
 @vertex fn vs(input: Input) -> Output {
-  let radius = mix(input.dimensions.z, input.dimensions.w, input.radiusMix);
-  let z0 = input.span.x + layerOffsets[input.ids.z];
+${BARREL_RADIUS_WGSL}  let z0 = input.span.x + layerOffsets[input.ids.z];
   let z1 = input.span.y + layerOffsets[input.ids.w];
   let world = vec3f(
-    input.dimensions.x + input.unit.x * radius,
-    input.dimensions.y + input.unit.y * radius,
+    input.dimensions.x + planar.x,
+    input.dimensions.y + planar.y,
     mix(z0, z1, input.unit.z)
   );
   var output: Output;
   output.position = globals.viewProjection * vec4f(world, 1.0);
-  output.normal = input.normal;
+  output.normal = turnedNormal;
   output.netId = input.ids.x;
   output.objectId = input.ids.y;
   output.visible = 0u;
@@ -315,10 +335,9 @@ struct Output {
 ${hook("vs-out")}  @location(1) @interpolate(flat) visible: u32,
 };
 @vertex fn vs(input: Input) -> Output {
-  let radius = mix(input.dimensions.z, input.dimensions.w, input.radiusMix);
-  let world = vec3f(
-    input.dimensions.x + input.unit.x * radius,
-    input.dimensions.y + input.unit.y * radius,
+${BARREL_RADIUS_WGSL}  let world = vec3f(
+    input.dimensions.x + planar.x,
+    input.dimensions.y + planar.y,
     mix(input.span.x + layerOffsets[input.ids.z], input.span.y + layerOffsets[input.ids.w], input.unit.z)
   );
   var output: Output;
@@ -536,6 +555,7 @@ function barrelVariant(source, positionLine, extra = []) {
   radiusMix: f32,
   dimensions: vec4f,
   span: vec2f,
+  shape: vec2f,
   ids: vec4u,
 };
 @vertex fn vs(vertex: Input, @builtin(instance_index) instance: u32) -> Output {
@@ -545,7 +565,7 @@ function barrelVariant(source, positionLine, extra = []) {
   let occurrence = occurrences[index];
   // An occurrence that explodes itself (SB2-31f) scales the renderer's per-layer steps by its own gap.
   let spread = select(1.0, occurrence.explode.x, occurrence.explode.w > 0.5);
-  let input = Record(vertex.unit, vertex.normal, vertex.radiusMix, barrel.dimensions, barrel.span, barrel.ids);`],
+  let input = Record(vertex.unit, vertex.normal, vertex.radiusMix, barrel.dimensions, barrel.span, barrel.shape, barrel.ids);`],
     [positionLine, positionLine.replace("vec4f(world, 1.0)", "vec4f((occurrence.model * vec4f(world, 1.0)).xyz, 1.0)")],
     ["  output.objectId = input.ids.y;", "  output.objectId = input.ids.y;\n  output.occurrence = index + 1u + globals.occurrenceBase;"],
     ...extra,
@@ -554,11 +574,11 @@ function barrelVariant(source, positionLine, extra = []) {
 
 const BARREL_SOURCE_INSTANCED = barrelVariant(
   BARREL_SOURCE,
-  "  output.position = globals.viewProjection * vec4f(world, 1.0);\n  output.normal = input.normal;",
+  "  output.position = globals.viewProjection * vec4f(world, 1.0);\n  output.normal = turnedNormal;",
   [
     ["  let z0 = input.span.x + layerOffsets[input.ids.z];\n  let z1 = input.span.y + layerOffsets[input.ids.w];",
       "  let z0 = input.span.x + layerOffsets[input.ids.z] * spread;\n  let z1 = input.span.y + layerOffsets[input.ids.w] * spread;"],
-    ["  output.normal = input.normal;\n  output.netId", "  output.normal = (occurrence.normal * vec4f(input.normal, 0.0)).xyz;\n  output.netId"],
+    ["  output.normal = turnedNormal;\n  output.netId", "  output.normal = (occurrence.normal * vec4f(turnedNormal, 0.0)).xyz;\n  output.netId"],
     ["  @location(3) @interpolate(flat) visible: u32,\n};", "  @location(3) @interpolate(flat) visible: u32,\n  @location(4) @interpolate(flat) occurrence: u32,\n};"],
     ["  let selected = netEmphasized(input.netId) || (globals.activeNet != 0u && input.netId == globals.activeNet);",
       "  let mark = emphasisOf(input.occurrence, input.netId);\n  let selected = mark != 0u\n    || (input.occurrence == globals.selectedOccurrence && globals.activeNet != 0u && input.netId == globals.activeNet);"],
@@ -805,7 +825,7 @@ export const BASE_SHADERS = Object.freeze({
 });
 
 export class Renderer {
-  static async create(canvas) {
+  static async create(canvas, { sampleCount = 4 } = {}) {
     if (!navigator.gpu) throw new Error("WebGPU is unavailable in this browser");
     const adapter = await navigator.gpu.requestAdapter({ powerPreference: "high-performance" });
     if (!adapter) throw new Error("No WebGPU adapter is available");
@@ -813,7 +833,7 @@ export class Renderer {
     // the mask draws one shade everywhere.
     const stencil = adapter.features.has("depth32float-stencil8");
     const device = await adapter.requestDevice(stencil ? { requiredFeatures: ["depth32float-stencil8"] } : undefined);
-    return new Renderer(canvas, device, { stencil });
+    return new Renderer(canvas, device, { stencil, sampleCount });
   }
 
   /**
@@ -823,11 +843,14 @@ export class Renderer {
    * always draws through the instanced pipelines. A `SceneRenderer` encodes the
    * passes for all of them.
    */
-  constructor(canvas, device, { shareFrom = null, stencil = false } = {}) {
+  constructor(canvas, device, { shareFrom = null, stencil = false, sampleCount = 1 } = {}) {
     this.canvas = canvas;
     this.device = device;
     this.shareFrom = shareFrom;
     this.stencil = shareFrom ? shareFrom.stencil : Boolean(stencil);
+    // Samples per pixel of the colour passes (4 anti-aliases; WebGPU allows 1
+    // or 4). Picking always draws one sample, into its own depth.
+    this.sampleCount = shareFrom ? shareFrom.sampleCount : (sampleCount === 4 ? 4 : 1);
     // Reversed depth (see math.js): cleared to 0, nearer fragments are greater.
     this.depthFormat = this.stencil ? "depth32float-stencil8" : "depth32float";
     // Bumped by every change that alters the picture outside the per-frame inputs.
@@ -924,7 +947,10 @@ export class Renderer {
       this.createSinglePipelines();
     }
     this.depth = null;
+    this.colorTarget = null;
+    this.pickDepth = null;
     this.pickTexture = null;
+    this.insetColor = null;
     this.pickSerial = Promise.resolve();
     this.bundleCache = new Map();
     this.globalScratch = new ArrayBuffer(GLOBAL_UNIFORM_SIZE);
@@ -936,6 +962,8 @@ export class Renderer {
     // id. It always exists so every bind group is valid before any hide call.
     this.hiddenFeatureIds = new Set();
     this.showPlaceholders = true;
+    // "role:side" keys of the board layers hidden (`setHiddenBoardLayers`).
+    this.hiddenBoardLayers = new Set();
     this.featureMaskCapacity = MIN_FEATURE_MASK_CAPACITY;
     this.featureMaskBuffer = this.createFeatureMaskBuffer(
       this.featureMaskCapacity,
@@ -1004,6 +1032,10 @@ export class Renderer {
       main,
       mark: this.stencil ? make("main-mark", { stencil: STENCIL_MARK }) : main,
       blend,
+      // Translucent stand-ins (placeholder boxes) test depth but do not write it:
+      // overlapping footprints' boxes share their top plane and would z-fight.
+      // Their back faces are culled, so each box still blends one layer deep.
+      translucent: make("main-translucent", { depthWrite: false, cullMode: "back" }),
       mask: this.stencil ? make("mask", { stencil: STENCIL_UNMARKED }) : blend,
       maskCovered: this.stencil ? make("mask-covered", { stencil: STENCIL_MARKED, constants: { COVERED: 1 } }) : null,
     };
@@ -1163,6 +1195,17 @@ export class Renderer {
   }
 
   /** Force a level of detail for every occurrence (LOD_FULL…LOD_BOX), or null for automatic. */
+  /**
+   * Draw analytic slices from a materialization pack (an `AnalyticRenderer`),
+   * or stop with null. Their layers' mesh copper steps aside.
+   */
+  setAnalytic(analytic) {
+    if (this.analytic && this.analytic !== analytic) this.analytic.destroy();
+    this.analytic = analytic || null;
+    this.bundleCache.clear();
+    this.invalidate();
+  }
+
   setLodOverride(lod) {
     this.lodOverride = lod == null ? null : Number(lod);
     this.invalidate();
@@ -1344,6 +1387,7 @@ export class Renderer {
     for (const buffer of [this.barrels?.vertexBuffer, this.barrels?.indexBuffer, this.barrels?.instanceBuffer,
       this.barrelRecordBuffer, this.occurrenceBuffer, this.listBuffer, this.argsBuffer, this.classesBuffer,
       this.featureMaskBuffer, this.netMaskBuffer, this.cull?.lods]) bytes += buffer?.size || 0;
+    bytes += this.analytic?.gpuMemoryBytes() || 0;
     // Depth (4 bytes) and pick (rg32uint, 8 bytes) targets.
     bytes += this.canvas.width * this.canvas.height * 12;
     return bytes;
@@ -1369,7 +1413,8 @@ export class Renderer {
       this.netMaskBuffer, this.cull?.lods].reduce((sum, buffer) => sum + (buffer?.size || 0), 0);
     // SB2-90: the arena chunks that hold the geometry (shared in a scene; reported by their owner).
     const arena = this.shareFrom ? null : this.arenaStats();
-    return { vertex, index, geometry, barrels, occurrences, targets: this.canvas.width * this.canvas.height * 12, entries: this.entries.length, arena };
+    const analytic = this.analytic?.gpuMemoryBytes() || 0;
+    return { vertex, index, geometry, barrels, occurrences, analytic, targets: this.canvas.width * this.canvas.height * 12, entries: this.entries.length, arena };
   }
 
   ensureInstancedPipelines() {
@@ -1668,8 +1713,8 @@ export class Renderer {
     this.invalidate();
   }
 
-  depthStencilState(stencil = null) {
-    const state = { format: this.depthFormat, depthWriteEnabled: true, depthCompare: "greater" };
+  depthStencilState(stencil = null, depthWrite = true) {
+    const state = { format: this.depthFormat, depthWriteEnabled: depthWrite, depthCompare: "greater" };
     if (this.stencil && stencil) {
       state.stencilFront = stencil;
       state.stencilBack = stencil;
@@ -1694,9 +1739,9 @@ export class Renderer {
           },
         }],
       },
-      primitive: { topology: "triangle-list", cullMode: "none" },
-      depthStencil: this.depthStencilState(variant.stencil),
-      multisample: { count: 1 },
+      primitive: { topology: "triangle-list", cullMode: variant.cullMode ?? "none" },
+      depthStencil: this.depthStencilState(variant.stencil, variant.depthWrite ?? true),
+      multisample: { count: this.samplesFor(format) },
     });
   }
 
@@ -1733,7 +1778,13 @@ export class Renderer {
       },
       primitive: { topology: "triangle-list", cullMode: "none" },
       depthStencil: this.depthStencilState(),
+      multisample: { count: this.samplesFor(format) },
     });
+  }
+
+  /** Samples a pipeline drawing to `format` takes: one when it picks. */
+  samplesFor(format) {
+    return format === PICK_FORMAT ? 1 : this.sampleCount;
   }
 
   createShaderModule(code, label) {
@@ -1762,8 +1813,18 @@ export class Renderer {
     this.canvas.width = width;
     this.canvas.height = height;
     this.depth?.destroy();
+    this.colorTarget?.destroy();
+    this.pickDepth?.destroy();
     this.pickTexture?.destroy();
-    this.depth = this.device.createTexture({ size: [width, height], format: this.depthFormat, usage: GPUTextureUsage.RENDER_ATTACHMENT });
+    const samples = this.sampleCount;
+    this.depth = this.device.createTexture({ label: "depth", size: [width, height], format: this.depthFormat, sampleCount: samples, usage: GPUTextureUsage.RENDER_ATTACHMENT });
+    // The multisampled frame, resolved into the canvas.
+    this.colorTarget = samples > 1
+      ? this.device.createTexture({ label: "color-msaa", size: [width, height], format: this.format, sampleCount: samples, usage: GPUTextureUsage.RENDER_ATTACHMENT })
+      : null;
+    this.pickDepth = samples > 1
+      ? this.device.createTexture({ label: "pick-depth", size: [width, height], format: this.depthFormat, usage: GPUTextureUsage.RENDER_ATTACHMENT })
+      : this.depth;
     this.pickTexture = this.device.createTexture({ size: [width, height], format: PICK_FORMAT, usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.COPY_SRC });
   }
 
@@ -1949,6 +2010,9 @@ export class Renderer {
       this.barrels = null;
     }
     this.depth?.destroy();
+    this.colorTarget?.destroy();
+    if (this.pickDepth !== this.depth) this.pickDepth?.destroy();
+    this.insetColor?.texture.destroy();
     this.pickTexture?.destroy();
     this.featureMaskBuffer?.destroy?.();
     this.occurrenceBuffer?.destroy?.();
@@ -1962,6 +2026,9 @@ export class Renderer {
     this.cull = null;
     this.drawSlotBuffer?.destroy?.();
     this.depth = null;
+    this.colorTarget = null;
+    this.pickDepth = null;
+    this.insetColor = null;
     this.pickTexture = null;
     this.featureMaskBuffer = null;
     this.bundleCache.clear();
@@ -1969,23 +2036,37 @@ export class Renderer {
 
   setBarrels(records) {
     if (!records?.length) return;
-    const segments = 20;
+    // Even, and a multiple of 4: half-step angles keep every vertex off the
+    // unit circle's y axis, where a stadium splits into its two ends.
+    const segments = BARREL_SEGMENTS;
     const vertices = [];
     const indices = [];
-    for (const inner of [0, 1]) {
+    const ring = (radiusMix, t, normal) => {
       const base = vertices.length / 7;
       for (let index = 0; index < segments; index += 1) {
-        const angle = (Math.PI * 2 * index) / segments;
+        const angle = (Math.PI * 2 * (index + 0.5)) / segments;
         const x = Math.cos(angle);
         const y = Math.sin(angle);
-        for (const t of [0, 1]) vertices.push(x, y, t, inner ? -x : x, inner ? -y : y, 0, inner);
+        const [nx, ny, nz] = normal(x, y);
+        vertices.push(x, y, t, nx, ny, nz, radiusMix);
       }
+      return base;
+    };
+    const band = (a, b) => {
       for (let index = 0; index < segments; index += 1) {
         const next = (index + 1) % segments;
-        const a = base + index * 2;
-        const b = base + next * 2;
-        indices.push(a, b, b + 1, a, b + 1, a + 1);
+        indices.push(a + index, a + next, b + next, a + index, b + next, b + index);
       }
+    };
+    // Walls: the plating's inner surface (radiusMix 0) and the drill wall (1).
+    for (const radiusMix of [0, 1]) {
+      const normal = radiusMix ? (x, y) => [-x, -y, 0] : (x, y) => [x, y, 0];
+      band(ring(radiusMix, 0, normal), ring(radiusMix, 1, normal));
+    }
+    // Caps at both ends, across the plating, out to the circumscribing rim.
+    for (const [t, z] of [[0, 1], [1, -1]]) {
+      const normal = () => [0, 0, z];
+      band(ring(0, t, normal), ring(2, t, normal));
     }
     const vertexArray = new Float32Array(vertices);
     const indexArray = new Uint16Array(indices);
@@ -2019,12 +2100,7 @@ export class Renderer {
       const encoder = this.device.createCommandEncoder();
       const readCounts = !this.identityOnly && this.encodeCull(encoder, panel);
       const pass = encoder.beginRenderPass({
-        colorAttachments: [{
-          view: targetView,
-          clearValue: { r: 0.91, g: 0.93, b: 0.94, a: 1 },
-          loadOp: panelIndex === 0 ? "clear" : "load",
-          storeOp: "store",
-        }],
+        colorAttachments: [this.colorAttachment(targetView, panelIndex === 0, panelIndex === panels.length - 1)],
         depthStencilAttachment: this.depthAttachment(),
       });
       const viewport = clampViewport(panel.viewport, this.canvas.width, this.canvas.height);
@@ -2052,15 +2128,11 @@ export class Renderer {
   renderInto(target, panel, options) {
     if (!this.identityOnly) throw new Error("renderInto: one-board renderer only");
     const encoder = this.device.createCommandEncoder({ label: "inset" });
-    const depthAttachment = { view: target.depthView, depthClearValue: 0, depthLoadOp: "clear", depthStoreOp: "store" };
+    const depthAttachment = { view: target.depthView, depthClearValue: 0, depthLoadOp: "clear", depthStoreOp: "discard" };
     if (this.stencil) Object.assign(depthAttachment, { stencilClearValue: 0, stencilLoadOp: "clear", stencilStoreOp: "discard" });
+    // `target.depthView` has `sampleCount` samples; the colour resolves through an inset-sized frame.
     const pass = encoder.beginRenderPass({
-      colorAttachments: [{
-        view: target.colorView,
-        clearValue: { r: 0.91, g: 0.93, b: 0.94, a: 1 },
-        loadOp: "clear",
-        storeOp: "store",
-      }],
+      colorAttachments: [this.colorAttachment(target.colorView, true, true, this.insetColorView(target.width, target.height))],
       depthStencilAttachment: depthAttachment,
     });
     const viewport = clampViewport(panel.viewport, target.width, target.height);
@@ -2092,17 +2164,22 @@ export class Renderer {
     compareOffsets = new Map(),
     layerAlphas = null,
     visibleTileIds = null,
+    layerOffsets = null,
   }) {
     let triangles = 0;
     let draws = 0;
+    let analyticContext = null;
     if (this.stencil) pass.setStencilReference(1);
     this.writeGlobals(panel.matrix, activeNetId, panel.layerId, time, selectedFeatureId);
+    // A field relief (the "mountain" view) replaces the board while it is shown.
+    if (this.relief?.ready && !compareMode) return { triangles: this.relief.vertexCount / 3, draws: this.relief.encode(pass, panel.matrix) };
     const { pipelines, indirect, barrelInstances } = this.drawSet();
     // Paste would sit over highlighted pads; it steps aside while a net is lit.
     const hidePaste = !showPaste || Boolean(activeNetId || this.netHighlightActive);
     const visibleEntries = this.entries.filter((entry) =>
       this.visible(entry, panel.layerId, visibleLayers, showBoard, showComponents, componentOpacity, compareMode, visibleTileIds)
-      && !(hidePaste && entry.boardRole === "paste"));
+      && !(hidePaste && entry.boardRole === "paste")
+      && !(entry.side && this.hiddenBoardLayers?.has(`${entry.boardRole}:${entry.side}`)));
     // Blended entries (mask, silkscreen, placeholders) draw after the opaque
     // ones, the barrels and the stand-in boxes, so the copper under the mask
     // shows through it. Marking copper goes last among the opaque ones, which
@@ -2133,7 +2210,16 @@ export class Renderer {
     }
     for (const entry of visibleEntries) triangles += entry.indexCount / 3 * this.countFor(entry.drawClass) * (entry.placementCount || 1);
     draws += visibleEntries.length;
-    if (!compareMode && this.barrels && (panel.layerId === 0 || visibleLayers.has(panel.layerId))) {
+    // Analytic slices (VT analytic spike) draw with the opaque geometry, before the barrels and the mask.
+    if (this.analytic && !compareMode) {
+      analyticContext = { matrix: panel.matrix, showBoard, boardOpacity, hidePaste, isolateNet, panelLayer: panel.layerId, assemblyOpacity: showPaste ? 1 : componentOpacity, hiddenBoardLayers: this.hiddenBoardLayers };
+      draws += this.analytic.encodeInto(pass, layerOffsets, panel.layerId ? new Set([panel.layerId]) : visibleLayers, false, analyticContext);
+      // The pack's barrels, exact, in place of the mesh barrels.
+      draws += this.analytic.encodeBarrels(pass, layerOffsets, panel.matrix);
+      // Result arrows lie on the copper just drawn.
+      draws += this.analytic.encodeArrows(pass);
+    }
+    if (!compareMode && this.barrels && !this.analytic?.hasBarrels() && (panel.layerId === 0 || visibleLayers.has(panel.layerId))) {
       this.writeBarrelDraw(isolateNet);
       this.drawBarrels(pass, pipelines.barrel, indirect, barrelInstances);
       triangles += this.barrels.indexCount / 3 * this.countFor(2);
@@ -2144,12 +2230,39 @@ export class Renderer {
       triangles += 12 * this.countFor(3);
       draws += 1;
     }
+    if (analyticContext) draws += this.analytic.encodeBlended(pass, layerOffsets, panel.layerId ? new Set([panel.layerId]) : visibleLayers, analyticContext);
     this.drawBlended(pass, blendedEntries, pipelines, indirect);
     return { triangles, draws };
   }
 
-  depthAttachment() {
-    const attachment = { view: this.depth.createView(), depthClearValue: 0, depthLoadOp: "clear", depthStoreOp: "store" };
+  /**
+   * The colour attachment for a frame into `view`: drawn multisampled and
+   * resolved into it when anti-aliased. `first` clears; a frame that is not
+   * `last` keeps its samples for the next panel.
+   */
+  colorAttachment(view, first = true, last = true, samples = this.colorTarget?.createView()) {
+    const attachment = { view, clearValue: { r: 0.91, g: 0.93, b: 0.94, a: 1 }, loadOp: first ? "clear" : "load", storeOp: "store" };
+    if (this.sampleCount === 1) return attachment;
+    return { ...attachment, view: samples, resolveTarget: view, storeOp: last ? "discard" : "store" };
+  }
+
+  insetColorView(width, height) {
+    if (this.sampleCount === 1) return undefined;
+    if (this.insetColor?.width !== width || this.insetColor?.height !== height) {
+      this.insetColor?.texture.destroy();
+      const texture = this.device.createTexture({ label: "inset-msaa", size: [width, height], format: this.format, sampleCount: this.sampleCount, usage: GPUTextureUsage.RENDER_ATTACHMENT });
+      this.insetColor = { texture, view: texture.createView(), width, height };
+    }
+    return this.insetColor.view;
+  }
+
+  /**
+   * The depth attachment of a frame, or of a pick (one sample). Every pass
+   * clears it and nothing reads it after, so it is never stored: a tiled GPU
+   * then keeps it on chip.
+   */
+  depthAttachment(pick = false) {
+    const attachment = { view: (pick ? this.pickDepth : this.depth).createView(), depthClearValue: 0, depthLoadOp: "clear", depthStoreOp: "discard" };
     if (this.stencil) Object.assign(attachment, { stencilClearValue: 0, stencilLoadOp: "clear", stencilStoreOp: "discard" });
     return attachment;
   }
@@ -2178,7 +2291,8 @@ export class Renderer {
           this.drawEntry(pass, entry, indirect);
         }
       } else {
-        pass.setPipeline(entry.placementCount ? this.componentPipelines(pipelines).blend : pipelines.blend);
+        const flat = entry.translucent ? pipelines.translucent ?? pipelines.blend : pipelines.blend;
+        pass.setPipeline(entry.placementCount ? this.componentPipelines(pipelines).blend : flat);
         this.drawEntry(pass, entry, indirect);
       }
     }
@@ -2190,11 +2304,26 @@ export class Renderer {
     this.invalidate();
   }
 
+  /**
+   * Hide each side's solder mask, silkscreen or paste named in `keys`
+   * ("soldermask:front", "paste:back", ...; see `boardLayerKey`), mesh and
+   * analytic alike.
+   */
+  setHiddenBoardLayers(keys) {
+    this.hiddenBoardLayers = new Set(keys || []);
+    this.invalidate();
+  }
+
   visible(entry, panelLayer, visibleLayers, showBoard, showComponents, componentOpacity, compareMode = false, visibleTileIds = null) {
     if (entry.placeholder && !this.showPlaceholders) return false;
-    if (entry.kind === "board" && entry.boardRole === "pad") return false;
-    if (!compareMode && entry.kind === "copper" && visibleTileIds && !visibleTileIds.has(entry.tileId)) return false;
+    // The flat layer view draws mesh copper only; analytic slices skip it.
     if (compareMode) return entry.kind === "copper" && visibleLayers.has(entry.layerId);
+    // Analytic copper replaces the mesh copper of the layers it draws, and
+    // analytic board layers the mesh substrate, mask, silkscreen and paste.
+    if (entry.kind === "copper" && this.analytic?.coversLayer(entry.layerId)) return false;
+    if (entry.kind === "board" && this.analytic?.coversRole(entry.boardRole)) return false;
+    if (entry.kind === "board" && entry.boardRole === "pad") return false;
+    if (entry.kind === "copper" && visibleTileIds && !visibleTileIds.has(entry.tileId)) return false;
     if (entry.innerCopper && this.innerCopperMode === "none") return false;
     // Paste belongs to its copper layer: shown with it, whatever the substrate does.
     if (entry.boardRole === "paste") return panelLayer === 0 && visibleLayers.has(entry.layerId);
@@ -2290,6 +2419,7 @@ export class Renderer {
     const encoder = this.device.createRenderBundleEncoder({
       colorFormats: [this.format],
       depthStencilFormat: this.depthFormat,
+      sampleCount: this.sampleCount,
     });
     this.drawEntries(encoder, entries, pipelines, indirect);
     const bundle = encoder.finish();
@@ -2312,7 +2442,7 @@ export class Renderer {
     const encoder = this.device.createCommandEncoder();
     const pass = encoder.beginRenderPass({
       colorAttachments: [{ view: this.pickTexture.createView(), clearValue: { r: 0, g: 0, b: 0, a: 0 }, loadOp: "clear", storeOp: "store" }],
-      depthStencilAttachment: this.depthAttachment(),
+      depthStencilAttachment: this.depthAttachment(true),
     });
     const viewport = clampViewport(panel.viewport, this.canvas.width, this.canvas.height);
     pass.setViewport(viewport.x, viewport.y, viewport.width, viewport.height, 0, 1);
@@ -2324,6 +2454,8 @@ export class Renderer {
 
   /** Record this renderer's pick draws into an open pass (see `encodeDraws`). */
   encodePick(pass, panel, options) {
+    // Nothing on a field relief is picked.
+    if (this.relief?.ready && !options.compareMode) return;
     this.writeGlobals(
       panel.matrix,
       options.activeNetId,
@@ -2367,11 +2499,16 @@ export class Renderer {
       pass.setPipeline(entry.placementCount ? this.componentPipelines(pipelines).pick : pipelines.pick);
       this.drawEntry(pass, entry, indirect);
     }
-    if (!options.compareMode && this.barrels) {
+    if (!options.compareMode && this.barrels && !this.analytic?.hasBarrels()) {
       this.writeBarrelDraw(options.isolateNet);
       this.drawBarrels(pass, pipelines.barrelPick, indirect, barrelInstances);
     }
     if (indirect && !options.compareMode) this.drawBox(pass, pipelines.boxPick);
+    if (this.analytic && !options.compareMode) {
+      const layers = panel.layerId ? new Set([panel.layerId]) : options.visibleLayers;
+      this.analytic.encodeInto(pass, options.layerOffsets, layers, true, { matrix: panel.matrix, panelLayer: panel.layerId, isolateNet: options.isolateNet, showBoard: options.showBoard });
+      this.analytic.encodeBarrels(pass, options.layerOffsets, panel.matrix, true);
+    }
   }
 
   // Copy one pick texel, submit, and decode it. Occurrence numbers are scene-wide.
@@ -2390,8 +2527,13 @@ export class Renderer {
     try {
       await readBuffer.mapAsync(GPUMapMode.READ);
       const view = new DataView(readBuffer.getMappedRange());
-      const hit = decodePick(view.getUint32(0, true), view.getUint32(4, true));
+      const red = view.getUint32(0, true);
+      const green = view.getUint32(4, true);
       readBuffer.unmap();
+      if (this.analytic && (red & ANALYTIC_PICK_TAG) && green) {
+        return { kind: "analytic", occurrenceIndex: -1, featureId: 0, operationIndex: green - 1, occurrenceKey: null };
+      }
+      const hit = decodePick(red, green);
       return { ...hit, occurrenceKey: hit.occurrenceIndex >= 0 ? this.occurrenceKeys[hit.occurrenceIndex] ?? null : null };
     } finally {
       if (readBuffer.mapState === "mapped") readBuffer.unmap();

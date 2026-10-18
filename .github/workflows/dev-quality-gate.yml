@@ -515,6 +515,8 @@ jobs:
         run: >-
           git diff --exit-code --
           frontend/public/prism-semantic-viewer.js
+          frontend/public/prism-semantic-viewer-lower.js
+          frontend/public/prism-kicad-analytic.wasm
           frontend/index.html
 
   native-crate:

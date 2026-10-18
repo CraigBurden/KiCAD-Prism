@@ -31,7 +31,7 @@
  * @property {(bytes: number) => void} setGpuBudget A normalised budget (`gpuBudgetBytes`).
  * The remaining members are the view controls both modes share (see COMMON_MEMBERS):
  * resize, getViewState, setLayerVisible, applyLayerPreset, setShowBoard, setShowComponents,
- * setShowPlaceholders, setRealisticColors, setSeparation, showNetLayers, setStatsOverlay,
+ * setShowPlaceholders, setRealisticColors, setBoardLayerVisible, setSeparation, showNetLayers, setStatsOverlay,
  * stats, setLodOverride, pickAt, projectComponent, projectPoint.
  *
  * @typedef {ScenePort & object} BoardScenePort One board (mountStandaloneViewer).
@@ -50,6 +50,17 @@
  * @property {() => object} insetStats
  * @property {(settings?: object) => object} insetSettings
  * @property {() => Promise<void>} gpuIdle
+ * @property {(bytes: Uint8Array, options?: object) => Promise<object | null>} loadAnalyticPack
+ * @property {(overlay: object | null) => unknown} setAnalyticOverlay
+ * @property {(vectors: object | null) => unknown} setAnalyticVectors
+ * @property {(style: object) => unknown} setAnalyticStyle
+ * @property {() => object} analyticColormaps
+ * @property {(options: object | null) => object | null} setAnalyticRelief
+ * @property {(enabled: boolean) => void} setClickSelect
+ * @property {(clientX: number, clientY: number) => object | null} analyticProbe
+ * @property {(clientX: number, clientY: number) => Promise<object | null>} analyticAt
+ * @property {() => object | null} analyticStats
+ * @property {() => void} unloadAnalyticPack
  *
  * @typedef {ScenePort & object} SystemScenePort Several boards (mountSystemViewer).
  * @property {(occurrence: string | undefined) => "board" | "stand-in" | null} focusPlacement
@@ -140,7 +151,7 @@ export function createSharedState() {
 /** Members both modes have; the element sends them to the mounted mode. */
 export const COMMON_MEMBERS = Object.freeze([
   "setSelection", "resize", "getViewState", "setLayerVisible", "applyLayerPreset", "setShowBoard",
-  "setShowComponents", "setShowPlaceholders", "setRealisticColors", "setSeparation", "showNetLayers",
+  "setShowComponents", "setShowPlaceholders", "setRealisticColors", "setBoardLayerVisible", "setSeparation", "showNetLayers",
   "setNetIsolation", "setStatsOverlay", "getStats", "setLodOverride", "setGpuBudget", "pickAt",
   "projectComponent", "projectPoint",
 ]);
@@ -222,6 +233,10 @@ class ModeController {
     this.#port?.setRealisticColors(enabled);
   }
 
+  setBoardLayerVisible(role, side, visible) {
+    this.#port?.setBoardLayerVisible(role, side, visible);
+  }
+
   setSeparation(value, placement = null) {
     this.#port?.setSeparation(value, placement);
   }
@@ -265,6 +280,7 @@ export const BOARD_MEMBERS = Object.freeze([
   "setHighlightedNets", "setHiddenComponents", "getComponentReferences", "setViewMode",
   "renderInset", "insetReady", "insetSurfaceZ", "releaseInset", "insetTarget", "projectInset",
   "onSceneChange", "insetStats", "insetSettings", "gpuIdle",
+  "loadAnalyticPack", "setAnalyticOverlay", "setAnalyticVectors", "setAnalyticStyle", "analyticColormaps", "setAnalyticRelief", "setClickSelect", "analyticProbe", "analyticAt", "analyticStats", "unloadAnalyticPack",
 ]);
 
 /**
@@ -278,6 +294,10 @@ export class BoardModeController extends ModeController {
   #workspace = "pcb";
   #sceneListeners = new Set();
   #unhookScene = null;
+  // The analytic pack and overlay outlive reloads, like the other view state.
+  #analytic = null;
+  #clickSelect = true;
+  #relief = null;
 
   attach(port, { workspace = "pcb" } = {}) {
     this.#workspace = workspace;
@@ -294,6 +314,16 @@ export class BoardModeController extends ModeController {
     // A fresh viewer is already unselected: no redundant clear while it sets up its first frame.
     if (this.shared.selection) port.quietly(() => this.applySelection(port, this.shared.selection));
     if (this.#highlightedNets.length) this.#applyHighlightedNets(port, this.#highlightedNets);
+    if (this.#analytic) void this.#replayAnalytic(port, this.#analytic);
+    if (!this.#clickSelect) port.setClickSelect(false);
+  }
+
+  async #replayAnalytic(port, analytic) {
+    await port.loadAnalyticPack(analytic.bytes, analytic.options);
+    if (analytic.overlay) port.setAnalyticOverlay(analytic.overlay);
+    if (this.#relief) port.setAnalyticRelief(this.#relief);
+    if (analytic.style) port.setAnalyticStyle(analytic.style);
+    if (analytic.vectors) port.setAnalyticVectors(analytic.vectors);
   }
 
   release() {
@@ -398,6 +428,58 @@ export class BoardModeController extends ModeController {
 
   gpuIdle() {
     return this.port?.gpuIdle() ?? Promise.resolve();
+  }
+
+  async loadAnalyticPack(bytes, options = {}) {
+    const copy = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes);
+    this.#analytic = { bytes: copy, options, overlay: null, vectors: null, style: this.#analytic?.style ?? null };
+    return this.port ? this.port.loadAnalyticPack(copy, options) : null;
+  }
+
+  setAnalyticOverlay(overlay) {
+    if (this.#analytic) this.#analytic.overlay = overlay;
+    return this.port?.setAnalyticOverlay(overlay) ?? null;
+  }
+
+  setAnalyticVectors(vectors) {
+    if (this.#analytic) this.#analytic.vectors = vectors;
+    return this.port?.setAnalyticVectors(vectors) ?? null;
+  }
+
+  setAnalyticStyle(style) {
+    if (this.#analytic) this.#analytic.style = { ...(this.#analytic.style || {}), ...style };
+    return this.port?.setAnalyticStyle(style) ?? null;
+  }
+
+  analyticColormaps() {
+    return this.port?.analyticColormaps() ?? null;
+  }
+
+  setAnalyticRelief(options) {
+    this.#relief = options || null;
+    return this.port?.setAnalyticRelief(this.#relief) ?? null;
+  }
+
+  setClickSelect(enabled) {
+    this.#clickSelect = enabled !== false;
+    this.port?.setClickSelect(this.#clickSelect);
+  }
+
+  analyticProbe(clientX, clientY) {
+    return this.port?.analyticProbe(clientX, clientY) ?? null;
+  }
+
+  analyticAt(clientX, clientY) {
+    return this.port?.analyticAt(clientX, clientY) ?? Promise.resolve(null);
+  }
+
+  analyticStats() {
+    return this.port?.analyticStats() ?? null;
+  }
+
+  unloadAnalyticPack() {
+    this.#analytic = null;
+    this.port?.unloadAnalyticPack();
   }
 }
 

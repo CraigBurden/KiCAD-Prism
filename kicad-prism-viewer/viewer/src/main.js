@@ -2,6 +2,7 @@ import { CameraController } from "./camera.js";
 import { BomViewer } from "./bom-viewer.js";
 import {
   boardRole,
+  boardSide,
   copperLayerColor,
   FINISH_COLORS,
   finishColorFor,
@@ -40,13 +41,22 @@ import { harnessKey, harnessSegments, hubPoint, litEnds, litHarnessWires, segmen
 import { AUTO, bendNode, levelMatrix, nodeHandles, toLevel, toWorld, withNodePreview } from "./harness-edit.js";
 import { pickTube } from "./tube-pick.js";
 import { dragInViewPlane, isDrag } from "./route-drag.js";
-import { cameraRay, surfaceHit } from "./model-pick.js";
+import { cameraRay, matrixRay, surfaceHit } from "./model-pick.js";
 // SB2-44: the placement library is shared with the app (one implementation, CONTRACTS_P2 §17).
 import { harnessScene } from "../../../frontend/src/features/system-builder/placement/harness-tubes.ts";
 import { allReadyBoardsDrawn, assetLoadable, assetOccurrenceMatrix, boardTransition, boxRendererId, drawnOccurrences, STAND_INS, standInKind, standInMatrix } from "./system-placement.js";
 import { LOD_FULL } from "./occurrences.js";
 import { InsetViews, insetMatrix } from "./inset-view.js";
 import { DEFAULT_GPU_BUDGET_BYTES } from "./viewer-controllers.js";
+import { COLORMAPS, DEFAULT_ANALYTIC_STYLE } from "./analytic-colormaps.js";
+import { analyticWasmKey, analyticWasmUrl, DEFAULT_TOLERANCE_NM, openAnalyticPack } from "./analytic-pack.js";
+import { isLoweringCached } from "./analytic-lower-cache.js";
+import { LowerPool } from "./analytic-lower-client.js";
+import { AnalyticRenderer } from "./analytic-renderer.js";
+import { analyticBoardLooks, analyticSceneManifest } from "./analytic-scene.js";
+import { analyticFeatureId, applyAnalyticOverlay, applyAnalyticStyle, applyAnalyticVectors, attachAnalyticPack, describeAnalyticHit, fieldAlongRay, netIdByName, operationSliceKey, reliefSlices } from "./analytic-board.js";
+import { FieldRelief } from "./field-relief.js";
+import { barrelsAtCopperFaces } from "./barrel-records.js";
 
 const COPPER_TILE_GPU_BUDGET_BYTES = 512 * 1024 * 1024;
 const COPPER_TILE_PREFETCH_MARGIN = 0.65;
@@ -130,9 +140,24 @@ function resolveDom(root = document) {
   appEl.classList.add("workspace-pcb");
 }
 
+/** Board roles drawn per side, each of which can be hidden on its own. */
+const SIDED_BOARD_ROLES = ["soldermask", "silkscreen", "paste"];
+/** Each side's solder mask, silkscreen and paste, by their KiCad layer names. */
+const BOARD_LAYERS = Object.freeze([
+  { role: "soldermask", side: "front", name: "F.Mask" },
+  { role: "soldermask", side: "back", name: "B.Mask" },
+  { role: "silkscreen", side: "front", name: "F.SilkS" },
+  { role: "silkscreen", side: "back", name: "B.SilkS" },
+  { role: "paste", side: "front", name: "F.Paste" },
+  { role: "paste", side: "back", name: "B.Paste" },
+]);
+const BOARD_LAYER_COLORS = { soldermask: "#1f6b45", silkscreen: "#f2f2f2", paste: "#a0a3a8" };
+
 function initialState() {
   return {
     workspace: "pcb",
+    // A click selects what is under it unless a host tool owns clicks (setClickSelect).
+    clickSelect: true,
     mode: "3d",
     activeNetId: 0,
     selectedFeatureId: 0,
@@ -143,6 +168,8 @@ function initialState() {
     showComponents: true,
     showPlaceholders: true,
     realisticColors: true,
+    // "role:side" keys of the solder mask, silkscreen and paste layers hidden.
+    hiddenBoardLayers: [],
     isolateNet: false,
     /** User/view prefs restored after Esc; not overwritten by net-probe toggles. */
     savedShowBoard: true,
@@ -380,6 +407,7 @@ function disposeRuntimeResources() {
     system.scene.dispose();
     system = null;
   } else {
+    releaseAnalytic();
     board.renderer?.dispose?.();
   }
   board.renderer = null;
@@ -476,6 +504,103 @@ export async function mountStandaloneViewer(options = {}) {
     getComponentReferences() {
       return [...board.scene.componentFeatures.keys()];
     },
+    // Analytic spike: copper from a kicad_monkey materialization pack (analytic-board.js).
+    async loadAnalyticPack(bytes, options = {}) {
+      if (!board.renderer) return null;
+      const releaseStarted = performance.now();
+      releaseAnalytic();
+      const releaseMs = Math.round(performance.now() - releaseStarted);
+      // Lowering is asynchronous (a worker): a newer load or an unload while it
+      // runs wins, and this one's pack is dropped instead of attached.
+      const generation = ++analyticGeneration;
+      const attached = await attachAnalyticPack({
+        renderer: board.renderer,
+        layers: board.scene.layers,
+        colorFor: (layer) => {
+          const color = copperColor(layer, board);
+          return color.length >= 4 ? color.slice(0, 4) : [...color, 1];
+        },
+        bytes,
+        wasm: options.wasm,
+        toleranceNm: options.toleranceNm,
+        nets: board.scene.manifest?.nets,
+        features: board.scene.manifest?.objectFeatures,
+        boardZOffsetMm: board.scene.manifest?.boardZOffsetMm,
+      });
+      if (generation !== analyticGeneration || !board.renderer) {
+        attached.analytic.destroy();
+        attached.pack.free();
+        return null;
+      }
+      const attachStarted = performance.now();
+      board.renderer.setAnalytic(attached.analytic);
+      attached.timings.attach = Math.round(performance.now() - attachStarted);
+      board.analytic = attached;
+      board.analytic.timings = { release: releaseMs, ...board.analytic.timings };
+      return analyticStats();
+    },
+    setAnalyticOverlay(overlay) {
+      if (!board.analytic) return null;
+      const applied = applyAnalyticOverlay(board.analytic, overlay);
+      // A relief shows the overlay: raise the new one.
+      if (board.reliefOptions) applyRelief(false);
+      return applied;
+    },
+    // The overlay as a relief over one copper layer ({ sliceKey?, heightShare? }), in place of the
+    // board; null returns to the board. Returns { sliceKey, slices } (the layers it can raise) or null.
+    setAnalyticRelief(options) {
+      board.reliefOptions = options || null;
+      return applyRelief(true);
+    },
+    // Arrows of a vector result on the copper: { quantity, units, x, y } field grids, or null.
+    setAnalyticVectors(vectors) {
+      if (!board.analytic) return null;
+      return applyAnalyticVectors(board.analytic, vectors);
+    },
+    // How result overlays look: colormaps and arrows (see DEFAULT_ANALYTIC_STYLE).
+    setAnalyticStyle(style) {
+      if (!board.analytic) return null;
+      return applyAnalyticStyle(board.analytic, style);
+    },
+    // The named colormaps' hex stops and the default style, for hosts' legends and pickers.
+    analyticColormaps() {
+      return { colormaps: COLORMAPS, defaults: DEFAULT_ANALYTIC_STYLE };
+    },
+    // The field under a client point without a GPU pick: the first visible copper slice along the
+    // view ray with a value there. Cheap enough for every pointer move; it can't tell a via barrel
+    // from the copper around it, which `analyticAt` (exact, but a GPU round trip) can.
+    // Whether a click selects what is under it (on by default); hosts turn it off while a tool owns clicks.
+    setClickSelect(enabled) {
+      state.clickSelect = enabled !== false;
+    },
+    analyticProbe(clientX, clientY) {
+      if (!board.analytic?.overlay || board.analytic.overlay.kind === "operation_values") return null;
+      const ray = worldRayAt(clientX, clientY);
+      if (!ray) return null;
+      const layers = state.mode === "3d" ? board.visible3dLayers : null;
+      const field = fieldAlongRay(board.analytic, ray, stackupOffsets(), null, layers, 1);
+      if (!field) return null;
+      const { quantity, units } = board.analytic.overlay;
+      return { value: field.value, quantity, units, sliceKey: field.sliceKey, boardMm: field.boardMm, world: field.world, marker: surfaceMarker(field.world) };
+    },
+    async analyticAt(clientX, clientY) {
+      if (!board.analytic) return null;
+      const hit = await pickHitAt(clientX, clientY);
+      if (hit?.kind !== "analytic") return null;
+      const ray = worldRayAt(clientX, clientY);
+      if (!ray || board.analytic.overlay?.kind === "operation_values") return describeAnalyticHit(board.analytic, hit.operationIndex);
+      // The slice the pick hit, so copper in front is read, not a plane behind it.
+      const offsets = stackupOffsets();
+      const picked = operationSliceKey(board.analytic.pack.header, hit.operationIndex);
+      const field = (picked && fieldAlongRay(board.analytic, ray, offsets, picked)) || fieldAlongRay(board.analytic, ray, offsets);
+      const described = describeAnalyticHit(board.analytic, hit.operationIndex, field);
+      return field ? { ...described, marker: surfaceMarker(field.world) } : described;
+    },
+    analyticStats,
+    unloadAnalyticPack() {
+      analyticGeneration += 1;
+      releaseAnalytic();
+    },
     // Force a level of detail on every occurrence (0 full, 1 board, 2 body, 3 box), or null for automatic.
     setLodOverride(lod) {
       board.renderer?.setLodOverride(lod);
@@ -518,6 +643,144 @@ export async function mountStandaloneViewer(options = {}) {
   };
 }
 
+/** The analytic pack drawn on the board, as `analyticStats()` reports it; null without one. */
+function analyticStats() {
+  const analytic = board.analytic;
+  if (!analytic) return null;
+  return { operations: analytic.operations, lowerMs: analytic.lowerMs, timings: analytic.timings, zOffset: analytic.zOffset, unmatched: analytic.unmatched, ...analytic.analytic.stats() };
+}
+
+/**
+ * Raise the overlay's field over the chosen layer (board.reliefOptions), or
+ * put the board back. The layer defaults to the one with the most copper.
+ */
+function applyRelief(frame) {
+  const renderer = board.renderer;
+  if (!renderer) return null;
+  const options = board.reliefOptions;
+  const overlay = board.analytic?.overlay;
+  if (!options || !overlay || overlay.kind === "operation_values") {
+    const shown = renderer.relief?.ready;
+    renderer.relief?.release();
+    if (shown && frame) camera.frame(sceneRuntimeBounds());
+    renderer.invalidate?.();
+    return null;
+  }
+  const slices = reliefSlices(board.analytic).sort((a, b) => b.cells - a.cells);
+  const chosen = slices.find((item) => item.key === options.sliceKey) || slices[0];
+  if (!chosen) {
+    renderer.relief?.release();
+    renderer.invalidate?.();
+    return { sliceKey: null, slices: [] };
+  }
+  renderer.relief ??= new FieldRelief(board.analytic.analytic);
+  renderer.relief.build(chosen.slice, {
+    range: overlay.range,
+    netId: netIdByName(board.scene.manifest?.nets, overlay.net),
+    heightShare: options.heightShare,
+  });
+  if (frame) camera.frame(renderer.relief.worldBounds());
+  renderer.invalidate?.();
+  return { sliceKey: chosen.key, slices: slices.map((item) => ({ key: item.key, layerId: item.layerId, cells: item.cells })) };
+}
+
+/** Bumped by every analytic load and unload; a load that finishes after a newer one is dropped. */
+let analyticGeneration = 0;
+
+async function fetchAssetBytes(url, b = board) {
+  const cached = assetFetcher(b);
+  if (cached) return new Uint8Array(await cached(url));
+  const response = await fetch(url, { cache: "default" });
+  if (!response.ok) throw new Error(`Failed to load ${url}: ${response.status}`);
+  return new Uint8Array(await response.arrayBuffer());
+}
+
+/**
+ * V2a (ADR amendment V2 §2.1): open an analytic bundle's pack and build the
+ * board scene from its header and the stackup. The pack stays open on
+ * `b.analyticSource` for the board's attach.
+ */
+async function openAnalyticSource(b, token, performanceTimings) {
+  const assets = b.semanticGeometry.assets || {};
+  if (!assets.analytic_pack) throw new Error("The analytic bundle names no pack");
+  let started = performance.now();
+  const [bytes, stackup] = await Promise.all([
+    fetchAssetBytes(assets.analytic_pack, b),
+    assets.stackup ? fetchJson(assets.stackup, b).catch(() => null) : null,
+  ]);
+  performanceTimings.analytic_pack_fetch_ms = performance.now() - started;
+  performanceTimings.analytic_pack_bytes = bytes.byteLength;
+  b.loadedBytes += bytes.byteLength;
+  if (!viewerSessionActive(token)) return false;
+  // The lowering workers open the pack while this thread does (V2 §7), unless
+  // a full load of this bundle already stored every lowered slice.
+  const cacheKey = b.semanticGeometry.cache_key || "";
+  const lowered = b.assetCache && cacheKey
+    ? await isLoweringCached(b.assetCache, { cacheKey, wasmKey: analyticWasmKey(), toleranceNm: DEFAULT_TOLERANCE_NM })
+    : false;
+  performanceTimings.analytic_lowering_cached = lowered;
+  const pool = lowered ? null : LowerPool.start(bytes, analyticWasmUrl());
+  started = performance.now();
+  const pack = await openAnalyticPack(bytes);
+  performanceTimings.analytic_pack_open_ms = performance.now() - started;
+  if (!viewerSessionActive(token)) {
+    pack.free();
+    pool?.close();
+    return false;
+  }
+  b.analyticSource = { bytes, pack, stackup, pool };
+  b.scene.manifest = analyticSceneManifest(pack.header, stackup);
+  return true;
+}
+
+/**
+ * V2a: draw an analytic bundle's board, every slice at once: the board shows
+ * whole, never layer by layer. Lowered slices are cached by the bundle's key,
+ * so a board opened again lowers nothing. Resolves to the board's runtime
+ * bounds once it is attached.
+ */
+async function loadAnalyticBoard(token, b, performanceTimings) {
+  const source = b.analyticSource;
+  const generation = ++analyticGeneration;
+  // No mesh board carries the mask and silkscreen looks: they come from the stackup.
+  b.renderer.stackupLooks = analyticBoardLooks(source.stackup);
+  const cacheKey = b.semanticGeometry.cache_key || "";
+  const common = {
+    renderer: b.renderer,
+    layers: b.scene.layers,
+    colorFor: (layer) => {
+      const color = copperColor(layer, b);
+      return color.length >= 4 ? color.slice(0, 4) : [...color, 1];
+    },
+    bytes: source.bytes,
+    pack: source.pack,
+    nets: b.scene.nets,
+    cache: b.assetCache && cacheKey ? { store: b.assetCache, cacheKey } : null,
+    pool: source.pool,
+  };
+  const started = performance.now();
+  const full = await attachAnalyticPack(common);
+  source.pool?.close();
+  source.pool = null;
+  if (generation !== analyticGeneration || !viewerSessionActive(token) || !b.renderer) {
+    full.analytic.destroy();
+    return null;
+  }
+  b.renderer.setAnalytic(full.analytic);
+  b.analytic = full;
+  performanceTimings.analytic_board_ms = performance.now() - started;
+  performanceTimings.analytic_board = full.timings;
+  return runtimeBoundsFromGltf(b.scene.manifest.bbox);
+}
+
+function releaseAnalytic() {
+  board.renderer?.relief?.destroy();
+  if (board.renderer) board.renderer.relief = null;
+  board.renderer?.setAnalytic(null);
+  board.analytic?.pack.free();
+  board.analytic = null;
+}
+
 /** Port members both mounts share: selection, lit nets and the view controls. */
 function sharedPortMembers() {
   return {
@@ -557,6 +820,7 @@ function sharedPortMembers() {
     setShowComponents,
     setShowPlaceholders,
     setRealisticColors,
+    setBoardLayerVisible,
     setSeparation,
     showNetLayers,
   };
@@ -593,6 +857,7 @@ function pcbViewState() {
       color: rgbCss(layerColor(layer)),
       visible: selected.has(Number(layer.id)),
     })),
+    boardLayers: boardLayerViews(),
     showBoard: state.showBoard,
     showComponents: state.showComponents,
     showPlaceholders: state.showPlaceholders,
@@ -717,7 +982,10 @@ function restoreViewVisibilityPrefs() {
 async function indexBoardScene(b, token, performanceTimings = {}) {
   const manifestPath = b.semanticGeometry.assets?.scene_manifest || b.semanticGeometry.semantic_gltf?.path;
   let started = performance.now();
-  if (manifestPath) {
+  if (b.semanticGeometry.analytic) {
+    // V2a: the scene comes from the bundle's pack header and stackup, not a mesh manifest.
+    if (!(await openAnalyticSource(b, token, performanceTimings))) return false;
+  } else if (manifestPath) {
     b.scene.manifestUrl = new URL(manifestPath, location.href).toString();
     b.scene.manifest = await fetchJson(b.scene.manifestUrl, b);
     performanceTimings.scene_manifest_fetch_parse_ms = performance.now() - started;
@@ -773,20 +1041,33 @@ async function indexBoardScene(b, token, performanceTimings = {}) {
 
 async function boot(token, performanceTimings = {}, onPerformanceEvent = null) {
   const bootStarted = performance.now();
-  if (!(await indexBoardScene(board, token, performanceTimings))) return;
+  // An analytic board's renderer starts at once and its pipelines compile
+  // while the pack is fetched, opened and lowered (V2a), not at the first frame.
+  const early = board.semanticGeometry.analytic
+    ? Renderer.create(canvas).then((renderer) => {
+      void AnalyticRenderer.prewarm(renderer);
+      return renderer;
+    })
+    : null;
+  if (!(await indexBoardScene(board, token, performanceTimings))) {
+    if (early) void early.then((renderer) => renderer?.dispose?.()).catch(() => {});
+    return;
+  }
 
   let started = performance.now();
-  board.renderer = await Renderer.create(canvas);
+  board.renderer = early ? await early : await Renderer.create(canvas);
   performanceTimings.webgpu_renderer_create_ms = performance.now() - started;
   if (!viewerSessionActive(token)) {
     board.renderer?.dispose?.();
     board.renderer = null;
     return;
   }
-  board.renderer.setBarrels(board.scene.manifest.barrels || []);
+  board.renderer.setBarrels(barrelsAtCopperFaces(board.scene.manifest.barrels, board.scene.manifest.layers));
   applyCopperColors();
   started = performance.now();
-  const boardBounds = await loadBoard(token);
+  const boardBounds = board.analyticSource
+    ? await loadAnalyticBoard(token, board, performanceTimings)
+    : await loadBoard(token);
   performanceTimings.board_fetch_parse_upload_ms = performance.now() - started;
   if (!viewerSessionActive(token)) return;
   board.scene.runtimeBounds = boardBounds || runtimeBoundsFromGltf(board.scene.manifest.bbox);
@@ -815,7 +1096,10 @@ async function boot(token, performanceTimings = {}, onPerformanceEvent = null) {
   statusEl.textContent = stageLabels[board.viewerReadiness.stage] || "Loading 3D assets";
   if (board.semanticGeometry.assets?.components_glb && !board.deferComponents) {
     const componentsStarted = performance.now();
-    void loadComponents(token).then(() => {
+    // An analytic board shows once, whole: board and parts together (V2a).
+    const components = loadComponents(token);
+    if (board.analytic) await components.catch(() => {});
+    void components.then(() => {
       if (!viewerSessionActive(token)) return;
       addFootprintPlaceholders(boardBounds);
       onPerformanceEvent?.({
@@ -1328,6 +1612,7 @@ async function loadBoard(token = activeViewerToken, b = board) {
       : null,
   ]);
   if (!viewerSessionActive(token) || !b.renderer) return null;
+  b.renderer.stackupLooks = b.semanticGeometry.board_looks || null;
   b.loadedBytes += loaded.byteLength;
   if (mask) b.loadedBytes += mask.byteLength;
   const contextPrimitives = [
@@ -1338,14 +1623,18 @@ async function loadBoard(token = activeViewerToken, b = board) {
     ...(mask?.primitives || []),
   ];
   for (const primitive of mergePrimitivesByMaterial(contextPrimitives, boardRole)) {
+    const sided = SIDED_BOARD_ROLES.includes(primitive.groupKey);
     b.renderer.addPrimitive(primitive, {
       kind: "board",
       boardRole: primitive.groupKey,
+      // A side's mask, silkscreen and paste can each be hidden (setBoardLayerVisible).
+      ...(sided ? { side: boardSide(primitive) } : {}),
       layerId: primitive.groupKey === "paste" ? pasteLayerId(primitive, b) : 0,
       material: primitive.material,
       color: primitive.material.baseColor,
     });
   }
+  b.renderer.setHiddenBoardLayers(state.hiddenBoardLayers);
   return mergeBounds(contextPrimitives.map((primitive) => primitive.bounds));
 }
 
@@ -1770,7 +2059,7 @@ async function loadSystemBoard(b, token) {
     b.assetCache = loaded.assetCache || null;
     if (!(await indexBoardScene(b, token)) || !current()) return;
     b.renderer = system.scene.asset(b.key);
-    b.renderer.setBarrels(b.scene.manifest.barrels || []);
+    b.renderer.setBarrels(barrelsAtCopperFaces(b.scene.manifest.barrels, b.scene.manifest.layers));
     applyCopperColors(b);
     const bounds = await loadBoard(token, b);
     if (!current()) return;
@@ -3577,11 +3866,14 @@ function isOuterCopper(layer, b = board) {
 const LAYER_COLOR_SEPARATION = 0.25;
 
 /**
- * 1 for KiCad-like copper, 0 for layer colours. Opening the stackup blends to
- * layer colours, so separated layers stay tell-apart; 2D always uses them.
+ * 1 for KiCad-like copper (outer copper in the surface finish, inner copper
+ * bare), 0 for KiCad's layer colours. Only the assembled board shows the
+ * finish: hiding the substrate shows layer colours at once, and opening the
+ * stackup blends to them (fully at LAYER_COLOR_SEPARATION), substrate or not.
+ * 2D always uses them.
  */
 function copperRealism() {
-  if (!state.realisticColors || state.mode === "layer") return 0;
+  if (!state.realisticColors || state.mode === "layer" || !state.showBoard) return 0;
   return 1 - clamp(state.separation / LAYER_COLOR_SEPARATION, 0, 1);
 }
 
@@ -3713,6 +4005,7 @@ function ensureInsetTargets(width, height) {
     label: "inset-depth",
     size: [insetGpu.width, insetGpu.height],
     format: renderer.depthFormat,
+    sampleCount: renderer.sampleCount,
     usage: GPUTextureUsage.RENDER_ATTACHMENT,
   });
   insetGpu.depthView = insetGpu.depth.createView();
@@ -4662,6 +4955,35 @@ function setShowPlaceholders(visible) {
   notifyViewStateChange();
 }
 
+/**
+ * Each side's solder mask, silkscreen and paste, as KiCad names them, for
+ * the host's layer list: `{ role, side, name, color, visible }`. A layer
+ * the board's stackup does not list is left out.
+ */
+function boardLayerViews() {
+  const stackup = new Set((board.scene?.layers || []).map((layer) => String(layer.name)));
+  const hidden = new Set(state.hiddenBoardLayers);
+  const colorOf = (role) => {
+    const entry = (board.renderer?.entries || []).find((item) => item.kind === "board" && item.boardRole === role);
+    const color = entry?.color || entry?.material?.baseColor;
+    return color ? rgbCss(color) : BOARD_LAYER_COLORS[role];
+  };
+  return BOARD_LAYERS
+    .filter((layer) => !stackup.size || stackup.has(layer.name))
+    .map((layer) => ({ ...layer, color: colorOf(layer.role), visible: !hidden.has(`${layer.role}:${layer.side}`) }));
+}
+
+/** Show or hide one side's solder mask, silkscreen or paste (`role` as `boardRole` names it). */
+function setBoardLayerVisible(role, side, visible) {
+  const key = `${role}:${side}`;
+  const hidden = new Set(state.hiddenBoardLayers);
+  if (visible) hidden.delete(key);
+  else hidden.add(key);
+  state.hiddenBoardLayers = [...hidden];
+  for (const b of system ? systemBoards() : [board]) b.renderer?.setHiddenBoardLayers(state.hiddenBoardLayers);
+  notifyViewStateChange();
+}
+
 /** KiCad-like copper (surface finish outside, bare copper inside) or per-layer colours. */
 function setRealisticColors(enabled) {
   state.realisticColors = Boolean(enabled);
@@ -4675,6 +4997,9 @@ function applyCopperColors(b = board) {
   for (const entry of b.renderer.entries) {
     if (entry.kind === "copper") entry.color = copperColor(layers.get(Number(entry.layerId)), b);
   }
+  // An analytic board has no mesh copper entries: its copper takes these.
+  b.renderer.copperColors = new Map([...layers].map(([id, layer]) => [id, copperColor(layer, b)]));
+  b.renderer.invalidate?.();
   b.renderer.setBarrelColor(mixColor(DEFAULT_BARREL_COLOR, [...finishColor(b).slice(0, 3), 0.78], copperRealism()));
   b.scene.copperRealism = copperRealism();
 }
@@ -5350,10 +5675,13 @@ function bindInteractions() {
     state.dragging = false;
     canvas.releasePointerCapture(event.pointerId);
     if (Math.hypot(event.clientX - state.pointerStartX, event.clientY - state.pointerStartY) >= 3) return;
+    // A host tool (a profile line, say) owns clicks while it runs; dragging still moves the camera.
+    if (!state.clickSelect) return;
     if (event.button === 0) await pickAt(event);
     else if (event.button === 2) await contextPickAt(event);
   });
   canvas.addEventListener("dblclick", async (event) => {
+    if (!state.clickSelect) return;
     await pickAt(event);
     frameSelection();
   });
@@ -5563,6 +5891,40 @@ function bindSchematicInteractions() {
   }, { passive: false });
 }
 
+/**
+ * A ring lying on the copper face at `world` (metres), about `pixels` across
+ * on screen, as client points: drawn tilted with the face it marks.
+ */
+function surfaceMarker(world, pixels = 11, sides = 32) {
+  const centre = projectBoardPoint(world, IDENTITY);
+  const step = projectBoardPoint([world[0] + 1e-4, world[1], world[2]], IDENTITY);
+  const stepY = projectBoardPoint([world[0], world[1] + 1e-4, world[2]], IDENTITY);
+  if (!centre || !step || !stepY) return null;
+  const perMetre = Math.max(Math.hypot(step.x - centre.x, step.y - centre.y), Math.hypot(stepY.x - centre.x, stepY.y - centre.y)) / 1e-4;
+  if (!(perMetre > 0)) return null;
+  const radius = pixels / perMetre;
+  const ring = [];
+  for (let k = 0; k < sides; k++) {
+    const angle = (2 * Math.PI * k) / sides;
+    const point = projectBoardPoint([world[0] + radius * Math.cos(angle), world[1] + radius * Math.sin(angle), world[2]], IDENTITY);
+    if (!point) return null;
+    ring.push(point);
+  }
+  return { centre, ring };
+}
+
+/**
+ * The world ray under a client point, by inverting the frame's own
+ * view-projection: right for the perspective and the orthographic views.
+ */
+function worldRayAt(clientX, clientY) {
+  if (!panel || !canvas) return null;
+  const rect = canvas.getBoundingClientRect();
+  const x = ((clientX - rect.left) / rect.width) * 2 - 1;
+  const y = 1 - ((clientY - rect.top) / rect.height) * 2;
+  return matrixRay(panel.matrix, x, y);
+}
+
 // Picks resolve out of order (the GPU read is async): only the latest click selects.
 let pickSequence = 0;
 
@@ -5643,8 +6005,16 @@ function pickHitAtEvent(event) {
 }
 
 // Pick at canvas pixel (x, y): { kind, occurrenceIndex, occurrenceKey, featureId }.
-function pickHit(x, y) {
+// Analytic copper and barrels name the feature their operation came from, so
+// a click selects them as it selects the mesh copper.
+async function pickHit(x, y) {
   if (system) return pickSystem(x, y);
+  const hit = await pickBoardHit(x, y);
+  if (hit?.kind === "analytic" && board.analytic) return { ...hit, featureId: analyticFeatureId(board.analytic, hit.operationIndex) || null };
+  return hit;
+}
+
+function pickBoardHit(x, y) {
   return board.renderer.pick(panel, x, y, {
     activeNetId: state.activeNetId,
     selectedFeatureId: state.selectedFeatureId,

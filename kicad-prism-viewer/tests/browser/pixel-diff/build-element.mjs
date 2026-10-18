@@ -52,10 +52,21 @@ export function buildElement(spec, outFile) {
 }
 
 function esbuildElement(root, outFile) {
-  execFileSync(esbuild, ["viewer/src/element-entry.js", ...ESBUILD_FLAGS, `--outfile=${outFile}`, "--log-level=warning"], {
+  execFileSync(esbuild, ["viewer/src/element-entry.js", ...ESBUILD_FLAGS, `--outfile=${outFile}`, "--log-level=warning", "--log-override:empty-import-meta=silent"], {
     cwd: root,
     stdio: ["ignore", "inherit", "inherit"],
   });
+  // The analytic board's lowering worker and WASM are served beside the
+  // element, as frontend/public serves them (sync-served-element.mjs).
+  const beside = dirname(outFile);
+  if (existsSync(join(root, "viewer/src/analytic-lower-worker.js"))) {
+    execFileSync(esbuild, ["viewer/src/analytic-lower-worker.js", ...ESBUILD_FLAGS, `--outfile=${join(beside, "prism-semantic-viewer-lower.js")}`, "--log-level=warning", "--log-override:empty-import-meta=silent"], {
+      cwd: root,
+      stdio: ["ignore", "inherit", "inherit"],
+    });
+  }
+  const wasm = join(root, "viewer/vendor/prism-kicad-wasm/prism_kicad_analytic_bg.wasm");
+  if (existsSync(wasm)) copyFileSync(wasm, join(beside, "prism-kicad-analytic.wasm"));
 }
 
 function git(args) {

@@ -11,6 +11,19 @@ export function boardRole(primitive) {
   return "substrate";
 }
 
+/**
+ * The side a merged solder mask, silkscreen or paste primitive lies on:
+ * "back" for a `*_bottom` material, "front" for `*_top`, else by which side
+ * of the centred stackup its bounds sit (`[min x, y, z, max x, y, z]`).
+ */
+export function boardSide(primitive) {
+  const name = String(primitive.material?.name || "").toLowerCase();
+  if (name.endsWith("_bottom")) return "back";
+  if (name.endsWith("_top")) return "front";
+  const bounds = primitive.bounds;
+  return bounds && (bounds[2] + bounds[5]) / 2 < 0 ? "back" : "front";
+}
+
 export function mergePrimitivesByMaterial(primitives, classifier = () => "") {
   const groups = new Map();
   for (const primitive of primitives) {
@@ -99,23 +112,35 @@ export function hex(value) {
   return [0, 2, 4].map((offset) => parseInt(clean.slice(offset, offset + 2), 16) / 255);
 }
 
+// KiCad's default colour theme for copper (common/settings/builtin_color_themes.h):
+// In1.Cu to In30.Cu in order.
+const KICAD_FRONT_COPPER = "#c83434";
+const KICAD_BACK_COPPER = "#4d7fc4";
+const KICAD_INNER_COPPER = [
+  "#7fc87f", "#ce7d2c", "#4fcbcb", "#db628b", "#a7a5c6", "#28ccd9", "#e8b2a7", "#f2eda1", "#8dcb81", "#ed7c33",
+  "#5bc3eb", "#f76f8e", "#a7a5c6", "#28ccd9", "#e8b2a7", "#f2eda1", "#ed7c33", "#5bc3eb", "#f76f8e", "#a7a5c6",
+  "#28ccd9", "#e8b2a7", "#f2eda1", "#ed7c33", "#5bc3eb", "#f76f8e", "#a7a5c6", "#28ccd9", "#e8b2a7", "#f2eda1",
+];
+
+/**
+ * KiCad's default colour of copper layer `name`, as #rrggbb; an inner layer
+ * with no `InN.Cu` name takes the colour of its place (`innerIndex`, from 0).
+ */
+export function kicadCopperColor(name, innerIndex = 0) {
+  if (name === "F.Cu") return KICAD_FRONT_COPPER;
+  if (name === "B.Cu") return KICAD_BACK_COPPER;
+  const number = /^In(\d+)\.Cu$/.exec(String(name || ""))?.[1];
+  const index = number ? Number(number) - 1 : innerIndex;
+  return KICAD_INNER_COPPER[((index % KICAD_INNER_COPPER.length) + KICAD_INNER_COPPER.length) % KICAD_INNER_COPPER.length];
+}
+
 export function copperLayerColor(layer, copperLayers) {
   if (typeof layer?.color === "string" && /^#[0-9a-fA-F]{6}$/.test(layer.color)) {
     return [...hex(layer.color), 1];
   }
-  const colors = {
-    "F.Cu": "#a9423c",
-    "B.Cu": "#315b9a",
-    "In1.Cu": "#477a55",
-    "In2.Cu": "#806244",
-    "In3.Cu": "#347c86",
-    "In4.Cu": "#685889",
-    "In5.Cu": "#92793e",
-  };
-  const inner = ["#477a55", "#806244", "#347c86", "#685889", "#92793e", "#82556e"];
   const name = String(layer?.name || "");
   const index = Math.max(0, copperLayers.findIndex((item) => item.name === name) - 1);
-  return [...hex(colors[name] || inner[index % inner.length]), 1];
+  return [...hex(kicadCopperColor(name, index)), 1];
 }
 
 export function innerCopperLayer(layerId, copperLayers) {
