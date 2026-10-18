@@ -3862,13 +3862,19 @@ function isOuterCopper(layer, b = board) {
   return isOuterCopperLayer(layer, b.scene.copperLayers);
 }
 
+// Separation at which copper has fully turned to layer colours.
+const LAYER_COLOR_SEPARATION = 0.25;
+
 /**
  * 1 for KiCad-like copper (outer copper in the surface finish, inner copper
- * bare), 0 for KiCad's layer colours. Layer colours show only with the board
- * substrate hidden, separated or not, and in 2D.
+ * bare), 0 for KiCad's layer colours. Only the assembled board shows the
+ * finish: hiding the substrate shows layer colours at once, and opening the
+ * stackup blends to them (fully at LAYER_COLOR_SEPARATION), substrate or not.
+ * 2D always uses them.
  */
 function copperRealism() {
-  return state.realisticColors && state.mode !== "layer" && state.showBoard ? 1 : 0;
+  if (!state.realisticColors || state.mode === "layer" || !state.showBoard) return 0;
+  return 1 - clamp(state.separation / LAYER_COLOR_SEPARATION, 0, 1);
 }
 
 function copperColor(layer, b = board) {
