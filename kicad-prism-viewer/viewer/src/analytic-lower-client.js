@@ -149,9 +149,10 @@ export class LowerPool {
    * Plan mask steps (see `planOpenings`) across the workers: `pairs` of
    * `[copper, mask]` lowered slices, copied to the workers. Resolves to the
    * steps' bytes in order (as `lower` gives slices), or null for any a worker
-   * could not plan.
+   * could not plan. With `store` and `keys` (each step's cache key), the
+   * workers cache them as `lower` does.
    */
-  async steps(pairs) {
+  async steps(pairs, store = null, keys = []) {
     const live = [];
     for (const member of this.members) if ((await member.opened) && member.alive) live.push(member);
     // Copies of just the arrays planning reads: a view would clone its whole buffer.
@@ -159,8 +160,21 @@ export class LowerPool {
     const copperFields = ["shapes", "subtractShapes", "contourEdges", "contourEdgeOperations", "outlineEdges", "outlineShapes"];
     return Promise.all(pairs.map(([copper, mask], index) => {
       if (!live.length) return null;
-      return this.ask("step", { copper: fields(copper, copperFields), mask: fields(mask, ["shapes", "subtractShapes"]) }, [], live[index % live.length])
-        .then((data) => data.step, () => null);
+      const payload = { key: keys[index], store: store?.identity ?? null, copper: fields(copper, copperFields), mask: fields(mask, ["shapes", "subtractShapes"]) };
+      const member = live[index % live.length];
+      if (store) store.writes.push(this.stored(member, this.nextId, store));
+      return this.ask("step", payload, [], member).then((data) => data.step, () => null);
+    }));
+  }
+
+  /**
+   * The keys `member` stored in the cache for its answer `id` (its second
+   * answer, `-id`), adopted through `store`, with their sizes as stored.
+   */
+  stored(member, id, store) {
+    return new Promise((resolve) => member.pending.set(-id, (data) => {
+      for (const [key, bytes] of data.stored || []) store.adopt(key, bytes);
+      resolve();
     }));
   }
 
@@ -174,8 +188,12 @@ export class LowerPool {
   /**
    * Lower `keys` across the workers that opened the pack: a Map of each slice's
    * bytes (`encodeLowered`'s; `decodeLowered` reads them), or null when none could.
+   * Given `store` (`{ identity, adopt(key, bytes), writes }`), the workers then
+   * write each slice into the asset cache themselves; `adopt` hears of each
+   * they wrote, and `writes` gets a promise per worker that settles when its
+   * writes are done.
    */
-  async lower(keys, toleranceNm, weights = new Map()) {
+  async lower(keys, toleranceNm, weights = new Map(), store = null) {
     if (!keys.length) return new Map();
     const opened = await Promise.all(this.members.map((member) => member.opened));
     const live = this.members.filter((member, index) => opened[index] && member.alive);
@@ -184,8 +202,9 @@ export class LowerPool {
     const results = await Promise.all(groups.map((group, index) => new Promise((resolve) => {
       const member = live[index];
       const id = this.nextId++;
+      if (store) store.writes.push(this.stored(member, id, store));
       member.pending.set(id, (data) => resolve(data.error ? null : new Map(Object.entries(data.lowered))));
-      member.worker.postMessage({ type: "lower", id, keys: group, toleranceNm });
+      member.worker.postMessage({ type: "lower", id, keys: group, toleranceNm, store: store?.identity ?? null });
     })));
     if (results.every((result) => result === null)) return null;
     const lowered = new Map();

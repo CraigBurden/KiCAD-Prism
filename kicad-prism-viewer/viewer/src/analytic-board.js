@@ -15,7 +15,7 @@ import {
   valueRange,
 } from "./analytic-pack.js";
 import { lowerSlicesInWorkers, sliceWeights } from "./analytic-lower-client.js";
-import { BOARD_RECORD_KEY, boardRecord, decodeLowered, markLoweringCached, readLowered, writeLowered } from "./analytic-lower-cache.js";
+import { BOARD_RECORD_KEY, boardRecord, decodeLowered, loweredSliceKey, markLoweringCached, readLowered, writeLowered } from "./analytic-lower-cache.js";
 import { rasterizeBoardClip } from "./analytic-clip.js";
 import { maskSteps, stepKey } from "./analytic-prepare.js";
 import { AnalyticRenderer } from "./analytic-renderer.js";
@@ -101,8 +101,20 @@ export async function attachAnalyticPack({
   }
   const missing = keys.filter((key) => !lowered.has(key));
   const weights = sliceWeights(pack.header);
+  // The workers write what they lower into the cache themselves: this thread adopts it.
+  const adopted = new Set();
+  const store = cacheIdentity && typeof cache.store.adopt === "function" && cache.store.enabled !== false
+    ? {
+      identity: cacheIdentity,
+      writes: [],
+      adopt(key, size) {
+        cache.store.adopt(loweredSliceKey(cacheIdentity.cacheKey, cacheIdentity.wasmKey, cacheIdentity.toleranceNm, key), size);
+        adopted.add(key);
+      },
+    }
+    : null;
   const fromWorkers = !missing.length ? new Map()
-    : pool ? await pool.lower(missing, tolerance, weights)
+    : pool ? await pool.lower(missing, tolerance, weights, store)
     : await lowerSlicesInWorkers(bytes, missing, tolerance, wasm ?? analyticWasmUrl(), { weights });
   timings.lowerIn = !missing.length ? "none" : fromWorkers ? "workers" : "main";
   // Workers send each slice's cache bytes: views over them draw, and the same bytes are stored.
@@ -122,7 +134,9 @@ export async function attachAnalyticPack({
   const stepKeys = steps.map(([mask, copper]) => stepKey(mask, copper));
   const storedSteps = cacheIdentity ? await readLowered(cache.store, cacheIdentity, stepKeys) : new Map();
   const unplanned = steps.filter((_, index) => !storedSteps.has(stepKeys[index]));
-  const fromPool = unplanned.length && pool ? await pool.steps(unplanned.map(([mask, copper]) => [copper.lowered, mask.lowered])) : [];
+  const fromPool = unplanned.length && pool
+    ? await pool.steps(unplanned.map(([mask, copper]) => [copper.lowered, mask.lowered]), store, unplanned.map(([mask, copper]) => stepKey(mask, copper)))
+    : [];
   const freshSteps = new Map();
   unplanned.forEach(([mask, copper], index) => { if (fromPool[index]) freshSteps.set(stepKey(mask, copper), fromPool[index]); });
   steps.forEach(([mask], index) => {
@@ -130,7 +144,9 @@ export async function attachAnalyticPack({
     mask.step = storedSteps.get(stepKeys[index]) || (sent && decodeLowered(sent)) || null;
   });
   timings.steps = `${storedSteps.size} cached, ${freshSteps.size} in workers, ${steps.length - storedSteps.size - freshSteps.size} here`;
-  const toWrite = new Map([...fresh, ...freshSteps]);
+  // With a store the workers cache what they lowered and planned; this thread, what it lowered itself.
+  const fromWorker = (key) => Boolean(fromWorkers?.get(key)) || freshSteps.has(key);
+  const toWrite = new Map([...fresh, ...freshSteps].filter(([key]) => !(store && fromWorker(key))));
   const written = cacheIdentity && toWrite.size ? writeLowered(cache.store, cacheIdentity, toWrite) : Promise.resolve();
   const lowerMs = performance.now() - started;
   lap("lower");
@@ -161,9 +177,15 @@ export async function attachAnalyticPack({
   analytic.setOperationNets(netIds);
   lap("nets");
   // With the board's record, every slice and step stored: say so, for the next open.
+  let cacheWrites = Promise.resolve();
   if (cacheIdentity) {
     const record = netIndices ? writeLowered(cache.store, cacheIdentity, new Map([[BOARD_RECORD_KEY, boardRecord(pack.header, barrels, netIndices)]])) : Promise.resolve();
-    void markLoweringCached(cache.store, cacheIdentity, Promise.all([written, record]));
+    // Complete only once every slice and step the workers made is adopted.
+    const workerKeys = store ? [...fresh.keys(), ...freshSteps.keys()].filter(fromWorker) : [];
+    cacheWrites = Promise.all([written, record, ...(store?.writes || [])]).then(() => {
+      if (workerKeys.every((key) => adopted.has(key))) return markLoweringCached(cache.store, cacheIdentity);
+      return undefined;
+    });
   }
   const featuresBySource = new Map();
   for (const feature of features || []) {
@@ -173,7 +195,8 @@ export async function attachAnalyticPack({
   }
   lap("features");
   if (local && local !== pack) local.free();
-  return { pack, analytic, unmatched, lowerMs, timings, zOffset, operations: operationCount(pack.header), overlay: null, netIds, featuresBySource, barrelOperations, lowered };
+  // `cacheWrites` settles once the cache holds this board (the workers' writes included).
+  return { cacheWrites, pack, analytic, unmatched, lowerMs, timings, zOffset, operations: operationCount(pack.header), overlay: null, netIds, featuresBySource, barrelOperations, lowered };
 }
 
 /**

@@ -768,9 +768,10 @@ async function loadAnalyticBoard(token, b, performanceTimings) {
   };
   const started = performance.now();
   const full = await attachAnalyticPack(common);
-  // The host worker stays for the pack; the rest of the pool goes.
-  if (source.pool && full.pack.hosted) void source.pool.release();
-  else source.pool?.close();
+  // The host worker stays for the pack; the rest of the pool goes once its cache writes are done.
+  const pool = source.pool;
+  if (pool && full.pack.hosted) void full.cacheWrites.then(() => pool.release());
+  else pool?.close();
   source.pool = null;
   if (generation !== analyticGeneration || !viewerSessionActive(token) || !b.renderer) {
     full.analytic.destroy();
