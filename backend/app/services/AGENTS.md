@@ -142,6 +142,17 @@ legacy path; it never reads a `.kicad_pro` or scans a directory. The `/3d-model`
 route stays legacy: it serves a committed design-output model, which the bundle
 does not carry.
 
+## 3D tab
+
+With `PRISM_DESIGN_SOURCE_VIEWER_3D=bundle`, `viewer_3d_bundle.py` serves the
+3D tab from the design bundle (ADR amendment V2): the status the tab already
+reads, built from the pack's and the parts GLB's readiness (opening the
+revision queues its `design_bundle` build), the viewer's
+`prism.viewer_3d.analytic.a0` document, and the pack, stackup and GLB members
+by revision key under the asset route's design-bundle prefix
+(`backend/app/api/project_viewer_3d.py`). There is no mesh fallback; `legacy`
+keeps `semantic_visualizer_service.py`'s mesh path until V2a deletes it.
+
 ## Design variants
 
 `project_source_snapshot.py` resolves a working tree or an exact commit

@@ -84,11 +84,7 @@ def open_revision(project_id: str, commit: str | None = None, *, queue: bool = F
     if key.absent:
         return OpenedRevision(project_id, key.commit, None, generator.digest, None, None, False, absent=True)
     revision_key = key.key.revision_key  # type: ignore[union-attr]
-    resolved = reuse.resolve(project_id, revision_key, generator)
-    bundle_key = resolved.bundle_key if resolved else generator.bundle_key(revision_key)
-    stored_as = resolved.archive_revision_key if resolved else revision_key
-    aliased = bool(resolved and resolved.aliased)
-    archive = store.open_bundle(project_id, stored_as, generator.digest, bundle_key)
+    bundle_key, stored_as, aliased, archive = _stored(project_id, revision_key, generator)
     bundle = rows.get_bundle(project_id, bundle_key)
     active = bool(bundle and rows.job_status(bundle.get("job_id")) in _ACTIVE)
     complete = archive is not None and all(
@@ -100,6 +96,36 @@ def open_revision(project_id: str, commit: str | None = None, *, queue: bool = F
         active = bool(jobs.start_design_bundle_job(project_id, commit=build_commit or key.commit, requested_by=requested_by))
     return OpenedRevision(
         project_id, key.commit, revision_key, generator.digest, bundle_key, archive, active,
+        archive_revision_key=stored_as, aliased=aliased,
+    )
+
+
+def _stored(project_id: str, revision_key: str, generator: Any) -> tuple[str, str, bool, Archive | None]:
+    """The bundle key, the revision key it is stored under, whether that is an alias, and the archive."""
+
+    resolved = reuse.resolve(project_id, revision_key, generator)
+    bundle_key = resolved.bundle_key if resolved else generator.bundle_key(revision_key)
+    stored_as = resolved.archive_revision_key if resolved else revision_key
+    archive = store.open_bundle(project_id, stored_as, generator.digest, bundle_key)
+    return bundle_key, stored_as, bool(resolved and resolved.aliased), archive
+
+
+def open_revision_key(project_id: str, revision_key: str, generator_digest: str) -> OpenedRevision | None:
+    """The stored bundle that serves ``revision_key`` for ``generator_digest``, by key, not commit.
+
+    For URLs that name a revision (a viewer's asset, cached forever): ``None``
+    when nothing is stored for it, or the generator is not the running one.
+    Nothing is queued.
+    """
+
+    generator = cli.generator()
+    if generator_digest != generator.digest:
+        return None
+    bundle_key, stored_as, aliased, archive = _stored(project_id, revision_key, generator)
+    if archive is None:
+        return None
+    return OpenedRevision(
+        project_id, None, revision_key, generator.digest, bundle_key, archive, False,
         archive_revision_key=stored_as, aliased=aliased,
     )
 

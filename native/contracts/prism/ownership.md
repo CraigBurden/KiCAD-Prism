@@ -958,6 +958,7 @@ Every path a WP may edit in its wave, from `ownership.json` `/workPackages`. "AD
 | `backend/app/api/project_viewer_3d.py` | new | after S1 (without S1: api/projects.py:771-869) |
 | `backend/app/services/semantic_viewer_runtime.py` | dev |  |
 | `backend/app/services/semantic_visualizer_service.py` | dev | becomes a thin bundle reader; keeps find_kicad_project (:115) for C8 |
+| `backend/app/services/viewer_3d_bundle.py` | new | V2a step 3: the 3D tab's status, analytic document and members from the bundle |
 | `backend/app/services/viewer_3d_jobs.py` | new | after S1 |
 | `backend/tests/test_viewer_3d_jobs.py` | new | after S1 |
 | `docs/ANALYTIC_3D_VIEW.md` | ref-only | ref |
