@@ -206,3 +206,20 @@ Rationale in `docs/architecture/adr-native-design-bundle-amendment-k2.md`. Decid
 2. **Q2: a design key, not a revision key, in members.** `prism.semantic_index.a2` replaces `sourceRevisionKey` with `designKey`, computed from the configuration digest and the read set. Consumers take the revision they asked for from the request; `compare` takes both revision keys as arguments in both modes.
 3. **Q3: the jobset rule stays repository-wide.** Narrowing it belongs to C3.
 4. **K2b prebuild (2026-10-18).** The prebuild keeps each branch's newest 10 commits and every tagged commit warm, not 20 per branch, and a designer can force a project's design data to be rebuilt, one commit or all of it. Amendment K2 §7.
+
+## One analytic 3D path, amendment V2 (2026-10-18)
+
+Rationale in `docs/architecture/adr-native-design-bundle-amendment-v2.md`. Decided by the maintainer:
+
+1. **One 3D path.** The WebGPU viewer renders the bundle's `materialization/board.kmpack` for boards and `viewer/models/components.glb` for parts. Every older 3D path is deleted by the package that moves its last reader (V2 §2.3), not kept behind a flag.
+2. **No waits from warm bundles.** K2's prebuild is what makes 3D instant; no second store for 3D.
+3. **System Builder on analytic boards** at each instance's pinned commit, with mating frames and harness ends from the pack.
+4. **The harness and mating UI is designed anew**, from mockups the maintainer reviews, as the first step of V2b.
+5. **Every System Builder operation is scriptable** through one operations API (`prism.system.ops.a0`, `POST /api/systems/{id}/ops`) that the UI and `window.prismSystemBuilder` both call. No MCP for now.
+6. **Wire geometry nodes** are a research spike (V2-R) after V2b.
+7. **Simulation overlays** are optimised in C6 (V2 §4).
+8. **Order:** V2a (C5) → V2b (System Builder) → V2c (C6), one at a time.
+9. **Q1, the cold 3D path:** the build enters the ordinary `design_bundle` queue; no priority and no prebuild action. The view shows where it waits and draws the board when stage `board` publishes.
+10. **Q2:** the Python and TypeScript harness curves stay through V2b; V2-R decides whether one Rust crate replaces them.
+11. **Q3:** today's System Builder routes call the operations service during V2b and are removed in its last pull request.
+12. **Q4, 3D budgets:** V2a measures the journeys first; the maintainer sets the budgets before V2a merges.

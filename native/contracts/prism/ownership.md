@@ -923,6 +923,7 @@ Every path a WP may edit in its wave, from `ownership.json` `/workPackages`. "AD
 ### C4: System Builder (wave 3, ADR §9.6)
 
 - Flag: `PRISM_DESIGN_SOURCE_SYSTEM_BUILDER`.
+- Amendment V2 (2026-10-18): C4b becomes V2b. It also owns `backend/app/services/systems/` mating, harness and the operations service, `api/systems*.py`, `frontend/src/features/system-builder/`, and a new contract `system-ops-a0.tsp` with its field map; it deletes the remaining mesh paths and `kicad-prism-viewer/pipeline/topology_compiler/` (V2 §2.3).
 - ADR Owns: `backend/app/services/systems/ (interface, bundles, collision meshes, step export)`; `frontend/src/features/system-builder/scene-3d-tab.tsx loaders only`.
 - Depends (ADR): K, P3, P5, V1; depends (this map): K, P3, P5, V1, C5; merges after: C5.
 - System mode renders boards through kicad-prism-viewer/viewer/src (prism-semantic-viewer-element.js:268, viewer-controllers.js:5), which C5 owns; the 3D-scene part waits for C5's analytic renderer, or C4 splits (open question).
@@ -944,7 +945,8 @@ Every path a WP may edit in its wave, from `ownership.json` `/workPackages`. "AD
 
 ### C5: 3D tab on the analytic model (wave 3, ADR §9.6)
 
-- Flag: `PRISM_DESIGN_SOURCE_VIEWER_3D`.
+- Flag: `PRISM_DESIGN_SOURCE_VIEWER_3D`; amendment V2 deletes it in V2a, with the 3D tab's mesh path (V2 §2.3).
+- Amendment V2 (2026-10-18): C5 is V2a. It owns the viewer's analytic files (`kicad-prism-viewer/viewer/src/analytic-*.js`, `field-relief.js`, the board mode of `main.js`), `frontend/src/components/webgpu-3d-tab.tsx`, and the 3D tab's backend (`semantic_visualizer_service.py`, `viewer_3d_jobs.py`, `job_webgpu_ready.py`, `api/project_viewer_3d.py`).
 - ADR Owns: `frontend/src/components/webgpu-3d-tab.tsx and the analytic renderer`; `semantic_visualizer_service.py`; `kicad-prism-viewer/ 3D pieces`.
 - Depends (ADR): K, P3, V1; depends (this map): F2, K, S1, P1, P3, V1; merges after: —.
 - kicad-prism-viewer/pipeline/** is not C5's: C5 stops calling it and R2 removes it.
@@ -979,6 +981,8 @@ Every path a WP may edit in its wave, from `ownership.json` `/workPackages`. "AD
 | `kicad-prism-viewer/viewer/**` | dev | the analytic renderer, 2D layer view, mask colours; C4 requests system-mode changes |
 
 ### C6: Simulation Studio (wave 3, ADR §9.6)
+
+- Amendment V2 (2026-10-18): C6 is V2c, after V2a. Runs reference the bundle by key and the viewer reuses its lowered pack; the result overlays change as V2 §4 lists.
 
 - ADR Owns: `backend/app/sim_studio/`; `frontend/src/components/sim-studio/`; `workspace migrations for setups/runs/layouts`; `prism-sim-studio dependency PR`.
 - Depends (ADR): B, K, P1; depends (this map): B, K, P1, C1; merges after: C1.

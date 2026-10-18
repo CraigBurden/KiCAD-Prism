@@ -1,6 +1,6 @@
 # ADR amendment V2: one analytic 3D path
 
-- **Status:** Proposed (2026-10-18). The decisions in "Decided before this draft" are the maintainer's; §6 lists the questions still open, each with a recommended option.
+- **Status:** Accepted (2026-10-18). The decisions in "Decided before this draft" are the maintainer's, and so are the answers to §6: Q1 the alternative below the recommendation (a plain queue), Q2 and Q3 as recommended, Q4 deferred to V2a. The text changes of §9 are applied in the same pull request, except item 3, which waits for V2a's measurements.
 - **Revises:** the parent ADR §9.6 rows C4b, C5 and C6, and the 3D half of amendment U §3.2 (budgets for 3D journeys, which U did not set).
 - **Parent:** [`adr-native-design-bundle.md`](adr-native-design-bundle.md) §4.4 (staged readiness), §5 (storage), §9.6, §9.7 (R1, R2). It builds on [amendment K2](adr-native-design-bundle-amendment-k2.md) (warm bundles) and [V1](adr-native-design-bundle.md) (the component GLB in stage `models`).
 - **Decided before this draft** (maintainer, 2026-10-18):
@@ -41,7 +41,7 @@ What is missing is the wiring: the 3D tab still asks the Python pipeline, System
 A 3D view asks for its commit's bundle through the design bundle consumer (`design_bundle/consumer.py`):
 
 - **Warm** (the commit is in the prebuild set, or was opened before): the pack and GLB are stored. The viewer fetches the pack, lowers it in its worker and draws. Parts follow when the GLB arrives.
-- **Cold** (a commit outside the prebuild set): the consumer queues the build, at the front of the `design_bundle` slot, and the view shows the stage it waits for. It draws the board as soon as stage `board` publishes (staged readiness, parent §4.4) and the parts after stage `models`. There is no mesh fallback (decision 1). A failed `board` stage shows its error and the "Rebuild" action K2b added.
+- **Cold** (a commit outside the prebuild set): the consumer queues the build in the ordinary `design_bundle` queue (Q1), and the view shows where it waits and which stage runs. It draws the board as soon as stage `board` publishes (staged readiness, parent §4.4) and the parts after stage `models`. There is no mesh fallback (decision 1) and no separate quick path. A failed `board` stage shows its error and the "Rebuild" action K2b added.
 
 ### 2.3 What is retired
 
@@ -110,25 +110,27 @@ After V2b merges, a spike studies generating each wire's geometry from a node gr
 
 ## 6. Open questions
 
-**Q1. The cold 3D path.** A commit outside the prebuild set has no pack.
+**Q1. The cold 3D path.** A commit outside the prebuild set has no pack. *Decided: the build enters the ordinary queue; no priority and no prebuild action (§2.2).*
 - *Recommended:* queue its build at the front of the slot and show the stage being waited for, with the board drawn when stage `board` publishes (§2.2). Add a "Prebuild this commit" action where a user picks a commit, so the build starts before the 3D tab opens.
 - *Alternative:* a source-tree mode for stage `board`, as `compare` has for `parse`. The materializer and the zone refill are the slow part of stage `board`, so this saves little and adds a second path.
 
-**Q2. Harness geometry: one implementation.** Curves exist twice today, in Python and TypeScript, kept equal by a tolerance test.
+**Q2. Harness geometry: one implementation.** Curves exist twice today, in Python and TypeScript, kept equal by a tolerance test. *Decided: as recommended.*
 - *Recommended:* keep the two for V2b, and let V2-R decide whether one Rust crate (WASM in the viewer, `prism-kicad` in the backend) replaces both.
 - *Alternative:* write the Rust crate in V2b. That moves V2-R's question into the migration.
 
-**Q3. The operations API and today's routes.**
+**Q3. The operations API and today's routes.** *Decided: as recommended.*
 - *Recommended:* the routes call the same service as `ops` during V2b and are removed in V2b's last pull request, once the UI calls `ops` only.
 - *Alternative:* keep the routes as a public API beside `ops`. Two ways to change a system have to stay equal.
 
-**Q4. 3D budgets** (§7). U set none for 3D.
+**Q4. 3D budgets** (§7). U set none for 3D. *Decided: V2a measures today's journeys and proposes the budgets; the maintainer sets them before V2a merges. §7's table is the starting proposal.*
 - *Recommended:* the values in §7, measured on EDA-04903 and on one System Builder system, in the worker-image container as U §3.2.
 - *Alternative:* set them after V2a measures today's numbers.
 
 ## 7. Acceptance and budgets
 
-| Journey | Budget |
+The table is a proposal (Q4): V2a measures each journey on the current mesh path and the analytic path, and the maintainer sets the budgets from those numbers.
+
+| Journey | Proposed budget |
 |---|---|
 | 3D tab, warm commit: first board frame after the tab opens | ≤ 1.5 s on EDA-04903 |
 | 3D tab, warm commit: parts drawn | ≤ 3 s |
@@ -154,6 +156,6 @@ And per work package:
 
 1. **Parent §9.6:** the C5 row points to V2a; the C4b row becomes V2b with the widened scope; the C6 row adds §4's overlay work.
 2. **Parent §9.7, R2:** the `kicad-prism-viewer/` 3D removal moves to V2a and V2b (§2.3).
-3. **Amendment U §3.2:** the 3D budgets of §7.
+3. **Amendment U §3.2:** the 3D budgets, once set after V2a's measurements (Q4). Not applied yet.
 4. **`decisions.md`:** a "One analytic 3D path, amendment V2 (2026-10-18)" section with decisions 1–8 and the answers to Q1–Q4.
 5. **`ownership.md`:** V2a owns the viewer's analytic files, `webgpu-3d-tab.tsx` and the 3D tab's backend; V2b owns `backend/app/services/systems/` (3D, mating, harness, operations), `api/systems*.py` and `frontend/src/features/system-builder/`; a new contract `system-ops-a0.tsp` with its field map.
