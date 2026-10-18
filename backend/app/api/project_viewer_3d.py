@@ -4,8 +4,9 @@ With ``PRISM_DESIGN_SOURCE_VIEWER_3D=bundle`` the routes serve the analytic
 model from the design bundle (``viewer_3d_bundle.py``, ADR amendment V2):
 status and generate go through the bundle and its ``design_bundle`` job,
 ``/webgpu-3d/analytic`` is the viewer's bundle document, and the asset route
-serves its members under ``design-bundle/``. ``legacy`` keeps the mesh path
-until V2a deletes it.
+serves its members under ``design-bundle/``. ``legacy`` keeps the mesh path,
+which System Builder's scene also reads through the asset route, until V2b
+deletes it (amendment V2 §2.3).
 """
 
 import asyncio

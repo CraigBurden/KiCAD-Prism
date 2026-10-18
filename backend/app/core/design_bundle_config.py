@@ -53,7 +53,7 @@ class DesignBundleSettings(BaseSettings):
         default="bundle",
         description=(
             "3D tab: the bundle's analytic model (default since V2a step 4), or `legacy`, the topology"
-            " compiler's meshes, until V2a step 5 removes them."
+            " compiler's meshes, until V2b deletes the mesh path (amendment V2 §2.3)."
         ),
     )
     PRISM_DESIGN_SOURCE_PROJECT_METADATA: DesignSource = Field(
