@@ -827,6 +827,13 @@ export class AnalyticRenderer {
     floats.set(look?.color || slice.color, 0);
     const [a, b] = slice.offsetLayers || [slice.layerId, slice.layerId];
     floats[4] = slice.z + 0.5 * ((layerOffsets?.[a] || 0) + (layerOffsets?.[b] || 0));
+    // The 2D view: the layer laid flat (z to 0) at its place in the grid.
+    const flat = this.context?.flat?.get(slice.layerId);
+    if (flat) {
+      floats[4] = slice.z - flat.z;
+      floats[44] = flat.offset[0] || 0;
+      floats[45] = flat.offset[1] || 0;
+    }
     const copper = slice.role === undefined || slice.role === "copper";
     words[5] = copper ? this.overlay.mode : 0;
     // Copper glows with its nets; it hides off the lit nets under net isolation,
@@ -971,6 +978,12 @@ export class AnalyticRenderer {
     return drawn;
   }
 
+  /** A copper layer's height (world metres, the middle of its faces); null when no slice draws it. */
+  layerZ(layerId) {
+    const zs = this.slices.filter((slice) => (slice.role === undefined || slice.role === "copper") && slice.layerId === layerId).map((slice) => slice.z);
+    return zs.length ? (Math.min(...zs) + Math.max(...zs)) / 2 : null;
+  }
+
   boardShown(context) {
     return (context.showBoard ?? true) && !context.panelLayer;
   }
@@ -1056,7 +1069,8 @@ export class AnalyticRenderer {
   sliceRect(slice, layerOffsets) {
     const viewport = this.viewport;
     const matrix = this.viewMatrix;
-    if (!viewport || !matrix || !slice.bounds) return undefined;
+    // A flat (2D) layer is moved in the shader; it takes the whole viewport.
+    if (!viewport || !matrix || !slice.bounds || this.context?.flat) return undefined;
     const [a, b] = slice.offsetLayers || [slice.layerId, slice.layerId];
     const lift = 0.5 * ((layerOffsets?.[a] || 0) + (layerOffsets?.[b] || 0));
     const zs = [slice.z, slice.zBottom ?? slice.z, slice.zTop ?? slice.z, slice.zLow ?? slice.z].map((z) => z + lift);

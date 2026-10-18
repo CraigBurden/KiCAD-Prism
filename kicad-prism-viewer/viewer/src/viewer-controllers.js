@@ -102,6 +102,25 @@ export function selectionTarget(nets, selection) {
   return { kind: "board" };
 }
 
+/**
+ * Whether a host selection is the viewer's own last one coming back: the
+ * host echoes what the viewer emits, often with fewer fields (a pad as its
+ * reference and pin, a net by name or code under the host's own uid). An echo
+ * must change nothing: re-selecting a pad by reference would select its part,
+ * drop the net probe and move the camera.
+ */
+export function isSelectionEcho(selection, emitted) {
+  if (!selection || !emitted || selection.occurrence != null) return false;
+  const text = (value) => String(value ?? "");
+  if (selection.reference || emitted.reference) {
+    return text(selection.reference) === text(emitted.reference) && text(selection.pin) === text(emitted.pin);
+  }
+  if (selection.featureId && emitted.featureId) return Number(selection.featureId) === Number(emitted.featureId);
+  if (selection.netName && emitted.netName) return text(selection.netName) === text(emitted.netName);
+  if (selection.netCode && emitted.netCode) return Number(selection.netCode) === Number(emitted.netCode);
+  return false;
+}
+
 /** Select a resolved target on the port, framing it. False for `board` and `unresolved`. */
 function selectTarget(port, target) {
   if (target.kind === "net") port.selectNet(target.id, true);
@@ -192,6 +211,8 @@ class ModeController {
   setSelection(selection) {
     this.shared.selection = selection || null;
     const port = this.#port;
+    // The viewer's own selection echoed back is already shown.
+    if (port?.takeEcho?.(this.shared.selection)) return;
     if (port) port.quietly(() => this.applySelection(port, this.shared.selection));
   }
 

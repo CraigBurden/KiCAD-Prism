@@ -55,7 +55,12 @@ interface WebGpu3dStatus {
     error?: string;
     generator: WebGpuGeneratorTag;
     readiness?: WebGpu3dReadiness;
+    /** The design bundle's build while one is queued or running (bundle mode). */
+    job_id?: string | null;
 }
+
+/** How often the tab asks again while the revision's 3D data is still being built. */
+const STATUS_POLL_MS = 2000;
 
 interface WebGpu3dReadiness {
     schema: "prism.visualizer_readiness.a0";
@@ -198,8 +203,8 @@ export function WebGpu3dTab({
     );
     const statusUrl = `/api/projects/${projectId}/webgpu-3d/status${commitQuery}`;
 
-    const refreshStatus = useCallback(async () => {
-        setLoading(true);
+    const refreshStatus = useCallback(async (quiet = false) => {
+        if (!quiet) setLoading(true);
         try {
             const next = await fetchJson<WebGpu3dStatus>(
                 statusUrl,
@@ -224,6 +229,16 @@ export function WebGpu3dTab({
         setError(null);
         void refreshStatus();
     }, [refreshStatus]);
+
+    // V2a: while the design bundle builds (no board yet) or its parts are
+    // still exporting, ask again; each new stage changes the readiness
+    // revision, which remounts the viewer with what is now stored.
+    const statusPending = status?.status === "building" || status?.readiness?.stage === "board-ready";
+    useEffect(() => {
+        if (!statusPending || jobId) return;
+        const timer = window.setInterval(() => void refreshStatus(true), STATUS_POLL_MS);
+        return () => window.clearInterval(timer);
+    }, [jobId, refreshStatus, statusPending]);
 
     useEffect(() => {
         if (!jobId) return;
@@ -484,6 +499,23 @@ export function WebGpu3dTab({
                                 {error}
                             </p>
                         )}
+                        {status?.status === "building" && !job && (
+                            <div className="space-y-2 border bg-muted/30 p-3" role="status">
+                                <div className="flex items-center justify-between gap-3 text-xs">
+                                    <span className="flex items-center gap-2 font-medium">
+                                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                                        {status.message || "Building this revision's design data"}
+                                    </span>
+                                    <span className="shrink-0 tabular-nums text-muted-foreground">{Math.round(status.readiness?.progress ?? 0)}%</span>
+                                </div>
+                                <div className="h-1.5 overflow-hidden bg-muted">
+                                    <div
+                                        className="h-full bg-primary transition-[width] duration-300"
+                                        style={{ width: `${Math.max(0, Math.min(100, status.readiness?.progress ?? 0))}%` }}
+                                    />
+                                </div>
+                            </div>
+                        )}
                         {job && (
                             <div className="space-y-2 border bg-muted/30 p-3">
                                 <div className="flex items-center justify-between text-xs">
@@ -500,10 +532,20 @@ export function WebGpu3dTab({
                             </div>
                         )}
                         <div className="flex flex-wrap gap-2">
-                            <Button onClick={() => void generate(false)} disabled={!canGenerate || Boolean(jobId)}>
-                                {jobId ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Sparkles className="mr-2 h-4 w-4" />}
-                                Generate 3D assets
-                            </Button>
+                            {status?.status === "invalid" ? (
+                                <Button onClick={() => void generate(true)} disabled={!canGenerate || Boolean(jobId)}>
+                                    {jobId ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <RotateCcw className="mr-2 h-4 w-4" />}
+                                    Rebuild
+                                </Button>
+                            ) : (
+                                <Button
+                                    onClick={() => void generate(false)}
+                                    disabled={!canGenerate || Boolean(jobId) || Boolean(status?.job_id)}
+                                >
+                                    {jobId || status?.job_id ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Sparkles className="mr-2 h-4 w-4" />}
+                                    Generate 3D assets
+                                </Button>
+                            )}
                             <Button variant="outline" onClick={() => void refreshStatus()} disabled={loading}>
                                 <RefreshCw className={cn("mr-2 h-4 w-4", loading && "animate-spin")} />
                                 Refresh status

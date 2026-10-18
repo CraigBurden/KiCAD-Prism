@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { analyticBoundsMm, analyticLayers, analyticSceneManifest } from "./analytic-scene.js";
+import { featureMaskCapacityFor } from "./feature-visibility.js";
+import { ANALYTIC_COMPONENT_FEATURES, analyticBoundsMm, analyticLayers, analyticSceneManifest, componentBoundsMm } from "./analytic-scene.js";
 
 // The stack of a two-layer board as a bundle's pack records it (USB-PD-Trigger-Board).
 const HEADER = {
@@ -58,4 +59,32 @@ test("the manifest has the mesh scene's shape", () => {
   assert.deepEqual(manifest.nets.map((net) => [net.id, net.name]), [[0, ""], [1, "GND"]]);
   assert.deepEqual(manifest.components.map((c) => [c.designator, c.uid]), [["R15", "0a68adf0"]]);
   assert.deepEqual([manifest.tiles, manifest.barrels, manifest.objectFeatures], [[], [], []]);
+});
+
+test("each component is its own feature, placed by its affine on its side", () => {
+  const rotated = { m11: 0, m12: -1, m21: 1, m22: 0, tx_nm: 10_000_000, ty_nm: 20_000_000 };
+  const body = { min_x_nm: -2_000_000, min_y_nm: -1_000_000, max_x_nm: 2_000_000, max_y_nm: 1_000_000 };
+  const header = { ...HEADER, components: [
+    { refdes: "U1", source_uid: "u1", footprint: "QFN", side: "front", affine: rotated, body_bounds: body, body_height_nm: 900_000 },
+    { refdes: "C1", source_uid: "c1", footprint: "0402", side: "back", affine: { ...rotated, m12: 0, m21: 0, m11: 1, m22: 1 }, body_bounds: body },
+    { refdes: "TP1", source_uid: "tp1", footprint: "TP", side: "front", affine: rotated },
+  ] };
+  const components = analyticSceneManifest(header).components;
+  assert.deepEqual(components.map((c) => c.featureId), [0, 1, 2].map((i) => ANALYTIC_COMPONENT_FEATURES + i));
+  // Rotated a quarter turn: 2 mm across, 4 mm along, about (10, 20); 0.9 mm up from the top face.
+  assert.deepEqual(components[0].boundsMm.map((v) => +v.toFixed(3)), [9, 18, 0.8, 11, 22, 1.7]);
+  // The back side hangs below, 1 mm by default.
+  assert.deepEqual(components[1].boundsMm.map((v) => +v.toFixed(3)), [8, 19, -1.8, 12, 21, -0.8]);
+  assert.equal(components[2].boundsMm, null, "no body, no bounds until the models load");
+  assert.equal(componentBoundsMm(null, 1.6), null);
+  // KiCad's parts GLB puts the board's bottom at 0; this board is centred, so the parts come down half of it.
+  assert.equal(analyticSceneManifest(header).componentsZOffsetMm, -0.8);
+});
+
+test("hiding every part keeps the renderer's mask one word per part", () => {
+  // The mask is as long as the largest hidden id; a large base id once asked for gigabytes (DNP hiding in the tab).
+  const components = Array.from({ length: 300 }, (_, i) => ({ refdes: `R${i}`, source_uid: `r${i}`, side: "front" }));
+  const ids = analyticSceneManifest({ ...HEADER, components }).components.map((c) => c.featureId);
+  assert.ok(Math.min(...ids) > 0, "0 is no feature");
+  assert.equal(featureMaskCapacityFor(ids), 512);
 });

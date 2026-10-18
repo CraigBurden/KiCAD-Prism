@@ -47,14 +47,14 @@ import { harnessScene } from "../../../frontend/src/features/system-builder/plac
 import { allReadyBoardsDrawn, assetLoadable, assetOccurrenceMatrix, boardTransition, boxRendererId, drawnOccurrences, STAND_INS, standInKind, standInMatrix } from "./system-placement.js";
 import { LOD_FULL } from "./occurrences.js";
 import { InsetViews, insetMatrix } from "./inset-view.js";
-import { DEFAULT_GPU_BUDGET_BYTES } from "./viewer-controllers.js";
+import { DEFAULT_GPU_BUDGET_BYTES, isSelectionEcho } from "./viewer-controllers.js";
 import { COLORMAPS, DEFAULT_ANALYTIC_STYLE } from "./analytic-colormaps.js";
 import { analyticWasmKey, analyticWasmUrl, DEFAULT_TOLERANCE_NM, openAnalyticPack } from "./analytic-pack.js";
 import { BOARD_RECORD_KEY, isLoweringCached, readLowered } from "./analytic-lower-cache.js";
 import { hostedPack, LowerPool, MAX_LOWER_WORKERS, storedPack, workerCount } from "./analytic-lower-client.js";
 import { AnalyticRenderer } from "./analytic-renderer.js";
 import { analyticBoardLooks, analyticSceneManifest } from "./analytic-scene.js";
-import { analyticFeatureId, applyAnalyticOverlay, applyAnalyticStyle, applyAnalyticVectors, attachAnalyticPack, describeAnalyticHit, fieldAlongRay, netIdByName, operationSliceKey, reliefSlices } from "./analytic-board.js";
+import { analyticFeatureId, analyticOperationFeature, applyAnalyticOverlay, applyAnalyticStyle, applyAnalyticVectors, attachAnalyticPack, describeAnalyticHit, fieldAlongRay, netIdByName, operationSliceKey, reliefSlices } from "./analytic-board.js";
 import { FieldRelief } from "./field-relief.js";
 import { barrelsAtCopperFaces } from "./barrel-records.js";
 
@@ -329,6 +329,8 @@ let viewStateChangeCallback = null;
 let contextMenuCallback = null;
 let viewStateChangeQueued = false;
 let suppressSelectionChange = false;
+// The selection the viewer last emitted (a click), until the host echoes it back.
+let emittedSelection = null;
 let viewerIsActive = () => true;
 let legacyWorkspacesEnabled = true;
 
@@ -805,6 +807,12 @@ function sharedPortMembers() {
         suppressSelectionChange = false;
       }
     },
+    // Whether a host selection is the echo of the viewer's last one (taken once).
+    takeEcho(selection) {
+      const echo = isSelectionEcho(selection, emittedSelection);
+      emittedSelection = null;
+      return echo;
+    },
     selectNet,
     selectFeature,
     selectComponent: selectComponentReference,
@@ -886,6 +894,7 @@ function emitSelectionChange(selection) {
   // Move mode follows the selection to its top-level instance (SB2-29).
   if (system?.move.enabled) retargetMove();
   if (suppressSelectionChange) return;
+  emittedSelection = selection;
   // In a system scene every selection names its occurrence (SB2-24).
   const occurrence = board.renderer && !board.renderer.identityOnly ? board.renderer.occurrenceKeys[state.selectedOccurrence] : null;
   selectionChangeCallback?.(selection && occurrence != null ? { ...selection, occurrence } : selection);
@@ -1035,7 +1044,8 @@ async function indexBoardScene(b, token, performanceTimings = {}) {
       kind: "component",
       sourceUid: component.uid,
       netId: 0,
-      bounds: null,
+      // An analytic board's components know their body (analytic-scene.js); mesh ones learn it from the GLB.
+      bounds: runtimeBounds(component.boundsMm),
     });
   }
   for (const tile of b.scene.manifest.tiles || []) b.scene.tiles.set(tile.id, tile);
@@ -3658,6 +3668,7 @@ async function loadComponents(token = activeViewerToken, b = board) {
     loaded = await loadGltfModels(new URL(path, location.href).toString(), {
       componentFeatures: b.scene.componentFeatures,
       fetchBytes: assetFetcher(b),
+      zOffset: Number(b.scene.manifest?.componentsZOffsetMm || 0) / 1000,
     });
   } catch (error) {
     if (viewerSessionActive(token)) b.scene.componentTier = "idle";
@@ -5120,7 +5131,7 @@ function selectNet(netId, shouldFrame) {
   selectionEl.textContent = JSON.stringify(net || {}, null, 2);
   updateSelectionCard();
   if (state.isolateNet) applyNetIsolationLayers();
-  if (shouldFrame && net?.boundsMm) camera.frame(placedBounds(runtimeBounds(net.boundsMm)));
+  if (shouldFrame && net?.boundsMm) camera.frame(layerViewBounds(placedBounds(runtimeBounds(net.boundsMm))));
   scheduleTileResidency(performance.now(), { force: true });
   emitSelectionChange(netSelection(net));
 }
@@ -5137,7 +5148,8 @@ function selectFeature(featureId, shouldFrame = false) {
   const reference = componentReferenceFromFeature(feature);
   if (reference) bomViewer?.setSelectionByReference(reference, { scroll: state.workspace === "bom" });
   const selection = featureSelection(feature);
-  if (selection?.kind === "net") applyNetProbeVisibility();
+  // Copper probes its net, a pad's as a trace's; only a part keeps the board.
+  if (selection?.kind === "net" || (selection?.kind === "terminal" && state.activeNetId)) applyNetProbeVisibility();
   else applyComponentProbeVisibility();
   selectionEl.textContent = feature ? JSON.stringify(feature, null, 2) : "No object selected";
   updateSelectionCard();
@@ -5228,10 +5240,32 @@ function applyHiddenComponents(references) {
   return plan;
 }
 
+/**
+ * Bounds as the 2D view shows them: moved into the cells of `layerIds` in
+ * the layer grid (their union) and laid flat. Unchanged in 3D, or when none
+ * of the layers is in the grid.
+ */
+function layerViewBounds(bounds, layerIds = [...compareOffsets.keys()]) {
+  if (state.mode !== "layer" || !bounds) return bounds;
+  const cells = [];
+  for (const id of layerIds) {
+    const offset = compareOffsets.get(Number(id));
+    if (offset) cells.push([bounds[0] + offset[0], bounds[1] + offset[1], 0, bounds[3] + offset[0], bounds[4] + offset[1], 0]);
+  }
+  return cells.length ? mergeBounds(cells) : bounds;
+}
+
 function framePcbFeature(feature, forceComponent = false) {
   if (!feature?.bounds) return;
   const bounds = placedBounds(feature.bounds);
   const isComponent = forceComponent || feature.kind === "component" || Boolean(componentReferenceFromFeature(feature));
+  if (state.mode === "layer") {
+    // 2D: a part on its side's outer copper, anything else on every layer shown; the camera stays top-down.
+    const copper = board.scene.copperLayers;
+    const side = (bounds[2] + bounds[5]) * 0.5 < 0 ? copper[copper.length - 1] : copper[0];
+    camera.frame(layerViewBounds(bounds, isComponent && side ? [Number(side.id)] : undefined));
+    return;
+  }
   if (isComponent) {
     const centerZ = (bounds[2] + bounds[5]) * 0.5;
     const isBottomComponent = centerZ < 0;
@@ -5648,7 +5682,7 @@ function frameSelection() {
     framePcbFeature(feature);
   } else {
     const net = board.scene.nets.find((item) => Number(item.id) === state.activeNetId);
-    if (net?.boundsMm) camera.frame(placedBounds(runtimeBounds(net.boundsMm)));
+    if (net?.boundsMm) camera.frame(layerViewBounds(placedBounds(runtimeBounds(net.boundsMm))));
   }
 }
 
@@ -6022,7 +6056,11 @@ function pickHitAtEvent(event) {
 async function pickHit(x, y) {
   if (system) return pickSystem(x, y);
   const hit = await pickBoardHit(x, y);
-  if (hit?.kind === "analytic" && board.analytic) return { ...hit, featureId: (await analyticFeatureId(board.analytic, hit.operationIndex)) || null };
+  if (hit?.kind === "analytic" && board.analytic) {
+    const featureId = (await analyticFeatureId(board.analytic, hit.operationIndex))
+      || (await analyticOperationFeature(board.analytic, hit.operationIndex, board.scene));
+    return { ...hit, featureId: featureId || null };
+  }
   return hit;
 }
 

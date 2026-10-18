@@ -104,6 +104,10 @@ struct Slice {
   clipSize: vec2u,
   clipOn: u32,
   clipPad: u32,
+  // The 2D view: where the slice's layer lies in the layer grid (world
+  // metres, added to x and y); zero in 3D.
+  flatShift: vec2f,
+  flatPad: vec2f,
 };
 @group(0) @binding(0) var<uniform> globals: Globals;
 @group(0) @binding(1) var<uniform> slice: Slice;
@@ -158,7 +162,7 @@ fn corner(index: u32) -> vec2f {
 // Board millimetres (KiCad frame, Y down) to clip space; the viewer's world
 // is metres with Y up.
 fn clip(board: vec2f) -> vec4f {
-  return globals.viewProjection * vec4f(board.x * 0.001, -board.y * 0.001, slice.z, 1.0);
+  return globals.viewProjection * vec4f(board.x * 0.001 + slice.flatShift.x, -board.y * 0.001 + slice.flatShift.y, slice.z, 1.0);
 }
 
 fn sdBox(p: vec2f, half: vec2f) -> f32 {
