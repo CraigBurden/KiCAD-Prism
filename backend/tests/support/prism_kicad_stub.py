@@ -415,8 +415,16 @@ def build_parse(positionals: list[str], options: dict[str, Any]) -> NoReturn:
         code = "design-build-failed" if first == "design.json" else "projection-failed"
         parse["failed_members"] = [{"path": first, "code": code, "message": f"injected failure of {first}"}]
         parse["status"] = "partial"
+    # The design key follows what parse read (bundle-format.md §2.3): here the
+    # configuration and the source members' bytes, so an unchanged design keeps it.
+    design_key = hashlib.sha256(
+        b"prism.design_key.a0\0" + compact(config) + b"\0"
+        + b"".join(f"read\t{m['path']}\t{m['sha256']}\0".encode() for m in sorted(listed, key=lambda m: m["path"]))
+    ).hexdigest()
     for path in derived:
         data = compact({"schema": "kicad_monkey.design.a0"}) + b"\n" if path == "design.json" else (EXAMPLES / f"{PROJECTIONS[path]}.example.json").read_bytes()
+        if path == "projections/semantic-index.json":
+            data = compact({**json.loads(data), "designKey": design_key}) + b"\n"
         members[path] = data
         role = "design" if path == "design.json" else "projection"
         listed.append({"path": path, "role": role, "stage": "parse", "sha256": digest(data), "bytes": len(data), "member_schema": schemas[path]})

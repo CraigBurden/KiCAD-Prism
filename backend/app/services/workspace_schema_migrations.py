@@ -70,6 +70,7 @@ from app.services.workspace_migrations import m100_design_bundle_commit_index
 from app.services.workspace_migrations import m101_design_bundles
 from app.services.workspace_migrations import m102_design_bundle_outcomes
 from app.services.workspace_migrations import m103_design_bundle_aliases
+from app.services.workspace_migrations import m118_design_bundle_design_keys
 
 
 Migration = Callable[[Any], None]
@@ -129,11 +130,12 @@ MIGRATIONS: tuple[tuple[int, str, Migration], ...] = (
     (55, "project_path_settings", m055_project_path_settings.migrate),
     (56, "release_studio_model_inputs", m056_release_studio_model_inputs.migrate),
     (57, "job_retention_indexes", m057_job_retention_indexes.migrate),
-    # 100-103: the design bundle (WP-K; reserved block, native/contracts/prism/ownership.md §5).
+    # 100-103 and 118: the design bundle (WP-K; reserved block, native/contracts/prism/ownership.md §5).
     (100, "design_bundle_commit_index", m100_design_bundle_commit_index.migrate),
     (101, "design_bundles", m101_design_bundles.migrate),
     (102, "design_bundle_outcomes", m102_design_bundle_outcomes.migrate),
     (103, "design_bundle_aliases", m103_design_bundle_aliases.migrate),
+    (118, "design_bundle_design_keys", m118_design_bundle_design_keys.migrate),
 )
 
 # Migrations that a long-lived branch database recorded under an earlier number.

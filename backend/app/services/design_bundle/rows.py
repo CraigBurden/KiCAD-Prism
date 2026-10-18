@@ -154,6 +154,16 @@ def touch_bundle(project_id: str, bundle_key: str, *, connect: Connect | None = 
         )
 
 
+def set_design_key(project_id: str, bundle_key: str, design_key: str, *, connect: Connect | None = None) -> None:
+    """Record the bundle's design key (K2 §3.6); written once, by stage parse or on first lookup."""
+
+    with _with(connect)() as conn:
+        conn.execute(
+            "UPDATE ws_design_bundles SET design_key=%s WHERE project_id=%s AND bundle_key=%s AND design_key IS NULL",
+            (design_key, project_id, bundle_key),
+        )
+
+
 def bundles(project_id: str | None = None, *, connect: Connect | None = None) -> list[dict[str, Any]]:
     with _with(connect)() as conn:
         if project_id is None:

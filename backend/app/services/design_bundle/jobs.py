@@ -39,6 +39,7 @@ from app.core.config import settings
 from app.services import project_revision
 from app.services.design_bundle import (
     cli,
+    design_keys,
     kicad_steps,
     manifest as manifest_rules,
     materialize,
@@ -311,6 +312,8 @@ class _Run:
             generator_digest=self.generator.digest, commit=self.key.commit, state=state, stages=statuses,
             job_id=self.context.job_id, archive_bytes=self.archive_path.stat().st_size,
         )
+        if stage == "parse":
+            self.details["design_key"] = design_keys.record(self.project_id, self.bundle_key, archive)
         self.details["stages"] = statuses
         self.context.progress(
             stage=f"bundle-{stage}", message=f"Design bundle: stage {stage} {statuses[stage]}",

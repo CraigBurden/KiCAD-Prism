@@ -226,6 +226,19 @@ def _m013_rich_content_and_attachments(conn) -> None:
     )
 
 
+def _m100_anchor_design_key(conn) -> None:
+    """Store the displayed revision's design key beside its commit (K2 §3.6).
+
+    The key is the identity derived from the revision, not an edit: it is
+    written when the comment is created or pinned and filled in later for
+    older rows, so it never bumps ``revision`` or ``updated_at``.
+    """
+    conn.execute(
+        "ALTER TABLE comments ADD COLUMN IF NOT EXISTS anchor_design_key TEXT",
+        prepare=False,
+    )
+
+
 MIGRATIONS: List[Tuple[int, str, Callable[[object], None]]] = [
     (0, "base_tables", create_base_tables),
     (1, "identity_revisions_tombstones", _m001_identity_revisions_tombstones),
@@ -244,6 +257,7 @@ MIGRATIONS: List[Tuple[int, str, Callable[[object], None]]] = [
     (13, "rich_content_and_attachments", _m013_rich_content_and_attachments),
     (14, "attachment_remote_links", attachment_links.apply_schema),
     (15, "comment_reactions", comment_social.apply_schema),
+    (100, "anchor_design_key", _m100_anchor_design_key),
 ]
 
 
