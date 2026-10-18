@@ -106,6 +106,14 @@ so; this is not an output divergence.
   (connectivity) and 5 (`projectDiff`) added no divergence. Step 6
   (2026-10-18) checked the review list the frontend builds from it: compare-6
   and compare-7.
+- Step 7 gate (2026-10-18): today's path, as the code is now, against
+  `compare` on the 18 pairs and on one consecutive-commit pair of 6 corpus
+  projects (1,971 review groups). It found and fixed two defects, neither a
+  divergence: a project in a subdirectory named its net changes' sheets by
+  repository path (`result/pages.rs`), and a net the semantic index had merged
+  into a board net was diffed under the board name, so a renamed net read as
+  "connections 1 → 0" (`result/schematic_nets.rs`; field map
+  `semantic-index.md` D7). What remains is compare-7, compare-8 and compare-9.
 
 ## compare-4. Structure changes carry both sides
 
@@ -169,6 +177,39 @@ Each is recorded, with its fixtures, in the member's own file:
   (contract conventions); its order carries no meaning to keep.
 - Pairs: obc-F0-F1, obc-F0-F4, obc-F0-F11.1, obc-F0-F11.2, power-F0-F10,
   synthetic-usbpd.
+
+## compare-8. Changes that are only a KiCad re-save
+
+- Case: a commit where KiCad saved the files in a newer format, alone or with
+  real edits. On the corpus: cynthion's "Upgrade board and schematics to the
+  KiCad 10 format", openswitch-lan969x's "update to kicad v10", and
+  eda-04949's KiCad 8 minor-version save.
+- Before: today's path compares the files as committed, so the format change
+  itself shows. Cynthion's re-save showed 846 schematic and 2,652 PCB changes.
+  Eda-04949 showed 120 removed and 114 added `$teardrop_padvia$` zones and 12
+  footprints "content changed" with no field named (their text differs only by
+  the `(embedded_fonts no)` token). Lan969x showed a GND zone moved by 8 µm.
+- Now: both revisions are upgraded to the generator's KiCad before they are
+  compared (the parse stage's sources, ADR §7), so a re-save shows nothing and
+  only real edits remain. Cynthion's re-save shows no change; KiCad 9 and later
+  store teardrops on the pads and vias, so they show as pad and via settings.
+- Why: the reviewer asked what changed in the design, and a format upgrade is
+  not a design change.
+- Pairs: the corpus pairs above; no recorded pair changes format.
+
+## compare-9. BOM references from this project's instance data
+
+- Case: a schematic shared by several projects in one repository, each with
+  its own `(instances (project …))` references. Corpus pair eda-04949: the
+  sheet carries references for `vme-wren` and for `EDA-04949-V1-0`.
+- Before: the BOM tab read some symbols' references from the other project, so
+  16 connectors (JFBP1–5, JIO3–13) were missing from "removed" when the commit
+  re-annotated them to J1–J5 and LM0–13.
+- Now: 36 added and 36 removed rows, the same as `kicad-cli sch export bom` of
+  each revision. The review list groups the 16 connector changes by part, as it
+  does for any part with BOM rows on both sides.
+- Why: KiCad shows a symbol's reference for the project that is open.
+- Pairs: eda-04949 (corpus).
 
 ## Pending
 

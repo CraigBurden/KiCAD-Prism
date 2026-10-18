@@ -146,7 +146,7 @@ pub fn anchor_directory(project_file: &str) -> &str {
 
 /// `_strip_project_directory` (C8): the document's path below the project
 /// directory, or its file name when it lies outside it.
-fn strip_directory(anchor_dir: &str, path: &str) -> String {
+pub(super) fn strip_directory(anchor_dir: &str, path: &str) -> String {
     if anchor_dir.is_empty() {
         return path.to_owned();
     }

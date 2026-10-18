@@ -14,9 +14,11 @@ mod connectivity;
 mod files;
 mod hydrate;
 mod objects;
+mod pages;
 mod project_diff;
 mod review;
 mod route_metrics;
+mod schematic_nets;
 mod stackup;
 mod targets;
 
@@ -103,7 +105,15 @@ pub struct Output {
 /// # Errors
 ///
 /// Never today; the signature keeps room for a tab that can fail.
-pub fn build(base: Revision, head: Revision, options: Options) -> Result<Output, CompareError> {
+pub fn build(
+    mut base: Revision,
+    mut head: Revision,
+    options: Options,
+) -> Result<Output, CompareError> {
+    pages::relative(&mut base);
+    pages::relative(&mut head);
+    schematic_nets::split(&mut base.semantic_index);
+    schematic_nets::split(&mut head.semantic_index);
     let files = files::build(&base, &head);
     let stackup = stackup::build(&base.stackup, &head.stackup);
     let route_metrics = route_metrics::build(&base, &head);
