@@ -3862,16 +3862,13 @@ function isOuterCopper(layer, b = board) {
   return isOuterCopperLayer(layer, b.scene.copperLayers);
 }
 
-// Separation at which copper has fully turned to layer colours.
-const LAYER_COLOR_SEPARATION = 0.25;
-
 /**
- * 1 for KiCad-like copper, 0 for layer colours. Opening the stackup blends to
- * layer colours, so separated layers stay tell-apart; 2D always uses them.
+ * 1 for KiCad-like copper (outer copper in the surface finish, inner copper
+ * bare), 0 for KiCad's layer colours. Layer colours show only with the board
+ * substrate hidden, separated or not, and in 2D.
  */
 function copperRealism() {
-  if (!state.realisticColors || state.mode === "layer") return 0;
-  return 1 - clamp(state.separation / LAYER_COLOR_SEPARATION, 0, 1);
+  return state.realisticColors && state.mode !== "layer" && state.showBoard ? 1 : 0;
 }
 
 function copperColor(layer, b = board) {
@@ -4994,6 +4991,9 @@ function applyCopperColors(b = board) {
   for (const entry of b.renderer.entries) {
     if (entry.kind === "copper") entry.color = copperColor(layers.get(Number(entry.layerId)), b);
   }
+  // An analytic board has no mesh copper entries: its copper takes these.
+  b.renderer.copperColors = new Map([...layers].map(([id, layer]) => [id, copperColor(layer, b)]));
+  b.renderer.invalidate?.();
   b.renderer.setBarrelColor(mixColor(DEFAULT_BARREL_COLOR, [...finishColor(b).slice(0, 3), 0.78], copperRealism()));
   b.scene.copperRealism = copperRealism();
 }

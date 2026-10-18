@@ -947,6 +947,10 @@ export class AnalyticRenderer {
         roughness: entry.material?.roughness ?? 0.72,
       });
     }
+    // An analytic-only board's copper follows the viewer's colours (main.js `applyCopperColors`).
+    for (const [layerId, color] of this.renderer.copperColors || []) {
+      if (!looks.has(layerId)) looks.set(layerId, { color: color.length < 4 ? [...color, 1] : color, metallic: 0, roughness: 0.72 });
+    }
     return looks;
   }
 

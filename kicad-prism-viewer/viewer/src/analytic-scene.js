@@ -1,3 +1,5 @@
+import { kicadCopperColor } from "./bundle-geometry.js";
+
 // The board scene of an analytic bundle (ADR amendment V2 §2.1): what the
 // mesh path read from its scene manifest, derived from the design bundle's
 // members instead. The materialization pack's header gives the stack (layer
@@ -8,10 +10,9 @@
 /** `bundle.json` schema of an analytic bundle, served for one design bundle. */
 export const ANALYTIC_BUNDLE_SCHEMA = "prism.viewer_3d.analytic.a0";
 
-// Display colours, as the mesh compiler gave them (topology_compiler/pcb_extract.py).
+// Display colours of the board layers other than copper, as the mesh compiler gave them
+// (topology_compiler/pcb_extract.py); copper takes KiCad's (`kicadCopperColor`).
 const LAYER_COLORS = {
-  "F.Cu": "#df342b",
-  "B.Cu": "#245fd3",
   "F.SilkS": "#f2f2f2",
   "B.SilkS": "#dddddd",
   "F.Mask": "#316d4f",
@@ -19,7 +20,6 @@ const LAYER_COLORS = {
   "F.Paste": "#c5cbd3",
   "B.Paste": "#aeb7c2",
 };
-const INNER_LAYER_COLORS = ["#269e4d", "#93612f", "#159eb7", "#7047b8", "#b58b24", "#a34f76"];
 const BOARD_COLOR = "#2f6b4f";
 // KiCad's named mask colours, as the stackup projection spells them.
 const MASK_COLORS = {
@@ -63,7 +63,8 @@ export function analyticLayers(header, stackup = null) {
     if (!role) continue;
     const name = String(slice.kicad_layer || slice.key);
     let color = LAYER_COLORS[name];
-    if (role === "copper" && !color) color = INNER_LAYER_COLORS[inner++ % INNER_LAYER_COLORS.length];
+    // Copper in KiCad's own layer colours.
+    if (role === "copper") color = kicadCopperColor(name, name === "F.Cu" || name === "B.Cu" ? 0 : inner++);
     if (role === "soldermask") color = maskColor(stackup, slice.side === "back" ? "back" : "front");
     if (role === "dielectric") color = slice.color || BOARD_COLOR;
     layers.push({

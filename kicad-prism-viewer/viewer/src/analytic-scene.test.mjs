@@ -37,14 +37,14 @@ test("layers follow the stack, centred on the board's mid-plane", () => {
   assert.equal(layers[2].material, "FR4");
 });
 
-test("copper keeps the mesh path's colours and masks take the stackup's", () => {
+test("copper takes KiCad's layer colours and masks take the stackup's", () => {
   const inner = { ...HEADER, stack: { slices: [
     { key: "copper.front", kicad_layer: "F.Cu", order: 0, role: "conductor", thickness_nm: 35000 },
     { key: "copper.in1", kicad_layer: "In1.Cu", order: 1, role: "conductor", thickness_nm: 35000 },
     { key: "copper.in2", kicad_layer: "In2.Cu", order: 2, role: "conductor", thickness_nm: 35000 },
     { key: "copper.back", kicad_layer: "B.Cu", order: 3, role: "conductor", thickness_nm: 35000 },
   ] } };
-  assert.deepEqual(analyticLayers(inner).map((layer) => layer.color), ["#df342b", "#269e4d", "#93612f", "#245fd3"]);
+  assert.deepEqual(analyticLayers(inner).map((layer) => layer.color), ["#c83434", "#7fc87f", "#ce7d2c", "#4d7fc4"]);
   const red = analyticLayers(HEADER, { maskColors: { front: "Red", back: "#123456" } });
   assert.equal(red[0].color, "#a5272a");
   assert.equal(red[4].color, "#123456");
