@@ -3,6 +3,10 @@
 This module does not inspect geometry. A candidate must still be resolved by
 the viewer against the loaded PCB/schematic source UUID. In particular, an
 unmatched source item must never fall back to an old world coordinate.
+
+A freehand area has no source item to re-find, so it is a candidate on a later
+commit only when that commit has the same design key (ADR amendment K2 §3.6):
+the files the parse read are unchanged, so the coordinates mean the same.
 """
 
 from __future__ import annotations
@@ -15,6 +19,7 @@ def select_binding(
     bindings: Iterable[dict[str, Any]],
     displayed_commit: str,
     is_ancestor: Callable[[str, str], bool],
+    same_design: Callable[[str, str], bool] | None = None,
 ) -> dict[str, Any]:
     """Return the unique most recent ancestral binding or an unresolved state.
 
@@ -44,6 +49,8 @@ def select_binding(
 
     selected = maximal[0]
     if not selected.get("elementId") and selected["commit"] != displayed_commit:
+        if same_design is not None and same_design(selected["commit"], displayed_commit):
+            return {"state": "candidate", "binding": selected, "sameDesign": True}
         return {
             "state": "unresolved", "reason": "coordinate_review",
             "lastBinding": selected,

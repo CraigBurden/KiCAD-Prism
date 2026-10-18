@@ -412,6 +412,53 @@ class PublicationWritesTests(_StoreCase):
         self.assertTrue(row["same"])
 
 
+@requires_scratch_postgres()
+class AnchorDesignKeyTests(_StoreCase):
+    """The design key is stored identity, not an edit (ADR amendment K2 §3.6)."""
+
+    KEY = "a" * 64
+
+    def _create(self, content: str, **kwargs) -> dict:
+        return self.store.create_comment(
+            self.project_id, self.path, "PCB", {"x": 1, "y": 2}, content, "Author", **kwargs,
+        )
+
+    def test_create_stores_and_exposes_the_design_key(self) -> None:
+        created = self._create(
+            "pinned", anchor_commit="b" * 40, anchor_revision_key="rev-1", anchor_design_key=self.KEY,
+        )
+        self.assertEqual(created["anchor"]["designKey"], self.KEY)
+        self.assertEqual(created["anchor"]["sourceRevisionKey"], "rev-1")
+        plain = self._create("plain")
+        self.assertIsNone(plain["anchor"]["designKey"])
+
+    def test_fill_backfills_only_unkeyed_pinned_rows(self) -> None:
+        pinned = self._create("pinned", anchor_commit="b" * 40)
+        existing = self._create("existing", anchor_commit="c" * 40, anchor_design_key="d" * 64)
+        unpinned = self._create("unpinned")
+        non_hex = self._create("non-hex", anchor_commit="e" * 40)
+
+        before = self.store.get_comment(self.project_id, self.path, pinned["id"])
+        filled = self.store.fill_anchor_design_keys(self.project_id, {
+            pinned["id"]: self.KEY,
+            existing["id"]: "f" * 64,
+            unpinned["id"]: "0" * 64,
+            non_hex["id"]: "not-hex",
+            "c_missing": "1" * 64,
+        })
+        self.assertEqual(filled, 1)
+
+        after = self.store.get_comment(self.project_id, self.path, pinned["id"])
+        self.assertEqual(after["anchor"]["designKey"], self.KEY)
+        self.assertEqual(after["revision"], before["revision"])
+        self.assertEqual(after["updatedAt"], before["updatedAt"])
+        self.assertEqual(
+            self.store.get_comment(self.project_id, self.path, existing["id"])["anchor"]["designKey"], "d" * 64,
+        )
+        self.assertIsNone(self.store.get_comment(self.project_id, self.path, unpinned["id"])["anchor"]["designKey"])
+        self.assertIsNone(self.store.get_comment(self.project_id, self.path, non_hex["id"])["anchor"]["designKey"])
+
+
 class NoRawCommentWritesOutsideTheWriteModuleTests(unittest.TestCase):
     """Trackers and routes write comment rows only through the write module."""
 

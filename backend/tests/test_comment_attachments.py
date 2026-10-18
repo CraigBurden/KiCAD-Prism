@@ -125,6 +125,7 @@ class AttachmentApiTests(unittest.TestCase):
         anchor = SimpleNamespace(
             base_commit="a" * 40, compare_commit="b" * 40, file_path=None, commit=None,
             source_revision_key=None, source=None, selected_side=None, project_relative_path=None,
+            design_key=None,
         )
         with patch.object(comments_api, "get_project_for_role_or_404", return_value=self.project), \
              patch.object(comments_api, "resolve_comparison_anchor", return_value=anchor), \

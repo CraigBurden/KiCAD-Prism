@@ -39,7 +39,7 @@ _COMMENT_COLUMNS = """
     file_path, semantic_item_id, anchor_kind,
     forge_provider, forge_issue_id, forge_issue_url, forge_sync_state,
     author_user_id, author_kind, revision, updated_at, deleted_at,
-    anchor_commit, anchor_revision_key, anchor_source, anchor_state,
+    anchor_commit, anchor_revision_key, anchor_design_key, anchor_source, anchor_state,
     selected_side, project_relative_path, content_format
 """
 
@@ -156,6 +156,7 @@ def _anchor_block(row) -> Dict:
         "source": row.get("anchor_source"),
         "commit": row.get("anchor_commit"),
         "sourceRevisionKey": row.get("anchor_revision_key"),
+        "designKey": row.get("anchor_design_key"),
         "baseCommit": row.get("base_commit"),
         "compareCommit": row.get("compare_commit"),
         "selectedSide": row.get("selected_side"),

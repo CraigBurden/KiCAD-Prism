@@ -160,7 +160,7 @@ An arrow means the owners take turns in merge order within the wave. "frozen" me
 
 | Owner | Versions |
 |---|---|
-| K | 100–103 |
+| K | 100–103, 118 |
 | C4 | 104–105 |
 | C6 | 106–109 |
 | C1 | 110 |
@@ -169,7 +169,7 @@ An arrow means the owners take turns in merge order within the wave. "frozen" me
 | C5 | 115 |
 | C7 | 116 |
 | C8 | 117 |
-| spare | 118–119 |
+| spare | 119 |
 | R4 | 120–123 |
 | reserve | 124–129 |
 
@@ -187,7 +187,8 @@ C6 appends these to RENUMBERED after ('repository_origin', 26, 41), in this orde
 
 **artifact, comments, auth**
 - reserved block: 100–109.
-- no step foreseen; the integration agent allocates on request
+- comments: K takes 100 (`anchor_design_key`, ADR amendment K2 §3.6); the rest is reserve.
+- artifact and auth: no step foreseen; the integration agent allocates on request
 
 **Rule.** Gaps are allowed and a number another branch took stays reserved (schema_ledger.py:19-21). The block sits far above dev's head so dev's own migrations, which keep landing while the effort runs, never collide. Steps stay additive; R4's drops ship in a release after R1's.
 

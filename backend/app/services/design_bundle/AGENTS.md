@@ -16,11 +16,12 @@ is an ADR amendment.
 | `archive.py` | The `.prism` reader: bundle-format.md §9, strict zip, bounded inflation, member digests and schemas. |
 | `manifest.py` | Member readiness (§3.3) and the manifest invariants (§3.4). |
 | `store.py` | `.kicad-prism/bundles/<project>/<revision key>/<generator>.prism`, its `.prism.verified` marker (step 7 ran once), the unpacked cache, deletion. |
-| `rows.py` | The commit index and bundle tables (workspace migrations 100-102). |
+| `rows.py` | The commit index, bundle, alias and outcome tables (workspace migrations 100-103 and 118). |
 | `cli.py` | Runs `prism-kicad`: exit codes, stdout validation, timeouts, cancel, peak memory. |
 | `materialize.py`, `kicad_steps.py`, `stage_models.py` | What the job does around the CLI: sources (LFS, gitlinks), the seeded upgrade, the zone refill, the component GLB. `stage_models.py` passes to WP-V1 in Wave 2. |
 | `jobs.py` | The `design_bundle` job kind and how it is queued. |
 | `reuse.py` | Warm bundles (ADR amendment K2): which archive serves a revision key (its own, else an alias row), `prism-kicad bundle reuse` against a few candidates before a build, and the commits the prebuild keeps warm (branch windows and tags). |
+| `design_keys.py` | A bundle's and a commit's design key (ADR amendment K2 §3.6), recorded by stage parse; comment anchors compare it to keep a freehand area current on an unchanged design. |
 | `backfill.py`, `retention.py` | The worker's paced prebuild (alias or queue, one build at a time) and bundle retention, which keeps the prebuild set and every aliased archive. |
 | `regenerate.py` | A designer's forced rebuild of one commit's or a whole project's design data, skipping reuse. |
 | `repo_hydration.py` | Submodules and LFS objects for import and sync. |
