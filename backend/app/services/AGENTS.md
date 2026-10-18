@@ -151,7 +151,8 @@ revision queues its `design_bundle` build), the viewer's
 `prism.viewer_3d.analytic.a0` document, and the pack, stackup and GLB members
 by revision key under the asset route's design-bundle prefix
 (`backend/app/api/project_viewer_3d.py`). There is no mesh fallback; `legacy`
-keeps `semantic_visualizer_service.py`'s mesh path until V2a deletes it.
+keeps `semantic_visualizer_service.py`'s mesh path, which System Builder's scene
+also reads, until V2b deletes it (amendment V2 §2.3).
 
 ## Design variants
 
