@@ -1594,6 +1594,11 @@
           "note": "becomes a thin bundle reader; keeps find_kicad_project (:115) for C8"
         },
         {
+          "path": "backend/app/services/viewer_3d_bundle.py",
+          "status": "new",
+          "note": "V2a step 3: the 3D tab's status, analytic document and members from the bundle"
+        },
+        {
           "path": "backend/app/services/viewer_3d_jobs.py",
           "status": "new",
           "note": "after S1"
