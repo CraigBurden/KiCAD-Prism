@@ -63,12 +63,17 @@ TABS = ("files", "schematic", "pcb", "bom", "stackup", "routeMetrics", "projectD
 _DOMAINS = ("schematic", "bom", "pcb", "stackup")
 
 
+#: The revision cache's directory of per-bundle-key Gerber packages. The cache's
+#: size cap (``PRISM_DESIGN_COMPARE_CACHE_MAX_BYTES``) counts and evicts them like commits.
+FABRICATION_NAMESPACE = "fabrication-by-bundle-key"
+
+
 def fabrication_root() -> Path:
     """Per-bundle-key Gerber packages, shared by every comparison of that bundle key."""
 
     from app.services.design_compare_service import _CACHE_ROOT
 
-    return _CACHE_ROOT / "fabrication-by-bundle-key"
+    return _CACHE_ROOT / FABRICATION_NAMESPACE
 
 
 # ------------------------------------------------------------------ sides
@@ -192,7 +197,7 @@ class BundlePathStages:
         )
 
     def fabrication(self, side: Side, work: Path, logs: List[str]) -> Dict[str, Any]:
-        from app.services.design_compare_service import _plot_fabrication
+        from app.services.design_compare_service import _plot_fabrication, _touch_cache_entry
 
         board_dir = side.board_dir(work)
         if board_dir is None:
@@ -202,6 +207,8 @@ class BundlePathStages:
             return {"present": False, "reason": "no board file in this revision"}
         root = fabrication_root() / side.bundle_key
         root.mkdir(parents=True, exist_ok=True)
+        # One revision-cache entry per bundle key: stamped on use, so the size cap evicts least recently used.
+        _touch_cache_entry(FABRICATION_NAMESPACE, side.bundle_key)
         # A staging directory of its own: two comparisons may plot one bundle key at once.
         staging = Path(tempfile.mkdtemp(prefix="fabrication.staging.", dir=root))
         try:
@@ -456,6 +463,9 @@ def run_job(context: JobContext, *, base: str, head: str) -> JobResult:
     )
     benchmark.write(benchmark_path)
     complete, sidecars = publisher.prepare_complete(outcome.result, outcome.modes, base=base, head=head)
+    from app.services.design_compare_service import _prune_revision_cache
+
+    _prune_revision_cache()
     return JobResult(
         message="Design comparison ready",
         artifact=complete,

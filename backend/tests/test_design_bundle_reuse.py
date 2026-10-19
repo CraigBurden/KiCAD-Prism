@@ -64,6 +64,17 @@ class ReuseTests(_Workspace, unittest.TestCase):
         # Served: not queued again.
         self.assertIsNone(jobs.start_design_bundle_job("p1"))
 
+    def test_an_alias_whose_target_archive_is_gone_is_dropped_and_the_revision_rebuilt(self) -> None:
+        repo = self.add_project()
+        built = self._build()
+        _commit(repo, "lib/models/part.step", "ISO-10303-21; changed\n", "model only")
+        aliased = self.run_job(jobs.start_design_bundle_job("p1")).details
+        self.assertTrue(aliased["aliased"])
+        store.delete("p1", built["revision_key"], built["generator_digest"])  # lost, or rejected on open
+        job_id = jobs.start_design_bundle_job("p1")
+        self.assertIsNotNone(job_id)
+        self.assertIsNone(rows.get_alias("p1", aliased["revision_key"], built["generator_digest"]))
+
     def test_a_design_change_is_built(self) -> None:
         repo = self.add_project()
         self._build()

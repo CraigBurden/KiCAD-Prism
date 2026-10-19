@@ -7,6 +7,7 @@ import json
 import shutil
 import stat
 import tempfile
+import time
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
@@ -48,6 +49,9 @@ class FakeContext:
 
     def progress(self, **fields) -> None:
         self.updates.append(fields)
+
+    def check_cancelled(self) -> None:
+        pass
 
 
 def _script(path: Path, body: str) -> None:
@@ -176,6 +180,43 @@ class RunPipelineTest(unittest.TestCase):
             self.assertTrue(runs_module.settle_run({"job_id": "job-1", "status": "cancelled"}))
             self.assertFalse(runs_module.settle_run({"job_id": "job-1", "status": "running"}))
         self.assertEqual(self.runs.read(other["run_id"])["status"], "cancelled")
+
+    def test_the_run_exists_before_its_job_can_be_claimed(self) -> None:
+        row = self._setup(single_net_setup())
+
+        def claimable(payload, **_):
+            # A worker may claim the job the moment it is queued; its handler reads the run first.
+            self.assertEqual(self.runs.read(payload["run_id"])["status"], "queued")
+            return {"job_id": "job-9"}
+
+        self.enqueue.side_effect = claimable
+        run = self.service.submit(PROJECT, row["setup_id"], 1, "dc", "d@example.com")
+        self.assertEqual(run["job_id"], "job-9")
+        self.assertEqual(self.runs.read(run["run_id"])["job_id"], "job-9")
+
+    def test_a_run_whose_job_cannot_be_queued_ends_failed(self) -> None:
+        row = self._setup(single_net_setup())
+        self.enqueue.side_effect = RuntimeError("queue down")
+        with self.assertRaises(RuntimeError):
+            self.service.submit(PROJECT, row["setup_id"], 1, "dc", "d@example.com")
+        (stored,) = self.runs.list(PROJECT.id)
+        self.assertEqual(stored["status"], "failed")
+        self.assertNotIn("", self.runs.unsettled_job_ids())
+
+    def test_a_quiet_engine_is_stopped_at_its_deadline(self) -> None:
+        # Answers the engine list like the fake worker, then runs silent until killed.
+        _script(Path(settings.PRISM_SIM_BIN_DIR) / "sim-worker",
+                FAKE_WORKER.split("\n")[0] + "\n" + FAKE_WORKER.split("\n")[1] + "\nexec sleep 30\n")
+        row = self._setup(single_net_setup())
+        run = self.service.submit(PROJECT, row["setup_id"], 1, "dc", "d@example.com")
+        started = time.monotonic()
+        with mock.patch.object(settings, "PRISM_SIM_TIMEOUT_SECONDS", 1):
+            with self.assertRaises(runs_module.EngineTimeout):
+                runs_module.run_sim_job(FakeContext({"run_id": run["run_id"]}), runs=self.runs)
+        self.assertLess(time.monotonic() - started, 10)
+        stored = self.runs.read(run["run_id"])
+        self.assertEqual(stored["status"], "failed")
+        self.assertIn("ran past 1 s", stored["message"])
 
     def test_engines_come_from_the_installed_worker(self) -> None:
         self.assertEqual(runs_module.engine_descriptors()[0]["id"], "dc-drop-synthetic")

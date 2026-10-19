@@ -17,7 +17,7 @@ from unittest import mock
 from psycopg.types.json import Jsonb
 
 from app.core.config import settings
-from app.services.design_bundle import jobs, manifest, reader, rows, store
+from app.services.design_bundle import cli, jobs, manifest, reader, rows, store
 from app.services.design_bundle.archive import open_archive
 from app.services.job_runtime import PermanentJobError, RetryableJobError
 from app.services.workspace_schema_migrations import WORKSPACE_LEDGER
@@ -107,6 +107,48 @@ class DesignBundleJobTests(_Workspace, unittest.TestCase):
         # A complete bundle is not queued again; the stub saw three builds and one version probe.
         self.assertIsNone(jobs.start_design_bundle_job("p1"))
         self.assertEqual(len(self.builds()), 3)
+
+    def test_a_complete_row_whose_archive_is_gone_is_rebuilt(self) -> None:
+        self.add_project()
+        built = self.run_job(jobs.start_design_bundle_job("p1")).details
+        store.delete("p1", built["revision_key"], built["generator_digest"])  # lost, or rejected on open
+        self.assertFalse(jobs.bundle_ready("p1", built["bundle_key"]))
+        job_id = jobs.start_design_bundle_job("p1")  # what a reader's queue=True calls
+        self.assertIsNotNone(job_id)
+        self.run_job(job_id)
+        self.assertTrue(jobs.bundle_ready("p1", built["bundle_key"]))
+
+    def test_a_failed_bundle_is_not_requeued_by_reads_until_a_retry_is_due(self) -> None:
+        self.add_project()
+        first = jobs.start_design_bundle_job("p1")
+        payload = self.queue.rows[first]["payload"]
+        rows.upsert_bundle(
+            bundle_key=payload["bundle_key"], project_id="p1", revision_key=payload["revision_key"],
+            generator_digest=cli.generator().digest, commit=payload["commit"], state="failed", error="prism-kicad stage parse: exit 3",
+        )
+        with mock.patch.object(rows, "job_status", return_value="failed"):
+            opened = reader.open_revision("p1", queue=True)
+            self.assertFalse(opened.job_active)
+            self.assertEqual(opened.failure, "prism-kicad stage parse: exit 3")
+            self.assertIsNone(jobs.start_design_bundle_job("p1"))
+            # A deliberate Generate retries at once.
+            self.assertIsNotNone(jobs.start_design_bundle_job("p1", retry_failed=True))
+        rows.upsert_bundle(
+            bundle_key=payload["bundle_key"], project_id="p1", revision_key=payload["revision_key"],
+            generator_digest=cli.generator().digest, commit=payload["commit"], state="failed", error="again",
+        )
+        with rows.default_connect() as conn:
+            conn.execute("UPDATE ws_design_bundles SET updated_at = NOW() - INTERVAL '2 hours' WHERE bundle_key = %s", (payload["bundle_key"],))
+        with mock.patch.object(rows, "job_status", return_value="failed"):
+            self.assertIsNotNone(jobs.start_design_bundle_job("p1"))  # past PRISM_DESIGN_BUNDLE_FAILED_RETRY_SECONDS
+            with mock.patch.object(jobs.settings, "PRISM_DESIGN_BUNDLE_FAILED_RETRY_SECONDS", 0):
+                rows.upsert_bundle(
+                    bundle_key=payload["bundle_key"], project_id="p1", revision_key=payload["revision_key"],
+                    generator_digest=cli.generator().digest, commit=payload["commit"], state="failed", error="again",
+                )
+                with rows.default_connect() as conn:
+                    conn.execute("UPDATE ws_design_bundles SET updated_at = NOW() - INTERVAL '2 days' WHERE bundle_key = %s", (payload["bundle_key"],))
+                self.assertIsNone(jobs.start_design_bundle_job("p1"))  # 0: only a deliberate retry
 
     def test_staged_readiness_parse_members_are_readable_while_the_board_stage_retries(self) -> None:
         self.add_project()

@@ -4,7 +4,7 @@ Everything imported here is MIT (`LICENSE`, Copyright (c) 2026 Wavenumber LLC) e
 
 | Path | Material | Licence |
 |---|---|---|
-| `src/rs/prism-kicad-core/src/fake_style.rs` | port of FreeType 2.13.3's `FT_Outline_EmboldenXY`, `FT_Vector_Transform`, `FT_Vector_NormLen` and `FT_Outline_Get_Orientation` | FreeType License (FTL), with FreeType's credit in `NOTICE` |
+| `src/rs/prism-kicad-core/src/fake_style.rs` | port of FreeType 2.13.3's `FT_Outline_EmboldenXY`, `FT_Vector_Transform`, `FT_Vector_NormLen` and `FT_Outline_Get_Orientation` | FreeType License (FTL): its unaltered text, FreeType 2.13.3's `docs/FTL.TXT`, is `licenses/FTL.TXT` and ships in every release package; FreeType's credit is in `NOTICE` |
 | `assets/fonts/` | Newstroke stroke fonts, generated from KiCad 10.0's Newstroke tables | CC0-1.0 |
 | `tests/L1_parsing/cases/worksheets/input/pagelayout_default.kicad_wks`, `pagelayout_logo.kicad_wks`, `A4_ISO5457-1999_ISO7200-2004_EN.kicad_wks`, `gost_landscape.kicad_wks` | KiCad drawing-sheet templates, test data only, unmodified | CC BY-SA 4.0, with the KiCad libraries' design exception |
 | `packages/kicad_cruncher/tests/corpus/kicad/projects/` | seven Wavenumber-sanitized KiCad projects | MIT (published by Wavenumber as redistributable fixtures) |

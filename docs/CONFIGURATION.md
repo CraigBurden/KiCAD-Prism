@@ -181,6 +181,7 @@ builds it in stages (parse, board, models) on the general worker.
 | `PRISM_DESIGN_BUNDLE_VERIFY_TIMEOUT_MS` | `prism-kicad bundle verify` when an archive is stored (default 300 s) |
 | `PRISM_DESIGN_BUNDLE_MEMORY_BUDGET_BYTES` | worker memory for the slot; startup refuses `CONCURRENCY x (largest cap + 1.25 GiB)` above it (default 8 GiB) |
 | `PRISM_DESIGN_BUNDLE_THREADS`, `PRISM_DESIGN_BUNDLE_MAX_ATTEMPTS` | `prism-kicad --threads` (default 4); attempts per job before a failing KiCad step ends it (default 3) |
+| `PRISM_DESIGN_BUNDLE_FAILED_RETRY_SECONDS` | how long a bundle whose job ended failed stays failed before a status read queues it again (default 3600); `0` leaves retries to Generate and Regenerate. The 3D tab shows the failure instead of waiting |
 | `PRISM_DESIGN_BUNDLE_RETENTION_DAYS` | days an unused bundle or alias is kept; the prebuild's commits (branch heads, each branch's newest commits, tags), System Builder baselines, released Release Studio commits and every bundle an alias points to are always kept (default 30) |
 | `PRISM_DESIGN_BUNDLE_BACKFILL_INTERVAL_SECONDS` | seconds between prebuild ticks; each aliases what it can and queues at most one build; 0 disables (default 60) |
 | `PRISM_DESIGN_BUNDLE_PREBUILD_COMMITS` | how many of each branch's newest commits (first parent) the background prebuild keeps bundles for, besides every tagged commit; 0 prebuilds branch heads and tags only (default 10) |
