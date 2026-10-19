@@ -348,3 +348,38 @@ class MeshRetentionTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class BoardFactsSourceTest(unittest.TestCase):
+    """Setups infer from the design bundle's semantic index, which names each pin's role."""
+
+    def test_facts_come_from_the_design_bundle_when_its_index_is_built(self) -> None:
+        from app.services import semantic_index_bundle
+        from app.sim_studio import service
+
+        index = {"terminals": [], "components": [], "nets": [{"name": "GND"}]}
+        member = semantic_index_bundle.MEMBER
+        opened = SimpleNamespace(
+            bundle_key="bk-facts", readiness=lambda paths: {member: Readiness(member, "ready", "parse")},
+            read_json=mock.MagicMock(return_value=index),
+        )
+        with mock.patch("app.services.design_bundle.reader.open_revision", return_value=opened), \
+                mock.patch("app.services.semantic_index_service.artifact_file") as legacy:
+            facts = service.semantic_index_facts(SimpleNamespace(id="prj-facts"), None)
+        self.assertIn("GND", facts.nets)
+        legacy.assert_not_called()
+
+    def test_facts_fall_back_to_the_index_file_while_the_bundle_is_not_ready(self) -> None:
+        from app.services import semantic_index_bundle
+        from app.sim_studio import service
+
+        tmp = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, tmp, True)
+        path = tmp / "index.json"
+        path.write_text(json.dumps({"terminals": [], "components": [], "nets": [{"name": "VBUS"}]}), encoding="utf-8")
+        member = semantic_index_bundle.MEMBER
+        opened = SimpleNamespace(bundle_key="bk-pending", readiness=lambda paths: {member: Readiness(member, "pending", "parse")})
+        with mock.patch("app.services.design_bundle.reader.open_revision", return_value=opened), \
+                mock.patch("app.services.semantic_index_service.artifact_file", return_value=(path, "rk")):
+            facts = service.semantic_index_facts(SimpleNamespace(id="prj-legacy"), None)
+        self.assertIn("VBUS", facts.nets)

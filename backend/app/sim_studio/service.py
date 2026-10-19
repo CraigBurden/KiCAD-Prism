@@ -27,33 +27,49 @@ FactsLoader = Callable[[Any, Optional[str]], BoardFacts]
 
 
 #: Board facts of recently used index files, newest last.
-_FACTS_CACHE: "OrderedDict[tuple[str, int], BoardFacts]" = OrderedDict()
+_FACTS_CACHE: "OrderedDict[tuple[str, ...], BoardFacts]" = OrderedDict()
 _FACTS_CACHE_SIZE = 8
 _FACTS_LOCK = threading.Lock()
 
 
-def semantic_index_facts(project: Any, commit: Optional[str]) -> BoardFacts:
-    """The board facts of one revision, derived once per index file.
-
-    Every setup request needs them, and the canvas sends several at once. Each
-    used to parse the whole semantic index (tens of MB on a large board) and
-    the process kept the peak, so facts are cached by the file they came from.
-    """
-
-    from app.services import semantic_index_service
-
-    path, _key = semantic_index_service.artifact_file(project, commit)
-    stat = path.stat()
-    key = (str(path), stat.st_mtime_ns)
+def _cached(key: tuple[str, ...], load: Callable[[], BoardFacts]) -> BoardFacts:
     with _FACTS_LOCK:
         cached = _FACTS_CACHE.get(key)
         if cached is None:
-            cached = from_semantic_index(json.loads(path.read_bytes()))
+            cached = load()
             _FACTS_CACHE[key] = cached
             while len(_FACTS_CACHE) > _FACTS_CACHE_SIZE:
                 _FACTS_CACHE.popitem(last=False)
         _FACTS_CACHE.move_to_end(key)
         return cached
+
+
+def semantic_index_facts(project: Any, commit: Optional[str]) -> BoardFacts:
+    """The board facts of one revision, derived once per index.
+
+    From the commit's design bundle when its semantic index is built: the
+    native projection names each pin's role (``pinType``), which power-tree
+    inference needs, and it is the bundle a run of the setup solves. Else
+    the project's semantic index file, which the legacy builder writes
+    without pin roles. Every setup request needs the facts, and the canvas
+    sends several at once, so they are cached by the index they came from.
+    """
+
+    from app.services import semantic_index_bundle, semantic_index_service
+    from app.services.design_bundle import reader
+
+    try:
+        opened = reader.open_revision(str(project.id), commit or None, queue=True)
+        state = opened.readiness([semantic_index_bundle.MEMBER])[semantic_index_bundle.MEMBER].state
+    except LookupError:
+        state = "unavailable"
+    if state == "ready" and opened.bundle_key:
+        member = semantic_index_bundle.MEMBER
+        return _cached(("bundle", str(project.id), opened.bundle_key),
+                       lambda: from_semantic_index(opened.read_json(member)))
+    path, _key = semantic_index_service.artifact_file(project, commit)[:2]
+    stat = path.stat()
+    return _cached(("file", str(path), str(stat.st_mtime_ns)), lambda: from_semantic_index(json.loads(path.read_bytes())))
 
 
 def canonical_sha256(document: dict[str, Any]) -> str:

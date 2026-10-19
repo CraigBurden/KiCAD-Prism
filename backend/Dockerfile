@@ -189,6 +189,9 @@ RUN cd /opt/kicad-prism-viewer && npm run build
 # operator CLIs run inside the container (catalog imports, benchmark sessions); nothing at runtime reads it.
 COPY backend/ .
 COPY scripts/ scripts/
+# The design-bundle reader validates members against native/'s committed JSON
+# Schema (app/services/design_bundle/schemas.py looks for it under /app/native).
+COPY native/contracts/generated/schema /app/native/contracts/generated/schema
 COPY --from=prism-kicad-native-builder \
     /tmp/prism-kicad-native \
     /usr/local/bin/prism-kicad-native
