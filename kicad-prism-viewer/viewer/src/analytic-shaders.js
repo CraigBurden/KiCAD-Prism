@@ -129,13 +129,8 @@ fn outsideBoard(board: vec2f) -> bool {
   if (slice.clipOn == 0u) { return false; }
   let cell = vec2i(floor((board - slice.clipOrigin) / slice.clipPitch));
   let size = vec2i(slice.clipSize);
-  for (var dy = -1; dy <= 1; dy++) {
-    for (var dx = -1; dx <= 1; dx++) {
-      let at = cell + vec2i(dx, dy);
-      if (all(at >= vec2i(0)) && all(at < size) && textureLoad(boardClip, at, 0).x != 0u) { return false; }
-    }
-  }
-  return true;
+  // The mask comes dilated by that texel (dilateClip): one lookup.
+  return !(all(cell >= vec2i(0)) && all(cell < size) && textureLoad(boardClip, cell, 0).x != 0u);
 }
 fn worldOutsideBoard(world: vec3f) -> bool { return outsideBoard(vec2f(world.x * 1000.0, -world.y * 1000.0)); }
 

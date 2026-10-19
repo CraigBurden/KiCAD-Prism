@@ -43,8 +43,7 @@ try {
     await new Promise(() => {});
   }
   const server = await serve(buildDir);
-  // Perf lifts the frame-rate cap: the GPU then runs flat out at a steady
-  // clock, and the timestamp queries still time each frame's own work.
+  // Perf lifts the frame-rate cap: the GPU then runs flat out at a steady clock.
   const chrome = await launchChrome({ headless: !options.headed, unthrottled: options.perf });
   try {
     if (options.perf) await perfBoard(chrome, server);
@@ -336,7 +335,7 @@ async function perfBoard(chrome, server) {
         const perf = await page.evaluate(`window.__vtProbe.orbit(${JSON.stringify({ orbitMs: options.orbitMs, })})`);
         const name = `${analytic ? "analytic" : "mesh"}${close ? "-close" : ""}`;
         summary.perf.push({ name, ...perf, lowerMs: loaded?.lowerMs, analyticGpuMB: loaded ? +(loaded.gpuMemoryBytes / 1048576).toFixed(1) : undefined });
-        log(`${name}: gpu p50 ${perf.gpuPassP50Ms} / p95 ${perf.gpuPassP95Ms} ms over ${perf.gpuSubmits} submits, interval p50 ${perf.intervalP50Ms} ms, cpu p95 ${perf.cpuP95Ms} ms`);
+        log(`${name}: gpu submit-to-done p50 ${perf.gpuSubmitP50Ms} / p95 ${perf.gpuSubmitP95Ms} ms over ${perf.gpuSubmits} submits, interval p50 ${perf.intervalP50Ms} ms, cpu p95 ${perf.cpuP95Ms} ms`);
       } finally {
         await page.close();
       }

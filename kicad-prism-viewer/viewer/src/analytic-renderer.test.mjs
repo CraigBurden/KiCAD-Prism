@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
-import { AnalyticRenderer, viewEye, withStackupLooks } from "./analytic-renderer.js";
+import { AnalyticRenderer, FieldTextureCache, dilateClip, unionRect, viewEye, withStackupLooks } from "./analytic-renderer.js";
 import { lookAt, mat4Multiply, orthographic, perspective } from "./math.js";
 import { ANALYTIC_SHADER, STENCIL_STEPS } from "./analytic-shaders.js";
 
@@ -359,4 +359,69 @@ test("the 2D view lays a layer's slices flat at its place in the grid", () => {
   assert.deepEqual([+written[4].toFixed(6), written[44], written[45]], [0.0008, 0, 0]);
   // The flat shift sits where the shader's Slice struct puts it (after clipPad, 44 floats in).
   assert.match(ANALYTIC_SHADER, /clipPad: u32,\s*\/\/[^\n]*\n[^\n]*\n\s*flatShift: vec2f,/);
+});
+
+test("the dilated board clip answers in one lookup what nine did", () => {
+  // The shader's rule before: a cell is board when any texel within one step is.
+  const nine = ({ data, width, height }, i, j) => {
+    for (let dy = -1; dy <= 1; dy += 1) for (let dx = -1; dx <= 1; dx += 1) {
+      const x = i + dx;
+      const y = j + dy;
+      if (x >= 0 && y >= 0 && x < width && y < height && data[y * width + x]) return true;
+    }
+    return false;
+  };
+  let seed = 7;
+  const random = () => ((seed = (seed * 1103515245 + 12345) >>> 0) / 2 ** 32);
+  for (const [width, height] of [[1, 1], [5, 3], [17, 11]]) {
+    const mask = { data: Uint8Array.from({ length: width * height }, () => (random() < 0.3 ? 1 : 0)), width, height };
+    const dilated = dilateClip(mask);
+    assert.equal(dilated.width, width + 2);
+    assert.equal(dilated.height, height + 2);
+    // The dilated mask's origin is one texel before the original's.
+    for (let j = -3; j < height + 3; j += 1) {
+      for (let i = -3; i < width + 3; i += 1) {
+        const [x, y] = [i + 1, j + 1];
+        const one = x >= 0 && y >= 0 && x < dilated.width && y < dilated.height && dilated.data[y * dilated.width + x] !== 0;
+        assert.equal(one, nine(mask, i, j), `${width}x${height} at ${i},${j}`);
+      }
+    }
+  }
+});
+
+test("unionRect covers its rects, and keeps the whole viewport and off-screen cases", () => {
+  assert.deepEqual(unionRect([{ x: 10, y: 20, width: 5, height: 5 }, null, { x: 0, y: 22, width: 4, height: 10 }]), { x: 0, y: 20, width: 15, height: 12 });
+  assert.equal(unionRect([null, null]), null);
+  assert.equal(unionRect([{ x: 0, y: 0, width: 1, height: 1 }, undefined]), undefined);
+});
+
+test("the field cache shares a raster's texture and drops the least recent past its budget", () => {
+  const made = [];
+  const texture = (name) => ({ name, destroyed: false, destroy() { this.destroyed = true; } });
+  const cache = new FieldTextureCache(2 * 400);
+  const raster = (name) => ({ values: new Float32Array(1), width: 10, height: 10, name });
+  const [a, b, c] = [raster("a"), raster("b"), raster("c")];
+  const get = (r) => cache.texture(r, () => { made.push(r.name); return texture(r.name); });
+  // One overlay showing `a` on a slab's two faces: one texture.
+  assert.equal(get(a), get(a));
+  cache.trim();
+  get(b);
+  cache.trim();
+  // Back to `a`: no new texture.
+  get(a);
+  cache.trim();
+  assert.deepEqual(made, ["a", "b"]);
+  // `c` takes the budget's last room: `b`, least recently shown, goes.
+  const kept = get(c);
+  cache.trim();
+  assert.deepEqual([...cache.entries.values()].map((entry) => entry.texture.name), ["a", "c"]);
+  assert.equal(cache.bytes(), 800);
+  // The overlay in force stays even over budget.
+  const big = { values: new Float32Array(1), width: 100, height: 100, name: "big" };
+  get(big);
+  cache.trim();
+  assert.ok([...cache.entries.values()].some((entry) => entry.texture.name === "big"));
+  assert.equal(kept.destroyed, true);
+  cache.clear();
+  assert.equal(cache.bytes(), 0);
 });

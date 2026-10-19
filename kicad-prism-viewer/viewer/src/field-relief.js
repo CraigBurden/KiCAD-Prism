@@ -3,9 +3,9 @@
 // outline comes from the analytic copper itself: the layer is rendered once,
 // top-down, through the analytic pick pipelines into an offscreen texture,
 // and only pixels on the field's net are kept. The relief is a dense grid
-// raised by the raster in the vertex shader and cut to that mask per pixel,
-// so board edges, anti-pads and plane cut-outs are exact rather than the
-// raster's staircase.
+// raised by the raster (heights and normals computed once per field) and
+// cut to that mask per pixel, so board edges, anti-pads and plane cut-outs
+// are exact rather than the raster's staircase.
 
 import { ANALYTIC_PICK_TAG, ABSENT_VALUE } from "./analytic-shaders.js";
 
@@ -164,22 +164,25 @@ struct ReliefOut {
   @location(1) normal: vec3f,
 };
 
-@vertex fn vs_relief(@builtin(vertex_index) vertex: u32) -> ReliefOut {
-  var corners = array<vec2u, 6>(vec2u(0u, 0u), vec2u(1u, 0u), vec2u(0u, 1u), vec2u(0u, 1u), vec2u(1u, 0u), vec2u(1u, 1u));
-  let quad = vertex / 6u;
+// The grid is drawn in patches of PATCH x PATCH quads, instanced, from one
+// shared index buffer. Each point's height and normal were computed once per
+// field (cs_grid in GRID_SHADER, as (z, normal)): a vertex reads one entry.
+@group(0) @binding(5) var<storage, read> patchGrid: array<vec4f>;
+const PATCH = PATCH_SIZEu;
+
+@vertex fn vs_relief_patch(@builtin(vertex_index) vertex: u32, @builtin(instance_index) patchIndex: u32) -> ReliefOut {
   let cells = relief.grid - vec2u(1u);
-  let at = vec2u(quad % cells.x, quad / cells.x) + corners[vertex % 6u];
+  let patches = (cells + vec2u(PATCH - 1u)) / PATCH;
+  let local = vec2u(vertex % (PATCH + 1u), vertex / (PATCH + 1u));
+  // Past the grid's last point a patch folds onto it: zero-area triangles.
+  let at = min(vec2u(patchIndex % patches.x, patchIndex / patches.x) * PATCH + local, cells);
   let t = vec2f(at) / vec2f(cells);
   let board = mix(relief.bounds.xy, relief.bounds.zw, t);
-  let z = lift(board);
-  // The slope from neighbouring grid points (world metres; board y runs down).
-  let step = (relief.bounds.zw - relief.bounds.xy) / vec2f(cells);
-  let dx = (lift(board + vec2f(step.x, 0.0)) - lift(board - vec2f(step.x, 0.0))) / (0.002 * step.x);
-  let dy = (lift(board + vec2f(0.0, step.y)) - lift(board - vec2f(0.0, step.y))) / (0.002 * step.y);
+  let point = patchGrid[at.y * relief.grid.x + at.x];
   var out: ReliefOut;
-  out.position = relief.viewProjection * vec4f(board.x * 0.001, -board.y * 0.001, z, 1.0);
+  out.position = relief.viewProjection * vec4f(board.x * 0.001, -board.y * 0.001, point.x, 1.0);
   out.board = board;
-  out.normal = normalize(vec3f(-dx, dy, 1.0));
+  out.normal = point.yzw;
   return out;
 }
 
@@ -192,6 +195,42 @@ struct ReliefOut {
   let diffuse = max(dot(normal, normalize(relief.light.xyz)), 0.0);
   let color = fieldColor(share(value)) * (0.72 + 0.38 * diffuse);
   return vec4f(min(color, vec3f(1.0)), 1.0);
+}
+`;
+
+/** Grid quads a relief patch spans, a side: (PATCH + 1)^2 vertices index as u16. */
+const RELIEF_PATCH = 64;
+
+// Heights and normals of every grid point (z, normal), for vs_relief_patch.
+const GRID_SHADER = /* wgsl */ `
+struct Relief {
+  viewProjection: mat4x4f,
+  bounds: vec4f,
+  fieldOrigin: vec2f,
+  fieldPitch: vec2f,
+  fieldSize: vec2u,
+  grid: vec2u,
+  range: vec2f,
+  base: f32,
+  height: f32,
+  light: vec4f,
+};
+@group(0) @binding(0) var<uniform> relief: Relief;
+@group(0) @binding(1) var field: texture_2d<f32>;
+@group(0) @binding(2) var<storage, read_write> outGrid: array<vec4f>;
+const ABSENT = 3e38;
+fn present(value: f32) -> bool { return value < 1e38; }
+${RELIEF_SHADER.slice(RELIEF_SHADER.indexOf("fn cell("), RELIEF_SHADER.indexOf("struct ReliefOut"))}
+@compute @workgroup_size(8, 8) fn cs_grid(@builtin(global_invocation_id) id: vec3u) {
+  if (id.x >= relief.grid.x || id.y >= relief.grid.y) { return; }
+  let cells = relief.grid - vec2u(1u);
+  let t = vec2f(id.xy) / vec2f(cells);
+  let board = mix(relief.bounds.xy, relief.bounds.zw, t);
+  let z = lift(board);
+  let step = (relief.bounds.zw - relief.bounds.xy) / vec2f(cells);
+  let dx = (lift(board + vec2f(step.x, 0.0)) - lift(board - vec2f(step.x, 0.0))) / (0.002 * step.x);
+  let dy = (lift(board + vec2f(0.0, step.y)) - lift(board - vec2f(0.0, step.y))) / (0.002 * step.y);
+  outGrid[id.y * relief.grid.x + id.x] = vec4f(z, normalize(vec3f(-dx, dy, 1.0)));
 }
 `;
 
@@ -231,17 +270,65 @@ export class FieldRelief {
 
   pipeline() {
     if (this.reliefPipeline) return this.reliefPipeline;
-    const module = this.device.createShaderModule({ label: "relief", code: RELIEF_SHADER.replace("PALETTE", PALETTE_WGSL) });
+    const module = this.device.createShaderModule({ label: "relief", code: RELIEF_SHADER.replace("PALETTE", PALETTE_WGSL).replace("PATCH_SIZE", String(RELIEF_PATCH)) });
     this.reliefPipeline = this.device.createRenderPipeline({
       label: "relief",
       layout: "auto",
-      vertex: { module, entryPoint: "vs_relief" },
+      vertex: { module, entryPoint: "vs_relief_patch" },
       fragment: { module, entryPoint: "fs_relief", targets: [{ format: this.renderer.format }] },
       primitive: { topology: "triangle-list", cullMode: "none" },
       depthStencil: { format: this.renderer.depthFormat, depthWriteEnabled: true, depthCompare: "greater" },
       multisample: { count: this.renderer.sampleCount || 1 },
     });
     return this.reliefPipeline;
+  }
+
+  gridPipeline() {
+    if (this.gridComputePipeline) return this.gridComputePipeline;
+    const module = this.device.createShaderModule({ label: "relief-grid", code: GRID_SHADER });
+    this.gridComputePipeline = this.device.createComputePipeline({ label: "relief-grid", layout: "auto", compute: { module, entryPoint: "cs_grid" } });
+    return this.gridComputePipeline;
+  }
+
+  /** A patch's triangles, two per quad, indexing its (PATCH + 1)^2 points; shared by every relief. */
+  patchIndices() {
+    if (this.patchIndexBuffer) return this.patchIndexBuffer;
+    const side = RELIEF_PATCH + 1;
+    const indices = new Uint16Array(RELIEF_PATCH * RELIEF_PATCH * 6);
+    let at = 0;
+    for (let j = 0; j < RELIEF_PATCH; j += 1) {
+      for (let i = 0; i < RELIEF_PATCH; i += 1) {
+        const p = j * side + i;
+        indices.set([p, p + 1, p + side, p + side, p + 1, p + side + 1], at);
+        at += 6;
+      }
+    }
+    this.patchIndexBuffer = this.device.createBuffer({ label: "relief-patch-indices", size: indices.byteLength, usage: GPUBufferUsage.INDEX | GPUBufferUsage.COPY_DST });
+    this.device.queue.writeBuffer(this.patchIndexBuffer, 0, indices);
+    return this.patchIndexBuffer;
+  }
+
+  /** Every grid point's height and normal, into `this.points`: once per field, not per frame. */
+  computeGrid() {
+    const [gx, gy] = this.grid;
+    this.points = this.device.createBuffer({ label: "relief-points", size: gx * gy * 16, usage: GPUBufferUsage.STORAGE });
+    this.writeUniform(new Float32Array(16));
+    const pipeline = this.gridPipeline();
+    const group = this.device.createBindGroup({
+      layout: pipeline.getBindGroupLayout(0),
+      entries: [
+        { binding: 0, resource: { buffer: this.uniform } },
+        { binding: 1, resource: this.field.createView() },
+        { binding: 2, resource: { buffer: this.points } },
+      ],
+    });
+    const encoder = this.device.createCommandEncoder();
+    const pass = encoder.beginComputePass({ label: "relief-grid" });
+    pass.setPipeline(pipeline);
+    pass.setBindGroup(0, group);
+    pass.dispatchWorkgroups(Math.ceil(gx / 8), Math.ceil(gy / 8));
+    pass.end();
+    this.device.queue.submit([encoder.finish()]);
   }
 
   netPipeline() {
@@ -262,14 +349,28 @@ export class FieldRelief {
    * copper on net `netId` (0: any net). `range` is the overlay's value range.
    */
   build(slice, { range, netId = 0, heightShare = RELIEF_HEIGHT_SHARE } = {}) {
+    // The copper mask depends on the layer and net only: a new quantity or
+    // run on the same net keeps it.
+    const key = this.maskKey;
+    const keep = this.mask && key?.slices === this.analytic.slices && key.nets === this.analytic.netsBuffer && key.layer === slice?.layerId && key.net === netId;
+    const mask = keep ? this.mask : null;
+    if (keep) this.mask = null;
     this.release();
     const field = slice?.field;
-    if (!field) return false;
+    if (!field) {
+      mask?.destroy();
+      return false;
+    }
     const boundsMm = this.boundsOf(slice);
     const [width, height] = maskSize(boundsMm);
-    const picked = this.renderMask(slice.layerId, boundsMm, width, height);
-    this.mask = this.filterMask(picked, width, height, netId);
-    picked.destroy();
+    if (mask) {
+      this.mask = mask;
+    } else {
+      const picked = this.renderMask(slice.layerId, boundsMm, width, height);
+      this.mask = this.filterMask(picked, width, height, netId);
+      picked.destroy();
+      this.maskKey = { slices: this.analytic.slices, nets: this.analytic.netsBuffer, layer: slice.layerId, net: netId };
+    }
     const filled = fillRaster(field.values, field.width, field.height);
     const upload = Float32Array.from(filled, (value) => (Number.isFinite(value) ? value : ABSENT_VALUE));
     this.field = this.device.createTexture({ label: "relief-field", size: [field.width, field.height], format: "r32float", usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST });
@@ -288,6 +389,8 @@ export class FieldRelief {
     this.grid = grid;
     this.vertexCount = (grid[0] - 1) * (grid[1] - 1) * 6;
     this.params = { field, pitch: [pitchX, pitchY], range: range || [0, 1] };
+    this.computeGrid();
+    this.patches = Math.ceil((grid[0] - 1) / RELIEF_PATCH) * Math.ceil((grid[1] - 1) / RELIEF_PATCH);
     this.bindGroup = this.device.createBindGroup({
       layout: this.pipeline().getBindGroupLayout(0),
       entries: [
@@ -296,6 +399,7 @@ export class FieldRelief {
         { binding: 2, resource: this.mask.createView() },
         { binding: 3, resource: this.sampler },
         { binding: 4, resource: { buffer: this.analytic.palette } },
+        { binding: 5, resource: { buffer: this.points } },
       ],
     });
     this.renderer.invalidate?.();
@@ -374,6 +478,15 @@ export class FieldRelief {
   /** Draw into the frame's pass; returns the draw count. */
   encode(pass, matrix) {
     if (!this.ready) return 0;
+    this.writeUniform(matrix);
+    pass.setPipeline(this.pipeline());
+    pass.setBindGroup(0, this.bindGroup);
+    pass.setIndexBuffer(this.patchIndices(), "uint16");
+    pass.drawIndexed(RELIEF_PATCH * RELIEF_PATCH * 6, this.patches);
+    return 1;
+  }
+
+  writeUniform(matrix) {
     const floats = new Float32Array(this.scratch);
     const words = new Uint32Array(this.scratch);
     floats.set(matrix, 0);
@@ -389,10 +502,6 @@ export class FieldRelief {
     floats[31] = this.height;
     floats.set([0.35, 0.45, 0.82, 0], 32);
     this.device.queue.writeBuffer(this.uniform, 0, this.scratch);
-    pass.setPipeline(this.pipeline());
-    pass.setBindGroup(0, this.bindGroup);
-    pass.draw(this.vertexCount);
-    return 1;
   }
 
   /** World bounds of the relief, for framing: [x0, y0, z0, x1, y1, z1] in metres. */
@@ -405,6 +514,8 @@ export class FieldRelief {
   release() {
     this.mask?.destroy();
     this.field?.destroy();
+    this.points?.destroy();
+    this.points = null;
     this.mask = null;
     this.field = null;
     this.bindGroup = null;
@@ -415,6 +526,7 @@ export class FieldRelief {
   destroy() {
     this.release();
     this.uniform.destroy();
+    this.patchIndexBuffer?.destroy();
   }
 }
 

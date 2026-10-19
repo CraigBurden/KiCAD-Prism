@@ -8,7 +8,9 @@ import { join } from "node:path";
 
 const DEFAULT_CHROME = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
 
-export async function launchChrome({ executable = process.env.CHROME || DEFAULT_CHROME, headless = true } = {}) {
+// `unthrottled` lifts the frame-rate cap (vsync), for perf runs: frames then
+// come as fast as the GPU finishes them.
+export async function launchChrome({ executable = process.env.CHROME || DEFAULT_CHROME, headless = true, unthrottled = false } = {}) {
   const profile = mkdtempSync(join(tmpdir(), "vt-pixel-diff-"));
   const args = [
     `--user-data-dir=${profile}`,
@@ -25,6 +27,7 @@ export async function launchChrome({ executable = process.env.CHROME || DEFAULT_
     "about:blank",
   ];
   if (headless) args.unshift("--headless=new");
+  if (unthrottled) args.unshift("--disable-gpu-vsync", "--disable-frame-rate-limit");
   const child = spawn(executable, args, { stdio: ["ignore", "ignore", "pipe"] });
   const wsUrl = await new Promise((resolve, reject) => {
     let buffered = "";

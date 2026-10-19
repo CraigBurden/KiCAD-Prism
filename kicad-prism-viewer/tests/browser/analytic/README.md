@@ -48,9 +48,11 @@ The default mesh path is the pixel-diff runner's job: with no pack loaded, the
 viewer must match `origin/dev` but for the records in `../pixel-diff/README.md`.
 
 `--perf` lifts Chrome's frame-rate cap so the GPU runs flat out at a steady
-clock, and times each frame's GPU work with timestamp queries (every render
-and compute pass, summed per submission; the probe adds them, the viewer is
-unchanged). It reports GPU p50/p95 per case. Run at `--scale 2` for a
+clock, and reports submit-to-done latency per case (an upper bound on GPU
+work, as the pixel-diff probe measures it). For GPU time from timestamp
+queries, command and upload counts, interaction latency and idle redraw, use
+the perf harness (`../perf/README.md`). The table below was measured with
+timestamp queries from a separate script. Run at `--scale 2` for a
 high-density display. On openswitch-10x10g-carrier at scale 2 (2560x1600,
 4x MSAA), three runs agree within 0.15 ms:
 
