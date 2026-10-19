@@ -1,17 +1,16 @@
 """Simulation runs: submit a frozen setup, and the ``sim_run`` job that runs it.
 
 The handler stages a workspace for prism-sim-studio's engine runner
-(sim-adr-0003): it materializes the project revision, builds or reuses the
-``.prism`` bundle with ``prism-bundle``, writes the frozen setup (pinned to
-that bundle) and a ``prism.sim.job``, then runs ``sim-worker`` and relays its
-``prism.sim.progress`` lines. The engine's ``prism.sim.result`` and artifacts
-stay in the run's directory and are served from there.
+(sim-adr-0003): it links the commit's design bundle in (``board_source``),
+writes the frozen setup (pinned to that bundle) and a ``prism.sim.job`` for
+the engine that runs the analysis's kind, then runs ``sim-worker`` and relays
+its ``prism.sim.progress`` lines. The engine's ``prism.sim.result`` and
+artifacts stay in the run's directory and are served from there; the meshes it
+keeps for re-runs stay per project under ``sim/meshes``.
 """
 
 from __future__ import annotations
 
-import contextlib
-import functools
 import hashlib
 import json
 import os
@@ -19,11 +18,10 @@ import shutil
 import subprocess
 import tempfile
 from pathlib import Path
-from typing import Any, Iterator, Mapping, Optional
+from typing import Any, Mapping, Optional
 
 from app.core import errors
 from app.core.config import settings
-from app.services import project_revision
 from app.services.job_kinds import JobKind, JobSubject
 from app.services.job_runtime import JobContext, JobResult
 from app.sim_studio import board_source, validation
@@ -31,11 +29,14 @@ from app.sim_studio.run_store import TERMINAL, RunStore, public
 from app.sim_studio.service import canonical_sha256, parse_setup
 from app.sim_studio.store import SetupStore
 
-MATERIALIZATION_MEMBER = "materialization/board.kmpack"
-
-
 class SetupNotReady(errors.Invalid):
     code = "sim_setup_not_ready"
+
+
+class BoardNotSimulatable(errors.Conflict):
+    """The commit's board is not ready, or its schematic and board disagree."""
+
+    code = "sim_board_not_ready"
 
 
 def sim_root() -> Path:
@@ -44,6 +45,12 @@ def sim_root() -> Path:
 
 def run_dir(run_id: str) -> Path:
     return sim_root() / "runs" / run_id
+
+
+def mesh_cache_dir(project_id: str) -> Path:
+    """Where engines keep a project's meshes for re-runs (``SimJob.mesh_cache_dir``)."""
+
+    return sim_root() / "meshes" / project_id
 
 
 def binary(name: str) -> Path:
@@ -72,8 +79,44 @@ def engine_descriptors() -> list[dict[str, Any]]:
         return []
 
 
+def engine_for(kind: str, descriptors: list[dict[str, Any]] | None = None) -> str:
+    """The engine that runs analyses of ``kind``: the preferred one when it does, else the first that does."""
+
+    descriptors = engine_descriptors() if descriptors is None else descriptors
+    able = [str(item["id"]) for item in descriptors if kind in (item.get("analyses") or [])]
+    if settings.PRISM_SIM_ENGINE in able:
+        return settings.PRISM_SIM_ENGINE
+    if not able:
+        raise RuntimeError(f"no installed engine runs {kind} analyses")
+    return able[0]
+
+
+def _analysis_kind(setup: Mapping[str, Any], analysis_id: str) -> str:
+    for item in setup.get("analyses") or []:
+        if item.get("id") == analysis_id:
+            return str(item.get("kind"))
+    raise RuntimeError(f"the setup has no analysis {analysis_id!r}")
+
+
 # ---------------------------------------------------------------------------
 # Submit
+
+
+def _require_board(project_id: str, commit: Optional[str], actor: str) -> None:
+    """Refuse a run the engine could not start: no board yet, or schematic and board disagree."""
+
+    state = board_source.board_state(project_id, commit, requested_by=actor)
+    if state.state != "ready":
+        raise BoardNotSimulatable(board_source.BoardNotReady(state.state, state.detail).args[0],
+                                  code="sim_board_not_ready", board_state=state.state)
+    if state.cross_check == "failed":
+        raise BoardNotSimulatable(
+            f"The schematic and the board disagree, so pads cannot be trusted to join the right nets: {state.first_error}",
+            code="sim_board_cross_check_failed",
+        )
+    if state.cross_check == "skipped":
+        raise BoardNotSimulatable("The project has no schematic, so its board cannot be cross-checked.",
+                                  code="sim_board_no_schematic")
 
 
 def submit(
@@ -96,6 +139,7 @@ def submit(
     report = validation.report("preflight", canonical_sha256(row["document"]), issues)
     if not report["ok"]:
         raise SetupNotReady("Preflight found errors; fix them before running.", report=report)
+    _require_board(str(project.id), row.get("source_commit"), actor)
     run_id = runs.new_id()
     job = SIM_RUN.enqueue(
         {"run_id": run_id, "project_id": str(project.id)},
@@ -115,34 +159,10 @@ def submit(
 # The job
 
 
-@contextlib.contextmanager
-def _project_sources(run: Mapping[str, Any]) -> Iterator[Path]:
-    """The project directory at the run's revision (a private checkout, or the working copy)."""
-
-    location = project_revision.locate_id(str(run["project_id"]))
-    if run.get("source_commit"):
-        with project_revision.checkout(
-            location, str(run["source_commit"]), source_set=project_revision.COMPARE_INPUTS, prefix="sim-run-",
-        ) as revision:
-            yield revision.project_dir
-    else:
-        yield location.checkout
-
-
-@functools.lru_cache(maxsize=4)
-def kicad_cli_version(cli: str) -> str:
-    completed = subprocess.run([cli, "version"], capture_output=True, text=True, timeout=60, check=False)
-    return completed.stdout.strip()
-
-
 def _stage(run: Mapping[str, Any], workspace: Path, log: list[str]) -> dict[str, Any]:
     inputs = workspace / "input"
     inputs.mkdir(parents=True, exist_ok=True)
-    with _project_sources(run) as project_dir:
-        project_file = project_dir / Path(str(run["project_path"])).name
-        if not project_file.is_file():
-            raise RuntimeError(f"{project_file.name} is not in the project at this revision")
-        board = board_source.stage_board(run, inputs, log)
+    board = board_source.stage_board(run, inputs, log)
     bundle_sha = board["sha256"]
     setup = dict(run["setup_document"])
     setup["bundle"] = {**setup.get("bundle", {}), "sha256": bundle_sha}
@@ -150,10 +170,11 @@ def _stage(run: Mapping[str, Any], workspace: Path, log: list[str]) -> dict[str,
     (inputs / "setup.json").write_bytes(setup_bytes)
     job = {
         "schema": "prism.sim.job", "version": "a0", "job_id": str(run["job_id"]),
-        "engine": {"id": settings.PRISM_SIM_ENGINE},
+        "engine": {"id": engine_for(_analysis_kind(setup, str(run["analysis_id"])))},
         "bundle": {"path": board["path"], "sha256": bundle_sha},
         "setup": {"path": "input/setup.json", "sha256": hashlib.sha256(setup_bytes).hexdigest()},
         "analysis_id": str(run["analysis_id"]),
+        "mesh_cache_dir": str(mesh_cache_dir(str(run["project_id"]))),
     }
     (workspace / "job.json").write_text(json.dumps(job, indent=2), encoding="utf-8")
     return job
@@ -200,7 +221,7 @@ def run_sim_job(context: JobContext, runs: RunStore | None = None) -> JobResult:
     log: list[str] = []
     runs.update(run["run_id"], status="running")
     try:
-        context.progress(stage="bundle", message="Building the simulation bundle...", percent=5, force=True)
+        context.progress(stage="bundle", message="Staging the board...", percent=5, force=True)
         job = _stage(run, workspace, log)
         runs.update(run["run_id"], bundle_sha256=job["bundle"]["sha256"])
         context.progress(stage="engine", message="Running the engine...", percent=40, force=True)

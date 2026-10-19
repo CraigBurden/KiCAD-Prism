@@ -8,7 +8,6 @@ import shutil
 import stat
 import tempfile
 import unittest
-from contextlib import contextmanager
 from pathlib import Path
 from types import SimpleNamespace
 from unittest import mock
@@ -20,13 +19,14 @@ from app.sim_studio import board_source, runs as runs_module
 from app.sim_studio.run_store import RunStore
 from app.sim_studio.service import SimStudioService
 from app.sim_studio.store import SetupStore
+from app.services.design_bundle.manifest import Readiness
 from support.postgres import requires_scratch_postgres, scratch_schema, seed_project, seed_repository
 from test_sim_studio_api import PROJECT, SETUPS, _app, _visible
 from test_sim_studio_setup import facts, single_net_setup
 from test_system_api import _request
 
 FAKE_WORKER = """#!/bin/sh
-[ "$1" = engines ] && { echo '[{"schema":"prism.sim.engine","id":"dc-drop-synthetic"}]'; exit 0; }
+[ "$1" = engines ] && { echo '[{"schema":"prism.sim.engine","id":"dc-drop-synthetic","analyses":["dc-drop"]}]'; exit 0; }
 dir=$(dirname "$2")
 mkdir -p "$dir/out"
 printf '{"values":[3.3]}' > "$dir/out/voltage_v.operation-values.json"
@@ -72,27 +72,20 @@ class RunPipelineTest(unittest.TestCase):
             (inputs / "board.kmpack").write_bytes(self.pack)
             return {"path": "input/board.kmpack", "sha256": hashlib.sha256(self.pack).hexdigest()}
 
-        project_dir = self.tmp / "project"
-        project_dir.mkdir()
-        (project_dir / "board.kicad_pro").write_text("{}", encoding="utf-8")
         self.setups = SetupStore(scratch.connection)
         self.runs = RunStore(scratch.connection)
         self.service = SimStudioService(self.setups, facts=lambda project, commit: facts(), runs=self.runs)
         queued = mock.MagicMock(return_value={"job_id": "job-1"})
-
-        @contextmanager
-        def sources(run):
-            yield project_dir
+        self.board = board_source.BoardState("ready", cross_check="passed")
 
         for patcher in (
             mock.patch.object(settings, "PRISM_SIM_STUDIO_ENABLED", True),
             mock.patch.object(settings, "PRISM_SIM_BIN_DIR", str(bin_dir)),
             mock.patch.object(settings, "KICAD_PROJECTS_ROOT", str(self.tmp / "projects")),
             mock.patch.object(runs_module, "SIM_RUN", SimpleNamespace(enqueue=queued)),
-            mock.patch.object(runs_module, "_project_sources", sources),
+            mock.patch("app.sim_studio.board_source.board_state", lambda *a, **k: self.board),
             mock.patch("app.sim_studio.board_source.stage_board", stage_board),
             mock.patch("app.sim_studio.board_source.materialization", return_value=self.pack),
-            mock.patch("app.services.kicad_tools.locate_kicad_cli", return_value=None),
             mock.patch.object(sim_api, "sim_studio", self.service),
             mock.patch.object(sim_api, "get_project_for_role_or_404", _visible),
         ):
@@ -132,6 +125,10 @@ class RunPipelineTest(unittest.TestCase):
         job = json.loads((workspace / "job.json").read_text())
         setup = json.loads((workspace / "input" / "setup.json").read_text())
         self.assertEqual(setup["bundle"]["sha256"], job["bundle"]["sha256"])
+        # The engine that runs the analysis's kind (the preferred one is not installed),
+        # and the project's mesh cache for re-runs.
+        self.assertEqual(job["engine"], {"id": "dc-drop-synthetic"})
+        self.assertEqual(job["mesh_cache_dir"], str(runs_module.mesh_cache_dir(PROJECT.id)))
         self.assertIn({"percent": 40 + 55 * 0.5, "message": "half"}, context.updates)
 
         base = f"/api/projects/{PROJECT.id}/sim/a0/runs/{run_id}"
@@ -146,9 +143,24 @@ class RunPipelineTest(unittest.TestCase):
         pack = _request(_app(), "GET", base + "/materialization", user="viewer")
         self.assertEqual((pack.status, pack.text), (200, "PACK"))
 
+    def test_submit_refuses_a_board_that_is_not_ready_or_disagrees_with_its_schematic(self) -> None:
+        row = self._setup(single_net_setup())
+        submit = lambda: _request(_app(), "POST", f"{SETUPS}/{row['setup_id']}/submit", body={"analysis_id": "dc"},  # noqa: E731
+                                  headers={"If-Match": f'"simsetup:{row["setup_id"]}:1"'})
+        self.board = board_source.BoardState("pending")
+        response = submit()
+        self.assertEqual((response.status, response.json["code"]), (409, "sim_board_not_ready"))
+        self.assertIn("still being prepared", response.json["detail"])
+        self.board = board_source.BoardState("ready", cross_check="failed", first_error="net-mismatch: R1.1")
+        response = submit()
+        self.assertEqual((response.status, response.json["code"]), (409, "sim_board_cross_check_failed"))
+        self.assertIn("net-mismatch: R1.1", response.json["detail"])
+        self.enqueue.assert_not_called()
+
     def test_failed_engine_marks_the_run_failed_and_settle_ends_orphans(self) -> None:
         (Path(settings.PRISM_SIM_BIN_DIR) / "sim-worker").write_text(
-            "#!/bin/sh\necho '{\"event\":\"failed\",\"message\":\"no pads\"}'\nexit 1\n", encoding="utf-8")
+            FAKE_WORKER.split("\n")[0] + "\n" + FAKE_WORKER.split("\n")[1]
+            + "\necho '{\"event\":\"failed\",\"message\":\"no pads\"}'\nexit 1\n", encoding="utf-8")
         row = self._setup(single_net_setup())
         run = self.service.submit(PROJECT, row["setup_id"], 1, "dc", "d@example.com")
         with self.assertRaises(RuntimeError):
@@ -184,40 +196,74 @@ class JobKindTest(unittest.TestCase):
 
 
 
-class BoardSourceSeamTest(unittest.TestCase):
-    """Until V2c, the board comes from a seam; the handler consumes what it returns."""
+class BoardSourceTest(unittest.TestCase):
+    """A run solves on its commit's design bundle, linked in as stored."""
 
     def setUp(self) -> None:
         self.tmp = Path(tempfile.mkdtemp())
         self.addCleanup(shutil.rmtree, self.tmp, True)
+        self.archive = self.tmp / "store" / "bundle.prism"
+        self.archive.parent.mkdir()
+        self.archive.write_bytes(b"PK design bundle")
 
-    def test_the_seam_raises_until_the_design_bundle_answers(self) -> None:
-        self.tmp.mkdir(parents=True, exist_ok=True)
-        with self.assertRaises(NotImplementedError):
-            board_source.stage_board({}, self.tmp, [])
-        with self.assertRaises(NotImplementedError):
-            board_source.materialization({})
+    def opened(self, state: str, check: dict | None = None) -> SimpleNamespace:
+        member = board_source.MATERIALIZATION
+        board = {"status": "complete", **({"cross_check": check} if check else {})}
+        return SimpleNamespace(
+            project_id="prj", revision_key="rk", archive_revision_key=None, generator_digest="gd",
+            bundle_key="bk", archive=SimpleNamespace(manifest={"stages": {"board": board}}),
+            readiness=lambda paths: {member: Readiness(member, state, "board", "why" if state != "ready" else "")},
+        )
 
-    def test_stage_records_the_seams_path_and_digest(self) -> None:
-        project_dir = self.tmp / "project"
-        project_dir.mkdir()
-        (project_dir / "board.kicad_pro").write_text("{}", encoding="utf-8")
+    def test_the_stored_design_bundle_is_linked_into_the_run(self) -> None:
+        inputs = self.tmp / "run" / "input"
+        inputs.mkdir(parents=True)
+        log: list[str] = []
+        with mock.patch("app.sim_studio.board_source.reader.open_revision", return_value=self.opened("ready")), \
+                mock.patch("app.sim_studio.board_source.store.archive_path", return_value=self.archive):
+            board = board_source.stage_board({"project_id": "prj", "source_commit": "abc"}, inputs, log)
+        self.assertEqual(board, {"path": "input/board.prism",
+                                 "sha256": hashlib.sha256(b"PK design bundle").hexdigest()})
+        self.assertTrue(__import__("os").path.samefile(inputs / "board.prism", self.archive))
+        self.assertIn("design bundle bk", log[0])
+
+    def test_a_board_not_materialized_yet_is_refused_and_its_cross_check_reported(self) -> None:
+        with mock.patch("app.sim_studio.board_source.reader.open_revision", return_value=self.opened("pending")):
+            with self.assertRaises(board_source.BoardNotReady) as raised:
+                board_source.stage_board({"project_id": "prj"}, self.tmp, [])
+            self.assertIn("still being prepared", str(raised.exception))
+            self.assertEqual(board_source.board_state("prj", None).state, "pending")
+        check = {"status": "failed", "errors": [{"code": "net-mismatch", "message": "R1.1"}]}
+        with mock.patch("app.sim_studio.board_source.reader.open_revision", return_value=self.opened("ready", check)):
+            state = board_source.board_state("prj", "abc")
+        self.assertEqual((state.state, state.cross_check, state.first_error), ("ready", "failed", "net-mismatch: R1.1"))
+
+    def test_the_engine_is_the_one_that_runs_the_analysis_kind(self) -> None:
+        engines = [{"id": "ac-pdn-peec", "analyses": ["ac-pdn"]}, {"id": "dc-drop-synthetic", "analyses": ["dc-drop"]},
+                   {"id": "dc-drop-grid", "analyses": ["dc-drop"]}]
+        self.assertEqual(runs_module.engine_for("dc-drop", engines), "dc-drop-grid")  # the preferred one
+        self.assertEqual(runs_module.engine_for("ac-pdn", engines), "ac-pdn-peec")
+        with mock.patch.object(settings, "PRISM_SIM_ENGINE", "missing"):
+            self.assertEqual(runs_module.engine_for("dc-drop", engines), "dc-drop-synthetic")
+        with self.assertRaises(RuntimeError):
+            runs_module.engine_for("thermal", engines)
+
+    def test_stage_writes_the_job_for_the_linked_bundle(self) -> None:
         pack = b"PK"
 
         def stage_board(run, inputs, log):
-            (inputs / "board.kmpack").write_bytes(pack)
-            return {"path": "input/board.kmpack", "sha256": hashlib.sha256(pack).hexdigest()}
+            (inputs / "board.prism").write_bytes(pack)
+            return {"path": "input/board.prism", "sha256": hashlib.sha256(pack).hexdigest()}
 
-        @contextmanager
-        def sources(run):
-            yield project_dir
-
-        run = {"setup_document": {}, "job_id": "job-1", "project_path": "board.kicad_pro", "analysis_id": "dc"}
-        with mock.patch.object(runs_module, "_project_sources", sources), \
-                mock.patch("app.sim_studio.board_source.stage_board", stage_board):
+        run = {"setup_document": {"analyses": [{"id": "dc", "kind": "dc-drop"}]}, "job_id": "job-1",
+               "project_id": "prj", "analysis_id": "dc"}
+        with mock.patch("app.sim_studio.board_source.stage_board", stage_board), \
+                mock.patch.object(settings, "KICAD_PROJECTS_ROOT", str(self.tmp)), \
+                mock.patch.object(runs_module, "engine_descriptors", return_value=[{"id": "dc-drop-grid", "analyses": ["dc-drop"]}]):
             job = runs_module._stage(run, self.tmp / "workspace", [])
-        self.assertEqual(job["bundle"], {"path": "input/board.kmpack", "sha256": hashlib.sha256(pack).hexdigest()})
-
+        self.assertEqual(job["bundle"], {"path": "input/board.prism", "sha256": hashlib.sha256(pack).hexdigest()})
+        self.assertEqual(job["engine"], {"id": "dc-drop-grid"})
+        self.assertEqual(job["mesh_cache_dir"], str(self.tmp / ".kicad-prism" / "sim" / "meshes" / "prj"))
 
 
 @requires_scratch_postgres("Simulation run retention tests")
@@ -275,6 +321,28 @@ class RunRetentionTest(unittest.TestCase):
         self.assertTrue(all(__import__("os").path.samefile(inputs[0], path) for path in inputs))
         self.assertEqual(report["sim_runs_pruned"], 5)
         self.assertEqual(report["sim_inputs_linked"], 2)
+
+
+class MeshRetentionTest(unittest.TestCase):
+    def test_each_project_keeps_its_newest_meshes_and_drops_crashed_writes(self) -> None:
+        from app.sim_studio import retention
+
+        tmp = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, tmp, True)
+        with mock.patch.object(settings, "KICAD_PROJECTS_ROOT", str(tmp)):
+            meshes = runs_module.mesh_cache_dir("prj")
+            meshes.mkdir(parents=True)
+            now = 1_000_000.0
+            for age, name in enumerate(["a", "b", "c"]):
+                path = meshes / f"{name}.dcmesh"
+                path.write_bytes(b"m")
+                __import__("os").utime(path, (now - age * 60, now - age * 60))
+            for name, age in (("old.1.partial", 2 * 86400), ("new.1.partial", 60)):
+                path = meshes / name
+                path.write_bytes(b"p")
+                __import__("os").utime(path, (now - age, now - age))
+            self.assertEqual(retention.prune_meshes(keep=2, now=now), 2)
+        self.assertEqual(sorted(p.name for p in meshes.iterdir()), ["a.dcmesh", "b.dcmesh", "new.1.partial"])
 
 if __name__ == "__main__":
     unittest.main()

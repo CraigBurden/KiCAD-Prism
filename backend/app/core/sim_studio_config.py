@@ -20,7 +20,20 @@ class SimStudioSettings(BaseSettings):
     )
     PRISM_SIM_CONCURRENCY: int = Field(default=1, description="Simulation runs one worker executes at once.")
     PRISM_SIM_TIMEOUT_SECONDS: int = Field(default=3600, description="Longest a simulation engine may run.")
-    PRISM_SIM_ENGINE: str = Field(default="dc-drop-grid", description="sim-worker engine id that runs every analysis (dc-drop-grid, or dc-drop-synthetic for pipeline tests).")
+    PRISM_SIM_ENGINE: str = Field(
+        default="dc-drop-grid",
+        description=(
+            "Preferred sim-worker engine id. A run takes it when it runs the analysis's kind, else the "
+            "first installed engine that does (dc-drop-synthetic stands in for pipeline tests)."
+        ),
+    )
+    PRISM_SIM_MESHES_KEPT: int = Field(
+        default=4,
+        description=(
+            "Engine meshes kept per project for re-runs that change only values (newest by use). "
+            "A mesh is tens of megabytes on a large board."
+        ),
+    )
     PRISM_SIM_SUCCEEDED_RUNS_KEPT: int = Field(
         default=3,
         description=(
