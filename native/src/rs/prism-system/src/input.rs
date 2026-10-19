@@ -49,11 +49,15 @@ pub struct Occurrence {
     pub source: Source,
 }
 
-/// What an occurrence places; only the kind matters here.
+/// What an occurrence places.
 #[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct Source {
     /// `board`, `entry` or `body`.
     pub kind: String,
+    /// A board's project; `None` for other kinds.
+    #[serde(default)]
+    pub project_id: Option<String>,
 }
 
 /// A sub-port reference on an endpoint.
@@ -63,6 +67,9 @@ pub struct SubPortRef {
     pub kind: String,
     /// The sub-port's id.
     pub id: String,
+    /// For a board-level sub-port, the definition's version the user last saw.
+    #[serde(default)]
+    pub version: Option<i32>,
 }
 
 /// A connector, or a sub-port of one, on one occurrence.
@@ -389,11 +396,66 @@ impl Board {
     }
 }
 
+/// Pins a board-level sub-port had at an earlier version.
+#[derive(Clone, Debug, Deserialize)]
+pub struct PreviousPins {
+    /// The version.
+    pub version: i32,
+    /// Its pads, in order.
+    pub pins: Vec<String>,
+}
+
+/// A board-level sub-port, as `prism.board_sub_ports.a0` gives it (§10.5).
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BoardSubPortDef {
+    /// Its id.
+    pub id: String,
+    /// Its project.
+    pub project_id: String,
+    /// Its connector.
+    pub connector: String,
+    /// Its name.
+    pub name: String,
+    /// Its pads, in order.
+    pub pins: Vec<String>,
+    /// Its current version.
+    pub version: i32,
+    /// Whether it was deleted.
+    pub deleted: bool,
+    /// The pins at each earlier version an endpoint names.
+    #[serde(default)]
+    pub previous: Vec<PreviousPins>,
+}
+
+/// The file `--board-sub-ports` reads.
+#[derive(Clone, Debug, Default, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BoardSubPorts {
+    /// The definitions, by id.
+    #[serde(default)]
+    pub sub_ports: Vec<BoardSubPortDef>,
+}
+
+/// What the build knows of a placed published entry beyond its connectors (§12.2).
+#[derive(Clone, Debug)]
+pub struct EntryFacts {
+    /// The catalog revision's workflow stage (`released`, `archived`, …).
+    pub stage: String,
+    /// The key of the entry's frozen system bundle.
+    pub system_bundle_key: String,
+}
+
 /// Everything a build reads besides the document.
 #[derive(Clone, Debug, Default)]
 pub struct Members {
-    /// Ready board occurrences, by occurrence id.
+    /// Ready board occurrences, by occurrence id; a ready entry is here too,
+    /// its exports as connectors (`entry::board`).
     pub boards: BTreeMap<String, Board>,
     /// Board occurrences whose project is absent at their commit.
     pub absent: BTreeSet<String>,
+    /// Ready entry occurrences, by occurrence id.
+    pub entries: BTreeMap<String, EntryFacts>,
+    /// Board-level sub-ports, by id; `None` when `--board-sub-ports` was not given.
+    pub board_sub_ports: Option<BTreeMap<String, BoardSubPortDef>>,
 }

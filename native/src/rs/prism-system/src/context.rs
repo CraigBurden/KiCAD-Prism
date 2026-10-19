@@ -2,7 +2,10 @@
 //! and how a connector, endpoint or pin is resolved on a board.
 
 use crate::findings::Findings;
-use crate::input::{Board, Document, Endpoint, InterfaceComponent, InterfacePin, Members};
+use crate::input::{
+    Board, BoardSubPortDef, Document, Endpoint, InterfaceComponent, InterfacePin, Members,
+    SubPortRef,
+};
 use crate::natural;
 use std::collections::BTreeMap;
 
@@ -48,6 +51,8 @@ pub struct Context<'a> {
     /// The findings collected so far.
     pub findings: Findings,
     labels: BTreeMap<&'a str, &'a str>,
+    kinds: BTreeMap<&'a str, &'a str>,
+    projects: BTreeMap<&'a str, &'a str>,
 }
 
 impl<'a> Context<'a> {
@@ -58,11 +63,28 @@ impl<'a> Context<'a> {
             .iter()
             .map(|occurrence| (occurrence.id.as_str(), occurrence.label.as_str()))
             .collect();
+        let kinds = doc
+            .occurrences
+            .iter()
+            .map(|occurrence| (occurrence.id.as_str(), occurrence.source.kind.as_str()))
+            .collect();
+        let projects = doc
+            .occurrences
+            .iter()
+            .filter_map(|occurrence| {
+                Some((
+                    occurrence.id.as_str(),
+                    occurrence.source.project_id.as_deref()?,
+                ))
+            })
+            .collect();
         Self {
             doc,
             members,
             findings: Findings::default(),
             labels,
+            kinds,
+            projects,
         }
     }
 
@@ -73,6 +95,11 @@ impl<'a> Context<'a> {
             .copied()
             .unwrap_or(occurrence)
             .to_owned()
+    }
+
+    /// An occurrence's source kind: `board`, `entry` or `body`.
+    pub fn kind(&self, occurrence: &str) -> &'a str {
+        self.kinds.get(occurrence).copied().unwrap_or("board")
     }
 
     /// A ready board.
@@ -92,9 +119,15 @@ impl<'a> Context<'a> {
         let label = self.label(occurrence);
         let subject = format!("connector:{occurrence}/{refdes}");
         let Some(component) = board.component(refdes) else {
-            let message = format!("{label} has no {refdes}");
-            self.findings
-                .add("connector-missing", subject, message, objects);
+            if self.kind(occurrence) == "entry" {
+                let message = format!("{label} has no export {refdes}");
+                self.findings
+                    .add("export-missing", subject, message, objects);
+            } else {
+                let message = format!("{label} has no {refdes}");
+                self.findings
+                    .add("connector-missing", subject, message, objects);
+            }
             return None;
         };
         if !component.candidate {
@@ -135,6 +168,17 @@ impl<'a> Context<'a> {
         objects: &[&str],
     ) -> Option<(&'a InterfaceComponent, Vec<String>)> {
         let component = self.connector(&endpoint.occurrence, &endpoint.connector, objects)?;
+        if let Some(reference) = endpoint.sub_port.as_ref().filter(|r| r.kind == "board") {
+            let pins = match self.board_sub_port(endpoint, reference, objects) {
+                Some(definition) => {
+                    let mut objects = objects.to_vec();
+                    objects.push(&reference.id);
+                    self.existing_pads(&endpoint.occurrence, component, &definition.pins, &objects)
+                }
+                None => Vec::new(),
+            };
+            return Some((component, pins));
+        }
         let sub_port = endpoint
             .sub_port
             .as_ref()
@@ -155,6 +199,97 @@ impl<'a> Context<'a> {
         };
         Some((component, pins))
     }
+}
+
+impl<'a> Context<'a> {
+    /// The live board-level sub-port an endpoint names, or `None` with a
+    /// finding when it is missing, elsewhere or deleted (§10.5). A newer
+    /// definition with different pins than the endpoint's version is a warning.
+    fn board_sub_port(
+        &mut self,
+        endpoint: &Endpoint,
+        reference: &SubPortRef,
+        objects: &[&str],
+    ) -> Option<&'a BoardSubPortDef> {
+        let subject = format!("sub-port:{}", reference.id);
+        let label = self.label(&endpoint.occurrence);
+        let project = self.projects.get(endpoint.occurrence.as_str()).copied();
+        let found = self
+            .members
+            .board_sub_ports
+            .as_ref()
+            .and_then(|definitions| definitions.get(&reference.id))
+            .filter(|definition| {
+                Some(definition.project_id.as_str()) == project
+                    && definition.connector == endpoint.connector
+            });
+        let Some(definition) = found else {
+            let message = format!(
+                "{label} {} names a board-level sub-port {} that is not there",
+                endpoint.connector, reference.id
+            );
+            self.findings
+                .add("board-sub-port-missing", subject, message, objects);
+            return None;
+        };
+        if definition.deleted {
+            let message = format!(
+                "{label} {}'s sub-port {} was deleted",
+                endpoint.connector, definition.name
+            );
+            self.findings
+                .add("board-sub-port-deleted", subject, message, objects);
+            return None;
+        }
+        if let Some(seen) = reference.version.filter(|seen| *seen < definition.version) {
+            let before = definition
+                .previous
+                .iter()
+                .find(|previous| previous.version == seen)
+                .map(|previous| previous.pins.as_slice());
+            if before != Some(definition.pins.as_slice()) {
+                let message = format!(
+                    "{label} {}'s sub-port {} changed since version {seen}: {}",
+                    endpoint.connector,
+                    definition.name,
+                    pin_changes(before, &definition.pins)
+                );
+                self.findings
+                    .add("board-sub-port-changed", subject, message, objects);
+            }
+        }
+        Some(definition)
+    }
+}
+
+/// Pins added, removed and moved between two versions, for a message.
+fn pin_changes(before: Option<&[String]>, after: &[String]) -> String {
+    let Some(before) = before else {
+        return "the earlier pins are not known".to_owned();
+    };
+    let added: Vec<&str> = after
+        .iter()
+        .filter(|pin| !before.contains(pin))
+        .map(String::as_str)
+        .collect();
+    let removed: Vec<&str> = before
+        .iter()
+        .filter(|pin| !after.contains(pin))
+        .map(String::as_str)
+        .collect();
+    let kept_before: Vec<&String> = before.iter().filter(|pin| after.contains(pin)).collect();
+    let kept_after: Vec<&String> = after.iter().filter(|pin| before.contains(pin)).collect();
+    let mut parts = Vec::new();
+    if !added.is_empty() {
+        parts.push(format!("added {}", added.join(", ")));
+    }
+    if !removed.is_empty() {
+        parts.push(format!("removed {}", removed.join(", ")));
+    }
+    if kept_before != kept_after {
+        parts.push("reordered".to_owned());
+    }
+    parts.join("; ")
 }
 
 /// A component's pin by pad.

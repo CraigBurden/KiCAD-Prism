@@ -16,11 +16,11 @@ from psycopg.types.json import Jsonb
 from app.core import errors
 from app.core.policy import folder_visibility_params, folder_visible_sql
 from app.services.postgres_database import database
-from app.system_builder import ops
+from app.system_builder import board_sub_ports, ops
 from app.system_builder.document import all_ids, new_id
 
 _COLUMNS = (
-    "system_id, folder_id, name, document, version, seen_ids, "
+    "system_id, folder_id, name, document, version, seen_ids, catalog_component_id, "
     "created_by, created_at, updated_at"
 )
 _SELECT = ", ".join(f"s.{column}" for column in _COLUMNS.split(", "))
@@ -45,6 +45,12 @@ class SystemTransaction:
     def __init__(self, conn: Any, record: Optional[dict[str, Any]]) -> None:
         self._conn = conn
         self.record = record
+
+    @property
+    def conn(self) -> Any:
+        """The transaction's connection, for writes that must commit with the request."""
+
+        return self._conn
 
     def entry(self, version: int) -> Optional[dict[str, Any]]:
         """The log row for ``version``, or None when no request produced it."""
@@ -108,6 +114,13 @@ class SystemTransaction:
 class SystemStore:
     def __init__(self, connect: Callable[[], ContextManager[Any]] = workspace_connection) -> None:
         self._connect = connect
+
+    @contextmanager
+    def connection(self) -> Iterator[Any]:
+        """A connection on the store's schema, for a read that must see its writes."""
+
+        with self._connect() as conn:
+            yield conn
 
     # ----------------------------------------------------------------- writes
 
@@ -237,7 +250,7 @@ class SystemStore:
     def create_snapshot(
         self, system_id: str, *, name: str, note: Optional[str], created_by: str,
     ) -> dict[str, Any]:
-        """Copy the current document and version into a new snapshot."""
+        """Copy the current document, version and board-level sub-ports into a snapshot."""
 
         with self._connect() as conn:
             current = conn.execute(
@@ -251,13 +264,17 @@ class SystemStore:
             row = conn.execute(
                 """
                 INSERT INTO ws_system_snapshots
-                    (snapshot_id, system_id, version, name, note, document, created_by)
-                VALUES (%s, %s, %s, %s, %s, %s, %s)
-                RETURNING snapshot_id, system_id, version, name, note, document, created_by, created_at
+                    (snapshot_id, system_id, version, name, note, document,
+                     board_sub_ports, created_by)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                RETURNING snapshot_id, system_id, version, name, note, document,
+                          board_sub_ports AS "boardSubPorts", created_by, created_at
                 """,
                 (
                     snapshot_id, system_id, int(current["version"]), name, note,
-                    Jsonb(current["document"]), created_by,
+                    Jsonb(current["document"]),
+                    Jsonb(board_sub_ports.build_input(conn, current["document"])),
+                    created_by,
                 ),
             ).fetchone()
             conn.commit()
@@ -279,12 +296,13 @@ class SystemStore:
         return [dict(row) for row in rows]
 
     def read_snapshot(self, system_id: str, snapshot_id: str) -> Optional[dict[str, Any]]:
-        """One snapshot with its document, or None when it is not this system's."""
+        """One snapshot with its document and board-level sub-ports, or None when it is not this system's."""
 
         with self._connect() as conn:
             row = conn.execute(
                 """
-                SELECT snapshot_id, system_id, version, name, note, document, created_by, created_at
+                SELECT snapshot_id, system_id, version, name, note, document,
+                       board_sub_ports AS "boardSubPorts", created_by, created_at
                   FROM ws_system_snapshots
                  WHERE system_id = %s AND snapshot_id = %s
                 """,

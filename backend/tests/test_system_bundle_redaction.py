@@ -139,6 +139,8 @@ class SystemBundleKeyTest(unittest.TestCase):
             "members": members,
             "absent": absent,
             "pending": pending,
+            "boardSubPorts": {},
+            "entries": {},
         }
         return hashlib.sha256(
             json.dumps(preimage, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode("utf-8")

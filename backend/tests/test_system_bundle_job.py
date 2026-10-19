@@ -6,6 +6,7 @@ from __future__ import annotations
 import hashlib
 import json
 import unittest
+from pathlib import Path
 from unittest import mock
 
 from app.services.design_bundle import jobs as design_jobs
@@ -13,6 +14,7 @@ from app.services.design_bundle import schemas
 from app.services.job_runtime import JobContext, PermanentJobError
 from app.system_builder import bundle_store, ops
 from app.system_builder import jobs as system_jobs
+from app.system_builder.board_sub_ports import BoardSubPortStore
 from app.system_builder.document import canonical, new_document
 from app.system_builder.service import Caller, SystemService
 from app.system_builder.settings import limits
@@ -37,12 +39,33 @@ def occurrence(occurrence_id: str, label: str, project_id: str, commit: str) -> 
     }
 
 
+def board_sub_port_document(commit: str, sub_port_id: str, version: int = 1) -> dict:
+    """One board occurrence whose export names ``sub_port_id`` at ``version``."""
+
+    document = new_document("Board sub-ports")
+    document["occurrences"] = [occurrence("occ_obc", "OBC", OBC_PROJECT, commit)]
+    document["exports"] = [
+        {
+            "id": "exp_can",
+            "name": "CAN",
+            "site": {
+                "occurrence": "occ_obc",
+                "connector": "J2",
+                "subPort": {"kind": "board", "id": sub_port_id, "version": version},
+            },
+            "pinNames": {},
+        }
+    ]
+    return canonical(document)
+
+
 class SystemBundleWorkspace(_Workspace):
     """A workspace with a system store, the system job's store seam and a real job context."""
 
     def setUp(self) -> None:
         super().setUp()
         self.system_store = SystemStore(self.scratch.connection)
+        self.board_sub_ports = BoardSubPortStore(self.scratch.connection)
         self.enterContext(mock.patch.object(bundle_store, "default_connect", self.scratch.connection))
         self.enterContext(mock.patch.object(system_jobs, "system_store", lambda: self.system_store))
         self.enterContext(
@@ -118,7 +141,9 @@ class SystemBundleWorkspace(_Workspace):
 
     # ---------------------------------------------------------------- key
 
-    def expected_key(self, document: dict, members: dict[str, str], absent: list[str], pending: list[str]) -> str:
+    def expected_key(self, document: dict, members: dict[str, str], absent: list[str], pending: list[str],
+                     board_sub_ports: dict[str, int] | None = None,
+                     entries: dict | None = None) -> str:
         preimage = {
             "documentSha256": hashlib.sha256(
                 json.dumps(document, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
@@ -127,6 +152,8 @@ class SystemBundleWorkspace(_Workspace):
             "members": members,
             "absent": sorted(absent),
             "pending": sorted(pending),
+            "boardSubPorts": board_sub_ports or {},
+            "entries": entries or {},
         }
         return hashlib.sha256(
             json.dumps(preimage, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
@@ -283,6 +310,97 @@ class SystemBundleJobTests(SystemBundleWorkspace, unittest.TestCase):
         queued_after = sum(1 for item in self.queue.rows.values() if item["kind"] == "system_bundle")
         self.assertEqual(queued_after, queued_before)
         self.assertFalse(bundle_store.exists("sys_a", answer["key"]))
+
+    def test_a_named_board_sub_port_is_a_key_input_and_passed_to_the_cli(self) -> None:
+        commit = self.add_board(OBC_PROJECT, "r1")
+        obc = self.build_design_bundle(OBC_PROJECT)
+        self.board_sub_ports.create(
+            OBC_PROJECT, "bsp_can", "J2", "CAN", ["3", "4"], actor="owner@example.com",
+        )
+        self.board_sub_ports.create(
+            OBC_PROJECT, "bsp_spare", "J3", "Spare", ["1"], actor="owner@example.com",
+        )
+        document = board_sub_port_document(commit, "bsp_can")
+        self.system_store.create(
+            "sys_a", document, folder_id=None, created_by="owner@example.com", role="admin",
+        )
+
+        first = self.service.bundle("sys_a", CALLER, role="viewer")
+        self.assertEqual(first["state"], "building")
+        self.assertEqual(
+            first["key"],
+            self.expected_key(document, {"occ_obc": obc["bundle_key"]}, [], [],
+                             board_sub_ports={"bsp_can": 1}),
+        )
+        result = self.run_system_job(self.queued_job("system_bundle"))
+        self.assertEqual(result.details["bundle_key"], first["key"])
+
+        invocation = self.system_invocation()
+        written = json.loads(
+            Path(invocation[invocation.index("--board-sub-ports") + 1]).read_text(encoding="utf-8")
+        )
+        schemas.validate(written, "prism.board_sub_ports.a0")
+        self.assertEqual(
+            [(item["id"], item["version"]) for item in written["subPorts"]],
+            [("bsp_can", 1)],
+        )
+
+        # The live definition is what counts: an edit moves the key and builds again.
+        self.board_sub_ports.update(
+            OBC_PROJECT, "bsp_can", name="CAN", pins=["3", "4", "5"],
+            expected_version=1, actor="owner@example.com",
+        )
+        second = self.service.bundle("sys_a", CALLER, role="viewer")
+        self.assertEqual(second["state"], "building")
+        self.assertNotEqual(second["key"], first["key"])
+        self.assertEqual(
+            second["key"],
+            self.expected_key(document, {"occ_obc": obc["bundle_key"]}, [], [],
+                             board_sub_ports={"bsp_can": 2}),
+        )
+        second_result = self.run_system_job(self.queued_job("system_bundle"))
+        self.assertEqual(second_result.details["bundle_key"], second["key"])
+        self.assertTrue(bundle_store.exists("sys_a", second["key"]))
+
+        # An unnamed sub-port is not an input, so editing it keeps the key.
+        self.board_sub_ports.update(
+            OBC_PROJECT, "bsp_spare", name="Spare", pins=["1", "2"],
+            expected_version=1, actor="owner@example.com",
+        )
+        third = self.service.bundle("sys_a", CALLER, role="viewer")
+        self.assertEqual((third["state"], third["key"]), ("ready", second["key"]))
+
+    def test_a_snapshot_stores_and_returns_the_board_sub_ports_it_names(self) -> None:
+        commit = self.add_board(OBC_PROJECT, "r1")
+        self.build_design_bundle(OBC_PROJECT)
+        self.board_sub_ports.create(
+            OBC_PROJECT, "bsp_can", "J2", "CAN", ["3", "4"], actor="owner@example.com",
+        )
+        document = board_sub_port_document(commit, "bsp_can")
+        self.system_store.create(
+            "sys_a", document, folder_id=None, created_by="owner@example.com", role="admin",
+        )
+
+        snapshot = self.system_store.create_snapshot(
+            "sys_a", name="Before wiring", note=None, created_by="owner@example.com",
+        )
+        self.assertEqual(
+            [(item["id"], item["pins"], item["version"])
+             for item in snapshot["boardSubPorts"]["subPorts"]],
+            [("bsp_can", ["3", "4"], 1)],
+        )
+        read = self.system_store.read_snapshot("sys_a", snapshot["snapshot_id"])
+        assert read is not None
+        self.assertEqual(read["boardSubPorts"], snapshot["boardSubPorts"])
+
+        # The snapshot keeps its copy: a later edit never moves it.
+        self.board_sub_ports.update(
+            OBC_PROJECT, "bsp_can", name="CAN", pins=["3", "4", "5"],
+            expected_version=1, actor="owner@example.com",
+        )
+        again = self.system_store.read_snapshot("sys_a", snapshot["snapshot_id"])
+        assert again is not None
+        self.assertEqual(again["boardSubPorts"], snapshot["boardSubPorts"])
 
     def test_a_document_changed_after_queueing_builds_the_current_key(self) -> None:
         commit = self.add_board(OBC_PROJECT, "r1")

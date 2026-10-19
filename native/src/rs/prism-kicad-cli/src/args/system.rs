@@ -1,11 +1,14 @@
-//! `system build`'s repeated options: members, their revision keys and the
-//! absent occurrences (`docs/system-builder/CONTRACTS.md` §8.8).
+//! `system build`'s repeated options: members, their revision keys, the absent
+//! occurrences, board-level sub-ports and published entries
+//! (`docs/system-builder/CONTRACTS.md` §8.8, §10.5, §12.2).
 
-use super::{Outcome, Raw, SystemMemberArg, conflict, is_hex64, usage};
+use super::{Outcome, Raw, SystemEntryArg, SystemMemberArg, conflict, is_hex64, usage};
+use prism_bundle::Failure;
 use std::collections::{BTreeMap, BTreeSet};
 
 /// The options of `system build` (CONTRACTS.md §8.8): `--document`, `-o`,
-/// each member's revision key, and the absent occurrences.
+/// each member's revision key, the absent occurrences, board-level sub-ports
+/// and published entries.
 pub(super) fn check_system(raw: &Raw) -> Outcome<()> {
     if !raw.options.contains_key("document") {
         // `CliArgument` has no `document` value: the message names it.
@@ -24,12 +27,18 @@ pub(super) fn check_system(raw: &Raw) -> Outcome<()> {
 /// `<occurrence>=<value>` of one repeated `system build` option.
 fn occurrence_pair(value: &str, option: &'static str) -> Outcome<(String, String)> {
     // `CliArgument` names the revision key, not the member option.
-    let argument = if option == "member-revision-key" {
-        "revision-key"
-    } else {
-        option
+    let argument = match option {
+        "member" => Some("member"),
+        "member-revision-key" => Some("revision-key"),
+        _ => None,
     };
-    let form = || usage(format!("--{option} takes <occurrence>=<value>")).argument(argument);
+    let form = || {
+        let failure = usage(format!("--{option} takes <occurrence>=<value>"));
+        match argument {
+            Some(argument) => failure.argument(argument),
+            None => failure,
+        }
+    };
     let (occurrence, rest) = value.split_once('=').ok_or_else(form)?;
     if occurrence.is_empty() || rest.is_empty() {
         return Err(form());
@@ -92,9 +101,88 @@ fn system_absent(raw: &Raw, bundles: &BTreeMap<String, String>) -> Outcome<BTree
     Ok(absent)
 }
 
-pub(super) fn system_of(
+/// An `option-conflict` about an option `CliArgument` cannot spell.
+fn option_conflict(message: impl Into<String>) -> Failure {
+    Failure::usage("option-conflict", message)
+}
+
+/// A catalog revision stage: 1 to 32 characters of `[a-z_]` (CONTRACTS.md §12.2).
+fn is_stage(value: &str) -> bool {
+    !value.is_empty()
+        && value.len() <= 32
+        && value
+            .bytes()
+            .all(|byte| byte.is_ascii_lowercase() || byte == b'_')
+}
+
+fn entry_stages(raw: &Raw) -> Outcome<BTreeMap<String, String>> {
+    let mut stages = BTreeMap::new();
+    for value in &raw.entry_stages {
+        let (occurrence, stage) = occurrence_pair(value, "entry-stage")?;
+        if !is_stage(&stage) {
+            return Err(usage("--entry-stage takes 1 to 32 characters of a-z and _"));
+        }
+        if stages.insert(occurrence.clone(), stage).is_some() {
+            return Err(option_conflict(format!(
+                "--entry-stage names {occurrence:?} twice"
+            )));
+        }
+    }
+    Ok(stages)
+}
+
+/// Each `--entry` takes exactly one `--entry-stage` for the same occurrence,
+/// and an occurrence is named by at most one of `--entry`, `--member` and
+/// `--absent`.
+fn system_entries(
     raw: &Raw,
-) -> Outcome<(BTreeMap<String, SystemMemberArg>, BTreeSet<String>)> {
+    bundles: &BTreeMap<String, String>,
+    absent: &BTreeSet<String>,
+) -> Outcome<BTreeMap<String, SystemEntryArg>> {
+    let mut payloads = BTreeMap::new();
+    for value in &raw.entries {
+        let (occurrence, payload) = occurrence_pair(value, "entry")?;
+        if payloads.insert(occurrence.clone(), payload).is_some() {
+            return Err(option_conflict(format!(
+                "--entry names {occurrence:?} twice"
+            )));
+        }
+    }
+    let stages = entry_stages(raw)?;
+    if payloads.keys().ne(stages.keys()) {
+        return Err(option_conflict(
+            "each --entry takes exactly one --entry-stage for the same occurrence",
+        ));
+    }
+    for occurrence in payloads.keys() {
+        if bundles.contains_key(occurrence) {
+            return Err(option_conflict(format!(
+                "{occurrence:?} is both --entry and --member"
+            )));
+        }
+        if absent.contains(occurrence) {
+            return Err(option_conflict(format!(
+                "{occurrence:?} is both --entry and --absent"
+            )));
+        }
+    }
+    Ok(payloads
+        .into_iter()
+        .map(|(occurrence, payload)| {
+            let stage = stages[&occurrence].clone();
+            (occurrence, SystemEntryArg { payload, stage })
+        })
+        .collect())
+}
+
+pub(super) type SystemOptions = (
+    BTreeMap<String, SystemMemberArg>,
+    BTreeSet<String>,
+    Option<String>,
+    BTreeMap<String, SystemEntryArg>,
+);
+
+pub(super) fn system_of(raw: &Raw) -> Outcome<SystemOptions> {
     let bundles = system_bundles(raw)?;
     let keys = system_revision_keys(raw)?;
     if bundles.keys().ne(keys.keys()) {
@@ -104,6 +192,8 @@ pub(super) fn system_of(
         ));
     }
     let absent = system_absent(raw, &bundles)?;
+    let entries = system_entries(raw, &bundles, &absent)?;
+    let board_sub_ports = raw.options.get("board-sub-ports").cloned();
     let members = bundles
         .into_iter()
         .map(|(occurrence, bundle)| {
@@ -117,5 +207,5 @@ pub(super) fn system_of(
             )
         })
         .collect();
-    Ok((members, absent))
+    Ok((members, absent, board_sub_ports, entries))
 }

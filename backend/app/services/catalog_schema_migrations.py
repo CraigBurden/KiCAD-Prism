@@ -393,6 +393,48 @@ def _retire_module_and_assembly(conn: Any) -> None:
     conn.execute("ALTER TABLE components ADD CONSTRAINT components_kind_check CHECK (kind = 'part')")
 
 
+def _system_entries(conn: Any) -> None:
+    """System Builder v2 stage 1c (CONTRACTS.md §11.1): the ``system`` kind and its IPN identity.
+
+    A published system is a catalog component of kind ``system`` whose identity is a final IPN
+    in the ``system`` scope: not the parts' ``provisional_ipn``, which stands in until an MPN
+    exists and blocks release. The two check constraints make both rules structural: an IPN
+    identity can only sit on a system component, and no other kind can be added by accident.
+    """
+    conn.execute("ALTER TABLE components DROP CONSTRAINT IF EXISTS components_kind_check")
+    conn.execute(
+        """
+        ALTER TABLE components
+            ADD CONSTRAINT components_kind_check CHECK (kind IN ('part', 'system'))
+        """
+    )
+    conn.execute(
+        "ALTER TABLE components DROP CONSTRAINT IF EXISTS components_identity_kind_check"
+    )
+    conn.execute(
+        """
+        ALTER TABLE components
+            ADD CONSTRAINT components_identity_kind_check
+            CHECK (identity_kind IN ('mpn', 'provisional_ipn', 'ipn'))
+        """
+    )
+    conn.execute(
+        "ALTER TABLE components DROP CONSTRAINT IF EXISTS components_ipn_system_only"
+    )
+    conn.execute(
+        """
+        ALTER TABLE components
+            ADD CONSTRAINT components_ipn_system_only
+            CHECK (identity_kind <> 'ipn' OR kind = 'system')
+        """
+    )
+    conn.execute(
+        "CREATE UNIQUE INDEX IF NOT EXISTS idx_components_identity_ipn "
+        "ON components(identity_source, normalized_part_number) "
+        "WHERE identity_kind = 'ipn'"
+    )
+
+
 MIGRATIONS: tuple[tuple[int, str, Migration], ...] = (
     (0, "baseline", _baseline),
     (1, "portable_column_types", _portable_column_types),
@@ -408,6 +450,7 @@ MIGRATIONS: tuple[tuple[int, str, Migration], ...] = (
     (11, "asset_file_purge_events", _asset_file_purge_events),
     (12, "project_catalog_placements", _project_catalog_placements),
     (13, "retire_module_and_assembly", _retire_module_and_assembly),
+    (14, "system_entries", _system_entries),
 )
 
 # Migrations that a long-lived branch database recorded under an earlier number.

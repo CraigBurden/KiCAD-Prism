@@ -8,13 +8,21 @@ boards the caller cannot see (§6).
 
 from __future__ import annotations
 
+import json
 from typing import Any, Literal, Optional
 
 from fastapi import APIRouter, Depends, Query, Request, Response
 from pydantic import BaseModel, ConfigDict, Field
 
+from app.api._helpers import authorized_project
 from app.core import errors, policy, preconditions
-from app.core.security import AuthenticatedUser, require_designer, require_viewer
+from app.core.security import (
+    AuthenticatedUser,
+    require_catalog_reader,
+    require_catalog_writer,
+    require_designer,
+    require_viewer,
+)
 from app.services.workspace_service import workspace
 from app.system_builder.service import Caller, ETAG_KIND, SystemService, etag
 from app.system_builder.settings import limits
@@ -56,9 +64,33 @@ class CreateSnapshotRequest(BaseModel):
     note: Optional[str] = None
 
 
+class GitLinkRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    projectId: str = Field(min_length=1)
+    branch: str = Field(min_length=1, max_length=255)
+    path: Optional[str] = Field(default=None, max_length=1024)
+
+
+class GitCommitRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    message: str = Field(min_length=1, max_length=2000)
+
+
+class PublishSystemRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    snapshotId: Optional[str] = Field(default=None, max_length=128)
+    ipn: Optional[str] = Field(default=None, max_length=128)
+    changeSummary: str = Field(min_length=1, max_length=2000)
+
+
 def _caller(user: AuthenticatedUser) -> Caller:
     return Caller(
         email=user.email,
+        name=user.name,
+        role=user.role,
         can_see_project=lambda project_id: workspace.get_project_for_role(project_id, user.role) is not None,
     )
 
@@ -116,7 +148,62 @@ def _snapshot(row: dict[str, Any]) -> dict[str, Any]:
 
 def _snapshot_view(row: dict[str, Any], caller: Caller) -> dict[str, Any]:
     viewed = service.view(row, caller)
-    return {**_snapshot(viewed), "document": viewed["document"], "redacted": viewed["redacted"]}
+    answer = {**_snapshot(viewed), "document": viewed["document"], "redacted": viewed["redacted"]}
+    copied = row.get("boardSubPorts")
+    if copied is not None:
+        # The copy is redacted like the document: definitions on a project the caller cannot see are withheld.
+        answer["boardSubPorts"] = {
+            **copied,
+            "subPorts": [item for item in copied.get("subPorts", []) if caller.can_see_project(item["projectId"])],
+        }
+    if viewed.get("git_commit_job_id"):
+        answer["gitCommitJobId"] = viewed["git_commit_job_id"]
+    return answer
+
+
+def _link_view(row: Optional[dict[str, Any]]) -> Optional[dict[str, Any]]:
+    if row is None:
+        return None
+    return {
+        "projectId": row["project_id"],
+        "branch": row["branch"],
+        "path": row["path"],
+        "lastCommit": row["last_commit"],
+        "lastBlob": row["last_blob"],
+        "lastVersion": row["last_version"],
+        "linkedBy": row["linked_by"],
+        "linkedAt": row["linked_at"],
+    }
+
+
+def _job_view(row: Optional[dict[str, Any]]) -> Optional[dict[str, Any]]:
+    """One commit job in the shape the link screen reads, divergence blob included."""
+
+    if row is None:
+        return None
+    payload = row.get("payload") or {}
+    if isinstance(payload, str):
+        try:
+            payload = json.loads(payload)
+        except ValueError:
+            payload = {}
+    return {
+        "jobId": row.get("job_id") or row.get("id"),
+        "status": row["status"],
+        "errorCode": row.get("error_code"),
+        "errorMessage": row.get("error_message"),
+        "blob": (payload or {}).get("diverged_blob"),
+        "createdAt": row.get("created_at"),
+        "updatedAt": row.get("updated_at"),
+    }
+
+
+def _git_answer(answer: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "systemId": answer["systemId"],
+        "link": _link_view(answer["link"]),
+        "lastJob": _job_view(answer["job"]),
+    }
 
 
 def _bundle(answer: dict[str, Any]) -> dict[str, Any]:
@@ -226,9 +313,8 @@ def create_snapshot(
     system_id: str, body: CreateSnapshotRequest,
     user: AuthenticatedUser = Depends(require_designer),
 ) -> dict[str, Any]:
-    service.read(system_id, _caller(user), role=user.role)
-    created = store.create_snapshot(
-        system_id, name=body.name, note=body.note, created_by=user.email,
+    created = service.snapshot(
+        system_id, _caller(user), role=user.role, name=body.name, note=body.note,
     )
     return _snapshot_view(created, _caller(user))
 
@@ -243,6 +329,88 @@ def read_snapshot(
     if snapshot is None:
         raise errors.NotFound("Snapshot not found")
     return _snapshot_view(snapshot, _caller(user))
+
+
+@router.get("/systems/{system_id}/git")
+def read_system_git(
+    system_id: str, user: AuthenticatedUser = Depends(require_viewer),
+) -> dict[str, Any]:
+    return _git_answer(service.git(system_id, _caller(user), role=user.role))
+
+
+@router.put("/systems/{system_id}/git")
+def link_system_git(
+    system_id: str, body: GitLinkRequest,
+    user: AuthenticatedUser = Depends(require_designer),
+) -> dict[str, Any]:
+    project = authorized_project(user, body.projectId, "design")
+    return _git_answer(
+        service.link_git(
+            system_id, _caller(user), role=user.role, project=project,
+            branch=body.branch, path=body.path,
+        )
+    )
+
+
+@router.delete("/systems/{system_id}/git", status_code=204)
+def unlink_system_git(
+    system_id: str, user: AuthenticatedUser = Depends(require_designer),
+) -> Response:
+    service.unlink_git(system_id, _caller(user), role=user.role)
+    return Response(status_code=204)
+
+
+@router.post("/systems/{system_id}/git/commit", status_code=202)
+def commit_system_git(
+    system_id: str, body: GitCommitRequest, request: Request,
+    user: AuthenticatedUser = Depends(require_designer),
+) -> dict[str, Any]:
+    expected = preconditions.if_match(request, ETAG_KIND, system_id)
+    link = service.link_record(system_id, _caller(user), role=user.role)
+    project = authorized_project(user, str(link["project_id"]), "design")
+    return _git_answer(
+        service.commit_git(
+            system_id, _caller(user), role=user.role, project=project,
+            message=body.message, expected=expected,
+        )
+    )
+
+
+@router.post("/systems/{system_id}/git/import")
+def import_system_git(
+    system_id: str, request: Request, response: Response,
+    user: AuthenticatedUser = Depends(require_designer),
+) -> dict[str, Any]:
+    expected = preconditions.if_match(request, ETAG_KIND, system_id)
+    link = service.link_record(system_id, _caller(user), role=user.role)
+    project = authorized_project(user, str(link["project_id"]), "design")
+    viewed = service.import_git(
+        system_id, _caller(user), role=user.role, project=project, expected=expected,
+    )
+    response.headers["ETag"] = etag(viewed)
+    return _system(viewed)
+
+
+@router.post("/systems/{system_id}/publish")
+def publish_system(
+    system_id: str, body: PublishSystemRequest, request: Request,
+    user: AuthenticatedUser = Depends(require_designer),
+    _catalog_writer: AuthenticatedUser = Depends(require_catalog_writer),
+) -> dict[str, Any]:
+    expected = preconditions.if_match(request, ETAG_KIND, system_id)
+    return service.publish(
+        system_id, _caller(user), role=user.role,
+        expected=expected, snapshot_id=body.snapshotId, ipn=body.ipn,
+        change_summary=body.changeSummary,
+    )
+
+
+@router.get("/catalog/system-entries/{revision_id}")
+def read_system_entry(
+    revision_id: str,
+    user: AuthenticatedUser = Depends(require_catalog_reader),
+) -> dict[str, Any]:
+    return service.entry_view(revision_id, _caller(user), role=user.role)
 
 
 @router.delete("/systems/{system_id}", status_code=204)

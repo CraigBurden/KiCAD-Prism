@@ -1,0 +1,400 @@
+{
+  "schema": "prism.system_entry.a0",
+  "source": {
+    "systemId": "sys_child",
+    "version": 1,
+    "snapshotId": "snap_child",
+    "systemBundleKey": "8baab091a93c82955b7b9c5b14501de298b07c962db4abd0e30171aa3eabab53"
+  },
+  "document": {
+    "schema": "prism.system.v2",
+    "name": "Mini power interface",
+    "sheets": [],
+    "occurrences": [
+      {
+        "id": "occ_power",
+        "label": "Power",
+        "source": {
+          "kind": "board",
+          "projectId": "prj_0000000003c1",
+          "track": {
+            "kind": "pinned",
+            "commit": "0000000000000000000000000000000000000000"
+          }
+        }
+      }
+    ],
+    "subPorts": [
+      {
+        "id": "sub_gnd",
+        "occurrence": "occ_power",
+        "connector": "J8",
+        "name": "sub_gnd",
+        "pins": [
+          "2"
+        ]
+      }
+    ],
+    "dismissedSuggestions": [],
+    "bodyConnectors": [],
+    "mates": [],
+    "harnesses": [],
+    "exports": [
+      {
+        "id": "exp_gnd",
+        "name": "Ground",
+        "site": {
+          "occurrence": "occ_power",
+          "connector": "J8",
+          "subPort": {
+            "kind": "occurrence",
+            "id": "sub_gnd"
+          }
+        },
+        "pinNames": {
+          "2": "GND"
+        }
+      }
+    ],
+    "waivers": [],
+    "layout": {}
+  },
+  "boardSubPorts": {
+    "schema": "prism.board_sub_ports.a0",
+    "subPorts": []
+  },
+  "bundle": {
+    "schema": "prism.system_bundle.a0",
+    "documentSha256": "dd44694a3e4be0dbe680120bd3cbc719af78f100a239033a3f1ef9aa2aee5a94",
+    "occurrences": [
+      {
+        "occurrence": "occ_power",
+        "state": "ready",
+        "revisionKey": "2222222222222222222222222222222222222222222222222222222222222222",
+        "bundleKey": "7aa21c9d61c7fd4f0793acd09dbc4263bdce99fbf1fefdc18cc3c0cdb4e74ca9",
+        "connectors": [
+          {
+            "refdes": "J1",
+            "value": "Conn_01x04",
+            "candidate": true,
+            "pins": [
+              {
+                "pad": "1",
+                "net": "VOUT_28V",
+                "nets": [
+                  "VOUT_28V"
+                ],
+                "pinName": "Pin_1",
+                "pinType": "passive",
+                "power": false
+              },
+              {
+                "pad": "2",
+                "net": "GND",
+                "nets": [
+                  "GND"
+                ],
+                "pinName": "Pin_2",
+                "pinType": "passive",
+                "power": true
+              },
+              {
+                "pad": "3",
+                "net": "/PG_OUT",
+                "nets": [
+                  "/PG_OUT"
+                ],
+                "pinName": "Pin_3",
+                "pinType": "passive",
+                "power": false
+              },
+              {
+                "pad": "4",
+                "net": "/EN_IN",
+                "nets": [
+                  "/EN_IN"
+                ],
+                "pinName": "Pin_4",
+                "pinType": "passive",
+                "power": false
+              }
+            ]
+          },
+          {
+            "refdes": "J3",
+            "value": "Conn_Split_2x2",
+            "candidate": true,
+            "pins": [
+              {
+                "pad": "1",
+                "net": "/AUX1",
+                "nets": [
+                  "/AUX1"
+                ],
+                "pinName": "A1",
+                "pinType": "passive",
+                "power": false
+              },
+              {
+                "pad": "2",
+                "net": "/AUX2",
+                "nets": [
+                  "/AUX2"
+                ],
+                "pinName": "A2",
+                "pinType": "passive",
+                "power": false
+              },
+              {
+                "pad": "3",
+                "net": "/PAY_PWR",
+                "nets": [
+                  "/PAY_PWR"
+                ],
+                "pinName": "B1",
+                "pinType": "passive",
+                "power": false
+              },
+              {
+                "pad": "4",
+                "net": "GND",
+                "nets": [
+                  "GND"
+                ],
+                "pinName": "B2",
+                "pinType": "passive",
+                "power": true
+              }
+            ]
+          },
+          {
+            "refdes": "J8",
+            "value": "Conn_01x02",
+            "candidate": true,
+            "pins": [
+              {
+                "pad": "1",
+                "net": "/DEBUG_TX",
+                "nets": [
+                  "/DEBUG_TX"
+                ],
+                "pinName": "Pin_1",
+                "pinType": "passive",
+                "power": false
+              },
+              {
+                "pad": "2",
+                "net": "GND",
+                "nets": [
+                  "GND"
+                ],
+                "pinName": "Pin_2",
+                "pinType": "passive",
+                "power": true
+              }
+            ]
+          }
+        ]
+      }
+    ],
+    "nets": [
+      {
+        "id": "net-20661faf56133a89",
+        "name": "/AUX1",
+        "names": [
+          "/AUX1"
+        ],
+        "boardNets": [
+          {
+            "occurrence": "occ_power",
+            "net": "/AUX1"
+          }
+        ],
+        "pins": [
+          {
+            "occurrence": "occ_power",
+            "connector": "J3",
+            "pad": "1"
+          }
+        ]
+      },
+      {
+        "id": "net-4cb39c47aa5c65d7",
+        "name": "/EN_IN",
+        "names": [
+          "/EN_IN"
+        ],
+        "boardNets": [
+          {
+            "occurrence": "occ_power",
+            "net": "/EN_IN"
+          }
+        ],
+        "pins": [
+          {
+            "occurrence": "occ_power",
+            "connector": "J1",
+            "pad": "4"
+          }
+        ]
+      },
+      {
+        "id": "net-640598e1e687ec6c",
+        "name": "/AUX2",
+        "names": [
+          "/AUX2"
+        ],
+        "boardNets": [
+          {
+            "occurrence": "occ_power",
+            "net": "/AUX2"
+          }
+        ],
+        "pins": [
+          {
+            "occurrence": "occ_power",
+            "connector": "J3",
+            "pad": "2"
+          }
+        ]
+      },
+      {
+        "id": "net-742db926601f2778",
+        "name": "VOUT_28V",
+        "names": [
+          "VOUT_28V"
+        ],
+        "boardNets": [
+          {
+            "occurrence": "occ_power",
+            "net": "VOUT_28V"
+          }
+        ],
+        "pins": [
+          {
+            "occurrence": "occ_power",
+            "connector": "J1",
+            "pad": "1"
+          }
+        ]
+      },
+      {
+        "id": "net-a0084416efa95a48",
+        "name": "/DEBUG_TX",
+        "names": [
+          "/DEBUG_TX"
+        ],
+        "boardNets": [
+          {
+            "occurrence": "occ_power",
+            "net": "/DEBUG_TX"
+          }
+        ],
+        "pins": [
+          {
+            "occurrence": "occ_power",
+            "connector": "J8",
+            "pad": "1"
+          }
+        ]
+      },
+      {
+        "id": "net-a97912d2a52926ef",
+        "name": "GND",
+        "names": [
+          "GND"
+        ],
+        "boardNets": [
+          {
+            "occurrence": "occ_power",
+            "net": "GND"
+          }
+        ],
+        "pins": [
+          {
+            "occurrence": "occ_power",
+            "connector": "J1",
+            "pad": "2"
+          },
+          {
+            "occurrence": "occ_power",
+            "connector": "J3",
+            "pad": "4"
+          },
+          {
+            "occurrence": "occ_power",
+            "connector": "J8",
+            "pad": "2"
+          }
+        ]
+      },
+      {
+        "id": "net-be61394dc1f3b717",
+        "name": "/PAY_PWR",
+        "names": [
+          "/PAY_PWR"
+        ],
+        "boardNets": [
+          {
+            "occurrence": "occ_power",
+            "net": "/PAY_PWR"
+          }
+        ],
+        "pins": [
+          {
+            "occurrence": "occ_power",
+            "connector": "J3",
+            "pad": "3"
+          }
+        ]
+      },
+      {
+        "id": "net-cfa3f1a0ebcc8d93",
+        "name": "/PG_OUT",
+        "names": [
+          "/PG_OUT"
+        ],
+        "boardNets": [
+          {
+            "occurrence": "occ_power",
+            "net": "/PG_OUT"
+          }
+        ],
+        "pins": [
+          {
+            "occurrence": "occ_power",
+            "connector": "J1",
+            "pad": "3"
+          }
+        ]
+      }
+    ],
+    "mates": [],
+    "links": [],
+    "splices": [],
+    "suggestions": [],
+    "findings": []
+  },
+  "interface": {
+    "exports": [
+      {
+        "id": "exp_gnd",
+        "name": "Ground",
+        "occurrence": "occ_power",
+        "connector": "J8",
+        "pins": [
+          {
+            "pad": "2",
+            "name": "GND",
+            "net": "net-a97912d2a52926ef",
+            "signal": "GND"
+          }
+        ],
+        "subPort": {
+          "kind": "occurrence",
+          "id": "sub_gnd"
+        }
+      }
+    ]
+  }
+}

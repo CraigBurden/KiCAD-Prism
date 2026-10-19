@@ -4,6 +4,8 @@
 //! states — and every exit code of the checks.
 
 mod support;
+#[path = "support/system_1c.rs"]
+mod system_1c;
 
 use prism_bundle::zip::ZipWriter;
 use prism_bundle::{BundleReader, Limits, Work};

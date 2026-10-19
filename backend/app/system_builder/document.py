@@ -146,6 +146,16 @@ def objects(document: Mapping[str, Any]) -> Iterator[tuple[str, Optional[str], M
                 yield collection, harness["id"], item
 
 
+def sub_port_endpoints(document: Mapping[str, Any]) -> list[dict[str, Any]]:
+    """Every endpoint that may name a sub-port: export sites and both sides of each link."""
+
+    endpoints = [export["site"] for export in document["exports"]]
+    for harness in document["harnesses"]:
+        for link in harness["links"]:
+            endpoints += [link["a"], link["b"]]
+    return endpoints
+
+
 def all_ids(document: Mapping[str, Any]) -> set[str]:
     return {item["id"] for _, _, item in objects(document)}
 

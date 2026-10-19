@@ -15,6 +15,7 @@
 
 pub mod build;
 pub mod context;
+pub mod entry;
 pub mod findings;
 pub mod input;
 pub mod mapping;

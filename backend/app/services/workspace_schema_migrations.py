@@ -50,6 +50,8 @@ from app.services.workspace_migrations import m123_drop_system_builder_v1
 from app.services.workspace_migrations import m124_drop_mesh_viewer_readiness
 from app.services.workspace_migrations import m125_system_builder_v2
 from app.services.workspace_migrations import m126_system_bundles
+from app.services.workspace_migrations import m127_board_sub_ports
+from app.services.workspace_migrations import m128_system_publishing_and_git
 
 
 Migration = Callable[[Any], None]
@@ -95,6 +97,8 @@ MIGRATIONS: tuple[tuple[int, str, Migration], ...] = (
     (124, "drop_mesh_viewer_readiness", m124_drop_mesh_viewer_readiness.migrate),
     (125, "system_builder_v2", m125_system_builder_v2.migrate),
     (126, "system_bundles", m126_system_bundles.migrate),
+    (127, "board_sub_ports", m127_board_sub_ports.migrate),
+    (128, "system_publishing_and_git", m128_system_publishing_and_git.migrate),
 )
 
 # Migrations that a long-lived branch database recorded under an earlier number.

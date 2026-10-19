@@ -18,8 +18,10 @@ from dataclasses import dataclass
 from typing import Any, Mapping, Sequence
 
 from app.services.catalog.metadata_normalization import (
+    IDENTITY_KIND_IPN,
     IDENTITY_KIND_MPN,
     IDENTITY_KIND_PROVISIONAL_IPN,
+    IPN_SCOPE_SYSTEM,
     normalize_identity_value,
 )
 
@@ -43,6 +45,13 @@ class ComponentIdentity:
         identity_source: str = "",
         source_internal_part_number: str = "",
     ) -> "ComponentIdentity":
+        if identity_kind == IDENTITY_KIND_IPN:
+            return cls(
+                kind=identity_kind,
+                manufacturer="",
+                source=identity_source or IPN_SCOPE_SYSTEM,
+                part_number=normalize_identity_value(source_internal_part_number),
+            )
         if identity_kind == IDENTITY_KIND_PROVISIONAL_IPN:
             return cls(
                 kind=identity_kind,

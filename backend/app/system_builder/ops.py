@@ -26,6 +26,7 @@ from app.system_builder.document import (
     clone,
     empty_harness,
     find,
+    sub_port_endpoints,
 )
 from app.system_builder.inverse import inverse_of
 
@@ -57,11 +58,14 @@ def apply(
     seen_ids: Iterable[str],
     limits: integrity.Limits,
     undo: bool = False,
+    importing: bool = False,
 ) -> Applied:
     """Apply ``ops`` to ``document`` as one transaction.
 
     ``seen_ids`` are every id the document has ever held; a new object may not
-    reuse one unless ``undo`` (restoring under the old id, §3.3).
+    reuse one unless ``undo`` (restoring under the old id, §3.3). Only the Git
+    import route passes ``importing``, and its request is one
+    ``import-document`` op (§13.3).
     """
 
     try:
@@ -70,6 +74,11 @@ def apply(
         raise OpRefused(error.pointer, str(error)) from None
     if len(ops) > limits.ops_per_request:
         raise OpRefused("/ops", f"{len(ops)} operations; the limit is {limits.ops_per_request}")
+    imports = [index for index, op in enumerate(ops) if op["kind"] == "import-document"]
+    if imports and not importing:
+        raise OpRefused(f"/ops/{imports[0]}/kind", "import-document is issued only by the Git import route")
+    if importing and (len(ops) != 1 or imports != [0]):
+        raise OpRefused("/ops", "an import is one import-document operation")
 
     before = clone(document)
     after = clone(document)
@@ -261,6 +270,38 @@ def _acknowledge_changes(document: dict[str, Any], op: dict[str, Any], **_: Any)
     track["reviewedCommit"] = track["commit"]
 
 
+def _promote_sub_port(document: dict[str, Any], op: dict[str, Any], **_: Any) -> None:
+    """The document's half of a promotion (§10.5); the service creates the board-level record."""
+
+    sub_port = find(document, "subPorts", op["subPort"])
+    if sub_port is None:
+        raise OpRefused("/subPort", f"no sub-port {op['subPort']!r}")
+    if sub_port.get("promotedTo"):
+        raise OpRefused("/subPort", f"{op['subPort']!r} was already promoted to {sub_port['promotedTo']!r}")
+    sub_port["promotedTo"] = op["boardSubPort"]
+    for endpoint in sub_port_endpoints(document):
+        ref = endpoint.get("subPort")
+        if ref and ref["kind"] == "occurrence" and ref["id"] == op["subPort"]:
+            endpoint["subPort"] = {"kind": "board", "id": op["boardSubPort"], "version": 1}
+
+
+def _acknowledge_sub_port(document: dict[str, Any], op: dict[str, Any], **_: Any) -> None:
+    named = [
+        endpoint["subPort"]
+        for endpoint in sub_port_endpoints(document)
+        if endpoint.get("subPort", {}).get("kind") == "board" and endpoint["subPort"]["id"] == op["subPort"]
+    ]
+    if not named:
+        raise OpRefused("/subPort", f"no endpoint names the board-level sub-port {op['subPort']!r}")
+    for ref in named:
+        ref["version"] = op["version"]
+
+
+def _import_document(document: dict[str, Any], op: dict[str, Any], **_: Any) -> None:
+    document.clear()
+    document.update(clone(op["document"]))
+
+
 SEMANTIC = {
     "set-system-info": _set_system_info,
     "connect-harness": _connect_harness,
@@ -270,4 +311,7 @@ SEMANTIC = {
     "remove-layout": _remove_layout,
     "advance-occurrence": _advance_occurrence,
     "acknowledge-changes": _acknowledge_changes,
+    "promote-sub-port": _promote_sub_port,
+    "acknowledge-sub-port": _acknowledge_sub_port,
+    "import-document": _import_document,
 }

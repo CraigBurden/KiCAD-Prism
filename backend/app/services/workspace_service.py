@@ -21,6 +21,7 @@ from app.core.roles import Role
 from app.services.postgres_database import database
 from app.services.project_settings_service import import_working_tree_settings, restore_committed_prism_json
 from app.services.workspace_schema_migrations import WORKSPACE_LEDGER
+from app.system_builder.board_sub_ports import soft_delete_project_on
 
 logger = logging.getLogger(__name__)
 
@@ -529,6 +530,7 @@ class WorkspaceService:
 
     def _purge_project_associated_rows(self, conn: Any, project_id: str) -> None:
         """Drop RESTRICT/immutable rows that would otherwise block DELETE."""
+        soft_delete_project_on(conn, project_id, "system")
         for table, trigger in _RELEASE_IMMUTABLE_TRIGGERS:
             conn.execute(f"ALTER TABLE {table} DISABLE TRIGGER {trigger}")
         try:

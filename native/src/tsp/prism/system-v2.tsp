@@ -167,6 +167,14 @@ model SystemBoardSubPortRef {
 
   /** The board-level sub-port's id. */
   id: SystemObjectId;
+
+  /**
+   * The definition's version the user last saw. The live definition is always
+   * used; a newer one with different pins is a `board-sub-port-changed`
+   * finding until `acknowledge-sub-port` (CONTRACTS.md §10.5).
+   */
+  @minValue(1)
+  version: int32;
 }
 
 /** Which sub-port of a connector an endpoint names. */

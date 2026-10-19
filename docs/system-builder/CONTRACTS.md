@@ -1,7 +1,7 @@
 # System Builder v2 contracts
 
-- **Status:** draft, stages 1a–1b. The design is [ADR: System Builder v2](../architecture/adr-system-builder-v2.md); this file is its contract layer.
-- **Covers:** the `prism.system.v2` document (§2), the `prism.system.ops.a0` operations (§3), storage (§4), the HTTP API (§5), permissions and redaction (§6) and limits (§7). The system bundle, `prism.system_bundle.a0`, and the `prism-kicad system build` command that writes it are §8; its findings are §9.
+- **Status:** draft, stages 1a–1c. The design is [ADR: System Builder v2](../architecture/adr-system-builder-v2.md); this file is its contract layer.
+- **Covers:** the `prism.system.v2` document (§2), the `prism.system.ops.a0` operations (§3), storage (§4), the HTTP API (§5), permissions and redaction (§6) and limits (§7). The system bundle, `prism.system_bundle.a0`, and the `prism-kicad system build` command that writes it are §8; its findings are §9. Stage 1c adds board-level sub-ports (§10).
 - **Authority:** the TypeSpec in `native/src/tsp/prism/system-v2.tsp`, `system-ops-a0.tsp`, `system-bundle-a0.tsp` and `cli-system-a0.tsp`, with JSON Schema generated beside the bundle contracts. Python validates against the generated schema; the stage 1b Rust reads the generated types. This file explains the rules the schema cannot state.
 
 ## 1. Rules for the whole document
@@ -39,7 +39,7 @@ source (oneOf):
   { kind: "board", projectId, track }
      track: { kind: "pinned", commit }
           | { kind: "followed", branch, commit, reviewedCommit? }
-  { kind: "entry", componentId, revisionId }    a published system (1c)
+  { kind: "entry", componentId, revisionId }    a published system (§12)
   { kind: "body",  componentId, revisionId }    a mechanical catalog part
 ```
 
@@ -55,10 +55,10 @@ Everything that connects names an endpoint:
 ```
 Endpoint { occurrence, connector, subPort? }
   connector: the connector's reference designator on that board (or body connector, §2.7)
-  subPort:   { kind: "occurrence", id } | { kind: "board", id }
+  subPort:   { kind: "occurrence", id } | { kind: "board", id, version }   board: §10.5
 ```
 
-An endpoint without `subPort` means the whole connector. Pins are pad numbers as strings (`"1"`, `"A4"`).
+An endpoint without `subPort` means the whole connector. Pins are pad numbers as strings (`"1"`, `"A4"`). On a published entry, `connector` is an export id (§12.1).
 
 ### 2.3 Sub-ports
 
@@ -68,9 +68,9 @@ SubPort { id, occurrence, connector, name, pins[], suggestion?, promotedTo? }
 
 - `pins` are pad numbers in the user's order: the order they were selected in, or the suggestion's order. Sub-ports may overlap.
 - `suggestion` is the key of the bundle suggestion it was accepted from, for example `unit:2`, `bus:CAN`, `sheet:/Power/`, `family:I2C`, `power`. Keys are defined with the system bundle (1b).
-- `promotedTo` is set when the sub-port was promoted to the board (1c); endpoints that used it then point at the board-level id.
+- `promotedTo` is set when the sub-port was promoted to the board (§10.5); endpoints that used it then point at the board-level id.
 - A dismissed suggestion is stored in `dismissedSuggestions` so it stays dismissed; restoring it removes the entry.
-- Board-level sub-ports live outside the document, Prism-side against the project and connector (1c). The document refers to them only through endpoints.
+- Board-level sub-ports live outside the document, Prism-side against the project and connector (§10). The document refers to them only through endpoints.
 
 ### 2.4 B2B mates
 
@@ -128,7 +128,7 @@ Export { id, name, site: Endpoint, pinNames: Record<pad, string> }
 Waiver { id, code, subject, reason }
 ```
 
-- An export makes a connector or sub-port part of the system's interface when published (1c). `pinNames` renames pins for that interface.
+- An export makes a connector or sub-port part of the system's interface when published (§11.1). `pinNames` renames pins for that interface.
 - A waiver silences one finding: `code` is the finding code, `subject` the finding's subject key, both defined with the findings catalogue (1b).
 
 ### 2.7 Board-less systems
@@ -173,9 +173,11 @@ Each op is `{ kind: "<name>", … }`. Collections get `add-`, `replace-` and `re
 | waivers | `add-waiver`, `remove-waiver` | — |
 | layout | `set-layout { item, placement }`, `remove-layout { item }` | — |
 | tracking | `advance-occurrence { occurrence, commit }`, `acknowledge-changes { occurrence }` | — |
+| board-level sub-ports (§10.5) | `promote-sub-port { subPort, boardSubPort }`, `acknowledge-sub-port { subPort, version }` | — |
+| Git (§13.3) | `import-document { document }`, issued only by the import route | — |
 
 - `connect-harness { harness?, newHarness?, newEnds, link }` is the schematic gesture. It uses `harness`, or the block either side's connector already belongs to, or creates `newHarness`; it adds an end (with the id `newEnds.a` or `newEnds.b`) for each side whose connector has no end in that block, then adds the link. Every link drawn from one connector joins that connector's existing harness block (ADR §2.4); naming a different block is refused.
-- Validation is document-local: references resolve to objects of the right kind, ids are unique, enums and units are in range, and the §7 limits hold. Whether a connector or pin exists on the board is the system bundle's job (§1).
+- Validation is document-local: references resolve to objects of the right kind, ids are unique, enums and units are in range, and the §7 limits hold. Whether a connector or pin exists on the board is the system bundle's job (§1). Three ops also check outside the document when applied: `promote-sub-port` (the caller's right on the project, §10.5), an occurrence set to a published entry (§12.1) and `import-document` (only from its route).
 
 ### 3.3 Undo (recorded inverse)
 
@@ -199,7 +201,7 @@ Workspace schema, one migration (125):
 | `ws_system_ops` | `system_id`, `version`, `ops`, `inverse`, `actor`, `kind` (`edit`, `undo`, `system`), `undoes`, `touched` (the object ids changed), `created_at` |
 | `ws_system_snapshots` | `snapshot_id`, `system_id`, `version`, `name`, `note`, `document`, `created_by`, `created_at` |
 
-- There is no table per concept (ADR §3.1). Board-level sub-ports (1c) and the system bundle cache (1b) add their own tables.
+- There is no table per concept (ADR §3.1). Board-level sub-ports (§10.3, migration 127) and the system bundle cache (1b, migration 126) add their own tables. Migration 128 adds `ws_systems.catalog_component_id`, `ws_system_snapshots.board_sub_ports` (§10.5), `ws_system_publications` (§11.2) and `ws_system_git_links` (§13.1).
 - `touched` makes the undo conflict check a set intersection.
 - A snapshot is the document at a version, copied, so it outlives log retention. Deleting a system is a soft delete.
 
@@ -215,6 +217,10 @@ Workspace schema, one migration (125):
 | `GET /api/systems/{id}/history` | the log, newest first, paged |
 | `GET`, `POST /api/systems/{id}/snapshots`; `GET …/snapshots/{snapshotId}` | list, take and read snapshots |
 | `DELETE /api/systems/{id}` | soft delete; owner or admin |
+| `POST /api/systems/{id}/publish` | publish to the catalog (§11.2) |
+| `PUT`, `DELETE /api/systems/{id}/git`; `POST …/git/commit`, `POST …/git/import` | the Git link (§13) |
+| `/api/projects/{projectId}/sub-ports…` | board-level sub-ports (§10.4) |
+| `GET /api/catalog/system-entries/{revisionId}` | a published entry's insides (§12.3) |
 
 Reads need `read`; writes need `design` (`app/core/policy.py`).
 
@@ -247,8 +253,8 @@ Derived state (ADR §3.3). It is a pure function of the document and the design 
 
 - **The document,** canonical JSON. Its SHA-256 is `documentSha256`.
 - **One design bundle per board occurrence whose bundle has stage `parse` complete.** It reads `projections/system-interface.json` (connectors, pins, pin nets, names and types, power nets, pad geometry and board thickness) and `projections/semantic-index.json` (bus aliases, nets' source sheets). B2B geometry reads `system-interface.json`'s pad geometry, the form the kept placement maths and their goldens use. This amends the ADR's mention of `placements.json` for pads; the maintainer chose it so the goldens replay unchanged.
-- **The system bundle key** is SHA-256 over the canonical JSON `{documentSha256, generator, members: {occurrence: bundleKey}, absent: [occurrence], pending: [occurrence]}`. A new document version with the same content, such as one restored by an undo, reuses the bundle.
-- Published entries (1c) and body connectors' pins (stage 3) are not inputs yet. Their occurrences are reported with the state `unsupported`.
+- **The system bundle key** is SHA-256 over the canonical JSON `{documentSha256, generator, members: {occurrence: bundleKey}, absent: [occurrence], pending: [occurrence], boardSubPorts: {id: version}, entries: {occurrence: {payload, stage}}}`; 1c adds the last two (§10.5, §12.2), always present. A new document version with the same content, such as one restored by an undo, reuses the bundle.
+- **Board-level sub-ports** the document names, as `--board-sub-ports` (§10.5), and **published entries' payloads**, as `--entry` (§12.2), from 1c. Body connectors' pins are not inputs until stage 3; body occurrences are reported with the state `unsupported`.
 
 ### 8.2 Occurrences
 
@@ -258,7 +264,7 @@ Derived state (ADR §3.3). It is a pure function of the document and the design 
   - `ready`: its bundle was read;
   - `pending`: its bundle is not built yet;
   - `absent`: the project is not present at that commit;
-  - `unsupported`: a published entry or body, until their stages;
+  - `unsupported`: a body, until stage 3;
   - `redacted`: only in an API read, for an occurrence whose project the reader cannot see (§6); its keys and connectors are withheld. A stored bundle never holds it.
 - `connectors` (ready boards only) lists the board's connectors in natural reference order: the components `system-interface.json` marks `candidate`, plus any component a document endpoint names. Each is `{ refdes, value, mpn?, candidate, pins[] }`. Each pin, in natural pad order, is `{ pad, net?, nets[], pinName?, pinType?, power }`. `net` is the pin's first schematic net. This is the per-occurrence view the schematic and harness UI draw from, so a reader needs only the system bundle.
 
@@ -319,7 +325,9 @@ Symbol units are not suggested yet: the bundle does not record which unit owns a
 ```text
 prism-kicad system build --document <system.json>
             [--member <occurrence>=<bundle.prism> --member-revision-key <occurrence>=<hex>]...
-            [--absent <occurrence>]... -o <system-bundle.json> [COMMON]
+            [--absent <occurrence>]... [--board-sub-ports <board-sub-ports.json>]
+            [--entry <occurrence>=<system-entry.json> --entry-stage <occurrence>=<stage>]...
+            -o <system-bundle.json> [COMMON]
 ```
 
 - **`--member`** gives a board occurrence's stored design bundle. The revision key is its identity, as in `compare`, because a bundle may serve several keys. A board occurrence with neither `--member` nor `--absent` is `pending`.
@@ -329,6 +337,7 @@ prism-kicad system build --document <system.json>
   3. Each `--member` names a board occurrence of the document (exit 7, `occurrence-mismatch`).
   4. All members share one generator id (exit 7, `generator-mismatch`).
   5. Each member's stage `parse` holds both members (exit 7, `member-not-found`).
+  6. From 1c: `--board-sub-ports` validates against `prism.board_sub_ports.a0`, and each `--entry` against `prism.system_entry.a0` (exit 3, `input-invalid`; the message names `board-sub-ports` or `entry:<occurrence>`, because `CliArgument` has no value for them); each `--entry` names an entry occurrence of the document (exit 7, `occurrence-mismatch`). Without `--board-sub-ports`, every board-level reference is `board-sub-port-missing`.
 - **Output.** `-o` receives the `SystemBundleA0`, written atomically, with stdout giving `CliSystemResultA0` (the bundle key and per-section counts). The same inputs give byte-identical output.
 - **Exit codes:** 0, or 1–7 as in `cli-spec.md` §4.
 
@@ -338,13 +347,13 @@ Each code has a fixed severity:
 - **error** blocks publishing an in-house entry, unless waived (a clean snapshot is one with no unwaived error);
 - **warning** and **info** never block.
 
-Waivers apply to warnings and errors.
+Waivers apply to warnings and errors. Stage 1c adds the codes of §10.5 and §12.2.
 
 | Code | Severity | Subject | When |
 |---|---|---|---|
 | `occurrence-pending` | info | `occurrence:<id>` | the board's design bundle is not built yet; its connections are not checked |
 | `occurrence-absent` | error | `occurrence:<id>` | the project is not present at the occurrence's commit |
-| `occurrence-unsupported` | info | `occurrence:<id>` | a published entry or body, checked from its stage on |
+| `occurrence-unsupported` | info | `occurrence:<id>` | a body, checked from stage 3 on |
 | `connector-missing` | error | `connector:<occ>/<refdes>` | an endpoint, site or sub-port names a reference the board does not have |
 | `not-a-connector` | warning | `connector:<occ>/<refdes>` | the named component is not detected as a connector |
 | `pin-missing` | error | `pin:<occ>/<refdes>/<pad>` | a sub-port, pin map, manual map or explicit wire names a pad the connector lacks |
@@ -359,3 +368,169 @@ Waivers apply to warnings and errors.
 | `net-name-conflict` | warning | `net:<id>` | one system net carries board nets with different names, compared by leaf name after the sheet path with `.` read as `_` (automatic names aside); not raised when `power-net-conflict` is |
 | `power-net-conflict` | warning | `net:<id>` | one system net joins power nets of different names (a board may name the same rail differently, so it does not block) |
 
+
+## 10. Board-level sub-ports (1c)
+
+A board-level sub-port is a board's published pin group: a named, ordered set of one connector's pads, stored against the project and connector and shared by every system that places the board (ADR §2.3). It lives outside every system document, in the workspace.
+
+### 10.1 The record
+
+```
+BoardSubPort { id, projectId, connector, name, pins[], version,
+               createdBy, createdAt, updatedBy, updatedAt, deletedAt?, deletedBy? }
+```
+
+The HTTP API returns this record in camelCase, times as RFC 3339 UTC. It is not a schema'd contract, because contracts carry no wall-clock time; the build input of §10.5 is.
+
+- `id` matches the document id pattern (§1) and is chosen by the caller (`bsp_<10 random base32>` from the UI). It is unique across the workspace and never reused, even after a delete.
+- `connector` is a reference designator and never changes; regrouping another connector's pins is a new sub-port.
+- `pins` are pad numbers in the user's order, unique, at least one. Whether they exist on the board is not checked on write, because the board changes underneath: a revision that drops a pin gives `pin-missing` in every system that uses it (§9).
+- `name` is 1–64 characters, unique among the live sub-ports of one project and connector.
+- `version` starts at 1 and bumps on every change, including the delete.
+- **A delete is soft:** the row stays, with `deletedAt`, so a system using it can say what was deleted (`board-sub-port-deleted`, §10.5). A deleted sub-port cannot be edited or restored; create a new one.
+
+### 10.2 Permissions
+
+- **Read** a project's sub-ports: `read` on the project (`app.api._helpers.authorized_project`).
+- **Create, change, delete or promote into:** `design` on the project, which with folder visibility is what "project editor" means in Prism today. A system author without it keeps the group at occurrence level.
+- A system whose reader cannot see an occurrence's project redacts that occurrence's endpoints as today (§6), board-level ones included.
+
+### 10.3 Storage
+
+Workspace migration 127:
+
+| Table | Holds |
+|---|---|
+| `ws_board_sub_ports` | `sub_port_id` (primary key), `project_id`, `connector`, `name`, `pins` (jsonb), `version`, `created_by`, `created_at`, `updated_by`, `updated_at`, `deleted_at`, `deleted_by`; indexed on `(project_id, connector)` |
+| `ws_board_sub_port_history` | `sub_port_id`, `version`, `action` (`create`, `update`, `delete`), `name`, `pins`, `actor`, `created_at`; primary key `(sub_port_id, version)` |
+
+- Name uniqueness among live rows is a partial unique index on `(project_id, connector, name) WHERE deleted_at IS NULL`.
+- Every change writes the row and its history entry in one transaction. History is kept for as long as the row.
+- Removing a project from the workspace soft-deletes its sub-ports.
+
+### 10.4 HTTP API
+
+| Route | Does |
+|---|---|
+| `GET /api/projects/{projectId}/sub-ports` | the live sub-ports, by connector then name; `?connector=` filters, `?deleted=true` adds the deleted ones |
+| `GET /api/projects/{projectId}/sub-ports/{id}` | one record, deleted or not, with `ETag: "board-sub-port:<id>:<version>"` |
+| `POST /api/projects/{projectId}/sub-ports` | create `{ id, connector, name, pins }`; `201` with the record and its ETag |
+| `PUT /api/projects/{projectId}/sub-ports/{id}` | change `{ name, pins }` under `If-Match` |
+| `DELETE /api/projects/{projectId}/sub-ports/{id}` | soft delete under `If-Match` |
+| `GET /api/projects/{projectId}/sub-ports/{id}/history` | every version, newest first |
+
+- `If-Match` follows §3.1: missing is `428`, another version `412 stale_version`.
+- Refusals: `409 board_sub_port_exists` (the id was ever used), `409 board_sub_port_name_taken`, `409 board_sub_port_deleted` (change or delete of a deleted one), `422 board_sub_port_invalid` (id pattern, empty or repeated pins, name length, limits), `404` (unknown id, another project's id, or a project the caller cannot see).
+- Limits, as settings: 1,024 pins per sub-port and 2,000 live sub-ports per project.
+
+### 10.5 Use in a system
+
+- **Reference.** An endpoint names one as `subPort: { kind: "board", id, version }`. `version` is the definition the user last saw, not a pin: the system always uses the live definition (ADR §2.3, maintainer decision 2026-10-20). Document validation stays local (§3.2): the server does not look the id up when an op is applied.
+- **Promotion.** `promote-sub-port { subPort, boardSubPort }` turns the occurrence-level sub-port `subPort` into a new board-level one with the id `boardSubPort`, the same connector, name and pins, at version 1. In the same transaction it sets `promotedTo` on the occurrence-level sub-port and repoints every endpoint that named it to `{ kind: "board", id: boardSubPort, version: 1 }`. It needs `design` on the occurrence's project, or it is refused `403 board_sub_port_forbidden`; a taken name is `409 board_sub_port_name_taken`. Undoing it restores the document; the board-level sub-port stays, because other systems may already use it.
+- **Acknowledgement.** `acknowledge-sub-port { subPort, version }` sets `version` on every endpoint of the document that names the board-level sub-port `subPort`. It is how the user accepts a change.
+- **Build input.** The system bundle reads the board-level sub-ports its document names, deleted ones included, as one `prism.board_sub_ports.a0` file (`native/src/tsp/prism/board-sub-ports-a0.tsp`) passed to `prism-kicad system build --board-sub-ports <file>`: `{ schema, subPorts: [{ id, projectId, connector, name, pins, version, deleted, previous }] }`, sorted by id. `previous` holds `{ version, pins }` for each earlier version an endpoint of the document names, read from the history, so a change of pins can be told from a rename. §8.1's key gains `boardSubPorts: { id: version }`, always present, so editing a board-level sub-port rebuilds every system that uses it.
+- **Snapshots and published entries** copy the definitions they use at their version into the snapshot row (`ws_system_snapshots.board_sub_ports`, jsonb, the same `prism.board_sub_ports.a0` document). A snapshot's bundle is built from that copy, so a later edit never moves a release.
+
+| Code | Severity | Subject | When |
+|---|---|---|---|
+| `board-sub-port-missing` | error | `sub-port:<id>` | no board-level sub-port has that id, or it belongs to another project or connector than the endpoint's; the endpoint has no pins |
+| `board-sub-port-deleted` | error | `sub-port:<id>` | it was deleted; the endpoint has no pins, so its links break (shown red) |
+| `board-sub-port-changed` | warning | `sub-port:<id>` | the live version is newer than an endpoint's `version` and its pins or their order differ; the message lists the pins added, removed and moved. A rename alone is not a finding |
+
+## 11. Publishing (1c)
+
+Publishing a system makes a catalog entry of kind `system` whose interface is the system's exports (ADR §2.1). In 1c only **in-house** entries publish; bought-out entries need bodies and publish from stage 3. Publishing goes through the catalog's ordinary workflow (maintainer decision 2026-10-20).
+
+### 11.1 What a published revision holds
+
+- **The catalog component** has `kind: "system"` (catalog migration 14 widens `components_kind_check` to `part` and `system`) and an IPN identity: a new identity kind `ipn` with scope `system`, allowed only on `system` components. It is not the parts' `provisional_ipn`, which stands in until an MPN exists and blocks release; an in-house entry's IPN is final. One system publishes into one component: the first publish creates it with the IPN given, later publishes add revisions to it. `ws_systems.catalog_component_id` records the link.
+- **The frozen payload** is one required revision asset of type `system_entry`: the canonical JSON file `prism.system_entry.a0` (`native/src/tsp/prism/system-entry-a0.tsp`). Its SHA-256 joins the revision manifest like every asset, so the audit chain covers it.
+
+```
+SystemEntryA0 { schema: "prism.system_entry.a0",
+                source: { systemId, version, snapshotId, systemBundleKey },
+                document,        prism.system.v2 at that version
+                boardSubPorts,   prism.board_sub_ports.a0, the definitions it names
+                bundle,          prism.system_bundle.a0, built from exactly those
+                interface }
+
+interface { exports: [ { id, name, occurrence, connector, subPort?,
+                         pins: [ { pad, name, net, signal? } ] } ] }
+```
+
+- `interface.exports` lists the document's exports in id order. Each `pins` entry is one pad of the export's site in the site's pin order (a sub-port's order, else natural): `name` is the export's `pinNames[pad]`, else the board's pin name, else the pad; `net` is the system net id it is on and `signal` that net's name.
+- A copy of `interface` is the revision's `interface_json`, so Library Manager lists and searches entries without opening the payload.
+- **Boards are frozen by recording, not rewriting.** Every board occurrence's `commit` is already exact in the document, and the bundle records each one's revision and bundle key. A followed board stays followed in the live system; the entry is pinned because the payload never changes.
+
+### 11.2 Publishing
+
+`POST /api/systems/{id}/publish { snapshotId?, ipn?, changeSummary }`, under `If-Match` on the system:
+
+1. **Permissions:** `design` on the system and `catalog_write`. The publisher must see every board occurrence (else `403 system_redacted`).
+2. **The snapshot:** `snapshotId` names an existing snapshot of this system; without it, publishing takes one at the current version named `Published <IPN>`, but only after the IPN rule of step 4 and the checks of step 3 pass against the live system and its live board-level sub-ports, so a refused publish (which the UI retries while the bundle builds) leaves no snapshot. If the version or the sub-port definitions moved in between, the answer is `412`.
+3. **Checks, in order, each a `409` listing what failed:** at least one export (`system_no_exports`); no body occurrence (`system_publish_unsupported`, until stage 3); every board occurrence `ready` in the snapshot's system bundle and the bundle built (`system_bundle_not_ready`; the UI waits and retries); no unwaived error finding (`system_not_clean`, listing the findings); every entry occurrence on a `released` revision (`system_entry_unreleased`).
+4. **The revision:** the payload is written as the `system_entry` asset of a new revision in stage `qa_review`. The first publish also needs `ipn` (`422 system_ipn_required`), validated by the catalog's identity rules; a later one refuses a different `ipn` (`409 system_ipn_mismatch`).
+5. **The record:** `ws_system_publications` (`system_id`, `version`, `snapshot_id`, `component_id`, `revision_id`, `published_by`, `published_at`) gets a row. The catalog and the workspace are separate databases: the catalog revision is written first, and its `source_ref_json` holds `{ systemId, snapshotId }`, so a retry after a failed workspace write finds the revision instead of making a second one.
+
+The answer is `{ componentId, revisionId, stage }`.
+
+### 11.3 Release
+
+A `system` revision follows the workflow of `catalog/workflow_policy.py` and the gates of `release_workflow.py`, with two-person approval, plus one gate of its own, checked fail-closed: the `system_entry` asset is present, its SHA-256 matches the manifest, and its bundle has no unwaived error finding. KLC and representation gates do not apply to `system` revisions.
+
+## 12. Placing published entries (1c)
+
+### 12.1 The occurrence
+
+- `source: { kind: "entry", componentId, revisionId }`. `revisionId` is required: following new revisions of an entry comes later (ADR §2.8).
+- **Who may place what:** adding or changing an occurrence to an entry is checked against the catalog when the op is applied, the one exception to document-local validation. The revision must be of a `system` component and `released`, unless the caller has `design` on the system it was published from (its author testing it). Otherwise `409 system_entry_unreleased`, or `404` for an unknown or invisible revision.
+- **Symbol and endpoints.** The symbol's pins are the entry's exports. An endpoint on an entry names an export id as `connector`, and pins are the export's pads, so a `pinMap`, explicit wire or occurrence-level sub-port on it uses those pads. Board-level sub-ports do not apply to entries.
+
+### 12.2 In the system bundle
+
+- **Input.** `prism-kicad system build` takes `--entry <occurrence>=<system-entry.json>` and `--entry-stage <occurrence>=<stage>` per entry occurrence: the payload, and the catalog revision's workflow stage now (`released`, `archived`, …), which can change without the payload. §8.1's key gains `entries: { occurrence: { payload: payloadSha256, stage } }`, always present, where `payloadSha256` is the SHA-256 of the payload's canonical JSON (§8.1's form), not of the file's bytes.
+- **Occurrence state.** An entry is `ready` when its payload was given, with `bundleKey` its payload's `source.systemBundleKey` and no `revisionKey`. It is `unsupported` no longer. A missing payload (a revision since deleted from the catalog) is `absent`, with `occurrence-absent`.
+- **Connectors.** A ready entry's `connectors` are its exports: `refdes` is the export id, `value` the export name, and each pin is `{ pad, net: signal, nets: [signal], pinName: name, power }`, with `power` from the child bundle's pin.
+- **Nets through an entry.** Two pins of an entry are joined when the child bundle puts them on the same system net, as two pins of a board are joined by a board net (§8.3). The child net's name is the entry pin's board net, so names and conflicts work as for boards.
+- **Mates with an entry** derive no geometry in 1c: an entry carries no pad geometry until stage 3. Such a mate needs `manualMap`, or it is `mate-unresolved`.
+
+| Code | Severity | Subject | When |
+|---|---|---|---|
+| `entry-unreleased` | error | `occurrence:<id>` | the revision is not `released` (an author testing it): publishing this system is refused until it is |
+| `entry-archived` | warning | `occurrence:<id>` | the revision was archived after it was placed |
+| `export-missing` | error | `connector:<occ>/<export id>` | an endpoint names an export the entry does not have |
+
+### 12.3 Reading an entry's insides
+
+`GET /api/catalog/system-entries/{revisionId}` returns the payload read-only, with `catalog_read`. Its `document` and `bundle` are redacted by §6 for each board occurrence of the child whose project the caller cannot see; `interface` is never redacted. When the caller has `design` on the source system, the answer also carries its `systemId`, so the UI can open it for editing.
+
+## 13. Git link (1c)
+
+A system can be linked to a file on a branch of a repository Prism already manages. Prism commits the document there on request; it never pulls on its own (maintainer decision 2026-10-20).
+
+### 13.1 The link
+
+`ws_system_git_links`: `system_id` (primary key), `project_id` (the project whose repository it is), `branch`, `path`, `last_commit` (the commit Prism made last), `last_blob` (that commit's blob of `path`), `last_version`, `linked_by`, `linked_at`.
+
+- `path` defaults to `systems/<slug>.system.json`, `slug` from the system name in lower-case kebab-case. It is repository-relative, must end in `.system.json`, and may not leave the repository or enter `.git`.
+- **Permissions:** linking, committing and importing need `design` on the system and on the project.
+- `PUT /api/systems/{id}/git { projectId, branch, path? }` links or relinks; `DELETE …/git` unlinks. Relinking clears `last_commit` and `last_blob`.
+
+### 13.2 Commit
+
+`POST /api/systems/{id}/git/commit { message }`, under `If-Match` on the system, queues a job like Release Studio's configuration publish (`release_studio_config_service.py`): a temporary clone of the branch, the commit, a push leased against the fetched head, then a fast-forward of Prism's mirror.
+
+- **The file** is the document at the `If-Match` version, as JSON with two-space indents, keys in code point order and one trailing LF, so a Git diff is stable (§1).
+- **The author** is the caller (name and email from their account); the committer is Prism.
+- **Diverged:** if the file at the fetched head is not `last_blob` (or exists when `last_blob` is empty), the job fails `system_git_diverged` with that blob, and nothing is pushed. The user imports it (§13.3) or commits after resolving it in Git.
+- An unchanged file is not committed; the job answers `unchanged`.
+- **Taking a snapshot** of a linked system queues the same commit with the message `Snapshot: <name>`. Its failure is reported on the snapshot and never undoes it.
+- On success the link's `last_commit`, `last_blob` and `last_version` are updated.
+
+### 13.3 Import
+
+`POST /api/systems/{id}/git/import`, under `If-Match`, reads `path` at the branch head and replaces the document with it as one request: the op `import-document { document }`, which only this route issues (`/ops` refuses it). The file must be a valid `prism.system.v2` and pass integrity like any request; its ids join `seen_ids`. The inverse is the previous document, so an import is undoable. The link's `last_blob` becomes the imported blob, so the next commit is allowed.
+
+### 13.4 What Git holds
+
+Only the document. Board-level sub-ports stay in Prism; an imported document whose endpoints name unknown ones gets `board-sub-port-missing` findings, not a refusal.

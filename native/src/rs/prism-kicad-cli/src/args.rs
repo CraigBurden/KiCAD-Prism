@@ -42,6 +42,16 @@ pub struct SystemMemberArg {
     pub revision_key: String,
 }
 
+/// A `system build` published entry: its payload and the catalog revision's
+/// workflow stage.
+#[derive(Clone, Debug)]
+pub struct SystemEntryArg {
+    /// The `prism.system_entry.a0` path.
+    pub payload: String,
+    /// The revision's stage, 1 to 32 characters of `[a-z_]`.
+    pub stage: String,
+}
+
 /// A `bundle build` stage.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum StageArg {
@@ -74,6 +84,10 @@ pub struct Args {
     pub system_members: BTreeMap<String, SystemMemberArg>,
     /// `system build --absent`, in code point order.
     pub system_absent: BTreeSet<String>,
+    /// `system build --board-sub-ports`, when given.
+    pub system_board_sub_ports: Option<String>,
+    /// `system build --entry`, by occurrence.
+    pub system_entries: BTreeMap<String, SystemEntryArg>,
     /// `--worktree`.
     pub worktree: bool,
     /// `--quiet`.
@@ -109,7 +123,7 @@ fn work_of(command: Command, stage: Option<StageArg>) -> Work {
     }
 }
 
-const VALUE_OPTIONS: [&str; 32] = [
+const VALUE_OPTIONS: [&str; 35] = [
     "output",
     "in",
     "stage",
@@ -142,6 +156,9 @@ const VALUE_OPTIONS: [&str; 32] = [
     "member",
     "member-revision-key",
     "absent",
+    "board-sub-ports",
+    "entry",
+    "entry-stage",
 ];
 
 fn allowed(command: Command, option: &str) -> bool {
@@ -185,6 +202,9 @@ fn allowed(command: Command, option: &str) -> bool {
             "member",
             "member-revision-key",
             "absent",
+            "board-sub-ports",
+            "entry",
+            "entry-stage",
             "output",
         ],
         _ => &[],
@@ -262,6 +282,8 @@ struct Raw {
     members: Vec<String>,
     member_revision_keys: Vec<String>,
     absent: Vec<String>,
+    entries: Vec<String>,
+    entry_stages: Vec<String>,
     include_unchanged: bool,
     worktree: bool,
     quiet: bool,
@@ -279,6 +301,8 @@ fn collect(command: Command, rest: &[String]) -> Outcome<Raw> {
         members: Vec::new(),
         member_revision_keys: Vec::new(),
         absent: Vec::new(),
+        entries: Vec::new(),
+        entry_stages: Vec::new(),
         include_unchanged: false,
         worktree: false,
         quiet: false,
@@ -313,8 +337,11 @@ impl Raw {
                 let value = rest.get(index + 1).ok_or_else(|| {
                     let failure = usage(format!("--{name} takes a value"));
                     match name {
-                        // `CliArgument` has no `document` or `absent` value.
-                        "document" | "absent" => failure,
+                        // `CliArgument` has no `document`, `absent`, `board-sub-ports`,
+                        // `entry` or `entry-stage` value: the message names the option.
+                        "document" | "absent" | "board-sub-ports" | "entry" | "entry-stage" => {
+                            failure
+                        }
                         "member-revision-key" => failure.argument("revision-key"),
                         _ => failure.argument(name),
                     }
@@ -346,14 +373,21 @@ impl Raw {
             "member" => self.members.push(value),
             "member-revision-key" => self.member_revision_keys.push(value),
             "absent" => self.absent.push(value),
-            _ if self.options.insert(name, value).is_some() => {
-                let failure = usage(format!("--{name} is given twice"));
-                return Err(match name {
-                    "document" => failure,
-                    _ => failure.argument(name),
-                });
-            }
-            _ => {}
+            "entry" => self.entries.push(value),
+            "entry-stage" => self.entry_stages.push(value),
+            _ => return self.single(name, value),
+        }
+        Ok(())
+    }
+
+    /// Store a single-valued option, refusing a second one.
+    fn single(&mut self, name: &'static str, value: String) -> Outcome<()> {
+        if self.options.insert(name, value).is_some() {
+            let failure = usage(format!("--{name} is given twice"));
+            return Err(match name {
+                "document" | "board-sub-ports" => failure,
+                _ => failure.argument(name),
+            });
         }
         Ok(())
     }
@@ -656,11 +690,12 @@ pub fn parse(argv: &[String]) -> Outcome<Args> {
     let upgraded = upgrades(&raw.upgraded, "upgraded")?;
     let base_upgraded = upgrades(&raw.base_upgraded, "base-upgraded")?;
     let head_upgraded = upgrades(&raw.head_upgraded, "head-upgraded")?;
-    let (system_members, system_absent) = if command == Command::SystemBuild {
-        system_of(&raw)?
-    } else {
-        (BTreeMap::new(), BTreeSet::new())
-    };
+    let (system_members, system_absent, system_board_sub_ports, system_entries) =
+        if command == Command::SystemBuild {
+            system_of(&raw)?
+        } else {
+            (BTreeMap::new(), BTreeSet::new(), None, BTreeMap::new())
+        };
     Ok(Args {
         command,
         positional: raw.positional,
@@ -670,6 +705,8 @@ pub fn parse(argv: &[String]) -> Outcome<Args> {
         head_upgraded,
         system_members,
         system_absent,
+        system_board_sub_ports,
+        system_entries,
         include_unchanged: raw.include_unchanged,
         worktree: raw.worktree,
         quiet: raw.quiet,
@@ -716,6 +753,8 @@ fn help_args() -> Args {
         head_upgraded: BTreeMap::new(),
         system_members: BTreeMap::new(),
         system_absent: BTreeSet::new(),
+        system_board_sub_ports: None,
+        system_entries: BTreeMap::new(),
         include_unchanged: false,
         worktree: false,
         quiet: false,
@@ -752,6 +791,9 @@ usage:
   prism-kicad system build --document <system.json>
               [--member <occurrence>=<bundle.prism>
               --member-revision-key <occurrence>=<hex>]... [--absent <occurrence>]...
+              [--board-sub-ports <board-sub-ports.json>]
+              [--entry <occurrence>=<system-entry.json>
+              --entry-stage <occurrence>=<stage>]...
               -o <system-bundle.json> [COMMON]
 
 COMMON: [--limit <name>=<value>]... [--threads <n>] [--quiet]

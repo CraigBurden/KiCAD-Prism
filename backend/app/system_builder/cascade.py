@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from typing import Any, Callable, Mapping, Optional
 
-from app.system_builder.document import find
+from app.system_builder.document import find, sub_port_endpoints
 
 Document = dict[str, Any]
 
@@ -75,11 +75,7 @@ def remove_sub_port(document: Document, sub_port_id: str) -> None:
 def _unname_sub_port(document: Document, sub_port_id: str) -> None:
     """Endpoints that named the sub-port fall back to the whole connector."""
 
-    endpoints = [export["site"] for export in document["exports"]]
-    for harness in document["harnesses"]:
-        for link in harness["links"]:
-            endpoints += [link["a"], link["b"]]
-    for endpoint in endpoints:
+    for endpoint in sub_port_endpoints(document):
         if _uses_sub_port(endpoint, sub_port_id):
             endpoint.pop("subPort")
 

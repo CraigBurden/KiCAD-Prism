@@ -3,7 +3,7 @@
 //! suggestions, and finally the findings.
 
 use crate::context::{Context, first_net, pads, pin, power};
-use crate::input::{Document, InterfaceComponent, Mate, Members};
+use crate::input::{Board, Document, InterfaceComponent, Mate, Members, Occurrence};
 use crate::mapping::{self, Side};
 use crate::natural;
 use crate::nets::{Edge, Node};
@@ -147,56 +147,91 @@ fn connector_out(component: &InterfaceComponent) -> ConnectorOut {
 }
 
 fn occurrences(cx: &mut Context<'_>, named: &Named) -> Vec<OccurrenceOut> {
-    let mut out = Vec::new();
-    for occurrence in &cx.doc.occurrences {
-        let id = occurrence.id.as_str();
-        let label = cx.label(id);
-        let subject = format!("occurrence:{id}");
-        let mut entry = OccurrenceOut {
-            occurrence: id.to_owned(),
-            state: "pending",
-            revision_key: None,
-            bundle_key: None,
-            connectors: Vec::new(),
-        };
-        if occurrence.source.kind != "board" {
-            entry.state = "unsupported";
-            let message =
-                format!("{label} is a published entry or body; it is checked from a later stage");
-            cx.findings
-                .add("occurrence-unsupported", subject, message, &[id]);
-        } else if let Some(board) = cx.board(id) {
-            entry.state = "ready";
-            entry.revision_key = Some(board.revision_key.clone());
-            entry.bundle_key = Some(board.bundle_key.clone());
-            let mut components: Vec<&InterfaceComponent> = board
-                .interface
-                .components
-                .iter()
-                .filter(|c| shown(c, id, named))
-                .collect();
-            components.sort_by(|a, b| natural::cmp(&a.reference, &b.reference));
-            entry.connectors = components.into_iter().map(connector_out).collect();
-        } else if cx.members.absent.contains(id) {
-            entry.state = "absent";
-            cx.findings.add(
-                "occurrence-absent",
-                subject,
-                format!("{label}'s project is not present at its commit"),
-                &[id],
-            );
-        } else {
-            cx.findings.add(
-                "occurrence-pending",
-                subject,
-                format!("{label}'s design bundle is not built yet"),
-                &[id],
-            );
-        }
-        out.push(entry);
-    }
+    let mut out: Vec<OccurrenceOut> = cx
+        .doc
+        .occurrences
+        .iter()
+        .map(|occurrence| occurrence_out(cx, occurrence, named))
+        .collect();
     out.sort_by(|a, b| a.occurrence.cmp(&b.occurrence));
     out
+}
+
+/// One occurrence's state, keys and connectors, with its state finding (§8.2).
+fn occurrence_out(cx: &mut Context<'_>, occurrence: &Occurrence, named: &Named) -> OccurrenceOut {
+    let id = occurrence.id.as_str();
+    let label = cx.label(id);
+    let subject = format!("occurrence:{id}");
+    let mut entry = OccurrenceOut {
+        occurrence: id.to_owned(),
+        state: "pending",
+        revision_key: None,
+        bundle_key: None,
+        connectors: Vec::new(),
+    };
+    let kind = occurrence.source.kind.as_str();
+    if kind == "body" {
+        entry.state = "unsupported";
+        let message = format!("{label} is a body; it is checked from stage 3");
+        cx.findings
+            .add("occurrence-unsupported", subject, message, &[id]);
+    } else if kind == "entry" && cx.board(id).is_none() {
+        entry.state = "absent";
+        let message = format!("{label}'s published revision is not in the catalog");
+        cx.findings
+            .add("occurrence-absent", subject, message, &[id]);
+    } else if let Some(board) = cx.board(id) {
+        entry.state = "ready";
+        entry.revision_key = Some(board.revision_key.clone()).filter(|key| !key.is_empty());
+        entry.bundle_key = Some(board.bundle_key.clone());
+        entry_stage(cx, id, &label);
+        entry.connectors = ready_connectors(board, id, named);
+    } else if cx.members.absent.contains(id) {
+        entry.state = "absent";
+        let message = format!("{label}'s project is not present at its commit");
+        cx.findings
+            .add("occurrence-absent", subject, message, &[id]);
+    } else {
+        let message = format!("{label}'s design bundle is not built yet");
+        cx.findings
+            .add("occurrence-pending", subject, message, &[id]);
+    }
+    entry
+}
+
+/// A ready board's connectors in natural reference order.
+fn ready_connectors(board: &Board, id: &str, named: &Named) -> Vec<ConnectorOut> {
+    let mut components: Vec<&InterfaceComponent> = board
+        .interface
+        .components
+        .iter()
+        .filter(|c| shown(c, id, named))
+        .collect();
+    components.sort_by(|a, b| natural::cmp(&a.reference, &b.reference));
+    components.into_iter().map(connector_out).collect()
+}
+
+/// `entry-unreleased` or `entry-archived` for a placed entry's revision (§12.2).
+fn entry_stage(cx: &mut Context<'_>, id: &str, label: &str) {
+    let Some(facts) = cx.members.entries.get(id) else {
+        return;
+    };
+    let subject = format!("occurrence:{id}");
+    match facts.stage.as_str() {
+        "released" => {}
+        "archived" => cx.findings.add(
+            "entry-archived",
+            subject,
+            format!("{label}'s published revision was archived"),
+            &[id],
+        ),
+        stage => cx.findings.add(
+            "entry-unreleased",
+            subject,
+            format!("{label}'s published revision is not released ({stage})"),
+            &[id],
+        ),
+    }
 }
 
 fn side<'a>(

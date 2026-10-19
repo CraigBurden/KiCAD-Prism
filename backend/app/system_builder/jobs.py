@@ -22,8 +22,9 @@ from app.core.config import settings
 from app.services.design_bundle import cli, schemas
 from app.services.job_kinds import JobKind
 from app.services.job_runtime import JobContext, JobResult, PermanentJobError, RetryableJobError
-from app.system_builder import bundle_store
+from app.system_builder import board_sub_ports, bundle_store
 from app.system_builder import members as member_view
+from app.system_builder.git_link import SYSTEM_GIT_COMMIT
 from app.system_builder.store import SystemStore
 
 KIND = "system_bundle"
@@ -82,7 +83,8 @@ def run_system_bundle_job(context: JobContext) -> JobResult:
     payload = context.payload
     system_id = str(payload["system_id"])
     queued_key = str(payload["bundle_key"])
-    record = system_store().read(system_id, role="admin")
+    store = system_store()
+    record = store.read(system_id, role="admin")
     if record is None:
         raise PermanentJobError("System not found", code="system-not-found")
     document = record["document"]
@@ -100,7 +102,12 @@ def run_system_bundle_job(context: JobContext) -> JobResult:
     except cli.CliFailure as failure:
         raise _cli_error(failure, "version") from failure
 
-    bundle_key = member_view.system_bundle_key(document, generator.digest, resolved)
+    with store.connection() as conn:
+        board_input = board_sub_ports.build_input(conn, document)
+    bundle_key = member_view.system_bundle_key(
+        document, generator.digest, resolved, board_sub_ports=board_input,
+        entries=member_view.entry_key_input(resolved),
+    )
     rebased = bundle_key != queued_key
     if rebased:
         bundle_store.supersede(system_id, queued_key, bundle_key)
@@ -114,11 +121,14 @@ def run_system_bundle_job(context: JobContext) -> JobResult:
 
     document_path = context.staging_dir / "document.json"
     document_path.write_bytes(member_view.canonical_bytes(document))
+    board_sub_ports_path = context.staging_dir / "board-sub-ports.json"
+    board_sub_ports_path.write_bytes(member_view.canonical_bytes(board_input))
     output = context.staging_dir / "system-bundle.json"
     args = [
         "system", "build",
         "--document", str(document_path),
         *member_view.cli_args(resolved),
+        "--board-sub-ports", str(board_sub_ports_path),
         "-o", str(output),
     ]
     context.progress(
@@ -182,6 +192,7 @@ def run_system_bundle_job(context: JobContext) -> JobResult:
         "ready": sorted(
             member.occurrence for member in resolved if member.state == member_view.READY
         ),
+        "entries": sorted(member_view.entry_key_input(resolved)),
         "counts": counts,
     }
     if rebased:
@@ -243,4 +254,4 @@ SYSTEM_BUNDLE = JobKind(
     settle=settle_system_bundle_end,
     orphans=_unsettled_bundles,
 )
-JOB_KINDS = (SYSTEM_BUNDLE,)
+JOB_KINDS = (SYSTEM_BUNDLE, SYSTEM_GIT_COMMIT)

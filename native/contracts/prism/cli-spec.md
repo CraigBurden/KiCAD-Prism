@@ -99,6 +99,9 @@ prism-kicad compare --base-src <project.kicad_pro> --head-src <project.kicad_pro
 prism-kicad system build --document <system.json>
             [--member <occurrence>=<bundle.prism>
              --member-revision-key <occurrence>=<hex>]... [--absent <occurrence>]...
+            [--board-sub-ports <board-sub-ports.json>]
+            [--entry <occurrence>=<system-entry.json>
+             --entry-stage <occurrence>=<stage>]...
             -o <system-bundle.json> [COMMON]
 
 prism-kicad artwork --in <bundle.prism> --config <artwork.json> --view <name>... -o <dir> [--variant <name>] [COMMON]
@@ -682,7 +685,7 @@ Release Studio's assembly and testpoint views (amendment C3 §3.2), a port of Cr
 
 ### 5.11 `system build`
 
-`prism-kicad system build` computes a System Builder v2 system bundle (`prism.system_bundle.a0`) from a `prism.system.v2` document and the design bundles of its board occurrences, and prints `CliSystemResultA0` (the system bundle key and per-section counts). `--member <occurrence>=<bundle.prism>` pairs with that occurrence's `--member-revision-key`; an occurrence with neither a member nor `--absent` is pending. The rules, the five checks in order and their exit codes are [`docs/system-builder/CONTRACTS.md`](../../../docs/system-builder/CONTRACTS.md) §8.8; the bundle itself is §8.1–§8.7. `-o` is written atomically, compact JSON with one trailing LF, after the document validates against `prism.system_bundle.a0`; the same inputs give byte-identical `-o` and stdout.
+`prism-kicad system build` computes a System Builder v2 system bundle (`prism.system_bundle.a0`) from a `prism.system.v2` document and the design bundles of its board occurrences, and prints `CliSystemResultA0` (the system bundle key and per-section counts). `--member <occurrence>=<bundle.prism>` pairs with that occurrence's `--member-revision-key`; a board occurrence with neither a member nor `--absent` is pending. `--board-sub-ports <board-sub-ports.json>` gives the `prism.board_sub_ports.a0` definitions the document names (at most once). Each `--entry <occurrence>=<system-entry.json>` gives a published entry occurrence's `prism.system_entry.a0` payload and pairs with exactly one `--entry-stage <occurrence>=<stage>` for the same occurrence; a stage is 1–32 characters of `[a-z_]`. An occurrence may be named by at most one of `--member`, `--absent` and `--entry`. From stage 1c the document validates against `prism.system.v2` first, then each member, then each `--board-sub-ports` and `--entry` file against its schema (exit 3, `input-invalid`), and then each option against the document's occurrences (exit 7, `occurrence-mismatch`). An entry occurrence without `--entry` is `absent`. The full rules, the six checks in order and their exit codes are [`docs/system-builder/CONTRACTS.md`](../../../docs/system-builder/CONTRACTS.md) §8.8; the bundle itself is §8.1–§8.7, board-level sub-ports §10 and entries §12.2. `-o` is written atomically, compact JSON with one trailing LF, after the document validates against `prism.system_bundle.a0`; the same inputs give byte-identical `-o` and stdout.
 
 ## 6. Archive rules
 
@@ -833,6 +836,7 @@ Codes are `DiagnosticCode` (kebab-case). A code never changes meaning; a new mea
 | `config-invalid` | error | input / 3 | `--config` is not a valid `RevisionKeyEffectiveConfigA1` |
 | `key-record-invalid` | error | input / 3 | `--key-record` is not a valid `RevisionKeyRecordA1` |
 | `document-invalid` | error | input / 3 | `system build`: `--document` is not JSON, or does not validate against `prism.system.v2` (§5.11) |
+| `input-invalid` | error | input / 3 | `system build`: `--board-sub-ports` is not valid against `prism.board_sub_ports.a0`, or an `--entry` is not valid against `prism.system_entry.a0` (§5.11, CONTRACTS.md §8.8 check 6) |
 | `upgrade-record-invalid` | error | input / 3 | an `--upgraded` names a path that is not a member, or a version not older than `kicad_file_formats` for its kind (§5.2.2) |
 | `source-outside-root` | error | input / 3 | the project, or a file a source references, resolves outside the source root |
 | `source-not-regular-file` | error | input / 3 | a symbolic link or special file under the source root |
@@ -850,7 +854,7 @@ Codes are `DiagnosticCode` (kebab-case). A code never changes meaning; a new mea
 | `stdout-write-failed` | stderr only | output-io / 6 | stdout could not be written; for `bundle build`, `-o` already holds the new archive |
 | `manifest-unsupported` | error, verify finding | precondition / 7 | `bundle.json` is not `prism.bundle.manifest.a3`, for example a2 or a1 |
 | `generator-mismatch` | error | precondition / 7 | `--in` was written by another generator id; for `compare`, `--base` and `--head` were written by different generator ids; for `system build`, its `--member` bundles were written by different generator ids |
-| `occurrence-mismatch` | error | precondition / 7 | `system build`: a `--member` or `--absent` does not name a board occurrence of `--document` (§5.11) |
+| `occurrence-mismatch` | error | precondition / 7 | `system build`: a `--member` or `--absent` does not name a board occurrence of `--document`, or an `--entry` does not name an entry occurrence (§5.11) |
 | `stage-order` | error | precondition / 7 | a prerequisite stage of `--in` is not in the required status |
 | `stage-not-applicable` | error | precondition / 7 | the requested stage is `skipped` in `--in` |
 | `revision-key-mismatch`, `config-mismatch` | error | precondition / 7 | an assertion of §5.2.1 check 5 failed, or `--config` names another project file, or `--key-record` disagrees with `--revision-key`, `--config` or a member (§5.2.2). For `revision-key`, `--project` ≠ `config.project_file`. |
