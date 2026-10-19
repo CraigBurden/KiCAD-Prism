@@ -2492,7 +2492,8 @@ export class Renderer {
     });
     const viewport = clampViewport(panel.viewport, this.canvas.width, this.canvas.height);
     pass.setViewport(viewport.x, viewport.y, viewport.width, viewport.height, 0, 1);
-    pass.setScissorRect(viewport.x, viewport.y, viewport.width, viewport.height);
+    // Only the picked pixel is read: nothing else needs shading.
+    pass.setScissorRect(pixelX, pixelY, 1, 1);
     if (this.analytic) this.analytic.viewport = viewport;
     this.encodePick(pass, panel, options);
     pass.end();

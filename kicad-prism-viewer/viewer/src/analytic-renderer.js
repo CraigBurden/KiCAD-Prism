@@ -78,6 +78,58 @@ export function boardLayerKey(role, side) {
   return `${role}:${side}`;
 }
 
+/**
+ * GPU bytes of field textures kept for overlays shown lately, so switching
+ * back is free (the overlay shown always stays, whatever its size).
+ */
+export const FIELD_CACHE_BYTES = 128 * 1048576;
+
+/**
+ * Field textures by raster (its values array), least recently used first
+ * out once over `budget` bytes; the rasters of the overlay in force are
+ * never dropped (`trim` runs after they are all touched).
+ */
+export class FieldTextureCache {
+  constructor(budget) {
+    this.budget = budget;
+    this.entries = new Map();
+    this.generation = 0;
+  }
+
+  texture(raster, make) {
+    const key = raster.values;
+    let entry = this.entries.get(key);
+    if (entry) this.entries.delete(key);
+    else entry = { texture: make(), bytes: raster.width * raster.height * 4 };
+    entry.used = this.generation;
+    this.entries.set(key, entry);
+    return entry.texture;
+  }
+
+  bytes() {
+    let bytes = 0;
+    for (const entry of this.entries.values()) bytes += entry.bytes;
+    return bytes;
+  }
+
+  trim() {
+    let bytes = this.bytes();
+    for (const [key, entry] of this.entries) {
+      if (bytes <= this.budget) break;
+      if (entry.used === this.generation) continue;
+      entry.texture.destroy();
+      bytes -= entry.bytes;
+      this.entries.delete(key);
+    }
+    this.generation += 1;
+  }
+
+  clear() {
+    for (const entry of this.entries.values()) entry.texture.destroy();
+    this.entries.clear();
+  }
+}
+
 /** Below this many pixels tall, a slab's shape walls are not drawn. */
 export const WALL_MIN_PIXELS = 0.3;
 
@@ -262,6 +314,7 @@ export class AnalyticRenderer {
     this.uniformScratch = new ArrayBuffer(SLICE_UNIFORM_BYTES);
     // Each operation's viewer net id (0 for none), for net glow and isolation.
     this.netsBuffer = this.buffer(new Uint32Array(1), GPUBufferUsage.STORAGE, "analytic-nets");
+    this.fieldCache = new FieldTextureCache(FIELD_CACHE_BYTES);
     this.makeBarrelPipelines();
     this.makeArrowPipeline();
   }
@@ -726,14 +779,17 @@ export class AnalyticRenderer {
       this.setBoardClip(null);
       return null;
     }
-    const { data, width, height } = mask;
+    // A texel next to the board counts as board (outsideBoard): dilate once
+    // here, padded by a texel, so the shader looks up one texel, not nine.
+    const { data, width, height } = dilateClip(mask);
+    const originMm = [mask.originMm[0] - mask.pitchMm, mask.originMm[1] - mask.pitchMm];
     // writeTexture wants rows of a multiple of 256 bytes.
     const stride = Math.ceil(width / 256) * 256;
     const rows = stride === width ? data : new Uint8Array(stride * height);
     if (rows !== data) for (let row = 0; row < height; row += 1) rows.set(data.subarray(row * width, (row + 1) * width), row * stride);
     const texture = this.device.createTexture({ label: "analytic-clip", size: [width, height], format: "r8uint", usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST });
     this.device.queue.writeTexture({ texture }, rows, { bytesPerRow: stride }, [width, height]);
-    this.setBoardClip({ texture, originMm: mask.originMm, pitchMm: mask.pitchMm, width, height });
+    this.setBoardClip({ texture, originMm, pitchMm: mask.pitchMm, width, height });
     return this.boardClip;
   }
 
@@ -778,27 +834,28 @@ export class AnalyticRenderer {
    * the origin, +x then +y in KiCad's frame, NaN where absent).
    */
   setFieldRasters(rasters, range, values = null) {
-    this.clearOverlay();
+    this.clearOverlay(false);
     // Per-operation values still colour what the rasters cannot: the barrels.
     if (values) this.valuesBuffer = this.buffer(withSentinels(values), GPUBufferUsage.STORAGE, "analytic-values");
     for (const slice of this.slices) {
       const raster = rasters.get(slice.key);
       if (!raster) continue;
-      slice.field = { ...raster, texture: this.fieldTexture(raster.width, raster.height, withSentinels(raster.values)) };
+      // A slab's two faces share one texture; a raster shown lately keeps its own.
+      const texture = this.fieldCache.texture(raster, () => this.fieldTexture(raster.width, raster.height, withSentinels(raster.values)));
+      slice.field = { ...raster, texture };
     }
+    this.fieldCache.trim();
     this.overlay = { mode: OVERLAY_FIELD, range };
     this.rebind();
   }
 
-  clearOverlay() {
+  clearOverlay(rebind = true) {
     if (this.valuesBuffer !== this.emptyValues) this.valuesBuffer.destroy();
     this.valuesBuffer = this.emptyValues;
-    for (const slice of this.slices) {
-      slice.field?.texture.destroy();
-      slice.field = null;
-    }
+    // The field textures stay in the cache (they are its to drop).
+    for (const slice of this.slices) slice.field = null;
     this.overlay = { mode: OVERLAY_NONE, range: [0, 1] };
-    this.rebind();
+    if (rebind) this.rebind();
   }
 
   /** Each operation's viewer net id (0 where it has none), for net glow and isolation. */
@@ -1209,6 +1266,18 @@ export class AnalyticRenderer {
    * holds the copper's footprint at the mask's face.
    */
   encodeConformal(pass, mask, { low, foot }, silks, layerOffsets, lookOf) {
+    // One rect around everything the side draws, its stencil cleanup with
+    // it: the stencil outside it is never touched.
+    const parts = [mask, low, foot, ...silks, ...silks.map((silk) => this.twins.get(silk)?.low).filter(Boolean)];
+    const rect = unionRect(parts.map((part) => this.sliceRect(part, layerOffsets)));
+    if (rect === null) return 0;
+    if (rect) pass.setScissorRect(rect.x, rect.y, rect.width, rect.height);
+    const drawn = this.encodeConformalIn(pass, mask, { low, foot }, silks, layerOffsets, lookOf);
+    if (rect) pass.setScissorRect(this.viewport.x, this.viewport.y, this.viewport.width, this.viewport.height);
+    return drawn;
+  }
+
+  encodeConformalIn(pass, mask, { low, foot }, silks, layerOffsets, lookOf) {
     const pipelines = this.pipelines.color;
     // The steps' pipelines run the coat plan.
     const plan = (name) => STENCIL_STEPS[name === "step" || name === "regionStep" ? "coat" : name];
@@ -1302,10 +1371,9 @@ export class AnalyticRenderer {
     const buffers = new Set();
     for (const slice of this.slices.flatMap((slice) => (slice.plain ? [slice, slice.plain] : [slice]))) {
       for (const buffer of [slice.shapes, slice.covers, slice.fans, slice.uniform, slice.edges, slice.cuts]) if (buffer) buffers.add(buffer);
-      if (slice.field) bytes += slice.field.width * slice.field.height * 4;
     }
     for (const buffer of buffers) bytes += buffer.size;
-    return bytes;
+    return bytes + this.fieldCache.bytes();
   }
 
   stats() {
@@ -1359,9 +1427,9 @@ export class AnalyticRenderer {
     const buffers = new Set();
     for (const slice of this.slices.flatMap((slice) => (slice.plain ? [slice, slice.plain] : [slice]))) {
       for (const buffer of [slice.shapes, slice.covers, slice.fans, slice.uniform, slice.edges, slice.cuts]) if (buffer) buffers.add(buffer);
-      slice.field?.texture.destroy();
     }
     for (const buffer of buffers) buffer.destroy();
+    this.fieldCache?.clear();
     this.slices = [];
   }
 
@@ -1381,6 +1449,45 @@ export class AnalyticRenderer {
     this.boardClip?.texture.destroy();
     this.emptyClip.destroy();
   }
+}
+
+/**
+ * A board clip mask grown by one texel in every direction (8-neighbourhood)
+ * and padded by one texel each side: texel (i, j) is set when any texel of
+ * the original within one step of (i - 1, j - 1) is.
+ */
+export function dilateClip({ data, width, height }) {
+  const w = width + 2;
+  const h = height + 2;
+  const out = new Uint8Array(w * h);
+  for (let y = 0; y < height; y += 1) {
+    for (let x = 0; x < width; x += 1) {
+      if (!data[y * width + x]) continue;
+      // Original (x, y) is padded (x + 1, y + 1): it marks padded x..x+2, y..y+2.
+      for (let dy = 0; dy < 3; dy += 1) out.fill(1, (y + dy) * w + x, (y + dy) * w + x + 3);
+    }
+  }
+  return { data: out, width: w, height: h };
+}
+
+/**
+ * The rect covering `rects` (sliceRect results): undefined when any is the
+ * whole viewport, null when all lie off screen.
+ */
+export function unionRect(rects) {
+  let out = null;
+  for (const rect of rects) {
+    if (rect === undefined) return undefined;
+    if (!rect) continue;
+    if (!out) {
+      out = { ...rect };
+      continue;
+    }
+    const x = Math.min(out.x, rect.x);
+    const y = Math.min(out.y, rect.y);
+    out = { x, y, width: Math.max(out.x + out.width, rect.x + rect.width) - x, height: Math.max(out.y + out.height, rect.y + rect.height) - y };
+  }
+  return out;
 }
 
 /**

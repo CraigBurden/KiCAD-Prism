@@ -38,6 +38,19 @@ export class CameraController {
     this.polar = mixAngle(this.polar, this.targetPolar, amount);
     this.distance = mix(this.distance, this.targetDistance, amount);
     this.orthoScale = mix(this.orthoScale, this.targetOrthoScale, amount);
+    // Within a hair of the target (far below a pixel) the easing lands, so
+    // a still view stops redrawing instead of creeping on for seconds.
+    if (this.settled()) this.snap();
+  }
+
+  settled() {
+    const scale = Math.max(this.distance, 1e-9);
+    const near = (a, b, tolerance) => Math.abs(a - b) <= tolerance;
+    return this.focus.every((value, index) => near(value, this.targetFocus[index], 1e-5 * scale))
+      && Math.abs(Math.atan2(Math.sin(this.targetAzimuth - this.azimuth), Math.cos(this.targetAzimuth - this.azimuth))) <= 1e-5
+      && Math.abs(Math.atan2(Math.sin(this.targetPolar - this.polar), Math.cos(this.targetPolar - this.polar))) <= 1e-5
+      && near(this.distance, this.targetDistance, 1e-5 * scale)
+      && near(this.orthoScale, this.targetOrthoScale, 1e-5 * Math.max(this.orthoScale, 1e-9));
   }
 
   snap() {

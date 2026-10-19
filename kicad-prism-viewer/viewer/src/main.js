@@ -1668,6 +1668,7 @@ function frame(now, token = activeViewerToken) {
 // The picture only changes with its inputs, so an idle view skips the GPU work.
 // Highlights pulse, so they keep drawing; a slow refresh covers anything missed.
 const IDLE_REFRESH_MS = 1000;
+const PULSE_FRAME_MS = 1000 / 30;
 const lastRender = { key: "", matrix: new Float32Array(16), tiles: null, at: 0 };
 
 // --- IN-60/IN-61: inset views ------------------------------------------
@@ -1793,7 +1794,9 @@ function frameNeedsRender(now, inputs) {
     inputs.layerAlphas ? [...inputs.layerAlphas].join(";") : "",
   ].join("|");
   const animating = Boolean(inputs.activeNetId || inputs.selectedFeatureId || board.renderer.emphasizedNetIds.size);
-  const stale = animating
+  // A highlight only pulses (a 2 s period): 30 frames a second show it smoothly.
+  const pulseDue = animating && now - lastRender.at >= PULSE_FRAME_MS;
+  const stale = pulseDue
     || key !== lastRender.key
     || !sameSet(inputs.visibleTileIds, lastRender.tiles)
     || now - lastRender.at > IDLE_REFRESH_MS;
