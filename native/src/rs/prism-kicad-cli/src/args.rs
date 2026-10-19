@@ -6,6 +6,9 @@
 use prism_bundle::{Failure, LimitName, Limits, Outcome, Work};
 use std::collections::{BTreeMap, BTreeSet};
 
+mod system;
+use system::{check_system, system_of};
+
 /// The command.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Command {
@@ -203,22 +206,32 @@ fn command_words(argv: &[String]) -> Outcome<(Command, usize)> {
         Some("-h" | "--help") | None => Ok((Command::Help, 1)),
         Some("revision-key") => Ok((Command::RevisionKey, 1)),
         Some("compare") => Ok((Command::Compare, 1)),
-        Some("system") => match argv.get(1).map(String::as_str) {
-            Some("build") => Ok((Command::SystemBuild, 2)),
-            _ => Err(
-                Failure::usage("unknown-command", "system takes build").argument("command")
-            ),
-        },
-        Some("bundle") => match argv.get(1).map(String::as_str) {
-            Some("build") => Ok((Command::Build, 2)),
-            Some("verify") => Ok((Command::Verify, 2)),
-            Some("extract") => Ok((Command::Extract, 2)),
-            Some("reuse") => Ok((Command::Reuse, 2)),
-            _ => Err(Failure::usage("unknown-command", "bundle takes build, verify, extract or reuse").argument("command")),
-        },
+        Some("system") => system_command(argv.get(1).map(String::as_str)),
+        Some("bundle") => bundle_command(argv.get(1).map(String::as_str)),
         Some(_) => Err(Failure::usage(
             "unknown-command",
             "the command is not version, bundle build, bundle verify, bundle extract, bundle reuse, revision-key, compare or system build",
+        )
+        .argument("command")),
+    }
+}
+
+fn system_command(word: Option<&str>) -> Outcome<(Command, usize)> {
+    match word {
+        Some("build") => Ok((Command::SystemBuild, 2)),
+        _ => Err(Failure::usage("unknown-command", "system takes build").argument("command")),
+    }
+}
+
+fn bundle_command(word: Option<&str>) -> Outcome<(Command, usize)> {
+    match word {
+        Some("build") => Ok((Command::Build, 2)),
+        Some("verify") => Ok((Command::Verify, 2)),
+        Some("extract") => Ok((Command::Extract, 2)),
+        Some("reuse") => Ok((Command::Reuse, 2)),
+        _ => Err(Failure::usage(
+            "unknown-command",
+            "bundle takes build, verify, extract or reuse",
         )
         .argument("command")),
     }
@@ -560,103 +573,6 @@ fn check_compare_side(raw: &Raw, side: &str) -> Outcome<()> {
         }
         _ => Ok(()),
     }
-}
-
-/// The options of `system build` (CONTRACTS.md §8.8): `--document`, `-o`,
-/// each member's revision key, and the absent occurrences.
-fn check_system(raw: &Raw) -> Outcome<()> {
-    if !raw.options.contains_key("document") {
-        // `CliArgument` has no `document` value: the message names it.
-        return Err(usage("system build takes --document <system.json>"));
-    }
-    if !raw.options.contains_key("output") {
-        return Err(usage("system build takes -o <system-bundle.json>").argument("output"));
-    }
-    if !raw.positional.is_empty() {
-        return Err(usage("system build takes no positional argument").argument("command"));
-    }
-    system_of(raw).map(|_| ())
-}
-
-/// `system build`'s members and absent occurrences, from the repeated options.
-fn system_of(raw: &Raw) -> Outcome<(BTreeMap<String, SystemMemberArg>, BTreeSet<String>)> {
-    let pair = |value: &str, option: &'static str| -> Outcome<(String, String)> {
-        // `CliArgument` names the revision key, not the member option.
-        let argument = if option == "member-revision-key" {
-            "revision-key"
-        } else {
-            option
-        };
-        let form = || usage(format!("--{option} takes <occurrence>=<value>")).argument(argument);
-        let (occurrence, rest) = value.split_once('=').ok_or_else(form)?;
-        if occurrence.is_empty() || rest.is_empty() {
-            return Err(form());
-        }
-        Ok((occurrence.to_owned(), rest.to_owned()))
-    };
-    let mut bundles = BTreeMap::new();
-    for value in &raw.members {
-        let (occurrence, bundle) = pair(value, "member")?;
-        if bundles.insert(occurrence.clone(), bundle).is_some() {
-            return Err(conflict(
-                format!("--member names {occurrence:?} twice"),
-                "member",
-            ));
-        }
-    }
-    let mut keys = BTreeMap::new();
-    for value in &raw.member_revision_keys {
-        let (occurrence, key) = pair(value, "member-revision-key")?;
-        if !is_hex64(&key) {
-            return Err(usage("--member-revision-key takes 64 lowercase hex digits")
-                .argument("revision-key"));
-        }
-        if keys.insert(occurrence.clone(), key).is_some() {
-            // `CliArgument` has no `member-revision-key`: it is a revision key.
-            return Err(conflict(
-                format!("--member-revision-key names {occurrence:?} twice"),
-                "revision-key",
-            ));
-        }
-    }
-    if bundles.keys().ne(keys.keys()) {
-        return Err(conflict(
-            "each --member takes exactly one --member-revision-key for the same occurrence",
-            "revision-key",
-        ));
-    }
-    let mut absent = BTreeSet::new();
-    for value in &raw.absent {
-        if value.is_empty() {
-            return Err(usage("--absent takes <occurrence>"));
-        }
-        if !absent.insert(value.clone()) {
-            return Err(usage(format!("--absent names {value:?} twice")));
-        }
-    }
-    if let Some(occurrence) = absent
-        .iter()
-        .find(|occurrence| bundles.contains_key(occurrence.as_str()))
-    {
-        return Err(conflict(
-            format!("{occurrence:?} is both --member and --absent"),
-            "member",
-        ));
-    }
-    let members = bundles
-        .into_iter()
-        .map(|(occurrence, bundle)| {
-            let revision_key = keys.get(&occurrence).cloned().unwrap_or_default();
-            (
-                occurrence,
-                SystemMemberArg {
-                    bundle,
-                    revision_key,
-                },
-            )
-        })
-        .collect();
-    Ok((members, absent))
 }
 
 /// The options of `revision-key` (cli-spec.md §5.5): one `<repo>`, exactly

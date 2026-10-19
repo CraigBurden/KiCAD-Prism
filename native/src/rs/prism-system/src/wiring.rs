@@ -34,22 +34,10 @@ pub fn wire(cx: &mut Context<'_>, edges: &mut Vec<Edge>) -> Wired {
                 &[&harness.id, &end.id],
             );
         }
-        let mut uses: BTreeMap<(String, String), BTreeSet<String>> = BTreeMap::new();
+        let mut uses: Uses = BTreeMap::new();
         for link in &harness.links {
             let out = wire_link(cx, harness, link);
-            for wire in &out.wires {
-                edges.push((
-                    pin_node(&link.a.occurrence, &link.a.connector, &wire.a),
-                    pin_node(&link.b.occurrence, &link.b.connector, &wire.b),
-                ));
-                for (endpoint, pad) in [(&link.a, &wire.a), (&link.b, &wire.b)] {
-                    if let Some(end) = end_at(harness, &endpoint.occurrence, &endpoint.connector) {
-                        uses.entry((end.id.clone(), pad.clone()))
-                            .or_default()
-                            .insert(link.id.clone());
-                    }
-                }
-            }
+            record_wires(harness, link, &out, edges, &mut uses);
             wired.links.push(out);
         }
         explicit_edges(harness, edges);
@@ -65,6 +53,32 @@ pub fn wire(cx: &mut Context<'_>, edges: &mut Vec<Edge>) -> Wired {
             .then_with(|| natural::cmp(&a.pad, &b.pad))
     });
     wired
+}
+
+/// Which links use each `(end, pad)`, for proposing splices.
+type Uses = BTreeMap<(String, String), BTreeSet<String>>;
+
+/// A link's wires as graph edges, and which end pads they use.
+fn record_wires(
+    harness: &Harness,
+    link: &Link,
+    out: &LinkOut,
+    edges: &mut Vec<Edge>,
+    uses: &mut Uses,
+) {
+    for wire in &out.wires {
+        edges.push((
+            pin_node(&link.a.occurrence, &link.a.connector, &wire.a),
+            pin_node(&link.b.occurrence, &link.b.connector, &wire.b),
+        ));
+        for (endpoint, pad) in [(&link.a, &wire.a), (&link.b, &wire.b)] {
+            if let Some(end) = end_at(harness, &endpoint.occurrence, &endpoint.connector) {
+                uses.entry((end.id.clone(), pad.clone()))
+                    .or_default()
+                    .insert(link.id.clone());
+            }
+        }
+    }
 }
 
 fn end_at<'h>(harness: &'h Harness, occurrence: &str, connector: &str) -> Option<&'h End> {

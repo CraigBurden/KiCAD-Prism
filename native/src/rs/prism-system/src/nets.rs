@@ -67,35 +67,46 @@ fn board_edges(
 ) {
     for (occurrence, board) in &cx.members.boards {
         let mut first_on_net: BTreeMap<&str, Node> = BTreeMap::new();
-        for component in board
+        let found_pins = board
             .interface
             .components
             .iter()
             .filter(|c| shown(c, occurrence, named))
-        {
-            for pad in pads(component) {
-                let Some(found) = pin(component, &pad) else {
-                    continue;
-                };
-                let node = pin_node(occurrence, &component.reference, &pad);
-                graph.id(node.clone());
-                if let Node::Pin(reference) = &node {
-                    facts.insert(
-                        reference.clone(),
-                        PinFacts {
-                            nets: found.nets.clone(),
-                            power: found.power_net,
-                        },
-                    );
-                }
-                for net in &found.nets {
-                    match first_on_net.get(net.as_str()) {
-                        Some(first) => graph.join(first.clone(), node.clone()),
-                        None => {
-                            first_on_net.insert(net, node.clone());
-                        }
-                    }
-                }
+            .flat_map(|component| {
+                pads(component).into_iter().filter_map(move |pad| {
+                    let found = pin(component, &pad)?;
+                    Some((component, pad, found))
+                })
+            });
+        for (component, pad, found) in found_pins {
+            let node = pin_node(occurrence, &component.reference, &pad);
+            graph.id(node.clone());
+            if let Node::Pin(reference) = &node {
+                facts.insert(
+                    reference.clone(),
+                    PinFacts {
+                        nets: found.nets.clone(),
+                        power: found.power_net,
+                    },
+                );
+            }
+            join_on_nets(graph, &mut first_on_net, &found.nets, &node);
+        }
+    }
+}
+
+/// Join `node` to the first node seen on each of its board nets.
+fn join_on_nets<'n>(
+    graph: &mut UnionFind,
+    first_on_net: &mut BTreeMap<&'n str, Node>,
+    nets: &'n [String],
+    node: &Node,
+) {
+    for net in nets {
+        match first_on_net.get(net.as_str()) {
+            Some(first) => graph.join(first.clone(), node.clone()),
+            None => {
+                first_on_net.insert(net, node.clone());
             }
         }
     }
