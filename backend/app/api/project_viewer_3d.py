@@ -69,7 +69,11 @@ def _generate_bundle(project_id: str, request: WebGpu3dGenerateRequest, requeste
     """Queue the commit's design bundle; ``force`` rebuilds it without reuse (K2b)."""
 
     if not request.force:
-        return {"job_id": bundle_jobs.start_design_bundle_job(project_id, commit=request.commit, requested_by=requested_by)}
+        return {
+            "job_id": bundle_jobs.start_design_bundle_job(
+                project_id, commit=request.commit, requested_by=requested_by, retry_failed=True
+            )
+        }
     return {"job_id": regenerate.regenerate(project_id, commit=request.commit, requested_by=requested_by).job_id}
 
 

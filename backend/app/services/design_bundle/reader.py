@@ -40,6 +40,8 @@ class OpenedRevision:
     absent: bool = False
     archive_revision_key: str | None = None
     aliased: bool = False
+    #: The error of a build that ended failed and is not being retried; ``None`` otherwise.
+    failure: str | None = None
 
     def readiness(self, paths: Iterable[str]) -> dict[str, Readiness]:
         manifest = self.archive.manifest if self.archive is not None else None
@@ -94,9 +96,12 @@ def open_revision(project_id: str, commit: str | None = None, *, queue: bool = F
         # An aliased archive's later stages are its own revision's job.
         build_commit = (bundle or {}).get("commit_sha") if aliased else key.commit
         active = bool(jobs.start_design_bundle_job(project_id, commit=build_commit or key.commit, requested_by=requested_by))
+    failure = None
+    if not active and not complete and bundle and bundle["state"] == "failed":
+        failure = str(bundle.get("error") or "the design bundle build failed")
     return OpenedRevision(
         project_id, key.commit, revision_key, generator.digest, bundle_key, archive, active,
-        archive_revision_key=stored_as, aliased=aliased,
+        archive_revision_key=stored_as, aliased=aliased, failure=failure,
     )
 
 

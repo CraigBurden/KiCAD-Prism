@@ -82,6 +82,14 @@ class DesignBundleSettings(BaseSettings):
     PRISM_DESIGN_BUNDLE_MAX_ATTEMPTS: int = Field(
         default=3, ge=1, le=10, description="Attempts of one design_bundle job before a failing KiCad step ends it."
     )
+    PRISM_DESIGN_BUNDLE_FAILED_RETRY_SECONDS: int = Field(
+        default=3600,
+        ge=0,
+        description=(
+            "How long a failed design bundle stays failed before a status read queues it again; "
+            "0 waits for a deliberate Generate or Regenerate."
+        ),
+    )
     PRISM_DESIGN_BUNDLE_PARSE_TIMEOUT_MS: int = Field(default=300_000, ge=1_000)
     PRISM_DESIGN_BUNDLE_BOARD_TIMEOUT_MS: int = Field(default=600_000, ge=1_000)
     PRISM_DESIGN_BUNDLE_MODELS_TIMEOUT_MS: int = Field(default=120_000, ge=1_000)

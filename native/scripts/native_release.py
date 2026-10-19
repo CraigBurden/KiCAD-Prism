@@ -140,7 +140,7 @@ def deterministic_tgz(target: Path, members: Sequence[tuple[str, Path]]) -> None
 
 
 def licence_members(prefix: str) -> list[tuple[str, Path]]:
-    files = [("LICENSE", REPO / "LICENSE"), ("NOTICE", REPO / "NOTICE"), ("LICENSE-native", NATIVE / "LICENSE"), ("LICENSES-native.md", NATIVE / "LICENSES.md")]
+    files = [("LICENSE", REPO / "LICENSE"), ("NOTICE", REPO / "NOTICE"), ("LICENSE-native", NATIVE / "LICENSE"), ("LICENSES-native.md", NATIVE / "LICENSES.md"), ("FTL.TXT", NATIVE / "licenses" / "FTL.TXT")]
     return [(f"{prefix}/{name}", path) for name, path in files if path.is_file()]
 
 

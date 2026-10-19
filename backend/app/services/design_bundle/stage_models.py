@@ -7,8 +7,9 @@ The export runs in a copy of the bundle's ``sources/`` so models resolve
 through ``${KIPRJMOD}`` to the bundled repository models and through
 ``KICAD*_3DMODEL_DIR`` to the image's stock library. Its output is always
 named ``components.glb`` (cli-spec.md §5.2.4). Results are cached by the
-source board's blob id, the repository model blobs, the generator's KiCad
-version and models procedure (ADR §4.4).
+source board's blob id, the repository model blobs, the commits of the
+submodules (whose models are expanded only at materialization), the
+generator's KiCad version and models procedure (ADR §4.4).
 """
 
 from __future__ import annotations
@@ -37,9 +38,13 @@ def cache_key(record: Mapping[str, Any], generator: Generator, tool_version: str
     entries = record["entries"]
     board_id = next((e["object_id"] for e in entries if e["path"] == board), "")
     models = sorted((e["path"], e["object_id"]) for e in entries if e["category"] == "model-3d")
+    # Models inside a submodule are expanded only at materialization; the
+    # gitlink's commit is what changes when they do.
+    gitlinks = sorted((e["path"], e["object_id"]) for e in entries if e["category"] == "gitlink")
     material = {
         "board": [board, board_id],
         "models": models,
+        "gitlinks": gitlinks,
         "kicad_version": generator.kicad_version,
         "models_procedure": generator.models_procedure,
         # The KiCad that exports may be a later patch release of the generator's (decisions.md).
@@ -67,6 +72,7 @@ def export_components_glb(
     output = output_dir / GLB_NAME
     if cached.is_file():
         shutil.copyfile(cached, output)
+        _stamp(cached)
         return output, True
     tool = kicad_tools.kicad_cli()
     if not tool.available():
@@ -89,3 +95,42 @@ def export_components_glb(
     shutil.copyfile(output, temp)
     os.replace(temp, cached)
     return output, False
+
+
+def _stamp(path: Path) -> None:
+    """Mark a cached GLB used, so retention evicts by last use."""
+
+    try:
+        os.utime(path, None)
+    except OSError:
+        pass  # a lost stamp only makes eviction earlier
+
+
+#: A ``.part`` file older than this is an export that died before its rename.
+PART_GRACE_SECONDS = 3600
+
+
+def prune_cache(*, unused_before: float, now: float) -> dict[str, int]:
+    """Bundle retention's pass over the GLB cache: drop GLBs unused since ``unused_before``.
+
+    Returns the GLBs removed and the bytes the cache still holds. A cache file
+    is only ever copied out, never read in place, so removing one an export is
+    about to copy at worst re-exports it.
+    """
+
+    removed, kept_bytes = 0, 0
+    root = cache_root()
+    if not root.is_dir():
+        return {"removed": 0, "bytes": 0}
+    for item in root.iterdir():
+        try:
+            info = item.stat()
+        except OSError:
+            continue
+        stale_part = item.name.endswith(".part") and info.st_mtime < now - PART_GRACE_SECONDS
+        if stale_part or (item.suffix == ".glb" and info.st_mtime < unused_before):
+            item.unlink(missing_ok=True)
+            removed += item.suffix == ".glb"
+        else:
+            kept_bytes += info.st_size
+    return {"removed": removed, "bytes": kept_bytes}

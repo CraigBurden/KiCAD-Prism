@@ -11,8 +11,9 @@ queued or building is never removed.
 
 Also swept: unpacked-cache versions that are not the archive's current one
 (after a grace period), archives on disk that no row knows, the CLI's stale
-temporary files, and commit-index rows of unkept commits whose key has no
-bundle left.
+temporary files, commit-index rows of unkept commits whose key has no
+bundle left, and component GLBs of the models stage's export cache unused for
+``PRISM_DESIGN_BUNDLE_RETENTION_DAYS`` (its size is reported).
 """
 
 from __future__ import annotations
@@ -26,7 +27,7 @@ from pathlib import Path
 from typing import Any
 
 from app.core.config import settings
-from app.services.design_bundle import reuse, rows, store
+from app.services.design_bundle import reuse, rows, stage_models, store
 from app.services.design_bundle.archive import BundleInvalid, open_archive
 from app.services.design_bundle.backfill import repo_of
 
@@ -88,6 +89,8 @@ def run(*, now: datetime | None = None, connect: rows.Connect | None = None) -> 
         )
     report["orphan_archives"] = _sweep_orphans(known, cutoff)
     report["temp_files"] = store.sweep_temporary_files(now=now.timestamp())
+    models = stage_models.prune_cache(unused_before=cutoff.timestamp(), now=now.timestamp())
+    report["model_cache_removed"], report["model_cache_bytes"] = models["removed"], models["bytes"]
     return report
 
 

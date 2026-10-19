@@ -51,6 +51,7 @@ class _View:
     progress: int
     pack: Readiness | None
     parts: Readiness | None
+    failure: str | None = None
 
 
 def _view(opened: reader.OpenedRevision) -> _View:
@@ -61,8 +62,12 @@ def _view(opened: reader.OpenedRevision) -> _View:
     if pack.state in ("failed", "skipped", "not-applicable"):
         return _View("invalid", "generating", 0, pack, parts)
     if pack.state != "ready":
+        if opened.failure:  # the build ended failed and is not being retried: stop "building"
+            return _View("invalid", "generating", 0, pack, parts, opened.failure)
         return _View("building", "generating", _PROGRESS.get(pack.stage, 0), pack, parts)
     if not parts.final:
+        if opened.failure:  # the board stands; the parts will not arrive without a retry
+            return _View("ready", "semantic-ready", 100, pack, parts, opened.failure)
         return _View("ready", "board-ready", _PROGRESS["models"], pack, parts)
     return _View("ready", "semantic-ready", 100, pack, parts)
 
@@ -82,6 +87,10 @@ def _job_id(opened: reader.OpenedRevision) -> str | None:
 def _message(view: _View) -> str:
     if view.status == "missing":
         return "This revision has no board"
+    if view.failure and view.status == "invalid":
+        return f"The design bundle could not be built: {view.failure}. Regenerate to try again."
+    if view.failure:
+        return f"The parts could not be exported: {view.failure}. Regenerate to try again."
     if view.status == "invalid" and view.pack is not None:
         return f"The board could not be materialized: {view.pack.detail or view.pack.state}"
     if view.status == "building" and view.pack is not None:

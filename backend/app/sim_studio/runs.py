@@ -14,9 +14,12 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import queue
 import shutil
 import subprocess
 import tempfile
+import threading
+import time
 from pathlib import Path
 from typing import Any, Mapping, Optional
 
@@ -141,18 +144,26 @@ def submit(
         raise SetupNotReady("Preflight found errors; fix them before running.", report=report)
     _require_board(str(project.id), row.get("source_commit"), actor)
     run_id = runs.new_id()
-    job = SIM_RUN.enqueue(
-        {"run_id": run_id, "project_id": str(project.id)},
-        subject=JobSubject(project_id=str(project.id)),
-        requested_by=actor,
-    )
-    return public(runs.create({
+    # The run exists before its job can be claimed: the handler's first act is
+    # reading it. Its job id is filled in once the job is queued.
+    created = runs.create({
         "run_id": run_id, "project_id": str(project.id), "setup_id": setup_id,
         "setup_revision": int(row["revision"]), "setup_sha256": report["setup_sha256"],
         "setup_document": row["document"], "analysis_id": analysis_id,
         "source_commit": row.get("source_commit"), "project_path": row["project_path"],
-        "job_id": str(job["job_id"]), "created_by": actor,
-    }))
+        "job_id": "", "created_by": actor,
+    })
+    try:
+        job = SIM_RUN.enqueue(
+            {"run_id": run_id, "project_id": str(project.id)},
+            subject=JobSubject(project_id=str(project.id)),
+            requested_by=actor,
+        )
+    except Exception:
+        runs.update(run_id, status="failed", message="The run could not be queued")
+        raise
+    runs.update(run_id, job_id=str(job["job_id"]))
+    return public({**created, "job_id": str(job["job_id"])})
 
 
 # ---------------------------------------------------------------------------
@@ -198,19 +209,59 @@ def _relay(line: str, context: JobContext, log: list[str]) -> Optional[dict[str,
     return event
 
 
+class EngineTimeout(RuntimeError):
+    """sim-worker ran past ``PRISM_SIM_TIMEOUT_SECONDS``."""
+
+
+#: How often the run checks its deadline and cancellation while the engine is quiet.
+_ENGINE_POLL_SECONDS = 1.0
+
+
 def _run_engine(workspace: Path, context: JobContext, log: list[str]) -> Optional[dict[str, Any]]:
-    """Runs sim-worker; returns its last event (``completed`` or ``failed``)."""
+    """Runs sim-worker; returns its last event (``completed`` or ``failed``).
+
+    The engine's output is pumped on a thread, so the deadline and
+    cancellation hold while the engine is quiet or hung; on either the engine
+    is killed and reaped. Events are relayed on this thread.
+    """
 
     process = subprocess.Popen(
         [str(binary("sim-worker")), "run", str(workspace / "job.json")],
         stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1,
     )
+    lines: queue.Queue[Optional[str]] = queue.Queue()
+
+    def pump() -> None:
+        assert process.stdout is not None
+        for raw in process.stdout:
+            lines.put(raw)
+        lines.put(None)
+
+    threading.Thread(target=pump, name="sim-worker-output", daemon=True).start()
+    deadline = time.monotonic() + settings.PRISM_SIM_TIMEOUT_SECONDS
     last = None
-    assert process.stdout is not None
-    for raw in process.stdout:
-        if raw.strip():
-            last = _relay(raw.strip(), context, log) or last
-    process.wait(timeout=settings.PRISM_SIM_TIMEOUT_SECONDS)
+    try:
+        while True:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise EngineTimeout(f"The engine ran past {settings.PRISM_SIM_TIMEOUT_SECONDS} s and was stopped")
+            try:
+                raw = lines.get(timeout=min(remaining, _ENGINE_POLL_SECONDS))
+            except queue.Empty:
+                context.check_cancelled()
+                continue
+            if raw is None:
+                break
+            if raw.strip():
+                last = _relay(raw.strip(), context, log) or last
+        try:
+            process.wait(timeout=max(deadline - time.monotonic(), 0.1))
+        except subprocess.TimeoutExpired:
+            raise EngineTimeout(f"The engine ran past {settings.PRISM_SIM_TIMEOUT_SECONDS} s and was stopped") from None
+    except BaseException:
+        process.kill()
+        process.wait()
+        raise
     return last
 
 

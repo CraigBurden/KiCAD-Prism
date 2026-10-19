@@ -22,7 +22,12 @@ the bundle key. It resumes from the stored archive: a stage only moves from
 After every stage the job re-reads ``bundle.json`` and publishes readiness:
 the ``ws_design_bundles`` row's stages and the job's progress. A failing KiCad
 step or an internal CLI failure is retried; after the last attempt the stage
-stays ``pending`` and the job ends failed (bundle-format.md §3.1). A project
+stays ``pending`` and the job ends failed (bundle-format.md §3.1). The
+bundle row is then ``failed``: status reads do not queue it again until
+``PRISM_DESIGN_BUNDLE_FAILED_RETRY_SECONDS`` pass, so a polling tab cannot
+retry a permanent failure forever; Generate and Regenerate retry at once. A
+``complete`` row or an alias whose archive is gone (lost, or rejected and
+deleted on open) is not ready: the next request rebuilds it. A project
 whose anchor is not in the tree is recorded as absent: no key, no bundle, no
 retry.
 """
@@ -32,6 +37,7 @@ from __future__ import annotations
 import json
 import logging
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Mapping
 
@@ -100,9 +106,40 @@ def artifact_key(project_id: str, bundle_key: str) -> str:
     return f"{project_id}:{bundle_key}"
 
 
+def _archive_stored(project_id: str, row: Mapping[str, Any]) -> bool:
+    return store.archive_path(project_id, str(row["revision_key"]), str(row["generator_digest"])).is_file()
+
+
 def bundle_ready(project_id: str, bundle_key: str, *, connect: rows.Connect | None = None) -> bool:
+    """Complete in its row and its archive still on disk: a lost or rejected archive is rebuilt."""
+
     row = rows.get_bundle(project_id, bundle_key, connect=connect)
-    return bool(row and row["state"] == "complete")
+    return bool(row and row["state"] == "complete" and _archive_stored(project_id, row))
+
+
+def _alias_serves(project_id: str, alias: Mapping[str, Any], *, connect: rows.Connect | None = None) -> bool:
+    """Whether an alias still points at a stored archive (the target may be lost or rejected)."""
+
+    target = rows.get_bundle(project_id, str(alias["bundle_key"]), connect=connect)
+    return bool(target and _archive_stored(project_id, target))
+
+
+def _failure_holds(row: Mapping[str, Any] | None) -> bool:
+    """A failed bundle stays failed until a deliberate retry or ``PRISM_DESIGN_BUNDLE_FAILED_RETRY_SECONDS`` passes.
+
+    Status reads poll; without this each read would queue a new job with a
+    fresh attempt budget, retrying a permanent failure forever.
+    """
+
+    if not row or row["state"] != "failed":
+        return False
+    delay = settings.PRISM_DESIGN_BUNDLE_FAILED_RETRY_SECONDS
+    if delay <= 0:
+        return True
+    updated = row.get("updated_at")
+    if updated is None:
+        return True
+    return (datetime.now(timezone.utc) - updated).total_seconds() < delay
 
 
 def start_design_bundle_job(
@@ -113,11 +150,14 @@ def start_design_bundle_job(
     priority: int | None = None,
     head: bool = False,
     force: bool = False,
+    retry_failed: bool = False,
 ) -> str | None:
     """Queue the bundle of ``project_id`` at ``commit`` (default ``HEAD``) on demand.
 
-    Returns the job id; ``None`` when the project is absent at that commit or
-    its bundle is already complete or served through an alias. ``force``
+    Returns the job id; ``None`` when the project is absent at that commit,
+    its bundle is already complete or served through an alias, or its last
+    build failed and no retry is due (``retry_failed`` is a deliberate retry).
+    A complete row or alias whose archive is gone is rebuilt. ``force``
     queues a build that skips reuse (a regenerate). Raises
     ``cli.CliUnavailable`` when ``prism-kicad`` is not installed.
     """
@@ -132,10 +172,16 @@ def start_design_bundle_job(
     generator = cli.generator()
     revision_key = key.key.revision_key  # type: ignore[union-attr]
     bundle_key = generator.bundle_key(revision_key)
-    if not force and (
-        bundle_ready(project_id, bundle_key) or rows.get_alias(project_id, revision_key, generator.digest)
-    ):
-        return None
+    if not force:
+        if bundle_ready(project_id, bundle_key):
+            return None
+        alias = rows.get_alias(project_id, revision_key, generator.digest)
+        if alias is not None:
+            if _alias_serves(project_id, alias):
+                return None
+            rows.delete_aliases(project_id, revision_keys=[revision_key])
+        if not retry_failed and _failure_holds(rows.get_bundle(project_id, bundle_key)):
+            return None
     queued = DESIGN_BUNDLE.enqueue(
         {
             "project_id": project_id,

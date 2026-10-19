@@ -126,6 +126,7 @@ class RunStore:
         with self._connect() as conn:
             rows = conn.execute(
                 "SELECT job_id FROM ws_sim_runs WHERE status NOT IN ('succeeded', 'failed', 'cancelled')"
+                " AND job_id <> ''"  # a run whose job is being queued
             ).fetchall()
         return [str(row["job_id"]) for row in rows]
 

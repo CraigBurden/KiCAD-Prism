@@ -154,6 +154,23 @@ class ViewerBundleTest(unittest.TestCase):
         self.assertIn("materialization-failed: zone outline open", answer["error"])
         self.assertIsNone(v3d.document(PROJECT_ID, COMMIT))
 
+    def test_a_build_that_ended_failed_stops_waiting(self) -> None:
+        # No archive and a failed, unretried build: an error, so the tab stops polling.
+        opened = self.opened()
+        opened.failure = "prism-kicad stage parse: exit 3"
+        self.serve(opened)
+        answer = v3d.status(PROJECT_ID, COMMIT)
+        self.assertEqual((answer["status"], answer["available"]), ("invalid", False))
+        self.assertIn("prism-kicad stage parse: exit 3", answer["error"])
+        self.assertIn("Regenerate", answer["error"])
+        # A stored board whose parts failed is final: the board shows and polling stops.
+        opened = self.opened(write_bundle(self.tmp / "b.prism", board="complete"))
+        opened.failure = "glb-export-failed"
+        self.serve(opened)
+        answer = v3d.status(PROJECT_ID, COMMIT)
+        self.assertEqual((answer["status"], answer["readiness"]["stage"]), ("ready", "semantic-ready"))
+        self.assertIn("parts could not be exported", answer["message"])
+
     def test_a_revision_without_a_board_is_missing(self) -> None:
         self.serve(self.opened(absent=True))
         answer = v3d.status(PROJECT_ID, COMMIT)
@@ -212,7 +229,7 @@ class RouteTest(unittest.TestCase):
         with mock.patch.object(api.bundle_jobs, "start_design_bundle_job", return_value="job_1") as start:
             answer = asyncio.run(api.generate_webgpu_3d(PROJECT_ID, api.WebGpu3dGenerateRequest(commit=COMMIT), VIEWER))
         self.assertEqual(answer, {"job_id": "job_1"})
-        start.assert_called_once_with(PROJECT_ID, commit=COMMIT, requested_by=VIEWER.email)
+        start.assert_called_once_with(PROJECT_ID, commit=COMMIT, requested_by=VIEWER.email, retry_failed=True)
         done = SimpleNamespace(job_id="job_2")
         with mock.patch.object(api.regenerate, "regenerate", return_value=done) as rebuild:
             answer = asyncio.run(api.generate_webgpu_3d(PROJECT_ID, api.WebGpu3dGenerateRequest(commit=COMMIT, force=True), VIEWER))

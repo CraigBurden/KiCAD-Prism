@@ -13,7 +13,8 @@ kicad_monkey (native/)
 FreeType (native/src/rs/prism-kicad-core/src/fake_style.rs)
   Portions of this software are copyright (c) 2024 The FreeType Project
   (www.freetype.org). All rights reserved.
-  Used under the FreeType License (FTL).
+  Used under the FreeType License (FTL); its full text is
+  native/licenses/FTL.TXT.
 
 Newstroke stroke fonts (native/assets/fonts/)
   Dedicated to the public domain under CC0 1.0.
