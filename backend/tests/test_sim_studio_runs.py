@@ -70,7 +70,7 @@ class RunPipelineTest(unittest.TestCase):
 
         def stage_board(run, inputs, log):
             (inputs / "board.kmpack").write_bytes(self.pack)
-            return {"path": "input/board.kmpack", "sha256": hashlib.sha256(self.pack).hexdigest()}
+            return {"path": "input/board.kmpack", "sha256": hashlib.sha256(self.pack).hexdigest(), "commit": "c0ffee"}
 
         self.setups = SetupStore(scratch.connection)
         self.runs = RunStore(scratch.connection)
@@ -121,6 +121,7 @@ class RunPipelineTest(unittest.TestCase):
         stored = self.runs.read(run_id)
         self.assertEqual(stored["status"], "succeeded")
         self.assertTrue(stored["bundle_sha256"])
+        self.assertEqual(stored["solved_commit"], "c0ffee")
         workspace = runs_module.run_dir(run_id)
         job = json.loads((workspace / "job.json").read_text())
         setup = json.loads((workspace / "input" / "setup.json").read_text())
@@ -132,7 +133,8 @@ class RunPipelineTest(unittest.TestCase):
         self.assertIn({"percent": 40 + 55 * 0.5, "message": "half"}, context.updates)
 
         base = f"/api/projects/{PROJECT.id}/sim/a0/runs/{run_id}"
-        self.assertEqual(_request(_app(), "GET", base, user="viewer").json["status"], "succeeded")
+        read = _request(_app(), "GET", base, user="viewer").json
+        self.assertEqual((read["status"], read["commit"]), ("succeeded", "c0ffee"))
         frozen = _request(_app(), "GET", base + "/setup", user="viewer").json
         self.assertEqual(frozen["name"], "3V3 single load")
         result = _request(_app(), "GET", base + "/result", user="viewer").json
@@ -210,7 +212,7 @@ class BoardSourceTest(unittest.TestCase):
         member = board_source.MATERIALIZATION
         board = {"status": "complete", **({"cross_check": check} if check else {})}
         return SimpleNamespace(
-            project_id="prj", revision_key="rk", archive_revision_key=None, generator_digest="gd",
+            project_id="prj", commit="abc", revision_key="rk", archive_revision_key=None, generator_digest="gd",
             bundle_key="bk", archive=SimpleNamespace(manifest={"stages": {"board": board}}),
             readiness=lambda paths: {member: Readiness(member, state, "board", "why" if state != "ready" else "")},
         )
@@ -223,7 +225,7 @@ class BoardSourceTest(unittest.TestCase):
                 mock.patch("app.sim_studio.board_source.store.archive_path", return_value=self.archive):
             board = board_source.stage_board({"project_id": "prj", "source_commit": "abc"}, inputs, log)
         self.assertEqual(board, {"path": "input/board.prism",
-                                 "sha256": hashlib.sha256(b"PK design bundle").hexdigest()})
+                                 "sha256": hashlib.sha256(b"PK design bundle").hexdigest(), "commit": "abc"})
         self.assertTrue(__import__("os").path.samefile(inputs / "board.prism", self.archive))
         self.assertIn("design bundle bk", log[0])
 
@@ -260,7 +262,7 @@ class BoardSourceTest(unittest.TestCase):
         with mock.patch("app.sim_studio.board_source.stage_board", stage_board), \
                 mock.patch.object(settings, "KICAD_PROJECTS_ROOT", str(self.tmp)), \
                 mock.patch.object(runs_module, "engine_descriptors", return_value=[{"id": "dc-drop-grid", "analyses": ["dc-drop"]}]):
-            job = runs_module._stage(run, self.tmp / "workspace", [])
+            job, _board = runs_module._stage(run, self.tmp / "workspace", [])
         self.assertEqual(job["bundle"], {"path": "input/board.prism", "sha256": hashlib.sha256(pack).hexdigest()})
         self.assertEqual(job["engine"], {"id": "dc-drop-grid"})
         self.assertEqual(job["mesh_cache_dir"], str(self.tmp / ".kicad-prism" / "sim" / "meshes" / "prj"))

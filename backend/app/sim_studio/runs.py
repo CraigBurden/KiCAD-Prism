@@ -159,7 +159,9 @@ def submit(
 # The job
 
 
-def _stage(run: Mapping[str, Any], workspace: Path, log: list[str]) -> dict[str, Any]:
+def _stage(run: Mapping[str, Any], workspace: Path, log: list[str]) -> tuple[dict[str, Any], dict[str, str]]:
+    """The run's job (written to ``job.json``) and the board staged for it."""
+
     inputs = workspace / "input"
     inputs.mkdir(parents=True, exist_ok=True)
     board = board_source.stage_board(run, inputs, log)
@@ -177,7 +179,7 @@ def _stage(run: Mapping[str, Any], workspace: Path, log: list[str]) -> dict[str,
         "mesh_cache_dir": str(mesh_cache_dir(str(run["project_id"]))),
     }
     (workspace / "job.json").write_text(json.dumps(job, indent=2), encoding="utf-8")
-    return job
+    return job, board
 
 
 def _relay(line: str, context: JobContext, log: list[str]) -> Optional[dict[str, Any]]:
@@ -222,8 +224,8 @@ def run_sim_job(context: JobContext, runs: RunStore | None = None) -> JobResult:
     runs.update(run["run_id"], status="running")
     try:
         context.progress(stage="bundle", message="Staging the board...", percent=5, force=True)
-        job = _stage(run, workspace, log)
-        runs.update(run["run_id"], bundle_sha256=job["bundle"]["sha256"])
+        job, board = _stage(run, workspace, log)
+        runs.update(run["run_id"], bundle_sha256=job["bundle"]["sha256"], solved_commit=board.get("commit") or None)
         context.progress(stage="engine", message="Running the engine...", percent=40, force=True)
         last = _run_engine(workspace, context, log)
         result_path = workspace / "out" / "result.json"

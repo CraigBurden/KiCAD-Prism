@@ -18,7 +18,7 @@ class RunNotFound(errors.NotFound):
 
 _COLUMNS = (
     "run_id, project_id, setup_id, setup_revision, setup_sha256, setup_document, analysis_id, "
-    "source_commit, project_path, job_id, status, message, bundle_sha256, result, created_by, "
+    "source_commit, project_path, job_id, status, message, bundle_sha256, solved_commit, result, created_by, "
     "created_at, updated_at"
 )
 
@@ -158,8 +158,9 @@ def public(row: dict[str, Any]) -> dict[str, Any]:
         "status": row["status"],
         "created_at": row["created_at"].isoformat(),
     }
-    if row.get("source_commit"):
-        run["commit"] = row["source_commit"]
+    # The commit whose design bundle the run solved: the result view draws that board.
+    if row.get("solved_commit") or row.get("source_commit"):
+        run["commit"] = row.get("solved_commit") or row["source_commit"]
     if row.get("message") and row["status"] in {"failed", "cancelled"}:
         run["message"] = row["message"]
     return run

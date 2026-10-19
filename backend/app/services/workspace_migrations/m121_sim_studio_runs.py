@@ -33,6 +33,7 @@ def migrate(conn: Any) -> None:
             status TEXT NOT NULL DEFAULT 'queued',
             message TEXT,
             bundle_sha256 TEXT,
+            solved_commit TEXT,
             result JSONB,
             created_by TEXT NOT NULL,
             created_at TIMESTAMPTZ NOT NULL DEFAULT now(),

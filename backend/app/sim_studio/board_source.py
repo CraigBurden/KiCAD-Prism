@@ -87,7 +87,8 @@ def _sha256(path: Path) -> str:
 
 
 def stage_board(run: Mapping[str, Any], inputs_dir: Path, log: list[str]) -> dict[str, str]:
-    """Place the run's design bundle in ``inputs_dir``; return ``{"path", "sha256"}`` for the job."""
+    """Place the run's design bundle in ``inputs_dir``; return its ``path`` and ``sha256`` for the job,
+    and the ``commit`` it was built for (the run's own, or the branch head it resolved to)."""
 
     opened = _opened(str(run["project_id"]), run.get("source_commit"), queue=True)
     answer = opened.readiness([MATERIALIZATION])[MATERIALIZATION]
@@ -99,7 +100,7 @@ def stage_board(run: Mapping[str, Any], inputs_dir: Path, log: list[str]) -> dic
     target = inputs_dir / Path(INPUT).name
     _place(source, target)
     log.append(f"board: design bundle {opened.bundle_key} (revision {opened.revision_key})")
-    return {"path": INPUT, "sha256": _sha256(target)}
+    return {"path": INPUT, "sha256": _sha256(target), "commit": opened.commit or ""}
 
 
 def materialization(run: Mapping[str, Any]) -> bytes:

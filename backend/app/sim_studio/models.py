@@ -161,6 +161,8 @@ class DcMeshSettings(_Strict):
     adaptive: Optional[bool] = None
     max_adaptive_passes: Optional[Annotated[int, Field(ge=1)]] = None
     target_error: Optional[PositiveFloat] = None
+    # Stop once no load's drop moves more than this share of the largest, two passes running.
+    convergence_tolerance: Optional[Annotated[float, Field(gt=0, lt=1)]] = None
 
 
 class DcCopperCleanupSettings(_Strict):
