@@ -48,9 +48,11 @@ export function useResultLook(viewer: PrismSemanticViewerElement | null, active:
         if (!viewer || !active || typeof viewer.setAnalyticStyle !== "function") return;
         setCatalog(viewer.analyticColormaps?.() ?? null);
         try {
+            // react-doctor-disable-next-line no-pass-data-to-parent, no-pass-live-state-to-parent - `viewer` is the element adapter, not a parent callback
             viewer.setAnalyticStyle(look);
         } catch {
             // A stored look the viewer no longer accepts: back to its defaults.
+            // react-doctor-disable-next-line no-adjust-state-on-prop-change - the viewer refused the stored look; only it can say so
             setLook({});
         }
     }, [active, look, viewer]);

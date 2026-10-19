@@ -340,7 +340,7 @@ function NotesButton({ notes }: { notes: { code: string; message: string }[] }) 
             <PopoverContent align="end" className="max-h-80 w-96 overflow-auto text-xs">
                 <p className="mb-2 text-sm font-semibold">Inference notes</p>
                 <ul className="space-y-1.5">
-                    {notes.map((note, index) => <li key={`${note.code}-${index}`}>{note.message}</li>)}
+                    {notes.map((note) => <li key={`${note.code}:${note.message}`}>{note.message}</li>)}
                 </ul>
             </PopoverContent>
         </Popover>

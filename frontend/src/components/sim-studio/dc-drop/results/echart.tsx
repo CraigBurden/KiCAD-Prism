@@ -8,6 +8,8 @@ import { CanvasRenderer } from "echarts/renderers";
 
 import { cn } from "@/lib/utils";
 
+import { useLatest } from "../../use-latest";
+
 echarts.use([
     BarChart, LineChart, SankeyChart, GridComponent, TooltipComponent, LegendComponent, MarkLineComponent,
     MarkAreaComponent, DataZoomComponent, VisualMapComponent, CanvasRenderer,
@@ -83,8 +85,7 @@ type Props = {
 export function EChart({ option, className, onClick }: Props) {
     const host = useRef<HTMLDivElement>(null);
     const chart = useRef<echarts.ECharts | null>(null);
-    const click = useRef(onClick);
-    click.current = onClick;
+    const click = useLatest(onClick);
 
     useEffect(() => {
         const element = host.current;
@@ -105,6 +106,7 @@ export function EChart({ option, className, onClick }: Props) {
 
     useEffect(() => {
         const element = host.current;
+        // react-doctor-disable-next-line no-pass-data-to-parent - `option` builds the chart's option from the theme; nothing goes back to the parent
         if (chart.current && element) chart.current.setOption(option(chartTheme(element)), true);
     }, [option]);
 

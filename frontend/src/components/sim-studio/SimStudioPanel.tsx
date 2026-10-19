@@ -66,7 +66,6 @@ export function SimStudioPanel({ projectId, canMutate, active = true }: Props) {
     const openSimulation = useCallback((value: string | null) => update({ sim: value, setup: null, view: null }), [update]);
     const openSetup = useCallback((value: string | null) => update({ setup: value }), [update]);
     const setTab = useCallback((value: StudioTab) => update({ view: value === "results" ? "results" : null }), [update]);
-    const setControls = useCallback((controls: StudioControls | null) => { studio.current = controls; }, []);
 
     useEffect(() => {
         let cancelled = false;
@@ -102,7 +101,7 @@ export function SimStudioPanel({ projectId, canMutate, active = true }: Props) {
                 onSetupChange={openSetup}
                 onTabChange={setTab}
                 onBack={() => openSimulation(null)}
-                controls={setControls}
+                controls={studio}
             />
         );
     }

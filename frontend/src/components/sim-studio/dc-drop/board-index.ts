@@ -104,11 +104,11 @@ export class BoardIndex {
 
     /** A part's pads on a net, as setup pin references. */
     pinsOn(reference: string, net: string): string[] {
-        return this.padsOf(reference).filter((pad) => pad.net === net).map((pad) => this.pinRef(pad));
+        return this.padsOf(reference).flatMap((pad) => (pad.net === net ? [this.pinRef(pad)] : []));
     }
 
     groundPins(reference: string): string[] {
-        return this.padsOf(reference).filter((pad) => isGround(pad.net)).map((pad) => this.pinRef(pad));
+        return this.padsOf(reference).flatMap((pad) => (isGround(pad.net) ? [this.pinRef(pad)] : []));
     }
 
     /** Non-ground nets a part touches, most pads first. */

@@ -128,12 +128,13 @@ export function buildResultsModel(result: RunResult, setup: SimSetup, analysisId
         };
     }).sort((a, b) => (b.share ?? 0) - (a.share ?? 0) || b.dropV - a.dropV);
 
-    const rails: RailRow[] = setup.rails.filter((rail) => solved.has(rail.id)).map((rail) => {
+    const rails: RailRow[] = setup.rails.flatMap((rail): RailRow[] => {
+        if (!solved.has(rail.id)) return [];
         const net = refOf(rail.net) ?? rail.net;
         const own = loads.filter((load) => load.rail === rail.id);
         const { budgetV, fromTolerance } = budgetOf(rail.id);
         const result = nets.get(net);
-        return {
+        return [{
             id: rail.id,
             net: netLeaf(net),
             voltageV: rail.voltage_v,
@@ -145,12 +146,11 @@ export function buildResultsModel(result: RunResult, setup: SimSetup, analysisId
             maxJ: result?.max_current_density_a_per_m2,
             loads: own,
             worst: own[0],
-        };
+        }];
     }).sort((a, b) => b.voltageV - a.voltageV);
     const railNets = new Set(setup.rails.map((rail) => refOf(rail.net)));
-    const returns = [...nets.values()]
-        .filter((item) => !railNets.has(item.net))
-        .map((item) => ({ net: item.net, copperLossW: item.copper_loss_w, maxJ: item.max_current_density_a_per_m2 }));
+    const returns = [...nets.values()].flatMap((item) => (railNets.has(item.net) ? []
+        : [{ net: item.net, copperLossW: item.copper_loss_w, maxJ: item.max_current_density_a_per_m2 }]));
 
     const converters: ConverterRow[] = (summary.converters ?? []).map((item) => {
         const converter = setup.converters.find((entry) => entry.id === item.converter);
@@ -173,15 +173,16 @@ export function buildResultsModel(result: RunResult, setup: SimSetup, analysisId
         };
     });
 
-    const inputs: InputRow[] = setup.sources.filter((source) => !outputs.has(source.id) && solved.has(source.rail)).map((source) => {
+    const inputs: InputRow[] = setup.sources.flatMap((source): InputRow[] => {
+        if (outputs.has(source.id) || !solved.has(source.rail)) return [];
         const currentA = sourceCurrent.get(source.id) ?? 0;
-        return {
+        return [{
             source: source.id,
             component: refOf(source.component),
             rail: source.rail,
             currentA,
             powerW: currentA * (railById.get(source.rail)?.voltage_v ?? 0),
-        };
+        }];
     });
     const inputW = inputs.reduce((sum, item) => sum + item.powerW, 0);
     const converterLossW = converters.reduce((sum, item) => sum + item.lossW, 0);

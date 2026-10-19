@@ -11,6 +11,18 @@ export type ViewerBoardState =
 /** How long a board may take to draw before the result view gives up on it. */
 const BOARD_TIMEOUT_MS = 180_000;
 
+/** Whether `viewer` has said it is ready (each element says so once). */
+export function useViewerReady(viewer: PrismSemanticViewerElement | null): boolean {
+    const [readyOne, setReadyOne] = useState<PrismSemanticViewerElement | null>(null);
+    useEffect(() => {
+        if (!viewer) return;
+        const onReady = () => setReadyOne(viewer);
+        viewer.addEventListener("prism-semantic-viewer:ready", onReady);
+        return () => viewer.removeEventListener("prism-semantic-viewer:ready", onReady);
+    }, [viewer]);
+    return viewer !== null && readyOne === viewer;
+}
+
 /**
  * Whether the viewer has drawn its board. The viewer draws the commit's
  * design bundle (V2a), the bundle the run solved, so a run's overlay goes

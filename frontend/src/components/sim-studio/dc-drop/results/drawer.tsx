@@ -96,10 +96,13 @@ export function Drawer({ projectId, run, result, model, tab, open, onTab, onOpen
     );
 }
 
+const layer = (key?: string) => key?.replace(/^copper\./, "") ?? "?";
+
 function Table({ head, children }: { head: ReactNode[]; children: ReactNode }) {
     return (
         <table className="w-full text-xs">
             <thead className="sticky top-0 bg-background text-left text-muted-foreground">
+                {/* react-doctor-disable-next-line no-array-index-as-key - fixed columns: a column's position is its identity */}
                 <tr>{head.map((label, index) => <th key={index} className={cn("whitespace-nowrap border-b px-3 py-1.5 font-medium", index > 0 && "text-right")}>{label}</th>)}</tr>
             </thead>
             <tbody className="tabular-nums">{children}</tbody>
@@ -109,7 +112,10 @@ function Table({ head, children }: { head: ReactNode[]; children: ReactNode }) {
 
 function Row({ cells, onClick, tone }: { cells: ReactNode[]; onClick?: () => void; tone?: "bad" }) {
     return (
-        <tr onClick={onClick} className={cn("border-b border-border/50", onClick && "cursor-pointer hover:bg-muted/60", tone === "bad" && "text-destructive")}>
+        <tr onClick={onClick} tabIndex={onClick ? 0 : undefined}
+            onKeyDown={onClick && ((event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); onClick(); } })}
+            className={cn("border-b border-border/50", onClick && "cursor-pointer hover:bg-muted/60", tone === "bad" && "text-destructive")}>
+            {/* react-doctor-disable-next-line no-array-index-as-key - fixed columns: a column's position is its identity */}
             {cells.map((cell, index) => <td key={index} className={cn("px-3 py-1", index > 0 && "text-right")}>{cell}</td>)}
         </tr>
     );
@@ -287,9 +293,8 @@ function ProfileTab({ projectId, run, result, net, quantity, points }: {
     }), [line, unit.scale, unit.unit]);
     if (!points) return <p className="p-4 text-sm text-muted-foreground">No profile line</p>;
     if (!grid) return <Loader2 className="m-4 size-4 animate-spin text-muted-foreground" />;
-    const values = (line?.points ?? []).map(([, v]) => v).filter(Number.isFinite);
+    const values = (line?.points ?? []).flatMap(([, v]) => (Number.isFinite(v) ? [v] : []));
     const change = values.length > 1 ? values[values.length - 1] - values[0] : null;
-    const layer = (key?: string) => key?.replace(/^copper\./, "") ?? "?";
     return (
         <div className="flex h-full min-h-[220px] flex-col">
             <p className="px-3 pt-2 text-xs text-muted-foreground">

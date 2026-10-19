@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import type { PrismAnalyticReading, PrismSemanticViewerElement } from "@/types/prism-semantic-viewer";
 
+import { useLatest } from "../../use-latest";
 import { formatChange } from "./format";
 
 /** One end of a profile line: where it lies on the copper and the value there. */
@@ -42,8 +43,7 @@ export function ProfileTool({ viewer, host, active, units, onLine }: {
     const pill = useRef<HTMLDivElement>(null);
     const [stage, setStage] = useState<"start" | "end" | "done">("start");
     const [missed, setMissed] = useState(false);
-    const report = useRef(onLine);
-    report.current = onLine;
+    const report = useLatest(onLine);
 
     useEffect(() => {
         if (!viewer || !host || !active) return;
@@ -159,7 +159,7 @@ export function ProfileTool({ viewer, host, active, units, onLine }: {
             window.cancelAnimationFrame(frame);
             window.clearTimeout(missTimer);
         };
-    }, [active, host, units, viewer]);
+    }, [active, host, report, units, viewer]);
 
     if (!active) return null;
     return (

@@ -148,6 +148,7 @@ export function treeOf({ setup, layout }: TreeState): { elements: TreeElement[];
     const terminal = (id: string) => setup.terminals.find((item) => item.id === id);
     const solved = new Set(setup.analyses[0]?.rails ?? []);
     const outputs = new Set(setup.converters.map((item) => item.output_source));
+    const sourceById = new Map(setup.sources.map((item) => [item.id, item]));
 
     for (const rail of setup.rails) {
         elements.push({
@@ -165,7 +166,7 @@ export function treeOf({ setup, layout }: TreeState): { elements: TreeElement[];
         });
     }
     for (const converter of setup.converters) {
-        const output = setup.sources.find((item) => item.id === converter.output_source);
+        const output = sourceById.get(converter.output_source);
         const kind = converter.kind ?? "switching";
         elements.push({
             node: nodeId("converter", converter.id), kind: "converter", id: converter.id, pending: false,
@@ -393,7 +394,8 @@ export function removeElement(state: TreeState, node: string): TreeState {
             ...setup.sources.map((s) => s.terminal), ...setup.loads.map((l) => l.terminal),
             ...setup.converters.map((c) => c.input_terminal), ...setup.probes.map((p) => p.terminal),
         ]);
-        setup.terminals = setup.terminals.filter((t) => !ids.includes(t.id) || used.has(t.id));
+        const dropped = new Set(ids);
+        setup.terminals = setup.terminals.filter((t) => !dropped.has(t.id) || used.has(t.id));
     };
     if (kind === "rail") {
         for (const element of treeOf(next).elements) {
@@ -603,6 +605,7 @@ export function mergeInferred(state: TreeState, tree: InferredTree, mode: "repla
 
     const railByNet = new Map(setup.rails.map((rail) => [rail.net, rail.id]));
     const railMap = new Map<string, string>();
+    const analysed = new Set(tree.analysis_rails);
     for (const rail of tree.rails) {
         const existing = railByNet.get(rail.net);
         if (existing) {
@@ -612,7 +615,7 @@ export function mergeInferred(state: TreeState, tree: InferredTree, mode: "repla
         const id = slug(rail.id, setup.rails.map((item) => item.id));
         railMap.set(rail.id, id);
         setup.rails.push({ ...clone(rail), id });
-        if (tree.analysis_rails.includes(rail.id)) analysis(setup).rails.push(id);
+        if (analysed.has(rail.id)) analysis(setup).rails.push(id);
     }
     const netOfRail = (id: string) => setup.rails.find((rail) => rail.id === id)?.net;
     const key = (component: string | undefined, rail: string) => `${component ?? ""}@${netOfRail(rail) ?? rail}`;
@@ -637,8 +640,9 @@ export function mergeInferred(state: TreeState, tree: InferredTree, mode: "repla
         const output = setup.sources.find((s) => s.id === c.output_source);
         return key(c.component, output?.rail ?? "");
     }));
+    const treeSources = new Map(tree.sources.map((s) => [s.id, s]));
     for (const converter of tree.converters) {
-        const output = must(tree.sources.find((s) => s.id === converter.output_source), converter.output_source);
+        const output = must(treeSources.get(converter.output_source), converter.output_source);
         const outRail = railMap.get(output.rail)!;
         if (haveConverters.has(key(converter.component, outRail))) continue;
         const sourceId = slug(output.id, setup.sources.map((s) => s.id));
@@ -693,7 +697,7 @@ export function autoArrange(state: TreeState): TreeState {
         positions[node].y = (Math.min(...ys) + Math.max(...ys)) / 2;
         return positions[node].y;
     };
-    const roots = order(elements.filter((element) => !parents.has(element.node) && !element.pending).map((element) => element.node));
+    const roots = order(elements.flatMap((element) => (!parents.has(element.node) && !element.pending ? [element.node] : [])));
     for (const root of roots) place(root, byNode.get(root)!.kind === "rail" ? 1 : 0);
     row += 1;
     for (const element of elements) if (!positions[element.node]) place(element.node, 0);

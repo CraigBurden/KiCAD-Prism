@@ -162,7 +162,7 @@ export function SetupSettingsPane({ setup, canEdit, onChange }: Props) {
         onChange(next);
     };
     const toggleRail = (id: string) =>
-        setRails(solved.has(id) ? [...solved].filter((rail) => rail !== id) : setup.rails.map((rail) => rail.id).filter((rail) => rail === id || solved.has(rail)));
+        setRails(solved.has(id) ? [...solved].filter((rail) => rail !== id) : setup.rails.flatMap((rail) => (rail.id === id || solved.has(rail.id) ? [rail.id] : [])));
     const applyPreset = (id: string) => {
         const preset = ACCURACY_PRESETS.find((item) => item.id === id);
         if (!preset) return;
@@ -267,8 +267,7 @@ function RailRow({ setup, rail, on, canEdit, onToggle }: {
     const loads = setup.loads.filter((load) => load.rail === rail.id);
     const current = loads.reduce((sum, load) => sum + (load.current_a || 0), 0);
     const converters = setup.converters.filter((converter) => converter.input_rail === rail.id).length;
-    const feeds = setup.sources.filter((source) => source.rail === rail.id)
-        .map((source) => (source.component ?? source.id).replace(/^[^:]*:/, ""));
+    const feeds = setup.sources.flatMap((source) => (source.rail === rail.id ? [(source.component ?? source.id).replace(/^[^:]*:/, "")] : []));
     const id = `solve-${rail.id}`;
     const net = netLeaf(rail.net.slice(rail.net.indexOf(":") + 1));
     const meta = [
@@ -419,7 +418,7 @@ function SettingField({ field, value, canEdit, onChange }: {
                                 const next = new Set(chosen);
                                 if (next.has(option.value)) next.delete(option.value);
                                 else next.add(option.value);
-                                onChange(field.options.map((item) => item.value).filter((item) => next.has(item)));
+                                onChange(field.options.flatMap((item) => (next.has(item.value) ? [item.value] : [])));
                             }}>
                             {option.label}
                         </Button>

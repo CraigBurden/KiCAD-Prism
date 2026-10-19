@@ -10,11 +10,6 @@ export function simStudioAvailable(): Promise<boolean> {
     return availability;
 }
 
-/** Test seam: forget the cached answer. */
-export function resetSimStudioAvailability(): void {
-    availability = null;
-}
-
 export function useSimStudioAvailable(): boolean {
     const [available, setAvailable] = useState(false);
     useEffect(() => {

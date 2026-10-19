@@ -93,9 +93,10 @@ const refOf = (component?: string) => (component ? component.slice(component.ind
 
 /** What is on the canvas already: parts per kind, and the rails' nets. */
 function onCanvas(setup: SimSetup) {
+    const outputs = new Set(setup.converters.map((c) => c.output_source));
     return {
         rails: new Set(setup.rails.map((rail) => railNet(setup, rail.id))),
-        sources: new Set(setup.sources.filter((s) => !setup.converters.some((c) => c.output_source === s.id)).map((s) => `${refOf(s.component)}@${railNet(setup, s.rail)}`)),
+        sources: new Set(setup.sources.flatMap((s) => (outputs.has(s.id) ? [] : [`${refOf(s.component)}@${railNet(setup, s.rail)}`]))),
         converters: new Set(setup.converters.map((c) => refOf(c.component))),
         loads: new Set(setup.loads.map((l) => `${refOf(l.component)}@${railNet(setup, l.rail)}`)),
     };
@@ -115,7 +116,7 @@ export function pickItems(kind: ElementKind, candidates: Candidates, board: Boar
     const part = (ref: string) => board?.parts.get(ref)?.value ?? "";
 
     if (kind === "rail") {
-        const fedByMine = new Set(context.from?.kind === "converter" ? candidates.converters.filter((c) => c.component === context.from?.component).map((c) => c.output_net) : []);
+        const fedByMine = new Set(context.from?.kind === "converter" ? candidates.converters.flatMap((c) => (c.component === context.from?.component ? [c.output_net] : [])) : []);
         const rows = [...candidates.rails].sort((a, b) => Number(fedByMine.has(b.net)) - Number(fedByMine.has(a.net)));
         for (const rail of rows) {
             offered.add(rail.net);

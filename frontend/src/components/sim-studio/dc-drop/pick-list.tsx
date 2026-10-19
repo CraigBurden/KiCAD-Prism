@@ -24,8 +24,10 @@ export function filterItems(items: PickItem[], query: string): PickItem[] {
         return -1;
     };
     return items
-        .map((item) => ({ item, rank: rank(item) }))
-        .filter((entry) => entry.rank >= 0)
+        .flatMap((item) => {
+            const found = rank(item);
+            return found >= 0 ? [{ item, rank: found }] : [];
+        })
         .sort((a, b) => groups.indexOf(a.item.group) - groups.indexOf(b.item.group) || a.rank - b.rank)
         .slice(0, LIMIT)
         .map((entry) => entry.item);
@@ -71,7 +73,7 @@ export function PickList({ id, items, active, onActive, onPick, empty, className
             {rows.map(({ item, index, header }) => (
                 <li key={item.key} role="presentation">
                     {header && <div className="px-2.5 pb-0.5 pt-2 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">{item.group}</div>}
-                    <div role="option" data-index={index} aria-selected={index === active}
+                    <div role="option" data-index={index} aria-selected={index === active} tabIndex={-1}
                         className={cn("cursor-pointer px-2.5 py-1", index === active ? "bg-accent text-accent-foreground" : "hover:bg-accent/60")}
                         // Before an input's blur, so the click picks.
                         onMouseDown={(event) => { event.preventDefault(); onPick(item); }}

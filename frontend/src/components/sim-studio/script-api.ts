@@ -192,8 +192,8 @@ export function createSimStudioScriptApi(projectId: string, hooks: Hooks): SimSt
                 "Could not load the board's pads",
             );
             return (index.terminals ?? [])
-                .filter((terminal) => terminal.netName === net && terminal.pcbPadUuid && terminal.reference && terminal.pin)
-                .map((terminal) => `main:${terminal.reference}.${terminal.pin}`)
+                .flatMap((terminal) => (terminal.netName === net && terminal.pcbPadUuid && terminal.reference && terminal.pin
+                    ? [`main:${terminal.reference}.${terminal.pin}`] : []))
                 .sort();
         },
         open: (setupId) => hooks.onOpen(setupId),

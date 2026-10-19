@@ -5,8 +5,9 @@ import { ResizablePanel } from "@/components/ui/resizable-panel";
 import { fetchJson } from "@/lib/api";
 import type { PrismSemanticViewerElement } from "@/types/prism-semantic-viewer";
 
-import { runBase, type RunOverlayState, type RunResult } from "../../run-overlay";
+import { runBase, useRunOverlay, type RunResult } from "../../run-overlay";
 import type { SimRun, SimSetup } from "../../types";
+import { useViewerBoard, useViewerReady } from "../../viewer-board";
 
 import { BoardPane, type BoardState, type ProfilePoint } from "./board-pane";
 import { Drawer, type DrawerTab } from "./drawer";
@@ -76,19 +77,20 @@ export function ResultsView({ projectId, run, canMutate, onViewer, visible = tru
         setTab(next);
         openDrawer(true);
     }, [openDrawer]);
-    const [overlay, setOverlay] = useState<RunOverlayState>({ phase: "off" });
-    const viewer = useRef<PrismSemanticViewerElement | null>(null);
+    const [viewer, setViewer] = useState<PrismSemanticViewerElement | null>(null);
     const registerViewer = useCallback((value: PrismSemanticViewerElement | null) => {
-        viewer.current = value;
+        setViewer(value);
         onViewer?.(value);
     }, [onViewer]);
+    const pack = useViewerBoard(viewer, useViewerReady(viewer));
+    const overlay = useRunOverlay(viewer, pack.phase === "ready", projectId, run, board.quantity, board.arrows, board.net);
 
     const focus = useCallback((target: Focus) => {
         const fieldNets = overlay.phase === "ready" ? overlay.fieldNets : [];
         if (target.net && fieldNets.includes(target.net)) changeBoard({ net: target.net });
-        else if (target.net) viewer.current?.setSelection?.({ netName: target.net });
-        if (target.component) viewer.current?.setSelection?.({ reference: target.component });
-    }, [changeBoard, overlay]);
+        else if (target.net) viewer?.setSelection?.({ netName: target.net });
+        if (target.component) viewer?.setSelection?.({ reference: target.component });
+    }, [changeBoard, overlay, viewer]);
 
     const [height, setHeight] = useState(storedHeight);
     const drag = useRef<{ y: number; h: number } | null>(null);
@@ -119,8 +121,10 @@ export function ResultsView({ projectId, run, canMutate, onViewer, visible = tru
                         profiling={profiling}
                         onProfiling={(on) => { setProfiling(on); if (on) showTab("profile"); }}
                         onProfile={(next) => { setPoints(next); if (next) showTab("profile"); }}
-                        onViewer={registerViewer}
-                        onOverlay={setOverlay}
+                        viewer={viewer}
+                        attachViewer={registerViewer}
+                        pack={pack}
+                        overlay={overlay}
                     />
                 </div>
                 <ResizablePanel side="left" storageKey="prism.sim.dc.results-side" defaultWidth={380} minWidth={280} maxWidth={720}
@@ -137,6 +141,8 @@ export function ResultsView({ projectId, run, canMutate, onViewer, visible = tru
                     onPointerDown={(event) => { drag.current = { y: event.clientY, h: height }; event.currentTarget.setPointerCapture(event.pointerId); }}
                     onPointerMove={onDrag}
                     onPointerUp={endDrag}
+                    onPointerCancel={endDrag}
+                    onLostPointerCapture={endDrag}
                 />
             ) : <div className="shrink-0 border-t" />}
             <div style={open ? { height } : undefined} className="shrink-0">

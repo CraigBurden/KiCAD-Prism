@@ -38,7 +38,7 @@ export function ElementPalette({ kinds, candidates, board, setup, context, style
 }) {
     const [kind, setKind] = useState(kinds[0]);
     const [query, setQuery] = useState("");
-    const root = useRef<HTMLDivElement>(null);
+    const root = useRef<HTMLDialogElement>(null);
     const items = useMemo(() => filterItems(pickItems(kind, candidates, board, setup, context), query), [kind, candidates, board, setup, context, query]);
     const keys = useListKeys(items.length, (index) => onPick(items[index].pick), onClose);
     useEffect(() => { keys.setActive(0); }, [kind, query]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -52,8 +52,8 @@ export function ElementPalette({ kinds, candidates, board, setup, context, style
 
     const label = ELEMENT_STYLE[kind].label.toLowerCase();
     return (
-        <div ref={root} style={style} className={cn("nowheel nodrag nopan z-30 w-96 rounded-lg border bg-card p-2 text-card-foreground shadow-lg", className)}
-            role="dialog" aria-label={`Add a ${label}`}>
+        <dialog open ref={root} style={style} className={cn("nowheel nodrag nopan z-30 m-0 w-96 rounded-lg border bg-card p-2 text-card-foreground shadow-lg", className)}
+            aria-label={`Add a ${label}`}>
             {kinds.length > 1 && (
                 <div className={cn(SEGMENT_GROUP, "mb-2 flex")} role="tablist" aria-label="Element kind">
                     {kinds.map((item) => {
@@ -75,6 +75,6 @@ export function ElementPalette({ kinds, candidates, board, setup, context, style
                 className="mt-1 flex w-full items-center gap-1.5 border-t px-2.5 pt-2 text-xs text-muted-foreground hover:text-foreground">
                 <Plus className="size-3.5" aria-hidden /> Blank {label}, to fill in by hand
             </button>
-        </div>
+        </dialog>
     );
 }

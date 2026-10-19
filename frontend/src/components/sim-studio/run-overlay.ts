@@ -111,7 +111,7 @@ export function netsWithFields(packs: Map<string, QuantityPack>): string[] {
 
 /** Which fields a result published. */
 export function availableFields(artifacts: ResultArtifact[]): { scalars: FieldQuantity[]; vectors: boolean } {
-    const packs = new Set(artifacts.filter((a) => a.kind === QUANTITY_PACK).map((a) => a.quantity));
+    const packs = new Set(artifacts.flatMap((a) => (a.kind === QUANTITY_PACK ? [a.quantity] : [])));
     return {
         scalars: (Object.keys(FIELD_QUANTITIES) as FieldQuantity[]).filter((q) => packs.has(q)),
         vectors: packs.has(VECTOR_X) && packs.has(VECTOR_Y),
@@ -196,9 +196,7 @@ export type RunOverlayState =
 export function solvedNets(setup: SimSetup, analysisId: string): string[] {
     const analysis = setup.analyses.find((item: DcDropAnalysis) => item.id === analysisId);
     const rails = new Set(analysis?.rails ?? []);
-    return setup.rails
-        .filter((rail) => rails.has(rail.id))
-        .map((rail) => rail.net.slice(rail.net.indexOf(":") + 1));
+    return setup.rails.flatMap((rail) => (rails.has(rail.id) ? [rail.net.slice(rail.net.indexOf(":") + 1)] : []));
 }
 
 /**
@@ -233,11 +231,25 @@ export function useRunOverlay(
             return;
         }
         let cancelled = false;
-        let isolate: () => void = () => undefined;
+        let nets: string[] | null = null;
         const stopIsolating = () => {
             viewer.removeEventListener("prism-semantic-viewer:viewstatechange", isolate);
             viewer.removeEventListener("prism-semantic-viewer:ready", isolate);
         };
+        // Once the solved nets are known. The viewer loads its net table
+        // progressively, so isolation takes once the nets resolve, until the
+        // reviewer isolates a net of their own.
+        const isolate = () => {
+            if (!nets) return;
+            if (cancelled || viewer.getViewState?.()?.isolateNet) {
+                stopIsolating();
+                return;
+            }
+            viewer.setHighlightedNets?.(isolated.current.map((netName) => ({ netName })));
+            viewer.setNetIsolation?.(true);
+        };
+        viewer.addEventListener("prism-semantic-viewer:viewstatechange", isolate);
+        viewer.addEventListener("prism-semantic-viewer:ready", isolate);
         setState({ phase: "loading" });
         void (async () => {
             try {
@@ -248,19 +260,8 @@ export function useRunOverlay(
                 ]);
                 const packs = await loadPacks(base, result.artifacts);
                 if (cancelled) return;
-                const nets = solvedNets(setup, analysisId);
+                nets = solvedNets(setup, analysisId);
                 if (!isolated.current.length) isolated.current = nets;
-                isolate = () => {
-                    if (cancelled || viewer.getViewState?.()?.isolateNet) {
-                        stopIsolating();
-                        return;
-                    }
-                    viewer.setHighlightedNets?.(isolated.current.map((netName) => ({ netName })));
-                    viewer.setNetIsolation?.(true);
-                };
-                // The viewer loads its net table progressively; isolation takes once the nets resolve.
-                viewer.addEventListener("prism-semantic-viewer:viewstatechange", isolate);
-                viewer.addEventListener("prism-semantic-viewer:ready", isolate);
                 isolate();
                 setLoaded({ result, nets, packs });
             } catch (error) {
@@ -279,12 +280,14 @@ export function useRunOverlay(
 
     // The net shown: the one asked for, else the first solved rail with fields.
     const fieldNets = loaded ? netsWithFields(loaded.packs) : [];
+    const solvedSet = loaded ? new Set(loaded.nets) : null;
     const shown = !fieldNets.length ? null
         : net && fieldNets.includes(net) ? net
-        : fieldNets.find((n) => loaded?.nets.includes(n)) ?? fieldNets[0];
+        : fieldNets.find((n) => solvedSet?.has(n)) ?? fieldNets[0];
     useEffect(() => {
         if (!loaded || !viewer) return;
         isolated.current = shown ? [shown] : loaded.nets;
+        // react-doctor-disable-next-line no-pass-data-to-parent, no-pass-live-state-to-parent - `viewer` is the element adapter, not a parent callback
         viewer.setHighlightedNets?.(isolated.current.map((netName) => ({ netName })));
         viewer.setNetIsolation?.(true);
     }, [loaded, shown, viewer]);
@@ -293,15 +296,18 @@ export function useRunOverlay(
     // Every pack is already loaded, so this is a viewer call, not a fetch.
     const [colours, setColours] = useState<LoadedOverlay | null>(null);
     useEffect(() => {
+        // react-doctor-disable-next-line no-adjust-state-on-prop-change - `colours` mirrors what this effect draws on the viewer, an external system
         setColours(null);
         if (!loaded || !viewer) return;
         const pack = loaded.packs.get(quantity) ?? loaded.packs.get("voltage_v");
         if (!pack) {
+            // react-doctor-disable-next-line no-adjust-state-on-prop-change - the overlay the viewer could not be given
             setState({ phase: "failed", error: "The run has no voltage result" });
             return;
         }
         try {
             const next = packOverlay(pack, shown);
+            // react-doctor-disable-next-line no-pass-data-to-parent, no-pass-live-state-to-parent - `viewer` is the element adapter, not a parent callback
             viewer.setAnalyticOverlay(next.overlay);
             setColours(next);
         } catch (error) {

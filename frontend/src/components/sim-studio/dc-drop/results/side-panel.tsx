@@ -20,11 +20,12 @@ type Props = {
  * for a power tree, rails against their budgets for several rails, and loads
  * against the budget for one rail.
  */
+const TITLES = { flow: "Power flow", rails: "Rails", loads: "Loads" } as const;
+
 export function SidePanel({ model, onFocus }: Props) {
     const views = model.shape === "tree" ? (["flow", "rails"] as const) : model.shape === "multi" ? (["rails"] as const) : (["loads"] as const);
     const [view, setView] = useState<(typeof views)[number]>(views[0]);
     const shown = (views as readonly string[]).includes(view) ? view : views[0];
-    const titles = { flow: "Power flow", rails: "Rails", loads: "Loads" } as const;
     return (
         <div className="flex h-full min-h-0 flex-col">
             <div className="flex items-center border-b px-3 py-1.5">
@@ -32,7 +33,7 @@ export function SidePanel({ model, onFocus }: Props) {
                     {views.map((item) => (
                         <button key={item} type="button" role="tab" aria-selected={shown === item} onClick={() => setView(item)}
                             className={segmentItem(shown === item)}>
-                            {titles[item]}
+                            {TITLES[item]}
                         </button>
                     ))}
                 </div>
@@ -87,19 +88,21 @@ function PowerFlow({ model, onFocus }: Props) {
             const label = input.component ?? input.source;
             link(node(`in:${input.source}`, label, `${label} (source)`, subsystem, { component: input.component }), railName(input.rail), input.powerW);
         }
+        const railNet = new Map(model.rails.map((rail) => [rail.id, rail.net]));
         for (const converter of model.converters) {
             const label = converter.component ?? converter.id;
-            const inNet = model.rails.find((rail) => rail.id === converter.inRail)?.net ?? "?";
-            const outNet = model.rails.find((rail) => rail.id === converter.outRail)?.net ?? "?";
+            const inNet = (converter.inRail && railNet.get(converter.inRail)) || "?";
+            const outNet = (converter.outRail && railNet.get(converter.outRail)) || "?";
             const name = node(`conv:${converter.id}`, label, `${label} · ${inNet} → ${outNet} · ${percent(converter.efficiency)} efficient`, board, { component: converter.component });
             link(railName(converter.inRail), name, converter.inW);
             link(name, railName(converter.outRail), converter.outW);
         }
 
         // Last column: the biggest loads, then the rest folded together, then the losses.
-        const drawn = model.rails.flatMap((rail) => rail.loads.map((load) => ({
-            rail, load, power: (load.currentA ?? 0) * (load.nominalV ?? rail.voltageV),
-        }))).filter((item) => item.power > 1e-9);
+        const drawn = model.rails.flatMap((rail) => rail.loads.flatMap((load) => {
+            const power = (load.currentA ?? 0) * (load.nominalV ?? rail.voltageV);
+            return power > 1e-9 ? [{ rail, load, power }] : [];
+        }));
         const shown = new Set([...drawn].sort((a, b) => b.power - a.power)
             .filter((item) => item.power >= SMALL_SHARE * total).slice(0, MAX_LOADS));
         const tail: { source: string; target: string; value: number }[] = [];
@@ -160,10 +163,10 @@ function PowerFlow({ model, onFocus }: Props) {
                 layoutIterations: 0,
                 draggable: false,
                 emphasis: { focus: "adjacency" },
-                data: [...nodes.values()].filter((item) => used.has(item.name)).map((item) => ({
+                data: [...nodes.values()].flatMap((item) => (used.has(item.name) ? [{
                     ...item,
                     label: { show: flowOf(item.name) >= SMALL_SHARE * total || item.name.startsWith("loss:") || item.name === "other" },
-                })),
+                }] : [])),
                 links,
                 label: {
                     color: theme.foreground, fontSize: 10, overflow: "truncate", width: 96,

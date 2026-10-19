@@ -12,8 +12,8 @@ import { cn } from "@/lib/utils";
 import type { PrismSemanticViewerElement } from "@/types/prism-semantic-viewer";
 
 import { LookPanel, gradientOf, useResultLook } from "../../result-look";
-import { FIELD_QUANTITIES, type FieldQuantity, useRunOverlay, type RunOverlayState } from "../../run-overlay";
-import { useViewerBoard } from "../../viewer-board";
+import { FIELD_QUANTITIES, type FieldQuantity, type RunOverlayState } from "../../run-overlay";
+import type { ViewerBoardState } from "../../viewer-board";
 import type { SimRun } from "../../types";
 
 import { CursorProbe } from "./cursor-probe";
@@ -56,8 +56,12 @@ type Props = {
     profiling: boolean;
     onProfiling: (on: boolean) => void;
     onProfile: (points: [ProfilePoint, ProfilePoint] | null) => void;
-    onViewer?: (viewer: PrismSemanticViewerElement | null) => void;
-    onOverlay?: (overlay: RunOverlayState) => void;
+    /** The viewer element, and the ref that gives it to the results. */
+    viewer: PrismSemanticViewerElement | null;
+    attachViewer: (viewer: PrismSemanticViewerElement | null) => void;
+    /** The board the viewer shows, and the run's result over it. */
+    pack: ViewerBoardState;
+    overlay: RunOverlayState;
     /** False while the results are kept mounted behind another tab. */
     visible?: boolean;
 };
@@ -66,11 +70,9 @@ type Props = {
  * The run on the board: Prism's WebGPU viewer with the result over the
  * copper, under one docked toolbar of the view's controls.
  */
-export function BoardPane({ projectId, run, canMutate, board, onBoard, profiling, onProfiling, onProfile, onViewer, onOverlay, visible = true }: Props) {
+export function BoardPane({ projectId, run, canMutate, board, onBoard, profiling, onProfiling, onProfile, viewer, attachViewer, pack, overlay, visible = true }: Props) {
     const [status, setStatus] = useState<WebGpuStatus | null>(null);
     const [building, setBuilding] = useState(false);
-    const [viewer, setViewer] = useState<PrismSemanticViewerElement | null>(null);
-    const [ready, setReady] = useState(false);
     const query = run.commit ? `?commit=${encodeURIComponent(run.commit)}` : "";
 
     const loadStatus = useCallback(async () => {
@@ -101,18 +103,6 @@ export function BoardPane({ projectId, run, canMutate, board, onBoard, profiling
         }
     };
 
-    useEffect(() => {
-        setReady(false);
-        onViewer?.(viewer);
-        if (!viewer) return;
-        const onReady = () => setReady(true);
-        viewer.addEventListener("prism-semantic-viewer:ready", onReady);
-        return () => viewer.removeEventListener("prism-semantic-viewer:ready", onReady);
-    }, [viewer, onViewer]);
-
-    const pack = useViewerBoard(viewer, ready);
-    const overlay = useRunOverlay(viewer, pack.phase === "ready", projectId, run, board.quantity, board.arrows, board.net);
-    useEffect(() => { onOverlay?.(overlay); }, [overlay, onOverlay]);
     const live = overlay.phase === "ready";
     const [host, setHost] = useState<HTMLDivElement | null>(null);
     const look = useResultLook(viewer, live);
@@ -155,7 +145,7 @@ export function BoardPane({ projectId, run, canMutate, board, onBoard, profiling
                 {bundleUrl ? (
                     <prism-semantic-viewer
                         key={bundleUrl}
-                        ref={setViewer}
+                        ref={attachViewer}
                         bundle-url={bundleUrl}
                         workspace="pcb"
                         active={visible ? "true" : undefined}
