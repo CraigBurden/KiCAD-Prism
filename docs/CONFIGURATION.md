@@ -193,6 +193,22 @@ A project's `zone_fills` setting, stored in Prism (`"saved"` or unset), builds
 the board stage from the board's saved zone fills instead of a pcbnew refill.
 It is part of the revision key, so changing it rebuilds the project's bundles.
 
+### System Builder
+
+System Builder v2 checks these limits on every write
+([contracts](system-builder/CONTRACTS.md#7-limits)). They are settings so a
+deployment can raise them deliberately.
+
+| Setting | Purpose |
+| --- | --- |
+| `PRISM_SYSTEM_MAX_DOCUMENT_BYTES` | largest canonical JSON document, in bytes (default 4 MiB) |
+| `PRISM_SYSTEM_MAX_OCCURRENCES` | most occurrences in one system (default 200) |
+| `PRISM_SYSTEM_MAX_CONNECTIONS` | most mates plus harness links (default 2000) |
+| `PRISM_SYSTEM_MAX_HARNESSES` | most harness blocks (default 200) |
+| `PRISM_SYSTEM_MAX_ENDS_PER_HARNESS` | most ends in one harness block (default 64) |
+| `PRISM_SYSTEM_MAX_WIRES` | most wires across all harness blocks (default 10000) |
+| `PRISM_SYSTEM_MAX_OPS_PER_REQUEST` | most operations in one request (default 1000) |
+
 ### Live comments and issue trackers
 
 `PRISM_COMMENT_LIVE_ENABLED=true` enables live comment delivery; set it to

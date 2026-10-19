@@ -1,0 +1,107 @@
+{
+  "schema": "prism.system.ops.a0",
+  "ops": [
+    {
+      "kind": "add-occurrence",
+      "occurrence": {
+        "id": "occ_payload",
+        "label": "Payload",
+        "source": {
+          "kind": "board",
+          "projectId": "prj_2b3c4d5e6f70",
+          "track": {
+            "kind": "pinned",
+            "commit": "5f8d04832e54e9af901a1c920b045dbda1c2d4ad"
+          }
+        },
+        "pose": {
+          "translation": {
+            "xNm": 120000000,
+            "yNm": 0,
+            "zNm": 0
+          },
+          "rotation": {
+            "x": 0,
+            "y": 0,
+            "z": 0,
+            "w": 1
+          }
+        }
+      }
+    },
+    {
+      "kind": "add-sub-port",
+      "subPort": {
+        "id": "sub_can",
+        "occurrence": "occ_obc",
+        "connector": "J2",
+        "name": "CAN",
+        "pins": [
+          "3",
+          "4"
+        ]
+      }
+    },
+    {
+      "kind": "connect-harness",
+      "newHarness": {
+        "id": "har_h1",
+        "label": "H1"
+      },
+      "newEnds": {
+        "a": "end_obc",
+        "b": "end_payload"
+      },
+      "link": {
+        "id": "link_can",
+        "a": {
+          "occurrence": "occ_obc",
+          "connector": "J2",
+          "subPort": {
+            "kind": "occurrence",
+            "id": "sub_can"
+          }
+        },
+        "b": {
+          "occurrence": "occ_payload",
+          "connector": "J1"
+        },
+        "unmapped": []
+      }
+    },
+    {
+      "kind": "replace-mate",
+      "mate": {
+        "id": "mate_stack",
+        "a": {
+          "occurrence": "occ_power",
+          "connector": "J1"
+        },
+        "b": {
+          "occurrence": "occ_obc",
+          "connector": "J1"
+        },
+        "orientation": {
+          "quarterTurns": 2,
+          "flip": false
+        },
+        "stackHeightNm": 11000000,
+        "rows": {}
+      }
+    },
+    {
+      "kind": "set-layout",
+      "item": "occ_payload",
+      "placement": {
+        "xNm": 152400000,
+        "yNm": 25400000,
+        "rotationDeg": 0,
+        "mirror": false
+      }
+    },
+    {
+      "kind": "set-system-info",
+      "description": null
+    }
+  ]
+}

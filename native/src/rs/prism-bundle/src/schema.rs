@@ -12,7 +12,7 @@
 //! `properties`, `required`, `unevaluatedProperties` (only ever beside
 //! `properties` at the same level, so it acts as `additionalProperties`),
 //! `items`, `minItems`, `maxItems`, `uniqueItems`, `pattern`, `minLength`,
-//! `minimum`, `maximum`, `anyOf`, `oneOf` and `not`. A schema using any other
+//! `maxLength`, `minimum`, `maximum`, `anyOf`, `oneOf` and `not`. A schema using any other
 //! assertion keyword fails the registry test, so a new keyword cannot be
 //! silently ignored.
 
@@ -22,7 +22,7 @@ use std::collections::BTreeMap;
 use std::sync::OnceLock;
 
 /// The committed Prism schemas, `(file name, text)`.
-pub const SCHEMA_FILES: [(&str, &str); 33] = [
+pub const SCHEMA_FILES: [(&str, &str); 35] = [
     (
         "ArtworkConfigA0.json",
         include_str!("../schema/ArtworkConfigA0.json"),
@@ -143,6 +143,11 @@ pub const SCHEMA_FILES: [(&str, &str); 33] = [
         include_str!("../schema/SystemInterfaceV1.json"),
     ),
     (
+        "SystemOpsA0.json",
+        include_str!("../schema/SystemOpsA0.json"),
+    ),
+    ("SystemV2.json", include_str!("../schema/SystemV2.json")),
+    (
         "VendorJlcpcbConfigA0.json",
         include_str!("../schema/VendorJlcpcbConfigA0.json"),
     ),
@@ -152,7 +157,7 @@ pub const SCHEMA_FILES: [(&str, &str); 33] = [
 const ANNOTATIONS: [&str; 6] = ["$schema", "$id", "$defs", "description", "title", "default"];
 
 /// Assertion keywords the validator implements.
-pub const KEYWORDS: [&str; 18] = [
+pub const KEYWORDS: [&str; 19] = [
     "$ref",
     "type",
     "const",
@@ -166,6 +171,7 @@ pub const KEYWORDS: [&str; 18] = [
     "uniqueItems",
     "pattern",
     "minLength",
+    "maxLength",
     "minimum",
     "maximum",
     "anyOf",
@@ -391,7 +397,7 @@ impl Validation<'_> {
                 self.object(doc, keyword, value, siblings, instance, pointer)
             }
             "items" => self.items(doc, value, instance, pointer),
-            "pattern" | "minLength" => self.string(keyword, value, instance, pointer),
+            "pattern" | "minLength" | "maxLength" => self.string(keyword, value, instance, pointer),
             "anyOf" | "oneOf" => self.combination(doc, keyword, value, instance, pointer),
             "not" => self.negation(doc, value, instance, pointer),
             other => assertion(other, value, instance, pointer),
@@ -524,11 +530,14 @@ impl Validation<'_> {
         let Value::String(text) = instance else {
             return Ok(());
         };
-        if keyword == "minLength" {
-            let minimum = value.as_u64().unwrap_or(0);
+        if keyword == "minLength" || keyword == "maxLength" {
+            let bound = value.as_u64().unwrap_or(0);
             let length = u64::try_from(text.chars().count()).unwrap_or(u64::MAX);
-            if length < minimum {
-                return fail(pointer, format!("is shorter than {minimum} characters"));
+            if keyword == "minLength" && length < bound {
+                return fail(pointer, format!("is shorter than {bound} characters"));
+            }
+            if keyword == "maxLength" && length > bound {
+                return fail(pointer, format!("is longer than {bound} characters"));
             }
             return Ok(());
         }
@@ -761,7 +770,7 @@ mod tests {
                 .unwrap_or_else(|error| panic!("{}: {error:?}", path.display()));
             checked += 1;
         }
-        assert_eq!(checked, 33);
+        assert_eq!(checked, 35);
     }
 
     #[test]

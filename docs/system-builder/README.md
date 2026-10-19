@@ -8,7 +8,13 @@ operations.
 
 **Stage 0 (done)** removed System Builder v1: its frontend, API, services and
 tables, the catalog's `module` and `assembly` kinds, and the mesh 3D path. The
-feature branch has no System Builder until stage 2 lands.
+feature branch has no System Builder UI until stage 2 lands.
+
+**Stage 1 (in progress)** is the headless core. Its contracts are
+[`CONTRACTS.md`](CONTRACTS.md): the `prism.system.v2` document, the
+`prism.system.ops.a0` operations with recorded-inverse undo, storage, the
+`/api/systems` routes, redaction and limits. The TypeSpec is
+`native/src/tsp/prism/system-v2.tsp` and `system-ops-a0.tsp`.
 
 ## What v1 left behind
 
@@ -34,4 +40,3 @@ git show 59b3e190:docs/system-builder/USER_GUIDE.md
 git show 59b3e190:docs/system-builder/schemas/system_manifest.v1.schema.json
 ```
 
-The v2 contracts are written in stage 1.

@@ -21,4 +21,6 @@ import "./semantic-index-a2.tsp";
 import "./stackup-a0.tsp";
 import "./stroke-text-a0.tsp";
 import "./system-interface-v1.tsp";
+import "./system-ops-a0.tsp";
+import "./system-v2.tsp";
 import "./vendor-jlcpcb-a0.tsp";

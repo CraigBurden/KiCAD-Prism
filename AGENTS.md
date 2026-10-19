@@ -145,8 +145,14 @@ resolution) →
 `frontend/src/components/engineering-bom-table.tsx` (viewer-side selection)
 
 **Connect boards into a system**
-System Builder is being rebuilt: `docs/architecture/adr-system-builder-v2.md`.
-Stage 0 removed v1; until stage 1 lands only its placement maths remain,
+System Builder is being rebuilt: `docs/architecture/adr-system-builder-v2.md`,
+contracts in `docs/system-builder/CONTRACTS.md`. `backend/app/api/systems.py` →
+`backend/app/system_builder/service.py` (versions, undo, redaction) →
+`backend/app/system_builder/ops.py` (the `prism.system.ops.a0` engine, with
+`backend/app/system_builder/cascade.py`, `backend/app/system_builder/integrity.py`
+and `backend/app/system_builder/inverse.py`) →
+`backend/app/system_builder/store.py`.
+There is no UI until stage 2. The v1 placement maths remain in
 `backend/app/services/systems/placement/` and
 `frontend/src/features/system-builder/placement/` (replaying the same goldens),
 plus `backend/app/services/systems/connector_detection.py`.
