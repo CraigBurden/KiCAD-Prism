@@ -1,0 +1,1668 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$id": "urn:prism:schema:prism.system:v2",
+    "type": "object",
+    "properties": {
+        "schema": {
+            "type": "string",
+            "const": "prism.system.v2",
+            "description": "Schema id."
+        },
+        "name": {
+            "$ref": "#/$defs/SystemLabel",
+            "description": "The system's name."
+        },
+        "description": {
+            "$ref": "#/$defs/SystemDescription",
+            "description": "A description; absent means none."
+        },
+        "sheets": {
+            "type": "array",
+            "items": {
+                "$ref": "#/$defs/SystemSheet"
+            },
+            "description": "Sheets, sorted by `id` in code point order."
+        },
+        "occurrences": {
+            "type": "array",
+            "items": {
+                "$ref": "#/$defs/SystemOccurrence"
+            },
+            "description": "Occurrences, sorted by `id` in code point order."
+        },
+        "subPorts": {
+            "type": "array",
+            "items": {
+                "$ref": "#/$defs/SystemSubPort"
+            },
+            "description": "Occurrence-level sub-ports, sorted by `id` in code point order."
+        },
+        "dismissedSuggestions": {
+            "type": "array",
+            "items": {
+                "$ref": "#/$defs/SystemDismissedSuggestion"
+            },
+            "description": "Dismissed suggestions, sorted by `occurrence`, then `connector`, then `key`, each in code point order."
+        },
+        "bodyConnectors": {
+            "type": "array",
+            "items": {
+                "$ref": "#/$defs/SystemBodyConnector"
+            },
+            "description": "Body connectors, sorted by `id` in code point order."
+        },
+        "mates": {
+            "type": "array",
+            "items": {
+                "$ref": "#/$defs/SystemMate"
+            },
+            "description": "B2B mates, sorted by `id` in code point order."
+        },
+        "harnesses": {
+            "type": "array",
+            "items": {
+                "$ref": "#/$defs/SystemHarness"
+            },
+            "description": "Harness blocks, sorted by `id` in code point order."
+        },
+        "exports": {
+            "type": "array",
+            "items": {
+                "$ref": "#/$defs/SystemExport"
+            },
+            "description": "Exports, sorted by `id` in code point order."
+        },
+        "waivers": {
+            "type": "array",
+            "items": {
+                "$ref": "#/$defs/SystemWaiver"
+            },
+            "description": "Waivers, sorted by `id` in code point order."
+        },
+        "layout": {
+            "$ref": "#/$defs/RecordSystemSchematicPlacement",
+            "description": "Schematic placements; the keys are object ids."
+        }
+    },
+    "required": [
+        "schema",
+        "name",
+        "sheets",
+        "occurrences",
+        "subPorts",
+        "dismissedSuggestions",
+        "bodyConnectors",
+        "mates",
+        "harnesses",
+        "exports",
+        "waivers",
+        "layout"
+    ],
+    "unevaluatedProperties": {
+        "not": {}
+    },
+    "description": "A System Builder v2 system.",
+    "title": "System v2",
+    "$defs": {
+        "SystemLabel": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200,
+            "description": "A human-readable name or label: 1 to 200 characters."
+        },
+        "SystemDescription": {
+            "type": "string",
+            "maxLength": 4000,
+            "description": "A free-text description: up to 4000 characters."
+        },
+        "SystemSheet": {
+            "type": "object",
+            "properties": {
+                "id": {
+                    "$ref": "#/$defs/SystemObjectId",
+                    "description": "The sheet's id."
+                },
+                "name": {
+                    "$ref": "#/$defs/SystemLabel",
+                    "description": "The sheet's name, shown in the breadcrumb."
+                },
+                "parent": {
+                    "$ref": "#/$defs/SystemObjectId",
+                    "description": "The parent sheet's id; absent means the root sheet."
+                }
+            },
+            "required": [
+                "id",
+                "name"
+            ],
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "A hierarchical sheet of the system schematic."
+        },
+        "SystemOccurrence": {
+            "type": "object",
+            "properties": {
+                "id": {
+                    "$ref": "#/$defs/SystemObjectId",
+                    "description": "The occurrence's id."
+                },
+                "label": {
+                    "$ref": "#/$defs/SystemLabel",
+                    "description": "The label shown on its symbol and in 3D."
+                },
+                "sheet": {
+                    "$ref": "#/$defs/SystemObjectId",
+                    "description": "The sheet it is drawn on; absent means the root sheet."
+                },
+                "source": {
+                    "$ref": "#/$defs/SystemOccurrenceSource",
+                    "description": "What it places."
+                },
+                "pose": {
+                    "$ref": "#/$defs/SystemPose",
+                    "description": "The stored pose of a free occurrence; absent for a mated one, whose pose is derived."
+                },
+                "positioningMate": {
+                    "$ref": "#/$defs/SystemObjectId",
+                    "description": "The mate that positions it, overriding the automatic choice; absent means automatic."
+                }
+            },
+            "required": [
+                "id",
+                "label",
+                "source"
+            ],
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "One placed board, published entry or body."
+        },
+        "SystemSubPort": {
+            "type": "object",
+            "properties": {
+                "id": {
+                    "$ref": "#/$defs/SystemObjectId",
+                    "description": "The sub-port's id."
+                },
+                "occurrence": {
+                    "$ref": "#/$defs/SystemObjectId",
+                    "description": "The occurrence."
+                },
+                "connector": {
+                    "$ref": "#/$defs/Refdes",
+                    "description": "The connector's reference designator."
+                },
+                "name": {
+                    "$ref": "#/$defs/SystemLabel",
+                    "description": "The sub-port's name."
+                },
+                "pins": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/$defs/PadNumber"
+                    },
+                    "minItems": 1,
+                    "description": "Pad numbers in the user's order: as selected, or as the suggestion listed them."
+                },
+                "suggestion": {
+                    "$ref": "#/$defs/SystemLabel",
+                    "description": "The bundle suggestion key it was accepted from; absent when made by hand."
+                },
+                "promotedTo": {
+                    "$ref": "#/$defs/SystemObjectId",
+                    "description": "The board-level sub-port it was promoted to; absent when not promoted."
+                }
+            },
+            "required": [
+                "id",
+                "occurrence",
+                "connector",
+                "name",
+                "pins"
+            ],
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "An occurrence-level sub-port: a named, ordered set of a connector's pins."
+        },
+        "SystemDismissedSuggestion": {
+            "type": "object",
+            "properties": {
+                "occurrence": {
+                    "$ref": "#/$defs/SystemObjectId",
+                    "description": "The occurrence."
+                },
+                "connector": {
+                    "$ref": "#/$defs/Refdes",
+                    "description": "The connector's reference designator."
+                },
+                "key": {
+                    "$ref": "#/$defs/SystemLabel",
+                    "description": "The suggestion key."
+                }
+            },
+            "required": [
+                "occurrence",
+                "connector",
+                "key"
+            ],
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "A bundle sub-port suggestion the user dismissed."
+        },
+        "SystemBodyConnector": {
+            "type": "object",
+            "properties": {
+                "id": {
+                    "$ref": "#/$defs/SystemObjectId",
+                    "description": "The body connector's id."
+                },
+                "occurrence": {
+                    "$ref": "#/$defs/SystemObjectId",
+                    "description": "The body occurrence."
+                },
+                "refdes": {
+                    "$ref": "#/$defs/Refdes",
+                    "description": "The designator endpoints name as `connector`; unique on its occurrence."
+                },
+                "part": {
+                    "$ref": "#/$defs/SystemPartRef",
+                    "description": "The connector part."
+                },
+                "frame": {
+                    "$ref": "#/$defs/SystemPose",
+                    "description": "The part's mating frame in the body's frame."
+                },
+                "quarterTurns": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 3,
+                    "description": "Quarter turns about the frame's z axis."
+                }
+            },
+            "required": [
+                "id",
+                "occurrence",
+                "refdes",
+                "part",
+                "frame",
+                "quarterTurns"
+            ],
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "A connector part placed on a body occurrence's face (board-less systems)."
+        },
+        "SystemMate": {
+            "type": "object",
+            "properties": {
+                "id": {
+                    "$ref": "#/$defs/SystemObjectId",
+                    "description": "The mate's id."
+                },
+                "a": {
+                    "$ref": "#/$defs/SystemSite",
+                    "description": "Side A."
+                },
+                "b": {
+                    "$ref": "#/$defs/SystemSite",
+                    "description": "Side B."
+                },
+                "orientation": {
+                    "$ref": "#/$defs/SystemMateOrientation",
+                    "description": "The orientation; changing it re-derives the mapping."
+                },
+                "stackHeightNm": {
+                    "$ref": "#/$defs/NonNegativeNanometres",
+                    "description": "The stack height; absent means the mate maths' clearance fallback."
+                },
+                "offset": {
+                    "$ref": "#/$defs/SystemPose",
+                    "description": "A pose applied after the mate transform (spacers, a tilted fit); absent means none."
+                },
+                "manualMap": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/$defs/SystemMatePair"
+                    },
+                    "description": "A manual mapping that replaces the derived one, always flagged; absent means derived. Sorted by `a` in natural order."
+                },
+                "rows": {
+                    "$ref": "#/$defs/RecordSystemMateRow",
+                    "description": "Row labels; the keys are pad numbers on side A."
+                }
+            },
+            "required": [
+                "id",
+                "a",
+                "b",
+                "orientation",
+                "rows"
+            ],
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "A board-to-board mate between two connectors."
+        },
+        "SystemHarness": {
+            "type": "object",
+            "properties": {
+                "id": {
+                    "$ref": "#/$defs/SystemObjectId",
+                    "description": "The harness's id."
+                },
+                "label": {
+                    "$ref": "#/$defs/SystemLabel",
+                    "description": "The label, for example `H1`."
+                },
+                "sheet": {
+                    "$ref": "#/$defs/SystemObjectId",
+                    "description": "The sheet its block is drawn on; absent means the root sheet."
+                },
+                "ends": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/$defs/SystemHarnessEnd"
+                    },
+                    "description": "Ends, sorted by `id` in code point order."
+                },
+                "links": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/$defs/SystemHarnessLink"
+                    },
+                    "description": "Links, sorted by `id` in code point order."
+                },
+                "wires": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/$defs/SystemHarnessWire"
+                    },
+                    "description": "Wires, sorted by `id` in code point order."
+                },
+                "splices": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/$defs/SystemHarnessSplice"
+                    },
+                    "description": "Splices, sorted by `id` in code point order."
+                },
+                "branchPoints": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/$defs/SystemHarnessBranchPoint"
+                    },
+                    "description": "Branch points, sorted by `id` in code point order."
+                },
+                "segments": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/$defs/SystemHarnessSegment"
+                    },
+                    "description": "Segments, sorted by `id` in code point order."
+                },
+                "coverings": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/$defs/SystemHarnessCovering"
+                    },
+                    "description": "Coverings, sorted by `id` in code point order."
+                },
+                "cables": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/$defs/SystemHarnessCable"
+                    },
+                    "description": "Cables, sorted by `id` in code point order."
+                },
+                "looseEnds": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/$defs/SystemHarnessLooseEnd"
+                    },
+                    "description": "Loose ends, sorted by `id` in code point order."
+                },
+                "markers": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/$defs/SystemHarnessMarker"
+                    },
+                    "description": "Markers, sorted by `id` in code point order."
+                },
+                "waypoints": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/$defs/SystemHarnessWaypoint"
+                    },
+                    "description": "Waypoints, sorted by `id` in code point order."
+                }
+            },
+            "required": [
+                "id",
+                "label",
+                "ends",
+                "links",
+                "wires",
+                "splices",
+                "branchPoints",
+                "segments",
+                "coverings",
+                "cables",
+                "looseEnds",
+                "markers",
+                "waypoints"
+            ],
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "A harness block and everything in it."
+        },
+        "SystemExport": {
+            "type": "object",
+            "properties": {
+                "id": {
+                    "$ref": "#/$defs/SystemObjectId",
+                    "description": "The export's id."
+                },
+                "name": {
+                    "$ref": "#/$defs/SystemLabel",
+                    "description": "The name in the published interface."
+                },
+                "site": {
+                    "$ref": "#/$defs/SystemEndpoint",
+                    "description": "The connector or sub-port exported."
+                },
+                "pinNames": {
+                    "$ref": "#/$defs/RecordSystemLabel",
+                    "description": "Interface pin names; the keys are pad numbers."
+                }
+            },
+            "required": [
+                "id",
+                "name",
+                "site",
+                "pinNames"
+            ],
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "A connector or sub-port that is part of the system's interface."
+        },
+        "SystemWaiver": {
+            "type": "object",
+            "properties": {
+                "id": {
+                    "$ref": "#/$defs/SystemObjectId",
+                    "description": "The waiver's id."
+                },
+                "code": {
+                    "$ref": "#/$defs/DiagnosticCode",
+                    "description": "The finding code."
+                },
+                "subject": {
+                    "type": "string",
+                    "minLength": 1,
+                    "description": "The finding's subject key."
+                },
+                "reason": {
+                    "type": "string",
+                    "minLength": 1,
+                    "description": "Why it is waived."
+                }
+            },
+            "required": [
+                "id",
+                "code",
+                "subject",
+                "reason"
+            ],
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "A waived finding."
+        },
+        "RecordSystemSchematicPlacement": {
+            "type": "object",
+            "properties": {},
+            "unevaluatedProperties": {
+                "$ref": "#/$defs/SystemSchematicPlacement"
+            }
+        },
+        "SystemObjectId": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9_-]{0,63}$",
+            "description": "Id of an object in a system document: unique across the whole document and\nnever reused, even after the object is removed. Chosen by the caller or\nassigned by the server as `<prefix>_<10 base32>`."
+        },
+        "SystemOccurrenceSource": {
+            "oneOf": [
+                {
+                    "$ref": "#/$defs/SystemBoardSource",
+                    "description": "A board."
+                },
+                {
+                    "$ref": "#/$defs/SystemEntrySource",
+                    "description": "A published entry."
+                },
+                {
+                    "$ref": "#/$defs/SystemBodySource",
+                    "description": "A body."
+                }
+            ],
+            "description": "What an occurrence places."
+        },
+        "SystemPose": {
+            "type": "object",
+            "properties": {
+                "translation": {
+                    "$ref": "#/$defs/SystemVectorNm",
+                    "description": "The translation in nanometres."
+                },
+                "rotation": {
+                    "$ref": "#/$defs/SystemQuaternion",
+                    "description": "The rotation."
+                }
+            },
+            "required": [
+                "translation",
+                "rotation"
+            ],
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "A rigid transform: rotation, then translation."
+        },
+        "Refdes": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Reference designator as KiCad resolves it for one symbol instance or\nfootprint, for example `R1`, `U3`, `#PWR01` or `R?`. Always a string. A\ncontract states whether it includes virtual (`#`) and unannotated (`?`)\nreferences."
+        },
+        "PadNumber": {
+            "type": "string",
+            "description": "Pad or pin number as written in the file, always a string (`1`, `A1`,\n`EP`). Empty for a pad KiCad leaves unnumbered, such as a mechanical\nnon-plated hole."
+        },
+        "SystemPartRef": {
+            "type": "object",
+            "properties": {
+                "componentId": {
+                    "$ref": "#/$defs/SystemCatalogId",
+                    "description": "The catalog component id."
+                },
+                "revisionId": {
+                    "$ref": "#/$defs/SystemCatalogId",
+                    "description": "The revision; absent means the latest released revision."
+                }
+            },
+            "required": [
+                "componentId"
+            ],
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "A catalog part, by component and optionally revision."
+        },
+        "SystemSite": {
+            "type": "object",
+            "properties": {
+                "occurrence": {
+                    "$ref": "#/$defs/SystemObjectId",
+                    "description": "The occurrence's id."
+                },
+                "connector": {
+                    "$ref": "#/$defs/Refdes",
+                    "description": "The connector's reference designator, or a body connector's `refdes`."
+                }
+            },
+            "required": [
+                "occurrence",
+                "connector"
+            ],
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "A connector on one occurrence, never a sub-port: a mating site."
+        },
+        "SystemMateOrientation": {
+            "type": "object",
+            "properties": {
+                "quarterTurns": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 3,
+                    "description": "Quarter turns of B about the mating axis: `k` of the mate transform."
+                },
+                "flip": {
+                    "type": "boolean",
+                    "description": "Whether B mates on its frame flipped over its x axis, for a connector reached through the board."
+                }
+            },
+            "required": [
+                "quarterTurns",
+                "flip"
+            ],
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "How the two connectors of a B2B mate face each other."
+        },
+        "NonNegativeNanometres": {
+            "type": "integer",
+            "description": "A Nanometres value that is never negative: a thickness, width, diameter or length.",
+            "minimum": 0
+        },
+        "SystemMatePair": {
+            "type": "object",
+            "properties": {
+                "a": {
+                    "$ref": "#/$defs/PadNumber",
+                    "description": "The pad on side A."
+                },
+                "b": {
+                    "$ref": "#/$defs/PadNumber",
+                    "description": "The pad on side B."
+                }
+            },
+            "required": [
+                "a",
+                "b"
+            ],
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "One pin pair of a manual mate mapping."
+        },
+        "RecordSystemMateRow": {
+            "type": "object",
+            "properties": {},
+            "unevaluatedProperties": {
+                "$ref": "#/$defs/SystemMateRow"
+            }
+        },
+        "SystemHarnessEnd": {
+            "type": "object",
+            "properties": {
+                "id": {
+                    "$ref": "#/$defs/SystemObjectId",
+                    "description": "The end's id."
+                },
+                "site": {
+                    "$ref": "#/$defs/SystemSite",
+                    "description": "The connector it mates; absent on an end not attached yet."
+                },
+                "housing": {
+                    "$ref": "#/$defs/SystemPartRef",
+                    "description": "The housing part; absent until chosen."
+                },
+                "contacts": {
+                    "$ref": "#/$defs/RecordSystemPartRef",
+                    "description": "Contact parts; the keys are housing cavity numbers."
+                },
+                "pinMap": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/$defs/SystemHarnessCavityPad"
+                    },
+                    "description": "Cavity-to-pad pairs where they differ; empty means cavity n is pad n. Sorted by `cavity` in natural order."
+                },
+                "bootLengthNm": {
+                    "$ref": "#/$defs/NonNegativeNanometres",
+                    "description": "The straight exit length; absent means the harness default."
+                }
+            },
+            "required": [
+                "id",
+                "contacts",
+                "pinMap"
+            ],
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "A harness end: one mating site."
+        },
+        "SystemHarnessLink": {
+            "type": "object",
+            "properties": {
+                "id": {
+                    "$ref": "#/$defs/SystemObjectId",
+                    "description": "The link's id."
+                },
+                "a": {
+                    "$ref": "#/$defs/SystemEndpoint",
+                    "description": "Side A; its connector is an end's site in this harness."
+                },
+                "b": {
+                    "$ref": "#/$defs/SystemEndpoint",
+                    "description": "Side B; its connector is an end's site in this harness."
+                },
+                "unmapped": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/$defs/PadNumber"
+                    },
+                    "description": "Pads on side A cleared from the default wiring, sorted in natural order."
+                }
+            },
+            "required": [
+                "id",
+                "a",
+                "b",
+                "unmapped"
+            ],
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "A schematic harness wire between two endpoints; its wiring is derived."
+        },
+        "SystemHarnessWire": {
+            "type": "object",
+            "properties": {
+                "id": {
+                    "$ref": "#/$defs/SystemObjectId",
+                    "description": "The wire's id."
+                },
+                "from": {
+                    "$ref": "#/$defs/SystemWireTerminal",
+                    "description": "One terminal."
+                },
+                "to": {
+                    "$ref": "#/$defs/SystemWireTerminal",
+                    "description": "The other terminal."
+                },
+                "link": {
+                    "$ref": "#/$defs/SystemObjectId",
+                    "description": "The link whose default wire for this pin it replaces; absent for a free-standing wire."
+                },
+                "gaugeAwg": {
+                    "$ref": "#/$defs/SystemGaugeAwg",
+                    "description": "The gauge; absent means unknown."
+                },
+                "colour": {
+                    "$ref": "#/$defs/SystemLabel",
+                    "description": "The insulation colour; absent means unknown."
+                },
+                "lengthNm": {
+                    "$ref": "#/$defs/NonNegativeNanometres",
+                    "description": "The cut length; absent means derived from the route."
+                },
+                "label": {
+                    "$ref": "#/$defs/SystemLabel",
+                    "description": "The wire's label; absent means none."
+                },
+                "route": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/$defs/SystemObjectId"
+                    },
+                    "description": "Segment ids from `from` to `to`, in route order; empty means derived."
+                }
+            },
+            "required": [
+                "id",
+                "from",
+                "to",
+                "route"
+            ],
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "An explicit wire."
+        },
+        "SystemHarnessSplice": {
+            "type": "object",
+            "properties": {
+                "id": {
+                    "$ref": "#/$defs/SystemObjectId",
+                    "description": "The splice's id."
+                },
+                "method": {
+                    "$ref": "#/$defs/SystemSpliceMethod",
+                    "description": "How it is made."
+                },
+                "confirmed": {
+                    "type": "boolean",
+                    "description": "Whether the user confirmed a proposed splice."
+                }
+            },
+            "required": [
+                "id",
+                "method",
+                "confirmed"
+            ],
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "A splice joining several wires."
+        },
+        "SystemHarnessBranchPoint": {
+            "type": "object",
+            "properties": {
+                "id": {
+                    "$ref": "#/$defs/SystemObjectId",
+                    "description": "The branch point's id."
+                },
+                "position": {
+                    "$ref": "#/$defs/SystemVectorNm",
+                    "description": "Its pinned position; absent means derived from the topology."
+                }
+            },
+            "required": [
+                "id"
+            ],
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "Where the bundle physically divides; not an electrical join."
+        },
+        "SystemHarnessSegment": {
+            "type": "object",
+            "properties": {
+                "id": {
+                    "$ref": "#/$defs/SystemObjectId",
+                    "description": "The segment's id."
+                },
+                "from": {
+                    "$ref": "#/$defs/SystemHarnessNode",
+                    "description": "One node."
+                },
+                "to": {
+                    "$ref": "#/$defs/SystemHarnessNode",
+                    "description": "The other node."
+                }
+            },
+            "required": [
+                "id",
+                "from",
+                "to"
+            ],
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "A physical segment of the bundle between two nodes."
+        },
+        "SystemHarnessCovering": {
+            "type": "object",
+            "properties": {
+                "id": {
+                    "$ref": "#/$defs/SystemObjectId",
+                    "description": "The covering's id."
+                },
+                "segment": {
+                    "$ref": "#/$defs/SystemObjectId",
+                    "description": "The segment."
+                },
+                "kind": {
+                    "$ref": "#/$defs/SystemCoveringKind",
+                    "description": "What it is."
+                },
+                "part": {
+                    "$ref": "#/$defs/SystemPartRef",
+                    "description": "The catalog part; absent until chosen."
+                },
+                "startNm": {
+                    "$ref": "#/$defs/NonNegativeNanometres",
+                    "description": "Distance from the segment's `from` node where it starts; absent means at the node."
+                },
+                "endNm": {
+                    "$ref": "#/$defs/NonNegativeNanometres",
+                    "description": "Distance from the segment's `from` node where it ends; absent means at the `to` node."
+                }
+            },
+            "required": [
+                "id",
+                "segment",
+                "kind"
+            ],
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "A covering on part or all of a segment."
+        },
+        "SystemHarnessCable": {
+            "type": "object",
+            "properties": {
+                "id": {
+                    "$ref": "#/$defs/SystemObjectId",
+                    "description": "The cable's id."
+                },
+                "part": {
+                    "$ref": "#/$defs/SystemPartRef",
+                    "description": "The catalog part; absent until chosen."
+                },
+                "label": {
+                    "$ref": "#/$defs/SystemLabel",
+                    "description": "The cable's label; absent means none."
+                },
+                "conductors": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/$defs/SystemCableConductor"
+                    },
+                    "description": "Conductors in the cable's own order."
+                }
+            },
+            "required": [
+                "id",
+                "conductors"
+            ],
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "A jacketed multi-conductor cable."
+        },
+        "SystemHarnessLooseEnd": {
+            "type": "object",
+            "properties": {
+                "id": {
+                    "$ref": "#/$defs/SystemObjectId",
+                    "description": "The loose end's id."
+                },
+                "kind": {
+                    "$ref": "#/$defs/SystemLooseEndKind",
+                    "description": "What it is for."
+                },
+                "lengthNm": {
+                    "$ref": "#/$defs/NonNegativeNanometres",
+                    "description": "The pigtail length; absent means unknown."
+                },
+                "label": {
+                    "$ref": "#/$defs/SystemLabel",
+                    "description": "Its label; absent means none."
+                }
+            },
+            "required": [
+                "id",
+                "kind"
+            ],
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "A harness end left open."
+        },
+        "SystemHarnessMarker": {
+            "type": "object",
+            "properties": {
+                "id": {
+                    "$ref": "#/$defs/SystemObjectId",
+                    "description": "The marker's id."
+                },
+                "wire": {
+                    "$ref": "#/$defs/SystemObjectId",
+                    "description": "The wire."
+                },
+                "kind": {
+                    "$ref": "#/$defs/SystemMarkerKind",
+                    "description": "What it is."
+                },
+                "text": {
+                    "$ref": "#/$defs/SystemLabel",
+                    "description": "The printed text."
+                },
+                "atNm": {
+                    "$ref": "#/$defs/NonNegativeNanometres",
+                    "description": "Distance from the wire's `from` terminal; absent means the default position."
+                }
+            },
+            "required": [
+                "id",
+                "wire",
+                "kind",
+                "text"
+            ],
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "A label or marker along a wire."
+        },
+        "SystemHarnessWaypoint": {
+            "type": "object",
+            "properties": {
+                "id": {
+                    "$ref": "#/$defs/SystemObjectId",
+                    "description": "The waypoint's id."
+                },
+                "segment": {
+                    "$ref": "#/$defs/SystemObjectId",
+                    "description": "The segment."
+                },
+                "position": {
+                    "$ref": "#/$defs/SystemVectorNm",
+                    "description": "Its position in system space."
+                },
+                "order": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 2147483647,
+                    "description": "Its place along the segment, from the `from` node: lower comes first."
+                }
+            },
+            "required": [
+                "id",
+                "segment",
+                "position",
+                "order"
+            ],
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "A waypoint the user pinned on a segment."
+        },
+        "SystemEndpoint": {
+            "type": "object",
+            "properties": {
+                "occurrence": {
+                    "$ref": "#/$defs/SystemObjectId",
+                    "description": "The occurrence's id."
+                },
+                "connector": {
+                    "$ref": "#/$defs/Refdes",
+                    "description": "The connector's reference designator on that board, or a body connector's `refdes`."
+                },
+                "subPort": {
+                    "$ref": "#/$defs/SystemSubPortRef",
+                    "description": "The sub-port; absent means the whole connector."
+                }
+            },
+            "required": [
+                "occurrence",
+                "connector"
+            ],
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "A connector, or a sub-port of one, on one occurrence: the thing every\nconnection names."
+        },
+        "RecordSystemLabel": {
+            "type": "object",
+            "properties": {},
+            "unevaluatedProperties": {
+                "$ref": "#/$defs/SystemLabel"
+            }
+        },
+        "DiagnosticCode": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$",
+            "description": "Stable machine-readable code of a finding, in lowercase kebab-case, for\nexample `stale-saved-fills` or `net-mismatch`. A code never changes meaning\nonce published; a new meaning gets a new code."
+        },
+        "SystemSchematicPlacement": {
+            "type": "object",
+            "properties": {
+                "sheet": {
+                    "$ref": "#/$defs/SystemObjectId",
+                    "description": "The sheet; absent means the root sheet."
+                },
+                "xNm": {
+                    "$ref": "#/$defs/Nanometres",
+                    "description": "X in nanometres on the sheet, +x right."
+                },
+                "yNm": {
+                    "$ref": "#/$defs/Nanometres",
+                    "description": "Y in nanometres on the sheet, +y down."
+                },
+                "rotationDeg": {
+                    "$ref": "#/$defs/Degrees",
+                    "description": "Rotation in degrees, counter-clockwise."
+                },
+                "mirror": {
+                    "type": "boolean",
+                    "description": "Whether the symbol is mirrored."
+                }
+            },
+            "required": [
+                "xNm",
+                "yNm",
+                "rotationDeg",
+                "mirror"
+            ],
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "Where an object's symbol sits in the schematic; presentation only."
+        },
+        "SystemBoardSource": {
+            "type": "object",
+            "properties": {
+                "kind": {
+                    "type": "string",
+                    "const": "board",
+                    "description": "Discriminator."
+                },
+                "projectId": {
+                    "$ref": "#/$defs/SystemProjectId",
+                    "description": "The Prism project id."
+                },
+                "track": {
+                    "$ref": "#/$defs/SystemTrack",
+                    "description": "The revision it is at."
+                }
+            },
+            "required": [
+                "kind",
+                "projectId",
+                "track"
+            ],
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "A KiCad project, read from its design bundle."
+        },
+        "SystemEntrySource": {
+            "type": "object",
+            "properties": {
+                "kind": {
+                    "type": "string",
+                    "const": "entry",
+                    "description": "Discriminator."
+                },
+                "componentId": {
+                    "$ref": "#/$defs/SystemCatalogId",
+                    "description": "The catalog component id of the published system."
+                },
+                "revisionId": {
+                    "$ref": "#/$defs/SystemCatalogId",
+                    "description": "The published revision."
+                }
+            },
+            "required": [
+                "kind",
+                "componentId",
+                "revisionId"
+            ],
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "A published system from the catalog."
+        },
+        "SystemBodySource": {
+            "type": "object",
+            "properties": {
+                "kind": {
+                    "type": "string",
+                    "const": "body",
+                    "description": "Discriminator."
+                },
+                "componentId": {
+                    "$ref": "#/$defs/SystemCatalogId",
+                    "description": "The catalog component id."
+                },
+                "revisionId": {
+                    "$ref": "#/$defs/SystemCatalogId",
+                    "description": "The revision."
+                }
+            },
+            "required": [
+                "kind",
+                "componentId",
+                "revisionId"
+            ],
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "A mechanical catalog part: an enclosure, a bracket, a module's body."
+        },
+        "SystemVectorNm": {
+            "type": "object",
+            "properties": {
+                "xNm": {
+                    "$ref": "#/$defs/Nanometres",
+                    "description": "X in nanometres."
+                },
+                "yNm": {
+                    "$ref": "#/$defs/Nanometres",
+                    "description": "Y in nanometres."
+                },
+                "zNm": {
+                    "$ref": "#/$defs/Nanometres",
+                    "description": "Z in nanometres, +z up."
+                }
+            },
+            "required": [
+                "xNm",
+                "yNm",
+                "zNm"
+            ],
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "A point or translation in system space, in nanometres; +z up, right-handed."
+        },
+        "SystemQuaternion": {
+            "type": "object",
+            "properties": {
+                "x": {
+                    "type": "number",
+                    "description": "The x component."
+                },
+                "y": {
+                    "type": "number",
+                    "description": "The y component."
+                },
+                "z": {
+                    "type": "number",
+                    "description": "The z component."
+                },
+                "w": {
+                    "type": "number",
+                    "description": "The scalar component."
+                }
+            },
+            "required": [
+                "x",
+                "y",
+                "z",
+                "w"
+            ],
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "A unit quaternion; normalized when written."
+        },
+        "SystemCatalogId": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$",
+            "description": "Prism catalog component or revision id, as the catalog issues it."
+        },
+        "SystemMateRow": {
+            "type": "object",
+            "properties": {
+                "netLabel": {
+                    "$ref": "#/$defs/SystemLabel",
+                    "description": "A net name shown for the row; absent means none."
+                },
+                "signal": {
+                    "$ref": "#/$defs/SystemLabel",
+                    "description": "A signal label; absent means none."
+                }
+            },
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "The user's labels on one row of a mate's mapping."
+        },
+        "RecordSystemPartRef": {
+            "type": "object",
+            "properties": {},
+            "unevaluatedProperties": {
+                "$ref": "#/$defs/SystemPartRef"
+            }
+        },
+        "SystemHarnessCavityPad": {
+            "type": "object",
+            "properties": {
+                "cavity": {
+                    "$ref": "#/$defs/PadNumber",
+                    "description": "The cavity."
+                },
+                "pad": {
+                    "$ref": "#/$defs/PadNumber",
+                    "description": "The board pad."
+                }
+            },
+            "required": [
+                "cavity",
+                "pad"
+            ],
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "A housing cavity and the board pad it lands on."
+        },
+        "SystemWireTerminal": {
+            "oneOf": [
+                {
+                    "$ref": "#/$defs/SystemContactTerminal",
+                    "description": "An end's cavity."
+                },
+                {
+                    "$ref": "#/$defs/SystemSpliceTerminal",
+                    "description": "A splice."
+                },
+                {
+                    "$ref": "#/$defs/SystemLooseTerminal",
+                    "description": "A loose end."
+                }
+            ],
+            "description": "Where one end of a wire terminates."
+        },
+        "SystemGaugeAwg": {
+            "type": "string",
+            "pattern": "^[0-9]{1,2}(?:/0)?$",
+            "description": "A wire gauge in AWG as people write it: `24`, `0`, `00`, `4/0`."
+        },
+        "SystemSpliceMethod": {
+            "type": "string",
+            "enum": [
+                "crimp",
+                "solder"
+            ],
+            "description": "How a splice joins its wires."
+        },
+        "SystemHarnessNode": {
+            "oneOf": [
+                {
+                    "$ref": "#/$defs/SystemEndNode",
+                    "description": "An end."
+                },
+                {
+                    "$ref": "#/$defs/SystemBranchPointNode",
+                    "description": "A branch point."
+                }
+            ],
+            "description": "One end of a harness segment."
+        },
+        "SystemCoveringKind": {
+            "type": "string",
+            "enum": [
+                "sleeve",
+                "heat-shrink",
+                "tape",
+                "zip-ties"
+            ],
+            "description": "What a covering on a harness segment is."
+        },
+        "SystemCableConductor": {
+            "type": "object",
+            "properties": {
+                "name": {
+                    "$ref": "#/$defs/SystemLabel",
+                    "description": "The conductor's name in the cable's datasheet."
+                },
+                "wire": {
+                    "$ref": "#/$defs/SystemObjectId",
+                    "description": "The wire it carries; absent when unused."
+                },
+                "drain": {
+                    "type": "boolean",
+                    "description": "Whether it is a shield drain."
+                }
+            },
+            "required": [
+                "name",
+                "drain"
+            ],
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "One conductor of a cable."
+        },
+        "SystemLooseEndKind": {
+            "type": "string",
+            "enum": [
+                "pigtail",
+                "test-point",
+                "open"
+            ],
+            "description": "What an open harness end is for."
+        },
+        "SystemMarkerKind": {
+            "type": "string",
+            "enum": [
+                "label",
+                "heat-shrink-marker"
+            ],
+            "description": "What a marker on a wire is."
+        },
+        "SystemSubPortRef": {
+            "oneOf": [
+                {
+                    "$ref": "#/$defs/SystemOccurrenceSubPortRef",
+                    "description": "One of this document's sub-ports."
+                },
+                {
+                    "$ref": "#/$defs/SystemBoardSubPortRef",
+                    "description": "A board-level sub-port."
+                }
+            ],
+            "description": "Which sub-port of a connector an endpoint names."
+        },
+        "Nanometres": {
+            "type": "integer",
+            "description": "Length or coordinate in integer nanometres, KiCad's internal board unit.\nConverted from the file's decimal millimetres as KiCad's own parser does:\nthe double product value_mm * 1e6, rounded half away from zero. A single\ncoordinate or dimension fits KiCad's 32-bit range; sums (for example a\nnet's total track length) may not, hence a safe integer (|n| < 2^53)."
+        },
+        "Degrees": {
+            "type": "number",
+            "description": "Angle in degrees. In new documents it is as written in the KiCad file:\nnot normalized, not rounded. A parity document may round it as today's\noutput does, and its field says so. A positive angle is a counter-clockwise rotation as KiCad shows\nit on the front side. Each field states the frame its angle is in."
+        },
+        "SystemProjectId": {
+            "type": "string",
+            "pattern": "^prj_[0-9a-f]{12}$",
+            "description": "Prism project id: `prj_` and 12 lowercase hexadecimal digits."
+        },
+        "SystemTrack": {
+            "oneOf": [
+                {
+                    "$ref": "#/$defs/SystemPinnedTrack",
+                    "description": "Pinned at a commit."
+                },
+                {
+                    "$ref": "#/$defs/SystemFollowedTrack",
+                    "description": "Following a branch."
+                }
+            ],
+            "description": "How a board occurrence tracks its project's revisions."
+        },
+        "SystemContactTerminal": {
+            "type": "object",
+            "properties": {
+                "kind": {
+                    "type": "string",
+                    "const": "contact",
+                    "description": "Discriminator."
+                },
+                "end": {
+                    "$ref": "#/$defs/SystemObjectId",
+                    "description": "The end."
+                },
+                "cavity": {
+                    "$ref": "#/$defs/PadNumber",
+                    "description": "The cavity."
+                }
+            },
+            "required": [
+                "kind",
+                "end",
+                "cavity"
+            ],
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "A wire terminating on an end's cavity."
+        },
+        "SystemSpliceTerminal": {
+            "type": "object",
+            "properties": {
+                "kind": {
+                    "type": "string",
+                    "const": "splice",
+                    "description": "Discriminator."
+                },
+                "splice": {
+                    "$ref": "#/$defs/SystemObjectId",
+                    "description": "The splice."
+                }
+            },
+            "required": [
+                "kind",
+                "splice"
+            ],
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "A wire terminating on a splice."
+        },
+        "SystemLooseTerminal": {
+            "type": "object",
+            "properties": {
+                "kind": {
+                    "type": "string",
+                    "const": "loose",
+                    "description": "Discriminator."
+                },
+                "looseEnd": {
+                    "$ref": "#/$defs/SystemObjectId",
+                    "description": "The loose end."
+                }
+            },
+            "required": [
+                "kind",
+                "looseEnd"
+            ],
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "A wire terminating on a loose end."
+        },
+        "SystemEndNode": {
+            "type": "object",
+            "properties": {
+                "kind": {
+                    "type": "string",
+                    "const": "end",
+                    "description": "Discriminator."
+                },
+                "end": {
+                    "$ref": "#/$defs/SystemObjectId",
+                    "description": "The end."
+                }
+            },
+            "required": [
+                "kind",
+                "end"
+            ],
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "A segment node at an end."
+        },
+        "SystemBranchPointNode": {
+            "type": "object",
+            "properties": {
+                "kind": {
+                    "type": "string",
+                    "const": "branch-point",
+                    "description": "Discriminator."
+                },
+                "branchPoint": {
+                    "$ref": "#/$defs/SystemObjectId",
+                    "description": "The branch point."
+                }
+            },
+            "required": [
+                "kind",
+                "branchPoint"
+            ],
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "A segment node at a branch point."
+        },
+        "SystemOccurrenceSubPortRef": {
+            "type": "object",
+            "properties": {
+                "kind": {
+                    "type": "string",
+                    "const": "occurrence",
+                    "description": "Discriminator."
+                },
+                "id": {
+                    "$ref": "#/$defs/SystemObjectId",
+                    "description": "The sub-port's id in `subPorts`."
+                }
+            },
+            "required": [
+                "kind",
+                "id"
+            ],
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "A sub-port stored in this document."
+        },
+        "SystemBoardSubPortRef": {
+            "type": "object",
+            "properties": {
+                "kind": {
+                    "type": "string",
+                    "const": "board",
+                    "description": "Discriminator."
+                },
+                "id": {
+                    "$ref": "#/$defs/SystemObjectId",
+                    "description": "The board-level sub-port's id."
+                }
+            },
+            "required": [
+                "kind",
+                "id"
+            ],
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "A board-level sub-port, stored against the project and connector."
+        },
+        "SystemPinnedTrack": {
+            "type": "object",
+            "properties": {
+                "kind": {
+                    "type": "string",
+                    "const": "pinned",
+                    "description": "Discriminator."
+                },
+                "commit": {
+                    "$ref": "#/$defs/GitObjectId",
+                    "description": "The commit."
+                }
+            },
+            "required": [
+                "kind",
+                "commit"
+            ],
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "A board at a pinned commit, which never changes on its own."
+        },
+        "SystemFollowedTrack": {
+            "type": "object",
+            "properties": {
+                "kind": {
+                    "type": "string",
+                    "const": "followed",
+                    "description": "Discriminator."
+                },
+                "branch": {
+                    "$ref": "#/$defs/SystemBranchName",
+                    "description": "The branch followed."
+                },
+                "commit": {
+                    "$ref": "#/$defs/GitObjectId",
+                    "description": "The commit the occurrence is at now."
+                },
+                "reviewedCommit": {
+                    "$ref": "#/$defs/GitObjectId",
+                    "description": "The commit whose changes the user last acknowledged; absent means never acknowledged."
+                }
+            },
+            "required": [
+                "kind",
+                "branch",
+                "commit"
+            ],
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "A board that follows a branch, advanced by `advance-occurrence`."
+        },
+        "GitObjectId": {
+            "type": "string",
+            "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$",
+            "description": "Git object id in lowercase hexadecimal: 40 characters in a SHA-1\nrepository, 64 in a SHA-256 repository. Used for commit ids and blob ids."
+        },
+        "SystemBranchName": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 255,
+            "description": "A Git branch name as the repository spells it, without `refs/heads/`."
+        }
+    }
+}

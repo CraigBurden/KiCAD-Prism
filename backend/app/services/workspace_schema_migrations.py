@@ -48,6 +48,7 @@ from app.services.workspace_migrations import m121_sim_studio_runs
 from app.services.workspace_migrations import m122_sim_studio_layouts
 from app.services.workspace_migrations import m123_drop_system_builder_v1
 from app.services.workspace_migrations import m124_drop_mesh_viewer_readiness
+from app.services.workspace_migrations import m125_system_builder_v2
 
 
 Migration = Callable[[Any], None]
@@ -91,6 +92,7 @@ MIGRATIONS: tuple[tuple[int, str, Migration], ...] = (
     # 26-54 (but 41) were System Builder v1; 123 drops what they made.
     (123, "drop_system_builder_v1", m123_drop_system_builder_v1.migrate),
     (124, "drop_mesh_viewer_readiness", m124_drop_mesh_viewer_readiness.migrate),
+    (125, "system_builder_v2", m125_system_builder_v2.migrate),
 )
 
 # Migrations that a long-lived branch database recorded under an earlier number.
