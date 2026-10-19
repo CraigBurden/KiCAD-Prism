@@ -71,6 +71,9 @@ from app.services.workspace_migrations import m101_design_bundles
 from app.services.workspace_migrations import m102_design_bundle_outcomes
 from app.services.workspace_migrations import m103_design_bundle_aliases
 from app.services.workspace_migrations import m118_design_bundle_design_keys
+from app.services.workspace_migrations import m120_sim_studio_setups
+from app.services.workspace_migrations import m121_sim_studio_runs
+from app.services.workspace_migrations import m122_sim_studio_layouts
 
 
 Migration = Callable[[Any], None]
@@ -136,6 +139,9 @@ MIGRATIONS: tuple[tuple[int, str, Migration], ...] = (
     (102, "design_bundle_outcomes", m102_design_bundle_outcomes.migrate),
     (103, "design_bundle_aliases", m103_design_bundle_aliases.migrate),
     (118, "design_bundle_design_keys", m118_design_bundle_design_keys.migrate),
+    (120, "sim_studio_setups", m120_sim_studio_setups.migrate),
+    (121, "sim_studio_runs", m121_sim_studio_runs.migrate),
+    (122, "sim_studio_layouts", m122_sim_studio_layouts.migrate),
 )
 
 # Migrations that a long-lived branch database recorded under an earlier number.
