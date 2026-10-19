@@ -119,6 +119,22 @@ def _snapshot_view(row: dict[str, Any], caller: Caller) -> dict[str, Any]:
     return {**_snapshot(viewed), "document": viewed["document"], "redacted": viewed["redacted"]}
 
 
+def _bundle(answer: dict[str, Any]) -> dict[str, Any]:
+    """The service's bundle answer in the API's camelCase shape."""
+
+    body: dict[str, Any] = {
+        "state": answer["state"],
+        "key": answer["key"],
+        "pending": answer["pending"],
+        "documentVersion": answer["documentVersion"],
+    }
+    if "bundle" in answer:
+        body["bundle"] = answer["bundle"]
+    if "error" in answer:
+        body["error"] = answer["error"]
+    return body
+
+
 @router.get("/systems")
 def list_systems(user: AuthenticatedUser = Depends(require_viewer)) -> list[dict[str, Any]]:
     return [_summary(row) for row in store.list(role=user.role)]
@@ -145,6 +161,17 @@ def read_system(
     viewed = service.read(system_id, _caller(user), role=user.role)
     response.headers["ETag"] = etag(viewed)
     return _system(viewed)
+
+
+@router.get("/systems/{system_id}/bundle")
+def read_bundle(
+    system_id: str, response: Response,
+    user: AuthenticatedUser = Depends(require_viewer),
+) -> dict[str, Any]:
+    viewed = service.read(system_id, _caller(user), role=user.role)
+    answer = service.bundle(system_id, _caller(user), role=user.role)
+    response.headers["ETag"] = etag(viewed)
+    return _bundle(answer)
 
 
 @router.post("/systems/{system_id}/ops")

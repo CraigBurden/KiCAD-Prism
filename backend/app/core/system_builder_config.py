@@ -46,3 +46,8 @@ class SystemBuilderSettings(BaseSettings):
         gt=0,
         description="Most operations one prism.system.ops.a0 request may apply.",
     )
+    PRISM_SYSTEM_BUNDLE_TIMEOUT_SECONDS: int = Field(
+        default=300,
+        ge=10,
+        description="Wall-clock bound for one prism-kicad system build, in seconds.",
+    )

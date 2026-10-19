@@ -22,7 +22,7 @@ use std::collections::BTreeMap;
 use std::sync::OnceLock;
 
 /// The committed Prism schemas, `(file name, text)`.
-pub const SCHEMA_FILES: [(&str, &str); 35] = [
+pub const SCHEMA_FILES: [(&str, &str); 37] = [
     (
         "ArtworkConfigA0.json",
         include_str!("../schema/ArtworkConfigA0.json"),
@@ -81,6 +81,10 @@ pub const SCHEMA_FILES: [(&str, &str); 35] = [
         include_str!("../schema/CliStrokeTextResultA0.json"),
     ),
     (
+        "CliSystemResultA0.json",
+        include_str!("../schema/CliSystemResultA0.json"),
+    ),
+    (
         "CliVendorListA0.json",
         include_str!("../schema/CliVendorListA0.json"),
     ),
@@ -137,6 +141,10 @@ pub const SCHEMA_FILES: [(&str, &str); 35] = [
     (
         "StrokeTextRequestA0.json",
         include_str!("../schema/StrokeTextRequestA0.json"),
+    ),
+    (
+        "SystemBundleA0.json",
+        include_str!("../schema/SystemBundleA0.json"),
     ),
     (
         "SystemInterfaceV1.json",
@@ -770,7 +778,7 @@ mod tests {
                 .unwrap_or_else(|error| panic!("{}: {error:?}", path.display()));
             checked += 1;
         }
-        assert_eq!(checked, 35);
+        assert_eq!(checked, 37);
     }
 
     #[test]

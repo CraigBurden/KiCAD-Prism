@@ -114,6 +114,7 @@ class RoutingTest(unittest.TestCase):
         for path in (
             "/api/systems",
             "/api/systems/{system_id}",
+            "/api/systems/{system_id}/bundle",
             "/api/systems/{system_id}/ops",
             "/api/systems/{system_id}/undo",
             "/api/systems/{system_id}/history",

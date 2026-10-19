@@ -13,6 +13,8 @@ from typing import Any, Callable, Mapping
 from app.system_builder.document import clone
 
 REDACTED_SOURCE = {"kind": "redacted"}
+REDACTED_OCCURRENCE_STATE = "redacted"
+REDACTED_MESSAGE = "Concerns a board you cannot see"
 
 
 def hidden_occurrences(document: Mapping[str, Any], can_see_project: Callable[[str], bool]) -> frozenset[str]:
@@ -101,4 +103,70 @@ def redact(document: Mapping[str, Any], hidden: frozenset[str]) -> dict[str, Any
             for side in ("from", "to"):
                 if _on_hidden_end(wire[side], ends):
                     wire[side] = {"kind": "contact", "end": wire[side]["end"], "cavity": ""}
+    return view
+
+
+def redact_bundle(
+    bundle: Mapping[str, Any],
+    hidden: frozenset[str],
+    *,
+    document: Mapping[str, Any] | None = None,
+) -> dict[str, Any]:
+    """A system bundle as a caller who cannot see ``hidden`` reads it (§6, §8).
+
+    ``hidden`` is the set from :func:`hidden_occurrences`. ``document`` lets the
+    same rule reach a mate or link by its endpoints and a finding by the ids
+    :func:`protected_ids` names; without it only the occurrence ids themselves
+    are hidden, because a bundle records neither a mate's nor a link's endpoints.
+    """
+
+    view = clone(bundle)
+    protected = protected_ids(document, hidden) if document is not None else frozenset(hidden)
+
+    view["occurrences"] = [
+        {"occurrence": occurrence["occurrence"], "state": REDACTED_OCCURRENCE_STATE, "connectors": []}
+        if occurrence["occurrence"] in hidden
+        else occurrence
+        for occurrence in view["occurrences"]
+    ]
+
+    nets: list[dict[str, Any]] = []
+    for net in view["nets"]:
+        pins = [pin for pin in net["pins"] if pin["occurrence"] not in hidden]
+        if not pins:
+            continue
+        nets.append(
+            {
+                **net,
+                "pins": pins,
+                "boardNets": [
+                    board_net
+                    for board_net in net["boardNets"]
+                    if board_net["occurrence"] not in hidden
+                ],
+            }
+        )
+    view["nets"] = nets
+
+    for mate in view["mates"]:
+        if mate["mate"] in protected:
+            mate["pairs"] = []
+            mate["unmappedA"] = []
+            mate["unmappedB"] = []
+    for link in view["links"]:
+        if link["link"] in protected:
+            link["wires"] = []
+            link["unmappedA"] = []
+            link["unmappedB"] = []
+
+    view["suggestions"] = [
+        suggestion
+        for suggestion in view["suggestions"]
+        if suggestion["occurrence"] not in hidden
+    ]
+
+    for finding in view["findings"]:
+        if any(item in protected for item in finding["objects"]):
+            finding["message"] = REDACTED_MESSAGE
+            finding["objects"] = []
     return view

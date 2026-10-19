@@ -4,7 +4,7 @@
 //! before any work (exit 2).
 
 use prism_bundle::{Failure, LimitName, Limits, Outcome, Work};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 /// The command.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -25,6 +25,18 @@ pub enum Command {
     RevisionKey,
     /// `compare`.
     Compare,
+    /// `system build`.
+    SystemBuild,
+}
+
+/// A `system build` member: its stored design bundle and the revision key it
+/// is read at.
+#[derive(Clone, Debug)]
+pub struct SystemMemberArg {
+    /// The `.prism` path.
+    pub bundle: String,
+    /// Its identity, 64 lowercase hex digits.
+    pub revision_key: String,
 }
 
 /// A `bundle build` stage.
@@ -55,6 +67,10 @@ pub struct Args {
     pub head_upgraded: BTreeMap<String, u64>,
     /// `compare --include-unchanged`.
     pub include_unchanged: bool,
+    /// `system build --member`, by occurrence.
+    pub system_members: BTreeMap<String, SystemMemberArg>,
+    /// `system build --absent`, in code point order.
+    pub system_absent: BTreeSet<String>,
     /// `--worktree`.
     pub worktree: bool,
     /// `--quiet`.
@@ -90,7 +106,7 @@ fn work_of(command: Command, stage: Option<StageArg>) -> Work {
     }
 }
 
-const VALUE_OPTIONS: [&str; 28] = [
+const VALUE_OPTIONS: [&str; 32] = [
     "output",
     "in",
     "stage",
@@ -119,6 +135,10 @@ const VALUE_OPTIONS: [&str; 28] = [
     "limit",
     "threads",
     "upgraded",
+    "document",
+    "member",
+    "member-revision-key",
+    "absent",
 ];
 
 fn allowed(command: Command, option: &str) -> bool {
@@ -157,6 +177,13 @@ fn allowed(command: Command, option: &str) -> bool {
             "include-unchanged",
         ],
         Command::RevisionKey => &["commit", "worktree", "project", "config"],
+        Command::SystemBuild => &[
+            "document",
+            "member",
+            "member-revision-key",
+            "absent",
+            "output",
+        ],
         _ => &[],
     };
     common || specific.contains(&option)
@@ -176,6 +203,12 @@ fn command_words(argv: &[String]) -> Outcome<(Command, usize)> {
         Some("-h" | "--help") | None => Ok((Command::Help, 1)),
         Some("revision-key") => Ok((Command::RevisionKey, 1)),
         Some("compare") => Ok((Command::Compare, 1)),
+        Some("system") => match argv.get(1).map(String::as_str) {
+            Some("build") => Ok((Command::SystemBuild, 2)),
+            _ => Err(
+                Failure::usage("unknown-command", "system takes build").argument("command")
+            ),
+        },
         Some("bundle") => match argv.get(1).map(String::as_str) {
             Some("build") => Ok((Command::Build, 2)),
             Some("verify") => Ok((Command::Verify, 2)),
@@ -185,7 +218,7 @@ fn command_words(argv: &[String]) -> Outcome<(Command, usize)> {
         },
         Some(_) => Err(Failure::usage(
             "unknown-command",
-            "the command is not version, bundle build, bundle verify, bundle extract, bundle reuse, revision-key or compare",
+            "the command is not version, bundle build, bundle verify, bundle extract, bundle reuse, revision-key, compare or system build",
         )
         .argument("command")),
     }
@@ -213,6 +246,9 @@ struct Raw {
     upgraded: Vec<String>,
     base_upgraded: Vec<String>,
     head_upgraded: Vec<String>,
+    members: Vec<String>,
+    member_revision_keys: Vec<String>,
+    absent: Vec<String>,
     include_unchanged: bool,
     worktree: bool,
     quiet: bool,
@@ -227,6 +263,9 @@ fn collect(command: Command, rest: &[String]) -> Outcome<Raw> {
         upgraded: Vec::new(),
         base_upgraded: Vec::new(),
         head_upgraded: Vec::new(),
+        members: Vec::new(),
+        member_revision_keys: Vec::new(),
+        absent: Vec::new(),
         include_unchanged: false,
         worktree: false,
         quiet: false,
@@ -258,9 +297,15 @@ impl Raw {
         match name {
             "worktree" | "quiet" | "include-unchanged" => self.flag(name).map(|()| index + 1),
             _ => {
-                let value = rest
-                    .get(index + 1)
-                    .ok_or_else(|| usage(format!("--{name} takes a value")).argument(name))?;
+                let value = rest.get(index + 1).ok_or_else(|| {
+                    let failure = usage(format!("--{name} takes a value"));
+                    match name {
+                        // `CliArgument` has no `document` or `absent` value.
+                        "document" | "absent" => failure,
+                        "member-revision-key" => failure.argument("revision-key"),
+                        _ => failure.argument(name),
+                    }
+                })?;
                 self.value(name, value.clone()).map(|()| index + 2)
             }
         }
@@ -285,8 +330,15 @@ impl Raw {
             "upgraded" => self.upgraded.push(value),
             "base-upgraded" => self.base_upgraded.push(value),
             "head-upgraded" => self.head_upgraded.push(value),
+            "member" => self.members.push(value),
+            "member-revision-key" => self.member_revision_keys.push(value),
+            "absent" => self.absent.push(value),
             _ if self.options.insert(name, value).is_some() => {
-                return Err(usage(format!("--{name} is given twice")).argument(name));
+                let failure = usage(format!("--{name} is given twice"));
+                return Err(match name {
+                    "document" => failure,
+                    _ => failure.argument(name),
+                });
             }
             _ => {}
         }
@@ -510,6 +562,103 @@ fn check_compare_side(raw: &Raw, side: &str) -> Outcome<()> {
     }
 }
 
+/// The options of `system build` (CONTRACTS.md §8.8): `--document`, `-o`,
+/// each member's revision key, and the absent occurrences.
+fn check_system(raw: &Raw) -> Outcome<()> {
+    if !raw.options.contains_key("document") {
+        // `CliArgument` has no `document` value: the message names it.
+        return Err(usage("system build takes --document <system.json>"));
+    }
+    if !raw.options.contains_key("output") {
+        return Err(usage("system build takes -o <system-bundle.json>").argument("output"));
+    }
+    if !raw.positional.is_empty() {
+        return Err(usage("system build takes no positional argument").argument("command"));
+    }
+    system_of(raw).map(|_| ())
+}
+
+/// `system build`'s members and absent occurrences, from the repeated options.
+fn system_of(raw: &Raw) -> Outcome<(BTreeMap<String, SystemMemberArg>, BTreeSet<String>)> {
+    let pair = |value: &str, option: &'static str| -> Outcome<(String, String)> {
+        // `CliArgument` names the revision key, not the member option.
+        let argument = if option == "member-revision-key" {
+            "revision-key"
+        } else {
+            option
+        };
+        let form = || usage(format!("--{option} takes <occurrence>=<value>")).argument(argument);
+        let (occurrence, rest) = value.split_once('=').ok_or_else(form)?;
+        if occurrence.is_empty() || rest.is_empty() {
+            return Err(form());
+        }
+        Ok((occurrence.to_owned(), rest.to_owned()))
+    };
+    let mut bundles = BTreeMap::new();
+    for value in &raw.members {
+        let (occurrence, bundle) = pair(value, "member")?;
+        if bundles.insert(occurrence.clone(), bundle).is_some() {
+            return Err(conflict(
+                format!("--member names {occurrence:?} twice"),
+                "member",
+            ));
+        }
+    }
+    let mut keys = BTreeMap::new();
+    for value in &raw.member_revision_keys {
+        let (occurrence, key) = pair(value, "member-revision-key")?;
+        if !is_hex64(&key) {
+            return Err(usage("--member-revision-key takes 64 lowercase hex digits")
+                .argument("revision-key"));
+        }
+        if keys.insert(occurrence.clone(), key).is_some() {
+            // `CliArgument` has no `member-revision-key`: it is a revision key.
+            return Err(conflict(
+                format!("--member-revision-key names {occurrence:?} twice"),
+                "revision-key",
+            ));
+        }
+    }
+    if bundles.keys().ne(keys.keys()) {
+        return Err(conflict(
+            "each --member takes exactly one --member-revision-key for the same occurrence",
+            "revision-key",
+        ));
+    }
+    let mut absent = BTreeSet::new();
+    for value in &raw.absent {
+        if value.is_empty() {
+            return Err(usage("--absent takes <occurrence>"));
+        }
+        if !absent.insert(value.clone()) {
+            return Err(usage(format!("--absent names {value:?} twice")));
+        }
+    }
+    if let Some(occurrence) = absent
+        .iter()
+        .find(|occurrence| bundles.contains_key(occurrence.as_str()))
+    {
+        return Err(conflict(
+            format!("{occurrence:?} is both --member and --absent"),
+            "member",
+        ));
+    }
+    let members = bundles
+        .into_iter()
+        .map(|(occurrence, bundle)| {
+            let revision_key = keys.get(&occurrence).cloned().unwrap_or_default();
+            (
+                occurrence,
+                SystemMemberArg {
+                    bundle,
+                    revision_key,
+                },
+            )
+        })
+        .collect();
+    Ok((members, absent))
+}
+
 /// The options of `revision-key` (cli-spec.md §5.5): one `<repo>`, exactly
 /// one of `--commit` and `--worktree`, and `--project`.
 fn check_revision_key(raw: &Raw) -> Outcome<()> {
@@ -545,6 +694,7 @@ fn check_combinations(command: Command, raw: &Raw, stage: Option<StageArg>) -> O
         Command::RevisionKey => check_revision_key(raw),
         Command::Reuse => check_reuse(raw),
         Command::Compare => check_compare(raw),
+        Command::SystemBuild => check_system(raw),
         Command::Version if !raw.positional.is_empty() => {
             Err(usage("version takes no argument").argument("command"))
         }
@@ -590,6 +740,11 @@ pub fn parse(argv: &[String]) -> Outcome<Args> {
     let upgraded = upgrades(&raw.upgraded, "upgraded")?;
     let base_upgraded = upgrades(&raw.base_upgraded, "base-upgraded")?;
     let head_upgraded = upgrades(&raw.head_upgraded, "head-upgraded")?;
+    let (system_members, system_absent) = if command == Command::SystemBuild {
+        system_of(&raw)?
+    } else {
+        (BTreeMap::new(), BTreeSet::new())
+    };
     Ok(Args {
         command,
         positional: raw.positional,
@@ -597,6 +752,8 @@ pub fn parse(argv: &[String]) -> Outcome<Args> {
         upgraded,
         base_upgraded,
         head_upgraded,
+        system_members,
+        system_absent,
         include_unchanged: raw.include_unchanged,
         worktree: raw.worktree,
         quiet: raw.quiet,
@@ -641,6 +798,8 @@ fn help_args() -> Args {
         upgraded: BTreeMap::new(),
         base_upgraded: BTreeMap::new(),
         head_upgraded: BTreeMap::new(),
+        system_members: BTreeMap::new(),
+        system_absent: BTreeSet::new(),
         include_unchanged: false,
         worktree: false,
         quiet: false,
@@ -674,6 +833,10 @@ usage:
               [--base-upgraded <path>=<version>]...) --base-revision-key <hex>
               (--head <head.prism> | --head-src … as for the base) --head-revision-key <hex>
               [--include-unchanged] -o <result.json> [COMMON]
+  prism-kicad system build --document <system.json>
+              [--member <occurrence>=<bundle.prism>
+              --member-revision-key <occurrence>=<hex>]... [--absent <occurrence>]...
+              -o <system-bundle.json> [COMMON]
 
 COMMON: [--limit <name>=<value>]... [--threads <n>] [--quiet]
 
