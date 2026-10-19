@@ -53,6 +53,7 @@ OPTIONS_WITH_VALUE = {
     "--stage", "-o", "--output", "--source-root", "--revision-key", "--key-record", "--config", "--in",
     "--refilled-board", "--refill-tool", "--models-glb", "--models-tool", "--commit", "--project", "--limit",
     "--threads", "--upgraded", "--document", "--member", "--member-revision-key", "--absent",
+    "--board-sub-ports", "--entry", "--entry-stage",
 }
 FLAGS = {"--worktree", "--quiet"}
 _ARGV = list(sys.argv[1:])
@@ -147,6 +148,7 @@ def parse_options(words: list[str]) -> tuple[list[str], dict[str, Any]]:
     positionals: list[str] = []
     options: dict[str, Any] = {
         "--limit": [], "--upgraded": [], "--member": [], "--member-revision-key": [], "--absent": [],
+        "--entry": [], "--entry-stage": [],
     }
     index = 0
     while index < len(words):
@@ -167,7 +169,10 @@ def parse_options(words: list[str]) -> tuple[list[str], dict[str, Any]]:
                 value = words[index + 1]
                 index += 1
                 key = "-o" if word == "--output" else word
-                if key in ("--limit", "--upgraded", "--member", "--member-revision-key", "--absent"):
+                if key in (
+                    "--limit", "--upgraded", "--member", "--member-revision-key", "--absent",
+                    "--entry", "--entry-stage",
+                ):
                     options[key].append(value)
                 elif key in options:
                     error(2, "usage", f"{word} given twice")
@@ -590,11 +595,17 @@ def system_build(positionals: list[str], options: dict[str, Any]) -> NoReturn:
     if not isinstance(occurrences, list):
         error(3, "document-invalid", "--document has no occurrences array", argument="document")
     boards: set[str] = set()
+    entry_occurrences: set[str] = set()
+    labels: dict[str, str] = {}
     for occurrence in occurrences:
         if not isinstance(occurrence, dict) or not isinstance(occurrence.get("id"), str):
             error(3, "document-invalid", "--document has an occurrence without an id", argument="document")
-        if (occurrence.get("source") or {}).get("kind") == "board":
+        labels[occurrence["id"]] = str(occurrence.get("label") or occurrence["id"])
+        kind = (occurrence.get("source") or {}).get("kind")
+        if kind == "board":
             boards.add(occurrence["id"])
+        elif kind == "entry":
+            entry_occurrences.add(occurrence["id"])
 
     member_items: list[tuple[str, str]] = []
     seen: set[str] = set()
@@ -626,6 +637,61 @@ def system_build(positionals: list[str], options: dict[str, Any]) -> NoReturn:
         occurrence: str(member_manifest(occurrence, archive)["bundle_key"])
         for occurrence, archive in member_items
     }
+    entry_inputs: dict[str, dict[str, Any]] = {}
+    for item in options["--entry"]:
+        occurrence, separator, payload_path = item.partition("=")
+        if not separator or not occurrence or not payload_path:
+            error(2, "usage", "--entry is <occurrence>=<file>", argument="entry")
+        if occurrence not in entry_occurrences:
+            error(7, "occurrence-mismatch", f"{occurrence} is not an entry occurrence", argument="entry")
+        if occurrence in entry_inputs:
+            error(2, "usage", f"--entry names {occurrence} twice", argument="entry")
+        try:
+            payload = json.loads(Path(payload_path).read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            error(3, "input-invalid", f"--entry for {occurrence} is not a JSON file",
+                  argument=f"entry:{occurrence}")
+        if not isinstance(payload, dict) or payload.get("schema") != "prism.system_entry.a0":
+            error(3, "input-invalid", f"--entry for {occurrence} is not a prism.system_entry.a0 document",
+                  argument=f"entry:{occurrence}")
+        entry_inputs[occurrence] = payload
+    entry_stages: dict[str, str] = {}
+    for item in options["--entry-stage"]:
+        occurrence, separator, stage = item.partition("=")
+        if not separator or not occurrence or not stage:
+            error(2, "usage", "--entry-stage is <occurrence>=<stage>", argument="entry-stage")
+        if occurrence not in entry_occurrences:
+            error(7, "occurrence-mismatch", f"{occurrence} is not an entry occurrence",
+                  argument="entry-stage")
+        entry_stages[occurrence] = stage
+    if set(entry_stages) != set(entry_inputs):
+        error(2, "usage", "--entry and --entry-stage must name the same occurrences",
+              argument="entry-stage")
+    entries_key = {
+        occurrence: {
+            "payload": hashlib.sha256(canonical(entry_inputs[occurrence])).hexdigest(),
+            "stage": entry_stages[occurrence],
+        }
+        for occurrence in sorted(entry_inputs)
+    }
+    board_sub_ports: dict[str, int] = {}
+    if "--board-sub-ports" in options:
+        try:
+            board_input = json.loads(Path(options["--board-sub-ports"]).read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            error(3, "input-invalid", "--board-sub-ports is not a JSON file", argument="board-sub-ports")
+        if not isinstance(board_input, dict) or board_input.get("schema") != "prism.board_sub_ports.a0":
+            error(3, "input-invalid", "--board-sub-ports is not a prism.board_sub_ports.a0 document",
+                  argument="board-sub-ports")
+        entries = board_input.get("subPorts")
+        if not isinstance(entries, list) or not all(
+            isinstance(entry, dict) and isinstance(entry.get("id"), str)
+            and isinstance(entry.get("version"), int)
+            for entry in entries
+        ):
+            error(3, "input-invalid", "--board-sub-ports has no sub-port definitions",
+                  argument="board-sub-ports")
+        board_sub_ports = {entry["id"]: entry["version"] for entry in entries}
     gen = generator()
     generator_digest = hashlib.sha256(generator_bytes(gen)).hexdigest()
     document_sha256 = hashlib.sha256(canonical(document)).hexdigest()
@@ -636,6 +702,8 @@ def system_build(positionals: list[str], options: dict[str, Any]) -> NoReturn:
         "members": {occurrence: member_keys[occurrence] for occurrence in sorted(member_keys)},
         "absent": sorted(absent),
         "pending": pending,
+        "boardSubPorts": board_sub_ports,
+        "entries": entries_key,
     }
     system_bundle_key = hashlib.sha256(canonical(preimage)).hexdigest()
 
@@ -649,6 +717,38 @@ def system_build(positionals: list[str], options: dict[str, Any]) -> NoReturn:
             entry["bundleKey"] = member_keys[occurrence_id]
             if occurrence_id in revision_keys:
                 entry["revisionKey"] = revision_keys[occurrence_id]
+        elif occurrence_id in entry_inputs:
+            payload = entry_inputs[occurrence_id]
+            entry["state"] = "ready"
+            entry["bundleKey"] = str((payload.get("source") or {}).get("systemBundleKey") or "")
+            entry["connectors"] = [
+                {
+                    "refdes": str(export.get("id") or ""),
+                    "value": str(export.get("name") or ""),
+                    "candidate": True,
+                    "pins": [
+                        {
+                            "pad": str(pin.get("pad") or ""),
+                            "net": str(pin.get("signal") or pin.get("net") or ""),
+                            "nets": [str(pin.get("signal") or pin.get("net") or "")],
+                            "pinName": str(pin.get("name") or ""),
+                            "power": False,
+                        }
+                        for pin in export.get("pins", [])
+                    ],
+                }
+                for export in (payload.get("interface") or {}).get("exports", [])
+            ]
+        elif occurrence_id in entry_occurrences:
+            entry["state"] = "absent"
+            findings.append({
+                "code": "occurrence-absent",
+                "severity": "error",
+                "subject": f"occurrence:{occurrence_id}",
+                "message": f"{labels[occurrence_id]}'s published entry payload is not available",
+                "objects": [occurrence_id],
+                "waived": False,
+            })
         elif occurrence_id in absent:
             entry["state"] = "absent"
         elif occurrence_id in boards:

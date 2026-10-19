@@ -8,9 +8,11 @@ per transition and never rewritten. Nothing here commits.
 from __future__ import annotations
 
 import json
+from pathlib import Path
 from typing import Any
 import uuid
 
+from app.services.catalog.asset_types import SYSTEM_ENTRY_ASSET_TYPE
 from app.services.catalog.conflicts import manifest_conflict, revision_conflict
 from app.services.catalog.component_read_models import (
     VALIDATION_STATUS_FAILED,
@@ -21,7 +23,7 @@ from app.services.catalog.component_read_models import (
 from app.services.catalog.klc_validation import CatalogKlcValidation
 from app.services.catalog.locking import CatalogLockOperations
 from app.services.catalog.metadata_normalization import IDENTITY_KIND_MPN
-from app.services.catalog.normalization import utc_now_iso
+from app.services.catalog.normalization import sha256_file, utc_now_iso
 from app.services.catalog.revision_finalization import CatalogRevisionFinalizer
 from app.services.catalog.revision_kernel import (
     WORKFLOW_STAGES,
@@ -126,6 +128,7 @@ class CatalogReleaseWorkflow:
             raise ValueError("Two-person approval required: revision authors cannot approve their own revision")
         if (
             release_status in {"done", "released"}
+            and str(component.get("kind") or "part") != "system"
             and str(component.get("identity_kind") or IDENTITY_KIND_MPN) != IDENTITY_KIND_MPN
         ):
             raise ValueError("Provisional components require a manufacturer part number before approval or release")
@@ -139,7 +142,7 @@ class CatalogReleaseWorkflow:
             "klc_release_gate": self._klc.release_gate(),
         }
         if release_status == "released":
-            self._assert_release_allowed(conn, revision_id, validation)
+            self._assert_release_allowed(conn, revision_id, validation, component=component)
 
         approval_decision = None
         if release_status == "released":
@@ -265,7 +268,7 @@ class CatalogReleaseWorkflow:
             raise ValueError("Provisional components require a manufacturer part number before approval or release")
         assets = self._revision_kernel.load_assets_for_revision(conn, revision_id)
         validation = self._read_models.component_validation_summary(conn, revision_id, assets)
-        self._assert_release_allowed(conn, revision_id, validation)
+        self._assert_release_allowed(conn, revision_id, validation, component=component)
         manifest_hash = self._revision_kernel.revision_manifest_hash(conn, revision_id)
         conn.execute(
             """
@@ -328,7 +331,17 @@ class CatalogReleaseWorkflow:
         )
         return self._revision_kernel.revision_row(conn, str(revision["id"])) or revision
 
-    def _assert_release_allowed(self, conn: Any, revision_id: str, validation: dict[str, Any]) -> None:
+    def _assert_release_allowed(
+        self,
+        conn: Any,
+        revision_id: str,
+        validation: dict[str, Any],
+        *,
+        component: dict[str, Any] | None = None,
+    ) -> None:
+        if str((component or {}).get("kind") or "part") == "system":
+            self._assert_system_entry_release_allowed(conn, revision_id)
+            return
         default_representation = conn.execute(
             """
             SELECT symbol_asset_id, footprint_asset_id
@@ -346,6 +359,60 @@ class CatalogReleaseWorkflow:
             raise ValueError("Cannot release component without one complete default representation")
         if self._klc.release_gate() == "block" and validation["status"] in _RELEASE_BLOCKING_VALIDATION:
             raise ValueError("Cannot release component until required symbol and footprint assets pass KLC validation")
+
+    def _assert_system_entry_release_allowed(self, conn: Any, revision_id: str) -> None:
+        """The system revision's own gate (CONTRACTS.md §11.3), fail-closed.
+
+        The frozen payload must be its one ``system_entry`` asset, the bytes on
+        disk must still hash to the asset row, that row must still be in the
+        revision manifest, and the payload's bundle must carry no unwaived
+        error finding. KLC and representation gates do not apply.
+        """
+
+        from app.services.design_bundle import schemas
+
+        rows = conn.execute(
+            """
+            SELECT asset.*, link.required AS required
+              FROM revision_assets link
+              JOIN assets asset ON asset.id = link.asset_id
+             WHERE link.revision_id = %s AND asset.asset_type = %s
+            """,
+            (revision_id, SYSTEM_ENTRY_ASSET_TYPE),
+        ).fetchall()
+        if len(rows) != 1 or not bool(rows[0]["required"]):
+            raise ValueError(
+                "Cannot release a system revision without its required system_entry asset"
+            )
+        asset = dict(rows[0])
+        path = Path(str(asset.get("canonical_path") or ""))
+        if not path.is_file() or sha256_file(path) != str(asset.get("sha256") or ""):
+            raise ValueError("The system_entry asset is missing or its bytes no longer match its hash")
+        revision = self._revision_kernel.revision_row(conn, revision_id)
+        if not revision:
+            raise ValueError("Component revision not found")
+        expected = str(revision.get("manifest_hash") or "")
+        if expected and expected != self._revision_kernel.revision_manifest_hash(conn, revision_id):
+            raise ValueError("The system_entry asset is no longer covered by the revision manifest")
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            raise ValueError("The system_entry asset is not readable JSON") from None
+        try:
+            schemas.validate(payload, "prism.system_entry.a0")
+        except schemas.SchemaInvalid as error:
+            raise ValueError(f"The system_entry asset is not a valid payload: {error}") from None
+        findings = (payload.get("bundle") or {}).get("findings") or []
+        unwaived = [
+            finding
+            for finding in findings
+            if isinstance(finding, dict)
+            and str(finding.get("severity")) == "error"
+            and not finding.get("waived")
+        ]
+        if unwaived:
+            codes = ", ".join(sorted({str(item.get("code")) for item in unwaived}))
+            raise ValueError(f"The system bundle has unwaived error findings: {codes}")
 
     def deactivate_component(
         self,

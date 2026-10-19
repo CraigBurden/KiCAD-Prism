@@ -9,7 +9,10 @@
 //! every `--member` and `--absent` names a board occurrence (exit 7,
 //! `occurrence-mismatch`); the members share one generator id (exit 7,
 //! `generator-mismatch`); each member's stage `parse` holds the two
-//! projections the build reads (exit 7, `member-not-found`).
+//! projections the build reads (exit 7, `member-not-found`); from 1c,
+//! `--board-sub-ports` and each `--entry` validate against their schemas
+//! (exit 3, `input-invalid`) and each `--entry` names an entry occurrence
+//! (exit 7, `occurrence-mismatch`).
 //!
 //! The bundle is validated before the atomic rename; stdout carries the
 //! `CliSystemResultA0` after it. The same inputs give byte-identical output.
@@ -23,6 +26,7 @@ use prism_bundle::reader::BundleReader;
 use prism_bundle::zip::FileSource;
 use prism_bundle::{Failure, LimitName, Limits, Outcome, generator, schema};
 use prism_system::build;
+use prism_system::entry;
 use prism_system::input;
 use prism_system::output::SystemBundle;
 use serde_json::{Value, json};
@@ -36,6 +40,10 @@ const SYSTEM_SCHEMA: &str = "prism.system.v2";
 const BUNDLE_SCHEMA: &str = "prism.system_bundle.a0";
 /// The stdout document's schema id.
 const RESULT_SCHEMA: &str = "prism.cli.system_result.a0";
+/// The board-level sub-ports input (`CONTRACTS.md` §10.5).
+const BOARD_SUB_PORTS_SCHEMA: &str = "prism.board_sub_ports.a0";
+/// The published-entry payload input (`CONTRACTS.md` §12.2).
+const ENTRY_SCHEMA: &str = "prism.system_entry.a0";
 /// The projections a system build reads (`CONTRACTS.md` §8.1).
 const INTERFACE: &str = "projections/system-interface.json";
 /// The board's semantic facts.
@@ -45,6 +53,20 @@ const SEMANTIC: &str = "projections/semantic-index.json";
 struct Member {
     revision_key: String,
     reader: BundleReader<FileSource>,
+}
+
+/// A validated `--entry` payload read as a board.
+struct LoadedEntry {
+    board: input::Board,
+    facts: input::EntryFacts,
+    payload_sha256: String,
+}
+
+/// One entry in the system bundle key.
+#[derive(serde::Serialize)]
+struct EntryKey {
+    payload: String,
+    stage: String,
 }
 
 /// A failure about one member, so its message can name the occurrence.
@@ -65,13 +87,38 @@ pub fn run(args: &Args, stderr: &Stderr) -> Outcome<u8> {
         Some(generator) => generator,
         None => version::generator()?.bytes,
     };
-    let boards = match build_boards(&members, &generator_bytes) {
+    let mut boards = match build_boards(&members, &generator_bytes) {
         Ok(boards) => boards,
         Err(error) => return Ok(report_member(error, stderr)),
     };
+    // Check 6 (`CONTRACTS.md` §8.8): the 1c inputs validate first, then each
+    // `--entry` names an entry occurrence.
+    let board_sub_ports = read_board_sub_ports(args)?;
+    let entries = read_entries(args, &document)?;
+    let entry_keys: BTreeMap<String, EntryKey> = entries
+        .iter()
+        .map(|(occurrence, loaded)| {
+            (
+                occurrence.clone(),
+                EntryKey {
+                    payload: loaded.payload_sha256.clone(),
+                    stage: loaded.facts.stage.clone(),
+                },
+            )
+        })
+        .collect();
+    let entry_facts: BTreeMap<String, input::EntryFacts> = entries
+        .into_iter()
+        .map(|(occurrence, loaded)| {
+            boards.insert(occurrence.clone(), loaded.board);
+            (occurrence, loaded.facts)
+        })
+        .collect();
     let inputs = input::Members {
         boards,
         absent: args.system_absent.clone(),
+        entries: entry_facts,
+        board_sub_ports,
     };
     let bundle = build::build(&document, &inputs, document_sha256.clone());
     validate_bundle(&bundle)?;
@@ -79,7 +126,13 @@ pub fn run(args: &Args, stderr: &Stderr) -> Outcome<u8> {
         Path::new(args.option("output").unwrap_or_default()),
         &bundle,
     )?;
-    let key = system_bundle_key(&document, &document_sha256, &generator_bytes, &inputs);
+    let key = system_bundle_key(
+        &document,
+        &document_sha256,
+        &generator_bytes,
+        &inputs,
+        &entry_keys,
+    );
     emit_result(&key, &document_sha256, &bundle, stderr)
 }
 
@@ -183,6 +236,119 @@ fn check_occurrences(
         }
     }
     Ok(())
+}
+
+// ------------------------------------------------------------------- 1c inputs
+
+/// Whether `occurrence` places a published entry.
+fn is_entry(document: &input::Document, occurrence: &str) -> bool {
+    document
+        .occurrences
+        .iter()
+        .any(|candidate| candidate.id == occurrence && candidate.source.kind == "entry")
+}
+
+/// Read a `system build` input file. `CliArgument` has no `board-sub-ports` or
+/// `entry` value, so the message names the option instead of the field.
+fn read_input(path: &Path, option: &str, limits: &Limits) -> Outcome<Vec<u8>> {
+    let size = match std::fs::symlink_metadata(path) {
+        Ok(metadata) if metadata.file_type().is_file() => metadata.len(),
+        Ok(_) => {
+            return Err(Failure::input(
+                "input-not-regular-file",
+                format!("--{option} is not a regular file"),
+            ));
+        }
+        Err(_) => {
+            return Err(Failure::input(
+                "input-not-found",
+                format!("--{option} does not exist"),
+            ));
+        }
+    };
+    limits.check(
+        LimitName::MaxMemberBytes,
+        size,
+        &format!("the --{option} file"),
+    )?;
+    std::fs::read(path).map_err(|error| {
+        Failure::input(
+            "input-not-found",
+            format!("--{option} could not be read: {error}"),
+        )
+    })
+}
+
+fn input_invalid(message: String) -> Failure {
+    Failure::input("input-invalid", message)
+}
+
+/// Read and validate `--board-sub-ports`; `None` when it was not given.
+fn read_board_sub_ports(args: &Args) -> Outcome<Option<BTreeMap<String, input::BoardSubPortDef>>> {
+    let Some(path) = args.system_board_sub_ports.as_deref() else {
+        return Ok(None);
+    };
+    let bytes = read_input(Path::new(path), "board-sub-ports", &args.limits)?;
+    let value: Value = serde_json::from_slice(&bytes)
+        .map_err(|error| input_invalid(format!("--board-sub-ports is not JSON: {error}")))?;
+    schema::validate(BOARD_SUB_PORTS_SCHEMA, &value).map_err(|violation| {
+        input_invalid(format!(
+            "--board-sub-ports breaks {BOARD_SUB_PORTS_SCHEMA}: {}",
+            violation.message
+        ))
+    })?;
+    let file: input::BoardSubPorts = serde_json::from_value(value).map_err(|error| {
+        input_invalid(format!(
+            "--board-sub-ports does not fit its contract: {error}"
+        ))
+    })?;
+    Ok(Some(
+        file.sub_ports
+            .into_iter()
+            .map(|definition| (definition.id.clone(), definition))
+            .collect(),
+    ))
+}
+
+fn entry_invalid(occurrence: &str, detail: String) -> Failure {
+    input_invalid(format!("entry:{occurrence}: --entry {detail}"))
+}
+
+/// Read and validate each `--entry` payload, then check it names an entry
+/// occurrence (`CONTRACTS.md` §8.8 check 6, §12.2).
+fn read_entries(args: &Args, document: &input::Document) -> Outcome<BTreeMap<String, LoadedEntry>> {
+    let mut loaded = BTreeMap::new();
+    for (occurrence, spec) in &args.system_entries {
+        let bytes = read_input(Path::new(&spec.payload), "entry", &args.limits)?;
+        let value: Value = serde_json::from_slice(&bytes)
+            .map_err(|error| entry_invalid(occurrence, format!("is not JSON: {error}")))?;
+        schema::validate(ENTRY_SCHEMA, &value).map_err(|violation| {
+            entry_invalid(
+                occurrence,
+                format!("breaks {ENTRY_SCHEMA}: {}", violation.message),
+            )
+        })?;
+        let (board, facts) = entry::board(&value, &spec.stage);
+        loaded.insert(
+            occurrence.clone(),
+            LoadedEntry {
+                board,
+                facts,
+                payload_sha256: generator::sha256_hex(&canonical_json(&value)),
+            },
+        );
+    }
+    for occurrence in loaded.keys() {
+        if !is_entry(document, occurrence) {
+            return Err(Failure::precondition(
+                "occurrence-mismatch",
+                format!(
+                    "--entry names {occurrence}, which is not an entry occurrence of --document"
+                ),
+            ));
+        }
+    }
+    Ok(loaded)
 }
 
 /// All members share one generator id, byte for byte in canonical form.
@@ -322,18 +488,31 @@ fn validate_bundle(bundle: &SystemBundle) -> Outcome<()> {
 
 /// The key of `CONTRACTS.md` §8.1: SHA-256 over the canonical JSON of the
 /// document digest, the generator digest, each member's bundle key, the
-/// absent occurrences and the pending ones.
+/// absent occurrences, the pending ones, the board-level sub-ports and the
+/// published entries.
 fn system_bundle_key(
     document: &input::Document,
     document_sha256: &str,
     generator_bytes: &[u8],
     members: &input::Members,
+    entry_keys: &BTreeMap<String, EntryKey>,
 ) -> String {
     let member_keys: BTreeMap<&str, &str> = members
         .boards
         .iter()
+        .filter(|(occurrence, _)| !entry_keys.contains_key(occurrence.as_str()))
         .map(|(occurrence, board)| (occurrence.as_str(), board.bundle_key.as_str()))
         .collect();
+    let board_sub_ports: BTreeMap<&str, i32> = members
+        .board_sub_ports
+        .as_ref()
+        .map(|definitions| {
+            definitions
+                .iter()
+                .map(|(id, definition)| (id.as_str(), definition.version))
+                .collect()
+        })
+        .unwrap_or_default();
     let mut pending: Vec<&str> = document
         .occurrences
         .iter()
@@ -348,7 +527,9 @@ fn system_bundle_key(
     let absent: Vec<&str> = members.absent.iter().map(String::as_str).collect();
     let value = json!({
         "absent": absent,
+        "boardSubPorts": board_sub_ports,
         "documentSha256": document_sha256,
+        "entries": entry_keys,
         "generator": generator::digest(generator_bytes),
         "members": member_keys,
         "pending": pending,

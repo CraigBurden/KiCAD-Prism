@@ -4,11 +4,12 @@
 
 use prism_system::build::build;
 use prism_system::input::{
-    Board, Document, InterfaceComponent, InterfacePin, Members, SemanticFacts, SystemInterface,
+    Board, BoardSubPorts, Document, InterfaceComponent, InterfacePin, Members, SemanticFacts,
+    SystemInterface,
 };
 use prism_system::output::SystemBundle;
 use serde_json::{Value, json};
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 fn connector(refdes: &str, pins: &[(&str, &str)]) -> InterfaceComponent {
     InterfaceComponent {
@@ -51,14 +52,15 @@ fn occurrence(id: &str) -> Value {
 }
 
 fn run(doc: Value, boards: Vec<(&str, Board)>) -> SystemBundle {
+    run_with(doc, boards, Members::default())
+}
+
+/// `run` with members besides the boards: entries, board-level sub-ports.
+fn run_with(doc: Value, boards: Vec<(&str, Board)>, mut members: Members) -> SystemBundle {
     let doc: Document = serde_json::from_value(doc).expect("document");
-    let members = Members {
-        boards: boards
-            .into_iter()
-            .map(|(id, board)| (id.to_owned(), board))
-            .collect(),
-        absent: BTreeSet::new(),
-    };
+    members
+        .boards
+        .extend(boards.into_iter().map(|(id, board)| (id.to_owned(), board)));
     build(&doc, &members, "0".repeat(64))
 }
 
@@ -336,6 +338,7 @@ fn occurrences_report_their_state() {
         .into_iter()
         .collect(),
         absent: ["occ_c".to_owned()].into_iter().collect(),
+        ..Members::default()
     };
     let bundle = build(&doc, &members, "0".repeat(64));
     let states: Vec<(&str, &str)> = bundle
@@ -594,4 +597,264 @@ fn names_differing_only_by_sheet_path_or_bus_dot_do_not_conflict() {
             .any(|(code, _)| *code == "power-net-conflict"),
         "the rail is reported once, as a power conflict"
     );
+}
+
+// ------------------------------------------------------------------ stage 1c
+
+const PROJECT_A: &str = "prj_00000000000a";
+
+fn on_project(id: &str, project: &str) -> Value {
+    json!({"id": id, "label": id.to_uppercase(),
+           "source": {"kind": "board", "projectId": project, "track": {"kind": "pinned", "commit": "a".repeat(40)}}})
+}
+
+fn board_sub_port(
+    id: &str,
+    connector: &str,
+    pins: &[&str],
+    version: i32,
+    deleted: bool,
+    previous: Value,
+) -> Value {
+    json!({"id": id, "projectId": PROJECT_A, "connector": connector, "name": "CAN", "pins": pins,
+           "version": version, "deleted": deleted, "previous": previous})
+}
+
+/// occ_a's J1 linked by a board-level sub-port reference seen at `seen` to occ_b's J2.
+fn board_ref_document(seen: i32) -> Value {
+    json!({
+        "occurrences": [on_project("occ_a", PROJECT_A), occurrence("occ_b")],
+        "harnesses": [{
+            "id": "har_1", "label": "H1",
+            "ends": [end("end_a", "occ_a", "J1"), end("end_b", "occ_b", "J2")],
+            "links": [{"id": "link_can",
+                       "a": {"occurrence": "occ_a", "connector": "J1", "subPort": {"kind": "board", "id": "bsp_can", "version": seen}},
+                       "b": site("occ_b", "J2"), "unmapped": []}],
+            "wires": [], "splices": []
+        }]
+    })
+}
+
+fn with_board_sub_ports(definitions: Vec<Value>) -> Members {
+    let file: BoardSubPorts =
+        serde_json::from_value(json!({"subPorts": definitions})).expect("board sub-ports");
+    Members {
+        board_sub_ports: Some(
+            file.sub_ports
+                .into_iter()
+                .map(|definition| (definition.id.clone(), definition))
+                .collect::<BTreeMap<_, _>>(),
+        ),
+        ..Members::default()
+    }
+}
+
+#[test]
+fn a_board_level_sub_port_gives_its_live_pins() {
+    let members = with_board_sub_ports(vec![board_sub_port(
+        "bsp_can",
+        "J1",
+        &["2", "1"],
+        1,
+        false,
+        json!([]),
+    )]);
+    let bundle = run_with(board_ref_document(1), three_boards_on_a(), members);
+    // Only the definition's pins are wired, by net name to J2's.
+    let got: Vec<(String, String)> = wires(&bundle, "link_can")
+        .into_iter()
+        .map(|wire| (wire.0, wire.1))
+        .collect();
+    let want = [("1", "1"), ("2", "2")].map(|(a, b)| (a.to_owned(), b.to_owned()));
+    assert_eq!(got, want);
+    assert!(
+        codes(&bundle)
+            .iter()
+            .all(|(code, _)| !code.starts_with("board-sub-port"))
+    );
+}
+
+#[test]
+fn a_missing_misplaced_or_deleted_board_level_sub_port_has_no_pins() {
+    for (members, code) in [
+        (Members::default(), "board-sub-port-missing"),
+        (
+            with_board_sub_ports(vec![board_sub_port(
+                "bsp_can",
+                "J9",
+                &["1"],
+                1,
+                false,
+                json!([]),
+            )]),
+            "board-sub-port-missing",
+        ),
+        (
+            with_board_sub_ports(vec![board_sub_port(
+                "bsp_can",
+                "J1",
+                &["1"],
+                2,
+                true,
+                json!([]),
+            )]),
+            "board-sub-port-deleted",
+        ),
+    ] {
+        let bundle = run_with(board_ref_document(1), three_boards_on_a(), members);
+        assert!(
+            codes(&bundle).contains(&(code, "sub-port:bsp_can")),
+            "{code}"
+        );
+        assert!(wires(&bundle, "link_can").is_empty(), "{code}");
+    }
+}
+
+#[test]
+fn a_changed_board_level_sub_port_is_a_warning_but_a_rename_is_not() {
+    let changed = with_board_sub_ports(vec![board_sub_port(
+        "bsp_can",
+        "J1",
+        &["1", "2", "4"],
+        3,
+        false,
+        json!([{"version": 1, "pins": ["1", "2", "3"]}]),
+    )]);
+    let bundle = run_with(board_ref_document(1), three_boards_on_a(), changed);
+    let finding = bundle
+        .findings
+        .iter()
+        .find(|finding| finding.code == "board-sub-port-changed")
+        .expect("changed");
+    assert_eq!(finding.severity, "warning");
+    assert!(
+        finding.message.contains("added 4") && finding.message.contains("removed 3"),
+        "{}",
+        finding.message
+    );
+
+    let renamed = with_board_sub_ports(vec![board_sub_port(
+        "bsp_can",
+        "J1",
+        &["1", "2", "3"],
+        3,
+        false,
+        json!([{"version": 1, "pins": ["1", "2", "3"]}]),
+    )]);
+    let bundle = run_with(board_ref_document(1), three_boards_on_a(), renamed);
+    assert!(
+        codes(&bundle)
+            .iter()
+            .all(|(code, _)| *code != "board-sub-port-changed")
+    );
+}
+
+fn three_boards_on_a() -> Vec<(&'static str, Board)> {
+    three_boards()
+        .into_iter()
+        .filter(|(id, _)| *id != "occ_c")
+        .collect()
+}
+
+/// A published entry with two exports whose pins share one child net.
+fn entry_payload() -> Value {
+    json!({
+        "source": {"systemId": "sys_child", "version": 4, "snapshotId": "snap_1", "systemBundleKey": "c".repeat(64)},
+        "bundle": {"occurrences": [{"occurrence": "occ_in", "connectors": [
+            {"refdes": "J5", "pins": [{"pad": "1", "power": false}, {"pad": "2", "power": true}]}
+        ]}]},
+        "interface": {"exports": [
+            {"id": "exp_in", "name": "IN", "occurrence": "occ_in", "connector": "J5", "pins": [
+                {"pad": "1", "name": "CAN_H", "net": "net-00000000000000aa", "signal": "CAN_H"},
+                {"pad": "2", "name": "VBAT", "net": "net-00000000000000bb", "signal": "VBAT"}
+            ]},
+            {"id": "exp_out", "name": "OUT", "occurrence": "occ_in", "connector": "J6", "pins": [
+                {"pad": "7", "name": "CAN_H", "net": "net-00000000000000aa", "signal": "CAN_H"}
+            ]}
+        ]}
+    })
+}
+
+fn entry_occurrence(id: &str) -> Value {
+    json!({"id": id, "label": "Unit", "source": {"kind": "entry", "componentId": "cmp_1", "revisionId": "rev_1"}})
+}
+
+fn with_entry(stage: &str) -> Members {
+    let (board, facts) = prism_system::entry::board(&entry_payload(), stage);
+    let mut members = Members::default();
+    members.boards.insert("occ_unit".to_owned(), board);
+    members.entries.insert("occ_unit".to_owned(), facts);
+    members
+}
+
+#[test]
+fn an_entry_reads_as_a_board_of_its_exports() {
+    let doc = json!({"occurrences": [entry_occurrence("occ_unit")]});
+    let bundle = run_with(doc, vec![], with_entry("released"));
+    let occurrence = &bundle.occurrences[0];
+    assert_eq!(
+        (occurrence.state, occurrence.revision_key.as_deref()),
+        ("ready", None)
+    );
+    assert_eq!(
+        occurrence.bundle_key.as_deref(),
+        Some("c".repeat(64).as_str())
+    );
+    let refs: Vec<&str> = occurrence
+        .connectors
+        .iter()
+        .map(|c| c.refdes.as_str())
+        .collect();
+    assert_eq!(refs, ["exp_in", "exp_out"]);
+    let can = bundle
+        .nets
+        .iter()
+        .find(|net| net.name == "CAN_H")
+        .expect("CAN_H");
+    assert_eq!(can.pins.len(), 2, "both exports' CAN_H pins are one net");
+    assert!(
+        codes(&bundle)
+            .iter()
+            .all(|(code, _)| !code.starts_with("entry-"))
+    );
+}
+
+#[test]
+fn an_entry_stage_and_a_missing_export_are_findings() {
+    let doc = json!({"occurrences": [entry_occurrence("occ_unit")]});
+    let unreleased = run_with(doc.clone(), vec![], with_entry("in_progress"));
+    let finding = unreleased
+        .findings
+        .iter()
+        .find(|f| f.code == "entry-unreleased")
+        .expect("unreleased");
+    assert_eq!(finding.severity, "error");
+    let archived = run_with(doc, vec![], with_entry("archived"));
+    assert!(codes(&archived).contains(&("entry-archived", "occurrence:occ_unit")));
+
+    let doc = json!({
+        "occurrences": [entry_occurrence("occ_unit"), occurrence("occ_b")],
+        "exports": [],
+        "harnesses": [{"id": "har_1", "label": "H1",
+            "ends": [end("end_u", "occ_unit", "exp_none"), end("end_b", "occ_b", "J2")],
+            "links": [{"id": "link_x", "a": site("occ_unit", "exp_none"), "b": site("occ_b", "J2"), "unmapped": []}],
+            "wires": [], "splices": []}]
+    });
+    let mut members = with_entry("released");
+    members.boards.extend(
+        three_boards()
+            .into_iter()
+            .filter(|(id, _)| *id == "occ_b")
+            .map(|(id, b)| (id.to_owned(), b)),
+    );
+    let bundle = run_with(doc, vec![], members);
+    assert!(codes(&bundle).contains(&("export-missing", "connector:occ_unit/exp_none")));
+}
+
+#[test]
+fn an_entry_without_its_payload_is_absent() {
+    let doc = json!({"occurrences": [entry_occurrence("occ_unit")]});
+    let bundle = run(doc, vec![]);
+    assert_eq!(bundle.occurrences[0].state, "absent");
+    assert!(codes(&bundle).contains(&("occurrence-absent", "occurrence:occ_unit")));
 }

@@ -606,7 +606,8 @@ pub struct SystemBoardSource {
 ///  "type": "object",
 ///  "required": [
 ///    "id",
-///    "kind"
+///    "kind",
+///    "version"
 ///  ],
 ///  "properties": {
 ///    "id": {
@@ -617,6 +618,12 @@ pub struct SystemBoardSource {
 ///      "description": "Discriminator.",
 ///      "type": "string",
 ///      "const": "board"
+///    },
+///    "version": {
+///      "description": "The definition's version the user last saw. The live definition is always\nused; a newer one with different pins is a `board-sub-port-changed`\nfinding until `acknowledge-sub-port` (CONTRACTS.md §10.5).",
+///      "type": "integer",
+///      "maximum": 2147483647.0,
+///      "minimum": 1.0
 ///    }
 ///  },
 ///  "additionalProperties": false
@@ -630,6 +637,10 @@ pub struct SystemBoardSubPortRef {
     pub kind: ::std::string::String,
     ///The board-level sub-port's id.
     pub id: SystemObjectId,
+    /**The definition's version the user last saw. The live definition is always
+    used; a newer one with different pins is a `board-sub-port-changed`
+    finding until `acknowledge-sub-port` (CONTRACTS.md §10.5).*/
+    pub version: ::std::num::NonZeroU64,
 }
 ///A connector part placed on a body occurrence's face (board-less systems).
 ///

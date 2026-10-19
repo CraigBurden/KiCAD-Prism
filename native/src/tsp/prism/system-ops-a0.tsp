@@ -718,6 +718,39 @@ model SystemOpAcknowledgeChanges {
   occurrence: SystemObjectId;
 }
 
+/** Promotes an occurrence-level sub-port to a new board-level one and repoints its endpoints (CONTRACTS.md §10.5). */
+model SystemOpPromoteSubPort {
+  /** The operation. */
+  kind: "promote-sub-port";
+
+  /** The occurrence-level sub-port. */
+  subPort: SystemObjectId;
+
+  /** The new board-level sub-port's id, chosen by the caller. */
+  boardSubPort: SystemObjectId;
+}
+
+/** Accepts a board-level sub-port's current definition: sets `version` on every endpoint naming it. */
+model SystemOpAcknowledgeSubPort {
+  /** The operation. */
+  kind: "acknowledge-sub-port";
+
+  /** The board-level sub-port. */
+  subPort: SystemObjectId;
+
+  /** The version accepted. */
+  @minValue(1) version: int32;
+}
+
+/** Replaces the whole document with one read from the system's Git link; only the import route issues it (CONTRACTS.md §13.3). */
+model SystemOpImportDocument {
+  /** The operation. */
+  kind: "import-document";
+
+  /** The document imported. */
+  document: Prism.Contracts.SystemV2.SystemV2;
+}
+
 /** A harness block's own fields, without its contents. */
 model SystemOpHarnessInfo {
   /** The block's id. */
@@ -933,6 +966,15 @@ union SystemOp {
 
   /** Marks a followed board's changes as reviewed: `reviewedCommit` becomes `commit`. */
   acknowledgeChanges: SystemOpAcknowledgeChanges,
+
+  /** Promotes an occurrence-level sub-port to a new board-level one and repoints its endpoints (CONTRACTS.md §10.5). */
+  promoteSubPort: SystemOpPromoteSubPort,
+
+  /** Accepts a board-level sub-port's current definition: sets `version` on every endpoint naming it. */
+  acknowledgeSubPort: SystemOpAcknowledgeSubPort,
+
+  /** Replaces the whole document with one read from the system's Git link; only the import route issues it (CONTRACTS.md §13.3). */
+  importDocument: SystemOpImportDocument,
 }
 
 /**

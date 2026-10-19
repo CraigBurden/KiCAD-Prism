@@ -51,3 +51,13 @@ class SystemBuilderSettings(BaseSettings):
         ge=10,
         description="Wall-clock bound for one prism-kicad system build, in seconds.",
     )
+    PRISM_BOARD_SUB_PORT_MAX_PINS: int = Field(
+        default=1024,
+        gt=0,
+        description="Most pads one board-level sub-port may hold.",
+    )
+    PRISM_BOARD_SUB_PORT_MAX_PER_PROJECT: int = Field(
+        default=2000,
+        gt=0,
+        description="Most live board-level sub-ports one project may hold.",
+    )

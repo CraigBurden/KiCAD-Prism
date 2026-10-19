@@ -1589,11 +1589,18 @@
                 "id": {
                     "$ref": "#/$defs/SystemObjectId",
                     "description": "The board-level sub-port's id."
+                },
+                "version": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 2147483647,
+                    "description": "The definition's version the user last saw. The live definition is always\nused; a newer one with different pins is a `board-sub-port-changed`\nfinding until `acknowledge-sub-port` (CONTRACTS.md §10.5)."
                 }
             },
             "required": [
                 "kind",
-                "id"
+                "id",
+                "version"
             ],
             "unevaluatedProperties": {
                 "not": {}

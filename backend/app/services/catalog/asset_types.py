@@ -3,9 +3,15 @@
 from __future__ import annotations
 
 
-SUPPORTED_ASSET_TYPES: tuple[str, ...] = ("symbol", "footprint", "3dmodel", "spice")
+SYSTEM_ENTRY_ASSET_TYPE = "system_entry"
+
+SUPPORTED_ASSET_TYPES: tuple[str, ...] = (
+    "symbol", "footprint", "3dmodel", "spice", SYSTEM_ENTRY_ASSET_TYPE,
+)
 PLACE_REQUIRED_ASSET_TYPES: tuple[str, ...] = ("symbol", "footprint")
 AUXILIARY_ASSET_TYPES: frozenset[str] = frozenset({"3dmodel", "spice"})
+#: Assets a ``system`` revision carries; they never place, preview or pass KLC.
+SYSTEM_ASSET_TYPES: frozenset[str] = frozenset({SYSTEM_ENTRY_ASSET_TYPE})
 
 PREVIEW_KIND_SYMBOL = "symbol"
 PREVIEW_KIND_FOOTPRINT = "footprint"
@@ -22,5 +28,7 @@ __all__ = [
     "PREVIEW_KIND_FOOTPRINT",
     "PREVIEW_KIND_SYMBOL",
     "SUPPORTED_ASSET_TYPES",
+    "SYSTEM_ASSET_TYPES",
+    "SYSTEM_ENTRY_ASSET_TYPE",
     "preview_kind_for_asset_type",
 ]

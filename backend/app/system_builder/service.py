@@ -9,16 +9,29 @@ write the document and its log entry.
 
 from __future__ import annotations
 
+import json
+import logging
 from dataclasses import dataclass
 from typing import Any, Callable, Mapping, Optional, Sequence
 
 from app.core import errors, preconditions
 from app.services.design_bundle import cli
-from app.system_builder import bundle_store, integrity, ops, redaction
+from app.services.workspace_service import workspace
+from app.system_builder import (
+    board_sub_ports,
+    bundle_store,
+    git_link,
+    integrity,
+    ops,
+    publishing,
+    redaction,
+)
 from app.system_builder import members as member_view
-from app.system_builder.document import new_document, new_id
+from app.system_builder.document import find, new_document, new_id
 from app.system_builder.jobs import start_system_bundle_job
 from app.system_builder.store import SystemStore
+
+logger = logging.getLogger(__name__)
 
 ETAG_KIND = "system"
 
@@ -60,10 +73,12 @@ class UndoConflict(errors.Conflict):
 
 @dataclass(frozen=True)
 class Caller:
-    """Who is asking: audit identity and the project visibility test."""
+    """Who is asking: audit identity, role and the project visibility test."""
 
     email: str
     can_see_project: Callable[[str], bool]
+    name: str = ""
+    role: str = "viewer"
 
 
 def etag(record: Mapping[str, Any]) -> str:
@@ -71,9 +86,15 @@ def etag(record: Mapping[str, Any]) -> str:
 
 
 class SystemService:
-    def __init__(self, store: SystemStore, limits: Callable[[], integrity.Limits]) -> None:
+    def __init__(
+        self, store: SystemStore, limits: Callable[[], integrity.Limits],
+        links: Optional[git_link.GitLinkStore] = None,
+        catalog: Any = None,
+    ) -> None:
         self._store = store
         self._limits = limits
+        self._links = links or git_link.GitLinkStore()
+        self._publishing = publishing.PublishingService(store, catalog)
 
     # ----------------------------------------------------------------- reads
 
@@ -104,7 +125,12 @@ class SystemService:
         document = record["document"]
         resolved = member_view.resolve(document, requested_by=caller.email)
         generator = cli.generator()
-        key = member_view.system_bundle_key(document, generator.digest, resolved)
+        with self._store.connection() as conn:
+            board_input = board_sub_ports.build_input(conn, document)
+        key = member_view.system_bundle_key(
+            document, generator.digest, resolved, board_sub_ports=board_input,
+            entries=member_view.entry_key_input(resolved),
+        )
         answer: dict[str, Any] = {
             "key": key,
             "pending": sorted(
@@ -154,8 +180,35 @@ class SystemService:
                 raise SystemNotFound()
             self._check_version(tx.record, expected)
             applied = self._apply(tx.record, caller, request_ops, undo=False)
+            self._publishing.check_placement(
+                tx.record["document"], applied.document, request_ops, caller, role=role,
+            )
+            self._promote(tx, applied.document, caller, request_ops)
             record = tx.write(applied, actor=caller.email, kind="edit", ops=list(request_ops))
         return self.view(record, caller)
+
+    @staticmethod
+    def _promote(tx: Any, document: Mapping[str, Any], caller: Caller, request_ops: Sequence[Mapping[str, Any]]) -> None:
+        """Create the board-level record of each ``promote-sub-port`` in the request's transaction (§10.5).
+
+        The route already required ``design``; the caller must also see the
+        board's project. Only a board occurrence's sub-port can be promoted.
+        """
+
+        for op in request_ops:
+            if op["kind"] != "promote-sub-port":
+                continue
+            sub_port = find(document, "subPorts", op["subPort"])
+            occurrence = find(document, "occurrences", sub_port["occurrence"]) if sub_port else None
+            source = (occurrence or {}).get("source", {})
+            if source.get("kind") != "board":
+                raise board_sub_ports.BoardSubPortInvalid("Only a board occurrence's sub-port can be promoted")
+            if not caller.can_see_project(source["projectId"]):
+                raise board_sub_ports.BoardSubPortForbidden()
+            board_sub_ports.create_on(
+                tx.conn, source["projectId"], op["boardSubPort"], sub_port["connector"],
+                sub_port["name"], sub_port["pins"], actor=caller.email,
+            )
 
     def undo(self, system_id: str, caller: Caller, *, role: str, expected: Optional[str], version: int) -> dict[str, Any]:
         with self._store.transaction(system_id, role=role) as tx:
@@ -184,6 +237,230 @@ class SystemService:
             applied = ops.apply(tx.record["document"], request_ops, seen_ids=tx.record["seen_ids"], limits=self._limits())
             return tx.write(applied, actor="system", kind="system", ops=request_ops)
 
+    # ------------------------------------------------------------------ git
+
+    def git(self, system_id: str, caller: Caller, *, role: str) -> dict[str, Any]:
+        """The system's link and its last commit job (§13.1)."""
+
+        self.read(system_id, caller, role=role)
+        return {
+            "systemId": system_id,
+            "link": self._links.read(system_id),
+            "job": self._links.last_job(system_id),
+        }
+
+    def link_record(self, system_id: str, caller: Caller, *, role: str) -> dict[str, Any]:
+        """The system's link, or ``409 system_git_not_linked``."""
+
+        self.read(system_id, caller, role=role)
+        link = self._links.read(system_id)
+        if link is None:
+            raise git_link.NotLinked()
+        return link
+
+    def link_git(
+        self, system_id: str, caller: Caller, *, role: str, project: Mapping[str, Any],
+        branch: str, path: Optional[str],
+    ) -> dict[str, Any]:
+        """Link or relink the system; the route authorized ``project`` for design."""
+
+        record = self._store.read(system_id, role=role)
+        if record is None:
+            raise SystemNotFound()
+        target = git_link.validate_path(path) if path else git_link.default_path(record["name"])
+        link = self._links.upsert(
+            system_id,
+            project_id=str(project["id"]),
+            branch=git_link.validate_branch(branch),
+            path=target,
+            linked_by=caller.email,
+        )
+        return {"systemId": system_id, "link": link, "job": None}
+
+    def unlink_git(self, system_id: str, caller: Caller, *, role: str) -> None:
+        """Remove the link; no link is ``409 system_git_not_linked``."""
+
+        self.read(system_id, caller, role=role)
+        if not self._links.unlink(system_id):
+            raise git_link.NotLinked()
+
+    def commit_git(
+        self, system_id: str, caller: Caller, *, role: str, project: Mapping[str, Any],
+        message: str, expected: Optional[str],
+    ) -> dict[str, Any]:
+        """Queue a commit of the document at the ``If-Match`` version (§13.2)."""
+
+        record = self._store.read(system_id, role=role)
+        if record is None:
+            raise SystemNotFound()
+        self._check_version(record, expected)
+        link = self._links.read(system_id)
+        if link is None or str(link["project_id"]) != str(project["id"]):
+            raise git_link.NotLinked()
+        if redaction.hidden_occurrences(record["document"], caller.can_see_project):
+            # The file is the complete document; committing it would hand a
+            # board the caller cannot see to everyone who can read the branch.
+            raise Redacted()
+        text = str(message or "").strip()
+        if not text:
+            raise errors.Invalid("A commit message is required", code="system_git_message_invalid")
+        job = git_link.start_system_git_commit_job(
+            system_id=system_id,
+            project_id=str(project["id"]),
+            repository_id=str(project.get("repo_id") or "") or None,
+            branch=str(link["branch"]),
+            path=str(link["path"]),
+            message=text,
+            document=record["document"],
+            document_version=int(record["version"]),
+            author_name=caller.name,
+            author_email=caller.email,
+            requested_by=caller.email,
+        )
+        return {"systemId": system_id, "link": link, "job": job}
+
+    def import_git(
+        self, system_id: str, caller: Caller, *, role: str, project: Mapping[str, Any],
+        expected: Optional[str],
+    ) -> dict[str, Any]:
+        """Replace the document with the linked file as one undoable request (§13.3)."""
+
+        record = self._store.read(system_id, role=role)
+        if record is None:
+            raise SystemNotFound()
+        self._check_version(record, expected)
+        link = self._links.read(system_id)
+        if link is None or str(link["project_id"]) != str(project["id"]):
+            raise git_link.NotLinked()
+
+        try:
+            source = git_link.fetch_branch_file(
+                str(link["project_id"]),
+                str(link["branch"]),
+                str(link["path"]),
+                with_data=True,
+            )
+        except git_link.BranchMissing:
+            raise errors.Conflict(
+                f"The linked branch {link['branch']!r} does not exist",
+                code="system_git_branch_missing",
+            ) from None
+        except UnicodeDecodeError:
+            raise OpsInvalid(
+                ops.OpRefused("/document", "the file on the branch is not UTF-8 text")
+            ) from None
+        except git_link.GitFailure as error:
+            logger.warning("system %s: %s: %s", system_id, error, error.detail)
+            raise git_link.ProjectUnavailable() from None
+        if not source.blob:
+            raise errors.Conflict(
+                "the linked file does not exist on the branch; import needs a file to read",
+                code="system_git_diverged",
+                blob="",
+            )
+
+        try:
+            document = json.loads(source.data.decode("utf-8"))
+        except (UnicodeDecodeError, ValueError):
+            raise OpsInvalid(
+                ops.OpRefused("/document", "the file on the branch is not valid JSON")
+            ) from None
+        if not isinstance(document, Mapping):
+            raise OpsInvalid(
+                ops.OpRefused("/document", "the file on the branch is not a system document")
+            )
+
+        request_ops = [{"kind": "import-document", "document": dict(document)}]
+        with self._store.transaction(system_id, role=role) as tx:
+            if tx.record is None:
+                raise SystemNotFound()
+            self._check_version(tx.record, expected)
+            applied = self._apply(tx.record, caller, request_ops, undo=False, importing=True)
+            updated = tx.write(applied, actor=caller.email, kind="edit", ops=request_ops)
+        self._links.record_imported_blob(system_id, blob=source.blob)
+        return self.view(updated, caller)
+
+    # ------------------------------------------------------------- snapshots
+
+    def snapshot(
+        self, system_id: str, caller: Caller, *, role: str, name: str, note: Optional[str],
+    ) -> dict[str, Any]:
+        """Take a snapshot; a linked system also queues its commit (§13.2)."""
+
+        record = self._store.read(system_id, role=role)
+        if record is None:
+            raise SystemNotFound()
+        created = self._store.create_snapshot(
+            system_id, name=name, note=note, created_by=caller.email,
+        )
+        job_id = self._queue_snapshot_commit(created, caller)
+        return {**created, "git_commit_job_id": job_id}
+
+    def _queue_snapshot_commit(self, snapshot: Mapping[str, Any], caller: Caller) -> Optional[str]:
+        """Queue ``Snapshot: <name>``; a failure is logged and never undoes the snapshot."""
+
+        system_id = str(snapshot["system_id"])
+        link = self._links.read(system_id)
+        if link is None:
+            return None
+        if redaction.hidden_occurrences(snapshot["document"], caller.can_see_project):
+            return None
+        try:
+            job = git_link.start_system_git_commit_job(
+                system_id=system_id,
+                project_id=str(link["project_id"]),
+                repository_id=self._project_repository_id(str(link["project_id"])),
+                branch=str(link["branch"]),
+                path=str(link["path"]),
+                message=f"Snapshot: {snapshot['name']}",
+                document=snapshot["document"],
+                document_version=int(snapshot["version"]),
+                author_name=caller.name,
+                author_email=caller.email,
+                requested_by=caller.email,
+            )
+        except Exception:  # noqa: BLE001 - the snapshot stands on its own
+            logger.exception("Could not queue the snapshot commit for system %s", system_id)
+            return None
+        return str(job["job_id"])
+
+    @staticmethod
+    def _project_repository_id(project_id: str) -> Optional[str]:
+        """The project's repository, for the job's lock; never an access decision."""
+
+        row = workspace.get_project_by_id(project_id)
+        return str((row or {}).get("repo_id") or "") or None
+
+    # ------------------------------------------------------------ publishing
+
+    def publish(
+        self,
+        system_id: str,
+        caller: Caller,
+        *,
+        role: str,
+        expected: Optional[str],
+        snapshot_id: Optional[str],
+        ipn: Optional[str],
+        change_summary: str,
+    ) -> dict[str, Any]:
+        """Freeze a snapshot into a catalog revision in ``qa_review`` (§11.2)."""
+
+        return self._publishing.publish(
+            system_id,
+            caller,
+            role=role,
+            expected=expected,
+            snapshot_id=snapshot_id,
+            ipn=ipn,
+            change_summary=change_summary,
+        )
+
+    def entry_view(self, revision_id: str, caller: Caller, *, role: str) -> dict[str, Any]:
+        """A published entry's insides, redacted for the caller (§12.3)."""
+
+        return self._publishing.entry_view(revision_id, caller, role=role)
+
     # --------------------------------------------------------------- helpers
 
     @staticmethod
@@ -191,9 +468,12 @@ class SystemService:
         if preconditions.int_version(expected) != record["version"]:
             raise StaleSystem(record["system_id"], record["version"])
 
-    def _apply(self, record: Mapping[str, Any], caller: Caller, request_ops: Sequence[Mapping[str, Any]], *, undo: bool) -> ops.Applied:
+    def _apply(self, record: Mapping[str, Any], caller: Caller, request_ops: Sequence[Mapping[str, Any]], *, undo: bool, importing: bool = False) -> ops.Applied:
         try:
-            applied = ops.apply(record["document"], request_ops, seen_ids=record["seen_ids"], limits=self._limits(), undo=undo)
+            applied = ops.apply(
+                record["document"], request_ops, seen_ids=record["seen_ids"],
+                limits=self._limits(), undo=undo, importing=importing,
+            )
         except ops.OpRefused as refused:
             raise OpsInvalid(refused) from None
         hidden = redaction.hidden_occurrences(record["document"], caller.can_see_project)

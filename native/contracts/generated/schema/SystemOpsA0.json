@@ -284,6 +284,18 @@
                 {
                     "$ref": "#/$defs/SystemOpAcknowledgeChanges",
                     "description": "Marks a followed board's changes as reviewed: `reviewedCommit` becomes `commit`."
+                },
+                {
+                    "$ref": "#/$defs/SystemOpPromoteSubPort",
+                    "description": "Promotes an occurrence-level sub-port to a new board-level one and repoints its endpoints (CONTRACTS.md §10.5)."
+                },
+                {
+                    "$ref": "#/$defs/SystemOpAcknowledgeSubPort",
+                    "description": "Accepts a board-level sub-port's current definition: sets `version` on every endpoint naming it."
+                },
+                {
+                    "$ref": "#/$defs/SystemOpImportDocument",
+                    "description": "Replaces the whole document with one read from the system's Git link; only the import route issues it (CONTRACTS.md §13.3)."
                 }
             ],
             "description": "One operation."
@@ -1894,6 +1906,84 @@
             },
             "description": "Marks a followed board's changes as reviewed: `reviewedCommit` becomes `commit`."
         },
+        "SystemOpPromoteSubPort": {
+            "type": "object",
+            "properties": {
+                "kind": {
+                    "type": "string",
+                    "const": "promote-sub-port",
+                    "description": "The operation."
+                },
+                "subPort": {
+                    "$ref": "#/$defs/SystemObjectId",
+                    "description": "The occurrence-level sub-port."
+                },
+                "boardSubPort": {
+                    "$ref": "#/$defs/SystemObjectId",
+                    "description": "The new board-level sub-port's id, chosen by the caller."
+                }
+            },
+            "required": [
+                "kind",
+                "subPort",
+                "boardSubPort"
+            ],
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "Promotes an occurrence-level sub-port to a new board-level one and repoints its endpoints (CONTRACTS.md §10.5)."
+        },
+        "SystemOpAcknowledgeSubPort": {
+            "type": "object",
+            "properties": {
+                "kind": {
+                    "type": "string",
+                    "const": "acknowledge-sub-port",
+                    "description": "The operation."
+                },
+                "subPort": {
+                    "$ref": "#/$defs/SystemObjectId",
+                    "description": "The board-level sub-port."
+                },
+                "version": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 2147483647,
+                    "description": "The version accepted."
+                }
+            },
+            "required": [
+                "kind",
+                "subPort",
+                "version"
+            ],
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "Accepts a board-level sub-port's current definition: sets `version` on every endpoint naming it."
+        },
+        "SystemOpImportDocument": {
+            "type": "object",
+            "properties": {
+                "kind": {
+                    "type": "string",
+                    "const": "import-document",
+                    "description": "The operation."
+                },
+                "document": {
+                    "$ref": "urn:prism:schema:prism.system:v2",
+                    "description": "The document imported."
+                }
+            },
+            "required": [
+                "kind",
+                "document"
+            ],
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "Replaces the whole document with one read from the system's Git link; only the import route issues it (CONTRACTS.md §13.3)."
+        },
         "SystemSheet": {
             "type": "object",
             "properties": {
@@ -3430,11 +3520,18 @@
                 "id": {
                     "$ref": "#/$defs/SystemObjectId",
                     "description": "The board-level sub-port's id."
+                },
+                "version": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 2147483647,
+                    "description": "The definition's version the user last saw. The live definition is always\nused; a newer one with different pins is a `board-sub-port-changed`\nfinding until `acknowledge-sub-port` (CONTRACTS.md §10.5)."
                 }
             },
             "required": [
                 "kind",
-                "id"
+                "id",
+                "version"
             ],
             "unevaluatedProperties": {
                 "not": {}

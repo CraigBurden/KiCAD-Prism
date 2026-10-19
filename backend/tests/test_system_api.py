@@ -13,7 +13,7 @@ from app.api import systems as systems_api
 from app.core.errors import install_error_handlers
 from app.core.policy import folder_visible
 from app.services.workspace_schema_migrations import WORKSPACE_LEDGER
-from app.system_builder import ops
+from app.system_builder import git_link, ops
 from app.system_builder.document import new_document
 from app.system_builder.service import SystemService
 from app.system_builder.settings import limits
@@ -138,7 +138,9 @@ class SystemApiTest(unittest.TestCase):
         scratch.conn.commit()
 
         self.store = SystemStore(scratch.connection)
-        self.service = SystemService(self.store, limits)
+        self.service = SystemService(
+            self.store, limits, git_link.GitLinkStore(scratch.connection)
+        )
         for patcher in (
             mock.patch.object(systems_api, "store", self.store),
             mock.patch.object(systems_api, "service", self.service),

@@ -26,7 +26,7 @@ from app.core.errors import PreconditionRequired
 STALE = "\x00stale"
 """The version an ``If-Match`` for another resource reads as. Never current."""
 
-_ETAG = re.compile(r'^(?:W/)?"([a-z]+):([^"]+):([^":]+)"$')
+_ETAG = re.compile(r'^(?:W/)?"([a-z][a-z0-9-]*):([^"]+):([^":]+)"$')
 
 
 def etag(kind: str, resource_id: str, version: object) -> str:

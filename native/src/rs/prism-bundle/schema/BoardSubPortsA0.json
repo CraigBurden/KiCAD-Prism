@@ -1,0 +1,143 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$id": "urn:prism:schema:prism.board_sub_ports:a0",
+    "type": "object",
+    "properties": {
+        "schema": {
+            "type": "string",
+            "const": "prism.board_sub_ports.a0",
+            "description": "Schema id."
+        },
+        "subPorts": {
+            "type": "array",
+            "items": {
+                "$ref": "#/$defs/BoardSubPortsEntry"
+            },
+            "description": "The definitions, sorted by `id` in code point order."
+        }
+    },
+    "required": [
+        "schema",
+        "subPorts"
+    ],
+    "unevaluatedProperties": {
+        "not": {}
+    },
+    "description": "The board-level sub-ports a system document names, deleted ones included:\nthe input of `prism-kicad system build --board-sub-ports`, and the copy a\nsnapshot keeps (CONTRACTS.md §10.5).",
+    "title": "Board sub-ports a0",
+    "$defs": {
+        "BoardSubPortsEntry": {
+            "type": "object",
+            "properties": {
+                "id": {
+                    "$ref": "#/$defs/BoardSubPortId",
+                    "description": "Its id."
+                },
+                "projectId": {
+                    "$ref": "#/$defs/BoardSubPortProjectId",
+                    "description": "The project it belongs to."
+                },
+                "connector": {
+                    "$ref": "#/$defs/Refdes",
+                    "description": "The connector it groups pins of."
+                },
+                "name": {
+                    "$ref": "#/$defs/BoardSubPortName",
+                    "description": "Its name."
+                },
+                "pins": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/$defs/BoardSubPortPad"
+                    },
+                    "minItems": 1,
+                    "description": "Pad numbers in the user's order."
+                },
+                "version": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 2147483647,
+                    "description": "Its current version."
+                },
+                "deleted": {
+                    "type": "boolean",
+                    "description": "Whether it was deleted; a deleted one gives its endpoints no pins."
+                },
+                "previous": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/$defs/BoardSubPortsPreviousPins"
+                    },
+                    "description": "The pins at each earlier version an endpoint of the document names, so a\nchange of pins can be told from a rename. Sorted by `version`, ascending."
+                }
+            },
+            "required": [
+                "id",
+                "projectId",
+                "connector",
+                "name",
+                "pins",
+                "version",
+                "deleted",
+                "previous"
+            ],
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "One definition as a system bundle build reads it."
+        },
+        "BoardSubPortId": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9_-]{0,63}$",
+            "description": "A board-level sub-port's id: unique across the workspace, never reused."
+        },
+        "BoardSubPortProjectId": {
+            "type": "string",
+            "pattern": "^prj_[0-9a-f]{12}$",
+            "description": "Prism project id: `prj_` and 12 lowercase hexadecimal digits."
+        },
+        "Refdes": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Reference designator as KiCad resolves it for one symbol instance or\nfootprint, for example `R1`, `U3`, `#PWR01` or `R?`. Always a string. A\ncontract states whether it includes virtual (`#`) and unannotated (`?`)\nreferences."
+        },
+        "BoardSubPortName": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "description": "A sub-port's name: 1 to 64 characters, unique among a connector's live sub-ports."
+        },
+        "BoardSubPortPad": {
+            "type": "string",
+            "description": "A pad number in a sub-port: never the empty pad of an unnumbered hole.",
+            "minLength": 1
+        },
+        "BoardSubPortsPreviousPins": {
+            "type": "object",
+            "properties": {
+                "version": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 2147483647,
+                    "description": "The version."
+                },
+                "pins": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/$defs/BoardSubPortPad"
+                    },
+                    "minItems": 1,
+                    "description": "Its pads, in order."
+                }
+            },
+            "required": [
+                "version",
+                "pins"
+            ],
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "A board-level sub-port's pins at an earlier version."
+        }
+    }
+}
