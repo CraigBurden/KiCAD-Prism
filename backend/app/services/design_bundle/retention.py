@@ -91,6 +91,9 @@ def run(*, now: datetime | None = None, connect: rows.Connect | None = None) -> 
     report["temp_files"] = store.sweep_temporary_files(now=now.timestamp())
     models = stage_models.prune_cache(unused_before=cutoff.timestamp(), now=now.timestamp())
     report["model_cache_removed"], report["model_cache_bytes"] = models["removed"], models["bytes"]
+    from app.system_builder import bundle_store as system_bundle_store
+
+    report["system_bundles"] = system_bundle_store.prune(now=now, connect=connect)
     return report
 
 

@@ -11,6 +11,7 @@ members = [
     "src/rs/prism-bundle",
     "src/rs/prism-kicad-cli",
     "src/rs/prism-projections",
+    "src/rs/prism-system",
 ]
 resolver = "3"
 

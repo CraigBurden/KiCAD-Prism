@@ -1,0 +1,98 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$id": "urn:prism:schema:prism.cli.system_result:a0",
+    "type": "object",
+    "properties": {
+        "schema": {
+            "type": "string",
+            "const": "prism.cli.system_result.a0",
+            "description": "Document schema id."
+        },
+        "system_bundle_key": {
+            "$ref": "#/$defs/Sha256Hex",
+            "description": "The system bundle key (`docs/system-builder/CONTRACTS.md` §8.1)."
+        },
+        "document_sha256": {
+            "$ref": "#/$defs/Sha256Hex",
+            "description": "SHA-256 of the input document's canonical JSON."
+        },
+        "counts": {
+            "$ref": "#/$defs/CliSystemCounts",
+            "description": "The written bundle's section counts."
+        }
+    },
+    "required": [
+        "schema",
+        "system_bundle_key",
+        "document_sha256",
+        "counts"
+    ],
+    "unevaluatedProperties": {
+        "not": {}
+    },
+    "description": "stdout of `system build` (exit 0), written after `-o` holds the `SystemBundleA0`.",
+    "title": "prism-kicad system build result a0",
+    "$defs": {
+        "Sha256Hex": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$",
+            "description": "Lowercase hexadecimal SHA-256 digest: exactly 64 characters, no prefix such as `sha256:`."
+        },
+        "CliSystemCounts": {
+            "type": "object",
+            "properties": {
+                "ready_occurrences": {
+                    "$ref": "#/$defs/Count",
+                    "description": "Occurrences read from their design bundles."
+                },
+                "pending_occurrences": {
+                    "$ref": "#/$defs/Count",
+                    "description": "Board occurrences whose design bundle is not built yet."
+                },
+                "nets": {
+                    "$ref": "#/$defs/Count",
+                    "description": "System nets."
+                },
+                "mates": {
+                    "$ref": "#/$defs/Count",
+                    "description": "B2B mappings."
+                },
+                "links": {
+                    "$ref": "#/$defs/Count",
+                    "description": "Harness link wirings."
+                },
+                "suggestions": {
+                    "$ref": "#/$defs/Count",
+                    "description": "Sub-port suggestions."
+                },
+                "errors": {
+                    "$ref": "#/$defs/Count",
+                    "description": "Findings of severity error that no waiver covers."
+                },
+                "warnings": {
+                    "$ref": "#/$defs/Count",
+                    "description": "Findings of severity warning that no waiver covers."
+                }
+            },
+            "required": [
+                "ready_occurrences",
+                "pending_occurrences",
+                "nets",
+                "mates",
+                "links",
+                "suggestions",
+                "errors",
+                "warnings"
+            ],
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "How many of each section the written system bundle holds."
+        },
+        "Count": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "A count of things: a non-negative safe integer."
+        }
+    }
+}

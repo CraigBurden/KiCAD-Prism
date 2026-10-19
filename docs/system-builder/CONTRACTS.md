@@ -1,8 +1,8 @@
 # System Builder v2 contracts
 
-- **Status:** draft, stage 1a. The design is [ADR: System Builder v2](../architecture/adr-system-builder-v2.md); this file is its contract layer.
-- **Covers:** the `prism.system.v2` document (§2), the `prism.system.ops.a0` operations (§3), storage (§4), the HTTP API (§5), permissions and redaction (§6) and limits (§7). The system bundle, `prism.system_bundle.a0`, is stage 1b and gets its own section then.
-- **Authority:** the TypeSpec in `native/src/tsp/prism/system-v2.tsp` and `system-ops-a0.tsp`, with JSON Schema generated beside the bundle contracts. Python validates against the generated schema; the stage 1b Rust reads the generated types. This file explains the rules the schema cannot state.
+- **Status:** draft, stages 1a–1b. The design is [ADR: System Builder v2](../architecture/adr-system-builder-v2.md); this file is its contract layer.
+- **Covers:** the `prism.system.v2` document (§2), the `prism.system.ops.a0` operations (§3), storage (§4), the HTTP API (§5), permissions and redaction (§6) and limits (§7). The system bundle, `prism.system_bundle.a0`, and the `prism-kicad system build` command that writes it are §8; its findings are §9.
+- **Authority:** the TypeSpec in `native/src/tsp/prism/system-v2.tsp`, `system-ops-a0.tsp`, `system-bundle-a0.tsp` and `cli-system-a0.tsp`, with JSON Schema generated beside the bundle contracts. Python validates against the generated schema; the stage 1b Rust reads the generated types. This file explains the rules the schema cannot state.
 
 ## 1. Rules for the whole document
 
@@ -238,3 +238,124 @@ Reads need `read`; writes need `design` (`app/core/policy.py`).
 | Ops per request | 1,000 |
 
 They are settings (`PRISM_SYSTEM_*`), so a deployment can raise them, and are checked on every request.
+
+## 8. The system bundle, `prism.system_bundle.a0`
+
+Derived state (ADR §3.3). It is a pure function of the document and the design bundles of its board occurrences, written by Rust (`native/src/rs/prism-system`, run as `prism-kicad system build`) and orchestrated by Python. Like the document, it is unfrozen until stage 5. Stage 1b computes connectivity only: system nets, B2B mappings, harness wiring, sub-port suggestions and findings. Geometry (placement, harness routes) and outputs join as further members in stages 3–5.
+
+### 8.1 Inputs and key
+
+- **The document,** canonical JSON. Its SHA-256 is `documentSha256`.
+- **One design bundle per board occurrence whose bundle has stage `parse` complete.** It reads `projections/system-interface.json` (connectors, pins, pin nets, names and types, power nets, pad geometry and board thickness) and `projections/semantic-index.json` (bus aliases, nets' source sheets). B2B geometry reads `system-interface.json`'s pad geometry, the form the kept placement maths and their goldens use. This amends the ADR's mention of `placements.json` for pads; the maintainer chose it so the goldens replay unchanged.
+- **The system bundle key** is SHA-256 over the canonical JSON `{documentSha256, generator, members: {occurrence: bundleKey}, absent: [occurrence], pending: [occurrence]}`. A new document version with the same content, such as one restored by an undo, reuses the bundle.
+- Published entries (1c) and body connectors' pins (stage 3) are not inputs yet. Their occurrences are reported with the state `unsupported`.
+
+### 8.2 Occurrences
+
+`occurrences[]`, one per occurrence in id order: `{ occurrence, state, revisionKey?, bundleKey?, connectors[] }`.
+
+- `state` is one of:
+  - `ready`: its bundle was read;
+  - `pending`: its bundle is not built yet;
+  - `absent`: the project is not present at that commit;
+  - `unsupported`: a published entry or body, until their stages;
+  - `redacted`: only in an API read, for an occurrence whose project the reader cannot see (§6); its keys and connectors are withheld. A stored bundle never holds it.
+- `connectors` (ready boards only) lists the board's connectors in natural reference order: the components `system-interface.json` marks `candidate`, plus any component a document endpoint names. Each is `{ refdes, value, mpn?, candidate, pins[] }`. Each pin, in natural pad order, is `{ pad, net?, nets[], pinName?, pinType?, power }`. `net` is the pin's first schematic net. This is the per-occurrence view the schematic and harness UI draw from, so a reader needs only the system bundle.
+
+### 8.3 System nets
+
+- **Nodes** are connector pins `(occurrence, connector, pad)`.
+- **Board edges:** two pins of one ready board are joined when they share a board net (any of their `nets`). A signal entering on J2 and leaving on J5 is one system net.
+- **System edges:** each B2B mate's mapped pairs (§8.4), each harness link's wires (§8.5), and the explicit wires through splices.
+- `nets[]` is every connected set that holds a pin of a connection, a sub-port or an export, plus every board net that reaches at least one connector pin. A connector pin on no board net and in no connection is not a net. Each is `{ id, name, names[], boardNets[{occurrence, net}], pins[{occurrence, connector, pad}] }`.
+  - `id` is `net-` and the SHA-256 (first 16 hex digits) of its sorted pins, so it is stable while membership is.
+  - `name` is the most common board net name, ignoring KiCad's automatic `Net-(…)` and `unconnected-(…)` names. Ties go to the first in code point order. With only automatic names, the first of those. With no board net at all (unconnected pins joined only by connections), the first pin as `<occurrence>/<connector>/<pad>`.
+  - `names` lists every distinct board net name.
+  - Order: `nets` by `id`, and `pins` and `boardNets` by their fields in code point order (natural order for pads).
+
+### 8.4 B2B mappings
+
+`mates[]`, one per document mate: `{ mate, source, pairs[{a, b}], unmappedA[], unmappedB[] }`.
+
+- **source `geometry`.** Each connector's frame comes from the kept frame maths (`connector_frame`) with its board's thickness. B's pad centres are placed into A's frame by the mate transform, with `k = (padOneTurns + orientation.quarterTurns) mod 4`. `padOneTurns` puts pad 1 on pad 1, so quarter turns 0 is the natural mating. With `flip`, B's frame is first turned 180° about its x axis.
+  - An A pad maps to the B pad whose centre lies inside the A pad's landing window in A's xy plane: the A pad's rectangle, turned with its footprint, each half-side at least 0.1 mm. Mating series often pair long pads at different row spacings, so matching centres can sit apart along the pads but not across them. For a name held by several pads, the smallest gives the window. The closest B pad wins, and a B pad maps at most once.
+  - Pads named more than once collapse to their centroid, as in the kept maths.
+- **source `manual`.** `manualMap` replaces the geometry. Pairs naming pads the connectors lack are dropped and reported.
+- **source `unresolved`.** There is no manual map and the geometry cannot decide: a side is not ready, a connector has no pads, or the frame inference has confidence `low`. `pairs` is empty.
+- Lists are in natural order of the side's pad.
+
+### 8.5 Harness wiring
+
+`links[]`, one per harness link: `{ harness, link, wires[{a, b, rule, suggested}], unmappedA[], unmappedB[] }`. Side A's pins are its endpoint's sub-port pins in order, or else the connector's pins in natural order; side B's likewise.
+
+1. **`explicit`:** each explicit wire of the link, mapped through each end's `pinMap` (cavity to pad; identity when empty), takes its A pad.
+2. **`sub-port-order`:** when both sides name sub-ports of equal size, the remaining pins map in order.
+3. **`net-name`:** otherwise, remaining pins pair by equal board net name (`net`). Several pins on one name pair in pad order; the extras are left unmapped and reported as `duplicate-net-extra`.
+4. Pads in the link's `unmapped` are removed from the default wiring. Whatever is left is `unmappedA`/`unmappedB`; pin N is never matched to pin N by position alone.
+
+A wire is `suggested: true` when either pin is power or ground: `power` is true, or the net name is a ground name (`GND`, `AGND`, `DGND`, `PGND`, `GNDA`, `GNDD`, `VSS`, or any of them with a suffix after `_`). It still counts for system nets.
+
+**Shared pins.** A pad of one mating site that two links of the same harness wire is a proposed splice. `splices[]` lists `{ harness, end, pad, links[] }`, unless a confirmed splice already joins those wires.
+
+### 8.6 Sub-port suggestions
+
+`suggestions[]`, per ready connector, computed on read (ADR §2.3) and filtered against the document's dismissed suggestions and the sub-ports already accepted from the same key. Each is `{ occurrence, connector, key, name, source, pins[] }`, with pins in natural order and at least two of them:
+
+| `source` | `key` | Pins |
+|---|---|---|
+| `bus-alias` | `bus:<alias>` | pins whose net's last path segment is a member of a KiCad bus alias |
+| `sheet` | `sheet:<sheet path>` | pins whose nets all come from one hierarchical sheet, when the connector's pins span more than one sheet |
+| `family` | `family:<prefix>` | pins whose net names share a prefix before the last `_` (or end in `_H`/`_L`, `+`/`-`, `P`/`N`), such as `CAN_H`/`CAN_L` or `I2C_SDA`/`I2C_SCL` |
+| `power` | `power` | power and ground pins (§8.5's rule) |
+
+Symbol units are not suggested yet: the bundle does not record which unit owns a pin.
+
+### 8.7 Findings
+
+`findings[]`, sorted by `code` then `subject`: `{ code, severity, subject, message, objects[], waived }`. `subject` is the stable key a waiver names. `objects` lists the document ids involved. `waived` is true when a waiver has this code and subject. The catalogue is §9.
+
+### 8.8 `prism-kicad system build`
+
+```text
+prism-kicad system build --document <system.json>
+            [--member <occurrence>=<bundle.prism> --member-revision-key <occurrence>=<hex>]...
+            [--absent <occurrence>]... -o <system-bundle.json> [COMMON]
+```
+
+- **`--member`** gives a board occurrence's stored design bundle. The revision key is its identity, as in `compare`, because a bundle may serve several keys. A board occurrence with neither `--member` nor `--absent` is `pending`.
+- **Checks, in order:**
+  1. The document validates against `prism.system.v2` (exit 3, `document-invalid`).
+  2. Each member passes the reader checks (exit 3, `bundle-invalid`, with `argument` `member:<occurrence>`).
+  3. Each `--member` names a board occurrence of the document (exit 7, `occurrence-mismatch`).
+  4. All members share one generator id (exit 7, `generator-mismatch`).
+  5. Each member's stage `parse` holds both members (exit 7, `member-not-found`).
+- **Output.** `-o` receives the `SystemBundleA0`, written atomically, with stdout giving `CliSystemResultA0` (the bundle key and per-section counts). The same inputs give byte-identical output.
+- **Exit codes:** 0, or 1–7 as in `cli-spec.md` §4.
+
+## 9. Findings catalogue (ADR open question 2)
+
+Each code has a fixed severity:
+- **error** blocks publishing an in-house entry, unless waived (a clean snapshot is one with no unwaived error);
+- **warning** and **info** never block.
+
+Waivers apply to warnings and errors.
+
+| Code | Severity | Subject | When |
+|---|---|---|---|
+| `occurrence-pending` | info | `occurrence:<id>` | the board's design bundle is not built yet; its connections are not checked |
+| `occurrence-absent` | error | `occurrence:<id>` | the project is not present at the occurrence's commit |
+| `occurrence-unsupported` | info | `occurrence:<id>` | a published entry or body, checked from its stage on |
+| `connector-missing` | error | `connector:<occ>/<refdes>` | an endpoint, site or sub-port names a reference the board does not have |
+| `not-a-connector` | warning | `connector:<occ>/<refdes>` | the named component is not detected as a connector |
+| `pin-missing` | error | `pin:<occ>/<refdes>/<pad>` | a sub-port, pin map, manual map or explicit wire names a pad the connector lacks |
+| `mate-manual-override` | warning | `mate:<id>` | the mapping is the manual override, not geometry |
+| `mate-unresolved` | error | `mate:<id>` | no mapping: the geometry cannot decide and there is no manual map |
+| `mate-pins-unmapped` | warning | `mate:<id>` | pins of either connector have no partner |
+| `link-pins-unmapped` | warning | `link:<id>` | the link leaves pins unmapped (an incomplete mapping is a warning, ADR §2.4) |
+| `duplicate-net-extra` | warning | `link:<id>` | more pins on one net on one side than the other; splices are offered |
+| `power-join-suggested` | info | `link:<id>` | the link joins power or ground pins, shown as suggested until confirmed |
+| `splice-proposed` | warning | `splice:<harness>/<end>/<pad>` | a pin is wired to two destinations with no confirmed splice |
+| `harness-end-unattached` | info | `end:<id>` | an end has no site yet |
+| `net-name-conflict` | warning | `net:<id>` | one system net carries board nets with different names, compared by leaf name after the sheet path with `.` read as `_` (automatic names aside); not raised when `power-net-conflict` is |
+| `power-net-conflict` | warning | `net:<id>` | one system net joins power nets of different names (a board may name the same rail differently, so it does not block) |
+

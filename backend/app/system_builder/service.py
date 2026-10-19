@@ -13,8 +13,11 @@ from dataclasses import dataclass
 from typing import Any, Callable, Mapping, Optional, Sequence
 
 from app.core import errors, preconditions
-from app.system_builder import integrity, ops, redaction
+from app.services.design_bundle import cli
+from app.system_builder import bundle_store, integrity, ops, redaction
+from app.system_builder import members as member_view
 from app.system_builder.document import new_document, new_id
+from app.system_builder.jobs import start_system_bundle_job
 from app.system_builder.store import SystemStore
 
 ETAG_KIND = "system"
@@ -85,6 +88,58 @@ class SystemService:
         if record is None:
             raise SystemNotFound()
         return self.view(record, caller)
+
+    def bundle(self, system_id: str, caller: Caller, *, role: str) -> dict[str, Any]:
+        """The system's bundle, its build state, and what it is waiting on (§8).
+
+        Reading the design bundles with ``queue=True`` is how a missing board
+        bundle starts building; the system bundle job follows once they are
+        ready. A failed build is not retried automatically for an hour, so a
+        page refresh is not a retry storm.
+        """
+
+        record = self._store.read(system_id, role=role)
+        if record is None:
+            raise SystemNotFound()
+        document = record["document"]
+        resolved = member_view.resolve(document, requested_by=caller.email)
+        generator = cli.generator()
+        key = member_view.system_bundle_key(document, generator.digest, resolved)
+        answer: dict[str, Any] = {
+            "key": key,
+            "pending": sorted(
+                member.occurrence for member in resolved if member.state == member_view.PENDING
+            ),
+            "documentVersion": record["version"],
+        }
+
+        stored = bundle_store.read(system_id, key)
+        if stored is not None:
+            bundle_store.touch(system_id, key)
+            hidden = redaction.hidden_occurrences(document, caller.can_see_project)
+            return {
+                "state": "ready",
+                **answer,
+                "bundle": redaction.redact_bundle(stored, hidden, document=document),
+            }
+
+        row = bundle_store.get(system_id, key)
+        if row is not None:
+            if row["state"] in ("queued", "building") and bundle_store.active_job(
+                row.get("job_id")
+            ):
+                return {"state": "building", **answer}
+            if row["state"] == "failed" and bundle_store.failed_recently(row):
+                return {
+                    "state": "failed",
+                    **answer,
+                    "error": str(row.get("error") or "The system bundle build failed"),
+                }
+
+        start_system_bundle_job(
+            system_id, key, record["version"], requested_by=caller.email
+        )
+        return {"state": "building", **answer}
 
     # ---------------------------------------------------------------- writes
 

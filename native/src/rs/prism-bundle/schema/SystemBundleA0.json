@@ -1,0 +1,642 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$id": "urn:prism:schema:prism.system_bundle:a0",
+    "type": "object",
+    "properties": {
+        "schema": {
+            "type": "string",
+            "const": "prism.system_bundle.a0",
+            "description": "Schema id."
+        },
+        "documentSha256": {
+            "$ref": "#/$defs/Sha256Hex",
+            "description": "SHA-256 of the document's canonical JSON."
+        },
+        "occurrences": {
+            "type": "array",
+            "items": {
+                "$ref": "#/$defs/SystemBundleOccurrence"
+            },
+            "description": "Occurrences, sorted by `occurrence` in code point order."
+        },
+        "nets": {
+            "type": "array",
+            "items": {
+                "$ref": "#/$defs/SystemBundleNet"
+            },
+            "description": "System nets, sorted by `id` in code point order."
+        },
+        "mates": {
+            "type": "array",
+            "items": {
+                "$ref": "#/$defs/SystemBundleMate"
+            },
+            "description": "B2B mappings, sorted by `mate` in code point order."
+        },
+        "links": {
+            "type": "array",
+            "items": {
+                "$ref": "#/$defs/SystemBundleLink"
+            },
+            "description": "Harness link wirings, sorted by `harness` then `link`, in code point order."
+        },
+        "splices": {
+            "type": "array",
+            "items": {
+                "$ref": "#/$defs/SystemBundleSplice"
+            },
+            "description": "Proposed splices, sorted by `harness`, `end` then `pad` (natural order)."
+        },
+        "suggestions": {
+            "type": "array",
+            "items": {
+                "$ref": "#/$defs/SystemBundleSuggestion"
+            },
+            "description": "Sub-port suggestions, sorted by `occurrence`, `connector` then `key`, in code point order."
+        },
+        "findings": {
+            "type": "array",
+            "items": {
+                "$ref": "#/$defs/SystemBundleFinding"
+            },
+            "description": "Findings, sorted by `code` then `subject`, in code point order."
+        }
+    },
+    "required": [
+        "schema",
+        "documentSha256",
+        "occurrences",
+        "nets",
+        "mates",
+        "links",
+        "splices",
+        "suggestions",
+        "findings"
+    ],
+    "unevaluatedProperties": {
+        "not": {}
+    },
+    "description": "A system bundle.",
+    "title": "System bundle a0",
+    "$defs": {
+        "Sha256Hex": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$",
+            "description": "Lowercase hexadecimal SHA-256 digest: exactly 64 characters, no prefix such as `sha256:`."
+        },
+        "SystemBundleOccurrence": {
+            "type": "object",
+            "properties": {
+                "occurrence": {
+                    "$ref": "#/$defs/SystemBundleObjectId",
+                    "description": "The occurrence's id."
+                },
+                "state": {
+                    "$ref": "#/$defs/SystemBundleOccurrenceState",
+                    "description": "What the build knew about it."
+                },
+                "revisionKey": {
+                    "$ref": "#/$defs/Sha256Hex",
+                    "description": "The revision key it was read at; absent unless `ready`."
+                },
+                "bundleKey": {
+                    "$ref": "#/$defs/Sha256Hex",
+                    "description": "The design bundle read; absent unless `ready`."
+                },
+                "connectors": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/$defs/SystemBundleConnector"
+                    },
+                    "description": "Connectors in natural order of their reference; empty unless `ready`."
+                }
+            },
+            "required": [
+                "occurrence",
+                "state",
+                "connectors"
+            ],
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "One occurrence of the document."
+        },
+        "SystemBundleNet": {
+            "type": "object",
+            "properties": {
+                "id": {
+                    "$ref": "#/$defs/SystemBundleNetId",
+                    "description": "The net's id: stable while its pins are."
+                },
+                "name": {
+                    "$ref": "#/$defs/NetName",
+                    "description": "The display name: the most common non-automatic board net name."
+                },
+                "names": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/$defs/NetName"
+                    },
+                    "description": "Every distinct board net name, in code point order."
+                },
+                "boardNets": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/$defs/SystemBundleBoardNet"
+                    },
+                    "description": "Board nets, sorted by `occurrence` then `net`, in code point order."
+                },
+                "pins": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/$defs/SystemBundlePinRef"
+                    },
+                    "description": "Pins, sorted by `occurrence` and `connector` in code point order, then `pad` in natural order."
+                }
+            },
+            "required": [
+                "id",
+                "name",
+                "names",
+                "boardNets",
+                "pins"
+            ],
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "One system net: board nets joined through the system's connections."
+        },
+        "SystemBundleMate": {
+            "type": "object",
+            "properties": {
+                "mate": {
+                    "$ref": "#/$defs/SystemBundleObjectId",
+                    "description": "The document mate's id."
+                },
+                "source": {
+                    "$ref": "#/$defs/SystemBundleMateSource",
+                    "description": "Where the mapping came from."
+                },
+                "pairs": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/$defs/SystemBundlePadPair"
+                    },
+                    "description": "Pin pairs, sorted by `a` in natural order."
+                },
+                "unmappedA": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/$defs/PadNumber"
+                    },
+                    "description": "Side A pads without a partner, in natural order."
+                },
+                "unmappedB": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/$defs/PadNumber"
+                    },
+                    "description": "Side B pads without a partner, in natural order."
+                }
+            },
+            "required": [
+                "mate",
+                "source",
+                "pairs",
+                "unmappedA",
+                "unmappedB"
+            ],
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "One B2B mate's mapping."
+        },
+        "SystemBundleLink": {
+            "type": "object",
+            "properties": {
+                "harness": {
+                    "$ref": "#/$defs/SystemBundleObjectId",
+                    "description": "The harness block."
+                },
+                "link": {
+                    "$ref": "#/$defs/SystemBundleObjectId",
+                    "description": "The document link's id."
+                },
+                "wires": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/$defs/SystemBundleWire"
+                    },
+                    "description": "Wires, sorted by `a` in natural order."
+                },
+                "unmappedA": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/$defs/PadNumber"
+                    },
+                    "description": "Side A pins left unmapped, in natural order."
+                },
+                "unmappedB": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/$defs/PadNumber"
+                    },
+                    "description": "Side B pins left unmapped, in natural order."
+                }
+            },
+            "required": [
+                "harness",
+                "link",
+                "wires",
+                "unmappedA",
+                "unmappedB"
+            ],
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "One harness link's wiring."
+        },
+        "SystemBundleSplice": {
+            "type": "object",
+            "properties": {
+                "harness": {
+                    "$ref": "#/$defs/SystemBundleObjectId",
+                    "description": "The harness block."
+                },
+                "end": {
+                    "$ref": "#/$defs/SystemBundleObjectId",
+                    "description": "The end."
+                },
+                "pad": {
+                    "$ref": "#/$defs/PadNumber",
+                    "description": "The pad."
+                },
+                "links": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/$defs/SystemBundleObjectId"
+                    },
+                    "description": "The links that wire it, in code point order."
+                }
+            },
+            "required": [
+                "harness",
+                "end",
+                "pad",
+                "links"
+            ],
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "A pin of one mating site that two links wire: a proposed splice."
+        },
+        "SystemBundleSuggestion": {
+            "type": "object",
+            "properties": {
+                "occurrence": {
+                    "$ref": "#/$defs/SystemBundleObjectId",
+                    "description": "The occurrence."
+                },
+                "connector": {
+                    "$ref": "#/$defs/Refdes",
+                    "description": "The connector's reference designator."
+                },
+                "key": {
+                    "type": "string",
+                    "minLength": 1,
+                    "description": "The stable key a sub-port or dismissal names."
+                },
+                "name": {
+                    "type": "string",
+                    "minLength": 1,
+                    "description": "The suggested name."
+                },
+                "source": {
+                    "$ref": "#/$defs/SystemBundleSuggestionSource",
+                    "description": "Where it came from."
+                },
+                "pins": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/$defs/PadNumber"
+                    },
+                    "minItems": 2,
+                    "description": "Pads in natural order, at least two."
+                }
+            },
+            "required": [
+                "occurrence",
+                "connector",
+                "key",
+                "name",
+                "source",
+                "pins"
+            ],
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "A sub-port suggestion read from a board's design bundle."
+        },
+        "SystemBundleFinding": {
+            "type": "object",
+            "properties": {
+                "code": {
+                    "$ref": "#/$defs/DiagnosticCode",
+                    "description": "The finding's code."
+                },
+                "severity": {
+                    "$ref": "#/$defs/SystemBundleSeverity",
+                    "description": "Its fixed severity."
+                },
+                "subject": {
+                    "type": "string",
+                    "minLength": 1,
+                    "description": "The stable subject key a waiver names, for example `mate:mate_x`."
+                },
+                "message": {
+                    "type": "string",
+                    "minLength": 1,
+                    "description": "One sentence for people."
+                },
+                "objects": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/$defs/SystemBundleObjectId"
+                    },
+                    "description": "Document object ids involved, in code point order."
+                },
+                "waived": {
+                    "type": "boolean",
+                    "description": "Whether a waiver of the document covers it."
+                }
+            },
+            "required": [
+                "code",
+                "severity",
+                "subject",
+                "message",
+                "objects",
+                "waived"
+            ],
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "One finding (`docs/system-builder/CONTRACTS.md` §9)."
+        },
+        "SystemBundleObjectId": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9_-]{0,63}$",
+            "description": "Id of an object in the system document (`prism.system.v2`)."
+        },
+        "SystemBundleOccurrenceState": {
+            "type": "string",
+            "enum": [
+                "ready",
+                "pending",
+                "absent",
+                "unsupported",
+                "redacted"
+            ],
+            "description": "What the build knew about an occurrence."
+        },
+        "SystemBundleConnector": {
+            "type": "object",
+            "properties": {
+                "refdes": {
+                    "$ref": "#/$defs/Refdes",
+                    "description": "The reference designator."
+                },
+                "value": {
+                    "type": "string",
+                    "description": "The component's value."
+                },
+                "mpn": {
+                    "type": "string",
+                    "description": "The manufacturer part number; absent when unknown."
+                },
+                "candidate": {
+                    "type": "boolean",
+                    "description": "Whether connector detection marks it a connector."
+                },
+                "pins": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/$defs/SystemBundlePin"
+                    },
+                    "description": "Pins in natural order of their pad."
+                }
+            },
+            "required": [
+                "refdes",
+                "value",
+                "candidate",
+                "pins"
+            ],
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "One connector of a board occurrence."
+        },
+        "SystemBundleNetId": {
+            "type": "string",
+            "pattern": "^net-[0-9a-f]{16}$",
+            "description": "A system net's id: `net-` and 16 lowercase hexadecimal digits."
+        },
+        "NetName": {
+            "type": "string",
+            "minLength": 1,
+            "description": "KiCad full net name as KiCad resolves it, including the sheet path prefix\nof a local net (`/Power/VBUS`), a global name (`GND`) or a generated name\n(`Net-(R1-Pad2)`, `unconnected-(U1-PA0-Pad3)`). \"No net\" is expressed by\nomitting the field, never by an empty name."
+        },
+        "SystemBundleBoardNet": {
+            "type": "object",
+            "properties": {
+                "occurrence": {
+                    "$ref": "#/$defs/SystemBundleObjectId",
+                    "description": "The occurrence."
+                },
+                "net": {
+                    "$ref": "#/$defs/NetName",
+                    "description": "The board's net name."
+                }
+            },
+            "required": [
+                "occurrence",
+                "net"
+            ],
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "A board net that is part of a system net."
+        },
+        "SystemBundlePinRef": {
+            "type": "object",
+            "properties": {
+                "occurrence": {
+                    "$ref": "#/$defs/SystemBundleObjectId",
+                    "description": "The occurrence."
+                },
+                "connector": {
+                    "$ref": "#/$defs/Refdes",
+                    "description": "The connector's reference designator."
+                },
+                "pad": {
+                    "$ref": "#/$defs/PadNumber",
+                    "description": "The pad number."
+                }
+            },
+            "required": [
+                "occurrence",
+                "connector",
+                "pad"
+            ],
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "A connector pin of the system."
+        },
+        "SystemBundleMateSource": {
+            "type": "string",
+            "enum": [
+                "geometry",
+                "manual",
+                "unresolved"
+            ],
+            "description": "Where a B2B mapping came from."
+        },
+        "SystemBundlePadPair": {
+            "type": "object",
+            "properties": {
+                "a": {
+                    "$ref": "#/$defs/PadNumber",
+                    "description": "The pad on side A."
+                },
+                "b": {
+                    "$ref": "#/$defs/PadNumber",
+                    "description": "The pad on side B."
+                }
+            },
+            "required": [
+                "a",
+                "b"
+            ],
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "One pin pair of a B2B mapping."
+        },
+        "PadNumber": {
+            "type": "string",
+            "description": "Pad or pin number as written in the file, always a string (`1`, `A1`,\n`EP`). Empty for a pad KiCad leaves unnumbered, such as a mechanical\nnon-plated hole."
+        },
+        "SystemBundleWire": {
+            "type": "object",
+            "properties": {
+                "a": {
+                    "$ref": "#/$defs/PadNumber",
+                    "description": "The pad on side A."
+                },
+                "b": {
+                    "$ref": "#/$defs/PadNumber",
+                    "description": "The pad on side B."
+                },
+                "rule": {
+                    "$ref": "#/$defs/SystemBundleWireRule",
+                    "description": "The rule that wired it."
+                },
+                "suggested": {
+                    "type": "boolean",
+                    "description": "Whether it joins power or ground pins, shown as suggested until confirmed."
+                }
+            },
+            "required": [
+                "a",
+                "b",
+                "rule",
+                "suggested"
+            ],
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "One wire of a harness link's wiring."
+        },
+        "Refdes": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Reference designator as KiCad resolves it for one symbol instance or\nfootprint, for example `R1`, `U3`, `#PWR01` or `R?`. Always a string. A\ncontract states whether it includes virtual (`#`) and unannotated (`?`)\nreferences."
+        },
+        "SystemBundleSuggestionSource": {
+            "type": "string",
+            "enum": [
+                "bus-alias",
+                "sheet",
+                "family",
+                "power"
+            ],
+            "description": "Where a sub-port suggestion came from."
+        },
+        "DiagnosticCode": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$",
+            "description": "Stable machine-readable code of a finding, in lowercase kebab-case, for\nexample `stale-saved-fills` or `net-mismatch`. A code never changes meaning\nonce published; a new meaning gets a new code."
+        },
+        "SystemBundleSeverity": {
+            "type": "string",
+            "enum": [
+                "error",
+                "warning",
+                "info"
+            ],
+            "description": "A finding's fixed severity: errors block publishing an in-house entry unless waived."
+        },
+        "SystemBundlePin": {
+            "type": "object",
+            "properties": {
+                "pad": {
+                    "$ref": "#/$defs/PadNumber",
+                    "description": "The pad number."
+                },
+                "net": {
+                    "$ref": "#/$defs/NetName",
+                    "description": "The pin's first schematic net; absent when it has none."
+                },
+                "nets": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/$defs/NetName"
+                    },
+                    "description": "Every schematic net the pin carries, in code point order."
+                },
+                "pinName": {
+                    "type": "string",
+                    "description": "The pin's first name; absent when it has none."
+                },
+                "pinType": {
+                    "type": "string",
+                    "description": "The pin's first electrical type; absent when unknown."
+                },
+                "power": {
+                    "type": "boolean",
+                    "description": "Whether the pin is on a power net."
+                }
+            },
+            "required": [
+                "pad",
+                "nets",
+                "power"
+            ],
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "One pin of a connector, as the board's design bundle has it."
+        },
+        "SystemBundleWireRule": {
+            "type": "string",
+            "enum": [
+                "explicit",
+                "sub-port-order",
+                "net-name"
+            ],
+            "description": "Which rule wired a pin pair of a harness link."
+        }
+    }
+}

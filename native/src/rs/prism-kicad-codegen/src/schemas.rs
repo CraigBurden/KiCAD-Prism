@@ -1,6 +1,6 @@
 //! Every schema the codegen turns into Rust: `(<schema file>, <generated module file>)`.
 
-pub const SCHEMAS: [(&str, &str); 73] = [
+pub const SCHEMAS: [(&str, &str); 76] = [
     ("BoardPlotDocument.json", "board_plot_document.rs"),
     ("BoardPlotRequest.json", "board_plot_request.rs"),
     ("BoardPlotResult.json", "board_plot_result.rs"),
@@ -97,6 +97,7 @@ pub const SCHEMAS: [(&str, &str); 73] = [
         "CliVendorRunResultA0.json",
         "prism_cli_vendor_run_result_a0.rs",
     ),
+    ("CliSystemResultA0.json", "prism_cli_system_result_a0.rs"),
     ("CliVerifyReportA0.json", "prism_cli_verify_report_a0.rs"),
     ("CliVersionA0.json", "prism_cli_version_a0.rs"),
     (
@@ -129,7 +130,9 @@ pub const SCHEMAS: [(&str, &str); 73] = [
         "StrokeTextRequestA0.json",
         "prism_stroke_text_request_a0.rs",
     ),
+    ("SystemBundleA0.json", "prism_system_bundle_a0.rs"),
     ("SystemInterfaceV1.json", "prism_system_interface_v1.rs"),
+    ("SystemV2.json", "prism_system_v2.rs"),
     (
         "VendorJlcpcbConfigA0.json",
         "prism_vendor_jlcpcb_config_a0.rs",

@@ -10,7 +10,7 @@ bytes and the bundle key, never on archive bytes or messages.
 Failure injection, ``PRISM_KICAD_STUB_MODE``: a comma-separated list of
 ``<command>[:<stage>]=<mode>`` with ``<command>`` one of ``version``,
 ``bundle build``, ``bundle verify``, ``bundle extract``, ``bundle reuse``,
-``revision-key``, and
+``revision-key``, ``system build``, and
 ``<mode>`` one of ``exit:<1-7>``, ``failed``, ``partial``, ``absent``, ``hang``,
 ``crash``, ``garbage-stderr``. ``PRISM_KICAD_STUB_LOG`` names a file that gets
 one ``{"argv": [...], "exit": n}`` line per invocation.
@@ -52,7 +52,7 @@ CATEGORIES = {1: "internal", 2: "usage", 3: "input", 4: "resource-limit", 5: "ti
 OPTIONS_WITH_VALUE = {
     "--stage", "-o", "--output", "--source-root", "--revision-key", "--key-record", "--config", "--in",
     "--refilled-board", "--refill-tool", "--models-glb", "--models-tool", "--commit", "--project", "--limit",
-    "--threads", "--upgraded",
+    "--threads", "--upgraded", "--document", "--member", "--member-revision-key", "--absent",
 }
 FLAGS = {"--worktree", "--quiet"}
 _ARGV = list(sys.argv[1:])
@@ -145,7 +145,9 @@ def apply_modes(command: str, stage: str | None = None) -> list[str]:
 
 def parse_options(words: list[str]) -> tuple[list[str], dict[str, Any]]:
     positionals: list[str] = []
-    options: dict[str, Any] = {"--limit": [], "--upgraded": []}
+    options: dict[str, Any] = {
+        "--limit": [], "--upgraded": [], "--member": [], "--member-revision-key": [], "--absent": [],
+    }
     index = 0
     while index < len(words):
         word = words[index]
@@ -165,7 +167,7 @@ def parse_options(words: list[str]) -> tuple[list[str], dict[str, Any]]:
                 value = words[index + 1]
                 index += 1
                 key = "-o" if word == "--output" else word
-                if key in ("--limit", "--upgraded"):
+                if key in ("--limit", "--upgraded", "--member", "--member-revision-key", "--absent"):
                     options[key].append(value)
                 elif key in options:
                     error(2, "usage", f"{word} given twice")
@@ -543,6 +545,157 @@ def build_models(positionals: list[str], options: dict[str, Any]) -> NoReturn:
 # ----------------------------------------------------------- other commands
 
 
+def canonical(value: Any) -> bytes:
+    return json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
+
+
+def member_manifest(occurrence: str, archive: str) -> dict[str, Any]:
+    """The member archive's manifest, with the checks ``system build`` makes (§8.8)."""
+
+    path = Path(archive)
+    if not path.is_file():
+        error(3, "bundle-invalid", f"member archive for {occurrence} does not exist", argument=f"member:{occurrence}")
+    try:
+        entries = dict(read_zip(path))
+        manifest = json.loads(entries["bundle.json"])
+    except (OSError, ValueError, struct.error, KeyError, IndexError):
+        error(3, "bundle-invalid", f"member archive for {occurrence} is not a bundle", argument=f"member:{occurrence}")
+    if not isinstance(manifest, dict) or manifest.get("schema") != "prism.bundle.manifest.a3":
+        error(3, "bundle-invalid", f"member archive for {occurrence} is not manifest a3", argument=f"member:{occurrence}")
+    if generator_bytes(manifest["generator"]) != generator_bytes(generator()):
+        error(7, "generator-mismatch", f"member archive for {occurrence} was written by another generator",
+              argument=f"member:{occurrence}")
+    members = {member.get("path") for member in manifest.get("members", []) if isinstance(member, dict)}
+    if not {"projections/system-interface.json", "projections/semantic-index.json"} <= members:
+        error(7, "member-not-found", f"member archive for {occurrence} lacks a member system build reads",
+              argument=f"member:{occurrence}")
+    return manifest
+
+
+def system_build(positionals: list[str], options: dict[str, Any]) -> NoReturn:
+    """``system build`` (docs/system-builder/CONTRACTS.md §8.8)."""
+
+    apply_modes("system build")
+    if positionals:
+        error(2, "usage", "system build takes options only", argument="command")
+    if "--document" not in options or "-o" not in options:
+        error(2, "usage", "system build needs --document and -o", argument="output")
+    try:
+        document = json.loads(Path(options["--document"]).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        error(3, "document-invalid", "--document is not a JSON document", argument="document")
+    if not isinstance(document, dict) or document.get("schema") != "prism.system.v2":
+        error(3, "document-invalid", "--document is not a prism.system.v2 document", argument="document")
+    occurrences = document.get("occurrences")
+    if not isinstance(occurrences, list):
+        error(3, "document-invalid", "--document has no occurrences array", argument="document")
+    boards: set[str] = set()
+    for occurrence in occurrences:
+        if not isinstance(occurrence, dict) or not isinstance(occurrence.get("id"), str):
+            error(3, "document-invalid", "--document has an occurrence without an id", argument="document")
+        if (occurrence.get("source") or {}).get("kind") == "board":
+            boards.add(occurrence["id"])
+
+    member_items: list[tuple[str, str]] = []
+    seen: set[str] = set()
+    for item in options["--member"]:
+        occurrence, separator, archive = item.partition("=")
+        if not separator or not occurrence or not archive:
+            error(2, "usage", "--member is <occurrence>=<archive>", argument="member")
+        if occurrence not in boards:
+            error(7, "occurrence-mismatch", f"{occurrence} is not a board occurrence", argument="member")
+        if occurrence in seen:
+            error(2, "usage", f"--member names {occurrence} twice", argument="member")
+        seen.add(occurrence)
+        member_items.append((occurrence, archive))
+    absent: list[str] = []
+    for occurrence in options["--absent"]:
+        if occurrence not in boards:
+            error(7, "occurrence-mismatch", f"{occurrence} is not a board occurrence", argument="absent")
+        if occurrence not in absent:
+            absent.append(occurrence)
+    revision_keys: dict[str, str] = {}
+    for item in options["--member-revision-key"]:
+        occurrence, separator, revision_key = item.partition("=")
+        if not separator or not occurrence:
+            error(2, "usage", "--member-revision-key is <occurrence>=<hex>", argument="member-revision-key")
+        require_hex(revision_key, "member-revision-key")
+        revision_keys[occurrence] = revision_key
+
+    member_keys = {
+        occurrence: str(member_manifest(occurrence, archive)["bundle_key"])
+        for occurrence, archive in member_items
+    }
+    gen = generator()
+    generator_digest = hashlib.sha256(generator_bytes(gen)).hexdigest()
+    document_sha256 = hashlib.sha256(canonical(document)).hexdigest()
+    pending = sorted(occurrence for occurrence in boards if occurrence not in member_keys and occurrence not in absent)
+    preimage = {
+        "documentSha256": document_sha256,
+        "generator": generator_digest,
+        "members": {occurrence: member_keys[occurrence] for occurrence in sorted(member_keys)},
+        "absent": sorted(absent),
+        "pending": pending,
+    }
+    system_bundle_key = hashlib.sha256(canonical(preimage)).hexdigest()
+
+    output: list[dict[str, Any]] = []
+    findings: list[dict[str, Any]] = []
+    for occurrence in sorted(occurrences, key=lambda item: item["id"]):
+        occurrence_id = occurrence["id"]
+        entry: dict[str, Any] = {"occurrence": occurrence_id, "connectors": []}
+        if occurrence_id in member_keys:
+            entry["state"] = "ready"
+            entry["bundleKey"] = member_keys[occurrence_id]
+            if occurrence_id in revision_keys:
+                entry["revisionKey"] = revision_keys[occurrence_id]
+        elif occurrence_id in absent:
+            entry["state"] = "absent"
+        elif occurrence_id in boards:
+            entry["state"] = "pending"
+            findings.append({
+                "code": "occurrence-pending",
+                "severity": "info",
+                "subject": f"occurrence:{occurrence_id}",
+                "message": f"{occurrence.get('label') or occurrence_id}'s design bundle is not built yet",
+                "objects": [occurrence_id],
+                "waived": False,
+            })
+        else:
+            entry["state"] = "unsupported"
+        output.append(entry)
+    findings.sort(key=lambda finding: (finding["code"], finding["subject"]))
+
+    bundle = {
+        "schema": "prism.system_bundle.a0",
+        "documentSha256": document_sha256,
+        "occurrences": output,
+        "nets": [],
+        "mates": [],
+        "links": [],
+        "splices": [],
+        "suggestions": [],
+        "findings": findings,
+    }
+    write_atomic(Path(options["-o"]), compact(bundle) + b"\n")
+    result = {
+        "schema": "prism.cli.system_result.a0",
+        "system_bundle_key": system_bundle_key,
+        "document_sha256": document_sha256,
+        "counts": {
+            "ready_occurrences": len(member_keys),
+            "pending_occurrences": len(pending),
+            "nets": 0,
+            "mates": 0,
+            "links": 0,
+            "suggestions": 0,
+            "errors": 0,
+            "warnings": 0,
+        },
+    }
+    raise Exit(0, result)
+
+
 def verify(positionals: list[str], options: dict[str, Any]) -> NoReturn:
     if len(positionals) != 1:
         error(2, "usage", "verify takes one bundle", argument="bundle")
@@ -678,6 +831,11 @@ def main(argv: list[str]) -> NoReturn:
     if argv[0] == "revision-key":
         positionals, options = parse_options(argv[1:])
         revision_key(positionals, options)
+    if argv[0] == "system":
+        if len(argv) < 2 or argv[1] != "build":
+            error(2, "unknown-command", "unknown system command", argument="command")
+        positionals, options = parse_options(argv[2:])
+        system_build(positionals, options)
     if argv[0] != "bundle" or len(argv) < 2 or argv[1] not in ("build", "verify", "extract", "reuse"):
         error(2, "unknown-command", "unknown command", argument="command")
     positionals, options = parse_options(argv[2:])
