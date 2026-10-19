@@ -30,9 +30,9 @@ export function readQuantityPack(buffer) {
   return { header, buffer, dataStart };
 }
 
-/** Net keys a pack has rasters for, in its order. */
+/** Net keys a pack has rasters for, in its order; null for a field that does not follow nets. */
 export function quantityPackNets(pack) {
-  return (pack.header.grid?.nets || []).map((net) => net.net);
+  return (pack.header.grid?.nets || []).map((net) => net.net ?? null);
 }
 
 /** The per-operation values: `{ index: value }`, or null when the pack has none. */
@@ -50,7 +50,8 @@ const range = (r) => (r ? [r.min, r.max] : undefined);
 
 /**
  * The pack as an analytic overlay (`applyAnalyticOverlay`): the rasters of
- * `net` (the first net when omitted) on their slices, with the per-operation
+ * `net` (the first entry when omitted; a field that does not follow nets,
+ * such as a temperature, is one entry without a net) on their slices, with the per-operation
  * values colouring what no raster covers, the via barrels; a pack without
  * rasters is per-operation values alone. The range is the net's own.
  */
@@ -77,7 +78,7 @@ export function quantityPackOverlay(pack, { net } = {}) {
     kind: "field_grid",
     quantity,
     units,
-    grid: { origin_x_m, origin_y_m, dx_m, dy_m, net: chosen.net, slices },
+    grid: { origin_x_m, origin_y_m, dx_m, dy_m, net: chosen.net ?? null, slices },
     ...(values ? { values } : {}),
     range: range(chosen.value_range),
   };

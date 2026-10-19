@@ -82,3 +82,19 @@ test("a pack without rasters is per-operation values, and other bytes are refuse
   assert.deepEqual(overlay, { kind: "operation_values", quantity: "via_current_a", units: "A", values: { 3: Math.fround(0.4) }, range: [0.4, 0.4] });
   assert.throws(() => readQuantityPack(new ArrayBuffer(16)), /not a quantity pack/);
 });
+
+test("a field that does not follow nets is one entry without a net", async () => {
+  const temperature = pack(([a]) => ({
+    schema: "prism.sim.quantity-pack",
+    version: "a0",
+    geometry,
+    quantity: { name: "temperature_c", unit: "degC" },
+    grid: { origin_x_m: 0, origin_y_m: 0, dx_m: 1e-3, dy_m: 1e-3, nets: [{ value_range: { min: 25, max: 61 }, rasters: [{ slice_key: "copper.front", ix0: 0, iy0: 0, nx: 2, ny: 1, offset: a }] }] },
+  }), [new Float32Array([25, 61])]);
+  const read = readQuantityPack(await inflateQuantityPack(temperature));
+  assert.deepEqual(quantityPackNets(read), [null]);
+  const overlay = quantityPackOverlay(read);
+  assert.equal(overlay.grid.net, null);
+  assert.deepEqual(overlay.range, [25, 61]);
+  assert.deepEqual([...overlay.grid.slices[0].values], [25, 61]);
+});
