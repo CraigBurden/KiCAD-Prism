@@ -29,6 +29,7 @@ records the operation, binding, and value under each.
 | `--zoom fx,fy`, `--zoom-steps n` | Where (canvas fractions) and how far the close-up zooms (default 0.5,0.42 and 8). |
 | `--close-view v` | `default`, `top` or `bottom`: the view the close-up zooms from. |
 | `--live [port]` | Serve an interactive page instead (default port 5199): toolbar for mesh, analytic and the two overlays, and the app's substrate, components, realistic-colour and separation controls. |
+| `--result <dir>` | Draw a sim-worker run's quantity packs (`<dir>` is its `out/`) instead of the synthetic results: decoded in the page with `viewer/src/quantity-pack.js`, then a rail's voltage exploded and as a relief, the return's voltage, the rail's current density and the per-via current, copper only. The board's `--pack` must be the run's own materialization. |
 | `--perf`, `--orbit-ms n` | Measure instead of capturing: orbit the mesh and the analytic board for `n` ms (default 4000) from the loaded view and zoomed in, each on a fresh load. |
 | `--out dir`, `--headed` | Output directory; show the Chrome window. |
 

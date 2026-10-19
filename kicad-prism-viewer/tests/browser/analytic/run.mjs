@@ -6,6 +6,7 @@
 //   node tests/browser/analytic/run.mjs --board name=<bundle dir> --pack <board.kmpack>
 //     [--size 1280x800] [--scale 1] [--zoom 0.5,0.42] [--zoom-steps 8] [--out dir] [--headed]
 //     [--close-view default|top|bottom] [--live [port]]   serve an interactive page (default port 5199) instead of capturing
+//     [--result <sim-worker out dir>]   draw a run's quantity packs (voltage, current density, via current) instead of the synthetic results
 //
 // It reuses the pixel-diff harness (probe, Chrome driver, PNG encoder) and
 // writes PNGs and summary.json. Mesh and analytic copper are compared for
@@ -47,6 +48,7 @@ try {
   const chrome = await launchChrome({ headless: !options.headed, unthrottled: options.perf });
   try {
     if (options.perf) await perfBoard(chrome, server);
+    else if (options.result) await resultBoard(chrome, server);
     else await runBoard(chrome, server, synthetic);
   } finally {
     await chrome.close();
@@ -235,6 +237,71 @@ async function runBoard(chrome, server, synthetic) {
     compare(captures, "analytic-exploded", "overlay-field-exploded");
     check(summary.pick.some((hit) => hit && Number.isInteger(hit.operationIndex)), "an analytic pick names an operation");
     check(!summary.analytic.degraded, "the device has the stencil feature, so subtracts and regions draw");
+    if (page.errors.length) summary.failures.push(`page errors: ${[...new Set(page.errors)].slice(0, 5).join(" | ")}`);
+  } finally {
+    await page.close();
+  }
+}
+
+/**
+ * A sim-worker run's quantity packs over the analytic copper, decoded in the
+ * page as the app does (quantity-pack.js): the voltage of a rail and of the
+ * return, current density, and the per-via current.
+ */
+async function resultBoard(chrome, server) {
+  const { width, height, scale } = options;
+  const page = await chrome.newPage({ width, height, deviceScaleFactor: scale });
+  try {
+    await page.goto(`${server.origin}/harness/harness.html?build=candidate`);
+    await waitFor(page, "window.__vtElementLoaded === true", 30000, "element module");
+    await page.evaluate(`window.__vtProbe.mount("/bundle/bundle.json", ${JSON.stringify({ width, height })})`);
+    summary.analytic = JSON.parse(await page.evaluate(`(async () => {
+      const bytes = await (await fetch("/pack/board.kmpack")).arrayBuffer();
+      return JSON.stringify(await window.__vtProbe.element.loadAnalyticPack(bytes, { wasm: "/builds/prism-kicad-analytic.wasm" }));
+    })()`));
+    // As the result view shows a run: the copper alone, without parts or the board body.
+    await page.evaluate("window.__vtProbe.element.setShowComponents(false); window.__vtProbe.element.setShowBoard(false)");
+    const show = async (name, view, quantity, net, relief = false) => {
+      const applied = JSON.parse(await page.evaluate(`(async () => {
+        const qp = await import("/viewer-src/quantity-pack.js");
+        const started = performance.now();
+        const response = await fetch("/result/${quantity}.qpack");
+        const pack = qp.readQuantityPack(await qp.inflateQuantityPack(await response.arrayBuffer()));
+        const nets = qp.quantityPackNets(pack);
+        const net = ${JSON.stringify(net)} === "rail" ? nets.find((n) => n !== "GND") : ${JSON.stringify(net)};
+        const overlay = qp.quantityPackOverlay(pack, net ? { net } : {});
+        const decodedMs = performance.now() - started;
+        const element = window.__vtProbe.element;
+        element.setAnalyticRelief(null);
+        const result = element.setAnalyticOverlay(overlay);
+        // The relief stands the field up over the layer where the net has the most copper.
+        const widest = overlay.grid?.slices.slice().sort((a, b) => b.nx * b.ny - a.nx * a.ny)[0]?.slice_key;
+        const relief = ${relief} && widest ? element.setAnalyticRelief({ sliceKey: widest }) : null;
+        return JSON.stringify({ quantity: ${JSON.stringify(quantity)}, net: overlay.grid?.net ?? null, nets, decodedMs, result, relief });
+      })()`));
+      await page.evaluate(`window.__vtProbe.applyView(${JSON.stringify(view)})`);
+      await settle(page, name);
+      const frame = await page.evaluate("window.__vtProbe.capture()");
+      if (!frame) throw new Error(`${name}: no rendered frame`);
+      const image = { width: frame.width, height: frame.height, data: new Uint8Array(Buffer.from(frame.rgba, "base64")) };
+      const file = join(outDir, `${name}.png`);
+      writeFileSync(file, encodePng(image));
+      summary.captures.push({ name, view, file, hash: frame.hash, applied });
+      log(`${name}: ${applied.net ?? "items"} decoded in ${applied.decodedMs.toFixed(0)} ms, range ${JSON.stringify(applied.result?.range)}`);
+      check(applied.result?.range, `${name}: the overlay applied with a range`);
+    };
+    await show("result-voltage-rail-exploded", "exploded", "voltage_v", "rail");
+    await show("result-voltage-rail-relief", "default", "voltage_v", "rail", true);
+    await show("result-voltage-gnd-exploded", "exploded", "voltage_v", "GND");
+    await show("result-current-density-rail-exploded", "exploded", "current_density_a_per_m2", "rail");
+    await show("result-via-current-exploded", "exploded", "via_current_a", null);
+    summary.pick = JSON.parse(await page.evaluate(`(async () => {
+      const canvas = window.__vtProbe.element.shadowRoot.getElementById("viewport");
+      const rect = canvas.getBoundingClientRect();
+      const hits = [];
+      for (const [fx, fy] of [[0.5, 0.5], [0.45, 0.5], [0.55, 0.45]]) hits.push(await window.__vtProbe.element.analyticAt(rect.left + rect.width * fx, rect.top + rect.height * fy));
+      return JSON.stringify(hits);
+    })()`));
     if (page.errors.length) summary.failures.push(`page errors: ${[...new Set(page.errors)].slice(0, 5).join(" | ")}`);
   } finally {
     await page.close();
@@ -441,8 +508,9 @@ function livePage() {
 }
 
 function serve(builds, port = 0) {
-  const roots = new Map([["harness", harness], ["builds", builds], ["bundle", options.board.dir]]);
-  const types = { ".html": "text/html", ".js": "text/javascript", ".json": "application/json", ".glb": "model/gltf-binary", ".wasm": "application/wasm" };
+  const roots = new Map([["harness", harness], ["builds", builds], ["bundle", options.board.dir], ["viewer-src", join(viewerRoot, "viewer/src")]]);
+  if (options.result) roots.set("result", options.result);
+  const types = { ".html": "text/html", ".js": "text/javascript", ".json": "application/json", ".glb": "model/gltf-binary", ".wasm": "application/wasm", ".qpack": "application/zlib" };
   const server = createServer((request, response) => {
     const path = decodeURIComponent(new URL(request.url, "http://localhost").pathname).replace(/^\/+/, "");
     if (path === "pack/board.kmpack") {
@@ -479,6 +547,7 @@ function parseArgs(argv) {
     else if (flag === "--headed") parsed.headed = true;
     else if (flag === "--perf") parsed.perf = true;
     else if (flag === "--orbit-ms") parsed.orbitMs = Number(argv[++i]);
+    else if (flag === "--result") parsed.result = resolve(argv[++i]);
     else if (flag === "--live") parsed.live = /^\d+$/.test(argv[i + 1] || "") ? Number(argv[++i]) : 5199;
     else throw new Error(`unknown option ${flag}`);
   }
