@@ -18,16 +18,15 @@ import os
 import shutil
 import subprocess
 import tempfile
-import zipfile
 from pathlib import Path
 from typing import Any, Iterator, Mapping, Optional
 
 from app.core import errors
 from app.core.config import settings
-from app.services import project_bundle, project_revision
+from app.services import project_revision
 from app.services.job_kinds import JobKind, JobSubject
 from app.services.job_runtime import JobContext, JobResult
-from app.sim_studio import validation
+from app.sim_studio import board_source, validation
 from app.sim_studio.run_store import TERMINAL, RunStore, public
 from app.sim_studio.service import canonical_sha256, parse_setup
 from app.sim_studio.store import SetupStore
@@ -136,33 +135,6 @@ def kicad_cli_version(cli: str) -> str:
     return completed.stdout.strip()
 
 
-def _project_bundle(project_id: str, project_file: Path, log: list[str]) -> Path:
-    """The project's board.prism for the revision at ``project_file``: the one the 3D tab
-    uses, built here the same way when no import, sync or 3D view has built it yet."""
-
-    from app.services import semantic_visualizer_service as visualizer
-    from app.services.project_service import _workspace_row_to_project
-    from app.services.workspace_service import workspace
-
-    source_hash = visualizer.source_fingerprint_for_root(project_file.parent, project_file_rel=project_file.name)
-    archive = project_bundle.archive_path(visualizer.bundle_dir(project_id, source_hash))
-    if archive.is_file():
-        log.append(f"board.prism {source_hash[:12]}")
-        return archive
-    if not project_bundle.available():
-        raise RuntimeError("prism-bundle is not installed, so board.prism cannot be built")
-    row = workspace.get_project_by_id(project_id)
-    if not row:
-        raise RuntimeError(f"Project {project_id} not found")
-    job: dict[str, Any] = {"logs": log}
-    visualizer.build_visualizer_bundle_from_project_file(
-        _workspace_row_to_project(row), project_file, job, lambda: None, source_hash=source_hash,
-    )
-    if not archive.is_file():
-        raise RuntimeError("board.prism was not built")
-    return archive
-
-
 def _stage(run: Mapping[str, Any], workspace: Path, log: list[str]) -> dict[str, Any]:
     inputs = workspace / "input"
     inputs.mkdir(parents=True, exist_ok=True)
@@ -170,15 +142,8 @@ def _stage(run: Mapping[str, Any], workspace: Path, log: list[str]) -> dict[str,
         project_file = project_dir / Path(str(run["project_path"])).name
         if not project_file.is_file():
             raise RuntimeError(f"{project_file.name} is not in the project at this revision")
-        archive = _project_bundle(str(run["project_id"]), project_file, log)
-        gate = project_bundle.simulation_gate(project_bundle.read_manifest(archive))
-        if gate:
-            raise RuntimeError(gate)
-        try:
-            (inputs / "board.prism").hardlink_to(archive)
-        except OSError:
-            shutil.copyfile(archive, inputs / "board.prism")
-    bundle_sha = _sha256_file(inputs / "board.prism")
+        board = board_source.stage_board(run, inputs, log)
+    bundle_sha = board["sha256"]
     setup = dict(run["setup_document"])
     setup["bundle"] = {**setup.get("bundle", {}), "sha256": bundle_sha}
     setup_bytes = json.dumps(setup, sort_keys=True, indent=2).encode("utf-8")
@@ -186,7 +151,7 @@ def _stage(run: Mapping[str, Any], workspace: Path, log: list[str]) -> dict[str,
     job = {
         "schema": "prism.sim.job", "version": "a0", "job_id": str(run["job_id"]),
         "engine": {"id": settings.PRISM_SIM_ENGINE},
-        "bundle": {"path": "input/board.prism", "sha256": bundle_sha},
+        "bundle": {"path": board["path"], "sha256": bundle_sha},
         "setup": {"path": "input/setup.json", "sha256": hashlib.sha256(setup_bytes).hexdigest()},
         "analysis_id": str(run["analysis_id"]),
     }
@@ -293,13 +258,9 @@ def result_file(run: Mapping[str, Any], relative: str) -> Path:
 
 
 def materialization(run: Mapping[str, Any]) -> bytes:
-    """The run's bundle materialization, so the viewer draws the exact geometry the engine solved."""
+    """The analytic pack the run ran on, so the viewer draws the exact geometry the engine solved."""
 
-    bundle = run_dir(str(run["run_id"])) / "input" / "board.prism"
-    if not bundle.is_file():
-        raise errors.NotFound("The run has no bundle")
-    with zipfile.ZipFile(bundle) as archive:
-        return archive.read(MATERIALIZATION_MEMBER)
+    return board_source.materialization(run)
 
 
 __all__ = ["JOB_KINDS", "SIM_RUN", "TERMINAL", "materialization", "result_file", "submit"]

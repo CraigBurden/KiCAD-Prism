@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
+import shutil
 import stat
 import tempfile
 import unittest
-import zipfile
 from contextlib import contextmanager
 from pathlib import Path
 from types import SimpleNamespace
@@ -15,7 +16,7 @@ from unittest import mock
 from app.api import sim_studio as sim_api
 from app.core.config import settings
 from app.services.workspace_schema_migrations import WORKSPACE_LEDGER
-from app.sim_studio import runs as runs_module
+from app.sim_studio import board_source, runs as runs_module
 from app.sim_studio.run_store import RunStore
 from app.sim_studio.service import SimStudioService
 from app.sim_studio.store import SetupStore
@@ -65,11 +66,12 @@ class RunPipelineTest(unittest.TestCase):
         bin_dir = self.tmp / "bin"
         bin_dir.mkdir()
         _script(bin_dir / "sim-worker", FAKE_WORKER)
-        # The project's board.prism, as the 3D job stores it.
-        archive = self.tmp / "board.prism"
-        with zipfile.ZipFile(archive, "w") as bundle:
-            bundle.writestr("bundle.json", json.dumps({"cross_check": {"status": "passed"}}))
-            bundle.writestr("materialization/board.kmpack", b"PACK")
+        self.pack = b"PACK"
+
+        def stage_board(run, inputs, log):
+            (inputs / "board.kmpack").write_bytes(self.pack)
+            return {"path": "input/board.kmpack", "sha256": hashlib.sha256(self.pack).hexdigest()}
+
         project_dir = self.tmp / "project"
         project_dir.mkdir()
         (project_dir / "board.kicad_pro").write_text("{}", encoding="utf-8")
@@ -88,7 +90,8 @@ class RunPipelineTest(unittest.TestCase):
             mock.patch.object(settings, "KICAD_PROJECTS_ROOT", str(self.tmp / "projects")),
             mock.patch.object(runs_module, "SIM_RUN", SimpleNamespace(enqueue=queued)),
             mock.patch.object(runs_module, "_project_sources", sources),
-            mock.patch.object(runs_module, "_project_bundle", lambda project_id, project_file, log: archive),
+            mock.patch("app.sim_studio.board_source.stage_board", stage_board),
+            mock.patch("app.sim_studio.board_source.materialization", return_value=self.pack),
             mock.patch("app.services.kicad_tools.locate_kicad_cli", return_value=None),
             mock.patch.object(sim_api, "sim_studio", self.service),
             mock.patch.object(sim_api, "get_project_for_role_or_404", _visible),
@@ -181,43 +184,39 @@ class JobKindTest(unittest.TestCase):
 
 
 
-class ProjectBundleTest(unittest.TestCase):
-    """A run hands the engine the project's board.prism, the one the 3D tab uses."""
+class BoardSourceSeamTest(unittest.TestCase):
+    """Until V2c, the board comes from a seam; the handler consumes what it returns."""
 
     def setUp(self) -> None:
         self.tmp = Path(tempfile.mkdtemp())
-        self.addCleanup(lambda: __import__("shutil").rmtree(self.tmp, ignore_errors=True))
-        self.project_file = self.tmp / "board" / "b.kicad_pro"
-        self.project_file.parent.mkdir()
-        self.project_file.write_text("{}")
-        self.bundle_dir = self.tmp / "store" / "prj" / "src" / "build"
-        self.archive = runs_module.project_bundle.archive_path(self.bundle_dir)
-        for patcher in (
-            mock.patch("app.services.semantic_visualizer_service.source_fingerprint_for_root", return_value="src"),
-            mock.patch("app.services.semantic_visualizer_service.bundle_dir", return_value=self.bundle_dir),
-        ):
-            patcher.start()
-            self.addCleanup(patcher.stop)
+        self.addCleanup(shutil.rmtree, self.tmp, True)
 
-    def test_a_built_archive_is_used_as_is(self) -> None:
-        self.archive.parent.mkdir(parents=True)
-        self.archive.write_bytes(b"PK")
-        with mock.patch("app.services.semantic_visualizer_service.build_visualizer_bundle_from_project_file") as build:
-            self.assertEqual(runs_module._project_bundle("prj", self.project_file, []), self.archive)
-        build.assert_not_called()
+    def test_the_seam_raises_until_the_design_bundle_answers(self) -> None:
+        self.tmp.mkdir(parents=True, exist_ok=True)
+        with self.assertRaises(NotImplementedError):
+            board_source.stage_board({}, self.tmp, [])
+        with self.assertRaises(NotImplementedError):
+            board_source.materialization({})
 
-    def test_a_missing_archive_is_built_the_3d_way(self) -> None:
-        def build(project, project_file, job, persist, source_hash=None):
-            self.archive.parent.mkdir(parents=True, exist_ok=True)
-            self.archive.write_bytes(b"PK")
+    def test_stage_records_the_seams_path_and_digest(self) -> None:
+        project_dir = self.tmp / "project"
+        project_dir.mkdir()
+        (project_dir / "board.kicad_pro").write_text("{}", encoding="utf-8")
+        pack = b"PK"
 
-        with mock.patch.object(runs_module.project_bundle, "available", return_value=True), \
-                mock.patch("app.services.workspace_service.workspace.get_project_by_id", return_value={"id": "prj"}), \
-                mock.patch("app.services.project_service._workspace_row_to_project", return_value=object()), \
-                mock.patch("app.services.semantic_visualizer_service.build_visualizer_bundle_from_project_file",
-                           side_effect=build) as builder:
-            self.assertEqual(runs_module._project_bundle("prj", self.project_file, []), self.archive)
-        self.assertEqual(builder.call_args.kwargs["source_hash"], "src")
+        def stage_board(run, inputs, log):
+            (inputs / "board.kmpack").write_bytes(pack)
+            return {"path": "input/board.kmpack", "sha256": hashlib.sha256(pack).hexdigest()}
+
+        @contextmanager
+        def sources(run):
+            yield project_dir
+
+        run = {"setup_document": {}, "job_id": "job-1", "project_path": "board.kicad_pro", "analysis_id": "dc"}
+        with mock.patch.object(runs_module, "_project_sources", sources), \
+                mock.patch("app.sim_studio.board_source.stage_board", stage_board):
+            job = runs_module._stage(run, self.tmp / "workspace", [])
+        self.assertEqual(job["bundle"], {"path": "input/board.kmpack", "sha256": hashlib.sha256(pack).hexdigest()})
 
 
 

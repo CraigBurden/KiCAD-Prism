@@ -36,6 +36,7 @@ _CAPACITIES: Mapping[str, Callable[[], int]] = {
     "import": lambda: settings.PRISM_IMPORT_CONCURRENCY,
     "semantic_compile": lambda: settings.PRISM_SEMANTIC_COMPILE_SLOTS,
     "design_bundle": lambda: settings.PRISM_DESIGN_BUNDLE_CONCURRENCY,
+    "sim": lambda: settings.PRISM_SIM_CONCURRENCY,
     "catalog_worker": lambda: settings.CATALOG_WORKER_CONCURRENCY,
     "catalog_kicad": lambda: settings.CATALOG_KICAD_CONCURRENCY,
     TRACKER_RESOURCE: lambda: min(2, max(1, settings.PRISM_WORKER_CONCURRENCY - 1)),
