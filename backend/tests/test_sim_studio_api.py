@@ -15,9 +15,9 @@ from app.core.errors import install_error_handlers
 from app.services.workspace_schema_migrations import WORKSPACE_LEDGER
 from app.sim_studio.service import SimStudioService
 from app.sim_studio.store import LayoutStore, SetupStore
+from support.asgi import request as _request
 from support.postgres import requires_scratch_postgres, scratch_schema, seed_project, seed_repository
 from test_sim_studio_setup import facts
-from test_system_api import _request
 
 PROJECT = SimpleNamespace(id="prj_sim", name="board", project_file="board.kicad_pro")
 PROJECT_PATH = "/api/projects/prj_sim"

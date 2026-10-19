@@ -391,14 +391,12 @@ class CatalogComponentWriter:
         *,
         actor: str = "",
         change_summary: str = "Create component",
-        kind: str = "part",
     ) -> str:
-        """A new component. A ``module`` (CONTRACTS_P2 §3.5) takes its kind before its first revision is
-        sealed, so the sealed revision already carries its (symbol-derived) interface."""
+        """A new component."""
         component_id = str(uuid.uuid4())
         metadata = normalize_metadata(payload)
         self.assert_custom_fields_present(conn, metadata)
-        _component_id, revision_id = self.upsert_metadata_row(
+        self.upsert_metadata_row(
             conn,
             runtime,
             component_id=component_id,
@@ -407,14 +405,7 @@ class CatalogComponentWriter:
             existing_component_id=None,
             actor=actor,
             change_summary=change_summary,
-            finalize_revision=kind == "part",
         )
-        if kind != "part":
-            conn.execute("UPDATE components SET kind = %s WHERE id = %s", (kind, component_id))
-            self._finalizer.finalize_revision(
-                conn, runtime, component_id=component_id, revision_id=revision_id, event_type="component.created",
-                actor=actor, details={"change_kind": "create", "change_summary": change_summary, "kind": kind},
-            )
         return component_id
 
     def update_metadata(

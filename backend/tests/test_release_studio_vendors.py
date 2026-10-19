@@ -113,39 +113,6 @@ class JobPipelineStatusTests(unittest.TestCase):
         )
         self.assertEqual(status["pipeline"]["jobs"][0]["id"], "package")
 
-    def test_slim_status_exposes_staged_webgpu_progress(self) -> None:
-        from app.api.jobs import _slim_status
-
-        status = _slim_status(
-            {
-                "job_id": "job-webgpu",
-                "kind": "webgpu_3d",
-                "status": "running",
-                "payload": {
-                    "bundle_url": "/api/projects/p1/webgpu-3d/manifest/source/build",
-                    "readiness_stage": "board-ready",
-                    "readiness": {"stage": "board-ready", "progress": 35, "revision": "rev-1"},
-                    "logs": ["Published staged bundle"],
-                    "project_id": "p1",
-                },
-                "result_metadata": {},
-            }
-        )
-        self.assertEqual(
-            status["staged"],
-            {
-                "bundle_url": "/api/projects/p1/webgpu-3d/manifest/source/build",
-                "readiness_stage": "board-ready",
-                "readiness": {"stage": "board-ready", "progress": 35, "revision": "rev-1"},
-            },
-        )
-
-    def test_slim_status_omits_staged_when_nothing_was_published(self) -> None:
-        from app.api.jobs import _slim_status
-
-        status = _slim_status({"job_id": "job-1", "status": "queued", "payload": {}})
-        self.assertNotIn("staged", status)
-
 
 class DeterministicZipTests(unittest.TestCase):
     def test_member_order_does_not_change_bytes(self) -> None:

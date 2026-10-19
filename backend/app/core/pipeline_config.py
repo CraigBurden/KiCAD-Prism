@@ -53,51 +53,11 @@ class PipelineSettings(BaseSettings):
     )
 
     # ===========================================
-    # Semantic viewer (3D) pipeline
+    # kicad_monkey
     # ===========================================
-    PRISM_SEMANTIC_VIEWER_REPO: str = Field(
-        default="",
-        description="kicad-prism-viewer checkout. Unset searches /opt/kicad-prism-viewer, then the repository.",
-    )
-    PRISM_SEMANTIC_VIEWER_CACHE: str = Field(
-        default="",
-        description="Semantic compiler cache. Defaults to KICAD_PROJECTS_ROOT/.kicad-prism/semantic-visualizer/.cache.",
-    )
-    PRISM_SEMANTIC_GLTF_MESHOPT_LEVEL: str = Field(
-        default="medium",
-        description="glTF meshopt compression level; unknown values fall back to medium.",
-    )
-    PRISM_SEMANTIC_GLTF_TILE_SIZE_MM: str = Field(
-        default="auto",
-        description="glTF tile size in mm (1-1000) or auto; other values fall back to auto.",
-    )
-    PRISM_PCB_GEOMETRY_BACKEND: str = Field(
-        default="legacy",
-        description="PCB copper geometry backend: legacy, or the experimental rust / python-copper.",
-    )
-    PRISM_KICAD_MONKEY_SOURCE: str = Field(
-        default="",
-        description="Label of the installed kicad_monkey build, mixed into the viewer build fingerprint.",
-    )
     KICAD_MONKEY_PYTHONPATH: str = Field(
         default="",
         description="Development override: os.pathsep-separated kicad_monkey source roots put first on sys.path.",
-    )
-
-    # ===========================================
-    # Systems
-    # ===========================================
-    PRISM_SYSTEM_REPOS_ROOT: str = Field(
-        default="",
-        description="Bare Git repositories that track Systems. Defaults to KICAD_PROJECTS_ROOT/.kicad-prism/system-repos.",
-    )
-    PRISM_INTERFACE_CACHE_MB: float = Field(
-        default=256.0,
-        description="Process-wide cache of resolved board interfaces, in MiB.",
-    )
-    PRISM_INTERFACE_CACHE_VERIFY: bool = Field(
-        default=False,
-        description="Hash-check every interface cache hit for caller mutation (test suites).",
     )
 
     @field_validator(
@@ -108,8 +68,6 @@ class PipelineSettings(BaseSettings):
         "PRISM_DESIGN_COMPARE_MAX_INITIAL_WORKERS",
         "PRISM_DESIGN_COMPARE_MAX_PCB_WORKERS",
         "PRISM_DESIGN_COMPARE_REVISION_PROCESSES",
-        "PRISM_INTERFACE_CACHE_MB",
-        "PRISM_INTERFACE_CACHE_VERIFY",
         mode="before",
     )
     @classmethod

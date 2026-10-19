@@ -78,18 +78,10 @@ interface WorkflowJob {
     percent?: number;
     logs?: string[];
     error?: string;
-    readiness_stage?: string;
-    readiness?: WebGpu3dReadiness;
-    bundle_url?: string;
-    sourceRevisionKey?: string;
 }
 
-/** The tab's view of a generation job: status plus what it staged so far. */
+/** The tab's view of a generation job. */
 function workflowJobView(job: PrismJobStatus, logs: string[]): WorkflowJob {
-    const staged = (job.staged ?? {}) as Pick<
-        WorkflowJob,
-        "readiness" | "readiness_stage" | "bundle_url" | "sourceRevisionKey"
-    >;
     return {
         job_id: job.job_id,
         status: job.status,
@@ -97,7 +89,6 @@ function workflowJobView(job: PrismJobStatus, logs: string[]): WorkflowJob {
         percent: job.percent,
         logs,
         error: job.error_message,
-        ...staged,
     };
 }
 
@@ -178,7 +169,6 @@ export function WebGpu3dTab({
     const viewerRef = useRef<PrismSemanticViewerElement | null>(null);
     const selectionRef = useCommittedRef(selection);
     const generationStartedAt = useRef<number | null>(null);
-    const readinessRevisionRef = useRef<string | null>(null);
     const [tabLoadStartedAt] = useState(() => performance.now());
     const [viewerElement, setViewerElement] = useState<PrismSemanticViewerElement | null>(null);
     const [status, setStatus] = useState<WebGpu3dStatus | null>(null);
@@ -212,7 +202,6 @@ export function WebGpu3dTab({
                 "Failed to load WebGPU 3D asset status",
             );
             setStatus(next);
-            readinessRevisionRef.current = next.readiness?.revision ?? null;
             setError(next.error ?? null);
         } catch (nextError) {
             setStatus(null);
@@ -248,19 +237,8 @@ export function WebGpu3dTab({
             signal,
             intervalMs: 1000,
             includeLogs: true,
-            onUpdate: async (next, logs) => {
-                const view = workflowJobView(next, logs);
-                setJob(view);
-                const nextReadinessRevision = view.readiness?.revision;
-                if (
-                    view.bundle_url
-                    && nextReadinessRevision
-                    && nextReadinessRevision !== readinessRevisionRef.current
-                ) {
-                    readinessRevisionRef.current = nextReadinessRevision;
-                    setViewerRevision((revision) => revision + 1);
-                    await refreshStatus();
-                }
+            onUpdate: (next, logs) => {
+                setJob(workflowJobView(next, logs));
             },
         }).then(async (settled) => {
             if (signal.aborted) return;
@@ -418,24 +396,19 @@ export function WebGpu3dTab({
         absent: [],
     });
 
-    const readiness = job?.readiness ?? status?.readiness;
+    const readiness = status?.readiness;
     const readinessStage = readiness?.stage || (status?.status === "ready" ? "semantic-ready" : "generating");
-    const readinessProgress = job?.readiness?.progress ?? readiness?.progress ?? job?.percent ?? 0;
+    const readinessProgress = readiness?.progress ?? job?.percent ?? 0;
     const stageLabel = {
         "board-ready": "Board visible",
         "components-ready": "Board and components visible",
         "semantic-ready": "Semantic scene ready",
         generating: "Generating 3D assets",
     }[readinessStage] || readinessStage;
-    const resolvedBundleUrl = status?.bundle_url ?? job?.bundle_url;
+    const resolvedBundleUrl = status?.bundle_url;
     const canShowViewer = Boolean(
         resolvedBundleUrl
-        && (
-            status?.available
-            || status?.status === "building"
-            || status?.status === "ready"
-            || Boolean(job?.bundle_url && job?.readiness)
-        ),
+        && (status?.available || status?.status === "building" || status?.status === "ready"),
     );
     const bundleUrl = resolvedBundleUrl
         ? `${resolvedBundleUrl}${resolvedBundleUrl.includes("?") ? "&" : "?"}viewer=${encodeURIComponent(readiness?.revision || status?.generated_at || status?.sourceRevisionKey || "staged")}`
@@ -597,7 +570,7 @@ export function WebGpu3dTab({
             } as CSSProperties}
         >
             <prism-semantic-viewer
-                key={`${status?.sourceRevisionKey ?? job?.sourceRevisionKey ?? projectId}-${status?.generator?.build ?? "build"}-${readiness?.revision || viewerRevision}`}
+                key={`${status?.sourceRevisionKey ?? projectId}-${status?.generator?.build ?? "build"}-${readiness?.revision || viewerRevision}`}
                 ref={attachViewer}
                 bundle-url={bundleUrl}
                 workspace={workspace}

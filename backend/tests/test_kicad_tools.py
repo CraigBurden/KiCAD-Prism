@@ -228,9 +228,8 @@ class CallersShareTheLocatorTests(unittest.TestCase):
             pipeline.render_footprint({"canonical_path": str(source), "target_name": "A"})
         self.assertEqual(self.argv[0][0], "/opt/pinned/kicad-cli")
 
-    def test_board_stats_and_step_export_default_to_the_same_tool(self) -> None:
+    def test_board_stats_default_to_the_pinned_tool(self) -> None:
         from app.services import kicad_board_stats_service
-        from app.services.systems import service_step_export
 
         with tempfile.TemporaryDirectory() as tmp:
             board = Path(tmp) / "b.kicad_pcb"
@@ -238,7 +237,6 @@ class CallersShareTheLocatorTests(unittest.TestCase):
             with self.assertRaises(kicad_board_stats_service.BoardStatsUnavailable):
                 kicad_board_stats_service.export_board_stats(str(board))
         self.assertEqual(self.argv[0][0], "/opt/pinned/kicad-cli")
-        self.assertIs(service_step_export.kicad_cli, kicad_tools.kicad_cli)
 
 
 if __name__ == "__main__":

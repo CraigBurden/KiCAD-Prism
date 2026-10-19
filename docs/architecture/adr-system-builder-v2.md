@@ -1,7 +1,7 @@
 # ADR: System Builder v2
 
-- **Status:** Proposed (2026-10-19). Every decision below is the maintainer's, from a design review held on 2026-10-19 before any code. Where an item says "assumed", the review moved on without an explicit answer, and it should be confirmed on acceptance.
-- **Replaces:** work package V2b of [amendment V2](adr-native-design-bundle-amendment-v2.md) (§3, §7 V2b, §8), and the parent ADR's C4b row ([`adr-native-design-bundle.md`](adr-native-design-bundle.md) §9.6). It also replaces System Builder's current contracts: [`CONTRACTS.md`](../system-builder/CONTRACTS.md), [`CONTRACTS_P2.md`](../system-builder/CONTRACTS_P2.md) and `prism.system_manifest.v1`.
+- **Status:** Accepted (2026-10-19). Every decision below is the maintainer's, from a design review held on 2026-10-19 before any code. The two items the review had left assumed were confirmed on acceptance (§2.8, §5). Stage 0 is done (§6).
+- **Replaces:** work package V2b of [amendment V2](adr-native-design-bundle-amendment-v2.md) (§3, §7 V2b, §8), and the parent ADR's C4b row ([`adr-native-design-bundle.md`](adr-native-design-bundle.md) §9.6). It also replaces System Builder v1's contracts, `CONTRACTS.md`, `CONTRACTS_P2.md` and `prism.system_manifest.v1`, which stage 0 removed from the tree ([`docs/system-builder/README.md`](../system-builder/README.md) says where to read them).
 - **Builds on:**
   - the design bundle (parent ADR §4–§5): each board is read from its bundle by revision key;
   - amendment V2 §2.1–§2.2: one analytic 3D path with staged readiness;
@@ -160,7 +160,7 @@ The harness tab can quick-create a missing part into Library Manager, with those
   - its symbol's pins are its exports;
   - nets resolve through it to the physical pin for tracing;
   - its insides open read-only, or editable for its owner.
-- **Later.** Following new revisions of a published entry, child drift and hierarchy limits come in a later stage (assumed).
+- **Later.** Following new revisions of a published entry, child drift and hierarchy limits come in a later stage (confirmed on acceptance).
 
 ## 3. Storage
 
@@ -248,7 +248,7 @@ They run alongside V2c (§7).
 |---|---|
 | Harness document (PDF, SVG) | WireViz-like: connector pinout tables, the wires drawn between them, cable and splice boxes, wiring table and BOM. Rendered by the Release Studio document engine, so it shares its look |
 | Harness wiring list and BOM (CSV) | |
-| Harness YAML | our own schema, `prism.harness.v1`, for downstream tools; it carries branch points, coverings and cables with shields, which WireViz's format cannot (assumed: not WireViz-compatible) |
+| Harness YAML | our own schema, `prism.harness.v1`, for downstream tools; it carries branch points, coverings and cables with shields, which WireViz's format cannot (confirmed on acceptance: not WireViz-compatible; open question 5 keeps a WireViz export for later) |
 | ICD (HTML, PDF, CSV) | system connectors, pin-to-pin across every connection, system nets |
 | STEP assembly | from the derived placement and harness geometry |
 | `prism.system.v2` | the document itself |
@@ -279,6 +279,14 @@ This is everything amendment V2 §2.3 left to V2b. The feature branch then has n
 
 Each is listed in the stage-0 pull request, either kept in place for stage 1 to take over or moved to a parked location.
 
+**Stage 0, as done (2026-10-19):**
+- *Kept in place:* both `placement/` packages (`backend/app/services/systems/placement/` and `frontend/src/features/system-builder/placement/`, minus the module scene that drew v1's scene types), their tests, the shared goldens in `backend/tests/fixtures/system_builder/`, and `connector_detection.py`. The mezzanine connector geometry v1 extracted at test time is frozen as `p2/goldens/mezzanine_ends.json`, so the datasheet mate test runs without the extractor.
+- *Parked by reference* (bound to v1's model, read them at `59b3e190`): the ICD (`backend/app/services/systems/icd.py`, `frontend/src/features/system-builder/workspace/icd-view.tsx`), the harness drawing (`systems/harness_drawing.py`, `harness_outputs.py`, `frontend/src/features/system-builder/harness-drawing-viewer.tsx`) and the module-connector picker (`frontend/src/components/workspace/library-module-interface.tsx`, `library-module-connector-dialog.tsx`, `module-face-picker.tsx`, `placement/module-scene.ts`).
+- *Old data is dropped, not migrated.* Workspace migration 123 drops every `system_*` table, and 124 drops `ws_webgpu_ready`; the registry no longer lists migrations 26–54 (but 41). Catalog migration 13 drops `catalog_module_connectors` and **hard-deletes** every `module` and `assembly` component with what cascades from it, then allows only `part`. The catalog otherwise never hard-deletes a component (its delete is an audited tombstone); this is the one exception, approved by the maintainer for the retired kinds.
+- *Kept for the new model:* "mates with" and model alignment, now the catalog's `part_relations` facade and `api/catalog_part_relations.py`.
+- *Also gone with the mesh path:* the image's `prism-kicad-native` and Clipper2 helpers and its copy of `kicad-prism-viewer`, the viewer's system mode and standalone page, and the settings only they read.
+- *Left for a follow-up:* the viewer's schematic and BOM workspaces, which only the standalone mesh page enabled, and the viewer packages only the mesh writer used.
+
 ## 7. Work split
 
 | # | Stage | Contents | Acceptance |
@@ -307,6 +315,8 @@ Each is listed in the stage-0 pull request, either kept in place for stage 1 to 
 7. **Placement details:** the spanning-tree tie-break when several mates could position an occurrence, and the agreement tolerance.
 
 ## 9. Text changes on acceptance
+
+Applied with stage 0.
 
 1. **Amendment V2:**
    - §2.3: "V2b" becomes "System Builder v2, stage 0".

@@ -6,9 +6,9 @@ import {
 import "@xyflow/react/dist/style.css";
 import { Info, LayoutGrid, Loader2, Plus, Sparkles } from "lucide-react";
 
-import { DiagramZoomControls } from "@/features/system-builder/diagram-zoom-controls";
-import { FloatingToolbar } from "@/features/system-builder/workspace/floating-toolbar";
-import { ToolbarButton } from "@/features/system-builder/workspace/toolbar-button";
+import { DiagramZoomControls } from "@/components/canvas/diagram-zoom-controls";
+import { FloatingToolbar } from "@/components/canvas/floating-toolbar";
+import { ToolbarButton } from "@/components/canvas/toolbar-button";
 import {
     DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";

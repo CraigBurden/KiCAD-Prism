@@ -38,20 +38,6 @@ if _WORKER:
     _worker_databases(_WORKER)
 
 
-# SB2-93: every hit of the process-wide interface cache checks that no caller mutated it.
-os.environ.setdefault("PRISM_INTERFACE_CACHE_VERIFY", "1")
-
-
-@pytest.fixture(autouse=True)
-def _fresh_interface_cache():
-    """Tests reuse cache keys across schemas with different payloads; production never does."""
-    from app.services.systems.interface_cache import clear_all
-
-    clear_all()
-    yield
-    clear_all()
-
-
 # ---------------------------------------------------------------------------
 # CI shards (``--shard k/n``): whole test modules, balanced by their recorded duration.
 

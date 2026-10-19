@@ -42,10 +42,8 @@ presence only),
 `library-component-asset-download.ts` (released-revision downloads through the
 matching remote-provider representation, not the default placement pair),
 `library-component-quick-view.tsx`,
-`library-component-mates.tsx` (a part's "mates with" list and editor, System Builder P2 §18),
-`library-component-models.tsx` (STEP → GLB status, alignment editor and Geometer preview, P2 §18.2),
-`library-module-interface.tsx` (a module's connectors as derived from its symbol's units, read-only, P2 §3.5, with each one's placement status),
-`library-module-connector-dialog.tsx` and `module-face-picker.tsx` (placing a connector part on the module's model in the system viewer, P2 §3.6, §20.18),
+`library-component-mates.tsx` (a part's "mates with" list and editor),
+`library-component-models.tsx` (STEP → GLB status, alignment editor and Geometer preview),
 `library-asset-link-picker.tsx`.
 
 **Staged grid edits** — `use-staged-grid-edits.ts` is the one engine for both

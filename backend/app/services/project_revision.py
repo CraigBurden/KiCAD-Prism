@@ -158,7 +158,7 @@ def resolve_commit(where: ProjectLocation | Path | str, ref: str) -> str:
 def project_file_rel(location: ProjectLocation) -> str:
     """The repository-relative path of the project's ``.kicad_pro`` (working tree)."""
 
-    from app.services.semantic_visualizer_service import find_kicad_project
+    from app.services.kicad_project_locator import find_kicad_project
 
     project_file = find_kicad_project(str(location.checkout), location.anchor)
     return project_file.resolve().relative_to(location.repo_root).as_posix()

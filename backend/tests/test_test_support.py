@@ -34,8 +34,6 @@ ALLOWED = {
     ("test_tracker_tr_01.py", "a copy of a production table (migrate with the ledger and seed rows)"),
     ("test_comments_foundation.py", "a copy of a production table (migrate with the ledger and seed rows)"),
     ("test_schema_ledger_adoption.py", "a copy of a production table (migrate with the ledger and seed rows)"),
-    # Its own fixed author and dates keep the fixture commit SHAs stable across machines.
-    ("system_builder_fixtures.py", "its own Git identity or git runner (use support.repo)"),
 }
 
 

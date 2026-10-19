@@ -248,25 +248,6 @@ class WorkspaceDeleteProjectTests(unittest.TestCase):
             0,
         )
 
-    def test_delete_leaves_system_instances_unresolved(self) -> None:
-        from app.services.systems.store import SystemStore
-
-        project_id = self._seed_unsigned_history()
-        store = SystemStore(self.conn)
-        system = store.create_system(name="Stack", folder_id=None, actor="user:a")
-        with store.mutation(system["id"], expected_version=None, actor="user:a") as change:
-            instance = store.add_instance(
-                change, project_id=project_id, label="OBC", baseline_commit="a" * 40,
-                tracked_ref=None, pinned=False,
-            )
-        self.conn.commit()
-
-        self.assertTrue(self.service.delete_project(project_id))
-
-        kept = store.get_instance(system["id"], instance["id"])
-        self.assertEqual(kept["resolution"], "unresolved")
-        self.assertEqual(store.get_system(system["id"])["version"], change.version + 1)
-
     def test_delete_without_force_keeps_signed_release_records(self) -> None:
         project_id = self._seed_signed_release()
 

@@ -90,7 +90,6 @@ class CatalogComponentQueries:
         workflow_stage: str | None = None,
         validation_status: str | None = None,
         category: str | None = None,
-        kind: str | None = None,
         include_inactive: bool = False,
         page: int = 1,
         page_size: int = 50,
@@ -115,9 +114,6 @@ class CatalogComponentQueries:
         if category is not None:
             filters.append(f"{revision_ref}.category = %s")
             params.append(category)
-        if kind is not None:
-            filters.append("c.kind = %s")
-            params.append(kind)
         requested_workflow_stages = _dedupe(
             [
                 normalized

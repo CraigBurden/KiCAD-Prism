@@ -32,13 +32,14 @@ DATASHEET_MM = 0.01
 MEANING_MM, MEANING_UNIT = 1e-4, 1e-6
 
 
-def fixture_end(snapshot: str, reference: str) -> dict:
-    from app.services.systems.interface_extractor import extract_interface
+# The mezzanine connectors as System Builder v1 extracted them from ``p2/sources`` (frozen at stage 0,
+# when the extractor went): each snapshot's board thickness and its J1 and J2 geometry.
+ENDS = json.loads((P2 / "goldens" / "mezzanine_ends.json").read_text())
 
-    board, step = snapshot.split("/")
-    payload = extract_interface(P2 / "sources" / board / step / f"{board}.kicad_pro", project_id=f"prj_{board}", commit=None)
-    geometry = next(c for c in payload["components"] if c["reference"] == reference)["geometry"]
-    return {"geometry": geometry, "thicknessMm": payload["boardThicknessMm"], "stored": None}
+
+def fixture_end(snapshot: str, reference: str) -> dict:
+    board = ENDS[snapshot]
+    return {"geometry": board["ends"][reference], "thicknessMm": board["thicknessMm"], "stored": None}
 
 
 def with_body(end: dict, height: float) -> dict:

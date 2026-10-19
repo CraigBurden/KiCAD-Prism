@@ -2,11 +2,9 @@ import { ANALYTIC_BUNDLE_SCHEMA } from "./analytic-scene.js";
 import viewerCss from "../styles.css";
 import { AssetCache } from "./asset-cache.js";
 import { absolutizeAssetPaths, bundleIsFinal } from "./bundle-urls.js";
-import { mountStandaloneViewer, mountSystemViewer } from "./main.js";
+import { mountStandaloneViewer } from "./main.js";
 import { createReloadOwner, runSemanticViewerReload } from "./semantic-viewer-reload.js";
-import { BoardModeController, SystemModeController, createSharedState, installModeMembers } from "./viewer-controllers.js";
-
-const SUPPORTED_SCHEMA = "prism.visualizer_bundle.a0";
+import { BoardModeController, createSharedState, installModeMembers } from "./viewer-controllers.js";
 
 function shellHtml() {
   return `
@@ -26,74 +24,6 @@ function shellHtml() {
       #scene-stats[hidden] { display: none; }
       #scene-stats dt { color: #8a97a8; }
       #scene-stats dd { margin: 0; text-align: right; }
-      /* SB2-30a: level-of-detail thresholds, beside the stats in mode="system". */
-      #lod-tuning {
-        position: absolute; right: 12px; bottom: 12px; z-index: 4; width: 230px; padding: 8px 10px;
-        background: rgb(15 20 28 / 0.86); color: #dbe4f0; border-radius: 6px;
-        font: 11px/1.4 system-ui, -apple-system, "Segoe UI", sans-serif;
-      }
-      #lod-tuning[hidden] { display: none; }
-      #lod-tuning h2 { margin: 0 0 6px; font-size: 11px; font-weight: 600; }
-      #lod-tuning label { display: grid; grid-template-columns: 64px 1fr 30px; align-items: center; gap: 6px; }
-      #lod-tuning input { width: 100%; margin: 0; }
-      #lod-tuning output { text-align: right; font: 11px "SFMono-Regular", Consolas, monospace; font-variant-numeric: tabular-nums; }
-      #lod-tuning button {
-        margin-top: 6px; font: inherit; color: inherit; background: rgb(255 255 255 / 0.12);
-        border: 0; border-radius: 4px; padding: 2px 8px; cursor: pointer;
-      }
-      /* System mode (SB2-31f): board labels, the move gizmo and the key list. */
-      #system-labels { position: absolute; inset: 0; z-index: 2; pointer-events: none; overflow: hidden; }
-      /* SB2-34: proxy harnesses, straight segments between connectors until M5's geometry. */
-      #system-harnesses { position: absolute; inset: 0; width: 100%; height: 100%; z-index: 1; pointer-events: none; overflow: hidden; }
-      #system-harnesses[hidden] { display: none; }
-      #system-harnesses .segment { stroke: #1e293b; stroke-width: 2.5; stroke-dasharray: 7 5; stroke-linecap: round; filter: drop-shadow(0 0 1.5px rgb(255 255 255 / 0.9)); }
-      #system-harnesses .segment.dim { opacity: 0.25; }
-      #system-harnesses .segment.lit { stroke-width: 4.5; stroke-dasharray: none; opacity: 1; filter: drop-shadow(0 0 4px currentColor); }
-      #system-harnesses .end { fill: #f8fafc; stroke: #1e293b; stroke-width: 2; }
-      #system-harnesses .end.dim { opacity: 0.3; }
-      #system-harnesses .end.lit { stroke: #fff; animation: harness-glow 1.9s ease-in-out infinite; }
-      @keyframes harness-glow { 50% { opacity: 0.65; } }
-      #system-labels[hidden] { display: none; }
-      .scene-label {
-        position: absolute; left: 0; top: 0; display: flex; flex-direction: column; align-items: center;
-        padding: 2px 7px; border-radius: 5px; background: rgb(15 20 28 / 0.72); color: #f1f5f9;
-        font: 500 11px/1.35 system-ui, -apple-system, "Segoe UI", sans-serif; white-space: nowrap; margin-top: -6px;
-      }
-      .scene-label[hidden] { display: none; }
-      .scene-label span { font-weight: 400; color: #cbd5e1; font-size: 10px; }
-      .scene-label.stand-in { background: rgb(71 85 105 / 0.78); }
-      .scene-label.restricted { background: rgb(55 65 81 / 0.85); }
-      .scene-label.failed { background: rgb(153 27 27 / 0.8); }
-      .scene-label.selected { background: rgb(37 99 235 / 0.92); }
-      /* SB2-45b: the picked harness's breakouts and waypoints in move mode, under the gizmo. */
-      #harness-nodes { position: absolute; inset: 0; z-index: 2; width: 100%; height: 100%; overflow: visible; pointer-events: none; }
-      #harness-nodes[hidden] { display: none; }
-      #harness-nodes .node { fill: #f8fafc; stroke: #3e63dd; stroke-width: 2.5; pointer-events: visiblePainted; cursor: pointer; }
-      #harness-nodes .node.breakout { fill: #3e63dd; stroke: #fff; }
-      #harness-nodes .node.auto { fill: none; stroke: #3e63dd; stroke-dasharray: 3 2; }
-      #harness-nodes .node { cursor: grab; }
-      #harness-nodes .node.pinned { fill: #0f172a; }
-      #harness-nodes .node.target { stroke: #f59e0b; stroke-width: 3.5; }
-      #harness-nodes .node:hover { stroke-width: 4; }
-      #move-gizmo { position: absolute; inset: 0; z-index: 3; width: 100%; height: 100%; overflow: visible; pointer-events: none; }
-      #move-gizmo[hidden] { display: none; }
-      #move-gizmo .ring { stroke-width: 2.5; opacity: 0.75; pointer-events: stroke; cursor: grab; }
-      #move-gizmo .ring:hover { stroke-width: 5; opacity: 1; }
-      #move-gizmo .arrow { pointer-events: visiblePainted; cursor: grab; }
-      #move-gizmo .arrow line { stroke-width: 4; stroke-linecap: round; }
-      #move-gizmo .arrow:hover line { stroke-width: 6; }
-      #move-gizmo .arrow text { font: 700 11px system-ui, -apple-system, "Segoe UI", sans-serif; paint-order: stroke; }
-      #move-gizmo .pivot { fill: #0f172a; stroke: #fff; stroke-width: 1.5; }
-      #move-gizmo .readout { font: 600 12px system-ui, -apple-system, "Segoe UI", sans-serif; fill: #0f172a;
-        paint-order: stroke; stroke: #fff; stroke-width: 3px; }
-      #system-help { position: absolute; right: 12px; bottom: 12px; z-index: 4; margin: 0; padding: 10px 12px; max-width: 340px;
-        display: grid; grid-template-columns: auto 1fr; gap: 3px 12px;
-        background: rgb(15 20 28 / 0.9); color: #e2e8f0; border-radius: 8px;
-        font: 12px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; }
-      #system-help[hidden] { display: none; }
-      #system-help h2 { grid-column: 1 / -1; margin: 0 0 4px; font-size: 12px; font-weight: 600; }
-      #system-help kbd { font: 600 11px "SFMono-Regular", Consolas, monospace; color: #fff; }
-      #system-help dd { margin: 0; color: #cbd5e1; }
       /* The host renders the PCB controls itself (see getViewState). */
       :host([hide-panel]) #app,
       :host([hide-panel]) #app.panel-collapsed { grid-template-columns: minmax(0, 1fr); }
@@ -107,26 +37,6 @@ function shellHtml() {
         <div id="selection-card" hidden></div>
         <canvas id="axis-gizmo" width="112" height="112" title="Click an axis to align the camera"></canvas>
         <dl id="scene-stats" hidden></dl>
-        <div id="lod-tuning" role="group" aria-label="Level of detail thresholds" hidden></div>
-        <svg id="system-harnesses" hidden aria-hidden="true"></svg>
-        <div id="system-labels" hidden></div>
-        <svg id="harness-nodes" hidden aria-hidden="true"></svg>
-        <svg id="move-gizmo" hidden aria-hidden="true"></svg>
-        <dl id="system-help" hidden aria-label="Keyboard shortcuts">
-          <h2>Keyboard</h2>
-          <dt><kbd>Home</kbd> <kbd>A</kbd></dt><dd>Frame every board</dd>
-          <dt><kbd>Double-click</kbd></dt><dd>Select and frame</dd>
-          <dt><kbd>X</kbd> <kbd>Y</kbd> <kbd>Z</kbd></dt><dd>Look along an axis (Shift: from the other side)</dd>
-          <dt><kbd>F</kbd> <kbd>R</kbd></dt><dd>Flip the view, turn it a quarter</dd>
-          <dt><kbd>I</kbd></dt><dd>Isolate the lit nets' copper, or back</dd>
-          <dt><kbd>M</kbd></dt><dd>Move mode on or off (editors)</dd>
-          <dt><kbd>L</kbd></dt><dd>Gizmo axes: world or the board's own</dd>
-          <dt><kbd>Shift</kbd></dt><dd>While dragging: 0.1 mm and 1° steps (else 1 mm, 15°)</dd>
-          <dt><kbd>Enter</kbd></dt><dd>Save the shown position</dd>
-          <dt><kbd>Esc</kbd></dt><dd>Undo the drag, leave move mode, or clear the selection</dd>
-          <dt><kbd>\`</kbd></dt><dd>Scene stats</dd>
-          <dt><kbd>?</kbd></dt><dd>This list</dd>
-        </dl>
         <div id="fallback" hidden></div>
       </section>
       <aside class="panel">
@@ -190,30 +100,16 @@ async function loadBundle(bundleUrl, timings, signal) {
   }
   if (timings) timings.bundle_from_cache = cachedBundle;
   const assetCache = bundleIsFinal(bundle) && cache.enabled ? cache : null;
-  if (bundle.schema === ANALYTIC_BUNDLE_SCHEMA) {
-    // V2a: an analytic bundle names the design bundle's members; the viewer
-    // builds the scene from the pack (main.js openAnalyticSource).
-    const semanticGeometry = { analytic: true, cache_key: bundle.cache_key || "", readiness: bundle.readiness, assets: bundle.assets || {} };
-    return {
-      bundle,
-      topology: {},
-      semanticGeometry: absolutizeAssetPaths(semanticGeometry, absoluteBundleUrl, bundle, cacheKey),
-      assetCache,
-    };
-  }
-  if (bundle.schema !== SUPPORTED_SCHEMA) {
+  // An analytic bundle names the design bundle's members; the viewer builds
+  // the scene from the pack (main.js openAnalyticSource). There are no mesh
+  // bundles any more (System Builder v2, stage 0).
+  if (bundle.schema !== ANALYTIC_BUNDLE_SCHEMA) {
     throw new Error(`Unsupported visualizer bundle schema: ${bundle.schema || "missing"}`);
   }
-  const topologyUrl = new URL(bundle.topology || "topology.json", absoluteBundleUrl);
-  const semanticGeometryUrl = new URL(bundle.semantic_geometry || "semantic_geometry.json", absoluteBundleUrl);
-  const load = (url, label) => (assetCache ? assetCache.fetchJson(url.toString(), { signal }) : fetchJson(url, timings, label, signal));
-  const [topology, semanticGeometry] = await Promise.all([
-    load(topologyUrl, "topology"),
-    load(semanticGeometryUrl, "semantic_geometry"),
-  ]);
+  const semanticGeometry = { analytic: true, cache_key: bundle.cache_key || "", readiness: bundle.readiness, assets: bundle.assets || {} };
   return {
     bundle,
-    topology,
+    topology: {},
     semanticGeometry: absolutizeAssetPaths(semanticGeometry, absoluteBundleUrl, bundle, cacheKey),
     assetCache,
   };
@@ -221,7 +117,7 @@ async function loadBundle(bundleUrl, timings, signal) {
 
 export class PrismSemanticViewerElement extends HTMLElement {
   static get observedAttributes() {
-    return ["bundle-url", "workspace", "mode", "move-allowed"];
+    return ["bundle-url", "workspace"];
   }
 
   constructor() {
@@ -230,22 +126,20 @@ export class PrismSemanticViewerElement extends HTMLElement {
     this.reloadOwner = createReloadOwner();
     this.reloadQueued = false;
     this.reloadSource = null;
-    // AC-30: one controller per mode for the element's whole life. Each holds
-    // what the host asked for and replays it onto every scene a reload mounts.
-    const shared = createSharedState();
-    this.modes = Object.freeze({ board: new BoardModeController(shared), system: new SystemModeController(shared) });
+    // AC-30: one controller for the element's whole life. It holds what the
+    // host asked for and replays it onto every scene a reload mounts.
+    this.modes = Object.freeze({ board: new BoardModeController(createSharedState()) });
     /** The controller with a mounted scene, or null between mounts. */
     this.mounted = null;
   }
 
-  /** The controller common members go to: the mounted one, else the one the `mode` attribute names. */
+  /** The controller common members go to. */
   get activeMode() {
-    return this.mounted ?? (this.systemMode ? this.modes.system : this.modes.board);
+    return this.mounted ?? this.modes.board;
   }
 
   detachModes() {
     this.modes.board.detach();
-    this.modes.system.detach();
     this.mounted = null;
   }
 
@@ -265,11 +159,6 @@ export class PrismSemanticViewerElement extends HTMLElement {
       this.modes.board.setWorkspace(this.workspace);
       return;
     }
-    // mode="system": whether this reader may move boards (the host sets it for editors).
-    if (name === "move-allowed") {
-      this.modes.system.setMoveAllowed(newValue === "true");
-      return;
-    }
     this.queueReload();
   }
 
@@ -277,13 +166,8 @@ export class PrismSemanticViewerElement extends HTMLElement {
     return this.getAttribute("workspace") === "stackup" ? "stackup" : "pcb";
   }
 
-  /** `mode="system"`: several boards from a system scene descriptor (SB2-31e) instead of one bundle. */
-  get systemMode() {
-    return this.getAttribute("mode") === "system";
-  }
-
   queueReload() {
-    const source = this.systemMode ? "system" : this.getAttribute("bundle-url");
+    const source = this.getAttribute("bundle-url");
     if (!source || source === this.reloadSource) return;
     this.reloadSource = source;
     if (this.reloadQueued) return;
@@ -298,59 +182,11 @@ export class PrismSemanticViewerElement extends HTMLElement {
     const bundleUrl = this.getAttribute("bundle-url");
     const attempt = this.reloadOwner.begin();
     this.detachModes();
-    if (this.systemMode) {
-      await this.reloadSystem(attempt);
-      return;
-    }
     if (!bundleUrl) {
       this.shadowRoot.innerHTML = `<style>:host{display:block;height:100%;font:14px system-ui;color:#94a3b8}</style><div>Semantic bundle URL is missing.</div>`;
       return;
     }
     await runSemanticViewerReload(this, attempt, { owner: this.reloadOwner, bundleUrl, loadBundle });
-  }
-
-  async reloadSystem(attempt) {
-    const { signal } = attempt;
-    const isCurrent = () => this.reloadOwner.owns(attempt) && this.isConnected;
-    try {
-      this.renderShell();
-      const port = await mountSystemViewer({
-        root: this.shadowRoot,
-        loadBundle: (bundleUrl, boardSignal) => loadBundle(bundleUrl, null, boardSignal),
-        isActive: () => this.getAttribute("active") === "true",
-        onSelectionChange: (selection) => {
-          if (!signal.aborted) this.emit("selectionchange", { selection });
-        },
-        onContextMenu: (detail) => {
-          if (!signal.aborted) this.emit("contextmenu", detail);
-        },
-        onViewStateChange: (detail) => {
-          if (!signal.aborted) this.emitViewState(detail);
-        },
-        onEmphasis: (results) => {
-          if (!signal.aborted) this.emit("emphasis", { results });
-        },
-        onMove: (state) => {
-          if (!signal.aborted) this.emit("move", state);
-        },
-        onHarness: (state) => {
-          if (!signal.aborted) this.emit("harness", state);
-        },
-      });
-      if (!isCurrent()) {
-        port?.dispose?.();
-        return;
-      }
-      this.mounted = this.modes.system;
-      this.mounted.attach(port, { moveAllowed: this.getAttribute("move-allowed") === "true" });
-      const viewState = this.getViewState();
-      if (viewState) this.emitViewState(viewState);
-      this.emitReady({ schema: "prism.semantic_viewer_performance.a0", milestone: "system-mounted" });
-    } catch (error) {
-      if (!isCurrent()) return;
-      this.renderError(error);
-      this.emitError(error);
-    }
   }
 
   emit(name, detail) {
@@ -450,7 +286,7 @@ export class PrismSemanticViewerElement extends HTMLElement {
   }
 }
 
-// AC-30: the board, system and common members, routed to the mode controllers.
+// AC-30: the board and common members, routed to the controller.
 installModeMembers(PrismSemanticViewerElement.prototype);
 
 export function definePrismSemanticViewer() {

@@ -32,8 +32,6 @@ export type PrismJobStatus = {
     error_message?: string;
     result_metadata?: Record<string, unknown>;
     pipeline?: PipelineState;
-    /** Progress a running job published for early readers (e.g. a staged 3D bundle). */
-    staged?: Record<string, unknown>;
 };
 
 /** Where the watcher reads a job from. The default reads `/api/jobs/{id}`. */

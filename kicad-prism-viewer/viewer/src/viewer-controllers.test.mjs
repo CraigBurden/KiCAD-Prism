@@ -7,14 +7,11 @@ import {
   BoardModeController,
   COMMON_MEMBERS,
   DEFAULT_GPU_BUDGET_BYTES,
-  SYSTEM_MEMBERS,
-  SystemModeController,
   createSharedState,
   emphasisChange,
   gpuBudgetBytes,
   installModeMembers,
   isSelectionEcho,
-  normalizeEmphasisSets,
   selectionTarget,
 } from "./viewer-controllers.js";
 import { InsetViews } from "./inset-view.js";
@@ -133,35 +130,6 @@ test("the host echoing the viewer's own selection changes nothing, once", () => 
   assert.deepEqual(calls, [["quietly"], ["selectComponent", "R16", true, "quiet"]]);
 });
 
-test("system mode selects on the placement: a stand-in as itself, a board's part, or the board", () => {
-  const system = new SystemModeController();
-  let placed = "board";
-  const { port, calls } = fakeScene({
-    focusPlacement(occurrence) {
-      calls.push(["focusPlacement", occurrence]);
-      return placed;
-    },
-  });
-  system.attach(port);
-  calls.length = 0;
-  system.setSelection({ occurrence: "/obc", featureId: 12 });
-  assert.deepEqual(calls, [["quietly"], ["focusPlacement", "/obc"], ["selectFeature", 12, true, "quiet"]]);
-  calls.length = 0;
-  system.setSelection({ occurrence: "/obc" });
-  assert.deepEqual(calls.at(-1), ["selectBoardContext", "quiet"]);
-  calls.length = 0;
-  system.setSelection({ occurrence: "/obc", netName: "MISSING" });
-  assert.deepEqual(calls, [["quietly"], ["focusPlacement", "/obc"]]);
-  for (placed of ["stand-in", null]) {
-    calls.length = 0;
-    system.setSelection({ occurrence: "/box", reference: "J1" });
-    assert.deepEqual(calls, [["quietly"], ["focusPlacement", "/box"]]);
-  }
-  calls.length = 0;
-  system.setSelection(null);
-  assert.deepEqual(calls, [["quietly"], ["clearSelection", "quiet"]]);
-});
-
 // --- Nets ------------------------------------------------------------------
 
 test("highlighting the first net probes like a net click; clearing the last restores the view", () => {
@@ -170,17 +138,17 @@ test("highlighting the first net probes like a net click; clearing the last rest
   board.attach(port);
   calls.length = 0;
   board.setHighlightedNets([{ netUid: "u-gnd" }, { netName: "VBUS_IN" }, { netName: "unknown" }]);
-  assert.deepEqual(calls, [["setHighlightedNetIds", [1, 2]], ["showNetProbe"], ["refreshResidency"]]);
+  assert.deepEqual(calls, [["setHighlightedNetIds", [1, 2]], ["showNetProbe"]]);
   calls.length = 0;
   board.setHighlightedNets([{ netName: "CC1" }]);
-  assert.deepEqual(calls, [["setHighlightedNetIds", [3]], ["refreshResidency"]]);
+  assert.deepEqual(calls, [["setHighlightedNetIds", [3]]]);
   calls.length = 0;
   scene.isolating = true;
   board.setHighlightedNets([{ netName: "GND" }]);
-  assert.deepEqual(calls, [["setHighlightedNetIds", [1]], ["isolateLitNets"], ["refreshResidency"]]);
+  assert.deepEqual(calls, [["setHighlightedNetIds", [1]], ["isolateLitNets"]]);
   calls.length = 0;
   board.setHighlightedNets(null);
-  assert.deepEqual(calls, [["setHighlightedNetIds", []], ["restoreVisibility"], ["refreshResidency"]]);
+  assert.deepEqual(calls, [["setHighlightedNetIds", []], ["restoreVisibility"]]);
 });
 
 test("emphasis changes are enter, leave or none", () => {
@@ -188,51 +156,6 @@ test("emphasis changes are enter, leave or none", () => {
   assert.equal(emphasisChange(true, false), "leave");
   assert.equal(emphasisChange(true, true), null);
   assert.equal(emphasisChange(false, false), null);
-});
-
-test("system net sets are normalised: keys, palette colours and only well-formed members and wires", () => {
-  const sets = normalizeEmphasisSets([
-    { key: "spi", color: "#ff8000", members: [{ occurrence: "/a", net: "SCK" }, { occurrence: 1, net: "x" }, null], wires: [{ harness: "h", wire: "w" }, { harness: "h" }] },
-    { members: "nope" },
-  ]);
-  assert.deepEqual(sets[0], { key: "spi", mark: 0x01ff8000, color: "#ff8000", members: [{ occurrence: "/a", net: "SCK" }], wires: [{ harness: "h", wire: "w" }] });
-  // The second palette colour (amber) for the second set, keyed by its index.
-  assert.equal(sets[1].key, "1");
-  assert.equal(sets[1].color, "#ffb81a");
-  assert.deepEqual([sets[1].members, sets[1].wires], [[], []]);
-  assert.deepEqual(normalizeEmphasisSets("nope"), []);
-});
-
-test("system net emphasis: report, probe on enter, isolation off and view back on leave", () => {
-  const system = new SystemModeController();
-  const report = [{ key: "spi", color: "#ff8000", lit: 2, unresolved: [] }];
-  const { port, calls, scene } = fakeScene({
-    setEmphasisSets(sets) {
-      calls.push(["setEmphasisSets", sets.map((set) => set.key)]);
-      scene.lit = sets.length > 0;
-      return report;
-    },
-  });
-  assert.deepEqual(system.setNetEmphasis([{ key: "early", members: [] }]), []);
-  system.attach(port);
-  // The set given before the mount is replayed.
-  assert.deepEqual(calls.slice(0, 2), [["setEmphasisSets", ["early"]], ["showNetProbe"]]);
-  calls.length = 0;
-  scene.isolating = true;
-  assert.equal(system.setNetEmphasis([{ key: "spi", members: [] }]), report);
-  assert.deepEqual(calls, [["setEmphasisSets", ["spi"]], ["isolateLitNets"]]);
-  calls.length = 0;
-  system.setNetEmphasis([]);
-  assert.deepEqual(calls, [["setEmphasisSets", []], ["setNetIsolation", false], ["restoreVisibility"]]);
-});
-
-test("net emphasis on a scene whose system is gone reports nothing and changes nothing", () => {
-  const system = new SystemModeController();
-  const { port, calls } = fakeScene({ setEmphasisSets: () => null, anyEmphasis: () => true });
-  system.attach(port);
-  calls.length = 0;
-  assert.deepEqual(system.setNetEmphasis([{ key: "a", members: [] }]), []);
-  assert.deepEqual(calls, []);
 });
 
 // --- Insets ----------------------------------------------------------------
@@ -358,7 +281,6 @@ test("a board mount gets the host's workspace, hidden parts, budget, selection a
     ["selectComponent", "U1", true, "quiet"],
     ["setHighlightedNetIds", [1]],
     ["showNetProbe"],
-    ["refreshResidency"],
   ]);
 });
 
@@ -369,80 +291,18 @@ test("a fresh board mount without host state is only told its workspace", () => 
   assert.deepEqual(calls, [["setWorkspace", "pcb"]]);
 });
 
-test("a system mount gets the budget, the scene, the lit sets, who may move and the labels, in that order", () => {
-  const system = new SystemModeController();
-  const scene = { schema: "prism.system_scene.a0" };
-  system.setGpuBudget(2 ** 30);
-  system.setSystemScene(scene);
-  system.setLabelsVisible(0);
-  system.setMoveAllowed(true);
-  const { port, calls } = fakeScene({ setEmphasisSets: () => [] });
-  system.setNetEmphasis("not a list");
-  system.attach(port, { moveAllowed: false });
-  assert.deepEqual(calls, [
-    ["setGpuBudget", 2 ** 30],
-    ["setSystemScene", scene],
-    ["setMoveAllowed", false],
-    ["setLabelsVisible", false],
-  ]);
-});
-
-test("selection and the GPU budget are shared by an element's two modes; the rest stays with its mode", () => {
-  const shared = createSharedState();
-  const board = new BoardModeController(shared);
-  const system = new SystemModeController(shared);
-  system.setSelection({ reference: "C3" });
-  system.setGpuBudget(1e9);
-  const { port, calls } = fakeScene();
-  board.attach(port);
-  assert.deepEqual(calls.slice(1), [["setGpuBudget", 1e9], ["quietly"], ["selectComponent", "C3", true, "quiet"]]);
-});
-
 test("detach disposes the scene and keeps the host's state for the next mount", () => {
-  const system = new SystemModeController();
+  const board = new BoardModeController();
   const first = fakeScene();
-  system.attach(first.port);
-  system.setLabelsVisible(false);
-  system.detach();
-  assert.equal(system.port, null);
+  board.attach(first.port);
+  board.detach();
+  assert.equal(board.port, null);
   assert.deepEqual(first.calls.at(-1), ["dispose"]);
-  system.setHarnessesVisible(true);
-  assert.equal(system.selectHarness("h"), false);
+  board.setHiddenComponents(["R1"]);
   const second = fakeScene();
-  system.attach(second.port);
-  assert.deepEqual(second.calls.at(-1), ["setLabelsVisible", false]);
-  assert.throws(() => system.attach(null), TypeError);
-});
-
-test("system members forward with their defaults and coercions", async () => {
-  const system = new SystemModeController();
-  assert.equal(system.frameBoard("a"), false);
-  assert.equal(system.frameParts([]), false);
-  assert.equal(system.frameNetEmphasis(), false);
-  assert.equal(system.getMoveState(), null);
-  assert.equal(system.getHarnessState(), null);
-  assert.equal(system.isHelpVisible(), false);
-  assert.equal(system.focusMoveTarget("/a"), false);
-  assert.equal(system.pickSurfaceAt(1, 2), null);
-  assert.equal(system.setLodThresholds({}), null);
-  assert.equal(await system.pickAt(1, 2), null);
-  assert.equal(system.getViewState(), null);
-  assert.equal(system.getStats(), null);
-  const { port, calls } = fakeScene({ isHelpVisible: () => 1, frameBoard: () => true });
-  system.attach(port);
-  calls.length = 0;
-  system.setRouteMode(true);
-  system.setHarnessesVisible(0);
-  system.frameNetEmphasis();
-  system.setGpuBudget("3e9");
-  assert.equal(system.isHelpVisible(), true);
-  assert.equal(system.frameBoard("b"), true);
-  assert.deepEqual(calls, [
-    ["setMoveMode", true, { route: true }],
-    ["setHarnessesVisible", false],
-    ["frameNetEmphasis", null, null],
-    ["setGpuBudget", 3e9],
-  ]);
+  board.attach(second.port);
+  assert.deepEqual(second.names(), ["setWorkspace", "setHiddenComponents"]);
+  assert.throws(() => board.attach(null), TypeError);
 });
 
 test("the GPU budget falls back to 1.5 GB for anything that is not a positive number", () => {
@@ -453,77 +313,54 @@ test("the GPU budget falls back to 1.5 GB for anything that is not a positive nu
 
 // --- The mode interfaces ---------------------------------------------------
 
-test("every member the element exposes belongs to exactly one interface and exists on its controllers", () => {
-  const all = [...COMMON_MEMBERS, ...BOARD_MEMBERS, ...SYSTEM_MEMBERS];
+test("every member the element exposes belongs to exactly one interface and exists on the controller", () => {
+  const all = [...COMMON_MEMBERS, ...BOARD_MEMBERS];
   assert.equal(new Set(all).size, all.length);
-  for (const name of COMMON_MEMBERS) {
-    assert.equal(typeof BoardModeController.prototype[name], "function", name);
-    assert.equal(typeof SystemModeController.prototype[name], "function", name);
-  }
-  for (const name of BOARD_MEMBERS) {
-    assert.equal(typeof BoardModeController.prototype[name], "function", name);
-    assert.equal(SystemModeController.prototype[name], undefined, name);
-  }
-  for (const name of SYSTEM_MEMBERS) {
-    assert.equal(typeof SystemModeController.prototype[name], "function", name);
-    assert.equal(BoardModeController.prototype[name], undefined, name);
-  }
+  for (const name of all) assert.equal(typeof BoardModeController.prototype[name], "function", name);
 });
 
-test("an element routes common members to the mounted mode and mode members to their own controller", async () => {
+test("an element routes its members to the controller, which keeps calls for the next mount", async () => {
   class Element {
     constructor() {
-      const shared = createSharedState();
-      this.modes = { board: new BoardModeController(shared), system: new SystemModeController(shared) };
+      this.modes = { board: new BoardModeController(createSharedState()) };
       this.mounted = null;
-      this.systemAttribute = false;
     }
 
     get activeMode() {
-      return this.mounted ?? (this.systemAttribute ? this.modes.system : this.modes.board);
+      return this.mounted ?? this.modes.board;
     }
   }
   installModeMembers(Element.prototype);
   const element = new Element();
-  for (const name of [...COMMON_MEMBERS, ...BOARD_MEMBERS, ...SYSTEM_MEMBERS]) assert.equal(typeof element[name], "function", name);
+  for (const name of [...COMMON_MEMBERS, ...BOARD_MEMBERS]) assert.equal(typeof element[name], "function", name);
   // Nothing mounted: every member answers its default.
   assert.equal(element.getViewState(), null);
   assert.deepEqual(element.getComponentReferences(), []);
-  assert.deepEqual(element.setNetEmphasis([]), []);
   assert.equal(await element.pickAt(0, 0), null);
-  // System mounted: common members reach it; board members wait for a board.
-  const system = fakeScene({ getViewState: () => ({ mode: "3d" }), setEmphasisSets: () => [{ key: "a" }] });
-  element.mounted = element.modes.system;
-  element.modes.system.attach(system.port);
-  assert.deepEqual(element.getViewState(), { mode: "3d" });
-  assert.deepEqual(element.setNetEmphasis([{ key: "a" }]), [{ key: "a" }]);
   element.setHiddenComponents(["R1"]);
   element.setSelection({ reference: "R1" });
-  assert.ok(!system.names().includes("setHiddenComponents"));
-  assert.ok(system.names().includes("focusPlacement"));
-  // Then a board: it gets what the host set meanwhile.
-  element.modes.system.detach();
+  // A board mounts: it gets what the host set meanwhile.
   const board = fakeScene();
   element.mounted = element.modes.board;
   element.modes.board.attach(board.port);
   assert.deepEqual(board.names(), ["setWorkspace", "setHiddenComponents", "quietly", "selectComponent"]);
 });
 
-test("Prism's d.ts declares each member under the mode that has it", () => {
+test("Prism's d.ts declares each member under the interface that has it", () => {
   // The host's types (frontend/src/types/prism-semantic-viewer.d.ts) declare
-  // the members Prism calls, one interface per mode; every one must be a
-  // member of that mode here, or Prism would call a member that is a no-op.
+  // the members Prism calls; every one must be a member here, or Prism would
+  // call a member that is a no-op.
   const dts = readFileSync(new URL("../../../frontend/src/types/prism-semantic-viewer.d.ts", import.meta.url), "utf8");
   const declared = (name) => {
     const body = new RegExp(`export interface ${name} \\{\\n([\\s\\S]*?)\\n\\}`).exec(dts)?.[1];
     assert.ok(body, name);
     return [...body.matchAll(/^ {4}(\w+)\(/gm)].map((match) => match[1]);
   };
-  const tables = { PrismSemanticViewerCommon: COMMON_MEMBERS, PrismSemanticBoardMode: BOARD_MEMBERS, PrismSemanticSystemMode: SYSTEM_MEMBERS };
+  const tables = { PrismSemanticViewerCommon: COMMON_MEMBERS, PrismSemanticBoardMode: BOARD_MEMBERS };
   for (const [name, members] of Object.entries(tables)) {
     const names = declared(name);
     assert.ok(names.length > 5, name);
     for (const member of names) assert.ok(members.includes(member), `${name}.${member}`);
   }
-  assert.match(dts, /interface PrismSemanticViewerElement\s+extends HTMLElement, PrismSemanticViewerCommon, PrismSemanticBoardMode, PrismSemanticSystemMode \{\}/);
+  assert.match(dts, /interface PrismSemanticViewerElement\s+extends HTMLElement, PrismSemanticViewerCommon, PrismSemanticBoardMode \{\}/);
 });

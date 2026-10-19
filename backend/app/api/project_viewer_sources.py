@@ -26,7 +26,7 @@ from app.services import (
     path_config_service,
     project_service,
     project_viewer_sources_bundle as viewer_sources_bundle,
-    semantic_visualizer_service,
+    kicad_project_locator,
 )
 from app.services.design_bundle.consumer import bundle_read
 from app.services.path_config_service import PathConfig
@@ -376,7 +376,7 @@ async def get_project_viewer_support_files(
                 )
         return {"files": files}
 
-    project_file = semantic_visualizer_service.find_kicad_project(
+    project_file = kicad_project_locator.find_kicad_project(
         project.path, project_service.project_anchor(project)
     )
     files = [

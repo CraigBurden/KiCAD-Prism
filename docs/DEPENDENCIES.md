@@ -25,11 +25,10 @@ backend/venv/bin/python scripts/verify_dependency_identity.py
 
 `requirements/runtime.in` is the only place to add a direct Python runtime
 dependency. `requirements/runtime.lock` is the complete, resolved graph used by
-the API, workers, Release Studio, and semantic viewer.
+the API, workers and Release Studio.
 
-The historical `backend/requirements.txt` and
-`kicad-prism-viewer/requirements-runtime.txt` files are compatibility aliases
-to that same lock. They must not contain their own packages or pins.
+The historical `backend/requirements.txt` file is a compatibility alias to
+that same lock. They must not contain their own packages or pins.
 
 To update and reproduce the Python graph:
 
@@ -73,8 +72,8 @@ KICAD_TOOLCHAIN_CONTEXT=/absolute/path/to/kicad_monkey \
   -f docker-compose.local-kicad-monkey.yml build backend
 ```
 
-The local target reinstalls both packages together, validates their dependency
-graph, and records `PRISM_KICAD_MONKEY_SOURCE=local-monorepo`. Older standalone
+The local target reinstalls both packages together and validates their
+dependency graph. Older standalone
 Monkey checkouts fail the image preflight instead of silently combining their
 code with whichever Cruncher happens to be installed.
 
@@ -82,14 +81,3 @@ Python source discovery is explicit. `KICAD_MONKEY_PYTHONPATH` may be used for
 specialized host experiments, but Prism no longer searches adjacent checkouts
 or legacy `references/` directories automatically.
 
-## Native PCB geometry helper
-
-The optional Rust PCB backend is a separate, source-built runtime identity.
-`kicad-prism-viewer/native/prism-kicad-native/rust-toolchain.toml` pins Rust,
-`Cargo.toml` pins the exact `kicad_monkey` Git revision, and `Cargo.lock` pins
-the complete Rust graph. Docker builds it with `cargo build --release --locked`
-and copies only the helper binary into the final worker image.
-
-Do not replace the Git revision with a branch, depend on an unpromoted packaged
-Linux provider, or copy an unverified local binary into Docker. See
-`docs/PCB_RUST_GEOMETRY.md` for the contract and rollback policy.

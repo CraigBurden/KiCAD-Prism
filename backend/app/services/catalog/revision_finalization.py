@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from typing import Any
 
-from app.services.catalog import module_interface, system_items
 from app.services.catalog.normalization import utc_now_iso
 from app.services.catalog.preview_pipeline import CatalogPreviewPipeline
 from app.services.catalog.revision_kernel import CatalogRevisionKernel
@@ -39,10 +38,6 @@ class CatalogRevisionFinalizer:
     ) -> str:
         """Refresh previews, persist the manifest hash, and audit; return the hash."""
         self._preview_pipeline.refresh_revision_preview_outputs(conn, runtime, revision_id)
-        if system_items.component_kind(conn, component_id) == system_items.KIND_MODULE:
-            # D-P2-39: a module's interface is its symbol's units, derived on every revision.
-            system_items.set_payload(conn, revision_id, interface=module_interface.revision_interface(conn, revision_id),
-                                     source_ref={"kind": "module"})
         manifest_hash = self._revision_kernel.revision_manifest_hash(conn, revision_id)
         conn.execute(
             "UPDATE component_revisions SET manifest_hash = %s, updated_at = %s WHERE id = %s",

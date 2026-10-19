@@ -15,7 +15,7 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from app.services import path_config_service, semantic_visualizer_service
+from app.services import kicad_project_locator, path_config_service
 
 
 def write_tree(root: Path, names: list[str]) -> None:
@@ -122,7 +122,7 @@ class FindsTheProjectFileTheViewerShouldRender(unittest.TestCase):
         self.addCleanup(path_config_service.clear_config_cache)
 
     def test_the_anchor_decides_which_project_is_opened(self) -> None:
-        found = semantic_visualizer_service.find_kicad_project(str(self.root), "top.kicad_pro")
+        found = kicad_project_locator.find_kicad_project(str(self.root), "top.kicad_pro")
         self.assertEqual(found.name, "top.kicad_pro")
 
     def test_a_configured_board_moves_the_viewer_to_its_project(self) -> None:
@@ -131,27 +131,12 @@ class FindsTheProjectFileTheViewerShouldRender(unittest.TestCase):
         (self.root / ".prism.json").write_text(
             json.dumps({"paths": {"pcb": "top.kicad_pcb"}}), encoding="utf-8"
         )
-        found = semantic_visualizer_service.find_kicad_project(str(self.root))
+        found = kicad_project_locator.find_kicad_project(str(self.root))
         self.assertEqual(found.name, "top.kicad_pro")
 
     def test_without_an_anchor_or_config_the_first_project_is_used(self) -> None:
-        found = semantic_visualizer_service.find_kicad_project(str(self.root))
+        found = kicad_project_locator.find_kicad_project(str(self.root))
         self.assertEqual(found.name, "base.kicad_pro")
-
-
-class SettingsChangesInvalidateTheCachedBundle(unittest.TestCase):
-    def test_editing_prism_json_changes_the_source_fingerprint(self) -> None:
-        # `.prism.json` was excluded from the fingerprint, so a settings change
-        # left the previously built bundle in place and appeared to do nothing.
-        with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp)
-            write_tree(root, ["board.kicad_pro", "board.kicad_pcb"])
-            before = semantic_visualizer_service.source_fingerprint_for_root(root)
-            (root / ".prism.json").write_text(
-                json.dumps({"paths": {"pcb": "board.kicad_pcb"}}), encoding="utf-8"
-            )
-            after = semantic_visualizer_service.source_fingerprint_for_root(root)
-            self.assertNotEqual(before, after)
 
 
 if __name__ == "__main__":
@@ -533,16 +518,12 @@ class DesignComparisonPicksTheAnchoredProject(unittest.TestCase):
         self.assertEqual(top_payload_anchor, "top.kicad_pro")
         self.assertEqual(base_payload_anchor, "base.kicad_pro")
 
-    def test_semantic_and_webgpu_cache_identity_includes_the_anchor(self) -> None:
-        from app.services import semantic_index_service, semantic_visualizer_service
+    def test_semantic_cache_identity_includes_the_anchor(self) -> None:
+        from app.services import semantic_index_service
 
         top = self.snap / "top.kicad_pro"
         base = self.snap / "base.kicad_pro"
         self.assertNotEqual(
             semantic_index_service.source_revision_key_for_project_file(top),
             semantic_index_service.source_revision_key_for_project_file(base),
-        )
-        self.assertNotEqual(
-            semantic_visualizer_service.source_fingerprint_for_project_file(top),
-            semantic_visualizer_service.source_fingerprint_for_project_file(base),
         )

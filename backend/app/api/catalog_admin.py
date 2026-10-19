@@ -5,7 +5,7 @@ import csv
 import hashlib
 import io
 from itertools import chain
-from typing import Any, Literal
+from typing import Any
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Request, UploadFile
 from fastapi.responses import FileResponse, Response, StreamingResponse
@@ -58,8 +58,6 @@ def _enqueue_catalog_job(
 
 
 class CreateManualComponentRequest(BaseModel):
-    # CONTRACTS_P2 §3.5: a module is created like a part; its symbol's units are its connectors.
-    kind: Literal["part", "module"] = "part"
     value: str
     description: str
     datasheet: str
@@ -233,7 +231,6 @@ def list_catalog_components(
     workflow_stage: str | None = Query(default=None),
     validation_status: str | None = Query(default=None),
     category: str | None = Query(default=None),
-    kind: Literal["part", "module", "assembly"] | None = Query(default=None),
     include_inactive: bool = Query(default=False),
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=50, ge=1, le=500),
@@ -251,7 +248,6 @@ def list_catalog_components(
             workflow_stage=workflow_stage,
             validation_status=validation_status,
             category=category,
-            kind=kind,
             include_inactive=include_inactive,
             page=page,
             page_size=page_size,

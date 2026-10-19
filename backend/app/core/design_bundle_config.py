@@ -46,16 +46,6 @@ class DesignBundleSettings(BaseSettings):
     PRISM_DESIGN_SOURCE_RELEASE_STUDIO: DesignSource = Field(
         default="legacy", description="Release Studio projections and closure: today's readers, or bundle members."
     )
-    PRISM_DESIGN_SOURCE_SYSTEM_BUILDER: DesignSource = Field(
-        default="legacy", description="System Builder interface and 3D scene: today's extractor, or bundle members."
-    )
-    PRISM_DESIGN_SOURCE_VIEWER_3D: DesignSource = Field(
-        default="bundle",
-        description=(
-            "3D tab: the bundle's analytic model (default since V2a step 4), or `legacy`, the topology"
-            " compiler's meshes, until V2b deletes the mesh path (amendment V2 §2.3)."
-        ),
-    )
     PRISM_DESIGN_SOURCE_PROJECT_METADATA: DesignSource = Field(
         default="legacy", description="Project card, properties and viewer sources: the checkout, or bundle members."
     )

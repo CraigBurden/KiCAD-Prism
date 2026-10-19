@@ -113,7 +113,6 @@ import {
 } from "./library-component-evidence-panels";
 import { MatesWithPanel } from "./library-component-mates";
 import { ModelsPanel } from "./library-component-models";
-import { ModuleConnectorsPanel } from "./library-module-interface";
 import { LibraryPreviewPair } from "./library-preview-inspector";
 import {
   ASSET_LABELS,
@@ -190,73 +189,7 @@ function isCatalogComponent(value: unknown): value is CatalogComponent {
     && candidate.validation !== null;
 }
 
-interface SystemItemExport {
-  id?: string;
-  name?: string;
-  description?: string;
-  reference?: string | null;
-  pinCount?: number;
-  resolved?: boolean;
-}
-
-/** A module or assembly: its interface and where it came from, instead of library assets (CONTRACTS_P2 §3). */
-function SystemItemOverview({ component, canMutate, onEdit }: { component: CatalogComponent; canMutate: boolean; onEdit: () => void }) {
-  const exports = (Array.isArray(component.interface?.exports) ? component.interface.exports : []) as SystemItemExport[];
-  const source = (component.source_ref ?? {}) as Record<string, unknown>;
-  // P2 §21.6: the snapshot's commit in the system's repository, when it was committed.
-  const sourceGit = source.git as { url: string | null; branch: string; commit: string } | undefined;
-  const systemId = typeof source.systemId === "string" ? source.systemId : "";
-  const openReviews = Number(source.openReviewCount ?? 0);
-  return (
-    <div className="space-y-4">
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        <MetricCard label="Release state" value={WORKFLOW_LABELS[workflowStage(component)]} detail={`Revision v${component.revision}`} />
-        <MetricCard label="Kind" value={component.kind === "assembly" ? "Assembly" : "Module"} detail="Placed through System Builder" />
-        <MetricCard label="Interface" value={`${exports.length} ${exports.length === 1 ? "export" : "exports"}`} detail={`${exports.reduce((total, entry) => total + (entry.pinCount ?? 0), 0)} pins`} />
-        <MetricCard label="Source snapshot" value={String(source.snapshotName ?? "—")} detail={openReviews ? `${openReviews} unreviewed changes · cannot be released` : "No unreviewed changes"} />
-      </div>
-      <div className="grid gap-4 xl:grid-cols-2">
-        <PanelCard title="Interface" description="The connectors parent systems link to, frozen at the source snapshot.">
-          {exports.length === 0 ? <EmptyState icon={SearchCheck} title="No exports" detail="Publish a snapshot whose system exports connectors." /> : (
-            <ul className="divide-y text-sm">
-              {exports.map((entry) => (
-                <li key={entry.id ?? entry.name} className="flex items-baseline gap-3 py-2">
-                  <span className="font-medium">{entry.name ?? "Export"}</span>
-                  <span className="text-muted-foreground">{entry.reference ?? "restricted"} · {entry.pinCount ?? 0} pins</span>
-                  {entry.description ? <span className="min-w-0 flex-1 truncate text-xs text-muted-foreground">{entry.description}</span> : null}
-                </li>
-              ))}
-            </ul>
-          )}
-        </PanelCard>
-        <PanelCard title="Source"
-          description="The system snapshot this revision was published from, and its commit when the system is in Git."
-          action={canMutate ? <Button size="sm" variant="outline" onClick={onEdit}><Edit3 className="h-3.5 w-3.5" /> Edit metadata</Button> : undefined}>
-          <DefinitionRows rows={[
-            { label: "IPN", value: component.value },
-            { label: "System", value: systemId ? <a className="text-primary hover:underline" href={`/systems/${encodeURIComponent(systemId)}?tab=history`}>{component.name}</a> : "" },
-            { label: "Snapshot", value: String(source.snapshotName ?? "") },
-            ...(sourceGit ? [{ label: "Commit", value: (
-              <span className="font-mono text-xs" title={sourceGit.url ?? undefined}>
-                {sourceGit.commit.slice(0, 12)} on {sourceGit.branch}
-              </span>
-            ) }] : []),
-            { label: "Connectivity digest", value: <span className="font-mono text-xs">{String(source.connectivityDigest ?? "")}</span> },
-            { label: "Manufacturer", value: component.manufacturer },
-            { label: "Change summary", value: component.change_summary },
-            { label: "Manifest SHA-256", value: <span className="font-mono text-xs">{component.manifest_hash || "Pending finalization"}</span> },
-          ]} />
-        </PanelCard>
-      </div>
-    </div>
-  );
-}
-
 function OverviewPanel({ component, canMutate, onEdit }: { component: CatalogComponent; canMutate: boolean; onEdit: () => void }) {
-  // A module (§3.5) uses the part page; only an assembly has its own overview.
-  if (component.kind === "assembly") {
-    return <SystemItemOverview component={component} canMutate={canMutate} onEdit={onEdit} />;
-  }
   const requiredAttached = component.assets.filter((asset) => asset.required).length;
 
   const engineeringRows = [
@@ -348,8 +281,8 @@ function OverviewPanel({ component, canMutate, onEdit }: { component: CatalogCom
         </PanelCard>
       ) : null}
 
-      {component.kind === "module" ? <ModuleConnectorsPanel component={component} canMutate={canMutate} /> : <MatesWithPanel componentId={component.id} canMutate={canMutate} />}
-      <ModelsPanel componentId={component.id} canMutate={canMutate} mates={component.kind !== "module"} />
+      <MatesWithPanel componentId={component.id} canMutate={canMutate} />
+      <ModelsPanel componentId={component.id} canMutate={canMutate} />
     </div>
   );
 }
@@ -597,9 +530,8 @@ function ErrorState({ message, onRetry }: { message: string; onRetry: () => void
   );
 }
 
-/** Modules and assemblies carry an IPN by design; only library parts are "provisional". */
 function isProvisionalPart(component: CatalogComponent): boolean {
-  return component.identity_kind === "provisional_ipn" && (component.kind ?? "part") === "part";
+  return component.identity_kind === "provisional_ipn";
 }
 
 // react-doctor-disable-next-line no-giant-component - tabs, evidence, and release queue share one component resource
