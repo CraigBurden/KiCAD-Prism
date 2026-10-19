@@ -21,8 +21,6 @@ from app.core.roles import Role
 from app.services.postgres_database import database
 from app.services.project_settings_service import import_working_tree_settings, restore_committed_prism_json
 from app.services.workspace_schema_migrations import WORKSPACE_LEDGER
-from app.services.systems.store import SystemStore
-from app.services.systems.visibility import visible_systems
 
 logger = logging.getLogger(__name__)
 
@@ -524,8 +522,6 @@ class WorkspaceService:
                     raise ProjectHasSignedReleasesError(project_id, record_count)
 
             self._purge_project_associated_rows(conn, project_id)
-            # System Builder keeps the project's board instances as unresolved (§5.1).
-            SystemStore(conn).mark_project_unresolved(project_id)
             cur = conn.execute("DELETE FROM ws_projects WHERE id=%s", (project_id,))
             conn.execute("DELETE FROM ws_jobs WHERE project_id=%s", (project_id,))
             conn.commit()
@@ -606,10 +602,6 @@ class WorkspaceService:
             )
             conn.execute(
                 "DELETE FROM ws_release_audit_events WHERE project_id = %s",
-                (project_id,),
-            )
-            conn.execute(
-                "DELETE FROM ws_webgpu_ready WHERE project_id = %s",
                 (project_id,),
             )
         finally:
@@ -1001,7 +993,6 @@ class WorkspaceService:
                    WHERE p.folder_id IS NOT DISTINCT FROM %s ORDER BY p.name""",
                 (folder_id,),
             ).fetchall()
-            systems = visible_systems(conn, user_role, folder_id=folder_id)
         cf_list = []
         for f in child_folders:
             fd = self._row_to_dict(f)
@@ -1013,7 +1004,6 @@ class WorkspaceService:
         return {
             "folders": cf_list,
             "projects": [self._project_row_to_dict(p) for p in projects],
-            "systems": systems,
         }
 
     def is_folder_visible_to_role(self, folder_id: Optional[str], user_role: Optional[Role]) -> bool:
@@ -1080,14 +1070,12 @@ class WorkspaceService:
                 """,
                 {"bypass": bypass_visibility, **folder_visibility_params(role)},
             ).fetchone()
-            systems = visible_systems(conn, None if bypass_visibility else role)
         projects = [
             self._project_row_to_dict(project)
             for project in list(row["projects"] or [])
         ]
         return {
             "projects": projects,
-            "systems": systems,
             "folders": self._build_folder_tree(
                 list(row["folders"] or []),
                 list(row["counts"] or []),

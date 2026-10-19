@@ -139,22 +139,7 @@ KICAD_CRUNCHER_PATH=
 Each kicad-cli run gets its own temporary directory (KiCad's instance lock)
 and a timeout set by the job that runs it.
 
-### Experimental PCB geometry
-
-`PRISM_PCB_GEOMETRY_BACKEND=legacy` is the normal release and source default.
-The image containing a Rust helper does not activate it. Select `rust` only
-for a deliberate experiment; `python-copper` is also experimental. Rust rejects
-missing helpers, identity mismatches, unsupported geometry, and helper errors
-instead of silently falling back. Set `PRISM_KICAD_NATIVE_TIMEOUT_SECONDS` to
-bound helper execution (default 300 seconds). `PRISM_KICAD_NATIVE_PATH` names
-the helper (default `/usr/local/bin/prism-kicad-native`, where the image puts it).
-
-Rollback by setting the backend to `legacy` and recreating the API and general
-worker containers so they receive the new environment. Direct host experiments
-should also unset the old `PRISM_COPPER_EMIT_ENABLED` compatibility switch.
-See [Rust geometry](PCB_RUST_GEOMETRY.md) for build identity and coverage limits.
-
-### Design pipelines, Systems, and build identity
+### Design pipelines and build identity
 
 These have working defaults; set them only to relocate storage or tune a
 constrained host. Unless noted, an empty value means the default.
@@ -163,8 +148,8 @@ constrained host. Unless noted, an empty value means the default.
 | --- | --- |
 | `KICAD_PROJECTS_ROOT` | root for imported projects and `.kicad-prism` state; Compose sets `/app/projects` |
 | `PRISM_JOB_ARTIFACT_RETENTION_DAYS` | days job artifact metadata is kept (default 30) |
-| `PRISM_JOB_RETENTION_DAYS` | days finished jobs, their events and log folders are kept, unless a 3D readiness row, an artifact or a release build still points at them, or they are the newest of their kind and key (default 90) |
-| `PRISM_ROUTINE_JOB_RETENTION_DAYS` | the same for tracker polls and sweeps, background fetches and system source checks (default 7) |
+| `PRISM_JOB_RETENTION_DAYS` | days finished jobs, their events and log folders are kept, unless an artifact or a release build still points at them, or they are the newest of their kind and key (default 90) |
+| `PRISM_ROUTINE_JOB_RETENTION_DAYS` | the same for tracker polls and sweeps, and background fetches (default 7) |
 | `PRISM_JOB_PARTIAL_RETENTION_HOURS` | hours unfinished job artifacts are kept (default 24) |
 | `PRISM_DESIGN_COMPARE_CACHE` | revision snapshot cache (default under the system temporary directory) |
 | `PRISM_DESIGN_COMPARE_JOBS` | design-compare scratch root (default under the system temporary directory) |
@@ -175,15 +160,7 @@ constrained host. Unless noted, an empty value means the default.
 | `PRISM_DESIGN_COMPARE_MAX_INITIAL_WORKERS` | schematic-stage workers, at most 2; unset follows `MAX_REVISION_WORKERS` |
 | `PRISM_DESIGN_COMPARE_MAX_PCB_WORKERS` | PCB-stage workers, at most 2; unset follows `MAX_REVISION_WORKERS` |
 | `PRISM_DESIGN_COMPARE_REVISION_PROCESSES` | `false` compiles both revisions in one process (default `true`) |
-| `PRISM_SEMANTIC_VIEWER_REPO` | `kicad-prism-viewer` checkout; the image sets `/opt/kicad-prism-viewer` |
-| `PRISM_SEMANTIC_VIEWER_CACHE` | semantic compiler cache (default under `KICAD_PROJECTS_ROOT/.kicad-prism`) |
-| `PRISM_SEMANTIC_GLTF_MESHOPT_LEVEL` | glTF meshopt level; unknown values use `medium` |
-| `PRISM_SEMANTIC_GLTF_TILE_SIZE_MM` | glTF tile size, 1–1000 mm, or `auto` (default) |
-| `PRISM_KICAD_MONKEY_SOURCE` | label of the installed kicad_monkey build; the image sets it |
 | `KICAD_MONKEY_PYTHONPATH` | development only: kicad_monkey source roots put first on the import path |
-| `PRISM_SYSTEM_REPOS_ROOT` | bare repositories tracking Systems (default `KICAD_PROJECTS_ROOT/.kicad-prism/system-repos`) |
-| `PRISM_INTERFACE_CACHE_MB` | in-process cache of resolved board interfaces, MiB (default 256) |
-| `PRISM_INTERFACE_CACHE_VERIFY` | hash-check every interface cache hit; for test suites |
 | `PRISM_PLUGIN_DOWNLOAD_URL` | where the KiCad plugin update prompt points; set it for a private plugin build |
 | `PRISM_CAIRO_LIBRARY_DIR` | macOS hosts only: directory holding `libcairo.2.dylib` for Release Studio PDFs |
 | `PRISM_RELEASE`, `PRISM_REVISION`, `PRISM_BUILD_DATE` | build identity reported by `/api/health/live`; release images set them |
@@ -197,7 +174,7 @@ builds it in stages (parse, board, models) on the general worker.
 
 | Setting | Purpose |
 | --- | --- |
-| `PRISM_DESIGN_SOURCE_SEMANTIC_INDEX`, `_DESIGN_COMPARISON`, `_RELEASE_STUDIO`, `_SYSTEM_BUILDER`, `_VIEWER_3D`, `_PROJECT_METADATA`, `_CATALOG_IMPORT` | each consumer's source: `legacy` (its own KiCad parsing) or `bundle`. `_DESIGN_COMPARISON` defaults to `bundle` (`prism-kicad compare`, ADR amendment C2r) and `_VIEWER_3D` to `bundle` (the analytic board, amendment V2a); the others default to `legacy` until their switch |
+| `PRISM_DESIGN_SOURCE_SEMANTIC_INDEX`, `_DESIGN_COMPARISON`, `_RELEASE_STUDIO`, `_PROJECT_METADATA`, `_CATALOG_IMPORT` | each consumer's source: `legacy` (its own KiCad parsing) or `bundle`. `_DESIGN_COMPARISON` defaults to `bundle` (`prism-kicad compare`, ADR amendment C2r); the others default to `legacy` until their switch. The 3D tab always reads the bundle's analytic board (amendment V2) |
 | `PRISM_DESIGN_BUNDLE_AUTO_BUILD` | queue the HEAD bundle after every import and sync, and run the paced prebuild of each branch's newest commits and every tagged commit (ADR amendment K2 §7). Default `true` since the C2r switch; `false` builds bundles on demand only, and a comparison of a commit without one reads its source tree, the cold path |
 | `PRISM_DESIGN_BUNDLE_CONCURRENCY` | capacity of the `design_bundle` slot (default 1); the backfill uses the same slot |
 | `PRISM_DESIGN_BUNDLE_*_MEMORY_BYTES`, `_*_TIMEOUT_MS` (PARSE, BOARD, MODELS) | per-stage heap cap and wall timeout passed to `prism-kicad` (defaults 4/6/2 GiB, 300/600/120 s) |

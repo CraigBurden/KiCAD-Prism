@@ -123,23 +123,3 @@ test("barrel records pack into the storage layout (ids at byte 32)", () => {
     [0.01, -0.02, 0.0002, 0.00035, -0.0008, 0.0008, 0.0001, -Math.PI / 2].map((v) => Math.fround(v)));
   assert.deepEqual([...u32.slice(8, 12)], [7, 9, 1, 4]);
 });
-
-test("Rust mesh-pack barrels pack a finite span from their start to their end layer", () => {
-  // Written by the native crate's barrel test (mesh_pack.rs), so the reader is
-  // checked against what the Rust lane actually emits.
-  const records = JSON.parse(readFileSync(
-    new URL("../../native/prism-kicad-native/src/testdata/mesh-pack-barrels.json", import.meta.url), "utf8"));
-  assert.ok(records.length > 0);
-  const f32 = new Float32Array(packBarrels(records));
-  const u32 = new Uint32Array(f32.buffer);
-  const stride = BARREL_RECORD_STRIDE / 4;
-  records.forEach((record, index) => {
-    const [startZ, endZ] = [f32[index * stride + 4], f32[index * stride + 5]];
-    assert.ok(Number.isFinite(startZ) && Number.isFinite(endZ), `${record.sourceUid}: ${startZ}..${endZ}`);
-    assert.equal(startZ, Math.fround(record.startZMm / 1000));
-    assert.equal(endZ, Math.fround(record.endZMm / 1000));
-    // The start layer is the top of the span.
-    assert.ok(startZ > endZ, record.sourceUid);
-    assert.deepEqual([...u32.slice(index * stride + 10, index * stride + 12)], [record.startLayerId, record.endLayerId]);
-  });
-});

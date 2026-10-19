@@ -13,8 +13,8 @@ from tests.kicad_tool_fakes import FakeTool
 
 
 class ProjectServiceV3JobTests(unittest.TestCase):
-    def test_semantic_and_webgpu_artifact_identity_includes_the_anchor(self) -> None:
-        def keys(anchor: str) -> tuple[str, str]:
+    def test_semantic_artifact_identity_includes_the_anchor(self) -> None:
+        def key(anchor: str) -> str:
             row = {
                 "id": "project-1",
                 "repo_id": "repo-1",
@@ -31,14 +31,9 @@ class ProjectServiceV3JobTests(unittest.TestCase):
                 return_value={"job_id": "job"},
             ) as enqueue:
                 project_service.start_semantic_index_job("project-1", commit="abc")
-                semantic_key = str(enqueue.call_args.kwargs["artifact_key"])
-                project_service.start_workflow_job(
-                    "project-1", "webgpu_3d", commit="abc"
-                )
-                webgpu_key = str(enqueue.call_args.kwargs["artifact_key"])
-            return semantic_key, webgpu_key
+            return str(enqueue.call_args.kwargs["artifact_key"])
 
-        self.assertNotEqual(keys("top.kicad_pro"), keys("base.kicad_pro"))
+        self.assertNotEqual(key("top.kicad_pro"), key("base.kicad_pro"))
 
     def test_thumbnail_url_is_content_versioned_when_digest_is_available(self) -> None:
         self.assertEqual(

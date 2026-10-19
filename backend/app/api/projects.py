@@ -516,10 +516,9 @@ async def sync_project_endpoint(project_id: str, user: AuthenticatedUser = Depen
     }
 
 class WorkflowRequest(BaseModel):
-    type: str # design, manufacturing, render, webgpu_3d
+    type: str # design, manufacturing, render
     author: Optional[str] = "anonymous"
     force: bool = False
-    commit: Optional[str] = None
 
 @router.post("/{project_id}/workflows", dependencies=[Depends(require_designer)])
 async def trigger_workflow(
@@ -530,7 +529,7 @@ async def trigger_workflow(
     """
     Trigger a KiCAD workflow (jobset output).
     """
-    valid_types = ["design", "manufacturing", "render", "webgpu_3d"]
+    valid_types = ["design", "manufacturing", "render"]
     if request.type not in valid_types:
         raise HTTPException(status_code=400, detail="Invalid workflow type")
         
@@ -542,7 +541,6 @@ async def trigger_workflow(
             request.type,
             request.author,
             force=request.force,
-            commit=request.commit if request.type == "webgpu_3d" else None,
         )
         return {"job_id": job_id}
 

@@ -145,12 +145,11 @@ resolution) →
 `frontend/src/components/engineering-bom-table.tsx` (viewer-side selection)
 
 **Connect boards into a system**
-`backend/app/api/systems.py` → `backend/app/services/systems/service.py` →
-`backend/app/services/systems/store.py` (every change, audited) ·
-`backend/app/services/systems/detection.py` (after each project sync) →
-`frontend/src/lib/systems-api.ts` → `frontend/src/pages/SystemDetailPage.tsx`
-→ `frontend/src/features/system-builder/`. The contract is
-`docs/system-builder/CONTRACTS.md`; read it before changing a rule.
+System Builder is being rebuilt: `docs/architecture/adr-system-builder-v2.md`.
+Stage 0 removed v1; until stage 1 lands only its placement maths remain,
+`backend/app/services/systems/placement/` and
+`frontend/src/features/system-builder/placement/` (replaying the same goldens),
+plus `backend/app/services/systems/connector_detection.py`.
 
 **Place a symbol from desktop KiCad**
 `backend/app/api/remote_provider.py` · `backend/app/api/provider_oauth.py` →
@@ -237,10 +236,8 @@ Release promotion requires reviewed `dev` to `main`, the main commit Quality
 gate, and checked-in `docs/releases/<tag>.md`; see `docs/RELEASES.md`.
 The next tag is `v4.0.0-alpha`, superseding the unpublished v3.1 plan.
 
-`PRISM_PCB_GEOMETRY_BACKEND=legacy` is the supported default. Rust and
-Python-copper require explicit experimental selection; never infer activation
-from an installed helper or replace the published Python toolchain with a
-sibling checkout. See `docs/PCB_RUST_GEOMETRY.md` and `docs/DEPENDENCIES.md`.
+Never replace the published Python toolchain with a sibling checkout; see
+`docs/DEPENDENCIES.md`.
 
 ## Generated and vendored boundaries
 

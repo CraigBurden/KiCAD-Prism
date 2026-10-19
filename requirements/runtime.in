@@ -1,9 +1,8 @@
-# One Python runtime for the API, workers, Release Studio, and semantic viewer.
+# One Python runtime for the API, workers and Release Studio.
 #
 # Compile this file with scripts/sync_dependencies.py --update-lock. Every
 # supported host, CI job, and Docker image installs requirements/runtime.lock;
-# do not add runtime packages to backend/requirements.txt or
-# kicad-prism-viewer/requirements-runtime.txt.
+# do not add runtime packages to backend/requirements.txt.
 
 fastapi>=0.141
 starlette>=1.0

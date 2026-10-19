@@ -9,7 +9,6 @@ from app.services import (
     job_benchmark,
     job_claims,
     job_lease_recovery,
-    job_webgpu_ready,
 )
 from app.services.job_claims import LOCK_MODES  # noqa: F401  (kept importable from here)
 from app.services.job_rows import (
@@ -32,8 +31,7 @@ class JobService:
     """Fenced PostgreSQL job queue shared by all Prism worker pools.
 
     Resource slots and locks live in ``job_claims``, artifact rows in
-    ``job_artifact_records``, WebGPU readiness in ``job_webgpu_ready`` and
-    benchmark metrics in ``job_benchmark``; each runs on the connection and
+    ``job_artifact_records`` and benchmark metrics in ``job_benchmark``; each runs on the connection and
     inside the transaction this class opens.
     """
 
@@ -672,8 +670,6 @@ class JobService:
             if cursor.rowcount == 1:
                 for artifact in artifacts:
                     job_artifact_records.insert_artifact(conn, str(uuid.uuid4()), artifact, job_id=job_id, fence=fence)
-                if artifacts and artifacts[0].get("kind") == "webgpu_3d":
-                    job_webgpu_ready.upsert_webgpu_ready(conn, job_id=job_id, fence=fence, details=dict(details or {}))
                 if settle is not None:
                     try:
                         settle(conn)
@@ -705,80 +701,6 @@ class JobService:
                 job_artifact_records.touch_artifact(conn, row["id"])
                 conn.commit()
         return _decode_artifact(row) if row else None
-
-    def get_webgpu_ready(
-        self,
-        project_id: str,
-        selector_key: str,
-        generator_build: str,
-    ) -> dict[str, Any] | None:
-        """Read WebGPU readiness from PostgreSQL without touching bundle files."""
-
-        self.initialize()
-        with self._connect() as conn:
-            conn.execute("SET search_path TO workspace, public")
-            status = job_webgpu_ready.get_webgpu_ready(
-                conn, project_id, selector_key, generator_build
-            )
-            conn.commit()
-        return status
-
-    def upsert_webgpu_ready_status(
-        self,
-        *,
-        job_id: str,
-        fence: int,
-        details: Mapping[str, Any],
-    ) -> None:
-        """Publish staged or completed WebGPU readiness for O(1) status reads."""
-
-        self.initialize()
-        with self._connect() as conn:
-            conn.execute("SET search_path TO workspace, public")
-            job_webgpu_ready.upsert_webgpu_ready(
-                conn,
-                job_id=job_id,
-                fence=fence,
-                details=details,
-            )
-            conn.commit()
-
-    def find_webgpu_ready_by_commit_prefix(
-        self,
-        project_id: str,
-        generator_build: str,
-        commit_prefix: str,
-        *,
-        selector_suffix: str = "",
-    ) -> dict[str, Any] | None:
-        """Resolve readiness for an abbreviated SHA without calling git."""
-
-        normalized = job_webgpu_ready.normalize_commit_prefix(commit_prefix)
-        if normalized is None:
-            return None
-        self.initialize()
-        with self._connect() as conn:
-            conn.execute("SET search_path TO workspace, public")
-            status = job_webgpu_ready.find_webgpu_ready_by_commit_prefix(
-                conn, project_id, generator_build, normalized, selector_suffix=selector_suffix
-            )
-            conn.commit()
-        return status
-
-    def invalidate_webgpu_ready(
-        self,
-        project_id: str,
-        selector_key: str,
-        generator_build: str,
-    ) -> bool:
-        self.initialize()
-        with self._connect() as conn:
-            conn.execute("SET search_path TO workspace, public")
-            invalidated = job_webgpu_ready.invalidate_webgpu_ready(
-                conn, project_id, selector_key, generator_build
-            )
-            conn.commit()
-        return invalidated
 
     def fail(
         self,

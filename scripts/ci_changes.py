@@ -30,11 +30,11 @@ ROOT = Path(__file__).resolve().parent.parent
 EVERYTHING = (".github/*", ".python-version", ".node-version", "scripts/ci_changes.py")
 
 OWN: dict[str, tuple[str, ...]] = {
-    "backend": ("backend/*", "requirements/*", "requirements.txt", "fixtures/*", "kicad-prism-viewer/*",
+    "backend": ("backend/*", "requirements/*", "requirements.txt", "fixtures/*",
                 "scripts/*", "assets/*", "deploy/release/*"),
     "frontend": ("frontend/*", "backend/tests/fixtures/*"),
-    "viewer": ("kicad-prism-viewer/*", "frontend/src/features/system-builder/placement/*",
-               "frontend/public/prism-semantic-viewer.js", "frontend/index.html", "requirements/*", "fixtures/*"),
+    "viewer": ("kicad-prism-viewer/*", "frontend/public/prism-semantic-viewer.js", "frontend/index.html",
+               "requirements/*", "fixtures/*"),
     # The Node parser package's own tests; the backend job also runs it (design-compare tests call it).
     "design_compare": ("backend/design-compare-parser/*", "scripts/compare_object_delta.py",
                        "scripts/test_compare_object_delta.py", "scripts/build-ecad-parser.sh",
@@ -46,13 +46,9 @@ OWN: dict[str, tuple[str, ...]] = {
     "deps": ("*package.json", "*package-lock.json", "requirements/*", "backend/Dockerfile",
              "scripts/verify_dependency_identity.py"),
     # A docker build of the backend image (PRs into feature branches); see ``image_live`` for dev/main.
-    "image": ("backend/Dockerfile", ".dockerignore", "kicad-prism-viewer/*", "native/*",
-              "frontend/src/features/system-builder/placement/*", "requirements/*",
-              "scripts/build-prism-clipper2.sh"),
+    "image": ("backend/Dockerfile", ".dockerignore", "native/*", "requirements/*"),
     # The live KiCad job on PRs into dev/main: the image plus what its tests exercise.
-    "image_live": ("backend/*", ".dockerignore", "kicad-prism-viewer/*",
-                   "frontend/src/features/system-builder/placement/*", "requirements/*",
-                   "scripts/build-prism-clipper2.sh", "fixtures/release-studio/*"),
+    "image_live": ("backend/*", ".dockerignore", "requirements/*", "fixtures/release-studio/*"),
 }
 
 # The test sources whose by-name reads count for a job (see the module docstring).

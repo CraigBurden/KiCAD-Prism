@@ -147,30 +147,13 @@ def start_workflow_job(
     workflow_type: str,
     author: str = "anonymous",
     force: bool = False,
-    commit: str | None = None,
 ) -> str:
-    if workflow_type not in {"design", "manufacturing", "render", "webgpu_3d"}:
+    if workflow_type not in {"design", "manufacturing", "render"}:
         raise ValueError(f"Unknown workflow type: {workflow_type}")
     row = workspace.get_project_by_id(project_id)
     if not row:
         raise ValueError("Project not found")
     project_file_rel = str(row.get("project_file_rel") or "")
-
-    if workflow_type == "webgpu_3d":
-        artifact_key = webgpu_artifact_key(row, commit, force=force)
-        queued = WEBGPU_3D.enqueue(
-            {
-                "project_id": project_id,
-                "commit": commit,
-                "force": bool(force),
-                "artifact_key": artifact_key,
-                "project_file_rel": project_file_rel,
-            },
-            subject=JobSubject.of_project(row, project_id),
-            artifact_key="" if force else artifact_key,
-            requested_by=author,
-        )
-        return str(queued["job_id"])
 
     active_key = hashlib.sha256(
         json.dumps(
@@ -379,4 +362,3 @@ KICAD_WORKFLOW = JobKind(
 JOB_KINDS = (KICAD_WORKFLOW,)
 
 from app.services.semantic_index_jobs import SEMANTIC_INDEX, run_semantic_index_job_v3, start_semantic_index_job  # noqa: E402  (re-exported, WP-S1)
-from app.services.viewer_3d_jobs import WEBGPU_3D, run_webgpu_3d_job_v3, webgpu_artifact_key  # noqa: E402  (re-exported, WP-S1)

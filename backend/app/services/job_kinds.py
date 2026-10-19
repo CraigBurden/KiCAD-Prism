@@ -30,7 +30,6 @@ TRACKER_RESOURCE = "tracker_sync"
 # kind can only ask for a slot named here.
 _CAPACITIES: Mapping[str, Callable[[], int]] = {
     "prism_worker": lambda: settings.PRISM_WORKER_CONCURRENCY,
-    "webgpu": lambda: settings.PRISM_WEBGPU_CONCURRENCY,
     "design_compare": lambda: settings.PRISM_DESIGN_COMPARE_CONCURRENCY,
     "workflow": lambda: settings.PRISM_WORKFLOW_CONCURRENCY,
     "import": lambda: settings.PRISM_IMPORT_CONCURRENCY,

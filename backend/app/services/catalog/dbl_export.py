@@ -21,7 +21,6 @@ from app.services.catalog.normalization import sanitize_name, sha256_bytes
 from app.services.catalog.placement import CatalogPlacement
 from app.services.catalog.placement_payloads import materialize_asset
 from app.services.catalog.runtime import CatalogRuntime
-from app.services.catalog.system_items import KIND_PART
 
 
 DBL_COMMON_COLUMNS: tuple[str, ...] = (
@@ -255,7 +254,7 @@ class CatalogDblExport:
             WHERE a.asset_type = '3dmodel' AND c.kind = %s
             ORDER BY rr.component_id, rr.revision_id, a.sha256, a.id
             """,
-            (KIND_PART,),
+            ("part",),
         ).fetchall()
         for row in rows:
             model = dict(row)

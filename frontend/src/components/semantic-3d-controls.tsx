@@ -17,19 +17,23 @@ import {
     RailSlider,
     ViewerSideRail,
 } from "./ecad-viewer-controls";
-import { BoardLayerSections, LAYER_PRESETS } from "./semantic-3d-board-layers";
 import type {
     PrismSemanticLayerPreset,
     PrismSemanticViewerElement,
     PrismSemanticViewState,
 } from "@/types/prism-semantic-viewer";
 
+const LAYER_PRESETS: readonly (readonly [PrismSemanticLayerPreset, string])[] = [
+    ["all", "Show all"],
+    ["none", "Hide all"],
+    ["outer", "Outer copper"],
+    ["inner", "Inner copper"],
+];
+
 /**
  * The PCB 3D side menu. Same frame and parts as the Schematic/PCB menu; the
  * viewer runs with `hide-panel` and this drives it through its element API.
- * Finding things is the global design search, not this rail. A system scene
- * (the viewer reports `boards`) gets a Layers section per placed board and no
- * 2D view (D-P2-26, D-P2-27).
+ * Finding things is the global design search, not this rail.
  */
 export function Semantic3dControls({
     viewer,
@@ -59,17 +63,16 @@ export function Semantic3dControls({
         () => new Map((viewState?.layers ?? []).map((layer) => [layer.name, layer.id])),
         [viewState],
     );
-    const boards = viewState?.boards;
 
     return (
         <ViewerSideRail
             ariaLabel="3D display controls"
             icon={<Box className="size-4" />}
-            title={boards ? "System 3D" : "Board 3D"}
+            title="Board 3D"
             onVisibleWidthChange={onVisibleWidthChange}
         >
             <div className="shrink-0 space-y-2 border-b p-3">
-                {!boards && <div className="grid grid-cols-2 gap-1">
+                <div className="grid grid-cols-2 gap-1">
                     {([["3d", "3D"], ["layer", "2D"]] as const).map(([mode, label]) => (
                         <Button
                             key={mode}
@@ -82,7 +85,7 @@ export function Semantic3dControls({
                             {label}
                         </Button>
                     ))}
-                </div>}
+                </div>
                 <div className="grid grid-cols-2 gap-1">
                     <Button
                         variant="outline"
@@ -90,9 +93,7 @@ export function Semantic3dControls({
                         className="h-7 text-[11px]"
                         disabled={!viewState?.hasNet}
                         onClick={() => viewer?.showNetLayers?.()}
-                        title={boards
-                            ? "Show only the layers the selected net uses, on its board"
-                            : "Show only the layers the selected net uses"}
+                        title="Show only the layers the selected net uses"
                     >
                         Net layers
                     </Button>
@@ -118,8 +119,7 @@ export function Semantic3dControls({
 
             {section === "layers" ? (
                 <>
-                    {/* A system scene separates each board on its own (in its section). */}
-                    {viewState?.mode !== "layer" && !boards && (
+                    {viewState?.mode !== "layer" && (
                         <div className="border-b p-3">
                             <RailSlider
                                 label="Stackup separation"
@@ -128,15 +128,6 @@ export function Semantic3dControls({
                             />
                         </div>
                     )}
-                    {boards ? (
-                        <ScrollArea className="themed-scrollbar min-h-0 flex-1">
-                            <BoardLayerSections
-                                viewer={viewer}
-                                boards={boards}
-                                selectedBoard={viewState?.selectedBoard ?? null}
-                            />
-                        </ScrollArea>
-                    ) : <>
                     <div className="border-b p-3">
                         <Select
                             onValueChange={(value) => viewer?.applyLayerPreset?.(value as PrismSemanticLayerPreset)}
@@ -165,7 +156,6 @@ export function Semantic3dControls({
                             )}
                         </div>
                     </ScrollArea>
-                    </>}
                 </>
             ) : (
                 <ScrollArea className="min-h-0 flex-1">

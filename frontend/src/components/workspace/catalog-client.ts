@@ -38,12 +38,9 @@ import type {
   ProjectComponentImportSession,
   SelectionRequiredResponse,
 } from "@/types/catalog";
-import type { ConnectorGeometry } from "@/features/system-builder/placement/frames";
 import type { MatingPart } from "./library-component-mates";
 import type { CatalogModel } from "./library-component-models";
 import type { CatalogValidationJobPayload } from "./library-component-validation";
-import type { ModuleConnectors } from "./library-module-connector-dialog";
-import type { PickerModel } from "./module-face-picker";
 
 const CATALOG = "/api/catalog";
 const id = encodeURIComponent;
@@ -137,12 +134,6 @@ export function queueComponentValidation(componentId: string, signal?: AbortSign
 /** The validation job's own payload, for jobs whose result carries no component. */
 export function getValidationJob(jobId: string, signal?: AbortSignal) {
   return fetchJson<CatalogValidationJobPayload>(`${CATALOG}/validation/jobs/${id(jobId)}`, { signal });
-}
-
-export function getConnectorGeometry(componentId: string) {
-  return fetchJson<{ geometry: ConnectorGeometry | null; model: PickerModel | null }>(
-    `${component(componentId)}/connector-geometry`,
-  );
 }
 
 /** A stored preview render (SVG). */
@@ -245,21 +236,6 @@ export function saveModelAlignment(componentId: string, assetId: string, alignme
 /** The Geometer render of a model under an unsaved alignment. */
 export function modelPreviewUrl(componentId: string, assetId: string, params: URLSearchParams): string {
   return `${component(componentId)}/models/${id(assetId)}/preview.svg?${params.toString()}`;
-}
-
-export function listModuleConnectors(componentId: string, signal?: AbortSignal) {
-  return fetchJson<ModuleConnectors>(`${component(componentId)}/module-connectors`, withSignal(signal));
-}
-
-export function saveModuleConnector(componentId: string, unitKey: string, placement: Record<string, unknown>) {
-  return fetchJson<ModuleConnectors>(`${component(componentId)}/module-connectors/${id(unitKey)}`, {
-    method: "PUT",
-    body: JSON.stringify(placement),
-  });
-}
-
-export function deleteModuleConnector(componentId: string, unitKey: string) {
-  return fetchJson<ModuleConnectors>(`${component(componentId)}/module-connectors/${id(unitKey)}`, { method: "DELETE" });
 }
 
 // ------------------------------------------------------------------ metadata

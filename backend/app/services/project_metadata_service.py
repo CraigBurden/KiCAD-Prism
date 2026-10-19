@@ -34,10 +34,10 @@ def locate_project_file(project_path: str, anchor: Optional[str] = None) -> Opti
     project the rendered board does. Absence is normal: a directory can hold
     design files with no project file, and that is not an error here.
     """
-    from app.services import semantic_visualizer_service
+    from app.services import kicad_project_locator
 
     try:
-        return str(semantic_visualizer_service.find_kicad_project(project_path, anchor))
+        return str(kicad_project_locator.find_kicad_project(project_path, anchor))
     except (OSError, ValueError):
         return None
 

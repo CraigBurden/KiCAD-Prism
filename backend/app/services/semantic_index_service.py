@@ -23,7 +23,7 @@ from app.services import (
     semantic_index_bundle,
     semantic_index_nets,
     semantic_index_variants,
-    semantic_visualizer_service,
+    kicad_project_locator,
 )
 from app.services.kicad_monkey_design_adapter import KiCadMonkeyDesign
 
@@ -214,7 +214,7 @@ def _revision_identity(project: Any, commit: str | None) -> tuple[str, str | Non
 
     anchor = path_config_service.anchor_for_project(project)
     if not commit:
-        project_file = semantic_visualizer_service.find_kicad_project(project.path, anchor)
+        project_file = kicad_project_locator.find_kicad_project(project.path, anchor)
         return (
             _revision_key(
                 _source_entries_on_disk(project_file.resolve().parent),
@@ -244,7 +244,7 @@ def _revision_identity(project: Any, commit: str | None) -> tuple[str, str | Non
 def _project_file_for_revision(project: Any, commit: str | None) -> Iterator[tuple[Path, str | None]]:
     anchor = path_config_service.anchor_for_project(project)
     if not commit:
-        yield semantic_visualizer_service.find_kicad_project(project.path, anchor), None
+        yield kicad_project_locator.find_kicad_project(project.path, anchor), None
         return
 
     location = project_revision.locate(project)

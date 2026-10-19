@@ -1,7 +1,7 @@
 """The 3D tab from the design bundle (ADR amendment V2 §2, V2a step 3).
 
-With ``PRISM_DESIGN_SOURCE_VIEWER_3D=bundle`` the 3D tab reads a revision's
-analytic model from its design bundle, never a mesh:
+The 3D tab reads a revision's analytic model from its design bundle, never a
+mesh (the mesh path went at System Builder v2, stage 0):
 
 - :func:`status` answers the tab's status route in the shape it already reads
   (``prism.webgpu_3d_status_a0``). Opening the revision queues its

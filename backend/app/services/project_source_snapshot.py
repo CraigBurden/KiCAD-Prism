@@ -27,7 +27,7 @@ from app.services import (
     path_config_service,
     project_revision,
     semantic_index_service,
-    semantic_visualizer_service,
+    kicad_project_locator,
 )
 
 PROJECT_SUFFIXES = (".kicad_pro", ".kicad_pcb", ".kicad_sch")
@@ -142,7 +142,7 @@ def project_source_snapshot(
                 commit=None,
             )
             return
-        project_file = semantic_visualizer_service.find_kicad_project(
+        project_file = kicad_project_locator.find_kicad_project(
             project.path, anchor
         )
         resolved = project_file.resolve()

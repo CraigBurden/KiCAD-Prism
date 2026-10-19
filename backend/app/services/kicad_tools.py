@@ -157,12 +157,6 @@ def locate_kicad_cruncher(settings: "Settings | None" = None) -> str | None:
     return configured or shutil.which(KICAD_CRUNCHER)
 
 
-def native_geometry_helper(settings: "Settings | None" = None) -> Path:
-    """The ``prism-kicad-native`` helper the Rust geometry backend runs."""
-
-    return Path(_settings(settings).PRISM_KICAD_NATIVE_PATH.strip() or "/usr/local/bin/prism-kicad-native")
-
-
 def isolated_env(scratch: Path, base: Mapping[str, str] | None = None) -> dict[str, str]:
     """Point temp and runtime directories at ``scratch`` for KiCad's instance lock."""
 
@@ -388,5 +382,4 @@ __all__ = [
     "kicad_cruncher",
     "locate_kicad_cli",
     "locate_kicad_cruncher",
-    "native_geometry_helper",
 ]

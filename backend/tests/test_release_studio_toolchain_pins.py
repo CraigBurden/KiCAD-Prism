@@ -10,7 +10,6 @@ _REPO_ROOT = Path(__file__).resolve().parents[2]
 _RUNTIME_INPUT = _REPO_ROOT / "requirements" / "runtime.in"
 _RUNTIME_LOCK = _REPO_ROOT / "requirements" / "runtime.lock"
 _BACKEND_REQUIREMENTS = _REPO_ROOT / "backend" / "requirements.txt"
-_VIEWER_REQUIREMENTS = _REPO_ROOT / "kicad-prism-viewer" / "requirements-runtime.txt"
 _DOCKERFILE = _REPO_ROOT / "backend" / "Dockerfile"
 
 
@@ -43,9 +42,9 @@ class ToolchainPinTests(unittest.TestCase):
                 _pinned_version(_RUNTIME_LOCK, distribution),
             )
 
-    def test_backend_and_viewer_are_aliases_of_same_lock(self) -> None:
+    def test_backend_requirements_alias_the_lock(self) -> None:
         expected = "-r ../requirements/runtime.lock"
-        for requirements in (_BACKEND_REQUIREMENTS, _VIEWER_REQUIREMENTS):
+        for requirements in (_BACKEND_REQUIREMENTS,):
             active_lines = [
                 line.strip()
                 for line in requirements.read_text(encoding="utf-8").splitlines()

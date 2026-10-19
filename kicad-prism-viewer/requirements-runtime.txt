@@ -1,3 +1,0 @@
-# Compatibility entry point for semantic-viewer tooling and CI.
-# The resolved runtime is owned once at the repository root.
--r ../requirements/runtime.lock

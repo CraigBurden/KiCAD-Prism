@@ -58,12 +58,10 @@ testers of unreleased behavior work from `dev`.
 
 ## Contributor references
 
-- [System Builder](system-builder/README.md) is in development: multi-board
-  systems whose interface control documents track revisioned KiCad sources.
+- [System Builder](system-builder/README.md) is being rebuilt (System Builder
+  v2): multi-board systems over boards referenced by design-bundle revision.
 
 - [Dependency identity](DEPENDENCIES.md) covers Python, JavaScript, and native pins.
-- [Experimental Rust PCB geometry](PCB_RUST_GEOMETRY.md) covers explicit
-  opt-in, limitations, verification, and rollback.
 - [Design comparison](design-comparison/README.md) maps comparison contracts.
 
 ## Participate

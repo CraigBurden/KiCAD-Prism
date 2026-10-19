@@ -481,31 +481,14 @@ jobs:
           cache: npm
           cache-dependency-path: kicad-prism-viewer/package-lock.json
 
-      - name: Set up Python
-        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
-        with:
-          python-version-file: .python-version
-          cache: pip
-          cache-dependency-path: requirements/runtime.lock
-
       - name: Install dependencies
-        run: |
-          npm ci
-          # The shared Python lock is the same graph used by the backend and
-          # production image, including the coordinated Monkey/Cruncher pair.
-          python -m pip install -r requirements-runtime.txt
-
-      - name: Test glTF conversion
-        run: npm run test:gltf
+        run: npm ci
 
       - name: Test viewer
         run: npm run test:viewer
 
       - name: Test pixel-diff harness helpers
         run: npm run test:harness
-
-      - name: Test topology compiler
-        run: python -m unittest discover -s tests -p "test_*.py"
 
       - name: Build viewer bundles
         run: npm run build
@@ -518,70 +501,6 @@ jobs:
           frontend/public/prism-semantic-viewer-lower.js
           frontend/public/prism-kicad-analytic.wasm
           frontend/index.html
-
-  native-crate:
-    name: Native geometry crate
-    # The checks backend/Dockerfile runs on prism-kicad-native, on the PR instead of only in an
-    # image build. Same toolchain (rust-toolchain.toml), same Geometer SDK pins (read from the Dockerfile).
-    needs: [changes, catalog-architecture, native-hygiene]
-    if: >-
-      !cancelled() && needs.catalog-architecture.result == 'success'
-      && contains(fromJSON('["success", "skipped"]'), needs.native-hygiene.result)
-      && needs.changes.outputs.viewer == 'true'
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
-
-    defaults:
-      run:
-        working-directory: kicad-prism-viewer/native/prism-kicad-native
-
-    steps:
-      - name: Check out source
-        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
-
-      - name: Install the pinned toolchain
-        run: |
-          set -euo pipefail
-          channel="$(sed -n 's/^channel = "\(.*\)"/\1/p' rust-toolchain.toml)"
-          test -n "$channel"
-          rustup toolchain install "$channel" --profile minimal --component rustfmt --component clippy
-          cargo --version
-
-      - name: Cache crates and dependency builds
-        # Pushes save; PRs only restore (from their base branch), so they skip the upload.
-        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
-        with:
-          workspaces: kicad-prism-viewer/native/prism-kicad-native -> target
-          save-if: ${{ github.event_name != 'pull_request' }}
-
-      - name: Install the SDK's system link libraries
-        # The SDK manifest links pthread, rt, stdc++, dl and X11 (OCCT). The image's builder stage
-        # (rust:bookworm, a buildpack-deps image) ships libx11-dev; the runner does not.
-        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libx11-dev
-
-      - name: Fetch the Geometer SDK the image links
-        working-directory: ${{ github.workspace }}
-        run: |
-          set -euo pipefail
-          arg() { sed -n "s/^ARG $1=//p" backend/Dockerfile | head -n 1; }
-          tag="$(arg GEOMETER_SDK_TAG)"; version="$(arg GEOMETER_SDK_VERSION)"; sha="$(arg GEOMETER_SDK_LINUX_AMD64_SHA256)"
-          test -n "$tag" && test -n "$version" && test -n "$sha"
-          archive="geometer-sdk-${version}-linux-x64.zip"
-          curl --fail --location --retry 3 \
-            "https://github.com/wavenumber-eng/geometer/releases/download/${tag}/${archive}" \
-            --output "$RUNNER_TEMP/${archive}"
-          echo "${sha}  $RUNNER_TEMP/${archive}" | sha256sum --check -
-          unzip -q "$RUNNER_TEMP/${archive}" -d "$RUNNER_TEMP/geometer-sdk"
-          echo "GEOMETER_SDK_DIR=$RUNNER_TEMP/geometer-sdk" >> "$GITHUB_ENV"
-
-      - name: Check formatting
-        run: cargo fmt --check
-
-      - name: Test
-        run: cargo test --release --locked
-
-      - name: Clippy
-        run: cargo clippy --release --locked -- -D warnings
 
   native-lint:
     name: Native lint
@@ -1140,26 +1059,6 @@ jobs:
           # Actions cache, so it evicted itself (and the uv/npm caches) between runs while
           # its export added ~3.5 min to every build.
 
-      - name: Smoke-test native semantic compiler
-        run: |
-          set -euo pipefail
-          smoke_root="$RUNNER_TEMP/prism-native-smoke"
-          mkdir -p "$smoke_root"
-          docker run --rm \
-            --platform linux/amd64 \
-            --volume "${GITHUB_WORKSPACE}/fixtures/release-studio/usb-pd:/fixture:ro" \
-            --volume "$smoke_root:/output" \
-            --entrypoint /usr/local/bin/prism-kicad-native \
-            release-studio-live-kicad:ci \
-            compile-semantic \
-            --pcb /fixture/USB-PD-Trigger-Board.kicad_pcb \
-            --output /output/semantic \
-            --tile-size auto \
-            --mesh-tolerance-mm 0.005 \
-            --meshopt-level medium
-          python3 -c 'import json, pathlib, sys; p=json.loads(pathlib.Path(sys.argv[1]).read_text()); assert p["schema"] == "prism.semantic_mesh_pack.v1"; assert p["tiles"]' \
-            "$smoke_root/semantic/mesh-pack.json"
-
       - name: Run Release Studio live KiCad tests
         run: |
           set -euo pipefail
@@ -1191,7 +1090,6 @@ jobs:
       - backend-results
       - agent-plugin
       - semantic-viewer
-      - native-crate
       - native-lint
       - native-workspace
       - native-platforms

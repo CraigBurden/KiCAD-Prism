@@ -23,7 +23,7 @@ from app.services.design_bundle.manifest import Readiness
 from support.postgres import requires_scratch_postgres, scratch_schema, seed_project, seed_repository
 from test_sim_studio_api import PROJECT, SETUPS, _app, _visible
 from test_sim_studio_setup import facts, single_net_setup
-from test_system_api import _request
+from support.asgi import request as _request
 
 FAKE_WORKER = """#!/bin/sh
 [ "$1" = engines ] && { echo '[{"schema":"prism.sim.engine","id":"dc-drop-synthetic","analyses":["dc-drop"]}]'; exit 0; }

@@ -6,9 +6,8 @@ bundle. These tests build archives with the ``prism-kicad`` stub's canonical
 zip writer at each point of a build (parse only, board stored, parts stored,
 board failed) and read them through the service: the readiness the tab shows,
 when the viewer may load, what the document names, and which members the asset
-route serves. The route tests hold the switch: ``legacy`` serves no analytic
-model, ``bundle`` routes status, the document, the members and generate
-through the bundle.
+route serves. The route tests send status, the document, the members and
+generate through the bundle, and refuse any asset outside it.
 """
 
 from __future__ import annotations
@@ -24,7 +23,6 @@ from unittest import mock
 from fastapi import HTTPException
 
 from app.api import project_viewer_3d as api
-from app.core.config import settings
 from app.core.errors import Conflict
 from app.services import viewer_3d_bundle as v3d
 from app.services.design_bundle.archive import open_archive
@@ -181,31 +179,20 @@ VIEWER = SimpleNamespace(email="viewer@example.com", role="viewer")
 
 
 class RouteTest(unittest.TestCase):
-    """The switch decides: ``legacy`` keeps the mesh routes, ``bundle`` serves the analytic model."""
+    """The routes serve the analytic model; there is no mesh path behind them."""
 
     def setUp(self) -> None:
         self.enterContext(mock.patch.object(api, "get_project_for_role_or_404"))
 
-    def switch(self, value: str) -> None:
-        self.enterContext(mock.patch.object(settings, "PRISM_DESIGN_SOURCE_VIEWER_3D", value))
+    def test_an_asset_outside_the_bundle_is_not_served(self) -> None:
+        with mock.patch.object(v3d, "member") as member, self.assertRaises(HTTPException) as raised:
+            asyncio.run(api.get_webgpu_3d_asset(PROJECT_ID, REVISION_KEY, GENERATOR_DIGEST, "bundle.json", VIEWER))
+        self.assertEqual(raised.exception.status_code, 404)
+        member.assert_not_called()
 
-    def test_legacy_serves_no_analytic_model(self) -> None:
-        self.switch("legacy")
-        for call in (
-            lambda: api.get_webgpu_3d_analytic(PROJECT_ID, COMMIT, VIEWER),
-            lambda: api.get_webgpu_3d_asset(PROJECT_ID, REVISION_KEY, GENERATOR_DIGEST, f"design-bundle/{v3d.PACK}", VIEWER),
-        ):
-            with self.assertRaises(HTTPException) as raised:
-                asyncio.run(call())
-            self.assertEqual(raised.exception.status_code, 404)
-        with mock.patch.object(api.semantic_visualizer_service, "get_status_fast", return_value={"status": "ready"}) as legacy:
-            self.assertEqual(asyncio.run(api.get_webgpu_3d_status(PROJECT_ID, COMMIT, False, VIEWER)), {"status": "ready"})
-        legacy.assert_called_once()
-
-    def test_bundle_serves_status_document_and_members(self) -> None:
-        self.switch("bundle")
+    def test_status_document_and_members_come_from_the_bundle(self) -> None:
         with mock.patch.object(v3d, "status", return_value={"status": "building"}) as status:
-            self.assertEqual(asyncio.run(api.get_webgpu_3d_status(PROJECT_ID, COMMIT, False, VIEWER)), {"status": "building"})
+            self.assertEqual(asyncio.run(api.get_webgpu_3d_status(PROJECT_ID, COMMIT, VIEWER)), {"status": "building"})
         status.assert_called_once_with(PROJECT_ID, COMMIT, requested_by=VIEWER.email)
         document = {"schema": v3d.DOCUMENT_SCHEMA}
         with mock.patch.object(v3d, "document", return_value=document):
@@ -221,8 +208,7 @@ class RouteTest(unittest.TestCase):
             asyncio.run(api.get_webgpu_3d_analytic(PROJECT_ID, COMMIT, VIEWER))
         self.assertEqual(raised.exception.status_code, 404)
 
-    def test_bundle_generate_queues_the_bundle_and_force_rebuilds_it(self) -> None:
-        self.switch("bundle")
+    def test_generate_queues_the_bundle_and_force_rebuilds_it(self) -> None:
         with mock.patch.object(api.bundle_jobs, "start_design_bundle_job", return_value="job_1") as start:
             answer = asyncio.run(api.generate_webgpu_3d(PROJECT_ID, api.WebGpu3dGenerateRequest(commit=COMMIT), VIEWER))
         self.assertEqual(answer, {"job_id": "job_1"})

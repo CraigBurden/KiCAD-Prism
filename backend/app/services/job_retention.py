@@ -78,7 +78,6 @@ def _prune_batch(
                 WHERE job.status IN ('completed', 'failed', 'cancelled')
                   AND COALESCE(job.completed_at, job.updated_at) < NOW() - (
                       CASE WHEN job.kind = ANY(%s) THEN %s ELSE %s END * INTERVAL '1 second')
-                  AND NOT EXISTS (SELECT 1 FROM ws_webgpu_ready ready WHERE ready.source_job_id = job.id)
                   AND NOT EXISTS (SELECT 1 FROM ws_artifacts artifact WHERE artifact.source_job_id = job.id)
                   AND NOT EXISTS (SELECT 1 FROM ws_release_builds build WHERE build.job_id = job.id)
                   AND NOT (

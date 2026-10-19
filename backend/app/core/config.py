@@ -589,7 +589,6 @@ class Settings(PipelineSettings, DesignBundleSettings, SimStudioSettings):
         ),
     )
 
-    PRISM_WEBGPU_CONCURRENCY: int = Field(default=1, ge=1, le=8)
     PRISM_DESIGN_COMPARE_CONCURRENCY: int = Field(default=1, ge=1, le=8)
     PRISM_WORKFLOW_CONCURRENCY: int = Field(default=1, ge=1, le=8)
     PRISM_IMPORT_CONCURRENCY: int = Field(default=1, ge=1, le=8)
@@ -732,10 +731,6 @@ class Settings(PipelineSettings, DesignBundleSettings, SimStudioSettings):
     KICAD_CRUNCHER_PATH: str = Field(
         default="",
         description="kicad-cruncher for Release Studio assembly views and vendor packs. Empty: PATH.",
-    )
-    PRISM_KICAD_NATIVE_PATH: str = Field(
-        default="/usr/local/bin/prism-kicad-native",
-        description="Native PCB geometry helper used by the experimental Rust backend.",
     )
 
     # ===========================================

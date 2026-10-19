@@ -529,13 +529,6 @@ class PrismWorker:
             )
         except Exception:
             logger.exception("Could not queue project fetches")
-        try:  # Git-linked systems (CONTRACTS_P2 §21.4); a failure must not stop project fetches
-            from app.services.systems import git_tracking
-            from app.services.systems.jobs import workspace_connection
-
-            git_tracking.enqueue_due_fetches(workspace_connection, interval_seconds=interval)
-        except Exception:
-            logger.exception("Could not queue system repository fetches")
 
     def schedule_design_bundles(self) -> None:
         """The paced backfill of branch-head bundles and hourly bundle retention (ADR §5, §8).

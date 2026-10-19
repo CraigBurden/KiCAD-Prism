@@ -1,4 +1,4 @@
-"""Catalog "mates with" (CONTRACTS_P2 §18): which parts mate with which.
+"""Catalog "mates with": which parts mate with which.
 
 A pair is stored once with ``part_a < part_b`` and read in both directions.
 Only ``part`` components take part. Board connectors are matched to parts by
@@ -34,21 +34,16 @@ def summary(row: dict) -> dict[str, Any]:
 
 
 def require_modelled(conn: Any, component_id: str) -> dict:
-    """An active part or module: the kinds that carry STEP models (§18.2, SB2-48)."""
-    row = _part_row(conn, component_id)
-    if row is None or not int(row["is_active"] or 0):
-        raise LookupError("Component not found")
-    if str(row["kind"] or "part") not in ("part", "module"):
-        raise ValueError("only parts and modules carry models")
-    return row
+    """An active part: the kind that carries STEP models."""
+    return require_part(conn, component_id, "only parts carry models")
 
 
-def require_part(conn: Any, component_id: str) -> dict:
+def require_part(conn: Any, component_id: str, refusal: str = "only parts mate with parts") -> dict:
     row = _part_row(conn, component_id)
     if row is None or not int(row["is_active"] or 0):
         raise LookupError("Component not found")
     if str(row["kind"] or "part") != "part":
-        raise ValueError("only parts mate with parts")
+        raise ValueError(refusal)
     return row
 
 

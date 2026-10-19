@@ -12,7 +12,6 @@ vi.mock("@/lib/api", () => ({
     readApiError: vi.fn(),
 }));
 
-vi.mock("@/features/system-builder/used-in-panel", () => ({ UsedInPanel: () => null }));
 vi.mock("@/components/markdown-content", () => ({ MarkdownContent: () => null }));
 vi.mock("@/components/release-studio/ReleaseStudioPanel", () => ({ ReleaseStudioPanel: () => null }));
 vi.mock("@/components/visualizer", () => ({

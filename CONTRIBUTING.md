@@ -112,22 +112,9 @@ with its own identity.
 ```bash
 cd kicad-prism-viewer
 npm ci
-npm run test:gltf
 npm run test:viewer
+npm run test:harness
 npm run build
-```
-
-### Native geometry crate
-
-When `kicad-prism-viewer/native/prism-kicad-native/` changed (the toolchain is
-pinned in its `rust-toolchain.toml`; CI and the image also set
-`GEOMETER_SDK_DIR` to the SDK pinned in `backend/Dockerfile`):
-
-```bash
-cd kicad-prism-viewer/native/prism-kicad-native
-cargo fmt --check
-cargo test --release --locked
-cargo clippy --release --locked -- -D warnings
 ```
 
 ### Design compare parser
