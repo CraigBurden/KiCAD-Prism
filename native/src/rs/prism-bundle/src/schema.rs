@@ -177,7 +177,7 @@ pub const SCHEMA_FILES: [(&str, &str); 40] = [
 const ANNOTATIONS: [&str; 6] = ["$schema", "$id", "$defs", "description", "title", "default"];
 
 /// Assertion keywords the validator implements.
-pub const KEYWORDS: [&str; 19] = [
+pub const KEYWORDS: [&str; 21] = [
     "$ref",
     "type",
     "const",
@@ -194,6 +194,8 @@ pub const KEYWORDS: [&str; 19] = [
     "maxLength",
     "minimum",
     "maximum",
+    "exclusiveMinimum",
+    "exclusiveMaximum",
     "anyOf",
     "oneOf",
     "not",
@@ -620,7 +622,9 @@ fn assertion(
         "minItems" | "maxItems" | "uniqueItems" => {
             check_array_size(keyword, value, instance, pointer)
         }
-        "minimum" | "maximum" => check_bound(keyword, value, instance, pointer),
+        "minimum" | "maximum" | "exclusiveMinimum" | "exclusiveMaximum" => {
+            check_bound(keyword, value, instance, pointer)
+        }
         other => fail(
             pointer,
             format!("the validator does not know keyword {other}"),
@@ -697,10 +701,11 @@ fn check_bound(
     let (Some(number), Some(bound)) = (instance.as_f64(), value.as_f64()) else {
         return Ok(());
     };
-    let inside = if keyword == "minimum" {
-        number >= bound
-    } else {
-        number <= bound
+    let inside = match keyword {
+        "minimum" => number >= bound,
+        "exclusiveMinimum" => number > bound,
+        "exclusiveMaximum" => number < bound,
+        _ => number <= bound,
     };
     if inside {
         Ok(())
@@ -744,6 +749,28 @@ mod tests {
                 "unimplemented keyword {keyword}"
             );
         }
+    }
+
+    #[test]
+    fn exclusive_bounds_refuse_the_bound_itself() {
+        let schema = json!(0);
+        assert!(check_bound("exclusiveMinimum", &schema, &json!(0.5), "/x").is_ok());
+        assert!(check_bound("exclusiveMinimum", &schema, &json!(0), "/x").is_err());
+        assert!(check_bound("minimum", &schema, &json!(0), "/x").is_ok());
+        assert!(check_bound("exclusiveMaximum", &schema, &json!(0), "/x").is_err());
+        assert!(check_bound("exclusiveMaximum", &schema, &json!(-1), "/x").is_ok());
+    }
+
+    #[test]
+    fn a_bundle_built_before_harness_wire_lists_still_validates() {
+        // Entries published before format 5 froze their bundle without `harnesses`.
+        let example = concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../../contracts/prism/examples/SystemBundleA0.example.json"
+        );
+        let mut bundle: Value = serde_json::from_slice(&std::fs::read(example).unwrap()).unwrap();
+        bundle.as_object_mut().unwrap().remove("harnesses");
+        validate("prism.system_bundle.a0", &bundle).unwrap();
     }
 
     #[test]

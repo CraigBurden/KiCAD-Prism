@@ -346,6 +346,136 @@ model SystemBundleSplice {
   links: SystemBundleObjectId[];
 }
 
+// --------------------------------------------------------------- harnesses
+
+/** A cavity of an end in use (§16.3). */
+model SystemBundleHarnessCavity {
+  /** The cavity, as the end's `pinMap` names it. */
+  @minLength(1)
+  cavity: string;
+
+  /** The site's pad in it. */
+  pad: PadNumber;
+
+  /** The system net of that pad, when it has one. */
+  net?: SystemBundleNetId;
+
+  /** The resolved contact part (`componentId@revisionId`), when one is chosen. */
+  contact?: string;
+}
+
+/** An end of a harness block and the cavities in use (§16.3). */
+model SystemBundleHarnessEnd {
+  /** The end. */
+  end: SystemBundleObjectId;
+
+  /** Its site's occurrence, when it has a site. */
+  occurrence?: SystemBundleObjectId;
+
+  /** Its site's connector, when it has a site. */
+  connector?: Refdes;
+
+  /** The resolved housing part (`componentId@revisionId`), when one is chosen. */
+  housing?: string;
+
+  /** Cavities in use, in natural order. */
+  cavities: SystemBundleHarnessCavity[];
+}
+
+/** Where a wire of the wire list stops (§16.3). */
+enum SystemBundleTerminalKind {
+  /** A contact of an end. */
+  contact,
+
+  /** A splice. */
+  splice,
+
+  /** A loose end. */
+  loose,
+}
+
+/** One end of a wire of the wire list. */
+model SystemBundleTerminal {
+  /** What it is. */
+  kind: SystemBundleTerminalKind;
+
+  /** The end (`contact`). */
+  end?: SystemBundleObjectId;
+
+  /** The cavity (`contact`). */
+  cavity?: string;
+
+  /** The site's pad in that cavity (`contact`, when the end has a site). */
+  pad?: PadNumber;
+
+  /** The splice (`splice`). */
+  splice?: SystemBundleObjectId;
+
+  /** The loose end (`loose`). */
+  looseEnd?: SystemBundleObjectId;
+}
+
+/** Where a wire of the wire list comes from. */
+enum SystemBundleWireOrigin {
+  /** An explicit `Wire` of the document. */
+  explicit,
+
+  /** A link's default wiring (§8.5). */
+  default,
+}
+
+/** One conductor of a harness (§16.3). */
+model SystemBundleHarnessWire {
+  /** The document wire's id, or `<link>:<pad A>` for a default wire. */
+  @minLength(1)
+  id: string;
+
+  /** Where it comes from. */
+  origin: SystemBundleWireOrigin;
+
+  /** The link it belongs to. */
+  link?: SystemBundleObjectId;
+
+  /** One end. */
+  from: SystemBundleTerminal;
+
+  /** The other end. */
+  to: SystemBundleTerminal;
+
+  /** AWG as written (`"24"`, `"0"`). */
+  gaugeAwg?: string;
+
+  /** Colour. */
+  colour?: string;
+
+  /** Printed label. */
+  label?: string;
+
+  /** The cable that carries it. */
+  cable?: SystemBundleObjectId;
+
+  /** The cable conductor's name. */
+  conductor?: string;
+
+  /** The system net it is on. */
+  net?: SystemBundleNetId;
+
+  /** Joins power or ground pins (§8.5). */
+  suggested: boolean;
+}
+
+/** A harness block's ends and resolved wire list (§16.3). */
+model SystemBundleHarness {
+  /** The harness block. */
+  harness: SystemBundleObjectId;
+
+  /** Its ends, in document order. */
+  ends: SystemBundleHarnessEnd[];
+
+  /** Explicit wires in document order, then each link's default wires. */
+  wires: SystemBundleHarnessWire[];
+}
+
 // ------------------------------------------------------------- suggestions
 
 /** A sub-port suggestion read from a board's design bundle. */
@@ -643,6 +773,13 @@ model SystemBundleA0 {
 
   /** Proposed splices, sorted by `harness`, `end` then `pad` (natural order). */
   splices: SystemBundleSplice[];
+
+  /**
+   * Harness blocks with their resolved wire lists, in document order (§16.3).
+   * Absent from a bundle built before format 5, such as an entry published
+   * earlier; every build writes it.
+   */
+  harnesses?: SystemBundleHarness[];
 
   /** Sub-port suggestions, sorted by `occurrence`, `connector` then `key`, in code point order. */
   suggestions: SystemBundleSuggestion[];

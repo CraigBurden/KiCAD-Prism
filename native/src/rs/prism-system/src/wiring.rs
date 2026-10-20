@@ -108,6 +108,22 @@ fn contact<'h>(harness: &'h Harness, terminal: &Terminal) -> Option<(&'h End, St
     Some((end, cavity_pad(end, terminal.cavity.as_deref()?)))
 }
 
+/// The pads of one mating site that the harness's explicit wires reach.
+fn wired_pads(harness: &Harness, occurrence: &str, connector: &str) -> BTreeSet<String> {
+    harness
+        .wires
+        .iter()
+        .flat_map(|wire| [&wire.from, &wire.to])
+        .filter_map(|terminal| contact(harness, terminal))
+        .filter(|(end, _)| {
+            end.site
+                .as_ref()
+                .is_some_and(|site| site.occurrence == occurrence && site.connector == connector)
+        })
+        .map(|(_, pad)| pad)
+        .collect()
+}
+
 struct SideOf<'a> {
     component: &'a InterfaceComponent,
     pins: Vec<String>,
@@ -170,6 +186,9 @@ fn wire_link(cx: &mut Context<'_>, harness: &Harness, link: &Link) -> LinkOut {
     cx.existing_pads(&link.a.occurrence, component_a, &explicit_a, &objects);
     cx.existing_pads(&link.b.occurrence, component_b, &explicit_b, &objects);
     let cleared: BTreeSet<&String> = link.unmapped.iter().collect();
+    // A pin an explicit wire reaches is wired by it, whatever the wire's far end.
+    let taken_a = wired_pads(harness, &link.a.occurrence, &link.a.connector);
+    let taken_b = wired_pads(harness, &link.b.occurrence, &link.b.connector);
     let mut plan = Plan {
         wires: explicit
             .into_iter()
@@ -178,13 +197,15 @@ fn wire_link(cx: &mut Context<'_>, harness: &Harness, link: &Link) -> LinkOut {
         left_a: side_a
             .pins
             .iter()
-            .filter(|pad| !explicit_a.contains(pad) && !cleared.contains(pad))
+            .filter(|pad| {
+                !explicit_a.contains(pad) && !cleared.contains(pad) && !taken_a.contains(*pad)
+            })
             .cloned()
             .collect(),
         left_b: side_b
             .pins
             .iter()
-            .filter(|pad| !explicit_b.contains(pad))
+            .filter(|pad| !explicit_b.contains(pad) && !taken_b.contains(*pad))
             .cloned()
             .collect(),
         extra: false,

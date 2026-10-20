@@ -34,6 +34,7 @@ def payload(system_id: str) -> dict:
         "mates": [],
         "links": [],
         "splices": [],
+        "harnesses": [],
         "suggestions": [],
         "findings": [],
         "placement": {"occurrences": [], "mates": []},

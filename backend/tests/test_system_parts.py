@@ -204,3 +204,73 @@ class DigestTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class HarnessPartsTest(unittest.TestCase):
+    """Harness parts (CONTRACTS.md §16.1–§16.2)."""
+
+    def harness_document(self) -> dict:
+        return {
+            "occurrences": [],
+            "harnesses": [{
+                "id": "har_1",
+                "ends": [
+                    {"id": "end_a", "housing": {"componentId": "cmp_housing"},
+                     "contacts": {"1": {"componentId": "cmp_contact"}, "2": {"componentId": "cmp_contact"}}},
+                    {"id": "end_b", "contacts": {}},
+                ],
+                "cables": [{"id": "cab_1", "part": {"componentId": "cmp_cable", "revisionId": "rev_c1"}}],
+                "coverings": [{"id": "cov_1", "part": {"componentId": "cmp_sleeve"}}, {"id": "cov_2"}],
+            }],
+        }
+
+    def test_housings_contacts_cables_and_coverings_are_referenced(self) -> None:
+        self.assertEqual(
+            [ref for ref, _, _ in references(self.harness_document())],
+            ["cmp_cable@rev_c1", "cmp_contact", "cmp_housing", "cmp_sleeve"],
+        )
+
+    def test_harness_facts_and_mates_reach_the_input(self) -> None:
+        resolved = {
+            "cmp_housing": ResolvedPart(
+                component_id="cmp_housing", revision_id="rev_h", name="SHR-04V-S-B",
+                harness={"role": "housing", "cavities": 4, "contactFamily": "SSH"},
+                mates_with=(("cmp_header", "BM04B-SRSS-TB"), ("cmp_other", "")),
+            ),
+            "cmp_contact": ResolvedPart(
+                component_id="cmp_contact", revision_id="rev_k", name="SSH-003T-P0.2",
+                harness={"role": "contact", "gaugeMinAwg": "32", "gaugeMaxAwg": "28"},
+            ),
+        }
+        built, _ = build_input(
+            self.harness_document(), None, lookup=lambda component, _revision: resolved.get(component)
+        )
+        schemas.validate(built, "prism.system_parts.a0")
+        by_ref = {entry["ref"]: entry for entry in built["parts"]}
+        self.assertEqual(by_ref["cmp_housing"]["harness"]["cavities"], 4)
+        self.assertEqual(
+            by_ref["cmp_housing"]["matesWith"],
+            [{"componentId": "cmp_header", "mpn": "BM04B-SRSS-TB"}, {"componentId": "cmp_other"}],
+        )
+        self.assertNotIn("matesWith", by_ref["cmp_contact"])
+        self.assertEqual(by_ref["cmp_contact"]["harness"]["gaugeMinAwg"], "32")
+
+
+class HarnessFactsTest(unittest.TestCase):
+    def test_fields_are_read_and_bad_values_left_out(self) -> None:
+        from app.services.catalog.harness_fields import harness_facts
+
+        self.assertIsNone(harness_facts({"harness_cavities": "4"}), "no role, no harness block")
+        self.assertIsNone(harness_facts({"harness_role": "gizmo"}))
+        self.assertEqual(
+            harness_facts({
+                "harness_role": "cable",
+                "harness_conductors": "4",
+                "harness_shielded": "yes",
+                "harness_od_mm": "4.2",
+                "harness_cavities": "2.5",
+                "harness_diameter_min_mm": "-1",
+                "harness_contact_family": "  ",
+            }),
+            {"role": "cable", "conductors": 4, "shielded": True, "odMm": 4.2},
+        )

@@ -150,6 +150,7 @@ class SystemBundleApiTests(SystemBundleWorkspace, unittest.TestCase):
                  "unmappedA": [], "unmappedB": []}
             ],
             "splices": [],
+            "harnesses": [],
             "suggestions": [
                 {"occurrence": "occ_visible", "connector": "J2", "key": "power", "name": "Power",
                  "source": "power", "pins": ["1", "2"]},

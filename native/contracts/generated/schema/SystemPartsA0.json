@@ -60,6 +60,17 @@
                 "model": {
                     "$ref": "#/$defs/SystemPartsModel",
                     "description": "Its 3D model, when one is converted."
+                },
+                "harness": {
+                    "$ref": "#/$defs/SystemPartsHarness",
+                    "description": "Its harness attributes, when it has a harness role (§16.2)."
+                },
+                "matesWith": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/$defs/SystemPartsMate"
+                    },
+                    "description": "A housing's mating parts (**mates with**), sorted by MPN (case-folded) then component id."
                 }
             },
             "required": [
@@ -163,6 +174,90 @@
             },
             "description": "The part's converted 3D model."
         },
+        "SystemPartsHarness": {
+            "type": "object",
+            "properties": {
+                "role": {
+                    "$ref": "#/$defs/SystemPartsHarnessRole",
+                    "description": "The role."
+                },
+                "cavities": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 2147483647,
+                    "description": "A housing's cavity count."
+                },
+                "contactFamily": {
+                    "type": "string",
+                    "description": "The contact family a housing takes or a contact belongs to."
+                },
+                "gaugeMinAwg": {
+                    "type": "string",
+                    "description": "A contact's thinnest gauge, AWG as written."
+                },
+                "gaugeMaxAwg": {
+                    "type": "string",
+                    "description": "A contact's thickest gauge, AWG as written."
+                },
+                "conductors": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 2147483647,
+                    "description": "A cable's conductor count, a drain counting as one."
+                },
+                "shielded": {
+                    "type": "boolean",
+                    "description": "A cable has a shield."
+                },
+                "odMm": {
+                    "type": "number",
+                    "exclusiveMinimum": 0,
+                    "description": "A cable's outer diameter, mm."
+                },
+                "diameterMinMm": {
+                    "type": "number",
+                    "exclusiveMinimum": 0,
+                    "description": "The smallest bundle diameter a covering fits, mm."
+                },
+                "diameterMaxMm": {
+                    "type": "number",
+                    "exclusiveMinimum": 0,
+                    "description": "The largest bundle diameter a covering fits, mm."
+                },
+                "shrinkRatio": {
+                    "type": "number",
+                    "exclusiveMinimum": 0,
+                    "description": "Heat-shrink: expanded over recovered."
+                }
+            },
+            "required": [
+                "role"
+            ],
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "A part's harness attributes (§16.2); absent values were blank or unparseable."
+        },
+        "SystemPartsMate": {
+            "type": "object",
+            "properties": {
+                "componentId": {
+                    "$ref": "#/$defs/SystemPartsCatalogId",
+                    "description": "The catalog component."
+                },
+                "mpn": {
+                    "type": "string",
+                    "description": "Its current revision's MPN, when it has one."
+                }
+            },
+            "required": [
+                "componentId"
+            ],
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "A part a housing mates with."
+        },
         "SystemPartsPath": {
             "type": "string",
             "pattern": "^[A-Za-z0-9_][A-Za-z0-9_./-]{0,254}$",
@@ -198,6 +293,21 @@
                 "not": {}
             },
             "description": "A point in the part's frame, in nanometres."
+        },
+        "SystemPartsHarnessRole": {
+            "type": "string",
+            "enum": [
+                "housing",
+                "contact",
+                "cable",
+                "sleeve",
+                "heat-shrink",
+                "tape",
+                "zip-ties",
+                "label",
+                "marker"
+            ],
+            "description": "A harness part's role (CONTRACTS.md §16.1)."
         },
         "Nanometres": {
             "type": "integer",

@@ -5,8 +5,8 @@ using TypeSpec.JsonSchema;
 using Prism.Contracts.Common;
 
 /**
- * Catalog parts a system build reads (System Builder v2 stage 3d, ADR §2.1,
- * §2.6): each body occurrence's part and each body connector's part, with the
+ * Catalog parts a system build reads (System Builder v2 stages 3d and 4a): each
+ * body occurrence's part, each body connector's part and each harness part, with the
  * symbol and footprint files staged beside this file and the part's 3D model
  * bounds. `prism.system_parts.a0` is the input of
  * `prism-kicad system build --parts`; the rules are in
@@ -82,6 +82,87 @@ model SystemPartsModel {
   boundsMax: SystemPartsVectorNm;
 }
 
+/** A harness part's role (CONTRACTS.md §16.1). */
+enum SystemPartsHarnessRole {
+  /** Takes contacts in cavities and mates with a board connector. */
+  housing,
+
+  /** Crimped or soldered onto a wire, seated in a housing's cavity. */
+  contact,
+
+  /** A jacketed multi-conductor cable. */
+  cable,
+
+  /** A sleeve over a bundle segment. */
+  sleeve,
+
+  /** Heat-shrink tubing over a bundle segment. */
+  `heat-shrink`,
+
+  /** Tape wrapped over a bundle segment. */
+  tape,
+
+  /** Zip ties along a bundle segment. */
+  `zip-ties`,
+
+  /** A printed wire label. */
+  label,
+
+  /** A heat-shrink marker. */
+  marker,
+}
+
+/** A part's harness attributes (§16.2); absent values were blank or unparseable. */
+model SystemPartsHarness {
+  /** The role. */
+  role: SystemPartsHarnessRole;
+
+  /** A housing's cavity count. */
+  @minValue(1)
+  cavities?: int32;
+
+  /** The contact family a housing takes or a contact belongs to. */
+  contactFamily?: string;
+
+  /** A contact's thinnest gauge, AWG as written. */
+  gaugeMinAwg?: string;
+
+  /** A contact's thickest gauge, AWG as written. */
+  gaugeMaxAwg?: string;
+
+  /** A cable's conductor count, a drain counting as one. */
+  @minValue(1)
+  conductors?: int32;
+
+  /** A cable has a shield. */
+  shielded?: boolean;
+
+  /** A cable's outer diameter, mm. */
+  @minValueExclusive(0)
+  odMm?: float64;
+
+  /** The smallest bundle diameter a covering fits, mm. */
+  @minValueExclusive(0)
+  diameterMinMm?: float64;
+
+  /** The largest bundle diameter a covering fits, mm. */
+  @minValueExclusive(0)
+  diameterMaxMm?: float64;
+
+  /** Heat-shrink: expanded over recovered. */
+  @minValueExclusive(0)
+  shrinkRatio?: float64;
+}
+
+/** A part a housing mates with. */
+model SystemPartsMate {
+  /** The catalog component. */
+  componentId: SystemPartsCatalogId;
+
+  /** Its current revision's MPN, when it has one. */
+  mpn?: string;
+}
+
 /** One part as the document references it. */
 model SystemPartsEntry {
   /** The reference as the document spells it. */
@@ -107,6 +188,12 @@ model SystemPartsEntry {
 
   /** Its 3D model, when one is converted. */
   `model`?: SystemPartsModel;
+
+  /** Its harness attributes, when it has a harness role (§16.2). */
+  harness?: SystemPartsHarness;
+
+  /** A housing's mating parts (**mates with**), sorted by MPN (case-folded) then component id. */
+  matesWith?: SystemPartsMate[];
 }
 
 /**

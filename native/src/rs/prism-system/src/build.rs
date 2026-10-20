@@ -14,7 +14,7 @@ use crate::output::{
     PinRef, PlacementOut, SCHEMA, SystemBundle,
 };
 use crate::{arrangement, body};
-use crate::{nets, suggestions, wiring};
+use crate::{harness, nets, suggestions, wiring};
 use std::collections::{BTreeMap, BTreeSet};
 
 /// Build the system bundle of `doc` over `members`; `document_sha256` is the
@@ -42,6 +42,7 @@ pub fn build(doc: &Document, members: &Members, document_sha256: String) -> Syst
         .collect();
     let wired = wiring::wire(&mut cx, &mut edges);
     let nets = nets::system_nets(&mut cx, &named, &edges);
+    let harnesses = harness::resolve(&mut cx, &wired.links, &nets);
     let suggestions = suggestions::suggest(&cx, &named);
     let placement = arrangement::arrange(&mut cx, doc);
     SystemBundle {
@@ -52,6 +53,7 @@ pub fn build(doc: &Document, members: &Members, document_sha256: String) -> Syst
         mates,
         links: wired.links,
         splices: wired.splices,
+        harnesses,
         suggestions,
         findings: cx.findings.finish(&doc.waivers),
         placement,

@@ -316,7 +316,7 @@ Derived state (ADR §3.3). It is a pure function of the document and the design 
 
 `links[]`, one per harness link: `{ harness, link, wires[{a, b, rule, suggested}], unmappedA[], unmappedB[] }`. Side A's pins are its endpoint's sub-port pins in order, or else the connector's pins in natural order; side B's likewise.
 
-1. **`explicit`:** each explicit wire of the link, mapped through each end's `pinMap` (cavity to pad; identity when empty), takes its A pad.
+1. **`explicit`:** each explicit wire of the link between a contact on each side, mapped through each end's `pinMap` (cavity to pad; identity when empty), takes its A pad. A pad any explicit wire of the harness reaches through a contact, whatever its other terminal (a splice, a loose end), is left out of every link's default wiring on that site (stage 4a: a pin routed through a splice or to a drain is wired once).
 2. **`sub-port-order`:** when both sides name sub-ports of equal size, the remaining pins map in order.
 3. **`net-name`:** otherwise, remaining pins pair by equal board net name (`net`). Several pins on one name pair in pad order; the extras are left unmapped and reported as `duplicate-net-extra`.
 4. Pads in the link's `unmapped` are removed from the default wiring. Whatever is left is `unmappedA`/`unmappedB`; pin N is never matched to pin N by position alone.
@@ -723,3 +723,60 @@ Script API additions: `describeMate(mate)` returns the tab's data (sides, source
 - **Publish dialog.** The identity pills: *Bought-out · MPN* and *In-house · IPN*. Before the first publish, bought-out is preselected for a system with a body and no boards (a module), in-house otherwise; afterwards the published identity is fixed and its numbers are shown read-only (§11.4). It lists the STEP row (bought-out: the body whose model the entry carries, or what is missing), the interface (each export and its pins' names, sub-ports as `NAME{members}`) and the checks (§11.2 step 3, from the live bundle: exports, bundle ready, unwaived errors, entries released, and for bought-out a body with its model). **Publish to QA review** publishes; while the bundle is building the answer `system_bundle_not_ready` is retried until it is ready, and a refusal names what failed. The result names the new revision and its stage and links to it in Library Manager.
 
 Script API additions: `setExport({ occurrence, connector, subPort?, name? })` adds or renames an export, `removeExport(id)`, `namePin({ export, pad, name })` sets one of its `pinNames` (empty clears it), and `publish({ identity?, ipn?, manufacturer?, mpn?, changeSummary })`.
+
+## 16. Harnesses (stage 4)
+
+Stage 4 builds the harness on the §2.5 document and the §8.5 wiring in four parts: 4a the parts and the resolved wire list (headless), 4b the harness tab, 4c routing and geometry in 3D, 4d the harness document, CSV and `prism.harness.v1`.
+
+A harness is defined in its own tab, a configurator in the manner of MiniProto's (ADR decision 5): ends, contacts, wires, splices, cables and coverings are chosen there. The schematic only places the block and draws the links that join it to connectors (§14).
+
+### 16.1 Harness parts (4a)
+
+Housings, contacts, cables and coverings are ordinary catalog `part`s (ADR §2.5). Their harness attributes are catalog metadata fields in the group `harness`, seeded by catalog migration 15 as built-in field definitions stored in a revision's `extra_fields`, so they are versioned and reviewed with the revision like any other field. All are optional. They appear in the metadata grid and CSV like other fields, but not in the KiCad DBL export: they describe wiring parts, not symbols.
+
+| Key | Type | For | Meaning |
+|---|---|---|---|
+| `harness_role` | enum | all | `housing`, `contact`, `cable`, `sleeve`, `heat-shrink`, `tape`, `zip-ties`, `label`, `marker` |
+| `harness_cavities` | number | housing | cavity count |
+| `harness_contact_family` | text | housing, contact | the family a housing takes and a contact belongs to |
+| `harness_gauge_min_awg`, `harness_gauge_max_awg` | text | contact | the gauge range, AWG as written (`"28"`, `"0"`, `"00"`); min is the thinnest |
+| `harness_conductors` | number | cable | conductor count, a drain counting as one |
+| `harness_shielded` | boolean | cable | has a shield |
+| `harness_od_mm` | number | cable | outer diameter |
+| `harness_diameter_min_mm`, `harness_diameter_max_mm` | number | sleeve, heat-shrink | the bundle diameters it fits (heat-shrink: recovered and expanded) |
+| `harness_shrink_ratio` | number | heat-shrink | expanded over recovered |
+
+A housing's mating board connectors are the existing **mates with** relation (`/api/catalog/components/{id}/mates-with`).
+
+**Quick-create.** The harness tab (4b) creates a missing part through the ordinary catalog create with `kind: part`, these fields pre-filled in `extra_fields` and the role's category; the part then follows the normal review.
+
+### 16.2 In the build (4a)
+
+`--parts` (§8.10) also lists every harness part the document references: each end's `housing` and `contacts`, each cable's and each covering's `part`. A part with a valid `harness_role` carries `harness: { role, cavities?, contactFamily?, gaugeMinAwg?, gaugeMaxAwg?, conductors?, shielded?, odMm?, diameterMinMm?, diameterMaxMm?, shrinkRatio? }` (blank or unparseable values left out: a count must be a whole number of at least one, a measure positive). A housing also carries `matesWith: [{ componentId, mpn? }]`, its **mates with** partners with their current revisions' MPNs. Adding them changes the `parts` digest, so the key (§8.1) follows.
+
+### 16.3 The wire list (4a)
+
+The system bundle gains `harnesses[]`, one per harness block, in document order: `{ harness, ends[], wires[] }`. Every build writes it; a bundle built before format 5, such as the frozen bundle of an entry published earlier (§11.1), has none, and a reader treats that as no wire list.
+
+- **`ends[]`**, in document order: `{ end, site?, housing?, cavities[] }`. `housing` is the resolved reference (`componentId@revisionId`) or absent. `cavities[]` lists each cavity in use, in natural order: `{ cavity, pad, net?, contact? }`. A cavity is the pad's through `pinMap` (identity when empty); `net` is the system net id of the site's pad; `contact` the resolved reference from the end's `contacts`.
+- **`wires[]`**: every conductor of the harness, explicit wires in document order, then each link's default wires (§8.5) in link order and side A's pin order. Each is `{ id, origin, link?, from, to, gaugeAwg?, colour?, label?, cable?, conductor?, net?, suggested }`:
+  - `origin`: `explicit`, or `default` (id `<link>:<pad A>`);
+  - `from`/`to`: `{ kind: "contact", end, cavity, pad }`, `{ kind: "splice", splice }` or `{ kind: "loose", looseEnd }`; a default wire runs from the end on side A's site to the end on side B's;
+  - `cable`/`conductor`: the cable and conductor name that carry it (`Cable.conductors[].wire`);
+  - `net`: the system net it is on, absent for a wire between splices and loose ends only;
+  - `suggested`: as §8.5.
+
+### 16.4 Findings (4a)
+
+| Code | Severity | Subject | When |
+|---|---|---|---|
+| `harness-part-missing` | error | `end:<id>`, `cable:<id>` or `covering:<id>` | a housing, contact, cable or covering part is not in the catalog, or a reference without a revision finds no released one |
+| `housing-not-mating` | warning | `end:<id>` | the housing does not list the site's connector in **mates with**: by component id for a body connector, else by MPN (case and spaces ignored); not raised when the site's connector has no MPN |
+| `housing-cavities-short` | error | `end:<id>` | a cavity in use, or in `pinMap`, is above the housing's `harness_cavities` |
+| `contact-family-mismatch` | warning | `end:<id>` | a contact's family differs from its housing's |
+| `contact-gauge-mismatch` | warning | `wire:<id>` | the wire's gauge is outside a contact's range at either end (a default wire has no gauge and is never raised) |
+| `wire-gauge-unknown` | info | `harness:<id>` | wires of the harness have no gauge; the message counts them (4c needs gauges for bundle diameters) |
+| `cable-conductors-mismatch` | warning | `cable:<id>` | the cable's conductors differ in number from its part's `harness_conductors` |
+| `wire-terminal-invalid` | error | `wire:<id>` | a terminal names an end, cavity, splice or loose end the harness lacks |
+
+A connector whose board revision changed is checked as any other: a pad that vanished is `pin-missing`, a part change shows as `housing-not-mating`.

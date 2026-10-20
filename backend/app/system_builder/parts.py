@@ -1,7 +1,9 @@
 """The catalog parts a system build reads (CONTRACTS.md §8.10).
 
 A body occurrence places a mechanical catalog part and its body connectors place
-connector parts on it. ``prism-kicad system build --parts`` receives those parts
+connector parts on it; a harness names housing, contact, cable and covering
+parts (§16.2), which also carry their harness attributes and, for a housing,
+the parts it mates with. ``prism-kicad system build --parts`` receives those parts
 as one ``prism.system_parts.a0`` document: each part's resolved revision, name
 and MPN, its symbol and footprint staged beside the document, and its converted
 model's box in the part's frame. The reference is exactly what the document
@@ -21,7 +23,9 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Iterable, Mapping, Sequence
 
-from app.services.catalog import models
+from app.services.catalog import mates, models
+from app.services.catalog.harness_fields import harness_facts
+from app.services.catalog.normalization import json_loads
 from app.services.catalog.workflow_policy import normalize_workflow_stage
 from app.services.design_bundle import schemas
 from app.system_builder import members as member_view
@@ -71,6 +75,8 @@ class ResolvedPart:
     symbol: SymbolAsset | None = None
     footprint: FootprintAsset | None = None
     model: ModelAsset | None = None
+    harness: Mapping[str, Any] | None = None
+    mates_with: tuple[tuple[str, str], ...] = ()
 
 
 # ------------------------------------------------------------- references
@@ -92,8 +98,9 @@ def _part_ref(value: Mapping[str, Any] | None) -> tuple[str, str | None] | None:
 def references(document: Mapping[str, Any]) -> list[tuple[str, str, str | None]]:
     """Every distinct part the document names, as ``(ref, componentId, revisionId)``.
 
-    Each body occurrence's source and each body connector's ``part``, keyed by
-    the reference exactly as the document spells it; sorted by ``ref``.
+    Each body occurrence's source, each body connector's ``part``, and each
+    harness's housings, contacts, cable parts and covering parts, keyed by the
+    reference exactly as the document spells it; sorted by ``ref``.
     """
 
     found: dict[str, tuple[str, str | None]] = {}
@@ -104,8 +111,17 @@ def references(document: Mapping[str, Any]) -> list[tuple[str, str, str | None]]
         part = _part_ref(source)
         if part is not None:
             found.setdefault(_reference(*part), part)
-    for connector in document.get("bodyConnectors") or []:
-        part = _part_ref(connector.get("part"))
+    named: list[Mapping[str, Any] | None] = [
+        connector.get("part") for connector in document.get("bodyConnectors") or []
+    ]
+    for harness in document.get("harnesses") or []:
+        for end in harness.get("ends") or []:
+            named.append(end.get("housing"))
+            named.extend((end.get("contacts") or {}).values())
+        named.extend(item.get("part") for item in harness.get("cables") or [])
+        named.extend(item.get("part") for item in harness.get("coverings") or [])
+    for value in named:
+        part = _part_ref(value)
         if part is not None:
             found.setdefault(_reference(*part), part)
     return [(ref, *found[ref]) for ref in sorted(found)]
@@ -235,6 +251,12 @@ def catalog_lookup(component_id: str, revision_id: str | None) -> ResolvedPart |
         symbol_row = _first_asset(rows, "symbol")
         footprint_row = _first_asset(rows, "footprint")
         model = _model(conn, component_id, str(revision["id"]))
+        harness = harness_facts(json_loads(revision.get("extra_fields"), {}))
+        mates_with: tuple[tuple[str, str], ...] = ()
+        if harness is not None and harness.get("role") == "housing":
+            mates_with = tuple(
+                (str(item["componentId"]), str(item["mpn"])) for item in mates.list_mates(conn, component_id)
+            )
 
     mpn = str(revision["mpn"] or "").strip() or None
     symbol = None
@@ -258,6 +280,8 @@ def catalog_lookup(component_id: str, revision_id: str | None) -> ResolvedPart |
         symbol=symbol,
         footprint=footprint,
         model=model,
+        harness=harness,
+        mates_with=mates_with,
     )
 
 
@@ -326,6 +350,12 @@ def build_input(
                 "boundsMin": _vector_nm(part.model.bounds_min_mm),
                 "boundsMax": _vector_nm(part.model.bounds_max_mm),
             }
+        if part.harness is not None:
+            entry["harness"] = dict(part.harness)
+        if part.mates_with:
+            entry["matesWith"] = [
+                {"componentId": component, **({"mpn": mpn} if mpn else {})} for component, mpn in part.mates_with
+            ]
         parts.append(entry)
     result = {"schema": SCHEMA, "parts": parts}
     schemas.validate(result, SCHEMA)

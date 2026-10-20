@@ -270,6 +270,12 @@ pub struct End {
     /// Cavity-to-pad pairs; empty means cavity n is pad n.
     #[serde(default)]
     pub pin_map: Vec<CavityPad>,
+    /// The housing part, once chosen.
+    #[serde(default)]
+    pub housing: Option<PartRef>,
+    /// Contact parts by cavity.
+    #[serde(default)]
+    pub contacts: BTreeMap<String, PartRef>,
 }
 
 /// A schematic harness wire between two endpoints.
@@ -301,6 +307,9 @@ pub struct Terminal {
     /// The splice, for a splice terminal.
     #[serde(default)]
     pub splice: Option<String>,
+    /// The loose end, for a loose terminal.
+    #[serde(default)]
+    pub loose_end: Option<String>,
 }
 
 /// An explicit wire.
@@ -315,6 +324,15 @@ pub struct Wire {
     /// The link whose default wire it replaces.
     #[serde(default)]
     pub link: Option<String>,
+    /// AWG as written (`"24"`, `"0"`).
+    #[serde(default, rename = "gaugeAwg")]
+    pub gauge_awg: Option<String>,
+    /// Colour.
+    #[serde(default)]
+    pub colour: Option<String>,
+    /// Printed label.
+    #[serde(default)]
+    pub label: Option<String>,
 }
 
 /// A splice.
@@ -345,6 +363,58 @@ pub struct Harness {
     /// Splices.
     #[serde(default)]
     pub splices: Vec<Splice>,
+    /// Cables.
+    #[serde(default)]
+    pub cables: Vec<Cable>,
+    /// Coverings.
+    #[serde(default)]
+    pub coverings: Vec<Covering>,
+    /// Loose ends.
+    #[serde(default, rename = "looseEnds")]
+    pub loose_ends: Vec<LooseEnd>,
+}
+
+/// One conductor of a cable.
+#[derive(Clone, Debug, Deserialize)]
+pub struct Conductor {
+    /// Its name.
+    pub name: String,
+    /// The wire it carries.
+    #[serde(default)]
+    pub wire: Option<String>,
+    /// Whether it is the shield drain.
+    #[serde(default)]
+    pub drain: bool,
+}
+
+/// A jacketed multi-conductor cable.
+#[derive(Clone, Debug, Deserialize)]
+pub struct Cable {
+    /// Its id.
+    pub id: String,
+    /// The cable part.
+    #[serde(default)]
+    pub part: Option<PartRef>,
+    /// Its conductors in the cable's order.
+    #[serde(default)]
+    pub conductors: Vec<Conductor>,
+}
+
+/// A covering on a segment.
+#[derive(Clone, Debug, Deserialize)]
+pub struct Covering {
+    /// Its id.
+    pub id: String,
+    /// The covering part.
+    #[serde(default)]
+    pub part: Option<PartRef>,
+}
+
+/// An end left open.
+#[derive(Clone, Debug, Deserialize)]
+pub struct LooseEnd {
+    /// Its id.
+    pub id: String,
 }
 
 /// An export.
@@ -599,6 +669,44 @@ pub struct PartFacts {
     pub courtyard: Option<Courtyard>,
     /// Its 3D model's box in the part's frame; `None` without a converted model.
     pub model_bounds: Option<Bounds>,
+    /// Its harness attributes, when it has a harness role (§16.2).
+    pub harness: Option<HarnessFacts>,
+    /// A housing's mating parts (**mates with**).
+    pub mates_with: Vec<PartMate>,
+}
+
+/// A part's harness attributes (`SystemPartsHarness`, §16.2).
+#[derive(Clone, Debug, Default, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HarnessFacts {
+    /// `housing`, `contact`, `cable`, …
+    pub role: String,
+    /// A housing's cavity count.
+    #[serde(default)]
+    pub cavities: Option<u32>,
+    /// The contact family a housing takes or a contact belongs to.
+    #[serde(default)]
+    pub contact_family: Option<String>,
+    /// A contact's thinnest gauge, AWG as written.
+    #[serde(default)]
+    pub gauge_min_awg: Option<String>,
+    /// A contact's thickest gauge, AWG as written.
+    #[serde(default)]
+    pub gauge_max_awg: Option<String>,
+    /// A cable's conductor count.
+    #[serde(default)]
+    pub conductors: Option<u32>,
+}
+
+/// A part a housing mates with (`SystemPartsMate`).
+#[derive(Clone, Debug, Default, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PartMate {
+    /// The catalog component.
+    pub component_id: String,
+    /// Its current revision's MPN.
+    #[serde(default)]
+    pub mpn: Option<String>,
 }
 
 /// What a build derives for a member whose connectors sit at their own poses

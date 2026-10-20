@@ -9,7 +9,7 @@ use prism_bundle::{Failure, Limits, Outcome, generator, schema};
 use prism_kicad_core::{
     FootprintLimits, FootprintView, PcbGraphic, PcbGraphicKind, PcbPoint, SchematicBundleLimits,
 };
-use prism_system::input::{PartFacts, PartPin};
+use prism_system::input::{HarnessFacts, PartFacts, PartMate, PartPin};
 use prism_system::placement::frames::{Courtyard, PadGeometry};
 use prism_system::placement::poses::Bounds;
 use serde::Deserialize;
@@ -42,6 +42,10 @@ struct PartEntry {
     footprint: Option<FileEntry>,
     #[serde(default)]
     model: Option<ModelEntry>,
+    #[serde(default)]
+    harness: Option<HarnessFacts>,
+    #[serde(default)]
+    mates_with: Vec<PartMate>,
 }
 
 #[derive(Deserialize)]
@@ -142,6 +146,8 @@ fn part_facts(entry: &PartEntry, base: &Path, limits: &Limits) -> Outcome<PartFa
             min_mm: mm(&model.bounds_min),
             max_mm: mm(&model.bounds_max),
         }),
+        harness: entry.harness.clone(),
+        mates_with: entry.mates_with.clone(),
     })
 }
 

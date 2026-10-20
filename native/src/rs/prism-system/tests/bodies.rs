@@ -50,6 +50,7 @@ fn header_part(with_symbol: bool) -> PartFacts {
         footprint_name: None,
         courtyard: None,
         model_bounds: None,
+        ..PartFacts::default()
     }
 }
 
@@ -67,6 +68,7 @@ fn box_part(with_model: bool) -> PartFacts {
             min_mm: [-30.0, -20.0, 0.0],
             max_mm: [30.0, 20.0, 15.0],
         }),
+        ..PartFacts::default()
     }
 }
 

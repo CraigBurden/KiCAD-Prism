@@ -47,6 +47,13 @@
             },
             "description": "Proposed splices, sorted by `harness`, `end` then `pad` (natural order)."
         },
+        "harnesses": {
+            "type": "array",
+            "items": {
+                "$ref": "#/$defs/SystemBundleHarness"
+            },
+            "description": "Harness blocks with their resolved wire lists, in document order (§16.3).\nAbsent from a bundle built before format 5, such as an entry published\nearlier; every build writes it."
+        },
         "suggestions": {
             "type": "array",
             "items": {
@@ -302,6 +309,38 @@
                 "not": {}
             },
             "description": "A pin of one mating site that two links wire: a proposed splice."
+        },
+        "SystemBundleHarness": {
+            "type": "object",
+            "properties": {
+                "harness": {
+                    "$ref": "#/$defs/SystemBundleObjectId",
+                    "description": "The harness block."
+                },
+                "ends": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/$defs/SystemBundleHarnessEnd"
+                    },
+                    "description": "Its ends, in document order."
+                },
+                "wires": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/$defs/SystemBundleHarnessWire"
+                    },
+                    "description": "Explicit wires in document order, then each link's default wires."
+                }
+            },
+            "required": [
+                "harness",
+                "ends",
+                "wires"
+            ],
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "A harness block's ends and resolved wire list (§16.3)."
         },
         "SystemBundleSuggestion": {
             "type": "object",
@@ -658,6 +697,107 @@
             },
             "description": "One wire of a harness link's wiring."
         },
+        "SystemBundleHarnessEnd": {
+            "type": "object",
+            "properties": {
+                "end": {
+                    "$ref": "#/$defs/SystemBundleObjectId",
+                    "description": "The end."
+                },
+                "occurrence": {
+                    "$ref": "#/$defs/SystemBundleObjectId",
+                    "description": "Its site's occurrence, when it has a site."
+                },
+                "connector": {
+                    "$ref": "#/$defs/Refdes",
+                    "description": "Its site's connector, when it has a site."
+                },
+                "housing": {
+                    "type": "string",
+                    "description": "The resolved housing part (`componentId@revisionId`), when one is chosen."
+                },
+                "cavities": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/$defs/SystemBundleHarnessCavity"
+                    },
+                    "description": "Cavities in use, in natural order."
+                }
+            },
+            "required": [
+                "end",
+                "cavities"
+            ],
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "An end of a harness block and the cavities in use (§16.3)."
+        },
+        "SystemBundleHarnessWire": {
+            "type": "object",
+            "properties": {
+                "id": {
+                    "type": "string",
+                    "minLength": 1,
+                    "description": "The document wire's id, or `<link>:<pad A>` for a default wire."
+                },
+                "origin": {
+                    "$ref": "#/$defs/SystemBundleWireOrigin",
+                    "description": "Where it comes from."
+                },
+                "link": {
+                    "$ref": "#/$defs/SystemBundleObjectId",
+                    "description": "The link it belongs to."
+                },
+                "from": {
+                    "$ref": "#/$defs/SystemBundleTerminal",
+                    "description": "One end."
+                },
+                "to": {
+                    "$ref": "#/$defs/SystemBundleTerminal",
+                    "description": "The other end."
+                },
+                "gaugeAwg": {
+                    "type": "string",
+                    "description": "AWG as written (`\"24\"`, `\"0\"`)."
+                },
+                "colour": {
+                    "type": "string",
+                    "description": "Colour."
+                },
+                "label": {
+                    "type": "string",
+                    "description": "Printed label."
+                },
+                "cable": {
+                    "$ref": "#/$defs/SystemBundleObjectId",
+                    "description": "The cable that carries it."
+                },
+                "conductor": {
+                    "type": "string",
+                    "description": "The cable conductor's name."
+                },
+                "net": {
+                    "$ref": "#/$defs/SystemBundleNetId",
+                    "description": "The system net it is on."
+                },
+                "suggested": {
+                    "type": "boolean",
+                    "description": "Joins power or ground pins (§8.5)."
+                }
+            },
+            "required": [
+                "id",
+                "origin",
+                "from",
+                "to",
+                "suggested"
+            ],
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "One conductor of a harness (§16.3)."
+        },
         "Refdes": {
             "type": "string",
             "minLength": 1,
@@ -919,6 +1059,80 @@
             ],
             "description": "Which rule wired a pin pair of a harness link."
         },
+        "SystemBundleHarnessCavity": {
+            "type": "object",
+            "properties": {
+                "cavity": {
+                    "type": "string",
+                    "minLength": 1,
+                    "description": "The cavity, as the end's `pinMap` names it."
+                },
+                "pad": {
+                    "$ref": "#/$defs/PadNumber",
+                    "description": "The site's pad in it."
+                },
+                "net": {
+                    "$ref": "#/$defs/SystemBundleNetId",
+                    "description": "The system net of that pad, when it has one."
+                },
+                "contact": {
+                    "type": "string",
+                    "description": "The resolved contact part (`componentId@revisionId`), when one is chosen."
+                }
+            },
+            "required": [
+                "cavity",
+                "pad"
+            ],
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "A cavity of an end in use (§16.3)."
+        },
+        "SystemBundleWireOrigin": {
+            "type": "string",
+            "enum": [
+                "explicit",
+                "default"
+            ],
+            "description": "Where a wire of the wire list comes from."
+        },
+        "SystemBundleTerminal": {
+            "type": "object",
+            "properties": {
+                "kind": {
+                    "$ref": "#/$defs/SystemBundleTerminalKind",
+                    "description": "What it is."
+                },
+                "end": {
+                    "$ref": "#/$defs/SystemBundleObjectId",
+                    "description": "The end (`contact`)."
+                },
+                "cavity": {
+                    "type": "string",
+                    "description": "The cavity (`contact`)."
+                },
+                "pad": {
+                    "$ref": "#/$defs/PadNumber",
+                    "description": "The site's pad in that cavity (`contact`, when the end has a site)."
+                },
+                "splice": {
+                    "$ref": "#/$defs/SystemBundleObjectId",
+                    "description": "The splice (`splice`)."
+                },
+                "looseEnd": {
+                    "$ref": "#/$defs/SystemBundleObjectId",
+                    "description": "The loose end (`loose`)."
+                }
+            },
+            "required": [
+                "kind"
+            ],
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "One end of a wire of the wire list."
+        },
         "SystemBundlePose": {
             "type": "object",
             "properties": {
@@ -1087,6 +1301,15 @@
                 "bottom"
             ],
             "description": "The side of the board a component sits on."
+        },
+        "SystemBundleTerminalKind": {
+            "type": "string",
+            "enum": [
+                "contact",
+                "splice",
+                "loose"
+            ],
+            "description": "Where a wire of the wire list stops (§16.3)."
         },
         "SystemBundleQuaternion": {
             "type": "object",

@@ -53,6 +53,12 @@ export interface SystemBundleA0 {
    */
   splices: SystemBundleSplice[];
   /**
+   * Harness blocks with their resolved wire lists, in document order (§16.3).
+   * Absent from a bundle built before format 5, such as an entry published
+   * earlier; every build writes it.
+   */
+  harnesses?: SystemBundleHarness[];
+  /**
    * Sub-port suggestions, sorted by `occurrence`, `connector` then `key`, in code point order.
    */
   suggestions: SystemBundleSuggestion[];
@@ -385,6 +391,180 @@ export interface SystemBundleSplice {
    * The links that wire it, in code point order.
    */
   links: SystemBundleObjectId[];
+}
+/**
+ * A harness block's ends and resolved wire list (§16.3).
+ */
+export interface SystemBundleHarness {
+  /**
+   * Id of an object in the system document (`prism.system.v2`).
+   */
+  harness: string;
+  /**
+   * Its ends, in document order.
+   */
+  ends: SystemBundleHarnessEnd[];
+  /**
+   * Explicit wires in document order, then each link's default wires.
+   */
+  wires: SystemBundleHarnessWire[];
+}
+/**
+ * An end of a harness block and the cavities in use (§16.3).
+ */
+export interface SystemBundleHarnessEnd {
+  /**
+   * Id of an object in the system document (`prism.system.v2`).
+   */
+  end: string;
+  /**
+   * Id of an object in the system document (`prism.system.v2`).
+   */
+  occurrence?: string;
+  /**
+   * Its site's connector, when it has a site.
+   */
+  connector?: string;
+  /**
+   * The resolved housing part (`componentId@revisionId`), when one is chosen.
+   */
+  housing?: string;
+  /**
+   * Cavities in use, in natural order.
+   */
+  cavities: SystemBundleHarnessCavity[];
+}
+/**
+ * A cavity of an end in use (§16.3).
+ */
+export interface SystemBundleHarnessCavity {
+  /**
+   * The cavity, as the end's `pinMap` names it.
+   */
+  cavity: string;
+  /**
+   * Pad or pin number as written in the file, always a string (`1`, `A1`,
+   * `EP`). Empty for a pad KiCad leaves unnumbered, such as a mechanical
+   * non-plated hole.
+   */
+  pad: string;
+  /**
+   * The system net of that pad, when it has one.
+   */
+  net?: string;
+  /**
+   * The resolved contact part (`componentId@revisionId`), when one is chosen.
+   */
+  contact?: string;
+}
+/**
+ * One conductor of a harness (§16.3).
+ */
+export interface SystemBundleHarnessWire {
+  /**
+   * The document wire's id, or `<link>:<pad A>` for a default wire.
+   */
+  id: string;
+  /**
+   * Where it comes from.
+   */
+  origin: "explicit" | "default";
+  /**
+   * Id of an object in the system document (`prism.system.v2`).
+   */
+  link?: string;
+  from: SystemBundleTerminal;
+  to: SystemBundleTerminal1;
+  /**
+   * AWG as written (`"24"`, `"0"`).
+   */
+  gaugeAwg?: string;
+  /**
+   * Colour.
+   */
+  colour?: string;
+  /**
+   * Printed label.
+   */
+  label?: string;
+  /**
+   * Id of an object in the system document (`prism.system.v2`).
+   */
+  cable?: string;
+  /**
+   * The cable conductor's name.
+   */
+  conductor?: string;
+  /**
+   * The system net it is on.
+   */
+  net?: string;
+  /**
+   * Joins power or ground pins (§8.5).
+   */
+  suggested: boolean;
+}
+/**
+ * One end.
+ */
+export interface SystemBundleTerminal {
+  /**
+   * What it is.
+   */
+  kind: "contact" | "splice" | "loose";
+  /**
+   * Id of an object in the system document (`prism.system.v2`).
+   */
+  end?: string;
+  /**
+   * The cavity (`contact`).
+   */
+  cavity?: string;
+  /**
+   * Pad or pin number as written in the file, always a string (`1`, `A1`,
+   * `EP`). Empty for a pad KiCad leaves unnumbered, such as a mechanical
+   * non-plated hole.
+   */
+  pad?: string;
+  /**
+   * Id of an object in the system document (`prism.system.v2`).
+   */
+  splice?: string;
+  /**
+   * Id of an object in the system document (`prism.system.v2`).
+   */
+  looseEnd?: string;
+}
+/**
+ * The other end.
+ */
+export interface SystemBundleTerminal1 {
+  /**
+   * What it is.
+   */
+  kind: "contact" | "splice" | "loose";
+  /**
+   * Id of an object in the system document (`prism.system.v2`).
+   */
+  end?: string;
+  /**
+   * The cavity (`contact`).
+   */
+  cavity?: string;
+  /**
+   * Pad or pin number as written in the file, always a string (`1`, `A1`,
+   * `EP`). Empty for a pad KiCad leaves unnumbered, such as a mechanical
+   * non-plated hole.
+   */
+  pad?: string;
+  /**
+   * Id of an object in the system document (`prism.system.v2`).
+   */
+  splice?: string;
+  /**
+   * Id of an object in the system document (`prism.system.v2`).
+   */
+  looseEnd?: string;
 }
 /**
  * A sub-port suggestion read from a board's design bundle.
