@@ -7,7 +7,7 @@
  * The open tab and the pane beside it live in the URL (`?tab=…&beside=…`),
  * so a link reopens the same view.
  */
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { ArrowLeft, Boxes, Cable, Columns2, Maximize, MousePointer2, Plus, Redo2, Undo2, Unplug, X } from "lucide-react";
 import { toast } from "sonner";
@@ -18,10 +18,10 @@ import { useWorkspaceData, workspaceSessionKey } from "@/hooks/use-workspace-dat
 import { canManageProjects } from "@/lib/roles";
 import type { User } from "@/types/auth";
 
-import type { SystemOp } from "../model/types";
+import type { SystemDocument, SystemOp } from "../model/types";
 import { ReviewPane } from "../review/review-pane";
 import { addBoardOps, type NewBoard } from "../schematic/edits";
-import { RootSheetCanvas, type Tool } from "../schematic/root-sheet-canvas";
+import { RootSheetCanvas, type RootSheetHandle, type Tool } from "../schematic/root-sheet-canvas";
 import { buildScene } from "../schematic/scene";
 import { SelectionPanel } from "../schematic/selection-panel";
 import { useSystemSession } from "../session/use-system-session";
@@ -33,6 +33,19 @@ const TAB_LABEL: Record<TabId, string> = { schematic: "Schematic", "3d": "3D", r
 
 const asTab = (value: string | null, fallback: TabId | null): TabId | null =>
   (TABS as readonly string[]).includes(value ?? "") ? (value as TabId) : fallback;
+
+/**
+ * A finding's objects as the root sheet can show them: a harness's links,
+ * wires and other contents are drawn as their block (ends are drawn).
+ */
+export function drawnSelection(document: SystemDocument, ids: ReadonlySet<string>): Set<string> {
+  const out = new Set(ids);
+  for (const harness of document.harnesses) {
+    const inside = [harness.links, harness.wires, harness.splices, harness.cables, harness.markers].some((items) => items.some((item) => ids.has(item.id)));
+    if (inside) out.add(harness.id);
+  }
+  return out;
+}
 
 /** Run an undo or redo, reporting a refusal. */
 const run = (work: Promise<unknown> | undefined) =>
@@ -50,7 +63,7 @@ export function SystemPage({ user }: { user: User | null }) {
 
   const [selected, setSelected] = useState<Set<string>>(() => new Set());
   const [tool, setTool] = useState<Tool>("select");
-  const [fitRequest, setFitRequest] = useState(0);
+  const canvas = useRef<RootSheetHandle>(null);
   const [addingBoard, setAddingBoard] = useState(false);
 
   const record = state.record;
@@ -86,7 +99,8 @@ export function SystemPage({ user }: { user: User | null }) {
     await apply(ops);
     setAddingBoard(false);
     setSelected(new Set([occurrence]));
-    setFitRequest((value) => value + 1);
+    // After the new document has drawn, so the fit includes the new board.
+    requestAnimationFrame(() => canvas.current?.fit());
   };
 
   if (state.loadError) {
@@ -114,7 +128,7 @@ export function SystemPage({ user }: { user: User | null }) {
             apply={apply}
             tool={tool}
             onToolChange={setTool}
-            fitRequest={fitRequest}
+            ref={canvas}
           />
           {single && (
             <div className="absolute right-3 top-3">
@@ -126,7 +140,7 @@ export function SystemPage({ user }: { user: User | null }) {
             {canEdit && <ToolButton active={tool === "mate"} onClick={() => setTool("mate")} icon={Unplug} label="Mate" />}
             {canEdit && <ToolButton active={tool === "harness"} onClick={() => setTool("harness")} icon={Cable} label="Harness (H)" />}
             {canEdit && <ToolButton active={false} onClick={() => setAddingBoard(true)} icon={Plus} label="Add board" />}
-            <ToolButton active={false} onClick={() => setFitRequest((value) => value + 1)} icon={Maximize} label="Fit" />
+            <ToolButton active={false} onClick={() => canvas.current?.fit()} icon={Maximize} label="Fit" />
           </div>
         </div>
       );
@@ -141,7 +155,7 @@ export function SystemPage({ user }: { user: User | null }) {
           canEdit={canEdit}
           apply={apply}
           onSelect={(ids) => {
-            setSelected(ids);
+            setSelected(drawnSelection(document, ids));
             if (tab !== "schematic" && beside !== "schematic") setView({ beside: "schematic" });
           }}
         />
@@ -231,7 +245,7 @@ function ToolButton({ active, onClick, icon: Icon, label }: { active: boolean; o
       type="button"
       onClick={onClick}
       aria-pressed={active}
-      className={`flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-xs ${active ? "bg-white/15 text-white" : "text-zinc-300 hover:bg-white/10"}`}
+      className={`flex items-center gap-1.5 whitespace-nowrap rounded-md px-2.5 py-1.5 text-xs ${active ? "bg-white/15 text-white" : "text-zinc-300 hover:bg-white/10"}`}
     >
       <Icon className="h-3.5 w-3.5" />
       {label}

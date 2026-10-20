@@ -187,6 +187,19 @@ describe("routes", () => {
     expect(crosses).toBe(false);
   });
 
+  it("detours round a symbol that blocks every two-bend path", () => {
+    // Two pins facing each other across a sheet that sits between them.
+    const wall = { x: mm(20), y: mm(-30), w: mm(10), h: mm(60) };
+    const route = autoRoute({ point: { x: 0, y: 0 }, edge: "right" }, { point: { x: mm(50.8), y: 0 }, edge: "left" }, [wall]);
+    const crosses = route.some((point, index) => {
+      if (index === 0) return false;
+      const prev = route[index - 1];
+      return Math.max(prev.x, point.x) > wall.x && Math.min(prev.x, point.x) < wall.x + wall.w
+        && Math.max(prev.y, point.y) > wall.y && Math.min(prev.y, point.y) < wall.y + wall.h;
+    });
+    expect(crosses).toBe(false);
+  });
+
   it("drops repeated points and merges collinear runs", () => {
     expect(simplifyRoute([{ x: 0, y: 0 }, { x: 0, y: 0 }, { x: 5, y: 0 }, { x: 9, y: 0 }, { x: 9, y: 4 }])).toEqual([
       { x: 0, y: 0 },

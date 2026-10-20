@@ -263,13 +263,9 @@ export function buildScene(document: SystemDocument, bundle: SystemBundle | unde
   for (const harness of harnesses) {
     const entry = layout[harness.id];
     const sitePorts = harness.ends.map((end) => (end.site ? portOf(end.site.occurrence, end.site.connector) : undefined));
-    // By default the block sits out from its sites' pins, along their normals.
-    const reach = sitePorts.filter((port): port is ScenePort => Boolean(port)).map((port) => outward(port, SYMBOL_GAP_NM));
     const centre: Point | undefined = entry
       ? { x: entry.xNm + (entry.size?.widthNm ?? HARNESS_SIZE.widthNm) / 2, y: entry.yNm + (entry.size?.heightNm ?? HARNESS_SIZE.heightNm) / 2 }
-      : reach.length
-        ? { x: reach.reduce((sum, point) => sum + point.x, 0) / reach.length, y: reach.reduce((sum, point) => sum + point.y, 0) / reach.length }
-        : undefined;
+      : defaultBlockCentre(sitePorts.filter((port): port is ScenePort => Boolean(port)), symbols);
     const angled: AngledPort[] = harness.ends.map((end, index) => {
       const site = sitePorts[index];
       return { key: end.id, angleDeg: site && centre ? angleTo(centre, site.point) : undefined };
@@ -356,6 +352,45 @@ export function buildScene(document: SystemDocument, bundle: SystemBundle | unde
   }
 
   return { symbols, connections, bounds: boundsOfScene(symbols, connections) };
+}
+
+/**
+ * Where a harness block without a layout entry goes (§14.2): 25.4 mm out from
+ * its sites' pins along their normals (their mean) when that spot is clear;
+ * otherwise the clear spot nearest its pins among: further out from each
+ * pin, and just above or below the boards its sites are on.
+ */
+function defaultBlockCentre(sites: readonly ScenePort[], symbols: readonly SceneSymbol[]): Point | undefined {
+  if (!sites.length) return undefined;
+  const reach = sites.map((port) => outward(port, SYMBOL_GAP_NM));
+  const candidates: Point[] = [
+    { x: reach.reduce((sum, point) => sum + point.x, 0) / reach.length, y: reach.reduce((sum, point) => sum + point.y, 0) / reach.length },
+  ];
+  for (const site of sites) for (let step = 1; step <= 4; step += 1) candidates.push(outward(site, SYMBOL_GAP_NM * step));
+  const boards: Rect[] = [];
+  for (const symbol of symbols) if (sites.some((site) => site.item === symbol.id)) boards.push(symbol.rect);
+  if (boards.length) {
+    const left = Math.min(...boards.map((rect) => rect.x));
+    const right = Math.max(...boards.map((rect) => rect.x + rect.w));
+    const top = Math.min(...boards.map((rect) => rect.y));
+    const bottom = Math.max(...boards.map((rect) => rect.y + rect.h));
+    const middle = (left + right) / 2;
+    for (let step = 1; step <= 3; step += 1) {
+      candidates.push({ x: middle, y: bottom + SYMBOL_GAP_NM * step }, { x: middle, y: top - SYMBOL_GAP_NM * step });
+    }
+  }
+  const clear = (centre: Point) => {
+    const block: Rect = { x: centre.x - HARNESS_SIZE.widthNm / 2, y: centre.y - HARNESS_SIZE.heightNm / 2, w: HARNESS_SIZE.widthNm, h: HARNESS_SIZE.heightNm };
+    return symbols.every((symbol) => !overlaps(block, symbol.rect));
+  };
+  const cost = (centre: Point) => sites.reduce((sum, site) => sum + Math.abs(site.point.x - centre.x) + Math.abs(site.point.y - centre.y), 0);
+  if (clear(candidates[0])) return candidates[0];
+  const open = candidates.slice(1).filter(clear);
+  return open.length ? open.reduce((best, item) => (cost(item) < cost(best) ? item : best)) : candidates[0];
+}
+
+function overlaps(a: Rect, b: Rect): boolean {
+  return a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h;
 }
 
 function sizeOf(rect: Rect): Size {

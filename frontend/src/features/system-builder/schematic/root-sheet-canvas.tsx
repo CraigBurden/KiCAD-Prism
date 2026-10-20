@@ -4,42 +4,19 @@
  * mates and harness links. A gesture draws through a layout override while it
  * runs and is sent as one request when it ends.
  */
-import { useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent as ReactPointerEvent } from "react";
+import { forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent as ReactPointerEvent } from "react";
 import { toast } from "sonner";
 
 import { useCommittedRef } from "@/hooks/use-committed-ref";
 
 import type { SystemBundle, SystemDocument, SystemOp } from "../model/types";
-import {
-  boundsOf,
-  normalizeRect,
-  rectContains,
-  rectTouchesRoute,
-  rectsTouch,
-  resize,
-  selectionMode,
-  slidePort,
-  type Handle,
-  type Point,
-  type Rect,
-} from "./geometry";
-import {
-  connectRefusal,
-  dragRoute,
-  harnessOps,
-  layoutOps,
-  mateOps,
-  movePort,
-  moveSymbols,
-  removeOps,
-  resizeSymbol,
-  withFollowingRoutes,
-  type Layout,
-  type PinRef,
-} from "./edits";
-import { buildScene, type Scene } from "./scene";
+import { CanvasHints, GestureOverlay, PaperGrid } from "./canvas-overlays";
+import { connectRefusal, harnessOps, layoutOps, mateOps, removeOps, type Layout, type PinRef } from "./edits";
+import { normalizeRect, selectionMode, type Handle, type Point } from "./geometry";
+import { boxSelection, dragLayout, hitOf, toggled, type Drag } from "./gestures";
+import { buildScene } from "./scene";
 import { COLOURS, SheetSvg } from "./sheet-svg";
-import { fitView, panBy, toSheet, toScreen, zoomAt, type View } from "./viewport";
+import { fitView, panBy, toSheet, zoomAt, type View } from "./viewport";
 
 export type Tool = "select" | "mate" | "harness";
 
@@ -53,71 +30,57 @@ interface Props {
   apply: (ops: SystemOp[]) => Promise<unknown>;
   tool: Tool;
   onToolChange: (tool: Tool) => void;
-  /** Bumped by the toolbar's Fit button. */
-  fitRequest?: number;
 }
 
-type Drag =
-  | { kind: "pan"; last: Point }
-  | { kind: "box"; start: Point; current: Point }
-  | { kind: "move"; ids: string[]; start: Point; active: boolean; screen: Point }
-  | { kind: "port"; item: string; key: string; active: boolean; screen: Point }
-  | { kind: "resize"; item: string; handle: Handle }
-  | { kind: "segment"; id: string; index: number; active: boolean; screen: Point };
+/** What the page may ask of the canvas. */
+export interface RootSheetHandle {
+  /** Show the whole sheet. */
+  fit: () => void;
+}
 
 const THRESHOLD_PX = 3;
 const DEFAULT_VIEW: View = { x: 0, y: 0, scale: 6 };
+/** Room round a fitted sheet; the tool palette sits over the bottom edge. */
+const FIT_MARGIN_PX = 72;
 
-function hitOf(target: EventTarget | null): { hit: string; id: string; key: string } | null {
-  const element = (target as Element | null)?.closest?.("[data-hit]");
-  if (!element) return null;
-  return { hit: element.getAttribute("data-hit") ?? "", id: element.getAttribute("data-id") ?? "", key: element.getAttribute("data-key") ?? "" };
-}
-
-function boxSelection(scene: Scene, rect: Rect, mode: "window" | "crossing"): Set<string> {
-  const out = new Set<string>();
-  for (const symbol of scene.symbols) {
-    if (mode === "window" ? rectContains(rect, symbol.rect) : rectsTouch(rect, symbol.rect)) out.add(symbol.id);
-  }
-  for (const connection of scene.connections) {
-    if (connection.points.length < 2) continue;
-    if (mode === "window" ? rectContains(rect, boundsOf(connection.points)) : rectTouchesRoute(rect, connection.points)) out.add(connection.id);
-  }
-  return out;
-}
-
-export function RootSheetCanvas({ document, bundle, projectNames, selected, onSelect, canEdit, apply, tool, onToolChange, fitRequest = 0 }: Props) {
+export const RootSheetCanvas = forwardRef<RootSheetHandle, Props>(function RootSheetCanvas(
+  { document, bundle, projectNames, selected, onSelect, canEdit, apply, tool, onToolChange },
+  handle,
+) {
   const container = useRef<HTMLDivElement>(null);
-  const [size, setSize] = useState({ width: 0, height: 0 });
+  const size = useRef({ width: 0, height: 0 });
   const [view, setView] = useState<View | null>(null);
   const [override, setOverride] = useState<Layout | null>(null);
   const [drag, setDrag] = useState<Drag | null>(null);
   const [connectFrom, setConnectFrom] = useState<PinRef | null>(null);
   const [pointer, setPointer] = useState<Point | null>(null);
-  // The Fit request last honoured; a new one drops the user's view (below).
-  const [fittedFor, setFittedFor] = useState(fitRequest);
 
   const options = useMemo(() => ({ projectNames }), [projectNames]);
   const base = useMemo(() => buildScene(document, bundle, options), [document, bundle, options]);
   const scene = useMemo(() => (override ? buildScene(document, bundle, { ...options, override }) : base), [override, document, bundle, options, base]);
 
+  const baseRef = useCommittedRef(base);
+
   // The canvas's size, from the browser (an external lifecycle).
   useEffect(() => {
     const element = container.current;
     if (!element) return;
-    const observer = new ResizeObserver(([entry]) => setSize({ width: entry.contentRect.width, height: entry.contentRect.height }));
+    const observer = new ResizeObserver(([entry]) => {
+      const first = size.current.width === 0;
+      size.current = { width: entry.contentRect.width, height: entry.contentRect.height };
+      // The first size shows the whole sheet; after that the view is the user's.
+      if (first && size.current.width > 0) setView(fitView(baseRef.current.bounds, size.current.width, size.current.height, FIT_MARGIN_PX));
+    });
     observer.observe(element);
     return () => observer.disconnect();
-  }, []);
+  }, [baseRef]);
 
-  // Until the user pans or zooms, the view fits the sheet; a Fit request
-  // (the toolbar, or F) returns to that.
-  if (fittedFor !== fitRequest) {
-    setFittedFor(fitRequest);
-    setView(null);
-  }
-  const current = view ?? (size.width > 0 ? fitView(base.bounds, size.width, size.height) : DEFAULT_VIEW);
+  const current = view ?? DEFAULT_VIEW;
   const currentRef = useCommittedRef(current);
+  const fit = () => {
+    if (size.current.width > 0) setView(fitView(baseRef.current.bounds, size.current.width, size.current.height, FIT_MARGIN_PX));
+  };
+  useImperativeHandle(handle, () => ({ fit }));
 
   // Wheel: pinch or Ctrl/⌘ zooms at the cursor, plain scroll pans. React's
   // wheel listener is passive, so this one is attached by hand.
@@ -239,26 +202,8 @@ export function RootSheetCanvas({ document, bundle, projectNames, selected, onSe
       if (Math.hypot(screen.x - drag.screen.x, screen.y - drag.screen.y) < THRESHOLD_PX) return;
       setDrag({ ...drag, active: true });
     }
-    let next: Layout | null = null;
-    if (drag.kind === "move") {
-      next = moveSymbols(document, base, drag.ids, { x: at.x - drag.start.x, y: at.y - drag.start.y });
-    } else if (drag.kind === "port") {
-      const symbol = base.symbols.find((item) => item.id === drag.item);
-      if (!symbol) return;
-      const others = symbol.ports.filter((port) => port.key !== drag.key);
-      const placed = slidePort(symbol.rect, { widthNm: symbol.rect.w, heightNm: symbol.rect.h }, at, others, symbol.corner);
-      if (!placed) return; // that spot is taken: keep the last good one
-      next = movePort(document, base, drag.item, drag.key, placed);
-    } else if (drag.kind === "resize") {
-      const symbol = base.symbols.find((item) => item.id === drag.item);
-      if (!symbol) return;
-      const ports = Object.fromEntries(symbol.ports.map((port) => [port.key, { edge: port.edge, offsetNm: port.offsetNm }]));
-      const resized = resize(symbol.rect, drag.handle, at, ports, symbol.corner);
-      next = resizeSymbol(document, base, drag.item, resized.rect, resized.ports);
-    } else if (drag.kind === "segment") {
-      next = dragRoute(document, base, drag.id, drag.index, at);
-    }
-    if (next) setOverride(drag.kind === "segment" ? next : withFollowingRoutes(document, bundle, base, next, options));
+    const next = dragLayout(drag, at, document, bundle, base, options);
+    if (next) setOverride(next);
   };
 
   const onPointerUp = (event: ReactPointerEvent<HTMLDivElement>) => {
@@ -301,7 +246,7 @@ export function RootSheetCanvas({ document, bundle, projectNames, selected, onSe
     }
     if (event.metaKey || event.ctrlKey || event.altKey) return;
     if (event.key === "h" || event.key === "H") onToolChange(tool === "harness" ? "select" : "harness");
-    if (event.key === "Home" || event.key === "f") setView(null);
+    if (event.key === "Home" || event.key === "f") fit();
   };
 
   const selectedPorts = useMemo(() => new Set(connectFrom ? [`${connectFrom.item}\u0000${connectFrom.key}`] : []), [connectFrom]);
@@ -310,14 +255,7 @@ export function RootSheetCanvas({ document, bundle, projectNames, selected, onSe
     [canEdit, tool, selected, scene],
   );
 
-  const grid = 2.54 * current.scale; // px between grid dots
-  const origin = toScreen(current, { x: 0, y: 0 });
   const transform = `scale(${current.scale}) translate(${-current.x / 1e6} ${-current.y / 1e6})`;
-  const band = connectFrom && pointer
-    ? { from: scene.symbols.find((symbol) => symbol.id === connectFrom.item)?.ports.find((port) => port.key === connectFrom.key)?.point, to: pointer }
-    : null;
-  const box = drag?.kind === "box" ? normalizeRect(drag.start, drag.current) : null;
-  const crossing = drag?.kind === "box" && selectionMode(drag.start, drag.current) === "crossing";
 
   return (
     <div
@@ -337,63 +275,13 @@ export function RootSheetCanvas({ document, bundle, projectNames, selected, onSe
       onKeyDown={onKeyDown}
     >
       <svg width="100%" height="100%" className="absolute inset-0 select-none" data-testid="root-sheet">
-        <defs>
-          <pattern id="sb-grid" width={grid} height={grid} patternUnits="userSpaceOnUse" x={origin.x % grid} y={origin.y % grid}>
-            <circle cx={0.75} cy={0.75} r={Math.min(0.9, Math.max(0.4, grid / 30))} fill={COLOURS.grid} />
-          </pattern>
-        </defs>
-        {grid >= 6 && <rect width="100%" height="100%" fill="url(#sb-grid)" />}
+        <PaperGrid view={current} />
         <g transform={transform}>
           <SheetSvg scene={scene} selected={selected} selectedPorts={selectedPorts} resizable={resizable} />
-          {band?.from && (
-            <line
-              x1={band.from.x / 1e6}
-              y1={band.from.y / 1e6}
-              x2={band.to.x / 1e6}
-              y2={band.to.y / 1e6}
-              stroke={tool === "mate" ? COLOURS.bus : COLOURS.harness}
-              strokeWidth={0.3}
-              strokeDasharray="1 0.6"
-              pointerEvents="none"
-            />
-          )}
-          {box && (
-            <rect
-              x={box.x / 1e6}
-              y={box.y / 1e6}
-              width={box.w / 1e6}
-              height={box.h / 1e6}
-              fill={crossing ? "rgba(0,160,0,0.06)" : "rgba(47,155,255,0.08)"}
-              stroke={crossing ? "#00a000" : COLOURS.select}
-              strokeWidth={0.15}
-              strokeDasharray={crossing ? "0.8 0.5" : undefined}
-              pointerEvents="none"
-            />
-          )}
+          <GestureOverlay scene={scene} connectFrom={connectFrom} pointer={pointer} drag={drag} kind={tool === "mate" ? "mate" : "harness"} />
         </g>
       </svg>
-      {scene.symbols.length === 0 && (
-        <div className="pointer-events-none absolute inset-0 flex items-center justify-center text-sm" style={{ color: COLOURS.muted }}>
-          No boards yet. Use Add board to place one.
-        </div>
-      )}
-      {tool !== "select" && (
-        <div className="pointer-events-none absolute left-3 top-3 rounded bg-black/70 px-2 py-1 text-xs text-white">
-          {connectFrom ? `From ${labelOf(document, connectFrom)}: click the other connector` : tool === "mate" ? "Mate: click a connector" : "Harness: click a connector"} · Esc to stop
-        </div>
-      )}
+      <CanvasHints empty={scene.symbols.length === 0} tool={tool} connectFrom={connectFrom} document={document} />
     </div>
   );
-}
-
-function toggled(set: ReadonlySet<string>, id: string): Set<string> {
-  const next = new Set(set);
-  if (next.has(id)) next.delete(id);
-  else next.add(id);
-  return next;
-}
-
-function labelOf(document: SystemDocument, pin: PinRef): string {
-  const label = document.occurrences.find((item) => item.id === pin.item)?.label ?? pin.item;
-  return `${label}.${pin.key}`;
-}
+});

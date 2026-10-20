@@ -85,6 +85,19 @@ describe("buildScene", () => {
     expect((block?.rect.x ?? 0) + (block?.rect.w ?? 0)).toBeLessThan(0);
   });
 
+  it("keeps a default harness block off the boards when its sites face each other", () => {
+    const facing = structuredClone(DOCUMENT);
+    facing.harnesses[0].ends.push({ id: "end_b", site: { occurrence: "occ_carrier", connector: "J9" }, contacts: {}, pinMap: [] });
+    const bundle = structuredClone(BUNDLE);
+    bundle.occurrences[0].connectors.push(connector("J9", 0));
+    const scene = buildScene(facing, bundle);
+    const block = scene.symbols.find((symbol) => symbol.id === "har_a")!.rect;
+    for (const symbol of scene.symbols.filter((item) => item.kind !== "harness")) {
+      const r = symbol.rect;
+      expect(block.x < r.x + r.w && r.x < block.x + block.w && block.y < r.y + r.h && r.y < block.y + block.h).toBe(false);
+    }
+  });
+
   it("uses a stored route and a layout override", () => {
     const route: [SchematicPoint, SchematicPoint] = [{ xNm: 1, yNm: 2 }, { xNm: 3, yNm: 2 }];
     const scene = buildScene(DOCUMENT, BUNDLE, { override: { mate_a: { xNm: 0, yNm: 0, rotationDeg: 0, mirror: false, route } } });

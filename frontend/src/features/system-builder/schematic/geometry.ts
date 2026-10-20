@@ -322,7 +322,8 @@ function pathLength(points: readonly Point[]): number {
 /**
  * The default route (§14.2): out from each pin along its edge's normal by
  * 5.08 mm, then at most two bends between the stubs, preferring a path that
- * crosses no symbol, then the shorter one.
+ * crosses no symbol, then the shorter one. When each of those crosses a
+ * symbol, a detour round the symbols in the way is tried as well.
  */
 export function autoRoute(a: Terminal, b: Terminal, obstacles: readonly Rect[] = []): Point[] {
   const sa = stub(a);
@@ -335,6 +336,18 @@ export function autoRoute(a: Terminal, b: Terminal, obstacles: readonly Rect[] =
     [{ x: midX, y: sa.y }, { x: midX, y: sb.y }],
     [{ x: sa.x, y: midY }, { x: sb.x, y: midY }],
   ];
+  // When every path with two bends crosses a symbol, detour round the ones in
+  // the way: out past their top, bottom, left or right side.
+  const blocking = obstacles.filter((rect) => middles.some((middle) => crossings([sa, ...middle, sb], [rect]) > 0));
+  if (blocking.length) {
+    const gap = 2 * STUB_NM;
+    const top = snap(Math.min(...blocking.map((rect) => rect.y)) - gap);
+    const bottom = snap(Math.max(...blocking.map((rect) => rect.y + rect.h)) + gap);
+    const left = snap(Math.min(...blocking.map((rect) => rect.x)) - gap);
+    const right = snap(Math.max(...blocking.map((rect) => rect.x + rect.w)) + gap);
+    for (const y of [top, bottom]) middles.push([{ x: sa.x, y }, { x: sb.x, y }]);
+    for (const x of [left, right]) middles.push([{ x, y: sa.y }, { x, y: sb.y }]);
+  }
   let best: Point[] | null = null;
   let bestScore = Infinity;
   for (const middle of middles) {
