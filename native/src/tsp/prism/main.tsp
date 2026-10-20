@@ -7,6 +7,7 @@ import "./artwork-a0.tsp";
 import "./assembly-hlr-a0.tsp";
 import "./board-objects-a0.tsp";
 import "./board-sub-ports-a0.tsp";
+import "./system-parts-a0.tsp";
 import "./bundle-manifest-a3.tsp";
 import "./cli-a0.tsp";
 import "./cli-compare-a1.tsp";

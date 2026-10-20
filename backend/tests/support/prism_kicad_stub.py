@@ -23,6 +23,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import re
 import struct
 import sys
 import time
@@ -53,7 +54,7 @@ OPTIONS_WITH_VALUE = {
     "--stage", "-o", "--output", "--source-root", "--revision-key", "--key-record", "--config", "--in",
     "--refilled-board", "--refill-tool", "--models-glb", "--models-tool", "--commit", "--project", "--limit",
     "--threads", "--upgraded", "--document", "--member", "--member-revision-key", "--absent",
-    "--board-sub-ports", "--entry", "--entry-stage",
+    "--board-sub-ports", "--entry", "--entry-stage", "--parts",
 }
 FLAGS = {"--worktree", "--quiet"}
 _ARGV = list(sys.argv[1:])
@@ -577,6 +578,43 @@ def member_manifest(occurrence: str, archive: str) -> dict[str, Any]:
     return manifest
 
 
+def part_ref(value: dict[str, Any]) -> str:
+    """A part reference as the document spells it (CONTRACTS §8.10)."""
+
+    component_id = str(value.get("componentId") or "")
+    revision_id = str(value.get("revisionId") or "")
+    return component_id if not revision_id else f"{component_id}@{revision_id}"
+
+
+def natural(value: str) -> list[Any]:
+    """A reference's natural order: digit runs compare as numbers."""
+
+    return [int(part) if part.isdigit() else part for part in re.split(r"(\d+)", value)]
+
+
+def body_connectors(
+    document: dict[str, Any], occurrence: str, parts: dict[str, dict[str, Any]]
+) -> list[dict[str, Any]]:
+    """A body's connectors, standing in for a board's (CONTRACTS §8.10)."""
+
+    found = [
+        connector
+        for connector in document.get("bodyConnectors") or []
+        if connector.get("occurrence") == occurrence
+    ]
+    found.sort(key=lambda connector: natural(str(connector.get("refdes") or "")))
+    return [
+        {
+            "refdes": str(connector.get("refdes") or ""),
+            "value": str((parts.get(part_ref(connector.get("part") or {})) or {}).get("name") or ""),
+            "candidate": True,
+            # The symbol's pins belong to the part; the stub has none to give.
+            "pins": [],
+        }
+        for connector in found
+    ]
+
+
 def system_build(positionals: list[str], options: dict[str, Any]) -> NoReturn:
     """``system build`` (docs/system-builder/CONTRACTS.md §8.8)."""
 
@@ -692,6 +730,26 @@ def system_build(positionals: list[str], options: dict[str, Any]) -> NoReturn:
             error(3, "input-invalid", "--board-sub-ports has no sub-port definitions",
                   argument="board-sub-ports")
         board_sub_ports = {entry["id"]: entry["version"] for entry in entries}
+    parts_by_ref: dict[str, dict[str, Any]] = {}
+    parts_key: str | None = None
+    if "--parts" in options:
+        try:
+            parts_input = json.loads(Path(options["--parts"]).read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            error(3, "input-invalid", "--parts is not a JSON file", argument="parts")
+        if not isinstance(parts_input, dict) or parts_input.get("schema") != "prism.system_parts.a0":
+            error(3, "input-invalid", "--parts is not a prism.system_parts.a0 document",
+                  argument="parts")
+        entries = parts_input.get("parts")
+        if not isinstance(entries, list) or not all(
+            isinstance(entry, dict) and isinstance(entry.get("ref"), str)
+            for entry in entries
+        ):
+            error(3, "input-invalid", "--parts has no part entries", argument="parts")
+        parts_by_ref = {entry["ref"]: entry for entry in entries}
+        # The key hashes the canonical bytes of the document the build read
+        # (CONTRACTS §8.1); the backend writes exactly the bytes it hashed.
+        parts_key = hashlib.sha256(canonical(parts_input)).hexdigest()
     gen = generator()
     generator_digest = hashlib.sha256(generator_bytes(gen)).hexdigest()
     document_sha256 = hashlib.sha256(
@@ -701,13 +759,14 @@ def system_build(positionals: list[str], options: dict[str, Any]) -> NoReturn:
     preimage = {
         "documentSha256": document_sha256,
         # prism_system::SYSTEM_BUNDLE_FORMAT (CONTRACTS §8.1).
-        "format": 2,
+        "format": 3,
         "generator": generator_digest,
         "members": {occurrence: member_keys[occurrence] for occurrence in sorted(member_keys)},
         "absent": sorted(absent),
         "pending": pending,
         "boardSubPorts": board_sub_ports,
         "entries": entries_key,
+        "parts": parts_key,
     }
     system_bundle_key = hashlib.sha256(canonical(preimage)).hexdigest()
 
@@ -753,6 +812,14 @@ def system_build(positionals: list[str], options: dict[str, Any]) -> NoReturn:
                 "objects": [occurrence_id],
                 "waived": False,
             })
+        elif (occurrence.get("source") or {}).get("kind") == "body":
+            if part_ref(occurrence["source"]) in parts_by_ref:
+                entry["state"] = "ready"
+                entry["connectors"] = body_connectors(
+                    document, occurrence_id, parts_by_ref
+                )
+            else:
+                entry["state"] = "absent"
         elif occurrence_id in absent:
             entry["state"] = "absent"
         elif occurrence_id in boards:

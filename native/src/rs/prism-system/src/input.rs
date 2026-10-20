@@ -5,7 +5,8 @@
 //! The CLI validates the document against its schema before this runs, so
 //! these types read only the fields they need and ignore the rest.
 
-use crate::placement::frames::ConnectorGeometry;
+use crate::placement::frames::{ConnectorGeometry, Courtyard, PadGeometry};
+use crate::placement::poses::{Bounds, Pose};
 use serde::Deserialize;
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -36,6 +37,54 @@ pub struct Document {
     /// Waivers.
     #[serde(default)]
     pub waivers: Vec<Waiver>,
+    /// Connector parts placed on bodies (§2.7).
+    #[serde(default)]
+    pub body_connectors: Vec<BodyConnector>,
+}
+
+/// A catalog part reference (`SystemPartRef`).
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PartRef {
+    /// The catalog component.
+    pub component_id: String,
+    /// The revision; `None` means the latest released.
+    #[serde(default)]
+    pub revision_id: Option<String>,
+}
+
+impl PartRef {
+    /// The reference as `--parts` keys it: `componentId`, or `componentId@revisionId`.
+    pub fn key(&self) -> String {
+        part_key(&self.component_id, self.revision_id.as_deref())
+    }
+}
+
+/// `componentId`, or `componentId@revisionId`: how `--parts` keys a reference (§8.10).
+pub fn part_key(component_id: &str, revision_id: Option<&str>) -> String {
+    match revision_id {
+        Some(revision) => format!("{component_id}@{revision}"),
+        None => component_id.to_owned(),
+    }
+}
+
+/// A connector part placed on a body occurrence (`SystemBodyConnector`).
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BodyConnector {
+    /// Its id.
+    pub id: String,
+    /// The body occurrence.
+    pub occurrence: String,
+    /// The designator endpoints name as `connector`.
+    pub refdes: String,
+    /// The connector part.
+    pub part: PartRef,
+    /// The part's mating frame in the body's frame.
+    pub frame: PoseIn,
+    /// Quarter turns about the frame's z axis.
+    #[serde(default)]
+    pub quarter_turns: i32,
 }
 
 /// One occurrence.
@@ -98,6 +147,12 @@ pub struct Source {
     /// A board's project; `None` for other kinds.
     #[serde(default)]
     pub project_id: Option<String>,
+    /// A body's or an entry's catalog component; `None` for a board.
+    #[serde(default)]
+    pub component_id: Option<String>,
+    /// A body's or an entry's catalog revision; `None` for a board.
+    #[serde(default)]
+    pub revision_id: Option<String>,
 }
 
 /// A sub-port reference on an endpoint.
@@ -505,6 +560,49 @@ pub struct EntryFacts {
     pub system_bundle_key: String,
 }
 
+/// One pin of a catalog part's symbol.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct PartPin {
+    /// The pin number (the pad it lands on).
+    pub number: String,
+    /// The pin name; empty when unnamed.
+    pub name: String,
+    /// The electrical type (`passive`, `power_in`, …).
+    pub electrical_type: String,
+}
+
+/// A catalog part as a build reads it from `--parts` (§8.10).
+#[derive(Clone, Debug, Default)]
+pub struct PartFacts {
+    /// The catalog component.
+    pub component_id: String,
+    /// The revision the reference resolved to.
+    pub revision_id: String,
+    /// Its display name.
+    pub name: String,
+    /// Its manufacturer part number.
+    pub mpn: Option<String>,
+    /// Its symbol's pins, one per number; empty without a symbol.
+    pub pins: Vec<PartPin>,
+    /// Its footprint's pads in the footprint's frame (+y up); empty without a footprint.
+    pub pads: Vec<PadGeometry>,
+    /// Its footprint's name, which the mating-axis inference reads.
+    pub footprint_name: Option<String>,
+    /// Its footprint's courtyard box in the footprint's frame (+y up).
+    pub courtyard: Option<Courtyard>,
+    /// Its 3D model's box in the part's frame; `None` without a converted model.
+    pub model_bounds: Option<Bounds>,
+}
+
+/// What a build derives for a body occurrence (§8.10).
+#[derive(Clone, Debug, Default)]
+pub struct BodyFacts {
+    /// The body part's model box in the body's frame; `None` without a model.
+    pub bounds: Option<Bounds>,
+    /// Each body connector's footprint frame in the body's frame (`Q = P · F_part⁻¹`), by refdes.
+    pub mounts: BTreeMap<String, Pose>,
+}
+
 /// Everything a build reads besides the document.
 #[derive(Clone, Debug, Default)]
 pub struct Members {
@@ -517,4 +615,9 @@ pub struct Members {
     pub entries: BTreeMap<String, EntryFacts>,
     /// Board-level sub-ports, by id; `None` when `--board-sub-ports` was not given.
     pub board_sub_ports: Option<BTreeMap<String, BoardSubPortDef>>,
+    /// Catalog parts, by the reference the document uses (`--parts`, §8.10).
+    pub parts: BTreeMap<String, PartFacts>,
+    /// Ready body occurrences, derived from the document and `parts`; their
+    /// connectors are in `boards` like a board's.
+    pub bodies: BTreeMap<String, BodyFacts>,
 }

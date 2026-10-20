@@ -3,9 +3,9 @@
 One job builds one system bundle key, deduplicated on
 ``<system_id>:<bundle_key>``. The handler re-reads the system as the system
 itself, recomputes the members (queueing any missing design bundle) and the
-key, then runs ``prism-kicad system build`` on the document and the ready
-members' stored bundles. A pending occurrence is left to the CLI; an absent one
-is passed as ``--absent``.
+key, then runs ``prism-kicad system build`` on the document, the ready members'
+stored bundles and the catalog parts the document's bodies name. A pending
+occurrence is left to the CLI; an absent one is passed as ``--absent``.
 
 The document may change between queueing and execution. The key then differs
 from the payload's, and the job builds the current key instead: a derived
@@ -24,6 +24,7 @@ from app.services.job_kinds import JobKind
 from app.services.job_runtime import JobContext, JobResult, PermanentJobError, RetryableJobError
 from app.system_builder import board_sub_ports, bundle_store
 from app.system_builder import members as member_view
+from app.system_builder import parts as parts_input
 from app.system_builder.git_link import SYSTEM_GIT_COMMIT
 from app.system_builder.store import SystemStore
 
@@ -104,9 +105,11 @@ def run_system_bundle_job(context: JobContext) -> JobResult:
 
     with store.connection() as conn:
         board_input = board_sub_ports.build_input(conn, document)
+    parts_document, part_files = parts_input.build_input(document)
     bundle_key = member_view.system_bundle_key(
         document, generator.digest, resolved, board_sub_ports=board_input,
         entries=member_view.entry_key_input(resolved),
+        parts=parts_input.digest(parts_document),
     )
     rebased = bundle_key != queued_key
     if rebased:
@@ -123,12 +126,16 @@ def run_system_bundle_job(context: JobContext) -> JobResult:
     document_path.write_bytes(member_view.canonical_bytes(document))
     board_sub_ports_path = context.staging_dir / "board-sub-ports.json"
     board_sub_ports_path.write_bytes(member_view.canonical_bytes(board_input))
+    parts_path = context.staging_dir / "parts.json"
+    parts_path.write_bytes(member_view.canonical_bytes(parts_document))
+    parts_input.stage(context.staging_dir, part_files)
     output = context.staging_dir / "system-bundle.json"
     args = [
         "system", "build",
         "--document", str(document_path),
         *member_view.cli_args(resolved),
         "--board-sub-ports", str(board_sub_ports_path),
+        "--parts", str(parts_path),
         "-o", str(output),
     ]
     context.progress(

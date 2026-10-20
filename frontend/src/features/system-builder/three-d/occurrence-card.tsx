@@ -4,6 +4,7 @@
  * the choice of positioning mate.
  */
 import type { SystemBundle, SystemDocument } from "../model/types";
+import { bodyConnectorsOf } from "./body-edits";
 import { matesOf } from "./pose-edits";
 
 export interface OccurrenceCardProps {
@@ -16,11 +17,13 @@ export interface OccurrenceCardProps {
   onPositioningMate: (mate: string | null) => void;
   /** Open a mate's B2B tab. */
   onOpenMate?: (mate: string) => void;
+  /** A body: start placing a connector part on it. */
+  onPlaceConnector?: () => void;
 }
 
 const SOURCE_TEXT = { mate: "placed by its mate", stored: "stored position", default: "default row" } as const;
 
-export function OccurrenceCard({ document, bundle, occurrence, projectNames, canEdit, busy, onPositioningMate, onOpenMate }: OccurrenceCardProps) {
+export function OccurrenceCard({ document, bundle, occurrence, projectNames, canEdit, busy, onPositioningMate, onOpenMate, onPlaceConnector }: OccurrenceCardProps) {
   const item = document.occurrences.find((entry) => entry.id === occurrence);
   const placed = bundle?.placement?.occurrences.find((entry) => entry.occurrence === occurrence);
   if (!item) return null;
@@ -33,12 +36,13 @@ export function OccurrenceCard({ document, bundle, occurrence, projectNames, can
   const placedMate = driving ? bundle?.placement?.mates.find((entry) => entry.mate === driving) : undefined;
   const root = rootOf(document, bundle, occurrence);
   const candidates = matesOf(document, occurrence);
+  const bodyConnectors = bodyConnectorsOf(document, occurrence);
 
   return (
     <div className="w-[260px] rounded-[10px] border border-white/10 bg-zinc-900/95 p-3 text-zinc-100 shadow-xl" role="group" aria-label={`${item.label} placement`}>
       <h4 className="truncate text-[13.5px] font-semibold">{item.label}</h4>
       <p className="mb-2.5 truncate text-[11.5px] text-zinc-400">
-        {source.kind === "board" ? `${projectNames[source.projectId] ?? source.projectId} @ ${source.track.commit.slice(0, 7)}` : source.kind}
+        {source.kind === "board" ? `${projectNames[source.projectId] ?? source.projectId} @ ${source.track.commit.slice(0, 7)}` : source.kind === "body" ? `Body · ${bodyConnectors.length} connector${bodyConnectors.length === 1 ? "" : "s"}` : source.kind}
       </p>
       <table className="w-full text-xs">
         <tbody>
@@ -75,6 +79,14 @@ export function OccurrenceCard({ document, bundle, occurrence, projectNames, can
             {candidates.map((mate) => <option key={mate.id} value={mate.id}>{mateName(mate.id)}</option>)}
           </select>
         </label>
+      )}
+      {source.kind === "body" && bodyConnectors.length > 0 && (
+        <p className="mt-2 text-xs text-zinc-400">{bodyConnectors.map((item) => item.refdes).join(", ")}</p>
+      )}
+      {source.kind === "body" && onPlaceConnector && (
+        <button type="button" disabled={busy} className="mt-2.5 rounded-md border border-white/15 bg-zinc-950 px-2.5 py-1 text-xs disabled:opacity-50" onClick={onPlaceConnector}>
+          Place connector
+        </button>
       )}
       {driving && onOpenMate && (
         <button type="button" className="mt-2.5 rounded-md border border-white/15 bg-zinc-950 px-2.5 py-1 text-xs" onClick={() => onOpenMate(driving)}>

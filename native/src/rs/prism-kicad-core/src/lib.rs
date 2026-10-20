@@ -237,6 +237,7 @@ pub use schematic_plotter_ir::{
     schematic_plot_document_with_graphics, schematic_plot_document_with_sheets,
     schematic_plot_document_with_sheets_profiled, schematic_plot_document_with_symbols,
 };
+pub use schematic_source::library_symbols::parse_symbol_library_symbols;
 pub use schematic_source::{
     SCHEMATIC_IU_PER_MM, SchematicBusAlias, SchematicBusEntry, SchematicConnectivity,
     SchematicJunction, SchematicLabel, SchematicLabelScope, SchematicLegacySymbolInstance,

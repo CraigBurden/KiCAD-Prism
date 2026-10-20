@@ -19,6 +19,7 @@ mod cmd_bundle;
 mod cmd_compare;
 mod cmd_revision_key;
 mod cmd_system;
+mod cmd_system_parts;
 mod git;
 mod inputs;
 mod output;

@@ -2,19 +2,24 @@
  * The system's 3D tab (stage 3b, ADR §2.6–2.7, mockup 06): every board drawn
  * from its analytic bundle where the system bundle places it, selection
  * shared with the other pane, free boards and group roots moved with the
- * gizmo or typed values, and the two explodes.
+ * gizmo or typed values, and the two explodes. Bodies (stage 3d) draw their
+ * catalog model; connector parts are placed on their faces (mockup 08).
  */
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Maximize, Move3d, MousePointer2 } from "lucide-react";
+import { Box, Maximize, Move3d, MousePointer2 } from "lucide-react";
 import { toast } from "sonner";
 
 import { useHotkeys } from "@/hooks/use-hotkeys";
 import type { PrismScenePose, PrismSemanticViewerElement, PrismSystemSceneMoveState, PrismSystemViewerSelection } from "@/types/prism-semantic-viewer";
 
 import type { SystemBundle, SystemDocument, SystemOp } from "../model/types";
+import { AddBodyDialog } from "./add-body-dialog";
+import { addBodyConnectorOps, addBodyOps, faceFramePose, nextRefdes } from "./body-edits";
 import { MoveCard, type Snap } from "./move-card";
+import { usePartModels } from "./part-models";
+import { PlaceConnectorCard, type Placing } from "./place-connector-card";
 import { OccurrenceCard } from "./occurrence-card";
-import { poseOps, positioningMateOps } from "./pose-edits";
+import { poseOps, positioningMateOps, storedPose } from "./pose-edits";
 import { buildSceneDescriptor } from "./scene-descriptor";
 import { useMemberAssets } from "./use-member-assets";
 import { DEFAULT_VIEW, ViewCard, type ViewSettings } from "./view-card";
@@ -44,10 +49,33 @@ function whenReady(element: PrismSemanticViewerElement | null, command: (element
 
 const report = (error: unknown) => toast.error(error instanceof Error ? error.message : String(error));
 
+/** The document with the connector being placed added, once its part and face are chosen. */
+function previewDocument(document: SystemDocument, placing: Placing | null): SystemDocument {
+  if (!placing?.part || !placing.frame) return document;
+  const preview = {
+    id: "bc_preview",
+    occurrence: placing.body,
+    refdes: placing.refdes.trim() || "J?",
+    part: { componentId: placing.part.componentId, revisionId: placing.part.revisionId },
+    frame: storedPose(placing.frame),
+    quarterTurns: placing.quarterTurns,
+  };
+  return { ...document, bodyConnectors: [...document.bodyConnectors.filter((item) => !(item.occurrence === preview.occurrence && item.refdes === preview.refdes)), preview] };
+}
+
 export function ThreeDPane({ document, bundle, projectNames, selected, onSelect, canEdit, busy, apply, lit = null, onOpenMate }: ThreeDPaneProps) {
   const [element, setElement] = useState<PrismSemanticViewerElement | null>(null);
   const assets = useMemberAssets(document);
-  const scene = useMemo(() => buildSceneDescriptor(document, bundle, assets), [document, bundle, assets]);
+  const [addingBody, setAddingBody] = useState(false);
+  const [placing, setPlacing] = useState<Placing | null>(null);
+  // While placing, the connector shows where it would go: a preview in a copy of the document.
+  const shown = useMemo(() => previewDocument(document, placing), [document, placing]);
+  const partRefs = useMemo(() => [
+    ...shown.occurrences.flatMap((item) => (item.source.kind === "body" ? [item.source] : [])),
+    ...shown.bodyConnectors.map((item) => item.part),
+  ], [shown]);
+  const models = usePartModels(partRefs);
+  const scene = useMemo(() => buildSceneDescriptor(shown, bundle, assets, models), [shown, bundle, assets, models]);
   const [move, setMove] = useState<PrismSystemSceneMoveState | null>(null);
   const [snap, setSnap] = useState<Snap>(DEFAULT_SNAP);
   const [view, setView] = useState<ViewSettings>(DEFAULT_VIEW);
@@ -122,6 +150,34 @@ export function ThreeDPane({ document, bundle, projectNames, selected, onSelect,
     { combo: "f", handler: () => element?.frameAll?.() },
   ], { enabled: Boolean(element) });
 
+  // Placing a connector, a click on the body's model picks the face it goes on.
+  const placingBody = placing?.body ?? null;
+  useEffect(() => {
+    if (!element || !placingBody) return undefined;
+    const onClick = (event: MouseEvent) => {
+      const hit = element.pickSurfaceAt?.(event.clientX, event.clientY);
+      const body = scene.occurrences.find((item) => item.path === placingBody);
+      if (!hit || hit.occurrence !== placingBody || !body) return;
+      const frame = faceFramePose(body.pose, hit.pointMm, hit.normal);
+      setPlacing((current) => (current ? { ...current, frame } : current));
+    };
+    element.addEventListener("click", onClick);
+    return () => element.removeEventListener("click", onClick);
+  }, [element, placingBody, scene]);
+  const startPlacing = (body: string) => {
+    setMoving(false);
+    setPlacing({ body, part: null, refdes: nextRefdes(document, body), quarterTurns: 0, frame: null });
+  };
+  const place = () => {
+    if (!placing?.part || !placing.frame) return;
+    try {
+      const ops = addBodyConnectorOps(document, { body: placing.body, refdes: placing.refdes, part: placing.part, frame: placing.frame, quarterTurns: placing.quarterTurns });
+      void apply(ops).then(() => setPlacing(null)).catch(report);
+    } catch (error) {
+      report(error);
+    }
+  };
+
   const target = moving ? move?.target ?? null : null;
   const targetOccurrence = target ? document.occurrences.find((item) => item.id === target.occurrence) : undefined;
   const placedTarget = target ? scene.occurrences.find((item) => item.path === target.occurrence) : undefined;
@@ -153,10 +209,34 @@ export function ThreeDPane({ document, bundle, projectNames, selected, onSelect,
             busy={busy}
             onPositioningMate={(mate) => void apply(positioningMateOps(document, selectedBoard, mate)).catch(report)}
             onOpenMate={onOpenMate}
+            onPlaceConnector={canEdit && !placing ? () => startPlacing(selectedBoard) : undefined}
           />
         )}
       </div>
-      {move && target && targetOccurrence && placedTarget?.movable && (
+      {placing && (
+        <div className="absolute bottom-16 left-4 z-10">
+          <PlaceConnectorCard
+            bodyLabel={document.occurrences.find((item) => item.id === placing.body)?.label ?? placing.body}
+            placing={placing}
+            busy={busy}
+            onChange={setPlacing}
+            onPlace={place}
+            onCancel={() => setPlacing(null)}
+          />
+        </div>
+      )}
+      {addingBody && (
+        <AddBodyDialog
+          onClose={() => setAddingBody(false)}
+          onAdd={async (part) => {
+            const { ops, occurrence } = addBodyOps(document, part);
+            await apply(ops);
+            setAddingBody(false);
+            onSelect(new Set([occurrence]));
+          }}
+        />
+      )}
+      {!placing && move && target && targetOccurrence && placedTarget?.movable && (
         <div className="absolute bottom-16 left-4 z-10">
           <MoveCard
             key={`${target.occurrence}:${epoch}`}
@@ -181,6 +261,7 @@ export function ThreeDPane({ document, bundle, projectNames, selected, onSelect,
       <div className="absolute bottom-4 left-1/2 flex -translate-x-1/2 items-center gap-1 rounded-lg border border-white/10 bg-zinc-900/95 p-1 text-zinc-100 shadow-xl" role="toolbar" aria-label="3D tools">
         <PaneButton active={!moving} onClick={() => setMoving(false)} icon={MousePointer2} label="Select" />
         {canEdit && <PaneButton active={moving} onClick={() => setMoving(!moving)} icon={Move3d} label="Move (M)" />}
+        {canEdit && <PaneButton active={addingBody} onClick={() => setAddingBody(true)} icon={Box} label="Add body" />}
         <PaneButton active={false} onClick={() => element?.frameAll?.()} icon={Maximize} label="Fit (F)" />
       </div>
     </div>

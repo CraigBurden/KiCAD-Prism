@@ -123,7 +123,7 @@ fn work_of(command: Command, stage: Option<StageArg>) -> Work {
     }
 }
 
-const VALUE_OPTIONS: [&str; 35] = [
+const VALUE_OPTIONS: [&str; 36] = [
     "output",
     "in",
     "stage",
@@ -157,6 +157,7 @@ const VALUE_OPTIONS: [&str; 35] = [
     "member-revision-key",
     "absent",
     "board-sub-ports",
+    "parts",
     "entry",
     "entry-stage",
 ];
@@ -203,6 +204,7 @@ fn allowed(command: Command, option: &str) -> bool {
             "member-revision-key",
             "absent",
             "board-sub-ports",
+            "parts",
             "entry",
             "entry-stage",
             "output",
@@ -337,11 +339,10 @@ impl Raw {
                 let value = rest.get(index + 1).ok_or_else(|| {
                     let failure = usage(format!("--{name} takes a value"));
                     match name {
-                        // `CliArgument` has no `document`, `absent`, `board-sub-ports`,
+                        // `CliArgument` has no `document`, `absent`, `board-sub-ports`, `parts`,
                         // `entry` or `entry-stage` value: the message names the option.
-                        "document" | "absent" | "board-sub-ports" | "entry" | "entry-stage" => {
-                            failure
-                        }
+                        "document" | "absent" | "board-sub-ports" | "parts" | "entry"
+                        | "entry-stage" => failure,
                         "member-revision-key" => failure.argument("revision-key"),
                         _ => failure.argument(name),
                     }
@@ -385,7 +386,7 @@ impl Raw {
         if self.options.insert(name, value).is_some() {
             let failure = usage(format!("--{name} is given twice"));
             return Err(match name {
-                "document" | "board-sub-ports" => failure,
+                "document" | "board-sub-ports" | "parts" => failure,
                 _ => failure.argument(name),
             });
         }
@@ -791,7 +792,7 @@ usage:
   prism-kicad system build --document <system.json>
               [--member <occurrence>=<bundle.prism>
               --member-revision-key <occurrence>=<hex>]... [--absent <occurrence>]...
-              [--board-sub-ports <board-sub-ports.json>]
+              [--board-sub-ports <board-sub-ports.json>] [--parts <system-parts.json>]
               [--entry <occurrence>=<system-entry.json>
               --entry-stage <occurrence>=<stage>]...
               -o <system-bundle.json> [COMMON]

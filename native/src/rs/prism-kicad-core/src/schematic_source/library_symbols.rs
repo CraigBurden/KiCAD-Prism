@@ -47,15 +47,78 @@ pub struct SchematicLibraryPin {
     pub uuid: Option<String>,
 }
 
+impl SchematicLibrarySymbol {
+    /// Every pin of the symbol across its units and body styles, one per pin
+    /// number (the first seen wins), in the order they appear.
+    pub fn unique_pins(&self) -> Vec<&SchematicLibraryPin> {
+        let mut seen = BTreeSet::new();
+        let mut pins = Vec::new();
+        for pin in self.subsymbols.iter().flat_map(|subsymbol| &subsymbol.pins) {
+            if seen.insert(pin.number.as_str()) {
+                pins.push(pin);
+            }
+        }
+        pins
+    }
+}
+
 pub(crate) fn parse_embedded_library_symbols(
     source: &str,
     source_path: &str,
     spans: &[FormSpan],
     limits: SchematicBundleLimits,
 ) -> Result<Vec<SchematicLibrarySymbol>, SourceBundleError> {
+    parse_library_symbols_in_container(source, source_path, spans, "lib_symbols", 1, limits)
+}
+
+/// The symbols of a standalone KiCad symbol library (`.kicad_sym`), parsed
+/// as the schematic reader parses embedded library symbols.
+pub fn parse_symbol_library_symbols(
+    source: &str,
+    source_path: &str,
+    limits: SchematicBundleLimits,
+) -> Result<Vec<SchematicLibrarySymbol>, SourceBundleError> {
+    let roots = scan_form_spans_with_limits(
+        source,
+        &Selector {
+            min_depth: Some(0),
+            max_depth: Some(0),
+            ..Selector::default()
+        },
+        ProjectionLimits {
+            max_source_bytes: limits.max_source_bytes,
+            max_depth: limits.max_depth,
+            max_selected_forms: 2,
+            ..ProjectionLimits::default()
+        },
+    )
+    .map_err(|error| source_error(source_path, error.to_string()))?;
+    let [root] = roots.as_slice() else {
+        return Err(source_error(
+            source_path,
+            "symbol library source must contain exactly one kicad_symbol_lib form",
+        ));
+    };
+    if root.head.as_deref() != Some("kicad_symbol_lib") {
+        return Err(source_error(
+            source_path,
+            "symbol library source must have a kicad_symbol_lib root",
+        ));
+    }
+    parse_library_symbols_in_container(source, source_path, &roots, "kicad_symbol_lib", 0, limits)
+}
+
+fn parse_library_symbols_in_container(
+    source: &str,
+    source_path: &str,
+    spans: &[FormSpan],
+    container_head: &str,
+    container_depth: usize,
+    limits: SchematicBundleLimits,
+) -> Result<Vec<SchematicLibrarySymbol>, SourceBundleError> {
     let Some(container) = spans
         .iter()
-        .find(|span| span.depth == 1 && span.head.as_deref() == Some("lib_symbols"))
+        .find(|span| span.depth == container_depth && span.head.as_deref() == Some(container_head))
     else {
         return Ok(Vec::new());
     };
@@ -71,7 +134,7 @@ pub(crate) fn parse_embedded_library_symbols(
         text,
         &Selector {
             heads: Some(
-                ["lib_symbols", "symbol", "pin"]
+                [container_head, "symbol", "pin"]
                     .into_iter()
                     .map(str::to_owned)
                     .collect::<BTreeSet<_>>(),

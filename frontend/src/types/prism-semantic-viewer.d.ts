@@ -16,6 +16,18 @@ export interface PrismRendererSelection {
     featureId?: number;
 }
 
+/** Where a client point meets a catalog model in a system scene (`pickSurfaceAt`). */
+export interface PrismSurfacePick {
+    /** The occurrence path of the model that was hit. */
+    occurrence: string;
+    /** World point, millimetres. */
+    pointMm: [number, number, number];
+    /** World, unit length, facing the camera. */
+    normal: [number, number, number];
+    /** World, unit length, from the point towards the camera. */
+    toCamera: [number, number, number];
+}
+
 /** One placement of the loaded board; `key` (the occurrence path) returns on picks and selections. */
 export interface PrismViewerPick {
     kind: "none" | "feature" | "board";
@@ -363,6 +375,11 @@ export interface PrismSemanticSystemMode {
     getMoveState(): PrismSystemSceneMoveState | null;
     /** Slide mated boards apart along their mate axes, 0 (assembled)..1. */
     setAssemblyExplode(amount: number): void;
+    /**
+     * Where a client point meets the triangles of a catalog model occurrence
+     * marked `pickSurface`, in world millimetres; null on empty space.
+     */
+    pickSurfaceAt(clientX: number, clientY: number): PrismSurfacePick | null;
     /** Board name labels (on by default). */
     setLabelsVisible(visible: boolean): void;
     setHelpVisible(visible: boolean): void;

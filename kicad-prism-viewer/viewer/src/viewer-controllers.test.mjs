@@ -498,6 +498,22 @@ test("system members forward with their defaults and coercions", async () => {
   ]);
 });
 
+test("a surface pick routes to the system port and answers null before a mount", () => {
+  const system = new SystemModeController();
+  assert.equal(system.pickSurfaceAt(10, 20), null);
+  const hit = { occurrence: "/m", pointMm: [1, 2, 3], normal: [0, 0, 1], toCamera: [0, 0, 1] };
+  const { port, calls } = fakeScene({
+    pickSurfaceAt(x, y) {
+      calls.push(["pickSurfaceAt", x, y]);
+      return hit;
+    },
+  });
+  system.attach(port);
+  calls.length = 0;
+  assert.equal(system.pickSurfaceAt(10, 20), hit);
+  assert.deepEqual(calls, [["pickSurfaceAt", 10, 20]]);
+});
+
 test("every member the element exposes belongs to exactly one interface and exists on its controller", () => {
   const all = [...COMMON_MEMBERS, ...BOARD_MEMBERS, ...SYSTEM_MEMBERS];
   assert.equal(new Set(all).size, all.length);

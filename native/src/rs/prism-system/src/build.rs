@@ -2,7 +2,6 @@
 //! references, B2B mappings, then the modules for wiring, nets and
 //! suggestions, and finally the findings.
 
-use crate::arrangement;
 use crate::context::{Context, first_net, pads, pin, power};
 use crate::input::{Board, Document, InterfaceComponent, Mate, Members, Occurrence, OutlineBox};
 use crate::mapping::{self, Side};
@@ -12,12 +11,17 @@ use crate::output::{
     ConnectorOut, MateOut, MatePadOut, MatePadsOut, OccurrenceOut, OutlineOut, PairOut, PinOut,
     PinRef, PlacementOut, SCHEMA, SystemBundle,
 };
+use crate::{arrangement, body};
 use crate::{nets, suggestions, wiring};
 use std::collections::{BTreeMap, BTreeSet};
 
 /// Build the system bundle of `doc` over `members`; `document_sha256` is the
 /// SHA-256 of the document's canonical JSON.
 pub fn build(doc: &Document, members: &Members, document_sha256: String) -> SystemBundle {
+    // Bodies read as boards from here on (§8.10).
+    let mut members = members.clone();
+    body::add_bodies(doc, &mut members);
+    let members = &members;
     let mut cx = Context::new(doc, members);
     let named = named_connectors(doc);
     let occurrences = occurrences(&mut cx, &named);
@@ -202,10 +206,7 @@ fn occurrence_out(cx: &mut Context<'_>, occurrence: &Occurrence, named: &Named) 
     };
     let kind = occurrence.source.kind.as_str();
     if kind == "body" {
-        entry.state = "unsupported";
-        let message = format!("{label} is a body; it is checked from stage 3");
-        cx.findings
-            .add("occurrence-unsupported", subject, message, &[id]);
+        body_out(cx, id, &label, named, &mut entry);
     } else if kind == "entry" && cx.board(id).is_none() {
         entry.state = "absent";
         let message = format!("{label}'s published revision is not in the catalog");
@@ -229,6 +230,83 @@ fn occurrence_out(cx: &mut Context<'_>, occurrence: &Occurrence, named: &Named) 
             .add("occurrence-pending", subject, message, &[id]);
     }
     entry
+}
+
+/// A body's state, connectors and findings (§8.10): ready when `--parts` has
+/// its part; its connectors placed on the schematic by their angle from the
+/// model's centre.
+fn body_out(cx: &mut Context<'_>, id: &str, label: &str, named: &Named, entry: &mut OccurrenceOut) {
+    let subject = format!("occurrence:{id}");
+    let members = cx.members;
+    let (Some(board), Some(facts)) = (cx.board(id), members.bodies.get(id)) else {
+        entry.state = "absent";
+        let message = format!("{label}'s part is not in the catalog");
+        cx.findings
+            .add("occurrence-absent", subject, message, &[id]);
+        return;
+    };
+    entry.state = "ready";
+    entry.connectors = ready_connectors(board, id, named);
+    let centre = facts
+        .bounds
+        .map(|b| {
+            [
+                (b.min_mm[0] + b.max_mm[0]) / 2.0,
+                (b.min_mm[1] + b.max_mm[1]) / 2.0,
+            ]
+        })
+        .unwrap_or([0.0, 0.0]);
+    for connector in &mut entry.connectors {
+        if let Some(mount) = facts.mounts.get(&connector.refdes) {
+            let [x, y, _] = mount.translation_mm;
+            let degrees = (y - centre[1])
+                .atan2(x - centre[0])
+                .to_degrees()
+                .rem_euclid(360.0);
+            connector.placement = Some(PlacementOut {
+                angle_deg: ((degrees * 1000.0).round() / 1000.0) % 360.0,
+                side: "top",
+            });
+        }
+    }
+    if facts.bounds.is_none() {
+        let message = format!("{label}'s part has no converted 3D model; it is placed as a point");
+        cx.findings
+            .add("body-model-missing", subject, message, &[id]);
+    }
+    body_connector_findings(cx, id);
+}
+
+/// `connector-part-missing` and `connector-pins-unknown` for a body's connectors.
+fn body_connector_findings(cx: &mut Context<'_>, id: &str) {
+    let doc = cx.doc;
+    for connector in doc
+        .body_connectors
+        .iter()
+        .filter(|item| item.occurrence == id)
+    {
+        let subject = format!("connector:{id}/{}", connector.refdes);
+        let objects = [connector.id.as_str()];
+        let members = cx.members;
+        match members.parts.get(&connector.part.key()) {
+            None => cx.findings.add(
+                "connector-part-missing",
+                subject,
+                format!("{}'s part is not in the catalog", connector.refdes),
+                &objects,
+            ),
+            Some(part) if part.pins.is_empty() && part.pads.is_empty() => cx.findings.add(
+                "connector-pins-unknown",
+                subject,
+                format!(
+                    "{}'s part has neither a symbol nor a footprint; it has no pins",
+                    connector.refdes
+                ),
+                &objects,
+            ),
+            Some(_) => {}
+        }
+    }
 }
 
 /// A ready board's connectors in natural reference order.
@@ -279,6 +357,7 @@ fn side<'a>(
     Some(Side {
         geometry: component.geometry.as_ref()?,
         thickness_mm: board.interface.board_thickness_mm,
+        unsure_mates_top: cx.members.bodies.contains_key(occurrence),
     })
 }
 

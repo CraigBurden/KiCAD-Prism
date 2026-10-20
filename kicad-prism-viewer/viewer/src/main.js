@@ -30,14 +30,14 @@ import {
   ringRotation, rotatePoseAbout, screenAngle, snapSteps, snapTo, translatePose,
 } from "./move-gizmo.js";
 import {
-  IDENTITY, isIdentity, projectToViewport, transformBounds, transformPoint,
+  IDENTITY, isIdentity, LOD_FULL, projectToViewport, transformBounds, transformPoint,
 } from "./occurrences.js";
 import { primitiveGpuBytes, Renderer } from "./renderer.js";
 import { SceneRenderer } from "./scene-renderer.js";
 import { SchematicWorldRenderer } from "./schematic-world-renderer.js";
 import { collectStackupViaData } from "./stackup-vias.js";
 import { SvgDomSchematicRenderer } from "./svg-dom-schematic-renderer.js";
-import { matrixRay } from "./model-pick.js";
+import { cameraRay, matrixRay, surfaceHit } from "./model-pick.js";
 import { InsetViews, insetMatrix } from "./inset-view.js";
 import { DEFAULT_GPU_BUDGET_BYTES, isSelectionEcho } from "./viewer-controllers.js";
 import { COLORMAPS, DEFAULT_ANALYTIC_STYLE } from "./analytic-colormaps.js";
@@ -50,7 +50,7 @@ import { analyticFeatureId, analyticOperationFeature, applyAnalyticOverlay, appl
 import { FieldRelief } from "./field-relief.js";
 import { barrelsAtCopperFaces } from "./barrel-records.js";
 import {
-  assetLoadable, assetOccurrenceMatrix, boardTransition, bundleToBoardFromBounds, drawnOccurrences,
+  assetLoadable, assetOccurrenceMatrix, boardTransition, bundleToBoardFromBounds, childWorldMatrix, drawnOccurrences,
   explodedWorldMatrix, STAND_INS, standInKind, standInMatrix,
 } from "./system-placement.js";
 
@@ -802,6 +802,14 @@ function releaseAnalytic(b = board) {
 
 const SYSTEM_SCENE_SCHEMA = "prism.system_scene.a0";
 
+// Catalog models on bodies and parts: a proxy box while the GLB loads (or
+// after it failed), and the GLB's own STEP frame once it is in.
+const MODEL_PROXY_ID = "model-proxy";
+const HOUSING_PROXY_RGBA = [0.42, 0.45, 0.5, 1];
+// Geometer's GLBs keep the STEP's axes (z up) in metres; the loader reads glTF's
+// y-up as z-up ((x, y, z) → (x, −z, y)). This undoes both: loader space → STEP mm.
+const GLB_TO_STEP_MM = Object.freeze([1000, 0, 0, 0, 0, 0, -1000, 0, 0, 1000, 0, 0, 0, 0, 0, 1]);
+
 /** Loaded boards of the system scene; empty in the one-board view. */
 function systemBoards() {
   return system ? [...system.boards.values()].filter((b) => b.renderer && b.loadState === "loaded") : [];
@@ -837,10 +845,14 @@ export async function mountSystemViewer(options = {}) {
     gizmo: null,
     // A selected stand-in board (it has no board of its own), or null.
     standInKey: null,
+    // A selected body or part drawn from a catalog model, or null.
+    bodyKey: null,
     showLabels: true,
     // The assembly explode, 0 (assembled) to 1: each occurrence's `explode` moves it.
     explode: 0,
     boards: new Map(),
+    // Catalog models by glbKey, `{ state: "loading" | "ready" | "failed" }`.
+    models: new Map(),
     // Asset downloads in flight by URL: occurrences of one board share one.
     downloads: new Map(),
     groups: new Map(),
@@ -885,6 +897,7 @@ export async function mountSystemViewer(options = {}) {
     getMoveState: () => (system ? moveState() : null),
     setAssemblyExplode,
     setMoveSnap,
+    pickSurfaceAt,
     setLabelsVisible,
     setHelpVisible: setSystemHelpVisible,
     isHelpVisible: () => Boolean(systemHelpEl && !systemHelpEl.hidden),
@@ -1026,12 +1039,41 @@ function placeSystem({ relabel = true } = {}) {
   const assetsById = new Map((descriptor.assets || []).map((asset) => [asset.assetId, asset]));
   const groups = new Map();
   const placed = [];
+  // Every occurrence's current frame: its own exploded world matrix, or a
+  // child's parent frame times its local matrix. Parents may be children too.
+  const byPath = new Map((descriptor.occurrences || []).map((item) => [item.path, item]));
+  const worlds = new Map();
+  const worldOf = (occurrence, seen = new Set()) => {
+    const known = worlds.get(occurrence.path);
+    if (known) return known;
+    let world;
+    const parent = occurrence.parent != null ? byPath.get(occurrence.parent) : null;
+    if (parent && parent !== occurrence && !seen.has(parent.path)) {
+      world = childWorldMatrix(worldOf(parent, new Set(seen).add(occurrence.path)), occurrence.localMatrix);
+    } else {
+      world = explodedWorldMatrix(occurrence.worldMatrix, occurrence.explode, system.explode);
+    }
+    worlds.set(occurrence.path, world);
+    return world;
+  };
   for (const occurrence of drawnOccurrences(descriptor)) {
+    const world = worldOf(occurrence);
+    const own = occurrence.kind !== "board" && !occurrence.restricted ? ownGeometry(occurrence, world) : null;
+    if (own) {
+      if (!groups.has(own.rendererId)) groups.set(own.rendererId, []);
+      groups.get(own.rendererId).push({ matrix: own.matrix, key: occurrence.path, hiddenLayers: [], explode: null });
+      placed.push({
+        occurrence, world, rendererId: own.rendererId, board: null, matrix: own.matrix, worldBounds: own.worldBounds,
+        standIn: null, model: true, child: occurrence.parent != null, parent: occurrence.parent ?? null,
+        primitives: own.primitives,
+      });
+      continue;
+    }
+    // A body or part with neither a loaded model nor proxy bounds draws nothing.
+    if (occurrence.kind === "body" || occurrence.kind === "part") continue;
     const asset = occurrence.assetId ? assetsById.get(occurrence.assetId) : null;
     const b = occurrence.assetId ? system.boards.get(occurrence.assetId) : null;
     const kind = standInKind(occurrence, asset, b?.loadState);
-    // The assembly explode moves the occurrence, and everything derived from it, together.
-    const world = explodedWorldMatrix(occurrence.worldMatrix, occurrence.explode, system.explode);
     let rendererId;
     let matrix;
     let worldBounds;
@@ -1056,7 +1098,10 @@ function placeSystem({ relabel = true } = {}) {
       hiddenLayers,
       explode: kind ? null : explodeFor(b, system.separation.get(occurrence.path) || 0),
     });
-    placed.push({ occurrence, rendererId, board: kind ? null : b, matrix, worldBounds, standIn: kind });
+    placed.push({
+      occurrence, world, rendererId, board: kind ? null : b, matrix, worldBounds, standIn: kind,
+      child: occurrence.parent != null, parent: occurrence.parent ?? null,
+    });
   }
   // Renderers no longer used draw nothing.
   for (const id of system.scene.assets.keys()) if (!groups.has(id)) groups.set(id, []);
@@ -1066,6 +1111,7 @@ function placeSystem({ relabel = true } = {}) {
   system.placed = placed;
   system.placements = new Map(placed.map((item) => [item.occurrence.path, item]));
   if (system.standInKey && !system.placements.has(system.standInKey)) system.standInKey = null;
+  if (system.bodyKey && !system.placements.has(system.bodyKey)) system.bodyKey = null;
   if (relabel || !previous) renderSystemLabels();
   else for (const item of placed) item.label = previous.get(item.occurrence.path)?.label;
   system.bounds = mergeBounds(placed.map((item) => item.worldBounds));
@@ -1091,10 +1137,84 @@ function placeSystem({ relabel = true } = {}) {
   notifyViewStateChange();
 }
 
+/**
+ * An occurrence's own catalog geometry: its GLB once loaded, or its proxy box
+ * while the GLB loads or after it failed. Null with neither.
+ */
+function ownGeometry(occurrence, world) {
+  const model = occurrence.model;
+  if (!model?.glbKey) return null;
+  const placed = mat4Multiply(world, model.matrixMm || IDENTITY);
+  const entry = system.models.get(model.glbKey);
+  if (!entry) void loadModel(model.glbKey);
+  if (entry?.state === "ready") {
+    const matrix = assetOccurrenceMatrix(placed, GLB_TO_STEP_MM);
+    return {
+      rendererId: `model:${model.glbKey}`,
+      matrix,
+      primitives: entry.primitives,
+      worldBounds: transformBounds(matrix, entry.bounds),
+    };
+  }
+  if (model.boundsMm) {
+    system.scene.standIn(MODEL_PROXY_ID, HOUSING_PROXY_RGBA);
+    const matrix = standInMatrix(placed, model.boundsMm);
+    return {
+      rendererId: MODEL_PROXY_ID,
+      matrix,
+      primitives: null,
+      worldBounds: transformBounds(matrix, [0, 0, 0, 1, 1, 1]),
+    };
+  }
+  return null;
+}
+
+/** Fetch a catalog GLB once; the scene is placed again when it is in (or failed). */
+async function loadModel(glbKey) {
+  system.models.set(glbKey, { state: "loading" });
+  const token = activeViewerToken;
+  try {
+    const loaded = await loadGltf(
+      new URL(`/api/catalog/models/${encodeURIComponent(glbKey)}.glb`, location.href).toString(),
+      { fetchCache: "force-cache" },
+    );
+    if (!viewerSessionActive(token) || !system) return;
+    if (!loaded.primitives.length) throw new Error("no primitives");
+    const renderer = system.scene.asset(`model:${glbKey}`);
+    renderer.model = true;
+    renderer.setLodOverride(LOD_FULL);
+    const bounds = [Infinity, Infinity, Infinity, -Infinity, -Infinity, -Infinity];
+    for (const primitive of loaded.primitives) {
+      for (let axis = 0; axis < 3; axis += 1) {
+        bounds[axis] = Math.min(bounds[axis], primitive.bounds[axis]);
+        bounds[axis + 3] = Math.max(bounds[axis + 3], primitive.bounds[axis + 3]);
+      }
+      renderer.addPrimitive(primitive, {
+        kind: "component", layerId: 0, material: primitive.material, color: primitive.material.baseColor,
+      });
+    }
+    renderer.setBoardBounds(bounds);
+    // The triangles stay for surface picks on model occurrences.
+    system.models.set(glbKey, { state: "ready", bounds, primitives: loaded.primitives });
+  } catch (error) {
+    console.warn("[prism-semantic-viewer] catalog model failed", glbKey, error);
+    if (system) system.models.set(glbKey, { state: "failed" });
+  }
+  // A model may draw its first occurrence only now (it had no proxy bounds):
+  // label the whole set again.
+  if (system?.descriptor) placeSystem();
+}
+
 /** The placement path the selection belongs to, or null. */
 function selectedPlacementKey() {
   if (!system || !board.renderer || !hasSystemSelection()) return null;
   return board.renderer.occurrenceKeys[state.selectedOccurrence] ?? null;
+}
+
+/** The placement holding the selection: a board's occurrence, a body, or a stand-in. */
+function selectedBoardKey() {
+  if (!system) return null;
+  return system.bodyKey ?? system.standInKey ?? selectedPlacementKey();
 }
 
 function hasSystemSelection() {
@@ -1103,7 +1223,11 @@ function hasSystemSelection() {
 
 /** Make `b` the board the selection belongs to; a selection on another board goes. */
 function focusBoard(b) {
-  if (board === b) return;
+  if (board === b) {
+    system.standInKey = null;
+    system.bodyKey = null;
+    return;
+  }
   const quiet = suppressSelectionChange;
   suppressSelectionChange = true;
   try {
@@ -1111,6 +1235,8 @@ function focusBoard(b) {
   } finally {
     suppressSelectionChange = quiet;
   }
+  system.standInKey = null;
+  system.bodyKey = null;
   board = b;
   refreshControls();
 }
@@ -1177,7 +1303,7 @@ function frameSystem(now, token) {
   system.scene.setSelectedOccurrence(board.renderer && hasSystemSelection() ? board.renderer.occurrenceBase + state.selectedOccurrence : -1);
   // As on the 3D tab (R1): an idle view skips the GPU work; labels follow the picture.
   if (systemFrameNeedsRender(now, inputs, emphasis)) {
-    system.scene.render(panel, (renderer) => inputs.get(renderer) || standInInputs(now));
+    system.scene.render(panel, (renderer) => inputs.get(renderer) || extraInputs(renderer, now));
     drawGizmo();
     updateSystemLabels();
   }
@@ -1203,18 +1329,40 @@ function standInInputs(now) {
   };
 }
 
+/** A catalog model's triangles draw as components; the board's body and layers do not. */
+function modelInputs(now) {
+  return { ...standInInputs(now), showBoard: false, showComponents: true };
+}
+
+/** Inputs for a renderer the boards' frame inputs don't cover: a catalog model, or a stand-in box. */
+function extraInputs(renderer, now) {
+  return renderer.model ? modelInputs(now) : standInInputs(now);
+}
+
 // ----- picking and selection ----------------------------------------------------
 
 function pickSystem(x, y) {
   const now = performance.now();
-  return system.scene.pick(panel, x, y, (renderer) => system.inputs.get(renderer) || standInInputs(now));
+  return system.scene.pick(panel, x, y, (renderer) => system.inputs.get(renderer) || extraInputs(renderer, now));
 }
 
-/** A click in the system scene: a feature or a board's body selects on that board. */
+/**
+ * A click in the system scene: a feature or a board's body selects on that
+ * board. A body or part drawn from a catalog model selects as itself, and a
+ * child part selects its parent, reporting the part it hit.
+ */
 function selectSystemHit(hit) {
-  const item = hit.occurrenceKey != null ? system.placements.get(hit.occurrenceKey) : null;
+  const hitItem = hit.occurrenceKey != null ? system.placements.get(hit.occurrenceKey) : null;
+  if (!hitItem) return clearSelection();
+  const part = hitItem.parent != null ? hitItem.occurrence.path : null;
+  const item = placementItem(hit.occurrenceKey);
   if (!item) return clearSelection();
   if (item.standIn) return selectStandIn(item);
+  if (!item.board) {
+    selectBody(item);
+    selectBoardContext(part);
+    return;
+  }
   const b = item.board;
   // Isolated, only lit copper draws: a hit on anything else is a click on empty space.
   if (state.isolateNet && !litFeatureAt(b, item.occurrence.path, hit.featureId)) return clearSelection();
@@ -1222,20 +1370,38 @@ function selectSystemHit(hit) {
   state.selectedOccurrence = b.renderer.occurrenceKeys.indexOf(item.occurrence.path);
   // Moving boards, a click picks the board and leaves the camera where it is.
   if (hit.featureId && !system.move.enabled) selectFeature(hit.featureId, true);
-  else selectBoardContext();
+  else selectBoardContext(part);
 }
 
 /**
- * Select a placement for a host selection (SB2-24): a placed board is focused
- * at that placement ("board"); a stand-in selects as itself ("stand-in"); null
- * when nothing is placed there.
+ * The placed item a path selects: a child part resolves to its occurrence (its
+ * parent), following the chain when that parent is itself a child.
+ */
+function placementItem(key) {
+  let item = key != null ? system?.placements.get(String(key)) ?? null : null;
+  const seen = new Set();
+  while (item?.parent && !seen.has(item.parent)) {
+    seen.add(item.parent);
+    item = system.placements.get(item.parent) ?? null;
+  }
+  return item ?? null;
+}
+
+/**
+ * Select a placement for a host selection (SB2-24): a placed board, body or
+ * part is focused at that placement ("board"); a stand-in selects as itself
+ * ("stand-in"); null when nothing is placed there.
  */
 function focusPlacement(occurrence) {
-  const item = occurrence != null ? system?.placements.get(String(occurrence)) : null;
+  const item = placementItem(occurrence);
   if (!item) return null;
   if (item.standIn) {
     selectStandIn(item);
     return "stand-in";
+  }
+  if (!item.board) {
+    selectBody(item);
+    return "board";
   }
   focusBoard(item.board);
   state.selectedOccurrence = board.renderer.occurrenceKeys.indexOf(item.occurrence.path);
@@ -1252,15 +1418,36 @@ function selectStandIn(item) {
     suppressSelectionChange = quiet;
   }
   system.standInKey = item.occurrence.path;
+  system.bodyKey = null;
   if (system.move.enabled) retargetMove();
   if (!suppressSelectionChange) {
     selectionChangeCallback?.({ kind: "board", sourceContext: "3D", occurrence: item.occurrence.path, standIn: item.standIn });
   }
 }
 
+// A body (or a part drawn on its own) has no board of its own: selecting it
+// clears the board it belonged to and keeps it as the placement.
+function selectBody(item) {
+  if (!system) return;
+  const quiet = suppressSelectionChange;
+  suppressSelectionChange = true;
+  try {
+    clearSelection();
+  } finally {
+    suppressSelectionChange = quiet;
+  }
+  board = createBoard({ key: "" });
+  refreshControls();
+  system.standInKey = null;
+  system.bodyKey = item.occurrence.path;
+  if (system.move.enabled) retargetMove();
+}
+
 // A click on a system scene's board away from any feature selects the board
 // itself: the host learns which occurrence, and nothing on the board is emphasised.
-function selectBoardContext() {
+// A body keeps itself as the placement; a child part also names itself.
+function selectBoardContext(part = null) {
+  const held = system?.bodyKey != null ? system.placements.get(system.bodyKey) ?? null : null;
   const occurrence = state.selectedOccurrence;
   // One event for the host: the board selection, not a clear followed by it.
   const quiet = suppressSelectionChange;
@@ -1271,8 +1458,11 @@ function selectBoardContext() {
     suppressSelectionChange = quiet;
   }
   state.selectedOccurrence = occurrence;
-  if (system) system.boardSelected = true;
-  emitSelectionChange({ kind: "board", sourceContext: "3D" });
+  if (system) {
+    system.bodyKey = held && !held.standIn ? held.occurrence.path : null;
+    system.boardSelected = !held;
+  }
+  emitSelectionChange({ kind: "board", sourceContext: "3D" }, part);
 }
 
 /** Whether a feature of a placement is copper of a net lit there. */
@@ -1669,7 +1859,7 @@ function setMoveSpace(space) {
 
 /** The placement path the selection is on, a stand-in's included; null without a selection. */
 function selectionKey() {
-  return system.standInKey ?? selectedPlacementKey();
+  return system.bodyKey ?? system.standInKey ?? selectedPlacementKey();
 }
 
 /** Follow the selection: the moving instance is the selection's movable occurrence. */
@@ -1677,7 +1867,8 @@ function retargetMove({ quiet = false } = {}) {
   if (!system) return;
   const key = selectionKey();
   const occurrence = system.move.enabled && key != null ? moveTarget(system.baseDescriptor, key) : null;
-  const target = occurrence?.movable === true ? occurrence.path : null;
+  // A child part follows its parent and is never a move target of its own.
+  const target = occurrence?.movable === true && occurrence.parent == null ? occurrence.path : null;
   if (target === system.move.target) return;
   dropMoveTarget();
   system.move.target = target;
@@ -1947,7 +2138,8 @@ function setLabelsVisible(visible) {
 function renderSystemLabels() {
   if (!systemLabelsEl) return;
   system.labelsDrawn = null; // new label elements start unplaced
-  systemLabelsEl.replaceChildren(...system.placed.map((item) => {
+  // A child part belongs to its parent's label; it is not labelled itself.
+  systemLabelsEl.replaceChildren(...system.placed.filter((item) => !item.child).map((item) => {
     const label = document.createElement("div");
     label.className = `scene-label${item.standIn ? ` stand-in ${item.standIn}` : ""}`;
     const name = document.createElement("strong");
@@ -2144,22 +2336,25 @@ function pcbViewState() {
     showComponents: state.showComponents,
     showPlaceholders: state.showPlaceholders,
     realisticColors: state.realisticColors,
-    separation: system ? system.separation.get(selectedPlacementKey()) || 0 : state.separation,
+    separation: system ? system.separation.get(selectedBoardKey()) || 0 : state.separation,
     isolateNet: state.isolateNet,
     hasNet: Boolean(state.activeNetId) || anyEmphasis(),
     // SB2-31e: a layer section per placed board, and the placement holding the selection.
-    ...(system ? { boards: systemBoardViews(), selectedBoard: selectedPlacementKey() } : {}),
+    ...(system ? { boards: systemBoardViews(), selectedBoard: selectedBoardKey() } : {}),
   };
 }
 
-function emitSelectionChange(selection) {
+function emitSelectionChange(selection, part = null) {
   // Move mode follows the selection to its top-level instance (SB2-29).
   if (system?.move.enabled) retargetMove();
   if (suppressSelectionChange) return;
   emittedSelection = selection;
-  // In a system scene every selection names its occurrence (SB2-24).
-  const occurrence = board.renderer && !board.renderer.identityOnly ? board.renderer.occurrenceKeys[state.selectedOccurrence] : null;
-  selectionChangeCallback?.(selection && occurrence != null ? { ...selection, occurrence } : selection);
+  // In a system scene every selection names its occurrence (SB2-24): the board's
+  // own, or the body holding it. A picked child part also names itself.
+  const occurrence = system?.bodyKey ?? (board.renderer && !board.renderer.identityOnly
+    ? board.renderer.occurrenceKeys[state.selectedOccurrence] : null);
+  const detail = selection && occurrence != null ? { ...selection, occurrence } : selection;
+  selectionChangeCallback?.(detail && part ? { ...detail, part } : detail);
 }
 
 function selectOccurrenceByKey(key) {
@@ -5003,6 +5198,30 @@ function projectBoardPoint(local, model) {
   if (!pixel) return null;
   const rect = canvas.getBoundingClientRect();
   return { x: rect.left + pixel.x * rect.width / canvas.width, y: rect.top + pixel.y * rect.height / canvas.height };
+}
+
+/**
+ * Where a client point meets a model occurrence marked `pickSurface`:
+ * `{occurrence, pointMm, normal, toCamera}` in world millimetres, the normal
+ * and the vector to the camera unit length; null on empty space.
+ */
+function pickSurfaceAt(clientX, clientY) {
+  if (!system || !canvas) return null;
+  const rect = canvas.getBoundingClientRect();
+  const ndcX = ((clientX - rect.left) / rect.width) * 2 - 1;
+  const ndcY = 1 - ((clientY - rect.top) / rect.height) * 2;
+  const ray = cameraRay(camera, ndcX, ndcY, rect.width / Math.max(rect.height, 1));
+  const models = system.placed
+    .filter((item) => item.primitives && item.occurrence.pickSurface)
+    .map((item) => ({ key: item.occurrence.path, matrix: item.matrix, primitives: item.primitives }));
+  const hit = surfaceHit(models, ray);
+  if (!hit) return null;
+  return {
+    occurrence: hit.key,
+    pointMm: hit.point.map((value) => value / MOVE_MM),
+    normal: hit.normal,
+    toCamera: ray.direction.map((value) => -value),
+  };
 }
 
 function handleKey(event) {

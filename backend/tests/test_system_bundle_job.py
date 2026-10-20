@@ -15,6 +15,7 @@ from app.services.job_runtime import JobContext, PermanentJobError
 from app.system_builder import bundle_store, ops
 from app.system_builder import jobs as system_jobs
 from app.system_builder import members as members_module
+from app.system_builder import parts as parts_module
 from app.system_builder.board_sub_ports import BoardSubPortStore
 from app.system_builder.document import canonical, new_document
 from app.system_builder.service import Caller, SystemService
@@ -151,7 +152,8 @@ class SystemBundleWorkspace(_Workspace):
 
     def expected_key(self, document: dict, members: dict[str, str], absent: list[str], pending: list[str],
                      board_sub_ports: dict[str, int] | None = None,
-                     entries: dict | None = None) -> str:
+                     entries: dict | None = None,
+                     parts: str | None = None) -> str:
         preimage = {
             "documentSha256": expected_document_sha(document),
             "format": members_module.SYSTEM_BUNDLE_FORMAT,
@@ -161,6 +163,9 @@ class SystemBundleWorkspace(_Workspace):
             "pending": sorted(pending),
             "boardSubPorts": board_sub_ports or {},
             "entries": entries or {},
+            # The job always writes a parts document; with no bodies it is empty.
+            "parts": parts_module.digest({"schema": parts_module.SCHEMA, "parts": []})
+            if parts is None else parts,
         }
         return hashlib.sha256(
             json.dumps(preimage, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
@@ -214,6 +219,29 @@ class SystemBundleJobTests(SystemBundleWorkspace, unittest.TestCase):
         row = bundle_store.get("sys_a", expected)
         assert row is not None
         self.assertEqual((row["state"], row["document_version"]), ("complete", 1))
+
+    def test_the_parts_input_is_written_canonically_and_keyed_by_its_digest(self) -> None:
+        commit = self.add_board(OBC_PROJECT, "r1")
+        obc = self.build_design_bundle(OBC_PROJECT)
+        document = self.create_system(
+            "sys_a", [occurrence("occ_obc", "OBC", OBC_PROJECT, commit)]
+        )
+
+        answer = self.service.bundle("sys_a", CALLER, role="viewer")
+        self.run_system_job(self.queued_job("system_bundle"))
+
+        invocation = self.system_invocation()
+        path = Path(invocation[invocation.index("--parts") + 1])
+        written = json.loads(path.read_text(encoding="utf-8"))
+        self.assertEqual(written, {"schema": "prism.system_parts.a0", "parts": []})
+        self.assertEqual(path.read_bytes(), members_module.canonical_bytes(written))
+        self.assertEqual(
+            answer["key"],
+            self.expected_key(
+                document, {"occ_obc": obc["bundle_key"]}, [], [],
+                parts=parts_module.digest(written),
+            ),
+        )
 
     def test_a_pending_board_is_pending_and_the_key_changes_when_its_bundle_arrives(self) -> None:
         obc_commit = self.add_board(OBC_PROJECT, "r1")
