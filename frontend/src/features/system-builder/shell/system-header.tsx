@@ -1,6 +1,6 @@
-/** The system page's top bar: back, name, version and save state, the bundle's state, undo and redo. */
+/** The system page's top bar: back, name, version and save state, the bundle's state, undo and redo, and Snapshot, Commit to Git and Publish (§15.4). */
 import { Link } from "react-router-dom";
-import { ArrowLeft, Redo2, Undo2 } from "lucide-react";
+import { ArrowLeft, Camera, GitCommitHorizontal, Redo2, Send, Undo2 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 
@@ -16,9 +16,12 @@ export interface SystemHeaderProps {
   canEdit: boolean;
   onUndo: () => void;
   onRedo: () => void;
+  onSnapshot?: () => void;
+  onCommitGit?: () => void;
+  onPublish?: () => void;
 }
 
-export function SystemHeader({ name, folderId, version, state, canEdit, onUndo, onRedo }: SystemHeaderProps) {
+export function SystemHeader({ name, folderId, version, state, canEdit, onUndo, onRedo, onSnapshot, onCommitGit, onPublish }: SystemHeaderProps) {
   return (
     <header className="flex h-12 shrink-0 items-center gap-3 border-b px-3">
       <Button variant="ghost" size="icon" asChild aria-label="Back to the workspace">
@@ -43,6 +46,21 @@ export function SystemHeader({ name, folderId, version, state, canEdit, onUndo, 
           <Button variant="ghost" size="icon" aria-label="Redo" title="Redo (⇧⌘Z)" disabled={!state.redoStack.length || state.saving} onClick={onRedo}>
             <Redo2 className="h-4 w-4" />
           </Button>
+          {onSnapshot && (
+            <Button variant="outline" size="sm" onClick={onSnapshot}>
+              <Camera className="mr-1.5 h-3.5 w-3.5" /> Snapshot
+            </Button>
+          )}
+          {onCommitGit && (
+            <Button variant="outline" size="sm" onClick={onCommitGit}>
+              <GitCommitHorizontal className="mr-1.5 h-3.5 w-3.5" /> Commit to Git
+            </Button>
+          )}
+          {onPublish && (
+            <Button size="sm" onClick={onPublish}>
+              <Send className="mr-1.5 h-3.5 w-3.5" /> Publish…
+            </Button>
+          )}
         </>
       )}
     </header>

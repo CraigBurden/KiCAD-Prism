@@ -230,7 +230,7 @@ export const RootSheetCanvas = forwardRef<RootSheetHandle, Props>(function RootS
       onDoubleClick={(event) => {
         const hit = hitAt(event);
         const occurrence = hit?.hit === "symbol" ? document.occurrences.find((item) => item.id === hit.id) : undefined;
-        if (occurrence?.source.kind === "board") onEnter?.(occurrence.id);
+        if (occurrence?.source.kind === "board" || occurrence?.source.kind === "body") onEnter?.(occurrence.id);
       }}
       // Right drag pans, so the browser's menu stays shut on the canvas.
       onContextMenu={(event) => event.preventDefault()}

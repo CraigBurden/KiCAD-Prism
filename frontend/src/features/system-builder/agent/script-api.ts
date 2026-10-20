@@ -16,6 +16,8 @@ import { eulerDegrees, rotationFromEuler } from "../placement/poses";
 import { poseOps, positioningMateOps } from "../three-d/pose-edits";
 import { manualMapOps, orientationOps, rowNameOps, spacerOps, stackHeightOps } from "../b2b/mate-edits";
 import { buildMateView } from "../b2b/mate-view";
+import { publishSystem } from "../model/api";
+import { exportAt, pinNameOps, renameExportOps, toggleExportOps } from "../publish/export-edits";
 
 export interface ScriptDeps {
   record: () => SystemRecord | undefined;
@@ -297,6 +299,44 @@ export function createScriptApi(deps: ScriptDeps) {
     openMate(mate: string) {
       if (!document().mates.some((item) => item.id === mate)) fail(`No mate ${mate}`);
       deps.openMate(mate);
+    },
+
+    /**
+     * Export a connector, or one of its occurrence-level sub-ports by id, under
+     * `name` (default its refdes or sub-port name); renames an existing export (§15.4).
+     */
+    async setExport(input: PinRefIn & { subPort?: string; name?: string }) {
+      const doc = document();
+      const site = { occurrence: input.occurrence, connector: input.connector, subPort: input.subPort };
+      const existing = exportAt(doc, site);
+      if (existing) {
+        if (!input.name) return { id: existing.id, version: read().version };
+        const result = await write(renameExportOps(doc, existing, input.name));
+        return { id: existing.id, ...result };
+      }
+      const ops = toggleExportOps(doc, site);
+      const added = ops[0];
+      if (added.kind !== "add-export") fail("Could not export that site");
+      if (input.name) added.export.name = input.name.trim();
+      const result = await write(ops);
+      return { id: added.export.id, ...result };
+    },
+
+    async removeExport(id: string) {
+      if (!document().exports.some((item) => item.id === id)) fail(`No export ${id}`);
+      return write([{ kind: "remove-export", id }]);
+    },
+
+    /** Name one pin of an export in the published interface; empty clears it. */
+    async namePin(input: { export: string; pad: string; name: string }) {
+      const item = document().exports.find((candidate) => candidate.id === input.export) ?? fail(`No export ${input.export}`);
+      return write(pinNameOps(item, input.pad, input.name));
+    },
+
+    /** Publish the system at the version last read (§11.2); refusals throw with their code. */
+    async publish(input: { identity?: "in-house" | "bought-out"; ipn?: string; manufacturer?: string; mpn?: string; changeSummary: string }) {
+      const record = read();
+      return publishSystem(record.systemId, lastRead ?? record.version, input);
     },
 
     /** Any request, as is. */

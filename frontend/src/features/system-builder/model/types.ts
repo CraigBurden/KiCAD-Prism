@@ -89,5 +89,85 @@ export interface SystemHistoryEntry {
   createdAt: string;
 }
 
+/** `GET`/`POST /api/systems/{id}/snapshots`: a named copy of the document (§5). */
+export interface SystemSnapshot {
+  snapshotId: string;
+  systemId: string;
+  version: number;
+  name: string;
+  note: string | null;
+  createdBy: string;
+  createdAt: string;
+  /** Set when taking the snapshot also queued its Git commit (§13.2). */
+  gitCommitJobId?: string;
+}
+
+/** The file a system is linked to and the last commit Prism made there (§13.1). */
+export interface SystemGitLink {
+  projectId: string;
+  branch: string;
+  path: string;
+  lastCommit: string | null;
+  lastBlob: string | null;
+  lastVersion: number | null;
+  linkedBy: string;
+  linkedAt: string;
+}
+
+/** A commit job's state, as the job table names it. */
+export type SystemGitJobStatus =
+  | "queued"
+  | "running"
+  | "retry_wait"
+  | "cancel_requested"
+  | "completed"
+  | "failed"
+  | "cancelled";
+
+/** The newest commit job a system queued, whatever its state (§13.2). */
+export interface SystemGitJob {
+  jobId: string;
+  status: SystemGitJobStatus;
+  errorCode: string | null;
+  errorMessage: string | null;
+  blob: string | null;
+  createdAt: string | null;
+  updatedAt: string | null;
+}
+
+/** `GET`/`PUT /api/systems/{id}/git`: the link and its newest commit job. */
+export interface SystemGit {
+  systemId: string;
+  link: SystemGitLink | null;
+  lastJob: SystemGitJob | null;
+}
+
+/** One past publication of a system (§11.4). */
+export interface SystemPublicationEntry {
+  version: number;
+  snapshotId: string;
+  revisionId: string;
+  stage: string | null;
+  publishedBy: string;
+  publishedAt: string;
+}
+
+/** `GET /api/systems/{id}/publication`: the catalog identity and its history (§11.4). */
+export interface SystemPublication {
+  componentId: string | null;
+  identity: "in-house" | "bought-out" | null;
+  ipn?: string;
+  manufacturer?: string;
+  mpn?: string;
+  publications: SystemPublicationEntry[];
+}
+
+/** `POST /api/systems/{id}/publish`: the revision it created (§11.2). */
+export interface SystemPublishAnswer {
+  componentId: string;
+  revisionId: string;
+  stage: string;
+}
+
 /** Narrow a `SystemOp` union member by its `kind`. */
 export type OpOf<K extends SystemOp["kind"]> = Extract<SystemOp, { kind: K }>;

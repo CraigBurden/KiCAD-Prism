@@ -409,6 +409,13 @@ def publish_system(
     )
 
 
+@router.get("/systems/{system_id}/publication")
+def read_system_publication(
+    system_id: str, user: AuthenticatedUser = Depends(require_viewer),
+) -> dict[str, Any]:
+    return service.publication(system_id, role=user.role)
+
+
 @router.get("/catalog/system-entries/{revision_id}")
 def read_system_entry(
     revision_id: str,

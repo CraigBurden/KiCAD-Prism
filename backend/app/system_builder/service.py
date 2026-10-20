@@ -464,6 +464,11 @@ class SystemService:
             mpn=mpn,
         )
 
+    def publication(self, system_id: str, *, role: str) -> dict[str, Any]:
+        """The system's catalog component, identity and publications (§11.4)."""
+
+        return self._publishing.publication(system_id, role=role)
+
     def entry_view(self, revision_id: str, caller: Caller, *, role: str) -> dict[str, Any]:
         """A published entry's insides, redacted for the caller (§12.3)."""
 

@@ -52,6 +52,8 @@ export interface ScenePort {
   /** The bundle no longer has this connector (drawn as a dangling end). */
   missing: boolean;
   connected: boolean;
+  /** Its exports' labels (`NAME`, or `NAME{members}` for a sub-port's), drawn as hierarchical labels (§15.4). */
+  exports?: string[];
 }
 
 export interface SceneSymbol {
@@ -116,6 +118,18 @@ function caption(occurrence: Occurrence, projectName?: string): string {
 function symbolKind(occurrence: Occurrence): SymbolKind {
   const kind = occurrence.source.kind;
   return kind === "entry" ? "entry" : kind === "body" ? "body" : "board";
+}
+
+/** The labels of a connector's exports, whole connector first, then its sub-ports' (§15.4). */
+function exportLabels(document: SystemDocument, occurrence: string, connector: string): string[] | undefined {
+  const exports = document.exports.filter((item) => item.site.occurrence === occurrence && item.site.connector === connector);
+  if (!exports.length) return undefined;
+  return [...exports]
+    .sort((a, b) => Number(Boolean(a.site.subPort)) - Number(Boolean(b.site.subPort)) || naturalCompare(a.name, b.name))
+    .map((item) => {
+      const subPort = item.site.subPort?.kind === "occurrence" ? document.subPorts.find((candidate) => candidate.id === item.site.subPort?.id) : undefined;
+      return subPort ? `${item.name}{${subPort.pins.join(" ")}}` : item.name;
+    });
 }
 
 /** Connectors the document names on an occurrence: mates, harness ends, exports, sub-ports. */
@@ -235,6 +249,7 @@ export function buildScene(document: SystemDocument, bundle: SystemBundle | unde
           back: connector.back,
           missing: connector.missing,
           connected: connected.has(pinKey(occurrence.id, connector.refdes)),
+          exports: exportLabels(document, occurrence.id, connector.refdes),
         };
       }),
       lines: [],

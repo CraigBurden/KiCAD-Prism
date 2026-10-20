@@ -30,6 +30,7 @@ export const COLOURS = {
   select: "#2f9bff",
   dangling: "#c20000",
   muted: "#8a8778",
+  exported: "#5b3fa8",
 };
 
 const MM = 1_000_000;
@@ -82,6 +83,40 @@ function PortView({ port, colour, selected }: { port: ScenePort; colour: string;
       {port.missing && (
         <path d={`M${x - 0.6} ${y - 0.6} L${x + 0.6} ${y + 0.6} M${x + 0.6} ${y - 0.6} L${x - 0.6} ${y + 0.6}`} stroke={COLOURS.dangling} strokeWidth={0.2} />
       )}
+      {port.exports && <ExportLabel port={port} />}
+    </g>
+  );
+}
+
+const EXPORT_REACH = 5.08; // mm from the port to the label's point
+const LABEL_H = 1.8;
+
+/**
+ * A port's exports as a KiCad hierarchical label outside the sheet (§15.4,
+ * mockup 05): a short wire out along the edge's normal, then the pointed box
+ * with the export's name, captioned "exported".
+ */
+function ExportLabel({ port }: { port: ScenePort }) {
+  const n = NORMAL[port.edge];
+  const x = mm(port.point.x);
+  const y = mm(port.point.y);
+  const text = (port.exports ?? []).join(", ");
+  const width = Math.max(4, text.length * TEXT * 0.62 + 2);
+  // Laid out along +x from the tip, then turned to face the edge's normal.
+  const angle = Math.atan2(n.y, n.x) * (180 / Math.PI);
+  const flipped = port.edge === "left";
+  const box = `0,0 ${LABEL_H / 2},${-LABEL_H / 2} ${width},${-LABEL_H / 2} ${width},${LABEL_H / 2} ${LABEL_H / 2},${LABEL_H / 2}`;
+  const textX = LABEL_H / 2 + 0.6;
+  return (
+    <g transform={`translate(${x} ${y}) rotate(${angle})`} data-testid="export-label">
+      <line x1={0} y1={0} x2={EXPORT_REACH} y2={0} stroke={COLOURS.exported} strokeWidth={0.25} />
+      <g transform={`translate(${EXPORT_REACH} 0)`}>
+        <polygon points={box} fill="#ffffff" stroke={COLOURS.exported} strokeWidth={0.18} />
+        <g transform={flipped ? `rotate(180 ${width / 2} 0)` : undefined}>
+          <text x={flipped ? width - textX : textX} y={TEXT * 0.35} fontSize={TEXT} fill={COLOURS.exported} textAnchor={flipped ? "end" : "start"}>{text}</text>
+          <text x={flipped ? width - textX : textX} y={LABEL_H / 2 + TEXT * 0.9} fontSize={TEXT * 0.7} fontStyle="italic" fill={COLOURS.exported} textAnchor={flipped ? "end" : "start"}>exported</text>
+        </g>
+      </g>
     </g>
   );
 }
