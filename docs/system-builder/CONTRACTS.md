@@ -1,7 +1,7 @@
 # System Builder v2 contracts
 
-- **Status:** draft, stages 1a–3a. The design is [ADR: System Builder v2](../architecture/adr-system-builder-v2.md); this file is its contract layer.
-- **Covers:** the `prism.system.v2` document (§2), the `prism.system.ops.a0` operations (§3), storage (§4), the HTTP API (§5), permissions and redaction (§6) and limits (§7). The system bundle, `prism.system_bundle.a0`, and the `prism-kicad system build` command that writes it are §8 (placement, stage 3a, is §8.9); its findings are §9. Stage 1c adds board-level sub-ports (§10), publishing (§11), placing entries (§12) and the Git link (§13). Stage 2 adds the schematic (§14).
+- **Status:** draft, stages 1a–3b. The design is [ADR: System Builder v2](../architecture/adr-system-builder-v2.md); this file is its contract layer.
+- **Covers:** the `prism.system.v2` document (§2), the `prism.system.ops.a0` operations (§3), storage (§4), the HTTP API (§5), permissions and redaction (§6) and limits (§7). The system bundle, `prism.system_bundle.a0`, and the `prism-kicad system build` command that writes it are §8 (placement, stage 3a, is §8.9); its findings are §9. Stage 1c adds board-level sub-ports (§10), publishing (§11), placing entries (§12) and the Git link (§13). Stage 2 adds the schematic (§14); stage 3b the 3D tab (§15).
 - **Authority:** the TypeSpec in `native/src/tsp/prism/system-v2.tsp`, `system-ops-a0.tsp`, `system-bundle-a0.tsp` and `cli-system-a0.tsp`, with JSON Schema generated beside the bundle contracts. Python validates against the generated schema; the stage 1b Rust reads the generated types. This file explains the rules the schema cannot state.
 
 ## 1. Rules for the whole document
@@ -273,7 +273,7 @@ Derived state (ADR §3.3). It is a pure function of the document and the design 
 
 - **The document,** canonical JSON without `layout`. Its SHA-256 is `documentSha256`. Layout is presentation only (§2.8), so moving a symbol, a pin or a route reuses the bundle (stage 2b).
 - **One design bundle per board occurrence whose bundle has stage `parse` complete.** It reads `projections/system-interface.json` (connectors, pins, pin nets, names and types, power nets, pad geometry and board thickness) and `projections/semantic-index.json` (bus aliases, nets' source sheets). B2B geometry reads `system-interface.json`'s pad geometry, the form the kept placement maths and their goldens use. This amends the ADR's mention of `placements.json` for pads; the maintainer chose it so the goldens replay unchanged.
-- **The system bundle key** is SHA-256 over the canonical JSON `{documentSha256, generator, members: {occurrence: bundleKey}, absent: [occurrence], pending: [occurrence], boardSubPorts: {id: version}, entries: {occurrence: {payload, stage}}}`; 1c adds the last two (§10.5, §12.2), always present. A new document version with the same content, such as one restored by an undo, reuses the bundle.
+- **The system bundle key** is SHA-256 over the canonical JSON `{documentSha256, format, generator, members: {occurrence: bundleKey}, absent: [occurrence], pending: [occurrence], boardSubPorts: {id: version}, entries: {occurrence: {payload, stage}}}`; 1c adds `boardSubPorts` and `entries` (§10.5, §12.2), always present. `format` is the system bundle's format number, bumped whenever what the bundle holds changes (1 since stage 3a's `placement`), so stored bundles rebuild without any design bundle's key changing. A new document version with the same content, such as one restored by an undo, reuses the bundle.
 - **Board-level sub-ports** the document names, as `--board-sub-ports` (§10.5), and **published entries' payloads**, as `--entry` (§12.2), from 1c. Body connectors' pins are not inputs until stage 3; body occurrences are reported with the state `unsupported`.
 
 ### 8.2 Occurrences
@@ -650,8 +650,21 @@ Every write builds one `prism.system.ops.a0` request (§3), so a script and the 
 | `acceptSuggestions({ occurrence, connector?, keys? \| "all" })` | accepts bundle suggestions as sub-ports |
 | `movePort({ item, key, edge, offsetNm })`, `resizeSheet({ item, widthNm, heightNm })`, `place({ item, xNm, yNm, sheet? })` | layout, with §14.4's rules |
 | `connect({ a, b, kind: "mate" \| "harness", harness? })` | `add-mate` or `connect-harness` |
+| `describePlacement()` | every occurrence's place (§8.9) in millimetres and degrees (turns about x, then y, then z), with its source, root flag, positioning mate and whether it can be moved; and the placed mates |
+| `setPose({ occurrence, translationMm, rotationDeg? })`, `resetPose(occurrence)` | a free board's or group root's stored pose as `replace-occurrence`; refused for a board its mate places; reset drops the pose (default row) |
+| `setPositioningMate({ occurrence, mate })` | `replace-occurrence` with the mate, refused unless the mate has an end on the occurrence; `null` is automatic |
 | `apply(ops)` | any request, as is |
 | `undo()` | §3.3 |
 | `open(sheet)`, `select(ids)`, `unfold({ occurrence, connector })` | view only |
 
 Writes take the version the script last read and fail with `412` like the UI's; `system()` re-reads. Every write returns a promise of `{ version }` and rejects with an `Error` whose `status` is the HTTP status when the server refused (412 when stale); a selector that matches nothing rejects before anything is sent. `describeSheet()` returns the root sheet's symbols (rectangle, pins with edge, offset and position) and connections (route, stored or auto); `describeSheet(occurrence)` returns a board's connectors with their pins (pad, nets, power), sub-ports with member names, open suggestions and whether each is unfolded.
+
+## 15. The 3D tab (stage 3b)
+
+The 3D tab draws the system bundle's placement (§8.9) in `<prism-semantic-viewer mode="system">`, each board from its analytic design bundle (the project's `webgpu-3d/status` at the occurrence's commit).
+
+- **Scene.** The host builds a `prism.system_scene.a0` descriptor: per occurrence its world matrix (mm, +z up), bounds, whether it can be moved (a root or free board) and its explode axis; one viewer asset per occurrence, so two occurrences of one board are drawn separately. A board without a ready 3D bundle, or that the reader cannot see, draws as its bounds box. A board's bundle frame is mapped into its board frame by scaling metres to millimetres and centring on the board's mid-plane (the analytic board's z range), matching the bounds of §8.9.
+- **Selection** is shared with the other pane: picking a board or anything on it selects the occurrence; the other pane's single occurrence selection is shown here.
+- **Move (M).** Only a group's root or a free board takes the gizmo; a mated board follows its mate, and its card offers the positioning mate instead. Arrows move along an axis, rings turn about it, snapping to the card's steps (default 0.5 mm and 15°; Shift for a tenth of the step and 1°), in the world or the board's own axes. Typed values preview; releasing a drag, Enter or Place stores the pose as `replace-occurrence`; Esc drops the preview; Reset to default drops the stored pose. A refused save puts the board back.
+- **Explode**, view only, never stored: *assembly explode* slides each mated board away from its parent along the parent connector's axis (frame +z), 30 mm per level at full; *stackup separation* splits each board's layers, on every board or only the selected one.
+

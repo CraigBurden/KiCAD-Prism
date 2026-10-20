@@ -13,6 +13,11 @@
 //! `frontend/src/features/system-builder/placement/`, and all three replay the
 //! shared goldens in `backend/tests/fixtures/system_builder/placement_cases.json`.
 
+/// The system bundle's format, part of its key (CONTRACTS §8.1): bumped
+/// whenever what the bundle holds changes, so stored bundles rebuild without
+/// changing any design bundle's key. 1: stage 3a added `placement`.
+pub const SYSTEM_BUNDLE_FORMAT: u32 = 1;
+
 pub mod arrangement;
 pub mod build;
 pub mod context;

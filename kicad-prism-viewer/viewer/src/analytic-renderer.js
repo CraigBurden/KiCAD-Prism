@@ -319,6 +319,11 @@ export class AnalyticRenderer {
     this.makeArrowPipeline();
   }
 
+  /** The globals the shaders read: a system scene asset's own (its view times its model), else the renderer's. */
+  globals() {
+    return this.renderer.analyticGlobalBuffer || this.renderer.globalBuffer;
+  }
+
   makeArrowPipeline() {
     this.arrowLayout = this.device.createBindGroupLayout({
       label: "analytic-arrows",
@@ -374,7 +379,7 @@ export class AnalyticRenderer {
       this.arrows.bindGroup = this.device.createBindGroup({
         layout: this.arrowLayout,
         entries: [
-          { binding: 0, resource: { buffer: this.renderer.globalBuffer } },
+          { binding: 0, resource: { buffer: this.globals() } },
           { binding: 1, resource: { buffer: this.arrows.buffer } },
           { binding: 2, resource: { buffer: this.layerOffsets } },
           { binding: 3, resource: { buffer: this.palette } },
@@ -467,7 +472,7 @@ export class AnalyticRenderer {
     return this.device.createBindGroup({
       layout: this.barrelLayout,
       entries: [
-        { binding: 0, resource: { buffer: this.renderer.globalBuffer } },
+        { binding: 0, resource: { buffer: this.globals() } },
         { binding: 1, resource: { buffer: this.barrelView } },
         { binding: 2, resource: { buffer: this.walls.buffer } },
         { binding: 3, resource: { buffer: this.valuesBuffer } },
@@ -544,7 +549,7 @@ export class AnalyticRenderer {
     return this.device.createBindGroup({
       layout: this.barrelLayout,
       entries: [
-        { binding: 0, resource: { buffer: this.renderer.globalBuffer } },
+        { binding: 0, resource: { buffer: this.globals() } },
         { binding: 1, resource: { buffer: this.barrelView } },
         { binding: 2, resource: { buffer: this.barrels.buffer } },
         { binding: 3, resource: { buffer: this.valuesBuffer } },
@@ -753,7 +758,7 @@ export class AnalyticRenderer {
     return this.device.createBindGroup({
       layout: this.layout,
       entries: [
-        { binding: 0, resource: { buffer: this.renderer.globalBuffer } },
+        { binding: 0, resource: { buffer: this.globals() } },
         { binding: 1, resource: { buffer: slice.uniform } },
         { binding: 2, resource: { buffer: slice.shapes } },
         { binding: 3, resource: { buffer: slice.covers } },

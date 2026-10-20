@@ -35,6 +35,13 @@ const BUNDLE = {
     { occurrence: "occ_c", connector: "J2201", key: "power", name: "Power", source: "power", pins: ["1", "2"] },
     { occurrence: "occ_c", connector: "J2201", key: "family:FAN", name: "FAN", source: "family", pins: ["3", "4"] },
   ],
+  placement: {
+    occurrences: [
+      { occurrence: "occ_c", pose: { translation: { xNm: 0, yNm: 0, zNm: 0 }, rotation: { x: 0, y: 0, z: 0, w: 1 } }, source: "default", root: true },
+      { occurrence: "occ_s", pose: { translation: { xNm: 5e6, yNm: 0, zNm: 7e6 }, rotation: { x: 0, y: 0, z: 0, w: 1 } }, source: "mate", root: false, positioningMate: "mate_x" },
+    ],
+    mates: [{ mate: "mate_x", driving: true }],
+  },
 } as unknown as SystemBundle;
 
 function setup(version = 5) {
@@ -121,5 +128,24 @@ describe("window.prismSystemBuilder", () => {
     await api.movePort({ item: "occ_c", key: "J2201", edge: "top", offsetNm: 20_320_000 });
     expect(sent[0].ops[0]).toMatchObject({ kind: "set-layout", item: "occ_c", placement: { ports: { J2201: { edge: "top", offsetNm: 20_320_000 } } } });
     expect(j2201.edge).toBe("left");
+  });
+
+  it("describes the placement and moves only a root or free board", async () => {
+    const { api, sent } = setup();
+    const placement = api.describePlacement();
+    expect(placement.occurrences[1]).toMatchObject({ occurrence: "occ_s", label: "SoM", translationMm: [5, 0, 7], rotationDeg: [0, 0, 0], movable: false, positioningMate: "mate_x" });
+    await expect(api.setPose({ occurrence: "occ_s", translationMm: [0, 0, 0] })).rejects.toThrow(/placed by mate mate_x/);
+    await api.setPose({ occurrence: "occ_c", translationMm: [10, 20, 0], rotationDeg: [0, 0, 90] });
+    expect(sent[0].ops[0]).toMatchObject({ kind: "replace-occurrence", occurrence: { id: "occ_c", pose: { translation: { xNm: 10_000_000, yNm: 20_000_000, zNm: 0 } } } });
+    const rotation = (sent[0].ops[0] as { occurrence: { pose: { rotation: { z: number; w: number } } } }).occurrence.pose.rotation;
+    expect(rotation.z).toBeCloseTo(Math.SQRT1_2);
+    expect(rotation.w).toBeCloseTo(Math.SQRT1_2);
+  });
+
+  it("sets the positioning mate only to a mate of the occurrence", async () => {
+    const { api, sent } = setup();
+    await expect(api.setPositioningMate({ occurrence: "occ_s", mate: "mate_nope" })).rejects.toThrow(/not a mate of occ_s/);
+    await api.setPositioningMate({ occurrence: "occ_s", mate: "mate_x" });
+    expect(sent[0].ops[0]).toMatchObject({ kind: "replace-occurrence", occurrence: { id: "occ_s", positioningMate: "mate_x" } });
   });
 });

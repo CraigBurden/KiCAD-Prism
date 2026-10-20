@@ -1,6 +1,6 @@
 /**
- * `window.prismSystemBuilder` (CONTRACTS §14.6): the schematic for scripts
- * and agents, by meaning (connectors, pads, nets, patterns), never by
+ * `window.prismSystemBuilder` (CONTRACTS §14.6): the schematic and the
+ * placement for scripts and agents, by meaning (connectors, pads, nets, patterns), never by
  * rectangle. Every write builds one `prism.system.ops.a0` request through the
  * same session as the UI, carrying the version the script last read.
  */
@@ -12,6 +12,8 @@ import type { BundleSuggestion, Edge, SystemBundle, SystemDocument, SystemOp, Sy
 import { harnessOps, mateOps, movePort as movePortLayout, resizeSymbol, connectRefusal, layoutOps, moveSymbols } from "../schematic/edits";
 import { PIN_GRID_NM, GRID_NM, clampOffset, edgeLength, resize, snap } from "../schematic/geometry";
 import { buildScene, naturalCompare, type Scene } from "../schematic/scene";
+import { eulerDegrees, rotationFromEuler } from "../placement/poses";
+import { poseOps, positioningMateOps } from "../three-d/pose-edits";
 
 export interface ScriptDeps {
   record: () => SystemRecord | undefined;
@@ -203,6 +205,47 @@ export function createScriptApi(deps: ScriptDeps) {
       const refusal = connectRefusal(document(), input.kind, a, b);
       if (refusal) fail(refusal);
       return write(input.kind === "mate" ? mateOps(a, b) : harnessOps(document(), a, b));
+    },
+
+    /** Where every occurrence sits (§8.9), in millimetres and degrees (turns about x, then y, then z). */
+    describePlacement() {
+      const doc = document();
+      const placement = deps.bundle()?.placement ?? fail("The system bundle has not placed the boards yet");
+      const labels = new Map(doc.occurrences.map((item) => [item.id, item.label]));
+      return {
+        occurrences: placement.occurrences.map((item) => ({
+          occurrence: item.occurrence,
+          label: labels.get(item.occurrence) ?? item.occurrence,
+          translationMm: [item.pose.translation.xNm / 1e6, item.pose.translation.yNm / 1e6, item.pose.translation.zNm / 1e6],
+          rotationDeg: eulerDegrees([item.pose.rotation.x, item.pose.rotation.y, item.pose.rotation.z, item.pose.rotation.w]),
+          source: item.source,
+          root: item.root,
+          positioningMate: item.positioningMate ?? null,
+          movable: item.root,
+        })),
+        mates: placement.mates,
+      };
+    },
+
+    /** Move a free board or a group's root (a mated board follows its mate; move its root instead). */
+    async setPose(input: { occurrence: string; translationMm: [number, number, number]; rotationDeg?: [number, number, number] }) {
+      const placed = deps.bundle()?.placement?.occurrences.find((item) => item.occurrence === input.occurrence);
+      if (placed && !placed.root) fail(`${input.occurrence} is placed by mate ${placed.positioningMate ?? "?"}; move its group's root instead`);
+      if (input.translationMm.length !== 3 || input.translationMm.some((value) => !Number.isFinite(value))) fail("translationMm needs three numbers");
+      return write(poseOps(document(), input.occurrence, { translationMm: input.translationMm, rotation: rotationFromEuler(input.rotationDeg ?? [0, 0, 0]) }));
+    },
+
+    /** Drop a board's stored pose: it takes its slot in the default row. */
+    async resetPose(occurrence: string) {
+      return write(poseOps(document(), occurrence, null));
+    },
+
+    /** Choose which mate positions an occurrence; null goes back to the automatic choice. */
+    async setPositioningMate(input: { occurrence: string; mate: string | null }) {
+      if (input.mate && !document().mates.some((mate) => mate.id === input.mate && (mate.a.occurrence === input.occurrence || mate.b.occurrence === input.occurrence))) {
+        fail(`${input.mate} is not a mate of ${input.occurrence}`);
+      }
+      return write(positioningMateOps(document(), input.occurrence, input.mate));
     },
 
     /** Any request, as is. */

@@ -163,6 +163,11 @@ def document_sha256(document: Mapping[str, Any]) -> str:
     )).hexdigest()
 
 
+#: The system bundle's format, part of its key (CONTRACTS §8.1); the twin of
+#: ``prism_system::SYSTEM_BUNDLE_FORMAT``. 1: stage 3a added ``placement``.
+SYSTEM_BUNDLE_FORMAT = 1
+
+
 def system_bundle_key(
     document: Mapping[str, Any],
     generator_digest: str,
@@ -194,6 +199,7 @@ def system_bundle_key(
     }
     preimage = {
         "documentSha256": document_sha256(document),
+        "format": SYSTEM_BUNDLE_FORMAT,
         "generator": generator_digest,
         "members": ready,
         "absent": sorted(member.occurrence for member in members if member.state == ABSENT),

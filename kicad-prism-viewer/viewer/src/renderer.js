@@ -39,6 +39,17 @@ import {
   packBarrels,
 } from "./barrel-records.js";
 import { ANALYTIC_PICK_TAG } from "./analytic-shaders.js";
+import { mat4Multiply } from "./math.js";
+
+const LIGHT_DIRECTION = Object.freeze([0.35, -0.5, 0.8, 0]);
+
+/** The world light direction in a model's own frame: its rotation's transpose applied. */
+function lightInModel(model) {
+  const [x, y, z] = LIGHT_DIRECTION;
+  const local = [0, 1, 2].map((axis) => model[axis * 4] * x + model[axis * 4 + 1] * y + model[axis * 4 + 2] * z);
+  const length = Math.hypot(...local) || 1;
+  return [...local.map((value) => value / length), 0];
+}
 
 // position unorm16×4 within the primitive's bounds (SB2-89), normal snorm8×4
 // (SB2-84), netId, objectId. SB2-82 dropped the per-primitive layer and material
@@ -887,6 +898,11 @@ export class Renderer {
     this.freeDrawSlots = [];
     this.nextDrawSlot = 0;
     this.globalBuffer = device.createBuffer({ size: GLOBAL_UNIFORM_SIZE, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
+    // A system scene's asset (stage 3b): its analytic board reads its own globals,
+    // the view times its occurrence's matrix, as the analytic shaders take no model.
+    this.analyticGlobalBuffer = shareFrom
+      ? device.createBuffer({ label: "analytic-globals", size: GLOBAL_UNIFORM_SIZE, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST })
+      : null;
     this.layerOffsetBuffer = device.createBuffer({ size: 1024, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST });
     // Occurrences (SB2-23): the one-board viewer is a single identity
     // occurrence drawn by the original pipelines; anything else switches to the
@@ -1207,6 +1223,17 @@ export class Renderer {
     this.analytic = analytic || null;
     this.bundleCache.clear();
     this.invalidate();
+  }
+
+  /**
+   * The view an analytic board draws with: `matrix` (view-projection) times its
+   * occurrence's model matrix in a system scene (stage 3b). An analytic board
+   * is one occurrence of its asset; the one-board view is the identity.
+   */
+  analyticView(matrix) {
+    if (!this.alwaysInstanced || this.occurrenceMatrices.length !== 1) return matrix;
+    const model = this.occurrenceMatrices[0];
+    return isIdentity(model) ? matrix : mat4Multiply(matrix, model);
   }
 
   setLodOverride(lod) {
@@ -2250,10 +2277,10 @@ export class Renderer {
     draws += visibleEntries.length;
     // Analytic slices (VT analytic spike) draw with the opaque geometry, before the barrels and the mask.
     if (this.analytic && !compareMode) {
-      analyticContext = { matrix: panel.matrix, showBoard, boardOpacity, hidePaste, isolateNet, panelLayer: panel.layerId, assemblyOpacity: showPaste ? 1 : componentOpacity, hiddenBoardLayers: this.hiddenBoardLayers };
+      analyticContext = { matrix: this.analyticView(panel.matrix), showBoard, boardOpacity, hidePaste, isolateNet, panelLayer: panel.layerId, assemblyOpacity: showPaste ? 1 : componentOpacity, hiddenBoardLayers: this.hiddenBoardLayers };
       draws += this.analytic.encodeInto(pass, layerOffsets, panel.layerId ? new Set([panel.layerId]) : visibleLayers, false, analyticContext);
       // The pack's barrels, exact, in place of the mesh barrels.
-      draws += this.analytic.encodeBarrels(pass, layerOffsets, panel.matrix);
+      draws += this.analytic.encodeBarrels(pass, layerOffsets, analyticContext.matrix);
       // Result arrows lie on the copper just drawn.
       draws += this.analytic.encodeArrows(pass);
     }
@@ -2393,8 +2420,15 @@ export class Renderer {
     view.setUint32(84, this.selectedOccurrence >= 0 ? this.selectedOccurrence + 1 + this.occurrenceBase : 0, true);
     view.setUint32(88, this.occurrenceBase, true);
     view.setUint32(92, this.emphasisStride, true); // `emphasisStride` (SB2-31), instanced shaders only
-    floats.set([0.35, -0.5, 0.8, 0], 24);
+    floats.set(LIGHT_DIRECTION, 24);
     this.device.queue.writeBuffer(this.globalBuffer, 0, data);
+    if (this.analyticGlobalBuffer && this.analytic) {
+      // The analytic board's own: the view times its model, the light in its own frame.
+      const model = this.occurrenceMatrices.length === 1 ? this.occurrenceMatrices[0] : null;
+      floats.set(this.analyticView(matrix), 0);
+      floats.set(model ? lightInModel(model) : LIGHT_DIRECTION, 24);
+      this.device.queue.writeBuffer(this.analyticGlobalBuffer, 0, data);
+    }
   }
 
   writeDraw(
@@ -2554,8 +2588,8 @@ export class Renderer {
     if (indirect && !options.compareMode) this.drawBox(pass, pipelines.boxPick);
     if (this.analytic && !options.compareMode) {
       const layers = panel.layerId ? new Set([panel.layerId]) : options.visibleLayers;
-      this.analytic.encodeInto(pass, options.layerOffsets, layers, true, { matrix: panel.matrix, panelLayer: panel.layerId, isolateNet: options.isolateNet, showBoard: options.showBoard });
-      this.analytic.encodeBarrels(pass, options.layerOffsets, panel.matrix, true);
+      this.analytic.encodeInto(pass, options.layerOffsets, layers, true, { matrix: this.analyticView(panel.matrix), panelLayer: panel.layerId, isolateNet: options.isolateNet, showBoard: options.showBoard });
+      this.analytic.encodeBarrels(pass, options.layerOffsets, this.analyticView(panel.matrix), true);
     }
     if (this.analytic && options.compareMode) {
       const layers = this.analyticFlatLayers(options);
@@ -2564,7 +2598,8 @@ export class Renderer {
   }
 
   // Copy one pick texel, submit, and decode it. Occurrence numbers are scene-wide.
-  async readPick(encoder, pixelX, pixelY) {
+  /** Read the pick texel; `owner` is the renderer whose draw it holds (a system scene's asset reads through its host). */
+  async readPick(encoder, pixelX, pixelY, owner = this) {
     const readBuffer = this.device.createBuffer({
       label: "pick-readback", // one rg32uint texel; rows are 256-byte aligned
       size: 256,
@@ -2582,11 +2617,11 @@ export class Renderer {
       const red = view.getUint32(0, true);
       const green = view.getUint32(4, true);
       readBuffer.unmap();
-      if (this.analytic && (red & ANALYTIC_PICK_TAG) && green) {
+      if (owner.analytic && (red & ANALYTIC_PICK_TAG) && green) {
         return { kind: "analytic", occurrenceIndex: -1, featureId: 0, operationIndex: green - 1, occurrenceKey: null };
       }
       const hit = decodePick(red, green);
-      return { ...hit, occurrenceKey: hit.occurrenceIndex >= 0 ? this.occurrenceKeys[hit.occurrenceIndex] ?? null : null };
+      return { ...hit, occurrenceKey: hit.occurrenceIndex >= 0 ? owner.occurrenceKeys[hit.occurrenceIndex] ?? null : null };
     } finally {
       if (readBuffer.mapState === "mapped") readBuffer.unmap();
       readBuffer.destroy();
