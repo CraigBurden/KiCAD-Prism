@@ -3429,7 +3429,7 @@ pub struct SystemQuaternion {
 ///      "$ref": "#/$defs/Degrees"
 ///    },
 ///    "route": {
-///      "description": "A connection's drawn path, its points in order from side a to side b; absent means auto-routed.",
+///      "description": "A connection's drawn path: a mate's, its points in order from side a to side b, or a harness end's, from its site's pin to the block; absent means auto-routed.",
 ///      "type": "array",
 ///      "items": {
 ///        "$ref": "#/$defs/SystemSchematicPoint"
@@ -3445,7 +3445,7 @@ pub struct SystemQuaternion {
 ///      "$ref": "#/$defs/SystemSchematicSize"
 ///    },
 ///    "xNm": {
-///      "description": "X in nanometres on the sheet, +x right.",
+///      "description": "X in nanometres on the sheet, +x right; a sheet symbol's or harness block's top-left corner.",
 ///      "$ref": "#/$defs/Nanometres"
 ///    },
 ///    "yNm": {
@@ -3463,7 +3463,7 @@ pub struct SystemSchematicPlacement {
     ///The sheet; absent means the root sheet.
     #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
     pub sheet: ::std::option::Option<SystemObjectId>,
-    ///X in nanometres on the sheet, +x right.
+    ///X in nanometres on the sheet, +x right; a sheet symbol's or harness block's top-left corner.
     #[serde(rename = "xNm")]
     pub x_nm: Nanometres,
     ///Y in nanometres on the sheet, +y down.
@@ -3480,7 +3480,7 @@ pub struct SystemSchematicPlacement {
     ///A sheet symbol's pins: by connector reference (occurrence) or end id (harness block); a missing key means the default.
     #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
     pub ports: ::std::option::Option<RecordSystemPortPlacement>,
-    ///A connection's drawn path, its points in order from side a to side b; absent means auto-routed.
+    ///A connection's drawn path: a mate's, its points in order from side a to side b, or a harness end's, from its site's pin to the block; absent means auto-routed.
     #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
     pub route: ::std::option::Option<::std::vec::Vec<SystemSchematicPoint>>,
     ///Inside a board or body sheet; absent means the defaults.

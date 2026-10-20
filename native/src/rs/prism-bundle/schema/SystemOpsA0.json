@@ -2838,7 +2838,7 @@
                 },
                 "xNm": {
                     "$ref": "#/$defs/Nanometres",
-                    "description": "X in nanometres on the sheet, +x right."
+                    "description": "X in nanometres on the sheet, +x right; a sheet symbol's or harness block's top-left corner."
                 },
                 "yNm": {
                     "$ref": "#/$defs/Nanometres",
@@ -2866,7 +2866,7 @@
                         "$ref": "#/$defs/SystemSchematicPoint"
                     },
                     "minItems": 2,
-                    "description": "A connection's drawn path, its points in order from side a to side b; absent means auto-routed."
+                    "description": "A connection's drawn path: a mate's, its points in order from side a to side b, or a harness end's, from its site's pin to the block; absent means auto-routed."
                 },
                 "interior": {
                     "$ref": "#/$defs/SystemInterior",

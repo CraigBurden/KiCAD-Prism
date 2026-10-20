@@ -61,7 +61,7 @@ _LAYOUT_FIELDS = {
     "harnesses": {"size", "ports"},
     "sheets": {"size"},
     "mates": {"route"},
-    "links": {"route"},
+    "ends": {"route"},
 }
 
 
@@ -70,7 +70,7 @@ def _layout(document: Mapping[str, Any], kinds: Mapping[str, str]) -> None:
         pointer = f"/layout/{_escape(key)}"
         allowed = _LAYOUT_FIELDS.get(kinds.get(key, ""))
         if allowed is None:
-            raise IntegrityError(pointer, "names no occurrence, harness, sheet, mate or link")
+            raise IntegrityError(pointer, "names no occurrence, harness, sheet, mate or harness end")
         for field in ("size", "ports", "interior", "route"):
             if field in placement and field not in allowed:
                 raise IntegrityError(f"{pointer}/{field}", f"a {kinds[key][:-1]} has no {field}")

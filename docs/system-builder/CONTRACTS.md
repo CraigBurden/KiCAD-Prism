@@ -148,7 +148,7 @@ SchematicPlacement {
   sheet?, xNm, yNm, rotationDeg, mirror     where the symbol sits (occurrence, harness block, sheet symbol)
   size?:     { widthNm, heightNm }          a sheet symbol's size (board, body or entry occurrence; harness block)
   ports?:    Record<key, PortPlacement>     a sheet symbol's pins: key = connector refdes (occurrence) or end id (harness block)
-  route?:    Point[]                        a connection (mate or link): its drawn path on its sheet, from side a to side b
+  route?:    Point[]                        a connection: a mate's path from side a to side b, or a harness end's from its site's pin to the block
   interior?: Interior                       inside a board or body sheet (§14.3)
 }
 PortPlacement { edge: "left" | "right" | "top" | "bottom", offsetNm }
@@ -157,9 +157,10 @@ Interior      { symbol?: { xNm, yNm, widthNm, heightNm }, pins?: Record<refdes, 
                 labels?: Record<refdes, { xNm, yNm, rotationDeg }> }
 ```
 
+- Coordinates are KiCad's sheet coordinates: +x right, +y down, in nanometres. A sheet symbol's or harness block's `xNm`, `yNm` is its top-left corner.
 - `offsetNm` runs along the edge from its top or left end. It is not checked against `size`: a resize keeps the offsets and the drawing clamps them.
 - `ports` and `interior` keys name connectors the bundle knows; a key it does not is ignored, never an error (§1).
-- `route` belongs to a mate's or link's entry and has at least two points. Absent `route` is drawn by the auto-router (§14.2).
+- `route` belongs to a mate's or a harness end's entry and has at least two points. On the root sheet a harness is drawn per end (one line from the end's site to its block, however many links use it), so the end carries the route, not the link (stage 2b). Absent `route` is drawn by the auto-router (§14.2).
 - Any absent field takes the default of §14.2.
 
 ## 3. Operations, `prism.system.ops.a0`
@@ -562,7 +563,7 @@ The schematic follows Eeschema: hierarchical sheets, sheet pins, wires, buses, b
 ### 14.1 What each sheet shows
 
 - **The root sheet and user sheets** hold occurrences as sheet symbols, harness blocks, and connections. A board, body or entry occurrence is a sheet symbol whose pins are its connectors, one pin per connector, each carrying a bus of the connector's pins. Sub-ports never appear as pins outside the board's own sheet.
-- **A connection** is drawn between two connector pins: a mate as a bus with the mate mark, a harness link as a bus in the harness colour that always passes through its harness block. On the block, each end is one pin; the block shows a one-line summary per far end.
+- **A connection** is drawn between two connector pins: a mate as a bus with the mate mark; a harness as a bus in the harness colour from each end's site to its harness block, so a harness link always passes through its block. On the block, each end is one pin; the block shows a one-line summary per end.
 - **A board's sheet** (entered by double-click) is generated and read-only except for grouping and layout: one board symbol whose pins are its connectors, each pin's bus running to a hierarchical label named after the connector. Unfolding a connector breaks its bus out into one wire per pin, labelled with the pin's board net. Folding it back shows its groups in the label, in KiCad's bus-group form: `J2201{FAN{TACH PWM} 1 2 MP}`, ungrouped pads as plain members, a pad in two groups in both.
 - **A body's sheet** is the same with the body's connector parts (§2.7); its pins have no board nets, so their names come from the export's `pinNames`.
 - Unfolded or folded is per user and per system, kept with the open tabs, not in the document.
@@ -570,7 +571,8 @@ The schematic follows Eeschema: hierarchical sheets, sheet pins, wires, buses, b
 ### 14.2 Defaults for absent layout
 
 - **Grid.** Everything snaps to 1.27 mm (50 mil); pins and pin offsets to 2.54 mm (100 mil).
-- **Sheet size.** A board's sheet takes its `outline` aspect, the longer side 50.8 mm, then grows until every edge fits its pins at 5.08 mm spacing with 10.16 mm clear of each corner. Without an outline it is square. A harness block is 30.48 × 20.32 mm.
+- **Sheet size.** A board's sheet takes its `outline` aspect, the longer side 50.8 mm, then grows until every edge fits its pins at 5.08 mm spacing with 10.16 mm clear of each corner. Without an outline it is square. A harness block is 30.48 × 20.32 mm, its pins 5.08 mm clear of each corner, and grows the same way.
+- **Symbol position.** An occurrence without a layout entry is placed in a row to the right of the placed ones, 25.4 mm apart, top-aligned with them. A harness block without one sits 25.4 mm out from its sites' pins along their normals (their mean when it has several ends); each end's pin is placed by the angle from the block's centre to its site's pin, by the pin rule below. The "Add board" gesture stores a position in the same request, so these defaults matter mostly to scripts.
 - **Pin placement.** A connector's pin starts where the ray from the sheet's centre at its `placement.angleDeg` leaves the rectangle (y flipped for the screen). Pins on one edge keep their angular order and are spread to the 5.08 mm spacing, first forward and then back from the far corner, so none is pushed off the edge. A connector without `placement` (an entry's export, a body without frames yet) is spread evenly along the left edge in natural reference order. `side: bottom` shows a `B` beside the pin.
 - **Inside a board's sheet** the board symbol is centred, sized like the sheet, its pins placed by the same rule, and each connector's hierarchical label sits 15.24 mm out from its pin.
 - **Route.** An absent `route` is drawn orthogonally: out from each pin along its edge's normal by 5.08 mm, then at most two bends, avoiding sheet symbols. It is redrawn whenever either end moves, until the user edits it, which stores `route`.

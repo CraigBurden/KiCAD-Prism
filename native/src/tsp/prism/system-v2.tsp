@@ -898,7 +898,7 @@ model SystemSchematicPlacement {
   /** The sheet; absent means the root sheet. */
   sheet?: SystemObjectId;
 
-  /** X in nanometres on the sheet, +x right. */
+  /** X in nanometres on the sheet, +x right; a sheet symbol's or harness block's top-left corner. */
   xNm: Nanometres;
 
   /** Y in nanometres on the sheet, +y down. */
@@ -916,7 +916,7 @@ model SystemSchematicPlacement {
   /** A sheet symbol's pins: by connector reference (occurrence) or end id (harness block); a missing key means the default. */
   ports?: Record<SystemPortPlacement>;
 
-  /** A connection's drawn path, its points in order from side a to side b; absent means auto-routed. */
+  /** A connection's drawn path: a mate's, its points in order from side a to side b, or a harness end's, from its site's pin to the block; absent means auto-routed. */
   @minItems(2)
   route?: SystemSchematicPoint[];
 

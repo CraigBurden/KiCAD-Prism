@@ -82,7 +82,7 @@ function parseApiErrorPayload(raw: unknown, fallback: string): ParsedApiError {
 }
 
 /** The `If-Match` header for a guarded write: the resource's ETag `"<kind>:<id>:<version>"`. */
-export function ifMatch(kind: "comment" | "reply" | "component", id: string, version: string | number): Record<string, string> {
+export function ifMatch(kind: "comment" | "reply" | "component" | "system", id: string, version: string | number): Record<string, string> {
   return { "If-Match": `"${kind}:${id}:${version}"` };
 }
 
