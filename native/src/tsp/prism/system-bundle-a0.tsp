@@ -245,6 +245,36 @@ model SystemBundlePadPair {
   b: PadNumber;
 }
 
+/** One pad of a mate drawn in side A's connector frame (stage 3c). */
+model SystemBundleMatePad {
+  /** The pad number. */
+  pad: PadNumber;
+
+  /** The centre's x in A's connector frame. */
+  xNm: Nanometres;
+
+  /** The centre's y in A's connector frame. */
+  yNm: Nanometres;
+
+  /** The pad's long axis, degrees counter-clockwise from A's +x, in [0, 180). */
+  angleDeg: Degrees;
+
+  /** The pad's long side. */
+  longNm: NonNegativeNanometres;
+
+  /** The pad's short side. */
+  shortNm: NonNegativeNanometres;
+}
+
+/** Both connectors' pads in the mated pose, seen in side A's connector frame (x, y on the mating face, looking down its mating axis). */
+model SystemBundleMatePads {
+  /** Side A's named pads, in natural order of their pad; pads sharing a number each appear. */
+  a: SystemBundleMatePad[];
+
+  /** Side B's named pads, carried into A's frame by the mate transform, in natural order of their pad. */
+  b: SystemBundleMatePad[];
+}
+
 /** One B2B mate's mapping. */
 model SystemBundleMate {
   /** The document mate's id. */
@@ -261,6 +291,9 @@ model SystemBundleMate {
 
   /** Side B pads without a partner, in natural order. */
   unmappedB: PadNumber[];
+
+  /** Both connectors' pads in the mated pose; absent when the geometry cannot decide it (stage 3c). */
+  pads?: SystemBundleMatePads;
 }
 
 // ------------------------------------------------------------------- links

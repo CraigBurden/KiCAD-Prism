@@ -63,6 +63,7 @@ function setup(version = 5) {
     select: vi.fn(),
     unfold: vi.fn((occurrence: string, connector: string, on: boolean) => (on ? unfolded.add(`${occurrence}/${connector}`) : unfolded.delete(`${occurrence}/${connector}`))),
     isUnfolded: (occurrence, connector) => unfolded.has(`${occurrence}/${connector}`),
+    openMate: vi.fn(),
   };
   return { api: createScriptApi(deps), deps, sent, bump: () => (current = { ...current, version: current.version + 1 }) };
 }

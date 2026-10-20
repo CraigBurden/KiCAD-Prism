@@ -14,6 +14,8 @@ import { PIN_GRID_NM, GRID_NM, clampOffset, edgeLength, resize, snap } from "../
 import { buildScene, naturalCompare, type Scene } from "../schematic/scene";
 import { eulerDegrees, rotationFromEuler } from "../placement/poses";
 import { poseOps, positioningMateOps } from "../three-d/pose-edits";
+import { manualMapOps, orientationOps, rowNameOps, spacerOps, stackHeightOps } from "../b2b/mate-edits";
+import { buildMateView } from "../b2b/mate-view";
 
 export interface ScriptDeps {
   record: () => SystemRecord | undefined;
@@ -26,6 +28,7 @@ export interface ScriptDeps {
   select: (ids: string[]) => void;
   unfold: (occurrence: string, connector: string, unfolded: boolean) => void;
   isUnfolded: (occurrence: string, connector: string) => boolean;
+  openMate: (mate: string) => void;
 }
 
 export interface PinRefIn {
@@ -246,6 +249,54 @@ export function createScriptApi(deps: ScriptDeps) {
         fail(`${input.mate} is not a mate of ${input.occurrence}`);
       }
       return write(positioningMateOps(document(), input.occurrence, input.mate));
+    },
+
+    /** A B2B mate as its tab shows it (§15.2): sides, rows with both nets, notes, pads landed. */
+    describeMate(mate: string) {
+      const view = buildMateView(document(), deps.bundle(), mate) ?? fail(`No mate ${mate}`);
+      return {
+        mate: view.id,
+        a: view.a,
+        b: view.b,
+        source: view.source,
+        orientation: view.orientation,
+        stackHeightMm: view.stackHeightNm === null ? null : view.stackHeightNm / 1e6,
+        heightSource: view.heightSource,
+        spacerMm: view.spacerNm / 1e6,
+        landed: view.landed,
+        total: view.total,
+        rows: view.rows,
+      };
+    },
+
+    /** Turn, flip, stack height (null: from clearance) and spacer of a mate, in one request. */
+    async setMate(input: { mate: string; quarterTurns?: number; flip?: boolean; stackHeightMm?: number | null; spacerMm?: number }) {
+      let doc = document();
+      const ops: SystemOp[] = [];
+      const step = (next: SystemOp[]) => {
+        ops.splice(0, ops.length, ...next);
+        doc = { ...doc, mates: doc.mates.map((item) => (item.id === input.mate ? (next[0] as { mate: typeof item }).mate : item)) };
+      };
+      if (input.quarterTurns !== undefined || input.flip !== undefined) step(orientationOps(doc, input.mate, input));
+      if (input.stackHeightMm !== undefined) step(stackHeightOps(doc, input.mate, input.stackHeightMm));
+      if (input.spacerMm !== undefined) step(spacerOps(doc, input.mate, input.spacerMm));
+      return write(ops);
+    },
+
+    /** A mapping row's system name, by its side A pad; empty clears it. */
+    async nameMateRow(input: { mate: string; pad: string; name: string }) {
+      return write(rowNameOps(document(), input.mate, input.pad, input.name));
+    },
+
+    /** Replace a mate's derived mapping with pairs; null goes back to geometry. */
+    async setManualMap(input: { mate: string; pairs: { a: string; b: string }[] | null }) {
+      return write(manualMapOps(document(), input.mate, input.pairs));
+    },
+
+    /** View only: open a mate's B2B tab beside the 3D tab. */
+    openMate(mate: string) {
+      if (!document().mates.some((item) => item.id === mate)) fail(`No mate ${mate}`);
+      deps.openMate(mate);
     },
 
     /** Any request, as is. */

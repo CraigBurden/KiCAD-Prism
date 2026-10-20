@@ -1,7 +1,7 @@
 # System Builder v2 contracts
 
-- **Status:** draft, stages 1a–3b. The design is [ADR: System Builder v2](../architecture/adr-system-builder-v2.md); this file is its contract layer.
-- **Covers:** the `prism.system.v2` document (§2), the `prism.system.ops.a0` operations (§3), storage (§4), the HTTP API (§5), permissions and redaction (§6) and limits (§7). The system bundle, `prism.system_bundle.a0`, and the `prism-kicad system build` command that writes it are §8 (placement, stage 3a, is §8.9); its findings are §9. Stage 1c adds board-level sub-ports (§10), publishing (§11), placing entries (§12) and the Git link (§13). Stage 2 adds the schematic (§14); stage 3b the 3D tab (§15).
+- **Status:** draft, stages 1a–3c. The design is [ADR: System Builder v2](../architecture/adr-system-builder-v2.md); this file is its contract layer.
+- **Covers:** the `prism.system.v2` document (§2), the `prism.system.ops.a0` operations (§3), storage (§4), the HTTP API (§5), permissions and redaction (§6) and limits (§7). The system bundle, `prism.system_bundle.a0`, and the `prism-kicad system build` command that writes it are §8 (placement, stage 3a, is §8.9); its findings are §9. Stage 1c adds board-level sub-ports (§10), publishing (§11), placing entries (§12) and the Git link (§13). Stage 2 adds the schematic (§14); stage 3b the 3D tab and 3c the B2B tab (§15).
 - **Authority:** the TypeSpec in `native/src/tsp/prism/system-v2.tsp`, `system-ops-a0.tsp`, `system-bundle-a0.tsp` and `cli-system-a0.tsp`, with JSON Schema generated beside the bundle contracts. Python validates against the generated schema; the stage 1b Rust reads the generated types. This file explains the rules the schema cannot state.
 
 ## 1. Rules for the whole document
@@ -247,7 +247,7 @@ Reads need `read`; writes need `design` (`app/core/policy.py`).
 ## 6. Permissions and redaction
 
 - A system's own visibility follows its folder, like a project's.
-- **Redaction** (ADR open question 1, today's rule): when the caller cannot see a board occurrence's project, they see the occurrence by its label only. Its `source` is replaced by `{ kind: "redacted" }`, and every pin list, pin map, row label and pin name that names that occurrence's pins is emptied. The same rule applies to snapshots, history and (1b) the system bundle's reads and findings.
+- **Redaction** (ADR open question 1, today's rule): when the caller cannot see a board occurrence's project, they see the occurrence by its label only. Its `source` is replaced by `{ kind: "redacted" }`, and every pin list, pin map, row label and pin name that names that occurrence's pins is emptied; a mate on it also loses its drawn `pads` (§8.4). The same rule applies to snapshots, history and (1b) the system bundle's reads and findings.
 - A request from that caller that would read or change a redacted occurrence, or anything naming its pins, is refused (`403 system_redacted`). Everything else stays editable.
 - Redaction happens at read time; the stored document is always complete.
 
@@ -273,7 +273,7 @@ Derived state (ADR §3.3). It is a pure function of the document and the design 
 
 - **The document,** canonical JSON without `layout`. Its SHA-256 is `documentSha256`. Layout is presentation only (§2.8), so moving a symbol, a pin or a route reuses the bundle (stage 2b).
 - **One design bundle per board occurrence whose bundle has stage `parse` complete.** It reads `projections/system-interface.json` (connectors, pins, pin nets, names and types, power nets, pad geometry and board thickness) and `projections/semantic-index.json` (bus aliases, nets' source sheets). B2B geometry reads `system-interface.json`'s pad geometry, the form the kept placement maths and their goldens use. This amends the ADR's mention of `placements.json` for pads; the maintainer chose it so the goldens replay unchanged.
-- **The system bundle key** is SHA-256 over the canonical JSON `{documentSha256, format, generator, members: {occurrence: bundleKey}, absent: [occurrence], pending: [occurrence], boardSubPorts: {id: version}, entries: {occurrence: {payload, stage}}}`; 1c adds `boardSubPorts` and `entries` (§10.5, §12.2), always present. `format` is the system bundle's format number, bumped whenever what the bundle holds changes (1 since stage 3a's `placement`), so stored bundles rebuild without any design bundle's key changing. A new document version with the same content, such as one restored by an undo, reuses the bundle.
+- **The system bundle key** is SHA-256 over the canonical JSON `{documentSha256, format, generator, members: {occurrence: bundleKey}, absent: [occurrence], pending: [occurrence], boardSubPorts: {id: version}, entries: {occurrence: {payload, stage}}}`; 1c adds `boardSubPorts` and `entries` (§10.5, §12.2), always present. `format` is the system bundle's format number, bumped whenever what the bundle holds changes (1: stage 3a's `placement`; 2: stage 3c's mate `pads`), so stored bundles rebuild without any design bundle's key changing. A new document version with the same content, such as one restored by an undo, reuses the bundle.
 - **Board-level sub-ports** the document names, as `--board-sub-ports` (§10.5), and **published entries' payloads**, as `--entry` (§12.2), from 1c. Body connectors' pins are not inputs until stage 3; body occurrences are reported with the state `unsupported`.
 
 ### 8.2 Occurrences
@@ -302,7 +302,7 @@ Derived state (ADR §3.3). It is a pure function of the document and the design 
 
 ### 8.4 B2B mappings
 
-`mates[]`, one per document mate: `{ mate, source, pairs[{a, b}], unmappedA[], unmappedB[] }`.
+`mates[]`, one per document mate: `{ mate, source, pairs[{a, b}], unmappedA[], unmappedB[], pads? }`.
 
 - **source `geometry`.** Each connector's frame comes from the kept frame maths (`connector_frame`) with its board's thickness. B's pad centres are placed into A's frame by the mate transform, with `k = (padOneTurns + orientation.quarterTurns) mod 4`. `padOneTurns` puts pad 1 on pad 1, so quarter turns 0 is the natural mating. With `flip`, B's frame is first turned 180° about its x axis.
   - An A pad maps to the B pad whose centre lies inside the A pad's landing window in A's xy plane: the A pad's rectangle, turned with its footprint, each half-side at least 0.1 mm. Mating series often pair long pads at different row spacings, so matching centres can sit apart along the pads but not across them. For a name held by several pads, the smallest gives the window. The closest B pad wins, and a B pad maps at most once.
@@ -310,6 +310,7 @@ Derived state (ADR §3.3). It is a pure function of the document and the design 
 - **source `manual`.** `manualMap` replaces the geometry. Pairs naming pads the connectors lack are dropped and reported.
 - **source `unresolved`.** There is no manual map and the geometry cannot decide: a side is not ready, a connector has no pads, or the frame inference has confidence `low`. `pairs` is empty.
 - Lists are in natural order of the side's pad.
+- **`pads`** (stage 3c), for the B2B tab's drawing: `{ a[], b[] }`, each pad `{ pad, xNm, yNm, angleDeg, longNm, shortNm }` in A's connector frame, looking down its mating axis. A's pads are in that frame; B's are carried into it by the same transform as the mapping. `angleDeg` is the pad's long axis from +x, in [0, 180). Every named pad appears, including pads sharing a number. Present whenever both frames can be inferred, whatever the source; absent otherwise. A protected mate (§6) loses it.
 
 ### 8.5 Harness wiring
 
@@ -653,13 +654,16 @@ Every write builds one `prism.system.ops.a0` request (§3), so a script and the 
 | `describePlacement()` | every occurrence's place (§8.9) in millimetres and degrees (turns about x, then y, then z), with its source, root flag, positioning mate and whether it can be moved; and the placed mates |
 | `setPose({ occurrence, translationMm, rotationDeg? })`, `resetPose(occurrence)` | a free board's or group root's stored pose as `replace-occurrence`; refused for a board its mate places; reset drops the pose (default row) |
 | `setPositioningMate({ occurrence, mate })` | `replace-occurrence` with the mate, refused unless the mate has an end on the occurrence; `null` is automatic |
+| `describeMate(mate)`, `setMate(…)`, `nameMateRow(…)`, `setManualMap(…)`, `openMate(mate)` | the B2B tab's data and edits (§15.2) |
 | `apply(ops)` | any request, as is |
 | `undo()` | §3.3 |
 | `open(sheet)`, `select(ids)`, `unfold({ occurrence, connector })` | view only |
 
 Writes take the version the script last read and fail with `412` like the UI's; `system()` re-reads. Every write returns a promise of `{ version }` and rejects with an `Error` whose `status` is the HTTP status when the server refused (412 when stale); a selector that matches nothing rejects before anything is sent. `describeSheet()` returns the root sheet's symbols (rectangle, pins with edge, offset and position) and connections (route, stored or auto); `describeSheet(occurrence)` returns a board's connectors with their pins (pad, nets, power), sub-ports with member names, open suggestions and whether each is unfolded.
 
-## 15. The 3D tab (stage 3b)
+## 15. The 3D and B2B tabs (stages 3b, 3c)
+
+### 15.1 The 3D tab
 
 The 3D tab draws the system bundle's placement (§8.9) in `<prism-semantic-viewer mode="system">`, each board from its analytic design bundle (the project's `webgpu-3d/status` at the occurrence's commit).
 
@@ -668,3 +672,15 @@ The 3D tab draws the system bundle's placement (§8.9) in `<prism-semantic-viewe
 - **Move (M).** Only a group's root or a free board takes the gizmo; a mated board follows its mate, and its card offers the positioning mate instead. Arrows move along an axis, rings turn about it, snapping to the card's steps (default 0.5 mm and 15°; Shift for a tenth of the step and 1°), in the world or the board's own axes. Typed values preview; releasing a drag, Enter or Place stores the pose as `replace-occurrence`; Esc drops the preview; Reset to default drops the stored pose. A refused save puts the board back.
 - **Explode**, view only, never stored: *assembly explode* slides each mated board away from its parent along the parent connector's axis (frame +z), 30 mm per level at full; *stackup separation* splits each board's layers, on every board or only the selected one.
 
+### 15.2 The B2B tab
+
+One tab per opened mate (`?b2b=<ids>`, `tab=b2b:<id>`), opened from the mate's selection panel on the schematic, the placed board's card in 3D, or `openMate`; it opens beside the 3D tab and closes on its own.
+
+- **Pads.** The bundle's `pads` (§8.4): A's pads as rectangles, B's as rings where the mated pose puts them, looking down A's mating axis. A click on a pad selects its row.
+- **Orientation, stack and spacer** are the mate's stored choices, each a `replace-mate`: quarter turns (0°, 90°, 180°, 270°), flip, the stated stack height (empty: from clearance) and a spacer, the offset along the mating axis after the mate transform. Changing any of them rebuilds the bundle, so the mapping and the 3D pose follow. The bar shows how many pads land: pairs over the larger of the two connectors' pad counts.
+- **Mapping rows** are derived, one per pair and one per pad without a partner, with both boards' nets. A row's notes come from the findings on the system net it joins (`net-name-conflict`: names differ; `power-net-conflict`: power nets differ) and from the mapping (no partner). Filters: all, with findings, power, and a search over pads and names.
+- **System name.** A row's only user field is `rows[aPad].netLabel`, set or cleared with `replace-mate`; it never edits a board.
+- **Manual map.** The fallback when geometry cannot decide: pairs typed one per line (A pad, then B pad) replace the derived mapping as `manualMap`, flagged by `mate-manual-override`; going back to geometry drops it.
+- **Beside 3D.** Selecting a row lights its net on both boards in the 3D tab and frames the two connectors.
+
+Script API additions: `describeMate(mate)` returns the tab's data (sides, source, orientation, stack height and its source, spacer, pads landed, rows); `setMate({ mate, quarterTurns?, flip?, stackHeightMm?, spacerMm? })` is one `replace-mate`; `nameMateRow({ mate, pad, name })`; `setManualMap({ mate, pairs })` (null: geometry); `openMate(mate)` is view only.

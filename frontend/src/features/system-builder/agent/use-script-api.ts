@@ -10,6 +10,7 @@ interface ViewHooks {
   select: (ids: string[]) => void;
   unfold: (occurrence: string, connector: string, unfolded: boolean) => void;
   isUnfolded: (occurrence: string, connector: string) => boolean;
+  openMate: (mate: string) => void;
 }
 
 /**
@@ -32,6 +33,7 @@ export function useScriptApi(session: SystemSession | null, state: SessionState,
       select: (ids) => viewRef.current.select(ids),
       unfold: (occurrence, connector, unfolded) => viewRef.current.unfold(occurrence, connector, unfolded),
       isUnfolded: (occurrence, connector) => viewRef.current.isUnfolded(occurrence, connector),
+      openMate: (mate) => viewRef.current.openMate(mate),
     });
     window.prismSystemBuilder = api;
     return () => {

@@ -254,6 +254,7 @@ export interface SystemBundleMate {
    * Side B pads without a partner, in natural order.
    */
   unmappedB: PadNumber[];
+  pads?: SystemBundleMatePads;
 }
 /**
  * One pin pair of a B2B mapping.
@@ -267,6 +268,50 @@ export interface SystemBundlePadPair {
    * The pad on side B.
    */
   b: string;
+}
+/**
+ * Both connectors' pads in the mated pose; absent when the geometry cannot decide it (stage 3c).
+ */
+export interface SystemBundleMatePads {
+  /**
+   * Side A's named pads, in natural order of their pad; pads sharing a number each appear.
+   */
+  a: SystemBundleMatePad[];
+  /**
+   * Side B's named pads, carried into A's frame by the mate transform, in natural order of their pad.
+   */
+  b: SystemBundleMatePad[];
+}
+/**
+ * One pad of a mate drawn in side A's connector frame (stage 3c).
+ */
+export interface SystemBundleMatePad {
+  /**
+   * Pad or pin number as written in the file, always a string (`1`, `A1`,
+   * `EP`). Empty for a pad KiCad leaves unnumbered, such as a mechanical
+   * non-plated hole.
+   */
+  pad: string;
+  /**
+   * The centre's x in A's connector frame.
+   */
+  xNm: number;
+  /**
+   * The centre's y in A's connector frame.
+   */
+  yNm: number;
+  /**
+   * The pad's long axis, degrees counter-clockwise from A's +x, in [0, 180).
+   */
+  angleDeg: number;
+  /**
+   * The pad's long side.
+   */
+  longNm: number;
+  /**
+   * The pad's short side.
+   */
+  shortNm: number;
 }
 /**
  * One harness link's wiring.

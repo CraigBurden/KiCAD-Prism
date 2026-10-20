@@ -14,11 +14,13 @@ export interface OccurrenceCardProps {
   canEdit: boolean;
   busy: boolean;
   onPositioningMate: (mate: string | null) => void;
+  /** Open a mate's B2B tab. */
+  onOpenMate?: (mate: string) => void;
 }
 
 const SOURCE_TEXT = { mate: "placed by its mate", stored: "stored position", default: "default row" } as const;
 
-export function OccurrenceCard({ document, bundle, occurrence, projectNames, canEdit, busy, onPositioningMate }: OccurrenceCardProps) {
+export function OccurrenceCard({ document, bundle, occurrence, projectNames, canEdit, busy, onPositioningMate, onOpenMate }: OccurrenceCardProps) {
   const item = document.occurrences.find((entry) => entry.id === occurrence);
   const placed = bundle?.placement?.occurrences.find((entry) => entry.occurrence === occurrence);
   if (!item) return null;
@@ -73,6 +75,11 @@ export function OccurrenceCard({ document, bundle, occurrence, projectNames, can
             {candidates.map((mate) => <option key={mate.id} value={mate.id}>{mateName(mate.id)}</option>)}
           </select>
         </label>
+      )}
+      {driving && onOpenMate && (
+        <button type="button" className="mt-2.5 rounded-md border border-white/15 bg-zinc-950 px-2.5 py-1 text-xs" onClick={() => onOpenMate(driving)}>
+          Open B2B tab
+        </button>
       )}
       {driving && <p className="mt-2 text-[11px] text-zinc-500">A mated board moves with its root; move {root ? document.occurrences.find((entry) => entry.id === root)?.label : "the root"} to move the stack.</p>}
     </div>

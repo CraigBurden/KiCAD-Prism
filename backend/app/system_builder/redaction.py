@@ -167,6 +167,7 @@ def redact_bundle(
             mate["pairs"] = []
             mate["unmappedA"] = []
             mate["unmappedB"] = []
+            mate.pop("pads", None)
     for link in view["links"]:
         if link["link"] in protected:
             link["wires"] = []

@@ -97,7 +97,8 @@ BUNDLE = {
         },
     ],
     "mates": [
-        {"mate": "mate_x", "source": "geometry", "pairs": [{"a": "1", "b": "1"}], "unmappedA": [], "unmappedB": ["2"]},
+        {"mate": "mate_x", "source": "geometry", "pairs": [{"a": "1", "b": "1"}], "unmappedA": [], "unmappedB": ["2"],
+         "pads": {"a": [{"pad": "1", "xNm": 0, "yNm": 0, "angleDeg": 90.0, "longNm": 1500000, "shortNm": 300000}], "b": [{"pad": "1", "xNm": 0, "yNm": 0, "angleDeg": 90.0, "longNm": 1500000, "shortNm": 300000}]}},
         {"mate": "mate_y", "source": "geometry", "pairs": [{"a": "1", "b": "1"}], "unmappedA": [], "unmappedB": []},
     ],
     "links": [
@@ -195,7 +196,7 @@ class SystemBundleKeyTest(unittest.TestCase):
             "documentSha256": hashlib.sha256(
                 json.dumps(DOCUMENT, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
             ).hexdigest(),
-            "format": 1,
+            "format": 2,
             "generator": "f" * 64,
             "members": members,
             "absent": absent,
@@ -267,6 +268,7 @@ class BundleRedactionTest(unittest.TestCase):
         view = redact_bundle(BUNDLE, frozenset({"occ_b"}), document=DOCUMENT)
         hidden_mate = next(mate for mate in view["mates"] if mate["mate"] == "mate_x")
         self.assertEqual((hidden_mate["pairs"], hidden_mate["unmappedA"], hidden_mate["unmappedB"]), ([], [], []))
+        self.assertNotIn("pads", hidden_mate)
         visible_mate = next(mate for mate in view["mates"] if mate["mate"] == "mate_y")
         self.assertEqual(len(visible_mate["pairs"]), 1)
         hidden_link = next(link for link in view["links"] if link["link"] == "link_x")

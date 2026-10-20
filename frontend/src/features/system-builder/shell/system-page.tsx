@@ -1,15 +1,15 @@
 /**
  * `/system/:systemId`: one system's editor (ADR §2.7, CONTRACTS §14). A row
  * of tabs over one or two panes side by side, with selection shared between
- * them: the schematic (root and board sheets), 3D and Review. Harness and B2B
- * tabs follow in later stages.
+ * them: the schematic (root and board sheets), 3D, Review, and one tab per
+ * opened B2B mate. Harness tabs follow in stage 4.
  *
- * The open tab and the pane beside it live in the URL (`?tab=…&beside=…`),
- * so a link reopens the same view.
+ * The open tab, the pane beside it and the open B2B tabs live in the URL
+ * (`?tab=…&beside=…&b2b=…`), so a link reopens the same view.
  */
 import { useMemo, useRef, useState } from "react";
-import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
-import { ArrowLeft, ArrowUp, Cable, Columns2, Maximize, MousePointer2, Plus, Redo2, Undo2, Unplug, X } from "lucide-react";
+import { useNavigate, useParams, useSearchParams } from "react-router-dom";
+import { ArrowUp, Cable, Maximize, MousePointer2, Plus, Unplug } from "lucide-react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
@@ -28,15 +28,27 @@ import { RootSheetCanvas, type RootSheetHandle, type Tool } from "../schematic/r
 import { buildScene } from "../schematic/scene";
 import { SelectionPanel } from "../schematic/selection-panel";
 import { useSystemSession } from "../session/use-system-session";
+import { B2bPane } from "../b2b/b2b-pane";
+import { mateTitle } from "../b2b/mate-view";
 import { ThreeDPane } from "../three-d/three-d-pane";
 import { AddBoardDialog } from "./add-board-dialog";
+import { SystemHeader } from "./system-header";
+import { ViewTabs } from "./view-tabs";
 
 const TABS = ["schematic", "3d", "review"] as const;
-type TabId = (typeof TABS)[number];
-const TAB_LABEL: Record<TabId, string> = { schematic: "Schematic", "3d": "3D", review: "Review" };
+type FixedTab = (typeof TABS)[number];
+/** A fixed tab, or a B2B mate's tab: `b2b:<mate id>`. */
+type TabId = FixedTab | `b2b:${string}`;
+const TAB_LABEL: Record<FixedTab, string> = { schematic: "Schematic", "3d": "3D", review: "Review" };
 
-const asTab = (value: string | null, fallback: TabId | null): TabId | null =>
-  (TABS as readonly string[]).includes(value ?? "") ? (value as TabId) : fallback;
+const mateOfTab = (tab: TabId | null) => (tab?.startsWith("b2b:") ? tab.slice(4) : null);
+
+/** The tab a URL value names, when it is fixed or an open B2B tab. */
+const asTab = (value: string | null, open: readonly string[], fallback: TabId | null): TabId | null => {
+  if ((TABS as readonly string[]).includes(value ?? "")) return value as TabId;
+  const mate = value?.startsWith("b2b:") ? value.slice(4) : null;
+  return mate && open.includes(mate) ? (value as TabId) : fallback;
+};
 
 /**
  * A finding's objects as the root sheet can show them: a harness's links,
@@ -59,8 +71,9 @@ export function SystemPage({ user }: { user: User | null }) {
   const { systemId = "" } = useParams();
   const navigate = useNavigate();
   const [params, setParams] = useSearchParams();
-  const tab = asTab(params.get("tab"), "schematic") as TabId;
-  const beside = asTab(params.get("beside"), null);
+  const openMates = (params.get("b2b") ?? "").split(",").filter(Boolean);
+  const tab = asTab(params.get("tab"), openMates, "schematic") as TabId;
+  const beside = asTab(params.get("beside"), openMates, null);
   const sheet = params.get("sheet");
   const { session, state } = useSystemSession(systemId, user?.email ?? "");
   const { projects } = useWorkspaceData({ sessionKey: workspaceSessionKey(user) });
@@ -71,6 +84,8 @@ export function SystemPage({ user }: { user: User | null }) {
   const canvas = useRef<RootSheetHandle>(null);
   const boardCanvas = useRef<BoardSheetHandle>(null);
   const [addingBoard, setAddingBoard] = useState(false);
+  // The B2B tab's selected row, lit on both boards in the 3D tab.
+  const [lit, setLit] = useState<{ key: string; members: { occurrence: string; net: string }[]; parts: { occurrence: string; reference: string }[] } | null>(null);
   // Unfolded connectors per board: per user and system, in browser storage (§14.1).
   const [unfoldedMap, setUnfoldedMap] = useState<Record<string, Set<string>>>({});
   const unfoldedFor = (occurrence: string) => unfoldedMap[occurrence] ?? readUnfolded(systemId, occurrence);
@@ -100,6 +115,7 @@ export function SystemPage({ user }: { user: User | null }) {
       setUnfoldedFor(occurrence, next);
     },
     isUnfolded: (occurrence, connector) => unfoldedFor(occurrence).has(connector),
+    openMate: (mate) => openMate(mate),
   });
 
   useHotkeys([
@@ -115,14 +131,33 @@ export function SystemPage({ user }: { user: User | null }) {
     if (occurrence) setSelected(new Set());
   };
 
-  const setView = (next: { tab?: TabId; beside?: TabId | null }) => {
+  const setView = (next: { tab?: TabId; beside?: TabId | null; mates?: string[] }) => {
     const out = new URLSearchParams(params);
     const nextTab = next.tab ?? tab;
     const nextBeside = next.beside === undefined ? beside : next.beside;
+    const mates = next.mates ?? openMates;
     out.set("tab", nextTab);
     if (nextBeside && nextBeside !== nextTab) out.set("beside", nextBeside);
     else out.delete("beside");
+    if (mates.length) out.set("b2b", mates.join(","));
+    else out.delete("b2b");
     setParams(out, { replace: true });
+  };
+
+  /** Open a mate's B2B tab beside the 3D tab (mockup 04). */
+  const openMate = (mate: string) => {
+    const mates = openMates.includes(mate) ? openMates : [...openMates, mate];
+    setView({ tab: `b2b:${mate}`, beside: "3d", mates });
+  };
+  const closeMate = (mate: string) => {
+    const mates = openMates.filter((item) => item !== mate);
+    const gone = (id: TabId | null) => id === `b2b:${mate}`;
+    setView({ tab: gone(tab) ? (gone(beside) ? "schematic" : beside ?? "schematic") : tab, beside: gone(beside) || gone(tab) ? null : beside, mates });
+    setLit(null);
+  };
+  const tabLabel = (id: TabId) => {
+    const mate = mateOfTab(id);
+    return mate ? `B2B ${document ? mateTitle(document, mate) : mate}` : TAB_LABEL[id as FixedTab];
   };
 
   const addBoard = async (board: NewBoard) => {
@@ -197,7 +232,7 @@ export function SystemPage({ user }: { user: User | null }) {
           />
           {single && (
             <div className="absolute right-3 top-3">
-              <SelectionPanel key={`${single}:${record?.version}`} document={document} id={single} canEdit={canEdit} apply={apply} onRemoved={() => setSelected(new Set())} projectNames={projectNames} />
+              <SelectionPanel key={`${single}:${record?.version}`} document={document} id={single} canEdit={canEdit} apply={apply} onRemoved={() => setSelected(new Set())} projectNames={projectNames} onOpenMate={openMate} />
             </div>
           )}
           <div className="absolute bottom-4 left-1/2 flex -translate-x-1/2 items-center gap-1 rounded-lg border border-white/10 bg-zinc-900/95 p-1 text-zinc-100 shadow-xl" role="toolbar" aria-label="Schematic tools">
@@ -208,6 +243,28 @@ export function SystemPage({ user }: { user: User | null }) {
             <ToolButton active={false} onClick={() => canvas.current?.fit()} icon={Maximize} label="Fit" />
           </div>
         </div>
+      );
+    }
+    const mate = mateOfTab(id);
+    if (mate) {
+      return (
+        <B2bPane
+          key={mate}
+          document={document}
+          bundle={state.bundle ?? null}
+          mate={mate}
+          canEdit={canEdit}
+          busy={state.saving}
+          apply={apply}
+          onRow={(row, view) => {
+            if (!row) return setLit(null);
+            const members = [
+              ...(row.aNet ? [{ occurrence: view.a.occurrence, net: row.aNet }] : []),
+              ...(row.bNet ? [{ occurrence: view.b.occurrence, net: row.bNet }] : []),
+            ];
+            setLit({ key: `b2b:${mate}:${row.aPad ?? ""}:${row.bPad ?? ""}`, members, parts: [{ occurrence: view.a.occurrence, reference: view.a.connector }, { occurrence: view.b.occurrence, reference: view.b.connector }] });
+          }}
+        />
       );
     }
     if (id === "review") {
@@ -236,66 +293,42 @@ export function SystemPage({ user }: { user: User | null }) {
         canEdit={canEdit}
         busy={state.saving}
         apply={apply}
+        lit={lit}
+        onOpenMate={openMate}
       />
     );
   };
 
   return (
     <div className="flex h-app-viewport flex-col bg-background text-foreground">
-      <header className="flex h-12 shrink-0 items-center gap-3 border-b px-3">
-        <Button variant="ghost" size="icon" asChild aria-label="Back to the workspace">
-          <Link to={record?.folderId ? `/?folder=${encodeURIComponent(record.folderId)}` : "/"}>
-            <ArrowLeft className="h-4 w-4" />
-          </Link>
-        </Button>
-        <span className="text-sm text-muted-foreground">Systems /</span>
-        <span className="truncate text-sm font-semibold">{record?.name ?? "…"}</span>
-        {record && (
-          <span className="rounded-full border px-2 py-0.5 text-xs text-muted-foreground">
-            v{record.version} · {state.saving ? "saving…" : "saved"}
-          </span>
-        )}
-        <BundleChip state={state} />
-        <span className="flex-1" />
-        {canEdit && (
-          <>
-            <Button variant="ghost" size="icon" aria-label="Undo" title="Undo (⌘Z)" disabled={!state.undoStack.length || state.saving} onClick={() => run(session?.undo())}>
-              <Undo2 className="h-4 w-4" />
-            </Button>
-            <Button variant="ghost" size="icon" aria-label="Redo" title="Redo (⇧⌘Z)" disabled={!state.redoStack.length || state.saving} onClick={() => run(session?.redo())}>
-              <Redo2 className="h-4 w-4" />
-            </Button>
-          </>
-        )}
-      </header>
-      <nav className="flex h-10 shrink-0 items-end gap-1 border-b px-2" aria-label="Views">
-        {TABS.map((id) => (
-          <button
-            key={id}
-            type="button"
-            onClick={() => setView({ tab: id, beside: beside === id ? null : beside })}
-            className={`flex items-center gap-1.5 rounded-t-md border border-b-0 px-3 py-1.5 text-sm ${id === tab ? "bg-muted font-medium" : id === beside ? "bg-muted/50" : "border-transparent text-muted-foreground hover:text-foreground"}`}
-            aria-current={id === tab ? "page" : undefined}
-          >
-            {TAB_LABEL[id]}
-            {id === "review" && openFindings > 0 && <span className="rounded-full bg-amber-500/20 px-1.5 text-[11px] text-amber-600">{openFindings}</span>}
-          </button>
-        ))}
-        <span className="flex-1" />
-        {beside ? (
-          <Button variant="ghost" size="sm" onClick={() => setView({ beside: null })}>
-            <X className="mr-1 h-3.5 w-3.5" /> Close {TAB_LABEL[beside]}
-          </Button>
-        ) : (
-          <Button variant="ghost" size="sm" onClick={() => setView({ beside: TABS.find((id) => id !== tab && id !== "3d") ?? null })} title="Open another view beside this one">
-            <Columns2 className="mr-1 h-3.5 w-3.5" /> Side by side
-          </Button>
-        )}
-      </nav>
+      <SystemHeader
+        name={record?.name}
+        folderId={record?.folderId}
+        version={record?.version}
+        state={state}
+        canEdit={canEdit}
+        onUndo={() => run(session?.undo())}
+        onRedo={() => run(session?.redo())}
+      />
+      <ViewTabs
+        tabs={[...TABS, ...openMates.map((mate) => `b2b:${mate}` as TabId)].map((id) => ({
+          id,
+          label: tabLabel(id),
+          b2b: Boolean(mateOfTab(id)),
+          count: id === "review" ? openFindings : 0,
+        }))}
+        tab={tab}
+        beside={beside}
+        besideLabel={beside ? tabLabel(beside) : null}
+        onPick={(id) => setView({ tab: id as TabId, beside: beside === id ? null : beside })}
+        onClose={(id) => closeMate(mateOfTab(id as TabId) as string)}
+        onCloseBeside={() => setView({ beside: null })}
+        onSideBySide={() => setView({ beside: TABS.find((id) => id !== tab && id !== "3d") ?? null })}
+      />
       <main className="flex min-h-0 flex-1">
-        <section className="min-w-0 flex-1" aria-label={TAB_LABEL[tab]}>{pane(tab)}</section>
+        <section className="min-w-0 flex-1" aria-label={tabLabel(tab)}>{pane(tab)}</section>
         {beside && (
-          <section className="min-w-0 flex-1 border-l" aria-label={TAB_LABEL[beside]}>{pane(beside)}</section>
+          <section className="min-w-0 flex-1 border-l" aria-label={tabLabel(beside)}>{pane(beside)}</section>
         )}
       </main>
       {addingBoard && (
@@ -322,19 +355,4 @@ function ToolButton({ active, onClick, icon: Icon, label }: { active: boolean; o
       {label}
     </button>
   );
-}
-
-function BundleChip({ state }: { state: ReturnType<typeof useSystemSession>["state"] }) {
-  const answer = state.bundleAnswer;
-  if (!answer) return null;
-  if (answer.state === "failed") {
-    return <span className="rounded-full border border-destructive/40 px-2 py-0.5 text-xs text-destructive" title={answer.error}>bundle failed</span>;
-  }
-  if (answer.state === "building" || state.bundleStale) {
-    return <span className="rounded-full border px-2 py-0.5 text-xs text-muted-foreground">checking…</span>;
-  }
-  if (answer.pending.length) {
-    return <span className="rounded-full border px-2 py-0.5 text-xs text-muted-foreground" title="Boards whose design bundle is still building">{answer.pending.length} board(s) building</span>;
-  }
-  return null;
 }
