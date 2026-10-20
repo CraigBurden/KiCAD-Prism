@@ -1,20 +1,51 @@
 import { useState } from "react";
-import { Check, ChevronDown, ChevronRight, X } from "lucide-react";
+import { Check, ChevronDown, ChevronRight, Share2, X } from "lucide-react";
 
-import type { SubPort, SystemOp } from "../model/types";
+import type { SubPort, SystemDocument, SystemOp } from "../model/types";
+import { exportAt, toggleExportOps, type ExportSite } from "../publish/export-edits";
 import { acceptOps, dismissOps, removeSubPortOps, renameSubPortOps } from "./board-edits";
 import { describeSubPorts, type BoardConnector } from "./board-scene";
 
 interface Props {
+  document: SystemDocument;
   occurrence: string;
   connectors: BoardConnector[];
   canEdit: boolean;
   send: (ops: SystemOp[]) => void;
   onToggleUnfold: (refdes: string) => void;
   onSelectSubPort: (subPort: SubPort) => void;
+  /** Open an export's pins (§15.4). */
+  onOpenExport: (exportId: string) => void;
 }
 
-function SubPortChip({ subPort, members, canEdit, send, onSelect }: { subPort: SubPort; members: string[]; canEdit: boolean; send: Props["send"]; onSelect: () => void }) {
+/** The Export toggle of a connector or sub-port, and its export's name once exported (§15.4). */
+function ExportToggle({ document, site, canEdit, send, onOpen }: { document: SystemDocument; site: ExportSite; canEdit: boolean; send: Props["send"]; onOpen: Props["onOpenExport"] }) {
+  const existing = exportAt(document, site);
+  const what = site.subPort ? "sub-port" : site.connector;
+  return (
+    <span className="flex shrink-0 items-center gap-1">
+      {existing && (
+        <button type="button" className="rounded bg-violet-500/20 px-1 text-[11px] text-violet-200 hover:bg-violet-500/30" onClick={() => onOpen(existing.id)} title="Its pins in the published interface">
+          {existing.name}
+        </button>
+      )}
+      {canEdit && (
+        <button
+          type="button"
+          aria-pressed={Boolean(existing)}
+          aria-label={existing ? `Stop exporting ${what}` : `Export ${what}`}
+          title={existing ? "Exported: click to stop exporting" : "Export: make it part of the published interface"}
+          className={existing ? "text-violet-300" : "text-zinc-500 hover:text-zinc-200"}
+          onClick={() => send(toggleExportOps(document, site))}
+        >
+          <Share2 className="h-3.5 w-3.5" />
+        </button>
+      )}
+    </span>
+  );
+}
+
+function SubPortChip({ document, subPort, members, canEdit, send, onSelect, onOpenExport }: { document: SystemDocument; subPort: SubPort; members: string[]; canEdit: boolean; send: Props["send"]; onSelect: () => void; onOpenExport: Props["onOpenExport"] }) {
   // The draft name while renaming; null when not.
   const [draft, setDraft] = useState<string | null>(null);
   const rename = () => {
@@ -44,6 +75,7 @@ function SubPortChip({ subPort, members, canEdit, send, onSelect }: { subPort: S
           <span className="text-zinc-400">{`{${members.join(" ")}}`}</span>
         </button>
       )}
+      <ExportToggle document={document} site={{ occurrence: subPort.occurrence, connector: subPort.connector, subPort: subPort.id }} canEdit={canEdit} send={send} onOpen={onOpenExport} />
       {canEdit && (
         <button type="button" aria-label={`Remove ${subPort.name}`} className="text-zinc-400 hover:text-zinc-100" onClick={() => send(removeSubPortOps([subPort.id]))}>
           <X className="h-3 w-3" />
@@ -54,7 +86,7 @@ function SubPortChip({ subPort, members, canEdit, send, onSelect }: { subPort: S
 }
 
 /** Sub-ports and suggestions per connector, for bulk work (the mockup's side list). */
-export function BoardSidePanel({ occurrence, connectors, canEdit, send, onToggleUnfold, onSelectSubPort }: Props) {
+export function BoardSidePanel({ document, occurrence, connectors, canEdit, send, onToggleUnfold, onSelectSubPort, onOpenExport }: Props) {
   const [open, setOpen] = useState<Set<string>>(() => new Set());
   const toggle = (refdes: string) =>
     setOpen((current) => {
@@ -67,7 +99,7 @@ export function BoardSidePanel({ occurrence, connectors, canEdit, send, onToggle
   return (
     <div className="flex max-h-full w-80 flex-col rounded-lg border border-white/10 bg-zinc-900/95 text-sm text-zinc-100 shadow-xl" onPointerDown={(event) => event.stopPropagation()}>
       <div className="flex items-center gap-2 border-b border-white/10 px-3 py-2">
-        <span className="font-medium">Sub-ports</span>
+        <span className="font-medium">Connectors</span>
         <span className="text-xs text-zinc-400">{suggested} suggested</span>
         <span className="flex-1" />
         {canEdit && suggested > 0 && (
@@ -92,11 +124,12 @@ export function BoardSidePanel({ occurrence, connectors, canEdit, send, onToggle
                 <span className="truncate text-xs text-zinc-400">{connector.detail}</span>
                 <span className="flex-1" />
                 {connector.suggestions.length > 0 && <span className="text-xs text-zinc-400">{connector.suggestions.length} suggested</span>}
+                <ExportToggle document={document} site={{ occurrence, connector: connector.refdes }} canEdit={canEdit} send={send} onOpen={onOpenExport} />
               </div>
               {groups.length > 0 && (
                 <div className="mt-1 flex flex-wrap gap-1 pl-5">
                   {groups.map(({ subPort, members }) => (
-                    <SubPortChip key={subPort.id} subPort={subPort} members={members} canEdit={canEdit} send={send} onSelect={() => onSelectSubPort(subPort)} />
+                    <SubPortChip key={subPort.id} document={document} subPort={subPort} members={members} canEdit={canEdit} send={send} onSelect={() => onSelectSubPort(subPort)} onOpenExport={onOpenExport} />
                   ))}
                 </div>
               )}

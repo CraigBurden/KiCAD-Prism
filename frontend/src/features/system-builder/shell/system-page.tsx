@@ -8,7 +8,7 @@
  * (`?tab=…&beside=…&b2b=…`), so a link reopens the same view.
  */
 import { useMemo, useRef, useState } from "react";
-import { useNavigate, useParams, useSearchParams } from "react-router-dom";
+import { useNavigate, useParams } from "react-router-dom";
 import { ArrowUp, Boxes, Cable, Maximize, MousePointer2, Plus, Unplug } from "lucide-react";
 import { toast } from "sonner";
 
@@ -35,23 +35,10 @@ import { B2bPane } from "../b2b/b2b-pane";
 import { mateTitle } from "../b2b/mate-view";
 import { ThreeDPane } from "../three-d/three-d-pane";
 import { AddBoardDialog } from "./add-board-dialog";
+import { HeaderDialogs, type HeaderDialog } from "./header-dialogs";
 import { SystemHeader } from "./system-header";
+import { TABS, TAB_LABEL, mateOfTab, useSystemView, type FixedTab, type TabId } from "./system-view";
 import { ViewTabs } from "./view-tabs";
-
-const TABS = ["schematic", "3d", "review"] as const;
-type FixedTab = (typeof TABS)[number];
-/** A fixed tab, or a B2B mate's tab: `b2b:<mate id>`. */
-type TabId = FixedTab | `b2b:${string}`;
-const TAB_LABEL: Record<FixedTab, string> = { schematic: "Schematic", "3d": "3D", review: "Review" };
-
-const mateOfTab = (tab: TabId | null) => (tab?.startsWith("b2b:") ? tab.slice(4) : null);
-
-/** The tab a URL value names, when it is fixed or an open B2B tab. */
-const asTab = (value: string | null, open: readonly string[], fallback: TabId | null): TabId | null => {
-  if ((TABS as readonly string[]).includes(value ?? "")) return value as TabId;
-  const mate = value?.startsWith("b2b:") ? value.slice(4) : null;
-  return mate && open.includes(mate) ? (value as TabId) : fallback;
-};
 
 /**
  * A finding's objects as the root sheet can show them: a harness's links,
@@ -73,14 +60,12 @@ const run = (work: Promise<unknown> | undefined) =>
 export function SystemPage({ user }: { user: User | null }) {
   const { systemId = "" } = useParams();
   const navigate = useNavigate();
-  const [params, setParams] = useSearchParams();
-  const openMates = (params.get("b2b") ?? "").split(",").filter(Boolean);
-  const tab = asTab(params.get("tab"), openMates, "schematic") as TabId;
-  const beside = asTab(params.get("beside"), openMates, null);
-  const sheet = params.get("sheet");
+  const view = useSystemView();
+  const { openMates, tab, beside, sheet, setView, openMate } = view;
   const { session, state } = useSystemSession(systemId, user?.email ?? "");
   const { projects } = useWorkspaceData({ sessionKey: workspaceSessionKey(user) });
-  const projectNames = useMemo(() => Object.fromEntries(projects.map((project) => [project.id, project.display_name || project.name])), [projects]);
+  const projectList = useMemo(() => projects.map((project) => ({ id: project.id, name: project.display_name || project.name })), [projects]);
+  const projectNames = useMemo(() => Object.fromEntries(projectList.map((project) => [project.id, project.name])), [projectList]);
 
   const [selected, setSelected] = useState<Set<string>>(() => new Set());
   const [tool, setTool] = useState<Tool>("select");
@@ -88,6 +73,8 @@ export function SystemPage({ user }: { user: User | null }) {
   const boardCanvas = useRef<BoardSheetHandle>(null);
   const [addingBoard, setAddingBoard] = useState(false);
   const [placingSystem, setPlacingSystem] = useState(false);
+  // The header's dialogs (§15.4).
+  const [headerDialog, setHeaderDialog] = useState<HeaderDialog | null>(null);
   // The B2B tab's selected row, lit on both boards in the 3D tab.
   const [lit, setLit] = useState<{ key: string; members: { occurrence: string; net: string }[]; parts: { occurrence: string; reference: string }[] } | null>(null);
   // Unfolded connectors per board: per user and system, in browser storage (§14.1).
@@ -128,35 +115,11 @@ export function SystemPage({ user }: { user: User | null }) {
   ], { enabled: canEdit });
 
   const openSheet = (occurrence: string | null) => {
-    const out = new URLSearchParams(params);
-    if (occurrence) out.set("sheet", occurrence);
-    else out.delete("sheet");
-    setParams(out);
+    view.openSheet(occurrence);
     if (occurrence) setSelected(new Set());
   };
-
-  const setView = (next: { tab?: TabId; beside?: TabId | null; mates?: string[] }) => {
-    const out = new URLSearchParams(params);
-    const nextTab = next.tab ?? tab;
-    const nextBeside = next.beside === undefined ? beside : next.beside;
-    const mates = next.mates ?? openMates;
-    out.set("tab", nextTab);
-    if (nextBeside && nextBeside !== nextTab) out.set("beside", nextBeside);
-    else out.delete("beside");
-    if (mates.length) out.set("b2b", mates.join(","));
-    else out.delete("b2b");
-    setParams(out, { replace: true });
-  };
-
-  /** Open a mate's B2B tab beside the 3D tab (mockup 04). */
-  const openMate = (mate: string) => {
-    const mates = openMates.includes(mate) ? openMates : [...openMates, mate];
-    setView({ tab: `b2b:${mate}`, beside: "3d", mates });
-  };
   const closeMate = (mate: string) => {
-    const mates = openMates.filter((item) => item !== mate);
-    const gone = (id: TabId | null) => id === `b2b:${mate}`;
-    setView({ tab: gone(tab) ? (gone(beside) ? "schematic" : beside ?? "schematic") : tab, beside: gone(beside) || gone(tab) ? null : beside, mates });
+    view.closeMate(mate);
     setLit(null);
   };
   const tabLabel = (id: TabId) => {
@@ -324,6 +287,9 @@ export function SystemPage({ user }: { user: User | null }) {
         canEdit={canEdit}
         onUndo={() => run(session?.undo())}
         onRedo={() => run(session?.redo())}
+        onSnapshot={record ? () => setHeaderDialog("snapshot") : undefined}
+        onCommitGit={record ? () => setHeaderDialog("git") : undefined}
+        onPublish={() => setHeaderDialog("publish")}
       />
       <ViewTabs
         tabs={[...TABS, ...openMates.map((mate) => `b2b:${mate}` as TabId)].map((id) => ({
@@ -355,6 +321,13 @@ export function SystemPage({ user }: { user: User | null }) {
         />
       )}
       {placingSystem && <AddBodyDialog adding="entry" onClose={() => setPlacingSystem(false)} onAdd={placeSystem} />}
+      <HeaderDialogs
+        open={headerDialog}
+        state={state}
+        projects={projectList}
+        onClose={() => setHeaderDialog(null)}
+        onImported={() => run(session?.reload())}
+      />
     </div>
   );
 }

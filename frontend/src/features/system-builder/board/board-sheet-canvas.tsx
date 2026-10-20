@@ -18,6 +18,7 @@ import { groupOps, groupRefusal, interiorOps, orderedPads } from "./board-edits"
 import { boxWires, interiorDrag, storedInterior, type BoardDrag } from "./board-gestures";
 import { buildBoardScene, parseWireKey, wireKey, type BoardScene } from "./board-scene";
 import { BoardSheetSvg } from "./board-sheet-svg";
+import { ExportPinsCard } from "../publish/export-pins-card";
 import { BoardSidePanel } from "./board-side-panel";
 import { GroupPopover } from "./group-popover";
 
@@ -76,6 +77,9 @@ export const BoardSheetCanvas = forwardRef<BoardSheetHandle, Props>(function Boa
   const [drag, setDrag] = useState<BoardDrag | null>(null);
   const [override, setOverride] = useState<Interior | null>(null);
   const [grouping, setGrouping] = useState(false);
+  // The export whose pins are open (§15.4); gone when the export is removed.
+  const [openExport, setOpenExport] = useState<string | null>(null);
+  const openedExport = openExport ? document.exports.find((item) => item.id === openExport) ?? null : null;
 
   const scene = useMemo(
     () => buildBoardScene(document, bundle, occurrence, { unfolded, interior: override ?? undefined }),
@@ -260,14 +264,21 @@ export const BoardSheetCanvas = forwardRef<BoardSheetHandle, Props>(function Boa
       )}
       <div className="absolute bottom-16 right-3 top-3 flex flex-col">
         <BoardSidePanel
+          document={document}
           occurrence={occurrence}
           connectors={scene.connectors}
           canEdit={canEdit}
           send={(ops) => send(ops)}
           onToggleUnfold={toggleUnfold}
           onSelectSubPort={selectSubPort}
+          onOpenExport={setOpenExport}
         />
       </div>
+      {openedExport && (
+        <div className="absolute bottom-16 left-3 top-12 flex flex-col justify-end">
+          <ExportPinsCard document={document} bundle={bundle} item={openedExport} canEdit={canEdit} send={(ops) => send(ops)} onClose={() => setOpenExport(null)} />
+        </div>
+      )}
       {grouping && groupConnector && (
         <div className="absolute left-3 top-12">
           <GroupPopover

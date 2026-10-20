@@ -273,6 +273,17 @@ class SystemPublishTests(SystemBundleWorkspace, unittest.TestCase):
         self.assertEqual(len(self.revision_rows(component_id)), 2)
         self.assertEqual(second["stage"], "qa_review")
 
+        # The publication read (§11.4) names the component, its IPN and both revisions, newest first.
+        publication = self.service.publication("sys_a", role="designer")
+        self.assertEqual(publication["componentId"], component_id)
+        self.assertEqual(publication["identity"], "in-house")
+        self.assertEqual(publication["ipn"].lower(), ipn.lower())
+        self.assertEqual(
+            [item["revisionId"] for item in publication["publications"]],
+            [second["revisionId"], first["revisionId"]],
+        )
+        self.assertEqual({item["stage"] for item in publication["publications"]}, {"qa_review"})
+
         # An IPN that differs from the component's is refused.
         with self.assertRaises(errors.Conflict) as refused:
             self.service.publish(
@@ -534,6 +545,18 @@ class SystemPublishTests(SystemBundleWorkspace, unittest.TestCase):
                 )
             self.assertEqual(mpn_refused.exception.code, "system_mpn_mismatch")
         self.assertEqual(first["stage"], "qa_review")
+        publication = self.service.publication("sys_body_bo", role="designer")
+        self.assertEqual(
+            (publication["identity"], publication["manufacturer"], publication["mpn"]),
+            ("bought-out", "Acme", mpn),
+        )
+
+    def test_an_unpublished_system_has_no_publication(self) -> None:
+        self.create_publishable()
+        self.assertEqual(
+            self.service.publication("sys_a", role="designer"),
+            {"componentId": None, "identity": None, "publications": []},
+        )
 
     def test_an_in_house_body_system_publishes_without_the_old_refusal(self) -> None:
         ipn = f"PRISM-BODY-{uuid.uuid4().hex[:8]}"

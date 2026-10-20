@@ -123,7 +123,8 @@ export function buildBoardScene(
   options: BoardSceneOptions = {},
 ): BoardScene | null {
   const occurrence = document.occurrences.find((item) => item.id === occurrenceId);
-  if (!occurrence || occurrence.source.kind !== "board") return null;
+  // A body's sheet is its connector parts, drawn like a board's (§15.4).
+  if (!occurrence || (occurrence.source.kind !== "board" && occurrence.source.kind !== "body")) return null;
   const bundled = bundle?.occurrences.find((item) => item.occurrence === occurrenceId);
   const interior = options.interior ?? document.layout[occurrenceId]?.interior ?? {};
   const connectors = [...(bundled?.connectors ?? [])].sort((a, b) => naturalCompare(a.refdes, b.refdes));

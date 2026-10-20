@@ -534,6 +534,10 @@ The answer is `{ componentId, revisionId, stage }`.
 
 A `system` revision follows the workflow of `catalog/workflow_policy.py` and the gates of `release_workflow.py`, with two-person approval, plus one gate of its own, checked fail-closed: the `system_entry` asset is present, its SHA-256 matches the manifest, and its bundle has no unwaived error finding. A bought-out revision (an `mpn` identity) also needs a body occurrence `ready` in that bundle whose part in `parts` has a model. KLC and representation gates do not apply to `system` revisions.
 
+### 11.4 The publication read (stage 3d)
+
+`GET /api/systems/{id}/publication`, with read access to the system, answers `{ componentId, identity, ipn?, manufacturer?, mpn?, publications }`: the system's catalog component (null before its first publish), its identity (`in-house` with its `ipn`, or `bought-out` with its `manufacturer` and `mpn`; null before the first publish) and every publication newest first, `{ version, snapshotId, revisionId, stage, publishedBy, publishedAt }`, `stage` the revision's workflow stage now. The Publish dialog reads it (§15.4).
+
 ## 12. Placing published entries (1c)
 
 ### 12.1 The occurrence
@@ -709,3 +713,13 @@ Script API additions: `describeMate(mate)` returns the tab's data (sides, source
 - **A placed entry** is drawn as its contents, one rigid group: the payload's (`GET /api/catalog/system-entries/{revisionId}`, §12.3) board occurrences, each from its analytic design bundle at its pinned commit, and its bodies with their models from the payload's `parts`, each at its pose in the child's `placement`, composed with the entry's pose. Picking any of them selects the entry; only the entry moves. A board the reader cannot see is withheld by the payload's redaction and drawn as nothing; an entry without a payload, or before it loads, is its bounds box.
 - **Place published system.** The 3D tab's toolbar and the schematic's add menu search the catalog's `system` components and place a revision as an entry occurrence (`add-occurrence`, §12.1); only released revisions are offered, plus any revision of a system the caller has `design` on.
 - **New module.** Library Manager's add menu has **+ New Module**: it creates a system named by the user and opens its 3D tab, where **Add body** places the module's body. A board-less system with a body is offered as bought-out when published (stage 3d-3).
+
+### 15.4 Exports, pin names and publishing (stage 3d-3, mockup 05)
+
+- **Body sheets.** A body occurrence's sheet opens like a board's (§14.3): its connector parts with their pins, unfolding and `G` grouping. The wires carry the body's signals (§8.10).
+- **Exports** are made where the connector is: each connector and each sub-port in a board or body sheet's side list has an **Export** toggle. Turning it on adds an export named after the connector's refdes, or the sub-port's name (`add-export`); the name is edited in place (`replace-export`); turning it off removes it (`remove-export`). On the root sheet an exported connector's port carries a hierarchical label with the export's name, marked *exported*; an export of a sub-port lists it under that label as `NAME{members}`.
+- **Pins of an export.** Opening an export shows its pins in the site's pin order: pad, name, signal (the system net's name) and type (power or signal). The name column is the export's `pinNames[pad]`; empty shows the board's pin name (§11.1). On a body the name is the signal (§8.10).
+- **Header.** **Snapshot** takes a named snapshot (`POST …/snapshots`). **Commit to Git** commits the document to the system's Git link (§13.2), offering to link it first (§13.1); a diverged file offers the import (§13.3). **Publish…** opens the Publish dialog.
+- **Publish dialog.** The identity pills: *Bought-out · MPN* and *In-house · IPN*. Before the first publish, bought-out is preselected for a system with a body and no boards (a module), in-house otherwise; afterwards the published identity is fixed and its numbers are shown read-only (§11.4). It lists the STEP row (bought-out: the body whose model the entry carries, or what is missing), the interface (each export and its pins' names, sub-ports as `NAME{members}`) and the checks (§11.2 step 3, from the live bundle: exports, bundle ready, unwaived errors, entries released, and for bought-out a body with its model). **Publish to QA review** publishes; while the bundle is building the answer `system_bundle_not_ready` is retried until it is ready, and a refusal names what failed. The result names the new revision and its stage and links to it in Library Manager.
+
+Script API additions: `setExport({ occurrence, connector, subPort?, name? })` adds or renames an export, `removeExport(id)`, `namePin({ export, pad, name })` sets one of its `pinNames` (empty clears it), and `publish({ identity?, ipn?, manufacturer?, mpn?, changeSummary })`.

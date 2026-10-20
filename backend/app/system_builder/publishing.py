@@ -555,6 +555,47 @@ class PublishingService:
                 return entry_identity, str(holder["id"])
             return entry_identity, ""
 
+    def publication(self, system_id: str, *, role: str) -> dict[str, Any]:
+        """§11.4: the system's catalog component, its identity and its publications."""
+
+        record = self._store.read(system_id, role=role)
+        if record is None:
+            raise SystemNotFound()
+        with self._store.connection() as conn:
+            rows = conn.execute(
+                """
+                SELECT version, snapshot_id, revision_id, published_by, published_at
+                  FROM ws_system_publications
+                 WHERE system_id = %s
+                 ORDER BY published_at DESC, version DESC
+                """,
+                (system_id,),
+            ).fetchall()
+        component_id = str(record.get("catalog_component_id") or "")
+        answer: dict[str, Any] = {"componentId": component_id or None, "identity": None, "publications": []}
+        if not component_id:
+            return answer
+        with self._gateway.connection() as conn:
+            component = self._gateway.revisions.component_row(conn, component_id)
+            if component is None:
+                return {**answer, "componentId": None}
+            identity = self._identity_of(conn, component)
+            if identity.bought_out:
+                answer.update(identity=BOUGHT_OUT, manufacturer=identity.manufacturer, mpn=identity.number)
+            else:
+                answer.update(identity=IN_HOUSE, ipn=identity.number)
+            for row in rows:
+                revision = self._gateway.revisions.revision_row(conn, str(row["revision_id"])) or {}
+                answer["publications"].append({
+                    "version": int(row["version"]),
+                    "snapshotId": str(row["snapshot_id"]),
+                    "revisionId": str(row["revision_id"]),
+                    "stage": normalize_workflow_stage(str(revision.get("release_status") or "")) if revision else None,
+                    "publishedBy": str(row["published_by"]),
+                    "publishedAt": row["published_at"].isoformat() if hasattr(row["published_at"], "isoformat") else str(row["published_at"]),
+                })
+        return answer
+
     @staticmethod
     def _identity_of(conn: Any, component: Mapping[str, Any]) -> system_entries.EntryIdentity:
         """A published component's frozen identity, raw enough to compare again."""
