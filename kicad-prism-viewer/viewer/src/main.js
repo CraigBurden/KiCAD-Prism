@@ -1058,6 +1058,25 @@ function placeSystem({ relabel = true } = {}) {
   };
   for (const occurrence of drawnOccurrences(descriptor)) {
     const world = worldOf(occurrence);
+    // A placed published entry is a group: its contents draw as its children
+    // and it is placed by its box, drawing nothing itself; a box while its
+    // contents load.
+    if (occurrence.kind === "entry" && !occurrence.restricted) {
+      if (!occurrence.boundsMm) continue;
+      const matrix = standInMatrix(world, occurrence.boundsMm);
+      const standIn = occurrence.group ? null : "loading";
+      const rendererId = standIn ? `stand-in:${standIn}` : null;
+      if (rendererId) {
+        system.scene.standIn(rendererId, STAND_INS[standIn].color);
+        if (!groups.has(rendererId)) groups.set(rendererId, []);
+        groups.get(rendererId).push({ matrix, key: occurrence.path, hiddenLayers: [], explode: null });
+      }
+      placed.push({
+        occurrence, world, rendererId, board: null, matrix, worldBounds: transformBounds(matrix, [0, 0, 0, 1, 1, 1]),
+        standIn, child: false, parent: null, group: Boolean(occurrence.group),
+      });
+      continue;
+    }
     const own = occurrence.kind !== "board" && !occurrence.restricted ? ownGeometry(occurrence, world) : null;
     if (own) {
       if (!groups.has(own.rendererId)) groups.set(own.rendererId, []);

@@ -28,6 +28,7 @@ from app.services.catalog.component_writer import CatalogComponentWriter
 from app.services.catalog.locking import PostgresCatalogLocks
 from app.services.catalog.metadata_normalization import (
     IDENTITY_KIND_IPN,
+    IDENTITY_KIND_MPN,
     normalize_identity_value,
 )
 from app.services.catalog.metadata_schema import CatalogMetadataSchema
@@ -44,6 +45,28 @@ ENTRY_ASSET_TYPE = system_entries.ASSET_TYPE
 ETAG_KIND = "system"
 
 RELEASED = "released"
+
+IN_HOUSE = "in-house"
+BOUGHT_OUT = "bought-out"
+
+
+def identity_kind(identity: str | None, *, default: str) -> str:
+    """Map a publish request's ``identity`` to a catalog identity kind."""
+
+    if identity == BOUGHT_OUT:
+        return IDENTITY_KIND_MPN
+    if identity == IN_HOUSE:
+        return IDENTITY_KIND_IPN
+    if identity:
+        raise errors.Invalid(
+            "identity must be 'in-house' or 'bought-out'",
+            code="system_identity_invalid",
+        )
+    return default
+
+
+def mismatch_code(kind: str | None) -> str:
+    return "system_mpn_mismatch" if kind == IDENTITY_KIND_MPN else "system_ipn_mismatch"
 
 
 class SystemNotFound(errors.NotFound):
@@ -308,6 +331,7 @@ def build_payload(
     version: int,
     snapshot_id: str,
     system_bundle_key: str,
+    parts: Mapping[str, Any],
 ) -> dict[str, Any]:
     """The validated ``prism.system_entry.a0`` payload for a snapshot."""
 
@@ -322,6 +346,7 @@ def build_payload(
         "document": dict(document),
         "boardSubPorts": dict(board_sub_ports),
         "bundle": dict(bundle),
+        "parts": dict(parts),
         "interface": compute_interface(document, bundle, board_sub_ports),
     }
     schemas.validate(payload, SCHEMA)
@@ -370,6 +395,9 @@ class PublishingService:
         snapshot_id: str | None,
         ipn: str | None,
         change_summary: str,
+        identity: str | None = None,
+        manufacturer: str | None = None,
+        mpn: str | None = None,
     ) -> dict[str, Any]:
         record = self._store.read(system_id, role=role)
         if record is None:
@@ -379,7 +407,14 @@ class PublishingService:
         if redaction.hidden_occurrences(record["document"], caller.can_see_project):
             raise Redacted()
 
-        self._require_ipn(record, ipn)
+        entry_identity, component_hint = self._require_identity(
+            record,
+            identity=identity,
+            ipn=ipn,
+            manufacturer=manufacturer,
+            mpn=mpn,
+            snapshot_id=snapshot_id,
+        )
         if snapshot_id:
             snapshot = self._store.read_snapshot(system_id, snapshot_id)
             if snapshot is None:
@@ -395,10 +430,12 @@ class PublishingService:
                 "version": record["version"],
                 "boardSubPorts": live,
             }
-        key = self._checked_key(system_id, snapshot, caller)
+        key, parts_document = self._checked_key(
+            system_id, snapshot, caller, entry_identity,
+        )
         if not snapshot_id:
             snapshot = self._store.create_snapshot(
-                system_id, name=f"Published {str(ipn or '').strip()}".strip(), note=None,
+                system_id, name=f"Published {entry_identity.number}".strip(), note=None,
                 created_by=getattr(caller, "email", ""),
             )
             if (
@@ -414,28 +451,134 @@ class PublishingService:
         payload = build_payload(
             document, copied, bundle,
             system_id=system_id, version=version, snapshot_id=str(snapshot["snapshot_id"]),
-            system_bundle_key=key,
+            system_bundle_key=key, parts=parts_document,
         )
         component_id, revision_id, stage = self._write_revision(
-            record, snapshot, payload, ipn=ipn, caller=caller,
+            record, snapshot, payload, identity=entry_identity,
+            component_id=component_hint, caller=caller,
             change_summary=change_summary,
         )
         self._record(self._store, system_id, version, str(snapshot["snapshot_id"]),
                      component_id, revision_id, getattr(caller, "email", ""))
         return {"componentId": component_id, "revisionId": revision_id, "stage": stage}
 
-    def _require_ipn(self, record: Mapping[str, Any], ipn: str | None) -> None:
-        """§11.2 step 4's IPN rule, checked before anything is written."""
+    def _require_identity(
+        self,
+        record: Mapping[str, Any],
+        *,
+        identity: str | None,
+        ipn: str | None,
+        manufacturer: str | None,
+        mpn: str | None,
+        snapshot_id: str | None,
+    ) -> tuple[system_entries.EntryIdentity, str]:
+        """§11.2 step 4's identity rules, checked before anything is written.
 
-        if not record.get("catalog_component_id") and not str(ipn or "").strip():
-            raise errors.Invalid(
-                "The first publish needs the system's IPN", code="system_ipn_required",
+        Returns the frozen identity and, when one already exists, the component
+        it belongs to (empty for a first publish that creates a new component).
+        """
+
+        system_id = str(record["system_id"])
+        component_id = str(record.get("catalog_component_id") or "")
+        with self._gateway.connection() as conn:
+            if component_id:
+                component = self._gateway.revisions.component_row(conn, component_id)
+                if component is None:
+                    raise errors.Conflict(
+                        "The system's catalog component no longer exists",
+                        code=mismatch_code(identity_kind(identity, default=IDENTITY_KIND_IPN)),
+                    )
+                existing = self._identity_of(conn, component)
+                requested = identity_kind(identity, default=existing.kind)
+                if requested != existing.kind:
+                    raise errors.Conflict(
+                        "The system is published under another identity",
+                        code="system_identity_mismatch",
+                    )
+                if existing.kind == IDENTITY_KIND_IPN:
+                    supplied = str(ipn or "").strip()
+                    if supplied and normalize_identity_value(supplied) != normalize_identity_value(existing.number):
+                        raise errors.Conflict(
+                            "The IPN does not match the published component",
+                            code="system_ipn_mismatch",
+                        )
+                else:
+                    supplied_manufacturer = str(manufacturer or "").strip()
+                    supplied_mpn = str(mpn or "").strip()
+                    if supplied_manufacturer and normalize_identity_value(supplied_manufacturer) != normalize_identity_value(existing.manufacturer):
+                        raise errors.Conflict(
+                            "The manufacturer and MPN do not match the published component",
+                            code="system_mpn_mismatch",
+                        )
+                    if supplied_mpn and normalize_identity_value(supplied_mpn) != normalize_identity_value(existing.number):
+                        raise errors.Conflict(
+                            "The manufacturer and MPN do not match the published component",
+                            code="system_mpn_mismatch",
+                        )
+                return existing, component_id
+
+            requested = identity_kind(identity, default=IDENTITY_KIND_IPN)
+            if requested == IDENTITY_KIND_IPN:
+                supplied = str(ipn or "").strip()
+                if not supplied:
+                    raise errors.Invalid(
+                        "The first publish needs the system's IPN",
+                        code="system_ipn_required",
+                    )
+                entry_identity = system_entries.EntryIdentity.ipn(supplied)
+                conflict_code = "system_ipn_mismatch"
+            else:
+                supplied_manufacturer = str(manufacturer or "").strip()
+                supplied_mpn = str(mpn or "").strip()
+                if not supplied_manufacturer or not supplied_mpn:
+                    raise errors.Invalid(
+                        "The first bought-out publish needs the manufacturer and MPN",
+                        code="system_mpn_required",
+                    )
+                entry_identity = system_entries.EntryIdentity.mpn(
+                    supplied_manufacturer, supplied_mpn,
+                )
+                conflict_code = "system_mpn_mismatch"
+            holder = system_entries.identity_holder(conn, entry_identity)
+            if holder is not None:
+                previous = (
+                    system_entries.revision_by_source(
+                        conn, str(holder["id"]), system_id, str(snapshot_id),
+                    )
+                    if snapshot_id else None
+                )
+                if previous is None:
+                    raise errors.Conflict(
+                        "Another component holds that identity",
+                        code=conflict_code,
+                    )
+                return entry_identity, str(holder["id"])
+            return entry_identity, ""
+
+    @staticmethod
+    def _identity_of(conn: Any, component: Mapping[str, Any]) -> system_entries.EntryIdentity:
+        """A published component's frozen identity, raw enough to compare again."""
+
+        kind = str(component.get("identity_kind") or "")
+        if kind == IDENTITY_KIND_IPN:
+            return system_entries.EntryIdentity.ipn(
+                str(component.get("normalized_part_number") or ""),
             )
+        revision = conn.execute(
+            "SELECT manufacturer, mpn FROM component_revisions WHERE id = %s",
+            (str(component.get("current_revision_id") or ""),),
+        ).fetchone()
+        revision = dict(revision) if revision is not None else {}
+        return system_entries.EntryIdentity.mpn(
+            str(revision.get("manufacturer") or ""),
+            str(revision.get("mpn") or component.get("normalized_part_number") or ""),
+        )
 
     def _checked_key(
         self, system_id: str, snapshot: Mapping[str, Any], caller: Any,
-    ) -> str:
-        """The snapshot's system bundle key, after §11.2 step 3's checks pass."""
+        identity: system_entries.EntryIdentity,
+    ) -> tuple[str, dict[str, Any]]:
+        """The snapshot's system bundle key and parts input, after §11.2 step 3."""
 
         document = snapshot["document"]
         copied = snapshot.get("boardSubPorts") or board_sub_ports_empty()
@@ -449,14 +592,18 @@ class PublishingService:
             generator = cli.generator()
         except cli.CliUnavailable as error:
             raise errors.Unavailable(str(error), code="system_cli_unavailable") from error
+        parts_document = parts.build_input(document)[0]
         key = member_view.system_bundle_key(
             document, generator.digest, resolved, board_sub_ports=copied,
             entries=member_view.entry_key_input(resolved),
-            parts=parts.digest(parts.build_input(document)[0]),
+            parts=parts.digest(parts_document),
         )
-        self._check(system_id, document, bundle_store.read(system_id, key), resolved)
+        bundle = bundle_store.read(system_id, key)
+        self._check(system_id, document, bundle, resolved)
         self._check_entries(document)
-        return key
+        if identity.bought_out:
+            self._check_body(document, bundle)
+        return key, parts_document
 
     @staticmethod
     def _check_document(document: Mapping[str, Any]) -> None:
@@ -465,14 +612,6 @@ class PublishingService:
         if not document.get("exports"):
             raise errors.Conflict(
                 "The system has no exports to publish", code="system_no_exports",
-            )
-        if any(
-            (occurrence.get("source") or {}).get("kind") == "body"
-            for occurrence in document.get("occurrences", [])
-        ):
-            raise errors.Conflict(
-                "Body occurrences cannot be published before stage 3",
-                code="system_publish_unsupported",
             )
 
     @staticmethod
@@ -541,13 +680,42 @@ class PublishingService:
                     stage=stage,
                 )
 
+    @staticmethod
+    def _check_body(document: Mapping[str, Any], bundle: Mapping[str, Any]) -> None:
+        """§11.2 step 3: a bought-out entry needs a ready body with its model."""
+
+        states = {
+            str(item.get("occurrence") or ""): str(item.get("state") or "")
+            for item in bundle.get("occurrences", [])
+        }
+        missing_model = {
+            str(finding.get("subject") or "")
+            for finding in bundle.get("findings", [])
+            if str(finding.get("code") or "") == "body-model-missing"
+        }
+        for occurrence in document.get("occurrences", []):
+            source = occurrence.get("source") or {}
+            if source.get("kind") != "body":
+                continue
+            occurrence_id = str(occurrence.get("id") or "")
+            if (
+                states.get(occurrence_id) == member_view.READY
+                and f"occurrence:{occurrence_id}" not in missing_model
+            ):
+                return
+        raise errors.Conflict(
+            "A bought-out system needs a body with its STEP model",
+            code="system_body_required",
+        )
+
     def _write_revision(
         self,
         record: Mapping[str, Any],
         snapshot: Mapping[str, Any],
         payload: Mapping[str, Any],
         *,
-        ipn: str | None,
+        identity: system_entries.EntryIdentity,
+        component_id: str,
         caller: Any,
         change_summary: str,
     ) -> tuple[str, str, str]:
@@ -555,51 +723,56 @@ class PublishingService:
 
         document = snapshot["document"]
         system_id = str(record["system_id"])
-        supplied = str(ipn or "").strip()
+        conflict_code = mismatch_code(identity.kind)
         gateway = self._gateway
         with gateway.connection() as conn:
             try:
-                component_id = str(record.get("catalog_component_id") or "")
-                if component_id:
-                    component = gateway.revisions.component_row(conn, component_id)
+                chosen = str(component_id or "")
+                if chosen:
+                    component = gateway.revisions.component_row(conn, chosen)
                     if component is None:
                         raise errors.Conflict(
                             "The system's catalog component no longer exists",
-                            code="system_ipn_mismatch",
+                            code=conflict_code,
                         )
-                    existing_ipn = str(component.get("normalized_part_number") or "")
-                    if supplied and normalize_identity_value(supplied) != existing_ipn:
+                    existing = self._identity_of(conn, component)
+                    if (
+                        existing.kind != identity.kind
+                        or normalize_identity_value(existing.number)
+                        != normalize_identity_value(identity.number)
+                        or (
+                            identity.bought_out
+                            and normalize_identity_value(existing.manufacturer)
+                            != normalize_identity_value(identity.manufacturer)
+                        )
+                    ):
                         raise errors.Conflict(
-                            "The IPN does not match the published component",
-                            code="system_ipn_mismatch",
+                            "The identity does not match the published component",
+                            code=(
+                                "system_identity_mismatch"
+                                if existing.kind != identity.kind else conflict_code
+                            ),
                         )
-                    chosen_ipn = supplied or existing_ipn
                 else:
-                    if not supplied:
-                        raise errors.Invalid(
-                            "The first publish needs the system's IPN",
-                            code="system_ipn_required",
-                        )
-                    holder = system_entries.ipn_holder(conn, supplied)
+                    holder = system_entries.identity_holder(conn, identity)
                     if holder is not None:
                         previous = system_entries.revision_by_source(
                             conn, str(holder["id"]), system_id, str(snapshot["snapshot_id"]),
                         )
                         if previous is None:
                             raise errors.Conflict(
-                                "Another component holds that IPN",
-                                code="system_ipn_mismatch",
+                                "Another component holds that identity",
+                                code=conflict_code,
                             )
-                        component_id = str(holder["id"])
+                        chosen = str(holder["id"])
                     else:
-                        component_id = system_entries.new_component_id()
-                    chosen_ipn = supplied
+                        chosen = system_entries.new_component_id()
                 previous = system_entries.revision_by_source(
-                    conn, component_id, system_id, str(snapshot["snapshot_id"]),
+                    conn, chosen, system_id, str(snapshot["snapshot_id"]),
                 )
                 if previous is not None:
                     conn.commit()
-                    return component_id, str(previous["revision_id"]), str(previous["stage"])
+                    return chosen, str(previous["revision_id"]), str(previous["stage"])
                 entry_component, revision_id = system_entries.write_entry_revision(
                     conn,
                     gateway.runtime,
@@ -608,11 +781,11 @@ class PublishingService:
                     component_writer=gateway.writer(),
                     asset_files=gateway.asset_files,
                     asset_registry=gateway.asset_registry,
-                    component_id=component_id,
+                    component_id=chosen,
                     entry_payload=payload,
                     interface=payload["interface"],
                     source_ref={"systemId": system_id, "snapshotId": str(snapshot["snapshot_id"])},
-                    ipn=chosen_ipn,
+                    identity=identity,
                     name=str(document.get("name") or "System"),
                     description=str(document.get("description") or ""),
                     actor=getattr(caller, "email", ""),

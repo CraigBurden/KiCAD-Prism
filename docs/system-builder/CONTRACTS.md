@@ -273,7 +273,7 @@ Derived state (ADR §3.3). It is a pure function of the document and the design 
 
 - **The document,** canonical JSON without `layout`. Its SHA-256 is `documentSha256`. Layout is presentation only (§2.8), so moving a symbol, a pin or a route reuses the bundle (stage 2b).
 - **One design bundle per board occurrence whose bundle has stage `parse` complete.** It reads `projections/system-interface.json` (connectors, pins, pin nets, names and types, power nets, pad geometry and board thickness) and `projections/semantic-index.json` (bus aliases, nets' source sheets). B2B geometry reads `system-interface.json`'s pad geometry, the form the kept placement maths and their goldens use. This amends the ADR's mention of `placements.json` for pads; the maintainer chose it so the goldens replay unchanged.
-- **The system bundle key** is SHA-256 over the canonical JSON `{documentSha256, format, generator, members: {occurrence: bundleKey}, absent: [occurrence], pending: [occurrence], boardSubPorts: {id: version}, entries: {occurrence: {payload, stage}}, parts}`; 1c adds `boardSubPorts` and `entries` (§10.5, §12.2), always present. `format` is the system bundle's format number, bumped whenever what the bundle holds changes (1: stage 3a's `placement`; 2: stage 3c's mate `pads`; 3: stage 3d's bodies and `parts`), so stored bundles rebuild without any design bundle's key changing. A new document version with the same content, such as one restored by an undo, reuses the bundle.
+- **The system bundle key** is SHA-256 over the canonical JSON `{documentSha256, format, generator, members: {occurrence: bundleKey}, absent: [occurrence], pending: [occurrence], boardSubPorts: {id: version}, entries: {occurrence: {payload, stage}}, parts}`; 1c adds `boardSubPorts` and `entries` (§10.5, §12.2), always present. `format` is the system bundle's format number, bumped whenever what the bundle holds changes (1: stage 3a's `placement`; 2: stage 3c's mate `pads`; 3: stage 3d's bodies and `parts`; 4: stage 3d's `placement.exports`), so stored bundles rebuild without any design bundle's key changing. A new document version with the same content, such as one restored by an undo, reuses the bundle.
 - **Board-level sub-ports** the document names, as `--board-sub-ports` (§10.5), and **published entries' payloads**, as `--entry` (§12.2), from 1c. Body occurrences and their connectors read their parts from `--parts` (stage 3d, §8.10).
 
 ### 8.2 Occurrences
@@ -373,7 +373,8 @@ prism-kicad system build --document <system.json>
 - **Poses.** A root or an unmated occurrence keeps its stored `pose` (`source: stored`) or takes its slot in the **default row** (`source: default`): occurrences by label then id, side by side along +x with 20 mm between their bounds, a rule that does not move one occurrence when another is placed. A placed non-root has `source: mate` and `positioningMate`. A stored pose on a placed non-root is ignored and reported (`pose-ignored`).
 - **Checks.** Every usable mate that does not drive is checked against the placed boards: B's connector frame against where the mate would put it. A miss of more than 0.2 mm across the mating plane, more than 0.2 mm along it (only when the mate states a stack height) or more than 0.5° is `mate-misaligned`, and the mate's `miss` (on A's connector axes) and `missDeg` say by how much. A `positioningMate` that cannot be used is `positioning-mate-ignored`.
 - **Frames.** `frameA` and `frameB` are each side's connector frame in the system frame (B's unflipped), absent when a side cannot be placed by. The B2B tab (stage 3c) draws from them.
-- **Redaction** (§6): for an occurrence the reader cannot see, the placement keeps its pose but withholds `bounds` and `positioningMate`; a mate touching it keeps only `mate` and `driving`.
+- **Exports** (stage 3d). `exports` lists every export whose connector has footprint geometry and a place, by export id: `mount`, the frame `geometry` is in, placed in the system frame with the connector's side of its board applied (a board's frame lifted by half its thickness to the connector's surface; a body connector's footprint frame); `geometry`, the connector's footprint geometry in that frame as the board interface's extractor v6 gives it (millimetres, +y up, without its 3D model); and `matesTop`, true for a body's connector, whose unsure mating-axis inference mates out of its top face. A system placing this one as an entry mates by them (§12.2). The export of a sub-port carries its whole connector.
+- **Redaction** (§6): for an occurrence the reader cannot see, the placement keeps its pose but withholds `bounds` and `positioningMate`; a mate touching it keeps only `mate` and `driving`; an export on it is left out of `exports`.
 
 ### 8.10 Bodies and body connectors (stage 3d)
 
@@ -381,7 +382,7 @@ A body occurrence places a mechanical catalog part; body connectors (§2.7) plac
 
 - **Input.** `--parts <system-parts.json>` (`prism.system_parts.a0`) lists every part the document references (each body occurrence's source, each body connector's `part`), keyed by the reference exactly as the document spells it: `componentId`, or `componentId@revisionId` (no revision: the latest released, which the backend resolves). Each part carries its resolved revision, name and MPN; its symbol library and footprint, staged beside the file (paths relative to it, never through `..`) with their SHA-256, which the build checks; and its converted model's box in the part's frame, alignment applied. A reference the catalog cannot resolve is left out.
 - **A body reads as a board** whose components are its body connectors, so §8.2–§8.9 apply unchanged:
-  - a body connector's pins are its part's symbol pins (number, name, electrical type; no nets), one per number; without a symbol, its footprint's pad numbers; with neither, none;
+  - a body connector's pins are its part's symbol pins (number, name, electrical type), one per number; without a symbol, its footprint's pad numbers; with neither, none. A body has no board nets, so its signals are the names its exports give (mockup 05): a pin an export covers is on the board net named by that export's `pinNames[pad]`, so pins given one name are one signal; an exported pin without a name is on `Net-(<refdes>-Pad<pad>)`, KiCad's automatic form, which never names a system net when another name exists; a pin no export covers has no net (stage 3d-2);
   - its geometry is its part's footprint in the footprint's own frame (+y up, KiCad's y flipped), at zero thickness, so the B2B mapping (§8.4) and the drawn `pads` read it as a board's;
   - its footprint sits in the body at `Q = P · Rz(k · 90°) · F_part⁻¹`, with `P` its stored `frame`, `k` its `quarterTurns` and `F_part` the footprint's own mating frame (an unsure inference mates out of its top face). Placement (§8.9) composes `Q` where a board has the identity, so a board mated to a body connector, or a body mated to a board, is placed through it.
 - **State.** A body is `ready` when its part resolved, `absent` (`occurrence-absent`) when it did not. Its `connectors` are its body connectors in natural reference order; `placement.angleDeg` is from the centre of its model's box to the connector's mount, `side` is `top`; it has no `outline`, `revisionKey` or `bundleKey`.
@@ -493,11 +494,11 @@ Workspace migration 127:
 
 ## 11. Publishing (1c)
 
-Publishing a system makes a catalog entry of kind `system` whose interface is the system's exports (ADR §2.1). In 1c only **in-house** entries publish; bought-out entries need bodies and publish from stage 3. Publishing goes through the catalog's ordinary workflow (maintainer decision 2026-10-20).
+Publishing a system makes a catalog entry of kind `system` whose interface is the system's exports (ADR §2.1). It is **in-house** (an IPN) or, from stage 3d, **bought-out** (a manufacturer and MPN, and a body with its STEP model). Publishing goes through the catalog's ordinary workflow (maintainer decision 2026-10-20).
 
 ### 11.1 What a published revision holds
 
-- **The catalog component** has `kind: "system"` (catalog migration 14 widens `components_kind_check` to `part` and `system`) and an IPN identity: a new identity kind `ipn` with scope `system`, allowed only on `system` components. It is not the parts' `provisional_ipn`, which stands in until an MPN exists and blocks release; an in-house entry's IPN is final. One system publishes into one component: the first publish creates it with the IPN given, later publishes add revisions to it. `ws_systems.catalog_component_id` records the link.
+- **The catalog component** has `kind: "system"` (catalog migration 14 widens `components_kind_check` to `part` and `system`). A bought-out entry has the catalog's ordinary `mpn` identity (manufacturer and MPN, normalized and unique as a part's). An in-house entry has an IPN identity: a new identity kind `ipn` with scope `system`, allowed only on `system` components. It is not the parts' `provisional_ipn`, which stands in until an MPN exists and blocks release; an in-house entry's IPN is final. One system publishes into one component: the first publish creates it with the IPN given, later publishes add revisions to it. `ws_systems.catalog_component_id` records the link.
 - **The frozen payload** is one required revision asset of type `system_entry`: the canonical JSON file `prism.system_entry.a0` (`native/src/tsp/prism/system-entry-a0.tsp`). Its SHA-256 joins the revision manifest like every asset, so the audit chain covers it.
 
 ```
@@ -506,6 +507,7 @@ SystemEntryA0 { schema: "prism.system_entry.a0",
                 document,        prism.system.v2 at that version
                 boardSubPorts,   prism.board_sub_ports.a0, the definitions it names
                 bundle,          prism.system_bundle.a0, built from exactly those
+                parts?,          prism.system_parts.a0, the catalog parts it was built from (stage 3d)
                 interface }
 
 interface { exports: [ { id, name, occurrence, connector, subPort?,
@@ -518,19 +520,19 @@ interface { exports: [ { id, name, occurrence, connector, subPort?,
 
 ### 11.2 Publishing
 
-`POST /api/systems/{id}/publish { snapshotId?, ipn?, changeSummary }`, under `If-Match` on the system:
+`POST /api/systems/{id}/publish { snapshotId?, identity?, ipn?, manufacturer?, mpn?, changeSummary }`, under `If-Match` on the system. `identity` is `in-house` or `bought-out`; absent, it is the published component's, else `in-house`.
 
 1. **Permissions:** `design` on the system and `catalog_write`. The publisher must see every board occurrence (else `403 system_redacted`).
 2. **The snapshot:** `snapshotId` names an existing snapshot of this system; without it, publishing takes one at the current version named `Published <IPN>`, but only after the IPN rule of step 4 and the checks of step 3 pass against the live system and its live board-level sub-ports, so a refused publish (which the UI retries while the bundle builds) leaves no snapshot. If the version or the sub-port definitions moved in between, the answer is `412`.
-3. **Checks, in order, each a `409` listing what failed:** at least one export (`system_no_exports`); no body occurrence (`system_publish_unsupported`, until stage 3); every board occurrence `ready` in the snapshot's system bundle and the bundle built (`system_bundle_not_ready`; the UI waits and retries); no unwaived error finding (`system_not_clean`, listing the findings); every entry occurrence on a `released` revision (`system_entry_unreleased`).
-4. **The revision:** the payload is written as the `system_entry` asset of a new revision in stage `qa_review`. The first publish also needs `ipn` (`422 system_ipn_required`), validated by the catalog's identity rules; a later one refuses a different `ipn` (`409 system_ipn_mismatch`).
+3. **Checks, in order, each a `409` listing what failed:** at least one export (`system_no_exports`); every board occurrence `ready` in the snapshot's system bundle and the bundle built (`system_bundle_not_ready`; the UI waits and retries); no unwaived error finding (`system_not_clean`, listing the findings); every entry occurrence on a `released` revision (`system_entry_unreleased`); for a bought-out entry, at least one body occurrence `ready` in the bundle with its part's model (no `body-model-missing` on it) (`system_body_required`).
+4. **The revision:** the payload is written as the `system_entry` asset of a new revision in stage `qa_review`, with the parts input of the bundle's build as its `parts` (§8.10; `parts: []` for a system without bodies). The first in-house publish also needs `ipn` (`422 system_ipn_required`), the first bought-out one `manufacturer` and `mpn` (`422 system_mpn_required`), validated by the catalog's identity rules; another component holding that identity is `409 system_ipn_mismatch` or `409 system_mpn_mismatch`. A later publish keeps the component's identity: another `identity` is `409 system_identity_mismatch`, another number `409 system_ipn_mismatch` or `system_mpn_mismatch`. These rules are checked before the snapshot of step 2 is taken.
 5. **The record:** `ws_system_publications` (`system_id`, `version`, `snapshot_id`, `component_id`, `revision_id`, `published_by`, `published_at`) gets a row. The catalog and the workspace are separate databases: the catalog revision is written first, and its `source_ref_json` holds `{ systemId, snapshotId }`, so a retry after a failed workspace write finds the revision instead of making a second one.
 
 The answer is `{ componentId, revisionId, stage }`.
 
 ### 11.3 Release
 
-A `system` revision follows the workflow of `catalog/workflow_policy.py` and the gates of `release_workflow.py`, with two-person approval, plus one gate of its own, checked fail-closed: the `system_entry` asset is present, its SHA-256 matches the manifest, and its bundle has no unwaived error finding. KLC and representation gates do not apply to `system` revisions.
+A `system` revision follows the workflow of `catalog/workflow_policy.py` and the gates of `release_workflow.py`, with two-person approval, plus one gate of its own, checked fail-closed: the `system_entry` asset is present, its SHA-256 matches the manifest, and its bundle has no unwaived error finding. A bought-out revision (an `mpn` identity) also needs a body occurrence `ready` in that bundle whose part in `parts` has a model. KLC and representation gates do not apply to `system` revisions.
 
 ## 12. Placing published entries (1c)
 
@@ -546,7 +548,7 @@ A `system` revision follows the workflow of `catalog/workflow_policy.py` and the
 - **Occurrence state.** An entry is `ready` when its payload was given, with `bundleKey` its payload's `source.systemBundleKey` and no `revisionKey`. It is `unsupported` no longer. A missing payload (a revision since deleted from the catalog) is `absent`, with `occurrence-absent`.
 - **Connectors.** A ready entry's `connectors` are its exports: `refdes` is the export id, `value` the export name, and each pin is `{ pad, net: signal, nets: [signal], pinName: name, power }`, with `power` from the child bundle's pin.
 - **Nets through an entry.** Two pins of an entry are joined when the child bundle puts them on the same system net, as two pins of a board are joined by a board net (§8.3). The child net's name is the entry pin's board net, so names and conflicts work as for boards.
-- **Mates with an entry** derive no geometry in 1c: an entry carries no pad geometry until stage 3. Such a mate needs `manualMap`, or it is `mate-unresolved`.
+- **Mates with an entry** (stage 3d). An entry reads like a body: each export is a connector with the child bundle's `placement.exports` geometry, at its `mount` in the entry's frame (the child's system frame) and zero thickness, `matesTop` as given. So a mate with an entry maps by geometry (§8.4) and places the entry, contents and all, as one rigid group (§8.9). The entry's `bounds` are the box around its contents' placed boxes. An entry published before format 4 carries no export geometry: a mate with it needs `manualMap`, or it is `mate-unresolved`.
 
 | Code | Severity | Subject | When |
 |---|---|---|---|
@@ -678,7 +680,7 @@ Every write builds one `prism.system.ops.a0` request (§3), so a script and the 
 
 Writes take the version the script last read and fail with `412` like the UI's; `system()` re-reads. Every write returns a promise of `{ version }` and rejects with an `Error` whose `status` is the HTTP status when the server refused (412 when stale); a selector that matches nothing rejects before anything is sent. `describeSheet()` returns the root sheet's symbols (rectangle, pins with edge, offset and position) and connections (route, stored or auto); `describeSheet(occurrence)` returns a board's connectors with their pins (pad, nets, power), sub-ports with member names, open suggestions and whether each is unfolded.
 
-## 15. The 3D and B2B tabs (stages 3b, 3c)
+## 15. The 3D and B2B tabs (stages 3b–3d)
 
 ### 15.1 The 3D tab
 
@@ -701,3 +703,9 @@ One tab per opened mate (`?b2b=<ids>`, `tab=b2b:<id>`), opened from the mate's s
 - **Beside 3D.** Selecting a row lights its net on both boards in the 3D tab and frames the two connectors.
 
 Script API additions: `describeMate(mate)` returns the tab's data (sides, source, orientation, stack height and its source, spacer, pads landed, rows); `setMate({ mate, quarterTurns?, flip?, stackHeightMm?, spacerMm? })` is one `replace-mate`; `nameMateRow({ mate, pad, name })`; `setManualMap({ mate, pairs })` (null: geometry); `openMate(mate)` is view only.
+
+### 15.3 Entries and board-less systems in 3D (stage 3d)
+
+- **A placed entry** is drawn as its contents, one rigid group: the payload's (`GET /api/catalog/system-entries/{revisionId}`, §12.3) board occurrences, each from its analytic design bundle at its pinned commit, and its bodies with their models from the payload's `parts`, each at its pose in the child's `placement`, composed with the entry's pose. Picking any of them selects the entry; only the entry moves. A board the reader cannot see is withheld by the payload's redaction and drawn as nothing; an entry without a payload, or before it loads, is its bounds box.
+- **Place published system.** The 3D tab's toolbar and the schematic's add menu search the catalog's `system` components and place a revision as an entry occurrence (`add-occurrence`, §12.1); only released revisions are offered, plus any revision of a system the caller has `design` on.
+- **New module.** Library Manager's add menu has **+ New Module**: it creates a system named by the user and opens its 3D tab, where **Add body** places the module's body. A board-less system with a body is offered as bought-out when published (stage 3d-3).

@@ -19,7 +19,7 @@ from app.services.component_catalog_service_postgres import (  # noqa: E402
     ComponentCatalogPostgresService,
 )
 from app.services.design_bundle import schemas  # noqa: E402
-from app.system_builder import publishing  # noqa: E402
+from app.system_builder import parts, publishing  # noqa: E402
 from app.system_builder.document import canonical, new_document  # noqa: E402
 from app.system_builder.publishing import lookup_entry  # noqa: E402
 from app.system_builder.service import Caller, SystemService  # noqa: E402
@@ -110,6 +110,61 @@ class SystemPublishTests(SystemBundleWorkspace, unittest.TestCase):
         result = self.run_system_job(self.queued_job("system_bundle"))
         return str(result.details["bundle_key"])
 
+    def create_body_system(self, system_id: str = "sys_body_bo") -> dict:
+        """A board-less system with one body and one export on it."""
+
+        document = new_document("Board-less module")
+        document["occurrences"] = [
+            {
+                "id": "occ_body",
+                "label": "Case",
+                "source": {
+                    "kind": "body", "componentId": "comp_body", "revisionId": "rev_body",
+                },
+            }
+        ]
+        document["exports"] = [
+            {
+                "id": "exp_case",
+                "name": "CASE",
+                "site": {"occurrence": "occ_body", "connector": "J1"},
+                "pinNames": {},
+            }
+        ]
+        document = canonical(document)
+        self.system_store.create(
+            system_id, document, folder_id=None, created_by="owner@example.com", role="admin",
+        )
+        return document
+
+    def body_lookup(self, *, model: bool = True):
+        """Patch the parts lookup so the body resolves from a fake catalog."""
+
+        def lookup(component_id: str, revision_id: str | None) -> parts.ResolvedPart:
+            return parts.ResolvedPart(
+                component_id=component_id,
+                revision_id=revision_id or "rev_body",
+                name="Case",
+                model=(
+                    parts.ModelAsset(
+                        glb_key="glb_case",
+                        step_sha256="c" * 64,
+                        bounds_min_mm=(-10.0, -10.0, 0.0),
+                        bounds_max_mm=(10.0, 10.0, 20.0),
+                    )
+                    if model
+                    else None
+                ),
+            )
+
+        return mock.patch.object(parts, "catalog_lookup", lookup)
+
+    def entry_payload_asset(self, revision_id: str) -> dict:
+        with self.catalog.connection() as conn:
+            assets = self.catalog.revisions.load_assets_for_revision(conn, revision_id)
+        asset = next(item for item in assets if item["asset_type"] == "system_entry")
+        return json.loads(Path(asset["canonical_path"]).read_text(encoding="utf-8"))
+
     def create_entry_revision(self, *, stage: str = "qa_review", system_id: str = "sys_child") -> tuple[str, str]:
         with self.catalog.connection() as conn:
             component_id = system_entries.new_component_id()
@@ -126,7 +181,7 @@ class SystemPublishTests(SystemBundleWorkspace, unittest.TestCase):
                 entry_payload=payload,
                 interface=payload["interface"],
                 source_ref={"systemId": system_id, "snapshotId": "snap_child"},
-                ipn=f"IPN-{component_id[:8]}",
+                identity=system_entries.EntryIdentity.ipn(f"IPN-{component_id[:8]}"),
                 name="Child",
                 description="",
                 actor="owner@example.com",
@@ -289,7 +344,8 @@ class SystemPublishTests(SystemBundleWorkspace, unittest.TestCase):
             )
         self.assertEqual(refused.exception.code, "system_no_exports")
 
-        # 2. a body occurrence
+        # 2. a body occurrence no longer refuses publishing; this one has no
+        # built bundle yet, so it reaches the bundle check like any system.
         document = new_document("Body")
         document["occurrences"] = [
             occurrence("occ_obc", "OBC", OBC_PROJECT, commit),
@@ -301,12 +357,13 @@ class SystemPublishTests(SystemBundleWorkspace, unittest.TestCase):
         ]
         document["exports"] = [export()]
         self.system_store.create("sys_body", canonical(document), folder_id=None, created_by="owner@example.com", role="admin")
-        with self.assertRaises(errors.Conflict) as refused:
-            self.service.publish(
-                "sys_body", CALLER, role="designer", expected="1",
-                snapshot_id=None, ipn="IPN-BODY", change_summary="Publish",
-            )
-        self.assertEqual(refused.exception.code, "system_publish_unsupported")
+        with self.body_lookup():
+            with self.assertRaises(errors.Conflict) as refused:
+                self.service.publish(
+                    "sys_body", CALLER, role="designer", expected="1",
+                    snapshot_id=None, ipn="IPN-BODY", change_summary="Publish",
+                )
+        self.assertEqual(refused.exception.code, "system_bundle_not_ready")
 
         # 3. the bundle is not built
         self.create_publishable("sys_unbuilt")
@@ -373,6 +430,129 @@ class SystemPublishTests(SystemBundleWorkspace, unittest.TestCase):
                     snapshot_id=None, ipn="IPN-PARENT", change_summary="Publish",
                 )
         self.assertEqual(refused.exception.code, "system_entry_unreleased")
+
+    def test_a_bought_out_body_publishes_with_the_mpn_identity_and_parts(self) -> None:
+        mpn = f"ACME-CASE-{uuid.uuid4().hex[:8]}"
+        self.create_body_system()
+        with self.body_lookup():
+            self.build_bundle("sys_body_bo")
+            answer = self.service.publish(
+                "sys_body_bo", CALLER, role="designer", expected="1",
+                snapshot_id=None, identity="bought-out", ipn=None,
+                manufacturer="Acme", mpn=mpn,
+                change_summary="Publish the module",
+            )
+
+        component_id = answer["componentId"]
+        with self.catalog.connection() as conn:
+            component = dict(
+                conn.execute("SELECT * FROM components WHERE id = %s", (component_id,)).fetchone()
+            )
+            identity = find_identity_holder(
+                conn,
+                system_entries.EntryIdentity.mpn("Acme", mpn).component_identity(),
+            )
+        self.assertEqual(component["kind"], "system")
+        self.assertEqual(component["identity_kind"], "mpn")
+        self.assertEqual(component["identity_source"], "")
+        self.assertEqual(component["normalized_manufacturer"], "acme")
+        self.assertEqual(component["normalized_part_number"], mpn.lower())
+        self.assertEqual(identity["id"], component_id)
+
+        revision = self.revision_rows(component_id)[0]
+        self.assertEqual(revision["manufacturer"], "Acme")
+        self.assertEqual(revision["mpn"], mpn)
+        self.assertEqual(revision["normalized_mpn"], mpn.lower())
+        self.assertEqual(revision["mpn_source"], "manufacturer")
+        self.assertEqual(
+            system_entries.EntryIdentity.mpn("Acme", mpn).metadata("Case", "")[
+                "source_internal_part_number"
+            ],
+            "",
+        )
+
+        payload = self.entry_payload_asset(answer["revisionId"])
+        schemas.validate(payload, "prism.system_entry.a0")
+        self.assertEqual(payload["source"]["snapshotId"], json.loads(revision["source_ref_json"])["snapshotId"])
+        self.assertEqual(
+            [(part["ref"], bool(part.get("model"))) for part in payload["parts"]["parts"]],
+            [("comp_body@rev_body", True)],
+        )
+
+    def test_a_bought_out_publish_needs_a_ready_body_with_a_model(self) -> None:
+        self.create_body_system()
+        with self.body_lookup(model=False):
+            self.build_bundle("sys_body_bo")
+            with self.assertRaises(errors.Conflict) as refused:
+                self.service.publish(
+                    "sys_body_bo", CALLER, role="designer", expected="1",
+                    snapshot_id=None, identity="bought-out", ipn=None,
+                    manufacturer="Acme", mpn="ACME-NO-MODEL",
+                    change_summary="Publish the module",
+                )
+        self.assertEqual(refused.exception.code, "system_body_required")
+        self.assertEqual(self.system_store.list_snapshots("sys_body_bo"), [])
+
+    def test_the_first_bought_out_publish_requires_a_manufacturer_and_mpn(self) -> None:
+        self.create_body_system()
+        with self.body_lookup():
+            self.build_bundle("sys_body_bo")
+        with self.assertRaises(errors.Invalid) as refused:
+            self.service.publish(
+                "sys_body_bo", CALLER, role="designer", expected="1",
+                snapshot_id=None, identity="bought-out", ipn=None,
+                manufacturer="Acme", mpn=None,
+                change_summary="Publish the module",
+            )
+        self.assertEqual(refused.exception.code, "system_mpn_required")
+        self.assertEqual(self.system_store.list_snapshots("sys_body_bo"), [])
+
+    def test_a_later_publish_keeps_the_bought_out_identity(self) -> None:
+        mpn = f"ACME-CASE-{uuid.uuid4().hex[:8]}"
+        self.create_body_system()
+        with self.body_lookup():
+            self.build_bundle("sys_body_bo")
+            first = self.service.publish(
+                "sys_body_bo", CALLER, role="designer", expected="1",
+                snapshot_id=None, identity="bought-out", ipn=None,
+                manufacturer="Acme", mpn=mpn,
+                change_summary="Publish the module",
+            )
+            with self.assertRaises(errors.Conflict) as identity_refused:
+                self.service.publish(
+                    "sys_body_bo", CALLER, role="designer", expected="1",
+                    snapshot_id=None, identity="in-house", ipn="IPN-WRONG",
+                    change_summary="Wrong identity",
+                )
+            self.assertEqual(identity_refused.exception.code, "system_identity_mismatch")
+            with self.assertRaises(errors.Conflict) as mpn_refused:
+                self.service.publish(
+                    "sys_body_bo", CALLER, role="designer", expected="1",
+                    snapshot_id=None, identity="bought-out", ipn=None,
+                    manufacturer="Acme", mpn="ACME-OTHER",
+                    change_summary="Wrong MPN",
+                )
+            self.assertEqual(mpn_refused.exception.code, "system_mpn_mismatch")
+        self.assertEqual(first["stage"], "qa_review")
+
+    def test_an_in_house_body_system_publishes_without_the_old_refusal(self) -> None:
+        ipn = f"PRISM-BODY-{uuid.uuid4().hex[:8]}"
+        self.create_body_system("sys_body_in_house")
+        with self.body_lookup():
+            self.build_bundle("sys_body_in_house")
+            answer = self.service.publish(
+                "sys_body_in_house", CALLER, role="designer", expected="1",
+                snapshot_id=None, ipn=ipn, change_summary="Publish an in-house module",
+            )
+        self.assertEqual(answer["stage"], "qa_review")
+        with self.catalog.connection() as conn:
+            component = dict(
+                conn.execute(
+                    "SELECT * FROM components WHERE id = %s", (answer["componentId"],),
+                ).fetchone()
+            )
+        self.assertEqual(component["identity_kind"], "ipn")
+        self.assertEqual(component["normalized_part_number"], ipn.lower())
 
     def test_an_ipn_identity_is_refused_on_a_part_and_a_system_entry_on_a_part_revision(self) -> None:
         from psycopg import errors as pg_errors

@@ -412,6 +412,13 @@
                         "$ref": "#/$defs/SystemBundlePlacedMate"
                     },
                     "description": "Every mate, sorted by `mate` in code point order."
+                },
+                "exports": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/$defs/SystemBundlePlacedExport"
+                    },
+                    "description": "Every export whose connector has footprint geometry and a place, sorted\nby `export` in code point order (stage 3d). Absent in bundles built\nbefore format 4."
                 }
             },
             "required": [
@@ -764,6 +771,37 @@
             },
             "description": "What one B2B mate means for placement."
         },
+        "SystemBundlePlacedExport": {
+            "type": "object",
+            "properties": {
+                "export": {
+                    "$ref": "#/$defs/SystemBundleObjectId",
+                    "description": "The export's id."
+                },
+                "mount": {
+                    "$ref": "#/$defs/SystemBundlePose",
+                    "description": "The frame `geometry` is in, placed in the system frame with the\nconnector's side of its board applied, so the geometry reads at zero\nthickness: a board's frame lifted to its surface, a body connector's\nfootprint frame."
+                },
+                "geometry": {
+                    "$ref": "#/$defs/SystemBundleExportGeometry",
+                    "description": "The connector's footprint geometry in that frame."
+                },
+                "matesTop": {
+                    "type": "boolean",
+                    "description": "An unsure mating-axis inference mates out of the top face: a body's connector, or an export of one."
+                }
+            },
+            "required": [
+                "export",
+                "mount",
+                "geometry",
+                "matesTop"
+            ],
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "One export's connector, as a system placing this one as an entry mates by it (stage 3d)."
+        },
         "NonNegativeNanometres": {
             "type": "integer",
             "description": "A Nanometres value that is never negative: a thickness, width, diameter or length.",
@@ -974,6 +1012,74 @@
             "type": "number",
             "description": "Angle in degrees. In new documents it is as written in the KiCad file:\nnot normalized, not rounded. A parity document may round it as today's\noutput does, and its field says so. A positive angle is a counter-clockwise rotation as KiCad shows\nit on the front side. Each field states the frame its angle is in."
         },
+        "SystemBundleExportGeometry": {
+            "type": "object",
+            "properties": {
+                "side": {
+                    "$ref": "#/$defs/SystemBundleFootprintSide",
+                    "description": "The side of its board the footprint is on."
+                },
+                "positionMm": {
+                    "type": "array",
+                    "items": {
+                        "type": "number"
+                    },
+                    "minItems": 2,
+                    "maxItems": 2,
+                    "description": "The footprint anchor `[x, y]`, in that order, in the mount's frame."
+                },
+                "rotationDeg": {
+                    "$ref": "#/$defs/Degrees",
+                    "description": "The footprint rotation in degrees."
+                },
+                "footprintName": {
+                    "anyOf": [
+                        {
+                            "type": "string"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "The footprint name, which the mating-axis inference reads. Null when unknown."
+                },
+                "pads": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/$defs/SystemBundleExportPad"
+                    },
+                    "description": "The pads, in the extractor's order."
+                },
+                "courtyard": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/$defs/SystemBundleExportCourtyard"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "The footprint's courtyard. Null when the footprint has no courtyard graphic."
+                },
+                "model": {
+                    "type": "null",
+                    "description": "Always null: an export's geometry carries no 3D model."
+                }
+            },
+            "required": [
+                "side",
+                "positionMm",
+                "rotationDeg",
+                "footprintName",
+                "pads",
+                "courtyard",
+                "model"
+            ],
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "An export's connector footprint, as the board interface's extractor v6\ngeometry gives it (millimetres, +y up), without its 3D model."
+        },
         "SystemBundleBoardSide": {
             "type": "string",
             "enum": [
@@ -1012,6 +1118,106 @@
                 "not": {}
             },
             "description": "A unit quaternion, canonical with `w ≥ 0`."
+        },
+        "SystemBundleFootprintSide": {
+            "type": "string",
+            "enum": [
+                "top",
+                "bottom"
+            ],
+            "description": "The side of its board a footprint is on."
+        },
+        "SystemBundleExportPad": {
+            "type": "object",
+            "properties": {
+                "pad": {
+                    "type": "string",
+                    "description": "The pad number; empty for a mounting or alignment hole."
+                },
+                "positionMm": {
+                    "type": "array",
+                    "items": {
+                        "type": "number"
+                    },
+                    "minItems": 2,
+                    "maxItems": 2,
+                    "description": "The pad centre `[x, y]`, in that order."
+                },
+                "sizeMm": {
+                    "anyOf": [
+                        {
+                            "type": "array",
+                            "items": {
+                                "type": "number"
+                            }
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "The pad size `[x, y]`, in that order. Null when the footprint gives none."
+                },
+                "shape": {
+                    "anyOf": [
+                        {
+                            "type": "string"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "The pad shape (`circle`, `rect`, …). Null when the footprint gives none."
+                },
+                "tht": {
+                    "anyOf": [
+                        {
+                            "type": "boolean"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "Whether the pad is through-hole. Null when the footprint does not say."
+                }
+            },
+            "required": [
+                "pad",
+                "positionMm",
+                "sizeMm",
+                "shape",
+                "tht"
+            ],
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "One pad of an export's footprint geometry, in millimetres in its frame (+y up)."
+        },
+        "SystemBundleExportCourtyard": {
+            "type": "object",
+            "properties": {
+                "minMm": {
+                    "type": "array",
+                    "items": {
+                        "type": "number"
+                    },
+                    "description": "The minimum corner `[x, y]`, in that order."
+                },
+                "maxMm": {
+                    "type": "array",
+                    "items": {
+                        "type": "number"
+                    },
+                    "description": "The maximum corner `[x, y]`, in that order."
+                }
+            },
+            "required": [
+                "minMm",
+                "maxMm"
+            ],
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "A footprint's courtyard box in its own frame (+y up), in millimetres."
         }
     }
 }

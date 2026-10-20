@@ -572,9 +572,16 @@ fn assert_entry_findings(bundle: &Value) {
     let missing = finding(bundle, "export-missing").expect("export-missing");
     assert_eq!(missing["severity"], "error");
     assert_eq!(missing["subject"], "connector:occ_entry/exp_missing");
-    let unresolved = finding(bundle, "mate-unresolved").expect("mate-unresolved");
-    assert_eq!(unresolved["severity"], "error");
-    assert_eq!(unresolved["subject"], "mate:mate_entry");
+    // The child's bundle carries its exports' geometry (stage 3d), so a mate
+    // with the entry maps by geometry like a board's.
+    assert!(finding(bundle, "mate-unresolved").is_none());
+    let mate = &bundle["mates"][0];
+    assert_eq!(mate["mate"], "mate_entry");
+    assert_eq!(mate["source"], "geometry");
+    assert_eq!(
+        mate["pairs"],
+        json!([{"a": "2", "b": "1"}, {"a": "3", "b": "2"}])
+    );
 }
 
 #[test]

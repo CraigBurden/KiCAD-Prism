@@ -165,8 +165,9 @@ def document_sha256(document: Mapping[str, Any]) -> str:
 
 #: The system bundle's format, part of its key (CONTRACTS §8.1); the twin of
 #: ``prism_system::SYSTEM_BUNDLE_FORMAT``. 1: stage 3a added ``placement``; 2: stage
-#: 3c added mates' drawn ``pads``; 3: stage 3d added bodies and the ``parts`` digest.
-SYSTEM_BUNDLE_FORMAT = 3
+#: 3c added mates' drawn ``pads``; 3: stage 3d added bodies and the ``parts`` digest;
+#: 4: stage 3d added ``placement.exports``.
+SYSTEM_BUNDLE_FORMAT = 4
 
 
 def system_bundle_key(

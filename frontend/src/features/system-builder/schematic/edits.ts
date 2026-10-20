@@ -221,6 +221,14 @@ export interface NewBoard {
   track: { kind: "followed"; branch: string; commit: string } | { kind: "pinned"; commit: string };
 }
 
+/** Place a new symbol `item` to the right of what is drawn, level with its top (§14.3). */
+export function nextSlotOp(scene: Scene, item: string): SystemOp {
+  const placed = scene.symbols;
+  const right = placed.length ? Math.max(...placed.map((symbol) => symbol.rect.x + symbol.rect.w)) + SYMBOL_GAP_NM : 0;
+  const top = placed.length ? Math.min(...placed.map((symbol) => symbol.rect.y)) : 0;
+  return { kind: "set-layout", item, placement: { ...BLANK, xNm: snap(right, PIN_GRID_NM), yNm: snap(top, PIN_GRID_NM) } };
+}
+
 /**
  * "Add board" (§14.3): the occurrence, its position to the right of what is
  * drawn, and a copy of the sub-ports of the first occurrence of the same
@@ -233,12 +241,9 @@ export function addBoardOps(document: SystemDocument, scene: Scene, board: NewBo
     label: board.label,
     source: { kind: "board", projectId: board.projectId, track: board.track },
   };
-  const placed = scene.symbols;
-  const right = placed.length ? Math.max(...placed.map((symbol) => symbol.rect.x + symbol.rect.w)) + SYMBOL_GAP_NM : 0;
-  const top = placed.length ? Math.min(...placed.map((symbol) => symbol.rect.y)) : 0;
   const ops: SystemOp[] = [
     { kind: "add-occurrence", occurrence },
-    { kind: "set-layout", item: id, placement: { ...BLANK, xNm: snap(right, PIN_GRID_NM), yNm: snap(top, PIN_GRID_NM) } },
+    nextSlotOp(scene, id),
   ];
   const sibling = [...document.occurrences]
     .sort((a, b) => (a.id < b.id ? -1 : 1))

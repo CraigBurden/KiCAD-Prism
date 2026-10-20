@@ -24,6 +24,10 @@
             "$ref": "urn:prism:schema:prism.system_bundle:a0",
             "description": "The system bundle built from exactly these."
         },
+        "parts": {
+            "$ref": "urn:prism:schema:prism.system_parts:a0",
+            "description": "The catalog parts the bundle was built from (`--parts`): its bodies' and\nbody connectors' resolved revisions and models, so a placing system draws\nthe bodies without asking the catalog (stage 3d). Absent in entries\npublished before stage 3d."
+        },
         "interface": {
             "$ref": "#/$defs/SystemEntryInterface",
             "description": "The interface its exports make."

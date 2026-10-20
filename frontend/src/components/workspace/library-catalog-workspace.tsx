@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { useSearchParams } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import {
   ArrowDown,
   ArrowUp,
+  Boxes,
   ChevronsUpDown,
   CircleAlert,
   CircleDashed,
@@ -21,6 +22,8 @@ import {
   X,
 } from "lucide-react";
 import { toast } from "sonner";
+
+import { CreateSystemDialog } from "@/features/system-builder/workspace/create-system-dialog";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -301,6 +304,8 @@ export function LibraryCatalogWorkspace({
   const sortDirection = enumParam<SortDirection>(searchParams.get("catalogDir"), ["asc", "desc"], sortKey === "updated_at" ? "desc" : "asc");
   const [query, setQuery] = useState(urlQuery);
   const [createOpen, setCreateOpen] = useState(false);
+  const [moduleOpen, setModuleOpen] = useState(false);
+  const navigate = useNavigate();
   const selectedComponentId = searchParams.get("catalogSelection") || "";
   const [selectedComponent, setSelectedComponent] = useState<CatalogComponent | null>(null);
   const [selectedLoading, setSelectedLoading] = useState(false);
@@ -308,6 +313,8 @@ export function LibraryCatalogWorkspace({
   const [selectedRefreshKey, setSelectedRefreshKey] = useState(0);
   const catalogViewport = useVirtualViewport();
   const canCreate = canWriteCatalog(user?.role);
+  // A module is a system: its author designs it and publishes it to the catalog.
+  const canCreateModule = canCreate && ["designer", "admin"].includes(String(user?.role));
 
   const updateCatalogParams = useCallback((values: Record<string, string | null>, replace = false) => {
     setSearchParams((current) => {
@@ -458,6 +465,9 @@ export function LibraryCatalogWorkspace({
             <PermissionHint blocked={!canCreate} action="create catalog components" allowedRoles={["designer", "admin"]}>
               <Button size="sm" disabled={!canCreate} onClick={() => setCreateOpen(true)}><Plus className="h-3.5 w-3.5" /> New component</Button>
             </PermissionHint>
+            <PermissionHint blocked={!canCreateModule} action="create modules" allowedRoles={["designer", "admin"]}>
+              <Button size="sm" variant="outline" disabled={!canCreateModule} onClick={() => setModuleOpen(true)}><Boxes className="h-3.5 w-3.5" /> New module</Button>
+            </PermissionHint>
           </div>
         </div>
         <div className="flex flex-wrap items-center gap-2 border-t px-4 py-2">
@@ -574,6 +584,9 @@ export function LibraryCatalogWorkspace({
       </div>
 
       <CreateComponentDialog open={createOpen} onOpenChange={setCreateOpen} onCreated={(component) => onOpenComponent(component.id)} />
+      {moduleOpen ? (
+        <CreateSystemDialog folderId={null} module onOpenChange={setModuleOpen} onCreated={(record) => navigate(`/system/${encodeURIComponent(record.systemId)}?tab=3d`)} />
+      ) : null}
     </div>
   );
 }

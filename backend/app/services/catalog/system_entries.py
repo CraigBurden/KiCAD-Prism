@@ -1,11 +1,12 @@
 """Published systems in the catalog: the ``system`` component and its payload (CONTRACTS.md §11).
 
-A published system is one catalog component of kind ``system`` with an IPN
-identity, and one revision per snapshot in stage ``qa_review``. The revision
-carries the frozen ``prism.system_entry.a0`` payload as its required
-``system_entry`` asset, ``interface_json`` for listings, and
-``source_ref_json`` ``{systemId, snapshotId}`` so a retry after a failed
-workspace write finds the revision instead of publishing it twice.
+A published system is one catalog component of kind ``system``, with either an
+in-house IPN or the catalog's ordinary manufacturer-part identity, and one
+revision per snapshot in stage ``qa_review``. The revision carries the frozen
+``prism.system_entry.a0`` payload as its required ``system_entry`` asset,
+``interface_json`` for listings, and ``source_ref_json`` ``{systemId,
+snapshotId}`` so a retry after a failed workspace write finds the revision
+instead of publishing it twice.
 
 This module owns the connection-level writes and reads. The System Builder
 publishes through it (``app.system_builder.publishing``); the release gate reads
@@ -14,6 +15,7 @@ the same asset in ``release_workflow``.
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 import json
 from pathlib import Path
 import uuid
@@ -30,7 +32,10 @@ from app.services.catalog.component_writer import (
 )
 from app.services.catalog.metadata_normalization import (
     IDENTITY_KIND_IPN,
+    IDENTITY_KIND_MPN,
     IPN_SCOPE_SYSTEM,
+    MPN_SOURCE_IPN,
+    MPN_SOURCE_MANUFACTURER,
     normalize_identity_value,
 )
 from app.services.catalog.revision_finalization import CatalogRevisionFinalizer
@@ -44,43 +49,95 @@ ASSET_TYPE = SYSTEM_ENTRY_ASSET_TYPE
 TARGET_LIBRARY = "Prism_SystemEntries"
 
 
-def empty_system_metadata(ipn: str, name: str, description: str) -> dict[str, Any]:
-    """The revision columns a system component carries, with no part-only fields."""
+@dataclass(frozen=True)
+class EntryIdentity:
+    """A published system's identity: an in-house IPN or an orderable MPN."""
 
-    metadata: dict[str, Any] = {column: "" for column in METADATA_INSERT_COLUMNS}
-    metadata.update(
-        {
-            "name": name,
-            "value": name,
-            "description": description,
-            "summary": description,
-            "identity_kind": IDENTITY_KIND_IPN,
-            "identity_source": IPN_SCOPE_SYSTEM,
-            "source_internal_part_number": ipn,
-            "normalized_part_number": normalize_identity_value(ipn),
-            "normalized_manufacturer": "",
-            "normalized_mpn": "",
-            "mpn_source": IPN_SCOPE_SYSTEM,
-            "extra_fields": {},
-        }
-    )
-    return metadata
+    kind: str
+    number: str
+    manufacturer: str = ""
+
+    @classmethod
+    def ipn(cls, ipn: str) -> "EntryIdentity":
+        return cls(kind=IDENTITY_KIND_IPN, number=str(ipn or "").strip())
+
+    @classmethod
+    def mpn(cls, manufacturer: str, mpn: str) -> "EntryIdentity":
+        return cls(
+            kind=IDENTITY_KIND_MPN,
+            number=str(mpn or "").strip(),
+            manufacturer=str(manufacturer or "").strip(),
+        )
+
+    @property
+    def bought_out(self) -> bool:
+        return self.kind == IDENTITY_KIND_MPN
+
+    def component_identity(self) -> ComponentIdentity:
+        if self.kind == IDENTITY_KIND_IPN:
+            return ComponentIdentity.of(
+                manufacturer="",
+                mpn="",
+                identity_kind=IDENTITY_KIND_IPN,
+                identity_source=IPN_SCOPE_SYSTEM,
+                source_internal_part_number=self.number,
+            )
+        return ComponentIdentity.of(manufacturer=self.manufacturer, mpn=self.number)
+
+    def metadata(self, name: str, description: str) -> dict[str, Any]:
+        """The revision columns this identity needs, with no part-only fields."""
+
+        metadata: dict[str, Any] = {column: "" for column in METADATA_INSERT_COLUMNS}
+        bought_out = self.bought_out
+        metadata.update(
+            {
+                "name": name,
+                "value": name,
+                "description": description,
+                "summary": description,
+                "manufacturer": self.manufacturer if bought_out else "",
+                "mpn": self.number if bought_out else "",
+                "identity_kind": self.kind,
+                "identity_source": "" if bought_out else IPN_SCOPE_SYSTEM,
+                "source_internal_part_number": "" if bought_out else self.number,
+                "normalized_part_number": normalize_identity_value(self.number),
+                "normalized_manufacturer": (
+                    normalize_identity_value(self.manufacturer) if bought_out else ""
+                ),
+                "normalized_mpn": normalize_identity_value(self.number) if bought_out else "",
+                "mpn_source": MPN_SOURCE_MANUFACTURER if bought_out else MPN_SOURCE_IPN,
+                "extra_fields": {},
+            }
+        )
+        return metadata
+
+
+def empty_system_metadata(ipn: str, name: str, description: str) -> dict[str, Any]:
+    """The revision columns an in-house system component carries (kept for callers)."""
+
+    return EntryIdentity.ipn(ipn).metadata(name, description)
+
+
+def identity_metadata(identity: EntryIdentity, name: str, description: str) -> dict[str, Any]:
+    """The revision columns a system component carries for ``identity``."""
+
+    return identity.metadata(name, description)
 
 
 def ipn_identity(ipn: str) -> ComponentIdentity:
-    return ComponentIdentity.of(
-        manufacturer="",
-        mpn="",
-        identity_kind=IDENTITY_KIND_IPN,
-        identity_source=IPN_SCOPE_SYSTEM,
-        source_internal_part_number=ipn,
-    )
+    return EntryIdentity.ipn(ipn).component_identity()
+
+
+def identity_holder(conn: Any, identity: EntryIdentity) -> dict[str, Any] | None:
+    """The component, active or retired, holding ``identity``."""
+
+    return find_identity_holder(conn, identity.component_identity())
 
 
 def ipn_holder(conn: Any, ipn: str) -> dict[str, Any] | None:
     """The component, active or retired, holding ``ipn`` in the system scope."""
 
-    return find_identity_holder(conn, ipn_identity(ipn))
+    return identity_holder(conn, EntryIdentity.ipn(ipn))
 
 
 def entry_revision(
@@ -179,7 +236,7 @@ def write_entry_revision(
     entry_payload: Mapping[str, Any],
     interface: Mapping[str, Any],
     source_ref: Mapping[str, Any],
-    ipn: str,
+    identity: EntryIdentity,
     name: str,
     description: str,
     actor: str,
@@ -202,15 +259,15 @@ def write_entry_revision(
         component = revision_kernel.component_row(conn, component_id) or {}
         if str(component.get("kind") or "part") != "system":
             raise ValueError("A system_entry can only be written to a system component")
-        if str(component.get("identity_kind") or "") != IDENTITY_KIND_IPN:
-            raise ValueError("A system component needs an ipn identity")
-        if str(component.get("normalized_part_number") or "") != normalize_identity_value(ipn):
-            raise ValueError("The IPN does not match the system component's identity")
-        metadata = empty_system_metadata(
-            str(component.get("normalized_part_number") or ipn), name, description
-        )
+        if str(component.get("identity_kind") or "") != identity.kind:
+            raise ValueError("The system component's identity kind does not match")
+        if str(component.get("normalized_part_number") or "") != normalize_identity_value(identity.number):
+            raise ValueError("The identity does not match the system component's identity")
+        if identity.bought_out and str(component.get("normalized_manufacturer") or "") != normalize_identity_value(identity.manufacturer):
+            raise ValueError("The manufacturer does not match the system component's identity")
+        metadata = identity_metadata(identity, name, description)
     else:
-        metadata = empty_system_metadata(ipn, name, description)
+        metadata = identity_metadata(identity, name, description)
     written_component, revision_id = component_writer.upsert_metadata_row(
         conn,
         runtime,
@@ -285,9 +342,12 @@ def _now() -> str:
 
 __all__ = [
     "ASSET_TYPE",
+    "EntryIdentity",
     "SCHEMA",
     "empty_system_metadata",
     "entry_revision",
+    "identity_holder",
+    "identity_metadata",
     "ipn_holder",
     "ipn_identity",
     "new_component_id",

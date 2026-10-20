@@ -4,8 +4,11 @@
 //! A body reads as a board whose components are its body connectors, so the
 //! connectivity, mapping and placement rules apply to it unchanged:
 //!
-//! - a body connector's pins are its part's symbol pins (no nets), or its
-//!   footprint's pad numbers without a symbol;
+//! - a body connector's pins are its part's symbol pins, or its footprint's
+//!   pad numbers without a symbol. A body has no board nets: an exported pin's
+//!   net is the name its export gives it, so pins given one name are one
+//!   signal, and an exported pin without a name gets KiCad's automatic form
+//!   `Net-(J1-Pad3)`; a pin no export covers has no net;
 //! - its geometry is the part's footprint in the footprint's own frame, at
 //!   zero thickness, so the B2B mapping and the drawn pads read it as they
 //!   read a board's;
@@ -15,7 +18,7 @@
 //!   placement composes `Q` where a board has the identity.
 
 use crate::input::{
-    Board, BodyConnector, BodyFacts, Document, InterfaceComponent, InterfacePin, Members,
+    Board, BodyConnector, Document, InterfaceComponent, InterfacePin, Members, MountFacts,
     PartFacts, PoseIn, SemanticFacts, SystemInterface, part_key,
 };
 use crate::natural;
@@ -105,6 +108,47 @@ pub fn mount(connector: &BodyConnector, geometry: Option<&ConnectorGeometry>) ->
     }
 }
 
+/// Each exported body pin's net, by `(occurrence, refdes)` then pad (§8.10).
+fn exported_nets(doc: &Document) -> BTreeMap<(&str, &str), BTreeMap<String, String>> {
+    let mut out: BTreeMap<(&str, &str), BTreeMap<String, String>> = BTreeMap::new();
+    for export in &doc.exports {
+        let site = &export.site;
+        // A sub-port export covers its pads; a whole connector, every pad (`None`).
+        let covered: Option<Vec<&str>> = site.sub_port.as_ref().map(|sub_port| {
+            doc.sub_ports
+                .iter()
+                .filter(|candidate| candidate.id == sub_port.id)
+                .flat_map(|candidate| candidate.pins.iter().map(String::as_str))
+                .collect()
+        });
+        let nets = out
+            .entry((site.occurrence.as_str(), site.connector.as_str()))
+            .or_default();
+        let named = |pad: &str| match export.pin_names.get(pad).map(|name| name.trim()) {
+            Some(name) if !name.is_empty() => name.to_owned(),
+            _ => format!("Net-({}-Pad{pad})", site.connector),
+        };
+        match covered {
+            Some(pads) => {
+                for pad in pads {
+                    nets.entry(pad.to_owned()).or_insert_with(|| named(pad));
+                }
+            }
+            // `*` stands for every pad of the connector, named at `pins`.
+            None => {
+                nets.entry("*".to_owned()).or_default();
+                for (pad, name) in &export.pin_names {
+                    if !name.trim().is_empty() {
+                        nets.entry(pad.clone())
+                            .or_insert_with(|| name.trim().to_owned());
+                    }
+                }
+            }
+        }
+    }
+    out
+}
+
 /// The pins a body connector carries: its symbol's, else its footprint's pad numbers.
 fn pins(part: &PartFacts) -> Vec<InterfacePin> {
     let named = |number: &str, name: &str, kind: &str| InterfacePin {
@@ -134,14 +178,31 @@ fn pins(part: &PartFacts) -> Vec<InterfacePin> {
     out
 }
 
-/// One body connector as a component of its body's board.
-fn component(connector: &BodyConnector, part: Option<&PartFacts>) -> InterfaceComponent {
+/// One body connector as a component of its body's board; `nets` are its
+/// exported pins' nets by pad (`*`: every pad is exported).
+fn component(
+    connector: &BodyConnector,
+    part: Option<&PartFacts>,
+    nets: Option<&BTreeMap<String, String>>,
+) -> InterfaceComponent {
+    let mut pins = part.map(pins).unwrap_or_default();
+    if let Some(nets) = nets {
+        let every = nets.contains_key("*");
+        for pin in &mut pins {
+            let net = match nets.get(&pin.pad) {
+                Some(name) => name.clone(),
+                None if every => format!("Net-({}-Pad{})", connector.refdes, pin.pad),
+                None => continue,
+            };
+            pin.nets = vec![net];
+        }
+    }
     InterfaceComponent {
         reference: connector.refdes.clone(),
         value: part.map(|part| part.name.clone()).unwrap_or_default(),
         mpn: part.and_then(|part| part.mpn.clone()),
         candidate: true,
-        pins: part.map(pins).unwrap_or_default(),
+        pins,
         geometry: part.and_then(footprint_geometry),
     }
 }
@@ -149,6 +210,7 @@ fn component(connector: &BodyConnector, part: Option<&PartFacts>) -> InterfaceCo
 /// Add every body occurrence whose part `--parts` resolved to `members`: its
 /// connectors as a board in `boards`, its bounds and mounts in `bodies`.
 pub fn add_bodies(doc: &Document, members: &mut Members) {
+    let exported = exported_nets(doc);
     let mut by_body: BTreeMap<&str, Vec<&BodyConnector>> = BTreeMap::new();
     for connector in &doc.body_connectors {
         by_body
@@ -177,7 +239,8 @@ pub fn add_bodies(doc: &Document, members: &mut Members) {
         let mut mounts = BTreeMap::new();
         for connector in connectors {
             let part = members.parts.get(&connector.part.key());
-            let component = component(connector, part);
+            let nets = exported.get(&(occurrence.id.as_str(), connector.refdes.as_str()));
+            let component = component(connector, part, nets);
             mounts.insert(
                 connector.refdes.clone(),
                 mount(connector, component.geometry.as_ref()),
@@ -197,8 +260,14 @@ pub fn add_bodies(doc: &Document, members: &mut Members) {
                 semantic: SemanticFacts::default(),
             },
         );
-        members
-            .bodies
-            .insert(occurrence.id.clone(), BodyFacts { bounds, mounts });
+        let mates_top = mounts.keys().cloned().collect();
+        members.mounted.insert(
+            occurrence.id.clone(),
+            MountFacts {
+                bounds,
+                mounts,
+                mates_top,
+            },
+        );
     }
 }

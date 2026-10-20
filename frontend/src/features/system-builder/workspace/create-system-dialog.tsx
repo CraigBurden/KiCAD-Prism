@@ -11,12 +11,14 @@ import type { SystemRecord } from "../model/types";
 
 interface CreateSystemDialogProps {
   folderId: string | null;
+  /** A bought-out module (Library Manager's New module, §15.3): a board-less system built around a body. */
+  module?: boolean;
   onOpenChange: (open: boolean) => void;
   onCreated: (record: SystemRecord) => void;
 }
 
 /** Mounted only while open, so each open starts empty. */
-export function CreateSystemDialog({ folderId, onOpenChange, onCreated }: CreateSystemDialogProps) {
+export function CreateSystemDialog({ folderId, module = false, onOpenChange, onCreated }: CreateSystemDialogProps) {
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
   const [busy, setBusy] = useState(false);
@@ -45,8 +47,12 @@ export function CreateSystemDialog({ folderId, onOpenChange, onCreated }: Create
     <Dialog open onOpenChange={(open) => !busy && onOpenChange(open)}>
       <DialogContent onKeyDown={onKeyDown}>
         <DialogHeader>
-          <DialogTitle>New system</DialogTitle>
-          <DialogDescription>A system joins boards with board-to-board mates and harnesses. Add boards once it is open.</DialogDescription>
+          <DialogTitle>{module ? "New module" : "New system"}</DialogTitle>
+          <DialogDescription>
+            {module
+              ? "A module is a bought-out unit modelled as a system without boards: add its body in 3D, place its connector parts on the body, then export them."
+              : "A system joins boards with board-to-board mates and harnesses. Add boards once it is open."}
+          </DialogDescription>
         </DialogHeader>
         <div className="space-y-3">
           <Input
@@ -59,8 +65,8 @@ export function CreateSystemDialog({ folderId, onOpenChange, onCreated }: Create
                 void submit();
               }
             }}
-            placeholder="System name"
-            aria-label="System name"
+            placeholder={module ? "Module name" : "System name"}
+            aria-label={module ? "Module name" : "System name"}
           />
           <Textarea value={description} onChange={(event) => setDescription(event.target.value)} placeholder="Description (optional)" aria-label="Description" />
           {error && <p className="text-sm text-destructive" role="alert">{error}</p>}

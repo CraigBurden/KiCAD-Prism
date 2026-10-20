@@ -4,9 +4,10 @@
  * shared with the other pane, free boards and group roots moved with the
  * gizmo or typed values, and the two explodes. Bodies (stage 3d) draw their
  * catalog model; connector parts are placed on their faces (mockup 08).
+ * A placed published entry draws as its contents, one rigid group (§15.3).
  */
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Box, Maximize, Move3d, MousePointer2 } from "lucide-react";
+import { Box, Boxes, Maximize, Move3d, MousePointer2 } from "lucide-react";
 import { toast } from "sonner";
 
 import { useHotkeys } from "@/hooks/use-hotkeys";
@@ -14,7 +15,8 @@ import type { PrismScenePose, PrismSemanticViewerElement, PrismSystemSceneMoveSt
 
 import type { SystemBundle, SystemDocument, SystemOp } from "../model/types";
 import { AddBodyDialog } from "./add-body-dialog";
-import { addBodyConnectorOps, addBodyOps, faceFramePose, nextRefdes } from "./body-edits";
+import { addBodyConnectorOps, addBodyOps, addEntryOps, faceFramePose, nextRefdes } from "./body-edits";
+import { entryPartRefs, useEntryContents } from "./entry-contents";
 import { MoveCard, type Snap } from "./move-card";
 import { usePartModels } from "./part-models";
 import { PlaceConnectorCard, type Placing } from "./place-connector-card";
@@ -65,17 +67,20 @@ function previewDocument(document: SystemDocument, placing: Placing | null): Sys
 
 export function ThreeDPane({ document, bundle, projectNames, selected, onSelect, canEdit, busy, apply, lit = null, onOpenMate }: ThreeDPaneProps) {
   const [element, setElement] = useState<PrismSemanticViewerElement | null>(null);
-  const assets = useMemberAssets(document);
-  const [addingBody, setAddingBody] = useState(false);
+  const entries = useEntryContents(document);
+  const assets = useMemberAssets(document, entries);
+  // Adding from the catalog: a body or a published system.
+  const [adding, setAdding] = useState<"body" | "entry" | null>(null);
   const [placing, setPlacing] = useState<Placing | null>(null);
   // While placing, the connector shows where it would go: a preview in a copy of the document.
   const shown = useMemo(() => previewDocument(document, placing), [document, placing]);
   const partRefs = useMemo(() => [
     ...shown.occurrences.flatMap((item) => (item.source.kind === "body" ? [item.source] : [])),
     ...shown.bodyConnectors.map((item) => item.part),
-  ], [shown]);
+    ...[...entries.values()].flatMap((contents) => (contents ? entryPartRefs(contents) : [])),
+  ], [shown, entries]);
   const models = usePartModels(partRefs);
-  const scene = useMemo(() => buildSceneDescriptor(shown, bundle, assets, models), [shown, bundle, assets, models]);
+  const scene = useMemo(() => buildSceneDescriptor(shown, bundle, assets, models, entries), [shown, bundle, assets, models, entries]);
   const [move, setMove] = useState<PrismSystemSceneMoveState | null>(null);
   const [snap, setSnap] = useState<Snap>(DEFAULT_SNAP);
   const [view, setView] = useState<ViewSettings>(DEFAULT_VIEW);
@@ -225,13 +230,14 @@ export function ThreeDPane({ document, bundle, projectNames, selected, onSelect,
           />
         </div>
       )}
-      {addingBody && (
+      {adding && (
         <AddBodyDialog
-          onClose={() => setAddingBody(false)}
+          adding={adding}
+          onClose={() => setAdding(null)}
           onAdd={async (part) => {
-            const { ops, occurrence } = addBodyOps(document, part);
+            const { ops, occurrence } = adding === "entry" ? addEntryOps(document, part) : addBodyOps(document, part);
             await apply(ops);
-            setAddingBody(false);
+            setAdding(null);
             onSelect(new Set([occurrence]));
           }}
         />
@@ -261,7 +267,8 @@ export function ThreeDPane({ document, bundle, projectNames, selected, onSelect,
       <div className="absolute bottom-4 left-1/2 flex -translate-x-1/2 items-center gap-1 rounded-lg border border-white/10 bg-zinc-900/95 p-1 text-zinc-100 shadow-xl" role="toolbar" aria-label="3D tools">
         <PaneButton active={!moving} onClick={() => setMoving(false)} icon={MousePointer2} label="Select" />
         {canEdit && <PaneButton active={moving} onClick={() => setMoving(!moving)} icon={Move3d} label="Move (M)" />}
-        {canEdit && <PaneButton active={addingBody} onClick={() => setAddingBody(true)} icon={Box} label="Add body" />}
+        {canEdit && <PaneButton active={adding === "body"} onClick={() => setAdding("body")} icon={Box} label="Add body" />}
+        {canEdit && <PaneButton active={adding === "entry"} onClick={() => setAdding("entry")} icon={Boxes} label="Place system" />}
         <PaneButton active={false} onClick={() => element?.frameAll?.()} icon={Maximize} label="Fit (F)" />
       </div>
     </div>

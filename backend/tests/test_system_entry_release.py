@@ -52,6 +52,61 @@ def payload_with(findings: list[dict] | None = None) -> dict:
     return payload
 
 
+def bought_out_payload(*, body_model: bool = True, with_parts: bool = True) -> dict:
+    """A bought-out system entry: a body occurrence, its bundle state and parts."""
+
+    document = new_document("Bought-out child")
+    document["occurrences"] = [
+        {
+            "id": "occ_body",
+            "label": "Case",
+            "source": {"kind": "body", "componentId": "cmp_body", "revisionId": "rev_body"},
+        }
+    ]
+    bundle = {
+        "schema": "prism.system_bundle.a0",
+        "documentSha256": "0" * 64,
+        "occurrences": [{"occurrence": "occ_body", "state": "ready", "connectors": []}],
+        "nets": [],
+        "mates": [],
+        "links": [],
+        "splices": [],
+        "suggestions": [],
+        "findings": [],
+        "placement": {"occurrences": [], "mates": [], "exports": []},
+    }
+    payload = {
+        "schema": "prism.system_entry.a0",
+        "source": {
+            "systemId": "sys_child",
+            "version": 1,
+            "snapshotId": "snap_child",
+            "systemBundleKey": "a" * 64,
+        },
+        "document": document,
+        "boardSubPorts": {"schema": "prism.board_sub_ports.a0", "subPorts": []},
+        "bundle": bundle,
+        "interface": {"exports": []},
+    }
+    if with_parts:
+        part = {
+            "ref": "cmp_body@rev_body",
+            "componentId": "cmp_body",
+            "revisionId": "rev_body",
+            "name": "Case",
+        }
+        if body_model:
+            part["model"] = {
+                "glbKey": "glb_case",
+                "stepSha256": "c" * 64,
+                "boundsMin": {"xNm": -10_000_000, "yNm": -10_000_000, "zNm": 0},
+                "boundsMax": {"xNm": 10_000_000, "yNm": 10_000_000, "zNm": 20_000_000},
+            }
+        payload["parts"] = {"schema": "prism.system_parts.a0", "parts": [part]}
+    schemas.validate(payload, "prism.system_entry.a0")
+    return payload
+
+
 @requires_scratch_postgres("the system release gate")
 class SystemReleaseGateTests(unittest.TestCase):
     def setUp(self) -> None:
@@ -63,7 +118,10 @@ class SystemReleaseGateTests(unittest.TestCase):
         self.addCleanup(self.catalog.close)
         self.gateway = publishing.CatalogGateway(self.catalog)
 
-    def write(self, payload: dict) -> tuple[str, str]:
+    def write(self, payload: dict, *, identity=None) -> tuple[str, str]:
+        identity = identity or system_entries.EntryIdentity.ipn(
+            f"REL-{uuid.uuid4().hex[:10]}"
+        )
         with self.catalog.connection() as conn:
             component, revision = system_entries.write_entry_revision(
                 conn,
@@ -77,7 +135,7 @@ class SystemReleaseGateTests(unittest.TestCase):
                 entry_payload=payload,
                 interface=payload["interface"],
                 source_ref={"systemId": "sys_child", "snapshotId": "snap_child"},
-                ipn=f"REL-{uuid.uuid4().hex[:10]}",
+                identity=identity,
                 name="Child",
                 description="",
                 actor="owner@example.com",
@@ -152,6 +210,33 @@ class SystemReleaseGateTests(unittest.TestCase):
                     }
                 ]
             )
+        )
+        self.catalog.set_release_status(component, "released", actor="")
+        self.assertEqual(self.status(component)["release_status"], "released")
+
+    def test_a_bought_out_revision_needs_a_ready_body_with_a_model(self) -> None:
+        component, _revision = self.write(
+            bought_out_payload(body_model=False),
+            identity=system_entries.EntryIdentity.mpn("Acme", f"REL-{uuid.uuid4().hex[:8]}"),
+        )
+        with self.assertRaises(ValueError) as refused:
+            self.catalog.set_release_status(component, "released", actor="")
+        self.assertIn("body with its STEP model", str(refused.exception))
+        self.assertEqual(self.status(component)["release_status"], "done")
+
+    def test_a_bought_out_revision_without_parts_refuses_closed(self) -> None:
+        component, _revision = self.write(
+            bought_out_payload(with_parts=False),
+            identity=system_entries.EntryIdentity.mpn("Acme", f"REL-{uuid.uuid4().hex[:8]}"),
+        )
+        with self.assertRaises(ValueError) as refused:
+            self.catalog.set_release_status(component, "released", actor="")
+        self.assertIn("body with its STEP model", str(refused.exception))
+
+    def test_a_bought_out_revision_with_a_modelled_body_releases(self) -> None:
+        component, _revision = self.write(
+            bought_out_payload(body_model=True),
+            identity=system_entries.EntryIdentity.mpn("Acme", f"REL-{uuid.uuid4().hex[:8]}"),
         )
         self.catalog.set_release_status(component, "released", actor="")
         self.assertEqual(self.status(component)["release_status"], "released")

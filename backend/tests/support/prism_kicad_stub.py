@@ -759,7 +759,7 @@ def system_build(positionals: list[str], options: dict[str, Any]) -> NoReturn:
     preimage = {
         "documentSha256": document_sha256,
         # prism_system::SYSTEM_BUNDLE_FORMAT (CONTRACTS §8.1).
-        "format": 3,
+        "format": 4,
         "generator": generator_digest,
         "members": {occurrence: member_keys[occurrence] for occurrence in sorted(member_keys)},
         "absent": sorted(absent),
@@ -813,11 +813,21 @@ def system_build(positionals: list[str], options: dict[str, Any]) -> NoReturn:
                 "waived": False,
             })
         elif (occurrence.get("source") or {}).get("kind") == "body":
-            if part_ref(occurrence["source"]) in parts_by_ref:
+            ref = part_ref(occurrence["source"])
+            if ref in parts_by_ref:
                 entry["state"] = "ready"
                 entry["connectors"] = body_connectors(
                     document, occurrence_id, parts_by_ref
                 )
+                if not (parts_by_ref.get(ref) or {}).get("model"):
+                    findings.append({
+                        "code": "body-model-missing",
+                        "severity": "warning",
+                        "subject": f"occurrence:{occurrence_id}",
+                        "message": f"{labels[occurrence_id]}'s part has no STEP model",
+                        "objects": [occurrence_id],
+                        "waived": False,
+                    })
             else:
                 entry["state"] = "absent"
         elif occurrence_id in absent:
@@ -867,7 +877,7 @@ def system_build(positionals: list[str], options: dict[str, Any]) -> NoReturn:
         "splices": [],
         "suggestions": [],
         "findings": findings,
-        "placement": {"occurrences": placed, "mates": placed_mates},
+        "placement": {"occurrences": placed, "mates": placed_mates, "exports": []},
     }
     write_atomic(Path(options["-o"]), compact(bundle) + b"\n")
     result = {

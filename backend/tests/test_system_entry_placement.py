@@ -91,7 +91,7 @@ class SystemEntryPlacementTests(unittest.TestCase):
                 entry_payload=payload(system_id),
                 interface={"exports": []},
                 source_ref={"systemId": system_id, "snapshotId": "snap_child"},
-                ipn=f"PLACE-{uuid.uuid4().hex[:10]}",
+                identity=system_entries.EntryIdentity.ipn(f"PLACE-{uuid.uuid4().hex[:10]}"),
                 name="Child",
                 description="",
                 actor="owner@example.com",

@@ -72,8 +72,11 @@ test("boards, restricted child systems and model bodies/parts are drawn; open as
     { path: "/d/e", kind: "part", parent: "/d", localMatrix: translate(1, 2, 3), model: { glbKey: "k" } },
     { path: "/f", kind: "body" },
     { path: "/g", kind: "part", parent: "/d" },
+    // A placed published entry is placed even while it draws nothing itself: its contents are its children.
+    { path: "/h", kind: "entry", group: true },
+    { path: "/h/i", kind: "board", parent: "/h", localMatrix: translate(5, 0, 0) },
   ] };
-  assert.deepEqual(drawnOccurrences(descriptor).map((item) => item.path), ["/a/b", "/c", "/d", "/d/e"]);
+  assert.deepEqual(drawnOccurrences(descriptor).map((item) => item.path), ["/a/b", "/c", "/d", "/d/e", "/h", "/h/i"]);
 });
 
 test("a child part's world matrix is its parent's current world matrix times its local matrix", () => {
