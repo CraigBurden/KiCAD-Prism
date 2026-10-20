@@ -3412,6 +3412,10 @@ pub struct SystemQuaternion {
 ///    "yNm"
 ///  ],
 ///  "properties": {
+///    "canvas": {
+///      "description": "Where a harness object sits on its harness tab (CONTRACTS.md §16.5): an end card's top-left, a splice's, loose end's or branch point's centre; absent means the auto-layout.",
+///      "$ref": "#/$defs/SystemSchematicPoint"
+///    },
 ///    "interior": {
 ///      "description": "Inside a board or body sheet; absent means the defaults.",
 ///      "$ref": "#/$defs/SystemInterior"
@@ -3486,6 +3490,9 @@ pub struct SystemSchematicPlacement {
     ///Inside a board or body sheet; absent means the defaults.
     #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
     pub interior: ::std::option::Option<SystemInterior>,
+    ///Where a harness object sits on its harness tab (CONTRACTS.md §16.5): an end card's top-left, a splice's, loose end's or branch point's centre; absent means the auto-layout.
+    #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+    pub canvas: ::std::option::Option<SystemSchematicPoint>,
 }
 ///A point on a sheet.
 ///

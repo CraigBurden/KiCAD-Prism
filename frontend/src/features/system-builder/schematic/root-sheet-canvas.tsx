@@ -31,6 +31,8 @@ interface Props {
   onToolChange: (tool: Tool) => void;
   /** Double-click on a board: open its sheet. */
   onEnter?: (occurrence: string) => void;
+  /** Double-click on a harness block opens its tab (§16.5). */
+  onOpenHarness?: (harness: string) => void;
 }
 
 /** What the page may ask of the canvas. */
@@ -42,7 +44,7 @@ export interface RootSheetHandle {
 const THRESHOLD_PX = 3;
 
 export const RootSheetCanvas = forwardRef<RootSheetHandle, Props>(function RootSheetCanvas(
-  { document, bundle, projectNames, selected, onSelect, canEdit, apply, tool, onToolChange, onEnter },
+  { document, bundle, projectNames, selected, onSelect, canEdit, apply, tool, onToolChange, onEnter, onOpenHarness },
   handle,
 ) {
   const container = useRef<HTMLDivElement>(null);
@@ -231,6 +233,7 @@ export const RootSheetCanvas = forwardRef<RootSheetHandle, Props>(function RootS
         const hit = hitAt(event);
         const occurrence = hit?.hit === "symbol" ? document.occurrences.find((item) => item.id === hit.id) : undefined;
         if (occurrence?.source.kind === "board" || occurrence?.source.kind === "body") onEnter?.(occurrence.id);
+        if (hit?.hit === "symbol" && document.harnesses.some((item) => item.id === hit.id)) onOpenHarness?.(hit.id);
       }}
       // Right drag pans, so the browser's menu stays shut on the canvas.
       onContextMenu={(event) => event.preventDefault()}

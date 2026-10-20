@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Trash2, Unplug } from "lucide-react";
+import { Cable, Trash2, Unplug } from "lucide-react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
@@ -17,10 +17,11 @@ interface Props {
   projectNames?: Record<string, string>;
   /** Open a mate's B2B tab. */
   onOpenMate?: (mate: string) => void;
+  onOpenHarness?: (harness: string) => void;
 }
 
 /** Facts and the few edits for one selected object (label, remove). Keyed by id, so each selection starts fresh. */
-export function SelectionPanel({ document, id, canEdit, apply, onRemoved, projectNames, onOpenMate }: Props) {
+export function SelectionPanel({ document, id, canEdit, apply, onRemoved, projectNames, onOpenMate, onOpenHarness }: Props) {
   const occurrence = document.occurrences.find((item) => item.id === id);
   const harness = document.harnesses.find((item) => item.id === id);
   const mate = document.mates.find((item) => item.id === id);
@@ -96,6 +97,11 @@ export function SelectionPanel({ document, id, canEdit, apply, onRemoved, projec
       {mate && onOpenMate && (
         <Button size="sm" variant="secondary" className="w-full" onClick={() => onOpenMate(mate.id)}>
           <Unplug className="mr-1.5 h-3.5 w-3.5" /> Open B2B tab
+        </Button>
+      )}
+      {(harness ?? endHarness) && onOpenHarness && (
+        <Button size="sm" variant="secondary" className="w-full" onClick={() => onOpenHarness((harness ?? endHarness)!.id)}>
+          <Cable className="mr-1.5 h-3.5 w-3.5" /> Open harness tab
         </Button>
       )}
       {canEdit && (

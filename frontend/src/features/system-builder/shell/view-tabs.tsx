@@ -1,6 +1,6 @@
 /**
  * The system page's row of view tabs (ADR §2.7): the fixed tabs and one per
- * opened B2B mate, closable; and the side-by-side control.
+ * opened B2B mate or harness block, closable; and the side-by-side control.
  */
 import { Columns2, X } from "lucide-react";
 
@@ -9,8 +9,10 @@ import { Button } from "@/components/ui/button";
 export interface ViewTab {
   id: string;
   label: string;
-  /** A B2B mate's tab: marked, and closable. */
-  b2b: boolean;
+  /** An opened object's tab (a B2B mate, a harness block): closable. */
+  closable: boolean;
+  /** The swatch class marking an opened object's tab (`bg-…`). */
+  swatch?: string;
   /** A count shown on the tab (Review's open findings); 0 shows none. */
   count: number;
 }
@@ -40,11 +42,11 @@ export function ViewTabs({ tabs, tab, beside, besideLabel, onPick, onClose, onCl
             className="flex items-center gap-1.5 px-3 py-1.5"
             aria-current={item.id === tab ? "page" : undefined}
           >
-            {item.b2b && <span className="h-2 w-2 rounded-sm bg-zinc-400" aria-hidden />}
+            {item.swatch && <span className={`h-2 w-2 rounded-sm ${item.swatch}`} aria-hidden />}
             {item.label}
             {item.count > 0 && <span className="rounded-full bg-amber-500/20 px-1.5 text-[11px] text-amber-600">{item.count}</span>}
           </button>
-          {item.b2b && (
+          {item.closable && (
             <button type="button" className="mr-1.5 rounded p-0.5 hover:bg-white/10" aria-label={`Close ${item.label}`} onClick={() => onClose(item.id)}>
               <X className="h-3 w-3" />
             </button>

@@ -234,6 +234,17 @@ class IntegrityRuleTest(unittest.TestCase):
         document["layout"] = {"gone": {"xNm": 0, "yNm": 0, "rotationDeg": 0, "mirror": False}}
         self.assert_breaks(document, pointer="/layout/gone", message="names no occurrence")
 
+    def test_harness_nodes_take_a_canvas_placement_and_boards_do_not(self) -> None:
+        document = new_document("X")
+        document["harnesses"] = [harness(splices=[{"id": "spl_1", "method": "crimp", "confirmed": True}])]
+        placed = {"xNm": 0, "yNm": 0, "rotationDeg": 0, "mirror": False, "canvas": {"xNm": 1, "yNm": 2}}
+        document["layout"] = {"spl_1": placed}
+        integrity.check(document, LIMITS)
+        document["harnesses"] = []
+        document["occurrences"] = [occurrence("occ_a")]
+        document["layout"] = {"occ_a": placed}
+        self.assert_breaks(document, pointer="/layout/occ_a/canvas", message="has no canvas")
+
 
 class LimitsTest(unittest.TestCase):
     def assert_breaks(self, document: dict, limits: integrity.Limits, pointer: str = "") -> None:

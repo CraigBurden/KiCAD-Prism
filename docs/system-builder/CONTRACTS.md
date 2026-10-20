@@ -150,6 +150,7 @@ SchematicPlacement {
   ports?:    Record<key, PortPlacement>     a sheet symbol's pins: key = connector refdes (occurrence) or end id (harness block)
   route?:    Point[]                        a connection: a mate's path from side a to side b, or a harness end's from its site's pin to the block
   interior?: Interior                       inside a board or body sheet (§14.3)
+  canvas?:   { xNm, yNm }                   on its harness tab (§16.5): an end card's top-left, a splice's, loose end's or branch point's centre
 }
 PortPlacement { edge: "left" | "right" | "top" | "bottom", offsetNm }
 Point         { xNm, yNm }
@@ -321,7 +322,7 @@ Derived state (ADR §3.3). It is a pure function of the document and the design 
 3. **`net-name`:** otherwise, remaining pins pair by equal board net name (`net`). Several pins on one name pair in pad order; the extras are left unmapped and reported as `duplicate-net-extra`.
 4. Pads in the link's `unmapped` are removed from the default wiring. Whatever is left is `unmappedA`/`unmappedB`; pin N is never matched to pin N by position alone.
 
-A wire is `suggested: true` when either pin is power or ground: `power` is true, or the net name is a ground name (`GND`, `AGND`, `DGND`, `PGND`, `GNDA`, `GNDD`, `VSS`, or any of them with a suffix after `_`). It still counts for system nets.
+A wire is `suggested: true` when either pin is power or ground: `power` is true, or the net name is a ground name (`GND`, `AGND`, `DGND`, `PGND`, `GNDA`, `GNDD`, `VSS`, or any of them with a suffix after `_`), unless its rule is `explicit`: a wire the user drew or confirmed is not a suggestion (stage 4b). It still counts for system nets.
 
 **Shared pins.** A pad of one mating site that two links of the same harness wire is a proposed splice. `splices[]` lists `{ harness, end, pad, links[] }`, unless a confirmed splice already joins those wires.
 
@@ -780,3 +781,38 @@ The system bundle gains `harnesses[]`, one per harness block, in document order:
 | `wire-terminal-invalid` | error | `wire:<id>` | a terminal names an end, cavity, splice or loose end the harness lacks |
 
 A connector whose board revision changed is checked as any other: a pad that vanished is `pin-missing`, a part change shows as `housing-not-mating`.
+
+### 16.5 The harness tab (4b, mockup 09)
+
+One tab per opened harness block (`?harness=<ids>`, `tab=harness:<id>`), opened by double-clicking the block on the root sheet, from its selection panel, or by `openHarness`. It is a configurator in the manner of MiniProto's: a canvas of the block's objects, a toolbar, an inspector for the selection and a wire defaults bar.
+
+**What it draws.**
+- **Ends** as cards: the site (`<refdes> · <occurrence label>`), the housing and contacts, and a pin strip with one row per pin of the site's connector (sub-port members grouped under the sub-port's name). A row shows the pad, the board net's leaf name (or the export's pin name on a body) and the cavity when `pinMap` moves it. An end without a site shows its id and "not attached". Ends are made only by links drawn on the schematic (§14.3); the tab never adds one.
+- **Wires** between the points of their terminals: explicit wires solid in their colour (grey without one), default wires (§16.3 `origin: default`) dashed; a suggested power join is dashed amber. Pins no wire reaches show an open stub when a link covers them.
+- **Splices** (circle `S`), **loose ends** (open circle with kind), **branch points** (diamond) and **segments** (a pale band between the nodes they join). **Coverings** shade their segment. **Cables** draw a dashed jacket around the wires their conductors bind; **X-ray** off draws a cable as one thick line with its name.
+- **Placement.** `layout[id].canvas` (§2.8: `{ xNm, yNm }`, top-left of a card, centre of a node) places an end, splice, loose end or branch point; absent, the auto-layout puts the ends that are side A of the block's first link (or of most links) in a column on the left, the rest on the right, nodes between, in document order. Dragging an object stores its `canvas` with `set-layout`.
+
+**Gestures** (each one request, one undo step):
+| Gesture | Ops |
+|---|---|
+| drag a pin to a pin of another end | `add-wire` from contact to contact, `link` set when one link joins the two sites; gauge and colour from the defaults bar |
+| drag a pin to a splice or loose end, or a splice to a splice | `add-wire` with that terminal, no `link` |
+| `S` / `P` (at the pointer) | `add-splice { method: crimp, confirmed: true }` / `add-loose-end { kind: pigtail }`, with their `canvas` |
+| `J` | `add-branch-point` |
+| `A` with wires selected | `add-cable` with one conductor per selected wire (named by colour), part chosen in its dialog |
+| `B` on a segment | `add-covering { kind: heat-shrink }` |
+| `M` on a wire | `add-marker { kind: label, text: <wire label or id> }` |
+| edit a default wire (gauge, colour, label) or **Confirm** a suggested join | `add-wire` with the same terminals and `link`: it becomes explicit (§8.5 rule 1) |
+| delete a default wire | `replace-link` adding its side-A pad to `unmapped` |
+| delete an explicit wire, splice, … | the `remove-*` op (cascades §3.2) |
+| double-click an end | its dialog: housing (catalog parts with role `housing`; those whose **mates with** includes the site's connector listed first, marked ✓), contacts per cavity (role `contact` of the housing's family; **Fill all** sets every used cavity), pin map rows; saved as one `replace-end` |
+
+**Inspector.** For a wire: terminals with pads and nets, system net, gauge (checked against both contacts' ranges), colour, label, length (from the 3D route in 4c; a typed `lengthNm` overrides), markers, cable and conductor, and the findings on it. For an end, splice, cable or covering: its fields and part. With nothing selected: the block's label, counts and findings.
+
+**Toolbar.** Pigtail `P`, Splice `S`, Cable `A`, Covering `B`, Branch point `J`, Marker `M`; undo, redo; X-ray `X`, Labels `L`, Auto-layout (clears every `canvas` of the block); **Wires** (the wire list as a table, §16.3), **BOM** (housings, contacts, cables and coverings by part with quantities; wire length by gauge and colour once 4c gives lengths), **Findings** (the bundle's findings whose objects include the block); **＋ Part…** quick-create (§16.1).
+
+**Wire defaults bar.** Gauge and colour for new wires, kept per user in browser storage; length reads "from the 3D route".
+
+**Selection** is shared with the schematic: selecting a wire lights its two pins' connectors there; selecting the block on the schematic opens nothing until double-click.
+
+Script API additions: `openHarness(harness)`; `describeHarness(harness)` returns the tab's data (ends with pins, wires as in §16.3 with their origin, splices, loose ends, cables, coverings, branch points, segments, findings); `addWire({ harness, from, to, gaugeAwg?, colour?, label? })` (terminals as in §2.5; `link` is filled when one link joins the two sites); `setWire({ harness, wire, gaugeAwg?, colour?, label?, lengthNm? })` (a default wire id `<link>:<pad>` makes it explicit); `removeWire({ harness, wire })`; `setEnd({ harness, end, housing?, contacts?, pinMap? })`; `addSplice`, `addLooseEnd`, `addCable({ harness, wires, part? })`. Those that create an object (`addWire`, `setWire` on a default wire, `addSplice`, `addLooseEnd`, `addCable`) return its `id` with the new `version`.

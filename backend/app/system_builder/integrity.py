@@ -56,12 +56,16 @@ def check(document: Mapping[str, Any], limits: Limits) -> None:
 
 
 # Which layout fields each kind of object may carry (CONTRACTS.md §2.8).
+# A harness tab places ends and nodes on its own canvas (§16.5).
 _LAYOUT_FIELDS = {
     "occurrences": {"size", "ports", "interior"},
     "harnesses": {"size", "ports"},
     "sheets": {"size"},
     "mates": {"route"},
-    "ends": {"route"},
+    "ends": {"route", "canvas"},
+    "splices": {"canvas"},
+    "looseEnds": {"canvas"},
+    "branchPoints": {"canvas"},
 }
 
 
@@ -70,8 +74,8 @@ def _layout(document: Mapping[str, Any], kinds: Mapping[str, str]) -> None:
         pointer = f"/layout/{_escape(key)}"
         allowed = _LAYOUT_FIELDS.get(kinds.get(key, ""))
         if allowed is None:
-            raise IntegrityError(pointer, "names no occurrence, harness, sheet, mate or harness end")
-        for field in ("size", "ports", "interior", "route"):
+            raise IntegrityError(pointer, "names no occurrence, harness, sheet, mate, harness end or harness node")
+        for field in ("size", "ports", "interior", "route", "canvas"):
             if field in placement and field not in allowed:
                 raise IntegrityError(f"{pointer}/{field}", f"a {kinds[key][:-1]} has no {field}")
 

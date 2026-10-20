@@ -32,12 +32,13 @@ import { buildScene } from "../schematic/scene";
 import { SelectionPanel } from "../schematic/selection-panel";
 import { useSystemSession } from "../session/use-system-session";
 import { B2bPane } from "../b2b/b2b-pane";
+import { HarnessPane } from "../harness/harness-pane";
 import { mateTitle } from "../b2b/mate-view";
 import { ThreeDPane } from "../three-d/three-d-pane";
 import { AddBoardDialog } from "./add-board-dialog";
 import { HeaderDialogs, type HeaderDialog } from "./header-dialogs";
 import { SystemHeader } from "./system-header";
-import { TABS, TAB_LABEL, mateOfTab, useSystemView, type FixedTab, type TabId } from "./system-view";
+import { TABS, TAB_LABEL, harnessOfTab, mateOfTab, useSystemView, type FixedTab, type TabId } from "./system-view";
 import { ViewTabs } from "./view-tabs";
 
 /**
@@ -61,7 +62,7 @@ export function SystemPage({ user }: { user: User | null }) {
   const { systemId = "" } = useParams();
   const navigate = useNavigate();
   const view = useSystemView();
-  const { openMates, tab, beside, sheet, setView, openMate } = view;
+  const { openMates, openHarnesses, tab, beside, sheet, setView, openMate, openHarness } = view;
   const { session, state } = useSystemSession(systemId, user?.email ?? "");
   const { projects } = useWorkspaceData({ sessionKey: workspaceSessionKey(user) });
   const projectList = useMemo(() => projects.map((project) => ({ id: project.id, name: project.display_name || project.name })), [projects]);
@@ -107,6 +108,7 @@ export function SystemPage({ user }: { user: User | null }) {
     },
     isUnfolded: (occurrence, connector) => unfoldedFor(occurrence).has(connector),
     openMate: (mate) => openMate(mate),
+    openHarness: (harness) => openHarness(harness),
   });
 
   useHotkeys([
@@ -118,13 +120,16 @@ export function SystemPage({ user }: { user: User | null }) {
     view.openSheet(occurrence);
     if (occurrence) setSelected(new Set());
   };
-  const closeMate = (mate: string) => {
-    view.closeMate(mate);
-    setLit(null);
+  const closeTab = (id: TabId) => {
+    view.closeTab(id);
+    if (mateOfTab(id)) setLit(null);
   };
   const tabLabel = (id: TabId) => {
     const mate = mateOfTab(id);
-    return mate ? `B2B ${document ? mateTitle(document, mate) : mate}` : TAB_LABEL[id as FixedTab];
+    if (mate) return `B2B ${document ? mateTitle(document, mate) : mate}`;
+    const harness = harnessOfTab(id);
+    if (harness) return document?.harnesses.find((item) => item.id === harness)?.label ?? harness;
+    return TAB_LABEL[id as FixedTab];
   };
 
   const addBoard = async (board: NewBoard) => {
@@ -206,10 +211,11 @@ export function SystemPage({ user }: { user: User | null }) {
             onToolChange={setTool}
             ref={canvas}
             onEnter={(occurrence) => openSheet(occurrence)}
+            onOpenHarness={openHarness}
           />
           {single && (
             <div className="absolute right-3 top-3">
-              <SelectionPanel key={`${single}:${record?.version}`} document={document} id={single} canEdit={canEdit} apply={apply} onRemoved={() => setSelected(new Set())} projectNames={projectNames} onOpenMate={openMate} />
+              <SelectionPanel key={`${single}:${record?.version}`} document={document} id={single} canEdit={canEdit} apply={apply} onRemoved={() => setSelected(new Set())} projectNames={projectNames} onOpenMate={openMate} onOpenHarness={openHarness} />
             </div>
           )}
           <div className="absolute bottom-4 left-1/2 flex -translate-x-1/2 items-center gap-1 rounded-lg border border-white/10 bg-zinc-900/95 p-1 text-zinc-100 shadow-xl" role="toolbar" aria-label="Schematic tools">
@@ -221,6 +227,22 @@ export function SystemPage({ user }: { user: User | null }) {
             <ToolButton active={false} onClick={() => canvas.current?.fit()} icon={Maximize} label="Fit" />
           </div>
         </div>
+      );
+    }
+    const harness = harnessOfTab(id);
+    if (harness) {
+      return (
+        <HarnessPane
+          key={harness}
+          document={document}
+          bundle={state.bundle ?? null}
+          harness={harness}
+          canEdit={canEdit}
+          busy={state.saving}
+          apply={apply}
+          selected={selected}
+          onSelect={setSelected}
+        />
       );
     }
     const mate = mateOfTab(id);
@@ -292,17 +314,18 @@ export function SystemPage({ user }: { user: User | null }) {
         onPublish={() => setHeaderDialog("publish")}
       />
       <ViewTabs
-        tabs={[...TABS, ...openMates.map((mate) => `b2b:${mate}` as TabId)].map((id) => ({
+        tabs={[...TABS, ...openMates.map((mate) => `b2b:${mate}` as TabId), ...openHarnesses.map((item) => `harness:${item}` as TabId)].map((id) => ({
           id,
           label: tabLabel(id),
-          b2b: Boolean(mateOfTab(id)),
+          closable: Boolean(mateOfTab(id) || harnessOfTab(id)),
+          ...(mateOfTab(id) ? { swatch: "bg-zinc-400" } : harnessOfTab(id) ? { swatch: "bg-amber-500" } : {}),
           count: id === "review" ? openFindings : 0,
         }))}
         tab={tab}
         beside={beside}
         besideLabel={beside ? tabLabel(beside) : null}
         onPick={(id) => setView({ tab: id as TabId, beside: beside === id ? null : beside })}
-        onClose={(id) => closeMate(mateOfTab(id as TabId) as string)}
+        onClose={(id) => closeTab(id as TabId)}
         onCloseBeside={() => setView({ beside: null })}
         onSideBySide={() => setView({ beside: TABS.find((id) => id !== tab && id !== "3d") ?? null })}
       />
