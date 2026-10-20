@@ -118,13 +118,16 @@ def remove_mate(document: Document, mate_id: str) -> None:
 
 
 def _forget_mate(document: Document, mate_id: str) -> None:
+    document["layout"].pop(mate_id, None)
     for occurrence in document["occurrences"]:
         if occurrence.get("positioningMate") == mate_id:
             occurrence.pop("positioningMate")
 
 
 def remove_harness(document: Document, harness_id: str) -> None:
-    _drop(document["harnesses"], lambda item: item["id"] != harness_id)
+    for harness in _drop(document["harnesses"], lambda item: item["id"] != harness_id):
+        for link in harness["links"]:
+            document["layout"].pop(link["id"], None)
     document["layout"].pop(harness_id, None)
 
 
@@ -192,6 +195,7 @@ def remove_harness_item(document: Document, harness_id: str, collection: str, ob
             if _node_is(segment["from"], "end", "end", object_id) or _node_is(segment["to"], "end", "end", object_id)
         ])
     elif collection == "links":
+        document["layout"].pop(object_id, None)
         remove("wires", [wire["id"] for wire in harness["wires"] if wire.get("link") == object_id])
     elif collection == "wires":
         remove("markers", [marker["id"] for marker in harness["markers"] if marker["wire"] == object_id])

@@ -24,6 +24,62 @@ pub mod error {
         }
     }
 }
+/**Angle in degrees. In new documents it is as written in the KiCad file:
+not normalized, not rounded. A parity document may round it as today's
+output does, and its field says so. A positive angle is a counter-clockwise rotation as KiCad shows
+it on the front side. Each field states the frame its angle is in.*/
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "description": "Angle in degrees. In new documents it is as written in the KiCad file:\nnot normalized, not rounded. A parity document may round it as today's\noutput does, and its field says so. A positive angle is a counter-clockwise rotation as KiCad shows\nit on the front side. Each field states the frame its angle is in.",
+///  "type": "number"
+///}
+/// ```
+/// </details>
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+#[serde(transparent)]
+pub struct Degrees(pub f64);
+impl ::std::ops::Deref for Degrees {
+    type Target = f64;
+    fn deref(&self) -> &f64 {
+        &self.0
+    }
+}
+impl ::std::convert::From<Degrees> for f64 {
+    fn from(value: Degrees) -> Self {
+        value.0
+    }
+}
+impl ::std::convert::From<f64> for Degrees {
+    fn from(value: f64) -> Self {
+        Self(value)
+    }
+}
+impl ::std::str::FromStr for Degrees {
+    type Err = <f64 as ::std::str::FromStr>::Err;
+    fn from_str(value: &str) -> ::std::result::Result<Self, Self::Err> {
+        Ok(Self(value.parse()?))
+    }
+}
+impl ::std::convert::TryFrom<&str> for Degrees {
+    type Error = <f64 as ::std::str::FromStr>::Err;
+    fn try_from(value: &str) -> ::std::result::Result<Self, Self::Error> {
+        value.parse()
+    }
+}
+impl ::std::convert::TryFrom<String> for Degrees {
+    type Error = <f64 as ::std::str::FromStr>::Err;
+    fn try_from(value: String) -> ::std::result::Result<Self, Self::Error> {
+        value.parse()
+    }
+}
+impl ::std::fmt::Display for Degrees {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+        self.0.fmt(f)
+    }
+}
 /**Stable machine-readable code of a finding, in lowercase kebab-case, for
 example `stale-saved-fills` or `net-mismatch`. A code never changes meaning
 once published; a new meaning gets a new code.*/
@@ -139,6 +195,60 @@ impl<'de> ::serde::Deserialize<'de> for NetName {
             .map_err(|e: self::error::ConversionError| {
                 <D::Error as ::serde::de::Error>::custom(e.to_string())
             })
+    }
+}
+///A Nanometres value that is never negative: a thickness, width, diameter or length.
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "description": "A Nanometres value that is never negative: a thickness, width, diameter or length.",
+///  "type": "integer",
+///  "minimum": 0.0
+///}
+/// ```
+/// </details>
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+#[serde(transparent)]
+pub struct NonNegativeNanometres(pub u64);
+impl ::std::ops::Deref for NonNegativeNanometres {
+    type Target = u64;
+    fn deref(&self) -> &u64 {
+        &self.0
+    }
+}
+impl ::std::convert::From<NonNegativeNanometres> for u64 {
+    fn from(value: NonNegativeNanometres) -> Self {
+        value.0
+    }
+}
+impl ::std::convert::From<u64> for NonNegativeNanometres {
+    fn from(value: u64) -> Self {
+        Self(value)
+    }
+}
+impl ::std::str::FromStr for NonNegativeNanometres {
+    type Err = <u64 as ::std::str::FromStr>::Err;
+    fn from_str(value: &str) -> ::std::result::Result<Self, Self::Err> {
+        Ok(Self(value.parse()?))
+    }
+}
+impl ::std::convert::TryFrom<&str> for NonNegativeNanometres {
+    type Error = <u64 as ::std::str::FromStr>::Err;
+    fn try_from(value: &str) -> ::std::result::Result<Self, Self::Error> {
+        value.parse()
+    }
+}
+impl ::std::convert::TryFrom<String> for NonNegativeNanometres {
+    type Error = <u64 as ::std::str::FromStr>::Err;
+    fn try_from(value: String) -> ::std::result::Result<Self, Self::Error> {
+        value.parse()
+    }
+}
+impl ::std::fmt::Display for NonNegativeNanometres {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+        self.0.fmt(f)
     }
 }
 /**Pad or pin number as written in the file, always a string (`1`, `A1`,
@@ -443,6 +553,79 @@ pub struct SystemBundleBoardNet {
     ///The board's net name.
     pub net: NetName,
 }
+///The side of the board a component sits on.
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "description": "The side of the board a component sits on.",
+///  "type": "string",
+///  "enum": [
+///    "top",
+///    "bottom"
+///  ]
+///}
+/// ```
+/// </details>
+#[derive(
+    ::serde::Deserialize,
+    ::serde::Serialize,
+    Clone,
+    Copy,
+    Debug,
+    Eq,
+    Hash,
+    Ord,
+    PartialEq,
+    PartialOrd,
+)]
+pub enum SystemBundleBoardSide {
+    #[serde(rename = "top")]
+    Top,
+    #[serde(rename = "bottom")]
+    Bottom,
+}
+impl ::std::fmt::Display for SystemBundleBoardSide {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+        match *self {
+            Self::Top => f.write_str("top"),
+            Self::Bottom => f.write_str("bottom"),
+        }
+    }
+}
+impl ::std::str::FromStr for SystemBundleBoardSide {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        match value {
+            "top" => Ok(Self::Top),
+            "bottom" => Ok(Self::Bottom),
+            _ => Err("invalid value".into()),
+        }
+    }
+}
+impl ::std::convert::TryFrom<&str> for SystemBundleBoardSide {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl ::std::convert::TryFrom<&::std::string::String> for SystemBundleBoardSide {
+    type Error = self::error::ConversionError;
+    fn try_from(
+        value: &::std::string::String,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl ::std::convert::TryFrom<::std::string::String> for SystemBundleBoardSide {
+    type Error = self::error::ConversionError;
+    fn try_from(
+        value: ::std::string::String,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
 ///One connector of a board occurrence.
 ///
 /// <details><summary>JSON schema</summary>
@@ -473,6 +656,10 @@ pub struct SystemBundleBoardNet {
 ///        "$ref": "#/$defs/SystemBundlePin"
 ///      }
 ///    },
+///    "placement": {
+///      "description": "Where it sits on the board; absent when the board has no outline.",
+///      "$ref": "#/$defs/SystemBundleConnectorPlacement"
+///    },
 ///    "refdes": {
 ///      "description": "The reference designator.",
 ///      "$ref": "#/$defs/Refdes"
@@ -498,8 +685,46 @@ pub struct SystemBundleConnector {
     pub mpn: ::std::option::Option<::std::string::String>,
     ///Whether connector detection marks it a connector.
     pub candidate: bool,
+    ///Where it sits on the board; absent when the board has no outline.
+    #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+    pub placement: ::std::option::Option<SystemBundleConnectorPlacement>,
     ///Pins in natural order of their pad.
     pub pins: ::std::vec::Vec<SystemBundlePin>,
+}
+///Where a connector sits on its board, for the schematic's default pin placement.
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "description": "Where a connector sits on its board, for the schematic's default pin placement.",
+///  "type": "object",
+///  "required": [
+///    "angleDeg",
+///    "side"
+///  ],
+///  "properties": {
+///    "angleDeg": {
+///      "description": "Angle from the outline's centre to the component, counter-clockwise from +x with +y up, in [0, 360).",
+///      "$ref": "#/$defs/Degrees"
+///    },
+///    "side": {
+///      "description": "The side it is mounted on.",
+///      "$ref": "#/$defs/SystemBundleBoardSide"
+///    }
+///  },
+///  "additionalProperties": false
+///}
+/// ```
+/// </details>
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct SystemBundleConnectorPlacement {
+    ///Angle from the outline's centre to the component, counter-clockwise from +x with +y up, in [0, 360).
+    #[serde(rename = "angleDeg")]
+    pub angle_deg: Degrees,
+    ///The side it is mounted on.
+    pub side: SystemBundleBoardSide,
 }
 ///One finding (`docs/system-builder/CONTRACTS.md` §9).
 ///
@@ -1096,6 +1321,10 @@ impl ::std::fmt::Display for SystemBundleObjectId {
 ///      "description": "The occurrence's id.",
 ///      "$ref": "#/$defs/SystemBundleObjectId"
 ///    },
+///    "outline": {
+///      "description": "The board outline's bounding box; absent unless `ready` with an Edge.Cuts outline.",
+///      "$ref": "#/$defs/SystemBundleOutline"
+///    },
 ///    "revisionKey": {
 ///      "description": "The revision key it was read at; absent unless `ready`.",
 ///      "$ref": "#/$defs/Sha256Hex"
@@ -1130,6 +1359,9 @@ pub struct SystemBundleOccurrence {
         skip_serializing_if = "::std::option::Option::is_none"
     )]
     pub bundle_key: ::std::option::Option<Sha256Hex>,
+    ///The board outline's bounding box; absent unless `ready` with an Edge.Cuts outline.
+    #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+    pub outline: ::std::option::Option<SystemBundleOutline>,
     ///Connectors in natural order of their reference; empty unless `ready`.
     pub connectors: ::std::vec::Vec<SystemBundleConnector>,
 }
@@ -1220,6 +1452,42 @@ impl ::std::convert::TryFrom<::std::string::String> for SystemBundleOccurrenceSt
     ) -> ::std::result::Result<Self, self::error::ConversionError> {
         value.parse()
     }
+}
+///A board's outline bounding box.
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "description": "A board's outline bounding box.",
+///  "type": "object",
+///  "required": [
+///    "heightNm",
+///    "widthNm"
+///  ],
+///  "properties": {
+///    "heightNm": {
+///      "description": "Height in nanometres.",
+///      "$ref": "#/$defs/NonNegativeNanometres"
+///    },
+///    "widthNm": {
+///      "description": "Width in nanometres.",
+///      "$ref": "#/$defs/NonNegativeNanometres"
+///    }
+///  },
+///  "additionalProperties": false
+///}
+/// ```
+/// </details>
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct SystemBundleOutline {
+    ///Width in nanometres.
+    #[serde(rename = "widthNm")]
+    pub width_nm: NonNegativeNanometres,
+    ///Height in nanometres.
+    #[serde(rename = "heightNm")]
+    pub height_nm: NonNegativeNanometres,
 }
 ///One pin pair of a B2B mapping.
 ///

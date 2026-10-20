@@ -290,6 +290,7 @@ mod tests {
             revision_key: "0".repeat(64),
             bundle_key: "1".repeat(64),
             interface: SystemInterface {
+                board_outline_mm: None,
                 board_thickness_mm: None,
                 components: vec![InterfaceComponent {
                     reference: "J1".to_owned(),

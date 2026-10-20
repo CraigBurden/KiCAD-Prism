@@ -1106,6 +1106,26 @@
                 "mirror": {
                     "type": "boolean",
                     "description": "Whether the symbol is mirrored."
+                },
+                "size": {
+                    "$ref": "#/$defs/SystemSchematicSize",
+                    "description": "A sheet symbol's size; absent means the default."
+                },
+                "ports": {
+                    "$ref": "#/$defs/RecordSystemPortPlacement",
+                    "description": "A sheet symbol's pins: by connector reference (occurrence) or end id (harness block); a missing key means the default."
+                },
+                "route": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/$defs/SystemSchematicPoint"
+                    },
+                    "minItems": 2,
+                    "description": "A connection's drawn path, its points in order from side a to side b; absent means auto-routed."
+                },
+                "interior": {
+                    "$ref": "#/$defs/SystemInterior",
+                    "description": "Inside a board or body sheet; absent means the defaults."
                 }
             },
             "required": [
@@ -1423,6 +1443,76 @@
             "type": "number",
             "description": "Angle in degrees. In new documents it is as written in the KiCad file:\nnot normalized, not rounded. A parity document may round it as today's\noutput does, and its field says so. A positive angle is a counter-clockwise rotation as KiCad shows\nit on the front side. Each field states the frame its angle is in."
         },
+        "SystemSchematicSize": {
+            "type": "object",
+            "properties": {
+                "widthNm": {
+                    "$ref": "#/$defs/NonNegativeNanometres",
+                    "description": "Width in nanometres."
+                },
+                "heightNm": {
+                    "$ref": "#/$defs/NonNegativeNanometres",
+                    "description": "Height in nanometres."
+                }
+            },
+            "required": [
+                "widthNm",
+                "heightNm"
+            ],
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "A sheet symbol's size."
+        },
+        "RecordSystemPortPlacement": {
+            "type": "object",
+            "properties": {},
+            "unevaluatedProperties": {
+                "$ref": "#/$defs/SystemPortPlacement"
+            }
+        },
+        "SystemSchematicPoint": {
+            "type": "object",
+            "properties": {
+                "xNm": {
+                    "$ref": "#/$defs/Nanometres",
+                    "description": "X in nanometres, +x right."
+                },
+                "yNm": {
+                    "$ref": "#/$defs/Nanometres",
+                    "description": "Y in nanometres, +y down."
+                }
+            },
+            "required": [
+                "xNm",
+                "yNm"
+            ],
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "A point on a sheet."
+        },
+        "SystemInterior": {
+            "type": "object",
+            "properties": {
+                "symbol": {
+                    "$ref": "#/$defs/SystemInteriorSymbol",
+                    "description": "The board symbol; absent means the default."
+                },
+                "pins": {
+                    "$ref": "#/$defs/RecordSystemPortPlacement",
+                    "description": "The board symbol's pins by connector reference; a missing key means the default."
+                },
+                "labels": {
+                    "$ref": "#/$defs/RecordSystemInteriorLabel",
+                    "description": "Each connector's hierarchical label by reference; a missing key means the default."
+                }
+            },
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "The layout inside a board or body sheet."
+        },
         "SystemProjectId": {
             "type": "string",
             "pattern": "^prj_[0-9a-f]{12}$",
@@ -1607,6 +1697,65 @@
             },
             "description": "A board-level sub-port, stored against the project and connector."
         },
+        "SystemPortPlacement": {
+            "type": "object",
+            "properties": {
+                "edge": {
+                    "$ref": "#/$defs/SystemSheetEdge",
+                    "description": "The edge."
+                },
+                "offsetNm": {
+                    "$ref": "#/$defs/NonNegativeNanometres",
+                    "description": "Nanometres along the edge from its top or left end."
+                }
+            },
+            "required": [
+                "edge",
+                "offsetNm"
+            ],
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "Where a sheet pin sits: an edge, and the distance along it from its top or left end."
+        },
+        "SystemInteriorSymbol": {
+            "type": "object",
+            "properties": {
+                "xNm": {
+                    "$ref": "#/$defs/Nanometres",
+                    "description": "X of its top-left corner in nanometres."
+                },
+                "yNm": {
+                    "$ref": "#/$defs/Nanometres",
+                    "description": "Y of its top-left corner in nanometres."
+                },
+                "widthNm": {
+                    "$ref": "#/$defs/NonNegativeNanometres",
+                    "description": "Width in nanometres."
+                },
+                "heightNm": {
+                    "$ref": "#/$defs/NonNegativeNanometres",
+                    "description": "Height in nanometres."
+                }
+            },
+            "required": [
+                "xNm",
+                "yNm",
+                "widthNm",
+                "heightNm"
+            ],
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "The board symbol inside a board's sheet."
+        },
+        "RecordSystemInteriorLabel": {
+            "type": "object",
+            "properties": {},
+            "unevaluatedProperties": {
+                "$ref": "#/$defs/SystemInteriorLabel"
+            }
+        },
         "SystemPinnedTrack": {
             "type": "object",
             "properties": {
@@ -1659,6 +1808,42 @@
                 "not": {}
             },
             "description": "A board that follows a branch, advanced by `advance-occurrence`."
+        },
+        "SystemSheetEdge": {
+            "type": "string",
+            "enum": [
+                "left",
+                "right",
+                "top",
+                "bottom"
+            ],
+            "description": "An edge of a sheet symbol."
+        },
+        "SystemInteriorLabel": {
+            "type": "object",
+            "properties": {
+                "xNm": {
+                    "$ref": "#/$defs/Nanometres",
+                    "description": "X in nanometres."
+                },
+                "yNm": {
+                    "$ref": "#/$defs/Nanometres",
+                    "description": "Y in nanometres."
+                },
+                "rotationDeg": {
+                    "$ref": "#/$defs/Degrees",
+                    "description": "Rotation in degrees, counter-clockwise."
+                }
+            },
+            "required": [
+                "xNm",
+                "yNm",
+                "rotationDeg"
+            ],
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "Where a hierarchical label sits inside a board's sheet."
         },
         "GitObjectId": {
             "type": "string",

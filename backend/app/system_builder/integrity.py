@@ -51,10 +51,29 @@ def check(document: Mapping[str, Any], limits: Limits) -> None:
     _harnesses(document, occurrences)
     for index, export in enumerate(document["exports"]):
         _endpoint(document, export["site"], occurrences, f"/exports/{index}/site")
-    for key in document["layout"]:
-        if kinds.get(key) not in ("occurrences", "harnesses", "sheets"):
-            raise IntegrityError(f"/layout/{_escape(key)}", "names no occurrence, harness or sheet")
+    _layout(document, kinds)
     _limits(document, limits)
+
+
+# Which layout fields each kind of object may carry (CONTRACTS.md §2.8).
+_LAYOUT_FIELDS = {
+    "occurrences": {"size", "ports", "interior"},
+    "harnesses": {"size", "ports"},
+    "sheets": {"size"},
+    "mates": {"route"},
+    "links": {"route"},
+}
+
+
+def _layout(document: Mapping[str, Any], kinds: Mapping[str, str]) -> None:
+    for key, placement in document["layout"].items():
+        pointer = f"/layout/{_escape(key)}"
+        allowed = _LAYOUT_FIELDS.get(kinds.get(key, ""))
+        if allowed is None:
+            raise IntegrityError(pointer, "names no occurrence, harness, sheet, mate or link")
+        for field in ("size", "ports", "interior", "route"):
+            if field in placement and field not in allowed:
+                raise IntegrityError(f"{pointer}/{field}", f"a {kinds[key][:-1]} has no {field}")
 
 
 def _escape(token: str) -> str:

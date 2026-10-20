@@ -103,6 +103,10 @@
                     "$ref": "#/$defs/Sha256Hex",
                     "description": "The design bundle read; absent unless `ready`."
                 },
+                "outline": {
+                    "$ref": "#/$defs/SystemBundleOutline",
+                    "description": "The board outline's bounding box; absent unless `ready` with an Edge.Cuts outline."
+                },
                 "connectors": {
                     "type": "array",
                     "items": {
@@ -399,6 +403,27 @@
             ],
             "description": "What the build knew about an occurrence."
         },
+        "SystemBundleOutline": {
+            "type": "object",
+            "properties": {
+                "widthNm": {
+                    "$ref": "#/$defs/NonNegativeNanometres",
+                    "description": "Width in nanometres."
+                },
+                "heightNm": {
+                    "$ref": "#/$defs/NonNegativeNanometres",
+                    "description": "Height in nanometres."
+                }
+            },
+            "required": [
+                "widthNm",
+                "heightNm"
+            ],
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "A board's outline bounding box."
+        },
         "SystemBundleConnector": {
             "type": "object",
             "properties": {
@@ -417,6 +442,10 @@
                 "candidate": {
                     "type": "boolean",
                     "description": "Whether connector detection marks it a connector."
+                },
+                "placement": {
+                    "$ref": "#/$defs/SystemBundleConnectorPlacement",
+                    "description": "Where it sits on the board; absent when the board has no outline."
                 },
                 "pins": {
                     "type": "array",
@@ -588,6 +617,32 @@
             ],
             "description": "A finding's fixed severity: errors block publishing an in-house entry unless waived."
         },
+        "NonNegativeNanometres": {
+            "type": "integer",
+            "description": "A Nanometres value that is never negative: a thickness, width, diameter or length.",
+            "minimum": 0
+        },
+        "SystemBundleConnectorPlacement": {
+            "type": "object",
+            "properties": {
+                "angleDeg": {
+                    "$ref": "#/$defs/Degrees",
+                    "description": "Angle from the outline's centre to the component, counter-clockwise from +x with +y up, in [0, 360)."
+                },
+                "side": {
+                    "$ref": "#/$defs/SystemBundleBoardSide",
+                    "description": "The side it is mounted on."
+                }
+            },
+            "required": [
+                "angleDeg",
+                "side"
+            ],
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "Where a connector sits on its board, for the schematic's default pin placement."
+        },
         "SystemBundlePin": {
             "type": "object",
             "properties": {
@@ -637,6 +692,18 @@
                 "net-name"
             ],
             "description": "Which rule wired a pin pair of a harness link."
+        },
+        "Degrees": {
+            "type": "number",
+            "description": "Angle in degrees. In new documents it is as written in the KiCad file:\nnot normalized, not rounded. A parity document may round it as today's\noutput does, and its field says so. A positive angle is a counter-clockwise rotation as KiCad shows\nit on the front side. Each field states the frame its angle is in."
+        },
+        "SystemBundleBoardSide": {
+            "type": "string",
+            "enum": [
+                "top",
+                "bottom"
+            ],
+            "description": "The side of the board a component sits on."
         }
     }
 }

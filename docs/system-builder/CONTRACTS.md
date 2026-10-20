@@ -1,7 +1,7 @@
 # System Builder v2 contracts
 
-- **Status:** draft, stages 1a–1c. The design is [ADR: System Builder v2](../architecture/adr-system-builder-v2.md); this file is its contract layer.
-- **Covers:** the `prism.system.v2` document (§2), the `prism.system.ops.a0` operations (§3), storage (§4), the HTTP API (§5), permissions and redaction (§6) and limits (§7). The system bundle, `prism.system_bundle.a0`, and the `prism-kicad system build` command that writes it are §8; its findings are §9. Stage 1c adds board-level sub-ports (§10).
+- **Status:** draft, stages 1a–2. The design is [ADR: System Builder v2](../architecture/adr-system-builder-v2.md); this file is its contract layer.
+- **Covers:** the `prism.system.v2` document (§2), the `prism.system.ops.a0` operations (§3), storage (§4), the HTTP API (§5), permissions and redaction (§6) and limits (§7). The system bundle, `prism.system_bundle.a0`, and the `prism-kicad system build` command that writes it are §8; its findings are §9. Stage 1c adds board-level sub-ports (§10), publishing (§11), placing entries (§12) and the Git link (§13). Stage 2 adds the schematic (§14).
 - **Authority:** the TypeSpec in `native/src/tsp/prism/system-v2.tsp`, `system-ops-a0.tsp`, `system-bundle-a0.tsp` and `cli-system-a0.tsp`, with JSON Schema generated beside the bundle contracts. Python validates against the generated schema; the stage 1b Rust reads the generated types. This file explains the rules the schema cannot state.
 
 ## 1. Rules for the whole document
@@ -141,7 +141,26 @@ A connector part placed on a body occurrence's face. `refdes` is what endpoints 
 
 ### 2.8 Schematic layout
 
-`layout` maps an object id (occurrence, harness block, sheet symbol) to `{ sheet?, xNm, yNm, rotationDeg, mirror }`. It is presentation only: no rule reads it, and removing an object removes its entry.
+`layout` maps an object id to where and how it is drawn. It is presentation only: no rule reads it, and removing an object removes its entry. Stage 2 adds the optional fields; a stored entry without them is still valid, so no stored document changes.
+
+```
+SchematicPlacement {
+  sheet?, xNm, yNm, rotationDeg, mirror     where the symbol sits (occurrence, harness block, sheet symbol)
+  size?:     { widthNm, heightNm }          a sheet symbol's size (board, body or entry occurrence; harness block)
+  ports?:    Record<key, PortPlacement>     a sheet symbol's pins: key = connector refdes (occurrence) or end id (harness block)
+  route?:    Point[]                        a connection (mate or link): its drawn path on its sheet, from side a to side b
+  interior?: Interior                       inside a board or body sheet (§14.3)
+}
+PortPlacement { edge: "left" | "right" | "top" | "bottom", offsetNm }
+Point         { xNm, yNm }
+Interior      { symbol?: { xNm, yNm, widthNm, heightNm }, pins?: Record<refdes, PortPlacement>,
+                labels?: Record<refdes, { xNm, yNm, rotationDeg }> }
+```
+
+- `offsetNm` runs along the edge from its top or left end. It is not checked against `size`: a resize keeps the offsets and the drawing clamps them.
+- `ports` and `interior` keys name connectors the bundle knows; a key it does not is ignored, never an error (§1).
+- `route` belongs to a mate's or link's entry and has at least two points. Absent `route` is drawn by the auto-router (§14.2).
+- Any absent field takes the default of §14.2.
 
 ## 3. Operations, `prism.system.ops.a0`
 
@@ -258,7 +277,7 @@ Derived state (ADR §3.3). It is a pure function of the document and the design 
 
 ### 8.2 Occurrences
 
-`occurrences[]`, one per occurrence in id order: `{ occurrence, state, revisionKey?, bundleKey?, connectors[] }`.
+`occurrences[]`, one per occurrence in id order: `{ occurrence, state, revisionKey?, bundleKey?, outline?, connectors[] }`.
 
 - `state` is one of:
   - `ready`: its bundle was read;
@@ -266,7 +285,8 @@ Derived state (ADR §3.3). It is a pure function of the document and the design 
   - `absent`: the project is not present at that commit;
   - `unsupported`: a body, until stage 3;
   - `redacted`: only in an API read, for an occurrence whose project the reader cannot see (§6); its keys and connectors are withheld. A stored bundle never holds it.
-- `connectors` (ready boards only) lists the board's connectors in natural reference order: the components `system-interface.json` marks `candidate`, plus any component a document endpoint names. Each is `{ refdes, value, mpn?, candidate, pins[] }`. Each pin, in natural pad order, is `{ pad, net?, nets[], pinName?, pinType?, power }`. `net` is the pin's first schematic net. This is the per-occurrence view the schematic and harness UI draw from, so a reader needs only the system bundle.
+- `connectors` (ready boards only) lists the board's connectors in natural reference order: the components `system-interface.json` marks `candidate`, plus any component a document endpoint names. Each is `{ refdes, value, mpn?, candidate, placement?, pins[] }`. `placement` (stage 2) is `{ angleDeg, side }`: the angle from the centre of the board outline's bounding box to the component's position, counter-clockwise from +x with +y up (the board seen from its top, KiCad's y flipped), in `[0, 360)`, and `side` is `top` or `bottom`; it is absent when the board has no outline. The schematic places a connector's sheet pin by it (§14.2).
+- `outline` (stage 2, ready boards with an Edge.Cuts outline) is `{ widthNm, heightNm }`, the outline's bounding box, which sizes the board's sheet by default. Each pin, in natural pad order, is `{ pad, net?, nets[], pinName?, pinType?, power }`. `net` is the pin's first schematic net. This is the per-occurrence view the schematic and harness UI draw from, so a reader needs only the system bundle.
 
 ### 8.3 System nets
 
@@ -534,3 +554,84 @@ A system can be linked to a file on a branch of a repository Prism already manag
 ### 13.4 What Git holds
 
 Only the document. Board-level sub-ports stay in Prism; an imported document whose endpoints name unknown ones gets `board-sub-port-missing` findings, not a refusal.
+
+## 14. The schematic (stage 2)
+
+The schematic follows Eeschema: hierarchical sheets, sheet pins, wires, buses, bus entries and bus groups, with KiCad's default colours on light paper. What differs is that a board's sheet and pins are generated from its bundle. Behaviour is specified here from KiCad's documented and observed behaviour; no KiCad source is used (it is GPL, Prism is Apache-2.0). Where this section is silent, KiCad's behaviour is the reference, and a deliberate difference is listed in §14.5.
+
+### 14.1 What each sheet shows
+
+- **The root sheet and user sheets** hold occurrences as sheet symbols, harness blocks, and connections. A board, body or entry occurrence is a sheet symbol whose pins are its connectors, one pin per connector, each carrying a bus of the connector's pins. Sub-ports never appear as pins outside the board's own sheet.
+- **A connection** is drawn between two connector pins: a mate as a bus with the mate mark, a harness link as a bus in the harness colour that always passes through its harness block. On the block, each end is one pin; the block shows a one-line summary per far end.
+- **A board's sheet** (entered by double-click) is generated and read-only except for grouping and layout: one board symbol whose pins are its connectors, each pin's bus running to a hierarchical label named after the connector. Unfolding a connector breaks its bus out into one wire per pin, labelled with the pin's board net. Folding it back shows its groups in the label, in KiCad's bus-group form: `J2201{FAN{TACH PWM} 1 2 MP}`, ungrouped pads as plain members, a pad in two groups in both.
+- **A body's sheet** is the same with the body's connector parts (§2.7); its pins have no board nets, so their names come from the export's `pinNames`.
+- Unfolded or folded is per user and per system, kept with the open tabs, not in the document.
+
+### 14.2 Defaults for absent layout
+
+- **Grid.** Everything snaps to 1.27 mm (50 mil); pins and pin offsets to 2.54 mm (100 mil).
+- **Sheet size.** A board's sheet takes its `outline` aspect, the longer side 50.8 mm, then grows until every edge fits its pins at 5.08 mm spacing with 10.16 mm clear of each corner. Without an outline it is square. A harness block is 30.48 × 20.32 mm.
+- **Pin placement.** A connector's pin starts where the ray from the sheet's centre at its `placement.angleDeg` leaves the rectangle (y flipped for the screen). Pins on one edge keep their angular order and are spread to the 5.08 mm spacing, first forward and then back from the far corner, so none is pushed off the edge. A connector without `placement` (an entry's export, a body without frames yet) is spread evenly along the left edge in natural reference order. `side: bottom` shows a `B` beside the pin.
+- **Inside a board's sheet** the board symbol is centred, sized like the sheet, its pins placed by the same rule, and each connector's hierarchical label sits 15.24 mm out from its pin.
+- **Route.** An absent `route` is drawn orthogonally: out from each pin along its edge's normal by 5.08 mm, then at most two bends, avoiding sheet symbols. It is redrawn whenever either end moves, until the user edits it, which stores `route`.
+
+### 14.3 Gestures
+
+| Gesture | Does | Ops |
+|---|---|---|
+| Double-click a sheet symbol | enter its sheet | — |
+| Alt/Option+Backspace | leave to the parent sheet | — |
+| Drag left → right | select what lies wholly inside (window) | — |
+| Drag right → left | select what the rectangle touches (crossing) | — |
+| Double-click a connector's bus | unfold or fold it | — |
+| G with pins or wires selected (inside a board's sheet) | group them as a sub-port: name from the nets' common part, members from what differs, editable; "Group and fold" folds the bus afterwards | `add-sub-port` |
+| Accept / accept all on a suggestion | turn a bundle suggestion into a sub-port | `add-sub-port` (with `suggestion`) |
+| H from a connector pin, or the Harness tool | draw a harness link; the block is the connector's existing one or a new one | `connect-harness` |
+| Mate tool from a connector pin | draw a B2B mate (whole connectors only) | `add-mate` |
+| Drag a sheet pin | slide it along the edge; past a corner it moves onto the next edge | `set-layout` |
+| Drag a sheet's handle | resize it | `set-layout` |
+| M, or drag a symbol | move it; connected routes follow (KiCad's G drag), there is no move that breaks connections | `set-layout` |
+| Drag a route segment | edit the route; the result is stored | `set-layout` |
+| Add board | place an occurrence; when the system already has an occurrence of the same project, its sub-ports are copied to the new one (new ids, a copy, not a link) | `add-occurrence` + `add-sub-port`… in one request |
+| Ctrl/Cmd+Z, Ctrl/Cmd+Shift+Z | undo, redo (§3.3) | `undo` |
+
+A gesture is one request: it is one undo step, and a refusal leaves the drawing as it was.
+
+### 14.4 Edge cases (from Eeschema's behaviour)
+
+- **Sheet pins stay on the border.** A pin dragged inside the sheet snaps to the nearest edge; it never sits in a corner (the 10.16 mm clearance). Two pins may not occupy the same spot: a drop onto another pin's spot is refused.
+- **A sheet cannot be resized smaller than its pins.** The resize stops where the furthest pin on an edge would leave it; pins on the moving edge move with it.
+- **Sheets do not rotate or mirror.** As in KiCad, only their pins move between edges. `rotationDeg` and `mirror` stay 0 for sheet symbols; the generated board symbol inside a sheet may rotate.
+- **A wire never joins a bus directly.** A bus becomes wires only through bus entries, as when unfolding. Connections between connector pins are buses end to end.
+- **Connection points are pin ends and route ends only.** A route ending on another route's segment does not connect (no junctions between connections: two connections never share a node outside a harness, where splices do that).
+- **Dangling ends** are drawn with KiCad's open-end marker: a connection whose pin no longer exists (the bundle lost the connector) and a route end not on a pin.
+- **Collinear segments merge** and zero-length segments drop when a route is stored, so a stored route is minimal.
+- **Off-grid input snaps** on the way in; a stored point off the 1.27 mm grid (an imported document) is drawn where it is and snapped on its next edit.
+- **Labels never edit a board.** A name shown inside a board's sheet comes from the bundle; renaming is only for sub-ports and for a mate row's `netLabel` (§2.4).
+- **A redacted occurrence** (§6) is a sheet symbol with its label and no pins; it cannot be entered.
+
+### 14.5 Deliberate differences from KiCad
+
+- G groups (KiCad: drag). Moving always drags connections, so KiCad's G is not needed.
+- H draws a harness link (KiCad: hierarchical label). Hierarchical labels inside a board's sheet are generated.
+- Sheets are per occurrence: two occurrences of one board each have their own sheet, not shared contents.
+- No free wires, labels, power symbols or junctions on root and user sheets in stage 2: every drawn line is a mate or a harness link.
+
+### 14.6 The script API, `window.prismSystemBuilder`
+
+Every write builds one `prism.system.ops.a0` request (§3), so a script and the UI cannot diverge. Selection is by meaning, never by rectangle.
+
+| Call | Does |
+|---|---|
+| `system()` | `{ systemId, version, document }` as read |
+| `bundle()` | the system bundle the view draws from |
+| `describeSheet(sheet?)` | the sheet's symbols, pins with resolved positions and edges, connections and their routes; inside a board's sheet, connectors with pins, nets and sub-ports |
+| `createSubPort({ occurrence, connector, pads? \| nets? \| netPattern?, name, id? })` | resolves nets or a regular expression over pin nets to pads through the bundle; refused when nothing matches |
+| `acceptSuggestions({ occurrence, connector?, keys? \| "all" })` | accepts bundle suggestions as sub-ports |
+| `movePort({ item, key, edge, offsetNm })`, `resizeSheet({ item, widthNm, heightNm })`, `place({ item, xNm, yNm, sheet? })` | layout, with §14.4's rules |
+| `connect({ a, b, kind: "mate" \| "harness", harness? })` | `add-mate` or `connect-harness` |
+| `apply(ops)` | any request, as is |
+| `undo()` | §3.3 |
+| `open(sheet)`, `select(ids)`, `unfold({ occurrence, connector })` | view only |
+
+Writes take the version the script last read and fail with `412` like the UI's; `system()` re-reads.

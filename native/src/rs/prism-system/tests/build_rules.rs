@@ -40,6 +40,7 @@ fn board(components: Vec<InterfaceComponent>) -> Board {
         revision_key: "a".repeat(64),
         bundle_key: "b".repeat(64),
         interface: SystemInterface {
+            board_outline_mm: None,
             board_thickness_mm: Some(1.6),
             components,
         },
