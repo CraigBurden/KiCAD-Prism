@@ -922,6 +922,9 @@ model SystemSchematicPlacement {
 
   /** Inside a board or body sheet; absent means the defaults. */
   interior?: SystemInterior;
+
+  /** Where a harness object sits on its harness tab (CONTRACTS.md §16.5): an end card's top-left, a splice's, loose end's or branch point's centre; absent means the auto-layout. */
+  canvas?: SystemSchematicPoint;
 }
 
 // -------------------------------------------------------------------- root

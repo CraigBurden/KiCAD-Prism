@@ -11,6 +11,7 @@ interface ViewHooks {
   unfold: (occurrence: string, connector: string, unfolded: boolean) => void;
   isUnfolded: (occurrence: string, connector: string) => boolean;
   openMate: (mate: string) => void;
+  openHarness: (harness: string) => void;
 }
 
 /**
@@ -34,6 +35,7 @@ export function useScriptApi(session: SystemSession | null, state: SessionState,
       unfold: (occurrence, connector, unfolded) => viewRef.current.unfold(occurrence, connector, unfolded),
       isUnfolded: (occurrence, connector) => viewRef.current.isUnfolded(occurrence, connector),
       openMate: (mate) => viewRef.current.openMate(mate),
+      openHarness: (harness) => viewRef.current.openHarness(harness),
     });
     window.prismSystemBuilder = api;
     return () => {

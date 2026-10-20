@@ -1142,6 +1142,7 @@ export interface SystemSchematicPlacement {
    */
   route?: [SystemSchematicPoint, SystemSchematicPoint, ...SystemSchematicPoint[]];
   interior?: SystemInterior;
+  canvas?: SystemSchematicPoint1;
 }
 /**
  * A sheet symbol's size; absent means the default.
@@ -1245,4 +1246,17 @@ export interface SystemInteriorLabel {
    * Rotation in degrees, counter-clockwise.
    */
   rotationDeg: number;
+}
+/**
+ * A point on a sheet.
+ */
+export interface SystemSchematicPoint1 {
+  /**
+   * X in nanometres, +x right.
+   */
+  xNm: number;
+  /**
+   * Y in nanometres, +y down.
+   */
+  yNm: number;
 }

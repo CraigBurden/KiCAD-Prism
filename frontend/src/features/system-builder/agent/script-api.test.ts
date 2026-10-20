@@ -44,13 +44,64 @@ const BUNDLE = {
   },
 } as unknown as SystemBundle;
 
-function setup(version = 5) {
-  let current: SystemRecord = { systemId: "sys_a", name: "Stack", folderId: null, version, document: DOCUMENT, redacted: false, createdBy: "", createdAt: "", updatedAt: "" };
+const HARNESS: SystemDocument["harnesses"][number] = {
+  id: "har_h",
+  label: "H1",
+  ends: [
+    { id: "end_a", site: { occurrence: "occ_c", connector: "J2201" }, contacts: { "1": { componentId: "cmp_contact" } }, pinMap: [] },
+    { id: "end_b", site: { occurrence: "occ_s", connector: "J1" }, contacts: {}, pinMap: [] },
+  ],
+  links: [{ id: "link_h", a: { occurrence: "occ_c", connector: "J2201" }, b: { occurrence: "occ_s", connector: "J1" }, unmapped: [] }],
+  wires: [],
+  splices: [{ id: "spl_1", method: "crimp", confirmed: true }],
+  branchPoints: [{ id: "bp_1" }],
+  segments: [],
+  coverings: [],
+  cables: [],
+  looseEnds: [{ id: "pt_1", kind: "pigtail" }],
+  markers: [],
+  waypoints: [],
+};
+
+const harnessDocument = (): SystemDocument => ({ ...DOCUMENT, harnesses: [HARNESS] });
+
+const HARNESS_BUNDLE = {
+  ...BUNDLE,
+  harnesses: [{
+    harness: "har_h",
+    ends: [
+      { end: "end_a", occurrence: "occ_c", connector: "J2201", cavities: [] },
+      { end: "end_b", occurrence: "occ_s", connector: "J1", cavities: [] },
+    ],
+    wires: [
+      {
+        id: "link_h:1",
+        origin: "default",
+        link: "link_h",
+        from: { kind: "contact", end: "end_a", cavity: "1", pad: "1" },
+        to: { kind: "contact", end: "end_b", cavity: "1", pad: "1" },
+        suggested: false,
+      },
+      {
+        id: "link_h:2",
+        origin: "default",
+        link: "link_h",
+        from: { kind: "contact", end: "end_a", cavity: "2", pad: "2" },
+        to: { kind: "contact", end: "end_b", cavity: "2", pad: "2" },
+        suggested: false,
+      },
+    ],
+  }],
+} as unknown as SystemBundle;
+
+function setup(version = 5, chosen: { document?: SystemDocument; bundle?: SystemBundle } = {}) {
+  const initial = chosen.document ?? DOCUMENT;
+  let current: SystemRecord = { systemId: "sys_a", name: "Stack", folderId: null, version, document: initial, redacted: false, createdBy: "", createdAt: "", updatedAt: "" };
   const sent: { ops: SystemOp[]; expect: number }[] = [];
   const unfolded = new Set<string>();
   const deps: ScriptDeps = {
     record: () => current,
-    bundle: () => BUNDLE,
+    bundle: () => chosen.bundle ?? BUNDLE,
     apply: vi.fn(async (ops: SystemOp[], expect: number) => {
       sent.push({ ops, expect });
       if (expect !== current.version) throw Object.assign(new Error("stale"), { status: 412 });
@@ -64,6 +115,7 @@ function setup(version = 5) {
     unfold: vi.fn((occurrence: string, connector: string, on: boolean) => (on ? unfolded.add(`${occurrence}/${connector}`) : unfolded.delete(`${occurrence}/${connector}`))),
     isUnfolded: (occurrence, connector) => unfolded.has(`${occurrence}/${connector}`),
     openMate: vi.fn(),
+    openHarness: vi.fn(),
   };
   return { api: createScriptApi(deps), deps, sent, bump: () => (current = { ...current, version: current.version + 1 }) };
 }
@@ -148,5 +200,84 @@ describe("window.prismSystemBuilder", () => {
     await expect(api.setPositioningMate({ occurrence: "occ_s", mate: "mate_nope" })).rejects.toThrow(/not a mate of occ_s/);
     await api.setPositioningMate({ occurrence: "occ_s", mate: "mate_x" });
     expect(sent[0].ops[0]).toMatchObject({ kind: "replace-occurrence", occurrence: { id: "occ_s", positioningMate: "mate_x" } });
+  });
+});
+
+describe("harness script API", () => {
+  const harness = () => setup(5, { document: harnessDocument(), bundle: HARNESS_BUNDLE });
+
+  function plainJson(value: unknown): boolean {
+    if (typeof value === "function") return false;
+    if (Array.isArray(value)) return value.every(plainJson);
+    if (value && typeof value === "object") return Object.values(value).every(plainJson);
+    return true;
+  }
+
+  it("describes the harness as its tab shows it, as plain JSON", () => {
+    const { api } = harness();
+    const view = api.describeHarness("har_h");
+    expect(view).toMatchObject({ id: "har_h", label: "H1", pending: false });
+    expect(view.ends.map((end) => [end.id, end.side, end.title])).toEqual([
+      ["end_a", "left", "J2201 · Carrier"],
+      ["end_b", "right", "J1 · SoM"],
+    ]);
+    expect(view.ends[0].pins.find((pin) => pin.pad === "1")).toMatchObject({ name: "GND", cavity: "1", wired: true });
+    expect(view.wires.map((wire) => [wire.id, wire.origin, wire.link])).toEqual([
+      ["link_h:1", "default", "link_h"],
+      ["link_h:2", "default", "link_h"],
+    ]);
+    expect(view.splices.map((splice) => splice.id)).toEqual(["spl_1"]);
+    expect(view.looseEnds.map((loose) => loose.id)).toEqual(["pt_1"]);
+    expect(plainJson(view)).toBe(true);
+  });
+
+  it("adds a wire and fills the link joining its two sites", async () => {
+    const { api, sent } = harness();
+    await api.addWire({
+      harness: "har_h",
+      from: { kind: "contact", end: "end_a", cavity: "3" },
+      to: { kind: "contact", end: "end_b", cavity: "3" },
+      gaugeAwg: "24",
+      colour: "blue",
+      label: "FAN",
+    });
+    expect(sent[0].ops[0]).toMatchObject({
+      kind: "add-wire",
+      harness: "har_h",
+      wire: {
+        from: { kind: "contact", end: "end_a", cavity: "3" },
+        to: { kind: "contact", end: "end_b", cavity: "3" },
+        link: "link_h",
+        gaugeAwg: "24",
+        colour: "blue",
+        label: "FAN",
+      },
+    });
+  });
+
+  it("makes a default wire explicit when it is set", async () => {
+    const { api, sent } = harness();
+    await api.setWire({ harness: "har_h", wire: "link_h:1", gaugeAwg: "26", colour: "green" });
+    expect(sent[0].ops[0]).toMatchObject({
+      kind: "add-wire",
+      harness: "har_h",
+      wire: {
+        from: { kind: "contact", end: "end_a", cavity: "1" },
+        to: { kind: "contact", end: "end_b", cavity: "1" },
+        link: "link_h",
+        gaugeAwg: "26",
+        colour: "green",
+      },
+    });
+  });
+
+  it("removes a default wire by unmapping its side A pad", async () => {
+    const { api, sent } = harness();
+    await api.removeWire({ harness: "har_h", wire: "link_h:2" });
+    expect(sent[0].ops).toEqual([{
+      kind: "replace-link",
+      harness: "har_h",
+      link: { ...HARNESS.links[0], unmapped: ["2"] },
+    }]);
   });
 });

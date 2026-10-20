@@ -295,7 +295,7 @@ fn finish_link(
         .wires
         .into_iter()
         .map(|(a, b, rule)| {
-            let suggested = is_power(side_a, &a) || is_power(side_b, &b);
+            let suggested = rule != "explicit" && (is_power(side_a, &a) || is_power(side_b, &b));
             WireOut {
                 a,
                 b,

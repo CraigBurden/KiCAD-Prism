@@ -18,6 +18,8 @@ import { manualMapOps, orientationOps, rowNameOps, spacerOps, stackHeightOps } f
 import { buildMateView } from "../b2b/mate-view";
 import { publishSystem } from "../model/api";
 import { exportAt, pinNameOps, renameExportOps, toggleExportOps } from "../publish/export-edits";
+import { addCableOps, addLooseEndOps, addSpliceOps, addWireOps, removeWireOps, setEndOps, setWireOps } from "../harness/harness-edits";
+import { buildHarnessView, type PartRef, type TerminalView } from "../harness/harness-view";
 
 export interface ScriptDeps {
   record: () => SystemRecord | undefined;
@@ -31,6 +33,7 @@ export interface ScriptDeps {
   unfold: (occurrence: string, connector: string, unfolded: boolean) => void;
   isUnfolded: (occurrence: string, connector: string) => boolean;
   openMate: (mate: string) => void;
+  openHarness: (harness: string) => void;
 }
 
 export interface PinRefIn {
@@ -88,6 +91,7 @@ export function createScriptApi(deps: ScriptDeps) {
   };
   const document = (): SystemDocument => read().document;
   const rootScene = (): Scene => buildScene(document(), deps.bundle());
+  const harnessView = (harness: string) => buildHarnessView(document(), deps.bundle(), harness) ?? fail(`No harness ${harness}`);
 
   return {
     /** The system as read; re-reads, so later writes build on it. */
@@ -299,6 +303,114 @@ export function createScriptApi(deps: ScriptDeps) {
     openMate(mate: string) {
       if (!document().mates.some((item) => item.id === mate)) fail(`No mate ${mate}`);
       deps.openMate(mate);
+    },
+
+    /** View only: open a harness tab. */
+    openHarness(harness: string) {
+      if (!document().harnesses.some((item) => item.id === harness)) fail(`No harness ${harness}`);
+      deps.openHarness(harness);
+    },
+
+    /** A harness as its tab shows it (§16.5), as plain data. */
+    describeHarness(harness: string) {
+      const view = harnessView(harness);
+      return {
+        id: view.id,
+        label: view.label,
+        ends: view.ends.map((end) => ({
+          id: end.id,
+          title: end.title,
+          subtitle: end.subtitle,
+          side: end.side,
+          attached: end.attached,
+          occurrence: end.occurrence ?? null,
+          connector: end.connector ?? null,
+          mpn: end.mpn ?? null,
+          housing: end.housing ?? null,
+          housingResolved: end.housingResolved ?? null,
+          contacts: end.contacts,
+          pinMap: end.pinMap,
+          pins: end.pins,
+        })),
+        wires: view.wires,
+        splices: view.splices,
+        looseEnds: view.looseEnds,
+        cables: view.cables,
+        coverings: view.coverings,
+        branchPoints: view.branchPoints,
+        segments: view.segments,
+        findings: view.findings,
+        pending: view.pending,
+      };
+    },
+
+    /** A wire between two terminals; `link` fills when one link joins their sites. */
+    async addWire(input: { harness: string; from: TerminalView; to: TerminalView; gaugeAwg?: string; colour?: string; label?: string }) {
+      const view = harnessView(input.harness);
+      const id = newId("wire");
+      return { id, ...(await write(addWireOps(view, input.from, input.to, { gaugeAwg: input.gaugeAwg, colour: input.colour, label: input.label }, id))) };
+    },
+
+    /** Change a wire; a default wire id `<link>:<pad>` becomes explicit. */
+    async setWire(input: {
+      harness: string;
+      wire: string;
+      gaugeAwg?: string | null;
+      colour?: string | null;
+      label?: string | null;
+      lengthNm?: number | null;
+    }) {
+      const view = harnessView(input.harness);
+      const changes: { gaugeAwg?: string | null; colour?: string | null; label?: string | null; lengthNm?: number | null } = {};
+      if (input.gaugeAwg !== undefined) changes.gaugeAwg = input.gaugeAwg;
+      if (input.colour !== undefined) changes.colour = input.colour;
+      if (input.label !== undefined) changes.label = input.label;
+      if (input.lengthNm !== undefined) changes.lengthNm = input.lengthNm;
+      // A default wire becomes a new explicit wire; its id is returned.
+      const explicit = view.wires.find((wire) => wire.id === input.wire)?.origin === "explicit";
+      const id = explicit ? input.wire : newId("wire");
+      return { id, ...(await write(setWireOps(view, input.wire, changes, id))) };
+    },
+
+    /** Remove an explicit wire, or a default wire's pin from its link. */
+    async removeWire(input: { harness: string; wire: string }) {
+      return write(removeWireOps(harnessView(input.harness), input.wire));
+    },
+
+    /** An end's housing, contacts and pin map in one request. */
+    async setEnd(input: {
+      harness: string;
+      end: string;
+      housing?: PartRef | null;
+      contacts?: Record<string, PartRef>;
+      pinMap?: { cavity: string; pad: string }[];
+    }) {
+      const view = harnessView(input.harness);
+      const changes: { housing?: PartRef | null; contacts?: Record<string, PartRef>; pinMap?: { cavity: string; pad: string }[] } = {};
+      if (input.housing !== undefined) changes.housing = input.housing;
+      if (input.contacts !== undefined) changes.contacts = input.contacts;
+      if (input.pinMap !== undefined) changes.pinMap = input.pinMap;
+      return write(setEndOps(view, input.end, changes));
+    },
+
+    /** Add a crimp splice, placed by auto-layout. */
+    async addSplice(input: { harness: string }) {
+      const view = harnessView(input.harness);
+      const id = newId("spl");
+      return { id, ...(await write(addSpliceOps(document(), view, undefined, id))) };
+    },
+
+    /** Add a pigtail, placed by auto-layout. */
+    async addLooseEnd(input: { harness: string }) {
+      const view = harnessView(input.harness);
+      const id = newId("pt");
+      return { id, ...(await write(addLooseEndOps(document(), view, undefined, id))) };
+    },
+
+    /** Bind wires into a cable, with an optional catalog cable part. */
+    async addCable(input: { harness: string; wires: string[]; part?: PartRef }) {
+      const id = newId("cab");
+      return { id, ...(await write(addCableOps(harnessView(input.harness), input.wires, input.part, id))) };
     },
 
     /**

@@ -3,7 +3,7 @@
 //! (explicit wires, then the links' default wires), and the checks that read
 //! the harness parts from `--parts`.
 
-use crate::context::{Context, pin, power};
+use crate::context::Context;
 use crate::input::{Cable, End, Harness, HarnessFacts, PartFacts, PartRef, Terminal, Wire};
 use crate::natural;
 use crate::output::{
@@ -202,21 +202,10 @@ fn explicit_wire(
     };
     let from = from.unwrap_or_else(|| as_written(&wire.from));
     let to = to.unwrap_or_else(|| as_written(&wire.to));
-    let mut net = None;
-    let mut suggested = false;
-    for terminal in [&from, &to] {
-        let Some((occurrence, connector, pad)) = site_pin(harness, terminal) else {
-            continue;
-        };
-        suggested |= cx
-            .board(&occurrence)
-            .and_then(|board| board.component(&connector))
-            .and_then(|component| pin(component, &pad))
-            .is_some_and(power);
-        if net.is_none() {
-            net = net_of.get(&(occurrence, connector, pad)).cloned();
-        }
-    }
+    let net = [&from, &to]
+        .into_iter()
+        .filter_map(|terminal| site_pin(harness, terminal))
+        .find_map(|key| net_of.get(&key).cloned());
     let (cable, conductor) = carrier(&harness.cables, &wire.id).unzip();
     HarnessWireOut {
         id: wire.id.clone(),
@@ -230,7 +219,8 @@ fn explicit_wire(
         cable,
         conductor,
         net,
-        suggested,
+        // A wire the user drew or confirmed is not a suggestion (§8.5).
+        suggested: false,
     }
 }
 
@@ -507,7 +497,11 @@ fn check_gauges(cx: &mut Context<'_>, harness: &Harness, wires: &[HarnessWireOut
         }
     }
     if unknown > 0 {
-        let message = format!("{}: {unknown} wires have no gauge", harness.label);
+        let message = if unknown == 1 {
+            format!("{}: 1 wire has no gauge", harness.label)
+        } else {
+            format!("{}: {unknown} wires have no gauge", harness.label)
+        };
         cx.findings.add(
             "wire-gauge-unknown",
             format!("harness:{}", harness.id),

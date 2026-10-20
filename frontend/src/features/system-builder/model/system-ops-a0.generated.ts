@@ -2806,6 +2806,7 @@ export interface SystemSchematicPlacement {
    */
   route?: [SystemSchematicPoint, SystemSchematicPoint, ...SystemSchematicPoint[]];
   interior?: SystemInterior;
+  canvas?: SystemSchematicPoint1;
 }
 /**
  * A sheet symbol's size; absent means the default.
@@ -2909,6 +2910,19 @@ export interface SystemInteriorLabel {
    * Rotation in degrees, counter-clockwise.
    */
   rotationDeg: number;
+}
+/**
+ * A point on a sheet.
+ */
+export interface SystemSchematicPoint1 {
+  /**
+   * X in nanometres, +x right.
+   */
+  xNm: number;
+  /**
+   * Y in nanometres, +y down.
+   */
+  yNm: number;
 }
 /**
  * Drops an object's schematic placement.
@@ -4133,8 +4147,9 @@ export interface SystemSchematicPlacement1 {
    *
    * @minItems 2
    */
-  route?: [SystemSchematicPoint1, SystemSchematicPoint1, ...SystemSchematicPoint1[]];
+  route?: [SystemSchematicPoint2, SystemSchematicPoint2, ...SystemSchematicPoint2[]];
   interior?: SystemInterior1;
+  canvas?: SystemSchematicPoint3;
 }
 /**
  * A sheet symbol's size; absent means the default.
@@ -4171,7 +4186,7 @@ export interface SystemPortPlacement1 {
 /**
  * A point on a sheet.
  */
-export interface SystemSchematicPoint1 {
+export interface SystemSchematicPoint2 {
   /**
    * X in nanometres, +x right.
    */
@@ -4238,4 +4253,17 @@ export interface SystemInteriorLabel1 {
    * Rotation in degrees, counter-clockwise.
    */
   rotationDeg: number;
+}
+/**
+ * A point on a sheet.
+ */
+export interface SystemSchematicPoint3 {
+  /**
+   * X in nanometres, +x right.
+   */
+  xNm: number;
+  /**
+   * Y in nanometres, +y down.
+   */
+  yNm: number;
 }

@@ -1,29 +1,36 @@
 /**
- * The system page's view in its URL (§15.1): the tab, the tab beside it, the
- * open B2B tabs and the board sheet entered, so a link reopens the same view.
+ * The system page's view in its URL (§15.1, §16.5): the tab, the tab beside it,
+ * the open B2B and harness tabs and the board sheet entered, so a link reopens
+ * the same view.
  */
 import { useSearchParams } from "react-router-dom";
 
 export const TABS = ["schematic", "3d", "review"] as const;
 export type FixedTab = (typeof TABS)[number];
-/** A fixed tab, or a B2B mate's tab: `b2b:<mate id>`. */
-export type TabId = FixedTab | `b2b:${string}`;
+/** A fixed tab, a B2B mate's tab (`b2b:<mate id>`) or a harness block's (`harness:<id>`). */
+export type TabId = FixedTab | `b2b:${string}` | `harness:${string}`;
 export const TAB_LABEL: Record<FixedTab, string> = { schematic: "Schematic", "3d": "3D", review: "Review" };
 
 export const mateOfTab = (tab: TabId | null) => (tab?.startsWith("b2b:") ? tab.slice(4) : null);
+export const harnessOfTab = (tab: TabId | null) => (tab?.startsWith("harness:") ? tab.slice(8) : null);
 
-/** The tab a URL value names, when it is fixed or an open B2B tab. */
-const asTab = (value: string | null, open: readonly string[], fallback: TabId | null): TabId | null => {
+const list = (value: string | null) => (value ?? "").split(",").filter(Boolean);
+
+/** The tab a URL value names, when it is fixed or an open B2B or harness tab. */
+const asTab = (value: string | null, mates: readonly string[], harnesses: readonly string[], fallback: TabId | null): TabId | null => {
   if ((TABS as readonly string[]).includes(value ?? "")) return value as TabId;
   const mate = value?.startsWith("b2b:") ? value.slice(4) : null;
-  return mate && open.includes(mate) ? (value as TabId) : fallback;
+  if (mate && mates.includes(mate)) return value as TabId;
+  const harness = value?.startsWith("harness:") ? value.slice(8) : null;
+  return harness && harnesses.includes(harness) ? (value as TabId) : fallback;
 };
 
 export function useSystemView() {
   const [params, setParams] = useSearchParams();
-  const openMates = (params.get("b2b") ?? "").split(",").filter(Boolean);
-  const tab = asTab(params.get("tab"), openMates, "schematic") as TabId;
-  const beside = asTab(params.get("beside"), openMates, null);
+  const openMates = list(params.get("b2b"));
+  const openHarnesses = list(params.get("harness"));
+  const tab = asTab(params.get("tab"), openMates, openHarnesses, "schematic") as TabId;
+  const beside = asTab(params.get("beside"), openMates, openHarnesses, null);
   const sheet = params.get("sheet");
 
   const openSheet = (occurrence: string | null) => {
@@ -33,16 +40,17 @@ export function useSystemView() {
     setParams(out);
   };
 
-  const setView = (next: { tab?: TabId; beside?: TabId | null; mates?: string[] }) => {
+  const setView = (next: { tab?: TabId; beside?: TabId | null; mates?: string[]; harnesses?: string[] }) => {
     const out = new URLSearchParams(params);
     const nextTab = next.tab ?? tab;
     const nextBeside = next.beside === undefined ? beside : next.beside;
-    const mates = next.mates ?? openMates;
     out.set("tab", nextTab);
     if (nextBeside && nextBeside !== nextTab) out.set("beside", nextBeside);
     else out.delete("beside");
-    if (mates.length) out.set("b2b", mates.join(","));
-    else out.delete("b2b");
+    for (const [key, items] of [["b2b", next.mates ?? openMates], ["harness", next.harnesses ?? openHarnesses]] as const) {
+      if (items.length) out.set(key, items.join(","));
+      else out.delete(key);
+    }
     setParams(out, { replace: true });
   };
 
@@ -51,11 +59,18 @@ export function useSystemView() {
     const mates = openMates.includes(mate) ? openMates : [...openMates, mate];
     setView({ tab: `b2b:${mate}`, beside: "3d", mates });
   };
-  const closeMate = (mate: string) => {
-    const mates = openMates.filter((item) => item !== mate);
-    const gone = (id: TabId | null) => id === `b2b:${mate}`;
-    setView({ tab: gone(tab) ? (gone(beside) ? "schematic" : beside ?? "schematic") : tab, beside: gone(beside) || gone(tab) ? null : beside, mates });
+  /** Open a harness block's tab beside the schematic (ADR decision 12). */
+  const openHarness = (harness: string) => {
+    const harnesses = openHarnesses.includes(harness) ? openHarnesses : [...openHarnesses, harness];
+    setView({ tab: `harness:${harness}`, beside: "schematic", harnesses });
+  };
+  /** Close an opened object's tab; a pane that showed it falls back to the schematic. */
+  const closeTab = (id: TabId) => {
+    const mates = openMates.filter((item) => `b2b:${item}` !== id);
+    const harnesses = openHarnesses.filter((item) => `harness:${item}` !== id);
+    const gone = (shown: TabId | null) => shown === id;
+    setView({ tab: gone(tab) ? (gone(beside) ? "schematic" : beside ?? "schematic") : tab, beside: gone(beside) || gone(tab) ? null : beside, mates, harnesses });
   };
 
-  return { openMates, tab, beside, sheet, openSheet, setView, openMate, closeMate };
+  return { openMates, openHarnesses, tab, beside, sheet, openSheet, setView, openMate, openHarness, closeTab };
 }

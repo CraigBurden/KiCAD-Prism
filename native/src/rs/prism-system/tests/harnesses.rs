@@ -200,6 +200,25 @@ fn a_direct_two_end_harness_lists_one_default_wire_per_pin() {
 
 /// Board A's J1 fans out to B's J2 (pins 1–3) and C's J3 (pin 3 and 4); pin 3
 /// (GND) goes to both.
+#[test]
+fn a_confirmed_power_join_is_no_longer_suggested() {
+    let contact =
+        |end: &str, cavity: &str| json!({"kind": "contact", "end": end, "cavity": cavity});
+    let doc = document(harness(json!({
+        "wires": [
+            {"id": "w_gnd", "link": "link_1", "from": contact("end_a", "1"), "to": contact("end_b", "1")},
+            {"id": "w_5v", "link": "link_1", "from": contact("end_a", "2"), "to": contact("end_b", "2")}
+        ]
+    })));
+    let bundle = run(doc, two_boards("BM04B-SRSS-TB"), vec![]);
+    let harness = only(&bundle);
+    assert!(!wire(harness, "w_gnd").suggested);
+    assert!(!wire(harness, "w_5v").suggested);
+    let link = &bundle.links[0];
+    assert!(link.wires.iter().all(|wire| !wire.suggested));
+    assert!(!codes(&bundle).contains(&("power-join-suggested", "link:link_1")));
+}
+
 fn fanout(splice: bool) -> SystemBundle {
     let three = vec![
         (
