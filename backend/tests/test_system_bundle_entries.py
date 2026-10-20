@@ -39,6 +39,7 @@ def entry_payload(key: str = "c" * 64) -> dict:
         "splices": [],
         "suggestions": [],
         "findings": [],
+        "placement": {"occurrences": [], "mates": []},
     }
     payload = {
         "schema": "prism.system_entry.a0",

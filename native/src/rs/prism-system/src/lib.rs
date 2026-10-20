@@ -5,14 +5,15 @@
 //!
 //! [`build::build`] is a pure function of the document and its boards'
 //! design-bundle members ([`input`]); `prism-kicad system build` reads those
-//! and writes its [`output::SystemBundle`]. Stage 1b computes connectivity;
-//! geometry and outputs join in later stages.
+//! and writes its [`output::SystemBundle`]. Stage 1b computes connectivity and
+//! stage 3a placement ([`arrangement`]); harness geometry and outputs join later.
 //!
 //! Every rule in [`placement`] has a Python twin in
 //! `backend/app/services/systems/placement/` and a TypeScript twin in
 //! `frontend/src/features/system-builder/placement/`, and all three replay the
 //! shared goldens in `backend/tests/fixtures/system_builder/placement_cases.json`.
 
+pub mod arrangement;
 pub mod build;
 pub mod context;
 pub mod entry;

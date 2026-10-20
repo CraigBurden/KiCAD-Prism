@@ -249,5 +249,40 @@
   "links": [],
   "splices": [],
   "suggestions": [],
-  "findings": []
+  "findings": [],
+  "placement": {
+    "occurrences": [
+      {
+        "occurrence": "occ_a",
+        "pose": {
+          "translation": {
+            "xNm": 0,
+            "yNm": 0,
+            "zNm": 0
+          },
+          "rotation": {
+            "x": 0,
+            "y": 0,
+            "z": 0,
+            "w": 1
+          }
+        },
+        "source": "default",
+        "root": true,
+        "bounds": {
+          "min": {
+            "xNm": -50000000,
+            "yNm": -30000000,
+            "zNm": -800000
+          },
+          "max": {
+            "xNm": 50000000,
+            "yNm": 30000000,
+            "zNm": 800000
+          }
+        }
+      }
+    ],
+    "mates": []
+  }
 }

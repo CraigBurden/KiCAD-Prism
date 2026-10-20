@@ -318,10 +318,64 @@ fn unturned(stored: Option<&StoredFrame>) -> Option<StoredFrame> {
 }
 
 /// B's board frame in A's board frame for one B2B pair, or `None` when either
-/// frame is unknown. Ports `mate.py:mate`.
+/// connector frame is unknown. Ports `mate.py:mate`; [`mate_oriented`] with no
+/// extra turns, no flip and no offset.
 pub fn mate(a: &MateEnd, b: &MateEnd, stack_height_mm: Option<f64>) -> Option<MateResult> {
+    mate_oriented(a, b, stack_height_mm, &Orientation::default())
+}
+
+/// A system mate's orientation and offset (CONTRACTS §2.4, §8.9).
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
+pub struct Orientation {
+    /// Quarter turns added to the pad-1-on-pad-1 turns.
+    pub quarter_turns: i32,
+    /// B mates on its frame turned 180° about its x axis.
+    pub flip: bool,
+    /// Applied in A's connector frame before the joint (spacers, a tilted fit).
+    pub offset: Option<Pose>,
+}
+
+/// B's connector frame turned 180° about its own x axis: y and z reversed.
+fn flipped(frame: &ConnectorFrame) -> ConnectorFrame {
+    ConnectorFrame {
+        y_axis: frame.y_axis.map(|v| -v),
+        z_axis: frame.z_axis.map(|v| -v),
+        rotation: canonical_rotation(multiply_rotations(frame.rotation, FLIP_X)),
+        ..frame.clone()
+    }
+}
+
+fn multiply_rotations(a: [f64; 4], b: [f64; 4]) -> [f64; 4] {
+    compose(
+        &Pose {
+            translation_mm: [0.0; 3],
+            rotation: a,
+        },
+        &Pose {
+            translation_mm: [0.0; 3],
+            rotation: b,
+        },
+    )
+    .rotation
+}
+
+/// B's board frame in A's board frame for one system mate:
+///
+/// ```text
+/// B = A · F_a · O · T(0, 0, h) · Rx(180°) · Rz(k · 90°) · F_b'⁻¹
+/// ```
+///
+/// with `k = (padOneTurns + quarterTurns) mod 4` (as the B2B mapping uses it),
+/// `F_b'` B's frame turned 180° about its x axis when `flip`, and `O` the
+/// offset. The clearance fallback measures B's body in `F_b'`.
+pub fn mate_oriented(
+    a: &MateEnd,
+    b: &MateEnd,
+    stack_height_mm: Option<f64>,
+    orientation: &Orientation,
+) -> Option<MateResult> {
     let frame_a = connector_frame(Some(&a.geometry), a.thickness_mm, a.stored.as_ref())?;
-    let frame_b = connector_frame(Some(&b.geometry), b.thickness_mm, b.stored.as_ref())?;
+    let mut frame_b = connector_frame(Some(&b.geometry), b.thickness_mm, b.stored.as_ref())?;
     let unturned_a = unturned(a.stored.as_ref());
     let unturned_b = unturned(b.stored.as_ref());
     let k = pad_one_turns(
@@ -329,7 +383,10 @@ pub fn mate(a: &MateEnd, b: &MateEnd, stack_height_mm: Option<f64>) -> Option<Ma
         &connector_frame(Some(&a.geometry), a.thickness_mm, unturned_a.as_ref())?,
         &b.geometry,
         &connector_frame(Some(&b.geometry), b.thickness_mm, unturned_b.as_ref())?,
-    );
+    ) + orientation.quarter_turns;
+    if orientation.flip {
+        frame_b = flipped(&frame_b);
+    }
     let (h, height_source) = match stack_height_mm {
         Some(h) => (h, HeightSource::Link),
         None => {
@@ -347,14 +404,17 @@ pub fn mate(a: &MateEnd, b: &MateEnd, stack_height_mm: Option<f64>) -> Option<Ma
         translation_mm: [0.0, 0.0, 0.0],
         rotation: QUARTER_TURNS[k.rem_euclid(4) as usize],
     };
-    let joint = compose(&joint, &quarter);
+    let mut joint = compose(&joint, &quarter);
+    if let Some(offset) = orientation.offset.as_ref() {
+        joint = compose(offset, &joint);
+    }
     let pose = compose(
         &compose(&frame_pose(&frame_a), &joint),
         &inverse(&frame_pose(&frame_b)),
     );
     Some(MateResult {
         pose,
-        quarter_turns: k,
+        quarter_turns: k.rem_euclid(4),
         stack_height_mm: clean(h),
         height_source,
     })

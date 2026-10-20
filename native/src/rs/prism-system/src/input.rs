@@ -47,6 +47,46 @@ pub struct Occurrence {
     pub label: String,
     /// What it places.
     pub source: Source,
+    /// Its stored pose (a free occurrence), or `None`.
+    #[serde(default)]
+    pub pose: Option<PoseIn>,
+    /// The mate chosen to place it, overriding the spanning tree.
+    #[serde(default)]
+    pub positioning_mate: Option<String>,
+}
+
+/// A vector in nanometres (`SystemVectorNm`).
+#[derive(Clone, Copy, Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct VectorNm {
+    /// X.
+    pub x_nm: i64,
+    /// Y.
+    pub y_nm: i64,
+    /// Z.
+    pub z_nm: i64,
+}
+
+/// A rotation (`SystemQuaternion`).
+#[derive(Clone, Copy, Debug, Deserialize)]
+pub struct QuaternionIn {
+    /// X.
+    pub x: f64,
+    /// Y.
+    pub y: f64,
+    /// Z.
+    pub z: f64,
+    /// W.
+    pub w: f64,
+}
+
+/// A pose in the document (`SystemPose`).
+#[derive(Clone, Copy, Debug, Deserialize)]
+pub struct PoseIn {
+    /// The translation.
+    pub translation: VectorNm,
+    /// The rotation.
+    pub rotation: QuaternionIn,
 }
 
 /// What an occurrence places.
@@ -146,6 +186,12 @@ pub struct Mate {
     /// The manual override, when present.
     #[serde(default)]
     pub manual_map: Option<Vec<PadPair>>,
+    /// The stack height; `None` uses the clearance fallback.
+    #[serde(default)]
+    pub stack_height_nm: Option<i64>,
+    /// A pose applied in A's connector frame before the joint (spacers, a tilted fit).
+    #[serde(default)]
+    pub offset: Option<PoseIn>,
 }
 
 /// A housing cavity and the board pad it lands on.

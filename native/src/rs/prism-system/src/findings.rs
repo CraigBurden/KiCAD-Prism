@@ -6,7 +6,7 @@ use crate::output::FindingOut;
 use std::collections::BTreeSet;
 
 /// Every code with its severity, in the contract's order.
-pub const CATALOGUE: [(&str, &str); 22] = [
+pub const CATALOGUE: [(&str, &str); 25] = [
     ("occurrence-pending", "info"),
     ("occurrence-absent", "error"),
     ("occurrence-unsupported", "info"),
@@ -29,6 +29,9 @@ pub const CATALOGUE: [(&str, &str); 22] = [
     ("entry-unreleased", "error"),
     ("entry-archived", "warning"),
     ("export-missing", "error"),
+    ("mate-misaligned", "warning"),
+    ("pose-ignored", "info"),
+    ("positioning-mate-ignored", "warning"),
 ];
 
 fn severity(code: &str) -> &'static str {

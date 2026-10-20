@@ -36,6 +36,7 @@ def payload(system_id: str) -> dict:
         "splices": [],
         "suggestions": [],
         "findings": [],
+        "placement": {"occurrences": [], "mates": []},
     }
     value = {
         "schema": "prism.system_entry.a0",

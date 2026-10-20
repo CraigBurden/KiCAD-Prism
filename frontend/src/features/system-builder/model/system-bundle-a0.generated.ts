@@ -60,6 +60,7 @@ export interface SystemBundleA0 {
    * Findings, sorted by `code` then `subject`, in code point order.
    */
   findings: SystemBundleFinding[];
+  placement: SystemBundlePlacement;
 }
 /**
  * One occurrence of the document.
@@ -399,4 +400,185 @@ export interface SystemBundleFinding {
    * Whether a waiver of the document covers it.
    */
   waived: boolean;
+}
+/**
+ * Where each occurrence sits, and what each mate means for that (stage 3a).
+ */
+export interface SystemBundlePlacement {
+  /**
+   * Every occurrence, sorted by `occurrence` in code point order.
+   */
+  occurrences: SystemBundlePlacedOccurrence[];
+  /**
+   * Every mate, sorted by `mate` in code point order.
+   */
+  mates: SystemBundlePlacedMate[];
+}
+/**
+ * One occurrence's place in the system.
+ */
+export interface SystemBundlePlacedOccurrence {
+  /**
+   * Id of an object in the system document (`prism.system.v2`).
+   */
+  occurrence: string;
+  pose: SystemBundlePose;
+  /**
+   * Where the pose came from.
+   */
+  source: "mate" | "stored" | "default";
+  /**
+   * The occurrence is its mated group's root, or is not mated.
+   */
+  root: boolean;
+  /**
+   * Id of an object in the system document (`prism.system.v2`).
+   */
+  positioningMate?: string;
+  bounds?: SystemBundleBounds;
+}
+/**
+ * Its board frame in the system frame.
+ */
+export interface SystemBundlePose {
+  translation: SystemBundleVectorNm;
+  rotation: SystemBundleQuaternion;
+}
+/**
+ * The translation.
+ */
+export interface SystemBundleVectorNm {
+  /**
+   * X in nanometres.
+   */
+  xNm: number;
+  /**
+   * Y in nanometres.
+   */
+  yNm: number;
+  /**
+   * Z in nanometres.
+   */
+  zNm: number;
+}
+/**
+ * The rotation.
+ */
+export interface SystemBundleQuaternion {
+  /**
+   * X.
+   */
+  x: number;
+  /**
+   * Y.
+   */
+  y: number;
+  /**
+   * Z.
+   */
+  z: number;
+  /**
+   * W.
+   */
+  w: number;
+}
+/**
+ * Its board's outline box across its thickness, in its own frame; absent when unknown.
+ */
+export interface SystemBundleBounds {
+  min: SystemBundleVectorNm1;
+  max: SystemBundleVectorNm2;
+}
+/**
+ * The minimum corner.
+ */
+export interface SystemBundleVectorNm1 {
+  /**
+   * X in nanometres.
+   */
+  xNm: number;
+  /**
+   * Y in nanometres.
+   */
+  yNm: number;
+  /**
+   * Z in nanometres.
+   */
+  zNm: number;
+}
+/**
+ * The maximum corner.
+ */
+export interface SystemBundleVectorNm2 {
+  /**
+   * X in nanometres.
+   */
+  xNm: number;
+  /**
+   * Y in nanometres.
+   */
+  yNm: number;
+  /**
+   * Z in nanometres.
+   */
+  zNm: number;
+}
+/**
+ * What one B2B mate means for placement.
+ */
+export interface SystemBundlePlacedMate {
+  /**
+   * Id of an object in the system document (`prism.system.v2`).
+   */
+  mate: string;
+  /**
+   * It places one of its occurrences (it is a positioning mate).
+   */
+  driving: boolean;
+  /**
+   * The stack height used; absent when the mate could not be solved.
+   */
+  stackHeightNm?: number;
+  /**
+   * Where that height came from.
+   */
+  heightSource?: "stack-height" | "clearance";
+  frameA?: SystemBundlePose1;
+  frameB?: SystemBundlePose2;
+  miss?: SystemBundleVectorNm3;
+  /**
+   * A non-driving mate's rotation miss, in degrees.
+   */
+  missDeg?: number;
+}
+/**
+ * Side A's connector frame in the system frame; absent when unknown.
+ */
+export interface SystemBundlePose1 {
+  translation: SystemBundleVectorNm;
+  rotation: SystemBundleQuaternion;
+}
+/**
+ * Side B's connector frame in the system frame; absent when unknown.
+ */
+export interface SystemBundlePose2 {
+  translation: SystemBundleVectorNm;
+  rotation: SystemBundleQuaternion;
+}
+/**
+ * A non-driving mate's miss: B's connector origin minus its mated position, on A's connector axes.
+ */
+export interface SystemBundleVectorNm3 {
+  /**
+   * X in nanometres.
+   */
+  xNm: number;
+  /**
+   * Y in nanometres.
+   */
+  yNm: number;
+  /**
+   * Z in nanometres.
+   */
+  zNm: number;
 }

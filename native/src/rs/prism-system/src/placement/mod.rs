@@ -7,7 +7,8 @@
 //!
 //! - [`frames`] ← `frames.py` (§14.4 `F_c`, §15.1 inference);
 //! - [`poses`] ← `poses.py` (§14.1 poses, §14.3 default row);
-//! - [`mate`] ← `mate.py` (§14.5 the mate transform and clearance).
+//! - [`mate`] ← `mate.py` (§14.5 the mate transform and clearance);
+//! - [`solve`] ← `solve.ts` (the tree solve: driving mates and mate checks).
 //!
 //! Every rule also has a TypeScript twin in
 //! `frontend/src/features/system-builder/placement/`. Change all three and the
@@ -17,3 +18,4 @@
 pub mod frames;
 pub mod mate;
 pub mod poses;
+pub mod solve;

@@ -768,6 +768,26 @@ def system_build(positionals: list[str], options: dict[str, Any]) -> NoReturn:
         output.append(entry)
     findings.sort(key=lambda finding: (finding["code"], finding["subject"]))
 
+    placed: list[dict[str, Any]] = []
+    for index, occurrence in enumerate(sorted(occurrences, key=lambda item: item["id"])):
+        stored = occurrence.get("pose")
+        translation = (stored.get("translation") if stored else None) or {
+            "xNm": index * 100_000_000, "yNm": 0, "zNm": 0,
+        }
+        placed.append({
+            "occurrence": occurrence["id"],
+            "pose": {
+                "translation": translation,
+                "rotation": {"x": 0, "y": 0, "z": 0, "w": 1},
+            },
+            "source": "stored" if stored else "default",
+            "root": True,
+        })
+    placed_mates = [
+        {"mate": mate["id"], "driving": False}
+        for mate in sorted(document.get("mates") or [], key=lambda item: item["id"])
+    ]
+
     bundle = {
         "schema": "prism.system_bundle.a0",
         "documentSha256": document_sha256,
@@ -778,6 +798,7 @@ def system_build(positionals: list[str], options: dict[str, Any]) -> NoReturn:
         "splices": [],
         "suggestions": [],
         "findings": findings,
+        "placement": {"occurrences": placed, "mates": placed_mates},
     }
     write_atomic(Path(options["-o"]), compact(bundle) + b"\n")
     result = {

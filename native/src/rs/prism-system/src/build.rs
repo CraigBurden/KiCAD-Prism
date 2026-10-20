@@ -2,6 +2,7 @@
 //! references, B2B mappings, then the modules for wiring, nets and
 //! suggestions, and finally the findings.
 
+use crate::arrangement;
 use crate::context::{Context, first_net, pads, pin, power};
 use crate::input::{Board, Document, InterfaceComponent, Mate, Members, Occurrence, OutlineBox};
 use crate::mapping::{self, Side};
@@ -30,6 +31,7 @@ pub fn build(doc: &Document, members: &Members, document_sha256: String) -> Syst
     let wired = wiring::wire(&mut cx, &mut edges);
     let nets = nets::system_nets(&mut cx, &named, &edges);
     let suggestions = suggestions::suggest(&cx, &named);
+    let placement = arrangement::arrange(&mut cx, doc);
     SystemBundle {
         schema: SCHEMA,
         document_sha256,
@@ -40,6 +42,7 @@ pub fn build(doc: &Document, members: &Members, document_sha256: String) -> Syst
         splices: wired.splices,
         suggestions,
         findings: cx.findings.finish(&doc.waivers),
+        placement,
     }
 }
 

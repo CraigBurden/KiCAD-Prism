@@ -887,3 +887,66 @@ fn bodies_side_by_side_need_only_the_margin() {
         .expect("a clearance");
     assert_eq!(touching, 6.0 + CLEARANCE_MARGIN_MM);
 }
+
+// ---------------------------------------------------------------------------
+// solves
+
+fn solve_end(ends: &Value, value: &Value) -> prism_system::placement::solve::SolveEnd {
+    prism_system::placement::solve::SolveEnd {
+        member: value["member"].as_str().unwrap().to_owned(),
+        reference: value["reference"].as_str().map(str::to_owned),
+        end: resolve_end(ends, &value["end"]),
+        in_member: value
+            .get("inMember")
+            .filter(|v| !v.is_null())
+            .map(from_value),
+    }
+}
+
+#[test]
+fn solves_replay_every_golden_case() {
+    use prism_system::placement::poses::PlacedPose;
+    use prism_system::placement::solve::{SolveMate, SolveRules, solve};
+    let root = placement_cases();
+    let (mm, _) = tolerance(&root);
+    let cases = root["solves"].as_array().unwrap();
+    assert!(cases.len() >= 11, "the goldens cover 11 solve cases");
+    for case in cases {
+        let name = case["name"].as_str().unwrap();
+        let input = &case["input"];
+        let stored: BTreeMap<String, PlacedPose> = from_value(&input["stored"]);
+        let connections: Vec<(String, String)> = from_value(&input["connections"]);
+        let mates: Vec<SolveMate> = input["mates"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|mate| SolveMate {
+                link_id: mate["linkId"].as_str().unwrap().to_owned(),
+                rows: mate["rows"].as_u64().map(|rows| rows as u32),
+                stack_height_mm: mate["stackHeightMm"].as_f64(),
+                a: solve_end(&root["mateEnds"], &mate["a"]),
+                b: solve_end(&root["mateEnds"], &mate["b"]),
+                orientation: Default::default(),
+            })
+            .collect();
+        let overrides: BTreeMap<String, String> = input
+            .get("overrides")
+            .filter(|v| !v.is_null())
+            .map(from_value)
+            .unwrap_or_default();
+        let got = solve(
+            &items(&input["items"]),
+            &stored,
+            &connections,
+            &mates,
+            &overrides,
+            SolveRules::FIRST,
+        );
+        assert_value_close(
+            &serde_json::to_value(&got).unwrap(),
+            &case["expected"],
+            mm,
+            name,
+        );
+    }
+}

@@ -30,6 +30,108 @@ pub struct SystemBundle {
     pub suggestions: Vec<SuggestionOut>,
     /// Findings, by code then subject.
     pub findings: Vec<FindingOut>,
+    /// Where each occurrence sits (stage 3a).
+    pub placement: PlacementSceneOut,
+}
+
+/// A vector in nanometres.
+#[derive(Clone, Copy, Debug, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct VectorNmOut {
+    /// X.
+    pub x_nm: i64,
+    /// Y.
+    pub y_nm: i64,
+    /// Z.
+    pub z_nm: i64,
+}
+
+/// A unit quaternion.
+#[derive(Clone, Copy, Debug, PartialEq, Serialize)]
+pub struct QuaternionOut {
+    /// X.
+    pub x: f64,
+    /// Y.
+    pub y: f64,
+    /// Z.
+    pub z: f64,
+    /// W.
+    pub w: f64,
+}
+
+/// A frame in the system frame.
+#[derive(Clone, Copy, Debug, PartialEq, Serialize)]
+pub struct PoseOut {
+    /// The translation.
+    pub translation: VectorNmOut,
+    /// The rotation.
+    pub rotation: QuaternionOut,
+}
+
+/// An axis-aligned box in an occurrence's own frame.
+#[derive(Clone, Copy, Debug, PartialEq, Serialize)]
+pub struct BoundsOut {
+    /// The minimum corner.
+    pub min: VectorNmOut,
+    /// The maximum corner.
+    pub max: VectorNmOut,
+}
+
+/// One occurrence's place.
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PlacedOccurrenceOut {
+    /// The occurrence.
+    pub occurrence: String,
+    /// Its board frame in the system frame.
+    pub pose: PoseOut,
+    /// `mate`, `stored` or `default`.
+    pub source: &'static str,
+    /// Its group's root, or not mated.
+    pub root: bool,
+    /// The mate that placed it.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub positioning_mate: Option<String>,
+    /// Its own-frame box.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub bounds: Option<BoundsOut>,
+}
+
+/// One mate's placement facts.
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PlacedMateOut {
+    /// The mate.
+    pub mate: String,
+    /// It places one of its occurrences.
+    pub driving: bool,
+    /// The stack height used.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub stack_height_nm: Option<i64>,
+    /// `stack-height` or `clearance`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub height_source: Option<&'static str>,
+    /// Side A's connector frame in the system frame.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub frame_a: Option<PoseOut>,
+    /// Side B's connector frame in the system frame.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub frame_b: Option<PoseOut>,
+    /// A non-driving mate's miss, on A's connector axes.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub miss: Option<VectorNmOut>,
+    /// A non-driving mate's rotation miss, in degrees.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub miss_deg: Option<f64>,
+}
+
+/// The system's placement.
+#[derive(Clone, Debug, Default, Serialize)]
+pub struct PlacementSceneOut {
+    /// Every occurrence, by id.
+    pub occurrences: Vec<PlacedOccurrenceOut>,
+    /// Every mate, by id.
+    pub mates: Vec<PlacedMateOut>,
 }
 
 /// One pin of a connector.
