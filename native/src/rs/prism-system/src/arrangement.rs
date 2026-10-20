@@ -12,8 +12,8 @@ use crate::context::Context;
 use crate::input::{Document, PoseIn};
 use crate::natural;
 use crate::output::{
-    BoundsOut, PlacedMateOut, PlacedOccurrenceOut, PlacementSceneOut, PoseOut, QuaternionOut,
-    VectorNmOut,
+    BoundsOut, PlacedExportOut, PlacedMateOut, PlacedOccurrenceOut, PlacementSceneOut, PoseOut,
+    QuaternionOut, VectorNmOut,
 };
 use crate::placement::frames::{Confidence, MatingAxis, StoredFrame, connector_frame, infer};
 use crate::placement::mate::{HeightSource, MateEnd, Orientation};
@@ -69,9 +69,9 @@ fn pose_out(pose: &Pose) -> PoseOut {
 
 /// A ready board's outline box across its thickness, in its own frame.
 fn board_bounds(cx: &Context<'_>, occurrence: &str) -> Option<Bounds> {
-    // A body's box is its part's model box (§8.10).
-    if let Some(body) = cx.members.bodies.get(occurrence) {
-        return body.bounds;
+    // A body's box is its part's model box (§8.10), an entry's its contents' (§12.2).
+    if let Some(mounted) = cx.members.mounted.get(occurrence) {
+        return mounted.bounds;
     }
     let board = cx.board(occurrence)?;
     let outline = board.interface.board_outline_mm.as_ref()?;
@@ -88,14 +88,13 @@ fn board_bounds(cx: &Context<'_>, occurrence: &str) -> Option<Bounds> {
 fn solve_end(cx: &Context<'_>, occurrence: &str, connector: &str) -> Option<SolveEnd> {
     let board = cx.board(occurrence)?;
     let geometry = board.component(connector)?.geometry.clone()?;
-    let mount = cx
-        .members
-        .bodies
-        .get(occurrence)
-        .and_then(|body| body.mounts.get(connector))
+    let mounted = cx.members.mounted.get(occurrence);
+    let mount = mounted
+        .and_then(|facts| facts.mounts.get(connector))
         .copied();
+    let mates_top = mounted.is_some_and(|facts| facts.mates_top.contains(connector));
     let unsure = infer(Some(&geometry)).confidence == Confidence::Low;
-    if geometry.pads.is_empty() || (unsure && mount.is_none()) {
+    if geometry.pads.is_empty() || (unsure && !mates_top) {
         return None;
     }
     Some(SolveEnd {
@@ -380,6 +379,39 @@ fn placed_mates(
     placed_mates
 }
 
+/// Each export's connector where it is placed (§8.9), sorted by export id.
+fn placed_exports(cx: &Context<'_>, doc: &Document, solved: &SolveResult) -> Vec<PlacedExportOut> {
+    let mut exports: Vec<PlacedExportOut> = doc
+        .exports
+        .iter()
+        .filter_map(|export| {
+            let site = &export.site;
+            let board = cx.board(&site.occurrence)?;
+            let mut geometry = board.component(&site.connector)?.geometry.clone()?;
+            geometry.model = None;
+            let placed = &solved.poses.get(&site.occurrence)?.pose;
+            let mounted = cx.members.mounted.get(&site.occurrence);
+            let in_member = mounted
+                .and_then(|facts| facts.mounts.get(&site.connector))
+                .unwrap_or(&IDENTITY);
+            // `connector_frame` puts the frame on the connector's surface of the board.
+            let half = board.interface.board_thickness_mm.unwrap_or(0.0) / 2.0;
+            let surface = Pose {
+                translation_mm: [0.0, 0.0, if geometry.side.is_top() { half } else { -half }],
+                rotation: IDENTITY.rotation,
+            };
+            Some(PlacedExportOut {
+                export: export.id.clone(),
+                mount: pose_out(&compose(&compose(placed, in_member), &surface)),
+                geometry,
+                mates_top: mounted.is_some_and(|facts| facts.mates_top.contains(&site.connector)),
+            })
+        })
+        .collect();
+    exports.sort_by(|a, b| a.export.cmp(&b.export));
+    exports
+}
+
 /// Place every occurrence; adds the placement findings (§9).
 pub fn arrange(cx: &mut Context<'_>, doc: &Document) -> PlacementSceneOut {
     let inputs = solve_inputs(cx, doc);
@@ -395,5 +427,6 @@ pub fn arrange(cx: &mut Context<'_>, doc: &Document) -> PlacementSceneOut {
     PlacementSceneOut {
         occurrences: placed_occurrences(doc, &inputs.items, &solved),
         mates: placed_mates(doc, &inputs.mates, &solved, &misses),
+        exports: placed_exports(cx, doc, &solved),
     }
 }

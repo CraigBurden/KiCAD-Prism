@@ -86,7 +86,7 @@ class SystemBundleEntryTests(SystemBundleWorkspace, unittest.TestCase):
                 entry_payload=payload,
                 interface={"exports": []},
                 source_ref={"systemId": "sys_child", "snapshotId": "snap_child"},
-                ipn=f"BUNDLE-{uuid.uuid4().hex[:10]}",
+                identity=system_entries.EntryIdentity.ipn(f"BUNDLE-{uuid.uuid4().hex[:10]}"),
                 name="Child",
                 description="",
                 actor="owner@example.com",

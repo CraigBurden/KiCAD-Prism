@@ -122,7 +122,7 @@ pub fn run(args: &Args, stderr: &Stderr) -> Outcome<u8> {
         entries: entry_facts,
         board_sub_ports,
         parts,
-        bodies: BTreeMap::new(),
+        mounted: BTreeMap::new(),
     };
     let bundle = build::build(&document, &inputs, document_sha256.clone());
     validate_bundle(&bundle)?;

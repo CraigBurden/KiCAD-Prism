@@ -3,7 +3,9 @@
 //! suggestions, and finally the findings.
 
 use crate::context::{Context, first_net, pads, pin, power};
-use crate::input::{Board, Document, InterfaceComponent, Mate, Members, Occurrence, OutlineBox};
+use crate::input::{
+    Board, Document, InterfaceComponent, Mate, Members, MountFacts, Occurrence, OutlineBox,
+};
 use crate::mapping::{self, Side};
 use crate::natural;
 use crate::nets::{Edge, Node};
@@ -18,9 +20,15 @@ use std::collections::{BTreeMap, BTreeSet};
 /// Build the system bundle of `doc` over `members`; `document_sha256` is the
 /// SHA-256 of the document's canonical JSON.
 pub fn build(doc: &Document, members: &Members, document_sha256: String) -> SystemBundle {
-    // Bodies read as boards from here on (§8.10).
+    // Bodies read as boards from here on (§8.10); entries' exports sit at their mounts (§12.2).
     let mut members = members.clone();
     body::add_bodies(doc, &mut members);
+    let mounted: Vec<(String, MountFacts)> = members
+        .entries
+        .iter()
+        .map(|(occurrence, facts)| (occurrence.clone(), facts.mount.clone()))
+        .collect();
+    members.mounted.extend(mounted);
     let members = &members;
     let mut cx = Context::new(doc, members);
     let named = named_connectors(doc);
@@ -238,7 +246,7 @@ fn occurrence_out(cx: &mut Context<'_>, occurrence: &Occurrence, named: &Named) 
 fn body_out(cx: &mut Context<'_>, id: &str, label: &str, named: &Named, entry: &mut OccurrenceOut) {
     let subject = format!("occurrence:{id}");
     let members = cx.members;
-    let (Some(board), Some(facts)) = (cx.board(id), members.bodies.get(id)) else {
+    let (Some(board), Some(facts)) = (cx.board(id), members.mounted.get(id)) else {
         entry.state = "absent";
         let message = format!("{label}'s part is not in the catalog");
         cx.findings
@@ -357,7 +365,11 @@ fn side<'a>(
     Some(Side {
         geometry: component.geometry.as_ref()?,
         thickness_mm: board.interface.board_thickness_mm,
-        unsure_mates_top: cx.members.bodies.contains_key(occurrence),
+        unsure_mates_top: cx
+            .members
+            .mounted
+            .get(occurrence)
+            .is_some_and(|facts| facts.mates_top.contains(&component.reference)),
     })
 }
 

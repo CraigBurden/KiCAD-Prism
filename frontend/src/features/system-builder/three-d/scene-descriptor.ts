@@ -4,10 +4,13 @@
  * mode="system">` draws. Each occurrence is its own viewer asset (an analytic
  * board draws at one matrix); the host resolves each board's 3D bundle.
  * A body (stage 3d, §8.10) draws its part's model, and each body connector
- * draws its part's model as a child at its mating frame on the body.
+ * draws its part's model as a child at its mating frame on the body. A placed
+ * published entry (§15.3) is a group: its contents draw as its children where
+ * the child system placed them.
  */
 import type { SystemBundle, SystemDocument } from "../model/types";
 import { compose, matrix, rotate, type Pose } from "../placement/poses";
+import { frozenPartRef, type EntryContents } from "./entry-contents";
 import { partKey, type PartModel } from "./part-models";
 
 export const SYSTEM_SCENE_SCHEMA = "prism.system_scene.a0";
@@ -26,8 +29,10 @@ export interface MemberAsset {
 export interface SceneOccurrence {
   path: string;
   label: string;
-  /** A board, a body (a catalog part's model), or a connector part on a body. */
-  kind: "board" | "body" | "part";
+  /** A board, a body (a catalog part's model), a connector part on a body, or a placed entry. */
+  kind: "board" | "body" | "part" | "entry";
+  /** An entry whose contents are drawn as its children: placed by its box, drawing nothing itself. */
+  group?: boolean;
   assetId: string | null;
   /** A body's or a part's catalog model; it draws a box while loading. */
   model?: { glbKey: string; matrixMm: number[]; boundsMm: PartModel["boundsMm"] } | null;
@@ -84,10 +89,14 @@ export function memberKey(projectId: string, commit: string): string {
   return `${projectId}@${commit}`;
 }
 
-/** The boards whose 3D bundles the scene needs: one per project and commit. */
-export function sceneMembers(document: SystemDocument): { key: string; projectId: string; commit: string }[] {
+/** The boards whose 3D bundles the scene needs, the placed entries' boards too: one per project and commit. */
+export function sceneMembers(
+  document: SystemDocument,
+  entries: ReadonlyMap<string, EntryContents | null> = new Map(),
+): { key: string; projectId: string; commit: string }[] {
   const out = new Map<string, { key: string; projectId: string; commit: string }>();
-  for (const occurrence of document.occurrences) {
+  const documents = [document, ...[...entries.values()].flatMap((contents) => (contents ? [contents.document] : []))];
+  for (const occurrence of documents.flatMap((item) => item.occurrences)) {
     const source = occurrence.source;
     if (source.kind !== "board") continue;
     const key = memberKey(source.projectId, source.track.commit);
@@ -112,6 +121,77 @@ function depths(placed: Map<string, { positioningMate?: string }>, parentOf: (oc
   return out;
 }
 
+/** A connector part drawn on its body (`parent`) at its turned mating frame. */
+function partOccurrence(parent: string, connector: SystemDocument["bodyConnectors"][number], model: PartModel | null): SceneOccurrence {
+  return {
+    path: `${parent}/${connector.refdes}`,
+    label: connector.refdes,
+    kind: "part",
+    assetId: null,
+    model,
+    parent,
+    localMatrix: matrix(bodyConnectorFrame(connector)),
+    worldMatrix: matrix(IDENTITY_POSE),
+    pose: { ...IDENTITY_POSE, source: "manual" },
+    boundsMm: null,
+    restricted: false,
+    movable: false,
+    explode: null,
+  };
+}
+
+/**
+ * A placed entry's contents as children of its occurrence `entry`: each board
+ * and body where the child's placement put it, and each body's connector
+ * parts. A board hidden from the reader (redacted) and a nested entry draw
+ * nothing.
+ */
+export function entryContents(
+  entry: string,
+  contents: EntryContents,
+  assets: ReadonlyMap<string, MemberAsset>,
+  models: ReadonlyMap<string, PartModel | null>,
+): { occurrences: SceneOccurrence[]; assets: SceneAsset[] } {
+  const placed = new Map((contents.bundle.placement?.occurrences ?? []).map((item) => [item.occurrence, item]));
+  const occurrences: SceneOccurrence[] = [];
+  const sceneAssets: SceneAsset[] = [];
+  for (const child of contents.document.occurrences) {
+    const place = placed.get(child.id);
+    const source = child.source;
+    if (!place || (source.kind !== "board" && source.kind !== "body")) continue;
+    const path = `${entry}/${child.id}`;
+    const pose: Pose = { translationMm: vectorMm(place.pose.translation), rotation: quat(place.pose.rotation) };
+    let assetId: string | null = null;
+    if (source.kind === "board") {
+      const asset = assets.get(memberKey(source.projectId, source.track.commit));
+      assetId = `occurrence:${path}`;
+      sceneAssets.push({ assetId, status: asset?.status ?? "building", bundleUrl: asset?.bundleUrl ?? null, bundleToBoard: null });
+    }
+    occurrences.push({
+      path,
+      label: child.label,
+      kind: source.kind,
+      assetId,
+      ...(source.kind === "body" ? { model: models.get(partKey(frozenPartRef(contents, source))) ?? null } : {}),
+      parent: entry,
+      localMatrix: matrix(pose),
+      worldMatrix: matrix(IDENTITY_POSE),
+      pose: { ...pose, source: "manual" },
+      boundsMm: place.bounds ? { minMm: vectorMm(place.bounds.min), maxMm: vectorMm(place.bounds.max) } : null,
+      restricted: false,
+      movable: false,
+      explode: null,
+    });
+  }
+  const bodies = new Set(occurrences.flatMap((item) => (item.kind === "body" ? [item.path] : [])));
+  for (const connector of contents.document.bodyConnectors ?? []) {
+    const parent = `${entry}/${connector.occurrence}`;
+    if (!bodies.has(parent)) continue;
+    occurrences.push(partOccurrence(parent, connector, models.get(partKey(frozenPartRef(contents, connector.part))) ?? null));
+  }
+  return { occurrences, assets: sceneAssets };
+}
+
 /**
  * The descriptor for a document and its bundle. `assets` holds each board's
  * 3D bundle by `memberKey`; a board without one draws as a box.
@@ -121,6 +201,7 @@ export function buildSceneDescriptor(
   bundle: SystemBundle | null,
   assets: ReadonlyMap<string, MemberAsset>,
   models: ReadonlyMap<string, PartModel | null> = new Map(),
+  entries: ReadonlyMap<string, EntryContents | null> = new Map(),
 ): SystemSceneDescriptor {
   const placed = new Map((bundle?.placement?.occurrences ?? []).map((item) => [item.occurrence, item]));
   const placedMates = new Map((bundle?.placement?.mates ?? []).map((item) => [item.mate, item]));
@@ -150,12 +231,14 @@ export function buildSceneDescriptor(
       assetId = `occurrence:${occurrence.id}`;
       sceneAssets.push({ assetId, status: asset?.status ?? "building", bundleUrl: asset?.bundleUrl ?? null, bundleToBoard: null });
     }
+    const contents = source.kind === "entry" ? entries.get(occurrence.id) ?? null : null;
     occurrences.push({
       path: occurrence.id,
       label: occurrence.label,
-      kind: source.kind === "body" ? "body" : "board",
+      kind: source.kind === "body" ? "body" : source.kind === "entry" ? "entry" : "board",
       assetId,
       ...(source.kind === "body" ? { model, pickSurface: true } : {}),
+      ...(contents ? { group: true } : {}),
       worldMatrix: matrix(pose),
       pose: { ...pose, source: SOURCE[place.source] },
       boundsMm: place.bounds ? { minMm: vectorMm(place.bounds.min), maxMm: vectorMm(place.bounds.max) } : null,
@@ -167,21 +250,14 @@ export function buildSceneDescriptor(
   const bodies = new Set(occurrences.flatMap((item) => (item.kind === "body" ? [item.path] : [])));
   for (const connector of document.bodyConnectors) {
     if (!bodies.has(connector.occurrence)) continue;
-    occurrences.push({
-      path: `${connector.occurrence}/${connector.refdes}`,
-      label: connector.refdes,
-      kind: "part",
-      assetId: null,
-      model: models.get(partKey(connector.part)) ?? null,
-      parent: connector.occurrence,
-      localMatrix: matrix(bodyConnectorFrame(connector)),
-      worldMatrix: matrix(IDENTITY_POSE),
-      pose: { ...IDENTITY_POSE, source: "manual" },
-      boundsMm: null,
-      restricted: false,
-      movable: false,
-      explode: null,
-    });
+    occurrences.push(partOccurrence(connector.occurrence, connector, models.get(partKey(connector.part)) ?? null));
+  }
+  for (const item of occurrences.filter((entry) => entry.kind === "entry" && entry.group)) {
+    const contents = entries.get(item.path);
+    if (!contents) continue;
+    const drawn = entryContents(item.path, contents, assets, models);
+    occurrences.push(...drawn.occurrences);
+    sceneAssets.push(...drawn.assets);
   }
   return { schema: SYSTEM_SCENE_SCHEMA, occurrences, assets: sceneAssets };
 

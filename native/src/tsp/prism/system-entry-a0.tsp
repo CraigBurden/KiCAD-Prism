@@ -3,6 +3,7 @@ import "./common.tsp";
 import "./system-v2.tsp";
 import "./system-bundle-a0.tsp";
 import "./board-sub-ports-a0.tsp";
+import "./system-parts-a0.tsp";
 
 using TypeSpec.JsonSchema;
 using Prism.Contracts.Common;
@@ -102,6 +103,14 @@ model SystemEntryA0 {
 
   /** The system bundle built from exactly these. */
   bundle: Prism.Contracts.SystemBundleA0.SystemBundleA0;
+
+  /**
+   * The catalog parts the bundle was built from (`--parts`): its bodies' and
+   * body connectors' resolved revisions and models, so a placing system draws
+   * the bodies without asking the catalog (stage 3d). Absent in entries
+   * published before stage 3d.
+   */
+  parts?: Prism.Contracts.SystemPartsA0.SystemPartsA0;
 
   /** The interface its exports make. */
   `interface`: SystemEntryInterface;

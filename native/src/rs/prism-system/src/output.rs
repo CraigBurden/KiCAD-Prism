@@ -3,6 +3,7 @@
 //! Field order is the TypeSpec's, so serde writes keys in contract order
 //! (conventions.md §13). Absent optional fields are skipped.
 
+use crate::placement::frames::ConnectorGeometry;
 use serde::Serialize;
 
 /// Schema id of the document.
@@ -132,6 +133,27 @@ pub struct PlacementSceneOut {
     pub occurrences: Vec<PlacedOccurrenceOut>,
     /// Every mate, by id.
     pub mates: Vec<PlacedMateOut>,
+    /// Every export whose connector has geometry, by export id (§8.9): what a
+    /// system placing this one as an entry mates by (§12.2).
+    pub exports: Vec<PlacedExportOut>,
+}
+
+/// One export's connector as a placing system reads it (§8.9).
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PlacedExportOut {
+    /// The export.
+    pub export: String,
+    /// The frame the geometry below is in, placed in the system frame with
+    /// the connector's side of its board applied, so the geometry reads at
+    /// zero thickness: a board's frame lifted to its surface, a body
+    /// connector's footprint frame.
+    pub mount: PoseOut,
+    /// The connector's footprint geometry in that frame, as the extractor
+    /// gives it (mm, +y up), without its 3D model.
+    pub geometry: ConnectorGeometry,
+    /// An unsure mating-axis inference mates out of the top face (a body's connector).
+    pub mates_top: bool,
 }
 
 /// One pin of a connector.

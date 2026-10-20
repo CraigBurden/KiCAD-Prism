@@ -127,6 +127,25 @@ def entry_payload() -> dict:
                 }
             ],
             "mates": [],
+            "exports": [
+                {
+                    "export": "exp_x",
+                    "mount": {
+                        "translation": {"xNm": 0, "yNm": 0, "zNm": 0},
+                        "rotation": {"x": 0, "y": 0, "z": 0, "w": 1},
+                    },
+                    "geometry": {
+                        "side": "top",
+                        "positionMm": [0.0, 0.0],
+                        "rotationDeg": 0.0,
+                        "footprintName": "Conn",
+                        "pads": [],
+                        "courtyard": None,
+                        "model": None,
+                    },
+                    "matesTop": False,
+                }
+            ],
         },
     }
     payload = {
@@ -196,7 +215,7 @@ class SystemEntryApiTests(unittest.TestCase):
                 entry_payload=payload,
                 interface=payload["interface"],
                 source_ref={"systemId": "sys_source", "snapshotId": "snap_child"},
-                ipn=f"API-{uuid.uuid4().hex[:10]}",
+                identity=system_entries.EntryIdentity.ipn(f"API-{uuid.uuid4().hex[:10]}"),
                 name="Child",
                 description="",
                 actor="owner@example.com",
@@ -226,6 +245,7 @@ class SystemEntryApiTests(unittest.TestCase):
             [{"occurrence": "occ_secret", "state": "redacted", "connectors": []}],
         )
         self.assertEqual(body["bundle"]["nets"], [])
+        self.assertEqual(body["bundle"]["placement"]["exports"], [])
         self.assertNotIn("systemId", body)
 
     def test_a_designer_sees_the_child_and_the_source_system(self) -> None:

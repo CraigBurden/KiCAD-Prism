@@ -56,7 +56,7 @@ pub enum Side {
 
 impl Side {
     /// `geometry["side"] == "top"` in the Python twin.
-    fn is_top(self) -> bool {
+    pub(crate) fn is_top(self) -> bool {
         matches!(self, Self::Top)
     }
 }

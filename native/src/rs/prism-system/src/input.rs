@@ -354,6 +354,9 @@ pub struct Export {
     pub id: String,
     /// The connector or sub-port exported.
     pub site: Endpoint,
+    /// Interface names by pad; on a body they are its signals (§8.10).
+    #[serde(default, rename = "pinNames")]
+    pub pin_names: BTreeMap<String, String>,
 }
 
 /// A waiver.
@@ -558,6 +561,10 @@ pub struct EntryFacts {
     pub stage: String,
     /// The key of the entry's frozen system bundle.
     pub system_bundle_key: String,
+    /// Its contents' box and its exports' mounts in the entry's frame (the
+    /// child's system frame); empty for an entry published before exports
+    /// carried geometry.
+    pub mount: MountFacts,
 }
 
 /// One pin of a catalog part's symbol.
@@ -594,13 +601,19 @@ pub struct PartFacts {
     pub model_bounds: Option<Bounds>,
 }
 
-/// What a build derives for a body occurrence (§8.10).
+/// What a build derives for a member whose connectors sit at their own poses
+/// in it: a body (§8.10) or a placed entry (§12.2).
 #[derive(Clone, Debug, Default)]
-pub struct BodyFacts {
-    /// The body part's model box in the body's frame; `None` without a model.
+pub struct MountFacts {
+    /// The member's box in its own frame: a body's model box, an entry's
+    /// contents; `None` when unknown.
     pub bounds: Option<Bounds>,
-    /// Each body connector's footprint frame in the body's frame (`Q = P · F_part⁻¹`), by refdes.
+    /// Each connector's footprint frame in the member's frame, by refdes: a
+    /// body connector's `Q = P · F_part⁻¹`, an entry export's mount.
     pub mounts: BTreeMap<String, Pose>,
+    /// Connectors whose unsure mating-axis inference mates out of the top
+    /// face, as their mount assumed: a body's connectors, and exports of them.
+    pub mates_top: BTreeSet<String>,
 }
 
 /// Everything a build reads besides the document.
@@ -617,7 +630,8 @@ pub struct Members {
     pub board_sub_ports: Option<BTreeMap<String, BoardSubPortDef>>,
     /// Catalog parts, by the reference the document uses (`--parts`, §8.10).
     pub parts: BTreeMap<String, PartFacts>,
-    /// Ready body occurrences, derived from the document and `parts`; their
-    /// connectors are in `boards` like a board's.
-    pub bodies: BTreeMap<String, BodyFacts>,
+    /// Ready body occurrences, derived from the document and `parts`, and ready
+    /// entries whose exports carry geometry; their connectors are in `boards`
+    /// like a board's.
+    pub mounted: BTreeMap<String, MountFacts>,
 }

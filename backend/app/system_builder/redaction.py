@@ -143,6 +143,20 @@ def redact_bundle(
             else placed_mate
             for placed_mate in placement["mates"]
         ]
+        # An export whose site occurrence is hidden is left out (§8.9). The
+        # bundle names the export id; the document says where its site is.
+        if "exports" in placement and document is not None:
+            sites = {
+                str(export.get("id") or ""): str(
+                    (export.get("site") or {}).get("occurrence") or ""
+                )
+                for export in document.get("exports", [])
+            }
+            placement["exports"] = [
+                placed_export
+                for placed_export in placement["exports"]
+                if sites.get(str(placed_export.get("export") or ""), "") not in hidden
+            ]
 
     nets: list[dict[str, Any]] = []
     for net in view["nets"]:

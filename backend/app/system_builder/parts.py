@@ -280,20 +280,23 @@ def build_input(
     document: Mapping[str, Any],
     staging_dir: Path | None = None,
     *,
-    lookup: Callable[[str, str | None], ResolvedPart | None] = catalog_lookup,
+    lookup: Callable[[str, str | None], ResolvedPart | None] | None = None,
 ) -> tuple[dict[str, Any], list[tuple[Path, Path]]]:
     """The ``prism.system_parts.a0`` document and the files to stage beside it.
 
     ``staging_dir`` is the directory the caller will write the document into; the
     document itself never names an absolute path, so only the returned staged
     paths are relative to it. The filesystem is read only to check that a
-    catalog asset's file exists.
+    catalog asset's file exists. ``lookup`` defaults to the production catalog;
+    resolving it here (not as a default argument) lets a caller or test replace
+    ``catalog_lookup``.
     """
 
+    resolve_part = lookup or catalog_lookup
     parts: list[dict[str, Any]] = []
     files: list[tuple[Path, Path]] = []
     for ref, component_id, revision_id in references(document):
-        part = lookup(component_id, revision_id)
+        part = resolve_part(component_id, revision_id)
         if part is None:
             continue
         entry: dict[str, Any] = {

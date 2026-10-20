@@ -49,7 +49,20 @@ DOCUMENT = {
     ],
     "subPorts": [],
     "bodyConnectors": [],
-    "exports": [],
+    "exports": [
+        {
+            "id": "exp_a",
+            "name": "A",
+            "site": {"occurrence": "occ_a", "connector": "J1"},
+            "pinNames": {},
+        },
+        {
+            "id": "exp_b",
+            "name": "B",
+            "site": {"occurrence": "occ_b", "connector": "J1"},
+            "pinNames": {},
+        },
+    ],
     "dismissedSuggestions": [],
     "harnesses": [
         {
@@ -180,6 +193,28 @@ BUNDLE = {
                 "missDeg": 0.5,
             },
         ],
+        "exports": [
+            {
+                "export": "exp_a",
+                "mount": {
+                    "translation": {"xNm": 0, "yNm": 0, "zNm": 0},
+                    "rotation": {"x": 0, "y": 0, "z": 0, "w": 1},
+                },
+                "geometry": {"side": "top", "positionMm": [0.0, 0.0], "rotationDeg": 0.0,
+                             "footprintName": "Conn", "pads": [], "courtyard": None, "model": None},
+                "matesTop": False,
+            },
+            {
+                "export": "exp_b",
+                "mount": {
+                    "translation": {"xNm": 100_000_000, "yNm": 0, "zNm": 0},
+                    "rotation": {"x": 0, "y": 0, "z": 0, "w": 1},
+                },
+                "geometry": {"side": "top", "positionMm": [1.0, 2.0], "rotationDeg": 90.0,
+                             "footprintName": "Conn", "pads": [], "courtyard": None, "model": None},
+                "matesTop": True,
+            },
+        ],
     },
 }
 
@@ -202,7 +237,7 @@ class SystemBundleKeyTest(unittest.TestCase):
             "documentSha256": hashlib.sha256(
                 json.dumps(DOCUMENT, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
             ).hexdigest(),
-            "format": 3,
+            "format": 4,
             "generator": "f" * 64,
             "members": members,
             "absent": absent,
@@ -330,6 +365,23 @@ class BundleRedactionTest(unittest.TestCase):
         self.assertEqual(hidden_mate, {"mate": "mate_x", "driving": True})
         visible_mate = next(mate for mate in view["placement"]["mates"] if mate["mate"] == "mate_y")
         self.assertEqual(visible_mate, BUNDLE["placement"]["mates"][1])
+
+    def test_a_hidden_occurrence_export_is_left_out_of_the_placement(self) -> None:
+        view = redact_bundle(BUNDLE, frozenset({"occ_b"}), document=DOCUMENT)
+        self.assertEqual(
+            [item["export"] for item in view["placement"]["exports"]],
+            ["exp_a"],
+        )
+        self.assertEqual(
+            [item["export"] for item in BUNDLE["placement"]["exports"]],
+            ["exp_a", "exp_b"],
+        )
+
+    def test_a_bundle_without_placement_exports_is_unchanged(self) -> None:
+        older = copy.deepcopy(BUNDLE)
+        del older["placement"]["exports"]
+        view = redact_bundle(older, frozenset({"occ_b"}), document=DOCUMENT)
+        self.assertNotIn("exports", view["placement"])
 
     def test_a_bundle_without_placement_passes_through(self) -> None:
         older = {name: value for name, value in BUNDLE.items() if name != "placement"}

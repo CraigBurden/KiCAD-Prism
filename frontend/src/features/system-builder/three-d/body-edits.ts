@@ -1,7 +1,7 @@
 /**
- * Bodies and body connectors (stage 3d, CONTRACTS §2.7, §8.10, mockup 08):
- * adding a catalog part as a body, and placing a connector part on a body's
- * face. A face pick (world point and normal) is carried into the body's frame
+ * Bodies, body connectors and entries (stage 3d, CONTRACTS §2.7, §8.10,
+ * §15.3, mockup 08): adding a catalog part as a body or a published system as
+ * an entry, and placing a connector part on a body's face. A face pick (world point and normal) is carried into the body's frame
  * and becomes the connector's mating frame there, by the kept module-ports
  * convention: origin on the face, +z the outward normal, x the body's +x
  * projected onto the face (its +y when the face looks more along x).
@@ -38,6 +38,18 @@ export function addBodyOps(document: SystemDocument, part: PartChoice): { ops: S
     ops: [{
       kind: "add-occurrence",
       occurrence: { id: occurrence, label: bodyLabel(document, part.name), source: { kind: "body", componentId: part.componentId, revisionId: part.revisionId } },
+    }],
+  };
+}
+
+/** Place a published system's revision as an entry occurrence; it takes its slot in the default row. */
+export function addEntryOps(document: SystemDocument, system: PartChoice): { ops: SystemOp[]; occurrence: string } {
+  const occurrence = newId("occ");
+  return {
+    occurrence,
+    ops: [{
+      kind: "add-occurrence",
+      occurrence: { id: occurrence, label: bodyLabel(document, system.name || "System"), source: { kind: "entry", componentId: system.componentId, revisionId: system.revisionId } },
     }],
   };
 }

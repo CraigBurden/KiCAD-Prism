@@ -2,13 +2,15 @@
  * Each board's 3D bundle for the system's 3D tab (stage 3b): the project's
  * `webgpu-3d/status` at the occurrence's commit, asked again while any is
  * still building (and, slowly, while one is missing or failed). Boards
- * share an answer by project and commit.
+ * share an answer by project and commit; a placed entry's boards are asked
+ * for too (stage 3d).
  */
 import { useEffect, useMemo, useState } from "react";
 
 import { fetchJson } from "@/lib/api";
 
 import type { SystemDocument } from "../model/types";
+import type { EntryContents } from "./entry-contents";
 import { sceneMembers, type MemberAsset } from "./scene-descriptor";
 
 /** How often to ask again while a board's 3D bundle is building, and while one is missing or failed (rebuilt elsewhere). */
@@ -34,8 +36,11 @@ function sameAssets(current: ReadonlyMap<string, MemberAsset>, entries: readonly
   });
 }
 
-export function useMemberAssets(document: SystemDocument | undefined): ReadonlyMap<string, MemberAsset> {
-  const members = useMemo(() => (document ? sceneMembers(document) : []), [document]);
+export function useMemberAssets(
+  document: SystemDocument | undefined,
+  entries?: ReadonlyMap<string, EntryContents | null>,
+): ReadonlyMap<string, MemberAsset> {
+  const members = useMemo(() => (document ? sceneMembers(document, entries) : []), [document, entries]);
   const membersKey = members.map((member) => member.key).join(" ");
   const [assets, setAssets] = useState<ReadonlyMap<string, MemberAsset>>(() => new Map());
   const [round, setRound] = useState(0);

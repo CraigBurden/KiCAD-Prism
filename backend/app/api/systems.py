@@ -82,7 +82,10 @@ class PublishSystemRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     snapshotId: Optional[str] = Field(default=None, max_length=128)
+    identity: Optional[Literal["in-house", "bought-out"]] = None
     ipn: Optional[str] = Field(default=None, max_length=128)
+    manufacturer: Optional[str] = Field(default=None, max_length=128)
+    mpn: Optional[str] = Field(default=None, max_length=128)
     changeSummary: str = Field(min_length=1, max_length=2000)
 
 
@@ -401,6 +404,7 @@ def publish_system(
     return service.publish(
         system_id, _caller(user), role=user.role,
         expected=expected, snapshot_id=body.snapshotId, ipn=body.ipn,
+        identity=body.identity, manufacturer=body.manufacturer, mpn=body.mpn,
         change_summary=body.changeSummary,
     )
 

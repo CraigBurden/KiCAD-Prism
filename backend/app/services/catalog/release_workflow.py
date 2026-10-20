@@ -340,7 +340,7 @@ class CatalogReleaseWorkflow:
         component: dict[str, Any] | None = None,
     ) -> None:
         if str((component or {}).get("kind") or "part") == "system":
-            self._assert_system_entry_release_allowed(conn, revision_id)
+            self._assert_system_entry_release_allowed(conn, revision_id, component=component)
             return
         default_representation = conn.execute(
             """
@@ -360,13 +360,21 @@ class CatalogReleaseWorkflow:
         if self._klc.release_gate() == "block" and validation["status"] in _RELEASE_BLOCKING_VALIDATION:
             raise ValueError("Cannot release component until required symbol and footprint assets pass KLC validation")
 
-    def _assert_system_entry_release_allowed(self, conn: Any, revision_id: str) -> None:
+    def _assert_system_entry_release_allowed(
+        self,
+        conn: Any,
+        revision_id: str,
+        *,
+        component: dict[str, Any] | None = None,
+    ) -> None:
         """The system revision's own gate (CONTRACTS.md §11.3), fail-closed.
 
         The frozen payload must be its one ``system_entry`` asset, the bytes on
         disk must still hash to the asset row, that row must still be in the
         revision manifest, and the payload's bundle must carry no unwaived
-        error finding. KLC and representation gates do not apply.
+        error finding. A bought-out entry (an ``mpn`` identity) also needs a
+        body occurrence ready in that bundle whose part has a model. KLC and
+        representation gates do not apply.
         """
 
         from app.services.design_bundle import schemas
@@ -413,6 +421,43 @@ class CatalogReleaseWorkflow:
         if unwaived:
             codes = ", ".join(sorted({str(item.get("code")) for item in unwaived}))
             raise ValueError(f"The system bundle has unwaived error findings: {codes}")
+        component = component or self._revision_kernel.component_row(
+            conn, str(revision.get("component_id") or "")
+        )
+        if str((component or {}).get("identity_kind") or "") == IDENTITY_KIND_MPN:
+            self._assert_bought_out_body(payload)
+
+    @staticmethod
+    def _assert_bought_out_body(payload: dict[str, Any]) -> None:
+        """A bought-out entry needs a ready body whose part has a STEP model."""
+
+        parts = payload.get("parts")
+        if not isinstance(parts, dict):
+            raise ValueError("A bought-out system revision needs a body with its STEP model")
+        models = {
+            str(item.get("ref") or ""): item.get("model")
+            for item in parts.get("parts") or []
+            if isinstance(item, dict)
+        }
+        ready = {
+            str(item.get("occurrence") or "")
+            for item in (payload.get("bundle") or {}).get("occurrences") or []
+            if isinstance(item, dict) and str(item.get("state") or "") == "ready"
+        }
+        for occurrence in (payload.get("document") or {}).get("occurrences") or []:
+            if not isinstance(occurrence, dict):
+                continue
+            source = occurrence.get("source") or {}
+            if source.get("kind") != "body":
+                continue
+            if str(occurrence.get("id") or "") not in ready:
+                continue
+            component_id = str(source.get("componentId") or "")
+            revision_id = str(source.get("revisionId") or "")
+            ref = component_id if not revision_id else f"{component_id}@{revision_id}"
+            if models.get(ref):
+                return
+        raise ValueError("A bought-out system revision needs a body with its STEP model")
 
     def deactivate_component(
         self,

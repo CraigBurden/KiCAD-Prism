@@ -445,6 +445,9 @@ class SystemService:
         snapshot_id: Optional[str],
         ipn: Optional[str],
         change_summary: str,
+        identity: Optional[str] = None,
+        manufacturer: Optional[str] = None,
+        mpn: Optional[str] = None,
     ) -> dict[str, Any]:
         """Freeze a snapshot into a catalog revision in ``qa_review`` (§11.2)."""
 
@@ -456,6 +459,9 @@ class SystemService:
             snapshot_id=snapshot_id,
             ipn=ipn,
             change_summary=change_summary,
+            identity=identity,
+            manufacturer=manufacturer,
+            mpn=mpn,
         )
 
     def entry_view(self, revision_id: str, caller: Caller, *, role: str) -> dict[str, Any]:

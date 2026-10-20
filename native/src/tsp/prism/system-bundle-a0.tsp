@@ -513,6 +513,93 @@ model SystemBundlePlacedMate {
   missDeg?: Degrees;
 }
 
+/** The side of its board a footprint is on. */
+enum SystemBundleFootprintSide {
+  /** The front face. */
+  top,
+
+  /** The back face. */
+  bottom,
+}
+
+/** One pad of an export's footprint geometry, in millimetres in its frame (+y up). */
+model SystemBundleExportPad {
+  /** The pad number; empty for a mounting or alignment hole. */
+  pad: string;
+
+  /** The pad centre `[x, y]`, in that order. */
+  @minItems(2)
+  @maxItems(2)
+  positionMm: float64[];
+
+  /** The pad size `[x, y]`, in that order. Null when the footprint gives none. */
+  sizeMm: float64[] | null;
+
+  /** The pad shape (`circle`, `rect`, …). Null when the footprint gives none. */
+  shape: string | null;
+
+  /** Whether the pad is through-hole. Null when the footprint does not say. */
+  tht: boolean | null;
+}
+
+/** A footprint's courtyard box in its own frame (+y up), in millimetres. */
+model SystemBundleExportCourtyard {
+  /** The minimum corner `[x, y]`, in that order. */
+  minMm: float64[];
+
+  /** The maximum corner `[x, y]`, in that order. */
+  maxMm: float64[];
+}
+
+/**
+ * An export's connector footprint, as the board interface's extractor v6
+ * geometry gives it (millimetres, +y up), without its 3D model.
+ */
+model SystemBundleExportGeometry {
+  /** The side of its board the footprint is on. */
+  side: SystemBundleFootprintSide;
+
+  /** The footprint anchor `[x, y]`, in that order, in the mount's frame. */
+  @minItems(2)
+  @maxItems(2)
+  positionMm: float64[];
+
+  /** The footprint rotation in degrees. */
+  rotationDeg: Degrees;
+
+  /** The footprint name, which the mating-axis inference reads. Null when unknown. */
+  footprintName: string | null;
+
+  /** The pads, in the extractor's order. */
+  pads: SystemBundleExportPad[];
+
+  /** The footprint's courtyard. Null when the footprint has no courtyard graphic. */
+  courtyard: SystemBundleExportCourtyard | null;
+
+  /** Always null: an export's geometry carries no 3D model. */
+  `model`: null;
+}
+
+/** One export's connector, as a system placing this one as an entry mates by it (stage 3d). */
+model SystemBundlePlacedExport {
+  /** The export's id. */
+  export: SystemBundleObjectId;
+
+  /**
+   * The frame `geometry` is in, placed in the system frame with the
+   * connector's side of its board applied, so the geometry reads at zero
+   * thickness: a board's frame lifted to its surface, a body connector's
+   * footprint frame.
+   */
+  mount: SystemBundlePose;
+
+  /** The connector's footprint geometry in that frame. */
+  geometry: SystemBundleExportGeometry;
+
+  /** An unsure mating-axis inference mates out of the top face: a body's connector, or an export of one. */
+  matesTop: boolean;
+}
+
 /** The system's placement (stage 3a). */
 model SystemBundlePlacement {
   /** Every occurrence, sorted by `occurrence` in code point order. */
@@ -520,6 +607,13 @@ model SystemBundlePlacement {
 
   /** Every mate, sorted by `mate` in code point order. */
   mates: SystemBundlePlacedMate[];
+
+  /**
+   * Every export whose connector has footprint geometry and a place, sorted
+   * by `export` in code point order (stage 3d). Absent in bundles built
+   * before format 4.
+   */
+  exports?: SystemBundlePlacedExport[];
 }
 
 // -------------------------------------------------------------------- root

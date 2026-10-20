@@ -274,3 +274,53 @@ fn a_board_mated_to_a_body_connector_lands_on_its_frame() {
         assert_eq!(pairs.len(), 8, "turns {turns}");
     }
 }
+
+#[test]
+fn an_exported_body_pin_is_the_signal_its_export_names() {
+    let mut json = json!({
+        "occurrences": [
+            {"id": "occ_box", "label": "Box", "source": {"kind": "body", "componentId": "cmp_box", "revisionId": "rev_b1"}},
+        ],
+        "bodyConnectors": [{
+            "id": "bc_1", "occurrence": "occ_box", "refdes": "J10",
+            "part": {"componentId": "cmp_header", "revisionId": "rev_h1"},
+            "frame": {"translation": {"xNm": 10_000_000, "yNm": 0, "zNm": 15_000_000}, "rotation": {"x": 0.0, "y": 0.0, "z": 0.0, "w": 1.0}},
+            "quarterTurns": 0,
+        }],
+    });
+    let unexported = bundle(
+        &serde_json::from_value(json.clone()).unwrap(),
+        &members(true, true, false),
+    );
+    assert!(
+        unexported["nets"].as_array().unwrap().is_empty(),
+        "no export: no nets"
+    );
+
+    json["exports"] = json!([{"id": "exp_1", "name": "Power", "site": {"occurrence": "occ_box", "connector": "J10"},
+                              "pinNames": {"1": "VOUT", "2": "VOUT", "3": " "}}]);
+    let out = bundle(
+        &serde_json::from_value(json).unwrap(),
+        &members(true, true, false),
+    );
+    let nets = out["nets"].as_array().unwrap();
+    let pads_of = |name: &str| -> Vec<String> {
+        nets.iter()
+            .find(|net| net["name"] == name)
+            .unwrap_or_else(|| panic!("net {name}: {nets:?}"))["pins"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|pin| pin["pad"].as_str().unwrap().to_owned())
+            .collect()
+    };
+    // Pins given one name are one signal; an unnamed exported pin gets KiCad's automatic name.
+    assert_eq!(pads_of("VOUT"), ["1", "2"]);
+    assert_eq!(pads_of("Net-(J10-Pad3)"), ["3"]);
+    assert_eq!(nets.len(), 7, "VOUT and one net for each of pads 3–8");
+    assert!(
+        codes(&out)
+            .iter()
+            .all(|(code, _)| code != "net-name-conflict")
+    );
+}

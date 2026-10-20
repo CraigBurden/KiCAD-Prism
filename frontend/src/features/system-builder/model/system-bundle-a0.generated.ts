@@ -458,6 +458,12 @@ export interface SystemBundlePlacement {
    * Every mate, sorted by `mate` in code point order.
    */
   mates: SystemBundlePlacedMate[];
+  /**
+   * Every export whose connector has footprint geometry and a place, sorted
+   * by `export` in code point order (stage 3d). Absent in bundles built
+   * before format 4.
+   */
+  exports?: SystemBundlePlacedExport[];
 }
 /**
  * One occurrence's place in the system.
@@ -626,4 +632,106 @@ export interface SystemBundleVectorNm3 {
    * Z in nanometres.
    */
   zNm: number;
+}
+/**
+ * One export's connector, as a system placing this one as an entry mates by it (stage 3d).
+ */
+export interface SystemBundlePlacedExport {
+  /**
+   * Id of an object in the system document (`prism.system.v2`).
+   */
+  export: string;
+  mount: SystemBundlePose3;
+  geometry: SystemBundleExportGeometry;
+  /**
+   * An unsure mating-axis inference mates out of the top face: a body's connector, or an export of one.
+   */
+  matesTop: boolean;
+}
+/**
+ * The frame `geometry` is in, placed in the system frame with the
+ * connector's side of its board applied, so the geometry reads at zero
+ * thickness: a board's frame lifted to its surface, a body connector's
+ * footprint frame.
+ */
+export interface SystemBundlePose3 {
+  translation: SystemBundleVectorNm;
+  rotation: SystemBundleQuaternion;
+}
+/**
+ * The connector's footprint geometry in that frame.
+ */
+export interface SystemBundleExportGeometry {
+  /**
+   * The side of its board the footprint is on.
+   */
+  side: "top" | "bottom";
+  /**
+   * The footprint anchor `[x, y]`, in that order, in the mount's frame.
+   *
+   * @minItems 2
+   * @maxItems 2
+   */
+  positionMm: [number, number];
+  /**
+   * The footprint rotation in degrees.
+   */
+  rotationDeg: number;
+  /**
+   * The footprint name, which the mating-axis inference reads. Null when unknown.
+   */
+  footprintName: string | null;
+  /**
+   * The pads, in the extractor's order.
+   */
+  pads: SystemBundleExportPad[];
+  /**
+   * The footprint's courtyard. Null when the footprint has no courtyard graphic.
+   */
+  courtyard: SystemBundleExportCourtyard | null;
+  /**
+   * Always null: an export's geometry carries no 3D model.
+   */
+  model: null;
+}
+/**
+ * One pad of an export's footprint geometry, in millimetres in its frame (+y up).
+ */
+export interface SystemBundleExportPad {
+  /**
+   * The pad number; empty for a mounting or alignment hole.
+   */
+  pad: string;
+  /**
+   * The pad centre `[x, y]`, in that order.
+   *
+   * @minItems 2
+   * @maxItems 2
+   */
+  positionMm: [number, number];
+  /**
+   * The pad size `[x, y]`, in that order. Null when the footprint gives none.
+   */
+  sizeMm: number[] | null;
+  /**
+   * The pad shape (`circle`, `rect`, …). Null when the footprint gives none.
+   */
+  shape: string | null;
+  /**
+   * Whether the pad is through-hole. Null when the footprint does not say.
+   */
+  tht: boolean | null;
+}
+/**
+ * A footprint's courtyard box in its own frame (+y up), in millimetres.
+ */
+export interface SystemBundleExportCourtyard {
+  /**
+   * The minimum corner `[x, y]`, in that order.
+   */
+  minMm: number[];
+  /**
+   * The maximum corner `[x, y]`, in that order.
+   */
+  maxMm: number[];
 }

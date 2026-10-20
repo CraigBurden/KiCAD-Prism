@@ -9,7 +9,7 @@
  */
 import { useMemo, useRef, useState } from "react";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
-import { ArrowUp, Cable, Maximize, MousePointer2, Plus, Unplug } from "lucide-react";
+import { ArrowUp, Boxes, Cable, Maximize, MousePointer2, Plus, Unplug } from "lucide-react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
@@ -23,7 +23,10 @@ import { useScriptApi } from "../agent/use-script-api";
 import { BoardSheetCanvas, type BoardSheetHandle } from "../board/board-sheet-canvas";
 import { readUnfolded, writeUnfolded } from "../board/unfolded-store";
 import { ReviewPane } from "../review/review-pane";
-import { addBoardOps, type NewBoard } from "../schematic/edits";
+import { addBoardOps, nextSlotOp, type NewBoard } from "../schematic/edits";
+import { AddBodyDialog } from "../three-d/add-body-dialog";
+import { addEntryOps } from "../three-d/body-edits";
+import type { PartHit } from "../three-d/part-search";
 import { RootSheetCanvas, type RootSheetHandle, type Tool } from "../schematic/root-sheet-canvas";
 import { buildScene } from "../schematic/scene";
 import { SelectionPanel } from "../schematic/selection-panel";
@@ -84,6 +87,7 @@ export function SystemPage({ user }: { user: User | null }) {
   const canvas = useRef<RootSheetHandle>(null);
   const boardCanvas = useRef<BoardSheetHandle>(null);
   const [addingBoard, setAddingBoard] = useState(false);
+  const [placingSystem, setPlacingSystem] = useState(false);
   // The B2B tab's selected row, lit on both boards in the 3D tab.
   const [lit, setLit] = useState<{ key: string; members: { occurrence: string; net: string }[]; parts: { occurrence: string; reference: string }[] } | null>(null);
   // Unfolded connectors per board: per user and system, in browser storage (§14.1).
@@ -171,6 +175,16 @@ export function SystemPage({ user }: { user: User | null }) {
     requestAnimationFrame(() => canvas.current?.fit());
   };
 
+  const placeSystem = async (system: PartHit) => {
+    if (!document) return;
+    const scene = buildScene(document, state.bundle, { projectNames });
+    const { ops, occurrence } = addEntryOps(document, system);
+    await apply([...ops, nextSlotOp(scene, occurrence)]);
+    setPlacingSystem(false);
+    setSelected(new Set([occurrence]));
+    requestAnimationFrame(() => canvas.current?.fit());
+  };
+
   if (state.loadError) {
     return (
       <div className="flex h-app-viewport flex-col items-center justify-center gap-3 bg-background text-sm">
@@ -240,6 +254,7 @@ export function SystemPage({ user }: { user: User | null }) {
             {canEdit && <ToolButton active={tool === "mate"} onClick={() => setTool("mate")} icon={Unplug} label="Mate" />}
             {canEdit && <ToolButton active={tool === "harness"} onClick={() => setTool("harness")} icon={Cable} label="Harness (H)" />}
             {canEdit && <ToolButton active={false} onClick={() => setAddingBoard(true)} icon={Plus} label="Add board" />}
+            {canEdit && <ToolButton active={false} onClick={() => setPlacingSystem(true)} icon={Boxes} label="Place system" />}
             <ToolButton active={false} onClick={() => canvas.current?.fit()} icon={Maximize} label="Fit" />
           </div>
         </div>
@@ -339,6 +354,7 @@ export function SystemPage({ user }: { user: User | null }) {
           onAdd={addBoard}
         />
       )}
+      {placingSystem && <AddBodyDialog adding="entry" onClose={() => setPlacingSystem(false)} onAdd={placeSystem} />}
     </div>
   );
 }

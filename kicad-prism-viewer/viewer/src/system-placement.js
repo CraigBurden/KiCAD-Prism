@@ -122,7 +122,7 @@ export function boardTransition(known, asset) {
  * child system), and bodies and parts that carry a catalog model.
  */
 export function drawnOccurrences(descriptor) {
-  return (descriptor?.occurrences || []).filter((item) => item.kind === "board" || item.restricted
+  return (descriptor?.occurrences || []).filter((item) => item.kind === "board" || item.kind === "entry" || item.restricted
     || ((item.kind === "body" || item.kind === "part") && item.model != null));
 }
 
