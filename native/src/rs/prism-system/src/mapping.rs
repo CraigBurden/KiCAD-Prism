@@ -8,12 +8,15 @@
 //! window is the A pad's rectangle, turned with its footprint, each half-side
 //! at least 0.1 mm: mating series often pair long pads at different row
 //! spacings, so matching centres sit apart along the pads but not across.
+//!
+//! [`drawn`] gives both connectors' pads in A's frame, as the B2B tab draws
+//! them (stage 3c): A's own pads, and B's carried by the same transform.
 
 use crate::natural;
 use crate::placement::frames::{
     Confidence, ConnectorFrame, ConnectorGeometry, connector_frame, infer,
 };
-use crate::placement::mate::{mated, pad_names, pad_one_turns};
+use crate::placement::mate::{local, mated, pad_names, pad_one_turns};
 use std::collections::{BTreeMap, BTreeSet};
 
 /// The smallest half-side of a landing window, in mm.
@@ -54,8 +57,24 @@ impl Window {
     }
 }
 
-/// The window of A's pads called `name`, from the smallest of them; the pad
-/// is taken to turn with its footprint (`frames.rs` reads rotation the same way).
+/// A pad's long axis in the frame's xy plane (unit), for a pad of `size`
+/// turned with its footprint (`frames.rs` reads rotation the same way).
+fn long_axis(geometry: &ConnectorGeometry, frame: &ConnectorFrame, size: [f64; 2]) -> [f64; 2] {
+    let a = geometry.rotation_deg.to_radians();
+    let local_x = [a.cos(), a.sin(), 0.0];
+    let local_y = [-a.sin(), a.cos(), 0.0];
+    let long = if size[0] >= size[1] { local_x } else { local_y };
+    let dot = |v: [f64; 3], w: [f64; 3]| v[0] * w[0] + v[1] * w[1] + v[2] * w[2];
+    let (ux, uy) = (dot(long, frame.x_axis), dot(long, frame.y_axis));
+    let norm = ux.hypot(uy);
+    if norm > 1e-9 {
+        [ux / norm, uy / norm]
+    } else {
+        [1.0, 0.0]
+    }
+}
+
+/// The window of A's pads called `name`, from the smallest of them.
 fn landing_window(geometry: &ConnectorGeometry, frame: &ConnectorFrame, name: &str) -> Window {
     let half = |dimension: f64| (0.5 * dimension).max(MIN_LANDING_MM);
     let smallest = geometry
@@ -71,28 +90,45 @@ fn landing_window(geometry: &ConnectorGeometry, frame: &ConnectorFrame, name: &s
             across: MIN_LANDING_MM,
         };
     };
-    let a = geometry.rotation_deg.to_radians();
-    let local_x = [a.cos(), a.sin(), 0.0];
-    let local_y = [-a.sin(), a.cos(), 0.0];
-    let long = if size[0] >= size[1] { local_x } else { local_y };
-    let dot = |v: [f64; 3], w: [f64; 3]| v[0] * w[0] + v[1] * w[1] + v[2] * w[2];
-    let (ux, uy) = (dot(long, frame.x_axis), dot(long, frame.y_axis));
-    let norm = ux.hypot(uy);
-    let u = if norm > 1e-9 {
-        [ux / norm, uy / norm]
-    } else {
-        [1.0, 0.0]
-    };
     Window {
-        u,
+        u: long_axis(geometry, frame, size),
         along: half(size[0].max(size[1])),
         across: half(size[0].min(size[1])),
     }
 }
 
-/// The mapping geometry gives, or `None` when it cannot decide: no pads, no
-/// frame, or a frame inferred with confidence `low` (§8.4, source `unresolved`).
-pub fn derive(a: &Side<'_>, b: &Side<'_>, quarter_turns: i32, flip: bool) -> Option<Mapping> {
+/// One pad drawn in A's connector frame: its centre, its long axis's angle
+/// from +x (degrees), and its full long and short sides, in mm.
+#[derive(Clone, Debug, PartialEq)]
+pub struct DrawnPad {
+    /// The pad number.
+    pub pad: String,
+    /// The centre in A's frame.
+    pub centre_mm: [f64; 2],
+    /// The long axis's angle from A's +x, in degrees.
+    pub angle_deg: f64,
+    /// The long side.
+    pub long_mm: f64,
+    /// The short side.
+    pub short_mm: f64,
+}
+
+/// Both connectors' named pads in A's frame, in natural order of their pad.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Drawn {
+    /// A's pads.
+    pub a: Vec<DrawnPad>,
+    /// B's pads, carried into A's frame by the mate transform.
+    pub b: Vec<DrawnPad>,
+}
+
+/// Frames of both sides and the `k` of the mate transform, or `None` when the
+/// geometry cannot decide (no pads, no frame, or a `low` confidence frame).
+fn frames(
+    a: &Side<'_>,
+    b: &Side<'_>,
+    quarter_turns: i32,
+) -> Option<(ConnectorFrame, ConnectorFrame, i32)> {
     for side in [a, b] {
         if side.geometry.pads.is_empty() || infer(Some(side.geometry)).confidence == Confidence::Low
         {
@@ -101,17 +137,68 @@ pub fn derive(a: &Side<'_>, b: &Side<'_>, quarter_turns: i32, flip: bool) -> Opt
     }
     let frame_a = connector_frame(Some(a.geometry), a.thickness_mm, None)?;
     let frame_b = connector_frame(Some(b.geometry), b.thickness_mm, None)?;
-    let pads_a = pad_names(a.geometry, &frame_a);
-    let pads_b = pad_names(b.geometry, &frame_b);
     let k =
         (pad_one_turns(a.geometry, &frame_a, b.geometry, &frame_b) + quarter_turns).rem_euclid(4);
+    Some((frame_a, frame_b, k))
+}
+
+/// A vector in B's frame carried into A's: flipped over B's x axis first when
+/// `flip`, then the mate transform's turn (linear at zero height).
+fn carry(v: [f64; 2], k: i32, flip: bool) -> [f64; 2] {
+    let y = if flip { -v[1] } else { v[1] };
+    let moved = mated([v[0], y, 0.0], k, 0.0);
+    [moved[0], moved[1]]
+}
+
+/// One side's named pads in its own frame, each then carried by `to_a`.
+fn draw_side(
+    geometry: &ConnectorGeometry,
+    frame: &ConnectorFrame,
+    to_a: impl Fn([f64; 2]) -> [f64; 2],
+) -> Vec<DrawnPad> {
+    let mut pads: Vec<DrawnPad> = geometry
+        .pads
+        .iter()
+        .filter(|pad| !pad.pad.is_empty())
+        .map(|pad| {
+            let point = local(
+                frame,
+                [pad.position_mm[0], pad.position_mm[1], frame.origin_mm[2]],
+            );
+            let size = pad.size_mm.unwrap_or([0.0, 0.0]);
+            let u = to_a(long_axis(geometry, frame, size));
+            DrawnPad {
+                pad: pad.pad.clone(),
+                centre_mm: to_a([point[0], point[1]]),
+                angle_deg: u[1].atan2(u[0]).to_degrees(),
+                long_mm: size[0].max(size[1]),
+                short_mm: size[0].min(size[1]),
+            }
+        })
+        .collect();
+    pads.sort_by(|x, y| natural::cmp(&x.pad, &y.pad));
+    pads
+}
+
+/// Both connectors' pads as the mated pose puts them, seen in A's frame, or
+/// `None` when the geometry cannot decide.
+pub fn drawn(a: &Side<'_>, b: &Side<'_>, quarter_turns: i32, flip: bool) -> Option<Drawn> {
+    let (frame_a, frame_b, k) = frames(a, b, quarter_turns)?;
+    Some(Drawn {
+        a: draw_side(a.geometry, &frame_a, |v| v),
+        b: draw_side(b.geometry, &frame_b, |v| carry(v, k, flip)),
+    })
+}
+
+/// The mapping geometry gives, or `None` when it cannot decide: no pads, no
+/// frame, or a frame inferred with confidence `low` (§8.4, source `unresolved`).
+pub fn derive(a: &Side<'_>, b: &Side<'_>, quarter_turns: i32, flip: bool) -> Option<Mapping> {
+    let (frame_a, frame_b, k) = frames(a, b, quarter_turns)?;
+    let pads_a = pad_names(a.geometry, &frame_a);
+    let pads_b = pad_names(b.geometry, &frame_b);
     let placed: BTreeMap<&String, [f64; 2]> = pads_b
         .iter()
-        .map(|(name, point)| {
-            let y = if flip { -point[1] } else { point[1] };
-            let moved = mated([point[0], y, 0.0], k, 0.0);
-            (name, [moved[0], moved[1]])
-        })
+        .map(|(name, point)| (name, carry(*point, k, flip)))
         .collect();
     let mut names_a: Vec<String> = pads_a.keys().cloned().collect();
     natural::sort(&mut names_a);

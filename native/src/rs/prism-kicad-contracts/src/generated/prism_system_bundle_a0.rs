@@ -1188,6 +1188,10 @@ pub struct SystemBundleLink {
 ///      "description": "The document mate's id.",
 ///      "$ref": "#/$defs/SystemBundleObjectId"
 ///    },
+///    "pads": {
+///      "description": "Both connectors' pads in the mated pose; absent when the geometry cannot decide it (stage 3c).",
+///      "$ref": "#/$defs/SystemBundleMatePads"
+///    },
 ///    "pairs": {
 ///      "description": "Pin pairs, sorted by `a` in natural order.",
 ///      "type": "array",
@@ -1233,6 +1237,116 @@ pub struct SystemBundleMate {
     ///Side B pads without a partner, in natural order.
     #[serde(rename = "unmappedB")]
     pub unmapped_b: ::std::vec::Vec<PadNumber>,
+    ///Both connectors' pads in the mated pose; absent when the geometry cannot decide it (stage 3c).
+    #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+    pub pads: ::std::option::Option<SystemBundleMatePads>,
+}
+///One pad of a mate drawn in side A's connector frame (stage 3c).
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "description": "One pad of a mate drawn in side A's connector frame (stage 3c).",
+///  "type": "object",
+///  "required": [
+///    "angleDeg",
+///    "longNm",
+///    "pad",
+///    "shortNm",
+///    "xNm",
+///    "yNm"
+///  ],
+///  "properties": {
+///    "angleDeg": {
+///      "description": "The pad's long axis, degrees counter-clockwise from A's +x, in [0, 180).",
+///      "$ref": "#/$defs/Degrees"
+///    },
+///    "longNm": {
+///      "description": "The pad's long side.",
+///      "$ref": "#/$defs/NonNegativeNanometres"
+///    },
+///    "pad": {
+///      "description": "The pad number.",
+///      "$ref": "#/$defs/PadNumber"
+///    },
+///    "shortNm": {
+///      "description": "The pad's short side.",
+///      "$ref": "#/$defs/NonNegativeNanometres"
+///    },
+///    "xNm": {
+///      "description": "The centre's x in A's connector frame.",
+///      "$ref": "#/$defs/Nanometres"
+///    },
+///    "yNm": {
+///      "description": "The centre's y in A's connector frame.",
+///      "$ref": "#/$defs/Nanometres"
+///    }
+///  },
+///  "additionalProperties": false
+///}
+/// ```
+/// </details>
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct SystemBundleMatePad {
+    ///The pad number.
+    pub pad: PadNumber,
+    ///The centre's x in A's connector frame.
+    #[serde(rename = "xNm")]
+    pub x_nm: Nanometres,
+    ///The centre's y in A's connector frame.
+    #[serde(rename = "yNm")]
+    pub y_nm: Nanometres,
+    ///The pad's long axis, degrees counter-clockwise from A's +x, in [0, 180).
+    #[serde(rename = "angleDeg")]
+    pub angle_deg: Degrees,
+    ///The pad's long side.
+    #[serde(rename = "longNm")]
+    pub long_nm: NonNegativeNanometres,
+    ///The pad's short side.
+    #[serde(rename = "shortNm")]
+    pub short_nm: NonNegativeNanometres,
+}
+///Both connectors' pads in the mated pose, seen in side A's connector frame (x, y on the mating face, looking down its mating axis).
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "description": "Both connectors' pads in the mated pose, seen in side A's connector frame (x, y on the mating face, looking down its mating axis).",
+///  "type": "object",
+///  "required": [
+///    "a",
+///    "b"
+///  ],
+///  "properties": {
+///    "a": {
+///      "description": "Side A's named pads, in natural order of their pad; pads sharing a number each appear.",
+///      "type": "array",
+///      "items": {
+///        "$ref": "#/$defs/SystemBundleMatePad"
+///      }
+///    },
+///    "b": {
+///      "description": "Side B's named pads, carried into A's frame by the mate transform, in natural order of their pad.",
+///      "type": "array",
+///      "items": {
+///        "$ref": "#/$defs/SystemBundleMatePad"
+///      }
+///    }
+///  },
+///  "additionalProperties": false
+///}
+/// ```
+/// </details>
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct SystemBundleMatePads {
+    ///Side A's named pads, in natural order of their pad; pads sharing a number each appear.
+    pub a: ::std::vec::Vec<SystemBundleMatePad>,
+    ///Side B's named pads, carried into A's frame by the mate transform, in natural order of their pad.
+    pub b: ::std::vec::Vec<SystemBundleMatePad>,
 }
 ///Where a B2B mapping came from.
 ///

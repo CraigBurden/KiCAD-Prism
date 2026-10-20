@@ -206,6 +206,10 @@
                         "$ref": "#/$defs/PadNumber"
                     },
                     "description": "Side B pads without a partner, in natural order."
+                },
+                "pads": {
+                    "$ref": "#/$defs/SystemBundleMatePads",
+                    "description": "Both connectors' pads in the mated pose; absent when the geometry cannot decide it (stage 3c)."
                 }
             },
             "required": [
@@ -589,6 +593,33 @@
             "type": "string",
             "description": "Pad or pin number as written in the file, always a string (`1`, `A1`,\n`EP`). Empty for a pad KiCad leaves unnumbered, such as a mechanical\nnon-plated hole."
         },
+        "SystemBundleMatePads": {
+            "type": "object",
+            "properties": {
+                "a": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/$defs/SystemBundleMatePad"
+                    },
+                    "description": "Side A's named pads, in natural order of their pad; pads sharing a number each appear."
+                },
+                "b": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/$defs/SystemBundleMatePad"
+                    },
+                    "description": "Side B's named pads, carried into A's frame by the mate transform, in natural order of their pad."
+                }
+            },
+            "required": [
+                "a",
+                "b"
+            ],
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "Both connectors' pads in the mated pose, seen in side A's connector frame (x, y on the mating face, looking down its mating axis)."
+        },
         "SystemBundleWire": {
             "type": "object",
             "properties": {
@@ -799,6 +830,47 @@
                 "not": {}
             },
             "description": "One pin of a connector, as the board's design bundle has it."
+        },
+        "SystemBundleMatePad": {
+            "type": "object",
+            "properties": {
+                "pad": {
+                    "$ref": "#/$defs/PadNumber",
+                    "description": "The pad number."
+                },
+                "xNm": {
+                    "$ref": "#/$defs/Nanometres",
+                    "description": "The centre's x in A's connector frame."
+                },
+                "yNm": {
+                    "$ref": "#/$defs/Nanometres",
+                    "description": "The centre's y in A's connector frame."
+                },
+                "angleDeg": {
+                    "$ref": "#/$defs/Degrees",
+                    "description": "The pad's long axis, degrees counter-clockwise from A's +x, in [0, 180)."
+                },
+                "longNm": {
+                    "$ref": "#/$defs/NonNegativeNanometres",
+                    "description": "The pad's long side."
+                },
+                "shortNm": {
+                    "$ref": "#/$defs/NonNegativeNanometres",
+                    "description": "The pad's short side."
+                }
+            },
+            "required": [
+                "pad",
+                "xNm",
+                "yNm",
+                "angleDeg",
+                "longNm",
+                "shortNm"
+            ],
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "One pad of a mate drawn in side A's connector frame (stage 3c)."
         },
         "SystemBundleWireRule": {
             "type": "string",

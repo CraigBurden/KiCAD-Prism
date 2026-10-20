@@ -275,6 +275,36 @@ pub struct MateOut {
     pub unmapped_a: Vec<String>,
     /// Side B pads without a partner.
     pub unmapped_b: Vec<String>,
+    /// Both connectors' pads in A's frame, when the geometry decides it (stage 3c).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub pads: Option<MatePadsOut>,
+}
+
+/// One pad drawn in A's connector frame.
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MatePadOut {
+    /// The pad number.
+    pub pad: String,
+    /// The centre's x in A's frame.
+    pub x_nm: i64,
+    /// The centre's y in A's frame.
+    pub y_nm: i64,
+    /// The long axis's angle from A's +x, degrees counter-clockwise.
+    pub angle_deg: f64,
+    /// The long side.
+    pub long_nm: i64,
+    /// The short side.
+    pub short_nm: i64,
+}
+
+/// Both connectors' pads in the mated pose, seen in A's connector frame.
+#[derive(Clone, Debug, Serialize)]
+pub struct MatePadsOut {
+    /// Side A's pads, in natural order of their pad.
+    pub a: Vec<MatePadOut>,
+    /// Side B's pads, in natural order of their pad.
+    pub b: Vec<MatePadOut>,
 }
 
 /// One wire of a link's wiring.

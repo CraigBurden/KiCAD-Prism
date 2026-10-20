@@ -28,6 +28,10 @@ export interface ThreeDPaneProps {
   canEdit: boolean;
   busy: boolean;
   apply: (ops: SystemOp[]) => Promise<unknown>;
+  /** A B2B row's nets to light on their boards, and the two connectors to frame; null clears. */
+  lit?: { key: string; members: { occurrence: string; net: string }[]; parts: { occurrence: string; reference: string }[] } | null;
+  /** Open a mate's B2B tab. */
+  onOpenMate?: (mate: string) => void;
 }
 
 const DEFAULT_SNAP: Snap = { mm: 0.5, deg: 15 };
@@ -40,7 +44,7 @@ function whenReady(element: PrismSemanticViewerElement | null, command: (element
 
 const report = (error: unknown) => toast.error(error instanceof Error ? error.message : String(error));
 
-export function ThreeDPane({ document, bundle, projectNames, selected, onSelect, canEdit, busy, apply }: ThreeDPaneProps) {
+export function ThreeDPane({ document, bundle, projectNames, selected, onSelect, canEdit, busy, apply, lit = null, onOpenMate }: ThreeDPaneProps) {
   const [element, setElement] = useState<PrismSemanticViewerElement | null>(null);
   const assets = useMemberAssets(document);
   const scene = useMemo(() => buildSceneDescriptor(document, bundle, assets), [document, bundle, assets]);
@@ -100,6 +104,14 @@ export function ThreeDPane({ document, bundle, projectNames, selected, onSelect,
       viewer.setSeparation(own ? view.stackup : 0, occurrence.path);
     }
   }), [element, view, scene, selectedBoard]);
+  // A B2B row lights its net on both boards and frames the two connectors (mockup 04).
+  const litKey = lit?.key ?? null;
+  useEffect(() => whenReady(element, (viewer) => {
+    viewer.setNetEmphasis?.(lit ? [{ key: lit.key, members: lit.members }] : []);
+    if (lit) viewer.frameParts?.(lit.parts);
+    // `litKey` names `lit`: a new row, not a new object for the same one.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }), [element, litKey]);
   // The other pane's selection shows here; the viewer does not echo it back.
   useEffect(() => whenReady(element, (viewer) => viewer.setSelection(selectedBoard ? { occurrence: selectedBoard } : null)), [element, selectedBoard]);
 
@@ -128,11 +140,10 @@ export function ThreeDPane({ document, bundle, projectNames, selected, onSelect,
       {!bundle?.placement && (
         <div className="pointer-events-none absolute inset-0 flex items-center justify-center text-sm text-zinc-500">Placing the boards…</div>
       )}
-      <div className="absolute right-4 top-3">
+      {/* One column on the right: the View card, then the selected board's card (no overlap in a narrow pane). */}
+      <div className="absolute right-4 top-3 z-10 flex max-h-[calc(100%-5rem)] flex-col items-end gap-3 overflow-auto">
         <ViewCard view={view} onChange={setView} hasSelection={Boolean(selectedBoard)} />
-      </div>
-      {selectedBoard && !(target && target.occurrence === selectedBoard && placedTarget?.movable) && (
-        <div className="absolute left-4 top-3">
+        {selectedBoard && !(target && target.occurrence === selectedBoard && placedTarget?.movable) && (
           <OccurrenceCard
             document={document}
             bundle={bundle}
@@ -141,11 +152,12 @@ export function ThreeDPane({ document, bundle, projectNames, selected, onSelect,
             canEdit={canEdit}
             busy={busy}
             onPositioningMate={(mate) => void apply(positioningMateOps(document, selectedBoard, mate)).catch(report)}
+            onOpenMate={onOpenMate}
           />
-        </div>
-      )}
+        )}
+      </div>
       {move && target && targetOccurrence && placedTarget?.movable && (
-        <div className="absolute bottom-16 left-4">
+        <div className="absolute bottom-16 left-4 z-10">
           <MoveCard
             key={`${target.occurrence}:${epoch}`}
             label={targetOccurrence.label}

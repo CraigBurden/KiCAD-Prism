@@ -9,8 +9,8 @@ use crate::mapping::{self, Side};
 use crate::natural;
 use crate::nets::{Edge, Node};
 use crate::output::{
-    ConnectorOut, MateOut, OccurrenceOut, OutlineOut, PairOut, PinOut, PinRef, PlacementOut,
-    SCHEMA, SystemBundle,
+    ConnectorOut, MateOut, MatePadOut, MatePadsOut, OccurrenceOut, OutlineOut, PairOut, PinOut,
+    PinRef, PlacementOut, SCHEMA, SystemBundle,
 };
 use crate::{nets, suggestions, wiring};
 use std::collections::{BTreeMap, BTreeSet};
@@ -293,10 +293,22 @@ fn map_mate(cx: &mut Context<'_>, mate: &Mate, edges: &mut Vec<Edge>) -> MateOut
         pairs: Vec::new(),
         unmapped_a: Vec::new(),
         unmapped_b: Vec::new(),
+        pads: None,
     };
     let (Some(a), Some(b)) = (a, b) else {
         return out;
     };
+    out.pads = side(cx, &mate.a.occurrence, a)
+        .zip(side(cx, &mate.b.occurrence, b))
+        .and_then(|(sa, sb)| {
+            mapping::drawn(
+                &sa,
+                &sb,
+                mate.orientation.quarter_turns,
+                mate.orientation.flip,
+            )
+        })
+        .map(|drawn| pads_out(&drawn));
     let mapping = if let Some(manual) = &mate.manual_map {
         out.source = "manual";
         cx.findings.add(
@@ -354,6 +366,27 @@ fn map_mate(cx: &mut Context<'_>, mate: &Mate, edges: &mut Vec<Edge>) -> MateOut
         out.unmapped_b = mapping.unmapped_b;
     }
     out
+}
+
+/// The drawn pads in nanometres (angles to 1e-6°).
+fn pads_out(drawn: &mapping::Drawn) -> MatePadsOut {
+    let nm = |mm: f64| (mm * 1_000_000.0).round() as i64;
+    let side = |pads: &[mapping::DrawnPad]| {
+        pads.iter()
+            .map(|pad| MatePadOut {
+                pad: pad.pad.clone(),
+                x_nm: nm(pad.centre_mm[0]),
+                y_nm: nm(pad.centre_mm[1]),
+                angle_deg: (pad.angle_deg.rem_euclid(180.0) * 1e6).round() / 1e6 % 180.0,
+                long_nm: nm(pad.long_mm),
+                short_nm: nm(pad.short_mm),
+            })
+            .collect()
+    };
+    MatePadsOut {
+        a: side(&drawn.a),
+        b: side(&drawn.b),
+    }
 }
 
 fn manual_mapping(

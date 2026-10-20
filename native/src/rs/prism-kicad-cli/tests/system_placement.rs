@@ -164,3 +164,55 @@ fn a_second_mate_that_does_not_meet_is_misaligned() {
         format!("mate:{}", other["mate"].as_str().unwrap())
     );
 }
+
+// -------------------------------------------------------------------- mate pads (3c)
+
+fn pad<'a>(pads: &'a Value, name: &str) -> &'a Value {
+    pads.as_array()
+        .unwrap()
+        .iter()
+        .find(|item| item["pad"] == name)
+        .unwrap_or_else(|| panic!("pad {name} is drawn"))
+}
+
+fn centre_mm(pad: &Value) -> [f64; 2] {
+    ["xNm", "yNm"].map(|axis| pad[axis].as_f64().unwrap() / 1e6)
+}
+
+#[test]
+fn the_mated_pads_are_drawn_on_each_other_in_a_s_frame() {
+    let bundle = mezzanine_bundle("mate-pads", mezzanine_mate(0, None));
+    let mate = &bundle["mates"][0];
+    let pads = &mate["pads"];
+    let pairs = mate["pairs"].as_array().unwrap();
+    assert!(!pairs.is_empty());
+    for pair in pairs {
+        let a = pad(&pads["a"], pair["a"].as_str().unwrap());
+        let b = pad(&pads["b"], pair["b"].as_str().unwrap());
+        let (ca, cb) = (centre_mm(a), centre_mm(b));
+        let apart = (ca[0] - cb[0]).hypot(ca[1] - cb[1]);
+        // A pair lands inside A's pad: no further apart than half its long side.
+        let reach = a["longNm"].as_f64().unwrap() / 2e6 + 0.1;
+        assert!(apart <= reach, "{pair} drawn {apart} mm apart");
+        let angle = a["angleDeg"].as_f64().unwrap();
+        assert!((0.0..180.0).contains(&angle), "angle {angle}");
+    }
+}
+
+#[test]
+fn a_quarter_turn_turns_b_s_drawn_pads() {
+    let natural = mezzanine_bundle("mate-pads-0", mezzanine_mate(0, None));
+    let turned = mezzanine_bundle("mate-pads-1", mezzanine_mate(1, None));
+    let first = &natural["mates"][0]["pads"]["b"][0];
+    let moved = &turned["mates"][0]["pads"]["b"][0];
+    assert_eq!(first["pad"], moved["pad"]);
+    let (p, q) = (centre_mm(first), centre_mm(moved));
+    // A quarter turn about the mating axis keeps the distance from it and moves the pad.
+    assert!((p[0].hypot(p[1]) - q[0].hypot(q[1])).abs() < 1e-3);
+    assert!((p[0] - q[0]).hypot(p[1] - q[1]) > 0.1);
+    // A's own pads do not move.
+    assert_eq!(
+        natural["mates"][0]["pads"]["a"],
+        turned["mates"][0]["pads"]["a"]
+    );
+}

@@ -701,7 +701,7 @@ def system_build(positionals: list[str], options: dict[str, Any]) -> NoReturn:
     preimage = {
         "documentSha256": document_sha256,
         # prism_system::SYSTEM_BUNDLE_FORMAT (CONTRACTS §8.1).
-        "format": 1,
+        "format": 2,
         "generator": generator_digest,
         "members": {occurrence: member_keys[occurrence] for occurrence in sorted(member_keys)},
         "absent": sorted(absent),
