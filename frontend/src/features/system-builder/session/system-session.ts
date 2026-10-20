@@ -53,11 +53,13 @@ export class SessionWriteError extends Error {
  * names, oldest first. Redo is not rebuilt across reloads.
  */
 export function undoStackFromHistory(history: readonly SystemHistoryEntry[], actor: string): number[] {
-  const undone = new Set(history.filter((entry) => entry.kind === "undo" && entry.undoes !== null).map((entry) => entry.undoes as number));
-  return history
-    .filter((entry) => entry.actor === actor && entry.kind === "edit" && !undone.has(entry.version))
-    .map((entry) => entry.version)
-    .sort((a, b) => a - b);
+  const undone = new Set<number>();
+  for (const entry of history) if (entry.kind === "undo" && entry.undoes !== null) undone.add(entry.undoes);
+  const mine: number[] = [];
+  for (const entry of history) {
+    if (entry.actor === actor && entry.kind === "edit" && !undone.has(entry.version)) mine.push(entry.version);
+  }
+  return mine.sort((a, b) => a - b);
 }
 
 export class SystemSession {

@@ -61,3 +61,19 @@ export function readHistory(systemId: string, options: { before?: number; limit?
 export function systemPath(systemId: string): string {
   return `/system/${encodeURIComponent(systemId)}`;
 }
+
+export interface ProjectBranch {
+  name: string;
+  ref: string;
+  source: "remote" | "local";
+  is_current: boolean;
+  commit: string;
+  hash: string;
+  message: string;
+  date: string;
+}
+
+/** A project's branches with their head commits (`GET /api/projects/{id}/branches`). */
+export function readProjectBranches(projectId: string, signal?: AbortSignal): Promise<{ branches: ProjectBranch[]; default_ref: string | null }> {
+  return fetchJson(`/api/projects/${encodeURIComponent(projectId)}/branches`, { signal }, "Could not load the project's branches");
+}

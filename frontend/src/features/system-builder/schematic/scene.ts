@@ -322,34 +322,35 @@ export function buildScene(document: SystemDocument, bundle: SystemBundle | unde
     if (!a || !b) return { points: [a?.point ?? b?.point ?? { x: 0, y: 0 }], stored: false };
     return { points: autoRoute({ point: a.point, edge: a.edge }, { point: b.point, edge: b.edge }, obstacles), stored: false };
   };
-  for (const mate of document.mates) {
-    if (!byId.has(mate.a.occurrence) || !byId.has(mate.b.occurrence)) continue;
-    const a = portOf(mate.a.occurrence, mate.a.connector);
-    const b = portOf(mate.b.occurrence, mate.b.connector);
+  for (const { id, a: siteA, b: siteB } of document.mates) {
+    if (!byId.has(siteA.occurrence) || !byId.has(siteB.occurrence)) continue;
+    const a = portOf(siteA.occurrence, siteA.connector);
+    const b = portOf(siteB.occurrence, siteB.connector);
     connections.push({
-      id: mate.id,
+      id,
       kind: "mate",
-      a: { item: mate.a.occurrence, key: mate.a.connector },
-      b: { item: mate.b.occurrence, key: mate.b.connector },
-      ...route(mate.id, a, b),
+      a: { item: siteA.occurrence, key: siteA.connector },
+      b: { item: siteB.occurrence, key: siteB.connector },
+      ...route(id, a, b),
       dangling: !a || !b || a.missing || b.missing,
-      label: `${mate.a.connector} ↔ ${mate.b.connector}`,
+      label: `${siteA.connector} ↔ ${siteB.connector}`,
     });
   }
   for (const harness of harnesses) {
     for (const end of harness.ends) {
-      if (!end.site || !byId.has(end.site.occurrence)) continue;
-      const a = portOf(end.site.occurrence, end.site.connector);
+      const site = end.site;
+      if (!site || !byId.has(site.occurrence)) continue;
+      const a = portOf(site.occurrence, site.connector);
       const b = portOf(harness.id, end.id);
       connections.push({
         id: end.id,
         kind: "harness",
         harness: harness.id,
-        a: { item: end.site.occurrence, key: end.site.connector },
+        a: { item: site.occurrence, key: site.connector },
         b: { item: harness.id, key: end.id },
         ...route(end.id, a, b),
         dangling: !a || a.missing,
-        label: `${occurrenceLabel.get(end.site.occurrence) ?? end.site.occurrence}.${end.site.connector}`,
+        label: `${occurrenceLabel.get(site.occurrence) ?? site.occurrence}.${site.connector}`,
       });
     }
   }

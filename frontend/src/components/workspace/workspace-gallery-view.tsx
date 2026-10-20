@@ -36,6 +36,7 @@ interface WorkspaceGalleryViewProps {
   onRegenerateThumbnail: (project: Project) => void;
   canManageProjects: boolean;
   /** Rendered between the folders and the boards (the level's systems). */
+  systemsSection?: ReactNode;
   /** Selection and paging controls for the boards, shown in their heading. */
   projectsToolbar?: ReactNode;
   /** Boards at this level across every page. */
@@ -62,6 +63,7 @@ export function WorkspaceGalleryView({
   onDeleteProject,
   onRegenerateThumbnail,
   canManageProjects,
+  systemsSection,
   projectsToolbar,
   projectCount,
 }: WorkspaceGalleryViewProps) {
@@ -75,6 +77,7 @@ export function WorkspaceGalleryView({
     <div className="space-y-8">
       {isSearching ? (
         <>
+          {systemsSection}
           <section className="space-y-3">
           <WorkspaceSectionHeading icon={CircuitBoard} title="Matching boards" count={searchResults.length}>
             {projectsToolbar}
@@ -172,6 +175,7 @@ export function WorkspaceGalleryView({
             </section>
           )}
 
+          {systemsSection}
 
           <section className="space-y-3">
             <WorkspaceSectionHeading icon={CircuitBoard} title="Boards" count={projectCount ?? visibleProjects.length}>

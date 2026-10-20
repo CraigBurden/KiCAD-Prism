@@ -251,10 +251,13 @@ export function resize(
 ): { rect: Rect; ports: Record<string, PortPlacement> } {
   const movesLeft = handle.endsWith("left");
   const movesTop = handle.startsWith("top");
-  const along = (horizontal: boolean) =>
-    Object.values(ports)
-      .filter((port) => (port.edge === "top" || port.edge === "bottom") === horizontal)
-      .map((port) => port.offsetNm);
+  const along = (horizontal: boolean) => {
+    const offsets: number[] = [];
+    for (const port of Object.values(ports)) {
+      if ((port.edge === "top" || port.edge === "bottom") === horizontal) offsets.push(port.offsetNm);
+    }
+    return offsets;
+  };
   const floor = (offsets: number[], fromStart: boolean, current: number) => {
     if (offsets.length === 0) return 2 * corner;
     // From the start, the nearest pin must keep `corner` from the new start;
@@ -389,6 +392,51 @@ export function dragSegment(points: readonly Point[], index: number, to: Point):
     next[index + 1].x = value;
   }
   return simplifyRoute(next);
+}
+
+/**
+ * Move one end of a stored orthogonal route to `to`, as KiCad's drag does
+ * (§14.3): the first segment keeps its direction and its neighbour stretches.
+ * A two-point route gains a Z so it stays orthogonal.
+ */
+export function followEnd(points: readonly Point[], which: "start" | "end", to: Point): Point[] {
+  const route = (which === "end" ? [...points].reverse() : [...points]).map((point) => ({ ...point }));
+  if (route.length < 2) return [to];
+  const [from, next] = route;
+  const horizontal = from.y === next.y;
+  if (route.length === 2) {
+    const far = route[1];
+    if (to.x === far.x || to.y === far.y) {
+      route[0] = to;
+    } else if (horizontal) {
+      const middle = snap((to.x + far.x) / 2);
+      route.splice(0, 1, to, { x: middle, y: to.y }, { x: middle, y: far.y });
+    } else {
+      const middle = snap((to.y + far.y) / 2);
+      route.splice(0, 1, to, { x: to.x, y: middle }, { x: far.x, y: middle });
+    }
+  } else {
+    route[0] = to;
+    if (horizontal) route[1].y = to.y;
+    else route[1].x = to.x;
+  }
+  const out = simplifyRoute(route);
+  return which === "end" ? out.reverse() : out;
+}
+
+/** Follow both ends: a route whose ends moved together moves whole. */
+export function followEnds(points: readonly Point[], start: Point, end: Point): Point[] {
+  if (points.length < 2) return [start, end];
+  const first = points[0];
+  const last = points[points.length - 1];
+  const dx = start.x - first.x;
+  const dy = start.y - first.y;
+  if (dx === end.x - last.x && dy === end.y - last.y) return points.map((point) => ({ x: point.x + dx, y: point.y + dy }));
+  let out = [...points];
+  if (start.x !== first.x || start.y !== first.y) out = followEnd(out, "start", start);
+  const tail = out[out.length - 1];
+  if (end.x !== tail.x || end.y !== tail.y) out = followEnd(out, "end", end);
+  return out;
 }
 
 /** The middle of a route's longest segment: where a connection's mark sits. */

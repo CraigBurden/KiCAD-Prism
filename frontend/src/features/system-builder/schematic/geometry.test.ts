@@ -9,6 +9,8 @@ import {
   defaultPorts,
   defaultSheetSize,
   dragSegment,
+  followEnd,
+  followEnds,
   portPoint,
   resize,
   routeMidpoint,
@@ -199,6 +201,26 @@ describe("routes", () => {
     expect(moved[0]).toEqual(route[0]);
     expect(moved[moved.length - 1]).toEqual(route[route.length - 1]);
     expect(moved).toContainEqual({ x: mm(15.24), y: 0 });
+  });
+
+  it("follows a moved pin, keeping the first segment's direction", () => {
+    const route = [{ x: 0, y: 0 }, { x: mm(10.16), y: 0 }, { x: mm(10.16), y: mm(20.32) }, { x: mm(30.48), y: mm(20.32) }];
+    expect(followEnd(route, "start", { x: mm(-5.08), y: mm(2.54) })).toEqual([
+      { x: mm(-5.08), y: mm(2.54) },
+      { x: mm(10.16), y: mm(2.54) },
+      { x: mm(10.16), y: mm(20.32) },
+      { x: mm(30.48), y: mm(20.32) },
+    ]);
+  });
+
+  it("turns a straight two-point route into a Z when one end moves off line", () => {
+    const moved = followEnd([{ x: 0, y: 0 }, { x: mm(20.32), y: 0 }], "end", { x: mm(20.32), y: mm(10.16) });
+    expect(moved).toEqual([{ x: 0, y: 0 }, { x: mm(10.16), y: 0 }, { x: mm(10.16), y: mm(10.16) }, { x: mm(20.32), y: mm(10.16) }]);
+  });
+
+  it("moves a route whole when both ends moved together", () => {
+    const route = [{ x: 0, y: 0 }, { x: 10, y: 0 }, { x: 10, y: 10 }];
+    expect(followEnds(route, { x: 5, y: 5 }, { x: 15, y: 15 })).toEqual([{ x: 5, y: 5 }, { x: 15, y: 5 }, { x: 15, y: 15 }]);
   });
 
   it("puts the mark on the longest segment", () => {
