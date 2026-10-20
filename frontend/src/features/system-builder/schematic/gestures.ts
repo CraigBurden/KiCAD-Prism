@@ -33,6 +33,15 @@ export function hitOf(target: EventTarget | null): { hit: string; id: string; ke
   return { hit: element.getAttribute("data-hit") ?? "", id: element.getAttribute("data-id") ?? "", key: element.getAttribute("data-key") ?? "" };
 }
 
+/**
+ * What lies under the pointer, by position. Clicks after a captured pointer
+ * are retargeted to the capturing canvas, so a double-click asks the page.
+ */
+export function hitAt(event: { clientX: number; clientY: number; target: EventTarget | null }): ReturnType<typeof hitOf> {
+  const element = typeof document !== "undefined" && document.elementFromPoint ? document.elementFromPoint(event.clientX, event.clientY) : null;
+  return hitOf(element) ?? hitOf(event.target);
+}
+
 /** KiCad's drag selection (§14.3): a window takes what it encloses, a crossing what it touches. */
 export function boxSelection(scene: Scene, rect: Rect, mode: "window" | "crossing"): Set<string> {
   const out = new Set<string>();

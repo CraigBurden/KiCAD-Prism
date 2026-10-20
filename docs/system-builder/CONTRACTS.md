@@ -1,6 +1,6 @@
 # System Builder v2 contracts
 
-- **Status:** draft, stages 1a–2. The design is [ADR: System Builder v2](../architecture/adr-system-builder-v2.md); this file is its contract layer.
+- **Status:** draft, stages 1a–2c. The design is [ADR: System Builder v2](../architecture/adr-system-builder-v2.md); this file is its contract layer.
 - **Covers:** the `prism.system.v2` document (§2), the `prism.system.ops.a0` operations (§3), storage (§4), the HTTP API (§5), permissions and redaction (§6) and limits (§7). The system bundle, `prism.system_bundle.a0`, and the `prism-kicad system build` command that writes it are §8; its findings are §9. Stage 1c adds board-level sub-ports (§10), publishing (§11), placing entries (§12) and the Git link (§13). Stage 2 adds the schematic (§14).
 - **Authority:** the TypeSpec in `native/src/tsp/prism/system-v2.tsp`, `system-ops-a0.tsp`, `system-bundle-a0.tsp` and `cli-system-a0.tsp`, with JSON Schema generated beside the bundle contracts. Python validates against the generated schema; the stage 1b Rust reads the generated types. This file explains the rules the schema cannot state.
 
@@ -564,7 +564,7 @@ The schematic follows Eeschema: hierarchical sheets, sheet pins, wires, buses, b
 
 - **The root sheet and user sheets** hold occurrences as sheet symbols, harness blocks, and connections. A board, body or entry occurrence is a sheet symbol whose pins are its connectors, one pin per connector, each carrying a bus of the connector's pins. Sub-ports never appear as pins outside the board's own sheet.
 - **A connection** is drawn between two connector pins: a mate as a bus with the mate mark; a harness as a bus in the harness colour from each end's site to its harness block, so a harness link always passes through its block. On the block, each end is one pin; the block shows a one-line summary per end.
-- **A board's sheet** (entered by double-click) is generated and read-only except for grouping and layout: one board symbol whose pins are its connectors, each pin's bus running to a hierarchical label named after the connector. Unfolding a connector breaks its bus out into one wire per pin, labelled with the pin's board net. Folding it back shows its groups in the label, in KiCad's bus-group form: `J2201{FAN{TACH PWM} 1 2 MP}`, ungrouped pads as plain members, a pad in two groups in both.
+- **A board's sheet** (entered by double-click) is generated and read-only except for grouping and layout: one board symbol whose pins are its connectors, each pin's bus running to a hierarchical label named after the connector. Unfolding a connector breaks its bus out into one wire per pin, labelled with the pin's board net. Folding it back shows its groups in the label, in KiCad's bus-group form: `J2201{FAN{TACH PWM} 1 2 MP}`, ungrouped pads as plain members (after eight, the rest as `+N`), a pad in two groups in both. Without groups the label is the reference and pin count, `J202{121}`. A group's members are named from its pins' nets (the part that differs, as G proposes them), falling back to pad numbers.
 - **A body's sheet** is the same with the body's connector parts (§2.7); its pins have no board nets, so their names come from the export's `pinNames`.
 - Unfolded or folded is per user and per system, kept with the open tabs, not in the document.
 
@@ -574,7 +574,7 @@ The schematic follows Eeschema: hierarchical sheets, sheet pins, wires, buses, b
 - **Sheet size.** A board's sheet takes its `outline` aspect, the longer side 50.8 mm, then grows until every edge fits its pins at 5.08 mm spacing with 10.16 mm clear of each corner. Without an outline it is square. A harness block is 30.48 × 20.32 mm, its pins 5.08 mm clear of each corner, and grows the same way.
 - **Symbol position.** An occurrence without a layout entry is placed in a row to the right of the placed ones, 25.4 mm apart, top-aligned with them. A harness block without one sits 25.4 mm out from its sites' pins along their normals (their mean when it has several ends); when that spot overlaps a symbol (sites on facing edges put it inside the board), it takes the clear spot nearest its pins among further out from each pin and just above or below the boards its sites are on. Each end's pin is placed by the angle from the block's centre to its site's pin, by the pin rule below. The "Add board" gesture stores a position in the same request, so these defaults matter mostly to scripts.
 - **Pin placement.** A connector's pin starts where the ray from the sheet's centre at its `placement.angleDeg` leaves the rectangle (y flipped for the screen). Pins on one edge keep their angular order and are spread to the 5.08 mm spacing, first forward and then back from the far corner, so none is pushed off the edge. A connector without `placement` (an entry's export, a body without frames yet) is spread evenly along the left edge in natural reference order. `side: bottom` shows a `B` beside the pin.
-- **Inside a board's sheet** the board symbol is centred, sized like the sheet, its pins placed by the same rule, and each connector's hierarchical label sits 15.24 mm out from its pin.
+- **Inside a board's sheet** the board symbol sits at the origin, sized like the sheet, its pins placed by the same rule, and each connector's hierarchical label sits 15.24 mm out from its pin. An unfolded connector's bus runs out past the longest folded label on its edge, its spine runs along the edge (down beside a left or right edge, rightwards beside a top or bottom one), one wire per pad leaves it through a 45° bus entry at 2.54 mm pitch, 12.7 mm long, ending in the pad's net name, and the connector's label moves to the spine's end. A stored label position applies while folded.
 - **Route.** An absent `route` is drawn orthogonally: out from each pin along its edge's normal by 5.08 mm, then at most two bends, avoiding sheet symbols; when every such path crosses one, it detours round the symbols in the way. It is redrawn whenever either end moves, until the user edits it, which stores `route`.
 
 ### 14.3 Gestures
@@ -587,7 +587,9 @@ The schematic follows Eeschema: hierarchical sheets, sheet pins, wires, buses, b
 | Drag left → right | select what lies wholly inside (window) | — |
 | Drag right → left | select what the rectangle touches (crossing) | — |
 | Double-click a connector's bus | unfold or fold it | — |
-| G with pins or wires selected (inside a board's sheet) | group them as a sub-port: name from the nets' common part, members from what differs, editable; "Group and fold" folds the bus afterwards | `add-sub-port` |
+| G with pins or wires selected (inside a board's sheet) | group them as a sub-port: name from the nets' common part (a shared trailing part such as `_3V3` is dropped from the members), members from what differs, editable; "Group and fold" folds the bus afterwards; pads in natural order | `add-sub-port` |
+| Double-click a bus or its label (inside a board's sheet) | unfold or fold it | — |
+| Drag the board symbol, a pin or a label (inside a board's sheet) | move it | `set-layout` (`interior`) |
 | Accept / accept all on a suggestion | turn a bundle suggestion into a sub-port | `add-sub-port` (with `suggestion`) |
 | H from a connector pin, or the Harness tool | draw a harness link; the block is the connector's existing one or a new one | `connect-harness` |
 | Mate tool from a connector pin | draw a B2B mate (whole connectors only) | `add-mate` |
@@ -637,4 +639,4 @@ Every write builds one `prism.system.ops.a0` request (§3), so a script and the 
 | `undo()` | §3.3 |
 | `open(sheet)`, `select(ids)`, `unfold({ occurrence, connector })` | view only |
 
-Writes take the version the script last read and fail with `412` like the UI's; `system()` re-reads.
+Writes take the version the script last read and fail with `412` like the UI's; `system()` re-reads. Every write returns a promise of `{ version }` and rejects with an `Error` whose `status` is the HTTP status when the server refused (412 when stale); a selector that matches nothing rejects before anything is sent. `describeSheet()` returns the root sheet's symbols (rectangle, pins with edge, offset and position) and connections (route, stored or auto); `describeSheet(occurrence)` returns a board's connectors with their pins (pad, nets, power), sub-ports with member names, open suggestions and whether each is unfolded.

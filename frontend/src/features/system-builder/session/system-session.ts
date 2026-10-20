@@ -46,6 +46,11 @@ export class SessionWriteError extends Error {
     super(message);
     this.name = "SessionWriteError";
   }
+
+  /** The HTTP status behind the refusal (412 when stale), for scripts. */
+  get status(): number | undefined {
+    return this.cause instanceof ApiHttpError ? this.cause.status : undefined;
+  }
 }
 
 /**
@@ -113,13 +118,29 @@ export class SystemSession {
     this.listeners.clear();
   }
 
-  /** Apply one request (one undo step). Resolves with the new record. */
-  apply(ops: SystemOp[]): Promise<SystemRecord> {
+  /**
+   * Apply one request (one undo step). Resolves with the new record. With
+   * `expectVersion` (the script API's last read, §14.6) the request is
+   * refused as stale, unsent, when the system has moved on since.
+   */
+  apply(ops: SystemOp[], expectVersion?: number): Promise<SystemRecord> {
     return this.enqueue(async () => {
       const record = this.requireRecord();
+      if (expectVersion !== undefined && expectVersion !== record.version) {
+        throw new ApiHttpError(412, "The system changed since it was last read", "stale_version", { currentVersion: record.version });
+      }
       const next = await this.api.applyOps(this.systemId, record.version, ops);
       this.set({ record: next, undoStack: [...this.state.undoStack, next.version], redoStack: [] });
       return next;
+    });
+  }
+
+  /** Read the system again (the script API's `system()`). */
+  reload(): Promise<SystemRecord> {
+    return this.enqueue(async () => {
+      const record = await this.api.readSystem(this.systemId);
+      this.set({ record });
+      return record;
     });
   }
 
