@@ -15,9 +15,11 @@ use crate::output::{
     BoundsOut, PlacedMateOut, PlacedOccurrenceOut, PlacementSceneOut, PoseOut, QuaternionOut,
     VectorNmOut,
 };
-use crate::placement::frames::{Confidence, connector_frame, infer};
+use crate::placement::frames::{Confidence, MatingAxis, StoredFrame, connector_frame, infer};
 use crate::placement::mate::{HeightSource, MateEnd, Orientation};
-use crate::placement::poses::{Bounds, PlacedPose, Pose, PoseSource, canonical_rotation, compose};
+use crate::placement::poses::{
+    Bounds, IDENTITY, PlacedPose, Pose, PoseSource, canonical_rotation, compose,
+};
 use crate::placement::solve::{
     IgnoredReason, Mismatch, SolveEnd, SolveMate, SolveResult, SolveRules, solve,
 };
@@ -67,6 +69,10 @@ fn pose_out(pose: &Pose) -> PoseOut {
 
 /// A ready board's outline box across its thickness, in its own frame.
 fn board_bounds(cx: &Context<'_>, occurrence: &str) -> Option<Bounds> {
+    // A body's box is its part's model box (§8.10).
+    if let Some(body) = cx.members.bodies.get(occurrence) {
+        return body.bounds;
+    }
     let board = cx.board(occurrence)?;
     let outline = board.interface.board_outline_mm.as_ref()?;
     let half = board.interface.board_thickness_mm.unwrap_or(1.6) / 2.0;
@@ -77,10 +83,19 @@ fn board_bounds(cx: &Context<'_>, occurrence: &str) -> Option<Bounds> {
 }
 
 /// One end of a mate, when its connector's frame can be inferred well enough to place by.
+/// A body connector's footprint sits in the body at its mount, and an unsure
+/// inference mates out of its top face, as the mount assumed (§8.10).
 fn solve_end(cx: &Context<'_>, occurrence: &str, connector: &str) -> Option<SolveEnd> {
     let board = cx.board(occurrence)?;
     let geometry = board.component(connector)?.geometry.clone()?;
-    if geometry.pads.is_empty() || infer(Some(&geometry)).confidence == Confidence::Low {
+    let mount = cx
+        .members
+        .bodies
+        .get(occurrence)
+        .and_then(|body| body.mounts.get(connector))
+        .copied();
+    let unsure = infer(Some(&geometry)).confidence == Confidence::Low;
+    if geometry.pads.is_empty() || (unsure && mount.is_none()) {
         return None;
     }
     Some(SolveEnd {
@@ -89,18 +104,26 @@ fn solve_end(cx: &Context<'_>, occurrence: &str, connector: &str) -> Option<Solv
         end: MateEnd {
             geometry,
             thickness_mm: board.interface.board_thickness_mm,
-            stored: None,
+            stored: unsure.then_some(StoredFrame {
+                axis: MatingAxis::Top,
+                quarter_turns: None,
+            }),
             body_mm: None,
         },
-        in_member: None,
+        in_member: mount,
     })
 }
 
 /// A connector's frame in the system frame.
 fn world_frame(placed: &Pose, end: &SolveEnd) -> Option<PoseOut> {
-    let frame = connector_frame(Some(&end.end.geometry), end.end.thickness_mm, None)?;
+    let frame = connector_frame(
+        Some(&end.end.geometry),
+        end.end.thickness_mm,
+        end.end.stored.as_ref(),
+    )?;
+    let in_member = compose(placed, end.in_member.as_ref().unwrap_or(&IDENTITY));
     Some(pose_out(&compose(
-        placed,
+        &in_member,
         &Pose {
             translation_mm: frame.origin_mm,
             rotation: frame.rotation,

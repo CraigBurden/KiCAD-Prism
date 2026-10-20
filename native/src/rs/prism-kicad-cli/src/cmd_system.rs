@@ -94,6 +94,8 @@ pub fn run(args: &Args, stderr: &Stderr) -> Outcome<u8> {
     // Check 6 (`CONTRACTS.md` §8.8): the 1c inputs validate first, then each
     // `--entry` names an entry occurrence.
     let board_sub_ports = read_board_sub_ports(args)?;
+    let (parts, parts_digest) =
+        crate::cmd_system_parts::read_parts(args.option("parts"), &args.limits)?;
     let entries = read_entries(args, &document)?;
     let entry_keys: BTreeMap<String, EntryKey> = entries
         .iter()
@@ -119,6 +121,8 @@ pub fn run(args: &Args, stderr: &Stderr) -> Outcome<u8> {
         absent: args.system_absent.clone(),
         entries: entry_facts,
         board_sub_ports,
+        parts,
+        bodies: BTreeMap::new(),
     };
     let bundle = build::build(&document, &inputs, document_sha256.clone());
     validate_bundle(&bundle)?;
@@ -132,6 +136,7 @@ pub fn run(args: &Args, stderr: &Stderr) -> Outcome<u8> {
         &generator_bytes,
         &inputs,
         &entry_keys,
+        parts_digest.as_deref(),
     );
     emit_result(&key, &document_sha256, &bundle, stderr)
 }
@@ -256,7 +261,7 @@ fn is_entry(document: &input::Document, occurrence: &str) -> bool {
 
 /// Read a `system build` input file. `CliArgument` has no `board-sub-ports` or
 /// `entry` value, so the message names the option instead of the field.
-fn read_input(path: &Path, option: &str, limits: &Limits) -> Outcome<Vec<u8>> {
+pub(crate) fn read_input(path: &Path, option: &str, limits: &Limits) -> Outcome<Vec<u8>> {
     let size = match std::fs::symlink_metadata(path) {
         Ok(metadata) if metadata.file_type().is_file() => metadata.len(),
         Ok(_) => {
@@ -502,6 +507,7 @@ fn system_bundle_key(
     generator_bytes: &[u8],
     members: &input::Members,
     entry_keys: &BTreeMap<String, EntryKey>,
+    parts_digest: Option<&str>,
 ) -> String {
     let member_keys: BTreeMap<&str, &str> = members
         .boards
@@ -539,6 +545,7 @@ fn system_bundle_key(
         "format": prism_system::SYSTEM_BUNDLE_FORMAT,
         "generator": generator::digest(generator_bytes),
         "members": member_keys,
+        "parts": parts_digest,
         "pending": pending,
     });
     generator::sha256_hex(&canonical_json(&value))
@@ -688,7 +695,7 @@ fn cleanup(temp: &Path) {
 
 /// `value` as canonical JSON: keys sorted in code point order at every level,
 /// compact, UTF-8.
-fn canonical_json(value: &Value) -> Vec<u8> {
+pub(crate) fn canonical_json(value: &Value) -> Vec<u8> {
     let mut out = String::new();
     write_canonical(&mut out, value);
     out.into_bytes()

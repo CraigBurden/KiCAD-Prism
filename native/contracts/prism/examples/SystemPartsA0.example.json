@@ -1,0 +1,27 @@
+{
+  "schema": "prism.system_parts.a0",
+  "parts": [
+    {
+      "ref": "cmp_fan4010",
+      "componentId": "cmp_fan4010",
+      "revisionId": "rev_fan4010_2",
+      "name": "Fan 40x40x10",
+      "mpn": "MF40100V2-1000U-A99",
+      "model": {
+        "glbKey": "4f0c1e8a2b7d",
+        "stepSha256": "0d9a1f5a0b5b0f2f4f3c2d6c7f0e1a2b3c4d5e6f708192a3b4c5d6e7f8091a2b",
+        "boundsMin": {"xNm": -20000000, "yNm": -20000000, "zNm": 0},
+        "boundsMax": {"xNm": 20000000, "yNm": 20000000, "zNm": 10000000}
+      }
+    },
+    {
+      "ref": "cmp_phr4@rev_phr4_1",
+      "componentId": "cmp_phr4",
+      "revisionId": "rev_phr4_1",
+      "name": "PHR-4",
+      "mpn": "PHR-4",
+      "symbol": {"path": "parts/9b1c.kicad_sym", "sha256": "9b1c2d3e4f5061728394a5b6c7d8e9f00112233445566778899aabbccddeeff0", "name": "Conn_01x04"},
+      "footprint": {"path": "parts/7e2a.kicad_mod", "sha256": "7e2a3b4c5d6e7f8091a2b3c4d5e6f708192a3b4c5d6e7f8091a2b3c4d5e6f708"}
+    }
+  ]
+}

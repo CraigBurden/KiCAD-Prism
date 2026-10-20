@@ -35,7 +35,7 @@ from app.services.catalog.normalization import sha256_bytes
 from app.services.catalog.revision_finalization import CatalogRevisionFinalizer
 from app.services.catalog.workflow_policy import normalize_workflow_stage
 from app.services.design_bundle import cli, schemas
-from app.system_builder import board_sub_ports, bundle_store, redaction
+from app.system_builder import board_sub_ports, bundle_store, parts, redaction
 from app.system_builder import members as member_view
 from app.system_builder.store import SystemStore
 
@@ -439,6 +439,8 @@ class PublishingService:
 
         document = snapshot["document"]
         copied = snapshot.get("boardSubPorts") or board_sub_ports_empty()
+        # The first checks need no build input; the parts input reads the catalog.
+        self._check_document(document)
         resolved = member_view.resolve(
             document, requested_by=getattr(caller, "email", ""),
             entry_resolver=self.entry_lookup,
@@ -450,19 +452,15 @@ class PublishingService:
         key = member_view.system_bundle_key(
             document, generator.digest, resolved, board_sub_ports=copied,
             entries=member_view.entry_key_input(resolved),
+            parts=parts.digest(parts.build_input(document)[0]),
         )
         self._check(system_id, document, bundle_store.read(system_id, key), resolved)
         self._check_entries(document)
         return key
 
     @staticmethod
-    def _check(
-        system_id: str,
-        document: Mapping[str, Any],
-        bundle: Mapping[str, Any] | None,
-        resolved: Sequence[member_view.Member],
-    ) -> None:
-        """§11.2 step 3, in order, each a ``409`` naming what failed."""
+    def _check_document(document: Mapping[str, Any]) -> None:
+        """§11.2 step 3's document checks, in order, each a ``409``."""
 
         if not document.get("exports"):
             raise errors.Conflict(
@@ -476,6 +474,16 @@ class PublishingService:
                 "Body occurrences cannot be published before stage 3",
                 code="system_publish_unsupported",
             )
+
+    @staticmethod
+    def _check(
+        system_id: str,
+        document: Mapping[str, Any],
+        bundle: Mapping[str, Any] | None,
+        resolved: Sequence[member_view.Member],
+    ) -> None:
+        """§11.2 step 3's build checks, in order, each a ``409`` naming what failed."""
+
         if bundle is None:
             raise errors.Conflict(
                 "The snapshot's system bundle is not built yet", code="system_bundle_not_ready",

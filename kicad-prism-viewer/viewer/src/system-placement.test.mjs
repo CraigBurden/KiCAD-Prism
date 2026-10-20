@@ -9,6 +9,7 @@ import {
   assetOccurrenceMatrix,
   boardTransition,
   bundleToBoardFromBounds,
+  childWorldMatrix,
   drawnOccurrences,
   EXPLODE_GAP_MM,
   explodeOffsetMm,
@@ -62,13 +63,29 @@ test("why an occurrence is a stand-in", () => {
   assert.equal(standInKind({ ...board, assetId: null }, null, undefined), "missing");
 });
 
-test("boards and restricted child systems are drawn; open assemblies are only groups", () => {
+test("boards, restricted child systems and model bodies/parts are drawn; open assemblies are only groups", () => {
   const descriptor = { occurrences: [
     { path: "/a", kind: "assembly", restricted: false },
     { path: "/a/b", kind: "board", restricted: false },
     { path: "/c", kind: "assembly", restricted: true },
+    { path: "/d", kind: "body", model: { glbKey: "k" } },
+    { path: "/d/e", kind: "part", parent: "/d", localMatrix: translate(1, 2, 3), model: { glbKey: "k" } },
+    { path: "/f", kind: "body" },
+    { path: "/g", kind: "part", parent: "/d" },
   ] };
-  assert.deepEqual(drawnOccurrences(descriptor).map((item) => item.path), ["/a/b", "/c"]);
+  assert.deepEqual(drawnOccurrences(descriptor).map((item) => item.path), ["/a/b", "/c", "/d", "/d/e"]);
+});
+
+test("a child part's world matrix is its parent's current world matrix times its local matrix", () => {
+  const parent = translate(10, 20, 30);
+  const local = translate(1, 2, 3);
+  const world = childWorldMatrix(parent, local);
+  assert.deepEqual(world.slice(12, 15), [11, 22, 33]);
+  // A point 1 mm along the child's x lands 1 mm right of its origin.
+  const point = transformPoint(world, [1, 0, 0]);
+  [12, 22, 33].forEach((value, index) => assert.ok(Math.abs(point[index] - value) < 1e-12, `${point}`));
+  // No local matrix: the parent's own world matrix.
+  assert.deepEqual(childWorldMatrix(parent, null), parent);
 });
 
 test("instanced shaders number occurrences scene-wide; the one-board shaders are untouched", () => {

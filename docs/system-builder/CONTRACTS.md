@@ -273,18 +273,18 @@ Derived state (ADR §3.3). It is a pure function of the document and the design 
 
 - **The document,** canonical JSON without `layout`. Its SHA-256 is `documentSha256`. Layout is presentation only (§2.8), so moving a symbol, a pin or a route reuses the bundle (stage 2b).
 - **One design bundle per board occurrence whose bundle has stage `parse` complete.** It reads `projections/system-interface.json` (connectors, pins, pin nets, names and types, power nets, pad geometry and board thickness) and `projections/semantic-index.json` (bus aliases, nets' source sheets). B2B geometry reads `system-interface.json`'s pad geometry, the form the kept placement maths and their goldens use. This amends the ADR's mention of `placements.json` for pads; the maintainer chose it so the goldens replay unchanged.
-- **The system bundle key** is SHA-256 over the canonical JSON `{documentSha256, format, generator, members: {occurrence: bundleKey}, absent: [occurrence], pending: [occurrence], boardSubPorts: {id: version}, entries: {occurrence: {payload, stage}}}`; 1c adds `boardSubPorts` and `entries` (§10.5, §12.2), always present. `format` is the system bundle's format number, bumped whenever what the bundle holds changes (1: stage 3a's `placement`; 2: stage 3c's mate `pads`), so stored bundles rebuild without any design bundle's key changing. A new document version with the same content, such as one restored by an undo, reuses the bundle.
-- **Board-level sub-ports** the document names, as `--board-sub-ports` (§10.5), and **published entries' payloads**, as `--entry` (§12.2), from 1c. Body connectors' pins are not inputs until stage 3; body occurrences are reported with the state `unsupported`.
+- **The system bundle key** is SHA-256 over the canonical JSON `{documentSha256, format, generator, members: {occurrence: bundleKey}, absent: [occurrence], pending: [occurrence], boardSubPorts: {id: version}, entries: {occurrence: {payload, stage}}, parts}`; 1c adds `boardSubPorts` and `entries` (§10.5, §12.2), always present. `format` is the system bundle's format number, bumped whenever what the bundle holds changes (1: stage 3a's `placement`; 2: stage 3c's mate `pads`; 3: stage 3d's bodies and `parts`), so stored bundles rebuild without any design bundle's key changing. A new document version with the same content, such as one restored by an undo, reuses the bundle.
+- **Board-level sub-ports** the document names, as `--board-sub-ports` (§10.5), and **published entries' payloads**, as `--entry` (§12.2), from 1c. Body occurrences and their connectors read their parts from `--parts` (stage 3d, §8.10).
 
 ### 8.2 Occurrences
 
 `occurrences[]`, one per occurrence in id order: `{ occurrence, state, revisionKey?, bundleKey?, outline?, connectors[] }`.
 
 - `state` is one of:
-  - `ready`: its bundle was read;
+  - `ready`: its bundle was read, or, for a body, `--parts` resolved its part (§8.10);
   - `pending`: its bundle is not built yet;
-  - `absent`: the project is not present at that commit;
-  - `unsupported`: a body, until stage 3;
+  - `absent`: the project is not present at that commit, or a body's part is not in the catalog;
+  - `unsupported`: no longer produced (bodies were, until stage 3d);
   - `redacted`: only in an API read, for an occurrence whose project the reader cannot see (§6); its keys and connectors are withheld. A stored bundle never holds it.
 - `connectors` (ready boards only) lists the board's connectors in natural reference order: the components `system-interface.json` marks `candidate`, plus any component a document endpoint names. Each is `{ refdes, value, mpn?, candidate, placement?, pins[] }`. `placement` (stage 2) is `{ angleDeg, side }`: the angle from the centre of the board outline's bounding box to the component's position, counter-clockwise from +x with +y up (the board seen from its top, KiCad's y flipped), in `[0, 360)`, and `side` is `top` or `bottom`; it is absent when the board has no outline. The schematic places a connector's sheet pin by it (§14.2).
 - `outline` (stage 2, ready boards with an Edge.Cuts outline) is `{ widthNm, heightNm }`, the outline's bounding box, which sizes the board's sheet by default. Each pin, in natural pad order, is `{ pad, net?, nets[], pinName?, pinType?, power }`. `net` is the pin's first schematic net. This is the per-occurrence view the schematic and harness UI draw from, so a reader needs only the system bundle.
@@ -375,6 +375,20 @@ prism-kicad system build --document <system.json>
 - **Frames.** `frameA` and `frameB` are each side's connector frame in the system frame (B's unflipped), absent when a side cannot be placed by. The B2B tab (stage 3c) draws from them.
 - **Redaction** (§6): for an occurrence the reader cannot see, the placement keeps its pose but withholds `bounds` and `positioningMate`; a mate touching it keeps only `mate` and `driving`.
 
+### 8.10 Bodies and body connectors (stage 3d)
+
+A body occurrence places a mechanical catalog part; body connectors (§2.7) place connector parts on its faces.
+
+- **Input.** `--parts <system-parts.json>` (`prism.system_parts.a0`) lists every part the document references (each body occurrence's source, each body connector's `part`), keyed by the reference exactly as the document spells it: `componentId`, or `componentId@revisionId` (no revision: the latest released, which the backend resolves). Each part carries its resolved revision, name and MPN; its symbol library and footprint, staged beside the file (paths relative to it, never through `..`) with their SHA-256, which the build checks; and its converted model's box in the part's frame, alignment applied. A reference the catalog cannot resolve is left out.
+- **A body reads as a board** whose components are its body connectors, so §8.2–§8.9 apply unchanged:
+  - a body connector's pins are its part's symbol pins (number, name, electrical type; no nets), one per number; without a symbol, its footprint's pad numbers; with neither, none;
+  - its geometry is its part's footprint in the footprint's own frame (+y up, KiCad's y flipped), at zero thickness, so the B2B mapping (§8.4) and the drawn `pads` read it as a board's;
+  - its footprint sits in the body at `Q = P · Rz(k · 90°) · F_part⁻¹`, with `P` its stored `frame`, `k` its `quarterTurns` and `F_part` the footprint's own mating frame (an unsure inference mates out of its top face). Placement (§8.9) composes `Q` where a board has the identity, so a board mated to a body connector, or a body mated to a board, is placed through it.
+- **State.** A body is `ready` when its part resolved, `absent` (`occurrence-absent`) when it did not. Its `connectors` are its body connectors in natural reference order; `placement.angleDeg` is from the centre of its model's box to the connector's mount, `side` is `top`; it has no `outline`, `revisionKey` or `bundleKey`.
+- **Placement.** A body's `bounds` is its model's box; a body without a model (`body-model-missing`) is placed as a point. Bodies are free occurrences: they keep a stored pose or take the default row.
+- **Findings.** `body-model-missing` (warning, `occurrence:<id>`): the body's part has no converted 3D model. `connector-part-missing` (error, `connector:<occ>/<refdes>`): a body connector's part is not in the catalog. `connector-pins-unknown` (warning, same subject): its part has neither a symbol nor a footprint.
+- **Key.** The system bundle key (§8.1) includes `parts`, the SHA-256 of `--parts`'s canonical form (null without it).
+
 ## 9. Findings catalogue (ADR open question 2)
 
 Each code has a fixed severity:
@@ -387,7 +401,7 @@ Waivers apply to warnings and errors. Stage 1c adds the codes of §10.5 and §12
 |---|---|---|---|
 | `occurrence-pending` | info | `occurrence:<id>` | the board's design bundle is not built yet; its connections are not checked |
 | `occurrence-absent` | error | `occurrence:<id>` | the project is not present at the occurrence's commit |
-| `occurrence-unsupported` | info | `occurrence:<id>` | a body, checked from stage 3 on |
+| `occurrence-unsupported` | info | `occurrence:<id>` | no longer raised (bodies were, until stage 3d) |
 | `connector-missing` | error | `connector:<occ>/<refdes>` | an endpoint, site or sub-port names a reference the board does not have |
 | `not-a-connector` | warning | `connector:<occ>/<refdes>` | the named component is not detected as a connector |
 | `pin-missing` | error | `pin:<occ>/<refdes>/<pad>` | a sub-port, pin map, manual map or explicit wire names a pad the connector lacks |
@@ -404,6 +418,9 @@ Waivers apply to warnings and errors. Stage 1c adds the codes of §10.5 and §12
 | `mate-misaligned` | warning | `mate:<id>` | a mate that does not position a board misses where the placed boards put it (§8.9) |
 | `pose-ignored` | info | `occurrence:<id>` | an occurrence placed by a mate also stores a pose, which is ignored (§2.1) |
 | `positioning-mate-ignored` | warning | `occurrence:<id>` | its `positioningMate` names no mate that can place it, or would place its group's root (§8.9) |
+| `body-model-missing` | warning | `occurrence:<id>` | a body's part has no converted 3D model; it is placed as a point (§8.10) |
+| `connector-part-missing` | error | `connector:<occ>/<refdes>` | a body connector's part is not in the catalog (§8.10) |
+| `connector-pins-unknown` | warning | `connector:<occ>/<refdes>` | a body connector's part has neither a symbol nor a footprint (§8.10) |
 
 
 ## 10. Board-level sub-ports (1c)

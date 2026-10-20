@@ -14,7 +14,7 @@
 
 use crate::natural;
 use crate::placement::frames::{
-    Confidence, ConnectorFrame, ConnectorGeometry, connector_frame, infer,
+    Confidence, ConnectorFrame, ConnectorGeometry, MatingAxis, StoredFrame, connector_frame, infer,
 };
 use crate::placement::mate::{local, mated, pad_names, pad_one_turns};
 use std::collections::{BTreeMap, BTreeSet};
@@ -28,6 +28,9 @@ pub struct Side<'a> {
     pub geometry: &'a ConnectorGeometry,
     /// Its board's thickness in mm.
     pub thickness_mm: Option<f64>,
+    /// An unsure inference mates out of the top face: a body connector's,
+    /// whose mount assumed it (§8.10). A board's stays unresolved.
+    pub unsure_mates_top: bool,
 }
 
 /// A derived mapping: pairs by A pad, and each side's pads without a partner.
@@ -129,14 +132,22 @@ fn frames(
     b: &Side<'_>,
     quarter_turns: i32,
 ) -> Option<(ConnectorFrame, ConnectorFrame, i32)> {
-    for side in [a, b] {
-        if side.geometry.pads.is_empty() || infer(Some(side.geometry)).confidence == Confidence::Low
-        {
+    let frame = |side: &Side<'_>| {
+        if side.geometry.pads.is_empty() {
             return None;
         }
-    }
-    let frame_a = connector_frame(Some(a.geometry), a.thickness_mm, None)?;
-    let frame_b = connector_frame(Some(b.geometry), b.thickness_mm, None)?;
+        let unsure = infer(Some(side.geometry)).confidence == Confidence::Low;
+        if unsure && !side.unsure_mates_top {
+            return None;
+        }
+        let top = unsure.then_some(StoredFrame {
+            axis: MatingAxis::Top,
+            quarter_turns: None,
+        });
+        connector_frame(Some(side.geometry), side.thickness_mm, top.as_ref())
+    };
+    let frame_a = frame(a)?;
+    let frame_b = frame(b)?;
     let k =
         (pad_one_turns(a.geometry, &frame_a, b.geometry, &frame_b) + quarter_turns).rem_euclid(4);
     Some((frame_a, frame_b, k))

@@ -1,11 +1,14 @@
-// Placing a system scene's boards (System Builder SB3b; the viewer since SB2-31f).
+// Placing a system scene's boards and catalog models (System Builder SB3b).
 //
 // The `prism.system_scene.a0` descriptor (CONTRACTS_P2 §20) places each board
 // occurrence by a world matrix in millimetres; an asset (one bundle) draws at
 // world · bundleToBoard, scaled to the renderer's metres. Occurrences without
 // geometry (restricted, still building, missing, failed) draw as their box.
+// Bodies and parts draw a catalog GLB instead, and a child part follows its
+// parent's current frame through its own `localMatrix`.
 
 const MM = 0.001; // descriptor millimetres → renderer metres
+const IDENTITY = Object.freeze([1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1]);
 
 // The assembly explode moves a board this far per unit of `explode.depth`.
 export const EXPLODE_GAP_MM = 30;
@@ -46,6 +49,14 @@ function scaling([x, y, z]) {
 /** An asset occurrence's model matrix in renderer metres: S(1/1000) · world · bundleToBoard. */
 export function assetOccurrenceMatrix(worldMatrix, bundleToBoard) {
   return mat4Multiply(SCALE_MM, mat4Multiply(worldMatrix, bundleToBoard));
+}
+
+/**
+ * A child part's world matrix: its parent's current world matrix (after the
+ * assembly explode and any move preview) times its local matrix, both in mm.
+ */
+export function childWorldMatrix(parentWorldMatrix, localMatrix) {
+  return mat4Multiply(parentWorldMatrix, localMatrix || IDENTITY);
 }
 
 /** A stand-in's matrix: the unit box mapped onto the occurrence's box (own frame, mm), then placed. */
@@ -106,9 +117,13 @@ export function boardTransition(known, asset) {
   return "keep";
 }
 
-/** Occurrences to place: boards and restricted assemblies (one box for a hidden child system). */
+/**
+ * Occurrences to place: boards, restricted assemblies (one box for a hidden
+ * child system), and bodies and parts that carry a catalog model.
+ */
 export function drawnOccurrences(descriptor) {
-  return (descriptor?.occurrences || []).filter((item) => item.kind === "board" || item.restricted);
+  return (descriptor?.occurrences || []).filter((item) => item.kind === "board" || item.restricted
+    || ((item.kind === "body" || item.kind === "part") && item.model != null));
 }
 
 /** A board frame's extra translation for an assembly explode, in millimetres. */

@@ -16,10 +16,11 @@
 /// The system bundle's format, part of its key (CONTRACTS §8.1): bumped
 /// whenever what the bundle holds changes, so stored bundles rebuild without
 /// changing any design bundle's key. 1: stage 3a added `placement`; 2: stage 3c
-/// added mates' drawn `pads`.
-pub const SYSTEM_BUNDLE_FORMAT: u32 = 2;
+/// added mates' drawn `pads`; 3: stage 3d added bodies and the parts digest.
+pub const SYSTEM_BUNDLE_FORMAT: u32 = 3;
 
 pub mod arrangement;
+pub mod body;
 pub mod build;
 pub mod context;
 pub mod entry;

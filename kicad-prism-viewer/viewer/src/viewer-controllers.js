@@ -68,6 +68,8 @@
  * @property {() => void} selectBoardContext Select the focused placement's board itself.
  * @property {(sets: object[]) => object[] | null} setEmphasisSets Light normalised sets; returns the
  *   report, or null when the scene's system is gone.
+ * @property {(clientX: number, clientY: number) => object | null} pickSurfaceAt Where a point
+ *   meets a `pickSurface` model's triangles, in world mm.
  * Plus the system members in SYSTEM_MEMBERS (setSystemScene, setMoveAllowed, setMoveMode, …).
  */
 
@@ -500,7 +502,7 @@ export class BoardModeController extends ModeController {
 export const SYSTEM_MEMBERS = Object.freeze([
   "setSystemScene", "setNetEmphasis", "frameNetEmphasis", "frameAll", "frameBoard", "frameParts",
   "setMoveMode", "setMoveSpace", "previewPose", "cancelMove", "getMoveState",
-  "setAssemblyExplode", "setMoveSnap",
+  "setAssemblyExplode", "setMoveSnap", "pickSurfaceAt",
   "setLabelsVisible", "setHelpVisible", "isHelpVisible", "viewAxis",
 ]);
 
@@ -624,6 +626,11 @@ export class SystemModeController extends ModeController {
   setMoveSnap(snap) {
     this.#moveSnap = normalizeMoveSnap(snap, this.#moveSnap);
     this.port?.setMoveSnap({ ...this.#moveSnap });
+  }
+
+  /** Where a client point meets a `pickSurface` model occurrence, in world mm; null off the models. */
+  pickSurfaceAt(clientX, clientY) {
+    return this.port?.pickSurfaceAt(clientX, clientY) ?? null;
   }
 
   /** Board name labels (on by default); the last call is replayed on the next mount. */

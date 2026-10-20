@@ -23,6 +23,7 @@ from app.system_builder import (
     git_link,
     integrity,
     ops,
+    parts,
     publishing,
     redaction,
 )
@@ -130,6 +131,7 @@ class SystemService:
         key = member_view.system_bundle_key(
             document, generator.digest, resolved, board_sub_ports=board_input,
             entries=member_view.entry_key_input(resolved),
+            parts=parts.digest(parts.build_input(document)[0]),
         )
         answer: dict[str, Any] = {
             "key": key,

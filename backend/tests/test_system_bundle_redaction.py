@@ -191,18 +191,25 @@ ALL_MEMBERS = (
 
 
 class SystemBundleKeyTest(unittest.TestCase):
-    def _expected(self, members: dict[str, str], absent: list[str], pending: list[str]) -> str:
+    def _expected(
+        self,
+        members: dict[str, str],
+        absent: list[str],
+        pending: list[str],
+        parts: str | None = None,
+    ) -> str:
         preimage = {
             "documentSha256": hashlib.sha256(
                 json.dumps(DOCUMENT, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
             ).hexdigest(),
-            "format": 2,
+            "format": 3,
             "generator": "f" * 64,
             "members": members,
             "absent": absent,
             "pending": pending,
             "boardSubPorts": {},
             "entries": {},
+            "parts": parts,
         }
         return hashlib.sha256(
             json.dumps(preimage, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
@@ -227,6 +234,17 @@ class SystemBundleKeyTest(unittest.TestCase):
         self.assertEqual(
             system_bundle_key(DOCUMENT, "f" * 64, ALL_MEMBERS),
             self._expected({"occ_a": "2" * 64}, [], ["occ_b"]),
+        )
+
+    def test_a_parts_digest_is_part_of_the_key(self) -> None:
+        digest = "a" * 64
+        self.assertEqual(
+            system_bundle_key(DOCUMENT, "f" * 64, ALL_MEMBERS, parts=digest),
+            self._expected({"occ_a": "2" * 64}, [], ["occ_b"], parts=digest),
+        )
+        self.assertNotEqual(
+            system_bundle_key(DOCUMENT, "f" * 64, ALL_MEMBERS, parts=digest),
+            system_bundle_key(DOCUMENT, "f" * 64, ALL_MEMBERS),
         )
 
     def test_unsupported_occurrences_are_in_neither_list(self) -> None:

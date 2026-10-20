@@ -3,9 +3,12 @@
  * §8.9) as the `prism.system_scene.a0` descriptor `<prism-semantic-viewer
  * mode="system">` draws. Each occurrence is its own viewer asset (an analytic
  * board draws at one matrix); the host resolves each board's 3D bundle.
+ * A body (stage 3d, §8.10) draws its part's model, and each body connector
+ * draws its part's model as a child at its mating frame on the body.
  */
 import type { SystemBundle, SystemDocument } from "../model/types";
-import { matrix, rotate, type Pose } from "../placement/poses";
+import { compose, matrix, rotate, type Pose } from "../placement/poses";
+import { partKey, type PartModel } from "./part-models";
 
 export const SYSTEM_SCENE_SCHEMA = "prism.system_scene.a0";
 
@@ -23,8 +26,16 @@ export interface MemberAsset {
 export interface SceneOccurrence {
   path: string;
   label: string;
-  kind: "board";
+  /** A board, a body (a catalog part's model), or a connector part on a body. */
+  kind: "board" | "body" | "part";
   assetId: string | null;
+  /** A body's or a part's catalog model; it draws a box while loading. */
+  model?: { glbKey: string; matrixMm: number[]; boundsMm: PartModel["boundsMm"] } | null;
+  /** Faces of its model can be picked (a body: connectors are placed on them). */
+  pickSurface?: boolean;
+  /** A connector part's body: drawn at the body's current frame times `localMatrix`. */
+  parent?: string;
+  localMatrix?: number[];
   /** Column-major, millimetres, the system frame (+z up). */
   worldMatrix: number[];
   /** With where it comes from, in the viewer's words: its mate, its stored pose, or the default row. */
@@ -56,6 +67,17 @@ const SOURCE = { mate: "auto", stored: "manual", default: "default" } as const;
 
 const vectorMm = (v: { xNm: number; yNm: number; zNm: number }): Vec3 => [v.xNm / NM_PER_MM, v.yNm / NM_PER_MM, v.zNm / NM_PER_MM];
 const quat = (q: { x: number; y: number; z: number; w: number }): Quat => [q.x, q.y, q.z, q.w];
+
+const IDENTITY_POSE: Pose = { translationMm: [0, 0, 0], rotation: [0, 0, 0, 1] };
+const HALF = Math.SQRT1_2;
+/** `Rz(k · 90°)`, x → y. */
+const QUARTER: Quat[] = [[0, 0, 0, 1], [0, 0, HALF, HALF], [0, 0, 1, 0], [0, 0, -HALF, HALF]];
+
+/** A body connector's mating frame in its body: its stored frame turned by its quarter turns (§2.7). */
+export function bodyConnectorFrame(connector: SystemDocument["bodyConnectors"][number]): Pose {
+  const frame: Pose = { translationMm: vectorMm(connector.frame.translation), rotation: quat(connector.frame.rotation) };
+  return compose(frame, { translationMm: [0, 0, 0], rotation: QUARTER[((connector.quarterTurns % 4) + 4) % 4] });
+}
 
 /** The key a board's 3D bundle is looked up by: its project at its commit. */
 export function memberKey(projectId: string, commit: string): string {
@@ -98,6 +120,7 @@ export function buildSceneDescriptor(
   document: SystemDocument,
   bundle: SystemBundle | null,
   assets: ReadonlyMap<string, MemberAsset>,
+  models: ReadonlyMap<string, PartModel | null> = new Map(),
 ): SystemSceneDescriptor {
   const placed = new Map((bundle?.placement?.occurrences ?? []).map((item) => [item.occurrence, item]));
   const placedMates = new Map((bundle?.placement?.mates ?? []).map((item) => [item.mate, item]));
@@ -118,6 +141,10 @@ export function buildSceneDescriptor(
     const restricted = (source.kind as string) === "redacted";
     const pose: ScenePose = { translationMm: vectorMm(place.pose.translation), rotation: quat(place.pose.rotation) };
     let assetId: string | null = null;
+    let model: SceneOccurrence["model"];
+    if (source.kind === "body") {
+      model = models.get(partKey(source)) ?? null;
+    }
     if (source.kind === "board") {
       const asset = assets.get(memberKey(source.projectId, source.track.commit));
       assetId = `occurrence:${occurrence.id}`;
@@ -126,14 +153,34 @@ export function buildSceneDescriptor(
     occurrences.push({
       path: occurrence.id,
       label: occurrence.label,
-      kind: "board",
+      kind: source.kind === "body" ? "body" : "board",
       assetId,
+      ...(source.kind === "body" ? { model, pickSurface: true } : {}),
       worldMatrix: matrix(pose),
       pose: { ...pose, source: SOURCE[place.source] },
       boundsMm: place.bounds ? { minMm: vectorMm(place.bounds.min), maxMm: vectorMm(place.bounds.max) } : null,
       restricted,
       movable: place.root,
       explode: explodeOf(occurrence.id, place.positioningMate, depth.get(occurrence.id) ?? 0),
+    });
+  }
+  const bodies = new Set(occurrences.flatMap((item) => (item.kind === "body" ? [item.path] : [])));
+  for (const connector of document.bodyConnectors) {
+    if (!bodies.has(connector.occurrence)) continue;
+    occurrences.push({
+      path: `${connector.occurrence}/${connector.refdes}`,
+      label: connector.refdes,
+      kind: "part",
+      assetId: null,
+      model: models.get(partKey(connector.part)) ?? null,
+      parent: connector.occurrence,
+      localMatrix: matrix(bodyConnectorFrame(connector)),
+      worldMatrix: matrix(IDENTITY_POSE),
+      pose: { ...IDENTITY_POSE, source: "manual" },
+      boundsMm: null,
+      restricted: false,
+      movable: false,
+      explode: null,
     });
   }
   return { schema: SYSTEM_SCENE_SCHEMA, occurrences, assets: sceneAssets };

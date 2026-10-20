@@ -5,7 +5,7 @@ use crate::source_bundle::{SourceBundleError, SourceBundleErrorKind};
 use std::borrow::Cow;
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 mod bus_aliases;
-mod library_symbols;
+pub(crate) mod library_symbols;
 mod symbol_instances;
 mod symbols;
 pub use bus_aliases::SchematicBusAlias;

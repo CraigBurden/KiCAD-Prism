@@ -165,8 +165,8 @@ def document_sha256(document: Mapping[str, Any]) -> str:
 
 #: The system bundle's format, part of its key (CONTRACTS §8.1); the twin of
 #: ``prism_system::SYSTEM_BUNDLE_FORMAT``. 1: stage 3a added ``placement``; 2: stage
-#: 3c added mates' drawn ``pads``.
-SYSTEM_BUNDLE_FORMAT = 2
+#: 3c added mates' drawn ``pads``; 3: stage 3d added bodies and the ``parts`` digest.
+SYSTEM_BUNDLE_FORMAT = 3
 
 
 def system_bundle_key(
@@ -176,6 +176,7 @@ def system_bundle_key(
     *,
     board_sub_ports: Mapping[str, Any] | None = None,
     entries: Mapping[str, Any] | None = None,
+    parts: str | None = None,
 ) -> str:
     """The system bundle key (CONTRACTS §8.1).
 
@@ -183,8 +184,9 @@ def system_bundle_key(
     are in neither list: no stage reads them yet, so they cannot change the
     bundle's content. ``board_sub_ports`` is the ``prism.board_sub_ports.a0``
     build input, reduced to ``{id: version}``; ``entries`` is the published
-    entries' payload digest and stage per occurrence, empty until stage 1c's
-    entry task fills it. Both fields are always in the preimage.
+    entries' payload digest and stage per occurrence; ``parts`` is the digest of
+    the ``prism.system_parts.a0`` input, None without one. Those fields are
+    always in the preimage.
     """
 
     # An entry's own bundle key is part of its payload, not the board members;
@@ -207,6 +209,7 @@ def system_bundle_key(
         "pending": sorted(member.occurrence for member in members if member.state == PENDING),
         "boardSubPorts": sub_port_versions,
         "entries": dict(entries or {}),
+        "parts": parts,
     }
     return hashlib.sha256(canonical_bytes(preimage)).hexdigest()
 

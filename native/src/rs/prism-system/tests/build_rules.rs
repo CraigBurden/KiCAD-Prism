@@ -328,7 +328,7 @@ fn missing_references_are_findings_and_a_waiver_covers_one() {
 fn occurrences_report_their_state() {
     let doc = json!({"occurrences": [
         occurrence("occ_a"), occurrence("occ_b"), occurrence("occ_c"),
-        {"id": "occ_d", "label": "Body", "source": {"kind": "body"}}
+        {"id": "occ_d", "label": "Body", "source": {"kind": "body", "componentId": "cmp_box", "revisionId": "rev_1"}}
     ]});
     let doc: Document = serde_json::from_value(doc).expect("document");
     let members = Members {
@@ -353,12 +353,14 @@ fn occurrences_report_their_state() {
             ("occ_a", "ready"),
             ("occ_b", "pending"),
             ("occ_c", "absent"),
-            ("occ_d", "unsupported")
+            ("occ_d", "absent")
         ]
     );
     let found = codes(&bundle);
     assert!(found.contains(&("occurrence-pending", "occurrence:occ_b")));
     assert!(found.contains(&("occurrence-absent", "occurrence:occ_c")));
+    // A body whose part `--parts` did not resolve (§8.10).
+    assert!(found.contains(&("occurrence-absent", "occurrence:occ_d")));
     assert_eq!(bundle.occurrences[0].connectors[0].refdes, "J1");
 }
 

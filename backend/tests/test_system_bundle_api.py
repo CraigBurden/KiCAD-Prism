@@ -14,6 +14,7 @@ from app.core.errors import install_error_handlers
 from app.services.design_bundle import cli
 from app.system_builder import bundle_store
 from app.system_builder import members as member_view
+from app.system_builder import parts as parts_module
 from app.system_builder.document import canonical, new_document
 from support.asgi import request as _request
 from support.postgres import requires_scratch_postgres, seed_folder
@@ -106,7 +107,10 @@ class SystemBundleApiTests(SystemBundleWorkspace, unittest.TestCase):
         )
 
         resolved = member_view.resolve(document, requested_by="test")
-        key = member_view.system_bundle_key(document, cli.generator().digest, resolved)
+        key = member_view.system_bundle_key(
+            document, cli.generator().digest, resolved,
+            parts=parts_module.digest({"schema": parts_module.SCHEMA, "parts": []}),
+        )
         bundle = {
             "schema": "prism.system_bundle.a0",
             "documentSha256": member_view.document_sha256(document),

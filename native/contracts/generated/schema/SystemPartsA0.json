@@ -1,0 +1,207 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$id": "urn:prism:schema:prism.system_parts:a0",
+    "type": "object",
+    "properties": {
+        "schema": {
+            "type": "string",
+            "const": "prism.system_parts.a0",
+            "description": "Schema id."
+        },
+        "parts": {
+            "type": "array",
+            "items": {
+                "$ref": "#/$defs/SystemPartsEntry"
+            },
+            "description": "The parts, sorted by `ref` in code point order; a reference the catalog cannot resolve is left out."
+        }
+    },
+    "required": [
+        "schema",
+        "parts"
+    ],
+    "unevaluatedProperties": {
+        "not": {}
+    },
+    "description": "The parts a system document references, by the reference it uses: the\ninput of `prism-kicad system build --parts` (CONTRACTS.md §8.10).",
+    "title": "System parts a0",
+    "$defs": {
+        "SystemPartsEntry": {
+            "type": "object",
+            "properties": {
+                "ref": {
+                    "$ref": "#/$defs/SystemPartsRef",
+                    "description": "The reference as the document spells it."
+                },
+                "componentId": {
+                    "$ref": "#/$defs/SystemPartsCatalogId",
+                    "description": "The catalog component."
+                },
+                "revisionId": {
+                    "$ref": "#/$defs/SystemPartsCatalogId",
+                    "description": "The revision the reference resolved to."
+                },
+                "name": {
+                    "type": "string",
+                    "description": "The part's display name (its value)."
+                },
+                "mpn": {
+                    "type": "string",
+                    "description": "The manufacturer part number, when known."
+                },
+                "symbol": {
+                    "$ref": "#/$defs/SystemPartsSymbol",
+                    "description": "Its symbol, when it has one."
+                },
+                "footprint": {
+                    "$ref": "#/$defs/SystemPartsFootprint",
+                    "description": "Its footprint, when it has one."
+                },
+                "model": {
+                    "$ref": "#/$defs/SystemPartsModel",
+                    "description": "Its 3D model, when one is converted."
+                }
+            },
+            "required": [
+                "ref",
+                "componentId",
+                "revisionId",
+                "name"
+            ],
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "One part as the document references it."
+        },
+        "SystemPartsRef": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}(@[A-Za-z0-9][A-Za-z0-9_.:-]{0,127})?$",
+            "description": "A part reference exactly as the document spells it: `componentId`, or `componentId@revisionId`."
+        },
+        "SystemPartsCatalogId": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$",
+            "description": "Prism catalog component or revision id, as the catalog issues it."
+        },
+        "SystemPartsSymbol": {
+            "type": "object",
+            "properties": {
+                "path": {
+                    "$ref": "#/$defs/SystemPartsPath",
+                    "description": "The `.kicad_sym` file."
+                },
+                "sha256": {
+                    "$ref": "#/$defs/Sha256Hex",
+                    "description": "The library file's SHA-256."
+                },
+                "name": {
+                    "type": "string",
+                    "minLength": 1,
+                    "description": "The symbol's name in the library."
+                }
+            },
+            "required": [
+                "path",
+                "sha256",
+                "name"
+            ],
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "A staged KiCad symbol library and the symbol in it."
+        },
+        "SystemPartsFootprint": {
+            "type": "object",
+            "properties": {
+                "path": {
+                    "$ref": "#/$defs/SystemPartsPath",
+                    "description": "The `.kicad_mod` file."
+                },
+                "sha256": {
+                    "$ref": "#/$defs/Sha256Hex",
+                    "description": "The file's SHA-256."
+                }
+            },
+            "required": [
+                "path",
+                "sha256"
+            ],
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "A staged KiCad footprint."
+        },
+        "SystemPartsModel": {
+            "type": "object",
+            "properties": {
+                "glbKey": {
+                    "type": "string",
+                    "minLength": 1,
+                    "description": "The converted GLB's cache key (`/api/catalog/models/<key>.glb`)."
+                },
+                "stepSha256": {
+                    "$ref": "#/$defs/Sha256Hex",
+                    "description": "The STEP file's SHA-256."
+                },
+                "boundsMin": {
+                    "$ref": "#/$defs/SystemPartsVectorNm",
+                    "description": "The model's box in the part's frame, its alignment applied."
+                },
+                "boundsMax": {
+                    "$ref": "#/$defs/SystemPartsVectorNm",
+                    "description": "The opposite corner."
+                }
+            },
+            "required": [
+                "glbKey",
+                "stepSha256",
+                "boundsMin",
+                "boundsMax"
+            ],
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "The part's converted 3D model."
+        },
+        "SystemPartsPath": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_][A-Za-z0-9_./-]{0,254}$",
+            "description": "A staged file's path relative to the parts file's directory; the build refuses `..` segments."
+        },
+        "Sha256Hex": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$",
+            "description": "Lowercase hexadecimal SHA-256 digest: exactly 64 characters, no prefix such as `sha256:`."
+        },
+        "SystemPartsVectorNm": {
+            "type": "object",
+            "properties": {
+                "xNm": {
+                    "$ref": "#/$defs/Nanometres",
+                    "description": "X."
+                },
+                "yNm": {
+                    "$ref": "#/$defs/Nanometres",
+                    "description": "Y."
+                },
+                "zNm": {
+                    "$ref": "#/$defs/Nanometres",
+                    "description": "Z."
+                }
+            },
+            "required": [
+                "xNm",
+                "yNm",
+                "zNm"
+            ],
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "A point in the part's frame, in nanometres."
+        },
+        "Nanometres": {
+            "type": "integer",
+            "description": "Length or coordinate in integer nanometres, KiCad's internal board unit.\nConverted from the file's decimal millimetres as KiCad's own parser does:\nthe double product value_mm * 1e6, rounded half away from zero. A single\ncoordinate or dimension fits KiCad's 32-bit range; sums (for example a\nnet's total track length) may not, hence a safe integer (|n| < 2^53)."
+        }
+    }
+}

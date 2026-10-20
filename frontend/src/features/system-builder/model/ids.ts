@@ -4,7 +4,7 @@
  */
 const ALPHABET = "abcdefghijklmnopqrstuvwxyz234567";
 
-export type IdPrefix = "occ" | "sub" | "mate" | "har" | "end" | "link" | "wire" | "sheet" | "wvr";
+export type IdPrefix = "occ" | "sub" | "mate" | "har" | "end" | "link" | "wire" | "sheet" | "wvr" | "bc";
 
 export function newId(prefix: IdPrefix, random: (bytes: Uint8Array) => Uint8Array = (bytes) => crypto.getRandomValues(bytes)): string {
   const bytes = random(new Uint8Array(10));
