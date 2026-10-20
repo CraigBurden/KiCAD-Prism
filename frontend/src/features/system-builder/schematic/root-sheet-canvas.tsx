@@ -4,19 +4,18 @@
  * mates and harness links. A gesture draws through a layout override while it
  * runs and is sent as one request when it ends.
  */
-import { forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent as ReactPointerEvent } from "react";
+import { forwardRef, useImperativeHandle, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent as ReactPointerEvent } from "react";
 import { toast } from "sonner";
-
-import { useCommittedRef } from "@/hooks/use-committed-ref";
 
 import type { SystemBundle, SystemDocument, SystemOp } from "../model/types";
 import { CanvasHints, GestureOverlay, PaperGrid } from "./canvas-overlays";
 import { connectRefusal, harnessOps, layoutOps, mateOps, removeOps, type Layout, type PinRef } from "./edits";
 import { normalizeRect, selectionMode, type Handle, type Point } from "./geometry";
-import { boxSelection, dragLayout, hitOf, toggled, type Drag } from "./gestures";
+import { boxSelection, dragLayout, hitAt, hitOf, toggled, type Drag } from "./gestures";
 import { buildScene } from "./scene";
 import { COLOURS, SheetSvg } from "./sheet-svg";
-import { fitView, panBy, toSheet, zoomAt, type View } from "./viewport";
+import { capture, isPanButton, useSheetView } from "./use-sheet-view";
+import { panBy, toSheet } from "./viewport";
 
 export type Tool = "select" | "mate" | "harness";
 
@@ -30,6 +29,8 @@ interface Props {
   apply: (ops: SystemOp[]) => Promise<unknown>;
   tool: Tool;
   onToolChange: (tool: Tool) => void;
+  /** Double-click on a board: open its sheet. */
+  onEnter?: (occurrence: string) => void;
 }
 
 /** What the page may ask of the canvas. */
@@ -39,26 +40,12 @@ export interface RootSheetHandle {
 }
 
 const THRESHOLD_PX = 3;
-const DEFAULT_VIEW: View = { x: 0, y: 0, scale: 6 };
-/** Room round a fitted sheet; the tool palette sits over the bottom edge. */
-const FIT_MARGIN_PX = 72;
-
-/** Keep the pointer's events while a gesture runs; a pointer the browser no longer tracks cannot be captured, and the gesture still works without it. */
-function capture(event: ReactPointerEvent<HTMLDivElement>) {
-  try {
-    event.currentTarget.setPointerCapture(event.pointerId);
-  } catch {
-    // Not an active pointer (a synthetic event); nothing to capture.
-  }
-}
 
 export const RootSheetCanvas = forwardRef<RootSheetHandle, Props>(function RootSheetCanvas(
-  { document, bundle, projectNames, selected, onSelect, canEdit, apply, tool, onToolChange },
+  { document, bundle, projectNames, selected, onSelect, canEdit, apply, tool, onToolChange, onEnter },
   handle,
 ) {
   const container = useRef<HTMLDivElement>(null);
-  const size = useRef({ width: 0, height: 0 });
-  const [view, setView] = useState<View | null>(null);
   const [override, setOverride] = useState<Layout | null>(null);
   const [drag, setDrag] = useState<Drag | null>(null);
   const [connectFrom, setConnectFrom] = useState<PinRef | null>(null);
@@ -68,51 +55,8 @@ export const RootSheetCanvas = forwardRef<RootSheetHandle, Props>(function RootS
   const base = useMemo(() => buildScene(document, bundle, options), [document, bundle, options]);
   const scene = useMemo(() => (override ? buildScene(document, bundle, { ...options, override }) : base), [override, document, bundle, options, base]);
 
-  const baseRef = useCommittedRef(base);
-
-  // The canvas's size, from the browser (an external lifecycle).
-  useEffect(() => {
-    const element = container.current;
-    if (!element) return;
-    const observer = new ResizeObserver(([entry]) => {
-      const first = size.current.width === 0;
-      size.current = { width: entry.contentRect.width, height: entry.contentRect.height };
-      // The first size shows the whole sheet; after that the view is the user's.
-      if (first && size.current.width > 0) setView(fitView(baseRef.current.bounds, size.current.width, size.current.height, FIT_MARGIN_PX));
-    });
-    observer.observe(element);
-    return () => observer.disconnect();
-  }, [baseRef]);
-
-  const current = view ?? DEFAULT_VIEW;
-  const currentRef = useCommittedRef(current);
-  const fit = () => {
-    if (size.current.width > 0) setView(fitView(baseRef.current.bounds, size.current.width, size.current.height, FIT_MARGIN_PX));
-  };
+  const { view: current, setView, fit, screenPoint } = useSheetView(container, base.bounds);
   useImperativeHandle(handle, () => ({ fit }));
-
-  // Wheel: pinch or Ctrl/⌘ zooms at the cursor, plain scroll pans. React's
-  // wheel listener is passive, so this one is attached by hand.
-  useEffect(() => {
-    const element = container.current;
-    if (!element) return;
-    const onWheel = (event: WheelEvent) => {
-      event.preventDefault();
-      const box = element.getBoundingClientRect();
-      const at = { x: event.clientX - box.left, y: event.clientY - box.top };
-      setView((previous) => {
-        const from = previous ?? currentRef.current;
-        return event.ctrlKey || event.metaKey ? zoomAt(from, at, Math.exp(-event.deltaY * 0.01)) : panBy(from, -event.deltaX, -event.deltaY);
-      });
-    };
-    element.addEventListener("wheel", onWheel, { passive: false });
-    return () => element.removeEventListener("wheel", onWheel);
-  }, [currentRef]);
-
-  const screenPoint = (event: { clientX: number; clientY: number }): Point => {
-    const box = container.current?.getBoundingClientRect();
-    return { x: event.clientX - (box?.left ?? 0), y: event.clientY - (box?.top ?? 0) };
-  };
 
   const commit = async (ops: SystemOp[], keep: Layout | null) => {
     if (!ops.length) {
@@ -144,7 +88,7 @@ export const RootSheetCanvas = forwardRef<RootSheetHandle, Props>(function RootS
     container.current?.focus();
     const screen = screenPoint(event);
     // Pan as KiCad does: right or middle drag (Alt + left drag for trackpads).
-    if (event.button === 2 || event.button === 1 || (event.button === 0 && event.altKey)) {
+    if (isPanButton(event)) {
       capture(event);
       setDrag({ kind: "pan", last: screen });
       return;
@@ -283,6 +227,11 @@ export const RootSheetCanvas = forwardRef<RootSheetHandle, Props>(function RootS
         setOverride(null);
       }}
       onKeyDown={onKeyDown}
+      onDoubleClick={(event) => {
+        const hit = hitAt(event);
+        const occurrence = hit?.hit === "symbol" ? document.occurrences.find((item) => item.id === hit.id) : undefined;
+        if (occurrence?.source.kind === "board") onEnter?.(occurrence.id);
+      }}
       // Right drag pans, so the browser's menu stays shut on the canvas.
       onContextMenu={(event) => event.preventDefault()}
     >

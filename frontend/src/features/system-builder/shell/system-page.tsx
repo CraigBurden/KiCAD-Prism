@@ -9,7 +9,7 @@
  */
 import { useMemo, useRef, useState } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
-import { ArrowLeft, Boxes, Cable, Columns2, Maximize, MousePointer2, Plus, Redo2, Undo2, Unplug, X } from "lucide-react";
+import { ArrowLeft, ArrowUp, Boxes, Cable, Columns2, Maximize, MousePointer2, Plus, Redo2, Undo2, Unplug, X } from "lucide-react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
@@ -19,6 +19,9 @@ import { canManageProjects } from "@/lib/roles";
 import type { User } from "@/types/auth";
 
 import type { SystemDocument, SystemOp } from "../model/types";
+import { useScriptApi } from "../agent/use-script-api";
+import { BoardSheetCanvas, type BoardSheetHandle } from "../board/board-sheet-canvas";
+import { readUnfolded, writeUnfolded } from "../board/unfolded-store";
 import { ReviewPane } from "../review/review-pane";
 import { addBoardOps, type NewBoard } from "../schematic/edits";
 import { RootSheetCanvas, type RootSheetHandle, type Tool } from "../schematic/root-sheet-canvas";
@@ -57,6 +60,7 @@ export function SystemPage({ user }: { user: User | null }) {
   const [params, setParams] = useSearchParams();
   const tab = asTab(params.get("tab"), "schematic") as TabId;
   const beside = asTab(params.get("beside"), null);
+  const sheet = params.get("sheet");
   const { session, state } = useSystemSession(systemId, user?.email ?? "");
   const { projects } = useWorkspaceData({ sessionKey: workspaceSessionKey(user) });
   const projectNames = useMemo(() => Object.fromEntries(projects.map((project) => [project.id, project.display_name || project.name])), [projects]);
@@ -64,7 +68,15 @@ export function SystemPage({ user }: { user: User | null }) {
   const [selected, setSelected] = useState<Set<string>>(() => new Set());
   const [tool, setTool] = useState<Tool>("select");
   const canvas = useRef<RootSheetHandle>(null);
+  const boardCanvas = useRef<BoardSheetHandle>(null);
   const [addingBoard, setAddingBoard] = useState(false);
+  // Unfolded connectors per board: per user and system, in browser storage (§14.1).
+  const [unfoldedMap, setUnfoldedMap] = useState<Record<string, Set<string>>>({});
+  const unfoldedFor = (occurrence: string) => unfoldedMap[occurrence] ?? readUnfolded(systemId, occurrence);
+  const setUnfoldedFor = (occurrence: string, next: Set<string>) => {
+    writeUnfolded(systemId, occurrence, next);
+    setUnfoldedMap((current) => ({ ...current, [occurrence]: next }));
+  };
 
   const record = state.record;
   const document = record?.document;
@@ -77,10 +89,30 @@ export function SystemPage({ user }: { user: User | null }) {
     return session.apply(ops);
   };
 
+  useScriptApi(session, state, {
+    open: (occurrence) => openSheet(occurrence),
+    select: (ids) => setSelected(new Set(ids)),
+    unfold: (occurrence, connector, unfolded) => {
+      const next = new Set(unfoldedFor(occurrence));
+      if (unfolded) next.add(connector);
+      else next.delete(connector);
+      setUnfoldedFor(occurrence, next);
+    },
+    isUnfolded: (occurrence, connector) => unfoldedFor(occurrence).has(connector),
+  });
+
   useHotkeys([
     { combo: "mod+z", handler: () => run(session?.undo()) },
     { combo: "mod+shift+z", handler: () => run(session?.redo()) },
   ], { enabled: canEdit });
+
+  const openSheet = (occurrence: string | null) => {
+    const out = new URLSearchParams(params);
+    if (occurrence) out.set("sheet", occurrence);
+    else out.delete("sheet");
+    setParams(out);
+    if (occurrence) setSelected(new Set());
+  };
 
   const setView = (next: { tab?: TabId; beside?: TabId | null }) => {
     const out = new URLSearchParams(params);
@@ -115,6 +147,37 @@ export function SystemPage({ user }: { user: User | null }) {
   const single = selected.size === 1 ? [...selected][0] : null;
   const pane = (id: TabId) => {
     if (!document) return <div className="flex h-full items-center justify-center text-sm text-muted-foreground">Loading…</div>;
+    const sheetOccurrence = sheet ? document.occurrences.find((item) => item.id === sheet) : undefined;
+    if (id === "schematic" && sheetOccurrence) {
+      return (
+        <div className="relative flex h-full flex-col">
+          <div className="flex h-8 shrink-0 items-center gap-1.5 border-b bg-[#f5f4ef] px-3 text-xs text-zinc-600">
+            <button type="button" className="hover:underline" onClick={() => openSheet(null)}>{record?.name ?? "Root"}</button>
+            <span>›</span>
+            <span className="font-medium text-zinc-900">{sheetOccurrence.label}</span>
+            <span className="ml-2 text-zinc-500">Alt/⌥+Backspace to leave</span>
+          </div>
+          <div className="relative min-h-0 flex-1">
+            <BoardSheetCanvas
+              ref={boardCanvas}
+              key={sheetOccurrence.id}
+              unfolded={unfoldedFor(sheetOccurrence.id)}
+              onUnfoldedChange={(next) => setUnfoldedFor(sheetOccurrence.id, next)}
+              document={document}
+              bundle={state.bundle}
+              occurrence={sheetOccurrence.id}
+              canEdit={canEdit}
+              apply={apply}
+              onLeave={() => openSheet(null)}
+            />
+            <div className="absolute bottom-4 left-1/2 flex -translate-x-1/2 items-center gap-1 rounded-lg border border-white/10 bg-zinc-900/95 p-1 text-zinc-100 shadow-xl" role="toolbar" aria-label="Sheet tools">
+              <ToolButton active={false} onClick={() => openSheet(null)} icon={ArrowUp} label="Up (⌥⌫)" />
+              <ToolButton active={false} onClick={() => boardCanvas.current?.fit()} icon={Maximize} label="Fit" />
+            </div>
+          </div>
+        </div>
+      );
+    }
     if (id === "schematic") {
       return (
         <div className="relative h-full">
@@ -129,6 +192,7 @@ export function SystemPage({ user }: { user: User | null }) {
             tool={tool}
             onToolChange={setTool}
             ref={canvas}
+            onEnter={(occurrence) => openSheet(occurrence)}
           />
           {single && (
             <div className="absolute right-3 top-3">
