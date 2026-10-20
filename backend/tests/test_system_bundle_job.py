@@ -14,6 +14,7 @@ from app.services.design_bundle import schemas
 from app.services.job_runtime import JobContext, PermanentJobError
 from app.system_builder import bundle_store, ops
 from app.system_builder import jobs as system_jobs
+from app.system_builder import members as members_module
 from app.system_builder.board_sub_ports import BoardSubPortStore
 from app.system_builder.document import canonical, new_document
 from app.system_builder.service import Caller, SystemService
@@ -153,6 +154,7 @@ class SystemBundleWorkspace(_Workspace):
                      entries: dict | None = None) -> str:
         preimage = {
             "documentSha256": expected_document_sha(document),
+            "format": members_module.SYSTEM_BUNDLE_FORMAT,
             "generator": design_jobs.cli.generator().digest,
             "members": members,
             "absent": sorted(absent),

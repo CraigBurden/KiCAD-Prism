@@ -536,6 +536,7 @@ fn system_bundle_key(
         "boardSubPorts": board_sub_ports,
         "documentSha256": document_sha256,
         "entries": entry_keys,
+        "format": prism_system::SYSTEM_BUNDLE_FORMAT,
         "generator": generator::digest(generator_bytes),
         "members": member_keys,
         "pending": pending,

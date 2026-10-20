@@ -6,6 +6,8 @@ export interface PrismSemanticViewerSelectionDetail {
 }
 
 export interface PrismRendererSelection {
+    /** mode="system": the occurrence to select on (alone: the board itself). */
+    occurrence?: string;
     reference?: string;
     pin?: string;
     netName?: string;
@@ -58,6 +60,10 @@ export interface PrismSemanticViewState {
     realisticColors: boolean;
     /** 0..1 */
     separation: number;
+    /** mode="system": a section per placed board. */
+    boards?: PrismSystemBoardViewState[];
+    /** mode="system": the occurrence the selection belongs to, or null. */
+    selectedBoard?: string | null;
     isolateNet: boolean;
     hasNet: boolean;
 }
@@ -108,7 +114,8 @@ export interface PrismSemanticViewerCommon {
     setRealisticColors(enabled: boolean): void;
     /** Show or hide one side's solder mask, silkscreen or paste. */
     setBoardLayerVisible(role: PrismSemanticBoardLayerRole, side: PrismSemanticBoardSide, visible: boolean): void;
-    setSeparation(value: number): void;
+    /** In a system scene, `placement` names one placed board (the selected board when omitted). */
+    setSeparation(value: number, placement?: string | null): void;
     showNetLayers(): void;
     setNetIsolation(enabled: boolean): void;
     /** Show the scene stats overlay (SB2-25); the backquote key toggles it. */
@@ -270,7 +277,97 @@ export interface PrismAnalyticStats {
  * and kicad-prism-viewer/viewer/src/viewer-controllers.js lists them all.
  */
 export interface PrismSemanticViewerElement
-    extends HTMLElement, PrismSemanticViewerCommon, PrismSemanticBoardMode {}
+    extends HTMLElement, PrismSemanticViewerCommon, PrismSemanticBoardMode, PrismSemanticSystemMode {}
+
+/** What a click in `<prism-semantic-viewer mode="system">` selected: a board's own selection with its occurrence, or the board. */
+export type PrismSystemViewerSelection =
+    | (PrismSelection & { occurrence?: string })
+    | { kind: "board"; sourceContext: "3D"; occurrence: string; standIn?: string | null };
+
+/** One placed board of a system scene (the system view state's `boards`). */
+export interface PrismSystemBoardViewState {
+    /** The occurrence id. */
+    key: string;
+    name: string;
+    /** Why the board draws as a box (restricted, loading, building, missing, failed), or null. */
+    standIn: string | null;
+    /** This board's own stackup separation, 0..1. */
+    separation: number;
+    layers: PrismSemanticLayerState[];
+}
+
+export interface PrismScenePose {
+    translationMm: [number, number, number];
+    /** Unit quaternion x, y, z, w (canonical, w ≥ 0). */
+    rotation: [number, number, number, number];
+}
+
+/** `prism-semantic-viewer:move` (mode="system"). "commit" asks the host to save `target.pose`. */
+export interface PrismSystemSceneMoveState {
+    /** "sync": the host gave a re-read scene (a save landed, or bundles changed). */
+    phase?: "mode" | "target" | "preview" | "commit" | "cancel" | "sync" | "snap";
+    allowed: boolean;
+    enabled: boolean;
+    space: "world" | "local";
+    dragging: boolean;
+    /** The gizmo's steps (Shift: a tenth of `mm`, and 1°). */
+    snap?: { mm: number; deg: number };
+    target: {
+        occurrence: string;
+        instanceId: string;
+        displayPath: string;
+        kind: string;
+        restricted: boolean;
+        pose: PrismScenePose;
+        source: "default" | "manual" | "auto";
+        /** The pose shown is a preview that is not saved yet. */
+        unsaved: boolean;
+    } | null;
+}
+
+/** A system net to light: board nets by occurrence id. */
+export interface PrismSystemSceneEmphasisSet {
+    key: string;
+    /** "#rrggbb"; omitted takes the next palette colour. */
+    color?: string;
+    members: readonly { occurrence: string; net: string }[];
+}
+
+/** What a set lit (`setNetEmphasis`'s return and `prism-semantic-viewer:emphasis`). */
+export interface PrismSystemSceneEmphasisResult {
+    key: string;
+    color: string;
+    lit: number;
+    unresolved: { occurrence: string; net: string; reason: "not-drawn" | "loading" | "restricted" | "unknown-net" }[];
+}
+
+/** `mode="system"`: several boards from a system scene descriptor (System Builder stage 3b). */
+export interface PrismSemanticSystemMode {
+    /** The system to show, a `prism.system_scene.a0` descriptor. Safe before ready. */
+    setSystemScene(descriptor: unknown): void;
+    /** Light system nets on every board they reach; [] before ready. */
+    setNetEmphasis(sets: readonly PrismSystemSceneEmphasisSet[]): PrismSystemSceneEmphasisResult[];
+    frameNetEmphasis(key?: string | null, occurrence?: string | null): boolean;
+    frameAll(): void;
+    frameBoard(key: string): boolean;
+    /** Frame parts on their occurrences; a null reference frames the whole occurrence. */
+    frameParts(parts: readonly { occurrence: string; reference: string | null }[]): boolean;
+    /** Move mode; state arrives as `prism-semantic-viewer:move`. Who may move is the `move-allowed` attribute. */
+    setMoveMode(enabled: boolean): void;
+    setMoveSpace(space: "world" | "local"): void;
+    /** The gizmo's steps in millimetres and degrees. */
+    setMoveSnap(snap: { mm: number; deg: number }): void;
+    /** Show a pose for the move target without saving it; null shows the saved pose. */
+    previewPose(pose: PrismScenePose | null): void;
+    cancelMove(): void;
+    getMoveState(): PrismSystemSceneMoveState | null;
+    /** Slide mated boards apart along their mate axes, 0 (assembled)..1. */
+    setAssemblyExplode(amount: number): void;
+    /** Board name labels (on by default). */
+    setLabelsVisible(visible: boolean): void;
+    setHelpVisible(visible: boolean): void;
+    isHelpVisible(): boolean;
+}
 
 /** `prism-semantic-viewer:error`: the viewer could not start or load. */
 export interface PrismSemanticViewerErrorDetail {
@@ -291,6 +388,8 @@ declare global {
         "prism-semantic-viewer:ready": CustomEvent<Record<string, unknown>>;
         "prism-semantic-viewer:performance": CustomEvent<Record<string, unknown>>;
         "prism-semantic-viewer:contextmenu": CustomEvent<PrismSemanticContextMenuDetail>;
+        "prism-semantic-viewer:emphasis": CustomEvent<{ results: PrismSystemSceneEmphasisResult[] }>;
+        "prism-semantic-viewer:move": CustomEvent<PrismSystemSceneMoveState>;
     }
 
     namespace JSX {
@@ -301,6 +400,10 @@ declare global {
                     workspace?: "pcb" | "stackup";
                     active?: string;
                     "hide-panel"?: string;
+                    /** "system": several boards from `setSystemScene`. */
+                    mode?: "system";
+                    /** mode="system": "true" lets this reader move boards. */
+                    "move-allowed"?: "true" | "false";
                 },
                 PrismSemanticViewerElement
             >;

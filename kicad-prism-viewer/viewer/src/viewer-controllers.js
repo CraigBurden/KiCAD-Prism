@@ -1,22 +1,22 @@
 /**
- * The semantic viewer's board controller (AC-30).
+ * The semantic viewer's mode controllers (AC-30).
  *
- * `<prism-semantic-viewer>` shows one board from a bundle. Its controller is
- * an instance the element keeps for its whole life: it holds what the host
- * asked for, and while a scene is mounted it drives that scene through a
- * port; when a reload mounts a new scene, the controller replays the host's
- * state onto it. (A system mode with several boards went with System
- * Builder v1, at System Builder v2's stage 0.)
+ * `<prism-semantic-viewer>` runs in one of two modes: one board from a bundle
+ * (the default) or several boards from a system scene (`mode="system"`). Each
+ * mode is a controller instance the element keeps for its whole life. A
+ * controller holds what the host asked for, and while a scene is mounted it
+ * drives that scene through a port; when a reload mounts a new scene, the
+ * controller replays the host's state onto it.
  *
- * The port is the narrow, synchronous surface `main.js` returns from
- * `mountStandaloneViewer`. Everything here runs without a GPU or a DOM, so
- * tests drive it against a fake scene.
+ * The ports are the narrow, synchronous surface `main.js` returns from
+ * `mountStandaloneViewer` (board) and `mountSystemViewer` (system). Everything
+ * here runs without a GPU or a DOM, so tests drive it against a fake scene.
  *
- * @typedef {object} ScenePort
+ * @typedef {object} ScenePort Both modes.
  * @property {Record<string, number>} [performance] Timings of the mount.
  * @property {() => void} dispose
  * @property {() => Array<{id: number, uid?: string, name?: string, aliases?: string[]}>} nets
- *   The scene nets selections resolve against.
+ *   The scene nets selections resolve against (the focused board's in a system).
  * @property {(apply: () => void) => void} quietly Run `apply` without echoing selection events.
  * @property {(id: number, frame: boolean) => void} selectNet
  * @property {(id: number, frame: boolean) => void} selectFeature
@@ -29,7 +29,7 @@
  * @property {() => void} isolateLitNets Show only the layers the lit nets use.
  * @property {(enabled: boolean) => void} setNetIsolation
  * @property {(bytes: number) => void} setGpuBudget A normalised budget (`gpuBudgetBytes`).
- * The remaining members are the view controls (see COMMON_MEMBERS):
+ * The remaining members are the view controls both modes share (see COMMON_MEMBERS):
  * resize, getViewState, setLayerVisible, applyLayerPreset, setShowBoard, setShowComponents,
  * setShowPlaceholders, setRealisticColors, setBoardLayerVisible, setSeparation, showNetLayers, setStatsOverlay,
  * stats, setLodOverride, pickAt, projectComponent, projectPoint.
@@ -61,9 +61,18 @@
  * @property {() => object | null} analyticStats
  * @property {() => void} unloadAnalyticPack
  *
+ * @typedef {ScenePort & object} SystemScenePort Several boards (mountSystemViewer).
+ * @property {(occurrence: string | undefined) => "board" | "stand-in" | null} focusPlacement
+ *   Select a placement for a host selection: its board is focused ("board"), it
+ *   is selected as itself ("stand-in"), or it is not placed (null).
+ * @property {() => void} selectBoardContext Select the focused placement's board itself.
+ * @property {(sets: object[]) => object[] | null} setEmphasisSets Light normalised sets; returns the
+ *   report, or null when the scene's system is gone.
+ * Plus the system members in SYSTEM_MEMBERS (setSystemScene, setMoveAllowed, setMoveMode, …).
  */
 
-import { findNetByName, resolveNetIds } from "./net-emphasis.js";
+import { EMPHASIS_PALETTE, findNetByName, packEmphasisColor, resolveNetIds } from "./net-emphasis.js";
+import { DEFAULT_MOVE_SNAP, normalizeMoveSnap } from "./move-gizmo.js";
 import { insetSurfaceZ, insetTarget, projectInsetPoint } from "./inset-view.js";
 
 /** The GPU memory budget when the host sets none, or an unusable one. */
@@ -126,6 +135,24 @@ export function emphasisChange(had, has) {
   if (has && !had) return "enter";
   if (!has && had) return "leave";
   return null;
+}
+
+/**
+ * The host's system net sets as the scene lights them: a key, a packed colour
+ * (the next palette colour when none is given) and its "#rrggbb", and only
+ * well-formed members.
+ */
+export function normalizeEmphasisSets(sets) {
+  return (Array.isArray(sets) ? sets : []).map((set, index) => {
+    const mark = packEmphasisColor(set?.color ?? EMPHASIS_PALETTE[index % EMPHASIS_PALETTE.length]);
+    return {
+      key: String(set?.key ?? index),
+      mark,
+      color: `#${(mark & 0xffffff).toString(16).padStart(6, "0")}`,
+      members: (Array.isArray(set?.members) ? set.members : [])
+        .filter((member) => member && typeof member.occurrence === "string" && typeof member.net === "string"),
+    };
+  });
 }
 
 /** Host state the controller replays onto each mount: the last selection and GPU budget. */
@@ -469,11 +496,161 @@ export class BoardModeController extends ModeController {
   }
 }
 
+/** Members only the system mode has. */
+export const SYSTEM_MEMBERS = Object.freeze([
+  "setSystemScene", "setNetEmphasis", "frameNetEmphasis", "frameAll", "frameBoard", "frameParts",
+  "setMoveMode", "setMoveSpace", "previewPose", "cancelMove", "getMoveState",
+  "setAssemblyExplode", "setMoveSnap",
+  "setLabelsVisible", "setHelpVisible", "isHelpVisible", "viewAxis",
+]);
+
 /**
- * Give a viewer element its members. The element keeps its controller in
- * `modes.board` and names it `activeMode` while a scene is mounted; the
- * controller keeps a call made between mounts for the next one. Each member
- * returns what the controller returns.
+ * Several boards from a system scene. Replays the GPU budget, the scene, the
+ * lit net sets, who may move boards, the explode and snap steps, and the
+ * labels onto each mount.
+ */
+export class SystemModeController extends ModeController {
+  #scene = null;
+  #netEmphasis = null;
+  #labels = null;
+  #moveAllowed = false;
+  #assemblyExplode = 0;
+  #moveSnap = { ...DEFAULT_MOVE_SNAP };
+
+  attach(port, { moveAllowed = false } = {}) {
+    this.#moveAllowed = Boolean(moveAllowed);
+    super.attach(port);
+  }
+
+  replay(port) {
+    if (this.shared.gpuBudget != null) port.setGpuBudget(gpuBudgetBytes(this.shared.gpuBudget));
+    if (this.#scene) port.setSystemScene(this.#scene);
+    if (this.#netEmphasis) this.#applyNetEmphasis(port, this.#netEmphasis);
+    port.setMoveAllowed(this.#moveAllowed);
+    port.setAssemblyExplode(this.#assemblyExplode);
+    port.setMoveSnap({ ...this.#moveSnap });
+    if (this.#labels != null) port.setLabelsVisible(this.#labels);
+  }
+
+  applySelection(port, selection) {
+    if (!selection) {
+      port.clearSelection();
+      return;
+    }
+    if (port.focusPlacement(selection.occurrence) !== "board") return;
+    const target = selectionTarget(port.nets(), selection);
+    if (target.kind === "board") port.selectBoardContext();
+    else selectTarget(port, target);
+  }
+
+  /** The `prism.system_scene.a0` descriptor to show; the last one is replayed on the next mount. */
+  setSystemScene(descriptor) {
+    this.#scene = descriptor || null;
+    if (descriptor) this.port?.setSystemScene(descriptor);
+  }
+
+  /** Light system nets on every board they reach; the report, or [] before mount. */
+  setNetEmphasis(sets) {
+    this.#netEmphasis = Array.isArray(sets) ? sets : [];
+    const port = this.port;
+    return port ? this.#applyNetEmphasis(port, this.#netEmphasis) : [];
+  }
+
+  #applyNetEmphasis(port, sets) {
+    const had = port.anyEmphasis();
+    const report = port.setEmphasisSets(normalizeEmphasisSets(sets));
+    // Null: the scene's system is gone (its session ended); nothing is lit or changed.
+    if (!report) return [];
+    const has = port.anyEmphasis();
+    const change = emphasisChange(had, has);
+    if (change === "enter") port.showNetProbe();
+    else if (change === "leave") {
+      if (port.isolating()) port.setNetIsolation(false);
+      port.restoreVisibility();
+    }
+    if (port.isolating() && has) port.isolateLitNets();
+    return report;
+  }
+
+  frameNetEmphasis(key = null, occurrence = null) {
+    return this.port?.frameNetEmphasis(key, occurrence) ?? false;
+  }
+
+  frameAll() {
+    this.port?.frameAll();
+  }
+
+  frameBoard(key) {
+    return this.port?.frameBoard(key) ?? false;
+  }
+
+  frameParts(parts) {
+    return this.port?.frameParts(parts) ?? false;
+  }
+
+  /** Whether this reader may move boards (the `move-allowed` attribute). */
+  setMoveAllowed(allowed) {
+    this.#moveAllowed = Boolean(allowed);
+    this.port?.setMoveAllowed(this.#moveAllowed);
+  }
+
+  setMoveMode(enabled, options) {
+    this.port?.setMoveMode(enabled, options);
+  }
+
+  setMoveSpace(space) {
+    this.port?.setMoveSpace(space);
+  }
+
+  previewPose(pose) {
+    this.port?.previewPose(pose);
+  }
+
+  cancelMove() {
+    this.port?.cancelMove();
+  }
+
+  getMoveState() {
+    return this.port?.getMoveState() ?? null;
+  }
+
+  /** The assembly explode, 0 (assembled) to 1; replayed on the next mount. */
+  setAssemblyExplode(amount) {
+    this.#assemblyExplode = Math.max(0, Math.min(1, Number(amount) || 0));
+    this.port?.setAssemblyExplode(this.#assemblyExplode);
+  }
+
+  /** Translation (mm) and rotation (deg) steps for the gizmo; replayed on the next mount. */
+  setMoveSnap(snap) {
+    this.#moveSnap = normalizeMoveSnap(snap, this.#moveSnap);
+    this.port?.setMoveSnap({ ...this.#moveSnap });
+  }
+
+  /** Board name labels (on by default); the last call is replayed on the next mount. */
+  setLabelsVisible(visible) {
+    this.#labels = Boolean(visible);
+    this.port?.setLabelsVisible(this.#labels);
+  }
+
+  setHelpVisible(visible) {
+    this.port?.setHelpVisible(visible);
+  }
+
+  isHelpVisible() {
+    return Boolean(this.port?.isHelpVisible());
+  }
+
+  viewAxis(axis, opposite = false) {
+    this.port?.viewAxis(axis, opposite);
+  }
+}
+
+/**
+ * Give a viewer element its mode interfaces. The element keeps its two
+ * controllers in `modes` and names the mounted one `activeMode`. Common
+ * members go to the active mode; board and system members go to their own
+ * mode's controller, which keeps the call for its next mount when that mode
+ * is not the mounted one. Each member returns what its controller returns.
  */
 export function installModeMembers(prototype) {
   const route = (names, controllerOf) => {
@@ -489,4 +666,5 @@ export function installModeMembers(prototype) {
   };
   route(COMMON_MEMBERS, (element) => element.activeMode);
   route(BOARD_MEMBERS, (element) => element.modes.board);
+  route(SYSTEM_MEMBERS, (element) => element.modes.system);
 }

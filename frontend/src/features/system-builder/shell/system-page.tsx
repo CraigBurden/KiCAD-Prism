@@ -1,15 +1,15 @@
 /**
  * `/system/:systemId`: one system's editor (ADR §2.7, CONTRACTS §14). A row
  * of tabs over one or two panes side by side, with selection shared between
- * them. Stage 2b has the root sheet, a 3D placeholder and Review; board
- * sheets, harness and B2B tabs follow in later stages.
+ * them: the schematic (root and board sheets), 3D and Review. Harness and B2B
+ * tabs follow in later stages.
  *
  * The open tab and the pane beside it live in the URL (`?tab=…&beside=…`),
  * so a link reopens the same view.
  */
 import { useMemo, useRef, useState } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
-import { ArrowLeft, ArrowUp, Boxes, Cable, Columns2, Maximize, MousePointer2, Plus, Redo2, Undo2, Unplug, X } from "lucide-react";
+import { ArrowLeft, ArrowUp, Cable, Columns2, Maximize, MousePointer2, Plus, Redo2, Undo2, Unplug, X } from "lucide-react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
@@ -28,6 +28,7 @@ import { RootSheetCanvas, type RootSheetHandle, type Tool } from "../schematic/r
 import { buildScene } from "../schematic/scene";
 import { SelectionPanel } from "../schematic/selection-panel";
 import { useSystemSession } from "../session/use-system-session";
+import { ThreeDPane } from "../three-d/three-d-pane";
 import { AddBoardDialog } from "./add-board-dialog";
 
 const TABS = ["schematic", "3d", "review"] as const;
@@ -226,10 +227,16 @@ export function SystemPage({ user }: { user: User | null }) {
       );
     }
     return (
-      <div className="flex h-full flex-col items-center justify-center gap-2 bg-background text-sm text-muted-foreground">
-        <Boxes className="h-8 w-8" />
-        <p>The 3D view of the system arrives with stage 3 (placement, B2B mates and bodies).</p>
-      </div>
+      <ThreeDPane
+        document={document}
+        bundle={state.bundle ?? null}
+        projectNames={projectNames}
+        selected={selected}
+        onSelect={setSelected}
+        canEdit={canEdit}
+        busy={state.saving}
+        apply={apply}
+      />
     );
   };
 
