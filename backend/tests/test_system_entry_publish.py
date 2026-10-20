@@ -55,6 +55,7 @@ def entry_payload(system_id: str = "sys_child", key: str = "a" * 64) -> dict:
         "mates": [],
         "links": [],
         "splices": [],
+        "harnesses": [],
         "suggestions": [],
         "findings": [],
         "placement": {"occurrences": [], "mates": []},

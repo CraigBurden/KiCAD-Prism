@@ -33,10 +33,13 @@ search indexes and integrity guards
 
 from __future__ import annotations
 
+import json
 from collections.abc import Callable
 from typing import Any
 
+from app.services.catalog.harness_fields import GROUP as HARNESS_GROUP, HARNESS_FIELDS
 from app.services.catalog.metadata_schema import CatalogMetadataSchema
+from app.services.catalog.normalization import utc_now_iso
 from app.services.catalog.postgres_projections import (
     ensure_component_heads_projection,
     ensure_remote_component_heads_projection,
@@ -435,6 +438,43 @@ def _system_entries(conn: Any) -> None:
     )
 
 
+def _harness_fields(conn: Any) -> None:
+    """System Builder v2 stage 4a (CONTRACTS.md §16.1): the ``harness`` metadata fields.
+
+    Seeded as built-in definitions stored in ``extra_fields``, after every existing field.
+    A database that already has a field with one of these keys keeps its own.
+    """
+    row = conn.execute(
+        "SELECT COALESCE(MAX(display_order), -1) AS value FROM catalog_field_definitions"
+    ).fetchone()
+    order = int(row["value"] if row and row["value"] is not None else -1) + 1
+    now = utc_now_iso()
+    for index, field in enumerate(HARNESS_FIELDS):
+        conn.execute(
+            """
+            INSERT INTO catalog_field_definitions (
+                id, field_key, label, description, field_group, field_type, unit,
+                enum_values_json, storage_kind, storage_key, built_in, required,
+                display_order, archived, created_by, updated_by, created_at, updated_at
+            ) VALUES (%s, %s, %s, '', %s, %s, %s, %s, 'extra', %s, 1, 0, %s, 0, 'system', 'system', %s, %s)
+            ON CONFLICT DO NOTHING
+            """,
+            (
+                f"builtin:{field.key}",
+                field.key,
+                field.label,
+                HARNESS_GROUP,
+                field.field_type,
+                field.unit,
+                json.dumps(list(field.enum_values)),
+                field.key,
+                order + index,
+                now,
+                now,
+            ),
+        )
+
+
 MIGRATIONS: tuple[tuple[int, str, Migration], ...] = (
     (0, "baseline", _baseline),
     (1, "portable_column_types", _portable_column_types),
@@ -451,6 +491,7 @@ MIGRATIONS: tuple[tuple[int, str, Migration], ...] = (
     (12, "project_catalog_placements", _project_catalog_placements),
     (13, "retire_module_and_assembly", _retire_module_and_assembly),
     (14, "system_entries", _system_entries),
+    (15, "harness_fields", _harness_fields),
 )
 
 # Migrations that a long-lived branch database recorded under an earlier number.

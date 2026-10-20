@@ -112,6 +112,7 @@ def entry_payload() -> dict:
         "mates": [],
         "links": [],
         "splices": [],
+        "harnesses": [],
         "suggestions": [],
         "findings": [],
         "placement": {

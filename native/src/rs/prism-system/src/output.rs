@@ -27,6 +27,8 @@ pub struct SystemBundle {
     pub links: Vec<LinkOut>,
     /// Proposed splices.
     pub splices: Vec<SpliceOut>,
+    /// Harness blocks with their wire lists (§16.3).
+    pub harnesses: Vec<HarnessOut>,
     /// Sub-port suggestions.
     pub suggestions: Vec<SuggestionOut>,
     /// Findings, by code then subject.
@@ -369,6 +371,110 @@ pub struct SpliceOut {
     pub pad: String,
     /// The links that wire it.
     pub links: Vec<String>,
+}
+
+/// A cavity of an end in use (§16.3).
+#[derive(Clone, Debug, Serialize)]
+pub struct CavityOut {
+    /// The cavity.
+    pub cavity: String,
+    /// The site's pad in it.
+    pub pad: String,
+    /// The system net of that pad.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub net: Option<String>,
+    /// The resolved contact part.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub contact: Option<String>,
+}
+
+/// An end of a harness block (§16.3).
+#[derive(Clone, Debug, Serialize)]
+pub struct HarnessEndOut {
+    /// The end.
+    pub end: String,
+    /// Its site's occurrence.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub occurrence: Option<String>,
+    /// Its site's connector.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub connector: Option<String>,
+    /// The resolved housing part.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub housing: Option<String>,
+    /// Cavities in use, in natural order.
+    pub cavities: Vec<CavityOut>,
+}
+
+/// Where a wire of the wire list stops.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TerminalOut {
+    /// `contact`, `splice` or `loose`.
+    pub kind: &'static str,
+    /// The end (`contact`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub end: Option<String>,
+    /// The cavity (`contact`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cavity: Option<String>,
+    /// The site's pad (`contact` on an attached end).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub pad: Option<String>,
+    /// The splice (`splice`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub splice: Option<String>,
+    /// The loose end (`loose`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub loose_end: Option<String>,
+}
+
+/// One conductor of a harness (§16.3).
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HarnessWireOut {
+    /// The document wire's id, or `<link>:<pad A>`.
+    pub id: String,
+    /// `explicit` or `default`.
+    pub origin: &'static str,
+    /// The link it belongs to.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub link: Option<String>,
+    /// One end.
+    pub from: TerminalOut,
+    /// The other end.
+    pub to: TerminalOut,
+    /// AWG as written.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub gauge_awg: Option<String>,
+    /// Colour.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub colour: Option<String>,
+    /// Printed label.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub label: Option<String>,
+    /// The cable that carries it.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cable: Option<String>,
+    /// The cable conductor's name.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub conductor: Option<String>,
+    /// The system net it is on.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub net: Option<String>,
+    /// Joins power or ground pins.
+    pub suggested: bool,
+}
+
+/// A harness block's ends and wire list (§16.3).
+#[derive(Clone, Debug, Serialize)]
+pub struct HarnessOut {
+    /// The harness block.
+    pub harness: String,
+    /// Its ends, in document order.
+    pub ends: Vec<HarnessEndOut>,
+    /// Explicit wires in document order, then each link's default wires.
+    pub wires: Vec<HarnessWireOut>,
 }
 
 /// A sub-port suggestion.

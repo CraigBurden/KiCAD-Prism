@@ -502,6 +502,13 @@ impl ::std::fmt::Display for Sha256Hex {
 ///        "$ref": "#/$defs/SystemBundleFinding"
 ///      }
 ///    },
+///    "harnesses": {
+///      "description": "Harness blocks with their resolved wire lists, in document order (§16.3).\nAbsent from a bundle built before format 5, such as an entry published\nearlier; every build writes it.",
+///      "type": "array",
+///      "items": {
+///        "$ref": "#/$defs/SystemBundleHarness"
+///      }
+///    },
 ///    "links": {
 ///      "description": "Harness link wirings, sorted by `harness` then `link`, in code point order.",
 ///      "type": "array",
@@ -576,6 +583,11 @@ pub struct SystemBundleA0 {
     pub links: ::std::vec::Vec<SystemBundleLink>,
     ///Proposed splices, sorted by `harness`, `end` then `pad` (natural order).
     pub splices: ::std::vec::Vec<SystemBundleSplice>,
+    /**Harness blocks with their resolved wire lists, in document order (§16.3).
+    Absent from a bundle built before format 5, such as an entry published
+    earlier; every build writes it.*/
+    #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+    pub harnesses: ::std::option::Option<::std::vec::Vec<SystemBundleHarness>>,
     ///Sub-port suggestions, sorted by `occurrence`, `connector` then `key`, in code point order.
     pub suggestions: ::std::vec::Vec<SystemBundleSuggestion>,
     ///Findings, sorted by `code` then `subject`, in code point order.
@@ -1323,6 +1335,407 @@ impl ::std::convert::TryFrom<::std::string::String> for SystemBundleFootprintSid
         value: ::std::string::String,
     ) -> ::std::result::Result<Self, self::error::ConversionError> {
         value.parse()
+    }
+}
+///A harness block's ends and resolved wire list (§16.3).
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "description": "A harness block's ends and resolved wire list (§16.3).",
+///  "type": "object",
+///  "required": [
+///    "ends",
+///    "harness",
+///    "wires"
+///  ],
+///  "properties": {
+///    "ends": {
+///      "description": "Its ends, in document order.",
+///      "type": "array",
+///      "items": {
+///        "$ref": "#/$defs/SystemBundleHarnessEnd"
+///      }
+///    },
+///    "harness": {
+///      "description": "The harness block.",
+///      "$ref": "#/$defs/SystemBundleObjectId"
+///    },
+///    "wires": {
+///      "description": "Explicit wires in document order, then each link's default wires.",
+///      "type": "array",
+///      "items": {
+///        "$ref": "#/$defs/SystemBundleHarnessWire"
+///      }
+///    }
+///  },
+///  "additionalProperties": false
+///}
+/// ```
+/// </details>
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct SystemBundleHarness {
+    ///The harness block.
+    pub harness: SystemBundleObjectId,
+    ///Its ends, in document order.
+    pub ends: ::std::vec::Vec<SystemBundleHarnessEnd>,
+    ///Explicit wires in document order, then each link's default wires.
+    pub wires: ::std::vec::Vec<SystemBundleHarnessWire>,
+}
+///A cavity of an end in use (§16.3).
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "description": "A cavity of an end in use (§16.3).",
+///  "type": "object",
+///  "required": [
+///    "cavity",
+///    "pad"
+///  ],
+///  "properties": {
+///    "cavity": {
+///      "description": "The cavity, as the end's `pinMap` names it.",
+///      "type": "string",
+///      "minLength": 1
+///    },
+///    "contact": {
+///      "description": "The resolved contact part (`componentId@revisionId`), when one is chosen.",
+///      "type": "string"
+///    },
+///    "net": {
+///      "description": "The system net of that pad, when it has one.",
+///      "$ref": "#/$defs/SystemBundleNetId"
+///    },
+///    "pad": {
+///      "description": "The site's pad in it.",
+///      "$ref": "#/$defs/PadNumber"
+///    }
+///  },
+///  "additionalProperties": false
+///}
+/// ```
+/// </details>
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct SystemBundleHarnessCavity {
+    ///The cavity, as the end's `pinMap` names it.
+    pub cavity: SystemBundleHarnessCavityCavity,
+    ///The site's pad in it.
+    pub pad: PadNumber,
+    ///The system net of that pad, when it has one.
+    #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+    pub net: ::std::option::Option<SystemBundleNetId>,
+    ///The resolved contact part (`componentId@revisionId`), when one is chosen.
+    #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+    pub contact: ::std::option::Option<::std::string::String>,
+}
+///The cavity, as the end's `pinMap` names it.
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "description": "The cavity, as the end's `pinMap` names it.",
+///  "type": "string",
+///  "minLength": 1
+///}
+/// ```
+/// </details>
+#[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct SystemBundleHarnessCavityCavity(::std::string::String);
+impl ::std::ops::Deref for SystemBundleHarnessCavityCavity {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<SystemBundleHarnessCavityCavity> for ::std::string::String {
+    fn from(value: SystemBundleHarnessCavityCavity) -> Self {
+        value.0
+    }
+}
+impl ::std::str::FromStr for SystemBundleHarnessCavityCavity {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        if value.chars().count() < 1usize {
+            return Err("shorter than 1 characters".into());
+        }
+        Ok(Self(value.to_string()))
+    }
+}
+impl ::std::convert::TryFrom<&str> for SystemBundleHarnessCavityCavity {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl ::std::convert::TryFrom<&::std::string::String> for SystemBundleHarnessCavityCavity {
+    type Error = self::error::ConversionError;
+    fn try_from(
+        value: &::std::string::String,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl ::std::convert::TryFrom<::std::string::String> for SystemBundleHarnessCavityCavity {
+    type Error = self::error::ConversionError;
+    fn try_from(
+        value: ::std::string::String,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for SystemBundleHarnessCavityCavity {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        ::std::string::String::deserialize(deserializer)?
+            .parse()
+            .map_err(|e: self::error::ConversionError| {
+                <D::Error as ::serde::de::Error>::custom(e.to_string())
+            })
+    }
+}
+///An end of a harness block and the cavities in use (§16.3).
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "description": "An end of a harness block and the cavities in use (§16.3).",
+///  "type": "object",
+///  "required": [
+///    "cavities",
+///    "end"
+///  ],
+///  "properties": {
+///    "cavities": {
+///      "description": "Cavities in use, in natural order.",
+///      "type": "array",
+///      "items": {
+///        "$ref": "#/$defs/SystemBundleHarnessCavity"
+///      }
+///    },
+///    "connector": {
+///      "description": "Its site's connector, when it has a site.",
+///      "$ref": "#/$defs/Refdes"
+///    },
+///    "end": {
+///      "description": "The end.",
+///      "$ref": "#/$defs/SystemBundleObjectId"
+///    },
+///    "housing": {
+///      "description": "The resolved housing part (`componentId@revisionId`), when one is chosen.",
+///      "type": "string"
+///    },
+///    "occurrence": {
+///      "description": "Its site's occurrence, when it has a site.",
+///      "$ref": "#/$defs/SystemBundleObjectId"
+///    }
+///  },
+///  "additionalProperties": false
+///}
+/// ```
+/// </details>
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct SystemBundleHarnessEnd {
+    ///The end.
+    pub end: SystemBundleObjectId,
+    ///Its site's occurrence, when it has a site.
+    #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+    pub occurrence: ::std::option::Option<SystemBundleObjectId>,
+    ///Its site's connector, when it has a site.
+    #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+    pub connector: ::std::option::Option<Refdes>,
+    ///The resolved housing part (`componentId@revisionId`), when one is chosen.
+    #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+    pub housing: ::std::option::Option<::std::string::String>,
+    ///Cavities in use, in natural order.
+    pub cavities: ::std::vec::Vec<SystemBundleHarnessCavity>,
+}
+///One conductor of a harness (§16.3).
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "description": "One conductor of a harness (§16.3).",
+///  "type": "object",
+///  "required": [
+///    "from",
+///    "id",
+///    "origin",
+///    "suggested",
+///    "to"
+///  ],
+///  "properties": {
+///    "cable": {
+///      "description": "The cable that carries it.",
+///      "$ref": "#/$defs/SystemBundleObjectId"
+///    },
+///    "colour": {
+///      "description": "Colour.",
+///      "type": "string"
+///    },
+///    "conductor": {
+///      "description": "The cable conductor's name.",
+///      "type": "string"
+///    },
+///    "from": {
+///      "description": "One end.",
+///      "$ref": "#/$defs/SystemBundleTerminal"
+///    },
+///    "gaugeAwg": {
+///      "description": "AWG as written (`\"24\"`, `\"0\"`).",
+///      "type": "string"
+///    },
+///    "id": {
+///      "description": "The document wire's id, or `<link>:<pad A>` for a default wire.",
+///      "type": "string",
+///      "minLength": 1
+///    },
+///    "label": {
+///      "description": "Printed label.",
+///      "type": "string"
+///    },
+///    "link": {
+///      "description": "The link it belongs to.",
+///      "$ref": "#/$defs/SystemBundleObjectId"
+///    },
+///    "net": {
+///      "description": "The system net it is on.",
+///      "$ref": "#/$defs/SystemBundleNetId"
+///    },
+///    "origin": {
+///      "description": "Where it comes from.",
+///      "$ref": "#/$defs/SystemBundleWireOrigin"
+///    },
+///    "suggested": {
+///      "description": "Joins power or ground pins (§8.5).",
+///      "type": "boolean"
+///    },
+///    "to": {
+///      "description": "The other end.",
+///      "$ref": "#/$defs/SystemBundleTerminal"
+///    }
+///  },
+///  "additionalProperties": false
+///}
+/// ```
+/// </details>
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct SystemBundleHarnessWire {
+    ///The document wire's id, or `<link>:<pad A>` for a default wire.
+    pub id: SystemBundleHarnessWireId,
+    ///Where it comes from.
+    pub origin: SystemBundleWireOrigin,
+    ///The link it belongs to.
+    #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+    pub link: ::std::option::Option<SystemBundleObjectId>,
+    ///One end.
+    pub from: SystemBundleTerminal,
+    ///The other end.
+    pub to: SystemBundleTerminal,
+    ///AWG as written (`"24"`, `"0"`).
+    #[serde(
+        rename = "gaugeAwg",
+        default,
+        skip_serializing_if = "::std::option::Option::is_none"
+    )]
+    pub gauge_awg: ::std::option::Option<::std::string::String>,
+    ///Colour.
+    #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+    pub colour: ::std::option::Option<::std::string::String>,
+    ///Printed label.
+    #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+    pub label: ::std::option::Option<::std::string::String>,
+    ///The cable that carries it.
+    #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+    pub cable: ::std::option::Option<SystemBundleObjectId>,
+    ///The cable conductor's name.
+    #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+    pub conductor: ::std::option::Option<::std::string::String>,
+    ///The system net it is on.
+    #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+    pub net: ::std::option::Option<SystemBundleNetId>,
+    ///Joins power or ground pins (§8.5).
+    pub suggested: bool,
+}
+///The document wire's id, or `<link>:<pad A>` for a default wire.
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "description": "The document wire's id, or `<link>:<pad A>` for a default wire.",
+///  "type": "string",
+///  "minLength": 1
+///}
+/// ```
+/// </details>
+#[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct SystemBundleHarnessWireId(::std::string::String);
+impl ::std::ops::Deref for SystemBundleHarnessWireId {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<SystemBundleHarnessWireId> for ::std::string::String {
+    fn from(value: SystemBundleHarnessWireId) -> Self {
+        value.0
+    }
+}
+impl ::std::str::FromStr for SystemBundleHarnessWireId {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        if value.chars().count() < 1usize {
+            return Err("shorter than 1 characters".into());
+        }
+        Ok(Self(value.to_string()))
+    }
+}
+impl ::std::convert::TryFrom<&str> for SystemBundleHarnessWireId {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl ::std::convert::TryFrom<&::std::string::String> for SystemBundleHarnessWireId {
+    type Error = self::error::ConversionError;
+    fn try_from(
+        value: &::std::string::String,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl ::std::convert::TryFrom<::std::string::String> for SystemBundleHarnessWireId {
+    type Error = self::error::ConversionError;
+    fn try_from(
+        value: ::std::string::String,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for SystemBundleHarnessWireId {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        ::std::string::String::deserialize(deserializer)?
+            .parse()
+            .map_err(|e: self::error::ConversionError| {
+                <D::Error as ::serde::de::Error>::custom(e.to_string())
+            })
     }
 }
 ///Which stack height a mate used.
@@ -3062,6 +3475,150 @@ impl ::std::convert::TryFrom<::std::string::String> for SystemBundleSuggestionSo
         value.parse()
     }
 }
+///One end of a wire of the wire list.
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "description": "One end of a wire of the wire list.",
+///  "type": "object",
+///  "required": [
+///    "kind"
+///  ],
+///  "properties": {
+///    "cavity": {
+///      "description": "The cavity (`contact`).",
+///      "type": "string"
+///    },
+///    "end": {
+///      "description": "The end (`contact`).",
+///      "$ref": "#/$defs/SystemBundleObjectId"
+///    },
+///    "kind": {
+///      "description": "What it is.",
+///      "$ref": "#/$defs/SystemBundleTerminalKind"
+///    },
+///    "looseEnd": {
+///      "description": "The loose end (`loose`).",
+///      "$ref": "#/$defs/SystemBundleObjectId"
+///    },
+///    "pad": {
+///      "description": "The site's pad in that cavity (`contact`, when the end has a site).",
+///      "$ref": "#/$defs/PadNumber"
+///    },
+///    "splice": {
+///      "description": "The splice (`splice`).",
+///      "$ref": "#/$defs/SystemBundleObjectId"
+///    }
+///  },
+///  "additionalProperties": false
+///}
+/// ```
+/// </details>
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct SystemBundleTerminal {
+    ///What it is.
+    pub kind: SystemBundleTerminalKind,
+    ///The end (`contact`).
+    #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+    pub end: ::std::option::Option<SystemBundleObjectId>,
+    ///The cavity (`contact`).
+    #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+    pub cavity: ::std::option::Option<::std::string::String>,
+    ///The site's pad in that cavity (`contact`, when the end has a site).
+    #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+    pub pad: ::std::option::Option<PadNumber>,
+    ///The splice (`splice`).
+    #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+    pub splice: ::std::option::Option<SystemBundleObjectId>,
+    ///The loose end (`loose`).
+    #[serde(
+        rename = "looseEnd",
+        default,
+        skip_serializing_if = "::std::option::Option::is_none"
+    )]
+    pub loose_end: ::std::option::Option<SystemBundleObjectId>,
+}
+///Where a wire of the wire list stops (§16.3).
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "description": "Where a wire of the wire list stops (§16.3).",
+///  "type": "string",
+///  "enum": [
+///    "contact",
+///    "splice",
+///    "loose"
+///  ]
+///}
+/// ```
+/// </details>
+#[derive(
+    ::serde::Deserialize,
+    ::serde::Serialize,
+    Clone,
+    Copy,
+    Debug,
+    Eq,
+    Hash,
+    Ord,
+    PartialEq,
+    PartialOrd,
+)]
+pub enum SystemBundleTerminalKind {
+    #[serde(rename = "contact")]
+    Contact,
+    #[serde(rename = "splice")]
+    Splice,
+    #[serde(rename = "loose")]
+    Loose,
+}
+impl ::std::fmt::Display for SystemBundleTerminalKind {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+        match *self {
+            Self::Contact => f.write_str("contact"),
+            Self::Splice => f.write_str("splice"),
+            Self::Loose => f.write_str("loose"),
+        }
+    }
+}
+impl ::std::str::FromStr for SystemBundleTerminalKind {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        match value {
+            "contact" => Ok(Self::Contact),
+            "splice" => Ok(Self::Splice),
+            "loose" => Ok(Self::Loose),
+            _ => Err("invalid value".into()),
+        }
+    }
+}
+impl ::std::convert::TryFrom<&str> for SystemBundleTerminalKind {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl ::std::convert::TryFrom<&::std::string::String> for SystemBundleTerminalKind {
+    type Error = self::error::ConversionError;
+    fn try_from(
+        value: &::std::string::String,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl ::std::convert::TryFrom<::std::string::String> for SystemBundleTerminalKind {
+    type Error = self::error::ConversionError;
+    fn try_from(
+        value: ::std::string::String,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
 ///A point or offset in the system frame, in nanometres.
 ///
 /// <details><summary>JSON schema</summary>
@@ -3153,6 +3710,79 @@ pub struct SystemBundleWire {
     pub rule: SystemBundleWireRule,
     ///Whether it joins power or ground pins, shown as suggested until confirmed.
     pub suggested: bool,
+}
+///Where a wire of the wire list comes from.
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "description": "Where a wire of the wire list comes from.",
+///  "type": "string",
+///  "enum": [
+///    "explicit",
+///    "default"
+///  ]
+///}
+/// ```
+/// </details>
+#[derive(
+    ::serde::Deserialize,
+    ::serde::Serialize,
+    Clone,
+    Copy,
+    Debug,
+    Eq,
+    Hash,
+    Ord,
+    PartialEq,
+    PartialOrd,
+)]
+pub enum SystemBundleWireOrigin {
+    #[serde(rename = "explicit")]
+    Explicit,
+    #[serde(rename = "default")]
+    Default,
+}
+impl ::std::fmt::Display for SystemBundleWireOrigin {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+        match *self {
+            Self::Explicit => f.write_str("explicit"),
+            Self::Default => f.write_str("default"),
+        }
+    }
+}
+impl ::std::str::FromStr for SystemBundleWireOrigin {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        match value {
+            "explicit" => Ok(Self::Explicit),
+            "default" => Ok(Self::Default),
+            _ => Err("invalid value".into()),
+        }
+    }
+}
+impl ::std::convert::TryFrom<&str> for SystemBundleWireOrigin {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl ::std::convert::TryFrom<&::std::string::String> for SystemBundleWireOrigin {
+    type Error = self::error::ConversionError;
+    fn try_from(
+        value: &::std::string::String,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl ::std::convert::TryFrom<::std::string::String> for SystemBundleWireOrigin {
+    type Error = self::error::ConversionError;
+    fn try_from(
+        value: ::std::string::String,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
 }
 ///Which rule wired a pin pair of a harness link.
 ///

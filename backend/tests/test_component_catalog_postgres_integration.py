@@ -197,6 +197,20 @@ class ComponentCatalogPostgresIntegrationTests(unittest.TestCase):
         self.service.close()
         self.tempdir.cleanup()
 
+    def test_harness_fields_are_seeded_and_kept_out_of_the_dbl_export(self) -> None:
+        """System Builder §16.1: migration 15's ``harness`` group, which KiCad's DBL leaves out."""
+
+        fields = {field["key"]: field for field in self.service.list_metadata_fields()}
+        role = fields["harness_role"]
+        self.assertEqual((role["group"], role["type"], role["storage_kind"]), ("harness", "enum", "extra"))
+        self.assertIn("heat-shrink", role["enum_values"])
+        self.assertTrue(role["built_in"])
+        self.assertEqual(fields["harness_od_mm"]["unit"], "mm")
+        exported = Path(self.service.export_kicad_dbl_bundle()["export_root"])
+        config = "".join(path.read_text(encoding="utf-8") for path in exported.glob("*.kicad_dbl"))
+        self.assertTrue(config)
+        self.assertNotIn("harness_", config)
+
     def _component(self, suffix: str = "") -> dict:
         token = suffix or uuid.uuid4().hex[:10]
         component = self.service.create_manual_component(

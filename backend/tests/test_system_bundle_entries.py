@@ -37,6 +37,7 @@ def entry_payload(key: str = "c" * 64) -> dict:
         "mates": [],
         "links": [],
         "splices": [],
+        "harnesses": [],
         "suggestions": [],
         "findings": [],
         "placement": {"occurrences": [], "mates": []},

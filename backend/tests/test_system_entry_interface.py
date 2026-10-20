@@ -152,6 +152,7 @@ def bundle() -> dict:
         "mates": [],
         "links": [],
         "splices": [],
+        "harnesses": [],
         "suggestions": [],
         "findings": [],
         "placement": {
