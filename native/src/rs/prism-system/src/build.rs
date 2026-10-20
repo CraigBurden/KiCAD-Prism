@@ -3,12 +3,13 @@
 //! suggestions, and finally the findings.
 
 use crate::context::{Context, first_net, pads, pin, power};
-use crate::input::{Board, Document, InterfaceComponent, Mate, Members, Occurrence};
+use crate::input::{Board, Document, InterfaceComponent, Mate, Members, Occurrence, OutlineBox};
 use crate::mapping::{self, Side};
 use crate::natural;
 use crate::nets::{Edge, Node};
 use crate::output::{
-    ConnectorOut, MateOut, OccurrenceOut, PairOut, PinOut, PinRef, SCHEMA, SystemBundle,
+    ConnectorOut, MateOut, OccurrenceOut, OutlineOut, PairOut, PinOut, PinRef, PlacementOut,
+    SCHEMA, SystemBundle,
 };
 use crate::{nets, suggestions, wiring};
 use std::collections::{BTreeMap, BTreeSet};
@@ -113,7 +114,7 @@ pub fn shown(component: &InterfaceComponent, occurrence: &str, named: &Named) ->
             .is_some_and(|set| set.contains(&component.reference))
 }
 
-fn connector_out(component: &InterfaceComponent) -> ConnectorOut {
+fn connector_out(component: &InterfaceComponent, outline: Option<&OutlineBox>) -> ConnectorOut {
     let pins = pads(component)
         .into_iter()
         .filter_map(|pad| pin(component, &pad))
@@ -142,7 +143,33 @@ fn connector_out(component: &InterfaceComponent) -> ConnectorOut {
         value: component.value.clone(),
         mpn: component.mpn.clone().filter(|mpn| !mpn.is_empty()),
         candidate: component.candidate,
+        placement: outline.and_then(|outline| placement(component, outline)),
         pins,
+    }
+}
+
+/// The angle from the outline's centre to the component, and its side (§8.2). The interface's
+/// coordinates already have +y up.
+fn placement(component: &InterfaceComponent, outline: &OutlineBox) -> Option<PlacementOut> {
+    let geometry = component.geometry.as_ref()?;
+    let cx = (outline.min_mm[0] + outline.max_mm[0]) / 2.0;
+    let cy = (outline.min_mm[1] + outline.max_mm[1]) / 2.0;
+    let [x, y] = geometry.position_mm;
+    let degrees = (y - cy).atan2(x - cx).to_degrees().rem_euclid(360.0);
+    let angle_deg = ((degrees * 1000.0).round() / 1000.0) % 360.0;
+    let side = match geometry.side {
+        crate::placement::frames::Side::Top => "top",
+        crate::placement::frames::Side::Bottom => "bottom",
+    };
+    Some(PlacementOut { angle_deg, side })
+}
+
+/// The outline's bounding box in nanometres.
+fn outline_out(outline: &OutlineBox) -> OutlineOut {
+    let nm = |mm: f64| (mm * 1_000_000.0).round() as i64;
+    OutlineOut {
+        width_nm: nm(outline.max_mm[0] - outline.min_mm[0]),
+        height_nm: nm(outline.max_mm[1] - outline.min_mm[1]),
     }
 }
 
@@ -167,6 +194,7 @@ fn occurrence_out(cx: &mut Context<'_>, occurrence: &Occurrence, named: &Named) 
         state: "pending",
         revision_key: None,
         bundle_key: None,
+        outline: None,
         connectors: Vec::new(),
     };
     let kind = occurrence.source.kind.as_str();
@@ -185,6 +213,7 @@ fn occurrence_out(cx: &mut Context<'_>, occurrence: &Occurrence, named: &Named) 
         entry.revision_key = Some(board.revision_key.clone()).filter(|key| !key.is_empty());
         entry.bundle_key = Some(board.bundle_key.clone());
         entry_stage(cx, id, &label);
+        entry.outline = board.interface.board_outline_mm.as_ref().map(outline_out);
         entry.connectors = ready_connectors(board, id, named);
     } else if cx.members.absent.contains(id) {
         entry.state = "absent";
@@ -208,7 +237,11 @@ fn ready_connectors(board: &Board, id: &str, named: &Named) -> Vec<ConnectorOut>
         .filter(|c| shown(c, id, named))
         .collect();
     components.sort_by(|a, b| natural::cmp(&a.reference, &b.reference));
-    components.into_iter().map(connector_out).collect()
+    let outline = board.interface.board_outline_mm.as_ref();
+    components
+        .into_iter()
+        .map(|component| connector_out(component, outline))
+        .collect()
 }
 
 /// `entry-unreleased` or `entry-archived` for a placed entry's revision (§12.2).

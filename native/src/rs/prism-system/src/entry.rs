@@ -109,6 +109,7 @@ pub fn board(payload: &Value, stage: &str) -> (Board, EntryFacts) {
         revision_key: String::new(),
         bundle_key: system_bundle_key.clone(),
         interface: SystemInterface {
+            board_outline_mm: None,
             board_thickness_mm: None,
             components,
         },

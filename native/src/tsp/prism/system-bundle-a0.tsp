@@ -124,6 +124,33 @@ model SystemBundlePin {
   power: boolean;
 }
 
+/** The side of the board a component sits on. */
+enum SystemBundleBoardSide {
+  /** The board's top (front) side. */
+  top,
+
+  /** The board's bottom (back) side. */
+  bottom,
+}
+
+/** Where a connector sits on its board, for the schematic's default pin placement. */
+model SystemBundleConnectorPlacement {
+  /** Angle from the outline's centre to the component, counter-clockwise from +x with +y up, in [0, 360). */
+  angleDeg: Degrees;
+
+  /** The side it is mounted on. */
+  side: SystemBundleBoardSide;
+}
+
+/** A board's outline bounding box. */
+model SystemBundleOutline {
+  /** Width in nanometres. */
+  widthNm: NonNegativeNanometres;
+
+  /** Height in nanometres. */
+  heightNm: NonNegativeNanometres;
+}
+
 /** One connector of a board occurrence. */
 model SystemBundleConnector {
   /** The reference designator. */
@@ -137,6 +164,9 @@ model SystemBundleConnector {
 
   /** Whether connector detection marks it a connector. */
   candidate: boolean;
+
+  /** Where it sits on the board; absent when the board has no outline. */
+  placement?: SystemBundleConnectorPlacement;
 
   /** Pins in natural order of their pad. */
   pins: SystemBundlePin[];
@@ -155,6 +185,9 @@ model SystemBundleOccurrence {
 
   /** The design bundle read; absent unless `ready`. */
   bundleKey?: Sha256Hex;
+
+  /** The board outline's bounding box; absent unless `ready` with an Edge.Cuts outline. */
+  outline?: SystemBundleOutline;
 
   /** Connectors in natural order of their reference; empty unless `ready`. */
   connectors: SystemBundleConnector[];

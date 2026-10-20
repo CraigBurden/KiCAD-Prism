@@ -66,8 +66,31 @@ pub struct ConnectorOut {
     pub mpn: Option<String>,
     /// Whether detection marks it a connector.
     pub candidate: bool,
+    /// Where it sits on the board, when the board has an outline (§8.2).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub placement: Option<PlacementOut>,
     /// Pins in natural pad order.
     pub pins: Vec<PinOut>,
+}
+
+/// A connector's angle from the board outline's centre and its side (§8.2).
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PlacementOut {
+    /// Degrees counter-clockwise from +x, +y up, in [0, 360).
+    pub angle_deg: f64,
+    /// `top` or `bottom`.
+    pub side: &'static str,
+}
+
+/// A board outline's bounding box (§8.2).
+#[derive(Clone, Copy, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OutlineOut {
+    /// Width in nanometres.
+    pub width_nm: i64,
+    /// Height in nanometres.
+    pub height_nm: i64,
 }
 
 /// One occurrence.
@@ -84,6 +107,9 @@ pub struct OccurrenceOut {
     /// The design bundle key, when ready.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub bundle_key: Option<String>,
+    /// The board outline's bounding box, when ready with an outline.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub outline: Option<OutlineOut>,
     /// Connectors in natural reference order.
     pub connectors: Vec<ConnectorOut>,
 }

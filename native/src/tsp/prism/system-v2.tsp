@@ -812,6 +812,87 @@ model SystemWaiver {
 
 // ------------------------------------------------------------------ layout
 
+/** An edge of a sheet symbol. */
+enum SystemSheetEdge {
+  /** The left edge. */
+  left,
+
+  /** The right edge. */
+  right,
+
+  /** The top edge. */
+  top,
+
+  /** The bottom edge. */
+  bottom,
+}
+
+/** Where a sheet pin sits: an edge, and the distance along it from its top or left end. */
+model SystemPortPlacement {
+  /** The edge. */
+  edge: SystemSheetEdge;
+
+  /** Nanometres along the edge from its top or left end. */
+  offsetNm: NonNegativeNanometres;
+}
+
+/** A point on a sheet. */
+model SystemSchematicPoint {
+  /** X in nanometres, +x right. */
+  xNm: Nanometres;
+
+  /** Y in nanometres, +y down. */
+  yNm: Nanometres;
+}
+
+/** A sheet symbol's size. */
+model SystemSchematicSize {
+  /** Width in nanometres. */
+  widthNm: NonNegativeNanometres;
+
+  /** Height in nanometres. */
+  heightNm: NonNegativeNanometres;
+}
+
+/** The board symbol inside a board's sheet. */
+model SystemInteriorSymbol {
+  /** X of its top-left corner in nanometres. */
+  xNm: Nanometres;
+
+  /** Y of its top-left corner in nanometres. */
+  yNm: Nanometres;
+
+  /** Width in nanometres. */
+  widthNm: NonNegativeNanometres;
+
+  /** Height in nanometres. */
+  heightNm: NonNegativeNanometres;
+}
+
+/** Where a hierarchical label sits inside a board's sheet. */
+model SystemInteriorLabel {
+  /** X in nanometres. */
+  xNm: Nanometres;
+
+  /** Y in nanometres. */
+  yNm: Nanometres;
+
+  /** Rotation in degrees, counter-clockwise. */
+  rotationDeg: Degrees;
+}
+
+/** The layout inside a board or body sheet. */
+model SystemInterior {
+  /** The board symbol; absent means the default. */
+  symbol?: SystemInteriorSymbol;
+
+  /** The board symbol's pins by connector reference; a missing key means the default. */
+  pins?: Record<SystemPortPlacement>;
+
+  /** Each connector's hierarchical label by reference; a missing key means the default. */
+  labels?: Record<SystemInteriorLabel>;
+}
+
 /** Where an object's symbol sits in the schematic; presentation only. */
 model SystemSchematicPlacement {
   /** The sheet; absent means the root sheet. */
@@ -828,6 +909,19 @@ model SystemSchematicPlacement {
 
   /** Whether the symbol is mirrored. */
   mirror: boolean;
+
+  /** A sheet symbol's size; absent means the default. */
+  size?: SystemSchematicSize;
+
+  /** A sheet symbol's pins: by connector reference (occurrence) or end id (harness block); a missing key means the default. */
+  ports?: Record<SystemPortPlacement>;
+
+  /** A connection's drawn path, its points in order from side a to side b; absent means auto-routed. */
+  @minItems(2)
+  route?: SystemSchematicPoint[];
+
+  /** Inside a board or body sheet; absent means the defaults. */
+  interior?: SystemInterior;
 }
 
 // -------------------------------------------------------------------- root

@@ -309,6 +309,16 @@ pub struct InterfaceComponent {
     pub geometry: Option<ConnectorGeometry>,
 }
 
+/// The board outline's bounding box in `projections/system-interface.json`, in mm.
+#[derive(Clone, Copy, Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OutlineBox {
+    /// The minimum corner.
+    pub min_mm: [f64; 2],
+    /// The maximum corner.
+    pub max_mm: [f64; 2],
+}
+
 /// `projections/system-interface.json`, as far as a system build reads it.
 #[derive(Clone, Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -316,6 +326,9 @@ pub struct SystemInterface {
     /// Board thickness in mm, or `None` without a board.
     #[serde(default)]
     pub board_thickness_mm: Option<f64>,
+    /// The Edge.Cuts outline's bounding box, or `None` without one.
+    #[serde(default)]
+    pub board_outline_mm: Option<OutlineBox>,
     /// Components.
     #[serde(default)]
     pub components: Vec<InterfaceComponent>,

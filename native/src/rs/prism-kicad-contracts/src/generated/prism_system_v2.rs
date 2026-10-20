@@ -325,6 +325,46 @@ impl ::std::fmt::Display for PadNumber {
         self.0.fmt(f)
     }
 }
+///`RecordSystemInteriorLabel`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "object",
+///  "additionalProperties": {
+///    "$ref": "#/$defs/SystemInteriorLabel"
+///  }
+///}
+/// ```
+/// </details>
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+#[serde(transparent)]
+pub struct RecordSystemInteriorLabel(
+    pub ::std::collections::BTreeMap<::std::string::String, SystemInteriorLabel>,
+);
+impl ::std::ops::Deref for RecordSystemInteriorLabel {
+    type Target = ::std::collections::BTreeMap<::std::string::String, SystemInteriorLabel>;
+    fn deref(&self) -> &::std::collections::BTreeMap<::std::string::String, SystemInteriorLabel> {
+        &self.0
+    }
+}
+impl ::std::convert::From<RecordSystemInteriorLabel>
+    for ::std::collections::BTreeMap<::std::string::String, SystemInteriorLabel>
+{
+    fn from(value: RecordSystemInteriorLabel) -> Self {
+        value.0
+    }
+}
+impl ::std::convert::From<::std::collections::BTreeMap<::std::string::String, SystemInteriorLabel>>
+    for RecordSystemInteriorLabel
+{
+    fn from(
+        value: ::std::collections::BTreeMap<::std::string::String, SystemInteriorLabel>,
+    ) -> Self {
+        Self(value)
+    }
+}
 ///`RecordSystemLabel`
 ///
 /// <details><summary>JSON schema</summary>
@@ -434,6 +474,46 @@ impl ::std::convert::From<::std::collections::BTreeMap<::std::string::String, Sy
     for RecordSystemPartRef
 {
     fn from(value: ::std::collections::BTreeMap<::std::string::String, SystemPartRef>) -> Self {
+        Self(value)
+    }
+}
+///`RecordSystemPortPlacement`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "object",
+///  "additionalProperties": {
+///    "$ref": "#/$defs/SystemPortPlacement"
+///  }
+///}
+/// ```
+/// </details>
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+#[serde(transparent)]
+pub struct RecordSystemPortPlacement(
+    pub ::std::collections::BTreeMap<::std::string::String, SystemPortPlacement>,
+);
+impl ::std::ops::Deref for RecordSystemPortPlacement {
+    type Target = ::std::collections::BTreeMap<::std::string::String, SystemPortPlacement>;
+    fn deref(&self) -> &::std::collections::BTreeMap<::std::string::String, SystemPortPlacement> {
+        &self.0
+    }
+}
+impl ::std::convert::From<RecordSystemPortPlacement>
+    for ::std::collections::BTreeMap<::std::string::String, SystemPortPlacement>
+{
+    fn from(value: RecordSystemPortPlacement) -> Self {
+        value.0
+    }
+}
+impl ::std::convert::From<::std::collections::BTreeMap<::std::string::String, SystemPortPlacement>>
+    for RecordSystemPortPlacement
+{
+    fn from(
+        value: ::std::collections::BTreeMap<::std::string::String, SystemPortPlacement>,
+    ) -> Self {
         Self(value)
     }
 }
@@ -2285,6 +2365,150 @@ pub struct SystemHarnessWire {
     ///Segment ids from `from` to `to`, in route order; empty means derived.
     pub route: ::std::vec::Vec<SystemObjectId>,
 }
+///The layout inside a board or body sheet.
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "description": "The layout inside a board or body sheet.",
+///  "type": "object",
+///  "properties": {
+///    "labels": {
+///      "description": "Each connector's hierarchical label by reference; a missing key means the default.",
+///      "$ref": "#/$defs/RecordSystemInteriorLabel"
+///    },
+///    "pins": {
+///      "description": "The board symbol's pins by connector reference; a missing key means the default.",
+///      "$ref": "#/$defs/RecordSystemPortPlacement"
+///    },
+///    "symbol": {
+///      "description": "The board symbol; absent means the default.",
+///      "$ref": "#/$defs/SystemInteriorSymbol"
+///    }
+///  },
+///  "additionalProperties": false
+///}
+/// ```
+/// </details>
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct SystemInterior {
+    ///The board symbol; absent means the default.
+    #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+    pub symbol: ::std::option::Option<SystemInteriorSymbol>,
+    ///The board symbol's pins by connector reference; a missing key means the default.
+    #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+    pub pins: ::std::option::Option<RecordSystemPortPlacement>,
+    ///Each connector's hierarchical label by reference; a missing key means the default.
+    #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+    pub labels: ::std::option::Option<RecordSystemInteriorLabel>,
+}
+impl ::std::default::Default for SystemInterior {
+    fn default() -> Self {
+        Self {
+            labels: Default::default(),
+            pins: Default::default(),
+            symbol: Default::default(),
+        }
+    }
+}
+///Where a hierarchical label sits inside a board's sheet.
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "description": "Where a hierarchical label sits inside a board's sheet.",
+///  "type": "object",
+///  "required": [
+///    "rotationDeg",
+///    "xNm",
+///    "yNm"
+///  ],
+///  "properties": {
+///    "rotationDeg": {
+///      "description": "Rotation in degrees, counter-clockwise.",
+///      "$ref": "#/$defs/Degrees"
+///    },
+///    "xNm": {
+///      "description": "X in nanometres.",
+///      "$ref": "#/$defs/Nanometres"
+///    },
+///    "yNm": {
+///      "description": "Y in nanometres.",
+///      "$ref": "#/$defs/Nanometres"
+///    }
+///  },
+///  "additionalProperties": false
+///}
+/// ```
+/// </details>
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct SystemInteriorLabel {
+    ///X in nanometres.
+    #[serde(rename = "xNm")]
+    pub x_nm: Nanometres,
+    ///Y in nanometres.
+    #[serde(rename = "yNm")]
+    pub y_nm: Nanometres,
+    ///Rotation in degrees, counter-clockwise.
+    #[serde(rename = "rotationDeg")]
+    pub rotation_deg: Degrees,
+}
+///The board symbol inside a board's sheet.
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "description": "The board symbol inside a board's sheet.",
+///  "type": "object",
+///  "required": [
+///    "heightNm",
+///    "widthNm",
+///    "xNm",
+///    "yNm"
+///  ],
+///  "properties": {
+///    "heightNm": {
+///      "description": "Height in nanometres.",
+///      "$ref": "#/$defs/NonNegativeNanometres"
+///    },
+///    "widthNm": {
+///      "description": "Width in nanometres.",
+///      "$ref": "#/$defs/NonNegativeNanometres"
+///    },
+///    "xNm": {
+///      "description": "X of its top-left corner in nanometres.",
+///      "$ref": "#/$defs/Nanometres"
+///    },
+///    "yNm": {
+///      "description": "Y of its top-left corner in nanometres.",
+///      "$ref": "#/$defs/Nanometres"
+///    }
+///  },
+///  "additionalProperties": false
+///}
+/// ```
+/// </details>
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct SystemInteriorSymbol {
+    ///X of its top-left corner in nanometres.
+    #[serde(rename = "xNm")]
+    pub x_nm: Nanometres,
+    ///Y of its top-left corner in nanometres.
+    #[serde(rename = "yNm")]
+    pub y_nm: Nanometres,
+    ///Width in nanometres.
+    #[serde(rename = "widthNm")]
+    pub width_nm: NonNegativeNanometres,
+    ///Height in nanometres.
+    #[serde(rename = "heightNm")]
+    pub height_nm: NonNegativeNanometres,
+}
 ///A human-readable name or label: 1 to 200 characters.
 ///
 /// <details><summary>JSON schema</summary>
@@ -3013,6 +3237,41 @@ pub struct SystemPinnedTrack {
     ///The commit.
     pub commit: GitObjectId,
 }
+///Where a sheet pin sits: an edge, and the distance along it from its top or left end.
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "description": "Where a sheet pin sits: an edge, and the distance along it from its top or left end.",
+///  "type": "object",
+///  "required": [
+///    "edge",
+///    "offsetNm"
+///  ],
+///  "properties": {
+///    "edge": {
+///      "description": "The edge.",
+///      "$ref": "#/$defs/SystemSheetEdge"
+///    },
+///    "offsetNm": {
+///      "description": "Nanometres along the edge from its top or left end.",
+///      "$ref": "#/$defs/NonNegativeNanometres"
+///    }
+///  },
+///  "additionalProperties": false
+///}
+/// ```
+/// </details>
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct SystemPortPlacement {
+    ///The edge.
+    pub edge: SystemSheetEdge,
+    ///Nanometres along the edge from its top or left end.
+    #[serde(rename = "offsetNm")]
+    pub offset_nm: NonNegativeNanometres,
+}
 ///A rigid transform: rotation, then translation.
 ///
 /// <details><summary>JSON schema</summary>
@@ -3153,17 +3412,37 @@ pub struct SystemQuaternion {
 ///    "yNm"
 ///  ],
 ///  "properties": {
+///    "interior": {
+///      "description": "Inside a board or body sheet; absent means the defaults.",
+///      "$ref": "#/$defs/SystemInterior"
+///    },
 ///    "mirror": {
 ///      "description": "Whether the symbol is mirrored.",
 ///      "type": "boolean"
+///    },
+///    "ports": {
+///      "description": "A sheet symbol's pins: by connector reference (occurrence) or end id (harness block); a missing key means the default.",
+///      "$ref": "#/$defs/RecordSystemPortPlacement"
 ///    },
 ///    "rotationDeg": {
 ///      "description": "Rotation in degrees, counter-clockwise.",
 ///      "$ref": "#/$defs/Degrees"
 ///    },
+///    "route": {
+///      "description": "A connection's drawn path, its points in order from side a to side b; absent means auto-routed.",
+///      "type": "array",
+///      "items": {
+///        "$ref": "#/$defs/SystemSchematicPoint"
+///      },
+///      "minItems": 2
+///    },
 ///    "sheet": {
 ///      "description": "The sheet; absent means the root sheet.",
 ///      "$ref": "#/$defs/SystemObjectId"
+///    },
+///    "size": {
+///      "description": "A sheet symbol's size; absent means the default.",
+///      "$ref": "#/$defs/SystemSchematicSize"
 ///    },
 ///    "xNm": {
 ///      "description": "X in nanometres on the sheet, +x right.",
@@ -3195,6 +3474,90 @@ pub struct SystemSchematicPlacement {
     pub rotation_deg: Degrees,
     ///Whether the symbol is mirrored.
     pub mirror: bool,
+    ///A sheet symbol's size; absent means the default.
+    #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+    pub size: ::std::option::Option<SystemSchematicSize>,
+    ///A sheet symbol's pins: by connector reference (occurrence) or end id (harness block); a missing key means the default.
+    #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+    pub ports: ::std::option::Option<RecordSystemPortPlacement>,
+    ///A connection's drawn path, its points in order from side a to side b; absent means auto-routed.
+    #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+    pub route: ::std::option::Option<::std::vec::Vec<SystemSchematicPoint>>,
+    ///Inside a board or body sheet; absent means the defaults.
+    #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+    pub interior: ::std::option::Option<SystemInterior>,
+}
+///A point on a sheet.
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "description": "A point on a sheet.",
+///  "type": "object",
+///  "required": [
+///    "xNm",
+///    "yNm"
+///  ],
+///  "properties": {
+///    "xNm": {
+///      "description": "X in nanometres, +x right.",
+///      "$ref": "#/$defs/Nanometres"
+///    },
+///    "yNm": {
+///      "description": "Y in nanometres, +y down.",
+///      "$ref": "#/$defs/Nanometres"
+///    }
+///  },
+///  "additionalProperties": false
+///}
+/// ```
+/// </details>
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct SystemSchematicPoint {
+    ///X in nanometres, +x right.
+    #[serde(rename = "xNm")]
+    pub x_nm: Nanometres,
+    ///Y in nanometres, +y down.
+    #[serde(rename = "yNm")]
+    pub y_nm: Nanometres,
+}
+///A sheet symbol's size.
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "description": "A sheet symbol's size.",
+///  "type": "object",
+///  "required": [
+///    "heightNm",
+///    "widthNm"
+///  ],
+///  "properties": {
+///    "heightNm": {
+///      "description": "Height in nanometres.",
+///      "$ref": "#/$defs/NonNegativeNanometres"
+///    },
+///    "widthNm": {
+///      "description": "Width in nanometres.",
+///      "$ref": "#/$defs/NonNegativeNanometres"
+///    }
+///  },
+///  "additionalProperties": false
+///}
+/// ```
+/// </details>
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct SystemSchematicSize {
+    ///Width in nanometres.
+    #[serde(rename = "widthNm")]
+    pub width_nm: NonNegativeNanometres,
+    ///Height in nanometres.
+    #[serde(rename = "heightNm")]
+    pub height_nm: NonNegativeNanometres,
 }
 ///A hierarchical sheet of the system schematic.
 ///
@@ -3236,6 +3599,89 @@ pub struct SystemSheet {
     ///The parent sheet's id; absent means the root sheet.
     #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
     pub parent: ::std::option::Option<SystemObjectId>,
+}
+///An edge of a sheet symbol.
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "description": "An edge of a sheet symbol.",
+///  "type": "string",
+///  "enum": [
+///    "left",
+///    "right",
+///    "top",
+///    "bottom"
+///  ]
+///}
+/// ```
+/// </details>
+#[derive(
+    ::serde::Deserialize,
+    ::serde::Serialize,
+    Clone,
+    Copy,
+    Debug,
+    Eq,
+    Hash,
+    Ord,
+    PartialEq,
+    PartialOrd,
+)]
+pub enum SystemSheetEdge {
+    #[serde(rename = "left")]
+    Left,
+    #[serde(rename = "right")]
+    Right,
+    #[serde(rename = "top")]
+    Top,
+    #[serde(rename = "bottom")]
+    Bottom,
+}
+impl ::std::fmt::Display for SystemSheetEdge {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+        match *self {
+            Self::Left => f.write_str("left"),
+            Self::Right => f.write_str("right"),
+            Self::Top => f.write_str("top"),
+            Self::Bottom => f.write_str("bottom"),
+        }
+    }
+}
+impl ::std::str::FromStr for SystemSheetEdge {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        match value {
+            "left" => Ok(Self::Left),
+            "right" => Ok(Self::Right),
+            "top" => Ok(Self::Top),
+            "bottom" => Ok(Self::Bottom),
+            _ => Err("invalid value".into()),
+        }
+    }
+}
+impl ::std::convert::TryFrom<&str> for SystemSheetEdge {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl ::std::convert::TryFrom<&::std::string::String> for SystemSheetEdge {
+    type Error = self::error::ConversionError;
+    fn try_from(
+        value: &::std::string::String,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl ::std::convert::TryFrom<::std::string::String> for SystemSheetEdge {
+    type Error = self::error::ConversionError;
+    fn try_from(
+        value: ::std::string::String,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
 }
 ///A connector on one occurrence, never a sub-port: a mating site.
 ///
