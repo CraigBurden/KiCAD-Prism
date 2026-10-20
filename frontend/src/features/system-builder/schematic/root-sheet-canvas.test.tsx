@@ -116,6 +116,21 @@ describe("RootSheetCanvas", () => {
     expect(op).toMatchObject({ kind: "add-mate", mate: { a: { occurrence: "occ_a", connector: "J1" }, b: { occurrence: "occ_b", connector: "J9" } } });
   });
 
+  it("pans with a right drag, as KiCad does, without sending anything or opening the menu", () => {
+    const apply = vi.fn<(ops: SystemOp[]) => Promise<undefined>>(async () => undefined);
+    render(<Harness apply={apply} />);
+    const sheet = () => document.querySelector('[data-testid="root-sheet"] > g')?.getAttribute("transform");
+    const before = sheet();
+    fireEvent.pointerDown(symbolRect("occ_a"), { button: 2, clientX: 100, clientY: 100, pointerId: 1 });
+    fireEvent.pointerMove(canvas(), { clientX: 160, clientY: 130, pointerId: 1 });
+    fireEvent.pointerUp(canvas(), { button: 2, clientX: 160, clientY: 130, pointerId: 1 });
+    expect(sheet()).not.toBe(before);
+    expect(sheet()).toContain("translate(10 5)");
+    expect(screen.getByTestId("selected").textContent).toBe("");
+    expect(apply).not.toHaveBeenCalled();
+    expect(fireEvent.contextMenu(canvas())).toBe(false);
+  });
+
   it("slides a pin along its edge", async () => {
     const apply = vi.fn<(ops: SystemOp[]) => Promise<undefined>>(async () => undefined);
     render(<Harness apply={apply} />);

@@ -581,6 +581,7 @@ The schematic follows Eeschema: hierarchical sheets, sheet pins, wires, buses, b
 
 | Gesture | Does | Ops |
 |---|---|---|
+| Right or middle drag (Alt + drag on a trackpad); scroll; pinch or Ctrl/⌘ + scroll | pan; pan; zoom at the cursor | — |
 | Double-click a sheet symbol | enter its sheet | — |
 | Alt/Option+Backspace | leave to the parent sheet | — |
 | Drag left → right | select what lies wholly inside (window) | — |

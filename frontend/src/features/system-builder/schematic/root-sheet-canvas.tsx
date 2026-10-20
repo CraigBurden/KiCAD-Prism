@@ -43,6 +43,15 @@ const DEFAULT_VIEW: View = { x: 0, y: 0, scale: 6 };
 /** Room round a fitted sheet; the tool palette sits over the bottom edge. */
 const FIT_MARGIN_PX = 72;
 
+/** Keep the pointer's events while a gesture runs; a pointer the browser no longer tracks cannot be captured, and the gesture still works without it. */
+function capture(event: ReactPointerEvent<HTMLDivElement>) {
+  try {
+    event.currentTarget.setPointerCapture(event.pointerId);
+  } catch {
+    // Not an active pointer (a synthetic event); nothing to capture.
+  }
+}
+
 export const RootSheetCanvas = forwardRef<RootSheetHandle, Props>(function RootSheetCanvas(
   { document, bundle, projectNames, selected, onSelect, canEdit, apply, tool, onToolChange },
   handle,
@@ -134,8 +143,9 @@ export const RootSheetCanvas = forwardRef<RootSheetHandle, Props>(function RootS
   const onPointerDown = (event: ReactPointerEvent<HTMLDivElement>) => {
     container.current?.focus();
     const screen = screenPoint(event);
-    if (event.button === 1 || (event.button === 0 && event.altKey)) {
-      event.currentTarget.setPointerCapture(event.pointerId);
+    // Pan as KiCad does: right or middle drag (Alt + left drag for trackpads).
+    if (event.button === 2 || event.button === 1 || (event.button === 0 && event.altKey)) {
+      capture(event);
       setDrag({ kind: "pan", last: screen });
       return;
     }
@@ -156,7 +166,7 @@ export const RootSheetCanvas = forwardRef<RootSheetHandle, Props>(function RootS
       return;
     }
 
-    event.currentTarget.setPointerCapture(event.pointerId);
+    capture(event);
     if (hit?.hit === "handle" && canEdit) {
       setDrag({ kind: "resize", item: hit.id, handle: hit.key as Handle });
       return;
@@ -273,6 +283,8 @@ export const RootSheetCanvas = forwardRef<RootSheetHandle, Props>(function RootS
         setOverride(null);
       }}
       onKeyDown={onKeyDown}
+      // Right drag pans, so the browser's menu stays shut on the canvas.
+      onContextMenu={(event) => event.preventDefault()}
     >
       <svg width="100%" height="100%" className="absolute inset-0 select-none" data-testid="root-sheet">
         <PaperGrid view={current} />
