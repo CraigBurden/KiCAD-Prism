@@ -602,6 +602,37 @@ fn references_report_missing_connectors_and_pins() {
 
 // --------------------------------------------------------------- states and checks
 
+/// Layout is presentation only (CONTRACTS §8.1): a moved symbol leaves the key,
+/// the digest and the bundle as they were.
+#[test]
+fn layout_is_left_out_of_the_key() {
+    let doc = document("Layout", vec![occurrence("occ_obc", "OBC")]);
+    let mut laid_out = doc.clone();
+    laid_out["layout"] = json!({
+        "occ_obc": { "xNm": 25_400_000, "yNm": 12_700_000, "rotationDeg": 0, "mirror": false,
+                     "size": { "widthNm": 50_800_000, "heightNm": 30_480_000 } }
+    });
+    let (plain, plain_out) = build(
+        "layout-plain",
+        &write_document("layout-plain", &doc),
+        &[],
+        &[],
+    );
+    let (moved, moved_out) = build(
+        "layout-moved",
+        &write_document("layout-moved", &laid_out),
+        &[],
+        &[],
+    );
+    assert_eq!(plain.code, 0, "{}", plain.document);
+    assert_eq!(moved.code, 0, "{}", moved.document);
+    assert_eq!(moved.stdout, plain.stdout);
+    assert_eq!(
+        std::fs::read(&moved_out).unwrap(),
+        std::fs::read(&plain_out).unwrap()
+    );
+}
+
 #[test]
 fn states_pending_and_absent() {
     let obc = fixture_bundle("sources/mini_obc/F0/mini_obc.kicad_pro", 0x11);

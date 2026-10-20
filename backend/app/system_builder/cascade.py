@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from typing import Any, Callable, Mapping, Optional
 
-from app.system_builder.document import find, sub_port_endpoints
+from app.system_builder.document import HARNESS_COLLECTIONS, find, sub_port_endpoints
 
 Document = dict[str, Any]
 
@@ -110,6 +110,7 @@ def _remove_site_users(document: Document, occurrence: str, connector: Optional[
         for end in harness["ends"]:
             if _on(end.get("site"), occurrence, connector):
                 end.pop("site")
+                document["layout"].pop(end["id"], None)  # its drawn route ran to the site
 
 
 def remove_mate(document: Document, mate_id: str) -> None:
@@ -126,8 +127,9 @@ def _forget_mate(document: Document, mate_id: str) -> None:
 
 def remove_harness(document: Document, harness_id: str) -> None:
     for harness in _drop(document["harnesses"], lambda item: item["id"] != harness_id):
-        for link in harness["links"]:
-            document["layout"].pop(link["id"], None)
+        for collection in HARNESS_COLLECTIONS:
+            for item in harness[collection]:
+                document["layout"].pop(item["id"], None)
     document["layout"].pop(harness_id, None)
 
 
@@ -174,6 +176,7 @@ def remove_harness_item(document: Document, harness_id: str, collection: str, ob
     if not gone:
         return
     item = gone[0]
+    document["layout"].pop(object_id, None)
 
     def remove(kind: str, ids: list[str]) -> None:
         for dependent in ids:
@@ -195,7 +198,6 @@ def remove_harness_item(document: Document, harness_id: str, collection: str, ob
             if _node_is(segment["from"], "end", "end", object_id) or _node_is(segment["to"], "end", "end", object_id)
         ])
     elif collection == "links":
-        document["layout"].pop(object_id, None)
         remove("wires", [wire["id"] for wire in harness["wires"] if wire.get("link") == object_id])
     elif collection == "wires":
         remove("markers", [marker["id"] for marker in harness["markers"] if marker["wire"] == object_id])

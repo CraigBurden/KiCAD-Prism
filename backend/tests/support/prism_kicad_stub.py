@@ -694,7 +694,9 @@ def system_build(positionals: list[str], options: dict[str, Any]) -> NoReturn:
         board_sub_ports = {entry["id"]: entry["version"] for entry in entries}
     gen = generator()
     generator_digest = hashlib.sha256(generator_bytes(gen)).hexdigest()
-    document_sha256 = hashlib.sha256(canonical(document)).hexdigest()
+    document_sha256 = hashlib.sha256(
+        canonical({name: value for name, value in document.items() if name != "layout"})
+    ).hexdigest()
     pending = sorted(occurrence for occurrence in boards if occurrence not in member_keys and occurrence not in absent)
     preimage = {
         "documentSha256": document_sha256,
