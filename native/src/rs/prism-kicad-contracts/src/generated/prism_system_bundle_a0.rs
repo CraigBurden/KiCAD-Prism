@@ -824,6 +824,229 @@ pub struct SystemBundleConnectorPlacement {
     ///The side it is mounted on.
     pub side: SystemBundleBoardSide,
 }
+///A footprint's courtyard box in its own frame (+y up), in millimetres.
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "description": "A footprint's courtyard box in its own frame (+y up), in millimetres.",
+///  "type": "object",
+///  "required": [
+///    "maxMm",
+///    "minMm"
+///  ],
+///  "properties": {
+///    "maxMm": {
+///      "description": "The maximum corner `[x, y]`, in that order.",
+///      "type": "array",
+///      "items": {
+///        "type": "number"
+///      }
+///    },
+///    "minMm": {
+///      "description": "The minimum corner `[x, y]`, in that order.",
+///      "type": "array",
+///      "items": {
+///        "type": "number"
+///      }
+///    }
+///  },
+///  "additionalProperties": false
+///}
+/// ```
+/// </details>
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct SystemBundleExportCourtyard {
+    ///The minimum corner `[x, y]`, in that order.
+    #[serde(rename = "minMm")]
+    pub min_mm: ::std::vec::Vec<f64>,
+    ///The maximum corner `[x, y]`, in that order.
+    #[serde(rename = "maxMm")]
+    pub max_mm: ::std::vec::Vec<f64>,
+}
+/**An export's connector footprint, as the board interface's extractor v6
+geometry gives it (millimetres, +y up), without its 3D model.*/
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "description": "An export's connector footprint, as the board interface's extractor v6\ngeometry gives it (millimetres, +y up), without its 3D model.",
+///  "type": "object",
+///  "required": [
+///    "courtyard",
+///    "footprintName",
+///    "model",
+///    "pads",
+///    "positionMm",
+///    "rotationDeg",
+///    "side"
+///  ],
+///  "properties": {
+///    "courtyard": {
+///      "description": "The footprint's courtyard. Null when the footprint has no courtyard graphic.",
+///      "oneOf": [
+///        {
+///          "$ref": "#/$defs/SystemBundleExportCourtyard"
+///        },
+///        {
+///          "type": "null"
+///        }
+///      ]
+///    },
+///    "footprintName": {
+///      "description": "The footprint name, which the mating-axis inference reads. Null when unknown.",
+///      "oneOf": [
+///        {
+///          "type": "string"
+///        },
+///        {
+///          "type": "null"
+///        }
+///      ]
+///    },
+///    "model": {
+///      "description": "Always null: an export's geometry carries no 3D model.",
+///      "type": "null"
+///    },
+///    "pads": {
+///      "description": "The pads, in the extractor's order.",
+///      "type": "array",
+///      "items": {
+///        "$ref": "#/$defs/SystemBundleExportPad"
+///      }
+///    },
+///    "positionMm": {
+///      "description": "The footprint anchor `[x, y]`, in that order, in the mount's frame.",
+///      "type": "array",
+///      "items": {
+///        "type": "number"
+///      },
+///      "maxItems": 2,
+///      "minItems": 2
+///    },
+///    "rotationDeg": {
+///      "description": "The footprint rotation in degrees.",
+///      "$ref": "#/$defs/Degrees"
+///    },
+///    "side": {
+///      "description": "The side of its board the footprint is on.",
+///      "$ref": "#/$defs/SystemBundleFootprintSide"
+///    }
+///  },
+///  "additionalProperties": false
+///}
+/// ```
+/// </details>
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct SystemBundleExportGeometry {
+    ///The side of its board the footprint is on.
+    pub side: SystemBundleFootprintSide,
+    ///The footprint anchor `[x, y]`, in that order, in the mount's frame.
+    #[serde(rename = "positionMm")]
+    pub position_mm: [f64; 2usize],
+    ///The footprint rotation in degrees.
+    #[serde(rename = "rotationDeg")]
+    pub rotation_deg: Degrees,
+    ///The footprint name, which the mating-axis inference reads. Null when unknown.
+    #[serde(rename = "footprintName")]
+    pub footprint_name: ::std::option::Option<::std::string::String>,
+    ///The pads, in the extractor's order.
+    pub pads: ::std::vec::Vec<SystemBundleExportPad>,
+    ///The footprint's courtyard. Null when the footprint has no courtyard graphic.
+    pub courtyard: ::std::option::Option<SystemBundleExportCourtyard>,
+    ///Always null: an export's geometry carries no 3D model.
+    pub model: (),
+}
+///One pad of an export's footprint geometry, in millimetres in its frame (+y up).
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "description": "One pad of an export's footprint geometry, in millimetres in its frame (+y up).",
+///  "type": "object",
+///  "required": [
+///    "pad",
+///    "positionMm",
+///    "shape",
+///    "sizeMm",
+///    "tht"
+///  ],
+///  "properties": {
+///    "pad": {
+///      "description": "The pad number; empty for a mounting or alignment hole.",
+///      "type": "string"
+///    },
+///    "positionMm": {
+///      "description": "The pad centre `[x, y]`, in that order.",
+///      "type": "array",
+///      "items": {
+///        "type": "number"
+///      },
+///      "maxItems": 2,
+///      "minItems": 2
+///    },
+///    "shape": {
+///      "description": "The pad shape (`circle`, `rect`, …). Null when the footprint gives none.",
+///      "oneOf": [
+///        {
+///          "type": "string"
+///        },
+///        {
+///          "type": "null"
+///        }
+///      ]
+///    },
+///    "sizeMm": {
+///      "description": "The pad size `[x, y]`, in that order. Null when the footprint gives none.",
+///      "oneOf": [
+///        {
+///          "type": "array",
+///          "items": {
+///            "type": "number"
+///          }
+///        },
+///        {
+///          "type": "null"
+///        }
+///      ]
+///    },
+///    "tht": {
+///      "description": "Whether the pad is through-hole. Null when the footprint does not say.",
+///      "oneOf": [
+///        {
+///          "type": "boolean"
+///        },
+///        {
+///          "type": "null"
+///        }
+///      ]
+///    }
+///  },
+///  "additionalProperties": false
+///}
+/// ```
+/// </details>
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct SystemBundleExportPad {
+    ///The pad number; empty for a mounting or alignment hole.
+    pub pad: ::std::string::String,
+    ///The pad centre `[x, y]`, in that order.
+    #[serde(rename = "positionMm")]
+    pub position_mm: [f64; 2usize],
+    ///The pad size `[x, y]`, in that order. Null when the footprint gives none.
+    #[serde(rename = "sizeMm")]
+    pub size_mm: ::std::option::Option<::std::vec::Vec<f64>>,
+    ///The pad shape (`circle`, `rect`, …). Null when the footprint gives none.
+    pub shape: ::std::option::Option<::std::string::String>,
+    ///Whether the pad is through-hole. Null when the footprint does not say.
+    pub tht: ::std::option::Option<bool>,
+}
 ///One finding (`docs/system-builder/CONTRACTS.md` §9).
 ///
 /// <details><summary>JSON schema</summary>
@@ -1027,6 +1250,79 @@ impl<'de> ::serde::Deserialize<'de> for SystemBundleFindingSubject {
             .map_err(|e: self::error::ConversionError| {
                 <D::Error as ::serde::de::Error>::custom(e.to_string())
             })
+    }
+}
+///The side of its board a footprint is on.
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "description": "The side of its board a footprint is on.",
+///  "type": "string",
+///  "enum": [
+///    "top",
+///    "bottom"
+///  ]
+///}
+/// ```
+/// </details>
+#[derive(
+    ::serde::Deserialize,
+    ::serde::Serialize,
+    Clone,
+    Copy,
+    Debug,
+    Eq,
+    Hash,
+    Ord,
+    PartialEq,
+    PartialOrd,
+)]
+pub enum SystemBundleFootprintSide {
+    #[serde(rename = "top")]
+    Top,
+    #[serde(rename = "bottom")]
+    Bottom,
+}
+impl ::std::fmt::Display for SystemBundleFootprintSide {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+        match *self {
+            Self::Top => f.write_str("top"),
+            Self::Bottom => f.write_str("bottom"),
+        }
+    }
+}
+impl ::std::str::FromStr for SystemBundleFootprintSide {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        match value {
+            "top" => Ok(Self::Top),
+            "bottom" => Ok(Self::Bottom),
+            _ => Err("invalid value".into()),
+        }
+    }
+}
+impl ::std::convert::TryFrom<&str> for SystemBundleFootprintSide {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl ::std::convert::TryFrom<&::std::string::String> for SystemBundleFootprintSide {
+    type Error = self::error::ConversionError;
+    fn try_from(
+        value: &::std::string::String,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl ::std::convert::TryFrom<::std::string::String> for SystemBundleFootprintSide {
+    type Error = self::error::ConversionError;
+    fn try_from(
+        value: ::std::string::String,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
     }
 }
 ///Which stack height a mate used.
@@ -1922,6 +2218,58 @@ pub struct SystemBundlePinRef {
     ///The pad number.
     pub pad: PadNumber,
 }
+///One export's connector, as a system placing this one as an entry mates by it (stage 3d).
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "description": "One export's connector, as a system placing this one as an entry mates by it (stage 3d).",
+///  "type": "object",
+///  "required": [
+///    "export",
+///    "geometry",
+///    "matesTop",
+///    "mount"
+///  ],
+///  "properties": {
+///    "export": {
+///      "description": "The export's id.",
+///      "$ref": "#/$defs/SystemBundleObjectId"
+///    },
+///    "geometry": {
+///      "description": "The connector's footprint geometry in that frame.",
+///      "$ref": "#/$defs/SystemBundleExportGeometry"
+///    },
+///    "matesTop": {
+///      "description": "An unsure mating-axis inference mates out of the top face: a body's connector, or an export of one.",
+///      "type": "boolean"
+///    },
+///    "mount": {
+///      "description": "The frame `geometry` is in, placed in the system frame with the\nconnector's side of its board applied, so the geometry reads at zero\nthickness: a board's frame lifted to its surface, a body connector's\nfootprint frame.",
+///      "$ref": "#/$defs/SystemBundlePose"
+///    }
+///  },
+///  "additionalProperties": false
+///}
+/// ```
+/// </details>
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct SystemBundlePlacedExport {
+    ///The export's id.
+    pub export: SystemBundleObjectId,
+    /**The frame `geometry` is in, placed in the system frame with the
+    connector's side of its board applied, so the geometry reads at zero
+    thickness: a board's frame lifted to its surface, a body connector's
+    footprint frame.*/
+    pub mount: SystemBundlePose,
+    ///The connector's footprint geometry in that frame.
+    pub geometry: SystemBundleExportGeometry,
+    ///An unsure mating-axis inference mates out of the top face: a body's connector, or an export of one.
+    #[serde(rename = "matesTop")]
+    pub mates_top: bool,
+}
 ///What one B2B mate means for placement.
 ///
 /// <details><summary>JSON schema</summary>
@@ -2097,6 +2445,13 @@ pub struct SystemBundlePlacedOccurrence {
 ///    "occurrences"
 ///  ],
 ///  "properties": {
+///    "exports": {
+///      "description": "Every export whose connector has footprint geometry and a place, sorted\nby `export` in code point order (stage 3d). Absent in bundles built\nbefore format 4.",
+///      "type": "array",
+///      "items": {
+///        "$ref": "#/$defs/SystemBundlePlacedExport"
+///      }
+///    },
 ///    "mates": {
 ///      "description": "Every mate, sorted by `mate` in code point order.",
 ///      "type": "array",
@@ -2123,6 +2478,11 @@ pub struct SystemBundlePlacement {
     pub occurrences: ::std::vec::Vec<SystemBundlePlacedOccurrence>,
     ///Every mate, sorted by `mate` in code point order.
     pub mates: ::std::vec::Vec<SystemBundlePlacedMate>,
+    /**Every export whose connector has footprint geometry and a place, sorted
+    by `export` in code point order (stage 3d). Absent in bundles built
+    before format 4.*/
+    #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+    pub exports: ::std::option::Option<::std::vec::Vec<SystemBundlePlacedExport>>,
 }
 ///A frame in the system frame: translation, then rotation.
 ///
