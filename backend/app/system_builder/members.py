@@ -152,9 +152,15 @@ def canonical_bytes(value: Any) -> bytes:
 
 
 def document_sha256(document: Mapping[str, Any]) -> str:
-    """SHA-256 of the document's canonical JSON (CONTRACTS §8.1)."""
+    """SHA-256 of the document's canonical JSON without ``layout`` (CONTRACTS §8.1).
 
-    return hashlib.sha256(canonical_bytes(document)).hexdigest()
+    Layout is presentation only and no rule reads it, so moving a symbol or a
+    pin reuses the system bundle instead of rebuilding it.
+    """
+
+    return hashlib.sha256(canonical_bytes(
+        {name: value for name, value in document.items() if name != "layout"}
+    )).hexdigest()
 
 
 def system_bundle_key(

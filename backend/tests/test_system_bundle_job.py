@@ -59,6 +59,13 @@ def board_sub_port_document(commit: str, sub_port_id: str, version: int = 1) -> 
     return canonical(document)
 
 
+def expected_document_sha(document: dict) -> str:
+    """The contract's digest: canonical JSON of the document without ``layout``."""
+    unlaid = {name: value for name, value in document.items() if name != "layout"}
+    return hashlib.sha256(
+        json.dumps(unlaid, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
+    ).hexdigest()
+
 class SystemBundleWorkspace(_Workspace):
     """A workspace with a system store, the system job's store seam and a real job context."""
 
@@ -145,9 +152,7 @@ class SystemBundleWorkspace(_Workspace):
                      board_sub_ports: dict[str, int] | None = None,
                      entries: dict | None = None) -> str:
         preimage = {
-            "documentSha256": hashlib.sha256(
-                json.dumps(document, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
-            ).hexdigest(),
+            "documentSha256": expected_document_sha(document),
             "generator": design_jobs.cli.generator().digest,
             "members": members,
             "absent": sorted(absent),
@@ -198,7 +203,7 @@ class SystemBundleJobTests(SystemBundleWorkspace, unittest.TestCase):
         bundle = bundle_store.read("sys_a", expected)
         assert bundle is not None
         schemas.validate(bundle, "prism.system_bundle.a0")
-        self.assertEqual(bundle["documentSha256"], self.expected_document_sha(document))
+        self.assertEqual(bundle["documentSha256"], expected_document_sha(document))
         self.assertEqual(
             [(item["occurrence"], item["state"]) for item in bundle["occurrences"]],
             [("occ_obc", "ready"), ("occ_payload", "ready")],
@@ -472,11 +477,6 @@ class SystemBundleJobTests(SystemBundleWorkspace, unittest.TestCase):
         self.assertFalse(bundle_store.exists("sys_a", second["key"]))
         self.assertIsNone(bundle_store.get("sys_a", second["key"]))
 
-    @staticmethod
-    def expected_document_sha(document: dict) -> str:
-        return hashlib.sha256(
-            json.dumps(document, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
-        ).hexdigest()
 
 
 if __name__ == "__main__":

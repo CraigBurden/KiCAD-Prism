@@ -161,7 +161,13 @@ fn read_document(args: &Args) -> Outcome<(input::Document, String)> {
             violation.message
         ))
     })?;
-    let sha256 = generator::sha256_hex(&canonical_json(&value));
+    // Layout is presentation only (CONTRACTS §8.1): the digest leaves it out,
+    // so moving a symbol or a pin reuses the system bundle.
+    let mut hashed = value.clone();
+    if let Some(object) = hashed.as_object_mut() {
+        object.remove("layout");
+    }
+    let sha256 = generator::sha256_hex(&canonical_json(&hashed));
     let document: input::Document = serde_json::from_value(value).map_err(|error| {
         document_invalid(format!("--document does not fit its contract: {error}"))
     })?;

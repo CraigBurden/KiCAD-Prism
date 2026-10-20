@@ -152,6 +152,15 @@ class SystemBundleKeyTest(unittest.TestCase):
         ).hexdigest()
         self.assertEqual(document_sha256(DOCUMENT), expected)
 
+    def test_layout_is_left_out_of_the_document_digest(self) -> None:
+        laid_out = {**DOCUMENT, "layout": {"occ_a": {"xNm": 1270000, "yNm": 0, "rotationDeg": 0, "mirror": False}}}
+        self.assertEqual(document_sha256(laid_out), document_sha256(DOCUMENT))
+        self.assertEqual(
+            system_bundle_key(laid_out, "f" * 64, ALL_MEMBERS),
+            system_bundle_key(DOCUMENT, "f" * 64, ALL_MEMBERS),
+        )
+        self.assertNotEqual(document_sha256({**DOCUMENT, "name": "other"}), document_sha256(DOCUMENT))
+
     def test_the_key_is_the_contract_s_preimage(self) -> None:
         self.assertEqual(
             system_bundle_key(DOCUMENT, "f" * 64, ALL_MEMBERS),

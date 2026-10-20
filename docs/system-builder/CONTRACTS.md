@@ -270,7 +270,7 @@ Derived state (ADR §3.3). It is a pure function of the document and the design 
 
 ### 8.1 Inputs and key
 
-- **The document,** canonical JSON. Its SHA-256 is `documentSha256`.
+- **The document,** canonical JSON without `layout`. Its SHA-256 is `documentSha256`. Layout is presentation only (§2.8), so moving a symbol, a pin or a route reuses the bundle (stage 2b).
 - **One design bundle per board occurrence whose bundle has stage `parse` complete.** It reads `projections/system-interface.json` (connectors, pins, pin nets, names and types, power nets, pad geometry and board thickness) and `projections/semantic-index.json` (bus aliases, nets' source sheets). B2B geometry reads `system-interface.json`'s pad geometry, the form the kept placement maths and their goldens use. This amends the ADR's mention of `placements.json` for pads; the maintainer chose it so the goldens replay unchanged.
 - **The system bundle key** is SHA-256 over the canonical JSON `{documentSha256, generator, members: {occurrence: bundleKey}, absent: [occurrence], pending: [occurrence], boardSubPorts: {id: version}, entries: {occurrence: {payload, stage}}}`; 1c adds the last two (§10.5, §12.2), always present. A new document version with the same content, such as one restored by an undo, reuses the bundle.
 - **Board-level sub-ports** the document names, as `--board-sub-ports` (§10.5), and **published entries' payloads**, as `--entry` (§12.2), from 1c. Body connectors' pins are not inputs until stage 3; body occurrences are reported with the state `unsupported`.
