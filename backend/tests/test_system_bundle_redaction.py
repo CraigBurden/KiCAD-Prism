@@ -120,6 +120,66 @@ BUNDLE = {
         {"code": "occurrence-unsupported", "severity": "info", "subject": "occurrence:occ_c",
          "message": "not read yet", "objects": ["occ_c"], "waived": False},
     ],
+    "placement": {
+        "occurrences": [
+            {
+                "occurrence": "occ_a",
+                "pose": {
+                    "translation": {"xNm": 0, "yNm": 0, "zNm": 0},
+                    "rotation": {"x": 0, "y": 0, "z": 0, "w": 1},
+                },
+                "source": "stored",
+                "root": True,
+            },
+            {
+                "occurrence": "occ_b",
+                "pose": {
+                    "translation": {"xNm": 100_000_000, "yNm": 0, "zNm": 0},
+                    "rotation": {"x": 0, "y": 0, "z": 0, "w": 1},
+                },
+                "source": "mate",
+                "root": False,
+                "positioningMate": "mate_x",
+                "bounds": {
+                    "min": {"xNm": -50_000_000, "yNm": -30_000_000, "zNm": -800_000},
+                    "max": {"xNm": 50_000_000, "yNm": 30_000_000, "zNm": 800_000},
+                },
+            },
+            {
+                "occurrence": "occ_c",
+                "pose": {
+                    "translation": {"xNm": 200_000_000, "yNm": 0, "zNm": 0},
+                    "rotation": {"x": 0, "y": 0, "z": 0, "w": 1},
+                },
+                "source": "default",
+                "root": True,
+            },
+        ],
+        "mates": [
+            {
+                "mate": "mate_x",
+                "driving": True,
+                "stackHeightNm": 5_000_000,
+                "heightSource": "stack-height",
+                "frameA": {
+                    "translation": {"xNm": 0, "yNm": 0, "zNm": 0},
+                    "rotation": {"x": 0, "y": 0, "z": 0, "w": 1},
+                },
+                "frameB": {
+                    "translation": {"xNm": 0, "yNm": 0, "zNm": 5_000_000},
+                    "rotation": {"x": 0, "y": 0, "z": 0, "w": 1},
+                },
+                "miss": {"xNm": 10, "yNm": 20, "zNm": 30},
+                "missDeg": 1.5,
+            },
+            {
+                "mate": "mate_y",
+                "driving": False,
+                "miss": {"xNm": 1, "yNm": 2, "zNm": 3},
+                "missDeg": 0.5,
+            },
+        ],
+    },
 }
 
 ALL_MEMBERS = (
@@ -233,6 +293,27 @@ class BundleRedactionTest(unittest.TestCase):
         before = copy.deepcopy(BUNDLE)
         redact_bundle(BUNDLE, frozenset({"occ_b"}), document=DOCUMENT)
         self.assertEqual(BUNDLE, before)
+
+    def test_a_hidden_occurrence_keeps_its_pose_but_loses_bounds_and_positioning_mate(self) -> None:
+        view = redact_bundle(BUNDLE, frozenset({"occ_b"}), document=DOCUMENT)
+        placed = next(
+            item for item in view["placement"]["occurrences"] if item["occurrence"] == "occ_b"
+        )
+        self.assertNotIn("bounds", placed)
+        self.assertNotIn("positioningMate", placed)
+        self.assertEqual(placed["pose"], BUNDLE["placement"]["occurrences"][1]["pose"])
+
+    def test_a_protected_mate_is_stripped_to_its_id_and_driving(self) -> None:
+        view = redact_bundle(BUNDLE, frozenset({"occ_b"}), document=DOCUMENT)
+        hidden_mate = next(mate for mate in view["placement"]["mates"] if mate["mate"] == "mate_x")
+        self.assertEqual(hidden_mate, {"mate": "mate_x", "driving": True})
+        visible_mate = next(mate for mate in view["placement"]["mates"] if mate["mate"] == "mate_y")
+        self.assertEqual(visible_mate, BUNDLE["placement"]["mates"][1])
+
+    def test_a_bundle_without_placement_passes_through(self) -> None:
+        older = {name: value for name, value in BUNDLE.items() if name != "placement"}
+        view = redact_bundle(older, frozenset({"occ_b"}), document=DOCUMENT)
+        self.assertNotIn("placement", view)
 
 
 if __name__ == "__main__":

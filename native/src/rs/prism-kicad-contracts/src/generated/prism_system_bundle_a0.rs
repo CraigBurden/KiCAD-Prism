@@ -125,6 +125,63 @@ impl ::std::fmt::Display for DiagnosticCode {
         self.0.fmt(f)
     }
 }
+/**Length or coordinate in integer nanometres, KiCad's internal board unit.
+Converted from the file's decimal millimetres as KiCad's own parser does:
+the double product value_mm * 1e6, rounded half away from zero. A single
+coordinate or dimension fits KiCad's 32-bit range; sums (for example a
+net's total track length) may not, hence a safe integer (|n| < 2^53).*/
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "description": "Length or coordinate in integer nanometres, KiCad's internal board unit.\nConverted from the file's decimal millimetres as KiCad's own parser does:\nthe double product value_mm * 1e6, rounded half away from zero. A single\ncoordinate or dimension fits KiCad's 32-bit range; sums (for example a\nnet's total track length) may not, hence a safe integer (|n| < 2^53).",
+///  "type": "integer"
+///}
+/// ```
+/// </details>
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+#[serde(transparent)]
+pub struct Nanometres(pub i64);
+impl ::std::ops::Deref for Nanometres {
+    type Target = i64;
+    fn deref(&self) -> &i64 {
+        &self.0
+    }
+}
+impl ::std::convert::From<Nanometres> for i64 {
+    fn from(value: Nanometres) -> Self {
+        value.0
+    }
+}
+impl ::std::convert::From<i64> for Nanometres {
+    fn from(value: i64) -> Self {
+        Self(value)
+    }
+}
+impl ::std::str::FromStr for Nanometres {
+    type Err = <i64 as ::std::str::FromStr>::Err;
+    fn from_str(value: &str) -> ::std::result::Result<Self, Self::Err> {
+        Ok(Self(value.parse()?))
+    }
+}
+impl ::std::convert::TryFrom<&str> for Nanometres {
+    type Error = <i64 as ::std::str::FromStr>::Err;
+    fn try_from(value: &str) -> ::std::result::Result<Self, Self::Error> {
+        value.parse()
+    }
+}
+impl ::std::convert::TryFrom<String> for Nanometres {
+    type Error = <i64 as ::std::str::FromStr>::Err;
+    fn try_from(value: String) -> ::std::result::Result<Self, Self::Error> {
+        value.parse()
+    }
+}
+impl ::std::fmt::Display for Nanometres {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+        self.0.fmt(f)
+    }
+}
 /**KiCad full net name as KiCad resolves it, including the sheet path prefix
 of a local net (`/Power/VBUS`), a global name (`GND`) or a generated name
 (`Net-(R1-Pad2)`, `unconnected-(U1-PA0-Pad3)`). "No net" is expressed by
@@ -428,6 +485,7 @@ impl ::std::fmt::Display for Sha256Hex {
 ///    "mates",
 ///    "nets",
 ///    "occurrences",
+///    "placement",
 ///    "schema",
 ///    "splices",
 ///    "suggestions"
@@ -471,6 +529,10 @@ impl ::std::fmt::Display for Sha256Hex {
 ///      "items": {
 ///        "$ref": "#/$defs/SystemBundleOccurrence"
 ///      }
+///    },
+///    "placement": {
+///      "description": "Where each occurrence sits, and what each mate means for that (stage 3a).",
+///      "$ref": "#/$defs/SystemBundlePlacement"
 ///    },
 ///    "schema": {
 ///      "description": "Schema id.",
@@ -518,6 +580,8 @@ pub struct SystemBundleA0 {
     pub suggestions: ::std::vec::Vec<SystemBundleSuggestion>,
     ///Findings, sorted by `code` then `subject`, in code point order.
     pub findings: ::std::vec::Vec<SystemBundleFinding>,
+    ///Where each occurrence sits, and what each mate means for that (stage 3a).
+    pub placement: SystemBundlePlacement,
 }
 ///A board net that is part of a system net.
 ///
@@ -625,6 +689,40 @@ impl ::std::convert::TryFrom<::std::string::String> for SystemBundleBoardSide {
     ) -> ::std::result::Result<Self, self::error::ConversionError> {
         value.parse()
     }
+}
+///An axis-aligned box in an occurrence's own frame.
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "description": "An axis-aligned box in an occurrence's own frame.",
+///  "type": "object",
+///  "required": [
+///    "max",
+///    "min"
+///  ],
+///  "properties": {
+///    "max": {
+///      "description": "The maximum corner.",
+///      "$ref": "#/$defs/SystemBundleVectorNm"
+///    },
+///    "min": {
+///      "description": "The minimum corner.",
+///      "$ref": "#/$defs/SystemBundleVectorNm"
+///    }
+///  },
+///  "additionalProperties": false
+///}
+/// ```
+/// </details>
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct SystemBundleBounds {
+    ///The minimum corner.
+    pub min: SystemBundleVectorNm,
+    ///The maximum corner.
+    pub max: SystemBundleVectorNm,
 }
 ///One connector of a board occurrence.
 ///
@@ -929,6 +1027,79 @@ impl<'de> ::serde::Deserialize<'de> for SystemBundleFindingSubject {
             .map_err(|e: self::error::ConversionError| {
                 <D::Error as ::serde::de::Error>::custom(e.to_string())
             })
+    }
+}
+///Which stack height a mate used.
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "description": "Which stack height a mate used.",
+///  "type": "string",
+///  "enum": [
+///    "stack-height",
+///    "clearance"
+///  ]
+///}
+/// ```
+/// </details>
+#[derive(
+    ::serde::Deserialize,
+    ::serde::Serialize,
+    Clone,
+    Copy,
+    Debug,
+    Eq,
+    Hash,
+    Ord,
+    PartialEq,
+    PartialOrd,
+)]
+pub enum SystemBundleHeightSource {
+    #[serde(rename = "stack-height")]
+    StackHeight,
+    #[serde(rename = "clearance")]
+    Clearance,
+}
+impl ::std::fmt::Display for SystemBundleHeightSource {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+        match *self {
+            Self::StackHeight => f.write_str("stack-height"),
+            Self::Clearance => f.write_str("clearance"),
+        }
+    }
+}
+impl ::std::str::FromStr for SystemBundleHeightSource {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        match value {
+            "stack-height" => Ok(Self::StackHeight),
+            "clearance" => Ok(Self::Clearance),
+            _ => Err("invalid value".into()),
+        }
+    }
+}
+impl ::std::convert::TryFrom<&str> for SystemBundleHeightSource {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl ::std::convert::TryFrom<&::std::string::String> for SystemBundleHeightSource {
+    type Error = self::error::ConversionError;
+    fn try_from(
+        value: &::std::string::String,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl ::std::convert::TryFrom<::std::string::String> for SystemBundleHeightSource {
+    type Error = self::error::ConversionError;
+    fn try_from(
+        value: ::std::string::String,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
     }
 }
 ///One harness link's wiring.
@@ -1637,6 +1808,368 @@ pub struct SystemBundlePinRef {
     ///The pad number.
     pub pad: PadNumber,
 }
+///What one B2B mate means for placement.
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "description": "What one B2B mate means for placement.",
+///  "type": "object",
+///  "required": [
+///    "driving",
+///    "mate"
+///  ],
+///  "properties": {
+///    "driving": {
+///      "description": "It places one of its occurrences (it is a positioning mate).",
+///      "type": "boolean"
+///    },
+///    "frameA": {
+///      "description": "Side A's connector frame in the system frame; absent when unknown.",
+///      "$ref": "#/$defs/SystemBundlePose"
+///    },
+///    "frameB": {
+///      "description": "Side B's connector frame in the system frame; absent when unknown.",
+///      "$ref": "#/$defs/SystemBundlePose"
+///    },
+///    "heightSource": {
+///      "description": "Where that height came from.",
+///      "$ref": "#/$defs/SystemBundleHeightSource"
+///    },
+///    "mate": {
+///      "description": "The mate's id.",
+///      "$ref": "#/$defs/SystemBundleObjectId"
+///    },
+///    "miss": {
+///      "description": "A non-driving mate's miss: B's connector origin minus its mated position, on A's connector axes.",
+///      "$ref": "#/$defs/SystemBundleVectorNm"
+///    },
+///    "missDeg": {
+///      "description": "A non-driving mate's rotation miss, in degrees.",
+///      "$ref": "#/$defs/Degrees"
+///    },
+///    "stackHeightNm": {
+///      "description": "The stack height used; absent when the mate could not be solved.",
+///      "$ref": "#/$defs/Nanometres"
+///    }
+///  },
+///  "additionalProperties": false
+///}
+/// ```
+/// </details>
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct SystemBundlePlacedMate {
+    ///The mate's id.
+    pub mate: SystemBundleObjectId,
+    ///It places one of its occurrences (it is a positioning mate).
+    pub driving: bool,
+    ///The stack height used; absent when the mate could not be solved.
+    #[serde(
+        rename = "stackHeightNm",
+        default,
+        skip_serializing_if = "::std::option::Option::is_none"
+    )]
+    pub stack_height_nm: ::std::option::Option<Nanometres>,
+    ///Where that height came from.
+    #[serde(
+        rename = "heightSource",
+        default,
+        skip_serializing_if = "::std::option::Option::is_none"
+    )]
+    pub height_source: ::std::option::Option<SystemBundleHeightSource>,
+    ///Side A's connector frame in the system frame; absent when unknown.
+    #[serde(
+        rename = "frameA",
+        default,
+        skip_serializing_if = "::std::option::Option::is_none"
+    )]
+    pub frame_a: ::std::option::Option<SystemBundlePose>,
+    ///Side B's connector frame in the system frame; absent when unknown.
+    #[serde(
+        rename = "frameB",
+        default,
+        skip_serializing_if = "::std::option::Option::is_none"
+    )]
+    pub frame_b: ::std::option::Option<SystemBundlePose>,
+    ///A non-driving mate's miss: B's connector origin minus its mated position, on A's connector axes.
+    #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+    pub miss: ::std::option::Option<SystemBundleVectorNm>,
+    ///A non-driving mate's rotation miss, in degrees.
+    #[serde(
+        rename = "missDeg",
+        default,
+        skip_serializing_if = "::std::option::Option::is_none"
+    )]
+    pub miss_deg: ::std::option::Option<Degrees>,
+}
+///One occurrence's place in the system.
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "description": "One occurrence's place in the system.",
+///  "type": "object",
+///  "required": [
+///    "occurrence",
+///    "pose",
+///    "root",
+///    "source"
+///  ],
+///  "properties": {
+///    "bounds": {
+///      "description": "Its board's outline box across its thickness, in its own frame; absent when unknown.",
+///      "$ref": "#/$defs/SystemBundleBounds"
+///    },
+///    "occurrence": {
+///      "description": "The occurrence's id.",
+///      "$ref": "#/$defs/SystemBundleObjectId"
+///    },
+///    "pose": {
+///      "description": "Its board frame in the system frame.",
+///      "$ref": "#/$defs/SystemBundlePose"
+///    },
+///    "positioningMate": {
+///      "description": "The mate that placed it, for a mated non-root.",
+///      "$ref": "#/$defs/SystemBundleObjectId"
+///    },
+///    "root": {
+///      "description": "The occurrence is its mated group's root, or is not mated.",
+///      "type": "boolean"
+///    },
+///    "source": {
+///      "description": "Where the pose came from.",
+///      "$ref": "#/$defs/SystemBundlePoseSource"
+///    }
+///  },
+///  "additionalProperties": false
+///}
+/// ```
+/// </details>
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct SystemBundlePlacedOccurrence {
+    ///The occurrence's id.
+    pub occurrence: SystemBundleObjectId,
+    ///Its board frame in the system frame.
+    pub pose: SystemBundlePose,
+    ///Where the pose came from.
+    pub source: SystemBundlePoseSource,
+    ///The occurrence is its mated group's root, or is not mated.
+    pub root: bool,
+    ///The mate that placed it, for a mated non-root.
+    #[serde(
+        rename = "positioningMate",
+        default,
+        skip_serializing_if = "::std::option::Option::is_none"
+    )]
+    pub positioning_mate: ::std::option::Option<SystemBundleObjectId>,
+    ///Its board's outline box across its thickness, in its own frame; absent when unknown.
+    #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+    pub bounds: ::std::option::Option<SystemBundleBounds>,
+}
+///The system's placement (stage 3a).
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "description": "The system's placement (stage 3a).",
+///  "type": "object",
+///  "required": [
+///    "mates",
+///    "occurrences"
+///  ],
+///  "properties": {
+///    "mates": {
+///      "description": "Every mate, sorted by `mate` in code point order.",
+///      "type": "array",
+///      "items": {
+///        "$ref": "#/$defs/SystemBundlePlacedMate"
+///      }
+///    },
+///    "occurrences": {
+///      "description": "Every occurrence, sorted by `occurrence` in code point order.",
+///      "type": "array",
+///      "items": {
+///        "$ref": "#/$defs/SystemBundlePlacedOccurrence"
+///      }
+///    }
+///  },
+///  "additionalProperties": false
+///}
+/// ```
+/// </details>
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct SystemBundlePlacement {
+    ///Every occurrence, sorted by `occurrence` in code point order.
+    pub occurrences: ::std::vec::Vec<SystemBundlePlacedOccurrence>,
+    ///Every mate, sorted by `mate` in code point order.
+    pub mates: ::std::vec::Vec<SystemBundlePlacedMate>,
+}
+///A frame in the system frame: translation, then rotation.
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "description": "A frame in the system frame: translation, then rotation.",
+///  "type": "object",
+///  "required": [
+///    "rotation",
+///    "translation"
+///  ],
+///  "properties": {
+///    "rotation": {
+///      "description": "The rotation.",
+///      "$ref": "#/$defs/SystemBundleQuaternion"
+///    },
+///    "translation": {
+///      "description": "The translation.",
+///      "$ref": "#/$defs/SystemBundleVectorNm"
+///    }
+///  },
+///  "additionalProperties": false
+///}
+/// ```
+/// </details>
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct SystemBundlePose {
+    ///The translation.
+    pub translation: SystemBundleVectorNm,
+    ///The rotation.
+    pub rotation: SystemBundleQuaternion,
+}
+///Where an occurrence's pose came from (CONTRACTS §8.9).
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "description": "Where an occurrence's pose came from (CONTRACTS §8.9).",
+///  "type": "string",
+///  "enum": [
+///    "mate",
+///    "stored",
+///    "default"
+///  ]
+///}
+/// ```
+/// </details>
+#[derive(
+    ::serde::Deserialize,
+    ::serde::Serialize,
+    Clone,
+    Copy,
+    Debug,
+    Eq,
+    Hash,
+    Ord,
+    PartialEq,
+    PartialOrd,
+)]
+pub enum SystemBundlePoseSource {
+    #[serde(rename = "mate")]
+    Mate,
+    #[serde(rename = "stored")]
+    Stored,
+    #[serde(rename = "default")]
+    Default,
+}
+impl ::std::fmt::Display for SystemBundlePoseSource {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+        match *self {
+            Self::Mate => f.write_str("mate"),
+            Self::Stored => f.write_str("stored"),
+            Self::Default => f.write_str("default"),
+        }
+    }
+}
+impl ::std::str::FromStr for SystemBundlePoseSource {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        match value {
+            "mate" => Ok(Self::Mate),
+            "stored" => Ok(Self::Stored),
+            "default" => Ok(Self::Default),
+            _ => Err("invalid value".into()),
+        }
+    }
+}
+impl ::std::convert::TryFrom<&str> for SystemBundlePoseSource {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl ::std::convert::TryFrom<&::std::string::String> for SystemBundlePoseSource {
+    type Error = self::error::ConversionError;
+    fn try_from(
+        value: &::std::string::String,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl ::std::convert::TryFrom<::std::string::String> for SystemBundlePoseSource {
+    type Error = self::error::ConversionError;
+    fn try_from(
+        value: ::std::string::String,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+///A unit quaternion, canonical with `w ≥ 0`.
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "description": "A unit quaternion, canonical with `w ≥ 0`.",
+///  "type": "object",
+///  "required": [
+///    "w",
+///    "x",
+///    "y",
+///    "z"
+///  ],
+///  "properties": {
+///    "w": {
+///      "description": "W.",
+///      "type": "number"
+///    },
+///    "x": {
+///      "description": "X.",
+///      "type": "number"
+///    },
+///    "y": {
+///      "description": "Y.",
+///      "type": "number"
+///    },
+///    "z": {
+///      "description": "Z.",
+///      "type": "number"
+///    }
+///  },
+///  "additionalProperties": false
+///}
+/// ```
+/// </details>
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct SystemBundleQuaternion {
+    ///X.
+    pub x: f64,
+    ///Y.
+    pub y: f64,
+    ///Z.
+    pub z: f64,
+    ///W.
+    pub w: f64,
+}
 ///A finding's fixed severity: errors block publishing an in-house entry unless waived.
 ///
 /// <details><summary>JSON schema</summary>
@@ -2054,6 +2587,50 @@ impl ::std::convert::TryFrom<::std::string::String> for SystemBundleSuggestionSo
     ) -> ::std::result::Result<Self, self::error::ConversionError> {
         value.parse()
     }
+}
+///A point or offset in the system frame, in nanometres.
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "description": "A point or offset in the system frame, in nanometres.",
+///  "type": "object",
+///  "required": [
+///    "xNm",
+///    "yNm",
+///    "zNm"
+///  ],
+///  "properties": {
+///    "xNm": {
+///      "description": "X in nanometres.",
+///      "$ref": "#/$defs/Nanometres"
+///    },
+///    "yNm": {
+///      "description": "Y in nanometres.",
+///      "$ref": "#/$defs/Nanometres"
+///    },
+///    "zNm": {
+///      "description": "Z in nanometres.",
+///      "$ref": "#/$defs/Nanometres"
+///    }
+///  },
+///  "additionalProperties": false
+///}
+/// ```
+/// </details>
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct SystemBundleVectorNm {
+    ///X in nanometres.
+    #[serde(rename = "xNm")]
+    pub x_nm: Nanometres,
+    ///Y in nanometres.
+    #[serde(rename = "yNm")]
+    pub y_nm: Nanometres,
+    ///Z in nanometres.
+    #[serde(rename = "zNm")]
+    pub z_nm: Nanometres,
 }
 ///One wire of a harness link's wiring.
 ///

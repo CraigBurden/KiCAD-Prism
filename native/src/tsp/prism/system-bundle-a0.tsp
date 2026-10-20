@@ -9,8 +9,8 @@ using Prism.Contracts.Common;
  * Builder v2 §3.3): what a `prism.system.v2` document means over its boards'
  * design bundles. `prism-kicad system build` writes it; it is a pure function
  * of the document and the members, so the same inputs give the same bytes.
- * Stage 1b holds connectivity only: occurrences, system nets, B2B mappings,
- * harness wiring, sub-port suggestions and findings. The rules are in
+ * Stage 1b holds connectivity: occurrences, system nets, B2B mappings,
+ * harness wiring, sub-port suggestions and findings; stage 3a adds placement. The rules are in
  * `docs/system-builder/CONTRACTS.md` §8–§9.
  *
  * Unfrozen until System Builder v2's stage 5, like the document.
@@ -364,6 +364,131 @@ model SystemBundleFinding {
   waived: boolean;
 }
 
+// --------------------------------------------------------------- placement (3a)
+
+/** Where an occurrence's pose came from (CONTRACTS §8.9). */
+enum SystemBundlePoseSource {
+  /** Derived through its positioning mate from its group's root. */
+  mate,
+
+  /** The document's stored pose (a root, or a free occurrence). */
+  stored,
+
+  /** The default row: a free occurrence or root without a stored pose. */
+  default: "default",
+}
+
+/** Which stack height a mate used. */
+enum SystemBundleHeightSource {
+  /** The mate's `stackHeightNm`. */
+  stackHeight: "stack-height",
+
+  /** The clearance fallback: the two connector bodies apart, plus a margin. */
+  clearance,
+}
+
+/** A point or offset in the system frame, in nanometres. */
+model SystemBundleVectorNm {
+  /** X in nanometres. */
+  xNm: Nanometres;
+
+  /** Y in nanometres. */
+  yNm: Nanometres;
+
+  /** Z in nanometres. */
+  zNm: Nanometres;
+}
+
+/** A unit quaternion, canonical with `w ≥ 0`. */
+model SystemBundleQuaternion {
+  /** X. */
+  x: float64;
+
+  /** Y. */
+  y: float64;
+
+  /** Z. */
+  z: float64;
+
+  /** W. */
+  w: float64;
+}
+
+/** A frame in the system frame: translation, then rotation. */
+model SystemBundlePose {
+  /** The translation. */
+  translation: SystemBundleVectorNm;
+
+  /** The rotation. */
+  rotation: SystemBundleQuaternion;
+}
+
+/** An axis-aligned box in an occurrence's own frame. */
+model SystemBundleBounds {
+  /** The minimum corner. */
+  min: SystemBundleVectorNm;
+
+  /** The maximum corner. */
+  max: SystemBundleVectorNm;
+}
+
+/** One occurrence's place in the system. */
+model SystemBundlePlacedOccurrence {
+  /** The occurrence's id. */
+  occurrence: SystemBundleObjectId;
+
+  /** Its board frame in the system frame. */
+  pose: SystemBundlePose;
+
+  /** Where the pose came from. */
+  source: SystemBundlePoseSource;
+
+  /** The occurrence is its mated group's root, or is not mated. */
+  root: boolean;
+
+  /** The mate that placed it, for a mated non-root. */
+  positioningMate?: SystemBundleObjectId;
+
+  /** Its board's outline box across its thickness, in its own frame; absent when unknown. */
+  bounds?: SystemBundleBounds;
+}
+
+/** What one B2B mate means for placement. */
+model SystemBundlePlacedMate {
+  /** The mate's id. */
+  mate: SystemBundleObjectId;
+
+  /** It places one of its occurrences (it is a positioning mate). */
+  driving: boolean;
+
+  /** The stack height used; absent when the mate could not be solved. */
+  stackHeightNm?: Nanometres;
+
+  /** Where that height came from. */
+  heightSource?: SystemBundleHeightSource;
+
+  /** Side A's connector frame in the system frame; absent when unknown. */
+  frameA?: SystemBundlePose;
+
+  /** Side B's connector frame in the system frame; absent when unknown. */
+  frameB?: SystemBundlePose;
+
+  /** A non-driving mate's miss: B's connector origin minus its mated position, on A's connector axes. */
+  miss?: SystemBundleVectorNm;
+
+  /** A non-driving mate's rotation miss, in degrees. */
+  missDeg?: Degrees;
+}
+
+/** The system's placement (stage 3a). */
+model SystemBundlePlacement {
+  /** Every occurrence, sorted by `occurrence` in code point order. */
+  occurrences: SystemBundlePlacedOccurrence[];
+
+  /** Every mate, sorted by `mate` in code point order. */
+  mates: SystemBundlePlacedMate[];
+}
+
 // -------------------------------------------------------------------- root
 
 /** A system bundle. */
@@ -397,4 +522,7 @@ model SystemBundleA0 {
 
   /** Findings, sorted by `code` then `subject`, in code point order. */
   findings: SystemBundleFinding[];
+
+  /** Where each occurrence sits, and what each mate means for that (stage 3a). */
+  placement: SystemBundlePlacement;
 }

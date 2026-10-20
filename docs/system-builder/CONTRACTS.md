@@ -1,7 +1,7 @@
 # System Builder v2 contracts
 
-- **Status:** draft, stages 1a–2c. The design is [ADR: System Builder v2](../architecture/adr-system-builder-v2.md); this file is its contract layer.
-- **Covers:** the `prism.system.v2` document (§2), the `prism.system.ops.a0` operations (§3), storage (§4), the HTTP API (§5), permissions and redaction (§6) and limits (§7). The system bundle, `prism.system_bundle.a0`, and the `prism-kicad system build` command that writes it are §8; its findings are §9. Stage 1c adds board-level sub-ports (§10), publishing (§11), placing entries (§12) and the Git link (§13). Stage 2 adds the schematic (§14).
+- **Status:** draft, stages 1a–3a. The design is [ADR: System Builder v2](../architecture/adr-system-builder-v2.md); this file is its contract layer.
+- **Covers:** the `prism.system.v2` document (§2), the `prism.system.ops.a0` operations (§3), storage (§4), the HTTP API (§5), permissions and redaction (§6) and limits (§7). The system bundle, `prism.system_bundle.a0`, and the `prism-kicad system build` command that writes it are §8 (placement, stage 3a, is §8.9); its findings are §9. Stage 1c adds board-level sub-ports (§10), publishing (§11), placing entries (§12) and the Git link (§13). Stage 2 adds the schematic (§14).
 - **Authority:** the TypeSpec in `native/src/tsp/prism/system-v2.tsp`, `system-ops-a0.tsp`, `system-bundle-a0.tsp` and `cli-system-a0.tsp`, with JSON Schema generated beside the bundle contracts. Python validates against the generated schema; the stage 1b Rust reads the generated types. This file explains the rules the schema cannot state.
 
 ## 1. Rules for the whole document
@@ -267,7 +267,7 @@ They are settings (`PRISM_SYSTEM_*`), so a deployment can raise them, and are ch
 
 ## 8. The system bundle, `prism.system_bundle.a0`
 
-Derived state (ADR §3.3). It is a pure function of the document and the design bundles of its board occurrences, written by Rust (`native/src/rs/prism-system`, run as `prism-kicad system build`) and orchestrated by Python. Like the document, it is unfrozen until stage 5. Stage 1b computes connectivity only: system nets, B2B mappings, harness wiring, sub-port suggestions and findings. Geometry (placement, harness routes) and outputs join as further members in stages 3–5.
+Derived state (ADR §3.3). It is a pure function of the document and the design bundles of its board occurrences, written by Rust (`native/src/rs/prism-system`, run as `prism-kicad system build`) and orchestrated by Python. Like the document, it is unfrozen until stage 5. Stage 1b computes connectivity: system nets, B2B mappings, harness wiring, sub-port suggestions and findings. Stage 3a adds placement (§8.9); harness geometry and outputs join in stages 4–5.
 
 ### 8.1 Inputs and key
 
@@ -362,6 +362,18 @@ prism-kicad system build --document <system.json>
 - **Output.** `-o` receives the `SystemBundleA0`, written atomically, with stdout giving `CliSystemResultA0` (the bundle key and per-section counts). The same inputs give byte-identical output.
 - **Exit codes:** 0, or 1–7 as in `cli-spec.md` §4.
 
+### 8.9 Placement (stage 3a)
+
+`placement` says where every occurrence sits in the system frame (+z up, nanometres; ADR §2.6) and what each mate means for that. It is computed with the connectivity, from the same inputs.
+
+- **Board frame.** An occurrence's pose places its board frame: the frame its bundle's pad positions and outline are in, with z = 0 at the board's mid-plane. `bounds` is the board's outline box across its thickness in that frame (absent for a board that is not ready, a body or an entry).
+- **Mated groups.** Occurrences joined by mates whose connector frames can be placed by (the same rule as §8.4 geometry: pads present, inference confidence not `low`) form groups. Each group's **root** is the occurrence with the most connections (mates and harness links) not held by a `positioningMate`, then the first by label (natural order) and id. Every other occurrence of the group is placed through one mate from the part already placed: its `positioningMate` when that names a usable mate of it, else the first by the far connector's reference (natural order), then mate id. That mate is `driving`.
+- **The mate transform** places B relative to A as `F_a · O · T(0, 0, h) · Rx(180°) · Rz(k · 90°) · F_b'⁻¹`: `F_a`, `F_b` the connector frames, `k = (padOneTurns + quarterTurns) mod 4` as in §8.4, `F_b'` B's frame turned 180° about its x axis when `flip`, `O` the mate's `offset` (a pose in A's connector frame, so `zNm` is a spacer), and `h` the mate's `stackHeightNm` or, absent, the clearance fallback (the two connector bodies' boxes apart, plus 5 mm; `heightSource` says which).
+- **Poses.** A root or an unmated occurrence keeps its stored `pose` (`source: stored`) or takes its slot in the **default row** (`source: default`): occurrences by label then id, side by side along +x with 20 mm between their bounds, a rule that does not move one occurrence when another is placed. A placed non-root has `source: mate` and `positioningMate`. A stored pose on a placed non-root is ignored and reported (`pose-ignored`).
+- **Checks.** Every usable mate that does not drive is checked against the placed boards: B's connector frame against where the mate would put it. A miss of more than 0.2 mm across the mating plane, more than 0.2 mm along it (only when the mate states a stack height) or more than 0.5° is `mate-misaligned`, and the mate's `miss` (on A's connector axes) and `missDeg` say by how much. A `positioningMate` that cannot be used is `positioning-mate-ignored`.
+- **Frames.** `frameA` and `frameB` are each side's connector frame in the system frame (B's unflipped), absent when a side cannot be placed by. The B2B tab (stage 3c) draws from them.
+- **Redaction** (§6): for an occurrence the reader cannot see, the placement keeps its pose but withholds `bounds` and `positioningMate`; a mate touching it keeps only `mate` and `driving`.
+
 ## 9. Findings catalogue (ADR open question 2)
 
 Each code has a fixed severity:
@@ -388,6 +400,9 @@ Waivers apply to warnings and errors. Stage 1c adds the codes of §10.5 and §12
 | `harness-end-unattached` | info | `end:<id>` | an end has no site yet |
 | `net-name-conflict` | warning | `net:<id>` | one system net carries board nets with different names, compared by leaf name after the sheet path with `.` read as `_` (automatic names aside); not raised when `power-net-conflict` is |
 | `power-net-conflict` | warning | `net:<id>` | one system net joins power nets of different names (a board may name the same rail differently, so it does not block) |
+| `mate-misaligned` | warning | `mate:<id>` | a mate that does not position a board misses where the placed boards put it (§8.9) |
+| `pose-ignored` | info | `occurrence:<id>` | an occurrence placed by a mate also stores a pose, which is ignored (§2.1) |
+| `positioning-mate-ignored` | warning | `occurrence:<id>` | its `positioningMate` names no mate that can place it, or would place its group's root (§8.9) |
 
 
 ## 10. Board-level sub-ports (1c)

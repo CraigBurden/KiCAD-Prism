@@ -60,6 +60,10 @@
                 "$ref": "#/$defs/SystemBundleFinding"
             },
             "description": "Findings, sorted by `code` then `subject`, in code point order."
+        },
+        "placement": {
+            "$ref": "#/$defs/SystemBundlePlacement",
+            "description": "Where each occurrence sits, and what each mate means for that (stage 3a)."
         }
     },
     "required": [
@@ -71,7 +75,8 @@
         "links",
         "splices",
         "suggestions",
-        "findings"
+        "findings",
+        "placement"
     ],
     "unevaluatedProperties": {
         "not": {}
@@ -387,6 +392,33 @@
             },
             "description": "One finding (`docs/system-builder/CONTRACTS.md` §9)."
         },
+        "SystemBundlePlacement": {
+            "type": "object",
+            "properties": {
+                "occurrences": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/$defs/SystemBundlePlacedOccurrence"
+                    },
+                    "description": "Every occurrence, sorted by `occurrence` in code point order."
+                },
+                "mates": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/$defs/SystemBundlePlacedMate"
+                    },
+                    "description": "Every mate, sorted by `mate` in code point order."
+                }
+            },
+            "required": [
+                "occurrences",
+                "mates"
+            ],
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "The system's placement (stage 3a)."
+        },
         "SystemBundleObjectId": {
             "type": "string",
             "pattern": "^[a-z][a-z0-9_-]{0,63}$",
@@ -617,6 +649,90 @@
             ],
             "description": "A finding's fixed severity: errors block publishing an in-house entry unless waived."
         },
+        "SystemBundlePlacedOccurrence": {
+            "type": "object",
+            "properties": {
+                "occurrence": {
+                    "$ref": "#/$defs/SystemBundleObjectId",
+                    "description": "The occurrence's id."
+                },
+                "pose": {
+                    "$ref": "#/$defs/SystemBundlePose",
+                    "description": "Its board frame in the system frame."
+                },
+                "source": {
+                    "$ref": "#/$defs/SystemBundlePoseSource",
+                    "description": "Where the pose came from."
+                },
+                "root": {
+                    "type": "boolean",
+                    "description": "The occurrence is its mated group's root, or is not mated."
+                },
+                "positioningMate": {
+                    "$ref": "#/$defs/SystemBundleObjectId",
+                    "description": "The mate that placed it, for a mated non-root."
+                },
+                "bounds": {
+                    "$ref": "#/$defs/SystemBundleBounds",
+                    "description": "Its board's outline box across its thickness, in its own frame; absent when unknown."
+                }
+            },
+            "required": [
+                "occurrence",
+                "pose",
+                "source",
+                "root"
+            ],
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "One occurrence's place in the system."
+        },
+        "SystemBundlePlacedMate": {
+            "type": "object",
+            "properties": {
+                "mate": {
+                    "$ref": "#/$defs/SystemBundleObjectId",
+                    "description": "The mate's id."
+                },
+                "driving": {
+                    "type": "boolean",
+                    "description": "It places one of its occurrences (it is a positioning mate)."
+                },
+                "stackHeightNm": {
+                    "$ref": "#/$defs/Nanometres",
+                    "description": "The stack height used; absent when the mate could not be solved."
+                },
+                "heightSource": {
+                    "$ref": "#/$defs/SystemBundleHeightSource",
+                    "description": "Where that height came from."
+                },
+                "frameA": {
+                    "$ref": "#/$defs/SystemBundlePose",
+                    "description": "Side A's connector frame in the system frame; absent when unknown."
+                },
+                "frameB": {
+                    "$ref": "#/$defs/SystemBundlePose",
+                    "description": "Side B's connector frame in the system frame; absent when unknown."
+                },
+                "miss": {
+                    "$ref": "#/$defs/SystemBundleVectorNm",
+                    "description": "A non-driving mate's miss: B's connector origin minus its mated position, on A's connector axes."
+                },
+                "missDeg": {
+                    "$ref": "#/$defs/Degrees",
+                    "description": "A non-driving mate's rotation miss, in degrees."
+                }
+            },
+            "required": [
+                "mate",
+                "driving"
+            ],
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "What one B2B mate means for placement."
+        },
         "NonNegativeNanometres": {
             "type": "integer",
             "description": "A Nanometres value that is never negative: a thickness, width, diameter or length.",
@@ -693,6 +809,95 @@
             ],
             "description": "Which rule wired a pin pair of a harness link."
         },
+        "SystemBundlePose": {
+            "type": "object",
+            "properties": {
+                "translation": {
+                    "$ref": "#/$defs/SystemBundleVectorNm",
+                    "description": "The translation."
+                },
+                "rotation": {
+                    "$ref": "#/$defs/SystemBundleQuaternion",
+                    "description": "The rotation."
+                }
+            },
+            "required": [
+                "translation",
+                "rotation"
+            ],
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "A frame in the system frame: translation, then rotation."
+        },
+        "SystemBundlePoseSource": {
+            "type": "string",
+            "enum": [
+                "mate",
+                "stored",
+                "default"
+            ],
+            "description": "Where an occurrence's pose came from (CONTRACTS §8.9)."
+        },
+        "SystemBundleBounds": {
+            "type": "object",
+            "properties": {
+                "min": {
+                    "$ref": "#/$defs/SystemBundleVectorNm",
+                    "description": "The minimum corner."
+                },
+                "max": {
+                    "$ref": "#/$defs/SystemBundleVectorNm",
+                    "description": "The maximum corner."
+                }
+            },
+            "required": [
+                "min",
+                "max"
+            ],
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "An axis-aligned box in an occurrence's own frame."
+        },
+        "Nanometres": {
+            "type": "integer",
+            "description": "Length or coordinate in integer nanometres, KiCad's internal board unit.\nConverted from the file's decimal millimetres as KiCad's own parser does:\nthe double product value_mm * 1e6, rounded half away from zero. A single\ncoordinate or dimension fits KiCad's 32-bit range; sums (for example a\nnet's total track length) may not, hence a safe integer (|n| < 2^53)."
+        },
+        "SystemBundleHeightSource": {
+            "type": "string",
+            "enum": [
+                "stack-height",
+                "clearance"
+            ],
+            "description": "Which stack height a mate used."
+        },
+        "SystemBundleVectorNm": {
+            "type": "object",
+            "properties": {
+                "xNm": {
+                    "$ref": "#/$defs/Nanometres",
+                    "description": "X in nanometres."
+                },
+                "yNm": {
+                    "$ref": "#/$defs/Nanometres",
+                    "description": "Y in nanometres."
+                },
+                "zNm": {
+                    "$ref": "#/$defs/Nanometres",
+                    "description": "Z in nanometres."
+                }
+            },
+            "required": [
+                "xNm",
+                "yNm",
+                "zNm"
+            ],
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "A point or offset in the system frame, in nanometres."
+        },
         "Degrees": {
             "type": "number",
             "description": "Angle in degrees. In new documents it is as written in the KiCad file:\nnot normalized, not rounded. A parity document may round it as today's\noutput does, and its field says so. A positive angle is a counter-clockwise rotation as KiCad shows\nit on the front side. Each field states the frame its angle is in."
@@ -704,6 +909,37 @@
                 "bottom"
             ],
             "description": "The side of the board a component sits on."
+        },
+        "SystemBundleQuaternion": {
+            "type": "object",
+            "properties": {
+                "x": {
+                    "type": "number",
+                    "description": "X."
+                },
+                "y": {
+                    "type": "number",
+                    "description": "Y."
+                },
+                "z": {
+                    "type": "number",
+                    "description": "Z."
+                },
+                "w": {
+                    "type": "number",
+                    "description": "W."
+                }
+            },
+            "required": [
+                "x",
+                "y",
+                "z",
+                "w"
+            ],
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "A unit quaternion, canonical with `w ≥ 0`."
         }
     }
 }

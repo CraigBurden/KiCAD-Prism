@@ -154,6 +154,20 @@ def bundle() -> dict:
         "splices": [],
         "suggestions": [],
         "findings": [],
+        "placement": {
+            "occurrences": [
+                {
+                    "occurrence": "occ_board",
+                    "pose": {
+                        "translation": {"xNm": 0, "yNm": 0, "zNm": 0},
+                        "rotation": {"x": 0, "y": 0, "z": 0, "w": 1},
+                    },
+                    "source": "default",
+                    "root": True,
+                }
+            ],
+            "mates": [],
+        },
     }
 
 

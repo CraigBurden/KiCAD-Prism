@@ -33,6 +33,7 @@ def payload_with(findings: list[dict] | None = None) -> dict:
         "splices": [],
         "suggestions": [],
         "findings": findings or [],
+        "placement": {"occurrences": [], "mates": []},
     }
     payload = {
         "schema": "prism.system_entry.a0",

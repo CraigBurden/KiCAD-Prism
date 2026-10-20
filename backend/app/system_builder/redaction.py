@@ -118,6 +118,7 @@ def redact_bundle(
     same rule reach a mate or link by its endpoints and a finding by the ids
     :func:`protected_ids` names; without it only the occurrence ids themselves
     are hidden, because a bundle records neither a mate's nor a link's endpoints.
+    A bundle stored before stage 3a has no ``placement``, and it stays absent.
     """
 
     view = clone(bundle)
@@ -129,6 +130,19 @@ def redact_bundle(
         else occurrence
         for occurrence in view["occurrences"]
     ]
+
+    placement = view.get("placement")
+    if isinstance(placement, dict):
+        for placed in placement["occurrences"]:
+            if placed["occurrence"] in hidden:
+                placed.pop("bounds", None)
+                placed.pop("positioningMate", None)
+        placement["mates"] = [
+            {"mate": placed_mate["mate"], "driving": placed_mate["driving"]}
+            if placed_mate["mate"] in protected
+            else placed_mate
+            for placed_mate in placement["mates"]
+        ]
 
     nets: list[dict[str, Any]] = []
     for net in view["nets"]:
