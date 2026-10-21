@@ -387,6 +387,32 @@ def _hash_args() -> list[str]:
     return ["-c", "filter.lfs.clean=git-lfs clean -- %f"] if shutil.which("git-lfs") else []
 
 
+def worktree_changes(repo: Path) -> list[bytes]:
+    """Paths ``git add -A`` would touch (§9): staged, modified, deleted and untracked.
+
+    Only names, never contents: the caller decides which names its read set
+    covers. Rename and copy entries carry both names.
+    """
+
+    output = git(repo, "status", "--porcelain=v1", "-z", "--untracked-files=normal")
+    changes: list[bytes] = []
+    fields = output.split(b"\0")
+    index = 0
+    while index < len(fields):
+        entry = fields[index]
+        index += 1
+        if not entry:
+            continue
+        status, path = entry[:2], entry[3:]
+        if path:
+            changes.append(path)
+        if b"R" in status or b"C" in status:
+            if index < len(fields) and fields[index]:
+                changes.append(fields[index])
+            index += 1
+    return changes
+
+
 def worktree_listing(repo: Path) -> tuple[list[ListingEntry], list[dict[str, str]]]:
     """§9: the listing ``git add -A`` would stage, computed without writing anything."""
 
