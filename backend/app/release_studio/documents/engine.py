@@ -39,7 +39,7 @@ from app.release_studio.documents.artwork import (
 )
 from app.release_studio.documents.fonts import DEFAULT_TYPOGRAPHY, typography_preset
 from app.release_studio.documents.inputs import DocumentInputs
-from app.release_studio.documents.layout import Rect, Sheet
+from app.release_studio.documents.layout import Rect, Sheet, stroke_text_batch
 from app.release_studio.documents.pdf import append_pdf_pages, render_pdf_pages
 from app.release_studio.documents.style import (
     DEFAULT_SHEET_STYLE,
@@ -649,7 +649,10 @@ def _serialize(
     """Render *pages* into one PDF. Page SVGs stay in memory for tests."""
 
     sheets = [sheet for sheet, _k, _s, _a, _w in pages]
-    pdf_bytes = render_pdf_pages(sheets)
+    # One NewStroke batch for the whole document: its pages reach the CLI once,
+    # and the PDF and in-memory SVG share exactly the same glyph geometry.
+    stroke_text = stroke_text_batch(sheets)
+    pdf_bytes = render_pdf_pages(sheets, stroke_text=stroke_text)
 
     for index, (_sheet, page_key, scale, art, window) in enumerate(pages):
         if art is None or window is None:
@@ -674,7 +677,7 @@ def _serialize(
                 key=page_key,
                 title=sheet.title,
                 svg_path=f"documentation/{page_key}.svg",
-                svg_bytes=render_svg(sheet).encode("utf-8"),
+                svg_bytes=render_svg(sheet, stroke_text=stroke_text).encode("utf-8"),
                 scale=scale,
                 artwork_digest=art.digest if art else "",
             )

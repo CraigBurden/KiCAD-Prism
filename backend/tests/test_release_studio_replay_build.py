@@ -25,7 +25,11 @@ from app.services.job_artifact_service import JobArtifactService
 from app.services.job_runtime import JobContext
 from app.services.kicad_tool_replay import RecordingTool, ReplayTool
 from app.services.kicad_tools import KicadTools, kicad_cli
-from tests.release_studio_support import RECORDING_ROOT, fixture_root
+from tests.release_studio_support import (
+    RECORDING_ROOT,
+    documents_stub,
+    fixture_root,
+)
 
 RECORDING = RECORDING_ROOT / "synthetic-build" / "recording.json"
 CONFIG = {
@@ -101,7 +105,10 @@ class ReplayedReleaseBuildTests(unittest.TestCase):
     def _build(self) -> tuple[dict[str, Any], ReplayTool, dict[str, Any]]:
         tmp = tempfile.TemporaryDirectory()
         self.addCleanup(tmp.cleanup)
-        return run_build(Path(tmp.name), lambda roots: ReplayTool(RECORDING, roots))
+        # The document renderer takes its lettering and frame from prism-kicad;
+        # the reference stub keeps this build about the replayed kicad-cli.
+        with documents_stub():
+            return run_build(Path(tmp.name), lambda roots: ReplayTool(RECORDING, roots))
 
     def test_a_release_build_runs_end_to_end_on_the_replayed_cli(self) -> None:
         result, replay, completed = self._build()
