@@ -5,7 +5,7 @@
     "crate_version": "0.1.0",
     "engine_version": "2026.9.7",
     "hlr_procedure": {
-      "geometer_version": "2026.9.13",
+      "geometer_version": "2026.9.19",
       "options": "assembly-hlr-a0"
     },
     "kicad_file_formats": {
@@ -69,7 +69,7 @@
     "upgrade_procedure": "kicad-seeded-upgrade-a0"
   },
   "revision_key": "faea5ace66f591553c21fdcb2555e5a67e6e2fe73b7d17663375ac6f809206f5",
-  "bundle_key": "c08a51346745f02a03ea375e4ae187bb0848b417a8138e128f8445ddeb14e307",
+  "bundle_key": "f21ae403857908e6b3058eef04b526d4c84068414b2dfaf3b972ebb8e524ca06",
   "config": {
     "schema": "prism.revision_key.effective_config.a1",
     "project_file": "USB-PD-Trigger-Board.kicad_pro",

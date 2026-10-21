@@ -84,7 +84,7 @@
             "properties": {
                 "geometer_version": {
                     "$ref": "#/$defs/CliReleaseVersion",
-                    "description": "The Geometer runtime's release version, exactly as its welcome reports it, for example `2026.9.13`. `--geometer` must report this version or exit 7."
+                    "description": "The Geometer runtime's release version, exactly as its welcome reports it, for example `2026.9.19`. `--geometer` must report this version or exit 7."
                 },
                 "options": {
                     "$ref": "#/$defs/CliHlrOptionsProcedure",

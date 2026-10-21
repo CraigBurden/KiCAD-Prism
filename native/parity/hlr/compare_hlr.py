@@ -15,7 +15,7 @@ Cruncher running the *Rust* Geometer release (`--geometer-exe`, i.e.
 `GEOMETER_EXE`) and compares the member with that capture. A member equal
 there proves the difference against `today` is the runtime change, not the
 Rust producer (today's runtime is wn-geometer 2026.9.7; `prism-kicad` runs
-2026.9.13).
+2026.9.19).
 
 Usage (from native/):
 

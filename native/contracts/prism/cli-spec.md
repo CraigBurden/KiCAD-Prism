@@ -326,20 +326,20 @@ The vectors use the generator id in `examples/CliVersionA0.example.json`:
 - engine 2026.9.7;
 - KiCad 10.0.6, with file formats board `20260206` and schematic `20260306`;
 - pack format 0;
-- all four procedures at a0 (`hlr_procedure` names Geometer 2026.9.13);
+- all four procedures at a0 (`hlr_procedure` names Geometer 2026.9.19);
 - the eleven member schemas of ADR §6 and `models/assembly-hlr.json`.
 
-Its generator bytes are 1268 bytes long. Its `generator_digest` is `dc05991596da8187ae86c162d726e598f85cbad31eaef6848de6ab1b1ffde043`.
+Its generator bytes are 1268 bytes long. Its `generator_digest` is `5fcf5d171e0b2963255943243debc170cd9f7f003b4df74236b8f8537d8d1e6d`.
 
 | revision_key | bundle_key |
 |---|---|
-| `0000000000000000000000000000000000000000000000000000000000000000` | `ae59906e5de3102a6ab0971f0a48b989c503e2eceeaf865ad3d759250057e5c6` |
-| `e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855` | `4125dd25bcd2695223d46308dc6d197afffb3efc4c3945dd7fb699b26d633342` |
-| `42e41c598a193d09f6917ee92b7c71e52e9e15a251a63b7a955ef41beb841f34` | `6152c193eb079a20c81cc67ecc0803b7ca9a9876078ad7dc3461c05fa2a5ca1c` |
+| `0000000000000000000000000000000000000000000000000000000000000000` | `d9d2ae76b28e528cfd62df09b90e8112fca45ad1746e13b0730ad720a45bf197` |
+| `e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855` | `23b688087d6efb63414cd9d2f0ef53251c3d34bb00387bc79e48583fbe54cf3f` |
+| `42e41c598a193d09f6917ee92b7c71e52e9e15a251a63b7a955ef41beb841f34` | `64c0f2b230556b97022d9dea90021f7262d8f6f5e7ff61fe665c8afa63f7d58c` |
 
 Changing only `kicad_version`, to `10.0.7`:
-- `generator_digest` becomes `c554d13962bbadad9c98327fa9f7519ed470c20277dc24c197ee322a2ef01b21`;
-- the all-zero revision key gives `fb81ddd7b0b3b6b80a034b764019a667bf0dcccb688ab60463d28f3202c0d28b`.
+- `generator_digest` becomes `485f89f2a4cebeebcdbe85c36da68d9f209f61baf2e6912928563e2fd9b8582d`;
+- the all-zero revision key gives `11e12e1714acba8f8e8f410e349a738affcca789c1f520c07f4cd28929c7e1c7`.
 
 These values were computed by the Python above and checked with the shell recipe. WP-B (Rust) and WP-K (Python) both reproduce them, the same acceptance as the revision-key vectors (ADR §9.3).
 

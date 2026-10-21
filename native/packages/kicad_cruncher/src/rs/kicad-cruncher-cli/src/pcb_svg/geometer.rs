@@ -111,7 +111,7 @@ impl NativeGeometer {
     ) -> Result<ModelIllustrationGeometry, NativeGeometerError> {
         Ok(self.runtime.block_on(
             self.client()
-                .model_illustration_geometry(request, Some(step)),
+                .model_illustration_geometry_a0(request, Some(step)),
         )?)
     }
 

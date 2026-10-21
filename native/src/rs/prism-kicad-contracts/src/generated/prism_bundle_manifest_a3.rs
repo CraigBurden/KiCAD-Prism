@@ -2022,7 +2022,7 @@ Changing either is a generator bump.*/
 ///  ],
 ///  "properties": {
 ///    "geometer_version": {
-///      "description": "The Geometer runtime's release version, exactly as its welcome reports it, for example `2026.9.13`. `--geometer` must report this version or exit 7.",
+///      "description": "The Geometer runtime's release version, exactly as its welcome reports it, for example `2026.9.19`. `--geometer` must report this version or exit 7.",
 ///      "$ref": "#/$defs/CliReleaseVersion"
 ///    },
 ///    "options": {
@@ -2037,7 +2037,7 @@ Changing either is a generator bump.*/
 #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
 #[serde(deny_unknown_fields)]
 pub struct CliHlrProcedure {
-    ///The Geometer runtime's release version, exactly as its welcome reports it, for example `2026.9.13`. `--geometer` must report this version or exit 7.
+    ///The Geometer runtime's release version, exactly as its welcome reports it, for example `2026.9.19`. `--geometer` must report this version or exit 7.
     pub geometer_version: CliReleaseVersion,
     ///The HLR option set every projection used.
     pub options: CliHlrOptionsProcedure,

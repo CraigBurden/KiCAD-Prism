@@ -121,11 +121,11 @@ RUN uv pip sync --python /app/venv/bin/python /app/requirements/runtime.lock \
 
 # The Geometer runtime prism-kicad launches for the assembly HLR member (ADR
 # amendment C3 §2 item 4). Pinned to the release the vendored geometer-client
-# accepts (native/third_party/geometer-client, 2026.9.13 / ABI 20260913) and
-# checked against the sha256s of that release's runtime manifest.
-ARG GEOMETER_RELEASE_TAG=v2026-09-13
-ARG GEOMETER_SHA256_AMD64=d9efd6be1e99b862beca7346aae4a466da2dd385da1e33e1e981dd2541759b7b
-ARG GEOMETER_SHA256_ARM64=69921ccf4ade4c889248bdb3a64837693cf21ba3051bd424c5f6c82f152879b7
+# accepts (native/third_party/geometer-client, 2026.9.19 / ABI 20260919) and
+# checked against the sha256s of that release's inventory.
+ARG GEOMETER_RELEASE_TAG=v2026-09-19
+ARG GEOMETER_SHA256_AMD64=5d7beb6823254c754583f1222b54c278bd11ff8d47181c9a0462b6ed205cddc7
+ARG GEOMETER_SHA256_ARM64=e6e46deab795817c11feee2ade5a97bb7070876992fe8c5c916f3b5268d020b6
 RUN set -eu; \
     case "$(dpkg --print-architecture)" in \
       amd64) asset=native-linux-x64.zip; sum=${GEOMETER_SHA256_AMD64} ;; \
@@ -139,7 +139,7 @@ RUN set -eu; \
     python -m zipfile -e /tmp/geometer.zip /opt/geometer; \
     rm /tmp/geometer.zip; \
     chmod 0755 /opt/geometer/geometer; \
-    /opt/geometer/geometer --version | grep -q 'abi 20260913'
+    /opt/geometer/geometer --version | grep -q 'abi 20260919'
 ENV GEOMETER_EXECUTABLE=/opt/geometer/geometer
 
 # backend/ carries the design-compare Node package (/app/design-compare-parser). scripts/ holds the

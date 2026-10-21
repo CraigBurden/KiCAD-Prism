@@ -135,7 +135,7 @@ mod tests {
         Key {
             model_sha256: "a".repeat(64),
             pose_signature: vec![1, 2, 3],
-            runtime: "2026.9.13".to_owned(),
+            runtime: "2026.9.19".to_owned(),
             options: "assembly-hlr-a0".to_owned(),
         }
     }

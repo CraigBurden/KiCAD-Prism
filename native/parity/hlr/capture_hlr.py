@@ -20,7 +20,7 @@ negates Y and converts to nanometres, as `prism-kicad` does.
 
 The golden is an `AssemblyHlrA0` member. A sidecar `assembly-hlr.capture.json`
 records the exact inputs and both runtime versions, because today's runtime is
-wn-geometer 2026.9.7 while `prism-kicad` runs 2026.9.13.
+wn-geometer 2026.9.7 while `prism-kicad` runs 2026.9.19.
 
 Usage (the backend venv that has kicad_cruncher 2026.9.7):
 
@@ -31,7 +31,7 @@ Usage (the backend venv that has kicad_cruncher 2026.9.7):
         [--geometer-exe PATH] [--suffix today]
 
 `--geometer-exe` sets `GEOMETER_EXE`, which the Python `geometer` package
-honours, so the same capture also runs against 2026.9.13 for the
+honours, so the same capture also runs against 2026.9.19 for the
 runtime-change evidence (`compare_hlr.py` does that in a scratch directory).
 """
 
@@ -57,7 +57,7 @@ DEFAULT_BUNDLES = Path(
     "f336681f-9155-4f00-80ce-4ac48096d8c0/scratchpad/c3/bundles"
 )
 DEFAULT_CASES = ("rs-synthetic", "rs-usb-pd", "rs-cynthion")
-RUST_GEOMETER_VERSION = "2026.9.13"
+RUST_GEOMETER_VERSION = "2026.9.19"
 VIEWS = ("assembly_top_view", "assembly_bottom_view")
 
 

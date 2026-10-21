@@ -405,7 +405,7 @@ enum CliHlrOptionsProcedure {
  * Changing either is a generator bump.
  */
 model CliHlrProcedure {
-  /** The Geometer runtime's release version, exactly as its welcome reports it, for example `2026.9.13`. `--geometer` must report this version or exit 7. */
+  /** The Geometer runtime's release version, exactly as its welcome reports it, for example `2026.9.19`. `--geometer` must report this version or exit 7. */
   geometer_version: CliReleaseVersion;
 
   /** The HLR option set every projection used. */

@@ -75,11 +75,16 @@ the attribution; every ported file names its SolidCraft origin.
 ## 7. Geometer client (vendored)
 
 `native/third_party/geometer-client/` is `src/rust/geometer-client` of
-https://github.com/wavenumber-eng/geometer at commit `703e6002` (the revision
-`native/Cargo.toml` pinned as a git dependency), copied unchanged apart from
-its standalone `Cargo.lock` and with the repository's MIT `LICENSE` beside it
-(ADR amendment C3 §2 item 4). Vendoring removes cargo's clone of the 1 GB
+https://github.com/wavenumber-eng/geometer at release **2026.9.19** (tag
+`v2026-09-19`, commit `6d659f18`), with the repository's MIT `LICENSE` beside
+it (ADR amendment C3 §2 item 4). First vendored at 2026.9.13 (`703e6002`, the
+revision `native/Cargo.toml` had pinned as a git dependency), upgraded on
+2026-10-21. Changes from upstream: no standalone `Cargo.lock`, and the
+optional `geometer-sys` dependency (the static C SDK, not vendored) is removed
+with the `direct_static_illustration` example, leaving the `direct-static`
+feature empty; it must stay off. Vendoring removes cargo's clone of the 1 GB
 Geometer repository; the crate is a path dependency excluded from the
-workspace's lints and tests. To update it, copy the same directory at the new
-revision and record the commit here and in `NOTICE`.
-
+workspace's lints and tests. The image's Geometer runtime is the same release
+(`backend/Dockerfile`, sha256 from the release inventory). To update, copy the
+same directory at the new release, make the same two changes, and record the
+commit here and in `NOTICE`.

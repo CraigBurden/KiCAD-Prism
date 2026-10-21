@@ -44,9 +44,9 @@ pub const MEMBER_PATH: &str = "models/assembly-hlr.json";
 pub const SCHEMA: &str = "prism.assembly_hlr.a0";
 /// The Geometer release this client is built against and `hlr_procedure`
 /// names. `--geometer` must report it.
-pub const GEOMETER_RELEASE: &str = "2026.9.13";
+pub const GEOMETER_RELEASE: &str = "2026.9.19";
 /// The C ABI generation of [`GEOMETER_RELEASE`].
-pub const GEOMETER_C_ABI_GENERATION: u32 = 20_260_913;
+pub const GEOMETER_C_ABI_GENERATION: u32 = 20_260_919;
 /// The HLR option set token of the generator id's `hlr_procedure`.
 pub const OPTIONS_TOKEN: &str = "assembly-hlr-a0";
 /// `round_digits` and the sample count of the option set.

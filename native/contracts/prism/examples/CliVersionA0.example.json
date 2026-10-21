@@ -3,7 +3,7 @@
   "crate_version": "0.1.0",
   "engine_version": "2026.9.7",
   "hlr_procedure": {
-    "geometer_version": "2026.9.13",
+    "geometer_version": "2026.9.19",
     "options": "assembly-hlr-a0"
   },
   "kicad_file_formats": {

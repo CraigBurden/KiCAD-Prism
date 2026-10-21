@@ -37,8 +37,8 @@ SolidCraft (native/src/rs/prism-step/)
 Geometer client (native/third_party/geometer-client/)
   Copyright (c) Wavenumber LLC
   The Rust IPC client of https://github.com/wavenumber-eng/geometer
-  (src/rust/geometer-client) at commit 703e60029a248801947150f913f77a1cecce2662,
-  vendored unchanged. Licensed under the MIT License; its text is in
+  (src/rust/geometer-client) at commit 6d659f1811123fdbe665b3cfe1fc00cfaec32084 (2026.9.19),
+  vendored without its optional static-SDK dependency. Licensed under the MIT License; its text is in
   native/third_party/geometer-client/LICENSE.
 
 Provenance and per-directory details: docs/architecture/native-provenance.md.
