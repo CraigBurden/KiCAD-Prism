@@ -326,6 +326,7 @@ pub fn in_declaration_order(value: &Value) -> Result<Value, String> {
     }
 }
 
+/// The stdout documents added with amendment C3's commands (vendor, stroke text, drawing sheet).
 fn other_document(schema: &str, value: &Value) -> Result<Value, String> {
     use prism_kicad_contracts::generated as contract;
     match schema {
@@ -334,6 +335,15 @@ fn other_document(schema: &str, value: &Value) -> Result<Value, String> {
         }
         "prism.cli.vendor_run_result.a0" => {
             retyped::<contract::prism_cli_vendor_run_result_a0::CliVendorRunResultA0>(value)
+        }
+        "prism.cli.stroke_text_result.a0" => {
+            retyped::<contract::prism_cli_stroke_text_result_a0::CliStrokeTextResultA0>(value)
+        }
+        "prism.cli.stroke_font_metrics.a0" => {
+            retyped::<contract::prism_cli_stroke_font_metrics_a0::CliStrokeFontMetricsA0>(value)
+        }
+        "prism.cli.drawing_sheet_result.a0" => {
+            retyped::<contract::prism_cli_drawing_sheet_result_a0::CliDrawingSheetResultA0>(value)
         }
         other => Err(format!("{other} is not a prism-kicad stdout document")),
     }

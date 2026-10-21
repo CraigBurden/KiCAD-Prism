@@ -32,7 +32,37 @@ struct WorksheetTextContext<'a> {
     title: Option<&'a SchematicTitleBlock>,
     plot: &'a SchematicPlotContext,
     page: WorksheetPage,
+    /// The `${FILENAME}` text; absence uses `plot.source_path`'s base name.
+    file_name: Option<&'a str>,
+    /// The `${KICAD_VERSION}` text; absence uses the parser's default.
+    kicad_version: Option<&'a str>,
     limits: SchematicPlotLimits,
+}
+
+/// One page and title block to draw KiCad's default drawing sheet on, without
+/// a schematic (`prism-kicad drawing-sheet`, ADR amendment C3 §3.4).
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct DrawingSheetPage {
+    /// The paper's name, for example `A4`; it is what `${PAPER}` expands to.
+    pub paper_name: String,
+    /// Page width in nanometres.
+    pub width_nm: i64,
+    /// Page height in nanometres.
+    pub height_nm: i64,
+    /// The title block drawn in the sheet's lower-right corner.
+    pub title_block: SchematicTitleBlock,
+    /// One-based index of this sheet among a document's sheets.
+    pub sheet_index: usize,
+    /// How many sheets the document has.
+    pub sheet_count: usize,
+    /// What `${FILENAME}` expands to.
+    pub file_name: String,
+    /// The schematic sheet path, for example `/key`.
+    pub sheet_path: String,
+    /// The sheet's own name.
+    pub sheet_name: String,
+    /// The `${KICAD_VERSION}` text.
+    pub kicad_version: String,
 }
 
 const DEFAULT_WORKSHEET: &str = concat!(
@@ -80,6 +110,108 @@ pub(super) fn drawing_sheet_operations(
     limits: SchematicPlotLimits,
     budget: &mut PlotBudget,
 ) -> Result<Vec<SchematicPlotOperation>, Error> {
+    let mut operations = Vec::new();
+    budget.charge(0, 1, 0)?;
+    operations.push(
+        PlotterOperation::Rect(PlotterRect {
+            x1: 0,
+            y1: 0,
+            x2: width_nm,
+            y2: height_nm,
+            fill: PlotterFill::FilledShape,
+            width_nm: 100,
+            corner_radius_nm: 0,
+            layer: None,
+            stroke_color: Some(BACKGROUND_COLOR.to_owned()),
+            fill_color: Some(BACKGROUND_COLOR.to_owned()),
+            line_style: None,
+        })
+        .into(),
+    );
+    drawing_sheet_items(
+        &mut operations,
+        WorksheetItems {
+            paper,
+            title_block,
+            width_nm,
+            height_nm,
+            context,
+            file_name: None,
+            kicad_version: None,
+            limits,
+        },
+        budget,
+    )?;
+    Ok(operations)
+}
+
+/// Draw KiCad's default worksheet on `page`, without a schematic and without
+/// the page background a schematic sheet header starts with.
+pub fn default_drawing_sheet_operations(
+    page: &DrawingSheetPage,
+    limits: SchematicPlotLimits,
+) -> Result<Vec<SchematicPlotOperation>, Error> {
+    let paper = Paper {
+        size: page.paper_name.clone(),
+        width: None,
+        height: None,
+        portrait: false,
+    };
+    let context = SchematicPlotContext {
+        source_path: Some(page.file_name.clone()),
+        sheet_index: page.sheet_index,
+        sheet_count: page.sheet_count,
+        sheet_path: page.sheet_path.clone(),
+        sheet_name: page.sheet_name.clone(),
+        ..SchematicPlotContext::default()
+    };
+    let mut budget = PlotBudget::new(limits);
+    let mut operations = Vec::new();
+    drawing_sheet_items(
+        &mut operations,
+        WorksheetItems {
+            paper: &paper,
+            title_block: Some(&page.title_block),
+            width_nm: page.width_nm,
+            height_nm: page.height_nm,
+            context: &context,
+            file_name: Some(&page.file_name),
+            kicad_version: Some(&page.kicad_version),
+            limits,
+        },
+        &mut budget,
+    )?;
+    Ok(operations)
+}
+
+/// One page's worksheet inputs, kept in one value so the renderer stays under
+/// the workspace's argument limit.
+struct WorksheetItems<'a> {
+    paper: &'a Paper,
+    title_block: Option<&'a SchematicTitleBlock>,
+    width_nm: i64,
+    height_nm: i64,
+    context: &'a SchematicPlotContext,
+    file_name: Option<&'a str>,
+    kicad_version: Option<&'a str>,
+    limits: SchematicPlotLimits,
+}
+
+fn drawing_sheet_items(
+    operations: &mut Vec<SchematicPlotOperation>,
+    items: WorksheetItems<'_>,
+    budget: &mut PlotBudget,
+) -> Result<(), Error> {
+    let WorksheetItems {
+        paper,
+        title_block,
+        width_nm,
+        height_nm,
+        context,
+        file_name,
+        kicad_version,
+        limits,
+    } = items;
     let worksheet = worksheet_text(context, limits)?;
     // WorksheetView decodes items lazily. This aggregate preflight makes the
     // public parse-node limit cover the entire explicit/default sidecar.
@@ -110,24 +242,6 @@ pub(super) fn drawing_sheet_operations(
     };
     let view = WorksheetView::parse(worksheet, worksheet_limits)?;
     let setup = view.setup()?;
-    let mut operations = Vec::new();
-    budget.charge(0, 1, 0)?;
-    operations.push(
-        PlotterOperation::Rect(PlotterRect {
-            x1: 0,
-            y1: 0,
-            x2: width_nm,
-            y2: height_nm,
-            fill: PlotterFill::FilledShape,
-            width_nm: 100,
-            corner_radius_nm: 0,
-            layer: None,
-            stroke_color: Some(BACKGROUND_COLOR.to_owned()),
-            fill_color: Some(BACKGROUND_COLOR.to_owned()),
-            line_style: None,
-        })
-        .into(),
-    );
     let page = WorksheetPage {
         setup,
         width_mm: width_nm as f64 / 1_000_000.0,
@@ -140,12 +254,13 @@ pub(super) fn drawing_sheet_operations(
             title: title_block,
             plot: context,
             page,
+            file_name,
+            kicad_version,
             limits,
         },
-        &mut operations,
+        operations,
         budget,
-    )?;
-    Ok(operations)
+    )
 }
 
 fn append_worksheet_items(
@@ -411,13 +526,7 @@ fn text_operations(
         } else {
             item.text.clone()
         };
-        let mut body = expand_text(
-            &raw,
-            context.paper,
-            context.title,
-            context.plot,
-            context.limits.max_text_bytes,
-        )?;
+        let mut body = expand_text(&raw, context)?;
         if body.ends_with("\r\n") {
             body.truncate(body.len() - 2)
         } else if body.ends_with('\r') || body.ends_with('\n') {
@@ -634,47 +743,47 @@ fn increment_label(value: &str, increment: i64) -> String {
     value.to_owned()
 }
 
-fn expand_text(
-    value: &str,
-    paper: &Paper,
-    title: Option<&SchematicTitleBlock>,
-    context: &SchematicPlotContext,
-    maximum: usize,
-) -> Result<String, Error> {
+fn expand_text(value: &str, context: &WorksheetTextContext<'_>) -> Result<String, Error> {
+    let maximum = context.limits.max_text_bytes;
+    let plot = context.plot;
     let mut builtins: BTreeMap<String, String> = BTreeMap::new();
-    let title = title.cloned().unwrap_or_default();
+    let title = context.title.cloned().unwrap_or_default();
     builtins.insert("TITLE".to_owned(), title.title);
     builtins.insert("ISSUE_DATE".to_owned(), title.date);
     builtins.insert("REVISION".to_owned(), title.revision);
     builtins.insert("REV".to_owned(), builtins["REVISION"].clone());
     builtins.insert("COMPANY".to_owned(), title.company);
-    builtins.insert("PAPER".to_owned(), paper.size.clone());
+    builtins.insert("PAPER".to_owned(), context.paper.size.clone());
     builtins.insert(
         "FILENAME".to_owned(),
-        context
-            .source_path
-            .as_deref()
-            .and_then(|path| path.rsplit(['/', '\\']).next())
-            .unwrap_or("")
-            .to_owned(),
+        context.file_name.map(str::to_owned).unwrap_or_else(|| {
+            plot.source_path
+                .as_deref()
+                .and_then(|path| path.rsplit(['/', '\\']).next())
+                .unwrap_or("")
+                .to_owned()
+        }),
     );
-    builtins.insert("SHEETPATH".to_owned(), context.sheet_path.clone());
+    builtins.insert("SHEETPATH".to_owned(), plot.sheet_path.clone());
     builtins.insert(
         "SHEETNAME".to_owned(),
-        if context.sheet_path == "/" {
+        if plot.sheet_path == "/" {
             String::new()
         } else {
-            context.sheet_name.clone()
+            plot.sheet_name.clone()
         },
     );
     builtins.insert(
         "KICAD_VERSION".to_owned(),
-        DEFAULT_KICAD_VERSION_TEXT.to_owned(),
+        context
+            .kicad_version
+            .unwrap_or(DEFAULT_KICAD_VERSION_TEXT)
+            .to_owned(),
     );
-    builtins.insert("#".to_owned(), context.sheet_index.to_string());
-    builtins.insert("##".to_owned(), context.sheet_count.to_string());
-    builtins.insert("SHEETNUMBER".to_owned(), context.sheet_index.to_string());
-    builtins.insert("SHEETCOUNT".to_owned(), context.sheet_count.to_string());
+    builtins.insert("#".to_owned(), plot.sheet_index.to_string());
+    builtins.insert("##".to_owned(), plot.sheet_count.to_string());
+    builtins.insert("SHEETNUMBER".to_owned(), plot.sheet_index.to_string());
+    builtins.insert("SHEETCOUNT".to_owned(), plot.sheet_count.to_string());
     builtins.insert("VARIANT".to_owned(), String::new());
     for index in 1..10 {
         builtins.insert(
@@ -688,7 +797,7 @@ fn expand_text(
     }
     let mut out = value.to_owned();
     for _ in 0..MAX_EXPANSION_DEPTH {
-        let next = expand_modern_once(&out, &builtins, context, maximum)?;
+        let next = expand_modern_once(&out, &builtins, plot, maximum)?;
         if next == out {
             break;
         }

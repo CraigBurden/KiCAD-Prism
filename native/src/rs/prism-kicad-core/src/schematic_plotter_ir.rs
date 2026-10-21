@@ -11,7 +11,7 @@ mod image_decode;
 mod sheet_render;
 mod symbol_render;
 mod table_render;
-mod worksheet_render;
+pub mod worksheet_render;
 
 use crate::plotter_ir::{ensure_javascript_safe_integer, mm_to_nm};
 use crate::plotter_text_cache::{PlotterTextCacheResources, PlotterTextCacheSession};

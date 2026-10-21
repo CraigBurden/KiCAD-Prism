@@ -36,6 +36,10 @@ pub enum Command {
     VendorList,
     /// `vendor run`.
     VendorRun,
+    /// `stroke-text`.
+    StrokeText,
+    /// `drawing-sheet`.
+    DrawingSheet,
 }
 
 /// A `system build` member: its stored design bundle and the revision key it
@@ -98,6 +102,8 @@ pub struct Args {
     pub worktree: bool,
     /// `--quiet`.
     pub quiet: bool,
+    /// `stroke-text --metrics`.
+    pub metrics: bool,
     /// `--threads`, validated.
     pub threads: u64,
     /// The stage of `bundle build`.
@@ -129,7 +135,7 @@ fn work_of(command: Command, stage: Option<StageArg>) -> Work {
     }
 }
 
-const VALUE_OPTIONS: [&str; 38] = [
+const VALUE_OPTIONS: [&str; 39] = [
     "output",
     "in",
     "stage",
@@ -168,11 +174,17 @@ const VALUE_OPTIONS: [&str; 38] = [
     "entry-stage",
     "models",
     "variant",
+    "request",
 ];
 
 fn allowed(command: Command, option: &str) -> bool {
     let common = matches!(option, "limit" | "threads" | "quiet");
-    let specific: &[&str] = match command {
+    common || specific(command).contains(&option)
+}
+
+/// The options a command takes beyond `COMMON`.
+fn specific(command: Command) -> &'static [&'static str] {
+    match command {
         Command::Build => &[
             "output",
             "in",
@@ -206,6 +218,13 @@ fn allowed(command: Command, option: &str) -> bool {
             "include-unchanged",
         ],
         Command::RevisionKey => &["commit", "worktree", "project", "config"],
+        _ => sheet_and_system(command),
+    }
+}
+
+/// The options of the `system` commands and the two sheet commands.
+fn sheet_and_system(command: Command) -> &'static [&'static str] {
+    match command {
         Command::SystemBuild => &[
             "document",
             "member",
@@ -230,9 +249,10 @@ fn allowed(command: Command, option: &str) -> bool {
             "output",
         ],
         Command::VendorList | Command::VendorRun => &["in", "config", "output", "variant"],
+        Command::StrokeText => &["request", "metrics"],
+        Command::DrawingSheet => &["request"],
         _ => &[],
-    };
-    common || specific.contains(&option)
+    }
 }
 
 fn usage(message: impl Into<String>) -> Failure {
@@ -249,12 +269,14 @@ fn command_words(argv: &[String]) -> Outcome<(Command, usize)> {
         Some("-h" | "--help") | None => Ok((Command::Help, 1)),
         Some("revision-key") => Ok((Command::RevisionKey, 1)),
         Some("compare") => Ok((Command::Compare, 1)),
+        Some("stroke-text") => Ok((Command::StrokeText, 1)),
+        Some("drawing-sheet") => Ok((Command::DrawingSheet, 1)),
         Some("system") => system_command(argv.get(1).map(String::as_str)),
         Some("vendor") => vendor_command(argv.get(1).map(String::as_str)),
         Some("bundle") => bundle_command(argv.get(1).map(String::as_str)),
         Some(_) => Err(Failure::usage(
             "unknown-command",
-            "the command is not version, bundle build, bundle verify, bundle extract, bundle reuse, revision-key, compare, vendor list, vendor run, system build or system step",
+            "the command is not version, bundle build, bundle verify, bundle extract, bundle reuse, revision-key, compare, vendor list, vendor run, system build, system step, stroke-text or drawing-sheet",
         )
         .argument("command")),
     }
@@ -303,7 +325,7 @@ fn long_name(token: &str) -> Option<&str> {
 fn static_name(name: &str) -> Option<&'static str> {
     VALUE_OPTIONS
         .into_iter()
-        .chain(["worktree", "quiet", "include-unchanged", "help"])
+        .chain(["worktree", "quiet", "include-unchanged", "metrics", "help"])
         .find(|candidate| *candidate == name)
 }
 
@@ -322,6 +344,7 @@ struct Raw {
     include_unchanged: bool,
     worktree: bool,
     quiet: bool,
+    metrics: bool,
     help: bool,
 }
 
@@ -341,6 +364,7 @@ fn collect(command: Command, rest: &[String]) -> Outcome<Raw> {
         include_unchanged: false,
         worktree: false,
         quiet: false,
+        metrics: false,
         help: false,
     };
     let mut index = 0;
@@ -367,7 +391,9 @@ impl Raw {
             .filter(|name| allowed(command, name))
             .ok_or_else(|| usage(format!("unknown option {token:?}")))?;
         match name {
-            "worktree" | "quiet" | "include-unchanged" => self.flag(name).map(|()| index + 1),
+            "worktree" | "quiet" | "include-unchanged" | "metrics" => {
+                self.flag(name).map(|()| index + 1)
+            }
             _ => {
                 let value = rest.get(index + 1).ok_or_else(|| {
                     let failure = usage(format!("--{name} takes a value"));
@@ -389,6 +415,7 @@ impl Raw {
         let slot = match name {
             "worktree" => &mut self.worktree,
             "include-unchanged" => &mut self.include_unchanged,
+            "metrics" => &mut self.metrics,
             _ => &mut self.quiet,
         };
         if *slot {
@@ -728,8 +755,52 @@ fn check_combinations(command: Command, raw: &Raw, stage: Option<StageArg>) -> O
         Command::SystemBuild | Command::SystemStep => {
             check_system(raw, command == Command::SystemStep)
         }
+        Command::StrokeText | Command::DrawingSheet | Command::Version => {
+            check_leaf_command(command, raw)
+        }
+        _ => Ok(()),
+    }
+}
+
+/// The commands whose only argument rules are their own: `stroke-text`,
+/// `drawing-sheet` and `version`.
+fn check_leaf_command(command: Command, raw: &Raw) -> Outcome<()> {
+    match command {
+        Command::StrokeText => check_stroke_text(raw),
+        Command::DrawingSheet => check_drawing_sheet(raw),
         Command::Version => check_version(raw),
         _ => Ok(()),
+    }
+}
+
+/// `stroke-text` takes exactly one of `--request` and `--metrics`
+/// (cli-spec.md §5.9) and no positional argument.
+fn check_stroke_text(raw: &Raw) -> Outcome<()> {
+    if !raw.positional.is_empty() {
+        return Err(usage("stroke-text takes no positional argument").argument("command"));
+    }
+    match (raw.options.contains_key("request"), raw.metrics) {
+        (true, false) | (false, true) => Ok(()),
+        (true, true) => Err(conflict(
+            "stroke-text takes exactly one of --request and --metrics",
+            "metrics",
+        )),
+        (false, false) => {
+            Err(usage("stroke-text takes --request or --metrics").argument("request"))
+        }
+    }
+}
+
+/// `drawing-sheet` takes `--request` and no positional argument (cli-spec.md
+/// §5.9).
+fn check_drawing_sheet(raw: &Raw) -> Outcome<()> {
+    if !raw.positional.is_empty() {
+        return Err(usage("drawing-sheet takes no positional argument").argument("command"));
+    }
+    if raw.options.contains_key("request") {
+        Ok(())
+    } else {
+        Err(usage("drawing-sheet takes --request").argument("request"))
     }
 }
 
@@ -791,6 +862,7 @@ pub fn parse(argv: &[String]) -> Outcome<Args> {
         include_unchanged: raw.include_unchanged,
         worktree: raw.worktree,
         quiet: raw.quiet,
+        metrics: raw.metrics,
         threads,
         stage,
         limits,
@@ -839,6 +911,7 @@ fn help_args() -> Args {
         include_unchanged: false,
         worktree: false,
         quiet: false,
+        metrics: false,
         threads: 4,
         stage: None,
         limits: Limits::defaults(Work::Other),
@@ -886,6 +959,8 @@ usage:
               [--entry <occurrence>=<system-entry.json>
               --entry-stage <occurrence>=<stage>]... --models <manifest.json>
               -o <system.step> [COMMON]
+  prism-kicad stroke-text (--request <runs.json> | --metrics) [COMMON]
+  prism-kicad drawing-sheet --request <sheet.json> [COMMON]
 
 COMMON: [--limit <name>=<value>]... [--threads <n>] [--quiet]
 

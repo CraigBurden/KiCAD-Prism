@@ -647,10 +647,44 @@ fn glyph(character: char) -> Option<(&'static [u8], f64)> {
     let index = (character as usize).checked_sub(0x20)?;
     let start = usize::try_from(*NEWSTROKE_GLYPH_OFFSETS.get(index)?).ok()?;
     let end = usize::try_from(*NEWSTROKE_GLYPH_OFFSETS.get(index + 1)?).ok()?;
-    Some((
-        NEWSTROKE_GLYPH_DATA.as_bytes().get(start..end)?,
-        f64::from(*NEWSTROKE_WIDTH_UNITS.get(index)?) * STROKE_SCALE,
-    ))
+    let encoded = NEWSTROKE_GLYPH_DATA.as_bytes().get(start..end)?;
+    // Python's `parse_hershey_glyph` scales the two width bounds separately
+    // and subtracts them; at a bound of 21 units that is one ulp below
+    // `21 × (1/21)`, so the same arithmetic keeps the advances equal to the
+    // oracle's instead of merely close.
+    let width = match (encoded.first(), encoded.get(1)) {
+        (Some(left), Some(right)) => {
+            let start_x = (f64::from(*left) - f64::from(b'R')) * STROKE_SCALE;
+            let end_x = (f64::from(*right) - f64::from(b'R')) * STROKE_SCALE;
+            end_x - start_x
+        }
+        _ => 0.0,
+    };
+    Some((encoded, width))
+}
+
+/// The scale NewStroke applies to glyphs inside a `^{}` or `_{}` span.
+pub const NEWSTROKE_SUPER_SUB_SIZE_MULTIPLIER: f64 = SUPER_SUB_SIZE_MULTIPLIER;
+
+/// Every code point NewStroke has a glyph for, ascending.
+///
+/// The font covers a contiguous range from U+0020; a code point outside it
+/// has no glyph.
+pub fn newstroke_codepoints() -> impl Iterator<Item = char> {
+    let last = 0x20u32 + NEWSTROKE_WIDTH_UNITS.len() as u32 - 1;
+    (0x20u32..=last)
+        .filter_map(char::from_u32)
+        .filter(|character| newstroke_has_glyph(*character))
+}
+
+/// True when NewStroke has a glyph for `character`.
+pub fn newstroke_has_glyph(character: char) -> bool {
+    glyph(character).is_some()
+}
+
+/// The normalized advance of `character`, or `None` when the font lacks it.
+pub fn newstroke_advance(character: char) -> Option<f64> {
+    glyph(character).map(|(_, width)| width)
 }
 
 fn bounds(polylines: &[NewstrokePolyline]) -> Option<[f64; 4]> {

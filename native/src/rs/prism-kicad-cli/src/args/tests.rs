@@ -75,6 +75,30 @@ fn rejects_bad_grammar() {
 }
 
 #[test]
+fn parses_the_sheet_commands() {
+    let metrics = args("stroke-text --metrics").unwrap();
+    assert_eq!(metrics.command, Command::StrokeText);
+    assert!(metrics.metrics);
+    assert_eq!(
+        args("stroke-text --request runs.json")
+            .unwrap()
+            .option("request"),
+        Some("runs.json")
+    );
+    let sheet = args("drawing-sheet --request sheet.json").unwrap();
+    assert_eq!(sheet.command, Command::DrawingSheet);
+    let code = |line: &str| args(line).unwrap_err().finding.code;
+    assert_eq!(code("stroke-text"), "usage");
+    assert_eq!(
+        code("stroke-text --metrics --request runs.json"),
+        "option-conflict"
+    );
+    assert_eq!(code("stroke-text --metrics runs.json"), "usage");
+    assert_eq!(code("drawing-sheet"), "usage");
+    assert_eq!(code("drawing-sheet --metrics"), "usage");
+}
+
+#[test]
 fn rejects_bad_compare_grammar() {
     let code = |line: &str| args(line).unwrap_err().finding.code;
     assert_eq!(code("compare --head b -o d"), "usage");

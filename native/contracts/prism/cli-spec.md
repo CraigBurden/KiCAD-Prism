@@ -664,6 +664,7 @@ Release Studio's assembly and testpoint views (amendment C3 §3.2), a port of Cr
 - **`stroke-text --request <runs.json>`** takes a `StrokeTextRequestA0`, a batch of runs, each `{text, x_mm, y_mm, size_mm, h_align, v_align}`. It prints `CliStrokeTextResultA0`: per run, the NewStroke polylines in mm, the advance width and the code points the font lacks.
 - **`stroke-text --metrics`** prints `CliStrokeFontMetricsA0`, the per-glyph advance table, so layout can measure text without a process per string.
 - **`drawing-sheet --request <sheet.json>`** takes a `DrawingSheetRequestA0`: page size in nm, paper name, title block, comments 1–4, sheet index and count, file name, sheet path and name, and KiCad version. It prints `CliDrawingSheetResultA0`, the default worksheet's operations: lines, rectangles, polylines and text runs with their stroke-text geometry.
+- **Arguments.** `stroke-text` takes exactly one of `--request` and `--metrics` (neither, or both, is exit 2); `drawing-sheet` takes `--request`, and both commands take no positional argument. The request file validates against its schema before any work (exit 3, `input-invalid`), with unknown fields refused.
 - **Parity:** equal to Python kicad_monkey's `kicad_stroke_font` and `drawing_sheet_to_ops(load_default_drawing_sheet(), …)` within 1e-9 mm (amendment C3 §4).
 
 ### 5.10 `bundle reuse`
@@ -836,7 +837,7 @@ Codes are `DiagnosticCode` (kebab-case). A code never changes meaning; a new mea
 | `config-invalid` | error | input / 3 | `--config` is not a valid `RevisionKeyEffectiveConfigA1` |
 | `key-record-invalid` | error | input / 3 | `--key-record` is not a valid `RevisionKeyRecordA1` |
 | `document-invalid` | error | input / 3 | `system build`: `--document` is not JSON, or does not validate against `prism.system.v2` (§5.11) |
-| `input-invalid` | error | input / 3 | `system build`: `--board-sub-ports` is not valid against `prism.board_sub_ports.a0`, or an `--entry` is not valid against `prism.system_entry.a0` (§5.11, CONTRACTS.md §8.8 check 6) |
+| `input-invalid` | error | input / 3 | `--request` of `stroke-text` and `drawing-sheet` is not JSON, or breaks `StrokeTextRequestA0` / `DrawingSheetRequestA0` (§5.9); `system build`: `--board-sub-ports` is not valid against `prism.board_sub_ports.a0`, or an `--entry` is not valid against `prism.system_entry.a0` (§5.11, CONTRACTS.md §8.8 check 6) |
 | `upgrade-record-invalid` | error | input / 3 | an `--upgraded` names a path that is not a member, or a version not older than `kicad_file_formats` for its kind (§5.2.2) |
 | `source-outside-root` | error | input / 3 | the project, or a file a source references, resolves outside the source root |
 | `source-not-regular-file` | error | input / 3 | a symbolic link or special file under the source root |

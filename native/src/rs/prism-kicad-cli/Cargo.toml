@@ -28,6 +28,7 @@ path = "src/main.rs"
 
 [dependencies]
 libc.workspace = true
+prism-artwork = { path = "../prism-artwork" }
 prism-bundle = { path = "../prism-bundle" }
 prism-kicad-contracts = { path = "../prism-kicad-contracts" }
 prism-kicad-core = { path = "../prism-kicad-core" }
