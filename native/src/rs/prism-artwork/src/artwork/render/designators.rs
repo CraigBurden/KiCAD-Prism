@@ -1,34 +1,40 @@
-//! The designator pass: selector gating, body-region fallbacks and the
+//! The designator pass: selector gating, DNP hatching, callout labels and the
 //! Autodoc fit. Split from `render` so the compositing file stays small.
 
 use std::collections::BTreeMap;
 
 use geo::BoundingRect;
 use prism_kicad_contracts::generated::prism_artwork_config_a0::{
-    ArtworkAssemblyDesignatorStyle, ArtworkConfigA0, ArtworkSelectorOverride, ArtworkView,
+    ArtworkAssemblyDesignatorStyle, ArtworkConfigA0, ArtworkSelectorOverride,
 };
 
 use super::super::designator::{
     self, DesignatorFitSession, region_from_rings, text_box, text_box_fits_region,
 };
-use super::super::geometry::{self, Point};
-use super::super::svg::{escape, number};
-use super::super::{ArtworkInput, BoardData, FootSide, FootprintInfo};
-use super::RenderState;
+use super::super::geometry::{Bounds, Point};
+use super::super::svg::{escape, number, rings_path};
+use super::super::{BoardData, FootSide, FootprintInfo};
+use super::callouts::CalloutPlacement;
+use super::{RenderState, ViewRender, body_rings, mirror_angle, mirror_x};
 
 pub(super) fn render_designators(
-    input: &ArtworkInput<'_>,
-    data: &BoardData,
-    view: &ArtworkView,
+    context: &ViewRender<'_>,
     token: &str,
-    selected: &[usize],
     svg: &mut String,
     state: &mut RenderState,
 ) {
-    if input.config.global.styles.assembly_designators.is_none() {
+    if context
+        .input
+        .config
+        .global
+        .styles
+        .assembly_designators
+        .is_none()
+    {
         return;
     }
-    let style = designator_style(input.config, &view.styles, None);
+    let view = context.view;
+    let style = designator_style(context.input.config, &view.styles, None);
     if !style.enabled {
         return;
     }
@@ -41,40 +47,134 @@ pub(super) fn render_designators(
         "<g id=\"layer-{token}\" data-layer-token=\"{token}\" font-family=\"{}\">",
         escape(&style.font_family)
     ));
+    render_dnp_hatch(context, side, svg, state);
+    if style.callout {
+        render_callout_leaders(context, side, &style, svg);
+    }
     let mut session = DesignatorFitSession::default();
-    for index in selected {
-        let footprint = &data.footprints[*index];
-        if footprint.side != side {
-            continue;
-        }
-        let Some(designator) = footprint.reference.as_deref() else {
-            continue;
-        };
-        let component =
-            designator_style(input.config, &view.styles, footprint.reference.as_deref());
-        if !component.enabled {
-            continue;
-        }
-        let Some(region) = footprint_region(footprint, data) else {
-            continue;
-        };
-        if place_designator(
-            svg,
-            footprint,
-            designator,
-            &region,
-            &component,
-            &mut session,
-        ) {
+    for index in context.selected {
+        if render_footprint_designator(context, svg, *index, side, &style, &mut session) {
             state.designators_placed += 1;
         }
     }
     svg.push_str("</g>\n");
 }
 
+/// One footprint's designator: a planned callout label, or the fitted text.
+fn render_footprint_designator(
+    context: &ViewRender<'_>,
+    svg: &mut String,
+    index: usize,
+    side: FootSide,
+    style: &DesignatorStyle,
+    session: &mut DesignatorFitSession,
+) -> bool {
+    let footprint = &context.data.footprints[index];
+    if footprint.side != side {
+        return false;
+    }
+    let Some(designator) = footprint.reference.as_deref() else {
+        return false;
+    };
+    let component = designator_style(
+        context.input.config,
+        &context.view.styles,
+        footprint.reference.as_deref(),
+    );
+    if !component.enabled {
+        return false;
+    }
+    if style.callout
+        && let Some(placement) = context.callouts.get(&footprint.index)
+    {
+        return place_callout(context, svg, footprint, designator, placement, &component);
+    }
+    let Some(region) = footprint_region(footprint, context.data, context.callout) else {
+        return false;
+    };
+    place_designator(
+        context, svg, footprint, designator, &region, &component, session,
+    )
+}
+
+/// A DNP footprint's body region, hatched under its designator.
+fn render_dnp_hatch(
+    context: &ViewRender<'_>,
+    side: FootSide,
+    svg: &mut String,
+    state: &mut RenderState,
+) {
+    if !context.dnp.hatch {
+        return;
+    }
+    let fill = format!("url(#{}-dnp-hatch)", escape(&context.view.group_id));
+    for index in context.selected {
+        let footprint = &context.data.footprints[*index];
+        if footprint.side != side || !footprint.dnp {
+            continue;
+        }
+        let Some(rings) = body_rings(footprint, context.data, context.callout) else {
+            continue;
+        };
+        svg.push_str(&format!(
+            "<g data-dnp=\"true\" data-component=\"{}\" data-footprint-uuid=\"{}\"{}>",
+            escape(footprint.reference.as_deref().unwrap_or_default()),
+            escape(&footprint.uuid),
+            super::layer_transform(context.mirror),
+        ));
+        svg.push_str(&format!(
+            "<path d=\"{}\" fill=\"{}\" fill-rule=\"evenodd\" stroke=\"none\"/>",
+            rings_path(&rings),
+            fill,
+        ));
+        svg.push_str("</g>");
+        state.dnp_footprints_hatched += 1;
+    }
+}
+
+/// The leader lines of a callout view, drawn under the label text.
+fn render_callout_leaders(
+    context: &ViewRender<'_>,
+    side: FootSide,
+    style: &DesignatorStyle,
+    svg: &mut String,
+) {
+    svg.push_str("<g data-callout-leaders=\"true\" stroke-linecap=\"round\">");
+    for index in context.selected {
+        let footprint = &context.data.footprints[*index];
+        if footprint.side != side {
+            continue;
+        }
+        let Some(placement) = context.callouts.get(&footprint.index) else {
+            continue;
+        };
+        let color = if footprint.dnp {
+            &style.dnp_color
+        } else {
+            &style.color
+        };
+        svg.push_str(&format!(
+            "<line x1=\"{}\" y1=\"{}\" x2=\"{}\" y2=\"{}\" stroke=\"{}\" stroke-width=\"{}\" data-primitive=\"callout-leader\" data-component=\"{}\" data-footprint-uuid=\"{}\"/>",
+            number(mirror_x(placement.leader_from.x, context.mirror)),
+            number(placement.leader_from.y),
+            number(mirror_x(placement.leader_to.x, context.mirror)),
+            number(placement.leader_to.y),
+            escape(color),
+            number(LEADER_WIDTH_MM),
+            escape(footprint.reference.as_deref().unwrap_or_default()),
+            escape(&footprint.uuid),
+        ));
+    }
+    svg.push_str("</g>");
+}
+
+/// A leader line thinner than the body outline yet visible at 1:1.
+const LEADER_WIDTH_MM: f64 = 0.1;
+
 /// Fit one designator inside `region` and write its `<text>`; false only when
 /// no text box fits the region at any size.
 fn place_designator(
+    context: &ViewRender<'_>,
     svg: &mut String,
     footprint: &FootprintInfo,
     designator: &str,
@@ -93,19 +193,26 @@ fn place_designator(
         return false;
     };
     let font_size = font_size_for(region, designator, fit, component.min_font);
-    let color = if footprint.dnp {
-        component.dnp_color.clone()
-    } else {
-        component.color.clone()
-    };
+    let color = designator_color(footprint, component);
     let corners = text_box(designator, fit.center, font_size, fit.rotation_deg);
     let (min_x, min_y, max_x, max_y) = corner_bounds(corners);
-    let transform = if fit.rotation_deg.abs() > 1.0e-9 {
+    let center = Point {
+        x: mirror_x(fit.center.x, context.mirror),
+        y: fit.center.y,
+    };
+    let rotation = mirror_angle(fit.rotation_deg, context.mirror);
+    let mirror = context.mirror;
+    let (min_x, max_x) = if mirror {
+        (-max_x, -min_x)
+    } else {
+        (min_x, max_x)
+    };
+    let transform = if rotation.abs() > 1.0e-9 {
         format!(
             " transform=\"rotate({} {} {})\"",
-            number(fit.rotation_deg),
-            number(fit.center.x),
-            number(fit.center.y)
+            number(rotation),
+            number(center.x),
+            number(center.y)
         )
     } else {
         String::new()
@@ -118,8 +225,8 @@ fn place_designator(
         });
     svg.push_str(&format!(
         "<text x=\"{}\" y=\"{}\"{transform} font-size=\"{}\" text-anchor=\"middle\" dominant-baseline=\"central\" fill=\"{}\" opacity=\"{}\"{weight} data-primitive=\"assembly-designator\" data-component=\"{}\" data-footprint-uuid=\"{}\" data-font-size-mm=\"{}\" data-text-box-min-x=\"{}\" data-text-box-min-y=\"{}\" data-text-box-max-x=\"{}\" data-text-box-max-y=\"{}\" data-rotation-deg=\"{}\" data-bounds-kind=\"{}\" data-dnp=\"{}\" >{}</text>",
-        number(fit.center.x),
-        number(fit.center.y),
+        number(center.x),
+        number(center.y),
         number(font_size),
         escape(&color),
         number(component.opacity),
@@ -130,12 +237,67 @@ fn place_designator(
         number(min_y),
         number(max_x),
         number(max_y),
-        number(fit.rotation_deg),
+        number(rotation),
         if footprint.hlr.is_some() { "outline" } else { "fallback" },
         footprint.dnp,
         escape(designator),
     ));
     true
+}
+
+/// Place a callout label at the planned position, outside the pad.
+fn place_callout(
+    context: &ViewRender<'_>,
+    svg: &mut String,
+    footprint: &FootprintInfo,
+    designator: &str,
+    placement: &CalloutPlacement,
+    component: &DesignatorStyle,
+) -> bool {
+    let font_size = placement.font_size_mm;
+    let color = designator_color(footprint, component);
+    let bounds: Bounds = if context.mirror {
+        placement.bounds.mirrored()
+    } else {
+        placement.bounds
+    };
+    let center = Point {
+        x: mirror_x(placement.center.x, context.mirror),
+        y: placement.center.y,
+    };
+    let weight = component
+        .font_weight
+        .as_deref()
+        .map_or_else(String::new, |weight| {
+            format!(" font-weight=\"{}\"", escape(weight))
+        });
+    svg.push_str(&format!(
+        "<text x=\"{}\" y=\"{}\" font-size=\"{}\" text-anchor=\"middle\" dominant-baseline=\"central\" fill=\"{}\" opacity=\"{}\"{weight} data-primitive=\"assembly-designator\" data-callout=\"true\" data-overlapping=\"{}\" data-component=\"{}\" data-footprint-uuid=\"{}\" data-font-size-mm=\"{}\" data-text-box-min-x=\"{}\" data-text-box-min-y=\"{}\" data-text-box-max-x=\"{}\" data-text-box-max-y=\"{}\" data-rotation-deg=\"0\" data-bounds-kind=\"callout\" data-dnp=\"{}\" >{}</text>",
+        number(center.x),
+        number(center.y),
+        number(font_size),
+        escape(&color),
+        number(component.opacity),
+        placement.overlapping,
+        escape(designator),
+        escape(&footprint.uuid),
+        number(font_size),
+        number(bounds.min_x),
+        number(bounds.min_y),
+        number(bounds.max_x),
+        number(bounds.max_y),
+        footprint.dnp,
+        escape(designator),
+    ));
+    true
+}
+
+fn designator_color(footprint: &FootprintInfo, component: &DesignatorStyle) -> String {
+    if footprint.dnp {
+        component.dnp_color.clone()
+    } else {
+        component.color.clone()
+    }
 }
 
 fn corner_bounds(corners: [Point; 4]) -> (f64, f64, f64, f64) {
@@ -152,11 +314,13 @@ fn corner_bounds(corners: [Point; 4]) -> (f64, f64, f64, f64) {
     (min_x, min_y, max_x, max_y)
 }
 
-fn footprint_region(footprint: &FootprintInfo, data: &BoardData) -> Option<geo::MultiPolygon<f64>> {
-    if let Some(index) = footprint.hlr
-        && let Some(outline) = &data.hlr[index].outline
-        && let Some(rings) = geometry::hlr_region(outline)
-        && let Some(region) = region_from_rings(&rings)
+fn footprint_region(
+    footprint: &FootprintInfo,
+    data: &BoardData,
+    callout: bool,
+) -> Option<geo::MultiPolygon<f64>> {
+    if let Some(region) =
+        body_rings(footprint, data, callout).and_then(|rings| region_from_rings(&rings))
     {
         return Some(region);
     }
@@ -188,18 +352,19 @@ pub(super) fn font_size_for(
 }
 
 pub(super) struct DesignatorStyle {
-    enabled: bool,
-    color: String,
-    dnp_color: String,
+    pub enabled: bool,
+    pub color: String,
+    pub dnp_color: String,
     fill_ratio: f64,
-    min_font: f64,
+    pub min_font: f64,
     max_font: f64,
     threshold: f64,
     direction: f64,
     opacity: f64,
     font_family: String,
     font_weight: Option<String>,
-    selectors: BTreeMap<String, ArtworkSelectorOverride>,
+    pub callout: bool,
+    pub selectors: BTreeMap<String, ArtworkSelectorOverride>,
 }
 
 impl DesignatorStyle {
@@ -279,6 +444,7 @@ fn merge_designator(
         opacity: pick_f64(&|style| style.opacity).unwrap_or(1.0),
         font_family: "Arial, sans-serif".to_owned(),
         font_weight: pick_string(&|style| style.font_weight.clone()),
+        callout: pick_bool(&|style| style.callout).unwrap_or(false),
         selectors,
     }
 }

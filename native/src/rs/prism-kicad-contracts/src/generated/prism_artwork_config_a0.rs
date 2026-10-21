@@ -85,6 +85,10 @@ pub struct ArtworkAssembly {
 ///      "description": "Fraction of the component bounds used by the fitted text.",
 ///      "type": "number"
 ///    },
+///    "callout": {
+///      "description": "Place the designator outside the body region with a leader line, at\n`min_font_size_mm`, instead of fitting it inside. Testpoint views set it:\na 1 mm test pad has no room for a readable label.",
+///      "type": "boolean"
+///    },
 ///    "color": {
 ///      "description": "Text colour, CSS syntax.",
 ///      "type": "string"
@@ -153,6 +157,11 @@ pub struct ArtworkAssemblyDesignatorStyle {
     ///Designator rotation direction when the bounds are tall (`ccw` or `cw`).
     #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
     pub rotation_direction: ::std::option::Option<::std::string::String>,
+    /**Place the designator outside the body region with a leader line, at
+    `min_font_size_mm`, instead of fitting it inside. Testpoint views set it:
+    a 1 mm test pad has no room for a readable label.*/
+    #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+    pub callout: ::std::option::Option<bool>,
     ///Opacity from 0 to 1.
     #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
     pub opacity: ::std::option::Option<f64>,
@@ -167,6 +176,7 @@ impl ::std::default::Default for ArtworkAssemblyDesignatorStyle {
     fn default() -> Self {
         Self {
             box_fill_ratio: Default::default(),
+            callout: Default::default(),
             color: Default::default(),
             enabled: Default::default(),
             font_weight: Default::default(),
@@ -335,7 +345,8 @@ pub struct ArtworkCanvas {
 ///  "type": "string",
 ///  "enum": [
 ///    "board_outline",
-///    "all_geometry"
+///    "all_geometry",
+///    "board_and_bodies"
 ///  ]
 ///}
 /// ```
@@ -357,12 +368,15 @@ pub enum ArtworkCanvasBounds {
     BoardOutline,
     #[serde(rename = "all_geometry")]
     AllGeometry,
+    #[serde(rename = "board_and_bodies")]
+    BoardAndBodies,
 }
 impl ::std::fmt::Display for ArtworkCanvasBounds {
     fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
         match *self {
             Self::BoardOutline => f.write_str("board_outline"),
             Self::AllGeometry => f.write_str("all_geometry"),
+            Self::BoardAndBodies => f.write_str("board_and_bodies"),
         }
     }
 }
@@ -372,6 +386,7 @@ impl ::std::str::FromStr for ArtworkCanvasBounds {
         match value {
             "board_outline" => Ok(Self::BoardOutline),
             "all_geometry" => Ok(Self::AllGeometry),
+            "board_and_bodies" => Ok(Self::BoardAndBodies),
             _ => Err("invalid value".into()),
         }
     }
@@ -717,6 +732,71 @@ pub struct ArtworkDnp {
     pub hatch_angle_deg: Degrees,
     ///Hatch stroke width in millimetres.
     pub hatch_line_width_mm: f64,
+}
+/**A do-not-populate hatch override under `global.styles` or `views[].styles`:
+each field it sets replaces the top-level `dnp` value.*/
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "description": "A do-not-populate hatch override under `global.styles` or `views[].styles`:\neach field it sets replaces the top-level `dnp` value.",
+///  "type": "object",
+///  "properties": {
+///    "color": {
+///      "description": "Marker colour, CSS syntax.",
+///      "type": "string"
+///    },
+///    "hatch": {
+///      "description": "Draw a hatch fill when true.",
+///      "type": "boolean"
+///    },
+///    "hatch_angle_deg": {
+///      "description": "Hatch angle in degrees.",
+///      "$ref": "#/$defs/Degrees"
+///    },
+///    "hatch_line_width_mm": {
+///      "description": "Hatch stroke width in millimetres.",
+///      "type": "number"
+///    },
+///    "hatch_spacing_mm": {
+///      "description": "Hatch line spacing in millimetres.",
+///      "type": "number"
+///    }
+///  },
+///  "additionalProperties": false
+///}
+/// ```
+/// </details>
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct ArtworkDnpStyle {
+    ///Marker colour, CSS syntax.
+    #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+    pub color: ::std::option::Option<::std::string::String>,
+    ///Draw a hatch fill when true.
+    #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+    pub hatch: ::std::option::Option<bool>,
+    ///Hatch line spacing in millimetres.
+    #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+    pub hatch_spacing_mm: ::std::option::Option<f64>,
+    ///Hatch angle in degrees.
+    #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+    pub hatch_angle_deg: ::std::option::Option<Degrees>,
+    ///Hatch stroke width in millimetres.
+    #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+    pub hatch_line_width_mm: ::std::option::Option<f64>,
+}
+impl ::std::default::Default for ArtworkDnpStyle {
+    fn default() -> Self {
+        Self {
+            color: Default::default(),
+            hatch: Default::default(),
+            hatch_angle_deg: Default::default(),
+            hatch_line_width_mm: Default::default(),
+            hatch_spacing_mm: Default::default(),
+        }
+    }
 }
 ///A circular or slotted drill overlay style (`drills`, `slots`).
 ///
@@ -1304,6 +1384,10 @@ Prism's two config files use.*/
 ///      "description": "The board perimeter derived from `Edge.Cuts`.",
 ///      "$ref": "#/$defs/ArtworkBoardOutlineStyle"
 ///    },
+///    "dnp": {
+///      "description": "The do-not-populate hatch fill, a per-view override of the top-level `dnp`.",
+///      "$ref": "#/$defs/ArtworkDnpStyle"
+///    },
 ///    "drills": {
 ///      "description": "Circular drill overlays.",
 ///      "$ref": "#/$defs/ArtworkDrillSlotStyle"
@@ -1339,6 +1423,9 @@ pub struct ArtworkStyles {
     ///The Geometer-backed assembly projection.
     #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
     pub assembly_hlr: ::std::option::Option<ArtworkHlrStyle>,
+    ///The do-not-populate hatch fill, a per-view override of the top-level `dnp`.
+    #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+    pub dnp: ::std::option::Option<ArtworkDnpStyle>,
     ///Fitted assembly reference-designator text.
     #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
     pub assembly_designators: ::std::option::Option<ArtworkAssemblyDesignatorStyle>,
@@ -1353,6 +1440,7 @@ impl ::std::default::Default for ArtworkStyles {
             assembly_hlr: Default::default(),
             board_cutouts: Default::default(),
             board_outline: Default::default(),
+            dnp: Default::default(),
             drills: Default::default(),
             pin1_marker: Default::default(),
             slots: Default::default(),

@@ -324,6 +324,10 @@
                     "$ref": "#/$defs/ArtworkHlrStyle",
                     "description": "The Geometer-backed assembly projection."
                 },
+                "dnp": {
+                    "$ref": "#/$defs/ArtworkDnpStyle",
+                    "description": "The do-not-populate hatch fill, a per-view override of the top-level `dnp`."
+                },
                 "assembly_designators": {
                     "$ref": "#/$defs/ArtworkAssemblyDesignatorStyle",
                     "description": "Fitted assembly reference-designator text."
@@ -407,7 +411,8 @@
             "type": "string",
             "enum": [
                 "board_outline",
-                "all_geometry"
+                "all_geometry",
+                "board_and_bodies"
             ],
             "description": "How the view's canvas is bounded."
         },
@@ -523,6 +528,35 @@
             },
             "description": "The Geometer-backed assembly projection style."
         },
+        "ArtworkDnpStyle": {
+            "type": "object",
+            "properties": {
+                "color": {
+                    "type": "string",
+                    "description": "Marker colour, CSS syntax."
+                },
+                "hatch": {
+                    "type": "boolean",
+                    "description": "Draw a hatch fill when true."
+                },
+                "hatch_spacing_mm": {
+                    "type": "number",
+                    "description": "Hatch line spacing in millimetres."
+                },
+                "hatch_angle_deg": {
+                    "$ref": "#/$defs/Degrees",
+                    "description": "Hatch angle in degrees."
+                },
+                "hatch_line_width_mm": {
+                    "type": "number",
+                    "description": "Hatch stroke width in millimetres."
+                }
+            },
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "A do-not-populate hatch override under `global.styles` or `views[].styles`:\neach field it sets replaces the top-level `dnp` value."
+        },
         "ArtworkAssemblyDesignatorStyle": {
             "type": "object",
             "properties": {
@@ -557,6 +591,10 @@
                 "rotation_direction": {
                     "type": "string",
                     "description": "Designator rotation direction when the bounds are tall (`ccw` or `cw`)."
+                },
+                "callout": {
+                    "type": "boolean",
+                    "description": "Place the designator outside the body region with a leader line, at\n`min_font_size_mm`, instead of fitting it inside. Testpoint views set it:\na 1 mm test pad has no room for a readable label."
                 },
                 "opacity": {
                     "type": "number",

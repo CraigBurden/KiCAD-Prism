@@ -925,6 +925,9 @@ model CliArtworkView {
   /** How many reference designators the view placed. */
   designators_placed: Count;
 
+  /** How many do-not-populate footprints the view hatched (`dnp.hatch`). */
+  dnp_footprints_hatched: Count;
+
   /**
    * Every footprint the view has no body outline for, `<RepoPath>#<KiCadUuid>`,
    * sorted in code point order: the footprints drawn from the hole envelope or

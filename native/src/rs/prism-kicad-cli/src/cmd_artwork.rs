@@ -193,6 +193,7 @@ pub fn artwork(args: &Args) -> Outcome<(Value, u8)> {
             "sha256": prism_bundle::generator::sha256_hex(view.svg.as_bytes()),
             "footprints_drawn": view.footprints_drawn,
             "designators_placed": view.designators_placed,
+            "dnp_footprints_hatched": view.dnp_footprints_hatched,
             "footprints_without_outline": view.footprints_without_outline,
         }));
     }
