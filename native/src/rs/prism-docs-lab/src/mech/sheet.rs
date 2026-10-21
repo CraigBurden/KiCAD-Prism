@@ -196,18 +196,6 @@ fn draw_frame(svg: &mut String) {
             &label,
         );
     }
-    text(
-        svg,
-        Point {
-            x: FRAME + 2.5,
-            y: 5.9,
-        },
-        2.2,
-        MUTED,
-        Face::SansBold,
-        "start",
-        "KiCAD PRISM · MECHANICAL OUTLINE",
-    );
 }
 
 // -------------------------------------------------------------- title block

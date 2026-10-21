@@ -29,6 +29,14 @@ const TITLE_X: f64 = 276.0;
 const TITLE_Y: f64 = 243.0;
 const TITLE_WIDTH: f64 = 134.0;
 const TITLE_HEIGHT: f64 = 44.0;
+/// The box the sheet's content is laid out in (header, views, tables, title
+/// block), in millimetres before [`content_transform`] fits it inside the frame.
+const CONTENT_LEFT: f64 = 14.0;
+const CONTENT_TOP: f64 = 14.0;
+const CONTENT_RIGHT: f64 = TITLE_X + TITLE_WIDTH;
+const CONTENT_BOTTOM: f64 = TITLE_Y + TITLE_HEIGHT;
+/// Clear space between the inner frame line and the content on every side.
+const CONTENT_PADDING: f64 = 3.0;
 const INK: &str = palette::INK;
 const MUTED: &str = palette::MUTED;
 const RULE: &str = palette::RULE;
@@ -125,6 +133,7 @@ viewBox=\"0 0 {} {}\" role=\"img\" aria-label=\"Connector ICD {}\">",
         number(PAGE_HEIGHT)
     );
     frame(&mut svg);
+    let _ = writeln!(svg, "<g transform=\"{}\">", content_transform());
     header(&mut svg, context);
     if context.page == 0 {
         views::cells(&mut svg, context);
@@ -136,8 +145,28 @@ viewBox=\"0 0 {} {}\" role=\"img\" aria-label=\"Connector ICD {}\">",
         tables::continuation(&mut svg, context);
     }
     title_block(&mut svg, context);
-    svg.push_str("</svg>\n");
+    svg.push_str("</g>\n</svg>\n");
     svg
+}
+
+/// Fit the content box inside the inner frame with [`CONTENT_PADDING`] clear
+/// on every side, keeping its proportions and centring it.
+fn content_transform() -> String {
+    let left = FRAME_INNER + CONTENT_PADDING;
+    let top = FRAME_INNER + CONTENT_PADDING;
+    let width = PAGE_WIDTH - 2.0 * left;
+    let height = PAGE_HEIGHT - 2.0 * top;
+    let content_width = CONTENT_RIGHT - CONTENT_LEFT;
+    let content_height = CONTENT_BOTTOM - CONTENT_TOP;
+    let scale = (width / content_width).min(height / content_height);
+    let x = left + (width - content_width * scale) / 2.0 - CONTENT_LEFT * scale;
+    let y = top + (height - content_height * scale) / 2.0 - CONTENT_TOP * scale;
+    format!(
+        "translate({} {}) scale({})",
+        number(x),
+        number(y),
+        number(scale)
+    )
 }
 
 // ------------------------------------------------------------------- frame
