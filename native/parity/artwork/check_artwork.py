@@ -10,8 +10,9 @@ For each Release Studio fixture this script:
    twice, and requires byte-identical files and stdout;
 3. checks that every placed designator's text box lies inside its body region
    (the HLR outline when present, else the pad envelope from `placements`),
-   that no placed designator is below the configured minimum font, and that
-   every footprint the view's selector picks is drawn;
+   that every footprint the view's selector picks is drawn and labelled, and
+   counts the labels drawn below the configured minimum font (as today's
+   Cruncher does, a label shrinks to fit its body rather than being dropped);
 4. optionally (`--cruncher`) runs today's `kicad-cruncher pcb-svg` exactly as
    `backend/app/release_studio/documents/artwork.py` does and renders both
    SVGs beside each other to PNG under `--compare-dir`.
@@ -483,13 +484,10 @@ def check_view(
         texts.append((attrs, text))
     minimum = min_font(config, view)
     fallback = 0
+    below_minimum = 0
     for attrs, _text in texts:
-        font = float(attrs["data-font-size-mm"])
-        if font + 1e-9 < minimum:
-            failures.append(
-                f"{case} {config_name} {view['name']}: {attrs['data-component']} "
-                f"font {font} is below the minimum {minimum}"
-            )
+        if float(attrs["data-font-size-mm"]) + 1e-9 < minimum:
+            below_minimum += 1
         uuid = attrs.get("data-footprint-uuid", "")
         footprint = hlr_by_uuid.get(uuid)
         rings = hlr_rings(footprint) if footprint else []
@@ -535,8 +533,14 @@ def check_view(
                 f"{case} {config_name} {view['name']}: selected footprint "
                 f"{footprint.get('reference')} is not drawn"
             )
+        if footprint.get("reference") and footprint["uuid"] not in placed_designators:
+            failures.append(
+                f"{case} {config_name} {view['name']}: selected footprint "
+                f"{footprint.get('reference')} has no designator"
+            )
     return {
         "texts": len(texts),
+        "below_minimum": below_minimum,
         "fallback_regions": fallback,
         "selected": len(selected),
         "expected_drawn": len(expected),
@@ -748,7 +752,7 @@ def main(argv) -> int:
                 print(
                     f"{case:12} {config_name:11} {view['name']:22} "
                     f"drawn={summary['drawn']}/{summary['expected_drawn']} "
-                    f"labels={summary['texts']} fallback={summary['fallback_regions']} "
+                    f"labels={summary['texts']} below-min={summary['below_minimum']} fallback={summary['fallback_regions']} "
                     f"deterministic={summary['deterministic']}"
                 )
 

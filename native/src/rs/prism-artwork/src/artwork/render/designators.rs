@@ -72,8 +72,8 @@ pub(super) fn render_designators(
     svg.push_str("</g>\n");
 }
 
-/// Fit one designator inside `region` and write its `<text>`; false when no
-/// font at or above the configured minimum fits.
+/// Fit one designator inside `region` and write its `<text>`; false only when
+/// no text box fits the region at any size.
 fn place_designator(
     svg: &mut String,
     footprint: &FootprintInfo,
@@ -92,17 +92,7 @@ fn place_designator(
     ) else {
         return false;
     };
-    let mut font_size = fit.font_size_mm;
-    if font_size < component.min_font {
-        let minimum = designator::DesignatorFit {
-            font_size_mm: component.min_font,
-            ..fit
-        };
-        if !text_box_fits_region(region, designator, minimum) {
-            return false;
-        }
-        font_size = component.min_font;
-    }
+    let font_size = font_size_for(region, designator, fit, component.min_font);
     let color = if footprint.dnp {
         component.dnp_color.clone()
     } else {
@@ -172,6 +162,29 @@ fn footprint_region(footprint: &FootprintInfo, data: &BoardData) -> Option<geo::
     }
     let fallback = footprint.hole_bounds.or(footprint.pad_bounds)?.ring();
     region_from_rings(&[fallback])
+}
+
+/// The font for a fit: below `min_font`, the minimum when it still fits;
+/// otherwise the largest size that fits, as today's Cruncher does
+/// (`_assembly_designator_font_size`), so a small body keeps its label.
+pub(super) fn font_size_for(
+    region: &geo::MultiPolygon<f64>,
+    designator: &str,
+    fit: designator::DesignatorFit,
+    min_font: f64,
+) -> f64 {
+    if fit.font_size_mm >= min_font {
+        return fit.font_size_mm;
+    }
+    let minimum = designator::DesignatorFit {
+        font_size_mm: min_font,
+        ..fit
+    };
+    if text_box_fits_region(region, designator, minimum) {
+        min_font
+    } else {
+        fit.font_size_mm
+    }
 }
 
 pub(super) struct DesignatorStyle {

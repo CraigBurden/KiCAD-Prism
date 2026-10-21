@@ -2,7 +2,9 @@
 
 use std::collections::BTreeMap;
 
-use super::designators::{designator_style, selected_by_designators, selector_matches};
+use super::designators::{
+    designator_style, font_size_for, selected_by_designators, selector_matches,
+};
 use super::*;
 use prism_kicad_contracts::generated::prism_artwork_config_a0::ArtworkConfigA0;
 
@@ -113,4 +115,34 @@ fn selector_grammar_matches_cruncher() {
     assert!(!selector_matches("R12", "R1-R9"));
     assert!(selector_matches("J1", "J1"));
     assert!(!selector_matches("J1", "X*"));
+}
+
+#[test]
+fn a_body_too_small_for_the_minimum_font_keeps_a_smaller_label() {
+    use super::super::designator::{DesignatorFitSession, region_from_rings, text_box_fits_region};
+    let square = |side: f64| {
+        region_from_rings(&[vec![
+            Point { x: 0.0, y: 0.0 },
+            Point { x: side, y: 0.0 },
+            Point { x: side, y: side },
+            Point { x: 0.0, y: side },
+        ]])
+        .unwrap()
+    };
+    let mut session = DesignatorFitSession::default();
+    let small = square(1.0);
+    let fit = session.fit("TP12", &small, 0.8, 2.5, &[0.0]).unwrap();
+    let font = font_size_for(&small, "TP12", fit, 1.0);
+    assert!(font < 1.0 && font > 0.0, "{font}");
+    assert!(text_box_fits_region(
+        &small,
+        "TP12",
+        super::super::designator::DesignatorFit {
+            font_size_mm: font,
+            ..fit
+        }
+    ));
+    let large = square(20.0);
+    let fit = session.fit("TP12", &large, 0.8, 2.5, &[0.0]).unwrap();
+    assert_eq!(font_size_for(&large, "TP12", fit, 1.0), fit.font_size_mm);
 }
