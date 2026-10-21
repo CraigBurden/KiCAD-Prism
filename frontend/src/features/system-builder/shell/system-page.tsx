@@ -1,8 +1,8 @@
 /**
  * `/system/:systemId`: one system's editor (ADR §2.7, CONTRACTS §14). A row
  * of tabs over one or two panes side by side, with selection shared between
- * them: the schematic (root and board sheets), 3D, Review, and one tab per
- * opened B2B mate. Harness tabs follow in stage 4.
+ * them: the schematic (root and board sheets), 3D, Review, ICD / Outputs, and
+ * one tab per opened B2B mate. Harness tabs follow in stage 4.
  *
  * The open tab, the pane beside it and the open B2B tabs live in the URL
  * (`?tab=…&beside=…&b2b=…`), so a link reopens the same view.
@@ -34,6 +34,7 @@ import { useSystemSession } from "../session/use-system-session";
 import { B2bPane } from "../b2b/b2b-pane";
 import { HarnessPane } from "../harness/harness-pane";
 import { mateTitle } from "../b2b/mate-view";
+import { OutputsPane } from "../outputs/outputs-pane";
 import { ThreeDPane } from "../three-d/three-d-pane";
 import { AddBoardDialog } from "./add-board-dialog";
 import { HeaderDialogs, type HeaderDialog } from "./header-dialogs";
@@ -57,6 +58,15 @@ export function drawnSelection(document: SystemDocument, ids: ReadonlySet<string
 /** Run an undo or redo, reporting a refusal. */
 const run = (work: Promise<unknown> | undefined) =>
   void work?.catch((error: unknown) => toast.error(error instanceof Error ? error.message : String(error)));
+
+/** A tab's label in the row: a fixed tab's, or the opened mate's or harness's name. */
+function tabTitle(document: SystemDocument | undefined, id: TabId): string {
+  const mate = mateOfTab(id);
+  if (mate) return `B2B ${document ? mateTitle(document, mate) : mate}`;
+  const harness = harnessOfTab(id);
+  if (harness) return document?.harnesses.find((item) => item.id === harness)?.label ?? harness;
+  return TAB_LABEL[id as FixedTab];
+}
 
 export function SystemPage({ user }: { user: User | null }) {
   const { systemId = "" } = useParams();
@@ -123,13 +133,6 @@ export function SystemPage({ user }: { user: User | null }) {
   const closeTab = (id: TabId) => {
     view.closeTab(id);
     if (mateOfTab(id)) setLit(null);
-  };
-  const tabLabel = (id: TabId) => {
-    const mate = mateOfTab(id);
-    if (mate) return `B2B ${document ? mateTitle(document, mate) : mate}`;
-    const harness = harnessOfTab(id);
-    if (harness) return document?.harnesses.find((item) => item.id === harness)?.label ?? harness;
-    return TAB_LABEL[id as FixedTab];
   };
 
   const addBoard = async (board: NewBoard) => {
@@ -285,6 +288,9 @@ export function SystemPage({ user }: { user: User | null }) {
         />
       );
     }
+    if (id === "outputs") {
+      return <OutputsPane systemId={systemId} document={document} name={record?.name ?? document.name} />;
+    }
     return (
       <ThreeDPane
         document={document}
@@ -312,6 +318,7 @@ export function SystemPage({ user }: { user: User | null }) {
         canEdit={canEdit}
         onUndo={() => run(session?.undo())}
         onRedo={() => run(session?.redo())}
+        onOutputs={() => setView({ tab: "outputs" })}
         onSnapshot={record ? () => setHeaderDialog("snapshot") : undefined}
         onCommitGit={record ? () => setHeaderDialog("git") : undefined}
         onPublish={() => setHeaderDialog("publish")}
@@ -319,23 +326,23 @@ export function SystemPage({ user }: { user: User | null }) {
       <ViewTabs
         tabs={[...TABS, ...openMates.map((mate) => `b2b:${mate}` as TabId), ...openHarnesses.map((item) => `harness:${item}` as TabId)].map((id) => ({
           id,
-          label: tabLabel(id),
+          label: tabTitle(document, id),
           closable: Boolean(mateOfTab(id) || harnessOfTab(id)),
           ...(mateOfTab(id) ? { swatch: "bg-zinc-400" } : harnessOfTab(id) ? { swatch: "bg-amber-500" } : {}),
           count: id === "review" ? openFindings : 0,
         }))}
         tab={tab}
         beside={beside}
-        besideLabel={beside ? tabLabel(beside) : null}
+        besideLabel={beside ? tabTitle(document, beside) : null}
         onPick={(id) => setView({ tab: id as TabId, beside: beside === id ? null : beside })}
         onClose={(id) => closeTab(id as TabId)}
         onCloseBeside={() => setView({ beside: null })}
         onSideBySide={() => setView({ beside: TABS.find((id) => id !== tab && id !== "3d") ?? null })}
       />
       <main className="flex min-h-0 flex-1">
-        <section className="min-w-0 flex-1" aria-label={tabLabel(tab)}>{pane(tab)}</section>
+        <section className="min-w-0 flex-1" aria-label={tabTitle(document, tab)}>{pane(tab)}</section>
         {beside && (
-          <section className="min-w-0 flex-1 border-l" aria-label={tabLabel(beside)}>{pane(beside)}</section>
+          <section className="min-w-0 flex-1 border-l" aria-label={tabTitle(document, beside)}>{pane(beside)}</section>
         )}
       </main>
       {addingBoard && (

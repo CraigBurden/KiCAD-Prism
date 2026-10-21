@@ -291,6 +291,22 @@ describe("harness script API", () => {
     expect(() => api.harnessOutputs("har_none")).toThrow("No harness har_none");
   });
 
+  it("returns the ICD index from the API", async () => {
+    const answer = {
+      state: "ready",
+      sheets: 2,
+      files: [{ name: "icd.pdf", title: "Interface control document", contentType: "application/pdf" }],
+    };
+    const mock = vi.fn(async (input: RequestInfo | URL) => {
+      void input;
+      return new Response(JSON.stringify(answer), { status: 200, headers: { "Content-Type": "application/json" } });
+    });
+    vi.stubGlobal("fetch", mock);
+    const { api } = harness();
+    await expect(api.icd()).resolves.toEqual(answer);
+    expect(mock.mock.calls[0][0]).toBe("/api/systems/sys_a/icd");
+  });
+
   it("adds a wire and fills the link joining its two sites", async () => {
     const { api, sent } = harness();
     await api.addWire({

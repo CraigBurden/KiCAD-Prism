@@ -94,6 +94,9 @@ export interface HarnessOutputsIndex {
   sheets: number;
 }
 
+/** `GET /api/systems/{id}/icd` (§17): the same index shape, for the interface control document. */
+export type IcdIndex = HarnessOutputsIndex;
+
 /** `GET /api/systems/{id}/history`: one logged request, newest first. */
 export interface SystemHistoryEntry {
   version: number;

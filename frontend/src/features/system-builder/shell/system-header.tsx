@@ -1,6 +1,6 @@
-/** The system page's top bar: back, name, version and save state, the bundle's state, undo and redo, and Snapshot, Commit to Git and Publish (§15.4). */
+/** The system page's top bar: back, name, version and save state, the bundle's state, undo and redo, and Outputs, Snapshot, Commit to Git and Publish (§15.4, §17). */
 import { Link } from "react-router-dom";
-import { ArrowLeft, Camera, GitCommitHorizontal, Redo2, Send, Undo2 } from "lucide-react";
+import { ArrowLeft, Camera, FileOutput, GitCommitHorizontal, Redo2, Send, Undo2 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 
@@ -16,12 +16,14 @@ export interface SystemHeaderProps {
   canEdit: boolean;
   onUndo: () => void;
   onRedo: () => void;
+  /** Open the ICD / Outputs tab; a viewer may download too. */
+  onOutputs: () => void;
   onSnapshot?: () => void;
   onCommitGit?: () => void;
   onPublish?: () => void;
 }
 
-export function SystemHeader({ name, folderId, version, state, canEdit, onUndo, onRedo, onSnapshot, onCommitGit, onPublish }: SystemHeaderProps) {
+export function SystemHeader({ name, folderId, version, state, canEdit, onUndo, onRedo, onOutputs, onSnapshot, onCommitGit, onPublish }: SystemHeaderProps) {
   return (
     <header className="flex h-12 shrink-0 items-center gap-3 border-b px-3">
       <Button variant="ghost" size="icon" asChild aria-label="Back to the workspace">
@@ -38,6 +40,9 @@ export function SystemHeader({ name, folderId, version, state, canEdit, onUndo, 
       )}
       <BundleChip state={state} />
       <span className="flex-1" />
+      <Button variant="outline" size="sm" onClick={onOutputs}>
+        <FileOutput className="mr-1.5 h-3.5 w-3.5" /> Outputs
+      </Button>
       {canEdit && (
         <>
           <Button variant="ghost" size="icon" aria-label="Undo" title="Undo (⌘Z)" disabled={!state.undoStack.length || state.saving} onClick={onUndo}>

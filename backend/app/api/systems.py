@@ -291,6 +291,33 @@ def read_harness_output(
     )
 
 
+@router.get("/systems/{system_id}/icd")
+def read_icd(
+    system_id: str,
+    user: AuthenticatedUser = Depends(require_viewer),
+) -> dict[str, Any]:
+    """The generated ICD files, or that the bundle is still building (§17)."""
+
+    return service.icd(system_id, _caller(user), role=user.role)
+
+
+@router.get("/systems/{system_id}/icd/{name}")
+def read_icd_output(
+    system_id: str, name: str,
+    user: AuthenticatedUser = Depends(require_viewer),
+) -> Response:
+    """One ICD file, as an attachment."""
+
+    content, media_type, filename = service.icd_output(
+        system_id, name, _caller(user), role=user.role,
+    )
+    return Response(
+        content,
+        media_type=media_type,
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
 @router.post("/systems/{system_id}/ops")
 def apply_ops(
     system_id: str, body: SystemOpsRequest, request: Request, response: Response,

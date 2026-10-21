@@ -35,6 +35,10 @@ from app.system_builder.harness_outputs import drawing as harness_drawing
 from app.system_builder.harness_outputs import files as harness_files
 from app.system_builder.harness_outputs import model as harness_model
 from app.system_builder.harness_outputs.model import HarnessModel
+from app.system_builder.icd import files as icd_files
+from app.system_builder.icd import model as icd_model
+from app.system_builder.icd import sheets as icd_sheets
+from app.system_builder.icd.model import IcdModel
 from app.system_builder.jobs import start_system_bundle_job
 from app.system_builder.store import SystemStore
 
@@ -95,12 +99,26 @@ class HarnessOutputsBuilding(errors.Conflict):
     default_detail = "The system bundle is still building; try the harness outputs when it is ready"
 
 
+class IcdOutputNotFound(errors.NotFound):
+    code = "icd_output_not_found"
+    default_detail = "ICD output not found"
+
+
+class IcdOutputsBuilding(errors.Conflict):
+    """The ICD reads the bundle, which is not ready yet (§17)."""
+
+    code = "icd_outputs_building"
+    default_detail = "The system bundle is still building; try the ICD when it is ready"
+
+
 #: Rendered files and the model behind them are cached in-process, keyed by the
 #: bundle identity and the caller's hidden occurrences, so a second reader pays
-#: for the render once (§16.7).
+#: for the render once (§16.7, §17).
 _CACHE_SIZE = 64
 _models: "OrderedDict[tuple[Any, ...], HarnessModel]" = OrderedDict()
 _rendered: "OrderedDict[tuple[Any, ...], bytes]" = OrderedDict()
+_icd_models: "OrderedDict[tuple[Any, ...], IcdModel]" = OrderedDict()
+_icd_rendered: "OrderedDict[tuple[Any, ...], bytes]" = OrderedDict()
 
 
 def _remember(cache: "OrderedDict[tuple[Any, ...], Any]", key: tuple[Any, ...], value: Any) -> Any:
@@ -290,6 +308,118 @@ class SystemService:
         if model is None:
             raise HarnessNotFound()
         return _remember(_models, key, model)
+
+    # ---------------------------------------------------------------- the ICD
+
+    def icd(self, system_id: str, caller: Caller, *, role: str) -> dict[str, Any]:
+        """The ICD index (§17): its files and sheet count."""
+
+        record, document, hidden, names = self._icd_source(system_id, caller, role=role)
+        answer = self.bundle(system_id, caller, role=role)
+        if answer["state"] != "ready":
+            return {"state": "building", "files": [], "sheets": 0}
+        model = self._icd_model(system_id, record, document, hidden, names, answer)
+        count = len(icd_sheets.sheets(model))
+        return {
+            "state": "ready",
+            "files": icd_files.file_entries(count),
+            "sheets": count,
+        }
+
+    def icd_output(
+        self, system_id: str, name: str, caller: Caller, *, role: str,
+    ) -> tuple[bytes, str, str]:
+        """One generated ICD file, its media type and its download name (§17)."""
+
+        record, document, hidden, names = self._icd_source(system_id, caller, role=role)
+        answer = self.bundle(system_id, caller, role=role)
+        if answer["state"] != "ready":
+            raise IcdOutputsBuilding()
+        model = self._icd_model(system_id, record, document, hidden, names, answer)
+        key = (
+            system_id, str(answer["key"]), record.get("version"), hidden,
+            tuple(sorted(names.items())), name,
+        )
+        content = _icd_rendered.get(key)
+        if content is None:
+            rendered = icd_files.render(model, name)
+            if rendered is None:
+                raise IcdOutputNotFound()
+            content = _remember(_icd_rendered, key, rendered)
+        return (
+            content,
+            icd_files.content_type(name),
+            icd_files.filename(str(record["name"]), name),
+        )
+
+    def _icd_source(
+        self, system_id: str, caller: Caller, *, role: str,
+    ) -> tuple[dict[str, Any], dict[str, Any], frozenset[str], dict[str, str]]:
+        """The record, the document as ``caller`` reads it, hidden occurrences and project names."""
+
+        record = self._store.read(system_id, role=role)
+        if record is None:
+            raise SystemNotFound()
+        document = self.view(record, caller)["document"]
+        hidden = redaction.hidden_occurrences(record["document"], caller.can_see_project)
+        names = self._project_names(record["document"], caller, role)
+        return record, document, hidden, names
+
+    @staticmethod
+    def _project_names(
+        document: Mapping[str, Any], caller: Caller, role: str,
+    ) -> dict[str, str]:
+        """The display name of every board project ``caller`` can see.
+
+        A restricted occurrence is named by the caller's redacted document as
+        ``restricted`` and its project is never looked up, so a display name
+        cannot leak a board the caller cannot see.
+        """
+
+        names: dict[str, str] = {}
+        for item in document.get("occurrences") or []:
+            source = item.get("source") or {}
+            if source.get("kind") != "board":
+                continue
+            project_id = str(source.get("projectId") or "")
+            if not project_id or project_id in names:
+                continue
+            if not caller.can_see_project(project_id):
+                continue
+            project = workspace.get_project_for_role(project_id, role)
+            if project:
+                names[project_id] = str(
+                    project.get("display_name") or project.get("name") or project_id
+                )
+        return names
+
+    def _icd_model(
+        self,
+        system_id: str,
+        record: Mapping[str, Any],
+        document: Mapping[str, Any],
+        hidden: frozenset[str],
+        names: Mapping[str, str],
+        answer: Mapping[str, Any],
+    ) -> IcdModel:
+        key = (
+            system_id, str(answer["key"]), record.get("version"), hidden,
+            tuple(sorted(names.items())),
+        )
+        cached = _icd_models.get(key)
+        if cached is not None:
+            _icd_models.move_to_end(key)
+            return cached
+        model = icd_model.build(
+            document,
+            answer.get("bundle") or {},
+            system=str(record.get("name") or ""),
+            version=int(record.get("version") or 0),
+            bundle_key=str(answer["key"]),
+            project_names=names,
+            lookup=harness_catalog.lookup_entry,
+        )
+        return _remember(_icd_models, key, model)
 
     # ---------------------------------------------------------------- writes
 

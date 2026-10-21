@@ -9,8 +9,6 @@ and UTF-8 everywhere.
 
 from __future__ import annotations
 
-import csv
-import io
 import re
 from dataclasses import dataclass
 
@@ -31,6 +29,7 @@ from app.system_builder.harness_outputs.model import (
     colour_codes,
     colour_text,
 )
+from app.system_builder.tabular import csv_bytes as _csv
 
 SCHEMA = "prism.harness.v1"
 PDF = "harness.pdf"
@@ -42,9 +41,6 @@ PDF_CONTENT_TYPE = "application/pdf"
 SHEET_CONTENT_TYPE = "image/svg+xml"
 CSV_CONTENT_TYPE = "text/csv"
 YAML_CONTENT_TYPE = "application/yaml"
-
-#: The formula prefixes a spreadsheet would evaluate, and the quote that stops it.
-FORMULA_PREFIXES = ("=", "+", "-", "@")
 
 WIRING_COLUMNS = (
     "wire", "from_end", "from_cavity", "from_signal",
@@ -110,32 +106,6 @@ def filename(system: str, label: str, name: str) -> str:
 
 
 # ------------------------------------------------------------------- tables
-
-
-def _number(text: str) -> bool:
-    try:
-        float(text)
-    except ValueError:
-        return False
-    return True
-
-
-def _cell(value: object) -> str:
-    """A CSV cell, prefixed with ``'`` when a spreadsheet would read it as a formula."""
-
-    text = "" if value is None else str(value)
-    if text.startswith(FORMULA_PREFIXES) and not _number(text):
-        return "'" + text
-    return text
-
-
-def _csv(columns: tuple[str, ...], rows: list[tuple[object, ...]]) -> bytes:
-    buffer = io.StringIO(newline="")
-    writer = csv.writer(buffer, lineterminator="\n")
-    writer.writerow(columns)
-    for row in rows:
-        writer.writerow([_cell(value) for value in row])
-    return buffer.getvalue().encode("utf-8")
 
 
 def _end(model: HarnessModel, end_id: str) -> End | None:

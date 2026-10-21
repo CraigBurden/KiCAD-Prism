@@ -894,3 +894,27 @@ Absent values are `null` (strings may be empty); numbers in millimetres to three
 **The harness tab.** **Outputs** in the toolbar opens a dialog: the sheets previewed (the SVGs, one at a time with sheet arrows), and a download button per file. While the bundle builds it says so and polls the index.
 
 Script API addition: `harnessOutputs(harness)` returns the index (`files`, `sheets`).
+
+## 17. The ICD and the outputs tab (stage 5a)
+
+The interface control document, generated in the backend on request (`backend/app/system_builder/icd/`) from the document and the viewer's redacted system bundle, like the harness outputs (§16.7). Its model (`model.py`) has:
+
+- **Occurrences**: label, kind and source (`<project> @ <commit, 10 characters> (follows <branch> | pinned)`, a catalog part, or `restricted`).
+- **Interfaces**: each export in document order: its name, site (`<connector> · <occurrence label>`, `· <sub-port>` for a sub-port) and pins in natural order (a sub-port's own pins, else every pad of the connector), each with its interface name (the export's `pinNames`, else the board pin name) and system net.
+- **Connections**, grouped:
+  - per mate (`<connector> · <label> ↔ <connector> · <label>`, document order): each derived pair (or the manual map) in side A's natural pad order, both sides with pin name and board net, `via: mated`, the row's `signal` as detail;
+  - per harness (`Harness <label>`): each contact-to-contact wire (`via: W<n>`, detail gauge, colour code, length); each splice joins its first contact to each other one (`via: W<a> · SP<n> · W<b>`); a wire to a loose end ends there (`note: open end (<kind>)`).
+  - A row whose two board nets have different leaf names notes `net names differ`. A restricted occurrence's pins read `restricted`.
+- **System nets**: those with pins on more than one occurrence, in bundle order, with their board nets (`<label>: <net>`) and pins (`<label> <connector>.<pad>`); the count of the rest is stated.
+
+**Files** (`GET /systems/{id}/icd` → `{ state, files, sheets }`, `GET /systems/{id}/icd/{name}`, as §16.7's API, filename `<system>-icd.<ext>`):
+| Name | Content |
+|---|---|
+| `icd.pdf` | Release Studio sheets, A3 landscape, frame and title block (`<system> · ICD`, System `<name> v<version>`, Sheet, Bundle): sheet 1 a summary (occurrences table, counts), then the interfaces, connections (a table per group) and system nets tables, continued over as many sheets as they need |
+| `sheet-<i>.svg` | one sheet |
+| `icd.html` | one self-contained page (inline CSS, no scripts or external requests), the same sections as the PDF with a contents list, in the sheets' look (the engine's fonts as CSS fallbacks, ruled tables, the title block as a header) |
+| `icd.csv` | one row per connection: `group,kind,a_occurrence,a_connector,a_pad,a_pin_name,a_net,b_occurrence,b_connector,b_pad,b_pin_name,b_net,via,detail,note` (formula escaping as §16.7) |
+
+**The ICD / Outputs tab** (ADR §4.1, `tab=outputs`, opened from the header's **Outputs** button). One per system. Left, the ICD preview (its sheets, one at a time with arrows, as the harness Outputs dialog). Right, the downloads, grouped: **ICD** (PDF, HTML, CSV), **Document** (`prism.system.v2` JSON: the document as the caller reads it, `<system>-system.json`), **Harnesses** (per harness, its §16.7 files), and **STEP** (stage 5b; until then "the STEP assembly arrives with stage 5b"). While the bundle builds, the ICD and harness groups say so and poll.
+
+Script API addition: `icd()` returns the ICD index.
