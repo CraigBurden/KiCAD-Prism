@@ -194,7 +194,7 @@ C6 appends these to RENUMBERED after ('repository_origin', 26, 41), in this orde
 
 - **Why a high block.** Dev keeps adding workspace migrations while the effort runs (it went from 55 to 57 since the reference branch was cut). Numbers taken from dev's head would collide with the next dev migration. `schema_ledger.py:19-21` allows gaps and keeps a taken number reserved. Each step stays additive and independent, so a dev migration below 100 that lands later still runs, in ascending order, on a database that already has 100+.
 - **The reference branch.** A database that ran it holds `(56, sim_studio_setups)`, `(57, sim_studio_runs)`, `(58, sim_studio_layouts)` and `(59, job_retention_indexes)` (ref `workspace_schema_migrations.py:128-131`). The ledger keys on the version (`schema_ledger.py:104-117`), so dev's `release_studio_model_inputs` (56) and `job_retention_indexes` (57) would count as applied there and never run. C6's `RENUMBERED` entries move the reference rows out of the way first. On any other database they match no row.
-- **R4.** Dropping the superseded tables (`system_interface_artifacts`, `system_bundle_frames`) is not additive. Per `schema_ledger.py:19-21` it ships in a release after the one that carries R1, as its own PR.
+- **R4.** Dropping the superseded tables (`system_interface_artifacts`, `system_bundle_frames`) is not additive. Per `schema_ledger.py:19-21` it ships in a release after the one that carries R1, as its own PR. (Outcome: System Builder v2 stage 0's migration 123 already dropped both tables, so R4 shipped no migration.)
 
 ## 6. Conflicts between work packages (task item 1)
 

@@ -565,11 +565,11 @@ def semantic_scope_from_bundle(
     there is a missing precondition rather than a request to fall back.
     """
 
-    if not project_id or not commit:
-        return None
-    from app.services.design_bundle.consumer import bundle_read
+    from app.services.design_bundle import consumer
 
-    read = bundle_read(
+    if not project_id or not commit or consumer.source("RELEASE_STUDIO") != "bundle":
+        return None
+    read = consumer.bundle_read_if_ready(
         "RELEASE_STUDIO",
         project_id,
         commit,
@@ -664,10 +664,10 @@ def board_projections_from_bundle(
 ) -> dict[str, Any] | None:
     """The five projections the bundle holds for a resolved commit, or ``None``.
 
-    ``bundle_read`` owns the switch and the rollout fallback: it answers ``None``
-    for the ``legacy`` switch, a member that is not ready yet (it queues the
-    build) and a member that failed, and this function then serves the legacy
-    path.  A member that is final but not ``ready`` (``skipped``,
+    The ``legacy`` switch answers ``None`` before any bundle is opened.
+    ``bundle_read_if_ready`` answers ``None`` for a member that is not ready
+    yet (it queues the build) and a member that failed, and this function then
+    serves the legacy path.  A member that is final but not ``ready`` (``skipped``,
     ``not-applicable``) is no projection either, so it falls back too.  A
     working tree — no resolved commit, which the bundle key cannot name — can
     hold uncommitted changes a committed bundle does not carry, so it is never
@@ -677,11 +677,11 @@ def board_projections_from_bundle(
     projections rather than failing the build.
     """
 
-    if not commit or not project_id:
-        return None
-    from app.services.design_bundle.consumer import bundle_read
+    from app.services.design_bundle import consumer
 
-    read = bundle_read(
+    if not commit or not project_id or consumer.source("RELEASE_STUDIO") != "bundle":
+        return None
+    read = consumer.bundle_read_if_ready(
         "RELEASE_STUDIO", project_id, commit, MEMBERS, requested_by=requested_by
     )
     if read is None or not all(read.ready(path) for path in MEMBERS):

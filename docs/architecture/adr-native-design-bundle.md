@@ -217,7 +217,9 @@ Each member has a role, a schema id, sha256, size and the stage that wrote it in
 | `viewer/models/components.glb` | models | — | component bodies from `kicad-cli` | 3D tab, System Builder 3D and collision meshes |
 | `models/assembly-hlr.json` | models | `prism.assembly_hlr.a0` | per footprint, the hidden-line outline and detail edges of its first STEP model in board coordinates, or why there are none (amendment C3) | Release Studio assembly and testpoint artwork |
 
-The Python topology compiler's viewer assets are not bundle members. The mesh 3D tab and System Builder 3D keep reading the old `semantic-visualizer/` store until WP-C5 retires it (`native/contracts/prism/decisions.md`).
+The Python topology compiler's viewer assets are not bundle members. The mesh
+3D tab and its `semantic-visualizer/` store were removed with System Builder
+v2's stage 0, and WP-R4 deletes the remaining directory at startup.
 
 ## 7. Parity and correctness
 
@@ -238,25 +240,28 @@ The Python topology compiler's viewer assets are not bundle members. The mesh 3D
 
 ## 8. Migration and flags
 
-Each consumer switches through `PRISM_DESIGN_SOURCE_<CONSUMER>` = `legacy` (default) | `bundle`:
-- `SEMANTIC_INDEX`
-- `DESIGN_COMPARISON`
-- `RELEASE_STUDIO`
-- `SYSTEM_BUILDER`
-- `VIEWER_3D`
-- `PROJECT_METADATA`
-- `CATALOG_IMPORT`
+Each consumer switched through `PRISM_DESIGN_SOURCE_<CONSUMER>` = `legacy` (default) | `bundle`:
+`SEMANTIC_INDEX`, `DESIGN_COMPARISON`, `RELEASE_STUDIO`, `SYSTEM_BUILDER`,
+`VIEWER_3D`, `PROJECT_METADATA`, `CATALOG_IMPORT`. R1 deleted every one but
+`RELEASE_STUDIO` (§9.7); `SYSTEM_BUILDER` and `VIEWER_3D` went with System
+Builder v2's stage 0, and the other four consumers now always read bundles.
 
-A consumer's flag flips to `bundle` by default in the PR that proves its parity. Its legacy path is deleted in Wave 4. Simulation Studio and the analytic 3D tab are not on dev today, so they are ported directly onto bundles, with no legacy mode.
+A consumer's flag flipped to `bundle` by default in the PR that proved its
+parity. Its legacy path was deleted in Wave 4. Simulation Studio and the
+analytic 3D tab are not on dev today, so they are ported directly onto
+bundles, with no legacy mode.
 
 **First deploy:**
 - Bundles are built lazily on demand, plus a paced backfill of branch heads (one `design_bundle` slot). This replaces the cliff of every project rebuilding at once.
 - After each sync, stage `parse` is also built in the background for the new commits of tracked branches, and a new revision key reuses a stored bundle whose read set it leaves unchanged (amendment U §3.3, WP-K2).
 - The old stores are removed by WP-R4 once their consumers are on bundles:
   - `semantic-index/` and `semantic-visualizer/`;
-  - the Design Comparison revision cache;
   - `system_interface_artifacts` and `system_bundle_frames`;
-  - the 3D commit index.
+  - the 3D commit index (`semantic-visualizer/<project>/commit-index.json`).
+
+The Design Comparison revision cache is not removed: source-tree comparisons
+and the fabrication plot cached by bundle key still read it on a live path
+(WP-R4).
 
 ## 9. Work breakdown for parallel agents
 
@@ -362,7 +367,7 @@ Every P-WP owns one module `native/src/rs/prism-projections/src/<name>.rs`, its 
 | C4a | System Builder interface: from P5, cached by revision key; drift and digests; the System Builder frontend readers of interface and placement fields | `backend/app/services/systems/` (interface, drift, digests), `api/systems*.py`, `frontend/src/types/system.ts`, `frontend/src/lib/systems-api.ts`, `placement/frames.ts`, `placement/mate.ts`, `findings-ui.tsx` | P3, P5, K | `test_system_e2e_replay` passes; identical interface digests on the System Builder fixtures |
 | C4b | System Builder: **replaced by [System Builder v2](adr-system-builder-v2.md)** (through amendment V2's V2b), whose stage 0 deleted System Builder v1, every mesh path and the topology compiler | see that ADR §7 | V2a (C5), P3, V1, K | that ADR §7 |
 | C5 | 3D tab on the analytic model (V2a, [amendment V2](adr-native-design-bundle-amendment-v2.md): the analytic path is the only 3D path; the mesh path is deleted in this package, §2.3):<br>• port the reference branch's analytic renderer, 2D layer view and mask colours onto bundle members;<br>• selection and cross-probe through `semantic-index`;<br>• retire the Python topology compiler and mesh path for the 3D tab | `frontend/src/components/webgpu-3d-tab.tsx` and the analytic renderer, `semantic_visualizer_service.py` (becomes a thin bundle reader), `kicad-prism-viewer/` 3D pieces (removal in R2) | V1, P3, K | visual check on EDA-04903, USB-PD-Trigger-Board and one System Builder board; no `topology_compiler` process |
-| C6 | Simulation Studio (V2c; result overlays optimised as [amendment V2](adr-native-design-bundle-amendment-v2.md) §4 lists):<br>• port the reference branch's `backend/app/sim_studio/` and `frontend/src/components/sim-studio/` onto bundles;<br>• board facts from `semantic-index` (`pinName`, `pinType`, `libraryRef`);<br>• runs hard-link the bundle by key and gate on `cross_check`;<br>• run retention as on the reference branch;<br>• prism-sim-studio switches to Prism's `prism-bundle` (reader) and pack crate | `backend/app/sim_studio/`, `frontend/src/components/sim-studio/`, workspace migrations for setups/runs/layouts (new numbers after dev's), prism-sim-studio dependency PR | P1, B, K | DC IR drop end to end on EDA-04903 with the sim-worker; prism-sim-studio CI green against the pinned Prism commit |
+| C6 | Simulation Studio (V2c; result overlays optimised as [amendment V2](adr-native-design-bundle-amendment-v2.md) §4 lists):<br>• port the reference branch's `backend/app/sim_studio/` and `frontend/src/components/sim-studio/` onto bundles;<br>• board facts from `semantic-index` (`pinName`, `pinType`, `libraryRef`);<br>• runs hard-link the bundle by key and gate on `cross_check`;<br>• run retention as on the reference branch;<br>• prism-sim-studio reads Prism's design bundles (a3) with its own small reader (decided 2026-10-19, instead of depending on Prism's crates);<br>• the engines ship as prism-sim-studio GitHub release assets; the image installs the release pinned in `backend/sim-engines.lock.json` (`scripts/fetch_sim_engines.py`, decided 2026-10-21) | `backend/app/sim_studio/`, `frontend/src/components/sim-studio/`, workspace migrations for setups/runs/layouts (new numbers after dev's), `backend/sim-engines.lock.json` | P1, B, K | DC IR drop end to end on EDA-04903 with the sim-worker; prism-sim-studio CI green against the pinned Prism commit |
 | C7 | Catalog project component import and usage:<br>• project sides read `occurrences`, `placements` and `sources/` instead of scanning;<br>• the `pcbnew` footprint flip stays | `project_component_asset_extractor.py`, `project_catalog_usage_service.py`, `catalog/placement_stamp.py` project paths | P2, P3, K | `test_project_component_import_service.py` and the catalog Postgres integration pass |
 | C8 | Project metadata (`PRISM_DESIGN_SOURCE_PROJECT_METADATA`): the project card, properties sheet and viewer-source routes read `projections/project.json` and `sources/`; the API process no longer parses `.kicad_pro` | `project_metadata_service.py`, `project_properties_service.py`, `kicad_text_variables.py`, the properties-sheet and viewer-source routes (after S1's split) | P4, K, S1 | project card and properties identical on the fixtures; no `KiCadProject` import left |
 
@@ -375,6 +380,30 @@ Every P-WP owns one module `native/src/rs/prism-projections/src/<name>.rs`, its 
 | R3 | `prism-kicad-native` and `prism-clipper2` move onto the imported core (or are absorbed into `prism-projections`) | no crate depends on `wavenumber-eng/kicad_monkey` |
 | R4 | Remove the superseded stores and tables (§8) with a migration; one-off cleanup of the old directories | no reader of the old stores remains; space reclaimed reported |
 | X | Architecture test: no module under `backend/app` imports a KiCad parser or opens `.kicad_*` files, outside `design_bundle/`, the KiCad-output jobs and the catalog library reader | `backend/tests/test_design_source_boundary.py` |
+
+**Status notes.**
+- **R1 done (WP-R1).** The semantic index, project metadata, catalog import and
+  design comparison read the bundle unconditionally; their
+  `PRISM_DESIGN_SOURCE_*` switches and legacy paths are deleted, and
+  `PRISM_DESIGN_SOURCE_RELEASE_STUDIO` is the only switch left (its own work
+  package removes it). A request without a `commit` reads the checkout's HEAD
+  and answers `X-Prism-Working-Tree: dirty` when the read set has uncommitted
+  changes. A member that is still building is HTTP 202 `{"status": "pending",
+  "members": [...], "retryAfterSeconds": 3}` with a `Retry-After` header; a
+  failed build is HTTP 422 `{"status": "failed", "members": [...], "detail":
+  ...}`. Both are one handler pair (`design_bundle/errors.py`), registered once
+  in `app/main.py`.
+- **R4 done (WP-R4).** `semantic-index/` and `semantic-visualizer/` (with the
+  old 3D commit index inside it) are deleted by a one-off, idempotent startup
+  cleanup under `KICAD_PROJECTS_ROOT/.kicad-prism/`; it logs the bytes
+  reclaimed and records a marker so it runs once. `system_interface_artifacts`
+  and `system_bundle_frames` were already dropped by workspace migration 123,
+  so no new migration is needed. The Design Comparison revision cache stays:
+  source-tree comparisons and the fabrication plot cached by bundle key still
+  use it.
+- **R3 done.** `prism-kicad-native` and `prism-clipper2` were deleted with the
+  mesh path in System Builder v2 stage 0; no crate depends on
+  `wavenumber-eng/kicad_monkey`.
 
 ### 9.8 Running it with Ultracode
 

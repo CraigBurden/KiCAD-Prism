@@ -30,7 +30,8 @@ from app.release_studio import closure as closure_module
 from app.release_studio import semantic as semantic_module
 from app.release_studio import steps as steps_module
 from app.release_studio.closure_references import ProjectReferences
-from app.services.design_bundle import errors, reader
+from app.release_studio import bundle_errors
+from app.services.design_bundle import reader
 from app.services.design_bundle.manifest import Readiness
 from support.repo import commit_all, init_repo
 
@@ -479,7 +480,7 @@ class ReadinessTests(unittest.TestCase):
 
     def test_a_pending_stage_waits_and_the_job_is_queued(self) -> None:
         opened = _Opened(manifest=_manifest(status="pending"), project=_project_document())
-        with self.assertRaises(errors.DesignDataPending) as caught:
+        with self.assertRaises(bundle_errors.BundlePending) as caught:
             with mock.patch.object(
                 settings, "PRISM_DESIGN_SOURCE_RELEASE_STUDIO", "bundle"
             ), mock.patch.object(
@@ -501,13 +502,13 @@ class ReadinessTests(unittest.TestCase):
             "warnings": [],
             "failed_members": [],
         }
-        with self.assertRaises(errors.DesignDataFailed) as caught:
+        with self.assertRaises(bundle_errors.BundleFailed) as caught:
             self._read(_Opened(manifest=manifest, project=_project_document()))
         self.assertIn("glb-export-failed", str(caught.exception))
 
     def test_a_required_member_that_is_pending_waits(self) -> None:
         states = {bundle_design.MODELS_MEMBER: "pending"}
-        with self.assertRaises(errors.DesignDataPending):
+        with self.assertRaises(bundle_errors.BundlePending):
             self._read(
                 _Opened(
                     manifest=_manifest(),
@@ -518,7 +519,7 @@ class ReadinessTests(unittest.TestCase):
 
     def test_a_required_member_that_failed_is_permanent(self) -> None:
         states = {bundle_design.PROJECT_MEMBER: "failed"}
-        with self.assertRaises(errors.DesignDataFailed):
+        with self.assertRaises(bundle_errors.BundleFailed):
             self._read(
                 _Opened(
                     manifest=_manifest(),
@@ -528,7 +529,7 @@ class ReadinessTests(unittest.TestCase):
             )
 
     def test_an_absent_revision_is_permanent(self) -> None:
-        with self.assertRaises(errors.DesignDataFailed):
+        with self.assertRaises(bundle_errors.BundleFailed):
             self._read(_Opened(absent=True))
 
     def test_a_ready_bundle_answers_with_its_generator(self) -> None:

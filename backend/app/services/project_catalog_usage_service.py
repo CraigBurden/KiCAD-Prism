@@ -1,16 +1,15 @@
 """Library usage of a project commit: which catalog revision it placed (issue #698).
 
-The one entry point for the scan job and the API. It reads a commit's symbols
-from Git (``project_revision``), so a scan describes exactly that commit and
-never the working tree, resolves them through ``catalog/project_placements.py``
-and owns the catalog transaction around it.
-
-With the ``CATALOG_IMPORT`` switch on ``bundle`` (ADR §8, §9.6 C7), a ready
+The one entry point for the scan job and the API. A ready
 ``projections/occurrences.json`` member (``prism.occurrences.a0``) supplies the
-symbols instead of materializing and scanning the commit's schematics; the two
-sources give the same ``PlacedSymbol`` list (``placed_symbols_from_occurrences``).
-Every other answer of ``bundle_read`` -- the ``legacy`` switch, a member that is
-not ready yet and one that failed -- keeps the schematic scan.
+symbols; ``placed_symbols_from_occurrences`` maps them to the ``PlacedSymbol``
+list, resolves them through ``catalog/project_placements.py`` and owns the
+catalog transaction around it. The commit's schematics are never scanned in
+Python (R1).
+
+``bundle_read`` raises ``DesignDataPending`` while the member builds (it queues
+the job) and ``DesignDataFailed`` when it cannot be built; the catalog job
+retries the former.
 
 A scan is queued after every successful project sync (best effort) and on
 request; it runs on the catalog worker (``project_catalog_usage`` in
@@ -21,20 +20,15 @@ from __future__ import annotations
 
 import hashlib
 import logging
-from pathlib import Path
-import tempfile
 from typing import Any, Mapping
 
 from app.services import project_revision
-from app.services.catalog.placement_stamp import PlacedSymbol, placed_symbols, read_stamp
+from app.services.catalog.placement_stamp import PlacedSymbol, read_stamp
 from app.services.catalog.project_placements import CatalogProjectPlacements
 
 logger = logging.getLogger(__name__)
 
 JOB_TYPE = "project_catalog_usage"
-
-#: The schematics of one commit, generated files (autosaves, backups) left out.
-SCHEMATICS = project_revision.SourceSet("schematics", suffixes=frozenset({".kicad_sch"}), skip_generated=True)
 
 #: The bundle member the catalog usage scanner reads (bundle-format.md §2.1).
 OCCURRENCES_MEMBER = "projections/occurrences.json"
@@ -52,38 +46,30 @@ def read_commit_symbols(
 ) -> list[PlacedSymbol]:
     """Every symbol instance in the project's schematics at ``commit``.
 
-    With ``project_id`` (the project of the resolved ``commit``) and the
-    ``CATALOG_IMPORT`` switch on ``bundle``, a ready
-    ``projections/occurrences.json`` member is mapped instead of scanning;
-    otherwise -- the ``legacy`` switch, a member not ready yet or one that
-    failed -- the commit's schematics are materialized and scanned, unchanged.
+    A ready ``projections/occurrences.json`` member is mapped; otherwise
+    ``bundle_read`` raises the typed pending/failed answer. A working tree is
+    never read: ``commit`` is a resolved commit id (``scan`` resolves first).
     """
-    if project_id:
-        member = _occurrences_member(project_id, commit)
-        if member is not None:
-            return placed_symbols_from_occurrences(member, location.relative_path)
-    return _scan_commit_symbols(location, commit)
+    if not project_id:
+        raise ValueError("A project id is required to read a commit's symbols")
+    member = _occurrences_member(project_id, commit)
+    return placed_symbols_from_occurrences(member, location.relative_path)
 
 
-def _occurrences_member(project_id: str, commit: str) -> Mapping[str, Any] | None:
-    """A ready ``projections/occurrences.json`` member, or ``None`` to serve the scan.
+def _occurrences_member(project_id: str, commit: str) -> Mapping[str, Any]:
+    """A ready ``projections/occurrences.json`` member.
 
-    ``bundle_read`` answers ``None`` for the ``legacy`` switch, a member that is
-    not ready yet (it queues the build) and a member that failed, and this
-    function then falls through to the schematic scan. ``commit`` is a resolved
-    commit id: a working tree holds changes a bundle does not carry and never
-    reaches this function (``scan`` resolves the ref first).
+    ``bundle_read`` raises ``DesignDataPending`` while the member builds (it
+    queues the job) and ``DesignDataFailed`` when it cannot be built; a final
+    non-member has no occurrences to record and is a typed failure too.
     """
     from app.services.design_bundle import consumer
+    from app.services.design_bundle.errors import DesignDataFailed
 
     opened = consumer.bundle_read("CATALOG_IMPORT", project_id, commit, [OCCURRENCES_MEMBER])
-    if opened is None or not opened.ready(OCCURRENCES_MEMBER):
-        return None
-    try:
-        return opened.json(OCCURRENCES_MEMBER)
-    except Exception as error:  # noqa: BLE001 - a bad member must not lose the scan
-        logger.warning("Could not read the occurrences member for %s@%s: %s", project_id, commit, error)
-        return None
+    if not opened.ready(OCCURRENCES_MEMBER):
+        raise DesignDataFailed([OCCURRENCES_MEMBER], "this revision has no occurrences")
+    return opened.json(OCCURRENCES_MEMBER)
 
 
 def placed_symbols_from_occurrences(member: Mapping[str, Any], project_dir: str = "") -> list[PlacedSymbol]:
@@ -140,22 +126,6 @@ def _project_relative(project_dir: str, document_path: str) -> str:
     return document_path[len(prefix):] if prefix and document_path.startswith(prefix) else document_path
 
 
-def _scan_commit_symbols(location: project_revision.ProjectLocation, commit: str) -> list[PlacedSymbol]:
-    """Materialize the commit's schematics and read every symbol instance from them."""
-    symbols: list[PlacedSymbol] = []
-    with tempfile.TemporaryDirectory(prefix="project-catalog-usage-") as tmp:
-        root = Path(tmp)
-        project_revision.materialize(
-            location, commit, root, source_set=SCHEMATICS, scope=location.relative_path, strip_scope=True
-        )
-        for path in sorted(root.rglob("*.kicad_sch")):
-            if path.is_symlink():
-                continue
-            relative = path.relative_to(root).as_posix()
-            symbols.extend(placed_symbols(path.read_text(encoding="utf-8", errors="ignore"), relative))
-    return symbols
-
-
 def scan(project_id: str, commit: str = "HEAD") -> dict[str, Any]:
     """Scan one commit (``HEAD`` of the checkout by default) and record what it placed."""
     location = project_revision.locate_id(project_id)
@@ -174,7 +144,9 @@ def report(project_id: str, commit: str = "") -> dict[str, Any]:
 
     When ``HEAD`` has no scan yet (a sync just moved it), the report says so
     with ``scan: null`` and names the newest scanned commit in
-    ``latestScannedCommit``.
+    ``latestScannedCommit``. No scan and no ready occurrences member is the
+    pending state: ``bundle_read`` queues the build and raises, so the screen
+    shows "Preparing design data" instead of an empty report.
     """
     location = project_revision.locate_id(project_id)
     resolved = project_revision.resolve_commit(location, commit or "HEAD")
@@ -183,6 +155,10 @@ def report(project_id: str, commit: str = "") -> dict[str, Any]:
         result = CatalogProjectPlacements.report(conn, project_id, resolved)
         latest = CatalogProjectPlacements.scan_row(conn, project_id)
         conn.rollback()
+    if not result.get("scan"):
+        from app.services.design_bundle import consumer
+
+        consumer.bundle_read("CATALOG_IMPORT", project_id, resolved, [OCCURRENCES_MEMBER])
     result["latestScannedCommit"] = str(latest["source_revision"]) if latest else ""
     return result
 
@@ -220,7 +196,6 @@ def project_synced(project_id: str) -> None:
 __all__ = [
     "JOB_TYPE",
     "OCCURRENCES_MEMBER",
-    "SCHEMATICS",
     "placed_symbols_from_occurrences",
     "project_synced",
     "read_commit_symbols",

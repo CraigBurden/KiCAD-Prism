@@ -15,8 +15,8 @@ revision's bundle when stages ``parse``, ``board`` and ``models`` are ready:
 Unlike the Wave 3 rollout (``design_bundle.consumer.bundle_read``), bundle mode
 has no per-request legacy fallback: one readiness check at the start of the
 build either answers :class:`BundleDesign` or raises the typed
-:class:`~app.services.design_bundle.errors.DesignDataPending` /
-:class:`~app.services.design_bundle.errors.DesignDataFailed`.  The check queues
+:class:`~app.release_studio.bundle_errors.BundlePending` /
+:class:`~app.release_studio.bundle_errors.BundleFailed`.  The check queues
 the ``design_bundle`` job deduplicated on its bundle key, exactly as
 ``bundle_read`` does.
 """
@@ -29,7 +29,7 @@ from pathlib import Path
 from typing import Any, Mapping
 
 from app.release_studio.closure_references import ProjectReferences
-from app.services.design_bundle.errors import DesignDataFailed, DesignDataPending
+from app.release_studio.bundle_errors import BundleFailed, BundlePending
 
 PROJECT_MEMBER = "projections/project.json"
 SEMANTIC_MEMBER = "projections/semantic-index.json"
@@ -64,14 +64,14 @@ class BundleDesign:
     def archive_path(self) -> Path:
         archive = self.opened.archive
         if archive is None:  # readiness refuses this; keep the error explicit
-            raise DesignDataPending("the design bundle is not stored yet")
+            raise BundlePending("the design bundle is not stored yet")
         return archive.path
 
     @property
     def manifest(self) -> Mapping[str, Any]:
         archive = self.opened.archive
         if archive is None:
-            raise DesignDataPending("the design bundle is not stored yet")
+            raise BundlePending("the design bundle is not stored yet")
         return archive.manifest
 
     @property
@@ -123,7 +123,7 @@ class BundleDesign:
         if not bundle_relative:
             bundle_relative = str(self.config.get("board") or "")
         if not bundle_relative:
-            raise DesignDataFailed("the design bundle names no board")
+            raise BundleFailed("the design bundle names no board")
         if self.fill_provenance == "saved":
             return f"sources/{bundle_relative}"
         return f"refilled/{bundle_relative.rsplit('/', 1)[-1]}"
@@ -137,7 +137,7 @@ class BundleDesign:
         if not bundle_relative:
             bundle_relative = str(self.config.get("root_schematic") or "")
         if not bundle_relative:
-            raise DesignDataFailed("the design bundle names no schematic")
+            raise BundleFailed("the design bundle names no schematic")
         return f"sources/{bundle_relative}"
 
     def schematic_path(self, schematic: str, project_relpath: str = "") -> Path:
@@ -175,7 +175,7 @@ class BundleDesign:
         config = self.config
         board = str(config.get("board") or "")
         if not board:
-            raise DesignDataFailed("the design bundle names no board")
+            raise BundleFailed("the design bundle names no board")
         members.add(self.board_member(board))
         project_file = str(config.get("project_file") or "")
         if project_file:
@@ -206,16 +206,16 @@ def _check_stages(manifest: Mapping[str, Any]) -> None:
         status = str(record.get("status") or "pending")
         label = _STAGE_LABELS[stage]
         if status == "failed":
-            raise DesignDataFailed(
+            raise BundleFailed(
                 f"the design bundle's {label} failed: {_stage_error(stage, record)}"
             )
         if status == "skipped":
             reason = str(record.get("skip_reason") or "no reason recorded")
-            raise DesignDataFailed(
+            raise BundleFailed(
                 f"the design bundle's {label} was skipped: {reason}"
             )
         if status not in _READY_STAGE_STATES:
-            raise DesignDataPending(
+            raise BundlePending(
                 f"the design bundle's {label} is not ready yet ({status})"
             )
 
@@ -228,7 +228,7 @@ def _check_members(opened: Any, paths: tuple[str, ...]) -> None:
         if states[path].state in ("pending", "unavailable")
     ]
     if waiting:
-        raise DesignDataPending(
+        raise BundlePending(
             "the design bundle is not ready: "
             + ", ".join(waiting)
         )
@@ -237,14 +237,14 @@ def _check_members(opened: Any, paths: tuple[str, ...]) -> None:
         details = "; ".join(
             f"{path}: {states[path].detail or 'failed'}" for path in failed
         )
-        raise DesignDataFailed(f"the design bundle has no usable member: {details}")
+        raise BundleFailed(f"the design bundle has no usable member: {details}")
     missing = [
         path
         for path in paths
         if states[path].state in ("skipped", "not-applicable")
     ]
     if missing:
-        raise DesignDataFailed(
+        raise BundleFailed(
             "the design bundle does not carry a member this release needs: "
             + ", ".join(missing)
         )
@@ -259,8 +259,8 @@ def readiness(
     """The ready bundle for a bundle-mode build, or ``None`` for the legacy switch.
 
     A missing or pending bundle queues the ``design_bundle`` job (deduplicated
-    on the bundle key) and raises :class:`DesignDataPending`; a failed stage or
-    member raises :class:`DesignDataFailed`.  There is no legacy answer here:
+    on the bundle key) and raises :class:`BundlePending`; a failed stage or
+    member raises :class:`BundleFailed`.  There is no legacy answer here:
     in bundle mode the caller must wait or fail.
     """
 
@@ -275,18 +275,18 @@ def readiness(
             project_id, commit, queue=True, requested_by=requested_by
         )
     except Exception as error:  # noqa: BLE001 - any open fault is a failed answer
-        raise DesignDataFailed(
+        raise BundleFailed(
             f"the design bundle of {project_id}@{commit} could not be opened: {error}"
         ) from error
 
     if opened.absent:
-        raise DesignDataFailed(
+        raise BundleFailed(
             f"the project is not present at revision {commit}; no design bundle can exist"
         )
     if opened.archive is None:
         if opened.failure:
-            raise DesignDataFailed(opened.failure)
-        raise DesignDataPending(
+            raise BundleFailed(opened.failure)
+        raise BundlePending(
             "the design bundle is not built yet; its job has been queued"
         )
 

@@ -47,7 +47,7 @@ from app.services import release_build_attempts as attempts
 from app.services import release_build_failure_evidence as failure_evidence
 from app.services import release_studio_model_inputs as model_inputs
 from app.services import release_studio_service as store
-from app.services.design_bundle.errors import DesignDataFailed, DesignDataPending
+from app.release_studio.bundle_errors import BundleFailed, BundlePending
 from app.services.job_artifact_service import JobArtifactService
 from app.services.job_kinds import JobKind
 from app.services.job_runtime import JobCancelled, JobContext, JobResult
@@ -767,8 +767,8 @@ def run_release_studio_build_job(context: JobContext) -> JobResult:
         # execute_build's dedicated cancelled path below.
         raise
     except (
-        DesignDataPending,
-        DesignDataFailed,
+        BundlePending,
+        BundleFailed,
     ):
         # A bundle-mode build that is waiting for design data (or whose design
         # data failed) has not produced an attempt.  The job runtime owns the

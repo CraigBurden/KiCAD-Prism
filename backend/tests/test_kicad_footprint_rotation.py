@@ -30,7 +30,6 @@ if str(BACKEND_ROOT) not in sys.path:
 from app.services import kicad_footprint_normalizer as normalizer  # noqa: E402
 from app.services.project_component_asset_extractor import (  # noqa: E402
     _sanitize_footprint,
-    extract_component_assets,
 )
 
 FIXTURE_LIBRARY = (
@@ -375,83 +374,6 @@ class FootprintRotationAcceptanceTests(unittest.TestCase):
         result = self.results["back-180"]
         self.assertTrue(result.flipped)
         self.assertFalse(result.rotated)
-
-
-class ExtractorFindingsTests(unittest.TestCase):
-    """The extractor's warnings, without pcbnew: the normalizer is mocked."""
-
-    _SCHEMATIC = """(kicad_sch
-  (lib_symbols
-    (symbol "Acme:Controller"
-      (property "Reference" "U" (at 0 0 0))
-      (symbol "Controller_1_1" (pin input line (at 0 0 0) (length 2.54)))
-    )
-  )
-  (symbol
-    (lib_id "Acme:Controller")
-    (uuid "symbol-uuid")
-    (property "Reference" "U12" (at 0 0 0))
-  )
-)"""
-
-    def _findings(self, board: str, normalized: normalizer.NormalizedFootprint) -> list[dict]:
-        with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp)
-            (root / "main.kicad_sch").write_text(self._SCHEMATIC, encoding="utf-8")
-            (root / "main.kicad_pcb").write_text(board, encoding="utf-8")
-            component = {
-                "reference": "U12",
-                "footprint": "Acme:Controller_QFN",
-                "schematicRefs": [{"symbolUuid": "symbol-uuid"}],
-                "pcbRefs": [{"footprintUuid": "footprint-uuid"}],
-            }
-            with mock.patch.object(
-                normalizer, "normalize_footprint", return_value=normalized
-            ):
-                _assets, findings, _resolved = extract_component_assets(
-                    root, component, staging_dir=root / "staging"
-                )
-        return [finding["code"] for finding in findings]
-
-    @staticmethod
-    def _board(extra_layer: str, at: str) -> str:
-        return f"""(kicad_pcb
-  (footprint "Acme:Controller_QFN"
-    (layer "{extra_layer}")
-    (uuid "footprint-uuid")
-    {at}
-    (property "Reference" "U12" (at 0 0 0) (layer "F.SilkS"))
-    (pad "1" smd rect (at 0 0) (size 1 1) (layers "F.Cu") (uuid "pad-uuid"))
-  )
-)"""
-
-    def test_a_rotation_is_reported(self) -> None:
-        normalized = normalizer.NormalizedFootprint(
-            payload=b"(footprint x)", changed=True, rotated=True, rotation_degrees=90.0
-        )
-        codes = self._findings(self._board("F.Cu", "(at 10 20 90)"), normalized)
-        self.assertIn("footprint_rotation_normalized", codes)
-
-    def test_a_back_side_flip_is_still_reported(self) -> None:
-        normalized = normalizer.NormalizedFootprint(payload=b"(footprint x)", changed=True, flipped=True)
-        codes = self._findings(self._board("B.Cu", "(at 10 20 0)"), normalized)
-        self.assertEqual(codes, ["footprint_side_normalized"])
-
-    def test_an_unavailable_normalizer_names_what_it_could_not_undo(self) -> None:
-        failed_back = normalizer.NormalizedFootprint(
-            payload=b"(footprint x)", changed=False, error="no pcbnew", flipped=True, rotated=True
-        )
-        self.assertEqual(
-            self._findings(self._board("B.Cu", "(at 10 20 90)"), failed_back),
-            ["footprint_side_normalization_failed"],
-        )
-        failed_rotated = normalizer.NormalizedFootprint(
-            payload=b"(footprint x)", changed=False, error="no pcbnew", rotated=True
-        )
-        self.assertEqual(
-            self._findings(self._board("F.Cu", "(at 10 20 90)"), failed_rotated),
-            ["footprint_rotation_normalization_failed"],
-        )
 
 
 if __name__ == "__main__":

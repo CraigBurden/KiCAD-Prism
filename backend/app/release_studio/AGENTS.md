@@ -42,7 +42,7 @@ as a spurious change in a customer's release comparison.**
 | `dossier.py` | Final manifest and evidence assembly. |
 | `projections.py` · `semantic.py` · `impedance.py` | Derived views over the build. |
 | `bundle_projections.py` | The five board projections (`stackup`, `population`, `testpoints`, `designators`, `variants`) rebuilt from design-bundle members when `PRISM_DESIGN_SOURCE_RELEASE_STUDIO=bundle`: pure functions of the member documents, with `board_projections_from_design` the one already-checked-bundle seam. Also the a0-compatible semantic view (`semantic_index_a0`, `semantic_scope_from_design`): the four a1 fields are dropped recursively so the scope fingerprint equals today's (C3b). |
-| `bundle_design.py` | The one readiness answer for a bundle-mode build (`readiness`, `for_candidate`): stages `parse`, `board` and `models` must be ready or the job raises `DesignDataPending`/`DesignDataFailed` from the design-bundle errors module; it never falls back to the legacy parse. The same object names the board member (`refilled/<stem>.kicad_pcb`, or the saved board for `zone_fills: "saved"`), the bundle's source tree, the closure's `ProjectReferences`, and the generator provenance. |
+| `bundle_design.py` | The one readiness answer for a bundle-mode build (`readiness`, `for_candidate`): stages `parse`, `board` and `models` must be ready or the job raises `BundlePending`/`BundleFailed` from the design-bundle errors module; it never falls back to the legacy parse. The same object names the board member (`refilled/<stem>.kicad_pcb`, or the saved board for `zone_fills: "saved"`), the bundle's source tree, the closure's `ProjectReferences`, and the generator provenance. |
 | `ipc.py` | Worker process boundary. |
 
 Every `kicad-cli` and `kicad-cruncher` run goes through the tools
@@ -63,8 +63,8 @@ waves (`pipeline.run_build_waves`) → documents → assemble → record.
 
 In bundle mode `prepare_candidate` asks `bundle_design.readiness` before it
 materializes a closure: a missing or pending bundle queues the `design_bundle`
-job (deduplicated on the bundle key) and raises `DesignDataPending`, which the
-job runner retries; a failed stage or member raises `DesignDataFailed`. There is
+job (deduplicated on the bundle key) and raises `BundlePending`, which the
+job runner retries; a failed stage or member raises `BundleFailed`. There is
 no legacy fallback on this path. The same `BundleDesign` is the build's one
 answer for the board and schematic inputs, the closure's `ProjectReferences`,
 and the generator provenance (the bundle manifest's `generator` record replaces the

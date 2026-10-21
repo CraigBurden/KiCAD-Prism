@@ -549,9 +549,9 @@ def _artwork_bundle(
         # Bundle mode has one readiness answer at the start of the build.  A
         # build that reaches here without one must wait, not silently use
         # kicad-cruncher.
-        from app.services.design_bundle.errors import DesignDataPending
+        from app.release_studio.bundle_errors import BundlePending
 
-        raise DesignDataPending(
+        raise BundlePending(
             "the design bundle's artwork archive is not available to this build"
         )
     from app.release_studio.bundle_projections import artwork_bundle

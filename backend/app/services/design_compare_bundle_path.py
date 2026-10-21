@@ -1,8 +1,6 @@
-"""Design Comparison's bundle path: ``prism-kicad compare``, passed through (ADR amendment C2r).
+"""Design Comparison's one path: ``prism-kicad compare``, passed through (ADR amendment C2r).
 
-When the comparison was queued with ``PRISM_DESIGN_SOURCE_DESIGN_COMPARISON``
-set to ``bundle`` (the default since the C2r switch), the ``design_compare``
-job runs here instead of the legacy pipeline (C2r §2 items 4-7, §9 step 5):
+The ``design_compare`` job runs here (C2r §2 items 4-7, §9 step 5):
 
 ```text
 1. sides        both revisions at once, each from its stored bundle (the five
@@ -19,8 +17,8 @@ job runs here instead of the legacy pipeline (C2r §2 items 4-7, §9 step 5):
 
 There is no fallback to the legacy result: a side without a ready bundle is
 compared from its source tree, and a ``compare`` failure fails the job, so the
-C2r gate sees every failure (decision F1). The legacy path
-(``design_compare_service``) stays selectable with ``legacy`` until R1 deletes it.
+C2r gate sees every failure (decision F1). The legacy staged pipeline was
+deleted in R1.
 """
 
 from __future__ import annotations
@@ -160,7 +158,7 @@ class BundlePathStages:
         if not row:
             raise PermanentJobError(f"Project '{inputs.project_id}' not found", code="project-not-found")
         generator = cli.generator()
-        read = consumer.bundle_read(
+        read = consumer.bundle_read_if_ready(
             "DESIGN_COMPARISON", inputs.project_id, commit, MEMBERS, requested_by=inputs.requested_by
         )
         if read is not None and read.opened.archive is not None:
@@ -170,8 +168,8 @@ class BundlePathStages:
                 name, commit, opened.revision_key, opened.bundle_key,
                 dict(opened.archive.manifest["config"]), read=read,
             )
-        # No ready bundle: compare the source tree. bundle_read has already
-        # queued the bundle build for this commit (reader.open_revision, queue=True).
+        # No ready bundle: compare the source tree. bundle_read_if_ready has
+        # already queued the bundle build for this commit.
         key = bundle_jobs.project_key(row, commit)
         if key.absent:
             raise PermanentJobError(
