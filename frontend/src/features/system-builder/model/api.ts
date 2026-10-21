@@ -6,6 +6,7 @@
 import { fetchChecked, fetchJson, ifMatch } from "@/lib/api";
 
 import type {
+  HarnessOutputsIndex,
   SystemBundleAnswer,
   SystemGit,
   SystemHistoryEntry,
@@ -33,6 +34,39 @@ export function readSystem(systemId: string, signal?: AbortSignal): Promise<Syst
 
 export function readSystemBundle(systemId: string, signal?: AbortSignal): Promise<SystemBundleAnswer> {
   return fetchJson<SystemBundleAnswer>(`${base(systemId)}/bundle`, { signal }, "Could not load the system bundle");
+}
+
+const harnessBase = (systemId: string, harness: string) => `${base(systemId)}/harnesses/${encodeURIComponent(harness)}/outputs`;
+
+/** The generated files of one harness, or that the bundle is still building (§16.7). */
+export function harnessOutputs(systemId: string, harness: string, signal?: AbortSignal): Promise<HarnessOutputsIndex> {
+  return fetchJson<HarnessOutputsIndex>(harnessBase(systemId, harness), { signal }, "Could not load the harness outputs");
+}
+
+/** One generated harness file. Fetch it through `harnessOutputFile` so the request is authenticated. */
+export function harnessOutputUrl(systemId: string, harness: string, name: string): string {
+  return `${harnessBase(systemId, harness)}/${encodeURIComponent(name)}`;
+}
+
+/** The `filename` a `Content-Disposition` names, if it names one. */
+export function attachmentFilename(header: string | null): string | null {
+  const match = /filename\*?=(?:UTF-8'')?"?([^";]+)"?/i.exec(header ?? "");
+  const name = match?.[1]?.trim();
+  return name ? name : null;
+}
+
+/** One generated harness file as a blob, with the download name the server gave it (§16.7). */
+export async function harnessOutputFile(
+  systemId: string,
+  harness: string,
+  name: string,
+  signal?: AbortSignal,
+): Promise<{ blob: Blob; filename: string }> {
+  const response = await fetchChecked(harnessOutputUrl(systemId, harness, name), { signal }, `Could not load ${name}`);
+  return {
+    blob: await response.blob(),
+    filename: attachmentFilename(response.headers.get("Content-Disposition")) ?? name,
+  };
 }
 
 export function applyOps(systemId: string, version: number, ops: SystemOp[]): Promise<SystemRecord> {

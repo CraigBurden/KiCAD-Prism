@@ -13,7 +13,7 @@ import { EndDialog } from "./end-dialog";
 import { HarnessCanvas, type InsertKind } from "./harness-canvas";
 import { HarnessDefaults } from "./harness-defaults";
 import { readWireDefaults, writeWireDefaults, type WireDefaults } from "./harness-defaults-store";
-import { HarnessDialogs, type HarnessDialogKind } from "./harness-dialogs";
+import { HarnessDialogs } from "./harness-dialogs";
 import {
   addBranchPointOps,
   addCableOps,
@@ -32,7 +32,8 @@ import { activeFindings } from "./harness-format";
 import { pointNm, removeObjectOp } from "./harness-gestures";
 import { HarnessInspector } from "./harness-inspector";
 import { layoutHarness, type Point } from "./harness-layout";
-import { HarnessToolbar } from "./harness-toolbar";
+import { HarnessToolbar, type HarnessDialog } from "./harness-toolbar";
+import { OutputsDialog } from "./outputs-dialog";
 import { buildHarnessView, type TerminalView } from "./harness-view";
 import type { WireChange } from "./harness-wire-inspector";
 import { QuickPartDialog } from "./quick-part-dialog";
@@ -40,6 +41,8 @@ import { QuickPartDialog } from "./quick-part-dialog";
 export interface HarnessPaneProps {
   document: SystemDocument;
   bundle: SystemBundle | null;
+  /** The system the harness belongs to; its generated outputs come from the API (§16.7). */
+  systemId: string;
   harness: string;
   canEdit: boolean;
   busy: boolean;
@@ -53,13 +56,13 @@ export interface HarnessPaneProps {
 
 const report = (error: unknown) => toast.error(error instanceof Error ? error.message : String(error));
 
-export function HarnessPane({ document, bundle, harness, canEdit, busy, apply, selected, onSelect, onRouteIn3D }: HarnessPaneProps) {
+export function HarnessPane({ document, bundle, systemId, harness, canEdit, busy, apply, selected, onSelect, onRouteIn3D }: HarnessPaneProps) {
   const view = useMemo(() => buildHarnessView(document, bundle, harness), [document, bundle, harness]);
   const layout = useMemo(() => (view ? layoutHarness(view, document.layout) : null), [view, document.layout]);
   const [xray, setXray] = useState(true);
   const [labels, setLabels] = useState(true);
   const [defaults, setDefaults] = useState<WireDefaults>(readWireDefaults);
-  const [dialog, setDialog] = useState<HarnessDialogKind | null>(null);
+  const [dialog, setDialog] = useState<HarnessDialog | null>(null);
   const [editingEnd, setEditingEnd] = useState<string | null>(null);
   const [creatingPart, setCreatingPart] = useState(false);
 
@@ -199,7 +202,10 @@ export function HarnessPane({ document, bundle, harness, canEdit, busy, apply, s
           onEditEnd={setEditingEnd}
         />
       </div>
-      <HarnessDialogs view={view} open={dialog} onClose={() => setDialog(null)} />
+      <HarnessDialogs view={view} open={dialog === "outputs" ? null : dialog} onClose={() => setDialog(null)} />
+      {dialog === "outputs" && (
+        <OutputsDialog systemId={systemId} harness={harness} label={view.label} onClose={() => setDialog(null)} />
+      )}
       {editingEnd && (
         <EndDialog
           view={view}

@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import json
 import logging
+from collections import OrderedDict
 from dataclasses import dataclass
 from typing import Any, Callable, Mapping, Optional, Sequence
 
@@ -29,6 +30,11 @@ from app.system_builder import (
 )
 from app.system_builder import members as member_view
 from app.system_builder.document import find, new_document, new_id
+from app.system_builder.harness_outputs import catalog as harness_catalog
+from app.system_builder.harness_outputs import drawing as harness_drawing
+from app.system_builder.harness_outputs import files as harness_files
+from app.system_builder.harness_outputs import model as harness_model
+from app.system_builder.harness_outputs.model import HarnessModel
 from app.system_builder.jobs import start_system_bundle_job
 from app.system_builder.store import SystemStore
 
@@ -70,6 +76,39 @@ class UndoConflict(errors.Conflict):
             f"Later changes touch what version {version} changed; undo them first.",
             laterVersions=list(later),
         )
+
+
+class HarnessNotFound(errors.NotFound):
+    code = "harness_not_found"
+    default_detail = "Harness not found"
+
+
+class HarnessOutputNotFound(errors.NotFound):
+    code = "harness_output_not_found"
+    default_detail = "Harness output not found"
+
+
+class HarnessOutputsBuilding(errors.Conflict):
+    """The outputs read the bundle, which is not ready yet (§16.7)."""
+
+    code = "harness_outputs_building"
+    default_detail = "The system bundle is still building; try the harness outputs when it is ready"
+
+
+#: Rendered files and the model behind them are cached in-process, keyed by the
+#: bundle identity and the caller's hidden occurrences, so a second reader pays
+#: for the render once (§16.7).
+_CACHE_SIZE = 64
+_models: "OrderedDict[tuple[Any, ...], HarnessModel]" = OrderedDict()
+_rendered: "OrderedDict[tuple[Any, ...], bytes]" = OrderedDict()
+
+
+def _remember(cache: "OrderedDict[tuple[Any, ...], Any]", key: tuple[Any, ...], value: Any) -> Any:
+    cache[key] = value
+    cache.move_to_end(key)
+    while len(cache) > _CACHE_SIZE:
+        cache.popitem(last=False)
+    return value
 
 
 @dataclass(frozen=True)
@@ -168,6 +207,89 @@ class SystemService:
             system_id, key, record["version"], requested_by=caller.email
         )
         return {"state": "building", **answer}
+
+    # ------------------------------------------------------- harness outputs
+
+    def harness_outputs(
+        self, system_id: str, harness: str, caller: Caller, *, role: str,
+    ) -> dict[str, Any]:
+        """The output index of one harness (§16.7): its files and sheet count."""
+
+        record, document, hidden = self._harness_source(system_id, harness, caller, role=role)
+        answer = self.bundle(system_id, caller, role=role)
+        if answer["state"] != "ready":
+            return {"state": "building", "files": [], "sheets": 0}
+        model = self._harness_model(system_id, record, document, hidden, harness, answer)
+        count = len(harness_drawing.sheets(model))
+        return {
+            "state": "ready",
+            "files": harness_files.file_entries(count),
+            "sheets": count,
+        }
+
+    def harness_output(
+        self, system_id: str, harness: str, name: str, caller: Caller, *, role: str,
+    ) -> tuple[bytes, str, str]:
+        """One generated file, its media type and its download name (§16.7)."""
+
+        record, document, hidden = self._harness_source(system_id, harness, caller, role=role)
+        answer = self.bundle(system_id, caller, role=role)
+        if answer["state"] != "ready":
+            raise HarnessOutputsBuilding()
+        model = self._harness_model(system_id, record, document, hidden, harness, answer)
+        key = (system_id, str(answer["key"]), record.get("version"), harness, hidden, name)
+        content = _rendered.get(key)
+        if content is None:
+            rendered = harness_files.render(model, name)
+            if rendered is None:
+                raise HarnessOutputNotFound()
+            content = _remember(_rendered, key, rendered)
+        return (
+            content,
+            harness_files.content_type(name),
+            harness_files.filename(str(record["name"]), model.label, name),
+        )
+
+    def _harness_source(
+        self, system_id: str, harness: str, caller: Caller, *, role: str,
+    ) -> tuple[dict[str, Any], dict[str, Any], frozenset[str]]:
+        """The record, the document as ``caller`` reads it, and the occurrences they cannot see."""
+
+        record = self._store.read(system_id, role=role)
+        if record is None:
+            raise SystemNotFound()
+        document = self.view(record, caller)["document"]
+        if not any(item.get("id") == harness for item in document.get("harnesses") or []):
+            raise HarnessNotFound()
+        hidden = redaction.hidden_occurrences(record["document"], caller.can_see_project)
+        return record, document, hidden
+
+    def _harness_model(
+        self,
+        system_id: str,
+        record: Mapping[str, Any],
+        document: Mapping[str, Any],
+        hidden: frozenset[str],
+        harness: str,
+        answer: Mapping[str, Any],
+    ) -> HarnessModel:
+        key = (system_id, str(answer["key"]), record.get("version"), harness, hidden)
+        cached = _models.get(key)
+        if cached is not None:
+            _models.move_to_end(key)
+            return cached
+        model = harness_model.build(
+            document,
+            answer.get("bundle") or {},
+            harness,
+            harness_catalog.lookup,
+            system=str(record.get("name") or ""),
+            version=int(record.get("version") or 0),
+            bundle_key=str(answer["key"]),
+        )
+        if model is None:
+            raise HarnessNotFound()
+        return _remember(_models, key, model)
 
     # ---------------------------------------------------------------- writes
 

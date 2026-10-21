@@ -1,7 +1,11 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type { SystemBundle, SystemDocument, SystemOp, SystemRecord } from "../model/types";
 import { createScriptApi, resolvePads, type ScriptDeps } from "./script-api";
+
+afterEach(() => {
+  vi.unstubAllGlobals();
+});
 
 const COMMIT = "f".repeat(40);
 const DOCUMENT: SystemDocument = {
@@ -268,6 +272,23 @@ describe("harness script API", () => {
     expect(view.splices.map((splice) => splice.id)).toEqual(["spl_1"]);
     expect(view.looseEnds.map((loose) => loose.id)).toEqual(["pt_1"]);
     expect(plainJson(view)).toBe(true);
+  });
+
+  it("returns the harness outputs index from the API", async () => {
+    const answer = {
+      state: "ready",
+      sheets: 3,
+      files: [{ name: "harness.pdf", title: "Harness drawing", contentType: "application/pdf" }],
+    };
+    const mock = vi.fn(async (input: RequestInfo | URL) => {
+      void input;
+      return new Response(JSON.stringify(answer), { status: 200, headers: { "Content-Type": "application/json" } });
+    });
+    vi.stubGlobal("fetch", mock);
+    const { api } = harness();
+    await expect(api.harnessOutputs("har_h")).resolves.toEqual(answer);
+    expect(mock.mock.calls[0][0]).toBe("/api/systems/sys_a/harnesses/har_h/outputs");
+    expect(() => api.harnessOutputs("har_none")).toThrow("No harness har_none");
   });
 
   it("adds a wire and fills the link joining its two sites", async () => {

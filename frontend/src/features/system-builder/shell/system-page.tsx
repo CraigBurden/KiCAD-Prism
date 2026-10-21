@@ -236,6 +236,7 @@ export function SystemPage({ user }: { user: User | null }) {
           key={harness}
           document={document}
           bundle={state.bundle ?? null}
+          systemId={systemId}
           harness={harness}
           canEdit={canEdit}
           busy={state.saving}
