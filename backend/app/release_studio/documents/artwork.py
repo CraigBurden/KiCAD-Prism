@@ -271,13 +271,6 @@ TESTPOINT_VIEWS: dict[str, str] = {
     "bottom": "testpoint_bottom_view",
 }
 
-#: Views safe to render directly from the source board. Testpoints are
-#: deliberately absent: they must pass through the testpoint configuration's
-#: ``TP*`` selector.
-VIEW_KINDS: dict[str, dict[str, str]] = {
-    "assembly": ASSEMBLY_VIEWS,
-}
-
 #: What the artwork *actually* drew each component from.
 #:
 #: Deliberately not ``data-projection``, which records the mode the config
