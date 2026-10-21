@@ -709,8 +709,11 @@ dependencies = [
 name = "prism-artwork"
 version = "0.1.0"
 dependencies = [
+ "geo",
+ "prism-bundle",
  "prism-kicad-contracts",
  "prism-kicad-core",
+ "serde",
  "serde_json",
 ]
 

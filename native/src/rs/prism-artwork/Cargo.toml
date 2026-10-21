@@ -1,6 +1,6 @@
 [package]
 name = "prism-artwork"
-description = "Artwork facades over the KiCad core: NewStroke text and the default drawing sheet (ADR amendment C3)"
+description = "Artwork over the KiCad core: the assembly and testpoint views, NewStroke text and the default drawing sheet (ADR amendment C3)"
 version = "0.1.0"
 edition.workspace = true
 rust-version.workspace = true
@@ -13,8 +13,11 @@ publish = false
 workspace = true
 
 [dependencies]
+geo.workspace = true
 prism-kicad-core = { path = "../prism-kicad-core" }
 prism-kicad-contracts = { path = "../prism-kicad-contracts" }
+serde.workspace = true
 
 [dev-dependencies]
+prism-bundle = { path = "../prism-bundle", default-features = false, features = ["reader"] }
 serde_json.workspace = true

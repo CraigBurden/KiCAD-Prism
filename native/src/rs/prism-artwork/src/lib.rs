@@ -7,6 +7,7 @@
 //! the core's types and back; the font, the worksheet and its variables stay
 //! in `prism-kicad-core`.
 
+pub mod artwork;
 pub mod drawing_sheet;
 pub mod stroke_text;
 

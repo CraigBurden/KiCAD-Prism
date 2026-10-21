@@ -741,7 +741,10 @@ fn a_signal_leaves_no_document_and_no_temp_file() {
         .stderr(std::process::Stdio::null())
         .spawn()
         .unwrap();
-    std::thread::sleep(std::time::Duration::from_millis(150));
+    // A freshly linked debug binary is code-signature checked on first
+    // execution, which can take over a second on macOS; wait long enough for
+    // the signal handlers to be installed before sending SIGTERM.
+    std::thread::sleep(std::time::Duration::from_millis(3000));
     let pid = i32::try_from(child.id()).unwrap();
     std::process::Command::new("kill")
         .args(["-TERM", &pid.to_string()])
@@ -760,4 +763,41 @@ fn a_signal_leaves_no_document_and_no_temp_file() {
         "the temp file is removed"
     );
     let _ = run_in;
+}
+
+/// `artwork` checks `--view` before any work (exit 2) and requires stage
+/// models (exit 7), per cli-spec.md §5.7.
+#[test]
+fn artwork_refuses_an_unknown_view_and_a_bundle_without_models() {
+    let dir = scratch("artwork-exits");
+    let archive = dir.join("parse.prism");
+    assert_eq!(parse_into(&usb_pd(), &archive).code, 0);
+    let config = repo().join("native/src/rs/prism-artwork/configs/assembly.json");
+    let out = dir.join("out");
+    let unknown = run(&[
+        "artwork",
+        "--in",
+        s(&archive),
+        "--config",
+        s(&config),
+        "--view",
+        "no_such_view",
+        "-o",
+        s(&out),
+    ]);
+    assert_eq!(unknown.code, 2);
+    assert_eq!(unknown.document["code"], "view-unknown");
+    let pending = run(&[
+        "artwork",
+        "--in",
+        s(&archive),
+        "--config",
+        s(&config),
+        "--view",
+        "assembly_top_view",
+        "-o",
+        s(&out),
+    ]);
+    assert_eq!(pending.code, 7);
+    assert_eq!(pending.document["code"], "stage-order");
 }

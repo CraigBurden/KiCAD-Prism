@@ -345,6 +345,9 @@ fn other_document(schema: &str, value: &Value) -> Result<Value, String> {
         "prism.cli.drawing_sheet_result.a0" => {
             retyped::<contract::prism_cli_drawing_sheet_result_a0::CliDrawingSheetResultA0>(value)
         }
+        "prism.cli.artwork_result.a0" => {
+            retyped::<contract::prism_cli_artwork_result_a0::CliArtworkResultA0>(value)
+        }
         other => Err(format!("{other} is not a prism-kicad stdout document")),
     }
 }

@@ -7,6 +7,7 @@ use prism_bundle::{Failure, LimitName, Limits, Outcome, Work};
 use std::collections::{BTreeMap, BTreeSet};
 
 mod build_rules;
+mod help;
 mod model_dirs;
 mod system;
 use build_rules::build_rules;
@@ -44,6 +45,8 @@ pub enum Command {
     StrokeText,
     /// `drawing-sheet`.
     DrawingSheet,
+    /// `artwork`.
+    Artwork,
 }
 
 /// A `system build` member: its stored design bundle and the revision key it
@@ -110,6 +113,8 @@ pub struct Args {
     pub quiet: bool,
     /// `stroke-text --metrics`.
     pub metrics: bool,
+    /// `artwork --view`, in code point order.
+    pub views: Vec<String>,
     /// `--threads`, validated.
     pub threads: u64,
     /// The stage of `bundle build`.
@@ -141,7 +146,7 @@ fn work_of(command: Command, stage: Option<StageArg>) -> Work {
     }
 }
 
-const VALUE_OPTIONS: [&str; 42] = [
+const VALUE_OPTIONS: [&str; 43] = [
     "output",
     "in",
     "stage",
@@ -184,6 +189,7 @@ const VALUE_OPTIONS: [&str; 42] = [
     "models",
     "variant",
     "request",
+    "view",
 ];
 
 fn allowed(command: Command, option: &str) -> bool {
@@ -261,6 +267,7 @@ fn sheet_and_system(command: Command) -> &'static [&'static str] {
             "output",
         ],
         Command::VendorList | Command::VendorRun => &["in", "config", "output", "variant"],
+        Command::Artwork => &["in", "config", "view", "output", "variant"],
         Command::StrokeText => &["request", "metrics"],
         Command::DrawingSheet => &["request"],
         _ => &[],
@@ -275,20 +282,32 @@ fn conflict(message: impl Into<String>, argument: &'static str) -> Failure {
     Failure::usage("option-conflict", message).argument(argument)
 }
 
+const ONE_WORD: [(&str, Command); 9] = [
+    ("version", Command::Version),
+    ("--version", Command::Version),
+    ("-h", Command::Help),
+    ("--help", Command::Help),
+    ("revision-key", Command::RevisionKey),
+    ("compare", Command::Compare),
+    ("stroke-text", Command::StrokeText),
+    ("drawing-sheet", Command::DrawingSheet),
+    ("artwork", Command::Artwork),
+];
+
 fn command_words(argv: &[String]) -> Outcome<(Command, usize)> {
-    match argv.first().map(String::as_str) {
-        Some("version" | "--version") => Ok((Command::Version, 1)),
-        Some("-h" | "--help") | None => Ok((Command::Help, 1)),
-        Some("revision-key") => Ok((Command::RevisionKey, 1)),
-        Some("compare") => Ok((Command::Compare, 1)),
-        Some("stroke-text") => Ok((Command::StrokeText, 1)),
-        Some("drawing-sheet") => Ok((Command::DrawingSheet, 1)),
-        Some("system") => system_command(argv.get(1).map(String::as_str)),
-        Some("vendor") => vendor_command(argv.get(1).map(String::as_str)),
-        Some("bundle") => bundle_command(argv.get(1).map(String::as_str)),
-        Some(_) => Err(Failure::usage(
+    let Some(word) = argv.first().map(String::as_str) else {
+        return Ok((Command::Help, 1));
+    };
+    if let Some((_, command)) = ONE_WORD.iter().find(|(name, _)| *name == word) {
+        return Ok((*command, 1));
+    }
+    match word {
+        "system" => system_command(argv.get(1).map(String::as_str)),
+        "vendor" => vendor_command(argv.get(1).map(String::as_str)),
+        "bundle" => bundle_command(argv.get(1).map(String::as_str)),
+        _ => Err(Failure::usage(
             "unknown-command",
-            "the command is not version, bundle build, bundle verify, bundle extract, bundle reuse, revision-key, compare, vendor list, vendor run, system build, system step, stroke-text or drawing-sheet",
+            "the command is not version, bundle build, bundle verify, bundle extract, bundle reuse, revision-key, compare, vendor list, vendor run, system build, system step, stroke-text, drawing-sheet or artwork",
         )
         .argument("command")),
     }
@@ -354,6 +373,7 @@ struct Raw {
     entries: Vec<String>,
     entry_stages: Vec<String>,
     model_dirs: Vec<String>,
+    views: Vec<String>,
     include_unchanged: bool,
     worktree: bool,
     quiet: bool,
@@ -375,6 +395,7 @@ fn collect(command: Command, rest: &[String]) -> Outcome<Raw> {
         entries: Vec::new(),
         entry_stages: Vec::new(),
         model_dirs: Vec::new(),
+        views: Vec::new(),
         include_unchanged: false,
         worktree: false,
         quiet: false,
@@ -480,6 +501,7 @@ impl Raw {
             "absent" => Some(&mut self.absent),
             "entry" => Some(&mut self.entries),
             "entry-stage" => Some(&mut self.entry_stages),
+            "view" => Some(&mut self.views),
             _ => None,
         }
     }
@@ -721,6 +743,23 @@ fn check_vendor(raw: &Raw, command: Command) -> Outcome<()> {
     Ok(())
 }
 
+/// The options of `artwork` (cli-spec.md §5.7): `--in`, `--config`, at least
+/// one `--view`, `-o` and an optional `--variant`, and no positional argument.
+fn check_artwork(raw: &Raw) -> Outcome<()> {
+    if !raw.positional.is_empty() {
+        return Err(usage("artwork takes no positional argument").argument("command"));
+    }
+    for option in ["in", "config", "output"] {
+        if !raw.options.contains_key(option) {
+            return Err(usage(format!("artwork takes --{option}")).argument(option));
+        }
+    }
+    if raw.views.is_empty() {
+        return Err(usage("artwork takes at least one --view").argument("view"));
+    }
+    Ok(())
+}
+
 /// The options of `revision-key` (cli-spec.md §5.5): one `<repo>`, exactly
 /// one of `--commit` and `--worktree`, and `--project`.
 fn check_revision_key(raw: &Raw) -> Outcome<()> {
@@ -752,7 +791,7 @@ fn check_combinations(command: Command, raw: &Raw, stage: Option<StageArg>) -> O
         Command::SystemBuild | Command::SystemStep => {
             check_system(raw, command == Command::SystemStep)
         }
-        Command::StrokeText | Command::DrawingSheet | Command::Version => {
+        Command::StrokeText | Command::DrawingSheet | Command::Artwork | Command::Version => {
             check_leaf_command(command, raw)
         }
         _ => Ok(()),
@@ -765,6 +804,7 @@ fn check_leaf_command(command: Command, raw: &Raw) -> Outcome<()> {
     match command {
         Command::StrokeText => check_stroke_text(raw),
         Command::DrawingSheet => check_drawing_sheet(raw),
+        Command::Artwork => check_artwork(raw),
         Command::Version => check_version(raw),
         _ => Ok(()),
     }
@@ -862,6 +902,7 @@ pub fn parse(argv: &[String]) -> Outcome<Args> {
         worktree: raw.worktree,
         quiet: raw.quiet,
         metrics: raw.metrics,
+        views: raw.views,
         threads,
         stage,
         limits,
@@ -912,62 +953,14 @@ fn help_args() -> Args {
         worktree: false,
         quiet: false,
         metrics: false,
+        views: Vec::new(),
         threads: 4,
         stage: None,
         limits: Limits::defaults(Work::Other),
     }
 }
 
-/// The usage text of `-h`.
-pub const HELP: &str = "prism-kicad: parse a KiCad revision once and write its design bundle
-
-usage:
-  prism-kicad version
-  prism-kicad bundle build <project.kicad_pro> --stage parse -o <out.prism>
-              [--source-root <dir>] [--revision-key <hex>] [--key-record <record.json>]
-              [--upgraded <path>=<version>]... [--config <effective.json>] [COMMON]
-  prism-kicad bundle build --stage board --in <bundle.prism> -o <out.prism>
-              [--refilled-board <board.kicad_pcb> --refill-tool <kicad-version>]
-              [--revision-key <hex>] [--config <effective.json>] [COMMON]
-  prism-kicad bundle build --stage models --in <bundle.prism> -o <out.prism>
-              --models-glb <components.glb> --models-tool <kicad-version>
-              [--geometer <exe> [--model-dir <VAR>=<dir>]... [--hlr-cache <dir>]]
-              [--revision-key <hex>] [--config <effective.json>] [COMMON]
-  prism-kicad bundle verify <bundle.prism> [COMMON]
-  prism-kicad bundle extract <bundle.prism> <member>... -o <dir> [COMMON]
-  prism-kicad bundle reuse --in <bundle.prism> --key-record <record.json> [COMMON]
-  prism-kicad revision-key <repo> (--commit <rev> | --worktree) --project <rel>
-              [--config <effective.json>] [COMMON]
-  prism-kicad compare (--base <base.prism> | --base-src <project.kicad_pro>
-              [--base-source-root <dir>] [--base-config <effective.json>]
-              [--base-upgraded <path>=<version>]...) --base-revision-key <hex>
-              (--head <head.prism> | --head-src … as for the base) --head-revision-key <hex>
-              [--include-unchanged] -o <result.json> [COMMON]
-  prism-kicad system build --document <system.json>
-              [--member <occurrence>=<bundle.prism>
-              --member-revision-key <occurrence>=<hex>]... [--absent <occurrence>]...
-              [--board-sub-ports <board-sub-ports.json>] [--parts <system-parts.json>]
-              [--entry <occurrence>=<system-entry.json>
-              --entry-stage <occurrence>=<stage>]...
-              -o <system-bundle.json> [COMMON]
-  prism-kicad vendor list [COMMON]
-  prism-kicad vendor run <vendor-id> --in <bundle.prism> --config <cfg.json>
-              -o <dir> [--variant <name>] [COMMON]
-  prism-kicad system step --document <system.json>
-              [--member <occurrence>=<bundle.prism>
-              --member-revision-key <occurrence>=<hex>]... [--absent <occurrence>]...
-              [--board-sub-ports <board-sub-ports.json>] [--parts <system-parts.json>]
-              [--entry <occurrence>=<system-entry.json>
-              --entry-stage <occurrence>=<stage>]... --models <manifest.json>
-              -o <system.step> [COMMON]
-  prism-kicad stroke-text (--request <runs.json> | --metrics) [COMMON]
-  prism-kicad drawing-sheet --request <sheet.json> [COMMON]
-
-COMMON: [--limit <name>=<value>]... [--threads <n>] [--quiet]
-
-Every command writes one JSON document to stdout and JSON Lines to stderr
-(native/contracts/prism/cli-spec.md).
-";
+pub use help::HELP;
 
 #[cfg(test)]
 mod tests;
