@@ -31,7 +31,7 @@ A bundle is one zip file per (revision key, generator id) (ADR §5). It holds th
 | `projections/occurrences.json` | `projection` | parse | `prism.occurrences.a0` | same | P2 | C2, C3, C4, C7 |
 | `projections/stackup.json` | `projection` | parse | `prism.stackup.a0` | same | P3 | C2, C3, C4, C5, C6 |
 | `projections/route-metrics.json` | `projection` | parse | `prism.route_metrics.a0` | same | P2 | C2 |
-| `projections/placements.json` | `projection` | parse | `prism.placements.a0` | same | P3 | C3, C4, C7 |
+| `projections/placements.json` | `projection` | parse | `prism.placements.a1` | same | P3 | C3, C4, C7 |
 | `projections/project.json` | `projection` | parse | `prism.project.a0` | same | P4 | project metadata, C3, C5 |
 | `projections/system-interface.json` | `projection` | parse | `prism.system_interface.v1` | same | P5 | C4 |
 | `refilled/<board name>` | `refilled-board` | board | — | stage board `complete` or `partial`, and `config.zone_fills` absent | the job's refill (`generator.refill_procedure`, cli-spec.md §9.2); the CLI checks and copies it | the materializer, C3 |

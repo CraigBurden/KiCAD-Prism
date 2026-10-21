@@ -36,7 +36,7 @@ EXAMPLES = Path(os.environ.get("PRISM_KICAD_STUB_EXAMPLES") or REPO / "native" /
 PROJECTIONS = {
     "projections/board-objects.json": "BoardObjectsA0",
     "projections/occurrences.json": "OccurrencesA0",
-    "projections/placements.json": "PlacementsA0",
+    "projections/placements.json": "PlacementsA1",
     "projections/project.json": "ProjectA0",
     "projections/route-metrics.json": "RouteMetricsA0",
     "projections/semantic-index.json": "SemanticIndexA2",

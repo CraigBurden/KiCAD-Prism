@@ -13,6 +13,7 @@ members = [
     "src/rs/prism-projections",
     "src/rs/prism-step",
     "src/rs/prism-system",
+    "src/rs/prism-vendors",
 ]
 # Vendored third-party code (ADR amendment C3 §2 item 4): built as a path
 # dependency, kept out of the workspace's own lints and tests.

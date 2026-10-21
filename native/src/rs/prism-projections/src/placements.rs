@@ -1,8 +1,9 @@
-//! `projections/placements.json` (`prism.placements.a0`). Filled by WP-P3; a
+//! `projections/placements.json` (`prism.placements.a1`). Filled by WP-P3; a
 //! faithful Rust port of the golden producer
 //! `native/parity/prism_parity/capture/placements_build.py` (field map
 //! `contracts/prism/field-maps/placements.md`, rules R1-R13, decisions
-//! "Placements" 1-5 and "Occurrences" 1).
+//! "Placements" 1-5 and "Occurrences" 1). a1 adds `auxAxisOrigin`, the board's
+//! auxiliary axis origin, read from the core's parsed board setup.
 //!
 //! The board's top-level forms come from the fork parser's spans
 //! (`prism_kicad_core::sexpr_projection`); each form is decoded with the fork
@@ -18,9 +19,9 @@ mod tree;
 use crate::{Produced, ProducerWarning, ProjectionError, ProjectionInput, document};
 use geometry::{graphic_points, point_bounds, rotate_point};
 use numbers::{degrees, fold, is_canonical_uuid, nm};
-use prism_kicad_contracts::generated::prism_placements_a0::{
+use prism_kicad_contracts::generated::prism_placements_a1::{
     ByteCount, Degrees, KiCadUuid, LibId, Nanometres, NonNegativeNanometres, PadNumber,
-    PlacementsA0, PlacementsBounds, PlacementsFootprint, PlacementsFormLength, PlacementsModel,
+    PlacementsA1, PlacementsBounds, PlacementsFootprint, PlacementsFormLength, PlacementsModel,
     PlacementsModelOffset, PlacementsModelPath, PlacementsModelRotation, PlacementsModelScale,
     PlacementsPad, PlacementsPadShape, PlacementsPadSize, PlacementsPadType, PlacementsSourceSpan,
     PointNm, Refdes, Side,
@@ -31,7 +32,7 @@ use serde_json::json;
 use std::collections::BTreeSet;
 
 /// The member's schema id (`placements_build.py:30`).
-pub const SCHEMA: &str = "prism.placements.a0";
+pub const SCHEMA: &str = "prism.placements.a1";
 const NAME: &str = "projections/placements.json";
 
 /// The footprint courtyard layers (`placements_build.py:34`).
@@ -58,19 +59,38 @@ const FP_GRAPHICS: [(&str, &str); 6] = [
 ];
 
 /// Build `projections/placements.json` from the single parse of the revision.
-pub fn produce(input: &ProjectionInput<'_>) -> Result<Produced<PlacementsA0>, ProjectionError> {
+pub fn produce(input: &ProjectionInput<'_>) -> Result<Produced<PlacementsA1>, ProjectionError> {
     let Some(board) = input.board else {
         return document(
             NAME,
             json!({"schema": SCHEMA, "footprints": [], "designators": []}),
         );
     };
-    let (document, warnings) = build(board.text)?;
+    let aux_axis_origin = aux_axis_origin(board.view)?;
+    let (document, warnings) = build(board.text, aux_axis_origin)?;
     Ok(Produced { document, warnings })
 }
 
+/// The board's auxiliary axis origin, in nanometres, when it sets one
+/// (`prism-kicad-core/src/pcb/setup.rs`; C3 §3.3).
+fn aux_axis_origin(
+    view: &prism_kicad_core::PcbView<'_>,
+) -> Result<Option<PointNm>, ProjectionError> {
+    let setup = view.setup().map_err(|error| {
+        ProjectionError::new(format!(
+            "placements: the board setup does not parse: {error}"
+        ))
+    })?;
+    Ok(setup
+        .filter(|setup| setup.has_aux_axis_origin)
+        .map(|setup| point((nm(setup.aux_axis_origin.x), nm(setup.aux_axis_origin.y)))))
+}
+
 /// R1-R13 for one `.kicad_pcb` text (`placements_build.py:298-367`).
-fn build(text: &str) -> Result<(PlacementsA0, Vec<ProducerWarning>), ProjectionError> {
+fn build(
+    text: &str,
+    aux_axis_origin: Option<PointNm>,
+) -> Result<(PlacementsA1, Vec<ProducerWarning>), ProjectionError> {
     if !is_kicad_pcb(text)? {
         return Err(ProjectionError::new(
             "placements: the board is not a kicad_pcb",
@@ -129,11 +149,12 @@ fn build(text: &str) -> Result<(PlacementsA0, Vec<ProducerWarning>), ProjectionE
         .map(|value| Refdes::try_from(value).map_err(|_| empty_refdes_error()))
         .collect::<Result<Vec<_>, _>>()?;
     Ok((
-        PlacementsA0 {
+        PlacementsA1 {
             schema: SCHEMA.to_string(),
             footprints,
             designators,
             outline_bounds: bounds_points(&outline_points),
+            aux_axis_origin,
         },
         warnings,
     ))
@@ -503,7 +524,7 @@ mod tests {
             "  (gr_circle (center 200 200) (end 210 200) (layer \"Edge.Cuts\"))\n",
             ")\n",
         );
-        let (document, _) = build(text).expect("board builds");
+        let (document, _) = build(text, None).expect("board builds");
         let bounds = document.outline_bounds.expect("outline present");
         assert_eq!(bounds.min_nm.x_nm.0, 0);
         assert_eq!(bounds.min_nm.y_nm.0, 0);
@@ -524,7 +545,7 @@ mod tests {
             "  )\n",
             ")\n",
         );
-        let (document, warnings) = build(text).expect("board builds");
+        let (document, warnings) = build(text, None).expect("board builds");
         assert!(warnings.is_empty());
         assert_eq!(document.footprints.len(), 1);
         assert!(document.footprints[0].courtyard_bounds.is_none());
@@ -532,7 +553,7 @@ mod tests {
 
     #[test]
     fn the_ported_board_builds_identity_and_placement() {
-        let (document, warnings) = build(BOARD).expect("board builds");
+        let (document, warnings) = build(BOARD, None).expect("board builds");
         assert!(warnings.is_empty());
         assert_eq!(document.schema, SCHEMA);
         assert_eq!(document.designators.len(), 1);
@@ -556,7 +577,7 @@ mod tests {
 
     #[test]
     fn the_ported_board_builds_geometry_models_and_span() {
-        let (document, _) = build(BOARD).expect("board builds");
+        let (document, _) = build(BOARD, None).expect("board builds");
         let footprint = &document.footprints[0];
         assert_eq!(footprint.pads.len(), 1);
         assert_eq!(footprint.pads[0].number.0, "1");
@@ -579,7 +600,7 @@ mod tests {
 
     #[test]
     fn a_non_board_expression_is_rejected() {
-        let error = build("(not_a_board)").expect_err("not a board");
+        let error = build("(not_a_board)", None).expect_err("not a board");
         assert!(error.message.contains("kicad_pcb"), "{}", error.message);
     }
 
@@ -593,7 +614,7 @@ mod tests {
             "  )\n",
             ")\n",
         );
-        let error = build(text).expect_err("bad pad type");
+        let error = build(text, None).expect_err("bad pad type");
         assert!(error.message.contains("weird"), "{}", error.message);
     }
 
@@ -607,7 +628,7 @@ mod tests {
             "  )\n",
             ")\n",
         );
-        let error = build(text).expect_err("bad pad shape");
+        let error = build(text, None).expect_err("bad pad shape");
         assert!(error.message.contains("hexagon"), "{}", error.message);
     }
 
@@ -620,9 +641,55 @@ mod tests {
             "  )\n",
             ")\n",
         );
-        let (document, warnings) = build(text).expect("board builds");
+        let (document, warnings) = build(text, None).expect("board builds");
         assert!(document.footprints.is_empty());
         assert_eq!(warnings.len(), 1);
         assert_eq!(warnings[0].code, "placements-footprint-skipped");
+    }
+
+    #[test]
+    fn a_board_with_an_aux_axis_origin_records_it() {
+        let text = concat!(
+            "(kicad_pcb\n",
+            "  (setup (aux_axis_origin 25.4 -3.5))\n",
+            "  (footprint \"Test:Foo\"\n",
+            "    (layer \"F.Cu\")\n",
+            "    (uuid \"00000000-0000-0000-0000-000000000001\")\n",
+            "    (at 1 2)\n",
+            "    (property \"Reference\" \"R1\")\n",
+            "  )\n",
+            ")\n",
+        );
+        let view = prism_kicad_core::PcbView::parse(text, prism_kicad_core::PcbLimits::default())
+            .expect("board parses");
+        let aux = super::aux_axis_origin(&view).expect("setup reads");
+        let (document, _) = build(text, aux).expect("board builds");
+        let origin = document.aux_axis_origin.expect("origin present");
+        assert_eq!(origin.x_nm.0, 25_400_000);
+        assert_eq!(origin.y_nm.0, -3_500_000);
+    }
+
+    #[test]
+    fn a_board_without_an_aux_axis_origin_has_none() {
+        let text = concat!(
+            "(kicad_pcb\n",
+            "  (setup (pad_to_mask_clearance 0))\n",
+            "  (footprint \"Test:Foo\"\n",
+            "    (layer \"F.Cu\")\n",
+            "    (uuid \"00000000-0000-0000-0000-000000000001\")\n",
+            "    (at 1 2)\n",
+            "    (property \"Reference\" \"R1\")\n",
+            "  )\n",
+            ")\n",
+        );
+        let view = prism_kicad_core::PcbView::parse(text, prism_kicad_core::PcbLimits::default())
+            .expect("board parses");
+        assert!(
+            super::aux_axis_origin(&view)
+                .expect("setup reads")
+                .is_none()
+        );
+        let (document, _) = build(text, None).expect("board builds");
+        assert!(document.aux_axis_origin.is_none());
     }
 }

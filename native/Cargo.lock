@@ -727,7 +727,7 @@ dependencies = [
 
 [[package]]
 name = "prism-kicad-cli"
-version = "0.6.2"
+version = "0.6.3"
 dependencies = [
  "libc",
  "miniz_oxide",
@@ -737,6 +737,7 @@ dependencies = [
  "prism-kicad-materialization-pack",
  "prism-step",
  "prism-system",
+ "prism-vendors",
  "serde",
  "serde_json",
  "sha2 0.11.0",
@@ -853,6 +854,18 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2 0.11.0",
+]
+
+[[package]]
+name = "prism-vendors"
+version = "0.1.0"
+dependencies = [
+ "miniz_oxide",
+ "prism-bundle",
+ "prism-kicad-contracts",
+ "prism-kicad-core",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]

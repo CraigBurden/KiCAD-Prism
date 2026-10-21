@@ -1,6 +1,6 @@
-# Field map: `projections/placements.json` (`prism.placements.a0`)
+# Field map: `projections/placements.json` (`prism.placements.a1`)
 
-Root model `PlacementsA0` in `tsp/prism/placements-a0.tsp`. Example `examples/PlacementsA0.example.json`.
+Root model `PlacementsA1` in `tsp/prism/placements-a1.tsp`. Example `examples/PlacementsA1.example.json`.
 Written by: P3, `native/src/rs/prism-projections/src/placements.rs`. Stage: parse.
 
 Today no single document holds these facts. Three consumers each load the board through Python kicad_monkey 2026.9.7 or scan its text, and read placement facts from it:
@@ -59,7 +59,7 @@ Pointers are RFC 6901 with two extensions: `*` is every element of an array,
 
 | Field (JSON pointer) | Type | Unit | Order / nullability | Today's source (path:line) | Consumers (path:line) | Parity note |
 |---|---|---|---|---|---|---|
-| `/schema` | const `"prism.placements.a0"` | — | required | new | `backend/app/services/design_bundle/` reader (K) switches on it | — |
+| `/schema` | const `"prism.placements.a1"` | — | required | new | `backend/app/services/design_bundle/` reader (K) switches on it | — |
 | `/footprints` | `PlacementsFootprint[]` | — | required, may be empty; file order (source offset); `uuid` unique | `rsp:571`, `:612` and `ie:257` iterate `pcb.footprints` in file order; `pcae:302` `iter_forms(text, "footprint")` in file order | RS testpoints in this order (`rsp:612-631`, digest-relevant); System Builder "first footprint wins" on a repeated reference (`ie:255-262`); C7 | same order as today. The rows dropped by rule R2 never occur in KiCad 9/10 files or in any fixture |
 | `/footprints/*/uuid` | `KiCadUuid` | — | required; unique | fork `pcb.rs:365`, `pcb/decode.rs:191-193` (`uuid` or `tstamp`) | C7 lookup by `pcbRefs[].footprintUuid` (`pcae:385-394`); join with `prism.occurrences.a0` `footprints[*].uuid` | `pcae:304-306` also indexes pad and graphic uuids inside the form; the member has only the footprint's own |
 | `/footprints/*/reference` | `Refdes` | — | optional; absent = no `Reference` property and no `fp_text reference`, or both empty | `rsp:639-648` (`Reference` property, then `fp_text reference`); fork `pcb/decode.rs:166-167` (property only) | RS testpoints `ref` (`rsp:613-619`), population (`rsp:572`), designators (`rsp:538`); SB geometry key (`ie:255-262`); C7 `footprints_by_reference` (`pcae:309`, `:396`) | identical to RS on every fixture. v1 reads the property only (`ie:173-177`), so KiCad 7 boards have no SB geometry today (D4) |
@@ -108,14 +108,17 @@ Pointers are RFC 6901 with two extensions: `*` is every element of an array,
 | `/outlineBounds/minNm/yNm` | `Nanometres` | nm | required in its object | min y | SB `boardOutlineMm.maxMm[1]` = `−minNm.yNm/1e6` | as above |
 | `/outlineBounds/maxNm/xNm` | `Nanometres` | nm | required in its object | max x | SB `boardOutlineMm.maxMm[0]` | as above |
 | `/outlineBounds/maxNm/yNm` | `Nanometres` | nm | required in its object | max y | SB `boardOutlineMm.minMm[1]` = `−maxNm.yNm/1e6` | as above |
+| `/auxAxisOrigin` | `PointNm` | nm | optional; absent = the board does not set `(setup (aux_axis_origin …))`, or no board; board-absolute, y down | `(setup (aux_axis_origin x y))` (`prism-kicad-core/src/pcb/setup.rs` `has_aux_axis_origin`, `aux_axis_origin`), converted to integer nanometres as `positionNm` is | JLCPCB CPL (`prism-kicad vendor run jlcpcb`): Mid X = `(xNm − aux.xNm)/1e6`, Mid Y = `(aux.yNm − yNm)/1e6` (ADR amendment C3 §3.3) | a1. Absent means 0,0; today’s Cruncher reads the same origin from the board |
+| `/auxAxisOrigin/xNm` | `Nanometres` | nm | required in its object | x of `(aux_axis_origin x y)` | JLCPCB CPL Mid X | as above |
+| `/auxAxisOrigin/yNm` | `Nanometres` | nm | required in its object | y of `(aux_axis_origin x y)` | JLCPCB CPL Mid Y (negated) | as above |
 
-No field is nullable. The optional fields are `reference`, `libId`, `courtyardBounds` and `outlineBounds`, each absent for exactly the reason in its row.
+No field is nullable. The optional fields are `reference`, `libId`, `courtyardBounds`, `outlineBounds` and `auxAxisOrigin`, each absent for exactly the reason in its row.
 
 ### Computation rules (normative for P3)
 
 Lengths are computed in IEEE-754 binary64 millimetres from the parsed values (the correctly rounded double of the file's decimal). Each output coordinate is converted once with conventions §6: `nm = (mm × 1e6).round()`, half away from zero. KiCad writes at most 6 decimals, so a value copied from the file converts exactly. `-0` is written as `0`.
 
-- **R1, input.** The project's board file as committed: the `source-board` member, `revision.config.board`. Never the refilled board, because the spans (R11) refer to the committed bytes; the refill does not move footprints either. Parse it with `PcbView::parse` (fork `pcb.rs:772`). Without a board: `footprints: []`, `designators: []`, no `outlineBounds`.
+- **R1, input.** The project's board file as committed: the `source-board` member, `revision.config.board`. Never the refilled board, because the spans (R11) refer to the committed bytes; the refill does not move footprints either. Parse it with `PcbView::parse` (fork `pcb.rs:772`). Without a board: `footprints: []`, `designators: []`, no `outlineBounds`, no `auxAxisOrigin`.
 - **R2, footprints and identity.** Take `PcbView::footprints()` in source order (fork `pcb.rs:902`). `uuid` is `PcbFootprint.uuid`: the `(uuid …)`, or in a KiCad 7 file the `(tstamp …)` (fork `pcb/decode.rs:191-193`). Leave out a footprint and report it once as a manifest warning when its uuid is:
   - missing;
   - not a canonical `KiCadUuid`;
@@ -257,7 +260,7 @@ No document of this shape exists today. The goldens are therefore today's consum
 
 ## Example provenance
 
-`examples/PlacementsA0.example.json` is the scratch Rust prototype's output for `fixtures/release-studio/cynthion/cynthion.kicad_pcb` (KiCad 7 format: `tstamp` ids, `fp_text` references, bare `hide`), trimmed with the scratch `make_example.mjs`:
+`examples/PlacementsA1.example.json` is the scratch Rust prototype's output for `fixtures/release-studio/cynthion/cynthion.kicad_pcb` (KiCad 7 format: `tstamp` ids, `fp_text` references, bare `hide`), trimmed with the scratch `make_example.mjs`:
 
 - `U7` keeps pads 1 and 8 of 8. It is front-side, rotated 180°, and has a hidden and a visible model.
 - `J10` keeps one `np_thru_hole` unnumbered pad of 7 and the `connect` pad 1 of 6. It is excluded from position files and has no model.

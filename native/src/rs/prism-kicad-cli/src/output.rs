@@ -322,6 +322,19 @@ pub fn in_declaration_order(value: &Value) -> Result<Value, String> {
         "prism.revision_key.record.a1" => {
             retyped::<contract::prism_revision_key_record_a1::RevisionKeyRecordA1>(value)
         }
+        other => other_document(other, value),
+    }
+}
+
+fn other_document(schema: &str, value: &Value) -> Result<Value, String> {
+    use prism_kicad_contracts::generated as contract;
+    match schema {
+        "prism.cli.vendor_list.a0" => {
+            retyped::<contract::prism_cli_vendor_list_a0::CliVendorListA0>(value)
+        }
+        "prism.cli.vendor_run_result.a0" => {
+            retyped::<contract::prism_cli_vendor_run_result_a0::CliVendorRunResultA0>(value)
+        }
         other => Err(format!("{other} is not a prism-kicad stdout document")),
     }
 }

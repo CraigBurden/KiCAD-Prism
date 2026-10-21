@@ -42,7 +42,7 @@ pub const BOARD_ID: &str = "main";
 pub const PROJECTIONS: [(&str, &str); 8] = [
     ("projections/board-objects.json", "prism.board_objects.a0"),
     ("projections/occurrences.json", "prism.occurrences.a0"),
-    ("projections/placements.json", "prism.placements.a0"),
+    ("projections/placements.json", "prism.placements.a1"),
     ("projections/project.json", "prism.project.a0"),
     ("projections/route-metrics.json", "prism.route_metrics.a0"),
     ("projections/semantic-index.json", "prism.semantic_index.a2"),

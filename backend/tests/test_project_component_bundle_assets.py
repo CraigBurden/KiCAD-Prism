@@ -294,7 +294,7 @@ def occurrences_doc() -> dict:
 
 def placements_doc(span: tuple[int, int]) -> dict:
     return {
-        "schema": "prism.placements.a0",
+        "schema": "prism.placements.a1",
         "footprints": [
             {
                 "uuid": FP_UUID,

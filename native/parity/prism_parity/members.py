@@ -60,7 +60,7 @@ MEMBERS: dict[str, Member] = {
         Member("occurrences", "prism.occurrences.a0", "OccurrencesA0", "P2", "field-maps/occurrences.md"),
         Member("stackup", "prism.stackup.a0", "StackupA0", "P3", "field-maps/stackup.md"),
         Member("route-metrics", "prism.route_metrics.a0", "RouteMetricsA0", "P2", "field-maps/route-metrics.md"),
-        Member("placements", "prism.placements.a0", "PlacementsA0", "P3", "field-maps/placements.md"),
+        Member("placements", "prism.placements.a1", "PlacementsA1", "P3", "field-maps/placements.md"),
         Member("project", "prism.project.a0", "ProjectA0", "P4", "field-maps/project.md"),
         Member(
             "system-interface",

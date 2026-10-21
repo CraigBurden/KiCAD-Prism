@@ -1,6 +1,6 @@
 # Divergences: `projections/placements.json`
 
-- Member: `placements`, schema `prism.placements.a0` (root `PlacementsA0`)
+- Member: `placements`, schema `prism.placements.a1` (root `PlacementsA1`)
 - Producer: WP-P3 (`native/src/rs/prism-projections/src/placements.rs`)
 - Field map: [`native/contracts/prism/field-maps/placements.md`](../../contracts/prism/field-maps/placements.md), "Expected divergences" (full text there)
 - Golden: `capture/placements.py`, an independent Python producer of R1-R13 (`capture/placements_build.py`; the W0 prototype is Rust on the fork core, the code under test), with consumer checks `rs-testpoints`, `rs-population`, `rs-designators`, `sb-geometry`, `sb-outline`, `catalog` (`capture/placements_derive.py`) and the KiCad 10.0.6 `ipcd356` oracle as a note (`capture/placements_oracle.py`)

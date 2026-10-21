@@ -32,6 +32,10 @@ pub enum Command {
     SystemBuild,
     /// `system step`.
     SystemStep,
+    /// `vendor list`.
+    VendorList,
+    /// `vendor run`.
+    VendorRun,
 }
 
 /// A `system build` member: its stored design bundle and the revision key it
@@ -125,7 +129,7 @@ fn work_of(command: Command, stage: Option<StageArg>) -> Work {
     }
 }
 
-const VALUE_OPTIONS: [&str; 37] = [
+const VALUE_OPTIONS: [&str; 38] = [
     "output",
     "in",
     "stage",
@@ -163,6 +167,7 @@ const VALUE_OPTIONS: [&str; 37] = [
     "entry",
     "entry-stage",
     "models",
+    "variant",
 ];
 
 fn allowed(command: Command, option: &str) -> bool {
@@ -224,6 +229,7 @@ fn allowed(command: Command, option: &str) -> bool {
             "models",
             "output",
         ],
+        Command::VendorList | Command::VendorRun => &["in", "config", "output", "variant"],
         _ => &[],
     };
     common || specific.contains(&option)
@@ -244,10 +250,11 @@ fn command_words(argv: &[String]) -> Outcome<(Command, usize)> {
         Some("revision-key") => Ok((Command::RevisionKey, 1)),
         Some("compare") => Ok((Command::Compare, 1)),
         Some("system") => system_command(argv.get(1).map(String::as_str)),
+        Some("vendor") => vendor_command(argv.get(1).map(String::as_str)),
         Some("bundle") => bundle_command(argv.get(1).map(String::as_str)),
         Some(_) => Err(Failure::usage(
             "unknown-command",
-            "the command is not version, bundle build, bundle verify, bundle extract, bundle reuse, revision-key, compare, system build or system step",
+            "the command is not version, bundle build, bundle verify, bundle extract, bundle reuse, revision-key, compare, vendor list, vendor run, system build or system step",
         )
         .argument("command")),
     }
@@ -260,6 +267,14 @@ fn system_command(word: Option<&str>) -> Outcome<(Command, usize)> {
         _ => {
             Err(Failure::usage("unknown-command", "system takes build or step").argument("command"))
         }
+    }
+}
+
+fn vendor_command(word: Option<&str>) -> Outcome<(Command, usize)> {
+    match word {
+        Some("list") => Ok((Command::VendorList, 2)),
+        Some("run") => Ok((Command::VendorRun, 2)),
+        _ => Err(Failure::usage("unknown-command", "vendor takes list or run").argument("command")),
     }
 }
 
@@ -628,6 +643,60 @@ fn check_compare_side(raw: &Raw, side: &str) -> Outcome<()> {
     }
 }
 
+fn check_verify(raw: &Raw) -> Outcome<()> {
+    if raw.positional.len() == 1 {
+        Ok(())
+    } else {
+        Err(usage("bundle verify takes one <bundle.prism>").argument("bundle"))
+    }
+}
+
+fn check_extract(raw: &Raw) -> Outcome<()> {
+    if raw.positional.len() < 2 {
+        return Err(
+            usage("bundle extract takes <bundle.prism> and at least one <member>")
+                .argument("member"),
+        );
+    }
+    if raw.options.contains_key("output") {
+        Ok(())
+    } else {
+        Err(usage("bundle extract takes -o <dir>").argument("output"))
+    }
+}
+
+fn check_version(raw: &Raw) -> Outcome<()> {
+    if raw.positional.is_empty() {
+        Ok(())
+    } else {
+        Err(usage("version takes no argument").argument("command"))
+    }
+}
+
+/// The options of `vendor list` and `vendor run` (cli-spec.md §5.8): `list`
+/// takes none of the run options, `run` takes one `<vendor-id>`, `--in`,
+/// `--config`, `-o` and an optional `--variant`.
+fn check_vendor(raw: &Raw, command: Command) -> Outcome<()> {
+    if command == Command::VendorList {
+        let run_option = ["in", "config", "output", "variant"]
+            .iter()
+            .any(|option| raw.options.contains_key(option));
+        if raw.positional.is_empty() && !run_option {
+            return Ok(());
+        }
+        return Err(usage("vendor list takes no argument or option").argument("command"));
+    }
+    if raw.positional.len() != 1 {
+        return Err(usage("vendor run takes one <vendor-id>").argument("command"));
+    }
+    for option in ["in", "config", "output"] {
+        if !raw.options.contains_key(option) {
+            return Err(usage(format!("vendor run takes --{option}")).argument(option));
+        }
+    }
+    Ok(())
+}
+
 /// The options of `revision-key` (cli-spec.md §5.5): one `<repo>`, exactly
 /// one of `--commit` and `--worktree`, and `--project`.
 fn check_revision_key(raw: &Raw) -> Outcome<()> {
@@ -650,25 +719,16 @@ fn check_revision_key(raw: &Raw) -> Outcome<()> {
 fn check_combinations(command: Command, raw: &Raw, stage: Option<StageArg>) -> Outcome<()> {
     match command {
         Command::Build => check_build(raw, stage),
-        Command::Verify if raw.positional.len() != 1 => {
-            Err(usage("bundle verify takes one <bundle.prism>").argument("bundle"))
-        }
-        Command::Extract if raw.positional.len() < 2 => Err(usage(
-            "bundle extract takes <bundle.prism> and at least one <member>",
-        )
-        .argument("member")),
-        Command::Extract if !raw.options.contains_key("output") => {
-            Err(usage("bundle extract takes -o <dir>").argument("output"))
-        }
+        Command::Verify => check_verify(raw),
+        Command::Extract => check_extract(raw),
         Command::RevisionKey => check_revision_key(raw),
         Command::Reuse => check_reuse(raw),
         Command::Compare => check_compare(raw),
+        Command::VendorList | Command::VendorRun => check_vendor(raw, command),
         Command::SystemBuild | Command::SystemStep => {
             check_system(raw, command == Command::SystemStep)
         }
-        Command::Version if !raw.positional.is_empty() => {
-            Err(usage("version takes no argument").argument("command"))
-        }
+        Command::Version => check_version(raw),
         _ => Ok(()),
     }
 }
@@ -816,6 +876,9 @@ usage:
               [--entry <occurrence>=<system-entry.json>
               --entry-stage <occurrence>=<stage>]...
               -o <system-bundle.json> [COMMON]
+  prism-kicad vendor list [COMMON]
+  prism-kicad vendor run <vendor-id> --in <bundle.prism> --config <cfg.json>
+              -o <dir> [--variant <name>] [COMMON]
   prism-kicad system step --document <system.json>
               [--member <occurrence>=<bundle.prism>
               --member-revision-key <occurrence>=<hex>]... [--absent <occurrence>]...
@@ -831,140 +894,4 @@ Every command writes one JSON document to stdout and JSON Lines to stderr
 ";
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn args(line: &str) -> Outcome<Args> {
-        let argv: Vec<String> = line.split_whitespace().map(str::to_owned).collect();
-        parse(&argv)
-    }
-
-    #[test]
-    fn parses_the_synopsis() {
-        let build = args(
-            "bundle build p.kicad_pro --stage parse -o out.prism --limit timeout-ms=5 --quiet",
-        )
-        .unwrap();
-        assert_eq!(build.command, Command::Build);
-        assert_eq!(build.stage, Some(StageArg::Parse));
-        assert_eq!(build.limits.get(LimitName::TimeoutMs), 5);
-        assert!(build.quiet);
-        let board =
-            args("bundle build --in a -o a --stage board --refilled-board b --refill-tool 10.0.6")
-                .unwrap();
-        assert_eq!(work_of(board.command, board.stage), Work::Board);
-        assert!(args("revision-key . --worktree --project x.kicad_pro").is_ok());
-        assert_eq!(args("version").unwrap().command, Command::Version);
-        let key = "0".repeat(64);
-        let compare = args(&format!(
-            "compare --base a.prism --head b.prism --base-revision-key {key} --head-revision-key {key} -o d.json"
-        ))
-        .unwrap();
-        assert_eq!(compare.command, Command::Compare);
-        assert_eq!(work_of(compare.command, compare.stage), Work::Compare);
-        // A source-tree side runs the parse stage, so it gets that stage's limits.
-        let source = args(&format!(
-            "compare --base-src p.kicad_pro --base-revision-key {key} --head b.prism --head-revision-key {key} -o r.json"
-        ))
-        .unwrap();
-        assert_eq!(
-            source.limits.get(LimitName::TimeoutMs),
-            Limits::defaults(Work::Parse).get(LimitName::TimeoutMs)
-        );
-        let reuse = args("bundle reuse --in a.prism --key-record k.json").unwrap();
-        assert_eq!(reuse.command, Command::Reuse);
-        assert_eq!(reuse.option("key-record"), Some("k.json"));
-    }
-
-    #[test]
-    fn rejects_bad_grammar() {
-        let code = |line: &str| args(line).unwrap_err().finding.code;
-        assert_eq!(code("frobnicate"), "unknown-command");
-        assert_eq!(code("bundle build p --stage parse -o a -o b"), "usage");
-        assert_eq!(code("bundle build p --stage=parse -o a"), "usage");
-        assert_eq!(code("bundle build --stage board -o a"), "option-conflict");
-        assert_eq!(
-            code("bundle build p --stage parse -o a --in b"),
-            "option-conflict"
-        );
-        assert_eq!(
-            code("bundle build p --stage parse -o a --key-record r"),
-            "option-conflict"
-        );
-        assert_eq!(
-            code("bundle build p --stage parse -o a --revision-key ABC"),
-            "usage"
-        );
-        assert_eq!(code("revision-key . --project x"), "option-conflict");
-        assert_eq!(
-            code("revision-key . --commit H --worktree --project x"),
-            "option-conflict"
-        );
-        assert_eq!(code("bundle extract b.prism -o d"), "usage");
-        assert_eq!(
-            code("bundle verify b --limit max-findings=1 --limit max-findings=2"),
-            "usage"
-        );
-        assert_eq!(code("bundle verify b --threads 0"), "usage");
-        assert_eq!(code("bundle verify b --stage parse"), "usage");
-    }
-
-    #[test]
-    fn rejects_bad_compare_grammar() {
-        let code = |line: &str| args(line).unwrap_err().finding.code;
-        assert_eq!(code("compare --head b -o d"), "usage");
-        assert_eq!(code("compare --base a -o d"), "usage");
-        assert_eq!(code("compare --base a --head b"), "usage");
-        assert_eq!(code("compare --base a --head b -o d extra"), "usage");
-        assert_eq!(code("compare --base a --head b --base c -o d"), "usage");
-        // Both modes take each side's revision key (ADR amendment K2 §3.6).
-        let key = "0".repeat(64);
-        assert_eq!(
-            code(&format!(
-                "compare --base a --head b --base-revision-key {key} -o d"
-            )),
-            "usage"
-        );
-        assert_eq!(
-            code(&format!(
-                "compare --base a --head b --base-revision-key {key} --head-revision-key X -o d"
-            )),
-            "usage"
-        );
-    }
-
-    #[test]
-    fn rejects_bad_reuse_grammar() {
-        let code = |line: &str| args(line).unwrap_err().finding.code;
-        assert_eq!(code("bundle reuse --in a"), "usage");
-        assert_eq!(code("bundle reuse --key-record k"), "usage");
-        assert_eq!(code("bundle reuse b --in a --key-record k"), "usage");
-        assert_eq!(code("bundle reuse --in a --key-record k -o d"), "usage");
-        assert_eq!(code("bundle frob"), "unknown-command");
-    }
-
-    #[test]
-    fn checks_upgrade_records() {
-        let code = |line: &str| args(line).unwrap_err().finding.code;
-        assert_eq!(
-            code("bundle build --in a -o a --stage board --upgraded x.kicad_sch=1"),
-            "option-conflict"
-        );
-        assert_eq!(
-            code("bundle build p --stage parse -o a --upgraded x.kicad_pro=1"),
-            "usage"
-        );
-        assert_eq!(
-            code("bundle build p --stage parse -o a --upgraded x.kicad_sch=v7"),
-            "usage"
-        );
-        assert_eq!(
-            code(
-                "bundle build p --stage parse -o a --upgraded x.kicad_sch=1 --upgraded x.kicad_sch=2"
-            ),
-            "usage"
-        );
-        let upgraded = args("bundle build p --stage parse -o a --upgraded a/x.kicad_sch=20230121 --upgraded b.kicad_pcb=20221018").unwrap();
-        assert_eq!(upgraded.upgraded.get("a/x.kicad_sch"), Some(&20_230_121));
-    }
-}
+mod tests;

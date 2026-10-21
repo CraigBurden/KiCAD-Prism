@@ -20,6 +20,7 @@ mod cmd_compare;
 mod cmd_revision_key;
 mod cmd_system;
 mod cmd_system_parts;
+mod cmd_vendor;
 mod git;
 mod inputs;
 mod output;
@@ -165,6 +166,7 @@ fn dispatch(args: &Args, stderr: &Stderr) -> Result<(Value, u8), Failure> {
             cmd_revision_key::KeyOutcome::Record(record) => Ok((record, 0)),
             cmd_revision_key::KeyOutcome::Absent(document) => Ok((document, 10)),
         },
+        Command::VendorList | Command::VendorRun => cmd_vendor::run(args, stderr),
         Command::Version
         | Command::Help
         | Command::Compare

@@ -136,20 +136,20 @@ mod tests {
         assert_eq!(bytes.len(), 1122);
         assert_eq!(
             digest(&bytes),
-            "7810c69bd40255d4e0eb7ccbaf09c6d24b76e838ed3e896429e67eb6e7c10300"
+            "1a6ffda3f76c88df1164335693cfa2745795410a854b392a89521d4b2636039f"
         );
         let vectors = [
             (
                 "0000000000000000000000000000000000000000000000000000000000000000",
-                "f7e22f0db99f840d8f0d9b2d5e1a5426e978e46254d36ebfc6f64e9264eb29de",
+                "81229c05c5c91007bfd1a199775bfcac1c90854e85008cfad7f038bbc9083ae7",
             ),
             (
                 "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-                "47b142bd2aafc356b54e6c52089002b56ef322a61292a29b0bc938d819586e57",
+                "e9074daa0134b271d17739777c484b91b733b2d83d5e3d8e5fb46b65488af3ab",
             ),
             (
                 "42e41c598a193d09f6917ee92b7c71e52e9e15a251a63b7a955ef41beb841f34",
-                "fcdb48b168f9a17bc8534f8e371596d7c93640616908099095277ed2637c3fd9",
+                "227367f0a2f9c13ebaf8839d158675f46fabb7ae7c1f755fb4aeae04863ea5bb",
             ),
         ];
         for (revision_key, expected) in vectors {
@@ -160,11 +160,11 @@ mod tests {
         let bytes = canonical(&bumped);
         assert_eq!(
             digest(&bytes),
-            "a67057635e271b7819c0617c857c1af05064f60f460fa6642a4813aa64201d74"
+            "2142d2323ce564010b7583ab5dd0029dd2ac2cf43af718dfc0045dbf28fe7de7"
         );
         assert_eq!(
             bundle_key(&"0".repeat(64), &bytes),
-            "b72734cfa24706d559fde6c73e237c5ba8593a0a4f15663541df9babe588f6d3"
+            "b6807733907b826a7b11db1d99ab08420f6f43879b5aea77953046458af8b354"
         );
     }
 

@@ -24,7 +24,7 @@ What it does not hold, and where that is:
 | Per-component (per-reference) view, `componentUid`, nets, terminals, pins | `prism.semantic_index.a2` |
 | Resolved per-variant state (effective flags and fields under a variant) | `prism.semantic_index.a2` `assembly.variants` |
 | A symbol's or footprint's own `dnp` / `in_bom` / `on_board` attributes, positions, library link, kiid paths of every object | `prism.board_objects.a0` |
-| Footprint side, position, rotation, courtyard, pads, models | `prism.placements.a0` |
+| Footprint side, position, rotation, courtyard, pads, models | `prism.placements.a1` |
 | Sheet names, human sheet paths, pages | `prism.semantic_index.a2` `sheetInstances`, `prism.project.a0` |
 
 Citations follow `conventions.md`: a bare path is in this repository, `fork:` is kicad_monkey at `b6316117` (`src/rs/kicad-monkey-core/src/…`), `ref:` is the reference branch.

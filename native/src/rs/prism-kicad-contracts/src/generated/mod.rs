@@ -51,7 +51,7 @@ pub mod prism_cli_version_a0;
 pub mod prism_design_compare_result_a1;
 pub mod prism_drawing_sheet_request_a0;
 pub mod prism_occurrences_a0;
-pub mod prism_placements_a0;
+pub mod prism_placements_a1;
 pub mod prism_project_a0;
 pub mod prism_revision_key_effective_config_a1;
 pub mod prism_revision_key_record_a1;
