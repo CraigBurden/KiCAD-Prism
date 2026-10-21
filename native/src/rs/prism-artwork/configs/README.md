@@ -33,9 +33,10 @@ The configuration can also be read as board millimetres, which is what the
 `drawing` value of `artwork_line_weights` does: the lengths are not divided, so
 strokes and type grow with the drawing. `paper` is the documented default and
 the mode these values were tuned for; `drawing` is kept for compatibility, so a
-config shared with an older Release Studio still draws as it used to. Geometry,
-`canvas.margin_mm` (a board-space margin), and `dnp.hatch_spacing_mm` are never
-divided: they describe the board, not the ink.
+config shared with an older Release Studio still draws as it used to. Geometry
+and `canvas.margin_mm` (a board-space margin) are never divided: they describe
+the board, not the ink. `dnp.hatch_spacing_mm` is a paper length like the hatch
+stroke, so it divides too and a 1.5 mm hatch prints 1.5 mm apart at any scale.
 
 They are checked against the generated `ArtworkConfigA0` schema by
 `tests/contract.rs`. `prism-kicad artwork --config` reads either one; the

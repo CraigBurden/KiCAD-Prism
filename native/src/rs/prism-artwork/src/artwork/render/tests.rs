@@ -432,8 +432,8 @@ fn a_body_too_small_for_the_minimum_font_keeps_a_smaller_label() {
     };
     let mut session = DesignatorFitSession::default();
     let small = square(1.0);
-    let fit = session.fit("TP12", &small, 0.8, 2.5, &[0.0]).unwrap();
-    let font = font_size_for(&small, "TP12", fit, 1.0);
+    let fit = session.fit("TP12", &small, 0.8, 2.5, &[0.0], 0.0).unwrap();
+    let font = font_size_for(&small, "TP12", fit, 1.0, 0.0);
     assert!(font < 1.0 && font > 0.0, "{font}");
     assert!(text_box_fits_region(
         &small,
@@ -441,9 +441,62 @@ fn a_body_too_small_for_the_minimum_font_keeps_a_smaller_label() {
         super::super::designator::DesignatorFit {
             font_size_mm: font,
             ..fit
-        }
+        },
+        0.0
     ));
     let large = square(20.0);
-    let fit = session.fit("TP12", &large, 0.8, 2.5, &[0.0]).unwrap();
-    assert_eq!(font_size_for(&large, "TP12", fit, 1.0), fit.font_size_mm);
+    let fit = session.fit("TP12", &large, 0.8, 2.5, &[0.0], 0.0).unwrap();
+    assert_eq!(
+        font_size_for(&large, "TP12", fit, 1.0, 0.0),
+        fit.font_size_mm
+    );
+}
+
+#[test]
+fn a_minimum_label_clears_a_thick_outline_and_its_clearance() {
+    use super::super::designator::{
+        DesignatorFitSession, region_from_rings, text_box, text_box_fits_region,
+    };
+    // "R1" is 2 × 0.62 = 1.24 em wide, and a 1.0 mm font box is 1.0 mm high.
+    let half_width = 0.62;
+    let half_height = 0.5;
+    let half_stroke = 0.25;
+    let clearance = 0.15;
+    let inset = half_stroke + clearance;
+    // Just big enough for the minimum label once the stroke and clearance are
+    // subtracted on each side, plus a hair for binary-search rounding.
+    let width = 2.0 * (half_width + inset) + 0.02;
+    let height = 2.0 * (half_height + inset) + 0.02;
+    let body = region_from_rings(&[vec![
+        Point { x: 0.0, y: 0.0 },
+        Point { x: width, y: 0.0 },
+        Point {
+            x: width,
+            y: height,
+        },
+        Point { x: 0.0, y: height },
+    ]])
+    .unwrap();
+    let mut session = DesignatorFitSession::default();
+    let fit = session.fit("R1", &body, 0.8, 2.5, &[0.0], inset).unwrap();
+    let font = font_size_for(&body, "R1", fit, 1.0, inset);
+    assert_eq!(font, 1.0, "the minimum label still fits the inset body");
+    assert!(text_box_fits_region(
+        &body,
+        "R1",
+        super::super::designator::DesignatorFit {
+            font_size_mm: font,
+            ..fit
+        },
+        inset
+    ));
+    for corner in text_box("R1", fit.center, font, fit.rotation_deg) {
+        assert!(
+            corner.x >= inset - 1.0e-9
+                && corner.x <= width - inset + 1.0e-9
+                && corner.y >= inset - 1.0e-9
+                && corner.y <= height - inset + 1.0e-9,
+            "corner {corner:?} touches the body outline"
+        );
+    }
 }
