@@ -2,7 +2,7 @@
   "schema": "prism.artwork.config.a0",
   "global": {
     "canvas": {
-      "bounds": "board_outline",
+      "bounds": "board_and_bodies",
       "margin_mm": 1.0
     },
     "include_metadata": false,
@@ -118,7 +118,8 @@
             "TP*": {
               "enabled": true
             }
-          }
+          },
+          "callout": true
         }
       }
     },
@@ -148,7 +149,8 @@
             "TP*": {
               "enabled": true
             }
-          }
+          },
+          "callout": true
         }
       }
     }

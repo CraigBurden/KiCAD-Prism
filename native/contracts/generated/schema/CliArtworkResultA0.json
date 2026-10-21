@@ -49,6 +49,10 @@
                     "$ref": "#/$defs/Count",
                     "description": "How many reference designators the view placed."
                 },
+                "dnp_footprints_hatched": {
+                    "$ref": "#/$defs/Count",
+                    "description": "How many do-not-populate footprints the view hatched (`dnp.hatch`)."
+                },
                 "footprints_without_outline": {
                     "type": "array",
                     "items": {
@@ -63,6 +67,7 @@
                 "sha256",
                 "footprints_drawn",
                 "designators_placed",
+                "dnp_footprints_hatched",
                 "footprints_without_outline"
             ],
             "unevaluatedProperties": {
