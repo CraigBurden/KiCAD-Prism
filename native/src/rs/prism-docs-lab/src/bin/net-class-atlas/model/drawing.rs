@@ -35,6 +35,68 @@ impl Drawing {
             footprints: footprints_facts(&footprints, pads, board, placements, hlr),
         })
     }
+
+    /// The extent every drawing must frame: the board's own box unioned with
+    /// every body and pad it draws, so a part that overhangs the perimeter (a
+    /// side button, a header) is drawn whole instead of clipped at the edge.
+    ///
+    /// The page adds its margin to this; the drawing never invents a frame of
+    /// its own, or a group whose parts sit outside the outline would be cut.
+    pub fn frame(&self) -> Bounds {
+        let mut frame = self.bounds;
+        for footprint in &self.footprints {
+            frame.include_bounds(footprint.body_bounds);
+            for pad in &footprint.pads {
+                frame.include_bounds(pad_bounds(footprint, pad));
+            }
+        }
+        frame
+    }
+}
+
+/// A pad's extent in board millimetres: its pad-local box, turned with the
+/// footprint and offset to the pad's anchor.
+///
+/// The drawing places pads with `translate(anchor) rotate(-angle)` and one more
+/// `rotate(-pad angle)` inside it, so the pad's box turns through the sum of
+/// the two angles. Only the axis-aligned envelope is needed here.
+pub fn pad_bounds(footprint: &Footprint, pad: &Pad) -> Bounds {
+    let (half_width, half_height) = pad_extent(&pad.shape);
+    let (sin, cos) = footprint.angle.to_radians().sin_cos();
+    let center = Point {
+        x: footprint.x + pad.x * cos + pad.y * sin,
+        y: footprint.y - pad.x * sin + pad.y * cos,
+    };
+    let (sin, cos) = (footprint.angle + pad.angle).to_radians().sin_cos();
+    Bounds::around(
+        center,
+        half_width * cos.abs() + half_height * sin.abs(),
+        half_width * sin.abs() + half_height * cos.abs(),
+    )
+}
+
+/// A pad shape's half extents around its anchor, in pad-local millimetres.
+fn pad_extent(shape: &PadShape) -> (f64, f64) {
+    match shape {
+        PadShape::Circle { diameter } => (diameter / 2.0, diameter / 2.0),
+        PadShape::Rect { width, height }
+        | PadShape::RoundRect { width, height, .. }
+        | PadShape::Oval { width, height } => (width / 2.0, height / 2.0),
+        PadShape::Custom {
+            width,
+            height,
+            rings,
+            ..
+        } => {
+            let mut half_width = width / 2.0;
+            let mut half_height = height / 2.0;
+            for point in rings.iter().flatten() {
+                half_width = half_width.max(point.x.abs());
+                half_height = half_height.max(point.y.abs());
+            }
+            (half_width, half_height)
+        }
+    }
 }
 
 /// The viewBox extent: the board-level `Edge.Cuts` box, else the perimeter's.
@@ -123,6 +185,12 @@ fn vias(view: &PcbView<'_>) -> Result<Vec<Via>, LabError> {
             },
             size: via.size,
             drill: via.drill,
+            layers: via
+                .layers
+                .iter()
+                .filter(|layer| palette::copper_color(layer).is_some())
+                .cloned()
+                .collect(),
         });
     }
     Ok(vias)

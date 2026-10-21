@@ -28,11 +28,15 @@ mod drawing;
 #[cfg(test)]
 mod tests;
 
+/// The pad envelope the drawing frame is built from, for the drawing tests.
+#[cfg(test)]
+pub use drawing::pad_bounds;
+
 /// `projections/stackup.json`: the copper order, front to back.
 pub const STACKUP: &str = "projections/stackup.json";
 /// `projections/semantic-index.json`: each net's `netClass`.
 pub const SEMANTIC_INDEX: &str = "projections/semantic-index.json";
-/// `projections/route-metrics.json`: per-net length, vias and used layers.
+/// `projections/route-metrics.json`: per-net routed length and vias.
 pub const ROUTE_METRICS: &str = "projections/route-metrics.json";
 /// `projections/placements.json`: sides and courtyards.
 pub const PLACEMENTS: &str = "projections/placements.json";
@@ -203,12 +207,33 @@ pub struct NetRow {
     pub length_mm: f64,
     /// Number of vias on the net.
     pub vias: usize,
-    /// Copper layers the net is routed on, in the projection's order.
+    /// The copper layers the net's tracks and arcs are on, in stack order,
+    /// front to back.
     pub layers: Vec<String>,
+    /// True when `layers` names the net's zone layers because the net has no
+    /// tracks: the page marks each one `(zone)`.
+    pub zone_layers: bool,
+    /// The net's vias, grouped by the copper layers they span.
+    pub via_spans: Vec<ViaSpan>,
     /// Number of pads on the net.
     pub pads: usize,
     /// True when the net groups as power or ground.
     pub power: bool,
+}
+
+/// The copper layers one group of a net's vias connects.
+///
+/// A through via's authored span crosses every copper layer between its ends,
+/// which is not what a reader wants to know about the net: the tracks say where
+/// the net runs, the span says only how the via joins two of those layers.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ViaSpan {
+    /// The span's first copper layer, in stack order.
+    pub from: String,
+    /// The span's last copper layer, in stack order.
+    pub to: String,
+    /// How many of the net's vias span exactly these layers.
+    pub count: usize,
 }
 
 /// One net's facts before they are grouped into classes.
@@ -221,8 +246,6 @@ pub struct NetInput {
     pub length_mm: f64,
     /// Number of vias.
     pub vias: usize,
-    /// Copper layers used.
-    pub layers: Vec<String>,
     /// True when the net is power or ground: its name says so, or most of its
     /// typed terminals are power pins.
     pub power: bool,
@@ -268,6 +291,9 @@ pub struct Via {
     pub size: f64,
     /// The drill diameter.
     pub drill: f64,
+    /// The copper layers it connects, as authored; empty when the board names
+    /// none, which KiCad reads as every copper layer.
+    pub layers: Vec<String>,
 }
 
 /// One zone's filled polygon, or one unfilled zone outline, on one layer.
@@ -393,14 +419,15 @@ pub fn load(bundle: &Bundle) -> Result<Atlas, LabError> {
     let placements: Option<PlacementsA1> = bundle.json(PLACEMENTS)?;
     let hlr: Option<AssemblyHlrA0> = bundle.json(ASSEMBLY_HLR)?;
     let drawing = Drawing::build(&view, &board, placements.as_ref(), hlr.as_ref())?;
-    let classes = sections(net_inputs(&semantic, &metrics), &drawing);
+    let copper = copper_order(&stackup, &view);
+    let classes = sections(net_inputs(&semantic, &metrics), &drawing, &copper);
     let identity = identity(bundle, &semantic);
     Ok(Atlas {
         board_name: bundle.board_name()?,
         board_file: bundle.board_file()?,
         identity_label: identity.0,
         identity: identity.1,
-        copper: copper_order(&stackup, &view),
+        copper,
         tracks: drawing.traces.len(),
         vias: drawing.vias.len(),
         classes,
@@ -464,7 +491,6 @@ fn net_inputs(semantic: &SemanticIndexA2, metrics: &RouteMetricsA0) -> Vec<NetIn
                 class: class_name(&net.net_class),
                 length_mm: 0.0,
                 vias: 0,
-                layers: Vec::new(),
             },
         );
     }
@@ -482,11 +508,6 @@ fn net_inputs(semantic: &SemanticIndexA2, metrics: &RouteMetricsA0) -> Vec<NetIn
                 class,
                 length_mm: net.route_length_nm.0 as f64 / 1_000_000.0,
                 vias: net.via_count.0 as usize,
-                layers: net
-                    .used_layers
-                    .iter()
-                    .map(|layer| layer.as_str().to_owned())
-                    .collect(),
                 power,
             },
         );
@@ -560,8 +581,9 @@ fn class_name(raw: &str) -> String {
 /// Group `nets` into the page's sections, keeping only nets the board carries.
 ///
 /// A net is on the board when a pad, a trace, a via or a zone names it: a
-/// schematic-only net would otherwise fill a table with zeroes.
-pub fn sections(nets: Vec<NetInput>, drawing: &Drawing) -> Vec<ClassSection> {
+/// schematic-only net would otherwise fill a table with zeroes. `copper` is the
+/// stack order the layer column reads.
+pub fn sections(nets: Vec<NetInput>, drawing: &Drawing, copper: &[String]) -> Vec<ClassSection> {
     let board_nets = board_nets(drawing);
     let mut classes: BTreeMap<String, Vec<NetInput>> = BTreeMap::new();
     for net in nets {
@@ -571,7 +593,7 @@ pub fn sections(nets: Vec<NetInput>, drawing: &Drawing) -> Vec<ClassSection> {
     }
     let mut sections: Vec<ClassSection> = classes
         .into_iter()
-        .filter_map(|(name, nets)| section(name, nets, drawing))
+        .filter_map(|(name, nets)| section(name, nets, drawing, copper))
         .collect();
     sections.sort_by(|left, right| {
         default_last(left)
@@ -587,8 +609,13 @@ fn default_last(section: &ClassSection) -> bool {
 }
 
 /// One class's section, or `None` when none of its nets has pads or routing.
-fn section(name: String, nets: Vec<NetInput>, drawing: &Drawing) -> Option<ClassSection> {
-    let rows = rows_with_pads(nets, drawing);
+fn section(
+    name: String,
+    nets: Vec<NetInput>,
+    drawing: &Drawing,
+    copper: &[String],
+) -> Option<ClassSection> {
+    let rows = rows_with_pads(nets, drawing, copper);
     if !drawable(&rows, drawing) {
         return None;
     }
@@ -599,17 +626,37 @@ fn section(name: String, nets: Vec<NetInput>, drawing: &Drawing) -> Option<Class
     Some(build_section(name, rows, drawing))
 }
 
-/// The class's rows, with each net's pad count filled in.
-fn rows_with_pads(nets: Vec<NetInput>, drawing: &Drawing) -> Vec<NetRow> {
+/// The class's rows, with each net's pad count and layer use filled in.
+fn rows_with_pads(nets: Vec<NetInput>, drawing: &Drawing, copper: &[String]) -> Vec<NetRow> {
+    let layers = net_layers(drawing);
+    let spans = net_via_spans(drawing, copper);
     let mut rows: Vec<NetRow> = nets
         .into_iter()
-        .map(|net| NetRow {
-            name: net.name,
-            length_mm: net.length_mm,
-            vias: net.vias,
-            layers: net.layers,
-            pads: 0,
-            power: net.power,
+        .map(|net| {
+            let used = layers.get(&net.name);
+            let tracks = used
+                .map(|used| stack_order(&used.tracks, copper))
+                .unwrap_or_default();
+            // A net with no tracks of its own shows the layers its zones fill,
+            // marked as such, so the column never claims a track it has not.
+            let zone_layers = tracks.is_empty();
+            let layers = if zone_layers {
+                used.map(|used| stack_order(&used.zones, copper))
+                    .unwrap_or_default()
+            } else {
+                tracks
+            };
+            let via_spans = spans.get(&net.name).cloned().unwrap_or_default();
+            NetRow {
+                name: net.name,
+                length_mm: net.length_mm,
+                vias: net.vias,
+                layers,
+                zone_layers,
+                via_spans,
+                pads: 0,
+                power: net.power,
+            }
         })
         .collect();
     for footprint in &drawing.footprints {
@@ -620,6 +667,92 @@ fn rows_with_pads(nets: Vec<NetInput>, drawing: &Drawing) -> Vec<NetRow> {
         }
     }
     rows
+}
+
+/// The copper layers each net's tracks, arcs and zones sit on.
+#[derive(Default)]
+struct NetLayers {
+    /// Layers carrying a track segment or a routing arc.
+    tracks: BTreeSet<String>,
+    /// Layers carrying a zone fill or outline.
+    zones: BTreeSet<String>,
+}
+
+fn net_layers(drawing: &Drawing) -> BTreeMap<String, NetLayers> {
+    let mut layers: BTreeMap<String, NetLayers> = BTreeMap::new();
+    for trace in &drawing.traces {
+        layers
+            .entry(trace.net.clone())
+            .or_default()
+            .tracks
+            .insert(trace.layer.clone());
+    }
+    for zone in &drawing.zones {
+        layers
+            .entry(zone.net.clone())
+            .or_default()
+            .zones
+            .insert(zone.layer.clone());
+    }
+    layers
+}
+
+/// `layers` in the stackup's order, front to back. A layer the stackup does
+/// not name keeps a stable place after the ones it does.
+fn stack_order(layers: &BTreeSet<String>, copper: &[String]) -> Vec<String> {
+    let mut ordered: Vec<String> = copper
+        .iter()
+        .filter(|layer| layers.contains(layer.as_str()))
+        .cloned()
+        .collect();
+    ordered.extend(
+        layers
+            .iter()
+            .filter(|layer| !copper.contains(layer))
+            .cloned(),
+    );
+    ordered
+}
+
+/// Each net's vias, grouped by the copper layers they span, front to back.
+fn net_via_spans(drawing: &Drawing, copper: &[String]) -> BTreeMap<String, Vec<ViaSpan>> {
+    let mut grouped: BTreeMap<String, BTreeMap<(String, String), usize>> = BTreeMap::new();
+    for via in &drawing.vias {
+        let Some((from, to)) = via_span(via, copper) else {
+            continue;
+        };
+        *grouped
+            .entry(via.net.clone())
+            .or_default()
+            .entry((from, to))
+            .or_default() += 1;
+    }
+    grouped
+        .into_iter()
+        .map(|(net, spans)| {
+            let spans = spans
+                .into_iter()
+                .map(|((from, to), count)| ViaSpan { from, to, count })
+                .collect();
+            (net, spans)
+        })
+        .collect()
+}
+
+/// The copper layers a via joins: its authored layers in stack order, or the
+/// stack's ends when it names none (KiCad's through via).
+fn via_span(via: &Via, copper: &[String]) -> Option<(String, String)> {
+    let mut layers: Vec<&String> = copper
+        .iter()
+        .filter(|layer| via.layers.contains(layer))
+        .collect();
+    if layers.is_empty() {
+        layers = copper.iter().collect();
+    }
+    match (layers.first(), layers.last()) {
+        (Some(from), Some(to)) => Some(((*from).clone(), (*to).clone())),
+        _ => None,
+    }
 }
 
 /// True when the class has something to draw: routing, pads or a zone.

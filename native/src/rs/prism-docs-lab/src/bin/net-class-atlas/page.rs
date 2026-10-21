@@ -3,7 +3,7 @@
 
 use std::fmt::Write;
 
-use super::model::{Atlas, ClassSection, NetGroup, NetRow, SideChoice};
+use super::model::{Atlas, ClassSection, NetGroup, NetRow, SideChoice, ViaSpan};
 use super::svg;
 use prism_docs_lab::html;
 use prism_docs_lab::palette;
@@ -270,31 +270,57 @@ fn table(body: &mut String, group: &NetGroup) {
 }
 
 fn row(body: &mut String, net: &NetRow) {
+    let spans = via_spans(&net.via_spans);
     let _ = writeln!(
         body,
         "<tr class=\"net-row\" data-net-row=\"{}\"><td class=\"net-name\" title=\"{}\">{}</td>\
-<td class=\"num\">{}</td><td class=\"num\">{}</td><td><span class=\"layers\">{}</span></td>\
+<td class=\"num\">{}</td><td class=\"num\"{}>{}</td><td><span class=\"layers\">{}</span></td>\
 <td class=\"num\">{}</td></tr>",
         html::escape(&net.name),
         html::escape(&net.name),
         html::escape(leaf(&net.name)),
         html::millimetres(net.length_mm),
+        if spans.is_empty() {
+            String::new()
+        } else {
+            format!(" title=\"{}\"", html::escape(&spans))
+        },
         net.vias,
-        layers(&net.layers),
+        layers(&net.layers, net.zone_layers),
         net.pads,
     );
 }
 
-fn layers(layers: &[String]) -> String {
+/// A net's via spans as the via cell's tooltip: `F.Cu→B.Cu ×1`, `F.Cu→In2.Cu
+/// ×3, F.Cu→B.Cu ×1`.
+fn via_spans(spans: &[ViaSpan]) -> String {
+    spans
+        .iter()
+        .map(|span| {
+            let layers = if span.from == span.to {
+                span.from.clone()
+            } else {
+                format!("{}→{}", span.from, span.to)
+            };
+            format!("{layers} ×{}", span.count)
+        })
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
+/// The layer chips. A net with no tracks of its own lists the layers its zones
+/// fill, each marked `(zone)` so the column never claims a track it has not.
+fn layers(layers: &[String], zone_layers: bool) -> String {
     if layers.is_empty() {
         return "<span class=\"chip\">—</span>".to_owned();
     }
+    let note = if zone_layers { " (zone)" } else { "" };
     layers
         .iter()
         .map(|layer| {
             let color = palette::copper_color(layer).unwrap_or(palette::MUTED);
             format!(
-                "<span class=\"chip\"><span class=\"swatch\" style=\"background:{}\"></span>{}</span>",
+                "<span class=\"chip\"><span class=\"swatch\" style=\"background:{}\"></span>{}{note}</span>",
                 html::escape(color),
                 html::escape(layer),
             )
@@ -347,9 +373,12 @@ fn footnote(body: &mut String, atlas: &Atlas) {
         body,
         "<p class=\"footnote\">Read from the bundle only: the board \
 (<code>{}</code>), <code>semantic-index.json</code> for each net's class and pin types, \
-<code>route-metrics.json</code> for length, vias and used layers, \
+<code>route-metrics.json</code> for length and vias, \
 <code>stackup.json</code> for the layer order, <code>placements.json</code> for sides and \
-courtyards and <code>assembly-hlr.json</code> for body outlines. A class of more than 40 nets \
+courtyards and <code>assembly-hlr.json</code> for body outlines. A net's layers are the \
+copper its tracks and arcs run on, front to back, never every layer a through via crosses; \
+hover its via count for the spans its vias join. A net with only a zone lists that zone's \
+layer, marked <code>(zone)</code>. A class of more than 40 nets \
 is split into power and ground, one group per schematic sheet, then the rest. Lengths are \
 routed centerlines and exclude pads and zones; zone fills open at 12 % unless they cover a \
 quarter of the board, and a group with fills off draws its zones as dashed outlines.</p>",
@@ -417,6 +446,8 @@ mod tests {
                         length_mm: 12.5,
                         vias: 0,
                         layers: vec!["F.Cu".to_owned()],
+                        zone_layers: false,
+                        via_spans: Vec::new(),
                         pads: 1,
                         power: true,
                     }],

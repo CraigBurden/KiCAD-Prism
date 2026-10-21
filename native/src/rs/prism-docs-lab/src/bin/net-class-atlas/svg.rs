@@ -66,7 +66,7 @@ focusable=\"false\"><defs>\n",
 
 /// Render `group`'s drawing of `atlas`'s board.
 pub fn class_drawing(atlas: &Atlas, group: &NetGroup, side: SideChoice) -> RenderedDrawing {
-    let bounds = expanded(atlas.drawing.bounds);
+    let bounds = expanded(atlas.drawing.frame());
     let mut svg = String::new();
     let _ = writeln!(
         svg,
@@ -119,7 +119,7 @@ viewBox=\"{} {} {} {}\" preserveAspectRatio=\"xMidYMid meet\" aria-label=\"{}\">
     }
 }
 
-/// The board extent plus the drawing margin.
+/// The drawing frame plus the margin.
 fn expanded(bounds: Bounds) -> Bounds {
     Bounds {
         min_x: bounds.min_x - MARGIN_MM,
@@ -622,6 +622,8 @@ mod tests {
                 length_mm: 1.0,
                 vias: 0,
                 layers: vec!["In2.Cu".to_owned()],
+                zone_layers: false,
+                via_spans: Vec::new(),
                 pads: 0,
                 power: false,
             }],
@@ -790,5 +792,86 @@ mod tests {
         let drawing = class_drawing(&atlas, &group("N", vec![0, 1]), SideChoice::Top);
         assert_eq!(drawing.hidden_designators, 1, "{}", drawing.svg);
         assert_eq!(drawing.svg.matches("class=\"des").count(), 1);
+    }
+
+    /// The frame used to be the board's `Edge.Cuts` box plus a margin, so a
+    /// part that overhangs the perimeter (a side button, a header) was cut at
+    /// the frame and left a stub at the edge. Every drawn element's extent now
+    /// has to sit inside the viewBox.
+    #[test]
+    fn the_view_box_frames_every_drawn_element() {
+        // SW1 sits past the right edge: its body spans x 39..43 on a board
+        // that ends at 40, and its pad anchor hangs further out again.
+        let mut button = footprint(0, "SW1", 41.0, 15.0, "N");
+        button.pads[0].x = 5.0;
+        let mut sample = atlas(Vec::new(), vec![button]);
+        sample.drawing.vias = vec![crate::model::Via {
+            net: "N".to_owned(),
+            at: point(39.0, 15.0),
+            size: 0.6,
+            drill: 0.3,
+            layers: vec!["F.Cu".to_owned(), "B.Cu".to_owned()],
+        }];
+        let drawing = class_drawing(&sample, &group("N", vec![0]), SideChoice::Top);
+
+        let view_box = view_box(&drawing.svg);
+        for bounds in drawn_bounds(&sample) {
+            assert!(
+                view_box.contains_bounds(bounds),
+                "viewBox {view_box:?} does not frame {bounds:?}"
+            );
+        }
+        // The old frame stopped at the board plus the 2 mm margin.
+        assert!(
+            view_box.max_x > 40.0 + MARGIN_MM,
+            "the overhanging body is not framed: {view_box:?}"
+        );
+    }
+
+    /// The drawing's viewBox as an extent.
+    fn view_box(svg: &str) -> Bounds {
+        let values: Vec<f64> = svg
+            .split("viewBox=\"")
+            .nth(1)
+            .expect("a viewBox")
+            .split('"')
+            .next()
+            .expect("a viewBox value")
+            .split_whitespace()
+            .map(|value| value.parse().expect("a number"))
+            .collect();
+        Bounds {
+            min_x: values[0],
+            min_y: values[1],
+            max_x: values[0] + values[2],
+            max_y: values[1] + values[3],
+        }
+    }
+
+    /// The extent of everything the drawing paints: bodies, pads, traces,
+    /// vias and zone rings.
+    fn drawn_bounds(atlas: &Atlas) -> Vec<Bounds> {
+        let mut bounds = Vec::new();
+        for footprint in &atlas.drawing.footprints {
+            bounds.push(footprint.body_bounds);
+            for pad in &footprint.pads {
+                bounds.push(crate::model::pad_bounds(footprint, pad));
+            }
+        }
+        for trace in &atlas.drawing.traces {
+            let half = trace.width / 2.0;
+            for point in &trace.points {
+                bounds.push(Bounds::around(*point, half, half));
+            }
+        }
+        for via in &atlas.drawing.vias {
+            bounds.push(Bounds::around(via.at, via.size / 2.0, via.size / 2.0));
+        }
+        for zone in &atlas.drawing.zones {
+            for ring in &zone.rings {
+                bounds.push(Bounds::of_ring(ring));
+            }
+        }
+        bounds
     }
 }
