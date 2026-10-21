@@ -36,7 +36,7 @@ function systemDocument(): SystemDocument {
         { id: "end_a", site: { occurrence: "occ_a", connector: "J1" }, contacts: {}, pinMap: [] },
         { id: "end_b", site: { occurrence: "occ_b", connector: "J2" }, contacts: {}, pinMap: [] },
       ],
-      links: [{ id: "link_1", a: { occurrence: "occ_a", connector: "J1" }, b: { occurrence: "occ_b", connector: "J2" }, unmapped: ["3"] }],
+      links: [{ id: "link_1", a: { occurrence: "occ_a", connector: "J1" }, b: { occurrence: "occ_b", connector: "J2" }, unmapped: ["4"] }],
       wires: [{
         id: "w_ex",
         from: { kind: "contact", end: "end_a", cavity: "1" },
@@ -227,7 +227,7 @@ describe("HarnessPane", () => {
     await vi.waitFor(() => expect(apply).toHaveBeenCalledTimes(1));
     const ops = apply.mock.calls[0][0];
     expect(ops).toHaveLength(1);
-    expect(ops[0]).toMatchObject({ kind: "replace-link", link: { unmapped: ["2", "3"] } });
+    expect(ops[0]).toMatchObject({ kind: "replace-link", link: { unmapped: ["2", "4"] } });
   });
 
   it("adds a splice and its canvas with S", async () => {

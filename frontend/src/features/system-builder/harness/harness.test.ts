@@ -53,7 +53,7 @@ function document(): SystemDocument {
         { id: "end_a", site: { occurrence: "occ_a", connector: "J1" }, contacts: {}, pinMap: [] },
         { id: "end_b", site: { occurrence: "occ_b", connector: "J2" }, contacts: {}, pinMap: [] },
       ],
-      links: [{ id: "link_1", a: { occurrence: "occ_a", connector: "J1" }, b: { occurrence: "occ_b", connector: "J2" }, unmapped: ["3"] }],
+      links: [{ id: "link_1", a: { occurrence: "occ_a", connector: "J1" }, b: { occurrence: "occ_b", connector: "J2" }, unmapped: ["4"] }],
       wires: [{
         id: "w_ex",
         from: { kind: "contact", end: "end_a", cavity: "1" },
@@ -161,6 +161,34 @@ function addWire(op: SystemOp) {
 }
 
 describe("buildHarnessView", () => {
+  it("shows what the document stores before the bundle is rebuilt", () => {
+    const doc = document();
+    const harness = doc.harnesses[0];
+    // An explicit wire recoloured, and a default wire made explicit, in saves the bundle has not seen.
+    harness.wires = [
+      { ...harness.wires[0], colour: "orange", gaugeAwg: "26" },
+      { id: "w_new", from: { kind: "contact", end: "end_b", cavity: "2" }, to: { kind: "contact", end: "end_a", cavity: "2" }, link: "link_1", colour: "blue", route: [] },
+    ];
+    const view = buildHarnessView(doc, BUNDLE, "har_h")!;
+    expect(view.wires.map((wire) => [wire.id, wire.origin, wire.colour ?? null])).toEqual([
+      ["w_ex", "explicit", "orange"],
+      ["link_1:3", "default", null],
+      ["w_new", "explicit", "blue"],
+    ]);
+    // Derived facts and the bundle's pads stay with the explicit wire.
+    expect(view.wires[0]).toMatchObject({ gaugeAwg: "26", routeLengthNm: 182_400_000, from: { pad: "1" } });
+  });
+
+  it("drops a removed wire and a default whose pin was cleared, before the rebuild", () => {
+    const doc = document();
+    const harness = doc.harnesses[0];
+    harness.wires = [];
+    harness.links = [{ ...harness.links[0], unmapped: ["3", "4"] }];
+    expect(buildHarnessView(doc, BUNDLE, "har_h")!.wires.map((wire) => wire.id)).toEqual(["link_1:2"]);
+    harness.links = [];
+    expect(buildHarnessView(doc, BUNDLE, "har_h")!.wires).toEqual([]);
+  });
+
   it("puts side A left, names pins by net leaf, and marks open stubs", () => {
     const view = viewOf();
     expect(view.ends.map((end) => [end.id, end.side])).toEqual([["end_a", "left"], ["end_b", "right"]]);
@@ -281,7 +309,7 @@ describe("removeWireOps", () => {
     expect(ops).toEqual([{
       kind: "replace-link",
       harness: "har_h",
-      link: { ...doc.harnesses[0].links[0], unmapped: ["2", "3"] },
+      link: { ...doc.harnesses[0].links[0], unmapped: ["2", "4"] },
     }]);
   });
 });
