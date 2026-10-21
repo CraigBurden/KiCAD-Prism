@@ -25,8 +25,9 @@ is an ADR amendment.
 | `backfill.py`, `retention.py` | The worker's paced prebuild (alias or queue, one build at a time) and bundle retention, which keeps the prebuild set and every aliased archive. |
 | `regenerate.py` | A designer's forced rebuild of one commit's or a whole project's design data, skipping reuse. |
 | `repo_hydration.py` | Submodules and LFS objects for import and sync. |
-| `reader.py` | How a consumer opens a revision's bundle and reads members. |
-| `consumer.py` | `bundle_read`: a Wave 3 consumer's switch and the rollout fallback (not ready or failed → legacy for this request, job queued). Every consumer goes through it. |
+| `reader.py` | How a consumer opens a revision's bundle and reads members. A request without a commit reads the checkout's HEAD; a dirty read set is reported through the read's response headers. |
+| `consumer.py` | `bundle_read`: a consumer opens its members, or raises the typed pending/failed answer (not a legacy fallback). `bundle_read_if_ready` is Design Comparison's source-tree mode. Every consumer goes through it. |
+| `errors.py` | `DesignDataPending` (HTTP 202) and `DesignDataFailed` (HTTP 422) and the one handler pair `app.main` registers for every design-data route. |
 
 ## Rules
 

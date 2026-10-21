@@ -238,16 +238,16 @@ The Python topology compiler's viewer assets are not bundle members. The mesh 3D
 
 ## 8. Migration and flags
 
-Each consumer switches through `PRISM_DESIGN_SOURCE_<CONSUMER>` = `legacy` (default) | `bundle`:
-- `SEMANTIC_INDEX`
-- `DESIGN_COMPARISON`
-- `RELEASE_STUDIO`
-- `SYSTEM_BUILDER`
-- `VIEWER_3D`
-- `PROJECT_METADATA`
-- `CATALOG_IMPORT`
+Each consumer switched through `PRISM_DESIGN_SOURCE_<CONSUMER>` = `legacy` (default) | `bundle`:
+`SEMANTIC_INDEX`, `DESIGN_COMPARISON`, `RELEASE_STUDIO`, `SYSTEM_BUILDER`,
+`VIEWER_3D`, `PROJECT_METADATA`, `CATALOG_IMPORT`. R1 deleted every one but
+`RELEASE_STUDIO` (§9.7); `SYSTEM_BUILDER` and `VIEWER_3D` went with System
+Builder v2's stage 0, and the other four consumers now always read bundles.
 
-A consumer's flag flips to `bundle` by default in the PR that proves its parity. Its legacy path is deleted in Wave 4. Simulation Studio and the analytic 3D tab are not on dev today, so they are ported directly onto bundles, with no legacy mode.
+A consumer's flag flipped to `bundle` by default in the PR that proved its
+parity. Its legacy path was deleted in Wave 4. Simulation Studio and the
+analytic 3D tab are not on dev today, so they are ported directly onto
+bundles, with no legacy mode.
 
 **First deploy:**
 - Bundles are built lazily on demand, plus a paced backfill of branch heads (one `design_bundle` slot). This replaces the cliff of every project rebuilding at once.
@@ -375,6 +375,22 @@ Every P-WP owns one module `native/src/rs/prism-projections/src/<name>.rs`, its 
 | R3 | `prism-kicad-native` and `prism-clipper2` move onto the imported core (or are absorbed into `prism-projections`) | no crate depends on `wavenumber-eng/kicad_monkey` |
 | R4 | Remove the superseded stores and tables (§8) with a migration; one-off cleanup of the old directories | no reader of the old stores remains; space reclaimed reported |
 | X | Architecture test: no module under `backend/app` imports a KiCad parser or opens `.kicad_*` files, outside `design_bundle/`, the KiCad-output jobs and the catalog library reader | `backend/tests/test_design_source_boundary.py` |
+
+**Status notes.**
+- **R1 done (WP-R1).** The semantic index, project metadata, catalog import and
+  design comparison read the bundle unconditionally; their
+  `PRISM_DESIGN_SOURCE_*` switches and legacy paths are deleted, and
+  `PRISM_DESIGN_SOURCE_RELEASE_STUDIO` is the only switch left (its own work
+  package removes it). A request without a `commit` reads the checkout's HEAD
+  and answers `X-Prism-Working-Tree: dirty` when the read set has uncommitted
+  changes. A member that is still building is HTTP 202 `{"status": "pending",
+  "members": [...], "retryAfterSeconds": 3}` with a `Retry-After` header; a
+  failed build is HTTP 422 `{"status": "failed", "members": [...], "detail":
+  ...}`. Both are one handler pair (`design_bundle/errors.py`), registered once
+  in `app/main.py`.
+- **R3 done.** `prism-kicad-native` and `prism-clipper2` were deleted with the
+  mesh path in System Builder v2 stage 0; no crate depends on
+  `wavenumber-eng/kicad_monkey`.
 
 ### 9.8 Running it with Ultracode
 
