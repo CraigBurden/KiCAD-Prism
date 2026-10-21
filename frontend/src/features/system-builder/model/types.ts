@@ -79,6 +79,21 @@ export interface SystemBundleAnswer {
   error?: string;
 }
 
+/** One generated harness file (§16.7). */
+export interface HarnessOutputFile {
+  name: string;
+  title: string;
+  contentType: string;
+}
+
+/** `GET /api/systems/{id}/harnesses/{harness}/outputs` (§16.7): the index, or that the bundle builds. */
+export interface HarnessOutputsIndex {
+  state: "ready" | "building";
+  files: HarnessOutputFile[];
+  /** How many `sheet-<i>.svg` previews the harness drawing has. */
+  sheets: number;
+}
+
 /** `GET /api/systems/{id}/history`: one logged request, newest first. */
 export interface SystemHistoryEntry {
   version: number;

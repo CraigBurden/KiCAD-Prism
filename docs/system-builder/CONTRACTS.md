@@ -842,3 +842,55 @@ The harness's physical route: where each end's housing sits, the tree of segment
 While dragging, the tubes follow the pointer from the TypeScript twins (dashed preview); **Place** (Enter or release) sends the request. The route card shows the selected waypoint's position (typed values accepted), and for its segment: wires carried, bundle Ø (assumed gauges marked), length, tightest bend against the minimum, closest clearance, coverings. Selection is shared with the harness tab: a segment, wire or node selected in one is selected in the other; the harness tab's inspector, Wires dialog and BOM show route lengths.
 
 Script API additions: `describeRoute(harness)` (the bundle's `route` and the findings on it), `addWaypoint({ harness, segment, position, order? })`, `moveWaypoint({ harness, waypoint, position })`, `removeWaypoint({ harness, waypoint })`, `setBranchPoint({ harness, branchPoint, position })`, `storeTopology(harness)` (stores the derived tree as segments); creating calls return `{ id, version }`.
+
+### 16.7 Harness outputs (4d)
+
+Generated in the backend on request (`backend/app/system_builder/harness_outputs/`) from the document and the viewer's redacted system bundle, so a restricted board appears in outputs exactly as in the bundle. All outputs of a harness read one model (`model.py`):
+
+- **Wires** are the wire list's (§16.3), sorted by terminals (contact terminals first, by end in document order and cavity in natural order; then splices and loose ends in document order) and numbered `W1…`. A wire's **length** is its typed `lengthNm`, else its route length (§16.6), else unknown.
+- **Ends**: title `<refdes> · <occurrence label>` (the end id when it has no site), the board connector's value and MPN, the housing part, the connector's pin count, and each cavity in use with its pad, signal (the board net's leaf name, else the pin name), system net, contact part and the wires landing in it.
+- **Nodes**: splices `SP1…` and loose ends `LE1…`, in document order, with the wires reaching them. **Branch points** of the route are named `B1…` in segment order.
+- **BOM**: housings and contacts by part (quantity = ends / cavities, where = end titles), wires by gauge and colour (total length when every wire of the row has one, else the count), cables and coverings by part, splices by method, markers.
+- Parts are read from the catalog by reference (`<componentId>` or `<componentId>@<revisionId>`, newest released when no revision): MPN, name, manufacturer, description. An unresolvable part reads "not in the catalog".
+
+**The harness document** (`drawing.py`, mockup: the approved render of 2026-10-21). Release Studio sheets (`release_studio/documents/layout.py`) rendered by its SVG and PDF backends, deterministic (no dates, nothing from the host):
+- Sheet 1, the drawing, not to scale: the route tree left to right from an end that is a leaf of the route; each end a connector table (title, mates, housing, ways · used · contact) with a row per cavity in use; every wire in its colour (IEC 60757 codes, a second colour as a stripe, unknown colours grey) from its cavity into the bundle with a `W<n> <colour code>` tag; each segment a sheath sized by its wire count with its length (mm) and `<n> wires · <coverings>`; a dot and name at each branch point; ends the route does not reach, splices and loose ends as leaves joined by a dashed "not routed" stub. A3 landscape; a drawing that cannot fit A3 with row text of at least 1.8 mm moves up the ISO ladder (A2, A1, A0).
+- Sheets 2…: the **wiring table** (wire, from, to, net, AWG, colour, length mm with "(typed)", label or cable · conductor) and the **BOM**, continued over as many A3 sheets as they need.
+- Every sheet has the Release Studio frame and title block: `<label> · Harness`, System `<name> v<version>`, Harness `<label> · <n> wires`, Sheet `<i> of <n>`, Bundle (key, 16 characters).
+
+**Files.**
+| Name | Type | Content |
+|---|---|---|
+| `harness.pdf` | `application/pdf` | every sheet |
+| `sheet-<i>.svg` | `image/svg+xml` | one sheet |
+| `wiring.csv` | `text/csv` | `wire,from_end,from_cavity,from_signal,to_end,to_cavity,to_signal,net,gauge_awg,colour,colour_code,length_mm,length_typed,label,cable,conductor`; a splice or loose end terminal names it (`SP1`) with empty cavity and signal |
+| `bom.csv` | `text/csv` | `item,kind,part,manufacturer,description,quantity,where` |
+| `harness.yaml` | `application/yaml` | `prism.harness.v1` |
+
+CSV cells a spreadsheet would read as a formula (`= + - @` first, not a number) are prefixed with `'`. Lengths are millimetres with one decimal.
+
+**`prism.harness.v1`** (YAML, keys in this order, for downstream tools; not WireViz-compatible):
+```
+schema: prism.harness.v1
+system: { name, version, bundleKey }
+harness: { id, label, routed }
+ends:     [{ id, title, connector, ways, housing: Part | null,
+             cavities: [{ cavity, pad, signal, net, contact: Part | null, wires: [W1, …] }] }]
+nodes:    [{ id, name, kind, detail, wires: [W1, …] }]          splices and loose ends
+wires:    [{ number, id, origin, from: Terminal, to: Terminal, gaugeAwg, colour, colourCodes: [RD, …],
+             label, net, cable, conductor, lengthMm, lengthTyped }]
+cables:   [{ id, label, part: Part | null, conductors: [{ name, wire, drain }] }]
+segments: [{ id, from, to, wires: [W1, …], lengthMm, diameterMm, coverings: [kind, …] }]   empty when not routed
+coverings: [{ id, segment, kind, part: Part | null }]
+nodeNames: { <route node id>: <name> }
+bom:      [{ item, kind, part, manufacturer, description, quantity, where }]
+Part:     { reference, mpn, name, manufacturer, description }
+Terminal: { kind: contact | splice | loose, node, cavity? }      node: the end, splice or loose end id
+```
+Absent values are `null` (strings may be empty); numbers in millimetres to three decimals.
+
+**API.** `GET /systems/{id}/harnesses/{harness}/outputs` → `{ state: "ready" | "building", files: [{ name, title, contentType }], sheets }` (`building` with no files while the system bundle is not ready); `GET /systems/{id}/harnesses/{harness}/outputs/{name}` → the file, `Content-Disposition: attachment; filename="<system>-<harness label>-<name>"` (names slugged), `409` while the bundle is building, `404` for an unknown harness or name. Viewer role. Rendered files are cached in-process by system, bundle key, harness and the caller's hidden occurrences.
+
+**The harness tab.** **Outputs** in the toolbar opens a dialog: the sheets previewed (the SVGs, one at a time with sheet arrows), and a download button per file. While the bundle builds it says so and polls the index.
+
+Script API addition: `harnessOutputs(harness)` returns the index (`files`, `sheets`).

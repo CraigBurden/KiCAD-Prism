@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { fireEvent, render, screen, within } from "@testing-library/react";
-import { beforeAll, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 
 import type { SystemBundle, SystemDocument, SystemOp } from "../model/types";
 import { HarnessPane } from "./harness-pane";
@@ -152,12 +152,17 @@ beforeAll(() => {
   }
 });
 
+afterEach(() => {
+  vi.unstubAllGlobals();
+});
+
 function Harness({ apply, canEdit = true }: { apply: (ops: SystemOp[]) => Promise<unknown>; canEdit?: boolean }) {
   const [selected, setSelected] = useState<Set<string>>(() => new Set());
   return (
     <HarnessPane
       document={systemDocument()}
       bundle={BUNDLE}
+      systemId="sys_a"
       harness="har_h"
       canEdit={canEdit}
       busy={false}
@@ -258,6 +263,22 @@ describe("HarnessPane", () => {
     expect(screen.getByText("w_ex")).toBeTruthy();
     expect(screen.getByText("link_1:2")).toBeTruthy();
     expect(screen.getByText("J1 · Carrier · cavity 1 · pad 1 · VCC")).toBeTruthy();
+  });
+
+  it("opens the Outputs dialog from the toolbar", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        new Response(JSON.stringify({ state: "building", files: [], sheets: 0 }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        }),
+      ),
+    );
+    render(<Harness apply={mockApply()} />);
+    fireEvent.click(screen.getByRole("button", { name: "Outputs" }));
+    expect(await screen.findByRole("dialog")).toBeTruthy();
+    expect(screen.getByText("The system is still building — outputs follow when it is ready")).toBeTruthy();
   });
 
   it("shows a wire's length: typed, else the 3D route, else an em dash", async () => {

@@ -264,6 +264,33 @@ def read_bundle(
     return _bundle(answer)
 
 
+@router.get("/systems/{system_id}/harnesses/{harness}/outputs")
+def read_harness_outputs(
+    system_id: str, harness: str,
+    user: AuthenticatedUser = Depends(require_viewer),
+) -> dict[str, Any]:
+    """The generated files of one harness, or that the bundle is still building (§16.7)."""
+
+    return service.harness_outputs(system_id, harness, _caller(user), role=user.role)
+
+
+@router.get("/systems/{system_id}/harnesses/{harness}/outputs/{name}")
+def read_harness_output(
+    system_id: str, harness: str, name: str,
+    user: AuthenticatedUser = Depends(require_viewer),
+) -> Response:
+    """One generated harness file, as an attachment."""
+
+    content, media_type, filename = service.harness_output(
+        system_id, harness, name, _caller(user), role=user.role,
+    )
+    return Response(
+        content,
+        media_type=media_type,
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
 @router.post("/systems/{system_id}/ops")
 def apply_ops(
     system_id: str, body: SystemOpsRequest, request: Request, response: Response,

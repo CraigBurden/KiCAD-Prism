@@ -1,11 +1,13 @@
 /**
  * The harness tab's toolbar (CONTRACTS §16.5, mockup 09): the part buttons with
- * their keys, the view toggles, auto-layout, and the wire list, BOM and
+ * their keys, the view toggles, auto-layout, and the wire list, BOM, outputs and
  * findings dialogs.
  */
+import { FileDown } from "lucide-react";
+
 import type { InsertKind } from "./harness-canvas";
 
-export type HarnessDialog = "wires" | "bom" | "findings";
+export type HarnessDialog = "wires" | "bom" | "findings" | "outputs";
 
 interface Props {
   canEdit: boolean;
@@ -94,6 +96,10 @@ export function HarnessToolbar({
       </button>
       <button type="button" className={item} onClick={() => onOpen("bom")}>
         BOM
+      </button>
+      <button type="button" className={item} onClick={() => onOpen("outputs")}>
+        <FileDown className="h-3.5 w-3.5" />
+        Outputs
       </button>
       <button type="button" className={item} onClick={() => onOpen("findings")}>
         Findings
