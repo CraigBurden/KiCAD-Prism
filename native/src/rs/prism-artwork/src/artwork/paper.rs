@@ -1,12 +1,13 @@
 //! `--paper-scale`: draw at a known paper ratio instead of board millimetres.
 //!
-//! Every length in an `ArtworkConfigA0` is a board millimetre: a 0.12 mm body
+//! Every length in an `ArtworkConfigA0` is a board millimetre: a 0.25 mm body
 //! outline and a 2.5 mm maximum designator are what the drawing needs at 1:1.
-//! Placed at 5:1 they print 0.6 mm and 12.5 mm, which is not what the drawing
+//! Placed at 5:1 they print 1.25 mm and 12.5 mm, which is not what the drawing
 //! asked for. When the caller knows the ratio the sheet will use, dividing the
 //! config's lengths by it before drawing makes them print at their configured
 //! size on paper. Geometry, canvas and the designator fitting region stay in
-//! board millimetres: only the ink weights and type limits change.
+//! board millimetres: only the ink weights, type limits and hatch spacing
+//! change.
 //!
 //! This module is the one place that division happens, so the config stays the
 //! single description of a drawing at 1:1.
@@ -59,6 +60,7 @@ fn scale_hlr(style: &mut ArtworkHlrStyle, ratio: f64) {
 
 fn scale_dnp_style(style: &mut ArtworkDnpStyle, ratio: f64) {
     divide(&mut style.hatch_line_width_mm, ratio);
+    divide(&mut style.hatch_spacing_mm, ratio);
 }
 
 fn scale_designators(style: &mut ArtworkAssemblyDesignatorStyle, ratio: f64) {
@@ -74,6 +76,7 @@ fn scale_pin1(style: &mut ArtworkPin1MarkerStyle, ratio: f64) {
 
 fn scale_dnp(dnp: &mut ArtworkDnp, ratio: f64) {
     dnp.hatch_line_width_mm /= ratio;
+    dnp.hatch_spacing_mm /= ratio;
 }
 
 fn scale_component(component: &mut ArtworkComponentOverride, ratio: f64) {
@@ -184,6 +187,10 @@ mod tests {
             scaled.dnp.hatch_line_width_mm,
             source.dnp.hatch_line_width_mm / ratio
         );
+        assert_eq!(
+            scaled.dnp.hatch_spacing_mm,
+            source.dnp.hatch_spacing_mm / ratio
+        );
         for (after, before) in scaled.views.iter().zip(&source.views) {
             let after_style = after.styles.assembly_designators.as_ref().unwrap();
             let before_style = before.styles.assembly_designators.as_ref().unwrap();
@@ -195,6 +202,16 @@ mod tests {
     }
 
     #[test]
+    fn dnp_hatch_spacing_is_a_paper_length() {
+        let source = config();
+        let scaled = scaled(&source, 2.5);
+        assert_eq!(
+            scaled.dnp.hatch_spacing_mm,
+            source.dnp.hatch_spacing_mm / 2.5
+        );
+    }
+
+    #[test]
     fn geometry_and_non_length_settings_are_untouched() {
         let source = config();
         let scaled = scaled(&source, 2.0);
@@ -203,7 +220,8 @@ mod tests {
             source.global.canvas.margin_mm
         );
         assert_eq!(scaled.global.svg_scale, source.global.svg_scale);
-        assert_eq!(scaled.dnp.hatch_spacing_mm, source.dnp.hatch_spacing_mm);
+        assert_eq!(scaled.dnp.hatch, source.dnp.hatch);
+        assert_eq!(scaled.dnp.hatch_angle_deg.0, source.dnp.hatch_angle_deg.0);
         assert_eq!(
             scaled
                 .global

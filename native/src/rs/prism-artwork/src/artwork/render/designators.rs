@@ -171,6 +171,78 @@ fn render_callout_leaders(
 /// A leader line thinner than the body outline yet visible at 1:1.
 const LEADER_WIDTH_MM: f64 = 0.1;
 
+/// The gap the fitted text keeps from the body outline, in paper millimetres.
+/// Like every configured length it divides by `--paper-scale`, so it prints at
+/// this size whatever the drawing scale.
+const DESIGNATOR_CLEARANCE_MM: f64 = 0.15;
+
+/// The insets a designator is fitted with, most to least strict: half the body
+/// outline plus the clearance, then half the outline, then none. The fallbacks
+/// keep a label on a body too thin for its outline, because a small label is
+/// better than a missing one.
+fn body_insets(context: &ViewRender<'_>, footprint: &FootprintInfo) -> [f64; 3] {
+    let half_stroke = body_outline_width(context, footprint) / 2.0;
+    let clearance = DESIGNATOR_CLEARANCE_MM / context.paper_scale.max(f64::MIN_POSITIVE);
+    [half_stroke + clearance, half_stroke, 0.0]
+}
+
+/// The width the footprint's body outline is drawn with, in drawing
+/// millimetres (already divided by `--paper-scale`). Zero when no body outline
+/// is drawn, so the designator needs no extra inset.
+fn body_outline_width(context: &ViewRender<'_>, footprint: &FootprintInfo) -> f64 {
+    let Some(global) = context.input.config.global.styles.assembly_hlr.as_ref() else {
+        return 0.0;
+    };
+    let local = context.view.styles.assembly_hlr.as_ref();
+    let enabled = local
+        .and_then(|style| style.enabled)
+        .or(global.enabled)
+        .unwrap_or(true);
+    if !enabled {
+        return 0.0;
+    }
+    let width = local
+        .and_then(|style| style.line_width_mm)
+        .or(global.line_width_mm)
+        .unwrap_or(0.12);
+    let include_outline = local
+        .and_then(|style| style.include_outline)
+        .or(global.include_outline)
+        .unwrap_or(true);
+    let component = component_override(context.input.config, footprint.reference.as_deref())
+        .and_then(|override_| override_.assembly_hlr.as_ref());
+    let width = component
+        .and_then(|style| style.line_width_mm)
+        .unwrap_or(width);
+    let include_outline = component
+        .and_then(|style| style.include_outline)
+        .unwrap_or(include_outline);
+    if include_outline { width.max(0.0) } else { 0.0 }
+}
+
+/// The first inset that admits a fit, with the inset that produced it.
+fn fit_designator(
+    session: &mut DesignatorFitSession,
+    designator: &str,
+    region: &geo::MultiPolygon<f64>,
+    component: &DesignatorStyle,
+    rotations: &[f64],
+    insets: &[f64],
+) -> Option<(designator::DesignatorFit, f64)> {
+    insets.iter().find_map(|&inset| {
+        session
+            .fit(
+                designator,
+                region,
+                component.fill_ratio,
+                component.max_font,
+                rotations,
+                inset,
+            )
+            .map(|fit| (fit, inset))
+    })
+}
+
 /// Fit one designator inside `region` and write its `<text>`; false only when
 /// no text box fits the region at any size.
 fn place_designator(
@@ -183,16 +255,13 @@ fn place_designator(
     session: &mut DesignatorFitSession,
 ) -> bool {
     let rotations = component.rotations(region);
-    let Some(fit) = session.fit(
-        designator,
-        region,
-        component.fill_ratio,
-        component.max_font,
-        &rotations,
-    ) else {
+    let insets = body_insets(context, footprint);
+    let Some((fit, inset)) =
+        fit_designator(session, designator, region, component, &rotations, &insets)
+    else {
         return false;
     };
-    let font_size = font_size_for(region, designator, fit, component.min_font);
+    let font_size = font_size_for(region, designator, fit, component.min_font, inset);
     let color = designator_color(footprint, component);
     let corners = text_box(designator, fit.center, font_size, fit.rotation_deg);
     let (min_x, min_y, max_x, max_y) = corner_bounds(corners);
@@ -336,6 +405,7 @@ pub(super) fn font_size_for(
     designator: &str,
     fit: designator::DesignatorFit,
     min_font: f64,
+    inset_mm: f64,
 ) -> f64 {
     if fit.font_size_mm >= min_font {
         return fit.font_size_mm;
@@ -344,7 +414,7 @@ pub(super) fn font_size_for(
         font_size_mm: min_font,
         ..fit
     };
-    if text_box_fits_region(region, designator, minimum) {
+    if text_box_fits_region(region, designator, minimum, inset_mm) {
         min_font
     } else {
         fit.font_size_mm
