@@ -276,6 +276,41 @@ class SystemApiTest(unittest.TestCase):
         self.assertEqual((conflict.status, conflict.json["code"]), (409, "system_undo_conflict"))
         self.assertEqual(conflict.json["laterVersions"], [3])
 
+        # Undoing the later change first clears the way: undo walks back in order.
+        back = self.call(
+            "POST", fresh_path + "/undo", body={"version": 3},
+            headers={"If-Match": second.headers["etag"]},
+        )
+        self.assertEqual(back.status, 200, back.text)
+        walked = self.call(
+            "POST", fresh_path + "/undo", body={"version": 2},
+            headers={"If-Match": back.headers["etag"]},
+        )
+        self.assertEqual(walked.status, 200, walked.text)
+        self.assertEqual(walked.json["document"]["occurrences"], [])
+
+    def test_a_redone_change_still_blocks_undoing_what_it_touches(self) -> None:
+        fresh = self.create("Redo")
+        path = f"/api/systems/{fresh['systemId']}"
+        first = self.call(
+            "POST", path + "/ops",
+            body={"schema": "prism.system.ops.a0", "ops": [{"kind": "add-occurrence", "occurrence": _occurrence("occ_a", "A", PROJECT)}]},
+            headers={"If-Match": f'"system:{fresh["systemId"]}:1"'},
+        )
+        occurrence = first.json["document"]["occurrences"][0]
+        second = self.call(
+            "POST", path + "/ops",
+            body={"schema": "prism.system.ops.a0", "ops": [{"kind": "replace-occurrence", "occurrence": {**occurrence, "label": "B"}}]},
+            headers={"If-Match": first.headers["etag"]},
+        )
+        undo = self.call("POST", path + "/undo", body={"version": 3}, headers={"If-Match": second.headers["etag"]})
+        redo = self.call("POST", path + "/undo", body={"version": 4}, headers={"If-Match": undo.headers["etag"]})
+        self.assertEqual(redo.status, 200, redo.text)
+        self.assertEqual(redo.json["document"]["occurrences"][0]["label"], "B")
+        blocked = self.call("POST", path + "/undo", body={"version": 2}, headers={"If-Match": redo.headers["etag"]})
+        self.assertEqual((blocked.status, blocked.json["code"]), (409, "system_undo_conflict"))
+        self.assertEqual(blocked.json["laterVersions"], [3])
+
     def test_undoing_a_request_that_changed_nothing_is_refused(self) -> None:
         created = self.create()
         system_path = f"/api/systems/{created['systemId']}"

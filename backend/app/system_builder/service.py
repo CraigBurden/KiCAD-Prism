@@ -83,6 +83,25 @@ class UndoConflict(errors.Conflict):
         )
 
 
+def _standing(entries: Sequence[Mapping[str, Any]]) -> list[Mapping[str, Any]]:
+    """The entries whose effect still stands: a change and the undo of it cancel.
+
+    Read newest first, a standing undo cancels itself and its target, so an
+    undone redo (an undo of an undo) leaves the original change standing.
+    """
+
+    versions = {int(item["version"]) for item in entries}
+    cancelled: set[int] = set()
+    for item in reversed(entries):
+        version = int(item["version"])
+        if version in cancelled:
+            continue
+        undoes = item.get("undoes")
+        if item["kind"] == "undo" and undoes is not None and int(undoes) in versions:
+            cancelled.update((version, int(undoes)))
+    return [item for item in entries if int(item["version"]) not in cancelled]
+
+
 class HarnessNotFound(errors.NotFound):
     code = "harness_not_found"
     default_detail = "Harness not found"
@@ -594,7 +613,10 @@ class SystemService:
                 raise errors.NotFound(f"No change at version {version}")
             if not entry["inverse"]:
                 raise errors.Conflict(f"Version {version} changed nothing; there is nothing to undo.", code="system_undo_nothing")
-            later = [later for later in tx.entries_after(version) if set(later["touched"]) & set(entry["touched"])]
+            later = [
+                item for item in _standing(tx.entries_after(version))
+                if set(item["touched"]) & set(entry["touched"])
+            ]
             if later:
                 raise UndoConflict(version, [item["version"] for item in later])
             applied = self._apply(tx.record, caller, entry["inverse"], undo=True)
