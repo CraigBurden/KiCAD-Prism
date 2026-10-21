@@ -494,6 +494,15 @@ class Settings(PipelineSettings, DesignBundleSettings, SimStudioSettings, System
         description="Maximum number of supervised user jobs run by prism-worker.",
     )
 
+    PRISM_SYSTEM_BUNDLE_INLINE: bool = Field(
+        default=True,
+        description=(
+            "Build a system bundle in the API request that asks for it once every board "
+            "bundle is ready, instead of queuing the job; boards still building, and any "
+            "failure, fall back to the job."
+        ),
+    )
+
     PRISM_WORKER_POLL_SECONDS: float = Field(
         default=0.5,
         ge=0.1,

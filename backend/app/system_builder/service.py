@@ -16,6 +16,7 @@ from dataclasses import dataclass
 from typing import Any, Callable, Mapping, Optional, Sequence
 
 from app.core import errors, preconditions
+from app.core.config import settings
 from app.services.design_bundle import cli
 from app.services.workspace_service import workspace
 from app.system_builder import (
@@ -40,7 +41,11 @@ from app.system_builder.icd import files as icd_files
 from app.system_builder.icd import model as icd_model
 from app.system_builder.icd import sheets as icd_sheets
 from app.system_builder.icd.model import IcdModel
-from app.system_builder.jobs import start_system_bundle_job, start_system_step_job
+from app.system_builder.jobs import (
+    build_system_bundle_inline,
+    start_system_bundle_job,
+    start_system_step_job,
+)
 from app.system_builder.store import SystemStore
 
 logger = logging.getLogger(__name__)
@@ -245,6 +250,18 @@ class SystemService:
                     "state": "failed",
                     **answer,
                     "error": str(row.get("error") or "The system bundle build failed"),
+                }
+
+        # Every board ready: build here rather than queue (§8.1), and answer with it.
+        if settings.PRISM_SYSTEM_BUNDLE_INLINE and not answer["pending"]:
+            built = build_system_bundle_inline(system_id, requested_by=caller.email)
+            stored = bundle_store.read(system_id, key) if built == key else None
+            if stored is not None:
+                hidden = redaction.hidden_occurrences(document, caller.can_see_project)
+                return {
+                    "state": "ready",
+                    **answer,
+                    "bundle": redaction.redact_bundle(stored, hidden, document=document),
                 }
 
         start_system_bundle_job(

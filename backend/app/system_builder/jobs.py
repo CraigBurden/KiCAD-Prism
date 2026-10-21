@@ -23,8 +23,11 @@ occurrences, stages the board and catalog part STEP files, then runs
 from __future__ import annotations
 
 import json
+import logging
 import os
 import shutil
+import threading
+import uuid
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Mapping, Sequence
@@ -34,6 +37,7 @@ from app.release_studio.closure import ClosureError, materialize_project_input_c
 from app.services import project_revision
 from app.services.design_bundle import cli, schemas
 from app.services.job_kinds import JobKind
+from app.services import job_runtime
 from app.services.job_runtime import JobContext, JobResult, PermanentJobError, RetryableJobError
 from app.services.kicad_tools import KicadTools, ToolError, ToolTimeout, ToolUnavailable
 from app.services.workspace_service import workspace
@@ -42,6 +46,8 @@ from app.system_builder import members as member_view
 from app.system_builder import parts as parts_input
 from app.system_builder.git_link import SYSTEM_GIT_COMMIT
 from app.system_builder.store import SystemStore
+
+logger = logging.getLogger(__name__)
 
 KIND = "system_bundle"
 BOARD_STEP_KIND = "system_board_step"
@@ -123,7 +129,7 @@ class StagedBuild:
 
 
 def _stage_build_inputs(
-    context: JobContext,
+    staging_dir: Path,
     store: SystemStore,
     document: Mapping[str, Any],
     *,
@@ -155,13 +161,13 @@ def _stage_build_inputs(
         parts=parts_input.digest(parts_document),
     )
 
-    document_path = context.staging_dir / "document.json"
+    document_path = staging_dir / "document.json"
     document_path.write_bytes(member_view.canonical_bytes(document))
-    board_sub_ports_path = context.staging_dir / "board-sub-ports.json"
+    board_sub_ports_path = staging_dir / "board-sub-ports.json"
     board_sub_ports_path.write_bytes(member_view.canonical_bytes(board_input))
-    parts_path = context.staging_dir / "parts.json"
+    parts_path = staging_dir / "parts.json"
     parts_path.write_bytes(member_view.canonical_bytes(parts_document))
-    parts_input.stage(context.staging_dir, part_files)
+    parts_input.stage(staging_dir, part_files)
     return StagedBuild(
         generator=found,
         members=resolved,
@@ -185,44 +191,13 @@ def _cli_error(failure: cli.CliFailure, command: str) -> RetryableJobError | Per
 # ------------------------------------------------------------------ bundle
 
 
-def run_system_bundle_job(context: JobContext) -> JobResult:
-    """Build one system bundle, or the one the system has moved on to."""
-
-    payload = context.payload
-    system_id = str(payload["system_id"])
-    queued_key = str(payload["bundle_key"])
-    store = system_store()
-    record = store.read(system_id, role="admin")
-    if record is None:
-        raise PermanentJobError("System not found", code="system-not-found")
-    document = record["document"]
-
-    context.progress(
-        stage="system-members", message="Reading the board design bundles", percent=5, force=True
-    )
-    try:
-        staged = _stage_build_inputs(
-            context, store, document,
-            requested_by=str(payload.get("requested_by") or ""),
-        )
-    except cli.CliUnavailable as error:
-        raise PermanentJobError(str(error), code="cli-unavailable") from error
-    except cli.CliFailure as failure:
-        raise _cli_error(failure, "version") from failure
+def _build_bundle(
+    staging_dir: Path, staged: StagedBuild, *, cancel: Any = None
+) -> tuple[Path, Any]:
+    """Run ``system build`` over staged inputs; the checked bundle file and the CLI result."""
 
     bundle_key = staged.bundle_key
-    rebased = bundle_key != queued_key
-    if rebased:
-        bundle_store.supersede(system_id, queued_key, bundle_key)
-        bundle_store.upsert(
-            system_id=system_id,
-            bundle_key=bundle_key,
-            state="building",
-            job_id=context.job_id,
-            document_version=int(record["version"]),
-        )
-
-    output = context.staging_dir / "system-bundle.json"
+    output = staging_dir / "system-bundle.json"
     args = [
         "system", "build",
         "--document", str(staged.document_path),
@@ -231,15 +206,12 @@ def run_system_bundle_job(context: JobContext) -> JobResult:
         "--parts", str(staged.parts_path),
         "-o", str(output),
     ]
-    context.progress(
-        stage="system-build", message="Building the system bundle", percent=30, force=True
-    )
     try:
         done = cli.run(
             args,
             expect="prism.cli.system_result.a0",
             timeout_seconds=settings.PRISM_SYSTEM_BUNDLE_TIMEOUT_SECONDS,
-            cancel=context.check_cancelled,
+            cancel=cancel,
         )
     except cli.CliFailure as failure:
         raise _cli_error(failure, "system build") from failure
@@ -266,6 +238,99 @@ def run_system_bundle_job(context: JobContext) -> JobResult:
             f"prism-kicad system build wrote an invalid bundle: {error}",
             code="system-bundle-invalid",
         ) from None
+    return output, done
+
+
+_INLINE_LOCKS: dict[str, threading.Lock] = {}
+_INLINE_GUARD = threading.Lock()
+
+
+def build_system_bundle_inline(system_id: str, *, requested_by: str = "") -> str | None:
+    """Build the system's current bundle in this process; its key, or None to queue the job.
+
+    An edit's rebuild is quick once every board bundle is ready, and the job's
+    queue and fresh process cost more than the build itself. A board still
+    building, a refusal from the CLI or anything unexpected leaves the job to it
+    (§8.1). One build per system at a time; a second caller waits and reuses it.
+    """
+
+    with _INLINE_GUARD:
+        lock = _INLINE_LOCKS.setdefault(system_id, threading.Lock())
+    with lock:
+        store = system_store()
+        record = store.read(system_id, role="admin")
+        if record is None:
+            return None
+        staging_dir = job_runtime.job_state_root() / "staging" / f"inline-{uuid.uuid4().hex}"
+        staging_dir.mkdir(parents=True, exist_ok=True)
+        try:
+            staged = _stage_build_inputs(
+                staging_dir, store, record["document"], requested_by=requested_by
+            )
+            if any(member.state == member_view.PENDING for member in staged.members):
+                return None
+            if bundle_store.exists(system_id, staged.bundle_key):
+                return staged.bundle_key
+            output, _done = _build_bundle(staging_dir, staged)
+            bundle_store.install(system_id, staged.bundle_key, output)
+            bundle_store.upsert(
+                system_id=system_id,
+                bundle_key=staged.bundle_key,
+                state="complete",
+                document_version=int(record["version"]),
+            )
+            return staged.bundle_key
+        except (cli.CliUnavailable, cli.CliFailure, RetryableJobError, PermanentJobError) as error:
+            logger.info("Inline system bundle for %s fell back to the job: %s", system_id, error)
+            return None
+        except Exception:
+            logger.exception("Inline system bundle for %s failed; queuing the job", system_id)
+            return None
+        finally:
+            shutil.rmtree(staging_dir, ignore_errors=True)
+
+
+def run_system_bundle_job(context: JobContext) -> JobResult:
+    """Build one system bundle, or the one the system has moved on to."""
+
+    payload = context.payload
+    system_id = str(payload["system_id"])
+    queued_key = str(payload["bundle_key"])
+    store = system_store()
+    record = store.read(system_id, role="admin")
+    if record is None:
+        raise PermanentJobError("System not found", code="system-not-found")
+    document = record["document"]
+
+    context.progress(
+        stage="system-members", message="Reading the board design bundles", percent=5, force=True
+    )
+    try:
+        staged = _stage_build_inputs(
+            context.staging_dir, store, document,
+            requested_by=str(payload.get("requested_by") or ""),
+        )
+    except cli.CliUnavailable as error:
+        raise PermanentJobError(str(error), code="cli-unavailable") from error
+    except cli.CliFailure as failure:
+        raise _cli_error(failure, "version") from failure
+
+    bundle_key = staged.bundle_key
+    rebased = bundle_key != queued_key
+    if rebased:
+        bundle_store.supersede(system_id, queued_key, bundle_key)
+        bundle_store.upsert(
+            system_id=system_id,
+            bundle_key=bundle_key,
+            state="building",
+            job_id=context.job_id,
+            document_version=int(record["version"]),
+        )
+
+    context.progress(
+        stage="system-build", message="Building the system bundle", percent=30, force=True
+    )
+    output, done = _build_bundle(context.staging_dir, staged, cancel=context.check_cancelled)
 
     bundle_store.install(system_id, bundle_key, output)
     bundle_store.upsert(
@@ -674,7 +739,7 @@ def run_system_step_job(context: JobContext) -> JobResult:
             stage="system-step", message="Preparing the STEP assembly", percent=5, force=True
         )
         staged = _stage_build_inputs(
-            context, store, document, requested_by=requested_by
+            context.staging_dir, store, document, requested_by=requested_by
         )
         current_key = staged.bundle_key
 

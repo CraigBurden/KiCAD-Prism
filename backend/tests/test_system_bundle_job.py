@@ -9,6 +9,7 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
+from app.core.config import settings as app_settings
 from app.services.design_bundle import jobs as design_jobs
 from app.services.design_bundle import schemas
 from app.services.job_runtime import JobContext, PermanentJobError
@@ -241,6 +242,52 @@ class SystemBundleJobTests(SystemBundleWorkspace, unittest.TestCase):
                 document, {"occ_obc": obc["bundle_key"]}, [], [],
                 parts=parts_module.digest(written),
             ),
+        )
+
+    def test_with_every_board_ready_the_request_builds_the_bundle_itself(self) -> None:
+        commit = self.add_board(OBC_PROJECT, "r1")
+        obc = self.build_design_bundle(OBC_PROJECT)
+        document = self.create_system("sys_a", [occurrence("occ_obc", "OBC", OBC_PROJECT, commit)])
+
+        with mock.patch.object(app_settings, "PRISM_SYSTEM_BUNDLE_INLINE", True):
+            answer = self.service.bundle("sys_a", CALLER, role="viewer")
+
+        expected = self.expected_key(document, {"occ_obc": obc["bundle_key"]}, [], [])
+        self.assertEqual((answer["state"], answer["key"], answer["pending"]), ("ready", expected, []))
+        self.assertEqual(answer["bundle"]["documentSha256"], expected_document_sha(document))
+        self.assertFalse(any(row["kind"] == "system_bundle" for row in self.queue.rows.values()))
+        row = bundle_store.get("sys_a", expected)
+        assert row is not None
+        self.assertEqual((row["state"], row["document_version"]), ("complete", 1))
+        # Nothing is left behind in the staging area.
+        self.assertEqual(list((self.tmp / "state" / "staging").glob("inline-*")), [])
+
+    def test_a_pending_board_or_a_failed_build_leaves_the_bundle_to_the_job(self) -> None:
+        obc_commit = self.add_board(OBC_PROJECT, "r1")
+        payload_commit = self.add_board(PAYLOAD_PROJECT, "r2")
+        self.build_design_bundle(OBC_PROJECT)
+        self.create_system(
+            "sys_a",
+            [
+                occurrence("occ_obc", "OBC", OBC_PROJECT, obc_commit),
+                occurrence("occ_payload", "Payload", PAYLOAD_PROJECT, payload_commit),
+            ],
+        )
+        with mock.patch.object(app_settings, "PRISM_SYSTEM_BUNDLE_INLINE", True):
+            pending = self.service.bundle("sys_a", CALLER, role="viewer")
+        self.assertEqual((pending["state"], pending["pending"]), ("building", ["occ_payload"]))
+        self.assertFalse(bundle_store.exists("sys_a", pending["key"]))
+        self.run_system_job(self.queued_job("system_bundle"))
+
+        self.run_job(self.queued_design_job(PAYLOAD_PROJECT))
+        failure = PermanentJobError("refused", code="system-bundle-key-mismatch")
+        with mock.patch.object(app_settings, "PRISM_SYSTEM_BUNDLE_INLINE", True), \
+                mock.patch.object(system_jobs, "_build_bundle", side_effect=failure):
+            answer = self.service.bundle("sys_a", CALLER, role="viewer")
+        self.assertEqual((answer["state"], answer["pending"]), ("building", []))
+        self.assertIn(
+            f"sys_a:{answer['key']}",
+            [row["artifact_key"] for row in self.queue.rows.values() if row["kind"] == "system_bundle"],
         )
 
     def test_a_pending_board_is_pending_and_the_key_changes_when_its_bundle_arrives(self) -> None:
