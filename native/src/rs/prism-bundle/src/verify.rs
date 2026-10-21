@@ -5,9 +5,9 @@ use crate::finding::Finding;
 use crate::generator::{bundle_key, canonical};
 use crate::limits::{LimitName, Limits};
 use crate::manifest::{
-    DESIGN_PATH, MANIFEST_PATH, MANIFEST_SCHEMA, MATERIALIZATION_PATH, MODELS_PATH, Manifest,
-    PROJECTIONS, REFILLED_PREFIX, Role, SOURCES_PREFIX, Stage, Status, a3, is_source_role,
-    role_for_source, role_stage,
+    ASSEMBLY_HLR_PATH, DESIGN_PATH, MANIFEST_PATH, MANIFEST_SCHEMA, MATERIALIZATION_PATH,
+    MODELS_PATH, Manifest, PROJECTIONS, REFILLED_PREFIX, Role, SOURCES_PREFIX, Stage, Status, a3,
+    is_source_role, role_for_source, role_stage,
 };
 use crate::reader::{OpenError, check_listing, check_structured, read_checked, read_manifest};
 use crate::zip::{ReadAt, ZipIndex};
@@ -269,6 +269,7 @@ fn role_path_ok(manifest: &Manifest, member: &a3::BundleManifestMember) -> bool 
             .any(|(projection, _)| *projection == path),
         Role::Materialization => path == MATERIALIZATION_PATH,
         Role::ComponentModels => path == MODELS_PATH,
+        Role::AssemblyHlr => path == ASSEMBLY_HLR_PATH,
         Role::RefilledBoard => manifest.config.board.as_ref().is_some_and(|board| {
             path == format!("{REFILLED_PREFIX}{}", crate::paths::file_name(board))
         }),
@@ -314,7 +315,7 @@ fn i3_schemas(manifest: &Manifest, findings: &mut Vec<Finding>) {
     for member in &manifest.members {
         let structured = matches!(
             member.role,
-            Role::Design | Role::Materialization | Role::Projection
+            Role::Design | Role::Materialization | Role::Projection | Role::AssemblyHlr
         );
         let expected = declared
             .iter()

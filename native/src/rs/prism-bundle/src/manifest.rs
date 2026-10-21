@@ -31,6 +31,10 @@ pub const MATERIALIZATION_PATH: &str = "materialization/board.kmpack";
 pub const MATERIALIZATION_SCHEMA: &str = "kicad_monkey.materialization.a0";
 /// Archive path of the component GLB.
 pub const MODELS_PATH: &str = "viewer/models/components.glb";
+/// Archive path of the assembly HLR member (cli-spec.md §5.2.4).
+pub const ASSEMBLY_HLR_PATH: &str = "models/assembly-hlr.json";
+/// Schema id of the assembly HLR member.
+pub const ASSEMBLY_HLR_SCHEMA: &str = "prism.assembly_hlr.a0";
 /// Prefix of the source members.
 pub const SOURCES_PREFIX: &str = "sources/";
 /// Prefix of the refilled board.
@@ -61,6 +65,7 @@ pub fn member_schemas() -> Vec<(&'static str, &'static str)> {
         (MANIFEST_PATH, MANIFEST_SCHEMA),
         (DESIGN_PATH, DESIGN_SCHEMA),
         (MATERIALIZATION_PATH, MATERIALIZATION_SCHEMA),
+        (ASSEMBLY_HLR_PATH, ASSEMBLY_HLR_SCHEMA),
     ];
     schemas.extend(PROJECTIONS);
     schemas.sort_by(|a, b| a.0.cmp(b.0));
@@ -72,7 +77,7 @@ pub fn member_schemas() -> Vec<(&'static str, &'static str)> {
 pub fn role_stage(role: Role) -> Stage {
     match role {
         Role::RefilledBoard | Role::Materialization => Stage::Board,
-        Role::ComponentModels => Stage::Models,
+        Role::ComponentModels | Role::AssemblyHlr => Stage::Models,
         _ => Stage::Parse,
     }
 }
@@ -87,6 +92,7 @@ pub fn is_source_role(role: Role) -> bool {
             | Role::RefilledBoard
             | Role::Materialization
             | Role::ComponentModels
+            | Role::AssemblyHlr
     )
 }
 

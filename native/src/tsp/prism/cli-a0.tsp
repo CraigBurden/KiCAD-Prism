@@ -388,6 +388,30 @@ enum CliModelsProcedure {
   kicadCliGlbA0: "kicad-cli-glb-a0",
 }
 
+/**
+ * The HLR option set stage `models` passes to Geometer for every footprint
+ * (`models/assembly-hlr.json`'s `options`), as one versioned token: changing
+ * any option changes the token, and with it the generator id (cli-spec.md
+ * §5.2.4).
+ */
+enum CliHlrOptionsProcedure {
+  /** Geometer's default `poly` projection algorithm and default mesh deflections and edge flags; outline algorithm `mesh-shadow`, curve mode `native_arcs`, 24 samples per curve, 3 round digits, outline and detail both on, unioned outline polygons. */
+  assemblyHlrA0: "assembly-hlr-a0",
+}
+
+/**
+ * The procedure stage `models` uses for `models/assembly-hlr.json`
+ * (cli-spec.md §5.2.4): the Geometer runtime release and the HLR option set.
+ * Changing either is a generator bump.
+ */
+model CliHlrProcedure {
+  /** The Geometer runtime's release version, exactly as its welcome reports it, for example `2026.9.13`. `--geometer` must report this version or exit 7. */
+  geometer_version: CliReleaseVersion;
+
+  /** The HLR option set every projection used. */
+  options: CliHlrOptionsProcedure;
+}
+
 // ------------------------------------------------------------- small models
 
 /**
@@ -593,6 +617,9 @@ model CliVersionA0 {
 
   /** Version of the parser core crate (`ENGINE_VERSION`, the fork's `kicad-monkey-core`, `prism-kicad-core` after WP-F2). */
   engine_version: CliReleaseVersion;
+
+  /** The procedure stage `models` uses for `models/assembly-hlr.json`: the Geometer runtime and the HLR options (cli-spec.md §5.2.4). */
+  hlr_procedure: CliHlrProcedure;
 
   /**
    * The current file formats of `kicad_version`: the `(version N)` KiCad

@@ -1,0 +1,31 @@
+{
+ "case": "rs-synthetic",
+ "bundle": "/private/tmp/claude-503/-Users-Swaroop-Personal-Projects/f336681f-9155-4f00-80ce-4ac48096d8c0/scratchpad/c3/bundles/rs-synthetic.prism",
+ "documentPath": "synthetic.kicad_pcb",
+ "bundleSha256": "1f494839085a5afb51db812b7efd9f44dee8ed2474f66249d48ddb2d72637dea",
+ "config": "/Users/Swaroop/Personal-Projects/KiCAD-Platform/.worktrees/c3-d/backend/app/release_studio/documents/pcb-svg.config.json",
+ "configSha256": "846654369b1c27d95c885c7534f96c073b274887c85bffdb5f04d87aa9f32f64",
+ "views": [
+  "assembly_top_view",
+  "assembly_bottom_view"
+ ],
+ "argv": [
+  "pcb-svg",
+  "/private/tmp/claude-503/-Users-Swaroop-Personal-Projects/f336681f-9155-4f00-80ce-4ac48096d8c0/scratchpad/c3/hlr-golden/rs-synthetic/synthetic.kicad_pcb",
+  "--config",
+  "/Users/Swaroop/Personal-Projects/KiCAD-Platform/.worktrees/c3-d/backend/app/release_studio/documents/pcb-svg.config.json",
+  "--views",
+  "assembly_top_view,assembly_bottom_view",
+  "--output",
+  "/private/tmp/claude-503/-Users-Swaroop-Personal-Projects/f336681f-9155-4f00-80ce-4ac48096d8c0/scratchpad/c3/hlr-golden/rs-synthetic-views"
+ ],
+ "kicadCruncherVersion": "2026.9.7",
+ "geometerVersion": "2026.9.7",
+ "geometerAbi": 20260907,
+ "rustGeometerVersion": "2026.9.13",
+ "modelDirs": {
+  "KICAD10_3DMODEL_DIR": "/Applications/KiCad/KiCad.app/Contents/SharedSupport/3dmodels"
+ },
+ "footprints": 0,
+ "statuses": {}
+}

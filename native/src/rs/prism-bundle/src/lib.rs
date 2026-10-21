@@ -11,6 +11,7 @@
 //! | `refilled/<board name>` | `refilled-board` (absent with saved fills) | board |
 //! | `materialization/board.kmpack` | `materialization` | board |
 //! | `viewer/models/components.glb` | `component-models` | models |
+//! | `models/assembly-hlr.json` | `assembly-hlr` (`prism.assembly_hlr.a0`, with `--geometer`) | models |
 //!
 //! **Features.**
 //! - The always-built part, also selected by `reader`, has no dependency on

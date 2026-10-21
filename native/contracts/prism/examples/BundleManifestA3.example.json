@@ -4,6 +4,10 @@
     "schema": "prism.cli.version.a0",
     "crate_version": "0.1.0",
     "engine_version": "2026.9.7",
+    "hlr_procedure": {
+      "geometer_version": "2026.9.13",
+      "options": "assembly-hlr-a0"
+    },
     "kicad_file_formats": {
       "board": 20260206,
       "schematic": 20260306
@@ -21,6 +25,10 @@
       {
         "path": "materialization/board.kmpack",
         "schema": "kicad_monkey.materialization.a0"
+      },
+      {
+        "path": "models/assembly-hlr.json",
+        "schema": "prism.assembly_hlr.a0"
       },
       {
         "path": "projections/board-objects.json",
@@ -61,7 +69,7 @@
     "upgrade_procedure": "kicad-seeded-upgrade-a0"
   },
   "revision_key": "faea5ace66f591553c21fdcb2555e5a67e6e2fe73b7d17663375ac6f809206f5",
-  "bundle_key": "c97da8a76c130c4849db88df1e90382e51fe4609530f237aaa38e0765feb1bd6",
+  "bundle_key": "c08a51346745f02a03ea375e4ae187bb0848b417a8138e128f8445ddeb14e307",
   "config": {
     "schema": "prism.revision_key.effective_config.a1",
     "project_file": "USB-PD-Trigger-Board.kicad_pro",

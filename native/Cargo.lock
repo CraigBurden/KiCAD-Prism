@@ -736,7 +736,7 @@ dependencies = [
 
 [[package]]
 name = "prism-kicad-cli"
-version = "0.6.3"
+version = "0.7.0"
 dependencies = [
  "libc",
  "miniz_oxide",
@@ -842,6 +842,7 @@ dependencies = [
 name = "prism-projections"
 version = "0.1.0"
 dependencies = [
+ "geometer-client",
  "libm",
  "prism-kicad-contracts",
  "prism-kicad-core",
@@ -849,6 +850,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2 0.11.0",
+ "tokio",
 ]
 
 [[package]]

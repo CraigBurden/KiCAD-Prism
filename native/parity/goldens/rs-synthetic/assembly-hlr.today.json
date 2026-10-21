@@ -1,0 +1,16 @@
+{
+ "schema": "prism.assembly_hlr.a0",
+ "options": {
+  "outlineAlgorithm": "mesh-shadow",
+  "curveMode": "native_arcs",
+  "samplesPerCurve": 24,
+  "roundDigits": 3,
+  "includeVisible": true,
+  "includeOutline": true,
+  "unionPolygons": true
+ },
+ "runtime": {
+  "geometerVersion": "2026.9.7"
+ },
+ "footprints": []
+}

@@ -2,6 +2,10 @@
   "schema": "prism.cli.version.a0",
   "crate_version": "0.1.0",
   "engine_version": "2026.9.7",
+  "hlr_procedure": {
+    "geometer_version": "2026.9.13",
+    "options": "assembly-hlr-a0"
+  },
   "kicad_file_formats": {
     "board": 20260206,
     "schematic": 20260306
@@ -19,6 +23,10 @@
     {
       "path": "materialization/board.kmpack",
       "schema": "kicad_monkey.materialization.a0"
+    },
+    {
+      "path": "models/assembly-hlr.json",
+      "schema": "prism.assembly_hlr.a0"
     },
     {
       "path": "projections/board-objects.json",

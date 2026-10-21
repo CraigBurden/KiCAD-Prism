@@ -6,8 +6,15 @@ use super::chain::{self, Input};
 use super::{Built, Generator, MemberData, Reporter};
 use crate::finding::{Failure, Outcome};
 use crate::limits::Limits;
-use crate::manifest::{MODELS_PATH, Role, Stage, Status};
+use crate::manifest::{
+    ASSEMBLY_HLR_PATH, MODELS_PATH, REFILLED_PREFIX, Role, SOURCES_PREFIX, Stage, Status,
+};
 use crate::revision_key::EffectiveConfig;
+pub use prism_projections::assembly_hlr::{
+    GEOMETER_C_ABI_GENERATION, GEOMETER_RELEASE, GeometerError, GeometerSession, OPTIONS_TOKEN,
+};
+use std::collections::BTreeMap;
+use std::path::{Path, PathBuf};
 
 /// The fixed time the GLB's `generated_at` is rewritten to: the zip writer's.
 pub const FIXED_TIME: &str = "1980-01-01T00:00:00";
@@ -136,10 +143,17 @@ pub struct ModelsRequest<'a> {
     pub limits: &'a Limits,
     /// Diagnostics.
     pub reporter: &'a dyn Reporter,
+    /// `--geometer`: one connected runtime for the stage. Without it the
+    /// stage writes no assembly HLR member (cli-spec.md §5.2.4).
+    pub geometer: Option<&'a GeometerSession>,
+    /// `--model-dir VAR=dir`.
+    pub model_dirs: &'a BTreeMap<String, PathBuf>,
+    /// `--hlr-cache`.
+    pub hlr_cache: Option<&'a Path>,
 }
 
 /// Run stage models.
-pub fn run(request: ModelsRequest<'_>) -> Outcome<Built> {
+pub fn run(mut request: ModelsRequest<'_>) -> Outcome<Built> {
     let input = request.input;
     chain::check(
         input,
@@ -158,13 +172,14 @@ pub fn run(request: ModelsRequest<'_>) -> Outcome<Built> {
         )
         .argument("models-tool"));
     }
-    let glb = canonicalize(request.glb)?;
+    let glb = canonicalize(std::mem::take(&mut request.glb))?;
     request.limits.check(
         crate::limits::LimitName::MaxMemberBytes,
         u64::try_from(glb.len()).unwrap_or(u64::MAX),
         MODELS_PATH,
     )?;
     let mut members = chain::earlier_members(input, Stage::Models);
+    let mut written = vec![MODELS_PATH.to_owned()];
     members.push(MemberData {
         path: MODELS_PATH.to_owned(),
         role: Role::ComponentModels,
@@ -172,17 +187,115 @@ pub fn run(request: ModelsRequest<'_>) -> Outcome<Built> {
         schema: None,
         source: None,
     });
+    if let Some(geometer) = request.geometer
+        && let Some(member) = assembly_hlr(&request, geometer)?
+    {
+        request.limits.check(
+            crate::limits::LimitName::MaxMemberBytes,
+            u64::try_from(member.bytes.len()).unwrap_or(u64::MAX),
+            ASSEMBLY_HLR_PATH,
+        )?;
+        written.push(ASSEMBLY_HLR_PATH.to_owned());
+        members.push(member);
+    }
     let mut manifest = input.manifest.clone();
     manifest.stages.models = crate::manifest::models_stage(Status::Complete, None);
     request
         .reporter
         .info("stage-finished", "stage models is complete");
-    Ok(Built::assemble(
-        Stage::Models,
-        manifest,
-        members,
-        vec![MODELS_PATH.to_owned()],
-    ))
+    Ok(Built::assemble(Stage::Models, manifest, members, written))
+}
+
+/// `models/assembly-hlr.json`, when the stage has a Geometer runtime.
+fn assembly_hlr(
+    request: &ModelsRequest<'_>,
+    geometer: &GeometerSession,
+) -> Outcome<Option<MemberData>> {
+    let input = request.input;
+    let Some(board) = input.manifest.config.board.as_ref() else {
+        return Ok(None);
+    };
+    let board_path = board.as_str();
+    let refilled = format!("{REFILLED_PREFIX}{}", crate::paths::file_name(board_path));
+    let document = input
+        .member(&refilled)
+        .or_else(|| input.member(&format!("{SOURCES_PREFIX}{board_path}")))
+        .ok_or_else(|| {
+            Failure::internal("stage models has no board member for the assembly HLR")
+        })?;
+    let text = std::str::from_utf8(document)
+        .map_err(|_| Failure::internal("the board member is not UTF-8"))?;
+    let project_dir = crate::paths::parent(input.manifest.config.project_file.as_str());
+    let sources = BundleSources { input };
+    let produced = prism_projections::assembly_hlr::produce(
+        prism_projections::assembly_hlr::AssemblyHlrRequest {
+            document_path: board_path,
+            board_text: text,
+            board_dir: crate::paths::parent(board_path),
+            project_dir,
+            sources: &sources,
+            model_dirs: request.model_dirs,
+            cache: request.hlr_cache,
+            geometer,
+        },
+    )
+    .map_err(|error| match error {
+        prism_projections::assembly_hlr::HlrError::Geometer(message) => Failure::internal(format!(
+            "Geometer failed while projecting an assembly model: {message}"
+        )),
+        prism_projections::assembly_hlr::HlrError::Internal(message) => Failure::internal(message),
+    })?;
+    let bytes = crate::manifest::json_bytes(&produced.document);
+    Ok(Some(MemberData {
+        path: ASSEMBLY_HLR_PATH.to_owned(),
+        role: Role::AssemblyHlr,
+        bytes: std::sync::Arc::from(bytes),
+        schema: Some(prism_projections::assembly_hlr::SCHEMA.to_owned()),
+        source: None,
+    }))
+}
+
+/// The bundle's `sources/` members as the projection [`Sources`] the model
+/// resolver reads.
+struct BundleSources<'a> {
+    input: &'a Input,
+}
+
+impl prism_projections::Sources for BundleSources<'_> {
+    fn read(&self, path: &str) -> Option<std::sync::Arc<[u8]>> {
+        let member = format!("{SOURCES_PREFIX}{path}");
+        self.input
+            .members
+            .iter()
+            .find(|candidate| candidate.path == member)
+            .map(|candidate| candidate.bytes.clone())
+    }
+
+    fn exists(&self, path: &str) -> bool {
+        let member = format!("{SOURCES_PREFIX}{path}");
+        self.input
+            .members
+            .iter()
+            .any(|candidate| candidate.path == member)
+    }
+
+    fn list(&self, dir: &str, suffixes: &[&str]) -> Vec<String> {
+        let prefix = if dir.is_empty() {
+            SOURCES_PREFIX.to_owned()
+        } else {
+            format!("{SOURCES_PREFIX}{dir}/")
+        };
+        self.input
+            .members
+            .iter()
+            .filter_map(|member| member.path.strip_prefix(&prefix))
+            .filter(|path| {
+                let name = path.rsplit('/').next().unwrap_or(path).to_ascii_lowercase();
+                suffixes.is_empty() || suffixes.iter().any(|suffix| name.ends_with(suffix))
+            })
+            .map(str::to_owned)
+            .collect()
+    }
 }
 
 #[cfg(test)]

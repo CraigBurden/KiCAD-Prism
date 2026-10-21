@@ -58,6 +58,7 @@
 //! - **Paths.** Every path is a repository-relative `RepoPath`; files belong to
 //!   the project only through `config` (conventions.md §8).
 
+pub mod assembly_hlr;
 pub mod board_objects;
 pub mod compare;
 pub mod occurrences;
