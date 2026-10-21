@@ -371,9 +371,14 @@ def discover_variant_catalog(
         if resolved_commit is not None:
             from app.services.design_bundle import consumer
 
-            read = consumer.bundle_read_if_ready(
-                "SEMANTIC_INDEX", str(getattr(project, "id", "") or ""), resolved_commit, [SEMANTIC_INDEX_MEMBER]
-            )
+            try:
+                read = consumer.bundle_read_if_ready(
+                    "SEMANTIC_INDEX", str(getattr(project, "id", "") or ""), resolved_commit, [SEMANTIC_INDEX_MEMBER]
+                )
+            except LookupError:
+                # A checkout that is not a registered project (Release Studio's
+                # staged closure) has no bundle; its source discovery answers.
+                read = None
             if read is not None and read.ready(SEMANTIC_INDEX_MEMBER):
                 document = read.json(SEMANTIC_INDEX_MEMBER)
                 assembly = document.get("assembly") if isinstance(document, dict) else None
