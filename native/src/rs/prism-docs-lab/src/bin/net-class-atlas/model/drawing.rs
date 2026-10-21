@@ -22,7 +22,11 @@ impl Drawing {
             let pad =
                 pad.map_err(|error| LabError::new(format!("a pad does not decode: {error}")))?;
             if let Some(slot) = pads.get_mut(pad.footprint_index) {
-                slot.push(pad_facts(&pad));
+                let footprint_angle = footprints
+                    .get(pad.footprint_index)
+                    .and_then(|footprint| footprint.angle)
+                    .unwrap_or(0.0);
+                slot.push(pad_facts(&pad, footprint_angle));
             }
         }
         Ok(Self {

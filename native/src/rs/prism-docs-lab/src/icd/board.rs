@@ -498,7 +498,12 @@ impl<'a> Facts<'a> {
         session: Option<&Session>,
         cache: &mut Cache,
     ) -> Result<Connector, LabError> {
-        let pads: Vec<PadFact> = row.pads.iter().map(pad_fact).collect();
+        let footprint_angle = row.footprint.angle.unwrap_or_default();
+        let pads: Vec<PadFact> = row
+            .pads
+            .iter()
+            .map(|pad| pad_fact(pad, footprint_angle))
+            .collect();
         let side = side_of(row.footprint, row.placement);
         let at = Point {
             x: row

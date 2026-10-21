@@ -351,7 +351,7 @@ pub struct Pad {
     pub x: f64,
     /// Footprint-local anchor y.
     pub y: f64,
-    /// The pad's own rotation in degrees.
+    /// The pad's rotation relative to its footprint, in degrees.
     pub angle: f64,
     /// The pad's shape.
     pub shape: PadShape,

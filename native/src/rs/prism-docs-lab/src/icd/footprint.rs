@@ -66,7 +66,7 @@ pub struct PadFact {
     pub x: f64,
     /// Footprint-local anchor y.
     pub y: f64,
-    /// The pad's own rotation in degrees.
+    /// The pad's rotation relative to its footprint, in degrees.
     pub angle: f64,
     /// The pad's shape.
     pub shape: PadShape,
@@ -117,14 +117,18 @@ impl PadFact {
 }
 
 /// One parsed pad as a drawable fact.
-pub fn pad_fact(pad: &PcbPad) -> PadFact {
+///
+/// A board file stores a pad's angle in the board frame, already including its
+/// footprint's rotation; the connector is drawn in its footprint's own frame, so
+/// the footprint's angle comes off here.
+pub fn pad_fact(pad: &PcbPad, footprint_angle: f64) -> PadFact {
     PadFact {
         number: pad.number.clone(),
         kind: pad.kind.clone(),
         net: pad.net.name.clone().unwrap_or_default(),
         x: pad.at_x,
         y: pad.at_y,
-        angle: pad.angle,
+        angle: pad.angle - footprint_angle,
         shape: pad_shape(pad),
     }
 }
@@ -424,6 +428,31 @@ mod tests {
         for (left, right) in ring.iter().zip(back.iter()) {
             assert!((left.x - right.x).abs() < 1e-9);
             assert!((left.y - right.y).abs() < 1e-9);
+        }
+    }
+
+    #[test]
+    fn a_rotated_footprints_pad_angle_is_relative_to_the_footprint() {
+        // An XAL6060 inductor placed at -90 degrees: the board file stores its
+        // pads at 270, which already includes the footprint's rotation.
+        let text = r#"(kicad_pcb (version 20240108) (generator "pcbnew")
+  (footprint "Inductor_SMD:L_Coilcraft_XAL6060-XXX" (layer "F.Cu") (at 40 60 -90)
+    (pad "1" smd roundrect (at -2.02 0 270) (size 1.43 5.5) (layers "F.Cu"))
+    (pad "2" smd roundrect (at 2.02 0 270) (size 1.43 5.5) (layers "F.Cu"))))"#;
+        let view = PcbView::parse(text, prism_kicad_core::PcbLimits::default()).expect("parses");
+        let footprint = view
+            .footprints()
+            .next()
+            .expect("one footprint")
+            .expect("decodes");
+        let angle = footprint.angle.unwrap_or_default();
+        for parsed in view.pads() {
+            let fact = pad_fact(&parsed.expect("decodes"), angle);
+            assert!(
+                (fact.angle.rem_euclid(360.0)).abs() < 1e-9,
+                "relative angle {}",
+                fact.angle
+            );
         }
     }
 }

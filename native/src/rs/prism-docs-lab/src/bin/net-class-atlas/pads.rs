@@ -8,13 +8,16 @@ use prism_kicad_core::{PcbPad, PcbPadPrimitiveGeometry, PcbPolygonPoint};
 
 use super::model::{Pad, PadShape};
 
-pub fn pad_facts(pad: &PcbPad) -> Pad {
+/// A board file stores a pad's angle in the board frame, already including its
+/// footprint's rotation; the drawing turns pads inside the footprint's own
+/// transform, so the footprint's angle comes off here.
+pub fn pad_facts(pad: &PcbPad, footprint_angle: f64) -> Pad {
     Pad {
         net: pad.net.name.clone().unwrap_or_default(),
         layers: pad.layers.clone(),
         x: pad.at_x,
         y: pad.at_y,
-        angle: pad.angle,
+        angle: pad.angle - footprint_angle,
         shape: pad_shape(pad),
     }
 }
