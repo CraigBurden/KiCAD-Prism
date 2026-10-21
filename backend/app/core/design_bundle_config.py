@@ -93,6 +93,13 @@ class DesignBundleSettings(BaseSettings):
     PRISM_DESIGN_BUNDLE_PARSE_TIMEOUT_MS: int = Field(default=300_000, ge=1_000)
     PRISM_DESIGN_BUNDLE_BOARD_TIMEOUT_MS: int = Field(default=600_000, ge=1_000)
     PRISM_DESIGN_BUNDLE_MODELS_TIMEOUT_MS: int = Field(default=120_000, ge=1_000)
+    GEOMETER_EXECUTABLE: str = Field(
+        default="",
+        description=(
+            "The pinned Geometer runtime stage `models` runs for the assembly HLR member "
+            "(amendment C3 §3.1). The image sets it; empty leaves the member out."
+        ),
+    )
     PRISM_DESIGN_BUNDLE_VERIFY_TIMEOUT_MS: int = Field(
         default=300_000,
         ge=1_000,

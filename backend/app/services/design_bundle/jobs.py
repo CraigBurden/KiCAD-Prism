@@ -414,7 +414,7 @@ class _Run:
         self.details["models_cache_hit"] = hit
         args = ["bundle", "build", "--stage", "models", "--in", str(self.archive_path), "-o", str(self.archive_path),
                 "--models-glb", str(glb), "--models-tool", self._tool_version(), "--revision-key", self.revision_key,
-                *cli.limits("models")]
+                *stage_models.hlr_args(), *cli.limits("models")]
         self.cli(args, "models")
         return self._reopen("models")
 

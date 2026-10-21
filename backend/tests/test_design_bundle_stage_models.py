@@ -63,3 +63,29 @@ class PruneCacheTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class HlrArgsTest(unittest.TestCase):
+    """Stage `models`'s assembly HLR inputs (cli-spec.md §5.2.4, amendment C3 §3.1)."""
+
+    def test_no_geometer_runtime_passes_nothing(self) -> None:
+        with mock.patch.object(stage_models.settings, "GEOMETER_EXECUTABLE", ""):
+            self.assertEqual(stage_models.hlr_args({"KICAD10_3DMODEL_DIR": "/models"}), [])
+
+    def test_the_runtime_the_cache_and_every_stock_model_library(self) -> None:
+        with tempfile.TemporaryDirectory() as root, \
+                mock.patch.object(stage_models.settings, "GEOMETER_EXECUTABLE", "/opt/geometer/geometer"), \
+                mock.patch.object(stage_models.settings, "KICAD_PROJECTS_ROOT", root):
+            args = stage_models.hlr_args({
+                "KICAD10_3DMODEL_DIR": "/usr/share/kicad/3dmodels",
+                "KICAD9_3DMODEL_DIR": "/old",
+                "KICAD10_3DMODEL_DIR_EXTRA": "/ignored",
+                "KICAD8_3DMODEL_DIR": "",
+                "HOME": "/root",
+            })
+        self.assertEqual(args, [
+            "--geometer", "/opt/geometer/geometer",
+            "--hlr-cache", str(Path(root) / ".kicad-prism" / "hlr-cache"),
+            "--model-dir", "KICAD10_3DMODEL_DIR=/usr/share/kicad/3dmodels",
+            "--model-dir", "KICAD9_3DMODEL_DIR=/old",
+        ])
