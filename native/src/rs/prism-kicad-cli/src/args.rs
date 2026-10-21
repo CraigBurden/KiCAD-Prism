@@ -6,7 +6,11 @@
 use prism_bundle::{Failure, LimitName, Limits, Outcome, Work};
 use std::collections::{BTreeMap, BTreeSet};
 
+mod build_rules;
+mod model_dirs;
 mod system;
+use build_rules::build_rules;
+use model_dirs::model_directories;
 use system::{check_system, system_of};
 
 /// The command.
@@ -90,6 +94,8 @@ pub struct Args {
     pub system_board_sub_ports: Option<String>,
     /// `system build --entry`, by occurrence.
     pub system_entries: BTreeMap<String, SystemEntryArg>,
+    /// `bundle build --stage models --model-dir`, by variable.
+    pub model_dirs: BTreeMap<String, String>,
     /// `--worktree`.
     pub worktree: bool,
     /// `--quiet`.
@@ -125,7 +131,7 @@ fn work_of(command: Command, stage: Option<StageArg>) -> Work {
     }
 }
 
-const VALUE_OPTIONS: [&str; 37] = [
+const VALUE_OPTIONS: [&str; 40] = [
     "output",
     "in",
     "stage",
@@ -137,6 +143,9 @@ const VALUE_OPTIONS: [&str; 37] = [
     "refill-tool",
     "models-glb",
     "models-tool",
+    "geometer",
+    "model-dir",
+    "hlr-cache",
     "commit",
     "project",
     "base",
@@ -181,6 +190,9 @@ fn allowed(command: Command, option: &str) -> bool {
             "refill-tool",
             "models-glb",
             "models-tool",
+            "geometer",
+            "model-dir",
+            "hlr-cache",
         ],
         Command::Extract => &["output"],
         Command::Reuse => &["in", "key-record"],
@@ -304,6 +316,7 @@ struct Raw {
     absent: Vec<String>,
     entries: Vec<String>,
     entry_stages: Vec<String>,
+    model_dirs: Vec<String>,
     include_unchanged: bool,
     worktree: bool,
     quiet: bool,
@@ -323,6 +336,7 @@ fn collect(command: Command, rest: &[String]) -> Outcome<Raw> {
         absent: Vec::new(),
         entries: Vec::new(),
         entry_stages: Vec::new(),
+        model_dirs: Vec::new(),
         include_unchanged: false,
         worktree: false,
         quiet: false,
@@ -384,19 +398,48 @@ impl Raw {
     }
 
     fn value(&mut self, name: &'static str, value: String) -> Outcome<()> {
-        match name {
-            "limit" => self.limits.push(value),
-            "upgraded" => self.upgraded.push(value),
-            "base-upgraded" => self.base_upgraded.push(value),
-            "head-upgraded" => self.head_upgraded.push(value),
-            "member" => self.members.push(value),
-            "member-revision-key" => self.member_revision_keys.push(value),
-            "absent" => self.absent.push(value),
-            "entry" => self.entries.push(value),
-            "entry-stage" => self.entry_stages.push(value),
-            _ => return self.single(name, value),
+        if self.push_repeated(name, value.clone()) {
+            Ok(())
+        } else {
+            self.single(name, value)
         }
-        Ok(())
+    }
+
+    /// Store a repeatable option; false for a single-valued one.
+    fn push_repeated(&mut self, name: &'static str, value: String) -> bool {
+        let slot = if let Some(slot) = self.repeated_comparison(name) {
+            slot
+        } else if let Some(slot) = self.repeated_document(name) {
+            slot
+        } else {
+            return false;
+        };
+        slot.push(value);
+        true
+    }
+
+    /// The repeatable options of `compare` and `bundle build`.
+    fn repeated_comparison(&mut self, name: &'static str) -> Option<&mut Vec<String>> {
+        match name {
+            "limit" => Some(&mut self.limits),
+            "upgraded" => Some(&mut self.upgraded),
+            "base-upgraded" => Some(&mut self.base_upgraded),
+            "head-upgraded" => Some(&mut self.head_upgraded),
+            "model-dir" => Some(&mut self.model_dirs),
+            _ => None,
+        }
+    }
+
+    /// The repeatable options of `system build` and `system step`.
+    fn repeated_document(&mut self, name: &'static str) -> Option<&mut Vec<String>> {
+        match name {
+            "member" => Some(&mut self.members),
+            "member-revision-key" => Some(&mut self.member_revision_keys),
+            "absent" => Some(&mut self.absent),
+            "entry" => Some(&mut self.entries),
+            "entry-stage" => Some(&mut self.entry_stages),
+            _ => None,
+        }
     }
 
     /// Store a single-valued option, refusing a second one.
@@ -509,52 +552,6 @@ fn check_build(raw: &Raw, stage: Option<StageArg>) -> Outcome<()> {
         Some((_, message, argument)) => Err(conflict(*message, argument)),
         None => Ok(()),
     }
-}
-
-/// The option combinations of `bundle build` (cli-spec.md §2.2): (broken,
-/// message, argument), in the order checked.
-fn build_rules(raw: &Raw, stage: StageArg) -> [(bool, &'static str, &'static str); 7] {
-    let has = |name: &str| raw.options.contains_key(name);
-    let parse = stage == StageArg::Parse;
-    let models = stage == StageArg::Models;
-    let board_only = has("refilled-board") && stage != StageArg::Board;
-    [
-        (
-            has("source-root") && !parse,
-            "--source-root is only for --stage parse",
-            "source-root",
-        ),
-        (
-            has("key-record") && !parse,
-            "--key-record is only for --stage parse",
-            "key-record",
-        ),
-        (
-            !raw.upgraded.is_empty() && !parse,
-            "--upgraded is only for --stage parse",
-            "upgraded",
-        ),
-        (
-            has("key-record") && !has("revision-key"),
-            "--key-record requires --revision-key",
-            "key-record",
-        ),
-        (
-            parse == has("in"),
-            "--in is required with board and models and refused with parse",
-            "in",
-        ),
-        (
-            has("refilled-board") != has("refill-tool") || board_only,
-            "--refilled-board and --refill-tool go together, with --stage board only",
-            "refilled-board",
-        ),
-        (
-            has("models-glb") != models || has("models-tool") != models,
-            "--models-glb and --models-tool go together and only with --stage models",
-            "models-glb",
-        ),
-    ]
 }
 
 /// The options of `bundle reuse` (cli-spec.md §5.10): `--in` and
@@ -717,6 +714,7 @@ pub fn parse(argv: &[String]) -> Outcome<Args> {
         } else {
             (BTreeMap::new(), BTreeSet::new(), None, BTreeMap::new())
         };
+    let model_dirs = model_directories(&raw.model_dirs)?;
     Ok(Args {
         command,
         positional: raw.positional,
@@ -728,6 +726,7 @@ pub fn parse(argv: &[String]) -> Outcome<Args> {
         system_absent,
         system_board_sub_ports,
         system_entries,
+        model_dirs,
         include_unchanged: raw.include_unchanged,
         worktree: raw.worktree,
         quiet: raw.quiet,
@@ -776,6 +775,7 @@ fn help_args() -> Args {
         system_absent: BTreeSet::new(),
         system_board_sub_ports: None,
         system_entries: BTreeMap::new(),
+        model_dirs: BTreeMap::new(),
         include_unchanged: false,
         worktree: false,
         quiet: false,
@@ -798,6 +798,7 @@ usage:
               [--revision-key <hex>] [--config <effective.json>] [COMMON]
   prism-kicad bundle build --stage models --in <bundle.prism> -o <out.prism>
               --models-glb <components.glb> --models-tool <kicad-version>
+              [--geometer <exe> [--model-dir <VAR>=<dir>]... [--hlr-cache <dir>]]
               [--revision-key <hex>] [--config <effective.json>] [COMMON]
   prism-kicad bundle verify <bundle.prism> [COMMON]
   prism-kicad bundle extract <bundle.prism> <member>... -o <dir> [COMMON]

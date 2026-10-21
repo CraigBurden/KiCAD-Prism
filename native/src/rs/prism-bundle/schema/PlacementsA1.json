@@ -1,11 +1,11 @@
 {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
-    "$id": "urn:prism:schema:prism.placements:a0",
+    "$id": "urn:prism:schema:prism.placements:a1",
     "type": "object",
     "properties": {
         "schema": {
             "type": "string",
-            "const": "prism.placements.a0",
+            "const": "prism.placements.a1",
             "description": "Schema id of this document."
         },
         "footprints": {
@@ -25,6 +25,10 @@
         "outlineBounds": {
             "$ref": "#/$defs/PlacementsBounds",
             "description": "Board-absolute extent of the board-level `Edge.Cuts` graphics (the\ntop-level `gr_line`, `gr_rect`, `gr_circle`, `gr_arc`, `gr_poly` and\n`gr_curve` forms on `Edge.Cuts`), by the characteristic-point rule of\n`PlacementsBounds`, through line centres (stroke widths are ignored).\nEdge.Cuts graphics owned by footprints are not included. Absent when the\nboard has no such graphic, or the project has no board."
+        },
+        "auxAxisOrigin": {
+            "$ref": "#/$defs/PointNm",
+            "description": "a1: the board's auxiliary axis origin, `(setup (aux_axis_origin x y))`,\nboard-absolute. Position files measure from it (KiCad's \"Use drill/place\nfile origin\"; the JLCPCB CPL, ADR amendment C3 §3.3). Absent when the\nboard does not set one, which readers take as 0,0, or the project has no\nboard."
         }
     },
     "required": [
@@ -36,7 +40,7 @@
         "not": {}
     },
     "description": "Footprint placements of one board. Written once per bundle at stage\n`parse`; carries no provenance (bundle.json records it). When the project\nhas no board, `footprints` and `designators` are empty and `outlineBounds`\nis absent.",
-    "title": "Placements a0",
+    "title": "Placements a1",
     "$defs": {
         "PlacementsFootprint": {
             "type": "object",
@@ -138,24 +142,6 @@
             },
             "description": "An axis-aligned extent in nanometres: the minimum and maximum x and y over\nthe characteristic points of a set of graphics, each point computed in\nbinary64 millimetres from the parsed values and converted to nanometres;\nany transcendental function (atan2, sin, cos) is the pure-Rust `libm`\ncrate's, so the result is the same on every architecture.\nThe points of each graphic are: for a line or a rectangle, its start and\nend; for a circle with centre c through point e, c − (r, r) and c + (r, r)\nwith r = hypot(e − c); for an arc, its start, mid and end plus every point\nat 0°, 90°, 180° or 270° on its circle that it sweeps through; for a\npolygon, its vertices (an `(arc …)` element inside `pts` by the arc rule);\nfor a Bézier curve, its four control points. The frame (board-absolute or\nfootprint-local) is given by the field that holds it."
         },
-        "KiCadUuid": {
-            "type": "string",
-            "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
-            "description": "KiCad object UUID in the canonical form KiCad writes (`KIID::AsString`):\nlowercase hexadecimal, 8-4-4-4-12. Copied from the file, never generated\nor re-cased."
-        },
-        "LibId": {
-            "type": "string",
-            "minLength": 1,
-            "description": "KiCad library identifier as written in the file: `<nickname>:<name>` for a\nsymbol (`Device:R`) or a footprint (`Resistor_SMD:R_0603_1608Metric`). The\nnickname may be absent when the file has none."
-        },
-        "Side": {
-            "type": "string",
-            "enum": [
-                "front",
-                "back"
-            ],
-            "description": "Board side of a footprint, pad or graphic."
-        },
         "PointNm": {
             "type": "object",
             "properties": {
@@ -176,6 +162,24 @@
                 "not": {}
             },
             "description": "A point in nanometres in KiCad's board frame: +x to the right, +y down, as\nin the file and never flipped. The field holding the point states whether\nit is board-absolute or footprint-local. For camelCase (projection)\ndocuments only."
+        },
+        "KiCadUuid": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+            "description": "KiCad object UUID in the canonical form KiCad writes (`KIID::AsString`):\nlowercase hexadecimal, 8-4-4-4-12. Copied from the file, never generated\nor re-cased."
+        },
+        "LibId": {
+            "type": "string",
+            "minLength": 1,
+            "description": "KiCad library identifier as written in the file: `<nickname>:<name>` for a\nsymbol (`Device:R`) or a footprint (`Resistor_SMD:R_0603_1608Metric`). The\nnickname may be absent when the file has none."
+        },
+        "Side": {
+            "type": "string",
+            "enum": [
+                "front",
+                "back"
+            ],
+            "description": "Board side of a footprint, pad or graphic."
         },
         "Degrees": {
             "type": "number",

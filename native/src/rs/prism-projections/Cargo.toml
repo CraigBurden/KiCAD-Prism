@@ -13,12 +13,14 @@ publish = false
 workspace = true
 
 [dependencies]
+geometer-client.workspace = true
 prism-kicad-core = { path = "../prism-kicad-core" }
 prism-kicad-contracts = { path = "../prism-kicad-contracts" }
 serde_json.workspace = true
 serde.workspace = true
 libm.workspace = true
 sha2.workspace = true
+tokio = { workspace = true, features = ["rt-multi-thread"] }
 
 [dev-dependencies]
 regex.workspace = true

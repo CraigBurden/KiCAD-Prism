@@ -18,9 +18,9 @@ mod tree;
 use crate::{Produced, ProducerWarning, ProjectionError, ProjectionInput, document};
 use geometry::{graphic_points, point_bounds, rotate_point};
 use numbers::{degrees, fold, is_canonical_uuid, nm};
-use prism_kicad_contracts::generated::prism_placements_a0::{
+use prism_kicad_contracts::generated::prism_placements_a1::{
     ByteCount, Degrees, KiCadUuid, LibId, Nanometres, NonNegativeNanometres, PadNumber,
-    PlacementsA0, PlacementsBounds, PlacementsFootprint, PlacementsFormLength, PlacementsModel,
+    PlacementsA1, PlacementsBounds, PlacementsFootprint, PlacementsFormLength, PlacementsModel,
     PlacementsModelOffset, PlacementsModelPath, PlacementsModelRotation, PlacementsModelScale,
     PlacementsPad, PlacementsPadShape, PlacementsPadSize, PlacementsPadType, PlacementsSourceSpan,
     PointNm, Refdes, Side,
@@ -31,7 +31,7 @@ use serde_json::json;
 use std::collections::BTreeSet;
 
 /// The member's schema id (`placements_build.py:30`).
-pub const SCHEMA: &str = "prism.placements.a0";
+pub const SCHEMA: &str = "prism.placements.a1";
 const NAME: &str = "projections/placements.json";
 
 /// The footprint courtyard layers (`placements_build.py:34`).
@@ -58,7 +58,7 @@ const FP_GRAPHICS: [(&str, &str); 6] = [
 ];
 
 /// Build `projections/placements.json` from the single parse of the revision.
-pub fn produce(input: &ProjectionInput<'_>) -> Result<Produced<PlacementsA0>, ProjectionError> {
+pub fn produce(input: &ProjectionInput<'_>) -> Result<Produced<PlacementsA1>, ProjectionError> {
     let Some(board) = input.board else {
         return document(
             NAME,
@@ -70,7 +70,7 @@ pub fn produce(input: &ProjectionInput<'_>) -> Result<Produced<PlacementsA0>, Pr
 }
 
 /// R1-R13 for one `.kicad_pcb` text (`placements_build.py:298-367`).
-fn build(text: &str) -> Result<(PlacementsA0, Vec<ProducerWarning>), ProjectionError> {
+fn build(text: &str) -> Result<(PlacementsA1, Vec<ProducerWarning>), ProjectionError> {
     if !is_kicad_pcb(text)? {
         return Err(ProjectionError::new(
             "placements: the board is not a kicad_pcb",
@@ -82,6 +82,7 @@ fn build(text: &str) -> Result<(PlacementsA0, Vec<ProducerWarning>), ProjectionE
                 .iter()
                 .map(|(head, _)| (*head).to_string())
                 .chain(std::iter::once("footprint".to_string()))
+                .chain(std::iter::once("setup".to_string()))
                 .collect(),
         ),
         min_depth: Some(1),
@@ -94,9 +95,16 @@ fn build(text: &str) -> Result<(PlacementsA0, Vec<ProducerWarning>), ProjectionE
     let mut seen = BTreeSet::new();
     let mut references = BTreeSet::new();
     let mut outline_points = Vec::new();
+    let mut aux_axis_origin = None;
     for span in &spans {
         let head = span.head.as_deref().unwrap_or_default();
         let form = parse_form(text, span).map_err(board_error)?;
+        if head == "setup" {
+            aux_axis_origin = tree::child(Some(&form), "aux_axis_origin")
+                .and_then(|origin| tree::xy(Some(origin)))
+                .map(|(x, y)| point((nm(x), nm(y))));
+            continue;
+        }
         if let Some(kind) = graphic_kind(head) {
             if tree::layer_of(&form).as_deref() == Some("Edge.Cuts") {
                 outline_points.extend(graphic_points(&form, kind));
@@ -129,11 +137,12 @@ fn build(text: &str) -> Result<(PlacementsA0, Vec<ProducerWarning>), ProjectionE
         .map(|value| Refdes::try_from(value).map_err(|_| empty_refdes_error()))
         .collect::<Result<Vec<_>, _>>()?;
     Ok((
-        PlacementsA0 {
+        PlacementsA1 {
             schema: SCHEMA.to_string(),
             footprints,
             designators,
             outline_bounds: bounds_points(&outline_points),
+            aux_axis_origin,
         },
         warnings,
     ))

@@ -65,7 +65,7 @@ fn every_prism_example_round_trips_through_its_generated_type() {
         "DrawingSheetRequestA0",
     );
     round_trip::<generated::prism_occurrences_a0::OccurrencesA0>("OccurrencesA0");
-    round_trip::<generated::prism_placements_a0::PlacementsA0>("PlacementsA0");
+    round_trip::<generated::prism_placements_a1::PlacementsA1>("PlacementsA1");
     round_trip::<generated::prism_project_a0::ProjectA0>("ProjectA0");
     round_trip::<generated::prism_revision_key_effective_config_a1::RevisionKeyEffectiveConfigA1>(
         "RevisionKeyEffectiveConfigA1",

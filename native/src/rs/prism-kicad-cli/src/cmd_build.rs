@@ -13,11 +13,13 @@ use prism_bundle::reader::BundleReader;
 use prism_bundle::revision_key::EffectiveConfig;
 use prism_bundle::stages::board::{BoardRequest, Refilled};
 use prism_bundle::stages::chain::{self, Input};
-use prism_bundle::stages::models::ModelsRequest;
+use prism_bundle::stages::models::{
+    GEOMETER_C_ABI_GENERATION, GeometerError, GeometerSession, ModelsRequest,
+};
 use prism_bundle::stages::parse::{ParseOutcome, ParseRequest};
 use prism_bundle::stages::{Built, Generator, Reporter, StageRecord};
 use prism_bundle::zip::FileSource;
-use prism_bundle::{Failure, LimitName, Outcome};
+use prism_bundle::{Category, Failure, LimitName, Outcome};
 use serde_json::{Value, json};
 use std::path::Path;
 
@@ -199,6 +201,36 @@ fn board(args: &Args, generator: &Generator, stderr: &Stderr) -> Outcome<BuildOu
     finish(args, generator, &built, Some(guard), stderr)
 }
 
+/// Connect the `--geometer` runtime for stage models, mapping its two
+/// failures to the codes of cli-spec.md §5.2.4 and §8.
+fn geometer(args: &Args, generator: &Generator) -> Outcome<Option<GeometerSession>> {
+    let Some(executable) = args.option("geometer") else {
+        return Ok(None);
+    };
+    let expected = &generator.document.hlr_procedure.geometer_version.0;
+    GeometerSession::connect(Path::new(executable), expected)
+        .map(Some)
+        .map_err(|error| match error {
+            GeometerError::Unavailable(message) => Failure::new(
+                Category::Internal,
+                "geometer-unavailable",
+                format!("--geometer could not be started: {message}"),
+            )
+            .argument("geometer"),
+            GeometerError::VersionMismatch {
+                release,
+                c_abi_generation,
+            } => Failure::precondition(
+                "geometer-version-mismatch",
+                format!(
+                    "--geometer reports Geometer {release} / C ABI {c_abi_generation}; the generator needs {expected} / C ABI {}",
+                    GEOMETER_C_ABI_GENERATION
+                ),
+            )
+            .argument("geometer"),
+        })
+}
+
 fn models(args: &Args, generator: &Generator, stderr: &Stderr) -> Outcome<BuildOutcome> {
     let (input, digest) = load_input(args)?;
     let config = optional_config(args)?;
@@ -208,6 +240,12 @@ fn models(args: &Args, generator: &Generator, stderr: &Stderr) -> Outcome<BuildO
         LimitName::MaxModelsGlbBytes,
         &args.limits,
     )?;
+    let geometer = geometer(args, generator)?;
+    let model_dirs = args
+        .model_dirs
+        .iter()
+        .map(|(name, directory)| (name.clone(), Path::new(directory).to_path_buf()))
+        .collect();
     let built = prism_bundle::stages::models::run(ModelsRequest {
         input: &input,
         glb,
@@ -217,6 +255,9 @@ fn models(args: &Args, generator: &Generator, stderr: &Stderr) -> Outcome<BuildO
         generator,
         limits: &args.limits,
         reporter: stderr,
+        geometer: geometer.as_ref(),
+        model_dirs: &model_dirs,
+        hlr_cache: args.option("hlr-cache").map(Path::new),
     })?;
     let guard = InputGuard {
         path: Path::new(args.option("in").unwrap_or_default()),

@@ -20,7 +20,7 @@
 //! | [`occurrences`] | `projections/occurrences.json` | `prism_occurrences_a0::OccurrencesA0` | P2 |
 //! | [`route_metrics`] | `projections/route-metrics.json` | `prism_route_metrics_a0::RouteMetricsA0` | P2 |
 //! | [`stackup`] | `projections/stackup.json` | `prism_stackup_a0::StackupA0` | P3 |
-//! | [`placements`] | `projections/placements.json` | `prism_placements_a0::PlacementsA0` | P3 |
+//! | [`placements`] | `projections/placements.json` | `prism_placements_a1::PlacementsA1` | P3 |
 //! | [`project`] | `projections/project.json` | `prism_project_a0::ProjectA0` | P4 |
 //! | [`system_interface`] | `projections/system-interface.json` | `prism_system_interface_v1::SystemInterfaceV1` | P5 |
 //!
@@ -58,6 +58,7 @@
 //! - **Paths.** Every path is a repository-relative `RepoPath`; files belong to
 //!   the project only through `config` (conventions.md §8).
 
+pub mod assembly_hlr;
 pub mod board_objects;
 pub mod compare;
 pub mod occurrences;

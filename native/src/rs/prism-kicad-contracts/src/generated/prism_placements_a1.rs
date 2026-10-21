@@ -415,8 +415,8 @@ is absent.*/
 ///
 /// ```json
 ///{
-///  "$id": "urn:prism:schema:prism.placements:a0",
-///  "title": "PlacementsA0",
+///  "$id": "urn:prism:schema:prism.placements:a1",
+///  "title": "PlacementsA1",
 ///  "description": "Footprint placements of one board. Written once per bundle at stage\n`parse`; carries no provenance (bundle.json records it). When the project\nhas no board, `footprints` and `designators` are empty and `outlineBounds`\nis absent.",
 ///  "type": "object",
 ///  "required": [
@@ -425,6 +425,10 @@ is absent.*/
 ///    "schema"
 ///  ],
 ///  "properties": {
+///    "auxAxisOrigin": {
+///      "description": "a1: the board's auxiliary axis origin, `(setup (aux_axis_origin x y))`,\nboard-absolute. Position files measure from it (KiCad's \"Use drill/place\nfile origin\"; the JLCPCB CPL, ADR amendment C3 §3.3). Absent when the\nboard does not set one, which readers take as 0,0, or the project has no\nboard.",
+///      "$ref": "#/$defs/PointNm"
+///    },
 ///    "designators": {
 ///      "description": "The distinct `reference` values of `footprints`, sorted in code point\norder, each once. Footprints without a `reference` contribute nothing.\nRelease Studio's designator set, and the names System Builder matches\ncomponent bodies in the component GLB by.",
 ///      "type": "array",
@@ -446,7 +450,7 @@ is absent.*/
 ///    "schema": {
 ///      "description": "Schema id of this document.",
 ///      "type": "string",
-///      "const": "prism.placements.a0"
+///      "const": "prism.placements.a1"
 ///    }
 ///  },
 ///  "additionalProperties": false
@@ -455,7 +459,7 @@ is absent.*/
 /// </details>
 #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
 #[serde(deny_unknown_fields)]
-pub struct PlacementsA0 {
+pub struct PlacementsA1 {
     ///Schema id of this document.
     pub schema: ::std::string::String,
     /**Every footprint of the board, in file order: the order of the top-level
@@ -482,6 +486,17 @@ pub struct PlacementsA0 {
         skip_serializing_if = "::std::option::Option::is_none"
     )]
     pub outline_bounds: ::std::option::Option<PlacementsBounds>,
+    /**a1: the board's auxiliary axis origin, `(setup (aux_axis_origin x y))`,
+    board-absolute. Position files measure from it (KiCad's "Use drill/place
+    file origin"; the JLCPCB CPL, ADR amendment C3 §3.3). Absent when the
+    board does not set one, which readers take as 0,0, or the project has no
+    board.*/
+    #[serde(
+        rename = "auxAxisOrigin",
+        default,
+        skip_serializing_if = "::std::option::Option::is_none"
+    )]
+    pub aux_axis_origin: ::std::option::Option<PointNm>,
 }
 /**An axis-aligned extent in nanometres: the minimum and maximum x and y over
 the characteristic points of a set of graphics, each point computed in

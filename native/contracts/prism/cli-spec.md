@@ -251,6 +251,7 @@ Across CPU architectures (maintainer decision, conventions.md §14): every parse
 |---|---|---|
 | `crate_version` | a1's `prism_bundle` (sim: `src/prism-bundle/src/bin/prism-bundle.rs:221`, `env!("CARGO_PKG_VERSION")`) | the explicit bump knob (§5.1.2) |
 | `engine_version` | a1's `design_engine` (sim: `prism-bundle.rs:224`), `kicad_monkey_core::ENGINE_VERSION` (fork: `src/rs/kicad-monkey-core/src/lib.rs:10`) | the core that parses everything |
+| `hlr_procedure` | new (amendment C3 §3.1): the Geometer runtime release and the HLR option set (`--geometer` must report that release) | `models/assembly-hlr.json` is a member, and the runtime and the options decide its bytes (§5.2.4) |
 | `kicad_file_formats` | measured from KiCad 10.0.6 output (board `20260206`, schematic `20260306`; maintainer decision) | the parser reads only these formats, since older sources are upgraded to them first (§9.4), so they decide every parsed member's bytes |
 | `kicad_version` | a1 records the refill tool's version per bundle (sim: `src/prism-bundle/src/build.rs:335`); ref passes `kicad-cli version` (ref: `backend/app/sim_studio/runs.py:134-136`); the 3D GLB cache key uses it (`kicad-prism-viewer/pipeline/topology_compiler/kicad_cli_export.py:178`) | ADR §5: the KiCad version of the KiCad-produced members, which also pins the stock 3D models (G3) |
 | `member_schemas` | a1 lists `member_schema` per member (sim: `contracts/contracts/bundle.tsp:37-38`) and pins the materializer schema (`:54-57`) | ADR §5: "manifest version and projection schema versions"; checked by bundle-format.md invariant I3 |
@@ -325,20 +326,20 @@ The vectors use the generator id in `examples/CliVersionA0.example.json`:
 - engine 2026.9.7;
 - KiCad 10.0.6, with file formats board `20260206` and schematic `20260306`;
 - pack format 0;
-- all three procedures at a0;
-- the eleven member schemas of ADR §6.
+- all four procedures at a0 (`hlr_procedure` names Geometer 2026.9.13);
+- the eleven member schemas of ADR §6 and `models/assembly-hlr.json`.
 
-Its generator bytes are 1122 bytes long. Its `generator_digest` is `d32ccf9dccfc4084e4b9f9ab7dea77ef0e1b69f51cacddd9466db8ad735fb82c`.
+Its generator bytes are 1268 bytes long. Its `generator_digest` is `dc05991596da8187ae86c162d726e598f85cbad31eaef6848de6ab1b1ffde043`.
 
 | revision_key | bundle_key |
 |---|---|
-| `0000000000000000000000000000000000000000000000000000000000000000` | `e6ab4edd790af8cbb4afd150db63aa6df5f4a087778dce00597c19035fdb5069` |
-| `e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855` | `775106309b02f0b095de315ee7c9a79ff349a21bfb01c58a0d3e2d6a16556524` |
-| `42e41c598a193d09f6917ee92b7c71e52e9e15a251a63b7a955ef41beb841f34` | `bf3d0663c4bf8eb7cbea4e251b30d910198f43b0d4d4da05d537665ae46b7e24` |
+| `0000000000000000000000000000000000000000000000000000000000000000` | `ae59906e5de3102a6ab0971f0a48b989c503e2eceeaf865ad3d759250057e5c6` |
+| `e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855` | `4125dd25bcd2695223d46308dc6d197afffb3efc4c3945dd7fb699b26d633342` |
+| `42e41c598a193d09f6917ee92b7c71e52e9e15a251a63b7a955ef41beb841f34` | `6152c193eb079a20c81cc67ecc0803b7ca9a9876078ad7dc3461c05fa2a5ca1c` |
 
 Changing only `kicad_version`, to `10.0.7`:
-- `generator_digest` becomes `46d03769928b812a78dff62e01945649b668b76b6fd512ec9efd0a403fd1d960`;
-- the all-zero revision key gives `55c345ad04d8f55eb120f8f61291519f70fd3377aad74811da7a44bac717ffc4`.
+- `generator_digest` becomes `c554d13962bbadad9c98327fa9f7519ed470c20277dc24c197ee322a2ef01b21`;
+- the all-zero revision key gives `fb81ddd7b0b3b6b80a034b764019a667bf0dcccb688ab60463d28f3202c0d28b`.
 
 These values were computed by the Python above and checked with the shell recipe. WP-B (Rust) and WP-K (Python) both reproduce them, the same acceptance as the revision-key vectors (ADR §9.3).
 
