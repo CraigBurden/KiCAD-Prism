@@ -59,11 +59,11 @@ CONFIGURATION_KEYS = frozenset(
 )
 
 #: How artwork stroke widths and designator limits are interpreted:
-#: ``drawing`` keeps them in board millimetres (they grow with the drawn scale),
-#: ``paper`` prints them at their configured size (the CLI divides by the
-#: sheet's ratio).
+#: ``paper`` (the default) prints them at their configured size (the CLI divides
+#: by the sheet's ratio), ``drawing`` keeps them in board millimetres, so they
+#: grow with the drawn scale. ``drawing`` is kept for compatibility.
 ARTWORK_LINE_WEIGHTS = frozenset({"drawing", "paper"})
-DEFAULT_ARTWORK_LINE_WEIGHTS = "drawing"
+DEFAULT_ARTWORK_LINE_WEIGHTS = "paper"
 
 POLICY_KEYS = frozenset(
     {

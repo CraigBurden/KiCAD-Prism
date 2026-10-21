@@ -225,8 +225,15 @@ def test_the_sheet_is_placed_at_the_ratio_the_artwork_was_drawn_at() -> None:
 # ------------------------------------------------------------------- the config
 
 
-def test_artwork_line_weights_defaults_to_drawing() -> None:
-    assert parse_configuration_yaml(_MIN_CONFIG)["artwork_line_weights"] == "drawing"
+def test_artwork_line_weights_defaults_to_paper() -> None:
+    assert parse_configuration_yaml(_MIN_CONFIG)["artwork_line_weights"] == "paper"
+
+
+def test_artwork_line_weights_still_accepts_drawing() -> None:
+    configured = parse_configuration_yaml(
+        _MIN_CONFIG + "\nartwork_line_weights: drawing\n"
+    )
+    assert configured["artwork_line_weights"] == "drawing"
 
 
 def test_artwork_line_weights_accepts_paper_only() -> None:
