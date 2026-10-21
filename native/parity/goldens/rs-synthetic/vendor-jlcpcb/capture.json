@@ -1,0 +1,42 @@
+{
+ "config": {
+  "path": "backend/app/release_studio/vendors/jlcpcb.config.jsonc",
+  "sha256": "eb70600c27679b06bf228206ba696b203d104fe6fd8b6a18bad02d10ff2ea2a1"
+ },
+ "inputs": {
+  "synthetic.kicad_jobset": "789635d2f7b5e3c3f11d60a5a243759d97d70b5b9f11486ff5144b6fd913f1c3",
+  "synthetic.kicad_pcb": "4800876ce6454eddaf0325f020bb0a125309b11cb62dd35eab9214ff7b173770",
+  "synthetic.kicad_pro": "46b398869f9eef517198797bed7bd7bb5ffbae8216de410727ba1dce2814062d",
+  "synthetic.kicad_sch": "814058222e1bbd145d1fe7f26d366c17c9bda259e2bac98fffdd6697adf58b35"
+ },
+ "producer": "kicad-cruncher 2026.9.7\nkicad-monkey 2026.9.7\nwn-geometer 2026.9.7",
+ "project": "synthetic.kicad_pro",
+ "schema": "prism.parity.vendor-capture.a0",
+ "variants": {
+  "assembly-reduced": {
+   "bom.csv": "61310dda9115d161eb649588002c845fc2634b19b57e8c6314f4f4dd3b887d01",
+   "bom.xlsx": "0175771e27445508aee2bf83f2026d39aa6eededfb08f66b0fc0efde17271ebe",
+   "cpl.csv": "08dea2c343d71f79460b007b52a0883bafc41e998fab288da3b6867b631c2356",
+   "cpl.xlsx": "fb604a5cdc9fed842e1e9b1fae6796925faccb6f71976b2c6f3483b77989c087"
+  },
+  "base": {
+   "bom.csv": "129862b81fa437251f33843d39d67b5f34f84d581d89e71a753d65bbc5441b82",
+   "bom.xlsx": "36124e107092570a3f62da445b2ccfa80cfe455bb6c3a47ab01998d67e33ad2d",
+   "cpl.csv": "7758d6d00661bce46d5bb0aebf182f3cf5f62d1332ce02056355f50b0654aae9",
+   "cpl.xlsx": "10014586c0f89d4a1b3cd1c233874ece8ddfd2fa8718b7d287a1bcefcb5683b0"
+  },
+  "default": {
+   "bom.csv": "129862b81fa437251f33843d39d67b5f34f84d581d89e71a753d65bbc5441b82",
+   "bom.xlsx": "647bf08f6971fc7af58d7aea318ecc64962ad79c0cfad447cfcdd9875d5e14b9",
+   "cpl.csv": "7758d6d00661bce46d5bb0aebf182f3cf5f62d1332ce02056355f50b0654aae9",
+   "cpl.xlsx": "65047e18504d490391d4f3fe4517ddaa7edbfbbd0d5d4212a53d740d8173e29e"
+  },
+  "dnp-led": {
+   "bom.csv": "9284c2201b2823f209fd961e89baa03a39976589aab6c9884e8fabb9d6146592",
+   "bom.xlsx": "f4d499d47162dd2389eed6ae9e401f3367e7cba88b03cc0031bfa2d165198481",
+   "cpl.csv": "d2d9f600540ed74e8f8170a7c31d11932a0cefb436669b262901fab316370b83",
+   "cpl.xlsx": "528f55fc041a9af290dc43de779b0f6bce2e4392190c006e7632f368d95fcb61"
+  }
+ },
+ "vendor": "jlcpcb"
+}

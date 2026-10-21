@@ -20,7 +20,7 @@ using Prism.Contracts.Common;
  * the derivation of today's Release Studio and System Builder values are in
  * `field-maps/placements.md`.
  */
-namespace Prism.Contracts.PlacementsA0;
+namespace Prism.Contracts.PlacementsA1;
 
 // ------------------------------------------------------------------ enums
 
@@ -76,11 +76,11 @@ enum PlacementsPadShape {
  * is absent.
  */
 @jsonSchema
-@id("urn:prism:schema:prism.placements:a0")
-@extension("title", "Placements a0")
-model PlacementsA0 {
+@id("urn:prism:schema:prism.placements:a1")
+@extension("title", "Placements a1")
+model PlacementsA1 {
   /** Schema id of this document. */
-  schema: "prism.placements.a0";
+  schema: "prism.placements.a1";
 
   /**
    * Every footprint of the board, in file order: the order of the top-level
@@ -109,6 +109,15 @@ model PlacementsA0 {
    * board has no such graphic, or the project has no board.
    */
   outlineBounds?: PlacementsBounds;
+
+  /**
+   * a1: the board's auxiliary axis origin, `(setup (aux_axis_origin x y))`,
+   * board-absolute. Position files measure from it (KiCad's "Use drill/place
+   * file origin"; the JLCPCB CPL, ADR amendment C3 §3.3). Absent when the
+   * board does not set one, which readers take as 0,0, or the project has no
+   * board.
+   */
+  auxAxisOrigin?: PointNm;
 }
 
 /** One footprint placed on the board: its identity, placement and coarse geometry. */

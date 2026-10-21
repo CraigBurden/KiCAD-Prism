@@ -291,7 +291,7 @@ model OccurrencesBomFields {
 /**
  * One footprint of the board: its identity, designator and assembly
  * attributes as written. Placement, geometry and library link are in
- * `prism.placements.a0` and `prism.board_objects.a0`.
+ * `prism.placements.a1` and `prism.board_objects.a0`.
  */
 model OccurrencesFootprint {
   /**

@@ -1,0 +1,28 @@
+{
+ "config": {
+  "path": "backend/app/release_studio/vendors/jlcpcb.config.jsonc",
+  "sha256": "eb70600c27679b06bf228206ba696b203d104fe6fd8b6a18bad02d10ff2ea2a1"
+ },
+ "inputs": {
+  "Outputs.kicad_jobset": "9e2054841f9f7e79cbd067048d319b34a305f836ddd1b4a90603e5e8fb53347d",
+  "Subsheets/Output-Connector.kicad_sch": "1f53c6c67d0479eb8a1d78c79e8384ed1200aed4ff4e1f95b34a845f817062e9",
+  "USB-PD-Trigger-Board.kicad_pcb": "1cf24499fc328ce4b36426d44aae842dad57730eda5374999b43c88e3223bf87",
+  "USB-PD-Trigger-Board.kicad_pro": "49add01bb4343f97215018b6b6b871b0d2330697fbd3278709a6b74d89e74bef",
+  "USB-PD-Trigger-Board.kicad_sch": "7de9ec1555fa58580c29e1e0196be3b009cfa947361ff521be4dcf8135e373e4",
+  "packages3D/796638-2.step": "110ef5e5dac9547cd859e8dce0138098c57f4e37128da9ff51da889f8801a87f",
+  "packages3D/CYPD3177-24LQXQT.stp": "2c3483eafced00e2e8867ec71b588ef0048bee6a0c0157ec47d4e1fe92ad94d5",
+  "packages3D/USB4056-03-A_REVA2.step": "054081719a32b05ea9dfd650dcaf768c1cb0c7eb2b27036a4bbf2221228e9513"
+ },
+ "producer": "kicad-cruncher 2026.9.7\nkicad-monkey 2026.9.7\nwn-geometer 2026.9.7",
+ "project": "USB-PD-Trigger-Board.kicad_pro",
+ "schema": "prism.parity.vendor-capture.a0",
+ "variants": {
+  "base": {
+   "bom.csv": "78865cec2ea26a31c96936c54a54ddd017fe619af0abf88cf29f186f98277583",
+   "bom.xlsx": "ff7789267652fa8021132439182394670dc3e90177ca8f316de704d1ca05e2b8",
+   "cpl.csv": "f14d7c4bc94b04818c0519cc3a6f093ea761c08b872d73cea1d724b8c8c81b4e",
+   "cpl.xlsx": "2c63f6cdfb8d00eb9a1372ec57c4d676aa41f4c15d4256aefb79530fccba4077"
+  }
+ },
+ "vendor": "jlcpcb"
+}
