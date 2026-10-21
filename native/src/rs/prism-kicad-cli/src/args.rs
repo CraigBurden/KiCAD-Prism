@@ -32,6 +32,10 @@ pub enum Command {
     SystemBuild,
     /// `system step`.
     SystemStep,
+    /// `stroke-text`.
+    StrokeText,
+    /// `drawing-sheet`.
+    DrawingSheet,
 }
 
 /// A `system build` member: its stored design bundle and the revision key it
@@ -94,6 +98,8 @@ pub struct Args {
     pub worktree: bool,
     /// `--quiet`.
     pub quiet: bool,
+    /// `stroke-text --metrics`.
+    pub metrics: bool,
     /// `--threads`, validated.
     pub threads: u64,
     /// The stage of `bundle build`.
@@ -125,7 +131,7 @@ fn work_of(command: Command, stage: Option<StageArg>) -> Work {
     }
 }
 
-const VALUE_OPTIONS: [&str; 37] = [
+const VALUE_OPTIONS: [&str; 38] = [
     "output",
     "in",
     "stage",
@@ -163,11 +169,17 @@ const VALUE_OPTIONS: [&str; 37] = [
     "entry",
     "entry-stage",
     "models",
+    "request",
 ];
 
 fn allowed(command: Command, option: &str) -> bool {
     let common = matches!(option, "limit" | "threads" | "quiet");
-    let specific: &[&str] = match command {
+    common || specific(command).contains(&option)
+}
+
+/// The options a command takes beyond `COMMON`.
+fn specific(command: Command) -> &'static [&'static str] {
+    match command {
         Command::Build => &[
             "output",
             "in",
@@ -201,6 +213,13 @@ fn allowed(command: Command, option: &str) -> bool {
             "include-unchanged",
         ],
         Command::RevisionKey => &["commit", "worktree", "project", "config"],
+        _ => sheet_and_system(command),
+    }
+}
+
+/// The options of the `system` commands and the two sheet commands.
+fn sheet_and_system(command: Command) -> &'static [&'static str] {
+    match command {
         Command::SystemBuild => &[
             "document",
             "member",
@@ -224,9 +243,10 @@ fn allowed(command: Command, option: &str) -> bool {
             "models",
             "output",
         ],
+        Command::StrokeText => &["request", "metrics"],
+        Command::DrawingSheet => &["request"],
         _ => &[],
-    };
-    common || specific.contains(&option)
+    }
 }
 
 fn usage(message: impl Into<String>) -> Failure {
@@ -243,11 +263,13 @@ fn command_words(argv: &[String]) -> Outcome<(Command, usize)> {
         Some("-h" | "--help") | None => Ok((Command::Help, 1)),
         Some("revision-key") => Ok((Command::RevisionKey, 1)),
         Some("compare") => Ok((Command::Compare, 1)),
+        Some("stroke-text") => Ok((Command::StrokeText, 1)),
+        Some("drawing-sheet") => Ok((Command::DrawingSheet, 1)),
         Some("system") => system_command(argv.get(1).map(String::as_str)),
         Some("bundle") => bundle_command(argv.get(1).map(String::as_str)),
         Some(_) => Err(Failure::usage(
             "unknown-command",
-            "the command is not version, bundle build, bundle verify, bundle extract, bundle reuse, revision-key, compare, system build or system step",
+            "the command is not version, bundle build, bundle verify, bundle extract, bundle reuse, revision-key, compare, system build, system step, stroke-text or drawing-sheet",
         )
         .argument("command")),
     }
@@ -288,7 +310,7 @@ fn long_name(token: &str) -> Option<&str> {
 fn static_name(name: &str) -> Option<&'static str> {
     VALUE_OPTIONS
         .into_iter()
-        .chain(["worktree", "quiet", "include-unchanged", "help"])
+        .chain(["worktree", "quiet", "include-unchanged", "metrics", "help"])
         .find(|candidate| *candidate == name)
 }
 
@@ -307,6 +329,7 @@ struct Raw {
     include_unchanged: bool,
     worktree: bool,
     quiet: bool,
+    metrics: bool,
     help: bool,
 }
 
@@ -326,6 +349,7 @@ fn collect(command: Command, rest: &[String]) -> Outcome<Raw> {
         include_unchanged: false,
         worktree: false,
         quiet: false,
+        metrics: false,
         help: false,
     };
     let mut index = 0;
@@ -352,7 +376,9 @@ impl Raw {
             .filter(|name| allowed(command, name))
             .ok_or_else(|| usage(format!("unknown option {token:?}")))?;
         match name {
-            "worktree" | "quiet" | "include-unchanged" => self.flag(name).map(|()| index + 1),
+            "worktree" | "quiet" | "include-unchanged" | "metrics" => {
+                self.flag(name).map(|()| index + 1)
+            }
             _ => {
                 let value = rest.get(index + 1).ok_or_else(|| {
                     let failure = usage(format!("--{name} takes a value"));
@@ -374,6 +400,7 @@ impl Raw {
         let slot = match name {
             "worktree" => &mut self.worktree,
             "include-unchanged" => &mut self.include_unchanged,
+            "metrics" => &mut self.metrics,
             _ => &mut self.quiet,
         };
         if *slot {
@@ -666,10 +693,54 @@ fn check_combinations(command: Command, raw: &Raw, stage: Option<StageArg>) -> O
         Command::SystemBuild | Command::SystemStep => {
             check_system(raw, command == Command::SystemStep)
         }
+        Command::StrokeText | Command::DrawingSheet | Command::Version => {
+            check_leaf_command(command, raw)
+        }
+        _ => Ok(()),
+    }
+}
+
+/// The commands whose only argument rules are their own: `stroke-text`,
+/// `drawing-sheet` and `version`.
+fn check_leaf_command(command: Command, raw: &Raw) -> Outcome<()> {
+    match command {
+        Command::StrokeText => check_stroke_text(raw),
+        Command::DrawingSheet => check_drawing_sheet(raw),
         Command::Version if !raw.positional.is_empty() => {
             Err(usage("version takes no argument").argument("command"))
         }
         _ => Ok(()),
+    }
+}
+
+/// `stroke-text` takes exactly one of `--request` and `--metrics`
+/// (cli-spec.md §5.9) and no positional argument.
+fn check_stroke_text(raw: &Raw) -> Outcome<()> {
+    if !raw.positional.is_empty() {
+        return Err(usage("stroke-text takes no positional argument").argument("command"));
+    }
+    match (raw.options.contains_key("request"), raw.metrics) {
+        (true, false) | (false, true) => Ok(()),
+        (true, true) => Err(conflict(
+            "stroke-text takes exactly one of --request and --metrics",
+            "metrics",
+        )),
+        (false, false) => {
+            Err(usage("stroke-text takes --request or --metrics").argument("request"))
+        }
+    }
+}
+
+/// `drawing-sheet` takes `--request` and no positional argument (cli-spec.md
+/// §5.9).
+fn check_drawing_sheet(raw: &Raw) -> Outcome<()> {
+    if !raw.positional.is_empty() {
+        return Err(usage("drawing-sheet takes no positional argument").argument("command"));
+    }
+    if raw.options.contains_key("request") {
+        Ok(())
+    } else {
+        Err(usage("drawing-sheet takes --request").argument("request"))
     }
 }
 
@@ -731,6 +802,7 @@ pub fn parse(argv: &[String]) -> Outcome<Args> {
         include_unchanged: raw.include_unchanged,
         worktree: raw.worktree,
         quiet: raw.quiet,
+        metrics: raw.metrics,
         threads,
         stage,
         limits,
@@ -779,6 +851,7 @@ fn help_args() -> Args {
         include_unchanged: false,
         worktree: false,
         quiet: false,
+        metrics: false,
         threads: 4,
         stage: None,
         limits: Limits::defaults(Work::Other),
@@ -823,6 +896,8 @@ usage:
               [--entry <occurrence>=<system-entry.json>
               --entry-stage <occurrence>=<stage>]... --models <manifest.json>
               -o <system.step> [COMMON]
+  prism-kicad stroke-text (--request <runs.json> | --metrics) [COMMON]
+  prism-kicad drawing-sheet --request <sheet.json> [COMMON]
 
 COMMON: [--limit <name>=<value>]... [--threads <n>] [--quiet]
 
@@ -831,140 +906,4 @@ Every command writes one JSON document to stdout and JSON Lines to stderr
 ";
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn args(line: &str) -> Outcome<Args> {
-        let argv: Vec<String> = line.split_whitespace().map(str::to_owned).collect();
-        parse(&argv)
-    }
-
-    #[test]
-    fn parses_the_synopsis() {
-        let build = args(
-            "bundle build p.kicad_pro --stage parse -o out.prism --limit timeout-ms=5 --quiet",
-        )
-        .unwrap();
-        assert_eq!(build.command, Command::Build);
-        assert_eq!(build.stage, Some(StageArg::Parse));
-        assert_eq!(build.limits.get(LimitName::TimeoutMs), 5);
-        assert!(build.quiet);
-        let board =
-            args("bundle build --in a -o a --stage board --refilled-board b --refill-tool 10.0.6")
-                .unwrap();
-        assert_eq!(work_of(board.command, board.stage), Work::Board);
-        assert!(args("revision-key . --worktree --project x.kicad_pro").is_ok());
-        assert_eq!(args("version").unwrap().command, Command::Version);
-        let key = "0".repeat(64);
-        let compare = args(&format!(
-            "compare --base a.prism --head b.prism --base-revision-key {key} --head-revision-key {key} -o d.json"
-        ))
-        .unwrap();
-        assert_eq!(compare.command, Command::Compare);
-        assert_eq!(work_of(compare.command, compare.stage), Work::Compare);
-        // A source-tree side runs the parse stage, so it gets that stage's limits.
-        let source = args(&format!(
-            "compare --base-src p.kicad_pro --base-revision-key {key} --head b.prism --head-revision-key {key} -o r.json"
-        ))
-        .unwrap();
-        assert_eq!(
-            source.limits.get(LimitName::TimeoutMs),
-            Limits::defaults(Work::Parse).get(LimitName::TimeoutMs)
-        );
-        let reuse = args("bundle reuse --in a.prism --key-record k.json").unwrap();
-        assert_eq!(reuse.command, Command::Reuse);
-        assert_eq!(reuse.option("key-record"), Some("k.json"));
-    }
-
-    #[test]
-    fn rejects_bad_grammar() {
-        let code = |line: &str| args(line).unwrap_err().finding.code;
-        assert_eq!(code("frobnicate"), "unknown-command");
-        assert_eq!(code("bundle build p --stage parse -o a -o b"), "usage");
-        assert_eq!(code("bundle build p --stage=parse -o a"), "usage");
-        assert_eq!(code("bundle build --stage board -o a"), "option-conflict");
-        assert_eq!(
-            code("bundle build p --stage parse -o a --in b"),
-            "option-conflict"
-        );
-        assert_eq!(
-            code("bundle build p --stage parse -o a --key-record r"),
-            "option-conflict"
-        );
-        assert_eq!(
-            code("bundle build p --stage parse -o a --revision-key ABC"),
-            "usage"
-        );
-        assert_eq!(code("revision-key . --project x"), "option-conflict");
-        assert_eq!(
-            code("revision-key . --commit H --worktree --project x"),
-            "option-conflict"
-        );
-        assert_eq!(code("bundle extract b.prism -o d"), "usage");
-        assert_eq!(
-            code("bundle verify b --limit max-findings=1 --limit max-findings=2"),
-            "usage"
-        );
-        assert_eq!(code("bundle verify b --threads 0"), "usage");
-        assert_eq!(code("bundle verify b --stage parse"), "usage");
-    }
-
-    #[test]
-    fn rejects_bad_compare_grammar() {
-        let code = |line: &str| args(line).unwrap_err().finding.code;
-        assert_eq!(code("compare --head b -o d"), "usage");
-        assert_eq!(code("compare --base a -o d"), "usage");
-        assert_eq!(code("compare --base a --head b"), "usage");
-        assert_eq!(code("compare --base a --head b -o d extra"), "usage");
-        assert_eq!(code("compare --base a --head b --base c -o d"), "usage");
-        // Both modes take each side's revision key (ADR amendment K2 §3.6).
-        let key = "0".repeat(64);
-        assert_eq!(
-            code(&format!(
-                "compare --base a --head b --base-revision-key {key} -o d"
-            )),
-            "usage"
-        );
-        assert_eq!(
-            code(&format!(
-                "compare --base a --head b --base-revision-key {key} --head-revision-key X -o d"
-            )),
-            "usage"
-        );
-    }
-
-    #[test]
-    fn rejects_bad_reuse_grammar() {
-        let code = |line: &str| args(line).unwrap_err().finding.code;
-        assert_eq!(code("bundle reuse --in a"), "usage");
-        assert_eq!(code("bundle reuse --key-record k"), "usage");
-        assert_eq!(code("bundle reuse b --in a --key-record k"), "usage");
-        assert_eq!(code("bundle reuse --in a --key-record k -o d"), "usage");
-        assert_eq!(code("bundle frob"), "unknown-command");
-    }
-
-    #[test]
-    fn checks_upgrade_records() {
-        let code = |line: &str| args(line).unwrap_err().finding.code;
-        assert_eq!(
-            code("bundle build --in a -o a --stage board --upgraded x.kicad_sch=1"),
-            "option-conflict"
-        );
-        assert_eq!(
-            code("bundle build p --stage parse -o a --upgraded x.kicad_pro=1"),
-            "usage"
-        );
-        assert_eq!(
-            code("bundle build p --stage parse -o a --upgraded x.kicad_sch=v7"),
-            "usage"
-        );
-        assert_eq!(
-            code(
-                "bundle build p --stage parse -o a --upgraded x.kicad_sch=1 --upgraded x.kicad_sch=2"
-            ),
-            "usage"
-        );
-        let upgraded = args("bundle build p --stage parse -o a --upgraded a/x.kicad_sch=20230121 --upgraded b.kicad_pcb=20221018").unwrap();
-        assert_eq!(upgraded.upgraded.get("a/x.kicad_sch"), Some(&20_230_121));
-    }
-}
+mod tests;

@@ -14,6 +14,7 @@
 
 mod args;
 mod atomic;
+mod cmd_artwork;
 mod cmd_build;
 mod cmd_bundle;
 mod cmd_compare;
@@ -165,6 +166,8 @@ fn dispatch(args: &Args, stderr: &Stderr) -> Result<(Value, u8), Failure> {
             cmd_revision_key::KeyOutcome::Record(record) => Ok((record, 0)),
             cmd_revision_key::KeyOutcome::Absent(document) => Ok((document, 10)),
         },
+        Command::StrokeText => cmd_artwork::stroke_text(args),
+        Command::DrawingSheet => cmd_artwork::drawing_sheet(args),
         Command::Version
         | Command::Help
         | Command::Compare

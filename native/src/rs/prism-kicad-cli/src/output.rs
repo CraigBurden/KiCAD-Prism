@@ -322,6 +322,23 @@ pub fn in_declaration_order(value: &Value) -> Result<Value, String> {
         "prism.revision_key.record.a1" => {
             retyped::<contract::prism_revision_key_record_a1::RevisionKeyRecordA1>(value)
         }
+        other => retyped_stdout(other, value),
+    }
+}
+
+/// The stdout documents added with amendment C3's sheet commands.
+fn retyped_stdout(schema: &str, value: &Value) -> Result<Value, String> {
+    use prism_kicad_contracts::generated as contract;
+    match schema {
+        "prism.cli.stroke_text_result.a0" => {
+            retyped::<contract::prism_cli_stroke_text_result_a0::CliStrokeTextResultA0>(value)
+        }
+        "prism.cli.stroke_font_metrics.a0" => {
+            retyped::<contract::prism_cli_stroke_font_metrics_a0::CliStrokeFontMetricsA0>(value)
+        }
+        "prism.cli.drawing_sheet_result.a0" => {
+            retyped::<contract::prism_cli_drawing_sheet_result_a0::CliDrawingSheetResultA0>(value)
+        }
         other => Err(format!("{other} is not a prism-kicad stdout document")),
     }
 }
