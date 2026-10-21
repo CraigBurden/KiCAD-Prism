@@ -640,12 +640,13 @@ export function Visualizer({ projectId, user, commit, active: viewerActive = tru
                     { signal },
                     { onPending: () => { if (!cancelled) setPcbPending(true); } },
                 );
-                if (cancelled) return;
-                setPcbContent(loaded.data);
-                if (loaded.workingTreeDirty) setWorkingTreeDirty(true);
+                if (!cancelled) {
+                    setPcbContent(loaded.data);
+                    if (loaded.workingTreeDirty) setWorkingTreeDirty(true);
+                }
             } catch (err) {
-                if (!cancelled && !isAbortError(err)) {
-                    console.error("Error loading PCB content", err);
+                if (!cancelled) {
+                    if (!isAbortError(err)) console.error("Error loading PCB content", err);
                     setPcbContent(null);
                 }
             } finally {

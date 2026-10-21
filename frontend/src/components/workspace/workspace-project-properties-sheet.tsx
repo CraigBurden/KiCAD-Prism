@@ -1,4 +1,4 @@
-import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
+import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Box,
   CalendarDays,
@@ -227,25 +227,14 @@ function PropertiesSkeleton() {
   );
 }
 
-export function WorkspaceProjectPropertiesSheet({
-  open,
-  project,
-  folderById,
-  onOpenChange,
-  onOpenProject,
-  canManageProjects = false,
-  onRegenerateThumbnail,
-  onUploadThumbnail,
-  onRevertThumbnail,
-}: WorkspaceProjectPropertiesSheetProps) {
+/** The properties read: pending while the design bundle is built, then data or an error. */
+function useProjectProperties(open: boolean, project: Project | null) {
   const [data, setData] = useState<ProjectPropertiesResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
   const [dirty, setDirty] = useState(false);
   const [retryToken, setRetryToken] = useState(0);
-  const [thumbnailBusy, setThumbnailBusy] = useState(false);
-  const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     if (!open || !project) {
@@ -290,6 +279,25 @@ export function WorkspaceProjectPropertiesSheet({
 
     return () => controller.abort();
   }, [open, project, retryToken]);
+
+  const retry = useCallback(() => setRetryToken((token) => token + 1), []);
+  return { data, loading, error, pending, dirty, retry };
+}
+
+export function WorkspaceProjectPropertiesSheet({
+  open,
+  project,
+  folderById,
+  onOpenChange,
+  onOpenProject,
+  canManageProjects = false,
+  onRegenerateThumbnail,
+  onUploadThumbnail,
+  onRevertThumbnail,
+}: WorkspaceProjectPropertiesSheetProps) {
+  const { data, loading, error, pending, dirty, retry } = useProjectProperties(open, project);
+  const [thumbnailBusy, setThumbnailBusy] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const activeProject = data?.project ?? project;
   const panelProject = activeProject ?? project;
@@ -365,7 +373,7 @@ export function WorkspaceProjectPropertiesSheet({
           {!loading && error ? (
             <DesignDataFailed
               detail={error}
-              onRetry={() => setRetryToken((token) => token + 1)}
+              onRetry={retry}
               className="rounded-none border border-destructive/40 bg-destructive/5 p-4"
             />
           ) : null}

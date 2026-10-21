@@ -9,7 +9,6 @@
  */
 
 import { AlertCircle, Loader2 } from "lucide-react";
-import type { ReactNode } from "react";
 
 import { cn } from "@/lib/utils";
 
@@ -75,12 +74,5 @@ export function WorkingTreeDirtyNotice({ className }: { className?: string }) {
       <AlertCircle className="h-3.5 w-3.5 shrink-0 text-warning" aria-hidden />
       <span>Local changes are not shown</span>
     </div>
-  );
-}
-
-/** A one-line banner wrapper a screen can drop above its content. */
-export function DesignDataBanner({ children, className }: { children: ReactNode; className?: string }) {
-  return (
-    <div className={cn("rounded-md border bg-muted/30 px-3 py-2", className)}>{children}</div>
   );
 }
