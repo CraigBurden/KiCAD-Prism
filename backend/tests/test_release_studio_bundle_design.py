@@ -24,7 +24,6 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest import mock
 
-from app.core.config import settings
 from app.release_studio import bundle_design, bundle_projections
 from app.release_studio import closure as closure_module
 from app.release_studio import semantic as semantic_module
@@ -459,31 +458,30 @@ def _manifest(*, fill_provenance: str = "refilled", status: str = "complete") ->
 
 
 class ReadinessTests(unittest.TestCase):
-    """Bundle mode waits or fails; it never serves the legacy parse."""
+    """A build waits or fails; it never serves a legacy parse."""
 
-    def _read(self, opened, *, source="bundle"):  # noqa: ANN001
-        with mock.patch.object(
-            settings, "PRISM_DESIGN_SOURCE_RELEASE_STUDIO", source
-        ), mock.patch.object(
-            reader, "open_revision", return_value=opened
-        ) as open_revision:
+    def _read(self, opened):  # noqa: ANN001
+        with mock.patch.object(reader, "open_revision", return_value=opened) as open_revision:
             answer = bundle_design.readiness(
                 "prj-1", SHA, requested_by="release-studio"
             )
         return answer, open_revision
 
-    def test_legacy_never_opens_the_bundle(self) -> None:
-        opened = _Opened(manifest=_manifest(), project=_project_document())
-        answer, open_revision = self._read(opened, source="legacy")
-        self.assertIsNone(answer)
-        open_revision.assert_not_called()
+    def test_a_missing_commit_is_a_clear_failure(self) -> None:
+        for commit in (None, ""):
+            with self.subTest(commit=commit):
+                with self.assertRaises(bundle_errors.BundleFailed) as caught:
+                    bundle_design.readiness("prj-1", commit)
+                self.assertIn("resolved commit", str(caught.exception))
+
+    def test_a_missing_project_is_a_clear_failure(self) -> None:
+        with self.assertRaises(bundle_errors.BundleFailed):
+            bundle_design.readiness("", SHA)
 
     def test_a_pending_stage_waits_and_the_job_is_queued(self) -> None:
         opened = _Opened(manifest=_manifest(status="pending"), project=_project_document())
         with self.assertRaises(bundle_errors.BundlePending) as caught:
             with mock.patch.object(
-                settings, "PRISM_DESIGN_SOURCE_RELEASE_STUDIO", "bundle"
-            ), mock.patch.object(
                 reader, "open_revision", return_value=opened
             ) as open_revision:
                 bundle_design.readiness(

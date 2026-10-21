@@ -1,9 +1,7 @@
 """Release Studio's artwork from a design bundle (C3 chunk F1).
 
-The bundle path is chosen only when the consumer switch says ``bundle`` and
-stages ``parse``, ``board`` and ``models`` are ready; otherwise the legacy
-Cruncher path is untouched. The CLI's exit-7 ``stage-order`` is a clear "models
-not ready" failure, and every other failure keeps the CLI's error message.
+The CLI's exit-7 ``stage-order`` is a clear "models not ready" failure, and
+every other failure keeps the CLI's error message.
 ``artwork_line_weights: paper`` draws at the ratio the sheet will use.
 """
 
@@ -11,12 +9,11 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from types import SimpleNamespace
 from unittest import mock
 
 import pytest
 
-from app.release_studio import bundle_projections, pipeline
+from app.release_studio import pipeline
 from app.release_studio.config import ConfigSchemaError, parse_configuration_yaml
 from app.release_studio.documents import artwork as artwork_module
 from app.release_studio.documents import sheets
@@ -24,7 +21,7 @@ from app.release_studio.documents.artwork import AcquiredArtwork, ArtworkError
 from app.release_studio.documents.artwork_bundle import acquire_bundle_views
 from app.release_studio.documents.inputs import DocumentInputs
 from app.release_studio.documents.engine import compose_documents
-from app.services.design_bundle import cli, consumer, reader
+from app.services.design_bundle import cli
 from tests.release_studio_support import documents_stub
 from tests.test_release_studio_config import _MIN_CONFIG
 
@@ -36,24 +33,6 @@ SVG = (
     'viewBox="0 0 20 10"><rect x="0" y="0" width="20" height="10" '
     'fill="none" stroke="#000000" stroke-width="0.15"/></svg>'
 )
-
-
-def _opened(path: Path, statuses: dict[str, str]) -> SimpleNamespace:
-    manifest = {
-        "stages": {
-            stage: {"status": statuses.get(stage, "complete")}
-            for stage in ("parse", "board", "models")
-        }
-    }
-    return SimpleNamespace(absent=False, archive=SimpleNamespace(path=path, manifest=manifest))
-
-
-def _source(name: str):
-    return mock.patch.object(consumer, "source", return_value=name)
-
-
-def _open(opened):
-    return mock.patch.object(reader, "open_revision", return_value=opened)
 
 
 def _drawing() -> AcquiredArtwork:
@@ -70,34 +49,6 @@ def _drawing() -> AcquiredArtwork:
         page_offset_x=0.0,
         page_offset_y=0.0,
     )
-
-
-# ------------------------------------------------------------------ the switch
-
-
-def test_artwork_bundle_reads_the_archive_when_every_stage_is_ready(tmp_path: Path) -> None:
-    archive = tmp_path / "revision.prism"
-    with _source("bundle"), _open(_opened(archive, {})):
-        assert bundle_projections.artwork_bundle("prj-1", COMMIT) == archive
-
-
-def test_artwork_bundle_keeps_the_legacy_path_for_a_pending_stage(tmp_path: Path) -> None:
-    archive = tmp_path / "revision.prism"
-    for stage in ("parse", "board", "models"):
-        with _source("bundle"), _open(_opened(archive, {stage: "pending"})):
-            assert bundle_projections.artwork_bundle("prj-1", COMMIT) is None
-
-
-def test_artwork_bundle_never_opens_a_bundle_on_the_legacy_switch(tmp_path: Path) -> None:
-    with _source("legacy"), mock.patch.object(reader, "open_revision") as open_revision:
-        assert bundle_projections.artwork_bundle("prj-1", COMMIT) is None
-    open_revision.assert_not_called()
-
-
-def test_artwork_bundle_requires_a_resolved_commit(tmp_path: Path) -> None:
-    with _source("bundle"), mock.patch.object(reader, "open_revision") as open_revision:
-        assert bundle_projections.artwork_bundle("prj-1", None) is None
-    open_revision.assert_not_called()
 
 
 # --------------------------------------------------------------- CLI failures

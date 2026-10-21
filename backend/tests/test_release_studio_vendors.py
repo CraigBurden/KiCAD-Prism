@@ -8,7 +8,6 @@ import json
 import unittest
 import zipfile
 from pathlib import Path
-from types import SimpleNamespace
 from unittest.mock import patch
 
 from tests.kicad_tool_fakes import FakeTool
@@ -16,17 +15,12 @@ from app.release_studio.canonical import write_deterministic_archive, write_dete
 from app.release_studio.config.loader import parse_configuration_yaml
 from app.release_studio.config.digests import technical_config_digest
 from app.release_studio.pipeline import PipelineTracker, pipeline_skeleton
-from app.release_studio.vendors import (
-    generate_vendor_outputs,
-    vendor_bundle_archive,
-)
+from app.release_studio.vendors import generate_vendor_outputs
 from app.release_studio.vendors.cli import (
     BUNDLE_NOT_READY_MESSAGE,
     reset_vendor_list_cache,
 )
 from app.release_studio.vendors.jlcpcb import (
-    JlcpcbProfile,
-    VendorGenerateError,
     vendor_config_document,
 )
 from app.release_studio.vendors.pack import VendorPackError, build_vendor_pack
@@ -240,74 +234,6 @@ class VendorPackTests(unittest.TestCase):
 
 
 class JlcpcbGeneratorTests(unittest.TestCase):
-    def test_fake_runner_renames_csv_and_xlsx(self) -> None:
-        tmp = Path(self._tmp())
-        design = tmp / "board.kicad_pcb"
-        design.write_text("(kicad_pcb)\n", encoding="utf-8")
-        output_root = tmp / "out"
-
-        def runner(argv, **kwargs):  # noqa: ARG001
-            # Config mode: one invocation per tool emits every kind the config
-            # lists, named by kind rather than by tool.
-            destination = Path(argv[argv.index("-o") + 1])
-            destination.mkdir(parents=True, exist_ok=True)
-            if argv[0] == "bom":
-                (destination / "board_base_jlc-csv.csv").write_text("Comment,Designator\nR,R1\n")
-                (destination / "board_base_jlc-xlsx.xlsx").write_bytes(b"xlsx-bom")
-            elif argv[0] == "pnp":
-                (destination / "board_base_jlc-cpl.csv").write_text("Designator,Mid X\nR1,1\n")
-                (destination / "board_base_jlc-cpl-xlsx.xlsx").write_bytes(b"xlsx-cpl")
-            return SimpleNamespace(returncode=0, stdout="", stderr="")
-
-        artifacts = JlcpcbProfile().generate(
-            cruncher=FakeTool(runner, name="kicad-cruncher"),
-            design_file=design,
-            output_root=output_root,
-        )
-        self.assertEqual(artifacts.returncode, 0)
-        self.assertTrue(artifacts.canonical_files["manufacturing/vendors/jlcpcb/bom.csv"].is_file())
-        self.assertTrue(artifacts.evidence_files["vendors/jlcpcb/bom.xlsx"].is_file())
-        self.assertNotIn("xlsx", "".join(artifacts.canonical_files))
-
-    def test_one_invocation_per_tool_not_one_per_format(self) -> None:
-        """Four formats must not cost four parses of the design.
-
-        `--format` overrides config mode and emits a single kind, so asking for
-        it four times loaded JTYU-OBC four times -- 114s where 60s does.
-        """
-
-        tmp = Path(self._tmp())
-        design = tmp / "board.kicad_pcb"
-        design.write_text("(kicad_pcb)\n", encoding="utf-8")
-        calls: list[list[str]] = []
-
-        def runner(argv, **kwargs):  # noqa: ARG001
-            calls.append(list(argv))
-            destination = Path(argv[argv.index("-o") + 1])
-            destination.mkdir(parents=True, exist_ok=True)
-            if argv[0] == "bom":
-                (destination / "b_base_jlc-csv.csv").write_text("a\n")
-                (destination / "b_base_jlc-xlsx.xlsx").write_bytes(b"x")
-            else:
-                (destination / "b_base_jlc-cpl.csv").write_text("a\n")
-                (destination / "b_base_jlc-cpl-xlsx.xlsx").write_bytes(b"x")
-            return SimpleNamespace(returncode=0, stdout="", stderr="")
-
-        artifacts = JlcpcbProfile().generate(
-            cruncher=FakeTool(runner, name="kicad-cruncher"),
-            design_file=design,
-            output_root=tmp / "out",
-        )
-        self.assertEqual([call[0] for call in calls], ["bom", "pnp"])
-        # The recorded argv names the tool, as it did when it led the argv.
-        self.assertTrue(all(r.startswith("kicad-cruncher bom") or r.startswith("kicad-cruncher pnp")
-                            for r in artifacts.normalized_argv))
-        self.assertTrue(all("--format" not in call for call in calls))
-        # An install path is not part of the build's identity: recording one
-        # would make the same build differ between two checkouts.
-        for recorded in artifacts.normalized_argv:
-            self.assertNotIn("/", recorded.split("jlcpcb.config")[0][-40:])
-
     def test_the_vendor_config_pins_what_reaches_a_fab_house(self) -> None:
         """Two config defaults would change the BOM, so they are asserted here.
 
@@ -342,29 +268,6 @@ class JlcpcbGeneratorTests(unittest.TestCase):
             fake.read_bytes.return_value = b'{"schema": "changed"}'
             after = renderer_resource_digest()
         self.assertNotEqual(before, after)
-
-    def test_missing_outputs_raise(self) -> None:
-        tmp = Path(self._tmp())
-        design = tmp / "board.kicad_pcb"
-        design.write_text("(kicad_pcb)\n", encoding="utf-8")
-
-        def runner(argv, **kwargs):  # noqa: ARG001
-            Path(argv[argv.index("-o") + 1]).mkdir(parents=True, exist_ok=True)
-            return SimpleNamespace(returncode=0, stdout="", stderr="")
-
-        with self.assertRaises(VendorGenerateError):
-            JlcpcbProfile().generate(
-                cruncher=FakeTool(runner, name="kicad-cruncher"),
-                design_file=design,
-                output_root=tmp / "out",
-            )
-
-    def _tmp(self) -> str:
-        import tempfile
-
-        directory = tempfile.TemporaryDirectory()
-        self.addCleanup(directory.cleanup)
-        return directory.name
 
 
 def _vendor_list_document() -> dict:
@@ -614,29 +517,18 @@ class BundleVendorPathTests(unittest.TestCase):
         self.assertEqual(outputs[0].returncode, 1)
         self.assertEqual(outputs[0].stderr, "--config is not a JSON document")
 
-    def test_the_switch_reads_a_ready_parse_stage_from_the_bundle(self) -> None:
-        bundle = Path("/bundles/abc.prism")
-        read = SimpleNamespace(
-            ready=lambda path: True,
-            opened=SimpleNamespace(
-                archive=SimpleNamespace(
-                    path=bundle,
-                    manifest={"stages": {"parse": {"status": "complete"}}},
-                )
-            ),
+    def test_a_missing_bundle_fails_the_step(self) -> None:
+        root = self.setUpTmp()
+        outputs, evidence = generate_vendor_outputs(
+            config={"board": "board.kicad_pcb", "vendors": ["jlcpcb"]},
+            closure_root=root,
+            output_root=root / "out",
+            cli=None,
+            bundle=None,
         )
-        with patch(
-            "app.services.design_bundle.consumer.bundle_read", return_value=read
-        ) as opened:
-            self.assertEqual(vendor_bundle_archive("prj-1", "a" * 40), bundle)
-        opened.assert_called_once()
-        self.assertEqual(opened.call_args.args[0], "RELEASE_STUDIO")
-
-    def test_a_legacy_switch_stays_on_the_cruncher_path(self) -> None:
-        with patch(
-            "app.services.design_bundle.consumer.bundle_read", return_value=None
-        ):
-            self.assertIsNone(vendor_bundle_archive("prj-1", "a" * 40))
+        self.assertEqual(outputs[0].returncode, 1)
+        self.assertIn("design bundle", outputs[0].stderr)
+        self.assertEqual(evidence, {})
 
 
 class VendorConfigConversionTests(unittest.TestCase):

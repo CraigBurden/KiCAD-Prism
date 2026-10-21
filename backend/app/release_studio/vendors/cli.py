@@ -1,10 +1,9 @@
 """``prism-kicad vendor`` as Release Studio's vendor generator (C3 chunk F2).
 
-With ``PRISM_DESIGN_SOURCE_RELEASE_STUDIO=bundle`` and a ready parse stage, a
-vendor pack comes from ``prism-kicad vendor run`` over the design bundle rather
-than from ``kicad-cruncher`` over the closure.  This module is the one place
-that knows the command line (cli-spec.md §5.8), the two stdout documents and
-the exit codes the caller maps to build outcomes.
+A vendor pack comes from ``prism-kicad vendor run`` over the build's design
+bundle.  This module is the one place that knows the command line
+(cli-spec.md §5.8), the two stdout documents and the exit codes the caller maps
+to build outcomes.
 
 The binary is located exactly as the background bundle jobs locate it
 (``PRISM_DESIGN_BUNDLE_CLI_PATH``, then ``prism-kicad`` on ``PATH``), through

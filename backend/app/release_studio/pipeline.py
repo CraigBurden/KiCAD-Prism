@@ -15,7 +15,6 @@ from __future__ import annotations
 
 import logging
 import time
-from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable, Mapping, Sequence
@@ -33,7 +32,6 @@ from app.release_studio.steps import (
 from app.release_studio.vendors import (
     generate_vendor_outputs,
     resolve_vendor_ids,
-    vendor_bundle_archive,
 )
 from app.services.kicad_tools import KicadTool, KicadTools
 
@@ -338,20 +336,19 @@ def run_build_waves(
     timings: list[dict[str, Any]],
     candidate: Mapping[str, Any] | None = None,
     vendor_cli: KicadTool | None = None,
-    design: "BundleDesign | None" = None,
+    design: "BundleDesign",
 ) -> WaveOutputs:
     """Run the catalogue waves, the assembly views and the vendor packs, in order.
 
-    With ``PRISM_DESIGN_SOURCE_RELEASE_STUDIO=bundle`` and a bundle whose
-    ``parse``, ``board`` and ``models`` stages are ready, the assembly and
-    testpoint views come from ``prism-kicad artwork``; otherwise the legacy
-    Cruncher path still runs. The vendor packs follow the same switch
-    (``vendor_cli`` overrides the located ``prism-kicad`` for tests). Each wave
-    appends its wall time to ``timings`` (evidence, never hashed).
+    The assembly and testpoint views come from ``prism-kicad artwork`` over the
+    build's ready design bundle; the vendor packs come from ``prism-kicad vendor
+    run`` over the same archive (``vendor_cli`` overrides the located
+    ``prism-kicad`` for tests). Each wave appends its wall time to ``timings``
+    (evidence, never hashed).
 
-    ``design`` is the build's one ready-bundle answer.  When it is present every
-    board and schematic input is the bundle's own file (C3c), so no step reads
-    the checkout's board.
+    ``design`` is the build's one ready-bundle answer.  Every board and
+    schematic input is the bundle's own file (C3c), so no step reads the
+    checkout's board.
     """
 
     def _timed(name: str, fn):
@@ -367,7 +364,6 @@ def run_build_waves(
             )
 
     board_rel = str(config.get("board") or "")
-    board_path = closure_root / board_rel if board_rel else None
     schematic_rel = str(config.get("schematic") or "") or None
     bom_preset = str(config.get("bom_preset") or "")
     project_relpath = str((candidate or {}).get("project_relpath") or "")
@@ -375,19 +371,17 @@ def run_build_waves(
     design_schematic_path: Path | None = None
     design_board_label: str | None = None
     design_schematic_label: str | None = None
-    if design is not None:
-        design_board_path = design.board_path(board_rel, project_relpath)
-        design_board_label = design.board_member(board_rel, project_relpath)
-        if schematic_rel:
-            design_schematic_path = design.schematic_path(
-                schematic_rel, project_relpath
-            )
-            design_schematic_label = design.schematic_member(
-                schematic_rel, project_relpath
-            )
+    design_board_path = design.board_path(board_rel, project_relpath)
+    design_board_label = design.board_member(board_rel, project_relpath)
+    if schematic_rel:
+        design_schematic_path = design.schematic_path(
+            schematic_rel, project_relpath
+        )
+        design_schematic_label = design.schematic_member(
+            schematic_rel, project_relpath
+        )
     assembly_views: dict[str, Any] | None = None
     assembly_error: BaseException | None = None
-    cruncher_pool: ThreadPoolExecutor | None = None
 
     def _catalogue(timing_name: str, only: tuple[str, ...], *, with_bom_preset: bool = False):
         return _timed(
@@ -410,106 +404,59 @@ def run_build_waves(
             ),
         )
 
+    # Checks first. Positions, then BOM, then artwork: each of those
+    # used to share the worker with DRC/ERC and with each other, and
+    # BOM died with std::bad_alloc.
+    outputs_checks = _catalogue("catalogue-wave-checks", CATALOGUE_WAVE_CHECKS)
+    outputs_positions = _catalogue("catalogue-wave-positions", CATALOGUE_WAVE_POSITIONS)
+    outputs_bom = _catalogue(
+        "catalogue-wave-bom",
+        CATALOGUE_WAVE_BOM,
+        with_bom_preset=True,
+    )
+    tracker.start("cruncher-assembly", message="Rendering assembly views")
+    bundle_archive = design.archive_path
+    artwork_sheet_size: str | None = None
+    artwork_paper_scale: float | None = None
     try:
-        # Checks first. Positions, then BOM, then Cruncher: each of those
-        # used to share the worker with DRC/ERC and with each other, and
-        # BOM died with std::bad_alloc.
-        outputs_checks = _catalogue("catalogue-wave-checks", CATALOGUE_WAVE_CHECKS)
-        outputs_positions = _catalogue("catalogue-wave-positions", CATALOGUE_WAVE_POSITIONS)
-        outputs_bom = _catalogue(
-            "catalogue-wave-bom",
-            CATALOGUE_WAVE_BOM,
-            with_bom_preset=True,
+        artwork_sheet_size, artwork_paper_scale = _artwork_scale(
+            config, output_root, candidate
         )
-        tracker.start("cruncher-assembly", message="Rendering assembly views")
-        cruncher = tools.cruncher
-        bundle_archive = _artwork_bundle(candidate, design)
-        artwork_sheet_size: str | None = None
-        artwork_paper_scale: float | None = None
-        cruncher_future = None
-        if bundle_archive is not None:
-            try:
-                artwork_sheet_size, artwork_paper_scale = _artwork_scale(
-                    config, output_root, candidate
-                )
-                from app.release_studio.documents.artwork_bundle import (
-                    acquire_bundle_views,
-                )
+        from app.release_studio.documents.artwork_bundle import (
+            acquire_bundle_views,
+        )
 
-                assembly_views = _timed(
-                    "cruncher-assembly",
-                    lambda: acquire_bundle_views(
-                        bundle_archive,
-                        artwork_root / "bundle",
-                        variant=variant,
-                        paper_scale=artwork_paper_scale,
-                    ),
-                )
-                tracker.succeed("cruncher-assembly")
-            except Exception as exc:  # noqa: BLE001 - compose records the miss
-                assembly_error = exc
-                logger.warning(
-                    "Release Studio assembly views unavailable: %s", exc
-                )
-                tracker.fail("cruncher-assembly", message=str(exc))
-        elif cruncher is not None and board_path is not None and board_path.is_file():
-            from app.release_studio.documents.artwork import acquire_board_views
-
-            cruncher_pool = ThreadPoolExecutor(
-                max_workers=1, thread_name_prefix="rs-cruncher"
-            )
-            cruncher_future = cruncher_pool.submit(
-                lambda: _timed(
-                    "cruncher-assembly",
-                    lambda: acquire_board_views(cruncher, board_path, artwork_root),
-                )
-            )
-        else:
-            cruncher_future = None
-            tracker.skip(
-                "cruncher-assembly",
-                reason="kicad-cruncher is not available"
-                if cruncher is None
-                else "no board in the closure",
-            )
-        if cruncher_future is not None:
-            try:
-                assembly_views = cruncher_future.result()
-                tracker.succeed("cruncher-assembly")
-            except Exception as exc:  # noqa: BLE001 - compose records the miss
-                assembly_error = exc
-                logger.warning(
-                    "Release Studio assembly views unavailable: %s", exc
-                )
-                tracker.fail("cruncher-assembly", message=str(exc))
-        # Vendor generators also load the board; run them after the
-        # assembly Cruncher so the two parses are not overlapped.
-        #
-        # Measured, because it looks like free parallelism and is not:
-        # overlapping the two on JTYU-OBC took 147.9s against 155.7s
-        # serial -- 8s saved -- while peak worker RSS went from 1.68 GiB
-        # to 6.41 GiB. Both are Cruncher board loads and both are CPU
-        # bound, so concurrency splits the same cores and buys nothing
-        # except an OOM risk on a host with less memory than this one.
-        vendor_outputs, extra_evidence = _timed(
-            "vendors",
-            lambda: _run_vendors(
-                config=config,
-                closure_root=closure_root,
-                output_root=output_root,
+        assembly_views = _timed(
+            "cruncher-assembly",
+            lambda: acquire_bundle_views(
+                bundle_archive,
+                artwork_root / "bundle",
                 variant=variant,
-                cruncher=cruncher,
-                tracker=tracker,
-                project_id=str((candidate or {}).get("project_id") or ""),
-                commit_sha=str((candidate or {}).get("commit_sha") or ""),
-                vendor_cli=vendor_cli,
-                design=design,
+                paper_scale=artwork_paper_scale,
             ),
         )
-        outputs_artwork = _catalogue("catalogue-wave-artwork", CATALOGUE_WAVE_ARTWORK)
-    finally:
-        if cruncher_pool is not None:
-            cruncher_pool.shutdown(wait=True)
+        tracker.succeed("cruncher-assembly")
+    except Exception as exc:  # noqa: BLE001 - compose records the miss
+        assembly_error = exc
+        logger.warning(
+            "Release Studio assembly views unavailable: %s", exc
+        )
+        tracker.fail("cruncher-assembly", message=str(exc))
+    # Vendor generators read the same design bundle; run them after the
+    # artwork so the two heavy loads are not overlapped.
+    vendor_outputs, extra_evidence = _timed(
+        "vendors",
+        lambda: _run_vendors(
+            config=config,
+            closure_root=closure_root,
+            output_root=output_root,
+            variant=variant,
+            tracker=tracker,
+            vendor_cli=vendor_cli,
+            design=design,
+        ),
+    )
+    outputs_artwork = _catalogue("catalogue-wave-artwork", CATALOGUE_WAVE_ARTWORK)
 
     combined = {
         output.step_id: output
@@ -527,36 +474,6 @@ def run_build_waves(
         artwork_sheet_size=artwork_sheet_size,
         artwork_paper_scale=artwork_paper_scale,
     )
-
-
-def _artwork_bundle(
-    candidate: Mapping[str, Any] | None,
-    design: "BundleDesign | None" = None,
-) -> Path | None:
-    """The design bundle `prism-kicad artwork` reads, or ``None`` for legacy."""
-
-    if design is not None:
-        return design.archive_path
-    if not candidate:
-        return None
-    project_id = str(candidate.get("project_id") or "")
-    commit = str(candidate.get("commit_sha") or "")
-    if not project_id or not commit:
-        return None
-    from app.release_studio import bundle_design
-
-    if bundle_design.active(project_id, commit):
-        # Bundle mode has one readiness answer at the start of the build.  A
-        # build that reaches here without one must wait, not silently use
-        # kicad-cruncher.
-        from app.release_studio.bundle_errors import BundlePending
-
-        raise BundlePending(
-            "the design bundle's artwork archive is not available to this build"
-        )
-    from app.release_studio.bundle_projections import artwork_bundle
-
-    return artwork_bundle(project_id, commit)
 
 
 def _artwork_scale(
@@ -641,19 +558,15 @@ def _run_vendors(
     closure_root: Path,
     output_root: Path,
     variant: str,
-    cruncher: KicadTool | None,
     tracker: PipelineTracker,
-    project_id: str = "",
-    commit_sha: str | None = None,
     vendor_cli: KicadTool | None = None,
-    design: "BundleDesign | None" = None,
+    design: "BundleDesign",
 ) -> tuple[tuple[StepOutput, ...], dict[str, bytes]]:
-    """Generate configured vendor packs after the assembly Cruncher load.
+    """Generate configured vendor packs from the build's design bundle.
 
-    With a ready design bundle the pack comes from ``prism-kicad vendor run``;
-    every other case keeps the Cruncher path.  The bundle is the build's one
-    readiness answer when preparation resolved it, so a vendor pack cannot
-    switch source halfway through a build.
+    The pack comes from ``prism-kicad vendor run`` over the archive the build
+    already resolved, so a vendor pack cannot switch source halfway through a
+    build.
     """
 
     vendor_ids = resolve_vendor_ids(config)
@@ -662,10 +575,8 @@ def _run_vendors(
     for vendor_id in vendor_ids:
         tracker.start(f"vendor-{vendor_id}", message=f"Generating {vendor_id} pack")
 
-    bundle = design.archive_path if design is not None else vendor_bundle_archive(
-        project_id, commit_sha
-    )
-    if bundle is not None and vendor_cli is None:
+    bundle = design.archive_path
+    if vendor_cli is None:
         from app.release_studio.vendors.cli import prism_kicad
 
         located = prism_kicad()
@@ -675,7 +586,6 @@ def _run_vendors(
         closure_root=closure_root,
         output_root=output_root,
         variant=variant,
-        cruncher=cruncher,
         cli=vendor_cli,
         bundle=bundle,
     )

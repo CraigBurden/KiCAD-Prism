@@ -174,7 +174,6 @@ builds it in stages (parse, board, models) on the general worker.
 
 | Setting | Purpose |
 | --- | --- |
-| `PRISM_DESIGN_SOURCE_RELEASE_STUDIO` | Release Studio's source: `legacy` (its own readers) or `bundle`; it switches in its own work package. Every other consumer (semantic index, project metadata, catalog import, design comparison) always reads the design bundle (ADR §9.7 R1). The 3D tab always reads the bundle's analytic board (amendment V2) |
 | `PRISM_DESIGN_BUNDLE_AUTO_BUILD` | queue the HEAD bundle after every import and sync, and run the paced prebuild of each branch's newest commits and every tagged commit (ADR amendment K2 §7). Default `true` since the C2r switch; `false` builds bundles on demand only, and a comparison of a commit without one reads its source tree, the cold path |
 | `PRISM_DESIGN_BUNDLE_CONCURRENCY` | capacity of the `design_bundle` slot (default 1); the backfill uses the same slot |
 | `PRISM_DESIGN_BUNDLE_*_MEMORY_BYTES`, `_*_TIMEOUT_MS` (PARSE, BOARD, MODELS) | per-stage heap cap and wall timeout passed to `prism-kicad` (defaults 4/6/2 GiB, 300/600/120 s) |

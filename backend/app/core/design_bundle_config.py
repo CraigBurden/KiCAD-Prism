@@ -5,9 +5,6 @@
 module so `config.py` stays untouched while the bundle work lands (ownership
 map, WP-K).
 
-- `PRISM_DESIGN_SOURCE_<CONSUMER>`: a consumer's switch, `legacy` or
-  `bundle` (ADR §8). Release Studio is the only one left; it switches in its
-  own work package (R1 removed the other four, which now always read bundles).
 - `PRISM_DESIGN_BUNDLE_*`: the `design_bundle` job, its resource slot, the
   per-stage limits it passes to `prism-kicad` (cli-spec.md §7), the store and
   its retention, and the paced backfill.
@@ -16,12 +13,8 @@ map, WP-K).
 """
 from __future__ import annotations
 
-from typing import Literal
-
 from pydantic import Field, model_validator
 from pydantic_settings import BaseSettings
-
-DesignSource = Literal["legacy", "bundle"]
 
 GIB = 1024**3
 #: cli-spec.md §7.4: the Linux backstop adds 1 GiB plus thread stacks over the heap cap.
@@ -29,13 +22,6 @@ BACKSTOP_OVERHEAD_BYTES = GIB + GIB // 4
 
 
 class DesignBundleSettings(BaseSettings):
-    # ===========================================
-    # Consumer switch (ADR §8)
-    # ===========================================
-    PRISM_DESIGN_SOURCE_RELEASE_STUDIO: DesignSource = Field(
-        default="legacy", description="Release Studio projections and closure: today's readers, or bundle members."
-    )
-
     # ===========================================
     # The design_bundle job
     # ===========================================

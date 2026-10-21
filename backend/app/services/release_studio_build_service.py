@@ -16,7 +16,6 @@ import logging
 import os
 import shutil
 import subprocess
-from importlib import metadata
 from pathlib import Path
 from typing import Any, Mapping
 
@@ -101,22 +100,22 @@ def executor_image() -> str:
 
 
 def toolchain_identity(
+    bundle_generator: Mapping[str, Any],
     cli_version: str = "",
-    bundle_generator: Mapping[str, Any] | None = None,
 ) -> tuple[dict[str, Any], str]:
     """Return the human-readable toolchain record and its hashed identity.
 
-    In bundle mode the design data comes from ``prism-kicad`` and the bundle's
-    own generator record is the provenance (C3f): the Python ``kicad_monkey``
-    and ``kicad_cruncher`` versions describe a path this build does not run, so
-    they are not recorded and not hashed.  The legacy path keeps them.
+    The design data comes from ``prism-kicad`` and the bundle's own generator
+    record is the provenance (C3f): the Python ``kicad_monkey`` and
+    ``kicad_cruncher`` versions described the deleted legacy path, so they are
+    neither recorded nor hashed.
     """
 
     from app.release_studio.documents import RENDERER_VERSION, renderer_resource_digest
 
     image = executor_image()
-    # Fonts and the Cruncher view configuration together: both are bundled
-    # resources that decide what a composed sheet contains.
+    # Fonts and the artwork configurations together: bundled resources that
+    # decide what a composed sheet contains.
     resources = renderer_resource_digest()
     record = {
         "kicad_version": cli_version or "10.0.4",
@@ -135,19 +134,9 @@ def toolchain_identity(
         "renderer_version": RENDERER_VERSION,
         "resource_bundle_digest": resources,
     }
-    if bundle_generator is not None:
-        generator = _bundle_generator_identity(bundle_generator)
-        record["design_bundle_generator"] = generator
-        identity["design_bundle_generator"] = generator
-    else:
-        monkey_version = _distribution_version("kicad-monkey", "kicad_monkey")
-        cruncher_version = _distribution_version("kicad-cruncher", "kicad_cruncher")
-        record["kicad_monkey_version"] = monkey_version
-        record["kicad_cruncher_version"] = cruncher_version
-        identity["kicad_monkey_version"] = monkey_version
-        # Cruncher renders the assembly views, so its version decides
-        # what those released sheets look like.
-        identity["kicad_cruncher_version"] = cruncher_version
+    generator = _bundle_generator_identity(bundle_generator)
+    record["design_bundle_generator"] = generator
+    identity["design_bundle_generator"] = generator
     return record, sha256_canonical(identity)
 
 
@@ -174,19 +163,6 @@ def _bundle_generator_identity(generator: Mapping[str, Any]) -> dict[str, Any]:
         for key in _BUNDLE_GENERATOR_FIELDS
         if key in generator
     }
-
-
-def _distribution_version(distribution: str, module_name: str) -> str:
-    """Resolve a packaged tool identity without depending on host paths."""
-
-    try:
-        return metadata.version(distribution)
-    except metadata.PackageNotFoundError:
-        try:
-            module = __import__(module_name)
-        except ImportError:
-            return "unavailable"
-        return str(getattr(module, "__version__", "unversioned"))
 
 
 def prepare_candidate(
@@ -225,9 +201,9 @@ def prepare_candidate(
             )
     config_digest = technical_config_digest(config)
 
-    # One readiness answer for the whole build.  In bundle mode a pending or
-    # failed bundle waits or fails here, before a closure or candidate exists,
-    # and never falls back to the legacy parse.
+    # One readiness answer for the whole build.  A pending or failed bundle
+    # waits or fails here, before a closure or candidate exists; a build with
+    # no resolved commit cannot be keyed by a bundle and fails here too.
     design = bundle_design.readiness(
         project_id, commit_sha, requested_by=created_by
     )
@@ -247,9 +223,9 @@ def prepare_candidate(
         # and staged so they read the bytes that were hashed.
         model_env=os.environ,
         model_stage=model_stage,
-        # C3d: from a ready bundle the closure's documents and path references
-        # come from prism.project.a0, so no KiCad text is parsed in Python.
-        bundle_project=design.project_references() if design is not None else None,
+        # C3d: the closure's documents and path references come from
+        # prism.project.a0, so no KiCad text is parsed in Python.
+        bundle_project=design.project_references(),
     )
 
     hermetic, reasons = _hermeticity(closure_root, config)
@@ -267,7 +243,7 @@ def prepare_candidate(
             "Release Studio closure carries %d advisory reference(s)", len(advisory)
         )
     _toolchain, toolchain_digest = toolchain_identity(
-        bundle_generator=design.generator if design is not None else None
+        bundle_generator=design.generator
     )
     model_rows = model_inputs.closure_model_rows(closure)
 
@@ -380,7 +356,7 @@ def execute_build(
 ) -> dict[str, Any]:
     """Run the catalogue, assemble the dossier, and publish it under the fence.
 
-    ``tools`` defaults to the installed kicad-cli and kicad-cruncher. Every run
+    ``tools`` defaults to the installed kicad-cli. Every run polls the job's
     polls the job's cancellation, so a cancelled build stops its current tool.
     ``repo_root`` is the source repository.  The closure is materialized from
     Git objects and has no ``.git`` of its own, so anything that needs commit
@@ -392,7 +368,7 @@ def execute_build(
     # before the attempt starts, so waiting for design data is a job retry, not
     # a failed build.
     design = bundle_design.for_candidate(candidate)
-    if design is not None and candidate.get("_bundle_design") is not design:
+    if candidate.get("_bundle_design") is not design:
         candidate = {**candidate, "_bundle_design": design}
 
     artifact_service = artifacts or JobArtifactService()
@@ -438,7 +414,6 @@ def execute_build(
             candidate=candidate,
             output_root=output_root,
             cli=tools.cli,
-            cruncher=tools.cruncher,
             staging=context.staging_dir,
             repo_root=repo_root,
             project_relpath=str(candidate.get("project_relpath") or "") or None,
@@ -472,7 +447,7 @@ def execute_build(
         tracker.start("package", message="Canonicalizing and packaging", percent=75)
 
         toolchain, toolchain_digest = toolchain_identity(
-            bundle_generator=design.generator if design is not None else None
+            bundle_generator=design.generator
         )
         assembled = dossier_module.assemble(
             outputs=outputs,

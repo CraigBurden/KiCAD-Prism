@@ -1,21 +1,12 @@
 """Run registered vendor generators and turn their files into step outputs.
 
-Two generators exist behind this seam:
-
-- **legacy** (``PRISM_DESIGN_SOURCE_RELEASE_STUDIO=legacy``, or a bundle whose
-  parse stage is not ready): ``kicad-cruncher bom``/``pnp`` over the closure,
-  as Release Studio has always run it;
-- **bundle** (the switch is ``bundle`` and the parse members are ready):
-  ``prism-kicad vendor run <id>`` over the same design bundle the rest of the
-  build reads (ADR amendment C3 §3.3).
-
-Both land in the same release member paths, so a dossier link does not move
-when the source switches.
+A pack comes from ``prism-kicad vendor run <id>`` over the same design bundle
+the rest of the build reads (ADR amendment C3 §3.3).  The files land in the
+release member paths a dossier link names.
 """
 
 from __future__ import annotations
 
-import logging
 from pathlib import Path
 from typing import Any, Mapping
 
@@ -39,67 +30,6 @@ from .registry import (
     vendor_step_spec,
 )
 
-logger = logging.getLogger(__name__)
-
-#: The parse members a vendor run reads.  Requesting them through
-#: ``bundle_read`` is what makes "parse is ready" mean the projections exist,
-#: and keeps the legacy path when the bundle is still pending.
-BUNDLE_MEMBERS = (
-    "projections/occurrences.json",
-    "projections/placements.json",
-)
-
-
-def design_file_for(board: Path) -> Path:
-    """Prefer the project file when Cruncher needs variants and text variables."""
-
-    project = board.with_suffix(".kicad_pro")
-    return project if project.is_file() else board
-
-
-def vendor_bundle_archive(project_id: str, commit: str | None) -> Path | None:
-    """The design bundle a vendor run can read, or ``None`` to serve legacy.
-
-    ``bundle_read`` owns the switch and the rollout fallback: it answers
-    ``None`` for ``legacy``, a member that is not ready (it queues the build)
-    and a member that failed.  A working tree has no commit to key a bundle by,
-    and a parse stage that is not final has no projections to read.
-    """
-
-    if not project_id or not commit:
-        return None
-    from app.services.design_bundle.consumer import bundle_read
-
-    try:
-        read = bundle_read(
-            "RELEASE_STUDIO",
-            project_id,
-            commit,
-            BUNDLE_MEMBERS,
-            requested_by="release-studio:vendor",
-        )
-    except Exception as error:  # noqa: BLE001 - a bundle-side fault must not break the legacy path
-        logger.warning(
-            "design bundle: vendor packs of %s@%s cannot read the bundle: %s",
-            project_id,
-            commit,
-            error,
-        )
-        return None
-    if read is None or not all(read.ready(path) for path in BUNDLE_MEMBERS):
-        return None
-    archive = read.opened.archive
-    if archive is None:
-        return None
-    stages = (archive.manifest or {}).get("stages") or {}
-    parse = stages.get("parse") or {}
-    # The projection members being ready already implies parse is final; the
-    # manifest check keeps a pending archive on the legacy path even if a fake
-    # or an older manifest answers readiness differently.
-    if parse.get("status") not in {None, "complete", "partial"}:
-        return None
-    return archive.path
-
 
 def generate_vendor_outputs(
     *,
@@ -107,7 +37,6 @@ def generate_vendor_outputs(
     closure_root: Path,
     output_root: Path,
     variant: str = "",
-    cruncher: KicadTool | None = None,
     cli: KicadTool | None = None,
     bundle: Path | None = None,
     timeout_seconds: int = 900,
@@ -118,108 +47,31 @@ def generate_vendor_outputs(
     bytes (XLSX and other opaque vendor files) keyed by archive-relative path.
     A missing generator skips the vendors rather than failing the build — the
     signed dossier is still complete without a fab-house pack.  With ``bundle``
-    set the pack comes from ``prism-kicad`` instead; every other outcome is a
-    failed step so a configuration or bundle error is visible.
+    set the pack comes from ``prism-kicad``; every other outcome is a failed
+    step so a configuration or bundle error is visible.
     """
 
     vendor_ids = resolve_vendor_ids(config)
     if not vendor_ids:
         return (), {}
 
-    if bundle is not None:
-        return _generate_from_bundle(
-            vendor_ids=vendor_ids,
-            bundle=bundle,
-            cli=cli,
-            output_root=output_root,
-            variant=variant,
-            timeout_seconds=timeout_seconds,
-        )
+    if bundle is None:
+        # The build always resolves a design bundle before it runs; a vendor
+        # pack without one is a build defect, not a silent skip.
+        return _failed_steps(
+            vendor_ids,
+            output_root,
+            message="the release build resolved no design bundle for its vendor pack",
+        ), {}
 
-    board_rel = str(config.get("board") or "")
-    board = (closure_root / board_rel) if board_rel else None
-    if board is None or not board.is_file():
-        return (), {}
-
-    outputs: list[StepOutput] = []
-    extra_evidence: dict[str, bytes] = {}
-    if cruncher is None:
-        for vendor_id in vendor_ids:
-            spec = vendor_step_spec(vendor_id)
-            outputs.append(
-                StepOutput(
-                    step_id=spec.step_id,
-                    step_type=spec.step_type,
-                    normalized_argv=(),
-                    returncode=0,
-                    files=(),
-                    root=output_root,
-                    spec=spec,
-                    skipped_reason="kicad-cruncher is not available",
-                )
-            )
-        return tuple(outputs), extra_evidence
-
-    design = design_file_for(board)
-    for vendor_id in vendor_ids:
-        spec = vendor_step_spec(vendor_id)
-        try:
-            profile = profile_by_id(vendor_id)
-        except KeyError:
-            outputs.append(
-                StepOutput(
-                    step_id=spec.step_id,
-                    step_type=spec.step_type,
-                    normalized_argv=(),
-                    returncode=0,
-                    files=(),
-                    root=output_root,
-                    spec=spec,
-                    skipped_reason=f"unknown vendor profile: {vendor_id}",
-                )
-            )
-            continue
-        try:
-            artifacts = profile.generate(
-                cruncher=cruncher,
-                design_file=design,
-                output_root=output_root,
-                variant=variant,
-                timeout_seconds=timeout_seconds,
-            )
-        except VendorGenerateError as exc:
-            outputs.append(
-                StepOutput(
-                    step_id=spec.step_id,
-                    step_type=spec.step_type,
-                    normalized_argv=(),
-                    returncode=1,
-                    files=(),
-                    root=output_root,
-                    spec=spec,
-                    stderr=str(exc),
-                    skipped_reason=str(exc)[:400],
-                )
-            )
-            continue
-        files = tuple(path for path in artifacts.canonical_files.values() if path.is_file())
-        outputs.append(
-            StepOutput(
-                step_id=spec.step_id,
-                step_type=spec.step_type,
-                normalized_argv=artifacts.normalized_argv,
-                returncode=artifacts.returncode,
-                files=files,
-                root=output_root,
-                spec=spec,
-                stdout=artifacts.stdout,
-                stderr=artifacts.stderr,
-                elapsed_ms=artifacts.elapsed_ms,
-            )
-        )
-        for relative, path in artifacts.evidence_files.items():
-            extra_evidence[relative] = path.read_bytes()
-    return tuple(outputs), extra_evidence
+    return _generate_from_bundle(
+        vendor_ids=vendor_ids,
+        bundle=bundle,
+        cli=cli,
+        output_root=output_root,
+        variant=variant,
+        timeout_seconds=timeout_seconds,
+    )
 
 
 def _generate_from_bundle(
@@ -409,7 +261,7 @@ def _failed_step(
 
 
 def _excluded_log(document: Mapping[str, Any]) -> str:
-    """Surfaced like Cruncher's warnings: one line per excluded component."""
+    """One log line per component the vendor run excluded."""
 
     lines: list[str] = []
     for item in document.get("excluded") or ():
@@ -450,8 +302,5 @@ def _normalized_argv(
 
 
 __all__ = [
-    "BUNDLE_MEMBERS",
-    "design_file_for",
     "generate_vendor_outputs",
-    "vendor_bundle_archive",
 ]

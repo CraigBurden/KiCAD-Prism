@@ -29,18 +29,18 @@ def _pinned_version(requirements: Path, distribution: str) -> str | None:
 
 
 class ToolchainPinTests(unittest.TestCase):
-    def test_runtime_input_pins_a_matching_published_toolchain(self) -> None:
+    def test_runtime_input_pins_kicad_monkey_and_no_cruncher(self) -> None:
         monkey = _pinned_version(_RUNTIME_INPUT, "kicad-monkey")
-        cruncher = _pinned_version(_RUNTIME_INPUT, "kicad-cruncher")
         self.assertIsNotNone(monkey)
-        self.assertEqual(monkey, cruncher)
+        self.assertIsNone(_pinned_version(_RUNTIME_INPUT, "kicad-cruncher"))
 
     def test_lock_preserves_selected_toolchain(self) -> None:
-        for distribution in ("kicad-monkey", "kicad-cruncher"):
+        for distribution in ("kicad-monkey",):
             self.assertEqual(
                 _pinned_version(_RUNTIME_INPUT, distribution),
                 _pinned_version(_RUNTIME_LOCK, distribution),
             )
+        self.assertIsNone(_pinned_version(_RUNTIME_LOCK, "kicad-cruncher"))
 
     def test_backend_requirements_alias_the_lock(self) -> None:
         expected = "-r ../requirements/runtime.lock"
@@ -78,11 +78,12 @@ class ToolchainPinTests(unittest.TestCase):
         for invocation in invocations:
             self.assertIn("--python-only", invocation)
 
-    def test_local_image_replaces_monkey_and_cruncher_together(self) -> None:
+    def test_local_image_replaces_monkey_from_a_checkout(self) -> None:
         dockerfile = _DOCKERFILE.read_text(encoding="utf-8")
         local_stage = dockerfile.split("AS kicad-monkey-local", maxsplit=1)[1]
-        self.assertIn("/tmp/kicad-toolchain/packages/kicad_cruncher", local_stage)
         self.assertIn("/tmp/kicad-toolchain", local_stage)
+        self.assertNotIn("kicad_cruncher", local_stage)
+        self.assertNotIn("wn-geometer", local_stage)
         self.assertIn("uv pip check", local_stage)
 
 

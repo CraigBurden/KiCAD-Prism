@@ -84,7 +84,6 @@ def verify_python() -> dict[str, str]:
         "python": actual_python,
         "python-packages": str(len(installed)),
         "kicad-monkey": installed["kicad-monkey"],
-        "kicad-cruncher": installed["kicad-cruncher"],
     }
     return identity
 

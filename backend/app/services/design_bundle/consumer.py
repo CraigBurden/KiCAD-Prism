@@ -20,9 +20,6 @@ treats ``None`` as HEAD). If the checkout holds uncommitted changes in the
 files the bundle reads, HEAD's bundle is still served and
 :meth:`BundleRead.response_headers` says so; a bundle is never built from a
 dirty working tree.
-
-Only Release Studio still has a switch (``PRISM_DESIGN_SOURCE_RELEASE_STUDIO``);
-it is removed in its own work package. The other consumers always read bundles.
 """
 
 from __future__ import annotations
@@ -32,7 +29,6 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Iterable, Mapping
 
-from app.core.config import settings
 from app.services.design_bundle import reader
 from app.services.design_bundle.errors import (
     WORKING_TREE_DIRTY,
@@ -44,11 +40,6 @@ from app.services.design_bundle.manifest import Readiness
 
 logger = logging.getLogger(__name__)
 
-#: The consumers that still have an ADR §8 switch. Release Studio keeps its
-#: legacy readers until its own work package; every other consumer reads the
-#: bundle unconditionally.
-SWITCHED_CONSUMERS = ("RELEASE_STUDIO",)
-
 #: ADR §8's consumers, for callers and tests that name one.
 CONSUMERS = (
     "SEMANTIC_INDEX",
@@ -57,14 +48,6 @@ CONSUMERS = (
     "PROJECT_METADATA",
     "CATALOG_IMPORT",
 )
-
-
-def source(consumer: str) -> str:
-    """``legacy`` or ``bundle``: a switched consumer's source (Release Studio only)."""
-
-    if consumer not in SWITCHED_CONSUMERS:
-        raise ValueError(f"design-source consumer {consumer!r} has no switch")
-    return getattr(settings, f"PRISM_DESIGN_SOURCE_{consumer}")
 
 
 @dataclass

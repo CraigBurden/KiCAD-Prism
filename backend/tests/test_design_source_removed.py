@@ -34,9 +34,9 @@ class RemovedModulesTests(unittest.TestCase):
             with self.subTest(setting=name):
                 self.assertFalse(hasattr(settings, name))
 
-    def test_release_studio_keeps_its_switch(self) -> None:
-        self.assertTrue(hasattr(settings, "PRISM_DESIGN_SOURCE_RELEASE_STUDIO"))
-        self.assertIn(consumer.source("RELEASE_STUDIO"), ("legacy", "bundle"))
+    def test_the_release_studio_switch_is_gone_too(self) -> None:
+        self.assertFalse(hasattr(settings, "PRISM_DESIGN_SOURCE_RELEASE_STUDIO"))
+        self.assertFalse(hasattr(consumer, "source"))
 
 
 if __name__ == "__main__":
