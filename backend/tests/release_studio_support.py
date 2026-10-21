@@ -2,14 +2,17 @@
 
 from __future__ import annotations
 
+import contextlib
 import functools
 import os
 import re
 import shutil
 import subprocess
+import sys
+import tempfile
 import unittest
 from pathlib import Path
-from typing import Any, Callable, ParamSpec, TypeVar, cast
+from typing import Any, Callable, Iterator, ParamSpec, TypeVar, cast
 
 
 EXECUTOR_IMAGE_ENV = "PRISM_RELEASE_EXECUTOR_IMAGE"
@@ -23,6 +26,54 @@ _R = TypeVar("_R")
 RELEASE_STUDIO_ROOT = Path(__file__).resolve().parents[2] / "fixtures" / "release-studio"
 FIXTURE_NAMES = ("synthetic", "usb-pd", "cynthion")
 RECORDING_ROOT = RELEASE_STUDIO_ROOT / "cli-recordings"
+DOCUMENTS_STUB = Path(__file__).resolve().parent / "support" / "prism_kicad_documents_stub.py"
+
+
+@contextlib.contextmanager
+def documents_stub() -> Iterator[Path]:
+    """A fake ``prism-kicad`` for ``version``/``stroke-text``/``drawing-sheet``.
+
+    Yields the invocation log the stub appends to. The documents'renderer
+    caches are cleared on the way in and out, so a case can count the CLI calls
+    it actually made.
+    """
+
+    from unittest import mock
+
+    from app.core.config import settings
+    from app.release_studio.documents import fonts, worksheet
+
+    directory = Path(tempfile.mkdtemp(prefix="prism-kicad-documents-"))
+    executable = directory / "prism-kicad"
+    executable.write_text(
+        f'#!/bin/sh\nexec "{sys.executable}" "{DOCUMENTS_STUB}" "$@"\n',
+        encoding="utf-8",
+    )
+    executable.chmod(0o755)
+    log = directory / "invocations.jsonl"
+    fonts._reset_stroke_caches()
+    worksheet._reset_drawing_sheet_cache()
+    try:
+        with (
+            mock.patch.object(
+                settings, "PRISM_DESIGN_BUNDLE_CLI_PATH", str(executable)
+            ),
+            mock.patch.object(
+                settings, "KICAD_PROJECTS_ROOT", str(directory / "projects")
+            ),
+            mock.patch.dict(os.environ, {"PRISM_KICAD_STUB_LOG": str(log)}),
+        ):
+            yield log
+    finally:
+        fonts._reset_stroke_caches()
+        worksheet._reset_drawing_sheet_cache()
+
+
+def install_documents_stub(test: unittest.TestCase) -> Path:
+    """Install :func:`documents_stub` for the length of *test*; returns its log."""
+
+    return test.enterContext(documents_stub())
+
 
 
 def read_baked_kicad_base_image(

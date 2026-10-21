@@ -1,20 +1,27 @@
 """Deterministic typography for Release Studio drawing sheets.
 
 No font is resolved through fontconfig or the host operating system. KiCad
-NewStroke comes from the pinned Monkey distribution; legacy OpenType faces are
-bundled with Prism and digest checked. Typography is a technical configuration
-value and therefore part of the reproducible build.
+NewStroke comes from ``prism-kicad``, whose generator id covers the stroke font;
+legacy OpenType faces are bundled with Prism and digest checked. Typography is a
+technical configuration value and therefore part of the reproducible build.
+
+NewStroke is measured from ``prism-kicad stroke-text --metrics`` (one process per
+generator, cached in memory and on disk) and drawn from one batched
+``prism-kicad stroke-text --request`` per document. Neither path runs a process
+per string.
 """
 
 from __future__ import annotations
 
 import base64
 import hashlib
+import json
+import os
+import tempfile
 from dataclasses import dataclass
 from functools import lru_cache
-from importlib import resources
 from pathlib import Path
-from typing import Literal, Mapping
+from typing import Literal, Mapping, Sequence
 
 from fontTools.ttLib import TTFont
 
@@ -163,23 +170,32 @@ def is_newstroke(key: str | None = None) -> bool:
     return typography_preset(key).key == NEWSTROKE_TYPOGRAPHY
 
 
-def _newstroke_data_bytes() -> bytes:
-    """Read the glyph corpus from the installed, pinned Monkey distribution."""
+#: Bound on one ``prism-kicad stroke-text``/``drawing-sheet`` invocation. Both
+#: are CPU work over a sheet's runs and never touch the network, so the limit is
+#: generous rather than load-sensitive.
+CLI_TIMEOUT_SECONDS = 120.0
 
-    try:
-        return (
-            resources.files("kicad_monkey")
-            .joinpath("kicad_stroke_font_data.json")
-            .read_bytes()
-        )
-    except (FileNotFoundError, ImportError, ModuleNotFoundError) as exc:
-        raise RuntimeError(
-            "the installed kicad-monkey package does not provide NewStroke glyph data"
-        ) from exc
+
+def _bundle_cli():
+    """The design-bundle CLI seam: one locator and one process contract."""
+
+    from app.services.design_bundle import cli as bundle_cli
+
+    return bundle_cli
+
+
+def prism_kicad_generator_digest() -> str:
+    """``prism-kicad version``'s generator digest (cli-spec.md §5.1).
+
+    The stroke font and the default worksheet are compiled into the CLI, so the
+    generator id is what identifies them; there is no separate glyph corpus.
+    """
+
+    return _bundle_cli().generator().digest
 
 
 def resource_bundle_digest() -> str:
-    """Identity of every bundled face that can affect released documents."""
+    """Identity of every bundled resource that can affect released documents."""
 
     assets = {
         asset.filename: asset.sha256
@@ -187,13 +203,243 @@ def resource_bundle_digest() -> str:
         for asset in (preset.display, preset.body, preset.body_bold)
         if asset is not None
     }
-    assets["kicad_monkey/kicad_stroke_font_data.json"] = hashlib.sha256(
-        _newstroke_data_bytes()
-    ).hexdigest()
+    # The stroke font and the default drawing sheet are part of prism-kicad, so
+    # its generator digest stands in for their bytes. A host without the CLI
+    # cannot compose a release document at all (the drawing sheet comes from
+    # it), so falling back to an empty marker only keeps configuration-only
+    # callers -- which never reach a released digest -- working.
+    try:
+        assets["prism-kicad/generator"] = prism_kicad_generator_digest()
+    except (_bundle_cli().CliUnavailable, _bundle_cli().CliFailure):
+        assets["prism-kicad/generator"] = ""
     canonical = "".join(
         f"{filename}\0{digest}\n" for filename, digest in sorted(assets.items())
     )
     return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
+# ---------------------------------------------------------------------------
+# NewStroke metrics: one `stroke-text --metrics` per generator
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True, slots=True)
+class _StrokeFontMetrics:
+    """The per-glyph advance table (cli-spec.md §5.9)."""
+
+    space_width: float
+    super_sub_size_multiplier: float
+    advances: Mapping[int, float]
+
+    def _plain(self, text: str, scale: float) -> float:
+        total = 0.0
+        for char in text:
+            if char == " ":
+                total += self.space_width * scale
+            else:
+                total += self.advances.get(ord(char), 0.0) * scale
+        return total
+
+    def _nodes(
+        self, text: str, index: int, *, stop: bool, styled: bool
+    ) -> tuple[float, int]:
+        """KiCad markup's contribution: ``^{}``/``_{}`` shrink, ``~{}`` does not."""
+
+        total = 0.0
+        while index < len(text):
+            char = text[index]
+            if stop and char == "}":
+                return total, index + 1
+            if index + 1 < len(text) and char in "^_~" and text[index + 1] == "{":
+                inner, index = self._nodes(
+                    text, index + 2, stop=True, styled=styled or char in "^_"
+                )
+                total += inner
+                continue
+            total += self._plain(char, self.super_sub_size_multiplier if styled else 1.0)
+            index += 1
+        return total, index
+
+    def advance(self, text: str) -> float:
+        """The string's advance in nominal sizes, as ``_calculate_text_width``."""
+
+        if not any(marker in text for marker in ("~{", "^{", "_{")):
+            return self._plain(text, 1.0)
+        return self._nodes(text, 0, stop=False, styled=False)[0]
+
+
+_METRICS: dict[str, _StrokeFontMetrics] = {}
+
+
+def _metrics_cache_path(generator: str) -> Path:
+    from app.core.config import settings
+
+    return (
+        Path(settings.KICAD_PROJECTS_ROOT).expanduser()
+        / ".kicad-prism"
+        / "stroke-text-metrics"
+        / f"{generator}.json"
+    )
+
+
+def _parse_metrics(document: Mapping[str, object]) -> _StrokeFontMetrics:
+    if document.get("schema") != "prism.cli.stroke_font_metrics.a0":
+        raise ValueError("stroke font metrics document has the wrong schema")
+    advances = document["advances"]
+    if not isinstance(advances, Mapping):
+        raise ValueError("stroke font metrics has no advance table")
+    return _StrokeFontMetrics(
+        space_width=float(document["space_width"]),
+        super_sub_size_multiplier=float(document["super_sub_size_multiplier"]),
+        advances={int(code): float(value) for code, value in advances.items()},
+    )
+
+
+def _write_metrics_cache(path: Path, document: Mapping[str, object]) -> None:
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        payload = json.dumps(document, sort_keys=True, separators=(",", ":"))
+        with tempfile.NamedTemporaryFile(
+            "w",
+            encoding="utf-8",
+            dir=path.parent,
+            prefix=f".{path.name}.",
+            suffix=".tmp",
+            delete=False,
+        ) as handle:
+            handle.write(payload)
+            temporary = Path(handle.name)
+        os.replace(temporary, path)
+    except OSError:
+        # A read-only projects root costs the next process one invocation, not
+        # correctness: the cache is derived state only.
+        return
+
+
+def _stroke_metrics() -> _StrokeFontMetrics:
+    """The NewStroke advance table for the current generator, cached."""
+
+    generator = prism_kicad_generator_digest()
+    cached = _METRICS.get(generator)
+    if cached is not None:
+        return cached
+
+    path = _metrics_cache_path(generator)
+    try:
+        document = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        document = None
+    if isinstance(document, dict):
+        try:
+            metrics = _parse_metrics(document)
+        except (KeyError, TypeError, ValueError):
+            metrics = None
+        if metrics is not None:
+            _METRICS[generator] = metrics
+            return metrics
+
+    document = _bundle_cli().run(
+        ["stroke-text", "--metrics"],
+        timeout_seconds=CLI_TIMEOUT_SECONDS,
+        expect="prism.cli.stroke_font_metrics.a0",
+    ).document
+    if document is None:  # pragma: no cover - the CLI contract guarantees one
+        raise RuntimeError("prism-kicad stroke-text --metrics printed no document")
+    metrics = _parse_metrics(document)
+    _write_metrics_cache(path, document)
+    _METRICS[generator] = metrics
+    return metrics
+
+
+# ---------------------------------------------------------------------------
+# NewStroke polylines: one `stroke-text --request` per batch
+# ---------------------------------------------------------------------------
+
+#: ``(text, x, y, size, anchor)``: the fields a rendered run depends on.
+StrokeTextRun = tuple[str, float, float, float, str]
+
+
+@dataclass(frozen=True, slots=True)
+class StrokeTextBatch:
+    """The polylines of one batch of NewStroke runs, keyed by run."""
+
+    by_run: Mapping[StrokeTextRun, tuple[tuple[tuple[float, float], ...], ...]]
+
+    def polylines(
+        self,
+        value: str,
+        *,
+        x: float,
+        y: float,
+        size: float,
+        anchor: str = "start",
+    ) -> tuple[tuple[tuple[float, float], ...], ...]:
+        return self.by_run.get((value, x, y, size, anchor), ())
+
+
+EMPTY_STROKE_TEXT = StrokeTextBatch({})
+
+
+def render_stroke_text(runs: Sequence[StrokeTextRun]) -> StrokeTextBatch:
+    """Render every run of one document in a single ``stroke-text --request``."""
+
+    unique = list(dict.fromkeys(runs))
+    if not unique:
+        return EMPTY_STROKE_TEXT
+    request = {
+        "schema": "prism.stroke_text.request.a0",
+        "runs": [
+            {
+                "text": text,
+                "x_mm": x,
+                "y_mm": y,
+                "size_mm": size,
+                "h_align": {"start": "left", "middle": "center", "end": "right"}.get(
+                    anchor, "left"
+                ),
+                "v_align": "bottom",
+            }
+            for text, x, y, size, anchor in unique
+        ],
+    }
+    with tempfile.NamedTemporaryFile(
+        "w", encoding="utf-8", suffix=".json", prefix="prism-stroke-text-", delete=False
+    ) as handle:
+        json.dump(request, handle, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+        path = handle.name
+    try:
+        document = _bundle_cli().run(
+            ["stroke-text", "--request", path],
+            timeout_seconds=CLI_TIMEOUT_SECONDS,
+            expect="prism.cli.stroke_text_result.a0",
+        ).document
+    finally:
+        try:
+            os.unlink(path)
+        except OSError:
+            pass
+    if document is None:  # pragma: no cover - the CLI contract guarantees one
+        raise RuntimeError("prism-kicad stroke-text --request printed no document")
+    results = document["runs"]
+    if len(results) != len(unique):
+        raise RuntimeError(
+            "prism-kicad stroke-text returned "
+            f"{len(results)} runs for a request of {len(unique)}"
+        )
+    by_run = {
+        run: tuple(
+            tuple((float(px), float(py)) for px, py in line)
+            for line in result["polylines_mm"]
+        )
+        for run, result in zip(unique, results)
+    }
+    return StrokeTextBatch(by_run)
+
+
+def _reset_stroke_caches() -> None:
+    """Drop the in-memory metrics table (tests swap the CLI between cases)."""
+
+    _METRICS.clear()
 
 
 @lru_cache(maxsize=None)
@@ -217,16 +463,7 @@ def advance_width(
     """Return the real OpenType advance width in millimetres."""
 
     if is_newstroke(typography):
-        from kicad_monkey.kicad_stroke_font import get_renderer
-
-        # Monkey exposes the renderer publicly but does not yet expose its
-        # measurement method. Keep this one compatibility shim isolated so it
-        # can disappear when upstream promotes text measurement to public API.
-        renderer = get_renderer()
-        measure = getattr(renderer, "_calculate_text_width", None)
-        if measure is None:
-            raise RuntimeError("kicad-monkey does not expose NewStroke text measurement")
-        return float(measure(value)) * size
+        return _stroke_metrics().advance(value) * size
 
     asset = typography_preset(typography).asset(role, bold)
     font = ttfont(asset)
@@ -297,14 +534,15 @@ def unsupported_codepoints(
 
     layout_controls = {"\n", "\r", "\t"}
     if is_newstroke(typography):
-        from kicad_monkey.kicad_stroke_font import get_glyph
-
+        advances = _stroke_metrics().advances
         return tuple(
             sorted(
                 {
                     ord(char)
                     for char in value
-                    if char not in layout_controls and get_glyph(char) is None
+                    if char not in layout_controls
+                    and char != " "
+                    and ord(char) not in advances
                 }
             )
         )
@@ -352,24 +590,19 @@ def newstroke_polylines(
     y: float,
     size: float,
     anchor: str = "start",
+    batch: StrokeTextBatch | None = None,
 ) -> tuple[tuple[tuple[float, float], ...], ...]:
-    """Render one text run with Monkey's KiCad NewStroke implementation."""
+    """Render one text run, or look it up in an already-rendered batch.
 
-    from kicad_monkey.kicad_stroke_font import get_renderer
+    Renderers pass *batch* so a document's runs reach the CLI in one call; a
+    direct caller without one pays a call of its own.
+    """
 
-    alignment = {"start": "left", "middle": "center", "end": "right"}.get(
-        anchor, "left"
-    )
-    rendered = get_renderer().render_text_polylines(
-        value,
-        x,
-        y,
-        size,
-        size,
-        h_align=alignment,
-        v_align="bottom",
-    )
-    return tuple(tuple((float(px), float(py)) for px, py in line) for line in rendered)
+    if not value:
+        return ()
+    if batch is None:
+        batch = render_stroke_text([(value, x, y, size, anchor)])
+    return batch.polylines(value, x=x, y=y, size=size, anchor=anchor)
 
 
 def newstroke_width(size: float, *, bold: bool = False) -> float:
@@ -380,10 +613,13 @@ def newstroke_width(size: float, *, bold: bool = False) -> float:
 
 __all__ = [
     "DEFAULT_TYPOGRAPHY",
+    "EMPTY_STROKE_TEXT",
     "FONT_ROOT",
     "FontAsset",
     "FontRole",
     "NEWSTROKE_TYPOGRAPHY",
+    "StrokeTextBatch",
+    "StrokeTextRun",
     "TYPOGRAPHY_PRESETS",
     "TypographyPreset",
     "advance_width",
@@ -391,6 +627,8 @@ __all__ = [
     "is_newstroke",
     "newstroke_polylines",
     "newstroke_width",
+    "prism_kicad_generator_digest",
+    "render_stroke_text",
     "resource_bundle_digest",
     "svg_font_css",
     "ttfont",

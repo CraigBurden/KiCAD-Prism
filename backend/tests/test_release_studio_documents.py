@@ -7,11 +7,16 @@ and that placed artwork is placed at a stated, measurable scale.
 
 from __future__ import annotations
 
+import contextlib
 import io
+import json
+import os
 import re
 import sys
+import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:  # pragma: no cover - import bootstrap
@@ -19,7 +24,9 @@ if str(REPO_ROOT) not in sys.path:  # pragma: no cover - import bootstrap
 
 from app.release_studio.documents import compose, render_pdf, render_svg  # noqa: E402
 from app.release_studio.documents import artwork as artwork_module  # noqa: E402
+from app.release_studio.documents import fonts as fonts_module  # noqa: E402
 from app.release_studio.documents import sheets as sheet_templates  # noqa: E402
+from app.release_studio.documents import worksheet as worksheet_module  # noqa: E402
 from app.release_studio.documents.layout import (  # noqa: E402
     Rect,
     SheetBuilder,
@@ -30,6 +37,20 @@ from app.release_studio.documents.layout import (  # noqa: E402
     text_width,
 )
 from tests.kicad_tool_fakes import FakeTool  # noqa: E402
+from tests.release_studio_support import documents_stub  # noqa: E402
+
+#: The Documentation Engine now takes its lettering and frame from
+#: ``prism-kicad``. The module's cases compose real documents, so they run
+#: against the reference stub unless a case installs its own copy.
+_DOCUMENTS_STUB = contextlib.ExitStack()
+
+
+def setUpModule() -> None:  # noqa: N802 - unittest protocol
+    _DOCUMENTS_STUB.enter_context(documents_stub())
+
+
+def tearDownModule() -> None:  # noqa: N802 - unittest protocol
+    _DOCUMENTS_STUB.close()
 
 #: Stand-ins for tests whose acquirers are faked: only presence matters.
 CLI = FakeTool(name="kicad-cli")
@@ -2743,3 +2764,254 @@ class CruncherViewportTests(unittest.TestCase):
         margin = float(policy["global"]["canvas"]["margin_mm"])
         self.assertEqual(viewport.width_mm, 56.0 + 2.0 * margin)
         self.assertEqual(viewport.height_mm, 56.0 + 2.0 * margin)
+
+
+class PrismKicadDocumentsTests(unittest.TestCase):
+    """The document renderer's ``prism-kicad`` seam: batching, caching, parity.
+
+    Each case installs its own stub so the invocation log and the derived
+    caches start empty; the module-level stub only keeps the other cases
+    composing.
+    """
+
+    def setUp(self) -> None:
+        self.log = self.enterContext(documents_stub())
+
+    def _entries(self, command: str) -> list[dict]:
+        if not self.log.exists():
+            return []
+        entries = [
+            json.loads(line)
+            for line in self.log.read_text(encoding="utf-8").splitlines()
+            if line.strip()
+        ]
+        return [entry for entry in entries if entry["args"][:1] == [command]]
+
+    def _calls(self, command: str) -> list[list[str]]:
+        return [entry["args"] for entry in self._entries(command)]
+
+    def _compose(self, **overrides):
+        payload = dict(
+            context=CONTEXT,
+            stats=STATS,
+            stackup=STACKUP,
+            variants=VARIANTS,
+            placements=PLACEMENTS,
+            members=MEMBERS,
+        )
+        payload.update(overrides)
+        return compose(**payload)
+
+    def test_newstroke_metrics_and_runs_are_batched_once_per_document(self) -> None:
+        result = self._compose(typography="kicad-newstroke")
+
+        metrics = self._calls("stroke-text")
+        metrics = [args for args in metrics if "--metrics" in args]
+        self.assertEqual(len(metrics), 1, "metrics are loaded once per generator")
+
+        requests = [args for args in self._calls("stroke-text") if "--request" in args]
+        self.assertEqual(
+            len(requests),
+            len(result.outputs),
+            "one batched stroke-text call per document, not one per run",
+        )
+        run_counts = [
+            entry.get("runs", 0)
+            for entry in self._entries("stroke-text")
+            if "--request" in entry["args"]
+        ]
+        self.assertEqual(len(run_counts), len(requests))
+        self.assertGreater(
+            max(run_counts),
+            1,
+            "a document's runs reach the CLI together, not one string at a time",
+        )
+
+    def test_the_metrics_table_is_read_from_the_generator_cache(self) -> None:
+        from app.release_studio.documents.fonts import advance_width
+
+        first = advance_width(
+            "SCALE 2:1", 2.0, role="sans", typography="kicad-newstroke"
+        )
+        self.assertEqual(
+            len([a for a in self._calls("stroke-text") if "--metrics" in a]), 1
+        )
+        # A fresh process would read the disk entry; clearing memory proves the
+        # second measurement did not spawn another CLI.
+        fonts_module._reset_stroke_caches()
+        second = advance_width(
+            "SCALE 2:1", 2.0, role="sans", typography="kicad-newstroke"
+        )
+        self.assertEqual(first, second)
+        self.assertEqual(
+            len([a for a in self._calls("stroke-text") if "--metrics" in a]), 1
+        )
+
+    def test_a_repeated_worksheet_request_is_answered_from_memory(self) -> None:
+        sheet = worksheet_module.default_worksheet_elements(
+            width_mm=297.0,
+            height_mm=210.0,
+            paper_name="A4",
+            title="Example Board",
+            key="cover",
+            context=CONTEXT,
+            style="prism",
+        )
+        again = worksheet_module.default_worksheet_elements(
+            width_mm=297.0,
+            height_mm=210.0,
+            paper_name="A4",
+            title="Example Board",
+            key="cover",
+            context=CONTEXT,
+            style="prism",
+        )
+        self.assertEqual(sheet, again)
+        self.assertEqual(len(self._calls("drawing-sheet")), 1)
+
+
+class PrismKicadParityTests(unittest.TestCase):
+    """The real C3 CLI equals Python kicad_monkey within 1e-9 mm.
+
+    Gated on ``PRISM_KICAD``, the release build of the C3 branch's CLI, because
+    a developer checkout has no ``prism-kicad`` on PATH.
+    """
+
+    STRINGS = (
+        "SCALE 2:1",
+        "Example Board",
+        "All holes ⌀ 0.3 mm ±0.05, 90° chamfer, Ω-pads ✓",
+        "R12",
+        "~{RESET}",
+        "x^{2} and y_{3}",
+        "set {x} then ~{BAR}",
+        "",
+    )
+
+    def setUp(self) -> None:
+        executable = os.environ.get("PRISM_KICAD", "").strip()
+        if not executable:
+            self.skipTest("set PRISM_KICAD to a release build of prism-kicad")
+        try:
+            import kicad_monkey.kicad_stroke_font  # noqa: F401
+        except ImportError:  # pragma: no cover - kicad-monkey is the reference
+            self.skipTest("kicad-monkey is not installed for the reference answers")
+        from app.core.config import settings
+
+        self.enterContext(
+            mock.patch.object(settings, "PRISM_DESIGN_BUNDLE_CLI_PATH", executable)
+        )
+        self.enterContext(
+            mock.patch.object(
+                settings,
+                "KICAD_PROJECTS_ROOT",
+                tempfile.mkdtemp(prefix="prism-kicad-parity-"),
+            )
+        )
+        fonts_module._reset_stroke_caches()
+        worksheet_module._reset_drawing_sheet_cache()
+
+    def test_advance_width_matches_the_reference_within_one_nanometre(self) -> None:
+        from kicad_monkey.kicad_stroke_font import get_renderer
+
+        renderer = get_renderer()
+        for text in self.STRINGS:
+            with self.subTest(text=text):
+                expected = renderer._calculate_text_width(text) * 1.27
+                actual = fonts_module.advance_width(
+                    text, 1.27, role="sans", typography="kicad-newstroke"
+                )
+                self.assertLessEqual(abs(actual - expected), 1e-9)
+
+    def test_polylines_match_the_reference_within_one_nanometre(self) -> None:
+        from kicad_monkey.kicad_stroke_font import get_renderer
+
+        renderer = get_renderer()
+        for text in self.STRINGS:
+            with self.subTest(text=text):
+                expected = renderer.render_text_polylines(
+                    text, 20.0, 40.0, 1.27, 1.27,
+                    h_align="left", v_align="bottom",
+                )
+                actual = fonts_module.newstroke_polylines(
+                    text, x=20.0, y=40.0, size=1.27, anchor="start"
+                )
+                self.assertEqual(len(actual), len(expected))
+                for got, want in zip(actual, expected):
+                    self.assertEqual(len(got), len(want))
+                    for (gx, gy), (wx, wy) in zip(got, want):
+                        self.assertLessEqual(abs(gx - wx), 1e-9)
+                        self.assertLessEqual(abs(gy - wy), 1e-9)
+
+    def test_the_default_worksheet_matches_the_reference_for_a4_and_a3(self) -> None:
+        from kicad_monkey import drawing_sheet_to_ops, load_default_drawing_sheet
+        from app.release_studio.documents.layout import Line, Polyline, Rectangle, Text
+
+        def reference_ops(width_mm: float, height_mm: float, paper: str):
+            return drawing_sheet_to_ops(
+                load_default_drawing_sheet(),
+                paper_width_nm=int(round(width_mm * 1_000_000)),
+                paper_height_nm=int(round(height_mm * 1_000_000)),
+                title_block={
+                    "title": "Example Board",
+                    "date": str(CONTEXT["commit_date"]),
+                    "rev": str(CONTEXT["revision"]),
+                    "company": "Prism Release Studio",
+                    "comments": {
+                        1: "Document: DOC-1",
+                        2: "Commit: " + "a" * 12,
+                        3: "Variant: default",
+                        4: "",
+                    },
+                },
+                sheet_index=1,
+                sheet_count=1,
+                paper_name=paper,
+                filename="DOC-1.pdf",
+                sheet_path="/cover",
+                sheet_name="cover",
+                kicad_version="KiCad",
+            )
+
+        def mm(value: float) -> float:
+            return float(value) / 1_000_000.0
+
+        for paper, width, height in (("A4", 297.0, 210.0), ("A3", 420.0, 297.0)):
+            with self.subTest(paper=paper):
+                elements = worksheet_module.default_worksheet_elements(
+                    width_mm=width,
+                    height_mm=height,
+                    paper_name=paper,
+                    title="Example Board",
+                    key="cover",
+                    context=CONTEXT,
+                    style="kicad",
+                )
+                expected = reference_ops(width, height, paper)
+                self.assertEqual(len(elements), len(expected))
+                for element, op in zip(elements, expected):
+                    kind = op.kind.value if hasattr(op.kind, "value") else str(op.kind)
+                    payload = op.payload
+                    if kind == "Rect":
+                        self.assertIsInstance(element, Rectangle)
+                        self.assertLessEqual(abs(element.rect.x - mm(min(payload["x1"], payload["x2"]))), 1e-9)
+                        self.assertLessEqual(abs(element.rect.y - mm(min(payload["y1"], payload["y2"]))), 1e-9)
+                        self.assertLessEqual(abs(element.rect.width - mm(abs(payload["x2"] - payload["x1"]))), 1e-9)
+                        self.assertLessEqual(abs(element.rect.height - mm(abs(payload["y2"] - payload["y1"]))), 1e-9)
+                    elif kind == "PlotPoly":
+                        points = tuple((mm(x), mm(y)) for x, y in payload["points"])
+                        if len(points) == 2:
+                            self.assertIsInstance(element, Line)
+                            actual = ((element.x1, element.y1), (element.x2, element.y2))
+                        else:
+                            self.assertIsInstance(element, Polyline)
+                            actual = element.points
+                        for (ax, ay), (ex, ey) in zip(actual, points):
+                            self.assertLessEqual(abs(ax - ex), 1e-9)
+                            self.assertLessEqual(abs(ay - ey), 1e-9)
+                    elif kind == "Text":
+                        self.assertIsInstance(element, Text)
+                        self.assertEqual(element.value, payload["text"])
+                        self.assertLessEqual(abs(element.x - mm(payload["x"])), 1e-9)
+                        self.assertLessEqual(abs(element.y - mm(payload["y"])), 1e-9)
+                        self.assertLessEqual(abs(element.size - mm(payload["size_y_nm"])), 1e-9)
