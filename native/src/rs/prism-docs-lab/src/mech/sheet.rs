@@ -449,15 +449,12 @@ fn notes(svg: &mut String, rect: Rect, board: &Board, style: &Style<'_>) {
         rect,
         &mut y,
         "OVER LIMIT",
-        &format!(
-            "parts above {limit:.2} mm are {} {}.",
-            if theme == Theme::Light {
-                "red"
-            } else {
-                "marked"
-            },
-            palette.alert
-        ),
+        &if theme == Theme::Light {
+            format!("parts above {limit:.2} mm are red {}.", palette.alert)
+        } else {
+            // A hex colour means nothing to a reader on a themed sheet.
+            format!("parts above {limit:.2} mm are marked.")
+        },
         palette,
     );
     unknown_note(svg, rect, &mut y, board, palette);
