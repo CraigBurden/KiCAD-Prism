@@ -5,13 +5,15 @@
 //! and ships in no image. Every prototype is one binary under `src/bin/`, and
 //! the parts more than one prototype needs live here: opening a design bundle
 //! and reading its members ([`bundle`]), KiCad's layer palette ([`palette`])
-//! and the deterministic HTML page furniture ([`html`]).
+//! and the deterministic HTML page furniture ([`html`]). [`mech`] holds the
+//! mechanical outline's geometry, Geometer session and A3 sheet.
 //!
-//! Prototypes read only what the bundle already carries, write one
-//! self-contained file and never touch the network.
+//! Prototypes read only what the bundle carries plus the local 3D-model
+//! directories a caller names, write their files and never touch the network.
 
 pub mod bundle;
 pub mod html;
+pub mod mech;
 pub mod palette;
 
 pub use bundle::{Bundle, LabError};
