@@ -165,9 +165,11 @@ fn dispatch(args: &Args, stderr: &Stderr) -> Result<(Value, u8), Failure> {
             cmd_revision_key::KeyOutcome::Record(record) => Ok((record, 0)),
             cmd_revision_key::KeyOutcome::Absent(document) => Ok((document, 10)),
         },
-        Command::Version | Command::Help | Command::Compare | Command::SystemBuild => {
-            Err(Failure::internal("not a dispatched command"))
-        }
+        Command::Version
+        | Command::Help
+        | Command::Compare
+        | Command::SystemBuild
+        | Command::SystemStep => Err(Failure::internal("not a dispatched command")),
     }
 }
 
@@ -210,14 +212,24 @@ fn run(argv: &[String], started: Instant) -> u8 {
             Ok(exit) => exit,
             Err(failure) => fail(&failure, &stderr, stage),
         },
-        Command::SystemBuild => match cmd_system::run(&args, &stderr) {
-            Ok(exit) => exit,
-            Err(failure) => fail(&failure, &stderr, stage),
-        },
+        Command::SystemBuild | Command::SystemStep => system_command(&args, &stderr),
         _ => match dispatch(&args, &stderr) {
             Ok((document, exit)) => emit(&document, exit, &stderr, stage),
             Err(failure) => fail(&failure, &stderr, stage),
         },
+    }
+}
+
+/// `system build` or `system step`; both write their own stdout document.
+fn system_command(args: &Args, stderr: &Stderr) -> u8 {
+    let outcome = if args.command == Command::SystemStep {
+        cmd_system::run_step(args, stderr)
+    } else {
+        cmd_system::run(args, stderr)
+    };
+    match outcome {
+        Ok(exit) => exit,
+        Err(failure) => fail(&failure, stderr, stage_of(args)),
     }
 }
 

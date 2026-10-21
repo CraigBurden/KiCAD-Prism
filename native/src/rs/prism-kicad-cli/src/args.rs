@@ -30,6 +30,8 @@ pub enum Command {
     Compare,
     /// `system build`.
     SystemBuild,
+    /// `system step`.
+    SystemStep,
 }
 
 /// A `system build` member: its stored design bundle and the revision key it
@@ -123,7 +125,7 @@ fn work_of(command: Command, stage: Option<StageArg>) -> Work {
     }
 }
 
-const VALUE_OPTIONS: [&str; 36] = [
+const VALUE_OPTIONS: [&str; 37] = [
     "output",
     "in",
     "stage",
@@ -160,6 +162,7 @@ const VALUE_OPTIONS: [&str; 36] = [
     "parts",
     "entry",
     "entry-stage",
+    "models",
 ];
 
 fn allowed(command: Command, option: &str) -> bool {
@@ -209,6 +212,18 @@ fn allowed(command: Command, option: &str) -> bool {
             "entry-stage",
             "output",
         ],
+        Command::SystemStep => &[
+            "document",
+            "member",
+            "member-revision-key",
+            "absent",
+            "board-sub-ports",
+            "parts",
+            "entry",
+            "entry-stage",
+            "models",
+            "output",
+        ],
         _ => &[],
     };
     common || specific.contains(&option)
@@ -232,7 +247,7 @@ fn command_words(argv: &[String]) -> Outcome<(Command, usize)> {
         Some("bundle") => bundle_command(argv.get(1).map(String::as_str)),
         Some(_) => Err(Failure::usage(
             "unknown-command",
-            "the command is not version, bundle build, bundle verify, bundle extract, bundle reuse, revision-key, compare or system build",
+            "the command is not version, bundle build, bundle verify, bundle extract, bundle reuse, revision-key, compare, system build or system step",
         )
         .argument("command")),
     }
@@ -241,7 +256,10 @@ fn command_words(argv: &[String]) -> Outcome<(Command, usize)> {
 fn system_command(word: Option<&str>) -> Outcome<(Command, usize)> {
     match word {
         Some("build") => Ok((Command::SystemBuild, 2)),
-        _ => Err(Failure::usage("unknown-command", "system takes build").argument("command")),
+        Some("step") => Ok((Command::SystemStep, 2)),
+        _ => {
+            Err(Failure::usage("unknown-command", "system takes build or step").argument("command"))
+        }
     }
 }
 
@@ -342,7 +360,7 @@ impl Raw {
                         // `CliArgument` has no `document`, `absent`, `board-sub-ports`, `parts`,
                         // `entry` or `entry-stage` value: the message names the option.
                         "document" | "absent" | "board-sub-ports" | "parts" | "entry"
-                        | "entry-stage" => failure,
+                        | "entry-stage" | "models" => failure,
                         "member-revision-key" => failure.argument("revision-key"),
                         _ => failure.argument(name),
                     }
@@ -386,7 +404,7 @@ impl Raw {
         if self.options.insert(name, value).is_some() {
             let failure = usage(format!("--{name} is given twice"));
             return Err(match name {
-                "document" | "board-sub-ports" | "parts" => failure,
+                "document" | "board-sub-ports" | "parts" | "models" => failure,
                 _ => failure.argument(name),
             });
         }
@@ -645,7 +663,9 @@ fn check_combinations(command: Command, raw: &Raw, stage: Option<StageArg>) -> O
         Command::RevisionKey => check_revision_key(raw),
         Command::Reuse => check_reuse(raw),
         Command::Compare => check_compare(raw),
-        Command::SystemBuild => check_system(raw),
+        Command::SystemBuild | Command::SystemStep => {
+            check_system(raw, command == Command::SystemStep)
+        }
         Command::Version if !raw.positional.is_empty() => {
             Err(usage("version takes no argument").argument("command"))
         }
@@ -692,7 +712,7 @@ pub fn parse(argv: &[String]) -> Outcome<Args> {
     let base_upgraded = upgrades(&raw.base_upgraded, "base-upgraded")?;
     let head_upgraded = upgrades(&raw.head_upgraded, "head-upgraded")?;
     let (system_members, system_absent, system_board_sub_ports, system_entries) =
-        if command == Command::SystemBuild {
+        if matches!(command, Command::SystemBuild | Command::SystemStep) {
             system_of(&raw)?
         } else {
             (BTreeMap::new(), BTreeSet::new(), None, BTreeMap::new())
@@ -796,6 +816,13 @@ usage:
               [--entry <occurrence>=<system-entry.json>
               --entry-stage <occurrence>=<stage>]...
               -o <system-bundle.json> [COMMON]
+  prism-kicad system step --document <system.json>
+              [--member <occurrence>=<bundle.prism>
+              --member-revision-key <occurrence>=<hex>]... [--absent <occurrence>]...
+              [--board-sub-ports <board-sub-ports.json>] [--parts <system-parts.json>]
+              [--entry <occurrence>=<system-entry.json>
+              --entry-stage <occurrence>=<stage>]... --models <manifest.json>
+              -o <system.step> [COMMON]
 
 COMMON: [--limit <name>=<value>]... [--threads <n>] [--quiet]
 

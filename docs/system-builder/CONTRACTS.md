@@ -918,3 +918,26 @@ The interface control document, generated in the backend on request (`backend/ap
 **The ICD / Outputs tab** (ADR §4.1, `tab=outputs`, opened from the header's **Outputs** button). One per system. Left, the ICD preview (its sheets, one at a time with arrows, as the harness Outputs dialog). Right, the downloads, grouped: **ICD** (PDF, HTML, CSV), **Document** (`prism.system.v2` JSON: the document as the caller reads it, `<system>-system.json`), **Harnesses** (per harness, its §16.7 files), and **STEP** (stage 5b; until then "the STEP assembly arrives with stage 5b"). While the bundle builds, the ICD and harness groups say so and poll.
 
 Script API addition: `icd()` returns the ICD index.
+
+## 18. The STEP assembly (stage 5b)
+
+One AP242 STEP file of the whole system, built by a job on request and offered in the ICD / Outputs tab (§17).
+
+**Board models.** Each board occurrence's model is `kicad-cli pcb export step --subst-models --user-origin 0x0mm --force` run on its project at its commit, components included. The project is materialized as Release Studio does (`release_studio.closure.materialize_project_input_closure`, the worker's environment as the model environment, models staged); when that fails (a submodule or LFS object the repository lacks), a plain checkout (`project_revision.checkout`) is used and the result says so. The export's frame is KiCad's with y negated and the board's bottom face at z = 0, so the board frame (§8.9) is the export translated by `(0, 0, −thickness/2)`. A board model is stored once per `(project, commit, kicad-cli version, options)` in the board-model store, with what the export reported: the count of component models it could not find, and whether the closure fell back.
+
+**Part models.** A body occurrence, a body connector and a harness end's housing use their catalog part's first STEP asset, with the part's model alignment (`catalog.models.alignment_matrix`) mapping it into the part's frame, exactly as the 3D tab draws them.
+
+**The assembly** (`prism-kicad system step`, Rust). It takes the inputs of `system build` (§8.10) plus `--models <manifest.json>`: `{ boards: { <occurrence>: { step, thicknessNm } }, parts: { <reference>: { step, alignment: [16 numbers, column-major] } } }` (paths relative to the manifest). It arranges the system as the build does and writes:
+- a root product `<system name>`; under it one product per occurrence, named by its label, placed by its pose (§8.9): a board's product holds the board model (the export's own product tree copied in, its entities renumbered) under the `−thickness/2` lift; a body's holds its part model under the alignment, and each body connector's part model at the connector's mount (§8.10, `Q`) under that part's alignment; a published entry's holds its contents from its payload (§12.1): each child board's model (manifest key `<entry>/<child>`, the child's project and commit) and each child body's part model where the child bundle placed them, and each exported body connector's part model at its mount; a nested entry and an unexported body connector inside an entry are listed as missing; an entry without placed contents falls back to its own part's model;
+- a product `Harness <label>` per routed harness: each segment a tube of the bundle Ø along its samples (16 sides; rings at each sample, closed caps) written as a faceted B-rep solid (`MANIFOLD_SOLID_BREP`, a planar `ADVANCED_FACE` per triangle, shared vertices and edges), which every STEP reader loads (AP242 tessellated shells are skipped by OpenCASCADE-based tools by default), and each end's housing part model at the end's mating frame (`EndPose.pose`) under its alignment;
+- names on every product and occurrence; colours from the models where present, a neutral grey on tubes.
+
+A model that is missing (no catalog STEP, a failed export) leaves its product empty and is listed. Entity ids are dense, shared geometry written once; the file is deterministic for the same inputs (no timestamp in the header beyond a fixed one).
+
+**Jobs.** `system_board_step` (one board model, cached) and `system_step` (for one system bundle key: enqueues the board models it lacks, waits for them, stages the part models, runs `system step`, stores `<bundle key>.step` in the system STEP store).
+
+**API.** `GET /systems/{id}/step` → `{ state: "none" | "building" | "ready" | "failed", boards: [{ occurrence, label, state, missingModels, fallback }], missing: [<product name>], error?, sizeBytes? }` for the current bundle key; `POST /systems/{id}/step` starts the job (idempotent while building; viewer role, like other outputs); `GET /systems/{id}/step/file` → `<system>.step` (`model/step`), `409` unless ready. A caller who cannot see a board gets `403 system_redacted` from all three while the system has such an occurrence (a STEP file cannot hide a board).
+
+**The tab.** The STEP group shows **Build STEP** (state `none`), per-board progress while building, the download with its size when ready, and the warnings (boards with missing component models, fallback checkouts, missing part models), and **Rebuild** after a failure.
+
+Script API addition: `step()` returns the STEP state; `buildStep()` starts it.

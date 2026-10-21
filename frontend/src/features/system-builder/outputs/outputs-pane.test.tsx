@@ -29,6 +29,7 @@ const HARNESS_READY = {
   sheets: 1,
   files: [{ name: "harness.pdf", title: "Harness drawing", contentType: "application/pdf" }],
 };
+const STEP_NONE = { state: "none", boards: [], missing: [] };
 
 const json = (body: unknown) =>
   new Response(JSON.stringify(body), { status: 200, headers: { "Content-Type": "application/json" } });
@@ -43,6 +44,7 @@ function stubFetch(icdAnswer: () => unknown, harnessAnswer: () => unknown) {
     const url = String(input);
     if (url.endsWith("/icd")) return json(icdAnswer());
     if (url.endsWith("/harnesses/har_h/outputs")) return json(harnessAnswer());
+    if (url.endsWith("/step")) return json(STEP_NONE);
     if (url.endsWith("/icd/sheet-1.svg")) return sheet(1);
     if (url.endsWith("/icd/sheet-2.svg")) return sheet(2);
     if (url.endsWith("/icd/icd.pdf")) {
@@ -92,7 +94,7 @@ describe("OutputsPane", () => {
     expect(screen.getByRole("button", { name: "Download the system document as JSON" })).toBeTruthy();
     expect(screen.getByRole("heading", { name: "H1" })).toBeTruthy();
     expect(await screen.findByText("Harness drawing")).toBeTruthy();
-    expect(screen.getByText("The STEP assembly arrives with stage 5b.")).toBeTruthy();
+    expect(await screen.findByRole("button", { name: "Build STEP" })).toBeTruthy();
   });
 
   it("says the system is building, then shows the outputs after a poll", async () => {

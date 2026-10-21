@@ -9,7 +9,8 @@
 //! box is the box around its contents where the child placed them.
 
 use crate::input::{
-    Board, EntryFacts, InterfaceComponent, InterfacePin, MountFacts, SemanticFacts, SystemInterface,
+    Board, EntryConnector, EntryContent, EntryFacts, InterfaceComponent, InterfacePin, MountFacts,
+    SemanticFacts, SystemInterface,
 };
 use crate::placement::frames::ConnectorGeometry;
 use crate::placement::poses::{Bounds, Pose, canonical_rotation, transform_bounds, union};
@@ -126,6 +127,81 @@ fn placed_exports(placement: &Value) -> BTreeMap<String, (ConnectorGeometry, Pos
         .collect()
 }
 
+/// A catalog reference as a document spells it.
+fn reference(value: &Value) -> Option<String> {
+    let component = value["componentId"].as_str()?;
+    Some(match value["revisionId"].as_str() {
+        Some(revision) => format!("{component}@{revision}"),
+        None => component.to_owned(),
+    })
+}
+
+/// The child's occurrences where its bundle placed them (§18).
+fn contents(payload: &Value) -> Vec<EntryContent> {
+    let placed: BTreeMap<String, &Value> = payload["bundle"]["placement"]["occurrences"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .map(|item| (text(&item["occurrence"]), item))
+        .collect();
+    payload["document"]["occurrences"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|occurrence| {
+            let id = text(&occurrence["id"]);
+            let item = placed.get(&id)?;
+            let source = &occurrence["source"];
+            let kind = text(&source["kind"]);
+            let thickness_mm = vector_mm(&item["bounds"]["max"])
+                .zip(vector_mm(&item["bounds"]["min"]))
+                .map_or(0.0, |(max, min)| max[2] - min[2]);
+            Some(EntryContent {
+                label: text(&occurrence["label"]),
+                part: (kind == "body").then(|| reference(source)).flatten(),
+                kind,
+                pose: pose(&item["pose"])?,
+                thickness_mm,
+                occurrence: id,
+            })
+        })
+        .collect()
+}
+
+/// The child's exported body connectors, with their parts and mounts.
+fn connectors(payload: &Value) -> Vec<EntryConnector> {
+    let mounts: BTreeMap<String, Pose> = payload["bundle"]["placement"]["exports"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|placed| Some((text(&placed["export"]), pose(&placed["mount"])?)))
+        .collect();
+    let parts: BTreeMap<(String, String), String> = payload["document"]["bodyConnectors"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|connector| {
+            Some((
+                (text(&connector["occurrence"]), text(&connector["refdes"])),
+                reference(&connector["part"])?,
+            ))
+        })
+        .collect();
+    payload["interface"]["exports"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|export| {
+            let site = (text(&export["occurrence"]), text(&export["connector"]));
+            Some(EntryConnector {
+                name: text(&export["name"]),
+                part: parts.get(&site)?.clone(),
+                mount: *mounts.get(&text(&export["id"]))?,
+            })
+        })
+        .collect()
+}
+
 /// The board a validated `prism.system_entry.a0` payload reads as, and its facts.
 pub fn board(payload: &Value, stage: &str) -> (Board, EntryFacts) {
     let exports: Vec<Value> = payload["interface"]["exports"]
@@ -195,6 +271,8 @@ pub fn board(payload: &Value, stage: &str) -> (Board, EntryFacts) {
     let facts = EntryFacts {
         stage: stage.to_owned(),
         system_bundle_key,
+        contents: contents(payload),
+        connectors: connectors(payload),
         mount,
     };
     (board, facts)

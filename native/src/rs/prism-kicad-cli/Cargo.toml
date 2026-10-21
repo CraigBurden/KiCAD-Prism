@@ -32,6 +32,7 @@ prism-bundle = { path = "../prism-bundle" }
 prism-kicad-contracts = { path = "../prism-kicad-contracts" }
 prism-kicad-core = { path = "../prism-kicad-core" }
 prism-kicad-materialization-pack = { path = "../prism-kicad-materialization-pack" }
+prism-step = { path = "../prism-step" }
 prism-system = { path = "../prism-system" }
 serde.workspace = true
 serde_json.workspace = true

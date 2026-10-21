@@ -633,6 +633,64 @@ fn report_member(mut error: MemberFailure, stderr: &Stderr) -> u8 {
     }
 }
 
+// ------------------------------------------------------------------- system step
+
+/// Run `system step` (`CONTRACTS.md` §18): the same inputs as `system build`
+/// plus `--models`, written as one AP242 STEP file.
+pub fn run_step(args: &Args, stderr: &Stderr) -> Outcome<u8> {
+    let (document, _document_sha256) = read_document(args)?;
+    let members = match open_members(args) {
+        Ok(members) => members,
+        Err(error) => return Ok(report_member(error, stderr)),
+    };
+    check_occurrences(&document, &members, &args.system_absent)?;
+    let generator_bytes = match shared_generator(&members)? {
+        Some(generator) => generator,
+        None => version::generator()?.bytes,
+    };
+    let mut boards = match build_boards(&members, &generator_bytes) {
+        Ok(boards) => boards,
+        Err(error) => return Ok(report_member(error, stderr)),
+    };
+    let board_sub_ports = read_board_sub_ports(args)?;
+    let (parts, _parts_digest) =
+        crate::cmd_system_parts::read_parts(args.option("parts"), &args.limits)?;
+    let entries = read_entries(args, &document)?;
+    let mut entry_facts = BTreeMap::new();
+    for (occurrence, loaded) in entries {
+        boards.insert(occurrence.clone(), loaded.board);
+        entry_facts.insert(occurrence, loaded.facts);
+    }
+    let inputs = input::Members {
+        boards,
+        absent: args.system_absent.clone(),
+        entries: entry_facts,
+        board_sub_ports,
+        parts,
+        mounted: BTreeMap::new(),
+    };
+    let models = prism_system::step::ModelManifest::load(Path::new(
+        args.option("models").unwrap_or_default(),
+    ))
+    .map_err(|message| Failure::input("input-invalid", format!("--models: {message}")))?;
+    let (assembly, missing) = prism_system::step::step_assembly(&document, &inputs, &models);
+    let text = prism_step::write(&assembly);
+    write_step(
+        Path::new(args.option("output").unwrap_or_default()),
+        text.as_bytes(),
+    )?;
+    let result = json!({
+        "products": assembly.products.len(),
+        "missing": missing,
+        "bytes": text.len(),
+    });
+    if crate::output::stdout(&result) {
+        Ok(0)
+    } else {
+        Ok(stdout_failed(stderr))
+    }
+}
+
 // ----------------------------------------------------------------- atomic out
 
 fn output_failed(message: impl Into<String>) -> Failure {
@@ -689,6 +747,53 @@ fn write_json(path: &Path, bundle: &SystemBundle) -> Outcome<()> {
 fn cleanup(temp: &Path) {
     let _ = std::fs::remove_file(temp);
     crate::process::register_temp_file(None);
+}
+
+/// Write `bytes` to `path` atomically: a hidden exclusive temp file in the same
+/// directory, fsynced, then renamed (cli-spec.md §5.2.5).
+fn write_step(path: &Path, bytes: &[u8]) -> Outcome<()> {
+    let name = path
+        .file_name()
+        .and_then(|name| name.to_str())
+        .ok_or_else(|| output_failed("-o does not name a file"))?;
+    let dir = match path.parent() {
+        Some(dir) if !dir.as_os_str().is_empty() => dir.to_path_buf(),
+        _ => PathBuf::from("."),
+    };
+    if !dir.is_dir() {
+        return Err(output_failed("-o's directory does not exist"));
+    }
+    let temp = dir.join(format!(".{name}.prism-kicad-{}.tmp", std::process::id()));
+    let file = std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&temp)
+        .map_err(|error| output_failed(format!("the temp file could not be created: {error}")))?;
+    crate::process::register_temp_file(Some(temp.clone()));
+    let written = {
+        let mut writer = BufWriter::new(file);
+        writer
+            .write_all(bytes)
+            .and_then(|()| writer.into_inner().map_err(|error| error.into_error()))
+            .and_then(|file| file.sync_all())
+    };
+    if let Err(error) = written {
+        cleanup(&temp);
+        return Err(output_failed(format!(
+            "the STEP file could not be written: {error}"
+        )));
+    }
+    if let Err(error) = std::fs::rename(&temp, path) {
+        cleanup(&temp);
+        return Err(output_failed(format!(
+            "the STEP file could not be renamed into place: {error}"
+        )));
+    }
+    crate::process::register_temp_file(None);
+    if let Ok(directory) = std::fs::File::open(&dir) {
+        let _ = directory.sync_all();
+    }
+    Ok(())
 }
 
 // ------------------------------------------------------------------ canonical

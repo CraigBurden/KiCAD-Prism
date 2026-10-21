@@ -128,6 +128,44 @@ def run(
     Returns for exits 0, 8, 9 and 10; raises :class:`CliFailure` otherwise.
     """
 
+    result, stdout = _execute(args, timeout_seconds=timeout_seconds, cancel=cancel, env=env)
+    return _interpret(result, stdout, expect)
+
+
+def run_plain(
+    args: Sequence[str],
+    *,
+    timeout_seconds: float,
+    cancel: Callable[[], None] | None = None,
+    env: Mapping[str, str] | None = None,
+) -> CliRun:
+    """Run one invocation whose exit-0 stdout is plain JSON, not a contract document.
+
+    ``prism-kicad system step`` (CONTRACTS.md §18) prints ``{products, missing,
+    bytes}``; that result has no committed schema. Every non-zero exit is still
+    interpreted exactly as :func:`run` does.
+    """
+
+    result, stdout = _execute(args, timeout_seconds=timeout_seconds, cancel=cancel, env=env)
+    if result.exit_code == 0:
+        document = _document(stdout)
+        if document is None:
+            raise CliFailure(
+                f"{CLI_NAME} exited 0 without its JSON document", exit_code=0, retryable=True
+            )
+        return CliRun(**{**result.__dict__, "document": document})
+    return _interpret(result, stdout, None)
+
+
+def _execute(
+    args: Sequence[str],
+    *,
+    timeout_seconds: float,
+    cancel: Callable[[], None] | None,
+    env: Mapping[str, str] | None,
+) -> tuple[CliRun, bytes]:
+    """Run one process; return its run record and raw stdout."""
+
     argv = (executable(), *(str(part) for part in args))
     started = time.monotonic()
     try:
@@ -183,7 +221,7 @@ def run(
         elapsed_ms=int((time.monotonic() - started) * 1000),
         peak_rss_bytes=_rss_bytes(rusage.ru_maxrss) if rusage is not None else 0,
     )
-    return _interpret(result, stdout, expect)
+    return result, stdout
 
 
 def _kill_group(process: subprocess.Popen[bytes]) -> None:

@@ -6,19 +6,29 @@ use super::{Outcome, Raw, SystemEntryArg, SystemMemberArg, conflict, is_hex64, u
 use prism_bundle::Failure;
 use std::collections::{BTreeMap, BTreeSet};
 
-/// The options of `system build` (CONTRACTS.md §8.8): `--document`, `-o`,
-/// each member's revision key, the absent occurrences, board-level sub-ports
-/// and published entries.
-pub(super) fn check_system(raw: &Raw) -> Outcome<()> {
+/// The options of `system build` and `system step` (CONTRACTS.md §8.8, §18):
+/// `--document`, `-o`, each member's revision key, the absent occurrences,
+/// board-level sub-ports, published entries and, for step, `--models`.
+pub(super) fn check_system(raw: &Raw, step: bool) -> Outcome<()> {
+    let command = if step { "system step" } else { "system build" };
     if !raw.options.contains_key("document") {
         // `CliArgument` has no `document` value: the message names it.
-        return Err(usage("system build takes --document <system.json>"));
+        return Err(usage(format!("{command} takes --document <system.json>")));
+    }
+    if step && !raw.options.contains_key("models") {
+        // `CliArgument` has no `models` value: the message names the option.
+        return Err(usage("system step takes --models <manifest.json>"));
     }
     if !raw.options.contains_key("output") {
-        return Err(usage("system build takes -o <system-bundle.json>").argument("output"));
+        let output = if step {
+            "-o <system.step>"
+        } else {
+            "-o <system-bundle.json>"
+        };
+        return Err(usage(format!("{command} takes {output}")).argument("output"));
     }
     if !raw.positional.is_empty() {
-        return Err(usage("system build takes no positional argument").argument("command"));
+        return Err(usage(format!("{command} takes no positional argument")).argument("command"));
     }
     system_of(raw).map(|_| ())
 }
