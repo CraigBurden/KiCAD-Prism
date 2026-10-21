@@ -25,6 +25,7 @@ from app.release_studio.documents.artwork_bundle import acquire_bundle_views
 from app.release_studio.documents.inputs import DocumentInputs
 from app.release_studio.documents.engine import compose_documents
 from app.services.design_bundle import cli, consumer, reader
+from tests.release_studio_support import documents_stub
 from tests.test_release_studio_config import _MIN_CONFIG
 
 COMMIT = "a" * 40
@@ -205,17 +206,18 @@ def test_the_sheet_is_placed_at_the_ratio_the_artwork_was_drawn_at() -> None:
         board=Path("/nonexistent/board.kicad_pcb"),
         workdir=Path("/tmp"),
     )
-    result = compose_documents(
-        inputs,
-        assembly_acquirer=lambda *_args, **_kwargs: {
-            "assembly-top": _drawing(),
-            "assembly-bottom": _drawing(),
-        },
-        testpoint_acquirer=lambda *_args, **_kwargs: {
-            "testpoint-top": _drawing(),
-            "testpoint-bottom": _drawing(),
-        },
-    )
+    with documents_stub():
+        result = compose_documents(
+            inputs,
+            assembly_acquirer=lambda *_args, **_kwargs: {
+                "assembly-top": _drawing(),
+                "assembly-bottom": _drawing(),
+            },
+            testpoint_acquirer=lambda *_args, **_kwargs: {
+                "testpoint-top": _drawing(),
+                "testpoint-bottom": _drawing(),
+            },
+        )
     assembly = next(output for output in result.outputs if output.key == "assembly")
     assert assembly.scale == pytest.approx(scale)
 
