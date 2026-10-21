@@ -39,6 +39,7 @@ GOLDENS = REPO / "native" / "parity" / "goldens"
 STACKUP_MEMBER = "projections/stackup.json"
 PLACEMENTS_MEMBER = "projections/placements.json"
 OCCURRENCES_MEMBER = "projections/occurrences.json"
+BOARD_OBJECTS_MEMBER = "projections/board-objects.json"
 PROJECT_MEMBER = "projections/project.json"
 SHA = "c" * 40
 
@@ -95,7 +96,20 @@ def _golden_members(case_id: str) -> dict[str, dict]:
         STACKUP_MEMBER: _golden(case_id, "stackup.json"),
         PLACEMENTS_MEMBER: _golden(case_id, "placements.json"),
         OCCURRENCES_MEMBER: _golden(case_id, "occurrences.json"),
+        BOARD_OBJECTS_MEMBER: _golden(case_id, "board-objects.json"),
         PROJECT_MEMBER: _golden(case_id, "project.json"),
+    }
+
+
+def _without_testpoint_nets(document: dict) -> dict:
+    """The parity shape: today's projection has no board-objects net column."""
+
+    return {
+        **document,
+        "testpoints": [
+            {key: value for key, value in item.items() if key != "net"}
+            for item in document.get("testpoints") or []
+        ],
     }
 
 
@@ -149,7 +163,8 @@ class ParityTests(unittest.TestCase):
                     members[PLACEMENTS_MEMBER]
                 )
                 derived_testpoints = bundle_projections.testpoints(
-                    members[PLACEMENTS_MEMBER]
+                    members[PLACEMENTS_MEMBER],
+                    board_objects=members[BOARD_OBJECTS_MEMBER],
                 )
                 derived_designators = bundle_projections.designators(
                     members[PLACEMENTS_MEMBER]
@@ -163,13 +178,25 @@ class ParityTests(unittest.TestCase):
                 for derived, today in (
                     (derived_stackup, today_stackup),
                     (derived_population, today_population),
-                    (derived_testpoints, today_testpoints),
                     (derived_variants, today_variants),
                 ):
                     self.assertEqual(list(derived), list(today), case_id)
                 self.assertEqual(derived_stackup, today_stackup)
                 self.assertEqual(derived_population, today_population)
-                self.assertEqual(derived_testpoints, today_testpoints)
+                # The one accepted difference: the bundle names each probe
+                # target's net from its pad; today's Monkey projection has no
+                # net to read (chunk F removes that path).
+                self.assertEqual(list(derived_testpoints), list(today_testpoints))
+                self.assertEqual(
+                    _without_testpoint_nets(derived_testpoints), today_testpoints
+                )
+                self.assertTrue(
+                    all(
+                        isinstance(item.get("net"), str) and item["net"]
+                        for item in derived_testpoints["testpoints"]
+                    ),
+                    case_id,
+                )
                 self.assertEqual(derived_designators, today_designators)
                 self.assertEqual(derived_variants, today_variants)
         self.assertGreater(checked, 0, "no board parity case was exercised")
@@ -251,6 +278,7 @@ class GoldenDerivationTests(unittest.TestCase):
             [
                 {
                     "ref": "TP1",
+                    "net": "—",
                     "side": "top",
                     "x": None,
                     "y": 2.0,
@@ -259,6 +287,66 @@ class GoldenDerivationTests(unittest.TestCase):
                 }
             ],
         )
+
+    def test_a_testpoint_takes_the_net_of_its_first_pad(self) -> None:
+        # board-objects.md: footprints and pads are sibling objects in document
+        # order, and a pad names the net it is connected to.  A probe target is
+        # the first pad, so a later pad's net is not the one the reader probes.
+        placements = {
+            "schema": "prism.placements.a1",
+            "footprints": [
+                {"uuid": "tp-1", "reference": "TP1", "side": "front"},
+                {"uuid": "tp-2", "reference": "TP2", "side": "front"},
+                {"uuid": "tp-3", "reference": "TP3", "side": "front"},
+            ],
+            "designators": ["TP1", "TP2", "TP3"],
+        }
+        board_objects = {
+            "schema": "prism.board_objects.a0",
+            "documents": [
+                {
+                    "path": "board.kicad_pcb",
+                    "objects": [
+                        {"kind": "footprint", "uuid": "tp-1", "refdes": "TP1"},
+                        {
+                            "kind": "pad",
+                            "parentUuid": "tp-1",
+                            "refdes": "TP1",
+                            "number": "1",
+                            "net": "VCC",
+                        },
+                        {
+                            "kind": "pad",
+                            "parentUuid": "tp-1",
+                            "refdes": "TP1",
+                            "number": "2",
+                            "net": "GND",
+                        },
+                        {"kind": "footprint", "uuid": "tp-2", "refdes": "TP2"},
+                        {
+                            "kind": "pad",
+                            "parentUuid": "tp-2",
+                            "refdes": "TP2",
+                            "number": "1",
+                        },
+                        {"kind": "footprint", "uuid": "tp-3", "refdes": "TP3"},
+                    ],
+                }
+            ],
+        }
+
+        derived = bundle_projections.testpoints(
+            placements, board_objects=board_objects
+        )
+
+        nets = {
+            item["ref"]: item["net"] for item in derived["testpoints"]
+        }
+        self.assertEqual(nets["TP1"], "VCC")
+        # A pad with no net is unconnected, not a blank cell.
+        self.assertEqual(nets["TP2"], "—")
+        # No pad at all is equally unconnected.
+        self.assertEqual(nets["TP3"], "—")
 
     def test_variant_description_empty_is_absent_occurrences_divergence(self) -> None:
         # occurrences.md "Expected divergences": a `.kicad_pro` registry entry

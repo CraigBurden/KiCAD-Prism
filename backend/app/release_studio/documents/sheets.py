@@ -11,10 +11,17 @@ the revision being documented rather than of the moment it was rendered.
 
 from __future__ import annotations
 
+import math
 from typing import Any, Mapping, Sequence
 
 from app.release_studio.documents import tables
-from app.release_studio.documents.artwork import AcquiredArtwork, place, scale_label
+from app.release_studio.documents.artwork import (
+    AcquiredArtwork,
+    DnpStyle,
+    dnp_style,
+    place,
+    scale_label,
+)
 from app.release_studio.documents.fonts import DEFAULT_TYPOGRAPHY
 from app.release_studio.documents.layout import (
     SHEET_LADDER,
@@ -26,6 +33,7 @@ from app.release_studio.documents.layout import (
     draw_notes,
     draw_table,
     fit_columns,
+    fit_text,
     notes_height,
     preferred_scale,
     split_columns,
@@ -377,6 +385,108 @@ def _draw_artwork(
         window.x, window.bottom + 4.0, f"SCALE {scale_label(used)}", size=2.8, bold=True
     )
     return used
+
+
+#: Height of the DNP legend under the population table, and its swatch size.
+_DNP_LEGEND_HEIGHT = 5.0
+_DNP_SWATCH = 4.0
+
+
+def _draw_hatch(
+    builder: SheetBuilder, rect: Rect, style: DnpStyle
+) -> None:
+    """Hatch *rect* at the artwork configuration's spacing and angle."""
+
+    if not style.hatch or style.spacing <= 0 or style.line_width < 0:
+        return
+    theta = math.radians(style.angle)
+    dx, dy = math.cos(theta), math.sin(theta)
+    nx, ny = -dy, dx
+    corners = (
+        (rect.x, rect.y),
+        (rect.right, rect.y),
+        (rect.right, rect.bottom),
+        (rect.x, rect.bottom),
+    )
+    offsets = [x * nx + y * ny for x, y in corners]
+    low, high = min(offsets), max(offsets)
+    epsilon = 1e-9
+    offset = low + style.spacing / 2.0
+    while offset < high:
+        points: list[tuple[float, float]] = []
+        if abs(dx) > epsilon:
+            for x in (rect.x, rect.right):
+                parameter = (x - offset * nx) / dx
+                y = offset * ny + parameter * dy
+                if rect.y - epsilon <= y <= rect.bottom + epsilon:
+                    points.append((x, y))
+        if abs(dy) > epsilon:
+            for y in (rect.y, rect.bottom):
+                parameter = (y - offset * ny) / dy
+                x = offset * nx + parameter * dx
+                if rect.x - epsilon <= x <= rect.right + epsilon:
+                    points.append((x, y))
+        if len(points) >= 2:
+            points.sort(key=lambda point: point[0] * dx + point[1] * dy)
+            (x1, y1), (x2, y2) = points[0], points[-1]
+            builder.line(
+                x1, y1, x2, y2, width=style.line_width, colour=style.colour
+            )
+        offset += style.spacing
+
+
+def _draw_dnp_legend(
+    builder: SheetBuilder,
+    origin: tuple[float, float],
+    *,
+    width: float,
+    style: DnpStyle,
+) -> float:
+    """Draw the DNP key under the population table; return its height.
+
+    The swatch repeats the artwork's own treatment rather than inventing a
+    second symbol for it: a reader matching the sheet against the drawing sees
+    the same colour and the same hatch.
+    """
+
+    x0, y0 = origin
+    swatch = Rect(x0, y0, _DNP_SWATCH, _DNP_SWATCH)
+    builder.rect(swatch, width=0.25, colour=style.colour, fill="#ffffff")
+    _draw_hatch(builder, swatch.inset(0.3), style)
+    builder.text(
+        x0 + _DNP_SWATCH + 2.0,
+        y0 + _DNP_SWATCH - 0.9,
+        fit_text(
+            "Do not populate — hatched, designator in red",
+            max(width - _DNP_SWATCH - 2.0, 1.0),
+            2.4,
+            typography=builder.typography,
+        ),
+        size=2.4,
+    )
+    return _DNP_LEGEND_HEIGHT
+
+
+def _draw_view_direction(builder: SheetBuilder, window: Rect, side: str) -> None:
+    """State which face of the board the artwork is seen from.
+
+    Placed inside the artwork window's bottom edge so the caption travels with
+    the drawing rather than moving the window or the scale printed below it.
+    """
+
+    caption = (
+        "VIEWED FROM TOP"
+        if side == "top"
+        else "VIEWED FROM BOTTOM (MIRRORED)"
+    )
+    builder.text(
+        window.x + window.width / 2.0,
+        window.bottom - 1.8,
+        caption,
+        size=2.6,
+        bold=True,
+        anchor="middle",
+    )
 
 
 #: How far overall dimensions sit outside the board outline, in millimetres.
@@ -823,9 +933,14 @@ def assembly_sheet(
 ) -> tuple[Sheet, float]:
     """One assembly view, with the population count for the released variant.
 
-    The artwork is a ``kicad-cruncher pcb-svg`` view rather than a plotted
+    The artwork is a ``prism-kicad artwork`` assembly view rather than a plotted
     KiCad layer -- one designator per component, fitted to that component's own
-    bounds -- and it is placed exactly as Cruncher emitted it.
+    bounds, with do-not-populate parts hatched in the DNP colour -- and it is
+    placed exactly as the renderer emitted it.
+
+    When this side has do-not-populate parts, a legend under the population
+    table repeats the artwork's own swatch so the hatch is decodable without
+    the drawing's key.
     """
 
     from app.release_studio.documents.artwork import assembly_projection_label
@@ -845,6 +960,7 @@ def assembly_sheet(
         size, "assembly", title_height, _drawn_width(art, scale)
     )
     used = _draw_artwork(builder, window, art, label="assembly artwork", scale=scale)
+    _draw_view_direction(builder, window, side)
 
     # Counts come from the board, not from the position file: that file omits
     # anything flagged "exclude from position files" -- every testpoint, on a
@@ -887,15 +1003,27 @@ def assembly_sheet(
             )
         )
     sheet_notes = notes if notes is not None else DEFAULT_NOTES[f"assembly-{side}"]
+    legend_style = dnp_style() if int(counts.get("dnp") or 0) > 0 else None
     reserve = notes_height(
         sheet_notes, width=table_width, typography=typography
     ) + _TABLE_GAP
+    if legend_style is not None:
+        reserve += _DNP_LEGEND_HEIGHT + _TABLE_GAP
     column, _factor = fit_columns(
         [[tables.key_value_table("POPULATION", tuple(summary_rows), width=table_width)]],
         Rect(area.x, area.y, area.width, area.height - reserve),
         gap=_TABLE_GAP,
     )
     cursor = _draw_column(builder, column[0], (area.x, area.y))
+    if legend_style is not None:
+        legend_top = cursor + _TABLE_GAP
+        _draw_dnp_legend(
+            builder,
+            (area.x, legend_top),
+            width=table_width,
+            style=legend_style,
+        )
+        cursor = legend_top + _DNP_LEGEND_HEIGHT
     draw_notes(builder, sheet_notes, (area.x, cursor + _TABLE_GAP), width=table_width)
     return builder.build(), used
 
@@ -914,10 +1042,11 @@ def testpoint_sheet(
 ) -> tuple[Sheet, float, list]:
     """One side of the board with only its testpoints labelled.
 
-    Cruncher receives a derived board containing only ``TP`` footprints, so a
-    probe target is not competing with hundreds of assembly outlines or
-    labels. The schedule beside it gives each testpoint's board position, which
-    is what makes the sheet usable at a bench rather than only pretty.
+    The artwork is a ``prism-kicad artwork`` testpoint view: the configuration's
+    ``TP*`` designator selector draws only those footprints, so a probe target
+    is not competing with hundreds of assembly outlines or labels. The schedule
+    beside it gives each testpoint's board position and net, which is what makes
+    the sheet usable at a bench rather than only pretty.
     """
 
     label = "TOP" if side == "top" else "BOTTOM"
@@ -935,6 +1064,7 @@ def testpoint_sheet(
         size, "testpoint", title_height, _drawn_width(art, scale)
     )
     used = _draw_artwork(builder, window, art, label="testpoint artwork", scale=scale)
+    _draw_view_direction(builder, window, side)
 
     found = tables.testpoints_for_side(testpoints, side)
     summary = tables.key_value_table(

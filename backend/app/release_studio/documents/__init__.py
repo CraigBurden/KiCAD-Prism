@@ -106,7 +106,7 @@ def renderer_resource_digest() -> str:
 #: d7 -- the default frame/title block is emitted by Monkey's public KiCad
 #: worksheet API and visible technical text uses Monkey's pinned NewStroke
 #: geometry. A deterministic hidden PDF text layer preserves search/copy.
-RENDERER_VERSION = "release-studio-documents/d22"
+RENDERER_VERSION = "release-studio-documents/d23"
 
 __all__ = [
     "ASSEMBLY_SIDES",
