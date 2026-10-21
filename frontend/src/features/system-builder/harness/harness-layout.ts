@@ -98,6 +98,38 @@ function dedupe(points: Point[]): Point[] {
   return points.filter((point, index) => index === 0 || point.x !== points[index - 1].x || point.y !== points[index - 1].y);
 }
 
+const LANE = 14;
+const LANE_MARGIN = 16;
+
+/**
+ * Each wire's own vertical lane in the gap it crosses, so no two run on top of
+ * each other. Read left to right, a wire that falls takes a lane left of the
+ * falling wires that start above it, and a rising wire one left of those that
+ * start below it; falling wires sit left of rising ones. Wires ordered that way
+ * cross only where their ends force them to.
+ */
+export function assignLanes(paths: { id: string; a: Point; b: Point }[]): Map<string, number> {
+  const groups = new Map<string, { id: string; left: Point; right: Point }[]>();
+  for (const path of paths) {
+    const [left, right] = path.a.x <= path.b.x ? [path.a, path.b] : [path.b, path.a];
+    if (left.y === right.y) continue;
+    const key = `${Math.round(left.x)}:${Math.round(right.x)}`;
+    groups.set(key, [...(groups.get(key) ?? []), { id: path.id, left, right }]);
+  }
+  const lanes = new Map<string, number>();
+  for (const group of groups.values()) {
+    const falling = group.filter((item) => item.right.y > item.left.y).sort((p, q) => q.left.y - p.left.y || q.right.y - p.right.y);
+    const rising = group.filter((item) => item.right.y < item.left.y).sort((p, q) => p.left.y - q.left.y || p.right.y - q.right.y);
+    const ordered = [...falling, ...rising];
+    const { left, right } = ordered[0];
+    const room = Math.max(0, right.x - left.x - 2 * LANE_MARGIN);
+    const step = ordered.length > 1 ? Math.min(LANE, room / (ordered.length - 1)) : 0;
+    const start = (left.x + right.x) / 2 - (step * (ordered.length - 1)) / 2;
+    ordered.forEach((item, index) => lanes.set(item.id, start + index * step));
+  }
+  return lanes;
+}
+
 function segmentPoint(ends: PlacedEnd[], nodes: PlacedNode[], node: { kind: "end"; end: string } | { kind: "branch-point"; branchPoint: string }): Point | null {
   if (node.kind === "end") {
     const end = ends.find((item) => item.id === node.end);
@@ -148,21 +180,24 @@ export function layoutHarness(view: HarnessView, layout: SystemDocument["layout"
     };
   });
 
-  const wires = view.wires.flatMap((wire) => {
+  const routes = view.wires.flatMap((wire) => {
     const from = resolveTerminal(ends, nodes, wire.from);
     const to = resolveTerminal(ends, nodes, wire.to);
-    if (!from || !to) return [];
-    const s0 = stub(from);
-    const s1 = stub(to);
-    const mx = (s0.x + s1.x) / 2;
-    const points = dedupe([from.point, s0, { x: mx, y: s0.y }, { x: mx, y: s1.y }, s1, to.point]);
-    return [{ id: wire.id, points }];
+    return from && to ? [{ id: wire.id, from, to, s0: stub(from), s1: stub(to) }] : [];
+  });
+  const lanes = assignLanes(routes.map((route) => ({ id: route.id, a: route.s0, b: route.s1 })));
+  const wires = routes.map((route) => {
+    const x = lanes.get(route.id) ?? (route.s0.x + route.s1.x) / 2;
+    return { id: route.id, points: dedupe([route.from.point, route.s0, { x, y: route.s0.y }, { x, y: route.s1.y }, route.s1, route.to.point]) };
   });
 
+  // A segment runs as the bundle its wires make: out, along the gap's middle, and in.
   const segments = view.segments.flatMap((segment) => {
     const from = segmentPoint(ends, nodes, segment.from);
     const to = segmentPoint(ends, nodes, segment.to);
-    return from && to ? [{ id: segment.id, points: [from, to] }] : [];
+    if (!from || !to) return [];
+    const x = (from.x + to.x) / 2;
+    return [{ id: segment.id, points: dedupe([from, { x, y: from.y }, { x, y: to.y }, to]) }];
   });
 
   let maxX = 0;

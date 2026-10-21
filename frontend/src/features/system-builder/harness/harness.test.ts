@@ -18,7 +18,7 @@ import {
   setWireOps,
 } from "./harness-edits";
 import { buildBom } from "./harness-format";
-import { CARD_HEADER, CARD_WIDTH, NM_PER_PX, ROW, STRIP, layoutHarness, terminalPoint } from "./harness-layout";
+import { CARD_HEADER, CARD_WIDTH, NM_PER_PX, ROW, STRIP, assignLanes, layoutHarness, terminalPoint } from "./harness-layout";
 import { buildHarnessView, type HarnessView } from "./harness-view";
 
 const COMMIT = "c".repeat(40);
@@ -423,7 +423,27 @@ describe("layoutHarness", () => {
       { x: 810, y: 199 },
       { x: 834, y: 199 },
     ]);
-    expect(placed.segments).toEqual([{ id: "seg_1", points: [{ x: 326, y: 185 }, { x: 580, y: 190 }] }]);
+    expect(placed.segments).toEqual([{ id: "seg_1", points: [{ x: 326, y: 185 }, { x: 453, y: 185 }, { x: 453, y: 190 }, { x: 580, y: 190 }] }]);
+  });
+
+  it("gives every wire across a gap its own lane, ordered so none cross", () => {
+    const at = (x: number, y: number) => ({ x, y });
+    const lanes = assignLanes([
+      { id: "fall_top", a: at(100, 10), b: at(300, 50) },
+      { id: "fall_low", a: at(100, 20), b: at(300, 60) },
+      { id: "rise_top", a: at(100, 70), b: at(300, 30) },
+      { id: "rise_low", a: at(100, 80), b: at(300, 40) },
+      { id: "flat", a: at(100, 90), b: at(300, 90) },
+      // Drawn right to left: read left to right it falls from 15 to 55.
+      { id: "reversed", a: at(300, 55), b: at(100, 15) },
+    ]);
+    expect(lanes.has("flat")).toBe(false);
+    const order = [...lanes.entries()].sort((p, q) => p[1] - q[1]).map(([id]) => id);
+    expect(order).toEqual(["fall_low", "reversed", "fall_top", "rise_top", "rise_low"]);
+    const xs = [...lanes.values()].sort((p, q) => p - q);
+    expect(new Set(xs).size).toBe(5);
+    expect(xs[0]).toBeGreaterThanOrEqual(116);
+    expect(xs[4]).toBeLessThanOrEqual(284);
   });
 
   it("lets a canvas placement override the auto position", () => {
