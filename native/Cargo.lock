@@ -380,8 +380,7 @@ dependencies = [
 
 [[package]]
 name = "geometer-client"
-version = "2026.9.13"
-source = "git+https://github.com/wavenumber-eng/geometer.git?rev=703e60029a248801947150f913f77a1cecce2662#703e60029a248801947150f913f77a1cecce2662"
+version = "2026.9.19"
 dependencies = [
  "serde",
  "serde_json",
@@ -707,6 +706,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "prism-artwork"
+version = "0.1.0"
+dependencies = [
+ "geo",
+ "prism-bundle",
+ "prism-kicad-contracts",
+ "prism-kicad-core",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "prism-bundle"
 version = "0.1.0"
 dependencies = [
@@ -728,16 +739,18 @@ dependencies = [
 
 [[package]]
 name = "prism-kicad-cli"
-version = "0.6.2"
+version = "0.7.0"
 dependencies = [
  "libc",
  "miniz_oxide",
+ "prism-artwork",
  "prism-bundle",
  "prism-kicad-contracts",
  "prism-kicad-core",
  "prism-kicad-materialization-pack",
  "prism-step",
  "prism-system",
+ "prism-vendors",
  "serde",
  "serde_json",
  "sha2 0.11.0",
@@ -832,6 +845,7 @@ dependencies = [
 name = "prism-projections"
 version = "0.1.0"
 dependencies = [
+ "geometer-client",
  "libm",
  "prism-kicad-contracts",
  "prism-kicad-core",
@@ -839,6 +853,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2 0.11.0",
+ "tokio",
 ]
 
 [[package]]
@@ -854,6 +869,18 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2 0.11.0",
+]
+
+[[package]]
+name = "prism-vendors"
+version = "0.1.0"
+dependencies = [
+ "miniz_oxide",
+ "prism-bundle",
+ "prism-kicad-contracts",
+ "prism-kicad-core",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]

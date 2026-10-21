@@ -408,7 +408,8 @@
                 "projection",
                 "refilled-board",
                 "materialization",
-                "component-models"
+                "component-models",
+                "assembly-hlr"
             ],
             "description": "What a member is. Every member has exactly one role, and the role fixes\nthe stage that writes it and the form of its archive path\n(`bundle-format.md` §2). A source member's role is its category in the\nrevision key's source selection (`RevisionKeySourceCategory`,\nrevision-key-a1.tsp), mapped one to one as listed below. Files inside an\nexpanded gitlink take the role the same rules give their name. Symlinks and\ngitlinks themselves are never members (cli-spec.md §9.1)."
         },

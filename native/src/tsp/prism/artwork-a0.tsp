@@ -35,6 +35,13 @@ enum ArtworkCanvasBounds {
 
   /** Everything drawn in the view, however far it reaches. */
   allGeometry: "all_geometry",
+
+  /**
+   * The board outline union every body region and pad the view draws, plus the
+   * label boxes of a callout view, and `global.canvas.margin_mm`. A part that
+   * overhangs the board edge stays inside the canvas with its designator.
+   */
+  boardAndBodies: "board_and_bodies",
 }
 
 /**
@@ -151,6 +158,9 @@ model ArtworkStyles {
   /** The Geometer-backed assembly projection. */
   assembly_hlr?: ArtworkHlrStyle;
 
+  /** The do-not-populate hatch fill, a per-view override of the top-level `dnp`. */
+  dnp?: ArtworkDnpStyle;
+
   /** Fitted assembly reference-designator text. */
   assembly_designators?: ArtworkAssemblyDesignatorStyle;
 
@@ -253,6 +263,13 @@ model ArtworkAssemblyDesignatorStyle {
   /** Designator rotation direction when the bounds are tall (`ccw` or `cw`). */
   rotation_direction?: string;
 
+  /**
+   * Place the designator outside the body region with a leader line, at
+   * `min_font_size_mm`, instead of fitting it inside. Testpoint views set it:
+   * a 1 mm test pad has no room for a readable label.
+   */
+  callout?: boolean;
+
   /** Opacity from 0 to 1. */
   opacity?: float64;
 
@@ -323,6 +340,27 @@ model ArtworkDnp {
 
   /** Hatch stroke width in millimetres. */
   hatch_line_width_mm: float64;
+}
+
+/**
+ * A do-not-populate hatch override under `global.styles` or `views[].styles`:
+ * each field it sets replaces the top-level `dnp` value.
+ */
+model ArtworkDnpStyle {
+  /** Marker colour, CSS syntax. */
+  color?: string;
+
+  /** Draw a hatch fill when true. */
+  hatch?: boolean;
+
+  /** Hatch line spacing in millimetres. */
+  hatch_spacing_mm?: float64;
+
+  /** Hatch angle in degrees. */
+  hatch_angle_deg?: Degrees;
+
+  /** Hatch stroke width in millimetres. */
+  hatch_line_width_mm?: float64;
 }
 
 /** Pin-1 marker selection policy (`pin1`). */

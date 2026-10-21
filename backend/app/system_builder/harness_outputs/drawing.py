@@ -494,7 +494,9 @@ def _drawing_sheet(model: HarnessModel, total: int) -> Sheet:
         factor = min(MAX_FACTOR, area.width / max(x1 - x0, 1e-6), area.height / max(y1 - y0, 1e-6))
         if factor >= MIN_FACTOR or size == SHEET_LADDER[-1]:
             break
-    builder = SheetBuilder("harness-drawing", f"{model.label} · drawing", size)
+    builder = SheetBuilder(
+        "harness-drawing", f"{model.label} · drawing", size, sheet_style="kicad"
+    )
     inner = draw_frame(builder)
     builder.text(inner.x + 6, inner.y + 8, model.label, size=5.0, family="display", bold=True)
     builder.text(inner.x + 6, inner.y + 13, "Wiring and layout · not to scale · lengths are cut lengths "
@@ -519,7 +521,12 @@ def sheets(model: HarnessModel) -> list[Sheet]:
     total = 1 + len(pages)
     out = [_drawing_sheet(model, total)]
     for index, tables in enumerate(pages, 2):
-        builder = SheetBuilder(f"harness-tables-{index - 1}", f"{model.label} · wiring table and BOM", "A3")
+        builder = SheetBuilder(
+            f"harness-tables-{index - 1}",
+            f"{model.label} · wiring table and BOM",
+            "A3",
+            sheet_style="kicad",
+        )
         inner = draw_frame(builder)
         draw_placed(builder, tables)
         _title_block(builder, inner, model, index, total)

@@ -104,7 +104,8 @@ prism-kicad system build --document <system.json>
              --entry-stage <occurrence>=<stage>]...
             -o <system-bundle.json> [COMMON]
 
-prism-kicad artwork --in <bundle.prism> --config <artwork.json> --view <name>... -o <dir> [--variant <name>] [COMMON]
+prism-kicad artwork --in <bundle.prism> --config <artwork.json> --view <name>... -o <dir>
+            [--variant <name>] [--paper-scale <ratio>] [COMMON]
 prism-kicad vendor list [COMMON]
 prism-kicad vendor run <vendor-id> --in <bundle.prism> --config <cfg.json> -o <dir> [--variant <name>] [COMMON]
 prism-kicad stroke-text (--request <runs.json> | --metrics) [COMMON]
@@ -126,6 +127,8 @@ COMMON: [--limit <name>=<value>]... [--threads <n>] [--quiet]
   - `--revision-key`: 64 lowercase hex digits (`Sha256Hex`).
   - `--refill-tool` and `--models-tool`: a `CliReleaseVersion`, such as `10.0.6`.
   - `--stage`: `parse`, `board` or `models`.
+  - `--paper-scale`: a positive finite decimal ratio of sheet millimetres to
+    board millimetres, for example `2` or `0.5` (artwork, §5.7).
   - `--threads`: 1 to 64, the range of kicad-cruncher's `--workers` (fork: `.../kicad-cruncher-cli/src/lib.rs:413-424`). The default is min(available parallelism, 4). Output never depends on it.
   - `--upgraded`: `<path>=<version>`, where `<path>` is a `RepoPath` ending in `.kicad_pcb` or `.kicad_sch` and `<version>` is the file's original `(version N)`, a decimal integer (§9.4).
   - `--limit`: `<name>=<value>`, where `<name>` is a `CliLimitName` and `<value>` a decimal integer from 0 to the limit's hard bound (§7.2).
@@ -251,6 +254,7 @@ Across CPU architectures (maintainer decision, conventions.md §14): every parse
 |---|---|---|
 | `crate_version` | a1's `prism_bundle` (sim: `src/prism-bundle/src/bin/prism-bundle.rs:221`, `env!("CARGO_PKG_VERSION")`) | the explicit bump knob (§5.1.2) |
 | `engine_version` | a1's `design_engine` (sim: `prism-bundle.rs:224`), `kicad_monkey_core::ENGINE_VERSION` (fork: `src/rs/kicad-monkey-core/src/lib.rs:10`) | the core that parses everything |
+| `hlr_procedure` | new (amendment C3 §3.1): the Geometer runtime release and the HLR option set (`--geometer` must report that release) | `models/assembly-hlr.json` is a member, and the runtime and the options decide its bytes (§5.2.4) |
 | `kicad_file_formats` | measured from KiCad 10.0.6 output (board `20260206`, schematic `20260306`; maintainer decision) | the parser reads only these formats, since older sources are upgraded to them first (§9.4), so they decide every parsed member's bytes |
 | `kicad_version` | a1 records the refill tool's version per bundle (sim: `src/prism-bundle/src/build.rs:335`); ref passes `kicad-cli version` (ref: `backend/app/sim_studio/runs.py:134-136`); the 3D GLB cache key uses it (`kicad-prism-viewer/pipeline/topology_compiler/kicad_cli_export.py:178`) | ADR §5: the KiCad version of the KiCad-produced members, which also pins the stock 3D models (G3) |
 | `member_schemas` | a1 lists `member_schema` per member (sim: `contracts/contracts/bundle.tsp:37-38`) and pins the materializer schema (`:54-57`) | ADR §5: "manifest version and projection schema versions"; checked by bundle-format.md invariant I3 |
@@ -325,20 +329,20 @@ The vectors use the generator id in `examples/CliVersionA0.example.json`:
 - engine 2026.9.7;
 - KiCad 10.0.6, with file formats board `20260206` and schematic `20260306`;
 - pack format 0;
-- all three procedures at a0;
-- the eleven member schemas of ADR §6.
+- all four procedures at a0 (`hlr_procedure` names Geometer 2026.9.19);
+- the eleven member schemas of ADR §6 and `models/assembly-hlr.json`.
 
-Its generator bytes are 1122 bytes long. Its `generator_digest` is `d32ccf9dccfc4084e4b9f9ab7dea77ef0e1b69f51cacddd9466db8ad735fb82c`.
+Its generator bytes are 1268 bytes long. Its `generator_digest` is `5fcf5d171e0b2963255943243debc170cd9f7f003b4df74236b8f8537d8d1e6d`.
 
 | revision_key | bundle_key |
 |---|---|
-| `0000000000000000000000000000000000000000000000000000000000000000` | `e6ab4edd790af8cbb4afd150db63aa6df5f4a087778dce00597c19035fdb5069` |
-| `e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855` | `775106309b02f0b095de315ee7c9a79ff349a21bfb01c58a0d3e2d6a16556524` |
-| `42e41c598a193d09f6917ee92b7c71e52e9e15a251a63b7a955ef41beb841f34` | `bf3d0663c4bf8eb7cbea4e251b30d910198f43b0d4d4da05d537665ae46b7e24` |
+| `0000000000000000000000000000000000000000000000000000000000000000` | `d9d2ae76b28e528cfd62df09b90e8112fca45ad1746e13b0730ad720a45bf197` |
+| `e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855` | `23b688087d6efb63414cd9d2f0ef53251c3d34bb00387bc79e48583fbe54cf3f` |
+| `42e41c598a193d09f6917ee92b7c71e52e9e15a251a63b7a955ef41beb841f34` | `64c0f2b230556b97022d9dea90021f7262d8f6f5e7ff61fe665c8afa63f7d58c` |
 
 Changing only `kicad_version`, to `10.0.7`:
-- `generator_digest` becomes `46d03769928b812a78dff62e01945649b668b76b6fd512ec9efd0a403fd1d960`;
-- the all-zero revision key gives `55c345ad04d8f55eb120f8f61291519f70fd3377aad74811da7a44bac717ffc4`.
+- `generator_digest` becomes `485f89f2a4cebeebcdbe85c36da68d9f209f61baf2e6912928563e2fd9b8582d`;
+- the all-zero revision key gives `11e12e1714acba8f8e8f410e349a738affcca789c1f520c07f4cd28929c7e1c7`.
 
 These values were computed by the Python above and checked with the shell recipe. WP-B (Rust) and WP-K (Python) both reproduce them, the same acceptance as the revision-key vectors (ADR §9.3).
 
@@ -639,12 +643,15 @@ Release Studio's assembly and testpoint views (amendment C3 §3.2), a port of Cr
   - designators and variants from `placements` and `occurrences`;
   - `--config` is an `ArtworkConfigA0`; each `--view` must name one of its views, else exit 2, `view-unknown`.
 - **Stages required:** `parse`, `board` (or saved fills) and `models`, else exit 7, `stage-order`.
-- **Output:** `<dir>/<view>.svg` per view, written atomically, and `CliArtworkResultA0` on stdout: per view, the file's sha256, the footprints drawn, the designators placed, and the footprints without a body outline.
+- **Output:** `<dir>/<view>.svg` per view, written atomically, and `CliArtworkResultA0` on stdout: per view, the file's sha256, the footprints drawn, the designators placed, the DNP footprints hatched, and the footprints without a body outline. When `--paper-scale` is given, the result records it as `paper_scale`.
 - **Rules:**
+  - `--paper-scale <ratio>` divides every style's stroke width (`line_width_mm`, `outline_width_mm`, `hatch_line_width_mm`), `min_font_size_mm`, `max_font_size_mm`, the callout leader gap and width, and `dot_diameter_mm` / `min_dot_diameter_mm` / `max_dot_diameter_mm` by the ratio before drawing, so those sizes print at the configured size on paper at that scale. The board geometry and the designator fitting region are unchanged: a label still shrinks below the minimum to fit its body. `paper_scale` is absent when the ratio is not given, and sizes are then in board millimetres.
   - footprint selection by `selector_overrides`;
   - layer tokens and styles from the config;
-  - designators by region fitting inside the HLR outline, else the hole envelope, else the pad envelope;
-  - the canvas from `global.canvas` (`board_outline` plus `margin_mm`).
+  - designators by region fitting inside the HLR outline, else the hole envelope, else the pad envelope; a style with `callout: true` (the testpoint views) draws the footprint's real pad shape and places the designator outside it at `min_font_size_mm`, joined by a leader line, in designator natural order, choosing the first of eight directions and growing radii whose text box clears every other label, every selected pad and the canvas (and counting a placement that cannot, `data-overlapping="true"`);
+  - a DNP footprint's body region is hatched under its designator in the `dnp` colour, spacing, angle and line width (`assembly.dnp_designator_color` colours the text);
+  - the canvas from `global.canvas`: `board_outline`, `all_geometry`, or `board_and_bodies` — the outline union every body region and pad the view draws, plus a callout view's label boxes, plus `margin_mm`;
+  - `global.mirror_bottom_view` mirrors a bottom view about the vertical axis (`x -> -x`, KiCad's flip board view). Geometry groups are mirrored; the label positions and rotations are mirrored and the glyphs are not. The root `<svg>` records `data-view-direction="bottom-mirrored"` or `"top"`.
 - **Idempotence:** the same bundle, config, views and generator give byte-identical files and stdout.
 
 ### 5.8 `vendor`
@@ -664,6 +671,7 @@ Release Studio's assembly and testpoint views (amendment C3 §3.2), a port of Cr
 - **`stroke-text --request <runs.json>`** takes a `StrokeTextRequestA0`, a batch of runs, each `{text, x_mm, y_mm, size_mm, h_align, v_align}`. It prints `CliStrokeTextResultA0`: per run, the NewStroke polylines in mm, the advance width and the code points the font lacks.
 - **`stroke-text --metrics`** prints `CliStrokeFontMetricsA0`, the per-glyph advance table, so layout can measure text without a process per string.
 - **`drawing-sheet --request <sheet.json>`** takes a `DrawingSheetRequestA0`: page size in nm, paper name, title block, comments 1–4, sheet index and count, file name, sheet path and name, and KiCad version. It prints `CliDrawingSheetResultA0`, the default worksheet's operations: lines, rectangles, polylines and text runs with their stroke-text geometry.
+- **Arguments.** `stroke-text` takes exactly one of `--request` and `--metrics` (neither, or both, is exit 2); `drawing-sheet` takes `--request`, and both commands take no positional argument. The request file validates against its schema before any work (exit 3, `input-invalid`), with unknown fields refused.
 - **Parity:** equal to Python kicad_monkey's `kicad_stroke_font` and `drawing_sheet_to_ops(load_default_drawing_sheet(), …)` within 1e-9 mm (amendment C3 §4).
 
 ### 5.10 `bundle reuse`
@@ -836,7 +844,7 @@ Codes are `DiagnosticCode` (kebab-case). A code never changes meaning; a new mea
 | `config-invalid` | error | input / 3 | `--config` is not a valid `RevisionKeyEffectiveConfigA1` |
 | `key-record-invalid` | error | input / 3 | `--key-record` is not a valid `RevisionKeyRecordA1` |
 | `document-invalid` | error | input / 3 | `system build`: `--document` is not JSON, or does not validate against `prism.system.v2` (§5.11) |
-| `input-invalid` | error | input / 3 | `system build`: `--board-sub-ports` is not valid against `prism.board_sub_ports.a0`, or an `--entry` is not valid against `prism.system_entry.a0` (§5.11, CONTRACTS.md §8.8 check 6) |
+| `input-invalid` | error | input / 3 | `--request` of `stroke-text` and `drawing-sheet` is not JSON, or breaks `StrokeTextRequestA0` / `DrawingSheetRequestA0` (§5.9); `system build`: `--board-sub-ports` is not valid against `prism.board_sub_ports.a0`, or an `--entry` is not valid against `prism.system_entry.a0` (§5.11, CONTRACTS.md §8.8 check 6) |
 | `upgrade-record-invalid` | error | input / 3 | an `--upgraded` names a path that is not a member, or a version not older than `kicad_file_formats` for its kind (§5.2.2) |
 | `source-outside-root` | error | input / 3 | the project, or a file a source references, resolves outside the source root |
 | `source-not-regular-file` | error | input / 3 | a symbolic link or special file under the source root |

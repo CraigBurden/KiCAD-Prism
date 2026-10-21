@@ -19,8 +19,8 @@ from fontTools.ttLib import TTFont
 
 from app.release_studio.documents.fonts import (
     FontAsset,
+    StrokeTextBatch,
     is_newstroke,
-    newstroke_polylines,
     newstroke_width,
     ttfont,
     typography_preset,
@@ -33,6 +33,7 @@ from app.release_studio.documents.layout import (
     Rectangle,
     Sheet,
     Text,
+    stroke_text_batch,
     text_width,
 )
 
@@ -205,7 +206,9 @@ def render_pdf(sheet: Sheet) -> bytes:
     return render_pdf_pages([sheet])
 
 
-def render_pdf_pages(sheets: Sequence[Sheet]) -> bytes:
+def render_pdf_pages(
+    sheets: Sequence[Sheet], *, stroke_text: StrokeTextBatch | None = None
+) -> bytes:
     """Serialize *sheets* into one PDF, a page each.
 
     A drawing set that belongs together -- every copper layer of one board, or
@@ -215,7 +218,8 @@ def render_pdf_pages(sheets: Sequence[Sheet]) -> bytes:
     Fonts are shared: the glyph set is the union across the pages, so a
     fifteen-page fabrication document embeds one subset rather than fifteen.
     Every page must be the same typography for that to hold, which is checked
-    rather than assumed.
+    rather than assumed. *stroke_text* is the document's one NewStroke batch;
+    without one it is rendered here.
     """
 
     if not sheets:
@@ -227,6 +231,8 @@ def render_pdf_pages(sheets: Sequence[Sheet]) -> bytes:
                 "every page of one document must share a typography preset; "
                 f"got {typography!r} and {sheet.typography!r}"
             )
+    if stroke_text is None:
+        stroke_text = stroke_text_batch(sheets)
 
     plans = _font_plans(typography)
     used_glyphs: dict[str, dict[int, int]] = {plan.resource: {} for plan in plans}
@@ -234,7 +240,9 @@ def render_pdf_pages(sheets: Sequence[Sheet]) -> bytes:
     use_search_font = False
     for sheet in sheets:
         page_images: list[Image] = []
-        content, page_search_font = _page_content(sheet, plans, used_glyphs, page_images)
+        content, page_search_font = _page_content(
+            sheet, plans, used_glyphs, page_images, stroke_text
+        )
         use_search_font = use_search_font or page_search_font
         pages.append(
             (content, sheet.width * MM_TO_PT, sheet.height * MM_TO_PT, page_images)
@@ -273,6 +281,7 @@ def _page_content(
     plans: tuple["_FontPlan", ...],
     used_glyphs: dict[str, dict[int, int]],
     images: list[Image] | None = None,
+    stroke_text: StrokeTextBatch | None = None,
 ) -> tuple[bytes, bool]:
     """Build one page's content stream, recording the glyphs it sets.
 
@@ -283,6 +292,8 @@ def _page_content(
     height_pt = sheet.height * MM_TO_PT
     width_pt = sheet.width * MM_TO_PT
     vector_text = is_newstroke(sheet.typography)
+    if vector_text and stroke_text is None:
+        stroke_text = stroke_text_batch([sheet])
     plan_by_resource = {plan.resource: plan for plan in plans}
     use_search_font = False
 
@@ -355,13 +366,18 @@ def _page_content(
                 rows = element.value.splitlines() or [""]
                 for row_index, row in enumerate(rows):
                     row_y = baseline + row_index * element.size * 1.2
-                    for line in newstroke_polylines(
-                        row,
-                        x=element.x,
-                        y=row_y,
-                        size=element.size,
-                        anchor=element.anchor,
-                    ):
+                    polylines = (
+                        stroke_text.polylines(
+                            row,
+                            x=element.x,
+                            y=row_y,
+                            size=element.size,
+                            anchor=element.anchor,
+                        )
+                        if stroke_text is not None
+                        else ()
+                    )
+                    for line in polylines:
                         if len(line) < 2:
                             continue
                         first = line[0]
@@ -441,7 +457,9 @@ def _page_content(
                 ]
             )
         elif isinstance(element, Artwork):
-            ops.append("0.6 0.6 0.6 RG")
+            border = element.border_colour or "#999999"
+            r, g, b = _rgb(border)
+            ops.append(f"{_pt(r)} {_pt(g)} {_pt(b)} RG")
             ops.append(f"{_pt(0.2 * MM_TO_PT)} w")
             rect = element.rect
             ops.append(

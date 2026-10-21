@@ -174,6 +174,7 @@ argument's value, which may be a host path.*/
 ///    "include-unchanged",
 ///    "view",
 ///    "variant",
+///    "paper-scale",
 ///    "vendor",
 ///    "request",
 ///    "metrics",
@@ -273,6 +274,8 @@ pub enum CliArgument {
     View,
     #[serde(rename = "variant")]
     Variant,
+    #[serde(rename = "paper-scale")]
+    PaperScale,
     #[serde(rename = "vendor")]
     Vendor,
     #[serde(rename = "request")]
@@ -327,6 +330,7 @@ impl ::std::fmt::Display for CliArgument {
             Self::IncludeUnchanged => f.write_str("include-unchanged"),
             Self::View => f.write_str("view"),
             Self::Variant => f.write_str("variant"),
+            Self::PaperScale => f.write_str("paper-scale"),
             Self::Vendor => f.write_str("vendor"),
             Self::Request => f.write_str("request"),
             Self::Metrics => f.write_str("metrics"),
@@ -378,6 +382,7 @@ impl ::std::str::FromStr for CliArgument {
             "include-unchanged" => Ok(Self::IncludeUnchanged),
             "view" => Ok(Self::View),
             "variant" => Ok(Self::Variant),
+            "paper-scale" => Ok(Self::PaperScale),
             "vendor" => Ok(Self::Vendor),
             "request" => Ok(Self::Request),
             "metrics" => Ok(Self::Metrics),

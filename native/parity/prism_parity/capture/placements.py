@@ -1,4 +1,4 @@
-"""Golden for ``projections/placements.json`` (``prism.placements.a0``).
+"""Golden for ``projections/placements.json`` (``prism.placements.a1``).
 
 No document of this shape exists today. Field map ``placements.md``, "How a
 golden is produced from today's code": the goldens hold the member computed by

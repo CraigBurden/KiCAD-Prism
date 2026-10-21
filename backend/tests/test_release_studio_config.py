@@ -335,6 +335,23 @@ class ReleaseStudioConfigTests(unittest.TestCase):
         with self.assertRaisesRegex(ConfigSchemaError, "unknown preset 'host-font'"):
             parse_configuration_yaml(_MIN_CONFIG + "\ntypography: host-font\n")
 
+    def test_a_configuration_without_sheet_style_normalizes_to_prism(self) -> None:
+        from app.release_studio.documents.style import DEFAULT_SHEET_STYLE
+
+        self.assertEqual(
+            parse_configuration_yaml(_MIN_CONFIG)["sheet_style"],
+            DEFAULT_SHEET_STYLE,
+        )
+        self.assertEqual(DEFAULT_SHEET_STYLE, "prism")
+
+    def test_sheet_style_accepts_only_released_styles(self) -> None:
+        configured = parse_configuration_yaml(
+            _MIN_CONFIG + "\nsheet_style: kicad\n"
+        )
+        self.assertEqual(configured["sheet_style"], "kicad")
+        with self.assertRaisesRegex(ConfigSchemaError, "unknown style 'blueprint'"):
+            parse_configuration_yaml(_MIN_CONFIG + "\nsheet_style: blueprint\n")
+
     def test_unpinned_org_extends_is_a_load_error(self) -> None:
         with self.assertRaisesRegex(ConfigSchemaError, "unpinned org reference"):
             validate_org_extends("org:default")
@@ -762,6 +779,13 @@ variants: null
         self.assertNotEqual(
             technical_config_digest(base),
             technical_config_digest(typography_changed),
+        )
+        sheet_style_changed = parse_configuration_yaml(
+            _MIN_CONFIG + "\nsheet_style: kicad\n"
+        )
+        self.assertNotEqual(
+            technical_config_digest(base),
+            technical_config_digest(sheet_style_changed),
         )
 
     def test_load_at_commit_matches_checkout(self) -> None:

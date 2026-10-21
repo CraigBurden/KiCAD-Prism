@@ -209,7 +209,7 @@ Each member has a role, a schema id, sha256, size and the stage that wrote it in
 | `projections/occurrences.json` | parse | `prism.occurrences.a0` | symbol instances with path, reference and properties; footprints by refdes; sheet-level dnp/in-BOM folded along the path; canonical BOM fields | Design Comparison BOM rows, Release Studio, System Builder, catalog usage |
 | `projections/stackup.json` | parse | `prism.stackup.a0` | layers (name, type, material, thickness, εr, tan δ, colour, kind), settings (finish, constraints, edge connector/plating), board thickness, via types and spans; mask colours | Design Comparison stackup tab, Release Studio tables, 3D tab looks, System Builder mid-plane, Simulation Studio |
 | `projections/route-metrics.json` | parse | `prism.route_metrics.a0` | per net: length, via count, layers used, via spans | Design Comparison |
-| `projections/placements.json` | parse | `prism.placements.a0` | per footprint: reference, side, xy/rot, dnp, excluded-from-pos, testpoint, courtyard, pads, first model, library link; board outline; designators | Release Studio sheets, System Builder interface and 3D scene, catalog import |
+| `projections/placements.json` | parse | `prism.placements.a1` | per footprint: reference, side, xy/rot, dnp, excluded-from-pos, testpoint, courtyard, pads, first model, library link; board outline; designators | Release Studio sheets, System Builder interface and 3D scene, catalog import |
 | `projections/project.json` | parse | `prism.project.a0` | title block, KiCad version, text variables, net classes, sheet hierarchy, model/worksheet/library-table path references | project metadata, Release Studio input closure, 3D board metadata |
 | `projections/system-interface.json` | parse | `prism.system_interface.v1` (existing) | connectors and modules with schematic-only pin nets, pin names/types, power nets, pcb nets, geometry | System Builder |
 | `refilled/<stem>.kicad_pcb` | board | — | board after the zone refill | materializer, KiCad-output jobs |
@@ -384,9 +384,9 @@ Every P-WP owns one module `native/src/rs/prism-projections/src/<name>.rs`, its 
 **Status notes.**
 - **R1 done (WP-R1).** The semantic index, project metadata, catalog import and
   design comparison read the bundle unconditionally; their
-  `PRISM_DESIGN_SOURCE_*` switches and legacy paths are deleted, and
-  `PRISM_DESIGN_SOURCE_RELEASE_STUDIO` is the only switch left (its own work
-  package removes it). A request without a `commit` reads the checkout's HEAD
+  `PRISM_DESIGN_SOURCE_*` switches and legacy paths are deleted. Release Studio
+  read the bundle behind the last switch until C3 F4c removed it too; every
+  consumer now reads the bundle unconditionally. A request without a `commit` reads the checkout's HEAD
   and answers `X-Prism-Working-Tree: dirty` when the read set has uncommitted
   changes. A member that is still building is HTTP 202 `{"status": "pending",
   "members": [...], "retryAfterSeconds": 3}` with a `Retry-After` header; a

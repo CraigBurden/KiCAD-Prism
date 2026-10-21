@@ -7,8 +7,8 @@ use geometer_client::contracts::ModelIllustrationGeometryRequestA0;
 use geometer_client::{GeometerClient, GeometerClientError, ModelIllustrationGeometry};
 use tokio::runtime::Runtime;
 
-pub const GEOMETER_RELEASE: &str = "2026.9.13";
-pub const GEOMETER_C_ABI_GENERATION: u32 = 20_260_913;
+pub const GEOMETER_RELEASE: &str = "2026.9.19";
+pub const GEOMETER_C_ABI_GENERATION: u32 = 20_260_919;
 pub const GEOMETER_SOURCE_REVISION: &str = "703e60029a248801947150f913f77a1cecce2662";
 
 #[derive(Debug)]
@@ -111,7 +111,7 @@ impl NativeGeometer {
     ) -> Result<ModelIllustrationGeometry, NativeGeometerError> {
         Ok(self.runtime.block_on(
             self.client()
-                .model_illustration_geometry(request, Some(step)),
+                .model_illustration_geometry_a0(request, Some(step)),
         )?)
     }
 

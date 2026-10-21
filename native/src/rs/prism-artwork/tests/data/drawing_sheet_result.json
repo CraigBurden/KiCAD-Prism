@@ -1,0 +1,1247 @@
+{
+  "schema": "prism.cli.drawing_sheet_result.a0",
+  "ops": [
+    {
+      "kind": "rect",
+      "x1_nm": 300000000,
+      "y1_nm": 253000000,
+      "x2_nm": 408000000,
+      "y2_nm": 285000000,
+      "corner_radius_nm": 0,
+      "fill": "NO_FILL",
+      "width_nm": 152400,
+      "stroke_color": "#840000FF"
+    },
+    {
+      "kind": "rect",
+      "x1_nm": 10000000,
+      "y1_nm": 10000000,
+      "x2_nm": 410000000,
+      "y2_nm": 287000000,
+      "corner_radius_nm": 0,
+      "fill": "NO_FILL",
+      "width_nm": 152400,
+      "stroke_color": "#840000FF"
+    },
+    {
+      "kind": "rect",
+      "x1_nm": 12000000,
+      "y1_nm": 12000000,
+      "x2_nm": 408000000,
+      "y2_nm": 285000000,
+      "corner_radius_nm": 0,
+      "fill": "NO_FILL",
+      "width_nm": 152400,
+      "stroke_color": "#840000FF"
+    },
+    {
+      "kind": "poly",
+      "points": [
+        {
+          "x_nm": 60000000,
+          "y_nm": 12000000
+        },
+        {
+          "x_nm": 60000000,
+          "y_nm": 10000000
+        }
+      ],
+      "fill": "NO_FILL",
+      "width_nm": 152400,
+      "stroke_color": "#840000FF"
+    },
+    {
+      "kind": "poly",
+      "points": [
+        {
+          "x_nm": 110000000,
+          "y_nm": 12000000
+        },
+        {
+          "x_nm": 110000000,
+          "y_nm": 10000000
+        }
+      ],
+      "fill": "NO_FILL",
+      "width_nm": 152400,
+      "stroke_color": "#840000FF"
+    },
+    {
+      "kind": "poly",
+      "points": [
+        {
+          "x_nm": 160000000,
+          "y_nm": 12000000
+        },
+        {
+          "x_nm": 160000000,
+          "y_nm": 10000000
+        }
+      ],
+      "fill": "NO_FILL",
+      "width_nm": 152400,
+      "stroke_color": "#840000FF"
+    },
+    {
+      "kind": "poly",
+      "points": [
+        {
+          "x_nm": 210000000,
+          "y_nm": 12000000
+        },
+        {
+          "x_nm": 210000000,
+          "y_nm": 10000000
+        }
+      ],
+      "fill": "NO_FILL",
+      "width_nm": 152400,
+      "stroke_color": "#840000FF"
+    },
+    {
+      "kind": "poly",
+      "points": [
+        {
+          "x_nm": 260000000,
+          "y_nm": 12000000
+        },
+        {
+          "x_nm": 260000000,
+          "y_nm": 10000000
+        }
+      ],
+      "fill": "NO_FILL",
+      "width_nm": 152400,
+      "stroke_color": "#840000FF"
+    },
+    {
+      "kind": "poly",
+      "points": [
+        {
+          "x_nm": 310000000,
+          "y_nm": 12000000
+        },
+        {
+          "x_nm": 310000000,
+          "y_nm": 10000000
+        }
+      ],
+      "fill": "NO_FILL",
+      "width_nm": 152400,
+      "stroke_color": "#840000FF"
+    },
+    {
+      "kind": "poly",
+      "points": [
+        {
+          "x_nm": 360000000,
+          "y_nm": 12000000
+        },
+        {
+          "x_nm": 360000000,
+          "y_nm": 10000000
+        }
+      ],
+      "fill": "NO_FILL",
+      "width_nm": 152400,
+      "stroke_color": "#840000FF"
+    },
+    {
+      "kind": "poly",
+      "points": [
+        {
+          "x_nm": 410000000,
+          "y_nm": 12000000
+        },
+        {
+          "x_nm": 410000000,
+          "y_nm": 10000000
+        }
+      ],
+      "fill": "NO_FILL",
+      "width_nm": 152400,
+      "stroke_color": "#840000FF"
+    },
+    {
+      "kind": "text",
+      "x_nm": 35000000,
+      "y_nm": 11000000,
+      "text": "1",
+      "color": "#840000FF",
+      "orient_deg": 0.0,
+      "size_x_nm": 1300000,
+      "size_y_nm": 1300000,
+      "pen_width_nm": 152400,
+      "h_align": "GR_TEXT_H_ALIGN_LEFT",
+      "v_align": "GR_TEXT_V_ALIGN_CENTER",
+      "italic": false,
+      "bold": false,
+      "multiline": false,
+      "font_face": "Arial"
+    },
+    {
+      "kind": "text",
+      "x_nm": 85000000,
+      "y_nm": 11000000,
+      "text": "2",
+      "color": "#840000FF",
+      "orient_deg": 0.0,
+      "size_x_nm": 1300000,
+      "size_y_nm": 1300000,
+      "pen_width_nm": 152400,
+      "h_align": "GR_TEXT_H_ALIGN_LEFT",
+      "v_align": "GR_TEXT_V_ALIGN_CENTER",
+      "italic": false,
+      "bold": false,
+      "multiline": false,
+      "font_face": "Arial"
+    },
+    {
+      "kind": "text",
+      "x_nm": 135000000,
+      "y_nm": 11000000,
+      "text": "3",
+      "color": "#840000FF",
+      "orient_deg": 0.0,
+      "size_x_nm": 1300000,
+      "size_y_nm": 1300000,
+      "pen_width_nm": 152400,
+      "h_align": "GR_TEXT_H_ALIGN_LEFT",
+      "v_align": "GR_TEXT_V_ALIGN_CENTER",
+      "italic": false,
+      "bold": false,
+      "multiline": false,
+      "font_face": "Arial"
+    },
+    {
+      "kind": "text",
+      "x_nm": 185000000,
+      "y_nm": 11000000,
+      "text": "4",
+      "color": "#840000FF",
+      "orient_deg": 0.0,
+      "size_x_nm": 1300000,
+      "size_y_nm": 1300000,
+      "pen_width_nm": 152400,
+      "h_align": "GR_TEXT_H_ALIGN_LEFT",
+      "v_align": "GR_TEXT_V_ALIGN_CENTER",
+      "italic": false,
+      "bold": false,
+      "multiline": false,
+      "font_face": "Arial"
+    },
+    {
+      "kind": "text",
+      "x_nm": 235000000,
+      "y_nm": 11000000,
+      "text": "5",
+      "color": "#840000FF",
+      "orient_deg": 0.0,
+      "size_x_nm": 1300000,
+      "size_y_nm": 1300000,
+      "pen_width_nm": 152400,
+      "h_align": "GR_TEXT_H_ALIGN_LEFT",
+      "v_align": "GR_TEXT_V_ALIGN_CENTER",
+      "italic": false,
+      "bold": false,
+      "multiline": false,
+      "font_face": "Arial"
+    },
+    {
+      "kind": "text",
+      "x_nm": 285000000,
+      "y_nm": 11000000,
+      "text": "6",
+      "color": "#840000FF",
+      "orient_deg": 0.0,
+      "size_x_nm": 1300000,
+      "size_y_nm": 1300000,
+      "pen_width_nm": 152400,
+      "h_align": "GR_TEXT_H_ALIGN_LEFT",
+      "v_align": "GR_TEXT_V_ALIGN_CENTER",
+      "italic": false,
+      "bold": false,
+      "multiline": false,
+      "font_face": "Arial"
+    },
+    {
+      "kind": "text",
+      "x_nm": 335000000,
+      "y_nm": 11000000,
+      "text": "7",
+      "color": "#840000FF",
+      "orient_deg": 0.0,
+      "size_x_nm": 1300000,
+      "size_y_nm": 1300000,
+      "pen_width_nm": 152400,
+      "h_align": "GR_TEXT_H_ALIGN_LEFT",
+      "v_align": "GR_TEXT_V_ALIGN_CENTER",
+      "italic": false,
+      "bold": false,
+      "multiline": false,
+      "font_face": "Arial"
+    },
+    {
+      "kind": "text",
+      "x_nm": 385000000,
+      "y_nm": 11000000,
+      "text": "8",
+      "color": "#840000FF",
+      "orient_deg": 0.0,
+      "size_x_nm": 1300000,
+      "size_y_nm": 1300000,
+      "pen_width_nm": 152400,
+      "h_align": "GR_TEXT_H_ALIGN_LEFT",
+      "v_align": "GR_TEXT_V_ALIGN_CENTER",
+      "italic": false,
+      "bold": false,
+      "multiline": false,
+      "font_face": "Arial"
+    },
+    {
+      "kind": "poly",
+      "points": [
+        {
+          "x_nm": 60000000,
+          "y_nm": 285000000
+        },
+        {
+          "x_nm": 60000000,
+          "y_nm": 287000000
+        }
+      ],
+      "fill": "NO_FILL",
+      "width_nm": 152400,
+      "stroke_color": "#840000FF"
+    },
+    {
+      "kind": "poly",
+      "points": [
+        {
+          "x_nm": 110000000,
+          "y_nm": 285000000
+        },
+        {
+          "x_nm": 110000000,
+          "y_nm": 287000000
+        }
+      ],
+      "fill": "NO_FILL",
+      "width_nm": 152400,
+      "stroke_color": "#840000FF"
+    },
+    {
+      "kind": "poly",
+      "points": [
+        {
+          "x_nm": 160000000,
+          "y_nm": 285000000
+        },
+        {
+          "x_nm": 160000000,
+          "y_nm": 287000000
+        }
+      ],
+      "fill": "NO_FILL",
+      "width_nm": 152400,
+      "stroke_color": "#840000FF"
+    },
+    {
+      "kind": "poly",
+      "points": [
+        {
+          "x_nm": 210000000,
+          "y_nm": 285000000
+        },
+        {
+          "x_nm": 210000000,
+          "y_nm": 287000000
+        }
+      ],
+      "fill": "NO_FILL",
+      "width_nm": 152400,
+      "stroke_color": "#840000FF"
+    },
+    {
+      "kind": "poly",
+      "points": [
+        {
+          "x_nm": 260000000,
+          "y_nm": 285000000
+        },
+        {
+          "x_nm": 260000000,
+          "y_nm": 287000000
+        }
+      ],
+      "fill": "NO_FILL",
+      "width_nm": 152400,
+      "stroke_color": "#840000FF"
+    },
+    {
+      "kind": "poly",
+      "points": [
+        {
+          "x_nm": 310000000,
+          "y_nm": 285000000
+        },
+        {
+          "x_nm": 310000000,
+          "y_nm": 287000000
+        }
+      ],
+      "fill": "NO_FILL",
+      "width_nm": 152400,
+      "stroke_color": "#840000FF"
+    },
+    {
+      "kind": "poly",
+      "points": [
+        {
+          "x_nm": 360000000,
+          "y_nm": 285000000
+        },
+        {
+          "x_nm": 360000000,
+          "y_nm": 287000000
+        }
+      ],
+      "fill": "NO_FILL",
+      "width_nm": 152400,
+      "stroke_color": "#840000FF"
+    },
+    {
+      "kind": "poly",
+      "points": [
+        {
+          "x_nm": 410000000,
+          "y_nm": 285000000
+        },
+        {
+          "x_nm": 410000000,
+          "y_nm": 287000000
+        }
+      ],
+      "fill": "NO_FILL",
+      "width_nm": 152400,
+      "stroke_color": "#840000FF"
+    },
+    {
+      "kind": "text",
+      "x_nm": 35000000,
+      "y_nm": 286000000,
+      "text": "1",
+      "color": "#840000FF",
+      "orient_deg": 0.0,
+      "size_x_nm": 1300000,
+      "size_y_nm": 1300000,
+      "pen_width_nm": 152400,
+      "h_align": "GR_TEXT_H_ALIGN_LEFT",
+      "v_align": "GR_TEXT_V_ALIGN_CENTER",
+      "italic": false,
+      "bold": false,
+      "multiline": false,
+      "font_face": "Arial"
+    },
+    {
+      "kind": "text",
+      "x_nm": 85000000,
+      "y_nm": 286000000,
+      "text": "2",
+      "color": "#840000FF",
+      "orient_deg": 0.0,
+      "size_x_nm": 1300000,
+      "size_y_nm": 1300000,
+      "pen_width_nm": 152400,
+      "h_align": "GR_TEXT_H_ALIGN_LEFT",
+      "v_align": "GR_TEXT_V_ALIGN_CENTER",
+      "italic": false,
+      "bold": false,
+      "multiline": false,
+      "font_face": "Arial"
+    },
+    {
+      "kind": "text",
+      "x_nm": 135000000,
+      "y_nm": 286000000,
+      "text": "3",
+      "color": "#840000FF",
+      "orient_deg": 0.0,
+      "size_x_nm": 1300000,
+      "size_y_nm": 1300000,
+      "pen_width_nm": 152400,
+      "h_align": "GR_TEXT_H_ALIGN_LEFT",
+      "v_align": "GR_TEXT_V_ALIGN_CENTER",
+      "italic": false,
+      "bold": false,
+      "multiline": false,
+      "font_face": "Arial"
+    },
+    {
+      "kind": "text",
+      "x_nm": 185000000,
+      "y_nm": 286000000,
+      "text": "4",
+      "color": "#840000FF",
+      "orient_deg": 0.0,
+      "size_x_nm": 1300000,
+      "size_y_nm": 1300000,
+      "pen_width_nm": 152400,
+      "h_align": "GR_TEXT_H_ALIGN_LEFT",
+      "v_align": "GR_TEXT_V_ALIGN_CENTER",
+      "italic": false,
+      "bold": false,
+      "multiline": false,
+      "font_face": "Arial"
+    },
+    {
+      "kind": "text",
+      "x_nm": 235000000,
+      "y_nm": 286000000,
+      "text": "5",
+      "color": "#840000FF",
+      "orient_deg": 0.0,
+      "size_x_nm": 1300000,
+      "size_y_nm": 1300000,
+      "pen_width_nm": 152400,
+      "h_align": "GR_TEXT_H_ALIGN_LEFT",
+      "v_align": "GR_TEXT_V_ALIGN_CENTER",
+      "italic": false,
+      "bold": false,
+      "multiline": false,
+      "font_face": "Arial"
+    },
+    {
+      "kind": "text",
+      "x_nm": 285000000,
+      "y_nm": 286000000,
+      "text": "6",
+      "color": "#840000FF",
+      "orient_deg": 0.0,
+      "size_x_nm": 1300000,
+      "size_y_nm": 1300000,
+      "pen_width_nm": 152400,
+      "h_align": "GR_TEXT_H_ALIGN_LEFT",
+      "v_align": "GR_TEXT_V_ALIGN_CENTER",
+      "italic": false,
+      "bold": false,
+      "multiline": false,
+      "font_face": "Arial"
+    },
+    {
+      "kind": "text",
+      "x_nm": 335000000,
+      "y_nm": 286000000,
+      "text": "7",
+      "color": "#840000FF",
+      "orient_deg": 0.0,
+      "size_x_nm": 1300000,
+      "size_y_nm": 1300000,
+      "pen_width_nm": 152400,
+      "h_align": "GR_TEXT_H_ALIGN_LEFT",
+      "v_align": "GR_TEXT_V_ALIGN_CENTER",
+      "italic": false,
+      "bold": false,
+      "multiline": false,
+      "font_face": "Arial"
+    },
+    {
+      "kind": "text",
+      "x_nm": 385000000,
+      "y_nm": 286000000,
+      "text": "8",
+      "color": "#840000FF",
+      "orient_deg": 0.0,
+      "size_x_nm": 1300000,
+      "size_y_nm": 1300000,
+      "pen_width_nm": 152400,
+      "h_align": "GR_TEXT_H_ALIGN_LEFT",
+      "v_align": "GR_TEXT_V_ALIGN_CENTER",
+      "italic": false,
+      "bold": false,
+      "multiline": false,
+      "font_face": "Arial"
+    },
+    {
+      "kind": "poly",
+      "points": [
+        {
+          "x_nm": 10000000,
+          "y_nm": 60000000
+        },
+        {
+          "x_nm": 12000000,
+          "y_nm": 60000000
+        }
+      ],
+      "fill": "NO_FILL",
+      "width_nm": 152400,
+      "stroke_color": "#840000FF"
+    },
+    {
+      "kind": "poly",
+      "points": [
+        {
+          "x_nm": 10000000,
+          "y_nm": 110000000
+        },
+        {
+          "x_nm": 12000000,
+          "y_nm": 110000000
+        }
+      ],
+      "fill": "NO_FILL",
+      "width_nm": 152400,
+      "stroke_color": "#840000FF"
+    },
+    {
+      "kind": "poly",
+      "points": [
+        {
+          "x_nm": 10000000,
+          "y_nm": 160000000
+        },
+        {
+          "x_nm": 12000000,
+          "y_nm": 160000000
+        }
+      ],
+      "fill": "NO_FILL",
+      "width_nm": 152400,
+      "stroke_color": "#840000FF"
+    },
+    {
+      "kind": "poly",
+      "points": [
+        {
+          "x_nm": 10000000,
+          "y_nm": 210000000
+        },
+        {
+          "x_nm": 12000000,
+          "y_nm": 210000000
+        }
+      ],
+      "fill": "NO_FILL",
+      "width_nm": 152400,
+      "stroke_color": "#840000FF"
+    },
+    {
+      "kind": "poly",
+      "points": [
+        {
+          "x_nm": 10000000,
+          "y_nm": 260000000
+        },
+        {
+          "x_nm": 12000000,
+          "y_nm": 260000000
+        }
+      ],
+      "fill": "NO_FILL",
+      "width_nm": 152400,
+      "stroke_color": "#840000FF"
+    },
+    {
+      "kind": "text",
+      "x_nm": 11000000,
+      "y_nm": 35000000,
+      "text": "A",
+      "color": "#840000FF",
+      "orient_deg": 0.0,
+      "size_x_nm": 1300000,
+      "size_y_nm": 1300000,
+      "pen_width_nm": 152400,
+      "h_align": "GR_TEXT_H_ALIGN_CENTER",
+      "v_align": "GR_TEXT_V_ALIGN_CENTER",
+      "italic": false,
+      "bold": false,
+      "multiline": false,
+      "font_face": "Arial"
+    },
+    {
+      "kind": "text",
+      "x_nm": 11000000,
+      "y_nm": 85000000,
+      "text": "B",
+      "color": "#840000FF",
+      "orient_deg": 0.0,
+      "size_x_nm": 1300000,
+      "size_y_nm": 1300000,
+      "pen_width_nm": 152400,
+      "h_align": "GR_TEXT_H_ALIGN_CENTER",
+      "v_align": "GR_TEXT_V_ALIGN_CENTER",
+      "italic": false,
+      "bold": false,
+      "multiline": false,
+      "font_face": "Arial"
+    },
+    {
+      "kind": "text",
+      "x_nm": 11000000,
+      "y_nm": 135000000,
+      "text": "C",
+      "color": "#840000FF",
+      "orient_deg": 0.0,
+      "size_x_nm": 1300000,
+      "size_y_nm": 1300000,
+      "pen_width_nm": 152400,
+      "h_align": "GR_TEXT_H_ALIGN_CENTER",
+      "v_align": "GR_TEXT_V_ALIGN_CENTER",
+      "italic": false,
+      "bold": false,
+      "multiline": false,
+      "font_face": "Arial"
+    },
+    {
+      "kind": "text",
+      "x_nm": 11000000,
+      "y_nm": 185000000,
+      "text": "D",
+      "color": "#840000FF",
+      "orient_deg": 0.0,
+      "size_x_nm": 1300000,
+      "size_y_nm": 1300000,
+      "pen_width_nm": 152400,
+      "h_align": "GR_TEXT_H_ALIGN_CENTER",
+      "v_align": "GR_TEXT_V_ALIGN_CENTER",
+      "italic": false,
+      "bold": false,
+      "multiline": false,
+      "font_face": "Arial"
+    },
+    {
+      "kind": "text",
+      "x_nm": 11000000,
+      "y_nm": 235000000,
+      "text": "E",
+      "color": "#840000FF",
+      "orient_deg": 0.0,
+      "size_x_nm": 1300000,
+      "size_y_nm": 1300000,
+      "pen_width_nm": 152400,
+      "h_align": "GR_TEXT_H_ALIGN_CENTER",
+      "v_align": "GR_TEXT_V_ALIGN_CENTER",
+      "italic": false,
+      "bold": false,
+      "multiline": false,
+      "font_face": "Arial"
+    },
+    {
+      "kind": "text",
+      "x_nm": 11000000,
+      "y_nm": 285000000,
+      "text": "F",
+      "color": "#840000FF",
+      "orient_deg": 0.0,
+      "size_x_nm": 1300000,
+      "size_y_nm": 1300000,
+      "pen_width_nm": 152400,
+      "h_align": "GR_TEXT_H_ALIGN_CENTER",
+      "v_align": "GR_TEXT_V_ALIGN_CENTER",
+      "italic": false,
+      "bold": false,
+      "multiline": false,
+      "font_face": "Arial"
+    },
+    {
+      "kind": "poly",
+      "points": [
+        {
+          "x_nm": 410000000,
+          "y_nm": 60000000
+        },
+        {
+          "x_nm": 408000000,
+          "y_nm": 60000000
+        }
+      ],
+      "fill": "NO_FILL",
+      "width_nm": 152400,
+      "stroke_color": "#840000FF"
+    },
+    {
+      "kind": "poly",
+      "points": [
+        {
+          "x_nm": 410000000,
+          "y_nm": 110000000
+        },
+        {
+          "x_nm": 408000000,
+          "y_nm": 110000000
+        }
+      ],
+      "fill": "NO_FILL",
+      "width_nm": 152400,
+      "stroke_color": "#840000FF"
+    },
+    {
+      "kind": "poly",
+      "points": [
+        {
+          "x_nm": 410000000,
+          "y_nm": 160000000
+        },
+        {
+          "x_nm": 408000000,
+          "y_nm": 160000000
+        }
+      ],
+      "fill": "NO_FILL",
+      "width_nm": 152400,
+      "stroke_color": "#840000FF"
+    },
+    {
+      "kind": "poly",
+      "points": [
+        {
+          "x_nm": 410000000,
+          "y_nm": 210000000
+        },
+        {
+          "x_nm": 408000000,
+          "y_nm": 210000000
+        }
+      ],
+      "fill": "NO_FILL",
+      "width_nm": 152400,
+      "stroke_color": "#840000FF"
+    },
+    {
+      "kind": "poly",
+      "points": [
+        {
+          "x_nm": 410000000,
+          "y_nm": 260000000
+        },
+        {
+          "x_nm": 408000000,
+          "y_nm": 260000000
+        }
+      ],
+      "fill": "NO_FILL",
+      "width_nm": 152400,
+      "stroke_color": "#840000FF"
+    },
+    {
+      "kind": "text",
+      "x_nm": 409000000,
+      "y_nm": 35000000,
+      "text": "A",
+      "color": "#840000FF",
+      "orient_deg": 0.0,
+      "size_x_nm": 1300000,
+      "size_y_nm": 1300000,
+      "pen_width_nm": 152400,
+      "h_align": "GR_TEXT_H_ALIGN_CENTER",
+      "v_align": "GR_TEXT_V_ALIGN_CENTER",
+      "italic": false,
+      "bold": false,
+      "multiline": false,
+      "font_face": "Arial"
+    },
+    {
+      "kind": "text",
+      "x_nm": 409000000,
+      "y_nm": 85000000,
+      "text": "B",
+      "color": "#840000FF",
+      "orient_deg": 0.0,
+      "size_x_nm": 1300000,
+      "size_y_nm": 1300000,
+      "pen_width_nm": 152400,
+      "h_align": "GR_TEXT_H_ALIGN_CENTER",
+      "v_align": "GR_TEXT_V_ALIGN_CENTER",
+      "italic": false,
+      "bold": false,
+      "multiline": false,
+      "font_face": "Arial"
+    },
+    {
+      "kind": "text",
+      "x_nm": 409000000,
+      "y_nm": 135000000,
+      "text": "C",
+      "color": "#840000FF",
+      "orient_deg": 0.0,
+      "size_x_nm": 1300000,
+      "size_y_nm": 1300000,
+      "pen_width_nm": 152400,
+      "h_align": "GR_TEXT_H_ALIGN_CENTER",
+      "v_align": "GR_TEXT_V_ALIGN_CENTER",
+      "italic": false,
+      "bold": false,
+      "multiline": false,
+      "font_face": "Arial"
+    },
+    {
+      "kind": "text",
+      "x_nm": 409000000,
+      "y_nm": 185000000,
+      "text": "D",
+      "color": "#840000FF",
+      "orient_deg": 0.0,
+      "size_x_nm": 1300000,
+      "size_y_nm": 1300000,
+      "pen_width_nm": 152400,
+      "h_align": "GR_TEXT_H_ALIGN_CENTER",
+      "v_align": "GR_TEXT_V_ALIGN_CENTER",
+      "italic": false,
+      "bold": false,
+      "multiline": false,
+      "font_face": "Arial"
+    },
+    {
+      "kind": "text",
+      "x_nm": 409000000,
+      "y_nm": 235000000,
+      "text": "E",
+      "color": "#840000FF",
+      "orient_deg": 0.0,
+      "size_x_nm": 1300000,
+      "size_y_nm": 1300000,
+      "pen_width_nm": 152400,
+      "h_align": "GR_TEXT_H_ALIGN_CENTER",
+      "v_align": "GR_TEXT_V_ALIGN_CENTER",
+      "italic": false,
+      "bold": false,
+      "multiline": false,
+      "font_face": "Arial"
+    },
+    {
+      "kind": "text",
+      "x_nm": 409000000,
+      "y_nm": 285000000,
+      "text": "F",
+      "color": "#840000FF",
+      "orient_deg": 0.0,
+      "size_x_nm": 1300000,
+      "size_y_nm": 1300000,
+      "pen_width_nm": 152400,
+      "h_align": "GR_TEXT_H_ALIGN_CENTER",
+      "v_align": "GR_TEXT_V_ALIGN_CENTER",
+      "italic": false,
+      "bold": false,
+      "multiline": false,
+      "font_face": "Arial"
+    },
+    {
+      "kind": "text",
+      "x_nm": 323000000,
+      "y_nm": 280100000,
+      "text": "Date: 2026-10-17",
+      "color": "#840000FF",
+      "orient_deg": 0.0,
+      "size_x_nm": 1500000,
+      "size_y_nm": 1500000,
+      "pen_width_nm": 152400,
+      "h_align": "GR_TEXT_H_ALIGN_LEFT",
+      "v_align": "GR_TEXT_V_ALIGN_CENTER",
+      "italic": false,
+      "bold": false,
+      "multiline": false,
+      "font_face": "Arial"
+    },
+    {
+      "kind": "poly",
+      "points": [
+        {
+          "x_nm": 300000000,
+          "y_nm": 281500000
+        },
+        {
+          "x_nm": 408000000,
+          "y_nm": 281500000
+        }
+      ],
+      "fill": "NO_FILL",
+      "width_nm": 152400,
+      "stroke_color": "#840000FF"
+    },
+    {
+      "kind": "text",
+      "x_nm": 301000000,
+      "y_nm": 282900000,
+      "text": "10.0.6",
+      "color": "#840000FF",
+      "orient_deg": 0.0,
+      "size_x_nm": 1500000,
+      "size_y_nm": 1500000,
+      "pen_width_nm": 152400,
+      "h_align": "GR_TEXT_H_ALIGN_LEFT",
+      "v_align": "GR_TEXT_V_ALIGN_CENTER",
+      "italic": false,
+      "bold": false,
+      "multiline": false,
+      "font_face": "Arial"
+    },
+    {
+      "kind": "poly",
+      "points": [
+        {
+          "x_nm": 300000000,
+          "y_nm": 278500000
+        },
+        {
+          "x_nm": 408000000,
+          "y_nm": 278500000
+        }
+      ],
+      "fill": "NO_FILL",
+      "width_nm": 152400,
+      "stroke_color": "#840000FF"
+    },
+    {
+      "kind": "text",
+      "x_nm": 386000000,
+      "y_nm": 280100000,
+      "text": "Rev: A1",
+      "color": "#840000FF",
+      "orient_deg": 0.0,
+      "size_x_nm": 1500000,
+      "size_y_nm": 1500000,
+      "pen_width_nm": 300000,
+      "h_align": "GR_TEXT_H_ALIGN_LEFT",
+      "v_align": "GR_TEXT_V_ALIGN_CENTER",
+      "italic": false,
+      "bold": true,
+      "multiline": false,
+      "font_face": "Arial"
+    },
+    {
+      "kind": "text",
+      "x_nm": 301000000,
+      "y_nm": 280100000,
+      "text": "Size: A3",
+      "color": "#840000FF",
+      "orient_deg": 0.0,
+      "size_x_nm": 1500000,
+      "size_y_nm": 1500000,
+      "pen_width_nm": 152400,
+      "h_align": "GR_TEXT_H_ALIGN_LEFT",
+      "v_align": "GR_TEXT_V_ALIGN_CENTER",
+      "italic": false,
+      "bold": false,
+      "multiline": false,
+      "font_face": "Arial"
+    },
+    {
+      "kind": "text",
+      "x_nm": 386000000,
+      "y_nm": 282900000,
+      "text": "Id: 1/1",
+      "color": "#840000FF",
+      "orient_deg": 0.0,
+      "size_x_nm": 1500000,
+      "size_y_nm": 1500000,
+      "pen_width_nm": 152400,
+      "h_align": "GR_TEXT_H_ALIGN_LEFT",
+      "v_align": "GR_TEXT_V_ALIGN_CENTER",
+      "italic": false,
+      "bold": false,
+      "multiline": false,
+      "font_face": "Arial"
+    },
+    {
+      "kind": "poly",
+      "points": [
+        {
+          "x_nm": 300000000,
+          "y_nm": 274500000
+        },
+        {
+          "x_nm": 408000000,
+          "y_nm": 274500000
+        }
+      ],
+      "fill": "NO_FILL",
+      "width_nm": 152400,
+      "stroke_color": "#840000FF"
+    },
+    {
+      "kind": "text",
+      "x_nm": 301000000,
+      "y_nm": 276300000,
+      "text": "Title: USB-PD Trigger Board",
+      "color": "#840000FF",
+      "orient_deg": 0.0,
+      "size_x_nm": 2000000,
+      "size_y_nm": 2000000,
+      "pen_width_nm": 400000,
+      "h_align": "GR_TEXT_H_ALIGN_LEFT",
+      "v_align": "GR_TEXT_V_ALIGN_CENTER",
+      "italic": true,
+      "bold": true,
+      "multiline": false,
+      "font_face": "Arial"
+    },
+    {
+      "kind": "text",
+      "x_nm": 301000000,
+      "y_nm": 272700000,
+      "text": "File: assembly-top.pdf",
+      "color": "#840000FF",
+      "orient_deg": 0.0,
+      "size_x_nm": 1500000,
+      "size_y_nm": 1500000,
+      "pen_width_nm": 152400,
+      "h_align": "GR_TEXT_H_ALIGN_LEFT",
+      "v_align": "GR_TEXT_V_ALIGN_CENTER",
+      "italic": false,
+      "bold": false,
+      "multiline": false,
+      "font_face": "Arial"
+    },
+    {
+      "kind": "poly",
+      "points": [
+        {
+          "x_nm": 300000000,
+          "y_nm": 268500000
+        },
+        {
+          "x_nm": 408000000,
+          "y_nm": 268500000
+        }
+      ],
+      "fill": "NO_FILL",
+      "width_nm": 152400,
+      "stroke_color": "#840000FF"
+    },
+    {
+      "kind": "text",
+      "x_nm": 301000000,
+      "y_nm": 270000000,
+      "text": "Sheet: /assembly-top",
+      "color": "#840000FF",
+      "orient_deg": 0.0,
+      "size_x_nm": 1500000,
+      "size_y_nm": 1500000,
+      "pen_width_nm": 152400,
+      "h_align": "GR_TEXT_H_ALIGN_LEFT",
+      "v_align": "GR_TEXT_V_ALIGN_CENTER",
+      "italic": false,
+      "bold": false,
+      "multiline": false,
+      "font_face": "Arial"
+    },
+    {
+      "kind": "text",
+      "x_nm": 301000000,
+      "y_nm": 267000000,
+      "text": "Prism Release Studio",
+      "color": "#840000FF",
+      "orient_deg": 0.0,
+      "size_x_nm": 1500000,
+      "size_y_nm": 1500000,
+      "pen_width_nm": 300000,
+      "h_align": "GR_TEXT_H_ALIGN_LEFT",
+      "v_align": "GR_TEXT_V_ALIGN_CENTER",
+      "italic": false,
+      "bold": true,
+      "multiline": false,
+      "font_face": "Arial"
+    },
+    {
+      "kind": "text",
+      "x_nm": 301000000,
+      "y_nm": 264000000,
+      "text": "Document: assembly-top",
+      "color": "#840000FF",
+      "orient_deg": 0.0,
+      "size_x_nm": 1500000,
+      "size_y_nm": 1500000,
+      "pen_width_nm": 152400,
+      "h_align": "GR_TEXT_H_ALIGN_LEFT",
+      "v_align": "GR_TEXT_V_ALIGN_CENTER",
+      "italic": false,
+      "bold": false,
+      "multiline": false,
+      "font_face": "Arial"
+    },
+    {
+      "kind": "text",
+      "x_nm": 301000000,
+      "y_nm": 261000000,
+      "text": "Commit: 32e63e28c0de",
+      "color": "#840000FF",
+      "orient_deg": 0.0,
+      "size_x_nm": 1500000,
+      "size_y_nm": 1500000,
+      "pen_width_nm": 152400,
+      "h_align": "GR_TEXT_H_ALIGN_LEFT",
+      "v_align": "GR_TEXT_V_ALIGN_CENTER",
+      "italic": false,
+      "bold": false,
+      "multiline": false,
+      "font_face": "Arial"
+    },
+    {
+      "kind": "text",
+      "x_nm": 301000000,
+      "y_nm": 258000000,
+      "text": "Variant: default",
+      "color": "#840000FF",
+      "orient_deg": 0.0,
+      "size_x_nm": 1500000,
+      "size_y_nm": 1500000,
+      "pen_width_nm": 152400,
+      "h_align": "GR_TEXT_H_ALIGN_LEFT",
+      "v_align": "GR_TEXT_V_ALIGN_CENTER",
+      "italic": false,
+      "bold": false,
+      "multiline": false,
+      "font_face": "Arial"
+    },
+    {
+      "kind": "text",
+      "x_nm": 301000000,
+      "y_nm": 255000000,
+      "text": "Δ µΩ → 0.3 mm",
+      "color": "#840000FF",
+      "orient_deg": 0.0,
+      "size_x_nm": 1500000,
+      "size_y_nm": 1500000,
+      "pen_width_nm": 152400,
+      "h_align": "GR_TEXT_H_ALIGN_LEFT",
+      "v_align": "GR_TEXT_V_ALIGN_CENTER",
+      "italic": false,
+      "bold": false,
+      "multiline": false,
+      "font_face": "Arial"
+    },
+    {
+      "kind": "poly",
+      "points": [
+        {
+          "x_nm": 320000000,
+          "y_nm": 278500000
+        },
+        {
+          "x_nm": 320000000,
+          "y_nm": 281500000
+        }
+      ],
+      "fill": "NO_FILL",
+      "width_nm": 152400,
+      "stroke_color": "#840000FF"
+    },
+    {
+      "kind": "poly",
+      "points": [
+        {
+          "x_nm": 384000000,
+          "y_nm": 278500000
+        },
+        {
+          "x_nm": 384000000,
+          "y_nm": 285000000
+        }
+      ],
+      "fill": "NO_FILL",
+      "width_nm": 152400,
+      "stroke_color": "#840000FF"
+    }
+  ]
+}

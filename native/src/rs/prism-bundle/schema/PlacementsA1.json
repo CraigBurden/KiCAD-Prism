@@ -1,0 +1,427 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$id": "urn:prism:schema:prism.placements:a1",
+    "type": "object",
+    "properties": {
+        "schema": {
+            "type": "string",
+            "const": "prism.placements.a1",
+            "description": "Schema id of this document."
+        },
+        "footprints": {
+            "type": "array",
+            "items": {
+                "$ref": "#/$defs/PlacementsFootprint"
+            },
+            "description": "Every footprint of the board, in file order: the order of the top-level\n`(footprint …)` forms in the board file, whatever its attributes\n(board-only, DNP, excluded from the BOM or the position files). `uuid` is\nunique. A footprint whose `(uuid …)` is missing, not a canonical KiCadUuid, or repeats the uuid\nof an earlier footprint is left out and reported as a manifest warning;\nKiCad 9 and 10 never write such a board."
+        },
+        "designators": {
+            "type": "array",
+            "items": {
+                "$ref": "#/$defs/Refdes"
+            },
+            "description": "The distinct `reference` values of `footprints`, sorted in code point\norder, each once. Footprints without a `reference` contribute nothing.\nRelease Studio's designator set, and the names System Builder matches\ncomponent bodies in the component GLB by."
+        },
+        "outlineBounds": {
+            "$ref": "#/$defs/PlacementsBounds",
+            "description": "Board-absolute extent of the board-level `Edge.Cuts` graphics (the\ntop-level `gr_line`, `gr_rect`, `gr_circle`, `gr_arc`, `gr_poly` and\n`gr_curve` forms on `Edge.Cuts`), by the characteristic-point rule of\n`PlacementsBounds`, through line centres (stroke widths are ignored).\nEdge.Cuts graphics owned by footprints are not included. Absent when the\nboard has no such graphic, or the project has no board."
+        },
+        "auxAxisOrigin": {
+            "$ref": "#/$defs/PointNm",
+            "description": "a1: the board's auxiliary axis origin, `(setup (aux_axis_origin x y))`,\nboard-absolute. Position files measure from it (KiCad's \"Use drill/place\nfile origin\"; the JLCPCB CPL, ADR amendment C3 §3.3). Absent when the\nboard does not set one, which readers take as 0,0, or the project has no\nboard."
+        }
+    },
+    "required": [
+        "schema",
+        "footprints",
+        "designators"
+    ],
+    "unevaluatedProperties": {
+        "not": {}
+    },
+    "description": "Footprint placements of one board. Written once per bundle at stage\n`parse`; carries no provenance (bundle.json records it). When the project\nhas no board, `footprints` and `designators` are empty and `outlineBounds`\nis absent.",
+    "title": "Placements a1",
+    "$defs": {
+        "PlacementsFootprint": {
+            "type": "object",
+            "properties": {
+                "uuid": {
+                    "$ref": "#/$defs/KiCadUuid",
+                    "description": "The footprint's `(uuid …)`, as\nwritten. Unique in `footprints`. The same id as `prism.occurrences.a0`\n`footprints[*].uuid` and `prism.semantic_index.a1` `pcbRefs[*].footprintUuid`."
+                },
+                "reference": {
+                    "$ref": "#/$defs/Refdes",
+                    "description": "Reference designator as written: the value of the footprint's first\n`(property \"Reference\" …)`. Not trimmed. Absent when it is missing or\nempty."
+                },
+                "libId": {
+                    "$ref": "#/$defs/LibId",
+                    "description": "Library link: the first value of the `(footprint \"<lib id>\" …)` form, as\nwritten (`Resistor_SMD:R_0603_1608Metric`). Absent when it is empty."
+                },
+                "side": {
+                    "$ref": "#/$defs/Side",
+                    "description": "`back` when the footprint's `(layer …)` starts with `B.` (it is flipped), otherwise `front`, including when the form has no layer."
+                },
+                "positionNm": {
+                    "$ref": "#/$defs/PointNm",
+                    "description": "Board-absolute anchor of the footprint: the x and y of its\n`(at x y angle)`, converted to nanometres. (0, 0) when the form has no\n`(at …)`, as KiCad loads it."
+                },
+                "rotationDeg": {
+                    "$ref": "#/$defs/Degrees",
+                    "description": "Orientation of the footprint: the angle of its `(at x y angle)` as\nwritten, 0 when the form has none; not normalized (KiCad normally writes\nit in (-180, 180]). KiCad's convention: degrees counter-clockwise as the\nboard is seen from the front on screen, so in the y-down board frame a\nfootprint-local point (lx, ly) is at x = ax + lx·cos θ + ly·sin θ,\ny = ay − lx·sin θ + ly·cos θ, where (ax, ay) is `positionNm`. The same\nformula holds on the back: KiCad writes a back-side footprint's children\nalready mirrored."
+                },
+                "dnp": {
+                    "type": "boolean",
+                    "description": "True when the footprint's `(attr …)` holds `dnp`: do not populate, by the board's own attribute, before any variant is applied."
+                },
+                "excludeFromPosFiles": {
+                    "type": "boolean",
+                    "description": "True when the footprint's `(attr …)` holds `exclude_from_pos_files`: KiCad's position file leaves it out."
+                },
+                "courtyardBounds": {
+                    "$ref": "#/$defs/PlacementsBounds",
+                    "description": "Footprint-local extent of the footprint's courtyard: its graphics on\n`F.CrtYd` and `B.CrtYd` together, by the characteristic-point rule of\n`PlacementsBounds`, through line centres, in the frame the file writes\nthem in (relative to the anchor, before the footprint's rotation; for a\nback-side footprint already mirrored), y down. Absent when the footprint\nhas no courtyard graphic."
+                },
+                "pads": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/$defs/PlacementsPad"
+                    },
+                    "description": "The footprint's pads, in file order (the order of its `(pad …)` forms).\nNumbers may repeat and may be empty. Empty when it has no pad."
+                },
+                "models": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/$defs/PlacementsModel"
+                    },
+                    "description": "The footprint's 3D model references, in file order (the order of its\n`(model …)` forms), hidden ones included. The first with `hidden` false\nis System Builder's model. A `(model \"\")` with an empty path is left\nout. Empty when it has none."
+                },
+                "sourceSpan": {
+                    "$ref": "#/$defs/PlacementsSourceSpan",
+                    "description": "Where the footprint's `(footprint …)` form is in the board file's bytes\nas committed, so a reader can copy the form without parsing the board."
+                }
+            },
+            "required": [
+                "uuid",
+                "side",
+                "positionNm",
+                "rotationDeg",
+                "dnp",
+                "excludeFromPosFiles",
+                "pads",
+                "models",
+                "sourceSpan"
+            ],
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "One footprint placed on the board: its identity, placement and coarse geometry."
+        },
+        "Refdes": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Reference designator as KiCad resolves it for one symbol instance or\nfootprint, for example `R1`, `U3`, `#PWR01` or `R?`. Always a string. A\ncontract states whether it includes virtual (`#`) and unannotated (`?`)\nreferences."
+        },
+        "PlacementsBounds": {
+            "type": "object",
+            "properties": {
+                "minNm": {
+                    "$ref": "#/$defs/PointNm",
+                    "description": "The minimum x and the minimum y (the top-left corner, since +y is down)."
+                },
+                "maxNm": {
+                    "$ref": "#/$defs/PointNm",
+                    "description": "The maximum x and the maximum y (the bottom-right corner)."
+                }
+            },
+            "required": [
+                "minNm",
+                "maxNm"
+            ],
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "An axis-aligned extent in nanometres: the minimum and maximum x and y over\nthe characteristic points of a set of graphics, each point computed in\nbinary64 millimetres from the parsed values and converted to nanometres;\nany transcendental function (atan2, sin, cos) is the pure-Rust `libm`\ncrate's, so the result is the same on every architecture.\nThe points of each graphic are: for a line or a rectangle, its start and\nend; for a circle with centre c through point e, c − (r, r) and c + (r, r)\nwith r = hypot(e − c); for an arc, its start, mid and end plus every point\nat 0°, 90°, 180° or 270° on its circle that it sweeps through; for a\npolygon, its vertices (an `(arc …)` element inside `pts` by the arc rule);\nfor a Bézier curve, its four control points. The frame (board-absolute or\nfootprint-local) is given by the field that holds it."
+        },
+        "PointNm": {
+            "type": "object",
+            "properties": {
+                "xNm": {
+                    "$ref": "#/$defs/Nanometres",
+                    "description": "X coordinate in nanometres, +x to the right."
+                },
+                "yNm": {
+                    "$ref": "#/$defs/Nanometres",
+                    "description": "Y coordinate in nanometres, +y down."
+                }
+            },
+            "required": [
+                "xNm",
+                "yNm"
+            ],
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "A point in nanometres in KiCad's board frame: +x to the right, +y down, as\nin the file and never flipped. The field holding the point states whether\nit is board-absolute or footprint-local. For camelCase (projection)\ndocuments only."
+        },
+        "KiCadUuid": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+            "description": "KiCad object UUID in the canonical form KiCad writes (`KIID::AsString`):\nlowercase hexadecimal, 8-4-4-4-12. Copied from the file, never generated\nor re-cased."
+        },
+        "LibId": {
+            "type": "string",
+            "minLength": 1,
+            "description": "KiCad library identifier as written in the file: `<nickname>:<name>` for a\nsymbol (`Device:R`) or a footprint (`Resistor_SMD:R_0603_1608Metric`). The\nnickname may be absent when the file has none."
+        },
+        "Side": {
+            "type": "string",
+            "enum": [
+                "front",
+                "back"
+            ],
+            "description": "Board side of a footprint, pad or graphic."
+        },
+        "Degrees": {
+            "type": "number",
+            "description": "Angle in degrees. In new documents it is as written in the KiCad file:\nnot normalized, not rounded. A parity document may round it as today's\noutput does, and its field says so. A positive angle is a counter-clockwise rotation as KiCad shows\nit on the front side. Each field states the frame its angle is in."
+        },
+        "PlacementsPad": {
+            "type": "object",
+            "properties": {
+                "number": {
+                    "$ref": "#/$defs/PadNumber",
+                    "description": "The pad number as written; empty for an unnumbered pad (typically a mechanical hole)."
+                },
+                "type": {
+                    "$ref": "#/$defs/PlacementsPadType",
+                    "description": "The pad's type token."
+                },
+                "shape": {
+                    "$ref": "#/$defs/PlacementsPadShape",
+                    "description": "The pad's shape token."
+                },
+                "positionNm": {
+                    "$ref": "#/$defs/PointNm",
+                    "description": "Board-absolute anchor of the pad, computed as KiCad's parser places it\n(`PAD::SetFPRelativePosition`, `RotatePoint`): the pad's footprint-local\n`(at x y …)` converted to integer nanometres, rotated by the footprint's\n`rotationDeg` normalized to [0, 360) — exactly (integer swaps) at 0, 90,\n180 and 270, with sin and cos taken as KiCad's `EDA_ANGLE` does (0, ±1,\n±√½ at multiples of 45°, otherwise sin and cos of the angle in radians\nthrough the pure-Rust `libm` crate) and each coordinate rounded half away\nfrom zero — then added to the footprint's integer `positionNm`. The\nrotation is the formula at `rotationDeg`. Equal to KiCad's own pad\nposition on every architecture."
+                },
+                "size": {
+                    "$ref": "#/$defs/PlacementsPadSize",
+                    "description": "The pad's `(size x y)`, in the pad's own frame before its rotation."
+                }
+            },
+            "required": [
+                "number",
+                "type",
+                "shape",
+                "positionNm",
+                "size"
+            ],
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "One pad of a footprint: its number, type, shape, board-absolute anchor and size."
+        },
+        "PlacementsModel": {
+            "type": "object",
+            "properties": {
+                "path": {
+                    "type": "string",
+                    "minLength": 1,
+                    "description": "The model path exactly as written: not resolved, variables such as\n`${KICAD9_3DMODEL_DIR}` and `${KIPRJMOD}` and `kicad-embed://` names\nkept."
+                },
+                "hidden": {
+                    "type": "boolean",
+                    "description": "True when the form has `(hide yes)` or a bare `hide`; false when it has `(hide no)` or no hide token."
+                },
+                "offset": {
+                    "$ref": "#/$defs/PlacementsModelOffset",
+                    "description": "The model's offset."
+                },
+                "rotation": {
+                    "$ref": "#/$defs/PlacementsModelRotation",
+                    "description": "The model's rotation."
+                },
+                "scale": {
+                    "$ref": "#/$defs/PlacementsModelScale",
+                    "description": "The model's scale."
+                }
+            },
+            "required": [
+                "path",
+                "hidden",
+                "offset",
+                "rotation",
+                "scale"
+            ],
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "One `(model …)` reference of a footprint, unresolved, with the transform\nKiCad applies to the model in its 3D frame relative to the footprint."
+        },
+        "PlacementsSourceSpan": {
+            "type": "object",
+            "properties": {
+                "offsetBytes": {
+                    "$ref": "#/$defs/ByteCount",
+                    "description": "Offset of the opening `(` from the start of the file, in bytes."
+                },
+                "lengthBytes": {
+                    "$ref": "#/$defs/PlacementsFormLength",
+                    "description": "Length of the form in bytes, through its closing `)`."
+                }
+            },
+            "required": [
+                "offsetBytes",
+                "lengthBytes"
+            ],
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "A byte range of the board file as committed: the bytes from the opening\n`(` of a form to its closing `)`, both included."
+        },
+        "Nanometres": {
+            "type": "integer",
+            "description": "Length or coordinate in integer nanometres, KiCad's internal board unit.\nConverted from the file's decimal millimetres as KiCad's own parser does:\nthe double product value_mm * 1e6, rounded half away from zero. A single\ncoordinate or dimension fits KiCad's 32-bit range; sums (for example a\nnet's total track length) may not, hence a safe integer (|n| < 2^53)."
+        },
+        "PadNumber": {
+            "type": "string",
+            "description": "Pad or pin number as written in the file, always a string (`1`, `A1`,\n`EP`). Empty for a pad KiCad leaves unnumbered, such as a mechanical\nnon-plated hole."
+        },
+        "PlacementsPadType": {
+            "type": "string",
+            "enum": [
+                "thru_hole",
+                "smd",
+                "connect",
+                "np_thru_hole"
+            ],
+            "description": "A pad's type: the second token of its `(pad \"<number>\" <type> <shape> …)`\nform, spelled exactly as KiCad writes it. KiCad rejects any other token."
+        },
+        "PlacementsPadShape": {
+            "type": "string",
+            "enum": [
+                "circle",
+                "rect",
+                "oval",
+                "trapezoid",
+                "roundrect",
+                "custom"
+            ],
+            "description": "A pad's shape: the third token of its `(pad …)` form, spelled exactly as\nKiCad writes it. A chamfered rectangle is `roundrect` with a chamfer in\nthe file. KiCad rejects any other token."
+        },
+        "PlacementsPadSize": {
+            "type": "object",
+            "properties": {
+                "xNm": {
+                    "$ref": "#/$defs/NonNegativeNanometres",
+                    "description": "Width: the first value of `(size x y)`."
+                },
+                "yNm": {
+                    "$ref": "#/$defs/NonNegativeNanometres",
+                    "description": "Height: the second value of `(size x y)`."
+                }
+            },
+            "required": [
+                "xNm",
+                "yNm"
+            ],
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "The `(size x y)` of a pad, in nanometres."
+        },
+        "PlacementsModelOffset": {
+            "type": "object",
+            "properties": {
+                "xNm": {
+                    "$ref": "#/$defs/Nanometres",
+                    "description": "X offset."
+                },
+                "yNm": {
+                    "$ref": "#/$defs/Nanometres",
+                    "description": "Y offset."
+                },
+                "zNm": {
+                    "$ref": "#/$defs/Nanometres",
+                    "description": "Z offset."
+                }
+            },
+            "required": [
+                "xNm",
+                "yNm",
+                "zNm"
+            ],
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "A model's `(offset (xyz x y z))`, millimetres in the file, converted to\nnanometres; a pre-KiCad 5 `(at (xyz …))` in inches is converted ×25.4\nfirst, as KiCad does. (0, 0, 0) when the form has neither. Copied in\nKiCad's 3D model frame, not converted to the board frame."
+        },
+        "PlacementsModelRotation": {
+            "type": "object",
+            "properties": {
+                "xDeg": {
+                    "$ref": "#/$defs/Degrees",
+                    "description": "Rotation about x."
+                },
+                "yDeg": {
+                    "$ref": "#/$defs/Degrees",
+                    "description": "Rotation about y."
+                },
+                "zDeg": {
+                    "$ref": "#/$defs/Degrees",
+                    "description": "Rotation about z."
+                }
+            },
+            "required": [
+                "xDeg",
+                "yDeg",
+                "zDeg"
+            ],
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "A model's `(rotate (xyz x y z))` as written, degrees about each axis of KiCad's 3D model frame; 0 for each when the form is absent."
+        },
+        "PlacementsModelScale": {
+            "type": "object",
+            "properties": {
+                "x": {
+                    "type": "number",
+                    "description": "Scale along x."
+                },
+                "y": {
+                    "type": "number",
+                    "description": "Scale along y."
+                },
+                "z": {
+                    "type": "number",
+                    "description": "Scale along z."
+                }
+            },
+            "required": [
+                "x",
+                "y",
+                "z"
+            ],
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "A model's `(scale (xyz x y z))` as written, unitless factors; 1 for each when the form is absent."
+        },
+        "ByteCount": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "A size in bytes: a non-negative safe integer."
+        },
+        "PlacementsFormLength": {
+            "type": "integer",
+            "minimum": 2,
+            "description": "The length of a form in bytes: at least 2, for `(` and `)`."
+        },
+        "NonNegativeNanometres": {
+            "type": "integer",
+            "description": "A Nanometres value that is never negative: a thickness, width, diameter or length.",
+            "minimum": 0
+        }
+    }
+}

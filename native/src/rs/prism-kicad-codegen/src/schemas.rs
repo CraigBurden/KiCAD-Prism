@@ -109,7 +109,7 @@ pub const SCHEMAS: [(&str, &str); 76] = [
         "prism_drawing_sheet_request_a0.rs",
     ),
     ("OccurrencesA0.json", "prism_occurrences_a0.rs"),
-    ("PlacementsA0.json", "prism_placements_a0.rs"),
+    ("PlacementsA1.json", "prism_placements_a1.rs"),
     ("ProjectA0.json", "prism_project_a0.rs"),
     (
         "RevisionKeyEffectiveConfigA1.json",

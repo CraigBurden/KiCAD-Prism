@@ -16,6 +16,10 @@
             "$ref": "#/$defs/CliReleaseVersion",
             "description": "Version of the parser core crate (`ENGINE_VERSION`, the fork's `kicad-monkey-core`, `prism-kicad-core` after WP-F2)."
         },
+        "hlr_procedure": {
+            "$ref": "#/$defs/CliHlrProcedure",
+            "description": "The procedure stage `models` uses for `models/assembly-hlr.json`: the Geometer runtime and the HLR options (cli-spec.md §5.2.4)."
+        },
         "kicad_file_formats": {
             "$ref": "#/$defs/CliKicadFileFormats",
             "description": "The current file formats of `kicad_version`: the `(version N)` KiCad\nwrites. Sources older than them are upgraded before stage `parse`\n(cli-spec.md §9.4), and the parser reads only these formats, so they\ndecide every parsed member's bytes. Raised with `kicad_version`."
@@ -55,6 +59,7 @@
         "schema",
         "crate_version",
         "engine_version",
+        "hlr_procedure",
         "kicad_file_formats",
         "kicad_version",
         "member_schemas",
@@ -73,6 +78,27 @@
             "type": "string",
             "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$",
             "description": "A release version of three dot-separated decimal numbers without leading\nzeros, for example `0.1.0` (SemVer), `2026.9.7` (the fork's CalVer) or\n`10.0.6` (KiCad, as `kicad-cli version` prints it). Printable ASCII only,\nwhich keeps the generator id's canonical form unambiguous (cli-spec.md §5.1)."
+        },
+        "CliHlrProcedure": {
+            "type": "object",
+            "properties": {
+                "geometer_version": {
+                    "$ref": "#/$defs/CliReleaseVersion",
+                    "description": "The Geometer runtime's release version, exactly as its welcome reports it, for example `2026.9.19`. `--geometer` must report this version or exit 7."
+                },
+                "options": {
+                    "$ref": "#/$defs/CliHlrOptionsProcedure",
+                    "description": "The HLR option set every projection used."
+                }
+            },
+            "required": [
+                "geometer_version",
+                "options"
+            ],
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "The procedure stage `models` uses for `models/assembly-hlr.json`\n(cli-spec.md §5.2.4): the Geometer runtime release and the HLR option set.\nChanging either is a generator bump."
         },
         "CliKicadFileFormats": {
             "type": "object",
@@ -140,6 +166,13 @@
                 "kicad-seeded-upgrade-a0"
             ],
             "description": "The source-upgrade procedure the backend runs before stage `parse`\n(cli-spec.md §9.4). Pinned in the generator id because its output is the\nbytes of upgraded source members."
+        },
+        "CliHlrOptionsProcedure": {
+            "type": "string",
+            "enum": [
+                "assembly-hlr-a0"
+            ],
+            "description": "The HLR option set stage `models` passes to Geometer for every footprint\n(`models/assembly-hlr.json`'s `options`), as one versioned token: changing\nany option changes the token, and with it the generator id (cli-spec.md\n§5.2.4)."
         },
         "ArchivePath": {
             "type": "string",

@@ -12,7 +12,6 @@ from .generate import generate_vendor_outputs
 from .pack import VendorPackError, build_vendor_pack, vendor_pack_readiness
 from .registry import (
     DEFAULT_VENDORS,
-    VendorArtifacts,
     VendorProfile,
     known_vendor_ids,
     profile_by_id,
@@ -24,9 +23,8 @@ from .registry import (
 
 __all__ = [
     "DEFAULT_VENDORS",
-    "VendorArtifacts",
-    "VendorPackError",
     "VendorProfile",
+    "VendorPackError",
     "build_vendor_pack",
     "vendor_pack_readiness",
     "generate_vendor_outputs",

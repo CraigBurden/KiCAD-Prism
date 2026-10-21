@@ -16,7 +16,7 @@ import "./design-compare-a1.tsp";
 import "./drawing-sheet-a0.tsp";
 import "./kicad-project-diff-v1.tsp";
 import "./occurrences-a0.tsp";
-import "./placements-a0.tsp";
+import "./placements-a1.tsp";
 import "./project-a0.tsp";
 import "./revision-key-a1.tsp";
 import "./route-metrics-a0.tsp";

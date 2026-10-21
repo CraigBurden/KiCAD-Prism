@@ -118,6 +118,7 @@
                 "include-unchanged",
                 "view",
                 "variant",
+                "paper-scale",
                 "vendor",
                 "request",
                 "metrics",

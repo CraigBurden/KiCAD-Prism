@@ -21,8 +21,22 @@ from typing import Iterable, Literal, Sequence
 
 from app.release_studio.documents.fonts import (
     DEFAULT_TYPOGRAPHY,
+    StrokeTextBatch,
+    StrokeTextRun,
     advance_width,
+    cap_height,
+    is_newstroke,
+    render_stroke_text,
     typography_preset,
+)
+from app.release_studio.documents.style import (
+    DEFAULT_SHEET_STYLE,
+    HEAD,
+    INK,
+    PRISM_STYLE,
+    RULE,
+    STRIPE,
+    sheet_style as normalize_sheet_style,
 )
 
 # ISO A and ANSI sheet sizes in millimetres, landscape (width, height).
@@ -58,22 +72,50 @@ PREFERRED_SCALES: tuple[float, ...] = (
     10.0, 5.0, 2.0, 1.0, 0.5, 0.2, 0.1, 0.05, 0.02, 0.01,
 )
 
+#: The ISO 5455 series including its intermediate ratios, largest first.
+#:
+#: ``kicad`` keeps :data:`PREFERRED_SCALES` because that ladder is what today's
+#: released sheets were placed with.  ``prism`` uses the full series: a 58 mm
+#: board on A3 has room for 3:1, and stating 2:1 because the ladder had no rung
+#: between 2 and 5 leaves two thirds of the window empty.
+PRISM_SCALES: tuple[float, ...] = (
+    10.0, 8.0, 6.0, 5.0, 4.0, 3.0, 2.5, 2.0, 1.5, 1.0,
+    1.0 / 1.5, 1.0 / 2.0, 1.0 / 2.5, 1.0 / 3.0, 1.0 / 4.0,
+    1.0 / 5.0, 1.0 / 6.0, 1.0 / 8.0, 1.0 / 10.0,
+    1.0 / 20.0, 1.0 / 50.0, 1.0 / 100.0,
+)
 
-def preferred_scale(view_width: float, view_height: float, window: "Rect") -> float:
+#: Clearance a ``prism`` placement leaves inside the artwork window, in mm.
+PRISM_SCALE_MARGIN = 10.0
+
+
+def preferred_scale(
+    view_width: float,
+    view_height: float,
+    window: "Rect",
+    *,
+    ladder: Sequence[float] = PREFERRED_SCALES,
+    margin: float = 0.0,
+) -> float:
     """The largest preferred ratio at which *view* fits inside *window*.
 
-    Falls back to an exact fit only when the artwork is too large for even the
-    smallest preferred reduction, which on an A0 sheet means a board over ten
-    metres across.  The ratio is reported either way, so a sheet never claims a
-    scale it was not placed at.
+    *margin* keeps that many millimetres clear on every side, so the artwork
+    does not sit flush against the frame.  Falls back to an exact fit only when
+    the artwork is too large for even the smallest preferred reduction, which on
+    an A0 sheet means a board over ten metres across.  The ratio is reported
+    either way, so a sheet never claims a scale it was not placed at.
     """
 
     if view_width <= 0 or view_height <= 0:
         raise ValueError("artwork has no extent to scale")
-    for ratio in PREFERRED_SCALES:
-        if view_width * ratio <= window.width and view_height * ratio <= window.height:
+    usable_width = window.width - 2 * margin
+    usable_height = window.height - 2 * margin
+    if usable_width <= 0 or usable_height <= 0:
+        usable_width, usable_height = window.width, window.height
+    for ratio in ladder:
+        if view_width * ratio <= usable_width and view_height * ratio <= usable_height:
             return ratio
-    return min(window.width / view_width, window.height / view_height)
+    return min(usable_width / view_width, usable_height / view_height)
 
 Anchor = Literal["start", "middle", "end"]
 Family = Literal["display", "sans", "mono"]
@@ -214,6 +256,10 @@ class Artwork:
     source_digest: str
     svg_body: str = ""
     label: str = ""
+    #: Set by the ``prism`` style so both backends draw the same light window
+    #: border.  Empty keeps today's ``kicad`` rendering, whose SVG has no border
+    #: and whose PDF draws its own grey one.
+    border_colour: str = ""
 
 
 Element = Line | Rectangle | Text | Polyline | Image | Artwork
@@ -227,6 +273,7 @@ class Sheet:
     title: str
     size: str
     typography: str = DEFAULT_TYPOGRAPHY
+    style: str = DEFAULT_SHEET_STYLE
     elements: tuple[Element, ...] = ()
 
     @property
@@ -256,6 +303,7 @@ class SheetBuilder:
         size: str = "A3",
         *,
         typography: str = DEFAULT_TYPOGRAPHY,
+        sheet_style: str = DEFAULT_SHEET_STYLE,
     ) -> None:
         if size not in SHEET_SIZES:
             raise ValueError(f"unknown sheet size: {size!r}")
@@ -264,6 +312,7 @@ class SheetBuilder:
         self.title = title
         self.size = size
         self.typography = typography
+        self.sheet_style = normalize_sheet_style(sheet_style)
         self._elements: list[Element] = []
 
     @property
@@ -295,6 +344,7 @@ class SheetBuilder:
             title=self.title,
             size=self.size,
             typography=self.typography,
+            style=self.sheet_style,
             elements=tuple(self._elements),
         )
 
@@ -302,6 +352,41 @@ class SheetBuilder:
 # ---------------------------------------------------------------------------
 # Text metrics
 # ---------------------------------------------------------------------------
+
+def stroke_text_runs(sheets: Sequence[Sheet]) -> list[StrokeTextRun]:
+    """Every NewStroke run drawn across *sheets*, in draw order."""
+
+    runs: list[StrokeTextRun] = []
+    for sheet in sheets:
+        if not is_newstroke(sheet.typography):
+            continue
+        for element in sheet.elements:
+            if not isinstance(element, Text) or not element.value:
+                continue
+            for index, row in enumerate(element.value.splitlines() or [""]):
+                if not row:
+                    continue
+                runs.append(
+                    (
+                        row,
+                        element.x,
+                        element.y + index * element.size * 1.2,
+                        element.size,
+                        element.anchor,
+                    )
+                )
+    return runs
+
+
+def stroke_text_batch(sheets: Sequence[Sheet]) -> StrokeTextBatch:
+    """Resolve every NewStroke run of *sheets* in one ``stroke-text`` call.
+
+    A document's pages are passed together, so its lettering reaches the CLI
+    once rather than once per page or per string.
+    """
+
+    return render_stroke_text(stroke_text_runs(sheets))
+
 
 def text_width(
     value: str,
@@ -316,6 +401,29 @@ def text_width(
     return advance_width(
         value, size, role=family, bold=bold, typography=typography
     )
+
+
+def centred_baseline(
+    top: float,
+    height: float,
+    size: float,
+    *,
+    family: Family = "sans",
+    bold: bool = False,
+    typography: str = DEFAULT_TYPOGRAPHY,
+    lines: int = 1,
+    pitch: float = 0.0,
+) -> float:
+    """The first baseline that centres *lines* of text in a band.
+
+    Centring the ink, not the em box: a run of capitals and figures occupies
+    the cap height above its baseline, so the band's slack is split above the
+    first line's capitals and below the last line's baseline.
+    """
+
+    cap = cap_height(size, role=family, bold=bold, typography=typography)
+    block = cap + max(lines - 1, 0) * pitch
+    return top + (height - block) / 2.0 + cap
 
 
 def fit_text(
@@ -569,19 +677,29 @@ class Table:
     def header_height(self) -> float:
         return self.row_height + (5.0 if self.title else 0.0)
 
-    def height(self, typography: str = DEFAULT_TYPOGRAPHY) -> float:
+    def height(
+        self,
+        typography: str = DEFAULT_TYPOGRAPHY,
+        sheet_style: str = DEFAULT_SHEET_STYLE,
+    ) -> float:
         return self.header_height() + sum(
-            self.row_extent(row, typography) for row in self.rows
+            self.row_extent(row, typography, sheet_style) for row in self.rows
         )
 
-    def row_extent(self, row: Sequence[str], typography: str = DEFAULT_TYPOGRAPHY) -> float:
+    def row_extent(
+        self,
+        row: Sequence[str],
+        typography: str = DEFAULT_TYPOGRAPHY,
+        sheet_style: str = DEFAULT_SHEET_STYLE,
+    ) -> float:
         """How tall one data row must be once its cells are wrapped."""
 
+        boxed = self.bordered or normalize_sheet_style(sheet_style) == PRISM_STYLE
         lines = 1
         for value, width in zip(row, self.widths):
             wrapped = wrap_cell(
                 str(value),
-                _cell_wrap_width(width, self.font_size, bordered=self.bordered),
+                _cell_wrap_width(width, self.font_size, bordered=boxed),
                 self.font_size,
                 family=self.cell_family,
                 typography=typography,
@@ -616,7 +734,10 @@ class Table:
         return replace(self, rows=tuple(tuple(row) for row in rows), continued=continued)
 
     def split(
-        self, budget: float, typography: str = DEFAULT_TYPOGRAPHY
+        self,
+        budget: float,
+        typography: str = DEFAULT_TYPOGRAPHY,
+        sheet_style: str = DEFAULT_SHEET_STYLE,
     ) -> tuple["Table | None", "Table | None"]:
         """Divide this table so the head fits in *budget* millimetres.
 
@@ -631,7 +752,7 @@ class Table:
 
         cursor = self.header_height()
         for index, row in enumerate(self.rows):
-            extent = self.row_extent(row, typography)
+            extent = self.row_extent(row, typography, sheet_style)
             if cursor + extent > budget:
                 if index == 0:
                     return None, self
@@ -643,10 +764,14 @@ class Table:
         return self, None
 
 
-def _column_height(tables: Sequence[Table], gap: float) -> float:
+def _column_height(
+    tables: Sequence[Table], gap: float, sheet_style: str = DEFAULT_SHEET_STYLE
+) -> float:
     if not tables:
         return 0.0
-    return sum(table.height() for table in tables) + gap * (len(tables) - 1)
+    return sum(table.height(sheet_style=sheet_style) for table in tables) + gap * (
+        len(tables) - 1
+    )
 
 
 #: How finely the fit search narrows the scale factor.  Twelve halvings take
@@ -654,13 +779,24 @@ def _column_height(tables: Sequence[Table], gap: float) -> float:
 _FIT_STEPS = 12
 
 
-def _fits(columns: Sequence[Sequence[Table]], factor: float, area: "Rect", gap: float) -> bool:
+def _fits(
+    columns: Sequence[Sequence[Table]],
+    factor: float,
+    area: "Rect",
+    gap: float,
+    sheet_style: str = DEFAULT_SHEET_STYLE,
+) -> bool:
     """Would every column fit *area* at *factor*, measured rather than predicted?"""
 
     for column in columns:
         if not column:
             continue
-        if _column_height([table.scaled(factor) for table in column], gap) > area.height:
+        if (
+            _column_height(
+                [table.scaled(factor) for table in column], gap, sheet_style
+            )
+            > area.height
+        ):
             return False
     return True
 
@@ -672,6 +808,7 @@ def fit_columns(
     gap: float = 6.0,
     column_gap: float = 10.0,
     min_font: float = MIN_TABLE_FONT,
+    sheet_style: str = DEFAULT_SHEET_STYLE,
 ) -> tuple[list[list[Table]], float]:
     """Scale *columns* of stacked tables to sit inside *area*.
 
@@ -686,7 +823,12 @@ def fit_columns(
     """
 
     fitted, _overflow, factor = split_columns(
-        columns, area, gap=gap, column_gap=column_gap, min_font=min_font
+        columns,
+        area,
+        gap=gap,
+        column_gap=column_gap,
+        min_font=min_font,
+        sheet_style=sheet_style,
     )
     return fitted, factor
 
@@ -698,6 +840,7 @@ def split_columns(
     gap: float = 6.0,
     column_gap: float = 10.0,
     min_font: float = MIN_TABLE_FONT,
+    sheet_style: str = DEFAULT_SHEET_STYLE,
 ) -> tuple[list[list[Table]], list[Table], float]:
     """Fit what *area* can hold and hand back the rest.
 
@@ -730,14 +873,14 @@ def split_columns(
     ceiling = min(1.0, area.width / needed_width)
     low = min(floor, ceiling)
 
-    if _fits(columns, ceiling, area, gap):
+    if _fits(columns, ceiling, area, gap, sheet_style):
         factor = ceiling
     else:
         factor = low
         lo, hi = low, ceiling
         for _ in range(_FIT_STEPS):
             middle = (lo + hi) / 2
-            if _fits(columns, middle, area, gap):
+            if _fits(columns, middle, area, gap, sheet_style):
                 factor, lo = middle, middle
             else:
                 hi = middle
@@ -754,10 +897,12 @@ def split_columns(
                 overflow.append(table)
                 continue
             budget = area.height - cursor - (gap if kept else 0.0)
-            head, tail = table.split(budget)
+            head, tail = table.split(budget, sheet_style=sheet_style)
             if head is not None:
                 kept.append(head)
-                cursor += head.height() + (gap if len(kept) > 1 else 0.0)
+                cursor += head.height(sheet_style=sheet_style) + (
+                    gap if len(kept) > 1 else 0.0
+                )
             if tail is not None:
                 overflow.append(tail)
                 spilling = True
@@ -771,10 +916,13 @@ def fit_tables(
     *,
     gap: float = 6.0,
     min_font: float = MIN_TABLE_FONT,
+    sheet_style: str = DEFAULT_SHEET_STYLE,
 ) -> tuple[list[Table], float]:
     """Scale one stacked column of tables to sit inside *area*."""
 
-    fitted, factor = fit_columns([tables], area, gap=gap, min_font=min_font)
+    fitted, factor = fit_columns(
+        [tables], area, gap=gap, min_font=min_font, sheet_style=sheet_style
+    )
     return fitted[0], factor
 
 
@@ -825,25 +973,41 @@ def draw_table(builder: SheetBuilder, table: Table, origin: tuple[float, float])
 
     x0, y0 = origin
     cursor = y0
+    prism = builder.sheet_style == PRISM_STYLE
+    boxed = table.bordered or prism
+    ink = {"colour": INK} if prism else {}
 
     if table.title:
         builder.text(
-            x0, cursor + 3.2, table.heading, size=3.0, family="display"
+            x0, cursor + 3.2, table.heading, size=3.0, family="display", **ink
         )
         cursor += 5.0
 
     aligns = table.align or tuple("start" for _ in table.columns)
     total_width = sum(table.widths)
     grid_top = cursor
-    header_baseline = cursor + table.row_height - 1.4
+    if prism:
+        # The header band sits under the header text, over the full grid.
+        builder.rect(
+            Rect(x0, grid_top, total_width, table.row_height),
+            width=0.0,
+            colour="none",
+            fill=HEAD,
+        )
+    if prism:
+        header_baseline = centred_baseline(
+            cursor, table.row_height, table.font_size, bold=True, typography=builder.typography
+        )
+    else:
+        header_baseline = cursor + table.row_height - 1.4
     offset = x0
     for column, width, align in zip(table.columns, table.widths, aligns):
         builder.text(
-            _cell_anchor(offset, width, align, table.font_size, bordered=table.bordered),
+            _cell_anchor(offset, width, align, table.font_size, bordered=boxed),
             header_baseline,
             fit_text(
                 column,
-                _cell_wrap_width(width, table.font_size, bordered=table.bordered),
+                _cell_wrap_width(width, table.font_size, bordered=boxed),
                 table.font_size,
                 bold=True,
                 typography=builder.typography,
@@ -851,48 +1015,87 @@ def draw_table(builder: SheetBuilder, table: Table, origin: tuple[float, float])
             size=table.font_size,
             anchor=align,
             bold=True,
+            **ink,
         )
         offset += width
     cursor += table.row_height
-    if not table.bordered:
+    if not boxed:
         builder.line(x0, cursor - 0.8, x0 + total_width, cursor - 0.8, width=0.3)
 
     row_stops = [cursor]
-    for row in table.rows:
+    for row_index, row in enumerate(table.rows):
         offset = x0
-        row_height = table.row_extent(row, builder.typography)
+        row_height = table.row_extent(row, builder.typography, builder.sheet_style)
+        if prism and row_index % 2 == 1:
+            builder.rect(
+                Rect(x0, cursor, total_width, row_height),
+                width=0.0,
+                colour="none",
+                fill=STRIPE,
+            )
         line_pitch = table.font_size * 1.35
         for value, width, align in zip(row, table.widths, aligns):
             lines = wrap_cell(
                 str(value),
-                _cell_wrap_width(width, table.font_size, bordered=table.bordered),
+                _cell_wrap_width(width, table.font_size, bordered=boxed),
                 table.font_size,
                 family=table.cell_family,
                 typography=builder.typography,
                 max_lines=table.max_cell_lines,
             )
+            if prism:
+                first = centred_baseline(
+                    cursor,
+                    row_height,
+                    table.font_size,
+                    family=table.cell_family,
+                    typography=builder.typography,
+                    lines=len(lines),
+                    pitch=line_pitch,
+                )
+            else:
+                first = cursor + table.font_size
             for line_index, line in enumerate(lines):
                 builder.text(
-                    _cell_anchor(offset, width, align, table.font_size, bordered=table.bordered),
-                    cursor + table.font_size + line_index * line_pitch,
+                    _cell_anchor(offset, width, align, table.font_size, bordered=boxed),
+                    first + line_index * line_pitch,
                     line,
                     size=table.font_size,
                     anchor=align,
                     family=table.cell_family,
+                    **ink,
                 )
             offset += width
         cursor += row_height
         row_stops.append(cursor)
 
-    if table.bordered:
-        builder.rect(Rect(x0, grid_top, total_width, cursor - grid_top), width=0.3)
-        builder.line(x0, row_stops[0], x0 + total_width, row_stops[0], width=0.3)
-        for stop in row_stops[1:-1]:
-            builder.line(x0, stop, x0 + total_width, stop, width=0.2, colour="#666666")
-        col_x = x0
-        for width in table.widths[:-1]:
-            col_x += width
-            builder.line(col_x, grid_top, col_x, cursor, width=0.2, colour="#666666")
+    if boxed:
+        if prism:
+            builder.rect(
+                Rect(x0, grid_top, total_width, cursor - grid_top),
+                width=0.3,
+                colour=INK,
+            )
+            builder.line(
+                x0, row_stops[0], x0 + total_width, row_stops[0], width=0.15, colour=RULE
+            )
+            for stop in row_stops[1:-1]:
+                builder.line(
+                    x0, stop, x0 + total_width, stop, width=0.15, colour=RULE
+                )
+            col_x = x0
+            for width in table.widths[:-1]:
+                col_x += width
+                builder.line(col_x, grid_top, col_x, cursor, width=0.15, colour=RULE)
+        else:
+            builder.rect(Rect(x0, grid_top, total_width, cursor - grid_top), width=0.3)
+            builder.line(x0, row_stops[0], x0 + total_width, row_stops[0], width=0.3)
+            for stop in row_stops[1:-1]:
+                builder.line(x0, stop, x0 + total_width, stop, width=0.2, colour="#666666")
+            col_x = x0
+            for width in table.widths[:-1]:
+                col_x += width
+                builder.line(col_x, grid_top, col_x, cursor, width=0.2, colour="#666666")
 
     return cursor
 
@@ -932,15 +1135,16 @@ def draw_notes(
 
     x0, y0 = origin
     cursor = y0
+    ink = {"colour": INK} if builder.sheet_style == PRISM_STYLE else {}
     if title:
-        builder.text(x0, cursor + 3.2, title, size=3.0, family="display")
+        builder.text(x0, cursor + 3.2, title, size=3.0, family="display", **ink)
         cursor += 5.5
 
     for index, note in enumerate(notes, start=1):
         prefix = f"{index}."
-        builder.text(x0, cursor + size, prefix, size=size)
+        builder.text(x0, cursor + size, prefix, size=size, **ink)
         for line in _wrap(note, width - 6.0, size, typography=builder.typography):
-            builder.text(x0 + 6.0, cursor + size, line, size=size)
+            builder.text(x0 + 6.0, cursor + size, line, size=size, **ink)
             cursor += size * 1.5
         cursor += size * 0.5
     return cursor

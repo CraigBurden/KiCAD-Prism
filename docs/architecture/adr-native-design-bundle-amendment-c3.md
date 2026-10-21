@@ -170,7 +170,20 @@ P1's parity is "a1 equals the a0 golden plus those additions" (`field-maps/seman
 | E | `prism-artwork`: views, compositing from the plot IR, the HLR overlay, designator fitting, canvas | DeepSeek (L) | A, D |
 | F | Release Studio on the bundle: the projection reads (C3a), the a0 scope view (C3b), kicad-cli on `refilled/`/`sources/` (C3c), the closure from P4 (C3d), the artwork/vendor/text calls (from B, C, E), provenance from the generator id (C3f); remove `kicad-cruncher`; re-capture the replay recording | main thread, with DeepSeek for C3a, C3d and C3f | A–E |
 
-R2 then removes `kicad-cruncher-cli` from the workspace and the allow-list entries this amendment retires.
+**F progress.** F is done. C3a–C3f built bundle mode (the board projections, the
+a0-compatible scope view, the `refilled/`/`sources/` kicad-cli inputs, the
+closure's documents and references, and the provenance from `bundle.json`'s
+generator); F4c removed the switch and the legacy path — the Python
+`kicad_monkey` projections, the `kicad-cruncher` artwork/vendor calls, the
+settings and the tool — and re-captured the replay recording in bundle mode.
+The closure's checkout scan moved to `backend/app/services/closure_scan.py`
+because System Builder's board-step job still materializes a closure with no
+bundle. `rs-1` and `rs-2` record the dossier and fill divergences
+(`native/parity/divergences/release-studio.md`).
+
+R2 then removes `kicad-cruncher-cli` from the workspace and the allow-list
+entries this amendment retires; `kicad-monkey` stays installed for the
+catalog's library-file imports until R2.
 
 ## 7. Risks
 

@@ -113,8 +113,8 @@ pub const SCHEMA_FILES: [(&str, &str); 40] = [
         include_str!("../schema/OccurrencesA0.json"),
     ),
     (
-        "PlacementsA0.json",
-        include_str!("../schema/PlacementsA0.json"),
+        "PlacementsA1.json",
+        include_str!("../schema/PlacementsA1.json"),
     ),
     ("ProjectA0.json", include_str!("../schema/ProjectA0.json")),
     (

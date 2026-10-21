@@ -318,13 +318,30 @@ def run_step_catalogue(
     progress: Any = None,
     on_step: Any = None,
     bom_preset: str = "",
+    board_path: Path | None = None,
+    schematic_path: Path | None = None,
+    board_label: str | None = None,
+    schematic_label: str | None = None,
 ) -> tuple[StepOutput, ...]:
-    """Run the catalogue against a materialized closure with ``tool`` (kicad-cli)."""
+    """Run the catalogue against the design files with ``tool`` (kicad-cli).
+
+    ``board_path``/``schematic_path`` name the files the tool opens when they
+    are not inside the materialized closure (the bundle's ``refilled/`` board
+    and ``sources/`` tree, C3c).  ``board_label``/``schematic_label`` are the
+    stable closure-independent names recorded in the argv; they default to the
+    configured repository paths.
+    """
 
     if tool is None:
         raise StepExecutionError("kicad-cli is not available on PATH")
-    board = (closure_root / board_rel) if board_rel else None
-    schematic = (closure_root / schematic_rel) if schematic_rel else None
+    if board_path is not None:
+        board = Path(board_path)
+    else:
+        board = (closure_root / board_rel) if board_rel else None
+    if schematic_path is not None:
+        schematic = Path(schematic_path)
+    else:
+        schematic = (closure_root / schematic_rel) if schematic_rel else None
     if board is not None and not board.is_file():
         raise StepExecutionError(f"board not found in closure: {board_rel}")
     if schematic is not None and not schematic.is_file():
@@ -334,6 +351,8 @@ def run_step_catalogue(
     if not specs:
         return ()
 
+    board_label = board_label or board_rel
+    schematic_label = schematic_label or (schematic_rel or "")
     # Every step is an independent `kicad-cli` process. They used to overlap;
     # `sch export bom` then died with std::bad_alloc / basic_string::_M_create
     # while DRC/ERC still held the design. One process at a time.
@@ -343,8 +362,8 @@ def run_step_catalogue(
         closure_root=closure_root,
         board=board,
         schematic=schematic,
-        board_rel=board_rel,
-        schematic_rel=schematic_rel or "",
+        board_rel=board_label,
+        schematic_rel=schematic_label,
         output_root=output_root,
         variant=variant,
         timeout_seconds=timeout_seconds,

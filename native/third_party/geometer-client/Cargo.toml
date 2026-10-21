@@ -1,0 +1,34 @@
+[package]
+name = "geometer-client"
+version = "2026.9.19"
+edition = "2024"
+rust-version = "1.85"
+description = "Generated contracts and persistent executable IPC client for Geometer"
+license = "MIT"
+repository = "https://github.com/wavenumber-eng/geometer"
+
+[features]
+default = []
+# Prism: `geometer-sys` (the static SDK) is not vendored, so the feature is
+# empty and must stay off (docs/architecture/native-provenance.md §7).
+direct-static = []
+
+[lints.rust]
+unsafe_code = "forbid"
+
+[lints.clippy]
+too_many_arguments = "deny"
+too_many_lines = "deny"
+cognitive_complexity = "deny"
+allow_attributes_without_reason = "deny"
+
+[dependencies]
+serde = { version = "1.0", features = ["derive"] }
+serde_json = { version = "1.0", features = ["raw_value"] }
+sha2 = "0.10"
+thiserror = "2.0"
+tokio = { version = "1.47", features = ["io-util", "macros", "process", "rt", "rt-multi-thread", "sync", "time"] }
+
+[dev-dependencies]
+tokio = { version = "1.47", features = ["fs"] }
+

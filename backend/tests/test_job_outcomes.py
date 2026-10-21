@@ -29,7 +29,12 @@ from tests.in_memory_jobs import (
     supervise_exit,
 )
 from tests.kicad_tool_fakes import FakeTool
-from tests.release_studio_support import RECORDING_ROOT, fixture_root
+from tests.release_studio_support import (
+    RECORDING_ROOT,
+    documents_stub,
+    fixture_root,
+    synthetic_bundle_design,
+)
 
 RECORDING = RECORDING_ROOT / "synthetic-build" / "recording.json"
 WORKER_A = "prism:host-a:1:aaaa"
@@ -131,6 +136,10 @@ class ReleaseBuildOutcomeTests(unittest.TestCase):
     def setUp(self) -> None:
         tmp = tempfile.TemporaryDirectory()
         self.addCleanup(tmp.cleanup)
+        # The document sheets render through prism-kicad (C3 chunk F3).
+        documents = documents_stub()
+        documents.__enter__()
+        self.addCleanup(documents.__exit__, None, None, None)
         self.root = Path(tmp.name)
         self.closure = self.root / "closure"
         shutil.copytree(fixture_root("synthetic"), self.closure)
@@ -144,6 +153,7 @@ class ReleaseBuildOutcomeTests(unittest.TestCase):
     def _candidate(self) -> dict[str, Any]:
         return {
             "id": "candidate-1",
+            "project_id": "project-1",
             "commit_sha": "a" * 40,
             "config_key": "default",
             "variant": "",
@@ -152,6 +162,7 @@ class ReleaseBuildOutcomeTests(unittest.TestCase):
             "input_closure_digest": "d" * 64,
             "_closure_root": str(self.closure),
             "_config": {"board": "synthetic.kicad_pcb", "schematic": "synthetic.kicad_sch", "vendors": []},
+            "_bundle_design": synthetic_bundle_design(self.closure),
         }
 
     def _attempt(self, worker_id: str, cli: Any) -> int:
@@ -170,7 +181,7 @@ class ReleaseBuildOutcomeTests(unittest.TestCase):
                 ),
                 mock.patch.object(build_service, "prepare_candidate", return_value=self._candidate()),
                 mock.patch.object(
-                    build_service.KicadTools, "resolve", return_value=KicadTools(cli=tool, cruncher=None)
+                    build_service.KicadTools, "resolve", return_value=KicadTools(cli=tool)
                 ),
                 mock.patch.object(
                     build_service, "executor_image", return_value="prism/kicad@sha256:" + "e" * 64

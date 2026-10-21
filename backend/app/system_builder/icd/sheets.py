@@ -144,7 +144,7 @@ def _title_block(builder: SheetBuilder, area: Rect, model: IcdModel, sheet: int,
 
 def _sheet(model: IcdModel, index: int, total: int, page: list[Placed], summary: bool) -> Sheet:
     key, title = ("icd-summary", SUMMARY_TITLE) if summary else (f"icd-tables-{index - 1}", "ICD tables")
-    builder = SheetBuilder(key, f"{model.system} · {title}", "A3")
+    builder = SheetBuilder(key, f"{model.system} · {title}", "A3", sheet_style="kicad")
     inner = draw_frame(builder)
     if summary:
         builder.text(inner.x + 6, inner.y + 8, f"{model.system} · {SUMMARY_TITLE}",

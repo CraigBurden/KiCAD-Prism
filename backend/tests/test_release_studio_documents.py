@@ -7,11 +7,16 @@ and that placed artwork is placed at a stated, measurable scale.
 
 from __future__ import annotations
 
+import contextlib
 import io
+import json
+import os
 import re
 import sys
+import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:  # pragma: no cover - import bootstrap
@@ -19,7 +24,9 @@ if str(REPO_ROOT) not in sys.path:  # pragma: no cover - import bootstrap
 
 from app.release_studio.documents import compose, render_pdf, render_svg  # noqa: E402
 from app.release_studio.documents import artwork as artwork_module  # noqa: E402
+from app.release_studio.documents import fonts as fonts_module  # noqa: E402
 from app.release_studio.documents import sheets as sheet_templates  # noqa: E402
+from app.release_studio.documents import worksheet as worksheet_module  # noqa: E402
 from app.release_studio.documents.layout import (  # noqa: E402
     Rect,
     SheetBuilder,
@@ -30,10 +37,23 @@ from app.release_studio.documents.layout import (  # noqa: E402
     text_width,
 )
 from tests.kicad_tool_fakes import FakeTool  # noqa: E402
+from tests.release_studio_support import documents_stub  # noqa: E402
+
+#: The Documentation Engine now takes its lettering and frame from
+#: ``prism-kicad``. The module's cases compose real documents, so they run
+#: against the reference stub unless a case installs its own copy.
+_DOCUMENTS_STUB = contextlib.ExitStack()
+
+
+def setUpModule() -> None:  # noqa: N802 - unittest protocol
+    _DOCUMENTS_STUB.enter_context(documents_stub())
+
+
+def tearDownModule() -> None:  # noqa: N802 - unittest protocol
+    _DOCUMENTS_STUB.close()
 
 #: Stand-ins for tests whose acquirers are faked: only presence matters.
 CLI = FakeTool(name="kicad-cli")
-CRUNCHER = FakeTool(name="kicad-cruncher")
 
 
 def _page(result, key: str) -> str:
@@ -430,8 +450,21 @@ class SheetSizingTests(unittest.TestCase):
     def test_a_placed_sheet_states_a_standard_ratio(self) -> None:
         art = _svg_artwork(38.0, 30.0)
         sheet, used, _over = sheet_templates.fabrication_sheet(CONTEXT, STATS, STACKUP, art, size="A3")
+        # prism searches the full ISO series, so 6:1 fits where the old
+        # 10/5/2 ladder stopped at 5:1.
+        self.assertEqual(used, 6.0)
+        self.assertIn("SCALE 6:1", render_svg(sheet))
+
+    def test_the_kicad_style_keeps_the_historical_scale_ladder(self) -> None:
+        art = _svg_artwork(38.0, 30.0)
+        sheet, used, _over = sheet_templates.fabrication_sheet(
+            CONTEXT, STATS, STACKUP, art, size="A3", sheet_style="kicad"
+        )
         self.assertEqual(used, 5.0)
-        self.assertIn("SCALE 5:1", render_svg(sheet))
+        svg = render_svg(sheet)
+        self.assertIn("SCALE 5:1", svg)
+        # The old bottom-left label and in-window view caption are intact.
+        self.assertNotIn('data-sheet-style="prism"', svg)
 
     def test_the_whole_set_shares_one_sheet_size(self) -> None:
         result = compose(
@@ -660,11 +693,11 @@ class TestpointSheetTests(unittest.TestCase):
         "source": "board.footprints",
         "prefix": "TP",
         "testpoints": [
-            {"ref": "TP10", "side": "top", "x": 12.5, "y": 30.25,
+            {"ref": "TP10", "net": "+3V3", "side": "top", "x": 12.5, "y": 30.25,
              "excluded_from_position_file": True},
-            {"ref": "TP2", "side": "top", "x": 4.0, "y": 8.0,
+            {"ref": "TP2", "net": "GND", "side": "top", "x": 4.0, "y": 8.0,
              "excluded_from_position_file": True},
-            {"ref": "TP3", "side": "bottom", "x": 6.0, "y": 9.0,
+            {"ref": "TP3", "net": "—", "side": "bottom", "x": 6.0, "y": 9.0,
              "excluded_from_position_file": True},
         ],
     }
@@ -675,6 +708,45 @@ class TestpointSheetTests(unittest.TestCase):
         # An empty position file must not empty the schedule.
         table = tables.testpoint_table(self.PROJECTION, "top")
         self.assertEqual([row[0] for row in table.rows], ["TP2", "TP10"])
+
+    def test_the_schedule_names_the_net_between_designator_and_x(self) -> None:
+        from app.release_studio.documents import tables
+
+        table = tables.testpoint_table(self.PROJECTION, "top")
+        self.assertEqual(table.columns, ("Designator", "Net", "X mm", "Y mm"))
+        self.assertEqual(
+            [row[1] for row in table.rows], ["GND", "+3V3"]
+        )
+
+    def test_an_unconnected_testpoint_states_a_dash_not_a_blank(self) -> None:
+        from app.release_studio.documents import tables
+
+        table = tables.testpoint_table(self.PROJECTION, "bottom")
+        self.assertEqual(table.rows[0][1], "—")
+
+    def test_a_long_net_name_is_ellipsized_at_the_column_edge(self) -> None:
+        from app.release_studio.documents import tables
+        from app.release_studio.documents.layout import Text
+
+        long_net = "A_VERY_LONG_NET_NAME_THAT_CANNOT_FIT_IN_ONE_COLUMN"
+        projection = {
+            "source": "board.footprints",
+            "prefix": "TP",
+            "testpoints": [
+                {"ref": "TP1", "net": long_net, "side": "top", "x": 1.0, "y": 2.0}
+            ],
+        }
+        builder = SheetBuilder("t", "Test", "A3")
+        draw_table(builder, tables.testpoint_table(projection, "top", width=92.0), (10.0, 10.0))
+        texts = [
+            element.value
+            for element in builder.build().elements
+            if isinstance(element, Text)
+        ]
+        self.assertNotIn(long_net, texts)
+        net_lines = [value for value in texts if value.startswith("A_VERY_LONG")]
+        self.assertEqual(len(net_lines), 1)
+        self.assertTrue(net_lines[0].endswith("…"))
 
     def test_designators_sort_numerically(self) -> None:
         from app.release_studio.documents import tables
@@ -698,6 +770,16 @@ class TestpointSheetTests(unittest.TestCase):
         self.assertIn("TESTPOINT DRAWING — TOP", text)
         self.assertIn("TP10", text)
         self.assertNotIn(">TP3<", text)
+
+    def test_each_side_states_the_direction_it_is_viewed_from(self) -> None:
+        top, _used, _overflow = sheet_templates.testpoint_sheet(
+            CONTEXT, "top", None, self.PROJECTION, size="A3"
+        )
+        bottom, _used, _overflow = sheet_templates.testpoint_sheet(
+            CONTEXT, "bottom", None, self.PROJECTION, size="A3"
+        )
+        self.assertIn("VIEWED FROM TOP", render_svg(top))
+        self.assertIn("VIEWED FROM BOTTOM (MIRRORED)", render_svg(bottom))
 
 
 class ProjectionShapeTests(unittest.TestCase):
@@ -1264,12 +1346,12 @@ class ConfiguredNotesTests(unittest.TestCase):
             grown - plain,
         )
 
-#: A stand-in for one `kicad-cruncher pcb-svg` assembly view.
+#: A stand-in for one `prism-kicad artwork` assembly view.
 #:
 #: Kept as a real-looking SVG so place-as-is tests exercise the same constructs
-#: Cruncher emits (paths, groups, circles, rotated designators) without asking
-#: Prism to interpret them.
-CRUNCHER_VIEW = (
+#: the artwork emits (paths, groups, circles, rotated designators) without
+#: asking Prism to interpret them.
+ASSEMBLY_VIEW_SVG = (
     '<?xml version="1.0" encoding="UTF-8"?>\n'
     '<svg xmlns="http://www.w3.org/2000/svg" width="20mm" height="10mm" '
     'viewBox="0 0 20 10" data-source="board.kicad_pcb">'
@@ -1292,8 +1374,8 @@ CRUNCHER_VIEW = (
 )
 
 
-def _cruncher_artwork(svg_text: str = CRUNCHER_VIEW) -> artwork_module.AcquiredArtwork:
-    """Wrap a Cruncher SVG the same way `acquire_assembly_view` does."""
+def _assembly_artwork(svg_text: str = ASSEMBLY_VIEW_SVG) -> artwork_module.AcquiredArtwork:
+    """Wrap an artwork SVG the way `_drawing` does."""
 
     import hashlib
 
@@ -1304,7 +1386,7 @@ def _cruncher_artwork(svg_text: str = CRUNCHER_VIEW) -> artwork_module.AcquiredA
         page_offset_y = 0.0
     except Exception:  # noqa: BLE001 - unit tests may lack cairo
         # Without a PDF page the composite is skipped; the SVG sheet still
-        # carries Cruncher's drawing, which is what these tests assert.
+        # carries the artwork, which is what these tests assert.
         pdf_bytes = b""
         page_offset_x = None
         page_offset_y = None
@@ -1371,10 +1453,10 @@ class AssemblyProjectionWarningTests(unittest.TestCase):
             )
             + "</svg>"
         )
-        art = _cruncher_artwork(svg)
+        art = _assembly_artwork(svg)
         dense = [{"side": "top"}] * 400 + [{"side": "bottom"}]
 
-        def fake(cruncher, board, workdir, **kwargs):
+        def fake(*_args, **_kwargs):
             return {f"{kind}-{side}": art
                     for kind in ("assembly", "testpoint")
                     for side in ("top", "bottom")}
@@ -1383,60 +1465,12 @@ class AssemblyProjectionWarningTests(unittest.TestCase):
             context=CONTEXT, stats=STATS, stackup=STACKUP, variants=VARIANTS,
             placements=dense, members=MEMBERS,
             board=Path("/nonexistent/board.kicad_pcb"),
-            cruncher=CRUNCHER,
             workdir=Path("/tmp"),
             assembly_acquirer=fake,
         )
         joined = " | ".join(result.warnings)
         self.assertIn("no component resolved a 3D model", joined)
         self.assertIn("400 placements", joined)
-
-    def test_acquire_assembly_view_binds_kiprjmod_to_the_board_directory(self) -> None:
-        import tempfile
-        from pathlib import Path
-        from unittest.mock import patch
-
-        captured: dict[str, object] = {}
-
-        def runner(argv, env=None, **_kwargs):
-            captured["env"] = env
-            workdir = Path(argv[argv.index("--output") + 1])
-            views = workdir / "views"
-            views.mkdir(parents=True, exist_ok=True)
-            (views / "board__assembly_top_view.svg").write_text(CRUNCHER_VIEW, encoding="utf-8")
-
-            class Result:
-                returncode = 0
-                stdout = ""
-                stderr = ""
-
-            return Result()
-
-        with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp)
-            board = root / "project" / "board.kicad_pcb"
-            board.parent.mkdir(parents=True)
-            board.write_text("(kicad_pcb)\n", encoding="utf-8")
-            with patch.object(
-                artwork_module, "_cruncher_board_viewport", return_value=None
-            ):
-                artwork_module.acquire_assembly_view(
-                    FakeTool(runner, name="kicad-cruncher"),
-                    board,
-                    "top",
-                    root / "out",
-                )
-        self.assertIsInstance(captured.get("env"), dict)
-        self.assertEqual(captured["env"]["KIPRJMOD"], str(board.parent.resolve()))
-
-    def test_default_projection_asks_for_the_model_outline(self) -> None:
-        """Cruncher degrades per component, so asking for the outline is free."""
-
-        import json
-
-        config = json.loads(artwork_module.PCB_SVG_CONFIG.read_text(encoding="utf-8"))
-        self.assertEqual(config["assembly"]["default_projection"], "outline")
-        self.assertEqual(config["assembly"]["dnp_projection"], "outline")
 
     def test_projection_mix_label_is_compact(self) -> None:
         label = artwork_module.assembly_projection_label(
@@ -1496,19 +1530,19 @@ class FabricationDimensionTests(unittest.TestCase):
 
 
 class AssemblySheetTests(unittest.TestCase):
-    """Assembly sheets place Cruncher's view as-is, not KiCad's F.Fab layer."""
+    """Assembly sheets place the artwork as-is, not KiCad's F.Fab layer."""
 
     def setUp(self) -> None:
-        self.art = _cruncher_artwork()
+        self.art = _assembly_artwork()
 
-    def test_the_sheet_carries_cruncher_bytes_unchanged(self) -> None:
+    def test_the_sheet_carries_artwork_bytes_unchanged(self) -> None:
         sheet, _used = sheet_templates.assembly_sheet(
             CONTEXT, "top", self.art, PLACEMENTS, size="A3", scale=1.0
         )
         rendered = render_svg(sheet)
         self.assertIn(">R1<", rendered)
         self.assertIn('data-component="R1"', rendered)
-        # Place-as-is: Cruncher's own markup is what the sheet carries.
+        # Place-as-is: the artwork's own markup is what the sheet carries.
         self.assertIn("Consolas", rendered)
 
     def test_both_backends_accept_the_placed_view(self) -> None:
@@ -1525,12 +1559,63 @@ class AssemblySheetTests(unittest.TestCase):
         self.assertEqual(used, 1.0)
         self.assertIn("assembly artwork unavailable", render_svg(sheet))
 
-    def test_the_engine_asks_cruncher_for_both_sides(self) -> None:
-        asked: list[tuple[str, str]] = []
+    def test_each_side_states_the_direction_it_is_viewed_from(self) -> None:
+        top, _used = sheet_templates.assembly_sheet(
+            CONTEXT, "top", self.art, PLACEMENTS, size="A3", scale=1.0
+        )
+        bottom, _used = sheet_templates.assembly_sheet(
+            CONTEXT, "bottom", self.art, PLACEMENTS, size="A3", scale=1.0
+        )
+        self.assertIn("VIEWED FROM TOP", render_svg(top))
+        self.assertIn("VIEWED FROM BOTTOM (MIRRORED)", render_svg(bottom))
 
-        def fake(cruncher, board, workdir, **kwargs):
-            asked.append(cruncher)
-            return {f"{kind}-{side}": _cruncher_artwork()
+    def test_the_dnp_legend_appears_only_when_the_side_has_dnp_parts(self) -> None:
+        population = {
+            "sides": {
+                "top": {
+                    "components": 5,
+                    "fitted": 3,
+                    "dnp": 2,
+                    "absent_from_position_file": 0,
+                },
+                "bottom": {
+                    "components": 4,
+                    "fitted": 4,
+                    "dnp": 0,
+                    "absent_from_position_file": 0,
+                },
+            }
+        }
+        with_dnp, _used = sheet_templates.assembly_sheet(
+            CONTEXT, "top", self.art, PLACEMENTS, size="A3", scale=1.0,
+            population=population,
+        )
+        without_dnp, _used = sheet_templates.assembly_sheet(
+            CONTEXT, "bottom", self.art, PLACEMENTS, size="A3", scale=1.0,
+            population=population,
+        )
+        rendered = render_svg(with_dnp)
+        self.assertIn("Do not populate — hatched, designator in red", rendered)
+        # The swatch takes the artwork's own DNP colour, not a second constant.
+        self.assertIn("#B00020", rendered)
+        self.assertNotIn(
+            "Do not populate — hatched, designator in red", render_svg(without_dnp)
+        )
+
+    def test_no_population_means_no_dnp_legend(self) -> None:
+        sheet, _used = sheet_templates.assembly_sheet(
+            CONTEXT, "top", self.art, PLACEMENTS, size="A3", scale=1.0
+        )
+        self.assertNotIn(
+            "Do not populate — hatched, designator in red", render_svg(sheet)
+        )
+
+    def test_the_engine_asks_for_both_sides(self) -> None:
+        calls: list[tuple] = []
+
+        def fake(*args, **_kwargs):
+            calls.append(args)
+            return {f"{kind}-{side}": _assembly_artwork()
                     for kind in ("assembly", "testpoint")
                     for side in ("top", "bottom")}
 
@@ -1538,14 +1623,13 @@ class AssemblySheetTests(unittest.TestCase):
             context=CONTEXT, stats=STATS, stackup=STACKUP, variants=VARIANTS,
             placements=PLACEMENTS, members=MEMBERS,
             board=Path("/nonexistent/board.kicad_pcb"),
-            cruncher=CRUNCHER,
             workdir=Path("/tmp"),
             assembly_acquirer=fake,
         )
-        # One invocation for every view: the board load dominates the cost.
-        self.assertEqual(asked, [CRUNCHER])
+        # One invocation for every view: the bundle load dominates the cost.
+        self.assertEqual(len(calls), 1)
         # Both sides are pages of one assembly document, each carrying the
-        # digest of the exact Cruncher bytes placed on it.
+        # digest of the exact artwork bytes placed on it.
         assembly = next(o for o in result.outputs if o.key == "assembly")
         self.assertEqual(
             [page.key for page in assembly.pages], ["assembly-top", "assembly-bottom"]
@@ -1618,14 +1702,13 @@ class AssemblySheetTests(unittest.TestCase):
         )
 
     def test_a_failed_view_degrades_one_sheet_and_says_so(self) -> None:
-        def fake(cruncher, board, workdir, **kwargs):
+        def fake(*_args, **_kwargs):
             raise artwork_module.ArtworkError("geometer refused the board")
 
         result = compose(
             context=CONTEXT, stats=STATS, stackup=STACKUP, variants=VARIANTS,
             placements=PLACEMENTS, members=MEMBERS,
             board=Path("/nonexistent/board.kicad_pcb"),
-            cruncher=CRUNCHER,
             workdir=Path("/tmp"),
             assembly_acquirer=fake,
         )
@@ -1729,21 +1812,38 @@ class DocumentPipelineTests(unittest.TestCase):
 
     def test_missing_acquisitions_still_write_the_document_set(self) -> None:
         import tempfile
+        from unittest.mock import patch
 
+        from app.release_studio import bundle_projections
+        from app.release_studio import document_pipeline
         from app.release_studio.document_pipeline import with_documents
         from app.release_studio.steps import DOCUMENT_STEP_SPEC
 
+        empty = {
+            "stackup": {},
+            "variants": {},
+            "testpoints": {},
+            "population": {},
+            "designators": (),
+        }
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            outputs, warnings, _projections = with_documents(
-                [],
-                closure_root=root,
-                config={"board": "", "document_number": "DOC-1"},
-                candidate={"commit_sha": "a" * 40, "variant": ""},
-                output_root=root,
-                cli=None,
-                staging=root,
-            )
+            with patch(
+                "app.release_studio.bundle_design.for_candidate", return_value=object()
+            ), patch.object(
+                bundle_projections, "board_projections_from_design", return_value=empty
+            ), patch.object(
+                bundle_projections, "semantic_scope_from_design", return_value={}
+            ):
+                outputs, warnings, _projections = with_documents(
+                    [],
+                    closure_root=root,
+                    config={"board": "", "document_number": "DOC-1"},
+                    candidate={"commit_sha": "a" * 40, "variant": ""},
+                    output_root=root,
+                    cli=None,
+                    staging=root,
+                )
         doc = next(
             output for output in outputs if output.step_id == DOCUMENT_STEP_SPEC.step_id
         )
@@ -1760,10 +1860,9 @@ class SheetSetConsistencyTests(unittest.TestCase):
             context=CONTEXT, stats=STATS, stackup=STACKUP, variants=VARIANTS,
             placements=PLACEMENTS, members=MEMBERS,
             board=Path("/nonexistent/board.kicad_pcb"),
-            cruncher=CRUNCHER,
             workdir=Path("/tmp"),
-            assembly_acquirer=lambda _path, _board, _dir, **_kw: {
-                f"{kind}-{side}": _cruncher_artwork()
+            assembly_acquirer=lambda *_args, **_kw: {
+                f"{kind}-{side}": _assembly_artwork()
                 for kind in ("assembly", "testpoint")
                 for side in ("top", "bottom")
             },
@@ -1871,189 +1970,6 @@ class SheetSetConsistencyTests(unittest.TestCase):
         self.assertNotIn("The files listed above are the released bytes", note)
 
 
-class TestpointStagingTests(unittest.TestCase):
-    """Legacy and modern boards reach Cruncher through one Monkey contract."""
-
-    class Text:
-        def __init__(self, text_type: str, text: str):
-            self.text_type = text_type
-            self.text = text
-
-    class Footprint:
-        def __init__(self, reference: str = "", *, legacy_reference: str = ""):
-            self.properties = {"Reference": reference} if reference else {}
-            self.fp_texts = (
-                [TestpointStagingTests.Text("reference", legacy_reference)]
-                if legacy_reference
-                else []
-            )
-
-        def get_property_value(self, name: str, default: str = "") -> str:
-            return self.properties.get(name, default)
-
-        def upsert_property(self, name: str, value: str) -> None:
-            self.properties[name] = value
-
-    class Board:
-        def __init__(self, footprints):
-            self.footprints = list(footprints)
-            self.saved_to = None
-
-        def save(self, path: Path) -> None:
-            self.saved_to = path
-            path.write_text("(kicad_pcb)\n", encoding="utf-8")
-
-    def test_stages_only_testpoints_and_promotes_legacy_references(self) -> None:
-        import tempfile
-
-        modern = self.Footprint("TP2")
-        legacy = self.Footprint(legacy_reference="TP49")
-        ordinary = self.Footprint(legacy_reference="D14")
-        parsed = self.Board([ordinary, legacy, modern])
-
-        with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp)
-            source = root / "source" / "board.kicad_pcb"
-            source.parent.mkdir()
-            source.write_text("original board\n", encoding="utf-8")
-            staged, designators = artwork_module._stage_testpoint_board(
-                source,
-                root / "staging",
-                pcb_loader=lambda path: parsed,
-            )
-
-            self.assertEqual(source.read_text(encoding="utf-8"), "original board\n")
-            self.assertEqual(staged.parent, (root / "staging").resolve())
-            self.assertTrue(staged.is_file())
-
-        self.assertEqual(designators, ("TP2", "TP49"))
-        self.assertEqual(parsed.footprints, [legacy, modern])
-        self.assertEqual(legacy.properties["Reference"], "TP49")
-        self.assertEqual(modern.properties["Reference"], "TP2")
-        self.assertNotIn(ordinary, parsed.footprints)
-
-    def test_duplicate_testpoint_designators_are_rejected(self) -> None:
-        import tempfile
-
-        parsed = self.Board(
-            [self.Footprint("TP1"), self.Footprint(legacy_reference="TP1")]
-        )
-        with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp)
-            source = root / "board.kicad_pcb"
-            source.write_text("original board\n", encoding="utf-8")
-            with self.assertRaisesRegex(
-                artwork_module.ArtworkError, "duplicate testpoint designator: TP1"
-            ):
-                artwork_module._stage_testpoint_board(
-                    source,
-                    root / "staging",
-                    pcb_loader=lambda path: parsed,
-                )
-
-    def test_staged_board_keeps_the_source_project_model_root(self) -> None:
-        import tempfile
-
-        captured = {}
-
-        class Result:
-            returncode = 0
-            stdout = ""
-            stderr = ""
-
-        def runner(argv, **kwargs):
-            captured["env"] = kwargs["env"]
-            return Result()
-
-        with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp)
-            staged = root / "staging" / "board.testpoints.kicad_pcb"
-            staged.parent.mkdir()
-            staged.write_text("(kicad_pcb)\n", encoding="utf-8")
-            project_dir = root / "source-project"
-            artwork_module._run_pcb_svg(
-                FakeTool(runner, name="kicad-cruncher"),
-                staged,
-                ["testpoint_top_view"],
-                root / "out",
-                config_path=artwork_module.PCB_SVG_TESTPOINT_CONFIG,
-                project_dir=project_dir,
-                timeout_seconds=1,
-            )
-
-        self.assertEqual(captured["env"]["KIPRJMOD"], str(project_dir.resolve()))
-
-    def test_testpoint_views_cannot_bypass_the_staging_board(self) -> None:
-        with self.assertRaisesRegex(
-            artwork_module.ArtworkError, "unknown view kind: 'testpoint'"
-        ):
-            artwork_module.acquire_board_views(
-                CRUNCHER,
-                Path("board.kicad_pcb"),
-                Path("out"),
-                kinds=("testpoint",),
-                sides=("top",),
-            )
-
-    def test_projection_and_staged_board_must_select_the_same_testpoints(self) -> None:
-        from unittest.mock import patch
-
-        with patch.object(
-            artwork_module,
-            "_stage_testpoint_board",
-            return_value=(Path("staging/board.testpoints.kicad_pcb"), ("TP2",)),
-        ):
-            with self.assertRaisesRegex(
-                artwork_module.ArtworkError,
-                "testpoint drawing and board projection disagree: missing TP1; unexpected TP2",
-            ):
-                artwork_module.acquire_testpoint_views(
-                    CRUNCHER,
-                    Path("board.kicad_pcb"),
-                    Path("out"),
-                    designators=("D1", "TP1"),
-                )
-
-    def test_testpoint_viewport_is_resolved_before_cruncher_owns_the_output(self) -> None:
-        from unittest.mock import patch
-
-        calls = []
-        staged = Path("out/board.testpoints.kicad_pcb")
-
-        def viewport(board, config):
-            calls.append(("viewport", board, config))
-            return None
-
-        def render(*args, **kwargs):
-            calls.append(("render", args[1], kwargs["config_path"]))
-
-        with (
-            patch.object(
-                artwork_module,
-                "_stage_testpoint_board",
-                return_value=(staged, ("TP1",)),
-            ),
-            patch.object(artwork_module, "_cruncher_board_viewport", side_effect=viewport),
-            patch.object(artwork_module, "_run_pcb_svg", side_effect=render),
-            patch.object(
-                artwork_module,
-                "_read_assembly_view",
-                return_value=object(),
-            ),
-        ):
-            artwork_module.acquire_testpoint_views(
-                CRUNCHER,
-                Path("board.kicad_pcb"),
-                Path("out"),
-                designators=("TP1",),
-                sides=("top",),
-            )
-
-        self.assertEqual([call[0] for call in calls], ["viewport", "render"])
-        self.assertEqual(calls[0][1], staged)
-        self.assertEqual(calls[1][1], staged)
-
-
 class RendererVersionTests(unittest.TestCase):
     """A rendering change must be a deliberate, versioned change.
 
@@ -2064,12 +1980,47 @@ class RendererVersionTests(unittest.TestCase):
     in the same commit.
     """
 
-    #: Recorded for RENDERER_VERSION d22 under the pinned kicad-monkey /
-    #: kicad-cruncher toolchain, and verified stable across two runs.
+    #: Recorded for RENDERER_VERSION d27 under the pinned artwork toolchain, and
+    #: verified stable across two runs.
     #: The version and these digests move together, never one without the other.
+    #: These are the default `prism` sheets; GOLDEN_KICAD below pins the
+    #: selectable `kicad` style to the d23 bytes so it cannot drift.
     GOLDEN = {
         "documentation/assembly.pdf":
-            "aeb46d242fc8bd1b7281a513ec4ed893250a7fb542393096bb149de602614c25",
+            "a3e601985d5018c90afe10e4dddc8bc3fede817a1de3ef0fcdddc9f3e73c0eb2",
+        "documentation/cover.pdf":
+            "2b3b3f71eb82d41f2fa82550d0cf9e4e134e144eb6cafe55d4e120d9e912c605",
+        "documentation/drill.pdf":
+            "c323abde7ada321a0bee358c8ba266fc5b8f328213bdfbc42f4b1371ae5016d9",
+        "documentation/fabrication.pdf":
+            "eb0f010ed4830ac1d844a10c70c3bab3a954949acdb9e6b817435a6e80ca585c",
+        "documentation/testpoint.pdf":
+            "0ed877211dce7abec1f371c7ccf56cecb7cfaa36216591b2a8a0514fd664f76c",
+    }
+    GOLDEN_PAGES = {
+        "assembly-bottom":
+            "69303fc638d92c6576a7c1fdd417491fe2a8878f7807d189fd0084716e4649d0",
+        "assembly-top":
+            "9e514a8654bedb201a3674b4b7e7a809de5a206e80c3be4ba492422abdaca8ab",
+        "cover":
+            "1ef132f9c405077210bf167e78540d76c24b65eb4b1bc3bf666a5b9fbbbd9f9b",
+        "cover-1":
+            "0478ce9748f1519666b0e2abfef2966ac2353e40d4035123ca949178ce2b40e4",
+        "drill":
+            "89043aafd54b1eeccfc06d8d9cf1e80c75e3221525d54c4c7ce0a61054df6588",
+        "fabrication":
+            "905325c0b7d375795c3d35a2d6290320e9c24f7685b08fbcad587ab50a51d11b",
+        "testpoint-bottom":
+            "1f57a470f423523078b594bf63c02b13fda64caeb6af232e8c4827031c2ba259",
+        "testpoint-top":
+            "ec368fa6523b7453efa5ce9038ecd934f0bef549ba1dc44dc947531481517baa",
+    }
+
+    #: The d23 `kicad` output, byte for byte.  Selecting the legacy style must
+    #: reproduce these, or "today's look" was not actually kept.
+    GOLDEN_KICAD = {
+        "documentation/assembly.pdf":
+            "f2fca6e5832e41ecea7df2bb0603237aad8782580f9a05829056e5a0266b1895",
         "documentation/cover.pdf":
             "318f57ea262d956f66d7a273dfe9888fcd92fd7f6455c720afc2729cd72d2e6b",
         "documentation/drill.pdf":
@@ -2077,13 +2028,13 @@ class RendererVersionTests(unittest.TestCase):
         "documentation/fabrication.pdf":
             "4156eadf95893486e6cd53c9c20b068857d93fbec10f66adc11d2465215c0a3b",
         "documentation/testpoint.pdf":
-            "41491187676d4ecdd07ff98f378d860ed55a08c18e55334df37577d479fcedca",
+            "9c82433b5859797bc9acde51ae6fb1e5331c62dfde0b6f64caf640ab42a232ec",
     }
-    GOLDEN_PAGES = {
+    GOLDEN_PAGES_KICAD = {
         "assembly-bottom":
-            "91deebc9d59eef79840ed016f6ea244f1772115a342c775805f2733cf561a932",
+            "816c1ed50cc3880d6fcc4d0cfe1ef3e0905d90dfbeee4a000fb9369bdcb18912",
         "assembly-top":
-            "d9d92e8ef4c7cd0f35415eded3ef245037beb0f648bfc226af74785fcd847614",
+            "ad7a35959d5479cdfc87e0c6bdd900624faac13169c64e682eef4fa14c9ad88b",
         "cover":
             "63f4f262e8c6969f167673ea3853677757ac39f7e03e3232779ccaed54b13cbd",
         "cover-1":
@@ -2093,15 +2044,16 @@ class RendererVersionTests(unittest.TestCase):
         "fabrication":
             "f73ab9c2b7e50a1691ee1b35a2b2d9c4f9d8a632d97dd8e1b02ff8bd05cbaeb0",
         "testpoint-bottom":
-            "a7b0b5954b5ab5fd8599c9033c4869eb2481d52671c600846998d6f80a1a0f94",
+            "5dad9ad4bd99205537ad94df9d18f64bb8bc14ef613ba925e25bfcb892765042",
         "testpoint-top":
-            "b2ef237d4690280b4d5462c54faa6b5a6c66bb9b240c62bf79a6bf6cb60fa3c5",
+            "6f39b07e0ffd33feb0e776cdefa8426736a24a13c9e4ce2cf9fae877c78710b7",
     }
 
     #: A placed sheet, so a change to sheet selection, the scale ladder, or
     #: fabrication dimensions trips this too -- the set above carries no
     #: artwork and would not.
-    GOLDEN_PLACED = "b39c21c06d0ce672b85e7c14aa216cf4b1a1f606a861f0cb860e3e665896d240"
+    GOLDEN_PLACED = "5e1495f65218f01b3806a612281b5758d92d80acb501f2abb0497bb9e86db513"
+    GOLDEN_PLACED_KICAD = "b39c21c06d0ce672b85e7c14aa216cf4b1a1f606a861f0cb860e3e665896d240"
 
     def test_a_placed_sheet_matches_its_recorded_digest(self) -> None:
         import hashlib
@@ -2109,12 +2061,23 @@ class RendererVersionTests(unittest.TestCase):
         sheet, used, _over = sheet_templates.fabrication_sheet(
             CONTEXT, STATS, STACKUP, _svg_artwork(38.0, 30.0, units_per_mm=10.0)
         )
-        self.assertEqual(used, 5.0)
+        self.assertEqual(used, 6.0)
         digest = hashlib.sha256(render_svg(sheet).encode("utf-8")).hexdigest()
         self.assertEqual(
             digest,
             self.GOLDEN_PLACED,
             "placed-sheet output moved: bump RENDERER_VERSION and re-record together",
+        )
+
+        legacy, legacy_used, _over = sheet_templates.fabrication_sheet(
+            CONTEXT, STATS, STACKUP, _svg_artwork(38.0, 30.0, units_per_mm=10.0),
+            sheet_style="kicad",
+        )
+        self.assertEqual(legacy_used, 5.0)
+        self.assertEqual(
+            hashlib.sha256(render_svg(legacy).encode("utf-8")).hexdigest(),
+            self.GOLDEN_PLACED_KICAD,
+            "the kicad style no longer reproduces its d23 placed sheet",
         )
 
     def test_composed_output_matches_the_recorded_digests(self) -> None:
@@ -2124,7 +2087,7 @@ class RendererVersionTests(unittest.TestCase):
 
         self.assertEqual(
             RENDERER_VERSION,
-            "release-studio-documents/d22",
+            "release-studio-documents/d27",
             "RENDERER_VERSION changed: re-record GOLDEN in the same commit",
         )
 
@@ -2151,116 +2114,575 @@ class RendererVersionTests(unittest.TestCase):
             "in-memory page SVG moved: bump RENDERER_VERSION and re-record GOLDEN_PAGES together",
         )
 
+        legacy = compose(
+            context=CONTEXT, stats=STATS, stackup=STACKUP, variants=VARIANTS,
+            placements=PLACEMENTS, members=MEMBERS, sheet_style="kicad",
+        )
+        legacy_files = {
+            path: hashlib.sha256(payload).hexdigest()
+            for path, payload in legacy.files().items()
+        }
+        self.assertEqual(
+            legacy_files,
+            self.GOLDEN_KICAD,
+            "the selectable kicad style no longer reproduces its d23 bytes",
+        )
+        legacy_pages = {
+            key: hashlib.sha256(payload).hexdigest()
+            for key, payload in legacy.page_svgs().items()
+        }
+        self.assertEqual(
+            legacy_pages,
+            self.GOLDEN_PAGES_KICAD,
+            "the selectable kicad style no longer reproduces its d23 page SVGs",
+        )
+
+
+class PrismStyleTests(unittest.TestCase):
+    """The Prism sheet style: ink frame, grey structure, meaningful colour."""
+
+    def _worksheet(self, size: str = "A3", width: float = 420.0, height: float = 297.0):
+        from app.release_studio.documents.worksheet import (
+            default_worksheet_elements,
+            title_block_rect,
+        )
+
+        elements = default_worksheet_elements(
+            width_mm=width,
+            height_mm=height,
+            paper_name=size,
+            title="Example Board",
+            key="cover",
+            context=CONTEXT,
+            style="prism",
+        )
+        return elements, title_block_rect(elements, width_mm=width, height_mm=height)
+
+    def test_table_text_is_centred_on_its_capitals_in_every_row(self) -> None:
+        from app.release_studio.documents.fonts import cap_height
+        from app.release_studio.documents.layout import Text
+
+        builder = SheetBuilder("t", "T", "A4", sheet_style="prism")
+        table = Table(
+            columns=("Property", "Value"),
+            rows=(("Side", "TOP"), ("Components", "37")),
+            widths=(40.0, 40.0),
+            title="POPULATION",
+        )
+        draw_table(builder, table, (10.0, 10.0))
+        texts = {e.value: e for e in builder.build().elements if isinstance(e, Text)}
+        grid_top = 10.0 + 5.0  # under the heading
+        for value, row in (("Property", 0), ("Side", 1), ("Components", 2)):
+            text = texts[value]
+            top = grid_top + row * table.row_height
+            cap = cap_height(table.font_size, role="sans" if row == 0 else "mono", bold=row == 0)
+            # Equal space above the capitals and below the baseline.
+            self.assertAlmostEqual(text.y - cap - top, top + table.row_height - text.y, places=6)
+
+    def test_title_block_text_is_one_face_centred_on_kicads_points(self) -> None:
+        from app.release_studio.documents.fonts import cap_height
+        from app.release_studio.documents.layout import Text
+
+        elements, block = self._worksheet()
+        inside = [
+            e for e in elements
+            if isinstance(e, Text) and block.x <= e.x <= block.right and block.y <= e.y <= block.bottom
+        ]
+        # Only the title's value uses the display face; every label and field is body text.
+        display = [e.value for e in inside if e.family == "display"]
+        self.assertEqual(display, ["Example Board"])
+        self.assertFalse(any(e.bold for e in inside))
+        rev = next(e for e in inside if e.value == "Rev:")
+        # The same field on the kicad sheet carries KiCad's own centre point.
+        from app.release_studio.documents.worksheet import default_worksheet_elements
+
+        kicad = default_worksheet_elements(
+            width_mm=420.0, height_mm=297.0, paper_name="A3", title="Example Board",
+            key="cover", context=CONTEXT, style="kicad",
+        )
+        centre = next(e for e in kicad if isinstance(e, Text) and e.value.startswith("Rev: "))
+        self.assertAlmostEqual(rev.y, centre.y + cap_height(rev.size) / 2, places=6)
+
+    def test_frame_strokes_and_zone_labels_are_ink_not_kicad_red(self) -> None:
+        from app.release_studio.documents.layout import Line, Rectangle, Text
+        from app.release_studio.documents.style import INK, RULE
+
+        elements, block = self._worksheet()
+        assert block is not None
+        reds = [element for element in elements if getattr(element, "colour", "") == "#840000"]
+        self.assertEqual(reds, [])
+        for element in elements:
+            if isinstance(element, (Line, Rectangle)):
+                if element.colour == "none":  # a fill has no stroke to recolour
+                    continue
+                # Outside the title block every stroke is ink; inside it the
+                # cell rules are the grey structure colour.
+                inside = (
+                    block.x - 0.1 <= (element.x1 if isinstance(element, Line) else element.rect.x)
+                    and (element.x2 if isinstance(element, Line) else element.rect.right)
+                    <= block.right + 0.1
+                    and block.y - 0.1
+                    <= (element.y1 if isinstance(element, Line) else element.rect.y)
+                    and (element.y2 if isinstance(element, Line) else element.rect.bottom)
+                    <= block.bottom + 0.1
+                )
+                self.assertIn(element.colour, (RULE, INK) if inside else (INK,))
+            elif isinstance(element, Text):
+                if block.x <= element.x <= block.right and block.y <= element.y <= block.bottom:
+                    self.assertIn(element.colour, (INK, "#6b6b70"))
+                else:
+                    self.assertEqual(element.colour, INK)
+
+    def test_title_block_tints_sit_inside_its_own_geometry_on_a4_and_a3(self) -> None:
+        from app.release_studio.documents.layout import Rectangle, Text
+        from app.release_studio.documents.style import HEAD, INK, MUTED, STRIPE
+
+        for size, width, height in (("A4", 297.0, 210.0), ("A3", 420.0, 297.0)):
+            with self.subTest(size=size):
+                elements, block = self._worksheet(size, width, height)
+                assert block is not None
+                fills = [
+                    element
+                    for element in elements
+                    if isinstance(element, Rectangle) and element.fill in (HEAD, STRIPE)
+                ]
+                self.assertTrue(any(element.fill == HEAD for element in fills))
+                self.assertTrue(any(element.fill == STRIPE for element in fills))
+                for element in fills:
+                    rect = element.rect
+                    self.assertGreaterEqual(rect.x, block.x - 0.1)
+                    self.assertGreaterEqual(rect.y, block.y - 0.1)
+                    self.assertLessEqual(rect.right, block.right + 0.1)
+                    self.assertLessEqual(rect.bottom, block.bottom + 0.1)
+
+                # Labels are muted; values are ink.
+                by_value = {element.value: element for element in elements if isinstance(element, Text)}
+                self.assertEqual(by_value["Size:"].colour, MUTED)
+                self.assertEqual(by_value[size].colour, INK)
+                # The placeholder generator cell is dropped, so the project's
+                # real kicad version (when configured) is the only one shown.
+                self.assertNotIn("KiCad", by_value)
+
+    def test_every_table_gets_a_box_header_band_and_stripes(self) -> None:
+        builder = SheetBuilder("t", "Test", "A3")
+        draw_table(
+            builder,
+            Table(
+                title="POPULATION",
+                columns=("A", "B"),
+                rows=(("1", "2"), ("3", "4")),
+                widths=(30.0, 30.0),
+            ),
+            (10.0, 10.0),
+        )
+        svg = render_svg(builder.build())
+        self.assertIn('fill="#eef0f3"', svg)   # header band
+        self.assertIn('fill="#f7f8fa"', svg)   # alternate row
+        self.assertIn('stroke="#c4c8cf"', svg)  # thin rules
+        self.assertIn('stroke="#1d1d1f" stroke-width="0.3"', svg)  # outer box
+        self.assertIn('font-weight="600"', svg)  # header weight
+        self.assertIn(">POPULATION<", svg)
+
+    def test_the_caption_sits_under_the_placed_artwork_with_the_scale(self) -> None:
+        from app.release_studio.documents.layout import Artwork, Text
+        from app.release_studio.documents.style import MUTED
+
+        art = _svg_artwork(50.0, 40.0)
+        sheet, used = sheet_templates.assembly_sheet(
+            CONTEXT, "top", art, PLACEMENTS, size="A3", scale=2.0
+        )
+        placed = next(e for e in sheet.elements if isinstance(e, Artwork))
+        expected_bottom = (
+            placed.rect.y
+            + (placed.rect.height - art.view_height * used) / 2
+            + art.view_height * used
+        )
+        captions = [
+            element
+            for element in sheet.elements
+            if isinstance(element, Text) and "VIEWED FROM TOP" in element.value
+        ]
+        self.assertEqual(len(captions), 1)
+        caption = captions[0]
+        self.assertEqual(caption.value, "VIEWED FROM TOP · SCALE 2:1")
+        self.assertEqual(caption.colour, MUTED)
+        from app.release_studio.documents.fonts import cap_height
+
+        # 2.5 mm between the drawing and the caption's capitals.
+        self.assertAlmostEqual(
+            caption.y, expected_bottom + 2.5 + cap_height(2.6, bold=True), places=6
+        )
+        # The old bottom-left scale label is gone; the ratio is in the caption.
+        self.assertNotIn("SCALE 2:1", [e.value for e in sheet.elements if isinstance(e, Text)])
+
+    def test_a_58_mm_board_takes_the_largest_standard_scale_that_fits(self) -> None:
+        art = _svg_artwork(58.0, 58.0)
+        sheet, used, _over = sheet_templates.fabrication_sheet(
+            CONTEXT, STATS, STACKUP, art, size="A3"
+        )
+        self.assertEqual(used, 3.0)
+        self.assertIn("SCALE 3:1", render_svg(sheet))
+        # kicad keeps its historical ladder: 2:1, which leaves the window empty.
+        _old, old_used, _over = sheet_templates.fabrication_sheet(
+            CONTEXT, STATS, STACKUP, art, size="A3", sheet_style="kicad"
+        )
+        self.assertEqual(old_used, 2.0)
+
+    def test_a_unique_net_leaf_drops_its_sheet_path(self) -> None:
+        from app.release_studio.documents import tables
+
+        projection = {
+            "testpoints": [
+                {"ref": "TP1", "net": "/Debugger/MCU_SWCLK", "side": "top", "x": 1, "y": 2},
+                {"ref": "TP2", "net": "/Power/+3V3", "side": "top", "x": 3, "y": 4},
+            ]
+        }
+        table = tables.testpoint_table(projection, "top")
+        self.assertEqual([row[1] for row in table.rows], ["MCU_SWCLK", "+3V3"])
+
+    def test_a_duplicated_leaf_keeps_the_shortest_unique_suffix(self) -> None:
+        from app.release_studio.documents import tables
+
+        projection = {
+            "testpoints": [
+                {"ref": "TP1", "net": "/A/CLK", "side": "top", "x": 1, "y": 2},
+                {"ref": "TP2", "net": "/B/CLK", "side": "top", "x": 3, "y": 4},
+            ]
+        }
+        table = tables.testpoint_table(projection, "top")
+        self.assertEqual([row[1] for row in table.rows], ["A/CLK", "B/CLK"])
+
+    def test_overbar_uses_the_faces_support_or_kicads_slash_fallback(self) -> None:
+        from app.release_studio.documents import tables
+
+        projection = {
+            "testpoints": [
+                {"ref": "TP1", "net": "~{RESET}", "side": "top", "x": 1, "y": 2},
+            ]
+        }
+        default = tables.testpoint_table(projection, "top")
+        self.assertEqual(default.rows[0][1], "/RESET")
+        newstroke = tables.testpoint_table(
+            projection, "top", typography="kicad-newstroke"
+        )
+        self.assertEqual(newstroke.rows[0][1], "R\u0305E\u0305S\u0305E\u0305T\u0305")
+
+    def test_dnp_designators_are_listed_under_the_legend_when_prism(self) -> None:
+        population = {
+            "sides": {
+                "top": {
+                    "components": 5,
+                    "fitted": 2,
+                    "dnp": 3,
+                    "absent_from_position_file": 0,
+                    "dnp_refs": ["R10", "R2", "C1"],
+                }
+            }
+        }
+        sheet, _used = sheet_templates.assembly_sheet(
+            CONTEXT, "top", _assembly_artwork(), PLACEMENTS, size="A3", scale=1.0,
+            population=population,
+        )
+        rendered = render_svg(sheet)
+        self.assertIn("DO NOT POPULATE", rendered)
+        self.assertIn("C1, R2, R10", rendered)
+        # kicad style is byte-identical to the old output, so it carries no list.
+        legacy, _used = sheet_templates.assembly_sheet(
+            CONTEXT, "top", _assembly_artwork(), PLACEMENTS, size="A3", scale=1.0,
+            population=population, sheet_style="kicad",
+        )
+        self.assertNotIn("DO NOT POPULATE", render_svg(legacy))
+
+    def test_kicad_style_is_selectable_and_has_no_prism_marker(self) -> None:
+        composed = compose(
+            context=CONTEXT, stats=STATS, stackup=STACKUP, variants=VARIANTS,
+            placements=PLACEMENTS, members=MEMBERS, sheet_style="kicad",
+        )
+        cover = composed.page_svg("cover").decode("utf-8")
+        self.assertNotIn("data-sheet-style", cover)
+        self.assertIn("#840000", cover)
+
+    def test_the_engine_chooses_the_scale_for_the_selected_style(self) -> None:
+        stat = {
+            **STATS,
+            "board": {**STATS["board"], "width": "58.0000 mm", "height": "58.0000 mm"},
+        }
+
+        def fake(*_args, **_kwargs):
+            return {
+                f"{kind}-{side}": _assembly_artwork()
+                for kind in ("assembly", "testpoint")
+                for side in ("top", "bottom")
+            }
+
+        common = dict(
+            context=CONTEXT, stats=stat, stackup=STACKUP, variants=VARIANTS,
+            placements=PLACEMENTS, members=MEMBERS,
+            board=Path("/nonexistent/board.kicad_pcb"),
+            workdir=Path("/tmp"),
+            assembly_acquirer=fake,
+            testpoint_acquirer=fake,
+        )
+        prism = compose(**common)
+        legacy = compose(**common, sheet_style="kicad")
+        prism_scale = next(o for o in prism.outputs if o.key == "assembly").scale
+        legacy_scale = next(o for o in legacy.outputs if o.key == "assembly").scale
+        # A4: 58 mm fits at 3:2 with prism's margin; kicad's historical ladder
+        # stops at 2:1.
+        self.assertEqual(prism_scale, 1.5)
+        self.assertEqual(legacy_scale, 2.0)
+
 
 if __name__ == "__main__":  # pragma: no cover
     unittest.main()
 
 
-class CruncherViewportTests(unittest.TestCase):
-    """Cruncher canvas policy is applied from Monkey bounds, not SVG ink."""
+class PrismKicadDocumentsTests(unittest.TestCase):
+    """The document renderer's ``prism-kicad`` seam: batching, caching, parity.
 
-    CANVAS_W, CANVAS_H = 151.15578, 107.282993
+    Each case installs its own stub so the invocation log and the derived
+    caches start empty; the module-level stub only keeps the other cases
+    composing.
+    """
 
-    def _canvas_svg(self) -> str:
-        # Keep stroke-width ahead of width in the root tag: the old regex
-        # accidentally read that CSS property as the viewport width.
-        return (
-            '<?xml version="1.0" encoding="UTF-8"?>\n'
-            f'<svg xmlns="http://www.w3.org/2000/svg" style="stroke-width:99" '
-            f'width="{self.CANVAS_W}mm" height="{self.CANVAS_H}mm" '
-            f'viewBox="0 0 {self.CANVAS_W} {self.CANVAS_H}">'
-            '<path d="M 51 25 L 107 25 L 107 81 L 51 81 Z" '
-            'fill="none" stroke="#000000" stroke-width="0.15"/>'
-            "</svg>"
-        )
+    def setUp(self) -> None:
+        self.log = self.enterContext(documents_stub())
 
-    def _viewport(self) -> artwork_module._CruncherViewport:
-        return artwork_module._CruncherViewport(
-            x_mm=49.96788206559665,
-            y_mm=24.05880952380952,
-            width_mm=58.0,
-            height_mm=58.0,
-            canvas_width_mm=self.CANVAS_W,
-            canvas_height_mm=self.CANVAS_H,
-        )
-
-    def test_applies_exact_board_outline_plus_configured_margin(self) -> None:
-        cropped = artwork_module._apply_cruncher_viewport(
-            self._canvas_svg(), self._viewport()
-        )
-        x, y, width, height = artwork_module.extents(cropped)
-        self.assertAlmostEqual(x, 49.967882, places=6)
-        self.assertAlmostEqual(y, 24.05881, places=6)
-        self.assertEqual(width, 58.0)
-        self.assertEqual(height, 58.0)
-        self.assertIn('width="58mm"', cropped)
-        self.assertIn('height="58mm"', cropped)
-
-    def test_all_geometry_policy_leaves_upstream_view_unchanged(self) -> None:
-        original = self._canvas_svg()
-        self.assertEqual(
-            artwork_module._apply_cruncher_viewport(original, None), original
-        )
-
-    def test_normalized_artwork_needs_no_content_or_pdf_special_case(self) -> None:
-        svg = artwork_module._apply_cruncher_viewport(
-            self._canvas_svg(), self._viewport()
-        )
-        x, y, width, height = artwork_module.extents(svg)
-        art = artwork_module.AcquiredArtwork(
-            layers=("Cruncher.assembly-top",),
-            svg_text=svg,
-            pdf_bytes=b"",
-            view_x=x,
-            view_y=y,
-            view_width=width,
-            view_height=height,
-            digest="d" * 64,
-            page_offset_x=0.0,
-            page_offset_y=0.0,
-        )
-        self.assertIs(artwork_module.content_view(art, 56.0, 56.0), art)
-
-    def test_configured_margin_is_read_from_the_checked_in_policy(self) -> None:
-        import json
-        from unittest.mock import patch
-
-        class Box:
-            def __init__(self, min_x, min_y, max_x, max_y):
-                self.min_x = min_x
-                self.min_y = min_y
-                self.max_x = max_x
-                self.max_y = max_y
-                self.width = max_x - min_x
-                self.height = max_y - min_y
-
-        pcb = object()
-        boxes = [
-            Box(53.0321179344, 38.9411904762, 204.1878978487, 146.2241835311),
-            Box(104.0, 64.0, 160.0, 120.0),
+    def _entries(self, command: str) -> list[dict]:
+        if not self.log.exists():
+            return []
+        entries = [
+            json.loads(line)
+            for line in self.log.read_text(encoding="utf-8").splitlines()
+            if line.strip()
         ]
-        without_cruncher = {
-            "kicad_cruncher": None,
-            "kicad_cruncher.config_json": None,
-        }
-        # Import outside patch.dict: it drops every module first imported
-        # inside it, and numpy cannot be imported twice in one process.
-        import kicad_monkey.kicad_pcb  # noqa: F401
-        import kicad_monkey.kicad_pcb_bounds  # noqa: F401
+        return [entry for entry in entries if entry["args"][:1] == [command]]
 
-        with patch.dict(sys.modules, without_cruncher), patch(
-            "kicad_monkey.kicad_pcb.KiCadPcb.from_file", return_value=pcb
-        ), patch(
-            "kicad_monkey.kicad_pcb_bounds.compute_pcb_svg_bounding_box",
-            side_effect=boxes,
-        ):
-            viewport = artwork_module._cruncher_board_viewport(
-                Path("board.kicad_pcb"), artwork_module.PCB_SVG_CONFIG
-            )
-        self.assertIsNotNone(viewport)
-        policy = json.loads(
-            artwork_module.PCB_SVG_CONFIG.read_text(encoding="utf-8")
+    def _calls(self, command: str) -> list[list[str]]:
+        return [entry["args"] for entry in self._entries(command)]
+
+    def _compose(self, **overrides):
+        payload = dict(
+            context=CONTEXT,
+            stats=STATS,
+            stackup=STACKUP,
+            variants=VARIANTS,
+            placements=PLACEMENTS,
+            members=MEMBERS,
         )
-        margin = float(policy["global"]["canvas"]["margin_mm"])
-        self.assertEqual(viewport.width_mm, 56.0 + 2.0 * margin)
-        self.assertEqual(viewport.height_mm, 56.0 + 2.0 * margin)
+        payload.update(overrides)
+        return compose(**payload)
+
+    def test_newstroke_metrics_and_runs_are_batched_once_per_document(self) -> None:
+        result = self._compose(typography="kicad-newstroke")
+
+        metrics = self._calls("stroke-text")
+        metrics = [args for args in metrics if "--metrics" in args]
+        self.assertEqual(len(metrics), 1, "metrics are loaded once per generator")
+
+        requests = [args for args in self._calls("stroke-text") if "--request" in args]
+        self.assertEqual(
+            len(requests),
+            len(result.outputs),
+            "one batched stroke-text call per document, not one per run",
+        )
+        run_counts = [
+            entry.get("runs", 0)
+            for entry in self._entries("stroke-text")
+            if "--request" in entry["args"]
+        ]
+        self.assertEqual(len(run_counts), len(requests))
+        self.assertGreater(
+            max(run_counts),
+            1,
+            "a document's runs reach the CLI together, not one string at a time",
+        )
+
+    def test_the_metrics_table_is_read_from_the_generator_cache(self) -> None:
+        from app.release_studio.documents.fonts import advance_width
+
+        first = advance_width(
+            "SCALE 2:1", 2.0, role="sans", typography="kicad-newstroke"
+        )
+        self.assertEqual(
+            len([a for a in self._calls("stroke-text") if "--metrics" in a]), 1
+        )
+        # A fresh process would read the disk entry; clearing memory proves the
+        # second measurement did not spawn another CLI.
+        fonts_module._reset_stroke_caches()
+        second = advance_width(
+            "SCALE 2:1", 2.0, role="sans", typography="kicad-newstroke"
+        )
+        self.assertEqual(first, second)
+        self.assertEqual(
+            len([a for a in self._calls("stroke-text") if "--metrics" in a]), 1
+        )
+
+    def test_a_repeated_worksheet_request_is_answered_from_memory(self) -> None:
+        sheet = worksheet_module.default_worksheet_elements(
+            width_mm=297.0,
+            height_mm=210.0,
+            paper_name="A4",
+            title="Example Board",
+            key="cover",
+            context=CONTEXT,
+            style="prism",
+        )
+        again = worksheet_module.default_worksheet_elements(
+            width_mm=297.0,
+            height_mm=210.0,
+            paper_name="A4",
+            title="Example Board",
+            key="cover",
+            context=CONTEXT,
+            style="prism",
+        )
+        self.assertEqual(sheet, again)
+        self.assertEqual(len(self._calls("drawing-sheet")), 1)
+
+
+class PrismKicadParityTests(unittest.TestCase):
+    """The real C3 CLI equals Python kicad_monkey within 1e-9 mm.
+
+    Gated on ``PRISM_KICAD``, the release build of the C3 branch's CLI, because
+    a developer checkout has no ``prism-kicad`` on PATH.
+    """
+
+    STRINGS = (
+        "SCALE 2:1",
+        "Example Board",
+        "All holes ⌀ 0.3 mm ±0.05, 90° chamfer, Ω-pads ✓",
+        "R12",
+        "~{RESET}",
+        "x^{2} and y_{3}",
+        "set {x} then ~{BAR}",
+        "",
+    )
+
+    def setUp(self) -> None:
+        executable = os.environ.get("PRISM_KICAD", "").strip()
+        if not executable:
+            self.skipTest("set PRISM_KICAD to a release build of prism-kicad")
+        try:
+            import kicad_monkey.kicad_stroke_font  # noqa: F401
+        except ImportError:  # pragma: no cover - kicad-monkey is the reference
+            self.skipTest("kicad-monkey is not installed for the reference answers")
+        from app.core.config import settings
+
+        self.enterContext(
+            mock.patch.object(settings, "PRISM_DESIGN_BUNDLE_CLI_PATH", executable)
+        )
+        self.enterContext(
+            mock.patch.object(
+                settings,
+                "KICAD_PROJECTS_ROOT",
+                tempfile.mkdtemp(prefix="prism-kicad-parity-"),
+            )
+        )
+        fonts_module._reset_stroke_caches()
+        worksheet_module._reset_drawing_sheet_cache()
+
+    def test_advance_width_matches_the_reference_within_one_nanometre(self) -> None:
+        from kicad_monkey.kicad_stroke_font import get_renderer
+
+        renderer = get_renderer()
+        for text in self.STRINGS:
+            with self.subTest(text=text):
+                expected = renderer._calculate_text_width(text) * 1.27
+                actual = fonts_module.advance_width(
+                    text, 1.27, role="sans", typography="kicad-newstroke"
+                )
+                self.assertLessEqual(abs(actual - expected), 1e-9)
+
+    def test_polylines_match_the_reference_within_one_nanometre(self) -> None:
+        from kicad_monkey.kicad_stroke_font import get_renderer
+
+        renderer = get_renderer()
+        for text in self.STRINGS:
+            with self.subTest(text=text):
+                expected = renderer.render_text_polylines(
+                    text, 20.0, 40.0, 1.27, 1.27,
+                    h_align="left", v_align="bottom",
+                )
+                actual = fonts_module.newstroke_polylines(
+                    text, x=20.0, y=40.0, size=1.27, anchor="start"
+                )
+                self.assertEqual(len(actual), len(expected))
+                for got, want in zip(actual, expected):
+                    self.assertEqual(len(got), len(want))
+                    for (gx, gy), (wx, wy) in zip(got, want):
+                        self.assertLessEqual(abs(gx - wx), 1e-9)
+                        self.assertLessEqual(abs(gy - wy), 1e-9)
+
+    def test_the_default_worksheet_matches_the_reference_for_a4_and_a3(self) -> None:
+        from kicad_monkey import drawing_sheet_to_ops, load_default_drawing_sheet
+        from app.release_studio.documents.layout import Line, Polyline, Rectangle, Text
+
+        def reference_ops(width_mm: float, height_mm: float, paper: str):
+            return drawing_sheet_to_ops(
+                load_default_drawing_sheet(),
+                paper_width_nm=int(round(width_mm * 1_000_000)),
+                paper_height_nm=int(round(height_mm * 1_000_000)),
+                title_block={
+                    "title": "Example Board",
+                    "date": str(CONTEXT["commit_date"]),
+                    "rev": str(CONTEXT["revision"]),
+                    "company": "Prism Release Studio",
+                    "comments": {
+                        1: "Document: DOC-1",
+                        2: "Commit: " + "a" * 12,
+                        3: "Variant: default",
+                        4: "",
+                    },
+                },
+                sheet_index=1,
+                sheet_count=1,
+                paper_name=paper,
+                filename="DOC-1.pdf",
+                sheet_path="/cover",
+                sheet_name="cover",
+                kicad_version="KiCad",
+            )
+
+        def mm(value: float) -> float:
+            return float(value) / 1_000_000.0
+
+        for paper, width, height in (("A4", 297.0, 210.0), ("A3", 420.0, 297.0)):
+            with self.subTest(paper=paper):
+                elements = worksheet_module.default_worksheet_elements(
+                    width_mm=width,
+                    height_mm=height,
+                    paper_name=paper,
+                    title="Example Board",
+                    key="cover",
+                    context=CONTEXT,
+                    style="kicad",
+                )
+                expected = reference_ops(width, height, paper)
+                self.assertEqual(len(elements), len(expected))
+                for element, op in zip(elements, expected):
+                    kind = op.kind.value if hasattr(op.kind, "value") else str(op.kind)
+                    payload = op.payload
+                    if kind == "Rect":
+                        self.assertIsInstance(element, Rectangle)
+                        self.assertLessEqual(abs(element.rect.x - mm(min(payload["x1"], payload["x2"]))), 1e-9)
+                        self.assertLessEqual(abs(element.rect.y - mm(min(payload["y1"], payload["y2"]))), 1e-9)
+                        self.assertLessEqual(abs(element.rect.width - mm(abs(payload["x2"] - payload["x1"]))), 1e-9)
+                        self.assertLessEqual(abs(element.rect.height - mm(abs(payload["y2"] - payload["y1"]))), 1e-9)
+                    elif kind == "PlotPoly":
+                        points = tuple((mm(x), mm(y)) for x, y in payload["points"])
+                        if len(points) == 2:
+                            self.assertIsInstance(element, Line)
+                            actual = ((element.x1, element.y1), (element.x2, element.y2))
+                        else:
+                            self.assertIsInstance(element, Polyline)
+                            actual = element.points
+                        for (ax, ay), (ex, ey) in zip(actual, points):
+                            self.assertLessEqual(abs(ax - ex), 1e-9)
+                            self.assertLessEqual(abs(ay - ey), 1e-9)
+                    elif kind == "Text":
+                        self.assertIsInstance(element, Text)
+                        self.assertEqual(element.value, payload["text"])
+                        self.assertLessEqual(abs(element.x - mm(payload["x"])), 1e-9)
+                        self.assertLessEqual(abs(element.y - mm(payload["y"])), 1e-9)
+                        self.assertLessEqual(abs(element.size - mm(payload["size_y_nm"])), 1e-9)

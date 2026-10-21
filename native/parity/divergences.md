@@ -18,6 +18,8 @@ The field map's "Expected divergences" table is the source of each id. A diverge
 | `project` | P4 | [project.md](divergences/project.md) | none | — |
 | `system-interface` | P5 | [system-interface.md](divergences/system-interface.md) | none | — |
 | `component-models` | V1 | [component-models.md](divergences/component-models.md) | none (checked by `component_models_check.py`, not the runner) | — |
+| `assembly-hlr` | C3 D | [assembly-hlr.md](divergences/assembly-hlr.md) | none (checked by `hlr/compare_hlr.py`, not the runner) | H1: `rs-usb-pd`, `rs-cynthion` detail edges follow Geometer 2026.9.19 |
+| Release Studio (consumer) | C3 F | [release-studio.md](divergences/release-studio.md) | none (consumer-side, not a member) | rs-1: the dossier digest changes once per fixture; rs-2: `rs-usb-pd` and `rs-cynthion` release refilled fills |
 
 Expected refusals: `dv-malformed`'s sources are rejected by today's code, so stage parse must fail. `capture.json` records today's error for every member, and the runner reports `expected-refusal` when the bundle has no such member, or fails with `unexpected-member` when it has one.
 

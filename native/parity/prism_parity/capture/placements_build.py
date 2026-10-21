@@ -1,11 +1,11 @@
-"""The golden producer of ``prism.placements.a0``, in Python.
+"""The golden producer of ``prism.placements.a1``, in Python.
 
 The W0 prototype is Rust on the fork core, which is the code under test, so
 the golden comes from this independent producer instead: the board's
 S-expression tree from kicad_monkey's tokenizer (``parse_sexp_with_spans``,
 whose list spans give the footprint forms' source ranges) and the field map's
 normative rules R1-R13 as frozen now (``field-maps/placements.md``,
-``placements-a0.tsp``), with decisions.md Placements 1-5 and Occurrences 1:
+``placements-a1.tsp``), with decisions.md Placements 1-5 and Occurrences 1:
 
 - R2/R3: identity is the footprint's ``(uuid …)`` and the reference its first
   ``(property "Reference" …)``, with no KiCad 7 fallback (``tstamp``,
@@ -27,7 +27,7 @@ import math
 import re
 from typing import Any
 
-SCHEMA = "prism.placements.a0"
+SCHEMA = "prism.placements.a1"
 UUID = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$")
 PAD_TYPES = {"thru_hole", "smd", "connect", "np_thru_hole"}
 PAD_SHAPES = {"circle", "rect", "oval", "trapezoid", "roundrect", "custom"}
@@ -364,4 +364,8 @@ def build(board_text: str) -> tuple[dict, list[tuple[str, str]]]:
     outline = bounds(outline_points)
     if outline is not None:
         document["outlineBounds"] = outline
+    setup = child(root, "setup")
+    aux = child(setup, "aux_axis_origin") if setup is not None else None
+    if aux is not None and len(aux) > 2:
+        document["auxAxisOrigin"] = {"xNm": nm(number(aux[1])), "yNm": nm(number(aux[2]))}
     return document, warnings

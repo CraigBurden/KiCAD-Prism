@@ -1,0 +1,242 @@
+%PDF-1.5
+%€‚ƒ
+5 0 obj
+<< /Length 6 0 R /Filter /FlateDecode >>
+stream
+xÚWAnÜ0¼ç~!R%½ @Íº@[É¥—~¿Cïz×”´i°b‰òx†Ñr¢”ªlÉËËûÆÛWüı¾F¶??oß¾l²šÚö÷eŠ-f¸“µ‚Å¹jb²M«¨QßŞ7íÂršyûh†³2éræü™™;òë§è{RRî¹&†MÍŒX¹fÙ´änTrÑœ]MjUˆ¯C-*Ff99çÔZ'I±ÇŠDô.{¬³RuYû}†…[¿Ş×U©]‡ˆÕBRKéì1@eIeËBÚµ5™0™K#hª¦fÀ°«äIscÄŒÚ§[¢ÌÚgLÎ‰¸‰´<sá¤d^)™5 »Tà¤¤³ö„‡—ª-å9gcìœëˆk¹ÄÚFÑQûS¿¼m¿¶¿©ßJÉö‚ŒãÕ©˜õÙa\°ÓXvLU-ÈˆÕóÏn@rÙöì"ĞÆRl÷…Ãª¡:l¬ÌŠÄ"Ik©PòÑÂa¸ İD‡…Øà°€98,p4Ú£‹bÎÆØ9×f¨ÑÀ%ÔvĞ<1hæ—§s¦ä·%›†bêTm¢·~ªª­0ÕR¡wr60c?ı&¸¨`ïškª}²R‹M˜%uT\«å6q)Œ÷³AÕ¤±F¼7ªÉa1³1cu"—XÕ¨!º!j.Š9cç\GÌX£È%Ö6jˆˆÚŸúå©Ã<J©zó›†ÿ~Õb³ÃPHtË|ô›XUE¬ú†œİ€òƒÈÂaæK;P³ŞI'ƒ&
+è¨ÁÂaU±Ws­}á0Ô	1Ï×ì°0‡.ƒÃ‚†ÁaA{tQÌÙ¹0C.¡¶ƒ†à‰Aû3¿<sXî‰í|ÑI¥—B¥'H‚Ãb,›)	ú®ù™dr?!ôcgÌ·íùóşÃ‹3v]ğÂLÁÛJ1f¼E XœFŞöC&ñ}|ÁL±VìOÇøúŒËi†Y÷7vÊöxÆm|y°¸¯8XQÇeû¾PÛ,XÄOÈØ[‰Ü\ÍßqR÷÷º½¿øÙ[ÉÜZŒ½½¼.sèl^àŠ÷lŞ	`Zr,ïÓä@­ŸÁRïİTîyyo#;ÎoşÖõbı‘3¯	ßåLrˆØİpÌàôBc1lAŒñÊ ö¨Ômì•R«§ØŞÔOÇøá†cFğí“O8ZûñŒëørbq¬8XQÇÚs6î÷É¤_ı2è—I¿úeĞ/“~ôË _&ı2è—Aÿ‡»áŸ: 
+endstream
+endobj
+6 0 obj
+964
+endobj
+10 0 obj
+[7 0 R 8 0 R 9 0 R]
+endobj
+11 0 obj
+<<
+/Type /Page
+/Parent 1 0 R
+/Resources <<
+    /ProcSet [/PDF /Text /ImageC /ImageB]
+    /Font 2 0 R
+    /XObject 3 0 R >>
+/MediaBox [0 0 841.896 595.296]
+/Contents 5 0 R
+/Annots 10 0 R>>
+endobj
+12 0 obj
+<</S /GoTo /D [11 0 R /Fit]
+>>
+endobj
+15 0 obj
+<</S /GoTo /D [11 0 R /FitR 290 336 304 320]
+>>
+endobj
+17 0 obj
+<</S /GoTo /D [11 0 R /FitR 319 336 332 320]
+>>
+endobj
+19 0 obj
+<</S /GoTo /D [11 0 R /FitR 275 330 291 290]
+>>
+endobj
+2 0 obj
+<<
+>>
+endobj
+3 0 obj
+<<
+
+>>
+endobj
+7 0 obj
+<<
+/Type /Annot
+/Subtype /Link
+/Rect [294.236 324.134 301.039 327.876]
+/Border [16 16 0]
+/A << /Type /Action /S /JavaScript /JS (ShM\([
+["Reference designator = R1"],
+["Value = 1k"],
+["Footprint = R_0603_1608Metric"],
+]\);) >>
+>>
+endobj
+8 0 obj
+<<
+/Type /Annot
+/Subtype /Link
+/Rect [322.583 324.134 329.386 327.876]
+/Border [16 16 0]
+/A << /Type /Action /S /JavaScript /JS (ShM\([
+["Reference designator = D1"],
+["Value = STATUS"],
+["Footprint = LED_0603_1608Metric"],
+]\);) >>
+>>
+endobj
+9 0 obj
+<<
+/Type /Annot
+/Subtype /Link
+/Rect [279.609 300.776 287.32 315.687]
+/Border [16 16 0]
+/A << /Type /Action /S /JavaScript /JS (ShM\([
+["Reference designator = J1"],
+["Value = POWER_IN"],
+["Footprint = PinHeader_1x02_P2.54mm_Vertical"],
+]\);) >>
+>>
+endobj
+4 0 obj
+<< /JavaScript
+ << /Names
+    [ (JSInit) << /Type /Action /S /JavaScript /JS (
+function ShM\(aEntries\) {
+    var aParams = [];
+    for \(var i = 0; i < aEntries.length; ++i\) {
+        aParams.push\({
+            cName: aEntries[i][0],
+            cReturn: aEntries[i].length > 1 ? aEntries[i][1] : ''
+        }\)
+    }
+
+    var cChoice = app.popUpMenuEx.apply\(app, aParams\);
+    if \(cChoice == null || cChoice == ''\) return;
+
+    if \(cChoice.substring\(0, 1\) == '#'\) {
+        this.pageNum = parseInt\(cChoice.slice\(1\)\);
+        return;
+    }
+
+    // Fallback: some viewers return cName instead of cReturn
+    var url = cChoice;
+    if \(url.substring\(0, 4\) != 'http' && url.substring\(0, 4\) != 'file'\) {
+        var idx = url.indexOf\('http'\);
+        if \(idx < 0\) idx = url.indexOf\('file:'\);
+        if \(idx >= 0\) url = url.substring\(idx\);
+        else return;
+    }
+
+    if \(url.substring\(0, 8\) == 'file:///'\) app.openDoc\(url.substring\(7\)\);
+    else if \(url.substring\(0, 7\) == 'file://'\) app.openDoc\('//' + url.substring\(7\)\);
+    else app.launchURL\(url\);
+}
+) >> ]
+ >>
+>>
+endobj
+1 0 obj
+<<
+/Type /Pages
+/Kids [
+11 0 R
+]
+/Count 1
+>>
+endobj
+21 0 obj
+<<
+/Producer (KiCad PDF)
+/CreationDate (D:2026:10:22:03:38:02)
+/Creator (PCBNEW)
+/Title (Release Studio Synthetic Board)
+/Author ()
+/Subject ()
+>>
+endobj
+18 0 obj
+<<
+/Title (D1)
+/Parent 14 0 R
+/Next 20 0 R
+/A 17 0 R
+>>
+endobj
+20 0 obj
+<<
+/Title (J1)
+/Parent 14 0 R
+/Next 16 0 R
+/Prev 18 0 R
+/A 19 0 R
+>>
+endobj
+16 0 obj
+<<
+/Title (R1)
+/Parent 14 0 R
+/Prev 20 0 R
+/A 15 0 R
+>>
+endobj
+14 0 obj
+<<
+/Title (Footprints)
+/Parent 13 0 R
+/Count -3
+/First 18 0 R
+/Last 16 0 R
+/A 12 0 R
+>>
+endobj
+13 0 obj
+<<
+/Title (Edge.Cuts \(Page 1\))
+/Parent 22 0 R
+/Count -1
+/First 14 0 R
+/Last 14 0 R
+/A 12 0 R
+>>
+endobj
+22 0 obj
+<< /Type /Outlines
+   /Count 5
+   /First 13 0 R
+   /Last 13 0 R
+>>
+endobj
+23 0 obj
+<<
+/Type /Catalog
+/Pages 1 0 R
+/Version /1.5
+/PageMode /UseOutlines
+/Outlines 22 0 R
+/Names 4 0 R
+/PageLayout /SinglePage
+>>
+endobj
+xref
+0 24
+0000000000 65535 f 
+0000003486 00000 n 
+0000001551 00000 n 
+0000001572 00000 n 
+0000002354 00000 n 
+0000000015 00000 n 
+0000001053 00000 n 
+0000001594 00000 n 
+0000001839 00000 n 
+0000002090 00000 n 
+0000001072 00000 n 
+0000001108 00000 n 
+0000001312 00000 n 
+0000004042 00000 n 
+0000003938 00000 n 
+0000001359 00000 n 
+0000003866 00000 n 
+0000001423 00000 n 
+0000003709 00000 n 
+0000001487 00000 n 
+0000003781 00000 n 
+0000003546 00000 n 
+0000004156 00000 n 
+0000004239 00000 n 
+trailer
+<< /Size 24 /Root 23 0 R /Info 21 0 R >>
+startxref
+4380
+%%EOF

@@ -566,7 +566,7 @@ Every path a WP may edit in its wave, from `ownership.json` `/workPackages`. "AD
 | `native/contracts/generated/schema/CliVerifyReportA0.json` | new | generated from W0's TypeSpec; never edited by hand |
 | `native/contracts/generated/schema/CliVersionA0.json` | new | generated from W0's TypeSpec; never edited by hand |
 | `native/contracts/generated/schema/OccurrencesA0.json` | new | generated from W0's TypeSpec; never edited by hand |
-| `native/contracts/generated/schema/PlacementsA0.json` | new | generated from W0's TypeSpec; never edited by hand |
+| `native/contracts/generated/schema/PlacementsA1.json` | new | generated from W0's TypeSpec; never edited by hand |
 | `native/contracts/generated/schema/ProjectA0.json` | new | generated from W0's TypeSpec; never edited by hand |
 | `native/contracts/generated/schema/RevisionKeyEffectiveConfigA1.json` | new | generated from W0's TypeSpec; never edited by hand |
 | `native/contracts/generated/schema/RevisionKeyRecordA1.json` | new | generated from W0's TypeSpec; never edited by hand |

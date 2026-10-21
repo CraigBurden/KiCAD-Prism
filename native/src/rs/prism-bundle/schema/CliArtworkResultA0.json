@@ -8,6 +8,11 @@
             "const": "prism.cli.artwork_result.a0",
             "description": "Document schema id."
         },
+        "paper_scale": {
+            "type": "number",
+            "minimum": 0,
+            "description": "The ratio of sheet millimetres to board millimetres the run drew at:\n`--paper-scale` when given, so every stroke and font in the views prints at\nits configured size on paper at that scale. Absent when the run drew in\nboard millimetres and sizes scale with the drawing."
+        },
         "views": {
             "type": "array",
             "items": {
@@ -49,6 +54,10 @@
                     "$ref": "#/$defs/Count",
                     "description": "How many reference designators the view placed."
                 },
+                "dnp_footprints_hatched": {
+                    "$ref": "#/$defs/Count",
+                    "description": "How many do-not-populate footprints the view hatched (`dnp.hatch`)."
+                },
                 "footprints_without_outline": {
                     "type": "array",
                     "items": {
@@ -63,6 +72,7 @@
                 "sha256",
                 "footprints_drawn",
                 "designators_placed",
+                "dnp_footprints_hatched",
                 "footprints_without_outline"
             ],
             "unevaluatedProperties": {

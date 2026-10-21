@@ -1096,7 +1096,8 @@ gitlinks themselves are never members (cli-spec.md §9.1).*/
 ///    "projection",
 ///    "refilled-board",
 ///    "materialization",
-///    "component-models"
+///    "component-models",
+///    "assembly-hlr"
 ///  ]
 ///}
 /// ```
@@ -1146,6 +1147,8 @@ pub enum BundleManifestMemberRole {
     Materialization,
     #[serde(rename = "component-models")]
     ComponentModels,
+    #[serde(rename = "assembly-hlr")]
+    AssemblyHlr,
 }
 impl ::std::fmt::Display for BundleManifestMemberRole {
     fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
@@ -1166,6 +1169,7 @@ impl ::std::fmt::Display for BundleManifestMemberRole {
             Self::RefilledBoard => f.write_str("refilled-board"),
             Self::Materialization => f.write_str("materialization"),
             Self::ComponentModels => f.write_str("component-models"),
+            Self::AssemblyHlr => f.write_str("assembly-hlr"),
         }
     }
 }
@@ -1189,6 +1193,7 @@ impl ::std::str::FromStr for BundleManifestMemberRole {
             "refilled-board" => Ok(Self::RefilledBoard),
             "materialization" => Ok(Self::Materialization),
             "component-models" => Ok(Self::ComponentModels),
+            "assembly-hlr" => Ok(Self::AssemblyHlr),
             _ => Err("invalid value".into()),
         }
     }
@@ -1930,6 +1935,113 @@ impl<'de> ::serde::Deserialize<'de> for CliFindingMessage {
             })
     }
 }
+/**The HLR option set stage `models` passes to Geometer for every footprint
+(`models/assembly-hlr.json`'s `options`), as one versioned token: changing
+any option changes the token, and with it the generator id (cli-spec.md
+§5.2.4).*/
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "description": "The HLR option set stage `models` passes to Geometer for every footprint\n(`models/assembly-hlr.json`'s `options`), as one versioned token: changing\nany option changes the token, and with it the generator id (cli-spec.md\n§5.2.4).",
+///  "type": "string",
+///  "enum": [
+///    "assembly-hlr-a0"
+///  ]
+///}
+/// ```
+/// </details>
+#[derive(
+    ::serde::Deserialize,
+    ::serde::Serialize,
+    Clone,
+    Copy,
+    Debug,
+    Eq,
+    Hash,
+    Ord,
+    PartialEq,
+    PartialOrd,
+)]
+pub enum CliHlrOptionsProcedure {
+    #[serde(rename = "assembly-hlr-a0")]
+    AssemblyHlrA0,
+}
+impl ::std::fmt::Display for CliHlrOptionsProcedure {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+        match *self {
+            Self::AssemblyHlrA0 => f.write_str("assembly-hlr-a0"),
+        }
+    }
+}
+impl ::std::str::FromStr for CliHlrOptionsProcedure {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        match value {
+            "assembly-hlr-a0" => Ok(Self::AssemblyHlrA0),
+            _ => Err("invalid value".into()),
+        }
+    }
+}
+impl ::std::convert::TryFrom<&str> for CliHlrOptionsProcedure {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl ::std::convert::TryFrom<&::std::string::String> for CliHlrOptionsProcedure {
+    type Error = self::error::ConversionError;
+    fn try_from(
+        value: &::std::string::String,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl ::std::convert::TryFrom<::std::string::String> for CliHlrOptionsProcedure {
+    type Error = self::error::ConversionError;
+    fn try_from(
+        value: ::std::string::String,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+/**The procedure stage `models` uses for `models/assembly-hlr.json`
+(cli-spec.md §5.2.4): the Geometer runtime release and the HLR option set.
+Changing either is a generator bump.*/
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "description": "The procedure stage `models` uses for `models/assembly-hlr.json`\n(cli-spec.md §5.2.4): the Geometer runtime release and the HLR option set.\nChanging either is a generator bump.",
+///  "type": "object",
+///  "required": [
+///    "geometer_version",
+///    "options"
+///  ],
+///  "properties": {
+///    "geometer_version": {
+///      "description": "The Geometer runtime's release version, exactly as its welcome reports it, for example `2026.9.19`. `--geometer` must report this version or exit 7.",
+///      "$ref": "#/$defs/CliReleaseVersion"
+///    },
+///    "options": {
+///      "description": "The HLR option set every projection used.",
+///      "$ref": "#/$defs/CliHlrOptionsProcedure"
+///    }
+///  },
+///  "additionalProperties": false
+///}
+/// ```
+/// </details>
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct CliHlrProcedure {
+    ///The Geometer runtime's release version, exactly as its welcome reports it, for example `2026.9.19`. `--geometer` must report this version or exit 7.
+    pub geometer_version: CliReleaseVersion,
+    ///The HLR option set every projection used.
+    pub options: CliHlrOptionsProcedure,
+}
 /**A JSON Pointer (RFC 6901) into a JSON file: empty for the whole document,
 otherwise `/`-separated reference tokens with `~0` for `~` and `~1` for `/`.*/
 ///
@@ -2421,6 +2533,7 @@ generator digest and the bundle key are SHA-256 over them.*/
 ///  "required": [
 ///    "crate_version",
 ///    "engine_version",
+///    "hlr_procedure",
 ///    "kicad_file_formats",
 ///    "kicad_version",
 ///    "member_schemas",
@@ -2438,6 +2551,10 @@ generator digest and the bundle key are SHA-256 over them.*/
 ///    "engine_version": {
 ///      "description": "Version of the parser core crate (`ENGINE_VERSION`, the fork's `kicad-monkey-core`, `prism-kicad-core` after WP-F2).",
 ///      "$ref": "#/$defs/CliReleaseVersion"
+///    },
+///    "hlr_procedure": {
+///      "description": "The procedure stage `models` uses for `models/assembly-hlr.json`: the Geometer runtime and the HLR options (cli-spec.md §5.2.4).",
+///      "$ref": "#/$defs/CliHlrProcedure"
 ///    },
 ///    "kicad_file_formats": {
 ///      "description": "The current file formats of `kicad_version`: the `(version N)` KiCad\nwrites. Sources older than them are upgraded before stage `parse`\n(cli-spec.md §9.4), and the parser reads only these formats, so they\ndecide every parsed member's bytes. Raised with `kicad_version`.",
@@ -2495,6 +2612,8 @@ pub struct CliVersionA0 {
     pub crate_version: CliReleaseVersion,
     ///Version of the parser core crate (`ENGINE_VERSION`, the fork's `kicad-monkey-core`, `prism-kicad-core` after WP-F2).
     pub engine_version: CliReleaseVersion,
+    ///The procedure stage `models` uses for `models/assembly-hlr.json`: the Geometer runtime and the HLR options (cli-spec.md §5.2.4).
+    pub hlr_procedure: CliHlrProcedure,
     /**The current file formats of `kicad_version`: the `(version N)` KiCad
     writes. Sources older than them are upgraded before stage `parse`
     (cli-spec.md §9.4), and the parser reads only these formats, so they

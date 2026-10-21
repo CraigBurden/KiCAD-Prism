@@ -90,6 +90,9 @@ enum BundleManifestMemberRole {
 
   /** `viewer/models/components.glb`: component bodies exported by `kicad-cli pcb export glb --no-board-body`, timestamp normalized. Stage models. New in a2. */
   componentModels: "component-models",
+
+  /** `models/assembly-hlr.json`: every footprint's 3D model hidden-line projection (`prism.assembly_hlr.a0`). Stage models; present only when stage models ran with a Geometer runtime. New in a3 with amendment C3. */
+  assemblyHlr: "assembly-hlr",
 }
 
 /** A stage of the design-bundle job (ADR §4.4), in pipeline order. Each stage runs only after the one before it (`bundle-format.md` §3). */

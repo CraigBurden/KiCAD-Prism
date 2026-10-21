@@ -223,6 +223,9 @@ pub use schematic_plot_contract::{
     schematic_plot_document_budget, schematic_plot_document_json,
 };
 pub use schematic_plot_projector::project_schematic_plot_document_a0;
+pub use schematic_plotter_ir::worksheet_render::{
+    DrawingSheetPage, default_drawing_sheet_operations,
+};
 pub use schematic_plotter_ir::{
     SchematicAnnotationRecord, SchematicAnnotationRecordKind, SchematicCanvas,
     SchematicConnectivityRecord, SchematicConnectivityRecordKind, SchematicDrawingSettings,

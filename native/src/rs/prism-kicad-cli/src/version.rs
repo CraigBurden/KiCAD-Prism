@@ -7,6 +7,7 @@
 
 use prism_bundle::manifest::{a3, member_schemas};
 use prism_bundle::stages::Generator;
+use prism_bundle::stages::models::{GEOMETER_RELEASE, OPTIONS_TOKEN};
 use prism_bundle::{Failure, Outcome};
 
 /// The KiCad of the KiCad-produced members (the refilled board, the GLB).
@@ -20,6 +21,10 @@ pub fn generator() -> Outcome<Generator> {
         "schema": "prism.cli.version.a0",
         "crate_version": env!("CARGO_PKG_VERSION"),
         "engine_version": prism_kicad_core::ENGINE_VERSION,
+        "hlr_procedure": {
+            "geometer_version": GEOMETER_RELEASE,
+            "options": OPTIONS_TOKEN,
+        },
         "kicad_file_formats": {
             "board": prism_bundle::stages::BOARD_FORMAT,
             "schematic": prism_bundle::stages::SCHEMATIC_FORMAT,

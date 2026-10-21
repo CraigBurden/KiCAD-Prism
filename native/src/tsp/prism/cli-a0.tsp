@@ -267,6 +267,12 @@ enum CliArgument {
   /** `--variant` of `vendor run` and `artwork`: the variant whose occurrences the run applies. */
   variant,
 
+  /**
+   * `--paper-scale` of `artwork`: the ratio of sheet millimetres to board
+   * millimetres the run draws at (cli-spec.md §5.7).
+   */
+  paperScale: "paper-scale",
+
   /** `<vendor-id>` of `vendor run`. */
   vendor,
 
@@ -386,6 +392,30 @@ enum CliRefillProcedure {
 enum CliModelsProcedure {
   /** `kicad-cli pcb export glb --force --no-board-body --output <dir>/components.glb <board>` on the source board. */
   kicadCliGlbA0: "kicad-cli-glb-a0",
+}
+
+/**
+ * The HLR option set stage `models` passes to Geometer for every footprint
+ * (`models/assembly-hlr.json`'s `options`), as one versioned token: changing
+ * any option changes the token, and with it the generator id (cli-spec.md
+ * §5.2.4).
+ */
+enum CliHlrOptionsProcedure {
+  /** Geometer's default `poly` projection algorithm and default mesh deflections and edge flags; outline algorithm `mesh-shadow`, curve mode `native_arcs`, 24 samples per curve, 3 round digits, outline and detail both on, unioned outline polygons. */
+  assemblyHlrA0: "assembly-hlr-a0",
+}
+
+/**
+ * The procedure stage `models` uses for `models/assembly-hlr.json`
+ * (cli-spec.md §5.2.4): the Geometer runtime release and the HLR option set.
+ * Changing either is a generator bump.
+ */
+model CliHlrProcedure {
+  /** The Geometer runtime's release version, exactly as its welcome reports it, for example `2026.9.19`. `--geometer` must report this version or exit 7. */
+  geometer_version: CliReleaseVersion;
+
+  /** The HLR option set every projection used. */
+  options: CliHlrOptionsProcedure;
 }
 
 // ------------------------------------------------------------- small models
@@ -593,6 +623,9 @@ model CliVersionA0 {
 
   /** Version of the parser core crate (`ENGINE_VERSION`, the fork's `kicad-monkey-core`, `prism-kicad-core` after WP-F2). */
   engine_version: CliReleaseVersion;
+
+  /** The procedure stage `models` uses for `models/assembly-hlr.json`: the Geometer runtime and the HLR options (cli-spec.md §5.2.4). */
+  hlr_procedure: CliHlrProcedure;
 
   /**
    * The current file formats of `kicad_version`: the `(version N)` KiCad
@@ -898,6 +931,9 @@ model CliArtworkView {
   /** How many reference designators the view placed. */
   designators_placed: Count;
 
+  /** How many do-not-populate footprints the view hatched (`dnp.hatch`). */
+  dnp_footprints_hatched: Count;
+
   /**
    * Every footprint the view has no body outline for, `<RepoPath>#<KiCadUuid>`,
    * sorted in code point order: the footprints drawn from the hole envelope or
@@ -913,6 +949,15 @@ model CliArtworkView {
 model CliArtworkResultA0 {
   /** Document schema id. */
   schema: "prism.cli.artwork_result.a0";
+
+  /**
+   * The ratio of sheet millimetres to board millimetres the run drew at:
+   * `--paper-scale` when given, so every stroke and font in the views prints at
+   * its configured size on paper at that scale. Absent when the run drew in
+   * board millimetres and sizes scale with the drawing.
+   */
+  @minValue(0)
+  paper_scale?: float64;
 
   /** One entry per rendered view, sorted by `name` in code point order. */
   views: CliArtworkView[];

@@ -1,7 +1,7 @@
 [package]
 name = "prism-kicad-cli"
 description = "prism-kicad: parse a KiCad revision once and write its design bundle (cli-spec.md)"
-version = "0.6.2"
+version = "0.7.0"
 edition.workspace = true
 rust-version.workspace = true
 license = "Apache-2.0"
@@ -28,12 +28,14 @@ path = "src/main.rs"
 
 [dependencies]
 libc.workspace = true
+prism-artwork = { path = "../prism-artwork" }
 prism-bundle = { path = "../prism-bundle" }
 prism-kicad-contracts = { path = "../prism-kicad-contracts" }
 prism-kicad-core = { path = "../prism-kicad-core" }
 prism-kicad-materialization-pack = { path = "../prism-kicad-materialization-pack" }
 prism-step = { path = "../prism-step" }
 prism-system = { path = "../prism-system" }
+prism-vendors = { path = "../prism-vendors" }
 serde.workspace = true
 serde_json.workspace = true
 sha2.workspace = true

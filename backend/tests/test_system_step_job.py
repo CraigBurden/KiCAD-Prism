@@ -35,7 +35,7 @@ class StepWorkspace(SystemBundleWorkspace):
         self.enterContext(
             mock.patch.object(
                 system_jobs, "resolve_tools",
-                lambda: KicadTools(cli=self.kicad, cruncher=None),
+                lambda: KicadTools(cli=self.kicad),
             )
         )
         self.catalog_steps = {
@@ -187,7 +187,7 @@ class BoardStepJobTests(StepWorkspace, unittest.TestCase):
         tool = FakeTool(report_missing, version=KICAD_VERSION)
         with mock.patch.object(
             system_jobs, "resolve_tools",
-            lambda: KicadTools(cli=tool, cruncher=None),
+            lambda: KicadTools(cli=tool),
         ):
             self.run_board_job(system_jobs.start_system_board_step_job(PROJECT, commit))
         record = step_store.board_record(step_store.board_key(PROJECT, commit, KICAD_VERSION))
@@ -203,7 +203,7 @@ class BoardStepJobTests(StepWorkspace, unittest.TestCase):
         tool = FakeTool(fail, version=KICAD_VERSION)
         with mock.patch.object(
             system_jobs, "resolve_tools",
-            lambda: KicadTools(cli=tool, cruncher=None),
+            lambda: KicadTools(cli=tool),
         ):
             job_id = system_jobs.start_system_board_step_job(PROJECT, commit)
             with self.assertRaises(PermanentJobError) as caught:
