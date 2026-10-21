@@ -1,10 +1,8 @@
-// kicad-cruncher BOM/PnP configuration for the JLCPCB vendor pack.
+// Prism's JLCPCB BOM/PnP configuration for the vendor pack.
 //
-// Why this file exists: `--format <kind>` emits one kind per invocation and
-// explicitly "overrides multi-output config mode", so asking for CSV and XLSX
-// of both the BOM and the CPL cost four full parses of the design. Config mode
-// emits every listed kind from one load, which halves the work -- measured on
-// JTYU-OBC at 114s -> 60s, with byte-identical CSVs and cell-identical XLSX.
+// Why this file exists: it is the one pinned source of the JLCPCB pack
+// settings; `vendors/jlcpcb.py` converts it to the
+// `prism.vendor.jlcpcb.config.a0` document `prism-kicad vendor run` reads.
 //
 // This file is hashed into `toolchain_digest` (see documents/renderer_resource_digest),
 // so editing it moves `build_key` instead of silently changing a vendor pack
@@ -32,7 +30,7 @@
 // would emit a pack per variant. The caller passes --variant when a release
 // selects one.
 {
-  "schema": "kicad_cruncher.bom.config.a0",
+  "schema": "prism.vendor.jlcpcb.config.a0",
 
   "variants": {
     "mode": "base",

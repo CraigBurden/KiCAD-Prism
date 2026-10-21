@@ -132,8 +132,6 @@ these only for a host run or a pinned install:
 # kicad-cli. Empty: PATH, then the usual KiCad install locations.
 # A set path is used as given, with no fallback. KICAD_CLI is a legacy name.
 KICAD_CLI_PATH=
-# kicad-cruncher, for release assembly views and vendor packs. Empty: PATH.
-KICAD_CRUNCHER_PATH=
 ```
 
 Each kicad-cli run gets its own temporary directory (KiCad's instance lock)
@@ -170,7 +168,10 @@ constrained host. Unless noted, an empty value means the default.
 A design bundle is one parse of a project revision by `prism-kicad`, stored as
 `KICAD_PROJECTS_ROOT/.kicad-prism/bundles/<project>/<revision key>/<generator>.prism`
 ([ADR](architecture/adr-native-design-bundle.md)). The `design_bundle` job
-builds it in stages (parse, board, models) on the general worker.
+builds it in stages (parse, board, models) on the general worker. Every
+consumer — Release Studio, the semantic index, project metadata, catalog
+import and design comparison — reads the bundle unconditionally (ADR §9.7 R1,
+amendment C3 F4c).
 
 | Setting | Purpose |
 | --- | --- |

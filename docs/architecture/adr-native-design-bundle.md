@@ -384,9 +384,9 @@ Every P-WP owns one module `native/src/rs/prism-projections/src/<name>.rs`, its 
 **Status notes.**
 - **R1 done (WP-R1).** The semantic index, project metadata, catalog import and
   design comparison read the bundle unconditionally; their
-  `PRISM_DESIGN_SOURCE_*` switches and legacy paths are deleted, and
-  `PRISM_DESIGN_SOURCE_RELEASE_STUDIO` is the only switch left (its own work
-  package removes it). A request without a `commit` reads the checkout's HEAD
+  `PRISM_DESIGN_SOURCE_*` switches and legacy paths are deleted. Release Studio
+  read the bundle behind the last switch until C3 F4c removed it too; every
+  consumer now reads the bundle unconditionally. A request without a `commit` reads the checkout's HEAD
   and answers `X-Prism-Working-Tree: dirty` when the read set has uncommitted
   changes. A member that is still building is HTTP 202 `{"status": "pending",
   "members": [...], "retryAfterSeconds": 3}` with a `Retry-After` header; a
