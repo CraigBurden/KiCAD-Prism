@@ -69,3 +69,20 @@ fn stroke_font_metrics_cover_every_glyph() {
     assert_eq!(metrics.advances.0.get("32"), Some(&(16.0 / 21.0)));
     assert_eq!(metrics.advances.0.get("8486"), Some(&(24.0 / 21.0)));
 }
+
+/// The two checked-in artwork configs validate against the generated
+/// `prism.artwork.config.a0` schema, not just their generated Rust types.
+#[test]
+fn artwork_configs_validate_against_the_generated_schema() {
+    for name in ["assembly.json", "testpoints.json"] {
+        let path = format!("{}/configs/{name}", env!("CARGO_MANIFEST_DIR"));
+        let text = std::fs::read_to_string(&path).unwrap_or_else(|error| panic!("{path}: {error}"));
+        let value: Value =
+            serde_json::from_str(&text).unwrap_or_else(|error| panic!("{path}: {error}"));
+        prism_bundle::schema::validate("prism.artwork.config.a0", &value)
+            .unwrap_or_else(|violation| panic!("{path}: {}", violation.message));
+        let config: prism_kicad_contracts::generated::prism_artwork_config_a0::ArtworkConfigA0 =
+            serde_json::from_value(value).unwrap_or_else(|error| panic!("{path}: {error}"));
+        assert_eq!(config.schema, "prism.artwork.config.a0");
+    }
+}

@@ -168,7 +168,7 @@ fn dispatch(args: &Args, stderr: &Stderr) -> Result<(Value, u8), Failure> {
             cmd_revision_key::KeyOutcome::Absent(document) => Ok((document, 10)),
         },
         Command::VendorList | Command::VendorRun => cmd_vendor::run(args, stderr),
-        Command::StrokeText | Command::DrawingSheet => cmd_artwork::run(args),
+        Command::Artwork | Command::StrokeText | Command::DrawingSheet => cmd_artwork::any(args),
         Command::Version
         | Command::Help
         | Command::Compare
