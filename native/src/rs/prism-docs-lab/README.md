@@ -17,13 +17,46 @@ in the repo so they stay deterministic and maintainable.
 | `connector-icd` | One A3 landscape interface control sheet per connector, in SVG, plus an index page and a PDF of it: identification, views of the part from its STEP model, a board locator and the pinout with the nets each pin reaches. |
 | `mechanical-outline` | One or two A3 landscape sheets: a third-angle top view with holes, bodies and dimensions, front and side elevations with measured heights, a notes block, and height and hole tables. |
 
+## Themes
+
+Every prototype takes `--theme light|dark|blueprint` and defaults to `light`,
+the ink-on-white look the pages were designed in. `light` is byte-identical to
+the output from before the flag existed. `dark` and `blueprint` are for screens
+and shared links: they put light ink on a dark page and tint every band, rule
+and table, so a printed sheet uses a lot of ink. The roles:
+
+| Role | `light` | `dark` | `blueprint` |
+| --- | --- | --- | --- |
+| paper | `#ffffff` | `#141416` | `#123a6b` |
+| ink (outlines, text) | `#1d1d1f` | `#e6e6e8` | `#f2f6fb` |
+| muted (captions) | `#6b6b70` | `#9a9aa2` | `#a9c1df` |
+| rule (table rules, frame ticks) | `#c4c8cf` | `#3a3b40` | `#3e6496` |
+| header (table band) | `#eef0f3` | `#22232a` | `#1a4a82` |
+| stripe (alternate row) | `#f7f8fa` | `#1b1c21` | `#164477` |
+| pad | `#c4c8cf` | `#5a5d66` | `#5d86b8` |
+| body (mechanical outlines) | `#9a9aa0` | `#7c7f88` | `#c9d8ea` |
+| alert (over-limit, DNP) | `#B00020` | `#ff6b7a` | `#ffb547` |
+| frame | `#1d1d1f` | `#e6e6e8` | `#f2f6fb` |
+
+The copper colours are not themed: they carry KiCad's layer meaning and stay
+`F.Cu` red, `B.Cu` blue and the inner-layer table (`src/palette.rs`), drawn over
+whatever paper the theme uses. A blueprint page is Prussian blue with warm
+amber as its alert colour, because red does not read on blue.
+
+The roles live in `src/theme.rs`; each `Theme::palette()` is the only place a
+colour is chosen. The HTML pages keep one stylesheet: dark and blueprint write
+the palette on `:root` and the same rules read those custom properties, while
+`light` emits the stylesheet unchanged. Dark and blueprint pages ask the
+printer for `print-color-adjust: exact` so a PDF keeps its background.
+
 ## Run one
 
 From `native/`:
 
 ```sh
 cargo run -p prism-docs-lab --bin net-class-atlas -- \
-    --in <bundle.prism> -o <atlas.html> [--side top|bottom|both]
+    --in <bundle.prism> -o <atlas.html> [--side top|bottom|both] \
+    [--theme light|dark|blueprint]
 ```
 
 The bundle needs its parse, board and models stages built (a `models.prism`
@@ -55,7 +88,8 @@ isolates one net.
 ```sh
 cargo run -p prism-docs-lab --bin connector-icd -- \
     --in <bundle.prism> -o <dir> [--geometer <exe>] [--model-dir VAR=DIR]... \
-    [--refs J1,J2] [--prefixes J,P,CN,X] [--chrome <exe>] [--no-pdf]
+    [--refs J1,J2] [--prefixes J,P,CN,X] [--chrome <exe>] [--no-pdf] \
+    [--theme light|dark|blueprint]
 ```
 
 Connectors are the footprints whose reference starts with one of `--prefixes`
@@ -128,7 +162,8 @@ byte-identical SVG and HTML. The PDF comes from Chrome and may differ.
 ```sh
 cargo run -p prism-docs-lab --bin mechanical-outline -- \
     --in <bundle.prism> -o <dir> [--geometer <exe>] \
-    [--model-dir VAR=DIR]... [--height-limit-mm 5.0]
+    [--model-dir VAR=DIR]... [--height-limit-mm 5.0] \
+    [--theme light|dark|blueprint]
 ```
 
 Writes `mechanical-1.svg`, `mechanical-2.svg` when the tables do not fit sheet
@@ -171,9 +206,10 @@ PDF is Chrome's and may differ between runs.
 ## Layout
 
 - `src/lib.rs` — the parts a later prototype reuses: `bundle` (opening a
-  bundle and reading its members), `palette` (KiCad's copper colours), `html`
-  (deterministic escaping, numbers and the page shell) and the shared
-  stylesheet in `src/assets/`.
+  bundle and reading its members), `palette` (KiCad's copper colours), `theme`
+  (the three looks and their named colour roles), `html` (deterministic
+  escaping, numbers and the page shell) and the shared stylesheet in
+  `src/assets/`.
 - `src/icd/` — the connector ICD's own modules: `board` (the facts),
   `footprint` (pads, fallback graphics and frame transforms), `pose` (the
   model-to-footprint transform and the mating-face heuristic), `hlr` (the

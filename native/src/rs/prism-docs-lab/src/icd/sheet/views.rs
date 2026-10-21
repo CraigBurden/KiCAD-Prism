@@ -3,6 +3,7 @@
 
 use super::*;
 use crate::html::millimetres;
+use crate::theme::Palette;
 use prism_artwork::artwork::geometry::{Bounds, Point};
 use prism_artwork::artwork::svg::{number, ring_path};
 
@@ -12,6 +13,7 @@ use super::super::hlr::{MatingFace, ProjectedArc, ProjectedView, ViewRole};
 use super::super::pins::natural_cmp;
 
 pub(super) fn cells(svg: &mut String, context: &SheetContext<'_>) {
+    let palette = context.theme.palette();
     let roles = [
         ViewRole::Top,
         ViewRole::Front,
@@ -20,28 +22,46 @@ pub(super) fn cells(svg: &mut String, context: &SheetContext<'_>) {
     ];
     for (index, role) in roles.iter().enumerate() {
         let x = 14.0 + index as f64 * 100.0;
-        view_cell(svg, context, *role, x, 32.0, 96.0, 108.0);
+        view_cell(
+            svg,
+            context,
+            *role,
+            Cell {
+                x,
+                y: 32.0,
+                width: 96.0,
+                height: 108.0,
+            },
+            &palette,
+        );
     }
+}
+
+/// One of the four view cells: where it sits and how big it is, millimetres.
+struct Cell {
+    x: f64,
+    y: f64,
+    width: f64,
+    height: f64,
 }
 
 fn view_cell(
     svg: &mut String,
     context: &SheetContext<'_>,
     role: ViewRole,
-    x: f64,
-    y: f64,
-    width: f64,
-    height: f64,
+    cell: Cell,
+    palette: &Palette,
 ) {
     let connector = context.connector;
-    let area = cell_area(x, y, width, height);
+    let area = cell_area(cell.x, cell.y, cell.width, cell.height);
     caption(
         svg,
         &view_caption(role, connector),
-        x,
-        y,
-        width,
+        cell.x,
+        cell.y,
+        cell.width,
         &view_scale_text(connector, role, area),
+        palette,
     );
     let clip = format!(
         "clip-{}-{}-{}",
@@ -58,7 +78,7 @@ fn view_cell(
         number(area.height())
     );
     let _ = writeln!(svg, "<g clip-path=\"url(#{clip})\">");
-    draw_view(svg, connector, role, area);
+    draw_view(svg, connector, role, area, palette);
     svg.push_str("</g>\n");
 }
 
@@ -89,7 +109,15 @@ fn view_scale_text(connector: &Connector, role: ViewRole, area: Bounds) -> Strin
     }
 }
 
-fn caption(svg: &mut String, text: &str, x: f64, y: f64, width: f64, scale: &str) {
+fn caption(
+    svg: &mut String,
+    text: &str,
+    x: f64,
+    y: f64,
+    width: f64,
+    scale: &str,
+    palette: &Palette,
+) {
     let _ = writeln!(
         svg,
         "<text x=\"{}\" y=\"{}\" font-family=\"{}\" font-size=\"{}\" font-weight=\"600\" \
@@ -98,7 +126,7 @@ letter-spacing=\"0.18\" fill=\"{}\">{}</text>",
         number(y + 3.6),
         SANS,
         number(TINY),
-        MUTED,
+        palette.muted,
         escape(text)
     );
     if !scale.is_empty() {
@@ -110,7 +138,7 @@ text-anchor=\"end\">{}</text>",
             number(y + 3.6),
             MONO,
             number(TINY),
-            MUTED,
+            palette.muted,
             escape(scale)
         );
     }
@@ -121,14 +149,20 @@ text-anchor=\"end\">{}</text>",
         number(y + 5.4),
         number(x + width),
         number(y + 5.4),
-        RULE
+        palette.rule
     );
 }
 
-fn draw_view(svg: &mut String, connector: &Connector, role: ViewRole, area: Bounds) {
+fn draw_view(
+    svg: &mut String,
+    connector: &Connector,
+    role: ViewRole,
+    area: Bounds,
+    palette: &Palette,
+) {
     match (&connector.views, role) {
-        (Some(views), _) => model_view(svg, views.view(role), area, role, connector),
-        (None, ViewRole::Top) => footprint_view(svg, connector, area),
+        (Some(views), _) => model_view(svg, views.view(role), area, role, connector, palette),
+        (None, ViewRole::Top) => footprint_view(svg, connector, area, palette),
         (None, _) => {
             let _ = writeln!(
                 svg,
@@ -138,7 +172,7 @@ text-anchor=\"middle\">No 3D model \u{2014} footprint view only</text>",
                 number((area.min_y + area.max_y) / 2.0),
                 SANS,
                 number(SMALL),
-                MUTED
+                palette.muted
             );
         }
     }
@@ -205,6 +239,7 @@ fn model_view(
     area: Bounds,
     role: ViewRole,
     connector: &Connector,
+    palette: &Palette,
 ) {
     let (scale, _) = view_scale(view, area);
     let bounds = view.bounds;
@@ -233,12 +268,12 @@ fn model_view(
         y: center_y - (point.y + center_v) * scale,
     };
     if role == ViewRole::Top {
-        board_edge(svg, connector, &to_file);
-        pad_shapes(svg, connector, &to_file, scale);
+        board_edge(svg, connector, &to_file, palette);
+        pad_shapes(svg, connector, &to_file, scale, palette);
     }
-    edge_paths(svg, view, &to_sheet);
+    edge_paths(svg, view, &to_sheet, palette);
     if role == ViewRole::Top {
-        pin_numbers(svg, connector, &to_file, scale);
+        pin_numbers(svg, connector, &to_file, scale, palette);
     }
     if role == ViewRole::Front || role == ViewRole::Side {
         let half_width = view.bounds.width() * scale / 2.0;
@@ -250,26 +285,33 @@ fn model_view(
             max_y: center_y + half_height,
         };
         let (horizontal, vertical) = dimension_labels(connector, role);
-        dimension_horizontal(svg, extent, area, horizontal);
-        dimension_vertical(svg, extent, area, vertical);
+        dimension_horizontal(svg, extent, area, horizontal, palette);
+        dimension_vertical(svg, extent, area, vertical, palette);
     }
 }
 
 /// The silhouette in ink and the visible detail in muted grey, no hidden lines.
-fn edge_paths(svg: &mut String, view: &ProjectedView, to_sheet: &impl Fn(Point) -> Point) {
+fn edge_paths(
+    svg: &mut String,
+    view: &ProjectedView,
+    to_sheet: &impl Fn(Point) -> Point,
+    palette: &Palette,
+) {
     svg.push_str("<g fill=\"none\" stroke-linecap=\"round\" stroke-linejoin=\"round\">");
     let outline = segments_path(&view.outline_segments, &view.outline_arcs, to_sheet);
     if !outline.is_empty() {
         let _ = write!(
             svg,
-            "<path d=\"{outline}\" stroke=\"{INK}\" stroke-width=\"0.35\"/>"
+            "<path d=\"{outline}\" stroke=\"{}\" stroke-width=\"0.35\"/>",
+            palette.ink
         );
     }
     let detail = segments_path(&view.detail_segments, &view.detail_arcs, to_sheet);
     if !detail.is_empty() {
         let _ = write!(
             svg,
-            "<path d=\"{detail}\" stroke=\"{MUTED}\" stroke-width=\"0.18\"/>"
+            "<path d=\"{detail}\" stroke=\"{}\" stroke-width=\"0.18\"/>",
+            palette.muted
         );
     }
     svg.push_str("</g>\n");
@@ -331,15 +373,22 @@ fn dimension_labels(connector: &Connector, role: ViewRole) -> (String, String) {
     (millimetres(horizontal), millimetres(size[2]))
 }
 
-fn dimension_horizontal(svg: &mut String, extent: Bounds, area: Bounds, label: String) {
+fn dimension_horizontal(
+    svg: &mut String,
+    extent: Bounds,
+    area: Bounds,
+    label: String,
+    palette: &Palette,
+) {
     let y = (extent.max_y + 5.0).min(area.max_y - 2.0);
     let left = extent.min_x;
     let right = extent.max_x;
     let _ = writeln!(
         svg,
-        "<g stroke=\"{INK}\" stroke-width=\"0.15\"><line x1=\"{}\" y1=\"{}\" x2=\"{}\" \
+        "<g stroke=\"{}\" stroke-width=\"0.15\"><line x1=\"{}\" y1=\"{}\" x2=\"{}\" \
 y2=\"{}\"/><line x1=\"{}\" y1=\"{}\" x2=\"{}\" y2=\"{}\"/><line x1=\"{}\" y1=\"{}\" \
 x2=\"{}\" y2=\"{}\"/></g>",
+        palette.ink,
         number(left),
         number(y),
         number(right),
@@ -361,20 +410,27 @@ text-anchor=\"middle\">{}</text>",
         number(y - 1.2),
         MONO,
         number(SMALL),
-        INK,
+        palette.ink,
         escape(&format!("{label} mm"))
     );
 }
 
-fn dimension_vertical(svg: &mut String, extent: Bounds, area: Bounds, label: String) {
+fn dimension_vertical(
+    svg: &mut String,
+    extent: Bounds,
+    area: Bounds,
+    label: String,
+    palette: &Palette,
+) {
     let x = (extent.max_x + 5.0).min(area.max_x - 2.0);
     let top = extent.min_y;
     let bottom = extent.max_y;
     let _ = writeln!(
         svg,
-        "<g stroke=\"{INK}\" stroke-width=\"0.15\"><line x1=\"{}\" y1=\"{}\" x2=\"{}\" \
+        "<g stroke=\"{}\" stroke-width=\"0.15\"><line x1=\"{}\" y1=\"{}\" x2=\"{}\" \
 y2=\"{}\"/><line x1=\"{}\" y1=\"{}\" x2=\"{}\" y2=\"{}\"/><line x1=\"{}\" y1=\"{}\" \
 x2=\"{}\" y2=\"{}\"/></g>",
+        palette.ink,
         number(x),
         number(top),
         number(x),
@@ -396,7 +452,7 @@ text-anchor=\"middle\" transform=\"rotate(-90 {} {})\">{}</text>",
         number((top + bottom) / 2.0),
         MONO,
         number(SMALL),
-        INK,
+        palette.ink,
         number(x - 1.2),
         number((top + bottom) / 2.0),
         escape(&format!("{label} mm"))
@@ -419,10 +475,13 @@ fn pad_shapes(
     connector: &Connector,
     to_sheet: &impl Fn(Point) -> Point,
     scale: f64,
+    palette: &Palette,
 ) {
     let _ = writeln!(
         svg,
-        "<g fill=\"{PAD_FILL}\" stroke=\"{INK}\" stroke-width=\"{}\">",
+        "<g fill=\"{}\" stroke=\"{}\" stroke-width=\"{}\">",
+        palette.pad,
+        palette.ink,
         number(0.1 / scale.max(0.001))
     );
     for pad in &connector.pads {
@@ -466,7 +525,7 @@ fill-opacity=\"{opacity}\">",
             number(below - 2.0),
             number(anchor.x + 1.2),
             number(below - 2.0),
-            INK
+            palette.ink
         );
     }
 }
@@ -477,6 +536,7 @@ fn pin_numbers(
     connector: &Connector,
     to_sheet: &impl Fn(Point) -> Point,
     scale: f64,
+    palette: &Palette,
 ) {
     for pad in &connector.pads {
         if pad.number.is_empty() {
@@ -502,7 +562,7 @@ text-anchor=\"middle\" dominant-baseline=\"central\"{turn}>{}</text>",
             number(anchor.x),
             number(anchor.y),
             MONO,
-            INK,
+            palette.ink,
             escape(&pad.number)
         );
     }
@@ -563,7 +623,12 @@ fn rect(svg: &mut String, width: f64, height: f64, radius: f64) {
     svg.push_str("/>");
 }
 
-fn board_edge(svg: &mut String, connector: &Connector, to_sheet: &impl Fn(Point) -> Point) {
+fn board_edge(
+    svg: &mut String,
+    connector: &Connector,
+    to_sheet: &impl Fn(Point) -> Point,
+    palette: &Palette,
+) {
     let mut rings = Vec::new();
     for ring in &connector.board_local {
         let points: Vec<Point> = ring.iter().map(|point| to_sheet(*point)).collect();
@@ -579,7 +644,7 @@ fn board_edge(svg: &mut String, connector: &Connector, to_sheet: &impl Fn(Point)
         "<path d=\"{}\" fill=\"none\" stroke=\"{}\" stroke-width=\"0.35\" \
 stroke-dasharray=\"3 1.6\"/>",
         prism_artwork::artwork::svg::rings_path(&rings),
-        MUTED
+        palette.muted
     );
 }
 
@@ -598,7 +663,7 @@ fn footprint_bounds(connector: &Connector) -> Bounds {
     bounds
 }
 
-fn footprint_view(svg: &mut String, connector: &Connector, area: Bounds) {
+fn footprint_view(svg: &mut String, connector: &Connector, area: Bounds, palette: &Palette) {
     let bounds = footprint_bounds(connector);
     let (scale, _) = footprint_scale(connector, area);
     let center_x = (area.min_x + area.max_x) / 2.0;
@@ -607,8 +672,8 @@ fn footprint_view(svg: &mut String, connector: &Connector, area: Bounds) {
         x: center_x + (point.x - (bounds.min_x + bounds.max_x) / 2.0) * scale,
         y: center_y - (point.y - (bounds.min_y + bounds.max_y) / 2.0) * scale,
     };
-    board_edge(svg, connector, &to_sheet);
-    pad_shapes(svg, connector, &to_sheet, scale);
+    board_edge(svg, connector, &to_sheet, palette);
+    pad_shapes(svg, connector, &to_sheet, scale, palette);
     let mut path = String::new();
     let mut filled = String::new();
     for graphic in &connector.graphics {
@@ -629,17 +694,19 @@ fn footprint_view(svg: &mut String, connector: &Connector, area: Bounds) {
     if !filled.is_empty() {
         let _ = writeln!(
             svg,
-            "<path d=\"{filled}\" fill=\"{HEADER_TINT}\" stroke=\"none\"/>"
+            "<path d=\"{filled}\" fill=\"{}\" stroke=\"none\"/>",
+            palette.header
         );
     }
     if !path.is_empty() {
         let _ = writeln!(
             svg,
-            "<path d=\"{path}\" fill=\"none\" stroke=\"{INK}\" stroke-width=\"0.25\" \
-stroke-linejoin=\"round\"/>"
+            "<path d=\"{path}\" fill=\"none\" stroke=\"{}\" stroke-width=\"0.25\" \
+stroke-linejoin=\"round\"/>",
+            palette.ink
         );
     }
-    pin_numbers(svg, connector, &to_sheet, scale);
+    pin_numbers(svg, connector, &to_sheet, scale, palette);
 }
 
 #[cfg(test)]

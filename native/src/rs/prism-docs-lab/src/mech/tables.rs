@@ -7,11 +7,17 @@ use prism_artwork::artwork::geometry::{Bounds, Point};
 use super::board::{Board, HoleRow, Part};
 use super::draw::{Face, boxed, text};
 use super::layout::{DRAWING_BOTTOM, FRAME, Rect};
-use super::sheet::{INK, MUTED};
 use super::table::{self, Column};
 use crate::html::millimetres;
+use crate::theme::Palette;
 
-pub(super) fn sheet_one_tables(svg: &mut String, rect: Rect, board: &Board, limit: f64) {
+pub(super) fn sheet_one_tables(
+    svg: &mut String,
+    rect: Rect,
+    board: &Board,
+    limit: f64,
+    palette: &Palette,
+) {
     let known = height_rows(board, limit);
     let height = table::draw(
         svg,
@@ -20,10 +26,11 @@ pub(super) fn sheet_one_tables(svg: &mut String, rect: Rect, board: &Board, limi
         &height_columns(rect.w),
         &known,
         2.0,
+        palette,
     );
     let below = Rect::new(rect.x, rect.y + height + 5.0, rect.w, rect.h - height - 5.0);
     if below.h > 20.0 {
-        hole_blocks(svg, below, board);
+        hole_blocks(svg, below, board, palette);
     }
 }
 
@@ -194,7 +201,7 @@ struct HoleTableNote {
     candidates: usize,
 }
 
-fn hole_blocks(svg: &mut String, rect: Rect, board: &Board) {
+fn hole_blocks(svg: &mut String, rect: Rect, board: &Board, palette: &Palette) {
     let (rows, note) = hole_rows(board);
     let mut title = String::from("HOLE TABLE");
     if note.omitted_vias > 0 {
@@ -232,11 +239,11 @@ fn hole_blocks(svg: &mut String, rect: Rect, board: &Board) {
             "HOLE TABLE (CONTINUED)".to_owned()
         };
         let _ = capacity;
-        table::draw(svg, block_rect, &title, &columns, slice, 2.0);
+        table::draw(svg, block_rect, &title, &columns, slice, 2.0, palette);
     }
 }
 
-fn unknown_block(svg: &mut String, rect: Rect, board: &Board, known: usize) {
+fn unknown_block(svg: &mut String, rect: Rect, board: &Board, known: usize, palette: &Palette) {
     let unknown = board.unknown_heights();
     if unknown.is_empty() || known > 44 {
         return;
@@ -248,7 +255,12 @@ fn unknown_block(svg: &mut String, rect: Rect, board: &Board, known: usize) {
     }
     let block = Rect::new(rect.x, top, rect.w, height);
     let noun = if unknown.len() == 1 { "PART" } else { "PARTS" };
-    boxed(svg, block, &format!("NO HEIGHT — {} {noun}", unknown.len()));
+    boxed(
+        svg,
+        block,
+        &format!("NO HEIGHT — {} {noun}", unknown.len()),
+        palette,
+    );
     let columns = ((block.w - 4.0) / 48.0).floor().max(1.0) as usize;
     let per_column = ((block.h - 10.0) / 3.4).floor().max(1.0) as usize;
     let capacity = columns * per_column;
@@ -262,7 +274,7 @@ fn unknown_block(svg: &mut String, rect: Rect, board: &Board, known: usize) {
             svg,
             Point { x, y },
             2.0,
-            INK,
+            palette.ink,
             Face::Sans,
             "start",
             reference,
@@ -276,7 +288,7 @@ fn unknown_block(svg: &mut String, rect: Rect, board: &Board, known: usize) {
                 y: block.bottom() - 2.0,
             },
             1.9,
-            MUTED,
+            palette.muted,
             Face::SansMedium,
             "start",
             &format!("{} more not listed", unknown.len() - capacity),
@@ -285,7 +297,7 @@ fn unknown_block(svg: &mut String, rect: Rect, board: &Board, known: usize) {
 }
 
 /// Sheet 2's two tables: heights on the left, holes in two blocks on the right.
-pub(super) fn sheet_two_tables(svg: &mut String, board: &Board, limit: f64) {
+pub(super) fn sheet_two_tables(svg: &mut String, board: &Board, limit: f64, palette: &Palette) {
     let height = Rect::new(FRAME, FRAME, 170.0, DRAWING_BOTTOM - FRAME);
     let known = height_rows(board, limit);
     table::draw(
@@ -295,8 +307,9 @@ pub(super) fn sheet_two_tables(svg: &mut String, board: &Board, limit: f64) {
         &height_columns(170.0),
         &known,
         2.2,
+        palette,
     );
-    unknown_block(svg, height, board, known.len());
+    unknown_block(svg, height, board, known.len(), palette);
     let holes = Rect::new(184.0, FRAME, 226.0, DRAWING_BOTTOM - FRAME);
-    hole_blocks(svg, holes, board);
+    hole_blocks(svg, holes, board, palette);
 }

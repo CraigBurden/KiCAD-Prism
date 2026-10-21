@@ -1,6 +1,7 @@
 //! The tables and the locator: identification, pinout, continuation sheets.
 
 use super::*;
+use crate::theme::Palette;
 use prism_artwork::artwork::geometry::{Bounds, Point};
 use prism_artwork::artwork::svg::{number, ring_path};
 
@@ -13,12 +14,13 @@ const CELL_INSET: f64 = 1.5;
 // -------------------------------------------------------- identification
 
 pub(super) fn identification(svg: &mut String, context: &SheetContext<'_>) {
+    let palette = context.theme.palette();
     let rows = &context.connector.fields;
     let x = 14.0;
     let mut y = 144.0;
     let width = 256.0;
     let label_width = 40.0;
-    table_header(svg, x, y, width, "IDENTIFICATION", 4.5);
+    table_header(svg, x, y, width, "IDENTIFICATION", 4.5, &palette);
     y += 4.5;
     for (label, value) in rows {
         let _ = writeln!(
@@ -28,7 +30,7 @@ pub(super) fn identification(svg: &mut String, context: &SheetContext<'_>) {
             number(y + 3.9),
             number(x + width),
             number(y + 3.9),
-            RULE
+            palette.rule
         );
         let _ = writeln!(
             svg,
@@ -37,7 +39,7 @@ pub(super) fn identification(svg: &mut String, context: &SheetContext<'_>) {
             number(y + 2.7),
             SANS,
             number(SMALL),
-            MUTED,
+            palette.muted,
             escape(label)
         );
         let _ = writeln!(
@@ -48,7 +50,7 @@ data-field=\"{}\">{}</text>",
             number(y + 2.7),
             SANS,
             number(BODY),
-            INK,
+            palette.ink,
             escape(label),
             escape(&fit(value, width - label_width - CELL_INSET - 1.5, BODY))
         );
@@ -61,7 +63,7 @@ stroke-width=\"0.2\"/>",
         number(x),
         number(width),
         number(y - 144.0),
-        RULE
+        palette.rule
     );
     let _ = writeln!(
         svg,
@@ -69,18 +71,19 @@ stroke-width=\"0.2\"/>",
         number(x + label_width),
         number(x + label_width),
         number(y),
-        RULE
+        palette.rule
     );
 }
 
 // ---------------------------------------------------------------- locator
 
 pub(super) fn locator(svg: &mut String, context: &SheetContext<'_>) {
+    let palette = context.theme.palette();
     let x = 276.0;
     let y = 144.0;
     let width = 134.0;
     let height = 54.0;
-    table_header(svg, x, y, width, "BOARD LOCATOR", 4.5);
+    table_header(svg, x, y, width, "BOARD LOCATOR", 4.5, &palette);
     let area = Bounds {
         min_x: x + 3.0,
         min_y: y + 7.0,
@@ -115,7 +118,7 @@ pub(super) fn locator(svg: &mut String, context: &SheetContext<'_>) {
         svg,
         "<path d=\"{}\" fill=\"none\" stroke=\"{}\" stroke-width=\"0.3\"/>",
         ring_path(&outline),
-        INK
+        palette.ink
     );
     for cutout in &board.cutouts {
         let ring: Vec<Point> = cutout.iter().map(|point| to_sheet(*point)).collect();
@@ -123,7 +126,7 @@ pub(super) fn locator(svg: &mut String, context: &SheetContext<'_>) {
             svg,
             "<path d=\"{}\" fill=\"none\" stroke=\"{}\" stroke-width=\"0.2\"/>",
             ring_path(&ring),
-            RULE
+            palette.rule
         );
     }
     locator_bodies(svg, context, &to_sheet);
@@ -137,7 +140,7 @@ stroke-width=\"0.2\"/>",
         number(y),
         number(width),
         number(height),
-        RULE
+        palette.rule
     );
 }
 
@@ -147,6 +150,7 @@ fn locator_bodies(
     context: &SheetContext<'_>,
     to_sheet: &impl Fn(Point) -> Point,
 ) {
+    let palette = context.theme.palette();
     for other in &context.icd.connectors {
         let ring: Vec<Point> = other.body.iter().map(|point| to_sheet(*point)).collect();
         if ring.len() < 3 {
@@ -158,15 +162,15 @@ fn locator_bodies(
                 "<path d=\"{}\" fill=\"{}\" fill-opacity=\"0.88\" stroke=\"{}\" \
 stroke-width=\"0.3\"/>",
                 ring_path(&ring),
-                INK,
-                INK
+                palette.ink,
+                palette.ink
             );
         } else {
             let _ = writeln!(
                 svg,
                 "<path d=\"{}\" fill=\"none\" stroke=\"{}\" stroke-width=\"0.2\"/>",
                 ring_path(&ring),
-                MUTED
+                palette.muted
             );
         }
     }
@@ -178,6 +182,7 @@ fn locator_labels(
     context: &SheetContext<'_>,
     to_sheet: &impl Fn(Point) -> Point,
 ) {
+    let palette = context.theme.palette();
     for other in &context.icd.connectors {
         let ring: Vec<Point> = other.body.iter().map(|point| to_sheet(*point)).collect();
         if ring.len() < 3 {
@@ -196,14 +201,15 @@ fn locator_labels(
         let _ = writeln!(
             svg,
             "<text x=\"{}\" y=\"{}\" font-family=\"{}\" font-size=\"{}\" font-weight=\"{}\" \
-fill=\"{}\" stroke=\"#ffffff\" stroke-width=\"0.55\" paint-order=\"stroke\" \
+fill=\"{}\" stroke=\"{}\" stroke-width=\"0.55\" paint-order=\"stroke\" \
 text-anchor=\"middle\">{}</text>",
             number(label_at.x),
             number(label_at.y - 0.8),
             SANS,
             number(if current { 2.2 } else { 1.7 }),
             if current { "600" } else { "400" },
-            if current { INK } else { MUTED },
+            if current { palette.ink } else { palette.muted },
+            palette.paper,
             escape(&other.reference)
         );
     }
@@ -212,11 +218,12 @@ text-anchor=\"middle\">{}</text>",
 // ------------------------------------------------------------------ notes
 
 pub(super) fn notes(svg: &mut String, context: &SheetContext<'_>) {
+    let palette = context.theme.palette();
     let connector = context.connector;
     let x = 276.0;
     let y = 202.0;
     let width = 134.0;
-    table_header(svg, x, y, width, "SHEET NOTES", 4.5);
+    table_header(svg, x, y, width, "SHEET NOTES", 4.5, &palette);
     let mut lines: Vec<(String, bool)> = vec![
         (
             format!(
@@ -251,7 +258,10 @@ pub(super) fn notes(svg: &mut String, context: &SheetContext<'_>) {
             false,
         ),
         (
-            "Pads #c4c8cf \u{00b7} pin 1 \u{25b2} \u{00b7} dimensions in mm".to_owned(),
+            format!(
+                "Pads {} \u{00b7} pin 1 \u{25b2} \u{00b7} dimensions in mm",
+                palette.pad
+            ),
             false,
         ),
     ];
@@ -267,7 +277,7 @@ pub(super) fn notes(svg: &mut String, context: &SheetContext<'_>) {
             number(cursor),
             SANS,
             number(SMALL),
-            if muted { MUTED } else { INK },
+            if muted { palette.muted } else { palette.ink },
             escape(&fit(&line, width - 3.0, SMALL))
         );
         cursor += 4.0;
@@ -280,7 +290,7 @@ stroke-width=\"0.2\"/>",
         number(y),
         number(width),
         number(38.0),
-        RULE
+        palette.rule
     );
 }
 
@@ -315,6 +325,7 @@ pub(super) fn pinout(
     width: f64,
     context: &SheetContext<'_>,
 ) -> f64 {
+    let palette = context.theme.palette();
     let columns = Columns::first(width);
     let row_height = if context.page == 0 {
         FIRST_ROW_HEIGHT
@@ -322,12 +333,23 @@ pub(super) fn pinout(
         ROW_HEIGHT
     };
     let mut cursor = y;
-    table_header(svg, x, cursor, width, "PINOUT", 4.5);
+    table_header(svg, x, cursor, width, "PINOUT", 4.5, &palette);
     cursor += 4.5;
-    pin_header(svg, x, cursor, width, &columns);
+    pin_header(svg, x, cursor, width, &columns, &palette);
     cursor += 5.0;
     for row in context.rows() {
-        pin_row(svg, x, cursor, width, &columns, row, row_height);
+        pin_row(
+            svg,
+            RowBand {
+                x,
+                y: cursor,
+                width,
+                height: row_height,
+            },
+            &columns,
+            row,
+            &palette,
+        );
         cursor += row_height;
     }
     let _ = writeln!(
@@ -338,7 +360,7 @@ stroke-width=\"0.25\"/>",
         number(y),
         number(width),
         number(cursor - y),
-        RULE
+        palette.rule
     );
     for (offset, _) in column_offsets(&columns) {
         let _ = writeln!(
@@ -348,7 +370,7 @@ stroke-width=\"0.25\"/>",
             number(y),
             number(x + offset),
             number(cursor),
-            RULE
+            palette.rule
         );
     }
     cursor
@@ -373,14 +395,14 @@ fn column_offsets(columns: &Columns) -> [(f64, f64); 5] {
     out
 }
 
-fn pin_header(svg: &mut String, x: f64, y: f64, width: f64, columns: &Columns) {
+fn pin_header(svg: &mut String, x: f64, y: f64, width: f64, columns: &Columns, palette: &Palette) {
     let _ = writeln!(
         svg,
         "<rect x=\"{}\" y=\"{}\" width=\"{}\" height=\"5\" fill=\"{}\"/>",
         number(x),
         number(y),
         number(width),
-        HEADER_TINT
+        palette.header
     );
     let labels = [
         ("PIN", columns.pin),
@@ -400,22 +422,23 @@ letter-spacing=\"0.12\" fill=\"{}\">{}</text>",
             number(y + 3.4),
             SANS,
             number(TINY),
-            MUTED,
+            palette.muted,
             label
         );
         offset += column;
     }
 }
 
-fn pin_row(
-    svg: &mut String,
+/// One pin's row: its box on the sheet.
+struct RowBand {
     x: f64,
     y: f64,
     width: f64,
-    columns: &Columns,
-    row: &PinRow,
     height: f64,
-) {
+}
+
+fn pin_row(svg: &mut String, band: RowBand, columns: &Columns, row: &PinRow, palette: &Palette) {
+    let (x, y, width, height) = (band.x, band.y, band.width, band.height);
     if row.power {
         let _ = writeln!(
             svg,
@@ -424,7 +447,7 @@ fn pin_row(
             number(y),
             number(width),
             number(height),
-            ROW_TINT
+            palette.stripe
         );
     }
     let mut offset = x;
@@ -457,7 +480,11 @@ fn pin_row(
             number(baseline),
             font,
             number(*size),
-            if row.mechanical { MUTED } else { INK },
+            if row.mechanical {
+                palette.muted
+            } else {
+                palette.ink
+            },
             if index == 0 {
                 " font-weight=\"500\"".to_owned()
             } else {
@@ -475,13 +502,14 @@ fn pin_row(
         number(y + height),
         number(x + width),
         number(y + height),
-        RULE
+        palette.rule
     );
 }
 
 // ------------------------------------------------------------ continuation
 
 pub(super) fn continuation(svg: &mut String, context: &SheetContext<'_>) {
+    let palette = context.theme.palette();
     let bottom = pinout(svg, 14.0, 32.0, 396.0, context);
     if bottom < 190.0 {
         identification_wide(svg, context, bottom + 10.0);
@@ -492,7 +520,7 @@ pub(super) fn continuation(svg: &mut String, context: &SheetContext<'_>) {
 Continued from sheet {} of {} \u{2014} {} rows {} to {}.</text>",
         SANS,
         number(SMALL),
-        MUTED,
+        palette.muted,
         context.page,
         context.pages(),
         escape(&context.connector.reference),
@@ -504,6 +532,7 @@ Continued from sheet {} of {} \u{2014} {} rows {} to {}.</text>",
 /// The identification table again, two columns wide, so a continuation sheet
 /// can be read without the first one.
 fn identification_wide(svg: &mut String, context: &SheetContext<'_>, y: f64) {
+    let palette = context.theme.palette();
     let rows = &context.connector.fields;
     let x = 14.0;
     let gap = 8.0;
@@ -511,7 +540,7 @@ fn identification_wide(svg: &mut String, context: &SheetContext<'_>, y: f64) {
     let label_width = 34.0;
     let row_height = 4.0;
     let mut bottom = y;
-    table_header(svg, x, y, 396.0, "IDENTIFICATION", 4.5);
+    table_header(svg, x, y, 396.0, "IDENTIFICATION", 4.5, &palette);
     bottom += 4.5;
     for (index, (label, value)) in rows.iter().enumerate() {
         let column = index / 6;
@@ -529,7 +558,7 @@ fn identification_wide(svg: &mut String, context: &SheetContext<'_>, y: f64) {
             number(row_y + row_height),
             number(column_x + column_width),
             number(row_y + row_height),
-            RULE
+            palette.rule
         );
         let _ = writeln!(
             svg,
@@ -538,7 +567,7 @@ fn identification_wide(svg: &mut String, context: &SheetContext<'_>, y: f64) {
             number(row_y + row_height - 1.2),
             SANS,
             number(SMALL),
-            MUTED,
+            palette.muted,
             escape(label)
         );
         let _ = writeln!(
@@ -548,7 +577,7 @@ fn identification_wide(svg: &mut String, context: &SheetContext<'_>, y: f64) {
             number(row_y + row_height - 1.2),
             SANS,
             number(BODY),
-            INK,
+            palette.ink,
             escape(&fit(
                 value,
                 column_width - label_width - CELL_INSET - 1.5,
@@ -563,6 +592,6 @@ stroke-width=\"0.2\"/>",
         number(x),
         number(y),
         number(bottom - y),
-        RULE
+        palette.rule
     );
 }

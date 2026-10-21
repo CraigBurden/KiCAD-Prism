@@ -7,7 +7,7 @@
 
 use std::fmt::Write;
 
-use crate::palette;
+use crate::theme::{Palette, Theme};
 use prism_artwork::artwork::svg::{escape, number};
 
 use super::board::{Connector, Icd, PinRow};
@@ -37,12 +37,6 @@ const CONTENT_RIGHT: f64 = TITLE_X + TITLE_WIDTH;
 const CONTENT_BOTTOM: f64 = TITLE_Y + TITLE_HEIGHT;
 /// Clear space between the inner frame line and the content on every side.
 const CONTENT_PADDING: f64 = 3.0;
-const INK: &str = palette::INK;
-const MUTED: &str = palette::MUTED;
-const RULE: &str = palette::RULE;
-const HEADER_TINT: &str = "#eef0f3";
-const ROW_TINT: &str = "#f7f8fa";
-const PAD_FILL: &str = "#c4c8cf";
 const SANS: &str = "Geist, Inter, system-ui, sans-serif";
 const MONO: &str = "Geist Mono, ui-monospace, monospace";
 
@@ -63,6 +57,8 @@ pub struct SheetContext<'a> {
     pub page: usize,
     /// One-based sheet within the document.
     pub sheet_number: usize,
+    /// The look the sheet is printed in.
+    pub theme: Theme,
 }
 
 impl SheetContext<'_> {
@@ -115,6 +111,7 @@ impl SheetContext<'_> {
 
 /// Render one sheet.
 pub fn render_sheet(context: &SheetContext<'_>) -> String {
+    let palette = context.theme.palette();
     let mut svg = String::new();
     let _ = writeln!(
         svg,
@@ -128,11 +125,12 @@ viewBox=\"0 0 {} {}\" role=\"img\" aria-label=\"Connector ICD {}\">",
     );
     let _ = writeln!(
         svg,
-        "<rect x=\"0\" y=\"0\" width=\"{}\" height=\"{}\" fill=\"#ffffff\"/>",
+        "<rect x=\"0\" y=\"0\" width=\"{}\" height=\"{}\" fill=\"{}\"/>",
         number(PAGE_WIDTH),
-        number(PAGE_HEIGHT)
+        number(PAGE_HEIGHT),
+        palette.paper
     );
-    frame(&mut svg);
+    frame(&mut svg, &palette);
     let _ = writeln!(svg, "<g transform=\"{}\">", content_transform());
     header(&mut svg, context);
     if context.page == 0 {
@@ -173,7 +171,7 @@ fn content_transform() -> String {
 
 // ------------------------------------------------------------------- frame
 
-fn frame(svg: &mut String) {
+fn frame(svg: &mut String, palette: &Palette) {
     let _ = writeln!(
         svg,
         "<rect x=\"{}\" y=\"{}\" width=\"{}\" height=\"{}\" fill=\"none\" stroke=\"{}\" \
@@ -182,7 +180,7 @@ stroke-width=\"0.5\"/>",
         number(FRAME),
         number(PAGE_WIDTH - 2.0 * FRAME),
         number(PAGE_HEIGHT - 2.0 * FRAME),
-        INK
+        palette.frame
     );
     let _ = writeln!(
         svg,
@@ -192,7 +190,7 @@ stroke-width=\"0.2\"/>",
         number(FRAME_INNER),
         number(PAGE_WIDTH - 2.0 * FRAME_INNER),
         number(PAGE_HEIGHT - 2.0 * FRAME_INNER),
-        RULE
+        palette.rule
     );
     let columns = 8;
     let rows = 6;
@@ -201,8 +199,14 @@ stroke-width=\"0.2\"/>",
     for column in 0..columns {
         let x = FRAME + inner_width * column as f64 / columns as f64;
         let next = FRAME + inner_width * (column + 1) as f64 / columns as f64;
-        tick_vertical(svg, x, FRAME, FRAME_INNER);
-        tick_vertical(svg, x, PAGE_HEIGHT - FRAME, PAGE_HEIGHT - FRAME_INNER);
+        tick_vertical(svg, x, FRAME, FRAME_INNER, palette);
+        tick_vertical(
+            svg,
+            x,
+            PAGE_HEIGHT - FRAME,
+            PAGE_HEIGHT - FRAME_INNER,
+            palette,
+        );
         for y in [FRAME + 1.0, PAGE_HEIGHT - FRAME - 1.0] {
             let _ = writeln!(
                 svg,
@@ -212,7 +216,7 @@ text-anchor=\"middle\" dominant-baseline=\"middle\">{}</text>",
                 number(y),
                 SANS,
                 number(SMALL),
-                MUTED,
+                palette.muted,
                 column + 1
             );
         }
@@ -220,8 +224,14 @@ text-anchor=\"middle\" dominant-baseline=\"middle\">{}</text>",
     for row in 0..rows {
         let y = FRAME + inner_height * row as f64 / rows as f64;
         let next = FRAME + inner_height * (row + 1) as f64 / rows as f64;
-        tick_horizontal(svg, FRAME, y, FRAME_INNER);
-        tick_horizontal(svg, PAGE_WIDTH - FRAME, y, PAGE_WIDTH - FRAME_INNER);
+        tick_horizontal(svg, FRAME, y, FRAME_INNER, palette);
+        tick_horizontal(
+            svg,
+            PAGE_WIDTH - FRAME,
+            y,
+            PAGE_WIDTH - FRAME_INNER,
+            palette,
+        );
         let letter = (b'A' + row as u8) as char;
         for x in [FRAME + 1.0, PAGE_WIDTH - FRAME - 1.0] {
             let _ = writeln!(
@@ -232,14 +242,14 @@ text-anchor=\"middle\" dominant-baseline=\"middle\">{}</text>",
                 number((y + next) / 2.0),
                 SANS,
                 number(SMALL),
-                MUTED,
+                palette.muted,
                 letter
             );
         }
     }
 }
 
-fn tick_vertical(svg: &mut String, x: f64, y: f64, inner: f64) {
+fn tick_vertical(svg: &mut String, x: f64, y: f64, inner: f64, palette: &Palette) {
     let _ = writeln!(
         svg,
         "<line x1=\"{}\" y1=\"{}\" x2=\"{}\" y2=\"{}\" stroke=\"{}\" stroke-width=\"0.15\"/>",
@@ -247,11 +257,11 @@ fn tick_vertical(svg: &mut String, x: f64, y: f64, inner: f64) {
         number(y),
         number(x),
         number(inner),
-        RULE
+        palette.rule
     );
 }
 
-fn tick_horizontal(svg: &mut String, x: f64, y: f64, inner: f64) {
+fn tick_horizontal(svg: &mut String, x: f64, y: f64, inner: f64, palette: &Palette) {
     let _ = writeln!(
         svg,
         "<line x1=\"{}\" y1=\"{}\" x2=\"{}\" y2=\"{}\" stroke=\"{}\" stroke-width=\"0.15\"/>",
@@ -259,27 +269,28 @@ fn tick_horizontal(svg: &mut String, x: f64, y: f64, inner: f64) {
         number(y),
         number(inner),
         number(y),
-        RULE
+        palette.rule
     );
 }
 
 // ------------------------------------------------------------------ header
 
 fn header(svg: &mut String, context: &SheetContext<'_>) {
+    let palette = context.theme.palette();
     let _ = writeln!(
         svg,
         "<text x=\"14\" y=\"18.6\" font-family=\"{}\" font-size=\"{}\" font-weight=\"600\" \
 letter-spacing=\"0.28\" fill=\"{}\">INTERFACE CONTROL SHEET</text>",
         SANS,
         number(TINY),
-        MUTED
+        palette.muted
     );
     let _ = writeln!(
         svg,
         "<text x=\"14\" y=\"27.2\" font-family=\"{}\" font-size=\"5.6\" font-weight=\"600\" \
 letter-spacing=\"-0.06\" fill=\"{}\">{}</text>",
         SANS,
-        INK,
+        palette.ink,
         escape(&context.title())
     );
     let _ = writeln!(
@@ -288,7 +299,7 @@ letter-spacing=\"-0.06\" fill=\"{}\">{}</text>",
 text-anchor=\"end\">{}</text>",
         SANS,
         number(SMALL),
-        MUTED,
+        palette.muted,
         escape(&context.icd.board_name)
     );
     let _ = writeln!(
@@ -297,22 +308,24 @@ text-anchor=\"end\">{}</text>",
 text-anchor=\"end\">Connector ICD \u{2014} prototype</text>",
         SANS,
         number(TINY),
-        MUTED
+        palette.muted
     );
 }
 
 // ------------------------------------------------------------- title block
 
 fn title_block(svg: &mut String, context: &SheetContext<'_>) {
+    let palette = context.theme.palette();
     let _ = writeln!(
         svg,
-        "<rect x=\"{}\" y=\"{}\" width=\"{}\" height=\"{}\" fill=\"#ffffff\" stroke=\"{}\" \
+        "<rect x=\"{}\" y=\"{}\" width=\"{}\" height=\"{}\" fill=\"{}\" stroke=\"{}\" \
 stroke-width=\"0.35\"/>",
         number(TITLE_X),
         number(TITLE_Y),
         number(TITLE_WIDTH),
         number(TITLE_HEIGHT),
-        INK
+        palette.paper,
+        palette.frame
     );
     let _ = writeln!(
         svg,
@@ -321,8 +334,8 @@ stroke-width=\"0.2\"/>",
         number(TITLE_X),
         number(TITLE_Y),
         number(TITLE_WIDTH),
-        HEADER_TINT,
-        RULE
+        palette.header,
+        palette.rule
     );
     let _ = writeln!(
         svg,
@@ -332,7 +345,7 @@ letter-spacing=\"0.16\" fill=\"{}\" data-title=\"1\">CONNECTOR ICD \u{2014} PROT
         number(TITLE_Y + 4.2),
         SANS,
         number(TINY),
-        MUTED
+        palette.muted
     );
     let _ = writeln!(
         svg,
@@ -341,7 +354,7 @@ fill=\"{}\" text-anchor=\"end\">{}</text>",
         number(TITLE_X + TITLE_WIDTH - 3.0),
         number(TITLE_Y + 8.2),
         SANS,
-        INK,
+        palette.ink,
         escape(&context.connector.reference)
     );
     let _ = writeln!(
@@ -352,7 +365,7 @@ data-design=\"1\">{}</text>",
         number(TITLE_Y + 8.6),
         SANS,
         number(SMALL),
-        MUTED,
+        palette.muted,
         escape(&fit(
             &format!(
                 "{} \u{00b7} {}",
@@ -366,6 +379,7 @@ data-design=\"1\">{}</text>",
 }
 
 fn title_rows(svg: &mut String, context: &SheetContext<'_>) {
+    let palette = context.theme.palette();
     let rows = [
         ("BOARD", context.icd.board_name.clone()),
         (
@@ -405,7 +419,7 @@ fn title_rows(svg: &mut String, context: &SheetContext<'_>) {
             number(y),
             number(TITLE_X + TITLE_WIDTH),
             number(y),
-            RULE
+            palette.rule
         );
         let _ = writeln!(
             svg,
@@ -415,7 +429,7 @@ text-transform=\"uppercase\">{}</text>",
             number(y + 5.4),
             SANS,
             number(TINY),
-            MUTED,
+            palette.muted,
             label
         );
         let _ = writeln!(
@@ -426,7 +440,7 @@ data-title-row=\"{}\" >{}</text>",
             number(y + 5.4),
             SANS,
             number(BODY),
-            INK,
+            palette.ink,
             label,
             escape(&fit(&value, TITLE_WIDTH - 30.0, BODY))
         );
@@ -434,7 +448,15 @@ data-title-row=\"{}\" >{}</text>",
     }
 }
 
-fn table_header(svg: &mut String, x: f64, y: f64, width: f64, label: &str, height: f64) {
+fn table_header(
+    svg: &mut String,
+    x: f64,
+    y: f64,
+    width: f64,
+    label: &str,
+    height: f64,
+    palette: &Palette,
+) {
     let _ = writeln!(
         svg,
         "<rect x=\"{}\" y=\"{}\" width=\"{}\" height=\"{}\" fill=\"{}\" stroke=\"{}\" \
@@ -443,8 +465,8 @@ stroke-width=\"0.2\"/>",
         number(y),
         number(width),
         number(height),
-        HEADER_TINT,
-        RULE
+        palette.header,
+        palette.rule
     );
     let _ = writeln!(
         svg,
@@ -454,7 +476,7 @@ letter-spacing=\"0.16\" fill=\"{}\">{}</text>",
         number(y + height - 1.4),
         SANS,
         number(TINY),
-        MUTED,
+        palette.muted,
         label
     );
 }

@@ -18,11 +18,13 @@ use prism_docs_lab::bundle::{Bundle, LabError};
 use prism_docs_lab::icd::{
     Cache, LoadOptions, RenderedSheet, Session, SheetContext, index_page, load, render_sheet,
 };
+use prism_docs_lab::theme::Theme;
 
 const USAGE: &str = "\
 usage: connector-icd --in <bundle.prism> -o <dir> [--geometer <exe>]
                      [--model-dir VAR=DIR]... [--refs J1,J2]
                      [--prefixes J,P,CN,X] [--chrome <exe>] [--no-pdf]
+                     [--theme light|dark|blueprint]
 
   --in        a .prism design bundle with its board and models stages built
   -o          the output directory (created; one A3 SVG per connector)
@@ -31,7 +33,8 @@ usage: connector-icd --in <bundle.prism> -o <dir> [--geometer <exe>]
   --refs      exact connector references, comma separated
   --prefixes  reference prefixes that mark a connector (default J,P,CN,X)
   --chrome    the Chrome binary for connectors.pdf (default: $CHROME)
-  --no-pdf    skip connectors.pdf";
+  --no-pdf    skip connectors.pdf
+  --theme     light (default), dark or blueprint";
 
 struct Options {
     input: PathBuf,
@@ -42,6 +45,7 @@ struct Options {
     prefixes: Vec<String>,
     chrome: Option<PathBuf>,
     pdf: bool,
+    theme: Theme,
 }
 
 fn main() -> ExitCode {
@@ -82,8 +86,8 @@ fn run(options: &Options) -> Result<(), LabError> {
         &mut cache,
     )?;
     create_dir(&options.output)?;
-    let sheets = write_sheets(&icd, &options.output)?;
-    let index = index_page(&icd, &sheets);
+    let sheets = write_sheets(&icd, &options.output, options.theme)?;
+    let index = index_page(&icd, &sheets, options.theme);
     let index_path = options.output.join("index.html");
     write(&index_path, index.as_bytes())?;
     let pdf = if options.pdf {
@@ -122,6 +126,7 @@ fn connect(options: &Options) -> Result<Option<Session>, LabError> {
 fn write_sheets(
     icd: &prism_docs_lab::icd::Icd,
     directory: &Path,
+    theme: Theme,
 ) -> Result<Vec<RenderedSheet>, LabError> {
     let mut sheets = Vec::new();
     let mut sheet_number = 1;
@@ -132,6 +137,7 @@ fn write_sheets(
                 connector,
                 page,
                 sheet_number,
+                theme,
             };
             let svg = render_sheet(&context);
             let file = if page == 0 {
@@ -329,6 +335,7 @@ struct RawOptions {
     prefixes: Vec<String>,
     chrome: Option<PathBuf>,
     pdf: bool,
+    theme: Theme,
 }
 
 impl Default for RawOptions {
@@ -347,6 +354,7 @@ impl Default for RawOptions {
             ],
             chrome: None,
             pdf: true,
+            theme: Theme::Light,
         }
     }
 }
@@ -367,6 +375,7 @@ impl RawOptions {
             "--refs" => self.refs = list(&value(args, index, "--refs")?),
             "--prefixes" => self.prefixes = list(&value(args, index, "--prefixes")?),
             "--no-pdf" => self.pdf = false,
+            "--theme" => self.theme = value(args, index, "--theme")?.parse()?,
             _ => return Ok(false),
         }
         Ok(true)
@@ -387,6 +396,7 @@ impl RawOptions {
             prefixes: self.prefixes,
             chrome: self.chrome,
             pdf: self.pdf,
+            theme: self.theme,
         })
     }
 }
@@ -456,6 +466,21 @@ mod tests {
         assert!(parsed(&["--in", "b", "-o", "o", "--model-dir", "nope"]).is_err());
         assert!(parsed(&["--in", "b", "-o", "o", "--wat"]).is_err());
         assert!(parsed(&[]).is_err());
+    }
+
+    #[test]
+    fn the_theme_parses_and_defaults_to_light() {
+        assert_eq!(
+            parsed(&["--in", "b", "-o", "o"]).expect("valid").theme,
+            Theme::Light
+        );
+        assert_eq!(
+            parsed(&["--in", "b", "-o", "o", "--theme", "blueprint"])
+                .expect("valid")
+                .theme,
+            Theme::Blueprint
+        );
+        assert!(parsed(&["--in", "b", "-o", "o", "--theme", "sepia"]).is_err());
     }
 
     #[test]

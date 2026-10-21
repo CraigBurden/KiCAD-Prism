@@ -7,23 +7,27 @@ use prism_artwork::artwork::svg::{escape, number};
 
 use super::layout::Rect;
 
-use super::sheet::{FONT_MONO, FONT_SANS, HEADER, INK, MUTED, PAPER, RULE};
+use super::sheet::{FONT_MONO, FONT_SANS};
+use crate::theme::Palette;
 
-pub(super) fn boxed(svg: &mut String, rect: Rect, title: &str) {
+pub(super) fn boxed(svg: &mut String, rect: Rect, title: &str, palette: &Palette) {
     let _ = write!(
         svg,
-        "<rect x=\"{}\" y=\"{}\" width=\"{}\" height=\"{}\" fill=\"{PAPER}\" stroke=\"{RULE}\" stroke-width=\"0.3\"/>",
+        "<rect x=\"{}\" y=\"{}\" width=\"{}\" height=\"{}\" fill=\"{}\" stroke=\"{}\" stroke-width=\"0.3\"/>",
         number(rect.x),
         number(rect.y),
         number(rect.w),
-        number(rect.h)
+        number(rect.h),
+        palette.paper,
+        palette.rule
     );
     let _ = write!(
         svg,
-        "<rect x=\"{}\" y=\"{}\" width=\"{}\" height=\"7\" fill=\"{HEADER}\"/>",
+        "<rect x=\"{}\" y=\"{}\" width=\"{}\" height=\"7\" fill=\"{}\"/>",
         number(rect.x),
         number(rect.y),
-        number(rect.w)
+        number(rect.w),
+        palette.header
     );
     text(
         svg,
@@ -32,7 +36,7 @@ pub(super) fn boxed(svg: &mut String, rect: Rect, title: &str) {
             y: rect.y + 4.8,
         },
         2.6,
-        INK,
+        palette.ink,
         Face::SansBold,
         "start",
         title,
@@ -43,93 +47,122 @@ pub(super) fn boxed(svg: &mut String, rect: Rect, title: &str) {
 
 /// The number of height rows and hole rows the tables will carry, so the
 /// caller can decide whether they fit on sheet 1.
-pub(super) fn rect_outline(svg: &mut String, x: f64, y: f64, w: f64, h: f64, width: f64) {
+pub(super) fn rect_outline(
+    svg: &mut String,
+    x: f64,
+    y: f64,
+    w: f64,
+    h: f64,
+    width: f64,
+    palette: &Palette,
+) {
     let _ = writeln!(
         svg,
-        "<rect x=\"{}\" y=\"{}\" width=\"{}\" height=\"{}\" fill=\"none\" stroke=\"{INK}\" \
+        "<rect x=\"{}\" y=\"{}\" width=\"{}\" height=\"{}\" fill=\"none\" stroke=\"{}\" \
 stroke-width=\"{width}\"/>",
         number(x),
         number(y),
         number(w),
-        number(h)
+        number(h),
+        palette.ink
     );
 }
 
-pub(super) fn line(svg: &mut String, x1: f64, y1: f64, x2: f64, y2: f64, width: f64) {
+pub(super) fn line(
+    svg: &mut String,
+    x1: f64,
+    y1: f64,
+    x2: f64,
+    y2: f64,
+    width: f64,
+    palette: &Palette,
+) {
     let _ = writeln!(
         svg,
-        "<line x1=\"{}\" y1=\"{}\" x2=\"{}\" y2=\"{}\" stroke=\"{INK}\" stroke-width=\"{width}\"/>",
+        "<line x1=\"{}\" y1=\"{}\" x2=\"{}\" y2=\"{}\" stroke=\"{}\" stroke-width=\"{width}\"/>",
         number(x1),
         number(y1),
         number(x2),
-        number(y2)
+        number(y2),
+        palette.ink
     );
 }
 
-pub(super) fn dimension_line(svg: &mut String, start: Point, end: Point, width: f64) {
+pub(super) fn dimension_line(
+    svg: &mut String,
+    start: Point,
+    end: Point,
+    width: f64,
+    palette: &Palette,
+) {
     let _ = writeln!(
         svg,
-        "<path d=\"M{} {} L{} {}\" stroke=\"{INK}\" stroke-width=\"{width}\" \
+        "<path d=\"M{} {} L{} {}\" stroke=\"{}\" stroke-width=\"{width}\" \
 stroke-linecap=\"round\"/>",
         number(start.x),
         number(start.y),
         number(end.x),
-        number(end.y)
+        number(end.y),
+        palette.ink
     );
-    arrow(svg, start, end);
-    arrow(svg, end, start);
+    arrow(svg, start, end, palette);
+    arrow(svg, end, start, palette);
 }
 
-pub(super) fn arrow(svg: &mut String, at: Point, from: Point) {
+pub(super) fn arrow(svg: &mut String, at: Point, from: Point, palette: &Palette) {
     let angle = (from.y - at.y).atan2(from.x - at.x);
     let size = 1.5;
     let left = angle + 0.32;
     let right = angle - 0.32;
     let _ = write!(
         svg,
-        "<path d=\"M{} {} L{} {} L{} {} Z\" fill=\"{INK}\" stroke=\"none\"/>",
+        "<path d=\"M{} {} L{} {} L{} {} Z\" fill=\"{}\" stroke=\"none\"/>",
         number(at.x),
         number(at.y),
         number(at.x + size * left.cos()),
         number(at.y + size * left.sin()),
         number(at.x + size * right.cos()),
-        number(at.y + size * right.sin())
+        number(at.y + size * right.sin()),
+        palette.ink
     );
 }
 
-pub(super) fn extension(svg: &mut String, start: Point, end: Point) {
+pub(super) fn extension(svg: &mut String, start: Point, end: Point, palette: &Palette) {
     let _ = writeln!(
         svg,
-        "<path d=\"M{} {} L{} {}\" stroke=\"{MUTED}\" stroke-width=\"0.12\"/>",
+        "<path d=\"M{} {} L{} {}\" stroke=\"{}\" stroke-width=\"0.12\"/>",
         number(start.x),
         number(start.y),
         number(end.x),
-        number(end.y)
+        number(end.y),
+        palette.muted
     );
 }
 
-pub(super) fn rotated_text(svg: &mut String, x: f64, y: f64, value: &str) {
+pub(super) fn rotated_text(svg: &mut String, x: f64, y: f64, value: &str, palette: &Palette) {
     let _ = writeln!(
         svg,
         "<text x=\"{}\" y=\"{}\" transform=\"rotate(-90 {} {})\" font-family=\"{FONT_MONO}\" \
-font-size=\"2.4\" fill=\"{INK}\" text-anchor=\"middle\">{}</text>",
+font-size=\"2.4\" fill=\"{}\" text-anchor=\"middle\">{}</text>",
         number(x),
         number(y),
         number(x),
         number(y),
+        palette.ink,
         escape(value)
     );
 }
 
-pub(super) fn rotated_label(svg: &mut String, x: f64, y: f64, value: &str) {
+pub(super) fn rotated_label(svg: &mut String, x: f64, y: f64, value: &str, palette: &Palette) {
     let _ = writeln!(
         svg,
         "<text x=\"{}\" y=\"{}\" transform=\"rotate(-90 {} {})\" font-family=\"{FONT_MONO}\" \
-font-size=\"1.9\" fill=\"{INK}\" text-anchor=\"middle\">{}</text>",
+font-size=\"1.9\" fill=\"{}\" text-anchor=\"middle\">{}</text>",
         number(x),
         number(y),
         number(x),
         number(y),
+        palette.ink,
         escape(value)
     );
 }
@@ -138,21 +171,22 @@ font-size=\"1.9\" fill=\"{INK}\" text-anchor=\"middle\">{}</text>",
 /// body outline runs underneath it.
 pub(super) fn text_halo(
     svg: &mut String,
-    x: f64,
-    y: f64,
+    at: Point,
     size: f64,
     fill: &str,
     anchor: &str,
     value: &str,
+    palette: &Palette,
 ) {
     let _ = writeln!(
         svg,
         "<text x=\"{}\" y=\"{}\" font-family=\"{FONT_MONO}\" font-size=\"{}\" fill=\"{fill}\" \
-text-anchor=\"{anchor}\" font-weight=\"500\" stroke=\"#ffffff\" stroke-width=\"0.55\" \
+text-anchor=\"{anchor}\" font-weight=\"500\" stroke=\"{}\" stroke-width=\"0.55\" \
 paint-order=\"stroke\">{}</text>",
-        number(x),
-        number(y),
+        number(at.x),
+        number(at.y),
         number(size),
+        palette.paper,
         escape(value)
     );
 }

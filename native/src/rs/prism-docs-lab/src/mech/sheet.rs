@@ -15,15 +15,8 @@ pub use super::tables::row_counts;
 use super::tables::{sheet_one_tables, sheet_two_tables};
 use super::views::{elevation, top_view, view_labels};
 use crate::html::millimetres;
+use crate::theme::{Palette, Theme};
 
-pub(crate) const INK: &str = "#1d1d1f";
-pub(crate) const MUTED: &str = "#6b6b70";
-pub(crate) const RULE: &str = "#c4c8cf";
-pub(crate) const HEADER: &str = "#eef0f3";
-pub(crate) const STRIPE: &str = "#f7f8fa";
-pub(crate) const BODY: &str = "#9a9aa0";
-pub(crate) const OVER: &str = "#B00020";
-pub(crate) const PAPER: &str = "#ffffff";
 pub(crate) const FONT_SANS: &str = "Geist, Inter, system-ui, sans-serif";
 pub(crate) const FONT_MONO: &str = "ui-monospace, SFMono-Regular, Menlo, monospace";
 /// Board outline and cutout stroke, sheet millimetres.
@@ -39,26 +32,34 @@ pub fn render(
     measurement: &Measurement,
     limit: f64,
     tables_on_sheet: bool,
+    theme: Theme,
 ) -> Vec<String> {
+    let style = Style {
+        measurement,
+        limit,
+        theme,
+        palette: theme.palette(),
+    };
     let views = layout::choose(board, tables_on_sheet);
     let frame = Frame::new(tables_on_sheet);
     let total = if tables_on_sheet { 1 } else { 2 };
-    let mut sheets = vec![sheet_one(
-        board,
-        &views,
-        &frame,
-        measurement,
-        limit,
-        1,
-        total,
-    )];
+    let mut sheets = vec![sheet_one(board, &views, &frame, &style, 1, total)];
     if !tables_on_sheet {
-        sheets.push(sheet_two(board, &views, &frame, limit, 2, total));
+        sheets.push(sheet_two(board, &views, &frame, &style, 2, total));
     }
     sheets
 }
 
-fn open_sheet(title: &str) -> String {
+/// What every function drawing a sheet needs: the measured heights, the limit
+/// they are judged against, and the look they are drawn in.
+struct Style<'a> {
+    measurement: &'a Measurement,
+    limit: f64,
+    theme: Theme,
+    palette: Palette,
+}
+
+fn open_sheet(title: &str, palette: &Palette) -> String {
     let mut svg = String::new();
     let _ = writeln!(
         svg,
@@ -68,7 +69,8 @@ viewBox=\"0 0 {SHEET_W} {SHEET_H}\" font-family=\"{FONT_SANS}\">\n<title>{}</tit
     );
     let _ = writeln!(
         svg,
-        "<rect x=\"0\" y=\"0\" width=\"{SHEET_W}\" height=\"{SHEET_H}\" fill=\"{PAPER}\"/>"
+        "<rect x=\"0\" y=\"0\" width=\"{SHEET_W}\" height=\"{SHEET_H}\" fill=\"{}\"/>",
+        palette.paper,
     );
     svg
 }
@@ -77,27 +79,27 @@ fn sheet_one(
     board: &Board,
     views: &Views,
     frame: &Frame,
-    measurement: &Measurement,
-    limit: f64,
+    style: &Style<'_>,
     number: usize,
     total: usize,
 ) -> String {
-    let mut svg = open_sheet(&format!(
-        "{} — mechanical outline, sheet {number}",
-        board.name
-    ));
-    draw_frame(&mut svg);
-    title_block(&mut svg, frame.title, board, views, number, total);
-    notes(&mut svg, frame.notes, board, measurement, limit);
+    let palette = &style.palette;
+    let mut svg = open_sheet(
+        &format!("{} — mechanical outline, sheet {number}", board.name),
+        palette,
+    );
+    draw_frame(&mut svg, palette);
+    title_block(&mut svg, frame.title, board, views, number, total, palette);
+    notes(&mut svg, frame.notes, board, style);
     svg.push_str("<defs><clipPath id=\"drawing\"><rect x=\"10\" y=\"10\" width=\"400\" height=\"231\"/></clipPath></defs>\n");
     svg.push_str("<g clip-path=\"url(#drawing)\">\n");
-    top_view(&mut svg, board, views, limit);
-    elevation(&mut svg, board, views, false, limit);
-    elevation(&mut svg, board, views, true, limit);
-    view_labels(&mut svg, views);
+    top_view(&mut svg, board, views, style.limit, palette);
+    elevation(&mut svg, board, views, false, style.limit, palette);
+    elevation(&mut svg, board, views, true, style.limit, palette);
+    view_labels(&mut svg, views, palette);
     svg.push_str("</g>\n");
     if let Some(rect) = frame.table {
-        sheet_one_tables(&mut svg, rect, board, limit);
+        sheet_one_tables(&mut svg, rect, board, style.limit, palette);
     }
     svg.push_str("</svg>\n");
     svg
@@ -107,26 +109,38 @@ fn sheet_two(
     board: &Board,
     views: &Views,
     frame: &Frame,
-    limit: f64,
+    style: &Style<'_>,
     sheet_no: usize,
     total: usize,
 ) -> String {
-    let mut svg = open_sheet(&format!(
-        "{} — mechanical outline tables, sheet {sheet_no}",
-        board.name
-    ));
-    draw_frame(&mut svg);
-    title_block(&mut svg, frame.title, board, views, sheet_no, total);
+    let palette = &style.palette;
+    let mut svg = open_sheet(
+        &format!(
+            "{} — mechanical outline tables, sheet {sheet_no}",
+            board.name
+        ),
+        palette,
+    );
+    draw_frame(&mut svg, palette);
+    title_block(
+        &mut svg,
+        frame.title,
+        board,
+        views,
+        sheet_no,
+        total,
+        palette,
+    );
     svg.push_str("<defs><clipPath id=\"drawing\"><rect x=\"10\" y=\"10\" width=\"400\" height=\"231\"/></clipPath></defs>\n");
     svg.push_str("<g clip-path=\"url(#drawing)\">\n");
-    sheet_two_tables(&mut svg, board, limit);
+    sheet_two_tables(&mut svg, board, style.limit, palette);
     svg.push_str("</g>\n");
     svg.push_str("</svg>\n");
     svg
 }
 
-fn draw_frame(svg: &mut String) {
-    rect_outline(svg, 6.0, 6.0, SHEET_W - 12.0, SHEET_H - 12.0, 0.4);
+fn draw_frame(svg: &mut String, palette: &Palette) {
+    rect_outline(svg, 6.0, 6.0, SHEET_W - 12.0, SHEET_H - 12.0, 0.4, palette);
     rect_outline(
         svg,
         FRAME,
@@ -134,18 +148,19 @@ fn draw_frame(svg: &mut String) {
         SHEET_W - 2.0 * FRAME,
         SHEET_H - 2.0 * FRAME,
         0.2,
+        palette,
     );
     let width = SHEET_W - 2.0 * FRAME;
     let height = SHEET_H - 2.0 * FRAME;
     for index in 1..8 {
         let x = FRAME + width * f64::from(index) / 8.0;
-        line(svg, x, 6.0, x, FRAME, 0.25);
-        line(svg, x, SHEET_H - FRAME, x, SHEET_H - 6.0, 0.25);
+        line(svg, x, 6.0, x, FRAME, 0.25, palette);
+        line(svg, x, SHEET_H - FRAME, x, SHEET_H - 6.0, 0.25, palette);
     }
     for index in 1..6 {
         let y = FRAME + height * f64::from(index) / 6.0;
-        line(svg, 6.0, y, FRAME, y, 0.25);
-        line(svg, SHEET_W - FRAME, y, SHEET_W - 6.0, y, 0.25);
+        line(svg, 6.0, y, FRAME, y, 0.25, palette);
+        line(svg, SHEET_W - FRAME, y, SHEET_W - 6.0, y, 0.25, palette);
     }
     for index in 0..8 {
         let x = FRAME + width * (f64::from(index) + 0.5) / 8.0;
@@ -153,7 +168,7 @@ fn draw_frame(svg: &mut String) {
             svg,
             Point { x, y: 9.3 },
             2.2,
-            MUTED,
+            palette.muted,
             Face::SansMedium,
             "middle",
             &(index + 1).to_string(),
@@ -165,7 +180,7 @@ fn draw_frame(svg: &mut String) {
                 y: SHEET_H - 6.6,
             },
             2.2,
-            MUTED,
+            palette.muted,
             Face::SansMedium,
             "middle",
             &(index + 1).to_string(),
@@ -178,7 +193,7 @@ fn draw_frame(svg: &mut String) {
             svg,
             Point { x: 8.0, y },
             2.2,
-            MUTED,
+            palette.muted,
             Face::SansMedium,
             "middle",
             &label,
@@ -190,7 +205,7 @@ fn draw_frame(svg: &mut String) {
                 y,
             },
             2.2,
-            MUTED,
+            palette.muted,
             Face::SansMedium,
             "middle",
             &label,
@@ -207,8 +222,9 @@ fn title_block(
     views: &Views,
     sheet_no: usize,
     total: usize,
+    palette: &Palette,
 ) {
-    title_header(svg, rect, board);
+    title_header(svg, rect, board, palette);
     let fifth = rect.w / 2.0;
     let rows = [
         ("DRAWING", "MECH-01".to_owned()),
@@ -217,24 +233,27 @@ fn title_block(
         ("UNITS", "mm".to_owned()),
         ("PROJECTION", "THIRD ANGLE".to_owned()),
     ];
-    title_rows(svg, rect, &rows, fifth);
+    title_rows(svg, rect, &rows, fifth, palette);
 }
 
-fn title_header(svg: &mut String, rect: Rect, board: &Board) {
+fn title_header(svg: &mut String, rect: Rect, board: &Board, palette: &Palette) {
     let _ = write!(
         svg,
-        "<rect x=\"{}\" y=\"{}\" width=\"{}\" height=\"{}\" fill=\"{PAPER}\" stroke=\"{RULE}\" stroke-width=\"0.3\"/>",
+        "<rect x=\"{}\" y=\"{}\" width=\"{}\" height=\"{}\" fill=\"{}\" stroke=\"{}\" stroke-width=\"0.3\"/>",
         number(rect.x),
         number(rect.y),
         number(rect.w),
-        number(rect.h)
+        number(rect.h),
+        palette.paper,
+        palette.rule
     );
     let _ = write!(
         svg,
-        "<rect x=\"{}\" y=\"{}\" width=\"{}\" height=\"9\" fill=\"{HEADER}\"/>",
+        "<rect x=\"{}\" y=\"{}\" width=\"{}\" height=\"9\" fill=\"{}\"/>",
         number(rect.x),
         number(rect.y),
-        number(rect.w)
+        number(rect.w),
+        palette.header
     );
     text(
         svg,
@@ -243,7 +262,7 @@ fn title_header(svg: &mut String, rect: Rect, board: &Board) {
             y: rect.y + 6.0,
         },
         3.4,
-        INK,
+        palette.ink,
         Face::SansBold,
         "start",
         "MECHANICAL OUTLINE",
@@ -255,17 +274,18 @@ fn title_header(svg: &mut String, rect: Rect, board: &Board) {
             y: rect.y + 5.9,
         },
         2.2,
-        MUTED,
+        palette.muted,
         Face::SansMedium,
         "end",
         "PROTOTYPE · NOT FOR FABRICATION",
     );
     let _ = write!(
         svg,
-        "<rect x=\"{}\" y=\"{}\" width=\"{}\" height=\"7\" fill=\"{STRIPE}\"/>",
+        "<rect x=\"{}\" y=\"{}\" width=\"{}\" height=\"7\" fill=\"{}\"/>",
         number(rect.x),
         number(rect.y + 9.0),
-        number(rect.w)
+        number(rect.w),
+        palette.stripe
     );
     let board_text = if board.file.is_empty() {
         board.name.clone()
@@ -279,18 +299,24 @@ fn title_header(svg: &mut String, rect: Rect, board: &Board) {
             y: rect.y + 13.9,
         },
         2.4,
-        INK,
+        palette.ink,
         Face::SansMedium,
         "start",
         &board_text,
     );
 }
 
-fn title_rows(svg: &mut String, rect: Rect, rows: &[(&str, String)], fifth: f64) {
+fn title_rows(
+    svg: &mut String,
+    rect: Rect,
+    rows: &[(&str, String)],
+    fifth: f64,
+    palette: &Palette,
+) {
     let mut index = 0;
     for row in 0..3 {
         let y = rect.y + 16.0 + row as f64 * 6.0;
-        line(svg, rect.x, y, rect.x + rect.w, y, 0.2);
+        line(svg, rect.x, y, rect.x + rect.w, y, 0.2, palette);
         for column in 0..2 {
             let Some((key, value)) = rows.get(index) else {
                 break;
@@ -300,7 +326,7 @@ fn title_rows(svg: &mut String, rect: Rect, rows: &[(&str, String)], fifth: f64)
                 svg,
                 Point { x, y: y + 4.2 },
                 1.8,
-                MUTED,
+                palette.muted,
                 Face::SansBold,
                 "start",
                 key,
@@ -312,7 +338,7 @@ fn title_rows(svg: &mut String, rect: Rect, rows: &[(&str, String)], fifth: f64)
                     y: y + 4.2,
                 },
                 2.3,
-                INK,
+                palette.ink,
                 Face::MonoMedium,
                 "start",
                 value,
@@ -320,7 +346,7 @@ fn title_rows(svg: &mut String, rect: Rect, rows: &[(&str, String)], fifth: f64)
             index += 1;
         }
         if row == 2 {
-            third_angle(svg, rect.x + rect.w - 17.0, y + 3.0);
+            third_angle(svg, rect.x + rect.w - 17.0, y + 3.0, palette);
         }
     }
     line(
@@ -330,15 +356,17 @@ fn title_rows(svg: &mut String, rect: Rect, rows: &[(&str, String)], fifth: f64)
         rect.x + fifth,
         rect.y + 34.0,
         0.2,
+        palette,
     );
 }
 
-fn third_angle(svg: &mut String, x: f64, y: f64) {
+fn third_angle(svg: &mut String, x: f64, y: f64, palette: &Palette) {
     let _ = write!(
         svg,
-        "<g stroke=\"{INK}\" stroke-width=\"0.3\" fill=\"none\">\
+        "<g stroke=\"{}\" stroke-width=\"0.3\" fill=\"none\">\
 <circle cx=\"{}\" cy=\"{}\" r=\"2.1\"/><circle cx=\"{}\" cy=\"{}\" r=\"1.0\"/>\
 <path d=\"M{} {} L{} {} L{} {} L{} {} Z\"/></g>",
+        palette.ink,
         number(x),
         number(y),
         number(x),
@@ -356,10 +384,11 @@ fn third_angle(svg: &mut String, x: f64, y: f64) {
 
 // ------------------------------------------------------------------- notes
 
-fn notes(svg: &mut String, rect: Rect, board: &Board, measurement: &Measurement, limit: f64) {
-    boxed(svg, rect, "NOTES");
+fn notes(svg: &mut String, rect: Rect, board: &Board, style: &Style<'_>) {
+    let (limit, theme, palette) = (style.limit, style.theme, &style.palette);
+    boxed(svg, rect, "NOTES", palette);
     let mut y = rect.y + 9.6;
-    let release = measurement.geometer.as_deref().unwrap_or("none");
+    let release = style.measurement.geometer.as_deref().unwrap_or("none");
     let known = board
         .parts
         .iter()
@@ -372,6 +401,7 @@ fn notes(svg: &mut String, rect: Rect, board: &Board, measurement: &Measurement,
         &mut y,
         "UNITS",
         "millimetres. Third angle projection.",
+        palette,
     );
     note(
         svg,
@@ -379,6 +409,7 @@ fn notes(svg: &mut String, rect: Rect, board: &Board, measurement: &Measurement,
         &mut y,
         "ORIGIN",
         &format!("{}. Ordinates +X right, +Y up.", board.origin.label()),
+        palette,
     );
     note(
         svg,
@@ -386,6 +417,7 @@ fn notes(svg: &mut String, rect: Rect, board: &Board, measurement: &Measurement,
         &mut y,
         "HOLES",
         "plated ring; NPTH circle with centre cross; mounting holes by ordinate.",
+        palette,
     );
     note(
         svg,
@@ -396,6 +428,7 @@ fn notes(svg: &mut String, rect: Rect, board: &Board, measurement: &Measurement,
             "Geometer {release} model bounds; {known} of {} parts measured.",
             board.parts.len()
         ),
+        palette,
     );
     note(
         svg,
@@ -409,43 +442,58 @@ fn notes(svg: &mut String, rect: Rect, board: &Board, measurement: &Measurement,
             millimetres(board.thickness),
             board.holes.len()
         ),
+        palette,
     );
     note(
         svg,
         rect,
         &mut y,
         "OVER LIMIT",
-        &format!("parts above {limit:.2} mm are red {OVER}."),
+        &if theme == Theme::Light {
+            format!("parts above {limit:.2} mm are red {}.", palette.alert)
+        } else {
+            // A hex colour means nothing to a reader on a themed sheet.
+            format!("parts above {limit:.2} mm are marked.")
+        },
+        palette,
     );
-    let unknown = board.unknown_heights();
-    if unknown.is_empty() {
-        note(
-            svg,
-            rect,
-            &mut y,
-            "UNKNOWN",
-            "every part has a measured height.",
-        );
-    } else {
-        let listed: Vec<&str> = unknown.iter().take(40).copied().collect();
-        let more = unknown.len().saturating_sub(listed.len());
-        let noun = if unknown.len() == 1 { "part" } else { "parts" };
-        let mut value = format!("{} {noun}: {}", unknown.len(), listed.join(", "));
-        if more > 0 {
-            let _ = write!(value, " and {more} more");
-        }
-        note(svg, rect, &mut y, "NO HEIGHT", &value);
-    }
+    unknown_note(svg, rect, &mut y, board, palette);
     note(
         svg,
         rect,
         &mut y,
         "SOURCE",
         "models/assembly-hlr.json outlines; projections/placements.json and stackup.json.",
+        palette,
     );
 }
 
-fn note(svg: &mut String, rect: Rect, y: &mut f64, key: &str, value: &str) {
+/// The unknown-height note: the parts a run could not measure, or a sentence
+/// saying every part has one.
+fn unknown_note(svg: &mut String, rect: Rect, y: &mut f64, board: &Board, palette: &Palette) {
+    let unknown = board.unknown_heights();
+    if unknown.is_empty() {
+        note(
+            svg,
+            rect,
+            y,
+            "UNKNOWN",
+            "every part has a measured height.",
+            palette,
+        );
+        return;
+    }
+    let listed: Vec<&str> = unknown.iter().take(40).copied().collect();
+    let more = unknown.len().saturating_sub(listed.len());
+    let noun = if unknown.len() == 1 { "part" } else { "parts" };
+    let mut value = format!("{} {noun}: {}", unknown.len(), listed.join(", "));
+    if more > 0 {
+        let _ = write!(value, " and {more} more");
+    }
+    note(svg, rect, y, "NO HEIGHT", &value, palette);
+}
+
+fn note(svg: &mut String, rect: Rect, y: &mut f64, key: &str, value: &str, palette: &Palette) {
     let width = rect.w - 6.0;
     let lines = wrap(value, (width - 26.0) / 0.98);
     for (index, line) in lines.iter().enumerate() {
@@ -460,7 +508,7 @@ fn note(svg: &mut String, rect: Rect, y: &mut f64, key: &str, value: &str) {
                     y: *y,
                 },
                 2.0,
-                MUTED,
+                palette.muted,
                 Face::SansBold,
                 "start",
                 key,
@@ -473,7 +521,7 @@ fn note(svg: &mut String, rect: Rect, y: &mut f64, key: &str, value: &str) {
                 y: *y,
             },
             2.1,
-            INK,
+            palette.ink,
             Face::Sans,
             "start",
             line,
@@ -511,20 +559,31 @@ fn wrap(text: &str, maximum: f64) -> Vec<String> {
 // ---------------------------------------------------------------- top view
 
 /// The self-contained print page: both sheets inline, A3 landscape, no margin.
-pub fn html(title: &str, sheets: &[String]) -> String {
+///
+/// A dark or blueprint page asks the printer to keep its background; the light
+/// page is emitted exactly as it always was, which prints as white paper.
+pub fn html(title: &str, sheets: &[String], theme: Theme) -> String {
+    let palette = theme.palette();
+    let (paper, mat) = (palette.paper, palette.mat);
+    let print = if theme == Theme::Light {
+        String::new()
+    } else {
+        "html, body, .sheet { -webkit-print-color-adjust: exact; print-color-adjust: exact; }\n"
+            .to_owned()
+    };
     let mut page = String::new();
     let _ = writeln!(
         page,
         "<!doctype html>\n<html lang=\"en\">\n<head>\n<meta charset=\"utf-8\">\n\
 <title>{}</title>\n<style>\n\
 @page {{ size: A3 landscape; margin: 0; }}\n\
-html, body {{ margin: 0; padding: 0; background: #ffffff; }}\n\
+html, body {{ margin: 0; padding: 0; background: {paper}; }}\n\
 .sheet {{ width: 420mm; height: 297mm; overflow: hidden; break-after: page; }}\n\
 .sheet:last-child {{ break-after: auto; }}\n\
 .sheet svg {{ width: 420mm; height: 297mm; display: block; }}\n\
-@media screen {{ body {{ background: #e6e8ec; padding: 16px; }}\
-.sheet {{ margin: 0 auto 16px; box-shadow: 0 1px 4px rgba(0,0,0,0.18); background: #ffffff; }} }}\n\
-</style>\n</head>\n<body>\n",
+@media screen {{ body {{ background: {mat}; padding: 16px; }}\
+.sheet {{ margin: 0 auto 16px; box-shadow: 0 1px 4px rgba(0,0,0,0.18); background: {paper}; }} }}\n\
+{print}</style>\n</head>\n<body>\n",
         escape(title)
     );
     for sheet in sheets {
@@ -621,14 +680,32 @@ mod tests {
             requests: 0,
             warnings: Vec::new(),
         };
-        let first = render(&board, &measurement, 5.0, true);
-        let second = render(&board, &measurement, 5.0, true);
+        let first = render(&board, &measurement, 5.0, true, Theme::Light);
+        let second = render(&board, &measurement, 5.0, true, Theme::Light);
         assert_eq!(first, second);
     }
 
     #[test]
+    fn a_themed_page_keeps_its_background_when_printed() {
+        for theme in [Theme::Dark, Theme::Blueprint] {
+            let page = html("x", &[], theme);
+            assert!(page.contains("print-color-adjust: exact"), "{page}");
+            assert!(
+                page.contains(&format!("background: {};", theme.palette().paper)),
+                "{page}"
+            );
+        }
+        let light = html("x", &[], Theme::Light);
+        assert!(!light.contains("print-color-adjust"), "{light}");
+    }
+
+    #[test]
     fn the_html_page_is_a3_landscape_with_every_sheet() {
-        let page = html("x", &["<svg/>".to_owned(), "<svg/>".to_owned()]);
+        let page = html(
+            "x",
+            &["<svg/>".to_owned(), "<svg/>".to_owned()],
+            Theme::Light,
+        );
         assert!(page.contains("size: A3 landscape"));
         assert_eq!(page.matches("<section class=\"sheet\">").count(), 2);
     }
