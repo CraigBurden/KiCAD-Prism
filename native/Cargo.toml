@@ -13,6 +13,7 @@ members = [
     "src/rs/prism-projections",
     "src/rs/prism-step",
     "src/rs/prism-system",
+    "src/rs/prism-vendors",
 ]
 resolver = "3"
 
