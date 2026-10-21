@@ -6,6 +6,10 @@ use prism_artwork::artwork::svg::{number, ring_path};
 
 use super::super::board::PinRow;
 
+/// Space between a value cell's divider and its text, the same as the label's
+/// inset from the table edge.
+const CELL_INSET: f64 = 1.5;
+
 // -------------------------------------------------------- identification
 
 pub(super) fn identification(svg: &mut String, context: &SheetContext<'_>) {
@@ -40,13 +44,13 @@ pub(super) fn identification(svg: &mut String, context: &SheetContext<'_>) {
             svg,
             "<text x=\"{}\" y=\"{}\" font-family=\"{}\" font-size=\"{}\" fill=\"{}\" \
 data-field=\"{}\">{}</text>",
-            number(x + label_width),
+            number(x + label_width + CELL_INSET),
             number(y + 2.7),
             SANS,
             number(BODY),
             INK,
             escape(label),
-            escape(&fit(value, width - label_width - 2.0, BODY))
+            escape(&fit(value, width - label_width - CELL_INSET - 1.5, BODY))
         );
         y += 3.9;
     }
@@ -540,12 +544,16 @@ fn identification_wide(svg: &mut String, context: &SheetContext<'_>, y: f64) {
         let _ = writeln!(
             svg,
             "<text x=\"{}\" y=\"{}\" font-family=\"{}\" font-size=\"{}\" fill=\"{}\">{}</text>",
-            number(column_x + label_width),
+            number(column_x + label_width + CELL_INSET),
             number(row_y + row_height - 1.2),
             SANS,
             number(BODY),
             INK,
-            escape(&fit(value, column_width - label_width - 2.0, BODY))
+            escape(&fit(
+                value,
+                column_width - label_width - CELL_INSET - 1.5,
+                BODY
+            ))
         );
     }
     let _ = writeln!(
