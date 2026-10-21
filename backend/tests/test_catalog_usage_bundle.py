@@ -16,10 +16,10 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from app.core.config import settings
 from app.services import project_catalog_usage_service, project_revision
 from app.services.catalog.placement_stamp import PlacedSymbol, placed_symbols
 from app.services.design_bundle import consumer
+from app.services.design_bundle.errors import DesignDataFailed, DesignDataPending
 from app.services.design_bundle.manifest import Readiness
 from support.repo import init_repo
 
@@ -71,15 +71,17 @@ def _fixtures_by_id() -> dict[str, dict]:
 def _legacy_symbols(case_dir: Path) -> list[PlacedSymbol]:
     """Today's scan of the fixture: the file set and order ``read_commit_symbols`` uses.
 
-    ``read_commit_symbols`` materializes ``SCHEMATICS`` with the project directory
-    as its root and reads every ``.kicad_sch`` in path order; this is that recipe
-    on the committed fixture directory, without a Git repository.
+    The pre-bundle scanner's file set and order, kept as the parity oracle on
+    the committed fixture directory (no Git repository, no scan in ``app``).
     """
+    schematics = project_revision.SourceSet(
+        "schematics", suffixes=frozenset({".kicad_sch"}), skip_generated=True
+    )
     files = sorted(
         path
         for path in case_dir.rglob("*.kicad_sch")
         if not path.is_symlink()
-        and project_catalog_usage_service.SCHEMATICS.includes(path.relative_to(case_dir).as_posix())
+        and schematics.includes(path.relative_to(case_dir).as_posix())
     )
     symbols: list[PlacedSymbol] = []
     for path in files:
@@ -212,53 +214,43 @@ class _Opened:
         return self._member
 
 
-class SwitchTests(unittest.TestCase):
-    """``read_commit_symbols`` chooses the member only for the ``bundle`` switch and a ready member."""
+class ConsumerTests(unittest.TestCase):
+    """``read_commit_symbols`` reads the member, and failures are typed (ADR §9.7 R1)."""
 
     def setUp(self) -> None:
         root = Path(self.enterContext(tempfile.TemporaryDirectory()))
         self.commit = init_repo(root, {"board/main.kicad_sch": SCHEMATIC}, message="board")
         self.location = project_revision.ProjectLocation(root, "board")
-        self.legacy = project_catalog_usage_service.read_commit_symbols(self.location, self.commit)
 
-    def _read(self, source: str, opened: _Opened):
-        with (
-            mock.patch.object(settings, "PRISM_DESIGN_SOURCE_CATALOG_IMPORT", source),
-            mock.patch.object(consumer.reader, "open_revision", return_value=opened) as open_revision,
-        ):
+    def _read(self, opened):
+        with mock.patch.object(consumer.reader, "open_revision", return_value=opened) as open_revision:
             result = project_catalog_usage_service.read_commit_symbols(
                 self.location, self.commit, project_id="prj"
             )
         return result, open_revision
 
-    def test_legacy_switch_never_opens_a_bundle(self) -> None:
-        result, open_revision = self._read("legacy", _Opened({MEMBER: "ready"}, MEMBER_DOCUMENT))
-
-        open_revision.assert_not_called()
-        self.assertEqual([_symbol_key(s) for s in result], [_symbol_key(s) for s in self.legacy])
-
-    def test_a_ready_member_is_mapped_and_the_scan_is_not_read(self) -> None:
-        result, open_revision = self._read("bundle", _Opened({MEMBER: "ready"}, MEMBER_DOCUMENT))
+    def test_a_ready_member_is_mapped(self) -> None:
+        result, open_revision = self._read(_Opened({MEMBER: "ready"}, MEMBER_DOCUMENT))
 
         open_revision.assert_called_once()
         self.assertEqual([_symbol_key(s) for s in result],
                          [_symbol_key(s) for s in
                           project_catalog_usage_service.placed_symbols_from_occurrences(MEMBER_DOCUMENT, "board")])
 
-    def test_not_ready_members_fall_back_to_the_scan(self) -> None:
-        for state in ("pending", "unavailable", "failed", "skipped", "not-applicable"):
-            with self.subTest(state=state):
-                result, open_revision = self._read("bundle", _Opened({MEMBER: state}, MEMBER_DOCUMENT))
-                open_revision.assert_called_once()
-                self.assertEqual([_symbol_key(s) for s in result], [_symbol_key(s) for s in self.legacy])
+    def test_pending_and_failed_are_typed(self) -> None:
+        cases = (
+            ("pending", DesignDataPending),
+            ("unavailable", DesignDataPending),
+            ("failed", DesignDataFailed),
+            ("skipped", DesignDataFailed),
+            ("not-applicable", DesignDataFailed),
+        )
+        for state, error in cases:
+            with self.subTest(state=state), self.assertRaises(error):
+                self._read(_Opened({MEMBER: state}, MEMBER_DOCUMENT))
 
-    def test_without_a_project_id_the_scan_is_used(self) -> None:
+    def test_without_a_project_id_the_member_cannot_be_looked_up(self) -> None:
         with mock.patch.object(consumer.reader, "open_revision") as open_revision:
-            result = project_catalog_usage_service.read_commit_symbols(self.location, self.commit)
-
+            with self.assertRaises(ValueError):
+                project_catalog_usage_service.read_commit_symbols(self.location, self.commit)
         open_revision.assert_not_called()
-        self.assertEqual([_symbol_key(s) for s in result], [_symbol_key(s) for s in self.legacy])
-
-
-if __name__ == "__main__":
-    unittest.main()

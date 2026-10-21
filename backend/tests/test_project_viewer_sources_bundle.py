@@ -1,12 +1,10 @@
 """The viewer-source routes served from a revision's bundle (WP-C8b, ADR §8).
 
-With ``PRISM_DESIGN_SOURCE_PROJECT_METADATA=bundle`` the routes in
-``backend/app/api/project_viewer_sources.py`` serve a revision's design files
-from ``sources/<RepoPath>`` instead of a checkout or a Git read. These tests
-build a stored bundle (the ``prism-kicad`` stub's canonical zip writer) that
-holds exactly the sources the legacy path reads, and assert the two answers are
-the same bytes, lists, headers and status; that the ``legacy`` switch never
-opens a bundle; and that a member that is not ready falls back to legacy.
+The routes in ``backend/app/api/project_viewer_sources.py`` serve a revision's
+design files from ``sources/<RepoPath>`` in the design bundle (ADR §9.7 R1).
+These tests build a stored bundle with the ``prism-kicad`` stub's canonical zip
+writer and assert the bytes, lists, headers and status; a member that is not
+ready raises the typed pending answer, and a source the bundle lacks is 404.
 """
 
 from __future__ import annotations
@@ -21,11 +19,13 @@ from unittest import mock
 from app.api import project_viewer_sources as viewer_sources
 from app.core.config import settings
 from app.core.security import AuthenticatedUser
+from fastapi import HTTPException, Response
 from app.services import project_service
 from app.services import project_viewer_sources_bundle as mapping
 from app.services.design_bundle import reader, schemas
 from app.services.design_bundle.archive import open_archive
 from app.services.design_bundle.consumer import BundleRead
+from app.services.design_bundle.errors import DesignDataPending
 from app.services.design_bundle.generator import bundle_key
 from app.services.design_bundle.reader import OpenedRevision
 from support import prism_kicad_stub as stub
@@ -231,11 +231,8 @@ class _BundleFixture(unittest.TestCase):
         from app.services.design_bundle.consumer import bundle_read
 
         opened = self.opened(**kwargs)
-        with mock.patch.object(settings, "PRISM_DESIGN_SOURCE_PROJECT_METADATA", "bundle"), \
-                mock.patch.object(reader, "open_revision", return_value=opened):
-            result = bundle_read("PROJECT_METADATA", PROJECT_ID, self.repo, [mapping.PROJECT_JSON])
-        assert result is not None
-        return result
+        with mock.patch.object(reader, "open_revision", return_value=opened):
+            return bundle_read("PROJECT_METADATA", PROJECT_ID, self.repo, [mapping.PROJECT_JSON])
 
     def serve(self, route, *, mode: str, bundle: OpenedRevision | None = None, **kwargs):
         """Call a route under ``mode``; the legacy mode asserts no bundle was opened."""
@@ -259,140 +256,93 @@ class _BundleFixture(unittest.TestCase):
 
 
 class ViewerSourceBundleTests(_BundleFixture):
-    # -- /schematic --------------------------------------------------------
+    """Every viewer-source route serves the bundle, and pending is typed."""
 
-    def test_schematic_at_a_commit_matches_legacy(self) -> None:
-        route = viewer_sources.get_project_schematic
-        self.assert_same(
-            self.serve(route, mode="bundle", bundle=self.opened(), commit=self.repo, project_id=PROJECT_ID),
-            self.serve(route, mode="legacy", commit=self.repo, project_id=PROJECT_ID),
-        )
+    def _serve(self, route, *, commit, **kwargs):
+        with mock.patch.object(viewer_sources, "get_project_for_role_or_404", return_value=self.project), \
+                mock.patch.object(reader, "open_revision", return_value=self.opened(**kwargs.pop("bundle", {}))):
+            return asyncio.run(route(user=self.user, project_id=PROJECT_ID, commit=commit, **kwargs))
 
-    def test_schematic_in_the_working_tree_matches_legacy(self) -> None:
-        route = viewer_sources.get_project_schematic
-        self.assert_same(
-            self.serve(route, mode="bundle", bundle=self.opened(), commit=None, project_id=PROJECT_ID),
-            self.serve(route, mode="legacy", commit=None, project_id=PROJECT_ID),
-        )
+    def test_schematic_serves_the_bundle_source(self) -> None:
+        status, _, body = render(self._serve(viewer_sources.get_project_schematic, commit=self.repo))
+        self.assertEqual(status, 200)
+        self.assertEqual(body, SCH_CONTENT.encode("utf-8"))
 
-    def test_schematic_falls_back_when_the_config_names_no_root(self) -> None:
+    def test_schematic_in_the_working_tree_reads_head(self) -> None:
+        with mock.patch.object(viewer_sources, "get_project_for_role_or_404", return_value=self.project), \
+                mock.patch.object(reader, "open_revision", return_value=self.opened()) as open_revision:
+            response = asyncio.run(
+                viewer_sources.get_project_schematic(user=self.user, project_id=PROJECT_ID, commit=None)
+            )
+        self.assertEqual(open_revision.call_args.args[1], None)
+        self.assertEqual(render(response)[2], SCH_CONTENT.encode("utf-8"))
+
+    def test_the_dirty_notice_is_on_the_source_response(self) -> None:
+        opened = self.opened()
+        opened.working_tree_dirty = True
+        with mock.patch.object(viewer_sources, "get_project_for_role_or_404", return_value=self.project), \
+                mock.patch.object(reader, "open_revision", return_value=opened):
+            response = asyncio.run(
+                viewer_sources.get_project_schematic(user=self.user, project_id=PROJECT_ID, commit=None)
+            )
+        self.assertEqual(render(response)[1]["x-prism-working-tree"], "dirty")
+
+    def test_schematic_without_a_root_is_404(self) -> None:
         config = {**CONFIG}
         del config["root_schematic"]
-        bundle = self.opened(config=config)
-        route = viewer_sources.get_project_schematic
-        # The bundle branch declines; the legacy path still serves the file.
-        response = self.serve(route, mode="bundle", bundle=bundle, commit=self.repo, project_id=PROJECT_ID)
-        self.assert_same(response, self.serve(route, mode="legacy", commit=self.repo, project_id=PROJECT_ID))
+        with self.assertRaises(HTTPException) as raised:
+            self._serve(viewer_sources.get_project_schematic, commit=self.repo, bundle={"config": config})
+        self.assertEqual(raised.exception.status_code, 404)
 
-    def test_the_working_tree_never_opens_a_bundle(self) -> None:
-        # A request without a commit is the working tree, which may hold
-        # uncommitted changes no bundle carries: it stays legacy in bundle mode.
-        routes = (
-            viewer_sources.get_project_schematic,
-            viewer_sources.get_project_pcb,
-            viewer_sources.get_project_subsheets,
-            viewer_sources.get_project_viewer_support_files,
+    def test_pcb_serves_the_bundle_source(self) -> None:
+        status, _, body = render(self._serve(viewer_sources.get_project_pcb, commit=self.repo))
+        self.assertEqual(status, 200)
+        self.assertEqual(body, PCB_CONTENT.encode("utf-8"))
+
+    def test_subsheets_are_the_hierarchy_documents(self) -> None:
+        response = Response()
+        files = self._serve(viewer_sources.get_project_subsheets, commit=self.repo, response=response)
+        self.assertEqual([item["name"] for item in files["files"]], ["Subsheets/power.kicad_sch"])
+        self.assertIn(f"commit={self.repo}", files["files"][0]["url"])
+
+    def test_support_files_are_the_project_file_and_its_drawing_sheet(self) -> None:
+        response = Response()
+        files = self._serve(
+            viewer_sources.get_project_viewer_support_files, commit=self.repo, response=response
         )
-        for route in routes:
-            with self.subTest(route=route.__name__), \
-                    mock.patch.object(settings, "PRISM_DESIGN_SOURCE_PROJECT_METADATA", "bundle"), \
-                    mock.patch.object(viewer_sources, "get_project_for_role_or_404", return_value=self.project), \
-                    mock.patch.object(reader, "open_revision") as open_revision:
-                asyncio.run(route(user=self.user, commit=None, project_id=PROJECT_ID))
-                open_revision.assert_not_called()
-
-    # -- /pcb --------------------------------------------------------------
-
-    def test_pcb_at_a_commit_matches_legacy(self) -> None:
-        route = viewer_sources.get_project_pcb
-        self.assert_same(
-            self.serve(route, mode="bundle", bundle=self.opened(), commit=self.repo, project_id=PROJECT_ID),
-            self.serve(route, mode="legacy", commit=self.repo, project_id=PROJECT_ID),
+        self.assertEqual(
+            files["files"],
+            [
+                {"filename": "demo.kicad_pro", "content": PRO_CONTENT},
+                {"filename": "Sheet.kicad_wks", "content": WKS_CONTENT},
+            ],
         )
 
-    def test_pcb_in_the_working_tree_matches_legacy(self) -> None:
-        route = viewer_sources.get_project_pcb
-        self.assert_same(
-            self.serve(route, mode="bundle", bundle=self.opened(), commit=None, project_id=PROJECT_ID),
-            self.serve(route, mode="legacy", commit=None, project_id=PROJECT_ID),
-        )
+    def test_3d_model_keeps_its_committed_output_lookup(self) -> None:
+        # The bundle does not carry design-output models; the route reads the
+        # commit's ``Design-Outputs/`` directory as before.
+        with mock.patch.object(viewer_sources, "get_project_for_role_or_404", return_value=self.project):
+            response = asyncio.run(
+                viewer_sources.get_project_3d_model(user=self.user, project_id=PROJECT_ID, commit=self.repo)
+            )
+        self.assertEqual(render(response)[2], b"ISO-10303-21;\n")
 
-    # -- /schematic/subsheets ---------------------------------------------
-
-    def test_subsheets_at_a_commit_match_legacy(self) -> None:
-        route = viewer_sources.get_project_subsheets
-        self.assert_same(
-            self.serve(route, mode="bundle", bundle=self.opened(), commit=self.repo, project_id=PROJECT_ID),
-            self.serve(route, mode="legacy", commit=self.repo, project_id=PROJECT_ID),
-        )
-
-    def test_subsheets_in_the_working_tree_match_legacy(self) -> None:
-        route = viewer_sources.get_project_subsheets
-        self.assert_same(
-            self.serve(route, mode="bundle", bundle=self.opened(), commit=None, project_id=PROJECT_ID),
-            self.serve(route, mode="legacy", commit=None, project_id=PROJECT_ID),
-        )
-
-    # -- /viewer/support-files --------------------------------------------
-
-    def test_support_files_at_a_commit_match_legacy(self) -> None:
-        route = viewer_sources.get_project_viewer_support_files
-        self.assert_same(
-            self.serve(route, mode="bundle", bundle=self.opened(), commit=self.repo, project_id=PROJECT_ID),
-            self.serve(route, mode="legacy", commit=self.repo, project_id=PROJECT_ID),
-        )
-
-    def test_support_files_in_the_working_tree_match_legacy(self) -> None:
-        route = viewer_sources.get_project_viewer_support_files
-        self.assert_same(
-            self.serve(route, mode="bundle", bundle=self.opened(), commit=None, project_id=PROJECT_ID),
-            self.serve(route, mode="legacy", commit=None, project_id=PROJECT_ID),
-        )
-
-    # -- /3d-model ---------------------------------------------------------
-
-    def test_3d_model_keeps_the_legacy_path(self) -> None:
-        route = viewer_sources.get_project_3d_model
-        self.assert_same(
-            self.serve(route, mode="bundle", bundle=self.opened(), commit=self.repo, project_id=PROJECT_ID),
-            self.serve(route, mode="legacy", commit=self.repo, project_id=PROJECT_ID),
-        )
-
-    # -- rollout -----------------------------------------------------------
-
-    def test_a_missing_member_falls_back_to_legacy(self) -> None:
-        # The projection is ready, so the bundle answers; its board member is not
-        # present, so the PCB route keeps today's answer.
+    def test_a_missing_board_source_is_404(self) -> None:
         sources = {path: data for path, data in SOURCE_MEMBERS.items() if not path.endswith("demo.kicad_pcb")}
-        bundle = self.opened(members=bundle_members(sources=sources))
-        route = viewer_sources.get_project_pcb
-        self.assert_same(
-            self.serve(route, mode="bundle", bundle=bundle, commit=self.repo, project_id=PROJECT_ID),
-            self.serve(route, mode="legacy", commit=self.repo, project_id=PROJECT_ID),
-        )
+        with self.assertRaises(HTTPException) as raised:
+            self._serve(
+                viewer_sources.get_project_pcb, commit=self.repo,
+                bundle={"members": bundle_members(sources=sources)},
+            )
+        self.assertEqual(raised.exception.status_code, 404)
 
-    def test_a_not_ready_member_falls_back_without_a_response_change(self) -> None:
-        # The projection itself is still pending: `bundle_read` returns None.
+    def test_a_not_ready_member_raises_pending(self) -> None:
         members = {"sources/board/demo.kicad_pro": PRO_CONTENT.encode("utf-8")}
-        bundle = self.opened(members=members, parse_status="pending")
-        route = viewer_sources.get_project_schematic
-        response = self.serve(route, mode="bundle", bundle=bundle, commit=self.repo, project_id=PROJECT_ID)
-        self.assert_same(response, self.serve(route, mode="legacy", commit=self.repo, project_id=PROJECT_ID))
-
-    def test_the_legacy_switch_never_opens_a_bundle(self) -> None:
-        for route, kwargs in (
-            (viewer_sources.get_project_schematic, {"project_id": PROJECT_ID, "commit": self.repo}),
-            (viewer_sources.get_project_subsheets, {"project_id": PROJECT_ID, "commit": self.repo}),
-            (viewer_sources.get_project_viewer_support_files, {"project_id": PROJECT_ID, "commit": self.repo}),
-            (viewer_sources.get_project_pcb, {"project_id": PROJECT_ID, "commit": self.repo}),
-            (viewer_sources.get_project_3d_model, {"project_id": PROJECT_ID, "commit": self.repo}),
-        ):
-            with self.subTest(route=route.__name__), \
-                    mock.patch.object(settings, "PRISM_DESIGN_SOURCE_PROJECT_METADATA", "legacy"), \
-                    mock.patch.object(viewer_sources, "get_project_for_role_or_404", return_value=self.project), \
-                    mock.patch.object(reader, "open_revision") as open_revision:
-                asyncio.run(route(user=self.user, **kwargs))
-                open_revision.assert_not_called()
+        with self.assertRaises(DesignDataPending):
+            self._serve(
+                viewer_sources.get_project_schematic, commit=self.repo,
+                bundle={"members": members, "parse_status": "pending"},
+            )
 
 
 class MappingTests(_BundleFixture):
@@ -454,16 +404,22 @@ class MappingTests(_BundleFixture):
             ],
         )
 
-    def test_support_files_decline_when_the_drawing_sheet_is_not_a_source(self) -> None:
+    def test_an_unresolved_drawing_sheet_leaves_the_project_file_alone(self) -> None:
         document = project_document()
         document["references"][0]["target"] = {
             "kind": "repository", "path": "board/Sheet.kicad_wks", "base": "project-directory", "inSources": False,
         }
-        self.assertIsNone(mapping.support_files(self.read(members=bundle_members(document=document))))
+        self.assertEqual(
+            mapping.support_files(self.read(members=bundle_members(document=document))),
+            [{"filename": "demo.kicad_pro", "content": PRO_CONTENT}],
+        )
 
-    def test_support_files_decline_when_the_drawing_sheet_member_is_absent(self) -> None:
+    def test_an_absent_drawing_sheet_leaves_the_project_file_alone(self) -> None:
         sources = {path: data for path, data in SOURCE_MEMBERS.items() if not path.endswith("Sheet.kicad_wks")}
-        self.assertIsNone(mapping.support_files(self.read(members=bundle_members(sources=sources))))
+        self.assertEqual(
+            mapping.support_files(self.read(members=bundle_members(sources=sources))),
+            [{"filename": "demo.kicad_pro", "content": PRO_CONTENT}],
+        )
 
     def test_a_source_the_bundle_lacks_is_none(self) -> None:
         sources = {path: data for path, data in SOURCE_MEMBERS.items() if not path.endswith("demo.kicad_pcb")}

@@ -1,11 +1,10 @@
 """The viewer-source routes' bundle mapping (WP-C8b, ADR §8 ``PROJECT_METADATA``).
 
-With ``PRISM_DESIGN_SOURCE_PROJECT_METADATA=bundle`` the viewer-source routes
-serve a revision's design files from the bundle of that revision instead of a
-checkout or a Git read. This module is the whole mapping: given the
-``BundleRead`` a route opened through ``design_bundle.consumer.bundle_read``,
-each function answers one route from two members, and returns ``None`` when the
-bundle cannot answer, so the route keeps its legacy path for that request.
+The viewer-source routes serve a revision's design files from the bundle of
+that revision instead of a checkout or a Git read. This module is the whole
+mapping: given the ``BundleRead`` a route opened through
+``design_bundle.consumer.bundle_read``, each function answers one route from two
+members.
 
 The two members are:
 
@@ -18,10 +17,9 @@ The two members are:
 
 Every file is a source member ``sources/<RepoPath>`` (bundle-format.md §2.2).
 Nothing here opens a bundle, reads a ``.kicad_pro`` or scans a directory: the
-route calls ``bundle_read`` once and passes its result in. A route keeps its
-legacy path whenever a needed member is not ready, and where the bundle cannot
-express today's behaviour at all (a file the closure does not carry) the mapping
-returns ``None`` and the route serves legacy — never an approximation.
+route calls ``bundle_read`` once and passes its result in. ``None`` means the
+bundle provably has no answer for this project (for example a legacy row with
+no anchor), and the route answers 404 rather than approximating.
 """
 
 from __future__ import annotations
@@ -38,8 +36,6 @@ PROJECT_JSON = "projections/project.json"
 _SOURCE_PREFIX = "sources/"
 #: The ``drawing-sheet`` settings, in the precedence today's route reads them.
 _SHEET_FIELDS = ("/schematic/page_layout_descr_file", "/pcbnew/page_layout_descr_file")
-#: A setting is present but the bundle holds no resolved path for it; legacy decides.
-_UNKNOWN = object()
 
 
 @dataclass(frozen=True)
@@ -189,10 +185,11 @@ def support_files(read: BundleRead) -> list[dict[str, str]] | None:
 
     The project file is ``config.project_file``; the drawing sheet is the
     ``drawing-sheet`` reference of the same file, resolved by the build. ``None``
-    when the project file is not a ready source member, or when a drawing-sheet
-    setting is present but its target is not a resolved source member — today's
-    route then searches the repository by file name, which the bundle does not
-    reproduce, so the legacy path answers.
+    when the project file is not a ready source member. A drawing-sheet setting
+    whose target the bundle does not carry is a documented divergence: the
+    project file is served alone and the viewer uses KiCad's default frame
+    (field-maps/project.md), because the bundle has no repository search to
+    reproduce.
     """
 
     config = effective_config(read)
@@ -205,8 +202,6 @@ def support_files(read: BundleRead) -> list[dict[str, str]] | None:
     document = read.json(PROJECT_JSON)
     files = [{"filename": posixpath.basename(project_file), "content": project.content.decode("utf-8")}]
     sheet = _worksheet(read, config, document, project_file)
-    if sheet is _UNKNOWN:
-        return None
     if sheet is not None:
         files.append(
             {"filename": project_relative(config, sheet.repo_path), "content": sheet.content.decode("utf-8")}
@@ -216,8 +211,8 @@ def support_files(read: BundleRead) -> list[dict[str, str]] | None:
 
 def _worksheet(
     read: BundleRead, config: Mapping[str, Any], document: Mapping[str, Any], project_file: str
-) -> SourceFile | None | object:
-    """The drawing sheet ``sources/<path>``, ``None`` when there is no setting, ``_UNKNOWN`` when unnamed."""
+) -> SourceFile | None:
+    """The drawing sheet ``sources/<path>``, or ``None`` when there is none to serve."""
 
     references = [
         reference
@@ -230,7 +225,6 @@ def _worksheet(
             continue
         target = reference.get("target") or {}
         if target.get("kind") == "repository" and target.get("inSources") is True:
-            resolved = source(read, str(target.get("path") or ""))
-            return resolved if resolved is not None else _UNKNOWN
-        return _UNKNOWN
+            return source(read, str(target.get("path") or ""))
+        return None
     return None

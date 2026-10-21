@@ -17,7 +17,7 @@ import { CommentPanel } from "./comment-panel";
 import { ThreadUpdateContext } from "@/features/rich-comments/thread-updates";
 import { useLiveComments } from "@/features/live-comments/use-live-comments";
 import { ViewerOverlayRail, SELECTION_INSPECTOR_RAIL_RESIZE } from "./viewer-overlay-rail";
-import { fetchApi, ifMatch, readApiError } from "@/lib/api";
+import { fetchApi, fetchDesignJson, fetchDesignText, ifMatch, readApiError } from "@/lib/api";
 import { throwIfJobFailed } from "@/lib/jobs";
 import { useJobWatcher } from "@/hooks/use-job-watcher";
 import { canCommentOnProjects, canWriteCatalog } from "@/lib/roles";
@@ -42,6 +42,7 @@ import {
     type ActiveSchematicPage,
 } from "@/lib/comment-overlays";
 import { DesignSearchField } from "./design-search-field";
+import { DesignDataFailed, DesignDataPending, WorkingTreeDirtyNotice } from "./design-data-state";
 import {
     requestedVariantFromSearchParams,
     resolveVariantSelection,
@@ -207,8 +208,12 @@ export function Visualizer({ projectId, user, commit, active: viewerActive = tru
     const [ibomUrl, setIbomUrl] = useState<string | null>(null);
     const [schematicContentLoaded, setSchematicContentLoaded] = useState(false);
     const [pcbContentLoaded, setPcbContentLoaded] = useState(false);
+    const [schematicPending, setSchematicPending] = useState(false);
+    const [pcbPending, setPcbPending] = useState(false);
+    const [workingTreeDirty, setWorkingTreeDirty] = useState(false);
     const [semanticIndex, setSemanticIndex] = useState<PrismSemanticIndex | null>(null);
     const [semanticIndexLoading, setSemanticIndexLoading] = useState(true);
+    const [semanticIndexPending, setSemanticIndexPending] = useState(false);
     const [semanticIndexError, setSemanticIndexError] = useState<string | null>(null);
     const [semanticIndexRetryToken, setSemanticIndexRetryToken] = useState(0);
     const rightRailTab = modes.rightRail;
@@ -446,14 +451,13 @@ export function Visualizer({ projectId, user, commit, active: viewerActive = tru
         const fetchSupportFiles = async () => {
             let files: EcadSource[] = [];
             try {
-                const response = await fetchApi(
+                const { data, workingTreeDirty: dirty } = await fetchDesignJson<{ files?: EcadSource[] }>(
                     appendCommit(`/api/projects/${projectId}/viewer/support-files`),
                     { signal: controller.signal },
+                    { fallbackError: "Could not load the viewer support files" },
                 );
-                if (response.ok) {
-                    const payload = await response.json() as { files?: EcadSource[] };
-                    files = payload.files ?? [];
-                }
+                files = data.files ?? [];
+                if (!cancelled && dirty) setWorkingTreeDirty(true);
             } catch (err) {
                 if (!cancelled && !isAbortError(err)) {
                     console.error("Error loading viewer support files", err);
@@ -478,20 +482,23 @@ export function Visualizer({ projectId, user, commit, active: viewerActive = tru
         // The compact identity artifact is generated independently from 3D
         // assets and loaded in the background. It never gates SCH/PCB source
         // rendering, but is ready before the first normal selection whenever
-        // generation completes quickly.
-        fetchApi(appendCommit(`/api/projects/${projectId}/semantic-index/identity`), {
-            signal: controller.signal,
-            credentials: "include",
-        })
-            .then(async (response) => {
-                if (!response.ok) {
-                    const payload = await response.json().catch(() => null) as { detail?: string } | null;
-                    throw new Error(payload?.detail || "Semantic identity index is unavailable");
+        // generation completes quickly. A pending answer retries and keeps the
+        // loading state, so the BOM table and variant selector stay calm.
+        fetchDesignJson<PrismSemanticIndex>(
+            appendCommit(`/api/projects/${projectId}/semantic-index/identity`),
+            { signal: controller.signal, credentials: "include" },
+            {
+                fallbackError: "Semantic identity index is unavailable",
+                onPending: () => {
+                    if (!controller.signal.aborted) setSemanticIndexPending(true);
+                },
+            },
+        )
+            .then(({ data, workingTreeDirty: dirty }) => {
+                if (!controller.signal.aborted) {
+                    setSemanticIndex(data);
+                    if (dirty) setWorkingTreeDirty(true);
                 }
-                return response.json() as Promise<PrismSemanticIndex>;
-            })
-            .then((payload) => {
-                if (!controller.signal.aborted) setSemanticIndex(payload);
             })
             .catch((error: unknown) => {
                 if (!isAbortError(error) && !controller.signal.aborted) {
@@ -499,7 +506,10 @@ export function Visualizer({ projectId, user, commit, active: viewerActive = tru
                 }
             })
             .finally(() => {
-                if (!controller.signal.aborted) setSemanticIndexLoading(false);
+                if (!controller.signal.aborted) {
+                    setSemanticIndexPending(false);
+                    setSemanticIndexLoading(false);
+                }
             });
         return () => controller.abort();
     }, [appendCommit, projectId, semanticIndex, semanticIndexRetryToken]);
@@ -517,8 +527,10 @@ export function Visualizer({ projectId, user, commit, active: viewerActive = tru
                 throw new Error(await readApiError(response, "Failed to generate semantic identity index"));
             }
             const payload = await response.json() as { job_id: string };
-            const job = await watchJob(payload.job_id);
-            throwIfJobFailed(job, "Failed to generate semantic identity index");
+            if (payload.job_id) {
+                const job = await watchJob(payload.job_id);
+                throwIfJobFailed(job, "Failed to generate semantic identity index");
+            }
             setSemanticIndexRetryToken((token) => token + 1);
         } catch (error) {
             setSemanticIndexLoading(false);
@@ -538,37 +550,39 @@ export function Visualizer({ projectId, user, commit, active: viewerActive = tru
             const loadSchematic = async () => {
                 try {
                     const baseUrl = `/api/projects/${projectId}`;
+                    const onPending = () => {
+                        if (!cancelled) setSchematicPending(true);
+                    };
 
                     const [schRes, subsheetsRes] = await Promise.allSettled([
-                        fetchApi(appendCommit(`${baseUrl}/schematic`), { signal }),
-                        fetchApi(appendCommit(`${baseUrl}/schematic/subsheets`), { signal })
+                        fetchDesignText(appendCommit(`${baseUrl}/schematic`), { signal }, { onPending }),
+                        fetchDesignJson<{ files?: { name?: string; path?: string; url: string }[] }>(
+                            appendCommit(`${baseUrl}/schematic/subsheets`),
+                            { signal },
+                            { onPending },
+                        )
                     ]);
                     if (cancelled) return;
 
                     // Handle Schematic
-                    if (schRes.status === "fulfilled" && schRes.value.ok) {
-                        const schematicText = await schRes.value.text();
-                        if (cancelled) return;
-                        setSchematicContent(schematicText);
+                    if (schRes.status === "fulfilled") {
+                        setSchematicContent(schRes.value.data);
+                        if (schRes.value.workingTreeDirty) setWorkingTreeDirty(true);
                     } else {
-                        console.error("Schematic not found");
+                        console.error("Schematic not found", schRes.reason);
                         setSchematicContent(null);
                     }
 
                     // Handle Subsheets
-                    if (subsheetsRes.status === "fulfilled" && subsheetsRes.value.ok) {
-                        const data = await subsheetsRes.value.json();
-                        if (cancelled) return;
+                    if (subsheetsRes.status === "fulfilled") {
+                        const data = subsheetsRes.value.data;
                         if (data.files?.length) {
-                            const subsheetResults = await Promise.allSettled(data.files.map(async (f: any) => {
-                                const cRes = await fetchApi(f.url, { signal });
-                                if (!cRes.ok) {
-                                    throw new Error(`Failed to load subsheet: ${f.url}`);
-                                }
+                            const subsheetResults = await Promise.allSettled(data.files.map(async (f) => {
+                                const loaded = await fetchDesignText(f.url, { signal }, { onPending });
                                 let filename = f.name || f.path || f.url.split("/")?.pop() || "subsheet.kicad_sch";
                                 if (!filename.endsWith('.kicad_sch')) filename += '.kicad_sch';
                                 if (!filename.includes("/") && f.url.includes("Subsheets")) filename = `Subsheets/${filename}`;
-                                return { filename, content: await cRes.text() };
+                                return { filename, content: loaded.data };
                             }));
 
                             if (cancelled) return;
@@ -595,6 +609,7 @@ export function Visualizer({ projectId, user, commit, active: viewerActive = tru
                     }
                 } finally {
                     if (!cancelled) {
+                        setSchematicPending(false);
                         setSchematicContentLoaded(true);
                     }
                 }
@@ -620,23 +635,22 @@ export function Visualizer({ projectId, user, commit, active: viewerActive = tru
         const loadPcb = async () => {
             try {
                 const baseUrl = `/api/projects/${projectId}`;
-                const pcbRes = await fetchApi(appendCommit(`${baseUrl}/pcb`), { signal });
+                const loaded = await fetchDesignText(
+                    appendCommit(`${baseUrl}/pcb`),
+                    { signal },
+                    { onPending: () => { if (!cancelled) setPcbPending(true); } },
+                );
                 if (cancelled) return;
-
-                if (pcbRes.ok) {
-                    const pcbText = await pcbRes.text();
-                    if (cancelled) return;
-                    setPcbContent(pcbText);
-                } else {
-                    console.error("PCB not found");
-                    setPcbContent(null);
-                }
+                setPcbContent(loaded.data);
+                if (loaded.workingTreeDirty) setWorkingTreeDirty(true);
             } catch (err) {
                 if (!cancelled && !isAbortError(err)) {
                     console.error("Error loading PCB content", err);
+                    setPcbContent(null);
                 }
             } finally {
                 if (!cancelled) {
+                    setPcbPending(false);
                     setPcbContentLoaded(true);
                 }
             }
@@ -1314,6 +1328,20 @@ export function Visualizer({ projectId, user, commit, active: viewerActive = tru
                 </Button>
             </div>
 
+            {semanticIndexPending || semanticIndexError || workingTreeDirty ? (
+                <div className="flex shrink-0 flex-wrap items-center gap-x-4 gap-y-1 border-b bg-muted/20 px-3 py-1.5">
+                    {semanticIndexPending ? <DesignDataPending className="text-xs" /> : null}
+                    {semanticIndexError ? (
+                        <DesignDataFailed
+                            detail={semanticIndexError}
+                            onRetry={() => { void generateSemanticIdentity(); }}
+                            className="flex-row items-center gap-2 text-left"
+                        />
+                    ) : null}
+                    {workingTreeDirty ? <WorkingTreeDirtyNotice /> : null}
+                </div>
+            ) : null}
+
             {/* Content Area */}
             <div className="flex min-h-0 flex-1 overflow-hidden">
                 <div className="relative min-w-0 flex-1 overflow-hidden">
@@ -1357,7 +1385,11 @@ export function Visualizer({ projectId, user, commit, active: viewerActive = tru
                             )
                         ) : (
                             <div className="flex h-full items-center justify-center text-muted-foreground">
-                                <p>Loading schematic…</p>
+                                {schematicPending ? (
+                                    <DesignDataPending />
+                                ) : (
+                                    <p>Loading schematic…</p>
+                                )}
                             </div>
                         )}
                     </div>
@@ -1403,7 +1435,11 @@ export function Visualizer({ projectId, user, commit, active: viewerActive = tru
                             )
                         ) : (
                             <div className="flex h-full items-center justify-center text-muted-foreground">
-                                <p>Loading the board source…</p>
+                                {pcbPending ? (
+                                    <DesignDataPending />
+                                ) : (
+                                    <p>Loading the board source…</p>
+                                )}
                             </div>
                         )}
                     </div>

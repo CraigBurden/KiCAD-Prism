@@ -1,12 +1,12 @@
 """The bundled variant catalog (ADR native design bundle §9.6, C1).
 
-With ``PRISM_DESIGN_SOURCE_SEMANTIC_INDEX=bundle`` a commit's catalog is the
+A commit's catalog is the
 bundle member ``projections/semantic-index.json``'s ``assembly``, not a source
 scan. The acceptance is parity: for every committed case whose sources were
 *not* upgraded, today's ``discover_snapshot_catalog`` on the fixture equals the
-golden ``assembly`` mapped back to today's shape. The switch tests pin the
-rollout fallback: the working tree and a member that is not ready never leave
-the legacy path.
+golden ``assembly`` mapped back to today's shape. The consumer tests pin the
+R1 contract: a ready member supplies the catalog, pending and failed raise the
+typed answer, a final non-member has no variants, and no commit reads HEAD.
 """
 
 from __future__ import annotations
@@ -18,9 +18,9 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest import mock
 
-from app.core.config import settings
 from app.services import variant_catalog_service
 from app.services.design_bundle import consumer
+from app.services.design_bundle.errors import DesignDataFailed, DesignDataPending
 from app.services.design_bundle.manifest import Readiness
 from app.services.project_source_snapshot import ProjectSourceSnapshot
 from support.repo import init_repo  # noqa: E402
@@ -157,8 +157,8 @@ class _Opened:
         return self._document
 
 
-class SwitchTests(unittest.TestCase):
-    """The switch and its rollout fallback (``design_bundle.consumer``)."""
+class ConsumerTests(unittest.TestCase):
+    """The API consumer reads only the bundle (ADR §9.7 R1)."""
 
     def setUp(self) -> None:
         self.root = Path(self.enterContext(tempfile.TemporaryDirectory(prefix="variant-bundle-")))
@@ -169,19 +169,14 @@ class SwitchTests(unittest.TestCase):
             project_file="main.kicad_pro",
         )
 
-    def _discover(self, opened, source: str):
-        with mock.patch.object(settings, "PRISM_DESIGN_SOURCE_SEMANTIC_INDEX", source), \
-                mock.patch.object(consumer.reader, "open_revision", return_value=opened) as open_revision:
-            return variant_catalog_service.discover_variant_catalog(self.project, "HEAD"), open_revision
-
-    def _legacy_names(self) -> list[str]:
-        catalog = variant_catalog_service.discover_variant_catalog(self.project, "HEAD")
-        return [entry["name"] for entry in catalog["variants"]]
-
-    def test_legacy_switch_never_opens_a_bundle(self) -> None:
-        result, open_revision = self._discover(_Opened("ready", {"assembly": {}}), "legacy")
-        open_revision.assert_not_called()
-        self.assertEqual([entry["name"] for entry in result["variants"]], ["Lite"])
+    def _discover(self, opened, **kwargs):
+        with mock.patch.object(consumer.reader, "open_revision", return_value=opened) as open_revision:
+            return (
+                variant_catalog_service.discover_variant_catalog(
+                    self.project, "HEAD", bundle_only=True, **kwargs
+                ),
+                open_revision,
+            )
 
     def test_a_ready_member_supplies_the_catalog(self) -> None:
         document = {
@@ -189,55 +184,45 @@ class SwitchTests(unittest.TestCase):
             "assembly": {"catalog": [BUNDLE_ENTRY], "diagnostics": [BUNDLE_DIAGNOSTIC]},
         }
         opened = _Opened("ready", document)
-        result, open_revision = self._discover(opened, "bundle")
+        result, open_revision = self._discover(opened)
         open_revision.assert_called_once()
         self.assertEqual(opened.read_paths, [variant_catalog_service.SEMANTIC_INDEX_MEMBER])
         self.assertEqual(result["variants"], [BUNDLE_ENTRY])
         self.assertEqual(result["diagnostics"][0]["path"], "broken.kicad_sch")
 
-    def test_a_member_that_is_not_ready_falls_back(self) -> None:
-        for state in ("pending", "unavailable", "failed"):
-            with self.subTest(state=state):
-                opened = _Opened(state, {"assembly": {"catalog": [BUNDLE_ENTRY]}})
-                result, open_revision = self._discover(opened, "bundle")
-                open_revision.assert_called_once()
-                self.assertEqual([entry["name"] for entry in result["variants"]], ["Lite"])
-                self.assertEqual(opened.read_paths, [])
+    def test_pending_and_failed_are_typed(self) -> None:
+        for state, error in (("pending", DesignDataPending), ("unavailable", DesignDataPending), ("failed", DesignDataFailed)):
+            with self.subTest(state=state), self.assertRaises(error):
+                self._discover(_Opened(state, {"assembly": {"catalog": [BUNDLE_ENTRY]}}))
 
-    def test_a_final_non_member_falls_back(self) -> None:
+    def test_a_final_non_member_has_no_variants(self) -> None:
         for state in ("skipped", "not-applicable"):
             with self.subTest(state=state):
-                opened = _Opened(state, {"assembly": {"catalog": [BUNDLE_ENTRY]}})
-                result, _ = self._discover(opened, "bundle")
-                self.assertEqual([entry["name"] for entry in result["variants"]], ["Lite"])
-                self.assertEqual(opened.read_paths, [])
+                result, _ = self._discover(_Opened(state, {"assembly": {"catalog": [BUNDLE_ENTRY]}}))
+                self.assertEqual(result["variants"], [])
 
-    def test_the_working_tree_never_opens_a_bundle(self) -> None:
-        opened = _Opened("ready", {"assembly": {}})
-        with mock.patch.object(settings, "PRISM_DESIGN_SOURCE_SEMANTIC_INDEX", "bundle"), \
-                mock.patch.object(consumer.reader, "open_revision", return_value=opened) as open_revision:
-            working_tree = variant_catalog_service.discover_variant_catalog(self.project)
-        open_revision.assert_not_called()
-        self.assertIsNone(working_tree["commit"])
-        self.assertEqual(self._legacy_names(), ["Lite"])
+    def test_no_commit_reads_head(self) -> None:
+        document = {"assembly": {"catalog": [BUNDLE_ENTRY]}}
+        opened = _Opened("ready", document)
+        with mock.patch.object(consumer.reader, "open_revision", return_value=opened) as open_revision:
+            result = variant_catalog_service.discover_variant_catalog(
+                self.project, None, bundle_only=True
+            )
+        commit = open_revision.call_args.args[1]
+        self.assertEqual(len(commit), 40)
+        self.assertEqual(result["commit"], commit)
 
-    def test_a_project_without_an_id_never_opens_a_bundle(self) -> None:
-        # Release Studio once passed a checkout path with no id; the lookup
-        # then failed with a traceback on every Source step.
+    def test_a_project_without_an_id_is_refused(self) -> None:
+        # Release Studio once passed a checkout path with no id; this read has
+        # no key to look up and must not guess one.
         self.project = SimpleNamespace(path=self.project.path, project_file="main.kicad_pro")
-        result, open_revision = self._discover(_Opened("ready", {"assembly": {}}), "bundle")
-        open_revision.assert_not_called()
-        self.assertEqual([entry["name"] for entry in result["variants"]], ["Lite"])
+        with self.assertRaises(ValueError):
+            variant_catalog_service.discover_variant_catalog(self.project, "HEAD", bundle_only=True)
 
-    def test_an_unreadable_ready_member_falls_back(self) -> None:
+    def test_an_unreadable_ready_member_is_a_typed_failure(self) -> None:
         class _Broken(_Opened):
             def read_json(self, path):
                 raise RuntimeError("corrupt archive")
 
-        with self.assertLogs("app.services.variant_catalog_service", level="ERROR"):
-            result, _ = self._discover(_Broken("ready", None), "bundle")
-        self.assertEqual([entry["name"] for entry in result["variants"]], ["Lite"])
-
-
-if __name__ == "__main__":
-    unittest.main()
+        with self.assertRaises(DesignDataFailed):
+            self._discover(_Broken("ready", None))

@@ -361,4 +361,3 @@ KICAD_WORKFLOW = JobKind(
 )
 JOB_KINDS = (KICAD_WORKFLOW,)
 
-from app.services.semantic_index_jobs import SEMANTIC_INDEX, run_semantic_index_job_v3, start_semantic_index_job  # noqa: E402  (re-exported, WP-S1)

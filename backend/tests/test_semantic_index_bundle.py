@@ -1,11 +1,10 @@
-"""WP-C1a: the semantic index is read from the design bundle under its switch.
+"""The semantic index is read from the design bundle (ADR §8, §9.7 R1).
 
-With ``PRISM_DESIGN_SOURCE_SEMANTIC_INDEX=bundle`` every public reader of
-``semantic_index_service`` serves the bundle member
-``projections/semantic-index.json`` (``prism.semantic_index.a2``) instead of
-building and storing its own index; the legacy path is untouched when the
-switch is ``legacy``, when a working-tree request is made, when the member is
-not ready yet, and when the bundle answers a final non-member.
+Every public reader of ``semantic_index_service`` serves the bundle member
+``projections/semantic-index.json`` (``prism.semantic_index.a2``). A request
+without a commit reads the checkout's HEAD. Pending raises
+``DesignDataPending`` (the build was queued) and a failed or absent member
+raises ``DesignDataFailed``; there is no legacy build.
 
 The stored bundle is faked from the stub CLI's contract examples
 (``support/prism_kicad_stub.py``), the way ``test_design_bundle_store.py``
@@ -30,6 +29,7 @@ from app.core.config import settings
 from app.services import semantic_index_service
 from app.services.design_bundle import consumer
 from app.services.design_bundle.archive import open_archive
+from app.services.design_bundle.errors import DesignDataFailed, DesignDataPending
 from app.services.design_bundle.generator import bundle_key
 from app.services.design_bundle.reader import OpenedRevision
 from support import prism_kicad_stub as stub
@@ -38,7 +38,6 @@ EXAMPLES = Path(__file__).resolve().parents[2] / "native" / "contracts" / "prism
 REVISION_KEY = "a" * 64
 GENERATOR_DIGEST = "c" * 64
 COMMIT = "1234567890abcdef1234567890abcdef12345678"
-LEGACY_INDEX = {"schema": "prism.semantic_index_a0", "components": []}
 
 
 # ------------------------------------------------------------------ the bundle
@@ -109,7 +108,7 @@ def _request(headers: dict[str, str] | None = None) -> Request:
 
 
 class _BundleCase(unittest.TestCase):
-    """A stored stub bundle, the switch, and the two seams every reader shares."""
+    """A stored stub bundle and the two seams every reader shares."""
 
     def setUp(self) -> None:
         self.tmp = Path(self.enterContext(tempfile.TemporaryDirectory()))
@@ -121,7 +120,7 @@ class _BundleCase(unittest.TestCase):
         self.project = SimpleNamespace(id="p1", path=str(self.tmp / "checkout"))
 
         self.enterContext(mock.patch.object(settings, "PRISM_DESIGN_BUNDLE_ROOT", str(self.tmp / "bundles")))
-        # The commit is resolved the way _revision_identity resolves it; the opened
+        # The commit is resolved the way the service resolves it; the opened
         # revision stands in for reader.open_revision so no workspace row is read.
         self.locate = self.enterContext(mock.patch.object(
             semantic_index_service.project_revision, "locate", return_value=SimpleNamespace(repo_root=self.tmp)))
@@ -130,7 +129,7 @@ class _BundleCase(unittest.TestCase):
         self.open_revision = self.enterContext(mock.patch.object(
             consumer.reader, "open_revision", return_value=self.opened()))
 
-    def opened(self, *, member: bool = True) -> OpenedRevision:
+    def opened(self, *, member: bool = True, job_active: bool = False, dirty: bool = False) -> OpenedRevision:
         # bundle_key None: read/extract must not touch the bundle rows (there is no
         # database here); readiness comes from the archive's manifest alone.
         archive = self.archive
@@ -139,85 +138,67 @@ class _BundleCase(unittest.TestCase):
             archive = open_archive(_write_bundle(self.tmp / "empty.prism", _manifest(only), only))
         return OpenedRevision(
             project_id="p1", commit=COMMIT, revision_key=REVISION_KEY, generator_digest=GENERATOR_DIGEST,
-            bundle_key=None, archive=archive, job_active=False,
+            bundle_key=None, archive=archive, job_active=job_active, working_tree_dirty=dirty,
         )
-
-    def _legacy_artifact(self) -> Path:
-        """A stored legacy index and the patches that make the legacy readers find it."""
-
-        root = self.tmp / "index"
-        self.enterContext(mock.patch.object(semantic_index_service, "semantic_index_root", return_value=root))
-        self.enterContext(mock.patch.object(
-            semantic_index_service, "_revision_identity", return_value=("legacykey", COMMIT)))
-        path = Path(semantic_index_service.artifact_path("p1", "legacykey"))
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(json.dumps(LEGACY_INDEX), encoding="utf-8")
-        return path
-
-    def _bundle(self):
-        return mock.patch.object(settings, "PRISM_DESIGN_SOURCE_SEMANTIC_INDEX", "bundle")
-
-    def _legacy(self):
-        return mock.patch.object(settings, "PRISM_DESIGN_SOURCE_SEMANTIC_INDEX", "legacy")
 
 
 class ReaderTests(_BundleCase):
-    def test_legacy_never_opens_the_bundle_and_keeps_today_s_results(self) -> None:
-        path = self._legacy_artifact()
-        with self._legacy():
-            self.assertEqual(semantic_index_service.get_or_build(self.project, "HEAD"), LEGACY_INDEX)
-            self.assertEqual(semantic_index_service.get_existing(self.project, "HEAD"), LEGACY_INDEX)
-            self.assertEqual(semantic_index_service.generate(self.project, "HEAD"), LEGACY_INDEX)
-            artifact = semantic_index_service.artifact_file(self.project, "HEAD")
-            self.assertEqual(tuple(artifact), (path, "legacykey"))
-            self.assertEqual(artifact.generator, semantic_index_service.generator_cache_tag())
-            self.assertEqual(semantic_index_service.get_status(self.project, "HEAD")["available"], True)
-        self.open_revision.assert_not_called()
-        self.resolve.assert_not_called()
-
-    def test_a_working_tree_request_never_opens_the_bundle(self) -> None:
-        self._legacy_artifact()
-        with self._bundle():
-            self.assertEqual(semantic_index_service.get_or_build(self.project, None), LEGACY_INDEX)
-            self.assertEqual(semantic_index_service.get_status(self.project, None)["available"], True)
-        self.open_revision.assert_not_called()
-
     def test_a_ready_member_serves_every_reader(self) -> None:
-        self.resolve.reset_mock()
-        with self._bundle():
-            self.assertEqual(semantic_index_service.get_or_build(self.project, "HEAD"), self.member)
-            self.assertEqual(semantic_index_service.get_existing(self.project, "HEAD"), self.member)
-            self.assertEqual(semantic_index_service.generate(self.project, "HEAD", force=True), self.member)
+        self.assertEqual(semantic_index_service.get_index(self.project, "HEAD"), self.member)
         self.resolve.assert_called_with(self.locate.return_value, "HEAD")
         self.open_revision.assert_called_with("p1", COMMIT, queue=True, requested_by="")
 
     def test_a_ready_member_artifact_file_is_the_verified_cache_file(self) -> None:
-        with self._bundle():
-            artifact = semantic_index_service.artifact_file(self.project, "HEAD")
+        artifact = semantic_index_service.artifact_file(self.project, "HEAD")
         path, revision_key = artifact
         self.assertEqual(revision_key, REVISION_KEY)
         self.assertEqual(artifact.generator, GENERATOR_DIGEST)
+        self.assertEqual(artifact.headers, {})
         self.assertEqual(path.read_bytes(), self.member_bytes)
 
-    def test_a_not_ready_member_falls_back_to_the_legacy_result(self) -> None:
-        self._legacy_artifact()
-        # pending: bundle_read answers None and queues the build
-        with self._bundle(), mock.patch.object(consumer, "bundle_read", return_value=None):
-            self.assertEqual(semantic_index_service.get_or_build(self.project, "HEAD"), LEGACY_INDEX)
-            self.assertEqual(semantic_index_service.get_existing(self.project, "HEAD"), LEGACY_INDEX)
-            self.assertEqual(semantic_index_service.generate(self.project, "HEAD"), LEGACY_INDEX)
-        # not-applicable: a real final bundle that carries no semantic-index member
-        with self._bundle(), mock.patch.object(
-            consumer.reader, "open_revision", return_value=self.opened(member=False)
-        ):
-            self.assertEqual(semantic_index_service.get_or_build(self.project, "HEAD"), LEGACY_INDEX)
-            self.assertEqual(semantic_index_service.get_status(self.project, "HEAD")["sourceRevisionKey"], "legacykey")
+    def test_a_dirty_working_tree_adds_the_notice_to_the_artifact(self) -> None:
+        self.open_revision.return_value = self.opened(dirty=True)
+        artifact = semantic_index_service.artifact_file(self.project, None)
+        self.assertEqual(artifact.headers, {"X-Prism-Working-Tree": "dirty"})
+
+    def test_a_pending_member_raises_pending(self) -> None:
+        only = {"sources/p.kicad_pro": b"{}\n"}
+        manifest = _manifest(only)
+        manifest["stages"]["parse"]["status"] = "pending"
+        manifest["stages"]["board"]["status"] = "pending"
+        manifest["stages"]["board"].pop("skip_reason")
+        manifest["stages"]["models"]["status"] = "pending"
+        manifest["stages"]["models"].pop("skip_reason")
+        path = _write_bundle(self.tmp / "pending.prism", manifest, only)
+        self.open_revision.return_value = OpenedRevision(
+            "p1", COMMIT, REVISION_KEY, GENERATOR_DIGEST, None, open_archive(path), True
+        )
+        with self.assertRaises(DesignDataPending):
+            semantic_index_service.get_index(self.project, "HEAD")
+
+    def test_a_failed_member_raises_failed(self) -> None:
+        only = {"sources/p.kicad_pro": b"{}\n"}
+        manifest = _manifest(only)
+        manifest["stages"]["parse"]["status"] = "partial"
+        manifest["stages"]["parse"]["failed_members"] = [
+            {"path": "projections/semantic-index.json", "code": "parse-failed", "message": "bad"}
+        ]
+        path = _write_bundle(self.tmp / "failed.prism", manifest, only)
+        self.open_revision.return_value = OpenedRevision(
+            "p1", COMMIT, REVISION_KEY, GENERATOR_DIGEST, None, open_archive(path), False
+        )
+        with self.assertRaises(DesignDataFailed):
+            semantic_index_service.get_index(self.project, "HEAD")
+
+    def test_a_final_non_member_is_a_typed_failure(self) -> None:
+        self.open_revision.return_value = self.opened(member=False)
+        with self.assertRaises(DesignDataFailed):
+            semantic_index_service.get_index(self.project, "HEAD")
 
 
 class StatusTests(_BundleCase):
     def test_status_is_bundle_shaped_when_the_member_is_ready(self) -> None:
-        with self._bundle():
-            status = semantic_index_service.get_status(self.project, "HEAD")
+        status, headers = semantic_index_service.get_status(self.project, "HEAD")
         self.assertEqual(status["schema"], "prism.semantic_index_status_a0")
         self.assertEqual(status["projectId"], "p1")
         self.assertEqual(status["sourceRevisionKey"], REVISION_KEY)
@@ -228,28 +209,18 @@ class StatusTests(_BundleCase):
             set(status["generator"]),
             {"name", "version", "build", "cacheTag", "kicadMonkeyVersion"},
         )
+        self.assertEqual(headers, {})
 
-    def test_status_keeps_today_s_shape_in_legacy_mode(self) -> None:
-        self._legacy_artifact()
-        with self._legacy():
-            status = semantic_index_service.get_status(self.project, "HEAD")
-        self.assertEqual(status["schema"], "prism.semantic_index_status_a0")
-        self.assertEqual(status["sourceRevisionKey"], "legacykey")
-        self.assertTrue(status["available"])
-        self.assertEqual(status["generator"]["cacheTag"], semantic_index_service.generator_cache_tag())
-
-    def test_status_falls_back_when_the_member_is_not_ready(self) -> None:
-        self._legacy_artifact()
-        with self._bundle(), mock.patch.object(consumer, "bundle_read", return_value=None):
-            status = semantic_index_service.get_status(self.project, "HEAD")
-        self.assertEqual(status["sourceRevisionKey"], "legacykey")
-        self.assertEqual(status["generator"]["cacheTag"], semantic_index_service.generator_cache_tag())
+    def test_status_reports_a_final_non_member_as_unavailable(self) -> None:
+        self.open_revision.return_value = self.opened(member=False)
+        status, _ = semantic_index_service.get_status(self.project, "HEAD")
+        self.assertFalse(status["available"])
 
 
 class IdentityRouteTests(_BundleCase):
     def test_identity_serves_the_member_with_the_bundle_etag_and_304(self) -> None:
         etag = f'"{REVISION_KEY}-{GENERATOR_DIGEST}"'
-        with mock.patch.object(api, "get_project_for_role_or_404", return_value=self.project), self._bundle():
+        with mock.patch.object(api, "get_project_for_role_or_404", return_value=self.project):
             response = asyncio.run(api.get_semantic_index_identity(_request(), "p1", "HEAD", _User()))
             self.assertEqual(response.status_code, 200)
             self.assertEqual(response.headers["etag"], etag)
@@ -259,6 +230,12 @@ class IdentityRouteTests(_BundleCase):
                 _request({"If-None-Match": etag}), "p1", "HEAD", _User()))
         self.assertEqual(cached.status_code, 304)
         self.assertEqual(cached.body, b"")
+
+    def test_identity_carries_the_dirty_notice(self) -> None:
+        self.open_revision.return_value = self.opened(dirty=True)
+        with mock.patch.object(api, "get_project_for_role_or_404", return_value=self.project):
+            response = asyncio.run(api.get_semantic_index_identity(_request(), "p1", None, _User()))
+        self.assertEqual(response.headers["x-prism-working-tree"], "dirty")
 
 
 if __name__ == "__main__":

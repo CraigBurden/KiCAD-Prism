@@ -314,8 +314,16 @@ class VariantCatalogReadsDoNotBlockTheLoopTests(unittest.TestCase):
             self.assertEqual(response.status_code, 200)
             return probe_finished
 
+        from unittest.mock import MagicMock
+
+        from app.services.design_bundle import consumer as bundle_consumer
+
+        opened = MagicMock()
+        opened.working_tree_dirty = False
         with patch.object(
             variants_api, "get_project_for_role_or_404"
+        ), patch.object(
+            bundle_consumer, "bundle_read", return_value=bundle_consumer.BundleRead(opened, {})
         ), patch.object(
             variants_api.variant_catalog_service,
             "discover_variant_catalog",

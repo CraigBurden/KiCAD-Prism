@@ -5,10 +5,9 @@
 module so `config.py` stays untouched while the bundle work lands (ownership
 map, WP-K).
 
-- `PRISM_DESIGN_SOURCE_<CONSUMER>`: each consumer's switch, `legacy` or
-  `bundle` (ADR §8). The PR that proves a consumer's parity flips its default:
-  Design Comparison's is `bundle` (amendment C2r), as is the 3D tab's
-  (amendment V2a); the rest are `legacy`.
+- `PRISM_DESIGN_SOURCE_<CONSUMER>`: a consumer's switch, `legacy` or
+  `bundle` (ADR §8). Release Studio is the only one left; it switches in its
+  own work package (R1 removed the other four, which now always read bundles).
 - `PRISM_DESIGN_BUNDLE_*`: the `design_bundle` job, its resource slot, the
   per-stage limits it passes to `prism-kicad` (cli-spec.md §7), the store and
   its retention, and the paced backfill.
@@ -31,26 +30,10 @@ BACKSTOP_OVERHEAD_BYTES = GIB + GIB // 4
 
 class DesignBundleSettings(BaseSettings):
     # ===========================================
-    # Consumer switches (ADR §8)
+    # Consumer switch (ADR §8)
     # ===========================================
-    PRISM_DESIGN_SOURCE_SEMANTIC_INDEX: DesignSource = Field(
-        default="legacy", description="Semantic index: today's Python index, or the bundle's semantic-index member."
-    )
-    PRISM_DESIGN_SOURCE_DESIGN_COMPARISON: DesignSource = Field(
-        default="bundle",
-        description=(
-            "Design Comparison: `prism-kicad compare` over bundles or source trees (default since the C2r"
-            " switch), or `legacy`, today's parsers, until R1 removes them."
-        ),
-    )
     PRISM_DESIGN_SOURCE_RELEASE_STUDIO: DesignSource = Field(
         default="legacy", description="Release Studio projections and closure: today's readers, or bundle members."
-    )
-    PRISM_DESIGN_SOURCE_PROJECT_METADATA: DesignSource = Field(
-        default="legacy", description="Project card, properties and viewer sources: the checkout, or bundle members."
-    )
-    PRISM_DESIGN_SOURCE_CATALOG_IMPORT: DesignSource = Field(
-        default="legacy", description="Catalog project component import and usage: today's scanners, or bundle members."
     )
 
     # ===========================================

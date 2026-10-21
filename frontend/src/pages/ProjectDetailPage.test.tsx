@@ -6,11 +6,15 @@ import { fetchJson } from "@/lib/api";
 import { invalidateServerState } from "@/lib/server-state";
 import { ProjectDetailPage } from "./ProjectDetailPage";
 
-vi.mock("@/lib/api", () => ({
-    fetchJson: vi.fn(),
-    fetchApi: vi.fn(),
-    readApiError: vi.fn(),
-}));
+vi.mock("@/lib/api", async (importOriginal) => {
+    const actual = await importOriginal<typeof import("@/lib/api")>();
+    return {
+        ...actual,
+        fetchJson: vi.fn(),
+        fetchApi: vi.fn(),
+        readApiError: vi.fn(),
+    };
+});
 
 vi.mock("@/components/markdown-content", () => ({ MarkdownContent: () => null }));
 vi.mock("@/components/release-studio/ReleaseStudioPanel", () => ({ ReleaseStudioPanel: () => null }));

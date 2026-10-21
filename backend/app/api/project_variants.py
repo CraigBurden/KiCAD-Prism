@@ -25,6 +25,7 @@ from fastapi.responses import Response
 from app.api._helpers import get_project_for_role_or_404
 from app.core.security import AuthenticatedUser, require_viewer
 from app.services import project_source_snapshot, variant_catalog_service, variant_source_scan
+from app.services.design_bundle import consumer
 
 router = APIRouter(dependencies=[Depends(require_viewer)])
 
@@ -59,10 +60,18 @@ async def get_project_variants(
 ):
     project = get_project_for_role_or_404(project_id, user.role)
     try:
+        read = await asyncio.to_thread(
+            consumer.bundle_read,
+            "SEMANTIC_INDEX",
+            project_id,
+            commit,
+            [variant_catalog_service.SEMANTIC_INDEX_MEMBER],
+        )
         payload = await asyncio.to_thread(
             variant_catalog_service.discover_variant_catalog,
             project,
             commit,
+            bundle_only=True,
         )
     except ValueError as error:
         raise HTTPException(status_code=400, detail="Could not read design variants for this revision") from error
@@ -73,7 +82,7 @@ async def get_project_variants(
     etag = f'"{identity}-{CATALOG_GENERATOR_TAG}"'
     # Source commits are immutable, but the generator can change at deployment.
     # Revalidate every response; cached discovery and ETags keep this cheap.
-    headers = {"Cache-Control": "private, no-cache", "ETag": etag}
+    headers = {"Cache-Control": "private, no-cache", "ETag": etag, **read.response_headers()}
     if request.headers.get("if-none-match") == etag:
         return Response(status_code=304, headers=headers)
     return Response(
