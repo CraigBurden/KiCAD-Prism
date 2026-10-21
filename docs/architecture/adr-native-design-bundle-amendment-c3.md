@@ -170,6 +170,12 @@ P1's parity is "a1 equals the a0 golden plus those additions" (`field-maps/seman
 | E | `prism-artwork`: views, compositing from the plot IR, the HLR overlay, designator fitting, canvas | DeepSeek (L) | A, D |
 | F | Release Studio on the bundle: the projection reads (C3a), the a0 scope view (C3b), kicad-cli on `refilled/`/`sources/` (C3c), the closure from P4 (C3d), the artwork/vendor/text calls (from B, C, E), provenance from the generator id (C3f); remove `kicad-cruncher`; re-capture the replay recording | main thread, with DeepSeek for C3a, C3d and C3f | A–E |
 
+**F progress.** C3a, C3b, C3c, C3d and C3f are done: bundle mode reads the
+board projections, the a0-compatible scope view, the `refilled/`/`sources/`
+kicad-cli inputs, the closure's documents and references, and the provenance
+from `bundle.json`'s generator. The remaining F work is deleting the legacy
+path and re-capturing the replay recording (F4c).
+
 R2 then removes `kicad-cruncher-cli` from the workspace and the allow-list entries this amendment retires.
 
 ## 7. Risks

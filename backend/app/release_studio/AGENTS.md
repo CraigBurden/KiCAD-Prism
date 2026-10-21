@@ -32,7 +32,7 @@ as a spurious change in a customer's release comparison.**
 | `pipeline.py` | Build waves (`run_build_waves`: checks, positions, BOM, assembly Cruncher, vendors, artwork, in that order) plus the phase skeleton and progress tracking. Phases: closure, checks, assembly, documents, package. |
 | `steps.py` | Individual `kicad-cli` invocations. Each step is its own process. |
 | `jobset.py` | KiCad jobset translation, pinned to the KiCad 10.0.4 executor. |
-| `closure.py` · `closure_references.py` · `closure_models.py` | Resolves every input a build depends on. Outputs are never closure inputs. `closure_references.py` finds the path references in design files; `closure_models.py` resolves and hashes 3D models the way KiCad opens them. |
+| `closure.py` · `closure_references.py` · `closure_models.py` | Resolves every input a build depends on. Outputs are never closure inputs. `closure_references.py` finds the path references in design files; `closure_models.py` resolves and hashes 3D models the way KiCad opens them. With a ready bundle the closure reads the project projection's `documents` and `references` through `ProjectReferences`, so no KiCad text is parsed in Python. |
 | `inputs.py` · `source.py` | Input discovery and revision sourcing. |
 | `document_pipeline.py` | Gathers typed `DocumentInputs` and writes composed sheets as a member-producing step. |
 | `documents/` | Document generation — `documents/acquisition.py` acquires views, `documents/engine.py` composes sheets, the rest render. |
@@ -41,7 +41,8 @@ as a spurious change in a customer's release comparison.**
 | `vendors/` | Vendor-specific packaging (`vendors/jlcpcb.py`, `vendors/pack.py`, `vendors/registry.py`). With `PRISM_DESIGN_SOURCE_RELEASE_STUDIO=bundle` and a ready parse stage, `vendors/generate.py` runs `prism-kicad vendor run <id>` over the design bundle (`vendors/cli.py`); every other case keeps `kicad-cruncher`. The JLCPCB `--config` is converted from `jlcpcb.config.jsonc` and validated against `prism.vendor.jlcpcb.config.a0`. |
 | `dossier.py` | Final manifest and evidence assembly. |
 | `projections.py` · `semantic.py` · `impedance.py` | Derived views over the build. |
-| `bundle_projections.py` | The five board projections (`stackup`, `population`, `testpoints`, `designators`, `variants`) rebuilt from design-bundle members when `PRISM_DESIGN_SOURCE_RELEASE_STUDIO=bundle`: pure functions of the member documents, with `board_projections_from_bundle` the one bundle-reader seam. |
+| `bundle_projections.py` | The five board projections (`stackup`, `population`, `testpoints`, `designators`, `variants`) rebuilt from design-bundle members when `PRISM_DESIGN_SOURCE_RELEASE_STUDIO=bundle`: pure functions of the member documents, with `board_projections_from_design` the one already-checked-bundle seam. Also the a0-compatible semantic view (`semantic_index_a0`, `semantic_scope_from_design`): the four a1 fields are dropped recursively so the scope fingerprint equals today's (C3b). |
+| `bundle_design.py` | The one readiness answer for a bundle-mode build (`readiness`, `for_candidate`): stages `parse`, `board` and `models` must be ready or the job raises `DesignDataPending`/`DesignDataFailed` from the design-bundle errors module; it never falls back to the legacy parse. The same object names the board member (`refilled/<stem>.kicad_pcb`, or the saved board for `zone_fills: "saved"`), the bundle's source tree, the closure's `ProjectReferences`, and the generator provenance. |
 | `ipc.py` | Worker process boundary. |
 
 Every `kicad-cli` and `kicad-cruncher` run goes through the tools
@@ -59,6 +60,15 @@ completion transaction, and the kind's end hook ends it as the job ended when
 the build process died first (cancel, crash, lost lease). Only a candidate's
 newest attempt moves the candidate's status. `execute_build` reads as closure →
 waves (`pipeline.run_build_waves`) → documents → assemble → record.
+
+In bundle mode `prepare_candidate` asks `bundle_design.readiness` before it
+materializes a closure: a missing or pending bundle queues the `design_bundle`
+job (deduplicated on the bundle key) and raises `DesignDataPending`, which the
+job runner retries; a failed stage or member raises `DesignDataFailed`. There is
+no legacy fallback on this path. The same `BundleDesign` is the build's one
+answer for the board and schematic inputs, the closure's `ProjectReferences`,
+and the generator provenance (the bundle manifest's `generator` record replaces the
+`kicad_monkey`/`kicad_cruncher` versions in `toolchain_identity`).
 
 Around the build:
 - `backend/app/services/release_studio_config_service.py`: the configuration

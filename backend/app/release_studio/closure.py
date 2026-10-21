@@ -30,7 +30,12 @@ from app.release_studio.closure_models import (
     resolve_model,
     rewrite_model_references,
 )
-from app.release_studio.closure_references import VARIABLE_RE as _VARIABLE_RE, structured_path_references
+from app.release_studio.closure_references import (
+    VARIABLE_RE as _VARIABLE_RE,
+    ProjectReferences,
+    is_path_reference,
+    structured_path_references,
+)
 from app.services import project_revision
 
 
@@ -342,6 +347,7 @@ def materialize_input_closure(
     ) = None,
     model_env: Mapping[str, str] | None = None,
     model_stage: str | Path | None = None,
+    bundle_project: ProjectReferences | None = None,
 ) -> InputClosure:
     """Materialize the full repository tree for ``commit``.
 
@@ -361,6 +367,11 @@ def materialize_input_closure(
     ``model_stage`` (a directory outside ``destination``), each hashed host
     model is copied there as it is hashed and the materialized board names the
     copy, so the tools read exactly the hashed bytes.
+
+    ``bundle_project`` replaces the s-expression reads with the design bundle's
+    ``prism.project.a0`` answer: the documents name the design's files and the
+    references name every path-bearing node, so no Python KiCad parser runs on
+    the bundle path (ADR amendment C3, C3d).
     """
 
     repo = Path(repo_path)
@@ -397,6 +408,7 @@ def materialize_input_closure(
         specs,
         model_env or {},
         Path(model_stage) if model_stage is not None else None,
+        bundle_project=bundle_project,
     )
     return InputClosure(
         commit_sha=commit_sha,
@@ -424,6 +436,7 @@ def materialize_project_input_closure(
     ) = None,
     model_env: Mapping[str, str] | None = None,
     model_stage: str | Path | None = None,
+    bundle_project: ProjectReferences | None = None,
 ) -> InputClosure:
     """Resolve a Prism project/subproject and materialize its full repo tree."""
 
@@ -439,6 +452,7 @@ def materialize_project_input_closure(
         toolchain_resources=toolchain_resources,
         model_env=model_env,
         model_stage=model_stage,
+        bundle_project=bundle_project,
     )
 
 
@@ -1000,6 +1014,45 @@ def _join_relative(base: str, reference: str) -> str | None:
     return "/".join(stack) or None
 
 
+def _bundle_references(
+    project: ProjectReferences, project_rel: str
+) -> list[tuple[str, str, str]]:
+    """The closure's path references from a bundle's ``prism.project.a0``.
+
+    A ``model-3d`` reference is resolved the way a ``(model …)`` node is; a
+    library reference is a library-table URI; a drawing sheet is a project path
+    only when it is written as a ``${VAR}`` path, which is the filter today's
+    project-file scan applies.  Embedded files live inside a document whose
+    bytes the closure already pins, and sheet files are documents rather than
+    path references, so neither is listed here.
+    """
+
+    prefix = "" if project_rel in ("", ".") else f"{project_rel.rstrip('/')}/"
+    rows: list[tuple[str, str, str]] = []
+    for reference in project.references:
+        raw = str(reference.get("raw") or "")
+        if not raw:
+            continue
+        kind = str(reference.get("kind") or "")
+        target = reference.get("target") or {}
+        if target.get("kind") == "embedded":
+            continue
+        if kind == "model-3d":
+            row_kind = "project_path"
+        elif kind in {"footprint-library", "symbol-library"}:
+            row_kind = "library_table"
+        elif kind == "drawing-sheet" and is_path_reference(raw):
+            row_kind = "project_path"
+        else:
+            continue
+        document = str(reference.get("documentPath") or "")
+        if not document:
+            continue
+        source = f"{prefix}{document}" if document else prefix.rstrip("/")
+        rows.append((source, raw, row_kind))
+    return rows
+
+
 def _resolve_project_paths(
     destination: Path,
     repository_inputs: Sequence[RepositoryInput],
@@ -1008,29 +1061,37 @@ def _resolve_project_paths(
     toolchain_specs: Sequence[_ToolchainSpec],
     model_env: Mapping[str, str],
     model_stage: Path | None = None,
+    *,
+    bundle_project: ProjectReferences | None = None,
 ) -> tuple[list[ResolvedLibraryPath], list[EnvBinding]]:
     resolver = _PathResolver(destination, project_rel, env, toolchain_specs)
-    scanned = _design_inputs(destination, repository_inputs, project_rel)
-    references: list[tuple[str, str, str]] = []
-    for item in repository_inputs:
-        if item.type != "regular_file":
-            continue
-        if item.path not in scanned:
-            continue
-        if item.path.rsplit("/", 1)[-1].casefold() in {"fp-lib-table", "sym-lib-table"}:
-            text = _read_materialized_text(destination, item.path)
-            table_references, variable_references = structured_path_references(
-                item.path, text, library_table=True
-            )
-            for reference in table_references:
-                references.append((item.path, reference, "library_table"))
-            for reference in variable_references:
-                references.append((item.path, reference, "library_table"))
-        elif _is_path_input(item.path):
-            text = _read_materialized_text(destination, item.path)
-            _, variable_references = structured_path_references(item.path, text)
-            for reference in variable_references:
-                references.append((item.path, reference, "project_path"))
+    if bundle_project is not None:
+        # The bundle answered the closure's design-file question already:
+        # ``documents`` is the hierarchy and ``references`` are the path-bearing
+        # nodes, so the checkout is not parsed here at all.
+        references = _bundle_references(bundle_project, project_rel)
+    else:
+        scanned = _design_inputs(destination, repository_inputs, project_rel)
+        references = []
+        for item in repository_inputs:
+            if item.type != "regular_file":
+                continue
+            if item.path not in scanned:
+                continue
+            if item.path.rsplit("/", 1)[-1].casefold() in {"fp-lib-table", "sym-lib-table"}:
+                text = _read_materialized_text(destination, item.path)
+                table_references, variable_references = structured_path_references(
+                    item.path, text, library_table=True
+                )
+                for reference in table_references:
+                    references.append((item.path, reference, "library_table"))
+                for reference in variable_references:
+                    references.append((item.path, reference, "library_table"))
+            elif _is_path_input(item.path):
+                text = _read_materialized_text(destination, item.path)
+                _, variable_references = structured_path_references(item.path, text)
+                for reference in variable_references:
+                    references.append((item.path, reference, "project_path"))
 
     deduped = sorted(set(references), key=lambda item: item)
     resolved: list[ResolvedLibraryPath] = []

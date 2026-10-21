@@ -18,8 +18,9 @@ import time
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Callable, Mapping, Sequence
+from typing import TYPE_CHECKING, Any, Callable, Mapping, Sequence
 
+from app.release_studio.config.schema import DEFAULT_ARTWORK_LINE_WEIGHTS
 from app.release_studio.steps import (
     CATALOGUE_WAVE_ARTWORK,
     CATALOGUE_WAVE_BOM,
@@ -35,6 +36,9 @@ from app.release_studio.vendors import (
     vendor_bundle_archive,
 )
 from app.services.kicad_tools import KicadTool, KicadTools
+
+if TYPE_CHECKING:
+    from app.release_studio.bundle_design import BundleDesign
 
 logger = logging.getLogger(__name__)
 
@@ -334,6 +338,7 @@ def run_build_waves(
     timings: list[dict[str, Any]],
     candidate: Mapping[str, Any] | None = None,
     vendor_cli: KicadTool | None = None,
+    design: "BundleDesign | None" = None,
 ) -> WaveOutputs:
     """Run the catalogue waves, the assembly views and the vendor packs, in order.
 
@@ -343,6 +348,10 @@ def run_build_waves(
     Cruncher path still runs. The vendor packs follow the same switch
     (``vendor_cli`` overrides the located ``prism-kicad`` for tests). Each wave
     appends its wall time to ``timings`` (evidence, never hashed).
+
+    ``design`` is the build's one ready-bundle answer.  When it is present every
+    board and schematic input is the bundle's own file (C3c), so no step reads
+    the checkout's board.
     """
 
     def _timed(name: str, fn):
@@ -361,6 +370,21 @@ def run_build_waves(
     board_path = closure_root / board_rel if board_rel else None
     schematic_rel = str(config.get("schematic") or "") or None
     bom_preset = str(config.get("bom_preset") or "")
+    project_relpath = str((candidate or {}).get("project_relpath") or "")
+    design_board_path: Path | None = None
+    design_schematic_path: Path | None = None
+    design_board_label: str | None = None
+    design_schematic_label: str | None = None
+    if design is not None:
+        design_board_path = design.board_path(board_rel, project_relpath)
+        design_board_label = design.board_member(board_rel, project_relpath)
+        if schematic_rel:
+            design_schematic_path = design.schematic_path(
+                schematic_rel, project_relpath
+            )
+            design_schematic_label = design.schematic_member(
+                schematic_rel, project_relpath
+            )
     assembly_views: dict[str, Any] | None = None
     assembly_error: BaseException | None = None
     cruncher_pool: ThreadPoolExecutor | None = None
@@ -379,6 +403,10 @@ def run_build_waves(
                 progress=lambda **kwargs: progress(**kwargs),
                 on_step=tracker.catalogue_event,
                 bom_preset=bom_preset if with_bom_preset else "",
+                board_path=design_board_path,
+                schematic_path=design_schematic_path,
+                board_label=design_board_label,
+                schematic_label=design_schematic_label,
             ),
         )
 
@@ -395,7 +423,7 @@ def run_build_waves(
         )
         tracker.start("cruncher-assembly", message="Rendering assembly views")
         cruncher = tools.cruncher
-        bundle_archive = _artwork_bundle(candidate)
+        bundle_archive = _artwork_bundle(candidate, design)
         artwork_sheet_size: str | None = None
         artwork_paper_scale: float | None = None
         cruncher_future = None
@@ -475,6 +503,7 @@ def run_build_waves(
                 project_id=str((candidate or {}).get("project_id") or ""),
                 commit_sha=str((candidate or {}).get("commit_sha") or ""),
                 vendor_cli=vendor_cli,
+                design=design,
             ),
         )
         outputs_artwork = _catalogue("catalogue-wave-artwork", CATALOGUE_WAVE_ARTWORK)
@@ -500,15 +529,31 @@ def run_build_waves(
     )
 
 
-def _artwork_bundle(candidate: Mapping[str, Any] | None) -> Path | None:
+def _artwork_bundle(
+    candidate: Mapping[str, Any] | None,
+    design: "BundleDesign | None" = None,
+) -> Path | None:
     """The design bundle `prism-kicad artwork` reads, or ``None`` for legacy."""
 
+    if design is not None:
+        return design.archive_path
     if not candidate:
         return None
     project_id = str(candidate.get("project_id") or "")
     commit = str(candidate.get("commit_sha") or "")
     if not project_id or not commit:
         return None
+    from app.release_studio import bundle_design
+
+    if bundle_design.active(project_id, commit):
+        # Bundle mode has one readiness answer at the start of the build.  A
+        # build that reaches here without one must wait, not silently use
+        # kicad-cruncher.
+        from app.services.design_bundle.errors import DesignDataPending
+
+        raise DesignDataPending(
+            "the design bundle's artwork archive is not available to this build"
+        )
     from app.release_studio.bundle_projections import artwork_bundle
 
     return artwork_bundle(project_id, commit)
@@ -527,7 +572,12 @@ def _artwork_scale(
     board extents the sheets already use.
     """
 
-    if str(config.get("artwork_line_weights") or "drawing").strip().lower() != "paper":
+    if (
+        str(config.get("artwork_line_weights") or DEFAULT_ARTWORK_LINE_WEIGHTS)
+        .strip()
+        .lower()
+        != "paper"
+    ):
         return None, None
     import json
 
@@ -596,13 +646,14 @@ def _run_vendors(
     project_id: str = "",
     commit_sha: str | None = None,
     vendor_cli: KicadTool | None = None,
+    design: "BundleDesign | None" = None,
 ) -> tuple[tuple[StepOutput, ...], dict[str, bytes]]:
     """Generate configured vendor packs after the assembly Cruncher load.
 
     With a ready design bundle the pack comes from ``prism-kicad vendor run``;
-    every other case keeps the Cruncher path.  The bundle is opened here, at
-    the step, so a pending or failed bundle falls back for this build exactly
-    as the build's projections do.
+    every other case keeps the Cruncher path.  The bundle is the build's one
+    readiness answer when preparation resolved it, so a vendor pack cannot
+    switch source halfway through a build.
     """
 
     vendor_ids = resolve_vendor_ids(config)
@@ -611,7 +662,9 @@ def _run_vendors(
     for vendor_id in vendor_ids:
         tracker.start(f"vendor-{vendor_id}", message=f"Generating {vendor_id} pack")
 
-    bundle = vendor_bundle_archive(project_id, commit_sha)
+    bundle = design.archive_path if design is not None else vendor_bundle_archive(
+        project_id, commit_sha
+    )
     if bundle is not None and vendor_cli is None:
         from app.release_studio.vendors.cli import prism_kicad
 

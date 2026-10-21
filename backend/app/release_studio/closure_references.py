@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import re
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Iterable, Mapping
 
@@ -20,6 +21,22 @@ VARIABLE_RE = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)\}")
 # `special_execute` job (pinned source `common/jobs/job_special_execute.h:26`);
 # it names an output, never an input, so it cannot resolve into the closure.
 _TOOL_PROVIDED_VARIABLES = frozenset({"JOBSET_OUTPUT_WORK_PATH"})
+
+
+@dataclass(frozen=True)
+class ProjectReferences:
+    """One revision's design documents and path references, from ``prism.project.a0``.
+
+    With ``PRISM_DESIGN_SOURCE_RELEASE_STUDIO=bundle`` the closure reads these
+    instead of parsing the checkout: ``documents`` are the board, root
+    schematic and every reachable sheet (paths relative to the project anchor),
+    and ``references`` are the parser's resolved path-bearing nodes. A plain
+    data record, so :mod:`app.release_studio.closure` never imports the bundle
+    package.
+    """
+
+    documents: tuple[str, ...] = ()
+    references: tuple[Mapping[str, Any], ...] = ()
 
 
 def is_path_reference(value: str) -> bool:

@@ -227,7 +227,7 @@ def _gather_document_inputs(
 ) -> tuple[DocumentInputs, list[str], dict[str, Any]]:
     """Project board facts into a typed document-input record."""
 
-    from app.release_studio import bundle_projections
+    from app.release_studio import bundle_design, bundle_projections
     from app.release_studio.projections import (
         board_designators,
         load_board_model,
@@ -237,12 +237,18 @@ def _gather_document_inputs(
         project_stackup,
         project_variants,
     )
-    from app.release_studio.semantic import semantic_scope_projections
-    from app.services import semantic_index_service
 
     warnings: list[str] = []
     board_rel = str(config.get("board") or "")
-    board = closure_root / board_rel if board_rel else None
+    project_relpath = str(candidate.get("project_relpath") or "")
+    design = bundle_design.for_candidate(candidate)
+    # In bundle mode the document engine's own plots and renders read the same
+    # board the catalogue steps do (refilled/, or the saved board); the legacy
+    # path keeps the closure's board.
+    if design is not None:
+        board = design.board_path(board_rel, project_relpath) if board_rel else None
+    else:
+        board = closure_root / board_rel if board_rel else None
 
     def _project(label: str, fn, default):
         """Run one projection; a failure costs that table, not the sheet set."""
@@ -268,12 +274,17 @@ def _gather_document_inputs(
     designators: tuple[str, ...] = ()
     parsed_pcb = None
     fallback_reason = None
-    if board is not None and board.is_file():
-        # With PRISM_DESIGN_SOURCE_RELEASE_STUDIO=bundle and a resolved commit,
-        # the five board projections come from the bundle members; every other
-        # case (legacy switch, a working tree, a member not ready or failed, any
-        # read fault) keeps today's kicad_monkey path below.  A ready bundle
-        # never parses the board here.
+    if design is not None:
+        # The readiness check at the start of the build made these members
+        # final, so a read fault here fails the build rather than parsing the
+        # checkout with kicad_monkey behind the switch.
+        bundled = bundle_projections.board_projections_from_design(design)
+        stackup = bundled["stackup"]
+        variants = bundled["variants"]
+        testpoints = bundled["testpoints"]
+        population = bundled["population"]
+        designators = bundled["designators"]
+    elif board is not None and board.is_file():
         bundled = _project(
             "bundle board projections",
             lambda: bundle_projections.board_projections_from_bundle(
@@ -334,22 +345,34 @@ def _gather_document_inputs(
         "population": population,
     }
 
-    project_file = board.with_suffix(".kicad_pro") if board is not None else None
-    if project_file is not None and project_file.is_file():
-        semantic_index = _project(
-            "semantic index",
-            lambda: semantic_index_service.build_semantic_index(
-                project_file,
-                source_revision_key=(
-                    semantic_index_service.source_revision_key_for_project_file(project_file)
-                ),
-                commit=str(candidate.get("commit_sha") or "") or None,
-                pcb=None if fallback_reason else parsed_pcb,
-            ),
-            {},
+    if design is not None:
+        # C3b: the a0-compatible view of the bundle's semantic index.  Not a
+        # fallback: readiness already established the member.
+        projections["semantic"] = bundle_projections.semantic_scope_from_design(
+            design
         )
-        if semantic_index:
-            projections["semantic"] = semantic_scope_projections(semantic_index)
+    else:
+        project_file = board.with_suffix(".kicad_pro") if board is not None else None
+        if project_file is not None and project_file.is_file():
+            # Imported here: the semantic index is the legacy parser path, and
+            # a bundle-mode build must not even import it (C3 boundary).
+            from app.release_studio.semantic import semantic_scope_projections
+            from app.services import semantic_index_service
+
+            semantic_index = _project(
+                "semantic index",
+                lambda: semantic_index_service.build_semantic_index(
+                    project_file,
+                    source_revision_key=(
+                        semantic_index_service.source_revision_key_for_project_file(project_file)
+                    ),
+                    commit=str(candidate.get("commit_sha") or "") or None,
+                    pcb=None if fallback_reason else parsed_pcb,
+                ),
+                {},
+            )
+            if semantic_index:
+                projections["semantic"] = semantic_scope_projections(semantic_index)
 
     # The cover lists the members produced so far; it cannot list itself.
     existing = dossier_module.build_members(list(outputs))

@@ -41,6 +41,7 @@ from app.release_studio.projections import (
     _merge_declaration_names,
     _variant_declaration,
 )
+from app.release_studio.semantic import semantic_scope_projections
 
 logger = logging.getLogger(__name__)
 
@@ -54,6 +55,18 @@ MEMBERS = (
     "projections/occurrences.json",
     "projections/board-objects.json",
     "projections/project.json",
+)
+
+#: The a1+ semantic index, reduced to the a0 view the scope fingerprint hashes
+#: (ADR amendment C3 §5).
+SEMANTIC_MEMBER = "projections/semantic-index.json"
+SEMANTIC_A0_SCHEMA = "prism.semantic_index_a0"
+
+#: Fields `prism.semantic_index.a1`/`a2` adds to the a0 document.  They appear
+#: on terminals; the walk is recursive so a future nesting cannot reintroduce
+#: them into the fingerprint.
+SEMANTIC_A1_FIELDS = frozenset(
+    {"pinName", "pinType", "libraryRef", "schematicNetName"}
 )
 
 STACKUP_SCHEMA = "prism.release_studio.stackup.a0"
@@ -512,6 +525,62 @@ def _project_declarations(member: Mapping[str, Any]) -> list[dict[str, Any]]:
     ]
 
 
+def _without_a1_fields(value: Any) -> Any:
+    """``value`` with the a1 additions removed, at every depth."""
+
+    if isinstance(value, Mapping):
+        return {
+            key: _without_a1_fields(child)
+            for key, child in value.items()
+            if key not in SEMANTIC_A1_FIELDS
+        }
+    if isinstance(value, list):
+        return [_without_a1_fields(child) for child in value]
+    return value
+
+
+def semantic_index_a0(member: Mapping[str, Any]) -> dict[str, Any]:
+    """The a0-compatible view of a bundle semantic index (ADR amendment §5).
+
+    P1's parity contract is "a1 equals the a0 golden plus those additions", so
+    removing them and naming the a0 schema makes the technical-scope
+    fingerprint equal to today's for the same revision.  The walk is recursive:
+    the four fields are documented on terminals, but the reduction must not
+    depend on where a later schema puts them.
+    """
+
+    reduced = _without_a1_fields(member)
+    reduced["schema"] = SEMANTIC_A0_SCHEMA
+    return dict(reduced)
+
+
+def semantic_scope_from_bundle(
+    project_id: str, commit: str | None, *, requested_by: str = ""
+) -> dict[str, dict[str, Any]] | None:
+    """The scope projections from a ready semantic-index member, or ``None``.
+
+    ``None`` means the switch is ``legacy`` or a working tree has no bundle to
+    read: the caller keeps today's build.  A bundle-mode build checks readiness
+    before it starts (`bundle_design.readiness`), so a member that is not ready
+    there is a missing precondition rather than a request to fall back.
+    """
+
+    if not project_id or not commit:
+        return None
+    from app.services.design_bundle.consumer import bundle_read
+
+    read = bundle_read(
+        "RELEASE_STUDIO",
+        project_id,
+        commit,
+        [SEMANTIC_MEMBER],
+        requested_by=requested_by,
+    )
+    if read is None or not read.ready(SEMANTIC_MEMBER):
+        return None
+    return semantic_scope_projections(semantic_index_a0(read.json(SEMANTIC_MEMBER)))
+
+
 def build(documents: Mapping[str, Any]) -> dict[str, Any]:
     """Every projection from the parsed member documents, by member path."""
 
@@ -570,6 +639,26 @@ def artwork_bundle(
     return opened.archive.path
 
 
+def board_projections_from_design(design: Any) -> dict[str, Any]:
+    """The five projections from an already-checked :class:`bundle_design.BundleDesign`.
+
+    The build's readiness answer already opened and verified the archive, so
+    this reads the members directly instead of re-opening the revision.  A read
+    fault propagates: in bundle mode there is no legacy parse to fall back to.
+    """
+
+    documents = {path: design.opened.read_json(path) for path in MEMBERS}
+    return build(documents)
+
+
+def semantic_scope_from_design(design: Any) -> dict[str, dict[str, Any]]:
+    """The a0-compatible scope projections of a checked design (C3b)."""
+
+    return semantic_scope_projections(
+        semantic_index_a0(design.opened.read_json(SEMANTIC_MEMBER))
+    )
+
+
 def board_projections_from_bundle(
     project_id: str, commit: str | None, *, requested_by: str = ""
 ) -> dict[str, Any] | None:
@@ -613,11 +702,18 @@ def board_projections_from_bundle(
 
 __all__ = [
     "MEMBERS",
+    "SEMANTIC_A1_FIELDS",
+    "SEMANTIC_A0_SCHEMA",
+    "SEMANTIC_MEMBER",
     "artwork_bundle",
     "board_projections_from_bundle",
+    "board_projections_from_design",
     "build",
     "designators",
     "population",
+    "semantic_index_a0",
+    "semantic_scope_from_bundle",
+    "semantic_scope_from_design",
     "stackup",
     "testpoints",
     "variants",
