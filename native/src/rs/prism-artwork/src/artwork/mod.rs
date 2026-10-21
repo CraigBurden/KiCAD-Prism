@@ -204,7 +204,9 @@ impl FootprintInfo {
         }
     }
 
-    /// A pad's authored shape in the board frame, sampled.
+    /// A pad's authored shape in the board frame, sampled. The pad's angle is
+    /// already in the board frame (a board file stores the footprint's
+    /// rotation in it), so the footprint's angle is not added again.
     fn pad_ring(&self, pad: &PadInfo) -> Vec<geometry::Point> {
         pad::pad_ring(
             &pad.shape,
@@ -212,7 +214,7 @@ impl FootprintInfo {
             pad.size_y,
             pad.roundrect_ratio,
             self.pad_position(pad),
-            self.angle + pad.angle,
+            pad.angle,
         )
     }
 

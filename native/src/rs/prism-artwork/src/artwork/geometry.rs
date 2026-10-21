@@ -325,11 +325,13 @@ fn collect_pad_envelopes(
             y: pad.at_y,
         });
         // The pad's corners turn about its anchor by the same placement
-        // formula the footprint uses (`FootprintTransform::apply`).
+        // formula the footprint uses (`FootprintTransform::apply`). A board
+        // file stores a pad's angle in the board frame -- it already includes
+        // the footprint's rotation -- so it is not added again.
         let corner = FootprintTransform {
             x: anchor.x,
             y: anchor.y,
-            angle: pad.angle + transform.angle,
+            angle: pad.angle,
         };
         let half_x = pad.size_x.abs() / 2.0;
         let half_y = pad.size_y.abs() / 2.0;

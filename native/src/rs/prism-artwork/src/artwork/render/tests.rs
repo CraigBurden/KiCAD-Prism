@@ -500,3 +500,37 @@ fn a_minimum_label_clears_a_thick_outline_and_its_clearance() {
         );
     }
 }
+
+#[test]
+fn a_rotated_footprints_pads_are_not_turned_twice() {
+    // L_Coilcraft_XAL6060 placed at -90 degrees: the board file stores each
+    // pad's angle in the board frame (270), which already includes the
+    // footprint's rotation. The pads must cover about 5.5 x 5.47 mm, not a
+    // 1.43 x 9.54 mm strip.
+    let mut inductor = footprint(0, "L6", FootSide::Top, false, (40.0, 60.0));
+    inductor.angle = -90.0;
+    inductor.pads = [-2.02, 2.02]
+        .into_iter()
+        .map(|x| PadInfo {
+            number: "1".to_owned(),
+            x,
+            y: 0.0,
+            size_x: 1.43,
+            size_y: 5.5,
+            shape: "rect".to_owned(),
+            angle: 270.0,
+            roundrect_ratio: None,
+        })
+        .collect();
+    let bounds = inductor.pads_bounds().expect("the inductor has pads");
+    assert!(
+        (bounds.width() - 5.5).abs() < 1e-6,
+        "width {}",
+        bounds.width()
+    );
+    assert!(
+        (bounds.height() - 5.47).abs() < 1e-6,
+        "height {}",
+        bounds.height()
+    );
+}
