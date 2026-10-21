@@ -69,6 +69,9 @@ jobs:
       - name: Test the path rules
         run: python3 -m unittest scripts.test_ci_changes
 
+      - name: Test the Simulation Studio engine fetch
+        run: python3 -m unittest scripts.test_fetch_sim_engines
+
       - name: Decide which jobs this change needs
         id: areas
         env:
