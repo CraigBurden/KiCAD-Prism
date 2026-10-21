@@ -10,9 +10,10 @@ For each Release Studio fixture this script:
    twice, and requires byte-identical files and stdout;
 3. checks that every placed designator's text box lies inside its body region
    (the HLR outline when present, else the pad envelope from `placements`),
-   that every footprint the view's selector picks is drawn and labelled, and
-   counts the labels drawn below the configured minimum font (as today's
-   Cruncher does, a label shrinks to fit its body rather than being dropped);
+   keeping half the body outline's stroke width clear of the drawn line, that
+   every footprint the view's selector picks is drawn and labelled, and counts
+   the labels drawn below the configured minimum font (as today's Cruncher
+   does, a label shrinks to fit its body rather than being dropped);
 4. for a callout view (assembly designators `callout: true`), checks that each
    label sits outside the pad at the minimum font, that its leader joins the
    label box to the pad, and reports how many label boxes overlap;
@@ -359,6 +360,33 @@ def point_in_rings(point, rings) -> bool:
     return inside
 
 
+def distance_to_segment(point, start, end) -> float:
+    px, py = point
+    ax, ay = start
+    bx, by = end
+    dx, dy = bx - ax, by - ay
+    length_squared = dx * dx + dy * dy
+    if length_squared <= 1e-18:
+        return math.hypot(px - ax, py - ay)
+    t = max(0.0, min(1.0, ((px - ax) * dx + (py - ay) * dy) / length_squared))
+    return math.hypot(px - (ax + t * dx), py - (ay + t * dy))
+
+
+def point_clears_rings(point, rings, margin: float) -> bool:
+    """True when `point` is inside `rings` and `margin` away from their edges."""
+    if not point_in_rings(point, rings):
+        return False
+    if margin <= 0.0:
+        return True
+    for ring in rings:
+        previous = ring[-1]
+        for current in ring:
+            if distance_to_segment(point, previous, current) < margin - 1e-9:
+                return False
+            previous = current
+    return True
+
+
 def pad_envelope(footprint) -> list:
     points = []
     for pad in footprint.get("pads", []):
@@ -444,6 +472,21 @@ def matches(designator: str, selector: str) -> bool:
 
 def min_font(config: dict, view: dict) -> float:
     return float(style_block(config, view).get("min_font_size_mm", 0.35))
+
+
+def hlr_stroke_mm(config: dict, view: dict, reference: str | None) -> float:
+    """The stroke the footprint's body outline is drawn with, in millimetres.
+
+    `--paper-scale` divides the configured width before drawing; this check
+    runs the config unscaled, so the configured width is the drawn width.
+    """
+    merged = dict(config["global"]["styles"].get("assembly_hlr") or {})
+    merged.update((view.get("styles") or {}).get("assembly_hlr") or {})
+    component = (config.get("components") or {}).get(reference or "") or {}
+    merged.update(component.get("assembly_hlr") or {})
+    if not merged.get("enabled", True) or not merged.get("include_outline", True):
+        return 0.0
+    return float(merged.get("line_width_mm", 0.12))
 
 
 def selected_by_side(config, view, placements):
@@ -600,11 +643,15 @@ def check_view(
                 "has no body region"
             )
             continue
+        # The body region is stroked, so half that stroke sits inside it. A
+        # label must clear it or it prints through the line.
+        margin = hlr_stroke_mm(config, view, attrs.get("data-component")) / 2.0
         for corner in corners:
-            if not point_in_rings(corner, rings):
+            if not point_clears_rings(corner, rings, margin):
                 failures.append(
                     f"{case} {config_name} {view['name']}: {attrs['data-component']} "
-                    f"text box corner {corner} lies outside its body region"
+                    f"text box corner {corner} does not lie inside its body inset by "
+                    f"half the {2.0 * margin:.3f} mm outline"
                 )
                 break
 

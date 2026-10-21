@@ -1,8 +1,8 @@
 """Release Studio's board projections, rebuilt from design-bundle members.
 
-With ``PRISM_DESIGN_SOURCE_RELEASE_STUDIO=bundle`` and a resolved commit, the
-five read-only board projections of :mod:`app.release_studio.projections` come
-from the bundle instead of Python ``kicad_monkey``:
+A build with a resolved commit reads the five read-only board projections of
+:mod:`app.release_studio.projections` from the bundle instead of Python
+``kicad_monkey``:
 
 - ``stackup`` from ``projections/stackup.json`` (``prism.stackup.a0``);
 - ``population``, ``testpoints`` and ``designators`` from
@@ -20,13 +20,12 @@ unit-tested against the committed goldens without a bundle.
 
 The functions reuse the pure presentation helpers of the legacy module
 (``_layer_kind``, ``_empty_stackup``, the variant merge and comparison) so the
-two shapes cannot drift.  Only :func:`board_projections_from_bundle` talks to
+two shapes cannot drift.  Only :func:`board_projections_from_design` talks to
 the bundle reader; it is the one seam a caller needs.
 """
 
 from __future__ import annotations
 
-import logging
 from typing import Any, Mapping
 
 from app.release_studio.projections import (
@@ -40,19 +39,29 @@ from app.release_studio.projections import (
     _merge_declaration_names,
     _variant_declaration,
 )
+from app.release_studio.semantic import semantic_scope_projections
 
-logger = logging.getLogger(__name__)
-
-#: The members these projections need.  ``project.json`` is named here because
-#: ADR §8's switch is per consumer: a revision is read as one bundle even though
-#: no projection below consumes the project document yet (the closure adapter
-#: does, in a later chunk).
+#: The members these projections need.  ``project.json`` is named here so a
+#: revision is read as one bundle even though no projection below consumes the
+#: project document (the closure adapter does).
 MEMBERS = (
     "projections/stackup.json",
     "projections/placements.json",
     "projections/occurrences.json",
     "projections/board-objects.json",
     "projections/project.json",
+)
+
+#: The a1+ semantic index, reduced to the a0 view the scope fingerprint hashes
+#: (ADR amendment C3 §5).
+SEMANTIC_MEMBER = "projections/semantic-index.json"
+SEMANTIC_A0_SCHEMA = "prism.semantic_index_a0"
+
+#: Fields `prism.semantic_index.a1`/`a2` adds to the a0 document.  They appear
+#: on terminals; the walk is recursive so a future nesting cannot reintroduce
+#: them into the fingerprint.
+SEMANTIC_A1_FIELDS = frozenset(
+    {"pinName", "pinType", "libraryRef", "schematicNetName"}
 )
 
 STACKUP_SCHEMA = "prism.release_studio.stackup.a0"
@@ -511,6 +520,35 @@ def _project_declarations(member: Mapping[str, Any]) -> list[dict[str, Any]]:
     ]
 
 
+def _without_a1_fields(value: Any) -> Any:
+    """``value`` with the a1 additions removed, at every depth."""
+
+    if isinstance(value, Mapping):
+        return {
+            key: _without_a1_fields(child)
+            for key, child in value.items()
+            if key not in SEMANTIC_A1_FIELDS
+        }
+    if isinstance(value, list):
+        return [_without_a1_fields(child) for child in value]
+    return value
+
+
+def semantic_index_a0(member: Mapping[str, Any]) -> dict[str, Any]:
+    """The a0-compatible view of a bundle semantic index (ADR amendment §5).
+
+    P1's parity contract is "a1 equals the a0 golden plus those additions", so
+    removing them and naming the a0 schema makes the technical-scope
+    fingerprint equal to today's for the same revision.  The walk is recursive:
+    the four fields are documented on terminals, but the reduction must not
+    depend on where a later schema puts them.
+    """
+
+    reduced = _without_a1_fields(member)
+    reduced["schema"] = SEMANTIC_A0_SCHEMA
+    return dict(reduced)
+
+
 def build(documents: Mapping[str, Any]) -> dict[str, Any]:
     """Every projection from the parsed member documents, by member path."""
 
@@ -526,53 +564,37 @@ def build(documents: Mapping[str, Any]) -> dict[str, Any]:
     }
 
 
-def board_projections_from_bundle(
-    project_id: str, commit: str | None, *, requested_by: str = ""
-) -> dict[str, Any] | None:
-    """The five projections the bundle holds for a resolved commit, or ``None``.
+def board_projections_from_design(design: Any) -> dict[str, Any]:
+    """The five projections from an already-checked :class:`bundle_design.BundleDesign`.
 
-    ``bundle_read`` owns the switch and the rollout fallback: it answers ``None``
-    for the ``legacy`` switch, a member that is not ready yet (it queues the
-    build) and a member that failed, and this function then serves the legacy
-    path.  A member that is final but not ``ready`` (``skipped``,
-    ``not-applicable``) is no projection either, so it falls back too.  A
-    working tree — no resolved commit, which the bundle key cannot name — can
-    hold uncommitted changes a committed bundle does not carry, so it is never
-    read here.
-
-    Any read fault (an unreadable or malformed member) falls back to the legacy
-    projections rather than failing the build.
+    The build's readiness answer already opened and verified the archive, so
+    this reads the members directly instead of re-opening the revision.  A read
+    fault propagates: there is no legacy parse to fall back to.
     """
 
-    if not commit or not project_id:
-        return None
-    from app.services.design_bundle.consumer import bundle_read
+    documents = {path: design.opened.read_json(path) for path in MEMBERS}
+    return build(documents)
 
-    read = bundle_read(
-        "RELEASE_STUDIO", project_id, commit, MEMBERS, requested_by=requested_by
+
+def semantic_scope_from_design(design: Any) -> dict[str, dict[str, Any]]:
+    """The a0-compatible scope projections of a checked design (C3b)."""
+
+    return semantic_scope_projections(
+        semantic_index_a0(design.opened.read_json(SEMANTIC_MEMBER))
     )
-    if read is None or not all(read.ready(path) for path in MEMBERS):
-        return None
-    try:
-        documents = {path: read.json(path) for path in MEMBERS}
-        return build(documents)
-    except Exception as error:  # noqa: BLE001 - a bundle-side fault must not break the legacy path
-        logger.warning(
-            "design bundle: the Release Studio board members of %s@%s are "
-            "unreadable: %s",
-            project_id,
-            commit,
-            error,
-        )
-        return None
 
 
 __all__ = [
     "MEMBERS",
-    "board_projections_from_bundle",
+    "SEMANTIC_A1_FIELDS",
+    "SEMANTIC_A0_SCHEMA",
+    "SEMANTIC_MEMBER",
+    "board_projections_from_design",
     "build",
     "designators",
     "population",
+    "semantic_index_a0",
+    "semantic_scope_from_design",
     "stackup",
     "testpoints",
     "variants",

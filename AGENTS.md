@@ -78,12 +78,11 @@ then `run_project_import_job_v3`) →
 
 **Compare two commits**
 `backend/app/api/design_compare.py` →
-`backend/app/services/design_compare_service.py` (`run_design_compare_job_v3`)
-→ `backend/app/services/project_revision.py` (location, commit, snapshot) →
-`backend/app/services/design_compare_nodes.py` (parser changes) →
-`backend/app/services/design_compare_occurrences.py` (components, BOM rows) →
-`backend/app/services/design_compare_semantics.py` (nets, sheets) →
-`backend/app/services/design_compare_artifacts.py` →
+`backend/app/services/design_compare_service.py` (job, cache, status) →
+`backend/app/services/design_compare_bundle_path.py` (`prism-kicad compare`
+over each side's bundle or source tree) →
+`backend/app/services/project_revision.py` (location, commit, snapshot) →
+`backend/app/services/design_compare_artifacts.py` (fabrication) →
 `frontend/src/components/history-viewer.tsx` →
 `frontend/src/components/design-comparison/design-comparison-workspace.tsx`
 

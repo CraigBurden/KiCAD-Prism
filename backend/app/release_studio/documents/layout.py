@@ -21,8 +21,12 @@ from typing import Iterable, Literal, Sequence
 
 from app.release_studio.documents.fonts import (
     DEFAULT_TYPOGRAPHY,
+    StrokeTextBatch,
+    StrokeTextRun,
     advance_width,
     cap_height,
+    is_newstroke,
+    render_stroke_text,
     typography_preset,
 )
 from app.release_studio.documents.style import (
@@ -348,6 +352,41 @@ class SheetBuilder:
 # ---------------------------------------------------------------------------
 # Text metrics
 # ---------------------------------------------------------------------------
+
+def stroke_text_runs(sheets: Sequence[Sheet]) -> list[StrokeTextRun]:
+    """Every NewStroke run drawn across *sheets*, in draw order."""
+
+    runs: list[StrokeTextRun] = []
+    for sheet in sheets:
+        if not is_newstroke(sheet.typography):
+            continue
+        for element in sheet.elements:
+            if not isinstance(element, Text) or not element.value:
+                continue
+            for index, row in enumerate(element.value.splitlines() or [""]):
+                if not row:
+                    continue
+                runs.append(
+                    (
+                        row,
+                        element.x,
+                        element.y + index * element.size * 1.2,
+                        element.size,
+                        element.anchor,
+                    )
+                )
+    return runs
+
+
+def stroke_text_batch(sheets: Sequence[Sheet]) -> StrokeTextBatch:
+    """Resolve every NewStroke run of *sheets* in one ``stroke-text`` call.
+
+    A document's pages are passed together, so its lettering reaches the CLI
+    once rather than once per page or per string.
+    """
+
+    return render_stroke_text(stroke_text_runs(sheets))
+
 
 def text_width(
     value: str,

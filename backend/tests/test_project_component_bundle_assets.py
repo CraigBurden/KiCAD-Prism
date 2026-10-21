@@ -1,7 +1,7 @@
 """Catalog asset extraction from a project's design bundle (CATALOG_IMPORT, C7b).
 
-With ``PRISM_DESIGN_SOURCE_CATALOG_IMPORT=bundle`` the project component import
-reads a revision's parse projections instead of walking a checkout:
+The project component import reads a revision's parse projections from the
+design bundle instead of walking a checkout:
 ``occurrences`` joins a component to its symbol and footprint, ``placements``
 gives a footprint's library link and models, and ``project`` names the
 project's own library tables and resolves every model. These tests build a
@@ -12,8 +12,8 @@ project's library tables (an ``extends`` symbol included), a library outside
 the repository falls back with a finding, models resolve from repository,
 embedded and missing targets, the payloads carry real format headers, the
 board fallback strips the board-only pad and property data, a land-pattern
-conflict is separated from a cosmetic difference, and the switch never opens a
-bundle under ``legacy`` or a pending member.
+conflict is separated from a cosmetic difference, and a pending member retries
+the import session while a failed one stops it.
 """
 
 from __future__ import annotations
@@ -26,7 +26,6 @@ from contextlib import contextmanager
 from pathlib import Path
 from unittest import mock
 
-from app.core.config import settings
 from app.services.catalog.kicad_embedded_files import (
     compress_model,
     embedded_file_form,
@@ -37,6 +36,7 @@ from app.services import kicad_footprint_normalizer
 from app.services.design_bundle import reader
 from app.services.design_bundle.archive import open_archive
 from app.services.design_bundle.consumer import BundleRead
+from app.services.design_bundle.errors import DesignDataFailed, DesignDataPending
 from app.services.design_bundle.generator import bundle_key
 from app.services.design_bundle.manifest import Readiness
 from app.services.design_bundle.reader import OpenedRevision
@@ -678,7 +678,9 @@ class LandPatternTests(BundleFixture):
         self.assertEqual(variant["assets"][0]["filename"], "c.kicad_mod")
 
 
-class SwitchTests(BundleFixture):
+class ConsumerTests(BundleFixture):
+    """The import session reads the bundle; pending retries, failed stops it."""
+
     @contextmanager
     def _session(self, *, resolved_commit: str | None):
         session = {
@@ -690,10 +692,6 @@ class SwitchTests(BundleFixture):
             "created_by": "importer@example.com",
         }
 
-        @contextmanager
-        def project_file_for_revision(*_args: object, **_kwargs: object):
-            yield self.tmp / "demo.kicad_pro", resolved_commit
-
         with (
             mock.patch("app.services.project_component_import_service.catalog_service") as catalog,
             mock.patch(
@@ -701,66 +699,51 @@ class SwitchTests(BundleFixture):
                 return_value={"id": "project-1"},
             ),
             mock.patch(
-                "app.services.project_component_import_service.semantic_index_service.get_or_build",
+                "app.services.project_component_import_service.semantic_index_service.get_index",
                 return_value={"components": [COMPONENT]},
             ),
-            mock.patch(
-                "app.services.project_component_import_service.semantic_index_service._project_file_for_revision",
-                side_effect=project_file_for_revision,
-            ),
-            mock.patch(
-                "app.services.project_component_import_service.build_project_asset_index"
-            ) as build_index,
         ):
             catalog.get_project_import_session.return_value = session
             catalog.store_root = self.tmp / "catalog"
-            build_index.return_value.extract_component_assets.return_value = ([], [], {})
-            yield {"catalog": catalog, "build_index": build_index}
-
-    def test_legacy_never_opens_a_bundle(self) -> None:
-        with self._session(resolved_commit=COMMIT) as env:
-            with (
-                mock.patch.object(settings, "PRISM_DESIGN_SOURCE_CATALOG_IMPORT", "legacy"),
-                mock.patch.object(reader, "open_revision") as open_revision,
-            ):
-                run_project_import_session("session-1")
-            open_revision.assert_not_called()
-            env["build_index"].assert_called_once()
-
-    def test_a_working_tree_request_never_opens_a_bundle(self) -> None:
-        with self._session(resolved_commit=None) as env:
-            with (
-                mock.patch.object(settings, "PRISM_DESIGN_SOURCE_CATALOG_IMPORT", "bundle"),
-                mock.patch.object(reader, "open_revision") as open_revision,
-            ):
-                run_project_import_session("session-1")
-            open_revision.assert_not_called()
-            env["build_index"].assert_called_once()
-
-    def test_a_pending_member_falls_back_to_legacy(self) -> None:
-        opened = OpenedRevision(PROJECT_ID, COMMIT, REVISION_KEY, GENERATOR_DIGEST, None, None, True)
-        with self._session(resolved_commit=COMMIT) as env:
-            with (
-                mock.patch.object(settings, "PRISM_DESIGN_SOURCE_CATALOG_IMPORT", "bundle"),
-                mock.patch.object(reader, "open_revision", return_value=opened),
-            ):
-                run_project_import_session("session-1")
-            env["build_index"].assert_called_once()
+            yield {"catalog": catalog, "session": session}
 
     def test_a_ready_bundle_sources_the_assets_without_the_checkout(self) -> None:
         opened = self.read().opened
         with self._session(resolved_commit=COMMIT) as env:
-            with (
-                mock.patch.object(settings, "PRISM_DESIGN_SOURCE_CATALOG_IMPORT", "bundle"),
-                mock.patch.object(reader, "open_revision", return_value=opened),
-            ):
+            with mock.patch.object(reader, "open_revision", return_value=opened):
                 run_project_import_session("session-1")
-            env["build_index"].assert_not_called()
         proposals = env["catalog"].stage_project_import_proposals.call_args.args[1]
         self.assertEqual(len(proposals), 1)
         asset_types = {asset["asset_type"] for asset in proposals[0]["assets"]}
         self.assertEqual(asset_types, {"symbol", "footprint", "3dmodel"})
 
+    def test_a_pending_member_retries_and_does_not_fail_the_session(self) -> None:
+        opened = OpenedRevision(PROJECT_ID, COMMIT, REVISION_KEY, GENERATOR_DIGEST, None, None, True)
+        with self._session(resolved_commit=COMMIT) as env:
+            with mock.patch.object(reader, "open_revision", return_value=opened):
+                with self.assertRaises(DesignDataPending):
+                    run_project_import_session("session-1")
+        statuses = [call.kwargs.get("status") for call in env["catalog"].update_project_import_session.call_args_list]
+        self.assertIn("scanning", statuses)
+        self.assertNotIn("failed", statuses)
 
-if __name__ == "__main__":
-    unittest.main()
+    def test_a_failed_member_fails_the_session_with_the_detail(self) -> None:
+        with self._session(resolved_commit=COMMIT) as env:
+            with mock.patch(
+                "app.services.design_bundle.consumer.bundle_read",
+                side_effect=DesignDataFailed(["projections/occurrences.json"], "boom"),
+            ):
+                run_project_import_session("session-1")
+        failed = [
+            call for call in env["catalog"].update_project_import_session.call_args_list
+            if call.kwargs.get("status") == "failed"
+        ]
+        self.assertEqual(len(failed), 1)
+
+    def test_no_commit_reads_head(self) -> None:
+        opened = self.read().opened
+        with self._session(resolved_commit=None) as env:
+            with mock.patch.object(reader, "open_revision", return_value=opened) as open_revision:
+                run_project_import_session("session-1")
+        self.assertIsNone(open_revision.call_args.args[1])
+        self.assertEqual(len(env["catalog"].stage_project_import_proposals.call_args.args[1]), 1)

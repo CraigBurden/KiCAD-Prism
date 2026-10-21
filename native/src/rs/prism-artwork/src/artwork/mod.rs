@@ -17,6 +17,7 @@
 mod designator;
 pub mod geometry;
 mod pad;
+mod paper;
 mod render;
 pub mod svg;
 
@@ -56,6 +57,7 @@ pub struct RenderedView {
 }
 
 /// The inputs of one `artwork` run.
+#[derive(Clone, Copy)]
 pub struct ArtworkInput<'a> {
     /// The board file's text, already selected (`refilled/` or `sources/`).
     pub board: &'a str,
@@ -73,6 +75,10 @@ pub struct ArtworkInput<'a> {
     pub variant: Option<&'a str>,
     /// The requested view names.
     pub views: &'a [String],
+    /// The sheet-to-board ratio to draw at (`--paper-scale`), when the caller
+    /// knows it. Lengths in `config` are then divided by it so they print at
+    /// their configured size on paper.
+    pub paper_scale: Option<f64>,
 }
 
 /// Why an artwork run failed.
@@ -110,6 +116,13 @@ impl std::error::Error for ArtworkViewError {}
 
 /// Render every requested view.
 pub fn render(input: &ArtworkInput<'_>) -> Result<Vec<RenderedView>, ArtworkViewError> {
+    let scaled = input
+        .paper_scale
+        .map(|ratio| paper::scaled(input.config, ratio));
+    let input = &match scaled.as_ref() {
+        Some(config) => ArtworkInput { config, ..*input },
+        None => *input,
+    };
     let view = PcbView::parse(input.board, PcbLimits::default())
         .map_err(|error| ArtworkViewError::input(format!("the board does not parse: {error}")))?;
     let geometry = board_geometry(&view).map_err(|error| {
@@ -195,7 +208,9 @@ impl FootprintInfo {
         }
     }
 
-    /// A pad's authored shape in the board frame, sampled.
+    /// A pad's authored shape in the board frame, sampled. The pad's angle is
+    /// already in the board frame (a board file stores the footprint's
+    /// rotation in it), so the footprint's angle is not added again.
     fn pad_ring(&self, pad: &PadInfo) -> Vec<geometry::Point> {
         pad::pad_ring(
             &pad.shape,
@@ -203,7 +218,7 @@ impl FootprintInfo {
             pad.size_y,
             pad.roundrect_ratio,
             self.pad_position(pad),
-            self.angle + pad.angle,
+            pad.angle,
         )
     }
 

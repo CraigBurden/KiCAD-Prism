@@ -1,16 +1,24 @@
-"""Adapter from Monkey's public KiCad worksheet IR to Prism's sheet model.
+"""Adapter from ``prism-kicad drawing-sheet`` to Prism's sheet model.
 
-Monkey owns ``.kicad_wks`` parsing, variable expansion, repeat behavior, page
-visibility, and the default KiCad drawing-sheet geometry. Prism only translates
-the emitted public Plotter operations into the shared SVG/PDF layout model.
+``prism-kicad`` owns ``.kicad_wks`` parsing, variable expansion, repeat
+behavior, page visibility, and the default KiCad drawing-sheet geometry. Prism
+only translates the emitted operations into the shared SVG/PDF layout model.
 """
 
 from __future__ import annotations
 
+import functools
+import json
+import os
+import tempfile
 from dataclasses import replace
 from typing import Any, Mapping, Sequence
 
-from app.release_studio.documents.fonts import cap_height
+from app.release_studio.documents.fonts import (
+    CLI_TIMEOUT_SECONDS,
+    cap_height,
+    prism_kicad_generator_digest,
+)
 from app.release_studio.documents.layout import (
     Line,
     Polyline,
@@ -32,6 +40,9 @@ from app.release_studio.documents.style import (
 
 _NM_PER_MM = 1_000_000.0
 
+#: The documented ``drawing-sheet`` result (cli-spec.md §5.9).
+_DRAWING_SHEET_SCHEMA = "prism.cli.drawing_sheet_result.a0"
+
 
 def default_worksheet_elements(
     *,
@@ -44,47 +55,48 @@ def default_worksheet_elements(
     extra_fields: Sequence[TitleBlockField] = (),
     style: str = KICAD_STYLE,
 ) -> tuple[Line | Polyline | Rectangle | Text, ...]:
-    """Emit the pinned Monkey default worksheet as Prism layout elements.
+    """Emit ``prism-kicad``'s default worksheet as Prism layout elements.
 
-    ``kicad`` returns the plotter's own red drawing sheet unchanged.  ``prism``
+    ``kicad`` returns the CLI's own red drawing sheet unchanged.  ``prism``
     keeps every coordinate and only changes how the same operations are painted:
     ink-black strokes and text, grey title-block structure, and the harness's
     header/stripe tints.  Recolouring here rather than in the producer means the
-    style survives chunk F replacing Monkey with ``prism-kicad drawing-sheet``.
+    style survives the producer changing.
     """
-
-    from kicad_monkey import drawing_sheet_to_ops, load_default_drawing_sheet
 
     extras = " · ".join(
         f"{field.label}: {field.value}" for field in extra_fields if field.value
     )
     comments = {
-        1: f"Document: {context.get('document_name') or context.get('document_number') or '—'}",
-        2: f"Commit: {str(context.get('commit_sha') or '')[:12] or '—'}",
-        3: f"Variant: {context.get('variant') or 'default'}",
-        4: extras,
+        "1": f"Document: {context.get('document_name') or context.get('document_number') or '—'}",
+        "2": f"Commit: {str(context.get('commit_sha') or '')[:12] or '—'}",
+        "3": f"Variant: {context.get('variant') or 'default'}",
+        "4": extras,
     }
     generator = str(context.get("kicad_version") or "").strip()
-    ops = drawing_sheet_to_ops(
-        load_default_drawing_sheet(),
-        paper_width_nm=int(round(width_mm * _NM_PER_MM)),
-        paper_height_nm=int(round(height_mm * _NM_PER_MM)),
-        title_block={
+    request = {
+        "schema": "prism.drawing_sheet.request.a0",
+        "paper_width_nm": int(round(width_mm * _NM_PER_MM)),
+        "paper_height_nm": int(round(height_mm * _NM_PER_MM)),
+        "title_block": {
             "title": title,
             "date": str(context.get("release_date") or context.get("commit_date") or "—"),
             "rev": str(context.get("revision") or "—"),
             "company": "Prism Release Studio",
             "comments": comments,
         },
-        sheet_index=1,
-        sheet_count=1,
-        paper_name=paper_name,
-        filename=f"{context.get('document_name') or context.get('document_number') or key}.pdf",
-        sheet_path=f"/{key}",
-        sheet_name=key,
-        kicad_version=generator or "KiCad",
+        "sheet_index": 1,
+        "sheet_count": 1,
+        "paper_name": paper_name,
+        "file_name": f"{context.get('document_name') or context.get('document_number') or key}.pdf",
+        "sheet_path": f"/{key}",
+        "sheet_name": key,
+        "kicad_version": generator or "KiCad",
+    }
+    elements = _drawing_sheet_elements(
+        json.dumps(request, sort_keys=True, separators=(",", ":"), ensure_ascii=False),
+        prism_kicad_generator_digest(),
     )
-    elements = tuple(_convert_op(op) for op in ops if _supported_op(op))
     if style == PRISM_STYLE:
         return _prism_worksheet(
             elements,
@@ -95,21 +107,53 @@ def default_worksheet_elements(
     return elements
 
 
-def _supported_op(op: Any) -> bool:
-    kind = op.kind.value if hasattr(op.kind, "value") else str(op.kind)
-    return kind in {"PlotPoly", "Rect", "Text"}
+@functools.lru_cache(maxsize=512)
+def _drawing_sheet_elements(
+    request_json: str, generator: str
+) -> tuple[Line | Polyline | Rectangle | Text, ...]:
+    """One ``drawing-sheet --request`` per distinct request and generator.
+
+    The cache is keyed by the whole request, so every sheet of a document shares
+    the entry for a page it repeats; *generator* keeps a swapped CLI from
+    serving another binary's geometry.
+    """
+
+    from app.services.design_bundle import cli as bundle_cli
+
+    with tempfile.NamedTemporaryFile(
+        "w",
+        encoding="utf-8",
+        suffix=".json",
+        prefix="prism-drawing-sheet-",
+        delete=False,
+    ) as handle:
+        handle.write(request_json)
+        path = handle.name
+    try:
+        document = bundle_cli.run(
+            ["drawing-sheet", "--request", path],
+            timeout_seconds=CLI_TIMEOUT_SECONDS,
+            expect=_DRAWING_SHEET_SCHEMA,
+        ).document
+    finally:
+        try:
+            os.unlink(path)
+        except OSError:
+            pass
+    if document is None:  # pragma: no cover - the CLI contract guarantees one
+        raise RuntimeError("prism-kicad drawing-sheet printed no document")
+    return tuple(_convert_cli_op(op) for op in document["ops"])
 
 
-def _convert_op(op: Any) -> Line | Polyline | Rectangle | Text:
-    kind = op.kind.value if hasattr(op.kind, "value") else str(op.kind)
-    payload = op.payload
-    colour = _colour(payload.get("stroke_color") or payload.get("color"))
+def _convert_cli_op(op: Mapping[str, Any]) -> Line | Polyline | Rectangle | Text:
+    kind = str(op.get("kind") or "")
+    colour = _colour(op.get("stroke_color") or op.get("color"))
 
-    if kind == "PlotPoly":
+    if kind == "poly":
         points = tuple(
-            (_mm(point[0]), _mm(point[1])) for point in payload.get("points", ())
+            (_mm(point["x_nm"]), _mm(point["y_nm"])) for point in op.get("points", ())
         )
-        width = max(0.01, _mm(payload.get("width_nm", 0)))
+        width = max(0.01, _mm(op.get("width_nm", 0)))
         if len(points) == 2:
             return Line(
                 points[0][0],
@@ -126,34 +170,44 @@ def _convert_op(op: Any) -> Line | Polyline | Rectangle | Text:
             close=bool(points and points[0] == points[-1]),
         )
 
-    if kind == "Rect":
-        x1 = _mm(payload.get("x1", 0))
-        y1 = _mm(payload.get("y1", 0))
-        x2 = _mm(payload.get("x2", 0))
-        y2 = _mm(payload.get("y2", 0))
+    if kind == "rect":
+        x1 = _mm(op.get("x1_nm", 0))
+        y1 = _mm(op.get("y1_nm", 0))
+        x2 = _mm(op.get("x2_nm", 0))
+        y2 = _mm(op.get("y2_nm", 0))
         return Rectangle(
             Rect(min(x1, x2), min(y1, y2), abs(x2 - x1), abs(y2 - y1)),
-            width=max(0.01, _mm(payload.get("width_nm", 0))),
+            width=max(0.01, _mm(op.get("width_nm", 0))),
             colour=colour,
         )
 
-    if kind == "Text":
+    if kind == "text":
         anchor = {
             "GR_TEXT_H_ALIGN_CENTER": "middle",
             "GR_TEXT_H_ALIGN_RIGHT": "end",
-        }.get(str(payload.get("h_align") or ""), "start")
+        }.get(str(op.get("h_align") or ""), "start")
+        # The default worksheet sets its text ``GR_TEXT_V_ALIGN_CENTER`` and the
+        # layout model states text on its baseline, so ``y`` stays the centre
+        # point here: ``_centred`` drops it by half a cap height for ``prism``,
+        # and ``kicad`` keeps today's baseline-at-the-centre bytes.
         return Text(
-            x=_mm(payload.get("x", 0)),
-            y=_mm(payload.get("y", 0)),
-            value=str(payload.get("text") or ""),
-            size=max(0.1, _mm(payload.get("size_y_nm", 0))),
+            x=_mm(op.get("x_nm", 0)),
+            y=_mm(op.get("y_nm", 0)),
+            value=str(op.get("text") or ""),
+            size=max(0.1, _mm(op.get("size_y_nm", 0))),
             anchor=anchor,
-            family="display" if payload.get("bold") else "sans",
-            bold=bool(payload.get("bold")),
-            colour=_colour(payload.get("color") or payload.get("stroke_color")),
+            family="display" if op.get("bold") else "sans",
+            bold=bool(op.get("bold")),
+            colour=_colour(op.get("color") or op.get("stroke_color")),
         )
 
-    raise ValueError(f"unsupported Monkey worksheet operation: {kind}")
+    raise ValueError(f"unsupported prism-kicad worksheet operation: {kind}")
+
+
+def _reset_drawing_sheet_cache() -> None:
+    """Drop cached worksheet geometry (tests swap the CLI between cases)."""
+
+    _drawing_sheet_elements.cache_clear()
 
 
 def _mm(value: Any) -> float:

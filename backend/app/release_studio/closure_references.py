@@ -1,18 +1,16 @@
-"""Find the path references in a release closure's design files.
+"""Path references in a release closure's design files.
 
-A board, schematic, drawing sheet, library table, project file or Release
-Studio YAML names other files through ``${VAR}`` paths, library-table URIs and
-3D model paths.  ``closure.py`` resolves what this module finds.
+A bundle's ``prism.project.a0`` names the design's documents and the
+path-bearing nodes in them; :mod:`app.release_studio.closure` resolves what
+:class:`ProjectReferences` carries.  ``is_path_reference`` is the one filter
+that decides whether a substituted value names a filesystem path.
 """
 
 from __future__ import annotations
 
-import json
 import re
-from pathlib import Path
-from typing import Any, Iterable, Mapping
-
-from app.release_studio.closure_models import EMBEDDED_PREFIX, is_model_reference
+from dataclasses import dataclass
+from typing import Any, Mapping
 
 VARIABLE_RE = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)\}")
 # Variables the executor binds at run time rather than the project supplying.
@@ -20,6 +18,20 @@ VARIABLE_RE = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)\}")
 # `special_execute` job (pinned source `common/jobs/job_special_execute.h:26`);
 # it names an output, never an input, so it cannot resolve into the closure.
 _TOOL_PROVIDED_VARIABLES = frozenset({"JOBSET_OUTPUT_WORK_PATH"})
+
+
+@dataclass(frozen=True)
+class ProjectReferences:
+    """One revision's design documents and path references, from ``prism.project.a0``.
+
+    ``documents`` are the board, root schematic and every reachable sheet (paths
+    relative to the project anchor), and ``references`` are the parser's
+    resolved path-bearing nodes. A plain data record, so
+    :mod:`app.release_studio.closure` never imports the bundle package.
+    """
+
+    documents: tuple[str, ...] = ()
+    references: tuple[Mapping[str, Any], ...] = ()
 
 
 def is_path_reference(value: str) -> bool:
@@ -58,91 +70,8 @@ def _is_path_variable(name: str) -> bool:
     return upper == "KIPRJMOD" or upper.endswith("_DIR") or upper.endswith("_PATH")
 
 
-def structured_path_references(
-    path: str,
-    text: str,
-    *,
-    library_table: bool = False,
-) -> tuple[list[str], list[str]]:
-    """Read path-bearing values through format owners, never delimiters."""
-
-    suffix = Path(path).suffix.casefold()
-    name = Path(path).name.casefold()
-    uri_values: list[str] = []
-    scalar_values: list[str] = []
-    models: list[str] = []
-    try:
-        if name in {"fp-lib-table", "sym-lib-table"} or suffix in {
-            ".kicad_pcb",
-            ".kicad_sch",
-            ".kicad_wks",
-        }:
-            from kicad_monkey import parse_sexp
-
-            tree = parse_sexp(text)
-            for form in _walk_structured_values(tree):
-                if isinstance(form, list) and form:
-                    if (
-                        library_table
-                        and str(form[0]).casefold() == "uri"
-                        and len(form) > 1
-                    ):
-                        uri_values.append(str(form[1]))
-                    elif (
-                        suffix == ".kicad_pcb"
-                        and str(form[0]).casefold() == "model"
-                        and len(form) > 1
-                        and _is_model_path(str(form[1]))
-                    ):
-                        # Absolute, relative, `:alias:` and `$(VAR)` forms
-                        # carry no `${VAR}`, so the generic scan below skips
-                        # them, but the tools still open them.
-                        models.append(str(form[1]))
-                elif isinstance(form, str):
-                    scalar_values.append(str(form))
-        elif suffix == ".kicad_pro":
-            payload = json.loads(text)
-            scalar_values.extend(
-                str(value)
-                for value in _walk_structured_values(payload)
-                if isinstance(value, str)
-            )
-        elif suffix in {".yaml", ".yml"}:
-            import yaml
-
-            payload = yaml.safe_load(text)
-            scalar_values.extend(
-                str(value)
-                for value in _walk_structured_values(payload)
-                if isinstance(value, str)
-            )
-    except Exception as exc:
-        # Imported here: closure.py imports this module.
-        from app.release_studio.closure import ClosureError
-
-        raise ClosureError(f"cannot parse closure input {path}: {exc}") from exc
-
-    variable_values = [value for value in scalar_values if is_path_reference(value)]
-    return uri_values, variable_values + models
-
-
-def _is_model_path(value: str) -> bool:
-    """A ``(model ...)`` value the tools open from disk.
-
-    A ``kicad-embed://`` model is read out of the board, which the closure
-    already pins.  An absolute path is kept whatever its suffix, as before.
-    """
-
-    if value.startswith(EMBEDDED_PREFIX):
-        return False
-    return value.startswith("/") or is_model_reference(value)
-
-
-def _walk_structured_values(value: Any) -> Iterable[Any]:
-    yield value
-    if isinstance(value, Mapping):
-        for child in value.values():
-            yield from _walk_structured_values(child)
-    elif isinstance(value, (list, tuple)):
-        for child in value:
-            yield from _walk_structured_values(child)
+__all__ = [
+    "ProjectReferences",
+    "VARIABLE_RE",
+    "is_path_reference",
+]

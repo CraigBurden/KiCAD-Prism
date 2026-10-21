@@ -16,11 +16,10 @@ import logging
 import os
 import shutil
 import subprocess
-from importlib import metadata
 from pathlib import Path
 from typing import Any, Mapping
 
-from app.release_studio import dossier as dossier_module
+from app.release_studio import bundle_design, dossier as dossier_module
 from app.release_studio.canonical import (
     CANONICALIZER_REGISTRY_NAME,
     CANONICALIZER_REGISTRY_VERSION,
@@ -47,6 +46,7 @@ from app.services import release_build_attempts as attempts
 from app.services import release_build_failure_evidence as failure_evidence
 from app.services import release_studio_model_inputs as model_inputs
 from app.services import release_studio_service as store
+from app.release_studio.bundle_errors import BundleFailed, BundlePending
 from app.services.job_artifact_service import JobArtifactService
 from app.services.job_kinds import JobKind
 from app.services.job_runtime import JobCancelled, JobContext, JobResult
@@ -99,16 +99,23 @@ def executor_image() -> str:
     return image
 
 
-def toolchain_identity(cli_version: str = "") -> tuple[dict[str, Any], str]:
-    """Return the human-readable toolchain record and its hashed identity."""
+def toolchain_identity(
+    bundle_generator: Mapping[str, Any],
+    cli_version: str = "",
+) -> tuple[dict[str, Any], str]:
+    """Return the human-readable toolchain record and its hashed identity.
+
+    The design data comes from ``prism-kicad`` and the bundle's own generator
+    record is the provenance (C3f): the Python ``kicad_monkey`` and
+    ``kicad_cruncher`` versions described the deleted legacy path, so they are
+    neither recorded nor hashed.
+    """
 
     from app.release_studio.documents import RENDERER_VERSION, renderer_resource_digest
 
     image = executor_image()
-    monkey_version = _distribution_version("kicad-monkey", "kicad_monkey")
-    cruncher_version = _distribution_version("kicad-cruncher", "kicad_cruncher")
-    # Fonts and the Cruncher view configuration together: both are bundled
-    # resources that decide what a composed sheet contains.
+    # Fonts and the artwork configurations together: bundled resources that
+    # decide what a composed sheet contains.
     resources = renderer_resource_digest()
     record = {
         "kicad_version": cli_version or "10.0.4",
@@ -116,39 +123,46 @@ def toolchain_identity(cli_version: str = "") -> tuple[dict[str, Any], str]:
         "generator_build": GENERATOR_BUILD,
         "canonicalizer_registry": f"{CANONICALIZER_REGISTRY_NAME}/{CANONICALIZER_REGISTRY_VERSION}",
         "renderer": RENDERER_VERSION,
-        "kicad_monkey_version": monkey_version,
-        "kicad_cruncher_version": cruncher_version,
         "resource_bundle_digest": resources,
     }
-    digest = sha256_canonical(
-        {
-            "executor_image_digest": image,
-            "generator_build": GENERATOR_BUILD,
-            "canonicalizer_registry_version": CANONICALIZER_REGISTRY_VERSION,
-            # The renderer is part of the toolchain identity: a change that
-            # alters composed sheets for unchanged input must move the build key.
-            "renderer_version": RENDERER_VERSION,
-            "kicad_monkey_version": monkey_version,
-            # Cruncher renders the assembly views, so its version decides
-            # what those released sheets look like.
-            "kicad_cruncher_version": cruncher_version,
-            "resource_bundle_digest": resources,
-        }
-    )
-    return record, digest
+    identity: dict[str, Any] = {
+        "executor_image_digest": image,
+        "generator_build": GENERATOR_BUILD,
+        "canonicalizer_registry_version": CANONICALIZER_REGISTRY_VERSION,
+        # The renderer is part of the toolchain identity: a change that
+        # alters composed sheets for unchanged input must move the build key.
+        "renderer_version": RENDERER_VERSION,
+        "resource_bundle_digest": resources,
+    }
+    generator = _bundle_generator_identity(bundle_generator)
+    record["design_bundle_generator"] = generator
+    identity["design_bundle_generator"] = generator
+    return record, sha256_canonical(identity)
 
 
-def _distribution_version(distribution: str, module_name: str) -> str:
-    """Resolve a packaged tool identity without depending on host paths."""
+#: Generator-id fields a release records.  ``member_schemas`` is the member
+#: manifest, not a property of the tool that produced it.
+_BUNDLE_GENERATOR_FIELDS = (
+    "crate_version",
+    "engine_version",
+    "kicad_version",
+    "kicad_file_formats",
+    "hlr_procedure",
+    "models_procedure",
+    "pack_format_version",
+    "refill_procedure",
+    "upgrade_procedure",
+)
 
-    try:
-        return metadata.version(distribution)
-    except metadata.PackageNotFoundError:
-        try:
-            module = __import__(module_name)
-        except ImportError:
-            return "unavailable"
-        return str(getattr(module, "__version__", "unversioned"))
+
+def _bundle_generator_identity(generator: Mapping[str, Any]) -> dict[str, Any]:
+    """The bundle generator's stable provenance, without its member manifest."""
+
+    return {
+        key: generator[key]
+        for key in _BUNDLE_GENERATOR_FIELDS
+        if key in generator
+    }
 
 
 def prepare_candidate(
@@ -187,6 +201,13 @@ def prepare_candidate(
             )
     config_digest = technical_config_digest(config)
 
+    # One readiness answer for the whole build.  A pending or failed bundle
+    # waits or fails here, before a closure or candidate exists; a build with
+    # no resolved commit cannot be keyed by a bundle and fails here too.
+    design = bundle_design.readiness(
+        project_id, commit_sha, requested_by=created_by
+    )
+
     closure_root = workspace_root / "closure"
     model_stage = workspace_root / "models"
     for stale in (closure_root, model_stage):
@@ -202,6 +223,9 @@ def prepare_candidate(
         # and staged so they read the bytes that were hashed.
         model_env=os.environ,
         model_stage=model_stage,
+        # C3d: the closure's documents and path references come from
+        # prism.project.a0, so no KiCad text is parsed in Python.
+        bundle_project=design.project_references(),
     )
 
     hermetic, reasons = _hermeticity(closure_root, config)
@@ -218,7 +242,9 @@ def prepare_candidate(
         logger.info(
             "Release Studio closure carries %d advisory reference(s)", len(advisory)
         )
-    _toolchain, toolchain_digest = toolchain_identity()
+    _toolchain, toolchain_digest = toolchain_identity(
+        bundle_generator=design.generator
+    )
     model_rows = model_inputs.closure_model_rows(closure)
 
     candidate = store.create_candidate(
@@ -245,6 +271,9 @@ def prepare_candidate(
     candidate["_closure_root"] = str(closure_root)
     candidate["_config"] = config
     candidate["_advisory_reasons"] = advisory
+    # The readiness answer the whole build reads its design files from (C3c,
+    # C3b, C3f).  Not persisted: it is this attempt's opened bundle.
+    candidate["_bundle_design"] = design
     # An input that resolved outside the closure is recorded on the candidate,
     # but the person reading Outputs sees the build. Carry the reasons across
     # so a non-hermetic closure is visible where the release is inspected.
@@ -327,12 +356,20 @@ def execute_build(
 ) -> dict[str, Any]:
     """Run the catalogue, assemble the dossier, and publish it under the fence.
 
-    ``tools`` defaults to the installed kicad-cli and kicad-cruncher. Every run
+    ``tools`` defaults to the installed kicad-cli. Every run polls the job's
     polls the job's cancellation, so a cancelled build stops its current tool.
     ``repo_root`` is the source repository.  The closure is materialized from
     Git objects and has no ``.git`` of its own, so anything that needs commit
     metadata -- the date a sheet states -- has to ask the repository.
     """
+
+    # The one readiness answer: preparation already resolved it; a direct
+    # caller gets the same check rather than a half-readable bundle.  It runs
+    # before the attempt starts, so waiting for design data is a job retry, not
+    # a failed build.
+    design = bundle_design.for_candidate(candidate)
+    if candidate.get("_bundle_design") is not design:
+        candidate = {**candidate, "_bundle_design": design}
 
     artifact_service = artifacts or JobArtifactService()
     tools = (tools or KicadTools.resolve()).with_cancel(context.check_cancelled)
@@ -363,6 +400,8 @@ def execute_build(
             config=config,
             variant=str(candidate.get("variant") or ""),
             timings=timings,
+            candidate=candidate,
+            design=design,
         )
         build_warnings = _gerber_set_warnings(waves.by_step)
         if not include_schematic:
@@ -375,12 +414,13 @@ def execute_build(
             candidate=candidate,
             output_root=output_root,
             cli=tools.cli,
-            cruncher=tools.cruncher,
             staging=context.staging_dir,
             repo_root=repo_root,
             project_relpath=str(candidate.get("project_relpath") or "") or None,
             assembly_views=waves.assembly_views,
             assembly_error=waves.assembly_error,
+            artwork_sheet_size=waves.artwork_sheet_size,
+            artwork_paper_scale=waves.artwork_paper_scale,
             timings=timings,
             tracker=tracker,
             repo_url=str(candidate.get("repo_url") or ""),
@@ -406,7 +446,9 @@ def execute_build(
 
         tracker.start("package", message="Canonicalizing and packaging", percent=75)
 
-        toolchain, toolchain_digest = toolchain_identity()
+        toolchain, toolchain_digest = toolchain_identity(
+            bundle_generator=design.generator
+        )
         assembled = dossier_module.assemble(
             outputs=outputs,
             commit_sha=str(candidate["commit_sha"]),
@@ -698,6 +740,15 @@ def run_release_studio_build_job(context: JobContext) -> JobResult:
         # Cancellation is a terminal worker decision, never a failed
         # preparation diagnostic. A build that has started is handled by
         # execute_build's dedicated cancelled path below.
+        raise
+    except (
+        BundlePending,
+        BundleFailed,
+    ):
+        # A bundle-mode build that is waiting for design data (or whose design
+        # data failed) has not produced an attempt.  The job runtime owns the
+        # retry/permanent answer; recording a retained failed build here would
+        # make a queued wait look like a release that ran and failed.
         raise
     except Exception as exc:
         # Preparation historically failed before a candidate/build existed,

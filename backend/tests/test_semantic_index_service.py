@@ -616,45 +616,6 @@ class RevisionIdentityTests(unittest.TestCase):
             after, _ = semantic_index_service._revision_identity(project, None)
             self.assertNotEqual(before, after)
 
-    def test_a_cache_hit_never_extracts_the_repository(self) -> None:
-        """This is the whole point of the change, so it is asserted directly."""
-        with tempfile.TemporaryDirectory() as temporary:
-            root = Path(temporary)
-            board = self._repository(root, "boards/main")
-            project = SimpleNamespace(id="p1", path=str(board))
-            key, _ = semantic_index_service._revision_identity(project, "HEAD")
-
-            # The module's own root function is the patch point.
-            index_root = root / "index"
-            index_root.mkdir()
-            self.enterContext(
-                patch.object(
-                    semantic_index_service,
-                    "semantic_index_root",
-                    return_value=index_root,
-                )
-            )
-            artifact = semantic_index_service.artifact_path("p1", key)
-            artifact.parent.mkdir(parents=True, exist_ok=True)
-            artifact.write_text('{"schema": "cached"}', encoding="utf-8")
-
-            with patch.object(
-                project_revision,
-                "materialize",
-                side_effect=AssertionError("a cache hit must not check out the repo"),
-            ):
-                self.assertEqual(
-                    semantic_index_service.get_or_build(project, "HEAD")["schema"],
-                    "cached",
-                )
-                self.assertEqual(
-                    semantic_index_service.get_existing(project, "HEAD")["schema"],
-                    "cached",
-                )
-                self.assertTrue(
-                    semantic_index_service.get_status(project, "HEAD")["available"]
-                )
-
 
 class NetResolutionTests(unittest.TestCase):
     """Resolving a net per element rebuilds the board's whole net mapping.

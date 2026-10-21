@@ -54,6 +54,7 @@ pub(super) fn render_view(
             sides,
             designator_style.min_font,
             provisional,
+            input.paper_scale.unwrap_or(1.0),
         )
     } else {
         BTreeMap::new()
@@ -103,6 +104,7 @@ pub(super) fn render_view(
         callout,
         mirror,
         dnp,
+        paper_scale: input.paper_scale.unwrap_or(1.0),
     };
     let mut state = RenderState::default();
     for token in &view.layers {
@@ -170,6 +172,8 @@ struct ViewRender<'a> {
     callout: bool,
     mirror: bool,
     dnp: DnpStyle,
+    /// Sheet-to-board ratio the config was scaled for; `1.0` when none.
+    paper_scale: f64,
 }
 
 #[derive(Default)]

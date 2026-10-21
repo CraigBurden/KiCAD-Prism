@@ -13,7 +13,6 @@ from app.services.catalog.metadata_normalization import is_reserved_stamp_key
 from app.services.component_catalog_service import catalog_service
 from app.services.project_component_asset_extractor import (
     ContentAddressedAssetStager,
-    build_project_asset_index,
     footprint_land_pattern,
 )
 from app.services.project_component_bundle_assets import (
@@ -402,39 +401,27 @@ def _bundle_asset_index(
     stager: ContentAddressedAssetStager,
     *,
     requested_by: str = "",
-) -> ProjectBundleAssetIndex | None:
-    """The bundle's asset index for a revision, or ``None`` to serve the legacy path.
+) -> ProjectBundleAssetIndex:
+    """The bundle's asset index for a revision (``commit=None`` is the checkout's HEAD).
 
-    ``bundle_read`` owns the switch: it returns ``None`` for the ``legacy``
-    switch, for a member that is not ready yet (it queues the build) and for a
-    member that failed, and this then returns ``None`` so the caller scans the
-    checkout as before. A working-tree request (no resolved commit) never opens
-    a bundle, and a bundle-side fault while the members are opened is logged
-    and also falls back, so a broken bundle cannot fail the import.
+    ``bundle_read`` raises ``DesignDataPending`` while a member builds (it
+    queues the job) or ``DesignDataFailed`` when it cannot be built; the import
+    session lets the former retry. The legacy directory scanner is gone (R1).
     """
-
-    if not commit:
-        return None
     from app.services.design_bundle import consumer
 
     read = consumer.bundle_read(
         "CATALOG_IMPORT", project_id, commit, BUNDLE_MEMBER_PATHS, requested_by=requested_by
     )
-    if read is None or not all(read.ready(path) for path in BUNDLE_MEMBER_PATHS):
-        return None
-    try:
-        return ProjectBundleAssetIndex(read, stager=stager)
-    except Exception:  # noqa: BLE001 - any bundle-side fault must serve the legacy path
-        logger.exception(
-            "design bundle: CATALOG_IMPORT could not index %s@%s; serving legacy", project_id, commit
-        )
-        return None
+    return ProjectBundleAssetIndex(read, stager=stager)
 
 
 def run_project_import_session(session_id: str) -> None:
     session = catalog_service.get_project_import_session(session_id)
     if not session:
         return
+    from app.services.design_bundle.errors import DesignDataPending
+
     try:
         catalog_service.update_project_import_session(session_id, status="scanning")
         grouped: dict[str, dict[str, Any]] = {}
@@ -447,7 +434,7 @@ def run_project_import_session(session_id: str) -> None:
             if not project:
                 raise ValueError(f"Project not found while scanning: {project_id}")
             source_revision = str((session.get("project_revisions") or {}).get(project_id) or "")
-            semantic_index = semantic_index_service.get_or_build(project, source_revision or None)
+            semantic_index = semantic_index_service.get_index(project, source_revision or None)
             components = list(semantic_index.get("components") or [])
             if session["scope"] == "component":
                 components = [
@@ -459,38 +446,38 @@ def run_project_import_session(session_id: str) -> None:
                     )
             if not components:
                 continue
-            with semantic_index_service._project_file_for_revision(
-                project, source_revision or None
-            ) as (project_file, resolved_commit):
-                asset_index = _bundle_asset_index(
-                    str(project_id),
-                    resolved_commit,
-                    stager,
-                    requested_by=str(session.get("created_by") or ""),
+            asset_index = _bundle_asset_index(
+                str(project_id),
+                source_revision or None,
+                stager,
+                requested_by=str(session.get("created_by") or ""),
+            )
+            for component in components:
+                assets, findings, resolved = asset_index.extract_component_assets(component)
+                candidate = _proposal(
+                    component,
+                    project_id=str(project_id),
+                    source_revision=source_revision,
+                    assets=assets,
+                    extraction_findings=findings,
+                    resolved=resolved,
                 )
-                if asset_index is None:
-                    asset_index = build_project_asset_index(project_file.parent, stager=stager)
-                for component in components:
-                    assets, findings, resolved = asset_index.extract_component_assets(component)
-                    candidate = _proposal(
-                        component,
-                        project_id=str(project_id),
-                        source_revision=source_revision,
-                        assets=assets,
-                        extraction_findings=findings,
-                        resolved=resolved,
-                    )
-                    existing = grouped.get(candidate["dedupe_key"])
-                    if existing:
-                        _merge_proposal(existing, candidate)
-                    else:
-                        grouped[candidate["dedupe_key"]] = candidate
+                existing = grouped.get(candidate["dedupe_key"])
+                if existing:
+                    _merge_proposal(existing, candidate)
+                else:
+                    grouped[candidate["dedupe_key"]] = candidate
         proposals = list(grouped.values())
         # Where-used is a semantic observation, not a side effect of admitting an
         # asset into the managed library. Update known component usage on every scan
         # so release reviewers see project impact even when proposals remain pending.
         catalog_service.index_project_component_usage(proposals)
         catalog_service.stage_project_import_proposals(session_id, proposals)
+    except DesignDataPending:
+        # The bundle is building and was queued by the read. The catalog job
+        # retries; the session stays in scanning rather than failing.
+        catalog_service.update_project_import_session(session_id, status="scanning")
+        raise
     except Exception as exc:
         logger.exception("Project component import session %s failed", session_id)
         catalog_service.update_project_import_session(session_id, status="failed", error_message=str(exc))

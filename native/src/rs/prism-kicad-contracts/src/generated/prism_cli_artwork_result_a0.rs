@@ -85,6 +85,11 @@ impl ::std::fmt::Display for ArchivePath {
 ///    "views"
 ///  ],
 ///  "properties": {
+///    "paper_scale": {
+///      "description": "The ratio of sheet millimetres to board millimetres the run drew at:\n`--paper-scale` when given, so every stroke and font in the views prints at\nits configured size on paper at that scale. Absent when the run drew in\nboard millimetres and sizes scale with the drawing.",
+///      "type": "number",
+///      "minimum": 0.0
+///    },
 ///    "schema": {
 ///      "description": "Document schema id.",
 ///      "type": "string",
@@ -107,6 +112,12 @@ impl ::std::fmt::Display for ArchivePath {
 pub struct CliArtworkResultA0 {
     ///Document schema id.
     pub schema: ::std::string::String,
+    /**The ratio of sheet millimetres to board millimetres the run drew at:
+    `--paper-scale` when given, so every stroke and font in the views prints at
+    its configured size on paper at that scale. Absent when the run drew in
+    board millimetres and sizes scale with the drawing.*/
+    #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+    pub paper_scale: ::std::option::Option<f64>,
     ///One entry per rendered view, sorted by `name` in code point order.
     pub views: ::std::vec::Vec<CliArtworkView>,
 }

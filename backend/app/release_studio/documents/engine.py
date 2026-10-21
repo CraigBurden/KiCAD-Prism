@@ -39,7 +39,7 @@ from app.release_studio.documents.artwork import (
 )
 from app.release_studio.documents.fonts import DEFAULT_TYPOGRAPHY, typography_preset
 from app.release_studio.documents.inputs import DocumentInputs
-from app.release_studio.documents.layout import Rect, Sheet
+from app.release_studio.documents.layout import Rect, Sheet, stroke_text_batch
 from app.release_studio.documents.pdf import append_pdf_pages, render_pdf_pages
 from app.release_studio.documents.style import (
     DEFAULT_SHEET_STYLE,
@@ -52,12 +52,11 @@ logger = logging.getLogger(__name__)
 
 DOCUMENT_DOMAIN = "documentation"
 
-#: Assembly views come from `kicad-cruncher pcb-svg`, which fits one designator
+#: Assembly views come from `prism-kicad artwork`, which fits one designator
 #: into each component's own bounds over a hidden-line-removed outline.
 ASSEMBLY_SIDES: tuple[str, ...] = ("top", "bottom")
 
-#: Testpoint views use a derived board containing only TP footprints, with
-#: legacy references normalized through Monkey before Cruncher renders them.
+#: Testpoint views use the testpoint configuration's `TP*` selector.
 TESTPOINT_SIDES: tuple[str, ...] = ("top", "bottom")
 
 
@@ -150,7 +149,6 @@ def compose(
     designators: Sequence[str] = (),
     board: Path | None = None,
     cli: KicadTool | None = None,
-    cruncher: KicadTool | None = None,
     workdir: Path | None = None,
     sheet_size: str | None = None,
     notes: Mapping[str, Any] | None = None,
@@ -200,7 +198,6 @@ def compose(
             sheet_size=sheet_size,
             board=board,
             cli=cli,
-            cruncher=cruncher,
             workdir=workdir,
         ),
         on_progress=on_progress,
@@ -283,7 +280,6 @@ def compose_documents(
             layer_pages=layer_pages,
             variant=str(context.get("variant") or ""),
             cli=inputs.cli,
-            cruncher=inputs.cruncher,
             designators=tuple(inputs.designators or ()),
             acquirer=acquirer,
             drill_acquirer=drill_acquirer,
@@ -309,15 +305,27 @@ def compose_documents(
 
     title_height = sheet_templates.title_block_height(context, title_fields)
     extent_width, extent_height = board_extent(stats)
-    if sheet_size is None:
-        sheet_size = _select_size(stats, title_height)
     # One ratio for the whole package. A reader who scales a dimension off the
     # fabrication sheet and applies it to the assembly sheet has to get the same
     # number, so the scale is a property of the set rather than of each sheet.
-    scale = sheet_templates.set_scale(
-        extent_width, extent_height, sheet_size, title_height,
-        sheet_style=sheet_style,
-    )
+    # In `paper` line-weight mode the artwork was already drawn at this ratio,
+    # so the sheet is placed at exactly that ratio rather than choosing again.
+    if inputs.artwork_paper_scale is not None:
+        if sheet_size is None:
+            sheet_size = _select_size(stats, title_height)
+        scale = float(inputs.artwork_paper_scale)
+        if not (scale > 0 and scale < float("inf")):
+            raise ValueError(
+                f"the artwork's paper scale is not a positive ratio: {scale!r}"
+            )
+    else:
+        sheet_size, scale = sheet_templates.package_scale(
+            extent_width,
+            extent_height,
+            sheet_size=sheet_size,
+            title_height=title_height,
+            sheet_style=sheet_style,
+        )
 
     # Placement uses content bounds when an acquired SVG reports a drawing-sheet
     # frame (or otherwise dwarfs the board).  Package size already ignored those
@@ -649,7 +657,10 @@ def _serialize(
     """Render *pages* into one PDF. Page SVGs stay in memory for tests."""
 
     sheets = [sheet for sheet, _k, _s, _a, _w in pages]
-    pdf_bytes = render_pdf_pages(sheets)
+    # One NewStroke batch for the whole document: its pages reach the CLI once,
+    # and the PDF and in-memory SVG share exactly the same glyph geometry.
+    stroke_text = stroke_text_batch(sheets)
+    pdf_bytes = render_pdf_pages(sheets, stroke_text=stroke_text)
 
     for index, (_sheet, page_key, scale, art, window) in enumerate(pages):
         if art is None or window is None:
@@ -674,7 +685,7 @@ def _serialize(
                 key=page_key,
                 title=sheet.title,
                 svg_path=f"documentation/{page_key}.svg",
-                svg_bytes=render_svg(sheet).encode("utf-8"),
+                svg_bytes=render_svg(sheet, stroke_text=stroke_text).encode("utf-8"),
                 scale=scale,
                 artwork_digest=art.digest if art else "",
             )

@@ -17,7 +17,7 @@ from app.services import derived_assets, git_remote_access, project_revision, pr
 from app.services.design_bundle import jobs as design_bundle_jobs, repo_hydration
 from app.services.git_failures import GitAccessError, as_access_error
 from app.services.git_remote_url import ParsedRemote, RemoteUrlPolicy, parse_remote_url
-from app.services.job_runtime import JobContext, JobResult, PermanentJobError
+from app.services.job_runtime import JobContext, JobResult, PermanentJobError, RetryableJobError
 from app.services.job_kinds import JobKind, JobSubject, repository_lock, subject_lock
 from app.services.kicad_tools import kicad_cli
 from app.services.project_import_followups import (
@@ -1086,14 +1086,22 @@ def run_project_metadata_job_v3(context: JobContext) -> JobResult:
         repo_path, relative_path = project_path, None
     context.check_cancelled()
 
-    computed = project_metadata_service.refresh_project_metadata(
-        project_id,
-        project_path,
-        schematic_path,
-        pcb_path,
-        repo_path=repo_path,
-        relative_path=relative_path, anchor=anchor,
-    )
+    from app.services.design_bundle.errors import DesignDataFailed, DesignDataPending
+
+    try:
+        computed = project_metadata_service.refresh_project_metadata(
+            project_id,
+            project_path,
+            schematic_path,
+            pcb_path,
+            repo_path=repo_path,
+            relative_path=relative_path, anchor=anchor,
+        )
+    except DesignDataPending as error:
+        # The design bundle is building; it was queued by the read. Retry soon.
+        raise RetryableJobError(str(error), code="design-data-pending", retry_after_seconds=3) from error
+    except DesignDataFailed as error:
+        raise PermanentJobError(str(error), code="design-data-failed") from error
     pcb = computed.get("pcb") or {}
     return JobResult(
         message="Project metadata updated",

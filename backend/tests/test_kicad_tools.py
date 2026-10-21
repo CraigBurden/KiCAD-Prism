@@ -24,7 +24,6 @@ from app.services.kicad_tools import (
     ToolTimeout,
     ToolUnavailable,
     locate_kicad_cli,
-    locate_kicad_cruncher,
 )
 
 
@@ -41,7 +40,6 @@ class DiscoveryTests(unittest.TestCase):
         self.addCleanup(tmp.cleanup)
         self.root = Path(tmp.name)
         self.on_path = _script(self.root, "kicad-cli", "print('path')")
-        _script(self.root, "kicad-cruncher", "print('path')")
         patcher = mock.patch.dict(os.environ, {"PATH": str(self.root)})
         patcher.start()
         self.addCleanup(patcher.stop)
@@ -71,22 +69,12 @@ class DiscoveryTests(unittest.TestCase):
             with mock.patch.object(kicad_tools, "kicad_cli_install_candidates", return_value=()):
                 self.assertIsNone(locate_kicad_cli(Settings(KICAD_CLI_PATH="")))
 
-    def test_cruncher_is_configured_or_on_path(self) -> None:
-        self.assertEqual(
-            locate_kicad_cruncher(Settings(KICAD_CRUNCHER_PATH="/opt/c")), "/opt/c"
-        )
-        self.assertEqual(
-            locate_kicad_cruncher(Settings(KICAD_CRUNCHER_PATH="")),
-            str(self.root / "kicad-cruncher"),
-        )
-
     def test_resolve_reports_a_missing_tool_as_none(self) -> None:
         with mock.patch.dict(os.environ, {"PATH": "/nonexistent"}), mock.patch.object(
             kicad_tools, "kicad_cli_install_candidates", return_value=()
         ):
-            tools = KicadTools.resolve(Settings(KICAD_CLI_PATH="", KICAD_CRUNCHER_PATH=""))
+            tools = KicadTools.resolve(Settings(KICAD_CLI_PATH=""))
         self.assertIsNone(tools.cli)
-        self.assertIsNone(tools.cruncher)
 
     def test_running_a_missing_tool_is_unavailable_not_a_crash(self) -> None:
         tool = LocalTool("kicad-cli", lambda: None, isolate=True)

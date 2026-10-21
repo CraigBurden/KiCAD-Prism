@@ -132,8 +132,6 @@ these only for a host run or a pinned install:
 # kicad-cli. Empty: PATH, then the usual KiCad install locations.
 # A set path is used as given, with no fallback. KICAD_CLI is a legacy name.
 KICAD_CLI_PATH=
-# kicad-cruncher, for release assembly views and vendor packs. Empty: PATH.
-KICAD_CRUNCHER_PATH=
 ```
 
 Each kicad-cli run gets its own temporary directory (KiCad's instance lock)
@@ -170,11 +168,13 @@ constrained host. Unless noted, an empty value means the default.
 A design bundle is one parse of a project revision by `prism-kicad`, stored as
 `KICAD_PROJECTS_ROOT/.kicad-prism/bundles/<project>/<revision key>/<generator>.prism`
 ([ADR](architecture/adr-native-design-bundle.md)). The `design_bundle` job
-builds it in stages (parse, board, models) on the general worker.
+builds it in stages (parse, board, models) on the general worker. Every
+consumer — Release Studio, the semantic index, project metadata, catalog
+import and design comparison — reads the bundle unconditionally (ADR §9.7 R1,
+amendment C3 F4c).
 
 | Setting | Purpose |
 | --- | --- |
-| `PRISM_DESIGN_SOURCE_SEMANTIC_INDEX`, `_DESIGN_COMPARISON`, `_RELEASE_STUDIO`, `_PROJECT_METADATA`, `_CATALOG_IMPORT` | each consumer's source: `legacy` (its own KiCad parsing) or `bundle`. `_DESIGN_COMPARISON` defaults to `bundle` (`prism-kicad compare`, ADR amendment C2r); the others default to `legacy` until their switch. The 3D tab always reads the bundle's analytic board (amendment V2) |
 | `PRISM_DESIGN_BUNDLE_AUTO_BUILD` | queue the HEAD bundle after every import and sync, and run the paced prebuild of each branch's newest commits and every tagged commit (ADR amendment K2 §7). Default `true` since the C2r switch; `false` builds bundles on demand only, and a comparison of a commit without one reads its source tree, the cold path |
 | `PRISM_DESIGN_BUNDLE_CONCURRENCY` | capacity of the `design_bundle` slot (default 1); the backfill uses the same slot |
 | `PRISM_DESIGN_BUNDLE_*_MEMORY_BYTES`, `_*_TIMEOUT_MS` (PARSE, BOARD, MODELS) | per-stage heap cap and wall timeout passed to `prism-kicad` (defaults 4/6/2 GiB, 300/600/120 s) |

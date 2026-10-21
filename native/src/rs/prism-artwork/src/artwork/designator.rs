@@ -11,7 +11,7 @@
 use std::collections::HashMap;
 
 use geo::{
-    Area, BooleanOps, BoundingRect, Centroid, Coord, Covers, InteriorPoint, LineString,
+    Area, BooleanOps, BoundingRect, Buffer, Centroid, Coord, Covers, InteriorPoint, LineString,
     MultiPolygon, Point, Polygon, Rect, Translate,
 };
 
@@ -35,6 +35,8 @@ struct FitKey {
     rotations: Vec<i64>,
     fill_ratio: i64,
     maximum_font_size_mm: i64,
+    /// The body inset the box must keep clear, in drawing millimetres.
+    inset_mm: i64,
 }
 
 #[derive(Default)]
@@ -45,6 +47,8 @@ pub(crate) struct DesignatorFitSession {
 }
 
 impl DesignatorFitSession {
+    /// Fit `designator` inside `region`, keeping the text box at least
+    /// `inset_mm` from the region's boundary so it clears the body outline.
     pub fn fit(
         &mut self,
         designator: &str,
@@ -52,6 +56,7 @@ impl DesignatorFitSession {
         fill_ratio: f64,
         maximum_font_size_mm: f64,
         rotations: &[f64],
+        inset_mm: f64,
     ) -> Option<DesignatorFit> {
         let bounds = region.bounding_rect()?;
         let anchor = [bounds.min().x, bounds.min().y];
@@ -62,12 +67,14 @@ impl DesignatorFitSession {
             rotations.iter().copied().map(normalize_axis).collect()
         };
         let text_aspect = (designator.chars().count() as f64 * TEXT_ADVANCE_PER_CHARACTER).max(1.0);
+        let inset_mm = inset_mm.max(0.0);
         let key = FitKey {
             geometry: geometry_key(&relative),
             text_aspect: quantize(text_aspect),
             rotations: rotations.iter().copied().map(quantize).collect(),
             fill_ratio: quantize(fill_ratio.clamp(0.05, 1.0)),
             maximum_font_size_mm: quantize(maximum_font_size_mm.max(0.0)),
+            inset_mm: quantize(inset_mm),
         };
         let relative_fit = if let Some(cached) = self.fits.get(&key) {
             self.hits += 1;
@@ -80,6 +87,7 @@ impl DesignatorFitSession {
                 fill_ratio.clamp(0.05, 1.0),
                 maximum_font_size_mm.max(0.0),
                 &rotations,
+                inset_mm,
             );
             self.fits.insert(key, fitted);
             fitted
@@ -160,17 +168,32 @@ pub(crate) fn text_box(
     })
 }
 
-/// True when the fitted text box lies inside `region`.
+/// True when the fitted text box lies inside `region` with `inset_mm` to spare.
 pub(crate) fn text_box_fits_region(
     region: &MultiPolygon<f64>,
     designator: &str,
     fit: DesignatorFit,
+    inset_mm: f64,
 ) -> bool {
     let corners = text_box(designator, fit.center, fit.font_size_mm, fit.rotation_deg);
     let Some(rectangle) = ring_polygon(&corners) else {
         return false;
     };
-    region.covers(&rectangle)
+    rectangle_fits_region(region, &rectangle, inset_mm)
+}
+
+/// True when every point of `rectangle` is at least `inset_mm` inside
+/// `region`: the box is offset outwards by the inset and must still fit.
+fn rectangle_fits_region(
+    region: &MultiPolygon<f64>,
+    rectangle: &Polygon<f64>,
+    inset_mm: f64,
+) -> bool {
+    if inset_mm <= 0.0 {
+        return region.covers(rectangle);
+    }
+    let inset = rectangle.buffer(inset_mm);
+    !inset.0.is_empty() && region.covers(&inset)
 }
 
 /// The convex hull of projected HLR ring points, a forgiving region for open
@@ -181,12 +204,13 @@ fn fit_uncached(
     fill_ratio: f64,
     maximum_font_size_mm: f64,
     rotations: &[f64],
+    inset_mm: f64,
 ) -> Option<DesignatorFit> {
     let centers = candidate_centers(region);
     let mut best = None;
     for &rotation in rotations {
         let (raw_font, center) =
-            largest_font_at_candidates(region, &centers, text_aspect, rotation)?;
+            largest_font_at_candidates(region, &centers, text_aspect, rotation, inset_mm)?;
         let candidate = DesignatorFit {
             center,
             font_size_mm: maximum_font_size_mm.min(raw_font * fill_ratio),
@@ -266,6 +290,7 @@ fn largest_font_at_candidates(
     centers: &[MmPoint],
     text_aspect: f64,
     rotation_degrees: f64,
+    inset_mm: f64,
 ) -> Option<(f64, MmPoint)> {
     let bounds = region.bounding_rect()?;
     let upper_bound = bounds.width().max(bounds.height());
@@ -276,7 +301,14 @@ fn largest_font_at_candidates(
         let mut high = upper_bound;
         for _ in 0..BINARY_SEARCH_STEPS {
             let font_size = (low + high) / 2.0;
-            if text_box_fits(region, center, font_size, text_aspect, rotation_degrees) {
+            if text_box_fits(
+                region,
+                center,
+                font_size,
+                text_aspect,
+                rotation_degrees,
+                inset_mm,
+            ) {
                 low = font_size;
             } else {
                 high = font_size;
@@ -296,6 +328,7 @@ fn text_box_fits(
     font_size: f64,
     text_aspect: f64,
     rotation_degrees: f64,
+    inset_mm: f64,
 ) -> bool {
     let half_width = text_aspect * font_size / 2.0;
     let half_height = font_size / 2.0;
@@ -314,7 +347,7 @@ fn text_box_fits(
     let Some(rectangle) = ring_polygon(&corners) else {
         return false;
     };
-    region.covers(&rectangle)
+    rectangle_fits_region(region, &rectangle, inset_mm)
 }
 
 fn rect_center(bounds: Rect<f64>) -> Point<f64> {
@@ -388,12 +421,12 @@ mod tests {
         .unwrap();
         let mut session = DesignatorFitSession::default();
         let fit = session
-            .fit("R100", &region, 0.8, 2.5, &[0.0, -90.0])
+            .fit("R100", &region, 0.8, 2.5, &[0.0, -90.0], 0.0)
             .unwrap();
         assert_eq!(fit.rotation_deg, -90.0);
         assert!(fit.center.x > 10.0 && fit.center.x < 11.0);
         assert!((fit.font_size_mm - 0.8).abs() < 0.01);
-        let capped = session.fit("R100", &region, 0.8, 0.1, &[0.0]).unwrap();
+        let capped = session.fit("R100", &region, 0.8, 0.1, &[0.0], 0.0).unwrap();
         assert_eq!(capped.rotation_deg, 0.0);
     }
 
@@ -402,10 +435,27 @@ mod tests {
         let region = region_from_rings(&[rectangle(0.0, 0.0, 4.0, 2.0)]).unwrap();
         let mut session = DesignatorFitSession::default();
         let fit = session
-            .fit("TP12", &region, 0.8, 3.5, &[0.0, -90.0])
+            .fit("TP12", &region, 0.8, 3.5, &[0.0, -90.0], 0.0)
             .unwrap();
-        assert!(text_box_fits_region(&region, "TP12", fit));
+        assert!(text_box_fits_region(&region, "TP12", fit, 0.0));
         assert!(fit.font_size_mm >= 0.5);
+    }
+
+    #[test]
+    fn a_positive_inset_keeps_the_box_clear_of_the_boundary() {
+        let region = region_from_rings(&[rectangle(0.0, 0.0, 4.0, 2.0)]).unwrap();
+        let mut session = DesignatorFitSession::default();
+        let fit = session.fit("R1", &region, 0.8, 2.5, &[0.0], 0.25).unwrap();
+        assert!(text_box_fits_region(&region, "R1", fit, 0.25));
+        for corner in text_box("R1", fit.center, fit.font_size_mm, fit.rotation_deg) {
+            assert!(
+                corner.x >= 0.25 - 1.0e-9
+                    && corner.x <= 3.75 + 1.0e-9
+                    && corner.y >= 0.25 - 1.0e-9
+                    && corner.y <= 1.75 + 1.0e-9,
+                "corner {corner:?} is not inside the inset body"
+            );
+        }
     }
 
     #[test]
@@ -413,8 +463,10 @@ mod tests {
         let region = region_from_rings(&[rectangle(0.0, 0.0, 4.0, 2.0)]).unwrap();
         let translated = region.translate(17.0, -23.0);
         let mut session = DesignatorFitSession::default();
-        let first = session.fit("J1", &region, 0.8, 2.5, &[0.0]).unwrap();
-        let second = session.fit("J1", &translated, 0.8, 2.5, &[0.0]).unwrap();
+        let first = session.fit("J1", &region, 0.8, 2.5, &[0.0], 0.0).unwrap();
+        let second = session
+            .fit("J1", &translated, 0.8, 2.5, &[0.0], 0.0)
+            .unwrap();
         assert!((second.center.x - (first.center.x + 17.0)).abs() < 1.0e-9);
         assert!((second.center.y - (first.center.y - 23.0)).abs() < 1.0e-9);
         assert_eq!(first.font_size_mm, second.font_size_mm);

@@ -59,6 +59,7 @@ pub(super) fn plan(
     sides: ViewSides,
     font_size_mm: f64,
     canvas: Bounds,
+    paper_scale: f64,
 ) -> BTreeMap<usize, CalloutPlacement> {
     let mut order: Vec<(String, usize)> = selected
         .iter()
@@ -93,18 +94,22 @@ pub(super) fn plan(
             .values()
             .map(|placement| placement.bounds)
             .collect();
+        let step = RADIUS_STEP_MM / paper_scale.max(f64::MIN_POSITIVE);
         let chosen = search(
             *pad,
             half_width,
             half_height,
-            canvas,
-            &placed,
-            &pad_bounds,
-            *index,
+            &Search {
+                canvas,
+                placed: &placed,
+                pads: &pad_bounds,
+                owner: *index,
+                step,
+            },
         );
         let overlapping = chosen.is_none();
         let (center, bounds, dx, dy) =
-            chosen.unwrap_or_else(|| first_candidate(*pad, half_width, half_height));
+            chosen.unwrap_or_else(|| first_candidate(*pad, half_width, half_height, step));
         let pad_center = Point {
             x: (pad.min_x + pad.max_x) / 2.0,
             y: (pad.min_y + pad.max_y) / 2.0,
@@ -135,15 +140,22 @@ pub(super) fn plan(
 /// The candidate: label centre, its box, and the direction from the pad.
 type Candidate = (Point, Bounds, f64, f64);
 
+/// What a candidate has to clear: the canvas, already-placed labels and the
+/// other selected pads, plus the radius gap between rings.
+struct Search<'a> {
+    canvas: Bounds,
+    placed: &'a [Bounds],
+    pads: &'a [(usize, Bounds)],
+    owner: usize,
+    step: f64,
+}
+
 /// The first free candidate, or `None` when every one is taken.
 fn search(
     pad: Bounds,
     half_width: f64,
     half_height: f64,
-    canvas: Bounds,
-    placed: &[Bounds],
-    pads: &[(usize, Bounds)],
-    owner: usize,
+    context: &Search<'_>,
 ) -> Option<Candidate> {
     let center = Point {
         x: (pad.min_x + pad.max_x) / 2.0,
@@ -153,17 +165,18 @@ fn search(
     for ring in 1..=RADIUS_RINGS {
         for (dx, dy) in DIRECTIONS {
             let support = dx.abs() * half_width + dy.abs() * half_height;
-            let offset = radius + RADIUS_STEP_MM * ring as f64 + support;
+            let offset = radius + context.step * ring as f64 + support;
             let label = Point {
                 x: center.x + dx * offset,
                 y: center.y + dy * offset,
             };
             let bounds = Bounds::around(label, half_width, half_height);
-            if !canvas.contains_bounds(bounds)
-                || placed.iter().any(|other| other.intersects(bounds))
-                || pads
+            if !context.canvas.contains_bounds(bounds)
+                || context.placed.iter().any(|other| other.intersects(bounds))
+                || context
+                    .pads
                     .iter()
-                    .any(|(other, extent)| *other != owner && extent.intersects(bounds))
+                    .any(|(other, extent)| *other != context.owner && extent.intersects(bounds))
             {
                 continue;
             }
@@ -174,7 +187,7 @@ fn search(
 }
 
 /// The first candidate direction at the nearest ring, used when none is free.
-fn first_candidate(pad: Bounds, half_width: f64, half_height: f64) -> Candidate {
+fn first_candidate(pad: Bounds, half_width: f64, half_height: f64, step: f64) -> Candidate {
     let center = Point {
         x: (pad.min_x + pad.max_x) / 2.0,
         y: (pad.min_y + pad.max_y) / 2.0,
@@ -182,7 +195,7 @@ fn first_candidate(pad: Bounds, half_width: f64, half_height: f64) -> Candidate 
     let radius = pad.width().max(pad.height()) / 2.0;
     let (dx, dy) = DIRECTIONS[0];
     let support = dx.abs() * half_width + dy.abs() * half_height;
-    let offset = radius + RADIUS_STEP_MM + support;
+    let offset = radius + step + support;
     let label = Point {
         x: center.x + dx * offset,
         y: center.y + dy * offset,

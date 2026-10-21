@@ -228,29 +228,13 @@ def _enqueue_capture(monkeypatch: pytest.MonkeyPatch) -> list[dict[str, Any]]:
     monkeypatch.setattr(design_compare_service.workspace, "get_project_by_id",
                         lambda project_id: {"id": project_id, "project_file_rel": "p.kicad_pro"})
     monkeypatch.setattr(design_compare_service.JobSubject, "of_project", staticmethod(lambda row, project_id: None))
-    monkeypatch.setattr(design_compare_service.semantic_index_service, "generator_cache_tag", lambda: "tag")
     monkeypatch.setattr(design_compare_service, "DESIGN_COMPARE",
                         SimpleNamespace(enqueue=lambda payload, **kwargs: captured.append(payload) or {"job_id": "j"}))
     return captured
 
 
-def test_the_legacy_switch_keeps_todays_payload_and_key(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_the_compare_pipeline_is_queued(monkeypatch: pytest.MonkeyPatch) -> None:
     captured = _enqueue_capture(monkeypatch)
-    monkeypatch.setattr(settings, "PRISM_DESIGN_SOURCE_DESIGN_COMPARISON", "legacy")
-    design_compare_service.start_design_compare_job("p1", BASE, HEAD)
-    expected = hashlib.sha256(json.dumps({
-        "project": "p1", "projectFileRel": "p.kicad_pro", "base": BASE, "head": HEAD, "includeUnchanged": False,
-        "cacheSchema": design_compare_service._CACHE_SCHEMA,
-        "initialCacheSchema": design_compare_service._INITIAL_CACHE_SCHEMA, "generator": "tag",
-    }, sort_keys=True, separators=(",", ":")).encode("utf-8")).hexdigest()
-    (payload,) = captured
-    assert payload["artifact_key"] == expected
-    assert "pipeline" not in payload
-
-
-def test_the_bundle_switch_queues_the_compare_pipeline(monkeypatch: pytest.MonkeyPatch) -> None:
-    captured = _enqueue_capture(monkeypatch)
-    monkeypatch.setattr(settings, "PRISM_DESIGN_SOURCE_DESIGN_COMPARISON", "bundle")
     monkeypatch.setattr(design_compare_service.design_bundle_cli, "generator", lambda: SimpleNamespace(digest="d" * 64))
     monkeypatch.setattr(design_compare_service.design_bundle_cli, "binary_digest", lambda: "b" * 64)
     design_compare_service.start_design_compare_job("p1", BASE, HEAD, requested_by="me@example.com")
@@ -265,7 +249,6 @@ def test_a_new_compare_binary_is_a_new_result_with_the_same_generator(monkeypatc
     # A compare fix that leaves every bundle member alone keeps the generator id;
     # the comparisons cached before it must not be served after it.
     captured = _enqueue_capture(monkeypatch)
-    monkeypatch.setattr(settings, "PRISM_DESIGN_SOURCE_DESIGN_COMPARISON", "bundle")
     monkeypatch.setattr(design_compare_service.design_bundle_cli, "generator", lambda: SimpleNamespace(digest="d" * 64))
     for engine in ("b" * 64, "c" * 64, "c" * 64):
         monkeypatch.setattr(design_compare_service.design_bundle_cli, "binary_digest", lambda engine=engine: engine)
@@ -285,6 +268,7 @@ def test_an_ended_partial_bundle_result_settles_with_fabrication_failed(tmp_path
         return SimpleNamespace()
 
     monkeypatch.setattr(design_compare_service.job_artifacts, "prepare_ended_json", prepare_ended_json)
+    monkeypatch.setattr(design_compare_service.design_bundle_cli, "generator", lambda: SimpleNamespace(digest="g" * 64))
     monkeypatch.setattr(design_compare_service.v3_jobs, "publish_ended_result", lambda *args, **kwargs: True)
     job = {"job_id": "j", "status": "failed", "result_metadata": {"result_version": 1}, "result_path": str(path),
            "result_digest": "x", "payload": {"artifact_key": "k"}}

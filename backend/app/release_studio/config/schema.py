@@ -50,12 +50,20 @@ CONFIGURATION_KEYS = frozenset(
         "sheets",
         "typography",
         "sheet_style",
+        "artwork_line_weights",
         "vendors",
         "release_date",
         "release_notes",
         "bom_preset",
     }
 )
+
+#: How artwork stroke widths and designator limits are interpreted:
+#: ``paper`` (the default) prints them at their configured size (the CLI divides
+#: by the sheet's ratio), ``drawing`` keeps them in board millimetres, so they
+#: grow with the drawn scale. ``drawing`` is kept for compatibility.
+ARTWORK_LINE_WEIGHTS = frozenset({"drawing", "paper"})
+DEFAULT_ARTWORK_LINE_WEIGHTS = "paper"
 
 POLICY_KEYS = frozenset(
     {
@@ -189,6 +197,19 @@ def validate_configuration_mapping(
             f"{source}.sheet_style: unknown style {sheet_style!r}; choose one of: {supported}"
         )
 
+    artwork_line_weights = data.get(
+        "artwork_line_weights", DEFAULT_ARTWORK_LINE_WEIGHTS
+    )
+    artwork_line_weights = _require_nonblank_string(
+        artwork_line_weights, source=f"{source}.artwork_line_weights"
+    ).lower()
+    if artwork_line_weights not in ARTWORK_LINE_WEIGHTS:
+        supported = ", ".join(sorted(ARTWORK_LINE_WEIGHTS))
+        raise ConfigSchemaError(
+            f"{source}.artwork_line_weights: unknown mode "
+            f"{artwork_line_weights!r}; choose one of: {supported}"
+        )
+
     sheets = data.get("sheets")
     if sheets is not None:
         if not isinstance(sheets, list):
@@ -216,6 +237,7 @@ def validate_configuration_mapping(
         "variants": variants,
         "typography": typography,
         "sheet_style": sheet_style,
+        "artwork_line_weights": artwork_line_weights,
     }
     if jobset:
         normalized["jobset"] = jobset

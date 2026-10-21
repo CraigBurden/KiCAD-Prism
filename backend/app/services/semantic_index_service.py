@@ -1,19 +1,15 @@
 from __future__ import annotations
 
-import contextlib
 import datetime
 import hashlib
 import importlib.metadata
-import json
 import os
 import re
-import shutil
 import subprocess
 import sys
-import threading
 import time
 from pathlib import Path, PurePosixPath
-from typing import Any, Callable, Iterable, Iterator
+from typing import Any, Callable, Iterable
 
 from app.core.config import settings
 from app.services import (
@@ -38,9 +34,6 @@ GENERATOR_VERSION = "0.2.0"
 #: project's stored index and rebuilt it (minutes on a large board).
 GENERATOR_BUILD = "r1"
 
-_LOCKS: dict[str, threading.Lock] = {}
-_LOCKS_GUARD = threading.Lock()
-
 REQUIRED_BOM_FIELDS = (
     "Value",
     "DNP",
@@ -59,20 +52,6 @@ REQUIRED_BOM_FIELDS = (
     "Power Dissipation (W)",
     "Rate",
 )
-
-
-def semantic_index_root() -> Path:
-    root = Path(settings.KICAD_PROJECTS_ROOT) / ".kicad-prism" / "semantic-index"
-    root.mkdir(parents=True, exist_ok=True)
-    return root
-
-
-def artifact_dir(project_id: str, source_revision_key: str) -> Path:
-    return semantic_index_root() / project_id / source_revision_key / generator_cache_tag()
-
-
-def artifact_path(project_id: str, source_revision_key: str) -> Path:
-    return artifact_dir(project_id, source_revision_key) / "semantic-index.json"
 
 
 def _blob_id(data: bytes) -> str:
@@ -164,12 +143,6 @@ def source_revision_key_for_project_file(project_file: Path) -> str:
     )
 
 
-def _lock(project_id: str, source_revision_key: str) -> threading.Lock:
-    key = f"{project_id}:{source_revision_key}:{GENERATOR_BUILD}"
-    with _LOCKS_GUARD:
-        return _LOCKS.setdefault(key, threading.Lock())
-
-
 def _add_kicad_monkey_import_paths() -> None:
     """Apply only an explicit development override.
 
@@ -240,138 +213,76 @@ def _revision_identity(project: Any, commit: str | None) -> tuple[str, str | Non
     )
 
 
-@contextlib.contextmanager
-def _project_file_for_revision(project: Any, commit: str | None) -> Iterator[tuple[Path, str | None]]:
-    anchor = path_config_service.anchor_for_project(project)
-    if not commit:
-        yield kicad_project_locator.find_kicad_project(project.path, anchor), None
-        return
+def _bundle_read(project: Any, commit: str | None) -> Any:
+    """The project's semantic-index bundle read at ``commit`` (``HEAD`` when ``None``).
+
+    Raises ``DesignDataPending`` while the member builds and ``DesignDataFailed``
+    when it cannot be built; the API renders both the same way for every route.
+    """
 
     location = project_revision.locate(project)
-    resolved_commit = project_revision.resolve_commit(location, commit)
-    project_rel = project_revision.project_file_rel(location)
-    with project_revision.checkout(location, resolved_commit, prefix="semantic-index-commit-") as revision:
-        project_file = revision.path(project_rel)
-        if not project_file.is_file():
-            raise ValueError(f"KiCad project file not found in commit {resolved_commit}: {project_rel}")
-        yield project_file, resolved_commit
+    resolved_commit = project_revision.resolve_commit(location, commit or "HEAD")
+    return semantic_index_bundle.ready(str(project.id), resolved_commit)
 
 
-def _write_artifact(path: Path, payload: dict[str, Any]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    temporary = path.with_suffix(".json.tmp")
-    # Compact: the identity endpoint streams this file to the browser as is.
-    temporary.write_text(json.dumps(payload, separators=(",", ":")), encoding="utf-8")
-    temporary.replace(path)
+def _ready_read(project: Any, commit: str | None) -> Any:
+    """The read when its semantic-index member is ready; a final non-member fails.
+
+    ``not-applicable`` and ``skipped`` are final: a project with no root
+    schematic has no index, and that is a typed failure rather than a wait.
+    """
+
+    from app.services.design_bundle.errors import DesignDataFailed
+
+    read = _bundle_read(project, commit)
+    if not read.ready(semantic_index_bundle.MEMBER):
+        raise DesignDataFailed([semantic_index_bundle.MEMBER], "this project has no semantic index")
+    return read
 
 
-def _build_and_store(
-    project: Any,
-    commit: str | None,
-    source_revision_key: str,
-    path: Path,
-) -> dict[str, Any]:
-    with _project_file_for_revision(project, commit) as (project_file, resolved_commit):
-        payload = build_semantic_index(
-            project_file,
-            source_revision_key=source_revision_key,
-            commit=resolved_commit,
-        )
-    _write_artifact(path, payload)
-    _prune_other_builds(str(project.id), source_revision_key)
-    return payload
+def get_index(project: Any, commit: str | None = None) -> dict[str, Any]:
+    """The revision's semantic index: ``projections/semantic-index.json`` (a2)."""
 
-
-def _prune_other_builds(project_id: str, source_revision_key: str) -> None:
-    """Other generator builds of this revision's index are never read again."""
-
-    revision = artifact_dir(project_id, source_revision_key).parent
-    current = generator_cache_tag()
-    for stale in revision.iterdir():
-        if stale.is_dir() and stale.name != current:
-            shutil.rmtree(stale, ignore_errors=True)
-
-
-def _bundle_ready(project: Any, commit: str | None) -> Any:
-    """The opened bundle when a commit's member is ready, else ``None`` (``semantic_index_bundle``)."""
-
-    if not commit or not semantic_index_bundle.enabled():
-        return None
-    location = project_revision.locate(project)
-    return semantic_index_bundle.ready(str(project.id), project_revision.resolve_commit(location, commit))
-
-
-def get_or_build(project: Any, commit: str | None = None) -> dict[str, Any]:
-    if (read := _bundle_ready(project, commit)) is not None:
-        return read.json(semantic_index_bundle.MEMBER)
-
-    source_revision_key, _resolved_commit = _revision_identity(project, commit)
-    path = artifact_path(str(project.id), source_revision_key)
-    if path.is_file():
-        return json.loads(path.read_text(encoding="utf-8"))
-
-    with _lock(str(project.id), source_revision_key):
-        if path.is_file():
-            return json.loads(path.read_text(encoding="utf-8"))
-        return _build_and_store(project, commit, source_revision_key, path)
+    return _ready_read(project, commit).json(semantic_index_bundle.MEMBER)
 
 
 def artifact_file(project: Any, commit: str | None = None) -> semantic_index_bundle.ArtifactFile:
-    """The stored index file and its revision key, built first if missing, never parsed.
+    """The member's file in the verified unpacked cache, keyed by the design revision key.
 
-    Readers that only pass the index on (the identity endpoint) start from
-    this, so a request no longer holds the whole index as Python objects.
+    Readers that only pass the index on (the identity endpoint, Sim Studio)
+    start from this, so a request never holds the whole index as Python objects.
     """
 
-    if (read := _bundle_ready(project, commit)) is not None:
-        return semantic_index_bundle.artifact(read)
-
-    source_revision_key, _resolved_commit = _revision_identity(project, commit)
-    path = artifact_path(str(project.id), source_revision_key)
-    if not path.is_file():
-        with _lock(str(project.id), source_revision_key):
-            if not path.is_file():
-                _build_and_store(project, commit, source_revision_key, path)
-    return semantic_index_bundle.ArtifactFile(path, source_revision_key, generator_cache_tag())
+    return semantic_index_bundle.artifact(_ready_read(project, commit))
 
 
-def get_existing(project: Any, commit: str | None = None) -> dict[str, Any] | None:
-    if (read := _bundle_ready(project, commit)) is not None:
-        return read.json(semantic_index_bundle.MEMBER)
-
-    source_revision_key, _resolved_commit = _revision_identity(project, commit)
-    path = artifact_path(str(project.id), source_revision_key)
-    if not path.is_file():
-        return None
-    return json.loads(path.read_text(encoding="utf-8"))
+def get_status(project: Any, commit: str | None = None) -> tuple[dict[str, Any], dict[str, str]]:
+    read = _bundle_read(project, commit)
+    return (
+        semantic_index_bundle.status(read, str(project.id), _generator_record()),
+        read.response_headers(),
+    )
 
 
-def generate(project: Any, commit: str | None = None, *, force: bool = False) -> dict[str, Any]:
-    if (read := _bundle_ready(project, commit)) is not None:
-        return read.json(semantic_index_bundle.MEMBER)
+def start_generate_job(
+    project_id: str,
+    *,
+    commit: str | None = None,
+    force: bool = False,
+    requested_by: str = "",
+) -> dict[str, Any]:
+    """Queue the revision's design bundle (the semantic index is one of its members).
 
-    source_revision_key, _resolved_commit = _revision_identity(project, commit)
-    path = artifact_path(str(project.id), source_revision_key)
-    with _lock(str(project.id), source_revision_key):
-        if path.is_file() and not force:
-            return json.loads(path.read_text(encoding="utf-8"))
-        return _build_and_store(project, commit, source_revision_key, path)
+    Replaces the retired ``semantic_index`` job: the bundle's build is the only
+    index generator. ``force`` rebuilds even when ``reuse`` could serve the key.
+    """
 
+    from app.services.design_bundle import jobs as bundle_jobs
 
-def get_status(project: Any, commit: str | None = None) -> dict[str, Any]:
-    if (read := _bundle_ready(project, commit)) is not None:
-        return semantic_index_bundle.status(read, str(project.id), _generator_record())
-
-    source_revision_key, resolved_commit = _revision_identity(project, commit)
-    path = artifact_path(str(project.id), source_revision_key)
-    return {
-        "schema": "prism.semantic_index_status_a0",
-        "projectId": str(project.id),
-        "sourceRevisionKey": source_revision_key,
-        "commit": resolved_commit,
-        "available": path.is_file(),
-        "generator": _generator_record(),
-    }
+    job_id = bundle_jobs.start_design_bundle_job(
+        project_id, commit=commit, force=force, retry_failed=True, requested_by=requested_by
+    )
+    return {"job_id": job_id or "", "status": "started" if job_id else "ready"}
 
 
 def _generator_record() -> dict[str, str]:
