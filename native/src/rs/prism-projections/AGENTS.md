@@ -6,7 +6,7 @@ producer reads the single parsed model and returns its contract from
 `native/contracts/prism/field-maps/`. The crate's interface (`ProjectionInput`,
 `Produced`, `Sources`) is documented in `src/lib.rs`.
 
-- `src/assembly_hlr.rs` (bundle member `models/assembly-hlr.json`, stage
+- `src/assembly_hlr.rs` (bundle member models/assembly-hlr.json, stage
   `models`, amendment C3 §3.1): the Geometer HLR projection of every
   footprint's first STEP model, with its `--hlr-cache`. Its submodules are the
   pose, the geometry (dedupe and back-side mirror), the model resolver and the
