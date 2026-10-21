@@ -276,6 +276,9 @@ pub struct End {
     /// Contact parts by cavity.
     #[serde(default)]
     pub contacts: BTreeMap<String, PartRef>,
+    /// The straight run out of the housing; absent: 10 mm (§16.6).
+    #[serde(default)]
+    pub boot_length_nm: Option<i64>,
 }
 
 /// A schematic harness wire between two endpoints.
@@ -333,6 +336,70 @@ pub struct Wire {
     /// Printed label.
     #[serde(default)]
     pub label: Option<String>,
+    /// A typed length that overrides the route's.
+    #[serde(default, rename = "lengthNm")]
+    pub length_nm: Option<i64>,
+    /// The segments it runs, from `from` to `to`; empty: derived (§16.6).
+    #[serde(default)]
+    pub route: Vec<String>,
+}
+
+/// A node a segment joins: an end or a branch point.
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SegmentNode {
+    /// `end` or `branch-point`.
+    pub kind: String,
+    /// The end, for `end`.
+    #[serde(default)]
+    pub end: Option<String>,
+    /// The branch point, for `branch-point`.
+    #[serde(default)]
+    pub branch_point: Option<String>,
+}
+
+impl SegmentNode {
+    /// The node's id.
+    pub fn id(&self) -> Option<&str> {
+        match self.kind.as_str() {
+            "end" => self.end.as_deref(),
+            _ => self.branch_point.as_deref(),
+        }
+    }
+}
+
+/// A stored segment of a harness's route tree.
+#[derive(Clone, Debug, Deserialize)]
+pub struct Segment {
+    /// Its id.
+    pub id: String,
+    /// One node.
+    pub from: SegmentNode,
+    /// The other node.
+    pub to: SegmentNode,
+}
+
+/// A branch point.
+#[derive(Clone, Debug, Deserialize)]
+pub struct BranchPoint {
+    /// Its id.
+    pub id: String,
+    /// Its pinned position; absent: derived (§16.6).
+    #[serde(default)]
+    pub position: Option<VectorNm>,
+}
+
+/// A pinned point a segment's curve passes through.
+#[derive(Clone, Debug, Deserialize)]
+pub struct Waypoint {
+    /// Its id.
+    pub id: String,
+    /// The segment.
+    pub segment: String,
+    /// Its position in system space.
+    pub position: VectorNm,
+    /// Its place along the segment from the `from` node: lower comes first.
+    pub order: i64,
 }
 
 /// A splice.
@@ -372,6 +439,15 @@ pub struct Harness {
     /// Loose ends.
     #[serde(default, rename = "looseEnds")]
     pub loose_ends: Vec<LooseEnd>,
+    /// Stored route segments.
+    #[serde(default)]
+    pub segments: Vec<Segment>,
+    /// Branch points.
+    #[serde(default, rename = "branchPoints")]
+    pub branch_points: Vec<BranchPoint>,
+    /// Waypoints.
+    #[serde(default)]
+    pub waypoints: Vec<Waypoint>,
 }
 
 /// One conductor of a cable.

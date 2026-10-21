@@ -125,7 +125,7 @@ export function buildBom(view: HarnessView): BomSection[] {
     { title: "Coverings", rows: tally(view.coverings.flatMap((covering) => (covering.part ? [partRefText(covering.part)] : []))) },
     {
       title: "Wire",
-      rows: tally(view.wires.map((wire) => `${wire.gaugeAwg ?? "no gauge"} AWG · ${wire.colour ?? "no colour"}`)),
+      rows: wireTally(view.wires),
     },
   ];
   return sections.filter((section) => section.rows.length > 0);
@@ -135,6 +135,43 @@ export function buildBom(view: HarnessView): BomSection[] {
 export function mmText(nm: number | undefined): string {
   if (nm === undefined) return "";
   return String(Math.round((nm / 1e6) * 100) / 100);
+}
+
+/** The length a wire is read by: a typed override wins over the 3D route (§16.6). */
+export function effectiveLengthNm(wire: WireView): number | undefined {
+  return wire.lengthNm ?? wire.routeLengthNm;
+}
+
+/** A wire's length cell: the typed value (marked `typed`), the route's, or an em dash. */
+export function wireLengthText(wire: WireView): { text: string; typed: boolean } {
+  if (wire.lengthNm !== undefined) return { text: mmText(wire.lengthNm), typed: true };
+  if (wire.routeLengthNm !== undefined) return { text: mmText(wire.routeLengthNm), typed: false };
+  return { text: "—", typed: false };
+}
+
+/** A whole number of millimetres, grouped as `1 240`. */
+function totalMm(nm: number): string {
+  return String(Math.round(nm / 1e6)).replace(/\B(?=(\d{3})+(?!\d))/g, " ");
+}
+
+/** Wire rows by gauge and colour, with their total length when every wire has one. */
+function wireTally(wires: WireView[]): BomRow[] {
+  const groups = new Map<string, { count: number; totalNm: number; complete: boolean }>();
+  for (const wire of wires) {
+    const label = `${wire.gaugeAwg ?? "no gauge"} AWG · ${wire.colour ?? "no colour"}`;
+    const group = groups.get(label) ?? { count: 0, totalNm: 0, complete: true };
+    const length = effectiveLengthNm(wire);
+    group.count += 1;
+    group.totalNm += length ?? 0;
+    group.complete = group.complete && length !== undefined;
+    groups.set(label, group);
+  }
+  return [...groups]
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([label, group]) => ({
+      label: group.complete ? `${label} · ${totalMm(group.totalNm)} mm` : label,
+      count: group.count,
+    }));
 }
 
 /** Parse a millimetre field; `null` clears the override. */

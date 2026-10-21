@@ -17,8 +17,9 @@
 /// whenever what the bundle holds changes, so stored bundles rebuild without
 /// changing any design bundle's key. 1: stage 3a added `placement`; 2: stage 3c
 /// added mates' drawn `pads`; 3: stage 3d added bodies and the parts digest; 4:
-/// stage 3d added `placement.exports`; 5: stage 4a added `harnesses`.
-pub const SYSTEM_BUNDLE_FORMAT: u32 = 5;
+/// stage 3d added `placement.exports`; 5: stage 4a added `harnesses`; 6: stage 4c
+/// added `harnesses[].route`.
+pub const SYSTEM_BUNDLE_FORMAT: u32 = 6;
 
 pub mod arrangement;
 pub mod body;
@@ -33,5 +34,6 @@ pub mod natural;
 pub mod nets;
 pub mod output;
 pub mod placement;
+pub mod routing;
 pub mod suggestions;
 pub mod wiring;

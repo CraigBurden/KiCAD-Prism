@@ -15,6 +15,7 @@
 
 import { LOD_BOX, LOD_THRESHOLDS, normalizeLodThresholds } from "./occurrences.js";
 import { Renderer } from "./renderer.js";
+import { TubeRenderer } from "./tube-renderer.js";
 
 const UNIT_BOX = [0, 0, 0, 1, 1, 1];
 
@@ -33,6 +34,23 @@ export class SceneRenderer {
     this.order = [];
     this.frameStats = { triangles: 0, draws: 0 };
     this.lodThresholds = { ...LOD_THRESHOLDS };
+    // Harness tubes (4c): created with the first harness; the version bumps when they change.
+    this.tubes = null;
+    this.tubeVersion = 0;
+  }
+
+  /** Harness tubes to draw (harness-descriptor.js output) and how to colour each: `[r, g, b, a]`. */
+  setTubes(tubes, colorOf) {
+    if (!tubes.length && !this.tubes) return;
+    this.tubes ??= new TubeRenderer(this.host);
+    this.tubes.setTubes(tubes, colorOf);
+    this.tubeVersion += 1;
+  }
+
+  /** Recolour the tubes (a selection or drag preview changed) without re-uploading geometry. */
+  setTubeColors(colorOf) {
+    this.tubes?.setColors(colorOf);
+    this.tubeVersion += 1;
   }
 
   /** A renderer for one asset, created on first use. */
@@ -133,6 +151,7 @@ export class SceneRenderer {
     }
     const encoder = this.device.createCommandEncoder();
     const reads = live.filter((renderer) => renderer.encodeCull(encoder, panel));
+    this.tubes?.encodeCompute(encoder);
     const pass = encoder.beginRenderPass({
       colorAttachments: [host.colorAttachment(host.context.getCurrentTexture().createView())],
       depthStencilAttachment: host.depthAttachment(),
@@ -144,6 +163,10 @@ export class SceneRenderer {
       const counted = renderer.encodeDraws(pass, panel, options.get(renderer));
       triangles += counted.triangles;
       draws += counted.draws;
+    }
+    if (this.tubes?.counts.segments) {
+      triangles += this.tubes.draw(pass, panel.matrix, performance.now() / 1000);
+      draws += 1;
     }
     pass.end();
     this.device.queue.submit([encoder.finish()]);
@@ -199,6 +222,7 @@ export class SceneRenderer {
   gpuMemoryBytes() {
     let bytes = 0;
     for (const renderer of this.renderers) bytes += renderer.gpuMemoryBytes();
+    bytes += this.tubes?.gpuMemoryBytes() || 0;
     // SB2-90: the shared geometry arena's unused space, held by the host.
     bytes += this.host.arenaSlackBytes();
     // Every renderer counts the shared depth and pick targets; count them once.
@@ -235,6 +259,8 @@ export class SceneRenderer {
 
   /** Release everything, the device included: a closed tab frees its GPU memory at once, not at GC. */
   dispose() {
+    this.tubes?.dispose();
+    this.tubes = null;
     for (const id of [...this.assets.keys()]) this.removeAsset(id);
     this.host.dispose();
     this.host.context?.unconfigure?.();

@@ -13,7 +13,7 @@ use crate::output::{
     ConnectorOut, MateOut, MatePadOut, MatePadsOut, OccurrenceOut, OutlineOut, PairOut, PinOut,
     PinRef, PlacementOut, SCHEMA, SystemBundle,
 };
-use crate::{arrangement, body};
+use crate::{arrangement, body, routing};
 use crate::{harness, nets, suggestions, wiring};
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -42,9 +42,11 @@ pub fn build(doc: &Document, members: &Members, document_sha256: String) -> Syst
         .collect();
     let wired = wiring::wire(&mut cx, &mut edges);
     let nets = nets::system_nets(&mut cx, &named, &edges);
-    let harnesses = harness::resolve(&mut cx, &wired.links, &nets);
+    let mut harnesses = harness::resolve(&mut cx, &wired.links, &nets);
     let suggestions = suggestions::suggest(&cx, &named);
-    let placement = arrangement::arrange(&mut cx, doc);
+    let arranged = arrangement::arrange(&mut cx, doc);
+    routing::route_all(&mut cx, doc, &arranged, &mut harnesses);
+    let placement = arranged.scene;
     SystemBundle {
         schema: SCHEMA,
         document_sha256,

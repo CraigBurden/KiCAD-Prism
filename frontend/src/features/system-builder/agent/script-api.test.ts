@@ -91,7 +91,46 @@ const HARNESS_BUNDLE = {
         suggested: false,
       },
     ],
+    route: {
+      derived: true,
+      ends: [
+        { end: "end_a", exit: { xNm: 0, yNm: 0, zNm: 0 }, outward: { x: 0, y: 0, z: 1 }, leg: { xNm: 0, yNm: 0, zNm: 10e6 } },
+        { end: "end_b", exit: { xNm: 100e6, yNm: 0, zNm: 0 }, outward: { x: 0, y: 0, z: -1 }, leg: { xNm: 100e6, yNm: 0, zNm: 10e6 } },
+      ],
+      segments: [{
+        id: "har_h/end_a~end_b",
+        derived: true,
+        from: "end_a",
+        to: "end_b",
+        wires: ["link_h:1"],
+        diameterNm: 2_400_000,
+        assumedGauge: false,
+        samplesNm: [0, 0, 10e6, 50e6, 0, 60e6, 100e6, 0, 10e6],
+        lengthNm: 182_400_000,
+        minRadiusAllowedNm: 14_400_000,
+        clearances: [],
+      }],
+      wires: [{ wire: "link_h:1", lengthNm: 182_400_000 }],
+    },
   }],
+  findings: [
+    {
+      code: "harness-bend-tight",
+      severity: "warning",
+      subject: "segment:har_h/end_a~end_b",
+      message: "The bend is tighter than the minimum radius.",
+      objects: ["har_h"],
+      waived: false,
+    },
+    {
+      code: "wire-gauge-unknown",
+      severity: "info",
+      subject: "harness:har_h",
+      message: "Wires have no gauge.",
+      objects: ["har_h"],
+      waived: false,
+    },
+  ],
 } as unknown as SystemBundle;
 
 function setup(version = 5, chosen: { document?: SystemDocument; bundle?: SystemBundle } = {}) {
@@ -279,5 +318,85 @@ describe("harness script API", () => {
       harness: "har_h",
       link: { ...HARNESS.links[0], unmapped: ["2"] },
     }]);
+  });
+
+  it("describes the bundle route and only its §16.6 findings", () => {
+    const { api } = harness();
+    const described = api.describeRoute("har_h");
+    expect(described.route?.derived).toBe(true);
+    expect(described.route?.segments.map((segment) => segment.id)).toEqual(["har_h/end_a~end_b"]);
+    expect(described.findings.map((finding) => finding.code)).toEqual(["harness-bend-tight"]);
+    expect(() => api.describeRoute("har_none")).toThrow("No harness har_none");
+  });
+
+  it("adds a waypoint after storing the derived tree", async () => {
+    const { api, sent } = harness();
+    const result = await api.addWaypoint({
+      harness: "har_h",
+      segment: "har_h/end_a~end_b",
+      position: { xNm: 0, yNm: 50e6, zNm: 0 },
+      order: 0,
+    });
+    expect(result.id).toMatch(/^wpt_/);
+    expect(result.version).toBe(6);
+    expect(sent[0].expect).toBe(5);
+    expect(sent[0].ops.map((op) => op.kind)).toEqual(["add-segment", "add-waypoint"]);
+    expect(sent[0].ops[1]).toMatchObject({ kind: "add-waypoint", waypoint: { id: result.id, order: 0 } });
+  });
+
+  it("stores the topology and returns the new segment ids", async () => {
+    const { api, sent } = harness();
+    const stored = await api.storeTopology("har_h");
+    expect(stored.version).toBe(6);
+    expect(Object.keys(stored.segments)).toEqual(["har_h/end_a~end_b"]);
+    expect(stored.segments["har_h/end_a~end_b"]).toMatch(/^seg_/);
+    expect(sent[0].ops.map((op) => op.kind)).toEqual(["add-segment"]);
+  });
+
+  it("refuses to store a topology that is already stored", async () => {
+    const route = HARNESS_BUNDLE.harnesses![0].route;
+    const storedBundle = {
+      ...HARNESS_BUNDLE,
+      harnesses: [{ ...HARNESS_BUNDLE.harnesses![0], route: { ...route, derived: false } }],
+    } as unknown as SystemBundle;
+    const { api } = setup(5, { document: harnessDocument(), bundle: storedBundle });
+    await expect(api.storeTopology("har_h")).rejects.toThrow("The topology is already stored");
+  });
+
+  it("moves and removes stored waypoints and branch points", async () => {
+    const storedDocument: SystemDocument = {
+      ...harnessDocument(),
+      harnesses: [{
+        ...HARNESS,
+        segments: [
+          { id: "seg_1", from: { kind: "end", end: "end_a" }, to: { kind: "branch-point", branchPoint: "bp_1" } },
+          { id: "seg_2", from: { kind: "branch-point", branchPoint: "bp_1" }, to: { kind: "end", end: "end_b" } },
+        ],
+        waypoints: [{ id: "w1", segment: "seg_1", position: { xNm: 0, yNm: 6e6, zNm: 0 }, order: 0 }],
+      }],
+    };
+    const route = HARNESS_BUNDLE.harnesses![0].route!;
+    const storedBundle = {
+      ...HARNESS_BUNDLE,
+      harnesses: [{
+        ...HARNESS_BUNDLE.harnesses![0],
+        route: {
+          ...route,
+          derived: false,
+          segments: [
+            { ...route.segments[0], id: "seg_1", from: "end_a", to: "bp_1", derived: false },
+            { ...route.segments[0], id: "seg_2", from: "bp_1", to: "end_b", derived: false },
+          ],
+        },
+      }],
+    } as unknown as SystemBundle;
+    const { api, sent } = setup(5, { document: storedDocument, bundle: storedBundle });
+    const moved = await api.moveWaypoint({ harness: "har_h", waypoint: "w1", position: { xNm: 5e6, yNm: 8e6, zNm: 0 } });
+    expect(moved.version).toBe(6);
+    expect(sent[0].ops[0]).toMatchObject({ kind: "replace-waypoint", waypoint: { id: "w1", position: { xNm: 5e6, yNm: 8e6, zNm: 0 } } });
+    await api.removeWaypoint({ harness: "har_h", waypoint: "w1" });
+    expect(sent[1].ops[0]).toMatchObject({ kind: "remove-waypoint", id: "w1" });
+    await api.setBranchPoint({ harness: "har_h", branchPoint: "bp_1", position: { xNm: 1e6, yNm: 2e6, zNm: 0 } });
+    expect(sent[2].ops[0]).toMatchObject({ kind: "replace-branch-point", branchPoint: { id: "bp_1", position: { xNm: 1e6, yNm: 2e6, zNm: 0 } } });
   });
 });

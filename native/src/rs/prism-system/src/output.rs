@@ -464,6 +464,115 @@ pub struct HarnessWireOut {
     pub net: Option<String>,
     /// Joins power or ground pins.
     pub suggested: bool,
+    /// Its route length (§16.6), when routed.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub route_length_nm: Option<i64>,
+}
+
+/// A posed harness end (§16.6).
+#[derive(Clone, Debug, Serialize)]
+pub struct RouteEndOut {
+    /// The end.
+    pub end: String,
+    /// Where the cable leaves the housing.
+    pub exit: VectorNmOut,
+    /// The connector's outward axis.
+    pub outward: UnitVectorOut,
+    /// The end of the boot.
+    pub leg: VectorNmOut,
+}
+
+/// A unit direction.
+#[derive(Clone, Copy, Debug, Serialize)]
+pub struct UnitVectorOut {
+    /// X.
+    pub x: f64,
+    /// Y.
+    pub y: f64,
+    /// Z.
+    pub z: f64,
+}
+
+/// A bend tighter than allowed.
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TightBendOut {
+    /// Where.
+    pub at: VectorNmOut,
+    /// The radius there.
+    pub radius_nm: i64,
+}
+
+/// One route segment and its curve (§16.6).
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RouteSegmentOut {
+    /// Stored id, or `<harness>/<from>~<to>`.
+    pub id: String,
+    /// Derived, not stored.
+    pub derived: bool,
+    /// A node id.
+    pub from: String,
+    /// A node id.
+    pub to: String,
+    /// The wires it carries.
+    pub wires: Vec<String>,
+    /// The bundle's diameter.
+    pub diameter_nm: i64,
+    /// A gauge was assumed.
+    pub assumed_gauge: bool,
+    /// Flat samples from `from` to `to`.
+    pub samples_nm: Vec<i64>,
+    /// Arc length.
+    pub length_nm: i64,
+    /// The tightest bend, when it bends.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub min_radius_nm: Option<i64>,
+    /// 6 × the diameter.
+    pub min_radius_allowed_nm: i64,
+    /// A bend tighter than allowed.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tight_bend: Option<TightBendOut>,
+    /// Boards and bodies it comes too close to.
+    pub clearances: Vec<ClearanceOut>,
+}
+
+/// A segment too close to a board or body.
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ClearanceOut {
+    /// The occurrence.
+    pub occurrence: String,
+    /// The closest point.
+    pub at: VectorNmOut,
+    /// Curve to box.
+    pub distance_nm: i64,
+    /// Radius plus margin.
+    pub needed_nm: i64,
+}
+
+/// A wire's route length.
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RouteWireOut {
+    /// The wire.
+    pub wire: String,
+    /// Absent when unrouted.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub length_nm: Option<i64>,
+}
+
+/// A harness route (§16.6).
+#[derive(Clone, Debug, Serialize)]
+pub struct HarnessRouteOut {
+    /// The tree was derived.
+    pub derived: bool,
+    /// Posed ends, in document order.
+    pub ends: Vec<RouteEndOut>,
+    /// Segments in tree order.
+    pub segments: Vec<RouteSegmentOut>,
+    /// Every wire of the wire list.
+    pub wires: Vec<RouteWireOut>,
 }
 
 /// A harness block's ends and wire list (§16.3).
@@ -475,6 +584,9 @@ pub struct HarnessOut {
     pub ends: Vec<HarnessEndOut>,
     /// Explicit wires in document order, then each link's default wires.
     pub wires: Vec<HarnessWireOut>,
+    /// The route in 3D (§16.6).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub route: Option<HarnessRouteOut>,
 }
 
 /// A sub-port suggestion.

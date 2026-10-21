@@ -406,10 +406,21 @@ test("a system mount gets the budget, scene, lit sets, move permission, explode,
     ["setGpuBudget", 2 ** 30],
     ["setSystemScene", scene],
     ["setMoveAllowed", false],
+    ["setRouteMode", false],
     ["setAssemblyExplode", 0.6],
     ["setMoveSnap", { mm: 2, deg: 5 }],
     ["setLabelsVisible", false],
   ]);
+});
+
+test("route mode survives a reload and reaches a fresh system mount", () => {
+  const system = new SystemModeController();
+  system.setRouteMode(true);
+  const { port, calls } = fakeScene();
+  system.attach(port);
+  assert.deepEqual(calls.filter((call) => call[0] === "setRouteMode"), [["setRouteMode", true]]);
+  system.setRouteMode(false);
+  assert.deepEqual(calls.filter((call) => call[0] === "setRouteMode").at(-1), ["setRouteMode", false]);
 });
 
 test("the assembly explode and snap steps replay on every mount, clamped and normalised", () => {

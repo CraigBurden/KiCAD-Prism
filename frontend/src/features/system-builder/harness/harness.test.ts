@@ -17,6 +17,7 @@ import {
   setEndOps,
   setWireOps,
 } from "./harness-edits";
+import { buildBom } from "./harness-format";
 import { CARD_HEADER, CARD_WIDTH, NM_PER_PX, ROW, STRIP, layoutHarness, terminalPoint } from "./harness-layout";
 import { buildHarnessView, type HarnessView } from "./harness-view";
 
@@ -130,6 +131,15 @@ const BUNDLE: SystemBundle = {
         suggested: false,
       },
     ],
+    route: {
+      derived: true,
+      ends: [],
+      segments: [],
+      wires: [
+        { wire: "w_ex", lengthNm: 182_400_000 },
+        { wire: "link_1:2", lengthNm: 1_000_000_000 },
+      ],
+    },
   }],
   suggestions: [],
   findings: [{
@@ -158,7 +168,18 @@ describe("buildHarnessView", () => {
     expect(view.ends[0].pins.find((pin) => pin.pad === "4")).toMatchObject({ open: true, wired: false });
     expect(view.ends[0].pins.find((pin) => pin.pad === "1")).toMatchObject({ open: false, wired: true });
     expect(view.wires.map((wire) => [wire.id, wire.origin])).toEqual([["w_ex", "explicit"], ["link_1:2", "default"], ["link_1:3", "default"]]);
+    expect(view.wires.map((wire) => wire.routeLengthNm)).toEqual([182_400_000, 1_000_000_000, undefined]);
     expect(view.findings.map((finding) => finding.code)).toEqual(["wire-gauge-unknown"]);
+  });
+});
+
+describe("wire lengths", () => {
+  it("totals a BOM row only when every wire of it has a length", () => {
+    const rows = buildBom(viewOf()).find((section) => section.title === "Wire")!.rows;
+    expect(rows).toEqual([
+      { label: "no gauge AWG · no colour", count: 2 },
+      { label: "no gauge AWG · red · 182 mm", count: 1 },
+    ]);
   });
 });
 

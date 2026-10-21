@@ -49,6 +49,18 @@ function shellHtml() {
       #move-gizmo .pivot { fill: #0f172a; stroke: #fff; stroke-width: 1.5; }
       #move-gizmo .readout { font: 600 12px system-ui, -apple-system, "Segoe UI", sans-serif; fill: #0f172a;
         paint-order: stroke; stroke: #fff; stroke-width: 3px; }
+      /* Harness handles and flags (4c): an overlay projected every frame. */
+      #harness-overlay { position: absolute; inset: 0; z-index: 3; width: 100%; height: 100%; overflow: visible; pointer-events: none; }
+      #harness-overlay[hidden] { display: none; }
+      #harness-overlay .harness-handle { pointer-events: all; cursor: pointer; }
+      #harness-overlay .handle-body { fill: #fff; stroke: #0f172a; stroke-width: 1.5; }
+      #harness-overlay .handle-dot { fill: #0f172a; pointer-events: none; }
+      #harness-overlay .harness-handle.auto .handle-body { fill: rgb(255 255 255 / 0.8); stroke-dasharray: 3 2; }
+      #harness-overlay .handle-halo { fill: none; stroke: #38bdf8; stroke-width: 3; opacity: 0.9; }
+      #harness-overlay .harness-flag { pointer-events: none; }
+      #harness-overlay .flag-ring { fill: rgb(220 38 38 / 0.12); stroke: #dc2626; stroke-width: 2; stroke-dasharray: 4 3; }
+      #harness-overlay .flag-pill { fill: #dc2626; }
+      #harness-overlay .flag-label { fill: #fff; font: 600 10px system-ui, -apple-system, "Segoe UI", sans-serif; }
       #system-help { position: absolute; right: 12px; bottom: 12px; z-index: 4; margin: 0; padding: 10px 12px; max-width: 340px;
         display: grid; grid-template-columns: auto 1fr; gap: 3px 12px;
         background: rgb(15 20 28 / 0.9); color: #e2e8f0; border-radius: 8px;
@@ -72,6 +84,7 @@ function shellHtml() {
         <dl id="scene-stats" hidden></dl>
         <div id="system-labels" hidden></div>
         <svg id="move-gizmo" hidden aria-hidden="true"></svg>
+        <svg id="harness-overlay" hidden aria-hidden="true"></svg>
         <dl id="system-help" hidden aria-label="Keyboard shortcuts">
           <h2>Keyboard</h2>
           <dt><kbd>Home</kbd> <kbd>A</kbd></dt><dd>Frame every board</dd>
@@ -278,6 +291,12 @@ export class PrismSemanticViewerElement extends HTMLElement {
         },
         onMove: (state) => {
           if (!signal.aborted) this.emit("move", state);
+        },
+        onHarness: (detail) => {
+          if (signal.aborted || !detail) return;
+          const { type, ...event } = detail;
+          if (type === "select") this.emit("harness-select", event);
+          else if (type === "drag") this.emit("harness-drag", event);
         },
       });
       if (!isCurrent()) {

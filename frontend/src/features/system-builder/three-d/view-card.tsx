@@ -10,9 +10,10 @@ export interface ViewSettings {
   stackupScope: "all" | "selected";
   labels: boolean;
   parts: boolean;
+  harnesses: boolean;
 }
 
-export const DEFAULT_VIEW: ViewSettings = { assembly: 0, stackup: 0, stackupScope: "all", labels: true, parts: true };
+export const DEFAULT_VIEW: ViewSettings = { assembly: 0, stackup: 0, stackupScope: "all", labels: true, parts: true, harnesses: true };
 
 const pill = (on: boolean) =>
   `rounded-full border px-2 py-0.5 text-[11px] disabled:opacity-40 ${on ? "border-blue-500 text-zinc-100" : "border-white/15 text-zinc-400 hover:text-zinc-100"}`;
@@ -48,6 +49,7 @@ export function ViewCard({ view, onChange, hasSelection }: { view: ViewSettings;
       <div className="mt-3 flex flex-wrap gap-1.5">
         <button type="button" className={pill(view.labels)} aria-pressed={view.labels} onClick={() => onChange({ ...view, labels: !view.labels })}>Labels</button>
         <button type="button" className={pill(view.parts)} aria-pressed={view.parts} onClick={() => onChange({ ...view, parts: !view.parts })}>Parts</button>
+        <button type="button" className={pill(view.harnesses)} aria-pressed={view.harnesses} onClick={() => onChange({ ...view, harnesses: !view.harnesses })}>Harnesses</button>
       </div>
     </div>
   );

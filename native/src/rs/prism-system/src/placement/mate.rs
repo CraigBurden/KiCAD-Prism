@@ -264,7 +264,7 @@ pub fn body_corners(
 }
 
 /// The corners' box in the connector frame (`mate.py:_box_in`).
-fn box_in(frame: &ConnectorFrame, corners: &[[f64; 3]]) -> Option<([f64; 3], [f64; 3])> {
+pub(crate) fn box_in(frame: &ConnectorFrame, corners: &[[f64; 3]]) -> Option<([f64; 3], [f64; 3])> {
     let first = corners.first()?;
     let mut lo = local(frame, *first);
     let mut hi = lo;

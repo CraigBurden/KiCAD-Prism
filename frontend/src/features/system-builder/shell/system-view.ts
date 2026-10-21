@@ -64,6 +64,11 @@ export function useSystemView() {
     const harnesses = openHarnesses.includes(harness) ? openHarnesses : [...openHarnesses, harness];
     setView({ tab: `harness:${harness}`, beside: "schematic", harnesses });
   };
+  /** Open the Route tool's 3D tab beside a harness tab (mockup 10). */
+  const openRoute = (harness: string) => {
+    const harnesses = openHarnesses.includes(harness) ? openHarnesses : [...openHarnesses, harness];
+    setView({ tab: `harness:${harness}`, beside: "3d", harnesses });
+  };
   /** Close an opened object's tab; a pane that showed it falls back to the schematic. */
   const closeTab = (id: TabId) => {
     const mates = openMates.filter((item) => `b2b:${item}` !== id);
@@ -72,5 +77,5 @@ export function useSystemView() {
     setView({ tab: gone(tab) ? (gone(beside) ? "schematic" : beside ?? "schematic") : tab, beside: gone(beside) || gone(tab) ? null : beside, mates, harnesses });
   };
 
-  return { openMates, openHarnesses, tab, beside, sheet, openSheet, setView, openMate, openHarness, closeTab };
+  return { openMates, openHarnesses, tab, beside, sheet, openSheet, setView, openMate, openHarness, openRoute, closeTab };
 }

@@ -502,7 +502,7 @@ export class BoardModeController extends ModeController {
 export const SYSTEM_MEMBERS = Object.freeze([
   "setSystemScene", "setNetEmphasis", "frameNetEmphasis", "frameAll", "frameBoard", "frameParts",
   "setMoveMode", "setMoveSpace", "previewPose", "cancelMove", "getMoveState",
-  "setAssemblyExplode", "setMoveSnap", "pickSurfaceAt",
+  "setAssemblyExplode", "setMoveSnap", "pickSurfaceAt", "setRouteMode",
   "setLabelsVisible", "setHelpVisible", "isHelpVisible", "viewAxis",
 ]);
 
@@ -516,6 +516,7 @@ export class SystemModeController extends ModeController {
   #netEmphasis = null;
   #labels = null;
   #moveAllowed = false;
+  #routeMode = false;
   #assemblyExplode = 0;
   #moveSnap = { ...DEFAULT_MOVE_SNAP };
 
@@ -529,6 +530,7 @@ export class SystemModeController extends ModeController {
     if (this.#scene) port.setSystemScene(this.#scene);
     if (this.#netEmphasis) this.#applyNetEmphasis(port, this.#netEmphasis);
     port.setMoveAllowed(this.#moveAllowed);
+    port.setRouteMode(this.#routeMode);
     port.setAssemblyExplode(this.#assemblyExplode);
     port.setMoveSnap({ ...this.#moveSnap });
     if (this.#labels != null) port.setLabelsVisible(this.#labels);
@@ -602,6 +604,12 @@ export class SystemModeController extends ModeController {
 
   setMoveSpace(space) {
     this.port?.setMoveSpace(space);
+  }
+
+  /** The Route tool: presses on tubes and handles become harness drags. Replayed on the next mount. */
+  setRouteMode(on) {
+    this.#routeMode = Boolean(on);
+    this.port?.setRouteMode(this.#routeMode);
   }
 
   previewPose(pose) {
