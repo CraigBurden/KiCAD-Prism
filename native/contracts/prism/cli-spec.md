@@ -104,7 +104,8 @@ prism-kicad system build --document <system.json>
              --entry-stage <occurrence>=<stage>]...
             -o <system-bundle.json> [COMMON]
 
-prism-kicad artwork --in <bundle.prism> --config <artwork.json> --view <name>... -o <dir> [--variant <name>] [COMMON]
+prism-kicad artwork --in <bundle.prism> --config <artwork.json> --view <name>... -o <dir>
+            [--variant <name>] [--paper-scale <ratio>] [COMMON]
 prism-kicad vendor list [COMMON]
 prism-kicad vendor run <vendor-id> --in <bundle.prism> --config <cfg.json> -o <dir> [--variant <name>] [COMMON]
 prism-kicad stroke-text (--request <runs.json> | --metrics) [COMMON]
@@ -126,6 +127,8 @@ COMMON: [--limit <name>=<value>]... [--threads <n>] [--quiet]
   - `--revision-key`: 64 lowercase hex digits (`Sha256Hex`).
   - `--refill-tool` and `--models-tool`: a `CliReleaseVersion`, such as `10.0.6`.
   - `--stage`: `parse`, `board` or `models`.
+  - `--paper-scale`: a positive finite decimal ratio of sheet millimetres to
+    board millimetres, for example `2` or `0.5` (artwork, §5.7).
   - `--threads`: 1 to 64, the range of kicad-cruncher's `--workers` (fork: `.../kicad-cruncher-cli/src/lib.rs:413-424`). The default is min(available parallelism, 4). Output never depends on it.
   - `--upgraded`: `<path>=<version>`, where `<path>` is a `RepoPath` ending in `.kicad_pcb` or `.kicad_sch` and `<version>` is the file's original `(version N)`, a decimal integer (§9.4).
   - `--limit`: `<name>=<value>`, where `<name>` is a `CliLimitName` and `<value>` a decimal integer from 0 to the limit's hard bound (§7.2).
@@ -640,8 +643,9 @@ Release Studio's assembly and testpoint views (amendment C3 §3.2), a port of Cr
   - designators and variants from `placements` and `occurrences`;
   - `--config` is an `ArtworkConfigA0`; each `--view` must name one of its views, else exit 2, `view-unknown`.
 - **Stages required:** `parse`, `board` (or saved fills) and `models`, else exit 7, `stage-order`.
-- **Output:** `<dir>/<view>.svg` per view, written atomically, and `CliArtworkResultA0` on stdout: per view, the file's sha256, the footprints drawn, the designators placed, the DNP footprints hatched, and the footprints without a body outline.
+- **Output:** `<dir>/<view>.svg` per view, written atomically, and `CliArtworkResultA0` on stdout: per view, the file's sha256, the footprints drawn, the designators placed, the DNP footprints hatched, and the footprints without a body outline. When `--paper-scale` is given, the result records it as `paper_scale`.
 - **Rules:**
+  - `--paper-scale <ratio>` divides every style's stroke width (`line_width_mm`, `outline_width_mm`, `hatch_line_width_mm`), `min_font_size_mm`, `max_font_size_mm`, the callout leader gap and width, and `dot_diameter_mm` / `min_dot_diameter_mm` / `max_dot_diameter_mm` by the ratio before drawing, so those sizes print at the configured size on paper at that scale. The board geometry and the designator fitting region are unchanged: a label still shrinks below the minimum to fit its body. `paper_scale` is absent when the ratio is not given, and sizes are then in board millimetres.
   - footprint selection by `selector_overrides`;
   - layer tokens and styles from the config;
   - designators by region fitting inside the HLR outline, else the hole envelope, else the pad envelope; a style with `callout: true` (the testpoint views) draws the footprint's real pad shape and places the designator outside it at `min_font_size_mm`, joined by a leader line, in designator natural order, choosing the first of eight directions and growing radii whose text box clears every other label, every selected pad and the canvas (and counting a placement that cannot, `data-overlapping="true"`);
