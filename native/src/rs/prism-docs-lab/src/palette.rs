@@ -1,9 +1,12 @@
-//! KiCad's default copper colours and the ink palette the pages use.
+//! KiCad's default copper colours.
 //!
 //! The copper colours are KiCad 10's `pcbnew` defaults: `F.Cu` red, `B.Cu`
 //! blue and the inner layers In1…In30 from a six-colour table that repeats.
 //! Drawings colour every trace, pad and filled zone from here so a board on
-//! the page reads the way it reads in the board editor.
+//! the page reads the way it reads in the board editor. Copper is not themed:
+//! the layer colours carry the layer, and KiCad's set already reads on light,
+//! dark and blueprint pages alike. Everything that is *not* copper comes from
+//! [`crate::theme`].
 
 /// `F.Cu`, KiCad's default front copper.
 pub const F_CU: &str = "#C83434";
@@ -13,12 +16,6 @@ pub const B_CU: &str = "#4D7FC4";
 pub const INNER: [&str; 6] = [
     "#7FC87F", "#CE7D2C", "#4FCBCB", "#DB628B", "#A7A5C6", "#28CCD9",
 ];
-/// Body outlines, text and via rings.
-pub const INK: &str = "#1d1d1f";
-/// Captions and secondary text.
-pub const MUTED: &str = "#6b6b70";
-/// Table rules and the outline of footprints a class does not connect to.
-pub const RULE: &str = "#c4c8cf";
 
 /// The colour of copper layer `layer`, or `None` for any other layer.
 ///

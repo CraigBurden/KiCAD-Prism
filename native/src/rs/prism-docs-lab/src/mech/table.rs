@@ -6,7 +6,8 @@ use std::fmt::Write as _;
 use prism_artwork::artwork::svg::{escape, number};
 
 use super::layout::Rect;
-use super::sheet::{FONT_MONO, FONT_SANS, HEADER, INK, MUTED, RULE, STRIPE};
+use super::sheet::{FONT_MONO, FONT_SANS};
+use crate::theme::Palette;
 
 /// One table column.
 pub struct Column {
@@ -38,50 +39,63 @@ pub fn draw(
     columns: &[Column],
     rows: &[Vec<String>],
     font: f64,
+    palette: &Palette,
 ) -> f64 {
     let width: f64 = columns.iter().map(|column| column.width).sum();
     let count = rows.len().min(row_capacity(rect, true));
     let height = TITLE_H + HEAD_H + count as f64 * ROW_H;
     let _ = write!(
         svg,
-        "<g class=\"table\"><rect x=\"{}\" y=\"{}\" width=\"{}\" height=\"{}\" fill=\"#ffffff\" \
-stroke=\"{RULE}\" stroke-width=\"0.25\"/>",
+        "<g class=\"table\"><rect x=\"{}\" y=\"{}\" width=\"{}\" height=\"{}\" fill=\"{}\" \
+stroke=\"{}\" stroke-width=\"0.25\"/>",
         number(rect.x),
         number(rect.y),
         number(width),
         number(height),
+        palette.paper,
+        palette.rule,
     );
     let _ = write!(
         svg,
-        "<rect x=\"{}\" y=\"{}\" width=\"{}\" height=\"{}\" fill=\"{HEADER}\"/>",
+        "<rect x=\"{}\" y=\"{}\" width=\"{}\" height=\"{}\" fill=\"{}\"/>",
         number(rect.x),
         number(rect.y),
         number(width),
         number(TITLE_H),
+        palette.header,
     );
     let _ = writeln!(
         svg,
         "<text x=\"{}\" y=\"{}\" font-family=\"{FONT_SANS}\" font-size=\"2.7\" \
-font-weight=\"600\" fill=\"{INK}\">{}</text>",
+font-weight=\"600\" fill=\"{}\">{}</text>",
         number(rect.x + 2.2),
         number(rect.y + 4.7),
+        palette.ink,
         escape(title),
     );
-    header(svg, rect, columns, width, font);
-    rows_body(svg, rect, columns, rows, width, font);
+    header(svg, rect, columns, width, font, palette);
+    rows_body(svg, rect, columns, rows, width, font, palette);
     svg.push_str("</g>\n");
     height
 }
 
-fn header(svg: &mut String, rect: Rect, columns: &[Column], width: f64, font: f64) {
+fn header(
+    svg: &mut String,
+    rect: Rect,
+    columns: &[Column],
+    width: f64,
+    font: f64,
+    palette: &Palette,
+) {
     let y = rect.y + TITLE_H;
     let _ = write!(
         svg,
-        "<rect x=\"{}\" y=\"{}\" width=\"{}\" height=\"{}\" fill=\"{STRIPE}\"/>",
+        "<rect x=\"{}\" y=\"{}\" width=\"{}\" height=\"{}\" fill=\"{}\"/>",
         number(rect.x),
         number(y),
         number(width),
         number(HEAD_H),
+        palette.stripe,
     );
     let mut x = rect.x;
     for column in columns {
@@ -94,15 +108,16 @@ fn header(svg: &mut String, rect: Rect, columns: &[Column], width: f64, font: f6
         let _ = writeln!(
             svg,
             "<text x=\"{}\" y=\"{}\" font-family=\"{FONT_SANS}\" font-size=\"{}\" \
-font-weight=\"600\" fill=\"{MUTED}\" text-anchor=\"{anchor}\">{}</text>",
+font-weight=\"600\" fill=\"{}\" text-anchor=\"{anchor}\">{}</text>",
             number(tx),
             number(y + 3.5),
             number(font),
+            palette.muted,
             escape(column.title),
         );
         x += column.width;
     }
-    rule(svg, rect.x, y + HEAD_H, width);
+    rule(svg, rect.x, y + HEAD_H, width, palette);
 }
 
 fn rows_body(
@@ -112,6 +127,7 @@ fn rows_body(
     rows: &[Vec<String>],
     width: f64,
     font: f64,
+    palette: &Palette,
 ) {
     let top = rect.y + TITLE_H + HEAD_H;
     for (index, row) in rows.iter().enumerate() {
@@ -119,11 +135,12 @@ fn rows_body(
         if index % 2 == 1 {
             let _ = write!(
                 svg,
-                "<rect x=\"{}\" y=\"{}\" width=\"{}\" height=\"{}\" fill=\"{STRIPE}\"/>",
+                "<rect x=\"{}\" y=\"{}\" width=\"{}\" height=\"{}\" fill=\"{}\"/>",
                 number(rect.x),
                 number(y),
                 number(width),
                 number(ROW_H),
+                palette.stripe,
             );
         }
         let mut x = rect.x;
@@ -139,26 +156,28 @@ fn rows_body(
             let _ = writeln!(
                 svg,
                 "<text x=\"{}\" y=\"{}\" font-family=\"{face}\" font-size=\"{}\" \
-fill=\"{INK}\" text-anchor=\"{anchor}\">{}</text>",
+fill=\"{}\" text-anchor=\"{anchor}\">{}</text>",
                 number(tx),
                 number(y + ROW_H - 1.1),
                 number(font),
+                palette.ink,
                 escape(&text),
             );
             x += column.width;
         }
-        rule(svg, rect.x, y + ROW_H, width);
+        rule(svg, rect.x, y + ROW_H, width, palette);
     }
 }
 
-fn rule(svg: &mut String, x: f64, y: f64, width: f64) {
+fn rule(svg: &mut String, x: f64, y: f64, width: f64, palette: &Palette) {
     let _ = writeln!(
         svg,
-        "<line x1=\"{}\" y1=\"{}\" x2=\"{}\" y2=\"{}\" stroke=\"{RULE}\" stroke-width=\"0.2\"/>",
+        "<line x1=\"{}\" y1=\"{}\" x2=\"{}\" y2=\"{}\" stroke=\"{}\" stroke-width=\"0.2\"/>",
         number(x),
         number(y),
         number(x + width),
         number(y),
+        palette.rule,
     );
 }
 

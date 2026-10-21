@@ -4,6 +4,7 @@
 use std::fmt::Write;
 
 use crate::html::{document, escape};
+use crate::theme::Theme;
 
 use super::board::Icd;
 
@@ -43,7 +44,7 @@ fn slug(reference: &str) -> String {
 }
 
 /// The whole document.
-pub fn index_page(icd: &Icd, sheets: &[RenderedSheet]) -> String {
+pub fn index_page(icd: &Icd, sheets: &[RenderedSheet], theme: Theme) -> String {
     let mut body = String::new();
     body.push_str("<div class=\"lab icd\">\n");
     masthead(&mut body, icd);
@@ -71,6 +72,7 @@ pub fn index_page(icd: &Icd, sheets: &[RenderedSheet]) -> String {
         CSS,
         &body,
         "",
+        theme,
     )
 }
 

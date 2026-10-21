@@ -7,6 +7,7 @@ use super::model::{Atlas, ClassSection, NetGroup, NetRow, SideChoice, ViaSpan};
 use super::svg;
 use prism_docs_lab::html;
 use prism_docs_lab::palette;
+use prism_docs_lab::theme::Theme;
 
 /// The atlas's own rules, after the lab's shared look.
 pub const CSS: &str = include_str!("atlas.css");
@@ -15,19 +16,19 @@ pub const CSS: &str = include_str!("atlas.css");
 pub const JS: &str = include_str!("atlas.js");
 
 /// Render the whole atlas for `atlas`'s board.
-pub fn render(atlas: &Atlas, side: SideChoice) -> String {
+pub fn render(atlas: &Atlas, side: SideChoice, theme: Theme) -> String {
     let mut body = String::new();
     body.push_str("<div class=\"lab\">\n");
     masthead(&mut body, atlas, side);
     body.push_str(&svg::body_defs(atlas));
     for (index, section) in atlas.classes.iter().enumerate() {
-        class_section(&mut body, atlas, section, side, index);
+        class_section(&mut body, atlas, section, side, index, theme);
     }
     footnote(&mut body, atlas);
     body.push_str("</div>\n");
     let title = format!("{} — net-class atlas", atlas.board_name);
     let attributes = format!("data-side=\"{}\"", side.initial().as_str());
-    html::document(&title, &attributes, CSS, &body, JS)
+    html::document(&title, &attributes, CSS, &body, JS, theme)
 }
 
 // ----------------------------------------------------------------- masthead
@@ -140,6 +141,7 @@ fn class_section(
     section: &ClassSection,
     side: SideChoice,
     index: usize,
+    theme: Theme,
 ) {
     let _ = writeln!(
         body,
@@ -164,9 +166,27 @@ fn class_section(
     );
     body.push_str("</div>\n");
     for (group_index, group) in section.groups.iter().enumerate() {
-        group_section(body, atlas, section, group, side, index, group_index);
+        group_section(
+            body,
+            atlas,
+            section,
+            group,
+            side,
+            Position {
+                class: index,
+                group: group_index,
+            },
+            theme,
+        );
     }
     body.push_str("</section>\n");
+}
+
+/// A group's place on the page, for the ids its section and figure carry.
+#[derive(Clone, Copy)]
+struct Position {
+    class: usize,
+    group: usize,
 }
 
 fn group_section(
@@ -175,10 +195,11 @@ fn group_section(
     section: &ClassSection,
     group: &NetGroup,
     side: SideChoice,
-    index: usize,
-    group_index: usize,
+    position: Position,
+    theme: Theme,
 ) {
-    let drawing = svg::class_drawing(atlas, group, side);
+    let (index, group_index) = (position.class, position.group);
+    let drawing = svg::class_drawing(atlas, group, side, theme);
     let zones = if group.zones_default() { "on" } else { "off" };
     let _ = writeln!(
         body,
@@ -249,11 +270,11 @@ front; pads are filled for these nets. Every other footprint is an outline. Hove
 its net, click it or a row below to isolate the net.</figcaption>\n</figure>",
         drawing.svg,
     );
-    table(body, group);
+    table(body, group, theme);
     body.push_str("</section>\n");
 }
 
-fn table(body: &mut String, group: &NetGroup) {
+fn table(body: &mut String, group: &NetGroup, theme: Theme) {
     let caption = format!("{}, longest first", count(group.nets.len(), "net"));
     let _ = writeln!(
         body,
@@ -264,12 +285,12 @@ fn table(body: &mut String, group: &NetGroup) {
 <th scope=\"col\" class=\"num\">Pads</th></tr></thead>\n<tbody>",
     );
     for net in &group.nets {
-        row(body, net);
+        row(body, net, theme);
     }
     body.push_str("</tbody>\n</table></div>\n");
 }
 
-fn row(body: &mut String, net: &NetRow) {
+fn row(body: &mut String, net: &NetRow, theme: Theme) {
     let spans = via_spans(&net.via_spans);
     let _ = writeln!(
         body,
@@ -286,7 +307,7 @@ fn row(body: &mut String, net: &NetRow) {
             format!(" title=\"{}\"", html::escape(&spans))
         },
         net.vias,
-        layers(&net.layers, net.zone_layers),
+        layers(&net.layers, net.zone_layers, theme),
         net.pads,
     );
 }
@@ -310,7 +331,7 @@ fn via_spans(spans: &[ViaSpan]) -> String {
 
 /// The layer chips. A net with no tracks of its own lists the layers its zones
 /// fill, each marked `(zone)` so the column never claims a track it has not.
-fn layers(layers: &[String], zone_layers: bool) -> String {
+fn layers(layers: &[String], zone_layers: bool, theme: Theme) -> String {
     if layers.is_empty() {
         return "<span class=\"chip\">—</span>".to_owned();
     }
@@ -318,7 +339,7 @@ fn layers(layers: &[String], zone_layers: bool) -> String {
     layers
         .iter()
         .map(|layer| {
-            let color = palette::copper_color(layer).unwrap_or(palette::MUTED);
+            let color = palette::copper_color(layer).unwrap_or_else(|| theme.palette().muted);
             format!(
                 "<span class=\"chip\"><span class=\"swatch\" style=\"background:{}\"></span>{}{note}</span>",
                 html::escape(color),
@@ -484,8 +505,8 @@ mod tests {
     #[test]
     fn the_page_is_deterministic() {
         let atlas = sample();
-        let first = render(&atlas, SideChoice::Both);
-        let second = render(&atlas, SideChoice::Both);
+        let first = render(&atlas, SideChoice::Both, Theme::Light);
+        let second = render(&atlas, SideChoice::Both, Theme::Light);
         assert_eq!(first, second);
         assert!(first.contains("sample — net-class atlas"));
         assert!(first.contains("+3V3"), "the leaf name is shown");
@@ -499,9 +520,9 @@ mod tests {
     #[test]
     fn the_side_switch_is_offered_only_for_both() {
         let atlas = sample();
-        let both = render(&atlas, SideChoice::Both);
+        let both = render(&atlas, SideChoice::Both, Theme::Light);
         assert!(both.contains("<button type=\"button\" data-side-option=\"bottom\""));
-        let top = render(&atlas, SideChoice::Top);
+        let top = render(&atlas, SideChoice::Top, Theme::Light);
         assert!(!top.contains("<button type=\"button\" data-side-option"));
     }
 

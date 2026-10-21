@@ -1,7 +1,7 @@
 //! `net-class-atlas` — the net-class atlas prototype.
 //!
 //! `cargo run -p prism-docs-lab --bin net-class-atlas -- --in <bundle.prism>
-//! -o <atlas.html> [--side top|bottom|both]`
+//! -o <atlas.html> [--side top|bottom|both] [--theme light|dark|blueprint]`
 //!
 //! Reads one design bundle, groups the board's nets by net class and writes
 //! one self-contained HTML page. It is a hand-run documentation prototype, not
@@ -18,20 +18,24 @@ use std::process::ExitCode;
 use std::time::Instant;
 
 use prism_docs_lab::bundle::{Bundle, LabError};
+use prism_docs_lab::theme::Theme;
 
 use model::SideChoice;
 
 const USAGE: &str = "\
 usage: net-class-atlas --in <bundle.prism> -o <atlas.html> [--side top|bottom|both]
+                       [--theme light|dark|blueprint]
 
   --in    a .prism design bundle whose parse, board and models stages are built
   -o      the HTML file to write (parent directories are created)
-  --side  which footprints to draw in full; `both` adds a switch (default top)";
+  --side  which footprints to draw in full; `both` adds a switch (default top)
+  --theme light (default), dark or blueprint";
 
 struct Options {
     input: PathBuf,
     output: PathBuf,
     side: SideChoice,
+    theme: Theme,
 }
 
 fn main() -> ExitCode {
@@ -60,7 +64,7 @@ fn run(options: &Options) -> Result<(), LabError> {
     let started = Instant::now();
     let bundle = Bundle::open(&options.input)?;
     let atlas = model::load(&bundle)?;
-    let html = page::render(&atlas, options.side);
+    let html = page::render(&atlas, options.side, options.theme);
     let elapsed = started.elapsed();
     if let Some(parent) = options
         .output
@@ -105,11 +109,13 @@ fn parse(args: &[String]) -> Result<Options, LabError> {
     let mut input: Option<PathBuf> = None;
     let mut output: Option<PathBuf> = None;
     let mut side = SideChoice::Top;
+    let mut theme = Theme::Light;
     let mut index = 0;
     while index < args.len() {
         match args[index].as_str() {
             "--in" => input = Some(PathBuf::from(value(args, &mut index, "--in")?)),
             "-o" | "--out" => output = Some(PathBuf::from(value(args, &mut index, "-o")?)),
+            "--theme" => theme = value(args, &mut index, "--theme")?.parse()?,
             "--side" => {
                 let raw = value(args, &mut index, "--side")?;
                 side = SideChoice::parse(&raw).ok_or_else(|| {
@@ -124,6 +130,7 @@ fn parse(args: &[String]) -> Result<Options, LabError> {
         input: input.ok_or_else(|| LabError::new("--in is required"))?,
         output: output.ok_or_else(|| LabError::new("-o is required"))?,
         side,
+        theme,
     })
 }
 
@@ -143,9 +150,10 @@ mod tests {
     }
 
     #[test]
-    fn the_defaults_are_top_and_no_output() {
+    fn the_defaults_are_top_light_and_no_output() {
         let options = parsed(&["--in", "board.prism", "-o", "atlas.html"]).expect("valid");
         assert_eq!(options.side, SideChoice::Top);
+        assert_eq!(options.theme, Theme::Light);
         assert_eq!(options.output, PathBuf::from("atlas.html"));
     }
 
@@ -154,6 +162,17 @@ mod tests {
         let options = parsed(&["--in", "b", "-o", "o", "--side", "both"]).expect("valid");
         assert_eq!(options.side, SideChoice::Both);
         assert!(parsed(&["--in", "b", "-o", "o", "--side", "left"]).is_err());
+    }
+
+    #[test]
+    fn the_theme_parses_and_rejects_unknown_values() {
+        assert_eq!(
+            parsed(&["--in", "b", "-o", "o", "--theme", "dark"])
+                .expect("valid")
+                .theme,
+            Theme::Dark
+        );
+        assert!(parsed(&["--in", "b", "-o", "o", "--theme", "sepia"]).is_err());
     }
 
     #[test]

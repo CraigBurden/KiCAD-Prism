@@ -9,6 +9,7 @@
 pub use prism_artwork::artwork::svg::{escape, number};
 
 use crate::LAB_CSS;
+use crate::theme::{self, Theme};
 
 /// A length in millimetres at two decimals (`17.78`), for tables and captions.
 pub fn millimetres(value: f64) -> String {
@@ -33,11 +34,23 @@ pub fn millimetres_from_nm(value: u64) -> String {
 /// One self-contained page: inline CSS (the lab's look plus `css`), `body`
 /// and one inline script. `body_attributes` are written on `<body>` (the side
 /// a drawing opens on). No external request is made when it loads.
-pub fn document(title: &str, body_attributes: &str, css: &str, body: &str, script: &str) -> String {
+///
+/// In the light theme the stylesheets are written exactly as they are authored;
+/// dark and blueprint pages put the palette's custom properties in front of
+/// them and refer to those properties instead of the light literals.
+pub fn document(
+    title: &str,
+    body_attributes: &str,
+    css: &str,
+    body: &str,
+    script: &str,
+    theme: Theme,
+) -> String {
+    let style = styles(theme, css);
     format!(
         "<!doctype html>\n<html lang=\"en\">\n<head>\n<meta charset=\"utf-8\">\n\
 <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n\
-<title>{title}</title>\n<style>\n{LAB_CSS}\n{css}\n</style>\n</head>\n\
+<title>{title}</title>\n<style>\n{style}\n</style>\n</head>\n\
 <body{attributes}>\n{body}\n<script>\n{script}\n</script>\n</body>\n</html>\n",
         title = escape(title),
         attributes = if body_attributes.is_empty() {
@@ -45,9 +58,27 @@ pub fn document(title: &str, body_attributes: &str, css: &str, body: &str, scrip
         } else {
             format!(" {body_attributes}")
         },
-        css = css,
+        style = style,
         body = body,
         script = script,
+    )
+}
+
+/// The `<style>` element's contents: the shared look and the prototype's
+/// rules, behind the theme's custom properties when it has any.
+fn styles(theme: Theme, css: &str) -> String {
+    let properties = theme::custom_properties(theme);
+    if properties.is_empty() {
+        return format!("{LAB_CSS}\n{css}");
+    }
+    format!(
+        "{properties}\n{}\n{}\n{}",
+        theme::stylesheet(LAB_CSS, theme),
+        theme::stylesheet(css, theme),
+        // A dark or blueprint page only keeps its background in a PDF if the
+        // printer is asked for the exact colours; light prints on white paper.
+        "@media print { html, body { -webkit-print-color-adjust: exact; \
+print-color-adjust: exact; } }",
     )
 }
 
@@ -71,6 +102,7 @@ mod tests {
             ".x{color:red}",
             "<p>hi</p>",
             "void 0;",
+            Theme::Light,
         );
         assert!(page.starts_with("<!doctype html>"));
         assert!(page.contains("<title>a &amp; b</title>"));
@@ -84,8 +116,21 @@ mod tests {
 
     #[test]
     fn the_shell_carries_the_shared_look() {
-        let page = document("x", "", "", "", "");
+        let page = document("x", "", "", "", "", Theme::Light);
         assert!(page.contains("#1d1d1f"));
         assert!(page.contains(".atlas-table"));
+    }
+
+    #[test]
+    fn a_themed_shell_declares_its_properties() {
+        let light = document("x", "", ".x{color:#ffffff}", "", "", Theme::Light);
+        assert!(light.contains(".x{color:#ffffff}"));
+        for theme in [Theme::Dark, Theme::Blueprint] {
+            let page = document("x", "", ".x{color:#ffffff}", "", "", theme);
+            assert!(page.contains(":root {"), "{page}");
+            assert!(page.contains(&format!("--paper: {};", theme.palette().paper)));
+            assert!(!page.contains(".x{color:#ffffff}"), "{page}");
+            assert!(page.contains(".x{color:var(--paper)}"), "{page}");
+        }
     }
 }

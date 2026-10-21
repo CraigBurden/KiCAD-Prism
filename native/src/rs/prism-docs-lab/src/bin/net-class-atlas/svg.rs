@@ -14,6 +14,7 @@ use prism_artwork::artwork::svg::{escape, number, ring_path};
 
 use super::model::{Atlas, Body, Footprint, NetGroup, Pad, PadShape, SideChoice, Trace, Zone};
 use prism_docs_lab::palette;
+use prism_docs_lab::theme::{Palette, Theme};
 
 /// Margin around the board outline, millimetres.
 const MARGIN_MM: f64 = 2.0;
@@ -65,7 +66,13 @@ focusable=\"false\"><defs>\n",
 }
 
 /// Render `group`'s drawing of `atlas`'s board.
-pub fn class_drawing(atlas: &Atlas, group: &NetGroup, side: SideChoice) -> RenderedDrawing {
+pub fn class_drawing(
+    atlas: &Atlas,
+    group: &NetGroup,
+    side: SideChoice,
+    theme: Theme,
+) -> RenderedDrawing {
+    let palette = theme.palette();
     let bounds = expanded(atlas.drawing.frame());
     let mut svg = String::new();
     let _ = writeln!(
@@ -80,11 +87,12 @@ viewBox=\"{} {} {} {}\" preserveAspectRatio=\"xMidYMid meet\" aria-label=\"{}\">
     );
     let _ = writeln!(
         svg,
-        "<rect x=\"{}\" y=\"{}\" width=\"{}\" height=\"{}\" fill=\"#ffffff\"/>",
+        "<rect x=\"{}\" y=\"{}\" width=\"{}\" height=\"{}\" fill=\"{}\"/>",
         number(bounds.min_x),
         number(bounds.min_y),
         number(bounds.width().max(0.001)),
         number(bounds.height().max(0.001)),
+        palette.paper,
     );
     // Zone fills sit under every trace, not just their own layer's, so the
     // 12 % wash never tints a trace on another layer.
@@ -109,9 +117,9 @@ viewBox=\"{} {} {} {}\" preserveAspectRatio=\"xMidYMid meet\" aria-label=\"{}\">
         layer_traces(&mut svg, atlas, group, layer, color);
         svg.push_str("</g>\n");
     }
-    let hidden_designators = footprints(&mut svg, atlas, group, side);
-    vias(&mut svg, atlas, group);
-    board_outline(&mut svg, atlas);
+    let hidden_designators = footprints(&mut svg, atlas, group, side, &palette);
+    vias(&mut svg, atlas, group, &palette);
+    board_outline(&mut svg, atlas, &palette);
     svg.push_str("</svg>\n");
     RenderedDrawing {
         svg,
@@ -224,11 +232,17 @@ stroke-dasharray=\"0.8 0.5\" opacity=\"0.7\"/></g>",
 
 // --------------------------------------------------------------- footprints
 
-fn footprints(svg: &mut String, atlas: &Atlas, group: &NetGroup, side: SideChoice) -> usize {
+fn footprints(
+    svg: &mut String,
+    atlas: &Atlas,
+    group: &NetGroup,
+    side: SideChoice,
+    palette: &Palette,
+) -> usize {
     let connected = &group.footprints;
     for footprint in &atlas.drawing.footprints {
         if !connected.contains(&footprint.index) {
-            ghost(svg, footprint);
+            ghost(svg, footprint, palette);
         }
     }
     let mut designators = String::new();
@@ -236,7 +250,7 @@ fn footprints(svg: &mut String, atlas: &Atlas, group: &NetGroup, side: SideChoic
     let mut hidden = 0;
     for footprint in &atlas.drawing.footprints {
         if connected.contains(&footprint.index) && side.full(footprint.side) {
-            full(svg, footprint, group, atlas);
+            full(svg, footprint, group, atlas, palette);
             match designator_box(footprint) {
                 Some(designator)
                     if placed.iter().any(|box_| box_.intersects(designator.bounds)) =>
@@ -244,7 +258,7 @@ fn footprints(svg: &mut String, atlas: &Atlas, group: &NetGroup, side: SideChoic
                     hidden += 1;
                 }
                 Some(designator) => {
-                    designator_text(&mut designators, footprint, &designator);
+                    designator_text(&mut designators, footprint, &designator, palette);
                     placed.push(designator.bounds);
                 }
                 None => {}
@@ -259,14 +273,20 @@ fn footprints(svg: &mut String, atlas: &Atlas, group: &NetGroup, side: SideChoic
 /// transform; only the pads are footprint-local and get translated/rotated.
 /// Applying the transform to the body as well is what once threw HLR outlines
 /// and courtyard boxes far outside the board.
-fn full(svg: &mut String, footprint: &Footprint, group: &NetGroup, atlas: &Atlas) {
+fn full(
+    svg: &mut String,
+    footprint: &Footprint,
+    group: &NetGroup,
+    atlas: &Atlas,
+    palette: &Palette,
+) {
     let _ = writeln!(
         svg,
         "<g class=\"fp fp-{}\" data-fp=\"{}\">",
         footprint.side.as_str(),
         footprint.index
     );
-    body(svg, footprint, palette::INK, BODY_MM);
+    body(svg, footprint, palette.ink, BODY_MM);
     let _ = writeln!(
         svg,
         "<g class=\"pads side-{}\" transform=\"translate({} {}) rotate({})\">",
@@ -275,17 +295,23 @@ fn full(svg: &mut String, footprint: &Footprint, group: &NetGroup, atlas: &Atlas
         number(footprint.y),
         number(-footprint.angle),
     );
-    layer_pads(svg, footprint, group, atlas);
+    layer_pads(svg, footprint, group, atlas, palette);
     svg.push_str("</g>\n</g>\n");
 }
 
-fn layer_pads(svg: &mut String, footprint: &Footprint, group: &NetGroup, atlas: &Atlas) {
+fn layer_pads(
+    svg: &mut String,
+    footprint: &Footprint,
+    group: &NetGroup,
+    atlas: &Atlas,
+    palette: &Palette,
+) {
     for pad in &footprint.pads {
         let connected = !pad.net.is_empty() && group.net_names.contains(&pad.net);
         let color = if connected {
             pad_color(pad, &atlas.copper)
         } else {
-            palette::RULE
+            palette.pad
         };
         let _ = write!(
             svg,
@@ -308,9 +334,9 @@ transform=\"translate({} {}) rotate({})\"{}>",
     }
 }
 
-fn ghost(svg: &mut String, footprint: &Footprint) {
+fn ghost(svg: &mut String, footprint: &Footprint, palette: &Palette) {
     let _ = write!(svg, "<g class=\"fp ghost fp-{}\">", footprint.side.as_str(),);
-    body(svg, footprint, palette::RULE, GHOST_MM);
+    body(svg, footprint, palette.rule, GHOST_MM);
     svg.push_str("</g>\n");
 }
 
@@ -504,23 +530,29 @@ fn designator_box(footprint: &Footprint) -> Option<Designator> {
     })
 }
 
-fn designator_text(svg: &mut String, footprint: &Footprint, designator: &Designator) {
+fn designator_text(
+    svg: &mut String,
+    footprint: &Footprint,
+    designator: &Designator,
+    palette: &Palette,
+) {
     let _ = writeln!(
         svg,
         "<text class=\"des side-{}\" x=\"{}\" y=\"{}\" font-family=\"Geist, Inter, \
-system-ui, sans-serif\" font-size=\"{}\" font-weight=\"500\" fill=\"#1d1d1f\" \
+system-ui, sans-serif\" font-size=\"{}\" font-weight=\"500\" fill=\"{}\" \
 text-anchor=\"middle\">{}</text>",
         footprint.side.as_str(),
         number(designator.anchor.x),
         number(designator.anchor.y),
         number(designator.size),
+        palette.ink,
         escape(&footprint.reference),
     );
 }
 
 // --------------------------------------------------------------------- vias
 
-fn vias(svg: &mut String, atlas: &Atlas, group: &NetGroup) {
+fn vias(svg: &mut String, atlas: &Atlas, group: &NetGroup, palette: &Palette) {
     svg.push_str("<g class=\"vias\">\n");
     for via in &atlas.drawing.vias {
         if !group.net_names.contains(&via.net) {
@@ -529,16 +561,18 @@ fn vias(svg: &mut String, atlas: &Atlas, group: &NetGroup) {
         let _ = writeln!(
             svg,
             "<g class=\"via\" data-net=\"{}\"><title>{}</title>\
-<circle cx=\"{}\" cy=\"{}\" r=\"{}\" fill=\"#1d1d1f\"/>\
-<circle cx=\"{}\" cy=\"{}\" r=\"{}\" fill=\"#ffffff\"/></g>",
+<circle cx=\"{}\" cy=\"{}\" r=\"{}\" fill=\"{}\"/>\
+<circle cx=\"{}\" cy=\"{}\" r=\"{}\" fill=\"{}\"/></g>",
             escape(&via.net),
             escape(&via.net),
             number(via.at.x),
             number(via.at.y),
             number(via.size / 2.0),
+            palette.ink,
             number(via.at.x),
             number(via.at.y),
             number(via.drill / 2.0),
+            palette.paper,
         );
     }
     svg.push_str("</g>\n");
@@ -546,13 +580,13 @@ fn vias(svg: &mut String, atlas: &Atlas, group: &NetGroup) {
 
 // ------------------------------------------------------------------ outline
 
-fn board_outline(svg: &mut String, atlas: &Atlas) {
+fn board_outline(svg: &mut String, atlas: &Atlas, palette: &Palette) {
     svg.push_str("<g class=\"outline\">");
     let _ = write!(
         svg,
         "<path d=\"{}\" fill=\"none\" stroke=\"{}\" stroke-width=\"{}\"/>",
         ring_path(&atlas.drawing.outline),
-        palette::INK,
+        palette.ink,
         number(OUTLINE_MM),
     );
     if !atlas.drawing.cutouts.is_empty() {
@@ -560,7 +594,7 @@ fn board_outline(svg: &mut String, atlas: &Atlas) {
             svg,
             "<path d=\"{}\" fill=\"none\" stroke=\"{}\" stroke-width=\"{}\"/>",
             prism_artwork::artwork::svg::rings_path(&atlas.drawing.cutouts),
-            palette::INK,
+            palette.ink,
             number(OUTLINE_MM),
         );
     }
@@ -684,6 +718,7 @@ mod tests {
             &atlas(vec![trace], Vec::new()),
             &group("N", Vec::new()),
             SideChoice::Top,
+            Theme::Light,
         );
         assert!(
             drawing.svg.contains("data-layer=\"In2.Cu\""),
@@ -712,8 +747,8 @@ mod tests {
         };
         let atlas = atlas(vec![trace], Vec::new());
         let group = group("N", Vec::new());
-        let first = class_drawing(&atlas, &group, SideChoice::Both);
-        let second = class_drawing(&atlas, &group, SideChoice::Both);
+        let first = class_drawing(&atlas, &group, SideChoice::Both, Theme::Light);
+        let second = class_drawing(&atlas, &group, SideChoice::Both, Theme::Light);
         assert_eq!(first.svg, second.svg);
     }
 
@@ -737,6 +772,7 @@ mod tests {
             &atlas(traces, Vec::new()),
             &group("A", Vec::new()),
             SideChoice::Top,
+            Theme::Light,
         );
         assert!(drawing.svg.contains("data-net=\"A\""));
         assert!(!drawing.svg.contains("data-net=\"B\""));
@@ -762,7 +798,7 @@ mod tests {
             numbers.iter().all(|value| (0.0..=40.0).contains(value)),
             "body path left the board: {path}"
         );
-        let drawing = class_drawing(&atlas, &group("N", vec![0]), SideChoice::Top);
+        let drawing = class_drawing(&atlas, &group("N", vec![0]), SideChoice::Top, Theme::Light);
         assert!(
             drawing.svg.contains("href=\"#atlas-body-0\""),
             "{}",
@@ -789,7 +825,12 @@ mod tests {
         let first = footprint(0, "R1", 10.0, 10.0, "N");
         let second = footprint(1, "R2", 10.4, 10.0, "N");
         let atlas = atlas(Vec::new(), vec![first, second]);
-        let drawing = class_drawing(&atlas, &group("N", vec![0, 1]), SideChoice::Top);
+        let drawing = class_drawing(
+            &atlas,
+            &group("N", vec![0, 1]),
+            SideChoice::Top,
+            Theme::Light,
+        );
         assert_eq!(drawing.hidden_designators, 1, "{}", drawing.svg);
         assert_eq!(drawing.svg.matches("class=\"des").count(), 1);
     }
@@ -812,7 +853,7 @@ mod tests {
             drill: 0.3,
             layers: vec!["F.Cu".to_owned(), "B.Cu".to_owned()],
         }];
-        let drawing = class_drawing(&sample, &group("N", vec![0]), SideChoice::Top);
+        let drawing = class_drawing(&sample, &group("N", vec![0]), SideChoice::Top, Theme::Light);
 
         let view_box = view_box(&drawing.svg);
         for bounds in drawn_bounds(&sample) {

@@ -17,18 +17,20 @@ use std::time::Instant;
 
 use prism_docs_lab::bundle::{Bundle, LabError};
 use prism_docs_lab::mech::{Geometer, board::Board, layout, measure, sheet};
+use prism_docs_lab::theme::Theme;
 
 const USAGE: &str = "\
 usage: mechanical-outline --in <bundle.prism> -o <dir> [--geometer <exe>]
                           [--model-dir VAR=DIR]... [--height-limit-mm 5.0]
-                          [--chrome <exe>]
+                          [--chrome <exe>] [--theme light|dark|blueprint]
 
   --in                a .prism bundle whose parse, board and models stages are built
   -o                  the directory for mechanical-1.svg, index.html and mechanical.pdf
   --geometer          the Geometer executable (default: $GEOMETER_EXECUTABLE)
   --model-dir         a stock 3D-model directory, e.g. KICAD9_3DMODEL_DIR=<dir> (repeatable)
   --height-limit-mm   parts taller than this are marked red (default 5.0)
-  --chrome            the Chrome executable used for the PDF (default: $CHROME)";
+  --chrome            the Chrome executable used for the PDF (default: $CHROME)
+  --theme             light (default), dark or blueprint";
 
 struct Options {
     input: PathBuf,
@@ -37,6 +39,7 @@ struct Options {
     model_dirs: BTreeMap<String, PathBuf>,
     height_limit: f64,
     chrome: Option<PathBuf>,
+    theme: Theme,
 }
 
 fn main() -> ExitCode {
@@ -88,7 +91,13 @@ fn run(options: &Options) -> Result<(), LabError> {
     let render_started = Instant::now();
     let (height_rows, hole_rows) = sheet::row_counts(&board, options.height_limit);
     let tables_on_sheet = layout::tables_fit_on_sheet_one(height_rows, hole_rows);
-    let sheets = sheet::render(&board, &measurement, options.height_limit, tables_on_sheet);
+    let sheets = sheet::render(
+        &board,
+        &measurement,
+        options.height_limit,
+        tables_on_sheet,
+        options.theme,
+    );
     let index = write_sheets(options, &board.name, &sheets)?;
     let pdf = options.output.join("mechanical.pdf");
     let render_ms = render_started.elapsed().as_millis();
@@ -199,7 +208,7 @@ fn write_sheets(options: &Options, name: &str, sheets: &[String]) -> Result<Path
         write(&path, svg)?;
     }
     let title = format!("{name} — mechanical outline");
-    let page = sheet::html(&title, sheets);
+    let page = sheet::html(&title, sheets, options.theme);
     let index = options.output.join("index.html");
     write(&index, &page)?;
     Ok(index)
@@ -267,6 +276,7 @@ fn parse(args: &[String]) -> Result<Options, LabError> {
     let mut model_dirs: BTreeMap<String, PathBuf> = BTreeMap::new();
     let mut height_limit = 5.0;
     let mut chrome: Option<PathBuf> = None;
+    let mut theme = Theme::Light;
     let mut index = 0;
     while index < args.len() {
         match args[index].as_str() {
@@ -278,6 +288,7 @@ fn parse(args: &[String]) -> Result<Options, LabError> {
                 let (name, directory) = model_dir(&value(args, &mut index, "--model-dir")?)?;
                 model_dirs.insert(name, directory);
             }
+            "--theme" => theme = value(args, &mut index, "--theme")?.parse()?,
             "--height-limit-mm" => {
                 height_limit = limit(&value(args, &mut index, "--height-limit-mm")?)?;
             }
@@ -292,6 +303,7 @@ fn parse(args: &[String]) -> Result<Options, LabError> {
         model_dirs,
         height_limit,
         chrome,
+        theme,
     })
 }
 
@@ -344,6 +356,21 @@ mod tests {
         assert_eq!(options.height_limit, 5.0);
         assert!(options.model_dirs.is_empty());
         assert_eq!(options.output, PathBuf::from("out"));
+    }
+
+    #[test]
+    fn the_theme_parses_and_defaults_to_light() {
+        assert_eq!(
+            parsed(&["--in", "b", "-o", "o"]).expect("valid").theme,
+            Theme::Light
+        );
+        assert_eq!(
+            parsed(&["--in", "b", "-o", "o", "--theme", "dark"])
+                .expect("valid")
+                .theme,
+            Theme::Dark
+        );
+        assert!(parsed(&["--in", "b", "-o", "o", "--theme", "sepia"]).is_err());
     }
 
     #[test]
