@@ -2198,7 +2198,7 @@ class RendererVersionTests(unittest.TestCase):
     in the same commit.
     """
 
-    #: Recorded for RENDERER_VERSION d25 under the pinned kicad-monkey /
+    #: Recorded for RENDERER_VERSION d26 under the pinned kicad-monkey /
     #: kicad-cruncher toolchain, and verified stable across two runs.
     #: The version and these digests move together, never one without the other.
     #: These are the default `prism` sheets; GOLDEN_KICAD below pins the
@@ -2305,7 +2305,7 @@ class RendererVersionTests(unittest.TestCase):
 
         self.assertEqual(
             RENDERER_VERSION,
-            "release-studio-documents/d25",
+            "release-studio-documents/d26",
             "RENDERER_VERSION changed: re-record GOLDEN in the same commit",
         )
 

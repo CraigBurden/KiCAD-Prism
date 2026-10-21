@@ -57,6 +57,9 @@ def renderer_resource_digest() -> str:
 #: reproducibility claim the key exists to make. The golden-digest tests in
 #: `test_release_studio_documents.py` fail on any rendering change, so the bump
 #: cannot be skipped silently.
+#: d26 -- artwork line weights are paper sizes by default: `paper` is the
+#: default `artwork_line_weights`, and the committed assembly/testpoint configs
+#: are tuned to ISO 128-20 widths and the ISO 3098 1.8 mm minimum text height.
 #: d24 -- the Prism sheet style is the default: ink-black worksheet and title
 #: block with grey tints, boxed/tinted/striped tables, captions under the
 #: placed artwork, the full ISO scale series with a 10 mm margin, shortened
@@ -111,7 +114,7 @@ def renderer_resource_digest() -> str:
 #: d7 -- the default frame/title block is emitted by Monkey's public KiCad
 #: worksheet API and visible technical text uses Monkey's pinned NewStroke
 #: geometry. A deterministic hidden PDF text layer preserves search/copy.
-RENDERER_VERSION = "release-studio-documents/d25"
+RENDERER_VERSION = "release-studio-documents/d26"
 
 __all__ = [
     "ASSEMBLY_SIDES",

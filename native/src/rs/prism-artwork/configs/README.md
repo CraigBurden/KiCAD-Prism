@@ -13,18 +13,29 @@ field-by-field diff against the Cruncher files shows them:
   the board edge (usb-pd `J1` and `J2`) stays inside the canvas with its
   designator;
 - the testpoint views set `styles.assembly_designators.callout: true`, so their
-  designators are placed outside the 1 mm pad at `min_font_size_mm` (1 mm) with
-  a leader line instead of being squeezed into the pad;
+  designators are placed outside the 1 mm pad at `min_font_size_mm` (1.8 mm)
+  with a leader line instead of being squeezed into the pad;
 - `callout` is absent (false) in the assembly views, which keep the Autodoc fit
   inside the body.
 
 Views, layer tokens, styles, `selector_overrides` and the `dnp` block are
 otherwise unchanged, so a tuned drawing still tunes the same way.
 
-Every length here is a board millimetre, which is what the drawing needs at
-1:1: at a larger paper scale the strokes and type grow with the drawing. Pass
-`--paper-scale <ratio>` to divide those lengths by the sheet's ratio instead,
-so they print at their configured size on paper at that scale (cli-spec §5.7).
+Every length here is a **paper millimetre**, the size the line or type prints at.
+The defaults follow ISO 128-20 line widths (0.35 mm for the board outline and
+cutouts, 0.25 mm for component bodies, 0.18 mm for fine detail) and the ISO 3098
+minimum text height of 1.8 mm. `--paper-scale <ratio>` divides those lengths by
+the sheet's ratio before drawing, so a stroke tuned at 0.35 mm prints at 0.35 mm
+whatever the drawing scale (cli-spec §5.7); Release Studio passes the ratio of
+the sheet it selected.
+
+The configuration can also be read as board millimetres, which is what the
+`drawing` value of `artwork_line_weights` does: the lengths are not divided, so
+strokes and type grow with the drawing. `paper` is the documented default and
+the mode these values were tuned for; `drawing` is kept for compatibility, so a
+config shared with an older Release Studio still draws as it used to. Geometry,
+`canvas.margin_mm` (a board-space margin), and `dnp.hatch_spacing_mm` are never
+divided: they describe the board, not the ink.
 
 They are checked against the generated `ArtworkConfigA0` schema by
 `tests/contract.rs`. `prism-kicad artwork --config` reads either one; the
