@@ -8,7 +8,7 @@ another house is a new module plus a registry entry.
 
 from __future__ import annotations
 
-from .generate import generate_vendor_outputs
+from .generate import generate_vendor_outputs, vendor_bundle_archive
 from .pack import VendorPackError, build_vendor_pack, vendor_pack_readiness
 from .registry import (
     DEFAULT_VENDORS,
@@ -35,5 +35,6 @@ __all__ = [
     "public_profile_payload",
     "registered_profiles",
     "resolve_vendor_ids",
+    "vendor_bundle_archive",
     "vendor_step_spec",
 ]

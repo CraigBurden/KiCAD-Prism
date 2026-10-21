@@ -38,7 +38,7 @@ as a spurious change in a customer's release comparison.**
 | `documents/` | Document generation — `documents/acquisition.py` acquires views, `documents/engine.py` composes sheets, the rest render. |
 | `canonical/` | Byte-canonical encoding and JSON. Frozen by default. |
 | `config/` | Schema, loader, substitution, and digest classification. `config/loader.py` holds the one configuration-location rule: `<project>/.prism/release-studio/`, references relative to the project, returned as repository paths when read at a commit; no repository-root fallback for a subproject. |
-| `vendors/` | Vendor-specific packaging (`vendors/jlcpcb.py`, `vendors/pack.py`, `vendors/registry.py`). |
+| `vendors/` | Vendor-specific packaging (`vendors/jlcpcb.py`, `vendors/pack.py`, `vendors/registry.py`). With `PRISM_DESIGN_SOURCE_RELEASE_STUDIO=bundle` and a ready parse stage, `vendors/generate.py` runs `prism-kicad vendor run <id>` over the design bundle (`vendors/cli.py`); every other case keeps `kicad-cruncher`. The JLCPCB `--config` is converted from `jlcpcb.config.jsonc` and validated against `prism.vendor.jlcpcb.config.a0`. |
 | `dossier.py` | Final manifest and evidence assembly. |
 | `projections.py` · `semantic.py` · `impedance.py` | Derived views over the build. |
 | `bundle_projections.py` | The five board projections (`stackup`, `population`, `testpoints`, `designators`, `variants`) rebuilt from design-bundle members when `PRISM_DESIGN_SOURCE_RELEASE_STUDIO=bundle`: pure functions of the member documents, with `board_projections_from_bundle` the one bundle-reader seam. |
@@ -88,6 +88,13 @@ Around the build:
   still fails the documents step (`document_pipeline.py`).
 - **Consumers must not infer terminal state from the evidence index**
   (`backend/app/api/release_studio.py`). Ask the job, not the artifacts.
+- **A vendor pack's member paths are the contract.** The bundle and Cruncher
+  paths write the same `manufacturing/vendors/<id>/{bom,cpl}.csv` and
+  `raw/vendors/<id>/{bom,cpl}.xlsx`, so a dossier link does not move with the
+  source switch. `prism-kicad`'s per-file sha256 is checked against the written
+  bytes; a mismatch is a failed step, never a pack. Exit 2 `vendor-unknown` is
+  a configuration error, exit 7 waits for `design bundle stage parse is not
+  ready`, and every other non-zero uses the error document's message.
 
 ## Tests
 
