@@ -29,7 +29,11 @@ from app.release_studio.steps import (
     StepOutput,
     run_step_catalogue,
 )
-from app.release_studio.vendors import generate_vendor_outputs, resolve_vendor_ids
+from app.release_studio.vendors import (
+    generate_vendor_outputs,
+    resolve_vendor_ids,
+    vendor_bundle_archive,
+)
 from app.services.kicad_tools import KicadTool, KicadTools
 
 logger = logging.getLogger(__name__)
@@ -324,10 +328,16 @@ def run_build_waves(
     config: Mapping[str, Any],
     variant: str,
     timings: list[dict[str, Any]],
+    project_id: str = "",
+    commit_sha: str | None = None,
+    vendor_cli: KicadTool | None = None,
 ) -> WaveOutputs:
     """Run the catalogue waves, the assembly Cruncher and the vendor packs, in order.
 
-    Each wave appends its wall time to ``timings`` (evidence, never hashed).
+    ``project_id`` and ``commit_sha`` name the design bundle a vendor pack may
+    come from (``PRISM_DESIGN_SOURCE_RELEASE_STUDIO=bundle``); ``vendor_cli``
+    overrides the located ``prism-kicad`` for tests.  Each wave appends its wall
+    time to ``timings`` (evidence, never hashed).
     """
 
     def _timed(name: str, fn):
@@ -428,6 +438,9 @@ def run_build_waves(
                 variant=variant,
                 cruncher=cruncher,
                 tracker=tracker,
+                project_id=project_id,
+                commit_sha=commit_sha,
+                vendor_cli=vendor_cli,
             ),
         )
         outputs_artwork = _catalogue("catalogue-wave-artwork", CATALOGUE_WAVE_ARTWORK)
@@ -462,20 +475,38 @@ def _run_vendors(
     variant: str,
     cruncher: KicadTool | None,
     tracker: PipelineTracker,
+    project_id: str = "",
+    commit_sha: str | None = None,
+    vendor_cli: KicadTool | None = None,
 ) -> tuple[tuple[StepOutput, ...], dict[str, bytes]]:
-    """Generate configured vendor packs after the assembly Cruncher load."""
+    """Generate configured vendor packs after the assembly Cruncher load.
+
+    With a ready design bundle the pack comes from ``prism-kicad vendor run``;
+    every other case keeps the Cruncher path.  The bundle is opened here, at
+    the step, so a pending or failed bundle falls back for this build exactly
+    as the build's projections do.
+    """
 
     vendor_ids = resolve_vendor_ids(config)
     if not vendor_ids:
         return (), {}
     for vendor_id in vendor_ids:
         tracker.start(f"vendor-{vendor_id}", message=f"Generating {vendor_id} pack")
+
+    bundle = vendor_bundle_archive(project_id, commit_sha)
+    if bundle is not None and vendor_cli is None:
+        from app.release_studio.vendors.cli import prism_kicad
+
+        located = prism_kicad()
+        vendor_cli = located if located.available() else None
     outputs, extra_evidence = generate_vendor_outputs(
         config=config,
         closure_root=closure_root,
         output_root=output_root,
         variant=variant,
         cruncher=cruncher,
+        cli=vendor_cli,
+        bundle=bundle,
     )
     by_id = {output.step_id: output for output in outputs}
     for vendor_id in vendor_ids:

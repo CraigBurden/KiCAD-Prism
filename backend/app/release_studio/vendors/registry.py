@@ -24,6 +24,17 @@ class VendorProfile(Protocol):
     pack_filename: str
     description: str
     required_pack_artifacts: tuple[str, ...]
+    #: The ``prism.vendor.<id>.config.a0`` schema ``vendor list`` declares.
+    config_schema: str
+
+    def config_document(self) -> dict[str, Any]: ...
+
+    def pack_files(
+        self,
+        *,
+        files: Mapping[str, Path],
+        output_root: Path,
+    ) -> tuple[dict[str, Path], dict[str, Path]]: ...
 
     def generate(
         self,

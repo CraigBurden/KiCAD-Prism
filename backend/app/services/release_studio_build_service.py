@@ -363,6 +363,10 @@ def execute_build(
             config=config,
             variant=str(candidate.get("variant") or ""),
             timings=timings,
+            # The vendor step reads the revision's design bundle when the
+            # RELEASE_STUDIO switch is `bundle`; every other case stays legacy.
+            project_id=str(candidate.get("project_id") or ""),
+            commit_sha=str(candidate.get("commit_sha") or ""),
         )
         build_warnings = _gerber_set_warnings(waves.by_step)
         if not include_schematic:
