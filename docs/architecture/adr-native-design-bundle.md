@@ -217,7 +217,9 @@ Each member has a role, a schema id, sha256, size and the stage that wrote it in
 | `viewer/models/components.glb` | models | — | component bodies from `kicad-cli` | 3D tab, System Builder 3D and collision meshes |
 | `models/assembly-hlr.json` | models | `prism.assembly_hlr.a0` | per footprint, the hidden-line outline and detail edges of its first STEP model in board coordinates, or why there are none (amendment C3) | Release Studio assembly and testpoint artwork |
 
-The Python topology compiler's viewer assets are not bundle members. The mesh 3D tab and System Builder 3D keep reading the old `semantic-visualizer/` store until WP-C5 retires it (`native/contracts/prism/decisions.md`).
+The Python topology compiler's viewer assets are not bundle members. The mesh
+3D tab and its `semantic-visualizer/` store were removed with System Builder
+v2's stage 0, and WP-R4 deletes the remaining directory at startup.
 
 ## 7. Parity and correctness
 
@@ -254,9 +256,12 @@ bundles, with no legacy mode.
 - After each sync, stage `parse` is also built in the background for the new commits of tracked branches, and a new revision key reuses a stored bundle whose read set it leaves unchanged (amendment U §3.3, WP-K2).
 - The old stores are removed by WP-R4 once their consumers are on bundles:
   - `semantic-index/` and `semantic-visualizer/`;
-  - the Design Comparison revision cache;
   - `system_interface_artifacts` and `system_bundle_frames`;
-  - the 3D commit index.
+  - the 3D commit index (`semantic-visualizer/<project>/commit-index.json`).
+
+The Design Comparison revision cache is not removed: source-tree comparisons
+and the fabrication plot cached by bundle key still read it on a live path
+(WP-R4).
 
 ## 9. Work breakdown for parallel agents
 
@@ -388,6 +393,14 @@ Every P-WP owns one module `native/src/rs/prism-projections/src/<name>.rs`, its 
   failed build is HTTP 422 `{"status": "failed", "members": [...], "detail":
   ...}`. Both are one handler pair (`design_bundle/errors.py`), registered once
   in `app/main.py`.
+- **R4 done (WP-R4).** `semantic-index/` and `semantic-visualizer/` (with the
+  old 3D commit index inside it) are deleted by a one-off, idempotent startup
+  cleanup under `KICAD_PROJECTS_ROOT/.kicad-prism/`; it logs the bytes
+  reclaimed and records a marker so it runs once. `system_interface_artifacts`
+  and `system_bundle_frames` were already dropped by workspace migration 123,
+  so no new migration is needed. The Design Comparison revision cache stays:
+  source-tree comparisons and the fabrication plot cached by bundle key still
+  use it.
 - **R3 done.** `prism-kicad-native` and `prism-clipper2` were deleted with the
   mesh path in System Builder v2 stage 0; no crate depends on
   `wavenumber-eng/kicad_monkey`.

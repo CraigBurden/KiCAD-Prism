@@ -196,6 +196,19 @@ cached index's `componentUid` and the variant join.
 One backend rule: the viewer must never infer the old route from the comparison
 object. Each revision carries its own geometry (amendment C2r).
 
+## Superseded stores
+
+`superseded_store_cleanup.py` runs once from the API lifespan (WP-R4, ADR §8):
+it removes the old `semantic-index` and `semantic-visualizer` directories under
+the data root's `.kicad-prism`, both retired with their readers, and the 3D
+commit index they carried (the per-project commit index file) goes with the
+latter. It logs the bytes reclaimed and records a marker beside them so a
+restart does nothing. It refuses symlinks and never removes anything outside
+the configured data root. `system_interface_artifacts` and
+`system_bundle_frames` were dropped by workspace migration 123. The Design
+Comparison revision cache is deliberately not part of this: source-tree
+comparisons and the fabrication plot cached by bundle key still use it.
+
 ## System Builder
 
 v1 is gone (System Builder v2, stage 0: `docs/architecture/adr-system-builder-v2.md`).
