@@ -7,6 +7,8 @@ from the bundle instead of Python ``kicad_monkey``:
 - ``stackup`` from ``projections/stackup.json`` (``prism.stackup.a0``);
 - ``population``, ``testpoints`` and ``designators`` from
   ``projections/placements.json`` (``prism.placements.a1``);
+- ``testpoints`` also reads each probe target's first pad net from
+  ``projections/board-objects.json`` (``prism.board_objects.a0``);
 - ``variants`` from ``projections/occurrences.json``
   (``prism.occurrences.a0``).
 
@@ -49,6 +51,7 @@ MEMBERS = (
     "projections/stackup.json",
     "projections/placements.json",
     "projections/occurrences.json",
+    "projections/board-objects.json",
     "projections/project.json",
 )
 
@@ -269,12 +272,56 @@ def population(member: Mapping[str, Any]) -> dict[str, Any]:
     return {"source": "board.footprints", "sides": sides}
 
 
+def _first_pad_nets(
+    board_objects: Mapping[str, Any] | None,
+) -> dict[str, str]:
+    """Each footprint's first pad's net, by designator.
+
+    ``projections/board-objects.json`` lists footprints and pads as sibling
+    objects in document order; a pad's ``net`` is the net it is connected to
+    and a pad with none is unconnected.  The first pad decides, because a
+    testpoint probe target is that pad -- reading a later pad would name a net
+    the probe never touches.
+    """
+
+    if not board_objects:
+        return {}
+    references: dict[str, str] = {}
+    for document in board_objects.get("documents") or []:
+        for item in document.get("objects") or []:
+            if item.get("kind") == "footprint" and item.get("uuid"):
+                references[str(item["uuid"])] = str(item.get("refdes") or "").strip()
+
+    nets: dict[str, str] = {}
+    for document in board_objects.get("documents") or []:
+        for item in document.get("objects") or []:
+            if item.get("kind") != "pad":
+                continue
+            reference = str(item.get("refdes") or "").strip()
+            if not reference:
+                reference = references.get(str(item.get("parentUuid") or ""), "")
+            if not reference or reference in nets:
+                continue
+            net = item.get("net")
+            nets[reference] = str(net).strip() if net not in (None, "") else "—"
+    return nets
+
+
 def testpoints(
-    member: Mapping[str, Any], *, prefix: str = TESTPOINT_PREFIX
+    member: Mapping[str, Any],
+    *,
+    prefix: str = TESTPOINT_PREFIX,
+    board_objects: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """``project_testpoints`` from ``projections/placements.json``."""
+    """``project_testpoints`` from ``projections/placements.json``.
+
+    The net comes from the pad itself in ``projections/board-objects.json``;
+    without that member (or for a testpoint whose first pad is unconnected) it
+    is stated as ``—`` rather than guessed.
+    """
 
     marker = prefix.strip().upper()
+    nets = _first_pad_nets(board_objects)
     found: list[dict[str, Any]] = []
     for footprint in _board_footprints(member):
         reference = str(footprint.get("reference") or "")
@@ -287,6 +334,7 @@ def testpoints(
         found.append(
             {
                 "ref": reference,
+                "net": nets.get(reference.strip(), "—"),
                 "side": "bottom" if footprint.get("side") == "back" else "top",
                 "x": (x_nm / 1e6) if x_nm else None,
                 "y": (y_nm / 1e6) if y_nm else None,
@@ -455,7 +503,9 @@ def build(documents: Mapping[str, Any]) -> dict[str, Any]:
     return {
         "stackup": stackup(documents["projections/stackup.json"]),
         "variants": variants(documents["projections/occurrences.json"]),
-        "testpoints": testpoints(placements),
+        "testpoints": testpoints(
+            placements, board_objects=documents["projections/board-objects.json"]
+        ),
         "population": population(placements),
         "designators": designators(placements),
     }

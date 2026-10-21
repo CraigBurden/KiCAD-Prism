@@ -660,11 +660,11 @@ class TestpointSheetTests(unittest.TestCase):
         "source": "board.footprints",
         "prefix": "TP",
         "testpoints": [
-            {"ref": "TP10", "side": "top", "x": 12.5, "y": 30.25,
+            {"ref": "TP10", "net": "+3V3", "side": "top", "x": 12.5, "y": 30.25,
              "excluded_from_position_file": True},
-            {"ref": "TP2", "side": "top", "x": 4.0, "y": 8.0,
+            {"ref": "TP2", "net": "GND", "side": "top", "x": 4.0, "y": 8.0,
              "excluded_from_position_file": True},
-            {"ref": "TP3", "side": "bottom", "x": 6.0, "y": 9.0,
+            {"ref": "TP3", "net": "—", "side": "bottom", "x": 6.0, "y": 9.0,
              "excluded_from_position_file": True},
         ],
     }
@@ -675,6 +675,45 @@ class TestpointSheetTests(unittest.TestCase):
         # An empty position file must not empty the schedule.
         table = tables.testpoint_table(self.PROJECTION, "top")
         self.assertEqual([row[0] for row in table.rows], ["TP2", "TP10"])
+
+    def test_the_schedule_names_the_net_between_designator_and_x(self) -> None:
+        from app.release_studio.documents import tables
+
+        table = tables.testpoint_table(self.PROJECTION, "top")
+        self.assertEqual(table.columns, ("Designator", "Net", "X mm", "Y mm"))
+        self.assertEqual(
+            [row[1] for row in table.rows], ["GND", "+3V3"]
+        )
+
+    def test_an_unconnected_testpoint_states_a_dash_not_a_blank(self) -> None:
+        from app.release_studio.documents import tables
+
+        table = tables.testpoint_table(self.PROJECTION, "bottom")
+        self.assertEqual(table.rows[0][1], "—")
+
+    def test_a_long_net_name_is_ellipsized_at_the_column_edge(self) -> None:
+        from app.release_studio.documents import tables
+        from app.release_studio.documents.layout import Text
+
+        long_net = "A_VERY_LONG_NET_NAME_THAT_CANNOT_FIT_IN_ONE_COLUMN"
+        projection = {
+            "source": "board.footprints",
+            "prefix": "TP",
+            "testpoints": [
+                {"ref": "TP1", "net": long_net, "side": "top", "x": 1.0, "y": 2.0}
+            ],
+        }
+        builder = SheetBuilder("t", "Test", "A3")
+        draw_table(builder, tables.testpoint_table(projection, "top", width=92.0), (10.0, 10.0))
+        texts = [
+            element.value
+            for element in builder.build().elements
+            if isinstance(element, Text)
+        ]
+        self.assertNotIn(long_net, texts)
+        net_lines = [value for value in texts if value.startswith("A_VERY_LONG")]
+        self.assertEqual(len(net_lines), 1)
+        self.assertTrue(net_lines[0].endswith("…"))
 
     def test_designators_sort_numerically(self) -> None:
         from app.release_studio.documents import tables
@@ -698,6 +737,16 @@ class TestpointSheetTests(unittest.TestCase):
         self.assertIn("TESTPOINT DRAWING — TOP", text)
         self.assertIn("TP10", text)
         self.assertNotIn(">TP3<", text)
+
+    def test_each_side_states_the_direction_it_is_viewed_from(self) -> None:
+        top, _used, _overflow = sheet_templates.testpoint_sheet(
+            CONTEXT, "top", None, self.PROJECTION, size="A3"
+        )
+        bottom, _used, _overflow = sheet_templates.testpoint_sheet(
+            CONTEXT, "bottom", None, self.PROJECTION, size="A3"
+        )
+        self.assertIn("VIEWED FROM TOP", render_svg(top))
+        self.assertIn("VIEWED FROM BOTTOM (MIRRORED)", render_svg(bottom))
 
 
 class ProjectionShapeTests(unittest.TestCase):
@@ -1525,6 +1574,57 @@ class AssemblySheetTests(unittest.TestCase):
         self.assertEqual(used, 1.0)
         self.assertIn("assembly artwork unavailable", render_svg(sheet))
 
+    def test_each_side_states_the_direction_it_is_viewed_from(self) -> None:
+        top, _used = sheet_templates.assembly_sheet(
+            CONTEXT, "top", self.art, PLACEMENTS, size="A3", scale=1.0
+        )
+        bottom, _used = sheet_templates.assembly_sheet(
+            CONTEXT, "bottom", self.art, PLACEMENTS, size="A3", scale=1.0
+        )
+        self.assertIn("VIEWED FROM TOP", render_svg(top))
+        self.assertIn("VIEWED FROM BOTTOM (MIRRORED)", render_svg(bottom))
+
+    def test_the_dnp_legend_appears_only_when_the_side_has_dnp_parts(self) -> None:
+        population = {
+            "sides": {
+                "top": {
+                    "components": 5,
+                    "fitted": 3,
+                    "dnp": 2,
+                    "absent_from_position_file": 0,
+                },
+                "bottom": {
+                    "components": 4,
+                    "fitted": 4,
+                    "dnp": 0,
+                    "absent_from_position_file": 0,
+                },
+            }
+        }
+        with_dnp, _used = sheet_templates.assembly_sheet(
+            CONTEXT, "top", self.art, PLACEMENTS, size="A3", scale=1.0,
+            population=population,
+        )
+        without_dnp, _used = sheet_templates.assembly_sheet(
+            CONTEXT, "bottom", self.art, PLACEMENTS, size="A3", scale=1.0,
+            population=population,
+        )
+        rendered = render_svg(with_dnp)
+        self.assertIn("Do not populate — hatched, designator in red", rendered)
+        # The swatch takes the artwork's own DNP colour, not a second constant.
+        self.assertIn("#B00020", rendered)
+        self.assertNotIn(
+            "Do not populate — hatched, designator in red", render_svg(without_dnp)
+        )
+
+    def test_no_population_means_no_dnp_legend(self) -> None:
+        sheet, _used = sheet_templates.assembly_sheet(
+            CONTEXT, "top", self.art, PLACEMENTS, size="A3", scale=1.0
+        )
+        self.assertNotIn(
+            "Do not populate — hatched, designator in red", render_svg(sheet)
+        )
+
     def test_the_engine_asks_cruncher_for_both_sides(self) -> None:
         asked: list[tuple[str, str]] = []
 
@@ -2064,12 +2164,12 @@ class RendererVersionTests(unittest.TestCase):
     in the same commit.
     """
 
-    #: Recorded for RENDERER_VERSION d22 under the pinned kicad-monkey /
+    #: Recorded for RENDERER_VERSION d23 under the pinned kicad-monkey /
     #: kicad-cruncher toolchain, and verified stable across two runs.
     #: The version and these digests move together, never one without the other.
     GOLDEN = {
         "documentation/assembly.pdf":
-            "aeb46d242fc8bd1b7281a513ec4ed893250a7fb542393096bb149de602614c25",
+            "f2fca6e5832e41ecea7df2bb0603237aad8782580f9a05829056e5a0266b1895",
         "documentation/cover.pdf":
             "318f57ea262d956f66d7a273dfe9888fcd92fd7f6455c720afc2729cd72d2e6b",
         "documentation/drill.pdf":
@@ -2077,13 +2177,13 @@ class RendererVersionTests(unittest.TestCase):
         "documentation/fabrication.pdf":
             "4156eadf95893486e6cd53c9c20b068857d93fbec10f66adc11d2465215c0a3b",
         "documentation/testpoint.pdf":
-            "41491187676d4ecdd07ff98f378d860ed55a08c18e55334df37577d479fcedca",
+            "9c82433b5859797bc9acde51ae6fb1e5331c62dfde0b6f64caf640ab42a232ec",
     }
     GOLDEN_PAGES = {
         "assembly-bottom":
-            "91deebc9d59eef79840ed016f6ea244f1772115a342c775805f2733cf561a932",
+            "816c1ed50cc3880d6fcc4d0cfe1ef3e0905d90dfbeee4a000fb9369bdcb18912",
         "assembly-top":
-            "d9d92e8ef4c7cd0f35415eded3ef245037beb0f648bfc226af74785fcd847614",
+            "ad7a35959d5479cdfc87e0c6bdd900624faac13169c64e682eef4fa14c9ad88b",
         "cover":
             "63f4f262e8c6969f167673ea3853677757ac39f7e03e3232779ccaed54b13cbd",
         "cover-1":
@@ -2093,9 +2193,9 @@ class RendererVersionTests(unittest.TestCase):
         "fabrication":
             "f73ab9c2b7e50a1691ee1b35a2b2d9c4f9d8a632d97dd8e1b02ff8bd05cbaeb0",
         "testpoint-bottom":
-            "a7b0b5954b5ab5fd8599c9033c4869eb2481d52671c600846998d6f80a1a0f94",
+            "5dad9ad4bd99205537ad94df9d18f64bb8bc14ef613ba925e25bfcb892765042",
         "testpoint-top":
-            "b2ef237d4690280b4d5462c54faa6b5a6c66bb9b240c62bf79a6bf6cb60fa3c5",
+            "6f39b07e0ffd33feb0e776cdefa8426736a24a13c9e4ce2cf9fae877c78710b7",
     }
 
     #: A placed sheet, so a change to sheet selection, the scale ladder, or
@@ -2124,7 +2224,7 @@ class RendererVersionTests(unittest.TestCase):
 
         self.assertEqual(
             RENDERER_VERSION,
-            "release-studio-documents/d22",
+            "release-studio-documents/d23",
             "RENDERER_VERSION changed: re-record GOLDEN in the same commit",
         )
 

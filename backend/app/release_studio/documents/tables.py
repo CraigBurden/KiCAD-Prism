@@ -11,7 +11,7 @@ from __future__ import annotations
 import re
 from typing import Any, Mapping, Sequence
 
-from app.release_studio.documents.layout import Table
+from app.release_studio.documents.layout import Table, fit_text
 
 
 def _mm(value: Any, digits: int = 3) -> str:
@@ -505,16 +505,27 @@ def testpoint_table(
     *,
     width: float = 92.0,
 ) -> Table:
-    """Where to put a probe: designator and position, for one side.
+    """Where to put a probe: designator, net and position, for one side.
 
     A testpoint drawing without coordinates only says a testpoint exists
     somewhere.  These are the footprint's own board coordinates, which is what
-    a probe fixture is dimensioned against.
+    a probe fixture is dimensioned against.  The net is the electrical target a
+    reader actually probes for; it is one line per row and ellipsized at the
+    column edge rather than wrapped, because a schedule that grows a second
+    line for every long net name stops being a schedule.
     """
 
+    share = width / 4.0
+    # The net is the wide column; designators are short but their header is
+    # not, so neither is squeezed to make room for the coordinates.
+    widths = (share * 0.8, share * 1.3, share * 0.95, share * 0.95)
+    # Fit the net at this table's own type size and cell gutter so a long name
+    # ends in an ellipsis at the column edge instead of being clipped there.
+    net_limit = max(widths[1] - 2.4 * 0.5, 1.0)
     rows = [
         (
             str(item.get("ref") or ""),
+            fit_text(_text(item.get("net")), net_limit, 2.4, family="mono"),
             _mm(item.get("x"), 3),
             _mm(item.get("y"), 3),
         )
@@ -524,14 +535,14 @@ def testpoint_table(
         )
     ]
     if not rows:
-        rows = [("no testpoints on this side", "—", "—")]
-    share = width / 3.0
+        rows = [("no testpoints on this side", "—", "—", "—")]
     return Table(
         title=f"TESTPOINTS — {side.upper()}",
-        columns=("Designator", "X mm", "Y mm"),
+        columns=("Designator", "Net", "X mm", "Y mm"),
         rows=tuple(rows),
-        widths=(share * 1.2, share * 0.9, share * 0.9),
-        align=("start", "end", "end"),
+        widths=widths,
+        align=("start", "start", "end", "end"),
+        max_cell_lines=1,
     )
 
 

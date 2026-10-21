@@ -270,6 +270,52 @@ PCB_SVG_CONFIG = Path(__file__).with_name("pcb-svg.config.json")
 #: contract with legacy KiCad boards.
 PCB_SVG_TESTPOINT_CONFIG = Path(__file__).with_name("pcb-svg.testpoints.config.json")
 
+
+@dataclass(frozen=True, slots=True)
+class DnpStyle:
+    """How the artwork draws a do-not-populate part: colour and hatch."""
+
+    colour: str
+    hatch: bool
+    spacing: float
+    angle: float
+    line_width: float
+
+
+def dnp_style(config_path: Path | None = None) -> DnpStyle:
+    """The DNP swatch, read from the same config the artwork consumes.
+
+    The assembly legend sits under a drawing it has to agree with, so its
+    colour and hatch come from the checked-in ``pcb-svg`` configuration rather
+    than from a second constant that could drift.
+    """
+
+    import json
+
+    config = config_path or PCB_SVG_CONFIG
+    try:
+        document = json.loads(config.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as error:
+        raise ArtworkError(f"the pcb-svg configuration is unreadable: {config}") from error
+    dnp = document.get("dnp") or {}
+    missing = [
+        key
+        for key in ("color", "hatch_spacing_mm", "hatch_angle_deg", "hatch_line_width_mm")
+        if key not in dnp
+    ]
+    if missing:
+        raise ArtworkError(
+            "the pcb-svg configuration is missing the DNP fields: " + ", ".join(missing)
+        )
+    return DnpStyle(
+        colour=str(dnp["color"]),
+        hatch=bool(dnp.get("hatch", False)),
+        spacing=float(dnp["hatch_spacing_mm"]),
+        angle=float(dnp["hatch_angle_deg"]),
+        line_width=float(dnp["hatch_line_width_mm"]),
+    )
+
+
 #: Cruncher view name per assembly side.
 ASSEMBLY_VIEWS: dict[str, str] = {
     "top": "assembly_top_view",
