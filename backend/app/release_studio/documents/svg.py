@@ -38,12 +38,17 @@ def render_svg(sheet: Sheet) -> str:
     """Serialize *sheet* to a standalone SVG document."""
 
     font_css = svg_font_css(sheet.typography)
+    style_attr = (
+        f' data-sheet-style="{escape(sheet.style)}"'
+        if sheet.style != "kicad"
+        else ""
+    )
     parts: list[str] = [
         '<svg xmlns="http://www.w3.org/2000/svg" '
         'xmlns:xlink="http://www.w3.org/1999/xlink" '
         f'width="{fmt(sheet.width)}mm" height="{fmt(sheet.height)}mm" '
         f'viewBox="0 0 {fmt(sheet.width)} {fmt(sheet.height)}" '
-        f'data-typography="{escape(sheet.typography)}">',
+        f'data-typography="{escape(sheet.typography)}"{style_attr}>',
         # A title is content, not metadata: it survives canonicalization and
         # identifies the sheet to anyone opening the file directly.
         f"<title>{escape(sheet.title)}</title>",
@@ -165,10 +170,21 @@ def _render_artwork(artwork: Artwork) -> str:
     rect = artwork.rect
     clip_id = f"clip-{artwork.source_digest[:16]}"
     body = artwork.svg_body or ""
-    return "\n".join(
+    border = (
+        f'<rect x="{fmt(rect.x)}" y="{fmt(rect.y)}" '
+        f'width="{fmt(rect.width)}" height="{fmt(rect.height)}" fill="none" '
+        f'stroke="{artwork.border_colour}" stroke-width="0.2"/>'
+        if artwork.border_colour
+        else None
+    )
+    parts = [
+        f'<clipPath id="{clip_id}"><rect x="{fmt(rect.x)}" y="{fmt(rect.y)}" '
+        f'width="{fmt(rect.width)}" height="{fmt(rect.height)}"/></clipPath>',
+    ]
+    if border is not None:
+        parts.append(border)
+    parts.extend(
         [
-            f'<clipPath id="{clip_id}"><rect x="{fmt(rect.x)}" y="{fmt(rect.y)}" '
-            f'width="{fmt(rect.width)}" height="{fmt(rect.height)}"/></clipPath>',
             f'<g clip-path="url(#{clip_id})">',
             f'<g transform="translate({fmt(artwork.offset_x)},{fmt(artwork.offset_y)}) '
             f'scale({fmt(artwork.scale)})">',
@@ -176,3 +192,4 @@ def _render_artwork(artwork: Artwork) -> str:
             "</g></g>",
         ]
     )
+    return "\n".join(parts)

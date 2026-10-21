@@ -17,6 +17,7 @@ from app.release_studio import dossier as dossier_module
 from app.release_studio.documents.artwork import ArtworkError
 from app.release_studio.documents.engine import compose_documents
 from app.release_studio.documents.fonts import DEFAULT_TYPOGRAPHY
+from app.release_studio.documents.style import DEFAULT_SHEET_STYLE
 from app.release_studio.documents.inputs import DocumentInputs
 from app.release_studio.pipeline import PipelineTracker
 from app.release_studio.steps import DOCUMENT_STEP_SPEC, StepOutput
@@ -347,7 +348,12 @@ def _gather_document_inputs(
     )
 
     typography = str(config.get("typography") or DEFAULT_TYPOGRAPHY)
-    logger.info("Release Studio using typography %s", typography)
+    sheet_style = str(config.get("sheet_style") or DEFAULT_SHEET_STYLE)
+    logger.info(
+        "Release Studio using typography %s and sheet style %s",
+        typography,
+        sheet_style,
+    )
 
     impedance_rows = list(candidate.get("_impedance_rows") or [])
     stackup_pdf = candidate.get("_stackup_pdf") or None
@@ -377,6 +383,7 @@ def _gather_document_inputs(
         notes=config.get("notes") or {},
         fields=config.get("fields") or {},
         typography=typography,
+        sheet_style=sheet_style,
         revision_history=revision_history,
         impedance_rows=impedance_rows,
         stackup_pdf=stackup_pdf if isinstance(stackup_pdf, (bytes, bytearray)) else None,

@@ -113,7 +113,31 @@ after the layer plots.
 At build time, `synthesize_configuration` assembles a normalized mapping from
 identity, manufacturing, and the selected KiCad paths. That mapping is
 validated, snapshotted, and digest-bound to the build. It includes document
-metadata, IPC fields, variant, vendors, and `bom_preset`.
+metadata, IPC fields, variant, vendors, `bom_preset`, typography, and sheet
+style.
+
+## Sheet style and typography
+
+Two committed configuration keys choose how the composed drawing sheets look.
+Both are technical inputs: they are part of `technical_config_digest` and the
+build identity.
+
+| Key | Values | Default | Effect |
+| --- | --- | --- | --- |
+| `sheet_style` | `prism`, `kicad` | `prism` | `prism` uses the harness palette: an ink-black frame and title block, grey rules and tints, and colour only where it carries meaning (do-not-populate red). `kicad` reproduces KiCad's red worksheet and plain tables unchanged. |
+| `typography` | `geist-pixel-square`, `geist-pixel-grid`, `geist-pixel-circle`, `geist-pixel-triangle`, `geist-pixel-line`, `kicad-newstroke` | `geist-pixel-square` | The bundled face used for sheet text. `kicad-newstroke` draws KiCad's stroke vectors and covers symbols such as ⌀ and ✓ that the Geist faces lack. |
+
+`prism` keeps KiCad's worksheet geometry exactly — outer and inner frame, the
+A–F / 1–8 zone grid and its labels — and changes only how it is painted. The
+title block keeps its fields and layout; its title row is tinted `#eef0f3`,
+alternate field rows are striped `#f7f8fa`, labels are muted `#6b6b70` and
+values are ink `#1d1d1f`. Every schedule is drawn as a boxed table with thin
+`#c4c8cf` rules, a tinted header band and alternate row stripes, and continues
+to use the standard scale series.
+
+`kicad` is retained so a project can match the rest of its KiCad drawing set.
+It is byte-for-byte the output the engine produced before `prism` became the
+default.
 
 ## Cover and title block
 

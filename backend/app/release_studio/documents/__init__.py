@@ -57,7 +57,12 @@ def renderer_resource_digest() -> str:
 #: reproducibility claim the key exists to make. The golden-digest tests in
 #: `test_release_studio_documents.py` fail on any rendering change, so the bump
 #: cannot be skipped silently.
-#: d22 -- testpoint drawings render a Monkey-derived TP-only staging board and
+#: d24 -- the Prism sheet style is the default: ink-black worksheet and title
+#: block with grey tints, boxed/tinted/striped tables, captions under the
+#: placed artwork, the full ISO scale series with a 10 mm margin, shortened
+#: hierarchical testpoint nets, and the DNP designator list. `kicad` keeps the
+#: d23 bytes selectable.
+#: d23 -- testpoint drawings render a Monkey-derived TP-only staging board and
 #: promote legacy fp_text references for released Cruncher compatibility.
 #: d21 -- Cruncher views honor the checked-in board-outline canvas policy via
 #: Monkey's public bounding boxes, keeping SVG and PDF placement identical.
@@ -106,7 +111,7 @@ def renderer_resource_digest() -> str:
 #: d7 -- the default frame/title block is emitted by Monkey's public KiCad
 #: worksheet API and visible technical text uses Monkey's pinned NewStroke
 #: geometry. A deterministic hidden PDF text layer preserves search/copy.
-RENDERER_VERSION = "release-studio-documents/d23"
+RENDERER_VERSION = "release-studio-documents/d24"
 
 __all__ = [
     "ASSEMBLY_SIDES",

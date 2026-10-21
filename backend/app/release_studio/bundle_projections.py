@@ -254,9 +254,21 @@ def _board_footprints(member: Mapping[str, Any]) -> list[Mapping[str, Any]]:
 def population(member: Mapping[str, Any]) -> dict[str, Any]:
     """``project_population`` from ``projections/placements.json``."""
 
-    sides: dict[str, dict[str, int]] = {
-        "top": {"components": 0, "dnp": 0, "fitted": 0, "absent_from_position_file": 0},
-        "bottom": {"components": 0, "dnp": 0, "fitted": 0, "absent_from_position_file": 0},
+    sides: dict[str, dict[str, Any]] = {
+        "top": {
+            "components": 0,
+            "dnp": 0,
+            "fitted": 0,
+            "absent_from_position_file": 0,
+            "dnp_refs": [],
+        },
+        "bottom": {
+            "components": 0,
+            "dnp": 0,
+            "fitted": 0,
+            "absent_from_position_file": 0,
+            "dnp_refs": [],
+        },
     }
     for footprint in _board_footprints(member):
         if not footprint.get("reference"):
@@ -265,10 +277,13 @@ def population(member: Mapping[str, Any]) -> dict[str, Any]:
         counts["components"] += 1
         if footprint.get("dnp"):
             counts["dnp"] += 1
+            counts["dnp_refs"].append(str(footprint.get("reference")))
         else:
             counts["fitted"] += 1
         if footprint.get("excludeFromPosFiles"):
             counts["absent_from_position_file"] += 1
+    for counts in sides.values():
+        counts["dnp_refs"] = sorted(counts["dnp_refs"])
     return {"source": "board.footprints", "sides": sides}
 
 
