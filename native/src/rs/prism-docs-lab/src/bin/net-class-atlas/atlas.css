@@ -1,0 +1,41 @@
+/* The net-class atlas's rules, after the shared lab look.
+ *
+ * The drawing itself is inline SVG in millimetres; these rules only set the
+ * rendering mode, the halo that keeps designators readable over copper, and
+ * the pointer affordance on anything a click can focus.
+ */
+
+.atlas-drawing {
+  shape-rendering: geometricPrecision;
+}
+
+.atlas-drawing .track,
+.atlas-drawing .via,
+.atlas-drawing .pad,
+.atlas-drawing .zone {
+  cursor: pointer;
+}
+
+.atlas-drawing .track,
+.atlas-drawing .zone,
+.atlas-drawing .pad,
+.atlas-drawing .via,
+.atlas-drawing .des {
+  transition: opacity 120ms ease;
+}
+
+.atlas-drawing text.des {
+  paint-order: stroke;
+  stroke: #ffffff;
+  stroke-width: 0.22;
+  stroke-linejoin: round;
+  pointer-events: none;
+}
+
+.atlas-drawing .ghost .body {
+  opacity: 0.85;
+}
+
+.atlas-drawing .outline {
+  pointer-events: none;
+}

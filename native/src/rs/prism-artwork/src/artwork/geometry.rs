@@ -20,7 +20,7 @@ use prism_kicad_core::{
 
 /// A point in millimetres, board frame (+x right, +y down).
 #[derive(Clone, Copy, Debug, PartialEq)]
-pub(crate) struct Point {
+pub struct Point {
     pub x: f64,
     pub y: f64,
 }
@@ -36,7 +36,7 @@ impl From<PcbPoint> for Point {
 
 /// An axis-aligned extent in millimetres.
 #[derive(Clone, Copy, Debug, PartialEq)]
-pub(crate) struct Bounds {
+pub struct Bounds {
     pub min_x: f64,
     pub min_y: f64,
     pub max_x: f64,
@@ -111,7 +111,7 @@ impl Bounds {
 
 /// One drill or slot hole in board coordinates.
 #[derive(Clone, Copy, Debug)]
-pub(crate) struct Hole {
+pub struct Hole {
     pub center: Point,
     pub width: f64,
     pub height: f64,
@@ -136,7 +136,7 @@ impl Hole {
 }
 
 /// The parsed board's artwork geometry.
-pub(crate) struct BoardGeometry {
+pub struct BoardGeometry {
     /// The largest closed ring: the board perimeter.
     pub outer: Vec<Point>,
     /// Closed rings inside the perimeter: board cutouts.
@@ -152,7 +152,7 @@ pub(crate) struct BoardGeometry {
 }
 
 /// Build the geometry the views share, from one parsed board.
-pub(crate) fn board_geometry(view: &PcbView<'_>) -> Result<BoardGeometry, Error> {
+pub fn board_geometry(view: &PcbView<'_>) -> Result<BoardGeometry, Error> {
     let footprints: Vec<PcbFootprint> = view.footprints().collect::<Result<_, _>>()?;
     let pads: Vec<PcbPad> = view.pads().collect::<Result<_, _>>()?;
     let holes: Vec<PcbHole> = view.holes().collect::<Result<_, _>>()?;
@@ -604,7 +604,7 @@ pub(crate) fn distance(left: Point, right: Point) -> f64 {
     ((left.x - right.x).powi(2) + (left.y - right.y).powi(2)).sqrt()
 }
 
-pub(crate) fn sample_arc(start: Point, mid: Point, end: Point) -> Vec<Point> {
+pub fn sample_arc(start: Point, mid: Point, end: Point) -> Vec<Point> {
     let Some((center, radius)) = circle_from_three_points(start, mid, end) else {
         return vec![start, mid, end];
     };
@@ -727,7 +727,7 @@ fn segment_points(segment: &AssemblyHlrSegment) -> Vec<Point> {
     ]
 }
 
-pub(crate) fn arc_points(arc: &AssemblyHlrArc) -> Vec<Point> {
+pub fn arc_points(arc: &AssemblyHlrArc) -> Vec<Point> {
     let center = Point {
         x: nm(arc.center_nm.x_nm.0 as f64),
         y: nm(arc.center_nm.y_nm.0 as f64),
