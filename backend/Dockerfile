@@ -149,6 +149,9 @@ COPY scripts/ scripts/
 # The design-bundle reader validates members against native/'s committed JSON
 # Schema (app/services/design_bundle/schemas.py looks for it under /app/native).
 COPY native/contracts/generated/schema /app/native/contracts/generated/schema
+# `prism-kicad artwork --config` reads the native configurations, so Release
+# Studio's bundle path ships them at the path app.release_studio resolves.
+COPY native/src/rs/prism-artwork/configs /app/native/src/rs/prism-artwork/configs
 COPY --from=prism-kicad-builder /tmp/prism-kicad /usr/local/bin/prism-kicad
 COPY --from=remote-provider-panel /panel/dist/remote_provider/ /app/app/static/remote_provider/
 

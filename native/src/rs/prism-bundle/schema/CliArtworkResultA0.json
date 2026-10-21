@@ -8,6 +8,11 @@
             "const": "prism.cli.artwork_result.a0",
             "description": "Document schema id."
         },
+        "paper_scale": {
+            "type": "number",
+            "minimum": 0,
+            "description": "The ratio of sheet millimetres to board millimetres the run drew at:\n`--paper-scale` when given, so every stroke and font in the views prints at\nits configured size on paper at that scale. Absent when the run drew in\nboard millimetres and sizes scale with the drawing."
+        },
         "views": {
             "type": "array",
             "items": {

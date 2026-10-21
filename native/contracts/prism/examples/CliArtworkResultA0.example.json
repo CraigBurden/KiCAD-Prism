@@ -1,5 +1,6 @@
 {
   "schema": "prism.cli.artwork_result.a0",
+  "paper_scale": 2.0,
   "views": [
     {
       "name": "assembly_bottom_view",

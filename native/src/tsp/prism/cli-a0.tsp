@@ -267,6 +267,12 @@ enum CliArgument {
   /** `--variant` of `vendor run` and `artwork`: the variant whose occurrences the run applies. */
   variant,
 
+  /**
+   * `--paper-scale` of `artwork`: the ratio of sheet millimetres to board
+   * millimetres the run draws at (cli-spec.md §5.7).
+   */
+  paperScale: "paper-scale",
+
   /** `<vendor-id>` of `vendor run`. */
   vendor,
 
@@ -943,6 +949,15 @@ model CliArtworkView {
 model CliArtworkResultA0 {
   /** Document schema id. */
   schema: "prism.cli.artwork_result.a0";
+
+  /**
+   * The ratio of sheet millimetres to board millimetres the run drew at:
+   * `--paper-scale` when given, so every stroke and font in the views prints at
+   * its configured size on paper at that scale. Absent when the run drew in
+   * board millimetres and sizes scale with the drawing.
+   */
+  @minValue(0)
+  paper_scale?: float64;
 
   /** One entry per rendered view, sorted by `name` in code point order. */
   views: CliArtworkView[];

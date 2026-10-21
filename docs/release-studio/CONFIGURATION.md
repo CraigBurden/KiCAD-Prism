@@ -113,8 +113,8 @@ after the layer plots.
 At build time, `synthesize_configuration` assembles a normalized mapping from
 identity, manufacturing, and the selected KiCad paths. That mapping is
 validated, snapshotted, and digest-bound to the build. It includes document
-metadata, IPC fields, variant, vendors, `bom_preset`, typography, and sheet
-style.
+metadata, IPC fields, variant, vendors, `bom_preset`, typography, sheet
+style, and artwork line weights.
 
 ## Sheet style and typography
 
@@ -126,6 +126,7 @@ build identity.
 | --- | --- | --- | --- |
 | `sheet_style` | `prism`, `kicad` | `prism` | `prism` uses the harness palette: an ink-black frame and title block, grey rules and tints, and colour only where it carries meaning (do-not-populate red). `kicad` reproduces KiCad's red worksheet and plain tables unchanged. |
 | `typography` | `geist-pixel-square`, `geist-pixel-grid`, `geist-pixel-circle`, `geist-pixel-triangle`, `geist-pixel-line`, `kicad-newstroke` | `geist-pixel-square` | The bundled face used for sheet text. `kicad-newstroke` draws KiCad's stroke vectors and covers symbols such as ⌀ and ✓ that the Geist faces lack. |
+| `artwork_line_weights` | `drawing`, `paper` | `drawing` | How assembly and testpoint artwork strokes and designator limits are measured. `drawing` keeps them in board millimetres, so they grow with the drawing (a 0.12 mm outline prints 0.6 mm at 5:1). `paper` prints them at their configured size: the artwork is drawn at the sheet's ratio, so the same outline prints 0.12 mm at any scale. |
 
 `prism` keeps KiCad's worksheet geometry exactly — outer and inner frame, the
 A–F / 1–8 zone grid and its labels — and changes only how it is painted. The
@@ -138,6 +139,14 @@ to use the standard scale series.
 `kicad` is retained so a project can match the rest of its KiCad drawing set.
 It is byte-for-byte the output the engine produced before `prism` became the
 default.
+
+`artwork_line_weights` applies to the assembly and testpoint views. In `paper`
+mode the build chooses the document set's sheet size and ratio before drawing,
+then passes that ratio to `prism-kicad artwork --paper-scale`; the sheet is
+placed at the same ratio, so the drawing's stated scale is the one its strokes
+were sized for. Designators still fit inside each body, and may still shrink
+below the configured minimum when the body is too small. The bundle path of
+these views needs the design bundle's `parse`, `board` and `models` stages.
 
 ## Cover and title block
 

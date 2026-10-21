@@ -173,6 +173,7 @@ pub fn artwork(args: &Args) -> Outcome<(Value, u8)> {
         occurrences: occurrences.as_ref(),
         variant: args.option("variant"),
         views: &args.views,
+        paper_scale: args.paper_scale,
     })
     .map_err(artwork_failure)?;
     let output = PathBuf::from(args.option("output").unwrap_or_default());
@@ -197,13 +198,14 @@ pub fn artwork(args: &Args) -> Outcome<(Value, u8)> {
             "footprints_without_outline": view.footprints_without_outline,
         }));
     }
-    Ok((
-        json!({
-            "schema": "prism.cli.artwork_result.a0",
-            "views": views,
-        }),
-        0,
-    ))
+    let mut result = json!({
+        "schema": "prism.cli.artwork_result.a0",
+        "views": views,
+    });
+    if let Some(paper_scale) = args.paper_scale {
+        result["paper_scale"] = json!(paper_scale);
+    }
+    Ok((result, 0))
 }
 
 fn artwork_failure(error: prism_artwork::artwork::ArtworkViewError) -> Failure {

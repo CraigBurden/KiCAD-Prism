@@ -115,6 +115,8 @@ pub struct Args {
     pub metrics: bool,
     /// `artwork --view`, in code point order.
     pub views: Vec<String>,
+    /// `artwork --paper-scale`: sheet millimetres per board millimetre.
+    pub paper_scale: Option<f64>,
     /// `--threads`, validated.
     pub threads: u64,
     /// The stage of `bundle build`.
@@ -146,7 +148,7 @@ fn work_of(command: Command, stage: Option<StageArg>) -> Work {
     }
 }
 
-const VALUE_OPTIONS: [&str; 43] = [
+const VALUE_OPTIONS: [&str; 44] = [
     "output",
     "in",
     "stage",
@@ -190,6 +192,7 @@ const VALUE_OPTIONS: [&str; 43] = [
     "variant",
     "request",
     "view",
+    "paper-scale",
 ];
 
 fn allowed(command: Command, option: &str) -> bool {
@@ -267,7 +270,7 @@ fn sheet_and_system(command: Command) -> &'static [&'static str] {
             "output",
         ],
         Command::VendorList | Command::VendorRun => &["in", "config", "output", "variant"],
-        Command::Artwork => &["in", "config", "view", "output", "variant"],
+        Command::Artwork => &["in", "config", "view", "output", "variant", "paper-scale"],
         Command::StrokeText => &["request", "metrics"],
         Command::DrawingSheet => &["request"],
         _ => &[],
@@ -567,6 +570,20 @@ fn stage_of(raw: &Raw) -> Outcome<Option<StageArg>> {
     }
 }
 
+/// `artwork --paper-scale`: a positive, finite ratio of sheet millimetres to
+/// board millimetres (cli-spec.md §5.7).
+fn paper_scale_of(raw: &Raw) -> Outcome<Option<f64>> {
+    let Some(value) = raw.options.get("paper-scale") else {
+        return Ok(None);
+    };
+    value
+        .parse::<f64>()
+        .ok()
+        .filter(|ratio| ratio.is_finite() && *ratio > 0.0)
+        .map(Some)
+        .ok_or_else(|| usage("--paper-scale takes a positive number").argument("paper-scale"))
+}
+
 fn threads_of(raw: &Raw) -> Outcome<u64> {
     let Some(value) = raw.options.get("threads") else {
         return Ok(4);
@@ -857,6 +874,7 @@ pub fn parse(argv: &[String]) -> Outcome<Args> {
         ));
     }
     let (stage, threads) = check_values(&raw)?;
+    let paper_scale = paper_scale_of(&raw)?;
     check_combinations(command, &raw, stage)?;
     // A source-tree side of `compare` runs the parse stage, so the command
     // takes the parse stage's limits (cli-spec.md §5.6).
@@ -903,6 +921,7 @@ pub fn parse(argv: &[String]) -> Outcome<Args> {
         quiet: raw.quiet,
         metrics: raw.metrics,
         views: raw.views,
+        paper_scale,
         threads,
         stage,
         limits,
@@ -954,6 +973,7 @@ fn help_args() -> Args {
         quiet: false,
         metrics: false,
         views: Vec::new(),
+        paper_scale: None,
         threads: 4,
         stage: None,
         limits: Limits::defaults(Work::Other),

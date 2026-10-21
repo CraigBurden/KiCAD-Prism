@@ -160,7 +160,7 @@ fn render_callout_leaders(
             number(mirror_x(placement.leader_to.x, context.mirror)),
             number(placement.leader_to.y),
             escape(color),
-            number(LEADER_WIDTH_MM),
+            number(LEADER_WIDTH_MM / context.paper_scale.max(f64::MIN_POSITIVE)),
             escape(footprint.reference.as_deref().unwrap_or_default()),
             escape(&footprint.uuid),
         ));

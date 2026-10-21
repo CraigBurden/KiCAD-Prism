@@ -36,7 +36,8 @@ usage:
   prism-kicad vendor run <vendor-id> --in <bundle.prism> --config <cfg.json>
               -o <dir> [--variant <name>] [COMMON]
   prism-kicad artwork --in <bundle.prism> --config <artwork.json>
-              --view <name>... -o <dir> [--variant <name>] [COMMON]
+              --view <name>... -o <dir> [--variant <name>]
+              [--paper-scale <ratio>] [COMMON]
   prism-kicad system step --document <system.json>
               [--member <occurrence>=<bundle.prism>
               --member-revision-key <occurrence>=<hex>]... [--absent <occurrence>]...

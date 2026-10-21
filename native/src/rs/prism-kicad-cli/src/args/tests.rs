@@ -99,6 +99,35 @@ fn parses_the_sheet_commands() {
 }
 
 #[test]
+fn parses_artwork_paper_scale() {
+    let artwork =
+        args("artwork --in a.prism --config c.json --view top -o d --paper-scale 2.5").unwrap();
+    assert_eq!(artwork.command, Command::Artwork);
+    assert_eq!(artwork.paper_scale, Some(2.5));
+    assert_eq!(
+        args("artwork --in a.prism --config c.json --view top -o d")
+            .unwrap()
+            .paper_scale,
+        None
+    );
+    // `--paper-scale` is a positive finite ratio, and only `artwork` takes it.
+    let code = |line: &str| args(line).unwrap_err().finding.code;
+    assert_eq!(
+        code("artwork --in a --config c --view top -o d --paper-scale 0"),
+        "usage"
+    );
+    assert_eq!(
+        code("artwork --in a --config c --view top -o d --paper-scale -1"),
+        "usage"
+    );
+    assert_eq!(
+        code("artwork --in a --config c --view top -o d --paper-scale nan"),
+        "usage"
+    );
+    assert_eq!(code("bundle verify b --paper-scale 2"), "usage");
+}
+
+#[test]
 fn rejects_bad_compare_grammar() {
     let code = |line: &str| args(line).unwrap_err().finding.code;
     assert_eq!(code("compare --head b -o d"), "usage");

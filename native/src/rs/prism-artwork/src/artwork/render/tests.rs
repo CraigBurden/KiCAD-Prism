@@ -150,6 +150,7 @@ fn render<'a>(
         occurrences: None,
         variant: None,
         views: &[],
+        paper_scale: None,
     };
     render_view(&input, data, view).expect("the view renders")
 }
@@ -173,6 +174,7 @@ fn bounds_for(
         occurrences: None,
         variant: None,
         views: &[],
+        paper_scale: None,
     };
     canvas_bounds(&input, data, selected, sides, callout, labels)
 }
@@ -254,7 +256,7 @@ fn a_callout_labels_box_is_inside_the_board_and_bodies_canvas() {
     };
     let style = designator_style(&config, &config.views[0].styles, None);
     let provisional = bounds_for(&config, &data, &[0], sides, true, &BTreeMap::new());
-    let planned = callouts::plan(&data, &[0], sides, style.min_font, provisional);
+    let planned = callouts::plan(&data, &[0], sides, style.min_font, provisional, 1.0);
     let bounds = bounds_for(&config, &data, &[0], sides, true, &planned);
     let label = planned.get(&0).expect("a callout was planned").bounds;
     assert!(bounds.contains_bounds(label));
@@ -309,6 +311,7 @@ fn planned_callouts(data: &BoardData, font: f64) -> BTreeMap<usize, CalloutPlace
             max_x: 20.0,
             max_y: 20.0,
         },
+        1.0,
     )
 }
 

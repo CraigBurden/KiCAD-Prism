@@ -315,6 +315,10 @@ class WaveOutputs:
     assembly_error: BaseException | None
     vendor_outputs: tuple[StepOutput, ...]
     extra_evidence: dict[str, bytes]
+    #: In `paper` line-weight mode, the sheet size and ratio the artwork was
+    #: drawn at, so the document engine places it at exactly that ratio.
+    artwork_sheet_size: str | None = None
+    artwork_paper_scale: float | None = None
 
 
 def run_build_waves(
@@ -328,16 +332,17 @@ def run_build_waves(
     config: Mapping[str, Any],
     variant: str,
     timings: list[dict[str, Any]],
-    project_id: str = "",
-    commit_sha: str | None = None,
+    candidate: Mapping[str, Any] | None = None,
     vendor_cli: KicadTool | None = None,
 ) -> WaveOutputs:
-    """Run the catalogue waves, the assembly Cruncher and the vendor packs, in order.
+    """Run the catalogue waves, the assembly views and the vendor packs, in order.
 
-    ``project_id`` and ``commit_sha`` name the design bundle a vendor pack may
-    come from (``PRISM_DESIGN_SOURCE_RELEASE_STUDIO=bundle``); ``vendor_cli``
-    overrides the located ``prism-kicad`` for tests.  Each wave appends its wall
-    time to ``timings`` (evidence, never hashed).
+    With ``PRISM_DESIGN_SOURCE_RELEASE_STUDIO=bundle`` and a bundle whose
+    ``parse``, ``board`` and ``models`` stages are ready, the assembly and
+    testpoint views come from ``prism-kicad artwork``; otherwise the legacy
+    Cruncher path still runs. The vendor packs follow the same switch
+    (``vendor_cli`` overrides the located ``prism-kicad`` for tests). Each wave
+    appends its wall time to ``timings`` (evidence, never hashed).
     """
 
     def _timed(name: str, fn):
@@ -390,7 +395,36 @@ def run_build_waves(
         )
         tracker.start("cruncher-assembly", message="Rendering assembly views")
         cruncher = tools.cruncher
-        if cruncher is not None and board_path is not None and board_path.is_file():
+        bundle_archive = _artwork_bundle(candidate)
+        artwork_sheet_size: str | None = None
+        artwork_paper_scale: float | None = None
+        cruncher_future = None
+        if bundle_archive is not None:
+            try:
+                artwork_sheet_size, artwork_paper_scale = _artwork_scale(
+                    config, output_root, candidate
+                )
+                from app.release_studio.documents.artwork_bundle import (
+                    acquire_bundle_views,
+                )
+
+                assembly_views = _timed(
+                    "cruncher-assembly",
+                    lambda: acquire_bundle_views(
+                        bundle_archive,
+                        artwork_root / "bundle",
+                        variant=variant,
+                        paper_scale=artwork_paper_scale,
+                    ),
+                )
+                tracker.succeed("cruncher-assembly")
+            except Exception as exc:  # noqa: BLE001 - compose records the miss
+                assembly_error = exc
+                logger.warning(
+                    "Release Studio assembly views unavailable: %s", exc
+                )
+                tracker.fail("cruncher-assembly", message=str(exc))
+        elif cruncher is not None and board_path is not None and board_path.is_file():
             from app.release_studio.documents.artwork import acquire_board_views
 
             cruncher_pool = ThreadPoolExecutor(
@@ -438,8 +472,8 @@ def run_build_waves(
                 variant=variant,
                 cruncher=cruncher,
                 tracker=tracker,
-                project_id=project_id,
-                commit_sha=commit_sha,
+                project_id=str((candidate or {}).get("project_id") or ""),
+                commit_sha=str((candidate or {}).get("commit_sha") or ""),
                 vendor_cli=vendor_cli,
             ),
         )
@@ -461,6 +495,90 @@ def run_build_waves(
         assembly_error=assembly_error,
         vendor_outputs=vendor_outputs,
         extra_evidence=extra_evidence,
+        artwork_sheet_size=artwork_sheet_size,
+        artwork_paper_scale=artwork_paper_scale,
+    )
+
+
+def _artwork_bundle(candidate: Mapping[str, Any] | None) -> Path | None:
+    """The design bundle `prism-kicad artwork` reads, or ``None`` for legacy."""
+
+    if not candidate:
+        return None
+    project_id = str(candidate.get("project_id") or "")
+    commit = str(candidate.get("commit_sha") or "")
+    if not project_id or not commit:
+        return None
+    from app.release_studio.bundle_projections import artwork_bundle
+
+    return artwork_bundle(project_id, commit)
+
+
+def _artwork_scale(
+    config: Mapping[str, Any],
+    output_root: Path,
+    candidate: Mapping[str, Any] | None = None,
+) -> tuple[str | None, float | None]:
+    """The sheet size and ratio the set will use, when line weights follow paper.
+
+    ``drawing`` (the default) keeps today's board-millimetre artwork, so the
+    sheet chooses its own ratio. ``paper`` needs the ratio before the CLI runs:
+    it is the same :func:`package_scale` the document engine calls, from the
+    board extents the sheets already use.
+    """
+
+    if str(config.get("artwork_line_weights") or "drawing").strip().lower() != "paper":
+        return None, None
+    import json
+
+    from app.release_studio.documents import notes as note_templates
+    from app.release_studio.documents.artwork import ArtworkError
+    from app.release_studio.documents.engine import board_extent
+    from app.release_studio.documents.fonts import DEFAULT_TYPOGRAPHY
+    from app.release_studio.documents.sheets import package_scale, title_block_height
+    from app.release_studio.documents.style import DEFAULT_SHEET_STYLE
+
+    stats_path = output_root / "fabrication" / "board-stats.json"
+    try:
+        stats = json.loads(stats_path.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as error:
+        raise ArtworkError(
+            "artwork_line_weights: paper needs the board statistics, which "
+            f"could not be read: {stats_path}"
+        ) from error
+    width, height = board_extent(stats)
+    if width <= 0 or height <= 0:
+        raise ArtworkError(
+            "artwork_line_weights: paper needs the board extents, which the "
+            "board statistics do not state"
+        )
+    # The title block's height changes the artwork window, and with it the
+    # sheet size and ratio. Resolve the configured fields the way the document
+    # engine does rather than assuming the default height.
+    candidate = candidate or {}
+    context = {
+        "title": str(config.get("title") or config.get("document_number") or "RELEASE"),
+        "document_name": str(config.get("document_number") or ""),
+        "document_number": str(config.get("document_number") or ""),
+        "revision": str(config.get("revision") or ""),
+        "commit_sha": str(candidate.get("commit_sha") or ""),
+        "variant": str(candidate.get("variant") or ""),
+        # The engine fills this from the repository; a field that prints the
+        # commit date is still counted here because the key exists.
+        "commit_date": "",
+        "release_date": str(config.get("release_date") or ""),
+    }
+    typography = str(config.get("typography") or DEFAULT_TYPOGRAPHY)
+    fields = config.get("fields") or {}
+    substitutions = note_templates.substitution_context(context, fields=fields, stats=stats)
+    title_fields, _warnings = note_templates.resolve_fields(
+        fields, substitutions, typography=typography
+    )
+    return package_scale(
+        width,
+        height,
+        title_height=title_block_height(context, title_fields),
+        sheet_style=str(config.get("sheet_style") or DEFAULT_SHEET_STYLE),
     )
 
 

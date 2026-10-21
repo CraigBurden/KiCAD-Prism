@@ -39,6 +39,9 @@ class DocumentInputs:
     bom_headers: Sequence[str] = ()
     bom_rows: Sequence[Sequence[str]] = ()
     sheet_size: str | None = None
+    #: The ratio the artwork was drawn at in `paper` line-weight mode. The
+    #: sheet is placed at this ratio instead of choosing one again.
+    artwork_paper_scale: float | None = None
     board: Path | None = None
     cli: KicadTool | None = None
     cruncher: KicadTool | None = None
@@ -67,6 +70,7 @@ class DocumentInputs:
         bom_headers: Sequence[str] | None = None,
         bom_rows: Sequence[Sequence[str]] | None = None,
         sheet_size: str | None = None,
+        artwork_paper_scale: float | None = None,
         board: Path | None = None,
         cli: KicadTool | None = None,
         cruncher: KicadTool | None = None,
@@ -98,6 +102,7 @@ class DocumentInputs:
             bom_headers=tuple(bom_headers or ()),
             bom_rows=tuple(tuple(row) for row in (bom_rows or ())),
             sheet_size=sheet_size,
+            artwork_paper_scale=artwork_paper_scale,
             board=board,
             cli=cli,
             cruncher=cruncher,

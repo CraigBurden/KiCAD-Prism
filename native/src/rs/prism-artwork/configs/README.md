@@ -21,6 +21,11 @@ field-by-field diff against the Cruncher files shows them:
 Views, layer tokens, styles, `selector_overrides` and the `dnp` block are
 otherwise unchanged, so a tuned drawing still tunes the same way.
 
+Every length here is a board millimetre, which is what the drawing needs at
+1:1: at a larger paper scale the strokes and type grow with the drawing. Pass
+`--paper-scale <ratio>` to divide those lengths by the sheet's ratio instead,
+so they print at their configured size on paper at that scale (cli-spec §5.7).
+
 They are checked against the generated `ArtworkConfigA0` schema by
 `tests/contract.rs`. `prism-kicad artwork --config` reads either one; the
 testpoint config's `selector_overrides` (`*` off, `TP*` on) now selects the
