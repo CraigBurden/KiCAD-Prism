@@ -17,6 +17,13 @@ Measured with a whole build per fixture (the same catalogue, tools and
 configuration in each mode; `executor_image` and the candidate's identity fixed
 so only the source switch moves the digest):
 
+> The legacy builds ran without `kicad-cruncher` (it is not installed on the
+> machine that measured them), so their assembly and testpoint sheets were
+> composed without artwork. The legacy column is therefore Release Studio's
+> legacy path minus Cruncher's artwork, not a production legacy dossier; the
+> change it shows on the artwork sheets is the expected one, and every other
+> member's comparison is unaffected.
+
 | Fixture | Legacy dossier digest | Bundle dossier digest |
 |---|---|---|
 | `rs-synthetic` | `a680c6f44c456179a8db23b8f074af6e5236ebc6a3c9520674ceb694ab997532` | `8ce859ecfbad2f2d7dc7de45cbe77ff9e031d123306f52f25472469a7162c0fd` |
