@@ -257,6 +257,43 @@ def set_scale(
     return preferred_scale(board_width, board_height, window)
 
 
+def package_scale(
+    board_width: float,
+    board_height: float,
+    *,
+    sheet_size: str | None = None,
+    title_height: float = TITLE_BLOCK_HEIGHT,
+    sheet_style: str = DEFAULT_SHEET_STYLE,
+) -> tuple[str, float]:
+    """The one sheet size and placement ratio a document set is drawn at.
+
+    Release Studio chooses both before it draws the artwork when
+    ``artwork_line_weights`` is ``paper``, so the CLI can print its strokes at a
+    known ratio; the document engine calls this same function.  Keeping the
+    choice here is what stops a second guess from disagreeing with the sheet.
+
+    ``sheet_size`` pins the paper when a caller already chose it; otherwise the
+    smallest standard sheet that holds the board at 1:1 is used.
+    """
+
+    if sheet_size is None:
+        sheet_size = (
+            select_sheet_size(board_width, board_height, title_height=title_height)
+            if board_width > 0 and board_height > 0
+            else DEFAULT_SIZE
+        )
+    return (
+        sheet_size,
+        set_scale(
+            board_width,
+            board_height,
+            sheet_size,
+            title_height,
+            sheet_style=sheet_style,
+        ),
+    )
+
+
 def sheet_columns(
     size: str,
     key: str,

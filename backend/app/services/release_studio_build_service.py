@@ -363,6 +363,7 @@ def execute_build(
             config=config,
             variant=str(candidate.get("variant") or ""),
             timings=timings,
+            candidate=candidate,
         )
         build_warnings = _gerber_set_warnings(waves.by_step)
         if not include_schematic:
@@ -381,6 +382,8 @@ def execute_build(
             project_relpath=str(candidate.get("project_relpath") or "") or None,
             assembly_views=waves.assembly_views,
             assembly_error=waves.assembly_error,
+            artwork_sheet_size=waves.artwork_sheet_size,
+            artwork_paper_scale=waves.artwork_paper_scale,
             timings=timings,
             tracker=tracker,
             repo_url=str(candidate.get("repo_url") or ""),

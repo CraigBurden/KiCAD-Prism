@@ -75,6 +75,13 @@ class DesignBundleSettings(BaseSettings):
         default="",
         description="Committed JSON Schema of the bundle contracts. Unset uses native/contracts/generated/schema.",
     )
+    PRISM_ARTWORK_CONFIG_DIR: str = Field(
+        default="",
+        description=(
+            "The native `prism-kicad artwork` configurations (assembly.json, testpoints.json). "
+            "Unset uses native/src/rs/prism-artwork/configs, from the checkout or the image."
+        ),
+    )
     PRISM_DESIGN_BUNDLE_CONCURRENCY: int = Field(
         default=1, ge=1, le=8, description="Capacity of the design_bundle resource slot (bundle builds at once)."
     )

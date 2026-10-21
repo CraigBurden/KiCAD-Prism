@@ -208,11 +208,17 @@ def acquire_views(request: AcquisitionRequest) -> AcquisitionResult:
     else:
         warnings.append("kicad-cli unavailable: sheets composed without board artwork")
 
-    if board is not None and request.cruncher and workdir is not None:
+    if workdir is not None and (
+        request.assembly_acquirer is not None
+        or (board is not None and request.cruncher is not None)
+    ):
         # One invocation for every assembly view: loading the board dominates
-        # the cost and Cruncher writes them all from a single load.
+        # the cost and the producer writes them all from a single load. An
+        # injected acquirer keeps the historical `(cruncher, board, dir)`
+        # shape; the bundle path ignores the first argument.
+        acquirer = request.assembly_acquirer or acquire_board_views
         jobs[_CRUNCHER_JOB] = partial(
-            request.assembly_acquirer or acquire_board_views,
+            acquirer,
             request.cruncher,
             board,
             workdir / "cruncher",
@@ -246,19 +252,31 @@ def acquire_views(request: AcquisitionRequest) -> AcquisitionResult:
     # JTYU-OBC moved compose from 213.3s to 217.5s. Cruncher is CPU bound, so
     # overlapping it with the plots splits the same cores instead of filling
     # idle ones.
-    if (
-        board is not None
-        and request.cruncher
-        and workdir is not None
-        and not testpoint
-    ):
-        try:
-            testpoint_views = (request.testpoint_acquirer or acquire_testpoint_views)(
+    testpoint_job = None
+    if board is not None and workdir is not None and not testpoint:
+        target = workdir / "testpoints"
+        if request.testpoint_acquirer is not None:
+            # An injected acquirer keeps the historical
+            # `(cruncher, board, dir)` call shape; the bundle path ignores the
+            # first argument.
+            testpoint_job = partial(
+                request.testpoint_acquirer,
                 request.cruncher,
                 board,
-                workdir / "testpoints",
+                target,
                 designators=tuple(request.designators or ()),
             )
+        elif request.cruncher is not None:
+            testpoint_job = partial(
+                acquire_testpoint_views,
+                request.cruncher,
+                board,
+                target,
+                designators=tuple(request.designators or ()),
+            )
+    if testpoint_job is not None:
+        try:
+            testpoint_views = testpoint_job()
             for view_key, drawing in testpoint_views.items():
                 kind, _, side = view_key.partition("-")
                 if kind == "testpoint":

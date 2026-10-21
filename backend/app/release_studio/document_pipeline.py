@@ -40,6 +40,8 @@ def with_documents(
     project_relpath: str | None = None,
     assembly_views: Mapping[str, Any] | None = None,
     assembly_error: BaseException | None = None,
+    artwork_sheet_size: str | None = None,
+    artwork_paper_scale: float | None = None,
     timings: list[dict[str, Any]] | None = None,
     tracker: PipelineTracker | None = None,
     repo_url: str = "",
@@ -70,6 +72,8 @@ def with_documents(
             staging=staging,
             repo_root=repo_root,
             repo_url=repo_url,
+            artwork_sheet_size=artwork_sheet_size,
+            artwork_paper_scale=artwork_paper_scale,
         )
     except Exception as exc:  # noqa: BLE001
         logger.exception("Release Studio projections failed before compose")
@@ -101,7 +105,23 @@ def with_documents(
 
         compose_kwargs["assembly_acquirer"] = _failed_assembly
     elif assembly_views is not None:
-        compose_kwargs["assembly_acquirer"] = lambda *_args, **_kwargs: assembly_views
+        # The bundle artwork call returns assembly and testpoint views in one
+        # mapping; each sheet family gets its own side of it.
+        assembly = {
+            key: view
+            for key, view in assembly_views.items()
+            if not key.startswith("testpoint-")
+        }
+        testpoints = {
+            key: view
+            for key, view in assembly_views.items()
+            if key.startswith("testpoint-")
+        }
+        compose_kwargs["assembly_acquirer"] = lambda *_args, **_kwargs: assembly
+        if testpoints:
+            compose_kwargs["testpoint_acquirer"] = (
+                lambda *_args, **_kwargs: testpoints
+            )
 
     compose_started = time.perf_counter()
     try:
@@ -202,6 +222,8 @@ def _gather_document_inputs(
     staging: Path,
     repo_root: Path | None,
     repo_url: str,
+    artwork_sheet_size: str | None = None,
+    artwork_paper_scale: float | None = None,
 ) -> tuple[DocumentInputs, list[str], dict[str, Any]]:
     """Project board facts into a typed document-input record."""
 
@@ -389,6 +411,8 @@ def _gather_document_inputs(
         stackup_pdf=stackup_pdf if isinstance(stackup_pdf, (bytes, bytearray)) else None,
         bom_headers=bom_headers,
         bom_rows=bom_rows,
+        sheet_size=artwork_sheet_size,
+        artwork_paper_scale=artwork_paper_scale,
         board=board if board and board.is_file() else None,
         cli=cli,
         cruncher=cruncher,

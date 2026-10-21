@@ -309,15 +309,27 @@ def compose_documents(
 
     title_height = sheet_templates.title_block_height(context, title_fields)
     extent_width, extent_height = board_extent(stats)
-    if sheet_size is None:
-        sheet_size = _select_size(stats, title_height)
     # One ratio for the whole package. A reader who scales a dimension off the
     # fabrication sheet and applies it to the assembly sheet has to get the same
     # number, so the scale is a property of the set rather than of each sheet.
-    scale = sheet_templates.set_scale(
-        extent_width, extent_height, sheet_size, title_height,
-        sheet_style=sheet_style,
-    )
+    # In `paper` line-weight mode the artwork was already drawn at this ratio,
+    # so the sheet is placed at exactly that ratio rather than choosing again.
+    if inputs.artwork_paper_scale is not None:
+        if sheet_size is None:
+            sheet_size = _select_size(stats, title_height)
+        scale = float(inputs.artwork_paper_scale)
+        if not (scale > 0 and scale < float("inf")):
+            raise ValueError(
+                f"the artwork's paper scale is not a positive ratio: {scale!r}"
+            )
+    else:
+        sheet_size, scale = sheet_templates.package_scale(
+            extent_width,
+            extent_height,
+            sheet_size=sheet_size,
+            title_height=title_height,
+            sheet_style=sheet_style,
+        )
 
     # Placement uses content bounds when an acquired SVG reports a drawing-sheet
     # frame (or otherwise dwarfs the board).  Package size already ignored those

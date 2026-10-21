@@ -27,6 +27,7 @@ the bundle reader; it is the one seam a caller needs.
 from __future__ import annotations
 
 import logging
+from pathlib import Path
 from typing import Any, Mapping
 
 from app.release_studio.projections import (
@@ -526,6 +527,49 @@ def build(documents: Mapping[str, Any]) -> dict[str, Any]:
     }
 
 
+def artwork_bundle(
+    project_id: str, commit: str | None, *, requested_by: str = ""
+) -> Path | None:
+    """The archive `prism-kicad artwork` reads, when the switch and stages allow it.
+
+    The artwork command needs stages ``parse``, ``board`` and ``models`` (cli-spec
+    §5.7). A stage still pending, or a bundle that is absent, answers ``None`` so
+    the caller keeps the legacy Cruncher path. Nothing is queued or rebuilt here:
+    the projection read already asks for the bundle, and a later request retries.
+    """
+
+    if not project_id or not commit:
+        return None
+    from app.services.design_bundle import manifest, reader
+    from app.services.design_bundle.consumer import source
+
+    if source("RELEASE_STUDIO") != "bundle":
+        return None
+    try:
+        opened = reader.open_revision(
+            project_id, commit, queue=False, requested_by=requested_by
+        )
+    except Exception as error:  # noqa: BLE001 - a bundle-side fault keeps the legacy path
+        logger.warning(
+            "design bundle: the Release Studio artwork bundle of %s@%s is "
+            "unreadable: %s",
+            project_id,
+            commit,
+            error,
+        )
+        return None
+    if opened.absent or opened.archive is None:
+        return None
+    stages = manifest.statuses(opened.archive.manifest)
+    if stages["parse"] not in ("complete", "partial"):
+        return None
+    if stages["board"] not in ("complete", "partial"):
+        return None
+    if stages["models"] != "complete":
+        return None
+    return opened.archive.path
+
+
 def board_projections_from_bundle(
     project_id: str, commit: str | None, *, requested_by: str = ""
 ) -> dict[str, Any] | None:
@@ -569,6 +613,7 @@ def board_projections_from_bundle(
 
 __all__ = [
     "MEMBERS",
+    "artwork_bundle",
     "board_projections_from_bundle",
     "build",
     "designators",
