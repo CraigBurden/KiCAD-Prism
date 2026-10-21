@@ -354,10 +354,10 @@ describe("harness script API", () => {
   });
 
   it("refuses to store a topology that is already stored", async () => {
-    const route = HARNESS_BUNDLE.harnesses[0].route;
+    const route = HARNESS_BUNDLE.harnesses![0].route;
     const storedBundle = {
       ...HARNESS_BUNDLE,
-      harnesses: [{ ...HARNESS_BUNDLE.harnesses[0], route: { ...route, derived: false } }],
+      harnesses: [{ ...HARNESS_BUNDLE.harnesses![0], route: { ...route, derived: false } }],
     } as unknown as SystemBundle;
     const { api } = setup(5, { document: harnessDocument(), bundle: storedBundle });
     await expect(api.storeTopology("har_h")).rejects.toThrow("The topology is already stored");
@@ -375,11 +375,11 @@ describe("harness script API", () => {
         waypoints: [{ id: "w1", segment: "seg_1", position: { xNm: 0, yNm: 6e6, zNm: 0 }, order: 0 }],
       }],
     };
-    const route = HARNESS_BUNDLE.harnesses[0].route!;
+    const route = HARNESS_BUNDLE.harnesses![0].route!;
     const storedBundle = {
       ...HARNESS_BUNDLE,
       harnesses: [{
-        ...HARNESS_BUNDLE.harnesses[0],
+        ...HARNESS_BUNDLE.harnesses![0],
         route: {
           ...route,
           derived: false,
