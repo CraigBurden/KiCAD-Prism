@@ -44,7 +44,6 @@ class DocumentInputs:
     artwork_paper_scale: float | None = None
     board: Path | None = None
     cli: KicadTool | None = None
-    cruncher: KicadTool | None = None
     workdir: Path | None = None
 
     @classmethod
@@ -73,7 +72,6 @@ class DocumentInputs:
         artwork_paper_scale: float | None = None,
         board: Path | None = None,
         cli: KicadTool | None = None,
-        cruncher: KicadTool | None = None,
         workdir: Path | None = None,
     ) -> DocumentInputs:
         """Pack the historical ``compose`` keyword arguments into one record."""
@@ -105,6 +103,5 @@ class DocumentInputs:
             artwork_paper_scale=artwork_paper_scale,
             board=board,
             cli=cli,
-            cruncher=cruncher,
             workdir=workdir,
         )

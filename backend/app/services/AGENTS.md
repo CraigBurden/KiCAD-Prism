@@ -100,10 +100,10 @@ nothing writes into a checkout, because Sync fast-forwards only a clean tree.
 
 ## KiCad tools
 
-`kicad_tools.py` is the only place that locates or starts `kicad-cli` and
-`kicad-cruncher` (Settings `KICAD_CLI_PATH`, `KICAD_CRUNCHER_PATH`). Callers take
-a `KicadTool` and state a timeout; do not add `subprocess` calls or path lookups
-for them elsewhere. `kicad_tool_replay.py` records and replays runs for tests.
+`kicad_tools.py` is the only place that locates or starts `kicad-cli`
+(Settings `KICAD_CLI_PATH`). Callers take a `KicadTool` and state a timeout; do
+not add `subprocess` calls or path lookups for them elsewhere.
+`kicad_tool_replay.py` records and replays runs for tests.
 
 ## KiCad library text
 

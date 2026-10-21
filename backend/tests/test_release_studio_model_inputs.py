@@ -109,7 +109,10 @@ class PrepareCandidateTests(unittest.TestCase):
             advisory_reasons=lambda: [],
         )
         workspace = Path("/nonexistent-workspace")
+        design = SimpleNamespace(project_references=lambda: object(), generator={})
         with mock.patch.object(
+            build_service.bundle_design, "readiness", return_value=design
+        ), mock.patch.object(
             build_service, "materialize_input_closure", return_value=closure
         ) as materialize, mock.patch.object(
             build_service, "toolchain_identity", return_value=({}, "t" * 64)

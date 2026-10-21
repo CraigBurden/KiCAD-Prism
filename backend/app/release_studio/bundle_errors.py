@@ -3,8 +3,7 @@
 The API's typed answers (``design_bundle.errors.DesignDataPending`` /
 ``DesignDataFailed``) render a request as HTTP 202/422. A Release Studio build
 is a job, not a request, so it needs the job runtime's retry semantics instead:
-a build waits for the stages it needs and never quietly parses the checkout
-with Python ``kicad_monkey``.
+a build waits for the stages it needs and never quietly parses the checkout.
 
 - :class:`BundlePending` is retryable: the bundle job is queued (or already
   running) and the build is tried again when it finishes.

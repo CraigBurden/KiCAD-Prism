@@ -5,7 +5,6 @@ from __future__ import annotations
 import unittest
 from unittest import mock
 
-from app.core.config import settings
 from app.services.design_bundle import consumer
 from app.services.design_bundle.errors import DesignDataFailed, DesignDataPending
 from app.services.design_bundle.manifest import Readiness
@@ -90,12 +89,18 @@ class BundleReadTests(unittest.TestCase):
         clean, _ = self._read(_Opened({PATH: "ready"}))
         self.assertEqual(clean.response_headers(), {})
 
-    def test_only_release_studio_has_a_switch(self):
-        for name in ("SEMANTIC_INDEX", "PROJECT_METADATA", "CATALOG_IMPORT", "DESIGN_COMPARISON"):
-            with self.subTest(name=name), self.assertRaises(ValueError):
-                consumer.source(name)
-        with mock.patch.object(settings, "PRISM_DESIGN_SOURCE_RELEASE_STUDIO", "bundle"):
-            self.assertEqual(consumer.source("RELEASE_STUDIO"), "bundle")
+    def test_no_consumer_has_a_switch(self):
+        self.assertFalse(hasattr(consumer, "source"))
+        self.assertEqual(
+            consumer.CONSUMERS,
+            (
+                "SEMANTIC_INDEX",
+                "DESIGN_COMPARISON",
+                "RELEASE_STUDIO",
+                "PROJECT_METADATA",
+                "CATALOG_IMPORT",
+            ),
+        )
 
 
 class IfReadyTests(unittest.TestCase):

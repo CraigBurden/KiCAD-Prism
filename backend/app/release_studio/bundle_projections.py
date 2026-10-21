@@ -1,8 +1,8 @@
 """Release Studio's board projections, rebuilt from design-bundle members.
 
-With ``PRISM_DESIGN_SOURCE_RELEASE_STUDIO=bundle`` and a resolved commit, the
-five read-only board projections of :mod:`app.release_studio.projections` come
-from the bundle instead of Python ``kicad_monkey``:
+A build with a resolved commit reads the five read-only board projections of
+:mod:`app.release_studio.projections` from the bundle instead of Python
+``kicad_monkey``:
 
 - ``stackup`` from ``projections/stackup.json`` (``prism.stackup.a0``);
 - ``population``, ``testpoints`` and ``designators`` from
@@ -20,14 +20,12 @@ unit-tested against the committed goldens without a bundle.
 
 The functions reuse the pure presentation helpers of the legacy module
 (``_layer_kind``, ``_empty_stackup``, the variant merge and comparison) so the
-two shapes cannot drift.  Only :func:`board_projections_from_bundle` talks to
+two shapes cannot drift.  Only :func:`board_projections_from_design` talks to
 the bundle reader; it is the one seam a caller needs.
 """
 
 from __future__ import annotations
 
-import logging
-from pathlib import Path
 from typing import Any, Mapping
 
 from app.release_studio.projections import (
@@ -43,12 +41,9 @@ from app.release_studio.projections import (
 )
 from app.release_studio.semantic import semantic_scope_projections
 
-logger = logging.getLogger(__name__)
-
-#: The members these projections need.  ``project.json`` is named here because
-#: ADR §8's switch is per consumer: a revision is read as one bundle even though
-#: no projection below consumes the project document yet (the closure adapter
-#: does, in a later chunk).
+#: The members these projections need.  ``project.json`` is named here so a
+#: revision is read as one bundle even though no projection below consumes the
+#: project document (the closure adapter does).
 MEMBERS = (
     "projections/stackup.json",
     "projections/placements.json",
@@ -554,33 +549,6 @@ def semantic_index_a0(member: Mapping[str, Any]) -> dict[str, Any]:
     return dict(reduced)
 
 
-def semantic_scope_from_bundle(
-    project_id: str, commit: str | None, *, requested_by: str = ""
-) -> dict[str, dict[str, Any]] | None:
-    """The scope projections from a ready semantic-index member, or ``None``.
-
-    ``None`` means the switch is ``legacy`` or a working tree has no bundle to
-    read: the caller keeps today's build.  A bundle-mode build checks readiness
-    before it starts (`bundle_design.readiness`), so a member that is not ready
-    there is a missing precondition rather than a request to fall back.
-    """
-
-    from app.services.design_bundle import consumer
-
-    if not project_id or not commit or consumer.source("RELEASE_STUDIO") != "bundle":
-        return None
-    read = consumer.bundle_read_if_ready(
-        "RELEASE_STUDIO",
-        project_id,
-        commit,
-        [SEMANTIC_MEMBER],
-        requested_by=requested_by,
-    )
-    if read is None or not read.ready(SEMANTIC_MEMBER):
-        return None
-    return semantic_scope_projections(semantic_index_a0(read.json(SEMANTIC_MEMBER)))
-
-
 def build(documents: Mapping[str, Any]) -> dict[str, Any]:
     """Every projection from the parsed member documents, by member path."""
 
@@ -596,55 +564,12 @@ def build(documents: Mapping[str, Any]) -> dict[str, Any]:
     }
 
 
-def artwork_bundle(
-    project_id: str, commit: str | None, *, requested_by: str = ""
-) -> Path | None:
-    """The archive `prism-kicad artwork` reads, when the switch and stages allow it.
-
-    The artwork command needs stages ``parse``, ``board`` and ``models`` (cli-spec
-    §5.7). A stage still pending, or a bundle that is absent, answers ``None`` so
-    the caller keeps the legacy Cruncher path. Nothing is queued or rebuilt here:
-    the projection read already asks for the bundle, and a later request retries.
-    """
-
-    if not project_id or not commit:
-        return None
-    from app.services.design_bundle import manifest, reader
-    from app.services.design_bundle.consumer import source
-
-    if source("RELEASE_STUDIO") != "bundle":
-        return None
-    try:
-        opened = reader.open_revision(
-            project_id, commit, queue=False, requested_by=requested_by
-        )
-    except Exception as error:  # noqa: BLE001 - a bundle-side fault keeps the legacy path
-        logger.warning(
-            "design bundle: the Release Studio artwork bundle of %s@%s is "
-            "unreadable: %s",
-            project_id,
-            commit,
-            error,
-        )
-        return None
-    if opened.absent or opened.archive is None:
-        return None
-    stages = manifest.statuses(opened.archive.manifest)
-    if stages["parse"] not in ("complete", "partial"):
-        return None
-    if stages["board"] not in ("complete", "partial"):
-        return None
-    if stages["models"] != "complete":
-        return None
-    return opened.archive.path
-
-
 def board_projections_from_design(design: Any) -> dict[str, Any]:
     """The five projections from an already-checked :class:`bundle_design.BundleDesign`.
 
     The build's readiness answer already opened and verified the archive, so
     this reads the members directly instead of re-opening the revision.  A read
-    fault propagates: in bundle mode there is no legacy parse to fall back to.
+    fault propagates: there is no legacy parse to fall back to.
     """
 
     documents = {path: design.opened.read_json(path) for path in MEMBERS}
@@ -659,60 +584,16 @@ def semantic_scope_from_design(design: Any) -> dict[str, dict[str, Any]]:
     )
 
 
-def board_projections_from_bundle(
-    project_id: str, commit: str | None, *, requested_by: str = ""
-) -> dict[str, Any] | None:
-    """The five projections the bundle holds for a resolved commit, or ``None``.
-
-    The ``legacy`` switch answers ``None`` before any bundle is opened.
-    ``bundle_read_if_ready`` answers ``None`` for a member that is not ready
-    yet (it queues the build) and a member that failed, and this function then
-    serves the legacy path.  A member that is final but not ``ready`` (``skipped``,
-    ``not-applicable``) is no projection either, so it falls back too.  A
-    working tree — no resolved commit, which the bundle key cannot name — can
-    hold uncommitted changes a committed bundle does not carry, so it is never
-    read here.
-
-    Any read fault (an unreadable or malformed member) falls back to the legacy
-    projections rather than failing the build.
-    """
-
-    from app.services.design_bundle import consumer
-
-    if not commit or not project_id or consumer.source("RELEASE_STUDIO") != "bundle":
-        return None
-    read = consumer.bundle_read_if_ready(
-        "RELEASE_STUDIO", project_id, commit, MEMBERS, requested_by=requested_by
-    )
-    if read is None or not all(read.ready(path) for path in MEMBERS):
-        return None
-    try:
-        documents = {path: read.json(path) for path in MEMBERS}
-        return build(documents)
-    except Exception as error:  # noqa: BLE001 - a bundle-side fault must not break the legacy path
-        logger.warning(
-            "design bundle: the Release Studio board members of %s@%s are "
-            "unreadable: %s",
-            project_id,
-            commit,
-            error,
-        )
-        return None
-
-
 __all__ = [
     "MEMBERS",
     "SEMANTIC_A1_FIELDS",
     "SEMANTIC_A0_SCHEMA",
     "SEMANTIC_MEMBER",
-    "artwork_bundle",
-    "board_projections_from_bundle",
     "board_projections_from_design",
     "build",
     "designators",
     "population",
     "semantic_index_a0",
-    "semantic_scope_from_bundle",
     "semantic_scope_from_design",
     "stackup",
     "testpoints",

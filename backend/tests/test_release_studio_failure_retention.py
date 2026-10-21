@@ -20,6 +20,27 @@ from tests.kicad_tool_fakes import FakeTool
 from tests.release_publish_fakes import FakeForge, FakeRecords
 
 
+def _stub_design(closure: Path):
+    """The one ready-bundle answer ``execute_build`` reads its files from."""
+
+    class _Design:
+        archive_path = closure / "synthetic.prism"
+
+        def board_path(self, *_args) -> Path:  # noqa: ANN002
+            return closure / "hardware" / "board.kicad_pcb"
+
+        def board_member(self, *_args) -> str:  # noqa: ANN002
+            return "refilled/board.kicad_pcb"
+
+        def schematic_path(self, *_args) -> Path:  # noqa: ANN002
+            return closure / "hardware" / "board.kicad_sch"
+
+        def schematic_member(self, *_args) -> str:  # noqa: ANN002
+            return "sources/board.kicad_sch"
+
+    return _Design()
+
+
 class _FencedJobService:
     """Small fenced service fake that retains the artifact publication record."""
 
@@ -185,6 +206,7 @@ class ReleaseStudioFailureRetentionTests(unittest.TestCase):
             "build_key": "c" * 64,
             "technical_config_digest": "d" * 64,
             "input_closure_digest": "e" * 64,
+            "_bundle_design": _stub_design(closure),
         }
 
         def fail_build(build_id, **kwargs):  # noqa: ANN001 - service seam
@@ -231,6 +253,7 @@ class ReleaseStudioFailureRetentionTests(unittest.TestCase):
             "id": "candidate-cancelled", "commit_sha": "c" * 40,
             "config_key": "production", "variant": "", "build_key": "d" * 64,
             "technical_config_digest": "e" * 64, "input_closure_digest": "f" * 64,
+            "_bundle_design": _stub_design(closure),
         }
         def cancel_mid_step(args, **_kwargs):  # noqa: ANN001 - FakeTool handler
             # What a cancel request looks like to a running tool: the poll it

@@ -1,11 +1,10 @@
 """The external KiCad tools Prism runs: where they are and how each run is bounded.
 
-Every caller that runs ``kicad-cli`` or ``kicad-cruncher`` goes through a
-:class:`KicadTool`. The tool owns what used to be repeated, unevenly, at each
-call site:
+Every caller that runs ``kicad-cli`` goes through a :class:`KicadTool`. The
+tool owns what used to be repeated, unevenly, at each call site:
 
-- **discovery** — ``Settings.KICAD_CLI_PATH`` / ``KICAD_CRUNCHER_PATH``, then
-  ``PATH``, then (kicad-cli only) the usual install locations;
+- **discovery** — ``Settings.KICAD_CLI_PATH``, then ``PATH``, then the usual
+  install locations;
 - **isolation** — each kicad-cli process gets its own temp/runtime directory,
   because KiCad takes an instance lock keyed on it;
 - **a timeout** — every run states one; an expired run is killed and raises
@@ -39,7 +38,6 @@ if TYPE_CHECKING:  # pragma: no cover
 
 
 KICAD_CLI = "kicad-cli"
-KICAD_CRUNCHER = "kicad-cruncher"
 VERSION_TIMEOUT_SECONDS = 10
 _CANCEL_POLL_SECONDS = 1.0
 
@@ -148,13 +146,6 @@ def locate_kicad_cli(settings: "Settings | None" = None) -> str | None:
     if found:
         return found
     return next((path for path in kicad_cli_install_candidates() if Path(path).is_file()), None)
-
-
-def locate_kicad_cruncher(settings: "Settings | None" = None) -> str | None:
-    """``KICAD_CRUNCHER_PATH``, then PATH; ``None`` if absent."""
-
-    configured = _settings(settings).KICAD_CRUNCHER_PATH.strip()
-    return configured or shutil.which(KICAD_CRUNCHER)
 
 
 def isolated_env(scratch: Path, base: Mapping[str, str] | None = None) -> dict[str, str]:
@@ -330,12 +321,6 @@ def kicad_cli(settings: "Settings | None" = None) -> LocalTool:
     return LocalTool(KICAD_CLI, lambda: locate_kicad_cli(settings), isolate=True)
 
 
-def kicad_cruncher(settings: "Settings | None" = None) -> LocalTool:
-    """kicad-cruncher. Not isolated: it is a Python tool with no instance lock."""
-
-    return LocalTool(KICAD_CRUNCHER, lambda: locate_kicad_cruncher(settings), isolate=False)
-
-
 # -- the set a job is handed ------------------------------------------------------
 
 
@@ -344,30 +329,23 @@ class KicadTools:
     """The tools one job runs. ``None`` means not installed: callers degrade."""
 
     cli: KicadTool | None
-    cruncher: KicadTool | None = None
 
     @classmethod
     def resolve(cls, settings: "Settings | None" = None) -> "KicadTools":
-        """Locate both now; a missing one is ``None``."""
+        """Locate the CLI now; a missing one is ``None``."""
 
         cli = kicad_cli(settings)
-        cruncher = kicad_cruncher(settings)
-        return cls(
-            cli=cli if cli.available() else None,
-            cruncher=cruncher if cruncher.available() else None,
-        )
+        return cls(cli=cli if cli.available() else None)
 
     def with_cancel(self, cancel: CancelCheck | None) -> "KicadTools":
         return replace(
             self,
             cli=self.cli.with_cancel(cancel) if self.cli is not None else None,
-            cruncher=self.cruncher.with_cancel(cancel) if self.cruncher is not None else None,
         )
 
 
 __all__ = [
     "KICAD_CLI",
-    "KICAD_CRUNCHER",
     "CancelCheck",
     "KicadTool",
     "KicadTools",
@@ -379,7 +357,5 @@ __all__ = [
     "isolated_env",
     "kicad_cli",
     "kicad_cli_install_candidates",
-    "kicad_cruncher",
     "locate_kicad_cli",
-    "locate_kicad_cruncher",
 ]

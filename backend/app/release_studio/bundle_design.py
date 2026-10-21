@@ -1,7 +1,7 @@
 """Release Studio's design files from a design bundle (ADR amendment C3).
 
-With ``PRISM_DESIGN_SOURCE_RELEASE_STUDIO=bundle`` a release is built from one
-revision's bundle when stages ``parse``, ``board`` and ``models`` are ready:
+A release is built from one revision's bundle when stages ``parse``, ``board``
+and ``models`` are ready:
 
 - the scope fingerprint reads ``projections/semantic-index.json`` through the
   a0 view (C3b, :mod:`app.release_studio.bundle_projections`);
@@ -40,16 +40,6 @@ REQUIRED_STAGES = ("parse", "board", "models")
 
 _READY_STAGE_STATES = frozenset({"complete", "partial"})
 _STAGE_LABELS = {"parse": "stage parse", "board": "stage board", "models": "stage models"}
-
-
-def active(project_id: str, commit: str | None) -> bool:
-    """Whether this build is in bundle mode, before any bundle is opened."""
-
-    if not project_id or not commit:
-        return False
-    from app.services.design_bundle.consumer import source
-
-    return source("RELEASE_STUDIO") == "bundle"
 
 
 @dataclass
@@ -255,18 +245,23 @@ def readiness(
     commit: str | None,
     *,
     requested_by: str = "",
-) -> BundleDesign | None:
-    """The ready bundle for a bundle-mode build, or ``None`` for the legacy switch.
+) -> BundleDesign:
+    """The ready bundle for a build, or a typed pending/failed answer.
 
     A missing or pending bundle queues the ``design_bundle`` job (deduplicated
     on the bundle key) and raises :class:`BundlePending`; a failed stage or
-    member raises :class:`BundleFailed`.  There is no legacy answer here:
-    in bundle mode the caller must wait or fail.
+    member raises :class:`BundleFailed`.  A build with no resolved commit (a
+    working tree) cannot be keyed by a bundle at all, so it is a clear
+    :class:`BundleFailed` rather than a legacy read.
     """
 
-    if not active(project_id, commit):
-        return None
-    assert commit is not None
+    if not project_id:
+        raise BundleFailed("a release build names no project")
+    if not commit:
+        raise BundleFailed(
+            "a release build needs a resolved commit: a design bundle is keyed "
+            "by the revision's commit, and a working tree has none"
+        )
 
     from app.services.design_bundle import reader
 
@@ -296,7 +291,7 @@ def readiness(
     return design
 
 
-def for_candidate(candidate: Mapping[str, Any]) -> BundleDesign | None:
+def for_candidate(candidate: Mapping[str, Any]) -> BundleDesign:
     """The build's one readiness answer, computed in ``prepare_candidate``.
 
     ``execute_build`` calls this too, so a direct caller that skipped
@@ -320,7 +315,6 @@ __all__ = [
     "PROJECT_MEMBER",
     "REQUIRED_STAGES",
     "SEMANTIC_MEMBER",
-    "active",
     "for_candidate",
     "readiness",
 ]

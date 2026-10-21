@@ -36,8 +36,8 @@ To update and reproduce the Python graph:
 python scripts/sync_dependencies.py --update-lock --python-only
 ```
 
-Review the lock diff, especially the coordinated `kicad-monkey` and
-`kicad-cruncher` versions, then run backend and semantic-viewer tests. The sync
+Review the lock diff, especially the `kicad-monkey` version, then run backend and
+semantic-viewer tests. The sync
 recreates `backend/venv`; this is intentional so an older host environment
 cannot retain undeclared packages.
 
@@ -61,10 +61,9 @@ Major framework upgrades are reviewed separately from routine lock refreshes.
 
 ## Local KiCad toolchain development
 
-The normal image always uses the published Monkey/Cruncher pair in the Python
-lock. To test unpublished upstream work, provide a modern `kicad_monkey`
-monorepo checkout containing both the root Monkey package and
-`packages/kicad_cruncher`:
+The normal image always uses the published `kicad-monkey` in the Python lock.
+To test unpublished upstream work, provide a modern `kicad_monkey` monorepo
+checkout:
 
 ```bash
 KICAD_TOOLCHAIN_CONTEXT=/absolute/path/to/kicad_monkey \
@@ -72,10 +71,11 @@ KICAD_TOOLCHAIN_CONTEXT=/absolute/path/to/kicad_monkey \
   -f docker-compose.local-kicad-monkey.yml build backend
 ```
 
-The local target reinstalls both packages together and validates their
-dependency graph. Older standalone
-Monkey checkouts fail the image preflight instead of silently combining their
-code with whichever Cruncher happens to be installed.
+The local target reinstalls `kicad-monkey` from the mounted working tree and
+validates the dependency graph. `kicad-cruncher` is gone with C3 F4c; the
+monorepo's cruncher package is no longer installed. Older standalone
+checkouts fail the image preflight instead of silently combining their code
+with a published package.
 
 Python source discovery is explicit. `KICAD_MONKEY_PYTHONPATH` may be used for
 specialized host experiments, but Prism no longer searches adjacent checkouts

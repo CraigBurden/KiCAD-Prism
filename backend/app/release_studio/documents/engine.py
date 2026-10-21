@@ -52,12 +52,11 @@ logger = logging.getLogger(__name__)
 
 DOCUMENT_DOMAIN = "documentation"
 
-#: Assembly views come from `kicad-cruncher pcb-svg`, which fits one designator
+#: Assembly views come from `prism-kicad artwork`, which fits one designator
 #: into each component's own bounds over a hidden-line-removed outline.
 ASSEMBLY_SIDES: tuple[str, ...] = ("top", "bottom")
 
-#: Testpoint views use a derived board containing only TP footprints, with
-#: legacy references normalized through Monkey before Cruncher renders them.
+#: Testpoint views use the testpoint configuration's `TP*` selector.
 TESTPOINT_SIDES: tuple[str, ...] = ("top", "bottom")
 
 
@@ -150,7 +149,6 @@ def compose(
     designators: Sequence[str] = (),
     board: Path | None = None,
     cli: KicadTool | None = None,
-    cruncher: KicadTool | None = None,
     workdir: Path | None = None,
     sheet_size: str | None = None,
     notes: Mapping[str, Any] | None = None,
@@ -200,7 +198,6 @@ def compose(
             sheet_size=sheet_size,
             board=board,
             cli=cli,
-            cruncher=cruncher,
             workdir=workdir,
         ),
         on_progress=on_progress,
@@ -283,7 +280,6 @@ def compose_documents(
             layer_pages=layer_pages,
             variant=str(context.get("variant") or ""),
             cli=inputs.cli,
-            cruncher=inputs.cruncher,
             designators=tuple(inputs.designators or ()),
             acquirer=acquirer,
             drill_acquirer=drill_acquirer,

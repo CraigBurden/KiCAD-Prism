@@ -12,6 +12,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any, Callable, Iterator, ParamSpec, TypeVar, cast
 
 
@@ -118,6 +119,63 @@ def fixture_recording(name: str) -> Path:
     if name not in FIXTURE_NAMES:
         raise ValueError(f"unknown Release Studio fixture: {name!r}")
     return RECORDING_ROOT / f"{name}.json"
+
+
+def synthetic_bundle_design(closure: Path):
+    """The synthetic fixture's committed bundle as a ready ``BundleDesign``.
+
+    The archive's members are extracted under ``closure/_bundle``, so a
+    recording made from this layout replays against the same placeholder
+    paths.
+    """
+
+    import json
+    import zipfile
+
+    from app.release_studio import bundle_design
+    from app.services.design_bundle.manifest import Readiness
+
+    archive = RELEASE_STUDIO_ROOT / "synthetic" / "models.prism"
+
+    class _ZipOpened:
+        def __init__(self) -> None:
+            self._zip = zipfile.ZipFile(archive)
+            self._root = closure / "_bundle"
+            self.absent = False
+            self.failure = None
+            self.archive = SimpleNamespace(
+                path=archive,
+                manifest=json.loads(self._zip.read("bundle.json")),
+            )
+
+        def read_json(self, path: str) -> dict:
+            return json.loads(self._zip.read(path))
+
+        def readiness(self, paths):
+            members = {member["path"] for member in self.archive.manifest["members"]}
+            return {
+                path: Readiness(
+                    path, "ready" if path in members else "not-applicable", "parse"
+                )
+                for path in paths
+            }
+
+        def extract(self, paths) -> Path:
+            for wanted in paths:
+                chosen = (
+                    [name for name in self._zip.namelist() if name.startswith(wanted)]
+                    if wanted.endswith("/")
+                    else [wanted]
+                )
+                for member in chosen:
+                    target = self._root / member
+                    target.parent.mkdir(parents=True, exist_ok=True)
+                    target.write_bytes(self._zip.read(member))
+            return self._root
+
+    return bundle_design.BundleDesign(
+        project_id="project-1", commit="a" * 40, opened=_ZipOpened()
+    )
 
 
 def fixture_entrypoint(name: str, kind: str) -> Path:

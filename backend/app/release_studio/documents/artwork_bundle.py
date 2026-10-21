@@ -1,10 +1,9 @@
 """Assembly and testpoint artwork from a design bundle (`prism-kicad artwork`).
 
-With ``PRISM_DESIGN_SOURCE_RELEASE_STUDIO=bundle`` and the bundle's ``parse``,
-``board`` and ``models`` stages ready, Release Studio draws its assembly and
-testpoint views with ``prism-kicad artwork`` instead of ``kicad-cruncher
-pcb-svg`` (ADR amendment C3 §3.2). The SVG and PDF are placed by the same
-:class:`AcquiredArtwork` path as every other acquired view.
+Release Studio draws its assembly and testpoint views with ``prism-kicad
+artwork`` over the build's design bundle (ADR amendment C3 §3.2). The SVG and
+PDF are placed by the same :class:`AcquiredArtwork` path as every other
+acquired view.
 
 The run is two commands: one for the assembly configuration and one for the
 testpoint configuration. The testpoint configuration's ``TP*`` selector is

@@ -13,6 +13,7 @@ against the same calls.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import sys
@@ -222,10 +223,57 @@ def _request_path(argv: list[str]) -> Path:
     return Path(argv[argv.index("--request") + 1])
 
 
+def _artwork_svg(view: str) -> str:
+    """A deterministic view: the same bytes on every run, for the same view."""
+
+    return (
+        '<?xml version="1.0" encoding="UTF-8"?>\n'
+        '<svg xmlns="http://www.w3.org/2000/svg" width="20mm" height="10mm" '
+        f'viewBox="0 0 20 10" data-view="{view}">'
+        '<path d="M 0 0 L 20 0 L 20 10 L 0 10 Z" fill="none" stroke="#000000" '
+        'stroke-width="0.15" data-feature="board-outline" />'
+        '<g data-projection="outline" data-bounds-kind="model"></g>'
+        '<text x="5" y="5" font-size="1.6" text-anchor="middle" '
+        'dominant-baseline="central" fill="#000000" data-component="R1">R1</text>'
+        "</svg>"
+    )
+
+
+def _artwork(argv: list[str]) -> dict:
+    """``artwork``: one deterministic SVG per requested view."""
+
+    output = Path(argv[argv.index("-o") + 1])
+    views = [argv[index + 1] for index, argument in enumerate(argv) if argument == "--view"]
+    entries = []
+    for view in views:
+        output.mkdir(parents=True, exist_ok=True)
+        payload = _artwork_svg(view).encode("utf-8")
+        (output / f"{view}.svg").write_bytes(payload)
+        entries.append(
+            {
+                "name": view,
+                "file": f"{view}.svg",
+                "sha256": hashlib.sha256(payload).hexdigest(),
+                "footprints_drawn": 0,
+                "designators_placed": 0,
+                "dnp_footprints_hatched": 0,
+                "footprints_without_outline": [],
+            }
+        )
+    return {
+        "schema": "prism.cli.artwork_result.a0",
+        "views": sorted(entries, key=lambda entry: entry["name"]),
+    }
+
+
 def main(argv: list[str]) -> int:
     if argv[:1] == ["version"] or argv[:1] == ["--version"]:
         _log(argv)
         print(json.dumps(VERSION, separators=(",", ":")))
+        return 0
+    if argv[:1] == ["artwork"]:
+        _log(argv)
+        print(json.dumps(_artwork(argv), separators=(",", ":")))
         return 0
     if argv[:1] == ["stroke-text"]:
         if "--metrics" in argv:

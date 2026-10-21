@@ -738,10 +738,6 @@ class Settings(PipelineSettings, DesignBundleSettings, SimStudioSettings, System
             "install locations. KICAD_CLI is accepted as a legacy name."
         ),
     )
-    KICAD_CRUNCHER_PATH: str = Field(
-        default="",
-        description="kicad-cruncher for Release Studio assembly views and vendor packs. Empty: PATH.",
-    )
 
     # ===========================================
     # Computed Properties
