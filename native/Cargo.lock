@@ -746,6 +746,7 @@ dependencies = [
  "prism-bundle",
  "prism-kicad-contracts",
  "prism-kicad-core",
+ "prism-projections",
  "serde",
  "serde_json",
  "sha2 0.11.0",

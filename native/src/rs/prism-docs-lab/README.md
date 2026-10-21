@@ -15,6 +15,7 @@ in the repo so they stay deterministic and maintainable.
 | --- | --- |
 | `net-class-atlas` | One page per board: a section for each net class, with the board drawn in that class's traces, arcs, vias, zone fills and the pads of the footprints its nets reach, plus a table of the class's nets. |
 | `connector-icd` | One A3 landscape interface control sheet per connector, in SVG, plus an index page and a PDF of it: identification, views of the part from its STEP model, a board locator and the pinout with the nets each pin reaches. |
+| `mechanical-outline` | One or two A3 landscape sheets: a third-angle top view with holes, bodies and dimensions, front and side elevations with measured heights, a notes block, and height and hole tables. |
 
 ## Run one
 
@@ -40,7 +41,7 @@ output size and how long the read and render took.
 | --- | --- |
 | `refilled/<stem>.kicad_pcb`, else `sources/<board>` | the board, parsed with `prism-kicad-core` |
 | `projections/semantic-index.json` | each net's `netClass` |
-| `projections/route-metrics.json` | per-net routed length, vias, used layers |
+| `projections/route-metrics.json` | per-net routed length and via count (layers come from the net's own tracks) |
 | `projections/stackup.json` | the copper layer order |
 | `projections/placements.json` | sides and courtyards |
 | `models/assembly-hlr.json` | each footprint's body outline |
@@ -122,6 +123,51 @@ with the footprint-only fallback. The PDF needs Chrome (`--chrome`, else
 Everything except the PDF is deterministic: the same bundle and arguments give
 byte-identical SVG and HTML. The PDF comes from Chrome and may differ.
 
+## The mechanical outline
+
+```sh
+cargo run -p prism-docs-lab --bin mechanical-outline -- \
+    --in <bundle.prism> -o <dir> [--geometer <exe>] \
+    [--model-dir VAR=DIR]... [--height-limit-mm 5.0]
+```
+
+Writes `mechanical-1.svg`, `mechanical-2.svg` when the tables do not fit sheet
+1, `index.html` (both sheets inline) and `mechanical.pdf` printed by headless
+Chrome. The sheet is A3 landscape: a KiCad-style frame and zone grid, a
+third-angle top view with every drill, slot and body, front and right-side
+elevations, a notes block, and the height and hole tables.
+
+The top view comes from the bundle: the board perimeter and cutouts from the
+parsed board, bodies from `models/assembly-hlr.json`, holes and slots from the
+parsed board, and the courtyard or pad envelope dashed when a footprint has no
+outline. Heights and elevation silhouettes are measured at run time: one
+Geometer process projects each distinct `(STEP model, pose, view)` and measures
+its posed bounds, so a resistor shared by twenty placements costs one
+projection. Without `--geometer` (or `$GEOMETER_EXECUTABLE`) the sheets still
+render, with every height unknown.
+
+Mounting holes are the largest drill of a footprint named `MountingHole*` or
+referenced `H*`/`MH*`, plus board-level NPTH drills of 1 mm or more. An NPTH
+drill inside a footprint that has nets is a locating peg, not a mounting hole.
+A part with no STEP model is listed as height unknown; a non-STEP model's
+authored Z offset is used as a stand-in when it has one.
+
+The output is deterministic: sorted iteration, fixed precision, no clock. The
+PDF is Chrome's and may differ between runs.
+
+### Limits of the prototype
+
+- The scale list holds enlargements only (1:1 to 5:1); a board larger than the
+  sheet at 1:1 overflows rather than shrinking.
+- The hole table holds 112 rows, then lists the count it left out. Vias are
+  drawn but dropped first, so a via-heavy board lists its drilled pads.
+- Overhang is measured against the board's bounding rectangle, not its true
+  perimeter, so a notch or a round edge can overstate it.
+- An elevation silhouette uses Geometer's outline edges only; no internal
+  detail and no hidden lines.
+- Heights are the posed STEP model's bounds: a model whose own origin sits
+  below the board reads as a part below the bottom surface.
+
 ## Layout
 
 - `src/lib.rs` — the parts a later prototype reuses: `bundle` (opening a
@@ -135,6 +181,12 @@ byte-identical SVG and HTML. The PDF comes from Chrome and may differ.
   (natural order, power rows, connects-to), `sheet` (one A3 SVG: the frame and
   title block, `views` and `tables` beside it) and `page` (the index and its
   print rules).
+
+- `src/mech/` — the mechanical outline's own modules: `board` (bundle facts),
+  `geometer` (the one session and its cache), `layout` (scale and third-angle
+  cells), `views` (top view and elevations), `tables` (height and hole
+  tables), `draw` (SVG primitives and dimensions), `sheet` (frame, title
+  block, notes, HTML) and `table`.
 - `src/bin/<name>/` — one directory per prototype: `main.rs` (arguments and
   wiring) beside its own modules and assets.
 
