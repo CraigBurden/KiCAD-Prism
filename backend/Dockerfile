@@ -121,6 +121,22 @@ COPY scripts/verify_dependency_identity.py /app/scripts/verify_dependency_identi
 RUN uv pip sync --python /app/venv/bin/python /app/requirements/runtime.lock \
     && python /app/scripts/verify_dependency_identity.py --python-only
 
+# Simulation Studio engines: the prism-sim-studio release pinned in
+# backend/sim-engines.lock.json (tag and sha256 per platform), installed where
+# PRISM_SIM_BIN_DIR points. The release is private, so the build reads a token
+# from the BuildKit secret `prism_sim_release_token`; without one the engines
+# are left out and Simulation Studio (opt-in) cannot run.
+COPY backend/sim-engines.lock.json /tmp/sim-engines/sim-engines.lock.json
+COPY scripts/fetch_sim_engines.py /tmp/sim-engines/fetch_sim_engines.py
+RUN --mount=type=secret,id=prism_sim_release_token,required=false \
+    case "$(dpkg --print-architecture)" in \
+      amd64) sim_platform=linux-x64 ;; arm64) sim_platform=linux-arm64 ;; *) sim_platform=unsupported ;; \
+    esac \
+    && python /tmp/sim-engines/fetch_sim_engines.py --optional \
+        --lock /tmp/sim-engines/sim-engines.lock.json --platform "$sim_platform" \
+        --token-file /run/secrets/prism_sim_release_token --dest /opt/prism-sim/bin \
+    && rm -rf /tmp/sim-engines
+
 # backend/ carries the design-compare Node package (/app/design-compare-parser). scripts/ holds the
 # operator CLIs run inside the container (catalog imports, benchmark sessions); nothing at runtime reads it.
 COPY backend/ .

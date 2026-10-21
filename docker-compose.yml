@@ -29,6 +29,9 @@ services:
         PRISM_RELEASE: ${PRISM_RELEASE:-development}
         PRISM_REVISION: ${PRISM_REVISION:-unknown}
         PRISM_BUILD_DATE: ${PRISM_BUILD_DATE:-unknown}
+      # The pinned Simulation Studio engines are a private release (backend/Dockerfile).
+      secrets:
+        - prism_sim_release_token
     platform: ${DOCKER_PLATFORM:-linux/amd64}
     container_name: kicad-prism-backend
     # CPU/memory ceilings protect interactive API capacity from unbounded worker
@@ -171,6 +174,9 @@ services:
         PRISM_RELEASE: ${PRISM_RELEASE:-development}
         PRISM_REVISION: ${PRISM_REVISION:-unknown}
         PRISM_BUILD_DATE: ${PRISM_BUILD_DATE:-unknown}
+      # The pinned Simulation Studio engines are a private release (backend/Dockerfile).
+      secrets:
+        - prism_sim_release_token
     platform: ${DOCKER_PLATFORM:-linux/amd64}
     container_name: kicad-prism-catalog-worker
     restart: unless-stopped
@@ -245,6 +251,9 @@ services:
         PRISM_RELEASE: ${PRISM_RELEASE:-development}
         PRISM_REVISION: ${PRISM_REVISION:-unknown}
         PRISM_BUILD_DATE: ${PRISM_BUILD_DATE:-unknown}
+      # The pinned Simulation Studio engines are a private release (backend/Dockerfile).
+      secrets:
+        - prism_sim_release_token
     platform: ${DOCKER_PLATFORM:-linux/amd64}
     container_name: kicad-prism-worker
     # Worker ceilings; pair with PRISM_*_CONCURRENCY slot caps in PostgreSQL.
@@ -329,3 +338,10 @@ services:
 
 volumes:
   prism-postgres-data:
+
+secrets:
+  # A GitHub token that can read krishna-swaroop/prism-sim-studio's releases,
+  # used only while building the image (scripts/fetch_sim_engines.py). Unset,
+  # the image builds without Simulation Studio engines.
+  prism_sim_release_token:
+    environment: PRISM_SIM_RELEASE_TOKEN
