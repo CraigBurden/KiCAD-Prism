@@ -564,22 +564,38 @@ def project_population(
     if fallback_reason:
         return {"source": "kicad_monkey.fallback", "sides": {}}
 
-    sides: dict[str, dict[str, int]] = {
-        "top": {"components": 0, "dnp": 0, "fitted": 0, "absent_from_position_file": 0},
-        "bottom": {"components": 0, "dnp": 0, "fitted": 0, "absent_from_position_file": 0},
+    sides: dict[str, dict[str, Any]] = {
+        "top": {
+            "components": 0,
+            "dnp": 0,
+            "fitted": 0,
+            "absent_from_position_file": 0,
+            "dnp_refs": [],
+        },
+        "bottom": {
+            "components": 0,
+            "dnp": 0,
+            "fitted": 0,
+            "absent_from_position_file": 0,
+            "dnp_refs": [],
+        },
     }
     for footprint in getattr(parsed, "footprints", ()) or ():
-        if not _footprint_reference(footprint):
+        reference = _footprint_reference(footprint)
+        if not reference:
             continue
         layer = str(getattr(footprint, "layer", "") or "")
         counts = sides["bottom" if layer.startswith("B.") else "top"]
         counts["components"] += 1
         if getattr(footprint, "is_dnp", False):
             counts["dnp"] += 1
+            counts["dnp_refs"].append(str(reference))
         else:
             counts["fitted"] += 1
         if getattr(footprint, "is_excluded_from_pos_files", False):
             counts["absent_from_position_file"] += 1
+    for counts in sides.values():
+        counts["dnp_refs"] = sorted(counts["dnp_refs"])
     return {"source": "board.footprints", "sides": sides}
 
 

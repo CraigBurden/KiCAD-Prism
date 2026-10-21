@@ -83,12 +83,14 @@ def sync_configurations(project_id: str) -> list[dict[str, Any]]:
             default_variant=str(config.get("default_variant") or ""),
         )
     from app.release_studio.documents.fonts import DEFAULT_TYPOGRAPHY
+    from app.release_studio.documents.style import DEFAULT_SHEET_STYLE
 
     rows = store.list_configurations(project_id)
     for row in rows:
         loaded = loaded_configs.get(str(row.get("config_key") or ""))
         if loaded is not None:
             row["typography"] = loaded.get("typography", DEFAULT_TYPOGRAPHY)
+            row["sheet_style"] = loaded.get("sheet_style", DEFAULT_SHEET_STYLE)
             row["document_number"] = loaded.get("document_number", "")
             row["revision"] = loaded.get("revision", "")
             row["fields"] = loaded.get("fields", {})
@@ -343,6 +345,7 @@ def list_configurations_at_commit(
     """Return configurations as they existed at *commit_sha*, without upserting."""
 
     from app.release_studio.documents.fonts import DEFAULT_TYPOGRAPHY
+    from app.release_studio.documents.style import DEFAULT_SHEET_STYLE
 
     location = project_revision.locate_id(project_id)
     repo_root, project_path = location.repo_root, location.relative_path
@@ -372,6 +375,7 @@ def list_configurations_at_commit(
                 "jobset_rel": str(config.get("jobset") or ""),
                 "default_variant": str(config.get("default_variant") or ""),
                 "typography": config.get("typography", DEFAULT_TYPOGRAPHY),
+                "sheet_style": config.get("sheet_style", DEFAULT_SHEET_STYLE),
                 "document_number": config.get("document_number", ""),
                 "revision": config.get("revision", ""),
                 "fields": config.get("fields", {}),

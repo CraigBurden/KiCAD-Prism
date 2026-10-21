@@ -11,6 +11,10 @@ from __future__ import annotations
 import re
 from typing import Any, Mapping, Sequence
 
+from app.release_studio.documents.fonts import (
+    DEFAULT_TYPOGRAPHY,
+    unsupported_codepoints,
+)
 from app.release_studio.documents.layout import Table, fit_text
 
 
@@ -499,11 +503,96 @@ def _designator_sort_key(reference: str) -> tuple[str, int, str]:
     return (reference.strip().upper(), 0, reference)
 
 
+#: KiCad writes an overbar as ``~{TEXT}``.
+_OVERBAR = re.compile(r"~\{([^}]*)\}")
+_COMBINING_OVERLINE = "\u0305"
+
+
+def _can_set_overbar(typography: str) -> bool:
+    return not unsupported_codepoints(
+        _COMBINING_OVERLINE, role="mono", typography=typography
+    )
+
+
+def _render_overbar(value: str, typography: str) -> str:
+    """Turn ``~{RESET}`` into an overline the selected face can actually set.
+
+    Geist has no combining overline, so the fallback is KiCad's older ``/X``
+    form: a reader of a plotter drawing already knows that slash means "bar
+    over the following text", and a sheet must not carry a missing glyph.
+    """
+
+    supported = _can_set_overbar(typography)
+
+    def _run(match: re.Match[str]) -> str:
+        text = match.group(1)
+        if supported:
+            return "".join(character + _COMBINING_OVERLINE for character in text)
+        return "/" + text
+
+    return _OVERBAR.sub(_run, value)
+
+
+def _shortest_unique_suffix(net: str, peers: Sequence[str]) -> str:
+    """The shortest path suffix that names this net uniquely among *peers*."""
+
+    text = str(net or "").strip()
+    if not text or "/" not in text:
+        return text
+    parts = [part for part in text.split("/") if part]
+    if len(parts) <= 1:
+        return text
+    for count in range(1, len(parts) + 1):
+        candidate = "/".join(parts[-count:])
+        matches = [
+            peer
+            for peer in peers
+            if peer == text or peer.endswith("/" + candidate)
+        ]
+        if len(matches) <= 1:
+            return candidate
+    return text
+
+
+def _net_display(
+    net: Any, peers: Sequence[str], typography: str
+) -> str:
+    text = str(net or "").strip()
+    if not text or text == "—":
+        return "—"
+    return _render_overbar(_shortest_unique_suffix(text, peers), typography)
+
+
+def dnp_table(designators: Sequence[Any], *, width: float = 92.0) -> Table:
+    """The do-not-populate designators, as a small schedule under the legend.
+
+    Sorted naturally (``R2`` before ``R10``) and wrapped into the column, so the
+    assembly sheet can keep the note's promise that they are listed separately.
+    """
+
+    references = sorted(
+        {str(item).strip() for item in designators if str(item).strip()},
+        key=_designator_sort_key,
+    )
+    rows = ((", ".join(references),),) if references else (("—",),)
+    return Table(
+        title="DO NOT POPULATE",
+        columns=("Designators",),
+        rows=rows,
+        widths=(width,),
+        font_size=2.2,
+        row_height=4.0,
+        max_cell_lines=12,
+        cell_family="mono",
+    )
+
+
 def testpoint_table(
     testpoints: Mapping[str, Any] | Sequence[Mapping[str, Any]],
     side: str,
     *,
     width: float = 92.0,
+    typography: str = DEFAULT_TYPOGRAPHY,
 ) -> Table:
     """Where to put a probe: designator, net and position, for one side.
 
@@ -513,6 +602,10 @@ def testpoint_table(
     reader actually probes for; it is one line per row and ellipsized at the
     column edge rather than wrapped, because a schedule that grows a second
     line for every long net name stops being a schedule.
+
+    The net's hierarchical sheet path is dropped when the leaf is unique on the
+    side, and otherwise reduced to the shortest unique suffix.  ``/Debugger/
+    MCU_SWCLK`` is a location, not a probe target; ``MCU_SWCLK`` is.
     """
 
     share = width / 4.0
@@ -522,17 +615,25 @@ def testpoint_table(
     # Fit the net at this table's own type size and cell gutter so a long name
     # ends in an ellipsis at the column edge instead of being clipped there.
     net_limit = max(widths[1] - 2.4 * 0.5, 1.0)
+    found = sorted(
+        testpoints_for_side(testpoints, side),
+        key=lambda item: _designator_sort_key(str(item.get("ref") or "")),
+    )
+    peers = [str(item.get("net") or "").strip() for item in found]
     rows = [
         (
             str(item.get("ref") or ""),
-            fit_text(_text(item.get("net")), net_limit, 2.4, family="mono"),
+            fit_text(
+                _net_display(item.get("net"), peers, typography),
+                net_limit,
+                2.4,
+                family="mono",
+                typography=typography,
+            ),
             _mm(item.get("x"), 3),
             _mm(item.get("y"), 3),
         )
-        for item in sorted(
-            testpoints_for_side(testpoints, side),
-            key=lambda item: _designator_sort_key(str(item.get("ref") or "")),
-        )
+        for item in found
     ]
     if not rows:
         rows = [("no testpoints on this side", "—", "—", "—")]

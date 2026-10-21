@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Any, Mapping, Sequence
 
 from app.release_studio.documents.fonts import DEFAULT_TYPOGRAPHY
+from app.release_studio.documents.style import DEFAULT_SHEET_STYLE
 from app.services.kicad_tools import KicadTool
 
 
@@ -31,6 +32,7 @@ class DocumentInputs:
     notes: Mapping[str, Any] = field(default_factory=dict)
     fields: Mapping[str, Any] = field(default_factory=dict)
     typography: str = DEFAULT_TYPOGRAPHY
+    sheet_style: str = DEFAULT_SHEET_STYLE
     revision_history: Sequence[Mapping[str, Any]] = ()
     impedance_rows: Sequence[Mapping[str, Any]] = ()
     stackup_pdf: bytes | None = None
@@ -58,6 +60,7 @@ class DocumentInputs:
         notes: Mapping[str, Any] | None = None,
         fields: Mapping[str, Any] | None = None,
         typography: str = DEFAULT_TYPOGRAPHY,
+        sheet_style: str = DEFAULT_SHEET_STYLE,
         revision_history: Sequence[Mapping[str, Any]] | None = None,
         impedance_rows: Sequence[Mapping[str, Any]] | None = None,
         stackup_pdf: bytes | None = None,
@@ -84,6 +87,7 @@ class DocumentInputs:
             notes=notes or {},
             fields=fields or {},
             typography=typography,
+            sheet_style=sheet_style,
             revision_history=tuple(revision_history or ()),
             impedance_rows=tuple(impedance_rows or ()),
             stackup_pdf=(

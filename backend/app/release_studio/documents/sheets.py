@@ -12,6 +12,7 @@ the revision being documented rather than of the moment it was rendered.
 from __future__ import annotations
 
 import math
+from dataclasses import replace
 from typing import Any, Mapping, Sequence
 
 from app.release_studio.documents import tables
@@ -24,6 +25,8 @@ from app.release_studio.documents.artwork import (
 )
 from app.release_studio.documents.fonts import DEFAULT_TYPOGRAPHY
 from app.release_studio.documents.layout import (
+    PRISM_SCALE_MARGIN,
+    PRISM_SCALES,
     SHEET_LADDER,
     SHEET_SIZES,
     Rect,
@@ -37,6 +40,12 @@ from app.release_studio.documents.layout import (
     notes_height,
     preferred_scale,
     split_columns,
+)
+from app.release_studio.documents.style import (
+    DEFAULT_SHEET_STYLE,
+    MUTED,
+    PRISM_STYLE,
+    RULE,
 )
 from app.release_studio.documents.worksheet import default_worksheet_elements
 
@@ -216,6 +225,8 @@ def set_scale(
     board_height: float,
     size: str,
     title_height: float = TITLE_BLOCK_HEIGHT,
+    *,
+    sheet_style: str = DEFAULT_SHEET_STYLE,
 ) -> float:
     """The one placement ratio every sheet in the set is drawn at.
 
@@ -224,11 +235,23 @@ def set_scale(
     scales off one sheet and applies it to another gets the wrong number.  The
     ratio is chosen once, against the *narrowest* window any sheet has, so the
     sheet with the widest table can still hold the board at it.
+
+    ``prism`` searches the full ISO series and keeps 10 mm clear inside the
+    window; ``kicad`` keeps the historical ladder and exact fit so today's
+    released sheets do not move.
     """
 
     if board_width <= 0 or board_height <= 0:
         return 1.0
     window = artwork_window(size, max(TABLE_WIDTHS.values()), title_height)
+    if sheet_style == PRISM_STYLE:
+        return preferred_scale(
+            board_width,
+            board_height,
+            window,
+            ladder=PRISM_SCALES,
+            margin=PRISM_SCALE_MARGIN,
+        )
     return preferred_scale(board_width, board_height, window)
 
 
@@ -315,8 +338,11 @@ def _shell(
     extra: Sequence[TitleBlockField] = (),
     *,
     typography: str = DEFAULT_TYPOGRAPHY,
+    sheet_style: str = DEFAULT_SHEET_STYLE,
 ) -> tuple[SheetBuilder, Rect]:
-    builder = SheetBuilder(key, title, size, typography=typography)
+    builder = SheetBuilder(
+        key, title, size, typography=typography, sheet_style=sheet_style
+    )
     builder.extend(
         default_worksheet_elements(
             width_mm=builder.width,
@@ -326,6 +352,7 @@ def _shell(
             key=key,
             context=context,
             extra_fields=extra,
+            style=sheet_style,
         )
     )
     body = body_rect(size, title_block_height(context, extra))
@@ -344,9 +371,26 @@ def _drawn_width(art: AcquiredArtwork | None, scale: float | None) -> float:
     return max(0.0, float(art.view_width) * scale)
 
 
-def _draw_missing(builder: SheetBuilder, window: Rect, label: str) -> float:
+def _draw_missing(
+    builder: SheetBuilder,
+    window: Rect,
+    label: str,
+    *,
+    sheet_style: str = DEFAULT_SHEET_STYLE,
+) -> float:
     """State the absence where artwork would be, rather than leaving a gap."""
 
+    if sheet_style == PRISM_STYLE:
+        builder.rect(window, width=0.2, colour=RULE)
+        builder.text(
+            window.x + window.width / 2,
+            window.y + window.height / 2,
+            f"{label} unavailable",
+            size=3.0,
+            anchor="middle",
+            colour=MUTED,
+        )
+        return 1.0
     builder.rect(window, width=0.2, colour="#999999")
     builder.text(
         window.x + window.width / 2,
@@ -359,6 +403,45 @@ def _draw_missing(builder: SheetBuilder, window: Rect, label: str) -> float:
     return 1.0
 
 
+def _drawn_rect(window: Rect, art: AcquiredArtwork, scale: float) -> Rect:
+    """Where the placed artwork actually sits inside its window."""
+
+    drawn_width = max(0.0, art.view_width * scale)
+    drawn_height = max(0.0, art.view_height * scale)
+    return Rect(
+        window.x + (window.width - drawn_width) / 2,
+        window.y + (window.height - drawn_height) / 2,
+        drawn_width,
+        drawn_height,
+    )
+
+
+def _draw_artwork_caption(
+    builder: SheetBuilder,
+    window: Rect,
+    art: AcquiredArtwork,
+    scale: float,
+    view_caption: str,
+) -> None:
+    """The view direction and ratio, directly under the placed artwork."""
+
+    placed = _drawn_rect(window, art, scale)
+    caption = (
+        f"{view_caption} · SCALE {scale_label(scale)}"
+        if view_caption
+        else f"SCALE {scale_label(scale)}"
+    )
+    builder.text(
+        placed.x + placed.width / 2,
+        placed.bottom + 3.0,
+        caption,
+        size=2.6,
+        bold=True,
+        anchor="middle",
+        colour=MUTED,
+    )
+
+
 def _draw_artwork(
     builder: SheetBuilder,
     window: Rect,
@@ -366,25 +449,81 @@ def _draw_artwork(
     *,
     label: str,
     scale: float | None,
+    sheet_style: str = DEFAULT_SHEET_STYLE,
+    view_caption: str = "",
 ) -> float:
     """Place *art* in *window* at a stated ratio; return the ratio used.
 
     With no ``scale`` given the placement is quantized to a preferred drawing
     ratio rather than shrunk to fit exactly, because the number printed under
     the window is meant to be measured against.
+
+    ``prism`` puts the ratio under the artwork itself -- beside the view
+    direction where a sheet has one -- so the caption travels with the drawing
+    instead of sitting at the window's bottom edge.  ``kicad`` keeps the old
+    bottom-left label.
     """
 
     if art is None:
-        return _draw_missing(builder, window, label)
+        _draw_missing(builder, window, label, sheet_style=sheet_style)
+        if sheet_style == PRISM_STYLE and view_caption:
+            builder.text(
+                window.x + window.width / 2.0,
+                window.bottom + 3.0,
+                view_caption,
+                size=2.6,
+                bold=True,
+                anchor="middle",
+                colour=MUTED,
+            )
+        return 1.0
 
     if scale is None:
-        scale = preferred_scale(art.view_width, art.view_height, window)
+        if sheet_style == PRISM_STYLE:
+            scale = preferred_scale(
+                art.view_width,
+                art.view_height,
+                window,
+                ladder=PRISM_SCALES,
+                margin=PRISM_SCALE_MARGIN,
+            )
+        else:
+            scale = preferred_scale(art.view_width, art.view_height, window)
     element, used = place(art, window, scale=scale, label=label)
+    if sheet_style == PRISM_STYLE:
+        element = replace(element, border_colour=RULE)
+        builder.add(element)
+        _draw_artwork_caption(builder, window, art, used, view_caption)
+        return used
     builder.add(element)
     builder.text(
         window.x, window.bottom + 4.0, f"SCALE {scale_label(used)}", size=2.8, bold=True
     )
     return used
+
+
+def _view_caption(side: str) -> str:
+    return "VIEWED FROM TOP" if side == "top" else "VIEWED FROM BOTTOM (MIRRORED)"
+
+
+def _draw_view_direction(builder: SheetBuilder, window: Rect, side: str) -> None:
+    """State which face of the board the artwork is seen from.
+
+    ``kicad`` draws it inside the artwork window's bottom edge.  ``prism``
+    folded it into the under-artwork caption in :func:`_draw_artwork`, so this
+    is a no-op there.
+    """
+
+    if builder.sheet_style == PRISM_STYLE:
+        return
+    builder.text(
+        window.x + window.width / 2.0,
+        window.bottom - 1.8,
+        _view_caption(side),
+        size=2.6,
+        bold=True,
+        anchor="middle",
+    )
 
 
 #: Height of the DNP legend under the population table, and its swatch size.
@@ -465,28 +604,6 @@ def _draw_dnp_legend(
         size=2.4,
     )
     return _DNP_LEGEND_HEIGHT
-
-
-def _draw_view_direction(builder: SheetBuilder, window: Rect, side: str) -> None:
-    """State which face of the board the artwork is seen from.
-
-    Placed inside the artwork window's bottom edge so the caption travels with
-    the drawing rather than moving the window or the scale printed below it.
-    """
-
-    caption = (
-        "VIEWED FROM TOP"
-        if side == "top"
-        else "VIEWED FROM BOTTOM (MIRRORED)"
-    )
-    builder.text(
-        window.x + window.width / 2.0,
-        window.bottom - 1.8,
-        caption,
-        size=2.6,
-        bold=True,
-        anchor="middle",
-    )
 
 
 #: How far overall dimensions sit outside the board outline, in millimetres.
@@ -682,6 +799,7 @@ def technical_cover(
     placements: Sequence[Mapping[str, Any]] | None = None,
     render: Any = None,
     release_fields: Mapping[str, Any] | None = None,
+    sheet_style: str = DEFAULT_SHEET_STYLE,
 ) -> tuple[Sheet, list]:
     """The rich cover: what this release is, and exactly what is in it.
 
@@ -696,6 +814,7 @@ def technical_cover(
         size,
         fields,
         typography=typography,
+        sheet_style=sheet_style,
     )
 
     # The notes run the full width of the body, so their height is measured at
@@ -736,7 +855,11 @@ def technical_cover(
 
     lanes = [facts, [], [tables.member_table(members)]]
     columns, overflow, _factor = split_columns(
-        lanes, area, gap=_TABLE_GAP, column_gap=_COVER_COLUMN_GAP
+        lanes,
+        area,
+        gap=_TABLE_GAP,
+        column_gap=_COVER_COLUMN_GAP,
+        sheet_style=sheet_style,
     )
 
     origins = _lane_origins(area, columns, _COVER_COLUMN_GAP)
@@ -792,7 +915,7 @@ def _draw_board_render(
         "RAYTRACED VIEW — ILLUSTRATIVE, NOT A CONTROLLED DIMENSION",
         size=2.2,
         anchor="middle",
-        colour="#555555",
+        colour=MUTED if builder.sheet_style == PRISM_STYLE else "#555555",
     )
 
 
@@ -808,6 +931,7 @@ def fabrication_sheet(
     fields: Sequence[TitleBlockField] = (),
     typography: str = DEFAULT_TYPOGRAPHY,
     layer: str = "",
+    sheet_style: str = DEFAULT_SHEET_STYLE,
 ) -> tuple[Sheet, float, list]:
     """Board outline and stackup: what the fabricator needs to make the bare board.
 
@@ -826,13 +950,21 @@ def fabrication_sheet(
         size,
         fields,
         typography=typography,
+        sheet_style=sheet_style,
     )
     title_height = title_block_height(context, fields)
 
     table_width, window, area = sheet_columns(
         size, "fabrication", title_height, _drawn_width(art, scale)
     )
-    used = _draw_artwork(builder, window, art, label="board artwork", scale=scale)
+    used = _draw_artwork(
+        builder,
+        window,
+        art,
+        label="board artwork",
+        scale=scale,
+        sheet_style=sheet_style,
+    )
     board_w, board_h, width_label, height_label = _board_size(stats)
     if art is not None and used > 0 and board_w > 0 and board_h > 0:
         draw_overall_dimensions(
@@ -858,6 +990,7 @@ def fabrication_sheet(
         ]],
         Rect(area.x, area.y, area.width, area.height - reserve),
         gap=_TABLE_GAP,
+        sheet_style=sheet_style,
     )
     cursor = _draw_column(builder, column[0], (area.x, area.y))
     draw_notes(builder, sheet_notes, (area.x, cursor + _TABLE_GAP), width=table_width)
@@ -877,6 +1010,7 @@ def continuation_sheet(
     size: str = DEFAULT_SIZE,
     fields: Sequence[TitleBlockField] = (),
     typography: str = DEFAULT_TYPOGRAPHY,
+    sheet_style: str = DEFAULT_SHEET_STYLE,
 ) -> tuple[Sheet, list]:
     """Continue tables that did not fit on the sheet they belong to.
 
@@ -886,7 +1020,15 @@ def continuation_sheet(
     and why nothing has to be dropped when it does not.
     """
 
-    builder, body = _shell(key, title, context, size, fields, typography=typography)
+    builder, body = _shell(
+        key,
+        title,
+        context,
+        size,
+        fields,
+        typography=typography,
+        sheet_style=sheet_style,
+    )
     title_height = title_block_height(context, fields)
     body = body_rect(size, title_height)
     area = Rect(
@@ -907,6 +1049,7 @@ def continuation_sheet(
         area,
         gap=_TABLE_GAP,
         column_gap=_COVER_COLUMN_GAP,
+        sheet_style=sheet_style,
     )
     cursor_x = area.x
     for lane in columns:
@@ -930,6 +1073,7 @@ def assembly_sheet(
     typography: str = DEFAULT_TYPOGRAPHY,
     projection_mix: Mapping[str, int] | None = None,
     population: Mapping[str, Any] | None = None,
+    sheet_style: str = DEFAULT_SHEET_STYLE,
 ) -> tuple[Sheet, float]:
     """One assembly view, with the population count for the released variant.
 
@@ -953,13 +1097,22 @@ def assembly_sheet(
         size,
         fields,
         typography=typography,
+        sheet_style=sheet_style,
     )
     title_height = title_block_height(context, fields)
 
     table_width, window, area = sheet_columns(
         size, "assembly", title_height, _drawn_width(art, scale)
     )
-    used = _draw_artwork(builder, window, art, label="assembly artwork", scale=scale)
+    used = _draw_artwork(
+        builder,
+        window,
+        art,
+        label="assembly artwork",
+        scale=scale,
+        sheet_style=sheet_style,
+        view_caption=_view_caption(side),
+    )
     _draw_view_direction(builder, window, side)
 
     # Counts come from the board, not from the position file: that file omits
@@ -1004,15 +1157,24 @@ def assembly_sheet(
         )
     sheet_notes = notes if notes is not None else DEFAULT_NOTES[f"assembly-{side}"]
     legend_style = dnp_style() if int(counts.get("dnp") or 0) > 0 else None
+    dnp_refs = list(counts.get("dnp_refs") or ())
+    dnp_schedule = (
+        tables.dnp_table(dnp_refs, width=table_width)
+        if sheet_style == PRISM_STYLE and legend_style is not None and dnp_refs
+        else None
+    )
     reserve = notes_height(
         sheet_notes, width=table_width, typography=typography
     ) + _TABLE_GAP
     if legend_style is not None:
         reserve += _DNP_LEGEND_HEIGHT + _TABLE_GAP
+    if dnp_schedule is not None:
+        reserve += dnp_schedule.height(typography, sheet_style) + _TABLE_GAP
     column, _factor = fit_columns(
         [[tables.key_value_table("POPULATION", tuple(summary_rows), width=table_width)]],
         Rect(area.x, area.y, area.width, area.height - reserve),
         gap=_TABLE_GAP,
+        sheet_style=sheet_style,
     )
     cursor = _draw_column(builder, column[0], (area.x, area.y))
     if legend_style is not None:
@@ -1024,6 +1186,8 @@ def assembly_sheet(
             style=legend_style,
         )
         cursor = legend_top + _DNP_LEGEND_HEIGHT
+    if dnp_schedule is not None:
+        cursor = draw_table(builder, dnp_schedule, (area.x, cursor + _TABLE_GAP))
     draw_notes(builder, sheet_notes, (area.x, cursor + _TABLE_GAP), width=table_width)
     return builder.build(), used
 
@@ -1039,6 +1203,7 @@ def testpoint_sheet(
     notes: Sequence[str] | None = None,
     fields: Sequence[TitleBlockField] = (),
     typography: str = DEFAULT_TYPOGRAPHY,
+    sheet_style: str = DEFAULT_SHEET_STYLE,
 ) -> tuple[Sheet, float, list]:
     """One side of the board with only its testpoints labelled.
 
@@ -1057,13 +1222,22 @@ def testpoint_sheet(
         size,
         fields,
         typography=typography,
+        sheet_style=sheet_style,
     )
     title_height = title_block_height(context, fields)
 
     table_width, window, area = sheet_columns(
         size, "testpoint", title_height, _drawn_width(art, scale)
     )
-    used = _draw_artwork(builder, window, art, label="testpoint artwork", scale=scale)
+    used = _draw_artwork(
+        builder,
+        window,
+        art,
+        label="testpoint artwork",
+        scale=scale,
+        sheet_style=sheet_style,
+        view_caption=_view_caption(side),
+    )
     _draw_view_direction(builder, window, side)
 
     found = tables.testpoints_for_side(testpoints, side)
@@ -1076,7 +1250,9 @@ def testpoint_sheet(
         ),
         width=table_width,
     )
-    schedule = tables.testpoint_table(testpoints, side, width=table_width)
+    schedule = tables.testpoint_table(
+        testpoints, side, width=table_width, typography=typography
+    )
 
     sheet_notes = notes if notes is not None else DEFAULT_NOTES[f"testpoint-{side}"]
     reserve = notes_height(
@@ -1086,6 +1262,7 @@ def testpoint_sheet(
         [[summary, schedule]],
         Rect(area.x, area.y, area.width, area.height - reserve),
         gap=_TABLE_GAP,
+        sheet_style=sheet_style,
     )
     cursor = _draw_column(builder, column[0], (area.x, area.y))
     draw_notes(builder, sheet_notes, (area.x, cursor + _TABLE_GAP), width=table_width)
@@ -1103,6 +1280,7 @@ def drill_sheet(
     notes: Sequence[str] | None = None,
     fields: Sequence[TitleBlockField] = (),
     typography: str = DEFAULT_TYPOGRAPHY,
+    sheet_style: str = DEFAULT_SHEET_STYLE,
 ) -> tuple[Sheet, float, list]:
     """The drill drawing: hole map alongside the drill schedule.
 
@@ -1111,14 +1289,27 @@ def drill_sheet(
     """
 
     builder, body = _shell(
-        "drill", "DRILL DRAWING", context, size, fields, typography=typography
+        "drill",
+        "DRILL DRAWING",
+        context,
+        size,
+        fields,
+        typography=typography,
+        sheet_style=sheet_style,
     )
     title_height = title_block_height(context, fields)
 
     table_width, window, area = sheet_columns(
         size, "drill", title_height, _drawn_width(art, scale)
     )
-    used = _draw_artwork(builder, window, art, label="drill artwork", scale=scale)
+    used = _draw_artwork(
+        builder,
+        window,
+        art,
+        label="drill artwork",
+        scale=scale,
+        sheet_style=sheet_style,
+    )
 
     sheet_notes = notes if notes is not None else DEFAULT_NOTES["drill"]
     reserve = notes_height(
@@ -1128,6 +1319,7 @@ def drill_sheet(
         [[tables.via_statistics_table(stackup), tables.drill_table(stackup, stats)]],
         Rect(area.x, area.y, area.width, area.height - reserve),
         gap=_TABLE_GAP,
+        sheet_style=sheet_style,
     )
     cursor = _draw_column(builder, column[0], (area.x, area.y))
     draw_notes(builder, sheet_notes, (area.x, cursor + _TABLE_GAP), width=table_width)
