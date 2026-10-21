@@ -23,6 +23,7 @@ import { PlaceConnectorCard, type Placing } from "./place-connector-card";
 import { OccurrenceCard } from "./occurrence-card";
 import { poseOps, positioningMateOps, storedPose } from "./pose-edits";
 import { RouteCard } from "./route-card";
+import { systemNetEmphasis } from "./net-emphasis";
 import { buildSceneDescriptor } from "./scene-descriptor";
 import { useMemberAssets } from "./use-member-assets";
 import { useRouteTool } from "./use-route-tool";
@@ -111,11 +112,15 @@ export function ThreeDPane({ document, bundle, projectNames, selected, onSelect,
   const occurrenceIds = useMemo(() => new Set(document.occurrences.map((item) => item.id)), [document]);
   const single = selected.size === 1 ? [...selected][0] : null;
   const selectedBoard = single && occurrenceIds.has(single) ? single : null;
+  // A net clicked on one board lights on every board its system net reaches.
+  const [pickedNet, setPickedNet] = useState<{ occurrence: string; net: string } | null>(null);
+  const picked = useMemo(() => systemNetEmphasis(bundle, pickedNet), [bundle, pickedNet]);
   useViewerEvents({
     element,
     document,
     occurrenceIds,
     onSelect,
+    onPickNet: setPickedNet,
     apply,
     onMoveState: setMove,
     onSettled: () => setEpoch((value) => value + 1),
@@ -139,11 +144,20 @@ export function ThreeDPane({ document, bundle, projectNames, selected, onSelect,
   // A B2B row lights its net on both boards and frames the two connectors (mockup 04).
   const litKey = lit?.key ?? null;
   useEffect(() => whenReady(element, (viewer) => {
-    viewer.setNetEmphasis?.(lit ? [{ key: lit.key, members: lit.members }] : []);
     if (lit) viewer.frameParts?.(lit.parts);
     // `litKey` names `lit`: a new row, not a new object for the same one.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }), [element, litKey]);
+  const pickedKey = picked ? `${picked.key}:${picked.members.length}` : null;
+  useEffect(() => whenReady(element, (viewer) => {
+    const sets = [
+      ...(lit ? [{ key: lit.key, members: lit.members }] : []),
+      ...(picked && picked.key !== lit?.key ? [picked] : []),
+    ];
+    viewer.setNetEmphasis?.(sets);
+    // The keys name the sets: a new row or net, not a new object for the same one.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }), [element, litKey, pickedKey]);
   // The other pane's selection shows here; the viewer does not echo it back.
   useEffect(() => whenReady(element, (viewer) => viewer.setSelection(selectedBoard ? { occurrence: selectedBoard } : null)), [element, selectedBoard]);
 
