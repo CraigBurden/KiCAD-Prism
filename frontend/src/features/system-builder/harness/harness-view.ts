@@ -149,7 +149,7 @@ const pairKey = (wire: { from: TerminalView; to: TerminalView }) => [terminalKey
 function currentWires(harness: Harness, built: BundleHarness, netNames: Map<string, string>): WireView[] {
   const stored = new Map(harness.wires.map((wire) => [wire.id, wire]));
   const seen = new Set(built.wires.map((wire) => wire.id));
-  const added = harness.wires.filter((wire) => !seen.has(wire.id)).map(ownWire);
+  const added = harness.wires.flatMap((wire) => (seen.has(wire.id) ? [] : [ownWire(wire)]));
   const taken = new Set(added.map(pairKey));
   const links = new Map(harness.links.map((link) => [link.id, link]));
   const sites = new Map(harness.ends.map((end) => [end.id, end.site]));

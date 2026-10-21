@@ -4,7 +4,7 @@
  * refuse (private mode, a full quota), in which case the inspector starts
  * expanded. `]` is the keyboard equivalent, shared with the tab's other keys.
  */
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 
 import { useHotkeys } from "@/hooks/use-hotkeys";
 
@@ -38,21 +38,11 @@ export interface InspectorCollapse {
 export function useInspectorCollapse(): InspectorCollapse {
   const [collapsed, setCollapsed] = useState(readCollapsed);
 
-  const collapse = useCallback(() => {
-    setCollapsed(true);
-    writeCollapsed(true);
-  }, []);
-  const expand = useCallback(() => {
-    setCollapsed(false);
-    writeCollapsed(false);
-  }, []);
-  const toggle = useCallback(() => {
-    setCollapsed((current) => {
-      const next = !current;
-      writeCollapsed(next);
-      return next;
-    });
-  }, []);
+  // Persisted from the committed value: an updater React may replay stays pure.
+  useEffect(() => writeCollapsed(collapsed), [collapsed]);
+  const collapse = useCallback(() => setCollapsed(true), []);
+  const expand = useCallback(() => setCollapsed(false), []);
+  const toggle = useCallback(() => setCollapsed((current) => !current), []);
 
   useHotkeys([{ combo: "]", handler: toggle }]);
 
