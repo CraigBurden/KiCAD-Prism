@@ -119,6 +119,29 @@ COPY scripts/verify_dependency_identity.py /app/scripts/verify_dependency_identi
 RUN uv pip sync --python /app/venv/bin/python /app/requirements/runtime.lock \
     && python /app/scripts/verify_dependency_identity.py --python-only
 
+# The Geometer runtime prism-kicad launches for the assembly HLR member (ADR
+# amendment C3 §2 item 4). Pinned to the release the vendored geometer-client
+# accepts (native/third_party/geometer-client, 2026.9.13 / ABI 20260913) and
+# checked against the sha256s of that release's runtime manifest.
+ARG GEOMETER_RELEASE_TAG=v2026-09-13
+ARG GEOMETER_SHA256_AMD64=d9efd6be1e99b862beca7346aae4a466da2dd385da1e33e1e981dd2541759b7b
+ARG GEOMETER_SHA256_ARM64=69921ccf4ade4c889248bdb3a64837693cf21ba3051bd424c5f6c82f152879b7
+RUN set -eu; \
+    case "$(dpkg --print-architecture)" in \
+      amd64) asset=native-linux-x64.zip; sum=${GEOMETER_SHA256_AMD64} ;; \
+      arm64) asset=native-linux-arm64.zip; sum=${GEOMETER_SHA256_ARM64} ;; \
+      *) echo "no Geometer runtime for $(dpkg --print-architecture)" >&2; exit 1 ;; \
+    esac; \
+    curl -fsSL -o /tmp/geometer.zip \
+      "https://github.com/wavenumber-eng/geometer/releases/download/${GEOMETER_RELEASE_TAG}/${asset}"; \
+    echo "${sum}  /tmp/geometer.zip" | sha256sum -c -; \
+    mkdir -p /opt/geometer; \
+    python -m zipfile -e /tmp/geometer.zip /opt/geometer; \
+    rm /tmp/geometer.zip; \
+    chmod 0755 /opt/geometer/geometer; \
+    /opt/geometer/geometer --version | grep -q 'abi 20260913'
+ENV GEOMETER_EXECUTABLE=/opt/geometer/geometer
+
 # backend/ carries the design-compare Node package (/app/design-compare-parser). scripts/ holds the
 # operator CLIs run inside the container (catalog imports, benchmark sessions); nothing at runtime reads it.
 COPY backend/ .
