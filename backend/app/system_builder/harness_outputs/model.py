@@ -175,7 +175,7 @@ class HarnessModel:
 def natural_key(value: str) -> tuple[Any, ...]:
     """``2`` before ``10``; ``A2`` before ``A10``."""
 
-    return tuple(int(part) if part.isdigit() else part for part in re.split(r"(\d+)", str(value)) if part != "")
+    return tuple((0, int(part), "") if part.isdigit() else (1, 0, part) for part in re.split(r"(\d+)", str(value)) if part != "")
 
 
 def leaf(net: str) -> str:

@@ -5,11 +5,11 @@
  */
 import { useSearchParams } from "react-router-dom";
 
-export const TABS = ["schematic", "3d", "review"] as const;
+export const TABS = ["schematic", "3d", "review", "outputs"] as const;
 export type FixedTab = (typeof TABS)[number];
 /** A fixed tab, a B2B mate's tab (`b2b:<mate id>`) or a harness block's (`harness:<id>`). */
 export type TabId = FixedTab | `b2b:${string}` | `harness:${string}`;
-export const TAB_LABEL: Record<FixedTab, string> = { schematic: "Schematic", "3d": "3D", review: "Review" };
+export const TAB_LABEL: Record<FixedTab, string> = { schematic: "Schematic", "3d": "3D", review: "Review", outputs: "ICD / Outputs" };
 
 export const mateOfTab = (tab: TabId | null) => (tab?.startsWith("b2b:") ? tab.slice(4) : null);
 export const harnessOfTab = (tab: TabId | null) => (tab?.startsWith("harness:") ? tab.slice(8) : null);

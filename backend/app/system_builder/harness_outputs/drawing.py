@@ -30,10 +30,8 @@ from app.release_studio.documents.layout import (
     Text,
     TitleBlockField,
     draw_frame,
-    draw_table,
     draw_title_block,
     fit_text,
-    split_columns,
     text_width,
 )
 
@@ -44,6 +42,13 @@ from app.system_builder.harness_outputs.model import (
     Wire,
     colour_codes,
     colour_text,
+)
+from app.system_builder.output_sheets import (
+    TITLE_BLOCK,
+    Placed,
+    draw_placed,
+    paginate_tables,
+    table_area,
 )
 
 INK, MUTED, RULE, HEAD, STRIPE, SHEATH, UNKNOWN = (
@@ -69,7 +74,6 @@ SMALL = 1.9
 MIN_FACTOR = 1.8 / SMALL
 #: A small harness is drawn up to this much larger, so it fills the sheet.
 MAX_FACTOR = 1.6
-TITLE_BLOCK = (110.0, 30.0)
 FONT_FAMILY = "sans"
 
 
@@ -502,18 +506,10 @@ def _drawing_sheet(model: HarnessModel, total: int) -> Sheet:
     return builder.build()
 
 
-def _table_sheets(model: HarnessModel, first: int) -> list[list[Table]]:
+def _table_sheets(model: HarnessModel, first: int) -> list[list[Placed]]:
     """The tables as they fall on A3 sheets (a split table continues on the next)."""
 
-    width, height = SHEET_SIZES["A3"]
-    inner = Rect(0, 0, width, height).inset(10.0)
-    area = Rect(inner.x + 6, inner.y + 8, inner.width - 12, inner.height - 8 - TITLE_BLOCK[1] - 6)
-    pending = _tables(model)
-    pages: list[list[Table]] = []
-    while pending and len(pages) < 50:
-        fitted, pending, factor = split_columns([pending], area)
-        pages.append([table.scaled(factor) for table in fitted[0]])
-    return pages
+    return paginate_tables(_tables(model), table_area("A3"))
 
 
 def sheets(model: HarnessModel) -> list[Sheet]:
@@ -525,9 +521,7 @@ def sheets(model: HarnessModel) -> list[Sheet]:
     for index, tables in enumerate(pages, 2):
         builder = SheetBuilder(f"harness-tables-{index - 1}", f"{model.label} · wiring table and BOM", "A3")
         inner = draw_frame(builder)
-        cursor = inner.y + 8
-        for table in tables:
-            cursor = draw_table(builder, table, (inner.x + 6, cursor)) + 6.0
+        draw_placed(builder, tables)
         _title_block(builder, inner, model, index, total)
         out.append(builder.build())
     return out

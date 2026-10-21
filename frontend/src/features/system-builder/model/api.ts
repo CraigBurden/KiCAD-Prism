@@ -7,6 +7,7 @@ import { fetchChecked, fetchJson, ifMatch } from "@/lib/api";
 
 import type {
   HarnessOutputsIndex,
+  IcdIndex,
   SystemBundleAnswer,
   SystemGit,
   SystemHistoryEntry,
@@ -37,6 +38,7 @@ export function readSystemBundle(systemId: string, signal?: AbortSignal): Promis
 }
 
 const harnessBase = (systemId: string, harness: string) => `${base(systemId)}/harnesses/${encodeURIComponent(harness)}/outputs`;
+const icdBase = (systemId: string) => `${base(systemId)}/icd`;
 
 /** The generated files of one harness, or that the bundle is still building (§16.7). */
 export function harnessOutputs(systemId: string, harness: string, signal?: AbortSignal): Promise<HarnessOutputsIndex> {
@@ -48,6 +50,16 @@ export function harnessOutputUrl(systemId: string, harness: string, name: string
   return `${harnessBase(systemId, harness)}/${encodeURIComponent(name)}`;
 }
 
+/** The interface control document's files, or that the bundle is still building (§17). */
+export function icd(systemId: string, signal?: AbortSignal): Promise<IcdIndex> {
+  return fetchJson<IcdIndex>(icdBase(systemId), { signal }, "Could not load the interface control document");
+}
+
+/** One generated ICD file. Fetch it through `icdFile` so the request is authenticated. */
+export function icdUrl(systemId: string, name: string): string {
+  return `${icdBase(systemId)}/${encodeURIComponent(name)}`;
+}
+
 /** The `filename` a `Content-Disposition` names, if it names one. */
 export function attachmentFilename(header: string | null): string | null {
   const match = /filename\*?=(?:UTF-8'')?"?([^";]+)"?/i.exec(header ?? "");
@@ -55,18 +67,28 @@ export function attachmentFilename(header: string | null): string | null {
   return name ? name : null;
 }
 
+/** Fetch one generated file, authenticated, with the download name the server gave it. */
+async function readOutputFile(url: string, name: string, signal?: AbortSignal): Promise<{ blob: Blob; filename: string }> {
+  const response = await fetchChecked(url, { signal }, `Could not load ${name}`);
+  return {
+    blob: await response.blob(),
+    filename: attachmentFilename(response.headers.get("Content-Disposition")) ?? name,
+  };
+}
+
 /** One generated harness file as a blob, with the download name the server gave it (§16.7). */
-export async function harnessOutputFile(
+export function harnessOutputFile(
   systemId: string,
   harness: string,
   name: string,
   signal?: AbortSignal,
 ): Promise<{ blob: Blob; filename: string }> {
-  const response = await fetchChecked(harnessOutputUrl(systemId, harness, name), { signal }, `Could not load ${name}`);
-  return {
-    blob: await response.blob(),
-    filename: attachmentFilename(response.headers.get("Content-Disposition")) ?? name,
-  };
+  return readOutputFile(harnessOutputUrl(systemId, harness, name), name, signal);
+}
+
+/** One generated ICD file as a blob, with the download name the server gave it (§17). */
+export function icdFile(systemId: string, name: string, signal?: AbortSignal): Promise<{ blob: Blob; filename: string }> {
+  return readOutputFile(icdUrl(systemId, name), name, signal);
 }
 
 export function applyOps(systemId: string, version: number, ops: SystemOp[]): Promise<SystemRecord> {

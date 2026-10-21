@@ -14,6 +14,16 @@ from app.system_builder.harness_outputs.model import Part
 
 
 def lookup(reference: str) -> Part | None:
+    return _lookup(reference, kinds=("part",))
+
+
+def lookup_entry(reference: str) -> Part | None:
+    """A catalog part or a published system (an entry, §12), as the ICD names occurrences."""
+
+    return _lookup(reference, kinds=None)
+
+
+def _lookup(reference: str, *, kinds: tuple[str, ...] | None) -> Part | None:
     component_id, _, revision_id = reference.partition("@")
     if not component_id:
         return None
@@ -24,7 +34,7 @@ def lookup(reference: str) -> Part | None:
             "SELECT is_active, COALESCE(kind, 'part') AS kind FROM components WHERE id = %s",
             (component_id,),
         ).fetchone()
-        if component is None or not bool(component["is_active"]) or str(component["kind"]) != "part":
+        if component is None or not bool(component["is_active"]) or (kinds is not None and str(component["kind"]) not in kinds):
             return None
         revision = system_parts._revision(conn, component_id, revision_id or None)
     if revision is None:
