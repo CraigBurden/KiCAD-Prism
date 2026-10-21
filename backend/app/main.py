@@ -48,6 +48,7 @@ from app.api.agent import router as agent_router
 from app.services import password_credential_service, session_store_service
 from app.services.design_bundle.errors import install_handlers as install_design_data_handlers
 from app.services.schema_head import bring_every_schema_to_head
+from app.services.superseded_store_cleanup import cleanup_superseded_stores
 from app.services.comment_live_broker import broker as comment_live_broker
 from app.services.component_catalog_service import catalog_service
 from app.services.postgres_database import database
@@ -195,6 +196,7 @@ async def lifespan(app: FastAPI):
     configure_git()
     ensure_ssh_dir()
     bring_every_schema_to_head()
+    cleanup_superseded_stores()
     from app.services.trackers.composition import initialize_tracker_composition
 
     initialize_tracker_composition()
