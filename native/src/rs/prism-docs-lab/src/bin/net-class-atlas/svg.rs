@@ -12,7 +12,7 @@ use std::fmt::Write;
 use prism_artwork::artwork::geometry::{Bounds, Point};
 use prism_artwork::artwork::svg::{escape, number, ring_path};
 
-use super::model::{Atlas, Body, ClassSection, Footprint, Pad, PadShape, SideChoice, Trace, Zone};
+use super::model::{Atlas, Body, Footprint, NetGroup, Pad, PadShape, SideChoice, Trace, Zone};
 use prism_docs_lab::palette;
 
 /// Margin around the board outline, millimetres.
@@ -27,20 +27,56 @@ const OUTLINE_MM: f64 = 0.15;
 const BODY_MM: f64 = 0.1;
 /// Ghost body outline stroke width.
 const GHOST_MM: f64 = 0.08;
+/// Filled zones are a hint under the copper, never a wash over it.
+const ZONE_FILL_OPACITY: f64 = 0.12;
 
-/// Render `section`'s drawing of `atlas`'s board.
-pub fn class_drawing(atlas: &Atlas, section: &ClassSection, side: SideChoice) -> String {
-    let bounds = expanded(atlas.drawing.bounds);
+/// One drawing and the designators its overlap rule hid.
+pub struct RenderedDrawing {
+    /// The inline SVG.
+    pub svg: String,
+    /// Designators skipped because their box hit an earlier one.
+    pub hidden_designators: usize,
+}
+
+/// One `<defs>` sprite holding every footprint body in board millimetres.
+///
+/// Body geometry is already in the board frame (HLR models and the board
+/// projection both write absolute coordinates), so one path per footprint can
+/// be referenced by every group's drawing. This is what keeps a split class's
+/// page from carrying the same outline twenty times, and it makes the frame
+/// rule explicit: a body is never transformed a second time.
+pub fn body_defs(atlas: &Atlas) -> String {
+    let mut defs = String::new();
+    defs.push_str(
+        "<svg class=\"atlas-defs\" width=\"0\" height=\"0\" aria-hidden=\"true\" \
+focusable=\"false\"><defs>\n",
+    );
+    for footprint in &atlas.drawing.footprints {
+        if let Some(path) = body_path(&footprint.body) {
+            let _ = writeln!(
+                defs,
+                "<path id=\"atlas-body-{}\" d=\"{}\"/>",
+                footprint.index, path
+            );
+        }
+    }
+    defs.push_str("</defs></svg>\n");
+    defs
+}
+
+/// Render `group`'s drawing of `atlas`'s board.
+pub fn class_drawing(atlas: &Atlas, group: &NetGroup, side: SideChoice) -> RenderedDrawing {
+    let bounds = expanded(atlas.drawing.frame());
     let mut svg = String::new();
     let _ = writeln!(
         svg,
         "<svg xmlns=\"http://www.w3.org/2000/svg\" class=\"atlas-drawing\" role=\"img\" \
-viewBox=\"{} {} {} {}\" preserveAspectRatio=\"xMidYMid meet\" aria-label=\"{} tracks by layer\">",
+viewBox=\"{} {} {} {}\" preserveAspectRatio=\"xMidYMid meet\" aria-label=\"{}\">",
         number(bounds.min_x),
         number(bounds.min_y),
         number(bounds.width().max(0.001)),
         number(bounds.height().max(0.001)),
-        escape(&section.name),
+        escape(&atlas.board_name),
     );
     let _ = writeln!(
         svg,
@@ -50,24 +86,40 @@ viewBox=\"{} {} {} {}\" preserveAspectRatio=\"xMidYMid meet\" aria-label=\"{} tr
         number(bounds.width().max(0.001)),
         number(bounds.height().max(0.001)),
     );
+    // Zone fills sit under every trace, not just their own layer's, so the
+    // 12 % wash never tints a trace on another layer.
+    for layer in atlas.copper.iter().rev() {
+        let Some(color) = palette::copper_color(layer) else {
+            continue;
+        };
+        let _ = writeln!(
+            svg,
+            "<g class=\"layer zones\" data-layer=\"{}\">",
+            escape(layer)
+        );
+        layer_zones(&mut svg, atlas, group, layer, color);
+        svg.push_str("</g>\n");
+    }
     // Back to front, so F.Cu paints last and sits on top.
     for layer in atlas.copper.iter().rev() {
         let Some(color) = palette::copper_color(layer) else {
             continue;
         };
         let _ = writeln!(svg, "<g class=\"layer\" data-layer=\"{}\">", escape(layer));
-        layer_zones(&mut svg, atlas, section, layer, color);
-        layer_traces(&mut svg, atlas, section, layer, color);
+        layer_traces(&mut svg, atlas, group, layer, color);
         svg.push_str("</g>\n");
     }
-    footprints(&mut svg, atlas, section, side);
-    vias(&mut svg, atlas, section);
+    let hidden_designators = footprints(&mut svg, atlas, group, side);
+    vias(&mut svg, atlas, group);
     board_outline(&mut svg, atlas);
     svg.push_str("</svg>\n");
-    svg
+    RenderedDrawing {
+        svg,
+        hidden_designators,
+    }
 }
 
-/// The board extent plus the drawing margin.
+/// The drawing frame plus the margin.
 fn expanded(bounds: Bounds) -> Bounds {
     Bounds {
         min_x: bounds.min_x - MARGIN_MM,
@@ -79,12 +131,12 @@ fn expanded(bounds: Bounds) -> Bounds {
 
 // ------------------------------------------------------------------- traces
 
-fn layer_traces(svg: &mut String, atlas: &Atlas, section: &ClassSection, layer: &str, color: &str) {
+fn layer_traces(svg: &mut String, atlas: &Atlas, group: &NetGroup, layer: &str, color: &str) {
     let traces: Vec<&Trace> = atlas
         .drawing
         .traces
         .iter()
-        .filter(|trace| trace.layer == layer && section.net_names.contains(&trace.net))
+        .filter(|trace| trace.layer == layer && group.net_names.contains(&trace.net))
         .collect();
     let mut groups: BTreeMap<(String, u64), Vec<&Trace>> = BTreeMap::new();
     for trace in traces {
@@ -125,12 +177,12 @@ fn push_polyline(path: &mut String, points: &[Point]) {
 
 // -------------------------------------------------------------------- zones
 
-fn layer_zones(svg: &mut String, atlas: &Atlas, section: &ClassSection, layer: &str, color: &str) {
+fn layer_zones(svg: &mut String, atlas: &Atlas, group: &NetGroup, layer: &str, color: &str) {
     let zones: Vec<&Zone> = atlas
         .drawing
         .zones
         .iter()
-        .filter(|zone| zone.layer == layer && section.net_names.contains(&zone.net))
+        .filter(|zone| zone.layer == layer && group.net_names.contains(&zone.net))
         .collect();
     let mut groups: BTreeMap<(&str, bool), Vec<&Zone>> = BTreeMap::new();
     for zone in zones {
@@ -147,11 +199,16 @@ fn layer_zones(svg: &mut String, atlas: &Atlas, section: &ClassSection, layer: &
         let path = prism_artwork::artwork::svg::rings_path(&rings);
         let net = escape(net);
         if filled {
+            // One path carries both states: a faint fill while zones are on,
+            // a dashed edge once they are off. The section's data-zones rule
+            // swaps which one paints; the geometry is written once.
             let _ = writeln!(
                 svg,
-                "<g class=\"zone\" data-net=\"{net}\"><title>{net}</title>\
-<path d=\"{path}\" fill=\"{color}\" fill-opacity=\"0.25\" fill-rule=\"evenodd\" stroke=\"none\"/></g>",
+                "<g class=\"zone zone-fill\" data-net=\"{net}\"><title>{net}</title>\
+<path d=\"{path}\" fill=\"{color}\" fill-opacity=\"{opacity}\" fill-rule=\"evenodd\" \
+stroke=\"{color}\" stroke-width=\"0.12\" stroke-dasharray=\"0.8 0.5\" stroke-opacity=\"0.7\"/></g>",
                 color = escape(color),
+                opacity = number(ZONE_FILL_OPACITY),
             );
         } else {
             let _ = writeln!(
@@ -167,41 +224,64 @@ stroke-dasharray=\"0.8 0.5\" opacity=\"0.7\"/></g>",
 
 // --------------------------------------------------------------- footprints
 
-fn footprints(svg: &mut String, atlas: &Atlas, section: &ClassSection, side: SideChoice) {
-    let connected: Vec<usize> = section.footprints.clone();
+fn footprints(svg: &mut String, atlas: &Atlas, group: &NetGroup, side: SideChoice) -> usize {
+    let connected = &group.footprints;
     for footprint in &atlas.drawing.footprints {
         if !connected.contains(&footprint.index) {
             ghost(svg, footprint);
         }
     }
     let mut designators = String::new();
+    let mut placed: Vec<Bounds> = Vec::new();
+    let mut hidden = 0;
     for footprint in &atlas.drawing.footprints {
         if connected.contains(&footprint.index) && side.full(footprint.side) {
-            full(svg, footprint, section, atlas);
-            designator(&mut designators, footprint);
+            full(svg, footprint, group, atlas);
+            match designator_box(footprint) {
+                Some(designator)
+                    if placed.iter().any(|box_| box_.intersects(designator.bounds)) =>
+                {
+                    hidden += 1;
+                }
+                Some(designator) => {
+                    designator_text(&mut designators, footprint, &designator);
+                    placed.push(designator.bounds);
+                }
+                None => {}
+            }
         }
     }
     svg.push_str(&designators);
+    hidden
 }
 
-fn full(svg: &mut String, footprint: &Footprint, section: &ClassSection, atlas: &Atlas) {
+/// The body is board-frame geometry, so it is written without the footprint's
+/// transform; only the pads are footprint-local and get translated/rotated.
+/// Applying the transform to the body as well is what once threw HLR outlines
+/// and courtyard boxes far outside the board.
+fn full(svg: &mut String, footprint: &Footprint, group: &NetGroup, atlas: &Atlas) {
     let _ = writeln!(
         svg,
-        "<g class=\"fp fp-{}\" transform=\"translate({} {}) rotate({})\">",
+        "<g class=\"fp fp-{}\" data-fp=\"{}\">",
+        footprint.side.as_str(),
+        footprint.index
+    );
+    body(svg, footprint, palette::INK, BODY_MM);
+    let _ = writeln!(
+        svg,
+        "<g class=\"pads side-{}\" transform=\"translate({} {}) rotate({})\">",
         footprint.side.as_str(),
         number(footprint.x),
         number(footprint.y),
         number(-footprint.angle),
     );
-    body_path(svg, &footprint.body, palette::INK, BODY_MM);
-    layer_pads(svg, footprint, section, atlas);
-    svg.push_str("</g>\n");
+    layer_pads(svg, footprint, group, atlas);
+    svg.push_str("</g>\n</g>\n");
 }
 
-fn layer_pads(svg: &mut String, footprint: &Footprint, section: &ClassSection, atlas: &Atlas) {
-    let _ = writeln!(svg, "<g class=\"pads side-{}\">", footprint.side.as_str());
+fn layer_pads(svg: &mut String, footprint: &Footprint, group: &NetGroup, atlas: &Atlas) {
     for pad in &footprint.pads {
-        let connected = !pad.net.is_empty() && section.net_names.contains(&pad.net);
+        let connected = !pad.net.is_empty() && group.net_names.contains(&pad.net);
         let color = if connected {
             pad_color(pad, &atlas.copper)
         } else {
@@ -226,34 +306,37 @@ transform=\"translate({} {}) rotate({})\"{}>",
         pad_shape(svg, &pad.shape);
         svg.push_str("</g>");
     }
-    svg.push_str("</g>\n");
 }
 
 fn ghost(svg: &mut String, footprint: &Footprint) {
     let _ = write!(svg, "<g class=\"fp ghost fp-{}\">", footprint.side.as_str(),);
-    body_path(svg, &footprint.body, palette::RULE, GHOST_MM);
+    body(svg, footprint, palette::RULE, GHOST_MM);
     svg.push_str("</g>\n");
 }
 
-/// The body as one stroked group. The stroke lives on the group, not the path,
-/// so the stylesheet's side rules (a class selector) can override it.
-fn body_path(svg: &mut String, body: &Body, color: &str, width: f64) {
-    let path = match body {
-        Body::Envelope(ring) if ring.len() >= 3 => ring_path(ring),
-        Body::Envelope(_) => String::new(),
-        Body::Edges(edges) => edges_path(edges),
-    };
-    if path.is_empty() {
+/// A footprint's body, referenced from the page's shared sprite. The sprite
+/// carries board coordinates, so no transform is applied here.
+fn body(svg: &mut String, footprint: &Footprint, color: &str, width: f64) {
+    if body_path(&footprint.body).is_none() {
         return;
     }
     let _ = write!(
         svg,
-        "<g class=\"body\" fill=\"none\" stroke=\"{}\" stroke-width=\"{}\" \
-stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"{}\"/></g>",
+        "<use href=\"#atlas-body-{}\" class=\"body\" fill=\"none\" stroke=\"{}\" \
+stroke-width=\"{}\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/>",
+        footprint.index,
         escape(color),
         number(width),
-        path,
     );
+}
+
+/// The body's path data, or `None` when it has no drawable ring.
+fn body_path(body: &Body) -> Option<String> {
+    match body {
+        Body::Envelope(ring) if ring.len() >= 3 => Some(ring_path(ring)),
+        Body::Envelope(_) => None,
+        Body::Edges(edges) => Some(edges_path(edges)),
+    }
 }
 
 /// The HLR edges as one stroked path; arcs are sampled through their centre.
@@ -382,8 +465,21 @@ fn designator_size(footprint: &Footprint) -> f64 {
     (0.45 * footprint.body_bounds.height()).clamp(DESIGNATOR_MIN_MM, DESIGNATOR_MAX_MM)
 }
 
-/// The designator, upright above the body, in the page's sans face.
-fn designator(svg: &mut String, footprint: &Footprint) {
+/// A designator's anchor and the box its text occupies, in board millimetres.
+struct Designator {
+    anchor: Point,
+    size: f64,
+    bounds: Bounds,
+}
+
+/// The designator's box: upright above the body, in the page's sans face.
+/// The width estimate is deliberately a little generous, so dense groups lose
+/// a designator rather than print two on top of each other.
+fn designator_box(footprint: &Footprint) -> Option<Designator> {
+    if footprint.reference.is_empty() || footprint.reference == "?" {
+        return None;
+    }
+    let size = designator_size(footprint);
     let anchor = if footprint.body_bounds.is_empty() {
         Point {
             x: footprint.x,
@@ -395,25 +491,39 @@ fn designator(svg: &mut String, footprint: &Footprint) {
             y: footprint.body_bounds.min_y - 0.35,
         }
     };
+    let width = footprint.reference.chars().count() as f64 * size * 0.62;
+    Some(Designator {
+        anchor,
+        size,
+        bounds: Bounds {
+            min_x: anchor.x - width / 2.0,
+            min_y: anchor.y - size,
+            max_x: anchor.x + width / 2.0,
+            max_y: anchor.y + size * 0.2,
+        },
+    })
+}
+
+fn designator_text(svg: &mut String, footprint: &Footprint, designator: &Designator) {
     let _ = writeln!(
         svg,
         "<text class=\"des side-{}\" x=\"{}\" y=\"{}\" font-family=\"Geist, Inter, \
 system-ui, sans-serif\" font-size=\"{}\" font-weight=\"500\" fill=\"#1d1d1f\" \
 text-anchor=\"middle\">{}</text>",
         footprint.side.as_str(),
-        number(anchor.x),
-        number(anchor.y),
-        number(designator_size(footprint)),
+        number(designator.anchor.x),
+        number(designator.anchor.y),
+        number(designator.size),
         escape(&footprint.reference),
     );
 }
 
 // --------------------------------------------------------------------- vias
 
-fn vias(svg: &mut String, atlas: &Atlas, section: &ClassSection) {
+fn vias(svg: &mut String, atlas: &Atlas, group: &NetGroup) {
     svg.push_str("<g class=\"vias\">\n");
     for via in &atlas.drawing.vias {
-        if !section.net_names.contains(&via.net) {
+        if !group.net_names.contains(&via.net) {
             continue;
         }
         let _ = writeln!(
@@ -460,14 +570,14 @@ fn board_outline(svg: &mut String, atlas: &Atlas) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::model::{Atlas, Drawing, NetRow};
+    use crate::model::{Atlas, Body, Drawing, Footprint, NetRow, Pad, PadShape, Side};
     use std::collections::BTreeSet;
 
     fn point(x: f64, y: f64) -> Point {
         Point { x, y }
     }
 
-    fn atlas(traces: Vec<Trace>) -> Atlas {
+    fn atlas(traces: Vec<Trace>, footprints: Vec<Footprint>) -> Atlas {
         let mut bounds = Bounds::empty();
         for corner in [point(0.0, 0.0), point(40.0, 30.0)] {
             bounds.include(corner);
@@ -498,27 +608,67 @@ mod tests {
                 traces,
                 vias: Vec::new(),
                 zones: Vec::new(),
-                footprints: Vec::new(),
+                footprints,
             },
         }
     }
 
-    fn section(net: &str) -> ClassSection {
-        ClassSection {
-            name: "Default".to_owned(),
+    fn group(net: &str, footprints: Vec<usize>) -> NetGroup {
+        NetGroup {
+            name: String::new(),
             length_mm: 1.0,
             nets: vec![NetRow {
                 name: net.to_owned(),
                 length_mm: 1.0,
                 vias: 0,
                 layers: vec!["In2.Cu".to_owned()],
+                zone_layers: false,
+                via_spans: Vec::new(),
                 pads: 0,
+                power: false,
             }],
             net_names: BTreeSet::from([net.to_owned()]),
-            footprints: Vec::new(),
+            footprints,
             tracks: 1,
             vias: 0,
             pads: 0,
+            fill_ratio: 0.0,
+            has_fill: false,
+        }
+    }
+
+    fn footprint(index: usize, reference: &str, x: f64, y: f64, net: &str) -> Footprint {
+        let ring = vec![
+            point(x - 2.0, y - 1.5),
+            point(x + 2.0, y - 1.5),
+            point(x + 2.0, y + 1.5),
+            point(x - 2.0, y + 1.5),
+        ];
+        let mut body_bounds = Bounds::empty();
+        for corner in &ring {
+            body_bounds.include(*corner);
+        }
+        Footprint {
+            index,
+            reference: reference.to_owned(),
+            side: Side::Top,
+            x,
+            y,
+            angle: 0.0,
+            pads: vec![Pad {
+                net: net.to_owned(),
+                layers: vec!["F.Cu".to_owned()],
+                x: 0.0,
+                y: 0.0,
+                angle: 0.0,
+                shape: PadShape::Rect {
+                    width: 0.6,
+                    height: 0.4,
+                },
+            }],
+            body: Body::Envelope(ring),
+            body_bounds,
+            nets: BTreeSet::from([net.to_owned()]),
         }
     }
 
@@ -530,10 +680,26 @@ mod tests {
             width: 0.2,
             points: vec![point(1.0, 1.0), point(5.0, 1.0)],
         };
-        let svg = class_drawing(&atlas(vec![trace]), &section("N"), SideChoice::Top);
-        assert!(svg.contains("data-layer=\"In2.Cu\""), "{svg}");
-        assert!(svg.contains("stroke=\"#CE7D2C\""), "{svg}");
-        assert!(svg.contains("stroke-width=\"0.2\""), "{svg}");
+        let drawing = class_drawing(
+            &atlas(vec![trace], Vec::new()),
+            &group("N", Vec::new()),
+            SideChoice::Top,
+        );
+        assert!(
+            drawing.svg.contains("data-layer=\"In2.Cu\""),
+            "{}",
+            drawing.svg
+        );
+        assert!(
+            drawing.svg.contains("stroke=\"#CE7D2C\""),
+            "{}",
+            drawing.svg
+        );
+        assert!(
+            drawing.svg.contains("stroke-width=\"0.2\""),
+            "{}",
+            drawing.svg
+        );
     }
 
     #[test]
@@ -544,15 +710,15 @@ mod tests {
             width: 0.3,
             points: vec![point(1.0, 1.0), point(5.0, 1.0)],
         };
-        let atlas = atlas(vec![trace]);
-        let section = section("N");
-        let first = class_drawing(&atlas, &section, SideChoice::Both);
-        let second = class_drawing(&atlas, &section, SideChoice::Both);
-        assert_eq!(first, second);
+        let atlas = atlas(vec![trace], Vec::new());
+        let group = group("N", Vec::new());
+        let first = class_drawing(&atlas, &group, SideChoice::Both);
+        let second = class_drawing(&atlas, &group, SideChoice::Both);
+        assert_eq!(first.svg, second.svg);
     }
 
     #[test]
-    fn only_the_classes_nets_are_drawn() {
+    fn only_the_groups_nets_are_drawn() {
         let traces = vec![
             Trace {
                 net: "A".to_owned(),
@@ -567,8 +733,145 @@ mod tests {
                 points: vec![point(3.0, 1.0), point(4.0, 1.0)],
             },
         ];
-        let svg = class_drawing(&atlas(traces), &section("A"), SideChoice::Top);
-        assert!(svg.contains("data-net=\"A\""));
-        assert!(!svg.contains("data-net=\"B\""));
+        let drawing = class_drawing(
+            &atlas(traces, Vec::new()),
+            &group("A", Vec::new()),
+            SideChoice::Top,
+        );
+        assert!(drawing.svg.contains("data-net=\"A\""));
+        assert!(!drawing.svg.contains("data-net=\"B\""));
+    }
+
+    /// The old drawing wrapped a footprint body in `translate(anchor)`, so a
+    /// body already in board millimetres landed at roughly twice its position.
+    /// The sprite must keep board coordinates and the drawing must reference
+    /// it, while only the pad group carries the footprint transform.
+    #[test]
+    fn bodies_stay_in_the_board_frame() {
+        let footprint = footprint(0, "J1", 10.0, 10.0, "N");
+        let atlas = atlas(Vec::new(), vec![footprint]);
+        let defs = body_defs(&atlas);
+        let start = defs.find("id=\"atlas-body-0\"").expect("a body path");
+        let path = &defs[start..defs[start..].find("/>").expect("path end") + start];
+        let numbers: Vec<f64> = path
+            .split(|character: char| !character.is_ascii_digit() && character != '.')
+            .filter(|part| !part.is_empty())
+            .filter_map(|part| part.parse().ok())
+            .collect();
+        assert!(
+            numbers.iter().all(|value| (0.0..=40.0).contains(value)),
+            "body path left the board: {path}"
+        );
+        let drawing = class_drawing(&atlas, &group("N", vec![0]), SideChoice::Top);
+        assert!(
+            drawing.svg.contains("href=\"#atlas-body-0\""),
+            "{}",
+            drawing.svg
+        );
+        assert!(
+            drawing
+                .svg
+                .contains("<g class=\"pads side-top\" transform=\"translate(10 10) rotate(0)\">"),
+            "{}",
+            drawing.svg
+        );
+        assert!(
+            !drawing
+                .svg
+                .contains("transform=\"translate(10 10) rotate(0)\"><use"),
+            "a body must not be transformed twice: {}",
+            drawing.svg
+        );
+    }
+
+    #[test]
+    fn overlapping_designators_are_counted_not_drawn() {
+        let first = footprint(0, "R1", 10.0, 10.0, "N");
+        let second = footprint(1, "R2", 10.4, 10.0, "N");
+        let atlas = atlas(Vec::new(), vec![first, second]);
+        let drawing = class_drawing(&atlas, &group("N", vec![0, 1]), SideChoice::Top);
+        assert_eq!(drawing.hidden_designators, 1, "{}", drawing.svg);
+        assert_eq!(drawing.svg.matches("class=\"des").count(), 1);
+    }
+
+    /// The frame used to be the board's `Edge.Cuts` box plus a margin, so a
+    /// part that overhangs the perimeter (a side button, a header) was cut at
+    /// the frame and left a stub at the edge. Every drawn element's extent now
+    /// has to sit inside the viewBox.
+    #[test]
+    fn the_view_box_frames_every_drawn_element() {
+        // SW1 sits past the right edge: its body spans x 39..43 on a board
+        // that ends at 40, and its pad anchor hangs further out again.
+        let mut button = footprint(0, "SW1", 41.0, 15.0, "N");
+        button.pads[0].x = 5.0;
+        let mut sample = atlas(Vec::new(), vec![button]);
+        sample.drawing.vias = vec![crate::model::Via {
+            net: "N".to_owned(),
+            at: point(39.0, 15.0),
+            size: 0.6,
+            drill: 0.3,
+            layers: vec!["F.Cu".to_owned(), "B.Cu".to_owned()],
+        }];
+        let drawing = class_drawing(&sample, &group("N", vec![0]), SideChoice::Top);
+
+        let view_box = view_box(&drawing.svg);
+        for bounds in drawn_bounds(&sample) {
+            assert!(
+                view_box.contains_bounds(bounds),
+                "viewBox {view_box:?} does not frame {bounds:?}"
+            );
+        }
+        // The old frame stopped at the board plus the 2 mm margin.
+        assert!(
+            view_box.max_x > 40.0 + MARGIN_MM,
+            "the overhanging body is not framed: {view_box:?}"
+        );
+    }
+
+    /// The drawing's viewBox as an extent.
+    fn view_box(svg: &str) -> Bounds {
+        let values: Vec<f64> = svg
+            .split("viewBox=\"")
+            .nth(1)
+            .expect("a viewBox")
+            .split('"')
+            .next()
+            .expect("a viewBox value")
+            .split_whitespace()
+            .map(|value| value.parse().expect("a number"))
+            .collect();
+        Bounds {
+            min_x: values[0],
+            min_y: values[1],
+            max_x: values[0] + values[2],
+            max_y: values[1] + values[3],
+        }
+    }
+
+    /// The extent of everything the drawing paints: bodies, pads, traces,
+    /// vias and zone rings.
+    fn drawn_bounds(atlas: &Atlas) -> Vec<Bounds> {
+        let mut bounds = Vec::new();
+        for footprint in &atlas.drawing.footprints {
+            bounds.push(footprint.body_bounds);
+            for pad in &footprint.pads {
+                bounds.push(crate::model::pad_bounds(footprint, pad));
+            }
+        }
+        for trace in &atlas.drawing.traces {
+            let half = trace.width / 2.0;
+            for point in &trace.points {
+                bounds.push(Bounds::around(*point, half, half));
+            }
+        }
+        for via in &atlas.drawing.vias {
+            bounds.push(Bounds::around(via.at, via.size / 2.0, via.size / 2.0));
+        }
+        for zone in &atlas.drawing.zones {
+            for ring in &zone.rings {
+                bounds.push(Bounds::of_ring(ring));
+            }
+        }
+        bounds
     }
 }

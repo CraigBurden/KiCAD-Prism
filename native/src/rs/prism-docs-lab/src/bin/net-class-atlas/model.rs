@@ -13,7 +13,9 @@ use prism_kicad_contracts::generated::prism_placements_a1::{
     PlacementsA1, PlacementsFootprint, Side as PlacementSide,
 };
 use prism_kicad_contracts::generated::prism_route_metrics_a0::RouteMetricsA0;
-use prism_kicad_contracts::generated::prism_semantic_index_a2::SemanticIndexA2;
+use prism_kicad_contracts::generated::prism_semantic_index_a2::{
+    SemanticIndexA2, SemanticIndexPinType,
+};
 use prism_kicad_contracts::generated::prism_stackup_a0::StackupA0;
 use prism_kicad_core::{PcbFootprint, PcbLimits, PcbView, PcbZonePolygon};
 
@@ -22,11 +24,19 @@ use prism_docs_lab::palette;
 
 use crate::pads::pad_facts;
 
+mod drawing;
+#[cfg(test)]
+mod tests;
+
+/// The pad envelope the drawing frame is built from, for the drawing tests.
+#[cfg(test)]
+pub use drawing::pad_bounds;
+
 /// `projections/stackup.json`: the copper order, front to back.
 pub const STACKUP: &str = "projections/stackup.json";
 /// `projections/semantic-index.json`: each net's `netClass`.
 pub const SEMANTIC_INDEX: &str = "projections/semantic-index.json";
-/// `projections/route-metrics.json`: per-net length, vias and used layers.
+/// `projections/route-metrics.json`: per-net routed length and vias.
 pub const ROUTE_METRICS: &str = "projections/route-metrics.json";
 /// `projections/placements.json`: sides and courtyards.
 pub const PLACEMENTS: &str = "projections/placements.json";
@@ -136,12 +146,13 @@ pub struct ClassSection {
     pub name: String,
     /// Routed length over the class's nets, in millimetres.
     pub length_mm: f64,
-    /// The class's nets, longest first.
-    pub nets: Vec<NetRow>,
-    /// The class's net names, for filtering the drawing.
-    pub net_names: BTreeSet<String>,
-    /// Indices into [`Drawing::footprints`] of the footprints the class reaches.
-    pub footprints: Vec<usize>,
+    /// The number of nets in the class.
+    pub net_count: usize,
+    /// The class's groups: one entry for a class of at most
+    /// [`GROUP_LIMIT`] nets, one per group otherwise.
+    pub groups: Vec<NetGroup>,
+    /// True when the class was split into several drawings.
+    pub split: bool,
     /// Track segments and arcs on the class's nets.
     pub tracks: usize,
     /// Vias on the class's nets.
@@ -149,6 +160,44 @@ pub struct ClassSection {
     /// Pads on the class's nets.
     pub pads: usize,
 }
+
+/// One drawing and table inside a class: the whole class when it has few
+/// nets, else the power nets, one schematic sheet's nets, or the rest.
+pub struct NetGroup {
+    /// The group's heading: `Power and ground`, a sheet path, `Other`, or
+    /// empty for an unsplit class.
+    pub name: String,
+    /// Routed length over the group's nets, in millimetres.
+    pub length_mm: f64,
+    /// The group's nets, longest first.
+    pub nets: Vec<NetRow>,
+    /// The group's net names, for filtering its drawing.
+    pub net_names: BTreeSet<String>,
+    /// Indices into [`Drawing::footprints`] of the footprints the group
+    /// reaches.
+    pub footprints: Vec<usize>,
+    /// Track segments and arcs on the group's nets.
+    pub tracks: usize,
+    /// Vias on the group's nets.
+    pub vias: usize,
+    /// Pads on the group's nets.
+    pub pads: usize,
+    /// Filled zone area as a share of the board's area.
+    pub fill_ratio: f64,
+    /// True when at least one of the group's zones carries a fill.
+    pub has_fill: bool,
+}
+
+impl NetGroup {
+    /// Zone fills open on the page when they cover less than a quarter of the
+    /// board; a class that buries the drawing opens with fills off.
+    pub fn zones_default(&self) -> bool {
+        self.fill_ratio < 0.25
+    }
+}
+
+/// A class with more nets than this is split into groups.
+pub const GROUP_LIMIT: usize = 40;
 
 /// One table row: a net of the class.
 pub struct NetRow {
@@ -158,10 +207,33 @@ pub struct NetRow {
     pub length_mm: f64,
     /// Number of vias on the net.
     pub vias: usize,
-    /// Copper layers the net is routed on, in the projection's order.
+    /// The copper layers the net's tracks and arcs are on, in stack order,
+    /// front to back.
     pub layers: Vec<String>,
+    /// True when `layers` names the net's zone layers because the net has no
+    /// tracks: the page marks each one `(zone)`.
+    pub zone_layers: bool,
+    /// The net's vias, grouped by the copper layers they span.
+    pub via_spans: Vec<ViaSpan>,
     /// Number of pads on the net.
     pub pads: usize,
+    /// True when the net groups as power or ground.
+    pub power: bool,
+}
+
+/// The copper layers one group of a net's vias connects.
+///
+/// A through via's authored span crosses every copper layer between its ends,
+/// which is not what a reader wants to know about the net: the tracks say where
+/// the net runs, the span says only how the via joins two of those layers.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ViaSpan {
+    /// The span's first copper layer, in stack order.
+    pub from: String,
+    /// The span's last copper layer, in stack order.
+    pub to: String,
+    /// How many of the net's vias span exactly these layers.
+    pub count: usize,
 }
 
 /// One net's facts before they are grouped into classes.
@@ -174,8 +246,9 @@ pub struct NetInput {
     pub length_mm: f64,
     /// Number of vias.
     pub vias: usize,
-    /// Copper layers used.
-    pub layers: Vec<String>,
+    /// True when the net is power or ground: its name says so, or most of its
+    /// typed terminals are power pins.
+    pub power: bool,
 }
 
 /// The board-wide drawable facts, in millimetres and board frame (+y down).
@@ -218,6 +291,9 @@ pub struct Via {
     pub size: f64,
     /// The drill diameter.
     pub drill: f64,
+    /// The copper layers it connects, as authored; empty when the board names
+    /// none, which KiCad reads as every copper layer.
+    pub layers: Vec<String>,
 }
 
 /// One zone's filled polygon, or one unfilled zone outline, on one layer.
@@ -343,14 +419,15 @@ pub fn load(bundle: &Bundle) -> Result<Atlas, LabError> {
     let placements: Option<PlacementsA1> = bundle.json(PLACEMENTS)?;
     let hlr: Option<AssemblyHlrA0> = bundle.json(ASSEMBLY_HLR)?;
     let drawing = Drawing::build(&view, &board, placements.as_ref(), hlr.as_ref())?;
-    let classes = sections(net_inputs(&semantic, &metrics), &drawing);
+    let copper = copper_order(&stackup, &view);
+    let classes = sections(net_inputs(&semantic, &metrics), &drawing, &copper);
     let identity = identity(bundle, &semantic);
     Ok(Atlas {
         board_name: bundle.board_name()?,
         board_file: bundle.board_file()?,
         identity_label: identity.0,
         identity: identity.1,
-        copper: copper_order(&stackup, &view),
+        copper,
         tracks: drawing.traces.len(),
         vias: drawing.vias.len(),
         classes,
@@ -399,25 +476,31 @@ fn copper_order(stackup: &StackupA0, view: &PcbView<'_>) -> Vec<String> {
 
 /// Every net the board carries, from the projections and the board's pads.
 fn net_inputs(semantic: &SemanticIndexA2, metrics: &RouteMetricsA0) -> Vec<NetInput> {
+    let power_pins = power_pin_shares(semantic);
     let mut nets: BTreeMap<String, NetInput> = BTreeMap::new();
     for net in &semantic.nets {
+        let name = net.name.as_str().to_owned();
         nets.insert(
-            net.name.as_str().to_owned(),
+            name.clone(),
             NetInput {
-                name: net.name.as_str().to_owned(),
+                power: is_power_name(&name)
+                    || power_pins
+                        .get(&name)
+                        .is_some_and(|(typed, power)| *typed > 0 && power * 2 > *typed),
+                name,
                 class: class_name(&net.net_class),
                 length_mm: 0.0,
                 vias: 0,
-                layers: Vec::new(),
             },
         );
     }
     for net in &metrics.nets {
         let name = net.net_name.as_str().to_owned();
-        let class = nets
-            .get(&name)
+        let known = nets.get(&name);
+        let class = known
             .map(|net| net.class.clone())
             .unwrap_or_else(|| UNASSIGNED.to_owned());
+        let power = known.map_or_else(|| is_power_name(&name), |net| net.power);
         nets.insert(
             name.clone(),
             NetInput {
@@ -425,15 +508,63 @@ fn net_inputs(semantic: &SemanticIndexA2, metrics: &RouteMetricsA0) -> Vec<NetIn
                 class,
                 length_mm: net.route_length_nm.0 as f64 / 1_000_000.0,
                 vias: net.via_count.0 as usize,
-                layers: net
-                    .used_layers
-                    .iter()
-                    .map(|layer| layer.as_str().to_owned())
-                    .collect(),
+                power,
             },
         );
     }
     nets.into_values().collect()
+}
+
+/// Per net, how many of its typed terminals are power pins, and how many
+/// terminals carry a pin type at all.
+fn power_pin_shares(semantic: &SemanticIndexA2) -> BTreeMap<String, (usize, usize)> {
+    let mut shares: BTreeMap<String, (usize, usize)> = BTreeMap::new();
+    for terminal in &semantic.terminals {
+        let Some(net) = terminal.net_name.as_ref() else {
+            continue;
+        };
+        let Some(pin_type) = terminal.pin_type.as_ref() else {
+            continue;
+        };
+        let share = shares.entry(net.as_str().to_owned()).or_default();
+        share.0 += 1;
+        if matches!(
+            pin_type,
+            SemanticIndexPinType::PowerIn | SemanticIndexPinType::PowerOut
+        ) {
+            share.1 += 1;
+        }
+    }
+    shares
+}
+
+/// True when a net's leaf name reads as power or ground: `GND`, `AGND`,
+/// `DGND`, `VCC*`, `VDD*`, `VBUS*`, `V+`, `+3V3`/`+5V`, or `*_PWR`.
+pub fn is_power_name(name: &str) -> bool {
+    let leaf = name
+        .rsplit('/')
+        .find(|part| !part.is_empty())
+        .unwrap_or(name)
+        .to_ascii_uppercase();
+    matches!(leaf.as_str(), "GND" | "AGND" | "DGND")
+        || leaf.starts_with("GND")
+        || leaf.starts_with("AGND")
+        || leaf.starts_with("DGND")
+        || leaf.starts_with("VCC")
+        || leaf.starts_with("VDD")
+        || leaf.starts_with("VBUS")
+        || leaf.starts_with("V+")
+        || leaf.starts_with('+')
+        || leaf.ends_with("_PWR")
+}
+
+/// The schematic sheet path a net name starts with: `/Debugger/` for
+/// `/Debugger/TCK`, `/A/B/` for `/A/B/N`, and `None` for a root-level or flat
+/// name.
+pub fn sheet_path(name: &str) -> Option<String> {
+    let rest = name.strip_prefix('/')?;
+    let slash = rest.rfind('/')?;
+    Some(name[..slash + 2].to_owned())
 }
 
 /// A net class as the page names it: the netlist's name, or `Unassigned`.
@@ -450,8 +581,9 @@ fn class_name(raw: &str) -> String {
 /// Group `nets` into the page's sections, keeping only nets the board carries.
 ///
 /// A net is on the board when a pad, a trace, a via or a zone names it: a
-/// schematic-only net would otherwise fill a table with zeroes.
-pub fn sections(nets: Vec<NetInput>, drawing: &Drawing) -> Vec<ClassSection> {
+/// schematic-only net would otherwise fill a table with zeroes. `copper` is the
+/// stack order the layer column reads.
+pub fn sections(nets: Vec<NetInput>, drawing: &Drawing, copper: &[String]) -> Vec<ClassSection> {
     let board_nets = board_nets(drawing);
     let mut classes: BTreeMap<String, Vec<NetInput>> = BTreeMap::new();
     for net in nets {
@@ -461,7 +593,7 @@ pub fn sections(nets: Vec<NetInput>, drawing: &Drawing) -> Vec<ClassSection> {
     }
     let mut sections: Vec<ClassSection> = classes
         .into_iter()
-        .filter_map(|(name, nets)| section(name, nets, drawing))
+        .filter_map(|(name, nets)| section(name, nets, drawing, copper))
         .collect();
     sections.sort_by(|left, right| {
         default_last(left)
@@ -477,15 +609,54 @@ fn default_last(section: &ClassSection) -> bool {
 }
 
 /// One class's section, or `None` when none of its nets has pads or routing.
-fn section(name: String, nets: Vec<NetInput>, drawing: &Drawing) -> Option<ClassSection> {
+fn section(
+    name: String,
+    nets: Vec<NetInput>,
+    drawing: &Drawing,
+    copper: &[String],
+) -> Option<ClassSection> {
+    let rows = rows_with_pads(nets, drawing, copper);
+    if !drawable(&rows, drawing) {
+        return None;
+    }
+    let rows = kept_rows(rows);
+    if rows.is_empty() {
+        return None;
+    }
+    Some(build_section(name, rows, drawing))
+}
+
+/// The class's rows, with each net's pad count and layer use filled in.
+fn rows_with_pads(nets: Vec<NetInput>, drawing: &Drawing, copper: &[String]) -> Vec<NetRow> {
+    let layers = net_layers(drawing);
+    let spans = net_via_spans(drawing, copper);
     let mut rows: Vec<NetRow> = nets
         .into_iter()
-        .map(|net| NetRow {
-            name: net.name,
-            length_mm: net.length_mm,
-            vias: net.vias,
-            layers: net.layers,
-            pads: 0,
+        .map(|net| {
+            let used = layers.get(&net.name);
+            let tracks = used
+                .map(|used| stack_order(&used.tracks, copper))
+                .unwrap_or_default();
+            // A net with no tracks of its own shows the layers its zones fill,
+            // marked as such, so the column never claims a track it has not.
+            let zone_layers = tracks.is_empty();
+            let layers = if zone_layers {
+                used.map(|used| stack_order(&used.zones, copper))
+                    .unwrap_or_default()
+            } else {
+                tracks
+            };
+            let via_spans = spans.get(&net.name).cloned().unwrap_or_default();
+            NetRow {
+                name: net.name,
+                length_mm: net.length_mm,
+                vias: net.vias,
+                layers,
+                zone_layers,
+                via_spans,
+                pads: 0,
+                power: net.power,
+            }
         })
         .collect();
     for footprint in &drawing.footprints {
@@ -495,6 +666,189 @@ fn section(name: String, nets: Vec<NetInput>, drawing: &Drawing) -> Option<Class
             }
         }
     }
+    rows
+}
+
+/// The copper layers each net's tracks, arcs and zones sit on.
+#[derive(Default)]
+struct NetLayers {
+    /// Layers carrying a track segment or a routing arc.
+    tracks: BTreeSet<String>,
+    /// Layers carrying a zone fill or outline.
+    zones: BTreeSet<String>,
+}
+
+fn net_layers(drawing: &Drawing) -> BTreeMap<String, NetLayers> {
+    let mut layers: BTreeMap<String, NetLayers> = BTreeMap::new();
+    for trace in &drawing.traces {
+        layers
+            .entry(trace.net.clone())
+            .or_default()
+            .tracks
+            .insert(trace.layer.clone());
+    }
+    for zone in &drawing.zones {
+        layers
+            .entry(zone.net.clone())
+            .or_default()
+            .zones
+            .insert(zone.layer.clone());
+    }
+    layers
+}
+
+/// `layers` in the stackup's order, front to back. A layer the stackup does
+/// not name keeps a stable place after the ones it does.
+fn stack_order(layers: &BTreeSet<String>, copper: &[String]) -> Vec<String> {
+    let mut ordered: Vec<String> = copper
+        .iter()
+        .filter(|layer| layers.contains(layer.as_str()))
+        .cloned()
+        .collect();
+    ordered.extend(
+        layers
+            .iter()
+            .filter(|layer| !copper.contains(layer))
+            .cloned(),
+    );
+    ordered
+}
+
+/// Each net's vias, grouped by the copper layers they span, front to back.
+fn net_via_spans(drawing: &Drawing, copper: &[String]) -> BTreeMap<String, Vec<ViaSpan>> {
+    let mut grouped: BTreeMap<String, BTreeMap<(String, String), usize>> = BTreeMap::new();
+    for via in &drawing.vias {
+        let Some((from, to)) = via_span(via, copper) else {
+            continue;
+        };
+        *grouped
+            .entry(via.net.clone())
+            .or_default()
+            .entry((from, to))
+            .or_default() += 1;
+    }
+    grouped
+        .into_iter()
+        .map(|(net, spans)| {
+            let spans = spans
+                .into_iter()
+                .map(|((from, to), count)| ViaSpan { from, to, count })
+                .collect();
+            (net, spans)
+        })
+        .collect()
+}
+
+/// The copper layers a via joins: its authored layers in stack order, or the
+/// stack's ends when it names none (KiCad's through via).
+fn via_span(via: &Via, copper: &[String]) -> Option<(String, String)> {
+    let mut layers: Vec<&String> = copper
+        .iter()
+        .filter(|layer| via.layers.contains(layer))
+        .collect();
+    if layers.is_empty() {
+        layers = copper.iter().collect();
+    }
+    match (layers.first(), layers.last()) {
+        (Some(from), Some(to)) => Some(((*from).clone(), (*to).clone())),
+        _ => None,
+    }
+}
+
+/// True when the class has something to draw: routing, pads or a zone.
+fn drawable(rows: &[NetRow], drawing: &Drawing) -> bool {
+    if rows
+        .iter()
+        .any(|row| row.pads > 0 || row.length_mm > 0.0 || row.vias > 0)
+    {
+        return true;
+    }
+    let names: BTreeSet<&str> = rows.iter().map(|row| row.name.as_str()).collect();
+    drawing
+        .zones
+        .iter()
+        .any(|zone| names.contains(zone.net.as_str()))
+}
+
+/// Drop schematic-only nets, then sort the rest longest first.
+fn kept_rows(rows: Vec<NetRow>) -> Vec<NetRow> {
+    let mut rows: Vec<NetRow> = rows
+        .into_iter()
+        .filter(|row| row.pads > 0 || row.length_mm > 0.0 || row.vias > 0)
+        .collect();
+    rows.sort_by(|left, right| {
+        right
+            .length_mm
+            .total_cmp(&left.length_mm)
+            .then(left.name.cmp(&right.name))
+    });
+    rows
+}
+
+fn build_section(name: String, rows: Vec<NetRow>, drawing: &Drawing) -> ClassSection {
+    let length_mm = rows.iter().map(|row| row.length_mm).sum();
+    let net_count = rows.len();
+    let split = rows.len() > GROUP_LIMIT;
+    let groups = if split {
+        split_groups(rows, drawing)
+    } else {
+        vec![net_group(String::new(), rows, drawing)]
+    };
+    let tracks = groups.iter().map(|group| group.tracks).sum();
+    let vias = groups.iter().map(|group| group.vias).sum();
+    let pads = groups.iter().map(|group| group.pads).sum();
+    ClassSection {
+        name,
+        length_mm,
+        net_count,
+        groups,
+        split,
+        tracks,
+        vias,
+        pads,
+    }
+}
+
+/// Split a class's rows into the power group, one group per schematic sheet,
+/// and `Other`. Groups are ordered power first, then sheets by routed length,
+/// then `Other`; each group keeps its nets longest first.
+fn split_groups(rows: Vec<NetRow>, drawing: &Drawing) -> Vec<NetGroup> {
+    let mut power = Vec::new();
+    let mut sheets: BTreeMap<String, Vec<NetRow>> = BTreeMap::new();
+    let mut other = Vec::new();
+    for row in rows {
+        if row.power {
+            power.push(row);
+        } else if let Some(sheet) = sheet_path(&row.name) {
+            sheets.entry(sheet).or_default().push(row);
+        } else {
+            other.push(row);
+        }
+    }
+    let mut groups = Vec::new();
+    if !power.is_empty() {
+        groups.push(net_group("Power and ground".to_owned(), power, drawing));
+    }
+    let mut sheet_groups: Vec<NetGroup> = sheets
+        .into_iter()
+        .map(|(sheet, rows)| net_group(sheet, rows, drawing))
+        .collect();
+    sheet_groups.sort_by(|left, right| {
+        right
+            .length_mm
+            .total_cmp(&left.length_mm)
+            .then(left.name.cmp(&right.name))
+    });
+    groups.extend(sheet_groups);
+    if !other.is_empty() {
+        groups.push(net_group("Other".to_owned(), other, drawing));
+    }
+    groups
+}
+
+/// One group's facts: its nets, the footprints they reach, their routing and
+/// how much of the board its zone fills cover.
+fn net_group(name: String, rows: Vec<NetRow>, drawing: &Drawing) -> NetGroup {
     let net_names: BTreeSet<String> = rows.iter().map(|row| row.name.clone()).collect();
     let tracks = drawing
         .traces
@@ -507,20 +861,6 @@ fn section(name: String, nets: Vec<NetInput>, drawing: &Drawing) -> Option<Class
         .filter(|via| net_names.contains(&via.net))
         .count();
     let pads = rows.iter().map(|row| row.pads).sum();
-    let zoned = drawing
-        .zones
-        .iter()
-        .any(|zone| net_names.contains(&zone.net));
-    if tracks == 0 && vias == 0 && pads == 0 && !zoned {
-        return None;
-    }
-    rows.retain(|row| row.pads > 0 || row.length_mm > 0.0 || row.vias > 0);
-    rows.sort_by(|left, right| {
-        right
-            .length_mm
-            .total_cmp(&left.length_mm)
-            .then(left.name.cmp(&right.name))
-    });
     let length_mm = rows.iter().map(|row| row.length_mm).sum();
     let footprints = drawing
         .footprints
@@ -528,7 +868,26 @@ fn section(name: String, nets: Vec<NetInput>, drawing: &Drawing) -> Option<Class
         .filter(|footprint| footprint.nets.iter().any(|net| net_names.contains(net)))
         .map(|footprint| footprint.index)
         .collect();
-    Some(ClassSection {
+    let fill_area: f64 = drawing
+        .zones
+        .iter()
+        .filter(|zone| zone.filled && net_names.contains(&zone.net))
+        .flat_map(|zone| zone.rings.iter())
+        .map(|ring| polygon_area(ring).abs())
+        .sum();
+    let board_area = polygon_area(&drawing.outline)
+        .abs()
+        .max(drawing.bounds.width() * drawing.bounds.height());
+    let fill_ratio = if board_area > 0.0 {
+        (fill_area / board_area).clamp(0.0, 1.0)
+    } else {
+        0.0
+    };
+    let has_fill = drawing
+        .zones
+        .iter()
+        .any(|zone| zone.filled && net_names.contains(&zone.net));
+    NetGroup {
         name,
         length_mm,
         nets: rows,
@@ -537,7 +896,23 @@ fn section(name: String, nets: Vec<NetInput>, drawing: &Drawing) -> Option<Class
         tracks,
         vias,
         pads,
-    })
+        fill_ratio,
+        has_fill,
+    }
+}
+
+/// A ring's signed area in square millimetres (the shoelace formula).
+pub fn polygon_area(ring: &[Point]) -> f64 {
+    if ring.len() < 3 {
+        return 0.0;
+    }
+    let mut sum = 0.0;
+    for index in 0..ring.len() {
+        let start = ring[index];
+        let end = ring[(index + 1) % ring.len()];
+        sum += start.x * end.y - end.x * start.y;
+    }
+    sum / 2.0
 }
 
 /// Every net the board carries.
@@ -550,379 +925,4 @@ fn board_nets(drawing: &Drawing) -> BTreeSet<String> {
         nets.extend(footprint.nets.iter().cloned());
     }
     nets
-}
-
-// ---------------------------------------------------------------- drawing
-
-impl Drawing {
-    /// Build the drawable board from the parsed board and the projections.
-    fn build(
-        view: &PcbView<'_>,
-        board: &geometry::BoardGeometry,
-        placements: Option<&PlacementsA1>,
-        hlr: Option<&AssemblyHlrA0>,
-    ) -> Result<Self, LabError> {
-        let footprints = view
-            .footprints()
-            .collect::<Result<Vec<PcbFootprint>, _>>()
-            .map_err(|error| LabError::new(format!("a footprint does not decode: {error}")))?;
-        let mut pads: Vec<Vec<Pad>> = (0..footprints.len()).map(|_| Vec::new()).collect();
-        for pad in view.pads() {
-            let pad =
-                pad.map_err(|error| LabError::new(format!("a pad does not decode: {error}")))?;
-            if let Some(slot) = pads.get_mut(pad.footprint_index) {
-                slot.push(pad_facts(&pad));
-            }
-        }
-        Ok(Self {
-            outline: board.outer.clone(),
-            cutouts: board.cutouts.clone(),
-            bounds: board_bounds(board),
-            traces: traces(view)?,
-            vias: vias(view)?,
-            zones: zones(view)?,
-            footprints: footprints_facts(&footprints, pads, board, placements, hlr),
-        })
-    }
-}
-
-/// The viewBox extent: the board-level `Edge.Cuts` box, else the perimeter's.
-fn board_bounds(board: &geometry::BoardGeometry) -> Bounds {
-    if !board.outline_bounds.is_empty() {
-        return board.outline_bounds;
-    }
-    let mut bounds = Bounds::empty();
-    for point in &board.outer {
-        bounds.include(*point);
-    }
-    bounds
-}
-
-fn traces(view: &PcbView<'_>) -> Result<Vec<Trace>, LabError> {
-    let mut traces = Vec::new();
-    for segment in view.segments() {
-        let segment =
-            segment.map_err(|error| LabError::new(format!("a track does not decode: {error}")))?;
-        let Some(layer) = copper_layer(segment.layer.as_deref(), segment.layers.as_deref()) else {
-            continue;
-        };
-        let Some(net) = segment.net.name.clone().filter(|name| !name.is_empty()) else {
-            continue;
-        };
-        traces.push(Trace {
-            net,
-            layer,
-            width: segment.width.unwrap_or(DEFAULT_TRACE_WIDTH).abs(),
-            points: vec![
-                Point {
-                    x: segment.start_x,
-                    y: segment.start_y,
-                },
-                Point {
-                    x: segment.end_x,
-                    y: segment.end_y,
-                },
-            ],
-        });
-    }
-    for arc in view.arcs() {
-        let arc =
-            arc.map_err(|error| LabError::new(format!("a routing arc does not decode: {error}")))?;
-        let Some(layer) = copper_layer(arc.layer.as_deref(), arc.layers.as_deref()) else {
-            continue;
-        };
-        let Some(net) = arc.net.name.clone().filter(|name| !name.is_empty()) else {
-            continue;
-        };
-        traces.push(Trace {
-            net,
-            layer,
-            width: arc.width.unwrap_or(DEFAULT_TRACE_WIDTH).abs(),
-            points: geometry::sample_arc(
-                Point {
-                    x: arc.start.x,
-                    y: arc.start.y,
-                },
-                Point {
-                    x: arc.mid.x,
-                    y: arc.mid.y,
-                },
-                Point {
-                    x: arc.end.x,
-                    y: arc.end.y,
-                },
-            ),
-        });
-    }
-    Ok(traces)
-}
-
-fn vias(view: &PcbView<'_>) -> Result<Vec<Via>, LabError> {
-    let mut vias = Vec::new();
-    for via in view.vias() {
-        let via = via.map_err(|error| LabError::new(format!("a via does not decode: {error}")))?;
-        let Some(net) = via.net.name.clone().filter(|name| !name.is_empty()) else {
-            continue;
-        };
-        vias.push(Via {
-            net,
-            at: Point {
-                x: via.at_x,
-                y: via.at_y,
-            },
-            size: via.size,
-            drill: via.drill,
-        });
-    }
-    Ok(vias)
-}
-
-/// The copper layer a routed object is on: its `(layer …)`, else the first
-/// copper entry of its plural `(layers …)`.
-fn copper_layer(layer: Option<&str>, layers: Option<&[String]>) -> Option<String> {
-    if let Some(layer) = layer.filter(|layer| palette::copper_color(layer).is_some()) {
-        return Some(layer.to_owned());
-    }
-    layers?
-        .iter()
-        .find(|layer| palette::copper_color(layer).is_some())
-        .cloned()
-}
-
-fn zones(view: &PcbView<'_>) -> Result<Vec<Zone>, LabError> {
-    let mut zones = Vec::new();
-    for zone in view.zones() {
-        let zone =
-            zone.map_err(|error| LabError::new(format!("a zone does not decode: {error}")))?;
-        let Some(net) = zone
-            .net
-            .name
-            .clone()
-            .or_else(|| zone.net_name.clone())
-            .filter(|name| !name.is_empty())
-        else {
-            continue;
-        };
-        if !zone.filled_polygons.is_empty() {
-            for polygon in &zone.filled_polygons {
-                if palette::copper_color(&polygon.layer).is_none() || polygon.points.len() < 3 {
-                    continue;
-                }
-                zones.push(Zone {
-                    net: net.clone(),
-                    layer: polygon.layer.clone(),
-                    rings: vec![
-                        polygon
-                            .points
-                            .iter()
-                            .map(|point| Point::from(*point))
-                            .collect(),
-                    ],
-                    filled: true,
-                });
-            }
-            continue;
-        }
-        for layer in zone
-            .layers
-            .iter()
-            .filter(|layer| palette::copper_color(layer).is_some())
-        {
-            for polygon in &zone.polygons {
-                let ring = zone_ring(polygon);
-                if ring.len() >= 3 {
-                    zones.push(Zone {
-                        net: net.clone(),
-                        layer: layer.clone(),
-                        rings: vec![ring],
-                        filled: false,
-                    });
-                }
-            }
-        }
-    }
-    Ok(zones)
-}
-
-/// An authored zone outline as one ring, arcs sampled through their midpoints.
-fn zone_ring(polygon: &PcbZonePolygon) -> Vec<Point> {
-    let count = polygon.points.len();
-    let arcs: BTreeMap<usize, Point> = polygon
-        .arcs
-        .iter()
-        .map(|arc| (arc.start_index, Point::from(arc.mid)))
-        .collect();
-    let mut ring = Vec::with_capacity(count);
-    for (index, point) in polygon.points.iter().enumerate() {
-        let start = Point::from(*point);
-        ring.push(start);
-        let Some(mid) = arcs.get(&index) else {
-            continue;
-        };
-        let end = Point::from(polygon.points[(index + 1) % count]);
-        let sampled = geometry::sample_arc(start, *mid, end);
-        if sampled.len() > 2 {
-            ring.extend_from_slice(&sampled[1..sampled.len() - 1]);
-        }
-    }
-    ring
-}
-
-fn footprints_facts(
-    footprints: &[PcbFootprint],
-    pads: Vec<Vec<Pad>>,
-    board: &geometry::BoardGeometry,
-    placements: Option<&PlacementsA1>,
-    hlr: Option<&AssemblyHlrA0>,
-) -> Vec<Footprint> {
-    let placed: BTreeMap<&str, &PlacementsFootprint> = placements
-        .map(|placements| {
-            placements
-                .footprints
-                .iter()
-                .map(|footprint| (footprint.uuid.0.as_str(), footprint))
-                .collect()
-        })
-        .unwrap_or_default();
-    let bodies: BTreeMap<
-        &str,
-        &prism_kicad_contracts::generated::prism_assembly_hlr_a0::AssemblyHlrFootprint,
-    > = hlr
-        .map(|hlr| {
-            hlr.footprints
-                .iter()
-                .map(|footprint| (footprint.uuid.0.as_str(), footprint))
-                .collect()
-        })
-        .unwrap_or_default();
-    footprints
-        .iter()
-        .enumerate()
-        .map(|(index, footprint)| {
-            let uuid = footprint.uuid.clone().unwrap_or_default();
-            let placement = placed.get(uuid.as_str()).copied();
-            let body = bodies.get(uuid.as_str()).copied();
-            let mut result = Footprint {
-                index,
-                reference: reference(footprint, placement),
-                side: side(footprint, placement),
-                x: footprint.at_x.unwrap_or(0.0),
-                y: footprint.at_y.unwrap_or(0.0),
-                angle: footprint.angle.unwrap_or(0.0),
-                pads: pads.get(index).cloned().unwrap_or_default(),
-                body: Body::Envelope(Vec::new()),
-                body_bounds: Bounds::empty(),
-                nets: BTreeSet::new(),
-            };
-            result.body = body_of(&result, placement, body, board);
-            result.body_bounds = body_bounds(&result.body);
-            result.nets = result
-                .pads
-                .iter()
-                .map(|pad| pad.net.clone())
-                .filter(|net| !net.is_empty())
-                .collect();
-            result
-        })
-        .collect()
-}
-
-fn reference(footprint: &PcbFootprint, placement: Option<&PlacementsFootprint>) -> String {
-    placement
-        .and_then(|placement| placement.reference.as_ref())
-        .map(|reference| reference.as_str().to_owned())
-        .or_else(|| footprint.reference.clone())
-        .filter(|reference| !reference.is_empty())
-        .unwrap_or_else(|| "?".to_owned())
-}
-
-fn side(footprint: &PcbFootprint, placement: Option<&PlacementsFootprint>) -> Side {
-    match placement.map(|placement| placement.side) {
-        Some(PlacementSide::Back) => Side::Bottom,
-        Some(PlacementSide::Front) => Side::Top,
-        None => match footprint.layer.as_deref() {
-            Some(layer) if layer.starts_with("B.") => Side::Bottom,
-            _ => Side::Top,
-        },
-    }
-}
-
-/// The body to draw: the HLR outline, else the courtyard, else the pads'
-/// envelope.
-fn body_of(
-    footprint: &Footprint,
-    placement: Option<&PlacementsFootprint>,
-    hlr: Option<&prism_kicad_contracts::generated::prism_assembly_hlr_a0::AssemblyHlrFootprint>,
-    board: &geometry::BoardGeometry,
-) -> Body {
-    if let Some(outline) = hlr
-        .and_then(|hlr| hlr.outline.as_ref())
-        .filter(|outline| !outline.segments.is_empty() || !outline.arcs.is_empty())
-    {
-        return Body::Edges(outline.clone());
-    }
-    if let Some(courtyard) = placement.and_then(|placement| placement.courtyard_bounds.as_ref()) {
-        return Body::Envelope(courtyard_ring(footprint, courtyard));
-    }
-    match board.pad_envelopes.get(&footprint.index) {
-        Some(bounds) => Body::Envelope(bounds.ring()),
-        None => Body::Envelope(Vec::new()),
-    }
-}
-
-/// A courtyard box (footprint-local nanometres) as a board-frame ring.
-fn courtyard_ring(
-    footprint: &Footprint,
-    courtyard: &prism_kicad_contracts::generated::prism_placements_a1::PlacementsBounds,
-) -> Vec<Point> {
-    let corners = [
-        (courtyard.min_nm.x_nm.0, courtyard.min_nm.y_nm.0),
-        (courtyard.max_nm.x_nm.0, courtyard.min_nm.y_nm.0),
-        (courtyard.max_nm.x_nm.0, courtyard.max_nm.y_nm.0),
-        (courtyard.min_nm.x_nm.0, courtyard.max_nm.y_nm.0),
-    ];
-    let (sin, cos) = footprint.angle.to_radians().sin_cos();
-    corners
-        .into_iter()
-        .map(|(x, y)| {
-            let x = x as f64 / 1_000_000.0;
-            let y = y as f64 / 1_000_000.0;
-            Point {
-                x: footprint.x + x * cos + y * sin,
-                y: footprint.y - x * sin + y * cos,
-            }
-        })
-        .collect()
-}
-
-/// The extent of a body, for placing its designator.
-pub fn body_bounds(body: &Body) -> Bounds {
-    let mut bounds = Bounds::empty();
-    match body {
-        Body::Envelope(ring) => {
-            for point in ring {
-                bounds.include(*point);
-            }
-        }
-        Body::Edges(edges) => {
-            for segment in &edges.segments {
-                for point in [&segment.start_nm, &segment.end_nm] {
-                    bounds.include(nm(point.x_nm.0, point.y_nm.0));
-                }
-            }
-            for arc in &edges.arcs {
-                for point in geometry::arc_points(arc) {
-                    bounds.include(point);
-                }
-            }
-        }
-    }
-    bounds
-}
-
-fn nm(x: i64, y: i64) -> Point {
-    Point {
-        x: x as f64 / 1_000_000.0,
-        y: y as f64 / 1_000_000.0,
-    }
 }
