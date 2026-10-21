@@ -12,6 +12,7 @@
 
 pub mod bundle;
 pub mod html;
+pub mod icd;
 pub mod palette;
 
 pub use bundle::{Bundle, LabError};
