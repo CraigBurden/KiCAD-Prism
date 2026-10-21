@@ -324,21 +324,23 @@ fn collect_pad_envelopes(
             x: pad.at_x,
             y: pad.at_y,
         });
-        let angle = pad.angle + transform.angle;
-        let (sin, cos) = angle.to_radians().sin_cos();
+        // The pad's corners turn about its anchor by the same placement
+        // formula the footprint uses (`FootprintTransform::apply`).
+        let corner = FootprintTransform {
+            x: anchor.x,
+            y: anchor.y,
+            angle: pad.angle + transform.angle,
+        };
         let half_x = pad.size_x.abs() / 2.0;
         let half_y = pad.size_y.abs() / 2.0;
         let mut bounds = Bounds::empty();
-        for (local_x, local_y) in [
+        for (x, y) in [
             (-half_x, -half_y),
             (half_x, -half_y),
             (half_x, half_y),
             (-half_x, half_y),
         ] {
-            bounds.include(Point {
-                x: anchor.x + local_x * cos - local_y * sin,
-                y: anchor.y + local_x * sin + local_y * cos,
-            });
+            bounds.include(corner.apply(Point { x, y }));
         }
         envelopes
             .entry(pad.footprint_index)
