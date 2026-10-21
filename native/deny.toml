@@ -29,5 +29,6 @@ ignore = true
 [sources]
 unknown-registry = "deny"
 unknown-git = "deny"
-# geometer-client, a pinned external dependency (ADR §10.6).
-allow-git = ["https://github.com/wavenumber-eng/geometer.git"]
+# No git dependencies: geometer-client is vendored under third_party/
+# (ADR amendment C3 §2 item 4).
+allow-git = []

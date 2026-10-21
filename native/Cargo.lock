@@ -381,7 +381,6 @@ dependencies = [
 [[package]]
 name = "geometer-client"
 version = "2026.9.13"
-source = "git+https://github.com/wavenumber-eng/geometer.git?rev=703e60029a248801947150f913f77a1cecce2662#703e60029a248801947150f913f77a1cecce2662"
 dependencies = [
  "serde",
  "serde_json",

@@ -25,20 +25,18 @@ RUN npm run build:panel
 # native-workspace job when native/ changes (ADR §11 G10). The cache mounts
 # keep the crates and the build between image builds.
 #
-# The kicad-cruncher-cli member is left out: its geometer-client git
-# dependency is a ~1 GB repository that cargo clones just to load the
-# workspace, and prism-kicad does not use it. Without the member cargo only
-# prunes the lockfile; the check fails the build unless every (crate, version)
-# it builds was already locked.
+# geometer-client is vendored under native/third_party/ (ADR amendment C3), so
+# loading the workspace clones nothing. The check fails the build unless every
+# (crate, version) it builds was already locked.
 FROM --platform=${KICAD_BASE_PLATFORM} rust:${NATIVE_RUST_VERSION}-bookworm AS prism-kicad-builder
 WORKDIR /build/native
 COPY native/Cargo.toml native/Cargo.lock native/rust-toolchain.toml native/clippy.toml ./
 COPY native/.cargo ./.cargo
 COPY native/src/rs ./src/rs
 COPY native/assets ./assets
-RUN sed -i '/"packages\/kicad_cruncher\/src\/rs\/kicad-cruncher-cli",/d' Cargo.toml \
-    && ! grep -q kicad-cruncher-cli Cargo.toml \
-    && cp Cargo.lock /tmp/Cargo.lock.locked
+COPY native/third_party ./third_party
+COPY native/packages/kicad_cruncher/src/rs ./packages/kicad_cruncher/src/rs
+RUN cp Cargo.lock /tmp/Cargo.lock.locked
 RUN --mount=type=cache,target=/usr/local/cargo/registry \
     --mount=type=cache,target=/usr/local/cargo/git \
     --mount=type=cache,target=/build/native/target \

@@ -71,3 +71,15 @@ https://github.com/tangency-labs/solidcraft at commit `a0c1a67`, licensed
 MIT OR Apache-2.0, Copyright (c) 2026 SolidCraft contributors. The truck
 B-rep writing and its dependencies are not used. The root `NOTICE` carries
 the attribution; every ported file names its SolidCraft origin.
+
+## 7. Geometer client (vendored)
+
+`native/third_party/geometer-client/` is `src/rust/geometer-client` of
+https://github.com/wavenumber-eng/geometer at commit `703e6002` (the revision
+`native/Cargo.toml` pinned as a git dependency), copied unchanged apart from
+its standalone `Cargo.lock` and with the repository's MIT `LICENSE` beside it
+(ADR amendment C3 §2 item 4). Vendoring removes cargo's clone of the 1 GB
+Geometer repository; the crate is a path dependency excluded from the
+workspace's lints and tests. To update it, copy the same directory at the new
+revision and record the commit here and in `NOTICE`.
+

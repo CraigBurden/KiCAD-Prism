@@ -9,4 +9,5 @@ Everything imported here is MIT (`LICENSE`, Copyright (c) 2026 Wavenumber LLC) e
 | `tests/L1_parsing/cases/worksheets/input/pagelayout_default.kicad_wks`, `pagelayout_logo.kicad_wks`, `A4_ISO5457-1999_ISO7200-2004_EN.kicad_wks`, `gost_landscape.kicad_wks` | KiCad drawing-sheet templates, test data only, unmodified | CC BY-SA 4.0, with the KiCad libraries' design exception |
 | `packages/kicad_cruncher/tests/corpus/kicad/projects/` | seven Wavenumber-sanitized KiCad projects | MIT (published by Wavenumber as redistributable fixtures) |
 | `tests/parity/fonts/` | synthetic font fixtures built with fontTools | MIT |
+| `third_party/geometer-client/` | Geometer's Rust IPC client at commit `703e6002`, vendored unchanged (ADR amendment C3 §2 item 4) | MIT, Copyright (c) Wavenumber LLC; text in `third_party/geometer-client/LICENSE`, credit in `NOTICE` |
 | Rust dependencies (`Cargo.lock`) | crates.io packages | each crate's own; WP-L adds a `cargo deny` licence check |

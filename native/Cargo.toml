@@ -14,6 +14,9 @@ members = [
     "src/rs/prism-step",
     "src/rs/prism-system",
 ]
+# Vendored third-party code (ADR amendment C3 §2 item 4): built as a path
+# dependency, kept out of the workspace's own lints and tests.
+exclude = ["third_party/geometer-client"]
 resolver = "3"
 
 [workspace.package]
@@ -46,7 +49,7 @@ libc = "=0.2.189"
 regex = { version = "=1.12.4", default-features = false, features = ["std", "unicode-perl"] }
 sha1_smol = "=1.0.1"
 unicode-normalization = "=0.1.24"
-geometer-client = { git = "https://github.com/wavenumber-eng/geometer.git", rev = "703e60029a248801947150f913f77a1cecce2662" }
+geometer-client = { path = "third_party/geometer-client" }
 geo = { version = "0.33.1", default-features = false }
 harfrust = "0.13.0"
 prettyplease = "0.2.37"
