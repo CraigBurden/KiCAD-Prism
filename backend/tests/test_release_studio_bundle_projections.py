@@ -229,7 +229,7 @@ class GoldenDerivationTests(unittest.TestCase):
         # float 0.0; the member spells "no rotation" as 0, which C3 maps to
         # null.  KiCad omits a zero angle, so no committed fixture shows it.
         member = {
-            "schema": "prism.placements.a0",
+            "schema": "prism.placements.a1",
             "footprints": [
                 {
                     "uuid": "u",

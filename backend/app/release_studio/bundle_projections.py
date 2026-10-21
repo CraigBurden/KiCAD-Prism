@@ -6,7 +6,7 @@ from the bundle instead of Python ``kicad_monkey``:
 
 - ``stackup`` from ``projections/stackup.json`` (``prism.stackup.a0``);
 - ``population``, ``testpoints`` and ``designators`` from
-  ``projections/placements.json`` (``prism.placements.a0``);
+  ``projections/placements.json`` (``prism.placements.a1``);
 - ``variants`` from ``projections/occurrences.json``
   (``prism.occurrences.a0``).
 
