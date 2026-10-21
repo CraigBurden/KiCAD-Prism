@@ -29,12 +29,8 @@ A new object kind is three hops:
    remains absence.
 2. Classify it in `prism-kicad compare`
    (`native/src/rs/prism-projections/src/compare/result/objects.rs`): category
-   and primary/secondary are `compare`'s. Until R1 removes the backend's legacy
-   path, also parse it in `backend/design-compare-parser/ecad-parse.mjs` (map
-   its form name in `CANONICAL_KINDS`) and classify it in `_node_classification`
-   in `backend/app/services/design_compare_nodes.py`;
-   `frontend/src/components/design-comparison/legacy-v3-result.ts` re-spells the
-   legacy `_` kinds.
+   and primary/secondary are `compare`'s. R1 deleted the backend's legacy
+   parser and classifier, so there is no second place to spell the kind.
 3. Add one row to
    `frontend/src/components/design-comparison/comparison-change-kinds.ts`
    (domain, reviewer noun, traits) and its expectation row in
@@ -45,10 +41,10 @@ A new object kind is three hops:
 
 Only when the change needs it:
 
-- A net, bus or sheet-instance meaning (not a stored object):
-  `backend/app/services/design_compare_semantics.py`.
-- Components, their fields, DNP / in-BOM flags or BOM rows:
-  `backend/app/services/design_compare_occurrences.py`.
+- A net, bus or sheet-instance meaning: the `compare` projection's semantics
+  module (`native/src/rs/prism-projections/src/compare/`).
+- Components, their fields, DNP / in-BOM flags or BOM rows: the same
+  `compare` projection.
 - Durable output beyond the result payload:
   `backend/app/services/design_compare_artifacts.py`.
 - A new target role: `DesignCompareTargetRole` in

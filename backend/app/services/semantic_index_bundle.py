@@ -1,19 +1,16 @@
 """The semantic index served from the design bundle (WP-C1, ADR §8 ``SEMANTIC_INDEX``).
 
-With ``PRISM_DESIGN_SOURCE_SEMANTIC_INDEX=bundle``, ``semantic_index_service``
-answers a commit request from the bundle member ``projections/semantic-index.json``
-(``prism.semantic_index.a2``; native/contracts/prism/field-maps/semantic-index.md)
-instead of building and storing its own index. This module holds that branch;
-the service keeps resolving the commit and falls back to its legacy build on
-``None``.
+``semantic_index_service`` answers every request from the bundle member
+``projections/semantic-index.json`` (``prism.semantic_index.a2``;
+native/contracts/prism/field-maps/semantic-index.md) instead of building and
+storing its own index. A request without a commit reads the checkout's HEAD
+(``design_bundle.reader``). This module holds the member's mapping.
 
-The bundle serves a commit, not the working tree: a request without one may
-hold uncommitted changes and stays legacy. ``bundle_read`` answers ``None`` when
-the switch is legacy, a member is not ready yet (it queues the build) or the
-bundle failed; a final non-member (``not-applicable``, e.g. no root schematic)
-is likewise left to today's code. A stored bundle is never rebuilt: a stage
-only moves from ``pending`` to final (ADR §5), so ``generate(force=True)``
-returns a ready member as is.
+``bundle_read`` raises ``DesignDataPending`` while the member builds (it queues
+the job) and ``DesignDataFailed`` when it cannot be built; a final non-member
+(``not-applicable``, e.g. no root schematic) is likewise the consumer's to
+handle. A stored bundle is never rebuilt: a stage only moves from ``pending``
+to final (ADR §5).
 """
 
 from __future__ import annotations
@@ -27,41 +24,32 @@ if TYPE_CHECKING:  # annotations only; the consumer is imported lazily
 MEMBER = "projections/semantic-index.json"
 
 
-def enabled() -> bool:
-    """Whether the switch is ``bundle``, checked before any repository lookup."""
-
-    # Imported here: the bundle package pulls in the job runtime and store, and
-    # the service is imported by that runtime's handlers.
-    from app.services.design_bundle import consumer
-
-    return consumer.source("SEMANTIC_INDEX") == "bundle"
-
-
-def ready(project_id: str, resolved_commit: str) -> BundleRead | None:
-    """The opened bundle when its member is ready, else ``None`` for the legacy index."""
+def ready(project_id: str, resolved_commit: str) -> BundleRead:
+    """The opened bundle for a resolved commit; raises pending/failed (``consumer``)."""
 
     from app.services.design_bundle import consumer
 
-    read = consumer.bundle_read("SEMANTIC_INDEX", project_id, resolved_commit, [MEMBER])
-    if read is None or not read.ready(MEMBER):
-        return None
-    return read
+    return consumer.bundle_read("SEMANTIC_INDEX", project_id, resolved_commit, [MEMBER])
 
 
 class ArtifactFile(tuple):
     """``(path, revision_key)`` and the generator the identity route's ETag names (ADR G9).
 
     A tuple so callers keep unpacking ``path, revision_key``. ``generator`` is
-    today's ``generator_cache_tag()`` for a legacy file and the bundle's
-    generator digest for the member: one revision must not be named by two
-    generators.
+    the bundle's generator digest for the member: one revision must not be
+    named by two generators. ``headers`` are the response headers the read
+    adds (the dirty working-tree notice).
     """
 
     generator: str
+    headers: dict[str, str]
 
-    def __new__(cls, path: Path, revision_key: str, generator: str) -> Self:
+    def __new__(
+        cls, path: Path, revision_key: str, generator: str, headers: dict[str, str] | None = None
+    ) -> Self:
         result = super().__new__(cls, (path, revision_key))
         result.generator = generator
+        result.headers = dict(headers or {})
         return result
 
 
@@ -69,7 +57,12 @@ def artifact(read: BundleRead) -> ArtifactFile:
     """The member's file in the verified unpacked cache, keyed by the design revision key."""
 
     opened = read.opened
-    return ArtifactFile(read.extract([MEMBER]) / MEMBER, str(opened.revision_key), opened.generator_digest)
+    return ArtifactFile(
+        read.extract([MEMBER]) / MEMBER,
+        str(opened.revision_key),
+        opened.generator_digest,
+        read.response_headers(),
+    )
 
 
 def status(read: BundleRead, project_id: str, generator: dict[str, Any]) -> dict[str, Any]:
@@ -87,6 +80,6 @@ def status(read: BundleRead, project_id: str, generator: dict[str, Any]) -> dict
         "projectId": project_id,
         "sourceRevisionKey": str(opened.revision_key),
         "commit": opened.commit,
-        "available": True,
+        "available": read.ready(MEMBER),
         "generator": {**generator, "cacheTag": opened.generator_digest},
     }

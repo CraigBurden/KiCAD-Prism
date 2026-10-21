@@ -235,10 +235,11 @@ class CommitScanTests(_CatalogParts):
         released = self._released_part()
         lib_id = f"remote_{self.library.lower()}:R_Usage"
         repo = self.root / "repo"
+        committed = schematic(
+            instance(lib_id, ["R1"], {"Reference": "R1", **self._placed_fields(released)})
+        )
         commit = init_repo(repo, {
-            "board/main.kicad_sch": schematic(
-                instance(lib_id, ["R1"], {"Reference": "R1", **self._placed_fields(released)})
-            ),
+            "board/main.kicad_sch": committed,
             "board/sub/child.kicad_sch": schematic(),
             "board/main.kicad_sch-bak": "ignored",
         }, message="board")
@@ -246,8 +247,12 @@ class CommitScanTests(_CatalogParts):
         (repo / "board" / "main.kicad_sch").write_text(schematic(), encoding="utf-8")
         location = project_revision.ProjectLocation(repo.resolve(), "board")
 
+        # The scan's symbols now come from the bundle's occurrences member
+        # (ADR §9.7 R1); this test is about placement resolution and the report.
+        symbols = placed_symbols(committed, "main.kicad_sch")
         with (
             patch.object(project_revision, "locate_id", return_value=location),
+            patch.object(project_catalog_usage_service, "read_commit_symbols", return_value=symbols),
             patch("app.services.component_catalog_service.catalog_service", self.service),
         ):
             result = project_catalog_usage_service.scan(self.project_id)

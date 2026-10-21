@@ -22,13 +22,12 @@ the revision through ``project_source_snapshot`` so a commit never leaks
 working-tree names. No kicad-monkey call and no private ``projects.py`` helper
 is involved; the API layer supplies a role-validated project.
 
-With ``PRISM_DESIGN_SOURCE_SEMANTIC_INDEX=bundle`` (ADR §8, §9.6) a commit's
-catalog is read from the bundle member ``projections/semantic-index.json``
-instead: the member's ``assembly.catalog`` is today's ``variants`` and the
-member's own diagnostics are today's ``diagnostics``. The bundle is keyed by
-revision and serves every commit with those sources, so the working tree (which
-has no revision key) always discovers from source, and so does any commit whose
-member is not ready yet — the rollout fallback ``design_bundle.consumer`` owns.
+With the design bundle, a commit's catalog is read from the member
+``projections/semantic-index.json`` instead: the member's ``assembly.catalog`` is
+today's ``variants`` and the member's own diagnostics are today's
+``diagnostics``. The API consumer reads only the bundle (R1); the source
+discovery below is still reached by Release Studio, which has its own switch and
+work package.
 """
 
 from __future__ import annotations
@@ -308,14 +307,12 @@ def _catalog_body_from_assembly(assembly: Any, project_dir: str) -> dict[str, An
     return {"variants": variants, "diagnostics": diagnostics}
 
 
-def _catalog_body_from_bundle(project: Any, resolved_commit: str) -> Optional[dict[str, Any]]:
-    """The bundle's catalog body for a commit, or ``None`` to serve legacy.
+def _catalog_body_from_bundle(project: Any, resolved_commit: str) -> dict[str, Any]:
+    """The bundle's catalog body for a commit.
 
-    ``None`` is the rollout fallback ``design_bundle.consumer`` defines: the
-    switch is ``legacy``, the member is pending or failed, or the member is a
-    final non-member (``skipped``/``not-applicable``). A member that is ready
-    but unreadable is treated the same way — a bundle-side fault must never
-    break the legacy answer.
+    ``bundle_read`` raises ``DesignDataPending`` while the member builds (it
+    queues the job) and ``DesignDataFailed`` when it cannot be built; a final
+    non-member (a project with no semantic index) has no variants.
     """
 
     from app.services.design_bundle.consumer import bundle_read
@@ -324,54 +321,76 @@ def _catalog_body_from_bundle(project: Any, resolved_commit: str) -> Optional[di
     # has no bundle to read.
     project_id = str(getattr(project, "id", "") or "")
     if not project_id:
-        return None
+        raise ValueError("A project id is required to read the variant catalog")
     read = bundle_read(
         "SEMANTIC_INDEX",
         project_id,
         resolved_commit,
         [SEMANTIC_INDEX_MEMBER],
     )
-    if read is None or not read.ready(SEMANTIC_INDEX_MEMBER):
-        return None
+    if not read.ready(SEMANTIC_INDEX_MEMBER):
+        return {"variants": [], "diagnostics": []}
     try:
         document = read.json(SEMANTIC_INDEX_MEMBER)
-        assembly = document.get("assembly") if isinstance(document, dict) else None
-        if not isinstance(assembly, dict):
-            return None
-        return _catalog_body_from_assembly(
-            assembly, project_revision.locate(project).relative_path
-        )
-    except Exception:  # noqa: BLE001 - a bundle-side fault must not break the legacy path
-        logger.exception(
-            "design bundle: could not read %s for %s@%s; serving legacy",
-            SEMANTIC_INDEX_MEMBER, getattr(project, "id", ""), resolved_commit,
-        )
-        return None
+    except Exception as error:  # noqa: BLE001 - a corrupt member is a typed failure
+        from app.services.design_bundle.errors import DesignDataFailed
+
+        raise DesignDataFailed([SEMANTIC_INDEX_MEMBER], f"the member could not be read: {error}") from error
+    assembly = document.get("assembly") if isinstance(document, dict) else None
+    if not isinstance(assembly, dict):
+        return {"variants": [], "diagnostics": []}
+    return _catalog_body_from_assembly(assembly, project_revision.locate(project).relative_path)
 
 
 def discover_variant_catalog(
-    project: Any, commit: Optional[str] = None
+    project: Any, commit: Optional[str] = None, *, bundle_only: bool = False
 ) -> dict[str, Any]:
     """Discover the variant catalog for one project revision.
 
     ``project`` must already have passed the caller's role check; this service
     performs no authorization. ``commit`` is any ref accepted by the semantic
-    index (resolved to a SHA here), or ``None`` for the working tree.
+    index (resolved to a SHA here), or ``None`` for the checkout's ``HEAD``.
 
-    A commit answers from its bundle member when the semantic-index switch is
-    ``bundle`` and the member is ready; every other case (the working tree, the
-    switch off, a member not ready) discovers from source, unchanged.
+    The API consumer (``project_variants``) passes ``bundle_only=True``: the
+    bundle member is the only source and a build that is still running raises
+    the typed pending answer. Release Studio calls without it and keeps its
+    source discovery for a revision whose member is not ready (its own work
+    package migrates that call).
     """
 
     source_revision_key, resolved_commit = project_revision_identity(project, commit)
-    body = None
-    if resolved_commit is not None:
+    if bundle_only:
+        # The API's read is the bundle, and a request without a commit reads
+        # the checkout's HEAD exactly as every other consumer does.
+        location = project_revision.locate(project)
+        resolved_commit = project_revision.resolve_commit(location, commit or "HEAD")
+        source_revision_key = resolved_commit
         body = _catalog_body_from_bundle(project, resolved_commit)
-    if body is None:
-        body = deepcopy(_discover_cached(
-            str(project.path), getattr(project, "project_file", None),
-            source_revision_key, resolved_commit,
-        ))
+    else:
+        body = None
+        if resolved_commit is not None:
+            from app.services.design_bundle import consumer
+
+            try:
+                read = consumer.bundle_read_if_ready(
+                    "SEMANTIC_INDEX", str(getattr(project, "id", "") or ""), resolved_commit, [SEMANTIC_INDEX_MEMBER]
+                )
+            except LookupError:
+                # A checkout that is not a registered project (Release Studio's
+                # staged closure) has no bundle; its source discovery answers.
+                read = None
+            if read is not None and read.ready(SEMANTIC_INDEX_MEMBER):
+                document = read.json(SEMANTIC_INDEX_MEMBER)
+                assembly = document.get("assembly") if isinstance(document, dict) else None
+                if isinstance(assembly, dict):
+                    body = _catalog_body_from_assembly(
+                        assembly, project_revision.locate(project).relative_path
+                    )
+        if body is None:
+            body = deepcopy(_discover_cached(
+                str(project.path), getattr(project, "project_file", None),
+                source_revision_key, resolved_commit,
+            ))
     return {
         "schema": SCHEMA,
         "projectId": str(getattr(project, "id", "")),

@@ -13,28 +13,6 @@ from tests.kicad_tool_fakes import FakeTool
 
 
 class ProjectServiceV3JobTests(unittest.TestCase):
-    def test_semantic_artifact_identity_includes_the_anchor(self) -> None:
-        def key(anchor: str) -> str:
-            row = {
-                "id": "project-1",
-                "repo_id": "repo-1",
-                "last_modified": "revision",
-                "project_file_rel": anchor,
-            }
-            with mock.patch.object(
-                project_service.workspace,
-                "get_project_by_id",
-                return_value=row,
-            ), mock.patch.object(
-                job_service.jobs,
-                "enqueue",
-                return_value={"job_id": "job"},
-            ) as enqueue:
-                project_service.start_semantic_index_job("project-1", commit="abc")
-            return str(enqueue.call_args.kwargs["artifact_key"])
-
-        self.assertNotEqual(key("top.kicad_pro"), key("base.kicad_pro"))
-
     def test_thumbnail_url_is_content_versioned_when_digest_is_available(self) -> None:
         self.assertEqual(
             project_service.thumbnail_url_for_row(

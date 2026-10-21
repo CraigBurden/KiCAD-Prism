@@ -1,20 +1,28 @@
-"""The one place a Wave 3 consumer decides between the bundle and its legacy path.
+"""The one place a Wave 3 consumer opens its revision's design bundle.
 
-A consumer calls :func:`bundle_read` with its switch name (ADR §8) and the
-member paths it needs. The answer is a :class:`BundleRead` only when the
-switch is ``bundle`` and every member has a final answer (bundle-format.md
-§3.3). In every other case it is ``None`` and the consumer serves its legacy
-result for this request:
+A consumer calls :func:`bundle_read` with the member paths it needs. The answer
+is a :class:`BundleRead` when every requested member has a final answer
+(bundle-format.md §3.3). Otherwise the request does not fall back to a legacy
+reader (R1 deleted them); it raises a typed answer the API renders the same way
+for every route (ADR §8, §9.7 R1):
 
-- the switch is ``legacy``;
 - a member is not ready yet (``pending`` or ``unavailable``): the
-  ``design_bundle`` job is queued, deduplicated on the bundle key, so a later
-  request reads the bundle;
-- a member failed, or the bundle could not be opened: logged, then legacy.
+  ``design_bundle`` job is queued, deduplicated on the bundle key, and
+  :class:`DesignDataPending` is raised (HTTP 202);
+- a member failed, the project is absent at that revision, or the bundle could
+  not be opened: :class:`DesignDataFailed` is raised (HTTP 422).
 
-This is the rollout policy, decided for every consumer: the UI stays identical
-while bundles fill in. Wave 4 deletes the legacy paths and replaces the
-fallback with a pending state.
+``skipped`` and ``not-applicable`` are final answers the consumer handles itself
+(e.g. a project without a board); they do not fall back either.
+
+A request without a ``commit`` reads the checkout's ``HEAD`` (``reader``
+treats ``None`` as HEAD). If the checkout holds uncommitted changes in the
+files the bundle reads, HEAD's bundle is still served and
+:meth:`BundleRead.response_headers` says so; a bundle is never built from a
+dirty working tree.
+
+Only Release Studio still has a switch (``PRISM_DESIGN_SOURCE_RELEASE_STUDIO``);
+it is removed in its own work package. The other consumers always read bundles.
 """
 
 from __future__ import annotations
@@ -26,11 +34,22 @@ from typing import Any, Iterable, Mapping
 
 from app.core.config import settings
 from app.services.design_bundle import reader
+from app.services.design_bundle.errors import (
+    WORKING_TREE_DIRTY,
+    WORKING_TREE_HEADER,
+    DesignDataFailed,
+    DesignDataPending,
+)
 from app.services.design_bundle.manifest import Readiness
 
 logger = logging.getLogger(__name__)
 
-#: ADR §8's consumer switches, by the suffix of ``PRISM_DESIGN_SOURCE_<CONSUMER>``.
+#: The consumers that still have an ADR §8 switch. Release Studio keeps its
+#: legacy readers until its own work package; every other consumer reads the
+#: bundle unconditionally.
+SWITCHED_CONSUMERS = ("RELEASE_STUDIO",)
+
+#: ADR §8's consumers, for callers and tests that name one.
 CONSUMERS = (
     "SEMANTIC_INDEX",
     "DESIGN_COMPARISON",
@@ -41,10 +60,10 @@ CONSUMERS = (
 
 
 def source(consumer: str) -> str:
-    """``legacy`` or ``bundle``: the consumer's switch."""
+    """``legacy`` or ``bundle``: a switched consumer's source (Release Studio only)."""
 
-    if consumer not in CONSUMERS:
-        raise ValueError(f"unknown design-source consumer {consumer!r}")
+    if consumer not in SWITCHED_CONSUMERS:
+        raise ValueError(f"design-source consumer {consumer!r} has no switch")
     return getattr(settings, f"PRISM_DESIGN_SOURCE_{consumer}")
 
 
@@ -71,6 +90,29 @@ class BundleRead:
 
         return self.opened.extract(paths)
 
+    def response_headers(self) -> dict[str, str]:
+        """``X-Prism-Working-Tree: dirty`` when HEAD was served over a dirty checkout."""
+
+        if self.opened.working_tree_dirty:
+            return {WORKING_TREE_HEADER: WORKING_TREE_DIRTY}
+        return {}
+
+
+def _open(
+    project_id: str, commit: str | None, paths: list[str], requested_by: str
+) -> tuple[reader.OpenedRevision, dict[str, Readiness]]:
+    try:
+        opened = reader.open_revision(project_id, commit, queue=True, requested_by=requested_by)
+    except LookupError:
+        raise
+    except Exception as error:  # noqa: BLE001 - any bundle-side fault is the typed failure
+        logger.exception("design bundle: could not open %s@%s", project_id, commit)
+        raise DesignDataFailed(paths, f"the design bundle could not be opened: {error}") from error
+    if opened.absent:
+        revision = str(getattr(opened, "commit", None) or commit or "HEAD")
+        raise DesignDataFailed(paths, f"the project is not present at revision {revision[:12]}")
+    return opened, opened.readiness(paths)
+
 
 def bundle_read(
     consumer: str,
@@ -79,31 +121,42 @@ def bundle_read(
     paths: Iterable[str],
     *,
     requested_by: str = "",
-) -> BundleRead | None:
-    """The bundle's answer for ``paths``, or ``None`` to serve the legacy path (module docs).
+) -> BundleRead:
+    """The bundle's answer for ``paths``, or a typed pending/failed answer.
 
-    ``skipped`` and ``not-applicable`` are final answers the consumer handles
-    itself (e.g. a project without a board); only ``pending``, ``unavailable``
-    and ``failed`` fall back.
+    ``commit=None`` reads the checkout's HEAD. The build is queued when a
+    member is not ready, exactly as before, so a later retry reads the bundle.
     """
 
-    if source(consumer) != "bundle":
-        return None
     wanted = list(paths)
-    try:
-        opened = reader.open_revision(project_id, commit, queue=True, requested_by=requested_by)
-    except Exception:  # noqa: BLE001 - any bundle-side fault must not break the legacy path
-        logger.exception("design bundle: %s could not open %s@%s; serving legacy", consumer, project_id, commit)
-        return None
-    if opened.absent:
-        return None
-    states = opened.readiness(wanted)
+    opened, states = _open(project_id, commit, wanted, requested_by)
     waiting = [path for path, answer in states.items() if answer.state in ("pending", "unavailable")]
     if waiting:
-        logger.info("design bundle: %s waits for %s of %s; serving legacy", consumer, ", ".join(waiting), project_id)
-        return None
+        raise DesignDataPending(waiting, "building" if getattr(opened, "job_active", False) else "queued")
     failed = {path: answer.detail for path, answer in states.items() if answer.state == "failed"}
     if failed:
-        logger.warning("design bundle: %s members failed for %s: %s; serving legacy", consumer, project_id, failed)
-        return None
+        detail = "; ".join(f"{path}: {reason}" for path, reason in failed.items())
+        raise DesignDataFailed(list(failed), detail)
     return BundleRead(opened, states)
+
+
+def bundle_read_if_ready(
+    consumer: str,
+    project_id: str,
+    commit: str | None,
+    paths: Iterable[str],
+    *,
+    requested_by: str = "",
+) -> BundleRead | None:
+    """The bundle when every member is ready, else ``None`` -- not a legacy fallback.
+
+    Only Design Comparison's source-tree mode uses this (C2r §2 items 4-7): a
+    side without a ready bundle is compared from its materialized source tree,
+    which is that pipeline's final answer, while the build ``bundle_read``
+    already queued finishes in the background.
+    """
+
+    try:
+        return bundle_read(consumer, project_id, commit, paths, requested_by=requested_by)
+    except (DesignDataPending, DesignDataFailed):
+        return None

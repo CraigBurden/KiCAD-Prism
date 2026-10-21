@@ -1,119 +1,28 @@
-"""The card from ``projections/project.json`` (WP-C8a, ADR §8 flag ``PROJECT_METADATA``).
+"""The card from ``projections/project.json`` (ADR §8, §9.7 R1).
 
-Two things are pinned here. **Parity**: on the committed parity cases whose
-sources the bundle did not upgrade, the golden member is exactly what
-``prism-kicad`` writes for the committed bytes, so mapping it must give the same
-``schematic``/``pcb`` dicts today's readers compute from those files. **The
-switch**: ``legacy`` never opens a bundle, ``bundle`` with a ready member uses
-it, and a member that is pending or final-but-not-ready keeps today's answer.
+The mapping's own rules are pinned here, and the metadata job's contract:
+a ready member supplies the card, a pending one raises ``DesignDataPending``
+(so the job retries), a failed one raises ``DesignDataFailed``, and a final
+non-member leaves the card empty.
 """
 
 from __future__ import annotations
 
-import json
 import tempfile
 import unittest
 from pathlib import Path
 from unittest import mock
 
-from app.core.config import settings
 from app.services import (
     kicad_board_stats_service,
     project_metadata_service,
     project_properties_service,
 )
 from app.services.design_bundle import consumer
+from app.services.design_bundle.errors import DesignDataFailed, DesignDataPending
 from app.services.design_bundle.manifest import Readiness
 
-REPO = Path(__file__).resolve().parents[2]
-GOLDENS = REPO / "native" / "parity" / "goldens"
 MEMBER = "projections/project.json"
-
-#: WP-C8a's acceptance list: parity cases whose sources were not upgraded, so
-#: their golden is the member for the committed bytes (task WP-C8a).
-NON_UPGRADED = (
-    "dv-case_fold",
-    "dv-kicad11_tokens",
-    "dv-no_variants",
-    "dv-oracle",
-    "dv-oracle_rev2",
-    "dv-rule_area",
-    "dv-sch_only",
-    "sb-mini_obc-F0",
-    "sb-mini_obc-F1",
-    "sb-mini_obc-F11.1",
-    "sb-mini_obc-F11.2",
-    "sb-mini_obc-F2",
-    "sb-mini_obc-F3",
-    "sb-mini_obc-F4",
-    "sb-mini_obc-F5",
-    "sb-mini_obc-F6",
-    "sb-mini_obc-F7",
-    "sb-mini_obc-F8",
-    "sb-mini_obc-F9",
-    "sb-mini_payload-F0",
-    "sb-mini_power-F0",
-    "sb-mini_power-F10",
-    "sb-p2-ambiguous-F0",
-    "sb-p2-edge_a-F0",
-    "sb-p2-edge_b-F0",
-    "sb-p2-mezz_base-F0",
-    "sb-p2-mezz_top-F0",
-    "sb-p2-mezz_top-F1",
-)
-
-
-def _fixtures_by_id() -> dict[str, dict]:
-    document = json.loads(
-        (REPO / "native" / "parity" / "fixtures.json").read_text(encoding="utf-8")
-    )
-    return {case["id"]: case for case in document["fixtures"]}
-
-
-def _legacy_card(case_dir: Path, project_file: str) -> dict:
-    """Today's card from the fixture's files (field map, "How a golden is produced").
-
-    Board stats are stubbed to ``{}`` on both sides: geometry is ``kicad-cli``'s,
-    not this mapping's, so the comparison drops it by giving both the empty set.
-    """
-    from kicad_monkey import KiCadProject
-
-    project = case_dir / project_file
-    variables = dict(KiCadProject.from_file(str(project)).text_variables)
-    schematic = project.with_suffix(".kicad_sch")
-    board = project.with_suffix(".kicad_pcb")
-    return {
-        "schematic": project_properties_service.compute_schematic_metadata(
-            str(project.parent),
-            str(schematic) if schematic.exists() else None,
-            project_variables=variables,
-            project_name=project.stem,
-        ),
-        "pcb": project_properties_service.compute_pcb_metadata(
-            str(project.parent),
-            str(board) if board.exists() else None,
-            {},
-            project_variables=variables,
-            project_name=project.stem,
-        ),
-    }
-
-
-class ParityTests(unittest.TestCase):
-    """The member maps to byte-for-byte what today's readers compute."""
-
-    def test_mapping_reproduces_the_legacy_card_on_every_fixture(self) -> None:
-        fixtures = _fixtures_by_id()
-        for case_id in NON_UPGRADED:
-            with self.subTest(case=case_id):
-                self.assertIn(case_id, fixtures)
-                case = fixtures[case_id]
-                member = json.loads(
-                    (GOLDENS / case_id / "project.json").read_text(encoding="utf-8")
-                )
-                legacy = _legacy_card(REPO / case["sourceRoot"], case["project"])
-                derived = project_properties_service.card_from_project_member(member, {})
-                self.assertEqual(derived, legacy)
 
 
 class CardMappingTests(unittest.TestCase):
@@ -212,8 +121,8 @@ class _Opened:
         return self._member
 
 
-class SwitchTests(unittest.TestCase):
-    """``refresh_project_metadata`` chooses the bundle only for the ``bundle`` switch."""
+class BundleCardTests(unittest.TestCase):
+    """``refresh_project_metadata`` reads the bundle; pending and failed are typed."""
 
     MEMBER_DOCUMENT = {
         "schema": "prism.project.a0",
@@ -260,9 +169,8 @@ class SwitchTests(unittest.TestCase):
         self.schematic = str(self.project_dir / "board.kicad_sch")
         self.pcb = str(self.project_dir / "board.kicad_pcb")
 
-    def _refresh(self, source: str, opened: _Opened):
+    def _refresh(self, opened: _Opened):
         with (
-            mock.patch.object(settings, "PRISM_DESIGN_SOURCE_PROJECT_METADATA", source),
             mock.patch.object(project_metadata_service, "workspace") as workspace,
             mock.patch.object(
                 kicad_board_stats_service,
@@ -277,20 +185,8 @@ class SwitchTests(unittest.TestCase):
             )
         return computed, open_revision
 
-    def test_legacy_never_opens_the_bundle(self) -> None:
-        computed, open_revision = self._refresh(
-            "legacy", _Opened({MEMBER: "ready"}, self.MEMBER_DOCUMENT)
-        )
-
-        open_revision.assert_not_called()
-        self.assertEqual(computed["schematic"]["version"], 20231120)
-        self.assertIsNone(computed["schematic"]["generator_version"])
-        self.assertFalse(computed["reused_file_metadata"])
-
-    def test_bundle_with_a_ready_member_uses_it(self) -> None:
-        computed, open_revision = self._refresh(
-            "bundle", _Opened({MEMBER: "ready"}, self.MEMBER_DOCUMENT)
-        )
+    def test_a_ready_member_supplies_the_card(self) -> None:
+        computed, open_revision = self._refresh(_Opened({MEMBER: "ready"}, self.MEMBER_DOCUMENT))
 
         open_revision.assert_called_once()
         self.assertEqual(computed["schematic"]["version"], 20260306)
@@ -303,14 +199,21 @@ class SwitchTests(unittest.TestCase):
         self.assertEqual(computed["pcb"]["generator"], "pcbnew")
         self.assertEqual(computed["board_stats_source"], "")
 
-    def test_a_member_that_is_not_ready_falls_back_to_legacy(self) -> None:
-        for state in ("pending", "skipped", "not-applicable"):
+    def test_a_member_that_is_not_ready_is_pending(self) -> None:
+        for state in ("pending", "unavailable"):
+            with self.subTest(state=state), self.assertRaises(DesignDataPending):
+                self._refresh(_Opened({MEMBER: state}, self.MEMBER_DOCUMENT))
+
+    def test_a_failed_member_is_a_typed_failure(self) -> None:
+        with self.assertRaises(DesignDataFailed):
+            self._refresh(_Opened({MEMBER: "failed"}, self.MEMBER_DOCUMENT))
+
+    def test_a_final_non_member_leaves_the_card_empty(self) -> None:
+        for state in ("skipped", "not-applicable"):
             with self.subTest(state=state):
-                computed, open_revision = self._refresh(
-                    "bundle", _Opened({MEMBER: state}, self.MEMBER_DOCUMENT)
-                )
-                open_revision.assert_called_once()
-                self.assertEqual(computed["schematic"]["version"], 20231120)
+                computed, _ = self._refresh(_Opened({MEMBER: state}, self.MEMBER_DOCUMENT))
+                self.assertIsNone(computed["schematic"])
+                self.assertIsNone(computed["pcb"])
 
 
 if __name__ == "__main__":

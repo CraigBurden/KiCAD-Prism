@@ -4,7 +4,7 @@ import asyncio
 import logging
 from typing import Dict, Optional
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Response
 from pydantic import BaseModel
 
 from app.api._helpers import get_project_for_role_or_404
@@ -78,27 +78,28 @@ class ProjectPropertiesResponse(BaseModel):
 
 
 @router.get("/{project_id}/properties", response_model=ProjectPropertiesResponse)
-async def get_project_properties(project_id: str, user: AuthenticatedUser = Depends(require_viewer)):
+async def get_project_properties(
+    project_id: str,
+    response: Response,
+    user: AuthenticatedUser = Depends(require_viewer),
+):
     project = get_project_for_role_or_404(project_id, user.role)
-    return await asyncio.to_thread(_build_project_properties, project)
+    payload, headers = await asyncio.to_thread(_build_project_properties, project, user.email)
+    for name, value in headers.items():
+        response.headers[name] = value
+    return payload
 
 
-def _stored_project_metadata(
+def _stored_repository(
     project: project_service.Project,
-) -> tuple[Optional[dict], Optional[dict], Optional[dict]]:
-    """Read the project's stored KiCad metadata, refreshing it out of band.
+) -> Optional[dict]:
+    """The card's repository facts, refreshing the stored row out of band.
 
-    This used to derive both dictionaries inline, which meant reading and
-    scanning the schematic and the board on every open of the workspace preview
-    panel. On a 57 MB design that scan pinned a core for minutes and, being
-    pure Python, starved the event loop serving every other request -- which is
-    what made opening a large project take tens of seconds.
-
-    The facts change only when the files change, so the import and sync jobs
-    compute them and this reads the row. A project imported before the table
-    existed, or one whose files moved without a sync, has its refresh queued
-    here and returns what is stored meanwhile. That is a card with some blank
-    fields for one job's duration, never a request that blocks on kicad-cli.
+    The facts change only when the repository changes, so the import and sync
+    jobs store them and this reads the row. A project imported before the table
+    existed, or one whose repository moved without a sync, has its refresh
+    queued here and returns what is stored meanwhile. The design half of the
+    card now comes from the bundle (``card_from_bundle``), not from this row.
     """
     anchor = project_service.project_anchor(project)
     repo_path, _relative_path = _repo_context(project)
@@ -119,17 +120,22 @@ def _stored_project_metadata(
             )
 
     if not record:
-        return None, None, None
-    return record.get("schematic"), record.get("pcb"), record.get("repository")
+        return None
+    return record.get("repository")
 
 
-def _build_project_properties(project: project_service.Project) -> ProjectPropertiesResponse:
-    schematic_metadata, pcb_metadata, repository = _stored_project_metadata(project)
-    repository = repository or {}
+def _build_project_properties(
+    project: project_service.Project, requested_by: str = ""
+) -> tuple[ProjectPropertiesResponse, dict[str, str]]:
+    card, headers = project_metadata_service.card_from_bundle(
+        str(project.id), requested_by=requested_by
+    )
+    schematic_metadata, pcb_metadata = card.get("schematic"), card.get("pcb")
+    repository = _stored_repository(project) or {}
     latest_commit = repository.get("latest_commit")
     latest_tag = repository.get("latest_tag")
 
-    return ProjectPropertiesResponse(
+    payload = ProjectPropertiesResponse(
         project=project,
         repository=ProjectPropertiesRepository(
             latest_commit=(
@@ -156,6 +162,7 @@ def _build_project_properties(project: project_service.Project) -> ProjectProper
             ),
         ),
     )
+    return payload, headers
 
 
 @router.get("/{project_id}/overview")

@@ -42,6 +42,9 @@ class OpenedRevision:
     aliased: bool = False
     #: The error of a build that ended failed and is not being retried; ``None`` otherwise.
     failure: str | None = None
+    #: A no-commit request served HEAD while the checkout held uncommitted
+    #: changes in the files the bundle reads (``consumer.BundleRead``).
+    working_tree_dirty: bool = False
 
     def readiness(self, paths: Iterable[str]) -> dict[str, Readiness]:
         manifest = self.archive.manifest if self.archive is not None else None
@@ -73,6 +76,32 @@ class OpenedRevision:
         return store.extract(archive, self.project_id, stored_as, self.generator_digest, paths)
 
 
+def _working_tree_dirty(row: Mapping[str, Any], key: Any) -> bool:
+    """Whether the checkout's read set differs from HEAD's (uncommitted changes).
+
+    Only names: ``git status`` lists what ``git add -A`` would touch, and a name
+    is compared against the HEAD key's selected entries or the §5.2 name rules.
+    A bundle is never built from a dirty tree; the caller serves HEAD and says so.
+    """
+
+    if key.absent or key.key is None or key.config is None:
+        return False
+    from app.services import project_revision
+    from app.services.design_bundle import revision_key as rk
+
+    repo = project_revision.locate(row).repo_root
+    selected = {entry["path"].encode("utf-8") for entry in key.key.entries}
+    excluded = [str(directory).encode("utf-8") for directory in key.config.get("excluded_dirs") or ()]
+    for path in rk.worktree_changes(repo):
+        if path in selected:
+            return True
+        if any(path == directory or path.startswith(directory + b"/") for directory in excluded):
+            continue
+        if rk.category_of(path.rsplit(b"/", 1)[-1], "regular") is not None:
+            return True
+    return False
+
+
 def open_revision(project_id: str, commit: str | None = None, *, queue: bool = False, requested_by: str = "") -> OpenedRevision:
     """The stored bundle of ``project_id`` at ``commit`` (``HEAD`` when ``None``), as far as it got."""
 
@@ -82,6 +111,12 @@ def open_revision(project_id: str, commit: str | None = None, *, queue: bool = F
     if not row:
         raise LookupError(f"Project '{project_id}' not found")
     key = jobs.project_key(row, commit)
+    dirty = False
+    if commit is None:
+        try:
+            dirty = _working_tree_dirty(row, key)
+        except Exception:  # noqa: BLE001 - a status read must not lose the bundle
+            logger.warning("design bundle: could not read %s's working tree", project_id, exc_info=True)
     generator = cli.generator()
     if key.absent:
         return OpenedRevision(project_id, key.commit, None, generator.digest, None, None, False, absent=True)
@@ -101,7 +136,7 @@ def open_revision(project_id: str, commit: str | None = None, *, queue: bool = F
         failure = str(bundle.get("error") or "the design bundle build failed")
     return OpenedRevision(
         project_id, key.commit, revision_key, generator.digest, bundle_key, archive, active,
-        archive_revision_key=stored_as, aliased=aliased, failure=failure,
+        archive_revision_key=stored_as, aliased=aliased, failure=failure, working_tree_dirty=dirty,
     )
 
 

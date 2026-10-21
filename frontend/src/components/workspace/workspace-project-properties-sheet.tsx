@@ -1,4 +1,4 @@
-import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
+import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Box,
   CalendarDays,
@@ -13,12 +13,17 @@ import {
   X,
 } from "lucide-react";
 
-import { fetchJson } from "@/lib/api";
+import { fetchDesignJson } from "@/lib/api";
 import { repositoryWebUrl } from "@/lib/repository-url";
 import { cn } from "@/lib/utils";
 import type { FolderTreeItem, Project, ProjectPropertiesResponse } from "@/types/project";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
+import {
+  DesignDataFailed,
+  DesignDataPending,
+  WorkingTreeDirtyNotice,
+} from "@/components/design-data-state";
 
 interface WorkspaceProjectPropertiesSheetProps {
   open: boolean;
@@ -222,22 +227,14 @@ function PropertiesSkeleton() {
   );
 }
 
-export function WorkspaceProjectPropertiesSheet({
-  open,
-  project,
-  folderById,
-  onOpenChange,
-  onOpenProject,
-  canManageProjects = false,
-  onRegenerateThumbnail,
-  onUploadThumbnail,
-  onRevertThumbnail,
-}: WorkspaceProjectPropertiesSheetProps) {
+/** The properties read: pending while the design bundle is built, then data or an error. */
+function useProjectProperties(open: boolean, project: Project | null) {
   const [data, setData] = useState<ProjectPropertiesResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [thumbnailBusy, setThumbnailBusy] = useState(false);
-  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [pending, setPending] = useState(false);
+  const [dirty, setDirty] = useState(false);
+  const [retryToken, setRetryToken] = useState(0);
 
   useEffect(() => {
     if (!open || !project) {
@@ -247,15 +244,24 @@ export function WorkspaceProjectPropertiesSheet({
     const controller = new AbortController();
     setLoading(true);
     setError(null);
+    setPending(false);
 
-    void fetchJson<ProjectPropertiesResponse>(
+    void fetchDesignJson<ProjectPropertiesResponse>(
       `/api/projects/${project.id}/properties`,
       { signal: controller.signal },
-      "Failed to load project properties"
+      {
+        fallbackError: "Failed to load project properties",
+        onPending: () => {
+          if (!controller.signal.aborted) {
+            setPending(true);
+          }
+        },
+      }
     )
-      .then((response) => {
+      .then(({ data: response, workingTreeDirty }) => {
         if (!controller.signal.aborted) {
           setData(response);
+          setDirty(workingTreeDirty);
         }
       })
       .catch((fetchError) => {
@@ -267,11 +273,31 @@ export function WorkspaceProjectPropertiesSheet({
       .finally(() => {
         if (!controller.signal.aborted) {
           setLoading(false);
+          setPending(false);
         }
       });
 
     return () => controller.abort();
-  }, [open, project]);
+  }, [open, project, retryToken]);
+
+  const retry = useCallback(() => setRetryToken((token) => token + 1), []);
+  return { data, loading, error, pending, dirty, retry };
+}
+
+export function WorkspaceProjectPropertiesSheet({
+  open,
+  project,
+  folderById,
+  onOpenChange,
+  onOpenProject,
+  canManageProjects = false,
+  onRegenerateThumbnail,
+  onUploadThumbnail,
+  onRevertThumbnail,
+}: WorkspaceProjectPropertiesSheetProps) {
+  const { data, loading, error, pending, dirty, retry } = useProjectProperties(open, project);
+  const [thumbnailBusy, setThumbnailBusy] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const activeProject = data?.project ?? project;
   const panelProject = activeProject ?? project;
@@ -340,13 +366,19 @@ export function WorkspaceProjectPropertiesSheet({
         </div>
 
         <div className="flex-1 space-y-5 overflow-y-auto px-6 py-5">
-          {loading ? <PropertiesSkeleton /> : null}
+          {loading && !pending ? <PropertiesSkeleton /> : null}
+
+          {pending ? <DesignDataPending className="py-8" /> : null}
 
           {!loading && error ? (
-            <div className="rounded-none border border-destructive/40 bg-destructive/5 p-4 text-sm text-destructive">
-              {error}
-            </div>
+            <DesignDataFailed
+              detail={error}
+              onRetry={retry}
+              className="rounded-none border border-destructive/40 bg-destructive/5 p-4"
+            />
           ) : null}
+
+          {!loading && !error && dirty ? <WorkingTreeDirtyNotice /> : null}
 
           {!loading && !error && panelProject ? (
             <>

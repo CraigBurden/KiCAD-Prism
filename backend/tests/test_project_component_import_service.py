@@ -3,7 +3,6 @@ from __future__ import annotations
 import sys
 import tempfile
 import unittest
-from contextlib import contextmanager
 from pathlib import Path
 from unittest import mock
 
@@ -267,10 +266,6 @@ class ProjectComponentImportServiceTests(unittest.TestCase):
             "project_revisions": {"project-1": "revision-1"},
         }
 
-        @contextmanager
-        def project_file_for_revision(*_args: object, **_kwargs: object):
-            yield Path(tmp) / "main.kicad_pro", None
-
         with tempfile.TemporaryDirectory() as tmp:
             with (
                 mock.patch("app.services.project_component_import_service.catalog_service") as catalog,
@@ -279,30 +274,26 @@ class ProjectComponentImportServiceTests(unittest.TestCase):
                     return_value={"id": "project-1"},
                 ),
                 mock.patch(
-                    "app.services.project_component_import_service.semantic_index_service.get_or_build",
+                    "app.services.project_component_import_service.semantic_index_service.get_index",
                     return_value={"components": components},
                 ),
+                mock.patch("app.services.design_bundle.consumer.bundle_read", return_value=object()),
                 mock.patch(
-                    "app.services.project_component_import_service.semantic_index_service._project_file_for_revision",
-                    side_effect=project_file_for_revision,
-                ),
-                mock.patch(
-                    "app.services.project_component_import_service.build_project_asset_index"
-                ) as build_index,
+                    "app.services.project_component_import_service.ProjectBundleAssetIndex"
+                ) as bundle_index,
             ):
                 catalog.get_project_import_session.return_value = session
                 catalog.store_root = Path(tmp) / "catalog"
-                asset_index = build_index.return_value
+                asset_index = bundle_index.return_value
                 asset_index.extract_component_assets.return_value = ([], [], {})
 
                 run_project_import_session("session-1")
 
-            build_index.assert_called_once()
+            bundle_index.assert_called_once()
             self.assertEqual(asset_index.extract_component_assets.call_count, 2)
             catalog.index_project_component_usage.assert_called_once()
             catalog.stage_project_import_proposals.assert_called_once()
             self.assertEqual(catalog.stage_project_import_proposals.call_args.args[0], "session-1")
-
 
 if __name__ == "__main__":
     unittest.main()
