@@ -1,0 +1,3564 @@
+{
+ "schema": "prism.assembly_hlr.a0",
+ "options": {
+  "outlineAlgorithm": "mesh-shadow",
+  "curveMode": "native_arcs",
+  "samplesPerCurve": 24,
+  "roundDigits": 3,
+  "includeVisible": true,
+  "includeOutline": true,
+  "unionPolygons": true
+ },
+ "runtime": {
+  "geometerVersion": "2026.9.7"
+ },
+ "footprints": [
+  {
+   "documentPath": "cynthion.kicad_pcb",
+   "uuid": "00000000-0000-0000-0000-00005fd12e40",
+   "side": "front",
+   "reference": "D14",
+   "status": "model-not-step"
+  },
+  {
+   "documentPath": "cynthion.kicad_pcb",
+   "uuid": "00000000-0000-0000-0000-00005fd1306f",
+   "side": "back",
+   "reference": "C22",
+   "status": "model-not-step"
+  },
+  {
+   "documentPath": "cynthion.kicad_pcb",
+   "uuid": "00000000-0000-0000-0000-00005fd130e2",
+   "side": "back",
+   "reference": "R22",
+   "status": "model-not-step"
+  },
+  {
+   "documentPath": "cynthion.kicad_pcb",
+   "uuid": "00000000-0000-0000-0000-00005fd1310c",
+   "side": "front",
+   "reference": "C49",
+   "status": "model-not-step"
+  },
+  {
+   "documentPath": "cynthion.kicad_pcb",
+   "uuid": "00000000-0000-0000-0000-00005fd1333a",
+   "side": "back",
+   "reference": "R23",
+   "status": "model-not-step"
+  },
+  {
+   "documentPath": "cynthion.kicad_pcb",
+   "uuid": "00000000-0000-0000-0000-00005fd134d0",
+   "side": "front",
+   "reference": "U9",
+   "status": "model-not-step"
+  },
+  {
+   "documentPath": "cynthion.kicad_pcb",
+   "uuid": "00000000-0000-0000-0000-00005fd135ec",
+   "side": "back",
+   "reference": "R5",
+   "status": "model-not-step"
+  },
+  {
+   "documentPath": "cynthion.kicad_pcb",
+   "uuid": "00000000-0000-0000-0000-00005fd13616",
+   "side": "back",
+   "reference": "R6",
+   "status": "model-not-step"
+  },
+  {
+   "documentPath": "cynthion.kicad_pcb",
+   "uuid": "00000000-0000-0000-0000-00005fd1370f",
+   "side": "back",
+   "reference": "R19",
+   "status": "model-not-step"
+  },
+  {
+   "documentPath": "cynthion.kicad_pcb",
+   "uuid": "00000000-0000-0000-0000-00005fd13aaf",
+   "side": "front",
+   "reference": "D11",
+   "status": "model-not-step"
+  },
+  {
+   "documentPath": "cynthion.kicad_pcb",
+   "uuid": "00000000-0000-0000-0000-00005fd13d36",
+   "side": "back",
+   "reference": "C9",
+   "status": "model-not-step"
+  },
+  {
+   "documentPath": "cynthion.kicad_pcb",
+   "uuid": "00000000-0000-0000-0000-00005fd13d8a",
+   "side": "back",
+   "reference": "C16",
+   "status": "model-not-step"
+  },
+  {
+   "documentPath": "cynthion.kicad_pcb",
+   "uuid": "00000000-0000-0000-0000-00005fd13eaa",
+   "side": "back",
+   "reference": "R17",
+   "status": "model-not-step"
+  },
+  {
+   "documentPath": "cynthion.kicad_pcb",
+   "uuid": "00000000-0000-0000-0000-00005fd13efe",
+   "side": "back",
+   "reference": "C8",
+   "status": "model-not-step"
+  },
+  {
+   "documentPath": "cynthion.kicad_pcb",
+   "uuid": "00000000-0000-0000-0000-00005fd144e2",
+   "side": "front",
+   "reference": "U6",
+   "status": "model-not-step"
+  },
+  {
+   "documentPath": "cynthion.kicad_pcb",
+   "uuid": "00000000-0000-0000-0000-00005fd14792",
+   "side": "front",
+   "reference": "C44",
+   "status": "model-not-step"
+  },
+  {
+   "documentPath": "cynthion.kicad_pcb",
+   "uuid": "00000000-0000-0000-0000-00005fd14884",
+   "side": "front",
+   "reference": "C30",
+   "status": "model-not-step"
+  },
+  {
+   "documentPath": "cynthion.kicad_pcb",
+   "uuid": "00000000-0000-0000-0000-00005fd1495f",
+   "side": "back",
+   "reference": "C43",
+   "status": "model-not-step"
+  },
+  {
+   "documentPath": "cynthion.kicad_pcb",
+   "uuid": "00000000-0000-0000-0000-00005fd14b7c",
+   "side": "back",
+   "reference": "C31",
+   "status": "model-not-step"
+  },
+  {
+   "documentPath": "cynthion.kicad_pcb",
+   "uuid": "00000000-0000-0000-0000-00005fd14ba6",
+   "side": "back",
+   "reference": "C34",
+   "status": "model-not-step"
+  },
+  {
+   "documentPath": "cynthion.kicad_pcb",
+   "uuid": "00000000-0000-0000-0000-00005fd14bd2",
+   "side": "back",
+   "reference": "C37",
+   "status": "model-not-step"
+  },
+  {
+   "documentPath": "cynthion.kicad_pcb",
+   "uuid": "00000000-0000-0000-0000-00005fd14e3f",
+   "side": "front",
+   "reference": "C28",
+   "status": "model-not-step"
+  },
+  {
+   "documentPath": "cynthion.kicad_pcb",
+   "uuid": "00000000-0000-0000-0000-00005fd15401",
+   "side": "back",
+   "reference": "C39",
+   "status": "model-not-step"
+  },
+  {
+   "documentPath": "cynthion.kicad_pcb",
+   "uuid": "00000000-0000-0000-0000-00005fd1555d",
+   "side": "front",
+   "reference": "U3",
+   "status": "model-not-step"
+  },
+  {
+   "documentPath": "cynthion.kicad_pcb",
+   "uuid": "00000000-0000-0000-0000-00005fd1569e",
+   "side": "back",
+   "reference": "C12",
+   "status": "model-not-step"
+  },
+  {
+   "documentPath": "cynthion.kicad_pcb",
+   "uuid": "00000000-0000-0000-0000-00005fd15da7",
+   "side": "front",
+   "reference": "D12",
+   "status": "model-not-step"
+  },
+  {
+   "documentPath": "cynthion.kicad_pcb",
+   "uuid": "00000000-0000-0000-0000-00005fd16116",
+   "side": "front",
+   "reference": "D13",
+   "status": "model-not-step"
+  },
+  {
+   "documentPath": "cynthion.kicad_pcb",
+   "uuid": "00000000-0000-0000-0000-00005fd1614d",
+   "side": "back",
+   "reference": "C1",
+   "status": "model-not-step"
+  },
+  {
+   "documentPath": "cynthion.kicad_pcb",
+   "uuid": "00000000-0000-0000-0000-00005fd16ba8",
+   "side": "front",
+   "reference": "U11",
+   "status": "model-not-step"
+  },
+  {
+   "documentPath": "cynthion.kicad_pcb",
+   "uuid": "00000000-0000-0000-0000-00005fd16fdf",
+   "side": "back",
+   "reference": "C33",
+   "status": "model-not-step"
+  },
+  {
+   "documentPath": "cynthion.kicad_pcb",
+   "uuid": "00000000-0000-0000-0000-00005fd17120",
+   "side": "back",
+   "reference": "C7",
+   "status": "model-not-step"
+  },
+  {
+   "documentPath": "cynthion.kicad_pcb",
+   "uuid": "00000000-0000-0000-0000-00005fd171e9",
+   "side": "back",
+   "reference": "R16",
+   "status": "model-not-step"
+  },
+  {
+   "documentPath": "cynthion.kicad_pcb",
+   "uuid": "00000000-0000-0000-0000-00005fd17535",
+   "side": "front",
+   "reference": "D10",
+   "status": "model-not-step"
+  },
+  {
+   "documentPath": "cynthion.kicad_pcb",
+   "uuid": "00000000-0000-0000-0000-00005fd176a2",
+   "side": "back",
+   "reference": "R21",
+   "status": "model-not-step"
+  },
+  {
+   "documentPath": "cynthion.kicad_pcb",
+   "uuid": "00000000-0000-0000-0000-00005fd1776b",
+   "side": "back",
+   "reference": "C11",
+   "status": "model-not-step"
+  },
+  {
+   "documentPath": "cynthion.kicad_pcb",
+   "uuid": "00000000-0000-0000-0000-00005fd1780d",
+   "side": "back",
+   "reference": "C26",
+   "status": "model-not-step"
+  },
+  {
+   "documentPath": "cynthion.kicad_pcb",
+   "uuid": "00000000-0000-0000-0000-00005fd17942",
+   "side": "front",
+   "reference": "C41",
+   "status": "model-not-step"
+  },
+  {
+   "documentPath": "cynthion.kicad_pcb",
+   "uuid": "00000000-0000-0000-0000-00005fd17b08",
+   "side": "front",
+   "reference": "D8",
+   "status": "model-not-step"
+  },
+  {
+   "documentPath": "cynthion.kicad_pcb",
+   "uuid": "00000000-0000-0000-0000-00005fd17c15",
+   "side": "back",
+   "reference": "C32",
+   "status": "model-not-step"
+  },
+  {
+   "documentPath": "cynthion.kicad_pcb",
+   "uuid": "00000000-0000-0000-0000-00005fd17c42",
+   "side": "front",
+   "reference": "C38",
+   "status": "model-not-step"
+  },
+  {
+   "documentPath": "cynthion.kicad_pcb",
+   "uuid": "00000000-0000-0000-0000-00005fd7c646",
+   "side": "back",
+   "reference": "C42",
+   "status": "model-not-step"
+  },
+  {
+   "documentPath": "cynthion.kicad_pcb",
+   "uuid": "00000000-0000-0000-0000-00005fd845df",
+   "side": "back",
+   "reference": "C46",
+   "status": "model-not-step"
+  },
+  {
+   "documentPath": "cynthion.kicad_pcb",
+   "uuid": "00000000-0000-0000-0000-00005fd8d088",
+   "side": "back",
+   "reference": "R15",
+   "status": "model-not-step"
+  },
+  {
+   "documentPath": "cynthion.kicad_pcb",
+   "uuid": "00000000-0000-0000-0000-00005fd91287",
+   "side": "front",
+   "reference": "C6",
+   "status": "model-not-step"
+  },
+  {
+   "documentPath": "cynthion.kicad_pcb",
+   "uuid": "00000000-0000-0000-0000-00005fd912b7",
+   "side": "back",
+   "reference": "C4",
+   "status": "model-not-step"
+  },
+  {
+   "documentPath": "cynthion.kicad_pcb",
+   "uuid": "00000000-0000-0000-0000-00005fd9132f",
+   "side": "front",
+   "reference": "C20",
+   "status": "model-not-step"
+  },
+  {
+   "documentPath": "cynthion.kicad_pcb",
+   "uuid": "00000000-0000-0000-0000-00005fd93c91",
+   "side": "front",
+   "reference": "D1",
+   "status": "model-not-step"
+  },
+  {
+   "documentPath": "cynthion.kicad_pcb",
+   "uuid": "00000000-0000-0000-0000-00005fd96c3b",
+   "side": "back",
+   "reference": "C50",
+   "status": "model-not-step"
+  },
+  {
+   "documentPath": "cynthion.kicad_pcb",
+   "uuid": "00000000-0000-0000-0000-00005fd97e40",
+   "side": "back",
+   "reference": "R24",
+   "status": "model-not-step"
+  },
+  {
+   "documentPath": "cynthion.kicad_pcb",
+   "uuid": "00000000-0000-0000-0000-00005fd97ec9",
+   "side": "back",
+   "reference": "R20",
+   "status": "model-not-step"
+  },
+  {
+   "documentPath": "cynthion.kicad_pcb",
+   "uuid": "00000000-0000-0000-0000-00005fd9d663",
+   "side": "back",
+   "reference": "C48",
+   "status": "model-not-step"
+  },
+  {
+   "documentPath": "cynthion.kicad_pcb",
+   "uuid": "00000000-0000-0000-0000-00005fd9e9be",
+   "side": "front",
+   "reference": "U5",
+   "status": "model-not-step"
+  },
+  {
+   "documentPath": "cynthion.kicad_pcb",
+   "uuid": "00000000-0000-0000-0000-00005fd9eaa0",
+   "side": "back",
+   "reference": "C36",
+   "status": "model-not-step"
+  },
+  {
+   "documentPath": "cynthion.kicad_pcb",
+   "uuid": "00000000-0000-0000-0000-00005fdb1c9d",
+   "side": "back",
+   "reference": "R33",
+   "status": "model-not-step"
+  },
+  {
+   "documentPath": "cynthion.kicad_pcb",
+   "uuid": "00000000-0000-0000-0000-00005fdd1da8",
+   "side": "back",
+   "reference": "C18",
+   "status": "model-not-step"
+  },
+  {
+   "documentPath": "cynthion.kicad_pcb",
+   "uuid": "00000000-0000-0000-0000-00005fdd841c",
+   "side": "back",
+   "reference": "C14",
+   "status": "model-not-step"
+  },
+  {
+   "documentPath": "cynthion.kicad_pcb",
+   "uuid": "00000000-0000-0000-0000-00005fdea066",
+   "side": "front",
+   "reference": "C29",
+   "status": "model-not-step"
+  },
+  {
+   "documentPath": "cynthion.kicad_pcb",
+   "uuid": "00000000-0000-0000-0000-00005fdef669",
+   "side": "front",
+   "reference": "Y1",
+   "status": "model-not-step"
+  },
+  {
+   "documentPath": "cynthion.kicad_pcb",
+   "uuid": "00000000-0000-0000-0000-00005fdf55d4",
+   "side": "front",
+   "reference": "C27",
+   "status": "model-not-step"
+  },
+  {
+   "documentPath": "cynthion.kicad_pcb",
+   "uuid": "00000000-0000-0000-0000-00005fdfc3f1",
+   "side": "front",
+   "reference": "U7",
+   "status": "model-not-step"
+  },
+  {
+   "documentPath": "cynthion.kicad_pcb",
+   "uuid": "00000000-0000-0000-0000-00005fdfc759",
+   "side": "front",
+   "reference": "U1",
+   "status": "model-not-step"
+  },
+  {
+   "documentPath": "cynthion.kicad_pcb",
+   "uuid": "00000000-0000-0000-0000-00005fe137f9",
+   "side": "front",
+   "reference": "U4",
+   "status": "model-not-step"
+  },
+  {
+   "documentPath": "cynthion.kicad_pcb",
+   "uuid": "00000000-0000-0000-0000-00005fe1f064",
+   "side": "front",
+   "reference": "U12",
+   "status": "model-not-step"
+  },
+  {
+   "documentPath": "cynthion.kicad_pcb",
+   "uuid": "00000000-0000-0000-0000-00005fe2126f",
+   "side": "back",
+   "reference": "R2",
+   "status": "model-not-step"
+  },
+  {
+   "documentPath": "cynthion.kicad_pcb",
+   "uuid": "00000000-0000-0000-0000-00005fe25903",
+   "side": "back",
+   "reference": "R1",
+   "status": "model-not-step"
+  },
+  {
+   "documentPath": "cynthion.kicad_pcb",
+   "uuid": "00000000-0000-0000-0000-00005fe25aab",
+   "side": "back",
+   "reference": "R41",
+   "status": "model-not-step"
+  },
+  {
+   "documentPath": "cynthion.kicad_pcb",
+   "uuid": "00000000-0000-0000-0000-00005fe26531",
+   "side": "front",
+   "reference": "J3",
+   "stepModel": {
+    "reference": "$(KIPRJMOD)/libraries/cynthion.3dshapes/KUSBXHT-SB-AS1N-B30-NF_A.STEP"
+   },
+   "status": "model-unavailable"
+  },
+  {
+   "documentPath": "cynthion.kicad_pcb",
+   "uuid": "00000000-0000-0000-0000-00005fe566b4",
+   "side": "back",
+   "reference": "R12",
+   "status": "model-not-step"
+  },
+  {
+   "documentPath": "cynthion.kicad_pcb",
+   "uuid": "00000000-0000-0000-0000-00005fe58eb8",
+   "side": "back",
+   "reference": "RN2",
+   "status": "model-not-step"
+  },
+  {
+   "documentPath": "cynthion.kicad_pcb",
+   "uuid": "00000000-0000-0000-0000-00005fe5a8a5",
+   "side": "back",
+   "reference": "RN1",
+   "status": "model-not-step"
+  },
+  {
+   "documentPath": "cynthion.kicad_pcb",
+   "uuid": "00000000-0000-0000-0000-00005fe5e0d7",
+   "side": "back",
+   "reference": "R14",
+   "status": "model-not-step"
+  },
+  {
+   "documentPath": "cynthion.kicad_pcb",
+   "uuid": "00000000-0000-0000-0000-00005fe7d266",
+   "side": "back",
+   "reference": "R13",
+   "status": "model-not-step"
+  },
+  {
+   "documentPath": "cynthion.kicad_pcb",
+   "uuid": "00000000-0000-0000-0000-00005fea3def",
+   "side": "front",
+   "reference": "C10",
+   "status": "model-not-step"
+  },
+  {
+   "documentPath": "cynthion.kicad_pcb",
+   "uuid": "00000000-0000-0000-0000-00005feae690",
+   "side": "front",
+   "reference": "D7",
+   "status": "model-not-step"
+  },
+  {
+   "documentPath": "cynthion.kicad_pcb",
+   "uuid": "00000000-0000-0000-0000-00005feae6c6",
+   "side": "front",
+   "reference": "D4",
+   "status": "model-not-step"
+  },
+  {
+   "documentPath": "cynthion.kicad_pcb",
+   "uuid": "00000000-0000-0000-0000-00005feae6fc",
+   "side": "front",
+   "reference": "D3",
+   "status": "model-not-step"
+  },
+  {
+   "documentPath": "cynthion.kicad_pcb",
+   "uuid": "00000000-0000-0000-0000-00005feae731",
+   "side": "back",
+   "reference": "R29",
+   "status": "model-not-step"
+  },
+  {
+   "documentPath": "cynthion.kicad_pcb",
+   "uuid": "00000000-0000-0000-0000-00005feae75b",
+   "side": "back",
+   "reference": "R31",
+   "status": "model-not-step"
+  },
+  {
+   "documentPath": "cynthion.kicad_pcb",
+   "uuid": "00000000-0000-0000-0000-00005feae7b2",
+   "side": "back",
+   "reference": "R26",
+   "status": "model-not-step"
+  },
+  {
+   "documentPath": "cynthion.kicad_pcb",
+   "uuid": "00000000-0000-0000-0000-00005feae7e0",
+   "side": "front",
+   "reference": "D5",
+   "status": "model-not-step"
+  },
+  {
+   "documentPath": "cynthion.kicad_pcb",
+   "uuid": "00000000-0000-0000-0000-00005feae81b",
+   "side": "back",
+   "reference": "R28",
+   "status": "model-not-step"
+  },
+  {
+   "documentPath": "cynthion.kicad_pcb",
+   "uuid": "00000000-0000-0000-0000-00005feae84f",
+   "side": "front",
+   "reference": "D2",
+   "status": "model-not-step"
+  },
+  {
+   "documentPath": "cynthion.kicad_pcb",
+   "uuid": "00000000-0000-0000-0000-00005feae884",
+   "side": "back",
+   "reference": "R27",
+   "status": "model-not-step"
+  },
+  {
+   "documentPath": "cynthion.kicad_pcb",
+   "uuid": "00000000-0000-0000-0000-00005feaf483",
+   "side": "back",
+   "reference": "R30",
+   "status": "model-not-step"
+  },
+  {
+   "documentPath": "cynthion.kicad_pcb",
+   "uuid": "00000000-0000-0000-0000-00005feaf4b7",
+   "side": "front",
+   "reference": "D6",
+   "status": "model-not-step"
+  },
+  {
+   "documentPath": "cynthion.kicad_pcb",
+   "uuid": "00000000-0000-0000-0000-00005fed7822",
+   "side": "front",
+   "reference": "U8",
+   "status": "model-not-step"
+  },
+  {
+   "documentPath": "cynthion.kicad_pcb",
+   "uuid": "00000000-0000-0000-0000-00005fee394c",
+   "side": "back",
+   "reference": "R8",
+   "status": "model-not-step"
+  },
+  {
+   "documentPath": "cynthion.kicad_pcb",
+   "uuid": "00000000-0000-0000-0000-00005fee3976",
+   "side": "back",
+   "reference": "R7",
+   "status": "model-not-step"
+  },
+  {
+   "documentPath": "cynthion.kicad_pcb",
+   "uuid": "00000000-0000-0000-0000-00005fee39a0",
+   "side": "back",
+   "reference": "R11",
+   "status": "model-not-step"
+  },
+  {
+   "documentPath": "cynthion.kicad_pcb",
+   "uuid": "00000000-0000-0000-0000-00005fee39ca",
+   "side": "back",
+   "reference": "R10",
+   "status": "model-not-step"
+  },
+  {
+   "documentPath": "cynthion.kicad_pcb",
+   "uuid": "00000000-0000-0000-0000-00005fee39f4",
+   "side": "back",
+   "reference": "R9",
+   "status": "model-not-step"
+  },
+  {
+   "documentPath": "cynthion.kicad_pcb",
+   "uuid": "00000000-0000-0000-0000-00005ff0e7ca",
+   "side": "front",
+   "reference": "C35",
+   "status": "model-not-step"
+  },
+  {
+   "documentPath": "cynthion.kicad_pcb",
+   "uuid": "00000000-0000-0000-0000-00005ff1d508",
+   "side": "front",
+   "reference": "C40",
+   "status": "model-not-step"
+  },
+  {
+   "documentPath": "cynthion.kicad_pcb",
+   "uuid": "00000000-0000-0000-0000-00005ff23904",
+   "side": "back",
+   "reference": "R3",
+   "status": "model-not-step"
+  },
+  {
+   "documentPath": "cynthion.kicad_pcb",
+   "uuid": "00000000-0000-0000-0000-00005ff2392e",
+   "side": "back",
+   "reference": "R42",
+   "status": "model-not-step"
+  },
+  {
+   "documentPath": "cynthion.kicad_pcb",
+   "uuid": "00000000-0000-0000-0000-00005ff23d7b",
+   "side": "back",
+   "reference": "R40",
+   "status": "model-not-step"
+  },
+  {
+   "documentPath": "cynthion.kicad_pcb",
+   "uuid": "00000000-0000-0000-0000-00005ff299a9",
+   "side": "back",
+   "reference": "R18",
+   "status": "model-not-step"
+  },
+  {
+   "documentPath": "cynthion.kicad_pcb",
+   "uuid": "00000000-0000-0000-0000-00005ff2de45",
+   "side": "back",
+   "reference": "R32",
+   "status": "model-not-step"
+  },
+  {
+   "documentPath": "cynthion.kicad_pcb",
+   "uuid": "00000000-0000-0000-0000-00005ff41671",
+   "side": "back",
+   "reference": "C17",
+   "status": "model-not-step"
+  },
+  {
+   "documentPath": "cynthion.kicad_pcb",
+   "uuid": "00000000-0000-0000-0000-00005ff4170b",
+   "side": "back",
+   "reference": "C3",
+   "status": "model-not-step"
+  },
+  {
+   "documentPath": "cynthion.kicad_pcb",
+   "uuid": "00000000-0000-0000-0000-00005ff4fe57",
+   "side": "front",
+   "reference": "SW2",
+   "stepModel": {
+    "reference": "$(KIPRJMOD)/libraries/cynthion.3dshapes/tc-1109de-a-f.stp"
+   },
+   "status": "model-unavailable"
+  },
+  {
+   "documentPath": "cynthion.kicad_pcb",
+   "uuid": "00000000-0000-0000-0000-00005ff50a4b",
+   "side": "front",
+   "reference": "SW1",
+   "stepModel": {
+    "reference": "$(KIPRJMOD)/libraries/cynthion.3dshapes/tc-1109de-a-f.stp"
+   },
+   "status": "model-unavailable"
+  },
+  {
+   "documentPath": "cynthion.kicad_pcb",
+   "uuid": "00000000-0000-0000-0000-00005ff5d524",
+   "side": "back",
+   "reference": "R25",
+   "status": "model-not-step"
+  },
+  {
+   "documentPath": "cynthion.kicad_pcb",
+   "uuid": "00000000-0000-0000-0000-00005ff74a2c",
+   "side": "back",
+   "reference": "C2",
+   "status": "model-not-step"
+  },
+  {
+   "documentPath": "cynthion.kicad_pcb",
+   "uuid": "00000000-0000-0000-0000-00005ff74d7a",
+   "side": "back",
+   "reference": "C24",
+   "status": "model-not-step"
+  },
+  {
+   "documentPath": "cynthion.kicad_pcb",
+   "uuid": "00000000-0000-0000-0000-00005ff76ab9",
+   "side": "back",
+   "reference": "C15",
+   "status": "model-not-step"
+  },
+  {
+   "documentPath": "cynthion.kicad_pcb",
+   "uuid": "00000000-0000-0000-0000-00005ff774e3",
+   "side": "back",
+   "reference": "C13",
+   "status": "model-not-step"
+  },
+  {
+   "documentPath": "cynthion.kicad_pcb",
+   "uuid": "00000000-0000-0000-0000-00005ffa9a85",
+   "side": "back",
+   "reference": "RN4",
+   "status": "model-not-step"
+  },
+  {
+   "documentPath": "cynthion.kicad_pcb",
+   "uuid": "00000000-0000-0000-0000-00005ffb34c2",
+   "side": "back",
+   "reference": "RN3",
+   "status": "model-not-step"
+  },
+  {
+   "documentPath": "cynthion.kicad_pcb",
+   "uuid": "00000000-0000-0000-0000-00005fffa614",
+   "side": "front",
+   "reference": "J7",
+   "status": "model-not-step"
+  },
+  {
+   "documentPath": "cynthion.kicad_pcb",
+   "uuid": "00000000-0000-0000-0000-00005fffd4de",
+   "side": "front",
+   "reference": "J8",
+   "status": "model-not-step"
+  },
+  {
+   "documentPath": "cynthion.kicad_pcb",
+   "uuid": "00000000-0000-0000-0000-000060001198",
+   "side": "front",
+   "reference": "IC1",
+   "stepModel": {
+    "reference": "${KICAD6_3DMODEL_DIR}/Package_BGA.3dshapes/BGA-256_14.0x14.0mm_Layout16x16_P0.8mm_Ball0.45mm_Pad0.32mm_NSMD.step",
+    "sha256": "70baa5851a05ee80e1fb6628d7befc934e80a25cc4bc98f373a843aba90e13ed"
+   },
+   "pose": {
+    "positionNm": {
+     "xNm": 132000000,
+     "yNm": 92000000
+    },
+    "rotationDeg": 180.0,
+    "modelOffset": {
+     "xNm": 0,
+     "yNm": 0,
+     "zNm": 0
+    },
+    "modelRotation": {
+     "xDeg": 0.0,
+     "yDeg": 0.0,
+     "zDeg": 0.0
+    },
+    "modelScale": {
+     "x": 1.0,
+     "y": 1.0,
+     "z": 1.0
+    }
+   },
+   "outline": {
+    "segments": [
+     {
+      "startNm": {
+       "xNm": 125000000,
+       "yNm": 85000000
+      },
+      "endNm": {
+       "xNm": 125000000,
+       "yNm": 99000000
+      }
+     },
+     {
+      "startNm": {
+       "xNm": 139000000,
+       "yNm": 99000000
+      },
+      "endNm": {
+       "xNm": 125000000,
+       "yNm": 99000000
+      }
+     },
+     {
+      "startNm": {
+       "xNm": 139000000,
+       "yNm": 85000000
+      },
+      "endNm": {
+       "xNm": 139000000,
+       "yNm": 99000000
+      }
+     },
+     {
+      "startNm": {
+       "xNm": 139000000,
+       "yNm": 85000000
+      },
+      "endNm": {
+       "xNm": 125000000,
+       "yNm": 85000000
+      }
+     }
+    ],
+    "arcs": []
+   },
+   "detail": {
+    "segments": [
+     {
+      "startNm": {
+       "xNm": 139000000,
+       "yNm": 85000000
+      },
+      "endNm": {
+       "xNm": 139000000,
+       "yNm": 99000000
+      }
+     },
+     {
+      "startNm": {
+       "xNm": 139000000,
+       "yNm": 85000000
+      },
+      "endNm": {
+       "xNm": 125000000,
+       "yNm": 85000000
+      }
+     },
+     {
+      "startNm": {
+       "xNm": 139000000,
+       "yNm": 99000000
+      },
+      "endNm": {
+       "xNm": 125000000,
+       "yNm": 99000000
+      }
+     },
+     {
+      "startNm": {
+       "xNm": 138300000,
+       "yNm": 97600000
+      },
+      "endNm": {
+       "xNm": 138280000,
+       "yNm": 97432000
+      }
+     },
+     {
+      "startNm": {
+       "xNm": 138300000,
+       "yNm": 97600000
+      },
+      "endNm": {
+       "xNm": 138280000,
+       "yNm": 97768000
+      }
+     },
+     {
+      "startNm": {
+       "xNm": 138280000,
+       "yNm": 97432000
+      },
+      "endNm": {
+       "xNm": 138220000,
+       "yNm": 97275000
+      }
+     },
+     {
+      "startNm": {
+       "xNm": 138280000,
+       "yNm": 97768000
+      },
+      "endNm": {
+       "xNm": 138220000,
+       "yNm": 97925000
+      }
+     },
+     {
+      "startNm": {
+       "xNm": 138220000,
+       "yNm": 97275000
+      },
+      "endNm": {
+       "xNm": 138124000,
+       "yNm": 97136000
+      }
+     },
+     {
+      "startNm": {
+       "xNm": 138220000,
+       "yNm": 97925000
+      },
+      "endNm": {
+       "xNm": 138124000,
+       "yNm": 98064000
+      }
+     },
+     {
+      "startNm": {
+       "xNm": 138124000,
+       "yNm": 97136000
+      },
+      "endNm": {
+       "xNm": 137998000,
+       "yNm": 97024000
+      }
+     },
+     {
+      "startNm": {
+       "xNm": 138124000,
+       "yNm": 98064000
+      },
+      "endNm": {
+       "xNm": 137998000,
+       "yNm": 98176000
+      }
+     },
+     {
+      "startNm": {
+       "xNm": 137998000,
+       "yNm": 97024000
+      },
+      "endNm": {
+       "xNm": 137848000,
+       "yNm": 96945000
+      }
+     },
+     {
+      "startNm": {
+       "xNm": 137998000,
+       "yNm": 98176000
+      },
+      "endNm": {
+       "xNm": 137848000,
+       "yNm": 98255000
+      }
+     },
+     {
+      "startNm": {
+       "xNm": 137848000,
+       "yNm": 96945000
+      },
+      "endNm": {
+       "xNm": 137684000,
+       "yNm": 96905000
+      }
+     },
+     {
+      "startNm": {
+       "xNm": 137848000,
+       "yNm": 98255000
+      },
+      "endNm": {
+       "xNm": 137684000,
+       "yNm": 98295000
+      }
+     },
+     {
+      "startNm": {
+       "xNm": 137684000,
+       "yNm": 96905000
+      },
+      "endNm": {
+       "xNm": 137516000,
+       "yNm": 96905000
+      }
+     },
+     {
+      "startNm": {
+       "xNm": 137684000,
+       "yNm": 98295000
+      },
+      "endNm": {
+       "xNm": 137516000,
+       "yNm": 98295000
+      }
+     },
+     {
+      "startNm": {
+       "xNm": 137516000,
+       "yNm": 96905000
+      },
+      "endNm": {
+       "xNm": 137352000,
+       "yNm": 96945000
+      }
+     },
+     {
+      "startNm": {
+       "xNm": 137516000,
+       "yNm": 98295000
+      },
+      "endNm": {
+       "xNm": 137352000,
+       "yNm": 98255000
+      }
+     },
+     {
+      "startNm": {
+       "xNm": 137352000,
+       "yNm": 96945000
+      },
+      "endNm": {
+       "xNm": 137202000,
+       "yNm": 97024000
+      }
+     },
+     {
+      "startNm": {
+       "xNm": 137352000,
+       "yNm": 98255000
+      },
+      "endNm": {
+       "xNm": 137202000,
+       "yNm": 98176000
+      }
+     },
+     {
+      "startNm": {
+       "xNm": 137202000,
+       "yNm": 97024000
+      },
+      "endNm": {
+       "xNm": 137076000,
+       "yNm": 97136000
+      }
+     },
+     {
+      "startNm": {
+       "xNm": 137202000,
+       "yNm": 98176000
+      },
+      "endNm": {
+       "xNm": 137076000,
+       "yNm": 98064000
+      }
+     },
+     {
+      "startNm": {
+       "xNm": 137076000,
+       "yNm": 97136000
+      },
+      "endNm": {
+       "xNm": 136980000,
+       "yNm": 97275000
+      }
+     },
+     {
+      "startNm": {
+       "xNm": 137076000,
+       "yNm": 98064000
+      },
+      "endNm": {
+       "xNm": 136980000,
+       "yNm": 97925000
+      }
+     },
+     {
+      "startNm": {
+       "xNm": 136980000,
+       "yNm": 97275000
+      },
+      "endNm": {
+       "xNm": 136920000,
+       "yNm": 97432000
+      }
+     },
+     {
+      "startNm": {
+       "xNm": 136980000,
+       "yNm": 97925000
+      },
+      "endNm": {
+       "xNm": 136920000,
+       "yNm": 97768000
+      }
+     },
+     {
+      "startNm": {
+       "xNm": 136920000,
+       "yNm": 97432000
+      },
+      "endNm": {
+       "xNm": 136900000,
+       "yNm": 97600000
+      }
+     },
+     {
+      "startNm": {
+       "xNm": 136920000,
+       "yNm": 97768000
+      },
+      "endNm": {
+       "xNm": 136900000,
+       "yNm": 97600000
+      }
+     },
+     {
+      "startNm": {
+       "xNm": 125000000,
+       "yNm": 85000000
+      },
+      "endNm": {
+       "xNm": 125000000,
+       "yNm": 99000000
+      }
+     }
+    ],
+    "arcs": []
+   }
+  },
+  {
+   "documentPath": "cynthion.kicad_pcb",
+   "uuid": "00000000-0000-0000-0000-0000600011da",
+   "side": "front",
+   "reference": "J1",
+   "stepModel": {
+    "reference": "$(KIPRJMOD)/libraries/cynthion.3dshapes/USB_C_Receptacle_HRO_TYPE-C-31-M-12.step"
+   },
+   "status": "model-unavailable"
+  },
+  {
+   "documentPath": "cynthion.kicad_pcb",
+   "uuid": "00000000-0000-0000-0000-000060008b9d",
+   "side": "front",
+   "reference": "J2",
+   "stepModel": {
+    "reference": "$(KIPRJMOD)/libraries/cynthion.3dshapes/USB_C_Receptacle_HRO_TYPE-C-31-M-12.step"
+   },
+   "status": "model-unavailable"
+  },
+  {
+   "documentPath": "cynthion.kicad_pcb",
+   "uuid": "00000000-0000-0000-0000-00006000ba50",
+   "side": "front",
+   "reference": "J4",
+   "stepModel": {
+    "reference": "$(KIPRJMOD)/libraries/cynthion.3dshapes/USB_C_Receptacle_HRO_TYPE-C-31-M-12.step"
+   },
+   "status": "model-unavailable"
+  },
+  {
+   "documentPath": "cynthion.kicad_pcb",
+   "uuid": "00000000-0000-0000-0000-00006000ccb9",
+   "side": "front",
+   "reference": "U10",
+   "stepModel": {
+    "reference": "${KICAD6_3DMODEL_DIR}/Package_BGA.3dshapes/BGA-25_6.35x6.35mm_Layout5x5_P1.27mm.step",
+    "sha256": "3897637b6a11cc27e044ee9dc144f89e5546f0c974730d76a16a6c69de7151f2"
+   },
+   "pose": {
+    "positionNm": {
+     "xNm": 146000000,
+     "yNm": 98500000
+    },
+    "rotationDeg": 180.0,
+    "modelOffset": {
+     "xNm": 0,
+     "yNm": 0,
+     "zNm": 0
+    },
+    "modelRotation": {
+     "xDeg": 0.0,
+     "yDeg": 0.0,
+     "zDeg": 0.0
+    },
+    "modelScale": {
+     "x": 1.0,
+     "y": 1.25,
+     "z": 0.2
+    }
+   },
+   "outline": {
+    "segments": [
+     {
+      "startNm": {
+       "xNm": 142875000,
+       "yNm": 94594000
+      },
+      "endNm": {
+       "xNm": 142875000,
+       "yNm": 102406000
+      }
+     },
+     {
+      "startNm": {
+       "xNm": 149125000,
+       "yNm": 102406000
+      },
+      "endNm": {
+       "xNm": 142875000,
+       "yNm": 102406000
+      }
+     },
+     {
+      "startNm": {
+       "xNm": 149125000,
+       "yNm": 94594000
+      },
+      "endNm": {
+       "xNm": 149125000,
+       "yNm": 102406000
+      }
+     },
+     {
+      "startNm": {
+       "xNm": 149125000,
+       "yNm": 94594000
+      },
+      "endNm": {
+       "xNm": 142875000,
+       "yNm": 94594000
+      }
+     }
+    ],
+    "arcs": []
+   },
+   "detail": {
+    "segments": [
+     {
+      "startNm": {
+       "xNm": 149125000,
+       "yNm": 94594000
+      },
+      "endNm": {
+       "xNm": 149125000,
+       "yNm": 102406000
+      }
+     },
+     {
+      "startNm": {
+       "xNm": 149125000,
+       "yNm": 94594000
+      },
+      "endNm": {
+       "xNm": 142875000,
+       "yNm": 94594000
+      }
+     },
+     {
+      "startNm": {
+       "xNm": 149125000,
+       "yNm": 102406000
+      },
+      "endNm": {
+       "xNm": 142875000,
+       "yNm": 102406000
+      }
+     },
+     {
+      "startNm": {
+       "xNm": 148812000,
+       "yNm": 101619000
+      },
+      "endNm": {
+       "xNm": 148812000,
+       "yNm": 101625000
+      }
+     },
+     {
+      "startNm": {
+       "xNm": 148812000,
+       "yNm": 101619000
+      },
+      "endNm": {
+       "xNm": 148810000,
+       "yNm": 101589000
+      }
+     },
+     {
+      "startNm": {
+       "xNm": 148812000,
+       "yNm": 101631000
+      },
+      "endNm": {
+       "xNm": 148808000,
+       "yNm": 101558000
+      }
+     },
+     {
+      "startNm": {
+       "xNm": 148812000,
+       "yNm": 101631000
+      },
+      "endNm": {
+       "xNm": 148806000,
+       "yNm": 101703000
+      }
+     },
+     {
+      "startNm": {
+       "xNm": 148810000,
+       "yNm": 101661000
+      },
+      "endNm": {
+       "xNm": 148808000,
+       "yNm": 101692000
+      }
+     },
+     {
+      "startNm": {
+       "xNm": 148808000,
+       "yNm": 101558000
+      },
+      "endNm": {
+       "xNm": 148793000,
+       "yNm": 101489000
+      }
+     },
+     {
+      "startNm": {
+       "xNm": 148808000,
+       "yNm": 101692000
+      },
+      "endNm": {
+       "xNm": 148807000,
+       "yNm": 101698000
+      }
+     },
+     {
+      "startNm": {
+       "xNm": 148807000,
+       "yNm": 101552000
+      },
+      "endNm": {
+       "xNm": 148806000,
+       "yNm": 101547000
+      }
+     },
+     {
+      "startNm": {
+       "xNm": 148806000,
+       "yNm": 101547000
+      },
+      "endNm": {
+       "xNm": 148799000,
+       "yNm": 101517000
+      }
+     },
+     {
+      "startNm": {
+       "xNm": 148806000,
+       "yNm": 101703000
+      },
+      "endNm": {
+       "xNm": 148790000,
+       "yNm": 101772000
+      }
+     },
+     {
+      "startNm": {
+       "xNm": 148799000,
+       "yNm": 101733000
+      },
+      "endNm": {
+       "xNm": 148793000,
+       "yNm": 101761000
+      }
+     },
+     {
+      "startNm": {
+       "xNm": 148793000,
+       "yNm": 101489000
+      },
+      "endNm": {
+       "xNm": 148769000,
+       "yNm": 101426000
+      }
+     },
+     {
+      "startNm": {
+       "xNm": 148793000,
+       "yNm": 101761000
+      },
+      "endNm": {
+       "xNm": 148791000,
+       "yNm": 101766000
+      }
+     },
+     {
+      "startNm": {
+       "xNm": 148791000,
+       "yNm": 101484000
+      },
+      "endNm": {
+       "xNm": 148790000,
+       "yNm": 101478000
+      }
+     },
+     {
+      "startNm": {
+       "xNm": 148790000,
+       "yNm": 101478000
+      },
+      "endNm": {
+       "xNm": 148779000,
+       "yNm": 101452000
+      }
+     },
+     {
+      "startNm": {
+       "xNm": 148790000,
+       "yNm": 101772000
+      },
+      "endNm": {
+       "xNm": 148764000,
+       "yNm": 101833000
+      }
+     },
+     {
+      "startNm": {
+       "xNm": 148779000,
+       "yNm": 101798000
+      },
+      "endNm": {
+       "xNm": 148769000,
+       "yNm": 101824000
+      }
+     },
+     {
+      "startNm": {
+       "xNm": 148769000,
+       "yNm": 101426000
+      },
+      "endNm": {
+       "xNm": 148738000,
+       "yNm": 101372000
+      }
+     },
+     {
+      "startNm": {
+       "xNm": 148769000,
+       "yNm": 101824000
+      },
+      "endNm": {
+       "xNm": 148766000,
+       "yNm": 101829000
+      }
+     },
+     {
+      "startNm": {
+       "xNm": 148766000,
+       "yNm": 101420000
+      },
+      "endNm": {
+       "xNm": 148766000,
+       "yNm": 101421000
+      }
+     },
+     {
+      "startNm": {
+       "xNm": 148766000,
+       "yNm": 101421000
+      },
+      "endNm": {
+       "xNm": 148764000,
+       "yNm": 101417000
+      }
+     },
+     {
+      "startNm": {
+       "xNm": 148764000,
+       "yNm": 101417000
+      },
+      "endNm": {
+       "xNm": 148751000,
+       "yNm": 101394000
+      }
+     },
+     {
+      "startNm": {
+       "xNm": 148764000,
+       "yNm": 101833000
+      },
+      "endNm": {
+       "xNm": 148733000,
+       "yNm": 101886000
+      }
+     },
+     {
+      "startNm": {
+       "xNm": 148751000,
+       "yNm": 101856000
+      },
+      "endNm": {
+       "xNm": 148738000,
+       "yNm": 101878000
+      }
+     },
+     {
+      "startNm": {
+       "xNm": 148738000,
+       "yNm": 101372000
+      },
+      "endNm": {
+       "xNm": 148703000,
+       "yNm": 101328000
+      }
+     },
+     {
+      "startNm": {
+       "xNm": 148738000,
+       "yNm": 101878000
+      },
+      "endNm": {
+       "xNm": 148735000,
+       "yNm": 101882000
+      }
+     },
+     {
+      "startNm": {
+       "xNm": 148735000,
+       "yNm": 101368000
+      },
+      "endNm": {
+       "xNm": 148733000,
+       "yNm": 101364000
+      }
+     },
+     {
+      "startNm": {
+       "xNm": 148733000,
+       "yNm": 101364000
+      },
+      "endNm": {
+       "xNm": 148717000,
+       "yNm": 101346000
+      }
+     },
+     {
+      "startNm": {
+       "xNm": 148733000,
+       "yNm": 101886000
+      },
+      "endNm": {
+       "xNm": 148697000,
+       "yNm": 101928000
+      }
+     },
+     {
+      "startNm": {
+       "xNm": 148717000,
+       "yNm": 101904000
+      },
+      "endNm": {
+       "xNm": 148703000,
+       "yNm": 101922000
+      }
+     },
+     {
+      "startNm": {
+       "xNm": 148703000,
+       "yNm": 101328000
+      },
+      "endNm": {
+       "xNm": 148665000,
+       "yNm": 101293000
+      }
+     },
+     {
+      "startNm": {
+       "xNm": 148703000,
+       "yNm": 101922000
+      },
+      "endNm": {
+       "xNm": 148700000,
+       "yNm": 101925000
+      }
+     },
+     {
+      "startNm": {
+       "xNm": 148700000,
+       "yNm": 101325000
+      },
+      "endNm": {
+       "xNm": 148697000,
+       "yNm": 101322000
+      }
+     },
+     {
+      "startNm": {
+       "xNm": 148697000,
+       "yNm": 101322000
+      },
+      "endNm": {
+       "xNm": 148680000,
+       "yNm": 101307000
+      }
+     },
+     {
+      "startNm": {
+       "xNm": 148697000,
+       "yNm": 101928000
+      },
+      "endNm": {
+       "xNm": 148659000,
+       "yNm": 101961000
+      }
+     },
+     {
+      "startNm": {
+       "xNm": 148680000,
+       "yNm": 101943000
+      },
+      "endNm": {
+       "xNm": 148665000,
+       "yNm": 101957000
+      }
+     },
+     {
+      "startNm": {
+       "xNm": 148665000,
+       "yNm": 101293000
+      },
+      "endNm": {
+       "xNm": 148625000,
+       "yNm": 101267000
+      }
+     },
+     {
+      "startNm": {
+       "xNm": 148665000,
+       "yNm": 101957000
+      },
+      "endNm": {
+       "xNm": 148662000,
+       "yNm": 101959000
+      }
+     },
+     {
+      "startNm": {
+       "xNm": 148662000,
+       "yNm": 101291000
+      },
+      "endNm": {
+       "xNm": 148659000,
+       "yNm": 101289000
+      }
+     },
+     {
+      "startNm": {
+       "xNm": 148659000,
+       "yNm": 101289000
+      },
+      "endNm": {
+       "xNm": 148643000,
+       "yNm": 101279000
+      }
+     },
+     {
+      "startNm": {
+       "xNm": 148659000,
+       "yNm": 101961000
+      },
+      "endNm": {
+       "xNm": 148619000,
+       "yNm": 101986000
+      }
+     },
+     {
+      "startNm": {
+       "xNm": 148643000,
+       "yNm": 101971000
+      },
+      "endNm": {
+       "xNm": 148625000,
+       "yNm": 101983000
+      }
+     },
+     {
+      "startNm": {
+       "xNm": 148625000,
+       "yNm": 101267000
+      },
+      "endNm": {
+       "xNm": 148580000,
+       "yNm": 101247000
+      }
+     },
+     {
+      "startNm": {
+       "xNm": 148625000,
+       "yNm": 101983000
+      },
+      "endNm": {
+       "xNm": 148622000,
+       "yNm": 101984000
+      }
+     },
+     {
+      "startNm": {
+       "xNm": 148622000,
+       "yNm": 101266000
+      },
+      "endNm": {
+       "xNm": 148619000,
+       "yNm": 101264000
+      }
+     },
+     {
+      "startNm": {
+       "xNm": 148619000,
+       "yNm": 101264000
+      },
+      "endNm": {
+       "xNm": 148600000,
+       "yNm": 101256000
+      }
+     },
+     {
+      "startNm": {
+       "xNm": 148619000,
+       "yNm": 101986000
+      },
+      "endNm": {
+       "xNm": 148572000,
+       "yNm": 102005000
+      }
+     },
+     {
+      "startNm": {
+       "xNm": 148600000,
+       "yNm": 101994000
+      },
+      "endNm": {
+       "xNm": 148580000,
+       "yNm": 102003000
+      }
+     },
+     {
+      "startNm": {
+       "xNm": 148580000,
+       "yNm": 101247000
+      },
+      "endNm": {
+       "xNm": 148529000,
+       "yNm": 101236000
+      }
+     },
+     {
+      "startNm": {
+       "xNm": 148580000,
+       "yNm": 102003000
+      },
+      "endNm": {
+       "xNm": 148576000,
+       "yNm": 102004000
+      }
+     },
+     {
+      "startNm": {
+       "xNm": 148576000,
+       "yNm": 101246000
+      },
+      "endNm": {
+       "xNm": 148572000,
+       "yNm": 101245000
+      }
+     },
+     {
+      "startNm": {
+       "xNm": 148572000,
+       "yNm": 101245000
+      },
+      "endNm": {
+       "xNm": 148551000,
+       "yNm": 101241000
+      }
+     },
+     {
+      "startNm": {
+       "xNm": 148572000,
+       "yNm": 102005000
+      },
+      "endNm": {
+       "xNm": 148521000,
+       "yNm": 102015000
+      }
+     },
+     {
+      "startNm": {
+       "xNm": 148551000,
+       "yNm": 102009000
+      },
+      "endNm": {
+       "xNm": 148529000,
+       "yNm": 102014000
+      }
+     },
+     {
+      "startNm": {
+       "xNm": 148529000,
+       "yNm": 101236000
+      },
+      "endNm": {
+       "xNm": 148474000,
+       "yNm": 101236000
+      }
+     },
+     {
+      "startNm": {
+       "xNm": 148529000,
+       "yNm": 102014000
+      },
+      "endNm": {
+       "xNm": 148525000,
+       "yNm": 102014000
+      }
+     },
+     {
+      "startNm": {
+       "xNm": 148525000,
+       "yNm": 101236000
+      },
+      "endNm": {
+       "xNm": 148521000,
+       "yNm": 101235000
+      }
+     },
+     {
+      "startNm": {
+       "xNm": 148521000,
+       "yNm": 101235000
+      },
+      "endNm": {
+       "xNm": 148498000,
+       "yNm": 101236000
+      }
+     },
+     {
+      "startNm": {
+       "xNm": 148521000,
+       "yNm": 102015000
+      },
+      "endNm": {
+       "xNm": 148466000,
+       "yNm": 102013000
+      }
+     },
+     {
+      "startNm": {
+       "xNm": 148498000,
+       "yNm": 102014000
+      },
+      "endNm": {
+       "xNm": 148474000,
+       "yNm": 102014000
+      }
+     },
+     {
+      "startNm": {
+       "xNm": 148474000,
+       "yNm": 101236000
+      },
+      "endNm": {
+       "xNm": 148419000,
+       "yNm": 101248000
+      }
+     },
+     {
+      "startNm": {
+       "xNm": 148474000,
+       "yNm": 102014000
+      },
+      "endNm": {
+       "xNm": 148470000,
+       "yNm": 102013000
+      }
+     },
+     {
+      "startNm": {
+       "xNm": 148470000,
+       "yNm": 101237000
+      },
+      "endNm": {
+       "xNm": 148466000,
+       "yNm": 101237000
+      }
+     },
+     {
+      "startNm": {
+       "xNm": 148466000,
+       "yNm": 101237000
+      },
+      "endNm": {
+       "xNm": 148443000,
+       "yNm": 101243000
+      }
+     },
+     {
+      "startNm": {
+       "xNm": 148466000,
+       "yNm": 102013000
+      },
+      "endNm": {
+       "xNm": 148410000,
+       "yNm": 101999000
+      }
+     },
+     {
+      "startNm": {
+       "xNm": 148443000,
+       "yNm": 102007000
+      },
+      "endNm": {
+       "xNm": 148419000,
+       "yNm": 102002000
+      }
+     },
+     {
+      "startNm": {
+       "xNm": 148419000,
+       "yNm": 101248000
+      },
+      "endNm": {
+       "xNm": 148364000,
+       "yNm": 101273000
+      }
+     },
+     {
+      "startNm": {
+       "xNm": 148419000,
+       "yNm": 102002000
+      },
+      "endNm": {
+       "xNm": 148414000,
+       "yNm": 102000000
+      }
+     },
+     {
+      "startNm": {
+       "xNm": 148414000,
+       "yNm": 101250000
+      },
+      "endNm": {
+       "xNm": 148410000,
+       "yNm": 101251000
+      }
+     },
+     {
+      "startNm": {
+       "xNm": 148410000,
+       "yNm": 101251000
+      },
+      "endNm": {
+       "xNm": 148393000,
+       "yNm": 101260000
+      }
+     },
+     {
+      "startNm": {
+       "xNm": 148410000,
+       "yNm": 101999000
+      },
+      "endNm": {
+       "xNm": 148350000,
+       "yNm": 101968000
+      }
+     },
+     {
+      "startNm": {
+       "xNm": 148393000,
+       "yNm": 101990000
+      },
+      "endNm": {
+       "xNm": 148364000,
+       "yNm": 101977000
+      }
+     },
+     {
+      "startNm": {
+       "xNm": 148364000,
+       "yNm": 101273000
+      },
+      "endNm": {
+       "xNm": 148314000,
+       "yNm": 101311000
+      }
+     },
+     {
+      "startNm": {
+       "xNm": 148364000,
+       "yNm": 101977000
+      },
+      "endNm": {
+       "xNm": 148357000,
+       "yNm": 101971000
+      }
+     },
+     {
+      "startNm": {
+       "xNm": 148357000,
+       "yNm": 101279000
+      },
+      "endNm": {
+       "xNm": 148350000,
+       "yNm": 101282000
+      }
+     },
+     {
+      "startNm": {
+       "xNm": 148350000,
+       "yNm": 101282000
+      },
+      "endNm": {
+       "xNm": 148338000,
+       "yNm": 101293000
+      }
+     },
+     {
+      "startNm": {
+       "xNm": 148350000,
+       "yNm": 101968000
+      },
+      "endNm": {
+       "xNm": 148291000,
+       "yNm": 101916000
+      }
+     },
+     {
+      "startNm": {
+       "xNm": 148338000,
+       "yNm": 101957000
+      },
+      "endNm": {
+       "xNm": 148314000,
+       "yNm": 101939000
+      }
+     },
+     {
+      "startNm": {
+       "xNm": 148326000,
+       "yNm": 101948000
+      },
+      "endNm": {
+       "xNm": 148323000,
+       "yNm": 101944000
+      }
+     },
+     {
+      "startNm": {
+       "xNm": 148314000,
+       "yNm": 101311000
+      },
+      "endNm": {
+       "xNm": 148271000,
+       "yNm": 101359000
+      }
+     },
+     {
+      "startNm": {
+       "xNm": 148314000,
+       "yNm": 101939000
+      },
+      "endNm": {
+       "xNm": 148301000,
+       "yNm": 101924000
+      }
+     },
+     {
+      "startNm": {
+       "xNm": 148301000,
+       "yNm": 101326000
+      },
+      "endNm": {
+       "xNm": 148291000,
+       "yNm": 101334000
+      }
+     },
+     {
+      "startNm": {
+       "xNm": 148291000,
+       "yNm": 101334000
+      },
+      "endNm": {
+       "xNm": 148284000,
+       "yNm": 101344000
+      }
+     },
+     {
+      "startNm": {
+       "xNm": 148291000,
+       "yNm": 101916000
+      },
+      "endNm": {
+       "xNm": 148240000,
+       "yNm": 101842000
+      }
+     },
+     {
+      "startNm": {
+       "xNm": 148284000,
+       "yNm": 101906000
+      },
+      "endNm": {
+       "xNm": 148271000,
+       "yNm": 101891000
+      }
+     },
+     {
+      "startNm": {
+       "xNm": 148271000,
+       "yNm": 101359000
+      },
+      "endNm": {
+       "xNm": 148237000,
+       "yNm": 101415000
+      }
+     },
+     {
+      "startNm": {
+       "xNm": 148271000,
+       "yNm": 101891000
+      },
+      "endNm": {
+       "xNm": 148247000,
+       "yNm": 101852000
+      }
+     },
+     {
+      "startNm": {
+       "xNm": 148247000,
+       "yNm": 101398000
+      },
+      "endNm": {
+       "xNm": 148240000,
+       "yNm": 101408000
+      }
+     },
+     {
+      "startNm": {
+       "xNm": 148240000,
+       "yNm": 101408000
+      },
+      "endNm": {
+       "xNm": 148239000,
+       "yNm": 101411000
+      }
+     },
+     {
+      "startNm": {
+       "xNm": 148240000,
+       "yNm": 101842000
+      },
+      "endNm": {
+       "xNm": 148202000,
+       "yNm": 101744000
+      }
+     },
+     {
+      "startNm": {
+       "xNm": 148239000,
+       "yNm": 101839000
+      },
+      "endNm": {
+       "xNm": 148237000,
+       "yNm": 101835000
+      }
+     },
+     {
+      "startNm": {
+       "xNm": 148237000,
+       "yNm": 101415000
+      },
+      "endNm": {
+       "xNm": 148212000,
+       "yNm": 101475000
+      }
+     },
+     {
+      "startNm": {
+       "xNm": 148237000,
+       "yNm": 101835000
+      },
+      "endNm": {
+       "xNm": 148212000,
+       "yNm": 101775000
+      }
+     },
+     {
+      "startNm": {
+       "xNm": 148212000,
+       "yNm": 101475000
+      },
+      "endNm": {
+       "xNm": 148193000,
+       "yNm": 101552000
+      }
+     },
+     {
+      "startNm": {
+       "xNm": 148212000,
+       "yNm": 101775000
+      },
+      "endNm": {
+       "xNm": 148207000,
+       "yNm": 101755000
+      }
+     },
+     {
+      "startNm": {
+       "xNm": 148207000,
+       "yNm": 101495000
+      },
+      "endNm": {
+       "xNm": 148202000,
+       "yNm": 101506000
+      }
+     },
+     {
+      "startNm": {
+       "xNm": 148202000,
+       "yNm": 101506000
+      },
+      "endNm": {
+       "xNm": 148200000,
+       "yNm": 101521000
+      }
+     },
+     {
+      "startNm": {
+       "xNm": 148202000,
+       "yNm": 101744000
+      },
+      "endNm": {
+       "xNm": 148188000,
+       "yNm": 101625000
+      }
+     },
+     {
+      "startNm": {
+       "xNm": 148200000,
+       "yNm": 101729000
+      },
+      "endNm": {
+       "xNm": 148193000,
+       "yNm": 101698000
+      }
+     },
+     {
+      "startNm": {
+       "xNm": 148193000,
+       "yNm": 101552000
+      },
+      "endNm": {
+       "xNm": 148188000,
+       "yNm": 101625000
+      }
+     },
+     {
+      "startNm": {
+       "xNm": 148193000,
+       "yNm": 101698000
+      },
+      "endNm": {
+       "xNm": 148188000,
+       "yNm": 101625000
+      }
+     },
+     {
+      "startNm": {
+       "xNm": 142875000,
+       "yNm": 94594000
+      },
+      "endNm": {
+       "xNm": 142875000,
+       "yNm": 102406000
+      }
+     }
+    ],
+    "arcs": []
+   }
+  },
+  {
+   "documentPath": "cynthion.kicad_pcb",
+   "uuid": "00000000-0000-0000-0000-000060027f70",
+   "side": "front",
+   "reference": "J6",
+   "status": "model-not-step"
+  },
+  {
+   "documentPath": "cynthion.kicad_pcb",
+   "uuid": "00000000-0000-0000-0000-00006005cc76",
+   "side": "back",
+   "reference": "C45",
+   "status": "model-not-step"
+  },
+  {
+   "documentPath": "cynthion.kicad_pcb",
+   "uuid": "00000000-0000-0000-0000-00006047fec8",
+   "side": "back",
+   "reference": "C25",
+   "status": "model-not-step"
+  },
+  {
+   "documentPath": "cynthion.kicad_pcb",
+   "uuid": "00000000-0000-0000-0000-000060484e2f",
+   "side": "back",
+   "reference": "C51",
+   "status": "model-not-step"
+  },
+  {
+   "documentPath": "cynthion.kicad_pcb",
+   "uuid": "00000000-0000-0000-0000-00006048a41d",
+   "side": "front",
+   "reference": "U2",
+   "status": "model-not-step"
+  },
+  {
+   "documentPath": "cynthion.kicad_pcb",
+   "uuid": "00000000-0000-0000-0000-00006048e0a5",
+   "side": "back",
+   "reference": "R37",
+   "status": "model-not-step"
+  },
+  {
+   "documentPath": "cynthion.kicad_pcb",
+   "uuid": "00000000-0000-0000-0000-00006048e0f9",
+   "side": "back",
+   "reference": "R39",
+   "status": "model-not-step"
+  },
+  {
+   "documentPath": "cynthion.kicad_pcb",
+   "uuid": "00000000-0000-0000-0000-000060496bd1",
+   "side": "back",
+   "reference": "R34",
+   "status": "model-not-step"
+  },
+  {
+   "documentPath": "cynthion.kicad_pcb",
+   "uuid": "00000000-0000-0000-0000-000060497561",
+   "side": "back",
+   "reference": "R35",
+   "status": "model-not-step"
+  },
+  {
+   "documentPath": "cynthion.kicad_pcb",
+   "uuid": "00000000-0000-0000-0000-00006049765c",
+   "side": "back",
+   "reference": "C47",
+   "status": "model-not-step"
+  },
+  {
+   "documentPath": "cynthion.kicad_pcb",
+   "uuid": "00000000-0000-0000-0000-000060497a8b",
+   "side": "back",
+   "reference": "D9",
+   "status": "model-not-step"
+  },
+  {
+   "documentPath": "cynthion.kicad_pcb",
+   "uuid": "00000000-0000-0000-0000-000060497bd2",
+   "side": "back",
+   "reference": "R36",
+   "status": "model-not-step"
+  },
+  {
+   "documentPath": "cynthion.kicad_pcb",
+   "uuid": "00000000-0000-0000-0000-00006049a955",
+   "side": "back",
+   "reference": "R38",
+   "status": "model-not-step"
+  },
+  {
+   "documentPath": "cynthion.kicad_pcb",
+   "uuid": "005f8c40-5b85-4a46-a1ce-6ab800ded9f7",
+   "side": "back",
+   "reference": "R61",
+   "status": "model-not-step"
+  },
+  {
+   "documentPath": "cynthion.kicad_pcb",
+   "uuid": "00c71a95-d40f-4baf-b3f7-3d29aa3bb3fd",
+   "side": "back",
+   "reference": "R120",
+   "status": "model-not-step"
+  },
+  {
+   "documentPath": "cynthion.kicad_pcb",
+   "uuid": "01251e93-236b-460c-b298-a6a5e8eecb03",
+   "side": "front",
+   "reference": "C59",
+   "status": "model-not-step"
+  },
+  {
+   "documentPath": "cynthion.kicad_pcb",
+   "uuid": "019003a1-43f7-44ff-863d-b1c66417c11c",
+   "side": "back",
+   "reference": "R62",
+   "status": "model-not-step"
+  },
+  {
+   "documentPath": "cynthion.kicad_pcb",
+   "uuid": "02d622b4-5e76-4e0c-910d-b824360cbf5d",
+   "side": "back",
+   "reference": "D19",
+   "status": "model-not-step"
+  },
+  {
+   "documentPath": "cynthion.kicad_pcb",
+   "uuid": "03a6fe99-2b8f-45a1-9286-c55b8761b2de",
+   "side": "back",
+   "reference": "C65",
+   "status": "model-not-step"
+  },
+  {
+   "documentPath": "cynthion.kicad_pcb",
+   "uuid": "03e992ff-feee-4444-a9bb-c9d93fc9bbc0",
+   "side": "front",
+   "reference": "RN8",
+   "status": "model-not-step"
+  },
+  {
+   "documentPath": "cynthion.kicad_pcb",
+   "uuid": "04f9c3ab-8099-4479-8c36-de307b12ed79",
+   "side": "back",
+   "reference": "R106",
+   "status": "model-not-step"
+  },
+  {
+   "documentPath": "cynthion.kicad_pcb",
+   "uuid": "0745aa39-443e-4f61-97ae-f899636c9ca5",
+   "side": "back",
+   "reference": "C73",
+   "status": "model-not-step"
+  },
+  {
+   "documentPath": "cynthion.kicad_pcb",
+   "uuid": "084f4667-8366-42d6-92b9-5c413c19b890",
+   "side": "back",
+   "reference": "R73",
+   "status": "model-not-step"
+  },
+  {
+   "documentPath": "cynthion.kicad_pcb",
+   "uuid": "10b37ce1-6f6e-4120-942f-d735298fb2cf",
+   "side": "back",
+   "reference": "R115",
+   "status": "model-not-step"
+  },
+  {
+   "documentPath": "cynthion.kicad_pcb",
+   "uuid": "11c37d59-45f2-4fce-803d-ddf06c550ccb",
+   "side": "back",
+   "reference": "R118",
+   "status": "model-not-step"
+  },
+  {
+   "documentPath": "cynthion.kicad_pcb",
+   "uuid": "121dfa30-76ea-4773-8497-56294988afe7",
+   "side": "front",
+   "reference": "C58",
+   "status": "model-not-step"
+  },
+  {
+   "documentPath": "cynthion.kicad_pcb",
+   "uuid": "123ac5fe-b4cf-4df2-bc39-dcaf0db6884a",
+   "side": "front",
+   "reference": "U15",
+   "status": "model-not-step"
+  },
+  {
+   "documentPath": "cynthion.kicad_pcb",
+   "uuid": "13511ae4-b3b8-422d-8251-b7927a5e4b36",
+   "side": "front",
+   "reference": "C56",
+   "status": "model-not-step"
+  },
+  {
+   "documentPath": "cynthion.kicad_pcb",
+   "uuid": "13de223f-ba13-4686-872f-a48d6274d0da",
+   "side": "back",
+   "reference": "R51",
+   "status": "model-not-step"
+  },
+  {
+   "documentPath": "cynthion.kicad_pcb",
+   "uuid": "1548addb-018c-4f1b-aa88-d2e1394dd4f8",
+   "side": "back",
+   "reference": "D30",
+   "status": "model-not-step"
+  },
+  {
+   "documentPath": "cynthion.kicad_pcb",
+   "uuid": "15a71f05-0946-4cf3-a2d7-b2bcfa4c4c97",
+   "side": "back",
+   "reference": "C74",
+   "status": "model-not-step"
+  },
+  {
+   "documentPath": "cynthion.kicad_pcb",
+   "uuid": "165b0547-6262-4917-9c05-73ef8208757e",
+   "side": "front",
+   "reference": "RN6",
+   "status": "model-not-step"
+  },
+  {
+   "documentPath": "cynthion.kicad_pcb",
+   "uuid": "1685bccb-4fea-43ca-9a74-0f50e3859c4f",
+   "side": "back",
+   "reference": "R79",
+   "status": "model-not-step"
+  },
+  {
+   "documentPath": "cynthion.kicad_pcb",
+   "uuid": "18af7196-0d0e-4a18-9399-7cb57a5c0b90",
+   "side": "back",
+   "reference": "D20",
+   "status": "model-not-step"
+  },
+  {
+   "documentPath": "cynthion.kicad_pcb",
+   "uuid": "19f36476-ac00-4143-95cb-f47a8872eac5",
+   "side": "front",
+   "reference": "R108",
+   "status": "model-not-step"
+  },
+  {
+   "documentPath": "cynthion.kicad_pcb",
+   "uuid": "1a9c2fd0-a81a-46a9-bc6f-52fb7d02734c",
+   "side": "front",
+   "reference": "RN13",
+   "status": "model-not-step"
+  },
+  {
+   "documentPath": "cynthion.kicad_pcb",
+   "uuid": "1af46a76-b214-439d-87d1-306620680ea1",
+   "side": "back",
+   "reference": "D29",
+   "status": "model-not-step"
+  },
+  {
+   "documentPath": "cynthion.kicad_pcb",
+   "uuid": "1b9f35d5-83e9-4a9e-bc26-b4a0342ddf9c",
+   "side": "back",
+   "reference": "R80",
+   "status": "model-not-step"
+  },
+  {
+   "documentPath": "cynthion.kicad_pcb",
+   "uuid": "1beb7903-c7bf-40b5-9043-c2ed2bc4d545",
+   "side": "back",
+   "reference": "R104",
+   "status": "model-not-step"
+  },
+  {
+   "documentPath": "cynthion.kicad_pcb",
+   "uuid": "1c35a83b-6c03-421a-989c-0ecfd4048a41",
+   "side": "back",
+   "reference": "D28",
+   "status": "model-not-step"
+  },
+  {
+   "documentPath": "cynthion.kicad_pcb",
+   "uuid": "1c95c204-79bf-43f0-8258-0b83db3c8922",
+   "side": "back",
+   "reference": "D21",
+   "status": "model-not-step"
+  },
+  {
+   "documentPath": "cynthion.kicad_pcb",
+   "uuid": "1d756622-e0c8-4e83-91a2-34987cc8cdac",
+   "side": "back",
+   "reference": "R71",
+   "status": "model-not-step"
+  },
+  {
+   "documentPath": "cynthion.kicad_pcb",
+   "uuid": "20aabf95-1e81-49ab-9a9d-dd3688f37578",
+   "side": "back",
+   "reference": "R47",
+   "status": "model-not-step"
+  },
+  {
+   "documentPath": "cynthion.kicad_pcb",
+   "uuid": "25d3b1a7-ebeb-4b08-859a-820c70a2585c",
+   "side": "back",
+   "reference": "R96",
+   "status": "model-not-step"
+  },
+  {
+   "documentPath": "cynthion.kicad_pcb",
+   "uuid": "29813b6c-a026-4efa-bcdc-264513cd94ff",
+   "side": "back",
+   "reference": "R48",
+   "status": "model-not-step"
+  },
+  {
+   "documentPath": "cynthion.kicad_pcb",
+   "uuid": "29f479f9-0fef-4f18-b6e1-a4a91bb2fb3b",
+   "side": "back",
+   "reference": "C78",
+   "status": "model-not-step"
+  },
+  {
+   "documentPath": "cynthion.kicad_pcb",
+   "uuid": "2b56de87-416e-41c2-8527-2d3a9df4b0ee",
+   "side": "back",
+   "reference": "R59",
+   "status": "model-not-step"
+  },
+  {
+   "documentPath": "cynthion.kicad_pcb",
+   "uuid": "2e7620cc-424a-42ca-a7c7-05e6aabc7a55",
+   "side": "back",
+   "reference": "R53",
+   "status": "model-not-step"
+  },
+  {
+   "documentPath": "cynthion.kicad_pcb",
+   "uuid": "33201749-93d1-468b-b9c6-4e1cbfd421c6",
+   "side": "back",
+   "reference": "R49",
+   "status": "model-not-step"
+  },
+  {
+   "documentPath": "cynthion.kicad_pcb",
+   "uuid": "33ba5323-df8e-408d-8195-7b2a50355615",
+   "side": "back",
+   "reference": "R85",
+   "status": "model-not-step"
+  },
+  {
+   "documentPath": "cynthion.kicad_pcb",
+   "uuid": "349fdc94-605d-4651-b6c5-6605a97ea1b9",
+   "side": "back",
+   "reference": "R65",
+   "status": "model-not-step"
+  },
+  {
+   "documentPath": "cynthion.kicad_pcb",
+   "uuid": "353429e6-d439-44e9-b2df-2b2d954109bb",
+   "side": "front",
+   "reference": "RN10",
+   "status": "model-not-step"
+  },
+  {
+   "documentPath": "cynthion.kicad_pcb",
+   "uuid": "35e034d7-f097-4650-8dfd-dcc6fbd8e298",
+   "side": "back",
+   "reference": "C79",
+   "status": "model-not-step"
+  },
+  {
+   "documentPath": "cynthion.kicad_pcb",
+   "uuid": "3842de83-1318-4295-a95d-5d1baad380e8",
+   "side": "front",
+   "reference": "FL4",
+   "status": "model-not-step"
+  },
+  {
+   "documentPath": "cynthion.kicad_pcb",
+   "uuid": "3924bee4-44b0-4ca0-94fe-43e6dbd43042",
+   "side": "back",
+   "reference": "R112",
+   "status": "model-not-step"
+  },
+  {
+   "documentPath": "cynthion.kicad_pcb",
+   "uuid": "396ecba3-d511-4be6-9bb2-0fa72b3164dd",
+   "side": "back",
+   "reference": "D17",
+   "status": "model-not-step"
+  },
+  {
+   "documentPath": "cynthion.kicad_pcb",
+   "uuid": "39f1a590-3604-4349-89e5-8d6e8395f7e0",
+   "side": "back",
+   "reference": "C23",
+   "status": "model-not-step"
+  },
+  {
+   "documentPath": "cynthion.kicad_pcb",
+   "uuid": "3a9b0b71-d419-4bbc-a38b-8dd8113ad485",
+   "side": "back",
+   "reference": "C64",
+   "status": "model-not-step"
+  },
+  {
+   "documentPath": "cynthion.kicad_pcb",
+   "uuid": "3c0d2259-c204-4fa5-9d63-40fe635cf2f4",
+   "side": "front",
+   "reference": "C63",
+   "status": "model-not-step"
+  },
+  {
+   "documentPath": "cynthion.kicad_pcb",
+   "uuid": "3cf2acb5-a6b0-4948-bf1c-e63e25869be7",
+   "side": "front",
+   "reference": "FL1",
+   "status": "model-not-step"
+  },
+  {
+   "documentPath": "cynthion.kicad_pcb",
+   "uuid": "3ff07239-acc3-4293-aa5e-753aa132e684",
+   "side": "front",
+   "reference": "Q9",
+   "status": "model-not-step"
+  },
+  {
+   "documentPath": "cynthion.kicad_pcb",
+   "uuid": "41a93434-44bf-4759-8e37-49955fc783eb",
+   "side": "back",
+   "reference": "R87",
+   "status": "model-not-step"
+  },
+  {
+   "documentPath": "cynthion.kicad_pcb",
+   "uuid": "432e791e-dcb9-4db8-a54e-f404bfb40e25",
+   "side": "front",
+   "reference": "RN12",
+   "status": "model-not-step"
+  },
+  {
+   "documentPath": "cynthion.kicad_pcb",
+   "uuid": "439ba816-673a-4b61-9180-06445124514e",
+   "side": "front",
+   "reference": "Q1",
+   "status": "model-not-step"
+  },
+  {
+   "documentPath": "cynthion.kicad_pcb",
+   "uuid": "441d1bb8-2a66-4da0-ab08-a99f49d338bb",
+   "side": "back",
+   "reference": "R82",
+   "status": "model-not-step"
+  },
+  {
+   "documentPath": "cynthion.kicad_pcb",
+   "uuid": "447a6fa4-cf30-47a9-853d-ff86647dade6",
+   "side": "back",
+   "reference": "R98",
+   "status": "model-not-step"
+  },
+  {
+   "documentPath": "cynthion.kicad_pcb",
+   "uuid": "454c9cfc-ce7f-48c5-a45f-c0421a8e0b94",
+   "side": "back",
+   "reference": "R90",
+   "status": "model-not-step"
+  },
+  {
+   "documentPath": "cynthion.kicad_pcb",
+   "uuid": "45803d91-2f24-41c7-a361-939d85fd26cd",
+   "side": "back",
+   "reference": "R92",
+   "status": "model-not-step"
+  },
+  {
+   "documentPath": "cynthion.kicad_pcb",
+   "uuid": "4adc47c4-0acb-4751-8365-772b816b71bb",
+   "side": "back",
+   "reference": "R114",
+   "status": "model-not-step"
+  },
+  {
+   "documentPath": "cynthion.kicad_pcb",
+   "uuid": "4b207045-23bb-4eed-9503-457510672c31",
+   "side": "back",
+   "reference": "R44",
+   "status": "model-not-step"
+  },
+  {
+   "documentPath": "cynthion.kicad_pcb",
+   "uuid": "4b3bcebd-a046-455e-943d-fd9e256ad573",
+   "side": "front",
+   "reference": "J5",
+   "stepModel": {
+    "reference": "$(KIPRJMOD)/libraries/cynthion.3dshapes/10132798-031100LF.stp"
+   },
+   "status": "model-unavailable"
+  },
+  {
+   "documentPath": "cynthion.kicad_pcb",
+   "uuid": "4bc57e1e-3066-47e8-85b0-55ce51c27d02",
+   "side": "back",
+   "reference": "R72",
+   "status": "model-not-step"
+  },
+  {
+   "documentPath": "cynthion.kicad_pcb",
+   "uuid": "4ce7ee20-3ff6-4a92-8c65-cc6d39b659b0",
+   "side": "back",
+   "reference": "R4",
+   "status": "model-not-step"
+  },
+  {
+   "documentPath": "cynthion.kicad_pcb",
+   "uuid": "4cf8754a-187d-4d9e-b422-1bcf7262720f",
+   "side": "back",
+   "reference": "C19",
+   "status": "model-not-step"
+  },
+  {
+   "documentPath": "cynthion.kicad_pcb",
+   "uuid": "4e6bf37a-8da1-4dab-925e-26d539a35964",
+   "side": "back",
+   "reference": "R100",
+   "status": "model-not-step"
+  },
+  {
+   "documentPath": "cynthion.kicad_pcb",
+   "uuid": "4f986dc4-4773-4a4b-9bec-0ddb6f880671",
+   "side": "back",
+   "reference": "C52",
+   "status": "model-not-step"
+  },
+  {
+   "documentPath": "cynthion.kicad_pcb",
+   "uuid": "4ff8d579-03a9-47b1-b661-a586f188babe",
+   "side": "back",
+   "reference": "C53",
+   "status": "model-not-step"
+  },
+  {
+   "documentPath": "cynthion.kicad_pcb",
+   "uuid": "538c1a45-cc72-4dc4-931a-4b417be36e7a",
+   "side": "front",
+   "reference": "C60",
+   "status": "model-not-step"
+  },
+  {
+   "documentPath": "cynthion.kicad_pcb",
+   "uuid": "53edd6c9-4e42-4dfe-922a-5746989c3bf6",
+   "side": "back",
+   "reference": "R93",
+   "status": "model-not-step"
+  },
+  {
+   "documentPath": "cynthion.kicad_pcb",
+   "uuid": "55281d82-5e95-4af0-bc11-266ecab63d87",
+   "side": "front",
+   "reference": "C57",
+   "status": "model-not-step"
+  },
+  {
+   "documentPath": "cynthion.kicad_pcb",
+   "uuid": "558abf3c-f23b-4551-a273-e56bcdc92b91",
+   "side": "back",
+   "reference": "D15",
+   "status": "model-not-step"
+  },
+  {
+   "documentPath": "cynthion.kicad_pcb",
+   "uuid": "57aa424e-b5a8-4e70-96c2-4503d6ee249a",
+   "side": "back",
+   "reference": "R60",
+   "status": "model-not-step"
+  },
+  {
+   "documentPath": "cynthion.kicad_pcb",
+   "uuid": "584d12c9-7ac1-4625-91b5-4e3d0392a8ec",
+   "side": "back",
+   "reference": "Q13",
+   "status": "model-not-step"
+  },
+  {
+   "documentPath": "cynthion.kicad_pcb",
+   "uuid": "592976be-491e-474c-bd5f-5151982b6980",
+   "side": "back",
+   "reference": "R67",
+   "status": "model-not-step"
+  },
+  {
+   "documentPath": "cynthion.kicad_pcb",
+   "uuid": "5c035db4-3254-4ed2-a69c-5c2df05d211f",
+   "side": "back",
+   "reference": "R95",
+   "status": "model-not-step"
+  },
+  {
+   "documentPath": "cynthion.kicad_pcb",
+   "uuid": "5ff6e761-4fea-4a2c-bdc8-857a89538a78",
+   "side": "front",
+   "reference": "Q6",
+   "status": "model-not-step"
+  },
+  {
+   "documentPath": "cynthion.kicad_pcb",
+   "uuid": "602d4708-c8d0-4a0a-b2c8-78fdcdc5d949",
+   "side": "back",
+   "reference": "Q15",
+   "status": "model-not-step"
+  },
+  {
+   "documentPath": "cynthion.kicad_pcb",
+   "uuid": "61c0cd49-0a0d-48e5-ad5c-6e11de41d28b",
+   "side": "back",
+   "reference": "R50",
+   "status": "model-not-step"
+  },
+  {
+   "documentPath": "cynthion.kicad_pcb",
+   "uuid": "629224c3-534f-4762-99d3-efa894d74202",
+   "side": "back",
+   "reference": "R54",
+   "status": "model-not-step"
+  },
+  {
+   "documentPath": "cynthion.kicad_pcb",
+   "uuid": "65d212b1-a535-43d8-8917-12aac84c8bde",
+   "side": "back",
+   "reference": "C81",
+   "status": "model-not-step"
+  },
+  {
+   "documentPath": "cynthion.kicad_pcb",
+   "uuid": "65d6b958-d283-4c55-bc9b-01a3c0623897",
+   "side": "front",
+   "reference": "Q12",
+   "status": "model-not-step"
+  },
+  {
+   "documentPath": "cynthion.kicad_pcb",
+   "uuid": "65ed733f-6910-4cfd-b4a1-4dec018be350",
+   "side": "back",
+   "reference": "R86",
+   "status": "model-not-step"
+  },
+  {
+   "documentPath": "cynthion.kicad_pcb",
+   "uuid": "67196e74-1eb7-4cea-b836-d333e9bcccce",
+   "side": "back",
+   "reference": "Q3",
+   "status": "model-not-step"
+  },
+  {
+   "documentPath": "cynthion.kicad_pcb",
+   "uuid": "67ea3972-1e40-43b8-97f9-7a37bc682c72",
+   "side": "back",
+   "reference": "C21",
+   "status": "model-not-step"
+  },
+  {
+   "documentPath": "cynthion.kicad_pcb",
+   "uuid": "68425f84-0353-4f8f-9c31-c178e2559350",
+   "side": "back",
+   "reference": "C55",
+   "status": "model-not-step"
+  },
+  {
+   "documentPath": "cynthion.kicad_pcb",
+   "uuid": "68cbbdc3-3670-42b5-94ee-20d26c33ed87",
+   "side": "back",
+   "reference": "D27",
+   "status": "model-not-step"
+  },
+  {
+   "documentPath": "cynthion.kicad_pcb",
+   "uuid": "6df7be76-76c8-4933-91a0-c4d866a41288",
+   "side": "back",
+   "reference": "R111",
+   "status": "model-not-step"
+  },
+  {
+   "documentPath": "cynthion.kicad_pcb",
+   "uuid": "6e2be0f1-ba73-4678-9df7-051bd9413ddb",
+   "side": "back",
+   "reference": "R78",
+   "status": "model-not-step"
+  },
+  {
+   "documentPath": "cynthion.kicad_pcb",
+   "uuid": "6f6fc271-4fb5-46b8-bba1-de8b5daab8a0",
+   "side": "front",
+   "reference": "RN9",
+   "status": "model-not-step"
+  },
+  {
+   "documentPath": "cynthion.kicad_pcb",
+   "uuid": "740e492e-8f27-48a3-80a8-fb43cf4552c3",
+   "side": "back",
+   "reference": "D22",
+   "status": "model-not-step"
+  },
+  {
+   "documentPath": "cynthion.kicad_pcb",
+   "uuid": "76485180-4b3d-46b8-b73a-bea3f33ea436",
+   "side": "back",
+   "reference": "Q10",
+   "status": "model-not-step"
+  },
+  {
+   "documentPath": "cynthion.kicad_pcb",
+   "uuid": "7b2d556a-2043-41fe-8056-a8543e5d5cfd",
+   "side": "front",
+   "reference": "FL3",
+   "status": "model-not-step"
+  },
+  {
+   "documentPath": "cynthion.kicad_pcb",
+   "uuid": "7d96ca80-cf3e-492a-aa00-2a6295d254e9",
+   "side": "front",
+   "reference": "C61",
+   "status": "model-not-step"
+  },
+  {
+   "documentPath": "cynthion.kicad_pcb",
+   "uuid": "7d9c9a4b-635d-4e94-8647-d1625141cdbd",
+   "side": "front",
+   "reference": "U14",
+   "status": "model-not-step"
+  },
+  {
+   "documentPath": "cynthion.kicad_pcb",
+   "uuid": "7e8ff1bc-ebe0-46e5-b1bf-27da4b3212ea",
+   "side": "back",
+   "reference": "R69",
+   "status": "model-not-step"
+  },
+  {
+   "documentPath": "cynthion.kicad_pcb",
+   "uuid": "7f90680e-e1cd-41b7-a8b6-bf389d3bb90f",
+   "side": "back",
+   "reference": "D23",
+   "status": "model-not-step"
+  },
+  {
+   "documentPath": "cynthion.kicad_pcb",
+   "uuid": "832fbe07-c37d-4a8e-8c14-9ff7341f97b0",
+   "side": "back",
+   "reference": "D16",
+   "status": "model-not-step"
+  },
+  {
+   "documentPath": "cynthion.kicad_pcb",
+   "uuid": "878f36ef-88d3-4256-af79-7c05daeb190b",
+   "side": "front",
+   "reference": "R56",
+   "status": "model-not-step"
+  },
+  {
+   "documentPath": "cynthion.kicad_pcb",
+   "uuid": "87f5d78b-c7dc-4d42-af34-c8a128b23d23",
+   "side": "back",
+   "reference": "C5",
+   "status": "model-not-step"
+  },
+  {
+   "documentPath": "cynthion.kicad_pcb",
+   "uuid": "88d5fdaf-de61-41a8-8b9d-689eed139454",
+   "side": "back",
+   "reference": "C82",
+   "status": "model-not-step"
+  },
+  {
+   "documentPath": "cynthion.kicad_pcb",
+   "uuid": "8e8f26aa-8807-4c7b-9d38-b8b48f8092b8",
+   "side": "back",
+   "reference": "R99",
+   "status": "model-not-step"
+  },
+  {
+   "documentPath": "cynthion.kicad_pcb",
+   "uuid": "8fda02c6-f97e-4b9c-82c8-cded5c30e4dd",
+   "side": "front",
+   "reference": "Q4",
+   "status": "model-not-step"
+  },
+  {
+   "documentPath": "cynthion.kicad_pcb",
+   "uuid": "927814be-2a0e-4667-a949-5d054ca3128c",
+   "side": "back",
+   "reference": "D25",
+   "status": "model-not-step"
+  },
+  {
+   "documentPath": "cynthion.kicad_pcb",
+   "uuid": "930ec426-637f-485f-81ff-d1466fc9141e",
+   "side": "back",
+   "reference": "R77",
+   "status": "model-not-step"
+  },
+  {
+   "documentPath": "cynthion.kicad_pcb",
+   "uuid": "93383ae7-a734-4186-84a8-513b6a1b6f1b",
+   "side": "back",
+   "reference": "R94",
+   "status": "model-not-step"
+  },
+  {
+   "documentPath": "cynthion.kicad_pcb",
+   "uuid": "94a0751d-b37d-4b54-baaa-695f1ab59e83",
+   "side": "back",
+   "reference": "R66",
+   "status": "model-not-step"
+  },
+  {
+   "documentPath": "cynthion.kicad_pcb",
+   "uuid": "950fc5d7-53c9-4f00-bf55-8af43da268ac",
+   "side": "back",
+   "reference": "R76",
+   "status": "model-not-step"
+  },
+  {
+   "documentPath": "cynthion.kicad_pcb",
+   "uuid": "9552cd50-bf65-4b63-813c-ebe50b36d948",
+   "side": "back",
+   "reference": "R74",
+   "status": "model-not-step"
+  },
+  {
+   "documentPath": "cynthion.kicad_pcb",
+   "uuid": "9842d1cc-b5fe-4ee2-bf83-f663e711531b",
+   "side": "back",
+   "reference": "R101",
+   "status": "model-not-step"
+  },
+  {
+   "documentPath": "cynthion.kicad_pcb",
+   "uuid": "986c22fa-74a9-40b0-a1b5-da04c453f743",
+   "side": "back",
+   "reference": "R119",
+   "status": "model-not-step"
+  },
+  {
+   "documentPath": "cynthion.kicad_pcb",
+   "uuid": "9c5d3029-58ea-4423-a9e4-1bec25918bb4",
+   "side": "back",
+   "reference": "R103",
+   "status": "model-not-step"
+  },
+  {
+   "documentPath": "cynthion.kicad_pcb",
+   "uuid": "a03cd220-6554-4eb2-87f9-99dc629add57",
+   "side": "back",
+   "reference": "D24",
+   "status": "model-not-step"
+  },
+  {
+   "documentPath": "cynthion.kicad_pcb",
+   "uuid": "a4d749ec-77a5-4544-82da-d002b939dabd",
+   "side": "back",
+   "reference": "R68",
+   "status": "model-not-step"
+  },
+  {
+   "documentPath": "cynthion.kicad_pcb",
+   "uuid": "a5d20acb-7ee8-4deb-97b7-22e5f4994ec0",
+   "side": "back",
+   "reference": "R58",
+   "status": "model-not-step"
+  },
+  {
+   "documentPath": "cynthion.kicad_pcb",
+   "uuid": "a66677d0-fe44-46ad-adee-f0c557a0a2f0",
+   "side": "back",
+   "reference": "R88",
+   "status": "model-not-step"
+  },
+  {
+   "documentPath": "cynthion.kicad_pcb",
+   "uuid": "a76ccbfc-d98c-4638-a6d9-1ad230181342",
+   "side": "front",
+   "reference": "Q5",
+   "status": "model-not-step"
+  },
+  {
+   "documentPath": "cynthion.kicad_pcb",
+   "uuid": "a90953eb-5477-4b94-8fa5-332b2641b675",
+   "side": "back",
+   "reference": "R84",
+   "status": "model-not-step"
+  },
+  {
+   "documentPath": "cynthion.kicad_pcb",
+   "uuid": "a9151a04-d7e6-48f8-886a-ee9b1782aecb",
+   "side": "back",
+   "reference": "C80",
+   "status": "model-not-step"
+  },
+  {
+   "documentPath": "cynthion.kicad_pcb",
+   "uuid": "aaa66b4a-36ba-42d5-9e22-d0690a5db90b",
+   "side": "back",
+   "reference": "R52",
+   "status": "model-not-step"
+  },
+  {
+   "documentPath": "cynthion.kicad_pcb",
+   "uuid": "aad58251-6de5-4266-9465-5438fee2c56f",
+   "side": "back",
+   "reference": "R109",
+   "status": "model-not-step"
+  },
+  {
+   "documentPath": "cynthion.kicad_pcb",
+   "uuid": "af94e04f-7cd5-4c61-88fd-296e005cc4e8",
+   "side": "back",
+   "reference": "R63",
+   "status": "model-not-step"
+  },
+  {
+   "documentPath": "cynthion.kicad_pcb",
+   "uuid": "b21aa2ad-d1f0-42e3-a913-e6083498ca4b",
+   "side": "back",
+   "reference": "C77",
+   "status": "model-not-step"
+  },
+  {
+   "documentPath": "cynthion.kicad_pcb",
+   "uuid": "b271c18a-b9c8-420d-b8d1-8cf132746308",
+   "side": "front",
+   "reference": "U13",
+   "status": "model-not-step"
+  },
+  {
+   "documentPath": "cynthion.kicad_pcb",
+   "uuid": "b357f3be-e85e-4ef7-a22f-8882d8d8e4b5",
+   "side": "back",
+   "reference": "C76",
+   "status": "model-not-step"
+  },
+  {
+   "documentPath": "cynthion.kicad_pcb",
+   "uuid": "b3fc5206-dc5c-4544-b14e-9d2de4925460",
+   "side": "front",
+   "reference": "RN7",
+   "status": "model-not-step"
+  },
+  {
+   "documentPath": "cynthion.kicad_pcb",
+   "uuid": "b545fec5-407b-4b77-ae5c-0cb9749fde10",
+   "side": "back",
+   "reference": "D26",
+   "status": "model-not-step"
+  },
+  {
+   "documentPath": "cynthion.kicad_pcb",
+   "uuid": "b8c30819-06ee-4738-8330-8aee339dfb84",
+   "side": "front",
+   "reference": "RN11",
+   "status": "model-not-step"
+  },
+  {
+   "documentPath": "cynthion.kicad_pcb",
+   "uuid": "b9089e4c-53e8-4bd2-b87f-7b8a88107578",
+   "side": "back",
+   "reference": "R89",
+   "status": "model-not-step"
+  },
+  {
+   "documentPath": "cynthion.kicad_pcb",
+   "uuid": "bb7772de-10a3-43be-a625-ace306357bcf",
+   "side": "back",
+   "reference": "R91",
+   "status": "model-not-step"
+  },
+  {
+   "documentPath": "cynthion.kicad_pcb",
+   "uuid": "be286503-ecee-4657-86d5-64b0638b3659",
+   "side": "back",
+   "reference": "R83",
+   "status": "model-not-step"
+  },
+  {
+   "documentPath": "cynthion.kicad_pcb",
+   "uuid": "c0ffb6c7-a730-4d27-95c9-9354a6df5cac",
+   "side": "back",
+   "reference": "R46",
+   "status": "model-not-step"
+  },
+  {
+   "documentPath": "cynthion.kicad_pcb",
+   "uuid": "c41c1455-4849-42c6-be37-d662ff171ef7",
+   "side": "back",
+   "reference": "Q11",
+   "status": "model-not-step"
+  },
+  {
+   "documentPath": "cynthion.kicad_pcb",
+   "uuid": "ca3272b4-32f7-4399-ba1a-2b76f8efe1fb",
+   "side": "back",
+   "reference": "R81",
+   "status": "model-not-step"
+  },
+  {
+   "documentPath": "cynthion.kicad_pcb",
+   "uuid": "cd80efe4-a418-442a-9b04-fc9c20c91808",
+   "side": "back",
+   "reference": "R110",
+   "status": "model-not-step"
+  },
+  {
+   "documentPath": "cynthion.kicad_pcb",
+   "uuid": "cefddc04-1ff2-4a74-844d-ddf904a0ec1c",
+   "side": "back",
+   "reference": "Q14",
+   "status": "model-not-step"
+  },
+  {
+   "documentPath": "cynthion.kicad_pcb",
+   "uuid": "d38c17dc-903c-4490-9940-33d89b2b8e26",
+   "side": "front",
+   "reference": "SW3",
+   "stepModel": {
+    "reference": "$(KIPRJMOD)/libraries/cynthion.3dshapes/tc-1109de-a-f.stp"
+   },
+   "status": "model-unavailable"
+  },
+  {
+   "documentPath": "cynthion.kicad_pcb",
+   "uuid": "d81eaf4f-5191-405a-a3ff-e1720ff1365e",
+   "side": "back",
+   "reference": "R105",
+   "status": "model-not-step"
+  },
+  {
+   "documentPath": "cynthion.kicad_pcb",
+   "uuid": "d8c92683-c7b0-47ce-8a00-842dace6f14e",
+   "side": "back",
+   "reference": "Q8",
+   "status": "model-not-step"
+  },
+  {
+   "documentPath": "cynthion.kicad_pcb",
+   "uuid": "d9198ca2-7df5-4bef-a3ac-c0a5f000ed99",
+   "side": "front",
+   "reference": "RN5",
+   "status": "model-not-step"
+  },
+  {
+   "documentPath": "cynthion.kicad_pcb",
+   "uuid": "dc5798a9-7546-4ae8-a815-b3be44da32a6",
+   "side": "back",
+   "reference": "C67",
+   "status": "model-not-step"
+  },
+  {
+   "documentPath": "cynthion.kicad_pcb",
+   "uuid": "de9d6157-0f12-4649-865b-0e665d35178a",
+   "side": "back",
+   "reference": "R43",
+   "status": "model-not-step"
+  },
+  {
+   "documentPath": "cynthion.kicad_pcb",
+   "uuid": "e10b4710-c013-4ce9-ae93-6cd3ef552341",
+   "side": "back",
+   "reference": "R102",
+   "status": "model-not-step"
+  },
+  {
+   "documentPath": "cynthion.kicad_pcb",
+   "uuid": "e2805be9-ae4a-4f45-ba99-47a5d9d7f5ea",
+   "side": "back",
+   "reference": "R107",
+   "status": "model-not-step"
+  },
+  {
+   "documentPath": "cynthion.kicad_pcb",
+   "uuid": "e4c462c8-5ece-4131-9d04-a607f9c237a6",
+   "side": "back",
+   "reference": "C83",
+   "status": "model-not-step"
+  },
+  {
+   "documentPath": "cynthion.kicad_pcb",
+   "uuid": "e6fd13f4-3850-4abf-b3a9-616f345ff28f",
+   "side": "back",
+   "reference": "R70",
+   "status": "model-not-step"
+  },
+  {
+   "documentPath": "cynthion.kicad_pcb",
+   "uuid": "e78e70e1-2fed-48ea-93c2-35b438d36a3d",
+   "side": "back",
+   "reference": "R97",
+   "status": "model-not-step"
+  },
+  {
+   "documentPath": "cynthion.kicad_pcb",
+   "uuid": "e7cbba5a-8c44-402f-b345-c1831e35ce42",
+   "side": "back",
+   "reference": "R116",
+   "status": "model-not-step"
+  },
+  {
+   "documentPath": "cynthion.kicad_pcb",
+   "uuid": "e9bdf1ab-884f-47d5-b94e-b8b4b4d8cfec",
+   "side": "back",
+   "reference": "C54",
+   "status": "model-not-step"
+  },
+  {
+   "documentPath": "cynthion.kicad_pcb",
+   "uuid": "ec6b7f68-0854-4d2c-8aaa-3401fae2880d",
+   "side": "back",
+   "reference": "R113",
+   "status": "model-not-step"
+  },
+  {
+   "documentPath": "cynthion.kicad_pcb",
+   "uuid": "ee1590d4-316f-48d5-ba55-d214af80a918",
+   "side": "back",
+   "reference": "R117",
+   "status": "model-not-step"
+  },
+  {
+   "documentPath": "cynthion.kicad_pcb",
+   "uuid": "f02c8a04-97ba-409f-9ae7-0b1d11c13415",
+   "side": "back",
+   "reference": "R64",
+   "status": "model-not-step"
+  },
+  {
+   "documentPath": "cynthion.kicad_pcb",
+   "uuid": "f310ba99-d04a-42a6-881e-5a353aca6530",
+   "side": "front",
+   "reference": "C66",
+   "status": "model-not-step"
+  },
+  {
+   "documentPath": "cynthion.kicad_pcb",
+   "uuid": "f367da31-66f3-4ed9-926c-f6675bf68ac7",
+   "side": "front",
+   "reference": "R55",
+   "status": "model-not-step"
+  },
+  {
+   "documentPath": "cynthion.kicad_pcb",
+   "uuid": "f3bab22f-eb37-4efa-a17b-4b3ea2d81302",
+   "side": "front",
+   "reference": "U16",
+   "status": "model-not-step"
+  },
+  {
+   "documentPath": "cynthion.kicad_pcb",
+   "uuid": "f490b674-512e-41f1-b4b0-034489d1867c",
+   "side": "back",
+   "reference": "Q16",
+   "status": "model-not-step"
+  },
+  {
+   "documentPath": "cynthion.kicad_pcb",
+   "uuid": "f50951e1-2194-4710-96c6-41f10f912606",
+   "side": "front",
+   "reference": "Q7",
+   "status": "model-not-step"
+  },
+  {
+   "documentPath": "cynthion.kicad_pcb",
+   "uuid": "f5bbab16-4dee-41f3-9c77-ecbbe7779b87",
+   "side": "back",
+   "reference": "C62",
+   "status": "model-not-step"
+  },
+  {
+   "documentPath": "cynthion.kicad_pcb",
+   "uuid": "f5d37365-7ee2-4889-b4b4-10e316798249",
+   "side": "back",
+   "reference": "R45",
+   "status": "model-not-step"
+  },
+  {
+   "documentPath": "cynthion.kicad_pcb",
+   "uuid": "f8f44afe-5b2d-4005-b867-8d181e2b5f87",
+   "side": "back",
+   "reference": "D18",
+   "status": "model-not-step"
+  },
+  {
+   "documentPath": "cynthion.kicad_pcb",
+   "uuid": "f99e3146-a72f-4e9c-8b5f-55ecb326f29b",
+   "side": "back",
+   "reference": "R57",
+   "status": "model-not-step"
+  },
+  {
+   "documentPath": "cynthion.kicad_pcb",
+   "uuid": "fa7984aa-864b-40a5-ad67-90b400a2f166",
+   "side": "front",
+   "reference": "FL2",
+   "status": "model-not-step"
+  },
+  {
+   "documentPath": "cynthion.kicad_pcb",
+   "uuid": "fba3fd44-4420-42e5-b309-0d13cf2ab47e",
+   "side": "front",
+   "reference": "Q2",
+   "status": "model-not-step"
+  },
+  {
+   "documentPath": "cynthion.kicad_pcb",
+   "uuid": "fc8ed8e1-befb-4f51-8793-00dc42ed64ba",
+   "side": "back",
+   "reference": "R75",
+   "status": "model-not-step"
+  }
+ ]
+}
