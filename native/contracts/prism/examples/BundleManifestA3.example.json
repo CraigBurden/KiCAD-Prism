@@ -32,7 +32,7 @@
       },
       {
         "path": "projections/placements.json",
-        "schema": "prism.placements.a0"
+        "schema": "prism.placements.a1"
       },
       {
         "path": "projections/project.json",
@@ -61,7 +61,7 @@
     "upgrade_procedure": "kicad-seeded-upgrade-a0"
   },
   "revision_key": "faea5ace66f591553c21fdcb2555e5a67e6e2fe73b7d17663375ac6f809206f5",
-  "bundle_key": "e07cc22a402108b4588da59e9319e3a6cae1a2c4eb98ff42d4eb8eedf2c6df09",
+  "bundle_key": "c97da8a76c130c4849db88df1e90382e51fe4609530f237aaa38e0765feb1bd6",
   "config": {
     "schema": "prism.revision_key.effective_config.a1",
     "project_file": "USB-PD-Trigger-Board.kicad_pro",
@@ -180,7 +180,7 @@
       "stage": "parse",
       "sha256": "e0dd71789e05e124bd4c6ff1d6e51464c86decaad7b965ce053cc9a5d08d36c9",
       "bytes": 3319,
-      "member_schema": "prism.placements.a0"
+      "member_schema": "prism.placements.a1"
     },
     {
       "path": "projections/project.json",

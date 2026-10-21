@@ -467,13 +467,13 @@ impl ::std::default::Default for OccurrencesBomFields {
 }
 /**One footprint of the board: its identity, designator and assembly
 attributes as written. Placement, geometry and library link are in
-`prism.placements.a0` and `prism.board_objects.a0`.*/
+`prism.placements.a1` and `prism.board_objects.a0`.*/
 ///
 /// <details><summary>JSON schema</summary>
 ///
 /// ```json
 ///{
-///  "description": "One footprint of the board: its identity, designator and assembly\nattributes as written. Placement, geometry and library link are in\n`prism.placements.a0` and `prism.board_objects.a0`.",
+///  "description": "One footprint of the board: its identity, designator and assembly\nattributes as written. Placement, geometry and library link are in\n`prism.placements.a1` and `prism.board_objects.a0`.",
 ///  "type": "object",
 ///  "required": [
 ///    "dnp",

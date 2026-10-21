@@ -5,7 +5,7 @@ using TypeSpec.JsonSchema;
 using Prism.Contracts.Common;
 
 /**
- * Bundle member `projections/placements.json` (`prism.placements.a0`, ADR §6,
+ * Bundle member `projections/placements.json` (`prism.placements.a1`, ADR §6,
  * WP-P3), written in stage `parse` from the project's board file as committed
  * (the `source-board` member, never the refilled board): where every
  * footprint is, which side it is on, its assembly flags, its library link,
