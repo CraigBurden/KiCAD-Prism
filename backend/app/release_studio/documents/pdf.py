@@ -441,7 +441,9 @@ def _page_content(
                 ]
             )
         elif isinstance(element, Artwork):
-            ops.append("0.6 0.6 0.6 RG")
+            border = element.border_colour or "#999999"
+            r, g, b = _rgb(border)
+            ops.append(f"{_pt(r)} {_pt(g)} {_pt(b)} RG")
             ops.append(f"{_pt(0.2 * MM_TO_PT)} w")
             rect = element.rect
             ops.append(

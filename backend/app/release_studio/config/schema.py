@@ -25,6 +25,10 @@ from app.release_studio.documents.fonts import (  # noqa: E402
     DEFAULT_TYPOGRAPHY,
     TYPOGRAPHY_PRESETS as _RENDERER_PRESETS,
 )
+from app.release_studio.documents.style import (  # noqa: E402
+    DEFAULT_SHEET_STYLE,
+    SHEET_STYLES,
+)
 
 TYPOGRAPHY_PRESETS = frozenset(_RENDERER_PRESETS)
 
@@ -45,6 +49,7 @@ CONFIGURATION_KEYS = frozenset(
         "template",
         "sheets",
         "typography",
+        "sheet_style",
         "vendors",
         "release_date",
         "release_notes",
@@ -174,6 +179,16 @@ def validate_configuration_mapping(
             f"{source}.typography: unknown preset {typography!r}; choose one of: {supported}"
         )
 
+    sheet_style = data.get("sheet_style", DEFAULT_SHEET_STYLE)
+    sheet_style = _require_nonblank_string(
+        sheet_style, source=f"{source}.sheet_style"
+    ).lower()
+    if sheet_style not in SHEET_STYLES:
+        supported = ", ".join(sorted(SHEET_STYLES))
+        raise ConfigSchemaError(
+            f"{source}.sheet_style: unknown style {sheet_style!r}; choose one of: {supported}"
+        )
+
     sheets = data.get("sheets")
     if sheets is not None:
         if not isinstance(sheets, list):
@@ -200,6 +215,7 @@ def validate_configuration_mapping(
         "notes": {key: list(value) for key, value in notes.items()},
         "variants": variants,
         "typography": typography,
+        "sheet_style": sheet_style,
     }
     if jobset:
         normalized["jobset"] = jobset

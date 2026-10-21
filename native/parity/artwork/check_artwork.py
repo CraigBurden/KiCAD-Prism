@@ -13,6 +13,14 @@ For each Release Studio fixture this script:
    that every footprint the view's selector picks is drawn and labelled, and
    counts the labels drawn below the configured minimum font (as today's
    Cruncher does, a label shrinks to fit its body rather than being dropped);
+4. for a callout view (assembly designators `callout: true`), checks that each
+   label sits outside the pad at the minimum font, that its leader joins the
+   label box to the pad, and reports how many label boxes overlap;
+5. for a `board_and_bodies` canvas, checks that every label box, pad and body
+   region stays inside the canvas and that the viewBox matches it;
+6. for a bottom view with `mirror_bottom_view`, checks that the SVG records
+   `data-view-direction="bottom-mirrored"`, and that a DNP hatch is drawn only
+   for the DNP footprints the result document counts;
 4. optionally (`--cruncher`) runs today's `kicad-cruncher pcb-svg` exactly as
    `backend/app/release_studio/documents/artwork.py` does and renders both
    SVGs beside each other to PNG under `--compare-dir`.
@@ -453,11 +461,85 @@ def selected_by_side(config, view, placements):
 
 
 TEXT = re.compile(r"<text\b([^>]*)>(.*?)</text>", re.DOTALL)
+SVG = re.compile(r"<svg\b([^>]*)>", re.DOTALL)
+LEADER = re.compile(r"<line\b([^>]*)/>")
 ATTR = re.compile(r'([a-zA-Z0-9_:-]+)="([^"]*)"')
+DNP_GROUP = '<g data-dnp="true"'
 
 
 def attributes(raw: str) -> dict:
     return dict(ATTR.findall(raw))
+
+
+def label_box(attrs: dict) -> tuple:
+    """A label's box from its emitted `data-text-box-*` attributes.
+
+    The attributes are the authoritative box: a callout label is placed by the
+    renderer, and a mirrored view's box is already mirrored.
+    """
+    if "data-text-box-min-x" in attrs:
+        return (
+            float(attrs["data-text-box-min-x"]),
+            float(attrs["data-text-box-min-y"]),
+            float(attrs["data-text-box-max-x"]),
+            float(attrs["data-text-box-max-y"]),
+        )
+    corners = text_corners(attrs)
+    return (
+        min(point[0] for point in corners),
+        min(point[1] for point in corners),
+        max(point[0] for point in corners),
+        max(point[1] for point in corners),
+    )
+
+
+def boxes_overlap(left: tuple, right: tuple, epsilon: float = 1e-6) -> bool:
+    return (
+        left[0] < right[2] - epsilon
+        and right[0] < left[2] - epsilon
+        and left[1] < right[3] - epsilon
+        and right[1] < left[3] - epsilon
+    )
+
+
+def inside_box(point: tuple, box: tuple, epsilon: float = 0.05) -> bool:
+    return (
+        box[0] - epsilon <= point[0] <= box[2] + epsilon
+        and box[1] - epsilon <= point[1] <= box[3] + epsilon
+    )
+
+
+def canvas_of(svg: str) -> dict:
+    match = SVG.search(svg)
+    attrs = attributes(match.group(1))
+    return {
+        "min_x": float(attrs["data-canvas-min-x"]),
+        "min_y": float(attrs["data-canvas-min-y"]),
+        "max_x": float(attrs["data-canvas-max-x"]),
+        "max_y": float(attrs["data-canvas-max-y"]),
+        "direction": attrs.get("data-view-direction", ""),
+        "view_box": attrs["viewBox"],
+    }
+
+
+def mirror_rings(rings: list, mirrored: bool) -> list:
+    """Body rings read in the board frame; a mirrored view draws x -> -x."""
+    if not mirrored:
+        return rings
+    return [[(-x, y) for x, y in ring] for ring in rings]
+
+
+def pad_boxes(footprint: dict, mirrored: bool) -> list:
+    """Each pad's square extent, from the footprint's placement."""
+    boxes = []
+    for pad in footprint.get("pads", []):
+        x = nm(pad["positionNm"]["xNm"])
+        if mirrored:
+            x = -x
+        y = nm(pad["positionNm"]["yNm"])
+        half = max(nm(pad["size"]["xNm"]), nm(pad["size"]["yNm"])) / 2.0
+        boxes.append((x - half, y - half, x + half, y + half))
+    return boxes
 
 
 def check_view(
@@ -475,6 +557,10 @@ def check_view(
     placements_by_uuid = {
         footprint["uuid"]: footprint for footprint in placements["footprints"]
     }
+    root = canvas_of(svg)
+    mirrored = root["direction"] == "bottom-mirrored"
+    style = style_block(config, view)
+    callout = bool(style.get("callout"))
     texts = []
     for raw, text in TEXT.findall(svg):
         attrs = attributes(raw)
@@ -485,16 +571,28 @@ def check_view(
     minimum = min_font(config, view)
     fallback = 0
     below_minimum = 0
+    callouts = 0
     for attrs, _text in texts:
-        if float(attrs["data-font-size-mm"]) + 1e-9 < minimum:
+        font = float(attrs["data-font-size-mm"])
+        if font + 1e-9 < minimum:
             below_minimum += 1
+        if attrs.get("data-callout") == "true":
+            callouts += 1
+            if font + 1e-9 < minimum:
+                failures.append(
+                    f"{case} {config_name} {view['name']}: callout "
+                    f"{attrs['data-component']} is {font} mm, below the {minimum} mm minimum"
+                )
+            continue
         uuid = attrs.get("data-footprint-uuid", "")
         footprint = hlr_by_uuid.get(uuid)
-        rings = hlr_rings(footprint) if footprint else []
+        rings = mirror_rings(hlr_rings(footprint), mirrored) if footprint else []
         if not rings:
             fallback += 1
             placement = placements_by_uuid.get(uuid)
-            rings = pad_envelope(placement) if placement else []
+            rings = (
+                mirror_rings(pad_envelope(placement), mirrored) if placement else []
+            )
         corners = text_corners(attrs)
         if not rings:
             failures.append(
@@ -509,6 +607,71 @@ def check_view(
                     f"text box corner {corner} lies outside its body region"
                 )
                 break
+
+    # Every callout label has one leader that joins its box to its pad.
+    leaders = {}
+    for raw in LEADER.findall(svg):
+        attrs = attributes(raw)
+        if attrs.get("data-primitive") != "callout-leader":
+            continue
+        leaders.setdefault(attrs.get("data-footprint-uuid", ""), []).append(attrs)
+    boxes = [(attrs, label_box(attrs)) for attrs, _text in texts]
+    overlapping = 0
+    for index, (_attrs, box) in enumerate(boxes):
+        for _other_attrs, other in boxes[index + 1 :]:
+            if boxes_overlap(box, other):
+                overlapping += 1
+    if callout:
+        for attrs, box in boxes:
+            if attrs.get("data-callout") != "true":
+                continue
+            uuid = attrs.get("data-footprint-uuid", "")
+            found = leaders.get(uuid, [])
+            if len(found) != 1:
+                failures.append(
+                    f"{case} {config_name} {view['name']}: callout "
+                    f"{attrs['data-component']} has {len(found)} leader lines"
+                )
+                continue
+            line = found[0]
+            label_end = (float(line["x1"]), float(line["y1"]))
+            pad_end = (float(line["x2"]), float(line["y2"]))
+            if not inside_box(label_end, box, 0.02):
+                failures.append(
+                    f"{case} {config_name} {view['name']}: the leader of "
+                    f"{attrs['data-component']} does not touch its label box"
+                )
+            placement = placements_by_uuid.get(uuid)
+            pad_shapes = pad_boxes(placement, mirrored) if placement else []
+            if not pad_shapes or not any(
+                inside_box(pad_end, pad, 0.2) for pad in pad_shapes
+            ):
+                failures.append(
+                    f"{case} {config_name} {view['name']}: the leader of "
+                    f"{attrs['data-component']} does not reach its pad"
+                )
+        reported = sum(
+            1 for attrs, _box in boxes if attrs.get("data-overlapping") == "true"
+        )
+        if reported != overlapping:
+            failures.append(
+                f"{case} {config_name} {view['name']}: reports {reported} overlapping "
+                f"labels, {overlapping} boxes overlap"
+            )
+
+    layers = view["layers"]
+    has_bottom = any(token.endswith("_BOTTOM") for token in layers)
+    has_top = any(token.endswith("_TOP") for token in layers)
+    want_mirrored = bool(
+        has_bottom and not has_top and config["global"]["mirror_bottom_view"]
+    )
+    expected_direction = "bottom-mirrored" if want_mirrored else "top"
+    if root["direction"] != expected_direction:
+        failures.append(
+            f"{case} {config_name} {view['name']}: data-view-direction is "
+            f"{root['direction']!r}, expected {expected_direction!r}"
+        )
+
     selected = selected_by_side(config, view, placements)
     expected = [
         footprint
@@ -538,14 +701,69 @@ def check_view(
                 f"{case} {config_name} {view['name']}: selected footprint "
                 f"{footprint.get('reference')} has no designator"
             )
+
+    dnp_groups = svg.count(DNP_GROUP)
+    if result_view.get("dnp_footprints_hatched") != dnp_groups:
+        failures.append(
+            f"{case} {config_name} {view['name']}: result says "
+            f"{result_view.get('dnp_footprints_hatched')} DNP hatches, the SVG has {dnp_groups}"
+        )
+
+    canvas = (root["min_x"], root["min_y"], root["max_x"], root["max_y"])
+    if config["global"]["canvas"]["bounds"] == "board_and_bodies":
+        for attrs, box in boxes:
+            if not inside_box((box[0], box[1]), canvas, 1e-6) or not inside_box(
+                (box[2], box[3]), canvas, 1e-6
+            ):
+                failures.append(
+                    f"{case} {config_name} {view['name']}: label box {box} of "
+                    f"{attrs['data-component']} leaves the canvas {canvas}"
+                )
+        for footprint in expected:
+            for pad_box in pad_boxes(footprint, mirrored):
+                if not inside_box((pad_box[0], pad_box[1]), canvas, 1e-6) or not inside_box(
+                    (pad_box[2], pad_box[3]), canvas, 1e-6
+                ):
+                    failures.append(
+                        f"{case} {config_name} {view['name']}: a pad of "
+                        f"{footprint.get('reference')} leaves the canvas"
+                    )
+                    break
+            body = hlr_by_uuid.get(footprint["uuid"])
+            for ring in mirror_rings(hlr_rings(body), mirrored) if body else []:
+                if any(
+                    not inside_box(point, canvas, 1e-6) for point in ring
+                ):
+                    failures.append(
+                        f"{case} {config_name} {view['name']}: the body of "
+                        f"{footprint.get('reference')} leaves the canvas"
+                    )
+                    break
+        view_width, view_height = (
+            float(value) for value in root["view_box"].split()[2:]
+        )
+        scale = float(config["global"]["svg_scale"])
+        if abs(view_width - (canvas[2] - canvas[0]) * scale) > 1e-3 or abs(
+            view_height - (canvas[3] - canvas[1]) * scale
+        ) > 1e-3:
+            failures.append(
+                f"{case} {config_name} {view['name']}: viewBox {root['view_box']} "
+                "does not match the canvas and scale"
+            )
+
     return {
         "texts": len(texts),
+        "callouts": callouts,
+        "overlapping": overlapping,
+        "dnp": dnp_groups,
         "below_minimum": below_minimum,
         "fallback_regions": fallback,
         "selected": len(selected),
         "expected_drawn": len(expected),
         "drawn": result_view["footprints_drawn"],
         "drawn_uuids": len(body_uuids),
+        "canvas": (round(canvas[2] - canvas[0], 3), round(canvas[3] - canvas[1], 3)),
+        "direction": root["direction"],
     }
 
 
@@ -752,7 +970,11 @@ def main(argv) -> int:
                 print(
                     f"{case:12} {config_name:11} {view['name']:22} "
                     f"drawn={summary['drawn']}/{summary['expected_drawn']} "
-                    f"labels={summary['texts']} below-min={summary['below_minimum']} fallback={summary['fallback_regions']} "
+                    f"labels={summary['texts']} callouts={summary['callouts']} "
+                    f"overlapping={summary['overlapping']} dnp={summary['dnp']} "
+                    f"below-min={summary['below_minimum']} fallback={summary['fallback_regions']} "
+                    f"canvas={summary['canvas'][0]}x{summary['canvas'][1]} "
+                    f"direction={summary['direction']} "
                     f"deterministic={summary['deterministic']}"
                 )
 

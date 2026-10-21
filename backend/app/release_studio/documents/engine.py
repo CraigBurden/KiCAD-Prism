@@ -41,6 +41,10 @@ from app.release_studio.documents.fonts import DEFAULT_TYPOGRAPHY, typography_pr
 from app.release_studio.documents.inputs import DocumentInputs
 from app.release_studio.documents.layout import Rect, Sheet
 from app.release_studio.documents.pdf import append_pdf_pages, render_pdf_pages
+from app.release_studio.documents.style import (
+    DEFAULT_SHEET_STYLE,
+    sheet_style as normalize_sheet_style,
+)
 from app.release_studio.documents.svg import render_svg
 from app.services.kicad_tools import KicadTool
 
@@ -152,6 +156,7 @@ def compose(
     notes: Mapping[str, Any] | None = None,
     fields: Mapping[str, Any] | None = None,
     typography: str = DEFAULT_TYPOGRAPHY,
+    sheet_style: str = DEFAULT_SHEET_STYLE,
     revision_history: Sequence[Mapping[str, Any]] | None = None,
     impedance_rows: Sequence[Mapping[str, Any]] | None = None,
     stackup_pdf: bytes | None = None,
@@ -186,6 +191,7 @@ def compose(
             notes=notes,
             fields=fields,
             typography=typography,
+            sheet_style=sheet_style,
             revision_history=revision_history,
             impedance_rows=impedance_rows,
             stackup_pdf=stackup_pdf,
@@ -227,7 +233,12 @@ def compose_documents(
     # cannot perform work and then degrade into a default-looking document.
     typography = inputs.typography
     typography_preset(typography)
-    logger.info("Release Studio composing documents with typography %s", typography)
+    sheet_style = normalize_sheet_style(inputs.sheet_style)
+    logger.info(
+        "Release Studio composing documents with typography %s and sheet style %s",
+        typography,
+        sheet_style,
+    )
 
     def report(step: str, message: str, percent: float) -> None:
         if on_progress is not None:
@@ -304,7 +315,8 @@ def compose_documents(
     # fabrication sheet and applies it to the assembly sheet has to get the same
     # number, so the scale is a property of the set rather than of each sheet.
     scale = sheet_templates.set_scale(
-        extent_width, extent_height, sheet_size, title_height
+        extent_width, extent_height, sheet_size, title_height,
+        sheet_style=sheet_style,
     )
 
     # Placement uses content bounds when an acquired SVG reports a drawing-sheet
@@ -342,6 +354,7 @@ def compose_documents(
     cover, cover_overflow = sheet_templates.technical_cover(
         context, stats, stackup, variants, members, size=sheet_size,
         notes=sheet_notes["cover"], fields=title_fields, typography=typography,
+        sheet_style=sheet_style,
         revision_history=revision_history,
         placements=placements,
         render=board_render,
@@ -358,6 +371,7 @@ def compose_documents(
             sheet_size=sheet_size,
             fields=title_fields,
             typography=typography,
+            sheet_style=sheet_style,
             warnings=warnings,
         ),
         "cover",
@@ -372,6 +386,7 @@ def compose_documents(
     fabrication, fab_scale, fab_overflow = sheet_templates.fabrication_sheet(
         context, stats, stackup, overview, size=sheet_size, scale=scale,
         notes=sheet_notes["fabrication"], fields=title_fields, typography=typography,
+        sheet_style=sheet_style,
     )
     fabrication_pages = [
         (
@@ -396,7 +411,7 @@ def compose_documents(
         sheet, used, _overflow = sheet_templates.fabrication_sheet(
             context, stats, stackup, drawing, size=sheet_size, scale=scale,
             notes=sheet_notes["fabrication"], fields=title_fields,
-            typography=typography, layer=layer,
+            typography=typography, layer=layer, sheet_style=sheet_style,
         )
         fabrication_pages.append(
             (sheet, layer_page_key(layer), used, drawing, _artwork_window(sheet))
@@ -410,6 +425,7 @@ def compose_documents(
             sheet_size=sheet_size,
             fields=title_fields,
             typography=typography,
+            sheet_style=sheet_style,
             warnings=warnings,
         )
     )
@@ -423,6 +439,7 @@ def compose_documents(
             size=sheet_size,
             fields=title_fields,
             typography=typography,
+            sheet_style=sheet_style,
         )
         fabrication_pages.append((impedance_sheet, "impedance", 1.0, None, None))
         fabrication_pages.extend(
@@ -434,6 +451,7 @@ def compose_documents(
                 sheet_size=sheet_size,
                 fields=title_fields,
                 typography=typography,
+            sheet_style=sheet_style,
                 warnings=warnings,
             )
         )
@@ -461,6 +479,7 @@ def compose_documents(
         sheet, used = sheet_templates.assembly_sheet(
             context, side, assembly.get(side), placements, size=sheet_size, scale=scale,
             notes=sheet_notes[key], fields=title_fields, typography=typography,
+            sheet_style=sheet_style,
             projection_mix=assembly_mix.get(side),
             population=population or {},
         )
@@ -478,6 +497,7 @@ def compose_documents(
         sheet, used, overflow = sheet_templates.testpoint_sheet(
             context, side, testpoint.get(side), testpoints or {}, size=sheet_size, scale=scale,
             notes=sheet_notes[key], fields=title_fields, typography=typography,
+            sheet_style=sheet_style,
         )
         testpoint_pages.append(
             (sheet, key, used, testpoint.get(side), _artwork_window(sheet))
@@ -491,6 +511,7 @@ def compose_documents(
                 sheet_size=sheet_size,
                 fields=title_fields,
                 typography=typography,
+            sheet_style=sheet_style,
                 warnings=warnings,
             )
         )
@@ -507,6 +528,7 @@ def compose_documents(
     drill, drill_scale, drill_overflow = sheet_templates.drill_sheet(
         context, stats, stackup, art.get("drill"), size=sheet_size, scale=None,
         notes=sheet_notes["drill"], fields=title_fields, typography=typography,
+        sheet_style=sheet_style,
     )
     _append_document(
         outputs,
@@ -519,6 +541,7 @@ def compose_documents(
             sheet_size=sheet_size,
             fields=title_fields,
             typography=typography,
+            sheet_style=sheet_style,
             warnings=warnings,
         ),
         "drill",
@@ -536,6 +559,7 @@ def compose_documents(
             size=sheet_size,
             fields=title_fields,
             typography=typography,
+            sheet_style=sheet_style,
         )
         _append_document(
             outputs,
@@ -548,6 +572,7 @@ def compose_documents(
                 sheet_size=sheet_size,
                 fields=title_fields,
                 typography=typography,
+            sheet_style=sheet_style,
                 warnings=warnings,
             ),
             "bom",
@@ -692,6 +717,7 @@ def _continuation_pages(
     sheet_size: str,
     fields: Sequence,
     typography: str,
+    sheet_style: str,
     warnings: list[str],
 ) -> list[tuple[Sheet, str, float, None, None]]:
     """Pages carrying tables the originating sheet could not hold.
@@ -714,6 +740,7 @@ def _continuation_pages(
             size=sheet_size,
             fields=fields,
             typography=typography,
+            sheet_style=sheet_style,
         )
         pages.append((sheet, key, 1.0, None, None))
     if remaining:

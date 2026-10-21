@@ -6,6 +6,7 @@ from typing import Any, Mapping
 
 from app.release_studio.config.schema import CONFIGURATION_SCHEMA, validate_configuration_mapping
 from app.release_studio.documents.fonts import DEFAULT_TYPOGRAPHY
+from app.release_studio.documents.style import DEFAULT_SHEET_STYLE
 
 
 def synthesize_configuration(
@@ -46,6 +47,7 @@ def synthesize_configuration(
         "fields": fields,
         "notes": {},
         "typography": DEFAULT_TYPOGRAPHY,
+        "sheet_style": DEFAULT_SHEET_STYLE,
         "vendors": list(vendors or specs.get("vendors") or []),
     }
     if document_name.strip():

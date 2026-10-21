@@ -640,12 +640,14 @@ Release Studio's assembly and testpoint views (amendment C3 §3.2), a port of Cr
   - designators and variants from `placements` and `occurrences`;
   - `--config` is an `ArtworkConfigA0`; each `--view` must name one of its views, else exit 2, `view-unknown`.
 - **Stages required:** `parse`, `board` (or saved fills) and `models`, else exit 7, `stage-order`.
-- **Output:** `<dir>/<view>.svg` per view, written atomically, and `CliArtworkResultA0` on stdout: per view, the file's sha256, the footprints drawn, the designators placed, and the footprints without a body outline.
+- **Output:** `<dir>/<view>.svg` per view, written atomically, and `CliArtworkResultA0` on stdout: per view, the file's sha256, the footprints drawn, the designators placed, the DNP footprints hatched, and the footprints without a body outline.
 - **Rules:**
   - footprint selection by `selector_overrides`;
   - layer tokens and styles from the config;
-  - designators by region fitting inside the HLR outline, else the hole envelope, else the pad envelope;
-  - the canvas from `global.canvas` (`board_outline` plus `margin_mm`).
+  - designators by region fitting inside the HLR outline, else the hole envelope, else the pad envelope; a style with `callout: true` (the testpoint views) draws the footprint's real pad shape and places the designator outside it at `min_font_size_mm`, joined by a leader line, in designator natural order, choosing the first of eight directions and growing radii whose text box clears every other label, every selected pad and the canvas (and counting a placement that cannot, `data-overlapping="true"`);
+  - a DNP footprint's body region is hatched under its designator in the `dnp` colour, spacing, angle and line width (`assembly.dnp_designator_color` colours the text);
+  - the canvas from `global.canvas`: `board_outline`, `all_geometry`, or `board_and_bodies` — the outline union every body region and pad the view draws, plus a callout view's label boxes, plus `margin_mm`;
+  - `global.mirror_bottom_view` mirrors a bottom view about the vertical axis (`x -> -x`, KiCad's flip board view). Geometry groups are mirrored; the label positions and rotations are mirrored and the glyphs are not. The root `<svg>` records `data-view-direction="bottom-mirrored"` or `"top"`.
 - **Idempotence:** the same bundle, config, views and generator give byte-identical files and stdout.
 
 ### 5.8 `vendor`

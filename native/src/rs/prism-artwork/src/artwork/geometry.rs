@@ -107,6 +107,53 @@ impl Bounds {
             },
         ]
     }
+
+    /// The extent of a ring of points.
+    pub fn of_ring(points: &[Point]) -> Self {
+        let mut bounds = Self::empty();
+        for point in points {
+            bounds.include(*point);
+        }
+        bounds
+    }
+
+    /// The extent of a centre and its half extents.
+    pub fn around(center: Point, half_x: f64, half_y: f64) -> Self {
+        Self {
+            min_x: center.x - half_x,
+            min_y: center.y - half_y,
+            max_x: center.x + half_x,
+            max_y: center.y + half_y,
+        }
+    }
+
+    /// True when both extents share interior area.
+    pub fn intersects(self, other: Self) -> bool {
+        const EPSILON: f64 = 1.0e-9;
+        self.min_x < other.max_x - EPSILON
+            && other.min_x < self.max_x - EPSILON
+            && self.min_y < other.max_y - EPSILON
+            && other.min_y < self.max_y - EPSILON
+    }
+
+    /// True when `other` lies inside this extent.
+    pub fn contains_bounds(self, other: Self) -> bool {
+        const EPSILON: f64 = 1.0e-9;
+        self.min_x <= other.min_x + EPSILON
+            && self.min_y <= other.min_y + EPSILON
+            && self.max_x >= other.max_x - EPSILON
+            && self.max_y >= other.max_y - EPSILON
+    }
+
+    /// The extent mirrored about the vertical axis, `x -> -x`.
+    pub fn mirrored(self) -> Self {
+        Self {
+            min_x: -self.max_x,
+            min_y: self.min_y,
+            max_x: -self.min_x,
+            max_y: self.max_y,
+        }
+    }
 }
 
 /// One drill or slot hole in board coordinates.
@@ -277,21 +324,23 @@ fn collect_pad_envelopes(
             x: pad.at_x,
             y: pad.at_y,
         });
-        let angle = pad.angle + transform.angle;
-        let (sin, cos) = angle.to_radians().sin_cos();
+        // The pad's corners turn about its anchor by the same placement
+        // formula the footprint uses (`FootprintTransform::apply`).
+        let corner = FootprintTransform {
+            x: anchor.x,
+            y: anchor.y,
+            angle: pad.angle + transform.angle,
+        };
         let half_x = pad.size_x.abs() / 2.0;
         let half_y = pad.size_y.abs() / 2.0;
         let mut bounds = Bounds::empty();
-        for (local_x, local_y) in [
+        for (x, y) in [
             (-half_x, -half_y),
             (half_x, -half_y),
             (half_x, half_y),
             (-half_x, half_y),
         ] {
-            bounds.include(Point {
-                x: anchor.x + local_x * cos - local_y * sin,
-                y: anchor.y + local_x * sin + local_y * cos,
-            });
+            bounds.include(corner.apply(Point { x, y }));
         }
         envelopes
             .entry(pad.footprint_index)
@@ -494,7 +543,7 @@ fn polygon_points(authored: &[PcbPolygonPoint]) -> Vec<Point> {
     result
 }
 
-fn circle_ring(center: Point, radius: f64) -> Vec<Point> {
+pub(crate) fn circle_ring(center: Point, radius: f64) -> Vec<Point> {
     const COUNT: usize = 64;
     (0..COUNT)
         .map(|index| {

@@ -16,6 +16,7 @@
 
 mod designator;
 pub mod geometry;
+mod pad;
 mod render;
 pub mod svg;
 
@@ -47,6 +48,8 @@ pub struct RenderedView {
     pub footprints_drawn: u64,
     /// How many reference designators it placed.
     pub designators_placed: u64,
+    /// How many do-not-populate footprints it hatched.
+    pub dnp_footprints_hatched: u64,
     /// `<documentPath>#<uuid>` of every selected footprint without an HLR
     /// outline, sorted in code point order.
     pub footprints_without_outline: Vec<String>,
@@ -156,6 +159,9 @@ struct PadInfo {
     y: f64,
     size_x: f64,
     size_y: f64,
+    shape: String,
+    angle: f64,
+    roundrect_ratio: Option<f64>,
 }
 
 struct FootprintInfo {
@@ -177,6 +183,51 @@ struct BoardData {
     geometry: BoardGeometry,
     footprints: Vec<FootprintInfo>,
     hlr: Vec<AssemblyHlrFootprint>,
+}
+
+impl FootprintInfo {
+    /// A pad's centre in the board frame (KiCad's footprint placement).
+    fn pad_position(&self, pad: &PadInfo) -> geometry::Point {
+        let (sin, cos) = self.angle.to_radians().sin_cos();
+        geometry::Point {
+            x: self.at_x + pad.x * cos + pad.y * sin,
+            y: self.at_y - pad.x * sin + pad.y * cos,
+        }
+    }
+
+    /// A pad's authored shape in the board frame, sampled.
+    fn pad_ring(&self, pad: &PadInfo) -> Vec<geometry::Point> {
+        pad::pad_ring(
+            &pad.shape,
+            pad.size_x,
+            pad.size_y,
+            pad.roundrect_ratio,
+            self.pad_position(pad),
+            self.angle + pad.angle,
+        )
+    }
+
+    /// Every pad ring the artwork draws for this footprint.
+    fn pad_rings(&self) -> Vec<Vec<geometry::Point>> {
+        self.pads
+            .iter()
+            .map(|pad| self.pad_ring(pad))
+            .filter(|ring| ring.len() >= 3)
+            .collect()
+    }
+
+    /// The extent of the footprint's drawn pads.
+    fn pads_bounds(&self) -> Option<Bounds> {
+        let rings = self.pad_rings();
+        if rings.is_empty() {
+            return None;
+        }
+        let mut bounds = Bounds::empty();
+        for ring in &rings {
+            bounds.include_bounds(Bounds::of_ring(ring));
+        }
+        (!bounds.is_empty()).then_some(bounds)
+    }
 }
 
 fn board_data(
@@ -206,6 +257,9 @@ fn board_data(
                 y: pad.at_y,
                 size_x: pad.size_x,
                 size_y: pad.size_y,
+                shape: pad.shape.clone(),
+                angle: pad.angle,
+                roundrect_ratio: pad.roundrect_rratio,
             });
     }
     let variants = variant_states(input);

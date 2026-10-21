@@ -120,6 +120,7 @@ pub struct CliArtworkResultA0 {
 ///  "type": "object",
 ///  "required": [
 ///    "designators_placed",
+///    "dnp_footprints_hatched",
 ///    "file",
 ///    "footprints_drawn",
 ///    "footprints_without_outline",
@@ -129,6 +130,10 @@ pub struct CliArtworkResultA0 {
 ///  "properties": {
 ///    "designators_placed": {
 ///      "description": "How many reference designators the view placed.",
+///      "$ref": "#/$defs/Count"
+///    },
+///    "dnp_footprints_hatched": {
+///      "description": "How many do-not-populate footprints the view hatched (`dnp.hatch`).",
 ///      "$ref": "#/$defs/Count"
 ///    },
 ///    "file": {
@@ -172,6 +177,8 @@ pub struct CliArtworkView {
     pub footprints_drawn: Count,
     ///How many reference designators the view placed.
     pub designators_placed: Count,
+    ///How many do-not-populate footprints the view hatched (`dnp.hatch`).
+    pub dnp_footprints_hatched: Count,
     /**Every footprint the view has no body outline for, `<RepoPath>#<KiCadUuid>`,
     sorted in code point order: the footprints drawn from the hole envelope or
     the pad envelope instead, or with no body region at all.*/
