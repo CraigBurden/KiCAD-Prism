@@ -28,6 +28,11 @@ zstandard==0.25.0
 # override replaces it from a modern kicad_monkey monorepo checkout.
 kicad-monkey==2026.9.7
 
+# The component catalog converts STEP models to GLB previews with Geometer's
+# Python package (app/services/catalog/models.py). It used to arrive through
+# kicad-cruncher; it is a direct dependency now that Cruncher is gone.
+wn-geometer==2026.9.7
+
 # Document and semantic-viewer runtime.
 Pillow>=11,<13
 fonttools>=4.59,<5

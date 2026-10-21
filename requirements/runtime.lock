@@ -172,6 +172,8 @@ webencodings==0.6.1
     #   tinycss2
 websockets==17.1
     # via -r requirements/runtime.in
+wn-geometer==2026.9.7
+    # via -r requirements/runtime.in
 zstandard==0.25.0
     # via
     #   -r requirements/runtime.in
