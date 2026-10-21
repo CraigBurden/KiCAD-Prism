@@ -80,10 +80,16 @@ fn run(options: &Options) -> Result<(), LabError> {
             options.output.display()
         ))
     })?;
-    let nets: usize = atlas.classes.iter().map(|section| section.nets.len()).sum();
+    let nets: usize = atlas.classes.iter().map(|section| section.net_count).sum();
+    let groups: usize = atlas
+        .classes
+        .iter()
+        .map(|section| section.groups.len())
+        .sum();
     println!(
-        "atlas: {} net classes, {} nets, {} tracks, {} vias; wrote {} ({} bytes) in {} ms",
+        "atlas: {} net classes, {} groups, {} nets, {} tracks, {} vias; wrote {} ({} bytes) in {} ms",
         atlas.classes.len(),
+        groups,
         nets,
         atlas.tracks,
         atlas.vias,

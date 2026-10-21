@@ -7,7 +7,8 @@
  *     and dims every other net in the same drawing to 15 %; clicking it again
  *     restores the drawing;
  *   - the side switch changes which side's footprints are drawn in full,
- *     through the stylesheet's body[data-side] rules.
+ *     through the stylesheet's body[data-side] rules;
+ *   - a group's Zones checkbox swaps its zone fills for dashed outlines.
  */
 (() => {
   "use strict";
@@ -68,6 +69,20 @@
         focusNet(section, row.dataset.netRow);
       }
     });
+  });
+
+  // --------------------------------------------------------------- zones
+
+  document.querySelectorAll("[data-zones-toggle]").forEach((input) => {
+    const section = input.closest(".net-group");
+    if (!section) {
+      return;
+    }
+    const apply = () => {
+      section.dataset.zones = input.checked ? "on" : "off";
+    };
+    input.addEventListener("change", apply);
+    apply();
   });
 
   // --------------------------------------------------------------- side
