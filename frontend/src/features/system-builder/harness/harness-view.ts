@@ -118,6 +118,86 @@ function sideOf(harness: Harness, end: Harness["ends"][number]): "left" | "right
   return harness.ends.indexOf(end) % 2 === 0 ? "left" : "right";
 }
 
+/** A wire as the document stores it, before the bundle names its net. */
+function ownWire(wire: Harness["wires"][number]): WireView {
+  return {
+    id: wire.id,
+    origin: "explicit",
+    ...(wire.link ? { link: wire.link } : {}),
+    from: terminal(wire.from),
+    to: terminal(wire.to),
+    ...(wire.gaugeAwg ? { gaugeAwg: wire.gaugeAwg } : {}),
+    ...(wire.colour ? { colour: wire.colour } : {}),
+    ...(wire.label ? { label: wire.label } : {}),
+    ...(wire.lengthNm !== undefined ? { lengthNm: wire.lengthNm } : {}),
+    suggested: false,
+  };
+}
+
+const terminalKey = (value: TerminalView) =>
+  value.kind === "contact" ? `c:${value.end}:${value.cavity}` : value.kind === "splice" ? `s:${value.splice}` : `l:${value.looseEnd}`;
+const pairKey = (wire: { from: TerminalView; to: TerminalView }) => [terminalKey(wire.from), terminalKey(wire.to)].sort().join("|");
+
+/**
+ * The block's wires as of the document, not the last bundle: what the document
+ * stores (an explicit wire's terminals, gauge, colour, label, length) shows the
+ * moment a save returns, and only what the bundle derives (default wires, nets,
+ * route lengths) waits for it. A wire the bundle has not seen yet replaces the
+ * default it was made from; a default whose pin was cleared from its link, or
+ * whose link is gone, is dropped.
+ */
+function currentWires(harness: Harness, built: BundleHarness, netNames: Map<string, string>): WireView[] {
+  const stored = new Map(harness.wires.map((wire) => [wire.id, wire]));
+  const seen = new Set(built.wires.map((wire) => wire.id));
+  const added = harness.wires.flatMap((wire) => (seen.has(wire.id) ? [] : [ownWire(wire)]));
+  const taken = new Set(added.map(pairKey));
+  const links = new Map(harness.links.map((link) => [link.id, link]));
+  const sites = new Map(harness.ends.map((end) => [end.id, end.site]));
+  const cleared = (wire: BundleWire, from: TerminalView, to: TerminalView) => {
+    const link = wire.link ? links.get(wire.link) : undefined;
+    if (!link) return true;
+    const sideA = [from, to].find((item) => {
+      if (item.kind !== "contact") return false;
+      const site = sites.get(item.end);
+      return site?.occurrence === link.a.occurrence && site.connector === link.a.connector;
+    });
+    return sideA?.kind === "contact" && sideA.pad !== undefined && link.unmapped.includes(sideA.pad);
+  };
+  const kept = built.wires.flatMap((wire): WireView[] => {
+    const routed = built.route?.wires.find((item) => item.wire === wire.id)?.lengthNm;
+    const derived = {
+      ...(routed !== undefined ? { routeLengthNm: routed } : {}),
+      ...(wire.cable ? { cable: wire.cable } : {}),
+      ...(wire.conductor ? { conductor: wire.conductor } : {}),
+      ...(wire.net ? { net: wire.net, netName: netNames.get(wire.net) } : {}),
+      suggested: wire.suggested,
+    };
+    if (wire.origin === "explicit") {
+      const own = stored.get(wire.id);
+      if (!own) return [];
+      // The bundle's terminal also names the pad; keep it while the cavity is unchanged.
+      const mine = ownWire(own);
+      const at = (built: TerminalView, stored: TerminalView) => (terminalKey(built) === terminalKey(stored) ? built : stored);
+      return [{ ...mine, from: at(terminal(wire.from), mine.from), to: at(terminal(wire.to), mine.to), ...derived }];
+    }
+    const from = terminal(wire.from);
+    const to = terminal(wire.to);
+    if (taken.has(pairKey({ from, to })) || cleared(wire, from, to)) return [];
+    return [{
+      id: wire.id,
+      origin: wire.origin,
+      ...(wire.link ? { link: wire.link } : {}),
+      from,
+      to,
+      ...(wire.gaugeAwg ? { gaugeAwg: wire.gaugeAwg } : {}),
+      ...(wire.colour ? { colour: wire.colour } : {}),
+      ...(wire.label ? { label: wire.label } : {}),
+      ...derived,
+    }];
+  });
+  return [...kept, ...added];
+}
+
 export function buildHarnessView(document: SystemDocument, bundle: SystemBundle | null | undefined, harnessId: string): HarnessView | null {
   const harness = document.harnesses.find((item) => item.id === harnessId);
   if (!harness) return null;
@@ -127,39 +207,7 @@ export function buildHarnessView(document: SystemDocument, bundle: SystemBundle 
   const subPortsById = new Map(document.subPorts.map((item) => [item.id, item]));
   const linksById = new Map(harness.links.map((item) => [item.id, item]));
 
-  const wires: WireView[] = built
-    ? built.wires.map((wire) => {
-        const own = harness.wires.find((item) => item.id === wire.id);
-        const routed = built.route?.wires.find((item) => item.wire === wire.id)?.lengthNm;
-        return {
-          id: wire.id,
-          origin: wire.origin,
-          ...(wire.link ? { link: wire.link } : {}),
-          from: terminal(wire.from),
-          to: terminal(wire.to),
-          ...(wire.gaugeAwg ? { gaugeAwg: wire.gaugeAwg } : {}),
-          ...(wire.colour ? { colour: wire.colour } : {}),
-          ...(wire.label ? { label: wire.label } : {}),
-          ...(own?.lengthNm !== undefined ? { lengthNm: own.lengthNm } : {}),
-          ...(routed !== undefined ? { routeLengthNm: routed } : {}),
-          ...(wire.cable ? { cable: wire.cable } : {}),
-          ...(wire.conductor ? { conductor: wire.conductor } : {}),
-          ...(wire.net ? { net: wire.net, netName: netNames.get(wire.net) } : {}),
-          suggested: wire.suggested,
-        };
-      })
-    : harness.wires.map((wire) => ({
-        id: wire.id,
-        origin: "explicit" as const,
-        ...(wire.link ? { link: wire.link } : {}),
-        from: terminal(wire.from),
-        to: terminal(wire.to),
-        ...(wire.gaugeAwg ? { gaugeAwg: wire.gaugeAwg } : {}),
-        ...(wire.colour ? { colour: wire.colour } : {}),
-        ...(wire.label ? { label: wire.label } : {}),
-        ...(wire.lengthNm !== undefined ? { lengthNm: wire.lengthNm } : {}),
-        suggested: false,
-      }));
+  const wires = built ? currentWires(harness, built, netNames) : harness.wires.map(ownWire);
 
   // Cavities wires reach, per end.
   const reached = new Map<string, Set<string>>();

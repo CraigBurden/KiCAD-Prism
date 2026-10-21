@@ -16,6 +16,7 @@ from dataclasses import dataclass
 from typing import Any, Callable, Mapping, Optional, Sequence
 
 from app.core import errors, preconditions
+from app.core.config import settings
 from app.services.design_bundle import cli
 from app.services.workspace_service import workspace
 from app.system_builder import (
@@ -40,7 +41,11 @@ from app.system_builder.icd import files as icd_files
 from app.system_builder.icd import model as icd_model
 from app.system_builder.icd import sheets as icd_sheets
 from app.system_builder.icd.model import IcdModel
-from app.system_builder.jobs import start_system_bundle_job, start_system_step_job
+from app.system_builder.jobs import (
+    build_system_bundle_inline,
+    start_system_bundle_job,
+    start_system_step_job,
+)
 from app.system_builder.store import SystemStore
 
 logger = logging.getLogger(__name__)
@@ -81,6 +86,25 @@ class UndoConflict(errors.Conflict):
             f"Later changes touch what version {version} changed; undo them first.",
             laterVersions=list(later),
         )
+
+
+def _standing(entries: Sequence[Mapping[str, Any]]) -> list[Mapping[str, Any]]:
+    """The entries whose effect still stands: a change and the undo of it cancel.
+
+    Read newest first, a standing undo cancels itself and its target, so an
+    undone redo (an undo of an undo) leaves the original change standing.
+    """
+
+    versions = {int(item["version"]) for item in entries}
+    cancelled: set[int] = set()
+    for item in reversed(entries):
+        version = int(item["version"])
+        if version in cancelled:
+            continue
+        undoes = item.get("undoes")
+        if item["kind"] == "undo" and undoes is not None and int(undoes) in versions:
+            cancelled.update((version, int(undoes)))
+    return [item for item in entries if int(item["version"]) not in cancelled]
 
 
 class HarnessNotFound(errors.NotFound):
@@ -226,6 +250,18 @@ class SystemService:
                     "state": "failed",
                     **answer,
                     "error": str(row.get("error") or "The system bundle build failed"),
+                }
+
+        # Every board ready: build here rather than queue (§8.1), and answer with it.
+        if settings.PRISM_SYSTEM_BUNDLE_INLINE and not answer["pending"]:
+            built = build_system_bundle_inline(system_id, requested_by=caller.email)
+            stored = bundle_store.read(system_id, key) if built == key else None
+            if stored is not None:
+                hidden = redaction.hidden_occurrences(document, caller.can_see_project)
+                return {
+                    "state": "ready",
+                    **answer,
+                    "bundle": redaction.redact_bundle(stored, hidden, document=document),
                 }
 
         start_system_bundle_job(
@@ -594,7 +630,10 @@ class SystemService:
                 raise errors.NotFound(f"No change at version {version}")
             if not entry["inverse"]:
                 raise errors.Conflict(f"Version {version} changed nothing; there is nothing to undo.", code="system_undo_nothing")
-            later = [later for later in tx.entries_after(version) if set(later["touched"]) & set(entry["touched"])]
+            later = [
+                item for item in _standing(tx.entries_after(version))
+                if set(item["touched"]) & set(entry["touched"])
+            ]
             if later:
                 raise UndoConflict(version, [item["version"] for item in later])
             applied = self._apply(tx.record, caller, entry["inverse"], undo=True)

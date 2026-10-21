@@ -83,3 +83,14 @@ def pytest_collection_modifyitems(config, items):
     keep = [item for item in items if plan[module_of(item)] == index - 1]
     config.hook.pytest_deselected(items=[item for item in items if plan[module_of(item)] != index - 1])
     items[:] = keep
+
+
+# ---------------------------------------------------------------------------
+# System bundles: the suite exercises the job path; tests of the in-request build turn it on.
+
+
+@pytest.fixture(autouse=True)
+def _system_bundles_through_the_job(monkeypatch):
+    from app.core.config import settings
+
+    monkeypatch.setattr(settings, "PRISM_SYSTEM_BUNDLE_INLINE", False)

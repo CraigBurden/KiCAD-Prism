@@ -7,6 +7,7 @@ import { useEffect, useRef } from "react";
 import type { PrismSemanticViewerElement, PrismSystemSceneMoveState, PrismSystemViewerSelection } from "@/types/prism-semantic-viewer";
 
 import type { SystemDocument, SystemOp } from "../model/types";
+import { pickedBoardNet } from "./net-emphasis";
 import { poseOps } from "./pose-edits";
 
 export interface ViewerEventsOptions {
@@ -15,6 +16,8 @@ export interface ViewerEventsOptions {
   /** The document's occurrences, the only selections the page keeps from the scene. */
   occurrenceIds: ReadonlySet<string>;
   onSelect: (ids: Set<string>) => void;
+  /** The board net a click picked (a track, pad or via), or null. */
+  onPickNet: (picked: { occurrence: string; net: string } | null) => void;
   apply: (ops: SystemOp[]) => Promise<unknown>;
   /** The gizmo's state, for the Move card. */
   onMoveState: (state: PrismSystemSceneMoveState) => void;
@@ -24,10 +27,10 @@ export interface ViewerEventsOptions {
   onFailed: (error: unknown) => void;
 }
 
-export function useViewerEvents({ element, document, occurrenceIds, onSelect, apply, onMoveState, onSettled, onFailed }: ViewerEventsOptions): void {
-  const latest = useRef({ document, occurrenceIds, onSelect, apply, onMoveState, onSettled, onFailed });
+export function useViewerEvents({ element, document, occurrenceIds, onSelect, onPickNet, apply, onMoveState, onSettled, onFailed }: ViewerEventsOptions): void {
+  const latest = useRef({ document, occurrenceIds, onSelect, onPickNet, apply, onMoveState, onSettled, onFailed });
   useEffect(() => {
-    latest.current = { document, occurrenceIds, onSelect, apply, onMoveState, onSettled, onFailed };
+    latest.current = { document, occurrenceIds, onSelect, onPickNet, apply, onMoveState, onSettled, onFailed };
   });
 
   useEffect(() => {
@@ -37,6 +40,7 @@ export function useViewerEvents({ element, document, occurrenceIds, onSelect, ap
       const occurrence = selection && "occurrence" in selection ? selection.occurrence : undefined;
       const current = latest.current;
       current.onSelect(occurrence && current.occurrenceIds.has(occurrence) ? new Set([occurrence]) : new Set());
+      current.onPickNet(pickedBoardNet(selection && "kind" in selection && selection.kind !== "board" ? selection : null));
     };
     const onMove = (event: CustomEvent<PrismSystemSceneMoveState>) => {
       const state = event.detail;
