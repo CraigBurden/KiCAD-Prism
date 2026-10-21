@@ -580,8 +580,6 @@ def dnp_table(designators: Sequence[Any], *, width: float = 92.0) -> Table:
         columns=("Designators",),
         rows=rows,
         widths=(width,),
-        font_size=2.2,
-        row_height=4.0,
         max_cell_lines=12,
         cell_family="mono",
     )

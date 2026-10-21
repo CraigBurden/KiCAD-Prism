@@ -23,7 +23,7 @@ from app.release_studio.documents.artwork import (
     place,
     scale_label,
 )
-from app.release_studio.documents.fonts import DEFAULT_TYPOGRAPHY
+from app.release_studio.documents.fonts import DEFAULT_TYPOGRAPHY, cap_height
 from app.release_studio.documents.layout import (
     PRISM_SCALE_MARGIN,
     PRISM_SCALES,
@@ -33,6 +33,7 @@ from app.release_studio.documents.layout import (
     Sheet,
     SheetBuilder,
     TitleBlockField,
+    centred_baseline,
     draw_notes,
     draw_table,
     fit_columns,
@@ -43,6 +44,7 @@ from app.release_studio.documents.layout import (
 )
 from app.release_studio.documents.style import (
     DEFAULT_SHEET_STYLE,
+    INK,
     MUTED,
     PRISM_STYLE,
     RULE,
@@ -433,7 +435,8 @@ def _draw_artwork_caption(
     )
     builder.text(
         placed.x + placed.width / 2,
-        placed.bottom + 3.0,
+        # A 2.5 mm gap between the drawing and the caption's capitals.
+        placed.bottom + 2.5 + cap_height(2.6, bold=True, typography=builder.typography),
         caption,
         size=2.6,
         bold=True,
@@ -526,6 +529,10 @@ def _draw_view_direction(builder: SheetBuilder, window: Rect, side: str) -> None
     )
 
 
+#: How far below its slot a 3 mm heading's capitals start (baseline 3.2 mm,
+#: cap height 2.17 mm): the blank band every heading carries above its ink.
+_HEADING_INSET = 1.0
+
 #: Height of the DNP legend under the population table, and its swatch size.
 _DNP_LEGEND_HEIGHT = 5.0
 _DNP_SWATCH = 4.0
@@ -580,30 +587,41 @@ def _draw_dnp_legend(
     *,
     width: float,
     style: DnpStyle,
+    scale: float = 1.0,
 ) -> float:
     """Draw the DNP key under the population table; return its height.
 
     The swatch repeats the artwork's own treatment rather than inventing a
-    second symbol for it: a reader matching the sheet against the drawing sees
-    the same colour and the same hatch.
+    second symbol for it: a reader matching the sheet against the drawing sheet
+    sees the same colour and the same hatch. ``scale`` is the factor the tables
+    above were fitted at; ``prism`` centres the text on the swatch.
     """
 
     x0, y0 = origin
-    swatch = Rect(x0, y0, _DNP_SWATCH, _DNP_SWATCH)
+    side = _DNP_SWATCH * scale
+    size = 2.4 * scale
+    swatch = Rect(x0, y0, side, side)
     builder.rect(swatch, width=0.25, colour=style.colour, fill="#ffffff")
-    _draw_hatch(builder, swatch.inset(0.3), style)
+    _draw_hatch(builder, swatch.inset(0.3 * scale), style)
+    if builder.sheet_style == PRISM_STYLE:
+        baseline = centred_baseline(y0, side, size, typography=builder.typography)
+        gap = size * 0.8
+    else:
+        baseline = y0 + _DNP_SWATCH - 0.9
+        gap = 2.0
     builder.text(
-        x0 + _DNP_SWATCH + 2.0,
-        y0 + _DNP_SWATCH - 0.9,
+        x0 + side + gap,
+        baseline,
         fit_text(
             "Do not populate — hatched, designator in red",
-            max(width - _DNP_SWATCH - 2.0, 1.0),
-            2.4,
+            max(width - side - gap, 1.0),
+            size,
             typography=builder.typography,
         ),
-        size=2.4,
+        size=size,
+        **({"colour": INK} if builder.sheet_style == PRISM_STYLE else {}),
     )
-    return _DNP_LEGEND_HEIGHT
+    return _DNP_LEGEND_HEIGHT * scale
 
 
 #: How far overall dimensions sit outside the board outline, in millimetres.
@@ -1170,24 +1188,34 @@ def assembly_sheet(
         reserve += _DNP_LEGEND_HEIGHT + _TABLE_GAP
     if dnp_schedule is not None:
         reserve += dnp_schedule.height(typography, sheet_style) + _TABLE_GAP
-    column, _factor = fit_columns(
+    column, factor = fit_columns(
         [[tables.key_value_table("POPULATION", tuple(summary_rows), width=table_width)]],
         Rect(area.x, area.y, area.width, area.height - reserve),
         gap=_TABLE_GAP,
         sheet_style=sheet_style,
     )
     cursor = _draw_column(builder, column[0], (area.x, area.y))
+    # The legend and the DNP list follow the population table at its scale, so
+    # the column reads as one block of one text size.
+    prism_scale = factor if sheet_style == PRISM_STYLE else 1.0
     if legend_style is not None:
-        legend_top = cursor + _TABLE_GAP
+        # ``prism``: the swatch's top sits where a heading's capitals would, so
+        # table → legend → heading are the same visual gap apart.
+        legend_top = cursor + _TABLE_GAP + (_HEADING_INSET if sheet_style == PRISM_STYLE else 0.0)
         _draw_dnp_legend(
             builder,
             (area.x, legend_top),
             width=table_width,
             style=legend_style,
+            scale=prism_scale,
         )
-        cursor = legend_top + _DNP_LEGEND_HEIGHT
+        cursor = legend_top + (
+            _DNP_SWATCH * prism_scale if sheet_style == PRISM_STYLE else _DNP_LEGEND_HEIGHT
+        )
     if dnp_schedule is not None:
-        cursor = draw_table(builder, dnp_schedule, (area.x, cursor + _TABLE_GAP))
+        cursor = draw_table(
+            builder, dnp_schedule.scaled(prism_scale), (area.x, cursor + _TABLE_GAP)
+        )
     draw_notes(builder, sheet_notes, (area.x, cursor + _TABLE_GAP), width=table_width)
     return builder.build(), used
 

@@ -22,6 +22,7 @@ from typing import Iterable, Literal, Sequence
 from app.release_studio.documents.fonts import (
     DEFAULT_TYPOGRAPHY,
     advance_width,
+    cap_height,
     typography_preset,
 )
 from app.release_studio.documents.style import (
@@ -361,6 +362,29 @@ def text_width(
     return advance_width(
         value, size, role=family, bold=bold, typography=typography
     )
+
+
+def centred_baseline(
+    top: float,
+    height: float,
+    size: float,
+    *,
+    family: Family = "sans",
+    bold: bool = False,
+    typography: str = DEFAULT_TYPOGRAPHY,
+    lines: int = 1,
+    pitch: float = 0.0,
+) -> float:
+    """The first baseline that centres *lines* of text in a band.
+
+    Centring the ink, not the em box: a run of capitals and figures occupies
+    the cap height above its baseline, so the band's slack is split above the
+    first line's capitals and below the last line's baseline.
+    """
+
+    cap = cap_height(size, role=family, bold=bold, typography=typography)
+    block = cap + max(lines - 1, 0) * pitch
+    return top + (height - block) / 2.0 + cap
 
 
 def fit_text(
@@ -931,7 +955,12 @@ def draw_table(builder: SheetBuilder, table: Table, origin: tuple[float, float])
             colour="none",
             fill=HEAD,
         )
-    header_baseline = cursor + table.row_height - 1.4
+    if prism:
+        header_baseline = centred_baseline(
+            cursor, table.row_height, table.font_size, bold=True, typography=builder.typography
+        )
+    else:
+        header_baseline = cursor + table.row_height - 1.4
     offset = x0
     for column, width, align in zip(table.columns, table.widths, aligns):
         builder.text(
@@ -975,10 +1004,22 @@ def draw_table(builder: SheetBuilder, table: Table, origin: tuple[float, float])
                 typography=builder.typography,
                 max_lines=table.max_cell_lines,
             )
+            if prism:
+                first = centred_baseline(
+                    cursor,
+                    row_height,
+                    table.font_size,
+                    family=table.cell_family,
+                    typography=builder.typography,
+                    lines=len(lines),
+                    pitch=line_pitch,
+                )
+            else:
+                first = cursor + table.font_size
             for line_index, line in enumerate(lines):
                 builder.text(
                     _cell_anchor(offset, width, align, table.font_size, bordered=boxed),
-                    cursor + table.font_size + line_index * line_pitch,
+                    first + line_index * line_pitch,
                     line,
                     size=table.font_size,
                     anchor=align,

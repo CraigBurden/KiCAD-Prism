@@ -2177,40 +2177,40 @@ class RendererVersionTests(unittest.TestCase):
     in the same commit.
     """
 
-    #: Recorded for RENDERER_VERSION d24 under the pinned kicad-monkey /
+    #: Recorded for RENDERER_VERSION d25 under the pinned kicad-monkey /
     #: kicad-cruncher toolchain, and verified stable across two runs.
     #: The version and these digests move together, never one without the other.
     #: These are the default `prism` sheets; GOLDEN_KICAD below pins the
     #: selectable `kicad` style to the d23 bytes so it cannot drift.
     GOLDEN = {
         "documentation/assembly.pdf":
-            "483004cb32bf88100fe96de312b38f072ee2d19c77312a5cdf264260202eb022",
+            "a3e601985d5018c90afe10e4dddc8bc3fede817a1de3ef0fcdddc9f3e73c0eb2",
         "documentation/cover.pdf":
-            "d19d11819b3bd2c5457a42fb09ce195ac7f2c638504a20ebfab602eeb733ce93",
+            "2b3b3f71eb82d41f2fa82550d0cf9e4e134e144eb6cafe55d4e120d9e912c605",
         "documentation/drill.pdf":
-            "1141f7c10080d440ada72335f31596d60b40cbf3b1888dd3b2f94f8cd0062256",
+            "c323abde7ada321a0bee358c8ba266fc5b8f328213bdfbc42f4b1371ae5016d9",
         "documentation/fabrication.pdf":
-            "bb1a7ca3b5ac19776971e55f251c6c6b719afa6a14443f8484a9ce5111de89f1",
+            "eb0f010ed4830ac1d844a10c70c3bab3a954949acdb9e6b817435a6e80ca585c",
         "documentation/testpoint.pdf":
-            "a8fdbeae2e8397b0cfbd43a78d511d61c9d5f7196b310067f05a0f5d4922a802",
+            "0ed877211dce7abec1f371c7ccf56cecb7cfaa36216591b2a8a0514fd664f76c",
     }
     GOLDEN_PAGES = {
         "assembly-bottom":
-            "0607cd6623ffe5fdbeb70b7b57bc63832009113fa1992b14bad43f42a7d75d02",
+            "69303fc638d92c6576a7c1fdd417491fe2a8878f7807d189fd0084716e4649d0",
         "assembly-top":
-            "2b432413be02e6ea749adc8d2a77c235280e11f9ca709aef49616e1d85995838",
+            "9e514a8654bedb201a3674b4b7e7a809de5a206e80c3be4ba492422abdaca8ab",
         "cover":
-            "b701b8ade7f44642e322d94d4f3be81125a53882d74f4e4f57e3bb54e66b2927",
+            "1ef132f9c405077210bf167e78540d76c24b65eb4b1bc3bf666a5b9fbbbd9f9b",
         "cover-1":
-            "361f86a55eb7e27acf1dda1acdc56692969c7f5550f5d42b2542c0c4662d56a1",
+            "0478ce9748f1519666b0e2abfef2966ac2353e40d4035123ca949178ce2b40e4",
         "drill":
-            "0aa4822801b28f60e61087184fb793949cbe56463ab0db4434d838d8c3ce7a6e",
+            "89043aafd54b1eeccfc06d8d9cf1e80c75e3221525d54c4c7ce0a61054df6588",
         "fabrication":
-            "6b26017a6d69c6cfa35024ee048f9d7774787b37a6a652eb029ff695a0c36c07",
+            "905325c0b7d375795c3d35a2d6290320e9c24f7685b08fbcad587ab50a51d11b",
         "testpoint-bottom":
-            "e95049a0229570996b7d29e48154d4a9d9a15b2739b15a93428664184a507c54",
+            "1f57a470f423523078b594bf63c02b13fda64caeb6af232e8c4827031c2ba259",
         "testpoint-top":
-            "077337004fb2ab3d47a575cef677474cd8fa8ec08a41e676d62f9e437c1b411f",
+            "ec368fa6523b7453efa5ce9038ecd934f0bef549ba1dc44dc947531481517baa",
     }
 
     #: The d23 `kicad` output, byte for byte.  Selecting the legacy style must
@@ -2249,7 +2249,7 @@ class RendererVersionTests(unittest.TestCase):
     #: A placed sheet, so a change to sheet selection, the scale ladder, or
     #: fabrication dimensions trips this too -- the set above carries no
     #: artwork and would not.
-    GOLDEN_PLACED = "08228d45950d60621515f64c838866c6287c10eb6801b7fc550bf2a706ce38ae"
+    GOLDEN_PLACED = "5e1495f65218f01b3806a612281b5758d92d80acb501f2abb0497bb9e86db513"
     GOLDEN_PLACED_KICAD = "b39c21c06d0ce672b85e7c14aa216cf4b1a1f606a861f0cb860e3e665896d240"
 
     def test_a_placed_sheet_matches_its_recorded_digest(self) -> None:
@@ -2284,7 +2284,7 @@ class RendererVersionTests(unittest.TestCase):
 
         self.assertEqual(
             RENDERER_VERSION,
-            "release-studio-documents/d24",
+            "release-studio-documents/d25",
             "RENDERER_VERSION changed: re-record GOLDEN in the same commit",
         )
 
@@ -2354,6 +2354,51 @@ class PrismStyleTests(unittest.TestCase):
             style="prism",
         )
         return elements, title_block_rect(elements, width_mm=width, height_mm=height)
+
+    def test_table_text_is_centred_on_its_capitals_in_every_row(self) -> None:
+        from app.release_studio.documents.fonts import cap_height
+        from app.release_studio.documents.layout import Text
+
+        builder = SheetBuilder("t", "T", "A4", sheet_style="prism")
+        table = Table(
+            columns=("Property", "Value"),
+            rows=(("Side", "TOP"), ("Components", "37")),
+            widths=(40.0, 40.0),
+            title="POPULATION",
+        )
+        draw_table(builder, table, (10.0, 10.0))
+        texts = {e.value: e for e in builder.build().elements if isinstance(e, Text)}
+        grid_top = 10.0 + 5.0  # under the heading
+        for value, row in (("Property", 0), ("Side", 1), ("Components", 2)):
+            text = texts[value]
+            top = grid_top + row * table.row_height
+            cap = cap_height(table.font_size, role="sans" if row == 0 else "mono", bold=row == 0)
+            # Equal space above the capitals and below the baseline.
+            self.assertAlmostEqual(text.y - cap - top, top + table.row_height - text.y, places=6)
+
+    def test_title_block_text_is_one_face_centred_on_kicads_points(self) -> None:
+        from app.release_studio.documents.fonts import cap_height
+        from app.release_studio.documents.layout import Text
+
+        elements, block = self._worksheet()
+        inside = [
+            e for e in elements
+            if isinstance(e, Text) and block.x <= e.x <= block.right and block.y <= e.y <= block.bottom
+        ]
+        # Only the title's value uses the display face; every label and field is body text.
+        display = [e.value for e in inside if e.family == "display"]
+        self.assertEqual(display, ["Example Board"])
+        self.assertFalse(any(e.bold for e in inside))
+        rev = next(e for e in inside if e.value == "Rev:")
+        # The same field on the kicad sheet carries KiCad's own centre point.
+        from app.release_studio.documents.worksheet import default_worksheet_elements
+
+        kicad = default_worksheet_elements(
+            width_mm=420.0, height_mm=297.0, paper_name="A3", title="Example Board",
+            key="cover", context=CONTEXT, style="kicad",
+        )
+        centre = next(e for e in kicad if isinstance(e, Text) and e.value.startswith("Rev: "))
+        self.assertAlmostEqual(rev.y, centre.y + cap_height(rev.size) / 2, places=6)
 
     def test_frame_strokes_and_zone_labels_are_ink_not_kicad_red(self) -> None:
         from app.release_studio.documents.layout import Line, Rectangle, Text
@@ -2458,7 +2503,12 @@ class PrismStyleTests(unittest.TestCase):
         caption = captions[0]
         self.assertEqual(caption.value, "VIEWED FROM TOP · SCALE 2:1")
         self.assertEqual(caption.colour, MUTED)
-        self.assertAlmostEqual(caption.y, expected_bottom + 3.0, places=6)
+        from app.release_studio.documents.fonts import cap_height
+
+        # 2.5 mm between the drawing and the caption's capitals.
+        self.assertAlmostEqual(
+            caption.y, expected_bottom + 2.5 + cap_height(2.6, bold=True), places=6
+        )
         # The old bottom-left scale label is gone; the ratio is in the caption.
         self.assertNotIn("SCALE 2:1", [e.value for e in sheet.elements if isinstance(e, Text)])
 

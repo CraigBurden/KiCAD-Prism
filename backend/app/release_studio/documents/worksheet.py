@@ -10,6 +10,7 @@ from __future__ import annotations
 from dataclasses import replace
 from typing import Any, Mapping, Sequence
 
+from app.release_studio.documents.fonts import cap_height
 from app.release_studio.documents.layout import (
     Line,
     Polyline,
@@ -257,6 +258,29 @@ def _inked(element):
     return element
 
 
+def _centred(element: Text, *, family: str, colour: str = INK, **changes: Any) -> Text:
+    """*element* in one Prism face, its anchor moved from KiCad's centre to a baseline.
+
+    KiCad's default drawing sheet sets every text vertically centred on its
+    point (``GR_TEXT_V_ALIGN_CENTER``); Prism's layout draws text on its
+    baseline. Dropping the baseline by half the cap height puts the ink where
+    KiCad centres it, so each field sits in the middle of its cell. One face
+    for labels and values: KiCad's bold fields (``Rev``, the company) would
+    otherwise switch to the display face mid-block.
+    """
+
+    size = changes.get("size", element.size)
+    cap = cap_height(size, role=family)
+    return replace(
+        element,
+        y=element.y + cap / 2.0,
+        family=family,
+        bold=False,
+        colour=colour,
+        **changes,
+    )
+
+
 def _split_field(value: str) -> tuple[str | None, str]:
     """``"Size: A3"`` -> ``("Size:", "A3")``; a value without a label stays whole."""
 
@@ -320,7 +344,8 @@ def _prism_worksheet(
             )
 
     body: list[Line | Polyline | Rectangle | Text] = [
-        _inked(element) for element in outside
+        _centred(element, family="sans") if isinstance(element, Text) else _inked(element)
+        for element in outside
     ]
 
     field_index = 0
@@ -380,40 +405,20 @@ def _prism_worksheet(
             continue
         label, rest = _split_field(value)
         if label is None or element.anchor != "start":
-            body.append(replace(element, colour=INK))
+            body.append(_centred(element, family="sans"))
             continue
-        body.append(
-            Text(
-                x=element.x,
-                y=element.y,
-                value=label,
-                size=element.size,
-                anchor=element.anchor,
-                family=element.family,
-                bold=False,
-                colour=MUTED,
-                rotation=element.rotation,
-            )
-        )
+        title = label.rstrip(":").strip().casefold() == "title"
+        body.append(_centred(element, value=label, family="sans", colour=MUTED))
         if not rest:
             continue
-        offset = text_width(
-            f"{label} ",
-            element.size,
-            family=element.family,
-            bold=False,
-        )
+        offset = text_width(f"{label} ", element.size, family="sans", bold=False)
         body.append(
-            Text(
-                x=element.x + offset,
-                y=element.y,
+            _centred(
+                element,
                 value=rest,
-                size=element.size,
-                anchor=element.anchor,
-                family=element.family,
-                bold=element.bold,
+                x=element.x + offset,
+                family="display" if title else "sans",
                 colour=INK,
-                rotation=element.rotation,
             )
         )
 
