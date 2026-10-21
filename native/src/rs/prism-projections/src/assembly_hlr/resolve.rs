@@ -160,9 +160,36 @@ fn substitute(
     if name == "KIPRJMOD" {
         return Some(PRJ.to_owned());
     }
-    let directory = model_dirs.get(name)?;
+    let directory = model_dirs
+        .get(name)
+        .or_else(|| stock_fallback(name, model_dirs))?;
     *host = Some(directory.clone());
     Some(HOST.to_owned())
+}
+
+/// The KiCad major of a `KICAD<major>_3DMODEL_DIR` name.
+fn stock_major(name: &str) -> Option<u32> {
+    name.strip_prefix("KICAD")?
+        .strip_suffix("_3DMODEL_DIR")?
+        .parse()
+        .ok()
+}
+
+/// A `KICAD<major>_3DMODEL_DIR` that no `--model-dir` names resolves through
+/// the newest stock library given, as kicad_monkey's model search does
+/// (`kicad_library_extraction.py`, the "highest-install fallback") and as
+/// KiCad does for a project saved by an older major: a KiCad 9 board's
+/// `${KICAD9_3DMODEL_DIR}` parts come from KiCad 10's library.
+fn stock_fallback<'a>(
+    name: &str,
+    model_dirs: &'a BTreeMap<String, PathBuf>,
+) -> Option<&'a PathBuf> {
+    stock_major(name)?;
+    model_dirs
+        .iter()
+        .filter_map(|(variable, directory)| stock_major(variable).map(|major| (major, directory)))
+        .max_by_key(|(major, _)| *major)
+        .map(|(_, directory)| directory)
 }
 
 /// Join `rest` to repository base `base`, normalized; `Missing` when it
@@ -263,6 +290,26 @@ mod tests {
         match at("${KICAD10_3DMODEL_DIR}/R.3dshapes/R.step", "") {
             Expanded::Host(path) => assert_eq!(path, PathBuf::from("/models/R.3dshapes/R.step")),
             _ => panic!("expected a host path"),
+        }
+    }
+
+    #[test]
+    fn an_older_stock_library_resolves_through_the_newest_given() {
+        match at("${KICAD9_3DMODEL_DIR}/R.3dshapes/R.step", "") {
+            Expanded::Host(path) => assert_eq!(path, PathBuf::from("/models/R.3dshapes/R.step")),
+            _ => panic!("expected a host path"),
+        }
+        let both = BTreeMap::from([
+            ("KICAD9_3DMODEL_DIR".to_owned(), PathBuf::from("/nine")),
+            ("KICAD10_3DMODEL_DIR".to_owned(), PathBuf::from("/ten")),
+        ]);
+        match expand("${KICAD9_3DMODEL_DIR}/R.step", "", "", &both) {
+            Expanded::Host(path) => assert_eq!(path, PathBuf::from("/nine/R.step")),
+            _ => panic!("an explicitly given library wins"),
+        }
+        match expand("${KICAD8_3DMODEL_DIR}/R.step", "", "", &both) {
+            Expanded::Host(path) => assert_eq!(path, PathBuf::from("/ten/R.step")),
+            _ => panic!("the newest library is the fallback"),
         }
     }
 
