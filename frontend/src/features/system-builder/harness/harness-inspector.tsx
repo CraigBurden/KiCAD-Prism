@@ -1,14 +1,19 @@
 /**
  * The harness tab's inspector (CONTRACTS §16.5, mockup 09): the selected wire,
  * end, node or physical object; with nothing selected, the block's label,
- * counts and every finding.
+ * counts and every finding. Its width is the reviewer's, and it folds to a
+ * strip when the canvas needs the room.
  */
 import type { ReactNode } from "react";
+import { PanelRightClose, PanelRightOpen } from "lucide-react";
+
+import { ResizablePanel } from "@/components/ui/resizable-panel";
 
 import { countsLine, endHousing, partRefText } from "./harness-format";
 import { PartName } from "./part-name";
 import type { HarnessView, WireView } from "./harness-view";
 import { WireInspector, type WireChange } from "./harness-wire-inspector";
+import { useInspectorCollapse } from "./use-inspector-collapse";
 
 interface Props {
   view: HarnessView;
@@ -22,6 +27,7 @@ interface Props {
 }
 
 const ghost = "rounded-md border border-white/15 px-2.5 py-1 text-xs text-zinc-200 hover:bg-white/10 disabled:pointer-events-none disabled:opacity-40";
+const icon = "rounded-md p-1 text-zinc-400 hover:bg-white/10 hover:text-zinc-100 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-cyan-700";
 
 function Row({ label, children }: { label: string; children: ReactNode }) {
   return (
@@ -193,31 +199,57 @@ function Overview({ view, selected }: { view: HarnessView; selected: ReadonlySet
 }
 
 export function HarnessInspector({ view, selected, canEdit, busy, onSetWire, onConfirmWire, onRemove, onEditEnd }: Props) {
+  const { collapsed, collapse, expand } = useInspectorCollapse();
   const single = selected.size === 1 ? [...selected][0] : null;
   const wire: WireView | undefined = single ? view.wires.find((item) => item.id === single) : undefined;
   const end = single ? view.ends.find((item) => item.id === single) : undefined;
   const object = single && !wire && !end ? describeObject(view, single) : null;
 
+  if (collapsed) {
+    return (
+      <div className="flex h-full w-7 shrink-0 flex-col items-center border-l border-white/10 bg-[#0b1220] py-2">
+        <button type="button" className={icon} aria-label="Expand inspector" title="Expand inspector (])" onClick={expand}>
+          <PanelRightOpen className="h-4 w-4" />
+        </button>
+      </div>
+    );
+  }
+
   return (
-    <aside aria-label="Harness inspector" className="flex w-[360px] shrink-0 flex-col overflow-y-auto border-l border-white/10 bg-[#0b1220] p-3.5 text-xs text-zinc-200">
-      {wire ? (
-        <WireInspector
-          key={`${wire.id}:${wire.origin}:${wire.gaugeAwg ?? ""}:${wire.colour ?? ""}:${wire.label ?? ""}:${wire.lengthNm ?? ""}`}
-          view={view}
-          wire={wire}
-          canEdit={canEdit}
-          busy={busy}
-          onSet={(changes) => onSetWire(wire.id, changes)}
-          onConfirm={() => onConfirmWire(wire.id)}
-          onRemove={() => onRemove(wire.id)}
-        />
-      ) : end ? (
-        <EndInspector view={view} endId={end.id} onEditEnd={onEditEnd} />
-      ) : object ? (
-        <ObjectInspector object={object} onRemove={onRemove} onRemoveObject={canEdit && !busy} />
-      ) : (
-        <Overview view={view} selected={selected} />
-      )}
-    </aside>
+    <ResizablePanel
+      side="right"
+      storageKey="prism.system-builder.harness-inspector.width"
+      defaultWidth={360}
+      minWidth={280}
+      maxWidth={720}
+      aria-label="Harness inspector"
+      className="border-white/10 bg-[#0b1220]"
+    >
+      <div className="flex shrink-0 justify-end px-2 pt-2">
+        <button type="button" className={icon} aria-label="Collapse inspector" title="Collapse inspector (])" onClick={collapse}>
+          <PanelRightClose className="h-4 w-4" />
+        </button>
+      </div>
+      <div className="min-h-0 flex-1 overflow-y-auto p-3.5 pt-1 text-xs text-zinc-200">
+        {wire ? (
+          <WireInspector
+            key={`${wire.id}:${wire.origin}:${wire.gaugeAwg ?? ""}:${wire.colour ?? ""}:${wire.label ?? ""}:${wire.lengthNm ?? ""}`}
+            view={view}
+            wire={wire}
+            canEdit={canEdit}
+            busy={busy}
+            onSet={(changes) => onSetWire(wire.id, changes)}
+            onConfirm={() => onConfirmWire(wire.id)}
+            onRemove={() => onRemove(wire.id)}
+          />
+        ) : end ? (
+          <EndInspector view={view} endId={end.id} onEditEnd={onEditEnd} />
+        ) : object ? (
+          <ObjectInspector object={object} onRemove={onRemove} onRemoveObject={canEdit && !busy} />
+        ) : (
+          <Overview view={view} selected={selected} />
+        )}
+      </div>
+    </ResizablePanel>
   );
 }
