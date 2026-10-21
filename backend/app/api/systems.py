@@ -225,6 +225,21 @@ def _bundle(answer: dict[str, Any]) -> dict[str, Any]:
     return body
 
 
+def _step(answer: dict[str, Any]) -> dict[str, Any]:
+    """The service's STEP answer in the contract's §18 shape."""
+
+    body: dict[str, Any] = {
+        "state": answer["state"],
+        "boards": answer.get("boards") or [],
+        "missing": answer.get("missing") or [],
+    }
+    if answer.get("error"):
+        body["error"] = answer["error"]
+    if answer.get("sizeBytes") is not None:
+        body["sizeBytes"] = int(answer["sizeBytes"])
+    return body
+
+
 @router.get("/systems")
 def list_systems(user: AuthenticatedUser = Depends(require_viewer)) -> list[dict[str, Any]]:
     return [_summary(row) for row in store.list(role=user.role)]
@@ -262,6 +277,43 @@ def read_bundle(
     answer = service.bundle(system_id, _caller(user), role=user.role)
     response.headers["ETag"] = etag(viewed)
     return _bundle(answer)
+
+
+@router.get("/systems/{system_id}/step")
+def read_step(
+    system_id: str,
+    user: AuthenticatedUser = Depends(require_viewer),
+) -> dict[str, Any]:
+    """The current bundle key's STEP state (§18)."""
+
+    return _step(service.step_state(system_id, _caller(user), role=user.role))
+
+
+@router.post("/systems/{system_id}/step", status_code=202)
+def start_step(
+    system_id: str,
+    user: AuthenticatedUser = Depends(require_viewer),
+) -> dict[str, Any]:
+    """Start the STEP assembly; idempotent while it is building (§18)."""
+
+    return _step(service.start_step(system_id, _caller(user), role=user.role))
+
+
+@router.get("/systems/{system_id}/step/file")
+def read_step_file(
+    system_id: str,
+    user: AuthenticatedUser = Depends(require_viewer),
+) -> Response:
+    """The system STEP file, as an attachment (§18)."""
+
+    content, media_type, filename = service.step_file(
+        system_id, _caller(user), role=user.role,
+    )
+    return Response(
+        content,
+        media_type=media_type,
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
 
 
 @router.get("/systems/{system_id}/harnesses/{harness}/outputs")

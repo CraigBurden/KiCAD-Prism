@@ -35,5 +35,6 @@ pub mod nets;
 pub mod output;
 pub mod placement;
 pub mod routing;
+pub mod step;
 pub mod suggestions;
 pub mod wiring;

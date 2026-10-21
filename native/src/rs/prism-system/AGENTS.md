@@ -10,6 +10,9 @@ before geometry and geometry before outputs. The rules are
 - `src/build.rs` — the entry point: occurrences, reference checks, mates, wiring,
   nets, suggestions and findings; `src/input.rs` / `src/output.rs` — the
   document subset read and the `prism.system_bundle.a0` shape written.
+- `src/step.rs` — the §18 STEP assembly: the product tree from the arranged
+  system, board lifts, body models and connectors, routed harness tubes and end
+  housings; `prism-kicad system step` writes it with `prism-step`.
 - `src/mapping.rs` — B2B pin mappings from geometry (§8.4); `src/wiring.rs` —
   harness wiring and splices; `src/nets.rs` — system nets; `src/suggestions.rs`
   — sub-port suggestions; `src/findings.rs` — the §9 catalogue and waivers.

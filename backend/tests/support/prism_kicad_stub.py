@@ -10,7 +10,7 @@ bytes and the bundle key, never on archive bytes or messages.
 Failure injection, ``PRISM_KICAD_STUB_MODE``: a comma-separated list of
 ``<command>[:<stage>]=<mode>`` with ``<command>`` one of ``version``,
 ``bundle build``, ``bundle verify``, ``bundle extract``, ``bundle reuse``,
-``revision-key``, ``system build``, and
+``revision-key``, ``system build``, ``system step``, and
 ``<mode>`` one of ``exit:<1-7>``, ``failed``, ``partial``, ``absent``, ``hang``,
 ``crash``, ``garbage-stderr``. ``PRISM_KICAD_STUB_LOG`` names a file that gets
 one ``{"argv": [...], "exit": n}`` line per invocation.
@@ -54,7 +54,7 @@ OPTIONS_WITH_VALUE = {
     "--stage", "-o", "--output", "--source-root", "--revision-key", "--key-record", "--config", "--in",
     "--refilled-board", "--refill-tool", "--models-glb", "--models-tool", "--commit", "--project", "--limit",
     "--threads", "--upgraded", "--document", "--member", "--member-revision-key", "--absent",
-    "--board-sub-ports", "--entry", "--entry-stage", "--parts",
+    "--board-sub-ports", "--entry", "--entry-stage", "--parts", "--models",
 }
 FLAGS = {"--worktree", "--quiet"}
 _ARGV = list(sys.argv[1:])
@@ -899,6 +899,66 @@ def system_build(positionals: list[str], options: dict[str, Any]) -> NoReturn:
     raise Exit(0, result)
 
 
+def system_step(positionals: list[str], options: dict[str, Any]) -> NoReturn:
+    """``system step`` (docs/system-builder/CONTRACTS.md §18): write a tiny AP242 file.
+
+    The backend never parses the output, so the stub only proves the manifest
+    names readable files and returns the contract's plain JSON result.
+    """
+
+    apply_modes("system step")
+    if positionals:
+        error(2, "usage", "system step takes options only", argument="command")
+    if "--document" not in options or "--models" not in options or "-o" not in options:
+        error(2, "usage", "system step needs --document, --models and -o", argument="output")
+    try:
+        document = json.loads(Path(options["--document"]).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        error(3, "document-invalid", "--document is not a JSON document", argument="document")
+    if not isinstance(document, dict) or document.get("schema") != "prism.system.v2":
+        error(3, "document-invalid", "--document is not a prism.system.v2 document", argument="document")
+    manifest_path = Path(options["--models"])
+    try:
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        error(3, "input-invalid", "--models is not a JSON file", argument="models")
+    if not isinstance(manifest, dict) or not isinstance(manifest.get("boards"), dict) \
+            or not isinstance(manifest.get("parts"), dict):
+        error(3, "input-invalid", "--models is not the models manifest", argument="models")
+    labels = {
+        str(item.get("id") or ""): str(item.get("label") or item.get("id"))
+        for item in document.get("occurrences") or []
+        if isinstance(item, dict)
+    }
+    base = manifest_path.parent
+    missing: list[str] = []
+    for occurrence, board in sorted(manifest["boards"].items()):
+        if not isinstance(board, dict) or not (base / str(board.get("step") or "")).is_file():
+            missing.append(labels.get(str(occurrence), str(occurrence)))
+    for reference, part in sorted(manifest["parts"].items()):
+        if not isinstance(part, dict) or not (base / str(part.get("step") or "")).is_file():
+            missing.append(str(reference))
+    data = (
+        "ISO-10303-21;\n"
+        "HEADER;\n"
+        "FILE_DESCRIPTION((''),'2;1');\n"
+        "FILE_NAME('system.step','',(''),(''),'','','');\n"
+        "FILE_SCHEMA(('AP242_MANAGED_MODEL_BASED_3D_ENGINEERING_MIM_LF'));\n"
+        "ENDSEC;\n"
+        "DATA;\n"
+        "#1=PRODUCT('system','system','',());\n"
+        "ENDSEC;\n"
+        "END-ISO-10303-21;\n"
+    )
+    write_atomic(Path(options["-o"]), data.encode("ascii"))
+    result = {
+        "products": 1 + len(manifest["boards"]),
+        "missing": missing,
+        "bytes": len(data),
+    }
+    raise Exit(0, result)
+
+
 def verify(positionals: list[str], options: dict[str, Any]) -> NoReturn:
     if len(positionals) != 1:
         error(2, "usage", "verify takes one bundle", argument="bundle")
@@ -1035,9 +1095,11 @@ def main(argv: list[str]) -> NoReturn:
         positionals, options = parse_options(argv[1:])
         revision_key(positionals, options)
     if argv[0] == "system":
-        if len(argv) < 2 or argv[1] != "build":
+        if len(argv) < 2 or argv[1] not in ("build", "step"):
             error(2, "unknown-command", "unknown system command", argument="command")
         positionals, options = parse_options(argv[2:])
+        if argv[1] == "step":
+            system_step(positionals, options)
         system_build(positionals, options)
     if argv[0] != "bundle" or len(argv) < 2 or argv[1] not in ("build", "verify", "extract", "reuse"):
         error(2, "unknown-command", "unknown command", argument="command")

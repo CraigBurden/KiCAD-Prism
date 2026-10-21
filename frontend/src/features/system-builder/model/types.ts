@@ -97,6 +97,27 @@ export interface HarnessOutputsIndex {
 /** `GET /api/systems/{id}/icd` (§17): the same index shape, for the interface control document. */
 export type IcdIndex = HarnessOutputsIndex;
 
+/** One board's model in the STEP assembly (§18). */
+export interface StepBoard {
+  occurrence: string;
+  label: string;
+  state: "queued" | "building" | "ready" | "failed";
+  /** Component models `kicad-cli` reported it could not find. */
+  missingModels: number;
+  /** The export fell back to a plain checkout (submodules or LFS missing). */
+  fallback: boolean;
+}
+
+/** `GET`/`POST /api/systems/{id}/step` (§18): the current bundle key's STEP assembly. */
+export interface SystemStepAnswer {
+  state: "none" | "building" | "ready" | "failed";
+  boards: StepBoard[];
+  /** Product names whose model was missing from the assembly. */
+  missing: string[];
+  error?: string;
+  sizeBytes?: number;
+}
+
 /** `GET /api/systems/{id}/history`: one logged request, newest first. */
 export interface SystemHistoryEntry {
   version: number;

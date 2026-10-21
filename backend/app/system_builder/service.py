@@ -27,6 +27,7 @@ from app.system_builder import (
     parts,
     publishing,
     redaction,
+    step_store,
 )
 from app.system_builder import members as member_view
 from app.system_builder.document import find, new_document, new_id
@@ -39,7 +40,7 @@ from app.system_builder.icd import files as icd_files
 from app.system_builder.icd import model as icd_model
 from app.system_builder.icd import sheets as icd_sheets
 from app.system_builder.icd.model import IcdModel
-from app.system_builder.jobs import start_system_bundle_job
+from app.system_builder.jobs import start_system_bundle_job, start_system_step_job
 from app.system_builder.store import SystemStore
 
 logger = logging.getLogger(__name__)
@@ -109,6 +110,20 @@ class IcdOutputsBuilding(errors.Conflict):
 
     code = "icd_outputs_building"
     default_detail = "The system bundle is still building; try the ICD when it is ready"
+
+
+class SystemBundleBuilding(errors.Conflict):
+    """The STEP POST needs the bundle, which is not ready yet (§18)."""
+
+    code = "system_bundle_building"
+    default_detail = "The system bundle is still building; build the STEP when it is ready"
+
+
+class StepNotReady(errors.Conflict):
+    """The STEP file is only offered once the assembly is ready (§18)."""
+
+    code = "system_step_not_ready"
+    default_detail = "The STEP assembly is not ready yet"
 
 
 #: Rendered files and the model behind them are cached in-process, keyed by the
@@ -181,15 +196,7 @@ class SystemService:
         if record is None:
             raise SystemNotFound()
         document = record["document"]
-        resolved = member_view.resolve(document, requested_by=caller.email)
-        generator = cli.generator()
-        with self._store.connection() as conn:
-            board_input = board_sub_ports.build_input(conn, document)
-        key = member_view.system_bundle_key(
-            document, generator.digest, resolved, board_sub_ports=board_input,
-            entries=member_view.entry_key_input(resolved),
-            parts=parts.digest(parts.build_input(document)[0]),
-        )
+        key, resolved = self._current_bundle(record, requested_by=caller.email)
         answer: dict[str, Any] = {
             "key": key,
             "pending": sorted(
@@ -225,6 +232,119 @@ class SystemService:
             system_id, key, record["version"], requested_by=caller.email
         )
         return {"state": "building", **answer}
+
+    def _current_bundle(
+        self, record: Mapping[str, Any], *, requested_by: str
+    ) -> tuple[str, tuple[member_view.Member, ...]]:
+        """The key of the system as it is now, and its resolved members.
+
+        The bundle and the STEP assembly must agree on the key, so both read it
+        through this one rule (§8.1, §18).
+        """
+
+        document = record["document"]
+        resolved = member_view.resolve(document, requested_by=requested_by)
+        generator = cli.generator()
+        with self._store.connection() as conn:
+            board_input = board_sub_ports.build_input(conn, document)
+        key = member_view.system_bundle_key(
+            document, generator.digest, resolved, board_sub_ports=board_input,
+            entries=member_view.entry_key_input(resolved),
+            parts=parts.digest(parts.build_input(document)[0]),
+        )
+        return key, resolved
+
+    # ------------------------------------------------------------------ STEP
+
+    def step_state(self, system_id: str, caller: Caller, *, role: str) -> dict[str, Any]:
+        """The current bundle key's STEP state (§18)."""
+
+        record = self._store.read(system_id, role=role)
+        if record is None:
+            raise SystemNotFound()
+        self._require_no_hidden(record, caller)
+        key, _resolved = self._current_bundle(record, requested_by=caller.email)
+        return self._step_view(system_id, key)
+
+    def start_step(self, system_id: str, caller: Caller, *, role: str) -> dict[str, Any]:
+        """Start (or reuse) the STEP job for the current bundle key (§18).
+
+        A caller who cannot see a board gets the redaction refusal: a STEP file
+        cannot hide it. The job needs the bundle, so a bundle that is not ready
+        is ``409 system_bundle_building``.
+        """
+
+        record = self._store.read(system_id, role=role)
+        if record is None:
+            raise SystemNotFound()
+        self._require_no_hidden(record, caller)
+        key, _resolved = self._current_bundle(record, requested_by=caller.email)
+        if bundle_store.read(system_id, key) is None:
+            raise SystemBundleBuilding()
+        stored = step_store.system_record(system_id, key)
+        if stored is not None:
+            if stored.get("state") == "ready" and step_store.system_exists(system_id, key):
+                step_store.system_touch(system_id, key)
+                return self._step_view(system_id, key)
+            if stored.get("state") == "building" and bundle_store.active_job(
+                str(stored.get("jobId") or "")
+            ):
+                return self._step_view(system_id, key)
+        retry_failed = bool(stored and stored.get("state") == "failed")
+        start_system_step_job(
+            system_id, key, requested_by=caller.email, retry_failed=retry_failed
+        )
+        return self._step_view(system_id, key)
+
+    def step_file(
+        self, system_id: str, caller: Caller, *, role: str
+    ) -> tuple[bytes, str, str]:
+        """The system STEP file, its media type and download name (§18)."""
+
+        record = self._store.read(system_id, role=role)
+        if record is None:
+            raise SystemNotFound()
+        self._require_no_hidden(record, caller)
+        key, _resolved = self._current_bundle(record, requested_by=caller.email)
+        stored = step_store.system_record(system_id, key)
+        if (
+            stored is None
+            or stored.get("state") != "ready"
+            or not step_store.system_exists(system_id, key)
+        ):
+            raise StepNotReady()
+        step_store.system_touch(system_id, key)
+        content = step_store.system_path(system_id, key).read_bytes()
+        return content, "model/step", f"{git_link.slug(str(record['name']))}.step"
+
+    def _step_view(self, system_id: str, key: str) -> dict[str, Any]:
+        """One sidecar in the API's §18 shape; ``none`` when nothing exists."""
+
+        stored = step_store.system_record(system_id, key)
+        if stored is None:
+            return {"state": "none", "boards": [], "missing": []}
+        state = str(stored.get("state") or "none")
+        if state == "ready" and not step_store.system_exists(system_id, key):
+            state = "failed"
+        step_store.system_touch(system_id, key)
+        answer: dict[str, Any] = {
+            "state": state,
+            "boards": list(stored.get("boards") or []),
+            "missing": list(stored.get("missing") or []),
+        }
+        error = str(stored.get("error") or "")
+        if state == "failed":
+            answer["error"] = error or "The STEP assembly did not finish"
+        elif error:
+            answer["error"] = error
+        if state == "ready":
+            answer["sizeBytes"] = int(stored.get("sizeBytes") or 0)
+        return answer
+
+    @staticmethod
+    def _require_no_hidden(record: Mapping[str, Any], caller: Caller) -> None:
+        if redaction.hidden_occurrences(record["document"], caller.can_see_project):
+            raise Redacted()
 
     # ------------------------------------------------------- harness outputs
 

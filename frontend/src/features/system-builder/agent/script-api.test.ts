@@ -307,6 +307,29 @@ describe("harness script API", () => {
     expect(mock.mock.calls[0][0]).toBe("/api/systems/sys_a/icd");
   });
 
+  it("reads and starts the STEP assembly", async () => {
+    const none = { state: "none", boards: [], missing: [] };
+    const building = { state: "building", boards: [], missing: [] };
+    let call = 0;
+    const mock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      void input;
+      void init;
+      const answer = call === 0 ? none : building;
+      call += 1;
+      return new Response(JSON.stringify(answer), { status: 200, headers: { "Content-Type": "application/json" } });
+    });
+    vi.stubGlobal("fetch", mock);
+    const { api } = harness();
+
+    await expect(api.step()).resolves.toEqual(none);
+    await expect(api.buildStep()).resolves.toEqual(building);
+
+    expect(mock.mock.calls[0][0]).toBe("/api/systems/sys_a/step");
+    expect(mock.mock.calls[0][1]?.method).toBeUndefined();
+    expect(mock.mock.calls[1][0]).toBe("/api/systems/sys_a/step");
+    expect(mock.mock.calls[1][1]?.method).toBe("POST");
+  });
+
   it("adds a wire and fills the link joining its two sites", async () => {
     const { api, sent } = harness();
     await api.addWire({

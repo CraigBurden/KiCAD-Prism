@@ -1,7 +1,7 @@
 /**
  * The ICD / Outputs tab's right column (CONTRACTS §17): the downloads grouped
  * as the contract lists them — the ICD, the system document as JSON, one group
- * per harness with its §16.7 files, and the STEP note. Downloads are
+ * per harness with its §16.7 files, and the STEP assembly. Downloads are
  * viewer-level, so the groups are the same for a read-only caller.
  */
 import { FileJson } from "lucide-react";
@@ -11,6 +11,7 @@ import type { Harness, SystemDocument } from "../model/types";
 import { harnessOutputFile, harnessOutputs, icdFile } from "../model/api";
 import { DownloadList } from "./download-list";
 import { saveJson, slug } from "./file-saver";
+import { StepGroup } from "./step-group";
 import { OUTPUTS_BUILDING_MESSAGE, useOutputsIndex, type OutputsIndexState } from "./use-outputs-index";
 
 const MUTED = "text-sm text-zinc-400";
@@ -95,7 +96,7 @@ export function OutputsGroups({ systemId, document, name, icd }: {
       </Group>
 
       <Group title="STEP">
-        <Muted>The STEP assembly arrives with stage 5b.</Muted>
+        <StepGroup systemId={systemId} name={name || document.name} />
       </Group>
     </div>
   );

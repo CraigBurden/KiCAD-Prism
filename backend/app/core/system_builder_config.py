@@ -51,6 +51,14 @@ class SystemBuilderSettings(BaseSettings):
         ge=10,
         description="Wall-clock bound for one prism-kicad system build, in seconds.",
     )
+    PRISM_SYSTEM_STEP_TIMEOUT_SECONDS: int = Field(
+        default=900,
+        ge=10,
+        description=(
+            "Wall-clock bound for one board STEP export or one prism-kicad system step,"
+            " in seconds."
+        ),
+    )
     PRISM_BOARD_SUB_PORT_MAX_PINS: int = Field(
         default=1024,
         gt=0,

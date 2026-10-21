@@ -16,6 +16,7 @@ import type {
   SystemPublishAnswer,
   SystemRecord,
   SystemSnapshot,
+  SystemStepAnswer,
   SystemSummary,
 } from "./types";
 
@@ -89,6 +90,27 @@ export function harnessOutputFile(
 /** One generated ICD file as a blob, with the download name the server gave it (§17). */
 export function icdFile(systemId: string, name: string, signal?: AbortSignal): Promise<{ blob: Blob; filename: string }> {
   return readOutputFile(icdUrl(systemId, name), name, signal);
+}
+
+const stepBase = (systemId: string) => `${base(systemId)}/step`;
+
+/** The current bundle key's STEP assembly, or that there is none yet (§18). */
+export function stepState(systemId: string, signal?: AbortSignal): Promise<SystemStepAnswer> {
+  return fetchJson<SystemStepAnswer>(stepBase(systemId), { signal }, "Could not load the STEP assembly");
+}
+
+/** Start (or rebuild) the STEP assembly (§18); the answer is its state. */
+export function startStep(systemId: string): Promise<SystemStepAnswer> {
+  return fetchJson<SystemStepAnswer>(stepBase(systemId), { method: "POST" }, "Could not build the STEP assembly");
+}
+
+/** The system's STEP file as a blob, with the download name the server gave it (§18). */
+export function stepFile(
+  systemId: string,
+  name = "system.step",
+  signal?: AbortSignal,
+): Promise<{ blob: Blob; filename: string }> {
+  return readOutputFile(`${stepBase(systemId)}/file`, name, signal);
 }
 
 export function applyOps(systemId: string, version: number, ops: SystemOp[]): Promise<SystemRecord> {

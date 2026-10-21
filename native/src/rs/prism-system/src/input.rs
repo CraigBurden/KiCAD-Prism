@@ -16,6 +16,9 @@ use std::collections::{BTreeMap, BTreeSet};
 #[derive(Clone, Debug, Default, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Document {
+    /// The system's name (the STEP assembly's root product).
+    #[serde(default)]
+    pub name: String,
     /// Occurrences, in id order.
     #[serde(default)]
     pub occurrences: Vec<Occurrence>,
@@ -711,6 +714,37 @@ pub struct EntryFacts {
     /// child's system frame); empty for an entry published before exports
     /// carried geometry.
     pub mount: MountFacts,
+    /// The child system's occurrences where it placed them, for the STEP
+    /// assembly (§18); empty for an entry whose bundle has no placement.
+    pub contents: Vec<EntryContent>,
+    /// The child's exported body connectors with their parts, at their mounts.
+    pub connectors: Vec<EntryConnector>,
+}
+
+/// One occurrence inside a placed entry, in the entry's frame.
+#[derive(Clone, Debug, PartialEq)]
+pub struct EntryContent {
+    /// The child occurrence id.
+    pub occurrence: String,
+    pub label: String,
+    /// `board`, `body` or `entry`.
+    pub kind: String,
+    pub pose: Pose,
+    /// A body's catalog part reference (`componentId[@revisionId]`).
+    pub part: Option<String>,
+    /// A board's thickness from its placed box, millimetres.
+    pub thickness_mm: f64,
+}
+
+/// An exported body connector inside a placed entry.
+#[derive(Clone, Debug, PartialEq)]
+pub struct EntryConnector {
+    /// The export's name, as the product is named.
+    pub name: String,
+    /// The connector part's reference.
+    pub part: String,
+    /// Its footprint frame in the entry's frame.
+    pub mount: Pose,
 }
 
 /// One pin of a catalog part's symbol.

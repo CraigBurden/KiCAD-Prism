@@ -26,4 +26,12 @@ pagelayout_logo, A4_ISO5457-1999_ISO7200-2004_EN, gost_landscape)
   libraries' exception for designs made with them. Used unmodified, as test
   data only.
 
+SolidCraft (native/src/rs/prism-step/)
+  Copyright (c) 2026 SolidCraft contributors.
+  The ISO 10303-21 parser (src/rs/prism-step/src/p21.rs) and the AP242
+  assembly writer (src/rs/prism-step/src/assembly/) are adapted from
+  https://github.com/tangency-labs/solidcraft at commit a0c1a67.
+  Licensed under the MIT License or the Apache License, Version 2.0, at your
+  option.
+
 Provenance and per-directory details: docs/architecture/native-provenance.md.

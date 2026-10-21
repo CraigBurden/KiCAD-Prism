@@ -16,7 +16,13 @@ import { eulerDegrees, rotationFromEuler } from "../placement/poses";
 import { poseOps, positioningMateOps } from "../three-d/pose-edits";
 import { manualMapOps, orientationOps, rowNameOps, spacerOps, stackHeightOps } from "../b2b/mate-edits";
 import { buildMateView } from "../b2b/mate-view";
-import { harnessOutputs as fetchHarnessOutputs, icd as fetchIcd, publishSystem } from "../model/api";
+import {
+  harnessOutputs as fetchHarnessOutputs,
+  icd as fetchIcd,
+  publishSystem,
+  startStep as startStepAssembly,
+  stepState as fetchStepState,
+} from "../model/api";
 import { exportAt, pinNameOps, renameExportOps, toggleExportOps } from "../publish/export-edits";
 import { addCableOps, addLooseEndOps, addSpliceOps, addWireOps, removeWireOps, setEndOps, setWireOps } from "../harness/harness-edits";
 import { addWaypointAtOps, moveWaypointOps, removeWaypointOps, routeOf, setBranchPointOps, storeTopologyOps } from "../harness/route-edits";
@@ -367,6 +373,16 @@ export function createScriptApi(deps: ScriptDeps) {
     /** The ICD index (§17): its files and sheet count. */
     icd() {
       return fetchIcd(read().systemId);
+    },
+
+    /** The STEP assembly's state (§18), or that there is none yet. */
+    step() {
+      return fetchStepState(read().systemId);
+    },
+
+    /** Start (or rebuild) the STEP assembly (§18); returns its state. */
+    buildStep() {
+      return startStepAssembly(read().systemId);
     },
 
     /** A wire between two terminals; `link` fills when one link joins their sites. */

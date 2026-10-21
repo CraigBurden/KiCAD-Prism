@@ -20,15 +20,7 @@ use std::collections::{BTreeMap, BTreeSet};
 /// Build the system bundle of `doc` over `members`; `document_sha256` is the
 /// SHA-256 of the document's canonical JSON.
 pub fn build(doc: &Document, members: &Members, document_sha256: String) -> SystemBundle {
-    // Bodies read as boards from here on (§8.10); entries' exports sit at their mounts (§12.2).
-    let mut members = members.clone();
-    body::add_bodies(doc, &mut members);
-    let mounted: Vec<(String, MountFacts)> = members
-        .entries
-        .iter()
-        .map(|(occurrence, facts)| (occurrence.clone(), facts.mount.clone()))
-        .collect();
-    members.mounted.extend(mounted);
+    let members = prepare(doc, members);
     let members = &members;
     let mut cx = Context::new(doc, members);
     let named = named_connectors(doc);
@@ -60,6 +52,21 @@ pub fn build(doc: &Document, members: &Members, document_sha256: String) -> Syst
         findings: cx.findings.finish(&doc.waivers),
         placement,
     }
+}
+
+/// Bodies read as boards from here on (§8.10); entries' exports sit at their
+/// mounts (§12.2). Both the bundle build and the STEP assembly arrange the
+/// system over this view.
+pub(crate) fn prepare(doc: &Document, members: &Members) -> Members {
+    let mut prepared = members.clone();
+    body::add_bodies(doc, &mut prepared);
+    let mounted: Vec<(String, MountFacts)> = prepared
+        .entries
+        .iter()
+        .map(|(occurrence, facts)| (occurrence.clone(), facts.mount.clone()))
+        .collect();
+    prepared.mounted.extend(mounted);
+    prepared
 }
 
 /// Every sub-port, export and harness-end site must name a connector (and
@@ -95,7 +102,7 @@ fn check_references(cx: &mut Context<'_>) {
 /// The connectors each occurrence's document objects name.
 pub type Named = BTreeMap<String, BTreeSet<String>>;
 
-fn named_connectors(doc: &Document) -> Named {
+pub(crate) fn named_connectors(doc: &Document) -> Named {
     let mut named: Named = BTreeMap::new();
     let mut add = |occurrence: &str, connector: &str| {
         named
@@ -377,7 +384,7 @@ fn side<'a>(
     })
 }
 
-fn map_mate(cx: &mut Context<'_>, mate: &Mate, edges: &mut Vec<Edge>) -> MateOut {
+pub(crate) fn map_mate(cx: &mut Context<'_>, mate: &Mate, edges: &mut Vec<Edge>) -> MateOut {
     let objects = [mate.id.as_str()];
     let a = cx.connector(&mate.a.occurrence, &mate.a.connector, &objects);
     let b = cx.connector(&mate.b.occurrence, &mate.b.connector, &objects);
