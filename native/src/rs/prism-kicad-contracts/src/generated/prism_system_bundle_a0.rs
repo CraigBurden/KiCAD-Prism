@@ -736,6 +736,56 @@ pub struct SystemBundleBounds {
     ///The maximum corner.
     pub max: SystemBundleVectorNm,
 }
+///Where a segment comes closer to a board or body than its radius and the margin.
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "description": "Where a segment comes closer to a board or body than its radius and the margin.",
+///  "type": "object",
+///  "required": [
+///    "at",
+///    "distanceNm",
+///    "neededNm",
+///    "occurrence"
+///  ],
+///  "properties": {
+///    "at": {
+///      "description": "The closest point on the segment.",
+///      "$ref": "#/$defs/SystemBundleVectorNm"
+///    },
+///    "distanceNm": {
+///      "description": "The distance from the curve to the occurrence's box.",
+///      "$ref": "#/$defs/Nanometres"
+///    },
+///    "neededNm": {
+///      "description": "The distance needed: the bundle's radius plus the margin.",
+///      "$ref": "#/$defs/Nanometres"
+///    },
+///    "occurrence": {
+///      "description": "The board or body occurrence.",
+///      "$ref": "#/$defs/SystemBundleObjectId"
+///    }
+///  },
+///  "additionalProperties": false
+///}
+/// ```
+/// </details>
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct SystemBundleClearance {
+    ///The board or body occurrence.
+    pub occurrence: SystemBundleObjectId,
+    ///The closest point on the segment.
+    pub at: SystemBundleVectorNm,
+    ///The distance from the curve to the occurrence's box.
+    #[serde(rename = "distanceNm")]
+    pub distance_nm: Nanometres,
+    ///The distance needed: the bundle's radius plus the margin.
+    #[serde(rename = "neededNm")]
+    pub needed_nm: Nanometres,
+}
 ///One connector of a board occurrence.
 ///
 /// <details><summary>JSON schema</summary>
@@ -1362,6 +1412,10 @@ impl ::std::convert::TryFrom<::std::string::String> for SystemBundleFootprintSid
 ///      "description": "The harness block.",
 ///      "$ref": "#/$defs/SystemBundleObjectId"
 ///    },
+///    "route": {
+///      "description": "The route in 3D (stage 4c, §16.6). Absent in bundles built before\nformat 6, and when fewer than two ends are posed.",
+///      "$ref": "#/$defs/SystemBundleHarnessRoute"
+///    },
 ///    "wires": {
 ///      "description": "Explicit wires in document order, then each link's default wires.",
 ///      "type": "array",
@@ -1383,6 +1437,10 @@ pub struct SystemBundleHarness {
     pub ends: ::std::vec::Vec<SystemBundleHarnessEnd>,
     ///Explicit wires in document order, then each link's default wires.
     pub wires: ::std::vec::Vec<SystemBundleHarnessWire>,
+    /**The route in 3D (stage 4c, §16.6). Absent in bundles built before
+    format 6, and when fewer than two ends are posed.*/
+    #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+    pub route: ::std::option::Option<SystemBundleHarnessRoute>,
 }
 ///A cavity of an end in use (§16.3).
 ///
@@ -1560,6 +1618,63 @@ pub struct SystemBundleHarnessEnd {
     ///Cavities in use, in natural order.
     pub cavities: ::std::vec::Vec<SystemBundleHarnessCavity>,
 }
+///A harness route (stage 4c, §16.6).
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "description": "A harness route (stage 4c, §16.6).",
+///  "type": "object",
+///  "required": [
+///    "derived",
+///    "ends",
+///    "segments",
+///    "wires"
+///  ],
+///  "properties": {
+///    "derived": {
+///      "description": "The tree was derived (no stored segments, or stored ones that are not a tree).",
+///      "type": "boolean"
+///    },
+///    "ends": {
+///      "description": "The posed ends, in document order.",
+///      "type": "array",
+///      "items": {
+///        "$ref": "#/$defs/SystemBundleRouteEnd"
+///      }
+///    },
+///    "segments": {
+///      "description": "The segments in tree order.",
+///      "type": "array",
+///      "items": {
+///        "$ref": "#/$defs/SystemBundleRouteSegment"
+///      }
+///    },
+///    "wires": {
+///      "description": "Every wire of the wire list, in its order.",
+///      "type": "array",
+///      "items": {
+///        "$ref": "#/$defs/SystemBundleRouteWire"
+///      }
+///    }
+///  },
+///  "additionalProperties": false
+///}
+/// ```
+/// </details>
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct SystemBundleHarnessRoute {
+    ///The tree was derived (no stored segments, or stored ones that are not a tree).
+    pub derived: bool,
+    ///The posed ends, in document order.
+    pub ends: ::std::vec::Vec<SystemBundleRouteEnd>,
+    ///The segments in tree order.
+    pub segments: ::std::vec::Vec<SystemBundleRouteSegment>,
+    ///Every wire of the wire list, in its order.
+    pub wires: ::std::vec::Vec<SystemBundleRouteWire>,
+}
 ///One conductor of a harness (§16.3).
 ///
 /// <details><summary>JSON schema</summary>
@@ -1617,6 +1732,10 @@ pub struct SystemBundleHarnessEnd {
 ///      "description": "Where it comes from.",
 ///      "$ref": "#/$defs/SystemBundleWireOrigin"
 ///    },
+///    "routeLengthNm": {
+///      "description": "Its route length (stage 4c, §16.6): segments' arc length, both housings' depths and the allowance.",
+///      "$ref": "#/$defs/Nanometres"
+///    },
 ///    "suggested": {
 ///      "description": "Joins power or ground pins (§8.5).",
 ///      "type": "boolean"
@@ -1668,6 +1787,13 @@ pub struct SystemBundleHarnessWire {
     pub net: ::std::option::Option<SystemBundleNetId>,
     ///Joins power or ground pins (§8.5).
     pub suggested: bool,
+    ///Its route length (stage 4c, §16.6): segments' arc length, both housings' depths and the allowance.
+    #[serde(
+        rename = "routeLengthNm",
+        default,
+        skip_serializing_if = "::std::option::Option::is_none"
+    )]
+    pub route_length_nm: ::std::option::Option<Nanometres>,
 }
 ///The document wire's id, or `<link>:<pad A>` for a default wire.
 ///
@@ -3057,6 +3183,225 @@ pub struct SystemBundleQuaternion {
     ///W.
     pub w: f64,
 }
+///A posed harness end (§16.6): where the cable leaves the housing.
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "description": "A posed harness end (§16.6): where the cable leaves the housing.",
+///  "type": "object",
+///  "required": [
+///    "end",
+///    "exit",
+///    "leg",
+///    "outward"
+///  ],
+///  "properties": {
+///    "end": {
+///      "description": "The end.",
+///      "$ref": "#/$defs/SystemBundleObjectId"
+///    },
+///    "exit": {
+///      "description": "The housing's rear face, where the cable leaves it.",
+///      "$ref": "#/$defs/SystemBundleVectorNm"
+///    },
+///    "leg": {
+///      "description": "The end of the straight boot, where the curve starts.",
+///      "$ref": "#/$defs/SystemBundleVectorNm"
+///    },
+///    "outward": {
+///      "description": "The connector's outward axis.",
+///      "$ref": "#/$defs/SystemBundleUnitVector"
+///    }
+///  },
+///  "additionalProperties": false
+///}
+/// ```
+/// </details>
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct SystemBundleRouteEnd {
+    ///The end.
+    pub end: SystemBundleObjectId,
+    ///The housing's rear face, where the cable leaves it.
+    pub exit: SystemBundleVectorNm,
+    ///The connector's outward axis.
+    pub outward: SystemBundleUnitVector,
+    ///The end of the straight boot, where the curve starts.
+    pub leg: SystemBundleVectorNm,
+}
+///One segment of the route tree and its curve (§16.6).
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "description": "One segment of the route tree and its curve (§16.6).",
+///  "type": "object",
+///  "required": [
+///    "assumedGauge",
+///    "clearances",
+///    "derived",
+///    "diameterNm",
+///    "from",
+///    "id",
+///    "lengthNm",
+///    "minRadiusAllowedNm",
+///    "samplesNm",
+///    "to",
+///    "wires"
+///  ],
+///  "properties": {
+///    "assumedGauge": {
+///      "description": "A carried wire's gauge was missing or unknown, so 24 AWG's diameter was used.",
+///      "type": "boolean"
+///    },
+///    "clearances": {
+///      "description": "Boards and bodies the bundle comes too close to, in occurrence order.",
+///      "type": "array",
+///      "items": {
+///        "$ref": "#/$defs/SystemBundleClearance"
+///      }
+///    },
+///    "derived": {
+///      "description": "The tree was derived, not stored.",
+///      "type": "boolean"
+///    },
+///    "diameterNm": {
+///      "description": "The bundle's diameter.",
+///      "$ref": "#/$defs/Nanometres"
+///    },
+///    "from": {
+///      "description": "A node id: an end, a branch point, or `auto` for the automatic breakout.",
+///      "type": "string"
+///    },
+///    "id": {
+///      "description": "The stored segment's id, or `<harness>/<from>~<to>` for a derived one.",
+///      "type": "string"
+///    },
+///    "lengthNm": {
+///      "description": "The curve's arc length.",
+///      "$ref": "#/$defs/Nanometres"
+///    },
+///    "minRadiusAllowedNm": {
+///      "description": "The minimum bend radius, 6 × the diameter.",
+///      "$ref": "#/$defs/Nanometres"
+///    },
+///    "minRadiusNm": {
+///      "description": "The tightest bend's radius; absent for a straight segment.",
+///      "$ref": "#/$defs/Nanometres"
+///    },
+///    "samplesNm": {
+///      "description": "The curve's samples as flat `[x, y, z, …]` triples in system space, in order from `from` to `to`.",
+///      "type": "array",
+///      "items": {
+///        "$ref": "#/$defs/Nanometres"
+///      }
+///    },
+///    "tightBend": {
+///      "description": "Present when a bend is tighter than allowed.",
+///      "$ref": "#/$defs/SystemBundleTightBend"
+///    },
+///    "to": {
+///      "description": "A node id, as `from`.",
+///      "type": "string"
+///    },
+///    "wires": {
+///      "description": "The wires it carries (wire-list ids, `<link>:<pad A>` for a default one), in wire-list order.",
+///      "type": "array",
+///      "items": {
+///        "type": "string"
+///      }
+///    }
+///  },
+///  "additionalProperties": false
+///}
+/// ```
+/// </details>
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct SystemBundleRouteSegment {
+    ///The stored segment's id, or `<harness>/<from>~<to>` for a derived one.
+    pub id: ::std::string::String,
+    ///The tree was derived, not stored.
+    pub derived: bool,
+    ///A node id: an end, a branch point, or `auto` for the automatic breakout.
+    pub from: ::std::string::String,
+    ///A node id, as `from`.
+    pub to: ::std::string::String,
+    ///The wires it carries (wire-list ids, `<link>:<pad A>` for a default one), in wire-list order.
+    pub wires: ::std::vec::Vec<::std::string::String>,
+    ///The bundle's diameter.
+    #[serde(rename = "diameterNm")]
+    pub diameter_nm: Nanometres,
+    ///A carried wire's gauge was missing or unknown, so 24 AWG's diameter was used.
+    #[serde(rename = "assumedGauge")]
+    pub assumed_gauge: bool,
+    ///The curve's samples as flat `[x, y, z, …]` triples in system space, in order from `from` to `to`.
+    #[serde(rename = "samplesNm")]
+    pub samples_nm: ::std::vec::Vec<Nanometres>,
+    ///The curve's arc length.
+    #[serde(rename = "lengthNm")]
+    pub length_nm: Nanometres,
+    ///The tightest bend's radius; absent for a straight segment.
+    #[serde(
+        rename = "minRadiusNm",
+        default,
+        skip_serializing_if = "::std::option::Option::is_none"
+    )]
+    pub min_radius_nm: ::std::option::Option<Nanometres>,
+    ///The minimum bend radius, 6 × the diameter.
+    #[serde(rename = "minRadiusAllowedNm")]
+    pub min_radius_allowed_nm: Nanometres,
+    ///Present when a bend is tighter than allowed.
+    #[serde(
+        rename = "tightBend",
+        default,
+        skip_serializing_if = "::std::option::Option::is_none"
+    )]
+    pub tight_bend: ::std::option::Option<SystemBundleTightBend>,
+    ///Boards and bodies the bundle comes too close to, in occurrence order.
+    pub clearances: ::std::vec::Vec<SystemBundleClearance>,
+}
+///A wire's route length.
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "description": "A wire's route length.",
+///  "type": "object",
+///  "required": [
+///    "wire"
+///  ],
+///  "properties": {
+///    "lengthNm": {
+///      "description": "Absent when the wire is unrouted (a splice or loose terminal, or an unposed end).",
+///      "$ref": "#/$defs/Nanometres"
+///    },
+///    "wire": {
+///      "description": "The wire's wire-list id.",
+///      "type": "string"
+///    }
+///  },
+///  "additionalProperties": false
+///}
+/// ```
+/// </details>
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct SystemBundleRouteWire {
+    ///The wire's wire-list id.
+    pub wire: ::std::string::String,
+    ///Absent when the wire is unrouted (a splice or loose terminal, or an unposed end).
+    #[serde(
+        rename = "lengthNm",
+        default,
+        skip_serializing_if = "::std::option::Option::is_none"
+    )]
+    pub length_nm: ::std::option::Option<Nanometres>,
+}
 ///A finding's fixed severity: errors block publishing an in-house entry unless waived.
 ///
 /// <details><summary>JSON schema</summary>
@@ -3618,6 +3963,82 @@ impl ::std::convert::TryFrom<::std::string::String> for SystemBundleTerminalKind
     ) -> ::std::result::Result<Self, self::error::ConversionError> {
         value.parse()
     }
+}
+///A bend tighter than the minimum radius.
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "description": "A bend tighter than the minimum radius.",
+///  "type": "object",
+///  "required": [
+///    "at",
+///    "radiusNm"
+///  ],
+///  "properties": {
+///    "at": {
+///      "description": "Where the bend is tightest.",
+///      "$ref": "#/$defs/SystemBundleVectorNm"
+///    },
+///    "radiusNm": {
+///      "description": "The radius there.",
+///      "$ref": "#/$defs/Nanometres"
+///    }
+///  },
+///  "additionalProperties": false
+///}
+/// ```
+/// </details>
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct SystemBundleTightBend {
+    ///Where the bend is tightest.
+    pub at: SystemBundleVectorNm,
+    ///The radius there.
+    #[serde(rename = "radiusNm")]
+    pub radius_nm: Nanometres,
+}
+///A unit direction.
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "description": "A unit direction.",
+///  "type": "object",
+///  "required": [
+///    "x",
+///    "y",
+///    "z"
+///  ],
+///  "properties": {
+///    "x": {
+///      "description": "The x component.",
+///      "type": "number"
+///    },
+///    "y": {
+///      "description": "The y component.",
+///      "type": "number"
+///    },
+///    "z": {
+///      "description": "The z component.",
+///      "type": "number"
+///    }
+///  },
+///  "additionalProperties": false
+///}
+/// ```
+/// </details>
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct SystemBundleUnitVector {
+    ///The x component.
+    pub x: f64,
+    ///The y component.
+    pub y: f64,
+    ///The z component.
+    pub z: f64,
 }
 ///A point or offset in the system frame, in nanometres.
 ///

@@ -353,6 +353,33 @@ export interface PrismSystemSceneEmphasisResult {
     unresolved: { occurrence: string; net: string; reason: "not-drawn" | "loading" | "restricted" | "unknown-net" }[];
 }
 
+/** A tube or handle a route gesture names (§16.6). */
+export interface PrismSystemHarnessTarget {
+    kind: "segment" | "waypoint" | "branch-point" | "auto";
+    id: string;
+}
+
+/** `prism-semantic-viewer:harness-select`: a click on a harness tube or handle. */
+export interface PrismSystemHarnessSelectDetail extends PrismSystemHarnessTarget {
+    type: "select";
+    harness: string;
+    /** Where on the tube the click landed, millimetres (segments only). */
+    pointMm?: [number, number, number];
+    shiftKey: boolean;
+}
+
+/** `prism-semantic-viewer:harness-drag`: a route drag's phases, in world millimetres. */
+export interface PrismSystemHarnessDragDetail {
+    type: "drag";
+    phase: "start" | "move" | "end" | "cancel";
+    harness: string;
+    target: { kind: string; id: string };
+    /** Where the press happened. */
+    fromMm: [number, number, number];
+    /** The pointer now. */
+    pointMm: [number, number, number];
+}
+
 /** `mode="system"`: several boards from a system scene descriptor (System Builder stage 3b). */
 export interface PrismSemanticSystemMode {
     /** The system to show, a `prism.system_scene.a0` descriptor. Safe before ready. */
@@ -366,6 +393,8 @@ export interface PrismSemanticSystemMode {
     frameParts(parts: readonly { occurrence: string; reference: string | null }[]): boolean;
     /** Move mode; state arrives as `prism-semantic-viewer:move`. Who may move is the `move-allowed` attribute. */
     setMoveMode(enabled: boolean): void;
+    /** Route tool: a press on a tube or handle drags it (only while moving is allowed). */
+    setRouteMode(on: boolean): void;
     setMoveSpace(space: "world" | "local"): void;
     /** The gizmo's steps in millimetres and degrees. */
     setMoveSnap(snap: { mm: number; deg: number }): void;
@@ -407,6 +436,8 @@ declare global {
         "prism-semantic-viewer:contextmenu": CustomEvent<PrismSemanticContextMenuDetail>;
         "prism-semantic-viewer:emphasis": CustomEvent<{ results: PrismSystemSceneEmphasisResult[] }>;
         "prism-semantic-viewer:move": CustomEvent<PrismSystemSceneMoveState>;
+        "prism-semantic-viewer:harness-select": CustomEvent<PrismSystemHarnessSelectDetail>;
+        "prism-semantic-viewer:harness-drag": CustomEvent<PrismSystemHarnessDragDetail>;
     }
 
     namespace JSX {

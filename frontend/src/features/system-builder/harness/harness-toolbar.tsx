@@ -22,6 +22,8 @@ interface Props {
   onToggleLabels: () => void;
   onNewPart: () => void;
   onOpen: (dialog: HarnessDialog) => void;
+  /** Open the Route tool's 3D tab beside this harness (mockup 10). */
+  onRouteIn3D?: () => void;
 }
 
 const item = "flex shrink-0 items-center gap-1.5 rounded-md border border-transparent px-2 py-1 text-xs text-zinc-200 hover:bg-white/10 disabled:pointer-events-none disabled:opacity-35";
@@ -55,6 +57,7 @@ export function HarnessToolbar({
   onToggleLabels,
   onNewPart,
   onOpen,
+  onRouteIn3D,
 }: Props) {
   const edit = canEdit && !busy;
   return (
@@ -80,6 +83,11 @@ export function HarnessToolbar({
       <button type="button" className={item} disabled={!edit} onClick={onAutoLayout}>
         Auto-layout
       </button>
+      {onRouteIn3D && (
+        <button type="button" className={item} onClick={onRouteIn3D}>
+          Route in 3D
+        </button>
+      )}
       <span className="flex-1" />
       <button type="button" className={item} onClick={() => onOpen("wires")}>
         Wires

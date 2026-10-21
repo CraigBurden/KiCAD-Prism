@@ -330,6 +330,10 @@
                         "$ref": "#/$defs/SystemBundleHarnessWire"
                     },
                     "description": "Explicit wires in document order, then each link's default wires."
+                },
+                "route": {
+                    "$ref": "#/$defs/SystemBundleHarnessRoute",
+                    "description": "The route in 3D (stage 4c, §16.6). Absent in bundles built before\nformat 6, and when fewer than two ends are posed."
                 }
             },
             "required": [
@@ -784,6 +788,10 @@
                 "suggested": {
                     "type": "boolean",
                     "description": "Joins power or ground pins (§8.5)."
+                },
+                "routeLengthNm": {
+                    "$ref": "#/$defs/Nanometres",
+                    "description": "Its route length (stage 4c, §16.6): segments' arc length, both housings' depths and the allowance."
                 }
             },
             "required": [
@@ -797,6 +805,46 @@
                 "not": {}
             },
             "description": "One conductor of a harness (§16.3)."
+        },
+        "SystemBundleHarnessRoute": {
+            "type": "object",
+            "properties": {
+                "derived": {
+                    "type": "boolean",
+                    "description": "The tree was derived (no stored segments, or stored ones that are not a tree)."
+                },
+                "ends": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/$defs/SystemBundleRouteEnd"
+                    },
+                    "description": "The posed ends, in document order."
+                },
+                "segments": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/$defs/SystemBundleRouteSegment"
+                    },
+                    "description": "The segments in tree order."
+                },
+                "wires": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/$defs/SystemBundleRouteWire"
+                    },
+                    "description": "Every wire of the wire list, in its order."
+                }
+            },
+            "required": [
+                "derived",
+                "ends",
+                "segments",
+                "wires"
+            ],
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "A harness route (stage 4c, §16.6)."
         },
         "Refdes": {
             "type": "string",
@@ -1133,6 +1181,144 @@
             },
             "description": "One end of a wire of the wire list."
         },
+        "Nanometres": {
+            "type": "integer",
+            "description": "Length or coordinate in integer nanometres, KiCad's internal board unit.\nConverted from the file's decimal millimetres as KiCad's own parser does:\nthe double product value_mm * 1e6, rounded half away from zero. A single\ncoordinate or dimension fits KiCad's 32-bit range; sums (for example a\nnet's total track length) may not, hence a safe integer (|n| < 2^53)."
+        },
+        "SystemBundleRouteEnd": {
+            "type": "object",
+            "properties": {
+                "end": {
+                    "$ref": "#/$defs/SystemBundleObjectId",
+                    "description": "The end."
+                },
+                "exit": {
+                    "$ref": "#/$defs/SystemBundleVectorNm",
+                    "description": "The housing's rear face, where the cable leaves it."
+                },
+                "outward": {
+                    "$ref": "#/$defs/SystemBundleUnitVector",
+                    "description": "The connector's outward axis."
+                },
+                "leg": {
+                    "$ref": "#/$defs/SystemBundleVectorNm",
+                    "description": "The end of the straight boot, where the curve starts."
+                }
+            },
+            "required": [
+                "end",
+                "exit",
+                "outward",
+                "leg"
+            ],
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "A posed harness end (§16.6): where the cable leaves the housing."
+        },
+        "SystemBundleRouteSegment": {
+            "type": "object",
+            "properties": {
+                "id": {
+                    "type": "string",
+                    "description": "The stored segment's id, or `<harness>/<from>~<to>` for a derived one."
+                },
+                "derived": {
+                    "type": "boolean",
+                    "description": "The tree was derived, not stored."
+                },
+                "from": {
+                    "type": "string",
+                    "description": "A node id: an end, a branch point, or `auto` for the automatic breakout."
+                },
+                "to": {
+                    "type": "string",
+                    "description": "A node id, as `from`."
+                },
+                "wires": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    },
+                    "description": "The wires it carries (wire-list ids, `<link>:<pad A>` for a default one), in wire-list order."
+                },
+                "diameterNm": {
+                    "$ref": "#/$defs/Nanometres",
+                    "description": "The bundle's diameter."
+                },
+                "assumedGauge": {
+                    "type": "boolean",
+                    "description": "A carried wire's gauge was missing or unknown, so 24 AWG's diameter was used."
+                },
+                "samplesNm": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/$defs/Nanometres"
+                    },
+                    "description": "The curve's samples as flat `[x, y, z, …]` triples in system space, in order from `from` to `to`."
+                },
+                "lengthNm": {
+                    "$ref": "#/$defs/Nanometres",
+                    "description": "The curve's arc length."
+                },
+                "minRadiusNm": {
+                    "$ref": "#/$defs/Nanometres",
+                    "description": "The tightest bend's radius; absent for a straight segment."
+                },
+                "minRadiusAllowedNm": {
+                    "$ref": "#/$defs/Nanometres",
+                    "description": "The minimum bend radius, 6 × the diameter."
+                },
+                "tightBend": {
+                    "$ref": "#/$defs/SystemBundleTightBend",
+                    "description": "Present when a bend is tighter than allowed."
+                },
+                "clearances": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/$defs/SystemBundleClearance"
+                    },
+                    "description": "Boards and bodies the bundle comes too close to, in occurrence order."
+                }
+            },
+            "required": [
+                "id",
+                "derived",
+                "from",
+                "to",
+                "wires",
+                "diameterNm",
+                "assumedGauge",
+                "samplesNm",
+                "lengthNm",
+                "minRadiusAllowedNm",
+                "clearances"
+            ],
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "One segment of the route tree and its curve (§16.6)."
+        },
+        "SystemBundleRouteWire": {
+            "type": "object",
+            "properties": {
+                "wire": {
+                    "type": "string",
+                    "description": "The wire's wire-list id."
+                },
+                "lengthNm": {
+                    "$ref": "#/$defs/Nanometres",
+                    "description": "Absent when the wire is unrouted (a splice or loose terminal, or an unposed end)."
+                }
+            },
+            "required": [
+                "wire"
+            ],
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "A wire's route length."
+        },
         "SystemBundlePose": {
             "type": "object",
             "properties": {
@@ -1183,10 +1369,6 @@
                 "not": {}
             },
             "description": "An axis-aligned box in an occurrence's own frame."
-        },
-        "Nanometres": {
-            "type": "integer",
-            "description": "Length or coordinate in integer nanometres, KiCad's internal board unit.\nConverted from the file's decimal millimetres as KiCad's own parser does:\nthe double product value_mm * 1e6, rounded half away from zero. A single\ncoordinate or dimension fits KiCad's 32-bit range; sums (for example a\nnet's total track length) may not, hence a safe integer (|n| < 2^53)."
         },
         "SystemBundleHeightSource": {
             "type": "string",
@@ -1310,6 +1492,84 @@
                 "loose"
             ],
             "description": "Where a wire of the wire list stops (§16.3)."
+        },
+        "SystemBundleUnitVector": {
+            "type": "object",
+            "properties": {
+                "x": {
+                    "type": "number",
+                    "description": "The x component."
+                },
+                "y": {
+                    "type": "number",
+                    "description": "The y component."
+                },
+                "z": {
+                    "type": "number",
+                    "description": "The z component."
+                }
+            },
+            "required": [
+                "x",
+                "y",
+                "z"
+            ],
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "A unit direction."
+        },
+        "SystemBundleTightBend": {
+            "type": "object",
+            "properties": {
+                "at": {
+                    "$ref": "#/$defs/SystemBundleVectorNm",
+                    "description": "Where the bend is tightest."
+                },
+                "radiusNm": {
+                    "$ref": "#/$defs/Nanometres",
+                    "description": "The radius there."
+                }
+            },
+            "required": [
+                "at",
+                "radiusNm"
+            ],
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "A bend tighter than the minimum radius."
+        },
+        "SystemBundleClearance": {
+            "type": "object",
+            "properties": {
+                "occurrence": {
+                    "$ref": "#/$defs/SystemBundleObjectId",
+                    "description": "The board or body occurrence."
+                },
+                "at": {
+                    "$ref": "#/$defs/SystemBundleVectorNm",
+                    "description": "The closest point on the segment."
+                },
+                "distanceNm": {
+                    "$ref": "#/$defs/Nanometres",
+                    "description": "The distance from the curve to the occurrence's box."
+                },
+                "neededNm": {
+                    "$ref": "#/$defs/Nanometres",
+                    "description": "The distance needed: the bundle's radius plus the margin."
+                }
+            },
+            "required": [
+                "occurrence",
+                "at",
+                "distanceNm",
+                "neededNm"
+            ],
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "Where a segment comes closer to a board or body than its radius and the margin."
         },
         "SystemBundleQuaternion": {
             "type": "object",

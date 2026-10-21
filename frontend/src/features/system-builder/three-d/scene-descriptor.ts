@@ -12,6 +12,7 @@ import type { SystemBundle, SystemDocument } from "../model/types";
 import { compose, matrix, rotate, type Pose } from "../placement/poses";
 import { frozenPartRef, type EntryContents } from "./entry-contents";
 import { partKey, type PartModel } from "./part-models";
+import { harnessScene, type RoutePreview, type SceneHarnessRoute } from "./route-scene";
 
 export const SYSTEM_SCENE_SCHEMA = "prism.system_scene.a0";
 
@@ -65,6 +66,10 @@ export interface SystemSceneDescriptor {
   schema: typeof SYSTEM_SCENE_SCHEMA;
   occurrences: SceneOccurrence[];
   assets: SceneAsset[];
+  /** Harness route tubes, handles and flags (§16.6); empty without a route. */
+  harnesses: SceneHarnessRoute[];
+  /** The view's Harnesses toggle. */
+  showHarnesses: boolean;
 }
 
 const NM_PER_MM = 1e6;
@@ -202,6 +207,9 @@ export function buildSceneDescriptor(
   assets: ReadonlyMap<string, MemberAsset>,
   models: ReadonlyMap<string, PartModel | null> = new Map(),
   entries: ReadonlyMap<string, EntryContents | null> = new Map(),
+  selected: ReadonlySet<string> = new Set(),
+  showHarnesses = true,
+  preview: RoutePreview | null = null,
 ): SystemSceneDescriptor {
   const placed = new Map((bundle?.placement?.occurrences ?? []).map((item) => [item.occurrence, item]));
   const placedMates = new Map((bundle?.placement?.mates ?? []).map((item) => [item.mate, item]));
@@ -259,7 +267,13 @@ export function buildSceneDescriptor(
     occurrences.push(...drawn.occurrences);
     sceneAssets.push(...drawn.assets);
   }
-  return { schema: SYSTEM_SCENE_SCHEMA, occurrences, assets: sceneAssets };
+  return {
+    schema: SYSTEM_SCENE_SCHEMA,
+    occurrences,
+    assets: sceneAssets,
+    harnesses: harnessScene(document, bundle, selected, preview),
+    showHarnesses,
+  };
 
   /** The parent end's connector axis (its frame's +z) in the system frame. */
   function explodeOf(id: string, mateId: string | undefined, level: number): SceneOccurrence["explode"] {

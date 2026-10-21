@@ -53,6 +53,11 @@ import {
   assetLoadable, assetOccurrenceMatrix, boardTransition, bundleToBoardFromBounds, childWorldMatrix, drawnOccurrences,
   explodedWorldMatrix, STAND_INS, standInKind, standInMatrix,
 } from "./system-placement.js";
+import {
+  DEFAULT_HARNESS_COLOR, PREVIEW_ALPHA, SELECTED_HARNESS_COLOR, harnessOverlayItems, harnessSignature, harnessTubes,
+} from "./harness-descriptor.js";
+import { advanceHarnessDrag, beginHarnessDrag, settleHarnessDrag } from "./harness-drag.js";
+import { pickTube } from "./tube-pick.js";
 
 const COPPER_TILE_GPU_BUDGET_BYTES = 512 * 1024 * 1024;
 const COPPER_TILE_PREFETCH_MARGIN = 0.65;
@@ -90,6 +95,7 @@ let stackupWorkspaceViewEl;
 let modeSwitchEl;
 let systemLabelsEl;
 let moveGizmoEl;
+let harnessOverlayEl;
 let systemHelpEl;
 
 const query = (selector) => viewerRoot.querySelector(selector);
@@ -122,6 +128,7 @@ function resolveDom(root = document) {
   modeSwitchEl = query("#mode-switch");
   systemLabelsEl = query("#system-labels");
   moveGizmoEl = query("#move-gizmo");
+  harnessOverlayEl = query("#harness-overlay");
   systemHelpEl = query("#system-help");
   appEl.classList.add("workspace-pcb");
 }
@@ -838,11 +845,23 @@ export async function mountSystemViewer(options = {}) {
     loadBundle: options.loadBundle,
     onEmphasis: typeof options.onEmphasis === "function" ? options.onEmphasis : null,
     onMove: typeof options.onMove === "function" ? options.onMove : null,
+    onHarness: typeof options.onHarness === "function" ? options.onHarness : null,
     // The host's descriptor; `descriptor` is what is shown (with an unsaved move preview).
     baseDescriptor: null,
     descriptor: null,
     move: initialMove(),
     gizmo: null,
+    // The Route tool: on only while the host runs it. `move.allowed` still gates dragging.
+    routeMode: false,
+    // Harnesses from the descriptor, in world mm (the host sends ready polylines).
+    showHarnesses: true,
+    harnesses: [],
+    harnessTubes: [],
+    harnessSignature: "",
+    // The press/drag in flight, and the tube a click landed on.
+    harnessDrag: null,
+    harnessClick: null,
+    harnessOverlay: { signature: "", items: [] },
     // A selected stand-in board (it has no board of its own), or null.
     standInKey: null,
     // A selected body or part drawn from a catalog model, or null.
@@ -878,6 +897,7 @@ export async function mountSystemViewer(options = {}) {
   bindInteractions();
   bindPanelTabs();
   bindGizmoInteraction();
+  bindHarnessOverlay();
   statusEl.textContent = "System scene";
   scheduleFrame(token);
   // The system scene port (AC-30): SystemModeController in viewer-controllers.js drives it.
@@ -892,6 +912,7 @@ export async function mountSystemViewer(options = {}) {
     setMoveAllowed,
     setMoveMode,
     setMoveSpace,
+    setRouteMode,
     previewPose,
     cancelMove,
     getMoveState: () => (system ? moveState() : null),
@@ -939,6 +960,9 @@ function setSystemScene(descriptor) {
     throw new Error(`Unsupported system scene schema: ${descriptor?.schema || "missing"}`);
   }
   system.baseDescriptor = descriptor;
+  // Harnesses are ready polylines in world mm: the host owns the route maths (4c).
+  system.harnesses = Array.isArray(descriptor.harnesses) ? descriptor.harnesses : [];
+  system.showHarnesses = descriptor.showHarnesses !== false;
   // A preview the host has now saved is simply the new state; any other survives re-reads.
   const target = system.move.target
     ? (descriptor.occurrences || []).find((item) => item.path === system.move.target)
@@ -968,6 +992,7 @@ function setSystemScene(descriptor) {
   }
   for (const id of [...system.boards.keys()]) if (!live.has(id)) dropSystemBoard(id);
   placeSystem();
+  syncSystemHarnesses();
   if (system.move.enabled) {
     retargetMove({ quiet: true });
     // The host re-read the scene (after a save, or while bundles build): let it show the saved state.
@@ -1326,6 +1351,7 @@ function frameSystem(now, token) {
     drawGizmo();
     updateSystemLabels();
   }
+  updateHarnessOverlay();
   updateMoveGizmo();
   for (const b of systemBoards()) manageTiers(now, b);
   recordFrameSample(frameInterval, performance.now() - frameStarted);
@@ -1854,6 +1880,7 @@ function emitMove(phase) {
 /** Whether this reader may move boards; turning it off leaves move mode. */
 function setMoveAllowed(allowed) {
   system.move.allowed = Boolean(allowed);
+  if (!system.move.allowed) cancelHarnessDrag();
   if (!system.move.allowed && system.move.enabled) setMoveMode(false);
 }
 
@@ -2126,6 +2153,7 @@ function handleSystemKey(event, key) {
   const move = system.move;
   if (key === "escape") {
     if (systemHelpEl && !systemHelpEl.hidden) systemHelpEl.hidden = true;
+    else if (cancelHarnessDrag()) { /* the harness drag is undone */ }
     else if (abortGizmoDrag()) { /* the drag is undone */ }
     else if (move.preview) cancelMove();
     else if (move.enabled) setMoveMode(false);
@@ -2150,6 +2178,252 @@ function setLabelsVisible(visible) {
   if (!system) return;
   system.showLabels = Boolean(visible);
   if (systemLabelsEl) systemLabelsEl.hidden = !system.showLabels;
+}
+
+// ----- harness tubes, handles and the Route tool (4c) ---------------------------
+//
+// The host sends ready polylines in world mm. Tubes draw on the GPU
+// (tube-renderer.js); handles and flags are an SVG overlay projected each
+// frame. A click reports a harness selection; in Route mode a drag reports its
+// screen-plane movement, and the host turns that into the saved waypoint.
+
+/** Upload the descriptor's harnesses only when they changed. */
+function syncSystemHarnesses() {
+  if (!system) return;
+  const signature = harnessSignature(system.showHarnesses, system.harnesses);
+  if (signature === system.harnessSignature) return;
+  system.harnessSignature = signature;
+  if (!system.showHarnesses) cancelHarnessDrag();
+  system.harnessTubes = harnessTubes(system.showHarnesses ? system.harnesses : []);
+  system.scene.setTubes(system.harnessTubes, tubeColor);
+  system.harnessOverlay.signature = "";
+  buildHarnessOverlay();
+  // A new tube set must draw even when nothing else about the frame changed.
+  lastSystemRender.key = "";
+}
+
+/** A tube's colour: amber or its own, sky blue when selected, translucent while previewed. */
+function tubeColor(tube) {
+  const base = tube.selected ? SELECTED_HARNESS_COLOR : tube.color || DEFAULT_HARNESS_COLOR;
+  const alpha = tube.preview ? PREVIEW_ALPHA : (Number.isFinite(base[3]) ? base[3] : 1);
+  return [base[0], base[1], base[2], alpha];
+}
+
+/** Route mode: a press on a tube or handle drags it (only while moving is allowed). */
+function setRouteMode(on) {
+  if (!system) return;
+  system.routeMode = Boolean(on);
+  if (!system.routeMode) {
+    cancelHarnessDrag();
+    if (canvas?.style.cursor === "grab") canvas.style.cursor = "";
+  }
+}
+
+/** Screen pixels per mm at a world point (mm), along the view's right axis. */
+function pxPerMmAt(point) {
+  const { right } = camera.basis();
+  const a = screenOfMm(point);
+  const b = screenOfMm(add(point, right));
+  return a && b ? Math.hypot(b[0] - a[0], b[1] - a[1]) : 0;
+}
+
+/** The tube under the pointer: `{tube, pointMm}`, or null. Route mode is forgiving: a thin tube is hard to hit. */
+function tubeAt(event) {
+  if (!system?.harnessTubes.length || !panel) return null;
+  const rect = canvas.getBoundingClientRect();
+  const slack = system.routeMode ? 10 : 5;
+  const hit = pickTube(system.harnessTubes, [event.clientX - rect.left, event.clientY - rect.top], screenOfMm, pxPerMmAt, slack);
+  return hit ? { tube: system.harnessTubes[hit.index], pointMm: hit.pointMm } : null;
+}
+
+/** Report a click on a tube or handle; a harness replaces any board selection. */
+function emitHarnessSelect(target, shiftKey = false) {
+  if (!system) return;
+  clearSelection();
+  system.onHarness?.({
+    type: "select",
+    harness: target.harness,
+    kind: target.kind,
+    id: String(target.id),
+    ...(target.pointMm ? { pointMm: [...target.pointMm] } : {}),
+    shiftKey: Boolean(shiftKey),
+  });
+}
+
+function emitHarnessDrag(phase, drag) {
+  system?.onHarness?.({ type: "drag", phase, ...settleHarnessDrag(drag) });
+}
+
+/** Remember a press; it becomes a drag only after the threshold. */
+function beginHarnessPress(event, target) {
+  const drag = beginHarnessDrag({
+    harness: target.harness,
+    target,
+    fromMm: target.fromMm,
+    startPx: [event.clientX, event.clientY],
+    basis: camera.basis(),
+    pxPerMm: pxPerMmAt(target.fromMm),
+  });
+  drag.pointerId = event.pointerId;
+  drag.capture = target.capture || "canvas";
+  system.harnessDrag = drag;
+  return drag;
+}
+
+/** Advance a press; true while it owns the pointer (so the camera never orbits). */
+function advanceHarnessPointer(event) {
+  const drag = system?.harnessDrag;
+  if (!drag) return false;
+  const next = advanceHarnessDrag(drag, [event.clientX, event.clientY]);
+  if (next) system.harnessDrag = { ...next.drag, pointerId: drag.pointerId, capture: drag.capture };
+  if (next && system.routeMode && system.move.allowed) emitHarnessDrag(next.phase, system.harnessDrag);
+  return true;
+}
+
+function releaseHarnessCapture(drag) {
+  const capture = drag?.capture === "overlay" ? harnessOverlayEl : canvas;
+  try {
+    if (drag?.pointerId != null && capture?.hasPointerCapture?.(drag.pointerId)) capture.releasePointerCapture(drag.pointerId);
+  } catch {
+    // A synthetic pointer cannot be captured; nothing to release.
+  }
+}
+
+/** Release: a moved drag ends; a press that never moved selects its tube or handle. */
+function finishHarnessPress(event) {
+  const drag = system?.harnessDrag;
+  if (!drag) return false;
+  releaseHarnessCapture(drag);
+  system.harnessDrag = null;
+  if (system.routeMode && system.move.allowed && drag.moved) {
+    emitHarnessDrag("end", drag);
+    return true;
+  }
+  const select = drag.target.kind === "segment"
+    ? { ...drag.target, harness: drag.harness, pointMm: drag.fromMm }
+    : { ...drag.target, harness: drag.harness };
+  emitHarnessSelect(select, event.shiftKey);
+  return true;
+}
+
+/** Escape or pointercancel: a real drag announces its cancellation. */
+function cancelHarnessDrag() {
+  const drag = system?.harnessDrag;
+  if (!drag) return false;
+  releaseHarnessCapture(drag);
+  system.harnessDrag = null;
+  if (drag.moved && system.routeMode && system.move.allowed) emitHarnessDrag("cancel", drag);
+  return true;
+}
+
+/** Route mode: `grab` over a tube, unchanged elsewhere. */
+function updateHarnessCursor(event) {
+  if (!system?.routeMode || !canvas) return;
+  canvas.style.cursor = tubeAt(event) ? "grab" : "";
+}
+
+const SVG_NODE = "http://www.w3.org/2000/svg";
+
+function overlayNode(tag, attributes = {}) {
+  const node = document.createElementNS(SVG_NODE, tag);
+  for (const [key, value] of Object.entries(attributes)) node.setAttribute(key, value);
+  return node;
+}
+
+/** Rebuild the overlay's elements when the descriptor's handles or flags change. */
+function buildHarnessOverlay() {
+  const svg = harnessOverlayEl;
+  if (!system || !svg) return;
+  if (!system.showHarnesses) {
+    svg.replaceChildren();
+    svg.toggleAttribute("hidden", true);
+    system.harnessOverlay = { signature: "", items: [] };
+    return;
+  }
+  const signature = JSON.stringify(system.harnesses.map((entry) => [entry.harness, entry.handles ?? null, entry.flags ?? null]));
+  if (signature === system.harnessOverlay.signature) return;
+  const { handles, flags } = harnessOverlayItems(system.harnesses);
+  const nodes = [];
+  const items = [];
+  for (const flag of flags) {
+    const group = overlayNode("g", { class: `harness-flag ${flag.kind}` });
+    group.append(overlayNode("circle", { r: 15, class: "flag-ring" }));
+    const width = Math.max(26, flag.label.length * 5.6 + 10);
+    group.append(overlayNode("rect", { x: 20, y: -9, width: width.toFixed(1), height: 18, rx: 9, class: "flag-pill" }));
+    const text = overlayNode("text", { x: 25, y: 4, class: "flag-label" });
+    text.textContent = flag.label;
+    group.append(text);
+    nodes.push(group);
+    items.push({ key: `flag:${flag.harness}:${flag.kind}:${flag.id}`, atMm: flag.atMm, node: group });
+  }
+  for (const handle of handles) {
+    const key = `handle:${handle.harness}:${handle.kind}:${handle.id}`;
+    const group = overlayNode("g", {
+      class: `harness-handle ${handle.kind}${handle.selected ? " selected" : ""}`,
+      "data-harness-handle": key,
+      role: "button",
+    });
+    if (handle.selected) group.append(overlayNode("circle", { r: 11, class: "handle-halo" }));
+    if (handle.kind === "branch-point") group.append(overlayNode("polygon", { points: "0,-6.5 6.5,0 0,6.5 -6.5,0", class: "handle-body" }));
+    else if (handle.kind === "auto") group.append(overlayNode("circle", { r: 6, class: "handle-body auto" }));
+    else group.append(overlayNode("circle", { r: 6, class: "handle-body" }), overlayNode("circle", { r: 2, class: "handle-dot" }));
+    const title = overlayNode("title");
+    title.textContent = handle.kind === "waypoint" ? "Waypoint" : handle.kind === "branch-point" ? "Branch point" : "Automatic breakout";
+    group.append(title);
+    nodes.push(group);
+    items.push({ key, harness: handle.harness, kind: handle.kind, id: handle.id, positionMm: handle.positionMm, atMm: handle.positionMm, node: group });
+  }
+  svg.replaceChildren(...nodes);
+  svg.toggleAttribute("hidden", !items.length);
+  system.harnessOverlay = { signature, items };
+}
+
+/** Project every handle and flag for this frame. */
+function updateHarnessOverlay() {
+  const svg = harnessOverlayEl;
+  if (!svg || !system) return;
+  if (!system.showHarnesses) {
+    svg.toggleAttribute("hidden", true);
+    return;
+  }
+  buildHarnessOverlay();
+  const items = system.harnessOverlay.items;
+  svg.toggleAttribute("hidden", !items.length);
+  if (!items.length || !panel) return;
+  for (const item of items) {
+    const at = screenOfMm(item.atMm);
+    item.node.style.display = at ? "" : "none";
+    if (at) item.node.setAttribute("transform", `translate(${at[0].toFixed(1)} ${at[1].toFixed(1)})`);
+  }
+}
+
+/** A press on a handle (the overlay) starts a route drag or a click selection. */
+function bindHarnessOverlay() {
+  const svg = harnessOverlayEl;
+  if (!svg) return;
+  svg.addEventListener("pointerdown", (event) => {
+    const node = event.target.closest?.("[data-harness-handle]");
+    if (!system || !node) return;
+    const item = system.harnessOverlay.items.find((entry) => entry.key === node.dataset.harnessHandle);
+    if (!item || item.positionMm == null) return;
+    event.preventDefault();
+    event.stopPropagation();
+    beginHarnessPress(event, {
+      harness: item.harness, kind: item.kind, id: item.id, fromMm: item.positionMm, capture: "overlay",
+    });
+    try {
+      svg.setPointerCapture(event.pointerId);
+    } catch {
+      // A synthetic pointer cannot be captured.
+    }
+  });
+  svg.addEventListener("pointermove", (event) => {
+    if (advanceHarnessPointer(event)) event.preventDefault();
+  });
+  svg.addEventListener("pointerup", (event) => {
+    if (finishHarnessPress(event)) event.preventDefault();
+  });
+  svg.addEventListener("pointercancel", () => cancelHarnessDrag());
 }
 
 // ----- board labels -------------------------------------------------------------
@@ -2242,6 +2516,7 @@ function systemFrameNeedsRender(now, inputs, emphasis) {
     emphasis,
     copperRealism(),
     selectionKey(),
+    system.scene.tubeVersion,
   ];
   for (const renderer of system.scene.renderers) {
     const options = inputs.get(renderer);
@@ -4827,7 +5102,18 @@ function frameSelection() {
 function bindInteractions() {
   canvas.addEventListener("contextmenu", (event) => event.preventDefault());
   canvas.addEventListener("pointerdown", (event) => {
-    if (system) system.framed = true;
+    if (system) {
+      system.framed = true;
+      const hit = event.button === 0 ? tubeAt(event) : null;
+      // Route mode (with moving allowed) owns a press on a tube: no camera orbit.
+      if (hit && system.routeMode && system.move.allowed && !event.shiftKey) {
+        beginHarnessPress(event, { harness: hit.tube.harness, kind: "segment", id: hit.tube.id, fromMm: hit.pointMm });
+        canvas.setPointerCapture(event.pointerId);
+        return;
+      }
+      // A click on a tube selects the harness, not the board under it.
+      system.harnessClick = hit;
+    }
     state.dragging = true;
     state.lastX = event.clientX;
     state.lastY = event.clientY;
@@ -4842,7 +5128,13 @@ function bindInteractions() {
     canvas.setPointerCapture(event.pointerId);
   });
   canvas.addEventListener("pointermove", (event) => {
-    if (!state.dragging) return;
+    if (system?.harnessDrag) {
+      if (advanceHarnessPointer(event)) return;
+    }
+    if (!state.dragging) {
+      updateHarnessCursor(event);
+      return;
+    }
     const dx = event.clientX - state.lastX;
     const dy = event.clientY - state.lastY;
     state.lastX = event.clientX;
@@ -4851,16 +5143,38 @@ function bindInteractions() {
     else camera.orbit(dx, dy);
   });
   canvas.addEventListener("pointerup", async (event) => {
+    if (system?.harnessDrag) {
+      finishHarnessPress(event);
+      if (canvas.hasPointerCapture?.(event.pointerId)) canvas.releasePointerCapture(event.pointerId);
+      return;
+    }
     state.dragging = false;
     canvas.releasePointerCapture(event.pointerId);
-    if (Math.hypot(event.clientX - state.pointerStartX, event.clientY - state.pointerStartY) >= 3) return;
+    if (Math.hypot(event.clientX - state.pointerStartX, event.clientY - state.pointerStartY) >= 3) {
+      if (system) system.harnessClick = null;
+      return;
+    }
+    // A click on a tube is a harness selection, not a board pick.
+    const harnessHit = system?.harnessClick || null;
+    if (system) system.harnessClick = null;
+    if (harnessHit) {
+      emitHarnessSelect({ harness: harnessHit.tube.harness, kind: "segment", id: harnessHit.tube.id, pointMm: harnessHit.pointMm }, event.shiftKey);
+      return;
+    }
     // A host tool (a profile line, say) owns clicks while it runs; dragging still moves the camera.
     if (!state.clickSelect) return;
     if (event.button === 0) await pickAt(event);
     else if (event.button === 2) await contextPickAt(event);
   });
+  canvas.addEventListener("pointercancel", () => {
+    cancelHarnessDrag();
+    state.dragging = false;
+    if (system) system.harnessClick = null;
+  });
   canvas.addEventListener("dblclick", async (event) => {
     if (!state.clickSelect) return;
+    // A double-click on a tube is still a harness gesture, never a board pick.
+    if (system && tubeAt(event)) return;
     await pickAt(event);
     frameSelection();
   });

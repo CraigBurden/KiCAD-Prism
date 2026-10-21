@@ -65,6 +65,8 @@ export interface WireView {
   colour?: string;
   label?: string;
   lengthNm?: number;
+  /** The 3D route's length (§16.6), when the bundle routed this wire. */
+  routeLengthNm?: number;
   cable?: string;
   conductor?: string;
   net?: string;
@@ -128,6 +130,7 @@ export function buildHarnessView(document: SystemDocument, bundle: SystemBundle 
   const wires: WireView[] = built
     ? built.wires.map((wire) => {
         const own = harness.wires.find((item) => item.id === wire.id);
+        const routed = built.route?.wires.find((item) => item.wire === wire.id)?.lengthNm;
         return {
           id: wire.id,
           origin: wire.origin,
@@ -138,6 +141,7 @@ export function buildHarnessView(document: SystemDocument, bundle: SystemBundle 
           ...(wire.colour ? { colour: wire.colour } : {}),
           ...(wire.label ? { label: wire.label } : {}),
           ...(own?.lengthNm !== undefined ? { lengthNm: own.lengthNm } : {}),
+          ...(routed !== undefined ? { routeLengthNm: routed } : {}),
           ...(wire.cable ? { cable: wire.cable } : {}),
           ...(wire.conductor ? { conductor: wire.conductor } : {}),
           ...(wire.net ? { net: wire.net, netName: netNames.get(wire.net) } : {}),

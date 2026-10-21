@@ -462,6 +462,9 @@ model SystemBundleHarnessWire {
 
   /** Joins power or ground pins (§8.5). */
   suggested: boolean;
+
+  /** Its route length (stage 4c, §16.6): segments' arc length, both housings' depths and the allowance. */
+  routeLengthNm?: Nanometres;
 }
 
 /** A harness block's ends and resolved wire list (§16.3). */
@@ -474,6 +477,129 @@ model SystemBundleHarness {
 
   /** Explicit wires in document order, then each link's default wires. */
   wires: SystemBundleHarnessWire[];
+
+  /**
+   * The route in 3D (stage 4c, §16.6). Absent in bundles built before
+   * format 6, and when fewer than two ends are posed.
+   */
+  route?: SystemBundleHarnessRoute;
+}
+
+/** A posed harness end (§16.6): where the cable leaves the housing. */
+model SystemBundleRouteEnd {
+  /** The end. */
+  end: SystemBundleObjectId;
+
+  /** The housing's rear face, where the cable leaves it. */
+  exit: SystemBundleVectorNm;
+
+  /** The connector's outward axis. */
+  outward: SystemBundleUnitVector;
+
+  /** The end of the straight boot, where the curve starts. */
+  leg: SystemBundleVectorNm;
+}
+
+/** A unit direction. */
+model SystemBundleUnitVector {
+  /** The x component. */
+  x: float64;
+
+  /** The y component. */
+  y: float64;
+
+  /** The z component. */
+  z: float64;
+}
+
+/** A bend tighter than the minimum radius. */
+model SystemBundleTightBend {
+  /** Where the bend is tightest. */
+  at: SystemBundleVectorNm;
+
+  /** The radius there. */
+  radiusNm: Nanometres;
+}
+
+/** One segment of the route tree and its curve (§16.6). */
+model SystemBundleRouteSegment {
+  /** The stored segment's id, or `<harness>/<from>~<to>` for a derived one. */
+  id: string;
+
+  /** The tree was derived, not stored. */
+  derived: boolean;
+
+  /** A node id: an end, a branch point, or `auto` for the automatic breakout. */
+  from: string;
+
+  /** A node id, as `from`. */
+  to: string;
+
+  /** The wires it carries (wire-list ids, `<link>:<pad A>` for a default one), in wire-list order. */
+  wires: string[];
+
+  /** The bundle's diameter. */
+  diameterNm: Nanometres;
+
+  /** A carried wire's gauge was missing or unknown, so 24 AWG's diameter was used. */
+  assumedGauge: boolean;
+
+  /** The curve's samples as flat `[x, y, z, …]` triples in system space, in order from `from` to `to`. */
+  samplesNm: Nanometres[];
+
+  /** The curve's arc length. */
+  lengthNm: Nanometres;
+
+  /** The tightest bend's radius; absent for a straight segment. */
+  minRadiusNm?: Nanometres;
+
+  /** The minimum bend radius, 6 × the diameter. */
+  minRadiusAllowedNm: Nanometres;
+
+  /** Present when a bend is tighter than allowed. */
+  tightBend?: SystemBundleTightBend;
+
+  /** Boards and bodies the bundle comes too close to, in occurrence order. */
+  clearances: SystemBundleClearance[];
+}
+
+/** Where a segment comes closer to a board or body than its radius and the margin. */
+model SystemBundleClearance {
+  /** The board or body occurrence. */
+  occurrence: SystemBundleObjectId;
+
+  /** The closest point on the segment. */
+  at: SystemBundleVectorNm;
+
+  /** The distance from the curve to the occurrence's box. */
+  distanceNm: Nanometres;
+
+  /** The distance needed: the bundle's radius plus the margin. */
+  neededNm: Nanometres;
+}
+
+/** A wire's route length. */
+model SystemBundleRouteWire {
+  /** The wire's wire-list id. */
+  wire: string;
+
+  /** Absent when the wire is unrouted (a splice or loose terminal, or an unposed end). */
+  lengthNm?: Nanometres;
+}
+
+/** A harness route (stage 4c, §16.6). */
+model SystemBundleHarnessRoute {
+  /** The tree was derived (no stored segments, or stored ones that are not a tree). */
+  derived: boolean;
+
+  /** The posed ends, in document order. */
+  ends: SystemBundleRouteEnd[];
+
+  /** The segments in tree order. */
+  segments: SystemBundleRouteSegment[];
+
+  /** Every wire of the wire list, in its order. */
+  wires: SystemBundleRouteWire[];
 }
 
 // ------------------------------------------------------------- suggestions

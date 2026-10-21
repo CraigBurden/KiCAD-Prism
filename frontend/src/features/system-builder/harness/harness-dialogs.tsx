@@ -4,7 +4,7 @@
  */
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 
-import { buildBom, colourHex, terminalText } from "./harness-format";
+import { buildBom, colourHex, terminalText, wireLengthText } from "./harness-format";
 import type { HarnessView } from "./harness-view";
 
 export type HarnessDialogKind = "wires" | "bom" | "findings";
@@ -32,28 +32,36 @@ function WiresTable({ view }: { view: HarnessView }) {
           <th className="border-b border-white/10 py-1.5 pr-2">Gauge</th>
           <th className="border-b border-white/10 py-1.5 pr-2">Colour</th>
           <th className="border-b border-white/10 py-1.5 pr-2">Net</th>
+          <th className="border-b border-white/10 py-1.5 pr-2">Length (mm)</th>
           <th className="border-b border-white/10 py-1.5 pr-2">Origin</th>
           <th className="border-b border-white/10 py-1.5">Cable / conductor</th>
         </tr>
       </thead>
       <tbody>
-        {view.wires.map((wire) => (
-          <tr key={wire.id} className="align-top">
-            <td className="border-b border-white/5 py-1.5 pr-2 font-mono text-zinc-200">{wire.id}</td>
-            <td className="border-b border-white/5 py-1.5 pr-2 text-zinc-300">{terminalText(view, wire.from)}</td>
-            <td className="border-b border-white/5 py-1.5 pr-2 text-zinc-300">{terminalText(view, wire.to)}</td>
-            <td className="border-b border-white/5 py-1.5 pr-2 font-mono text-zinc-300">{wire.gaugeAwg ? `${wire.gaugeAwg} AWG` : "—"}</td>
-            <td className="border-b border-white/5 py-1.5 pr-2 text-zinc-300">
-              <span className="mr-1 inline-block h-2.5 w-2.5 rounded-[2px] border border-white/20" style={{ background: colourHex(wire.colour) }} />
-              {wire.colour ?? "—"}
-            </td>
-            <td className="border-b border-white/5 py-1.5 pr-2 font-mono text-zinc-300">{wire.netName ?? wire.net ?? "—"}</td>
-            <td className="border-b border-white/5 py-1.5 pr-2 text-zinc-300">{wire.origin}</td>
-            <td className="border-b border-white/5 py-1.5 font-mono text-zinc-300">
-              {wire.cable ? `${wire.cable} · ${wire.conductor ?? "—"}` : "—"}
-            </td>
-          </tr>
-        ))}
+        {view.wires.map((wire) => {
+          const length = wireLengthText(wire);
+          return (
+            <tr key={wire.id} className="align-top">
+              <td className="border-b border-white/5 py-1.5 pr-2 font-mono text-zinc-200">{wire.id}</td>
+              <td className="border-b border-white/5 py-1.5 pr-2 text-zinc-300">{terminalText(view, wire.from)}</td>
+              <td className="border-b border-white/5 py-1.5 pr-2 text-zinc-300">{terminalText(view, wire.to)}</td>
+              <td className="border-b border-white/5 py-1.5 pr-2 font-mono text-zinc-300">{wire.gaugeAwg ? `${wire.gaugeAwg} AWG` : "—"}</td>
+              <td className="border-b border-white/5 py-1.5 pr-2 text-zinc-300">
+                <span className="mr-1 inline-block h-2.5 w-2.5 rounded-[2px] border border-white/20" style={{ background: colourHex(wire.colour) }} />
+                {wire.colour ?? "—"}
+              </td>
+              <td className="border-b border-white/5 py-1.5 pr-2 font-mono text-zinc-300">{wire.netName ?? wire.net ?? "—"}</td>
+              <td className="border-b border-white/5 py-1.5 pr-2 font-mono text-zinc-300">
+                {length.text}
+                {length.typed && <span className="ml-1 text-[10px] uppercase tracking-wide text-zinc-500">typed</span>}
+              </td>
+              <td className="border-b border-white/5 py-1.5 pr-2 text-zinc-300">{wire.origin}</td>
+              <td className="border-b border-white/5 py-1.5 font-mono text-zinc-300">
+                {wire.cable ? `${wire.cable} · ${wire.conductor ?? "—"}` : "—"}
+              </td>
+            </tr>
+          );
+        })}
       </tbody>
     </table>
   );

@@ -43,6 +43,7 @@ function systemDocument(): SystemDocument {
         to: { kind: "contact", end: "end_b", cavity: "1" },
         link: "link_1",
         colour: "red",
+        lengthNm: 190_000_000,
         route: [],
       }],
       splices: [{ id: "spl_1", method: "crimp", confirmed: true }],
@@ -114,6 +115,15 @@ const BUNDLE: SystemBundle = {
         suggested: false,
       },
     ],
+    route: {
+      derived: true,
+      ends: [],
+      segments: [],
+      wires: [
+        { wire: "w_ex", lengthNm: 182_400_000 },
+        { wire: "link_1:2", lengthNm: 100_000_000 },
+      ],
+    },
   }],
   suggestions: [],
   findings: [{
@@ -248,5 +258,25 @@ describe("HarnessPane", () => {
     expect(screen.getByText("w_ex")).toBeTruthy();
     expect(screen.getByText("link_1:2")).toBeTruthy();
     expect(screen.getByText("J1 · Carrier · cavity 1 · pad 1 · VCC")).toBeTruthy();
+  });
+
+  it("shows a wire's length: typed, else the 3D route, else an em dash", async () => {
+    render(<Harness apply={mockApply()} />);
+    fireEvent.click(screen.getByRole("button", { name: "Wires" }));
+    const typed = screen.getByText("w_ex").closest("tr") as HTMLElement;
+    expect(within(typed).getByText("190")).toBeTruthy();
+    expect(within(typed).getByText("typed")).toBeTruthy();
+    const routed = screen.getByText("link_1:2").closest("tr") as HTMLElement;
+    expect(within(routed).getByText("100")).toBeTruthy();
+    expect(within(routed).queryByText("typed")).toBeNull();
+    const none = screen.getByText("link_1:3").closest("tr") as HTMLElement;
+    expect(within(none).getAllByText("—").length).toBeGreaterThan(0);
+  });
+
+  it("reads the route length in the wire inspector and keeps the override", () => {
+    render(<Harness apply={mockApply()} />);
+    selectWire("w_ex");
+    expect(screen.getByText("182.4 mm · from the 3D route")).toBeTruthy();
+    expect((screen.getByLabelText("Length") as HTMLInputElement).value).toBe("190");
   });
 });

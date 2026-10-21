@@ -21,6 +21,12 @@ before geometry and geometry before outputs. The rules are
   (§14.4); `src/placement/poses.rs` — poses, transforms and the default row
   (§14.1, §14.3); `src/placement/mate.rs` — the mate transform, connector bodies
   and the clearance fallback (§14.5, §14.8).
+- `src/placement/harness_*.rs` — the harness geometry maths (CONTRACTS_P2
+  §17.5–§17.10: end poses, topology, curves, nodes, checks), ported from the
+  v1 Python; `tests/harness_goldens.rs` replays its goldens. `src/routing/` —
+  harness routes in the bundle (§16.6): posed ends, the stored or derived tree,
+  curves through waypoints, lengths and the bend/clearance findings;
+  `tests/routing.rs`.
 - Every placement rule has a Python twin in `backend/app/services/systems/placement/` and
   a TypeScript twin in `frontend/src/features/system-builder/placement/`; change
   all three and the shared goldens together.

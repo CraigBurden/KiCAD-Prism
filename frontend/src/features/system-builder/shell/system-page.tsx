@@ -62,7 +62,7 @@ export function SystemPage({ user }: { user: User | null }) {
   const { systemId = "" } = useParams();
   const navigate = useNavigate();
   const view = useSystemView();
-  const { openMates, openHarnesses, tab, beside, sheet, setView, openMate, openHarness } = view;
+  const { openMates, openHarnesses, tab, beside, sheet, setView, openMate, openHarness, openRoute } = view;
   const { session, state } = useSystemSession(systemId, user?.email ?? "");
   const { projects } = useWorkspaceData({ sessionKey: workspaceSessionKey(user) });
   const projectList = useMemo(() => projects.map((project) => ({ id: project.id, name: project.display_name || project.name })), [projects]);
@@ -242,6 +242,7 @@ export function SystemPage({ user }: { user: User | null }) {
           apply={apply}
           selected={selected}
           onSelect={setSelected}
+          onRouteIn3D={() => { openRoute(harness); setSelected(new Set([harness])); }}
         />
       );
     }
@@ -295,6 +296,7 @@ export function SystemPage({ user }: { user: User | null }) {
         apply={apply}
         lit={lit}
         onOpenMate={openMate}
+        onOpenHarness={openHarness}
       />
     );
   };

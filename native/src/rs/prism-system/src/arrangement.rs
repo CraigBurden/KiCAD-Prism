@@ -16,6 +16,7 @@ use crate::output::{
     QuaternionOut, VectorNmOut,
 };
 use crate::placement::frames::{Confidence, MatingAxis, StoredFrame, connector_frame, infer};
+use crate::placement::harness_ends::{EndPose, board_end};
 use crate::placement::mate::{HeightSource, MateEnd, Orientation};
 use crate::placement::poses::{
     Bounds, IDENTITY, PlacedPose, Pose, PoseSource, canonical_rotation, compose,
@@ -412,8 +413,48 @@ fn placed_exports(cx: &Context<'_>, doc: &Document, solved: &SolveResult) -> Vec
     exports
 }
 
+/// The placement, with what harness routing reads from it (§16.6).
+pub struct Arranged {
+    /// The bundle's placement.
+    pub scene: PlacementSceneOut,
+    /// Each placed occurrence's pose.
+    pub poses: BTreeMap<String, Pose>,
+    /// Each placed occurrence's box in its own frame, when known.
+    pub bounds: BTreeMap<String, Bounds>,
+    /// Occurrence labels, for messages.
+    pub labels: BTreeMap<String, String>,
+}
+
+/// A harness end's housing posed on a placed connector (§16.6), or `None`
+/// when the connector has no frame to pose it by. `boot_mm` overrides the
+/// straight run out of the housing.
+pub fn harness_end_pose(
+    cx: &Context<'_>,
+    arranged: &Arranged,
+    occurrence: &str,
+    connector: &str,
+    boot_mm: Option<f64>,
+) -> Option<EndPose> {
+    let end = solve_end(cx, occurrence, connector)?;
+    let placed = arranged.poses.get(occurrence)?;
+    let board_world = compose(placed, end.in_member.as_ref().unwrap_or(&IDENTITY));
+    let mut pose = board_end(
+        &board_world,
+        Some(&end.end.geometry),
+        end.end.thickness_mm,
+        end.end.stored.as_ref(),
+        0,
+        None,
+        end.end.body_mm.as_ref(),
+    )?;
+    if let Some(boot) = boot_mm {
+        pose.leg_mm = [0, 1, 2].map(|k| pose.exit_mm[k] + boot * pose.outward[k]);
+    }
+    Some(pose)
+}
+
 /// Place every occurrence; adds the placement findings (§9).
-pub fn arrange(cx: &mut Context<'_>, doc: &Document) -> PlacementSceneOut {
+pub fn arrange(cx: &mut Context<'_>, doc: &Document) -> Arranged {
     let inputs = solve_inputs(cx, doc);
     let solved = solve(
         &inputs.items,
@@ -424,9 +465,27 @@ pub fn arrange(cx: &mut Context<'_>, doc: &Document) -> PlacementSceneOut {
         SolveRules::V2,
     );
     let misses = add_findings(cx, doc, &inputs.stored, &solved);
-    PlacementSceneOut {
+    let scene = PlacementSceneOut {
         occurrences: placed_occurrences(doc, &inputs.items, &solved),
         mates: placed_mates(doc, &inputs.mates, &solved, &misses),
         exports: placed_exports(cx, doc, &solved),
+    };
+    Arranged {
+        scene,
+        poses: solved
+            .poses
+            .iter()
+            .map(|(id, placed)| (id.clone(), placed.pose))
+            .collect(),
+        bounds: inputs
+            .items
+            .iter()
+            .filter_map(|(id, bounds)| Some((id.clone(), (*bounds)?)))
+            .collect(),
+        labels: doc
+            .occurrences
+            .iter()
+            .map(|item| (item.id.clone(), item.label.clone()))
+            .collect(),
     }
 }

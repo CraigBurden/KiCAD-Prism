@@ -19,6 +19,14 @@ export type PadNumber = string;
  * Id of an object in the system document (`prism.system.v2`).
  */
 export type SystemBundleObjectId = string;
+/**
+ * Length or coordinate in integer nanometres, KiCad's internal board unit.
+ * Converted from the file's decimal millimetres as KiCad's own parser does:
+ * the double product value_mm * 1e6, rounded half away from zero. A single
+ * coordinate or dimension fits KiCad's 32-bit range; sums (for example a
+ * net's total track length) may not, hence a safe integer (|n| < 2^53).
+ */
+export type Nanometres = number;
 
 /**
  * A system bundle.
@@ -408,6 +416,7 @@ export interface SystemBundleHarness {
    * Explicit wires in document order, then each link's default wires.
    */
   wires: SystemBundleHarnessWire[];
+  route?: SystemBundleHarnessRoute;
 }
 /**
  * An end of a harness block and the cavities in use (§16.3).
@@ -503,6 +512,10 @@ export interface SystemBundleHarnessWire {
    * Joins power or ground pins (§8.5).
    */
   suggested: boolean;
+  /**
+   * Its route length (stage 4c, §16.6): segments' arc length, both housings' depths and the allowance.
+   */
+  routeLengthNm?: number;
 }
 /**
  * One end.
@@ -565,6 +578,248 @@ export interface SystemBundleTerminal1 {
    * Id of an object in the system document (`prism.system.v2`).
    */
   looseEnd?: string;
+}
+/**
+ * The route in 3D (stage 4c, §16.6). Absent in bundles built before
+ * format 6, and when fewer than two ends are posed.
+ */
+export interface SystemBundleHarnessRoute {
+  /**
+   * The tree was derived (no stored segments, or stored ones that are not a tree).
+   */
+  derived: boolean;
+  /**
+   * The posed ends, in document order.
+   */
+  ends: SystemBundleRouteEnd[];
+  /**
+   * The segments in tree order.
+   */
+  segments: SystemBundleRouteSegment[];
+  /**
+   * Every wire of the wire list, in its order.
+   */
+  wires: SystemBundleRouteWire[];
+}
+/**
+ * A posed harness end (§16.6): where the cable leaves the housing.
+ */
+export interface SystemBundleRouteEnd {
+  /**
+   * Id of an object in the system document (`prism.system.v2`).
+   */
+  end: string;
+  exit: SystemBundleVectorNm;
+  outward: SystemBundleUnitVector;
+  leg: SystemBundleVectorNm1;
+}
+/**
+ * The housing's rear face, where the cable leaves it.
+ */
+export interface SystemBundleVectorNm {
+  /**
+   * X in nanometres.
+   */
+  xNm: number;
+  /**
+   * Y in nanometres.
+   */
+  yNm: number;
+  /**
+   * Z in nanometres.
+   */
+  zNm: number;
+}
+/**
+ * The connector's outward axis.
+ */
+export interface SystemBundleUnitVector {
+  /**
+   * The x component.
+   */
+  x: number;
+  /**
+   * The y component.
+   */
+  y: number;
+  /**
+   * The z component.
+   */
+  z: number;
+}
+/**
+ * The end of the straight boot, where the curve starts.
+ */
+export interface SystemBundleVectorNm1 {
+  /**
+   * X in nanometres.
+   */
+  xNm: number;
+  /**
+   * Y in nanometres.
+   */
+  yNm: number;
+  /**
+   * Z in nanometres.
+   */
+  zNm: number;
+}
+/**
+ * One segment of the route tree and its curve (§16.6).
+ */
+export interface SystemBundleRouteSegment {
+  /**
+   * The stored segment's id, or `<harness>/<from>~<to>` for a derived one.
+   */
+  id: string;
+  /**
+   * The tree was derived, not stored.
+   */
+  derived: boolean;
+  /**
+   * A node id: an end, a branch point, or `auto` for the automatic breakout.
+   */
+  from: string;
+  /**
+   * A node id, as `from`.
+   */
+  to: string;
+  /**
+   * The wires it carries (wire-list ids, `<link>:<pad A>` for a default one), in wire-list order.
+   */
+  wires: string[];
+  /**
+   * The bundle's diameter.
+   */
+  diameterNm: number;
+  /**
+   * A carried wire's gauge was missing or unknown, so 24 AWG's diameter was used.
+   */
+  assumedGauge: boolean;
+  /**
+   * The curve's samples as flat `[x, y, z, …]` triples in system space, in order from `from` to `to`.
+   */
+  samplesNm: Nanometres[];
+  /**
+   * Length or coordinate in integer nanometres, KiCad's internal board unit.
+   * Converted from the file's decimal millimetres as KiCad's own parser does:
+   * the double product value_mm * 1e6, rounded half away from zero. A single
+   * coordinate or dimension fits KiCad's 32-bit range; sums (for example a
+   * net's total track length) may not, hence a safe integer (|n| < 2^53).
+   */
+  lengthNm: number;
+  /**
+   * Length or coordinate in integer nanometres, KiCad's internal board unit.
+   * Converted from the file's decimal millimetres as KiCad's own parser does:
+   * the double product value_mm * 1e6, rounded half away from zero. A single
+   * coordinate or dimension fits KiCad's 32-bit range; sums (for example a
+   * net's total track length) may not, hence a safe integer (|n| < 2^53).
+   */
+  minRadiusNm?: number;
+  /**
+   * Length or coordinate in integer nanometres, KiCad's internal board unit.
+   * Converted from the file's decimal millimetres as KiCad's own parser does:
+   * the double product value_mm * 1e6, rounded half away from zero. A single
+   * coordinate or dimension fits KiCad's 32-bit range; sums (for example a
+   * net's total track length) may not, hence a safe integer (|n| < 2^53).
+   */
+  minRadiusAllowedNm: number;
+  tightBend?: SystemBundleTightBend;
+  /**
+   * Boards and bodies the bundle comes too close to, in occurrence order.
+   */
+  clearances: SystemBundleClearance[];
+}
+/**
+ * Present when a bend is tighter than allowed.
+ */
+export interface SystemBundleTightBend {
+  at: SystemBundleVectorNm2;
+  /**
+   * Length or coordinate in integer nanometres, KiCad's internal board unit.
+   * Converted from the file's decimal millimetres as KiCad's own parser does:
+   * the double product value_mm * 1e6, rounded half away from zero. A single
+   * coordinate or dimension fits KiCad's 32-bit range; sums (for example a
+   * net's total track length) may not, hence a safe integer (|n| < 2^53).
+   */
+  radiusNm: number;
+}
+/**
+ * Where the bend is tightest.
+ */
+export interface SystemBundleVectorNm2 {
+  /**
+   * X in nanometres.
+   */
+  xNm: number;
+  /**
+   * Y in nanometres.
+   */
+  yNm: number;
+  /**
+   * Z in nanometres.
+   */
+  zNm: number;
+}
+/**
+ * Where a segment comes closer to a board or body than its radius and the margin.
+ */
+export interface SystemBundleClearance {
+  /**
+   * Id of an object in the system document (`prism.system.v2`).
+   */
+  occurrence: string;
+  at: SystemBundleVectorNm3;
+  /**
+   * Length or coordinate in integer nanometres, KiCad's internal board unit.
+   * Converted from the file's decimal millimetres as KiCad's own parser does:
+   * the double product value_mm * 1e6, rounded half away from zero. A single
+   * coordinate or dimension fits KiCad's 32-bit range; sums (for example a
+   * net's total track length) may not, hence a safe integer (|n| < 2^53).
+   */
+  distanceNm: number;
+  /**
+   * Length or coordinate in integer nanometres, KiCad's internal board unit.
+   * Converted from the file's decimal millimetres as KiCad's own parser does:
+   * the double product value_mm * 1e6, rounded half away from zero. A single
+   * coordinate or dimension fits KiCad's 32-bit range; sums (for example a
+   * net's total track length) may not, hence a safe integer (|n| < 2^53).
+   */
+  neededNm: number;
+}
+/**
+ * The closest point on the segment.
+ */
+export interface SystemBundleVectorNm3 {
+  /**
+   * X in nanometres.
+   */
+  xNm: number;
+  /**
+   * Y in nanometres.
+   */
+  yNm: number;
+  /**
+   * Z in nanometres.
+   */
+  zNm: number;
+}
+/**
+ * A wire's route length.
+ */
+export interface SystemBundleRouteWire {
+  /**
+   * The wire's wire-list id.
+   */
+  wire: string;
+  /**
+   * Length or coordinate in integer nanometres, KiCad's internal board unit.
+   * Converted from the file's decimal millimetres as KiCad's own parser does:
+   * the double product value_mm * 1e6, rounded half away from zero. A single
+   * coordinate or dimension fits KiCad's 32-bit range; sums (for example a
+   * net's total track length) may not, hence a safe integer (|n| < 2^53).
+   */
+  lengthNm?: number;
 }
 /**
  * A sub-port suggestion read from a board's design bundle.
@@ -672,13 +927,13 @@ export interface SystemBundlePlacedOccurrence {
  * Its board frame in the system frame.
  */
 export interface SystemBundlePose {
-  translation: SystemBundleVectorNm;
+  translation: SystemBundleVectorNm4;
   rotation: SystemBundleQuaternion;
 }
 /**
  * The translation.
  */
-export interface SystemBundleVectorNm {
+export interface SystemBundleVectorNm4 {
   /**
    * X in nanometres.
    */
@@ -717,13 +972,13 @@ export interface SystemBundleQuaternion {
  * Its board's outline box across its thickness, in its own frame; absent when unknown.
  */
 export interface SystemBundleBounds {
-  min: SystemBundleVectorNm1;
-  max: SystemBundleVectorNm2;
+  min: SystemBundleVectorNm5;
+  max: SystemBundleVectorNm6;
 }
 /**
  * The minimum corner.
  */
-export interface SystemBundleVectorNm1 {
+export interface SystemBundleVectorNm5 {
   /**
    * X in nanometres.
    */
@@ -740,7 +995,7 @@ export interface SystemBundleVectorNm1 {
 /**
  * The maximum corner.
  */
-export interface SystemBundleVectorNm2 {
+export interface SystemBundleVectorNm6 {
   /**
    * X in nanometres.
    */
@@ -767,7 +1022,11 @@ export interface SystemBundlePlacedMate {
    */
   driving: boolean;
   /**
-   * The stack height used; absent when the mate could not be solved.
+   * Length or coordinate in integer nanometres, KiCad's internal board unit.
+   * Converted from the file's decimal millimetres as KiCad's own parser does:
+   * the double product value_mm * 1e6, rounded half away from zero. A single
+   * coordinate or dimension fits KiCad's 32-bit range; sums (for example a
+   * net's total track length) may not, hence a safe integer (|n| < 2^53).
    */
   stackHeightNm?: number;
   /**
@@ -776,7 +1035,7 @@ export interface SystemBundlePlacedMate {
   heightSource?: "stack-height" | "clearance";
   frameA?: SystemBundlePose1;
   frameB?: SystemBundlePose2;
-  miss?: SystemBundleVectorNm3;
+  miss?: SystemBundleVectorNm7;
   /**
    * A non-driving mate's rotation miss, in degrees.
    */
@@ -786,20 +1045,20 @@ export interface SystemBundlePlacedMate {
  * Side A's connector frame in the system frame; absent when unknown.
  */
 export interface SystemBundlePose1 {
-  translation: SystemBundleVectorNm;
+  translation: SystemBundleVectorNm4;
   rotation: SystemBundleQuaternion;
 }
 /**
  * Side B's connector frame in the system frame; absent when unknown.
  */
 export interface SystemBundlePose2 {
-  translation: SystemBundleVectorNm;
+  translation: SystemBundleVectorNm4;
   rotation: SystemBundleQuaternion;
 }
 /**
  * A non-driving mate's miss: B's connector origin minus its mated position, on A's connector axes.
  */
-export interface SystemBundleVectorNm3 {
+export interface SystemBundleVectorNm7 {
   /**
    * X in nanometres.
    */
@@ -835,7 +1094,7 @@ export interface SystemBundlePlacedExport {
  * footprint frame.
  */
 export interface SystemBundlePose3 {
-  translation: SystemBundleVectorNm;
+  translation: SystemBundleVectorNm4;
   rotation: SystemBundleQuaternion;
 }
 /**

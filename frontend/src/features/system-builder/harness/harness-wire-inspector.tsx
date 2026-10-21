@@ -143,7 +143,11 @@ export function WireInspector({ view, wire, canEdit, busy, onSet, onConfirm, onR
         <label htmlFor="harness-wire-length" className="mb-0.5 block text-[11px] text-zinc-500">
           Length
         </label>
-        <p className="mb-1 text-[11px] text-zinc-500">from the 3D route (stage 4c)</p>
+        <p className="mb-1 text-[11px] text-zinc-500">
+          {wire.routeLengthNm !== undefined
+            ? `${mmText(wire.routeLengthNm)} mm · from the 3D route`
+            : "not routed"}
+        </p>
         <input
           id="harness-wire-length"
           className={input}

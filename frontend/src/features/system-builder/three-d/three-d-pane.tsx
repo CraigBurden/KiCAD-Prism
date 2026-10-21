@@ -6,24 +6,27 @@
  * catalog model; connector parts are placed on their faces (mockup 08).
  * A placed published entry draws as its contents, one rigid group (§15.3).
  */
-import { useEffect, useMemo, useRef, useState } from "react";
-import { Box, Boxes, Maximize, Move3d, MousePointer2 } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 
 import { useHotkeys } from "@/hooks/use-hotkeys";
-import type { PrismScenePose, PrismSemanticViewerElement, PrismSystemSceneMoveState, PrismSystemViewerSelection } from "@/types/prism-semantic-viewer";
+import type { PrismScenePose, PrismSemanticViewerElement, PrismSystemSceneMoveState } from "@/types/prism-semantic-viewer";
 
 import type { SystemBundle, SystemDocument, SystemOp } from "../model/types";
 import { AddBodyDialog } from "./add-body-dialog";
 import { addBodyConnectorOps, addBodyOps, addEntryOps, faceFramePose, nextRefdes } from "./body-edits";
 import { entryPartRefs, useEntryContents } from "./entry-contents";
 import { MoveCard, type Snap } from "./move-card";
+import { PaneToolbar } from "./pane-toolbar";
 import { usePartModels } from "./part-models";
 import { PlaceConnectorCard, type Placing } from "./place-connector-card";
 import { OccurrenceCard } from "./occurrence-card";
 import { poseOps, positioningMateOps, storedPose } from "./pose-edits";
+import { RouteCard } from "./route-card";
 import { buildSceneDescriptor } from "./scene-descriptor";
 import { useMemberAssets } from "./use-member-assets";
+import { useRouteTool } from "./use-route-tool";
+import { useViewerEvents } from "./use-viewer-events";
 import { DEFAULT_VIEW, ViewCard, type ViewSettings } from "./view-card";
 
 export interface ThreeDPaneProps {
@@ -39,8 +42,9 @@ export interface ThreeDPaneProps {
   lit?: { key: string; members: { occurrence: string; net: string }[]; parts: { occurrence: string; reference: string }[] } | null;
   /** Open a mate's B2B tab. */
   onOpenMate?: (mate: string) => void;
+  /** Open a harness's tab (the route card's action). */
+  onOpenHarness?: (harness: string) => void;
 }
-
 const DEFAULT_SNAP: Snap = { mm: 0.5, deg: 15 };
 
 /** Run `command` once the element's script has defined it. */
@@ -65,8 +69,25 @@ function previewDocument(document: SystemDocument, placing: Placing | null): Sys
   return { ...document, bodyConnectors: [...document.bodyConnectors.filter((item) => !(item.occurrence === preview.occurrence && item.refdes === preview.refdes)), preview] };
 }
 
-export function ThreeDPane({ document, bundle, projectNames, selected, onSelect, canEdit, busy, apply, lit = null, onOpenMate }: ThreeDPaneProps) {
+export function ThreeDPane({ document, bundle, projectNames, selected, onSelect, canEdit, busy, apply, lit = null, onOpenMate, onOpenHarness }: ThreeDPaneProps) {
   const [element, setElement] = useState<PrismSemanticViewerElement | null>(null);
+  const [move, setMove] = useState<PrismSystemSceneMoveState | null>(null);
+  const [snap, setSnap] = useState<Snap>(DEFAULT_SNAP);
+  const [view, setView] = useState<ViewSettings>(DEFAULT_VIEW);
+  // A save landed or the target changed: the Move card starts over.
+  const [epoch, setEpoch] = useState(0);
+  const setMoving = (enabled: boolean) => whenReady(element, (viewer) => viewer.setMoveMode?.(enabled));
+  // The Route tool owns its toggle, drags and the preview the scene draws.
+  const route = useRouteTool({
+    element,
+    document,
+    bundle,
+    selected,
+    onSelect,
+    apply,
+    canEdit,
+    onMove: setMoving,
+  });
   const entries = useEntryContents(document);
   const assets = useMemberAssets(document, entries);
   // Adding from the catalog: a body or a published system.
@@ -80,51 +101,29 @@ export function ThreeDPane({ document, bundle, projectNames, selected, onSelect,
     ...[...entries.values()].flatMap((contents) => (contents ? entryPartRefs(contents) : [])),
   ], [shown, entries]);
   const models = usePartModels(partRefs);
-  const scene = useMemo(() => buildSceneDescriptor(shown, bundle, assets, models, entries), [shown, bundle, assets, models, entries]);
-  const [move, setMove] = useState<PrismSystemSceneMoveState | null>(null);
-  const [snap, setSnap] = useState<Snap>(DEFAULT_SNAP);
-  const [view, setView] = useState<ViewSettings>(DEFAULT_VIEW);
-  // A save landed or the target changed: the Move card starts over.
-  const [epoch, setEpoch] = useState(0);
+  // The tool needs its tubes visible even when the view's toggle is off.
+  const showHarnesses = view.harnesses || route.routing;
+  const scene = useMemo(
+    () => buildSceneDescriptor(shown, bundle, assets, models, entries, selected, showHarnesses, route.preview),
+    [shown, bundle, assets, models, entries, selected, showHarnesses, route.preview],
+  );
 
   const occurrenceIds = useMemo(() => new Set(document.occurrences.map((item) => item.id)), [document]);
   const single = selected.size === 1 ? [...selected][0] : null;
   const selectedBoard = single && occurrenceIds.has(single) ? single : null;
-
-  // Callbacks read the latest props through a ref; the listeners are added once per element.
-  const latest = useRef({ document, onSelect, apply, occurrenceIds });
-  useEffect(() => {
-    latest.current = { document, onSelect, apply, occurrenceIds };
+  useViewerEvents({
+    element,
+    document,
+    occurrenceIds,
+    onSelect,
+    apply,
+    onMoveState: setMove,
+    onSettled: () => setEpoch((value) => value + 1),
+    onFailed: (error) => {
+      element?.cancelMove?.();
+      report(error);
+    },
   });
-
-  useEffect(() => {
-    if (!element) return;
-    const onSelection = (event: CustomEvent<{ selection: unknown }>) => {
-      const selection = event.detail.selection as PrismSystemViewerSelection | null;
-      const occurrence = selection && "occurrence" in selection ? selection.occurrence : undefined;
-      latest.current.onSelect(occurrence && latest.current.occurrenceIds.has(occurrence) ? new Set([occurrence]) : new Set());
-    };
-    const onMove = (event: CustomEvent<PrismSystemSceneMoveState>) => {
-      const state = event.detail;
-      setMove(state);
-      if (state.phase === "target" || state.phase === "sync" || state.phase === "cancel") setEpoch((value) => value + 1);
-      if (state.phase === "commit" && state.target) {
-        const target = state.target;
-        latest.current.apply(poseOps(latest.current.document, target.occurrence, target.pose))
-          .then(() => setEpoch((value) => value + 1))
-          .catch((error: unknown) => {
-            element.cancelMove?.();
-            report(error);
-          });
-      }
-    };
-    element.addEventListener("prism-semantic-viewer:selectionchange", onSelection as EventListener);
-    element.addEventListener("prism-semantic-viewer:move", onMove);
-    return () => {
-      element.removeEventListener("prism-semantic-viewer:selectionchange", onSelection as EventListener);
-      element.removeEventListener("prism-semantic-viewer:move", onMove);
-    };
-  }, [element]);
 
   useEffect(() => whenReady(element, (viewer) => viewer.setSystemScene?.(scene)), [element, scene]);
   useEffect(() => whenReady(element, (viewer) => viewer.setMoveSnap?.(snap)), [element, snap]);
@@ -149,9 +148,8 @@ export function ThreeDPane({ document, bundle, projectNames, selected, onSelect,
   useEffect(() => whenReady(element, (viewer) => viewer.setSelection(selectedBoard ? { occurrence: selectedBoard } : null)), [element, selectedBoard]);
 
   const moving = Boolean(move?.enabled);
-  const setMoving = (enabled: boolean) => whenReady(element, (viewer) => viewer.setMoveMode?.(enabled));
   useHotkeys([
-    { combo: "m", handler: () => setMoving(!moving) },
+    { combo: "m", handler: () => { route.setRouting(false); setMoving(!moving); } },
     { combo: "f", handler: () => element?.frameAll?.() },
   ], { enabled: Boolean(element) });
 
@@ -171,6 +169,7 @@ export function ThreeDPane({ document, bundle, projectNames, selected, onSelect,
   }, [element, placingBody, scene]);
   const startPlacing = (body: string) => {
     setMoving(false);
+    route.setRouting(false);
     setPlacing({ body, part: null, refdes: nextRefdes(document, body), quarterTurns: 0, frame: null });
   };
   const place = () => {
@@ -204,6 +203,25 @@ export function ThreeDPane({ document, bundle, projectNames, selected, onSelect,
       {/* One column on the right: the View card, then the selected board's card (no overlap in a narrow pane). */}
       <div className="absolute right-4 top-3 z-10 flex max-h-[calc(100%-5rem)] flex-col items-end gap-3 overflow-auto">
         <ViewCard view={view} onChange={setView} hasSelection={Boolean(selectedBoard)} />
+        {(route.routing || route.object) && (
+          <RouteCard
+            document={document}
+            bundle={bundle}
+            selected={selected}
+            routing={route.routing}
+            object={route.object}
+            objectId={route.objectId}
+            drag={route.drag}
+            preview={route.preview}
+            canEdit={canEdit}
+            busy={busy}
+            onMoveWaypoint={route.moveWaypoint}
+            onMoveBranchPoint={route.moveBranchPoint}
+            onRemove={route.remove}
+            onStraighten={route.straighten}
+            onOpenHarness={onOpenHarness}
+          />
+        )}
         {selectedBoard && !(target && target.occurrence === selectedBoard && placedTarget?.movable) && (
           <OccurrenceCard
             document={document}
@@ -264,27 +282,18 @@ export function ThreeDPane({ document, bundle, projectNames, selected, onSelect,
           />
         </div>
       )}
-      <div className="absolute bottom-4 left-1/2 flex -translate-x-1/2 items-center gap-1 rounded-lg border border-white/10 bg-zinc-900/95 p-1 text-zinc-100 shadow-xl" role="toolbar" aria-label="3D tools">
-        <PaneButton active={!moving} onClick={() => setMoving(false)} icon={MousePointer2} label="Select" />
-        {canEdit && <PaneButton active={moving} onClick={() => setMoving(!moving)} icon={Move3d} label="Move (M)" />}
-        {canEdit && <PaneButton active={adding === "body"} onClick={() => setAdding("body")} icon={Box} label="Add body" />}
-        {canEdit && <PaneButton active={adding === "entry"} onClick={() => setAdding("entry")} icon={Boxes} label="Place system" />}
-        <PaneButton active={false} onClick={() => element?.frameAll?.()} icon={Maximize} label="Fit (F)" />
-      </div>
+      <PaneToolbar
+        moving={moving}
+        routing={route.routing}
+        canEdit={canEdit}
+        adding={adding}
+        onSelect={() => { setMoving(false); route.setRouting(false); }}
+        onMove={() => { route.setRouting(false); setMoving(!moving); }}
+        onRoute={() => route.setRouting(!route.routing)}
+        onAddBody={() => setAdding("body")}
+        onAddEntry={() => setAdding("entry")}
+        onFit={() => element?.frameAll?.()}
+      />
     </div>
-  );
-}
-
-function PaneButton({ active, onClick, icon: Icon, label }: { active: boolean; onClick: () => void; icon: typeof Maximize; label: string }) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      aria-pressed={active}
-      className={`flex items-center gap-1.5 whitespace-nowrap rounded-md px-2.5 py-1.5 text-xs ${active ? "bg-white/15 text-white" : "text-zinc-300 hover:bg-white/10"}`}
-    >
-      <Icon className="h-3.5 w-3.5" />
-      {label}
-    </button>
   );
 }

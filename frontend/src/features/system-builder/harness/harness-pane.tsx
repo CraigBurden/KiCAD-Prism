@@ -47,11 +47,13 @@ export interface HarnessPaneProps {
   /** The page's selection, shared with the schematic (§16.5). */
   selected: ReadonlySet<string>;
   onSelect: (ids: Set<string>) => void;
+  /** Open the Route tool's 3D tab beside this harness (mockup 10). */
+  onRouteIn3D?: () => void;
 }
 
 const report = (error: unknown) => toast.error(error instanceof Error ? error.message : String(error));
 
-export function HarnessPane({ document, bundle, harness, canEdit, busy, apply, selected, onSelect }: HarnessPaneProps) {
+export function HarnessPane({ document, bundle, harness, canEdit, busy, apply, selected, onSelect, onRouteIn3D }: HarnessPaneProps) {
   const view = useMemo(() => buildHarnessView(document, bundle, harness), [document, bundle, harness]);
   const layout = useMemo(() => (view ? layoutHarness(view, document.layout) : null), [view, document.layout]);
   const [xray, setXray] = useState(true);
@@ -160,6 +162,7 @@ export function HarnessPane({ document, bundle, harness, canEdit, busy, apply, s
         onToggleLabels={() => setLabels((value) => !value)}
         onNewPart={() => setCreatingPart(true)}
         onOpen={setDialog}
+        onRouteIn3D={onRouteIn3D}
       />
       <div className="flex min-h-0 flex-1">
         <div className="relative min-w-0 flex-1">

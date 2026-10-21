@@ -73,6 +73,7 @@ fn harness_out(
                 conductor: None,
                 net: net_of.get(&key).cloned(),
                 suggested: wire.suggested,
+                route_length_nm: None,
             });
         }
     }
@@ -87,6 +88,7 @@ fn harness_out(
         harness: harness.id.clone(),
         ends,
         wires,
+        route: None,
     }
 }
 
@@ -221,6 +223,7 @@ fn explicit_wire(
         net,
         // A wire the user drew or confirmed is not a suggestion (§8.5).
         suggested: false,
+        route_length_nm: None,
     }
 }
 

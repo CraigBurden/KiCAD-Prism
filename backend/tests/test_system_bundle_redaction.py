@@ -237,7 +237,7 @@ class SystemBundleKeyTest(unittest.TestCase):
             "documentSha256": hashlib.sha256(
                 json.dumps(DOCUMENT, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
             ).hexdigest(),
-            "format": 5,
+            "format": 6,
             "generator": "f" * 64,
             "members": members,
             "absent": absent,

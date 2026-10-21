@@ -19,7 +19,21 @@ import { buildMateView } from "../b2b/mate-view";
 import { publishSystem } from "../model/api";
 import { exportAt, pinNameOps, renameExportOps, toggleExportOps } from "../publish/export-edits";
 import { addCableOps, addLooseEndOps, addSpliceOps, addWireOps, removeWireOps, setEndOps, setWireOps } from "../harness/harness-edits";
+import { addWaypointAtOps, moveWaypointOps, removeWaypointOps, routeOf, setBranchPointOps, storeTopologyOps } from "../harness/route-edits";
 import { buildHarnessView, type PartRef, type TerminalView } from "../harness/harness-view";
+
+/** The §16.6 codes a route description reports. */
+const ROUTE_FINDINGS = new Set([
+  "harness-topology-invalid",
+  "harness-bend-tight",
+  "harness-clearance",
+  "harness-end-unplaced",
+  "harness-waypoint-unused",
+  "wire-length-unrouted",
+  "wire-length-mismatch",
+]);
+
+type PositionNm = { xNm: number; yNm: number; zNm: number };
 
 export interface ScriptDeps {
   record: () => SystemRecord | undefined;
@@ -411,6 +425,45 @@ export function createScriptApi(deps: ScriptDeps) {
     async addCable(input: { harness: string; wires: string[]; part?: PartRef }) {
       const id = newId("cab");
       return { id, ...(await write(addCableOps(harnessView(input.harness), input.wires, input.part, id))) };
+    },
+
+    /** The bundle's route for a harness and the §16.6 findings on it. */
+    describeRoute(harness: string) {
+      harnessView(harness);
+      const route = routeOf(deps.bundle(), harness);
+      const findings = (deps.bundle()?.findings ?? []).filter(
+        (finding) => ROUTE_FINDINGS.has(finding.code) && finding.objects.includes(harness),
+      );
+      return { harness, route: route ?? null, findings };
+    },
+
+    /** A waypoint on a segment; `order` inserts it there, else it goes at the end. */
+    async addWaypoint(input: { harness: string; segment: string; position: PositionNm; order?: number }) {
+      const result = addWaypointAtOps(document(), deps.bundle(), input.harness, input.segment, input.position, input.order);
+      return { id: result.id, ...(await write(result.ops)) };
+    },
+
+    /** Move a waypoint on its segment. */
+    async moveWaypoint(input: { harness: string; waypoint: string; position: PositionNm }) {
+      return write(moveWaypointOps(document(), input.harness, input.waypoint, input.position));
+    },
+
+    /** Remove a waypoint. */
+    async removeWaypoint(input: { harness: string; waypoint: string }) {
+      return write(removeWaypointOps(document(), input.harness, input.waypoint));
+    },
+
+    /** Move a branch point; `auto` stores the derived tree and pins its breakout. */
+    async setBranchPoint(input: { harness: string; branchPoint: string; position: PositionNm }) {
+      return write(setBranchPointOps(document(), deps.bundle(), input.harness, input.branchPoint, input.position));
+    },
+
+    /** Store the derived tree as segments and branch points; returns the new ids by derived id. */
+    async storeTopology(harness: string) {
+      harnessView(harness);
+      const topology = storeTopologyOps(document(), deps.bundle(), harness);
+      if (!topology.ops.length) fail("The topology is already stored");
+      return { segments: Object.fromEntries(topology.segmentIds), ...(await write(topology.ops)) };
     },
 
     /**
