@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import re
 import shutil
 import tempfile
 import time
@@ -21,10 +22,74 @@ from app.release_studio.closure import (
     materialize_input_closure,
     resource_root_digest,
 )
+from app.release_studio.closure_references import ProjectReferences
 from support.repo import commit_all, git, init_repo  # noqa: E402
 
 
 GIT = shutil.which("git")
+
+#: The fixtures write plain KiCad text; this recovers the references a design
+#: bundle's ``project.json`` would carry for them, so the closure tests stay
+#: about resolution rather than about the bundle. WP-R2 removed the production
+#: checkout scanner these tests used to lean on.
+_MODEL_RE = re.compile(r'\(model\s+("(?:\\.|[^"\\])*"|[^\s()]+)')
+_URI_RE = re.compile(r'\(uri\s+("(?:\\.|[^"\\])*")\)')
+
+
+def _fixture_references(repo_path: str | Path, commit: str, project_dir: str) -> ProjectReferences:
+    repo = Path(repo_path)
+    prefix = "" if project_dir in ("", ".") else f"{project_dir.rstrip('/')}/"
+    listing = git(repo, "ls-tree", "-r", "-z", "--name-only", commit).split("\0")
+    references: list[dict[str, object]] = []
+    for path in listing:
+        if not path.startswith(prefix):
+            continue
+        relative = path[len(prefix):]
+        name = relative.rsplit("/", 1)[-1]
+        suffix = Path(name).suffix.casefold()
+        if suffix not in {".kicad_pcb", ".kicad_sch"} and name.casefold() not in {
+            "fp-lib-table",
+            "sym-lib-table",
+        }:
+            continue
+        text = git(repo, "show", f"{commit}:{path}")
+        if name.casefold() in {"fp-lib-table", "sym-lib-table"}:
+            kind = "footprint-library" if name.casefold() == "fp-lib-table" else "symbol-library"
+            for token in _URI_RE.findall(text):
+                references.append({
+                    "kind": kind,
+                    "documentPath": relative,
+                    "raw": closure_models.unquote_token(token),
+                })
+            continue
+        for token in _MODEL_RE.findall(text):
+            raw = closure_models.unquote_token(token)
+            reference: dict[str, object] = {
+                "kind": "model-3d",
+                "documentPath": relative,
+                "raw": raw,
+            }
+            if raw.startswith("kicad-embed://"):
+                reference["target"] = {"kind": "embedded"}
+            references.append(reference)
+    return ProjectReferences(references=tuple(references))
+
+
+def materialize_with_fixture(
+    repo_path: str | Path,
+    commit: str,
+    destination: str | Path,
+    **kwargs,
+):
+    """``materialize_input_closure`` with the fixtures' bundle references filled in."""
+
+    kwargs.setdefault(
+        "bundle_project",
+        _fixture_references(
+            repo_path, str(commit), str(kwargs.get("relative_path") or ".")
+        ),
+    )
+    return materialize_input_closure(repo_path, commit, destination, **kwargs)
 
 
 @unittest.skipUnless(GIT, "git is required for closure fixtures")
@@ -157,13 +222,13 @@ class ReleaseStudioClosureTests(unittest.TestCase):
 
         destination = self.root / "materialized-a"
         second_destination = self.root / "materialized-b"
-        first = materialize_input_closure(
+        first = materialize_with_fixture(
             self.repo,
             self.commit,
             destination,
             relative_path="hardware/board",
         )
-        second = materialize_input_closure(
+        second = materialize_with_fixture(
             clone,
             self.commit,
             second_destination,
@@ -214,11 +279,11 @@ class ReleaseStudioClosureTests(unittest.TestCase):
 
     def test_unmaterialized_and_mismatched_lfs_content_fail_closed(self) -> None:
         with self.assertRaisesRegex(LfsMaterializationError, "unmaterialized"):
-            materialize_input_closure(self.repo, self.commit, self.root / "pointer")
+            materialize_with_fixture(self.repo, self.commit, self.root / "pointer")
 
         self.repo.joinpath("hardware/board/model.step").write_bytes(b"wrong bytes")
         with self.assertRaisesRegex(LfsMaterializationError, r"(size|sha256) mismatch"):
-            materialize_input_closure(self.repo, self.commit, self.root / "mismatch")
+            materialize_with_fixture(self.repo, self.commit, self.root / "mismatch")
 
     def test_host_library_table_paths_are_recorded_not_fatal(self) -> None:
         self.repo.joinpath("hardware/board/model.step").write_bytes(b"small hydrated STEP payload\n")
@@ -231,7 +296,7 @@ class ReleaseStudioClosureTests(unittest.TestCase):
         hostile_commit = commit_all(self.repo, "host path")
         # Recorded, and not fatal: the closure still materializes, so a
         # documentation build is never refused over a library table.
-        closure = materialize_input_closure(
+        closure = materialize_with_fixture(
             self.repo,
             hostile_commit,
             self.root / "host-recorded",
@@ -257,7 +322,7 @@ class ReleaseStudioClosureTests(unittest.TestCase):
             b"small hydrated STEP payload\n"
         )
         commit = commit_all(self.repo, "clean closure")
-        closure = materialize_input_closure(
+        closure = materialize_with_fixture(
             self.repo,
             commit,
             self.root / "clean",
@@ -276,7 +341,7 @@ class ReleaseStudioClosureTests(unittest.TestCase):
             encoding="utf-8",
         )
         commit = commit_all(self.repo, "missing footprint library")
-        closure = materialize_input_closure(
+        closure = materialize_with_fixture(
             self.repo,
             commit,
             self.root / "missing-lib",
@@ -308,7 +373,7 @@ class ReleaseStudioClosureTests(unittest.TestCase):
         )
         commit = commit_all(self.repo, "stock 3d model reference")
 
-        closure = materialize_input_closure(
+        closure = materialize_with_fixture(
             self.repo,
             commit,
             self.root / "stock-3d",
@@ -358,7 +423,7 @@ class ReleaseStudioClosureTests(unittest.TestCase):
         commit = commit_all(self.repo, "external 3d models")
 
         def build(name: str, models: Path) -> object:
-            return materialize_input_closure(
+            return materialize_with_fixture(
                 self.repo,
                 commit,
                 self.root / name,
@@ -423,7 +488,7 @@ class ReleaseStudioClosureTests(unittest.TestCase):
         )
         commit = commit_all(self.repo, "project text variable model")
 
-        closure = materialize_input_closure(
+        closure = materialize_with_fixture(
             self.repo,
             commit,
             self.root / "project-variable",
@@ -451,7 +516,7 @@ class ReleaseStudioClosureTests(unittest.TestCase):
         )
         commit = commit_all(self.repo, "backslash model path")
 
-        closure = materialize_input_closure(
+        closure = materialize_with_fixture(
             self.repo,
             commit,
             self.root / "backslash",
@@ -484,7 +549,7 @@ class ReleaseStudioClosureTests(unittest.TestCase):
         commit = commit_all(self.repo, "project overrides KIPRJMOD")
 
         def build(name: str) -> object:
-            return materialize_input_closure(
+            return materialize_with_fixture(
                 self.repo, commit, self.root / name, relative_path="hardware/board"
             )
 
@@ -513,7 +578,7 @@ class ReleaseStudioClosureTests(unittest.TestCase):
         )
         commit = commit_all(self.repo, "backslash path out of the closure")
 
-        closure = materialize_input_closure(
+        closure = materialize_with_fixture(
             self.repo, commit, self.root / "climb", relative_path="hardware/board"
         )
 
@@ -550,7 +615,7 @@ class ReleaseStudioClosureTests(unittest.TestCase):
             encoding="utf-8",
         )
         commit = commit_all(self.repo, name)
-        closure = materialize_input_closure(
+        closure = materialize_with_fixture(
             self.repo,
             commit,
             self.root / name,
@@ -642,7 +707,7 @@ class ReleaseStudioClosureTests(unittest.TestCase):
             "project_text_variables",
             wraps=closure_models.project_text_variables,
         ) as read:
-            materialize_input_closure(
+            materialize_with_fixture(
                 self.repo, commit, self.root / "read-once", relative_path="hardware/board"
             )
         self.assertEqual(read.call_count, 1)
@@ -696,7 +761,7 @@ class ReleaseStudioClosureTests(unittest.TestCase):
         )
         commit = commit_all(self.repo, "missing vrml model")
 
-        closure = materialize_input_closure(
+        closure = materialize_with_fixture(
             self.repo,
             commit,
             self.root / "missing-wrl",
@@ -728,7 +793,7 @@ class ReleaseStudioClosureTests(unittest.TestCase):
         )
         commit = commit_all(self.repo, "comma in a model filename")
 
-        closure = materialize_input_closure(
+        closure = materialize_with_fixture(
             self.repo,
             commit,
             self.root / "comma",
@@ -811,7 +876,7 @@ class ReleaseStudioClosureTests(unittest.TestCase):
             encoding="utf-8",
         )
         commit = commit_all(self.repo, "embedded model")
-        closure = materialize_input_closure(
+        closure = materialize_with_fixture(
             self.repo, commit, self.root / "embedded", relative_path="hardware/board"
         )
         self.assertNotIn(
@@ -834,7 +899,7 @@ class ReleaseStudioClosureTests(unittest.TestCase):
         commit = commit_all(self.repo, "staged host model")
 
         def build(name: str, stage: Path | None) -> object:
-            return materialize_input_closure(
+            return materialize_with_fixture(
                 self.repo,
                 commit,
                 self.root / name,
@@ -882,7 +947,7 @@ class ReleaseStudioClosureTests(unittest.TestCase):
         )
         commit = commit_all(self.repo, "stale model path")
 
-        closure = materialize_input_closure(
+        closure = materialize_with_fixture(
             self.repo,
             commit,
             self.root / "stale-model",
@@ -940,7 +1005,7 @@ class ReleaseStudioClosureTests(unittest.TestCase):
         )
         commit = commit_all(self.repo, "archive and hierarchy")
 
-        closure = materialize_input_closure(
+        closure = materialize_with_fixture(
             self.repo, commit, self.root / "scoped", relative_path="hardware/board"
         )
 
@@ -965,10 +1030,10 @@ class ReleaseStudioClosureTests(unittest.TestCase):
         (repository / "entry.txt").symlink_to("payload.txt")
         symlink_commit = commit_all(repository, "symlink entry")
 
-        regular = materialize_input_closure(
+        regular = materialize_with_fixture(
             repository, regular_commit, self.root / "regular"
         )
-        symlink = materialize_input_closure(
+        symlink = materialize_with_fixture(
             repository, symlink_commit, self.root / "symlink"
         )
 
@@ -1000,7 +1065,7 @@ class ReleaseStudioClosureTests(unittest.TestCase):
         copied_toolchain = self.root / "pinned-kicad-copy/footprints"
         shutil.copytree(toolchain, copied_toolchain)
         pinned_commit = commit_all(self.repo, "pinned resource")
-        closure = materialize_input_closure(
+        closure = materialize_with_fixture(
             self.repo,
             pinned_commit,
             self.root / "pinned-closure",
@@ -1011,7 +1076,7 @@ class ReleaseStudioClosureTests(unittest.TestCase):
                 )
             },
         )
-        copied_closure = materialize_input_closure(
+        copied_closure = materialize_with_fixture(
             self.repo,
             pinned_commit,
             self.root / "pinned-closure-copy",
@@ -1036,7 +1101,7 @@ class ReleaseStudioClosureTests(unittest.TestCase):
             "(footprint mutated)", encoding="utf-8"
         )
         with self.assertRaisesRegex(ClosureError, "digest mismatch"):
-            materialize_input_closure(
+            materialize_with_fixture(
                 self.repo,
                 pinned_commit,
                 self.root / "pinned-closure-mutated",
@@ -1050,7 +1115,7 @@ class ReleaseStudioClosureTests(unittest.TestCase):
             )
 
         with self.assertRaisesRegex(ClosureError, "no pinned digest"):
-            materialize_input_closure(
+            materialize_with_fixture(
                 self.repo,
                 pinned_commit,
                 self.root / "pinned-closure-invalid",
@@ -1191,7 +1256,7 @@ class PathReferenceDiscriminationTests(unittest.TestCase):
             )
             commit = commit_all(repo, "board with text variables")
 
-            closure = materialize_input_closure(repo, commit, root / "out")
+            closure = materialize_with_fixture(repo, commit, root / "out")
             self.assertTrue(closure.input_closure_digest)
             self.assertEqual(closure.library_references, ())
 
@@ -1216,7 +1281,7 @@ class PathReferenceDiscriminationTests(unittest.TestCase):
             )
             commit = commit_all(repo, "jobset with a plugin command")
 
-            closure = materialize_input_closure(repo, commit, root / "out")
+            closure = materialize_with_fixture(repo, commit, root / "out")
             self.assertTrue(closure.input_closure_digest)
             self.assertIn(
                 "Outputs.kicad_jobset", {item.path for item in closure.repository_inputs}

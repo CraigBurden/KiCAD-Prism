@@ -33,6 +33,7 @@ from pathlib import Path
 from typing import Any, Mapping, Sequence
 
 from app.core.config import settings
+from app.release_studio import bundle_design
 from app.release_studio.closure import ClosureError, materialize_project_input_closure
 from app.services import project_revision
 from app.services.design_bundle import cli, schemas
@@ -587,12 +588,22 @@ def run_system_board_step_job(context: JobContext) -> JobResult:
     )
     try:
         try:
+            # Every member board has a design bundle: the closure's documents and
+            # path references come from its ``project.json``, never from a
+            # Python scan of the checkout. A pending bundle is retryable and a
+            # failed one is permanent (``bundle_errors``).
+            bundle_project = bundle_design.project_references_for(
+                project_id,
+                commit,
+                requested_by=str(context.job.get("requested_by") or ""),
+            )
             closure = materialize_project_input_closure(
                 project_id,
                 commit,
                 context.staging_dir / "board-closure",
                 model_env=os.environ,
                 model_stage=context.staging_dir / "board-models",
+                bundle_project=bundle_project,
             )
         except ClosureError:
             shutil.rmtree(context.staging_dir / "board-closure", ignore_errors=True)

@@ -55,6 +55,10 @@ OPTIONS_WITH_VALUE = {
     "--refilled-board", "--refill-tool", "--models-glb", "--models-tool", "--commit", "--project", "--limit",
     "--threads", "--upgraded", "--document", "--member", "--member-revision-key", "--absent",
     "--board-sub-ports", "--entry", "--entry-stage", "--parts", "--models",
+    # Stage models' assembly-HLR inputs (stage_models.hlr_args), present when a
+    # Geometer runtime is configured. The stub records no HLR member, but it
+    # must accept the options the job passes.
+    "--geometer", "--hlr-cache", "--model-dir",
 }
 FLAGS = {"--worktree", "--quiet"}
 _ARGV = list(sys.argv[1:])
@@ -172,7 +176,7 @@ def parse_options(words: list[str]) -> tuple[list[str], dict[str, Any]]:
                 key = "-o" if word == "--output" else word
                 if key in (
                     "--limit", "--upgraded", "--member", "--member-revision-key", "--absent",
-                    "--entry", "--entry-stage",
+                    "--entry", "--entry-stage", "--model-dir",
                 ):
                     options[key].append(value)
                 elif key in options:

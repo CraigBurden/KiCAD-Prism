@@ -233,7 +233,7 @@ def _bundle_project() -> ProjectReferences:
 
 
 class ClosureParityTests(unittest.TestCase):
-    """C3d: the bundle's P4 answer resolves the same closure records."""
+    """C3d: the bundle's P4 answer resolves the closure records (R2: it is the only path)."""
 
     def setUp(self) -> None:
         self._temporary = tempfile.TemporaryDirectory()
@@ -242,13 +242,7 @@ class ClosureParityTests(unittest.TestCase):
         _write_project_repo(self.repo)
         self.commit = commit_all(self.repo, "noop", allow_empty=True)
 
-    def test_bundle_documents_and_references_match_the_legacy_scan(self) -> None:
-        legacy = closure_module.materialize_input_closure(
-            self.repo,
-            self.commit,
-            self.root / "legacy",
-            relative_path="board",
-        )
+    def test_the_bundles_documents_and_references_resolve(self) -> None:
         bundled = closure_module.materialize_input_closure(
             self.repo,
             self.commit,
@@ -257,13 +251,33 @@ class ClosureParityTests(unittest.TestCase):
             bundle_project=_bundle_project(),
         )
 
-        legacy_records = {tuple(sorted(record.to_dict().items())) for record in legacy.library_references}
-        bundle_records = {tuple(sorted(record.to_dict().items())) for record in bundled.library_references}
-        self.assertEqual(bundle_records, legacy_records)
         self.assertEqual(
-            [record.to_dict() for record in bundled.library_references],
-            [record.to_dict() for record in legacy.library_references],
+            {
+                (record.source_path, record.reference, record.resolved_path, record.location)
+                for record in bundled.library_references
+            },
+            {
+                (
+                    "board/demo.kicad_pcb",
+                    "${KIPRJMOD}/models/part.step",
+                    "board/models/part.step",
+                    "closure",
+                ),
+                (
+                    "board/fp-lib-table",
+                    "${KIPRJMOD}/libs/demo.pretty",
+                    "board/libs/demo.pretty",
+                    "closure",
+                ),
+                (
+                    "board/sym-lib-table",
+                    "${KIPRJMOD}/libs/demo.kicad_sym",
+                    "board/libs/demo.kicad_sym",
+                    "closure",
+                ),
+            },
         )
+        self.assertEqual(bundled.non_hermetic_reasons(), [])
 
     def test_an_embedded_reference_is_not_a_closure_input(self) -> None:
         project = ProjectReferences(

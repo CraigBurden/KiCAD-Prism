@@ -139,6 +139,7 @@ def step_document(commit: str, *, parts: bool = False) -> dict:
 class BoardStepJobTests(StepWorkspace, unittest.TestCase):
     def test_a_board_exports_once_under_its_key(self) -> None:
         commit = self.add_board(PROJECT, "r_step")
+        self.build_design_bundle(PROJECT)
         job_id = system_jobs.start_system_board_step_job(PROJECT, commit)
         assert job_id is not None
         result = self.run_board_job(job_id)
@@ -163,10 +164,45 @@ class BoardStepJobTests(StepWorkspace, unittest.TestCase):
         self.assertTrue(cached.details["cached"])
         self.assertEqual(len(self.kicad.calls), runs)
 
+    def test_a_pending_design_bundle_waits_for_its_job(self) -> None:
+        from app.release_studio.bundle_errors import BundlePending
+
+        commit = self.add_board(PROJECT, "r_step")
+        job_id = system_jobs.start_system_board_step_job(PROJECT, commit)
+        with self.assertRaises(RetryableJobError) as caught:
+            self.run_board_job(job_id)
+        self.assertEqual(caught.exception.code, "design-data-pending")
+        # The board step asked for the bundle, so the design_bundle job is queued.
+        self.assertEqual(
+            [row["kind"] for row in self.queue.rows.values() if row["status"] == "queued"].count(
+                "design_bundle"
+            ),
+            1,
+        )
+        self.assertIsInstance(caught.exception, BundlePending)
+
+    def test_a_failed_design_bundle_is_permanent(self) -> None:
+        from app.release_studio.bundle_errors import BundleFailed
+
+        commit = self.add_board(PROJECT, "r_step")
+        job_id = system_jobs.start_system_board_step_job(PROJECT, commit)
+        with mock.patch.object(
+            system_jobs.bundle_design,
+            "project_references_for",
+            side_effect=BundleFailed("stage parse failed"),
+        ):
+            with self.assertRaises(PermanentJobError) as caught:
+                self.run_board_job(job_id)
+        self.assertIn("stage parse failed", str(caught.exception))
+        record = step_store.board_record(step_store.board_key(PROJECT, commit, KICAD_VERSION))
+        assert record is not None
+        self.assertEqual(record["state"], "failed")
+
     def test_a_closure_failure_falls_back_to_a_plain_checkout(self) -> None:
         from app.release_studio.closure import ClosureError
 
         commit = self.add_board(PROJECT, "r_step")
+        self.build_design_bundle(PROJECT)
         with mock.patch.object(
             system_jobs, "materialize_project_input_closure",
             side_effect=ClosureError("missing LFS object"),
@@ -178,6 +214,7 @@ class BoardStepJobTests(StepWorkspace, unittest.TestCase):
 
     def test_missing_component_models_are_counted(self) -> None:
         commit = self.add_board(PROJECT, "r_step")
+        self.build_design_bundle(PROJECT)
 
         def report_missing(args, **kwargs):
             target = Path(args[args.index("-o") + 1])
@@ -196,6 +233,7 @@ class BoardStepJobTests(StepWorkspace, unittest.TestCase):
 
     def test_a_kicad_cli_failure_is_permanent_and_records_its_output(self) -> None:
         commit = self.add_board(PROJECT, "r_step")
+        self.build_design_bundle(PROJECT)
 
         def fail(args, **kwargs):
             return ToolResult(3, stderr="error one\nError: the export failed\n")
