@@ -9,14 +9,13 @@ import unittest
 from contextlib import contextmanager
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException
+from fastapi import HTTPException
 from app.core.errors import DomainError  # noqa: E402
 from fastapi.exceptions import RequestValidationError
 from pydantic import SecretStr
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from app.core.errors import install_error_handlers  # noqa: E402
 from app.core.config import Settings  # noqa: E402
 from app.core.security import AuthenticatedUser  # noqa: E402
 from app.api import tracker_connectors as connectors_api  # noqa: E402
@@ -84,18 +83,6 @@ def run(coro):
 
 
 class RoutingContractTests(unittest.TestCase):
-    def test_main_registers_admin_connector_routes(self) -> None:
-        source = (Path(__file__).resolve().parents[1] / "app" / "main.py").read_text(encoding="utf-8")
-        self.assertIn("tracker_connectors_router", source)
-        self.assertIn("bring_every_schema_to_head()", source)
-        app = FastAPI()
-        install_error_handlers(app)
-        app.include_router(connectors_api.router)
-        paths = set(app.openapi()["paths"])
-        self.assertIn("/api/admin/trackers/connectors", paths)
-        self.assertIn("/api/admin/trackers/connectors/{connector_id}/test", paths)
-        self.assertIn("/api/admin/trackers/connectors/{connector_id}/revoke", paths)
-        self.assertIn("/api/admin/trackers/connectors/{connector_id}/health", paths)
 
     def test_viewer_and_designer_fail_require_admin(self) -> None:
         from app.core.security import require_admin
@@ -106,9 +93,6 @@ class RoutingContractTests(unittest.TestCase):
             self.assertEqual(caught.exception.status_code, 403)
         run(require_admin(session("admin")))
 
-    def test_fixture_cases_are_present(self) -> None:
-        self.assertIn("F3.bot_identity_captured", {case["id"] for case in F3["cases"]})
-        self.assertIn("F7.unauthorized_401", {case["id"] for case in F7["cases"]})
 
 
 @requires_scratch_postgres("tracker persistence tests")

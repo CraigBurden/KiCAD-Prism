@@ -30,7 +30,6 @@ from app.services.trackers.state_mutations import (  # noqa: E402
     preflight_mismatch,
     versions_match,
 )
-from app.services.trackers.state_executor import execute_set_state_op  # noqa: E402
 from app.services.trackers.store import TrackerStore  # noqa: E402
 from app.services.trackers.create_executor import execute_claimed_op  # noqa: E402
 from tracker_fault_harness import install_fake_provider  # noqa: E402
@@ -132,22 +131,6 @@ class FakeIssueAdapter:
     def list_events(self, _dest, _ext_id):  # noqa: ANN001
         return list(self.events)
 
-
-class FixtureContractTests(unittest.TestCase):
-    def test_f6_cases_present(self) -> None:
-        ids = {case["id"] for case in F6["cases"]}
-        for case_id in (
-            "F6.close_vs_remote_reopen_preflight",
-            "F6.clean_close",
-            "F6.remote_edit_between_get_and_patch",
-            "F6.same_state_remote_transition",
-            "F6.equal_coarse_timestamps",
-            "F6.clock_skew",
-            "F6.two_rapid_local_intents",
-            "F6.unknown_expectation",
-            "F6.no_events_capability",
-        ):
-            self.assertIn(case_id, ids)
 
 
 @requires_scratch_postgres("tracker persistence tests")

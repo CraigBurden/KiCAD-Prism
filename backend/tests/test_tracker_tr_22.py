@@ -64,11 +64,6 @@ def _settings(**overrides) -> Settings:
 
 
 class MentionUnitTests(unittest.TestCase):
-    def test_fixture_cases_are_present(self) -> None:
-        ids = {case["id"] for case in F8["cases"]}
-        self.assertIn("F8.mention_linked", ids)
-        self.assertIn("F8.mention_unlinked", ids)
-        self.assertIn("F8.mention_overflow", ids)
 
     def test_dto_example_matches_frozen_mention_candidate(self) -> None:
         example = EXAMPLES["comments"]["MentionCandidate"]

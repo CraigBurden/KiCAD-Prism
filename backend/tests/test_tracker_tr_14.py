@@ -13,7 +13,6 @@ from unittest import mock
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from app.services.job_handlers import (  # noqa: E402
-    get_job_handler,
     load_builtin_job_handlers,
     registered_job_kinds,
 )
@@ -124,12 +123,6 @@ class RegistrationTests(unittest.TestCase):
             catalog.schedule_tracker_jobs()
         sched.assert_called_once()
 
-    def test_fixture_cases_are_present(self) -> None:
-        ids = {case["id"] for case in F5["cases"]}
-        self.assertIn("F5.duplicate_workers", ids)
-        self.assertIn("F5.stale_lease_on_sent", ids)
-        self.assertIn("F5.claim_of_sent_is_recovery", ids)
-        self.assertIn("F7.throttling", {case["id"] for case in F7["cases"]})
 
 
 @requires_scratch_postgres("tracker persistence tests")

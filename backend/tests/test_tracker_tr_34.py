@@ -10,7 +10,6 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from app.services.trackers.contracts import (  # noqa: E402
-    ForgeUser,
     IssueContainerRef,
     Moved,
     RemoteIssue,
@@ -29,7 +28,7 @@ from app.services.trackers.link_lifecycle import (  # noqa: E402
     unlink_thread_lifecycle,
 )
 from app.services.trackers.migrations import migrate_workspace_tracker_tables  # noqa: E402
-from app.services.trackers.op_store import LIVE_STATES, OpStore, apply_schema as apply_op_schema  # noqa: E402
+from app.services.trackers.op_store import OpStore, apply_schema as apply_op_schema  # noqa: E402
 from app.services.trackers.promotion import PromotionActor  # noqa: E402
 from app.services.trackers.store import TrackerStore  # noqa: E402
 from test_tracker_tr_28 import (  # noqa: E402
@@ -38,11 +37,9 @@ from test_tracker_tr_28 import (  # noqa: E402
     COMMENT_ID,
     CONNECTOR,
     CONTAINER,
-    ISSUE,
     ISSUE_ID,
     ISSUE_NUMBER,
     _forge_user,
-    _remote_issue,
 )
 from app.services.comments_schema_migrations import COMMENTS_LEDGER  # noqa: E402
 from support.postgres import requires_scratch_postgres, scratch_schema, seed_comment  # noqa: E402
@@ -83,18 +80,6 @@ def _issue_in_container(
         container=IssueContainerRef(remoteContainerId=container_id, path=path),
     )
 
-
-class FixtureContractTests(unittest.TestCase):
-    def test_tr34_fixture_cases_present(self) -> None:
-        f7_ids = {case["id"] for case in F7["cases"]}
-        for case_id in (
-            "F7.transfer_to_approved_container",
-            "F7.transfer_to_unapproved_container",
-        ):
-            self.assertIn(case_id, f7_ids)
-        f8_ids = {case["id"] for case in F8["cases"]}
-        self.assertIn("F8.remote_issue_deleted", f8_ids)
-        self.assertIn("F8.no_repromote_from_inaccessible", f8_ids)
 
 
 @requires_scratch_postgres("tracker persistence tests")

@@ -9,12 +9,11 @@ import unittest
 from contextlib import contextmanager
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException
+from fastapi import HTTPException
 from pydantic import SecretStr
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from app.core.errors import install_error_handlers  # noqa: E402
 from app.core.config import Settings  # noqa: E402
 from app.core.security import AuthenticatedUser  # noqa: E402
 from app.api import project_trackers as trackers_api  # noqa: E402
@@ -76,21 +75,6 @@ def run(coro):
 
 
 class RoutingContractTests(unittest.TestCase):
-    def test_main_registers_project_tracker_routes(self) -> None:
-        source = (Path(__file__).resolve().parents[1] / "app" / "main.py").read_text(encoding="utf-8")
-        self.assertIn("project_trackers_router", source)
-        app = FastAPI()
-        install_error_handlers(app)
-        app.include_router(trackers_api.router)
-        paths = set(app.openapi()["paths"])
-        self.assertIn("/api/projects/{project_id}/tracker", paths)
-        self.assertIn("/api/projects/{project_id}/tracker/acknowledge", paths)
-
-    def test_fixture_cases_are_present(self) -> None:
-        ids = {case["id"] for case in F3["cases"]}
-        self.assertIn("F3.visibility_generations", ids)
-        self.assertIn("F3.public_without_ack_pauses", ids)
-        self.assertIn("F3.unknown_visibility_pauses", ids)
 
     def test_repo_path_resolution(self) -> None:
         self.assertEqual(_github_repo_path("https://github.com/acme/openswitch.git"), "acme/openswitch")

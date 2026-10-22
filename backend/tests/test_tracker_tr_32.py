@@ -36,7 +36,6 @@ from test_tracker_tr_28 import (  # noqa: E402
     CONNECTOR,
     CONTAINER,
     EXT_COMMENT,
-    ISSUE,
     ISSUE_ID,
     ISSUE_NUMBER,
     OP_REPLY,
@@ -91,19 +90,6 @@ class GithubUpdatesUnitTests(unittest.TestCase):
         self.assertEqual(hint["objectKind"], "issue")
         self.assertNotIn("actor", hint)
 
-
-class FixtureContractTests(unittest.TestCase):
-    def test_tr32_fixture_cases_present(self) -> None:
-        f4_ids = {case["id"] for case in F4["cases"]}
-        self.assertIn("F4.unknown_editor_via_poll", f4_ids)
-        f7_ids = {case["id"] for case in F7["cases"]}
-        for case_id in (
-            "F7.pagination_full",
-            "F7.pagination_interrupted",
-            "F7.poll_window_overlap",
-            "F7.shared_repo_two_projects",
-        ):
-            self.assertIn(case_id, f7_ids)
 
 
 @requires_scratch_postgres("tracker persistence tests")

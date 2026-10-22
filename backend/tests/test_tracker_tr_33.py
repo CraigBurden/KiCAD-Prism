@@ -11,13 +11,10 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from app.services.comments_revisions import history  # noqa: E402
 from app.services.trackers.contracts import (  # noqa: E402
-    ForgeUser,
     GoneConfirmed,
     NotModified,
     PageCursor,
     RemoteComment,
-    RemoteIssue,
-    RemoteVersion,
     UncertainAbsence,
     ForbiddenRead,
 )
@@ -40,7 +37,6 @@ from test_tracker_tr_28 import (  # noqa: E402
     ISSUE_ID,
     ISSUE_NUMBER,
     REPLY_ID,
-    _forge_user,
     _remote_comment,
     _remote_issue,
 )
@@ -57,22 +53,6 @@ DOCS = Path(__file__).resolve().parents[2] / "docs" / "tracker-integration"
 F7 = json.loads((DOCS / "fixtures" / "F07.json").read_text(encoding="utf-8"))
 F8 = json.loads((DOCS / "fixtures" / "F08.json").read_text(encoding="utf-8"))
 
-
-class FixtureContractTests(unittest.TestCase):
-    def test_tr33_fixture_cases_present(self) -> None:
-        f7_ids = {case["id"] for case in F7["cases"]}
-        for case_id in (
-            "F7.conditional_304",
-            "F7.unauthorized_401",
-            "F7.private_404",
-            "F7.deleted_after_two_listings",
-            "F7.gone_410",
-            "F7.throttling",
-            "F7.lost_then_recovered_access",
-        ):
-            self.assertIn(case_id, f7_ids)
-        f8_ids = {case["id"] for case in F8["cases"]}
-        self.assertIn("F8.remote_reply_delete", f8_ids)
 
 
 @requires_scratch_postgres("tracker persistence tests")

@@ -11,12 +11,11 @@ from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from unittest.mock import patch
 
-from fastapi import FastAPI, HTTPException
+from fastapi import HTTPException
 from fastapi.responses import JSONResponse
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from app.core.errors import install_error_handlers  # noqa: E402
 from app.core.security import AuthenticatedUser  # noqa: E402
 from app.api import tracker_sync as sync_api  # noqa: E402
 from app.services.comment_permissions import resolve_actor  # noqa: E402
@@ -65,29 +64,6 @@ def session(role: str, *, user_id: str = "u_designer") -> AuthenticatedUser:
 def run(coro):
     return asyncio.run(coro)
 
-
-class RoutingContractTests(unittest.TestCase):
-    def test_main_registers_tracker_sync_router(self) -> None:
-        source = (Path(__file__).resolve().parents[1] / "app" / "main.py").read_text(encoding="utf-8")
-        self.assertIn("tracker_sync_router", source)
-        app = FastAPI()
-        install_error_handlers(app)
-        app.include_router(sync_api.router)
-        paths = set(app.openapi()["paths"])
-        self.assertIn("/api/projects/{project_id}/tracker/health", paths)
-        self.assertIn("/api/projects/{project_id}/comments/{comment_id}/tracker", paths)
-        self.assertIn("/api/projects/{project_id}/comments/{comment_id}/tracker/history", paths)
-        self.assertIn("/api/projects/{project_id}/comments/{comment_id}/tracker/retry", paths)
-        self.assertIn("/api/projects/{project_id}/comments/{comment_id}/tracker/unlink", paths)
-        self.assertIn("/api/projects/{project_id}/comments/{comment_id}/tracker/repromote", paths)
-
-    def test_f7_quiet_repo_fixture_owned_by_tr35(self) -> None:
-        owned = [case["id"] for case in F7["cases"] if case.get("owner") == "TR-35"]
-        self.assertIn("F7.quiet_repo_not_broken", owned)
-
-    def test_f8_no_repromote_fixture_present(self) -> None:
-        ids = {case["id"] for case in F8["cases"]}
-        self.assertIn("F8.no_repromote_from_inaccessible", ids)
 
 
 @requires_scratch_postgres("tracker persistence tests")

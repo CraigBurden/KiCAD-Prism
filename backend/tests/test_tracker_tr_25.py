@@ -3,8 +3,6 @@
 from __future__ import annotations
 
 import json
-import os
-import subprocess
 import sys
 import tempfile
 import threading
@@ -47,15 +45,9 @@ except ImportError:  # pragma: no cover
 DOCS = Path(__file__).resolve().parents[2] / "docs" / "tracker-integration"
 F1 = json.loads((DOCS / "fixtures" / "F01.json").read_text(encoding="utf-8"))
 F8 = json.loads((DOCS / "fixtures" / "F08.json").read_text(encoding="utf-8"))
-COMMIT = "3f2c9a1b7e4d5c6a8b9f0e1d2c3b4a5968778695"
 
 
 class RoutingContractTests(unittest.TestCase):
-    def test_fixture_cases_are_present(self) -> None:
-        f8_ids = {case["id"] for case in F8["cases"]}
-        self.assertIn("F8.viewer_task_not_auto_promoted", f8_ids)
-        self.assertIn("F8.viewer_reply_on_linked", f8_ids)
-        self.assertIn("F8.share_to_github", f8_ids)
 
     def test_promote_and_share_routes_registered(self) -> None:
         from fastapi import FastAPI

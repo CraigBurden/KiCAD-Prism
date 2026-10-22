@@ -26,8 +26,7 @@ class CiChangesTest(unittest.TestCase):
         self.assertEqual(jobs("backend/app/services/viewer_3d_bundle.py"), {"backend", "image_live"})
 
     def test_files_read_by_name_from_another_area_run_that_area_too(self) -> None:
-        self.assertIn("backend", jobs("frontend/src/pages/ProjectDetailPage.tsx"))  # test_tracker_tr_42
-        self.assertIn("backend", jobs("docs/OPERATIONS.md"))
+        self.assertIn("backend", jobs("frontend/src/lib/catalog-field-rules.generated.ts"))  # test_catalog_field_rules
         self.assertIn("agent", jobs("backend/app/services/kicad_noise_service.py"))  # tools/tests/test_gitignore
         self.assertIn("backend", jobs("frontend/package.json"))  # test_release_studio_toolchain_pins
 

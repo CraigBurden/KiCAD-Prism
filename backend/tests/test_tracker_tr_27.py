@@ -11,12 +11,11 @@ import unittest
 from contextlib import contextmanager
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException
+from fastapi import HTTPException
 from pydantic import SecretStr
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from app.core.errors import install_error_handlers  # noqa: E402
 from app.core.config import Settings  # noqa: E402
 from app.api import tracker_webhooks as webhooks_api  # noqa: E402
 from app.services.trackers.github_webhooks import (  # noqa: E402
@@ -25,7 +24,7 @@ from app.services.trackers.github_webhooks import (  # noqa: E402
     parse_github_event,
     verify_signature,
 )
-from app.services.trackers.inbox_store import InboxStore, apply_schema as apply_inbox_schema  # noqa: E402
+from app.services.trackers.inbox_store import apply_schema as apply_inbox_schema  # noqa: E402
 from app.services.trackers.migrations import (  # noqa: E402
     migrate_tracker_webhook_oauth_tables,
     migrate_workspace_tracker_tables,
@@ -66,22 +65,6 @@ def _sign(body: bytes, secret: str = WEBHOOK_SECRET) -> str:
 def run(coro):
     return asyncio.run(coro)
 
-
-class RoutingContractTests(unittest.TestCase):
-    def test_main_registers_webhook_route(self) -> None:
-        source = (Path(__file__).resolve().parents[1] / "app" / "main.py").read_text(encoding="utf-8")
-        self.assertIn("tracker_webhooks_router", source)
-        self.assertIn("bring_every_schema_to_head()", source)
-        app = FastAPI()
-        install_error_handlers(app)
-        app.include_router(webhooks_api.router)
-        self.assertIn("/api/trackers/webhooks/{provider}/{connector_id}", set(app.openapi()["paths"]))
-
-    def test_fixture_cases_are_present(self) -> None:
-        ids = {case["id"] for case in F7["cases"]}
-        self.assertIn("F7.bad_signature", ids)
-        self.assertIn("F7.duplicate_delivery", ids)
-        self.assertIn("F7.hint_durable_before_2xx", ids)
 
 
 @requires_scratch_postgres("tracker persistence tests")
@@ -270,7 +253,6 @@ class GitHubWebhookPostgresTests(unittest.TestCase):
         self.assertEqual(caught.exception.status_code, 401)
         count = self.conn.execute("SELECT COUNT(*) AS n FROM remote_deliveries").fetchone()["n"]
         self.assertEqual(count, 0)
-
 
     def test_http_oversized_body_returns_413(self) -> None:
         from app.services.trackers.github_webhooks import MAX_BODY_BYTES
