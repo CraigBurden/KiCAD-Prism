@@ -15,8 +15,9 @@ against KiCad, not against our own earlier output.
 |---|---|---|
 | Drill centres (`PcbHole::board_center`) | `kicad/oracle-*PTH.drl` | `prism-kicad-core/tests/docs_oracle_holes.rs` |
 | Pad copper centres (`PcbPad::copper_center`) | Gerber flashes in `kicad/oracle-*_Cu.gbr` | same |
-| Placements position, rotation, side | `kicad/pos.csv` | (see the docs review notes) |
-| Pad positions | `kicad/oracle.d356` | (see the docs review notes) |
+| Assembly artwork drill and slot marks, top and mirrored bottom | `kicad/oracle-*PTH.drl` | `check_artwork.py` (local: needs a full bundle) |
+| Placements position, rotation, side; vendor CPL | `kicad/pos.csv` | checked by hand on 2026-10-22: all 71 placements and the JLCPCB CPL match |
+| Pad positions | `kicad/oracle.d356` | checked by hand on 2026-10-22: all 310 pads match `placements.json` |
 
 What the board showed (2026-10-22):
 - A pad's `(offset …)` moves its copper, not its hole. The drill stays at the pad position.
