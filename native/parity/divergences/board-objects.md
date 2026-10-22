@@ -58,3 +58,7 @@ Measured on the 33 committed fixtures (32 goldens; `dv-malformed` has none, see 
 - Golden `path`s are `ctx.repo_path` of today's project-relative `documentPath`; the sidecar and the rebuild check use the same ObjectRefs. Every committed fixture has its project at the root, so the paths are unchanged. Runner: nothing.
 
 Not applicable to golden comparison: D8 (review-field key order, golden sorted), D9 (no fixture has such a value; capture fails loudly if one appears), D12 (`ignored` is not in the member).
+
+## bo-net-code: a pad's net is its name, in every board format (2026-10-22)
+
+`net_name_of` read item 1 of a net form as the name. For KiCad 9 and older, `(net 722 "S32G3_PWR_EN")`, that is the code, so every pad, track, arc and via of an un-upgraded board reported nets like `"722"`. JTYU-OBC (format 20241229) had 3,886 of 4,118 pads affected, and Release Studio's testpoint schedule printed net numbers. The field map always said `NetName` (rule 3). Upgraded sources write `(net "<name>")` and were never affected, so the parity goldens, which are captured from upgraded sources, do not move. The committed CLI fixtures built from older formats do, and `crate_version` rises to 0.8.0 with the regenerated generator pin.
