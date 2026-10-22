@@ -41,6 +41,8 @@ from app.release_studio.documents.sheet_drawing import (
     _draw_artwork,
     _draw_dnp_legend,
     _draw_view_direction,
+    _art_fits,
+    _draw_board_render,
     _drawn_width,
     _view_caption,
     draw_overall_dimensions,
@@ -400,18 +402,6 @@ def _noted_window(
     return Rect(window.x, window.y, window.width, max(window.height - band - _TABLE_GAP, 1.0))
 
 
-def _art_fits(window: Rect, art: Any, scale: float | None) -> bool:
-    """Whether the artwork, at the set's ratio, fits *window* with its caption."""
-
-    if art is None or scale is None or not hasattr(art, "view_height"):
-        return True
-    caption_and_clearance = 10.0
-    return (
-        float(art.view_height) * scale + caption_and_clearance <= window.height
-        and float(art.view_width) * scale <= window.width
-    )
-
-
 def _draw_body_notes(
     builder: SheetBuilder,
     body: Rect,
@@ -563,7 +553,7 @@ def technical_cover(
         # Measured, not assumed: the gap starts after the widest table actually
         # drawn in the left column, so nothing can overhang into the picture.
         left_width = max((table.width() for table in columns[0]), default=0.0)
-        _draw_board_render(builder, render, area, origins, left_width)
+        _draw_board_render(builder, render, area, origins, left_width, _COVER_COLUMN_GAP)
 
     draw_notes(
         builder,
@@ -572,43 +562,6 @@ def technical_cover(
         width=body_width,
     )
     return builder.build(), overflow
-
-
-def _draw_board_render(
-    builder: SheetBuilder,
-    render: Any,
-    area: Rect,
-    origins: Sequence[float],
-    left_width: float,
-) -> None:
-    """Place the board picture in the gap the two table columns leave."""
-
-    from app.release_studio.documents.layout import Image
-
-    left = origins[0] + left_width + _COVER_COLUMN_GAP
-    right = origins[-1] - _COVER_COLUMN_GAP
-    width = right - left
-    if width <= 20.0:
-        return
-    window = Rect(left, area.y, width, area.height)
-    builder.add(
-        Image(
-            rect=window,
-            png_bytes=render.png_bytes,
-            width_px=render.width_px,
-            height_px=render.height_px,
-            source_digest=render.digest,
-            label="board render",
-        )
-    )
-    builder.text(
-        left + width / 2,
-        area.y + min(area.height, width / max(render.aspect, 0.01)) + 5.0,
-        "RAYTRACED VIEW — ILLUSTRATIVE, NOT A CONTROLLED DIMENSION",
-        size=2.2,
-        anchor="middle",
-        colour=MUTED if builder.sheet_style == PRISM_STYLE else "#555555",
-    )
 
 
 def fabrication_sheet(
@@ -783,6 +736,23 @@ def continuation_sheet(
             continue
         _draw_column(builder, lane, (cursor_x, area.y))
         cursor_x += max(table.width() for table in lane) + _COVER_COLUMN_GAP
+    # A long table fills its lane and spills; the rest of the page is still
+    # free, so its tail continues in the next lane here rather than on a new
+    # sheet (JTYU-OBC's 81-row testpoint schedule used one lane of four).
+    while overflow and cursor_x < area.right:
+        free = Rect(cursor_x, area.y, area.right - cursor_x, area.height)
+        placed, rest, _factor = split_columns(
+            [overflow], free, gap=_TABLE_GAP, sheet_style=sheet_style
+        )
+        lane = placed[0] if placed else []
+        if not lane or rest == overflow:
+            break
+        width = max(table.width() for table in lane)
+        if width > free.width:
+            break
+        _draw_column(builder, lane, (cursor_x, area.y))
+        cursor_x += width + _COVER_COLUMN_GAP
+        overflow = rest
     return builder.build(), overflow
 
 

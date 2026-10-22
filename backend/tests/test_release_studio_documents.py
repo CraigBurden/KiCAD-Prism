@@ -629,6 +629,29 @@ class SheetSizingTests(unittest.TestCase):
         first_note = sheet_templates.DEFAULT_NOTES["fabrication"][0]
         self.assertNotIn(first_note[:24], render_svg(sheet))
 
+    def test_a_long_schedule_continues_in_the_free_lanes_of_its_page(self) -> None:
+        """JTYU-OBC's 81 testpoints filled one lane of four, then took a sheet."""
+
+        from app.release_studio.documents import tables
+
+        projection = {
+            "testpoints": [
+                {"ref": f"TP{index}", "net": f"NET_{index}", "side": "top",
+                 "x": float(index), "y": float(index)}
+                for index in range(1, 151)
+            ]
+        }
+        summary = tables.key_value_table("TESTPOINTS", (("Side", "TOP"),), width=92.0)
+        schedule = tables.testpoint_table(projection, "top", width=92.0)
+        sheet, overflow = sheet_templates.continuation_sheet(
+            CONTEXT, [summary, schedule], key="testpoint-top-1",
+            title="TESTPOINT SCHEDULE", size="A3",
+        )
+        self.assertEqual(overflow, [], "150 rows fit on one A3 continuation page")
+        rendered = render_svg(sheet)
+        self.assertIn("TP1<", rendered)
+        self.assertIn("TP150<", rendered)
+
     def test_a_small_board_keeps_its_tables_beside_the_art(self) -> None:
         from app.release_studio.documents.layout import Artwork
 

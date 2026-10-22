@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import math
 from dataclasses import replace
-from typing import Any, Mapping
+from typing import Any, Mapping, Sequence
 
 from app.release_studio.documents.artwork import (
     AcquiredArtwork,
@@ -418,3 +418,53 @@ def draw_overall_dimensions(
 
 
 #: Vertical gap left between stacked tables, and the cover's bottom note block.
+
+
+def _art_fits(window: Rect, art: Any, scale: float | None) -> bool:
+    """Whether the artwork, at the set's ratio, fits *window* with its caption."""
+
+    if art is None or scale is None or not hasattr(art, "view_height"):
+        return True
+    caption_and_clearance = 10.0
+    return (
+        float(art.view_height) * scale + caption_and_clearance <= window.height
+        and float(art.view_width) * scale <= window.width
+    )
+
+
+def _draw_board_render(
+    builder: SheetBuilder,
+    render: Any,
+    area: Rect,
+    origins: Sequence[float],
+    left_width: float,
+    column_gap: float,
+) -> None:
+    """Place the board picture in the gap the two table columns leave."""
+
+    from app.release_studio.documents.layout import Image
+
+    left = origins[0] + left_width + column_gap
+    right = origins[-1] - column_gap
+    width = right - left
+    if width <= 20.0:
+        return
+    window = Rect(left, area.y, width, area.height)
+    builder.add(
+        Image(
+            rect=window,
+            png_bytes=render.png_bytes,
+            width_px=render.width_px,
+            height_px=render.height_px,
+            source_digest=render.digest,
+            label="board render",
+        )
+    )
+    builder.text(
+        left + width / 2,
+        area.y + min(area.height, width / max(render.aspect, 0.01)) + 5.0,
+        "RAYTRACED VIEW — ILLUSTRATIVE, NOT A CONTROLLED DIMENSION",
+        size=2.2,
+        anchor="middle",
+        colour=MUTED if builder.sheet_style == PRISM_STYLE else "#555555",
+    )
