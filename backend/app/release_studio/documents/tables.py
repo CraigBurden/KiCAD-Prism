@@ -142,11 +142,14 @@ def board_summary(
     pads = stats.get("pads") if isinstance(stats.get("pads"), Mapping) else {}
     total_holes = sum(int(item.get("count") or 0) for item in holes)
 
+    # The total and its front/back split come from the same KiCad statistics,
+    # so they always add up. The position file is a different set: it leaves
+    # out footprints marked "exclude from position files", so it gets its own,
+    # plainly named row rather than silently replacing the split (JTYU-OBC:
+    # 479 / 503 of 982 components, 899 in the position file).
     front = components.get("front")
     back = components.get("back")
-    if placements:
-        front = sum(1 for item in placements if str(item.get("side") or "").lower() == "top")
-        back = sum(1 for item in placements if str(item.get("side") or "").lower() == "bottom")
+    placed = len(placements) if placements else None
 
     smd = pads.get("smd")
     through_hole = pads.get("through_hole")
@@ -158,8 +161,10 @@ def board_summary(
         ("Board area", _text(board.get("area"))),
         ("Components", _text(components.get("total"))),
         ("Front / back", f"{_text(front)} / {_text(back)}"),
-        ("Pads (SMD / TH)", f"{_text(smd)} / {_text(through_hole)}"),
     ]
+    if placed is not None:
+        rows.append(("In position file", _text(placed)))
+    rows.append(("Pads (SMD / TH)", f"{_text(smd)} / {_text(through_hole)}"))
     if pad_total is not None:
         rows.append(("Pads total", _text(pad_total)))
     rows.extend(

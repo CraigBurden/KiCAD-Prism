@@ -946,6 +946,23 @@ class ProjectionShapeTests(unittest.TestCase):
         # would break that without any test noticing.
         self.assertFalse(set(pairs) & set(KICAD_CHARACTERISTIC_LABELS))
 
+    def test_the_component_split_adds_up_to_the_total(self) -> None:
+        """The position file is a different set; it must not replace the split.
+
+        JTYU-OBC's cover once read "Components 982" over "Front / back 396 /
+        503": the split came from positions.csv, which leaves out footprints
+        marked "exclude from position files".
+        """
+
+        from app.release_studio.documents.tables import board_summary
+
+        placements = [{"side": "top"}] * 30 + [{"side": "bottom"}] * 2
+        pairs = dict(board_summary(STATS, placements=placements))
+        self.assertEqual(pairs["Components"], "37")
+        self.assertEqual(pairs["Front / back"], "37 / 0")
+        self.assertEqual(pairs["In position file"], "32")
+        self.assertNotIn("In position file", dict(board_summary(STATS)))
+
     def test_revision_history_states_an_untagged_project(self) -> None:
         """A column that vanishes reads as history the sheet failed to load."""
 
