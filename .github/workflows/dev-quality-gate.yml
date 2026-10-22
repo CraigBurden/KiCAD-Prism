@@ -240,6 +240,11 @@ jobs:
         # warning backlog may shrink but never grow.
         run: npm run scan:gate
 
+      - name: Check the wasm inlined in the viewer bundles
+        # Any text normalisation of a built bundle corrupts it (raw-byte
+        # string literals); the viewer then silently falls back to JS earcut.
+        run: node ../scripts/check-embedded-wasm.mjs public/ecad-viewer.js public/ecad-renderer.js
+
       - name: Build application
         run: npm run build
 

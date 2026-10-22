@@ -9,6 +9,6 @@
   "artifacts": {
     "ecad-viewer.js": "sha256:49c68cb7645b47f1d55c721a368df80d24fa529cd92ae5bd75238d4d9cc0ba58",
     "parser.worker.js": "sha256:7a3b8f5f46977e2fb0c3f6de6b38cac4d5738d2beae970f0b5e86f84db890994",
-    "ecad-renderer.js": "sha256:19d1412d62a39ec77713fcc1bd7de882c203f50e916ca290183b175496be156e"
+    "ecad-renderer.js": "sha256:1eddee71b51119efc5fab9276ceba18d2f05f55e044cad06fd2c5f79ba8e59b8"
   }
 }
