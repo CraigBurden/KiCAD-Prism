@@ -25,8 +25,11 @@ const STATUS = {
     storedBytes: 1024,
 };
 
+// A Type-2 subproject lists only commits touching it, so the newest listed
+// commit can be older than the checkout's HEAD; the label must name HEAD.
 const HEAD = {
-    commits: [{ full_hash: "abcdef12abcdef12abcdef12abcdef12abcdef12" }],
+    commits: [{ full_hash: "1111111111111111111111111111111111111111" }],
+    head: "abcdef12abcdef12abcdef12abcdef12abcdef12",
 };
 
 const response = (ok: boolean) => ({ ok } as Response);

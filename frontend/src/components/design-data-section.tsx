@@ -19,6 +19,8 @@ interface DesignBundleStatus {
 
 interface CommitsResponse {
     commits: Array<{ full_hash: string }>;
+    /** The checkout's HEAD, which a Type-2 subproject's filtered list may not contain. */
+    head?: string | null;
 }
 
 interface DesignDataSectionProps {
@@ -75,7 +77,7 @@ export function DesignDataSection({ projectId, canEdit }: DesignDataSectionProps
             { signal: controller.signal },
         )
             .then((data) => {
-                if (!controller.signal.aborted) setHeadSha(data.commits?.[0]?.full_hash ?? null);
+                if (!controller.signal.aborted) setHeadSha(data.head ?? null);
             })
             .catch(() => {
                 if (!controller.signal.aborted) setHeadSha(null);

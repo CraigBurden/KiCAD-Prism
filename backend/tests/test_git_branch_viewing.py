@@ -47,6 +47,23 @@ class GitBranchViewingTests(unittest.TestCase):
             )
             self.assertEqual(branches["default_ref"], repo.active_branch.name)
 
+    def test_head_is_the_checkout_even_when_the_subproject_list_omits_it(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            repo = Repo.init(root)
+            project_file = root / "boards" / "demo" / "README.md"
+            project_file.parent.mkdir(parents=True)
+            project_file.write_text("project", encoding="utf-8")
+            project_commit = _commit_all(repo, "add project")
+            (root / "README.md").write_text("elsewhere", encoding="utf-8")
+            head = _commit_all(repo, "outside the subproject")
+
+            listed = git_service.get_commits_list_filtered(str(root), "boards/demo", 1, None, 0, False)
+
+            self.assertEqual(listed["commits"][0]["full_hash"], project_commit.hexsha)
+            self.assertEqual(git_service.get_head_commit(str(root)), head.hexsha)
+            self.assertIsNone(git_service.get_head_commit(str(root / "missing")))
+
     def test_lists_fetched_remote_branches(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

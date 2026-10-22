@@ -83,6 +83,8 @@ interface CommitsResponse {
     has_more: boolean;
     limit: number;
     offset: number;
+    /** The checkout's HEAD, listed or not. */
+    head?: string | null;
 }
 
 const COMMITS_PAGE_SIZE_OPTIONS = [25, 50, 100, 200] as const;
@@ -685,15 +687,7 @@ export function HistoryViewer({
             releaseParams.set("include_total", "false");
             const releasesQuery = releaseParams.toString();
 
-            // No ref: Git resolves this request against the checkout's HEAD,
-            // while the list above resolves `branchRef` (the remote tip).
-            const headQuery = new URLSearchParams({
-                limit: "1",
-                offset: "0",
-                include_total: "false",
-            }).toString();
-
-            const [releasesResult, commitsResult, headResult] = await Promise.allSettled([
+            const [releasesResult, commitsResult] = await Promise.allSettled([
                 fetchJson<ReleasesResponse>(
                     `/api/projects/${projectId}/releases?${releasesQuery}`,
                     { signal: controller.signal },
@@ -703,11 +697,6 @@ export function HistoryViewer({
                     `/api/projects/${projectId}/commits?${commitsQuery}`,
                     { signal: controller.signal },
                     "Failed to load commits"
-                ),
-                fetchJson<CommitsResponse>(
-                    `/api/projects/${projectId}/commits?${headQuery}`,
-                    { signal: controller.signal },
-                    "Failed to load the checkout's HEAD"
                 ),
             ]);
 
@@ -736,11 +725,10 @@ export function HistoryViewer({
                 setCommitsHasMore(false);
             }
 
-            if (headResult.status === "fulfilled") {
-                setLocalHeadSha(headResult.value.commits?.[0]?.full_hash ?? null);
-            } else {
-                setLocalHeadSha(null);
-            }
+            // The checkout's HEAD rides along with every page: the list resolves
+            // `branchRef` (the remote tip) and, for a Type-2 subproject, only
+            // commits touching it, so HEAD need not be listed at all.
+            setLocalHeadSha(commitsResult.status === "fulfilled" ? commitsResult.value.head ?? null : null);
 
             if (releasesResult.status === "rejected" && commitsResult.status === "rejected") {
                 const releaseMessage =

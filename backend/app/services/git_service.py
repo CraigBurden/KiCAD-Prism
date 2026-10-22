@@ -384,6 +384,14 @@ def get_commits_list(
     )
 
 
+def get_head_commit(repo_path: str) -> str | None:
+    """The checkout's HEAD sha: what a HEAD rebuild targets, whatever branch the history lists."""
+    try:
+        return _open_repo(repo_path).head.commit.hexsha
+    except (HTTPException, ValueError, GitCommandError):
+        return None
+
+
 def get_commit_distance(repo_path: str, commit_hash: str, relative_path: str = None, ref: str = None) -> int:
     """
     Count commits between the requested commit and HEAD.
