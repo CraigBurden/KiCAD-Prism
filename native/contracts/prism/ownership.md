@@ -1079,6 +1079,17 @@ Every path a WP may edit in its wave, from `ownership.json` `/workPackages`. "AD
 - ADR Owns: `kicad-prism-viewer/pipeline/topology_compiler (3D parts)`; `backend/design-compare-parser/`; `kicad_monkey_design_adapter.py`; `requirements/runtime.in kicad-monkey and kicad-cruncher`.
 - Depends (ADR): —; depends (this map): R1; merges after: R1.
 - release_studio/documents/{fonts,worksheet,artwork}.py and vendors/jlcpcb.py keep R2's acceptance out of reach until the open question on Release Studio's Python tools is decided.
+- **Status (WP-R2): landed for the revision-parser scope.** Release Studio's
+  tool uses were removed by amendment C3, so the Python `kicad-monkey` package
+  now serves only the catalog's library-file readers (`catalog/mates.py`),
+  which stay allow-listed until the library ADR. `kicad_monkey_design_adapter.py`,
+  `semantic_index_variants.py`, the semantic-index Python build,
+  `backend/design-compare-parser/` and `kicad-cruncher-cli` are removed. The
+  `.py` rows below that still name the catalog modules are the allow-list; the
+  others are the removed files, kept here as the plan's record.
+  `requirements/runtime.in` keeps `kicad-monkey==2026.9.7` for that allow-list;
+  `kicad-cruncher` is absent. The `topology_compiler` rows belong to the V2a/V2b
+  handover and are not part of this WP.
 
 | Path | Status | Note |
 |---|---|---|

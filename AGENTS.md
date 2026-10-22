@@ -135,8 +135,9 @@ publication are available; Gitea/Forgejo is account-linking only. See
 `docs/TRACKER_INTEGRATION.md` for credentials, destinations, and recovery.
 
 **Select a design variant**
-`backend/app/services/variant_catalog_service.py` →
-`backend/app/services/semantic_index_variants.py` (index catalog and assembly block) →
+`backend/app/services/variant_catalog_service.py` (source-text catalog) →
+the bundle's semantic-index member (the `assembly` block, built by
+`prism-kicad`) →
 `frontend/src/components/design-variants/variant-selection.ts` (URL owner and
 resolution) →
 `frontend/src/lib/design-variants.ts` (effective projection) →
@@ -256,9 +257,8 @@ Never replace the published Python toolchain with a sibling checkout; see
 Do not load minified bundles into context or edit them by hand when source is
 available.
 
-- `frontend/public/ecad-viewer.js`, `frontend/public/parser.worker.js`, and the
-  parser under `backend/design-compare-parser/vendor/` come from the sibling
-  `ecad-viewer` checkout.
+- `frontend/public/ecad-viewer.js` and `frontend/public/parser.worker.js` come
+  from the sibling `ecad-viewer` checkout.
   Use `.agents/skills/prism-viewer-rebuild/SKILL.md`.
 - `kicad-prism-viewer/` is Prism's semantic viewer source. Its build writes
   `kicad-prism-viewer/dist/prism-semantic-viewer.js` and synchronizes the served

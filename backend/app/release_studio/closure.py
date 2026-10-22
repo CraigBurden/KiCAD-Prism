@@ -35,7 +35,7 @@ from app.release_studio.closure_references import (
     ProjectReferences,
     is_path_reference,
 )
-from app.services import closure_scan, project_revision
+from app.services import project_revision
 
 
 _LFS_POINTER_VERSION = "version https://git-lfs.github.com/spec/v1"
@@ -331,7 +331,7 @@ def materialize_input_closure(
     ) = None,
     model_env: Mapping[str, str] | None = None,
     model_stage: str | Path | None = None,
-    bundle_project: ProjectReferences | None = None,
+    bundle_project: ProjectReferences,
 ) -> InputClosure:
     """Materialize the full repository tree for ``commit``.
 
@@ -354,9 +354,8 @@ def materialize_input_closure(
 
     ``bundle_project`` is the design bundle's ``prism.project.a0`` answer: the
     documents name the design's files and the references name every path-bearing
-    node, so no Python KiCad parser runs (ADR amendment C3, C3d).  A caller with
-    no bundle (System Builder's board export) passes ``None`` and the checkout
-    is scanned by :mod:`app.services.closure_scan`.
+    node, so no Python KiCad parser runs (ADR amendment C3, C3d; WP-R2 makes it
+    mandatory for every caller, System Builder's board export included).
     """
 
     repo = Path(repo_path)
@@ -387,13 +386,12 @@ def materialize_input_closure(
     specs = _coerce_toolchain_resources(toolchain_resources)
     references, bindings = _resolve_project_paths(
         output,
-        result.repository_inputs,
         project_rel,
         env or {},
         specs,
         model_env or {},
+        bundle_project,
         Path(model_stage) if model_stage is not None else None,
-        bundle_project=bundle_project,
     )
     return InputClosure(
         commit_sha=commit_sha,
@@ -421,7 +419,7 @@ def materialize_project_input_closure(
     ) = None,
     model_env: Mapping[str, str] | None = None,
     model_stage: str | Path | None = None,
-    bundle_project: ProjectReferences | None = None,
+    bundle_project: ProjectReferences,
 ) -> InputClosure:
     """Resolve a Prism project/subproject and materialize its full repo tree."""
 
@@ -906,47 +904,18 @@ def _bundle_references(
 
 def _resolve_project_paths(
     destination: Path,
-    repository_inputs: Sequence[RepositoryInput],
     project_rel: str,
     env: Mapping[str, str],
     toolchain_specs: Sequence[_ToolchainSpec],
     model_env: Mapping[str, str],
+    bundle_project: ProjectReferences,
     model_stage: Path | None = None,
-    *,
-    bundle_project: ProjectReferences | None = None,
 ) -> tuple[list[ResolvedLibraryPath], list[EnvBinding]]:
     resolver = _PathResolver(destination, project_rel, env, toolchain_specs)
-    if bundle_project is not None:
-        # The bundle answered the closure's design-file question already:
-        # ``documents`` is the hierarchy and ``references`` are the path-bearing
-        # nodes, so the checkout is not parsed here at all (Release Studio, C3d).
-        references = _bundle_references(bundle_project, project_rel)
-    else:
-        # No bundle (System Builder's board export): scan the checkout, which
-        # is the one Python KiCad parse left outside the Release Studio boundary.
-        scanned = closure_scan.design_inputs(
-            destination, repository_inputs, project_rel
-        )
-        references = []
-        for item in repository_inputs:
-            if item.type != "regular_file" or item.path not in scanned:
-                continue
-            if item.path.rsplit("/", 1)[-1].casefold() in {"fp-lib-table", "sym-lib-table"}:
-                text = closure_scan.read_materialized_text(destination, item.path)
-                table_references, variable_references = closure_scan.structured_path_references(
-                    item.path, text, library_table=True
-                )
-                for reference in table_references:
-                    references.append((item.path, reference, "library_table"))
-                for reference in variable_references:
-                    references.append((item.path, reference, "library_table"))
-            elif closure_scan.is_path_input(item.path):
-                text = closure_scan.read_materialized_text(destination, item.path)
-                _, variable_references = closure_scan.structured_path_references(
-                    item.path, text
-                )
-                for reference in variable_references:
-                    references.append((item.path, reference, "project_path"))
+    # The bundle answered the closure's design-file question already:
+    # ``documents`` is the hierarchy and ``references`` are the path-bearing
+    # nodes, so the checkout is not parsed here at all (Release Studio, C3d).
+    references = _bundle_references(bundle_project, project_rel)
 
     deduped = sorted(set(references), key=lambda item: item)
     resolved: list[ResolvedLibraryPath] = []

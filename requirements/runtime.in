@@ -23,9 +23,10 @@ psycopg-pool>=3.2,<4
 # exactly: zstd output is only byte-stable within one library version.
 zstandard==0.25.0
 
-# Published KiCad tooling: kicad-monkey (the catalog's library-file imports and
-# the design-variant helpers) stays until WP-R2. The optional local Docker
-# override replaces it from a modern kicad_monkey monorepo checkout.
+# Published KiCad tooling: kicad-monkey stays for the catalog's library-file
+# imports (allow-listed by WP-R2; a later ADR ports them onto Prism's parser).
+# The optional local Docker override replaces it from a modern kicad_monkey
+# monorepo checkout.
 kicad-monkey==2026.9.7
 
 # The component catalog converts STEP models to GLB previews with Geometer's

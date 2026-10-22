@@ -63,15 +63,6 @@ npm run build:panel
 `build:panel` is the separate Remote Symbol Provider build. React Doctor's
 baseline is enforced by `scan:gate`; raw `npm run scan` is diagnostic only.
 
-## Design compare parser
-
-When `backend/design-compare-parser/` changed:
-
-```bash
-cd backend/design-compare-parser
-npm test
-```
-
 ## Semantic viewer
 
 When `kicad-prism-viewer/` or its shared runtime dependencies changed:

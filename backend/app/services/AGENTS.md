@@ -155,21 +155,21 @@ System Builder v2's stage 0.
 ## Design variants
 
 `project_source_snapshot.py` resolves a working tree or an exact commit
-(through `project_revision.py`) and keys it by the configured anchor; `variant_catalog_service.py` discovers the
-ordered catalog from source text; `semantic_index_variants.py` resolves
-effective default and per-variant occurrence/component/footprint state through
-the pinned kicad-monkey helpers (applying the sheet fold and version gate the
-resolver leaves to the caller); `semantic_index_service.py` publishes the
-`assembly` block, joins it onto existing `componentUid`s, and hashes the three
-modules into `GENERATOR_BUILD`. Resolver semantics belong to the frozen
+(through `project_revision.py`) and keys it by the configured anchor;
+`variant_catalog_service.py` discovers the ordered catalog from source text.
+The `assembly` block (default and per-variant occurrence, component and
+footprint state) comes from the bundle's semantic-index member (a2), built by
+`prism-kicad`; the Python resolver (`semantic_index_variants`) and the
+Python index build are gone (WP-R2). Resolver semantics belong to the frozen
 design-variant contract packet (issue #169), not to this file.
-With the design bundle, `semantic_index_service` is a reader: every public
-function serves the bundle's semantic-index member (a2), a request without a
-commit reading HEAD. A member that is building raises `DesignDataPending` and
-one that failed `DesignDataFailed`; the Python index build is gone from the
-consumer path (`build_semantic_index` survives only for Release Studio until
-R2). `semantic_index_variants.py` still assembles the `assembly` block that
-build uses.
+`semantic_index_service` is a reader: every public function serves the bundle's
+semantic-index member (a2), a request without a commit reading HEAD. A member
+that is building raises `DesignDataPending` and one that failed
+`DesignDataFailed`. Its remaining cache-key helpers (`_revision_identity`,
+`_revision_key`, `_source_entries_*`, `source_revision_key_for_project_file`)
+are shared with the catalog, comment anchors and Sim Studio; they read Git
+listings only. `generator_cache_tag()` names the design-bundle generator
+contract for catalog provenance.
 
 ## Design comparison
 

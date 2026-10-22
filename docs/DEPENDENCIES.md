@@ -77,7 +77,8 @@ monorepo's cruncher package is no longer installed. Older standalone
 checkouts fail the image preflight instead of silently combining their code
 with a published package.
 
-Python source discovery is explicit. `KICAD_MONKEY_PYTHONPATH` may be used for
-specialized host experiments, but Prism no longer searches adjacent checkouts
-or legacy `references/` directories automatically.
+Python source discovery is explicit: Prism no longer searches adjacent
+checkouts or legacy `references/` directories automatically. The published
+`kicad-monkey` distribution serves the catalog's library-file imports only
+(WP-R2); no revision parse imports it.
 

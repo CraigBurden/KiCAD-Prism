@@ -9,6 +9,8 @@
 
 The allow-list, [`native-import-paths.txt`](native-import-paths.txt), keeps 1,005 of the 1,518 files at `b6316117`, about 125 MB. Only allow-listed paths survive, in every commit of the imported history, so anything left out never enters Prism's history.
 
+**WP-R2 removal (recorded, not rewritten).** The imported `packages/kicad_cruncher/` package left the workspace in WP-R2 (ADR §9.7 R2) after its artwork, vendor and CLI work was harvested into `src/rs/prism-artwork` and `src/rs/prism-vendors`. The tables below record the import as it was. One board from its corpus — `yoshi_mainboard`'s `11-10080__yoshi-mainboard__A.kicad_pcb` — moved to `tests/parity/fixtures/yoshi_mainboard/` because the SVG test reads it; the rest left with the package.
+
 | Kept | Why |
 |---|---|
 | `src/rs/` (7 crates), `packages/kicad_cruncher/src/rs/` (the cruncher CLI) | the Rust workspace (ADR §4.2: nothing trimmed) |

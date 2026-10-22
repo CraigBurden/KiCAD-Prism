@@ -1,6 +1,5 @@
 [workspace]
 members = [
-    "packages/kicad_cruncher/src/rs/kicad-cruncher-cli",
     "src/rs/prism-kicad-codegen",
     "src/rs/prism-kicad-contracts",
     "src/rs/prism-kicad-core",

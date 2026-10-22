@@ -148,15 +148,7 @@ class BundleDesign:
     def project_references(self) -> ProjectReferences:
         """The closure's documents and path references (C3d)."""
 
-        documents = tuple(
-            str(document["path"])
-            for document in self.project.get("documents") or []
-            if document.get("path")
-        )
-        return ProjectReferences(
-            documents=documents,
-            references=tuple(self.project.get("references") or []),
-        )
+        return _project_references(self.project)
 
     def required_members(self) -> tuple[str, ...]:
         """Every member this build reads, checked once before it starts."""
@@ -178,6 +170,80 @@ class BundleDesign:
             if path:
                 members.add(f"sources/{path}")
         return tuple(sorted(members))
+
+
+def _project_references(document: Mapping[str, Any]) -> ProjectReferences:
+    """``prism.project.a0``'s closure answer: documents and every path node."""
+
+    documents = tuple(
+        str(document["path"])
+        for document in document.get("documents") or []
+        if document.get("path")
+    )
+    return ProjectReferences(
+        documents=documents,
+        references=tuple(document.get("references") or []),
+    )
+
+
+def project_references_for(
+    project_id: str,
+    commit: str | None,
+    *,
+    requested_by: str = "",
+) -> ProjectReferences:
+    """The closure's project references for one revision, without the rest of a build.
+
+    System Builder's board STEP export needs only ``projections/project.json``:
+    it names the design's documents and every path-bearing node, so the closure
+    never parses the checkout (WP-R2). A pending member queues the
+    ``design_bundle`` job and raises :class:`BundlePending`; a failed stage or
+    member, an absent project or a missing commit raises :class:`BundleFailed`.
+    """
+
+    if not project_id:
+        raise BundleFailed("the board step names no project")
+    if not commit:
+        raise BundleFailed(
+            "the board step needs a resolved commit: a design bundle is keyed by "
+            "the revision's commit, and a working tree has none"
+        )
+
+    from app.services.design_bundle import reader
+
+    try:
+        opened = reader.open_revision(
+            project_id, commit, queue=True, requested_by=requested_by
+        )
+    except Exception as error:  # noqa: BLE001 - any open fault is a failed answer
+        raise BundleFailed(
+            f"the design bundle of {project_id}@{commit} could not be opened: {error}"
+        ) from error
+
+    if opened.absent:
+        raise BundleFailed(
+            f"the project is not present at revision {commit}; no design bundle can exist"
+        )
+    if opened.archive is None:
+        if opened.failure:
+            raise BundleFailed(opened.failure)
+        raise BundlePending(
+            "the design bundle is not built yet; its job has been queued"
+        )
+
+    state = opened.readiness([PROJECT_MEMBER])[PROJECT_MEMBER]
+    if state.state in ("pending", "unavailable"):
+        raise BundlePending(f"the design bundle is not ready: {PROJECT_MEMBER}")
+    if state.state == "failed":
+        raise BundleFailed(
+            f"the design bundle has no usable member: "
+            f"{PROJECT_MEMBER}: {state.detail or 'failed'}"
+        )
+    if state.state in ("skipped", "not-applicable"):
+        raise BundleFailed(
+            f"the design bundle does not carry a member this board step needs: {PROJECT_MEMBER}"
+        )
+    return _project_references(opened.read_json(PROJECT_MEMBER))
 
 
 def _stage_error(stage: str, record: Mapping[str, Any]) -> str:
@@ -316,5 +382,6 @@ __all__ = [
     "REQUIRED_STAGES",
     "SEMANTIC_MEMBER",
     "for_candidate",
+    "project_references_for",
     "readiness",
 ]

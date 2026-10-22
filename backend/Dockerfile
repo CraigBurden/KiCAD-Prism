@@ -35,7 +35,6 @@ COPY native/.cargo ./.cargo
 COPY native/src/rs ./src/rs
 COPY native/assets ./assets
 COPY native/third_party ./third_party
-COPY native/packages/kicad_cruncher/src/rs ./packages/kicad_cruncher/src/rs
 RUN cp Cargo.lock /tmp/Cargo.lock.locked
 RUN --mount=type=cache,target=/usr/local/cargo/registry \
     --mount=type=cache,target=/usr/local/cargo/git \
@@ -156,8 +155,8 @@ RUN --mount=type=secret,id=prism_sim_release_token,required=false \
         --token-file /run/secrets/prism_sim_release_token --dest /opt/prism-sim/bin \
     && rm -rf /tmp/sim-engines
 
-# backend/ carries the design-compare Node package (/app/design-compare-parser). scripts/ holds the
-# operator CLIs run inside the container (catalog imports, benchmark sessions); nothing at runtime reads it.
+# backend/ carries the application. scripts/ holds the operator CLIs run inside the
+# container (catalog imports, benchmark sessions); nothing at runtime reads it.
 COPY backend/ .
 COPY scripts/ scripts/
 # The design-bundle reader validates members against native/'s committed JSON

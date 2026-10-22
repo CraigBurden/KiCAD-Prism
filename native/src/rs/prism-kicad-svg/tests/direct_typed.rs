@@ -426,9 +426,8 @@ fn operation_specific_zone_fill_layer_overrides_record_layer_union() {
 #[test]
 fn governed_yoshi_internal_layer_keeps_zone_connected_land_and_physical_hole() {
     let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../..");
-    let path = root.join(
-        "packages/kicad_cruncher/tests/corpus/kicad/projects/yoshi_mainboard/input/11-10080__yoshi-mainboard__A.kicad_pcb",
-    );
+    let path =
+        root.join("tests/parity/fixtures/yoshi_mainboard/11-10080__yoshi-mainboard__A.kicad_pcb");
     let source = fs::read_to_string(path).expect("read governed Yoshi board");
     let board_source = board_plot_artifact_with_sidecars(
         &source,
