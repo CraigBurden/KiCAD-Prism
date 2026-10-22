@@ -579,10 +579,13 @@ class SheetSizingTests(unittest.TestCase):
         )
         placed = next(e for e in sheet.elements if isinstance(e, Artwork))
         full = sheet_templates.artwork_window(size, 0.0)
+        # The full width, stopping above the notes band at the sheet's foot.
         self.assertEqual(
-            (placed.rect.x, placed.rect.y, placed.rect.width, placed.rect.height),
-            (full.x, full.y, full.width, full.height),
+            (placed.rect.x, placed.rect.y, placed.rect.width),
+            (full.x, full.y, full.width),
         )
+        self.assertLess(placed.rect.height, full.height)
+        self.assertGreaterEqual(placed.rect.height, board[1] * scale)
         # Every schedule table left the drawing together.
         self.assertEqual(len(carried), 3)
 
@@ -609,6 +612,22 @@ class SheetSizingTests(unittest.TestCase):
             stated.update(re.findall(rb'data-text="SCALE ([^"]+)"', payload))
             stated.update(re.findall(rb"SCALE (\d+(?:\.\d+)?:\d+)", payload))
         self.assertEqual(stated, {b"1.5:1"})
+
+    def test_notes_that_cannot_sit_under_the_drawing_continue_with_the_tables(self) -> None:
+        """A drawing never runs under its own notes (JTYU-OBC's testpoint sheet)."""
+
+        from app.release_studio.documents.layout import Table
+
+        # 210 mm tall at 2:1 fits the full A3 window but not the window that
+        # stops above the notes band, so the notes move with the tables.
+        sheet, _used, carried = sheet_templates.fabrication_sheet(
+            CONTEXT, _stats(150.0, 105.0), STACKUP, _svg_artwork(150.0, 105.0),
+            size="A3", scale=2.0,
+        )
+        titles = [table.title for table in carried if isinstance(table, Table)]
+        self.assertIn("NOTES", titles)
+        first_note = sheet_templates.DEFAULT_NOTES["fabrication"][0]
+        self.assertNotIn(first_note[:24], render_svg(sheet))
 
     def test_a_small_board_keeps_its_tables_beside_the_art(self) -> None:
         from app.release_studio.documents.layout import Artwork
@@ -2209,7 +2228,7 @@ class RendererVersionTests(unittest.TestCase):
         "documentation/fabrication.pdf":
             "eb0f010ed4830ac1d844a10c70c3bab3a954949acdb9e6b817435a6e80ca585c",
         "documentation/testpoint.pdf":
-            "0ed877211dce7abec1f371c7ccf56cecb7cfaa36216591b2a8a0514fd664f76c",
+            "440344a4a6ba44367b25e09020a14fefe0d90bf42d3a8de415b7d36b551dffdf",
     }
     GOLDEN_PAGES = {
         "assembly-bottom":
@@ -2225,9 +2244,9 @@ class RendererVersionTests(unittest.TestCase):
         "fabrication":
             "905325c0b7d375795c3d35a2d6290320e9c24f7685b08fbcad587ab50a51d11b",
         "testpoint-bottom":
-            "1f57a470f423523078b594bf63c02b13fda64caeb6af232e8c4827031c2ba259",
+            "ac4c24cf1eddd232dceffb1236e44dec7e32872e0056ef80c8a91c07f5ca8a77",
         "testpoint-top":
-            "ec368fa6523b7453efa5ce9038ecd934f0bef549ba1dc44dc947531481517baa",
+            "26668383fe692cd73c14e64e5a0fd68cb333203aaf9ad77b230dff0fb68e3fc9",
     }
 
     #: The `kicad` output, byte for byte: the d23 look, plus content corrections
@@ -2244,7 +2263,7 @@ class RendererVersionTests(unittest.TestCase):
         "documentation/fabrication.pdf":
             "4156eadf95893486e6cd53c9c20b068857d93fbec10f66adc11d2465215c0a3b",
         "documentation/testpoint.pdf":
-            "9c82433b5859797bc9acde51ae6fb1e5331c62dfde0b6f64caf640ab42a232ec",
+            "add23d455280f06c92a79af5283dc98344650e76529093fad835bad2b5653661",
     }
     GOLDEN_PAGES_KICAD = {
         "assembly-bottom":
@@ -2260,9 +2279,9 @@ class RendererVersionTests(unittest.TestCase):
         "fabrication":
             "f73ab9c2b7e50a1691ee1b35a2b2d9c4f9d8a632d97dd8e1b02ff8bd05cbaeb0",
         "testpoint-bottom":
-            "5dad9ad4bd99205537ad94df9d18f64bb8bc14ef613ba925e25bfcb892765042",
+            "8c3e6afa966abce75f11842842bbd293c9a6c2bd5d70baf2db464653d8033efd",
         "testpoint-top":
-            "6f39b07e0ffd33feb0e776cdefa8426736a24a13c9e4ce2cf9fae877c78710b7",
+            "965f9b634ed232efdd20af093ffa3603fcbe0e43c8889ff777c9c90a7c650e8e",
     }
 
     #: A placed sheet, so a change to sheet selection, the scale ladder, or

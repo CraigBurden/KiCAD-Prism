@@ -689,3 +689,21 @@ def key_value_table(title: str, pairs: Sequence[tuple[str, str]], *, width: floa
         rows=tuple((key, value) for key, value in pairs),
         widths=(width * 0.42, width * 0.58),
     )
+
+
+def notes_table(notes: Sequence[str], *, width: float = 136.0) -> Table:
+    """A drawing sheet's numbered notes as a schedule for a continuation page.
+
+    Used only when a sheet's notes cannot sit under its drawing at the set's
+    ratio; the continuation page then carries them with the sheet's tables.
+    """
+
+    rows = tuple((str(index), str(note)) for index, note in enumerate(notes, start=1))
+    return Table(
+        title="NOTES",
+        columns=("#", "Note"),
+        rows=rows or (("—", "—"),),
+        widths=(8.0, width - 8.0),
+        align=("end", "start"),
+        max_cell_lines=6,
+    )

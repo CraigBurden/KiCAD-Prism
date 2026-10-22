@@ -31,6 +31,7 @@ from app.release_studio.documents.layout import (
     preferred_scale,
     split_columns,
 )
+from app.release_studio.documents.sheet_notes import DEFAULT_NOTES  # noqa: F401 - re-exported
 from app.release_studio.documents.sheet_drawing import (
     _DNP_LEGEND_HEIGHT,
     _DNP_SWATCH,
@@ -51,65 +52,6 @@ from app.release_studio.documents.worksheet import default_worksheet_elements
 #: without projections and without artwork has no extent to size itself from.
 DEFAULT_SIZE = "A3"
 
-#: The note block each sheet carries when the configuration declares none.
-#:
-#: These are the statements Prism can make on its own authority: what the
-#: released bytes are, which file governs, and what the drawing is a view of.
-#: Anything that depends on the issuing organization -- IPC class, coupon
-#: requirements, impedance tolerances -- is deliberately absent, because Prism
-#: does not know it and a plausible-looking default would be worse than none.
-#: `documents.notes.resolve_notes` replaces any of these from configuration.
-DEFAULT_NOTES: dict[str, tuple[str, ...]] = {
-    "cover": (
-        # Deliberately not "the files listed above are the released bytes":
-        # this sheet is itself a released member, and it is composed before the
-        # other documentation members exist, so it can never list all of them.
-        # A recipient reconciling the list against the dossier would find
-        # extras and reasonably conclude the release had been tampered with.
-        "The files listed above are released members produced before this "
-        "sheet. manifest.json in this dossier lists the complete set, "
-        "including the documentation sheets, with the SHA-256 digest of each.",
-        "This sheet is generated from the board and schematic at the commit "
-        "named in the title block. It carries no build time and no approver, "
-        "so re-rendering it cannot change its digest.",
-    ),
-    "fabrication": (
-        "The Gerber and Excellon files in this dossier are authoritative; this "
-        "sheet is a view of them.",
-        "Dimensions are in millimetres. The stated scale is the ratio the "
-        "artwork was placed at.",
-    ),
-    "assembly-top": (
-        "Reference designators follow the position file in this dossier.",
-        "Do-not-populate parts are drawn and counted, and are listed separately "
-        "above. They are present in the position file; do not fit them.",
-    ),
-    "assembly-bottom": (
-        "Reference designators follow the position file in this dossier.",
-        "Do-not-populate parts are drawn and counted, and are listed separately "
-        "above. They are present in the position file; do not fit them.",
-    ),
-    "testpoint-top": (
-        "Only testpoints are labelled. Every other component is omitted so the "
-        "probe targets stand alone; the assembly drawings in this dossier show "
-        "the full population.",
-        "Schedule coordinates are each testpoint footprint's own placement in "
-        "board coordinates, read from the board. Testpoints are commonly "
-        "excluded from the position file, so that file may not list them.",
-    ),
-    "testpoint-bottom": (
-        "Only testpoints are labelled. Every other component is omitted so the "
-        "probe targets stand alone; the assembly drawings in this dossier show "
-        "the full population.",
-        "Schedule coordinates are each testpoint footprint's own placement in "
-        "board coordinates, read from the board. Testpoints are commonly "
-        "excluded from the position file, so that file may not list them.",
-    ),
-    "drill": (
-        "Hole sizes are finished diameters unless a tolerance is stated.",
-        "The Excellon file in this dossier is authoritative; this sheet is a view of it.",
-    ),
-}
 
 # Sheet furniture geometry mirrors Monkey's public default KiCad worksheet.
 # The emitted worksheet uses 10 mm margins and a title block that starts 34 mm
@@ -439,6 +381,37 @@ def _draw_column(builder: SheetBuilder, column: Sequence, origin: tuple[float, f
     return cursor
 
 
+def _noted_window(
+    size: str,
+    title_height: float,
+    notes: Sequence[str],
+    typography: str = DEFAULT_TYPOGRAPHY,
+) -> Rect:
+    """The full-body artwork window, ending above the sheet's notes band.
+
+    When a sheet's tables have moved to a continuation page its notes run
+    across the foot of the body (`_draw_body_notes`); the window stops short of
+    them so a drawing never runs under its own notes.
+    """
+
+    window = artwork_window(size, 0.0, title_height)
+    body = body_rect(size, title_height)
+    band = notes_height(notes, width=body.width - 2 * _WINDOW_INSET, typography=typography)
+    return Rect(window.x, window.y, window.width, max(window.height - band - _TABLE_GAP, 1.0))
+
+
+def _art_fits(window: Rect, art: Any, scale: float | None) -> bool:
+    """Whether the artwork, at the set's ratio, fits *window* with its caption."""
+
+    if art is None or scale is None or not hasattr(art, "view_height"):
+        return True
+    caption_and_clearance = 10.0
+    return (
+        float(art.view_height) * scale + caption_and_clearance <= window.height
+        and float(art.view_width) * scale <= window.width
+    )
+
+
 def _draw_body_notes(
     builder: SheetBuilder,
     body: Rect,
@@ -713,6 +686,16 @@ def fabrication_sheet(
             carried = overflow
     else:
         carried = schedule
+    notes_carried = False
+    if column is None:
+        noted = _noted_window(size, title_height, sheet_notes, typography)
+        if _art_fits(noted, art, scale):
+            window = noted
+        else:
+            # No room for the notes under the drawing at the set's ratio:
+            # they continue with the tables rather than run under the art.
+            notes_carried = True
+            carried = [*carried, tables.notes_table(sheet_notes)]
 
     used = _draw_artwork(
         builder,
@@ -735,7 +718,8 @@ def fabrication_sheet(
         cursor = _draw_column(builder, column[0], (area.x, area.y))
         draw_notes(builder, sheet_notes, (area.x, cursor + _TABLE_GAP), width=table_width)
     else:
-        _draw_body_notes(builder, body, sheet_notes, typography=typography)
+        if not notes_carried:
+            _draw_body_notes(builder, body, sheet_notes, typography=typography)
     return builder.build(), used, carried
 
 
@@ -937,6 +921,16 @@ def assembly_sheet(
             carried = overflow
     else:
         carried = schedule
+    notes_carried = False
+    if column is None:
+        noted = _noted_window(size, title_height, sheet_notes, typography)
+        if _art_fits(noted, art, scale):
+            window = noted
+        else:
+            # No room for the notes under the drawing at the set's ratio:
+            # they continue with the tables rather than run under the art.
+            notes_carried = True
+            carried = [*carried, tables.notes_table(sheet_notes)]
 
     used = _draw_artwork(
         builder,
@@ -987,7 +981,8 @@ def assembly_sheet(
                 width=window.width - 2 * _WINDOW_INSET,
                 style=legend_style,
             )
-        _draw_body_notes(builder, body, sheet_notes, typography=typography)
+        if not notes_carried:
+            _draw_body_notes(builder, body, sheet_notes, typography=typography)
     return builder.build(), used, carried
 
 
@@ -1071,6 +1066,16 @@ def testpoint_sheet(
             carried = overflow
     else:
         carried = [summary, schedule]
+    notes_carried = False
+    if column is None:
+        noted = _noted_window(size, title_height, sheet_notes, typography)
+        if _art_fits(noted, art, scale):
+            window = noted
+        else:
+            # No room for the notes under the drawing at the set's ratio:
+            # they continue with the tables rather than run under the art.
+            notes_carried = True
+            carried = [*carried, tables.notes_table(sheet_notes)]
 
     used = _draw_artwork(
         builder,
@@ -1087,7 +1092,8 @@ def testpoint_sheet(
         cursor = _draw_column(builder, column[0], (area.x, area.y))
         draw_notes(builder, sheet_notes, (area.x, cursor + _TABLE_GAP), width=table_width)
     else:
-        _draw_body_notes(builder, body, sheet_notes, typography=typography)
+        if not notes_carried:
+            _draw_body_notes(builder, body, sheet_notes, typography=typography)
     return builder.build(), used, carried
 
 
@@ -1154,6 +1160,16 @@ def drill_sheet(
             carried = overflow
     else:
         carried = schedule
+    notes_carried = False
+    if column is None:
+        noted = _noted_window(size, title_height, sheet_notes, typography)
+        if _art_fits(noted, art, scale):
+            window = noted
+        else:
+            # No room for the notes under the drawing at the set's ratio:
+            # they continue with the tables rather than run under the art.
+            notes_carried = True
+            carried = [*carried, tables.notes_table(sheet_notes)]
 
     used = _draw_artwork(
         builder,
@@ -1168,5 +1184,6 @@ def drill_sheet(
         cursor = _draw_column(builder, column[0], (area.x, area.y))
         draw_notes(builder, sheet_notes, (area.x, cursor + _TABLE_GAP), width=table_width)
     else:
-        _draw_body_notes(builder, body, sheet_notes, typography=typography)
+        if not notes_carried:
+            _draw_body_notes(builder, body, sheet_notes, typography=typography)
     return builder.build(), used, carried
