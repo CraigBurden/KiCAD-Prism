@@ -919,8 +919,10 @@ def assembly_sheet(
             reserve += _DNP_LEGEND_HEIGHT + _TABLE_GAP
         if dnp_schedule is not None:
             reserve += dnp_schedule.height(typography, sheet_style) + _TABLE_GAP
+        # The DNP list is drawn after the hatch legend below, so only the
+        # population table goes in the column; both move if the column fails.
         column, overflow, factor = split_columns(
-            [schedule],
+            [[population_table]],
             Rect(area.x, area.y, area.width, area.height - reserve),
             gap=_TABLE_GAP,
             sheet_style=sheet_style,

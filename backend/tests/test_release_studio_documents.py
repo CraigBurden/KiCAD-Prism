@@ -2596,7 +2596,7 @@ class PrismStyleTests(unittest.TestCase):
             population=population,
         )
         rendered = render_svg(sheet)
-        self.assertIn("DO NOT POPULATE", rendered)
+        self.assertEqual(rendered.count("DO NOT POPULATE"), 1, "the DNP list is drawn once")
         self.assertIn("C1, R2, R10", rendered)
         # kicad style is byte-identical to the old output, so it carries no list.
         legacy, _used, _over = sheet_templates.assembly_sheet(

@@ -879,3 +879,101 @@ fn covering_rendering_is_deterministic() {
     let second = render(&config, &hlr, &placements, &data, "assembly_top_view");
     assert_eq!(first.svg, second.svg);
 }
+
+#[test]
+fn a_chip_under_an_l_shaped_heatsink_does_not_cover_it() {
+    // The heatsink's bounding-box centre (4, 4) falls inside the chip; a
+    // centre test would make the chip "cover" the heatsink as well (JTYU-OBC:
+    // U20 under HS1 was drawn dashed).
+    let config = config();
+    let mut heatsink = footprint(0, "HS1", FootSide::Top, false, (4.0, 2.0));
+    heatsink.hlr = Some(0);
+    let mut chip = footprint(1, "U20", FootSide::Top, false, (4.0, 4.0));
+    chip.hlr = Some(1);
+    let l_shape = HlrEdges {
+        segments: vec![
+            hlr_segment(0.0, 0.0, 8.0, 0.0),
+            hlr_segment(8.0, 0.0, 8.0, 8.0),
+            hlr_segment(8.0, 8.0, 4.0, 8.0),
+            hlr_segment(4.0, 8.0, 4.0, 4.0),
+            hlr_segment(4.0, 4.0, 0.0, 4.0),
+            hlr_segment(0.0, 4.0, 0.0, 0.0),
+        ],
+        arcs: Vec::new(),
+    };
+    let data = board_data_with_hlr(
+        vec![heatsink, chip],
+        vec![
+            hlr_body("HS1", l_shape, line_edges(1.0, 1.0, 2.0, 1.0)),
+            hlr_body(
+                "U20",
+                rectangle_edges(3.0, 3.0, 5.0, 5.0),
+                line_edges(3.5, 3.5, 4.5, 3.5),
+            ),
+        ],
+    );
+    let rendered = render(
+        &config,
+        &empty_hlr(),
+        &placements(),
+        &data,
+        "assembly_top_view",
+    );
+    let covering: Vec<_> = rendered
+        .svg
+        .match_indices("data-bounds-kind=\"covering\" stroke")
+        .collect();
+    assert_eq!(covering.len(), 1, "only the heatsink covers");
+    assert!(
+        group_containing(&rendered.svg, "data-bounds-kind=\"covering\" stroke").contains("HS1")
+    );
+}
+
+#[test]
+fn a_covering_label_avoids_a_neighbours_body() {
+    // JTYU-OBC: HS1's label, centred above its outline, printed over SW6.
+    let config = config();
+    let mut data = covering_board();
+    let mut switch = footprint(3, "SW6", FootSide::Top, false, (5.0, 1.2));
+    switch.pad_bounds = Some(Bounds {
+        min_x: 4.0,
+        min_y: 0.6,
+        max_x: 6.0,
+        max_y: 1.8,
+    });
+    data.footprints.push(switch);
+    let rendered = render(
+        &config,
+        &empty_hlr(),
+        &placements(),
+        &data,
+        "assembly_top_view",
+    );
+    let text = designator_text(&rendered.svg, "uuid-HS1");
+    let label = Bounds {
+        min_x: number_attribute(text, "data-text-box-min-x"),
+        min_y: number_attribute(text, "data-text-box-min-y"),
+        max_x: number_attribute(text, "data-text-box-max-x"),
+        max_y: number_attribute(text, "data-text-box-max-y"),
+    };
+    let switch_body = Bounds {
+        min_x: 4.0,
+        min_y: 0.6,
+        max_x: 6.0,
+        max_y: 1.8,
+    };
+    assert!(
+        !label.intersects(switch_body),
+        "HS1's label overlaps SW6: {text}"
+    );
+    let heatsink = Bounds {
+        min_x: 3.0,
+        min_y: 2.0,
+        max_x: 7.0,
+        max_y: 4.0,
+    };
+    assert!(
+        !label.intersects(heatsink),
+        "HS1's label is inside its own body: {text}"
+    );
+}

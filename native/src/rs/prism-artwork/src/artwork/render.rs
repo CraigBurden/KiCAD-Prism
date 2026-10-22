@@ -168,6 +168,8 @@ fn plan_scene(
         input.config,
         &view.styles,
         data,
+        selected,
+        callout,
         &covering,
         provisional,
         paper_scale,
