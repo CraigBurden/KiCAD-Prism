@@ -103,8 +103,7 @@ fn view_caption(role: ViewRole, connector: &Connector) -> String {
 
 fn view_scale_text(connector: &Connector, role: ViewRole, area: Bounds) -> String {
     match (&connector.views, role) {
-        (Some(views), _) => view_scale(views.view(role), area).1,
-        (None, ViewRole::Top) => footprint_scale(connector, area).1,
+        (Some(_), _) | (None, ViewRole::Top) => scale_label(connector_scale(connector, area)),
         (None, _) => String::new(),
     }
 }
@@ -178,21 +177,38 @@ text-anchor=\"middle\">No 3D model \u{2014} footprint view only</text>",
     }
 }
 
-/// The scale a view is drawn at, and the factor.
-fn view_scale(view: &ProjectedView, area: Bounds) -> (f64, String) {
-    let fit_x = (area.width() - 12.0) / view.bounds.width().max(0.001);
-    let fit_y = (area.height() - 14.0) / view.bounds.height().max(0.001);
-    let fit = fit_x.min(fit_y);
-    let factor = nice_scale(fit);
-    (factor, scale_label(factor))
+/// The one scale every view of a connector is drawn at.
+///
+/// Each view used to pick its own ratio, so a part's side view could be 12:1
+/// beside a 3:1 top view. One ratio, the largest at which every view fits its
+/// cell, keeps sizes comparable across the sheet. A connector drawn from its
+/// footprint alone has only the top view.
+fn connector_scale(connector: &Connector, area: Bounds) -> f64 {
+    let fit = match &connector.views {
+        Some(views) => [
+            ViewRole::Top,
+            ViewRole::Front,
+            ViewRole::Side,
+            ViewRole::Iso,
+        ]
+        .iter()
+        .map(|role| view_fit(views.view(*role), area))
+        .fold(f64::INFINITY, f64::min),
+        None => {
+            let bounds = footprint_bounds(connector);
+            let fit_x = (area.width() - 10.0) / bounds.width().max(0.001);
+            let fit_y = (area.height() - 12.0) / bounds.height().max(0.001);
+            fit_x.min(fit_y)
+        }
+    };
+    nice_scale(fit)
 }
 
-fn footprint_scale(connector: &Connector, area: Bounds) -> (f64, String) {
-    let bounds = footprint_bounds(connector);
-    let fit_x = (area.width() - 10.0) / bounds.width().max(0.001);
-    let fit_y = (area.height() - 12.0) / bounds.height().max(0.001);
-    let factor = nice_scale(fit_x.min(fit_y));
-    (factor, scale_label(factor))
+/// The largest factor at which one projected view fits inside `area`.
+fn view_fit(view: &ProjectedView, area: Bounds) -> f64 {
+    let fit_x = (area.width() - 12.0) / view.bounds.width().max(0.001);
+    let fit_y = (area.height() - 14.0) / view.bounds.height().max(0.001);
+    fit_x.min(fit_y)
 }
 
 const NICE_SCALES: [f64; 16] = [
@@ -241,7 +257,7 @@ fn model_view(
     connector: &Connector,
     palette: &Palette,
 ) {
-    let (scale, _) = view_scale(view, area);
+    let scale = connector_scale(connector, area);
     let bounds = view.bounds;
     let center_x = (area.min_x + area.max_x) / 2.0;
     let center_y = (area.min_y + area.max_y) / 2.0;
@@ -665,7 +681,7 @@ fn footprint_bounds(connector: &Connector) -> Bounds {
 
 fn footprint_view(svg: &mut String, connector: &Connector, area: Bounds, palette: &Palette) {
     let bounds = footprint_bounds(connector);
-    let (scale, _) = footprint_scale(connector, area);
+    let scale = connector_scale(connector, area);
     let center_x = (area.min_x + area.max_x) / 2.0;
     let center_y = (area.min_y + area.max_y) / 2.0;
     let to_sheet = |point: Point| Point {

@@ -265,6 +265,11 @@ pub struct LoadOptions {
     pub prefixes: Vec<String>,
     /// Exact references to take instead of the prefixes.
     pub refs: Vec<String>,
+    /// Prefixes that look like a connector's but are not: `JP` is KiCad's
+    /// solder-jumper prefix and would otherwise match `J`.
+    pub exclude_prefixes: Vec<String>,
+    /// Exact references to leave out of a prefix selection.
+    pub exclude_refs: Vec<String>,
     /// `--model-dir VAR=DIR`.
     pub model_dirs: BTreeMap<String, PathBuf>,
 }
@@ -274,6 +279,17 @@ impl LoadOptions {
     fn selects(&self, reference: &str) -> bool {
         if !self.refs.is_empty() {
             return self.refs.iter().any(|wanted| wanted == reference);
+        }
+        if self
+            .exclude_refs
+            .iter()
+            .any(|excluded| excluded == reference)
+            || self
+                .exclude_prefixes
+                .iter()
+                .any(|prefix| reference.starts_with(prefix.as_str()))
+        {
+            return false;
         }
         self.prefixes
             .iter()
@@ -932,8 +948,22 @@ mod tests {
         LoadOptions {
             prefixes: prefixes.iter().map(|value| (*value).to_owned()).collect(),
             refs: refs.iter().map(|value| (*value).to_owned()).collect(),
+            exclude_prefixes: vec!["JP".to_owned()],
+            exclude_refs: Vec::new(),
             model_dirs: BTreeMap::new(),
         }
+    }
+
+    #[test]
+    fn a_solder_jumper_is_not_a_connector() {
+        let mut selection = options(&["J", "P"], &[]);
+        assert!(selection.selects("J3"));
+        assert!(!selection.selects("JP3"));
+        selection.exclude_refs = vec!["J4".to_owned()];
+        assert!(!selection.selects("J4"));
+        assert!(selection.selects("J40"));
+        selection.exclude_prefixes.clear();
+        assert!(selection.selects("JP3"));
     }
 
     #[test]

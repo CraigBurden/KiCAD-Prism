@@ -2,7 +2,7 @@
 //!
 //! `cargo run -p prism-docs-lab --bin connector-icd -- --in <bundle.prism>
 //! -o <dir> [--geometer <exe>] [--model-dir VAR=DIR]... [--refs J1,J2]
-//! [--prefixes J,P,CN,X] [--chrome <exe>] [--no-pdf]`
+//! [--prefixes J,P,CN,X] [--exclude-prefixes JP] [--exclude-refs <refs>] [--chrome <exe>] [--no-pdf]`
 //!
 //! Reads one design bundle, writes one A3 landscape SVG per connector, an
 //! index page that inlines them, and a PDF printed from that page by headless
@@ -23,7 +23,8 @@ use prism_docs_lab::theme::Theme;
 const USAGE: &str = "\
 usage: connector-icd --in <bundle.prism> -o <dir> [--geometer <exe>]
                      [--model-dir VAR=DIR]... [--refs J1,J2]
-                     [--prefixes J,P,CN,X] [--chrome <exe>] [--no-pdf]
+                     [--prefixes J,P,CN,X] [--exclude-prefixes JP] [--exclude-refs <refs>]
+                     [--chrome <exe>] [--no-pdf]
                      [--theme light|dark|blueprint]
 
   --in        a .prism design bundle with its board and models stages built
@@ -32,6 +33,9 @@ usage: connector-icd --in <bundle.prism> -o <dir> [--geometer <exe>]
   --model-dir a KiCad stock library, `VAR=DIR` (repeatable)
   --refs      exact connector references, comma separated
   --prefixes  reference prefixes that mark a connector (default J,P,CN,X)
+  --exclude-prefixes  prefixes that are not connectors though a prefix matches (default JP,
+              KiCad's solder jumpers); pass an empty list to keep them
+  --exclude-refs  exact references to leave out of a prefix selection
   --chrome    the Chrome binary for connectors.pdf (default: $CHROME)
   --no-pdf    skip connectors.pdf
   --theme     light (default), dark or blueprint";
@@ -43,6 +47,8 @@ struct Options {
     model_dirs: BTreeMap<String, PathBuf>,
     refs: Vec<String>,
     prefixes: Vec<String>,
+    exclude_prefixes: Vec<String>,
+    exclude_refs: Vec<String>,
     chrome: Option<PathBuf>,
     pdf: bool,
     theme: Theme,
@@ -79,6 +85,8 @@ fn run(options: &Options) -> Result<(), LabError> {
         &bundle,
         &LoadOptions {
             prefixes: options.prefixes.clone(),
+            exclude_prefixes: options.exclude_prefixes.clone(),
+            exclude_refs: options.exclude_refs.clone(),
             refs: options.refs.clone(),
             model_dirs: options.model_dirs.clone(),
         },
@@ -333,6 +341,8 @@ struct RawOptions {
     model_dirs: BTreeMap<String, PathBuf>,
     refs: Vec<String>,
     prefixes: Vec<String>,
+    exclude_prefixes: Vec<String>,
+    exclude_refs: Vec<String>,
     chrome: Option<PathBuf>,
     pdf: bool,
     theme: Theme,
@@ -352,6 +362,8 @@ impl Default for RawOptions {
                 "CN".to_owned(),
                 "X".to_owned(),
             ],
+            exclude_prefixes: vec!["JP".to_owned()],
+            exclude_refs: Vec::new(),
             chrome: None,
             pdf: true,
             theme: Theme::Light,
@@ -374,6 +386,10 @@ impl RawOptions {
             }
             "--refs" => self.refs = list(&value(args, index, "--refs")?),
             "--prefixes" => self.prefixes = list(&value(args, index, "--prefixes")?),
+            "--exclude-prefixes" => {
+                self.exclude_prefixes = list(&value(args, index, "--exclude-prefixes")?);
+            }
+            "--exclude-refs" => self.exclude_refs = list(&value(args, index, "--exclude-refs")?),
             "--no-pdf" => self.pdf = false,
             "--theme" => self.theme = value(args, index, "--theme")?.parse()?,
             _ => return Ok(false),
@@ -394,6 +410,8 @@ impl RawOptions {
             model_dirs: self.model_dirs,
             refs: self.refs,
             prefixes: self.prefixes,
+            exclude_prefixes: self.exclude_prefixes,
+            exclude_refs: self.exclude_refs,
             chrome: self.chrome,
             pdf: self.pdf,
             theme: self.theme,
