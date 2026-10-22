@@ -127,3 +127,50 @@ EDA-04903's bundle breaks down as: materialize and upgrade 13.8 s, stage `parse`
 
 - Warm, the analytic path is slower than the mesh path on a large board today: about 2.9 s against about 0.5 s on EDA-04903. Lowering is the gap; download and open are not.
 - Cold, the analytic path builds where the mesh path cannot: EDA-04903's mesh build does not fit in the 8 GB box, and the bundle's stages peak at 2.2 GB.
+
+## Full comparison: 2026-10-22, after Wave 4
+
+`bench_native.py` times the native side on the same 33 parity cases and sets it against the 2026-10-17 baseline. Results: `results/2026-10-22-ithelpdesk-macbook-pro-arm64-native.json`.
+- **Machine:** the same machine as the baseline. The release `prism-kicad` was built from `feature/native-design-bundle` at 10785dfd (Wave 4 merged).
+- **Sources:** prepared by `prism_parity` exactly as the baseline's were.
+- **Load:** 5.8 at the start and 5.6 at the end, with desktop apps and a VM running. As with the baseline, treat differences under about 10 % as noise.
+
+```sh
+python native/parity/benchmarks/bench_native.py --prism-kicad <release binary> \
+    --baseline native/parity/benchmarks/results/2026-10-17-ithelpdesk-macbook-pro-arm64.json \
+    --out native/parity/benchmarks/results/<yyyy-mm-dd>-<host>-native.json
+```
+
+### Producing the data
+
+How the comparison is made:
+- **Native side:** one `prism-kicad bundle build --stage parse`. Each build is a fresh process, start-up included, and produces every parse-stage member: semantic index, system interface, project, stackup, placements, occurrences, board objects and route metrics.
+- **Python side:** the three production paths it replaces: semantic index, system interface and variant catalog. Each was timed best of 3 after a cold first call in a warm interpreter.
+
+Best of 3, summed over the cases:
+
+| | all 33 cases (s) | rs-cynthion (s) | rs-usb-pd (s) | max peak RSS (MiB) |
+|---|---|---|---|---|
+| native parse stage, every member | **1.93** | **0.69** | **0.15** | **306** |
+| Python `prod:*` (semantic index + system interface + variant catalog) | 9.58 | 7.39 | 0.54 | 496 |
+| Python `golden:*` capture modules, every member | 106.6 | 67.6 | 6.0 | 496 |
+
+- **rs-cynthion**, the stress case, is 10.7× faster than the production paths and uses 38 % less memory.
+- **Faster on 23 of 33 cases.** The other 10 are the smallest fixtures (the `dv-*` designs and three tiny System Builder boards). There, a fresh process costs 20–35 ms, while the Python paths ran warm in-process at 2–34 ms. The deployed path runs the build in a job, never on a request, so this is not something a user waits on.
+
+### What an endpoint does now
+
+The endpoints that parsed on demand now read a member of a warm bundle: semantic index, system interface, and the variant catalog (which is part of the semantic index). Each read opens the verified archive, inflates the member, checks its SHA-256 and decodes the JSON. The store runs the schema check once, before it marks an archive verified (`store.py`). That check is reported apart, as `verifyS`.
+
+| member | read, worst case (ms) | read, rs-usb-pd (ms) | one-time schema check, rs-cynthion | before: on-demand Python build, rs-cynthion |
+|---|---|---|---|---|
+| `projections/semantic-index.json` | 41.5 (rs-cynthion, 2.5 MB) | 6.4 | 1.03 s | 3.78 s |
+| `projections/system-interface.json` | 24.0 (rs-cynthion, 0.6 MB) | 5.3 | 0.47 s | 3.59 s |
+
+On rs-cynthion this takes a request's design work from 3.6–3.8 s to 24–42 ms, about 90× faster. The figures cover in-process work only: HTTP, authentication and the database lookup that finds the archive are not included.
+
+The one-time schema check is almost all `jsonschema` (0.97 s of the 1.03 s on rs-cynthion's semantic index; decoding takes 25 ms). It runs once per archive, in the job that stores it, and no request pays it. If bundle jobs ever become the bottleneck, it is the first thing to speed up.
+
+### Large designs and Design Comparison
+
+The U §3.2 journey budgets on EDA-04903 are measured in the worker container, not here; see "Cold Design Comparison" above. Bundle-mode `compare` (both revisions warm) takes 2.9–3.5 s there.

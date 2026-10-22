@@ -1,0 +1,1689 @@
+{
+ "schema": "prism.parity.bench.native.a0",
+ "host": {
+  "machine": "arm64",
+  "system": "macOS-27.0.1-arm64-arm-64bit",
+  "cpus": 10,
+  "python": "3.12.13",
+  "prismKicad": "{\"schema\":\"prism.cli.version.a0\",\"crate_version\":\"0.7.0\",\"engine_version\":\"2026.9.7\",\"hlr_procedure\":{\"geometer_version\":\"2026.9.19\",\"options\":\"assembly-hlr-a0\"},\"kicad_file_formats\":{\"board\":20260206,\"schematic\":20260306},\"kicad_version\":\"10.0.6\",\"member_schemas\":[{\"path\":\"bundle.json\",\"schema\":\"prism.bundle.manifest.a3\"},{\"path\":\"design.json\",\"schema\":\"kicad_monkey.design.a0\"},{\"path\":\"materialization/board.kmpack\",\"schema\":\"kicad_monkey.materialization.a0\"},{\"path\":\"models/assembly-hlr.json\",\"schema\":\"prism.assembly_hlr.a0\"},{\"path\":\"projections/board-objects.json\",\"schema\":\"prism.board_objects.a0\"},{\"path\":\"projections/occurrences.json\",\"schema\":\"prism.occurrences.a0\"},{\"path\":\"projections/placements.json\",\"schema\":\"prism.placements.a1\"},{\"path\":\"projections/project.json\",\"schema\":\"prism.project.a0\"},{\"path\":\"projections/route-metrics.json\",\"schema\":\"prism.route_metrics.a0\"},{\"path\":\"projections/semantic-index.json\",\"schema\":\"prism.semantic_index.a2\"},{\"path\":\"projections/stackup.json\",\"schema\":\"prism.stackup.a0\"},{\"path\":\"projections/system-interface.json\",\"schema\":\"prism.system_interface.v1\"}],\"models_procedure\":\"kicad-cli-glb-a0\",\"pack_format_version\":0,\"refill_procedure\":\"pcbnew-zone-filler-a0\",\"upgrade_procedure\":\"kicad-seeded-upgrade-a0\"}",
+  "commit": "10785dfda6e83f381147b7c6b589c7e75f1bb48f",
+  "loadAvgStart": [
+   5.82,
+   8.16,
+   8.79
+  ],
+  "loadAvgEnd": [
+   5.63,
+   7.9,
+   8.67
+  ]
+ },
+ "repeat": 3,
+ "baseline": "native/parity/benchmarks/results/2026-10-17-ithelpdesk-macbook-pro-arm64.json",
+ "results": [
+  {
+   "case": "dv-case_fold",
+   "build": {
+    "timesS": [
+     0.048925874987617135,
+     0.032857040874660015,
+     0.032638249918818474
+    ],
+    "peakRssBytes": 17858560,
+    "exits": [
+     0,
+     0,
+     0
+    ]
+   },
+   "reads": {
+    "projections/semantic-index.json": {
+     "timesS": [
+      0.003358541987836361,
+      0.0032872920855879784,
+      0.0034752499777823687
+     ],
+     "verifyS": 0.008829624857753515,
+     "bytes": 8595
+    },
+    "projections/system-interface.json": {
+     "timesS": [
+      0.0029058330692350864,
+      0.003136834129691124,
+      0.0036333338357508183
+     ],
+     "verifyS": 0.0058443748857825994,
+     "bytes": 2322
+    }
+   },
+   "python": {
+    "prod:km-load": 0.00515970797277987,
+    "prod:semantic-index": 0.012262708973139524,
+    "prod:variant-catalog": 0.0035151250194758177,
+    "prod:system-interface": 0.007446416886523366,
+    "golden:semantic-index": 0.010120708029717207,
+    "golden:system-interface": 0.007566125015728176,
+    "golden:project": 0.3675769579131156,
+    "golden:stackup": 0.012291082995943725,
+    "golden:placements": 0.00830954103730619,
+    "golden:occurrences": 0.12578062491957098,
+    "golden:board-objects": 0.08463616692461073,
+    "golden:route-metrics": 0.08281525003258139
+   },
+   "pythonPeakRssBytes": 86622208
+  },
+  {
+   "case": "dv-kicad11_tokens",
+   "build": {
+    "timesS": [
+     0.033895333064720035,
+     0.029581958893686533,
+     0.03094587498344481
+    ],
+    "peakRssBytes": 17760256,
+    "exits": [
+     0,
+     0,
+     0
+    ]
+   },
+   "reads": {
+    "projections/semantic-index.json": {
+     "timesS": [
+      0.0033626658841967583,
+      0.0033844171557575464,
+      0.0030961669981479645
+     ],
+     "verifyS": 0.006109250010922551,
+     "bytes": 4697
+    },
+    "projections/system-interface.json": {
+     "timesS": [
+      0.003160832915455103,
+      0.0031220000237226486,
+      0.003141416935250163
+     ],
+     "verifyS": 0.004420834127813578,
+     "bytes": 1295
+    }
+   },
+   "python": {
+    "prod:km-load": 0.0061879579443484545,
+    "prod:semantic-index": 0.008849874953739345,
+    "prod:variant-catalog": 0.0020082920091226697,
+    "prod:system-interface": 0.006348958006128669,
+    "golden:semantic-index": 0.00908424996305257,
+    "golden:system-interface": 0.006303749978542328,
+    "golden:project": 0.3617200420703739,
+    "golden:stackup": 0.010241582989692688,
+    "golden:placements": 0.005722624948248267,
+    "golden:occurrences": 0.11747874994762242,
+    "golden:board-objects": 0.08224504196550697,
+    "golden:route-metrics": 0.08299170900136232
+   },
+   "pythonPeakRssBytes": 88244224
+  },
+  {
+   "case": "dv-legacy_in_bom",
+   "build": {
+    "timesS": [
+     0.03253595903515816,
+     0.03096316708251834,
+     0.03152925008907914
+    ],
+    "peakRssBytes": 17498112,
+    "exits": [
+     0,
+     0,
+     0
+    ]
+   },
+   "reads": {
+    "projections/semantic-index.json": {
+     "timesS": [
+      0.0033945830073207617,
+      0.0033952079247683287,
+      0.003383958013728261
+     ],
+     "verifyS": 0.007043791934847832,
+     "bytes": 7089
+    },
+    "projections/system-interface.json": {
+     "timesS": [
+      0.0028667079750448465,
+      0.002971166977658868,
+      0.0029654998797923326
+     ],
+     "verifyS": 0.004414709052070975,
+     "bytes": 1327
+    }
+   },
+   "python": {
+    "prod:km-load": 0.004180749994702637,
+    "prod:semantic-index": 0.0073673330480232835,
+    "prod:variant-catalog": 0.00203820806927979,
+    "prod:system-interface": 0.005441833985969424,
+    "golden:semantic-index": 0.007573624956421554,
+    "golden:system-interface": 0.005577916977927089,
+    "golden:project": 0.291737416991964,
+    "golden:stackup": 0.001428874908015132,
+    "golden:placements": 0.0014474579365924,
+    "golden:occurrences": 0.09903408295940608,
+    "golden:board-objects": 0.0762869999743998,
+    "golden:route-metrics": 0.0829636660637334
+   },
+   "pythonPeakRssBytes": 84836352
+  },
+  {
+   "case": "dv-malformed",
+   "build": {
+    "timesS": [
+     0.029781874967738986,
+     0.030655917013064027,
+     0.027420999947935343
+    ],
+    "peakRssBytes": 12075008,
+    "exits": [
+     9,
+     9,
+     9
+    ]
+   },
+   "reads": {},
+   "python": {
+    "prod:km-load": null,
+    "prod:semantic-index": null,
+    "prod:variant-catalog": 0.0022088339319452643,
+    "prod:system-interface": null,
+    "golden:semantic-index": 0.002017167047597468,
+    "golden:system-interface": 0.003398458007723093,
+    "golden:project": 0.0012825420126318932,
+    "golden:stackup": 0.0009079999290406704,
+    "golden:placements": 0.0010722920997068286,
+    "golden:occurrences": 0.0011761250207200646,
+    "golden:board-objects": 0.07695795898325741,
+    "golden:route-metrics": 0.07772358297370374
+   },
+   "pythonPeakRssBytes": 63782912
+  },
+  {
+   "case": "dv-no_variants",
+   "build": {
+    "timesS": [
+     0.03755691600963473,
+     0.021788374986499548,
+     0.02468295907601714
+    ],
+    "peakRssBytes": 17743872,
+    "exits": [
+     0,
+     0,
+     0
+    ]
+   },
+   "reads": {
+    "projections/semantic-index.json": {
+     "timesS": [
+      0.0032079590018838644,
+      0.003119334112852812,
+      0.0029673748649656773
+     ],
+     "verifyS": 0.005333333974704146,
+     "bytes": 4021
+    },
+    "projections/system-interface.json": {
+     "timesS": [
+      0.00316079193726182,
+      0.0028041251935064793,
+      0.002829583827406168
+     ],
+     "verifyS": 0.004584125010296702,
+     "bytes": 1295
+    }
+   },
+   "python": {
+    "prod:km-load": 0.004439208074472845,
+    "prod:semantic-index": 0.0076312500750645995,
+    "prod:variant-catalog": 0.0018852079520002007,
+    "prod:system-interface": 0.005106625030748546,
+    "golden:semantic-index": 0.00824654195457697,
+    "golden:system-interface": 0.005525624961592257,
+    "golden:project": 0.35147833300288767,
+    "golden:stackup": 0.009438749984838068,
+    "golden:placements": 0.0053776249988004565,
+    "golden:occurrences": 0.11471508303657174,
+    "golden:board-objects": 0.08025025005917996,
+    "golden:route-metrics": 0.07655366603285074
+   },
+   "pythonPeakRssBytes": 86310912
+  },
+  {
+   "case": "dv-oracle",
+   "build": {
+    "timesS": [
+     0.041098207933828235,
+     0.03876204090192914,
+     0.03855312499217689
+    ],
+    "peakRssBytes": 21970944,
+    "exits": [
+     0,
+     0,
+     0
+    ]
+   },
+   "reads": {
+    "projections/semantic-index.json": {
+     "timesS": [
+      0.0044859170448035,
+      0.004283083137124777,
+      0.00459691695868969
+     ],
+     "verifyS": 0.027500708121806383,
+     "bytes": 56609
+    },
+    "projections/system-interface.json": {
+     "timesS": [
+      0.004047083901241422,
+      0.0036941668950021267,
+      0.003911667037755251
+     ],
+     "verifyS": 0.01583383302204311,
+     "bytes": 15144
+    }
+   },
+   "python": {
+    "prod:km-load": 0.026790958014316857,
+    "prod:semantic-index": 0.042879916029050946,
+    "prod:variant-catalog": 0.0048701249761506915,
+    "prod:system-interface": 0.03090666700154543,
+    "golden:semantic-index": 0.04417920799460262,
+    "golden:system-interface": 0.030332499998621643,
+    "golden:project": 0.573594709043391,
+    "golden:stackup": 0.049709875020198524,
+    "golden:placements": 0.04192204098217189,
+    "golden:occurrences": 0.29184633295517415,
+    "golden:board-objects": 0.12256816704757512,
+    "golden:route-metrics": 0.10187816608231515
+   },
+   "pythonPeakRssBytes": 89735168
+  },
+  {
+   "case": "dv-oracle_rev2",
+   "build": {
+    "timesS": [
+     0.03787704207934439,
+     0.043163000140339136,
+     0.041321625001728535
+    ],
+    "peakRssBytes": 21790720,
+    "exits": [
+     0,
+     0,
+     0
+    ]
+   },
+   "reads": {
+    "projections/semantic-index.json": {
+     "timesS": [
+      0.00456816703081131,
+      0.004361042054370046,
+      0.004637375008314848
+     ],
+     "verifyS": 0.027947625145316124,
+     "bytes": 56580
+    },
+    "projections/system-interface.json": {
+     "timesS": [
+      0.004004667047411203,
+      0.004010083852335811,
+      0.0038666250184178352
+     ],
+     "verifyS": 0.016677250154316425,
+     "bytes": 15144
+    }
+   },
+   "python": {
+    "prod:km-load": 0.02778670797124505,
+    "prod:semantic-index": 0.044270292040891945,
+    "prod:variant-catalog": 0.0047123749973252416,
+    "prod:system-interface": 0.029335125000216067,
+    "golden:semantic-index": 0.04349395807366818,
+    "golden:system-interface": 0.03071216691751033,
+    "golden:project": 0.5960573749616742,
+    "golden:stackup": 0.050968916970305145,
+    "golden:placements": 0.04135879105888307,
+    "golden:occurrences": 0.31138137506786734,
+    "golden:board-objects": 0.11960595799610019,
+    "golden:route-metrics": 0.1061781250173226
+   },
+   "pythonPeakRssBytes": 90423296
+  },
+  {
+   "case": "dv-rule_area",
+   "build": {
+    "timesS": [
+     0.02861529099754989,
+     0.028744874987751245,
+     0.031563166063278913
+    ],
+    "peakRssBytes": 17268736,
+    "exits": [
+     0,
+     0,
+     0
+    ]
+   },
+   "reads": {
+    "projections/semantic-index.json": {
+     "timesS": [
+      0.0030346671119332314,
+      0.00335516594350338,
+      0.003063791198655963
+     ],
+     "verifyS": 0.006749375024810433,
+     "bytes": 6738
+    },
+    "projections/system-interface.json": {
+     "timesS": [
+      0.002938333200290799,
+      0.0030825419817119837,
+      0.003280957927927375
+     ],
+     "verifyS": 0.004350499948486686,
+     "bytes": 1327
+    }
+   },
+   "python": {
+    "prod:km-load": 0.00392495805863291,
+    "prod:semantic-index": 0.006863374961540103,
+    "prod:variant-catalog": 0.001781625091098249,
+    "prod:system-interface": 0.004521417082287371,
+    "golden:semantic-index": 0.007037542061880231,
+    "golden:system-interface": 0.005406625103205442,
+    "golden:project": 0.3064589580753818,
+    "golden:stackup": 0.0012583750067278743,
+    "golden:placements": 0.0013998330105096102,
+    "golden:occurrences": 0.09647062502335757,
+    "golden:board-objects": 0.07704258302692324,
+    "golden:route-metrics": 0.07232841709628701
+   },
+   "pythonPeakRssBytes": 85082112
+  },
+  {
+   "case": "dv-sch_only",
+   "build": {
+    "timesS": [
+     0.030680499970912933,
+     0.02859712508507073,
+     0.02877233293838799
+    ],
+    "peakRssBytes": 17317888,
+    "exits": [
+     0,
+     0,
+     0
+    ]
+   },
+   "reads": {
+    "projections/semantic-index.json": {
+     "timesS": [
+      0.0032582920975983143,
+      0.003210166934877634,
+      0.002700250130146742
+     ],
+     "verifyS": 0.005804374814033508,
+     "bytes": 4228
+    },
+    "projections/system-interface.json": {
+     "timesS": [
+      0.002939291065558791,
+      0.0035521250683814287,
+      0.0030405421275645494
+     ],
+     "verifyS": 0.0038765829522162676,
+     "bytes": 770
+    }
+   },
+   "python": {
+    "prod:km-load": 0.0033494579838588834,
+    "prod:semantic-index": 0.005572041962295771,
+    "prod:variant-catalog": 0.0022148749558255076,
+    "prod:system-interface": 0.0038277499843388796,
+    "golden:semantic-index": 0.0068739589769393206,
+    "golden:system-interface": 0.004295957973226905,
+    "golden:project": 0.29685266700107604,
+    "golden:stackup": 0.0009277909994125366,
+    "golden:placements": 0.0009833750082179904,
+    "golden:occurrences": 0.09334183402825147,
+    "golden:board-objects": 0.07420383300632238,
+    "golden:route-metrics": 0.07847720792051405
+   },
+   "pythonPeakRssBytes": 85344256
+  },
+  {
+   "case": "rs-cynthion",
+   "build": {
+    "timesS": [
+     0.7184224580414593,
+     0.7074025829788297,
+     0.6915607501287013
+    ],
+    "peakRssBytes": 320897024,
+    "exits": [
+     0,
+     0,
+     0
+    ]
+   },
+   "reads": {
+    "projections/semantic-index.json": {
+     "timesS": [
+      0.04916862491518259,
+      0.041450415970757604,
+      0.04198862495832145
+     ],
+     "verifyS": 1.0324094169773161,
+     "bytes": 2620878
+    },
+    "projections/system-interface.json": {
+     "timesS": [
+      0.024025291902944446,
+      0.024282541824504733,
+      0.024501583073288202
+     ],
+     "verifyS": 0.46950770798139274,
+     "bytes": 577915
+    }
+   },
+   "python": {
+    "prod:km-load": 3.3543213749071583,
+    "prod:semantic-index": 3.775453208014369,
+    "prod:variant-catalog": 0.02158158295787871,
+    "prod:system-interface": 3.590573583962396,
+    "golden:semantic-index": 3.909069332992658,
+    "golden:system-interface": 3.636058875010349,
+    "golden:project": 14.969451290904544,
+    "golden:stackup": 8.520897916983813,
+    "golden:placements": 7.45217608299572,
+    "golden:occurrences": 24.865984750096686,
+    "golden:board-objects": 3.07505766605027,
+    "golden:route-metrics": 1.2088644169270992
+   },
+   "pythonPeakRssBytes": 520159232
+  },
+  {
+   "case": "rs-synthetic",
+   "build": {
+    "timesS": [
+     0.026140083791688085,
+     0.023854332976043224,
+     0.025625999784097075
+    ],
+    "peakRssBytes": 18317312,
+    "exits": [
+     0,
+     0,
+     0
+    ]
+   },
+   "reads": {
+    "projections/semantic-index.json": {
+     "timesS": [
+      0.003497249912470579,
+      0.003370583988726139,
+      0.0032147918827831745
+     ],
+     "verifyS": 0.007752041798084974,
+     "bytes": 9586
+    },
+    "projections/system-interface.json": {
+     "timesS": [
+      0.0033497922122478485,
+      0.0032969999592751265,
+      0.003396415850147605
+     ],
+     "verifyS": 0.005161166889593005,
+     "bytes": 2026
+    }
+   },
+   "python": {
+    "prod:km-load": 0.007620083051733673,
+    "prod:semantic-index": 0.013577915960922837,
+    "prod:variant-catalog": 0.002722166944295168,
+    "prod:system-interface": 0.009352958993986249,
+    "golden:semantic-index": 0.015210750047117472,
+    "golden:system-interface": 0.009253584081307054,
+    "golden:project": 0.49564920901320875,
+    "golden:stackup": 0.016637666965834796,
+    "golden:placements": 0.011389666004106402,
+    "golden:occurrences": 0.15340791700873524,
+    "golden:board-objects": 0.09004191705025733,
+    "golden:route-metrics": 0.0825957499910146
+   },
+   "pythonPeakRssBytes": 87293952
+  },
+  {
+   "case": "rs-usb-pd",
+   "build": {
+    "timesS": [
+     0.15230854088440537,
+     0.146570332814008,
+     0.1476226660888642
+    ],
+    "peakRssBytes": 52412416,
+    "exits": [
+     0,
+     0,
+     0
+    ]
+   },
+   "reads": {
+    "projections/semantic-index.json": {
+     "timesS": [
+      0.006467167055234313,
+      0.006400125101208687,
+      0.006475042086094618
+     ],
+     "verifyS": 0.0708646250423044,
+     "bytes": 200058
+    },
+    "projections/system-interface.json": {
+     "timesS": [
+      0.005362499970942736,
+      0.005251833004876971,
+      0.005633583990857005
+     ],
+     "verifyS": 0.051269040908664465,
+     "bytes": 56584
+    }
+   },
+   "python": {
+    "prod:km-load": 0.25794741604477167,
+    "prod:semantic-index": 0.2888642919715494,
+    "prod:variant-catalog": 0.014754624920897186,
+    "prod:system-interface": 0.23856083396822214,
+    "golden:semantic-index": 0.292838666937314,
+    "golden:system-interface": 0.23816979199182242,
+    "golden:project": 2.0284538329578936,
+    "golden:stackup": 0.6211560419760644,
+    "golden:placements": 0.5299750419799238,
+    "golden:occurrences": 1.722107374924235,
+    "golden:board-objects": 0.37945000000763685,
+    "golden:route-metrics": 0.22804162499960512
+   },
+   "pythonPeakRssBytes": 122355712
+  },
+  {
+   "case": "sb-p2-ambiguous-F0",
+   "build": {
+    "timesS": [
+     0.03596458304673433,
+     0.031695208977907896,
+     0.03207541606388986
+    ],
+    "peakRssBytes": 18808832,
+    "exits": [
+     0,
+     0,
+     0
+    ]
+   },
+   "reads": {
+    "projections/semantic-index.json": {
+     "timesS": [
+      0.004227417055517435,
+      0.00487133301794529,
+      0.004166292026638985
+     ],
+     "verifyS": 0.009841582970693707,
+     "bytes": 11528
+    },
+    "projections/system-interface.json": {
+     "timesS": [
+      0.004180708900094032,
+      0.004103709012269974,
+      0.00450833304785192
+     ],
+     "verifyS": 0.007144917035475373,
+     "bytes": 2752
+    }
+   },
+   "python": {
+    "prod:km-load": 0.008068541996181011,
+    "prod:semantic-index": 0.012773917056620121,
+    "prod:variant-catalog": 0.002571041928604245,
+    "prod:system-interface": 0.008693709038197994,
+    "golden:semantic-index": 0.013549790950492024,
+    "golden:system-interface": 0.009125499986112118,
+    "golden:project": 0.7498133750632405,
+    "golden:stackup": 0.01515995804220438,
+    "golden:placements": 0.010438667028211057,
+    "golden:occurrences": 0.1494281250052154,
+    "golden:board-objects": 0.09575670794583857,
+    "golden:route-metrics": 0.08968624996487051
+   },
+   "pythonPeakRssBytes": 86622208
+  },
+  {
+   "case": "sb-p2-edge_a-F0",
+   "build": {
+    "timesS": [
+     0.03309191600419581,
+     0.03160970797762275,
+     0.0346194168087095
+    ],
+    "peakRssBytes": 19480576,
+    "exits": [
+     0,
+     0,
+     0
+    ]
+   },
+   "reads": {
+    "projections/semantic-index.json": {
+     "timesS": [
+      0.004196875030174851,
+      0.004197416827082634,
+      0.0040586250834167
+     ],
+     "verifyS": 0.008609500015154481,
+     "bytes": 11095
+    },
+    "projections/system-interface.json": {
+     "timesS": [
+      0.003861375153064728,
+      0.0040484589990228415,
+      0.003908874932676554
+     ],
+     "verifyS": 0.007093125022947788,
+     "bytes": 3410
+    }
+   },
+   "python": {
+    "prod:km-load": 0.015430542058311403,
+    "prod:semantic-index": 0.019510749960318208,
+    "prod:variant-catalog": 0.0037580420030280948,
+    "prod:system-interface": 0.01689954102039337,
+    "golden:semantic-index": 0.021641166997142136,
+    "golden:system-interface": 0.017012834083288908,
+    "golden:project": 0.8486941669834778,
+    "golden:stackup": 0.039946625009179115,
+    "golden:placements": 0.0312984170159325,
+    "golden:occurrences": 0.21455841604620218,
+    "golden:board-objects": 0.10688062501139939,
+    "golden:route-metrics": 0.09210054099094123
+   },
+   "pythonPeakRssBytes": 89440256
+  },
+  {
+   "case": "sb-p2-edge_b-F0",
+   "build": {
+    "timesS": [
+     0.03399791591800749,
+     0.0366929171141237,
+     0.03400083398446441
+    ],
+    "peakRssBytes": 19628032,
+    "exits": [
+     0,
+     0,
+     0
+    ]
+   },
+   "reads": {
+    "projections/semantic-index.json": {
+     "timesS": [
+      0.004123792052268982,
+      0.0041991660837084055,
+      0.004008667077869177
+     ],
+     "verifyS": 0.00953300017863512,
+     "bytes": 11086
+    },
+    "projections/system-interface.json": {
+     "timesS": [
+      0.0038050420116633177,
+      0.004251665901392698,
+      0.003935416927561164
+     ],
+     "verifyS": 0.007198250154033303,
+     "bytes": 3402
+    }
+   },
+   "python": {
+    "prod:km-load": 0.013045624946244061,
+    "prod:semantic-index": 0.016980750020593405,
+    "prod:variant-catalog": 0.0021360829705372453,
+    "prod:system-interface": 0.014758583041839302,
+    "golden:semantic-index": 0.02196058293338865,
+    "golden:system-interface": 0.014758000033907592,
+    "golden:project": 0.8292892500758171,
+    "golden:stackup": 0.03130508400499821,
+    "golden:placements": 0.023405040963552892,
+    "golden:occurrences": 0.1713534169830382,
+    "golden:board-objects": 0.1002624579705298,
+    "golden:route-metrics": 0.09440850000828505
+   },
+   "pythonPeakRssBytes": 87343104
+  },
+  {
+   "case": "sb-p2-mezz_base-F0",
+   "build": {
+    "timesS": [
+     0.055942249950021505,
+     0.06271629105322063,
+     0.06475375010631979
+    ],
+    "peakRssBytes": 34029568,
+    "exits": [
+     0,
+     0,
+     0
+    ]
+   },
+   "reads": {
+    "projections/semantic-index.json": {
+     "timesS": [
+      0.007161084096878767,
+      0.007051833206787705,
+      0.006713750073686242
+     ],
+     "verifyS": 0.09902624995447695,
+     "bytes": 229573
+    },
+    "projections/system-interface.json": {
+     "timesS": [
+      0.0056831249967217445,
+      0.005766791990026832,
+      0.0057027500588446856
+     ],
+     "verifyS": 0.06107758288271725,
+     "bytes": 52491
+    }
+   },
+   "python": {
+    "prod:km-load": 0.06475891603622586,
+    "prod:semantic-index": 0.11209054198116064,
+    "prod:variant-catalog": 0.003069708007387817,
+    "prod:system-interface": 0.0685265000211075,
+    "golden:semantic-index": 0.12013670906890184,
+    "golden:system-interface": 0.06928820803295821,
+    "golden:project": 1.0232316249748692,
+    "golden:stackup": 0.11971845803782344,
+    "golden:placements": 0.09701520798262209,
+    "golden:occurrences": 0.5166763749439269,
+    "golden:board-objects": 0.1623847500886768,
+    "golden:route-metrics": 0.12351558392401785
+   },
+   "pythonPeakRssBytes": 94126080
+  },
+  {
+   "case": "sb-p2-mezz_top-F0",
+   "build": {
+    "timesS": [
+     0.06490183295682073,
+     0.06542850006371737,
+     0.0653750840574503
+    ],
+    "peakRssBytes": 34013184,
+    "exits": [
+     0,
+     0,
+     0
+    ]
+   },
+   "reads": {
+    "projections/semantic-index.json": {
+     "timesS": [
+      0.0071890829131007195,
+      0.007124792085960507,
+      0.006830584025010467
+     ],
+     "verifyS": 0.09948008297942579,
+     "bytes": 229447
+    },
+    "projections/system-interface.json": {
+     "timesS": [
+      0.005715749925002456,
+      0.00543020898476243,
+      0.0054185830522328615
+     ],
+     "verifyS": 0.05960929091088474,
+     "bytes": 52497
+    }
+   },
+   "python": {
+    "prod:km-load": 0.06336729100439698,
+    "prod:semantic-index": 0.1010956660611555,
+    "prod:variant-catalog": 0.0028554999735206366,
+    "prod:system-interface": 0.06536612496711314,
+    "golden:semantic-index": 0.10492562502622604,
+    "golden:system-interface": 0.06927104108035564,
+    "golden:project": 0.9124528329120949,
+    "golden:stackup": 0.11714091594330966,
+    "golden:placements": 0.09490650007501245,
+    "golden:occurrences": 0.5509781669825315,
+    "golden:board-objects": 0.17046108306385577,
+    "golden:route-metrics": 0.13300737494137138
+   },
+   "pythonPeakRssBytes": 93143040
+  },
+  {
+   "case": "sb-p2-mezz_top-F1",
+   "build": {
+    "timesS": [
+     0.05990591621957719,
+     0.06854841695167124,
+     0.0796340829692781
+    ],
+    "peakRssBytes": 33701888,
+    "exits": [
+     0,
+     0,
+     0
+    ]
+   },
+   "reads": {
+    "projections/semantic-index.json": {
+     "timesS": [
+      0.007084209006279707,
+      0.006503415992483497,
+      0.006872792029753327
+     ],
+     "verifyS": 0.1006370831746608,
+     "bytes": 229447
+    },
+    "projections/system-interface.json": {
+     "timesS": [
+      0.005427167052403092,
+      0.0056374999694526196,
+      0.005418666871264577
+     ],
+     "verifyS": 0.0604775829706341,
+     "bytes": 52497
+    }
+   },
+   "python": {
+    "prod:km-load": 0.06397791695781052,
+    "prod:semantic-index": 0.1051831670338288,
+    "prod:variant-catalog": 0.0029708329821005464,
+    "prod:system-interface": 0.06912537489552051,
+    "golden:semantic-index": 0.11276583303697407,
+    "golden:system-interface": 0.06985424994491041,
+    "golden:project": 0.9045436249580234,
+    "golden:stackup": 0.12052895803935826,
+    "golden:placements": 0.09704958298243582,
+    "golden:occurrences": 0.5170416670152918,
+    "golden:board-objects": 0.1626175839919597,
+    "golden:route-metrics": 0.12905945908278227
+   },
+   "pythonPeakRssBytes": 94175232
+  },
+  {
+   "case": "sb-mini_obc-F0",
+   "build": {
+    "timesS": [
+     0.037048166152089834,
+     0.0395771658513695,
+     0.03754312498494983
+    ],
+    "peakRssBytes": 20463616,
+    "exits": [
+     0,
+     0,
+     0
+    ]
+   },
+   "reads": {
+    "projections/semantic-index.json": {
+     "timesS": [
+      0.0036469579208642244,
+      0.0038185829762369394,
+      0.004000416025519371
+     ],
+     "verifyS": 0.022481791907921433,
+     "bytes": 46847
+    },
+    "projections/system-interface.json": {
+     "timesS": [
+      0.003532750066369772,
+      0.0037930000107735395,
+      0.003622249932959676
+     ],
+     "verifyS": 0.013368042185902596,
+     "bytes": 11202
+    }
+   },
+   "python": {
+    "prod:km-load": 0.018513457966037095,
+    "prod:semantic-index": 0.02965837495867163,
+    "prod:variant-catalog": 0.002473750035278499,
+    "prod:system-interface": 0.02122091595083475,
+    "golden:semantic-index": 0.029963542008772492,
+    "golden:system-interface": 0.022660624934360385,
+    "golden:project": 0.5431982090231031,
+    "golden:stackup": 0.026967250043526292,
+    "golden:placements": 0.02116287499666214,
+    "golden:occurrences": 0.22117229201830924,
+    "golden:board-objects": 0.10477441607508808,
+    "golden:route-metrics": 0.09466349997092038
+   },
+   "pythonPeakRssBytes": 88227840
+  },
+  {
+   "case": "sb-mini_obc-F1",
+   "build": {
+    "timesS": [
+     0.042576750041916966,
+     0.03938108403235674,
+     0.0378110830206424
+    ],
+    "peakRssBytes": 20234240,
+    "exits": [
+     0,
+     0,
+     0
+    ]
+   },
+   "reads": {
+    "projections/semantic-index.json": {
+     "timesS": [
+      0.003629791084676981,
+      0.0036173751577734947,
+      0.003573708003386855
+     ],
+     "verifyS": 0.022626457968726754,
+     "bytes": 47128
+    },
+    "projections/system-interface.json": {
+     "timesS": [
+      0.0033783339895308018,
+      0.003652040846645832,
+      0.003196166828274727
+     ],
+     "verifyS": 0.013631165958940983,
+     "bytes": 11170
+    }
+   },
+   "python": {
+    "prod:km-load": 0.019444792065769434,
+    "prod:semantic-index": 0.030157541972585022,
+    "prod:variant-catalog": 0.0020228750072419643,
+    "prod:system-interface": 0.023483292083255947,
+    "golden:semantic-index": 0.030457167071290314,
+    "golden:system-interface": 0.021952084032818675,
+    "golden:project": 0.5517454169457778,
+    "golden:stackup": 0.0282462079776451,
+    "golden:placements": 0.02189420792274177,
+    "golden:occurrences": 0.2254803340183571,
+    "golden:board-objects": 0.11020533298142254,
+    "golden:route-metrics": 0.09784400009084493
+   },
+   "pythonPeakRssBytes": 87867392
+  },
+  {
+   "case": "sb-mini_obc-F2",
+   "build": {
+    "timesS": [
+     0.03601220902055502,
+     0.03656512498855591,
+     0.035380583023652434
+    ],
+    "peakRssBytes": 21168128,
+    "exits": [
+     0,
+     0,
+     0
+    ]
+   },
+   "reads": {
+    "projections/semantic-index.json": {
+     "timesS": [
+      0.0038436250761151314,
+      0.003889374900609255,
+      0.004028666997328401
+     ],
+     "verifyS": 0.022419125074520707,
+     "bytes": 46859
+    },
+    "projections/system-interface.json": {
+     "timesS": [
+      0.0033707909751683474,
+      0.003479874925687909,
+      0.0036635841242969036
+     ],
+     "verifyS": 0.014312375104054809,
+     "bytes": 11203
+    }
+   },
+   "python": {
+    "prod:km-load": 0.019758999929763377,
+    "prod:semantic-index": 0.03020537504926324,
+    "prod:variant-catalog": 0.005687874974682927,
+    "prod:system-interface": 0.021878208965063095,
+    "golden:semantic-index": 0.03033795894589275,
+    "golden:system-interface": 0.021929792012088,
+    "golden:project": 0.5214219579938799,
+    "golden:stackup": 0.03007645800244063,
+    "golden:placements": 0.022360957926139235,
+    "golden:occurrences": 0.214817582978867,
+    "golden:board-objects": 0.10281370801385492,
+    "golden:route-metrics": 0.09613916696980596
+   },
+   "pythonPeakRssBytes": 88948736
+  },
+  {
+   "case": "sb-mini_obc-F3",
+   "build": {
+    "timesS": [
+     0.03997012507170439,
+     0.04163824999704957,
+     0.0359243331477046
+    ],
+    "peakRssBytes": 21102592,
+    "exits": [
+     0,
+     0,
+     0
+    ]
+   },
+   "reads": {
+    "projections/semantic-index.json": {
+     "timesS": [
+      0.003902292111888528,
+      0.003912084037438035,
+      0.003668416989967227
+     ],
+     "verifyS": 0.02205270784907043,
+     "bytes": 46847
+    },
+    "projections/system-interface.json": {
+     "timesS": [
+      0.003624957986176014,
+      0.0036357499193400145,
+      0.0034197920467704535
+     ],
+     "verifyS": 0.013235958060249686,
+     "bytes": 11202
+    }
+   },
+   "python": {
+    "prod:km-load": 0.01916825002990663,
+    "prod:semantic-index": 0.029286416945979,
+    "prod:variant-catalog": 0.002288541989400983,
+    "prod:system-interface": 0.022603207966312766,
+    "golden:semantic-index": 0.030721290968358517,
+    "golden:system-interface": 0.02136891707777977,
+    "golden:project": 0.5275801660027355,
+    "golden:stackup": 0.02826245897449553,
+    "golden:placements": 0.021796458982862532,
+    "golden:occurrences": 0.22663266700692475,
+    "golden:board-objects": 0.10405679198447615,
+    "golden:route-metrics": 0.10372233297675848
+   },
+   "pythonPeakRssBytes": 88358912
+  },
+  {
+   "case": "sb-mini_obc-F4",
+   "build": {
+    "timesS": [
+     0.03948854096233845,
+     0.03802820900455117,
+     0.032474415842443705
+    ],
+    "peakRssBytes": 21086208,
+    "exits": [
+     0,
+     0,
+     0
+    ]
+   },
+   "reads": {
+    "projections/semantic-index.json": {
+     "timesS": [
+      0.004041000036522746,
+      0.003955666907131672,
+      0.004327999893575907
+     ],
+     "verifyS": 0.023699374869465828,
+     "bytes": 50771
+    },
+    "projections/system-interface.json": {
+     "timesS": [
+      0.003709040815010667,
+      0.0036890830378979445,
+      0.0034141249489039183
+     ],
+     "verifyS": 0.01545545901171863,
+     "bytes": 11941
+    }
+   },
+   "python": {
+    "prod:km-load": 0.02098983305040747,
+    "prod:semantic-index": 0.03071729198563844,
+    "prod:variant-catalog": 0.0021502909949049354,
+    "prod:system-interface": 0.022711249999701977,
+    "golden:semantic-index": 0.03287249989807606,
+    "golden:system-interface": 0.023111207992769778,
+    "golden:project": 0.5195644580526277,
+    "golden:stackup": 0.028537707985378802,
+    "golden:placements": 0.0224350409116596,
+    "golden:occurrences": 0.219570167013444,
+    "golden:board-objects": 0.10721475002355874,
+    "golden:route-metrics": 0.09880899998825043
+   },
+   "pythonPeakRssBytes": 89456640
+  },
+  {
+   "case": "sb-mini_obc-F5",
+   "build": {
+    "timesS": [
+     0.029754457995295525,
+     0.03125591715797782,
+     0.02967937500216067
+    ],
+    "peakRssBytes": 20922368,
+    "exits": [
+     0,
+     0,
+     0
+    ]
+   },
+   "reads": {
+    "projections/semantic-index.json": {
+     "timesS": [
+      0.003637291956692934,
+      0.0042821248061954975,
+      0.0038880000356584787
+     ],
+     "verifyS": 0.022267292020842433,
+     "bytes": 47400
+    },
+    "projections/system-interface.json": {
+     "timesS": [
+      0.00378625001758337,
+      0.003727500094100833,
+      0.0035786249209195375
+     ],
+     "verifyS": 0.01408083294518292,
+     "bytes": 11384
+    }
+   },
+   "python": {
+    "prod:km-load": 0.019450124935247004,
+    "prod:semantic-index": 0.028984541073441505,
+    "prod:variant-catalog": 0.002541458001360297,
+    "prod:system-interface": 0.02102020801976323,
+    "golden:semantic-index": 0.030330083100125194,
+    "golden:system-interface": 0.02262325002811849,
+    "golden:project": 0.535709833027795,
+    "golden:stackup": 0.028443290968425572,
+    "golden:placements": 0.022020500036887825,
+    "golden:occurrences": 0.2267928330693394,
+    "golden:board-objects": 0.1052798330783844,
+    "golden:route-metrics": 0.10207958391401917
+   },
+   "pythonPeakRssBytes": 87834624
+  },
+  {
+   "case": "sb-mini_obc-F6",
+   "build": {
+    "timesS": [
+     0.030136624816805124,
+     0.029703292064368725,
+     0.035769624868407845
+    ],
+    "peakRssBytes": 20643840,
+    "exits": [
+     0,
+     0,
+     0
+    ]
+   },
+   "reads": {
+    "projections/semantic-index.json": {
+     "timesS": [
+      0.0036993329413235188,
+      0.004189209081232548,
+      0.0038709999062120914
+     ],
+     "verifyS": 0.021871667122468352,
+     "bytes": 46847
+    },
+    "projections/system-interface.json": {
+     "timesS": [
+      0.00352645805105567,
+      0.0037527079693973064,
+      0.0034899169113487005
+     ],
+     "verifyS": 0.013470042031258345,
+     "bytes": 11202
+    }
+   },
+   "python": {
+    "prod:km-load": 0.01939929206855595,
+    "prod:semantic-index": 0.027815667097456753,
+    "prod:variant-catalog": 0.0027426250744611025,
+    "prod:system-interface": 0.022716083098202944,
+    "golden:semantic-index": 0.03091116703581065,
+    "golden:system-interface": 0.022362624993547797,
+    "golden:project": 0.5365974999731407,
+    "golden:stackup": 0.028499791980721056,
+    "golden:placements": 0.021325499983504415,
+    "golden:occurrences": 0.21023166691884398,
+    "golden:board-objects": 0.10268587502650917,
+    "golden:route-metrics": 0.09955741697922349
+   },
+   "pythonPeakRssBytes": 87932928
+  },
+  {
+   "case": "sb-mini_obc-F7",
+   "build": {
+    "timesS": [
+     0.040158458054065704,
+     0.038055374985560775,
+     0.042246999917551875
+    ],
+    "peakRssBytes": 20873216,
+    "exits": [
+     0,
+     0,
+     0
+    ]
+   },
+   "reads": {
+    "projections/semantic-index.json": {
+     "timesS": [
+      0.004183207871392369,
+      0.003931917017325759,
+      0.004130166955292225
+     ],
+     "verifyS": 0.022237125085666776,
+     "bytes": 46855
+    },
+    "projections/system-interface.json": {
+     "timesS": [
+      0.003566291881725192,
+      0.0035132919438183308,
+      0.003813541028648615
+     ],
+     "verifyS": 0.013929334003478289,
+     "bytes": 11206
+    }
+   },
+   "python": {
+    "prod:km-load": 0.019751416984945536,
+    "prod:semantic-index": 0.033180708065629005,
+    "prod:variant-catalog": 0.0021767920115962625,
+    "prod:system-interface": 0.022074957960285246,
+    "golden:semantic-index": 0.029692209092900157,
+    "golden:system-interface": 0.022488457965664566,
+    "golden:project": 0.5312505830079317,
+    "golden:stackup": 0.029200291959568858,
+    "golden:placements": 0.021972459042444825,
+    "golden:occurrences": 0.21768433402758092,
+    "golden:board-objects": 0.103719332953915,
+    "golden:route-metrics": 0.0980349580058828
+   },
+   "pythonPeakRssBytes": 88326144
+  },
+  {
+   "case": "sb-mini_obc-F8",
+   "build": {
+    "timesS": [
+     0.03741575009189546,
+     0.04078550008125603,
+     0.03824604209512472
+    ],
+    "peakRssBytes": 20611072,
+    "exits": [
+     0,
+     0,
+     0
+    ]
+   },
+   "reads": {
+    "projections/semantic-index.json": {
+     "timesS": [
+      0.0039160409942269325,
+      0.003861082950606942,
+      0.00424008397385478
+     ],
+     "verifyS": 0.022801583167165518,
+     "bytes": 46894
+    },
+    "projections/system-interface.json": {
+     "timesS": [
+      0.00342179206199944,
+      0.003565666964277625,
+      0.0034352911170572042
+     ],
+     "verifyS": 0.013061125064268708,
+     "bytes": 11202
+    }
+   },
+   "python": {
+    "prod:km-load": 0.01965129200834781,
+    "prod:semantic-index": 0.029441084014251828,
+    "prod:variant-catalog": 0.002277375082485378,
+    "prod:system-interface": 0.02153274999000132,
+    "golden:semantic-index": 0.03018529200926423,
+    "golden:system-interface": 0.020860582939349115,
+    "golden:project": 0.5436009999830276,
+    "golden:stackup": 0.028517042053863406,
+    "golden:placements": 0.022121665999293327,
+    "golden:occurrences": 0.22062408295460045,
+    "golden:board-objects": 0.10307370801456273,
+    "golden:route-metrics": 0.09059787506703287
+   },
+   "pythonPeakRssBytes": 88604672
+  },
+  {
+   "case": "sb-mini_obc-F9",
+   "build": {
+    "timesS": [
+     0.0391575840767473,
+     0.03547987504862249,
+     0.03580425004474819
+    ],
+    "peakRssBytes": 20840448,
+    "exits": [
+     0,
+     0,
+     0
+    ]
+   },
+   "reads": {
+    "projections/semantic-index.json": {
+     "timesS": [
+      0.003918207949027419,
+      0.003742417087778449,
+      0.0037729579489678144
+     ],
+     "verifyS": 0.021381125086918473,
+     "bytes": 42756
+    },
+    "projections/system-interface.json": {
+     "timesS": [
+      0.0036899589467793703,
+      0.0037050419487059116,
+      0.0033621250186115503
+     ],
+     "verifyS": 0.012114916928112507,
+     "bytes": 9841
+    }
+   },
+   "python": {
+    "prod:km-load": 0.017302916035987437,
+    "prod:semantic-index": 0.025329665979370475,
+    "prod:variant-catalog": 0.0022223329870030284,
+    "prod:system-interface": 0.020069040940143168,
+    "golden:semantic-index": 0.02896041690837592,
+    "golden:system-interface": 0.019626457942649722,
+    "golden:project": 0.5240042499499395,
+    "golden:stackup": 0.025107584078796208,
+    "golden:placements": 0.018975667073391378,
+    "golden:occurrences": 0.2145248749293387,
+    "golden:board-objects": 0.10098950006067753,
+    "golden:route-metrics": 0.09643758297897875
+   },
+   "pythonPeakRssBytes": 87916544
+  },
+  {
+   "case": "sb-mini_obc-F11.1",
+   "build": {
+    "timesS": [
+     0.03902658401057124,
+     0.03769795806147158,
+     0.04028287483379245
+    ],
+    "peakRssBytes": 20905984,
+    "exits": [
+     0,
+     0,
+     0
+    ]
+   },
+   "reads": {
+    "projections/semantic-index.json": {
+     "timesS": [
+      0.004137125099077821,
+      0.004055333090946078,
+      0.0038808751851320267
+     ],
+     "verifyS": 0.023195542162284255,
+     "bytes": 47128
+    },
+    "projections/system-interface.json": {
+     "timesS": [
+      0.004118708893656731,
+      0.0036006669979542494,
+      0.0035724590998142958
+     ],
+     "verifyS": 0.013479833956807852,
+     "bytes": 11170
+    }
+   },
+   "python": {
+    "prod:km-load": 0.01848900003824383,
+    "prod:semantic-index": 0.027658708044327796,
+    "prod:variant-catalog": 0.0021887499606236815,
+    "prod:system-interface": 0.022883124998770654,
+    "golden:semantic-index": 0.03213237505406141,
+    "golden:system-interface": 0.022409832919947803,
+    "golden:project": 0.5506878340383992,
+    "golden:stackup": 0.029637375031597912,
+    "golden:placements": 0.022275625029578805,
+    "golden:occurrences": 0.22553733398672193,
+    "golden:board-objects": 0.10505849996116012,
+    "golden:route-metrics": 0.10192499996628612
+   },
+   "pythonPeakRssBytes": 88653824
+  },
+  {
+   "case": "sb-mini_obc-F11.2",
+   "build": {
+    "timesS": [
+     0.037988000083714724,
+     0.03959533292800188,
+     0.0375772500410676
+    ],
+    "peakRssBytes": 21053440,
+    "exits": [
+     0,
+     0,
+     0
+    ]
+   },
+   "reads": {
+    "projections/semantic-index.json": {
+     "timesS": [
+      0.003859959077090025,
+      0.003820457961410284,
+      0.003908666083589196
+     ],
+     "verifyS": 0.022538250079378486,
+     "bytes": 47128
+    },
+    "projections/system-interface.json": {
+     "timesS": [
+      0.0035992080811411142,
+      0.003874999936670065,
+      0.003777791978791356
+     ],
+     "verifyS": 0.014108208008110523,
+     "bytes": 11170
+    }
+   },
+   "python": {
+    "prod:km-load": 0.020195624907501042,
+    "prod:semantic-index": 0.03004883404355496,
+    "prod:variant-catalog": 0.0030661249766126275,
+    "prod:system-interface": 0.02193783293478191,
+    "golden:semantic-index": 0.030682833050377667,
+    "golden:system-interface": 0.024781082989647985,
+    "golden:project": 0.5715207500616089,
+    "golden:stackup": 0.028632416971959174,
+    "golden:placements": 0.021945082931779325,
+    "golden:occurrences": 0.22777562506962568,
+    "golden:board-objects": 0.11700220790226012,
+    "golden:route-metrics": 0.09609595802612603
+   },
+   "pythonPeakRssBytes": 88637440
+  },
+  {
+   "case": "sb-mini_payload-F0",
+   "build": {
+    "timesS": [
+     0.03455758304335177,
+     0.03360395901836455,
+     0.03625987493433058
+    ],
+    "peakRssBytes": 19496960,
+    "exits": [
+     0,
+     0,
+     0
+    ]
+   },
+   "reads": {
+    "projections/semantic-index.json": {
+     "timesS": [
+      0.0037786660250276327,
+      0.0038103749975562096,
+      0.003915749955922365
+     ],
+     "verifyS": 0.017976375063881278,
+     "bytes": 32281
+    },
+    "projections/system-interface.json": {
+     "timesS": [
+      0.0033519170247018337,
+      0.003234917065128684,
+      0.0033810001332312822
+     ],
+     "verifyS": 0.008554958971217275,
+     "bytes": 5307
+    }
+   },
+   "python": {
+    "prod:km-load": 0.011397792026400566,
+    "prod:semantic-index": 0.020283000078052282,
+    "prod:variant-catalog": 0.0024829170433804393,
+    "prod:system-interface": 0.012293084058910608,
+    "golden:semantic-index": 0.019216208020225167,
+    "golden:system-interface": 0.013735290965996683,
+    "golden:project": 0.4714209579396993,
+    "golden:stackup": 0.005515667027793825,
+    "golden:placements": 0.005681333946995437,
+    "golden:occurrences": 0.1407172919716686,
+    "golden:board-objects": 0.08719183295033872,
+    "golden:route-metrics": 0.08672316698357463
+   },
+   "pythonPeakRssBytes": 85671936
+  },
+  {
+   "case": "sb-mini_power-F0",
+   "build": {
+    "timesS": [
+     0.03280312498100102,
+     0.03278962499462068,
+     0.03171175019815564
+    ],
+    "peakRssBytes": 18759680,
+    "exits": [
+     0,
+     0,
+     0
+    ]
+   },
+   "reads": {
+    "projections/semantic-index.json": {
+     "timesS": [
+      0.0032059161458164454,
+      0.00343137513846159,
+      0.0032552091870456934
+     ],
+     "verifyS": 0.010268917074427009,
+     "bytes": 15616
+    },
+    "projections/system-interface.json": {
+     "timesS": [
+      0.0032790841069072485,
+      0.0031228750012815,
+      0.003773542121052742
+     ],
+     "verifyS": 0.0068915418814867735,
+     "bytes": 3946
+    }
+   },
+   "python": {
+    "prod:km-load": 0.009525042027235031,
+    "prod:semantic-index": 0.015036958968266845,
+    "prod:variant-catalog": 0.0014693340053781867,
+    "prod:system-interface": 0.011567833018489182,
+    "golden:semantic-index": 0.016864000004716218,
+    "golden:system-interface": 0.011594625073485076,
+    "golden:project": 0.46735558309592307,
+    "golden:stackup": 0.017155832960270345,
+    "golden:placements": 0.012716000084765255,
+    "golden:occurrences": 0.14805537497159094,
+    "golden:board-objects": 0.09569204202853143,
+    "golden:route-metrics": 0.09412424999754876
+   },
+   "pythonPeakRssBytes": 88326144
+  },
+  {
+   "case": "sb-mini_power-F10",
+   "build": {
+    "timesS": [
+     0.03403679188340902,
+     0.023539874935522676,
+     0.025768999941647053
+    ],
+    "peakRssBytes": 18235392,
+    "exits": [
+     0,
+     0,
+     0
+    ]
+   },
+   "reads": {
+    "projections/semantic-index.json": {
+     "timesS": [
+      0.003666499862447381,
+      0.0034266251605004072,
+      0.003212332958355546
+     ],
+     "verifyS": 0.009557709097862244,
+     "bytes": 13902
+    },
+    "projections/system-interface.json": {
+     "timesS": [
+      0.0031132500153034925,
+      0.0032826659735292196,
+      0.003352333093062043
+     ],
+     "verifyS": 0.0069619580172002316,
+     "bytes": 3655
+    }
+   },
+   "python": {
+    "prod:km-load": 0.008948749979026616,
+    "prod:semantic-index": 0.014666749979369342,
+    "prod:variant-catalog": 0.0014476659707725048,
+    "prod:system-interface": 0.010745540959760547,
+    "golden:semantic-index": 0.016395375016145408,
+    "golden:system-interface": 0.011467917007394135,
+    "golden:project": 0.4776254999451339,
+    "golden:stackup": 0.01667712489143014,
+    "golden:placements": 0.012292959028854966,
+    "golden:occurrences": 0.14933183300308883,
+    "golden:board-objects": 0.08996054099407047,
+    "golden:route-metrics": 0.09055187506601214
+   },
+   "pythonPeakRssBytes": 88145920
+  }
+ ]
+}
