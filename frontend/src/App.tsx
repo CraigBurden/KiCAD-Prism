@@ -216,6 +216,26 @@ function App() {
         return <FullScreenMessage message={authError || 'Failed to resolve current user.'} isError />;
     }
 
+    // The server refuses everything but the change itself while a temporary
+    // password stands, so a restored session goes straight to that form.
+    if (user.must_change_password) {
+        return (
+            <Suspense fallback={<RouteFallback />}>
+                <LoginPage
+                    authConfig={authConfig}
+                    workspaceName={authConfig.workspace_name}
+                    restoredUser={user}
+                    onSignOut={handleLogout}
+                    onLoginSuccess={(signedIn) => {
+                        setUser(signedIn);
+                        setAuthError(null);
+                        setSessionExpired(false);
+                    }}
+                />
+            </Suspense>
+        );
+    }
+
     // User is authenticated or auth is disabled - show app
     return (
         /*
