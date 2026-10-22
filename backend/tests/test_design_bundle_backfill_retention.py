@@ -56,7 +56,7 @@ class BackfillTests(_Workspace, unittest.TestCase):
         self.assertEqual(len(queued), 3)  # p1 main, p1 feature, p2 main
         self.assertIsNone(backfill.tick(self.state)["queued"])  # every head is queued now
         payloads = [row["payload"] for row in self.queue.rows.values()]
-        self.assertTrue(all(row["requested_by"] == backfill.REQUESTED_BY for row in self.queue.rows.values()))
+        self.assertTrue(all(row["requested_by"] == jobs.BACKFILL_REQUESTED_BY for row in self.queue.rows.values()))
         self.assertEqual(sum(1 for p in payloads if p["head"]), 2)
 
     def test_it_flags_projects_whose_board_or_schematic_no_longer_resolves(self) -> None:

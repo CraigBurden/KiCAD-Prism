@@ -266,6 +266,56 @@ class DesignBundleJobTests(_Workspace, unittest.TestCase):
         self.assertEqual(rows.get_bundle("p1", payload["bundle_key"])["state"], "failed")
         self.assertFalse(jobs.settle_design_bundle_end(ended))  # idempotent
 
+    def _two_commits(self) -> tuple[str, str]:
+        repo = self.add_project()
+        old = git(repo, "rev-parse", "HEAD")
+        (repo / "board/demo.kicad_sch").write_text("(kicad_sch (version 20260306) (v2))\n", encoding="utf-8")
+        git(repo, "-c", "commit.gpgsign=false", "commit", "-qam", "v2")
+        return old, git(repo, "rev-parse", "HEAD")
+
+    def test_an_interactive_enqueue_preempts_a_running_backfill_job(self) -> None:
+        old, head = self._two_commits()
+        backfill_job = jobs.start_design_bundle_job(
+            "p1", commit=old, requested_by=jobs.BACKFILL_REQUESTED_BY, priority=jobs.BACKFILL_PRIORITY
+        )
+        self.queue.claim("test-worker", worker_pool="prism")
+        backfill_payload = self.queue.rows[backfill_job]["payload"]
+        interactive_job = jobs.start_design_bundle_job("p1", commit=head, requested_by="user")
+        self.assertEqual(self.queue.rows[backfill_job]["status"], "cancel_requested")
+        self.assertEqual(self.queue.rows[interactive_job]["status"], "queued")
+        # The job's cancel path ends it; a preempted backfill leaves no failed row behind.
+        self.assertIsNotNone(rows.get_bundle("p1", backfill_payload["bundle_key"]))
+        ended = {**self.queue.get(backfill_job), "status": "cancelled"}
+        self.assertTrue(jobs.settle_design_bundle_end(ended))
+        self.assertIsNone(rows.get_bundle("p1", backfill_payload["bundle_key"]))
+        self.assertEqual(rows.get_bundle("p1", self.queue.rows[interactive_job]["payload"]["bundle_key"])["state"], "queued")
+
+    def test_an_interactive_enqueue_leaves_another_interactive_job_alone(self) -> None:
+        old, head = self._two_commits()
+        first = jobs.start_design_bundle_job("p1", commit=old, requested_by="user")
+        self.queue.claim("test-worker", worker_pool="prism")
+        jobs.start_design_bundle_job("p1", commit=head, requested_by="user")
+        self.assertEqual(self.queue.rows[first]["status"], "running")
+
+    def test_a_backfill_enqueue_cancels_nothing(self) -> None:
+        old, head = self._two_commits()
+        first = jobs.start_design_bundle_job(
+            "p1", commit=old, requested_by=jobs.BACKFILL_REQUESTED_BY, priority=jobs.BACKFILL_PRIORITY
+        )
+        self.queue.claim("test-worker", worker_pool="prism")
+        jobs.start_design_bundle_job(
+            "p1", commit=head, requested_by=jobs.BACKFILL_REQUESTED_BY, priority=jobs.BACKFILL_PRIORITY
+        )
+        self.assertEqual(self.queue.rows[first]["status"], "running")
+
+    def test_a_cancelled_interactive_job_still_settles_its_bundle_as_failed(self) -> None:
+        self.add_project()
+        job_id = jobs.start_design_bundle_job("p1", requested_by="user")
+        payload = self.queue.rows[job_id]["payload"]
+        ended = {**self.queue.get(job_id), "status": "cancelled"}
+        self.assertTrue(jobs.settle_design_bundle_end(ended))
+        self.assertEqual(rows.get_bundle("p1", payload["bundle_key"])["state"], "failed")
+
     def test_bundle_verify_runs_once_per_stored_archive_and_writes_the_marker(self) -> None:
         self.add_project()
         result = self.run_job(jobs.start_design_bundle_job("p1"))
