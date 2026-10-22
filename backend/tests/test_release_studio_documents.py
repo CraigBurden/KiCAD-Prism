@@ -718,6 +718,19 @@ class TestpointSheetTests(unittest.TestCase):
             [row[1] for row in table.rows], ["GND", "+3V3"]
         )
 
+    def test_coordinates_are_the_position_files(self) -> None:
+        """y points up, as in positions.csv; 0 is a position, not a blank."""
+
+        from app.release_studio.documents import tables
+
+        projection = {
+            "testpoints": [
+                {"ref": "TP1", "net": "GND", "side": "top", "x": 0.0, "y": 8.0},
+            ]
+        }
+        row = tables.testpoint_table(projection, "top").rows[0]
+        self.assertEqual(row[2:], ("0.000", "-8.000"))
+
     def test_an_unconnected_testpoint_states_a_dash_not_a_blank(self) -> None:
         from app.release_studio.documents import tables
 

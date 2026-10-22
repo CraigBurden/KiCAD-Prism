@@ -65,3 +65,16 @@ actually has, and KiCad refills a board the project's own settings describe.
 The released Gerber copper, board statistics and DRC/ERC counts on those two
 fixtures therefore differ from the legacy path; the recorded digests in rs-1
 carry that difference.
+
+## rs-3: documentation corrections found by the KiCad oracle review (2026-10-22)
+
+Reviewed changes to what the released documents say. In each case the legacy output was wrong, and the new output agrees with KiCad's own files for the same board (`native/parity/docs-oracle/`, JTYU-OBC).
+
+| What | Legacy | Now |
+|---|---|---|
+| Cover "Front / back" | counted from `positions.csv`, which leaves out footprints marked "exclude from position files"; JTYU-OBC read 982 components over 396 / 503 | KiCad's statistics, the same source as the total (479 / 503); the position file's count is its own row, "In position file" |
+| Drill schedule, slots | the slot's length only (`2.2000 mm`), which reads as a round hole | length by width (`2.2000 x 0.9000 mm`) |
+| Testpoint schedule Y | KiCad's internal y, pointing down, so it had the opposite sign to the same release's `positions.csv` | the position file's y, pointing up |
+| Testpoint at x = 0 or y = 0 | printed as "—", as if unknown | `0.000` |
+| Assembly artwork drill marks, offset drills | moved by the pad offset, turned the wrong way and by the footprint angle twice | at the pad position, where KiCad drills (drill files) |
+| Assembly artwork and ICD/atlas pad copper, offset pads | centred on the hole | moved by the offset, where KiCad flashes it (copper Gerbers) |

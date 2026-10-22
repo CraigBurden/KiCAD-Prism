@@ -622,6 +622,11 @@ def testpoint_table(
     column edge rather than wrapped, because a schedule that grows a second
     line for every long net name stops being a schedule.
 
+    The coordinates are the position file's (``assembly/positions.csv`` of the
+    same release): KiCad's page origin with y pointing up, so a probe fixture
+    dimensioned from either agrees. The projection carries KiCad's internal y,
+    which points down; it is negated here.
+
     The net's hierarchical sheet path is dropped when the leaf is unique on the
     side, and otherwise reduced to the shortest unique suffix.  ``/Debugger/
     MCU_SWCLK`` is a location, not a probe target; ``MCU_SWCLK`` is.
@@ -650,7 +655,7 @@ def testpoint_table(
                 typography=typography,
             ),
             _mm(item.get("x"), 3),
-            _mm(item.get("y"), 3),
+            _mm(_position_file_y(item.get("y")), 3),
         )
         for item in found
     ]
@@ -664,6 +669,15 @@ def testpoint_table(
         align=("start", "start", "end", "end"),
         max_cell_lines=1,
     )
+
+
+def _position_file_y(value: Any) -> Any:
+    """KiCad's internal y (down) as the position file writes it (up)."""
+
+    try:
+        return -float(value) if value is not None else None
+    except (TypeError, ValueError):
+        return value
 
 
 def key_value_table(title: str, pairs: Sequence[tuple[str, str]], *, width: float = 110.0) -> Table:
