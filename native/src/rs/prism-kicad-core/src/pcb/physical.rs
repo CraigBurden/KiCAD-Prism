@@ -72,7 +72,7 @@ impl PcbHole {
     /// board plotter does). The drill sits at the pad's position: KiCad's pad
     /// `(offset …)` moves the pad's copper away from the hole, never the hole
     /// itself, so `offset` plays no part here (KiCad's drill files agree, see
-    /// `tests/docs_oracle_holes.rs`). A via's `center` is already in board
+    /// `tests/docs_oracle.rs`). A via's `center` is already in board
     /// coordinates and the footprint is ignored.
     pub fn board_center(&self, footprint_at: PcbPoint, footprint_angle: f64) -> PcbPoint {
         if self.owner == PcbHoleOwner::Via {

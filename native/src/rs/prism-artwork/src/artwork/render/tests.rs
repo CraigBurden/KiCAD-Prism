@@ -89,11 +89,28 @@ fn pad(x: f64, y: f64, size: f64) -> PadInfo {
         y,
         size_x: size,
         size_y: size,
-        shape: "circle".to_owned(),
-        angle: 0.0,
-        roundrect_ratio: None,
-        offset: prism_kicad_core::PcbPoint { x: 0.0, y: 0.0 },
+        rings: vec![geometry::circle_ring(Point { x: 0.0, y: 0.0 }, size / 2.0)],
     }
+}
+
+/// A `width` × `height` rectangle turned by `angle` (board frame, KiCad's
+/// y-down rotation), as `PcbPad::copper_rings` gives it.
+fn rect_ring(width: f64, height: f64, angle: f64) -> Vec<Point> {
+    let (half_w, half_h) = (width / 2.0, height / 2.0);
+    [
+        (-half_w, -half_h),
+        (half_w, -half_h),
+        (half_w, half_h),
+        (-half_w, half_h),
+    ]
+    .into_iter()
+    .map(|(x, y)| {
+        Point::from(prism_kicad_core::kicad_rotate(
+            prism_kicad_core::PcbPoint { x, y },
+            angle,
+        ))
+    })
+    .collect()
 }
 
 fn footprint(
@@ -645,10 +662,7 @@ fn a_rotated_footprints_pads_are_not_turned_twice() {
             y: 0.0,
             size_x: 1.43,
             size_y: 5.5,
-            shape: "rect".to_owned(),
-            angle: 270.0,
-            roundrect_ratio: None,
-            offset: prism_kicad_core::PcbPoint { x: 0.0, y: 0.0 },
+            rings: vec![rect_ring(1.43, 5.5, 270.0)],
         })
         .collect();
     let bounds = inductor.pads_bounds().expect("the inductor has pads");

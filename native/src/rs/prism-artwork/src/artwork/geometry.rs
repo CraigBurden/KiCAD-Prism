@@ -316,29 +316,22 @@ fn collect_pad_envelopes(
         let Some(transform) = transforms.get(pad.footprint_index) else {
             continue;
         };
-        let anchor = transform.apply(Point {
-            x: pad.at_x,
-            y: pad.at_y,
-        });
-        // The pad's corners turn about its anchor by the same placement
-        // formula the footprint uses (`FootprintTransform::apply`). A board
-        // file stores a pad's angle in the board frame -- it already includes
-        // the footprint's rotation -- so it is not added again.
-        let corner = FootprintTransform {
-            x: anchor.x,
-            y: anchor.y,
-            angle: pad.angle,
+        // The copper as KiCad shapes it: a drill offset moves it off the pad
+        // position, and a custom pad's primitives reach past its anchor.
+        let at = PcbPoint {
+            x: transform.x,
+            y: transform.y,
         };
-        let half_x = pad.size_x.abs() / 2.0;
-        let half_y = pad.size_y.abs() / 2.0;
         let mut bounds = Bounds::empty();
-        for (x, y) in [
-            (-half_x, -half_y),
-            (half_x, -half_y),
-            (half_x, half_y),
-            (-half_x, half_y),
-        ] {
-            bounds.include(corner.apply(Point { x, y }));
+        for point in pad
+            .copper_outline(at, transform.angle)
+            .into_iter()
+            .flatten()
+        {
+            bounds.include(Point::from(point));
+        }
+        if bounds.is_empty() {
+            continue;
         }
         envelopes
             .entry(pad.footprint_index)
@@ -362,15 +355,6 @@ impl FootprintTransform {
             x: footprint.at_x.unwrap_or(0.0),
             y: footprint.at_y.unwrap_or(0.0),
             angle: footprint.angle.unwrap_or(0.0),
-        }
-    }
-
-    /// KiCad's footprint placement formula (placements-a1 `rotationDeg`).
-    fn apply(self, local: Point) -> Point {
-        let (sin, cos) = self.angle.to_radians().sin_cos();
-        Point {
-            x: self.x + local.x * cos + local.y * sin,
-            y: self.y - local.x * sin + local.y * cos,
         }
     }
 }

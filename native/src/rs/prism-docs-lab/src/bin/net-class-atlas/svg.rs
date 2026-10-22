@@ -441,22 +441,14 @@ fn pad_shape(svg: &mut String, shape: &PadShape) {
         PadShape::Oval { width, height } => {
             rect(svg, *width, *height, width.min(*height) / 2.0);
         }
-        PadShape::Custom {
-            width,
-            height,
-            anchor_circle,
-            rings,
-        } => {
-            if *anchor_circle {
-                let _ = write!(svg, "<circle r=\"{}\"/>", number(width.min(*height) / 2.0));
-            } else {
-                rect(svg, *width, *height, 0.0);
-            }
-            if !rings.is_empty() {
+        PadShape::Outline { rings } => {
+            // One path per ring: a custom pad's rings overlap, and one even-odd
+            // path would cut holes where they do.
+            for ring in rings {
                 let _ = write!(
                     svg,
-                    "<path d=\"{}\" fill-rule=\"evenodd\" stroke=\"none\"/>",
-                    prism_artwork::artwork::svg::rings_path(rings),
+                    "<path d=\"{}\" stroke=\"none\"/>",
+                    prism_artwork::artwork::svg::rings_path(std::slice::from_ref(ring))
                 );
             }
         }

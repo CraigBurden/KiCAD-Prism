@@ -388,15 +388,11 @@ pub enum PadShape {
         /// Full height.
         height: f64,
     },
-    /// A custom pad: its anchor shape plus the authored primitives.
-    Custom {
-        /// Anchor width.
-        width: f64,
-        /// Anchor height.
-        height: f64,
-        /// True when the anchor is a circle rather than a rectangle.
-        anchor_circle: bool,
-        /// Primitive rings in pad-local coordinates.
+    /// Any other pad (custom, chamfered, trapezoid) as KiCad shapes its copper
+    /// (`PcbPad::local_copper_rings`): closed rings in the pad's own frame,
+    /// around the copper centre.
+    Outline {
+        /// The copper's rings; a custom pad's overlap, and their union is the pad.
         rings: Vec<Vec<Point>>,
     },
 }

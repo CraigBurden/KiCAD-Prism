@@ -78,3 +78,5 @@ Reviewed changes to what the released documents say. In each case the legacy out
 | Testpoint at x = 0 or y = 0 | printed as "—", as if unknown | `0.000` |
 | Assembly artwork drill marks, offset drills | moved by the pad offset, turned the wrong way and by the footprint angle twice | at the pad position, where KiCad drills (drill files) |
 | Assembly artwork and ICD/atlas pad copper, offset pads | centred on the hole | moved by the offset, where KiCad flashes it (copper Gerbers) |
+| Assembly artwork testpoint callouts and ICD/atlas pads: chamfered, trapezoid and custom pads | chamfers dropped, trapezoids drawn as rectangles, a custom pad as its anchor (plus its polygon, rect and circle primitives in the ICD/atlas, filled even-odd) | the copper as KiCad shapes it (`PcbPad::copper_outline`, KiCad's own pad outlines over IPC); crate_version 0.9.0 |
+| Assembly artwork body of a footprint without a 3D model (its pad extent) | each pad's size rectangle at its position: drill offsets and custom-pad copper ignored | the union of the pads' copper (KiCad's pad outlines) |

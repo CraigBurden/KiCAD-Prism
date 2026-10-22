@@ -9,5 +9,7 @@ kicad-cli pcb export drill --format excellon --excellon-units mm --excellon-zero
     --excellon-oval-format route --excellon-separate-th -o "$out/" "$board" >/dev/null
 kicad-cli pcb export pos --format csv --units mm --side both -o "$out/pos.csv" "$board" >/dev/null
 kicad-cli pcb export ipcd356 -o "$out/oracle.d356" "$board" >/dev/null
-kicad-cli pcb export gerbers --layers F.Cu,B.Cu --no-x2 --no-netlist --no-protel-ext -o "$out/" "$board" >/dev/null
+kicad-cli pcb export gerbers --layers F.Cu,In1.Cu,In2.Cu,B.Cu,Edge.Cuts \
+    --no-x2 --no-netlist --no-protel-ext -o "$out/" "$board" >/dev/null
+rm -f "$out"/*.gbrjob
 ls "$out"

@@ -86,19 +86,13 @@ fn pad_extent(shape: &PadShape) -> (f64, f64) {
         PadShape::Rect { width, height }
         | PadShape::RoundRect { width, height, .. }
         | PadShape::Oval { width, height } => (width / 2.0, height / 2.0),
-        PadShape::Custom {
-            width,
-            height,
-            rings,
-            ..
-        } => {
-            let mut half_width = width / 2.0;
-            let mut half_height = height / 2.0;
+        PadShape::Outline { rings } => {
+            let mut half = (0.0_f64, 0.0_f64);
             for point in rings.iter().flatten() {
-                half_width = half_width.max(point.x.abs());
-                half_height = half_height.max(point.y.abs());
+                half.0 = half.0.max(point.x.abs());
+                half.1 = half.1.max(point.y.abs());
             }
-            (half_width, half_height)
+            half
         }
     }
 }
