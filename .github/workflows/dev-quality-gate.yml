@@ -52,7 +52,6 @@ jobs:
       backend: ${{ steps.areas.outputs.backend }}
       frontend: ${{ steps.areas.outputs.frontend }}
       viewer: ${{ steps.areas.outputs.viewer }}
-      design_compare: ${{ steps.areas.outputs.design_compare }}
       agent: ${{ steps.areas.outputs.agent }}
       native: ${{ steps.areas.outputs.native }}
       deploy: ${{ steps.areas.outputs.deploy }}
@@ -823,37 +822,6 @@ jobs:
       # The projections' own parity (bundles built by prism-kicad) runs in native-workspace,
       # on its debug build: "Projection parity on the committed fixtures".
 
-  design-compare-parser:
-    name: Design compare parser
-    # The Node object index and delta the design comparison worker runs (backend/design-compare-parser).
-    needs: changes
-    if: needs.changes.outputs.design_compare == 'true'
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-
-    steps:
-      - name: Check out source
-        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
-
-      - name: Set up Node.js
-        # No dependencies to install or cache: the package runs on Node alone, as in the image.
-        uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5.0.0
-        with:
-          node-version-file: .node-version
-
-      - name: Require the vendored parser to match its provenance
-        working-directory: backend/design-compare-parser/vendor
-        run: |
-          expected="$(python3 -c 'import json; print(json.load(open("kicad-sexpr-parser.provenance.json"))["artifactSha256"])')"
-          echo "${expected}  kicad-sexpr-parser.mjs" | sha256sum --check -
-
-      - name: Test object index and delta
-        working-directory: backend/design-compare-parser
-        run: npm test
-
-      - name: Test the object-delta shadow comparison
-        run: python3 -m unittest scripts.test_compare_object_delta
-
   deployment-config:
     name: Deployment configuration
     needs: changes
@@ -1099,7 +1067,6 @@ jobs:
       - native-wasm32
       - native-hygiene
       - native-parity
-      - design-compare-parser
       - deployment-config
       - dependency-identity
       - image
