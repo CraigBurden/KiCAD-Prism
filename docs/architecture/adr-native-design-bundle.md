@@ -407,7 +407,8 @@ Every P-WP owns one module `native/src/rs/prism-projections/src/<name>.rs`, its 
 - **R2 done (WP-R2).** No revision parse imports Python `kicad-monkey`; the
   only importers are the catalog's library-file readers
   (`app/services/catalog/mates.py`), allow-listed with a test
-  (`backend/tests/test_kicad_monkey_allow_list.py`) until the library ADR. The
+  (`backend/tests/test_kicad_monkey_allow_list.py`, folded into X's
+  `test_design_source_boundary.py`) until the library ADR. The
   semantic index's Python build (`build_semantic_index`, its `KiCadDesign`
   parse, the design adapter and `semantic_index_variants.py`) is deleted; the
   bundle's `semantic-index` member is the only producer. The catalog
@@ -427,7 +428,10 @@ Every P-WP owns one module `native/src/rs/prism-projections/src/<name>.rs`, its 
   that open a KiCad s-expression form. Its allow-list is exactly the
   design-bundle builder and its KiCad steps, the KiCad-output jobs in
   `release_studio/`, and the catalog library reader with the library-text
-  writers it uses; a second assertion fails on a stale entry and the failure
+  writers it uses. Each entry is one module naming the parsers it may import
+  and whether it may carry design text, so Release Studio imports no parser
+  and only `catalog.mates` imports `kicad_monkey`; a second assertion fails on
+  an unused allowance and the failure
   report names the module, line and matched text. Release Studio's variant
   discovery and the variants API now read the bundle's semantic-index member
   only: `variant_source_scan.py`, `discover_snapshot_catalog`, its cache and

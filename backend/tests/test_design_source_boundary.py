@@ -17,14 +17,17 @@ a module-level one:
    opener — the regex below. Docstrings count. A module that only mentions a
    form in prose is reworded rather than allow-listed.
 
-``KICAD_IMPORT_SITES`` is the allow-list: module path prefix -> reason. The
-second test fails when an entry no longer matches an import or literal, so the
-list cannot rot. The failure report names the module, line and matched text.
+``KICAD_IMPORT_SITES`` is the allow-list: exact module -> the parsers it may
+import, whether it may carry design text, and why. The second test fails when
+an allowance is no longer used, so the list cannot rot. The failure report
+names the module, line and matched text.
 
 This test subsumes ``test_kicad_monkey_allow_list.py`` (R2) and
 ``test_release_studio_import_boundary.py`` (C3): it covers every module under
 ``backend/app``, every forbidden package those tests named, and both
-module-level and function-local imports (plus ``__import__``).
+module-level and function-local imports (plus ``__import__``). Release Studio
+modules may carry closure text but import no parser (C3), and only
+``catalog.mates`` imports ``kicad_monkey`` (R2).
 """
 
 from __future__ import annotations
@@ -48,39 +51,81 @@ DESIGN_TEXT = re.compile(
     r"property|pad|model|fp_lib_table|sym_lib_table|instances|variants?)\b"
 )
 
-#: Module path prefix -> why it may import a parser or carry KiCad design text.
-KICAD_IMPORT_SITES: dict[str, str] = {
-    "app.services.design_bundle": (
-        "the design-bundle builder and its KiCad steps: the board refill imports "
-        "pcbnew in a subprocess, and the seeded-upgrade step reads a file's sheet "
-        "names to hand it to KiCad; the parse itself is prism-kicad's"
+@dataclass(frozen=True)
+class Site:
+    """What one allow-listed module may do, and why.
+
+    ``parsers`` names the packages it may import (empty: none); ``text`` says
+    whether it may carry KiCad design text. Anything else it does is a
+    violation, so Release Studio, for example, stays parser-free (C3) and
+    ``kicad_monkey`` stays in the catalog's mates reader (R2).
+    """
+
+    reason: str
+    parsers: frozenset[str] = frozenset()
+    text: bool = False
+
+
+_LIBRARY_TEXT = "the catalog library reader and its writers"
+
+#: Module -> what it may do and why. Exact modules, not packages.
+KICAD_IMPORT_SITES: dict[str, Site] = {
+    "app.services.design_bundle.kicad_steps": Site(
+        "the design-bundle builder's KiCad steps: the seeded-upgrade step reads a "
+        "file's sheet names to hand it to KiCad; the parse itself is prism-kicad's",
+        text=True,
     ),
-    "app.release_studio": (
-        "the KiCad-output jobs: kicad-cli steps over the bundle's refilled board "
-        "and sources, the closure's model-reference forms, artwork and vendor "
-        "outputs; no design model is parsed here"
+    "app.release_studio.closure": Site(
+        "a KiCad-output job: rewrites the bundle closure's model references",
+        text=True,
     ),
-    "app.services.catalog": (
-        "the catalog library reader and its writers: mates reads .kicad_sym/"
-        ".kicad_mod text with kicad_monkey, models converts a catalog STEP to GLB "
-        "with Geometer, and the placement and export writers emit library and "
-        "schematic forms; project revisions are read from bundles"
+    "app.release_studio.closure_models": Site(
+        "a KiCad-output job: the closure's model-reference forms in the bundle's sources",
+        text=True,
     ),
-    "app.services.kicad_footprint_normalizer": (
+    "app.services.catalog.mates": Site(
+        f"{_LIBRARY_TEXT}: reads .kicad_sym/.kicad_mod text with kicad_monkey "
+        "until the library ADR (R2)",
+        parsers=frozenset({"kicad_monkey"}),
+    ),
+    "app.services.catalog.models": Site(
+        f"{_LIBRARY_TEXT}: converts a catalog STEP model to GLB with Geometer",
+        parsers=frozenset({"geometer"}),
+    ),
+    "app.services.catalog.dbl_export": Site(
+        f"{_LIBRARY_TEXT}: writes library forms for a database-library export",
+        text=True,
+    ),
+    "app.services.catalog.placement_payloads": Site(
+        f"{_LIBRARY_TEXT}: writes the symbol and footprint forms a placement stamps",
+        text=True,
+    ),
+    "app.services.catalog.placement_stamp": Site(
+        f"{_LIBRARY_TEXT}: reads back the schematic stamp a placement wrote",
+        text=True,
+    ),
+    "app.services.catalog.postgres_projections": Site(
+        f"{_LIBRARY_TEXT}: projects stored library text into catalog rows",
+        text=True,
+    ),
+    "app.services.kicad_footprint_normalizer": Site(
         "pcbnew runs in its own subprocess to flip a library footprint into the "
-        "catalog asset store; the API process never loads it"
+        "catalog asset store; the API process never loads it",
+        parsers=frozenset({"pcbnew"}),
     ),
-    "app.services.kicad_library_reader": (
+    "app.services.kicad_library_reader": Site(
         "the one catalog library-text reader: form ends, symbol blocks and "
-        "properties, footprint names and model references"
+        "properties, footprint names and model references",
+        text=True,
     ),
-    "app.services.project_component_asset_extractor": (
-        "shared library-text helpers for the catalog's bundle-backed component "
-        "index; the checkout walk is gone with R1"
+    "app.services.project_component_asset_extractor": Site(
+        "shared library-text helpers for the catalog's bundle-backed component index",
+        text=True,
     ),
-    "app.services.project_component_bundle_assets": (
+    "app.services.project_component_bundle_assets": Site(
         "the catalog's component asset index reads the bundle's sources and its "
-        "own symbol/footprint library tables; it never parses a revision"
+        "own symbol/footprint library tables; it never parses a revision",
+        text=True,
     ),
 }
 
@@ -147,29 +192,39 @@ def _design_text_literals(tree: ast.AST) -> list[tuple[int, str]]:
     return found
 
 
-def scan() -> tuple[list[Violation], set[str]]:
-    """Offenders outside the allow-list, and the allow-list entries that matched."""
+def scan() -> tuple[list[Violation], set[tuple[str, str]]]:
+    """Offenders outside the allow-list, and the allowances that were used.
+
+    A used allowance is ``(module, parser)`` or ``(module, "text")``.
+    """
 
     violations: list[Violation] = []
-    matched: set[str] = set()
+    used: set[tuple[str, str]] = set()
     for path in sorted(APP.rglob("*.py")):
         module = _module_name(path)
         tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
-        raw = [
-            Violation(module, line, "parser import", name)
-            for line, name in _imported_parser_names(tree)
-        ] + [
-            Violation(module, line, "KiCad design text", text)
-            for line, text in _design_text_literals(tree)
-        ]
-        if not raw:
-            continue
-        covering = {prefix for prefix in KICAD_IMPORT_SITES if _covers(module, prefix)}
-        if covering:
-            matched.update(covering)
-        else:
-            violations.extend(raw)
-    return violations, matched
+        site = KICAD_IMPORT_SITES.get(module, Site(""))
+        for line, name in _imported_parser_names(tree):
+            parser = name.split(".")[0]
+            if parser in site.parsers:
+                used.add((module, parser))
+            else:
+                violations.append(Violation(module, line, "parser import", name))
+        for line, text in _design_text_literals(tree):
+            if site.text:
+                used.add((module, "text"))
+            else:
+                violations.append(Violation(module, line, "KiCad design text", text))
+    return violations, used
+
+
+def _allowances() -> set[tuple[str, str]]:
+    allowed: set[tuple[str, str]] = set()
+    for module, site in KICAD_IMPORT_SITES.items():
+        allowed.update((module, parser) for parser in site.parsers)
+        if site.text:
+            allowed.add((module, "text"))
+    return allowed
 
 
 class DesignSourceBoundaryTests(unittest.TestCase):
@@ -184,18 +239,18 @@ class DesignSourceBoundaryTests(unittest.TestCase):
             )
 
     def test_the_allow_list_has_no_stale_entries(self) -> None:
-        _, matched = scan()
-        stale = sorted(set(KICAD_IMPORT_SITES) - matched)
+        _, used = scan()
+        stale = sorted(_allowances() - used)
         self.assertEqual(
             stale,
             [],
-            "allow-list entries no longer match an import or design-text literal; "
-            "delete a stale entry or fix the module it was hiding:\n  "
-            + "\n  ".join(stale),
+            "allow-list allowances no longer used; narrow or delete the entry:\n  "
+            + "\n  ".join(f"{module}: {what}" for module, what in stale),
         )
-        for prefix, reason in KICAD_IMPORT_SITES.items():
-            with self.subTest(prefix=prefix):
-                self.assertTrue(reason.strip(), "an allow-list entry needs a reason")
+        for module, site in KICAD_IMPORT_SITES.items():
+            with self.subTest(module=module):
+                self.assertTrue(site.reason.strip(), "an allow-list entry needs a reason")
+                self.assertTrue(site.parsers or site.text, "an entry must allow something")
 
     def test_the_report_names_the_module_line_and_matched_text(self) -> None:
         violation = Violation(
