@@ -21,8 +21,8 @@ producer reads the single parsed model and returns its contract from
   `src/system_interface/` (projections/system-interface.json, P5).
 - `src/compare.rs`, `src/compare/` — Design Comparison in Rust (ADR
   amendments C2 and C2r). The object diff (`diff.rs`, `entry.rs`,
-  `classify.rs`, `output.rs`) is the port of
-  `backend/design-compare-parser/ecad-diff.mjs`; `compare::result::build`
+  `classify.rs`, `output.rs`) is the port of the retired Node object diff
+  (`ecad-diff`, removed in WP-R2); `compare::result::build`
   turns two revisions' typed members into `DesignCompareResultA1`
   (`prism.design_compare.result.a1`), one module per tab under
   `src/compare/result/` (`files`, `objects`, `connectivity`, `bom`,

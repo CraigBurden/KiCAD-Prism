@@ -52,7 +52,6 @@ COMMITTED: tuple[tuple[str, bool], ...] = (
     ("fixtures/release-studio/cynthion", True),
     ("backend/tests/fixtures/design_variants", True),
     ("backend/tests/fixtures/system_builder", True),
-    ("native/packages/kicad_cruncher/tests/corpus/kicad/projects", True),
 )
 # Single-expression s-expression files (.kicad_pro is JSON; .kicad_dru holds several expressions).
 SEXPR_SUFFIXES = (".kicad_pcb", ".kicad_sch", ".kicad_sym", ".kicad_mod", ".kicad_wks")

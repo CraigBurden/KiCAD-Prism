@@ -70,8 +70,6 @@ set -euo pipefail
 mkdir -p /build/native/src && cd /build/native
 cp -a /src/Cargo.toml /src/Cargo.lock /src/rust-toolchain.toml /src/clippy.toml /src/.cargo /src/assets .
 cp -a /src/src/rs src/rs
-sed -i '/"packages\/kicad_cruncher\/src\/rs\/kicad-cruncher-cli",/d' Cargo.toml
-! grep -q kicad-cruncher-cli Cargo.toml
 cp Cargo.lock /tmp/Cargo.lock.locked
 cargo build --release -p prism-kicad-cli
 awk '/^name = /{n=$3} /^version = /{print n, $3}' /tmp/Cargo.lock.locked | sort -u > /tmp/locked.pairs

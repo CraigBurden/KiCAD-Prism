@@ -571,22 +571,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "kicad-cruncher-cli"
-version = "2026.9.7"
-dependencies = [
- "geo",
- "geometer-client",
- "prism-kicad-contracts",
- "prism-kicad-core",
- "prism-kicad-svg",
- "serde",
- "serde_json",
- "sha2 0.11.0",
- "tokio",
- "ttf-parser",
-]
-
-[[package]]
 name = "libc"
 version = "0.2.189"
 source = "registry+https://github.com/rust-lang/crates.io-index"
