@@ -49,6 +49,7 @@ from app.services.workspace_migrations import m122_sim_studio_layouts
 from app.services.workspace_migrations import m123_drop_system_builder_v1
 from app.services.workspace_migrations import m124_drop_mesh_viewer_readiness
 from app.services.workspace_migrations import m129_drop_system_builder_v2
+from app.services.workspace_migrations import m130_sim_run_solved_commit
 
 
 Migration = Callable[[Any], None]
@@ -94,11 +95,16 @@ MIGRATIONS: tuple[tuple[int, str, Migration], ...] = (
     (124, "drop_mesh_viewer_readiness", m124_drop_mesh_viewer_readiness.migrate),
     # 125-128 were System Builder v2; 129 drops what they made.
     (129, "drop_system_builder_v2", m129_drop_system_builder_v2.migrate),
+    (130, "sim_run_solved_commit", m130_sim_run_solved_commit.migrate),
 )
 
 # Migrations that a long-lived branch database recorded under an earlier number.
 RENUMBERED: tuple[tuple[str, int, int], ...] = (
     ("repository_origin", 26, 41),
+    # Simulation Studio's first deployment recorded its migrations as 9056-9058.
+    ("sim_studio_setups", 9056, 120),
+    ("sim_studio_runs", 9057, 121),
+    ("sim_studio_layouts", 9058, 122),
 )
 
 

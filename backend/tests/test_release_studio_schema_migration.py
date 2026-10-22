@@ -1748,6 +1748,7 @@ class ReleaseStudioPostgresSchemaTests(unittest.TestCase):
                 (123, "drop_system_builder_v1"),
                 (124, "drop_mesh_viewer_readiness"),
                 (129, "drop_system_builder_v2"),
+                (130, "sim_run_solved_commit"),
             ],
         )
 
@@ -1790,6 +1791,20 @@ class WorkspaceMigrationRenumberTests(unittest.TestCase):
         # 26 is free again for the migration that owns it.
         self.assertNotEqual(conn.ledger.get(26), "repository_origin")
         self.assertEqual(sorted(conn.ledger), [version for version, _, _ in MIGRATIONS])
+
+    def test_early_sim_studio_database_keeps_its_migrations_under_their_new_numbers(self) -> None:
+        """Simulation Studio's first deployment recorded 120-122 as 9056-9058."""
+        stubbed = tuple((version, name, lambda conn: None) for version, name, _ in MIGRATIONS)
+        ledger = {version: name for version, name, _ in MIGRATIONS if version <= 57}
+        ledger.update({9056: "sim_studio_setups", 9057: "sim_studio_runs", 9058: "sim_studio_layouts"})
+        conn = _LedgerOnlyConnection(ledger)
+
+        replace(WORKSPACE_LEDGER, steps=tuple(Step(version, name, body) for version, name, body in stubbed)).apply(conn)
+
+        for version, name in ((120, "sim_studio_setups"), (121, "sim_studio_runs"), (122, "sim_studio_layouts")):
+            self.assertEqual(conn.ledger[version], name)
+        self.assertEqual(sorted(conn.ledger), [version for version, _, _ in MIGRATIONS])
+
 
 if __name__ == "__main__":
     unittest.main()
