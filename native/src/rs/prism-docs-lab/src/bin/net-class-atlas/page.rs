@@ -299,7 +299,7 @@ fn row(body: &mut String, net: &NetRow, theme: Theme) {
 <td class=\"num\">{}</td></tr>",
         html::escape(&net.name),
         html::escape(&net.name),
-        html::escape(leaf(&net.name)),
+        html::escape(&html::overbar(leaf(&net.name))),
         html::millimetres(net.length_mm),
         if spans.is_empty() {
             String::new()

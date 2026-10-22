@@ -188,7 +188,8 @@ class GoldenDerivationTests(unittest.TestCase):
                     "ref": "TP1",
                     "net": "—",
                     "side": "top",
-                    "x": None,
+                    # rs-3: x = 0 is a position; legacy printed it as unknown.
+                    "x": 0.0,
                     "y": 2.0,
                     "rotation": None,
                     "excluded_from_position_file": True,

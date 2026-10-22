@@ -7,7 +7,9 @@ use prism_kicad_contracts::generated::prism_artwork_config_a0::{
     ArtworkCanvasBounds, ArtworkConfigA0,
 };
 
+use super::super::geometry::BoardGeometry;
 use super::callouts::{self, CalloutPlacement};
+use super::covering::CoveringLabel;
 use super::designators::{
     designator_style, font_size_for, selected_by_designators, selector_matches,
 };
@@ -90,6 +92,7 @@ fn pad(x: f64, y: f64, size: f64) -> PadInfo {
         shape: "circle".to_owned(),
         angle: 0.0,
         roundrect_ratio: None,
+        offset: prism_kicad_core::PcbPoint { x: 0.0, y: 0.0 },
     }
 }
 
@@ -129,6 +132,103 @@ fn board_data(footprints: Vec<FootprintInfo>) -> BoardData {
     }
 }
 
+fn board_data_with_hlr(
+    footprints: Vec<FootprintInfo>,
+    hlr: Vec<prism_kicad_contracts::generated::prism_assembly_hlr_a0::AssemblyHlrFootprint>,
+) -> BoardData {
+    BoardData {
+        geometry: square_board(),
+        footprints,
+        hlr,
+    }
+}
+
+fn hlr_segment(
+    x1: f64,
+    y1: f64,
+    x2: f64,
+    y2: f64,
+) -> prism_kicad_contracts::generated::prism_assembly_hlr_a0::AssemblyHlrSegment {
+    use prism_kicad_contracts::generated::prism_assembly_hlr_a0::{Nanometres, PointNm};
+    let nm = |value: f64| Nanometres((value * 1_000_000.0).round() as i64);
+    prism_kicad_contracts::generated::prism_assembly_hlr_a0::AssemblyHlrSegment {
+        start_nm: PointNm {
+            x_nm: nm(x1),
+            y_nm: nm(y1),
+        },
+        end_nm: PointNm {
+            x_nm: nm(x2),
+            y_nm: nm(y2),
+        },
+    }
+}
+
+type HlrEdges = prism_kicad_contracts::generated::prism_assembly_hlr_a0::AssemblyHlrEdges;
+
+fn rectangle_edges(min_x: f64, min_y: f64, max_x: f64, max_y: f64) -> HlrEdges {
+    HlrEdges {
+        segments: vec![
+            hlr_segment(min_x, min_y, max_x, min_y),
+            hlr_segment(max_x, min_y, max_x, max_y),
+            hlr_segment(max_x, max_y, min_x, max_y),
+            hlr_segment(min_x, max_y, min_x, min_y),
+        ],
+        arcs: Vec::new(),
+    }
+}
+
+fn line_edges(x1: f64, y1: f64, x2: f64, y2: f64) -> HlrEdges {
+    HlrEdges {
+        segments: vec![hlr_segment(x1, y1, x2, y2)],
+        arcs: Vec::new(),
+    }
+}
+
+fn hlr_body(
+    reference: &str,
+    outline: HlrEdges,
+    detail: HlrEdges,
+) -> prism_kicad_contracts::generated::prism_assembly_hlr_a0::AssemblyHlrFootprint {
+    use prism_kicad_contracts::generated::prism_assembly_hlr_a0::{
+        KiCadUuid, RepoPath, Side as HlrSide,
+    };
+    prism_kicad_contracts::generated::prism_assembly_hlr_a0::AssemblyHlrFootprint {
+        document_path: RepoPath("board.kicad_pcb".to_owned()),
+        uuid: KiCadUuid(format!("uuid-{reference}")),
+        reference: Some(reference.parse().expect("a designator")),
+        side: HlrSide::Front,
+        step_model: None,
+        pose: None,
+        outline: Some(outline),
+        detail: Some(detail),
+        status: None,
+    }
+}
+
+/// The `<text>` element of one footprint's designator.
+fn designator_text<'a>(svg: &'a str, uuid: &str) -> &'a str {
+    let needle = format!("data-footprint-uuid=\"{uuid}\"");
+    let at = svg
+        .match_indices("<text ")
+        .filter_map(|(start, _)| {
+            let end = start + svg[start..].find("</text>")?;
+            svg[start..end].contains(&needle).then_some(start)
+        })
+        .next()
+        .unwrap_or_else(|| panic!("{uuid} has a designator"));
+    let end = at + svg[at..].find("</text>").unwrap() + "</text>".len();
+    &svg[at..end]
+}
+
+fn number_attribute(element: &str, name: &str) -> f64 {
+    let key = format!("{name}=\"");
+    let start = element.find(&key).expect("the attribute is present") + key.len();
+    let end = start + element[start..].find('"').unwrap();
+    element[start..end]
+        .parse()
+        .expect("the attribute is a number")
+}
+
 fn render<'a>(
     config: &'a ArtworkConfigA0,
     hlr: &'a prism_kicad_contracts::generated::prism_assembly_hlr_a0::AssemblyHlrA0,
@@ -163,6 +263,26 @@ fn bounds_for(
     callout: bool,
     labels: &BTreeMap<usize, CalloutPlacement>,
 ) -> Bounds {
+    bounds_for_with_covering(
+        config,
+        data,
+        selected,
+        sides,
+        callout,
+        labels,
+        &BTreeMap::new(),
+    )
+}
+
+fn bounds_for_with_covering(
+    config: &ArtworkConfigA0,
+    data: &BoardData,
+    selected: &[usize],
+    sides: ViewSides,
+    callout: bool,
+    labels: &BTreeMap<usize, CalloutPlacement>,
+    covering_labels: &BTreeMap<usize, CoveringLabel>,
+) -> Bounds {
     let hlr = empty_hlr();
     let placements = placements();
     let input = ArtworkInput {
@@ -176,7 +296,15 @@ fn bounds_for(
         views: &[],
         paper_scale: None,
     };
-    canvas_bounds(&input, data, selected, sides, callout, labels)
+    canvas_bounds(
+        &input,
+        data,
+        selected,
+        sides,
+        callout,
+        labels,
+        covering_labels,
+    )
 }
 
 // ------------------------------------------------------------------ canvas
@@ -520,6 +648,7 @@ fn a_rotated_footprints_pads_are_not_turned_twice() {
             shape: "rect".to_owned(),
             angle: 270.0,
             roundrect_ratio: None,
+            offset: prism_kicad_core::PcbPoint { x: 0.0, y: 0.0 },
         })
         .collect();
     let bounds = inductor.pads_bounds().expect("the inductor has pads");
@@ -532,5 +661,319 @@ fn a_rotated_footprints_pads_are_not_turned_twice() {
         (bounds.height() - 5.47).abs() < 1e-6,
         "height {}",
         bounds.height()
+    );
+}
+
+// ---------------------------------------------------------------- covering
+
+/// A big HS1 over U20/U21: only HS1 covers, and it is drawn as a dashed
+/// outline after the parts beneath it, with its designator outside its body.
+fn covering_board() -> BoardData {
+    let mut heatsink = footprint(0, "HS1", FootSide::Top, false, (5.0, 3.0));
+    heatsink.pad_bounds = Some(Bounds {
+        min_x: 3.5,
+        min_y: 2.5,
+        max_x: 6.5,
+        max_y: 3.5,
+    });
+    heatsink.hlr = Some(0);
+    let left = footprint(1, "U20", FootSide::Top, false, (4.0, 3.0));
+    let right = footprint(2, "U21", FootSide::Top, false, (6.0, 3.0));
+    board_data_with_hlr(
+        vec![heatsink, left, right],
+        vec![hlr_body(
+            "HS1",
+            rectangle_edges(3.0, 2.0, 7.0, 4.0),
+            line_edges(4.5, 2.5, 4.5, 3.5),
+        )],
+    )
+}
+
+fn group_containing<'a>(svg: &'a str, attribute: &str) -> &'a str {
+    let at = svg
+        .find(attribute)
+        .unwrap_or_else(|| panic!("{attribute} is in the SVG"));
+    let start = svg[..at].rfind("<g ").expect("the attribute is in a group");
+    let end = start + svg[start..].find("</g>").unwrap() + "</g>".len();
+    &svg[start..end]
+}
+
+fn assert_part_beneath(svg: &str, reference: &str, covering_at: usize) {
+    let at = svg
+        .find(&format!("data-component=\"{reference}\""))
+        .unwrap_or_else(|| panic!("{reference} is drawn"));
+    assert!(at < covering_at, "{reference} is drawn before HS1");
+    let group = group_containing(svg, &format!("data-component=\"{reference}\""));
+    assert!(group.contains("data-bounds-kind=\"envelope\""));
+    let text = designator_text(svg, &format!("uuid-{reference}"));
+    assert!(text.contains("data-bounds-kind=\"fallback\""));
+    assert!(text.contains(&format!("data-component=\"{reference}\"")));
+}
+
+#[test]
+fn a_body_that_covers_others_is_a_dashed_outline_on_top() {
+    let config = config();
+    let data = covering_board();
+    let hlr = empty_hlr();
+    let placements = placements();
+    let rendered = render(&config, &hlr, &placements, &data, "assembly_top_view");
+    let svg = &rendered.svg;
+
+    let covering = group_containing(svg, "data-bounds-kind=\"covering\"");
+    assert!(covering.contains("data-component=\"HS1\""));
+    assert!(covering.contains("stroke-dasharray=\"1.2 0.8\""));
+    assert!(covering.contains("fill=\"none\""));
+    assert_eq!(
+        covering.matches("<path ").count(),
+        1,
+        "only the outline is drawn: {covering}"
+    );
+    assert!(covering.contains("M3 2 L7 2"));
+    assert!(
+        !covering.contains("M4.5 2.5"),
+        "the covering body draws no detail edges: {covering}"
+    );
+
+    let heatsink_at = svg.find("data-bounds-kind=\"covering\"").unwrap();
+    assert_part_beneath(svg, "U20", heatsink_at);
+    assert_part_beneath(svg, "U21", heatsink_at);
+
+    let text = designator_text(svg, "uuid-HS1");
+    assert!(text.contains("data-bounds-kind=\"covering\""));
+    let top = number_attribute(text, "data-text-box-max-y");
+    assert!(
+        top <= 2.0,
+        "the designator sits above the body, not inside it: {text}"
+    );
+    assert_eq!(rendered.footprints_drawn, 3);
+    assert_eq!(rendered.designators_placed, 3);
+    // The moved label is inside the canvas the view reports.
+    assert!(
+        number_attribute(svg, "data-canvas-min-y") <= number_attribute(text, "data-text-box-min-y")
+    );
+}
+
+#[test]
+fn parts_that_merely_touch_do_not_cover_each_other() {
+    let config = config();
+    let mut left = footprint(0, "U1", FootSide::Top, false, (2.0, 2.0));
+    left.hlr = Some(0);
+    let mut right = footprint(1, "U2", FootSide::Top, false, (3.5, 2.0));
+    right.hlr = Some(1);
+    let data = board_data_with_hlr(
+        vec![left, right],
+        vec![
+            hlr_body(
+                "U1",
+                rectangle_edges(1.0, 1.0, 3.0, 3.0),
+                line_edges(1.5, 1.5, 1.5, 2.5),
+            ),
+            hlr_body(
+                "U2",
+                rectangle_edges(2.5, 1.0, 4.5, 3.0),
+                line_edges(3.5, 1.5, 3.5, 2.5),
+            ),
+        ],
+    );
+    let hlr = empty_hlr();
+    let placements = placements();
+    let rendered = render(&config, &hlr, &placements, &data, "assembly_top_view");
+    assert!(!rendered.svg.contains("data-bounds-kind=\"covering\""));
+    assert_eq!(
+        rendered
+            .svg
+            .matches("data-bounds-kind=\"outline\" stroke=")
+            .count(),
+        2
+    );
+}
+
+#[test]
+fn a_part_without_an_outline_never_covers() {
+    let config = config();
+    let mut package = footprint(0, "U1", FootSide::Top, false, (5.0, 3.0));
+    package.pad_bounds = Some(Bounds {
+        min_x: 3.0,
+        min_y: 2.0,
+        max_x: 7.0,
+        max_y: 4.0,
+    });
+    let data = board_data(vec![
+        package,
+        footprint(1, "U20", FootSide::Top, false, (4.0, 3.0)),
+        footprint(2, "U21", FootSide::Top, false, (6.0, 3.0)),
+    ]);
+    let hlr = empty_hlr();
+    let placements = placements();
+    let rendered = render(&config, &hlr, &placements, &data, "assembly_top_view");
+    assert!(!rendered.svg.contains("data-bounds-kind=\"covering\""));
+    assert!(rendered.svg.contains("data-component=\"U1\""));
+}
+
+#[test]
+fn a_mirrored_bottom_view_keeps_the_designator_outside_its_body() {
+    let config = config();
+    let mut heatsink = footprint(0, "HS1", FootSide::Bottom, false, (5.0, 3.0));
+    heatsink.hlr = Some(0);
+    let data = board_data_with_hlr(
+        vec![
+            heatsink,
+            footprint(1, "U20", FootSide::Bottom, false, (4.0, 3.0)),
+            footprint(2, "U21", FootSide::Bottom, false, (6.0, 3.0)),
+        ],
+        vec![hlr_body(
+            "HS1",
+            rectangle_edges(3.0, 2.0, 7.0, 4.0),
+            line_edges(4.5, 2.5, 4.5, 3.5),
+        )],
+    );
+    let hlr = empty_hlr();
+    let placements = placements();
+    let rendered = render(&config, &hlr, &placements, &data, "assembly_bottom_view");
+    assert!(
+        rendered
+            .svg
+            .contains("data-view-direction=\"bottom-mirrored\"")
+    );
+    assert!(rendered.svg.contains("data-bounds-kind=\"covering\""));
+    let text = designator_text(&rendered.svg, "uuid-HS1");
+    assert!(number_attribute(text, "data-text-box-max-y") <= 2.0);
+    assert_eq!(number_attribute(text, "x"), -5.0);
+}
+
+#[test]
+fn a_designator_that_would_leave_the_canvas_goes_below_the_body() {
+    let mut config = config();
+    config.global.canvas.margin_mm = 0.05;
+    let mut heatsink = footprint(0, "HS1", FootSide::Top, false, (5.0, 1.0));
+    heatsink.hlr = Some(0);
+    let data = board_data_with_hlr(
+        vec![
+            heatsink,
+            footprint(1, "U20", FootSide::Top, false, (4.5, 1.0)),
+            footprint(2, "U21", FootSide::Top, false, (5.5, 1.0)),
+        ],
+        vec![hlr_body(
+            "HS1",
+            rectangle_edges(3.0, 0.0, 7.0, 2.0),
+            line_edges(4.5, 0.5, 4.5, 1.5),
+        )],
+    );
+    let hlr = empty_hlr();
+    let placements = placements();
+    let rendered = render(&config, &hlr, &placements, &data, "assembly_top_view");
+    let text = designator_text(&rendered.svg, "uuid-HS1");
+    assert!(
+        number_attribute(text, "data-text-box-min-y") >= 2.0,
+        "the label moved below the body: {text}"
+    );
+}
+
+#[test]
+fn covering_rendering_is_deterministic() {
+    let config = config();
+    let data = covering_board();
+    let hlr = empty_hlr();
+    let placements = placements();
+    let first = render(&config, &hlr, &placements, &data, "assembly_top_view");
+    let second = render(&config, &hlr, &placements, &data, "assembly_top_view");
+    assert_eq!(first.svg, second.svg);
+}
+
+#[test]
+fn a_chip_under_an_l_shaped_heatsink_does_not_cover_it() {
+    // The heatsink's bounding-box centre (4, 4) falls inside the chip; a
+    // centre test would make the chip "cover" the heatsink as well (JTYU-OBC:
+    // U20 under HS1 was drawn dashed).
+    let config = config();
+    let mut heatsink = footprint(0, "HS1", FootSide::Top, false, (4.0, 2.0));
+    heatsink.hlr = Some(0);
+    let mut chip = footprint(1, "U20", FootSide::Top, false, (4.0, 4.0));
+    chip.hlr = Some(1);
+    let l_shape = HlrEdges {
+        segments: vec![
+            hlr_segment(0.0, 0.0, 8.0, 0.0),
+            hlr_segment(8.0, 0.0, 8.0, 8.0),
+            hlr_segment(8.0, 8.0, 4.0, 8.0),
+            hlr_segment(4.0, 8.0, 4.0, 4.0),
+            hlr_segment(4.0, 4.0, 0.0, 4.0),
+            hlr_segment(0.0, 4.0, 0.0, 0.0),
+        ],
+        arcs: Vec::new(),
+    };
+    let data = board_data_with_hlr(
+        vec![heatsink, chip],
+        vec![
+            hlr_body("HS1", l_shape, line_edges(1.0, 1.0, 2.0, 1.0)),
+            hlr_body(
+                "U20",
+                rectangle_edges(3.0, 3.0, 5.0, 5.0),
+                line_edges(3.5, 3.5, 4.5, 3.5),
+            ),
+        ],
+    );
+    let rendered = render(
+        &config,
+        &empty_hlr(),
+        &placements(),
+        &data,
+        "assembly_top_view",
+    );
+    let covering: Vec<_> = rendered
+        .svg
+        .match_indices("data-bounds-kind=\"covering\" stroke")
+        .collect();
+    assert_eq!(covering.len(), 1, "only the heatsink covers");
+    assert!(
+        group_containing(&rendered.svg, "data-bounds-kind=\"covering\" stroke").contains("HS1")
+    );
+}
+
+#[test]
+fn a_covering_label_avoids_a_neighbours_body() {
+    // JTYU-OBC: HS1's label, centred above its outline, printed over SW6.
+    let config = config();
+    let mut data = covering_board();
+    let mut switch = footprint(3, "SW6", FootSide::Top, false, (5.0, 1.2));
+    switch.pad_bounds = Some(Bounds {
+        min_x: 4.0,
+        min_y: 0.6,
+        max_x: 6.0,
+        max_y: 1.8,
+    });
+    data.footprints.push(switch);
+    let rendered = render(
+        &config,
+        &empty_hlr(),
+        &placements(),
+        &data,
+        "assembly_top_view",
+    );
+    let text = designator_text(&rendered.svg, "uuid-HS1");
+    let label = Bounds {
+        min_x: number_attribute(text, "data-text-box-min-x"),
+        min_y: number_attribute(text, "data-text-box-min-y"),
+        max_x: number_attribute(text, "data-text-box-max-x"),
+        max_y: number_attribute(text, "data-text-box-max-y"),
+    };
+    let switch_body = Bounds {
+        min_x: 4.0,
+        min_y: 0.6,
+        max_x: 6.0,
+        max_y: 1.8,
+    };
+    assert!(
+        !label.intersects(switch_body),
+        "HS1's label overlaps SW6: {text}"
+    );
+    let heatsink = Bounds {
+        min_x: 3.0,
+        min_y: 2.0,
+        max_x: 7.0,
+        max_y: 4.0,
+    };
+    assert!(
+        !label.intersects(heatsink),
+        "HS1's label is inside its own body: {text}"
     );
 }

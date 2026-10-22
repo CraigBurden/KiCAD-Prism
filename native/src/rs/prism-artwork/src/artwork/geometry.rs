@@ -271,17 +271,13 @@ fn collect_holes(
                 let Some(transform) = transforms.get(index) else {
                     continue;
                 };
-                let offset = rotate(
-                    Point {
-                        x: hole.offset.x,
-                        y: hole.offset.y,
+                Point::from(hole.board_center(
+                    prism_kicad_core::PcbPoint {
+                        x: transform.x,
+                        y: transform.y,
                     },
-                    hole.angle,
-                );
-                transform.apply(Point {
-                    x: hole.center.x + offset.x,
-                    y: hole.center.y + offset.y,
-                })
+                    transform.angle,
+                ))
             }
             PcbHoleOwner::Via => Point::from(hole.center),
         };
@@ -376,14 +372,6 @@ impl FootprintTransform {
             x: self.x + local.x * cos + local.y * sin,
             y: self.y - local.x * sin + local.y * cos,
         }
-    }
-}
-
-fn rotate(point: Point, angle_degrees: f64) -> Point {
-    let (sin, cos) = angle_degrees.to_radians().sin_cos();
-    Point {
-        x: point.x * cos - point.y * sin,
-        y: point.x * sin + point.y * cos,
     }
 }
 

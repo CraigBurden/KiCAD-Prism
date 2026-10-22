@@ -88,13 +88,14 @@ isolates one net.
 ```sh
 cargo run -p prism-docs-lab --bin connector-icd -- \
     --in <bundle.prism> -o <dir> [--geometer <exe>] [--model-dir VAR=DIR]... \
-    [--refs J1,J2] [--prefixes J,P,CN,X] [--chrome <exe>] [--no-pdf] \
-    [--theme light|dark|blueprint]
+    [--refs J1,J2] [--prefixes J,P,CN,X] [--exclude-prefixes JP] \
+    [--exclude-refs J9] [--chrome <exe>] [--no-pdf] [--theme light|dark|blueprint]
 ```
 
 Connectors are the footprints whose reference starts with one of `--prefixes`
-(the defaults are `J`, `P`, `CN` and `X`), or exactly the references named by
-`--refs`. Each one gets `<dir>/<ref>.svg`; a connector whose pinout does not
+(the defaults are `J`, `P`, `CN` and `X`) but with none of `--exclude-prefixes`
+(default `JP`, KiCad's solder jumpers) and is not named in `--exclude-refs`, or
+exactly the references named by `--refs`. Each one gets `<dir>/<ref>.svg`; a connector whose pinout does not
 fit gets `<ref>-2.svg`, `<ref>-3.svg`, … and the sheet header says
 `<ref> (2 of 3)`. `<dir>/index.html` inlines every sheet in order with a table
 of contents, and `<dir>/connectors.pdf` is that page printed by headless
@@ -110,7 +111,8 @@ A sheet carries:
    face) and side, plus a small isometric, all hidden-line projections of the
    footprint's first STEP model. Outline edges print at 0.35 mm in ink, detail
    at 0.18 mm in grey, and the front and side views carry the overall width,
-   depth and height as dimension lines. Each view states its scale (`6:1`).
+   depth and height as dimension lines. All of a connector's views share one
+   scale, the largest at which every view fits its cell, and each states it (`6:1`).
 3. **Locator** — the board outline with this connector filled in and the other
    connectors as labelled grey outlines.
 4. **Pinout** — one row per pin in natural order (1, 2, 10, A1, A2, B1…): pin

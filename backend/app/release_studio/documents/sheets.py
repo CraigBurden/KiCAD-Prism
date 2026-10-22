@@ -27,11 +27,11 @@ from app.release_studio.documents.layout import (
     TitleBlockField,
     draw_notes,
     draw_table,
-    fit_columns,
     notes_height,
     preferred_scale,
     split_columns,
 )
+from app.release_studio.documents.sheet_notes import DEFAULT_NOTES  # noqa: F401 - re-exported
 from app.release_studio.documents.sheet_drawing import (
     _DNP_LEGEND_HEIGHT,
     _DNP_SWATCH,
@@ -41,6 +41,8 @@ from app.release_studio.documents.sheet_drawing import (
     _draw_artwork,
     _draw_dnp_legend,
     _draw_view_direction,
+    _art_fits,
+    _draw_board_render,
     _drawn_width,
     _view_caption,
     draw_overall_dimensions,
@@ -52,65 +54,6 @@ from app.release_studio.documents.worksheet import default_worksheet_elements
 #: without projections and without artwork has no extent to size itself from.
 DEFAULT_SIZE = "A3"
 
-#: The note block each sheet carries when the configuration declares none.
-#:
-#: These are the statements Prism can make on its own authority: what the
-#: released bytes are, which file governs, and what the drawing is a view of.
-#: Anything that depends on the issuing organization -- IPC class, coupon
-#: requirements, impedance tolerances -- is deliberately absent, because Prism
-#: does not know it and a plausible-looking default would be worse than none.
-#: `documents.notes.resolve_notes` replaces any of these from configuration.
-DEFAULT_NOTES: dict[str, tuple[str, ...]] = {
-    "cover": (
-        # Deliberately not "the files listed above are the released bytes":
-        # this sheet is itself a released member, and it is composed before the
-        # other documentation members exist, so it can never list all of them.
-        # A recipient reconciling the list against the dossier would find
-        # extras and reasonably conclude the release had been tampered with.
-        "The files listed above are released members produced before this "
-        "sheet. manifest.json in this dossier lists the complete set, "
-        "including the documentation sheets, with the SHA-256 digest of each.",
-        "This sheet is generated from the board and schematic at the commit "
-        "named in the title block. It carries no build time and no approver, "
-        "so re-rendering it cannot change its digest.",
-    ),
-    "fabrication": (
-        "The Gerber and Excellon files in this dossier are authoritative; this "
-        "sheet is a view of them.",
-        "Dimensions are in millimetres. The stated scale is the ratio the "
-        "artwork was placed at.",
-    ),
-    "assembly-top": (
-        "Reference designators follow the position file in this dossier.",
-        "Do-not-populate parts are drawn and counted, and are listed separately "
-        "above. They are present in the position file; do not fit them.",
-    ),
-    "assembly-bottom": (
-        "Reference designators follow the position file in this dossier.",
-        "Do-not-populate parts are drawn and counted, and are listed separately "
-        "above. They are present in the position file; do not fit them.",
-    ),
-    "testpoint-top": (
-        "Only testpoints are labelled. Every other component is omitted so the "
-        "probe targets stand alone; the assembly drawings in this dossier show "
-        "the full population.",
-        "Schedule coordinates are each testpoint footprint's own placement in "
-        "board coordinates, read from the board. Testpoints are commonly "
-        "excluded from the position file, so that file may not list them.",
-    ),
-    "testpoint-bottom": (
-        "Only testpoints are labelled. Every other component is omitted so the "
-        "probe targets stand alone; the assembly drawings in this dossier show "
-        "the full population.",
-        "Schedule coordinates are each testpoint footprint's own placement in "
-        "board coordinates, read from the board. Testpoints are commonly "
-        "excluded from the position file, so that file may not list them.",
-    ),
-    "drill": (
-        "Hole sizes are finished diameters unless a tolerance is stated.",
-        "The Excellon file in this dossier is authoritative; this sheet is a view of it.",
-    ),
-}
 
 # Sheet furniture geometry mirrors Monkey's public default KiCad worksheet.
 # The emitted worksheet uses 10 mm margins and a title block that starts 34 mm
@@ -167,6 +110,7 @@ def select_sheet_size(
     *,
     ladder: Sequence[str] = SHEET_LADDER,
     title_height: float = TITLE_BLOCK_HEIGHT,
+    sheet_style: str = DEFAULT_SHEET_STYLE,
 ) -> str:
     """The smallest standard sheet the **board** fits on at 1:1.
 
@@ -174,9 +118,14 @@ def select_sheet_size(
     is a reason to draw the table smaller, not a reason to hand a 40 mm board a
     sheet four times the size it needs -- see `layout.fit_columns`.
 
-    The board is measured against the *narrowest* artwork window in the set so
-    that one size serves every sheet; a document set whose pages are different
-    sizes is a nuisance to print and to file.
+    The board is measured against the *narrowest* artwork window in the set,
+    in both styles, so the paper is the same one a board and its widest table
+    column fit on at 1:1.  ``prism`` then chooses the *scale* against the full
+    body (`set_scale`), so a board with room to spare is drawn larger on that
+    paper and its tables continue on their own sheet; choosing the paper
+    against the full body as well would hand the same board smaller paper at
+    the same ratio, which is the opposite of the point (JTYU-OBC, 132 x 90 mm:
+    A4 at 1:1 instead of A3 at 2:1).
 
     Nothing here is tuned to a particular board.  A 38 mm trigger board and a
     500 mm backplane land on their sheets by the same rule.
@@ -184,6 +133,7 @@ def select_sheet_size(
 
     if not ladder:
         raise ValueError("the sheet ladder is empty")
+    _ = sheet_style  # the paper rule is the same for both styles
 
     widest_table = max(TABLE_WIDTHS.values())
     for size in ladder:
@@ -232,17 +182,20 @@ def set_scale(
     A controlled drawing package where the same board measures 1:1 on the
     fabrication sheet and 2:1 on the assembly sheet is a defect: a reader who
     scales off one sheet and applies it to another gets the wrong number.  The
-    ratio is chosen once, against the *narrowest* window any sheet has, so the
-    sheet with the widest table can still hold the board at it.
-
-    ``prism`` searches the full ISO series and keeps 10 mm clear inside the
-    window; ``kicad`` keeps the historical ladder and exact fit so today's
-    released sheets do not move.
+    ratio is chosen once for the set.  ``prism`` measures it against the full
+    body -- its tables move to a continuation sheet rather than narrowing the
+    art -- and searches the full ISO series with 10 mm clear inside the window.
+    ``kicad`` measures against the narrowest window any sheet has, so the sheet
+    with the widest table can still hold the board at the historical ratio.
     """
 
     if board_width <= 0 or board_height <= 0:
         return 1.0
-    window = artwork_window(size, max(TABLE_WIDTHS.values()), title_height)
+    # `prism` chooses against the full body: its tables leave the artwork sheet
+    # when they do not fit beside the drawing.  `kicad` keeps the narrowest
+    # window so the sheet with the widest table can still hold the board.
+    table_width = 0.0 if sheet_style == PRISM_STYLE else max(TABLE_WIDTHS.values())
+    window = artwork_window(size, table_width, title_height)
     if sheet_style == PRISM_STYLE:
         return preferred_scale(
             board_width,
@@ -275,7 +228,12 @@ def package_scale(
 
     if sheet_size is None:
         sheet_size = (
-            select_sheet_size(board_width, board_height, title_height=title_height)
+            select_sheet_size(
+                board_width,
+                board_height,
+                title_height=title_height,
+                sheet_style=sheet_style,
+            )
             if board_width > 0 and board_height > 0
             else DEFAULT_SIZE
         )
@@ -296,6 +254,8 @@ def sheet_columns(
     key: str,
     title_height: float,
     drawn_width: float,
+    *,
+    sheet_style: str = DEFAULT_SHEET_STYLE,
 ) -> tuple[float, Rect, Rect]:
     """Split one sheet's body into an artwork window and a table column.
 
@@ -304,6 +264,11 @@ def sheet_columns(
     width beyond it is space the drawing has no use for.  Handing that space to
     the table column is what stops a 132 mm board from truncating a 12-layer
     stackup to "and 4 more" while two thirds of the sheet is blank.
+
+    ``prism`` returns a zero table width when even the sheet's base column
+    cannot sit beside the drawn artwork: the caller then gives the art the full
+    body and carries every table to a continuation sheet.  Widening the column
+    is never allowed to narrow the window below the ratio the set states.
     """
 
     body = body_rect(size, title_height)
@@ -315,6 +280,12 @@ def sheet_columns(
         table_width = base
     else:
         spare = body.width - (drawn_width + 2 * _WINDOW_INSET) - _WINDOW_INSET
+        if sheet_style == PRISM_STYLE and spare < base:
+            return (
+                0.0,
+                artwork_window(size, 0.0, title_height),
+                Rect(0.0, 0.0, 0.0, 0.0),
+            )
         table_width = max(
             base,
             min(spare, base + _MAX_TABLE_GROWTH, body.width * _MAX_TABLE_SHARE),
@@ -410,6 +381,49 @@ def _draw_column(builder: SheetBuilder, column: Sequence, origin: tuple[float, f
             cursor += _TABLE_GAP
         cursor = draw_table(builder, table, (x, cursor))
     return cursor
+
+
+def _noted_window(
+    size: str,
+    title_height: float,
+    notes: Sequence[str],
+    typography: str = DEFAULT_TYPOGRAPHY,
+) -> Rect:
+    """The full-body artwork window, ending above the sheet's notes band.
+
+    When a sheet's tables have moved to a continuation page its notes run
+    across the foot of the body (`_draw_body_notes`); the window stops short of
+    them so a drawing never runs under its own notes.
+    """
+
+    window = artwork_window(size, 0.0, title_height)
+    body = body_rect(size, title_height)
+    band = notes_height(notes, width=body.width - 2 * _WINDOW_INSET, typography=typography)
+    return Rect(window.x, window.y, window.width, max(window.height - band - _TABLE_GAP, 1.0))
+
+
+def _draw_body_notes(
+    builder: SheetBuilder,
+    body: Rect,
+    notes: Sequence[str],
+    *,
+    typography: str = DEFAULT_TYPOGRAPHY,
+) -> None:
+    """Draw a drawing sheet's notes across the body when its tables moved away.
+
+    With a table column the notes sit under the schedule; with none they keep
+    their position at the foot of the sheet, where the reader already looks for
+    them. The block is bottom-aligned so the artwork window keeps the full body.
+    """
+
+    width = body.width - 2 * _WINDOW_INSET
+    height = notes_height(notes, width=width, typography=typography)
+    draw_notes(
+        builder,
+        notes,
+        (body.x + _WINDOW_INSET, body.bottom - height),
+        width=width,
+    )
 
 
 def _lane_origins(area: Rect, lanes: Sequence[Sequence], gap: float) -> list[float]:
@@ -539,7 +553,7 @@ def technical_cover(
         # Measured, not assumed: the gap starts after the widest table actually
         # drawn in the left column, so nothing can overhang into the picture.
         left_width = max((table.width() for table in columns[0]), default=0.0)
-        _draw_board_render(builder, render, area, origins, left_width)
+        _draw_board_render(builder, render, area, origins, left_width, _COVER_COLUMN_GAP)
 
     draw_notes(
         builder,
@@ -548,43 +562,6 @@ def technical_cover(
         width=body_width,
     )
     return builder.build(), overflow
-
-
-def _draw_board_render(
-    builder: SheetBuilder,
-    render: Any,
-    area: Rect,
-    origins: Sequence[float],
-    left_width: float,
-) -> None:
-    """Place the board picture in the gap the two table columns leave."""
-
-    from app.release_studio.documents.layout import Image
-
-    left = origins[0] + left_width + _COVER_COLUMN_GAP
-    right = origins[-1] - _COVER_COLUMN_GAP
-    width = right - left
-    if width <= 20.0:
-        return
-    window = Rect(left, area.y, width, area.height)
-    builder.add(
-        Image(
-            rect=window,
-            png_bytes=render.png_bytes,
-            width_px=render.width_px,
-            height_px=render.height_px,
-            source_digest=render.digest,
-            label="board render",
-        )
-    )
-    builder.text(
-        left + width / 2,
-        area.y + min(area.height, width / max(render.aspect, 0.01)) + 5.0,
-        "RAYTRACED VIEW — ILLUSTRATIVE, NOT A CONTROLLED DIMENSION",
-        size=2.2,
-        anchor="middle",
-        colour=MUTED if builder.sheet_style == PRISM_STYLE else "#555555",
-    )
 
 
 def fabrication_sheet(
@@ -621,10 +598,58 @@ def fabrication_sheet(
         sheet_style=sheet_style,
     )
     title_height = title_block_height(context, fields)
+    sheet_notes = notes if notes is not None else DEFAULT_NOTES["fabrication"]
 
     table_width, window, area = sheet_columns(
-        size, "fabrication", title_height, _drawn_width(art, scale)
+        size,
+        "fabrication",
+        title_height,
+        _drawn_width(art, scale),
+        sheet_style=sheet_style,
     )
+    schedule = [
+        tables.stackup_table(stackup, highlight=layer),
+        tables.drill_table(stackup, stats),
+        tables.key_value_table(
+            "BOARD CHARACTERISTICS",
+            tables.board_characteristics(stats, stackup),
+            width=table_width or TABLE_WIDTHS["fabrication"],
+        ),
+    ]
+    column: list[list] | None = None
+    carried: list = []
+    if table_width > 0:
+        reserve = notes_height(
+            sheet_notes, width=table_width, typography=typography
+        ) + _TABLE_GAP
+        column, overflow, _factor = split_columns(
+            [schedule],
+            Rect(area.x, area.y, area.width, area.height - reserve),
+            gap=_TABLE_GAP,
+            sheet_style=sheet_style,
+        )
+        if overflow and sheet_style == PRISM_STYLE:
+            # The schedule does not fit in the column: the drawing keeps the
+            # whole body and the tables continue together on their own sheet.
+            table_width = 0.0
+            window = artwork_window(size, 0.0, title_height)
+            carried = schedule
+            column = None
+        else:
+            carried = overflow
+    else:
+        carried = schedule
+    notes_carried = False
+    if column is None:
+        noted = _noted_window(size, title_height, sheet_notes, typography)
+        if _art_fits(noted, art, scale):
+            window = noted
+        else:
+            # No room for the notes under the drawing at the set's ratio:
+            # they continue with the tables rather than run under the art.
+            notes_carried = True
+            carried = [*carried, tables.notes_table(sheet_notes)]
+
     used = _draw_artwork(
         builder,
         window,
@@ -642,27 +667,13 @@ def fabrication_sheet(
             height_label=height_label,
         )
 
-    sheet_notes = notes if notes is not None else DEFAULT_NOTES["fabrication"]
-    reserve = notes_height(
-        sheet_notes, width=table_width, typography=typography
-    ) + _TABLE_GAP
-    column, overflow, _factor = split_columns(
-        [[
-            tables.stackup_table(stackup, highlight=layer),
-            tables.drill_table(stackup, stats),
-            tables.key_value_table(
-                "BOARD CHARACTERISTICS",
-                tables.board_characteristics(stats, stackup),
-                width=table_width,
-            ),
-        ]],
-        Rect(area.x, area.y, area.width, area.height - reserve),
-        gap=_TABLE_GAP,
-        sheet_style=sheet_style,
-    )
-    cursor = _draw_column(builder, column[0], (area.x, area.y))
-    draw_notes(builder, sheet_notes, (area.x, cursor + _TABLE_GAP), width=table_width)
-    return builder.build(), used, overflow
+    if column is not None:
+        cursor = _draw_column(builder, column[0], (area.x, area.y))
+        draw_notes(builder, sheet_notes, (area.x, cursor + _TABLE_GAP), width=table_width)
+    else:
+        if not notes_carried:
+            _draw_body_notes(builder, body, sheet_notes, typography=typography)
+    return builder.build(), used, carried
 
 
 #: How many columns of tables a continuation sheet lays out across the body.
@@ -725,6 +736,23 @@ def continuation_sheet(
             continue
         _draw_column(builder, lane, (cursor_x, area.y))
         cursor_x += max(table.width() for table in lane) + _COVER_COLUMN_GAP
+    # A long table fills its lane and spills; the rest of the page is still
+    # free, so its tail continues in the next lane here rather than on a new
+    # sheet (JTYU-OBC's 81-row testpoint schedule used one lane of four).
+    while overflow and cursor_x < area.right:
+        free = Rect(cursor_x, area.y, area.right - cursor_x, area.height)
+        placed, rest, _factor = split_columns(
+            [overflow], free, gap=_TABLE_GAP, sheet_style=sheet_style
+        )
+        lane = placed[0] if placed else []
+        if not lane or rest == overflow:
+            break
+        width = max(table.width() for table in lane)
+        if width > free.width:
+            break
+        _draw_column(builder, lane, (cursor_x, area.y))
+        cursor_x += width + _COVER_COLUMN_GAP
+        overflow = rest
     return builder.build(), overflow
 
 
@@ -742,7 +770,7 @@ def assembly_sheet(
     projection_mix: Mapping[str, int] | None = None,
     population: Mapping[str, Any] | None = None,
     sheet_style: str = DEFAULT_SHEET_STYLE,
-) -> tuple[Sheet, float]:
+) -> tuple[Sheet, float, list]:
     """One assembly view, with the population count for the released variant.
 
     The artwork is a ``prism-kicad artwork`` assembly view rather than a plotted
@@ -753,6 +781,9 @@ def assembly_sheet(
     When this side has do-not-populate parts, a legend under the population
     table repeats the artwork's own swatch so the hatch is decodable without
     the drawing's key.
+
+    Returns the sheet, the ratio the artwork was placed at, and the tables that
+    did not fit beside the drawing for a continuation sheet.
     """
 
     from app.release_studio.documents.artwork import assembly_projection_label
@@ -768,20 +799,6 @@ def assembly_sheet(
         sheet_style=sheet_style,
     )
     title_height = title_block_height(context, fields)
-
-    table_width, window, area = sheet_columns(
-        size, "assembly", title_height, _drawn_width(art, scale)
-    )
-    used = _draw_artwork(
-        builder,
-        window,
-        art,
-        label="assembly artwork",
-        scale=scale,
-        sheet_style=sheet_style,
-        view_caption=_view_caption(side),
-    )
-    _draw_view_direction(builder, window, side)
 
     # Counts come from the board, not from the position file: that file omits
     # anything flagged "exclude from position files" -- every testpoint, on a
@@ -826,48 +843,117 @@ def assembly_sheet(
     sheet_notes = notes if notes is not None else DEFAULT_NOTES[f"assembly-{side}"]
     legend_style = dnp_style() if int(counts.get("dnp") or 0) > 0 else None
     dnp_refs = list(counts.get("dnp_refs") or ())
+
+    table_width, window, area = sheet_columns(
+        size,
+        "assembly",
+        title_height,
+        _drawn_width(art, scale),
+        sheet_style=sheet_style,
+    )
+    population_table = tables.key_value_table(
+        "POPULATION", tuple(summary_rows), width=table_width or TABLE_WIDTHS["assembly"]
+    )
     dnp_schedule = (
-        tables.dnp_table(dnp_refs, width=table_width)
+        tables.dnp_table(
+            dnp_refs, width=table_width or TABLE_WIDTHS["assembly"]
+        )
         if sheet_style == PRISM_STYLE and legend_style is not None and dnp_refs
         else None
     )
-    reserve = notes_height(
-        sheet_notes, width=table_width, typography=typography
-    ) + _TABLE_GAP
-    if legend_style is not None:
-        reserve += _DNP_LEGEND_HEIGHT + _TABLE_GAP
-    if dnp_schedule is not None:
-        reserve += dnp_schedule.height(typography, sheet_style) + _TABLE_GAP
-    column, factor = fit_columns(
-        [[tables.key_value_table("POPULATION", tuple(summary_rows), width=table_width)]],
-        Rect(area.x, area.y, area.width, area.height - reserve),
-        gap=_TABLE_GAP,
+    schedule = [population_table] + ([dnp_schedule] if dnp_schedule is not None else [])
+    column: list[list] | None = None
+    carried: list = []
+    factor = 1.0
+    if table_width > 0:
+        reserve = notes_height(
+            sheet_notes, width=table_width, typography=typography
+        ) + _TABLE_GAP
+        if legend_style is not None:
+            reserve += _DNP_LEGEND_HEIGHT + _TABLE_GAP
+        if dnp_schedule is not None:
+            reserve += dnp_schedule.height(typography, sheet_style) + _TABLE_GAP
+        # The DNP list is drawn after the hatch legend below, so only the
+        # population table goes in the column; both move if the column fails.
+        column, overflow, factor = split_columns(
+            [[population_table]],
+            Rect(area.x, area.y, area.width, area.height - reserve),
+            gap=_TABLE_GAP,
+            sheet_style=sheet_style,
+        )
+        if overflow and sheet_style == PRISM_STYLE:
+            table_width = 0.0
+            window = artwork_window(size, 0.0, title_height)
+            carried = schedule
+            column = None
+            factor = 1.0
+        else:
+            carried = overflow
+    else:
+        carried = schedule
+    notes_carried = False
+    if column is None:
+        noted = _noted_window(size, title_height, sheet_notes, typography)
+        if _art_fits(noted, art, scale):
+            window = noted
+        else:
+            # No room for the notes under the drawing at the set's ratio:
+            # they continue with the tables rather than run under the art.
+            notes_carried = True
+            carried = [*carried, tables.notes_table(sheet_notes)]
+
+    used = _draw_artwork(
+        builder,
+        window,
+        art,
+        label="assembly artwork",
+        scale=scale,
         sheet_style=sheet_style,
+        view_caption=_view_caption(side),
     )
-    cursor = _draw_column(builder, column[0], (area.x, area.y))
+    _draw_view_direction(builder, window, side)
+
     # The legend and the DNP list follow the population table at its scale, so
     # the column reads as one block of one text size.
     prism_scale = factor if sheet_style == PRISM_STYLE else 1.0
-    if legend_style is not None:
-        # ``prism``: the swatch's top sits where a heading's capitals would, so
-        # table → legend → heading are the same visual gap apart.
-        legend_top = cursor + _TABLE_GAP + (_HEADING_INSET if sheet_style == PRISM_STYLE else 0.0)
-        _draw_dnp_legend(
-            builder,
-            (area.x, legend_top),
-            width=table_width,
-            style=legend_style,
-            scale=prism_scale,
-        )
-        cursor = legend_top + (
-            _DNP_SWATCH * prism_scale if sheet_style == PRISM_STYLE else _DNP_LEGEND_HEIGHT
-        )
-    if dnp_schedule is not None:
-        cursor = draw_table(
-            builder, dnp_schedule.scaled(prism_scale), (area.x, cursor + _TABLE_GAP)
-        )
-    draw_notes(builder, sheet_notes, (area.x, cursor + _TABLE_GAP), width=table_width)
-    return builder.build(), used
+    if column is not None:
+        cursor = _draw_column(builder, column[0], (area.x, area.y))
+        if legend_style is not None:
+            # ``prism``: the swatch's top sits where a heading's capitals would,
+            # so table → legend → heading are the same visual gap apart.
+            legend_top = cursor + _TABLE_GAP + (
+                _HEADING_INSET if sheet_style == PRISM_STYLE else 0.0
+            )
+            _draw_dnp_legend(
+                builder,
+                (area.x, legend_top),
+                width=table_width,
+                style=legend_style,
+                scale=prism_scale,
+            )
+            cursor = legend_top + (
+                _DNP_SWATCH * prism_scale
+                if sheet_style == PRISM_STYLE
+                else _DNP_LEGEND_HEIGHT
+            )
+        if dnp_schedule is not None:
+            cursor = draw_table(
+                builder, dnp_schedule.scaled(prism_scale), (area.x, cursor + _TABLE_GAP)
+            )
+        draw_notes(builder, sheet_notes, (area.x, cursor + _TABLE_GAP), width=table_width)
+    else:
+        # The schedule moved away, but the hatch still needs its key on the
+        # drawing: put it in the window's own bottom margin, clear of the art.
+        if legend_style is not None:
+            _draw_dnp_legend(
+                builder,
+                (window.x + _WINDOW_INSET, window.bottom - _DNP_LEGEND_HEIGHT),
+                width=window.width - 2 * _WINDOW_INSET,
+                style=legend_style,
+            )
+        if not notes_carried:
+            _draw_body_notes(builder, body, sheet_notes, typography=typography)
+    return builder.build(), used, carried
 
 
 def testpoint_sheet(
@@ -904,9 +990,63 @@ def testpoint_sheet(
     )
     title_height = title_block_height(context, fields)
 
+    found = tables.testpoints_for_side(testpoints, side)
     table_width, window, area = sheet_columns(
-        size, "testpoint", title_height, _drawn_width(art, scale)
+        size,
+        "testpoint",
+        title_height,
+        _drawn_width(art, scale),
+        sheet_style=sheet_style,
     )
+    summary = tables.key_value_table(
+        "TESTPOINTS",
+        (
+            ("Side", label),
+            ("Testpoints", str(len(found))),
+            ("Variant", str(context.get("variant") or "default")),
+        ),
+        width=table_width or TABLE_WIDTHS["testpoint"],
+    )
+    schedule = tables.testpoint_table(
+        testpoints,
+        side,
+        width=table_width or TABLE_WIDTHS["testpoint"],
+        typography=typography,
+    )
+
+    sheet_notes = notes if notes is not None else DEFAULT_NOTES[f"testpoint-{side}"]
+    column: list[list] | None = None
+    carried: list = []
+    if table_width > 0:
+        reserve = notes_height(
+            sheet_notes, width=table_width, typography=typography
+        ) + _TABLE_GAP
+        column, overflow, _factor = split_columns(
+            [[summary, schedule]],
+            Rect(area.x, area.y, area.width, area.height - reserve),
+            gap=_TABLE_GAP,
+            sheet_style=sheet_style,
+        )
+        if overflow and sheet_style == PRISM_STYLE:
+            table_width = 0.0
+            window = artwork_window(size, 0.0, title_height)
+            carried = [summary, schedule]
+            column = None
+        else:
+            carried = overflow
+    else:
+        carried = [summary, schedule]
+    notes_carried = False
+    if column is None:
+        noted = _noted_window(size, title_height, sheet_notes, typography)
+        if _art_fits(noted, art, scale):
+            window = noted
+        else:
+            # No room for the notes under the drawing at the set's ratio:
+            # they continue with the tables rather than run under the art.
+            notes_carried = True
+            carried = [*carried, tables.notes_table(sheet_notes)]
+
     used = _draw_artwork(
         builder,
         window,
@@ -918,33 +1058,13 @@ def testpoint_sheet(
     )
     _draw_view_direction(builder, window, side)
 
-    found = tables.testpoints_for_side(testpoints, side)
-    summary = tables.key_value_table(
-        "TESTPOINTS",
-        (
-            ("Side", label),
-            ("Testpoints", str(len(found))),
-            ("Variant", str(context.get("variant") or "default")),
-        ),
-        width=table_width,
-    )
-    schedule = tables.testpoint_table(
-        testpoints, side, width=table_width, typography=typography
-    )
-
-    sheet_notes = notes if notes is not None else DEFAULT_NOTES[f"testpoint-{side}"]
-    reserve = notes_height(
-        sheet_notes, width=table_width, typography=typography
-    ) + _TABLE_GAP
-    column, overflow, _factor = split_columns(
-        [[summary, schedule]],
-        Rect(area.x, area.y, area.width, area.height - reserve),
-        gap=_TABLE_GAP,
-        sheet_style=sheet_style,
-    )
-    cursor = _draw_column(builder, column[0], (area.x, area.y))
-    draw_notes(builder, sheet_notes, (area.x, cursor + _TABLE_GAP), width=table_width)
-    return builder.build(), used, overflow
+    if column is not None:
+        cursor = _draw_column(builder, column[0], (area.x, area.y))
+        draw_notes(builder, sheet_notes, (area.x, cursor + _TABLE_GAP), width=table_width)
+    else:
+        if not notes_carried:
+            _draw_body_notes(builder, body, sheet_notes, typography=typography)
+    return builder.build(), used, carried
 
 
 def drill_sheet(
@@ -978,8 +1098,49 @@ def drill_sheet(
     title_height = title_block_height(context, fields)
 
     table_width, window, area = sheet_columns(
-        size, "drill", title_height, _drawn_width(art, scale)
+        size,
+        "drill",
+        title_height,
+        _drawn_width(art, scale),
+        sheet_style=sheet_style,
     )
+    schedule = [
+        tables.via_statistics_table(stackup),
+        tables.drill_table(stackup, stats),
+    ]
+    sheet_notes = notes if notes is not None else DEFAULT_NOTES["drill"]
+    column: list[list] | None = None
+    carried: list = []
+    if table_width > 0:
+        reserve = notes_height(
+            sheet_notes, width=table_width, typography=typography
+        ) + _TABLE_GAP
+        column, overflow, _factor = split_columns(
+            [schedule],
+            Rect(area.x, area.y, area.width, area.height - reserve),
+            gap=_TABLE_GAP,
+            sheet_style=sheet_style,
+        )
+        if overflow and sheet_style == PRISM_STYLE:
+            table_width = 0.0
+            window = artwork_window(size, 0.0, title_height)
+            carried = schedule
+            column = None
+        else:
+            carried = overflow
+    else:
+        carried = schedule
+    notes_carried = False
+    if column is None:
+        noted = _noted_window(size, title_height, sheet_notes, typography)
+        if _art_fits(noted, art, scale):
+            window = noted
+        else:
+            # No room for the notes under the drawing at the set's ratio:
+            # they continue with the tables rather than run under the art.
+            notes_carried = True
+            carried = [*carried, tables.notes_table(sheet_notes)]
+
     used = _draw_artwork(
         builder,
         window,
@@ -989,16 +1150,10 @@ def drill_sheet(
         sheet_style=sheet_style,
     )
 
-    sheet_notes = notes if notes is not None else DEFAULT_NOTES["drill"]
-    reserve = notes_height(
-        sheet_notes, width=table_width, typography=typography
-    ) + _TABLE_GAP
-    column, overflow, _factor = split_columns(
-        [[tables.via_statistics_table(stackup), tables.drill_table(stackup, stats)]],
-        Rect(area.x, area.y, area.width, area.height - reserve),
-        gap=_TABLE_GAP,
-        sheet_style=sheet_style,
-    )
-    cursor = _draw_column(builder, column[0], (area.x, area.y))
-    draw_notes(builder, sheet_notes, (area.x, cursor + _TABLE_GAP), width=table_width)
-    return builder.build(), used, overflow
+    if column is not None:
+        cursor = _draw_column(builder, column[0], (area.x, area.y))
+        draw_notes(builder, sheet_notes, (area.x, cursor + _TABLE_GAP), width=table_width)
+    else:
+        if not notes_carried:
+            _draw_body_notes(builder, body, sheet_notes, typography=typography)
+    return builder.build(), used, carried

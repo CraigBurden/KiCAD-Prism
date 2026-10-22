@@ -74,22 +74,34 @@ fn nets_by_code(root: &Node<'_>) -> Vec<(f64, String)> {
         .collect()
 }
 
-/// `net_name_of` (`ecad-parse.mjs:1167-1179`).
+/// `net_name_of` (`ecad-parse.mjs:1167-1179`), by the form's shape.
+///
+/// - `(net <code> "<name>")` (KiCad 9 and older): the name, or the board net
+///   table's name for `<code>` when the name is empty. Reading item 1 as the
+///   name here gave the code: JTYU-OBC's pads all reported nets like `"722"`.
+/// - `(net "<name>")` (KiCad 10): the name, unless the board has a net table
+///   with that code (a legacy code-only form), whose name is used instead.
 fn net_name_of(item: &Node<'_>, nets: &[(f64, String)]) -> Option<String> {
     let net = item.child("net")?;
-    let name = tree::text_at(net, 1).unwrap_or_default();
-    let number = tree::number_at(net, 1);
-    if let Some(number) = number {
+    let by_code = |code: f64| {
+        nets.iter()
+            .find(|(number, _)| *number == code)
+            .map(|(_, name)| name.clone())
+            .filter(|name| !name.is_empty())
+    };
+    let count = net.items().map_or(0, <[Node<'_>]>::len);
+    if count >= 3 {
+        let name = tree::text_at(net, 2).unwrap_or_default();
         if !name.is_empty() {
             return Some(name);
         }
-        return nets
-            .iter()
-            .find(|(code, _)| *code == number)
-            .map(|(_, name)| name.clone())
-            .filter(|name| !name.is_empty());
+        return tree::number_at(net, 1).and_then(by_code);
     }
-    (!name.is_empty()).then_some(name)
+    let first = tree::text_at(net, 1).unwrap_or_default();
+    if let Some(name) = tree::number_at(net, 1).and_then(by_code) {
+        return Some(name);
+    }
+    (!first.is_empty()).then_some(first)
 }
 
 /// `layer_of(item, head)` (`ecad-parse.mjs:1187-1192`): a non-empty `(head …)`
@@ -753,4 +765,45 @@ fn centroid_point(points: Vec<(Option<f64>, Option<f64>)>) -> Option<bo::PointNm
         x_nm: bo::Nanometres(x),
         y_nm: bo::Nanometres(y),
     })
+}
+
+#[cfg(test)]
+mod net_name_tests {
+    use super::{net_name_of, nets_by_code, tree};
+
+    fn net_of(board: &str) -> Option<String> {
+        let roots = tree::parse(board);
+        let root = &roots[0];
+        let nets = nets_by_code(root);
+        let pad = root
+            .child("footprint")
+            .and_then(|footprint| footprint.child("pad"))
+            .expect("a pad");
+        net_name_of(pad, &nets)
+    }
+
+    #[test]
+    fn a_kicad_9_pad_names_its_net_not_its_code() {
+        let board = r#"(kicad_pcb (net 0 "") (net 722 "S32G3_PWR_EN")
+            (footprint "x" (pad "1" smd rect (net 722 "S32G3_PWR_EN"))))"#;
+        assert_eq!(net_of(board).as_deref(), Some("S32G3_PWR_EN"));
+    }
+
+    #[test]
+    fn an_empty_name_falls_back_to_the_net_table() {
+        let board = r#"(kicad_pcb (net 7 "VBUS") (footprint "x" (pad "1" smd rect (net 7 ""))))"#;
+        assert_eq!(net_of(board).as_deref(), Some("VBUS"));
+    }
+
+    #[test]
+    fn a_kicad_10_net_named_like_a_number_stays_a_name() {
+        let board = r#"(kicad_pcb (footprint "x" (pad "1" smd rect (net "5"))))"#;
+        assert_eq!(net_of(board).as_deref(), Some("5"));
+    }
+
+    #[test]
+    fn a_legacy_code_only_pad_takes_the_tables_name() {
+        let board = r#"(kicad_pcb (net 3 "GND") (footprint "x" (pad "1" smd rect (net 3))))"#;
+        assert_eq!(net_of(board).as_deref(), Some("GND"));
+    }
 }

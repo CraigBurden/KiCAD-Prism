@@ -144,7 +144,7 @@ pub use pcb::{
     PcbStackupLayer, PcbStackupSublayer, PcbTable, PcbTableCell, PcbTeardropParameters, PcbVia,
     PcbViaStack, PcbViaStackLayer, PcbView, PcbZone, PcbZoneFilledPolygon, PcbZoneKeepout,
     PcbZoneLayerConnections, PcbZoneLayerProperty, PcbZoneOutlineArc, PcbZonePlacement,
-    PcbZonePlacementSource, PcbZonePolygon, resolve_pad_copper_layer,
+    PcbZonePlacementSource, PcbZonePolygon, kicad_rotate, resolve_pad_copper_layer,
 };
 pub use pcb_authoring::{
     AuthoredBackdrill, AuthoredBoardText, AuthoredChamferCorner, AuthoredColor,

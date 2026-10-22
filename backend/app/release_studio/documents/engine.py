@@ -43,6 +43,7 @@ from app.release_studio.documents.layout import Rect, Sheet, stroke_text_batch
 from app.release_studio.documents.pdf import append_pdf_pages, render_pdf_pages
 from app.release_studio.documents.style import (
     DEFAULT_SHEET_STYLE,
+    PRISM_STYLE,
     sheet_style as normalize_sheet_style,
 )
 from app.release_studio.documents.svg import render_svg
@@ -312,7 +313,7 @@ def compose_documents(
     # so the sheet is placed at exactly that ratio rather than choosing again.
     if inputs.artwork_paper_scale is not None:
         if sheet_size is None:
-            sheet_size = _select_size(stats, title_height)
+            sheet_size = _select_size(stats, title_height, sheet_style=sheet_style)
         scale = float(inputs.artwork_paper_scale)
         if not (scale > 0 and scale < float("inf")):
             raise ValueError(
@@ -484,7 +485,7 @@ def compose_documents(
     assembly_pages = []
     for side in ASSEMBLY_SIDES:
         key = f"assembly-{side}"
-        sheet, used = sheet_templates.assembly_sheet(
+        sheet, used, overflow = sheet_templates.assembly_sheet(
             context, side, assembly.get(side), placements, size=sheet_size, scale=scale,
             notes=sheet_notes[key], fields=title_fields, typography=typography,
             sheet_style=sheet_style,
@@ -494,6 +495,20 @@ def compose_documents(
         assembly_pages.append(
             (sheet, key, used, assembly.get(side), _artwork_window(sheet))
         )
+        if sheet_style == PRISM_STYLE:
+            assembly_pages.extend(
+                _continuation_pages(
+                    overflow,
+                    context=context,
+                    prefix=key,
+                    title=f"ASSEMBLY SCHEDULE — {side.upper()}",
+                    sheet_size=sheet_size,
+                    fields=title_fields,
+                    typography=typography,
+                    sheet_style=sheet_style,
+                    warnings=warnings,
+                )
+            )
     _append_document(
         outputs, assembly_pages, "assembly", "ASSEMBLY DRAWING", warnings
     )
@@ -531,7 +546,8 @@ def compose_documents(
     # a reader can measure across them. The drill map is not one of those: it
     # carries a hole legend alongside the board, so forcing the board's ratio
     # onto it overruns the window and the sheet then states a ratio its own
-    # artwork does not honour. It fits itself and reports what it used.
+    # artwork does not honour (JTYU-OBC at 2:1: the board's top clipped and the
+    # legend over the notes). It fits itself and reports what it used.
     report("documents-drill", "Composing the drill drawing", 77.0)
     drill, drill_scale, drill_overflow = sheet_templates.drill_sheet(
         context, stats, stackup, art.get("drill"), size=sheet_size, scale=None,
@@ -627,7 +643,12 @@ def board_extent(stats: Mapping[str, Any]) -> tuple[float, float]:
     return width, height
 
 
-def _select_size(stats: Mapping[str, Any], title_height: float) -> str:
+def _select_size(
+    stats: Mapping[str, Any],
+    title_height: float,
+    *,
+    sheet_style: str = DEFAULT_SHEET_STYLE,
+) -> str:
     """Pick one standard sheet size for the whole set, from the board alone."""
 
     width, height = board_extent(stats)
@@ -636,7 +657,9 @@ def _select_size(stats: Mapping[str, Any], title_height: float) -> str:
         # Sizing from a guess would be worse than stating a conventional
         # default, so the set keeps the historical one.
         return sheet_templates.DEFAULT_SIZE
-    return sheet_templates.select_sheet_size(width, height, title_height=title_height)
+    return sheet_templates.select_sheet_size(
+        width, height, title_height=title_height, sheet_style=sheet_style
+    )
 
 
 def _artwork_window(sheet: Sheet) -> Rect | None:

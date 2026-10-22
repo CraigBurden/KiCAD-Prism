@@ -60,7 +60,7 @@ pub use padstacks::{
 };
 pub use physical::{
     PcbFootprintTransform, PcbHole, PcbHoleOwner, PcbHoleShape, PcbPadDrill, PcbProfileOwner,
-    PcbProfilePrimitive,
+    PcbProfilePrimitive, kicad_rotate,
 };
 pub use selection::{PcbFamily, PcbSelection};
 pub use setup::{PcbSetup, PcbStackup, PcbStackupLayer, PcbStackupSublayer};

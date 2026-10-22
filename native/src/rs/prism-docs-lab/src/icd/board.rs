@@ -265,6 +265,11 @@ pub struct LoadOptions {
     pub prefixes: Vec<String>,
     /// Exact references to take instead of the prefixes.
     pub refs: Vec<String>,
+    /// Prefixes that look like a connector's but are not: `JP` is KiCad's
+    /// solder-jumper prefix and would otherwise match `J`.
+    pub exclude_prefixes: Vec<String>,
+    /// Exact references to leave out of a prefix selection.
+    pub exclude_refs: Vec<String>,
     /// `--model-dir VAR=DIR`.
     pub model_dirs: BTreeMap<String, PathBuf>,
 }
@@ -274,6 +279,17 @@ impl LoadOptions {
     fn selects(&self, reference: &str) -> bool {
         if !self.refs.is_empty() {
             return self.refs.iter().any(|wanted| wanted == reference);
+        }
+        if self
+            .exclude_refs
+            .iter()
+            .any(|excluded| excluded == reference)
+            || self
+                .exclude_prefixes
+                .iter()
+                .any(|prefix| reference.starts_with(prefix.as_str()))
+        {
+            return false;
         }
         self.prefixes
             .iter()
@@ -925,72 +941,4 @@ pub fn pages(pins: usize) -> usize {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn options(prefixes: &[&str], refs: &[&str]) -> LoadOptions {
-        LoadOptions {
-            prefixes: prefixes.iter().map(|value| (*value).to_owned()).collect(),
-            refs: refs.iter().map(|value| (*value).to_owned()).collect(),
-            model_dirs: BTreeMap::new(),
-        }
-    }
-
-    #[test]
-    fn the_selection_is_prefixes_or_exact_references() {
-        let prefixes = options(&["J", "CN"], &[]);
-        assert!(prefixes.selects("J1"));
-        assert!(prefixes.selects("CN3"));
-        assert!(!prefixes.selects("R1"));
-        let refs = options(&["J", "CN"], &["J2"]);
-        assert!(refs.selects("J2"));
-        assert!(!refs.selects("J1"));
-    }
-
-    #[test]
-    fn the_identification_keeps_only_fields_with_values() {
-        let fields = RecordString(BTreeMap::from([
-            ("Description".to_owned(), "A connector".to_owned()),
-            ("Manufacturer".to_owned(), String::new()),
-            ("Part Number".to_owned(), "ABC-1".to_owned()),
-        ]));
-        assert_eq!(field(&fields, &DESCRIPTION), Some("A connector"));
-        assert_eq!(field(&fields, &MANUFACTURER), None);
-        assert_eq!(field(&fields, &PART_NUMBER), Some("ABC-1"));
-    }
-
-    #[test]
-    fn a_missing_model_is_reported_with_its_reason() {
-        assert_eq!(
-            ModelState::Unavailable { reference: None }.reason(),
-            Some("model-unavailable")
-        );
-        assert_eq!(
-            ModelState::NotStep {
-                reference: "a.wrl".to_owned()
-            }
-            .reason(),
-            Some("model-not-step")
-        );
-    }
-
-    #[test]
-    fn the_view_plan_puts_the_mating_face_in_front() {
-        let plan = views_plan(MatingFace::PosX);
-        assert_eq!(plan[0].0, ViewRole::Top);
-        assert_eq!(plan[1].1, [1.0, 0.0, 0.0]);
-        assert_eq!(plan[2].1, [0.0, -1.0, 0.0]);
-    }
-
-    #[test]
-    fn a_pinout_continues_after_the_first_sheets_rows() {
-        assert_eq!(pages(sheet::ROWS_FIRST), 1);
-        assert_eq!(pages(sheet::ROWS_FIRST + 1), 2);
-        assert_eq!(pages(sheet::ROWS_FIRST + sheet::ROWS_CONTINUATION + 1), 3);
-    }
-
-    #[test]
-    fn an_unreadable_bundle_reports_the_path() {
-        assert!(Bundle::open(std::path::Path::new("/nonexistent/board.prism")).is_err());
-    }
-}
+mod tests;

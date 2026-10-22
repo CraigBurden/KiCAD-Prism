@@ -87,6 +87,36 @@ pub struct PcbPad {
     pub source_range: Range<usize>,
 }
 
+impl PcbPad {
+    /// The pad's copper centre in board coordinates.
+    ///
+    /// `at_x`/`at_y` are footprint-local and placed by the footprint
+    /// (`footprint_at`, `footprint_angle`); a drill's `(offset …)` then moves
+    /// the copper, turned by the pad's board-frame `angle` (KiCad writes it with
+    /// the footprint's rotation included). This is where KiCad flashes the pad
+    /// in a Gerber; the drill stays at the pad position
+    /// ([`super::PcbHole::board_center`]).
+    pub fn copper_center(&self, footprint_at: PcbPoint, footprint_angle: f64) -> PcbPoint {
+        let position = super::kicad_rotate(
+            PcbPoint {
+                x: self.at_x,
+                y: self.at_y,
+            },
+            footprint_angle,
+        );
+        let offset = self
+            .drill
+            .as_ref()
+            .map_or(PcbPoint { x: 0.0, y: 0.0 }, |drill| {
+                super::kicad_rotate(drill.offset, self.angle)
+            });
+        PcbPoint {
+            x: footprint_at.x + position.x + offset.x,
+            y: footprint_at.y + position.y + offset.y,
+        }
+    }
+}
+
 pub(super) fn pad_from_span(
     source: &str,
     indexed: &IndexedNestedForm,

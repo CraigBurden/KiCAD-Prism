@@ -51,7 +51,8 @@ pub struct PcbHole {
     pub footprint_index: Option<usize>,
     /// Board coordinates for vias; footprint-local coordinates for pads.
     pub center: PcbPoint,
-    /// Drill offset in the pad's local coordinate system.
+    /// The pad's copper offset from its drill, in the pad's local frame. KiCad
+    /// moves the copper by it, not the hole: the drill is at `center`.
     pub offset: PcbPoint,
     pub shape: PcbHoleShape,
     pub width: f64,
@@ -61,6 +62,38 @@ pub struct PcbHole {
     pub layers: Vec<String>,
     pub uuid: Option<String>,
     pub source_range: Range<usize>,
+}
+
+impl PcbHole {
+    /// The drill's centre in board coordinates.
+    ///
+    /// A pad hole's `center` is footprint-local; the footprint places it
+    /// (`footprint_at`, `footprint_angle`, KiCad's +y-down rotation, as the
+    /// board plotter does). The drill sits at the pad's position: KiCad's pad
+    /// `(offset …)` moves the pad's copper away from the hole, never the hole
+    /// itself, so `offset` plays no part here (KiCad's drill files agree, see
+    /// `tests/docs_oracle_holes.rs`). A via's `center` is already in board
+    /// coordinates and the footprint is ignored.
+    pub fn board_center(&self, footprint_at: PcbPoint, footprint_angle: f64) -> PcbPoint {
+        if self.owner == PcbHoleOwner::Via {
+            return self.center;
+        }
+        let pad = kicad_rotate(self.center, footprint_angle);
+        PcbPoint {
+            x: footprint_at.x + pad.x,
+            y: footprint_at.y + pad.y,
+        }
+    }
+}
+
+/// Turn a point by `degrees` in KiCad's board frame (+y down): positive angles
+/// are counter-clockwise as drawn.
+pub fn kicad_rotate(point: PcbPoint, degrees: f64) -> PcbPoint {
+    let (sin, cos) = degrees.to_radians().sin_cos();
+    PcbPoint {
+        x: point.x * cos + point.y * sin,
+        y: -point.x * sin + point.y * cos,
+    }
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -324,4 +357,74 @@ fn profile_from_span(
         owner,
         graphic: graphic_from_span(source, span, limits)?,
     }))
+}
+
+#[cfg(test)]
+mod board_center_tests {
+    use super::*;
+
+    fn pad_hole(center: PcbPoint, offset: PcbPoint, angle: f64) -> PcbHole {
+        PcbHole {
+            owner: PcbHoleOwner::Pad,
+            owner_index: 0,
+            footprint_index: Some(0),
+            center,
+            offset,
+            shape: PcbHoleShape::Round,
+            width: 1.0,
+            height: 1.0,
+            angle,
+            plated: true,
+            layers: Vec::new(),
+            uuid: None,
+            source_range: 0..0,
+        }
+    }
+
+    fn close(actual: PcbPoint, x: f64, y: f64) {
+        assert!(
+            (actual.x - x).abs() < 1e-9 && (actual.y - y).abs() < 1e-9,
+            "({}, {}) != ({x}, {y})",
+            actual.x,
+            actual.y
+        );
+    }
+
+    #[test]
+    fn the_drill_sits_at_the_pad_whatever_its_offset() {
+        // Footprint at (100, 50) turned 90°, pad at local (2, 0) written at 120°
+        // with a 0.5 mm offset: the offset moves copper, the drill stays put.
+        let hole = pad_hole(
+            PcbPoint { x: 2.0, y: 0.0 },
+            PcbPoint { x: 0.5, y: 0.0 },
+            120.0,
+        );
+        close(
+            hole.board_center(PcbPoint { x: 100.0, y: 50.0 }, 90.0),
+            100.0,
+            48.0,
+        );
+    }
+
+    #[test]
+    fn kicad_rotation_is_counter_clockwise_as_drawn() {
+        // +y is down, so a quarter turn takes +x to -y (up on the page).
+        close(kicad_rotate(PcbPoint { x: 1.0, y: 0.0 }, 90.0), 0.0, -1.0);
+        close(kicad_rotate(PcbPoint { x: 0.0, y: 1.0 }, 90.0), 1.0, 0.0);
+    }
+
+    #[test]
+    fn a_via_is_already_on_the_board() {
+        let mut hole = pad_hole(
+            PcbPoint { x: 3.0, y: 4.0 },
+            PcbPoint { x: 0.0, y: 0.0 },
+            45.0,
+        );
+        hole.owner = PcbHoleOwner::Via;
+        close(
+            hole.board_center(PcbPoint { x: 10.0, y: 10.0 }, 90.0),
+            3.0,
+            4.0,
+        );
+    }
 }

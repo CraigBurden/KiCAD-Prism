@@ -353,15 +353,16 @@ def testpoints(
             continue
         position = footprint.get("positionNm") or {}
         rotation = footprint.get("rotationDeg") or 0
-        x_nm = position.get("xNm") or 0
-        y_nm = position.get("yNm") or 0
+        # A coordinate of exactly 0 is a position, not a missing one.
+        x_nm = position.get("xNm")
+        y_nm = position.get("yNm")
         found.append(
             {
                 "ref": reference,
                 "net": nets.get(reference.strip(), "—"),
                 "side": "bottom" if footprint.get("side") == "back" else "top",
-                "x": (x_nm / 1e6) if x_nm else None,
-                "y": (y_nm / 1e6) if y_nm else None,
+                "x": (x_nm / 1e6) if x_nm is not None else None,
+                "y": (y_nm / 1e6) if y_nm is not None else None,
                 # placements.md D1: 0 is "no rotation"; today writes 0.0 only
                 # for a hand-written `(at x y 0)`, which KiCad never emits.
                 "rotation": None if rotation == 0 else float(rotation),

@@ -101,6 +101,19 @@ STATS = {
          "x_size": "0.4000 mm", "y_size": "0.4000 mm"},
     ],
 }
+def _stats(width_mm: float, height_mm: float) -> dict:
+    """The projection shape for a board of *width_mm* × *height_mm*."""
+
+    return {
+        **STATS,
+        "board": {
+            **STATS["board"],
+            "width": f"{width_mm:.4f} mm",
+            "height": f"{height_mm:.4f} mm",
+        },
+    }
+
+
 STACKUP = {
     "board_thickness": 1.6,
     "copper_layer_count": 2,
@@ -493,6 +506,200 @@ class SheetSizingTests(unittest.TestCase):
         self.assertLess(placed.view_width, 420.0)
         self.assertLessEqual(placed.view_width, 50.0 + 5.0)
 
+    def _compose_board(
+        self, width: float, height: float, *, sheet_style: str = "prism"
+    ):
+        """Compose a set whose artwork really is the size of the board."""
+
+        art = _svg_artwork(width, height)
+        return compose(
+            context=CONTEXT,
+            stats=_stats(width, height),
+            stackup=STACKUP,
+            variants=VARIANTS,
+            placements=PLACEMENTS,
+            members=MEMBERS,
+            board=Path("/nonexistent/board.kicad_pcb"),
+            cli=CLI,
+            workdir=Path("/tmp"),
+            acquirer=lambda *_a, **_k: art,
+            drill_acquirer=lambda *_a, **_k: art,
+            board_render_acquirer=lambda *_a, **_k: None,
+            assembly_acquirer=lambda *_a, **_k: {
+                f"{kind}-{side}": art
+                for kind in ("assembly", "testpoint")
+                for side in ("top", "bottom")
+            },
+            sheet_style=sheet_style,
+        )
+
+    def test_the_paper_is_chosen_with_the_table_column_and_the_scale_without(self) -> None:
+        """JTYU-OBC (132 x 90 mm): A3 at 2:1, not A4 at 1:1.
+
+        Choosing the paper against the full body as well hands a board smaller
+        paper at the same ratio, the opposite of drawing it larger.
+        """
+
+        self.assertEqual(sheet_templates.package_scale(132.0, 90.0, sheet_style="prism"), ("A3", 2.0))
+        self.assertEqual(sheet_templates.package_scale(132.0, 90.0, sheet_style="kicad"), ("A3", 1.0))
+
+    def test_a_large_board_on_a3_uses_the_full_body_and_continues_its_tables(
+        self,
+    ) -> None:
+        from app.release_studio.documents.layout import (
+            PRISM_SCALE_MARGIN,
+            PRISM_SCALES,
+            Artwork,
+            preferred_scale,
+        )
+
+        board = (220.0, 130.0)
+        size, scale = sheet_templates.package_scale(*board)
+        self.assertEqual(size, "A3")
+        self.assertEqual(scale, 1.5)
+        # Before this rule the set was measured against the 136 mm table
+        # column, so the same board could only be placed at 1:1.
+        narrow = sheet_templates.artwork_window(
+            "A3", max(sheet_templates.TABLE_WIDTHS.values())
+        )
+        self.assertEqual(
+            preferred_scale(
+                *board, narrow, ladder=PRISM_SCALES, margin=PRISM_SCALE_MARGIN
+            ),
+            1.0,
+        )
+
+        sheet, _used, carried = sheet_templates.fabrication_sheet(
+            CONTEXT,
+            _stats(*board),
+            STACKUP,
+            _svg_artwork(*board),
+            size=size,
+            scale=scale,
+        )
+        placed = next(e for e in sheet.elements if isinstance(e, Artwork))
+        full = sheet_templates.artwork_window(size, 0.0)
+        # The full width, stopping above the notes band at the sheet's foot.
+        self.assertEqual(
+            (placed.rect.x, placed.rect.y, placed.rect.width),
+            (full.x, full.y, full.width),
+        )
+        self.assertLess(placed.rect.height, full.height)
+        self.assertGreaterEqual(placed.rect.height, board[1] * scale)
+        # Every schedule table left the drawing together.
+        self.assertEqual(len(carried), 3)
+
+        result = self._compose_board(*board)
+        self.assertEqual(result.sheet_size, size)
+        pages = result.page_svgs()
+        for key in (
+            "schedules-1",
+            "assembly-top-1",
+            "assembly-bottom-1",
+            "testpoint-top-1",
+            "testpoint-bottom-1",
+        ):
+            self.assertIn(key, pages, f"missing continuation page {key}")
+        # The moved tables are all findable on their continuation pages.
+        self.assertIn("LAYER STACKUP", pages["schedules-1"].decode("utf-8"))
+        self.assertIn("POPULATION", pages["assembly-top-1"].decode("utf-8"))
+        # One ratio for the set, stated wherever a sheet states one. The drill
+        # map is exempt: it is a page with its own legend and fits itself.
+        stated: set[bytes] = set()
+        for key, payload in pages.items():
+            if key.startswith("drill"):
+                continue
+            stated.update(re.findall(rb'data-text="SCALE ([^"]+)"', payload))
+            stated.update(re.findall(rb"SCALE (\d+(?:\.\d+)?:\d+)", payload))
+        self.assertEqual(stated, {b"1.5:1"})
+
+    def test_notes_that_cannot_sit_under_the_drawing_continue_with_the_tables(self) -> None:
+        """A drawing never runs under its own notes (JTYU-OBC's testpoint sheet)."""
+
+        from app.release_studio.documents.layout import Table
+
+        # 210 mm tall at 2:1 fits the full A3 window but not the window that
+        # stops above the notes band, so the notes move with the tables.
+        sheet, _used, carried = sheet_templates.fabrication_sheet(
+            CONTEXT, _stats(150.0, 105.0), STACKUP, _svg_artwork(150.0, 105.0),
+            size="A3", scale=2.0,
+        )
+        titles = [table.title for table in carried if isinstance(table, Table)]
+        self.assertIn("NOTES", titles)
+        first_note = sheet_templates.DEFAULT_NOTES["fabrication"][0]
+        self.assertNotIn(first_note[:24], render_svg(sheet))
+
+    def test_a_long_schedule_continues_in_the_free_lanes_of_its_page(self) -> None:
+        """JTYU-OBC's 81 testpoints filled one lane of four, then took a sheet."""
+
+        from app.release_studio.documents import tables
+
+        projection = {
+            "testpoints": [
+                {"ref": f"TP{index}", "net": f"NET_{index}", "side": "top",
+                 "x": float(index), "y": float(index)}
+                for index in range(1, 151)
+            ]
+        }
+        summary = tables.key_value_table("TESTPOINTS", (("Side", "TOP"),), width=92.0)
+        schedule = tables.testpoint_table(projection, "top", width=92.0)
+        sheet, overflow = sheet_templates.continuation_sheet(
+            CONTEXT, [summary, schedule], key="testpoint-top-1",
+            title="TESTPOINT SCHEDULE", size="A3",
+        )
+        self.assertEqual(overflow, [], "150 rows fit on one A3 continuation page")
+        rendered = render_svg(sheet)
+        self.assertIn("TP1<", rendered)
+        self.assertIn("TP150<", rendered)
+
+    def test_a_small_board_keeps_its_tables_beside_the_art(self) -> None:
+        from app.release_studio.documents.layout import Artwork
+
+        board = (40.0, 60.0)
+        size, scale = sheet_templates.package_scale(*board)
+        self.assertEqual((size, scale), ("A4", 2.0))
+        table_width, _window, _area = sheet_templates.sheet_columns(
+            size,
+            "fabrication",
+            sheet_templates.TITLE_BLOCK_HEIGHT,
+            board[0] * scale,
+        )
+        self.assertGreaterEqual(
+            table_width, sheet_templates.TABLE_WIDTHS["fabrication"]
+        )
+
+        sheet, _used, carried = sheet_templates.fabrication_sheet(
+            CONTEXT,
+            _stats(*board),
+            STACKUP,
+            _svg_artwork(*board),
+            size=size,
+            scale=scale,
+        )
+        self.assertEqual(carried, [])
+        placed = next(e for e in sheet.elements if isinstance(e, Artwork))
+        self.assertLess(
+            placed.rect.width,
+            sheet_templates.artwork_window(size, 0.0).width,
+            "the table column should still narrow the artwork window",
+        )
+
+        result = self._compose_board(*board)
+        legacy = self._compose_board(*board, sheet_style="kicad")
+        # No page this rule adds: the same pages as the frozen kicad layout.
+        self.assertEqual(sorted(result.page_svgs()), sorted(legacy.page_svgs()))
+        for key in result.page_svgs():
+            if key.startswith("cover"):
+                continue
+            self.assertFalse(
+                re.search(r"-\d+$", key), f"unexpected continuation page {key}"
+            )
+
+    def test_the_kicad_style_still_reserves_its_table_column(self) -> None:
+        result = self._compose_board(220.0, 130.0, sheet_style="kicad")
+        self.assertNotIn("schedules-1", result.page_svgs())
+        self.assertIn("fabrication", result.page_svgs())
+
     def test_table_slack_is_capped(self) -> None:
         """Spare body width must not stretch schedules into ultra-wide columns."""
 
@@ -717,6 +924,19 @@ class TestpointSheetTests(unittest.TestCase):
         self.assertEqual(
             [row[1] for row in table.rows], ["GND", "+3V3"]
         )
+
+    def test_coordinates_are_the_position_files(self) -> None:
+        """y points up, as in positions.csv; 0 is a position, not a blank."""
+
+        from app.release_studio.documents import tables
+
+        projection = {
+            "testpoints": [
+                {"ref": "TP1", "net": "GND", "side": "top", "x": 0.0, "y": 8.0},
+            ]
+        }
+        row = tables.testpoint_table(projection, "top").rows[0]
+        self.assertEqual(row[2:], ("0.000", "-8.000"))
 
     def test_an_unconnected_testpoint_states_a_dash_not_a_blank(self) -> None:
         from app.release_studio.documents import tables
@@ -945,6 +1165,40 @@ class ProjectionShapeTests(unittest.TestCase):
         # keeps its correspondence with KiCad's; a row that drifted into it
         # would break that without any test noticing.
         self.assertFalse(set(pairs) & set(KICAD_CHARACTERISTIC_LABELS))
+
+    def test_the_component_split_adds_up_to_the_total(self) -> None:
+        """The position file is a different set; it must not replace the split.
+
+        JTYU-OBC's cover once read "Components 982" over "Front / back 396 /
+        503": the split came from positions.csv, which leaves out footprints
+        marked "exclude from position files".
+        """
+
+        from app.release_studio.documents.tables import board_summary
+
+        placements = [{"side": "top"}] * 30 + [{"side": "bottom"}] * 2
+        pairs = dict(board_summary(STATS, placements=placements))
+        self.assertEqual(pairs["Components"], "37")
+        self.assertEqual(pairs["Front / back"], "37 / 0")
+        self.assertEqual(pairs["In position file"], "32")
+        self.assertNotIn("In position file", dict(board_summary(STATS)))
+
+    def test_a_slot_shows_its_length_and_width(self) -> None:
+        """KiCad groups slots by both sizes; one number would read as a round hole."""
+
+        from app.release_studio.documents.tables import drill_table
+
+        stats = {
+            "drill_holes": [
+                {"count": 84, "shape": "Round", "x_size": "1.0000 mm", "y_size": "1.0000 mm",
+                 "plated": True, "source": "Pad", "start_layer": "F.Cu", "stop_layer": "B.Cu"},
+                {"count": 14, "shape": "Slot", "x_size": "2.2000 mm", "y_size": "0.9000 mm",
+                 "plated": True, "source": "Pad", "start_layer": "F.Cu", "stop_layer": "B.Cu"},
+            ]
+        }
+        rows = drill_table({}, stats).rows
+        self.assertEqual(rows[0][2], "1.0000 mm")
+        self.assertEqual(rows[1][2], "2.2000 x 0.9000 mm")
 
     def test_revision_history_states_an_untagged_project(self) -> None:
         """A column that vanishes reads as history the sheet failed to load."""
@@ -1536,7 +1790,7 @@ class AssemblySheetTests(unittest.TestCase):
         self.art = _assembly_artwork()
 
     def test_the_sheet_carries_artwork_bytes_unchanged(self) -> None:
-        sheet, _used = sheet_templates.assembly_sheet(
+        sheet, _used, _over = sheet_templates.assembly_sheet(
             CONTEXT, "top", self.art, PLACEMENTS, size="A3", scale=1.0
         )
         rendered = render_svg(sheet)
@@ -1546,24 +1800,24 @@ class AssemblySheetTests(unittest.TestCase):
         self.assertIn("Consolas", rendered)
 
     def test_both_backends_accept_the_placed_view(self) -> None:
-        sheet, _used = sheet_templates.assembly_sheet(
+        sheet, _used, _over = sheet_templates.assembly_sheet(
             CONTEXT, "top", self.art, PLACEMENTS, size="A3", scale=1.0
         )
         self.assertIn("R1", render_svg(sheet))
         self.assertGreater(len(render_pdf(sheet)), 1000)
 
     def test_a_missing_view_states_its_absence(self) -> None:
-        sheet, used = sheet_templates.assembly_sheet(
+        sheet, used, _over = sheet_templates.assembly_sheet(
             CONTEXT, "top", None, PLACEMENTS, size="A3"
         )
         self.assertEqual(used, 1.0)
         self.assertIn("assembly artwork unavailable", render_svg(sheet))
 
     def test_each_side_states_the_direction_it_is_viewed_from(self) -> None:
-        top, _used = sheet_templates.assembly_sheet(
+        top, _used, _over = sheet_templates.assembly_sheet(
             CONTEXT, "top", self.art, PLACEMENTS, size="A3", scale=1.0
         )
-        bottom, _used = sheet_templates.assembly_sheet(
+        bottom, _used, _over = sheet_templates.assembly_sheet(
             CONTEXT, "bottom", self.art, PLACEMENTS, size="A3", scale=1.0
         )
         self.assertIn("VIEWED FROM TOP", render_svg(top))
@@ -1586,11 +1840,11 @@ class AssemblySheetTests(unittest.TestCase):
                 },
             }
         }
-        with_dnp, _used = sheet_templates.assembly_sheet(
+        with_dnp, _used, _over = sheet_templates.assembly_sheet(
             CONTEXT, "top", self.art, PLACEMENTS, size="A3", scale=1.0,
             population=population,
         )
-        without_dnp, _used = sheet_templates.assembly_sheet(
+        without_dnp, _used, _over = sheet_templates.assembly_sheet(
             CONTEXT, "bottom", self.art, PLACEMENTS, size="A3", scale=1.0,
             population=population,
         )
@@ -1603,7 +1857,7 @@ class AssemblySheetTests(unittest.TestCase):
         )
 
     def test_no_population_means_no_dnp_legend(self) -> None:
-        sheet, _used = sheet_templates.assembly_sheet(
+        sheet, _used, _over = sheet_templates.assembly_sheet(
             CONTEXT, "top", self.art, PLACEMENTS, size="A3", scale=1.0
         )
         self.assertNotIn(
@@ -1659,8 +1913,8 @@ class AssemblySheetTests(unittest.TestCase):
         """A drill map is a page -- board plus hole legend -- not a plot.
 
         Cropping it to a board-sized window centred on the page keeps a patch
-        of the middle and discards the map, and the sheet then claims the
-        package ratio while showing something drawn at another one.
+        of the middle and discards the map.  Placing it at the board's set ratio
+        overruns the window instead (JTYU-OBC at 2:1), so it fits itself.
         """
 
         from unittest.mock import patch
@@ -1980,22 +2234,24 @@ class RendererVersionTests(unittest.TestCase):
     in the same commit.
     """
 
-    #: Recorded for RENDERER_VERSION d27 under the pinned artwork toolchain, and
+    #: Recorded for RENDERER_VERSION d28 under the pinned artwork toolchain, and
     #: verified stable across two runs.
     #: The version and these digests move together, never one without the other.
     #: These are the default `prism` sheets; GOLDEN_KICAD below pins the
-    #: selectable `kicad` style to the d23 bytes so it cannot drift.
+    #: selectable `kicad` style to the d23 look so it cannot drift. d28 also
+    #: moves the prism sheet/scale choice to the full body, with continuation
+    #: pages for schedules that do not fit beside the art.
     GOLDEN = {
         "documentation/assembly.pdf":
             "a3e601985d5018c90afe10e4dddc8bc3fede817a1de3ef0fcdddc9f3e73c0eb2",
         "documentation/cover.pdf":
-            "2b3b3f71eb82d41f2fa82550d0cf9e4e134e144eb6cafe55d4e120d9e912c605",
+            "db94f03eb7536aecfa3dbf5935cf7e63d0319e14b708b04dc60c408eecda3b2e",
         "documentation/drill.pdf":
             "c323abde7ada321a0bee358c8ba266fc5b8f328213bdfbc42f4b1371ae5016d9",
         "documentation/fabrication.pdf":
             "eb0f010ed4830ac1d844a10c70c3bab3a954949acdb9e6b817435a6e80ca585c",
         "documentation/testpoint.pdf":
-            "0ed877211dce7abec1f371c7ccf56cecb7cfaa36216591b2a8a0514fd664f76c",
+            "440344a4a6ba44367b25e09020a14fefe0d90bf42d3a8de415b7d36b551dffdf",
     }
     GOLDEN_PAGES = {
         "assembly-bottom":
@@ -2005,30 +2261,32 @@ class RendererVersionTests(unittest.TestCase):
         "cover":
             "1ef132f9c405077210bf167e78540d76c24b65eb4b1bc3bf666a5b9fbbbd9f9b",
         "cover-1":
-            "0478ce9748f1519666b0e2abfef2966ac2353e40d4035123ca949178ce2b40e4",
+            "3132aee00f5dba9b64f4e43452c2fc63474a411c5b11d8b26a60732f352e3eae",
         "drill":
             "89043aafd54b1eeccfc06d8d9cf1e80c75e3221525d54c4c7ce0a61054df6588",
         "fabrication":
             "905325c0b7d375795c3d35a2d6290320e9c24f7685b08fbcad587ab50a51d11b",
         "testpoint-bottom":
-            "1f57a470f423523078b594bf63c02b13fda64caeb6af232e8c4827031c2ba259",
+            "ac4c24cf1eddd232dceffb1236e44dec7e32872e0056ef80c8a91c07f5ca8a77",
         "testpoint-top":
-            "ec368fa6523b7453efa5ce9038ecd934f0bef549ba1dc44dc947531481517baa",
+            "26668383fe692cd73c14e64e5a0fd68cb333203aaf9ad77b230dff0fb68e3fc9",
     }
 
-    #: The d23 `kicad` output, byte for byte.  Selecting the legacy style must
+    #: The `kicad` output, byte for byte: the d23 look, plus content corrections
+    #: that apply to both styles (d28: the cover's component split adds up, and
+    #: a slot's drill shows length by width).  Selecting the legacy style must
     #: reproduce these, or "today's look" was not actually kept.
     GOLDEN_KICAD = {
         "documentation/assembly.pdf":
             "f2fca6e5832e41ecea7df2bb0603237aad8782580f9a05829056e5a0266b1895",
         "documentation/cover.pdf":
-            "318f57ea262d956f66d7a273dfe9888fcd92fd7f6455c720afc2729cd72d2e6b",
+            "35f70c7e1d1c8a657e44363ba9429bc52be22e74d1a5dcca7c67145c45be67aa",
         "documentation/drill.pdf":
             "b46e9c0085d144fb16c3f032672ff646dc84611fe34ed057acd56b723d8f3875",
         "documentation/fabrication.pdf":
             "4156eadf95893486e6cd53c9c20b068857d93fbec10f66adc11d2465215c0a3b",
         "documentation/testpoint.pdf":
-            "9c82433b5859797bc9acde51ae6fb1e5331c62dfde0b6f64caf640ab42a232ec",
+            "add23d455280f06c92a79af5283dc98344650e76529093fad835bad2b5653661",
     }
     GOLDEN_PAGES_KICAD = {
         "assembly-bottom":
@@ -2038,15 +2296,15 @@ class RendererVersionTests(unittest.TestCase):
         "cover":
             "63f4f262e8c6969f167673ea3853677757ac39f7e03e3232779ccaed54b13cbd",
         "cover-1":
-            "d1fa8cce518c44e6c2d8a7ac7505e3aa4cea171362809fba618e2b992da229ee",
+            "4ea2ac889072c7cafca11355f00ca0f0a34c0e08ee76c59256d65c756012a467",
         "drill":
             "b449b589fbaf31354972b360ad424e4f80177a1e4b72792b4d361991fe9fc61b",
         "fabrication":
             "f73ab9c2b7e50a1691ee1b35a2b2d9c4f9d8a632d97dd8e1b02ff8bd05cbaeb0",
         "testpoint-bottom":
-            "5dad9ad4bd99205537ad94df9d18f64bb8bc14ef613ba925e25bfcb892765042",
+            "8c3e6afa966abce75f11842842bbd293c9a6c2bd5d70baf2db464653d8033efd",
         "testpoint-top":
-            "6f39b07e0ffd33feb0e776cdefa8426736a24a13c9e4ce2cf9fae877c78710b7",
+            "965f9b634ed232efdd20af093ffa3603fcbe0e43c8889ff777c9c90a7c650e8e",
     }
 
     #: A placed sheet, so a change to sheet selection, the scale ladder, or
@@ -2087,7 +2345,7 @@ class RendererVersionTests(unittest.TestCase):
 
         self.assertEqual(
             RENDERER_VERSION,
-            "release-studio-documents/d27",
+            "release-studio-documents/d28",
             "RENDERER_VERSION changed: re-record GOLDEN in the same commit",
         )
 
@@ -2288,7 +2546,7 @@ class PrismStyleTests(unittest.TestCase):
         from app.release_studio.documents.style import MUTED
 
         art = _svg_artwork(50.0, 40.0)
-        sheet, used = sheet_templates.assembly_sheet(
+        sheet, used, _over = sheet_templates.assembly_sheet(
             CONTEXT, "top", art, PLACEMENTS, size="A3", scale=2.0
         )
         placed = next(e for e in sheet.elements if isinstance(e, Artwork))
@@ -2379,15 +2637,15 @@ class PrismStyleTests(unittest.TestCase):
                 }
             }
         }
-        sheet, _used = sheet_templates.assembly_sheet(
+        sheet, _used, _over = sheet_templates.assembly_sheet(
             CONTEXT, "top", _assembly_artwork(), PLACEMENTS, size="A3", scale=1.0,
             population=population,
         )
         rendered = render_svg(sheet)
-        self.assertIn("DO NOT POPULATE", rendered)
+        self.assertEqual(rendered.count("DO NOT POPULATE"), 1, "the DNP list is drawn once")
         self.assertIn("C1, R2, R10", rendered)
         # kicad style is byte-identical to the old output, so it carries no list.
-        legacy, _used = sheet_templates.assembly_sheet(
+        legacy, _used, _over = sheet_templates.assembly_sheet(
             CONTEXT, "top", _assembly_artwork(), PLACEMENTS, size="A3", scale=1.0,
             population=population, sheet_style="kicad",
         )
@@ -2405,7 +2663,7 @@ class PrismStyleTests(unittest.TestCase):
     def test_the_engine_chooses_the_scale_for_the_selected_style(self) -> None:
         stat = {
             **STATS,
-            "board": {**STATS["board"], "width": "58.0000 mm", "height": "58.0000 mm"},
+            "board": {**STATS["board"], "width": "58.0000 mm", "height": "40.0000 mm"},
         }
 
         def fake(*_args, **_kwargs):
@@ -2427,9 +2685,9 @@ class PrismStyleTests(unittest.TestCase):
         legacy = compose(**common, sheet_style="kicad")
         prism_scale = next(o for o in prism.outputs if o.key == "assembly").scale
         legacy_scale = next(o for o in legacy.outputs if o.key == "assembly").scale
-        # A4: 58 mm fits at 3:2 with prism's margin; kicad's historical ladder
-        # stops at 2:1.
-        self.assertEqual(prism_scale, 1.5)
+        # A4: 58 × 40 mm fits at 3:1 on the full body; kicad's narrower window
+        # keeps its historical 2:1.
+        self.assertEqual(prism_scale, 3.0)
         self.assertEqual(legacy_scale, 2.0)
 
 
