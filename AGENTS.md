@@ -145,24 +145,9 @@ resolution) →
 `frontend/src/components/engineering-bom-table.tsx` (viewer-side selection)
 
 **Connect boards into a system**
-System Builder is being rebuilt: `docs/architecture/adr-system-builder-v2.md`,
-contracts in `docs/system-builder/CONTRACTS.md`. `backend/app/api/systems.py` →
-`backend/app/system_builder/service.py` (versions, undo, redaction) →
-`backend/app/system_builder/ops.py` (the `prism.system.ops.a0` engine, with
-`backend/app/system_builder/cascade.py`, `backend/app/system_builder/integrity.py`
-and `backend/app/system_builder/inverse.py`) →
-`backend/app/system_builder/store.py`.
-The system bundle (stage 1b): `backend/app/system_builder/jobs.py` (the
-`system_bundle` job) → `backend/app/system_builder/members.py` (members and the
-key) → `prism-kicad system build` (`native/src/rs/prism-system`), stored by
-`backend/app/system_builder/bundle_store.py`.
-Board-level sub-ports (stage 1c): `backend/app/api/board_sub_ports.py` →
-`backend/app/system_builder/board_sub_ports.py`. The Git link (stage 1c):
-`backend/app/system_builder/git_link.py`.
-There is no UI until stage 2. The v1 placement maths remain in
-`backend/app/services/systems/placement/` and
-`frontend/src/features/system-builder/placement/` (replaying the same goldens),
-plus `backend/app/services/systems/connector_detection.py`.
+System Builder was removed on 2026-10-23 and is being re-scoped on
+`feature/system-builder-v3` (`docs/system-builder/README.md`). Nothing in
+this tree implements it.
 
 **Place a symbol from desktop KiCad**
 `backend/app/api/remote_provider.py` · `backend/app/api/provider_oauth.py` →

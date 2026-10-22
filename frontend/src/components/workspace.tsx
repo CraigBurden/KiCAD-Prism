@@ -1,6 +1,6 @@
 import { Suspense, lazy, useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
-import { Boxes, CircuitBoard, FolderInput, FolderPlus, Image, LayoutGrid, PanelLeftClose, PanelLeftOpen, RefreshCw, Settings } from "lucide-react";
+import { CircuitBoard, FolderInput, FolderPlus, Image, LayoutGrid, PanelLeftClose, PanelLeftOpen, RefreshCw, Settings } from "lucide-react";
 import { toast } from "sonner";
 
 import type { User } from "@/types/auth";
@@ -15,9 +15,6 @@ import { registerPaletteCommands, type PaletteCommand } from "@/lib/command-regi
 import { fetchApi, readApiError } from "@/lib/api";
 import { isAbortError, throwIfJobFailed, type PrismJobStatus } from "@/lib/jobs";
 import { useJobWatcher } from "@/hooks/use-job-watcher";
-import { useServerState } from "@/lib/server-state";
-import { listSystems, systemPath } from "@/features/system-builder/model/api";
-import { WorkspaceSystemsSection, systemsForLevel } from "@/features/system-builder/workspace/systems-section";
 import { WorkspaceSectionHeading } from "./workspace/workspace-section-heading";
 import { WorkspaceBreadcrumbs } from "./workspace/workspace-breadcrumbs";
 import { WorkspaceGalleryView } from "./workspace/workspace-gallery-view";
@@ -50,9 +47,6 @@ const DeleteProjectDialog = lazy(() =>
 );
 const MoveProjectDialog = lazy(() =>
   import("./workspace/move-project-dialog").then((module) => ({ default: module.MoveProjectDialog }))
-);
-const CreateSystemDialog = lazy(() =>
-  import("@/features/system-builder/workspace/create-system-dialog").then((module) => ({ default: module.CreateSystemDialog }))
 );
 const RenameFolderDialog = lazy(() =>
   import("./workspace/rename-folder-dialog").then((module) => ({ default: module.RenameFolderDialog }))
@@ -100,8 +94,6 @@ export function Workspace({ searchQuery, user }: WorkspaceProps) {
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
 
   const [isCreateFolderOpen, setIsCreateFolderOpen] = useState(false);
-  const [isCreateSystemOpen, setIsCreateSystemOpen] = useState(false);
-  const systems = useServerState(["systems"], (signal) => listSystems(signal));
   const [isCreatingFolder, setIsCreatingFolder] = useState(false);
   // The project the user asked to inspect. It only counts as selected while
   // that project is still in the workspace, so a project removed by a refresh
@@ -283,7 +275,6 @@ export function Workspace({ searchQuery, user }: WorkspaceProps) {
       commands.push(
         { id: "workspace:import", label: "Import project", group: "Workspace", icon: FolderPlus, keywords: "add new repository clone", run: () => setIsImportOpen(true) },
         { id: "workspace:new-folder", label: "New folder", group: "Workspace", icon: FolderPlus, keywords: "create directory", run: () => setIsCreateFolderOpen(true) },
-        { id: "workspace:new-system", label: "New system", group: "Workspace", icon: Boxes, keywords: "system builder multi-board harness interconnect", run: () => setIsCreateSystemOpen(true) },
       );
     }
     commands.push({
@@ -563,8 +554,6 @@ export function Workspace({ searchQuery, user }: WorkspaceProps) {
     return <div className="flex h-64 items-center justify-center rounded-xl border text-destructive">{error}</div>;
   }
 
-  const levelSystems = systemsForLevel(systems.data ?? [], currentFolderId, isSearching ? searchQuery : "");
-  const systemsSection = <WorkspaceSystemsSection systems={levelSystems} dense={selectedProject !== null} />;
 
   const projectsToolbar = (
     <>
@@ -661,12 +650,8 @@ export function Workspace({ searchQuery, user }: WorkspaceProps) {
                 viewMode={viewMode}
                 onViewModeChange={setViewMode}
                 onImport={() => canManageProjects && setIsImportOpen(true)}
-                onCreateSystem={() => canManageProjects && setIsCreateSystemOpen(true)}
                 onCreateFolder={() => canManageProjects && setIsCreateFolderOpen(true)}
-                onRefresh={() => {
-                  void refresh();
-                  void systems.refresh();
-                }}
+                onRefresh={() => void refresh()}
                 onOpenSettings={() => canOpenSettings && setIsSettingsOpen(true)}
                 canManageProjects={canManageProjects}
                 canOpenSettings={canOpenSettings}
@@ -712,7 +697,6 @@ export function Workspace({ searchQuery, user }: WorkspaceProps) {
                     >
                       {viewMode === "gallery" ? (
                         <WorkspaceGalleryView
-                          systemsSection={systemsSection}
                           projectsToolbar={projectsToolbar}
                           projectCount={allListProjects.length}
                           searchQuery={searchQuery}
@@ -738,7 +722,6 @@ export function Workspace({ searchQuery, user }: WorkspaceProps) {
                         />
                       ) : (
                         <div className="space-y-3">
-                          {levelSystems.length > 0 && <div className="mb-8">{systemsSection}</div>}
                           <WorkspaceSectionHeading icon={CircuitBoard} title="Folders and boards">{projectsToolbar}</WorkspaceSectionHeading>
                         <WorkspaceListView
                           isSearching={isSearching}
@@ -805,20 +788,6 @@ export function Workspace({ searchQuery, user }: WorkspaceProps) {
             onOpenChange={setSettingsOpen}
             user={user}
             initialTab={requestedSettingsTab ?? undefined}
-          />
-        </Suspense>
-      )}
-
-      {isCreateSystemOpen && (
-        <Suspense fallback={null}>
-          <CreateSystemDialog
-            folderId={currentFolderId}
-            onOpenChange={setIsCreateSystemOpen}
-            onCreated={(record) => {
-              setIsCreateSystemOpen(false);
-              void systems.refresh();
-              navigate(systemPath(record.systemId));
-            }}
           />
         </Suspense>
       )}

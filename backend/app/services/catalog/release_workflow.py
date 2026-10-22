@@ -8,11 +8,9 @@ per transition and never rewritten. Nothing here commits.
 from __future__ import annotations
 
 import json
-from pathlib import Path
 from typing import Any
 import uuid
 
-from app.services.catalog.asset_types import SYSTEM_ENTRY_ASSET_TYPE
 from app.services.catalog.conflicts import manifest_conflict, revision_conflict
 from app.services.catalog.component_read_models import (
     VALIDATION_STATUS_FAILED,
@@ -23,7 +21,7 @@ from app.services.catalog.component_read_models import (
 from app.services.catalog.klc_validation import CatalogKlcValidation
 from app.services.catalog.locking import CatalogLockOperations
 from app.services.catalog.metadata_normalization import IDENTITY_KIND_MPN
-from app.services.catalog.normalization import sha256_file, utc_now_iso
+from app.services.catalog.normalization import utc_now_iso
 from app.services.catalog.revision_finalization import CatalogRevisionFinalizer
 from app.services.catalog.revision_kernel import (
     WORKFLOW_STAGES,
@@ -128,7 +126,6 @@ class CatalogReleaseWorkflow:
             raise ValueError("Two-person approval required: revision authors cannot approve their own revision")
         if (
             release_status in {"done", "released"}
-            and str(component.get("kind") or "part") != "system"
             and str(component.get("identity_kind") or IDENTITY_KIND_MPN) != IDENTITY_KIND_MPN
         ):
             raise ValueError("Provisional components require a manufacturer part number before approval or release")
@@ -339,9 +336,6 @@ class CatalogReleaseWorkflow:
         *,
         component: dict[str, Any] | None = None,
     ) -> None:
-        if str((component or {}).get("kind") or "part") == "system":
-            self._assert_system_entry_release_allowed(conn, revision_id, component=component)
-            return
         default_representation = conn.execute(
             """
             SELECT symbol_asset_id, footprint_asset_id
@@ -359,105 +353,6 @@ class CatalogReleaseWorkflow:
             raise ValueError("Cannot release component without one complete default representation")
         if self._klc.release_gate() == "block" and validation["status"] in _RELEASE_BLOCKING_VALIDATION:
             raise ValueError("Cannot release component until required symbol and footprint assets pass KLC validation")
-
-    def _assert_system_entry_release_allowed(
-        self,
-        conn: Any,
-        revision_id: str,
-        *,
-        component: dict[str, Any] | None = None,
-    ) -> None:
-        """The system revision's own gate (CONTRACTS.md §11.3), fail-closed.
-
-        The frozen payload must be its one ``system_entry`` asset, the bytes on
-        disk must still hash to the asset row, that row must still be in the
-        revision manifest, and the payload's bundle must carry no unwaived
-        error finding. A bought-out entry (an ``mpn`` identity) also needs a
-        body occurrence ready in that bundle whose part has a model. KLC and
-        representation gates do not apply.
-        """
-
-        from app.services.design_bundle import schemas
-
-        rows = conn.execute(
-            """
-            SELECT asset.*, link.required AS required
-              FROM revision_assets link
-              JOIN assets asset ON asset.id = link.asset_id
-             WHERE link.revision_id = %s AND asset.asset_type = %s
-            """,
-            (revision_id, SYSTEM_ENTRY_ASSET_TYPE),
-        ).fetchall()
-        if len(rows) != 1 or not bool(rows[0]["required"]):
-            raise ValueError(
-                "Cannot release a system revision without its required system_entry asset"
-            )
-        asset = dict(rows[0])
-        path = Path(str(asset.get("canonical_path") or ""))
-        if not path.is_file() or sha256_file(path) != str(asset.get("sha256") or ""):
-            raise ValueError("The system_entry asset is missing or its bytes no longer match its hash")
-        revision = self._revision_kernel.revision_row(conn, revision_id)
-        if not revision:
-            raise ValueError("Component revision not found")
-        expected = str(revision.get("manifest_hash") or "")
-        if expected and expected != self._revision_kernel.revision_manifest_hash(conn, revision_id):
-            raise ValueError("The system_entry asset is no longer covered by the revision manifest")
-        try:
-            payload = json.loads(path.read_text(encoding="utf-8"))
-        except (OSError, ValueError):
-            raise ValueError("The system_entry asset is not readable JSON") from None
-        try:
-            schemas.validate(payload, "prism.system_entry.a0")
-        except schemas.SchemaInvalid as error:
-            raise ValueError(f"The system_entry asset is not a valid payload: {error}") from None
-        findings = (payload.get("bundle") or {}).get("findings") or []
-        unwaived = [
-            finding
-            for finding in findings
-            if isinstance(finding, dict)
-            and str(finding.get("severity")) == "error"
-            and not finding.get("waived")
-        ]
-        if unwaived:
-            codes = ", ".join(sorted({str(item.get("code")) for item in unwaived}))
-            raise ValueError(f"The system bundle has unwaived error findings: {codes}")
-        component = component or self._revision_kernel.component_row(
-            conn, str(revision.get("component_id") or "")
-        )
-        if str((component or {}).get("identity_kind") or "") == IDENTITY_KIND_MPN:
-            self._assert_bought_out_body(payload)
-
-    @staticmethod
-    def _assert_bought_out_body(payload: dict[str, Any]) -> None:
-        """A bought-out entry needs a ready body whose part has a STEP model."""
-
-        parts = payload.get("parts")
-        if not isinstance(parts, dict):
-            raise ValueError("A bought-out system revision needs a body with its STEP model")
-        models = {
-            str(item.get("ref") or ""): item.get("model")
-            for item in parts.get("parts") or []
-            if isinstance(item, dict)
-        }
-        ready = {
-            str(item.get("occurrence") or "")
-            for item in (payload.get("bundle") or {}).get("occurrences") or []
-            if isinstance(item, dict) and str(item.get("state") or "") == "ready"
-        }
-        for occurrence in (payload.get("document") or {}).get("occurrences") or []:
-            if not isinstance(occurrence, dict):
-                continue
-            source = occurrence.get("source") or {}
-            if source.get("kind") != "body":
-                continue
-            if str(occurrence.get("id") or "") not in ready:
-                continue
-            component_id = str(source.get("componentId") or "")
-            revision_id = str(source.get("revisionId") or "")
-            ref = component_id if not revision_id else f"{component_id}@{revision_id}"
-            if models.get(ref):
-                return
-        raise ValueError("A bought-out system revision needs a body with its STEP model")
 
     def deactivate_component(
         self,

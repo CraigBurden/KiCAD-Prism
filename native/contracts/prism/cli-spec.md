@@ -96,14 +96,6 @@ prism-kicad compare --base-src <project.kicad_pro> --head-src <project.kicad_pro
             [--base-upgraded <path>=<version>]... [--head-upgraded <path>=<version>]...
             [--config <effective.json>] -o <result.json> [COMMON]
 
-prism-kicad system build --document <system.json>
-            [--member <occurrence>=<bundle.prism>
-             --member-revision-key <occurrence>=<hex>]... [--absent <occurrence>]...
-            [--board-sub-ports <board-sub-ports.json>]
-            [--entry <occurrence>=<system-entry.json>
-             --entry-stage <occurrence>=<stage>]...
-            -o <system-bundle.json> [COMMON]
-
 prism-kicad artwork --in <bundle.prism> --config <artwork.json> --view <name>... -o <dir>
             [--variant <name>] [--paper-scale <ratio>] [COMMON]
 prism-kicad vendor list [COMMON]
@@ -691,10 +683,6 @@ Release Studio's assembly and testpoint views (amendment C3 §3.2), a port of Cr
 - **Budget.** ≤ 0.2 s on EDA-04903's bundle and key record (ADR amendment K2 §3.3).
 - **Idempotence.** The same two inputs give byte-identical stdout.
 
-### 5.11 `system build`
-
-`prism-kicad system build` computes a System Builder v2 system bundle (`prism.system_bundle.a0`) from a `prism.system.v2` document and the design bundles of its board occurrences, and prints `CliSystemResultA0` (the system bundle key and per-section counts). `--member <occurrence>=<bundle.prism>` pairs with that occurrence's `--member-revision-key`; a board occurrence with neither a member nor `--absent` is pending. `--board-sub-ports <board-sub-ports.json>` gives the `prism.board_sub_ports.a0` definitions the document names (at most once). Each `--entry <occurrence>=<system-entry.json>` gives a published entry occurrence's `prism.system_entry.a0` payload and pairs with exactly one `--entry-stage <occurrence>=<stage>` for the same occurrence; a stage is 1–32 characters of `[a-z_]`. An occurrence may be named by at most one of `--member`, `--absent` and `--entry`. From stage 1c the document validates against `prism.system.v2` first, then each member, then each `--board-sub-ports` and `--entry` file against its schema (exit 3, `input-invalid`), and then each option against the document's occurrences (exit 7, `occurrence-mismatch`). An entry occurrence without `--entry` is `absent`. The full rules, the six checks in order and their exit codes are [`docs/system-builder/CONTRACTS.md`](../../../docs/system-builder/CONTRACTS.md) §8.8; the bundle itself is §8.1–§8.7, board-level sub-ports §10 and entries §12.2. `-o` is written atomically, compact JSON with one trailing LF, after the document validates against `prism.system_bundle.a0`; the same inputs give byte-identical `-o` and stdout.
-
 ## 6. Archive rules
 
 The archive format belongs to bundle-format.md (§4–§9). The CLI implements it for writing, for `--in`, and for `verify` and `extract`. This section states the rules the CLI enforces, with their finding codes.
@@ -843,14 +831,13 @@ Codes are `DiagnosticCode` (kebab-case). A code never changes meaning; a new mea
 | `project-not-kicad-pro` | error | input / 3 | `<project.kicad_pro>` does not end in `.kicad_pro` |
 | `config-invalid` | error | input / 3 | `--config` is not a valid `RevisionKeyEffectiveConfigA1` |
 | `key-record-invalid` | error | input / 3 | `--key-record` is not a valid `RevisionKeyRecordA1` |
-| `document-invalid` | error | input / 3 | `system build`: `--document` is not JSON, or does not validate against `prism.system.v2` (§5.11) |
-| `input-invalid` | error | input / 3 | `--request` of `stroke-text` and `drawing-sheet` is not JSON, or breaks `StrokeTextRequestA0` / `DrawingSheetRequestA0` (§5.9); `system build`: `--board-sub-ports` is not valid against `prism.board_sub_ports.a0`, or an `--entry` is not valid against `prism.system_entry.a0` (§5.11, CONTRACTS.md §8.8 check 6) |
+| `input-invalid` | error | input / 3 | `--request` of `stroke-text` and `drawing-sheet` is not JSON, or breaks `StrokeTextRequestA0` / `DrawingSheetRequestA0` (§5.9) |
 | `upgrade-record-invalid` | error | input / 3 | an `--upgraded` names a path that is not a member, or a version not older than `kicad_file_formats` for its kind (§5.2.2) |
 | `source-outside-root` | error | input / 3 | the project, or a file a source references, resolves outside the source root |
 | `source-not-regular-file` | error | input / 3 | a symbolic link or special file under the source root |
 | `source-path-invalid` | error | input / 3 | a source path is not UTF-8, holds a control character, or breaks `RepoPath` or the length rules |
 | `source-path-collision` | error | input / 3 | two source paths collide under NFC and case folding |
-| `bundle-invalid` | error | input / 3 | `--in`, the bundle given to `extract`, `--base`/`--head` of `compare`, or a `system build --member` fails a reader check |
+| `bundle-invalid` | error | input / 3 | `--in`, the bundle given to `extract`, or `--base`/`--head` of `compare` fails a reader check |
 | `refilled-board-invalid` | error | input / 3 | `--refilled-board` is not a parsable `.kicad_pcb` |
 | `models-glb-invalid` | error | input / 3 | `--models-glb` is not a glTF 2.0 binary as §5.2.4 requires |
 | `repo-not-found`, `commit-not-found` | error | input / 3 | `revision-key` (§5.5) |
@@ -861,8 +848,7 @@ Codes are `DiagnosticCode` (kebab-case). A code never changes meaning; a new mea
 | `output-not-directory` | error | output-io / 6 | `extract`'s `-o` is not an existing directory |
 | `stdout-write-failed` | stderr only | output-io / 6 | stdout could not be written; for `bundle build`, `-o` already holds the new archive |
 | `manifest-unsupported` | error, verify finding | precondition / 7 | `bundle.json` is not `prism.bundle.manifest.a3`, for example a2 or a1 |
-| `generator-mismatch` | error | precondition / 7 | `--in` was written by another generator id; for `compare`, `--base` and `--head` were written by different generator ids; for `system build`, its `--member` bundles were written by different generator ids |
-| `occurrence-mismatch` | error | precondition / 7 | `system build`: a `--member` or `--absent` does not name a board occurrence of `--document`, or an `--entry` does not name an entry occurrence (§5.11) |
+| `generator-mismatch` | error | precondition / 7 | `--in` was written by another generator id; for `compare`, `--base` and `--head` were written by different generator ids |
 | `stage-order` | error | precondition / 7 | a prerequisite stage of `--in` is not in the required status |
 | `stage-not-applicable` | error | precondition / 7 | the requested stage is `skipped` in `--in` |
 | `revision-key-mismatch`, `config-mismatch` | error | precondition / 7 | an assertion of §5.2.1 check 5 failed, or `--config` names another project file, or `--key-record` disagrees with `--revision-key`, `--config` or a member (§5.2.2). For `revision-key`, `--project` ≠ `config.project_file`. |
@@ -871,7 +857,7 @@ Codes are `DiagnosticCode` (kebab-case). A code never changes meaning; a new mea
 | `zone-fills-mismatch` | error | precondition / 7 | stage `board`: `--refilled-board`/`--refill-tool` given although `--in` records `zone_fills: "saved"`, or missing although it does not (§5.2.3) |
 | `models-glb-name` | error | precondition / 7 | the GLB was not exported as `components.glb` |
 | `output-changed` | error | precondition / 7 | `-o` changed between reading `--in` and the rename (§5.2.5) |
-| `member-not-found` | error | precondition / 7 | an `extract` `<member>` selects nothing; for `compare`, a bundle has no `projections/board-objects.json` (§5.6); for `system build`, a `--member` lacks `projections/system-interface.json` or `projections/semantic-index.json` (§5.11) |
+| `member-not-found` | error | precondition / 7 | an `extract` `<member>` selects nothing; for `compare`, a bundle has no `projections/board-objects.json` (§5.6) |
 | `anchor-mismatch` | error | precondition / 7 | `compare`: the two bundles' project files are in different directories (§5.6) |
 | `view-unknown`, `vendor-unknown` | error | usage / 2 | `artwork --view` names no view of the config; `vendor run` names no registered vendor (§5.7, §5.8) |
 | `geometer-version-mismatch` | error | precondition / 7 | stage `models`: `--geometer` is not the runtime `hlr_procedure` names (§5.2.4) |

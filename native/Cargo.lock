@@ -749,7 +749,6 @@ dependencies = [
  "prism-kicad-core",
  "prism-kicad-materialization-pack",
  "prism-step",
- "prism-system",
  "prism-vendors",
  "serde",
  "serde_json",
@@ -859,17 +858,6 @@ dependencies = [
 [[package]]
 name = "prism-step"
 version = "0.1.0"
-
-[[package]]
-name = "prism-system"
-version = "0.1.0"
-dependencies = [
- "prism-step",
- "regex",
- "serde",
- "serde_json",
- "sha2 0.11.0",
-]
 
 [[package]]
 name = "prism-vendors"

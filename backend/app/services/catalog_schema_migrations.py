@@ -475,6 +475,29 @@ def _harness_fields(conn: Any) -> None:
         )
 
 
+def _retire_system_entries(conn: Any) -> None:
+    """System Builder was removed on 2026-10-23 (archive tag ``archive/system-builder-v2``).
+
+    The second approved exception to the never-hard-delete rule, after migration 13: published
+    ``system`` components go with everything that cascades from them (revisions, asset links,
+    audit, mates), and their ``system_entry`` assets with them. Only parts remain and only parts
+    can be added. The IPN identity existed for systems alone, so it goes too.
+    """
+    conn.execute("DELETE FROM components WHERE kind = 'system'")
+    conn.execute("DELETE FROM assets WHERE asset_type = 'system_entry'")
+    conn.execute("ALTER TABLE components DROP CONSTRAINT IF EXISTS components_kind_check")
+    conn.execute("ALTER TABLE components ADD CONSTRAINT components_kind_check CHECK (kind = 'part')")
+    conn.execute("ALTER TABLE components DROP CONSTRAINT IF EXISTS components_ipn_system_only")
+    conn.execute("ALTER TABLE components DROP CONSTRAINT IF EXISTS components_identity_kind_check")
+    conn.execute(
+        """
+        ALTER TABLE components
+            ADD CONSTRAINT components_identity_kind_check
+            CHECK (identity_kind IN ('mpn', 'provisional_ipn'))
+        """
+    )
+    conn.execute("DROP INDEX IF EXISTS idx_components_identity_ipn")
+
 MIGRATIONS: tuple[tuple[int, str, Migration], ...] = (
     (0, "baseline", _baseline),
     (1, "portable_column_types", _portable_column_types),
@@ -492,6 +515,7 @@ MIGRATIONS: tuple[tuple[int, str, Migration], ...] = (
     (13, "retire_module_and_assembly", _retire_module_and_assembly),
     (14, "system_entries", _system_entries),
     (15, "harness_fields", _harness_fields),
+    (16, "retire_system_entries", _retire_system_entries),
 )
 
 # Migrations that a long-lived branch database recorded under an earlier number.

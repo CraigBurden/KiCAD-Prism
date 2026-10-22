@@ -423,12 +423,11 @@ def projects(*, connect: Connect | None = None) -> list[dict[str, Any]]:
 def pinned_commits(project_id: str, *, connect: Connect | None = None) -> set[str]:
     """Commits whose bundles retention always keeps besides branch heads (ADR §5).
 
-    System Builder instances' baseline commits and released Release Studio
-    commits. Simulation Studio's kept runs join here when C6 lands.
+    Released Release Studio commits. Simulation Studio's kept runs join here
+    when C6 lands.
     """
 
     queries = (
-        "SELECT baseline_commit AS c FROM system_instances WHERE project_id=%s",
         "SELECT commit_sha AS c FROM ws_release_records WHERE project_id=%s",
     )
     found: set[str] = set()

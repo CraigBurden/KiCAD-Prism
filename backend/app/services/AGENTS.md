@@ -218,12 +218,8 @@ comparisons and the fabrication plot cached by bundle key still use it.
 
 ## System Builder
 
-v1 is gone (System Builder v2, stage 0: `docs/architecture/adr-system-builder-v2.md`).
-What stays for stage 1 to take over: `systems/placement/` (frames, mates,
-poses, harness ends, nodes, curves, routes and checks; pure, and replayed by
-the TypeScript port in `frontend/src/features/system-builder/placement/`
-against the goldens in `backend/tests/fixtures/system_builder/`) and
-`systems/connector_detection.py` (the connector rule order).
+Removed on 2026-10-23 (`docs/system-builder/README.md`). No service here
+belongs to it.
 
 ## Comments and issue publication
 

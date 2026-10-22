@@ -16,7 +16,6 @@ import re
 from app.core.design_bundle_config import DesignBundleSettings
 from app.core.pipeline_config import PipelineSettings
 from app.core.sim_studio_config import SimStudioSettings
-from app.core.system_builder_config import SystemBuilderSettings
 
 
 # bcrypt ignores everything past 72 bytes, so longer passwords are rejected.
@@ -36,7 +35,7 @@ _WEAK_SESSION_SECRETS = {
 _TRACKER_KEY_ID_RE = re.compile(r"^[A-Za-z0-9._-]{1,64}$")
 
 
-class Settings(PipelineSettings, DesignBundleSettings, SimStudioSettings, SystemBuilderSettings):
+class Settings(PipelineSettings, DesignBundleSettings, SimStudioSettings):
     """Application settings loaded from environment variables.
 
     The only reader of process configuration in `app`. Design-pipeline fields
@@ -492,15 +491,6 @@ class Settings(PipelineSettings, DesignBundleSettings, SimStudioSettings, System
         ge=1,
         le=16,
         description="Maximum number of supervised user jobs run by prism-worker.",
-    )
-
-    PRISM_SYSTEM_BUNDLE_INLINE: bool = Field(
-        default=True,
-        description=(
-            "Build a system bundle in the API request that asks for it once every board "
-            "bundle is ready, instead of queuing the job; boards still building, and any "
-            "failure, fall back to the job."
-        ),
     )
 
     PRISM_WORKER_POLL_SECONDS: float = Field(

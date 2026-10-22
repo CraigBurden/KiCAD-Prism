@@ -1559,6 +1559,7 @@
         "C5"
       ],
       "notes": [
+        "System Builder was removed on 2026-10-23 (archive tag `archive/system-builder-v2`); this entry is kept as history.",
         "System mode renders boards through kicad-prism-viewer/viewer/src (prism-semantic-viewer-element.js:268, viewer-controllers.js:5), which C5 owns; so C4 is split (maintainer decision).",
         "Split (decisions.md, Ownership map item 10): C4a owns the interface paths (backend/app/services/systems/ interface, drift and digests; api/systems*.py; types/system.ts; lib/systems-api.ts; placement/frames.ts, placement/mate.ts, findings-ui.tsx) and lands in parallel in Wave 3. C4b owns the 3D-scene paths (systems/bundles.py, collision meshes, STEP export, scene-3d-tab.tsx loaders) and lands after C5."
       ]

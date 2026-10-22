@@ -15,12 +15,8 @@ from app.services.catalog.metadata_descriptors import (
 
 IDENTITY_KIND_MPN = "mpn"
 IDENTITY_KIND_PROVISIONAL_IPN = "provisional_ipn"
-#: A published system's final IPN, in the ``system`` scope (System Builder v2 §11.1).
-IDENTITY_KIND_IPN = "ipn"
-IPN_SCOPE_SYSTEM = "system"
 MPN_SOURCE_MANUFACTURER = "manufacturer"
 MPN_SOURCE_PROVISIONAL_IPN = "provisional_ipn"
-MPN_SOURCE_IPN = IPN_SCOPE_SYSTEM
 
 
 def custom_field_key(name: object) -> str:
@@ -83,10 +79,8 @@ def normalize_metadata(payload: dict[str, Any]) -> dict[str, Any]:
         if mpn_source in {MPN_SOURCE_PROVISIONAL_IPN, "fallback_ipn"}
         else IDENTITY_KIND_MPN
     )
-    if identity_kind not in {
-        IDENTITY_KIND_MPN, IDENTITY_KIND_PROVISIONAL_IPN, IDENTITY_KIND_IPN,
-    }:
-        raise ValueError("identity_kind must be 'mpn', 'provisional_ipn' or 'ipn'")
+    if identity_kind not in {IDENTITY_KIND_MPN, IDENTITY_KIND_PROVISIONAL_IPN}:
+        raise ValueError("identity_kind must be 'mpn' or 'provisional_ipn'")
     normalized = {
         descriptor.key: read_builtin_metadata_value(payload, descriptor)
         for descriptor in BUILTIN_METADATA_DESCRIPTORS
@@ -115,14 +109,6 @@ def normalize_metadata(payload: dict[str, Any]) -> dict[str, Any]:
             normalized["source_internal_part_number"] = str(payload.get("name") or "").strip()
         if not normalized["source_internal_part_number"]:
             raise ValueError("source_internal_part_number is required for provisional parts")
-    elif identity_kind == IDENTITY_KIND_IPN:
-        # A system's IPN is final and always in the one system scope.
-        normalized["mpn"] = ""
-        normalized["identity_source"] = IPN_SCOPE_SYSTEM
-        if not normalized["source_internal_part_number"]:
-            normalized["source_internal_part_number"] = str(payload.get("name") or "").strip()
-        if not normalized["source_internal_part_number"]:
-            raise ValueError("an IPN is required for a system entry")
     # An explicit name wins. Database-library imports carry an internal part
     # number that is not the manufacturer part number, and deriving the name
     # from `mpn` would drop it from the record entirely.
@@ -140,11 +126,7 @@ def normalize_metadata(payload: dict[str, Any]) -> dict[str, Any]:
         else normalized["source_internal_part_number"]
     )
     normalized["mpn_source"] = (
-        MPN_SOURCE_MANUFACTURER
-        if identity_kind == IDENTITY_KIND_MPN
-        else MPN_SOURCE_PROVISIONAL_IPN
-        if identity_kind == IDENTITY_KIND_PROVISIONAL_IPN
-        else MPN_SOURCE_IPN
+        MPN_SOURCE_MANUFACTURER if identity_kind == IDENTITY_KIND_MPN else MPN_SOURCE_PROVISIONAL_IPN
     )
     raw_extra_fields = payload.get("extra_fields") or payload.get("fields") or {}
     normalized["extra_fields"] = {
@@ -156,11 +138,8 @@ def normalize_metadata(payload: dict[str, Any]) -> dict[str, Any]:
 
 
 __all__ = [
-    "IDENTITY_KIND_IPN",
     "IDENTITY_KIND_MPN",
     "IDENTITY_KIND_PROVISIONAL_IPN",
-    "IPN_SCOPE_SYSTEM",
-    "MPN_SOURCE_IPN",
     "MPN_SOURCE_MANUFACTURER",
     "MPN_SOURCE_PROVISIONAL_IPN",
     "PLACEMENT_STAMP_FIELDS",

@@ -95,8 +95,6 @@ def content_type_for_asset(asset_type: str, file_path: Path) -> str:
         if file_path.suffix.lower() in {".lib", ".mod", ".mdl"}:
             return "application/x-spice"
         return "application/octet-stream"
-    if asset_type == "system_entry":
-        return "application/json"
     guessed, _ = mimetypes.guess_type(file_path.name)
     return guessed or "application/octet-stream"
 
@@ -115,7 +113,6 @@ class CatalogAssetFiles:
             "footprint": runtime.store_root / "footprints",
             "3dmodel": runtime.store_root / "3dmodels",
             "spice": runtime.store_root / "spice",
-            "system_entry": runtime.store_root / "system_entries",
         }
         if asset_type not in mapping:
             raise ValueError("Unsupported asset type")

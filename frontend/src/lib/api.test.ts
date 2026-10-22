@@ -151,8 +151,8 @@ describe("typed readers", () => {
   });
 
   it("fetchText and fetchBlob read their bodies and share the error path", async () => {
-    stubFetch(() => new Response("<html>icd</html>", { status: 200 }));
-    await expect(fetchText("/api/systems/s/icd.html")).resolves.toBe("<html>icd</html>");
+    stubFetch(() => new Response("<html>report</html>", { status: 200 }));
+    await expect(fetchText("/api/projects/p/report.html")).resolves.toBe("<html>report</html>");
     stubFetch(() => new Response("zip", { status: 200 }));
     // Node 24's Response.blob() builds the test environment's (jsdom) Blob, which has no text().
     const blob = await fetchBlob("/api/projects/p/asset/x.zip");
@@ -165,15 +165,15 @@ describe("typed readers", () => {
     expect(body).toBe("zip");
 
     stubFetch(jsonResponse(404, { detail: "Not found" }));
-    expect(await rejection(fetchText("/api/systems/s/icd.html", undefined, "The ICD could not be generated"))).toMatchObject({
+    expect(await rejection(fetchText("/api/projects/p/report.html", undefined, "The report could not be generated"))).toMatchObject({
       status: 404,
       message: "Not found",
     });
   });
 
   it("fetchChecked hands back the response for headers", async () => {
-    stubFetch(jsonResponse(200, {}, { ETag: '"sys:s:4"' }));
-    expect((await fetchChecked("/api/systems/s")).headers.get("ETag")).toBe('"sys:s:4"');
+    stubFetch(jsonResponse(200, {}, { ETag: '"component:c:4"' }));
+    expect((await fetchChecked("/api/catalog/components/c")).headers.get("ETag")).toBe('"component:c:4"');
   });
 
   it("an expired session during a write raises the banner and a readable error", async () => {

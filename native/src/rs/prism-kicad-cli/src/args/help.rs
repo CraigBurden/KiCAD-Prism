@@ -25,26 +25,12 @@ usage:
               [--base-upgraded <path>=<version>]...) --base-revision-key <hex>
               (--head <head.prism> | --head-src … as for the base) --head-revision-key <hex>
               [--include-unchanged] -o <result.json> [COMMON]
-  prism-kicad system build --document <system.json>
-              [--member <occurrence>=<bundle.prism>
-              --member-revision-key <occurrence>=<hex>]... [--absent <occurrence>]...
-              [--board-sub-ports <board-sub-ports.json>] [--parts <system-parts.json>]
-              [--entry <occurrence>=<system-entry.json>
-              --entry-stage <occurrence>=<stage>]...
-              -o <system-bundle.json> [COMMON]
   prism-kicad vendor list [COMMON]
   prism-kicad vendor run <vendor-id> --in <bundle.prism> --config <cfg.json>
               -o <dir> [--variant <name>] [COMMON]
   prism-kicad artwork --in <bundle.prism> --config <artwork.json>
               --view <name>... -o <dir> [--variant <name>]
               [--paper-scale <ratio>] [COMMON]
-  prism-kicad system step --document <system.json>
-              [--member <occurrence>=<bundle.prism>
-              --member-revision-key <occurrence>=<hex>]... [--absent <occurrence>]...
-              [--board-sub-ports <board-sub-ports.json>] [--parts <system-parts.json>]
-              [--entry <occurrence>=<system-entry.json>
-              --entry-stage <occurrence>=<stage>]... --models <manifest.json>
-              -o <system.step> [COMMON]
   prism-kicad stroke-text (--request <runs.json> | --metrics) [COMMON]
   prism-kicad drawing-sheet --request <sheet.json> [COMMON]
 

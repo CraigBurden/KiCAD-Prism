@@ -1,6 +1,6 @@
 # ADR: System Builder v2
 
-- **Status:** Accepted (2026-10-19). Every decision below is the maintainer's, from a design review held on 2026-10-19 before any code. The two items the review had left assumed were confirmed on acceptance (§2.8, §5). Stage 0 is done (§6).
+- **Status:** Retired (2026-10-23). System Builder v2 was removed from the tree; its code is at tag `archive/system-builder-v2` and its successor is being scoped on `feature/system-builder-v3`. Kept as the record of the decisions below. Was: Accepted (2026-10-19). Every decision below is the maintainer's, from a design review held on 2026-10-19 before any code. The two items the review had left assumed were confirmed on acceptance (§2.8, §5). Stage 0 is done (§6).
 - **Replaces:** work package V2b of [amendment V2](adr-native-design-bundle-amendment-v2.md) (§3, §7 V2b, §8), and the parent ADR's C4b row ([`adr-native-design-bundle.md`](adr-native-design-bundle.md) §9.6). It also replaces System Builder v1's contracts, `CONTRACTS.md`, `CONTRACTS_P2.md` and `prism.system_manifest.v1`, which stage 0 removed from the tree ([`docs/system-builder/README.md`](../system-builder/README.md) says where to read them).
 - **Builds on:**
   - the design bundle (parent ADR §4–§5): each board is read from its bundle by revision key;

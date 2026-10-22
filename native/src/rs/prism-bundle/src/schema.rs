@@ -22,7 +22,7 @@ use std::collections::BTreeMap;
 use std::sync::OnceLock;
 
 /// The committed Prism schemas, `(file name, text)`.
-pub const SCHEMA_FILES: [(&str, &str); 40] = [
+pub const SCHEMA_FILES: [(&str, &str); 33] = [
     (
         "ArtworkConfigA0.json",
         include_str!("../schema/ArtworkConfigA0.json"),
@@ -79,10 +79,6 @@ pub const SCHEMA_FILES: [(&str, &str); 40] = [
     (
         "CliStrokeTextResultA0.json",
         include_str!("../schema/CliStrokeTextResultA0.json"),
-    ),
-    (
-        "CliSystemResultA0.json",
-        include_str!("../schema/CliSystemResultA0.json"),
     ),
     (
         "CliVendorListA0.json",
@@ -143,30 +139,9 @@ pub const SCHEMA_FILES: [(&str, &str); 40] = [
         include_str!("../schema/StrokeTextRequestA0.json"),
     ),
     (
-        "SystemBundleA0.json",
-        include_str!("../schema/SystemBundleA0.json"),
-    ),
-    (
-        "SystemEntryA0.json",
-        include_str!("../schema/SystemEntryA0.json"),
-    ),
-    (
-        "BoardSubPortsA0.json",
-        include_str!("../schema/BoardSubPortsA0.json"),
-    ),
-    (
-        "SystemPartsA0.json",
-        include_str!("../schema/SystemPartsA0.json"),
-    ),
-    (
         "SystemInterfaceV1.json",
         include_str!("../schema/SystemInterfaceV1.json"),
     ),
-    (
-        "SystemOpsA0.json",
-        include_str!("../schema/SystemOpsA0.json"),
-    ),
-    ("SystemV2.json", include_str!("../schema/SystemV2.json")),
     (
         "VendorJlcpcbConfigA0.json",
         include_str!("../schema/VendorJlcpcbConfigA0.json"),
@@ -872,18 +847,6 @@ mod tests {
     }
 
     #[test]
-    fn a_bundle_built_before_harness_wire_lists_still_validates() {
-        // Entries published before format 5 froze their bundle without `harnesses`.
-        let example = concat!(
-            env!("CARGO_MANIFEST_DIR"),
-            "/../../../contracts/prism/examples/SystemBundleA0.example.json"
-        );
-        let mut bundle: Value = serde_json::from_slice(&std::fs::read(example).unwrap()).unwrap();
-        bundle.as_object_mut().unwrap().remove("harnesses");
-        validate("prism.system_bundle.a0", &bundle).unwrap();
-    }
-
-    #[test]
     fn the_embedded_schemas_are_the_committed_ones() {
         let committed = concat!(
             env!("CARGO_MANIFEST_DIR"),
@@ -927,7 +890,7 @@ mod tests {
                 .unwrap_or_else(|error| panic!("{}: {error:?}", path.display()));
             checked += 1;
         }
-        assert_eq!(checked, 40);
+        assert_eq!(checked, 33);
     }
 
     #[test]

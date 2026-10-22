@@ -12,8 +12,8 @@ Two styles are released, chosen by the configuration's ``sheet_style`` key:
     It is retained as a selectable style because a project may need its
     documentation to match the rest of its KiCad drawing set.
 
-The palette is shared with ``app.system_builder.harness_outputs.drawing``; the
-values are the reference rather than a second opinion about what "grey" means.
+The values are the reference rather than a second opinion about what "grey"
+means.
 Determinism: a style is a string, every colour is a literal, and nothing here
 depends on the host or the clock.
 """

@@ -152,7 +152,7 @@ class RetentionTests(_Workspace, unittest.TestCase):
         self.assertIsNotNone(rows.get_bundle("p1", pinned["bundle_key"]))
         self.assertIsNotNone(rows.get_bundle("p1", recent["bundle_key"]))
 
-    def test_pinned_commits_read_system_builder_and_release_studio(self) -> None:
+    def test_pinned_commits_read_release_studio(self) -> None:
         self.add_project()
         self.assertEqual(rows.pinned_commits("p1"), set())  # the tables exist at head and hold nothing yet
 

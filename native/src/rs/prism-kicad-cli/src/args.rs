@@ -4,15 +4,13 @@
 //! before any work (exit 2).
 
 use prism_bundle::{Failure, LimitName, Limits, Outcome, Work};
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
 
 mod build_rules;
 mod help;
 mod model_dirs;
-mod system;
 use build_rules::build_rules;
 use model_dirs::model_directories;
-use system::{check_system, system_of};
 
 /// The command.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -33,10 +31,6 @@ pub enum Command {
     RevisionKey,
     /// `compare`.
     Compare,
-    /// `system build`.
-    SystemBuild,
-    /// `system step`.
-    SystemStep,
     /// `vendor list`.
     VendorList,
     /// `vendor run`.
@@ -47,26 +41,6 @@ pub enum Command {
     DrawingSheet,
     /// `artwork`.
     Artwork,
-}
-
-/// A `system build` member: its stored design bundle and the revision key it
-/// is read at.
-#[derive(Clone, Debug)]
-pub struct SystemMemberArg {
-    /// The `.prism` path.
-    pub bundle: String,
-    /// Its identity, 64 lowercase hex digits.
-    pub revision_key: String,
-}
-
-/// A `system build` published entry: its payload and the catalog revision's
-/// workflow stage.
-#[derive(Clone, Debug)]
-pub struct SystemEntryArg {
-    /// The `prism.system_entry.a0` path.
-    pub payload: String,
-    /// The revision's stage, 1 to 32 characters of `[a-z_]`.
-    pub stage: String,
 }
 
 /// A `bundle build` stage.
@@ -97,14 +71,6 @@ pub struct Args {
     pub head_upgraded: BTreeMap<String, u64>,
     /// `compare --include-unchanged`.
     pub include_unchanged: bool,
-    /// `system build --member`, by occurrence.
-    pub system_members: BTreeMap<String, SystemMemberArg>,
-    /// `system build --absent`, in code point order.
-    pub system_absent: BTreeSet<String>,
-    /// `system build --board-sub-ports`, when given.
-    pub system_board_sub_ports: Option<String>,
-    /// `system build --entry`, by occurrence.
-    pub system_entries: BTreeMap<String, SystemEntryArg>,
     /// `bundle build --stage models --model-dir`, by variable.
     pub model_dirs: BTreeMap<String, String>,
     /// `--worktree`.
@@ -148,7 +114,7 @@ fn work_of(command: Command, stage: Option<StageArg>) -> Work {
     }
 }
 
-const VALUE_OPTIONS: [&str; 44] = [
+const VALUE_OPTIONS: [&str; 36] = [
     "output",
     "in",
     "stage",
@@ -180,14 +146,6 @@ const VALUE_OPTIONS: [&str; 44] = [
     "limit",
     "threads",
     "upgraded",
-    "document",
-    "member",
-    "member-revision-key",
-    "absent",
-    "board-sub-ports",
-    "parts",
-    "entry",
-    "entry-stage",
     "models",
     "variant",
     "request",
@@ -239,36 +197,13 @@ fn specific(command: Command) -> &'static [&'static str] {
             "include-unchanged",
         ],
         Command::RevisionKey => &["commit", "worktree", "project", "config"],
-        _ => sheet_and_system(command),
+        _ => sheet_options(command),
     }
 }
 
-/// The options of the `system` commands and the two sheet commands.
-fn sheet_and_system(command: Command) -> &'static [&'static str] {
+/// The options of the remaining leaf commands.
+fn sheet_options(command: Command) -> &'static [&'static str] {
     match command {
-        Command::SystemBuild => &[
-            "document",
-            "member",
-            "member-revision-key",
-            "absent",
-            "board-sub-ports",
-            "parts",
-            "entry",
-            "entry-stage",
-            "output",
-        ],
-        Command::SystemStep => &[
-            "document",
-            "member",
-            "member-revision-key",
-            "absent",
-            "board-sub-ports",
-            "parts",
-            "entry",
-            "entry-stage",
-            "models",
-            "output",
-        ],
         Command::VendorList | Command::VendorRun => &["in", "config", "output", "variant"],
         Command::Artwork => &["in", "config", "view", "output", "variant", "paper-scale"],
         Command::StrokeText => &["request", "metrics"],
@@ -305,24 +240,13 @@ fn command_words(argv: &[String]) -> Outcome<(Command, usize)> {
         return Ok((*command, 1));
     }
     match word {
-        "system" => system_command(argv.get(1).map(String::as_str)),
         "vendor" => vendor_command(argv.get(1).map(String::as_str)),
         "bundle" => bundle_command(argv.get(1).map(String::as_str)),
         _ => Err(Failure::usage(
             "unknown-command",
-            "the command is not version, bundle build, bundle verify, bundle extract, bundle reuse, revision-key, compare, vendor list, vendor run, system build, system step, stroke-text, drawing-sheet or artwork",
+            "the command is not version, bundle build, bundle verify, bundle extract, bundle reuse, revision-key, compare, vendor list, vendor run, stroke-text, drawing-sheet or artwork",
         )
         .argument("command")),
-    }
-}
-
-fn system_command(word: Option<&str>) -> Outcome<(Command, usize)> {
-    match word {
-        Some("build") => Ok((Command::SystemBuild, 2)),
-        Some("step") => Ok((Command::SystemStep, 2)),
-        _ => {
-            Err(Failure::usage("unknown-command", "system takes build or step").argument("command"))
-        }
     }
 }
 
@@ -370,11 +294,6 @@ struct Raw {
     upgraded: Vec<String>,
     base_upgraded: Vec<String>,
     head_upgraded: Vec<String>,
-    members: Vec<String>,
-    member_revision_keys: Vec<String>,
-    absent: Vec<String>,
-    entries: Vec<String>,
-    entry_stages: Vec<String>,
     model_dirs: Vec<String>,
     views: Vec<String>,
     include_unchanged: bool,
@@ -392,11 +311,6 @@ fn collect(command: Command, rest: &[String]) -> Outcome<Raw> {
         upgraded: Vec::new(),
         base_upgraded: Vec::new(),
         head_upgraded: Vec::new(),
-        members: Vec::new(),
-        member_revision_keys: Vec::new(),
-        absent: Vec::new(),
-        entries: Vec::new(),
-        entry_stages: Vec::new(),
         model_dirs: Vec::new(),
         views: Vec::new(),
         include_unchanged: false,
@@ -436,11 +350,8 @@ impl Raw {
                 let value = rest.get(index + 1).ok_or_else(|| {
                     let failure = usage(format!("--{name} takes a value"));
                     match name {
-                        // `CliArgument` has no `document`, `absent`, `board-sub-ports`, `parts`,
-                        // `entry` or `entry-stage` value: the message names the option.
-                        "document" | "absent" | "board-sub-ports" | "parts" | "entry"
-                        | "entry-stage" | "models" => failure,
-                        "member-revision-key" => failure.argument("revision-key"),
+                        // `CliArgument` has no `models` value: the message names the option.
+                        "models" => failure,
                         _ => failure.argument(name),
                     }
                 })?;
@@ -475,7 +386,7 @@ impl Raw {
     fn push_repeated(&mut self, name: &'static str, value: String) -> bool {
         let slot = if let Some(slot) = self.repeated_comparison(name) {
             slot
-        } else if let Some(slot) = self.repeated_document(name) {
+        } else if let Some(slot) = self.repeated_views(name) {
             slot
         } else {
             return false;
@@ -496,14 +407,9 @@ impl Raw {
         }
     }
 
-    /// The repeatable options of `system build` and `system step`.
-    fn repeated_document(&mut self, name: &'static str) -> Option<&mut Vec<String>> {
+    /// The repeatable options of `artwork`.
+    fn repeated_views(&mut self, name: &'static str) -> Option<&mut Vec<String>> {
         match name {
-            "member" => Some(&mut self.members),
-            "member-revision-key" => Some(&mut self.member_revision_keys),
-            "absent" => Some(&mut self.absent),
-            "entry" => Some(&mut self.entries),
-            "entry-stage" => Some(&mut self.entry_stages),
             "view" => Some(&mut self.views),
             _ => None,
         }
@@ -514,7 +420,7 @@ impl Raw {
         if self.options.insert(name, value).is_some() {
             let failure = usage(format!("--{name} is given twice"));
             return Err(match name {
-                "document" | "board-sub-ports" | "parts" | "models" => failure,
+                "models" => failure,
                 _ => failure.argument(name),
             });
         }
@@ -805,9 +711,6 @@ fn check_combinations(command: Command, raw: &Raw, stage: Option<StageArg>) -> O
         Command::Reuse => check_reuse(raw),
         Command::Compare => check_compare(raw),
         Command::VendorList | Command::VendorRun => check_vendor(raw, command),
-        Command::SystemBuild | Command::SystemStep => {
-            check_system(raw, command == Command::SystemStep)
-        }
         Command::StrokeText | Command::DrawingSheet | Command::Artwork | Command::Version => {
             check_leaf_command(command, raw)
         }
@@ -897,12 +800,6 @@ pub fn parse(argv: &[String]) -> Outcome<Args> {
     let upgraded = upgrades(&raw.upgraded, "upgraded")?;
     let base_upgraded = upgrades(&raw.base_upgraded, "base-upgraded")?;
     let head_upgraded = upgrades(&raw.head_upgraded, "head-upgraded")?;
-    let (system_members, system_absent, system_board_sub_ports, system_entries) =
-        if matches!(command, Command::SystemBuild | Command::SystemStep) {
-            system_of(&raw)?
-        } else {
-            (BTreeMap::new(), BTreeSet::new(), None, BTreeMap::new())
-        };
     let model_dirs = model_directories(&raw.model_dirs)?;
     Ok(Args {
         command,
@@ -911,10 +808,6 @@ pub fn parse(argv: &[String]) -> Outcome<Args> {
         upgraded,
         base_upgraded,
         head_upgraded,
-        system_members,
-        system_absent,
-        system_board_sub_ports,
-        system_entries,
         model_dirs,
         include_unchanged: raw.include_unchanged,
         worktree: raw.worktree,
@@ -963,10 +856,6 @@ fn help_args() -> Args {
         upgraded: BTreeMap::new(),
         base_upgraded: BTreeMap::new(),
         head_upgraded: BTreeMap::new(),
-        system_members: BTreeMap::new(),
-        system_absent: BTreeSet::new(),
-        system_board_sub_ports: None,
-        system_entries: BTreeMap::new(),
         model_dirs: BTreeMap::new(),
         include_unchanged: false,
         worktree: false,
