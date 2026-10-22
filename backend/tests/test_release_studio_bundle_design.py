@@ -371,6 +371,55 @@ class CatalogueInputTests(unittest.TestCase):
         self.assertIn("sources/board/demo.kicad_sch", by_id["erc"].normalized_argv)
         self.assertNotIn(str(self.root), " ".join(by_id["drc"].normalized_argv))
 
+    def test_a_configured_schematic_that_is_missing_fails_its_steps(self) -> None:
+        with self.assertRaisesRegex(steps_module.StepExecutionError, "schematic not found"):
+            steps_module.run_step_catalogue(
+                closure_root=self.root,
+                board_rel="board/demo.kicad_pcb",
+                schematic_rel="board/missing.kicad_sch",
+                output_root=self.root / "outputs",
+                tool=_RecordingTool(),
+                only=("bom",),
+                board_path=self.board,
+                schematic_path=self.root / "sources" / "board" / "missing.kicad_sch",
+            )
+
+    def test_a_missing_schematic_does_not_fail_board_only_steps(self) -> None:
+        outputs = steps_module.run_step_catalogue(
+            closure_root=self.root,
+            board_rel="board/demo.kicad_pcb",
+            schematic_rel="board/missing.kicad_sch",
+            output_root=self.root / "outputs",
+            tool=_RecordingTool(),
+            only=("drc",),
+            board_path=self.board,
+            schematic_path=self.root / "sources" / "board" / "missing.kicad_sch",
+        )
+        self.assertEqual([output.step_id for output in outputs], ["drc"])
+
+    def test_a_repository_rooted_bundle_keeps_the_subproject_prefix(self) -> None:
+        # A Type-2 subproject keyed at the repository root stores
+        # sources/hw/<project>/...; stripping the anchor pointed ERC and BOM at
+        # a file that does not exist.
+        members = [
+            {"path": "sources/hw/demo/demo.kicad_sch"},
+            {"path": "sources/hw/demo/demo.kicad_pcb"},
+        ]
+        design = _BundleDesignFixture(
+            manifest={**_manifest(fill_provenance="saved"), "members": members},
+            opened=_Opened(manifest={"members": members}),
+        )
+        self.assertEqual(design.schematic_member("hw/demo/demo.kicad_sch", "hw/demo"), "sources/hw/demo/demo.kicad_sch")
+        self.assertEqual(design.board_member("hw/demo/demo.kicad_pcb", "hw/demo"), "sources/hw/demo/demo.kicad_pcb")
+
+    def test_an_anchored_bundle_strips_the_subproject_prefix(self) -> None:
+        members = [{"path": "sources/demo.kicad_sch"}]
+        design = _BundleDesignFixture(
+            manifest={**_manifest(fill_provenance="saved"), "members": members},
+            opened=_Opened(manifest={"members": members}),
+        )
+        self.assertEqual(design.schematic_member("hw/demo/demo.kicad_sch", "hw/demo"), "sources/demo.kicad_sch")
+
     def test_saved_fills_choose_the_source_board(self) -> None:
         design = _BundleDesignFixture(
             manifest=_manifest(fill_provenance="saved"), opened=None

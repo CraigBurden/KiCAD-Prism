@@ -345,6 +345,11 @@ def run_step_catalogue(
     if board is not None and not board.is_file():
         raise StepExecutionError(f"board not found in closure: {board_rel}")
     if schematic is not None and not schematic.is_file():
+        # A configured schematic that is not there is a broken input, not a
+        # board-only project: dropping ERC and BOM silently shipped a release
+        # without either (EDA-04903, 2026-10-23).
+        if selected_steps(board=None, schematic=schematic, only=only):
+            raise StepExecutionError(f"schematic not found in closure: {schematic_rel or schematic}")
         schematic = None
 
     specs = selected_steps(board=board, schematic=schematic, only=only)
