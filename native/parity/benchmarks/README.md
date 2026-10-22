@@ -127,3 +127,86 @@ EDA-04903's bundle breaks down as: materialize and upgrade 13.8 s, stage `parse`
 
 - Warm, the analytic path is slower than the mesh path on a large board today: about 2.9 s against about 0.5 s on EDA-04903. Lowering is the gap; download and open are not.
 - Cold, the analytic path builds where the mesh path cannot: EDA-04903's mesh build does not fit in the 8 GB box, and the bundle's stages peak at 2.2 GB.
+
+## Full comparison: 2026-10-22, after Wave 4
+
+`bench_native.py` times the native side on the same 33 parity cases and sets it against the 2026-10-17 baseline. Results: `results/2026-10-22-ithelpdesk-macbook-pro-arm64-native.json`.
+- **Machine:** the same machine as the baseline. The release `prism-kicad` was built from `feature/native-design-bundle` at 10785dfd (Wave 4 merged).
+- **Sources:** prepared by `prism_parity` exactly as the baseline's were.
+- **Load:** 3.7 at the start and 5.1 at the end, with desktop apps and a VM running. As with the baseline, treat differences under about 10 % as noise.
+
+```sh
+python native/parity/benchmarks/bench_native.py --prism-kicad <release binary> \
+    --baseline native/parity/benchmarks/results/2026-10-17-ithelpdesk-macbook-pro-arm64.json \
+    --out native/parity/benchmarks/results/<yyyy-mm-dd>-<host>-native.json
+```
+
+### Producing the data
+
+How the comparison is made:
+- **Native side:** one `prism-kicad bundle build --stage parse`. Each build is a fresh process, start-up included, and produces every parse-stage member: semantic index, system interface, project, stackup, placements, occurrences, board objects and route metrics.
+- **Python side:** the three production paths it replaces: semantic index, system interface and variant catalog. Each was timed best of 3 after a cold first call in a warm interpreter.
+
+Best of 3, summed over the cases:
+
+| | all 33 cases (s) | rs-cynthion (s) | rs-usb-pd (s) | max peak RSS (MiB) |
+|---|---|---|---|---|
+| native parse stage, every member | **1.93** | **0.69** | **0.15** | **306** |
+| Python `prod:*` (semantic index + system interface + variant catalog) | 9.58 | 7.39 | 0.54 | 496 |
+| Python `golden:*` capture modules, every member | 106.6 | 67.6 | 6.0 | 496 |
+
+- **rs-cynthion**, the stress case, is 11× faster than the production paths and uses 39 % less memory.
+- **Faster on 23 of 33 cases.** The other 10 are the smallest fixtures (the `dv-*` designs and three tiny System Builder boards). There, a fresh process costs 20–35 ms, while the Python paths ran warm in-process at 2–34 ms. The deployed path runs the build in a job, never on a request, so this is not something a user waits on.
+
+### What an endpoint does now
+
+The endpoints that parsed on demand now read a member of a warm bundle: semantic index, system interface, and the variant catalog (which is part of the semantic index). Each read opens the verified archive, inflates the member, checks its SHA-256 and decodes the JSON. HTTP, authentication and the database lookup that finds the archive are not included.
+
+Before an archive is readable, the bundle job runs `prism-kicad bundle verify` once and marks it verified (`jobs.py`). So the time from building to readable is build plus verify.
+
+| | read `semantic-index` (ms) | read `system-interface` (ms) | `bundle verify` (s, peak MiB) | before: Python build on request (s) |
+|---|---|---|---|---|
+| rs-cynthion | 41.9 (2.5 MB) | 24.6 (0.6 MB) | 0.72, 92 | 3.78 / 3.59 |
+| rs-usb-pd | 6.2 | 5.0 | 0.09, 21 | 0.29 / 0.24 |
+| all 33 cases | — | — | 1.67 in total | — |
+
+Verifying takes about as long as building: 1.67 s against 1.88 s over all cases.
+
+## EDA-04903: 2026-10-22
+
+EDA-04903 is CERN's WREN-V main board: a 57 MB KiCad board and 44 schematic sheets saved by KiCad 8.99. Its sources came from the `sources/` of an earlier scratch bundle. They were upgraded to 10.0.6 by `prism_parity` exactly as the fixtures were; the upgrade is untimed here, and was 61 s file by file. The setup:
+- Both sides ran on the same machine and the same upgraded sources, best of 3.
+- The Python side ran `bench_python.py --child` at the baseline's commit (aa6c8e3b, kicad-monkey 2026.9.7).
+- Results: `results/2026-10-22-ithelpdesk-macbook-pro-arm64-eda-04903.json`.
+- Load was 10.1 at the start of the Python run and 5.0–5.9 for the native one.
+
+```sh
+python native/parity/benchmarks/bench_native.py --prism-kicad <release binary> \
+    --extra-src <dir with the sources> --extra-project EDA-04903-V1-0.kicad_pro --extra-id eda-04903 --out <file>
+# Python side, from a checkout of the baseline commit:
+python native/parity/benchmarks/bench_python.py --today . --out /dev/null --repeat 3 \
+    --child prod:semantic-index '{"id":"eda-04903","src":"<prepared src>","project":"EDA-04903-V1-0.kicad_pro","work":"<scratch>"}'
+```
+
+| | best (s) | peak RSS |
+|---|---|---|
+| `prod:semantic-index` | 43.1 | 2.53 GiB |
+| `prod:system-interface` | 41.4 | 2.60 GiB |
+| `prod:variant-catalog` | 0.22 | 474 MiB |
+| `prod:km-load` (kicad_monkey's load alone) | 39.5 | 2.60 GiB |
+| **Python production paths, summed** | **84.7** | **2.60 GiB** |
+| `prism-kicad bundle build --stage parse`, every member | **5.32** | **1.76 GiB** |
+| `prism-kicad bundle verify` | 4.98 | 0.71 GiB |
+| read `semantic-index` (19 MB) from the verified bundle | 0.23 | — |
+| read `system-interface` (2.7 MB) | 0.07 | — |
+
+- **Production paths: 84.7 s and 2.6 GB, against 5.3 s and 1.8 GB native.** The production paths are the semantic index, system interface and variant catalog. Native is 16× faster on the parse alone, and about 8× faster counting the verify the job runs before the bundle is readable (10.3 s).
+- **On request:** opening the semantic index used to cost 43 s on a cold cache, and the system interface 41 s. Both are now read from a warm bundle in 0.07–0.23 s.
+- **Budgets (amendment U §3.2):**
+  - **Parse time** is within its 10 s budget (5.3 s).
+  - **Parse memory is over:** the peak was 1.76 GiB, against a 1.5 GB budget. The budget is measured in the worker container on Linux, while this figure is macOS RSS, so confirm it in the container before acting on it.
+- **`bundle verify` costs as much as the build** (5.0 s against 5.3 s). It runs once per bundle, before anything can read it, so it doubles the time from push to warm bundle. If that wait matters, verify is the next thing to make faster.
+
+### Large designs and Design Comparison
+
+The U §3.2 journey budgets for Design Comparison on EDA-04903 are measured in the worker container; see "Cold Design Comparison" above. Bundle-mode `compare` (both revisions warm) takes 2.9–3.5 s there.
