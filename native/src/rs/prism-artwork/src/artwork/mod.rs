@@ -21,7 +21,6 @@
 
 mod designator;
 pub mod geometry;
-mod pad;
 mod paper;
 mod render;
 pub mod svg;
@@ -175,14 +174,12 @@ struct PadInfo {
     number: String,
     x: f64,
     y: f64,
+    /// The authored size; the pin-1 marker scales with its shorter side.
     size_x: f64,
     size_y: f64,
-    shape: String,
-    angle: f64,
-    roundrect_ratio: Option<f64>,
-    /// The copper's offset from the drill, pad frame: KiCad moves the shape,
-    /// not the hole, by it.
-    offset: prism_kicad_core::PcbPoint,
+    /// The pad's copper as KiCad shapes it (`PcbPad::copper_rings`): closed
+    /// rings in the board frame, relative to the pad's board position.
+    rings: Vec<Vec<geometry::Point>>,
 }
 
 struct FootprintInfo {
@@ -216,32 +213,22 @@ impl FootprintInfo {
         }
     }
 
-    /// A pad's authored shape in the board frame, sampled. The pad's angle is
-    /// already in the board frame (a board file stores the footprint's
-    /// rotation in it), so the footprint's angle is not added again. A pad
-    /// offset moves the shape off the pad's position, turned by that angle, as
-    /// KiCad's board plotter does.
-    fn pad_ring(&self, pad: &PadInfo) -> Vec<geometry::Point> {
-        let position = self.pad_position(pad);
-        let offset = prism_kicad_core::kicad_rotate(pad.offset, pad.angle);
-        pad::pad_ring(
-            &pad.shape,
-            pad.size_x,
-            pad.size_y,
-            pad.roundrect_ratio,
-            geometry::Point {
-                x: position.x + offset.x,
-                y: position.y + offset.y,
-            },
-            pad.angle,
-        )
-    }
-
-    /// Every pad ring the artwork draws for this footprint.
+    /// Every pad ring the artwork draws for this footprint, board frame: the
+    /// pad's copper rings at its board position.
     fn pad_rings(&self) -> Vec<Vec<geometry::Point>> {
         self.pads
             .iter()
-            .map(|pad| self.pad_ring(pad))
+            .flat_map(|pad| {
+                let position = self.pad_position(pad);
+                pad.rings.iter().map(move |ring| {
+                    ring.iter()
+                        .map(|point| geometry::Point {
+                            x: position.x + point.x,
+                            y: position.y + point.y,
+                        })
+                        .collect::<Vec<_>>()
+                })
+            })
             .filter(|ring| ring.len() >= 3)
             .collect()
     }
@@ -287,15 +274,11 @@ fn board_data(
                 y: pad.at_y,
                 size_x: pad.size_x,
                 size_y: pad.size_y,
-                shape: pad.shape.clone(),
-                angle: pad.angle,
-                roundrect_ratio: pad.roundrect_rratio,
-                offset: pad
-                    .drill
-                    .as_ref()
-                    .map_or(prism_kicad_core::PcbPoint { x: 0.0, y: 0.0 }, |drill| {
-                        drill.offset
-                    }),
+                rings: pad
+                    .copper_rings()
+                    .into_iter()
+                    .map(|ring| ring.into_iter().map(geometry::Point::from).collect())
+                    .collect(),
             });
     }
     let variants = variant_states(input);

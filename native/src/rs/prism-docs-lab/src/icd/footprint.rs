@@ -5,8 +5,7 @@
 use prism_artwork::artwork::geometry::{self, Bounds, Point};
 use prism_kicad_contracts::generated::prism_placements_a1::PlacementsBounds;
 use prism_kicad_core::{
-    PcbFootprint, PcbGraphic, PcbGraphicKind, PcbPad, PcbPadPrimitiveGeometry, PcbPolygonPoint,
-    PcbView,
+    PcbFootprint, PcbGraphic, PcbGraphicKind, PcbPad, PcbPolygonPoint, PcbView,
 };
 
 /// A pad's shape, centred on the pad anchor.
@@ -40,15 +39,11 @@ pub enum PadShape {
         /// Full height.
         height: f64,
     },
-    /// A custom pad: its anchor shape plus the authored primitives.
-    Custom {
-        /// Anchor width.
-        width: f64,
-        /// Anchor height.
-        height: f64,
-        /// True when the anchor is a circle.
-        anchor_circle: bool,
-        /// Primitive rings in pad-local coordinates.
+    /// Any other pad (custom, chamfered, trapezoid) as KiCad shapes its copper
+    /// (`PcbPad::local_copper_rings`): closed rings in the pad's own frame,
+    /// around the copper centre.
+    Outline {
+        /// The copper's rings; a custom pad's overlap, and their union is the pad.
         rings: Vec<Vec<Point>>,
     },
 }
@@ -80,18 +75,11 @@ impl PadFact {
             PadShape::Rect { width, height }
             | PadShape::RoundRect { width, height, .. }
             | PadShape::Oval { width, height } => (*width / 2.0, *height / 2.0),
-            PadShape::Custom {
-                width,
-                height,
-                rings,
-                ..
-            } => {
-                let mut half = (*width / 2.0, *height / 2.0);
-                for ring in rings {
-                    for point in ring {
-                        half.0 = half.0.max(point.x.abs());
-                        half.1 = half.1.max(point.y.abs());
-                    }
+            PadShape::Outline { rings } => {
+                let mut half = (0.0_f64, 0.0_f64);
+                for point in rings.iter().flatten() {
+                    half.0 = half.0.max(point.x.abs());
+                    half.1 = half.1.max(point.y.abs());
                 }
                 half
             }
@@ -152,44 +140,25 @@ fn copper_center(pad: &PcbPad, relative_angle: f64) -> (f64, f64) {
 fn pad_shape(pad: &PcbPad) -> PadShape {
     let width = pad.size_x.abs();
     let height = pad.size_y.abs();
+    let chamfered = pad.chamfer_ratio.unwrap_or(0.0) > 0.0 && !pad.chamfer_corners.is_empty();
     match pad.shape.as_str() {
         "circle" => PadShape::Circle {
             diameter: width.min(height),
         },
         "oval" => PadShape::Oval { width, height },
-        "roundrect" => PadShape::RoundRect {
+        "rect" => PadShape::Rect { width, height },
+        "roundrect" if !chamfered => PadShape::RoundRect {
             width,
             height,
             radius: pad.roundrect_rratio.unwrap_or(0.25) * width.min(height),
         },
-        "custom" => PadShape::Custom {
-            width,
-            height,
-            anchor_circle: pad
-                .custom_options
-                .as_ref()
-                .and_then(|options| options.anchor.as_deref())
-                == Some("circle"),
-            rings: custom_rings(pad),
+        _ => PadShape::Outline {
+            rings: pad
+                .local_copper_rings()
+                .into_iter()
+                .map(|ring| ring.into_iter().map(Point::from).collect())
+                .collect(),
         },
-        _ => PadShape::Rect { width, height },
-    }
-}
-
-fn custom_rings(pad: &PcbPad) -> Vec<Vec<Point>> {
-    pad.custom_primitives
-        .iter()
-        .filter_map(|primitive| primitive.geometry.as_ref())
-        .flat_map(primitive_rings)
-        .collect()
-}
-
-fn primitive_rings(geometry: &PcbPadPrimitiveGeometry) -> Vec<Vec<Point>> {
-    match geometry {
-        PcbPadPrimitiveGeometry::Polygon { points } => vec![polygon_ring(points)],
-        PcbPadPrimitiveGeometry::Rect { start, end, .. } => vec![rect_ring(*start, *end)],
-        PcbPadPrimitiveGeometry::Circle { center, end } => vec![circle_ring(*center, *end)],
-        _ => Vec::new(),
     }
 }
 

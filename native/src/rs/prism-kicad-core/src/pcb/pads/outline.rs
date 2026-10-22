@@ -61,7 +61,7 @@ impl PcbPad {
             .drill
             .as_ref()
             .map_or(PcbPoint { x: 0.0, y: 0.0 }, |drill| drill.offset);
-        self.local_rings()
+        self.local_copper_rings()
             .into_iter()
             .map(|ring| {
                 ring.into_iter()
@@ -80,8 +80,10 @@ impl PcbPad {
             .collect()
     }
 
-    /// The rings in the pad's own frame, around the copper's centre.
-    fn local_rings(&self) -> Vec<Vec<PcbPoint>> {
+    /// The pad's copper as closed rings in the pad's own frame (before its
+    /// angle), around the copper's centre (the pad position moved by any drill
+    /// offset): what a drawing that places and turns each pad itself needs.
+    pub fn local_copper_rings(&self) -> Vec<Vec<PcbPoint>> {
         let width = self.size_x.abs();
         let height = self.size_y.abs();
         if width <= 0.0 || height <= 0.0 {
