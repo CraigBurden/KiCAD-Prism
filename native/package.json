@@ -12,9 +12,7 @@
     "check:typescript-generation": "node scripts/generate-contract-bindings.mjs --typescript --check && tsc --noEmit -p tsconfig.contracts.json",
     "check:typespec": "tsp compile src/tsp/kicad_monkey/main.tsp --config tspconfig.yaml --no-emit",
     "check:prism-contracts": "node scripts/contracts/build.mjs --check",
-    "build:prism-contracts": "node scripts/contracts/build.mjs",
-    "build:system-typescript": "node scripts/contracts/system-typescript.mjs",
-    "check:system-typescript": "node scripts/contracts/system-typescript.mjs --check"
+    "build:prism-contracts": "node scripts/contracts/build.mjs"
   },
   "devDependencies": {
     "@typespec/compiler": "1.14.0",

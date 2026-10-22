@@ -103,13 +103,3 @@ def _application_schema_at_head():
 
     bring_every_schema_to_head()
 
-
-# ---------------------------------------------------------------------------
-# System bundles: the suite exercises the job path; tests of the in-request build turn it on.
-
-
-@pytest.fixture(autouse=True)
-def _system_bundles_through_the_job(monkeypatch):
-    from app.core.config import settings
-
-    monkeypatch.setattr(settings, "PRISM_SYSTEM_BUNDLE_INLINE", False)

@@ -39,8 +39,7 @@ export function buildElement(spec, outFile) {
   try {
     const prefix = git(["rev-parse", "--show-prefix"]); // kicad-prism-viewer/ inside the Prism repo
     const top = git(["rev-parse", "--show-toplevel"]);
-    // The viewer also imports shared System Builder code from frontend/src.
-    const archive = execFileSync("git", ["archive", "--format=tar", commit, `${prefix}viewer`, "frontend/src/features/system-builder"], { cwd: top, maxBuffer: 1 << 30 });
+    const archive = execFileSync("git", ["archive", "--format=tar", commit, `${prefix}viewer`], { cwd: top, maxBuffer: 1 << 30 });
     execFileSync("tar", ["-x", "-C", scratch], { input: archive });
     const root = join(scratch, prefix);
     symlinkSync(join(viewerRoot, "node_modules"), join(root, "node_modules"));

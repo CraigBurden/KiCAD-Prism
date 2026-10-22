@@ -50,7 +50,7 @@ Totals: 328 owned path entries across 29 WPs: 198 exist on dev, 11 only on the r
    - Design Comparison's BOM rows end in `backend/app/services/bom_diff_service.py:63-160` (`field-maps/occurrences.md`), which `design_compare_*.py` does not match. It goes to C2;
    - the project card (`field-maps/project.md`, "Card": `project_metadata_service.py:157-205`, `project_properties_service.py:260-338`, `api/projects.py:1155-1185`) has no Wave 3 WP. It goes to C8;
    - `backend/app/services/release_studio_model_inputs.py` (`field-maps/project.md`, `rmi`) goes to C3;
-   - System Builder's frontend readers of interface and placement fields (`placement/frames.ts`, `placement/mate.ts`, `findings-ui.tsx`, `types/system.ts`, `lib/systems-api.ts:804-806`) go to C4.
+   - System Builder's frontend readers of interface and placement fields (`placement/frames.ts`, `placement/mate.ts`, `findings-ui.tsx`, `types/system.ts`, `lib/systems-api.ts:804-806`) went to C4, removed on 2026-10-23 (archive tag `archive/system-builder-v2`).
 8. **V1 needs P4.** The GLB cache key needs the repository model files the board references (`cli-spec.md` §9.3), and `field-maps/project.md` names `projections/project.json` as that input. Both are Wave 2 peers; V1 stacks after P4.
 9. **The fork has no `NOTICE`.** ADR §4.1 says `native/` keeps "LICENSE (MIT, Wavenumber LLC), NOTICE" as imported, but the fork at `b6316117` has only `LICENSE`. F0 writes the root `NOTICE` and `native/LICENSES.md`; there is nothing to keep.
 10. **Reference-branch services that are port sources, never created on the integration branch:** `ref: backend/app/services/zone_refill.py` and `ref: backend/app/services/project_bundle.py` (K ports them into `design_bundle/`), and `ref: backend/app/services/analytic_pack_service.py` (superseded by the `materialization/board.kmpack` member; C5 does not port it).
@@ -71,7 +71,7 @@ Totals: 328 owned path entries across 29 WPs: 198 exist on dev, 11 only on the r
   - L builds `prism-kicad` and copies crate paths into the Dockerfile, and F2 renames every crate.
   - Until L adds a `native` area to `scripts/ci_changes.py`, a PR that touches only `native/**` runs no CI job (`scripts/ci_changes.py:30-57`; the `quality-gate` aggregator passes skipped jobs).
   - F3's and G's CI jobs are added to `dev-quality-gate.yml` by INT once L has merged (§4).
-- **Wave 3.** C6 takes a1's new frontend types from C1. C4's System Builder 3D scene renders boards through `kicad-prism-viewer/viewer/` (`prism-semantic-viewer-element.js:268`, `viewer-controllers.js:5`), which C5 rewrites, so C4 is split (maintainer decision): C4a, the System Builder interface, lands in parallel with the other Wave 3 WPs, and C4b, the 3D scene, lands after C5.
+- **Wave 3.** C6 takes a1's new frontend types from C1. C4's System Builder 3D scene rendered boards through `kicad-prism-viewer/viewer/` (`prism-semantic-viewer-element.js:268`, `viewer-controllers.js:5`), which C5 rewrites; C4 was split (maintainer decision) into C4a (the System Builder interface) and C4b (the 3D scene) and removed on 2026-10-23 (archive tag `archive/system-builder-v2`).
 - **Wave 4.**
   - R1 deletes the legacy branches first, because R2's removals assume no caller is left.
   - R2 and R3 both edit `backend/Dockerfile` and `dev-quality-gate.yml`, so R3 stacks on R2.
@@ -922,8 +922,10 @@ Every path a WP may edit in its wave, from `ownership.json` `/workPackages`. "AD
 
 ### C4: System Builder (wave 3, ADR §9.6)
 
+System Builder was removed on 2026-10-23 (archive tag `archive/system-builder-v2`); this section is kept as history.
+
 - Flag: `PRISM_DESIGN_SOURCE_SYSTEM_BUILDER`.
-- Amendment V2 (2026-10-18): C4b becomes V2b. It also owns `backend/app/services/systems/` mating, harness and the operations service, `api/systems*.py`, `frontend/src/features/system-builder/`, and a new contract `system-ops-a0.tsp` with its field map; it deletes the remaining mesh paths and `kicad-prism-viewer/pipeline/topology_compiler/` (V2 §2.3).
+- Amendment V2 (2026-10-18): C4b becomes V2b. It also owns `backend/app/services/systems/` mating, harness and the operations service, `api/systems*.py`, `frontend/src/features/system-builder/`; it deletes the remaining mesh paths and `kicad-prism-viewer/pipeline/topology_compiler/` (V2 §2.3).
 - ADR Owns: `backend/app/services/systems/ (interface, bundles, collision meshes, step export)`; `frontend/src/features/system-builder/scene-3d-tab.tsx loaders only`.
 - Depends (ADR): K, P3, P5, V1; depends (this map): K, P3, P5, V1, C5; merges after: C5.
 - System mode renders boards through kicad-prism-viewer/viewer/src (prism-semantic-viewer-element.js:268, viewer-controllers.js:5), which C5 owns; the 3D-scene part waits for C5's analytic renderer, or C4 splits (open question).

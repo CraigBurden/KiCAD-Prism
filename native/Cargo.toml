@@ -11,7 +11,6 @@ members = [
     "src/rs/prism-kicad-cli",
     "src/rs/prism-projections",
     "src/rs/prism-step",
-    "src/rs/prism-system",
     "src/rs/prism-vendors",
     "src/rs/prism-artwork",
     "src/rs/prism-docs-lab",

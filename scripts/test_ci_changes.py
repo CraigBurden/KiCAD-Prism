@@ -29,13 +29,7 @@ class CiChangesTest(unittest.TestCase):
         self.assertIn("backend", jobs("frontend/src/pages/ProjectDetailPage.tsx"))  # test_tracker_tr_42
         self.assertIn("backend", jobs("docs/OPERATIONS.md"))
         self.assertIn("agent", jobs("backend/app/services/kicad_noise_service.py"))  # tools/tests/test_gitignore
-        self.assertIn("frontend", jobs("backend/tests/fixtures/system_builder/placement_cases.json"))
         self.assertIn("backend", jobs("frontend/package.json"))  # test_release_studio_toolchain_pins
-
-    def test_placement_geometry_parity_runs_both_halves(self) -> None:
-        # The TS placement library replays the Python one's goldens; frames.py is read by name.
-        self.assertEqual(jobs("frontend/src/features/system-builder/placement/harness-tubes.ts"), {"frontend"})
-        self.assertEqual(jobs("backend/app/services/systems/placement/frames.py"), {"backend", "frontend", "image_live"})
 
     def test_ci_itself_or_a_toolchain_pin_runs_everything(self) -> None:
         for path in (".github/workflows/dev-quality-gate.yml", ".node-version", "scripts/ci_changes.py"):

@@ -18,7 +18,6 @@ from app.services.catalog.conflicts import revision_conflict
 from app.services.catalog.field_rules import custom_field_errors, missing_custom_fields
 from app.services.catalog.locking import CatalogLockOperations
 from app.services.catalog.metadata_normalization import (
-    IDENTITY_KIND_IPN,
     IDENTITY_KIND_MPN,
     IDENTITY_KIND_PROVISIONAL_IPN,
     metadata_keywords,
@@ -266,7 +265,7 @@ class CatalogComponentWriter:
         )
         identity_source = (
             metadata["identity_source"]
-            if metadata["identity_kind"] in {IDENTITY_KIND_PROVISIONAL_IPN, IDENTITY_KIND_IPN}
+            if metadata["identity_kind"] == IDENTITY_KIND_PROVISIONAL_IPN
             else ""
         )
         normalized_manufacturer = (

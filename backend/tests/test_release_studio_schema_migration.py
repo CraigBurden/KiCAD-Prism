@@ -1747,10 +1747,7 @@ class ReleaseStudioPostgresSchemaTests(unittest.TestCase):
                 (122, "sim_studio_layouts"),
                 (123, "drop_system_builder_v1"),
                 (124, "drop_mesh_viewer_readiness"),
-                (125, "system_builder_v2"),
-                (126, "system_bundles"),
-                (127, "board_sub_ports"),
-                (128, "system_publishing_and_git"),
+                (129, "drop_system_builder_v2"),
             ],
         )
 

@@ -18,7 +18,7 @@ Decisions taken on the open questions raised while authoring Wave 0. The numbers
 7. **Runtime JSON Schema validator.** Option (a): K adds `jsonschema` to `requirements/runtime.in`.
 8. **CI for PRs stacked on `wp/*` branches.** Option (a): L adds `wp/**` to the quality gate's `pull_request` branches.
 9. **R4's table drops.** Option (a): they ship in the release after R1's, per `schema_ledger.py:19-21`.
-10. **C4.** Option (a): split into C4a (System Builder interface, parallel with the other Wave 3 WPs) and C4b (3D scene, after C5).
+10. **C4.** Option (a): split into C4a (System Builder interface, parallel with the other Wave 3 WPs) and C4b (3D scene, after C5); System Builder was removed on 2026-10-23 (archive tag `archive/system-builder-v2`).
 11. **GLB cache key.** Option (a): built from P4's model references in `project.json`; V1 runs after P4.
 
 ## Conventions (2026-10-16)
@@ -56,7 +56,7 @@ Decisions taken on the open questions raised while authoring Wave 0. The numbers
 ## Bundle manifest and format (2026-10-16)
 
 1. **design.json schema.** None in W0; owed later. WP-C6 (or B, if the cross-check needs it first) adds a TypeSpec and JSON Schema for `kicad_monkey.design.a0` (ADR G16).
-2. **Transitional viewer assets.** Not in the bundle. The old 3D store serves the mesh 3D tab and System Builder 3D until C5; `--viewer-dir` and the `viewer-asset` role are removed. `viewer/models/components.glb` stays.
+2. **Transitional viewer assets.** Not in the bundle. The old 3D store serves the mesh 3D tab until C5; `--viewer-dir` and the `viewer-asset` role are removed. `viewer/models/components.glb` stays.
 3. **Sources that cannot be materialized.** Option (a) for design sources: no bundle, and the job retries. A 3D model that cannot be materialized does not block the bundle: it is recorded as the stage-parse warning `model-unavailable`, and the GLB is built without it. Prism's sync initializes submodules recursively and fetches LFS objects (K), and the worker image gets `git-lfs` (L), which it lacks today. Motivating case: Openswitch's 3D models live in the `kicad-libraries` submodule, which is uninitialized on the live instance.
 
 ## Placements (2026-10-16)
@@ -124,7 +124,7 @@ The documents are the project's closure (`sources/`), never the repository-wide 
 
 ## System interface (2026-10-16)
 
-1. The member omits `projectId`, `commit` and `extractor`, and C4 adds them back. The digest is unaffected.
+1. The member omits `projectId`, `commit` and `extractor`. The digest is unaffected.
 2. It stays v1: the Rust producer emits nothing v1 lacks.
 3. P5 ports kicad_monkey's `get_bounds()` outline fallback exactly, so digests match. Accepting a divergence is the fallback if the port proves disproportionate, and must be decided before G freezes goldens.
 4. A project with no schematic gets an empty interface (zero components), not a failed job.
@@ -134,7 +134,7 @@ The documents are the project's closure (`sources/`), never the repository-wide 
 ## Ownership map, folded (2026-10-16)
 
 - ADR §9 now carries the ownership decisions:
-  - the waves and merge order, with S1, C8, and C4 split into C4a and C4b;
+  - the waves and merge order, with S1 and C8;
   - the ownership rules (`AGENTS.md`, owner succession, stubs, build outputs, migration blocks);
   - the `prism-projections` `lib.rs` owner (F2);
   - R2's acceptance with the allow-listed tool uses.
@@ -211,15 +211,11 @@ Rationale in `docs/architecture/adr-native-design-bundle-amendment-k2.md`. Decid
 
 Rationale in `docs/architecture/adr-native-design-bundle-amendment-v2.md`. Decided by the maintainer:
 
+System Builder was removed on 2026-10-23 (archive tag `archive/system-builder-v2`); its V2b decisions are no longer in force.
+
 1. **One 3D path.** The WebGPU viewer renders the bundle's `materialization/board.kmpack` for boards and `viewer/models/components.glb` for parts. Every older 3D path is deleted by the package that moves its last reader (V2 §2.3), not kept behind a flag.
 2. **No waits from warm bundles.** K2's prebuild is what makes 3D instant; no second store for 3D.
-3. **System Builder on analytic boards** at each instance's pinned commit, with mating frames and harness ends from the pack.
-4. **The harness and mating UI is designed anew**, from mockups the maintainer reviews, as the first step of V2b.
-5. **Every System Builder operation is scriptable** through one operations API (`prism.system.ops.a0`, `POST /api/systems/{id}/ops`) that the UI and `window.prismSystemBuilder` both call. No MCP for now.
-6. **Wire geometry nodes** are a research spike (V2-R) after V2b.
-7. **Simulation overlays** are optimised in C6 (V2 §4).
-8. **Order:** V2a (C5) → V2b (System Builder) → V2c (C6), one at a time.
-9. **Q1, the cold 3D path:** the build enters the ordinary `design_bundle` queue; no priority and no prebuild action. The view shows where it waits and draws the board when stage `board` publishes.
-10. **Q2:** the Python and TypeScript harness curves stay through V2b; V2-R decides whether one Rust crate replaces them.
-11. **Q3:** today's System Builder routes call the operations service during V2b and are removed in its last pull request.
-12. **Q4, 3D budgets:** V2a measures the journeys first; the maintainer sets the budgets before V2a merges. Set on 2026-10-18: V2 §7's proposed budgets, accepted as proposed and copied into amendment U §3.2. The same day the maintainer chose to show the board whole (held back until every layer and the parts are drawn); the first-frame row became "board shown whole ≤ 1.5 s". On 2026-10-19 they added the inspection budget (GPU time per frame orbiting at 2× pixels, p95 ≤ 16.7 ms in every view, and for a five-board System Builder scene exploded) under one rule: the user never feels an optimisation (no stutter, nothing popping in while inspecting). A separated stack draws its vias off the lit nets as low translucent ghosts and its laminate without drill holes; copper shows KiCad's layer colours whenever the stack is separated or the substrate hidden, the surface finish only on the assembled board; 4× MSAA stays.
+3. **Simulation overlays** are optimised in C6 (V2 §4).
+4. **Order:** V2a (C5) → V2c (C6), one at a time.
+5. **Q1, the cold 3D path:** the build enters the ordinary `design_bundle` queue; no priority and no prebuild action. The view shows where it waits and draws the board when stage `board` publishes.
+6. **Q4, 3D budgets:** V2a measures the journeys first; the maintainer sets the budgets before V2a merges. Set on 2026-10-18: V2 §7's proposed budgets, accepted as proposed and copied into amendment U §3.2. The same day the maintainer chose to show the board whole (held back until every layer and the parts are drawn); the first-frame row became "board shown whole ≤ 1.5 s". On 2026-10-19 they added the inspection budget (GPU time per frame orbiting at 2× pixels, p95 ≤ 16.7 ms in every view) under one rule: the user never feels an optimisation (no stutter, nothing popping in while inspecting). A separated stack draws its vias off the lit nets as low translucent ghosts and its laminate without drill holes; copper shows KiCad's layer colours whenever the stack is separated or the substrate hidden, the surface finish only on the assembled board; 4× MSAA stays.

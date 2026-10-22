@@ -58,8 +58,8 @@ testers of unreleased behavior work from `dev`.
 
 ## Contributor references
 
-- [System Builder](system-builder/README.md) is being rebuilt (System Builder
-  v2): multi-board systems over boards referenced by design-bundle revision.
+- [System Builder](system-builder/README.md) was removed on 2026-10-23 and is
+  being re-scoped on its own branch.
 
 - [Dependency identity](DEPENDENCIES.md) covers Python, JavaScript, and native pins.
 - [Design comparison](design-comparison/README.md) maps comparison contracts.

@@ -40,8 +40,7 @@ describe("workspace refresh feedback", () => {
     clearWorkspaceDataCache();
     api.fetchJson.mockReset();
     workspaceJson.mockReset();
-    api.fetchJson.mockImplementation((url: unknown, ...rest: unknown[]) =>
-      url === "/api/systems" ? Promise.resolve([]) : workspaceJson(url, ...rest));
+    api.fetchJson.mockImplementation((url: unknown, ...rest: unknown[]) => workspaceJson(url, ...rest));
     api.fetchApi.mockReset();
     api.fetchApi.mockReturnValue(new Promise(() => {}));
     vi.stubGlobal("fetch", vi.fn(() => new Promise(() => {})));

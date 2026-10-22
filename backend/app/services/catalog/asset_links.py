@@ -8,7 +8,6 @@ import uuid
 from app.services.catalog.asset_files import lock_and_check_asset_bytes
 from app.services.catalog.asset_types import (
     PLACE_REQUIRED_ASSET_TYPES,
-    SYSTEM_ENTRY_ASSET_TYPE,
     preview_kind_for_asset_type,
 )
 from app.services.catalog.normalization import utc_now_iso
@@ -43,20 +42,6 @@ class CatalogAssetLinks:
         now = utc_now_iso()
         asset_type = str(asset["asset_type"])
         asset_id = str(asset["id"])
-        if asset_type == SYSTEM_ENTRY_ASSET_TYPE:
-            # A published system's frozen payload belongs to a system revision
-            # and nowhere else (CONTRACTS.md §11.1).
-            kind = conn.execute(
-                """
-                SELECT component.kind AS kind
-                  FROM component_revisions revision
-                  JOIN components component ON component.id = revision.component_id
-                 WHERE revision.id = %s
-                """,
-                (revision_id,),
-            ).fetchone()
-            if kind is None or str(kind["kind"]) != "system":
-                raise ValueError("A system_entry asset can only be linked to a system revision")
         if asset_type == "3dmodel":
             lock_and_check_asset_bytes(conn, asset_id)
         conn.execute(

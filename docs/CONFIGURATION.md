@@ -181,7 +181,7 @@ amendment C3 F4c).
 | `PRISM_DESIGN_BUNDLE_MEMORY_BUDGET_BYTES` | worker memory for the slot; startup refuses `CONCURRENCY x (largest cap + 1.25 GiB)` above it (default 8 GiB) |
 | `PRISM_DESIGN_BUNDLE_THREADS`, `PRISM_DESIGN_BUNDLE_MAX_ATTEMPTS` | `prism-kicad --threads` (default 4); attempts per job before a failing KiCad step ends it (default 3) |
 | `PRISM_DESIGN_BUNDLE_FAILED_RETRY_SECONDS` | how long a bundle whose job ended failed stays failed before a status read queues it again (default 3600); `0` leaves retries to Generate and Regenerate. The 3D tab shows the failure instead of waiting |
-| `PRISM_DESIGN_BUNDLE_RETENTION_DAYS` | days an unused bundle or alias is kept; the prebuild's commits (branch heads, each branch's newest commits, tags), System Builder baselines, released Release Studio commits and every bundle an alias points to are always kept (default 30) |
+| `PRISM_DESIGN_BUNDLE_RETENTION_DAYS` | days an unused bundle or alias is kept; the prebuild's commits (branch heads, each branch's newest commits, tags), released Release Studio commits and every bundle an alias points to are always kept (default 30) |
 | `PRISM_DESIGN_BUNDLE_BACKFILL_INTERVAL_SECONDS` | seconds between prebuild ticks; each aliases what it can and queues at most one build; 0 disables (default 60) |
 | `PRISM_DESIGN_BUNDLE_PREBUILD_COMMITS` | how many of each branch's newest commits (first parent) the background prebuild keeps bundles for, besides every tagged commit; 0 prebuilds branch heads and tags only (default 10) |
 | `PRISM_DESIGN_BUNDLE_REUSE_CANDIDATES` | how many stored bundles a new revision is checked against with `prism-kicad bundle reuse` before it is built; 0 disables reuse (default 3) |
@@ -192,22 +192,6 @@ amendment C3 F4c).
 A project's `zone_fills` setting, stored in Prism (`"saved"` or unset), builds
 the board stage from the board's saved zone fills instead of a pcbnew refill.
 It is part of the revision key, so changing it rebuilds the project's bundles.
-
-### System Builder
-
-System Builder v2 checks these limits on every write
-([contracts](system-builder/CONTRACTS.md#7-limits)). They are settings so a
-deployment can raise them deliberately.
-
-| Setting | Purpose |
-| --- | --- |
-| `PRISM_SYSTEM_MAX_DOCUMENT_BYTES` | largest canonical JSON document, in bytes (default 4 MiB) |
-| `PRISM_SYSTEM_MAX_OCCURRENCES` | most occurrences in one system (default 200) |
-| `PRISM_SYSTEM_MAX_CONNECTIONS` | most mates plus harness links (default 2000) |
-| `PRISM_SYSTEM_MAX_HARNESSES` | most harness blocks (default 200) |
-| `PRISM_SYSTEM_MAX_ENDS_PER_HARNESS` | most ends in one harness block (default 64) |
-| `PRISM_SYSTEM_MAX_WIRES` | most wires across all harness blocks (default 10000) |
-| `PRISM_SYSTEM_MAX_OPS_PER_REQUEST` | most operations in one request (default 1000) |
 
 ### Live comments and issue trackers
 

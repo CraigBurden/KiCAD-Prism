@@ -171,7 +171,7 @@ A Rust producer of a parity document reproduces that rounding exactly. Python's 
 **KIID paths come in two forms.** Every `KiidPath` field states which form it holds.
 
 - **Schematic form:** starts at the root sheet's UUID. A symbol's `(instances (project … (path "/<root>/<sheet>…")))` entry is the sheet path, and the occurrence is that path plus `/<symbol uuid>`.
-  - Today's occurrence ids and System Builder `portKey`s use this form: `backend/app/services/semantic_index_variants.py:329`, `interface_extractor.py:122`.
+  - Today's occurrence ids and the system interface's `portKey`s use this form: `backend/app/services/semantic_index_variants.py:329`, `interface_extractor.py:122`.
   - Evidence: `USB-PD-Trigger-Board.kicad_sch:5` (root uuid `6c5f…`) and `:7005` (`(path "/6c5f…"`).
 - **Board form:** omits the root sheet, as a footprint's `(path "/<sheet>…/<symbol uuid>")` does (`USB-PD-Trigger-Board.kicad_pcb:200`).
 - Recommended field names: `kiidPath` / `sheetPath` for the schematic form, and `footprintPath` for the board form.
