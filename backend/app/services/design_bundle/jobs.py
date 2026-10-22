@@ -127,12 +127,18 @@ def _alias_serves(project_id: str, alias: Mapping[str, Any], *, connect: rows.Co
 def _failure_holds(row: Mapping[str, Any] | None) -> bool:
     """A failed bundle stays failed until a deliberate retry or ``PRISM_DESIGN_BUNDLE_FAILED_RETRY_SECONDS`` passes.
 
+    A source KiCad cannot read stays failed until a deliberate retry.
+
     Status reads poll; without this each read would queue a new job with a
     fresh attempt budget, retrying a permanent failure forever.
     """
 
     if not row or row["state"] != "failed":
         return False
+    # KiCad rejected a source: only a different generator (a new bundle key)
+    # or a deliberate Regenerate can change that.
+    if str(row.get("error") or "").startswith(kicad_steps.UNREADABLE_PREFIX):
+        return True
     delay = settings.PRISM_DESIGN_BUNDLE_FAILED_RETRY_SECONDS
     if delay <= 0:
         return True
@@ -252,6 +258,8 @@ def prepare_sources(
         upgraded = kicad_steps.upgrade_sources(
             src, config, generator.kicad_file_formats, cancel=cancel, cache=upgrade_cache
         )
+    except kicad_steps.KicadSourceUnreadable as error:
+        raise PermanentJobError(str(error), code="source-unreadable") from error
     except (materialize.SourceUnavailable, kicad_steps.KicadStepFailed) as error:
         raise RetryableJobError(str(error), code="sources-unavailable", retry_after_seconds=30) from error
     effective, key_record = work / "effective.json", work / "key-record.json"
@@ -398,6 +406,8 @@ class _Run:
             self.context.progress(stage="bundle-refill", message="Refilling zones with pcbnew", percent=50, force=True)
             try:
                 refilled = kicad_steps.refill_board(sources, self.config, self.work / "refill", cancel=self.cancel)
+            except kicad_steps.KicadSourceUnreadable as error:
+                raise PermanentJobError(str(error), code="source-unreadable") from error
             except kicad_steps.KicadStepFailed as error:
                 raise RetryableJobError(str(error), code="zone-refill-failed", retry_after_seconds=30) from error
             args += ["--refilled-board", str(refilled), "--refill-tool", self._tool_version()]
