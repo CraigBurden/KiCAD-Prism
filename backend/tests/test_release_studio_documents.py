@@ -595,16 +595,17 @@ class SheetSizingTests(unittest.TestCase):
             "assembly-bottom-1",
             "testpoint-top-1",
             "testpoint-bottom-1",
-            "drill-1",
         ):
             self.assertIn(key, pages, f"missing continuation page {key}")
         # The moved tables are all findable on their continuation pages.
         self.assertIn("LAYER STACKUP", pages["schedules-1"].decode("utf-8"))
         self.assertIn("POPULATION", pages["assembly-top-1"].decode("utf-8"))
-        self.assertIn("DRILL SCHEDULE", pages["drill-1"].decode("utf-8"))
-        # One ratio for the set, stated wherever a sheet states one.
+        # One ratio for the set, stated wherever a sheet states one. The drill
+        # map is exempt: it is a page with its own legend and fits itself.
         stated: set[bytes] = set()
-        for payload in pages.values():
+        for key, payload in pages.items():
+            if key.startswith("drill"):
+                continue
             stated.update(re.findall(rb'data-text="SCALE ([^"]+)"', payload))
             stated.update(re.findall(rb"SCALE (\d+(?:\.\d+)?:\d+)", payload))
         self.assertEqual(stated, {b"1.5:1"})
@@ -1870,8 +1871,8 @@ class AssemblySheetTests(unittest.TestCase):
         """A drill map is a page -- board plus hole legend -- not a plot.
 
         Cropping it to a board-sized window centred on the page keeps a patch
-        of the middle and discards the map.  `prism` places it at the set ratio
-        like every other sheet in the package; `kicad` keeps its own fit.
+        of the middle and discards the map.  Placing it at the board's set ratio
+        overruns the window instead (JTYU-OBC at 2:1), so it fits itself.
         """
 
         from unittest.mock import patch
@@ -1906,8 +1907,11 @@ class AssemblySheetTests(unittest.TestCase):
         drill = next(output for output in result.outputs if output.key == "drill")
         page = drill.pages[0]
         self.assertNotIn(b"unavailable", page.svg_bytes)
-        # The whole set states one ratio; the drill sheet is not an exception.
-        self.assertEqual(page.scale, sheet_templates.package_scale(board_w, board_h)[1])
+        # It fits itself, so the ratio it states is one its own artwork honours
+        # rather than the board ratio the fabrication sheets share.
+        self.assertLessEqual(
+            page.scale * map_art.view_width, sheet_templates.SHEET_SIZES["A4"][0]
+        )
 
     def test_a_failed_view_degrades_one_sheet_and_says_so(self) -> None:
         def fake(*_args, **_kwargs):

@@ -543,14 +543,14 @@ def compose_documents(
     )
 
     # The package ratio is shared by the sheets that draw the board itself, so
-    # a reader can measure across them. The drill map is a page rather than a
-    # layer plot -- it carries a hole legend beside the board -- so it keeps its
-    # own fit in `kicad`, whose bytes are frozen. `prism` states the set ratio
-    # on every sheet; the map is placed at that ratio like the rest of the set.
+    # a reader can measure across them. The drill map is not one of those: it
+    # carries a hole legend alongside the board, so forcing the board's ratio
+    # onto it overruns the window and the sheet then states a ratio its own
+    # artwork does not honour (JTYU-OBC at 2:1: the board's top clipped and the
+    # legend over the notes). It fits itself and reports what it used.
     report("documents-drill", "Composing the drill drawing", 77.0)
     drill, drill_scale, drill_overflow = sheet_templates.drill_sheet(
-        context, stats, stackup, art.get("drill"), size=sheet_size,
-        scale=scale if sheet_style == PRISM_STYLE else None,
+        context, stats, stackup, art.get("drill"), size=sheet_size, scale=None,
         notes=sheet_notes["drill"], fields=title_fields, typography=typography,
         sheet_style=sheet_style,
     )
