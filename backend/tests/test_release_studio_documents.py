@@ -533,6 +533,16 @@ class SheetSizingTests(unittest.TestCase):
             sheet_style=sheet_style,
         )
 
+    def test_the_paper_is_chosen_with_the_table_column_and_the_scale_without(self) -> None:
+        """JTYU-OBC (132 x 90 mm): A3 at 2:1, not A4 at 1:1.
+
+        Choosing the paper against the full body as well hands a board smaller
+        paper at the same ratio, the opposite of drawing it larger.
+        """
+
+        self.assertEqual(sheet_templates.package_scale(132.0, 90.0, sheet_style="prism"), ("A3", 2.0))
+        self.assertEqual(sheet_templates.package_scale(132.0, 90.0, sheet_style="kicad"), ("A3", 1.0))
+
     def test_a_large_board_on_a3_uses_the_full_body_and_continues_its_tables(
         self,
     ) -> None:

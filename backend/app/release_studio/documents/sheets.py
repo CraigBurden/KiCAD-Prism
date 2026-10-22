@@ -174,12 +174,14 @@ def select_sheet_size(
     is a reason to draw the table smaller, not a reason to hand a 40 mm board a
     sheet four times the size it needs -- see `layout.fit_columns`.
 
-    ``kicad`` measures the board against the *narrowest* artwork window in the
-    set, because its tables always occupy a column beside the art.  ``prism``
-    measures against the full body: its tables move to a continuation sheet when
-    they do not fit, so reserving a table column here would hand a board paper
-    it does not need.  The Prism clearance margin is part of that measurement,
-    or a sheet could be chosen on which the board cannot be placed at 1:1.
+    The board is measured against the *narrowest* artwork window in the set,
+    in both styles, so the paper is the same one a board and its widest table
+    column fit on at 1:1.  ``prism`` then chooses the *scale* against the full
+    body (`set_scale`), so a board with room to spare is drawn larger on that
+    paper and its tables continue on their own sheet; choosing the paper
+    against the full body as well would hand the same board smaller paper at
+    the same ratio, which is the opposite of the point (JTYU-OBC, 132 x 90 mm:
+    A4 at 1:1 instead of A3 at 2:1).
 
     Nothing here is tuned to a particular board.  A 38 mm trigger board and a
     500 mm backplane land on their sheets by the same rule.
@@ -187,16 +189,12 @@ def select_sheet_size(
 
     if not ladder:
         raise ValueError("the sheet ladder is empty")
+    _ = sheet_style  # the paper rule is the same for both styles
 
-    prism = sheet_style == PRISM_STYLE
-    table_width = 0.0 if prism else max(TABLE_WIDTHS.values())
+    widest_table = max(TABLE_WIDTHS.values())
     for size in ladder:
-        window = artwork_window(size, table_width, title_height)
-        width, height = window.width, window.height
-        if prism:
-            width -= 2 * PRISM_SCALE_MARGIN
-            height -= 2 * PRISM_SCALE_MARGIN
-        if board_width <= width and board_height <= height:
+        window = artwork_window(size, widest_table, title_height)
+        if board_width <= window.width and board_height <= window.height:
             return size
     # Larger than A0 at 1:1: the scale ladder reduces it onto the biggest sheet
     # rather than silently overflowing a smaller one.
