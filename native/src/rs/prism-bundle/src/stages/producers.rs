@@ -5,10 +5,17 @@
 //! has finished: its `designKey` covers the whole read set, so stage parse
 //! sets the field and serializes the member once, after the run
 //! (bundle-format.md §2.3).
+//!
+//! When the run writes a bundle, every other producer serializes its member
+//! on its own thread as soon as it has built it, and `design.json` once the
+//! semantic index has read it: a document's tree is then freed at once, and
+//! the trees of all eight are never alive together (EDA-04903's parse held
+//! about 1.9 GB that way). `projections/project.json` stays a value: the stage
+//! reads its references.
 
 use super::design;
 use super::parse::Design;
-use crate::manifest::{DESIGN_PATH, PROJECTIONS};
+use crate::manifest::{DESIGN_PATH, PROJECTIONS, json_bytes};
 use prism_kicad_contracts::generated::prism_board_objects_a0::BoardObjectsA0;
 use prism_kicad_contracts::generated::prism_semantic_index_a2::SemanticIndexA2;
 use prism_projections::Produced;
@@ -30,11 +37,19 @@ pub(super) enum ProjectionResult {
         /// Its recorded warnings.
         warnings: Vec<prism_projections::ProducerWarning>,
     },
-    /// The board objects, still typed: the largest member, serialized once
-    /// for a bundle and not at all for an in-memory parse.
+    /// The board objects, still typed, for an in-memory parse.
     BoardObjects {
         /// The document.
         document: Box<BoardObjectsA0>,
+        /// Its recorded warnings.
+        warnings: Vec<prism_projections::ProducerWarning>,
+    },
+    /// A document already serialized as its member's bytes, for a bundle.
+    Encoded {
+        /// The schema id the document declares.
+        schema: String,
+        /// The member's bytes.
+        bytes: Vec<u8>,
         /// Its recorded warnings.
         warnings: Vec<prism_projections::ProducerWarning>,
     },
@@ -68,13 +83,14 @@ impl ProjectionResult {
                 super::Document::BoardObjects(document),
                 warnings,
             ),
+            Self::Encoded { .. } => unreachable!("an encoded member is recorded as bytes"),
         }
     }
 }
 
-type Producer = fn(
-    &prism_projections::ProjectionInput<'_>,
-) -> Result<(Value, Vec<prism_projections::ProducerWarning>), String>;
+/// A producer; `encode` asks for the member's bytes instead of its value.
+type Producer =
+    fn(&prism_projections::ProjectionInput<'_>, bool) -> Result<ProjectionResult, String>;
 
 type SemanticProducer = fn(
     &prism_projections::ProjectionInput<'_>,
@@ -93,12 +109,26 @@ enum ProducerKind {
     BoardObjects(BoardObjectsProducer),
 }
 
+/// A typed document as its member's bytes (`encode`) or as a value; `schema`
+/// reads the id it declares.
 fn produced<T: serde::Serialize>(
     result: Result<Produced<T>, prism_projections::ProjectionError>,
-) -> Result<(Value, Vec<prism_projections::ProducerWarning>), String> {
+    schema: fn(&T) -> &str,
+    encode: bool,
+) -> Result<ProjectionResult, String> {
     let produced = result.map_err(|error| error.message)?;
+    if encode {
+        return Ok(ProjectionResult::Encoded {
+            schema: schema(&produced.document).to_owned(),
+            bytes: json_bytes(&produced.document),
+            warnings: produced.warnings,
+        });
+    }
     let value = serde_json::to_value(&produced.document).map_err(|error| error.to_string())?;
-    Ok((value, produced.warnings))
+    Ok(ProjectionResult::Json {
+        value,
+        warnings: produced.warnings,
+    })
 }
 
 fn semantic(
@@ -119,26 +149,47 @@ fn board_objects(
 
 fn occurrences(
     input: &prism_projections::ProjectionInput<'_>,
-) -> Result<(Value, Vec<prism_projections::ProducerWarning>), String> {
-    produced(prism_projections::occurrences::produce(input))
+    encode: bool,
+) -> Result<ProjectionResult, String> {
+    produced(
+        prism_projections::occurrences::produce(input),
+        |document| &document.schema,
+        encode,
+    )
 }
 
 fn placements(
     input: &prism_projections::ProjectionInput<'_>,
-) -> Result<(Value, Vec<prism_projections::ProducerWarning>), String> {
-    produced(prism_projections::placements::produce(input))
+    encode: bool,
+) -> Result<ProjectionResult, String> {
+    produced(
+        prism_projections::placements::produce(input),
+        |document| &document.schema,
+        encode,
+    )
 }
 
+/// Always a value: stage parse reads the references in it.
 fn project(
     input: &prism_projections::ProjectionInput<'_>,
-) -> Result<(Value, Vec<prism_projections::ProducerWarning>), String> {
-    produced(prism_projections::project::produce(input))
+    _encode: bool,
+) -> Result<ProjectionResult, String> {
+    produced(
+        prism_projections::project::produce(input),
+        |document| &document.schema,
+        false,
+    )
 }
 
 fn route_metrics(
     input: &prism_projections::ProjectionInput<'_>,
-) -> Result<(Value, Vec<prism_projections::ProducerWarning>), String> {
-    produced(prism_projections::route_metrics::produce(input))
+    encode: bool,
+) -> Result<ProjectionResult, String> {
+    produced(
+        prism_projections::route_metrics::produce(input),
+        |document| &document.schema,
+        encode,
+    )
 }
 
 fn semantic_index(
@@ -149,14 +200,24 @@ fn semantic_index(
 
 fn stackup(
     input: &prism_projections::ProjectionInput<'_>,
-) -> Result<(Value, Vec<prism_projections::ProducerWarning>), String> {
-    produced(prism_projections::stackup::produce(input))
+    encode: bool,
+) -> Result<ProjectionResult, String> {
+    produced(
+        prism_projections::stackup::produce(input),
+        |document| &document.schema,
+        encode,
+    )
 }
 
 fn system_interface(
     input: &prism_projections::ProjectionInput<'_>,
-) -> Result<(Value, Vec<prism_projections::ProducerWarning>), String> {
-    produced(prism_projections::system_interface::produce(input))
+    encode: bool,
+) -> Result<ProjectionResult, String> {
+    produced(
+        prism_projections::system_interface::produce(input),
+        |document| &document.schema,
+        encode,
+    )
 }
 
 const PRODUCERS: [ProducerKind; 8] = [
@@ -174,14 +235,20 @@ impl ProducerKind {
     fn run(
         self,
         input: &prism_projections::ProjectionInput<'_>,
+        encode: bool,
     ) -> Result<ProjectionResult, String> {
         match self {
-            Self::Json(producer) => {
-                producer(input).map(|(value, warnings)| ProjectionResult::Json { value, warnings })
-            }
+            Self::Json(producer) => producer(input, encode),
             Self::Semantic(producer) => semantic(producer(input)),
             Self::BoardObjects(producer) => {
                 let produced = producer(input).map_err(|error| error.message)?;
+                if encode {
+                    return Ok(ProjectionResult::Encoded {
+                        schema: produced.document.schema.clone(),
+                        bytes: json_bytes(&produced.document),
+                        warnings: produced.warnings,
+                    });
+                }
                 Ok(ProjectionResult::BoardObjects {
                     document: Box::new(produced.document),
                     warnings: produced.warnings,
@@ -191,12 +258,12 @@ impl ProducerKind {
     }
 }
 
-/// What [`PRODUCERS`] and `design.json` give: `design.json` (absent without
-/// a schematic model, or when the semantic index is not wanted) and each
-/// producer's result, in [`PROJECTIONS`] order (`None` for a producer that is
-/// not wanted).
+/// What [`PRODUCERS`] and `design.json` give: `design.json`'s bytes (absent
+/// without a schematic model, or when the semantic index is not wanted) and
+/// each producer's result, in [`PROJECTIONS`] order (`None` for a producer that
+/// is not wanted).
 pub(super) type ProducerResults = (
-    Option<Result<Value, String>>,
+    Option<Result<Vec<u8>, String>>,
     Vec<Option<Result<ProjectionResult, String>>>,
 );
 
@@ -213,6 +280,7 @@ pub(super) fn run(
     design: &Design,
     design_board: Option<(&str, &prism_kicad_core::PcbView<'_>)>,
     wanted: &(dyn Fn(&str) -> bool + Sync),
+    encode: bool,
 ) -> ProducerResults {
     std::thread::scope(|scope| {
         let joined = |handle: std::thread::ScopedJoinHandle<'_, _>| {
@@ -234,7 +302,7 @@ pub(super) fn run(
                 if Some(index) == semantic || !wanted(path) {
                     None
                 } else {
-                    Some(scope.spawn(move || producer.run(input)))
+                    Some(scope.spawn(move || producer.run(input, encode)))
                 }
             })
             .collect();
@@ -255,7 +323,7 @@ pub(super) fn run(
             design: design_json.as_ref().and_then(|built| built.as_ref().ok()),
             ..*input
         };
-        let semantic_result = semantic.map(|index| PRODUCERS[index].run(&with_design));
+        let semantic_result = semantic.map(|index| PRODUCERS[index].run(&with_design, encode));
         let mut semantic_result = semantic_result;
         let results = handles
             .into_iter()
@@ -266,7 +334,9 @@ pub(super) fn run(
                 None => None,
             })
             .collect();
-        let design_json = design_json.filter(|built| full || built.is_err());
+        let design_json = design_json
+            .filter(|built| full || built.is_err())
+            .map(|built| built.map(|value| json_bytes(&value)));
         (design_json, results)
     })
 }

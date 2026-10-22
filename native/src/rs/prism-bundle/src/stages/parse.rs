@@ -578,7 +578,12 @@ impl ParseRun<'_> {
     }
 
     fn add_json(&mut self, path: &str, schema: &str, value: &impl serde::Serialize) -> Outcome<()> {
-        let bytes = json_bytes(value);
+        self.add_bytes(path, schema, json_bytes(value))
+    }
+
+    /// A member already serialized (by its producer, or `design.json` once the
+    /// semantic index has read it).
+    pub(super) fn add_bytes(&mut self, path: &str, schema: &str, bytes: Vec<u8>) -> Outcome<()> {
         self.limits().check(
             LimitName::MaxMemberBytes,
             u64::try_from(bytes.len()).unwrap_or(u64::MAX),
@@ -715,10 +720,11 @@ impl ParseRun<'_> {
         // members, warnings and failures do not depend on which finished first.
         let only = self.request.projections;
         let wanted = move |path: &str| only.is_none_or(|paths| paths.contains(&path));
+        let encode = !self.request.in_memory;
         let (design_json, results) =
-            producers::run(&input, design_inputs, design, design_board, &wanted);
+            producers::run(&input, design_inputs, design, design_board, &wanted, encode);
         match design_json {
-            Some(Ok(value)) => self.add_json(DESIGN_PATH, DESIGN_SCHEMA, &value)?,
+            Some(Ok(bytes)) => self.add_bytes(DESIGN_PATH, DESIGN_SCHEMA, bytes)?,
             Some(Err(message)) => self.design_failed(&message)?,
             None => {}
         }
