@@ -15,8 +15,8 @@
 
 mod cache;
 mod geometry;
-mod pose;
-mod resolve;
+pub mod pose;
+pub mod resolve;
 
 use crate::{Produced, Sources};
 use cache::{Cache, Key};

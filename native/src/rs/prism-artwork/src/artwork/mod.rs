@@ -9,13 +9,17 @@
 //! policy (`_cruncher_board_viewport`'s replacement, `global.canvas`), the
 //! designator fallbacks (body, then hole envelope, then pad envelope) and the
 //! pin-1 marker selection.
+//!
+//! [`geometry`] and [`svg`] are public so other native consumers that draw a
+//! board (the `prism-docs-lab` prototypes) share this crate's outline
+//! assembly, arc sampling and deterministic SVG text instead of copying them.
 
 mod designator;
-mod geometry;
+pub mod geometry;
 mod pad;
 mod paper;
 mod render;
-mod svg;
+pub mod svg;
 
 use render::render_view;
 

@@ -1,4 +1,7 @@
 //! Deterministic SVG text: escaping, fixed precision and path building.
+//!
+//! Public for consumers outside the artwork views: numbers and escaping are
+//! what make a drawing's bytes reproducible.
 
 use std::fmt::Write;
 
@@ -6,7 +9,7 @@ use super::geometry::Point;
 
 /// Format a millimetre value with at most six decimals (one nanometre) and no
 /// negative zero, so the same geometry always serializes to the same bytes.
-pub(crate) fn number(value: f64) -> String {
+pub fn number(value: f64) -> String {
     let value = if value.abs() < 0.000_000_5 {
         0.0
     } else {
@@ -22,7 +25,7 @@ pub(crate) fn number(value: f64) -> String {
 }
 
 /// Escape text for an XML text node or a double-quoted attribute value.
-pub(crate) fn escape(value: &str) -> String {
+pub fn escape(value: &str) -> String {
     let mut result = String::with_capacity(value.len());
     for character in value.chars() {
         match character {
@@ -38,7 +41,7 @@ pub(crate) fn escape(value: &str) -> String {
 }
 
 /// A closed ring as an SVG path command list (no leading `M`, no `Z`).
-pub(crate) fn ring_path(ring: &[Point]) -> String {
+pub fn ring_path(ring: &[Point]) -> String {
     let mut path = String::new();
     for (index, point) in ring.iter().enumerate() {
         let command = if index == 0 { 'M' } else { 'L' };
@@ -52,7 +55,7 @@ pub(crate) fn ring_path(ring: &[Point]) -> String {
 }
 
 /// Several rings as one even-odd path.
-pub(crate) fn rings_path(rings: &[Vec<Point>]) -> String {
+pub fn rings_path(rings: &[Vec<Point>]) -> String {
     rings
         .iter()
         .map(|ring| ring_path(ring))

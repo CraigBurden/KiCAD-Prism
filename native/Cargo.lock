@@ -738,6 +738,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "prism-docs-lab"
+version = "0.1.0"
+dependencies = [
+ "geometer-client",
+ "prism-artwork",
+ "prism-bundle",
+ "prism-kicad-contracts",
+ "prism-kicad-core",
+ "prism-projections",
+ "serde",
+ "serde_json",
+ "sha2 0.11.0",
+ "tokio",
+]
+
+[[package]]
 name = "prism-kicad-cli"
 version = "0.7.0"
 dependencies = [
