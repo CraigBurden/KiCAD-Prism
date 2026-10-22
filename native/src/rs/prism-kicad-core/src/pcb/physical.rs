@@ -63,6 +63,41 @@ pub struct PcbHole {
     pub source_range: Range<usize>,
 }
 
+impl PcbHole {
+    /// The drill's centre in board coordinates.
+    ///
+    /// A pad hole's `center` is footprint-local and its `angle` is the pad's
+    /// board-frame angle: KiCad writes a pad's `(at x y angle)` with the
+    /// footprint's rotation already included. The pad is placed by the
+    /// footprint (`footprint_at`, `footprint_angle`), then the drill offset,
+    /// which is in the pad's own frame, is turned by the pad's board angle.
+    /// Rotation follows KiCad's +y-down convention, as the board plotter does.
+    /// Adding the footprint angle to the offset a second time is the mistake
+    /// this helper exists to prevent. A via's `center` is already in board
+    /// coordinates and the footprint is ignored.
+    pub fn board_center(&self, footprint_at: PcbPoint, footprint_angle: f64) -> PcbPoint {
+        if self.owner == PcbHoleOwner::Via {
+            return self.center;
+        }
+        let pad = kicad_rotate(self.center, footprint_angle);
+        let offset = kicad_rotate(self.offset, self.angle);
+        PcbPoint {
+            x: footprint_at.x + pad.x + offset.x,
+            y: footprint_at.y + pad.y + offset.y,
+        }
+    }
+}
+
+/// Turn a point by `degrees` in KiCad's board frame (+y down): positive angles
+/// are counter-clockwise as drawn.
+pub fn kicad_rotate(point: PcbPoint, degrees: f64) -> PcbPoint {
+    let (sin, cos) = degrees.to_radians().sin_cos();
+    PcbPoint {
+        x: point.x * cos + point.y * sin,
+        y: -point.x * sin + point.y * cos,
+    }
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct PcbFootprintTransform {
     pub footprint_index: usize,
@@ -324,4 +359,72 @@ fn profile_from_span(
         owner,
         graphic: graphic_from_span(source, span, limits)?,
     }))
+}
+
+#[cfg(test)]
+mod board_center_tests {
+    use super::*;
+
+    fn pad_hole(center: PcbPoint, offset: PcbPoint, angle: f64) -> PcbHole {
+        PcbHole {
+            owner: PcbHoleOwner::Pad,
+            owner_index: 0,
+            footprint_index: Some(0),
+            center,
+            offset,
+            shape: PcbHoleShape::Round,
+            width: 1.0,
+            height: 1.0,
+            angle,
+            plated: true,
+            layers: Vec::new(),
+            uuid: None,
+            source_range: 0..0,
+        }
+    }
+
+    fn close(actual: PcbPoint, x: f64, y: f64) {
+        assert!(
+            (actual.x - x).abs() < 1e-9 && (actual.y - y).abs() < 1e-9,
+            "({}, {}) != ({x}, {y})",
+            actual.x,
+            actual.y
+        );
+    }
+
+    #[test]
+    fn the_offset_turns_by_the_pads_board_angle_only() {
+        // Footprint at (100, 50) turned 90°, pad at local (2, 0) written at 120°
+        // (90° from the footprint plus 30° of its own), drill offset 0.5 mm.
+        let hole = pad_hole(
+            PcbPoint { x: 2.0, y: 0.0 },
+            PcbPoint { x: 0.5, y: 0.0 },
+            120.0,
+        );
+        let center = hole.board_center(PcbPoint { x: 100.0, y: 50.0 }, 90.0);
+        let (sin, cos) = 120f64.to_radians().sin_cos();
+        close(center, 100.0 + 0.5 * cos, 48.0 - 0.5 * sin);
+    }
+
+    #[test]
+    fn kicad_rotation_is_counter_clockwise_as_drawn() {
+        // +y is down, so a quarter turn takes +x to -y (up on the page).
+        close(kicad_rotate(PcbPoint { x: 1.0, y: 0.0 }, 90.0), 0.0, -1.0);
+        close(kicad_rotate(PcbPoint { x: 0.0, y: 1.0 }, 90.0), 1.0, 0.0);
+    }
+
+    #[test]
+    fn a_via_is_already_on_the_board() {
+        let mut hole = pad_hole(
+            PcbPoint { x: 3.0, y: 4.0 },
+            PcbPoint { x: 0.0, y: 0.0 },
+            45.0,
+        );
+        hole.owner = PcbHoleOwner::Via;
+        close(
+            hole.board_center(PcbPoint { x: 10.0, y: 10.0 }, 90.0),
+            3.0,
+            4.0,
+        );
+    }
 }

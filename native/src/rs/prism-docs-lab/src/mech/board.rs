@@ -840,15 +840,16 @@ fn net_name(name: &Option<String>) -> String {
 }
 
 fn pad_hole_center(hole: &PcbHole, footprint: &PcbFootprint) -> Point {
-    let (sin, cos) = hole.angle.to_radians().sin_cos();
-    let offset = Point {
-        x: hole.center.x + hole.offset.x * cos - hole.offset.y * sin,
-        y: hole.center.y + hole.offset.x * sin + hole.offset.y * cos,
-    };
-    let (sin, cos) = footprint.angle.unwrap_or(0.0).to_radians().sin_cos();
+    let center = hole.board_center(
+        prism_kicad_core::PcbPoint {
+            x: footprint.at_x.unwrap_or(0.0),
+            y: footprint.at_y.unwrap_or(0.0),
+        },
+        footprint.angle.unwrap_or(0.0),
+    );
     Point {
-        x: footprint.at_x.unwrap_or(0.0) + offset.x * cos + offset.y * sin,
-        y: footprint.at_y.unwrap_or(0.0) - offset.x * sin + offset.y * cos,
+        x: center.x,
+        y: center.y,
     }
 }
 
