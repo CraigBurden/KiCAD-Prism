@@ -3,8 +3,8 @@
 //! Custom pads keep their authored primitives as rings; the anchor shape the
 //! pad's `(options (anchor …))` names is drawn from the pad's own size.
 
-use prism_artwork::artwork::geometry::{self, Point};
-use prism_kicad_core::{PcbPad, PcbPadPrimitiveGeometry, PcbPolygonPoint};
+use prism_artwork::artwork::geometry::Point;
+use prism_kicad_core::PcbPad;
 
 use super::model::{Pad, PadShape};
 

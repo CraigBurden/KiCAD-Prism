@@ -55,7 +55,13 @@ def marks(svg: str) -> list[tuple[float, float]]:
 
 def main() -> int:
     art, kicad = Path(sys.argv[1]), Path(sys.argv[2])
-    truth = excellon(kicad / "oracle-PTH.drl") + excellon(kicad / "oracle-NPTH.drl")
+    # Every drilled span (through, blind and micro F.Cu-In1.Cu, buried
+    # In1.Cu-In2.Cu); a backdrill re-drills a hole that is already counted.
+    truth = [
+        hole
+        for name in ("oracle-PTH.drl", "oracle-NPTH.drl", "oracle-front-in1.drl", "oracle-in1-in2.drl")
+        for hole in excellon(kicad / name)
+    ]
     failed = False
     for view in ("top", "bottom"):
         drawn = marks((art / f"assembly_{view}_view.svg").read_text(encoding="utf-8"))
@@ -68,7 +74,7 @@ def main() -> int:
             worst = max(worst, distance)
             misses += distance > 0.002
         print(f"{view}: {len(drawn)} marks, {len(truth)} KiCad holes, {misses} missed, worst {worst:.4f} mm")
-        failed |= misses > 0
+        failed |= misses > 0 or len(drawn) != len(truth)
     return 1 if failed else 0
 
 
