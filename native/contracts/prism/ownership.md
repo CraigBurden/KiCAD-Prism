@@ -1163,7 +1163,16 @@ Every path a WP may edit in its wave, from `ownership.json` `/workPackages`. "AD
 
 - ADR Owns: `backend/tests/test_design_source_boundary.py`.
 - Depends (ADR): —; depends (this map): R1, R2, R4; merges after: R2, R4.
+- **Done (WP-X).** The test walks every module under `backend/app/` for parser
+  imports (`kicad_monkey`, `kicad_cruncher`, `pcbnew`, `sexpdata`, `geometer`)
+  and for string literals that open a KiCad s-expression form, and fails on a
+  stale allow-list entry. It subsumes `test_kicad_monkey_allow_list.py` (R2)
+  and `test_release_studio_import_boundary.py` (C3), which are deleted.
+  Release Studio's variants and the variants API read only the bundle's
+  semantic-index member; `variant_source_scan.py`, the snapshot catalog and its
+  cache are deleted, and `project_source_snapshot.py` keeps only the
+  revision-identity seam comment anchors use.
 
 | Path | Status | Note |
 |---|---|---|
-| `backend/tests/test_design_source_boundary.py` | new | allow-list: design_bundle/, the KiCad-output job modules and the catalog library reader (kicadImportSites in this file) |
+| `backend/tests/test_design_source_boundary.py` | new | allow-list: `design_bundle/`, the Release Studio KiCad-output jobs, and the catalog library reader plus its library-text writers (one justified reason per entry) |

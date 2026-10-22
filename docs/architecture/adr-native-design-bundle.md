@@ -421,6 +421,19 @@ Every P-WP owns one module `native/src/rs/prism-projections/src/<name>.rs`, its 
   its CI job, `scripts/build-ecad-parser.sh` and the object-delta scripts are
   deleted; `kicad-cruncher-cli` left the native workspace. The PyPI
   `kicad-monkey==2026.9.7` stays for the allow-listed catalog readers.
+- **X done (WP-X).** `backend/tests/test_design_source_boundary.py` walks every
+  module under `backend/app/` for KiCad parser imports (`kicad_monkey`,
+  `kicad_cruncher`, `pcbnew`, `sexpdata`, `geometer`) and for string literals
+  that open a KiCad s-expression form. Its allow-list is exactly the
+  design-bundle builder and its KiCad steps, the KiCad-output jobs in
+  `release_studio/`, and the catalog library reader with the library-text
+  writers it uses; a second assertion fails on a stale entry and the failure
+  report names the module, line and matched text. Release Studio's variant
+  discovery and the variants API now read the bundle's semantic-index member
+  only: `variant_source_scan.py`, `discover_snapshot_catalog`, its cache and
+  the non-bundle branch of `discover_variant_catalog` are deleted, and
+  `project_source_snapshot.py` keeps only the revision-identity seam comment
+  anchors use. Wave 4 is complete.
 
 ### 9.8 Running it with Ultracode
 

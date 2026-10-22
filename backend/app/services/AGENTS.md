@@ -154,9 +154,16 @@ System Builder v2's stage 0.
 
 ## Design variants
 
-`project_source_snapshot.py` resolves a working tree or an exact commit
-(through `project_revision.py`) and keys it by the configured anchor;
-`variant_catalog_service.py` discovers the ordered catalog from source text.
+`variant_catalog_service.py` reads the ordered catalog from the bundle's
+semantic-index member (a2): `assembly.catalog` is the catalog and the member's
+own diagnostics are the catalog's, with bundle paths mapped back to
+project-relative spelling. There is one path — no source scanner and no
+`bundle_only` switch (WP-X). A member that is
+building raises `DesignDataPending` and one that failed `DesignDataFailed`;
+Release Studio's Source step treats either as best-effort and offers only the
+explicit default. `project_source_snapshot.py` keeps only the revision-identity
+seam (`project_revision_identity`, `_anchor_source`) that comment anchors use;
+its checkout snapshot and catalog cache went with WP-X.
 The `assembly` block (default and per-variant occurrence, component and
 footprint state) comes from the bundle's semantic-index member (a2), built by
 `prism-kicad`; the Python resolver (`semantic_index_variants`) and the
