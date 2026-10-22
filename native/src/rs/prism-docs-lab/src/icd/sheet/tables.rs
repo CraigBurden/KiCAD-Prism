@@ -461,7 +461,7 @@ fn pin_row(svg: &mut String, band: RowBand, columns: &Columns, row: &PinRow, pal
         (pin_number, columns.pin, MONO, BODY),
         (row.pin_name.clone(), columns.name, SANS, BODY),
         (row.pin_type.clone(), columns.kind, SANS, SMALL),
-        (row.net.clone(), columns.net, MONO, BODY),
+        (crate::html::overbar(&row.net), columns.net, MONO, BODY),
         (row.net_class.clone(), columns.class, SANS, SMALL),
         (row.connects.clone(), columns.connects, SANS, SMALL),
     ];

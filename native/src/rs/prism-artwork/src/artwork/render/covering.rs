@@ -148,7 +148,10 @@ fn outline_region(footprint: &FootprintInfo, data: &BoardData) -> Option<MultiPo
 /// orientation. A label may leave the provisional canvas when nothing on it is
 /// free: the canvas then grows to hold it. When every candidate collides, the
 /// one with the fewest collisions is used rather than dropping the label.
-#[allow(clippy::too_many_arguments)]
+#[allow(
+    clippy::too_many_arguments,
+    reason = "the label planner needs the scene's config, data, selection and canvas together"
+)]
 pub(super) fn plan_labels(
     config: &ArtworkConfigA0,
     styles: &ArtworkStyles,

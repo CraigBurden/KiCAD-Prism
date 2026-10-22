@@ -12,6 +12,27 @@ use crate::LAB_CSS;
 use crate::theme::{self, Theme};
 
 /// A length in millimetres at two decimals (`17.78`), for tables and captions.
+/// KiCad's overbar markup `~{TEXT}` as text with a combining overline over
+/// each character, the way the net reads on the schematic. Other text is
+/// returned unchanged; escaping is the caller's job.
+pub fn overbar(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    let mut rest = text;
+    while let Some(start) = rest.find("~{") {
+        let Some(end) = rest[start + 2..].find('}') else {
+            break;
+        };
+        out.push_str(&rest[..start]);
+        for character in rest[start + 2..start + 2 + end].chars() {
+            out.push(character);
+            out.push('\u{0305}');
+        }
+        rest = &rest[start + 3 + end..];
+    }
+    out.push_str(rest);
+    out
+}
+
 pub fn millimetres(value: f64) -> String {
     let value = if value.abs() < 0.000_000_5 {
         0.0
@@ -132,5 +153,18 @@ mod tests {
             assert!(!page.contains(".x{color:#ffffff}"), "{page}");
             assert!(page.contains(".x{color:var(--paper)}"), "{page}");
         }
+    }
+}
+
+#[cfg(test)]
+mod overbar_tests {
+    #[test]
+    fn kicad_overbar_markup_becomes_an_overline() {
+        assert_eq!(
+            super::overbar("eMMC_~{RST}"),
+            "eMMC_R\u{0305}S\u{0305}T\u{0305}"
+        );
+        assert_eq!(super::overbar("GND"), "GND");
+        assert_eq!(super::overbar("A~{B"), "A~{B");
     }
 }
