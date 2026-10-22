@@ -70,16 +70,24 @@ def status(read: BundleRead, project_id: str, generator: dict[str, Any]) -> dict
 
     ``sourceRevisionKey`` is the design revision key (field map D2), not today's
     32-hex semantic key. The member carries no generator record, so
-    ``generator`` keeps today's fields (they name Prism's index generator and
-    the runtime's kicad-monkey) except ``cacheTag``, the bundle's generator digest.
+    ``generator`` keeps today's envelope: ``cacheTag`` is the bundle's generator
+    digest and ``kicadMonkeyVersion`` is that generator's ``engine_version``,
+    the parser engine that produced the member (it used to be the Python
+    ``kicad-monkey`` distribution's version).
     """
 
     opened = read.opened
+    manifest = opened.archive.manifest if opened.archive is not None else {}
+    engine_version = str((manifest.get("generator") or {}).get("engine_version") or "")
     return {
         "schema": "prism.semantic_index_status_a0",
         "projectId": project_id,
         "sourceRevisionKey": str(opened.revision_key),
         "commit": opened.commit,
         "available": read.ready(MEMBER),
-        "generator": {**generator, "cacheTag": opened.generator_digest},
+        "generator": {
+            **generator,
+            "cacheTag": opened.generator_digest,
+            "kicadMonkeyVersion": engine_version,
+        },
     }

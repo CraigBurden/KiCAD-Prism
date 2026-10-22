@@ -52,14 +52,6 @@ class PipelineSettings(BaseSettings):
         description="Compile the two revisions in separate processes; false keeps one address space.",
     )
 
-    # ===========================================
-    # kicad_monkey
-    # ===========================================
-    KICAD_MONKEY_PYTHONPATH: str = Field(
-        default="",
-        description="Development override: os.pathsep-separated kicad_monkey source roots put first on sys.path.",
-    )
-
     @field_validator(
         "PRISM_DESIGN_COMPARE_CACHE_MAX_BYTES",
         "PRISM_DESIGN_COMPARE_CACHE_MIN_AGE",

@@ -702,7 +702,9 @@ def main() -> None:
     os.environ["PRISM_DESIGN_COMPARE_MAX_PCB_WORKERS"] = str(args.pcb_workers)
     settings.PRISM_DESIGN_COMPARE_MAX_INITIAL_WORKERS = args.initial_workers
     settings.PRISM_DESIGN_COMPARE_MAX_PCB_WORKERS = args.pcb_workers
-    semantic_index_service._add_kicad_monkey_import_paths()
+    explicit = os.environ.get("KICAD_MONKEY_PYTHONPATH", "").strip()
+    if explicit and explicit not in sys.path:
+        sys.path.insert(0, explicit)
     import kicad_monkey  # type: ignore[import-not-found]
 
     kicad_monkey_path = str(Path(kicad_monkey.__file__).resolve())

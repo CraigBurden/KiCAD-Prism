@@ -158,7 +158,6 @@ constrained host. Unless noted, an empty value means the default.
 | `PRISM_DESIGN_COMPARE_MAX_INITIAL_WORKERS` | schematic-stage workers, at most 2; unset follows `MAX_REVISION_WORKERS` |
 | `PRISM_DESIGN_COMPARE_MAX_PCB_WORKERS` | PCB-stage workers, at most 2; unset follows `MAX_REVISION_WORKERS` |
 | `PRISM_DESIGN_COMPARE_REVISION_PROCESSES` | `false` compiles both revisions in one process (default `true`) |
-| `KICAD_MONKEY_PYTHONPATH` | development only: kicad_monkey source roots put first on the import path |
 | `PRISM_PLUGIN_DOWNLOAD_URL` | where the KiCad plugin update prompt points; set it for a private plugin build |
 | `PRISM_CAIRO_LIBRARY_DIR` | macOS hosts only: directory holding `libcairo.2.dylib` for Release Studio PDFs |
 | `PRISM_RELEASE`, `PRISM_REVISION`, `PRISM_BUILD_DATE` | build identity reported by `/api/health/live`; release images set them |

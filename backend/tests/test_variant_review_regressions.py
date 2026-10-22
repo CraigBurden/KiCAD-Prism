@@ -157,62 +157,12 @@ class CatalogSnapshotTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             self.names()
 
-
-class NativeResolutionReviewTests(unittest.TestCase):
-    def load(self):
-        from kicad_monkey import KiCadDesign
-        from tests.test_semantic_index_variants import FIXTURE_ROOT
-        path = FIXTURE_ROOT / 'oracle' / 'variants_oracle.kicad_pro'
-        return KiCadDesign.from_file(path), path
-
-    def test_inventory_includes_neutral_footprints(self):
-        from app.services.semantic_index_variants import build_assembly_state
-        design, path = self.load()
-        state = build_assembly_state(design, project_file=path)
-        self.assertEqual(len(state['footprintInventory']), len(design.pcb.footprints))
-        self.assertTrue(any(item['uuid'] not in state['default']['footprints'] for item in state['footprintInventory']))
-
-    def test_missing_instance_uses_base_reference_without_mutation(self):
-        from app.services.semantic_index_variants import _resolve_occurrence, _build_schematic_graph
-        design, path = self.load()
-        instance = next(iter(design.schematic_instances()))
-        symbol = next(s for s in instance.schematic.symbols if s.instances)
-        original = list(symbol.instances)
-        reference, flags, fields = _resolve_occurrence(symbol, '/missing', _build_schematic_graph(design, path), 'Lite', instance.schematic.version)
-        self.assertEqual(reference, symbol.reference)
-        self.assertEqual(fields['Reference'], symbol.reference)
-        self.assertEqual(symbol.instances, original)
-
-    def test_reference_field_override_cannot_change_identity(self):
-        from app.services.semantic_index_variants import _resolve_occurrence, _build_schematic_graph
-        design, path = self.load()
-        instance = next(iter(design.schematic_instances()))
-        symbol = next(s for s in instance.schematic.symbols if s.instances and s.instances[0].variants)
-        record = symbol.instances[0].variants[0]
-        record.fields.append(('Reference', 'Forged'))
-        reference, _, fields = _resolve_occurrence(symbol, symbol.instances[0].path, _build_schematic_graph(design, path), record.name, instance.schematic.version)
-        self.assertNotEqual(reference, 'Forged')
-        self.assertEqual(fields['Reference'], reference)
-
-    def test_legacy_child_uses_its_own_in_bom_version_gate(self):
-        from app.services.semantic_index_variants import _build_schematic_graph, _variant_occurrence_states
-        design, path = self.load()
-        graph = _build_schematic_graph(design, path)
-        child = next(i for i in graph.instances if i.parent_sheet_instance_path)
-        child.schematic.version = 20250101
-        symbol = next(s for s in child.schematic.symbols if s.instances)
-        occurrence = next(i for i in symbol.instances if i.path == child.sheet_instance_path)
-        occurrence.variants = [SimpleNamespace(name='Review', in_bom=True, dnp=None, on_board=None, exclude_from_sim=None, in_pos_files=None, fields=[])]
-        states = _variant_occurrence_states(graph, 'Review')
-        self.assertTrue(states[f'{child.sheet_instance_path}/{symbol.uuid}'].flags['excludeFromBom'])
-
     def test_changed_working_sources_are_never_cached_under_old_identity(self):
-        from tests.test_semantic_index_variants import fixture_project
-        project = fixture_project('oracle', 'variants_oracle.kicad_pro')
+        (self.root / 'top.kicad_pcb').write_text(board('V'))
         catalog._discover_cached.cache_clear()
         with patch.object(catalog, 'project_revision_identity', side_effect=[('before', None), ('after', None)]):
             with self.assertRaises(RuntimeError):
-                catalog.discover_variant_catalog(project)
+                catalog.discover_variant_catalog(self.project)
         self.assertEqual(catalog._discover_cached.cache_info().currsize, 0)
 
 

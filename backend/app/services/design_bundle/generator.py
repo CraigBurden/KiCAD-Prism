@@ -13,6 +13,10 @@ from dataclasses import dataclass
 from typing import Any, Mapping
 
 BUNDLE_KEY_DOMAIN = b"prism.bundle_key.a0"
+#: The generator id's schema (``prism-kicad version``'s document). Its identity
+#: is the digest below; the schema names the contract when a caller needs a
+#: stable string rather than a runtime read (catalog provenance's extractor).
+GENERATOR_SCHEMA = "prism.cli.version.a0"
 
 
 def generator_bytes(doc: Mapping[str, Any]) -> bytes:
