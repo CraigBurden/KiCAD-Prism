@@ -12,7 +12,7 @@ from typing import Any
 def migrate(conn: Any) -> None:
     """Keep each candidate's 3D model inputs and the acknowledgements they need.
 
-    ``ws_release_model_inputs`` holds one row per ``(model ...)`` reference a
+    ``ws_release_model_inputs`` holds one row per model reference a
     candidate's closure resolved: where it resolved and, for a host model, the
     sha256 the build pinned.  ``self_contained`` is true when the build reads
     nothing outside the commit and the pinned toolchain; NULL on candidates
