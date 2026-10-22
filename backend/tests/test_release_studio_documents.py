@@ -1980,7 +1980,7 @@ class RendererVersionTests(unittest.TestCase):
     in the same commit.
     """
 
-    #: Recorded for RENDERER_VERSION d27 under the pinned artwork toolchain, and
+    #: Recorded for RENDERER_VERSION d28 under the pinned artwork toolchain, and
     #: verified stable across two runs.
     #: The version and these digests move together, never one without the other.
     #: These are the default `prism` sheets; GOLDEN_KICAD below pins the
@@ -2087,7 +2087,7 @@ class RendererVersionTests(unittest.TestCase):
 
         self.assertEqual(
             RENDERER_VERSION,
-            "release-studio-documents/d27",
+            "release-studio-documents/d28",
             "RENDERER_VERSION changed: re-record GOLDEN in the same commit",
         )
 

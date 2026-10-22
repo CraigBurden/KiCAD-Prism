@@ -10,6 +10,11 @@
 //! designator fallbacks (body, then hole envelope, then pad envelope) and the
 //! pin-1 marker selection.
 //!
+//! One rule is Prism's own: a part whose HLR outline covers another part's body
+//! is drawn after the other bodies as a dashed, unfilled outline, and its
+//! designator moves just outside its body, so the parts beneath it stay
+//! readable. Coverage is decided per side over the view's selected footprints.
+//!
 //! [`geometry`] and [`svg`] are public so other native consumers that draw a
 //! board (the `prism-docs-lab` prototypes) share this crate's outline
 //! assembly, arc sampling and deterministic SVG text instead of copying them.

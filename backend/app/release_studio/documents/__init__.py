@@ -58,6 +58,9 @@ def renderer_resource_digest() -> str:
 #: reproducibility claim the key exists to make. The golden-digest tests in
 #: `test_release_studio_documents.py` fail on any rendering change, so the bump
 #: cannot be skipped silently.
+#: d28 -- a part whose assembly outline covers another part's body is drawn as
+#: a dashed, unfilled outline on top and its designator moves outside the body,
+#: so the parts beneath it stay readable.
 #: d27 -- Release Studio is bundle-only: the assembly and testpoint artwork
 #: come from ``prism-kicad artwork`` and the DNP legend reads the native
 #: artwork configuration, so the Cruncher view configs and their loader are
@@ -119,7 +122,7 @@ def renderer_resource_digest() -> str:
 #: d7 -- the default frame/title block is emitted by Monkey's public KiCad
 #: worksheet API and visible technical text uses Monkey's pinned NewStroke
 #: geometry. A deterministic hidden PDF text layer preserves search/copy.
-RENDERER_VERSION = "release-studio-documents/d27"
+RENDERER_VERSION = "release-studio-documents/d28"
 
 __all__ = [
     "ASSEMBLY_SIDES",
