@@ -138,6 +138,16 @@ fn outline_region(footprint: &FootprintInfo, data: &BoardData) -> Option<MultiPo
     region_from_rings(&rings)
 }
 
+/// What a covering label must stay clear of: the view's selected footprints,
+/// whether it is a callout view, the provisional canvas and the paper scale.
+#[derive(Clone, Copy)]
+pub(super) struct LabelScene<'a> {
+    pub selected: &'a [usize],
+    pub callout: bool,
+    pub canvas: Bounds,
+    pub paper_scale: f64,
+}
+
 /// Plan every covering part's designator just outside its outline, where it
 /// collides with no other body, no other planned label and stays on the canvas.
 ///
@@ -148,20 +158,19 @@ fn outline_region(footprint: &FootprintInfo, data: &BoardData) -> Option<MultiPo
 /// orientation. A label may leave the provisional canvas when nothing on it is
 /// free: the canvas then grows to hold it. When every candidate collides, the
 /// one with the fewest collisions is used rather than dropping the label.
-#[allow(
-    clippy::too_many_arguments,
-    reason = "the label planner needs the scene's config, data, selection and canvas together"
-)]
 pub(super) fn plan_labels(
     config: &ArtworkConfigA0,
     styles: &ArtworkStyles,
     data: &BoardData,
-    selected: &[usize],
-    callout: bool,
+    scene: &LabelScene<'_>,
     covering: &BTreeSet<usize>,
-    canvas: Bounds,
-    paper_scale: f64,
 ) -> BTreeMap<usize, CoveringLabel> {
+    let LabelScene {
+        selected,
+        callout,
+        canvas,
+        paper_scale,
+    } = *scene;
     let clearance = DESIGNATOR_CLEARANCE_MM / paper_scale.max(f64::MIN_POSITIVE);
     let mut labels = BTreeMap::new();
     let mut placed: Vec<Bounds> = Vec::new();

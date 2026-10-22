@@ -384,17 +384,25 @@ impl RawOptions {
                 let (variable, directory) = model_dir(&raw)?;
                 self.model_dirs.insert(variable, directory);
             }
-            "--refs" => self.refs = list(&value(args, index, "--refs")?),
-            "--prefixes" => self.prefixes = list(&value(args, index, "--prefixes")?),
-            "--exclude-prefixes" => {
-                self.exclude_prefixes = list(&value(args, index, "--exclude-prefixes")?);
+            flag @ ("--refs" | "--prefixes" | "--exclude-prefixes" | "--exclude-refs") => {
+                let items = list(&value(args, index, flag)?);
+                self.select(flag, items);
             }
-            "--exclude-refs" => self.exclude_refs = list(&value(args, index, "--exclude-refs")?),
             "--no-pdf" => self.pdf = false,
             "--theme" => self.theme = value(args, index, "--theme")?.parse()?,
             _ => return Ok(false),
         }
         Ok(true)
+    }
+
+    /// One of the selection lists: which references are connectors.
+    fn select(&mut self, flag: &str, items: Vec<String>) {
+        match flag {
+            "--refs" => self.refs = items,
+            "--prefixes" => self.prefixes = items,
+            "--exclude-prefixes" => self.exclude_prefixes = items,
+            _ => self.exclude_refs = items,
+        }
     }
 
     fn into_options(self) -> Result<Options, LabError> {

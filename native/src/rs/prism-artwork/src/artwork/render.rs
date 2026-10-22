@@ -168,11 +168,13 @@ fn plan_scene(
         input.config,
         &view.styles,
         data,
-        selected,
-        callout,
+        &covering::LabelScene {
+            selected,
+            callout,
+            canvas: provisional,
+            paper_scale,
+        },
         &covering,
-        provisional,
-        paper_scale,
     );
     let callouts = if callout {
         callouts::plan(
