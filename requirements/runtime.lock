@@ -12,10 +12,6 @@ attrs==26.1.0
     #   referencing
 bcrypt==4.3.0
     # via -r requirements/runtime.in
-cadquery-ocp-novtk==7.9.3.1.1
-    # via -r requirements/runtime.in
-cadquery-ocp-proxy==7.9.3.1.1
-    # via cadquery-ocp-novtk
 cairocffi==1.7.1
     # via cairosvg
 cairosvg==2.9.1
@@ -36,12 +32,8 @@ cryptography==50.0.1
     # via pyjwt
 cssselect2==0.10.1
     # via cairosvg
-cython==3.3.0
-    # via python-fcl
 defusedxml==0.7.1
     # via cairosvg
-et-xmlfile==2.0.0
-    # via openpyxl
 fastapi==0.141.1
     # via -r requirements/runtime.in
 fonttools==4.65.0
@@ -71,11 +63,8 @@ msgspec==0.21.1
 numpy==2.5.3
     # via
     #   kicad-monkey
-    #   python-fcl
     #   shapely
     #   trimesh
-openpyxl==3.1.5
-    # via -r requirements/runtime.in
 packaging==26.3
     # via pikepdf
 pikepdf==10.13.0.post1
@@ -110,8 +99,6 @@ python-dotenv==1.2.3
     # via
     #   -r requirements/runtime.in
     #   pydantic-settings
-python-fcl==0.7.0.11
-    # via -r requirements/runtime.in
 python-multipart==0.0.32
     # via -r requirements/runtime.in
 pyyaml==6.0.3
@@ -139,9 +126,7 @@ tinycss2==1.5.1
     #   cairosvg
     #   cssselect2
 trimesh==5.1.0
-    # via
-    #   -r requirements/runtime.in
-    #   kicad-monkey
+    # via kicad-monkey
 typing-extensions==4.16.0
     # via
     #   anyio

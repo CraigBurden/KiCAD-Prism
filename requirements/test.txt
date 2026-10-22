@@ -10,3 +10,6 @@ httpx==0.28.1
 # native/contracts/generated/schema/. The runtime lock already pins it; it is
 # repeated, at the same pin, for test environments built on an older venv.
 jsonschema==4.26.0
+# native/parity/vendor/compare_jlcpcb.py compares JLCPCB workbooks cell by cell;
+# no runtime code reads .xlsx.
+openpyxl==3.1.5

@@ -20,7 +20,6 @@
     "ajv": "8.20.0",
     "ajv-formats": "3.0.1",
     "json-schema-to-typescript": "15.0.4",
-    "playwright": "1.62.1",
     "typescript": "5.9.3"
   }
 }

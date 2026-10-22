@@ -106,13 +106,7 @@ export default defineConfig({
           if (id.includes("node_modules/lucide-react")) {
             return "icons-runtime"
           }
-          if (id.includes("node_modules/online-3d-viewer")) {
-            return "viewer3d-runtime"
-          }
-          if (id.includes("node_modules/three")) {
-            return "three-runtime"
-          }
-          // System Builder's diagram canvas; loaded only with that tab.
+          // Simulation Studio's diagram canvas; loaded only with that studio.
           if (
             id.includes("node_modules/@xyflow/") ||
             id.includes("node_modules/d3-") ||

@@ -10,7 +10,6 @@ members = [
     "src/rs/prism-bundle",
     "src/rs/prism-kicad-cli",
     "src/rs/prism-projections",
-    "src/rs/prism-step",
     "src/rs/prism-vendors",
     "src/rs/prism-artwork",
     "src/rs/prism-docs-lab",
@@ -43,7 +42,6 @@ too_many_lines = "deny"
 crc32fast = "1.5.0"
 libm = "0.2.16"
 miniz_oxide = "=0.8.9"
-thiserror = "2"
 anyhow = "1.0.102"
 cap-std = "4.0.2"
 libc = "=0.2.189"
