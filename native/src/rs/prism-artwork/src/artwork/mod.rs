@@ -175,6 +175,9 @@ struct PadInfo {
     shape: String,
     angle: f64,
     roundrect_ratio: Option<f64>,
+    /// The copper's offset from the drill, pad frame: KiCad moves the shape,
+    /// not the hole, by it.
+    offset: prism_kicad_core::PcbPoint,
 }
 
 struct FootprintInfo {
@@ -210,14 +213,21 @@ impl FootprintInfo {
 
     /// A pad's authored shape in the board frame, sampled. The pad's angle is
     /// already in the board frame (a board file stores the footprint's
-    /// rotation in it), so the footprint's angle is not added again.
+    /// rotation in it), so the footprint's angle is not added again. A pad
+    /// offset moves the shape off the pad's position, turned by that angle, as
+    /// KiCad's board plotter does.
     fn pad_ring(&self, pad: &PadInfo) -> Vec<geometry::Point> {
+        let position = self.pad_position(pad);
+        let offset = prism_kicad_core::kicad_rotate(pad.offset, pad.angle);
         pad::pad_ring(
             &pad.shape,
             pad.size_x,
             pad.size_y,
             pad.roundrect_ratio,
-            self.pad_position(pad),
+            geometry::Point {
+                x: position.x + offset.x,
+                y: position.y + offset.y,
+            },
             pad.angle,
         )
     }
@@ -275,6 +285,12 @@ fn board_data(
                 shape: pad.shape.clone(),
                 angle: pad.angle,
                 roundrect_ratio: pad.roundrect_rratio,
+                offset: pad
+                    .drill
+                    .as_ref()
+                    .map_or(prism_kicad_core::PcbPoint { x: 0.0, y: 0.0 }, |drill| {
+                        drill.offset
+                    }),
             });
     }
     let variants = variant_states(input);

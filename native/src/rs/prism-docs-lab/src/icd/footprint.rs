@@ -122,15 +122,31 @@ impl PadFact {
 /// footprint's rotation; the connector is drawn in its footprint's own frame, so
 /// the footprint's angle comes off here.
 pub fn pad_fact(pad: &PcbPad, footprint_angle: f64) -> PadFact {
+    let angle = pad.angle - footprint_angle;
+    let (x, y) = copper_center(pad, angle);
     PadFact {
         number: pad.number.clone(),
         kind: pad.kind.clone(),
         net: pad.net.name.clone().unwrap_or_default(),
-        x: pad.at_x,
-        y: pad.at_y,
-        angle: pad.angle - footprint_angle,
+        x,
+        y,
+        angle,
         shape: pad_shape(pad),
     }
+}
+
+/// The pad's copper centre in the footprint's frame: its position plus the
+/// drill-relative `(offset …)`, turned by the pad's angle within the footprint
+/// (KiCad moves the copper by the offset, never the hole).
+fn copper_center(pad: &PcbPad, relative_angle: f64) -> (f64, f64) {
+    let offset = pad
+        .drill
+        .as_ref()
+        .map_or(prism_kicad_core::PcbPoint { x: 0.0, y: 0.0 }, |drill| {
+            drill.offset
+        });
+    let turned = prism_kicad_core::kicad_rotate(offset, relative_angle);
+    (pad.at_x + turned.x, pad.at_y + turned.y)
 }
 
 fn pad_shape(pad: &PcbPad) -> PadShape {

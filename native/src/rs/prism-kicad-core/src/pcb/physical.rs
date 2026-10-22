@@ -51,7 +51,8 @@ pub struct PcbHole {
     pub footprint_index: Option<usize>,
     /// Board coordinates for vias; footprint-local coordinates for pads.
     pub center: PcbPoint,
-    /// Drill offset in the pad's local coordinate system.
+    /// The pad's copper offset from its drill, in the pad's local frame. KiCad
+    /// moves the copper by it, not the hole: the drill is at `center`.
     pub offset: PcbPoint,
     pub shape: PcbHoleShape,
     pub width: f64,
@@ -66,24 +67,21 @@ pub struct PcbHole {
 impl PcbHole {
     /// The drill's centre in board coordinates.
     ///
-    /// A pad hole's `center` is footprint-local and its `angle` is the pad's
-    /// board-frame angle: KiCad writes a pad's `(at x y angle)` with the
-    /// footprint's rotation already included. The pad is placed by the
-    /// footprint (`footprint_at`, `footprint_angle`), then the drill offset,
-    /// which is in the pad's own frame, is turned by the pad's board angle.
-    /// Rotation follows KiCad's +y-down convention, as the board plotter does.
-    /// Adding the footprint angle to the offset a second time is the mistake
-    /// this helper exists to prevent. A via's `center` is already in board
+    /// A pad hole's `center` is footprint-local; the footprint places it
+    /// (`footprint_at`, `footprint_angle`, KiCad's +y-down rotation, as the
+    /// board plotter does). The drill sits at the pad's position: KiCad's pad
+    /// `(offset …)` moves the pad's copper away from the hole, never the hole
+    /// itself, so `offset` plays no part here (KiCad's drill files agree, see
+    /// `tests/docs_oracle_holes.rs`). A via's `center` is already in board
     /// coordinates and the footprint is ignored.
     pub fn board_center(&self, footprint_at: PcbPoint, footprint_angle: f64) -> PcbPoint {
         if self.owner == PcbHoleOwner::Via {
             return self.center;
         }
         let pad = kicad_rotate(self.center, footprint_angle);
-        let offset = kicad_rotate(self.offset, self.angle);
         PcbPoint {
-            x: footprint_at.x + pad.x + offset.x,
-            y: footprint_at.y + pad.y + offset.y,
+            x: footprint_at.x + pad.x,
+            y: footprint_at.y + pad.y,
         }
     }
 }
@@ -393,17 +391,19 @@ mod board_center_tests {
     }
 
     #[test]
-    fn the_offset_turns_by_the_pads_board_angle_only() {
+    fn the_drill_sits_at_the_pad_whatever_its_offset() {
         // Footprint at (100, 50) turned 90°, pad at local (2, 0) written at 120°
-        // (90° from the footprint plus 30° of its own), drill offset 0.5 mm.
+        // with a 0.5 mm offset: the offset moves copper, the drill stays put.
         let hole = pad_hole(
             PcbPoint { x: 2.0, y: 0.0 },
             PcbPoint { x: 0.5, y: 0.0 },
             120.0,
         );
-        let center = hole.board_center(PcbPoint { x: 100.0, y: 50.0 }, 90.0);
-        let (sin, cos) = 120f64.to_radians().sin_cos();
-        close(center, 100.0 + 0.5 * cos, 48.0 - 0.5 * sin);
+        close(
+            hole.board_center(PcbPoint { x: 100.0, y: 50.0 }, 90.0),
+            100.0,
+            48.0,
+        );
     }
 
     #[test]

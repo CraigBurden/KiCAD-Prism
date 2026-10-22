@@ -90,6 +90,7 @@ fn pad(x: f64, y: f64, size: f64) -> PadInfo {
         shape: "circle".to_owned(),
         angle: 0.0,
         roundrect_ratio: None,
+        offset: prism_kicad_core::PcbPoint { x: 0.0, y: 0.0 },
     }
 }
 
@@ -520,6 +521,7 @@ fn a_rotated_footprints_pads_are_not_turned_twice() {
             shape: "rect".to_owned(),
             angle: 270.0,
             roundrect_ratio: None,
+            offset: prism_kicad_core::PcbPoint { x: 0.0, y: 0.0 },
         })
         .collect();
     let bounds = inductor.pads_bounds().expect("the inductor has pads");
