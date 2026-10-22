@@ -50,6 +50,30 @@ function FullScreenMessage({ message, isError = false }: { message: string; isEr
 /** A lazily loaded page, with the route fallback while its chunk loads. */
 const suspended = (page: ReactNode) => <Suspense fallback={<RouteFallback />}>{page}</Suspense>;
 
+function PasswordChangeGate({
+    authConfig,
+    user,
+    onSignOut,
+    onChanged,
+}: {
+    authConfig: AuthConfig;
+    user: User;
+    onSignOut: () => void;
+    onChanged: (user: User) => void;
+}) {
+    return (
+        <Suspense fallback={<RouteFallback />}>
+            <LoginPage
+                authConfig={authConfig}
+                workspaceName={authConfig.workspace_name}
+                restoredUser={user}
+                onSignOut={onSignOut}
+                onLoginSuccess={onChanged}
+            />
+        </Suspense>
+    );
+}
+
 function App() {
     const [user, setUser] = useState<User | null>(null);
     const [authConfig, setAuthConfig] = useState<AuthConfig | null>(null);
@@ -220,19 +244,12 @@ function App() {
     // password stands, so a restored session goes straight to that form.
     if (user.must_change_password) {
         return (
-            <Suspense fallback={<RouteFallback />}>
-                <LoginPage
-                    authConfig={authConfig}
-                    workspaceName={authConfig.workspace_name}
-                    restoredUser={user}
-                    onSignOut={handleLogout}
-                    onLoginSuccess={(signedIn) => {
-                        setUser(signedIn);
-                        setAuthError(null);
-                        setSessionExpired(false);
-                    }}
-                />
-            </Suspense>
+            <PasswordChangeGate
+                authConfig={authConfig}
+                user={user}
+                onSignOut={handleLogout}
+                onChanged={handleAuthCodeSuccess}
+            />
         );
     }
 
