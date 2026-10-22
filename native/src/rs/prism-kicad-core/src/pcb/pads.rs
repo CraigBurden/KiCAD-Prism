@@ -2,6 +2,7 @@
 
 use super::*;
 mod custom;
+mod outline;
 pub use custom::{PcbPadPolygonPoint, PcbPadPrimitiveGeometry};
 
 /// Custom-pad clearance and anchor policy.
