@@ -267,9 +267,7 @@ def _variants(
     from app.services import variant_catalog_service
 
     try:
-        payload = variant_catalog_service.discover_variant_catalog(
-            project, commit, bundle_only=True
-        )
+        payload = variant_catalog_service.discover_variant_catalog(project, commit)
     except DesignDataPending:
         logger.info(
             "Variant catalog for Release Studio at %s is still building; "

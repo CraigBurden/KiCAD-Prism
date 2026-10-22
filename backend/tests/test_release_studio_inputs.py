@@ -227,7 +227,6 @@ class SourceDiscoveryTests(unittest.TestCase):
         self.assertEqual(project.path, str(scoped.resolve()))
         self.assertEqual(project.project_file, "board.kicad_pro")
         self.assertEqual(project.id, "prj_board")
-        self.assertTrue(discover.call_args.kwargs["bundle_only"])
 
     def test_source_discovery_hands_the_project_id_to_the_catalog(self) -> None:
         # The catalog reads the design bundle by project id; an empty id made
