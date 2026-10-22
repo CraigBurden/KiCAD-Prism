@@ -10,6 +10,7 @@ from pathlib import Path, PurePosixPath
 from typing import Any, Mapping
 
 from app.release_studio.config.errors import ConfigLoadError
+from app.services.design_bundle.errors import DesignDataPending
 
 logger = logging.getLogger(__name__)
 
@@ -82,8 +83,8 @@ def discover_source(
     ``relative_path`` is the imported project's subdirectory. A monorepo holds
     several projects in one repository, so discovery that ignored it would
     offer a sibling project's board as this project's default. ``project_id``
-    lets the variant lookup read the project's design bundle; without it the
-    variants are discovered from source.
+    keys the variant lookup's design-bundle read; without it a catalog cannot
+    be read, so the Source step offers only the explicit default.
     """
 
     root = Path(repo_root)
@@ -244,18 +245,18 @@ def _variants(
     project_rel: str | None = None,
     project_id: str = "",
 ) -> list[str]:
-    """Named variants from the shared catalog discovery (VAR-07/08).
+    """Named variants from the project's design-bundle catalog (VAR-07/08).
 
     The catalog service is the single source of variant truth for the variants
-    endpoint, the semantic index and Release Studio. The line scan this
-    replaces read the schematic text only, so project-registry and board-only
-    names were missed and names in comments were invented. Discovery stays
-    best-effort: variants are optional for a build, so a project whose catalog
-    cannot be read offers only the explicit default instead of failing the
-    whole Source step.
+    endpoint, the semantic index and Release Studio, and Release Studio reads
+    it from the bundle only (ADR amendment C3): the source-text scan is gone
+    with WP-X. Discovery stays best-effort: variants are optional for a build,
+    so a catalog that cannot be read offers only the explicit default instead
+    of failing the whole Source step. A bundle that is still building is
+    logged as pending rather than as a failure; neither retries the build here.
     """
 
-    if not project_rel:
+    if not project_rel or not project_id:
         return []
     scoped_root = _scoped_root(repo_root, relative_path)
     project = _CatalogProject(
@@ -266,7 +267,16 @@ def _variants(
     from app.services import variant_catalog_service
 
     try:
-        payload = variant_catalog_service.discover_variant_catalog(project, commit)
+        payload = variant_catalog_service.discover_variant_catalog(
+            project, commit, bundle_only=True
+        )
+    except DesignDataPending:
+        logger.info(
+            "Variant catalog for Release Studio at %s is still building; "
+            "offering the default variant",
+            commit,
+        )
+        return []
     except Exception:  # noqa: BLE001 - a missing catalog must not fail Source
         logger.warning(
             "Could not discover variants for Release Studio at %s",
