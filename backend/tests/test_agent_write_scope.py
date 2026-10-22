@@ -64,33 +64,30 @@ class MutationDependencyTest(unittest.TestCase):
 
 
 @unittest.skipIf(TestClient is None, "starlette.testclient needs httpx")
-class SystemCreateRouteTest(unittest.TestCase):
-    """Through the real route and its dependencies, as the review reproduced it."""
+class DesignerRouteTest(unittest.TestCase):
+    """Through a real designer route and its dependencies, as the review reproduced it."""
 
     def post(self, user: AuthenticatedUser):
-        from app.api.systems import router
-        from app.services.systems import service as system_service
+        from app.api import projects
 
         app = FastAPI()
 
         install_error_handlers(app)
-        app.include_router(router, prefix="/api/systems")
+        app.include_router(projects.router, prefix="/api/projects")
         app.dependency_overrides[security.get_current_user] = lambda: user
-        from app.services.systems.service import Result
+        with patch.object(projects, "get_project_for_role_or_404"), \
+                patch.object(projects.project_service, "start_workflow_job", return_value="job_x") as generate:
+            response = TestClient(app).post("/api/projects/prj_abc/webgpu-3d/generate", json={})
+        return response, generate
 
-        with patch.object(system_service.service, "create_system",
-                          return_value=Result(body={"id": "sys_x"}, system_id="sys_x", version=1)) as create:
-            response = TestClient(app).post("/api/systems", json={"name": "Bus"})
-        return response, create
-
-    def test_a_read_only_agent_cannot_create_a_system(self) -> None:
-        response, create = self.post(agent("designer", "api:read"))
+    def test_a_read_only_agent_cannot_queue_a_build(self) -> None:
+        response, generate = self.post(agent("designer", "api:read"))
         self.assertEqual(response.status_code, 403)
-        create.assert_not_called()
+        generate.assert_not_called()
 
     def test_a_write_agent_reaches_the_service(self) -> None:
-        _response, create = self.post(agent("designer", "api:read", "api:write"))
-        create.assert_called_once()
+        _response, generate = self.post(agent("designer", "api:read", "api:write"))
+        generate.assert_called_once()
 
 
 class GitScopeTest(unittest.TestCase):

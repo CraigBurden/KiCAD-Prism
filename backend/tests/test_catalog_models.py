@@ -106,33 +106,33 @@ class CatalogModelsTest(unittest.TestCase):
         self.created.append(component_id)
         self.service.attach_auxiliary_asset(component_id, asset_type="3dmodel", upload_name=step.name,
                                             payload=step.read_bytes(), target_library="Test", actor="author@example.com")
-        [model] = self.service.system_items.list_models(component_id)
+        [model] = self.service.part_relations.list_models(component_id)
         asset_id = model["assetId"]
         return component_id, asset_id
 
     def test_convert_once_align_and_preview_a_mated_pair(self) -> None:
         header, header_model = self.part_with_model(HEADER)
         socket, _socket_model = self.part_with_model(SOCKET)
-        [before] = self.service.system_items.list_models(header)
+        [before] = self.service.part_relations.list_models(header)
         self.assertIsNone(before["glb"])
-        [converted] = self.service.system_items.convert_models(header)
+        [converted] = self.service.part_relations.convert_models(header)
         glb = converted["glb"]
         self.assertEqual(glb["bounds"], {"minMm": [-1.27, -8.89, -3.0], "maxMm": [1.27, 1.27, 8.54]})
-        self.assertTrue(self.service.system_items.model_glb_path(glb["key"]).read_bytes().startswith(b"glTF"))
-        self.assertEqual(self.service.system_items.convert_models(header)[0]["glb"], glb, "an unchanged STEP is not converted again")
+        self.assertTrue(self.service.part_relations.model_glb_path(glb["key"]).read_bytes().startswith(b"glTF"))
+        self.assertEqual(self.service.part_relations.convert_models(header)[0]["glb"], glb, "an unchanged STEP is not converted again")
 
-        aligned = self.service.system_items.set_model_alignment(header, header_model, {
+        aligned = self.service.part_relations.set_model_alignment(header, header_model, {
             "offsetMm": [0, 3.81, -8.54], "rotationDeg": [0, 0, 0], "scale": 1}, actor="author@example.com")
         self.assertEqual(aligned[0]["alignment"]["offsetMm"], [0.0, 3.81, -8.54])
         events = [e for e in self.service.list_component_audit_events(header)
                   if str(e.get("event_type") or e.get("eventType")) == "component.model_aligned"]
         self.assertEqual(len(events), 1)
         with self.assertRaises(ValueError):
-            self.service.system_items.set_model_alignment(header, header_model, {"offsetMm": [0, 0, 0], "rotationDeg": [0, 0, 0], "scale": -1})
+            self.service.part_relations.set_model_alignment(header, header_model, {"offsetMm": [0, 0, 0], "rotationDeg": [0, 0, 0], "scale": -1})
         with self.assertRaises(LookupError):
-            self.service.system_items.set_model_alignment(header, "not-a-model", models.IDENTITY)
+            self.service.part_relations.set_model_alignment(header, "not-a-model", models.IDENTITY)
 
-        alone = self.service.system_items.model_preview(header, header_model, view="front", alignment=None, partner_id=None)
-        mated = self.service.system_items.model_preview(header, header_model, view="side", alignment=None, partner_id=socket)
+        alone = self.service.part_relations.model_preview(header, header_model, view="front", alignment=None, partner_id=None)
+        mated = self.service.part_relations.model_preview(header, header_model, view="side", alignment=None, partner_id=socket)
         self.assertTrue(alone.lstrip().startswith("<?xml") and "<svg" in alone)
         self.assertGreater(len(mated), len(alone), "the partner is drawn too")

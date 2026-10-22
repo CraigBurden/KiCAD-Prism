@@ -1229,10 +1229,8 @@ def run_project_sync_job_v3(context: JobContext) -> JobResult:
     if result.get("status") == "error":
         raise RuntimeError(str(result.get("message") or "Project sync failed"))
     from app.services import file_service
-    from app.services.systems.detection import project_synced
 
     file_service.invalidate_file_listing_cache()
-    project_synced(project_id)  # System Builder: a fetch may have moved a branch some system tracks
     if fetch_only:
         return JobResult(message=str(result.get("message") or "Fetched remote refs"), details=dict(result))
     # Re-render in its own job: a `kicad-cli` render can take two minutes, and

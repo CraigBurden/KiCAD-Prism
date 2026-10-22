@@ -36,7 +36,7 @@ class JobKindRegistryTests(unittest.TestCase):
         capacities = PrismWorker.resource_capacities()
         self.assertEqual(set(capacities), set(RESOURCES))
         kinds = registered_job_kinds()
-        self.assertGreaterEqual(len(kinds), 28)
+        self.assertGreaterEqual(len(kinds), 22)
         for name in kinds:
             with self.subTest(kind=name):
                 kind = get_job_kind(name)

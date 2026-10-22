@@ -23,7 +23,6 @@ from app.services.catalog.locking import CatalogLockOperations
 from app.services.catalog.metadata_normalization import IDENTITY_KIND_MPN
 from app.services.catalog.normalization import utc_now_iso
 from app.services.catalog.revision_finalization import CatalogRevisionFinalizer
-from app.services.catalog import system_items
 from app.services.catalog.revision_kernel import (
     WORKFLOW_STAGES,
     CatalogRevisionKernel,
@@ -125,10 +124,8 @@ class CatalogReleaseWorkflow:
             and not self_approval_override_reason.strip()
         ):
             raise ValueError("Two-person approval required: revision authors cannot approve their own revision")
-        kind = str(component.get("kind") or system_items.KIND_PART)
         if (
             release_status in {"done", "released"}
-            and kind == system_items.KIND_PART
             and str(component.get("identity_kind") or IDENTITY_KIND_MPN) != IDENTITY_KIND_MPN
         ):
             raise ValueError("Provisional components require a manufacturer part number before approval or release")
@@ -142,10 +139,7 @@ class CatalogReleaseWorkflow:
             "klc_release_gate": self._klc.release_gate(),
         }
         if release_status == "released":
-            if kind == system_items.KIND_PART:
-                self._assert_release_allowed(conn, revision_id, validation)
-            else:
-                system_items.assert_release_gates(conn, kind, revision)
+            self._assert_release_allowed(conn, revision_id, validation)
 
         approval_decision = None
         if release_status == "released":

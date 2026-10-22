@@ -22,7 +22,6 @@ from app.services.catalog.asset_files import (
     discover_symbol_names_in_text,
 )
 from app.services.catalog.step_quarantine import raise_if_asset_purged
-from app.services.catalog import system_items
 from app.services.catalog.asset_links import CatalogAssetLinks
 from app.services.catalog.asset_registry import CatalogAssetRegistry
 from app.services.catalog.asset_types import (
@@ -282,8 +281,6 @@ class CatalogAssetImports:
             change_summary=f"Import symbol {chosen}",
             counterpart_asset_id=counterpart_asset_id,
             expected_revision_id=expected_revision_id,
-            # A module has exactly one symbol, its interface (CONTRACTS_P2 §3.5): a new one replaces it.
-            exclusive=system_items.component_kind(conn, component_id) == system_items.KIND_MODULE,
         )
         return {"mode": "imported", "discovered_symbols": discovered, "selected_symbol": chosen}
 

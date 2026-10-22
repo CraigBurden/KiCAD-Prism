@@ -33,39 +33,12 @@ from app.services.workspace_migrations import m021_project_metadata
 from app.services.workspace_migrations import m022_project_metadata_repository
 from app.services.workspace_migrations import m024_tracker_connector_delete_cascade
 from app.services.workspace_migrations import m025_tracker_webhook_oauth
-from app.services.workspace_migrations import m026_system_builder
-from app.services.workspace_migrations import m027_system_workspace_version
-from app.services.workspace_migrations import m028_system_review_pending_changes
-from app.services.workspace_migrations import m029_system_import_sessions
-from app.services.workspace_migrations import m030_system_snapshot_manifest
-from app.services.workspace_migrations import m031_system_exports
-from app.services.workspace_migrations import m032_system_catalog_binding
-from app.services.workspace_migrations import m033_system_catalog_instances
-from app.services.workspace_migrations import m034_system_child_reviews
-from app.services.workspace_migrations import m035_system_optional_rules
-from app.services.workspace_migrations import m036_system_port_mating
-from app.services.workspace_migrations import m037_system_link_types
-from app.services.workspace_migrations import m038_system_harnesses
-from app.services.workspace_migrations import m039_system_harness_part_pins
-from app.services.workspace_migrations import m040_system_poses
 from app.services.trackers import migrations as tracker_migrations
 from app.services.workspace_migrations import m041_repository_origin
-from app.services.workspace_migrations import m042_system_archive
-from app.services.workspace_migrations import m043_system_driving_mates
-from app.services.workspace_migrations import m044_system_harness_nodes
-from app.services.workspace_migrations import m045_system_git
-from app.services.workspace_migrations import m046_system_manifest_reviews
-from app.services.workspace_migrations import m047_system_bundle_frames
-from app.services.workspace_migrations import m048_system_finding_waivers
-from app.services.workspace_migrations import m049_system_finding_counts
-from app.services.workspace_migrations import m050_system_subports
-from app.services.workspace_migrations import m051_system_net_renames
-from app.services.workspace_migrations import m052_system_parts_collisions
-from app.services.workspace_migrations import m053_system_step_exports
-from app.services.workspace_migrations import m054_system_harness_outputs
 from app.services.workspace_migrations import m055_project_path_settings
 from app.services.workspace_migrations import m056_release_studio_model_inputs
 from app.services.workspace_migrations import m057_job_retention_indexes
+from app.services.workspace_migrations import m123_drop_system_builder_v1
 
 
 Migration = Callable[[Any], None]
@@ -93,38 +66,12 @@ MIGRATIONS: tuple[tuple[int, str, Migration], ...] = (
     (23, tracker_migrations.WORKSPACE_MIGRATION_NAME, tracker_migrations.migrate),
     (24, tracker_migrations.WORKSPACE_FK_CASCADE_NAME, m024_tracker_connector_delete_cascade.migrate),
     (25, tracker_migrations.WORKSPACE_WEBHOOK_OAUTH_NAME, m025_tracker_webhook_oauth.migrate),
-    (26, "system_builder", m026_system_builder.migrate),
-    (27, "system_workspace_version", m027_system_workspace_version.migrate),
-    (28, "system_review_pending_changes", m028_system_review_pending_changes.migrate),
-    (29, "system_import_sessions", m029_system_import_sessions.migrate),
-    (30, "system_snapshot_manifest", m030_system_snapshot_manifest.migrate),
-    (31, "system_exports", m031_system_exports.migrate),
-    (32, "system_catalog_binding", m032_system_catalog_binding.migrate),
-    (33, "system_catalog_instances", m033_system_catalog_instances.migrate),
-    (34, "system_child_reviews", m034_system_child_reviews.migrate),
-    (35, "system_optional_rules", m035_system_optional_rules.migrate),
-    (36, "system_port_mating", m036_system_port_mating.migrate),
-    (37, "system_link_types", m037_system_link_types.migrate),
-    (38, "system_harnesses", m038_system_harnesses.migrate),
-    (39, "system_harness_part_pins", m039_system_harness_part_pins.migrate),
-    (40, "system_poses", m040_system_poses.migrate),
     (41, "repository_origin", m041_repository_origin.migrate),
-    (42, "system_archive", m042_system_archive.migrate),
-    (43, "system_driving_mates", m043_system_driving_mates.migrate),
-    (44, "system_harness_nodes", m044_system_harness_nodes.migrate),
-    (45, "system_git", m045_system_git.migrate),
-    (46, "system_manifest_reviews", m046_system_manifest_reviews.migrate),
-    (47, "system_bundle_frames", m047_system_bundle_frames.migrate),
-    (48, "system_finding_waivers", m048_system_finding_waivers.migrate),
-    (49, "system_finding_counts", m049_system_finding_counts.migrate),
-    (50, "system_subports", m050_system_subports.migrate),
-    (51, "system_net_renames", m051_system_net_renames.migrate),
-    (52, "system_parts_collisions", m052_system_parts_collisions.migrate),
-    (53, "system_step_exports", m053_system_step_exports.migrate),
-    (54, "system_harness_outputs", m054_system_harness_outputs.migrate),
     (55, "project_path_settings", m055_project_path_settings.migrate),
     (56, "release_studio_model_inputs", m056_release_studio_model_inputs.migrate),
     (57, "job_retention_indexes", m057_job_retention_indexes.migrate),
+    # 26-54 (but 41) were System Builder v1; 123 drops what they made.
+    (123, "drop_system_builder_v1", m123_drop_system_builder_v1.migrate),
 )
 
 # Migrations that a long-lived branch database recorded under an earlier number.

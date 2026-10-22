@@ -19,7 +19,6 @@ from app.services.job_runtime import (
     PermanentJobError,
     RetryableJobError,
 )
-from app.services.catalog import module_connectors
 from app.services.catalog.conflicts import CatalogConflict
 from app.services.catalog.step_quarantine import StepQuarantine
 from app.services.project_component_import_service import run_project_import_session
@@ -171,14 +170,13 @@ def run_folder_import(context: JobContext) -> dict[str, Any]:
 def purge_superseded_step_files(*, job_id: str = "", pinned_revision_ids: Iterable[str] = ()) -> dict[str, Any]:
     """Quarantine abandoned draft STEP files, then delete quarantined ones past the grace period.
 
-    ``pinned_revision_ids`` (System Builder's pins) gains the part revisions module connector
-    placements record (CONTRACTS_P2 §3.6); both passes keep every one's files, and the
-    expiry pass restores a quarantined file a pin needs again. Both commit their
+    Both passes keep the files of ``pinned_revision_ids``, and the expiry pass restores a
+    quarantined file a pin needs again. Both commit their
     purge-ledger rows (``catalog/step_quarantine.py``).
     """
     catalog_service.initialize()
     with catalog_service.connection() as conn:
-        pinned = tuple(sorted({*map(str, pinned_revision_ids), *module_connectors.placed_part_revisions(conn)}))
+        pinned = tuple(sorted(map(str, pinned_revision_ids)))
         result = StepQuarantine.purge_superseded_step_files(
             conn, catalog_service.runtime, job_id=job_id, pinned_revision_ids=pinned
         )
@@ -191,20 +189,6 @@ def purge_superseded_step_files(*, job_id: str = "", pinned_revision_ids: Iterab
         )
         conn.commit()
     return {**result, "expired": expired}
-
-
-def system_pinned_catalog_revisions() -> list[str]:
-    """Catalog revisions System Builder pins; the STEP purge keeps their files.
-
-    The pins live in the workspace database, which the catalog may not share, so
-    this job reads them and hands them over. A failed read fails the job rather
-    than purging without them.
-    """
-    from app.services.systems.jobs import workspace_connection
-    from app.services.systems.store import SystemStore
-
-    with workspace_connection() as conn:
-        return SystemStore(conn).pinned_catalog_revisions()
 
 
 def run_artifact_maintenance(context: JobContext) -> dict[str, Any]:
@@ -243,7 +227,7 @@ def run_artifact_maintenance(context: JobContext) -> dict[str, Any]:
 
     job_retention = prune_jobs(context_jobs)
     _step(context, progress=80, message="Quarantining superseded STEP payloads")
-    step_result = purge_superseded_step_files(job_id=context.job_id, pinned_revision_ids=system_pinned_catalog_revisions())
+    step_result = purge_superseded_step_files(job_id=context.job_id)
     staging = catalog_service.cleanup_resolved_import_staging(
         older_than=(datetime.now(timezone.utc) - timedelta(days=30)).isoformat()
     )
@@ -298,7 +282,7 @@ def run_model_glb(context: JobContext) -> dict[str, Any]:
     component_id = str(context.payload.get("componentId") or "")
     revision_id = str(context.payload.get("revisionId") or "") or None
     _step(context, message="Converting 3D models", progress=0.0)
-    models = catalog_service.system_items.convert_models(component_id, revision_id)
+    models = catalog_service.part_relations.convert_models(component_id, revision_id)
     _step(context, message="Converted 3D models", progress=100.0)
     return {"componentId": component_id, "converted": sum(1 for m in models if m["glb"]), "models": len(models)}
 

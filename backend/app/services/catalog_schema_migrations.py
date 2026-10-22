@@ -379,6 +379,20 @@ def _project_catalog_placements(conn: Any) -> None:
     )
 
 
+def _retire_module_and_assembly(conn: Any) -> None:
+    """System Builder v2, stage 0 (``docs/architecture/adr-system-builder-v2.md`` §6): retire the v1 kinds.
+
+    The catalog never hard-deletes a component otherwise; this is the one, approved exception, for the
+    ``module`` and ``assembly`` kinds System Builder v1 published. Their components go with everything
+    that cascades from them (revisions, assets links, audit, mates), the module connector placements go
+    with their table, and only parts remain. System Builder v2 brings its own entry kind.
+    """
+    conn.execute("DROP TABLE IF EXISTS catalog_module_connectors")
+    conn.execute("DELETE FROM components WHERE kind IN ('module', 'assembly')")
+    conn.execute("ALTER TABLE components DROP CONSTRAINT IF EXISTS components_kind_check")
+    conn.execute("ALTER TABLE components ADD CONSTRAINT components_kind_check CHECK (kind = 'part')")
+
+
 MIGRATIONS: tuple[tuple[int, str, Migration], ...] = (
     (0, "baseline", _baseline),
     (1, "portable_column_types", _portable_column_types),
@@ -393,6 +407,7 @@ MIGRATIONS: tuple[tuple[int, str, Migration], ...] = (
     (10, "module_connector_part_revision", _module_connector_part_revision),
     (11, "asset_file_purge_events", _asset_file_purge_events),
     (12, "project_catalog_placements", _project_catalog_placements),
+    (13, "retire_module_and_assembly", _retire_module_and_assembly),
 )
 
 # Migrations that a long-lived branch database recorded under an earlier number.

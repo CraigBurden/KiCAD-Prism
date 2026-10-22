@@ -1,7 +1,0 @@
-Ref,Val,Package,PosX,PosY,Rot,Side
-"J2","Conn_01x04","PinHeader_1x04_P2.54mm_Vertical",10.000000,-10.000000,0.000000,top
-"J5","Conn_01x04","PinHeader_1x04_P2.54mm_Vertical",30.000000,-10.000000,0.000000,top
-"J6","Conn_01x04","PinHeader_1x04_P2.54mm_Vertical",50.000000,-10.000000,0.000000,top
-"J7","Conn_02x10","PinHeader_2x10_P2.54mm_Vertical",70.000000,-10.000000,0.000000,top
-"JP1","SolderJumper_2_Open","SolderJumper-2_P1.3mm_Open_Pad1.0x1.5mm",90.000000,-10.000000,0.000000,top
-"R10","R","R_0603_1608Metric",10.000000,-30.000000,0.000000,top

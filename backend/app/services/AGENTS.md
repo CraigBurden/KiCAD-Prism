@@ -159,48 +159,8 @@ object (`design_compare_nodes.py`). Each revision carries its own geometry.
 
 ## System Builder
 
-`systems/` implements `docs/system-builder/CONTRACTS.md`, and the contract
-wins over code. `systems/store.py` is the only writer: every engineering
-change goes through `SystemStore.mutation`, which locks the system, checks the
-ETag version and writes audit events in the same transaction.
-`systems/service.py` owns authorization and O1 redaction, and is the only
-thing `backend/app/api/systems.py` calls. `systems/visibility.py` holds the
-folder predicate, which must stay in step with
-`WorkspaceService.get_project_for_role`. `systems/sources.py` is read-only Git
-on the child clone. `systems/jobs.py` runs `systems/interface_extractor.py`
-into the `system_interface_artifacts` cache; `systems/interface_cache.py` keeps
-parsed artifacts in process (immutable, LRU by size; callers must not mutate
-them, and the test suite verifies that). `systems/drift.py` is the pure
-drift engine; `systems/detection.py` resolves tips after a fetch and applies
-its outcome. Project sync queues detection after every successful fetch.
-`systems/reconcile.py` validates and applies review decisions.
-`systems/loaded.py` is one system as one transaction reads it: rows, interfaces,
-tree, net level, placement and each caller's restricted set, each computed once.
-Service reads build a `LoadedSystem` instead of re-reading rows or re-resolving
-the hierarchy. `validation.report(loaded, mates=, scene_key=)` returns the whole
-report, waivers included, in the order `validation.STAGES` declares; the
-catalog's mate pairs are an input. Documents are built unredacted (`_build`) and
-leave the service only through `_for_reader`/`_report_for_reader`
-(`systems/redaction.py`); that is what lets a snapshot freeze one document and
-`systems/icd.py` render frozen snapshots and diffs for any reader.
-`systems/links.py` owns the link end rules (one of portKey/exportId, same port,
-link type, sub-port membership, exported or linked ports, end pads) and the
-link-shaped view of a mated harness end; the API, CSV import, manifest import
-and the service go through it, and `systems/store_links.py` is the only code that
-tells a harness end's ID from a link's. Both classes are one mixin per concept:
-the store's `store_<concept>.py` (instances, placement, links, exports,
-harnesses, subports, snapshots, reviews, renames) over `store_base.StoreCore`,
-and the service's `service_<concept>.py` over three layers, `service_base`
-(plumbing, catalog revisions, Git hooks), `service_reading` (`_load`, the
-resolver `LoadedSystem` calls back, reader visibility) and `service_rendering`
-(`_build` and the row renderers). A concept calls only its own and the layers'
-private methods (`backend/tests/test_system_service_layers.py`).
-`systems/csv_import.py` parses, classifies and writes connection CSV imports;
-`systems/generators.py` proposes rows and never writes. A change to what the
-extractor reports must bump `EXTRACTOR_VERSION`, since it keys the cache.
-`backend/tests/test_system_e2e_replay.py` pushes the SYS-01 history to real upstreams
-and runs sync, detection and reconcile end to end; run it after touching any
-of these.
+Removed on 2026-10-23 (`docs/system-builder/README.md`). No service here
+belongs to it.
 
 ## Comments and issue publication
 

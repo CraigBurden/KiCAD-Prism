@@ -82,8 +82,6 @@ const enumParam = <T extends string>(value: string | null, allowed: T[], fallbac
   value && allowed.includes(value as T) ? value as T : fallback;
 
 type CreateComponentForm = {
-  /** CONTRACTS_P2 §3.5: a module is a component whose symbol's units are its connectors. */
-  kind: "part" | "module";
   value: string;
   manufacturer: string;
   manufacturerPartNumber: string;
@@ -95,7 +93,6 @@ type CreateComponentForm = {
 };
 
 const EMPTY_CREATE_FORM: CreateComponentForm = {
-  kind: "part",
   value: "",
   manufacturer: "",
   manufacturerPartNumber: "",
@@ -222,7 +219,7 @@ function CreateComponentDialog({
   const [form, setForm] = useState<CreateComponentForm>(EMPTY_CREATE_FORM);
   const [submitting, setSubmitting] = useState(false);
 
-  const setField = (field: Exclude<keyof CreateComponentForm, "kind">, value: string) => setForm((current) => ({ ...current, [field]: value }));
+  const setField = (field: keyof CreateComponentForm, value: string) => setForm((current) => ({ ...current, [field]: value }));
   const canSubmit = Boolean(form.value.trim() && form.manufacturer.trim() && form.manufacturerPartNumber.trim() && form.description.trim() && form.datasheet.trim() && form.changeSummary.trim());
 
   const handleSubmit = async () => {
@@ -233,7 +230,6 @@ function CreateComponentDialog({
     setSubmitting(true);
     try {
       const component = await createComponent({
-        kind: form.kind,
         value: form.value.trim(),
         manufacturer: form.manufacturer.trim(),
         manufacturer_part_number: form.manufacturerPartNumber.trim(),
@@ -261,22 +257,6 @@ function CreateComponentDialog({
           <DialogTitle>Create component record</DialogTitle>
           <DialogDescription>Create the first immutable metadata revision, then attach and validate CAD assets in the component workspace.</DialogDescription>
         </DialogHeader>
-        <fieldset className="space-y-1">
-          <legend className="text-sm font-medium">Kind</legend>
-          <div className="flex gap-2" role="radiogroup" aria-label="Kind">
-            {(["part", "module"] as const).map((kind) => (
-              <Button key={kind} type="button" size="sm" variant={form.kind === kind ? "default" : "outline"} role="radio"
-                aria-checked={form.kind === kind} onClick={() => setForm((current) => ({ ...current, kind }))}>
-                {kind === "part" ? "Part" : "Module"}
-              </Button>
-            ))}
-          </div>
-          <p className="text-xs text-muted-foreground">
-            {form.kind === "module"
-              ? "A bought-out unit placed in systems, not on a PCB: its symbol's units are its connectors (pin names are signals), and it needs a STEP model."
-              : "A library part placed on boards: symbol, footprint and model."}
-          </p>
-        </fieldset>
         <div className="grid gap-4 sm:grid-cols-2">
           <div className="space-y-2"><Label htmlFor="catalog-create-value">Value *</Label><Input id="catalog-create-value" autoFocus required value={form.value} onChange={(event) => setField("value", event.target.value)} placeholder="10 kΩ, TPS55289, USB-C…" /></div>
           <div className="space-y-2"><Label htmlFor="catalog-create-manufacturer">Manufacturer *</Label><Input id="catalog-create-manufacturer" required value={form.manufacturer} onChange={(event) => setField("manufacturer", event.target.value)} placeholder="Texas Instruments" /></div>
@@ -533,7 +513,7 @@ export function LibraryCatalogWorkspace({
                   onClick={() => selectComponent(component)}
                   aria-pressed={selectedComponentId === component.id}
                 >
-                  <div className="min-w-0"><p className="flex min-w-0 items-center gap-1.5 truncate text-sm font-medium"><span className="truncate">{component.name}</span>{component.kind && component.kind !== "part" ? <Badge variant="outline" className="shrink-0 capitalize">{component.kind}</Badge> : null}</p><p className="truncate text-xs text-muted-foreground">{component.mpn || component.value || "No part number"}</p></div>
+                  <div className="min-w-0"><p className="flex min-w-0 items-center gap-1.5 truncate text-sm font-medium"><span className="truncate">{component.name}</span></p><p className="truncate text-xs text-muted-foreground">{component.mpn || component.value || "No part number"}</p></div>
                   <div className="min-w-0"><p className="truncate text-xs">{component.manufacturer || "—"}</p><p className="truncate text-xs text-muted-foreground">{component.vendor || component.source}</p></div>
                   <div className="min-w-0"><p className="truncate text-xs">{component.category || "Uncategorized"}</p><p className="truncate text-xs text-muted-foreground">{component.package_name || "No package"}</p></div>
                   <div className="flex min-w-0"><AvailabilityBadge state={component.availability_state} /></div>

@@ -14,7 +14,7 @@ from unittest.mock import patch
 
 from fastapi import HTTPException
 
-from app.api import _helpers, agent, catalog_admin, jobs
+from app.api import agent, catalog_admin, jobs
 from app.core.security import AuthenticatedUser, require_admin
 
 
@@ -91,28 +91,6 @@ class JobRequesterTests(unittest.TestCase):
                "requested_by": "designer@example.com", "payload": {}}
         with self.assertRaises(HTTPException) as ctx:
             self._get(job, VIEWER)
-        self.assertEqual(ctx.exception.status_code, 403)
-
-    def test_a_system_job_follows_the_system(self) -> None:
-        job = {"job_id": "job-1", "kind": "system_collision_check", "worker_pool": "prism", "project_id": None,
-               "requested_by": "designer@example.com", "payload": {"systemId": "sys-1"}}
-        with patch.object(_helpers, "_system_visible", return_value=True) as visible:
-            self.assertEqual(self._get(job, VIEWER)["job_id"], "job-1")
-        visible.assert_called_once_with("sys-1", "viewer")
-        with patch.object(_helpers, "_system_visible", return_value=False):
-            with self.assertRaises(HTTPException) as ctx:
-                self._get(job, OTHER)
-        self.assertEqual(ctx.exception.status_code, 404)
-
-    def test_a_second_designer_cancels_a_shared_system_job(self) -> None:
-        job = {"job_id": "job-1", "kind": "system_step_export", "worker_pool": "prism", "project_id": None,
-               "requested_by": "designer@example.com", "payload": {"systemId": "sys-1"}}
-        with patch.object(jobs.jobs, "get", return_value=job), patch.object(
-            jobs.jobs, "request_cancel", return_value="cancel_requested"
-        ), patch.object(_helpers, "_system_visible", return_value=True):
-            self.assertEqual(asyncio.run(jobs.cancel_job("job-1", OTHER))["status"], "cancel_requested")
-            with self.assertRaises(HTTPException) as ctx:
-                asyncio.run(jobs.cancel_job("job-1", VIEWER))
         self.assertEqual(ctx.exception.status_code, 403)
 
     def test_benchmark_metrics_uses_the_admin_dependency(self) -> None:
