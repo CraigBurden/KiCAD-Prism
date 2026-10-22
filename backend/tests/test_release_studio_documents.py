@@ -963,6 +963,23 @@ class ProjectionShapeTests(unittest.TestCase):
         self.assertEqual(pairs["In position file"], "32")
         self.assertNotIn("In position file", dict(board_summary(STATS)))
 
+    def test_a_slot_shows_its_length_and_width(self) -> None:
+        """KiCad groups slots by both sizes; one number would read as a round hole."""
+
+        from app.release_studio.documents.tables import drill_table
+
+        stats = {
+            "drill_holes": [
+                {"count": 84, "shape": "Round", "x_size": "1.0000 mm", "y_size": "1.0000 mm",
+                 "plated": True, "source": "Pad", "start_layer": "F.Cu", "stop_layer": "B.Cu"},
+                {"count": 14, "shape": "Slot", "x_size": "2.2000 mm", "y_size": "0.9000 mm",
+                 "plated": True, "source": "Pad", "start_layer": "F.Cu", "stop_layer": "B.Cu"},
+            ]
+        }
+        rows = drill_table({}, stats).rows
+        self.assertEqual(rows[0][2], "1.0000 mm")
+        self.assertEqual(rows[1][2], "2.2000 x 0.9000 mm")
+
     def test_revision_history_states_an_untagged_project(self) -> None:
         """A column that vanishes reads as history the sheet failed to load."""
 
@@ -1997,16 +2014,16 @@ class RendererVersionTests(unittest.TestCase):
     in the same commit.
     """
 
-    #: Recorded for RENDERER_VERSION d27 under the pinned artwork toolchain, and
+    #: Recorded for RENDERER_VERSION d28 under the pinned artwork toolchain, and
     #: verified stable across two runs.
     #: The version and these digests move together, never one without the other.
     #: These are the default `prism` sheets; GOLDEN_KICAD below pins the
-    #: selectable `kicad` style to the d23 bytes so it cannot drift.
+    #: selectable `kicad` style to the d23 look so it cannot drift.
     GOLDEN = {
         "documentation/assembly.pdf":
             "a3e601985d5018c90afe10e4dddc8bc3fede817a1de3ef0fcdddc9f3e73c0eb2",
         "documentation/cover.pdf":
-            "2b3b3f71eb82d41f2fa82550d0cf9e4e134e144eb6cafe55d4e120d9e912c605",
+            "db94f03eb7536aecfa3dbf5935cf7e63d0319e14b708b04dc60c408eecda3b2e",
         "documentation/drill.pdf":
             "c323abde7ada321a0bee358c8ba266fc5b8f328213bdfbc42f4b1371ae5016d9",
         "documentation/fabrication.pdf":
@@ -2022,7 +2039,7 @@ class RendererVersionTests(unittest.TestCase):
         "cover":
             "1ef132f9c405077210bf167e78540d76c24b65eb4b1bc3bf666a5b9fbbbd9f9b",
         "cover-1":
-            "0478ce9748f1519666b0e2abfef2966ac2353e40d4035123ca949178ce2b40e4",
+            "3132aee00f5dba9b64f4e43452c2fc63474a411c5b11d8b26a60732f352e3eae",
         "drill":
             "89043aafd54b1eeccfc06d8d9cf1e80c75e3221525d54c4c7ce0a61054df6588",
         "fabrication":
@@ -2033,13 +2050,15 @@ class RendererVersionTests(unittest.TestCase):
             "ec368fa6523b7453efa5ce9038ecd934f0bef549ba1dc44dc947531481517baa",
     }
 
-    #: The d23 `kicad` output, byte for byte.  Selecting the legacy style must
+    #: The `kicad` output, byte for byte: the d23 look, plus content corrections
+    #: that apply to both styles (d28: the cover's component split adds up, and
+    #: a slot's drill shows length by width).  Selecting the legacy style must
     #: reproduce these, or "today's look" was not actually kept.
     GOLDEN_KICAD = {
         "documentation/assembly.pdf":
             "f2fca6e5832e41ecea7df2bb0603237aad8782580f9a05829056e5a0266b1895",
         "documentation/cover.pdf":
-            "318f57ea262d956f66d7a273dfe9888fcd92fd7f6455c720afc2729cd72d2e6b",
+            "35f70c7e1d1c8a657e44363ba9429bc52be22e74d1a5dcca7c67145c45be67aa",
         "documentation/drill.pdf":
             "b46e9c0085d144fb16c3f032672ff646dc84611fe34ed057acd56b723d8f3875",
         "documentation/fabrication.pdf":
@@ -2055,7 +2074,7 @@ class RendererVersionTests(unittest.TestCase):
         "cover":
             "63f4f262e8c6969f167673ea3853677757ac39f7e03e3232779ccaed54b13cbd",
         "cover-1":
-            "d1fa8cce518c44e6c2d8a7ac7505e3aa4cea171362809fba618e2b992da229ee",
+            "4ea2ac889072c7cafca11355f00ca0f0a34c0e08ee76c59256d65c756012a467",
         "drill":
             "b449b589fbaf31354972b360ad424e4f80177a1e4b72792b4d361991fe9fc61b",
         "fabrication":
@@ -2104,7 +2123,7 @@ class RendererVersionTests(unittest.TestCase):
 
         self.assertEqual(
             RENDERER_VERSION,
-            "release-studio-documents/d27",
+            "release-studio-documents/d28",
             "RENDERER_VERSION changed: re-record GOLDEN in the same commit",
         )
 

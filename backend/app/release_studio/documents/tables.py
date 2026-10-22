@@ -371,7 +371,7 @@ def drill_table(stackup: Mapping[str, Any], stats: Mapping[str, Any]) -> Table:
                 # backend can only emit what the base-14 fonts encode -- so the
                 # two renderings of this sheet would show different text.
                 f"{_text(entry.get('start_layer'))} - {_text(entry.get('stop_layer'))}",
-                _text(entry.get("x_size")),
+                _drill_size(entry),
                 "yes" if entry.get("plated") else "no",
                 _text(entry.get("count")),
             )
@@ -385,6 +385,22 @@ def drill_table(stackup: Mapping[str, Any], stats: Mapping[str, Any]) -> Table:
         widths=(18.0, 34.0, 22.0, 16.0, 14.0),
         align=("start", "start", "end", "middle", "end"),
     )
+
+
+def _drill_size(entry: Mapping[str, Any]) -> str:
+    """A round hole's diameter, or a slot's length by width.
+
+    KiCad's statistics group slots by both sizes (``shape: "Slot"``); printing
+    only ``x_size`` would read as a round hole of the slot's length.
+    """
+
+    x_size = _text(entry.get("x_size"))
+    y_size = entry.get("y_size")
+    if str(entry.get("shape") or "").casefold() != "slot" or not y_size or y_size == entry.get("x_size"):
+        return x_size
+    unit = " mm"
+    length = x_size[: -len(unit)] if x_size.endswith(unit) else x_size
+    return f"{length} x {_text(y_size)}"
 
 
 def via_statistics_table(stackup: Mapping[str, Any]) -> Table:
