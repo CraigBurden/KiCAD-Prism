@@ -41,6 +41,7 @@ import {
     selectRevisionSlot,
     type RevisionRef,
 } from "./history-comparison-selection";
+import { isLocalHeadCommit, localHeadNote } from "./history-head-label";
 import { historyFileOpenAction, visualizerTabForFile } from "./history-file-open";
 
 interface Release {
@@ -184,6 +185,19 @@ function KicadChip({ icon: Icon, label, count, color }: {
     );
 }
 
+// The checkout can be ahead of the listed branch tip. This marks the row that
+// is actually checked out, without making the remote tip look like HEAD.
+function LocalHeadMarker() {
+    return (
+        <span
+            className="rounded-full bg-muted px-1.5 py-0.5 text-[10px] font-medium leading-none text-muted-foreground"
+            title="This commit is checked out in the project's local clone"
+        >
+            local HEAD
+        </span>
+    );
+}
+
 interface CommitItemProps {
     commit: Commit;
     projectId: string;
@@ -196,6 +210,8 @@ interface CommitItemProps {
     selectable: boolean;
     // The commit named in the URL: ringed and scrolled into view on mount.
     highlighted?: boolean;
+    // The checkout's HEAD, when it differs from the listed branch tip.
+    isLocalHead?: boolean;
 }
 
 function OpenInKiCadButton({ projectId, commit }: { projectId: string; commit: Commit }) {
@@ -234,6 +250,7 @@ function CommitItem({
     onSetCompare,
     selectable,
     highlighted = false,
+    isLocalHead = false,
 }: CommitItemProps) {
     const rowRef = useRef<HTMLDivElement | null>(null);
     // Bring the URL-named commit into view once, when it first mounts as highlighted.
@@ -348,6 +365,7 @@ function CommitItem({
                                     {copied ? "Copied" : "Click to copy full hash"}
                                 </TooltipContent>
                             </Tooltip>
+                            {isLocalHead && <LocalHeadMarker />}
                             <Tooltip>
                                 <TooltipTrigger asChild>
                                     <Button
@@ -546,6 +564,9 @@ export function HistoryViewer({
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
     const [branchTipSha, setBranchTipSha] = useState<string | null>(null);
+    // The checkout's HEAD, read without a ref so Git resolves it locally
+    // rather than resolving the remote branch the list is showing.
+    const [localHeadSha, setLocalHeadSha] = useState<string | null>(null);
     const [copiedReleaseTag, setCopiedReleaseTag] = useState<string | null>(null);
     const [baseRevision, setBaseRevision] = useState<RevisionRef | null>(() => {
         const sha = comparisonUrl.base;
@@ -664,7 +685,15 @@ export function HistoryViewer({
             releaseParams.set("include_total", "false");
             const releasesQuery = releaseParams.toString();
 
-            const [releasesResult, commitsResult] = await Promise.allSettled([
+            // No ref: Git resolves this request against the checkout's HEAD,
+            // while the list above resolves `branchRef` (the remote tip).
+            const headQuery = new URLSearchParams({
+                limit: "1",
+                offset: "0",
+                include_total: "false",
+            }).toString();
+
+            const [releasesResult, commitsResult, headResult] = await Promise.allSettled([
                 fetchJson<ReleasesResponse>(
                     `/api/projects/${projectId}/releases?${releasesQuery}`,
                     { signal: controller.signal },
@@ -674,6 +703,11 @@ export function HistoryViewer({
                     `/api/projects/${projectId}/commits?${commitsQuery}`,
                     { signal: controller.signal },
                     "Failed to load commits"
+                ),
+                fetchJson<CommitsResponse>(
+                    `/api/projects/${projectId}/commits?${headQuery}`,
+                    { signal: controller.signal },
+                    "Failed to load the checkout's HEAD"
                 ),
             ]);
 
@@ -700,6 +734,12 @@ export function HistoryViewer({
             } else {
                 setCommits([]);
                 setCommitsHasMore(false);
+            }
+
+            if (headResult.status === "fulfilled") {
+                setLocalHeadSha(headResult.value.commits?.[0]?.full_hash ?? null);
+            } else {
+                setLocalHeadSha(null);
             }
 
             if (releasesResult.status === "rejected" && commitsResult.status === "rejected") {
@@ -746,6 +786,12 @@ export function HistoryViewer({
             </div>
         );
     }
+
+    const headNotice = localHeadNote(
+        branchTipSha,
+        localHeadSha,
+        commits.map((commit) => commit.full_hash),
+    );
 
     return (
         <div className="space-y-8">
@@ -919,6 +965,10 @@ export function HistoryViewer({
                     </div>
                 </div>
 
+                {headNotice && (
+                    <p className="text-xs text-muted-foreground">{headNotice}</p>
+                )}
+
                 {commits.length === 0 ? (
                     <p className="text-sm text-muted-foreground text-center py-8">
                         No commits found
@@ -934,6 +984,7 @@ export function HistoryViewer({
                                 onOpenVisualizer={onOpenVisualizer}
                                 isBase={baseRevision?.sha === commit.full_hash}
                                 isCompare={compareRevision?.sha === commit.full_hash}
+                                isLocalHead={isLocalHeadCommit(commit.full_hash, branchTipSha, localHeadSha)}
                                 highlighted={highlightedCommit === commit.full_hash}
                                 onSetBase={() => setRevision("base", {
                                     sha: commit.full_hash,

@@ -49,14 +49,15 @@ describe("cached history viewer", () => {
         await waitFor(() => {
             expect(screen.getByTestId("comparison-workspace")).toBeInTheDocument();
         });
-        expect(fetch).toHaveBeenCalledTimes(2);
+        // Releases, the branch's commits, and the checkout's HEAD.
+        expect(fetch).toHaveBeenCalledTimes(3);
 
         view.rerender(historyView(false));
         expect(screen.queryByTestId("comparison-workspace")).not.toBeInTheDocument();
-        expect(fetch).toHaveBeenCalledTimes(2);
+        expect(fetch).toHaveBeenCalledTimes(3);
 
         view.rerender(historyView(true));
         expect(screen.getByTestId("comparison-workspace")).toBeInTheDocument();
-        expect(fetch).toHaveBeenCalledTimes(2);
+        expect(fetch).toHaveBeenCalledTimes(3);
     });
 });
