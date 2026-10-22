@@ -58,9 +58,8 @@ from app.services.catalog.representations import CatalogRepresentations
 from app.services.catalog.revision_comparison import CatalogRevisionComparison
 from app.services.catalog.revision_finalization import CatalogRevisionFinalizer
 from app.services.catalog.revision_kernel import CatalogRevisionKernel
-from app.services.catalog import system_items
 from app.services.catalog.signed_urls import CatalogAssetUrlSigner
-from app.services.catalog.system_items_facade import CatalogSystemItemsFacade
+from app.services.catalog.part_relations_facade import CatalogPartRelationsFacade
 from app.services.catalog.runtime import CatalogRuntime
 
 logger = logging.getLogger(__name__)
@@ -129,12 +128,11 @@ class ComponentCatalogDomainService:
         return runtime
 
     @property
-    def system_items(self) -> CatalogSystemItemsFacade:
-        """Modules, assemblies, "mates with" and model alignment (``catalog/system_items_facade.py``)."""
-        return CatalogSystemItemsFacade(
+    def part_relations(self) -> CatalogPartRelationsFacade:
+        """"Mates with" and model alignment (``catalog/part_relations_facade.py``)."""
+        return CatalogPartRelationsFacade(
             connect=self._connect, initialize=self.initialize, runtime=self._runtime_for_compat(),
-            component_writer=self._component_writer, revision_kernel=self._revision_kernel,
-            revision_finalizer=self._revision_finalizer)
+            revision_kernel=self._revision_kernel)
 
     def _database_path(self, database_url: str | None) -> Path:
         _ = database_url
@@ -481,7 +479,6 @@ class ComponentCatalogDomainService:
         workflow_stage: str | None = None,
         validation_status: str | None = None,
         category: str | None = None,
-        kind: str | None = None,
         include_inactive: bool = False,
         page: int = 1,
         page_size: int = 50,
@@ -492,7 +489,6 @@ class ComponentCatalogDomainService:
     ) -> dict[str, Any]:
         self.initialize()
         plan = self._component_queries.prepare_list_components(
-            kind=kind,
             query=query,
             source=source,
             availability_state=availability_state,
@@ -663,11 +659,8 @@ class ComponentCatalogDomainService:
         return self.get_component(component_id) or {}
 
     def create_manual_component(self, *, actor: str = "", change_summary: str = "Create component",
-                                kind: str = "part", **payload: Any) -> dict[str, Any]:
-        """A new component record. ``kind="module"`` (CONTRACTS_P2 §3.5, D-P2-39) makes a module: the
-        same record and page as a part, whose symbol's units are its connectors."""
-        if kind not in ("part", "module"):
-            raise ValueError("kind must be part or module")
+                                **payload: Any) -> dict[str, Any]:
+        """A new component record."""
         self.initialize()
         with self._connect() as conn:
             component_id = self._component_writer.create_component(
@@ -676,7 +669,6 @@ class ComponentCatalogDomainService:
                 payload,
                 actor=actor,
                 change_summary=change_summary,
-                kind=kind,
             )
             conn.commit()
         return self.get_component(component_id) or {}
@@ -1107,7 +1099,6 @@ class ComponentCatalogDomainService:
                 expected_manifest_hash=expected_manifest_hash,
             )
             conn.commit()
-        self.system_items.notify_release(component_id, release_status)
         return self.get_component(component_id) or {}
 
     def deactivate_component(self, component_id: str, *, actor: str = "", reason: str = "") -> bool:
@@ -1209,7 +1200,7 @@ class ComponentCatalogDomainService:
         components = [
             component
             for component in released
-            if component["place_enabled"] and system_items.is_library_part(component)
+            if component["place_enabled"] and component.get("kind", "part") == "part"
         ]
         metadata_fields = self.list_metadata_fields()
         with self._connect() as conn:

@@ -24,7 +24,6 @@ import { VISUALIZER_DESIGN_SEARCH_SLOT_ID } from "@/lib/design-search";
 import { canAdministerWorkspace, canCommentOnProjects, canManageProjects } from "@/lib/roles";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 import { projectLastUpdated } from "@/lib/project-dates";
-import { UsedInPanel } from "@/features/system-builder/used-in-panel";
 import { HelpMenu } from "@/features/bug-report/help-menu";
 import { LibraryUsageButton } from "@/features/library-usage/library-usage-button";
 
@@ -698,7 +697,6 @@ export function ProjectDetailPage({ user }: { user: User | null }) {
                                     <div className="flex items-center gap-2 text-sm text-muted-foreground">
                                         <span>Last updated: {projectLastUpdated(project)}</span>
                                     </div>
-                                    {projectId && <UsedInPanel projectId={projectId} />}
                                     {readme ? (
                                         <Suspense fallback={<div className="text-sm text-muted-foreground">Loading README...</div>}>
                                             <MarkdownContent

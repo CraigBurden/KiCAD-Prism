@@ -1,6 +1,6 @@
 import { Suspense, lazy, useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
-import { Boxes, CircuitBoard, FolderInput, FolderPlus, Image, LayoutGrid, PanelLeftClose, PanelLeftOpen, RefreshCw, Settings } from "lucide-react";
+import { CircuitBoard, FolderInput, FolderPlus, Image, LayoutGrid, PanelLeftClose, PanelLeftOpen, RefreshCw, Settings } from "lucide-react";
 import { toast } from "sonner";
 
 import type { User } from "@/types/auth";
@@ -27,7 +27,6 @@ import { WorkspaceProjectPropertiesSheet } from "./workspace/workspace-project-p
 import { WorkspaceProjectToolbar } from "./workspace/workspace-project-toolbar";
 import { WorkspaceSidebar } from "./workspace/workspace-sidebar";
 import { WorkspaceSection, ViewMode } from "./workspace/workspace-types";
-import { WorkspaceSystemsSection, systemPath, systemsForLevel } from "@/features/system-builder/workspace-systems-section";
 
 const WORKSPACE_PAGE_SIZE = 25;
 
@@ -48,9 +47,6 @@ const DeleteProjectDialog = lazy(() =>
 );
 const MoveProjectDialog = lazy(() =>
   import("./workspace/move-project-dialog").then((module) => ({ default: module.MoveProjectDialog }))
-);
-const CreateSystemDialog = lazy(() =>
-  import("@/features/system-builder/create-system-dialog").then((module) => ({ default: module.CreateSystemDialog }))
 );
 const RenameFolderDialog = lazy(() =>
   import("./workspace/rename-folder-dialog").then((module) => ({ default: module.RenameFolderDialog }))
@@ -86,7 +82,7 @@ export function Workspace({ searchQuery, user }: WorkspaceProps) {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
 
-  const { projects, folders, systems, loading, error, refreshError, folderById, refresh, createFolder, renameFolder, deleteFolder, moveProjects, deleteProject } =
+  const { projects, folders, loading, error, refreshError, folderById, refresh, createFolder, renameFolder, deleteFolder, moveProjects, deleteProject } =
     useWorkspaceData({ sessionKey: workspaceSessionKey(user) });
 
   const requestedSection = searchParams.get("section") === "library-manager" ? "library-manager" : "projects";
@@ -95,7 +91,6 @@ export function Workspace({ searchQuery, user }: WorkspaceProps) {
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
 
   const [isImportOpen, setIsImportOpen] = useState(false);
-  const [isCreateSystemOpen, setIsCreateSystemOpen] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
 
   const [isCreateFolderOpen, setIsCreateFolderOpen] = useState(false);
@@ -199,10 +194,6 @@ export function Workspace({ searchQuery, user }: WorkspaceProps) {
   }, [projects, currentFolderId]);
 
   const { isSearching, searchResults } = useWorkspaceSearch(projects, folderById, searchQuery);
-  const levelSystems = useMemo(
-    () => systemsForLevel(systems, currentFolderId, isSearching ? searchQuery : ""),
-    [systems, currentFolderId, isSearching, searchQuery],
-  );
 
   const breadcrumbs = useMemo(() => {
     const trail: FolderTreeItem[] = [];
@@ -284,7 +275,6 @@ export function Workspace({ searchQuery, user }: WorkspaceProps) {
       commands.push(
         { id: "workspace:import", label: "Import project", group: "Workspace", icon: FolderPlus, keywords: "add new repository clone", run: () => setIsImportOpen(true) },
         { id: "workspace:new-folder", label: "New folder", group: "Workspace", icon: FolderPlus, keywords: "create directory", run: () => setIsCreateFolderOpen(true) },
-        { id: "workspace:new-system", label: "New system", group: "Workspace", icon: Boxes, keywords: "system builder multi-board harness interconnect", run: () => setIsCreateSystemOpen(true) },
       );
     }
     commands.push({
@@ -564,9 +554,6 @@ export function Workspace({ searchQuery, user }: WorkspaceProps) {
     return <div className="flex h-64 items-center justify-center rounded-xl border text-destructive">{error}</div>;
   }
 
-  const systemsSection = (
-    <WorkspaceSystemsSection systems={levelSystems} dense={selectedProject !== null} showHeading />
-  );
   const projectsToolbar = (
     <>
 <>
@@ -662,7 +649,6 @@ export function Workspace({ searchQuery, user }: WorkspaceProps) {
                 viewMode={viewMode}
                 onViewModeChange={setViewMode}
                 onImport={() => canManageProjects && setIsImportOpen(true)}
-                onCreateSystem={() => canManageProjects && setIsCreateSystemOpen(true)}
                 onCreateFolder={() => canManageProjects && setIsCreateFolderOpen(true)}
                 onRefresh={() => void refresh()}
                 onOpenSettings={() => canOpenSettings && setIsSettingsOpen(true)}
@@ -708,10 +694,8 @@ export function Workspace({ searchQuery, user }: WorkspaceProps) {
                           : ""
                       }`}
                     >
-                      {viewMode === "list" && <div className="mb-8">{systemsSection}</div>}
                       {viewMode === "gallery" ? (
                         <WorkspaceGalleryView
-                          systemsSection={systemsSection}
                           projectsToolbar={projectsToolbar}
                           projectCount={allListProjects.length}
                           searchQuery={searchQuery}
@@ -790,29 +774,6 @@ export function Workspace({ searchQuery, user }: WorkspaceProps) {
         </div>
       </div>
 
-      {isCreateSystemOpen && (
-        <Suspense fallback={null}>
-          <CreateSystemDialog
-            open={isCreateSystemOpen}
-            projects={projects}
-            folderId={currentFolderId}
-            folderName={currentFolderId ? folderById.get(currentFolderId)?.name ?? null : null}
-            onOpenChange={setIsCreateSystemOpen}
-            onCreated={({ systemId, failures }) => {
-              setIsCreateSystemOpen(false);
-              if (failures.length > 0) {
-                toast.error(`System created, but ${failures.length} board(s) could not be added`, {
-                  description: failures.map((failure) => `${failure.label}: ${failure.error}`).join("\n"),
-                });
-              } else {
-                toast.success("System created");
-              }
-              void refresh();
-              navigate(systemPath(systemId));
-            }}
-          />
-        </Suspense>
-      )}
       {isImportOpen && (
         <Suspense fallback={null}>
           <ImportDialog open={isImportOpen} onOpenChange={setIsImportOpen} onImportComplete={refresh} />

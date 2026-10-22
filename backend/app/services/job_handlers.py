@@ -26,12 +26,6 @@ KIND_MODULES = (
     "app.services.project_import_service",
     "app.services.project_service",
     "app.services.catalog_worker_tasks",
-    "app.services.systems.jobs",
-    "app.services.systems.detection",
-    "app.services.systems.child_drift",
-    "app.services.systems.git_tracking",
-    "app.services.systems.service_collisions",
-    "app.services.systems.service_step_export",
     "app.services.trackers.jobs",
 )
 

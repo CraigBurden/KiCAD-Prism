@@ -84,22 +84,6 @@ class PipelineSettings(BaseSettings):
         description="Development override: os.pathsep-separated kicad_monkey source roots put first on sys.path.",
     )
 
-    # ===========================================
-    # Systems
-    # ===========================================
-    PRISM_SYSTEM_REPOS_ROOT: str = Field(
-        default="",
-        description="Bare Git repositories that track Systems. Defaults to KICAD_PROJECTS_ROOT/.kicad-prism/system-repos.",
-    )
-    PRISM_INTERFACE_CACHE_MB: float = Field(
-        default=256.0,
-        description="Process-wide cache of resolved board interfaces, in MiB.",
-    )
-    PRISM_INTERFACE_CACHE_VERIFY: bool = Field(
-        default=False,
-        description="Hash-check every interface cache hit for caller mutation (test suites).",
-    )
-
     @field_validator(
         "PRISM_DESIGN_COMPARE_CACHE_MAX_BYTES",
         "PRISM_DESIGN_COMPARE_CACHE_MIN_AGE",
@@ -108,8 +92,6 @@ class PipelineSettings(BaseSettings):
         "PRISM_DESIGN_COMPARE_MAX_INITIAL_WORKERS",
         "PRISM_DESIGN_COMPARE_MAX_PCB_WORKERS",
         "PRISM_DESIGN_COMPARE_REVISION_PROCESSES",
-        "PRISM_INTERFACE_CACHE_MB",
-        "PRISM_INTERFACE_CACHE_VERIFY",
         mode="before",
     )
     @classmethod

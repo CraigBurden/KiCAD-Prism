@@ -51,17 +51,9 @@ def get_project_for_role_or_404(project_id: str, role: Role) -> project_service.
 _REMOTE_REPOSITORY_KINDS = frozenset({"project_import", "project_analyze"})
 
 
-def _system_visible(system_id: str, role: Role) -> bool:
-    from app.services.systems import visibility
-    from app.services.systems.jobs import workspace_connection
-
-    with workspace_connection() as conn:
-        return bool(visibility.visible_systems(conn, role, system_id=system_id))
-
-
 def authorize_job_read(job: dict, user: AuthenticatedUser) -> None:
     """Who may see a job: whoever may see its subject (D6). Project jobs follow
-    the project, System jobs the System, imports whoever may import, catalog
+    the project, imports whoever may import, catalog
     jobs the catalog roles; a job with none of these its requester or an admin.
 
     Never the requester alone where enqueue deduplicates: a second reader gets
@@ -73,12 +65,6 @@ def authorize_job_read(job: dict, user: AuthenticatedUser) -> None:
     if job.get("worker_pool") == "catalog":
         if not policy.role_allows(user.role, "catalog_read"):
             raise HTTPException(status_code=403, detail="Catalog read access required")
-        return
-    payload = job.get("payload") if isinstance(job.get("payload"), dict) else {}
-    system_id = payload.get("systemId")
-    if system_id:
-        if not _system_visible(str(system_id), user.role):
-            raise HTTPException(status_code=404, detail="System not found")
         return
     if job.get("kind") in _REMOTE_REPOSITORY_KINDS:
         if not policy.role_allows(user.role, "design"):

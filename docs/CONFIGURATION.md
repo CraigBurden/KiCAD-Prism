@@ -154,7 +154,7 @@ worker containers so they receive the new environment. Direct host experiments
 should also unset the old `PRISM_COPPER_EMIT_ENABLED` compatibility switch.
 See [Rust geometry](PCB_RUST_GEOMETRY.md) for build identity and coverage limits.
 
-### Design pipelines, Systems, and build identity
+### Design pipelines and build identity
 
 These have working defaults; set them only to relocate storage or tune a
 constrained host. Unless noted, an empty value means the default.
@@ -181,9 +181,6 @@ constrained host. Unless noted, an empty value means the default.
 | `PRISM_SEMANTIC_GLTF_TILE_SIZE_MM` | glTF tile size, 1–1000 mm, or `auto` (default) |
 | `PRISM_KICAD_MONKEY_SOURCE` | label of the installed kicad_monkey build; the image sets it |
 | `KICAD_MONKEY_PYTHONPATH` | development only: kicad_monkey source roots put first on the import path |
-| `PRISM_SYSTEM_REPOS_ROOT` | bare repositories tracking Systems (default `KICAD_PROJECTS_ROOT/.kicad-prism/system-repos`) |
-| `PRISM_INTERFACE_CACHE_MB` | in-process cache of resolved board interfaces, MiB (default 256) |
-| `PRISM_INTERFACE_CACHE_VERIFY` | hash-check every interface cache hit; for test suites |
 | `PRISM_PLUGIN_DOWNLOAD_URL` | where the KiCad plugin update prompt points; set it for a private plugin build |
 | `PRISM_CAIRO_LIBRARY_DIR` | macOS hosts only: directory holding `libcairo.2.dylib` for Release Studio PDFs |
 | `PRISM_RELEASE`, `PRISM_REVISION`, `PRISM_BUILD_DATE` | build identity reported by `/api/health/live`; release images set them |
