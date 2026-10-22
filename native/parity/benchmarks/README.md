@@ -205,7 +205,25 @@ python native/parity/benchmarks/bench_python.py --today . --out /dev/null --repe
 - **Budgets (amendment U §3.2):**
   - **Parse time** is within its 10 s budget (5.3 s).
   - **Parse memory is over:** the peak was 1.76 GiB, against a 1.5 GB budget. The budget is measured in the worker container on Linux, while this figure is macOS RSS, so confirm it in the container before acting on it.
-- **`bundle verify` costs as much as the build** (5.0 s against 5.3 s). It runs once per bundle, before anything can read it, so it doubles the time from push to warm bundle. If that wait matters, verify is the next thing to make faster.
+- **`bundle verify` costs as much as the build** (5.0 s against 5.3 s). It runs before anything can read the bundle (on every stage publish, see below), so it doubles the time from push to warm bundle. If that wait matters, verify is the next thing to make faster.
+
+### In the worker container, and a faster verify (2026-10-22, later)
+
+Measured in throwaway containers of the worker image (`egse-prism-prism-worker`, Debian, glibc 2.41, arm64 under Docker on the same Mac, 10 CPUs), with a Linux `prism-kicad` built from this branch in `rust:1.98.0-bookworm`. The sources were copied into the container first, and the peak is the process's own `VmHWM`. Five runs each:
+
+| | before | after this pass |
+|---|---|---|
+| `bundle build --stage parse`, peak | 2.09–2.15 GiB | 1.98–2.07 GiB |
+| `bundle build --stage parse`, wall | 13.5–23.6 s | 12.7–20.6 s |
+| `bundle verify` (macOS, warm) | 5.3 s, 0.67 GB | 2.2 s, 0.70–0.77 GB |
+| `bundle verify` (container) | — | 2.8 s |
+
+- **Verify:** 94% of its time was the schema validator, mostly allocating. The pointer into the instance is now only written out on a failure. A failed branch of a choice builds no message. `$ref` resolution allocates nothing. `regex` gets its own faster engines (its `perf` feature). The job verifies on every stage publish (`jobs.py`, a new manifest each time), so a full EDA-04903 bundle saves about 9 s.
+- **Parse memory:** the producers now write their members as they finish, instead of holding every projection's tree (most of them also as a `serde_json::Value` copy) until all eight are done. Archives are byte-identical.
+- **Both parse budgets are missed in the container, and the miss is accepted for now (2026-10-22).** Two causes:
+  - **The parse inputs:** most of the remaining peak is the board's decode cache that the producers share (about 450 MB) and the semantic index's inputs.
+  - **glibc's allocator:** the same parse spends 8–12 s in the kernel on Linux, against about 1 s on macOS. `MALLOC_ARENA_MAX` and `GLIBC_TUNABLES` (mmap/trim thresholds, `arena_max=4`) recovered some time (10.2–10.8 s at best) but no memory.
+- **Not tried:** a different global allocator (mimalloc/jemalloc, a new dependency), a slimmer decode cache, or a measurement on the production host.
 
 ### Large designs and Design Comparison
 
