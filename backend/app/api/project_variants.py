@@ -5,9 +5,9 @@ catalog (contract packet v1.0 section 3.1). The project lookup is role-aware,
 the source reads run off the event loop, and the response carries an ETag so a
 client can revalidate instead of refetching.
 
-Responses are private and revalidate on every request: both source content
-and generator behavior can change without the URL changing. ETags avoid
-resending an unchanged payload; the service caches discovery work.
+Responses are private and revalidate on every request: the revision's bundle
+content and the catalog generator's behavior can both change without the URL
+changing. ETags avoid resending an unchanged payload.
 """
 
 from __future__ import annotations
@@ -24,7 +24,7 @@ from fastapi.responses import Response
 
 from app.api._helpers import get_project_for_role_or_404
 from app.core.security import AuthenticatedUser, require_viewer
-from app.services import project_source_snapshot, variant_catalog_service, variant_source_scan
+from app.services import variant_catalog_service
 from app.services.design_bundle import consumer
 
 router = APIRouter(dependencies=[Depends(require_viewer)])
@@ -33,18 +33,13 @@ router = APIRouter(dependencies=[Depends(require_viewer)])
 def _catalog_generator_tag() -> str:
     """Identify the code that shapes catalog output, for the ETag.
 
-    The source revision key covers the input files; this covers the discovery
-    code. Both must move for a cached entry to be reusable, so the tag hashes
-    the modules whose logic can change the answer.
+    The source revision key covers the input revision; this covers the
+    discovery code. Both must move for a cached entry to be reusable, so the
+    tag hashes the module whose logic can change the answer.
     """
 
     digest = hashlib.sha256()
-    for module in (
-        variant_catalog_service,
-        project_source_snapshot,
-        variant_source_scan,
-    ):
-        digest.update(Path(module.__file__).read_bytes())
+    digest.update(Path(variant_catalog_service.__file__).read_bytes())
     return f"{variant_catalog_service.SCHEMA}-{digest.hexdigest()[:12]}"
 
 
@@ -71,7 +66,6 @@ async def get_project_variants(
             variant_catalog_service.discover_variant_catalog,
             project,
             commit,
-            bundle_only=True,
         )
     except ValueError as error:
         raise HTTPException(status_code=400, detail="Could not read design variants for this revision") from error

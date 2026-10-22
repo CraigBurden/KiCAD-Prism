@@ -33,7 +33,7 @@ as a spurious change in a customer's release comparison.**
 | `steps.py` | Individual `kicad-cli` invocations. Each step is its own process. |
 | `jobset.py` | KiCad jobset translation, pinned to the KiCad 10.0.4 executor. |
 | `closure.py` · `closure_references.py` · `closure_models.py` | Resolves every input a build depends on. Outputs are never closure inputs. The closure requires a `ProjectReferences` and reads the project projection's `documents` and `references` through it, so no KiCad text is parsed in Python. `closure_models.py` resolves and hashes 3D models the way KiCad opens them. System Builder's board-step job passes the member revision's project-projection references (`bundle_design.project_references_for`); WP-R2 removed the checkout scanner and the no-bundle branch. |
-| `inputs.py` · `source.py` | Input discovery and revision sourcing. |
+| `inputs.py` · `source.py` | Input discovery and revision sourcing. `source.py` reads variants from the project's design-bundle catalog only; a pending or unreadable bundle is logged (pending distinctly) and leaves the explicit default, never a source-text scan (WP-X). |
 | `document_pipeline.py` | Gathers typed `DocumentInputs` and writes composed sheets as a member-producing step. |
 | `documents/` | Document generation — `documents/acquisition.py` acquires views, `documents/engine.py` composes sheets, the rest render. |
 | `canonical/` | Byte-canonical encoding and JSON. Frozen by default. |

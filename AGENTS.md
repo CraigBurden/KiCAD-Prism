@@ -135,7 +135,7 @@ publication are available; Gitea/Forgejo is account-linking only. See
 `docs/TRACKER_INTEGRATION.md` for credentials, destinations, and recovery.
 
 **Select a design variant**
-`backend/app/services/variant_catalog_service.py` (source-text catalog) →
+`backend/app/services/variant_catalog_service.py` (the bundle catalog) →
 the bundle's semantic-index member (the `assembly` block, built by
 `prism-kicad`) →
 `frontend/src/components/design-variants/variant-selection.ts` (URL owner and

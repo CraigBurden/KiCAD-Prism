@@ -1,12 +1,11 @@
-"""The bundled variant catalog (ADR native design bundle §9.6, C1).
+"""The bundled variant catalog (ADR native design bundle §9.6, C1; §9.7 X).
 
-A commit's catalog is the
-bundle member ``projections/semantic-index.json``'s ``assembly``, not a source
-scan. The acceptance is parity: for every committed case whose sources were
-*not* upgraded, today's ``discover_snapshot_catalog`` on the fixture equals the
-golden ``assembly`` mapped back to today's shape. The consumer tests pin the
-R1 contract: a ready member supplies the catalog, pending and failed raise the
-typed answer, a final non-member has no variants, and no commit reads HEAD.
+A commit's catalog is the bundle member ``projections/semantic-index.json``'s
+``assembly``, not a source scan; WP-X deleted the scan the parity test used to
+compare against. The mapping tests pin the golden ``assembly`` to today's
+shape. The consumer tests pin the R1 contract: a ready member supplies the
+catalog, pending and failed raise the typed answer, a final non-member has no
+variants, and no commit reads HEAD.
 """
 
 from __future__ import annotations
@@ -22,45 +21,10 @@ from app.services import variant_catalog_service
 from app.services.design_bundle import consumer
 from app.services.design_bundle.errors import DesignDataFailed, DesignDataPending
 from app.services.design_bundle.manifest import Readiness
-from app.services.project_source_snapshot import ProjectSourceSnapshot
 from support.repo import init_repo  # noqa: E402
 
 REPO = Path(__file__).resolve().parents[2]
 GOLDENS = REPO / "native" / "parity" / "goldens"
-FIXTURES = json.loads((REPO / "native" / "parity" / "fixtures.json").read_text(encoding="utf-8"))
-
-#: Committed parity cases whose sources stage parse did not upgrade; for these
-#: the golden ``assembly`` is exactly what today's discovery answers.
-CASES = (
-    "dv-case_fold",
-    "dv-kicad11_tokens",
-    "dv-no_variants",
-    "dv-oracle",
-    "dv-oracle_rev2",
-    "dv-rule_area",
-    "dv-sch_only",
-    "sb-mini_obc-F0",
-    "sb-mini_obc-F1",
-    "sb-mini_obc-F11.1",
-    "sb-mini_obc-F11.2",
-    "sb-mini_obc-F2",
-    "sb-mini_obc-F3",
-    "sb-mini_obc-F4",
-    "sb-mini_obc-F5",
-    "sb-mini_obc-F6",
-    "sb-mini_obc-F7",
-    "sb-mini_obc-F8",
-    "sb-mini_obc-F9",
-    "sb-mini_payload-F0",
-    "sb-mini_power-F0",
-    "sb-mini_power-F10",
-    "sb-p2-ambiguous-F0",
-    "sb-p2-edge_a-F0",
-    "sb-p2-edge_b-F0",
-    "sb-p2-mezz_base-F0",
-    "sb-p2-mezz_top-F0",
-    "sb-p2-mezz_top-F1",
-)
 
 PROJECT_FILES = {
     "boards/main/main.kicad_pro": json.dumps({"schematic": {"variants": [{"name": "Lite"}]}}),
@@ -82,27 +46,8 @@ def golden_assembly(case: str) -> dict:
     return json.loads((GOLDENS / case / "semantic-index.json").read_text(encoding="utf-8"))["assembly"]
 
 
-class GoldenParityTests(unittest.TestCase):
-    """The mapping reproduces today's discovery for the non-upgraded goldens."""
-
-    def test_today_discovery_equals_the_goldens_assembly(self) -> None:
-        by_id = {fixture["id"]: fixture for fixture in FIXTURES["fixtures"]}
-        for case in CASES:
-            with self.subTest(case=case):
-                fixture = by_id[case]
-                root = (REPO / fixture["sourceRoot"]).resolve()
-                snapshot = ProjectSourceSnapshot(
-                    root=root,
-                    project_file=(root / fixture["project"]).resolve(),
-                    commit=None,
-                )
-                today = variant_catalog_service.discover_snapshot_catalog(snapshot)
-                # A committed fixture's source root is its project directory, so
-                # the golden's RepoPaths are already today's spelling (D9).
-                mapped = variant_catalog_service._catalog_body_from_assembly(
-                    golden_assembly(case), ""
-                )
-                self.assertEqual(mapped, today)
+class GoldenMappingTests(unittest.TestCase):
+    """The mapping preserves today's catalog shape for the golden assemblies."""
 
     def test_resolver_diagnostics_stay_out_of_the_catalog(self) -> None:
         # dv-oracle's only diagnostics are resolver ones (no `source`): the
@@ -173,7 +118,7 @@ class ConsumerTests(unittest.TestCase):
         with mock.patch.object(consumer.reader, "open_revision", return_value=opened) as open_revision:
             return (
                 variant_catalog_service.discover_variant_catalog(
-                    self.project, "HEAD", bundle_only=True, **kwargs
+                    self.project, "HEAD", **kwargs
                 ),
                 open_revision,
             )
@@ -206,7 +151,7 @@ class ConsumerTests(unittest.TestCase):
         opened = _Opened("ready", document)
         with mock.patch.object(consumer.reader, "open_revision", return_value=opened) as open_revision:
             result = variant_catalog_service.discover_variant_catalog(
-                self.project, None, bundle_only=True
+                self.project, None
             )
         commit = open_revision.call_args.args[1]
         self.assertEqual(len(commit), 40)
@@ -217,7 +162,7 @@ class ConsumerTests(unittest.TestCase):
         # no key to look up and must not guess one.
         self.project = SimpleNamespace(path=self.project.path, project_file="main.kicad_pro")
         with self.assertRaises(ValueError):
-            variant_catalog_service.discover_variant_catalog(self.project, "HEAD", bundle_only=True)
+            variant_catalog_service.discover_variant_catalog(self.project, "HEAD")
 
     def test_an_unreadable_ready_member_is_a_typed_failure(self) -> None:
         class _Broken(_Opened):
