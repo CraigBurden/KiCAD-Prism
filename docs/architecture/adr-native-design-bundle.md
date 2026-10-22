@@ -121,7 +121,7 @@ The import takes everything Rust in the fork at `b6316117`. That is upstream `bc
 
 - **Build size:** the worker's `prism-kicad` binary enables only the features it needs. The other crates build and test in CI.
 - **Not imported:**
-  - the Python provider (`kicad_monkey` Python, `hatch_build.py`, `pyproject.toml`, `uv.lock`) and the Python test suite (`tests/L0..L99`). Prism keeps the PyPI 2026.9.7 package until WP-R2.
+  - the Python provider (`kicad_monkey` Python, `hatch_build.py`, `pyproject.toml`, `uv.lock`) and the Python test suite (`tests/L0..L99`). Prism keeps the PyPI 2026.9.7 package for the catalog's library-file imports, the WP-R2 allow-list.
   - `node_modules/` and `target/`.
 - **Licence gates** (WP-F0, before the import lands):
   - `src/rs/kicad-monkey-core/src/fake_style.rs` states it is an exact port of FreeType's fake-bold/italic pass. Establish its provenance and either keep it with the right notice or replace it.
@@ -404,6 +404,23 @@ Every P-WP owns one module `native/src/rs/prism-projections/src/<name>.rs`, its 
 - **R3 done.** `prism-kicad-native` and `prism-clipper2` were deleted with the
   mesh path in System Builder v2 stage 0; no crate depends on
   `wavenumber-eng/kicad_monkey`.
+- **R2 done (WP-R2).** No revision parse imports Python `kicad-monkey`; the
+  only importers are the catalog's library-file readers
+  (`app/services/catalog/mates.py`), allow-listed with a test
+  (`backend/tests/test_kicad_monkey_allow_list.py`) until the library ADR. The
+  semantic index's Python build (`build_semantic_index`, its `KiCadDesign`
+  parse, the design adapter and `semantic_index_variants.py`) is deleted; the
+  bundle's `semantic-index` member is the only producer. The catalog
+  provenance's extractor tag names the design-bundle generator contract, and
+  the status route's `kicadMonkeyVersion` is the bundle generator's
+  `engine_version`. System Builder's board step reads its closure's
+  `ProjectReferences` from the member's `projections/project.json`
+  (`bundle_design.project_references_for`); a pending bundle is retried and a
+  failed one is permanent, and `closure.py` has no checkout-scan branch (the
+  scanner and `closure_scan.py` are gone). `backend/design-compare-parser/`,
+  its CI job, `scripts/build-ecad-parser.sh` and the object-delta scripts are
+  deleted; `kicad-cruncher-cli` left the native workspace. The PyPI
+  `kicad-monkey==2026.9.7` stays for the allow-listed catalog readers.
 
 ### 9.8 Running it with Ultracode
 
