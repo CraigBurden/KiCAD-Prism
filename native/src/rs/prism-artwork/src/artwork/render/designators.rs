@@ -15,6 +15,7 @@ use super::super::geometry::{Bounds, Point};
 use super::super::svg::{escape, number, rings_path};
 use super::super::{BoardData, FootSide, FootprintInfo};
 use super::callouts::CalloutPlacement;
+use super::covering::CoveringLabel;
 use super::{RenderState, ViewRender, body_rings, mirror_angle, mirror_x};
 
 pub(super) fn render_designators(
@@ -83,6 +84,9 @@ fn render_footprint_designator(
     );
     if !component.enabled {
         return false;
+    }
+    if let Some(label) = context.covering_labels.get(&footprint.index) {
+        return place_covering(context, svg, footprint, designator, label, &component);
     }
     if style.callout
         && let Some(placement) = context.callouts.get(&footprint.index)
@@ -174,7 +178,7 @@ const LEADER_WIDTH_MM: f64 = 0.1;
 /// The gap the fitted text keeps from the body outline, in paper millimetres.
 /// Like every configured length it divides by `--paper-scale`, so it prints at
 /// this size whatever the drawing scale.
-const DESIGNATOR_CLEARANCE_MM: f64 = 0.15;
+pub(super) const DESIGNATOR_CLEARANCE_MM: f64 = 0.15;
 
 /// The insets a designator is fitted with, most to least strict: half the body
 /// outline plus the clearance, then half the outline, then none. The fallbacks
@@ -314,6 +318,53 @@ fn place_designator(
     true
 }
 
+/// Place a covering part's label at the planned position just outside its
+/// body, above the top edge unless the plan fell back below the bottom edge.
+fn place_covering(
+    context: &ViewRender<'_>,
+    svg: &mut String,
+    footprint: &FootprintInfo,
+    designator: &str,
+    label: &CoveringLabel,
+    component: &DesignatorStyle,
+) -> bool {
+    let font_size = label.font_size_mm;
+    let color = designator_color(footprint, component);
+    let bounds = if context.mirror {
+        label.bounds.mirrored()
+    } else {
+        label.bounds
+    };
+    let center = Point {
+        x: mirror_x(label.center.x, context.mirror),
+        y: label.center.y,
+    };
+    let weight = component
+        .font_weight
+        .as_deref()
+        .map_or_else(String::new, |weight| {
+            format!(" font-weight=\"{}\"", escape(weight))
+        });
+    svg.push_str(&format!(
+        "<text x=\"{}\" y=\"{}\" font-size=\"{}\" text-anchor=\"middle\" dominant-baseline=\"central\" fill=\"{}\" opacity=\"{}\"{weight} data-primitive=\"assembly-designator\" data-component=\"{}\" data-footprint-uuid=\"{}\" data-font-size-mm=\"{}\" data-text-box-min-x=\"{}\" data-text-box-min-y=\"{}\" data-text-box-max-x=\"{}\" data-text-box-max-y=\"{}\" data-rotation-deg=\"0\" data-bounds-kind=\"covering\" data-dnp=\"{}\" >{}</text>",
+        number(center.x),
+        number(center.y),
+        number(font_size),
+        escape(&color),
+        number(component.opacity),
+        escape(designator),
+        escape(&footprint.uuid),
+        number(font_size),
+        number(bounds.min_x),
+        number(bounds.min_y),
+        number(bounds.max_x),
+        number(bounds.max_y),
+        footprint.dnp,
+        escape(designator),
+    ));
+    true
+}
+
 /// Place a callout label at the planned position, outside the pad.
 fn place_callout(
     context: &ViewRender<'_>,
@@ -427,7 +478,7 @@ pub(super) struct DesignatorStyle {
     pub dnp_color: String,
     fill_ratio: f64,
     pub min_font: f64,
-    max_font: f64,
+    pub max_font: f64,
     threshold: f64,
     direction: f64,
     opacity: f64,

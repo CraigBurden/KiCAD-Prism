@@ -1,24 +1,30 @@
 //! The SVG compositing of `prism-kicad artwork`: one function per layer token,
 //! the designator fitting pass and the canvas policy. Kept apart from
-//! `artwork::mod` so each file stays small enough to review.
+//! `artwork::mod` so each file stays small enough to review. The HLR token runs
+//! two body passes: ordinary bodies first, then the parts whose outline covers
+//! another body as a dashed outline on top (`covering`).
 
+mod bodies;
 mod callouts;
+mod covering;
 mod designators;
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use prism_kicad_contracts::generated::prism_artwork_config_a0::{
-    ArtworkCanvasBounds, ArtworkConfigA0, ArtworkDnpStyle, ArtworkHlrStyle, ArtworkPin1MarkerStyle,
-    ArtworkStyles, ArtworkView,
+    ArtworkCanvasBounds, ArtworkConfigA0, ArtworkDnpStyle, ArtworkPin1MarkerStyle, ArtworkStyles,
+    ArtworkView,
 };
 
+use bodies::{point_nm, render_hlr};
 use callouts::CalloutPlacement;
+use covering::CoveringLabel;
 use designators::{
     component_override, designator_style, render_designators, selected_by_designators,
     selector_matches,
 };
 
-use super::geometry::{self, BoardGeometry, Bounds, Point};
+use super::geometry::{self, Bounds, Point};
 use super::svg::{escape, number, ring_path, rings_path};
 use super::{
     ArtworkInput, ArtworkViewError, BoardData, FootSide, FootprintInfo, PadInfo, RenderedView,
@@ -44,23 +50,21 @@ pub(super) fn render_view(
     let callout = designator_style.callout;
     let mirror = input.config.global.mirror_bottom_view && sides.bottom && !sides.top;
     let dnp = dnp_style(input.config, styles);
-    // Labels must clear the canvas they are drawn into, and the canvas must
-    // then hold them, so place them against the body-only canvas first.
-    let provisional = canvas_bounds(input, data, &selected, sides, callout, &BTreeMap::new());
-    let callouts = if callout {
-        callouts::plan(
-            data,
-            &selected,
-            sides,
-            designator_style.min_font,
-            provisional,
-            input.paper_scale.unwrap_or(1.0),
-        )
+    let paper_scale = input.paper_scale.unwrap_or(1.0);
+    let scene = plan_scene(
+        input,
+        data,
+        view,
+        &selected,
+        sides,
+        &designator_style,
+        paper_scale,
+    );
+    let canvas = if mirror {
+        scene.canvas.mirrored()
     } else {
-        BTreeMap::new()
+        scene.canvas
     };
-    let canvas = canvas_bounds(input, data, &selected, sides, callout, &callouts);
-    let canvas = if mirror { canvas.mirrored() } else { canvas };
     let mut svg = String::new();
     let scale = input.config.global.svg_scale.max(1.0e-9);
     let width = canvas.width().max(0.001) * scale;
@@ -100,11 +104,13 @@ pub(super) fn render_view(
         data,
         view,
         selected: &selected,
-        callouts: &callouts,
+        callouts: &scene.callouts,
         callout,
         mirror,
         dnp,
-        paper_scale: input.paper_scale.unwrap_or(1.0),
+        paper_scale,
+        covering: &scene.covering,
+        covering_labels: &scene.covering_labels,
     };
     let mut state = RenderState::default();
     for token in &view.layers {
@@ -123,6 +129,76 @@ pub(super) fn render_view(
         dnp_footprints_hatched: state.dnp_footprints_hatched as u64,
         footprints_without_outline: without_outline,
     })
+}
+
+/// Everything a view decides before it draws: its canvas, labels, and which
+/// selected parts cover others.
+struct Scene {
+    canvas: Bounds,
+    callouts: BTreeMap<usize, CalloutPlacement>,
+    covering: BTreeSet<usize>,
+    covering_labels: BTreeMap<usize, CoveringLabel>,
+}
+
+fn plan_scene(
+    input: &ArtworkInput<'_>,
+    data: &BoardData,
+    view: &ArtworkView,
+    selected: &[usize],
+    sides: ViewSides,
+    style: &designators::DesignatorStyle,
+    paper_scale: f64,
+) -> Scene {
+    let callout = style.callout;
+    // A body whose outline hides other parts is drawn separately, so decide who
+    // covers whom before any canvas or body is emitted.
+    let covering = covering::covering_parts(data, selected, callout);
+    // Labels must clear the canvas they are drawn into, and the canvas must
+    // then hold them, so place them against the body-only canvas first.
+    let provisional = canvas_bounds(
+        input,
+        data,
+        selected,
+        sides,
+        callout,
+        &BTreeMap::new(),
+        &BTreeMap::new(),
+    );
+    let covering_labels = covering::plan_labels(
+        input.config,
+        &view.styles,
+        data,
+        &covering,
+        provisional,
+        paper_scale,
+    );
+    let callouts = if callout {
+        callouts::plan(
+            data,
+            selected,
+            sides,
+            style.min_font,
+            provisional,
+            paper_scale,
+        )
+    } else {
+        BTreeMap::new()
+    };
+    let canvas = canvas_bounds(
+        input,
+        data,
+        selected,
+        sides,
+        callout,
+        &callouts,
+        &covering_labels,
+    );
+    Scene {
+        canvas,
+        callouts,
+        covering,
+        covering_labels,
+    }
 }
 
 /// The sides a view draws, from its layer tokens: `ASSEMBLY_HLR_TOP` is the
@@ -174,6 +250,10 @@ struct ViewRender<'a> {
     dnp: DnpStyle,
     /// Sheet-to-board ratio the config was scaled for; `1.0` when none.
     paper_scale: f64,
+    /// The selected footprints whose outline covers another body.
+    covering: &'a BTreeSet<usize>,
+    /// The covering footprints' designators, planned against the canvas.
+    covering_labels: &'a BTreeMap<usize, CoveringLabel>,
 }
 
 #[derive(Default)]
@@ -552,249 +632,6 @@ fn push_pin1(
     ));
 }
 
-// ---------------------------------------------------------------------- HLR
-
-fn render_hlr(context: &ViewRender<'_>, token: &str, svg: &mut String, state: &mut RenderState) {
-    let Some(global) = context.input.config.global.styles.assembly_hlr.as_ref() else {
-        return;
-    };
-    let local = context.view.styles.assembly_hlr.as_ref();
-    let enabled = local
-        .and_then(|style| style.enabled)
-        .or(global.enabled)
-        .unwrap_or(true);
-    if !enabled {
-        return;
-    }
-    let style = HlrStyle::merge(global, local);
-    let side = if token.ends_with("BOTTOM") {
-        FootSide::Bottom
-    } else {
-        FootSide::Top
-    };
-    svg.push_str(&format!(
-        "<g id=\"layer-{token}\" data-layer-token=\"{token}\" fill=\"none\" stroke-linecap=\"round\" stroke-linejoin=\"round\"{}>",
-        layer_transform(context.mirror)
-    ));
-    for index in context.selected {
-        let footprint = &context.data.footprints[*index];
-        if footprint.side == side {
-            render_footprint_hlr(context, footprint, &style, svg, state);
-        }
-    }
-    svg.push_str("</g>\n");
-}
-
-fn render_footprint_hlr(
-    context: &ViewRender<'_>,
-    footprint: &FootprintInfo,
-    style: &HlrStyle,
-    svg: &mut String,
-    state: &mut RenderState,
-) {
-    let component = component_hlr_style(context.input.config, style, footprint);
-    if let Some(hlr_index) = footprint.hlr {
-        let body = &context.data.hlr[hlr_index];
-        let outline = body.outline.as_ref().filter(|_| component.include_outline);
-        let detail = body.detail.as_ref().filter(|_| component.include_visible);
-        if outline.is_some() || detail.is_some() {
-            push_body_group(svg, footprint, "outline");
-            if let Some(outline) = outline {
-                draw_edges(svg, outline, &component);
-            }
-            if let Some(detail) = detail {
-                draw_edges(svg, detail, &component);
-            }
-            svg.push_str("</g>");
-            if body.outline.is_none() {
-                without_outline(context.input, footprint, state);
-            }
-            count_drawn(state, footprint.index);
-            return;
-        }
-    }
-    without_outline(context.input, footprint, state);
-    draw_fallback_body(context, footprint, &component, svg, state);
-}
-
-fn without_outline(input: &ArtworkInput<'_>, footprint: &FootprintInfo, state: &mut RenderState) {
-    state
-        .without_outline
-        .push(format!("{}#{}", input.document_path, footprint.uuid));
-}
-
-fn draw_fallback_body(
-    context: &ViewRender<'_>,
-    footprint: &FootprintInfo,
-    component: &HlrStyle,
-    svg: &mut String,
-    state: &mut RenderState,
-) {
-    // A callout view draws the pad's real shape: a 1 mm circle or rectangle is
-    // what the test engineer probes, not its square envelope.
-    if context.callout {
-        let rings = footprint.pad_rings();
-        if !rings.is_empty() {
-            push_body_group(svg, footprint, "pad");
-            for ring in &rings {
-                svg.push_str(&format!(
-                    "<path d=\"{}\" stroke=\"{}\" stroke-width=\"{}\" opacity=\"{}\"/>",
-                    ring_path(ring),
-                    escape(&component.color),
-                    number(component.width),
-                    number(component.opacity),
-                ));
-            }
-            svg.push_str("</g>");
-            count_drawn(state, footprint.index);
-            return;
-        }
-    }
-    let Some(ring) = fallback_ring(footprint, &context.data.geometry) else {
-        return;
-    };
-    push_body_group(svg, footprint, "envelope");
-    svg.push_str(&format!(
-        "<path d=\"{}\" stroke=\"{}\" stroke-width=\"{}\" opacity=\"{}\"/>",
-        ring_path(&ring),
-        escape(&component.color),
-        number(component.width),
-        number(component.opacity),
-    ));
-    svg.push_str("</g>");
-    count_drawn(state, footprint.index);
-}
-
-fn component_hlr_style(
-    config: &ArtworkConfigA0,
-    style: &HlrStyle,
-    footprint: &FootprintInfo,
-) -> HlrStyle {
-    let override_style = component_override(config, footprint.reference.as_deref())
-        .and_then(|override_| override_.assembly_hlr.as_ref());
-    style.with(override_style)
-}
-
-fn push_body_group(svg: &mut String, footprint: &FootprintInfo, kind: &str) {
-    svg.push_str(&format!(
-        "<g data-component=\"{}\" data-footprint-uuid=\"{}\" data-bounds-kind=\"{}\" stroke=\"#000000\" fill=\"none\">",
-        escape(footprint.reference.as_deref().unwrap_or_default()),
-        escape(&footprint.uuid),
-        kind,
-    ));
-}
-
-fn count_drawn(state: &mut RenderState, index: usize) {
-    if !state.drawn_footprints.contains(&index) {
-        state.drawn_footprints.push(index);
-        state.footprints_drawn += 1;
-    }
-}
-
-struct HlrStyle {
-    color: String,
-    width: f64,
-    opacity: f64,
-    include_visible: bool,
-    include_outline: bool,
-}
-
-impl HlrStyle {
-    fn merge(global: &ArtworkHlrStyle, local: Option<&ArtworkHlrStyle>) -> Self {
-        Self {
-            color: local
-                .and_then(|style| style.color.clone())
-                .or_else(|| global.color.clone())
-                .unwrap_or_else(|| "#000000".to_owned()),
-            width: local
-                .and_then(|style| style.line_width_mm)
-                .or(global.line_width_mm)
-                .unwrap_or(0.12),
-            opacity: local
-                .and_then(|style| style.opacity)
-                .or(global.opacity)
-                .unwrap_or(1.0),
-            include_visible: local
-                .and_then(|style| style.include_visible)
-                .or(global.include_visible)
-                .unwrap_or(true),
-            include_outline: local
-                .and_then(|style| style.include_outline)
-                .or(global.include_outline)
-                .unwrap_or(true),
-        }
-    }
-
-    fn with(&self, local: Option<&ArtworkHlrStyle>) -> Self {
-        let Some(local) = local else {
-            return Self {
-                color: self.color.clone(),
-                width: self.width,
-                opacity: self.opacity,
-                include_visible: self.include_visible,
-                include_outline: self.include_outline,
-            };
-        };
-        Self {
-            color: local.color.clone().unwrap_or_else(|| self.color.clone()),
-            width: local.line_width_mm.unwrap_or(self.width),
-            opacity: local.opacity.unwrap_or(self.opacity),
-            include_visible: local.include_visible.unwrap_or(self.include_visible),
-            include_outline: local.include_outline.unwrap_or(self.include_outline),
-        }
-    }
-}
-
-fn draw_edges(
-    svg: &mut String,
-    edges: &prism_kicad_contracts::generated::prism_assembly_hlr_a0::AssemblyHlrEdges,
-    style: &HlrStyle,
-) {
-    let mut path = String::new();
-    for segment in &edges.segments {
-        let start = point_nm(segment.start_nm.x_nm.0, segment.start_nm.y_nm.0);
-        let end = point_nm(segment.end_nm.x_nm.0, segment.end_nm.y_nm.0);
-        path.push_str(&format!(
-            "M{} {} L{} {} ",
-            number(start.x),
-            number(start.y),
-            number(end.x),
-            number(end.y)
-        ));
-    }
-    for arc in &edges.arcs {
-        for point in geometry::arc_points(arc) {
-            path.push_str(&format!("L{} {} ", number(point.x), number(point.y)));
-        }
-    }
-    if path.is_empty() {
-        return;
-    }
-    svg.push_str(&format!(
-        "<path d=\"{}\" stroke=\"{}\" stroke-width=\"{}\" opacity=\"{}\"/>",
-        path.trim_end(),
-        escape(&style.color),
-        number(style.width),
-        number(style.opacity),
-    ));
-}
-
-fn point_nm(x: i64, y: i64) -> Point {
-    Point {
-        x: x as f64 / 1_000_000.0,
-        y: y as f64 / 1_000_000.0,
-    }
-}
-
-fn fallback_ring(footprint: &FootprintInfo, geometry: &BoardGeometry) -> Option<Vec<Point>> {
-    footprint
-        .hole_bounds
-        .or_else(|| geometry.hole_envelopes.get(&footprint.index).copied())
-        .or(footprint.pad_bounds)
-        .or_else(|| geometry.pad_envelopes.get(&footprint.index).copied())
-        .map(Bounds::ring)
-}
-
 // -------------------------------------------------------------------- DNP
 
 /// The do-not-populate hatch style: the top-level `dnp` block, overridden by
@@ -865,13 +702,14 @@ fn canvas_bounds(
     sides: ViewSides,
     callout: bool,
     labels: &BTreeMap<usize, CalloutPlacement>,
+    covering_labels: &BTreeMap<usize, CoveringLabel>,
 ) -> Bounds {
     let margin = input.config.global.canvas.margin_mm.abs();
     let mut bounds = match input.config.global.canvas.bounds {
         ArtworkCanvasBounds::BoardOutline => data.geometry.outline_bounds,
         ArtworkCanvasBounds::AllGeometry => all_geometry_bounds(data, selected),
         ArtworkCanvasBounds::BoardAndBodies => {
-            board_and_bodies_bounds(data, selected, sides, callout, labels)
+            board_and_bodies_bounds(data, selected, sides, callout, labels, covering_labels)
         }
     };
     if bounds.is_empty() {
@@ -916,6 +754,7 @@ fn board_and_bodies_bounds(
     sides: ViewSides,
     callout: bool,
     labels: &BTreeMap<usize, CalloutPlacement>,
+    covering_labels: &BTreeMap<usize, CoveringLabel>,
 ) -> Bounds {
     let mut bounds = data.geometry.outline_bounds;
     for index in selected {
@@ -943,6 +782,9 @@ fn board_and_bodies_bounds(
     }
     for placement in labels.values() {
         bounds.include_bounds(placement.bounds);
+    }
+    for label in covering_labels.values() {
+        bounds.include_bounds(label.bounds);
     }
     bounds
 }
