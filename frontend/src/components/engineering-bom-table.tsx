@@ -3,6 +3,7 @@ import { ExternalLink, PackageSearch, RefreshCw, RotateCcw } from "lucide-react"
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { DesignDataPending } from "@/components/design-data-state";
 import {
     BomAssemblyFilterControl,
     filterComponentsForAssembly,
@@ -55,6 +56,8 @@ interface BomSearchTerm {
 interface EngineeringBomTableProps {
     semanticIndex: PrismSemanticIndex | null;
     loading: boolean;
+    /** The semantic index is still being built rather than failed. */
+    pending?: boolean;
     error?: string | null;
     selection: PrismSelection | null;
     onSelection: (selection: PrismSelection) => void;
@@ -184,6 +187,7 @@ const groupMatchesQuery = (group: BomGroup, query: string): boolean => {
 export function EngineeringBomTable({
     semanticIndex,
     loading,
+    pending = false,
     error,
     selection,
     onSelection,
@@ -272,6 +276,14 @@ export function EngineeringBomTable({
     const selectedReference = selection?.kind === "component" || selection?.kind === "terminal"
         ? selection.reference
         : null;
+
+    if (pending && !semanticIndex) {
+        return (
+            <div className="flex h-full items-center justify-center p-8">
+                <DesignDataPending onRetry={onRetry} />
+            </div>
+        );
+    }
 
     if (loading && !semanticIndex) {
         return (

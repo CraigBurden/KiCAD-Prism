@@ -46,7 +46,11 @@ export function LibraryUsageButton({ projectId, canScan }: { projectId: string; 
     return (
       <div className="flex items-center gap-2 rounded-md border px-2.5 py-1.5" title="Library parts">
         <Library className="h-4 w-4 text-muted-foreground" />
-        <DesignDataPending label="Preparing design data…" className="text-xs" />
+        <DesignDataPending
+          label="Preparing design data…"
+          className="text-xs"
+          onRetry={designDataPending ? () => void usage.refresh() : undefined}
+        />
       </div>
     );
   }

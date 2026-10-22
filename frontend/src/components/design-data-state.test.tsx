@@ -9,6 +9,13 @@ describe("design data states", () => {
     expect(screen.getByText("Preparing design data…")).toBeInTheDocument();
   });
 
+  it("offers Check again when the read stopped polling", () => {
+    const onRetry = vi.fn();
+    render(<DesignDataPending onRetry={onRetry} />);
+    screen.getByRole("button", { name: "Check again" }).click();
+    expect(onRetry).toHaveBeenCalledTimes(1);
+  });
+
   it("shows the failure, its detail and a Retry", () => {
     const onRetry = vi.fn();
     render(<DesignDataFailed detail="parse failed" onRetry={onRetry} />);

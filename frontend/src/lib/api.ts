@@ -178,13 +178,17 @@ export async function fetchBlob(
 // `Retry-After` header), or could not be built (422 `{"status": "failed",
 // "members": [...], "detail": "..."}`). `fetchDesignJson`/`fetchDesignText`
 // are the one place that understands the two states: they retry a pending
-// answer with backoff for up to two minutes, report it to `onPending` so a
+// answer with backoff for up to fifteen minutes, report it to `onPending` so a
 // screen can show "Preparing design data…", and turn a failed answer into a
 // typed `DesignDataFailedError`. A `X-Prism-Working-Tree: dirty` header on the
 // final answer says HEAD was served over uncommitted changes.
 
-/** How long a pending design-data read keeps retrying before giving up. */
-export const DESIGN_DATA_PENDING_TIMEOUT_MS = 120_000;
+/**
+ * How long a pending design-data read keeps retrying before giving up. A
+ * design bundle can wait behind the single build slot for several minutes, so
+ * the window is comfortably longer than a normal build.
+ */
+export const DESIGN_DATA_PENDING_TIMEOUT_MS = 900_000;
 const DESIGN_DATA_DEFAULT_RETRY_SECONDS = 3;
 const WORKING_TREE_HEADER = "X-Prism-Working-Tree";
 
@@ -197,7 +201,7 @@ export interface DesignDataOptions {
   /** Called for every 202 pending answer, so a screen can show its pending state. */
   onPending?: (info: DesignDataPendingInfo) => void;
   fallbackError?: string;
-  /** Overrides the ~2 minute retry window (tests). */
+  /** Overrides the ~15 minute retry window (tests). */
   pendingTimeoutMs?: number;
 }
 
