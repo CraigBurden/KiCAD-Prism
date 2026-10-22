@@ -71,3 +71,11 @@ One runner entry, D1's a2 envelope, applies to every case: the goldens hold the 
 - Consumer: component fields in the semantic index and the BOM.
 - Fixtures: no committed fixture has an unreached schematic copy (`board-objects.md` D11: 0 documents outside the closure on all 33), so every golden is unchanged. The 21 C2r bundle-gate trees build byte-identical archives with and without this change.
 - Runner: nothing to do.
+
+## D11. Bus alias members are signal names (KiCad 10), not further aliases
+
+- Today: kicad_monkey expands an alias member that names another alias (`OUTER: [X{INNER}, Y]` style nesting through a member list) and refuses a cycle, so a project whose alias lists its own name (`FAN_TACH: [FAN_TACH, FAN2_TACH]`, the SAS R3 Base) failed `design.json` with "bus alias cycle".
+- Bundle: an alias's direct members are signal names and are never looked up as aliases again; vector and group syntax inside a member still expands (and `A: [X{A}]` still fails closed). A self-reference or a cycle builds.
+- Why: KiCad 10.0.6's netlist does the same. With the `project_bus_alias_hierarchy` fixture's aliases replaced by `CTRL: [INNER, CTRL_B], INNER: [CTRL_A]`, `CTRL_A` is not bused (`/CTRL_A` and `/MEMBER_SHEET/CTRL_A` stay separate nets); `INNER: [CTRL]` (a cycle) and `CTRL: [CTRL, CTRL_B]` give the same nets, with no error.
+- Consumer: every reader of the schematic nets (`design.json`, the semantic index, occurrences, system interface).
+- Fixtures: none of the parity cases nests or cycles aliases; `prism-kicad-core/tests/schematic_bus.rs` and `project_bus_alias_design.rs` pin the behaviour. `crate_version` 0.10.0.
