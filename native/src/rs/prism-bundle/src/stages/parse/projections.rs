@@ -20,6 +20,23 @@ impl ParseRun<'_> {
             let Some(result) = result else {
                 continue;
             };
+            if let Ok(ProjectionResult::Encoded {
+                schema: declared,
+                bytes,
+                warnings,
+            }) = result
+            {
+                for produced in warnings {
+                    self.warn(&produced.code, produced.message)?;
+                }
+                if declared != schema {
+                    return Err(internal(format!(
+                        "the {path} producer wrote another schema"
+                    )));
+                }
+                self.add_bytes(path, schema, bytes)?;
+                continue;
+            }
             let (declared, document, warnings) = match result {
                 Ok(produced) => produced.into_parts(),
                 Err(message) => {

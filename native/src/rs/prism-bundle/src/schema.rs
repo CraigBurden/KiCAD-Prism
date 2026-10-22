@@ -293,8 +293,11 @@ impl Registry {
             pointer: String::new(),
             message: format!("no schema is registered for {schema_id}"),
         })?;
-        let mut pointer = String::new();
-        Validation { registry: self }.check(&urn, document, instance, &mut pointer)
+        let mut path = Path {
+            steps: Vec::new(),
+            quiet: false,
+        };
+        Validation { registry: self }.check(&urn, document, instance, &mut path)
     }
 }
 
@@ -317,14 +320,51 @@ fn escape_token(token: &str) -> String {
     token.replace('~', "~0").replace('/', "~1")
 }
 
-fn fail(pointer: &str, message: String) -> Result<(), Violation> {
+/// One step into the instance: an object key or an array index.
+#[derive(Clone, Copy)]
+enum Step<'i> {
+    Key(&'i str),
+    Index(usize),
+}
+
+/// Where the validator is in the instance. The RFC 6901 pointer is only
+/// written out when a check fails, and not at all while `quiet`: inside the
+/// branches of `anyOf`/`oneOf` and under `not`, where a failure is an answer,
+/// not a report.
+struct Path<'i> {
+    steps: Vec<Step<'i>>,
+    quiet: bool,
+}
+
+fn pointer(path: &[Step<'_>]) -> String {
+    let mut out = String::new();
+    for step in path {
+        out.push('/');
+        match step {
+            Step::Key(key) if key.contains(['~', '/']) => out.push_str(&escape_token(key)),
+            Step::Key(key) => out.push_str(key),
+            Step::Index(index) => out.push_str(&index.to_string()),
+        }
+    }
+    out
+}
+
+fn fail(path: &Path<'_>, message: impl FnOnce() -> String) -> Result<(), Violation> {
+    if path.quiet {
+        return Err(Violation {
+            pointer: String::new(),
+            message: String::new(),
+        });
+    }
+    let pointer = pointer(&path.steps);
+    let message = message();
     Err(Violation {
-        pointer: pointer.to_owned(),
         message: if pointer.is_empty() {
             message
         } else {
             format!("{pointer}: {message}")
         },
+        pointer,
     })
 }
 
@@ -364,105 +404,124 @@ fn json_equal(left: &Value, right: &Value) -> bool {
     }
 }
 
+/// `{"not": {}}`: the schema that allows nothing.
+fn allows_nothing(schema: &Value) -> bool {
+    schema.as_object().is_some_and(|keywords| {
+        keywords.len() == 1
+            && keywords
+                .get("not")
+                .and_then(Value::as_object)
+                .is_some_and(serde_json::Map::is_empty)
+    })
+}
+
 struct Validation<'r> {
     registry: &'r Registry,
 }
 
-impl Validation<'_> {
-    fn resolve<'s>(&'s self, doc: &str, reference: &str) -> Option<(String, &'s Value)> {
+impl<'r> Validation<'r> {
+    fn resolve(&self, doc: &str, reference: &str) -> Option<(&'r str, &'r Value)> {
         let (target, fragment) = match reference.split_once('#') {
             Some((target, fragment)) => (target, fragment),
             None => (reference, ""),
         };
         let urn = if target.is_empty() { doc } else { target };
-        let mut node = self.registry.documents.get(urn)?;
+        let (urn, mut node) = self.registry.documents.get_key_value(urn)?;
         for token in fragment.split('/').filter(|token| !token.is_empty()) {
-            let token = token.replace("~1", "/").replace("~0", "~");
-            node = node.get(&token)?;
+            node = if token.contains('~') {
+                node.get(token.replace("~1", "/").replace("~0", "~"))?
+            } else {
+                node.get(token)?
+            };
         }
-        Some((urn.to_owned(), node))
+        Some((urn.as_str(), node))
     }
 
-    fn check(
+    fn check<'i>(
         &self,
         doc: &str,
         schema: &Value,
-        instance: &Value,
-        pointer: &mut String,
+        instance: &'i Value,
+        path: &mut Path<'i>,
     ) -> Result<(), Violation> {
         let Value::Object(keywords) = schema else {
             return match schema {
-                Value::Bool(false) => fail(pointer, "no value is allowed here".to_owned()),
+                Value::Bool(false) => fail(path, || "no value is allowed here".to_owned()),
                 _ => Ok(()),
             };
         };
         for (keyword, value) in keywords {
             if !ANNOTATIONS.contains(&keyword.as_str()) {
-                self.keyword(doc, keyword, value, keywords, instance, pointer)?;
+                self.keyword(doc, keyword, value, keywords, instance, path)?;
             }
         }
         Ok(())
     }
 
-    fn keyword(
+    fn keyword<'i>(
         &self,
         doc: &str,
         keyword: &str,
         value: &Value,
         siblings: &serde_json::Map<String, Value>,
-        instance: &Value,
-        pointer: &mut String,
+        instance: &'i Value,
+        path: &mut Path<'i>,
     ) -> Result<(), Violation> {
         match keyword {
-            "$ref" => self.reference(doc, value, instance, pointer),
+            "$ref" => self.reference(doc, value, instance, path),
             "properties" | "required" | "unevaluatedProperties" => {
-                self.object(doc, keyword, value, siblings, instance, pointer)
+                self.object(doc, keyword, value, siblings, instance, path)
             }
-            "items" => self.items(doc, value, instance, pointer),
-            "pattern" | "minLength" | "maxLength" => self.string(keyword, value, instance, pointer),
-            "anyOf" | "oneOf" => self.combination(doc, keyword, value, instance, pointer),
-            "not" => self.negation(doc, value, instance, pointer),
-            other => assertion(other, value, instance, pointer),
+            "items" => self.items(doc, value, instance, path),
+            "pattern" | "minLength" | "maxLength" => self.string(keyword, value, instance, path),
+            "anyOf" | "oneOf" => self.combination(doc, keyword, value, instance, path),
+            "not" => self.negation(doc, value, instance, path),
+            other => assertion(other, value, instance, path),
         }
     }
 
-    fn negation(
+    fn negation<'i>(
         &self,
         doc: &str,
         value: &Value,
-        instance: &Value,
-        pointer: &str,
+        instance: &'i Value,
+        path: &mut Path<'i>,
     ) -> Result<(), Violation> {
-        let mut scratch = pointer.to_owned();
-        match self.check(doc, value, instance, &mut scratch) {
-            Ok(()) => fail(pointer, "matches a schema it must not match".to_owned()),
-            Err(_) => Ok(()),
+        let outer = std::mem::replace(&mut path.quiet, true);
+        let matched = self.check(doc, value, instance, path).is_ok();
+        path.quiet = outer;
+        if matched {
+            fail(path, || "matches a schema it must not match".to_owned())
+        } else {
+            Ok(())
         }
     }
 
-    fn reference(
+    fn reference<'i>(
         &self,
         doc: &str,
         value: &Value,
-        instance: &Value,
-        pointer: &mut String,
+        instance: &'i Value,
+        path: &mut Path<'i>,
     ) -> Result<(), Violation> {
         let reference = value.as_str().unwrap_or_default();
-        let (target_doc, target) = self.resolve(doc, reference).ok_or_else(|| Violation {
-            pointer: pointer.clone(),
-            message: format!("unresolvable $ref {reference}"),
-        })?;
-        self.check(&target_doc, target, instance, pointer)
+        let Some((target_doc, target)) = self.resolve(doc, reference) else {
+            return Err(Violation {
+                pointer: pointer(&path.steps),
+                message: format!("unresolvable $ref {reference}"),
+            });
+        };
+        self.check(target_doc, target, instance, path)
     }
 
-    fn object(
+    fn object<'i>(
         &self,
         doc: &str,
         keyword: &str,
         value: &Value,
         siblings: &serde_json::Map<String, Value>,
-        instance: &Value,
-        pointer: &mut String,
+        instance: &'i Value,
+        path: &mut Path<'i>,
     ) -> Result<(), Violation> {
         let Value::Object(fields) = instance else {
             return Ok(());
@@ -476,7 +535,7 @@ impl Validation<'_> {
                     .filter_map(Value::as_str)
                 {
                     if !fields.contains_key(name) {
-                        return fail(pointer, format!("missing required property {name}"));
+                        return fail(path, || format!("missing required property {name}"));
                     }
                 }
                 Ok(())
@@ -487,22 +546,23 @@ impl Validation<'_> {
                 };
                 for (name, child) in fields {
                     if let Some(schema) = properties.get(name) {
-                        self.child(doc, schema, child, pointer, name)?;
+                        self.child(doc, schema, child, path, Step::Key(name))?;
                     }
                 }
                 Ok(())
             }
             _ => {
                 let declared = siblings.get("properties").and_then(Value::as_object);
+                let nothing = allows_nothing(value);
                 for (name, child) in fields {
                     if declared.is_none_or(|properties| !properties.contains_key(name)) {
-                        let mut at = pointer.clone();
-                        at.push('/');
-                        at.push_str(&escape_token(name));
-                        if value == &serde_json::json!({ "not": {} }) {
-                            return fail(&at, format!("property {name} is not allowed"));
+                        if nothing {
+                            path.steps.push(Step::Key(name));
+                            let result = fail(path, || format!("property {name} is not allowed"));
+                            path.steps.pop();
+                            return result;
                         }
-                        self.check(doc, value, child, &mut at)?;
+                        self.child(doc, value, child, path, Step::Key(name))?;
                     }
                 }
                 Ok(())
@@ -510,34 +570,32 @@ impl Validation<'_> {
         }
     }
 
-    fn child(
+    fn child<'i>(
         &self,
         doc: &str,
         schema: &Value,
-        instance: &Value,
-        pointer: &mut String,
-        token: &str,
+        instance: &'i Value,
+        path: &mut Path<'i>,
+        step: Step<'i>,
     ) -> Result<(), Violation> {
-        let length = pointer.len();
-        pointer.push('/');
-        pointer.push_str(&escape_token(token));
-        let result = self.check(doc, schema, instance, pointer);
-        pointer.truncate(length);
+        path.steps.push(step);
+        let result = self.check(doc, schema, instance, path);
+        path.steps.pop();
         result
     }
 
-    fn items(
+    fn items<'i>(
         &self,
         doc: &str,
         value: &Value,
-        instance: &Value,
-        pointer: &mut String,
+        instance: &'i Value,
+        path: &mut Path<'i>,
     ) -> Result<(), Violation> {
         let Value::Array(items) = instance else {
             return Ok(());
         };
         for (index, item) in items.iter().enumerate() {
-            self.child(doc, value, item, pointer, &index.to_string())?;
+            self.child(doc, value, item, path, Step::Index(index))?;
         }
         Ok(())
     }
@@ -547,7 +605,7 @@ impl Validation<'_> {
         keyword: &str,
         value: &Value,
         instance: &Value,
-        pointer: &str,
+        path: &Path<'_>,
     ) -> Result<(), Violation> {
         let Value::String(text) = instance else {
             return Ok(());
@@ -556,51 +614,54 @@ impl Validation<'_> {
             let bound = value.as_u64().unwrap_or(0);
             let length = u64::try_from(text.chars().count()).unwrap_or(u64::MAX);
             if keyword == "minLength" && length < bound {
-                return fail(pointer, format!("is shorter than {bound} characters"));
+                return fail(path, || format!("is shorter than {bound} characters"));
             }
             if keyword == "maxLength" && length > bound {
-                return fail(pointer, format!("is longer than {bound} characters"));
+                return fail(path, || format!("is longer than {bound} characters"));
             }
             return Ok(());
         }
         let pattern = value.as_str().unwrap_or_default();
         match self.registry.patterns.get(pattern) {
             Some(regex) if regex.is_match(text) => Ok(()),
-            Some(_) => fail(pointer, format!("does not match the pattern {pattern}")),
-            None => fail(pointer, format!("unknown pattern {pattern}")),
+            Some(_) => fail(path, || format!("does not match the pattern {pattern}")),
+            None => fail(path, || format!("unknown pattern {pattern}")),
         }
     }
 
-    fn combination(
+    fn combination<'i>(
         &self,
         doc: &str,
         keyword: &str,
         value: &Value,
-        instance: &Value,
-        pointer: &str,
+        instance: &'i Value,
+        path: &mut Path<'i>,
     ) -> Result<(), Violation> {
         let branches = value.as_array().map(Vec::as_slice).unwrap_or_default();
         let mut matched = 0usize;
         let mut first_error = None;
+        // A lone branch's own error is the one reported, so only a choice
+        // between branches runs quietly.
+        let outer = path.quiet;
+        path.quiet |= branches.len() > 1;
         for branch in branches {
-            let mut scratch = pointer.to_owned();
-            match self.check(doc, branch, instance, &mut scratch) {
+            match self.check(doc, branch, instance, path) {
                 Ok(()) => matched += 1,
                 Err(error) => {
                     first_error.get_or_insert(error);
                 }
             }
         }
+        path.quiet = outer;
         match (keyword, matched) {
             ("anyOf", 0) | ("oneOf", 0) => match first_error {
                 Some(error) if branches.len() == 1 => Err(error),
-                _ => fail(pointer, format!("matches none of the {keyword} branches")),
+                _ => fail(path, || format!("matches none of the {keyword} branches")),
             },
             ("oneOf", 1) | ("anyOf", _) => Ok(()),
-            _ => fail(
-                pointer,
-                format!("matches {matched} oneOf branches, not one"),
-            ),
+            _ => fail(path, || {
+                format!("matches {matched} oneOf branches, not one")
+            }),
         }
     }
 }
@@ -610,29 +671,26 @@ fn assertion(
     keyword: &str,
     value: &Value,
     instance: &Value,
-    pointer: &str,
+    path: &Path<'_>,
 ) -> Result<(), Violation> {
     match keyword {
-        "type" => check_type(value, instance, pointer),
+        "type" => check_type(value, instance, path),
         "const" if !json_equal(value, instance) => {
-            fail(pointer, format!("must be the constant {value}"))
+            fail(path, || format!("must be the constant {value}"))
         }
         "const" => Ok(()),
-        "enum" => check_enum(value, instance, pointer),
-        "minItems" | "maxItems" | "uniqueItems" => {
-            check_array_size(keyword, value, instance, pointer)
-        }
+        "enum" => check_enum(value, instance, path),
+        "minItems" | "maxItems" | "uniqueItems" => check_array_size(keyword, value, instance, path),
         "minimum" | "maximum" | "exclusiveMinimum" | "exclusiveMaximum" => {
-            check_bound(keyword, value, instance, pointer)
+            check_bound(keyword, value, instance, path)
         }
-        other => fail(
-            pointer,
-            format!("the validator does not know keyword {other}"),
-        ),
+        other => fail(path, || {
+            format!("the validator does not know keyword {other}")
+        }),
     }
 }
 
-fn check_type(value: &Value, instance: &Value, pointer: &str) -> Result<(), Violation> {
+fn check_type(value: &Value, instance: &Value, path: &Path<'_>) -> Result<(), Violation> {
     let accepted = match value {
         Value::String(name) => type_matches(name, instance),
         Value::Array(names) => names
@@ -644,11 +702,11 @@ fn check_type(value: &Value, instance: &Value, pointer: &str) -> Result<(), Viol
     if accepted {
         Ok(())
     } else {
-        fail(pointer, format!("must be of type {value}"))
+        fail(path, || format!("must be of type {value}"))
     }
 }
 
-fn check_enum(value: &Value, instance: &Value, pointer: &str) -> Result<(), Violation> {
+fn check_enum(value: &Value, instance: &Value, path: &Path<'_>) -> Result<(), Violation> {
     let allowed = value.as_array().map(Vec::as_slice).unwrap_or_default();
     if allowed
         .iter()
@@ -656,7 +714,7 @@ fn check_enum(value: &Value, instance: &Value, pointer: &str) -> Result<(), Viol
     {
         Ok(())
     } else {
-        fail(pointer, format!("must be one of {value}"))
+        fail(path, || format!("must be one of {value}"))
     }
 }
 
@@ -664,7 +722,7 @@ fn check_array_size(
     keyword: &str,
     value: &Value,
     instance: &Value,
-    pointer: &str,
+    path: &Path<'_>,
 ) -> Result<(), Violation> {
     let Value::Array(items) = instance else {
         return Ok(());
@@ -672,10 +730,10 @@ fn check_array_size(
     let count = u64::try_from(items.len()).unwrap_or(u64::MAX);
     match keyword {
         "minItems" if count < value.as_u64().unwrap_or(0) => {
-            fail(pointer, format!("has fewer than {value} items"))
+            fail(path, || format!("has fewer than {value} items"))
         }
         "maxItems" if count > value.as_u64().unwrap_or(u64::MAX) => {
-            fail(pointer, format!("has more than {value} items"))
+            fail(path, || format!("has more than {value} items"))
         }
         "uniqueItems" if value.as_bool() == Some(true) => {
             for (index, item) in items.iter().enumerate() {
@@ -683,7 +741,7 @@ fn check_array_size(
                     .iter()
                     .any(|earlier| json_equal(earlier, item))
                 {
-                    return fail(pointer, format!("item {index} repeats an earlier item"));
+                    return fail(path, || format!("item {index} repeats an earlier item"));
                 }
             }
             Ok(())
@@ -696,7 +754,7 @@ fn check_bound(
     keyword: &str,
     value: &Value,
     instance: &Value,
-    pointer: &str,
+    path: &Path<'_>,
 ) -> Result<(), Violation> {
     let (Some(number), Some(bound)) = (instance.as_f64(), value.as_f64()) else {
         return Ok(());
@@ -710,7 +768,7 @@ fn check_bound(
     if inside {
         Ok(())
     } else {
-        fail(pointer, format!("must be {keyword} {value}"))
+        fail(path, || format!("must be {keyword} {value}"))
     }
 }
 
@@ -754,11 +812,63 @@ mod tests {
     #[test]
     fn exclusive_bounds_refuse_the_bound_itself() {
         let schema = json!(0);
-        assert!(check_bound("exclusiveMinimum", &schema, &json!(0.5), "/x").is_ok());
-        assert!(check_bound("exclusiveMinimum", &schema, &json!(0), "/x").is_err());
-        assert!(check_bound("minimum", &schema, &json!(0), "/x").is_ok());
-        assert!(check_bound("exclusiveMaximum", &schema, &json!(0), "/x").is_err());
-        assert!(check_bound("exclusiveMaximum", &schema, &json!(-1), "/x").is_ok());
+        let at = Path {
+            steps: vec![Step::Key("x")],
+            quiet: false,
+        };
+        assert!(check_bound("exclusiveMinimum", &schema, &json!(0.5), &at).is_ok());
+        assert!(check_bound("exclusiveMinimum", &schema, &json!(0), &at).is_err());
+        assert!(check_bound("minimum", &schema, &json!(0), &at).is_ok());
+        assert!(check_bound("exclusiveMaximum", &schema, &json!(0), &at).is_err());
+        assert!(check_bound("exclusiveMaximum", &schema, &json!(-1), &at).is_ok());
+        assert_eq!(
+            check_bound("minimum", &schema, &json!(-1), &at)
+                .unwrap_err()
+                .message,
+            "/x: must be minimum 0"
+        );
+    }
+
+    /// A failed branch of a choice is an answer, not a report: it builds no
+    /// message, and the reported violation is the same as before.
+    #[test]
+    fn choices_report_as_before() {
+        let registry = Registry {
+            documents: BTreeMap::from([(
+                "urn:test".to_owned(),
+                json!({
+                    "properties": {
+                        "pick": { "oneOf": [{ "const": 1 }, { "type": "string", "pattern": "^a" }] },
+                        "lone": { "anyOf": [{ "type": "integer" }] },
+                        "never": { "not": { "type": "integer" } }
+                    }
+                }),
+            )]),
+            patterns: BTreeMap::from([("^a".to_owned(), Regex::new("^a").unwrap())]),
+        };
+        let check = |instance: Value| {
+            let mut path = Path {
+                steps: Vec::new(),
+                quiet: false,
+            };
+            Validation {
+                registry: &registry,
+            }
+            .check(
+                "urn:test",
+                &registry.documents["urn:test"],
+                &instance,
+                &mut path,
+            )
+        };
+        assert!(check(json!({ "pick": "abc", "lone": 2, "never": "x" })).is_ok());
+        let error = check(json!({ "pick": "zzz" })).unwrap_err();
+        assert_eq!(error.pointer, "/pick");
+        assert_eq!(error.message, "/pick: matches none of the oneOf branches");
+        let error = check(json!({ "lone": "x" })).unwrap_err();
+        assert_eq!(error.message, "/lone: must be of type \"integer\"");
+        let error = check(json!({ "never": 3 })).unwrap_err();
+        assert_eq!(error.message, "/never: matches a schema it must not match");
     }
 
     #[test]
