@@ -36,6 +36,10 @@ PROJECT_JSON = "projections/project.json"
 _SOURCE_PREFIX = "sources/"
 #: The ``drawing-sheet`` settings, in the precedence today's route reads them.
 _SHEET_FIELDS = ("/schematic/page_layout_descr_file", "/pcbnew/page_layout_descr_file")
+#: The most sheet text one ``subsheets`` answer inlines (``include=content``).
+#: A larger hierarchy leaves the sheets past it to per-file reads, so one
+#: response never grows without bound.
+MAX_INLINE_SUBSHEET_CONTENT_BYTES = 64 * 1024 * 1024
 
 
 @dataclass(frozen=True)
@@ -138,7 +142,13 @@ def pcb(read: BundleRead) -> SourceFile | None:
     return source(read, str(board)) if board else None
 
 
-def subsheets(read: BundleRead, project_id: str, commit: str | None) -> list[dict[str, str]] | None:
+def subsheets(
+    read: BundleRead,
+    project_id: str,
+    commit: str | None,
+    *,
+    include_content: bool = False,
+) -> list[dict[str, str]] | None:
     """The route's ``files`` list: each schematic of the hierarchy below the root.
 
     ``documents`` holds every schematic the build reached from the root, so this
@@ -147,6 +157,11 @@ def subsheets(read: BundleRead, project_id: str, commit: str | None) -> list[dic
     root's siblings) or its configured subsheets directory, which is what the
     legacy scan reads; a detached schematic the build did not reach is not a
     bundle source and is a documented divergence (field-maps/project.md D5).
+
+    ``include_content`` also carries each sheet's text, read from the same open
+    bundle as the list itself, so a hierarchy costs one revision resolution.
+    Past :data:`MAX_INLINE_SUBSHEET_CONTENT_BYTES` the remaining entries omit
+    ``content`` and the client reads those files one by one.
     """
 
     config = effective_config(read)
@@ -158,14 +173,28 @@ def subsheets(read: BundleRead, project_id: str, commit: str | None) -> list[dic
     if not root or not available(read, str(root)):
         return None
     document = read.json(PROJECT_JSON)
-    names = sorted(
-        project_relative(config, str(entry["path"]))
+    names = [
+        (project_relative(config, str(entry["path"])), str(entry["path"]))
         for entry in document.get("documents", ())
         if entry.get("kind") == "schematic"
         and entry.get("path") != root
         and _within_project(config, str(entry["path"]))
-    )
-    return [_asset_url(project_id, commit, name) for name in names]
+    ]
+    files: list[dict[str, str]] = []
+    remaining = MAX_INLINE_SUBSHEET_CONTENT_BYTES
+    exhausted = False
+    for name, repo_path in sorted(names, key=lambda entry: entry[0]):
+        item = _asset_url(project_id, commit, name)
+        if include_content and not exhausted:
+            member = source(read, repo_path)
+            if member is not None:
+                if len(member.content) <= remaining:
+                    item["content"] = member.content.decode("utf-8", errors="replace")
+                    remaining -= len(member.content)
+                else:
+                    exhausted = True
+        files.append(item)
+    return files
 
 
 def _asset_url(project_id: str, commit: str | None, name: str) -> dict[str, str]:

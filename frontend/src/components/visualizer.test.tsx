@@ -118,6 +118,57 @@ describe("Visualizer through the ecad-viewer adapter", () => {
         expect(sch.appendSources).not.toHaveBeenCalled();
     });
 
+    it("uses each inlined subsheet's content without a per-sheet read", async () => {
+        const sub = { filename: "Subsheets/power.kicad_sch", content: "(kicad_sch power)" };
+        const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+            const url = String(input);
+            const path = new URL(url, "http://prism.test").pathname;
+            if (path.endsWith("/schematic/subsheets")) {
+                return json({ files: [{ name: sub.filename, url: "/files/Subsheets/power.kicad_sch", content: sub.content }] });
+            }
+            if (path.endsWith("/files/Subsheets/power.kicad_sch")) return new Response("unexpected read", { status: 500 });
+            return serve(url);
+        });
+        vi.stubGlobal("fetch", fetchMock);
+        renderVisualizer();
+        await waitFor(() => expect(viewers()).toHaveLength(1));
+        const [sch] = viewers();
+        await waitFor(() => expect(sch.replaceSources).toHaveBeenCalledWith({
+            revisionKey: "schematic:p1:latest",
+            sources: [{ filename: "root.kicad_sch", content: "(kicad_sch root)" }, sub],
+        }));
+        expect(fetchMock.mock.calls.some(([input]) =>
+            String(input).endsWith("/files/Subsheets/power.kicad_sch"),
+        )).toBe(false);
+    });
+
+    it("reads only the subsheets the hierarchy did not inline", async () => {
+        const inline = { filename: "Subsheets/filter.kicad_sch", content: "(kicad_sch filter)" };
+        const fetched = { filename: "Subsheets/power.kicad_sch", content: "(kicad_sch power)" };
+        const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+            const url = String(input);
+            const path = new URL(url, "http://prism.test").pathname;
+            if (path.endsWith("/schematic/subsheets")) {
+                return json({ files: [
+                    { name: inline.filename, url: "/files/Subsheets/filter.kicad_sch", content: inline.content },
+                    { name: fetched.filename, url: "/files/Subsheets/power.kicad_sch" },
+                ] });
+            }
+            if (path.endsWith("/files/Subsheets/power.kicad_sch")) return new Response(fetched.content);
+            return serve(url);
+        });
+        vi.stubGlobal("fetch", fetchMock);
+        renderVisualizer();
+        await waitFor(() => expect(viewers()).toHaveLength(1));
+        const [sch] = viewers();
+        await waitFor(() => expect(sch.replaceSources).toHaveBeenCalledWith({
+            revisionKey: "schematic:p1:latest",
+            sources: [{ filename: "root.kicad_sch", content: "(kicad_sch root)" }, inline, fetched],
+        }));
+        expect(fetchMock.mock.calls.map(([input]) => String(input)).filter((url) => url.includes("/files/")))
+            .toEqual([expect.stringContaining("/files/Subsheets/power.kicad_sch")]);
+    });
+
     it("mounts the board when schematic insets turn on", async () => {
         renderVisualizer();
         await waitFor(() => expect(viewers()).toHaveLength(1));
