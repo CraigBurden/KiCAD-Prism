@@ -555,6 +555,26 @@ class ReadinessTests(unittest.TestCase):
             "prj-1", SHA, queue=True, requested_by="release-studio"
         )
 
+    def test_a_build_that_failed_after_parse_is_permanent_not_pending(self) -> None:
+        # The parse archive survives a failed board build; its later stages
+        # stay pending, but no job will finish them.
+        manifest = _manifest()
+        for stage in ("board", "models"):
+            manifest["stages"][stage]["status"] = "pending"
+        for opened in (
+            _Opened(manifest=manifest, project=_project_document(), failure="zone refill failed"),
+            _Opened(
+                manifest=_manifest(),
+                states={bundle_design.MODELS_MEMBER: "pending"},
+                project=_project_document(),
+                failure="glb export failed",
+            ),
+        ):
+            with self.subTest(failure=opened.failure):
+                with self.assertRaises(bundle_errors.BundleFailed) as caught:
+                    self._read(opened)
+                self.assertEqual(str(caught.exception), opened.failure)
+
     def test_a_failed_stage_is_permanent(self) -> None:
         manifest = _manifest()
         manifest["stages"]["models"] = {

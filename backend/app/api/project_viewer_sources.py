@@ -60,12 +60,14 @@ class _BundleCommitFile:
     def __init__(self, source: viewer_sources_bundle.SourceFile, cached: Optional[Path] = None) -> None:
         self.name = source.name
         self.path = source.repo_path
-        self.content = source.content
+        self.size = source.size
+        self._source = source
         self._cached = cached
 
     @property
-    def size(self) -> int:
-        return len(self.content)
+    def content(self) -> bytes:
+        # Read only for a file served inline; a large one is served from ``cached``.
+        return self._source.content
 
     def cached_path(self) -> Path:
         if self._cached is None:
@@ -84,7 +86,7 @@ def _bundle_commit_response(
 
     merged = {**read.response_headers(), **(headers or {})}
     cached = None
-    if len(source.content) > COMMIT_FILE_STREAM_BYTES:
+    if source.size > COMMIT_FILE_STREAM_BYTES:
         member = f"sources/{source.repo_path}"
         cached = read.extract([member]) / member
     return _commit_file_response(_BundleCommitFile(source, cached), inline=inline, headers=merged or None)

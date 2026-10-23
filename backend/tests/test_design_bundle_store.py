@@ -205,6 +205,27 @@ class StoreTests(unittest.TestCase):
         with self.assertRaises(BundleInvalid):
             store.extract(archive, "proj-1", RK, self.digest, ["projections/stackup.json"])
 
+    def test_an_opened_archive_reads_its_own_version_after_a_stage_replaces_the_file(self) -> None:
+        # A later stage rewrites the archive by rename: a reader that opened the
+        # earlier version keeps reading it, member offsets and all.
+        before = store.open_bundle("proj-1", RK, self.digest, self.manifest["bundle_key"])
+        members = {**self.members, "sources/a.kicad_sch": b"(kicad_sch)\n" * 200}
+        manifest = _manifest(members)
+        replacement = _write(self.path.with_name("next.prism"), manifest, members)
+        os.replace(replacement, self.path)
+
+        for path in ("projections/semantic-index.json", "projections/stackup.json"):
+            self.assertEqual(before.read(path), self.members[path])
+        base = store.extract(before, "proj-1", RK, self.digest, ["projections/stackup.json", "sources/"])
+        self.assertEqual(base.name, before.manifest_sha256)
+        self.assertFalse((base / "sources/a.kicad_sch").exists())
+        self.assertEqual((base / "projections/stackup.json").read_bytes(), self.members["projections/stackup.json"])
+
+        after = store.open_bundle("proj-1", RK, self.digest, manifest["bundle_key"])
+        self.assertNotEqual(after.manifest_sha256, before.manifest_sha256)
+        self.assertEqual(after.read("sources/a.kicad_sch"), members["sources/a.kicad_sch"])
+        self.assertTrue(self.path.is_file())  # the newer archive is never deleted for the older reader
+
     def test_a_matching_marker_skips_step_7_but_step_6_still_fails_on_a_changed_member(self) -> None:
         archive = store.open_bundle("proj-1", RK, self.digest, self.manifest["bundle_key"])
         self.assertFalse(archive.verified)

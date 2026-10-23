@@ -8,7 +8,8 @@ for every route (ADR §8, §9.7 R1):
 
 - a member is not ready yet (``pending`` or ``unavailable``): the
   ``design_bundle`` job is queued, deduplicated on the bundle key, and
-  :class:`DesignDataPending` is raised (HTTP 202);
+  :class:`DesignDataPending` is raised (HTTP 202) -- unless the build ended
+  in a failure no retry is answering, which raises :class:`DesignDataFailed`;
 - a member failed, the project is absent at that revision, or the bundle could
   not be opened: :class:`DesignDataFailed` is raised (HTTP 422).
 
@@ -68,6 +69,14 @@ class BundleRead:
     def bytes(self, path: str) -> bytes:
         return self.opened.read(path)
 
+    def size(self, path: str) -> int:
+        """A ready member's size, from the verified manifest: nothing is inflated."""
+
+        member = self.opened.archive.member(path) if self.opened.archive is not None else None
+        if member is None:
+            raise KeyError(path)
+        return int(member["bytes"])
+
     def extract(self, paths: Iterable[str]) -> Path:
         """Ready members as files in the verified version directory (§8)."""
 
@@ -115,6 +124,11 @@ def bundle_read(
     opened, states = _open(project_id, commit, wanted, requested_by)
     waiting = [path for path, answer in states.items() if answer.state in ("pending", "unavailable")]
     if waiting:
+        # The reader records a failure only when the build ended and no job
+        # (or retry) is under way: nothing will make these members ready.
+        failure = getattr(opened, "failure", None)
+        if failure:
+            raise DesignDataFailed(waiting, failure)
         raise DesignDataPending(waiting, "building" if getattr(opened, "job_active", False) else "queued")
     failed = {path: answer.detail for path, answer in states.items() if answer.state == "failed"}
     if failed:

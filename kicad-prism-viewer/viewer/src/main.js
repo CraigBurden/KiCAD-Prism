@@ -740,7 +740,15 @@ async function openAnalyticSource(b, token, performanceTimings) {
     pool?.close();
     return false;
   }
-  b.analyticSource = { bytes, pack, stackup, pool };
+  // Freed by whichever of attach, unmount or a failed load gets there first.
+  const free = pack.free.bind(pack);
+  let freed = false;
+  pack.free = () => {
+    if (freed) return;
+    freed = true;
+    free();
+  };
+  b.analyticSource = { bytes, pack, stackup, pool, attaching: false };
   b.scene.manifest = analyticSceneManifest(pack.header, stackup);
   return true;
 }
@@ -771,12 +779,26 @@ async function loadAnalyticBoard(token, b, performanceTimings) {
     pool: source.pool,
   };
   const started = performance.now();
-  const full = await attachAnalyticPack(common);
-  // The host worker stays for the pack; the rest of the pool goes once its cache writes are done.
+  let full;
+  source.attaching = true;
+  try {
+    full = await attachAnalyticPack(common);
+  } catch (error) {
+    source.attaching = false;
+    disposeAnalyticSource(b, source);
+    throw error;
+  }
+  source.attaching = false;
+  // The host worker stays for the pack; the rest of the pool goes once its
+  // cache writes have settled, written or not.
   const pool = source.pool;
-  if (pool && full.pack.hosted) void full.cacheWrites.then(() => pool.release());
-  else pool?.close();
+  if (pool && full.pack.hosted) {
+    const release = () => pool.release();
+    void full.cacheWrites.then(release, release);
+  } else pool?.close();
   source.pool = null;
+  // Attached: the pack is the board's now, and the fetched bytes are not needed.
+  if (b.analyticSource === source) b.analyticSource = null;
   if (generation !== b.analyticGeneration || !viewerSessionActive(token) || !b.renderer) {
     full.analytic.destroy();
     full.pack.free();
@@ -789,7 +811,22 @@ async function loadAnalyticBoard(token, b, performanceTimings) {
   return runtimeBoundsFromGltf(b.scene.manifest.bbox);
 }
 
+/**
+ * Free a pack that was opened but never attached (a failed or abandoned load).
+ * An attach under way keeps its workers: it frees the pack itself when it
+ * finds its board gone.
+ */
+function disposeAnalyticSource(b = board, source = b.analyticSource) {
+  if (!source) return;
+  if (b.analyticSource === source) b.analyticSource = null;
+  if (source.attaching) return;
+  source.pool?.close();
+  source.pool = null;
+  source.pack?.free();
+}
+
 function releaseAnalytic(b = board) {
+  disposeAnalyticSource(b);
   b.renderer?.relief?.destroy();
   if (b.renderer) b.renderer.relief = null;
   b.renderer?.setAnalytic(null);

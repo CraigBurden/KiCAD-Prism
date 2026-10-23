@@ -10,6 +10,7 @@ one when the archive is missing or pending, deduplicated on the bundle key.
 from __future__ import annotations
 
 import json
+import logging
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Iterable, Mapping
@@ -17,6 +18,8 @@ from typing import Any, Iterable, Mapping
 from app.services.design_bundle import cli, jobs, reuse, rows, store
 from app.services.design_bundle.archive import Archive
 from app.services.design_bundle.manifest import Readiness, readiness
+
+logger = logging.getLogger(__name__)
 
 _ACTIVE = ("queued", "running", "retry_wait", "cancel_requested")
 

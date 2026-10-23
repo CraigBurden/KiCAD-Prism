@@ -11,14 +11,23 @@ size is bounded before anything is inflated (ADR §11 G8).
 :class:`BundleInvalid` with the CLI's finding code. An archive that the store
 has had ``bundle verify`` accept (amendment C2r §2 item 9) carries
 ``verified=True`` and its reads run step 6 only.
+
+An :class:`Archive` is a snapshot: it keeps the file it validated open and
+reads members from that file, never from the path again. Each build stage
+replaces the archive by rename, so a reader that reopened the path between its
+open and a member read would decode the new archive's bytes with the old
+archive's offsets.
 """
 
 from __future__ import annotations
 
 import hashlib
 import json
+import os
 import struct
+import threading
 import unicodedata
+import weakref
 import zlib
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -110,9 +119,34 @@ def parse_json_member(data: bytes, path: str, limits: Limits = Limits()) -> Any:
     return value
 
 
+class _Snapshot:
+    """One open archive file, read by position so concurrent readers share it.
+
+    The file object closes when the last :class:`Archive` holding it is gone.
+    """
+
+    def __init__(self, path: Path) -> None:
+        self._file = path.open("rb")
+        self._lock = threading.Lock()
+        self._close = weakref.finalize(self, self._file.close)
+
+    def size(self) -> int:
+        return os.fstat(self._file.fileno()).st_size
+
+    def read_at(self, offset: int, length: int) -> bytes:
+        if hasattr(os, "pread"):
+            return os.pread(self._file.fileno(), length, offset)
+        with self._lock:
+            self._file.seek(offset)
+            return self._file.read(length)
+
+    def close(self) -> None:
+        self._close()
+
+
 @dataclass
 class Archive:
-    """One opened archive version: its manifest and entry table, from one open file."""
+    """One opened archive version: its manifest and entry table, read from the one file they came from."""
 
     path: Path
     manifest: dict[str, Any]
@@ -120,6 +154,7 @@ class Archive:
     entries: dict[str, Entry]
     limits: Limits = field(default_factory=Limits)
     verified: bool = False
+    snapshot: _Snapshot | None = field(default=None, repr=False, compare=False)
 
     @property
     def manifest_sha256(self) -> str:
@@ -138,8 +173,7 @@ class Archive:
         member = self.member(path)
         if member is None:
             raise BundleInvalid("member-missing", f"{path} is not a member", path)
-        with self.path.open("rb") as handle:
-            data = b"".join(_inflate(handle, self.entries[path], path))
+        data = b"".join(_inflate(self._snapshot(), self.entries[path], path))
         if hashlib.sha256(data).hexdigest() != member["sha256"]:
             raise BundleInvalid("member-digest-mismatch", f"{path} does not match its sha256", path)
         if structured and not self.verified:
@@ -153,33 +187,48 @@ class Archive:
         if member is None:
             raise BundleInvalid("member-missing", f"{path} is not a member", path)
         digest = hashlib.sha256()
-        with self.path.open("rb") as handle:
-            for chunk in _inflate(handle, self.entries[path], path):
-                digest.update(chunk)
-                sink.write(chunk)
+        for chunk in _inflate(self._snapshot(), self.entries[path], path):
+            digest.update(chunk)
+            sink.write(chunk)
         if digest.hexdigest() != member["sha256"]:
             raise BundleInvalid("member-digest-mismatch", f"{path} does not match its sha256", path)
 
+    def _snapshot(self) -> _Snapshot:
+        if self.snapshot is None:
+            raise BundleInvalid("bundle-invalid", f"{self.path} was not opened by open_archive")
+        return self.snapshot
 
-def _inflate(handle: BinaryIO, entry: Entry, path: str) -> Iterator[bytes]:
-    handle.seek(entry.data_offset)
-    remaining, produced, crc = entry.compressed, 0, 0
+
+def _inflate(source: _Snapshot, entry: Entry, path: str) -> Iterator[bytes]:
+    """The member's bytes, at most a MiB of input or output at a time."""
+
+    position, end, produced, crc = entry.data_offset, entry.data_offset + entry.compressed, 0, 0
     inflater = zlib.decompressobj(-15) if entry.method == 8 else None
-    while remaining:
-        raw = handle.read(min(remaining, _MIB))
+    while position < end:
+        raw = source.read_at(position, min(end - position, _MIB))
         if not raw:
             raise BundleInvalid("zip-malformed", f"{path} is truncated", path)
-        remaining -= len(raw)
-        chunk = raw if inflater is None else inflater.decompress(raw, entry.size - produced + 1)
-        if inflater is not None and inflater.unconsumed_tail:
-            raise BundleInvalid("zip-size-mismatch", f"{path} inflates past its declared size", path)
-        produced += len(chunk)
-        if produced > entry.size:
-            raise BundleInvalid("zip-size-mismatch", f"{path} inflates past its declared size", path)
-        crc = zlib.crc32(chunk, crc)
-        yield chunk
+        position += len(raw)
+        while raw:
+            if inflater is None:
+                chunk, raw = raw, b""
+            else:
+                try:
+                    chunk = inflater.decompress(raw, _MIB)
+                except zlib.error as error:
+                    raise BundleInvalid("zip-malformed", f"{path} does not inflate: {error}", path) from None
+                raw = inflater.unconsumed_tail
+            produced += len(chunk)
+            if produced > entry.size:
+                raise BundleInvalid("zip-size-mismatch", f"{path} inflates past its declared size", path)
+            crc = zlib.crc32(chunk, crc)
+            if chunk:
+                yield chunk
     if inflater is not None:
-        tail = inflater.flush()
+        try:
+            tail = inflater.flush()
+        except zlib.error as error:
+            raise BundleInvalid("zip-malformed", f"{path} does not inflate: {error}", path) from None
         produced += len(tail)
         crc = zlib.crc32(tail, crc)
         if tail:
@@ -218,30 +267,38 @@ def check_structured(member: Mapping[str, Any], data: bytes, manifest: Mapping[s
 def open_archive(path: Path, *, expected_bundle_key: str | None = None, limits: Limits = Limits()) -> Archive:
     """Steps 1-5. Raises :class:`BundleInvalid`; the caller treats it like a missing archive."""
 
-    with path.open("rb") as handle:
-        size = handle.seek(0, 2)
-        if size > limits.max_archive_bytes:
-            raise BundleInvalid("limit-exceeded", f"the archive is {size} bytes")
-        if size < _EOCD.size:
-            raise BundleInvalid("zip-malformed", "no end of central directory record")
-        handle.seek(size - _EOCD.size)
-        signature, disk, cd_disk, here, total, cd_size, cd_offset, comment = _EOCD.unpack(handle.read(_EOCD.size))
-        if signature != 0x06054B50 or comment:
-            raise BundleInvalid("zip-malformed", "the end record is not the last 22 bytes")
-        if disk or cd_disk or here != total or 0xFFFF in (here, total) or 0xFFFFFFFF in (cd_size, cd_offset):
-            raise BundleInvalid("zip-unsupported", "multi-disk or zip64 archive")
-        if total > limits.max_archive_members:
-            raise BundleInvalid("limit-exceeded", f"{total} entries")
-        if cd_offset + cd_size != size - _EOCD.size:
-            raise BundleInvalid("zip-malformed", "the central directory does not end at the end record")
-        handle.seek(cd_offset)
-        central = handle.read(cd_size)
-        entries = _central_entries(central, total, limits)
-        _check_local_headers(handle, entries, cd_offset)
-        ordered = list(entries.values())
-        if not ordered or ordered[0].name != MANIFEST:
-            raise BundleInvalid("zip-malformed", "bundle.json is not the first entry")
-        manifest_bytes = b"".join(_inflate(handle, ordered[0], MANIFEST))
+    snapshot = _Snapshot(path)
+    try:
+        return _open_snapshot(snapshot, path, expected_bundle_key, limits)
+    except BaseException:
+        snapshot.close()
+        raise
+
+
+def _open_snapshot(snapshot: _Snapshot, path: Path, expected_bundle_key: str | None, limits: Limits) -> Archive:
+    size = snapshot.size()
+    if size > limits.max_archive_bytes:
+        raise BundleInvalid("limit-exceeded", f"the archive is {size} bytes")
+    if size < _EOCD.size:
+        raise BundleInvalid("zip-malformed", "no end of central directory record")
+    signature, disk, cd_disk, here, total, cd_size, cd_offset, comment = _EOCD.unpack(
+        snapshot.read_at(size - _EOCD.size, _EOCD.size)
+    )
+    if signature != 0x06054B50 or comment:
+        raise BundleInvalid("zip-malformed", "the end record is not the last 22 bytes")
+    if disk or cd_disk or here != total or 0xFFFF in (here, total) or 0xFFFFFFFF in (cd_size, cd_offset):
+        raise BundleInvalid("zip-unsupported", "multi-disk or zip64 archive")
+    if total > limits.max_archive_members:
+        raise BundleInvalid("limit-exceeded", f"{total} entries")
+    if cd_offset + cd_size != size - _EOCD.size:
+        raise BundleInvalid("zip-malformed", "the central directory does not end at the end record")
+    central = snapshot.read_at(cd_offset, cd_size)
+    entries = _central_entries(central, total, limits)
+    _check_local_headers(snapshot, entries, cd_offset)
+    ordered = list(entries.values())
+    if not ordered or ordered[0].name != MANIFEST:
+        raise BundleInvalid("zip-malformed", "bundle.json is not the first entry")
+    manifest_bytes = b"".join(_inflate(snapshot, ordered[0], MANIFEST))
     manifest = _check_manifest(manifest_bytes, limits)
     members = manifest["members"]
     paths = [m["path"] for m in members]
@@ -257,7 +314,9 @@ def open_archive(path: Path, *, expected_bundle_key: str | None = None, limits: 
             raise BundleInvalid("member-digest-mismatch", f"{member['path']} size differs", member["path"])
     if expected_bundle_key is not None and manifest.get("bundle_key") != expected_bundle_key:
         raise BundleInvalid("bundle-invalid", "the archive is not the bundle its path names")
-    return Archive(path=path, manifest=manifest, manifest_bytes=manifest_bytes, entries=entries, limits=limits)
+    return Archive(
+        path=path, manifest=manifest, manifest_bytes=manifest_bytes, entries=entries, limits=limits, snapshot=snapshot
+    )
 
 
 def _central_entries(central: bytes, total: int, limits: Limits) -> dict[str, Entry]:
@@ -303,17 +362,16 @@ def _central_entries(central: bytes, total: int, limits: Limits) -> dict[str, En
     return entries
 
 
-def _check_local_headers(handle: BinaryIO, entries: dict[str, Entry], cd_offset: int) -> None:
+def _check_local_headers(source: _Snapshot, entries: dict[str, Entry], cd_offset: int) -> None:
     position = 0
     for name, entry in list(entries.items()):
         if entry.data_offset != position:  # holds the local header offset until fixed here
             raise BundleInvalid("zip-malformed", f"{name} does not follow the previous entry", name)
-        handle.seek(position)
-        header = handle.read(_LOCAL.size)
+        header = source.read_at(position, _LOCAL.size)
         if len(header) != _LOCAL.size:
             raise BundleInvalid("zip-malformed", f"{name}'s local header is truncated", name)
         signature, needed, flags, method, time, date, crc, compressed, size, name_length, extra = _LOCAL.unpack(header)
-        raw_name = handle.read(name_length)
+        raw_name = source.read_at(position + _LOCAL.size, name_length)
         if signature != 0x04034B50 or extra or raw_name != name.encode("utf-8"):
             raise BundleInvalid("zip-malformed", f"{name}'s local header disagrees", name)
         if (needed, flags, method, time, date, crc, compressed, size) != (
