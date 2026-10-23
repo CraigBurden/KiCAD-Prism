@@ -11,6 +11,7 @@ import unittest
 from unittest import mock
 
 from app.core.config import settings
+from app.release_studio.documents import render_cache
 from app.services.design_bundle import backfill, jobs, kicad_steps, retention, rows, store
 from support.design_bundle_fixtures import PROJECT_FILES
 from support.postgres import requires_scratch_postgres, seed_job
@@ -193,6 +194,23 @@ class RetentionTests(_Workspace, unittest.TestCase):
         self.assertEqual((report["refill_cache_bytes"], report["upgrade_cache_bytes"]), (3, 3))
         self.assertEqual(sorted(p.name for p in refill.iterdir()), ["fresh.kicad_pcb"])
         self.assertEqual(sorted(p.name for p in upgrade.iterdir()), ["fresh.kicad_sch"])
+
+    def test_the_cover_render_cache_is_swept_with_the_other_kicad_caches(self) -> None:
+        self.add_project()
+        self._bundle()
+        past = time.time() - 60 * 86400
+        root = self.tmp / "render-cache"
+        root.mkdir()
+        old, part, fresh = root / "old.png", root / ".old.png.1.part", root / "fresh.png"
+        for path in (old, part):
+            path.write_bytes(b"old")
+            os.utime(path, (past, past))
+        fresh.write_bytes(b"new")
+        with mock.patch.object(render_cache, "cache_root", return_value=root):
+            report = retention.run()
+        self.assertEqual(report["render_cache_removed"], 1)
+        self.assertEqual(report["render_cache_bytes"], 3)
+        self.assertEqual(sorted(p.name for p in root.iterdir()), ["fresh.png"])
 
     def test_superseded_generators_are_removed_when_a_new_one_is_stored(self) -> None:
         self.add_project()

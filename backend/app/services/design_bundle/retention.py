@@ -14,7 +14,8 @@ Also swept: unpacked-cache versions that are not the archive's current one
 temporary files, commit-index rows of unkept commits whose key has no
 bundle left, and the persistent KiCad caches unused for
 ``PRISM_DESIGN_BUNDLE_RETENTION_DAYS``: component GLBs of the models stage's
-export cache, refilled boards and upgraded files (their sizes are reported).
+export cache, refilled boards, upgraded files, and Release Studio's raytraced
+cover renders (their sizes are reported).
 """
 
 from __future__ import annotations
@@ -96,6 +97,13 @@ def run(*, now: datetime | None = None, connect: rows.Connect | None = None) -> 
     report["refill_cache_removed"], report["refill_cache_bytes"] = refill["removed"], refill["bytes"]
     upgrade = kicad_steps.prune_upgrade_cache(unused_before=cutoff.timestamp(), now=now.timestamp())
     report["upgrade_cache_removed"], report["upgrade_cache_bytes"] = upgrade["removed"], upgrade["bytes"]
+    # Imported here, not at module scope: this sweep belongs to Release Studio,
+    # and a design-bundle consumer that never composes documents should not load
+    # the document engine behind it.
+    from app.release_studio.documents import render_cache
+
+    renders = render_cache.prune(unused_before=cutoff.timestamp(), now=now.timestamp())
+    report["render_cache_removed"], report["render_cache_bytes"] = renders["removed"], renders["bytes"]
     return report
 
 

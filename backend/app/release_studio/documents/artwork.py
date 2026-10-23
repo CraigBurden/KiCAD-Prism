@@ -25,6 +25,7 @@ from pathlib import Path
 from typing import Any, Mapping, Sequence
 
 from app.core.config import settings
+from app.release_studio.documents import render_cache
 from app.release_studio.documents.layout import Artwork, Rect
 from app.services.kicad_tools import KicadTool, ToolError, ToolResult
 
@@ -548,6 +549,11 @@ def acquire_board_render(
     the same invocation `project_import_service.generate_thumbnail_for_project`
     uses -- same quality, floor, perspective and rotation -- so the picture on
     a release cover is recognisably the picture of the project.
+
+    The result is cached by the pixels' inputs (see ``render_cache``): the same
+    board rendered into another build directory is a cache hit, and a hit does
+    not run the raytracer at all.  The cache also makes a repeat build
+    reproducible, because KiCad's sampler is not.
     """
 
     workdir.mkdir(parents=True, exist_ok=True)
@@ -563,14 +569,46 @@ def acquire_board_render(
         "-o", str(out),
         str(board),
     ]
+    # The key is the command with the two host paths replaced by markers: the
+    # output path and the board's location are not render inputs, its bytes are.
+    signature = [
+        "<board>" if part == str(board) else "<output>" if part == str(out) else part
+        for part in argv
+    ]
+    key = render_cache.cache_key(
+        board=board,
+        render_args=signature,
+        cli_version=cli.version(),
+        environ=os.environ,
+    )
+    cached = render_cache.load(key)
+    if cached is not None:
+        try:
+            return _board_render(cached)
+        except Exception:  # noqa: BLE001 - an unusable entry is a cache miss
+            pass
+
     result = _run_tool(cli, argv, timeout_seconds)
     if not result.ok or not out.is_file():
         raise ArtworkError(f"kicad-cli pcb render failed: {result.detail()[:400]}")
 
     payload = out.read_bytes()
+    render = _board_render(payload)
+    try:
+        render_cache.store(key, payload)
+    except OSError:
+        # A cache that cannot be written must not cost the render that succeeded.
+        pass
+    return render
+
+
+def _board_render(payload: bytes) -> BoardRender:
+    """A ``BoardRender`` carrying *payload*, its decoded size and its digest."""
+
     from PIL import Image as PILImage
 
     with PILImage.open(io.BytesIO(payload)) as image:
+        image.load()
         size = image.size
     return BoardRender(
         png_bytes=payload,
