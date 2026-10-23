@@ -302,6 +302,19 @@ fn size_finding(member: &a3::BundleManifestMember, declared: u64) -> Finding {
     .at_path(member.path.as_str())
 }
 
+fn digest_finding(size: u64, sha256: &str, member: &a3::BundleManifestMember) -> Finding {
+    Finding::new(
+        "member-digest-mismatch",
+        format!(
+            "{} is {size} bytes with sha256 {sha256}; the manifest lists {} bytes with sha256 {}",
+            member.path.as_str(),
+            member.bytes.0,
+            member.sha256.0
+        ),
+    )
+    .at_path(member.path.as_str())
+}
+
 /// Inflate `entry` and check it against its manifest record.
 pub fn read_checked<R: ReadAt + ?Sized>(
     source: &R,
@@ -313,18 +326,34 @@ pub fn read_checked<R: ReadAt + ?Sized>(
     let size = u64::try_from(bytes.len()).unwrap_or(u64::MAX);
     let sha256 = sha256_hex(&bytes);
     if size != member.bytes.0 || sha256 != member.sha256.0 {
-        return Err(Finding::new(
-            "member-digest-mismatch",
-            format!(
-                "{} is {size} bytes with sha256 {sha256}; the manifest lists {} bytes with sha256 {}",
-                member.path.as_str(),
-                member.bytes.0,
-                member.sha256.0
-            ),
-        )
-        .at_path(member.path.as_str()));
+        return Err(digest_finding(size, &sha256, member));
     }
     Ok(bytes)
+}
+
+/// Check `entry` against its manifest record (step 6) without retaining the
+/// inflated bytes: inflate in chunks, hashing and CRC-checking as it goes.
+/// Returns the compressed body as read.
+pub fn verified_body<R: ReadAt + ?Sized>(
+    source: &R,
+    index: &ZipIndex,
+    entry: &Entry,
+    member: &a3::BundleManifestMember,
+) -> Result<Vec<u8>, Finding> {
+    use sha2::Digest;
+    let body = index.body(source, entry).map_err(|error| error.finding())?;
+    let mut hasher = sha2::Sha256::new();
+    let mut size = 0u64;
+    crate::zip::check_body(entry, &body, &mut |chunk| {
+        size = size.saturating_add(u64::try_from(chunk.len()).unwrap_or(u64::MAX));
+        hasher.update(chunk);
+    })
+    .map_err(|error| error.finding())?;
+    let sha256 = crate::generator::hex(&hasher.finalize());
+    if size != member.bytes.0 || sha256 != member.sha256.0 {
+        return Err(digest_finding(size, &sha256, member));
+    }
+    Ok(body)
 }
 
 /// Check a structured member's content against its `member_schema` (step 7).

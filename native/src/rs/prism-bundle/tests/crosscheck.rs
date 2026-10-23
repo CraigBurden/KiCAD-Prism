@@ -97,7 +97,7 @@ impl Demo {
             .iter()
             .find(|member| member.path == DESIGN_PATH)
             .unwrap();
-        serde_json::from_slice(&member.bytes).unwrap()
+        serde_json::from_slice(member.bytes().unwrap()).unwrap()
     }
 }
 
@@ -262,11 +262,7 @@ fn a_failing_cross_check_is_recorded_sorted_and_the_stage_completes() {
         .replacen("(net 9 \"X\") (pintype", "(net 2 \"VOUT\") (pintype", 1);
     demo.set_board(&swapped);
     let built = parse(&demo.dir);
-    let input = Input {
-        manifest: built.manifest.clone(),
-        manifest_sha256: String::new(),
-        members: built.members.clone(),
-    };
+    let input = Input::new(built.manifest.clone(), String::new(), built.members.clone());
     let limits = Limits::defaults(prism_bundle::Work::Board);
     let generator = generator();
     let board = prism_bundle::stages::board::run(&BoardRequest {

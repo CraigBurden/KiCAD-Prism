@@ -9,7 +9,9 @@ use crate::manifest::{
     MODELS_PATH, Manifest, PROJECTIONS, REFILLED_PREFIX, Role, SOURCES_PREFIX, Stage, Status, a3,
     is_source_role, role_for_source, role_stage,
 };
-use crate::reader::{OpenError, check_listing, check_structured, read_checked, read_manifest};
+use crate::reader::{
+    OpenError, check_listing, check_structured, read_checked, read_manifest, verified_body,
+};
 use crate::zip::{ReadAt, ZipIndex};
 
 /// What to check.
@@ -87,14 +89,23 @@ pub fn verify<R: ReadAt + ?Sized>(
             continue;
         };
         report.members_checked += 1;
-        match read_checked(source, &index, entry, member) {
-            Ok(bytes) if depth == Depth::Full => {
-                if let Err(finding) = check_structured(member, &bytes, pack_version, limits) {
+        match depth {
+            // The self-verify of cli-spec.md §5.2.5 checks size and digest
+            // only; stream them instead of inflating every member of the
+            // freshly written archive into memory.
+            Depth::SelfVerify => {
+                if let Err(finding) = verified_body(source, &index, entry, member) {
                     report.findings.push(finding);
                 }
             }
-            Ok(_) => {}
-            Err(finding) => report.findings.push(finding),
+            Depth::Full => match read_checked(source, &index, entry, member) {
+                Ok(bytes) => {
+                    if let Err(finding) = check_structured(member, &bytes, pack_version, limits) {
+                        report.findings.push(finding);
+                    }
+                }
+                Err(finding) => report.findings.push(finding),
+            },
         }
     }
     report.findings.extend(invariants(&read.manifest));

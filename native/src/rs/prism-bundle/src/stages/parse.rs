@@ -19,7 +19,7 @@ use super::keys::{source_entry, upgrade_invalid};
 use super::sexpr_check::{self, BOARD_FORMAT, CheckError, SCHEMATIC_FORMAT};
 use super::sheets::{Unresolved, resolve};
 use super::sources::SourceTree;
-use super::{Built, Document, Generator, MemberData, Reporter, internal, producers};
+use super::{Built, Document, Generator, MemberContent, MemberData, Reporter, internal, producers};
 use crate::finding::{Failure, Finding, Location, Outcome};
 use crate::limits::{LimitName, Limits};
 use crate::manifest::{
@@ -596,7 +596,7 @@ impl ParseRun<'_> {
             } else {
                 Role::Projection
             },
-            bytes: Arc::from(bytes),
+            content: MemberContent::Bytes(Arc::from(bytes)),
             schema: Some(schema.to_owned()),
             source: None,
         });
@@ -814,7 +814,7 @@ impl ParseRun<'_> {
             members.push(MemberData {
                 path: member(&path),
                 role,
-                bytes,
+                content: MemberContent::Bytes(bytes),
                 schema: None,
                 source: Some(source),
             });

@@ -6,7 +6,7 @@ use super::chain::{self, Input};
 use super::crosscheck::{CrossCheckReport, DesignView, cross_check, manifest_report};
 use super::materialize::{DEFAULT_TILE_SIZE_NM, compare_fills, materialize_complete};
 use super::sexpr_check::{self, BOARD_FORMAT, CheckError};
-use super::{Built, Generator, MemberData, Reporter, internal};
+use super::{Built, Generator, MemberContent, MemberData, Reporter, internal};
 use crate::finding::{Failure, Finding, Outcome};
 use crate::limits::{LimitName, Limits};
 use crate::manifest::{
@@ -136,10 +136,13 @@ impl Work {
     }
 }
 
-fn text_of<'a>(input: &'a Input, path: &str) -> Outcome<&'a str> {
-    let bytes = input
+fn bytes_of(input: &Input, path: &str) -> Outcome<std::sync::Arc<[u8]>> {
+    input
         .member(&format!("{SOURCES_PREFIX}{path}"))
-        .ok_or_else(|| internal(format!("sources/{path} is not in the input bundle")))?;
+        .ok_or_else(|| internal(format!("sources/{path} is not in the input bundle")))
+}
+
+fn text_of(bytes: &[u8]) -> Outcome<&str> {
     std::str::from_utf8(bytes).map_err(internal)
 }
 
@@ -199,8 +202,10 @@ pub fn run(request: &BoardRequest<'_>) -> Outcome<Built> {
         .ok_or_else(|| internal("stage board runs without a board"))?
         .0
         .clone();
-    let source_board = text_of(input, &board_path)?;
-    let project = text_of(input, &config.project_file.0)?;
+    let source_board_bytes = bytes_of(input, &board_path)?;
+    let source_board = text_of(&source_board_bytes)?;
+    let project_bytes = bytes_of(input, &config.project_file.0)?;
+    let project = text_of(&project_bytes)?;
     let refilled_member = format!("{REFILLED_PREFIX}{}", file_name(&board_path));
     let refilled = match &request.refilled {
         Some(refilled) => Some(refilled_text(
@@ -222,7 +227,7 @@ pub fn run(request: &BoardRequest<'_>) -> Outcome<Built> {
         work.members.push(MemberData {
             path: refilled_member.clone(),
             role: Role::RefilledBoard,
-            bytes: std::sync::Arc::from(refilled.bytes.clone()),
+            content: MemberContent::Bytes(std::sync::Arc::from(refilled.bytes.clone())),
             schema: None,
             source: None,
         });
@@ -316,7 +321,7 @@ fn materialize(
     };
     let report = match request.input.member(DESIGN_PATH) {
         Some(bytes) => {
-            let view: DesignView = serde_json::from_slice(bytes).map_err(internal)?;
+            let view: DesignView = serde_json::from_slice(&bytes).map_err(internal)?;
             cross_check(&materialized.header, &view).report
         }
         None => CrossCheckReport::skipped(),
@@ -331,7 +336,7 @@ fn materialize(
     work.members.push(MemberData {
         path: MATERIALIZATION_PATH.to_owned(),
         role: Role::Materialization,
-        bytes: std::sync::Arc::from(materialized.pack),
+        content: MemberContent::Bytes(std::sync::Arc::from(materialized.pack)),
         schema: Some(MATERIALIZATION_SCHEMA.to_owned()),
         source: None,
     });
