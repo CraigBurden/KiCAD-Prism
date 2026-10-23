@@ -110,6 +110,22 @@ class VariantCatalogAuthorizationTests(unittest.TestCase):
         lookup.assert_called_once_with("prj", "qa")
 
 
+class VariantCatalogSingleOpenTests(unittest.TestCase):
+    """The route opens the revision once: headers and discovery share the read."""
+
+    def test_the_read_is_passed_to_discovery(self) -> None:
+        payload = _payload("oracle")
+        read = _bundle_read(payload)
+        with patch.object(api, "get_project_for_role_or_404"), patch.object(
+            consumer, "bundle_read", return_value=read
+        ) as bundle_read, patch.object(
+            api.variant_catalog_service, "discover_variant_catalog", return_value=payload
+        ) as discover:
+            _run(api.get_project_variants("prj", _request(), None, _User()))
+        bundle_read.assert_called_once()
+        self.assertIs(discover.call_args.args[2], read)
+
+
 class VariantCatalogResponseTests(unittest.TestCase):
     def _read(self, directory: str, *, commit: str | None = None, headers=None):
         payload = _payload(directory, commit=commit)
