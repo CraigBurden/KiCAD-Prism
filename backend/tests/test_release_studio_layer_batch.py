@@ -107,13 +107,37 @@ class LayerBatchTests(unittest.TestCase):
         )
 
     def test_the_documents_use_the_batch(self) -> None:
-        tool = _kicad(skip=("In1.Cu",))
+        tool = _kicad()
         result = self._views(tool)
         self.assertEqual(len(tool.calls), 3)
-        self.assertEqual(
-            set(result.layers), {acquisition.layer_artwork_key(layer) for layer in ("F.Cu", "B.Cu", "Edge.Cuts")}
+        self.assertEqual(set(result.layers), {acquisition.layer_artwork_key(layer) for layer in self.layers})
+
+    def test_a_layer_the_batch_missed_is_plotted_on_its_own(self) -> None:
+        tool = _kicad(skip=("In1.Cu",))
+        result = self._views(tool)
+        self.assertEqual(len(tool.calls), 3 + 3)
+        self.assertEqual(set(result.layers), {acquisition.layer_artwork_key(layer) for layer in self.layers})
+        self.assertFalse([warning for warning in result.warnings if "layer:" in warning])
+
+    def test_file_names_follow_the_boards_own_layer_names(self) -> None:
+        # EDA-04903 calls F.Cu "Top Layer"; an older board spells silkscreen
+        # F.SilkS and may name it; KiCad suffixes each file with that display name.
+        self.board.write_text(
+            '(kicad_pcb (version 20240108)\n (layers\n  (0 "F.Cu" signal "Top Layer")\n'
+            '  (4 "In1.Cu" signal)\n  (37 "F.SilkS" user "f.silkscreen")\n  (36 "B.SilkS" user)\n'
+            '  (25 "Edge.Cuts" user)\n )\n (gr_line (start 0 0) (end 1 1) (layer "Edge.Cuts")))\n',
+            encoding="utf-8",
         )
-        self.assertTrue(any("layer:In1.Cu" in warning for warning in result.warnings))
+        self.assertEqual(
+            artwork.plot_file_layer_names(self.board),
+            {
+                "F.Cu": "Top Layer",
+                "In1.Cu": "In1.Cu",
+                "F.Silkscreen": "f.silkscreen",
+                "B.Silkscreen": "B.Silkscreen",
+                "Edge.Cuts": "Edge.Cuts",
+            },
+        )
 
     def test_a_failed_batch_falls_back_to_one_plot_per_layer(self) -> None:
         tool = _kicad(fail_batch=True)

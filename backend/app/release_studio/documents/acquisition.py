@@ -13,7 +13,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from functools import partial
 from pathlib import Path
-from typing import Any, Callable, Mapping
+from typing import Any, Callable, Mapping, Sequence
 
 from app.release_studio.documents.artwork import (
     AcquiredArtwork,
@@ -229,11 +229,9 @@ def acquire_views(request: AcquisitionRequest) -> AcquisitionResult:
 
     acquired = _acquire_concurrently(jobs, warnings)
     if _LAYER_BATCH_JOB in jobs:
-        batch = acquired.pop(_LAYER_BATCH_JOB, None)
-        if batch is None:
-            # The batched plot failed outright: plot layer by layer, so one
-            # bad layer costs its own page rather than all of them.
-            batch = _acquire_concurrently(
+
+        def one_by_one(pages: Sequence[str]) -> dict[str, Any]:
+            return _acquire_concurrently(
                 {
                     layer: partial(
                         acquire,
@@ -243,15 +241,25 @@ def acquire_views(request: AcquisitionRequest) -> AcquisitionResult:
                         workdir / f"layer-{layer.replace('.', '_')}",
                         variant=request.variant,
                     )
-                    for layer in request.layer_pages
+                    for layer in pages
                 },
                 warnings,
             )
+
+        batch = acquired.pop(_LAYER_BATCH_JOB, None)
+        if batch is None:
+            # The batched plot failed outright: plot layer by layer, so one
+            # bad layer costs its own page rather than all of them.
+            batch = one_by_one(request.layer_pages)
+        else:
+            # A layer the batch did not write (a file name KiCad chose that
+            # plot_file_layer_names did not predict) is plotted on its own.
+            missing = [layer for layer, artwork in batch.items() if isinstance(artwork, ArtworkError)]
+            for layer in missing:
+                del batch[layer]
+            batch.update(one_by_one(missing))
         for layer, artwork in batch.items():
-            if isinstance(artwork, ArtworkError):
-                warnings.append(f"artwork for {layer_artwork_key(layer)} unavailable: {artwork}")
-            else:
-                layers[layer_artwork_key(layer)] = artwork
+            layers[layer_artwork_key(layer)] = artwork
     board_render = acquired.pop(BOARD_RENDER_KEY, None)
     for key, value in acquired.items():
         if key != _BUNDLE_ARTWORK_JOB:

@@ -3,7 +3,7 @@
  "fixture": "synthetic",
  "tool": {
   "name": "kicad-cli",
-  "version": "10.0.6"
+  "version": "10.0.7"
  },
  "commands": [
   {
@@ -21,7 +21,7 @@
    "stdout": "Found 10 violations\nFound 1 unconnected items\nSaved DRC Report to <staging>/outputs/evidence/drc.json\n",
    "stderr": "",
    "outputs": {
-    "<staging>/outputs/evidence/drc.json": "9c00877d75949d2c0828c911950aaf5d766b4a07686770006502e194201596cb"
+    "<staging>/outputs/evidence/drc.json": "ab5dcf17b2ab141a2f01dee316e6b4f6b1d807d9ddf301ad4ec853fbda2b69de"
    }
   },
   {
@@ -41,7 +41,7 @@
    "stdout": "Created file '<staging>/outputs/fabrication/drill/synthetic.drl'\nDone.\n",
    "stderr": "",
    "outputs": {
-    "<staging>/outputs/fabrication/drill/synthetic.drl": "50b5074ba1b09e6a2d4a359d66ce80fffbab6f0888bb62c7fbe1152bd69485be"
+    "<staging>/outputs/fabrication/drill/synthetic.drl": "49d9b21b8dfe4837fc9622ac7131d20f4fd87f06f71e16b722c9cdcf28d3ba95"
    }
   },
   {
@@ -60,8 +60,8 @@
    "stdout": "Created file '<staging>/artwork/drill/pdf/synthetic.drl'\nCreated file '<staging>/artwork/drill/pdf/synthetic-drl_map.pdf'.\nDone.\n",
    "stderr": "",
    "outputs": {
-    "<staging>/artwork/drill/pdf/synthetic-drl_map.pdf": "aafc7675b998c9c1d51f02b71c387a5543df01fbecc48d9da5b988ec383e9ec8",
-    "<staging>/artwork/drill/pdf/synthetic.drl": "3930355cc1a13e655a416c399f46989fc2210e6716625484b402c5f4c09ded38"
+    "<staging>/artwork/drill/pdf/synthetic-drl_map.pdf": "2544ba5776849a73aecb104c937c128d5cecf327ea58f67a8ccc3f0717202053",
+    "<staging>/artwork/drill/pdf/synthetic.drl": "fe226387f537de4ab4c3fce531992aed3a619a97c3f3e75c53dac5d1d744a93c"
    }
   },
   {
@@ -80,8 +80,8 @@
    "stdout": "Created file '<staging>/artwork/drill/svg/synthetic.drl'\nCreated file '<staging>/artwork/drill/svg/synthetic-drl_map.svg'.\nDone.\n",
    "stderr": "",
    "outputs": {
-    "<staging>/artwork/drill/svg/synthetic-drl_map.svg": "0ff5a4120ffe2616d091e2ca60e0a7c48bb7a8b6a5a285e29775a099d3c311b6",
-    "<staging>/artwork/drill/svg/synthetic.drl": "c3aab73bfc283427ce61b33d55dd4557d4d8c327d0457907d02c649961bcbabd"
+    "<staging>/artwork/drill/svg/synthetic-drl_map.svg": "b7ad733d3bfb89a397b1687b6086cd79be60e7c818da7f3e51ec82bfd1b17aac",
+    "<staging>/artwork/drill/svg/synthetic.drl": "fe226387f537de4ab4c3fce531992aed3a619a97c3f3e75c53dac5d1d744a93c"
    }
   },
   {
@@ -97,15 +97,15 @@
    "stdout": "Plotted to '<staging>/outputs/fabrication/gerbers/synthetic-F_Cu.gtl'.\nPlotted to '<staging>/outputs/fabrication/gerbers/synthetic-B_Cu.gbl'.\nPlotted to '<staging>/outputs/fabrication/gerbers/synthetic-f_silkscreen.gto'.\nPlotted to '<staging>/outputs/fabrication/gerbers/synthetic-b_silkscreen.gbo'.\nPlotted to '<staging>/outputs/fabrication/gerbers/synthetic-Edge_Cuts.gm1'.\nPlotted to '<staging>/outputs/fabrication/gerbers/synthetic-Margin.gbr'.\nPlotted to '<staging>/outputs/fabrication/gerbers/synthetic-F_Courtyard.gbr'.\nPlotted to '<staging>/outputs/fabrication/gerbers/synthetic-B_Courtyard.gbr'.\n",
    "stderr": "",
    "outputs": {
-    "<staging>/outputs/fabrication/gerbers/synthetic-B_Courtyard.gbr": "d9f0f13024c86d1efb28ad7d7af7ac6b41f41a4b768d1b661c32d475b5acf272",
-    "<staging>/outputs/fabrication/gerbers/synthetic-B_Cu.gbl": "5f677a39b6030e08b833f5a4af73d3e6c4b31f01dd9e4e1f818eb4b776c93303",
-    "<staging>/outputs/fabrication/gerbers/synthetic-Edge_Cuts.gm1": "cabe57c66ff06adaab9ddb16b92ea46fbae959bfcb577b715d3690a041bb6cd8",
-    "<staging>/outputs/fabrication/gerbers/synthetic-F_Courtyard.gbr": "d9f0f13024c86d1efb28ad7d7af7ac6b41f41a4b768d1b661c32d475b5acf272",
-    "<staging>/outputs/fabrication/gerbers/synthetic-F_Cu.gtl": "716e8aeeba37cf9ffb9c07bb34d556143f8bb44bd45d7254cda8fd919445c618",
-    "<staging>/outputs/fabrication/gerbers/synthetic-Margin.gbr": "d9f0f13024c86d1efb28ad7d7af7ac6b41f41a4b768d1b661c32d475b5acf272",
-    "<staging>/outputs/fabrication/gerbers/synthetic-b_silkscreen.gbo": "5c01ad03bdb6ef1a1725334ec40b4188dba4a9466f44dabe2ac973938ea1d71f",
-    "<staging>/outputs/fabrication/gerbers/synthetic-f_silkscreen.gto": "de9496a139f9623a7a875c4f42c2b1c4d2f5a9aff3ac8ae0b30389659fe07b76",
-    "<staging>/outputs/fabrication/gerbers/synthetic-job.gbrjob": "efa48a2903dfbe42c1ac0cf8cec0efdea9f8d9437addc66226fc90cc0012516e"
+    "<staging>/outputs/fabrication/gerbers/synthetic-B_Courtyard.gbr": "9ee80cbfb730c8beed8fecb4f45d3b3c3c4a5874bc331a589940d91730da5709",
+    "<staging>/outputs/fabrication/gerbers/synthetic-B_Cu.gbl": "c6f6f83df2e1eea6b2d3699660494769874ade7438d5ae17fd7e3e6a6afd0723",
+    "<staging>/outputs/fabrication/gerbers/synthetic-Edge_Cuts.gm1": "ee49640482415ef3a0d9380e21b24bedc9bae31f3e02bd20b7682280b1a45a40",
+    "<staging>/outputs/fabrication/gerbers/synthetic-F_Courtyard.gbr": "9ee80cbfb730c8beed8fecb4f45d3b3c3c4a5874bc331a589940d91730da5709",
+    "<staging>/outputs/fabrication/gerbers/synthetic-F_Cu.gtl": "af74c9827b1a8e0bc4cf006832d58d2a6260f71958d2fb8bb2dda7d88189f060",
+    "<staging>/outputs/fabrication/gerbers/synthetic-Margin.gbr": "9ee80cbfb730c8beed8fecb4f45d3b3c3c4a5874bc331a589940d91730da5709",
+    "<staging>/outputs/fabrication/gerbers/synthetic-b_silkscreen.gbo": "97eda38e7da6a64f9114dbf0445251039aa8e79ab85eb63c4ae3d0194a63e5b4",
+    "<staging>/outputs/fabrication/gerbers/synthetic-f_silkscreen.gto": "089054c94bb15d3179ef20bb0aae28179e2003bac373044444e360daab0df4af",
+    "<staging>/outputs/fabrication/gerbers/synthetic-job.gbrjob": "cc0d3b9e40dec93de3b564bd256ef693e4d89cbe20d1bf3c396ad6fda1e37e4c"
    }
   },
   {
@@ -114,178 +114,28 @@
     "export",
     "pdf",
     "--layers",
+    "F.Cu,B.Cu,F.Silkscreen,B.Silkscreen,F.Mask,B.Mask,F.Paste,B.Paste,Edge.Cuts",
+    "--common-layers",
     "Edge.Cuts",
-    "--mode-single",
     "--output",
-    "<staging>/artwork/layer-Edge_Cuts/Edge_Cuts.pdf",
+    "<staging>/artwork/layers/pdf",
+    "--mode-separate",
     "--black-and-white",
     "<closure>/_bundle/refilled/synthetic.kicad_pcb"
    ],
    "exit_code": 0,
-   "stdout": "Plotted to '<staging>/artwork/layer-Edge_Cuts/Edge_Cuts.pdf'.\nDone.\n",
+   "stdout": "Plotted to '<staging>/artwork/layers/pdf/synthetic-F_Cu.pdf'.\nPlotted to '<staging>/artwork/layers/pdf/synthetic-B_Cu.pdf'.\nPlotted to '<staging>/artwork/layers/pdf/synthetic-f_silkscreen.pdf'.\nPlotted to '<staging>/artwork/layers/pdf/synthetic-b_silkscreen.pdf'.\nPlotted to '<staging>/artwork/layers/pdf/synthetic-F_Mask.pdf'.\nPlotted to '<staging>/artwork/layers/pdf/synthetic-B_Mask.pdf'.\nPlotted to '<staging>/artwork/layers/pdf/synthetic-F_Paste.pdf'.\nPlotted to '<staging>/artwork/layers/pdf/synthetic-B_Paste.pdf'.\nPlotted to '<staging>/artwork/layers/pdf/synthetic-Edge_Cuts.pdf'.\nDone.\n",
    "stderr": "",
    "outputs": {
-    "<staging>/artwork/layer-Edge_Cuts/Edge_Cuts.pdf": "69d08a5740acbf9b45140f9b05da3f829b42071b7aadcd198c2d058dea8c6b57"
-   }
-  },
-  {
-   "argv": [
-    "pcb",
-    "export",
-    "pdf",
-    "--layers",
-    "Edge.Cuts,B.Cu",
-    "--mode-single",
-    "--output",
-    "<staging>/artwork/layer-B_Cu/Edge_Cuts-B_Cu.pdf",
-    "--black-and-white",
-    "<closure>/_bundle/refilled/synthetic.kicad_pcb"
-   ],
-   "exit_code": 0,
-   "stdout": "Plotted to '<staging>/artwork/layer-B_Cu/Edge_Cuts-B_Cu.pdf'.\nDone.\n",
-   "stderr": "",
-   "outputs": {
-    "<staging>/artwork/layer-B_Cu/Edge_Cuts-B_Cu.pdf": "d0b30cd718d12c277c31040b55d9ea811aa82ced5843dc61a4c8c5c98f85c196"
-   }
-  },
-  {
-   "argv": [
-    "pcb",
-    "export",
-    "pdf",
-    "--layers",
-    "Edge.Cuts,B.Mask",
-    "--mode-single",
-    "--output",
-    "<staging>/artwork/layer-B_Mask/Edge_Cuts-B_Mask.pdf",
-    "--black-and-white",
-    "<closure>/_bundle/refilled/synthetic.kicad_pcb"
-   ],
-   "exit_code": 0,
-   "stdout": "Plotted to '<staging>/artwork/layer-B_Mask/Edge_Cuts-B_Mask.pdf'.\nDone.\n",
-   "stderr": "",
-   "outputs": {
-    "<staging>/artwork/layer-B_Mask/Edge_Cuts-B_Mask.pdf": "4c928aa642107748a0ea91b1173269c830c36e317dd6e4f9742631f9414bbe37"
-   }
-  },
-  {
-   "argv": [
-    "pcb",
-    "export",
-    "pdf",
-    "--layers",
-    "Edge.Cuts,B.Paste",
-    "--mode-single",
-    "--output",
-    "<staging>/artwork/layer-B_Paste/Edge_Cuts-B_Paste.pdf",
-    "--black-and-white",
-    "<closure>/_bundle/refilled/synthetic.kicad_pcb"
-   ],
-   "exit_code": 0,
-   "stdout": "Plotted to '<staging>/artwork/layer-B_Paste/Edge_Cuts-B_Paste.pdf'.\nDone.\n",
-   "stderr": "",
-   "outputs": {
-    "<staging>/artwork/layer-B_Paste/Edge_Cuts-B_Paste.pdf": "d8b8230add1c6c51bebc1b5e76ef5447b414073b4238aa5865335e0c38fe38ce"
-   }
-  },
-  {
-   "argv": [
-    "pcb",
-    "export",
-    "pdf",
-    "--layers",
-    "Edge.Cuts,B.Silkscreen",
-    "--mode-single",
-    "--output",
-    "<staging>/artwork/layer-B_Silkscreen/Edge_Cuts-B_Silkscreen.pdf",
-    "--black-and-white",
-    "<closure>/_bundle/refilled/synthetic.kicad_pcb"
-   ],
-   "exit_code": 0,
-   "stdout": "Plotted to '<staging>/artwork/layer-B_Silkscreen/Edge_Cuts-B_Silkscreen.pdf'.\nDone.\n",
-   "stderr": "",
-   "outputs": {
-    "<staging>/artwork/layer-B_Silkscreen/Edge_Cuts-B_Silkscreen.pdf": "31c7b35581dc9fdb5add1b73174bc414ef7cfc4dacb8a751d262634d3ac821c8"
-   }
-  },
-  {
-   "argv": [
-    "pcb",
-    "export",
-    "pdf",
-    "--layers",
-    "Edge.Cuts,F.Cu",
-    "--mode-single",
-    "--output",
-    "<staging>/artwork/layer-F_Cu/Edge_Cuts-F_Cu.pdf",
-    "--black-and-white",
-    "<closure>/_bundle/refilled/synthetic.kicad_pcb"
-   ],
-   "exit_code": 0,
-   "stdout": "Plotted to '<staging>/artwork/layer-F_Cu/Edge_Cuts-F_Cu.pdf'.\nDone.\n",
-   "stderr": "",
-   "outputs": {
-    "<staging>/artwork/layer-F_Cu/Edge_Cuts-F_Cu.pdf": "73a68e99a4e594ac61ae5ea503f28c24447c8907e1c40aa621b3da33cfaadeae"
-   }
-  },
-  {
-   "argv": [
-    "pcb",
-    "export",
-    "pdf",
-    "--layers",
-    "Edge.Cuts,F.Mask",
-    "--mode-single",
-    "--output",
-    "<staging>/artwork/layer-F_Mask/Edge_Cuts-F_Mask.pdf",
-    "--black-and-white",
-    "<closure>/_bundle/refilled/synthetic.kicad_pcb"
-   ],
-   "exit_code": 0,
-   "stdout": "Plotted to '<staging>/artwork/layer-F_Mask/Edge_Cuts-F_Mask.pdf'.\nDone.\n",
-   "stderr": "",
-   "outputs": {
-    "<staging>/artwork/layer-F_Mask/Edge_Cuts-F_Mask.pdf": "d67e676205873cbd446fc7ad2fb586b2b95ac720711f0499fbb9664eaa5b8b35"
-   }
-  },
-  {
-   "argv": [
-    "pcb",
-    "export",
-    "pdf",
-    "--layers",
-    "Edge.Cuts,F.Paste",
-    "--mode-single",
-    "--output",
-    "<staging>/artwork/layer-F_Paste/Edge_Cuts-F_Paste.pdf",
-    "--black-and-white",
-    "<closure>/_bundle/refilled/synthetic.kicad_pcb"
-   ],
-   "exit_code": 0,
-   "stdout": "Plotted to '<staging>/artwork/layer-F_Paste/Edge_Cuts-F_Paste.pdf'.\nDone.\n",
-   "stderr": "",
-   "outputs": {
-    "<staging>/artwork/layer-F_Paste/Edge_Cuts-F_Paste.pdf": "c1faacaacba6d8d544c109a1b7430da3456740c1df7e7c6add93e97145070f75"
-   }
-  },
-  {
-   "argv": [
-    "pcb",
-    "export",
-    "pdf",
-    "--layers",
-    "Edge.Cuts,F.Silkscreen",
-    "--mode-single",
-    "--output",
-    "<staging>/artwork/layer-F_Silkscreen/Edge_Cuts-F_Silkscreen.pdf",
-    "--black-and-white",
-    "<closure>/_bundle/refilled/synthetic.kicad_pcb"
-   ],
-   "exit_code": 0,
-   "stdout": "Plotted to '<staging>/artwork/layer-F_Silkscreen/Edge_Cuts-F_Silkscreen.pdf'.\nDone.\n",
-   "stderr": "",
-   "outputs": {
-    "<staging>/artwork/layer-F_Silkscreen/Edge_Cuts-F_Silkscreen.pdf": "1f76f987d63af583cb03ae707b0f67fc16e23c29457f6175b508d813fae8543b"
+    "<staging>/artwork/layers/pdf/synthetic-B_Cu.pdf": "562daf62273d4dba12652aa916fe8db03d871fdf83fddc8971a87579cef53bc9",
+    "<staging>/artwork/layers/pdf/synthetic-B_Mask.pdf": "838133e2c6a7c96be62f05bdf55f3fdd4c5af7d47aefd76b8e50be6e16f6ee4b",
+    "<staging>/artwork/layers/pdf/synthetic-B_Paste.pdf": "48d3a1cb307b514bf945a43c5835fe8b0f3d62abfb560db81de574aefa84c250",
+    "<staging>/artwork/layers/pdf/synthetic-Edge_Cuts.pdf": "851fd33b26df38ee1c78bbbd99e1248ba39ef5f463a8b788b4b3955cbd7596e6",
+    "<staging>/artwork/layers/pdf/synthetic-F_Cu.pdf": "4186b8600dbe2bbed6cbb69b3e2a590551409b90b1a895f8739f4bc0cd9660bc",
+    "<staging>/artwork/layers/pdf/synthetic-F_Mask.pdf": "3e64b9b77aa96b181c00a7e49fd306c159a94bdafe9dd2be1a9b212736e2ad0a",
+    "<staging>/artwork/layers/pdf/synthetic-F_Paste.pdf": "20b2e7b923512a8b0db70e8dbb6f080bc85543217985a87efd1a5f674f68e6ed",
+    "<staging>/artwork/layers/pdf/synthetic-b_silkscreen.pdf": "a8f258f6ef37f1d01c3422d621ea04a56b40ac54366f0bf21b397cbdaa1cadc9",
+    "<staging>/artwork/layers/pdf/synthetic-f_silkscreen.pdf": "b19dcd8b3f784b704603de173d3a2a4f26365fad9a69e14919c20f3b3f42835a"
    }
   },
   {
@@ -325,7 +175,7 @@
    "stdout": "Wrote board statistics to '<staging>/outputs/fabrication/board-stats.json'.\n",
    "stderr": "",
    "outputs": {
-    "<staging>/outputs/fabrication/board-stats.json": "27534d4eaceb06f4fab5320c2527aa4d73c1695885dfe428cd5255c818143476"
+    "<staging>/outputs/fabrication/board-stats.json": "d4a8d65c2d80a1eb30d19797a13ce8347a3b48f5531f319d0c4e0ba90b20a204"
    }
   },
   {
@@ -334,19 +184,29 @@
     "export",
     "svg",
     "--layers",
+    "F.Cu,B.Cu,F.Silkscreen,B.Silkscreen,F.Mask,B.Mask,F.Paste,B.Paste,Edge.Cuts",
+    "--common-layers",
     "Edge.Cuts",
-    "--mode-single",
     "--output",
-    "<staging>/artwork/layer-Edge_Cuts/Edge_Cuts-page.svg",
+    "<staging>/artwork/layers/page",
+    "--mode-multi",
     "--exclude-drawing-sheet",
     "--black-and-white",
     "<closure>/_bundle/refilled/synthetic.kicad_pcb"
    ],
    "exit_code": 0,
-   "stdout": "Plotted to '<staging>/artwork/layer-Edge_Cuts/Edge_Cuts-page.svg'.\nDone.\n",
+   "stdout": "Plotted to '<staging>/artwork/layers/page/synthetic-F_Cu.svg'.\nPlotted to '<staging>/artwork/layers/page/synthetic-B_Cu.svg'.\nPlotted to '<staging>/artwork/layers/page/synthetic-f_silkscreen.svg'.\nPlotted to '<staging>/artwork/layers/page/synthetic-b_silkscreen.svg'.\nPlotted to '<staging>/artwork/layers/page/synthetic-F_Mask.svg'.\nPlotted to '<staging>/artwork/layers/page/synthetic-B_Mask.svg'.\nPlotted to '<staging>/artwork/layers/page/synthetic-F_Paste.svg'.\nPlotted to '<staging>/artwork/layers/page/synthetic-B_Paste.svg'.\nPlotted to '<staging>/artwork/layers/page/synthetic-Edge_Cuts.svg'.\nDone.\n",
    "stderr": "",
    "outputs": {
-    "<staging>/artwork/layer-Edge_Cuts/Edge_Cuts-page.svg": "3a715fd7d74090e762e92500f989961cd4c8dd343462bc2daa0447af00334288"
+    "<staging>/artwork/layers/page/synthetic-B_Cu.svg": "2a0c1c123b4f69c1ebfcc7d3b196a3a35219ca0523b67afcb9b1f571b75c9b32",
+    "<staging>/artwork/layers/page/synthetic-B_Mask.svg": "5935a0566f0fcaede494dd5e5a5c66ae2fdab469b9b6b2654cb19085c72caa48",
+    "<staging>/artwork/layers/page/synthetic-B_Paste.svg": "58bf34b9b772b4412b756e8248d06b762baf1f70d88b771ed15f033d341e97ce",
+    "<staging>/artwork/layers/page/synthetic-Edge_Cuts.svg": "a26272e6d58a6ce3bfe2d53a966103a790b6fa5556a96c25c4b7f95edbb1c46a",
+    "<staging>/artwork/layers/page/synthetic-F_Cu.svg": "1ac765f09f09b15cdacf70755986447b147b054530163e28774b412c8e0cbfd4",
+    "<staging>/artwork/layers/page/synthetic-F_Mask.svg": "125ab0790a05e869b52100fc59f741f8c434dcad38294c83d5ca218bfa190105",
+    "<staging>/artwork/layers/page/synthetic-F_Paste.svg": "dddc3e305fc88d74c41f39c7cdd1e0485f7cc15086b64c50079f6248c000c1c4",
+    "<staging>/artwork/layers/page/synthetic-b_silkscreen.svg": "91607f67751e1905ae54875d312ab93b877b1c5c4f6e0814b71a8bc2679aa05c",
+    "<staging>/artwork/layers/page/synthetic-f_silkscreen.svg": "d3cbf6c8c16e2d5840e0a5988284e08a7262da19a30ff094e1cf1f889b1529f9"
    }
   },
   {
@@ -355,10 +215,12 @@
     "export",
     "svg",
     "--layers",
+    "F.Cu,B.Cu,F.Silkscreen,B.Silkscreen,F.Mask,B.Mask,F.Paste,B.Paste,Edge.Cuts",
+    "--common-layers",
     "Edge.Cuts",
-    "--mode-single",
     "--output",
-    "<staging>/artwork/layer-Edge_Cuts/Edge_Cuts.svg",
+    "<staging>/artwork/layers/svg",
+    "--mode-multi",
     "--exclude-drawing-sheet",
     "--page-size-mode",
     "2",
@@ -366,362 +228,18 @@
     "<closure>/_bundle/refilled/synthetic.kicad_pcb"
    ],
    "exit_code": 0,
-   "stdout": "Plotted to '<staging>/artwork/layer-Edge_Cuts/Edge_Cuts.svg'.\nDone.\n",
+   "stdout": "Plotted to '<staging>/artwork/layers/svg/synthetic-F_Cu.svg'.\nPlotted to '<staging>/artwork/layers/svg/synthetic-B_Cu.svg'.\nPlotted to '<staging>/artwork/layers/svg/synthetic-f_silkscreen.svg'.\nPlotted to '<staging>/artwork/layers/svg/synthetic-b_silkscreen.svg'.\nPlotted to '<staging>/artwork/layers/svg/synthetic-F_Mask.svg'.\nPlotted to '<staging>/artwork/layers/svg/synthetic-B_Mask.svg'.\nPlotted to '<staging>/artwork/layers/svg/synthetic-F_Paste.svg'.\nPlotted to '<staging>/artwork/layers/svg/synthetic-B_Paste.svg'.\nPlotted to '<staging>/artwork/layers/svg/synthetic-Edge_Cuts.svg'.\nDone.\n",
    "stderr": "",
    "outputs": {
-    "<staging>/artwork/layer-Edge_Cuts/Edge_Cuts.svg": "6bf20c5451b0723d87dd27dabbe7b8ca8ea05557a0c3ad8bfba0f4fdf18d11bf"
-   }
-  },
-  {
-   "argv": [
-    "pcb",
-    "export",
-    "svg",
-    "--layers",
-    "Edge.Cuts,B.Cu",
-    "--mode-single",
-    "--output",
-    "<staging>/artwork/layer-B_Cu/Edge_Cuts-B_Cu-page.svg",
-    "--exclude-drawing-sheet",
-    "--black-and-white",
-    "<closure>/_bundle/refilled/synthetic.kicad_pcb"
-   ],
-   "exit_code": 0,
-   "stdout": "Plotted to '<staging>/artwork/layer-B_Cu/Edge_Cuts-B_Cu-page.svg'.\nDone.\n",
-   "stderr": "",
-   "outputs": {
-    "<staging>/artwork/layer-B_Cu/Edge_Cuts-B_Cu-page.svg": "5d11aa43c922fa795b9091f4179cfff2d39e64e90ff244d08b22a56380aaccf2"
-   }
-  },
-  {
-   "argv": [
-    "pcb",
-    "export",
-    "svg",
-    "--layers",
-    "Edge.Cuts,B.Cu",
-    "--mode-single",
-    "--output",
-    "<staging>/artwork/layer-B_Cu/Edge_Cuts-B_Cu.svg",
-    "--exclude-drawing-sheet",
-    "--page-size-mode",
-    "2",
-    "--black-and-white",
-    "<closure>/_bundle/refilled/synthetic.kicad_pcb"
-   ],
-   "exit_code": 0,
-   "stdout": "Plotted to '<staging>/artwork/layer-B_Cu/Edge_Cuts-B_Cu.svg'.\nDone.\n",
-   "stderr": "",
-   "outputs": {
-    "<staging>/artwork/layer-B_Cu/Edge_Cuts-B_Cu.svg": "06e5a5e929ca15b39e8f659802d23fd373e012c6eb6b152a92032fa6e39cc5f3"
-   }
-  },
-  {
-   "argv": [
-    "pcb",
-    "export",
-    "svg",
-    "--layers",
-    "Edge.Cuts,B.Mask",
-    "--mode-single",
-    "--output",
-    "<staging>/artwork/layer-B_Mask/Edge_Cuts-B_Mask-page.svg",
-    "--exclude-drawing-sheet",
-    "--black-and-white",
-    "<closure>/_bundle/refilled/synthetic.kicad_pcb"
-   ],
-   "exit_code": 0,
-   "stdout": "Plotted to '<staging>/artwork/layer-B_Mask/Edge_Cuts-B_Mask-page.svg'.\nDone.\n",
-   "stderr": "",
-   "outputs": {
-    "<staging>/artwork/layer-B_Mask/Edge_Cuts-B_Mask-page.svg": "af025854dc7bd1ee2aca9c77d2c5cfe09e76b4016159ba3c75ca2e1d0b39c8d4"
-   }
-  },
-  {
-   "argv": [
-    "pcb",
-    "export",
-    "svg",
-    "--layers",
-    "Edge.Cuts,B.Mask",
-    "--mode-single",
-    "--output",
-    "<staging>/artwork/layer-B_Mask/Edge_Cuts-B_Mask.svg",
-    "--exclude-drawing-sheet",
-    "--page-size-mode",
-    "2",
-    "--black-and-white",
-    "<closure>/_bundle/refilled/synthetic.kicad_pcb"
-   ],
-   "exit_code": 0,
-   "stdout": "Plotted to '<staging>/artwork/layer-B_Mask/Edge_Cuts-B_Mask.svg'.\nDone.\n",
-   "stderr": "",
-   "outputs": {
-    "<staging>/artwork/layer-B_Mask/Edge_Cuts-B_Mask.svg": "902d502c10cd30441390154294686ab9220e74b8be49ee10f71d18553a883ae7"
-   }
-  },
-  {
-   "argv": [
-    "pcb",
-    "export",
-    "svg",
-    "--layers",
-    "Edge.Cuts,B.Paste",
-    "--mode-single",
-    "--output",
-    "<staging>/artwork/layer-B_Paste/Edge_Cuts-B_Paste-page.svg",
-    "--exclude-drawing-sheet",
-    "--black-and-white",
-    "<closure>/_bundle/refilled/synthetic.kicad_pcb"
-   ],
-   "exit_code": 0,
-   "stdout": "Plotted to '<staging>/artwork/layer-B_Paste/Edge_Cuts-B_Paste-page.svg'.\nDone.\n",
-   "stderr": "",
-   "outputs": {
-    "<staging>/artwork/layer-B_Paste/Edge_Cuts-B_Paste-page.svg": "bcb64820504c0633ebc2a5e2cf01b28a5ea5aebabbc1499d762a0e97de2cb4ad"
-   }
-  },
-  {
-   "argv": [
-    "pcb",
-    "export",
-    "svg",
-    "--layers",
-    "Edge.Cuts,B.Paste",
-    "--mode-single",
-    "--output",
-    "<staging>/artwork/layer-B_Paste/Edge_Cuts-B_Paste.svg",
-    "--exclude-drawing-sheet",
-    "--page-size-mode",
-    "2",
-    "--black-and-white",
-    "<closure>/_bundle/refilled/synthetic.kicad_pcb"
-   ],
-   "exit_code": 0,
-   "stdout": "Plotted to '<staging>/artwork/layer-B_Paste/Edge_Cuts-B_Paste.svg'.\nDone.\n",
-   "stderr": "",
-   "outputs": {
-    "<staging>/artwork/layer-B_Paste/Edge_Cuts-B_Paste.svg": "68aae200f1d9809c6a920e4c9d29716aec67a4e806fc15881e0cf11b3e6a17cd"
-   }
-  },
-  {
-   "argv": [
-    "pcb",
-    "export",
-    "svg",
-    "--layers",
-    "Edge.Cuts,B.Silkscreen",
-    "--mode-single",
-    "--output",
-    "<staging>/artwork/layer-B_Silkscreen/Edge_Cuts-B_Silkscreen-page.svg",
-    "--exclude-drawing-sheet",
-    "--black-and-white",
-    "<closure>/_bundle/refilled/synthetic.kicad_pcb"
-   ],
-   "exit_code": 0,
-   "stdout": "Plotted to '<staging>/artwork/layer-B_Silkscreen/Edge_Cuts-B_Silkscreen-page.svg'.\nDone.\n",
-   "stderr": "",
-   "outputs": {
-    "<staging>/artwork/layer-B_Silkscreen/Edge_Cuts-B_Silkscreen-page.svg": "36673e40af88309a07a5cd1a6728dfb6e07fb7afb4f6139715d25949fc1aefbf"
-   }
-  },
-  {
-   "argv": [
-    "pcb",
-    "export",
-    "svg",
-    "--layers",
-    "Edge.Cuts,B.Silkscreen",
-    "--mode-single",
-    "--output",
-    "<staging>/artwork/layer-B_Silkscreen/Edge_Cuts-B_Silkscreen.svg",
-    "--exclude-drawing-sheet",
-    "--page-size-mode",
-    "2",
-    "--black-and-white",
-    "<closure>/_bundle/refilled/synthetic.kicad_pcb"
-   ],
-   "exit_code": 0,
-   "stdout": "Plotted to '<staging>/artwork/layer-B_Silkscreen/Edge_Cuts-B_Silkscreen.svg'.\nDone.\n",
-   "stderr": "",
-   "outputs": {
-    "<staging>/artwork/layer-B_Silkscreen/Edge_Cuts-B_Silkscreen.svg": "d16f0bd40cd1148876c1f8f00e10179d2844ceb3e36bd78ed0913743eec9a449"
-   }
-  },
-  {
-   "argv": [
-    "pcb",
-    "export",
-    "svg",
-    "--layers",
-    "Edge.Cuts,F.Cu",
-    "--mode-single",
-    "--output",
-    "<staging>/artwork/layer-F_Cu/Edge_Cuts-F_Cu-page.svg",
-    "--exclude-drawing-sheet",
-    "--black-and-white",
-    "<closure>/_bundle/refilled/synthetic.kicad_pcb"
-   ],
-   "exit_code": 0,
-   "stdout": "Plotted to '<staging>/artwork/layer-F_Cu/Edge_Cuts-F_Cu-page.svg'.\nDone.\n",
-   "stderr": "",
-   "outputs": {
-    "<staging>/artwork/layer-F_Cu/Edge_Cuts-F_Cu-page.svg": "9d13ff87dfcac8afef947e3479ee4a11f731730db754d7cbb7d89b6b8dd886a2"
-   }
-  },
-  {
-   "argv": [
-    "pcb",
-    "export",
-    "svg",
-    "--layers",
-    "Edge.Cuts,F.Cu",
-    "--mode-single",
-    "--output",
-    "<staging>/artwork/layer-F_Cu/Edge_Cuts-F_Cu.svg",
-    "--exclude-drawing-sheet",
-    "--page-size-mode",
-    "2",
-    "--black-and-white",
-    "<closure>/_bundle/refilled/synthetic.kicad_pcb"
-   ],
-   "exit_code": 0,
-   "stdout": "Plotted to '<staging>/artwork/layer-F_Cu/Edge_Cuts-F_Cu.svg'.\nDone.\n",
-   "stderr": "",
-   "outputs": {
-    "<staging>/artwork/layer-F_Cu/Edge_Cuts-F_Cu.svg": "a0fe426e32bac462e18da297ebc6f73a5f7f3f7f5e14fc507e3dffbd001dbae5"
-   }
-  },
-  {
-   "argv": [
-    "pcb",
-    "export",
-    "svg",
-    "--layers",
-    "Edge.Cuts,F.Mask",
-    "--mode-single",
-    "--output",
-    "<staging>/artwork/layer-F_Mask/Edge_Cuts-F_Mask-page.svg",
-    "--exclude-drawing-sheet",
-    "--black-and-white",
-    "<closure>/_bundle/refilled/synthetic.kicad_pcb"
-   ],
-   "exit_code": 0,
-   "stdout": "Plotted to '<staging>/artwork/layer-F_Mask/Edge_Cuts-F_Mask-page.svg'.\nDone.\n",
-   "stderr": "",
-   "outputs": {
-    "<staging>/artwork/layer-F_Mask/Edge_Cuts-F_Mask-page.svg": "d8f41e47feaab64c1470771bc81fc754aaa81d598d551b8be6292e7f5f6f5413"
-   }
-  },
-  {
-   "argv": [
-    "pcb",
-    "export",
-    "svg",
-    "--layers",
-    "Edge.Cuts,F.Mask",
-    "--mode-single",
-    "--output",
-    "<staging>/artwork/layer-F_Mask/Edge_Cuts-F_Mask.svg",
-    "--exclude-drawing-sheet",
-    "--page-size-mode",
-    "2",
-    "--black-and-white",
-    "<closure>/_bundle/refilled/synthetic.kicad_pcb"
-   ],
-   "exit_code": 0,
-   "stdout": "Plotted to '<staging>/artwork/layer-F_Mask/Edge_Cuts-F_Mask.svg'.\nDone.\n",
-   "stderr": "",
-   "outputs": {
-    "<staging>/artwork/layer-F_Mask/Edge_Cuts-F_Mask.svg": "221ca1fa0a60802ba4230d565b88d2f371228df7188155bb05070d1bd1083d60"
-   }
-  },
-  {
-   "argv": [
-    "pcb",
-    "export",
-    "svg",
-    "--layers",
-    "Edge.Cuts,F.Paste",
-    "--mode-single",
-    "--output",
-    "<staging>/artwork/layer-F_Paste/Edge_Cuts-F_Paste-page.svg",
-    "--exclude-drawing-sheet",
-    "--black-and-white",
-    "<closure>/_bundle/refilled/synthetic.kicad_pcb"
-   ],
-   "exit_code": 0,
-   "stdout": "Plotted to '<staging>/artwork/layer-F_Paste/Edge_Cuts-F_Paste-page.svg'.\nDone.\n",
-   "stderr": "",
-   "outputs": {
-    "<staging>/artwork/layer-F_Paste/Edge_Cuts-F_Paste-page.svg": "eff96683106be39b43e804b1c0e35f04f9eb4a59fc579c639e9d84f249678965"
-   }
-  },
-  {
-   "argv": [
-    "pcb",
-    "export",
-    "svg",
-    "--layers",
-    "Edge.Cuts,F.Paste",
-    "--mode-single",
-    "--output",
-    "<staging>/artwork/layer-F_Paste/Edge_Cuts-F_Paste.svg",
-    "--exclude-drawing-sheet",
-    "--page-size-mode",
-    "2",
-    "--black-and-white",
-    "<closure>/_bundle/refilled/synthetic.kicad_pcb"
-   ],
-   "exit_code": 0,
-   "stdout": "Plotted to '<staging>/artwork/layer-F_Paste/Edge_Cuts-F_Paste.svg'.\nDone.\n",
-   "stderr": "",
-   "outputs": {
-    "<staging>/artwork/layer-F_Paste/Edge_Cuts-F_Paste.svg": "63363e0c079bd4b910f1cd7d10648aed9741dbe398b7fc933c0525839e0422b1"
-   }
-  },
-  {
-   "argv": [
-    "pcb",
-    "export",
-    "svg",
-    "--layers",
-    "Edge.Cuts,F.Silkscreen",
-    "--mode-single",
-    "--output",
-    "<staging>/artwork/layer-F_Silkscreen/Edge_Cuts-F_Silkscreen-page.svg",
-    "--exclude-drawing-sheet",
-    "--black-and-white",
-    "<closure>/_bundle/refilled/synthetic.kicad_pcb"
-   ],
-   "exit_code": 0,
-   "stdout": "Plotted to '<staging>/artwork/layer-F_Silkscreen/Edge_Cuts-F_Silkscreen-page.svg'.\nDone.\n",
-   "stderr": "",
-   "outputs": {
-    "<staging>/artwork/layer-F_Silkscreen/Edge_Cuts-F_Silkscreen-page.svg": "259097aaf9da43d015903f31b149382372bb7ef98d3b92f7adba839484fefe98"
-   }
-  },
-  {
-   "argv": [
-    "pcb",
-    "export",
-    "svg",
-    "--layers",
-    "Edge.Cuts,F.Silkscreen",
-    "--mode-single",
-    "--output",
-    "<staging>/artwork/layer-F_Silkscreen/Edge_Cuts-F_Silkscreen.svg",
-    "--exclude-drawing-sheet",
-    "--page-size-mode",
-    "2",
-    "--black-and-white",
-    "<closure>/_bundle/refilled/synthetic.kicad_pcb"
-   ],
-   "exit_code": 0,
-   "stdout": "Plotted to '<staging>/artwork/layer-F_Silkscreen/Edge_Cuts-F_Silkscreen.svg'.\nDone.\n",
-   "stderr": "",
-   "outputs": {
-    "<staging>/artwork/layer-F_Silkscreen/Edge_Cuts-F_Silkscreen.svg": "1e609940aba7c0b5bdff27cbfcf95c24c1a4fd689049f911f978f293cad91184"
+    "<staging>/artwork/layers/svg/synthetic-B_Cu.svg": "831c846ebffa2be28e087a5ea1d8dcead67f1537dfd8cf57147a75e85d9e34cd",
+    "<staging>/artwork/layers/svg/synthetic-B_Mask.svg": "edaeabe97bf8a05a832fa6e22d0827ae491694e0c37734948c44642af309aec6",
+    "<staging>/artwork/layers/svg/synthetic-B_Paste.svg": "5d6b53c237655101e12d607853202ec381c20b384404e7d59be70383a10558c2",
+    "<staging>/artwork/layers/svg/synthetic-Edge_Cuts.svg": "a2cb7f8a6eb3db0d662c5968a5faee631cc5a288c1cd10844f3878d4cbd0ec2d",
+    "<staging>/artwork/layers/svg/synthetic-F_Cu.svg": "527ecb2aeefda10963700506abb8fb46481ee80af7fae19fbc5dae391a72b450",
+    "<staging>/artwork/layers/svg/synthetic-F_Mask.svg": "a8b474847fc34c1daed47e35914e35a2878145e81e061ce44f5defb6c94377b1",
+    "<staging>/artwork/layers/svg/synthetic-F_Paste.svg": "8d5116d08df15a7421471b74a9bf76790a5cc674d1686f1787581bcae517c447",
+    "<staging>/artwork/layers/svg/synthetic-b_silkscreen.svg": "9a717871edd653a70e8581f2d9e14eb908f47c5ccbe4811b7c6c632a00595d91",
+    "<staging>/artwork/layers/svg/synthetic-f_silkscreen.svg": "8dafcf9ef63df80564338b6a8ee6aa57e275818c6bca00a423be55e8f044065b"
    }
   },
   {
@@ -743,10 +261,10 @@
     "<closure>/_bundle/refilled/synthetic.kicad_pcb"
    ],
    "exit_code": 0,
-   "stdout": "Loading\u2026\nBuild board outline\n\nCreate layers\nCreate tracks and vias\nCreate zones\nBuild Tech layers\nBuild Tech layer 11\nBuild Tech layer 9\nBuild Tech layer 15\nBuild Tech layer 13\nBuild Tech layer 7\nBuild Tech layer 5\nBuild Tech layer 3\nBuild Tech layer 1\nBuild Tech layer 17\nBuild Tech layer 19\nBuild Tech layer 21\nBuild Tech layer 23\nBuild Tech layer 39\nBuild Tech layer 41\nBuild Tech layer 43\nBuild Tech layer 45\nBuild Tech layer 47\nBuild Tech layer 49\nBuild Tech layer 51\nBuild Tech layer 53\nBuild Tech layer 55\nBuild Tech layer 57\nBuild Tech layer 59\nBuild Tech layer 61\nBuild Tech layer 63\nBuild Tech layer 65\nBuild Tech layer 67\nBuild Tech layer 69\nBuild Tech layer 71\nBuild Tech layer 73\nBuild Tech layer 75\nBuild Tech layer 77\nBuild Tech layer 79\nBuild Tech layer 81\nBuild Tech layer 83\nBuild Tech layer 85\nBuild Tech layer 87\nBuild Tech layer 89\nBuild Tech layer 91\nBuild Tech layer 93\nBuild Tech layer 95\nBuild Tech layer 97\nBuild Tech layer 99\nBuild Tech layer 101\nBuild Tech layer 103\nBuild Tech layer 105\nBuild Tech layer 107\nBuild Tech layer 109\nBuild Tech layer 111\nBuild Tech layer 113\nBuild Tech layer 115\nBuild Tech layer 117\nBuild Tech layer 119\nBuild Tech layer 121\nBuild Tech layer 123\nBuild Tech layer 125\nBuild Tech layer 127\nSimplifying copper layer polygons\nCalculating plated copper\nSimplify holes contours\nBuild BVH for holes and vias\nLoad Raytracing: board\nLoad Raytracing: layers\nLoading 3D models...\nReload time 0.018 s\nRendering: 34 %\nRendering: 70 %\nRendering: 98 %\nRendering: 100 %\nRendering: Post processing shader\nRendering time 1.425 s\nSuccessfully created 3D render image\n",
+   "stdout": "Loading...\nBuild board outline\n\nCreate layers\nCreate tracks and vias\nCreate zones\nBuild Tech layers\nBuild Tech layer 11\nBuild Tech layer 9\nBuild Tech layer 15\nBuild Tech layer 13\nBuild Tech layer 7\nBuild Tech layer 5\nBuild Tech layer 3\nBuild Tech layer 1\nBuild Tech layer 17\nBuild Tech layer 19\nBuild Tech layer 21\nBuild Tech layer 23\nBuild Tech layer 39\nBuild Tech layer 41\nBuild Tech layer 43\nBuild Tech layer 45\nBuild Tech layer 47\nBuild Tech layer 49\nBuild Tech layer 51\nBuild Tech layer 53\nBuild Tech layer 55\nBuild Tech layer 57\nBuild Tech layer 59\nBuild Tech layer 61\nBuild Tech layer 63\nBuild Tech layer 65\nBuild Tech layer 67\nBuild Tech layer 69\nBuild Tech layer 71\nBuild Tech layer 73\nBuild Tech layer 75\nBuild Tech layer 77\nBuild Tech layer 79\nBuild Tech layer 81\nBuild Tech layer 83\nBuild Tech layer 85\nBuild Tech layer 87\nBuild Tech layer 89\nBuild Tech layer 91\nBuild Tech layer 93\nBuild Tech layer 95\nBuild Tech layer 97\nBuild Tech layer 99\nBuild Tech layer 101\nBuild Tech layer 103\nBuild Tech layer 105\nBuild Tech layer 107\nBuild Tech layer 109\nBuild Tech layer 111\nBuild Tech layer 113\nBuild Tech layer 115\nBuild Tech layer 117\nBuild Tech layer 119\nBuild Tech layer 121\nBuild Tech layer 123\nBuild Tech layer 125\nBuild Tech layer 127\nSimplifying copper layer polygons\nCalculating plated copper\nSimplify holes contours\nBuild BVH for holes and vias\nLoad Raytracing: board\nLoad Raytracing: layers\nLoading 3D models...\nReload time 0.088 s\nRendering: 12 %\nRendering: 24 %\nRendering: 36 %\nRendering: 48 %\nRendering: 60 %\nRendering: 72 %\nRendering: 84 %\nRendering: 96 %\nRendering: 100 %\nRendering: Post processing shader\nRendering time 3.544 s\nSuccessfully created 3D render image\n",
    "stderr": "",
    "outputs": {
-    "<staging>/artwork/render/board.png": "c4905cf8500ecb85b5a230dda8c2b599d16266a05f995acbe40688b66089dfa1"
+    "<staging>/artwork/render/board.png": "d2ccd4acee2cbab69dbb0f8ab846d29300d570aa3d92b8da48df5f0b8cc67b68"
    }
   },
   {
@@ -761,10 +279,10 @@
     "<closure>/_bundle/sources/synthetic.kicad_sch"
    ],
    "exit_code": 0,
-   "stdout": "Found 8 violations\nSaved ERC Report to <staging>/outputs/evidence/erc.json\n",
-   "stderr": "Fontconfig warning: We will not regenerate the cache because some cache files were generated by a newer version (0x2012003) of Fontconfig. Please regenerate the cache with the latest version of Fontconfig to avoid any unexpected behavior. (current version: 0x2012002)\n",
+   "stdout": "Found 10 violations\nSaved ERC Report to <staging>/outputs/evidence/erc.json\n",
+   "stderr": "",
    "outputs": {
-    "<staging>/outputs/evidence/erc.json": "bb5ccefcdf9ae724825ec96c3e4ee61270cf2ed696d528c374e2099c4c6f8d53"
+    "<staging>/outputs/evidence/erc.json": "fd2dce322b577ee74b39ad3a90297984743d4919bb2e4334a1126632cdeac4b6"
    }
   },
   {
@@ -778,7 +296,7 @@
    ],
    "exit_code": 0,
    "stdout": "Wrote bill of materials to '<staging>/outputs/assembly/bom.csv'.\n",
-   "stderr": "Fontconfig warning: We will not regenerate the cache because some cache files were generated by a newer version (0x2012003) of Fontconfig. Please regenerate the cache with the latest version of Fontconfig to avoid any unexpected behavior. (current version: 0x2012002)\n",
+   "stderr": "",
    "outputs": {
     "<staging>/outputs/assembly/bom.csv": "3fc0e047fbe976fd3c18fbaa9c81974b9892bbfbb95681ba0307d789e95206d7"
    }
@@ -794,9 +312,9 @@
    ],
    "exit_code": 0,
    "stdout": "Plotted to '<staging>/outputs/documentation/schematic.pdf'.\nDone.\n",
-   "stderr": "Fontconfig warning: We will not regenerate the cache because some cache files were generated by a newer version (0x2012003) of Fontconfig. Please regenerate the cache with the latest version of Fontconfig to avoid any unexpected behavior. (current version: 0x2012002)\n",
+   "stderr": "",
    "outputs": {
-    "<staging>/outputs/documentation/schematic.pdf": "2d91b5e78282358895544612c080d22dd812fd39c3a51ac955c2b6fe9e1ad97e"
+    "<staging>/outputs/documentation/schematic.pdf": "e0cab334dd8b6e56b9900a5300974bd1316cbd04fc395d6f65f2e0e97509c329"
    }
   }
  ]

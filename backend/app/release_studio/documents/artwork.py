@@ -272,9 +272,9 @@ def acquire_layers(
             future.result()
 
     acquired: dict[str, AcquiredArtwork | ArtworkError] = {}
+    plotted_names = plot_file_layer_names(board)
     for layer in layers:
-        # KiCad names each file `<board stem>-<layer with dots as underscores>`.
-        name = f"{board.stem}-{layer.replace('.', '_')}"
+        name = f"{board.stem}-{plotted_names.get(layer, layer).replace('.', '_')}"
         files = (crop_dir / f"{name}.svg", page_dir / f"{name}.svg", pdf_dir / f"{name}.pdf")
         missing = [path.name for path in files if not path.is_file()]
         if missing:
@@ -283,6 +283,56 @@ def acquire_layers(
         plotted = ("Edge.Cuts", layer) if layer != "Edge.Cuts" else ("Edge.Cuts",)
         acquired[layer] = _acquired(plotted, *files)
     return acquired
+
+
+#: KiCad's pre-v7 canonical layer names, as an older board's layer table still
+#: spells them, against the names plots are requested by.
+_LEGACY_LAYER_NAMES = {
+    "F.SilkS": "F.Silkscreen",
+    "B.SilkS": "B.Silkscreen",
+    "F.Adhes": "F.Adhesive",
+    "B.Adhes": "B.Adhesive",
+    "F.CrtYd": "F.Courtyard",
+    "B.CrtYd": "B.Courtyard",
+    "Dwgs.User": "User.Drawings",
+    "Cmts.User": "User.Comments",
+    "Eco1.User": "User.Eco1",
+    "Eco2.User": "User.Eco2",
+}
+_LAYER_ROW = re.compile(r'\(\s*\d+\s+"((?:[^"\\]|\\.)*)"\s+[\w.]+(?:\s+"((?:[^"\\]|\\.)*)")?\s*\)')
+
+
+def plot_file_layer_names(board: Path) -> dict[str, str]:
+    """The name KiCad gives each layer's file in a multi-file plot, by requested layer.
+
+    KiCad suffixes the file with the layer's display name: the board's own
+    name for it when the layer table sets one (EDA-04903 calls F.Cu "Top
+    Layer"), else the canonical name. Dots become underscores, spaces stay. A
+    layer missing here keeps its requested name.
+    """
+
+    try:
+        with board.open("r", encoding="utf-8", errors="replace") as handle:
+            head = handle.read(256 * 1024)
+    except OSError:
+        return {}
+    start = head.find("(layers")
+    if start < 0:
+        return {}
+    depth, end = 0, len(head)
+    for index in range(start, len(head)):
+        if head[index] == "(":
+            depth += 1
+        elif head[index] == ")":
+            depth -= 1
+            if depth == 0:
+                end = index
+                break
+    names: dict[str, str] = {}
+    for canonical, user in _LAYER_ROW.findall(head[start + 1 : end]):
+        requested = _LEGACY_LAYER_NAMES.get(canonical, canonical)
+        names[requested] = user or requested
+    return names
 
 
 def _acquired(layers: tuple[str, ...], svg_path: Path, page_svg_path: Path, pdf_path: Path) -> AcquiredArtwork:
