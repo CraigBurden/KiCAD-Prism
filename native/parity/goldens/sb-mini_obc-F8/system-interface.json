@@ -1,0 +1,1234 @@
+{
+ "schema": "prism.system_interface.v1",
+ "hasPcb": true,
+ "boardThicknessMm": 1.6,
+ "boardOutlineMm": {
+  "minMm": [
+   6.5,
+   -59.11
+  ],
+  "maxMm": [
+   96.65,
+   -6.5
+  ],
+  "source": "items"
+ },
+ "components": [
+  {
+   "portKey": "/74f07384-d08c-505c-891f-7c1260a18a6b/1eb93fd0-bb35-5448-9ca3-16d8a0cd0927",
+   "memberKeys": [
+    "/74f07384-d08c-505c-891f-7c1260a18a6b/1eb93fd0-bb35-5448-9ca3-16d8a0cd0927"
+   ],
+   "reference": "J2",
+   "libId": "Connector_Generic:Conn_01x04",
+   "footprint": "Connector_PinHeader_2.54mm:PinHeader_1x04_P2.54mm_Vertical",
+   "value": "Conn_01x04",
+   "mpn": null,
+   "dnp": false,
+   "candidate": true,
+   "candidateReason": "refdes",
+   "pins": [
+    {
+     "pad": "1",
+     "nets": [
+      "VIN_28V"
+     ],
+     "pcbNets": [
+      "VIN_28V"
+     ],
+     "pinNames": [
+      "Pin_1"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "2",
+     "nets": [
+      "GND"
+     ],
+     "pcbNets": [
+      "GND"
+     ],
+     "pinNames": [
+      "Pin_2"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "3",
+     "nets": [
+      "/PWR_GOOD"
+     ],
+     "pcbNets": [
+      "/PWR_GOOD"
+     ],
+     "pinNames": [
+      "Pin_3"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "4",
+     "nets": [
+      "/PWR_EN"
+     ],
+     "pcbNets": [
+      "/PWR_EN"
+     ],
+     "pinNames": [
+      "Pin_4"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    }
+   ],
+   "geometry": {
+    "side": "top",
+    "positionMm": [
+     10.0,
+     -10.0
+    ],
+    "rotationDeg": 0.0,
+    "footprintName": "PinHeader_1x04_P2.54mm_Vertical",
+    "pads": [
+     {
+      "pad": "1",
+      "positionMm": [
+       10.0,
+       -10.0
+      ],
+      "sizeMm": [
+       1.7,
+       1.7
+      ],
+      "shape": "circle",
+      "tht": true
+     },
+     {
+      "pad": "2",
+      "positionMm": [
+       10.0,
+       -12.54
+      ],
+      "sizeMm": [
+       1.7,
+       1.7
+      ],
+      "shape": "circle",
+      "tht": true
+     },
+     {
+      "pad": "3",
+      "positionMm": [
+       10.0,
+       -15.08
+      ],
+      "sizeMm": [
+       1.7,
+       1.7
+      ],
+      "shape": "circle",
+      "tht": true
+     },
+     {
+      "pad": "4",
+      "positionMm": [
+       10.0,
+       -17.62
+      ],
+      "sizeMm": [
+       1.7,
+       1.7
+      ],
+      "shape": "circle",
+      "tht": true
+     }
+    ],
+    "courtyard": null,
+    "model": null
+   }
+  },
+  {
+   "portKey": "/74f07384-d08c-505c-891f-7c1260a18a6b/66f8bffb-341f-5358-8478-5c58c23bbb38",
+   "memberKeys": [
+    "/74f07384-d08c-505c-891f-7c1260a18a6b/66f8bffb-341f-5358-8478-5c58c23bbb38"
+   ],
+   "reference": "J5",
+   "libId": "Connector_Generic:Conn_01x04",
+   "footprint": "Connector_PinHeader_2.54mm:PinHeader_1x04_P2.54mm_Vertical",
+   "value": "Conn_01x04",
+   "mpn": null,
+   "dnp": false,
+   "candidate": true,
+   "candidateReason": "refdes",
+   "pins": [
+    {
+     "pad": "1",
+     "nets": [
+      "VIN_28V"
+     ],
+     "pcbNets": [
+      "VIN_28V"
+     ],
+     "pinNames": [
+      "Pin_1"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "2",
+     "nets": [
+      "GND"
+     ],
+     "pcbNets": [
+      "GND"
+     ],
+     "pinNames": [
+      "Pin_2"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "3",
+     "nets": [
+      "/AUX_A"
+     ],
+     "pcbNets": [
+      "/AUX_A"
+     ],
+     "pinNames": [
+      "Pin_3"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "4",
+     "nets": [
+      "/AUX_B"
+     ],
+     "pcbNets": [
+      "/AUX_B"
+     ],
+     "pinNames": [
+      "Pin_4"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    }
+   ],
+   "geometry": {
+    "side": "top",
+    "positionMm": [
+     30.0,
+     -10.0
+    ],
+    "rotationDeg": 0.0,
+    "footprintName": "PinHeader_1x04_P2.54mm_Vertical",
+    "pads": [
+     {
+      "pad": "1",
+      "positionMm": [
+       30.0,
+       -10.0
+      ],
+      "sizeMm": [
+       1.7,
+       1.7
+      ],
+      "shape": "circle",
+      "tht": true
+     },
+     {
+      "pad": "2",
+      "positionMm": [
+       30.0,
+       -12.54
+      ],
+      "sizeMm": [
+       1.7,
+       1.7
+      ],
+      "shape": "circle",
+      "tht": true
+     },
+     {
+      "pad": "3",
+      "positionMm": [
+       30.0,
+       -15.08
+      ],
+      "sizeMm": [
+       1.7,
+       1.7
+      ],
+      "shape": "circle",
+      "tht": true
+     },
+     {
+      "pad": "4",
+      "positionMm": [
+       30.0,
+       -17.62
+      ],
+      "sizeMm": [
+       1.7,
+       1.7
+      ],
+      "shape": "circle",
+      "tht": true
+     }
+    ],
+    "courtyard": null,
+    "model": null
+   }
+  },
+  {
+   "portKey": "/74f07384-d08c-505c-891f-7c1260a18a6b/90429a25-a9c4-570d-98ef-d2329cc09d21",
+   "memberKeys": [
+    "/74f07384-d08c-505c-891f-7c1260a18a6b/90429a25-a9c4-570d-98ef-d2329cc09d21"
+   ],
+   "reference": "J6",
+   "libId": "Connector_Generic:Conn_01x04",
+   "footprint": "Connector_PinHeader_2.54mm:PinHeader_1x04_P2.54mm_Vertical",
+   "value": "Conn_01x04",
+   "mpn": null,
+   "dnp": false,
+   "candidate": true,
+   "candidateReason": "refdes",
+   "pins": [
+    {
+     "pad": "1",
+     "nets": [
+      "VIN_28V"
+     ],
+     "pcbNets": [
+      "VIN_28V"
+     ],
+     "pinNames": [
+      "Pin_1"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "2",
+     "nets": [
+      "GND"
+     ],
+     "pcbNets": [
+      "GND"
+     ],
+     "pinNames": [
+      "Pin_2"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "3",
+     "nets": [
+      "/PWR_GOOD"
+     ],
+     "pcbNets": [
+      "/PWR_GOOD"
+     ],
+     "pinNames": [
+      "Pin_3"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "4",
+     "nets": [
+      "/AUX_C"
+     ],
+     "pcbNets": [
+      "/AUX_C"
+     ],
+     "pinNames": [
+      "Pin_4"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    }
+   ],
+   "geometry": {
+    "side": "top",
+    "positionMm": [
+     50.0,
+     -10.0
+    ],
+    "rotationDeg": 0.0,
+    "footprintName": "PinHeader_1x04_P2.54mm_Vertical",
+    "pads": [
+     {
+      "pad": "1",
+      "positionMm": [
+       50.0,
+       -10.0
+      ],
+      "sizeMm": [
+       1.7,
+       1.7
+      ],
+      "shape": "circle",
+      "tht": true
+     },
+     {
+      "pad": "2",
+      "positionMm": [
+       50.0,
+       -12.54
+      ],
+      "sizeMm": [
+       1.7,
+       1.7
+      ],
+      "shape": "circle",
+      "tht": true
+     },
+     {
+      "pad": "3",
+      "positionMm": [
+       50.0,
+       -15.08
+      ],
+      "sizeMm": [
+       1.7,
+       1.7
+      ],
+      "shape": "circle",
+      "tht": true
+     },
+     {
+      "pad": "4",
+      "positionMm": [
+       50.0,
+       -17.62
+      ],
+      "sizeMm": [
+       1.7,
+       1.7
+      ],
+      "shape": "circle",
+      "tht": true
+     }
+    ],
+    "courtyard": null,
+    "model": null
+   }
+  },
+  {
+   "portKey": "/74f07384-d08c-505c-891f-7c1260a18a6b/0ba14ec3-823d-53e7-a501-824777f27fe6/7deea345-67df-5640-80af-026b572bc5c0",
+   "memberKeys": [
+    "/74f07384-d08c-505c-891f-7c1260a18a6b/0ba14ec3-823d-53e7-a501-824777f27fe6/7deea345-67df-5640-80af-026b572bc5c0"
+   ],
+   "reference": "J7",
+   "libId": "Connector_Generic:Conn_02x10_Odd_Even",
+   "footprint": "Connector_PinHeader_2.54mm:PinHeader_2x10_P2.54mm_Vertical",
+   "value": "Conn_02x10",
+   "mpn": null,
+   "dnp": false,
+   "candidate": true,
+   "candidateReason": "refdes",
+   "pins": [
+    {
+     "pad": "1",
+     "nets": [
+      "GND"
+     ],
+     "pcbNets": [
+      "GND"
+     ],
+     "pinNames": [
+      "Pin_1"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "2",
+     "nets": [
+      "GND"
+     ],
+     "pcbNets": [
+      "GND"
+     ],
+     "pinNames": [
+      "Pin_2"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "3",
+     "nets": [
+      "/Payload IF/SPI_SCK"
+     ],
+     "pcbNets": [
+      "/Payload IF/SPI_SCK"
+     ],
+     "pinNames": [
+      "Pin_3"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "4",
+     "nets": [
+      "/Payload IF/SPI_MOSI"
+     ],
+     "pcbNets": [
+      "/Payload IF/SPI_MOSI"
+     ],
+     "pinNames": [
+      "Pin_4"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "5",
+     "nets": [
+      "/Payload IF/SPI_MISO"
+     ],
+     "pcbNets": [
+      "/Payload IF/SPI_MISO"
+     ],
+     "pinNames": [
+      "Pin_5"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "6",
+     "nets": [
+      "/Payload IF/SPI_CS#"
+     ],
+     "pcbNets": [
+      "/Payload IF/SPI_CS#"
+     ],
+     "pinNames": [
+      "Pin_6"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "7",
+     "nets": [
+      "+3V3"
+     ],
+     "pcbNets": [
+      "+3V3"
+     ],
+     "pinNames": [
+      "Pin_7"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "8",
+     "nets": [
+      "+3V3"
+     ],
+     "pcbNets": [
+      "+3V3"
+     ],
+     "pinNames": [
+      "Pin_8"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "9",
+     "nets": [
+      "/Payload IF/GPIO0"
+     ],
+     "pcbNets": [
+      "/Payload IF/GPIO0"
+     ],
+     "pinNames": [
+      "Pin_9"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "10",
+     "nets": [
+      "/Payload IF/GPIO1"
+     ],
+     "pcbNets": [
+      "/Payload IF/GPIO1"
+     ],
+     "pinNames": [
+      "Pin_10"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "11",
+     "nets": [
+      "/Payload IF/GPIO2"
+     ],
+     "pcbNets": [
+      "/Payload IF/GPIO2"
+     ],
+     "pinNames": [
+      "Pin_11"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "12",
+     "nets": [
+      "/Payload IF/GPIO3"
+     ],
+     "pcbNets": [
+      "/Payload IF/GPIO3"
+     ],
+     "pinNames": [
+      "Pin_12"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "13",
+     "nets": [
+      "/Payload IF/GPIO4"
+     ],
+     "pcbNets": [
+      "/Payload IF/GPIO4"
+     ],
+     "pinNames": [
+      "Pin_13"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "14",
+     "nets": [
+      "/Payload IF/GPIO5"
+     ],
+     "pcbNets": [
+      "/Payload IF/GPIO5"
+     ],
+     "pinNames": [
+      "Pin_14"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "15",
+     "nets": [
+      "/Payload IF/GPIO6"
+     ],
+     "pcbNets": [
+      "/Payload IF/GPIO6"
+     ],
+     "pinNames": [
+      "Pin_15"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "16",
+     "nets": [
+      "/Payload IF/GPIO7"
+     ],
+     "pcbNets": [
+      "/Payload IF/GPIO7"
+     ],
+     "pinNames": [
+      "Pin_16"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "17",
+     "nets": [
+      "PAYLOAD_RESET#"
+     ],
+     "pcbNets": [
+      "PAYLOAD_RESET#"
+     ],
+     "pinNames": [
+      "Pin_17"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "18",
+     "nets": [
+      "PAYLOAD_INT#"
+     ],
+     "pcbNets": [
+      "PAYLOAD_IRQ#"
+     ],
+     "pinNames": [
+      "Pin_18"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "19",
+     "nets": [
+      "/Payload IF/SPARE19"
+     ],
+     "pcbNets": [
+      "/Payload IF/SPARE19"
+     ],
+     "pinNames": [
+      "Pin_19"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "20",
+     "nets": [],
+     "pcbNets": [],
+     "pinNames": [
+      "Pin_20"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    }
+   ],
+   "geometry": {
+    "side": "top",
+    "positionMm": [
+     70.0,
+     -10.0
+    ],
+    "rotationDeg": 0.0,
+    "footprintName": "PinHeader_2x10_P2.54mm_Vertical",
+    "pads": [
+     {
+      "pad": "1",
+      "positionMm": [
+       70.0,
+       -10.0
+      ],
+      "sizeMm": [
+       1.7,
+       1.7
+      ],
+      "shape": "circle",
+      "tht": true
+     },
+     {
+      "pad": "2",
+      "positionMm": [
+       70.0,
+       -12.54
+      ],
+      "sizeMm": [
+       1.7,
+       1.7
+      ],
+      "shape": "circle",
+      "tht": true
+     },
+     {
+      "pad": "3",
+      "positionMm": [
+       70.0,
+       -15.08
+      ],
+      "sizeMm": [
+       1.7,
+       1.7
+      ],
+      "shape": "circle",
+      "tht": true
+     },
+     {
+      "pad": "4",
+      "positionMm": [
+       70.0,
+       -17.62
+      ],
+      "sizeMm": [
+       1.7,
+       1.7
+      ],
+      "shape": "circle",
+      "tht": true
+     },
+     {
+      "pad": "5",
+      "positionMm": [
+       70.0,
+       -20.16
+      ],
+      "sizeMm": [
+       1.7,
+       1.7
+      ],
+      "shape": "circle",
+      "tht": true
+     },
+     {
+      "pad": "6",
+      "positionMm": [
+       70.0,
+       -22.7
+      ],
+      "sizeMm": [
+       1.7,
+       1.7
+      ],
+      "shape": "circle",
+      "tht": true
+     },
+     {
+      "pad": "7",
+      "positionMm": [
+       70.0,
+       -25.24
+      ],
+      "sizeMm": [
+       1.7,
+       1.7
+      ],
+      "shape": "circle",
+      "tht": true
+     },
+     {
+      "pad": "8",
+      "positionMm": [
+       70.0,
+       -27.78
+      ],
+      "sizeMm": [
+       1.7,
+       1.7
+      ],
+      "shape": "circle",
+      "tht": true
+     },
+     {
+      "pad": "9",
+      "positionMm": [
+       70.0,
+       -30.32
+      ],
+      "sizeMm": [
+       1.7,
+       1.7
+      ],
+      "shape": "circle",
+      "tht": true
+     },
+     {
+      "pad": "10",
+      "positionMm": [
+       70.0,
+       -32.86
+      ],
+      "sizeMm": [
+       1.7,
+       1.7
+      ],
+      "shape": "circle",
+      "tht": true
+     },
+     {
+      "pad": "11",
+      "positionMm": [
+       70.0,
+       -35.4
+      ],
+      "sizeMm": [
+       1.7,
+       1.7
+      ],
+      "shape": "circle",
+      "tht": true
+     },
+     {
+      "pad": "12",
+      "positionMm": [
+       70.0,
+       -37.94
+      ],
+      "sizeMm": [
+       1.7,
+       1.7
+      ],
+      "shape": "circle",
+      "tht": true
+     },
+     {
+      "pad": "13",
+      "positionMm": [
+       70.0,
+       -40.48
+      ],
+      "sizeMm": [
+       1.7,
+       1.7
+      ],
+      "shape": "circle",
+      "tht": true
+     },
+     {
+      "pad": "14",
+      "positionMm": [
+       70.0,
+       -43.02
+      ],
+      "sizeMm": [
+       1.7,
+       1.7
+      ],
+      "shape": "circle",
+      "tht": true
+     },
+     {
+      "pad": "15",
+      "positionMm": [
+       70.0,
+       -45.56
+      ],
+      "sizeMm": [
+       1.7,
+       1.7
+      ],
+      "shape": "circle",
+      "tht": true
+     },
+     {
+      "pad": "16",
+      "positionMm": [
+       70.0,
+       -48.1
+      ],
+      "sizeMm": [
+       1.7,
+       1.7
+      ],
+      "shape": "circle",
+      "tht": true
+     },
+     {
+      "pad": "17",
+      "positionMm": [
+       70.0,
+       -50.64
+      ],
+      "sizeMm": [
+       1.7,
+       1.7
+      ],
+      "shape": "circle",
+      "tht": true
+     },
+     {
+      "pad": "18",
+      "positionMm": [
+       70.0,
+       -53.18
+      ],
+      "sizeMm": [
+       1.7,
+       1.7
+      ],
+      "shape": "circle",
+      "tht": true
+     },
+     {
+      "pad": "19",
+      "positionMm": [
+       70.0,
+       -55.72
+      ],
+      "sizeMm": [
+       1.7,
+       1.7
+      ],
+      "shape": "circle",
+      "tht": true
+     },
+     {
+      "pad": "20",
+      "positionMm": [
+       70.0,
+       -58.26
+      ],
+      "sizeMm": [
+       1.7,
+       1.7
+      ],
+      "shape": "circle",
+      "tht": true
+     }
+    ],
+    "courtyard": null,
+    "model": null
+   }
+  },
+  {
+   "portKey": "/74f07384-d08c-505c-891f-7c1260a18a6b/cb00010f-1d54-5028-a62c-b0ea9e7ad574",
+   "memberKeys": [
+    "/74f07384-d08c-505c-891f-7c1260a18a6b/cb00010f-1d54-5028-a62c-b0ea9e7ad574"
+   ],
+   "reference": "JP1",
+   "libId": "Jumper:SolderJumper_2_Open",
+   "footprint": "Jumper:SolderJumper-2_P1.3mm_Open_Pad1.0x1.5mm",
+   "value": "SolderJumper_2_Open",
+   "mpn": null,
+   "dnp": false,
+   "candidate": false,
+   "candidateReason": "none",
+   "pins": [
+    {
+     "pad": "1",
+     "nets": [
+      "/PWR_EN"
+     ],
+     "pcbNets": [
+      "/PWR_EN"
+     ],
+     "pinNames": [
+      "A"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "2",
+     "nets": [
+      "GND"
+     ],
+     "pcbNets": [
+      "GND"
+     ],
+     "pinNames": [
+      "B"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    }
+   ],
+   "geometry": {
+    "side": "top",
+    "positionMm": [
+     90.0,
+     -10.0
+    ],
+    "rotationDeg": 0.0,
+    "footprintName": "SolderJumper-2_P1.3mm_Open_Pad1.0x1.5mm",
+    "pads": [
+     {
+      "pad": "1",
+      "positionMm": [
+       90.0,
+       -10.0
+      ],
+      "sizeMm": [
+       1.7,
+       1.7
+      ],
+      "shape": "circle",
+      "tht": true
+     },
+     {
+      "pad": "2",
+      "positionMm": [
+       90.0,
+       -12.54
+      ],
+      "sizeMm": [
+       1.7,
+       1.7
+      ],
+      "shape": "circle",
+      "tht": true
+     }
+    ],
+    "courtyard": null,
+    "model": null
+   }
+  },
+  {
+   "portKey": "/74f07384-d08c-505c-891f-7c1260a18a6b/0ba14ec3-823d-53e7-a501-824777f27fe6/966360aa-6291-5aea-b951-fbc63a915e63",
+   "memberKeys": [
+    "/74f07384-d08c-505c-891f-7c1260a18a6b/0ba14ec3-823d-53e7-a501-824777f27fe6/966360aa-6291-5aea-b951-fbc63a915e63"
+   ],
+   "reference": "R10",
+   "libId": "Device:R",
+   "footprint": "Resistor_SMD:R_0603_1608Metric",
+   "value": "R",
+   "mpn": null,
+   "dnp": false,
+   "candidate": false,
+   "candidateReason": "none",
+   "pins": [
+    {
+     "pad": "1",
+     "nets": [
+      "PAYLOAD_RESET#"
+     ],
+     "pcbNets": [
+      "PAYLOAD_RESET#"
+     ],
+     "pinNames": [
+      "~"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "2",
+     "nets": [
+      "+3V3"
+     ],
+     "pcbNets": [
+      "+3V3"
+     ],
+     "pinNames": [
+      "~"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    }
+   ],
+   "geometry": {
+    "side": "top",
+    "positionMm": [
+     10.0,
+     -30.0
+    ],
+    "rotationDeg": 0.0,
+    "footprintName": "R_0603_1608Metric",
+    "pads": [
+     {
+      "pad": "1",
+      "positionMm": [
+       10.0,
+       -30.0
+      ],
+      "sizeMm": [
+       1.7,
+       1.7
+      ],
+      "shape": "circle",
+      "tht": true
+     },
+     {
+      "pad": "2",
+      "positionMm": [
+       10.0,
+       -32.54
+      ],
+      "sizeMm": [
+       1.7,
+       1.7
+      ],
+      "shape": "circle",
+      "tht": true
+     }
+    ],
+    "courtyard": null,
+    "model": null
+   }
+  }
+ ],
+ "diagnostics": [],
+ "digest": "sha256:f2004566c1fd08b50b518267ce8fb986b00d06782ee1f018d2273ffdc785c320"
+}

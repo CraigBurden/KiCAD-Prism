@@ -1,0 +1,168 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$id": "urn:prism:schema:prism.vendor.jlcpcb.config:a0",
+    "type": "object",
+    "properties": {
+        "schema": {
+            "type": "string",
+            "const": "prism.vendor.jlcpcb.config.a0",
+            "description": "Document schema id."
+        },
+        "variants": {
+            "$ref": "#/$defs/VendorJlcpcbVariants",
+            "description": "Variant selection."
+        },
+        "bom": {
+            "$ref": "#/$defs/VendorJlcpcbBom",
+            "description": "BOM settings."
+        },
+        "pnp": {
+            "$ref": "#/$defs/VendorJlcpcbPnp",
+            "description": "Placement settings."
+        }
+    },
+    "required": [
+        "schema",
+        "variants",
+        "bom",
+        "pnp"
+    ],
+    "unevaluatedProperties": {
+        "not": {}
+    },
+    "description": "The JLCPCB vendor configuration `prism-kicad vendor run jlcpcb --config`\nreads (`jlcpcb.config.jsonc` with `schema` replaced).",
+    "title": "Prism JLCPCB vendor config a0",
+    "$defs": {
+        "VendorJlcpcbVariants": {
+            "type": "object",
+            "properties": {
+                "mode": {
+                    "$ref": "#/$defs/VendorJlcpcbVariantMode",
+                    "description": "How variants are selected."
+                },
+                "names": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    },
+                    "description": "The variant names used when `mode` is `named`, in file order. Empty when\n`mode` is not `named`."
+                },
+                "include_base": {
+                    "type": "boolean",
+                    "description": "Include the no-variant base output when `mode` is `all` or `named`."
+                }
+            },
+            "required": [
+                "mode",
+                "names",
+                "include_base"
+            ],
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "Variant selection used when no `--variant` is given (`variants`)."
+        },
+        "VendorJlcpcbBom": {
+            "type": "object",
+            "properties": {
+                "outputs": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/$defs/VendorJlcpcbBomOutput"
+                    },
+                    "description": "The BOM artifact kinds to emit, in file order. Each listed kind is written\nfrom one load of the design."
+                },
+                "group_fields": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    },
+                    "description": "The canonical fields that must match before components collapse into one\ngrouped BOM line, in file order (`value`, `footprint`)."
+                },
+                "include_dnp": {
+                    "type": "boolean",
+                    "description": "Keep do-not-populate components in normalized/grouped BOM outputs."
+                },
+                "split_dnp": {
+                    "type": "boolean",
+                    "description": "Keep fitted and DNP components on separate grouped lines when the group fields match."
+                }
+            },
+            "required": [
+                "outputs",
+                "group_fields",
+                "include_dnp",
+                "split_dnp"
+            ],
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "BOM source, grouping, DNP and output settings (`bom`)."
+        },
+        "VendorJlcpcbPnp": {
+            "type": "object",
+            "properties": {
+                "outputs": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/$defs/VendorJlcpcbPnpOutput"
+                    },
+                    "description": "The placement artifact kinds to emit, in file order."
+                },
+                "units": {
+                    "$ref": "#/$defs/VendorJlcpcbPnpUnits",
+                    "description": "The placement coordinate unit."
+                }
+            },
+            "required": [
+                "outputs",
+                "units"
+            ],
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "Placement output settings (`pnp`)."
+        },
+        "VendorJlcpcbVariantMode": {
+            "type": "string",
+            "enum": [
+                "base",
+                "all",
+                "named"
+            ],
+            "description": "How the vendor run selects variants."
+        },
+        "VendorJlcpcbBomOutput": {
+            "type": "string",
+            "enum": [
+                "raw-json",
+                "legacy-json",
+                "grouped-json",
+                "grouped-csv",
+                "grouped-xlsx",
+                "jlc-csv",
+                "jlc-xlsx"
+            ],
+            "description": "One BOM artifact kind the config lists."
+        },
+        "VendorJlcpcbPnpOutput": {
+            "type": "string",
+            "enum": [
+                "json",
+                "csv",
+                "xlsx",
+                "jlc-cpl",
+                "jlc-cpl-xlsx"
+            ],
+            "description": "One pick-and-place artifact kind the config lists."
+        },
+        "VendorJlcpcbPnpUnits": {
+            "type": "string",
+            "enum": [
+                "mm",
+                "mils"
+            ],
+            "description": "The coordinate unit of the placement output. The JLCPCB CPL requires `mm`."
+        }
+    }
+}

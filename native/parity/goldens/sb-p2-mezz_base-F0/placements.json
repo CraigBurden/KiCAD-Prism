@@ -1,0 +1,3291 @@
+{
+ "schema": "prism.placements.a1",
+ "footprints": [
+  {
+   "uuid": "48db1063-ed11-54d5-a6f5-68ebe1315d80",
+   "reference": "J1",
+   "libId": "PrismFixture:Samtec_ADM6-30-03.5-L-4-0-A",
+   "side": "front",
+   "positionNm": {
+    "xNm": 125000000,
+    "yNm": 105000000
+   },
+   "rotationDeg": 0,
+   "dnp": false,
+   "excludeFromPosFiles": false,
+   "courtyardBounds": {
+    "minNm": {
+     "xNm": -12135000,
+     "yNm": -2750000
+    },
+    "maxNm": {
+     "xNm": 12135000,
+     "yNm": 2750000
+    }
+   },
+   "pads": [
+    {
+     "number": "",
+     "type": "np_thru_hole",
+     "shape": "circle",
+     "positionNm": {
+      "xNm": 114390000,
+      "yNm": 103730000
+     },
+     "size": {
+      "xNm": 950000,
+      "yNm": 950000
+     }
+    },
+    {
+     "number": "",
+     "type": "np_thru_hole",
+     "shape": "circle",
+     "positionNm": {
+      "xNm": 135610000,
+      "yNm": 105000000
+     },
+     "size": {
+      "xNm": 950000,
+      "yNm": 950000
+     }
+    },
+    {
+     "number": "A01",
+     "type": "smd",
+     "shape": "circle",
+     "positionNm": {
+      "xNm": 134207500,
+      "yNm": 103250000
+     },
+     "size": {
+      "xNm": 356000,
+      "yNm": 356000
+     }
+    },
+    {
+     "number": "A02",
+     "type": "smd",
+     "shape": "circle",
+     "positionNm": {
+      "xNm": 133572499,
+      "yNm": 103250000
+     },
+     "size": {
+      "xNm": 356000,
+      "yNm": 356000
+     }
+    },
+    {
+     "number": "A03",
+     "type": "smd",
+     "shape": "circle",
+     "positionNm": {
+      "xNm": 132937500,
+      "yNm": 103250000
+     },
+     "size": {
+      "xNm": 356000,
+      "yNm": 356000
+     }
+    },
+    {
+     "number": "A04",
+     "type": "smd",
+     "shape": "circle",
+     "positionNm": {
+      "xNm": 132302500,
+      "yNm": 103250000
+     },
+     "size": {
+      "xNm": 356000,
+      "yNm": 356000
+     }
+    },
+    {
+     "number": "A05",
+     "type": "smd",
+     "shape": "circle",
+     "positionNm": {
+      "xNm": 131667499,
+      "yNm": 103250000
+     },
+     "size": {
+      "xNm": 356000,
+      "yNm": 356000
+     }
+    },
+    {
+     "number": "A06",
+     "type": "smd",
+     "shape": "circle",
+     "positionNm": {
+      "xNm": 131032500,
+      "yNm": 103250000
+     },
+     "size": {
+      "xNm": 356000,
+      "yNm": 356000
+     }
+    },
+    {
+     "number": "A07",
+     "type": "smd",
+     "shape": "circle",
+     "positionNm": {
+      "xNm": 130397500,
+      "yNm": 103250000
+     },
+     "size": {
+      "xNm": 356000,
+      "yNm": 356000
+     }
+    },
+    {
+     "number": "A08",
+     "type": "smd",
+     "shape": "circle",
+     "positionNm": {
+      "xNm": 129762499,
+      "yNm": 103250000
+     },
+     "size": {
+      "xNm": 356000,
+      "yNm": 356000
+     }
+    },
+    {
+     "number": "A09",
+     "type": "smd",
+     "shape": "circle",
+     "positionNm": {
+      "xNm": 129127500,
+      "yNm": 103250000
+     },
+     "size": {
+      "xNm": 356000,
+      "yNm": 356000
+     }
+    },
+    {
+     "number": "A10",
+     "type": "smd",
+     "shape": "circle",
+     "positionNm": {
+      "xNm": 128492500,
+      "yNm": 103250000
+     },
+     "size": {
+      "xNm": 356000,
+      "yNm": 356000
+     }
+    },
+    {
+     "number": "A11",
+     "type": "smd",
+     "shape": "circle",
+     "positionNm": {
+      "xNm": 127857500,
+      "yNm": 103250000
+     },
+     "size": {
+      "xNm": 356000,
+      "yNm": 356000
+     }
+    },
+    {
+     "number": "A12",
+     "type": "smd",
+     "shape": "circle",
+     "positionNm": {
+      "xNm": 127222500,
+      "yNm": 103250000
+     },
+     "size": {
+      "xNm": 356000,
+      "yNm": 356000
+     }
+    },
+    {
+     "number": "A13",
+     "type": "smd",
+     "shape": "circle",
+     "positionNm": {
+      "xNm": 126587500,
+      "yNm": 103250000
+     },
+     "size": {
+      "xNm": 356000,
+      "yNm": 356000
+     }
+    },
+    {
+     "number": "A14",
+     "type": "smd",
+     "shape": "circle",
+     "positionNm": {
+      "xNm": 125952500,
+      "yNm": 103250000
+     },
+     "size": {
+      "xNm": 356000,
+      "yNm": 356000
+     }
+    },
+    {
+     "number": "A15",
+     "type": "smd",
+     "shape": "circle",
+     "positionNm": {
+      "xNm": 125317500,
+      "yNm": 103250000
+     },
+     "size": {
+      "xNm": 356000,
+      "yNm": 356000
+     }
+    },
+    {
+     "number": "A16",
+     "type": "smd",
+     "shape": "circle",
+     "positionNm": {
+      "xNm": 124682500,
+      "yNm": 103250000
+     },
+     "size": {
+      "xNm": 356000,
+      "yNm": 356000
+     }
+    },
+    {
+     "number": "A17",
+     "type": "smd",
+     "shape": "circle",
+     "positionNm": {
+      "xNm": 124047500,
+      "yNm": 103250000
+     },
+     "size": {
+      "xNm": 356000,
+      "yNm": 356000
+     }
+    },
+    {
+     "number": "A18",
+     "type": "smd",
+     "shape": "circle",
+     "positionNm": {
+      "xNm": 123412500,
+      "yNm": 103250000
+     },
+     "size": {
+      "xNm": 356000,
+      "yNm": 356000
+     }
+    },
+    {
+     "number": "A19",
+     "type": "smd",
+     "shape": "circle",
+     "positionNm": {
+      "xNm": 122777500,
+      "yNm": 103250000
+     },
+     "size": {
+      "xNm": 356000,
+      "yNm": 356000
+     }
+    },
+    {
+     "number": "A20",
+     "type": "smd",
+     "shape": "circle",
+     "positionNm": {
+      "xNm": 122142500,
+      "yNm": 103250000
+     },
+     "size": {
+      "xNm": 356000,
+      "yNm": 356000
+     }
+    },
+    {
+     "number": "A21",
+     "type": "smd",
+     "shape": "circle",
+     "positionNm": {
+      "xNm": 121507500,
+      "yNm": 103250000
+     },
+     "size": {
+      "xNm": 356000,
+      "yNm": 356000
+     }
+    },
+    {
+     "number": "A22",
+     "type": "smd",
+     "shape": "circle",
+     "positionNm": {
+      "xNm": 120872500,
+      "yNm": 103250000
+     },
+     "size": {
+      "xNm": 356000,
+      "yNm": 356000
+     }
+    },
+    {
+     "number": "A23",
+     "type": "smd",
+     "shape": "circle",
+     "positionNm": {
+      "xNm": 120237500,
+      "yNm": 103250000
+     },
+     "size": {
+      "xNm": 356000,
+      "yNm": 356000
+     }
+    },
+    {
+     "number": "A24",
+     "type": "smd",
+     "shape": "circle",
+     "positionNm": {
+      "xNm": 119602500,
+      "yNm": 103250000
+     },
+     "size": {
+      "xNm": 356000,
+      "yNm": 356000
+     }
+    },
+    {
+     "number": "A25",
+     "type": "smd",
+     "shape": "circle",
+     "positionNm": {
+      "xNm": 118967500,
+      "yNm": 103250000
+     },
+     "size": {
+      "xNm": 356000,
+      "yNm": 356000
+     }
+    },
+    {
+     "number": "A26",
+     "type": "smd",
+     "shape": "circle",
+     "positionNm": {
+      "xNm": 118332500,
+      "yNm": 103250000
+     },
+     "size": {
+      "xNm": 356000,
+      "yNm": 356000
+     }
+    },
+    {
+     "number": "A27",
+     "type": "smd",
+     "shape": "circle",
+     "positionNm": {
+      "xNm": 117697500,
+      "yNm": 103250000
+     },
+     "size": {
+      "xNm": 356000,
+      "yNm": 356000
+     }
+    },
+    {
+     "number": "A28",
+     "type": "smd",
+     "shape": "circle",
+     "positionNm": {
+      "xNm": 117062500,
+      "yNm": 103250000
+     },
+     "size": {
+      "xNm": 356000,
+      "yNm": 356000
+     }
+    },
+    {
+     "number": "A29",
+     "type": "smd",
+     "shape": "circle",
+     "positionNm": {
+      "xNm": 116427500,
+      "yNm": 103250000
+     },
+     "size": {
+      "xNm": 356000,
+      "yNm": 356000
+     }
+    },
+    {
+     "number": "A30",
+     "type": "smd",
+     "shape": "circle",
+     "positionNm": {
+      "xNm": 115792500,
+      "yNm": 103250000
+     },
+     "size": {
+      "xNm": 356000,
+      "yNm": 356000
+     }
+    },
+    {
+     "number": "B01",
+     "type": "smd",
+     "shape": "circle",
+     "positionNm": {
+      "xNm": 134207500,
+      "yNm": 104210000
+     },
+     "size": {
+      "xNm": 356000,
+      "yNm": 356000
+     }
+    },
+    {
+     "number": "B02",
+     "type": "smd",
+     "shape": "circle",
+     "positionNm": {
+      "xNm": 133572499,
+      "yNm": 104210000
+     },
+     "size": {
+      "xNm": 356000,
+      "yNm": 356000
+     }
+    },
+    {
+     "number": "B03",
+     "type": "smd",
+     "shape": "circle",
+     "positionNm": {
+      "xNm": 132937500,
+      "yNm": 104210000
+     },
+     "size": {
+      "xNm": 356000,
+      "yNm": 356000
+     }
+    },
+    {
+     "number": "B04",
+     "type": "smd",
+     "shape": "circle",
+     "positionNm": {
+      "xNm": 132302500,
+      "yNm": 104210000
+     },
+     "size": {
+      "xNm": 356000,
+      "yNm": 356000
+     }
+    },
+    {
+     "number": "B05",
+     "type": "smd",
+     "shape": "circle",
+     "positionNm": {
+      "xNm": 131667499,
+      "yNm": 104210000
+     },
+     "size": {
+      "xNm": 356000,
+      "yNm": 356000
+     }
+    },
+    {
+     "number": "B06",
+     "type": "smd",
+     "shape": "circle",
+     "positionNm": {
+      "xNm": 131032500,
+      "yNm": 104210000
+     },
+     "size": {
+      "xNm": 356000,
+      "yNm": 356000
+     }
+    },
+    {
+     "number": "B07",
+     "type": "smd",
+     "shape": "circle",
+     "positionNm": {
+      "xNm": 130397500,
+      "yNm": 104210000
+     },
+     "size": {
+      "xNm": 356000,
+      "yNm": 356000
+     }
+    },
+    {
+     "number": "B08",
+     "type": "smd",
+     "shape": "circle",
+     "positionNm": {
+      "xNm": 129762499,
+      "yNm": 104210000
+     },
+     "size": {
+      "xNm": 356000,
+      "yNm": 356000
+     }
+    },
+    {
+     "number": "B09",
+     "type": "smd",
+     "shape": "circle",
+     "positionNm": {
+      "xNm": 129127500,
+      "yNm": 104210000
+     },
+     "size": {
+      "xNm": 356000,
+      "yNm": 356000
+     }
+    },
+    {
+     "number": "B10",
+     "type": "smd",
+     "shape": "circle",
+     "positionNm": {
+      "xNm": 128492500,
+      "yNm": 104210000
+     },
+     "size": {
+      "xNm": 356000,
+      "yNm": 356000
+     }
+    },
+    {
+     "number": "B11",
+     "type": "smd",
+     "shape": "circle",
+     "positionNm": {
+      "xNm": 127857500,
+      "yNm": 104210000
+     },
+     "size": {
+      "xNm": 356000,
+      "yNm": 356000
+     }
+    },
+    {
+     "number": "B12",
+     "type": "smd",
+     "shape": "circle",
+     "positionNm": {
+      "xNm": 127222500,
+      "yNm": 104210000
+     },
+     "size": {
+      "xNm": 356000,
+      "yNm": 356000
+     }
+    },
+    {
+     "number": "B13",
+     "type": "smd",
+     "shape": "circle",
+     "positionNm": {
+      "xNm": 126587500,
+      "yNm": 104210000
+     },
+     "size": {
+      "xNm": 356000,
+      "yNm": 356000
+     }
+    },
+    {
+     "number": "B14",
+     "type": "smd",
+     "shape": "circle",
+     "positionNm": {
+      "xNm": 125952500,
+      "yNm": 104210000
+     },
+     "size": {
+      "xNm": 356000,
+      "yNm": 356000
+     }
+    },
+    {
+     "number": "B15",
+     "type": "smd",
+     "shape": "circle",
+     "positionNm": {
+      "xNm": 125317500,
+      "yNm": 104210000
+     },
+     "size": {
+      "xNm": 356000,
+      "yNm": 356000
+     }
+    },
+    {
+     "number": "B16",
+     "type": "smd",
+     "shape": "circle",
+     "positionNm": {
+      "xNm": 124682500,
+      "yNm": 104210000
+     },
+     "size": {
+      "xNm": 356000,
+      "yNm": 356000
+     }
+    },
+    {
+     "number": "B17",
+     "type": "smd",
+     "shape": "circle",
+     "positionNm": {
+      "xNm": 124047500,
+      "yNm": 104210000
+     },
+     "size": {
+      "xNm": 356000,
+      "yNm": 356000
+     }
+    },
+    {
+     "number": "B18",
+     "type": "smd",
+     "shape": "circle",
+     "positionNm": {
+      "xNm": 123412500,
+      "yNm": 104210000
+     },
+     "size": {
+      "xNm": 356000,
+      "yNm": 356000
+     }
+    },
+    {
+     "number": "B19",
+     "type": "smd",
+     "shape": "circle",
+     "positionNm": {
+      "xNm": 122777500,
+      "yNm": 104210000
+     },
+     "size": {
+      "xNm": 356000,
+      "yNm": 356000
+     }
+    },
+    {
+     "number": "B20",
+     "type": "smd",
+     "shape": "circle",
+     "positionNm": {
+      "xNm": 122142500,
+      "yNm": 104210000
+     },
+     "size": {
+      "xNm": 356000,
+      "yNm": 356000
+     }
+    },
+    {
+     "number": "B21",
+     "type": "smd",
+     "shape": "circle",
+     "positionNm": {
+      "xNm": 121507500,
+      "yNm": 104210000
+     },
+     "size": {
+      "xNm": 356000,
+      "yNm": 356000
+     }
+    },
+    {
+     "number": "B22",
+     "type": "smd",
+     "shape": "circle",
+     "positionNm": {
+      "xNm": 120872500,
+      "yNm": 104210000
+     },
+     "size": {
+      "xNm": 356000,
+      "yNm": 356000
+     }
+    },
+    {
+     "number": "B23",
+     "type": "smd",
+     "shape": "circle",
+     "positionNm": {
+      "xNm": 120237500,
+      "yNm": 104210000
+     },
+     "size": {
+      "xNm": 356000,
+      "yNm": 356000
+     }
+    },
+    {
+     "number": "B24",
+     "type": "smd",
+     "shape": "circle",
+     "positionNm": {
+      "xNm": 119602500,
+      "yNm": 104210000
+     },
+     "size": {
+      "xNm": 356000,
+      "yNm": 356000
+     }
+    },
+    {
+     "number": "B25",
+     "type": "smd",
+     "shape": "circle",
+     "positionNm": {
+      "xNm": 118967500,
+      "yNm": 104210000
+     },
+     "size": {
+      "xNm": 356000,
+      "yNm": 356000
+     }
+    },
+    {
+     "number": "B26",
+     "type": "smd",
+     "shape": "circle",
+     "positionNm": {
+      "xNm": 118332500,
+      "yNm": 104210000
+     },
+     "size": {
+      "xNm": 356000,
+      "yNm": 356000
+     }
+    },
+    {
+     "number": "B27",
+     "type": "smd",
+     "shape": "circle",
+     "positionNm": {
+      "xNm": 117697500,
+      "yNm": 104210000
+     },
+     "size": {
+      "xNm": 356000,
+      "yNm": 356000
+     }
+    },
+    {
+     "number": "B28",
+     "type": "smd",
+     "shape": "circle",
+     "positionNm": {
+      "xNm": 117062500,
+      "yNm": 104210000
+     },
+     "size": {
+      "xNm": 356000,
+      "yNm": 356000
+     }
+    },
+    {
+     "number": "B29",
+     "type": "smd",
+     "shape": "circle",
+     "positionNm": {
+      "xNm": 116427500,
+      "yNm": 104210000
+     },
+     "size": {
+      "xNm": 356000,
+      "yNm": 356000
+     }
+    },
+    {
+     "number": "B30",
+     "type": "smd",
+     "shape": "circle",
+     "positionNm": {
+      "xNm": 115792500,
+      "yNm": 104210000
+     },
+     "size": {
+      "xNm": 356000,
+      "yNm": 356000
+     }
+    },
+    {
+     "number": "C01",
+     "type": "smd",
+     "shape": "circle",
+     "positionNm": {
+      "xNm": 134207500,
+      "yNm": 105790000
+     },
+     "size": {
+      "xNm": 356000,
+      "yNm": 356000
+     }
+    },
+    {
+     "number": "C02",
+     "type": "smd",
+     "shape": "circle",
+     "positionNm": {
+      "xNm": 133572499,
+      "yNm": 105790000
+     },
+     "size": {
+      "xNm": 356000,
+      "yNm": 356000
+     }
+    },
+    {
+     "number": "C03",
+     "type": "smd",
+     "shape": "circle",
+     "positionNm": {
+      "xNm": 132937500,
+      "yNm": 105790000
+     },
+     "size": {
+      "xNm": 356000,
+      "yNm": 356000
+     }
+    },
+    {
+     "number": "C04",
+     "type": "smd",
+     "shape": "circle",
+     "positionNm": {
+      "xNm": 132302500,
+      "yNm": 105790000
+     },
+     "size": {
+      "xNm": 356000,
+      "yNm": 356000
+     }
+    },
+    {
+     "number": "C05",
+     "type": "smd",
+     "shape": "circle",
+     "positionNm": {
+      "xNm": 131667499,
+      "yNm": 105790000
+     },
+     "size": {
+      "xNm": 356000,
+      "yNm": 356000
+     }
+    },
+    {
+     "number": "C06",
+     "type": "smd",
+     "shape": "circle",
+     "positionNm": {
+      "xNm": 131032500,
+      "yNm": 105790000
+     },
+     "size": {
+      "xNm": 356000,
+      "yNm": 356000
+     }
+    },
+    {
+     "number": "C07",
+     "type": "smd",
+     "shape": "circle",
+     "positionNm": {
+      "xNm": 130397500,
+      "yNm": 105790000
+     },
+     "size": {
+      "xNm": 356000,
+      "yNm": 356000
+     }
+    },
+    {
+     "number": "C08",
+     "type": "smd",
+     "shape": "circle",
+     "positionNm": {
+      "xNm": 129762499,
+      "yNm": 105790000
+     },
+     "size": {
+      "xNm": 356000,
+      "yNm": 356000
+     }
+    },
+    {
+     "number": "C09",
+     "type": "smd",
+     "shape": "circle",
+     "positionNm": {
+      "xNm": 129127500,
+      "yNm": 105790000
+     },
+     "size": {
+      "xNm": 356000,
+      "yNm": 356000
+     }
+    },
+    {
+     "number": "C10",
+     "type": "smd",
+     "shape": "circle",
+     "positionNm": {
+      "xNm": 128492500,
+      "yNm": 105790000
+     },
+     "size": {
+      "xNm": 356000,
+      "yNm": 356000
+     }
+    },
+    {
+     "number": "C11",
+     "type": "smd",
+     "shape": "circle",
+     "positionNm": {
+      "xNm": 127857500,
+      "yNm": 105790000
+     },
+     "size": {
+      "xNm": 356000,
+      "yNm": 356000
+     }
+    },
+    {
+     "number": "C12",
+     "type": "smd",
+     "shape": "circle",
+     "positionNm": {
+      "xNm": 127222500,
+      "yNm": 105790000
+     },
+     "size": {
+      "xNm": 356000,
+      "yNm": 356000
+     }
+    },
+    {
+     "number": "C13",
+     "type": "smd",
+     "shape": "circle",
+     "positionNm": {
+      "xNm": 126587500,
+      "yNm": 105790000
+     },
+     "size": {
+      "xNm": 356000,
+      "yNm": 356000
+     }
+    },
+    {
+     "number": "C14",
+     "type": "smd",
+     "shape": "circle",
+     "positionNm": {
+      "xNm": 125952500,
+      "yNm": 105790000
+     },
+     "size": {
+      "xNm": 356000,
+      "yNm": 356000
+     }
+    },
+    {
+     "number": "C15",
+     "type": "smd",
+     "shape": "circle",
+     "positionNm": {
+      "xNm": 125317500,
+      "yNm": 105790000
+     },
+     "size": {
+      "xNm": 356000,
+      "yNm": 356000
+     }
+    },
+    {
+     "number": "C16",
+     "type": "smd",
+     "shape": "circle",
+     "positionNm": {
+      "xNm": 124682500,
+      "yNm": 105790000
+     },
+     "size": {
+      "xNm": 356000,
+      "yNm": 356000
+     }
+    },
+    {
+     "number": "C17",
+     "type": "smd",
+     "shape": "circle",
+     "positionNm": {
+      "xNm": 124047500,
+      "yNm": 105790000
+     },
+     "size": {
+      "xNm": 356000,
+      "yNm": 356000
+     }
+    },
+    {
+     "number": "C18",
+     "type": "smd",
+     "shape": "circle",
+     "positionNm": {
+      "xNm": 123412500,
+      "yNm": 105790000
+     },
+     "size": {
+      "xNm": 356000,
+      "yNm": 356000
+     }
+    },
+    {
+     "number": "C19",
+     "type": "smd",
+     "shape": "circle",
+     "positionNm": {
+      "xNm": 122777500,
+      "yNm": 105790000
+     },
+     "size": {
+      "xNm": 356000,
+      "yNm": 356000
+     }
+    },
+    {
+     "number": "C20",
+     "type": "smd",
+     "shape": "circle",
+     "positionNm": {
+      "xNm": 122142500,
+      "yNm": 105790000
+     },
+     "size": {
+      "xNm": 356000,
+      "yNm": 356000
+     }
+    },
+    {
+     "number": "C21",
+     "type": "smd",
+     "shape": "circle",
+     "positionNm": {
+      "xNm": 121507500,
+      "yNm": 105790000
+     },
+     "size": {
+      "xNm": 356000,
+      "yNm": 356000
+     }
+    },
+    {
+     "number": "C22",
+     "type": "smd",
+     "shape": "circle",
+     "positionNm": {
+      "xNm": 120872500,
+      "yNm": 105790000
+     },
+     "size": {
+      "xNm": 356000,
+      "yNm": 356000
+     }
+    },
+    {
+     "number": "C23",
+     "type": "smd",
+     "shape": "circle",
+     "positionNm": {
+      "xNm": 120237500,
+      "yNm": 105790000
+     },
+     "size": {
+      "xNm": 356000,
+      "yNm": 356000
+     }
+    },
+    {
+     "number": "C24",
+     "type": "smd",
+     "shape": "circle",
+     "positionNm": {
+      "xNm": 119602500,
+      "yNm": 105790000
+     },
+     "size": {
+      "xNm": 356000,
+      "yNm": 356000
+     }
+    },
+    {
+     "number": "C25",
+     "type": "smd",
+     "shape": "circle",
+     "positionNm": {
+      "xNm": 118967500,
+      "yNm": 105790000
+     },
+     "size": {
+      "xNm": 356000,
+      "yNm": 356000
+     }
+    },
+    {
+     "number": "C26",
+     "type": "smd",
+     "shape": "circle",
+     "positionNm": {
+      "xNm": 118332500,
+      "yNm": 105790000
+     },
+     "size": {
+      "xNm": 356000,
+      "yNm": 356000
+     }
+    },
+    {
+     "number": "C27",
+     "type": "smd",
+     "shape": "circle",
+     "positionNm": {
+      "xNm": 117697500,
+      "yNm": 105790000
+     },
+     "size": {
+      "xNm": 356000,
+      "yNm": 356000
+     }
+    },
+    {
+     "number": "C28",
+     "type": "smd",
+     "shape": "circle",
+     "positionNm": {
+      "xNm": 117062500,
+      "yNm": 105790000
+     },
+     "size": {
+      "xNm": 356000,
+      "yNm": 356000
+     }
+    },
+    {
+     "number": "C29",
+     "type": "smd",
+     "shape": "circle",
+     "positionNm": {
+      "xNm": 116427500,
+      "yNm": 105790000
+     },
+     "size": {
+      "xNm": 356000,
+      "yNm": 356000
+     }
+    },
+    {
+     "number": "C30",
+     "type": "smd",
+     "shape": "circle",
+     "positionNm": {
+      "xNm": 115792500,
+      "yNm": 105790000
+     },
+     "size": {
+      "xNm": 356000,
+      "yNm": 356000
+     }
+    },
+    {
+     "number": "D01",
+     "type": "smd",
+     "shape": "circle",
+     "positionNm": {
+      "xNm": 134207500,
+      "yNm": 106750000
+     },
+     "size": {
+      "xNm": 356000,
+      "yNm": 356000
+     }
+    },
+    {
+     "number": "D02",
+     "type": "smd",
+     "shape": "circle",
+     "positionNm": {
+      "xNm": 133572499,
+      "yNm": 106750000
+     },
+     "size": {
+      "xNm": 356000,
+      "yNm": 356000
+     }
+    },
+    {
+     "number": "D03",
+     "type": "smd",
+     "shape": "circle",
+     "positionNm": {
+      "xNm": 132937500,
+      "yNm": 106750000
+     },
+     "size": {
+      "xNm": 356000,
+      "yNm": 356000
+     }
+    },
+    {
+     "number": "D04",
+     "type": "smd",
+     "shape": "circle",
+     "positionNm": {
+      "xNm": 132302500,
+      "yNm": 106750000
+     },
+     "size": {
+      "xNm": 356000,
+      "yNm": 356000
+     }
+    },
+    {
+     "number": "D05",
+     "type": "smd",
+     "shape": "circle",
+     "positionNm": {
+      "xNm": 131667499,
+      "yNm": 106750000
+     },
+     "size": {
+      "xNm": 356000,
+      "yNm": 356000
+     }
+    },
+    {
+     "number": "D06",
+     "type": "smd",
+     "shape": "circle",
+     "positionNm": {
+      "xNm": 131032500,
+      "yNm": 106750000
+     },
+     "size": {
+      "xNm": 356000,
+      "yNm": 356000
+     }
+    },
+    {
+     "number": "D07",
+     "type": "smd",
+     "shape": "circle",
+     "positionNm": {
+      "xNm": 130397500,
+      "yNm": 106750000
+     },
+     "size": {
+      "xNm": 356000,
+      "yNm": 356000
+     }
+    },
+    {
+     "number": "D08",
+     "type": "smd",
+     "shape": "circle",
+     "positionNm": {
+      "xNm": 129762499,
+      "yNm": 106750000
+     },
+     "size": {
+      "xNm": 356000,
+      "yNm": 356000
+     }
+    },
+    {
+     "number": "D09",
+     "type": "smd",
+     "shape": "circle",
+     "positionNm": {
+      "xNm": 129127500,
+      "yNm": 106750000
+     },
+     "size": {
+      "xNm": 356000,
+      "yNm": 356000
+     }
+    },
+    {
+     "number": "D10",
+     "type": "smd",
+     "shape": "circle",
+     "positionNm": {
+      "xNm": 128492500,
+      "yNm": 106750000
+     },
+     "size": {
+      "xNm": 356000,
+      "yNm": 356000
+     }
+    },
+    {
+     "number": "D11",
+     "type": "smd",
+     "shape": "circle",
+     "positionNm": {
+      "xNm": 127857500,
+      "yNm": 106750000
+     },
+     "size": {
+      "xNm": 356000,
+      "yNm": 356000
+     }
+    },
+    {
+     "number": "D12",
+     "type": "smd",
+     "shape": "circle",
+     "positionNm": {
+      "xNm": 127222500,
+      "yNm": 106750000
+     },
+     "size": {
+      "xNm": 356000,
+      "yNm": 356000
+     }
+    },
+    {
+     "number": "D13",
+     "type": "smd",
+     "shape": "circle",
+     "positionNm": {
+      "xNm": 126587500,
+      "yNm": 106750000
+     },
+     "size": {
+      "xNm": 356000,
+      "yNm": 356000
+     }
+    },
+    {
+     "number": "D14",
+     "type": "smd",
+     "shape": "circle",
+     "positionNm": {
+      "xNm": 125952500,
+      "yNm": 106750000
+     },
+     "size": {
+      "xNm": 356000,
+      "yNm": 356000
+     }
+    },
+    {
+     "number": "D15",
+     "type": "smd",
+     "shape": "circle",
+     "positionNm": {
+      "xNm": 125317500,
+      "yNm": 106750000
+     },
+     "size": {
+      "xNm": 356000,
+      "yNm": 356000
+     }
+    },
+    {
+     "number": "D16",
+     "type": "smd",
+     "shape": "circle",
+     "positionNm": {
+      "xNm": 124682500,
+      "yNm": 106750000
+     },
+     "size": {
+      "xNm": 356000,
+      "yNm": 356000
+     }
+    },
+    {
+     "number": "D17",
+     "type": "smd",
+     "shape": "circle",
+     "positionNm": {
+      "xNm": 124047500,
+      "yNm": 106750000
+     },
+     "size": {
+      "xNm": 356000,
+      "yNm": 356000
+     }
+    },
+    {
+     "number": "D18",
+     "type": "smd",
+     "shape": "circle",
+     "positionNm": {
+      "xNm": 123412500,
+      "yNm": 106750000
+     },
+     "size": {
+      "xNm": 356000,
+      "yNm": 356000
+     }
+    },
+    {
+     "number": "D19",
+     "type": "smd",
+     "shape": "circle",
+     "positionNm": {
+      "xNm": 122777500,
+      "yNm": 106750000
+     },
+     "size": {
+      "xNm": 356000,
+      "yNm": 356000
+     }
+    },
+    {
+     "number": "D20",
+     "type": "smd",
+     "shape": "circle",
+     "positionNm": {
+      "xNm": 122142500,
+      "yNm": 106750000
+     },
+     "size": {
+      "xNm": 356000,
+      "yNm": 356000
+     }
+    },
+    {
+     "number": "D21",
+     "type": "smd",
+     "shape": "circle",
+     "positionNm": {
+      "xNm": 121507500,
+      "yNm": 106750000
+     },
+     "size": {
+      "xNm": 356000,
+      "yNm": 356000
+     }
+    },
+    {
+     "number": "D22",
+     "type": "smd",
+     "shape": "circle",
+     "positionNm": {
+      "xNm": 120872500,
+      "yNm": 106750000
+     },
+     "size": {
+      "xNm": 356000,
+      "yNm": 356000
+     }
+    },
+    {
+     "number": "D23",
+     "type": "smd",
+     "shape": "circle",
+     "positionNm": {
+      "xNm": 120237500,
+      "yNm": 106750000
+     },
+     "size": {
+      "xNm": 356000,
+      "yNm": 356000
+     }
+    },
+    {
+     "number": "D24",
+     "type": "smd",
+     "shape": "circle",
+     "positionNm": {
+      "xNm": 119602500,
+      "yNm": 106750000
+     },
+     "size": {
+      "xNm": 356000,
+      "yNm": 356000
+     }
+    },
+    {
+     "number": "D25",
+     "type": "smd",
+     "shape": "circle",
+     "positionNm": {
+      "xNm": 118967500,
+      "yNm": 106750000
+     },
+     "size": {
+      "xNm": 356000,
+      "yNm": 356000
+     }
+    },
+    {
+     "number": "D26",
+     "type": "smd",
+     "shape": "circle",
+     "positionNm": {
+      "xNm": 118332500,
+      "yNm": 106750000
+     },
+     "size": {
+      "xNm": 356000,
+      "yNm": 356000
+     }
+    },
+    {
+     "number": "D27",
+     "type": "smd",
+     "shape": "circle",
+     "positionNm": {
+      "xNm": 117697500,
+      "yNm": 106750000
+     },
+     "size": {
+      "xNm": 356000,
+      "yNm": 356000
+     }
+    },
+    {
+     "number": "D28",
+     "type": "smd",
+     "shape": "circle",
+     "positionNm": {
+      "xNm": 117062500,
+      "yNm": 106750000
+     },
+     "size": {
+      "xNm": 356000,
+      "yNm": 356000
+     }
+    },
+    {
+     "number": "D29",
+     "type": "smd",
+     "shape": "circle",
+     "positionNm": {
+      "xNm": 116427500,
+      "yNm": 106750000
+     },
+     "size": {
+      "xNm": 356000,
+      "yNm": 356000
+     }
+    },
+    {
+     "number": "D30",
+     "type": "smd",
+     "shape": "circle",
+     "positionNm": {
+      "xNm": 115792500,
+      "yNm": 106750000
+     },
+     "size": {
+      "xNm": 356000,
+      "yNm": 356000
+     }
+    }
+   ],
+   "models": [
+    {
+     "path": "${KIPRJMOD}/../../../vendor/samtec/ADM6-30-03.5-L-4-0-A-TR.stp",
+     "hidden": false,
+     "offset": {
+      "xNm": 0,
+      "yNm": 0,
+      "zNm": 0
+     },
+     "rotation": {
+      "xDeg": -90,
+      "yDeg": 0,
+      "zDeg": 0
+     },
+     "scale": {
+      "x": 1,
+      "y": 1,
+      "z": 1
+     }
+    }
+   ],
+   "sourceSpan": {
+    "offsetBytes": 2016,
+    "lengthBytes": 24099
+   }
+  },
+  {
+   "uuid": "00f07f97-3c08-55fb-bd59-177aa7fe797d",
+   "reference": "J2",
+   "libId": "PrismFixture:Samtec_ADM6-30-03.5-L-4-0-A",
+   "side": "front",
+   "positionNm": {
+    "xNm": 125000000,
+    "yNm": 135000000
+   },
+   "rotationDeg": 0,
+   "dnp": false,
+   "excludeFromPosFiles": false,
+   "courtyardBounds": {
+    "minNm": {
+     "xNm": -12135000,
+     "yNm": -2750000
+    },
+    "maxNm": {
+     "xNm": 12135000,
+     "yNm": 2750000
+    }
+   },
+   "pads": [
+    {
+     "number": "",
+     "type": "np_thru_hole",
+     "shape": "circle",
+     "positionNm": {
+      "xNm": 114390000,
+      "yNm": 133729999
+     },
+     "size": {
+      "xNm": 950000,
+      "yNm": 950000
+     }
+    },
+    {
+     "number": "",
+     "type": "np_thru_hole",
+     "shape": "circle",
+     "positionNm": {
+      "xNm": 135610000,
+      "yNm": 135000000
+     },
+     "size": {
+      "xNm": 950000,
+      "yNm": 950000
+     }
+    },
+    {
+     "number": "A01",
+     "type": "smd",
+     "shape": "circle",
+     "positionNm": {
+      "xNm": 134207500,
+      "yNm": 133250000
+     },
+     "size": {
+      "xNm": 356000,
+      "yNm": 356000
+     }
+    },
+    {
+     "number": "A02",
+     "type": "smd",
+     "shape": "circle",
+     "positionNm": {
+      "xNm": 133572499,
+      "yNm": 133250000
+     },
+     "size": {
+      "xNm": 356000,
+      "yNm": 356000
+     }
+    },
+    {
+     "number": "A03",
+     "type": "smd",
+     "shape": "circle",
+     "positionNm": {
+      "xNm": 132937500,
+      "yNm": 133250000
+     },
+     "size": {
+      "xNm": 356000,
+      "yNm": 356000
+     }
+    },
+    {
+     "number": "A04",
+     "type": "smd",
+     "shape": "circle",
+     "positionNm": {
+      "xNm": 132302500,
+      "yNm": 133250000
+     },
+     "size": {
+      "xNm": 356000,
+      "yNm": 356000
+     }
+    },
+    {
+     "number": "A05",
+     "type": "smd",
+     "shape": "circle",
+     "positionNm": {
+      "xNm": 131667499,
+      "yNm": 133250000
+     },
+     "size": {
+      "xNm": 356000,
+      "yNm": 356000
+     }
+    },
+    {
+     "number": "A06",
+     "type": "smd",
+     "shape": "circle",
+     "positionNm": {
+      "xNm": 131032500,
+      "yNm": 133250000
+     },
+     "size": {
+      "xNm": 356000,
+      "yNm": 356000
+     }
+    },
+    {
+     "number": "A07",
+     "type": "smd",
+     "shape": "circle",
+     "positionNm": {
+      "xNm": 130397500,
+      "yNm": 133250000
+     },
+     "size": {
+      "xNm": 356000,
+      "yNm": 356000
+     }
+    },
+    {
+     "number": "A08",
+     "type": "smd",
+     "shape": "circle",
+     "positionNm": {
+      "xNm": 129762499,
+      "yNm": 133250000
+     },
+     "size": {
+      "xNm": 356000,
+      "yNm": 356000
+     }
+    },
+    {
+     "number": "A09",
+     "type": "smd",
+     "shape": "circle",
+     "positionNm": {
+      "xNm": 129127500,
+      "yNm": 133250000
+     },
+     "size": {
+      "xNm": 356000,
+      "yNm": 356000
+     }
+    },
+    {
+     "number": "A10",
+     "type": "smd",
+     "shape": "circle",
+     "positionNm": {
+      "xNm": 128492500,
+      "yNm": 133250000
+     },
+     "size": {
+      "xNm": 356000,
+      "yNm": 356000
+     }
+    },
+    {
+     "number": "A11",
+     "type": "smd",
+     "shape": "circle",
+     "positionNm": {
+      "xNm": 127857500,
+      "yNm": 133250000
+     },
+     "size": {
+      "xNm": 356000,
+      "yNm": 356000
+     }
+    },
+    {
+     "number": "A12",
+     "type": "smd",
+     "shape": "circle",
+     "positionNm": {
+      "xNm": 127222500,
+      "yNm": 133250000
+     },
+     "size": {
+      "xNm": 356000,
+      "yNm": 356000
+     }
+    },
+    {
+     "number": "A13",
+     "type": "smd",
+     "shape": "circle",
+     "positionNm": {
+      "xNm": 126587500,
+      "yNm": 133250000
+     },
+     "size": {
+      "xNm": 356000,
+      "yNm": 356000
+     }
+    },
+    {
+     "number": "A14",
+     "type": "smd",
+     "shape": "circle",
+     "positionNm": {
+      "xNm": 125952500,
+      "yNm": 133250000
+     },
+     "size": {
+      "xNm": 356000,
+      "yNm": 356000
+     }
+    },
+    {
+     "number": "A15",
+     "type": "smd",
+     "shape": "circle",
+     "positionNm": {
+      "xNm": 125317500,
+      "yNm": 133250000
+     },
+     "size": {
+      "xNm": 356000,
+      "yNm": 356000
+     }
+    },
+    {
+     "number": "A16",
+     "type": "smd",
+     "shape": "circle",
+     "positionNm": {
+      "xNm": 124682500,
+      "yNm": 133250000
+     },
+     "size": {
+      "xNm": 356000,
+      "yNm": 356000
+     }
+    },
+    {
+     "number": "A17",
+     "type": "smd",
+     "shape": "circle",
+     "positionNm": {
+      "xNm": 124047500,
+      "yNm": 133250000
+     },
+     "size": {
+      "xNm": 356000,
+      "yNm": 356000
+     }
+    },
+    {
+     "number": "A18",
+     "type": "smd",
+     "shape": "circle",
+     "positionNm": {
+      "xNm": 123412500,
+      "yNm": 133250000
+     },
+     "size": {
+      "xNm": 356000,
+      "yNm": 356000
+     }
+    },
+    {
+     "number": "A19",
+     "type": "smd",
+     "shape": "circle",
+     "positionNm": {
+      "xNm": 122777500,
+      "yNm": 133250000
+     },
+     "size": {
+      "xNm": 356000,
+      "yNm": 356000
+     }
+    },
+    {
+     "number": "A20",
+     "type": "smd",
+     "shape": "circle",
+     "positionNm": {
+      "xNm": 122142500,
+      "yNm": 133250000
+     },
+     "size": {
+      "xNm": 356000,
+      "yNm": 356000
+     }
+    },
+    {
+     "number": "A21",
+     "type": "smd",
+     "shape": "circle",
+     "positionNm": {
+      "xNm": 121507500,
+      "yNm": 133250000
+     },
+     "size": {
+      "xNm": 356000,
+      "yNm": 356000
+     }
+    },
+    {
+     "number": "A22",
+     "type": "smd",
+     "shape": "circle",
+     "positionNm": {
+      "xNm": 120872500,
+      "yNm": 133250000
+     },
+     "size": {
+      "xNm": 356000,
+      "yNm": 356000
+     }
+    },
+    {
+     "number": "A23",
+     "type": "smd",
+     "shape": "circle",
+     "positionNm": {
+      "xNm": 120237500,
+      "yNm": 133250000
+     },
+     "size": {
+      "xNm": 356000,
+      "yNm": 356000
+     }
+    },
+    {
+     "number": "A24",
+     "type": "smd",
+     "shape": "circle",
+     "positionNm": {
+      "xNm": 119602500,
+      "yNm": 133250000
+     },
+     "size": {
+      "xNm": 356000,
+      "yNm": 356000
+     }
+    },
+    {
+     "number": "A25",
+     "type": "smd",
+     "shape": "circle",
+     "positionNm": {
+      "xNm": 118967500,
+      "yNm": 133250000
+     },
+     "size": {
+      "xNm": 356000,
+      "yNm": 356000
+     }
+    },
+    {
+     "number": "A26",
+     "type": "smd",
+     "shape": "circle",
+     "positionNm": {
+      "xNm": 118332500,
+      "yNm": 133250000
+     },
+     "size": {
+      "xNm": 356000,
+      "yNm": 356000
+     }
+    },
+    {
+     "number": "A27",
+     "type": "smd",
+     "shape": "circle",
+     "positionNm": {
+      "xNm": 117697500,
+      "yNm": 133250000
+     },
+     "size": {
+      "xNm": 356000,
+      "yNm": 356000
+     }
+    },
+    {
+     "number": "A28",
+     "type": "smd",
+     "shape": "circle",
+     "positionNm": {
+      "xNm": 117062500,
+      "yNm": 133250000
+     },
+     "size": {
+      "xNm": 356000,
+      "yNm": 356000
+     }
+    },
+    {
+     "number": "A29",
+     "type": "smd",
+     "shape": "circle",
+     "positionNm": {
+      "xNm": 116427500,
+      "yNm": 133250000
+     },
+     "size": {
+      "xNm": 356000,
+      "yNm": 356000
+     }
+    },
+    {
+     "number": "A30",
+     "type": "smd",
+     "shape": "circle",
+     "positionNm": {
+      "xNm": 115792500,
+      "yNm": 133250000
+     },
+     "size": {
+      "xNm": 356000,
+      "yNm": 356000
+     }
+    },
+    {
+     "number": "B01",
+     "type": "smd",
+     "shape": "circle",
+     "positionNm": {
+      "xNm": 134207500,
+      "yNm": 134210000
+     },
+     "size": {
+      "xNm": 356000,
+      "yNm": 356000
+     }
+    },
+    {
+     "number": "B02",
+     "type": "smd",
+     "shape": "circle",
+     "positionNm": {
+      "xNm": 133572499,
+      "yNm": 134210000
+     },
+     "size": {
+      "xNm": 356000,
+      "yNm": 356000
+     }
+    },
+    {
+     "number": "B03",
+     "type": "smd",
+     "shape": "circle",
+     "positionNm": {
+      "xNm": 132937500,
+      "yNm": 134210000
+     },
+     "size": {
+      "xNm": 356000,
+      "yNm": 356000
+     }
+    },
+    {
+     "number": "B04",
+     "type": "smd",
+     "shape": "circle",
+     "positionNm": {
+      "xNm": 132302500,
+      "yNm": 134210000
+     },
+     "size": {
+      "xNm": 356000,
+      "yNm": 356000
+     }
+    },
+    {
+     "number": "B05",
+     "type": "smd",
+     "shape": "circle",
+     "positionNm": {
+      "xNm": 131667499,
+      "yNm": 134210000
+     },
+     "size": {
+      "xNm": 356000,
+      "yNm": 356000
+     }
+    },
+    {
+     "number": "B06",
+     "type": "smd",
+     "shape": "circle",
+     "positionNm": {
+      "xNm": 131032500,
+      "yNm": 134210000
+     },
+     "size": {
+      "xNm": 356000,
+      "yNm": 356000
+     }
+    },
+    {
+     "number": "B07",
+     "type": "smd",
+     "shape": "circle",
+     "positionNm": {
+      "xNm": 130397500,
+      "yNm": 134210000
+     },
+     "size": {
+      "xNm": 356000,
+      "yNm": 356000
+     }
+    },
+    {
+     "number": "B08",
+     "type": "smd",
+     "shape": "circle",
+     "positionNm": {
+      "xNm": 129762499,
+      "yNm": 134210000
+     },
+     "size": {
+      "xNm": 356000,
+      "yNm": 356000
+     }
+    },
+    {
+     "number": "B09",
+     "type": "smd",
+     "shape": "circle",
+     "positionNm": {
+      "xNm": 129127500,
+      "yNm": 134210000
+     },
+     "size": {
+      "xNm": 356000,
+      "yNm": 356000
+     }
+    },
+    {
+     "number": "B10",
+     "type": "smd",
+     "shape": "circle",
+     "positionNm": {
+      "xNm": 128492500,
+      "yNm": 134210000
+     },
+     "size": {
+      "xNm": 356000,
+      "yNm": 356000
+     }
+    },
+    {
+     "number": "B11",
+     "type": "smd",
+     "shape": "circle",
+     "positionNm": {
+      "xNm": 127857500,
+      "yNm": 134210000
+     },
+     "size": {
+      "xNm": 356000,
+      "yNm": 356000
+     }
+    },
+    {
+     "number": "B12",
+     "type": "smd",
+     "shape": "circle",
+     "positionNm": {
+      "xNm": 127222500,
+      "yNm": 134210000
+     },
+     "size": {
+      "xNm": 356000,
+      "yNm": 356000
+     }
+    },
+    {
+     "number": "B13",
+     "type": "smd",
+     "shape": "circle",
+     "positionNm": {
+      "xNm": 126587500,
+      "yNm": 134210000
+     },
+     "size": {
+      "xNm": 356000,
+      "yNm": 356000
+     }
+    },
+    {
+     "number": "B14",
+     "type": "smd",
+     "shape": "circle",
+     "positionNm": {
+      "xNm": 125952500,
+      "yNm": 134210000
+     },
+     "size": {
+      "xNm": 356000,
+      "yNm": 356000
+     }
+    },
+    {
+     "number": "B15",
+     "type": "smd",
+     "shape": "circle",
+     "positionNm": {
+      "xNm": 125317500,
+      "yNm": 134210000
+     },
+     "size": {
+      "xNm": 356000,
+      "yNm": 356000
+     }
+    },
+    {
+     "number": "B16",
+     "type": "smd",
+     "shape": "circle",
+     "positionNm": {
+      "xNm": 124682500,
+      "yNm": 134210000
+     },
+     "size": {
+      "xNm": 356000,
+      "yNm": 356000
+     }
+    },
+    {
+     "number": "B17",
+     "type": "smd",
+     "shape": "circle",
+     "positionNm": {
+      "xNm": 124047500,
+      "yNm": 134210000
+     },
+     "size": {
+      "xNm": 356000,
+      "yNm": 356000
+     }
+    },
+    {
+     "number": "B18",
+     "type": "smd",
+     "shape": "circle",
+     "positionNm": {
+      "xNm": 123412500,
+      "yNm": 134210000
+     },
+     "size": {
+      "xNm": 356000,
+      "yNm": 356000
+     }
+    },
+    {
+     "number": "B19",
+     "type": "smd",
+     "shape": "circle",
+     "positionNm": {
+      "xNm": 122777500,
+      "yNm": 134210000
+     },
+     "size": {
+      "xNm": 356000,
+      "yNm": 356000
+     }
+    },
+    {
+     "number": "B20",
+     "type": "smd",
+     "shape": "circle",
+     "positionNm": {
+      "xNm": 122142500,
+      "yNm": 134210000
+     },
+     "size": {
+      "xNm": 356000,
+      "yNm": 356000
+     }
+    },
+    {
+     "number": "B21",
+     "type": "smd",
+     "shape": "circle",
+     "positionNm": {
+      "xNm": 121507500,
+      "yNm": 134210000
+     },
+     "size": {
+      "xNm": 356000,
+      "yNm": 356000
+     }
+    },
+    {
+     "number": "B22",
+     "type": "smd",
+     "shape": "circle",
+     "positionNm": {
+      "xNm": 120872500,
+      "yNm": 134210000
+     },
+     "size": {
+      "xNm": 356000,
+      "yNm": 356000
+     }
+    },
+    {
+     "number": "B23",
+     "type": "smd",
+     "shape": "circle",
+     "positionNm": {
+      "xNm": 120237500,
+      "yNm": 134210000
+     },
+     "size": {
+      "xNm": 356000,
+      "yNm": 356000
+     }
+    },
+    {
+     "number": "B24",
+     "type": "smd",
+     "shape": "circle",
+     "positionNm": {
+      "xNm": 119602500,
+      "yNm": 134210000
+     },
+     "size": {
+      "xNm": 356000,
+      "yNm": 356000
+     }
+    },
+    {
+     "number": "B25",
+     "type": "smd",
+     "shape": "circle",
+     "positionNm": {
+      "xNm": 118967500,
+      "yNm": 134210000
+     },
+     "size": {
+      "xNm": 356000,
+      "yNm": 356000
+     }
+    },
+    {
+     "number": "B26",
+     "type": "smd",
+     "shape": "circle",
+     "positionNm": {
+      "xNm": 118332500,
+      "yNm": 134210000
+     },
+     "size": {
+      "xNm": 356000,
+      "yNm": 356000
+     }
+    },
+    {
+     "number": "B27",
+     "type": "smd",
+     "shape": "circle",
+     "positionNm": {
+      "xNm": 117697500,
+      "yNm": 134210000
+     },
+     "size": {
+      "xNm": 356000,
+      "yNm": 356000
+     }
+    },
+    {
+     "number": "B28",
+     "type": "smd",
+     "shape": "circle",
+     "positionNm": {
+      "xNm": 117062500,
+      "yNm": 134210000
+     },
+     "size": {
+      "xNm": 356000,
+      "yNm": 356000
+     }
+    },
+    {
+     "number": "B29",
+     "type": "smd",
+     "shape": "circle",
+     "positionNm": {
+      "xNm": 116427500,
+      "yNm": 134210000
+     },
+     "size": {
+      "xNm": 356000,
+      "yNm": 356000
+     }
+    },
+    {
+     "number": "B30",
+     "type": "smd",
+     "shape": "circle",
+     "positionNm": {
+      "xNm": 115792500,
+      "yNm": 134210000
+     },
+     "size": {
+      "xNm": 356000,
+      "yNm": 356000
+     }
+    },
+    {
+     "number": "C01",
+     "type": "smd",
+     "shape": "circle",
+     "positionNm": {
+      "xNm": 134207500,
+      "yNm": 135790000
+     },
+     "size": {
+      "xNm": 356000,
+      "yNm": 356000
+     }
+    },
+    {
+     "number": "C02",
+     "type": "smd",
+     "shape": "circle",
+     "positionNm": {
+      "xNm": 133572499,
+      "yNm": 135790000
+     },
+     "size": {
+      "xNm": 356000,
+      "yNm": 356000
+     }
+    },
+    {
+     "number": "C03",
+     "type": "smd",
+     "shape": "circle",
+     "positionNm": {
+      "xNm": 132937500,
+      "yNm": 135790000
+     },
+     "size": {
+      "xNm": 356000,
+      "yNm": 356000
+     }
+    },
+    {
+     "number": "C04",
+     "type": "smd",
+     "shape": "circle",
+     "positionNm": {
+      "xNm": 132302500,
+      "yNm": 135790000
+     },
+     "size": {
+      "xNm": 356000,
+      "yNm": 356000
+     }
+    },
+    {
+     "number": "C05",
+     "type": "smd",
+     "shape": "circle",
+     "positionNm": {
+      "xNm": 131667499,
+      "yNm": 135790000
+     },
+     "size": {
+      "xNm": 356000,
+      "yNm": 356000
+     }
+    },
+    {
+     "number": "C06",
+     "type": "smd",
+     "shape": "circle",
+     "positionNm": {
+      "xNm": 131032500,
+      "yNm": 135790000
+     },
+     "size": {
+      "xNm": 356000,
+      "yNm": 356000
+     }
+    },
+    {
+     "number": "C07",
+     "type": "smd",
+     "shape": "circle",
+     "positionNm": {
+      "xNm": 130397500,
+      "yNm": 135790000
+     },
+     "size": {
+      "xNm": 356000,
+      "yNm": 356000
+     }
+    },
+    {
+     "number": "C08",
+     "type": "smd",
+     "shape": "circle",
+     "positionNm": {
+      "xNm": 129762499,
+      "yNm": 135790000
+     },
+     "size": {
+      "xNm": 356000,
+      "yNm": 356000
+     }
+    },
+    {
+     "number": "C09",
+     "type": "smd",
+     "shape": "circle",
+     "positionNm": {
+      "xNm": 129127500,
+      "yNm": 135790000
+     },
+     "size": {
+      "xNm": 356000,
+      "yNm": 356000
+     }
+    },
+    {
+     "number": "C10",
+     "type": "smd",
+     "shape": "circle",
+     "positionNm": {
+      "xNm": 128492500,
+      "yNm": 135790000
+     },
+     "size": {
+      "xNm": 356000,
+      "yNm": 356000
+     }
+    },
+    {
+     "number": "C11",
+     "type": "smd",
+     "shape": "circle",
+     "positionNm": {
+      "xNm": 127857500,
+      "yNm": 135790000
+     },
+     "size": {
+      "xNm": 356000,
+      "yNm": 356000
+     }
+    },
+    {
+     "number": "C12",
+     "type": "smd",
+     "shape": "circle",
+     "positionNm": {
+      "xNm": 127222500,
+      "yNm": 135790000
+     },
+     "size": {
+      "xNm": 356000,
+      "yNm": 356000
+     }
+    },
+    {
+     "number": "C13",
+     "type": "smd",
+     "shape": "circle",
+     "positionNm": {
+      "xNm": 126587500,
+      "yNm": 135790000
+     },
+     "size": {
+      "xNm": 356000,
+      "yNm": 356000
+     }
+    },
+    {
+     "number": "C14",
+     "type": "smd",
+     "shape": "circle",
+     "positionNm": {
+      "xNm": 125952500,
+      "yNm": 135790000
+     },
+     "size": {
+      "xNm": 356000,
+      "yNm": 356000
+     }
+    },
+    {
+     "number": "C15",
+     "type": "smd",
+     "shape": "circle",
+     "positionNm": {
+      "xNm": 125317500,
+      "yNm": 135790000
+     },
+     "size": {
+      "xNm": 356000,
+      "yNm": 356000
+     }
+    },
+    {
+     "number": "C16",
+     "type": "smd",
+     "shape": "circle",
+     "positionNm": {
+      "xNm": 124682500,
+      "yNm": 135790000
+     },
+     "size": {
+      "xNm": 356000,
+      "yNm": 356000
+     }
+    },
+    {
+     "number": "C17",
+     "type": "smd",
+     "shape": "circle",
+     "positionNm": {
+      "xNm": 124047500,
+      "yNm": 135790000
+     },
+     "size": {
+      "xNm": 356000,
+      "yNm": 356000
+     }
+    },
+    {
+     "number": "C18",
+     "type": "smd",
+     "shape": "circle",
+     "positionNm": {
+      "xNm": 123412500,
+      "yNm": 135790000
+     },
+     "size": {
+      "xNm": 356000,
+      "yNm": 356000
+     }
+    },
+    {
+     "number": "C19",
+     "type": "smd",
+     "shape": "circle",
+     "positionNm": {
+      "xNm": 122777500,
+      "yNm": 135790000
+     },
+     "size": {
+      "xNm": 356000,
+      "yNm": 356000
+     }
+    },
+    {
+     "number": "C20",
+     "type": "smd",
+     "shape": "circle",
+     "positionNm": {
+      "xNm": 122142500,
+      "yNm": 135790000
+     },
+     "size": {
+      "xNm": 356000,
+      "yNm": 356000
+     }
+    },
+    {
+     "number": "C21",
+     "type": "smd",
+     "shape": "circle",
+     "positionNm": {
+      "xNm": 121507500,
+      "yNm": 135790000
+     },
+     "size": {
+      "xNm": 356000,
+      "yNm": 356000
+     }
+    },
+    {
+     "number": "C22",
+     "type": "smd",
+     "shape": "circle",
+     "positionNm": {
+      "xNm": 120872500,
+      "yNm": 135790000
+     },
+     "size": {
+      "xNm": 356000,
+      "yNm": 356000
+     }
+    },
+    {
+     "number": "C23",
+     "type": "smd",
+     "shape": "circle",
+     "positionNm": {
+      "xNm": 120237500,
+      "yNm": 135790000
+     },
+     "size": {
+      "xNm": 356000,
+      "yNm": 356000
+     }
+    },
+    {
+     "number": "C24",
+     "type": "smd",
+     "shape": "circle",
+     "positionNm": {
+      "xNm": 119602500,
+      "yNm": 135790000
+     },
+     "size": {
+      "xNm": 356000,
+      "yNm": 356000
+     }
+    },
+    {
+     "number": "C25",
+     "type": "smd",
+     "shape": "circle",
+     "positionNm": {
+      "xNm": 118967500,
+      "yNm": 135790000
+     },
+     "size": {
+      "xNm": 356000,
+      "yNm": 356000
+     }
+    },
+    {
+     "number": "C26",
+     "type": "smd",
+     "shape": "circle",
+     "positionNm": {
+      "xNm": 118332500,
+      "yNm": 135790000
+     },
+     "size": {
+      "xNm": 356000,
+      "yNm": 356000
+     }
+    },
+    {
+     "number": "C27",
+     "type": "smd",
+     "shape": "circle",
+     "positionNm": {
+      "xNm": 117697500,
+      "yNm": 135790000
+     },
+     "size": {
+      "xNm": 356000,
+      "yNm": 356000
+     }
+    },
+    {
+     "number": "C28",
+     "type": "smd",
+     "shape": "circle",
+     "positionNm": {
+      "xNm": 117062500,
+      "yNm": 135790000
+     },
+     "size": {
+      "xNm": 356000,
+      "yNm": 356000
+     }
+    },
+    {
+     "number": "C29",
+     "type": "smd",
+     "shape": "circle",
+     "positionNm": {
+      "xNm": 116427500,
+      "yNm": 135790000
+     },
+     "size": {
+      "xNm": 356000,
+      "yNm": 356000
+     }
+    },
+    {
+     "number": "C30",
+     "type": "smd",
+     "shape": "circle",
+     "positionNm": {
+      "xNm": 115792500,
+      "yNm": 135790000
+     },
+     "size": {
+      "xNm": 356000,
+      "yNm": 356000
+     }
+    },
+    {
+     "number": "D01",
+     "type": "smd",
+     "shape": "circle",
+     "positionNm": {
+      "xNm": 134207500,
+      "yNm": 136750000
+     },
+     "size": {
+      "xNm": 356000,
+      "yNm": 356000
+     }
+    },
+    {
+     "number": "D02",
+     "type": "smd",
+     "shape": "circle",
+     "positionNm": {
+      "xNm": 133572499,
+      "yNm": 136750000
+     },
+     "size": {
+      "xNm": 356000,
+      "yNm": 356000
+     }
+    },
+    {
+     "number": "D03",
+     "type": "smd",
+     "shape": "circle",
+     "positionNm": {
+      "xNm": 132937500,
+      "yNm": 136750000
+     },
+     "size": {
+      "xNm": 356000,
+      "yNm": 356000
+     }
+    },
+    {
+     "number": "D04",
+     "type": "smd",
+     "shape": "circle",
+     "positionNm": {
+      "xNm": 132302500,
+      "yNm": 136750000
+     },
+     "size": {
+      "xNm": 356000,
+      "yNm": 356000
+     }
+    },
+    {
+     "number": "D05",
+     "type": "smd",
+     "shape": "circle",
+     "positionNm": {
+      "xNm": 131667499,
+      "yNm": 136750000
+     },
+     "size": {
+      "xNm": 356000,
+      "yNm": 356000
+     }
+    },
+    {
+     "number": "D06",
+     "type": "smd",
+     "shape": "circle",
+     "positionNm": {
+      "xNm": 131032500,
+      "yNm": 136750000
+     },
+     "size": {
+      "xNm": 356000,
+      "yNm": 356000
+     }
+    },
+    {
+     "number": "D07",
+     "type": "smd",
+     "shape": "circle",
+     "positionNm": {
+      "xNm": 130397500,
+      "yNm": 136750000
+     },
+     "size": {
+      "xNm": 356000,
+      "yNm": 356000
+     }
+    },
+    {
+     "number": "D08",
+     "type": "smd",
+     "shape": "circle",
+     "positionNm": {
+      "xNm": 129762499,
+      "yNm": 136750000
+     },
+     "size": {
+      "xNm": 356000,
+      "yNm": 356000
+     }
+    },
+    {
+     "number": "D09",
+     "type": "smd",
+     "shape": "circle",
+     "positionNm": {
+      "xNm": 129127500,
+      "yNm": 136750000
+     },
+     "size": {
+      "xNm": 356000,
+      "yNm": 356000
+     }
+    },
+    {
+     "number": "D10",
+     "type": "smd",
+     "shape": "circle",
+     "positionNm": {
+      "xNm": 128492500,
+      "yNm": 136750000
+     },
+     "size": {
+      "xNm": 356000,
+      "yNm": 356000
+     }
+    },
+    {
+     "number": "D11",
+     "type": "smd",
+     "shape": "circle",
+     "positionNm": {
+      "xNm": 127857500,
+      "yNm": 136750000
+     },
+     "size": {
+      "xNm": 356000,
+      "yNm": 356000
+     }
+    },
+    {
+     "number": "D12",
+     "type": "smd",
+     "shape": "circle",
+     "positionNm": {
+      "xNm": 127222500,
+      "yNm": 136750000
+     },
+     "size": {
+      "xNm": 356000,
+      "yNm": 356000
+     }
+    },
+    {
+     "number": "D13",
+     "type": "smd",
+     "shape": "circle",
+     "positionNm": {
+      "xNm": 126587500,
+      "yNm": 136750000
+     },
+     "size": {
+      "xNm": 356000,
+      "yNm": 356000
+     }
+    },
+    {
+     "number": "D14",
+     "type": "smd",
+     "shape": "circle",
+     "positionNm": {
+      "xNm": 125952500,
+      "yNm": 136750000
+     },
+     "size": {
+      "xNm": 356000,
+      "yNm": 356000
+     }
+    },
+    {
+     "number": "D15",
+     "type": "smd",
+     "shape": "circle",
+     "positionNm": {
+      "xNm": 125317500,
+      "yNm": 136750000
+     },
+     "size": {
+      "xNm": 356000,
+      "yNm": 356000
+     }
+    },
+    {
+     "number": "D16",
+     "type": "smd",
+     "shape": "circle",
+     "positionNm": {
+      "xNm": 124682500,
+      "yNm": 136750000
+     },
+     "size": {
+      "xNm": 356000,
+      "yNm": 356000
+     }
+    },
+    {
+     "number": "D17",
+     "type": "smd",
+     "shape": "circle",
+     "positionNm": {
+      "xNm": 124047500,
+      "yNm": 136750000
+     },
+     "size": {
+      "xNm": 356000,
+      "yNm": 356000
+     }
+    },
+    {
+     "number": "D18",
+     "type": "smd",
+     "shape": "circle",
+     "positionNm": {
+      "xNm": 123412500,
+      "yNm": 136750000
+     },
+     "size": {
+      "xNm": 356000,
+      "yNm": 356000
+     }
+    },
+    {
+     "number": "D19",
+     "type": "smd",
+     "shape": "circle",
+     "positionNm": {
+      "xNm": 122777500,
+      "yNm": 136750000
+     },
+     "size": {
+      "xNm": 356000,
+      "yNm": 356000
+     }
+    },
+    {
+     "number": "D20",
+     "type": "smd",
+     "shape": "circle",
+     "positionNm": {
+      "xNm": 122142500,
+      "yNm": 136750000
+     },
+     "size": {
+      "xNm": 356000,
+      "yNm": 356000
+     }
+    },
+    {
+     "number": "D21",
+     "type": "smd",
+     "shape": "circle",
+     "positionNm": {
+      "xNm": 121507500,
+      "yNm": 136750000
+     },
+     "size": {
+      "xNm": 356000,
+      "yNm": 356000
+     }
+    },
+    {
+     "number": "D22",
+     "type": "smd",
+     "shape": "circle",
+     "positionNm": {
+      "xNm": 120872500,
+      "yNm": 136750000
+     },
+     "size": {
+      "xNm": 356000,
+      "yNm": 356000
+     }
+    },
+    {
+     "number": "D23",
+     "type": "smd",
+     "shape": "circle",
+     "positionNm": {
+      "xNm": 120237500,
+      "yNm": 136750000
+     },
+     "size": {
+      "xNm": 356000,
+      "yNm": 356000
+     }
+    },
+    {
+     "number": "D24",
+     "type": "smd",
+     "shape": "circle",
+     "positionNm": {
+      "xNm": 119602500,
+      "yNm": 136750000
+     },
+     "size": {
+      "xNm": 356000,
+      "yNm": 356000
+     }
+    },
+    {
+     "number": "D25",
+     "type": "smd",
+     "shape": "circle",
+     "positionNm": {
+      "xNm": 118967500,
+      "yNm": 136750000
+     },
+     "size": {
+      "xNm": 356000,
+      "yNm": 356000
+     }
+    },
+    {
+     "number": "D26",
+     "type": "smd",
+     "shape": "circle",
+     "positionNm": {
+      "xNm": 118332500,
+      "yNm": 136750000
+     },
+     "size": {
+      "xNm": 356000,
+      "yNm": 356000
+     }
+    },
+    {
+     "number": "D27",
+     "type": "smd",
+     "shape": "circle",
+     "positionNm": {
+      "xNm": 117697500,
+      "yNm": 136750000
+     },
+     "size": {
+      "xNm": 356000,
+      "yNm": 356000
+     }
+    },
+    {
+     "number": "D28",
+     "type": "smd",
+     "shape": "circle",
+     "positionNm": {
+      "xNm": 117062500,
+      "yNm": 136750000
+     },
+     "size": {
+      "xNm": 356000,
+      "yNm": 356000
+     }
+    },
+    {
+     "number": "D29",
+     "type": "smd",
+     "shape": "circle",
+     "positionNm": {
+      "xNm": 116427500,
+      "yNm": 136750000
+     },
+     "size": {
+      "xNm": 356000,
+      "yNm": 356000
+     }
+    },
+    {
+     "number": "D30",
+     "type": "smd",
+     "shape": "circle",
+     "positionNm": {
+      "xNm": 115792500,
+      "yNm": 136750000
+     },
+     "size": {
+      "xNm": 356000,
+      "yNm": 356000
+     }
+    }
+   ],
+   "models": [
+    {
+     "path": "${KIPRJMOD}/../../../vendor/samtec/ADM6-30-03.5-L-4-0-A-TR.stp",
+     "hidden": false,
+     "offset": {
+      "xNm": 0,
+      "yNm": 0,
+      "zNm": 0
+     },
+     "rotation": {
+      "xDeg": -90,
+      "yDeg": 0,
+      "zDeg": 0
+     },
+     "scale": {
+      "x": 1,
+      "y": 1,
+      "z": 1
+     }
+    }
+   ],
+   "sourceSpan": {
+    "offsetBytes": 26117,
+    "lengthBytes": 24103
+   }
+  }
+ ],
+ "designators": [
+  "J1",
+  "J2"
+ ],
+ "outlineBounds": {
+  "minNm": {
+   "xNm": 100000000,
+   "yNm": 100000000
+  },
+  "maxNm": {
+   "xNm": 150000000,
+   "yNm": 140000000
+  }
+ }
+}

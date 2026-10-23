@@ -15,7 +15,10 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest import mock
 
+from git import GitCommandError
+
 from app.services import job_service, path_config_service, project_import_service, project_service
+from app.services.job_runtime import RetryableJobError
 from support.repo import git, set_identity  # noqa: E402
 
 
@@ -87,8 +90,61 @@ class SyncFastForwardsOnly(unittest.TestCase):
             job_service.jobs, "enqueue", return_value={"job_id": "job-1"}
         ) as enqueue:
             project_import_service.start_sync_job("prj_1", fetch_only=True)
+        self.assertEqual(enqueue.call_args.args[0], "project_fetch")
         self.assertEqual(enqueue.call_args.args[1]["fetch_only"], True)
+        self.assertEqual(
+            enqueue.call_args.kwargs["locks"],
+            [{"key": "repository:repo_1", "mode": "read"}],
+        )
         self.assertEqual(enqueue.call_args.kwargs["priority"], 200)
+
+    def test_fetch_uses_the_configured_timeout(self) -> None:
+        with mock.patch.object(
+            project_import_service.settings,
+            "PRISM_GIT_FETCH_TIMEOUT_SECONDS",
+            42,
+        ):
+            project_import_service.sync_project("prj_1", fetch_only=True)
+        self.assertEqual(
+            self.origin.fetch.call_args.kwargs["kill_after_timeout"], 42
+        )
+
+    def test_fetch_defaults_git_low_speed_abort_without_overriding_it(self) -> None:
+        project_import_service.sync_project("prj_1", fetch_only=True)
+        env = self.origin.fetch.call_args.kwargs["env"]
+        self.assertEqual(env["GIT_HTTP_LOW_SPEED_LIMIT"], "1000")
+        self.assertEqual(env["GIT_HTTP_LOW_SPEED_TIME"], "60")
+
+        with mock.patch.dict(
+            "os.environ",
+            {"GIT_HTTP_LOW_SPEED_LIMIT": "2048", "GIT_HTTP_LOW_SPEED_TIME": "120"},
+        ):
+            project_import_service.sync_project("prj_1", fetch_only=True)
+        env = self.origin.fetch.call_args.kwargs["env"]
+        self.assertEqual(env["GIT_HTTP_LOW_SPEED_LIMIT"], "2048")
+        self.assertEqual(env["GIT_HTTP_LOW_SPEED_TIME"], "120")
+
+    def test_a_timed_out_fetch_is_a_retryable_job_error(self) -> None:
+        self.origin.fetch.side_effect = GitCommandError(
+            "git fetch",
+            128,
+            stderr='Timeout: the command "git fetch" did not complete in 300 secs.',
+        )
+        context = SimpleNamespace(
+            payload={"project_id": "prj_1", "fetch_only": True},
+            check_cancelled=mock.Mock(),
+            progress=lambda **values: None,
+        )
+        with mock.patch.object(
+            project_import_service.settings,
+            "PRISM_GIT_FETCH_TIMEOUT_SECONDS",
+            300,
+        ):
+            with self.assertRaisesRegex(
+                RetryableJobError, "git fetch timed out after 300 s"
+            ) as raised:
+                project_import_service.run_project_sync_job_v3(context)
+        self.assertEqual(raised.exception.code, "git-fetch-timeout")
 
     def test_dirty_checkout_is_reported_rather_than_clobbered(self) -> None:
         self.repo.is_dirty.return_value = True

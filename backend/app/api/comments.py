@@ -345,6 +345,7 @@ async def get_comments(
             )
             listing["comments"] = resolve_displayed_bindings(
                 project, listing["comments"], displayed, bindings,
+                record_design_keys=lambda keys: comments_store.fill_anchor_design_keys(project.id, keys),
             )
         actor = _read_actor(user)
         listing["comments"] = [
@@ -376,7 +377,10 @@ async def get_comment_thread(
         if comment is not None and revision and comment.get("scope") != "comparison":
             displayed = _normalize_commit(revision, "revision")
             bindings = comments_store.get_anchor_bindings(project.id, [comment_id])
-            [comment] = resolve_displayed_bindings(project, [comment], displayed, bindings)
+            [comment] = resolve_displayed_bindings(
+                project, [comment], displayed, bindings,
+                record_design_keys=lambda keys: comments_store.fill_anchor_design_keys(project.id, keys),
+            )
         actor = _read_actor(user)
         if comment is not None:
             comment = with_capabilities(comment, actor)
@@ -503,6 +507,7 @@ async def create_comparison_comment(
             anchor_kind=anchor_kind,
             anchor_commit=anchor.commit,
             anchor_revision_key=anchor.source_revision_key,
+            anchor_design_key=anchor.design_key,
             anchor_source=anchor.source,
             selected_side=anchor.selected_side,
             project_relative_path=anchor.project_relative_path,
@@ -566,6 +571,7 @@ async def create_comment(
             file_path=anchor.file_path,
             anchor_commit=anchor.commit,
             anchor_revision_key=anchor.source_revision_key,
+            anchor_design_key=anchor.design_key,
             anchor_source=anchor.source,
             project_relative_path=anchor.project_relative_path,
         )

@@ -1,4 +1,4 @@
-// Several board assets in one WebGPU view (System Builder SB2-27).
+// Several board assets in one WebGPU view (System Builder SB2-27, SB3b).
 //
 // Each asset (one board bundle) is its own `Renderer`: geometry, occurrences,
 // cull state and indirect slots, exactly as a one-asset scene. They share the
@@ -34,12 +34,12 @@ export class SceneRenderer {
     this.order = [];
     this.frameStats = { triangles: 0, draws: 0 };
     this.lodThresholds = { ...LOD_THRESHOLDS };
-    // SB2-44: harness tubes, created with the first harness; the version bumps when they change.
+    // Harness tubes (4c): created with the first harness; the version bumps when they change.
     this.tubes = null;
     this.tubeVersion = 0;
   }
 
-  /** Harness tubes to draw (tube-mesh.js `packTubes` input) and how to colour each. */
+  /** Harness tubes to draw (harness-descriptor.js output) and how to colour each: `[r, g, b, a]`. */
   setTubes(tubes, colorOf) {
     if (!tubes.length && !this.tubes) return;
     this.tubes ??= new TubeRenderer(this.host);
@@ -47,7 +47,7 @@ export class SceneRenderer {
     this.tubeVersion += 1;
   }
 
-  /** Recolour the tubes (a net lit or cleared). */
+  /** Recolour the tubes (a selection or drag preview changed) without re-uploading geometry. */
   setTubeColors(colorOf) {
     this.tubes?.setColors(colorOf);
     this.tubeVersion += 1;
@@ -143,17 +143,17 @@ export class SceneRenderer {
     host.resize();
     const live = this.renderers.filter((renderer) => renderer.occurrenceCount > 0);
     const options = new Map(live.map((renderer) => [renderer, optionsFor(renderer)]));
-    for (const [renderer, value] of options) writeLayerOffsets(renderer, value);
+    const viewport = clampedViewport(panel.viewport, this.canvas);
+    for (const [renderer, value] of options) {
+      writeLayerOffsets(renderer, value);
+      // An analytic board draws through its own viewport, as the one-board path sets it.
+      if (renderer.analytic) renderer.analytic.viewport = viewport;
+    }
     const encoder = this.device.createCommandEncoder();
     const reads = live.filter((renderer) => renderer.encodeCull(encoder, panel));
     this.tubes?.encodeCompute(encoder);
     const pass = encoder.beginRenderPass({
-      colorAttachments: [{
-        view: host.context.getCurrentTexture().createView(),
-        clearValue: { r: 0.91, g: 0.93, b: 0.94, a: 1 },
-        loadOp: "clear",
-        storeOp: "store",
-      }],
+      colorAttachments: [host.colorAttachment(host.context.getCurrentTexture().createView())],
       depthStencilAttachment: host.depthAttachment(),
     });
     setViewport(pass, panel.viewport, this.canvas);
@@ -174,7 +174,12 @@ export class SceneRenderer {
     this.frameStats = { triangles: Math.round(triangles), draws };
   }
 
-  /** Pick at canvas pixel (x, y) across every asset: the scene-wide occurrence, its key and renderer. */
+  /**
+   * Pick at canvas pixel (x, y) across every asset: its key, renderer and
+   * local hit. Each asset is picked into the shared target in turn, so an
+   * analytic hit (whose tags are pack-local) still names its board; boards
+   * that overlap on screen are resolved in placement order.
+   */
   pick(panel, x, y, optionsFor) {
     const operation = this.host.pickSerial.then(() => this.performPick(panel, x, y, optionsFor));
     this.host.pickSerial = operation.catch(() => 0);
@@ -186,27 +191,32 @@ export class SceneRenderer {
     host.resize();
     const pixelX = Math.max(0, Math.min(this.canvas.width - 1, Math.floor(x)));
     const pixelY = Math.max(0, Math.min(this.canvas.height - 1, Math.floor(y)));
-    const encoder = this.device.createCommandEncoder();
-    const pass = encoder.beginRenderPass({
-      colorAttachments: [{ view: host.pickTexture.createView(), clearValue: { r: 0, g: 0, b: 0, a: 0 }, loadOp: "clear", storeOp: "store" }],
-      depthStencilAttachment: host.depthAttachment(),
-    });
-    setViewport(pass, panel.viewport, this.canvas);
     for (const renderer of this.renderers) {
       if (renderer.occurrenceCount === 0) continue;
       const options = optionsFor(renderer);
       writeLayerOffsets(renderer, options);
+      if (renderer.analytic) renderer.analytic.viewport = clampedViewport(panel.viewport, this.canvas);
+      const encoder = this.device.createCommandEncoder();
+      const pass = encoder.beginRenderPass({
+        colorAttachments: [{ view: host.pickTexture.createView(), clearValue: { r: 0, g: 0, b: 0, a: 0 }, loadOp: "clear", storeOp: "store" }],
+        depthStencilAttachment: host.depthAttachment(true),
+      });
+      setViewport(pass, panel.viewport, this.canvas);
       renderer.encodePick(pass, panel, options);
+      pass.end();
+      const hit = await host.readPick(encoder, pixelX, pixelY, renderer);
+      if (hit.kind === "analytic" || hit.occurrenceIndex >= 0) {
+        // The read names a scene-wide occurrence; this asset's keys are local.
+        const local = hit.occurrenceIndex - renderer.occurrenceBase;
+        return {
+          ...hit,
+          occurrenceKey: local >= 0 ? renderer.occurrenceKeys[local] ?? null : renderer.occurrenceKeys[0] ?? null,
+          renderer,
+          standIn: Boolean(renderer.standIn),
+        };
+      }
     }
-    pass.end();
-    const hit = await host.readPick(encoder, pixelX, pixelY);
-    const found = hit.occurrenceIndex >= 0 ? this.locate(hit.occurrenceIndex) : null;
-    return {
-      ...hit,
-      occurrenceKey: found ? found.renderer.occurrenceKeys[found.local] ?? null : null,
-      renderer: found?.renderer || null,
-      standIn: Boolean(found?.renderer?.standIn),
-    };
+    return { occurrenceIndex: -1, occurrenceKey: null, featureId: 0, kind: "empty", renderer: null, standIn: false };
   }
 
   gpuMemoryBytes() {
@@ -227,7 +237,7 @@ export class SceneRenderer {
       delete breakdown.targets;
       assets[id] = breakdown;
     }
-    return { assets, tubes: this.tubes?.gpuMemoryBytes() || 0, targets: this.canvas.width * this.canvas.height * 12, arena: this.host.arenaStats() };
+    return { assets, targets: this.canvas.width * this.canvas.height * 12, arena: this.host.arenaStats() };
   }
 
   /** Level-of-detail thresholds for every asset, now and later (SB2-30a). */
@@ -249,9 +259,9 @@ export class SceneRenderer {
 
   /** Release everything, the device included: a closed tab frees its GPU memory at once, not at GC. */
   dispose() {
-    for (const id of [...this.assets.keys()]) this.removeAsset(id);
     this.tubes?.dispose();
     this.tubes = null;
+    for (const id of [...this.assets.keys()]) this.removeAsset(id);
     this.host.dispose();
     this.host.context?.unconfigure?.();
     this.device.destroy?.();
@@ -262,11 +272,16 @@ function writeLayerOffsets(renderer, options) {
   if (options?.layerOffsets) renderer.device.queue.writeBuffer(renderer.layerOffsetBuffer, 0, options.layerOffsets);
 }
 
-function setViewport(pass, viewport, canvas) {
+function clampedViewport(viewport, canvas) {
   const x = Math.max(0, Math.min(canvas.width - 1, Math.floor(viewport.x)));
   const y = Math.max(0, Math.min(canvas.height - 1, Math.floor(viewport.y)));
   const width = Math.max(1, Math.min(canvas.width - x, Math.floor(viewport.width)));
   const height = Math.max(1, Math.min(canvas.height - y, Math.floor(viewport.height)));
-  pass.setViewport(x, y, width, height, 0, 1);
-  pass.setScissorRect(x, y, width, height);
+  return { x, y, width, height };
+}
+
+function setViewport(pass, viewport, canvas) {
+  const rect = clampedViewport(viewport, canvas);
+  pass.setViewport(rect.x, rect.y, rect.width, rect.height, 0, 1);
+  pass.setScissorRect(rect.x, rect.y, rect.width, rect.height);
 }

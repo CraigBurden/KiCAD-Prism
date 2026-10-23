@@ -1,0 +1,104 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$id": "urn:prism:schema:prism.cli.artwork_result:a0",
+    "type": "object",
+    "properties": {
+        "schema": {
+            "type": "string",
+            "const": "prism.cli.artwork_result.a0",
+            "description": "Document schema id."
+        },
+        "paper_scale": {
+            "type": "number",
+            "minimum": 0,
+            "description": "The ratio of sheet millimetres to board millimetres the run drew at:\n`--paper-scale` when given, so every stroke and font in the views prints at\nits configured size on paper at that scale. Absent when the run drew in\nboard millimetres and sizes scale with the drawing."
+        },
+        "views": {
+            "type": "array",
+            "items": {
+                "$ref": "#/$defs/CliArtworkView"
+            },
+            "description": "One entry per rendered view, sorted by `name` in code point order."
+        }
+    },
+    "required": [
+        "schema",
+        "views"
+    ],
+    "unevaluatedProperties": {
+        "not": {}
+    },
+    "description": "stdout of `artwork` (exit 0).",
+    "title": "prism-kicad artwork result a0",
+    "$defs": {
+        "CliArtworkView": {
+            "type": "object",
+            "properties": {
+                "name": {
+                    "type": "string",
+                    "description": "The view's name, as the `ArtworkConfigA0` gives it and `--view` names it."
+                },
+                "file": {
+                    "$ref": "#/$defs/ArchivePath",
+                    "description": "The SVG's path relative to the output directory, `<view>.svg`."
+                },
+                "sha256": {
+                    "$ref": "#/$defs/Sha256Hex",
+                    "description": "SHA-256 of the SVG file's bytes."
+                },
+                "footprints_drawn": {
+                    "$ref": "#/$defs/Count",
+                    "description": "How many footprints the view drew a body region for."
+                },
+                "designators_placed": {
+                    "$ref": "#/$defs/Count",
+                    "description": "How many reference designators the view placed."
+                },
+                "dnp_footprints_hatched": {
+                    "$ref": "#/$defs/Count",
+                    "description": "How many do-not-populate footprints the view hatched (`dnp.hatch`)."
+                },
+                "footprints_without_outline": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/$defs/ObjectRef"
+                    },
+                    "description": "Every footprint the view has no body outline for, `<RepoPath>#<KiCadUuid>`,\nsorted in code point order: the footprints drawn from the hole envelope or\nthe pad envelope instead, or with no body region at all."
+                }
+            },
+            "required": [
+                "name",
+                "file",
+                "sha256",
+                "footprints_drawn",
+                "designators_placed",
+                "dnp_footprints_hatched",
+                "footprints_without_outline"
+            ],
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "One rendered artwork view and what it drew."
+        },
+        "ArchivePath": {
+            "type": "string",
+            "pattern": "^(?:[^/\\\\:.][^/\\\\:]*|\\.[^/\\\\:.][^/\\\\:]*|\\.\\.[^/\\\\:]+)(?:/(?:[^/\\\\:.][^/\\\\:]*|\\.[^/\\\\:.][^/\\\\:]*|\\.\\.[^/\\\\:]+))*$",
+            "description": "Path of a member inside a `.prism` bundle archive: `/`-separated, relative,\nno empty, `.` or `..` segment, no leading or trailing `/`, no backslash and\nno `:`. The same rule as manifest a1's ArchivePath and prism-bundle's\n`check_member_name`, without lookaround."
+        },
+        "Sha256Hex": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$",
+            "description": "Lowercase hexadecimal SHA-256 digest: exactly 64 characters, no prefix such as `sha256:`."
+        },
+        "Count": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "A count of things: a non-negative safe integer."
+        },
+        "ObjectRef": {
+            "type": "string",
+            "pattern": "^(?:[^/\\\\:.][^/\\\\:]*|\\.[^/\\\\:.][^/\\\\:]*|\\.\\.[^/\\\\:]+)(?:/(?:[^/\\\\:.][^/\\\\:]*|\\.[^/\\\\:.][^/\\\\:]*|\\.\\.[^/\\\\:]+))*#[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+            "description": "Reference to one object in one KiCad document: `<documentPath>#<uuid>`,\nwhere `documentPath` is the RepoPath of the `.kicad_sch` or `.kicad_pcb`\nand `uuid` the object's KiCadUuid. Split at the last `#`. Unique across\nevery project in the repository, including projects that share a\ndirectory.\nA reused sheet file holds one object for all its instances, so an\nObjectRef names the object in the file, not an occurrence; occurrences\nare named by KiidPath."
+        }
+    }
+}

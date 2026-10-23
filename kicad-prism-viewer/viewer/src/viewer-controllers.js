@@ -31,13 +31,12 @@
  * @property {(bytes: number) => void} setGpuBudget A normalised budget (`gpuBudgetBytes`).
  * The remaining members are the view controls both modes share (see COMMON_MEMBERS):
  * resize, getViewState, setLayerVisible, applyLayerPreset, setShowBoard, setShowComponents,
- * setShowPlaceholders, setRealisticColors, setSeparation, showNetLayers, setStatsOverlay,
+ * setShowPlaceholders, setRealisticColors, setBoardLayerVisible, setSeparation, showNetLayers, setStatsOverlay,
  * stats, setLodOverride, pickAt, projectComponent, projectPoint.
  *
  * @typedef {ScenePort & object} BoardScenePort One board (mountStandaloneViewer).
  * @property {(key: string) => void} selectOccurrence
  * @property {(ids: Set<number>) => void} setHighlightedNetIds
- * @property {() => void} refreshResidency Reschedule copper tiles now (what is lit changed).
  * @property {(workspace: "pcb" | "stackup") => void} setWorkspace
  * @property {(references: string[]) => unknown} setHiddenComponents
  * @property {() => string[]} getComponentReferences
@@ -50,6 +49,17 @@
  * @property {() => object} insetStats
  * @property {(settings?: object) => object} insetSettings
  * @property {() => Promise<void>} gpuIdle
+ * @property {(bytes: Uint8Array, options?: object) => Promise<object | null>} loadAnalyticPack
+ * @property {(overlay: object | null) => unknown} setAnalyticOverlay
+ * @property {(vectors: object | null) => unknown} setAnalyticVectors
+ * @property {(style: object) => unknown} setAnalyticStyle
+ * @property {() => object} analyticColormaps
+ * @property {(options: object | null) => object | null} setAnalyticRelief
+ * @property {(enabled: boolean) => void} setClickSelect
+ * @property {(clientX: number, clientY: number) => object | null} analyticProbe
+ * @property {(clientX: number, clientY: number) => Promise<object | null>} analyticAt
+ * @property {() => object | null} analyticStats
+ * @property {() => void} unloadAnalyticPack
  *
  * @typedef {ScenePort & object} SystemScenePort Several boards (mountSystemViewer).
  * @property {(occurrence: string | undefined) => "board" | "stand-in" | null} focusPlacement
@@ -58,10 +68,13 @@
  * @property {() => void} selectBoardContext Select the focused placement's board itself.
  * @property {(sets: object[]) => object[] | null} setEmphasisSets Light normalised sets; returns the
  *   report, or null when the scene's system is gone.
+ * @property {(clientX: number, clientY: number) => object | null} pickSurfaceAt Where a point
+ *   meets a `pickSurface` model's triangles, in world mm.
  * Plus the system members in SYSTEM_MEMBERS (setSystemScene, setMoveAllowed, setMoveMode, …).
  */
 
 import { EMPHASIS_PALETTE, findNetByName, packEmphasisColor, resolveNetIds } from "./net-emphasis.js";
+import { DEFAULT_MOVE_SNAP, normalizeMoveSnap } from "./move-gizmo.js";
 import { insetSurfaceZ, insetTarget, projectInsetPoint } from "./inset-view.js";
 
 /** The GPU memory budget when the host sets none, or an unusable one. */
@@ -91,6 +104,25 @@ export function selectionTarget(nets, selection) {
   return { kind: "board" };
 }
 
+/**
+ * Whether a host selection is the viewer's own last one coming back: the
+ * host echoes what the viewer emits, often with fewer fields (a pad as its
+ * reference and pin, a net by name or code under the host's own uid). An echo
+ * must change nothing: re-selecting a pad by reference would select its part,
+ * drop the net probe and move the camera.
+ */
+export function isSelectionEcho(selection, emitted) {
+  if (!selection || !emitted || selection.occurrence != null) return false;
+  const text = (value) => String(value ?? "");
+  if (selection.reference || emitted.reference) {
+    return text(selection.reference) === text(emitted.reference) && text(selection.pin) === text(emitted.pin);
+  }
+  if (selection.featureId && emitted.featureId) return Number(selection.featureId) === Number(emitted.featureId);
+  if (selection.netName && emitted.netName) return text(selection.netName) === text(emitted.netName);
+  if (selection.netCode && emitted.netCode) return Number(selection.netCode) === Number(emitted.netCode);
+  return false;
+}
+
 /** Select a resolved target on the port, framing it. False for `board` and `unresolved`. */
 function selectTarget(port, target) {
   if (target.kind === "net") port.selectNet(target.id, true);
@@ -110,7 +142,7 @@ export function emphasisChange(had, has) {
 /**
  * The host's system net sets as the scene lights them: a key, a packed colour
  * (the next palette colour when none is given) and its "#rrggbb", and only
- * well-formed members and wires.
+ * well-formed members.
  */
 export function normalizeEmphasisSets(sets) {
   return (Array.isArray(sets) ? sets : []).map((set, index) => {
@@ -121,26 +153,19 @@ export function normalizeEmphasisSets(sets) {
       color: `#${(mark & 0xffffff).toString(16).padStart(6, "0")}`,
       members: (Array.isArray(set?.members) ? set.members : [])
         .filter((member) => member && typeof member.occurrence === "string" && typeof member.net === "string"),
-      // SB2-34: harness wires the net runs through, `{harness, wire, occurrence?}`.
-      wires: (Array.isArray(set?.wires) ? set.wires : [])
-        .filter((ref) => ref && typeof ref.harness === "string" && typeof ref.wire === "string"),
     };
   });
 }
 
-/**
- * Host state both modes replay: the last selection and GPU budget. One object
- * is shared by an element's two controllers, so a value set while one mode
- * is mounted reaches the other after a mode switch, as it always has.
- */
+/** Host state the controller replays onto each mount: the last selection and GPU budget. */
 export function createSharedState() {
   return { selection: null, gpuBudget: null };
 }
 
-/** Members both modes have; the element sends them to the mounted mode. */
+/** The view members every mount has; the element sends them to its mounted controller. */
 export const COMMON_MEMBERS = Object.freeze([
   "setSelection", "resize", "getViewState", "setLayerVisible", "applyLayerPreset", "setShowBoard",
-  "setShowComponents", "setShowPlaceholders", "setRealisticColors", "setSeparation", "showNetLayers",
+  "setShowComponents", "setShowPlaceholders", "setRealisticColors", "setBoardLayerVisible", "setSeparation", "showNetLayers",
   "setNetIsolation", "setStatsOverlay", "getStats", "setLodOverride", "setGpuBudget", "pickAt",
   "projectComponent", "projectPoint",
 ]);
@@ -181,6 +206,8 @@ class ModeController {
   setSelection(selection) {
     this.shared.selection = selection || null;
     const port = this.#port;
+    // The viewer's own selection echoed back is already shown.
+    if (port?.takeEcho?.(this.shared.selection)) return;
     if (port) port.quietly(() => this.applySelection(port, this.shared.selection));
   }
 
@@ -220,6 +247,10 @@ class ModeController {
 
   setRealisticColors(enabled) {
     this.#port?.setRealisticColors(enabled);
+  }
+
+  setBoardLayerVisible(role, side, visible) {
+    this.#port?.setBoardLayerVisible(role, side, visible);
   }
 
   setSeparation(value, placement = null) {
@@ -265,6 +296,7 @@ export const BOARD_MEMBERS = Object.freeze([
   "setHighlightedNets", "setHiddenComponents", "getComponentReferences", "setViewMode",
   "renderInset", "insetReady", "insetSurfaceZ", "releaseInset", "insetTarget", "projectInset",
   "onSceneChange", "insetStats", "insetSettings", "gpuIdle",
+  "loadAnalyticPack", "setAnalyticOverlay", "setAnalyticVectors", "setAnalyticStyle", "analyticColormaps", "setAnalyticRelief", "setClickSelect", "analyticProbe", "analyticAt", "analyticStats", "unloadAnalyticPack",
 ]);
 
 /**
@@ -278,6 +310,10 @@ export class BoardModeController extends ModeController {
   #workspace = "pcb";
   #sceneListeners = new Set();
   #unhookScene = null;
+  // The analytic pack and overlay outlive reloads, like the other view state.
+  #analytic = null;
+  #clickSelect = true;
+  #relief = null;
 
   attach(port, { workspace = "pcb" } = {}) {
     this.#workspace = workspace;
@@ -294,6 +330,16 @@ export class BoardModeController extends ModeController {
     // A fresh viewer is already unselected: no redundant clear while it sets up its first frame.
     if (this.shared.selection) port.quietly(() => this.applySelection(port, this.shared.selection));
     if (this.#highlightedNets.length) this.#applyHighlightedNets(port, this.#highlightedNets);
+    if (this.#analytic) void this.#replayAnalytic(port, this.#analytic);
+    if (!this.#clickSelect) port.setClickSelect(false);
+  }
+
+  async #replayAnalytic(port, analytic) {
+    await port.loadAnalyticPack(analytic.bytes, analytic.options);
+    if (analytic.overlay) port.setAnalyticOverlay(analytic.overlay);
+    if (this.#relief) port.setAnalyticRelief(this.#relief);
+    if (analytic.style) port.setAnalyticStyle(analytic.style);
+    if (analytic.vectors) port.setAnalyticVectors(analytic.vectors);
   }
 
   release() {
@@ -332,7 +378,6 @@ export class BoardModeController extends ModeController {
     if (change === "enter") port.showNetProbe();
     else if (change === "leave") port.restoreVisibility();
     if (port.isolating() && has) port.isolateLitNets();
-    port.refreshResidency();
   }
 
   /** Replace the hidden component references (VAR-18). */
@@ -399,26 +444,81 @@ export class BoardModeController extends ModeController {
   gpuIdle() {
     return this.port?.gpuIdle() ?? Promise.resolve();
   }
+
+  async loadAnalyticPack(bytes, options = {}) {
+    const copy = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes);
+    this.#analytic = { bytes: copy, options, overlay: null, vectors: null, style: this.#analytic?.style ?? null };
+    return this.port ? this.port.loadAnalyticPack(copy, options) : null;
+  }
+
+  setAnalyticOverlay(overlay) {
+    if (this.#analytic) this.#analytic.overlay = overlay;
+    return this.port?.setAnalyticOverlay(overlay) ?? null;
+  }
+
+  setAnalyticVectors(vectors) {
+    if (this.#analytic) this.#analytic.vectors = vectors;
+    return this.port?.setAnalyticVectors(vectors) ?? null;
+  }
+
+  setAnalyticStyle(style) {
+    if (this.#analytic) this.#analytic.style = { ...(this.#analytic.style || {}), ...style };
+    return this.port?.setAnalyticStyle(style) ?? null;
+  }
+
+  analyticColormaps() {
+    return this.port?.analyticColormaps() ?? null;
+  }
+
+  setAnalyticRelief(options) {
+    this.#relief = options || null;
+    return this.port?.setAnalyticRelief(this.#relief) ?? null;
+  }
+
+  setClickSelect(enabled) {
+    this.#clickSelect = enabled !== false;
+    this.port?.setClickSelect(this.#clickSelect);
+  }
+
+  analyticProbe(clientX, clientY) {
+    return this.port?.analyticProbe(clientX, clientY) ?? null;
+  }
+
+  analyticAt(clientX, clientY) {
+    return this.port?.analyticAt(clientX, clientY) ?? Promise.resolve(null);
+  }
+
+  analyticStats() {
+    return this.port?.analyticStats() ?? null;
+  }
+
+  unloadAnalyticPack() {
+    this.#analytic = null;
+    this.port?.unloadAnalyticPack();
+  }
 }
 
 /** Members only the system mode has. */
 export const SYSTEM_MEMBERS = Object.freeze([
   "setSystemScene", "setNetEmphasis", "frameNetEmphasis", "frameAll", "frameBoard", "frameParts",
-  "setMoveMode", "setRouteMode", "setMoveSpace", "previewPose", "cancelMove", "getMoveState",
-  "targetHarnessNode", "selectHarness", "previewHarnessNode", "cancelHarnessNode", "getHarnessState",
-  "setLabelsVisible", "setHarnessesVisible", "setHelpVisible", "isHelpVisible", "setLodThresholds",
-  "pickSurfaceAt", "focusMoveTarget", "viewAxis",
+  "setMoveMode", "setMoveSpace", "previewPose", "cancelMove", "getMoveState",
+  "setAssemblyExplode", "setMoveSnap", "pickSurfaceAt", "setRouteMode",
+  "setLabelsVisible", "setHelpVisible", "isHelpVisible", "viewAxis",
 ]);
 
 /**
  * Several boards from a system scene. Replays the GPU budget, the scene, the
- * lit net sets, who may move boards and the labels onto each mount.
+ * lit net sets, who may move boards, the explode and snap steps, and the
+ * labels onto each mount.
  */
 export class SystemModeController extends ModeController {
   #scene = null;
   #netEmphasis = null;
   #labels = null;
   #moveAllowed = false;
+  #routeMode = false;
+  #assemblyExplode = 0;
+  #moveSnap = { ...DEFAULT_MOVE_SNAP };
 
   attach(port, { moveAllowed = false } = {}) {
     this.#moveAllowed = Boolean(moveAllowed);
@@ -430,6 +530,9 @@ export class SystemModeController extends ModeController {
     if (this.#scene) port.setSystemScene(this.#scene);
     if (this.#netEmphasis) this.#applyNetEmphasis(port, this.#netEmphasis);
     port.setMoveAllowed(this.#moveAllowed);
+    port.setRouteMode(this.#routeMode);
+    port.setAssemblyExplode(this.#assemblyExplode);
+    port.setMoveSnap({ ...this.#moveSnap });
     if (this.#labels != null) port.setLabelsVisible(this.#labels);
   }
 
@@ -499,13 +602,14 @@ export class SystemModeController extends ModeController {
     this.port?.setMoveMode(enabled, options);
   }
 
-  /** Route mode (D-P2-51): move mode for harness routes only. */
-  setRouteMode(enabled) {
-    this.port?.setMoveMode(enabled, { route: true });
-  }
-
   setMoveSpace(space) {
     this.port?.setMoveSpace(space);
+  }
+
+  /** The Route tool: presses on tubes and handles become harness drags. Replayed on the next mount. */
+  setRouteMode(on) {
+    this.#routeMode = Boolean(on);
+    this.port?.setRouteMode(this.#routeMode);
   }
 
   previewPose(pose) {
@@ -520,24 +624,21 @@ export class SystemModeController extends ModeController {
     return this.port?.getMoveState() ?? null;
   }
 
-  targetHarnessNode(id) {
-    this.port?.targetHarnessNode(id);
+  /** The assembly explode, 0 (assembled) to 1; replayed on the next mount. */
+  setAssemblyExplode(amount) {
+    this.#assemblyExplode = Math.max(0, Math.min(1, Number(amount) || 0));
+    this.port?.setAssemblyExplode(this.#assemblyExplode);
   }
 
-  selectHarness(id) {
-    return this.port?.selectHarness(id) ?? false;
+  /** Translation (mm) and rotation (deg) steps for the gizmo; replayed on the next mount. */
+  setMoveSnap(snap) {
+    this.#moveSnap = normalizeMoveSnap(snap, this.#moveSnap);
+    this.port?.setMoveSnap({ ...this.#moveSnap });
   }
 
-  previewHarnessNode(positionMm) {
-    this.port?.previewHarnessNode(positionMm);
-  }
-
-  cancelHarnessNode() {
-    this.port?.cancelHarnessNode();
-  }
-
-  getHarnessState() {
-    return this.port?.getHarnessState() ?? null;
+  /** Where a client point meets a `pickSurface` model occurrence, in world mm; null off the models. */
+  pickSurfaceAt(clientX, clientY) {
+    return this.port?.pickSurfaceAt(clientX, clientY) ?? null;
   }
 
   /** Board name labels (on by default); the last call is replayed on the next mount. */
@@ -546,28 +647,12 @@ export class SystemModeController extends ModeController {
     this.port?.setLabelsVisible(this.#labels);
   }
 
-  setHarnessesVisible(visible) {
-    this.port?.setHarnessesVisible(Boolean(visible));
-  }
-
   setHelpVisible(visible) {
     this.port?.setHelpVisible(visible);
   }
 
   isHelpVisible() {
     return Boolean(this.port?.isHelpVisible());
-  }
-
-  setLodThresholds(thresholds) {
-    return this.port?.setLodThresholds(thresholds) ?? null;
-  }
-
-  pickSurfaceAt(clientX, clientY) {
-    return this.port?.pickSurfaceAt(clientX, clientY) ?? null;
-  }
-
-  focusMoveTarget(path) {
-    return Boolean(this.port?.focusMoveTarget(path));
   }
 
   viewAxis(axis, opposite = false) {

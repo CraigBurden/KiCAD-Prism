@@ -1,0 +1,24 @@
+{
+  "schema": "prism.drawing_sheet.request.a0",
+  "paper_width_nm": 297000000,
+  "paper_height_nm": 210000000,
+  "title_block": {
+    "title": "USB-PD Trigger Board",
+    "date": "2026-10-17",
+    "rev": "A1",
+    "company": "Prism Release Studio",
+    "comments": {
+      "1": "Document: assembly-top",
+      "2": "Commit: 32e63e28c0de",
+      "3": "Variant: default",
+      "4": "Sheet: assembly_top_view"
+    }
+  },
+  "sheet_index": 1,
+  "sheet_count": 1,
+  "paper_name": "A4",
+  "file_name": "assembly-top.pdf",
+  "sheet_path": "/assembly-top",
+  "sheet_name": "assembly-top",
+  "kicad_version": "10.0.6"
+}

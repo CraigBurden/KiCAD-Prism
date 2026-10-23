@@ -1,5 +1,5 @@
-// Harness tube picking (System Builder SB2-45b): a click within a few pixels of
-// a tube's centre line, or inside its drawn radius, picks it. Tubes are thin and
+// Harness tube picking (System Builder 4c): a click within a few pixels of a
+// tube's centre line, or inside its drawn radius, picks it. Tubes are thin and
 // few, so this runs on the CPU against the projected samples; the nearest
 // segment on screen wins.
 

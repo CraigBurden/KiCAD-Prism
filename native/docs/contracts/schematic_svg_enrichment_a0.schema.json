@@ -1,0 +1,235 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://wavenumber-eng.github.io/kicad_monkey/contracts/schematic_svg_enrichment_a0.schema.json",
+  "title": "KiCad Monkey Schematic SVG Enrichment Metadata A0",
+  "description": "Document-level metadata embedded in KiCad Monkey schematic SVG enriched output.",
+  "type": "object",
+  "additionalProperties": true,
+  "required": [
+    "schema",
+    "source",
+    "view",
+    "view_indexes",
+    "design"
+  ],
+  "properties": {
+    "schema": {
+      "const": "kicad_monkey.schematic.svg.enrichment.a0"
+    },
+    "source": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": [
+        "kicad_sch_file"
+      ],
+      "properties": {
+        "kicad_sch_file": {
+          "type": "string"
+        }
+      }
+    },
+    "view": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": [
+        "kind",
+        "profile",
+        "sheet_name",
+        "sheet_path"
+      ],
+      "properties": {
+        "kind": {
+          "const": "schematic_sheet"
+        },
+        "profile": {
+          "type": "string"
+        },
+        "sheet_name": {
+          "type": "string"
+        },
+        "sheet_path": {
+          "type": "string"
+        },
+        "sheet_instance_path": {
+          "type": "string"
+        }
+      }
+    },
+    "view_indexes": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": [
+        "sheet_lookup_keys",
+        "svg_to_net",
+        "svg_to_nets",
+        "net_to_svg",
+        "net_uid_to_svg"
+      ],
+      "properties": {
+        "sheet_lookup_keys": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "svg_to_net": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "object",
+            "additionalProperties": true,
+            "required": [
+              "uid",
+              "name"
+            ],
+            "properties": {
+              "uid": {
+                "type": "string"
+              },
+              "name": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "svg_to_nets": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": true,
+              "required": [
+                "uid",
+                "name"
+              ],
+              "properties": {
+                "uid": {
+                  "type": "string"
+                },
+                "name": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "net_to_svg": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "net_uid_to_svg": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    },
+    "compiled_schematic_graph_view": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema",
+        "graph_schema",
+        "identity_namespace",
+        "graph_artifact",
+        "linkage_contract",
+        "page_occurrence_ref",
+        "artifact_key",
+        "graphical_artifact_link_refs",
+        "element_to_graphical_artifact_link_refs",
+        "target_to_element_ids",
+        "target_type_by_ref"
+      ],
+      "properties": {
+        "schema": {
+          "const": "kicad_monkey.schematic.svg.compiled_graph_view.a0"
+        },
+        "graph_schema": {
+          "const": "kicad_monkey.compiled_schematic_graph.a0"
+        },
+        "identity_namespace": {
+          "type": "string"
+        },
+        "graph_artifact": {
+          "type": "string"
+        },
+        "linkage_contract": {
+          "const": "kicad_monkey.schematic.svg.compiled_graph_linkage.a0"
+        },
+        "page_occurrence_ref": {
+          "type": "string"
+        },
+        "artifact_key": {
+          "const": "sch.dwg_scene"
+        },
+        "graphical_artifact_link_refs": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "uniqueItems": true
+        },
+        "element_to_graphical_artifact_link_refs": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "minItems": 1,
+            "uniqueItems": true
+          }
+        },
+        "target_to_element_ids": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "minItems": 1,
+            "uniqueItems": true
+          }
+        },
+        "target_type_by_ref": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "design": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": [
+        "schema",
+        "components",
+        "nets"
+      ],
+      "properties": {
+        "schema": {
+          "const": "kicad_monkey.design.a0"
+        },
+        "components": {
+          "type": "array"
+        },
+        "nets": {
+          "type": "array"
+        },
+        "indexes": {
+          "type": "object"
+        }
+      }
+    }
+  }
+}

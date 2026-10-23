@@ -1,4 +1,4 @@
-"""Creating a project that Prism itself hosts (model B).
+"""Creating a project that Prism itself hosts, model B.
 
 Two ways in, both landing in the same place: a bare repo Prism owns, a registered
 project, and an `origin_url` a client can clone.

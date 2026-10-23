@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 
-SUPPORTED_ASSET_TYPES: tuple[str, ...] = ("symbol", "footprint", "3dmodel", "spice")
+SUPPORTED_ASSET_TYPES: tuple[str, ...] = (
+    "symbol", "footprint", "3dmodel", "spice",
+)
 PLACE_REQUIRED_ASSET_TYPES: tuple[str, ...] = ("symbol", "footprint")
 AUXILIARY_ASSET_TYPES: frozenset[str] = frozenset({"3dmodel", "spice"})
 

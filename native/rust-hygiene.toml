@@ -1,0 +1,29 @@
+# Structural Rust policy for native/, enforced by scripts/rust_hygiene.sh
+# (Prism's port of the fork's wn-dev-std check; the native-hygiene CI job).
+# Limits may only be tightened. New or increased debt against the baseline
+# fails; scripts/rust_hygiene.sh --prune drops paid-off entries.
+schema = 1
+mode = "ratchet"
+baseline = "rust-hygiene-baseline.json"
+
+[limits]
+max_parameters = 7
+max_function_lines = 100
+max_test_function_lines = 150
+max_file_lines = 1000
+max_cyclomatic_complexity = 10
+max_nesting = 4
+
+[paths]
+source_roots = ["src/rs", "tests"]
+exclude_parts = [
+  ".git",
+  "_build",
+  "bindings",
+  "build",
+  "generated",
+  "node_modules",
+  "target",
+  "third_party",
+  "vendor",
+]

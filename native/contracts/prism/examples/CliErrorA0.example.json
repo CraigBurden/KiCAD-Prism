@@ -1,0 +1,16 @@
+{
+  "schema": "prism.cli.error.a0",
+  "category": "resource-limit",
+  "code": "limit-exceeded",
+  "message": "sources/cynthion.kicad_pcb is 6257788 bytes, over max-source-file-bytes 4194304",
+  "stage": "parse",
+  "location": {
+    "path": "sources/cynthion.kicad_pcb"
+  },
+  "limit": {
+    "kind": "bytes",
+    "name": "max-source-file-bytes",
+    "limit_bytes": 4194304,
+    "observed_bytes": 6257788
+  }
+}

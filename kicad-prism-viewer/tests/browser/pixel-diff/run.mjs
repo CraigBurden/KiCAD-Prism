@@ -24,7 +24,7 @@ const buildDir = mkdtempSync(join(tmpdir(), "vt-builds-"));
 
 const log = (...parts) => console.log(`[${new Date().toISOString().slice(11, 19)}]`, ...parts);
 
-const summary = { startedAt: new Date().toISOString(), options: { ...options }, builds: {}, boards: {}, diffs: [], perf: [], failures: [] };
+const summary = { startedAt: new Date().toISOString(), options: { ...options }, builds: {}, boards: {}, diffs: [], perf: [], loads: [], failures: [] };
 
 try {
   for (const build of options.builds) {
@@ -74,11 +74,27 @@ async function runOne({ chrome, server, board, build, rep, captures }) {
   const label = `${board.name}/${build.name}#${rep}`;
   const page = await chrome.newPage({ width: options.width, height: options.height, deviceScaleFactor: options.scale });
   try {
+    if (options.warm && rep !== "perf") {
+      // Prime: one load in this page's context fills the OPFS cache (the bundle
+      // and the analytic board's lowered slices); the measured load follows.
+      await page.goto(`${server.origin}/harness/harness.html?build=${encodeURIComponent(build.name)}`);
+      await waitFor(page, "window.__vtElementLoaded === true", 30000, `${label}: element module (prime)`);
+      await page.evaluate(`window.__vtProbe.mount(${JSON.stringify(`/bundles/${board.name}/bundle.json`)}, ${JSON.stringify({ width: options.width, height: options.height })})`);
+      await settle(page, `${label} prime`);
+      await sleep(1500); // the cache writes finish in the background
+    }
     const started = Date.now();
     await page.goto(`${server.origin}/harness/harness.html?build=${encodeURIComponent(build.name)}`);
     await waitFor(page, "window.__vtElementLoaded === true", 30000, `${label}: element module`);
     await page.evaluate(`window.__vtProbe.mount(${JSON.stringify(`/bundles/${board.name}/bundle.json`)}, ${JSON.stringify({ width: options.width, height: options.height })})`);
     log(`${label} ready in ${((Date.now() - started) / 1000).toFixed(1)} s`);
+    if (options.load && rep !== "perf") {
+      await settle(page, `${label} load`);
+      const times = await page.evaluate("window.__vtProbe.loadTimes()");
+      const bytes = page.bytesLoaded ?? null;
+      summary.loads.push({ board: board.name, build: build.name, rep, ...times, bytes });
+      log(`${label}: ready ${times.readyMs} ms, first drawn ${times.firstDrawnMs} ms, components ${times.componentsMs} ms, last change ${times.lastChangeMs} ms`);
+    }
     // Perf gets a load of its own, so the orbit starts from the loaded camera.
     if (rep === "perf") {
       await settle(page, `${label} perf`);
@@ -113,7 +129,8 @@ async function settle(page, label) {
     const status = await page.evaluate("window.__vtProbe.frameStatus()");
     if (page.networkIdle(1000) && status.stable >= options.stableFrames && status.stableMs >= 1000) return (Date.now() - started) / 1000;
     if (Date.now() - started > options.timeoutMs) {
-      throw new Error(`${label}: did not settle in ${options.timeoutMs / 1000} s (in flight ${page.inflight.size}, stable ${status.stable}/${options.stableFrames}, frames ${status.frames})`);
+      const pending = [...page.inflight].map((id) => page.urls?.get(id) || id).slice(0, 8).join(", ");
+      throw new Error(`${label}: did not settle in ${options.timeoutMs / 1000} s (in flight ${page.inflight.size}: ${pending}; stable ${status.stable}/${options.stableFrames}, frames ${status.frames})`);
     }
     await sleep(250);
   }
@@ -159,6 +176,12 @@ function report() {
     const pair = `${entry.a.split("/").slice(1).join("/")} ↔ ${entry.b.split("/").slice(1).join("/")}`;
     console.log(`${entry.board.padEnd(10)} ${entry.view.padEnd(10)} ${entry.kind.padEnd(6)} ${pair.padEnd(47)} ${String(entry.pixels ?? "n/a").padStart(7)} ${String(entry.maxDelta ?? "").padStart(5)}${entry.strict ? "  strict" : ""}`);
   }
+  if (summary.loads.length) {
+    console.log("\nboard      build        rep  ready ms  first ms  parts ms  last ms     MB");
+    for (const l of summary.loads) {
+      console.log(`${l.board.padEnd(10)} ${l.build.padEnd(12)} ${String(l.rep).padStart(3)} ${String(l.readyMs).padStart(9)} ${String(l.firstDrawnMs).padStart(9)} ${String(l.componentsMs).padStart(9)} ${String(l.lastChangeMs).padStart(8)} ${l.bytes === null ? "" : (l.bytes / 1e6).toFixed(1).padStart(6)}`);
+    }
+  }
   if (summary.perf.length) {
     console.log("\nboard      build        frames  int p50  int p95  cpu p95  gpu p50  gpu p95  tris       MB");
     for (const p of summary.perf) {
@@ -171,7 +194,7 @@ function report() {
 
 function serve({ builds, boards }) {
   const roots = new Map([["harness", here], ["builds", builds], ...boards.map((board) => [`bundles/${board.name}`, board.dir])]);
-  const types = { ".html": "text/html", ".js": "text/javascript", ".mjs": "text/javascript", ".json": "application/json", ".glb": "model/gltf-binary", ".bin": "application/octet-stream", ".css": "text/css" };
+  const types = { ".html": "text/html", ".js": "text/javascript", ".mjs": "text/javascript", ".json": "application/json", ".glb": "model/gltf-binary", ".bin": "application/octet-stream", ".css": "text/css", ".wasm": "application/wasm" };
   const server = createServer((request, response) => {
     const path = decodeURIComponent(new URL(request.url, "http://localhost").pathname).replace(/^\/+/, "");
     const prefix = [...roots.keys()].filter((key) => path === key || path.startsWith(`${key}/`)).sort((a, b) => b.length - a.length)[0];
@@ -217,6 +240,8 @@ function parseArgs(argv) {
     strict: ["default", "exploded", "top"],
     repeat: 2,
     perf: false,
+    load: false,
+    warm: false,
     orbitMs: 4000,
     width: 1280,
     height: 800,
@@ -243,6 +268,8 @@ function parseArgs(argv) {
     else if (flag === "--strict") parsed.strict = value().split(",").filter(Boolean);
     else if (flag === "--repeat") parsed.repeat = Math.max(1, Number(value()));
     else if (flag === "--perf") parsed.perf = true;
+    else if (flag === "--load") parsed.load = true;
+    else if (flag === "--warm") parsed.warm = true;
     else if (flag === "--orbit-ms") parsed.orbitMs = Number(value());
     else if (flag === "--size") [parsed.width, parsed.height] = value().split("x").map(Number);
     else if (flag === "--scale") parsed.scale = Number(value());

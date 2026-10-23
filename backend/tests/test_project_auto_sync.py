@@ -30,6 +30,43 @@ class ProjectAutoSyncTests(unittest.TestCase):
             self.assertEqual(project_auto_sync_service.enqueue_due_fetches(attempts, interval_seconds=300, now=now), 0)
         start.assert_called_once_with("a", requested_by="system:auto-sync", fetch_only=True)
 
+    def test_auto_sync_enqueues_a_fetch_only_job_under_the_read_lock(self) -> None:
+        now = datetime(2026, 9, 23, 12, 0, tzinfo=timezone.utc)
+        projects = [
+            {"id": "a", "repo_id": "shared", "repo_last_synced": None, "path": "/repo"},
+        ]
+        with (
+            mock.patch.object(
+                project_auto_sync_service.workspace,
+                "get_all_projects",
+                return_value=projects,
+            ),
+            mock.patch.object(
+                project_auto_sync_service.workspace,
+                "get_project_by_id",
+                return_value={"id": "a", "repo_id": "shared"},
+            ),
+            mock.patch.object(
+                project_auto_sync_service, "remote_unchanged", return_value=False
+            ),
+            mock.patch(
+                "app.services.job_service.jobs.enqueue",
+                return_value={"job_id": "job-fetch"},
+            ) as enqueue,
+        ):
+            self.assertEqual(
+                project_auto_sync_service.enqueue_due_fetches(
+                    {}, interval_seconds=300, now=now
+                ),
+                1,
+            )
+        self.assertEqual(enqueue.call_args.args[0], "project_fetch")
+        self.assertEqual(enqueue.call_args.args[1], {"project_id": "a", "fetch_only": True})
+        self.assertEqual(
+            enqueue.call_args.kwargs["locks"],
+            [{"key": "repository:shared", "mode": "read"}],
+        )
+
     def test_an_unchanged_remote_gets_no_job_only_a_synced_time(self) -> None:
         now = datetime(2026, 9, 23, 12, 0, tzinfo=timezone.utc)
         projects = [{"id": "a", "repo_id": "quiet", "repo_last_synced": None, "path": "/repo"}]

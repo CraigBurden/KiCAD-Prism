@@ -8,7 +8,9 @@ import { join } from "node:path";
 
 const DEFAULT_CHROME = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
 
-export async function launchChrome({ executable = process.env.CHROME || DEFAULT_CHROME, headless = true } = {}) {
+// `unthrottled` lifts the frame-rate cap (vsync), for perf runs: frames then
+// come as fast as the GPU finishes them.
+export async function launchChrome({ executable = process.env.CHROME || DEFAULT_CHROME, headless = true, unthrottled = false } = {}) {
   const profile = mkdtempSync(join(tmpdir(), "vt-pixel-diff-"));
   const args = [
     `--user-data-dir=${profile}`,
@@ -25,6 +27,7 @@ export async function launchChrome({ executable = process.env.CHROME || DEFAULT_
     "about:blank",
   ];
   if (headless) args.unshift("--headless=new");
+  if (unthrottled) args.unshift("--disable-gpu-vsync", "--disable-frame-rate-limit");
   const child = spawn(executable, args, { stdio: ["ignore", "ignore", "pipe"] });
   const wsUrl = await new Promise((resolve, reject) => {
     let buffered = "";
@@ -114,15 +117,21 @@ class Page {
     Object.assign(this, ids);
     this.connection = connection;
     this.inflight = new Set();
+    this.bytesLoaded = 0;
     this.lastNetworkAt = Date.now();
     this.errors = [];
     this.listener = (message) => {
       if (message.sessionId !== this.sessionId) return;
       const { method, params } = message;
       if (method === "Network.requestWillBeSent") {
+        // A dedicated worker's script finishes in the worker's own session, never
+        // this one: the analytic lowering workers would never count as done.
+        if (/\/prism-semantic-viewer-lower\.js(\?|$)/.test(params.request?.url || "")) return;
         this.inflight.add(params.requestId);
+        (this.urls ??= new Map()).set(params.requestId, `${params.type || "?"} ${params.request?.url || ""}`);
         this.lastNetworkAt = Date.now();
       } else if (method === "Network.loadingFinished" || method === "Network.loadingFailed") {
+        if (method === "Network.loadingFinished") this.bytesLoaded += params.encodedDataLength || 0;
         this.inflight.delete(params.requestId);
         this.lastNetworkAt = Date.now();
         if (method === "Network.loadingFailed" && !params.canceled) this.errors.push(`request failed: ${params.errorText}`);

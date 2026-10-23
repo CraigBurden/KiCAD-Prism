@@ -13,12 +13,33 @@ vi.mock("@/features/live-comments/use-live-comments", () => {
 });
 vi.mock("./webgpu-3d-tab", () => ({ WebGpu3dTab: () => <div data-testid="webgpu-3d-tab" /> }));
 
+// A pending answer settles at once in these tests; the polling window itself
+// is covered by lib/api-design-data.test.ts.
+vi.mock("@/lib/api", async (importOriginal) => {
+    const actual = await importOriginal<typeof import("@/lib/api")>();
+    return {
+        ...actual,
+        fetchDesignJson: (
+            input: Parameters<typeof actual.fetchDesignJson>[0],
+            init?: Parameters<typeof actual.fetchDesignJson>[1],
+            options?: Parameters<typeof actual.fetchDesignJson>[2],
+        ) => actual.fetchDesignJson(input, init, { ...options, pendingTimeoutMs: 0 }),
+        fetchDesignText: (
+            input: Parameters<typeof actual.fetchDesignText>[0],
+            init?: Parameters<typeof actual.fetchDesignText>[1],
+            options?: Parameters<typeof actual.fetchDesignText>[2],
+        ) => actual.fetchDesignText(input, init, { ...options, pendingTimeoutMs: 0 }),
+    };
+});
+
 // Registers the fake as <ecad-viewer>.
 fakeEcadViewer();
 
 const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), {
     status, headers: { "Content-Type": "application/json" },
 });
+
+const pending = () => json({ status: "pending", members: ["projections/project.json"], retryAfterSeconds: 1 }, 202);
 
 function serve(url: string): Response {
     const path = new URL(url, "http://prism.test").pathname;
@@ -97,6 +118,57 @@ describe("Visualizer through the ecad-viewer adapter", () => {
         expect(sch.appendSources).not.toHaveBeenCalled();
     });
 
+    it("uses each inlined subsheet's content without a per-sheet read", async () => {
+        const sub = { filename: "Subsheets/power.kicad_sch", content: "(kicad_sch power)" };
+        const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+            const url = String(input);
+            const path = new URL(url, "http://prism.test").pathname;
+            if (path.endsWith("/schematic/subsheets")) {
+                return json({ files: [{ name: sub.filename, url: "/files/Subsheets/power.kicad_sch", content: sub.content }] });
+            }
+            if (path.endsWith("/files/Subsheets/power.kicad_sch")) return new Response("unexpected read", { status: 500 });
+            return serve(url);
+        });
+        vi.stubGlobal("fetch", fetchMock);
+        renderVisualizer();
+        await waitFor(() => expect(viewers()).toHaveLength(1));
+        const [sch] = viewers();
+        await waitFor(() => expect(sch.replaceSources).toHaveBeenCalledWith({
+            revisionKey: "schematic:p1:latest",
+            sources: [{ filename: "root.kicad_sch", content: "(kicad_sch root)" }, sub],
+        }));
+        expect(fetchMock.mock.calls.some(([input]) =>
+            String(input).endsWith("/files/Subsheets/power.kicad_sch"),
+        )).toBe(false);
+    });
+
+    it("reads only the subsheets the hierarchy did not inline", async () => {
+        const inline = { filename: "Subsheets/filter.kicad_sch", content: "(kicad_sch filter)" };
+        const fetched = { filename: "Subsheets/power.kicad_sch", content: "(kicad_sch power)" };
+        const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+            const url = String(input);
+            const path = new URL(url, "http://prism.test").pathname;
+            if (path.endsWith("/schematic/subsheets")) {
+                return json({ files: [
+                    { name: inline.filename, url: "/files/Subsheets/filter.kicad_sch", content: inline.content },
+                    { name: fetched.filename, url: "/files/Subsheets/power.kicad_sch" },
+                ] });
+            }
+            if (path.endsWith("/files/Subsheets/power.kicad_sch")) return new Response(fetched.content);
+            return serve(url);
+        });
+        vi.stubGlobal("fetch", fetchMock);
+        renderVisualizer();
+        await waitFor(() => expect(viewers()).toHaveLength(1));
+        const [sch] = viewers();
+        await waitFor(() => expect(sch.replaceSources).toHaveBeenCalledWith({
+            revisionKey: "schematic:p1:latest",
+            sources: [{ filename: "root.kicad_sch", content: "(kicad_sch root)" }, inline, fetched],
+        }));
+        expect(fetchMock.mock.calls.map(([input]) => String(input)).filter((url) => url.includes("/files/")))
+            .toEqual([expect.stringContaining("/files/Subsheets/power.kicad_sch")]);
+    });
+
     it("mounts the board when schematic insets turn on", async () => {
         renderVisualizer();
         await waitFor(() => expect(viewers()).toHaveLength(1));
@@ -126,5 +198,45 @@ describe("Visualizer through the ecad-viewer adapter", () => {
         expect(scene).toBeTruthy();
         act(() => scene!.load());
         expect(await screen.findByTestId("webgpu-3d-tab")).toBeTruthy();
+    });
+});
+
+describe("Visualizer while design data is still building", () => {
+    it("shows pending, never an empty board, while the PCB source builds", async () => {
+        vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+            const path = new URL(String(input), "http://prism.test").pathname;
+            if (path.endsWith("/pcb")) return pending();
+            if (path.endsWith("/semantic-index/identity")) return pending();
+            return serve(String(input));
+        }));
+
+        renderVisualizer("pcb");
+        await waitFor(() => expect(screen.getAllByText("Preparing design data…").length).toBeGreaterThan(0));
+
+        expect(screen.queryByText("No PCB files found.")).toBeNull();
+        expect(screen.queryByText("Design data could not be built")).toBeNull();
+        expect(screen.getAllByRole("button", { name: "Check again" }).length).toBeGreaterThan(0);
+    });
+
+    it("shows a pending semantic index as pending with Check again, not a failure", async () => {
+        const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+            const path = new URL(String(input), "http://prism.test").pathname;
+            if (path.endsWith("/semantic-index/identity")) return pending();
+            return serve(String(input));
+        });
+        vi.stubGlobal("fetch", fetchMock);
+
+        renderVisualizer();
+        await waitFor(() => expect(screen.getByRole("button", { name: "Check again" })).toBeTruthy());
+        expect(screen.getAllByText("Preparing design data…").length).toBeGreaterThan(0);
+        expect(screen.queryByText("Design data could not be built")).toBeNull();
+
+        const reads = fetchMock.mock.calls.filter(([input]) =>
+            String(input).endsWith("/semantic-index/identity"),
+        ).length;
+        fireEvent.click(screen.getByRole("button", { name: "Check again" }));
+        await waitFor(() => expect(fetchMock.mock.calls.filter(([input]) =>
+            String(input).endsWith("/semantic-index/identity"),
+        ).length).toBeGreaterThan(reads));
     });
 });

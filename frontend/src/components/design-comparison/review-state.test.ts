@@ -11,7 +11,6 @@ import { groupChanges } from "./comparison-review-groups";
 import { resolveNativeSelection } from "./comparison-selection-bridge";
 import {
     resolveSelectedDocument,
-    resolveSideBySideFocus,
     revisionSourceKey,
     selectedChanges,
     sourceNameForDomain,
@@ -36,9 +35,18 @@ const change = (
     classification: "primary",
     label: "U1",
     reference: "U1",
-    semantic_id: "cmp:u1",
-    source_id_base: kind === "added" ? null : source,
-    source_id_compare: kind === "removed" ? null : source,
+    semanticId: "cmp:u1",
+    reasons: [kind === "added"
+        ? "object-added"
+        : kind === "removed" ? "object-removed" : "content-changed"],
+    fields: {},
+    details: {},
+    ...(kind === "added"
+        ? {}
+        : { base: { sourceId: source, documentPath: "board.kicad_pcb", layers: [] } }),
+    ...(kind === "removed"
+        ? {}
+        : { head: { sourceId: source, documentPath: "board.kicad_pcb", layers: [] } }),
 });
 
 describe("semantic comparison state", () => {
@@ -47,10 +55,10 @@ describe("semantic comparison state", () => {
             ...change("net-change", "changed", "pin-1"),
             domain: "schematic",
             category: "components",
-            reference: null,
+            reference: undefined,
             net: "/USB/USB_D_P",
             label: "/USB/USB_D_P",
-            semantic_id: "net:usb-d-p",
+            semanticId: "net:usb-d-p",
             reasons: ["connectivity-changed"],
         }]);
 
@@ -62,9 +70,9 @@ describe("semantic comparison state", () => {
         const groups = groupChanges([{
             ...change("zone-change", "changed", "zone-1"),
             category: "zones",
-            object_kind: "zone",
+            objectKind: "zone",
             net: "GND",
-            semantic_id: "obj:zone-1",
+            semanticId: "obj:zone-1",
         }]);
 
         expect(groups).toHaveLength(1);
@@ -77,7 +85,7 @@ describe("semantic comparison state", () => {
             domain: "schematic",
             reference: "#PWR0118",
             label: "#PWR0118",
-            object_kind: "symbol",
+            objectKind: "symbol",
         }]);
 
         expect(groups[0]?.category).toBe("nets");
@@ -116,7 +124,6 @@ describe("semantic comparison state", () => {
                 ...change("component-multi-sheet", "changed", "multi-sheet"),
                 domain: "schematic" as const,
                 page: "root.kicad_sch",
-                alsoOnPages: ["root.kicad_sch", "power.kicad_sch"],
             },
         ];
         const groups = [{ id: "components", changes }];
@@ -409,67 +416,6 @@ describe("semantic comparison state", () => {
             },
             changes,
         )).toEqual({ kind: "change", id: "/wire-two" });
-    });
-
-    it("moves both panes even when a change exists on only one side", () => {
-        // Both panes show the same board in the same coordinates. Selecting an
-        // addition should still travel the base pane to where it appeared, so
-        // the reviewer can see what used to be there.
-        expect(resolveSideBySideFocus([
-            {
-                ...change("added-1", "added", "uuid-new"),
-                geometry: {
-                    kind: "footprint",
-                    bounds: [1, 2, 3, 4],
-                    page: "board.kicad_pcb",
-                },
-            },
-        ])).toEqual({
-            page: "board.kicad_pcb",
-            baseBounds: [1, 2, 3, 4],
-            compareBounds: [1, 2, 3, 4],
-            // No base-side object exists to select, only an area to look at.
-            baseUuid: null,
-            compareUuid: "uuid-new",
-        });
-
-        expect(resolveSideBySideFocus([
-            {
-                ...change("removed-1", "removed", "uuid-old"),
-                oldGeometry: {
-                    kind: "footprint",
-                    bounds: [5, 6, 7, 8],
-                },
-            },
-        ])).toEqual({
-            page: null,
-            baseBounds: [5, 6, 7, 8],
-            // The deletion left a gap; the compare pane travels there to show it.
-            compareBounds: [5, 6, 7, 8],
-            baseUuid: "uuid-old",
-            compareUuid: null,
-        });
-
-        expect(resolveSideBySideFocus([
-            {
-                ...change("changed-1", "changed", "uuid-same"),
-                page: "root.kicad_sch",
-                geometry: {
-                    kind: "symbol",
-                    bounds: [10, 10, 2, 2],
-                },
-                oldGeometry: {
-                    kind: "symbol",
-                    bounds: [0, 0, 2, 2],
-                },
-            },
-        ])).toEqual({
-            page: "root.kicad_sch",
-            baseBounds: [0, 0, 2, 2],
-            compareBounds: [10, 10, 2, 2],
-            baseUuid: "uuid-same",
-            compareUuid: "uuid-same",
-        });
     });
 });
 

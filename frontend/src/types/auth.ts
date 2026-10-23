@@ -5,6 +5,8 @@ export interface User {
     email: string;
     picture?: string;
     role: UserRole;
+    /** Set while a temporary password must still be changed; the app shows only that form. */
+    must_change_password?: boolean;
 }
 
 export interface AuthConfig {

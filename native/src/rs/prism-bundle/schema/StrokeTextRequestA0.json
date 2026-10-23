@@ -1,0 +1,89 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$id": "urn:prism:schema:prism.stroke_text.request:a0",
+    "type": "object",
+    "properties": {
+        "schema": {
+            "type": "string",
+            "const": "prism.stroke_text.request.a0",
+            "description": "Document schema id."
+        },
+        "runs": {
+            "type": "array",
+            "items": {
+                "$ref": "#/$defs/StrokeTextRun"
+            },
+            "description": "The runs, in the request's order. `CliStrokeTextResultA0.runs` reports them\nin the same order."
+        }
+    },
+    "required": [
+        "schema",
+        "runs"
+    ],
+    "unevaluatedProperties": {
+        "not": {}
+    },
+    "description": "The batch of runs `prism-kicad stroke-text --request` renders in one call.",
+    "title": "Prism stroke-text request a0",
+    "$defs": {
+        "StrokeTextRun": {
+            "type": "object",
+            "properties": {
+                "text": {
+                    "type": "string",
+                    "description": "The run's text, UTF-8, exactly as it is to be drawn. KiCad markup\n(`~{}`, `^{}`, `_{}`) is interpreted by the renderer, matching Python\nkicad_monkey."
+                },
+                "x_mm": {
+                    "type": "number",
+                    "description": "X position of the run's alignment point, in millimetres."
+                },
+                "y_mm": {
+                    "type": "number",
+                    "description": "Y position of the run's alignment point, in millimetres."
+                },
+                "size_mm": {
+                    "type": "number",
+                    "description": "The run's nominal size in millimetres: the em size, applied to both axes."
+                },
+                "h_align": {
+                    "$ref": "#/$defs/StrokeTextHAlign",
+                    "description": "Horizontal alignment about `x_mm`."
+                },
+                "v_align": {
+                    "$ref": "#/$defs/StrokeTextVAlign",
+                    "description": "Vertical alignment about `y_mm`."
+                }
+            },
+            "required": [
+                "text",
+                "x_mm",
+                "y_mm",
+                "size_mm",
+                "h_align",
+                "v_align"
+            ],
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "One text run to render."
+        },
+        "StrokeTextHAlign": {
+            "type": "string",
+            "enum": [
+                "left",
+                "center",
+                "right"
+            ],
+            "description": "Horizontal alignment of a run about its `x_mm`, as the renderer takes it."
+        },
+        "StrokeTextVAlign": {
+            "type": "string",
+            "enum": [
+                "top",
+                "center",
+                "bottom"
+            ],
+            "description": "Vertical alignment of a run about its `y_mm`, as the renderer takes it."
+        }
+    }
+}

@@ -1,11 +1,17 @@
-// Placing a system scene's boards (System Builder SB2-27; the viewer since SB2-31f).
+// Placing a system scene's boards and catalog models (System Builder SB3b).
 //
 // The `prism.system_scene.a0` descriptor (CONTRACTS_P2 §20) places each board
 // occurrence by a world matrix in millimetres; an asset (one bundle) draws at
 // world · bundleToBoard, scaled to the renderer's metres. Occurrences without
 // geometry (restricted, still building, missing, failed) draw as their box.
+// Bodies and parts draw a catalog GLB instead, and a child part follows its
+// parent's current frame through its own `localMatrix`.
 
 const MM = 0.001; // descriptor millimetres → renderer metres
+const IDENTITY = Object.freeze([1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1]);
+
+// The assembly explode moves a board this far per unit of `explode.depth`.
+export const EXPLODE_GAP_MM = 30;
 
 // Stand-in boxes by why the board has no geometry.
 export const STAND_INS = Object.freeze({
@@ -45,11 +51,36 @@ export function assetOccurrenceMatrix(worldMatrix, bundleToBoard) {
   return mat4Multiply(SCALE_MM, mat4Multiply(worldMatrix, bundleToBoard));
 }
 
+/**
+ * A child part's world matrix: its parent's current world matrix (after the
+ * assembly explode and any move preview) times its local matrix, both in mm.
+ */
+export function childWorldMatrix(parentWorldMatrix, localMatrix) {
+  return mat4Multiply(parentWorldMatrix, localMatrix || IDENTITY);
+}
+
 /** A stand-in's matrix: the unit box mapped onto the occurrence's box (own frame, mm), then placed. */
 export function standInMatrix(worldMatrix, boundsMm) {
   const min = boundsMm.minMm;
   const size = boundsMm.maxMm.map((value, index) => Math.max(value - min[index], 0.2));
   return mat4Multiply(SCALE_MM, mat4Multiply(worldMatrix, mat4Multiply(translation(min), scaling(size))));
+}
+
+/**
+ * The bundle frame's transform into the board frame when the host does not
+ * send one: an analytic bundle's runtime frame is metres, the board's own
+ * frame is millimetres with its mid-plane at z 0. `bounds` is the board's
+ * runtime bounds `[minX, minY, minZ, maxX, maxY, maxZ]`, in metres.
+ */
+export function bundleToBoardFromBounds(bounds) {
+  const minZ = Number(bounds?.[2]) || 0;
+  const maxZ = Number(bounds?.[5]) || 0;
+  return [
+    1000, 0, 0, 0,
+    0, 1000, 0, 0,
+    0, 0, 1000, 0,
+    0, 0, -1000 * (minZ + maxZ) / 2 + 0, 1,
+  ];
 }
 
 /**
@@ -61,13 +92,17 @@ export function standInKind(occurrence, asset, state) {
   if (!occurrence.assetId || !asset) return "missing";
   if (state === "loaded") return null;
   if (state === "failed") return "failed";
-  if (asset.status === "ready") return asset.bundleUrl && asset.bundleToBoard ? "loading" : "building";
+  // An analytic asset sends no `bundleToBoard`: the board gives it once loaded.
+  if (asset.status === "ready") return asset.bundleUrl ? "loading" : "building";
   return STAND_INS[asset.status] ? asset.status : "unknown";
 }
 
-/** Whether an asset can be loaded: its bundle is final and placed in the board frame. */
+/**
+ * Whether an asset can be loaded: its bundle is final. `bundleToBoard` may be
+ * null for an analytic bundle; the board's runtime bounds give it after the load.
+ */
 export function assetLoadable(asset) {
-  return Boolean(asset && asset.status === "ready" && asset.bundleUrl && asset.bundleToBoard);
+  return Boolean(asset && asset.status === "ready" && asset.bundleUrl);
 }
 
 /**
@@ -83,16 +118,32 @@ export function boardTransition(known, asset) {
 }
 
 /**
- * Occurrences to place: boards, restricted assemblies (one box for a hidden child system), and
- * occurrences that bring their own geometry: a catalog `model` or a coloured `box` (SB2-48b).
+ * Occurrences to place: boards, restricted assemblies (one box for a hidden
+ * child system), and bodies and parts that carry a catalog model.
  */
 export function drawnOccurrences(descriptor) {
-  return (descriptor?.occurrences || []).filter((item) => item.kind === "board" || item.restricted || item.model || item.box);
+  return (descriptor?.occurrences || []).filter((item) => item.kind === "board" || item.kind === "entry" || item.restricted
+    || ((item.kind === "body" || item.kind === "part") && item.model != null));
 }
 
-/** A colour's stand-in renderer id: boxes of one colour share a renderer. */
-export function boxRendererId(rgba) {
-  return `box:${rgba.map((value) => Number(value).toFixed(3)).join(",")}`;
+/** A board frame's extra translation for an assembly explode, in millimetres. */
+export function explodeOffsetMm(explode, amount) {
+  if (!explode) return [0, 0, 0];
+  const depth = Number(explode.depth) || 0;
+  const axis = explode.axis || [0, 0, 0];
+  const share = depth * Math.max(0, Math.min(1, Number(amount) || 0)) * EXPLODE_GAP_MM;
+  return [0, 1, 2].map((index) => (Number(axis[index]) || 0) * share);
+}
+
+/** A world matrix moved by its occurrence's assembly explode: labels, picks, framing and the gizmo follow it. */
+export function explodedWorldMatrix(worldMatrix, explode, amount) {
+  const offset = explodeOffsetMm(explode, amount);
+  if (!offset[0] && !offset[1] && !offset[2]) return worldMatrix;
+  const output = [...worldMatrix];
+  output[12] += offset[0];
+  output[13] += offset[1];
+  output[14] += offset[2];
+  return output;
 }
 
 /**

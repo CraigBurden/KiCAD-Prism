@@ -102,6 +102,21 @@ class PasswordCredentialStoreTests(unittest.TestCase):
         pcs.clear_must_change(result.user_id)
         self.assertFalse(pcs.verify_password(self.EMAIL, VALID_PASSWORD).must_change)
 
+    def test_a_session_carries_the_must_change_flag_live(self) -> None:
+        from app.services import session_store_service
+
+        pcs.set_password(self.EMAIL, VALID_PASSWORD, updated_by="admin@x", must_change=True, create_user=True)
+        user_id = pcs.verify_password(self.EMAIL, VALID_PASSWORD).user_id
+        session_id, _ = session_store_service.create_session(
+            email=self.EMAIL, name="Pw Test", picture="", user_id=user_id
+        )
+        self.addCleanup(session_store_service.revoke_session, session_id)
+        self.assertTrue(session_store_service.load_session(session_id).password_change_required)
+
+        # The change (or an administrator clearing it) applies to the session at once.
+        pcs.set_password(self.EMAIL, OTHER_PASSWORD, updated_by=self.EMAIL, must_change=False)
+        self.assertFalse(session_store_service.load_session(session_id).password_change_required)
+
     def test_set_password_replaces_existing(self) -> None:
         pcs.set_password(self.EMAIL, VALID_PASSWORD, updated_by="admin@x", create_user=True)
         pcs.set_password(self.EMAIL, OTHER_PASSWORD, updated_by="admin@x")

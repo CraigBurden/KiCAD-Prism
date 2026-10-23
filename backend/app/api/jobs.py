@@ -26,11 +26,6 @@ def _authorize_cancel(job: dict, user: AuthenticatedUser) -> None:
     policy.authorize(user, "catalog_write" if job.get("worker_pool") == "catalog" else "design")
 
 
-# Progress a running job publishes into its payload for early readers: the
-# staged WebGPU 3D bundle is viewable before the job completes.
-_STAGED_PAYLOAD_KEYS = ("bundle_url", "readiness", "readiness_stage", "sourceRevisionKey")
-
-
 def _slim_status(job: dict) -> dict:
     status = {
         key: job.get(key)
@@ -64,13 +59,6 @@ def _slim_status(job: dict) -> dict:
         pipeline = job["result_metadata"].get("pipeline")
         if pipeline is not None:
             status["pipeline"] = pipeline
-    staged = {
-        key: payload[key]
-        for key in _STAGED_PAYLOAD_KEYS
-        if isinstance(payload, dict) and payload.get(key) is not None
-    }
-    if staged:
-        status["staged"] = staged
     status["result_url"] = (
         f"/api/jobs/{job['job_id']}/artifact"
         if job.get("status") == "completed" and job.get("result_digest")

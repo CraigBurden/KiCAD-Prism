@@ -55,7 +55,12 @@ interface WebGpu3dStatus {
     error?: string;
     generator: WebGpuGeneratorTag;
     readiness?: WebGpu3dReadiness;
+    /** The design bundle's build while one is queued or running (bundle mode). */
+    job_id?: string | null;
 }
+
+/** How often the tab asks again while the revision's 3D data is still being built. */
+const STATUS_POLL_MS = 2000;
 
 interface WebGpu3dReadiness {
     schema: "prism.visualizer_readiness.a0";
@@ -73,18 +78,10 @@ interface WorkflowJob {
     percent?: number;
     logs?: string[];
     error?: string;
-    readiness_stage?: string;
-    readiness?: WebGpu3dReadiness;
-    bundle_url?: string;
-    sourceRevisionKey?: string;
 }
 
-/** The tab's view of a generation job: status plus what it staged so far. */
+/** The tab's view of a generation job. */
 function workflowJobView(job: PrismJobStatus, logs: string[]): WorkflowJob {
-    const staged = (job.staged ?? {}) as Pick<
-        WorkflowJob,
-        "readiness" | "readiness_stage" | "bundle_url" | "sourceRevisionKey"
-    >;
     return {
         job_id: job.job_id,
         status: job.status,
@@ -92,7 +89,6 @@ function workflowJobView(job: PrismJobStatus, logs: string[]): WorkflowJob {
         percent: job.percent,
         logs,
         error: job.error_message,
-        ...staged,
     };
 }
 
@@ -173,7 +169,6 @@ export function WebGpu3dTab({
     const viewerRef = useRef<PrismSemanticViewerElement | null>(null);
     const selectionRef = useCommittedRef(selection);
     const generationStartedAt = useRef<number | null>(null);
-    const readinessRevisionRef = useRef<string | null>(null);
     const [tabLoadStartedAt] = useState(() => performance.now());
     const [viewerElement, setViewerElement] = useState<PrismSemanticViewerElement | null>(null);
     const [status, setStatus] = useState<WebGpu3dStatus | null>(null);
@@ -198,8 +193,8 @@ export function WebGpu3dTab({
     );
     const statusUrl = `/api/projects/${projectId}/webgpu-3d/status${commitQuery}`;
 
-    const refreshStatus = useCallback(async () => {
-        setLoading(true);
+    const refreshStatus = useCallback(async (quiet = false) => {
+        if (!quiet) setLoading(true);
         try {
             const next = await fetchJson<WebGpu3dStatus>(
                 statusUrl,
@@ -207,7 +202,6 @@ export function WebGpu3dTab({
                 "Failed to load WebGPU 3D asset status",
             );
             setStatus(next);
-            readinessRevisionRef.current = next.readiness?.revision ?? null;
             setError(next.error ?? null);
         } catch (nextError) {
             setStatus(null);
@@ -225,6 +219,16 @@ export function WebGpu3dTab({
         void refreshStatus();
     }, [refreshStatus]);
 
+    // V2a: while the design bundle builds (no board yet) or its parts are
+    // still exporting, ask again; each new stage changes the readiness
+    // revision, which remounts the viewer with what is now stored.
+    const statusPending = status?.status === "building" || status?.readiness?.stage === "board-ready";
+    useEffect(() => {
+        if (!statusPending || jobId) return;
+        const timer = window.setInterval(() => void refreshStatus(true), STATUS_POLL_MS);
+        return () => window.clearInterval(timer);
+    }, [jobId, refreshStatus, statusPending]);
+
     useEffect(() => {
         if (!jobId) return;
         const controller = new AbortController();
@@ -233,19 +237,8 @@ export function WebGpu3dTab({
             signal,
             intervalMs: 1000,
             includeLogs: true,
-            onUpdate: async (next, logs) => {
-                const view = workflowJobView(next, logs);
-                setJob(view);
-                const nextReadinessRevision = view.readiness?.revision;
-                if (
-                    view.bundle_url
-                    && nextReadinessRevision
-                    && nextReadinessRevision !== readinessRevisionRef.current
-                ) {
-                    readinessRevisionRef.current = nextReadinessRevision;
-                    setViewerRevision((revision) => revision + 1);
-                    await refreshStatus();
-                }
+            onUpdate: (next, logs) => {
+                setJob(workflowJobView(next, logs));
             },
         }).then(async (settled) => {
             if (signal.aborted) return;
@@ -403,24 +396,19 @@ export function WebGpu3dTab({
         absent: [],
     });
 
-    const readiness = job?.readiness ?? status?.readiness;
+    const readiness = status?.readiness;
     const readinessStage = readiness?.stage || (status?.status === "ready" ? "semantic-ready" : "generating");
-    const readinessProgress = job?.readiness?.progress ?? readiness?.progress ?? job?.percent ?? 0;
+    const readinessProgress = readiness?.progress ?? job?.percent ?? 0;
     const stageLabel = {
         "board-ready": "Board visible",
         "components-ready": "Board and components visible",
         "semantic-ready": "Semantic scene ready",
         generating: "Generating 3D assets",
     }[readinessStage] || readinessStage;
-    const resolvedBundleUrl = status?.bundle_url ?? job?.bundle_url;
+    const resolvedBundleUrl = status?.bundle_url;
     const canShowViewer = Boolean(
         resolvedBundleUrl
-        && (
-            status?.available
-            || status?.status === "building"
-            || status?.status === "ready"
-            || Boolean(job?.bundle_url && job?.readiness)
-        ),
+        && (status?.available || status?.status === "building" || status?.status === "ready"),
     );
     const bundleUrl = resolvedBundleUrl
         ? `${resolvedBundleUrl}${resolvedBundleUrl.includes("?") ? "&" : "?"}viewer=${encodeURIComponent(readiness?.revision || status?.generated_at || status?.sourceRevisionKey || "staged")}`
@@ -484,6 +472,23 @@ export function WebGpu3dTab({
                                 {error}
                             </p>
                         )}
+                        {status?.status === "building" && !job && (
+                            <div className="space-y-2 border bg-muted/30 p-3" role="status">
+                                <div className="flex items-center justify-between gap-3 text-xs">
+                                    <span className="flex items-center gap-2 font-medium">
+                                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                                        {status.message || "Building this revision's design data"}
+                                    </span>
+                                    <span className="shrink-0 tabular-nums text-muted-foreground">{Math.round(status.readiness?.progress ?? 0)}%</span>
+                                </div>
+                                <div className="h-1.5 overflow-hidden bg-muted">
+                                    <div
+                                        className="h-full bg-primary transition-[width] duration-300"
+                                        style={{ width: `${Math.max(0, Math.min(100, status.readiness?.progress ?? 0))}%` }}
+                                    />
+                                </div>
+                            </div>
+                        )}
                         {job && (
                             <div className="space-y-2 border bg-muted/30 p-3">
                                 <div className="flex items-center justify-between text-xs">
@@ -500,10 +505,20 @@ export function WebGpu3dTab({
                             </div>
                         )}
                         <div className="flex flex-wrap gap-2">
-                            <Button onClick={() => void generate(false)} disabled={!canGenerate || Boolean(jobId)}>
-                                {jobId ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Sparkles className="mr-2 h-4 w-4" />}
-                                Generate 3D assets
-                            </Button>
+                            {status?.status === "invalid" ? (
+                                <Button onClick={() => void generate(true)} disabled={!canGenerate || Boolean(jobId)}>
+                                    {jobId ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <RotateCcw className="mr-2 h-4 w-4" />}
+                                    Rebuild
+                                </Button>
+                            ) : (
+                                <Button
+                                    onClick={() => void generate(false)}
+                                    disabled={!canGenerate || Boolean(jobId) || Boolean(status?.job_id)}
+                                >
+                                    {jobId || status?.job_id ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Sparkles className="mr-2 h-4 w-4" />}
+                                    Generate 3D assets
+                                </Button>
+                            )}
                             <Button variant="outline" onClick={() => void refreshStatus()} disabled={loading}>
                                 <RefreshCw className={cn("mr-2 h-4 w-4", loading && "animate-spin")} />
                                 Refresh status
@@ -555,7 +570,7 @@ export function WebGpu3dTab({
             } as CSSProperties}
         >
             <prism-semantic-viewer
-                key={`${status?.sourceRevisionKey ?? job?.sourceRevisionKey ?? projectId}-${status?.generator?.build ?? "build"}-${readiness?.revision || viewerRevision}`}
+                key={`${status?.sourceRevisionKey ?? projectId}-${status?.generator?.build ?? "build"}-${readiness?.revision || viewerRevision}`}
                 ref={attachViewer}
                 bundle-url={bundleUrl}
                 workspace={workspace}

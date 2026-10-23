@@ -1,0 +1,72 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$id": "urn:prism:schema:prism.cli.extract_result:a0",
+    "type": "object",
+    "properties": {
+        "schema": {
+            "type": "string",
+            "const": "prism.cli.extract_result.a0",
+            "description": "Document schema id."
+        },
+        "members": {
+            "type": "array",
+            "items": {
+                "$ref": "#/$defs/CliMemberDigest"
+            },
+            "minItems": 1,
+            "description": "Every member extracted, which is every member the `<member>` arguments\nselected, sorted by `path` in code point order. Each was written to\n`<output>/<path>` and its size and SHA-256 checked against the manifest."
+        }
+    },
+    "required": [
+        "schema",
+        "members"
+    ],
+    "unevaluatedProperties": {
+        "not": {}
+    },
+    "description": "stdout of `bundle extract` (exit 0).",
+    "title": "prism-kicad bundle extract result a0",
+    "$defs": {
+        "CliMemberDigest": {
+            "type": "object",
+            "properties": {
+                "path": {
+                    "$ref": "#/$defs/ArchivePath",
+                    "description": "The member's archive path."
+                },
+                "bytes": {
+                    "$ref": "#/$defs/ByteCount",
+                    "description": "Its uncompressed size in bytes."
+                },
+                "sha256": {
+                    "$ref": "#/$defs/Sha256Hex",
+                    "description": "SHA-256 of its uncompressed bytes."
+                }
+            },
+            "required": [
+                "path",
+                "bytes",
+                "sha256"
+            ],
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "One archive member and its digest."
+        },
+        "ArchivePath": {
+            "type": "string",
+            "pattern": "^(?:[^/\\\\:.][^/\\\\:]*|\\.[^/\\\\:.][^/\\\\:]*|\\.\\.[^/\\\\:]+)(?:/(?:[^/\\\\:.][^/\\\\:]*|\\.[^/\\\\:.][^/\\\\:]*|\\.\\.[^/\\\\:]+))*$",
+            "description": "Path of a member inside a `.prism` bundle archive: `/`-separated, relative,\nno empty, `.` or `..` segment, no leading or trailing `/`, no backslash and\nno `:`. The same rule as manifest a1's ArchivePath and prism-bundle's\n`check_member_name`, without lookaround."
+        },
+        "ByteCount": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "A size in bytes: a non-negative safe integer."
+        },
+        "Sha256Hex": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$",
+            "description": "Lowercase hexadecimal SHA-256 digest: exactly 64 characters, no prefix such as `sha256:`."
+        }
+    }
+}

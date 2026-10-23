@@ -9,14 +9,20 @@ from app.core.gzip_config import (
 )
 from app.api.auth import router as auth_router
 from app.api.projects import router as projects_router
+from app.api.project_semantic_index import router as project_semantic_index_router
+from app.api.project_viewer_3d import router as project_viewer_3d_router
+from app.api.project_properties import router as project_properties_router
+from app.api.project_viewer_sources import router as project_viewer_sources_router
 from app.api.project_variants import router as project_variants_router
 from app.api.project_catalog_usage import router as project_catalog_usage_router
 from app.api.project_import_followups import router as project_import_followups_router
+from app.api.design_bundles import router as design_bundles_router
 from app.api.comments import router as comments_router
 from app.api.comment_attachment_links import router as comment_attachment_links_router
 from app.api.comment_live import router as comment_live_router
 from app.api.design_compare import router as design_compare_router
 from app.api.release_studio import router as release_studio_router
+from app.api.sim_studio import router as sim_studio_router
 from app.api.folders import router as folders_router
 from app.api.settings import router as settings_router
 from app.api.workspace import router as workspace_router
@@ -38,7 +44,9 @@ from app.api.plugin import router as plugin_router
 from app.api.git_http import router as git_http_router
 from app.api.agent import router as agent_router
 from app.services import password_credential_service, session_store_service
+from app.services.design_bundle.errors import install_handlers as install_design_data_handlers
 from app.services.schema_head import bring_every_schema_to_head
+from app.services.superseded_store_cleanup import cleanup_superseded_stores
 from app.services.comment_live_broker import broker as comment_live_broker
 from app.services.component_catalog_service import catalog_service
 from app.services.postgres_database import database
@@ -186,6 +194,7 @@ async def lifespan(app: FastAPI):
     configure_git()
     ensure_ssh_dir()
     bring_every_schema_to_head()
+    cleanup_superseded_stores()
     from app.services.trackers.composition import initialize_tracker_composition
 
     initialize_tracker_composition()
@@ -223,6 +232,7 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="KiCAD Prism API", lifespan=lifespan)
 install_error_handlers(app)
+install_design_data_handlers(app)
 
 
 # Compress large responses. Registered before apply_security_headers so it ends
@@ -253,6 +263,10 @@ app.add_middleware(
 # Include Routers
 app.include_router(auth_router, prefix="/api/auth", tags=["auth"])
 app.include_router(projects_router, prefix="/api/projects", tags=["projects"])
+app.include_router(project_semantic_index_router, prefix="/api/projects", tags=["projects"])
+app.include_router(project_viewer_3d_router, prefix="/api/projects", tags=["projects"])
+app.include_router(project_properties_router, prefix="/api/projects", tags=["projects"])
+app.include_router(project_viewer_sources_router, prefix="/api/projects", tags=["projects"])
 app.include_router(
     project_import_followups_router, prefix="/api/projects", tags=["projects"]
 )
@@ -260,8 +274,10 @@ app.include_router(comments_router, prefix="/api/projects", tags=["comments"])
 app.include_router(comment_live_router, prefix="/api/projects", tags=["comments-live"])
 app.include_router(project_variants_router, prefix="/api/projects", tags=["variants"])
 app.include_router(project_catalog_usage_router, prefix="/api/projects", tags=["catalog-usage"])
+app.include_router(design_bundles_router)
 app.include_router(design_compare_router, prefix="/api/projects", tags=["design-compare"])
 app.include_router(release_studio_router, prefix="/api/projects", tags=["release-studio"])
+app.include_router(sim_studio_router, prefix="/api", tags=["sim-studio"])
 app.include_router(settings_router, prefix="/api/settings", tags=["settings"])
 app.include_router(folders_router, prefix="/api/folders", tags=["folders"])
 app.include_router(workspace_router, prefix="/api/workspace", tags=["workspace"])

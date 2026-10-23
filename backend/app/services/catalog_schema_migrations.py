@@ -33,10 +33,13 @@ search indexes and integrity guards
 
 from __future__ import annotations
 
+import json
 from collections.abc import Callable
 from typing import Any
 
+from app.services.catalog.harness_fields import GROUP as HARNESS_GROUP, HARNESS_FIELDS
 from app.services.catalog.metadata_schema import CatalogMetadataSchema
+from app.services.catalog.normalization import utc_now_iso
 from app.services.catalog.postgres_projections import (
     ensure_component_heads_projection,
     ensure_remote_component_heads_projection,
@@ -393,6 +396,108 @@ def _retire_module_and_assembly(conn: Any) -> None:
     conn.execute("ALTER TABLE components ADD CONSTRAINT components_kind_check CHECK (kind = 'part')")
 
 
+def _system_entries(conn: Any) -> None:
+    """System Builder v2 stage 1c (CONTRACTS.md §11.1): the ``system`` kind and its IPN identity.
+
+    A published system is a catalog component of kind ``system`` whose identity is a final IPN
+    in the ``system`` scope: not the parts' ``provisional_ipn``, which stands in until an MPN
+    exists and blocks release. The two check constraints make both rules structural: an IPN
+    identity can only sit on a system component, and no other kind can be added by accident.
+    """
+    conn.execute("ALTER TABLE components DROP CONSTRAINT IF EXISTS components_kind_check")
+    conn.execute(
+        """
+        ALTER TABLE components
+            ADD CONSTRAINT components_kind_check CHECK (kind IN ('part', 'system'))
+        """
+    )
+    conn.execute(
+        "ALTER TABLE components DROP CONSTRAINT IF EXISTS components_identity_kind_check"
+    )
+    conn.execute(
+        """
+        ALTER TABLE components
+            ADD CONSTRAINT components_identity_kind_check
+            CHECK (identity_kind IN ('mpn', 'provisional_ipn', 'ipn'))
+        """
+    )
+    conn.execute(
+        "ALTER TABLE components DROP CONSTRAINT IF EXISTS components_ipn_system_only"
+    )
+    conn.execute(
+        """
+        ALTER TABLE components
+            ADD CONSTRAINT components_ipn_system_only
+            CHECK (identity_kind <> 'ipn' OR kind = 'system')
+        """
+    )
+    conn.execute(
+        "CREATE UNIQUE INDEX IF NOT EXISTS idx_components_identity_ipn "
+        "ON components(identity_source, normalized_part_number) "
+        "WHERE identity_kind = 'ipn'"
+    )
+
+
+def _harness_fields(conn: Any) -> None:
+    """System Builder v2 stage 4a (CONTRACTS.md §16.1): the ``harness`` metadata fields.
+
+    Seeded as built-in definitions stored in ``extra_fields``, after every existing field.
+    A database that already has a field with one of these keys keeps its own.
+    """
+    row = conn.execute(
+        "SELECT COALESCE(MAX(display_order), -1) AS value FROM catalog_field_definitions"
+    ).fetchone()
+    order = int(row["value"] if row and row["value"] is not None else -1) + 1
+    now = utc_now_iso()
+    for index, field in enumerate(HARNESS_FIELDS):
+        conn.execute(
+            """
+            INSERT INTO catalog_field_definitions (
+                id, field_key, label, description, field_group, field_type, unit,
+                enum_values_json, storage_kind, storage_key, built_in, required,
+                display_order, archived, created_by, updated_by, created_at, updated_at
+            ) VALUES (%s, %s, %s, '', %s, %s, %s, %s, 'extra', %s, 1, 0, %s, 0, 'system', 'system', %s, %s)
+            ON CONFLICT DO NOTHING
+            """,
+            (
+                f"builtin:{field.key}",
+                field.key,
+                field.label,
+                HARNESS_GROUP,
+                field.field_type,
+                field.unit,
+                json.dumps(list(field.enum_values)),
+                field.key,
+                order + index,
+                now,
+                now,
+            ),
+        )
+
+
+def _retire_system_entries(conn: Any) -> None:
+    """System Builder was removed on 2026-10-23 (archive tag ``archive/system-builder-v2``).
+
+    The second approved exception to the never-hard-delete rule, after migration 13: published
+    ``system`` components go with everything that cascades from them (revisions, asset links,
+    audit, mates), and their ``system_entry`` assets with them. Only parts remain and only parts
+    can be added. The IPN identity existed for systems alone, so it goes too.
+    """
+    conn.execute("DELETE FROM components WHERE kind = 'system'")
+    conn.execute("DELETE FROM assets WHERE asset_type = 'system_entry'")
+    conn.execute("ALTER TABLE components DROP CONSTRAINT IF EXISTS components_kind_check")
+    conn.execute("ALTER TABLE components ADD CONSTRAINT components_kind_check CHECK (kind = 'part')")
+    conn.execute("ALTER TABLE components DROP CONSTRAINT IF EXISTS components_ipn_system_only")
+    conn.execute("ALTER TABLE components DROP CONSTRAINT IF EXISTS components_identity_kind_check")
+    conn.execute(
+        """
+        ALTER TABLE components
+            ADD CONSTRAINT components_identity_kind_check
+            CHECK (identity_kind IN ('mpn', 'provisional_ipn'))
+        """
+    )
+    conn.execute("DROP INDEX IF EXISTS idx_components_identity_ipn")
+
 MIGRATIONS: tuple[tuple[int, str, Migration], ...] = (
     (0, "baseline", _baseline),
     (1, "portable_column_types", _portable_column_types),
@@ -408,6 +513,9 @@ MIGRATIONS: tuple[tuple[int, str, Migration], ...] = (
     (11, "asset_file_purge_events", _asset_file_purge_events),
     (12, "project_catalog_placements", _project_catalog_placements),
     (13, "retire_module_and_assembly", _retire_module_and_assembly),
+    (14, "system_entries", _system_entries),
+    (15, "harness_fields", _harness_fields),
+    (16, "retire_system_entries", _retire_system_entries),
 )
 
 # Migrations that a long-lived branch database recorded under an earlier number.

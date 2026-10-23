@@ -83,3 +83,23 @@ def pytest_collection_modifyitems(config, items):
     keep = [item for item in items if plan[module_of(item)] == index - 1]
     config.hook.pytest_deselected(items=[item for item in items if plan[module_of(item)] != index - 1])
     items[:] = keep
+
+
+# ---------------------------------------------------------------------------
+# The worker's application database, migrated once like the backend's startup.
+# ``_worker_databases`` copies the three test databases at import, so a fresh
+# worker's ``PRISM_DATABASE_URL`` has no ``workspace`` schema. The comments and
+# tracker tests read workspace tables through the application connection (and
+# the design-bundle commit index reads them in ``comment_anchor_service``), so
+# bring that database to head before any test runs.
+
+
+@pytest.fixture(scope="session", autouse=True)
+def _application_schema_at_head():
+    # A run without databases (focused unit tests) has nothing to migrate.
+    if not os.environ.get("PRISM_DATABASE_URL"):
+        return
+    from app.services.schema_head import bring_every_schema_to_head
+
+    bring_every_schema_to_head()
+

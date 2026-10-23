@@ -1,0 +1,679 @@
+{
+  "schema": "prism.board_objects.a0",
+  "documents": [
+    {
+      "path": "USB-PD-Trigger-Board.kicad_sch",
+      "objects": [
+        {
+          "kind": "image",
+          "uuid": "0d6131aa-1f8b-47bb-80b1-4a941f81a126",
+          "contentDigest": "ba9c3f3f9ac78f0f",
+          "at": {
+            "xNm": 243840000,
+            "yNm": 195580000
+          },
+          "reviewFields": {
+            "Scale": 0.335359
+          }
+        }
+      ],
+      "reviewOnlyObjects": []
+    },
+    {
+      "path": "aux_port.kicad_sch",
+      "objects": [
+        {
+          "kind": "junction",
+          "uuid": "5bc8841b-680f-488e-a6e3-fcdc33616f9a",
+          "contentDigest": "06bda8a62e8faca2",
+          "at": {
+            "xNm": 171450000,
+            "yNm": 59690000
+          },
+          "reviewFields": {
+            "Diameter": 0
+          }
+        },
+        {
+          "kind": "bus_entry",
+          "uuid": "0fe23bb8-c5cc-40d8-8b82-26a9cc4c0327",
+          "contentDigest": "b3e366d0f3f3e484",
+          "at": {
+            "xNm": 83820000,
+            "yNm": 64770000
+          },
+          "reviewFields": {
+            "Size": "2.54 × -2.54",
+            "Stroke": "0 mm, default"
+          }
+        },
+        {
+          "kind": "wire",
+          "uuid": "001b1485-8b39-4a31-9474-8939b46fcb68",
+          "contentDigest": "88009479fec1e287",
+          "at": {
+            "xNm": 98425000,
+            "yNm": 64770000
+          },
+          "reviewFields": {
+            "Stroke": "0 mm, default"
+          }
+        },
+        {
+          "kind": "bus",
+          "uuid": "1ded12b7-3481-4de6-967d-745a32ba3f5a",
+          "contentDigest": "dc443e119cb8893b",
+          "at": {
+            "xNm": 83820000,
+            "yNm": 76200000
+          },
+          "reviewFields": {
+            "Stroke": "0 mm, default"
+          }
+        },
+        {
+          "kind": "graphic",
+          "uuid": "c2297f80-deda-4f17-bc5e-ceca3817f41a",
+          "contentDigest": "09b03e33dc8e4297",
+          "at": {
+            "xNm": 110490000,
+            "yNm": 86360000
+          },
+          "text": "AUX SBU connections swapped\nfor routing convenience",
+          "reviewFields": {
+            "Graphic type": "text",
+            "Text": "AUX SBU connections swapped\nfor routing convenience"
+          }
+        },
+        {
+          "kind": "label",
+          "uuid": "339a139a-8551-41b5-8c9e-14bda91d1b27",
+          "contentDigest": "5a9aa945fc65f21a",
+          "text": "AUX_TYPE_C.~{FAULT}",
+          "net": "AUX_TYPE_C.~{FAULT}",
+          "at": {
+            "xNm": 88900000,
+            "yNm": 74930000
+          },
+          "rotationDeg": 0,
+          "reviewFields": {
+            "Text": "AUX_TYPE_C.~{FAULT}"
+          }
+        },
+        {
+          "kind": "symbol",
+          "uuid": "2b489d86-281b-49df-90a0-1e816b0ae108",
+          "contentDigest": "998b32cd9ba3e39f",
+          "libId": "Device:D_Zener",
+          "at": {
+            "xNm": 195580000,
+            "yNm": 82550000
+          },
+          "rotationDeg": 90,
+          "mirror": "x",
+          "dnp": false,
+          "inBom": true,
+          "onBoard": true,
+          "refdes": "D25",
+          "kiidPaths": [
+            "/fb621148-8145-4217-9712-738e1b5a4823/00000000-0000-0000-0000-00005dd754d4/2b489d86-281b-49df-90a0-1e816b0ae108"
+          ],
+          "instances": [
+            {
+              "reference": "D25",
+              "path": "/fb621148-8145-4217-9712-738e1b5a4823/00000000-0000-0000-0000-00005dd754d4/2b489d86-281b-49df-90a0-1e816b0ae108"
+            }
+          ],
+          "properties": [
+            {
+              "name": "Reference",
+              "value": "D25",
+              "at": {
+                "xNm": 193548000,
+                "yNm": 81715300
+              },
+              "rotationDeg": 90,
+              "hide": false,
+              "effects": {
+                "font": {
+                  "size": {
+                    "heightNm": 1270000,
+                    "widthNm": 1270000
+                  }
+                },
+                "justify": {
+                  "horizontal": "left",
+                  "vertical": "center",
+                  "mirror": false
+                }
+              }
+            },
+            {
+              "name": "Footprint",
+              "value": "cynthion:DFN1006-2",
+              "at": {
+                "xNm": 195580000,
+                "yNm": 82550000
+              },
+              "rotationDeg": 0,
+              "hide": false,
+              "effects": {
+                "font": {
+                  "size": {
+                    "heightNm": 1270000,
+                    "widthNm": 1270000
+                  }
+                },
+                "hide": true
+              }
+            }
+          ],
+          "reviewFields": {
+            "Unit": 1
+          }
+        },
+        {
+          "kind": "pin",
+          "uuid": "7a0119dd-e896-4314-a7ed-01b3a811ac37",
+          "contentDigest": "13fe8f8a6def8b7a",
+          "parentUuid": "2b489d86-281b-49df-90a0-1e816b0ae108",
+          "number": "1",
+          "refdes": "D25",
+          "at": {
+            "xNm": 195580000,
+            "yNm": 82550000
+          },
+          "reviewFields": {
+            "Pin number": "1"
+          }
+        },
+        {
+          "kind": "sheet",
+          "uuid": "6ef06f1e-62a2-438c-8ab4-363586d03e74",
+          "contentDigest": "6c4d4fcd89671cb8",
+          "at": {
+            "xNm": 110490000,
+            "yNm": 100330000
+          },
+          "kiidPaths": [
+            "/fb621148-8145-4217-9712-738e1b5a4823/00000000-0000-0000-0000-00005dd754d4/6ef06f1e-62a2-438c-8ab4-363586d03e74"
+          ],
+          "properties": [
+            {
+              "name": "Sheetname",
+              "value": "AUX PHY",
+              "at": {
+                "xNm": 110490000,
+                "yNm": 99618400
+              },
+              "rotationDeg": 0,
+              "hide": false,
+              "effects": {
+                "font": {
+                  "size": {
+                    "heightNm": 1270000,
+                    "widthNm": 1270000
+                  }
+                },
+                "justify": {
+                  "horizontal": "left",
+                  "vertical": "bottom",
+                  "mirror": false
+                }
+              }
+            }
+          ]
+        },
+        {
+          "kind": "sheet-pin",
+          "uuid": "c95bdd50-2d3a-45c7-9a1d-5acc7bb453ff",
+          "contentDigest": "a1a3562d3a44021a",
+          "parentUuid": "6ef06f1e-62a2-438c-8ab4-363586d03e74",
+          "name": "PHY_D-",
+          "text": "PHY_D-",
+          "at": {
+            "xNm": 140970000,
+            "yNm": 113030000
+          },
+          "rotationDeg": 0,
+          "reviewFields": {
+            "Electrical type": "bidirectional",
+            "Sheet pin": "PHY_D-"
+          }
+        }
+      ],
+      "reviewOnlyObjects": []
+    },
+    {
+      "path": "bank0_1.kicad_sch",
+      "objects": [
+        {
+          "kind": "no_connect",
+          "uuid": "185cb81d-7d50-4ef6-ad27-b7625ccc8556",
+          "contentDigest": "c9e1680b0560aead",
+          "at": {
+            "xNm": 54610000,
+            "yNm": 71120000
+          },
+          "reviewFields": {}
+        }
+      ],
+      "reviewOnlyObjects": []
+    },
+    {
+      "path": "board.kicad_pro",
+      "objects": [],
+      "reviewOnlyObjects": [
+        {
+          "kind": "erc-exclusion",
+          "id": "erc-exclusion:2109ca27e52a3646",
+          "name": "Pin To Pin at 173.99 × 100.33 mm",
+          "reviewFields": {
+            "Affected items": 2,
+            "Location": "173.99 × 100.33 mm",
+            "Violation": "Pin To Pin"
+          }
+        }
+      ]
+    },
+    {
+      "path": "cynthion.kicad_dru",
+      "objects": [],
+      "reviewOnlyObjects": [
+        {
+          "kind": "custom-rule",
+          "id": "custom-rule:2fbfbbda783dfc25",
+          "name": "silk_graphic_over_via",
+          "reviewFields": {
+            "Condition": "\"A.Type == 'Graphic' && B.Type == 'Via'\"",
+            "Constraint": "silk_clearance (min 0.02mm)",
+            "Definition": "(rule silk_graphic_over_via (constraint silk_clearance (min 0.02mm)) (condition \"A.Type == 'Graphic' && B.Type == 'Via'\"))"
+          }
+        }
+      ]
+    },
+    {
+      "path": "cynthion.kicad_pcb",
+      "objects": [
+        {
+          "kind": "footprint",
+          "uuid": "00000000-0000-0000-0000-00005ff547a0",
+          "contentDigest": "f598dd8905028e6f",
+          "libId": "Connector:Tag-Connect_TC2030-IDC-FP_2x03_P1.27mm_Vertical",
+          "at": {
+            "xNm": 149580000,
+            "yNm": 69030000
+          },
+          "rotationDeg": 90,
+          "layer": "F.Cu",
+          "footprintPath": "/00000000-0000-0000-0000-00005dcaa6d2/00000000-0000-0000-0000-000060114d15",
+          "refdes": "J10",
+          "properties": [
+            {
+              "name": "Description",
+              "value": "CABLE ADAPTER 6 POS",
+              "hide": false
+            },
+            {
+              "name": "Reference",
+              "value": "J10",
+              "at": {
+                "xNm": 0,
+                "yNm": 5000000
+              },
+              "hide": true
+            }
+          ],
+          "reviewFields": {
+            "Attributes": "{\"exclude_from_bom\":true,\"exclude_from_pos_files\":true}",
+            "Board only": false,
+            "Description": "Tag-Connect programming header; http://www.tag-connect.com/Materials/TC2030-IDC.pdf",
+            "Exclude from BOM": true,
+            "Exclude from position files": true
+          }
+        },
+        {
+          "kind": "pad",
+          "uuid": "5cbdf7bd-526e-4c92-a4c5-6653c765b569",
+          "contentDigest": "a73a7480fd996411",
+          "parentUuid": "00000000-0000-0000-0000-00005ff547a0",
+          "number": "",
+          "refdes": "J10",
+          "at": {
+            "xNm": -2540000,
+            "yNm": -2540000
+          },
+          "rotationDeg": 90,
+          "layer": "*.Cu",
+          "reviewFields": {
+            "Drill": "{\"diameter\":2.3749}",
+            "Layers": "*.Cu, *.Mask",
+            "Pad number": "",
+            "Pad shape": "circle",
+            "Pad type": "np_thru_hole",
+            "Size": "2.3749 × 2.3749"
+          }
+        },
+        {
+          "kind": "footprint-graphic",
+          "uuid": "8cadae93-4383-42ce-b9c7-0fb72675c527",
+          "contentDigest": "897ced8756a1015a",
+          "parentUuid": "00000000-0000-0000-0000-00005ff547a0",
+          "refdes": "J10",
+          "at": {
+            "xNm": -1905000,
+            "yNm": 952500
+          },
+          "layer": "F.SilkS",
+          "reviewFields": {
+            "Stroke": "0.12 mm, solid"
+          }
+        },
+        {
+          "kind": "footprint-text",
+          "uuid": "2e20da20-a95e-4497-b827-830fa4b32cab",
+          "contentDigest": "22e495c9380272be",
+          "parentUuid": "00000000-0000-0000-0000-00005ff547a0",
+          "refdes": "J10",
+          "at": {
+            "xNm": 0,
+            "yNm": 5000000
+          },
+          "rotationDeg": 90,
+          "layer": "F.SilkS",
+          "text": "J10",
+          "reviewFields": {
+            "Text": "J10",
+            "Text kind": "reference"
+          }
+        },
+        {
+          "kind": "zone",
+          "uuid": "2e4c0d52-46e2-4bec-839b-e685d637f15e",
+          "contentDigest": "96f638fc21bf9519",
+          "parentUuid": "00000000-0000-0000-0000-00005ff547a0",
+          "refdes": "J10",
+          "at": {
+            "xNm": 149580000,
+            "yNm": 69030000
+          },
+          "layer": "F.Cu",
+          "reviewFields": {
+            "Fill rules": "{\"thermal_bridge_width\":0.508,\"thermal_gap\":0.508}",
+            "Hatch": "{\"pitch\":0.508,\"style\":\"full\"}",
+            "Keepout": "{\"copperpour\":\"not_allowed\",\"footprints\":\"not_allowed\",\"pads\":\"allowed\",\"tracks\":\"allowed\",\"vias\":\"not_allowed\"}",
+            "Minimum thickness": 0.254,
+            "Pad connection": "{\"clearance\":0}",
+            "Zone layers": "F.Cu"
+          }
+        },
+        {
+          "kind": "zone",
+          "uuid": "15bf5890-c5ea-42c3-8a0f-e6a8265af945",
+          "contentDigest": "c7555596635318c6",
+          "at": {
+            "xNm": 156250000,
+            "yNm": 95800000
+          },
+          "layer": "F.Cu",
+          "net": "AUX_VBUS_IN",
+          "reviewFields": {
+            "Fill rules": "{\"fill\":true,\"thermal_bridge_width\":0.508,\"thermal_gap\":0.254}",
+            "Hatch": "{\"pitch\":0.508,\"style\":\"edge\"}",
+            "Minimum thickness": 0.2,
+            "Pad connection": "{\"clearance\":0.2,\"type\":\"thru_hole_only\"}",
+            "Priority": 1,
+            "Zone layers": "F.Cu"
+          }
+        },
+        {
+          "kind": "graphic",
+          "uuid": "00000000-0000-0000-0000-00005fe16779",
+          "contentDigest": "ccd7b368b0ee2aa9",
+          "at": {
+            "xNm": 159200000,
+            "yNm": 83200000
+          },
+          "layer": "F.Cu",
+          "text": "1",
+          "reviewFields": {
+            "Text": "1"
+          }
+        },
+        {
+          "kind": "track",
+          "uuid": "022a3e78-629a-43f5-a630-1b2322edf735",
+          "contentDigest": "5682480afc8b6cbc",
+          "at": {
+            "xNm": 143716250,
+            "yNm": 104320000
+          },
+          "layer": "F.Cu",
+          "net": "+3V3",
+          "reviewFields": {
+            "Width": 0.508
+          }
+        },
+        {
+          "kind": "arc",
+          "uuid": "7a976e66-d0c4-4da2-b6ce-3c40222f3a4e",
+          "contentDigest": "251d6e6645aea968",
+          "at": {
+            "xNm": 115808354,
+            "yNm": 102624645
+          },
+          "layer": "F.Cu",
+          "net": "/AUX Port/AUX PHY/PHY_D-",
+          "reviewFields": {
+            "Width": 0.127
+          }
+        },
+        {
+          "kind": "via",
+          "uuid": "0803b1bd-fc2d-491e-94c3-af08f60c09e2",
+          "contentDigest": "c9fed30296c3c652",
+          "at": {
+            "xNm": 117500000,
+            "yNm": 74800000
+          },
+          "layer": "F.Cu",
+          "layers": [
+            "F.Cu",
+            "B.Cu"
+          ],
+          "net": "+3V3",
+          "reviewFields": {
+            "Diameter": 0.4572,
+            "Drill": 0.2032,
+            "Layer span": "F.Cu, B.Cu"
+          }
+        }
+      ],
+      "reviewOnlyObjects": [
+        {
+          "kind": "fabrication-output",
+          "id": "fabrication-output:fa0df659a79fed73",
+          "name": "Fabrication output settings",
+          "reviewFields": {
+            "Output format": "Gerber",
+            "Plot layers": [
+              "F.Cu",
+              "In1.Cu",
+              "In2.Cu",
+              "In3.Cu",
+              "In4.Cu",
+              "B.Cu",
+              "B.Paste",
+              "F.Paste",
+              "B.SilkS",
+              "F.SilkS",
+              "B.Mask",
+              "F.Mask",
+              "Edge.Cuts",
+              "B.Fab",
+              "F.Fab"
+            ],
+            "Use Gerber X2 attributes": false
+          }
+        }
+      ]
+    },
+    {
+      "path": "cynthion.kicad_pro",
+      "objects": [],
+      "reviewOnlyObjects": [
+        {
+          "kind": "board-constraint",
+          "id": "board-constraint:1e76e10596381f9a",
+          "name": "Board constraints",
+          "reviewFields": {
+            "Allow microvias": false,
+            "Minimum copper clearance (mm)": 0.1,
+            "Minimum track width (mm)": 0.1
+          }
+        },
+        {
+          "kind": "board-default",
+          "id": "board-default:f8b4d907427024b5",
+          "name": "Board drawing defaults",
+          "reviewFields": {
+            "Copper Line Width": 0.15,
+            "Pads · Drill": 0.6,
+            "Silk Text Italic": false
+          }
+        },
+        {
+          "kind": "drc-exclusion",
+          "id": "drc-exclusion:022c9da6eed1c226",
+          "name": "Npth Inside Courtyard at 109.25 × 106.11 mm",
+          "reviewFields": {
+            "Affected objects": 2,
+            "Location": "109.25 × 106.11 mm",
+            "Violation": "Npth Inside Courtyard"
+          }
+        },
+        {
+          "kind": "drc-severity",
+          "id": "drc-severity:49e880a59b2e1a10",
+          "name": "DRC severities",
+          "reviewFields": {
+            "Clearance": "error",
+            "Silk Overlap": "warning"
+          }
+        },
+        {
+          "kind": "erc-pin-rule",
+          "id": "erc-pin-rule:04a1244a8612f582",
+          "name": "Free ↔ No connect",
+          "reviewFields": {
+            "Pin type A": "Free",
+            "Pin type B": "No connect",
+            "Severity": "Error"
+          }
+        },
+        {
+          "kind": "net-class-assignment",
+          "id": "net-class-assignment:f61470261dad28c9",
+          "name": "*TARGET_A_D-",
+          "reviewFields": {
+            "Net class": "Thin",
+            "Net pattern": "*TARGET_A_D-"
+          }
+        },
+        {
+          "kind": "net-class",
+          "id": "net-class:10166efed75db280",
+          "name": "Thin",
+          "reviewFields": {
+            "Clearance": 0.1,
+            "Track width": 0.1,
+            "Via diameter": 0.4572
+          }
+        },
+        {
+          "kind": "project-metadata",
+          "id": "project-metadata:d48bec6899e87b27",
+          "name": "Project title-block variables",
+          "reviewFields": {
+            "Copyright": "Copyright 2019-2024 Great Scott Gadgets",
+            "Date": "2024-08-27",
+            "License": "Licensed under the CERN-OHL-P v2",
+            "Revision / version": "1.4.0",
+            "Title": "Cynthion"
+          }
+        },
+        {
+          "kind": "routing-preset",
+          "id": "routing-preset:19b2ef45393b3be3",
+          "name": "Routing presets",
+          "reviewFields": {
+            "Differential-pair presets (mm)": [
+              "Width 0 / Gap 0 / Via Gap 0"
+            ],
+            "Track widths (mm)": [
+              0,
+              0.1
+            ],
+            "Via presets (mm)": [
+              "Diameter 0 / Drill 0",
+              "Diameter 0.41 / Drill 0.15"
+            ]
+          }
+        },
+        {
+          "kind": "teardrop-setting",
+          "id": "teardrop-setting:ad7af7622a682691",
+          "name": "Teardrop settings",
+          "reviewFields": {
+            "Options": [
+              {
+                "td_allow_use_two_tracks": true,
+                "td_curve_segcount": 5,
+                "td_on_pad_in_zone": false,
+                "td_onpadsmd": true,
+                "td_onroundshapesonly": false,
+                "td_ontrackend": false,
+                "td_onviapad": true
+              }
+            ],
+            "Parameters": [
+              {
+                "td_curve_segcount": 0,
+                "td_height_ratio": 1,
+                "td_length_ratio": 0.5,
+                "td_maxheight": 2,
+                "td_maxlen": 1,
+                "td_target_name": "td_round_shape",
+                "td_width_to_size_filter_ratio": 0.9
+              }
+            ]
+          }
+        },
+        {
+          "kind": "zone-setting",
+          "id": "zone-setting:3ea32a4b0911be02",
+          "name": "Zone settings",
+          "reviewFields": {
+            "Allow external fillets": false,
+            "Use no outline": true
+          }
+        }
+      ]
+    },
+    {
+      "path": "cynthion.kicad_sch",
+      "objects": [],
+      "reviewOnlyObjects": [
+        {
+          "kind": "bus_alias",
+          "id": "bus-alias:473876ac2384caf1",
+          "name": "JTAG",
+          "reviewFields": {
+            "Bus alias": "JTAG",
+            "Members": "TMS, TCK, TDI, TDO"
+          }
+        }
+      ]
+    }
+  ]
+}

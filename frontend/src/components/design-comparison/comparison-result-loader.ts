@@ -1,10 +1,47 @@
 import { fetchApi, readApiError } from "@/lib/api";
+import {
+    DESIGN_COMPARE_RESULT_SCHEMA,
+    type DesignCompareResultA1,
+} from "./design-compare-result";
+import {
+    isLegacyResult,
+    readLegacyResult,
+    type LegacyResult,
+} from "./legacy-v3-result";
 import type {
     DesignCompareBundle,
+    DesignCompareBundleV2,
+    DesignCompareReadiness,
     DesignCompareResult,
+    FabricationDiff,
+    SidecarDescriptor,
 } from "./types";
 
-const SIDECARS = [
+/**
+ * What the design-compare job route returns:
+ * - `prism-kicad compare`'s result, inline while fabrication builds, then a v2
+ *   manifest of one sidecar per tab;
+ * - the legacy path's v3 result, inline while late domains build, then a v1
+ *   manifest.
+ */
+export type DesignComparePayload =
+    | (DesignCompareResultA1 & { readiness?: DesignCompareReadiness })
+    | DesignCompareBundleV2
+    | LegacyResult
+    | DesignCompareBundle;
+
+/** The review document's tabs, each a v2 sidecar under its own key. */
+const RESULT_TABS = [
+    "files",
+    "schematic",
+    "pcb",
+    "bom",
+    "stackup",
+    "routeMetrics",
+    "projectDiff",
+] as const;
+
+const LEGACY_SIDECARS = [
     "core",
     "schematic",
     "pcb",
@@ -13,83 +50,112 @@ const SIDECARS = [
     "document_diff",
 ] as const;
 
-/**
- * Sidecars a bundle may not carry. A comparison completed before this domain
- * existed is still a valid result, and refusing to load it would strand every
- * cached job on the previous schema.
- */
-const OPTIONAL_SIDECARS = ["fabrication"] as const;
+async function fetchSidecar(
+    sidecars: Record<string, SidecarDescriptor>,
+    name: string,
+    signal: AbortSignal | undefined,
+): Promise<unknown> {
+    const descriptor = sidecars[name];
+    if (!descriptor?.url) {
+        throw new Error(`Comparison result is missing its ${name} sidecar`);
+    }
+    const response = await fetchApi(descriptor.url, { signal });
+    if (!response.ok) {
+        throw new Error(
+            await readApiError(response, `Failed to load comparison ${name} data`),
+        );
+    }
+    return response.json();
+}
 
-function isBundle(
-    payload: DesignCompareResult | DesignCompareBundle,
-): payload is DesignCompareBundle {
-    return payload.schema === "prism.design_compare_bundle_v1";
+/**
+ * Fabrication is optional: a failed or absent fabrication domain leaves the
+ * other tabs usable.
+ */
+async function fetchFabrication(
+    sidecars: Record<string, SidecarDescriptor>,
+    signal: AbortSignal | undefined,
+): Promise<FabricationDiff | undefined> {
+    const descriptor = sidecars.fabrication;
+    if (!descriptor?.url) return undefined;
+    const response = await fetchApi(descriptor.url, { signal });
+    if (!response.ok) return undefined;
+    return (await response.json()) as FabricationDiff;
+}
+
+/**
+ * Layer artwork is referenced by sidecar name inside the fabrication payload,
+ * and only the manifest knows what each name resolves to.
+ */
+function sidecarUrls(sidecars: Record<string, SidecarDescriptor>): Record<string, string> {
+    return Object.fromEntries(
+        Object.entries(sidecars).map(([name, descriptor]) => [name, descriptor.url]),
+    );
+}
+
+async function hydrateManifest(
+    manifest: DesignCompareBundleV2,
+    signal: AbortSignal | undefined,
+): Promise<DesignCompareResult> {
+    const [tabs, fabrication] = await Promise.all([
+        Promise.all(RESULT_TABS.map(async (name) =>
+            [name, await fetchSidecar(manifest.sidecars, name, signal)] as const)),
+        fetchFabrication(manifest.sidecars, signal),
+    ]);
+    const result = Object.fromEntries(tabs) as Pick<
+        DesignCompareResultA1,
+        (typeof RESULT_TABS)[number]
+    >;
+    return {
+        ...result,
+        schema: DESIGN_COMPARE_RESULT_SCHEMA,
+        base: manifest.revisions.base,
+        head: manifest.revisions.head,
+        counts: manifest.counts,
+        readiness: manifest.readiness,
+        fabrication,
+        sidecarUrls: sidecarUrls(manifest.sidecars),
+    };
+}
+
+async function hydrateLegacyManifest(
+    manifest: DesignCompareBundle,
+    signal: AbortSignal | undefined,
+): Promise<DesignCompareResult> {
+    const [sidecars, fabrication] = await Promise.all([
+        Promise.all(LEGACY_SIDECARS.map(async (name) =>
+            [name, await fetchSidecar(manifest.sidecars, name, signal)] as const)),
+        fetchFabrication(manifest.sidecars, signal),
+    ]);
+    const parts = Object.fromEntries(sidecars) as Record<
+        (typeof LEGACY_SIDECARS)[number],
+        unknown
+    >;
+    const legacy = {
+        ...(parts.core as Pick<LegacyResult, "files" | "readiness">),
+        schematic: parts.schematic,
+        pcb: parts.pcb,
+        bom: parts.bom,
+        stackup: parts.stackup,
+        document_diff: parts.document_diff,
+        fabrication,
+    } as LegacyResult;
+    return readLegacyResult(legacy, { sidecarUrls: sidecarUrls(manifest.sidecars) });
 }
 
 export async function hydrateDesignComparePayload(
-    payload: DesignCompareResult | DesignCompareBundle,
+    payload: DesignComparePayload,
     signal?: AbortSignal,
 ): Promise<DesignCompareResult> {
-    if (!isBundle(payload)) return payload;
-    const [responses, optional] = await Promise.all([
-        Promise.all(
-            SIDECARS.map(async (name) => {
-                const descriptor = payload.sidecars[name];
-                if (!descriptor?.url) {
-                    throw new Error(`Comparison result is missing its ${name} sidecar`);
-                }
-                const response = await fetchApi(descriptor.url, { signal });
-                if (!response.ok) {
-                    throw new Error(
-                        await readApiError(
-                            response,
-                            `Failed to load comparison ${name} data`,
-                        ),
-                    );
-                }
-                return [name, await response.json()] as const;
-            }),
-        ),
-        Promise.all(
-            OPTIONAL_SIDECARS.map(async (name) => {
-                const descriptor = payload.sidecars[name];
-                if (!descriptor?.url) return [name, undefined] as const;
-                const response = await fetchApi(descriptor.url, { signal });
-                if (!response.ok) return [name, undefined] as const;
-                return [name, await response.json()] as const;
-            }),
-        ),
-    ]);
-    const sidecars = Object.fromEntries([...responses, ...optional]) as Record<
-        (typeof SIDECARS)[number] | (typeof OPTIONAL_SIDECARS)[number],
-        unknown
-    >;
-    const core = sidecars.core as Pick<
-        DesignCompareResult,
-        | "schema"
-        | "base"
-        | "head"
-        | "compare"
-        | "diagnostics"
-        | "readiness"
-        | "files"
-    >;
-    return {
-        ...core,
-        schematic: sidecars.schematic as DesignCompareResult["schematic"],
-        pcb: sidecars.pcb as DesignCompareResult["pcb"],
-        bom: sidecars.bom as DesignCompareResult["bom"],
-        stackup: sidecars.stackup as DesignCompareResult["stackup"],
-        document_diff:
-            sidecars.document_diff as DesignCompareResult["document_diff"],
-        fabrication:
-            sidecars.fabrication as DesignCompareResult["fabrication"],
-        // Layer artwork is referenced by sidecar name inside the fabrication
-        // payload, and only the manifest knows what each name resolves to.
-        sidecarUrls: Object.fromEntries(
-            Object.entries(payload.sidecars).map(
-                ([name, descriptor]) => [name, descriptor.url],
-            ),
-        ),
-    };
+    switch (payload.schema) {
+        case DESIGN_COMPARE_RESULT_SCHEMA:
+            return payload as DesignCompareResult;
+        case "prism.design_compare_bundle_v2":
+            return hydrateManifest(payload as DesignCompareBundleV2, signal);
+        case "prism.design_compare_bundle_v1":
+            return hydrateLegacyManifest(payload as DesignCompareBundle, signal);
+        default:
+            if (isLegacyResult(payload)) return readLegacyResult(payload as LegacyResult);
+            throw new Error(`Unknown comparison result schema: ${String(payload.schema)}`);
+    }
 }

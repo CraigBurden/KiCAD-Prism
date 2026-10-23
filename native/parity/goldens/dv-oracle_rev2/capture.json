@@ -1,0 +1,262 @@
+{
+ "schema": "prism.parity.capture.a0",
+ "case": "dv-oracle_rev2",
+ "kind": "fixture",
+ "sourceRoot": "backend/tests/fixtures/design_variants/oracle_rev2",
+ "project": "variants_oracle.kicad_pro",
+ "inputs": [
+  {
+   "path": "antenna.kicad_sch",
+   "sha256": "f790e757ee289012dfeb03af6114f8e5c5883685d1834e7bf15c25adbdf28def"
+  },
+  {
+   "path": "channel.kicad_sch",
+   "sha256": "371a552d3f6b9391ebcbbba32842c71939b65bbd2f2268087cb8e517f353cf4c"
+  },
+  {
+   "path": "variants_oracle.kicad_pcb",
+   "sha256": "7ce9fe6172f5c3d03fcbd942336347982e790f8b6bd8ae700d8938fb5c3cadfe"
+  },
+  {
+   "path": "variants_oracle.kicad_pro",
+   "sha256": "d8a15191de4b6fa783ac307bdb30fed094a1a423d6231baba9808f14dbdfcc7d"
+  },
+  {
+   "path": "variants_oracle.kicad_sch",
+   "sha256": "c9fc9bd677961b2614c191accfe74aa8b3d392883bcf44a3f609e05a45147834"
+  },
+  {
+   "path": "wireless.kicad_sch",
+   "sha256": "0ba8280fd3897ae3f6d8b0e0d4b164ed1d0dbdaeb822a7ebde776471ff36b49a"
+  }
+ ],
+ "producers": {
+  "todayCommit": "88db84f0ad098df7637d67b21a80def1e6109310",
+  "todayDirty": false,
+  "referenceCommit": "6c67ef387cc8df56a532e8dc01abda2e29406865",
+  "kicadMonkey": "2026.9.7",
+  "kicad": "10.0.6",
+  "python": "3.12.13",
+  "node": "24.22.0",
+  "platform": "darwin-arm64"
+ },
+ "members": {
+  "semantic-index": {
+   "status": "captured",
+   "notes": [
+    "today's a0 sourceRevisionKey 684ac328c65d5a9e4e76ae80282e9fca (stand-in derived from it)"
+   ]
+  },
+  "board-objects": {
+   "status": "captured",
+   "sidecars": [
+    "today-hash"
+   ],
+   "checks": [
+    {
+     "shape": "rebuild",
+     "result": "divergence",
+     "divergences": [
+      "D1"
+     ],
+     "detail": [
+      "24 differences from today, all explained by D1",
+      "/componentObjects/antenna.kicad_sch#1c78f846-3def-57ae-ac80-247ce4b3b496/properties/2/at/1: today 23.810000000000002 != rebuilt 23.81",
+      "/componentObjects/channel.kicad_sch#900d8d20-7de0-547f-a978-fd9a5c67007c/properties/2/at/1: today 23.810000000000002 != rebuilt 23.81",
+      "/componentObjects/variants_oracle.kicad_sch#1be1d8dc-a710-5986-ba18-62d6bc021e6b/properties/1/at/1: today 41.269999999999996 != rebuilt 41.27",
+      "/componentObjects/variants_oracle.kicad_sch#1be1d8dc-a710-5986-ba18-62d6bc021e6b/properties/2/at/1: today 43.809999999999995 != rebuilt 43.81",
+      "/componentObjects/variants_oracle.kicad_sch#1be1d8dc-a710-5986-ba18-62d6bc021e6b/properties/3/at/1: today 46.349999999999994 != rebuilt 46.35"
+     ]
+    },
+    {
+     "shape": "digest-xcheck",
+     "result": "equal",
+     "detail": [
+      "134 digests"
+     ]
+    }
+   ],
+   "notes": [
+    "6 documents, 134 objects, 2 review-only objects",
+    "rebuild: nativeObjects 136 today / 136 golden, componentObjects 28 / 28"
+   ]
+  },
+  "occurrences": {
+   "status": "captured",
+   "checks": [
+    {
+     "shape": "designCompare.components",
+     "result": "equal"
+    },
+    {
+     "shape": "designCompare.bomRows",
+     "result": "equal"
+    },
+    {
+     "shape": "semanticIndex.assembly.default",
+     "result": "equal"
+    },
+    {
+     "shape": "semanticIndex.components.fields",
+     "result": "divergence",
+     "divergences": [
+      "D6"
+     ],
+     "detail": [
+      "/C1/Description: golden 'Capacitor' != member ''",
+      "/Q1/Description: golden 'NPN transistor' != member ''",
+      "/R1/Description: golden 'Resistor' != member ''",
+      "/R12/Description: golden 'Resistor' != member ''",
+      "/R2/Description: golden 'Resistor' != member ''",
+      "/R3/Description: golden 'Resistor' != member ''",
+      "/R4/Description: golden 'Resistor' != member ''",
+      "/R6/Description: golden 'Resistor' != member ''",
+      "/R7/Description: golden 'Resistor' != member ''",
+      "/R8/Description: golden 'Resistor' != member ''",
+      "... 12 differences in all"
+     ]
+    },
+    {
+     "shape": "semanticIndex.components.pcbRefs",
+     "result": "equal"
+    },
+    {
+     "shape": "semanticIndex.sheetInstances",
+     "result": "equal"
+    },
+    {
+     "shape": "systemBuilder.interface.identity",
+     "result": "equal"
+    },
+    {
+     "shape": "catalog.placedSymbols",
+     "result": "equal"
+    },
+    {
+     "shape": "releaseStudio.releaseVariantsProduction.declarations",
+     "result": "equal"
+    },
+    {
+     "shape": "releaseStudio.releaseVariants.declarations",
+     "result": "equal"
+    }
+   ]
+  },
+  "stackup": {
+   "status": "captured",
+   "checks": [
+    {
+     "shape": "rs",
+     "result": "equal"
+    },
+    {
+     "shape": "dc",
+     "result": "equal"
+    },
+    {
+     "shape": "3d",
+     "result": "equal"
+    },
+    {
+     "shape": "topology-layers",
+     "result": "equal"
+    },
+    {
+     "shape": "topology-board",
+     "result": "equal"
+    },
+    {
+     "shape": "mid-plane",
+     "result": "equal"
+    },
+    {
+     "shape": "mid-plane-nm",
+     "result": "equal"
+    },
+    {
+     "shape": "board-looks",
+     "result": "equal"
+    }
+   ],
+   "notes": [
+    "0 stackup entries, 2 copper layers, 0 vias in 0 spans",
+    "mid-plane today 0.8, exact 0.8"
+   ]
+  },
+  "route-metrics": {
+   "status": "captured",
+   "checks": [
+    {
+     "shape": "dc",
+     "result": "equal",
+     "detail": [
+      "0 nets"
+     ]
+    }
+   ],
+   "notes": [
+    "0 nets, 0 vias"
+   ]
+  },
+  "placements": {
+   "status": "captured",
+   "checks": [
+    {
+     "shape": "rs-testpoints",
+     "result": "equal"
+    },
+    {
+     "shape": "rs-population",
+     "result": "equal"
+    },
+    {
+     "shape": "rs-designators",
+     "result": "equal"
+    },
+    {
+     "shape": "sb-geometry",
+     "result": "equal"
+    },
+    {
+     "shape": "sb-outline",
+     "result": "equal"
+    },
+    {
+     "shape": "catalog",
+     "result": "equal"
+    }
+   ],
+   "notes": [
+    "14 footprints, 42 pads, 14 models",
+    "KiCad 10.0.6 ipcd356 oracle: 42 numbered pads within 0.496 IPC units (limit 0.5), 0 over, 0 numbered pads without a record"
+   ]
+  },
+  "project": {
+   "status": "captured",
+   "checks": [
+    {
+     "shape": "card",
+     "result": "equal"
+    },
+    {
+     "shape": "3d.netClasses",
+     "result": "equal"
+    },
+    {
+     "shape": "closure.emptyEnv",
+     "result": "equal"
+    },
+    {
+     "shape": "closure.kicad10Env",
+     "result": "equal"
+    }
+   ]
+  },
+  "system-interface": {
+   "status": "captured",
+   "notes": [
+    "digest sha256:a26c851cd5ac4362d58143ac099b262c90aeed18ec4e098adb881502bc94a645"
+   ]
+  }
+ }
+}

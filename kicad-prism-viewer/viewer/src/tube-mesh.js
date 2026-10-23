@@ -1,5 +1,6 @@
-// Harness tubes (System Builder SB2-44, CONTRACTS_P2 §20.15): the CPU side.
+// Harness tubes (System Builder 4c, CONTRACTS §16.6): the CPU side.
 //
+// The host sends ready polylines (world mm); this module packs them for the GPU.
 // The GPU builds the mesh (tube-renderer.js): a compute pass gives every sample
 // a rotation-minimising frame by the double-reflection method (Wang et al.
 // 2008), one invocation per segment walking its samples, and a second pass
@@ -7,7 +8,7 @@
 // read, builds the index buffer (it depends only on sample counts), and keeps a
 // CPU reference of the frames and rings for the tests to check the WGSL against.
 
-export const RING_SEGMENTS = 12; // CONTRACTS_P2 §17.5
+export const RING_SEGMENTS = 12;
 const MM = 0.001; // descriptor millimetres → renderer metres
 
 /** Vertices of one tube: a ring per sample, then the two cap centres. */

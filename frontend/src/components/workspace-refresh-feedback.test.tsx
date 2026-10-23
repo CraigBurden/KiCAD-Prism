@@ -2,6 +2,8 @@ import { act, fireEvent, render, screen, waitFor } from "@testing-library/react"
 import { MemoryRouter } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+// The workspace's own reads; the systems list (also read by the workspace) answers empty.
+const workspaceJson = vi.hoisted(() => vi.fn());
 const api = vi.hoisted(() => ({
   fetchJson: vi.fn(),
   fetchApi: vi.fn(),
@@ -37,13 +39,15 @@ describe("workspace refresh feedback", () => {
   beforeEach(() => {
     clearWorkspaceDataCache();
     api.fetchJson.mockReset();
+    workspaceJson.mockReset();
+    api.fetchJson.mockImplementation((url: unknown, ...rest: unknown[]) => workspaceJson(url, ...rest));
     api.fetchApi.mockReset();
     api.fetchApi.mockReturnValue(new Promise(() => {}));
     vi.stubGlobal("fetch", vi.fn(() => new Promise(() => {})));
   });
 
   it("keeps the loaded projects, says the refresh failed, and clears the notice on a successful retry", async () => {
-    api.fetchJson
+    workspaceJson
       .mockResolvedValueOnce(bootstrap("one"))
       .mockRejectedValueOnce(new Error("Backend unreachable"))
       .mockResolvedValueOnce(bootstrap("two"));
@@ -63,11 +67,11 @@ describe("workspace refresh feedback", () => {
     });
     await waitFor(() => expect(screen.queryByRole("status")).toBeNull());
     expect(screen.getByText("Board two")).toBeInTheDocument();
-    expect(api.fetchJson).toHaveBeenCalledTimes(3);
+    expect(workspaceJson).toHaveBeenCalledTimes(3);
   });
 
   it("still shows a hard error when the first load fails and there is nothing to fall back on", async () => {
-    api.fetchJson.mockRejectedValueOnce(new Error("Backend unreachable"));
+    workspaceJson.mockRejectedValueOnce(new Error("Backend unreachable"));
     view();
     await waitFor(() => expect(screen.getByText("Backend unreachable")).toBeInTheDocument());
     expect(screen.queryByRole("status")).toBeNull();

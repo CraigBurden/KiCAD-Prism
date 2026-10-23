@@ -36,6 +36,15 @@ class AnchorBindingSelectionTests(unittest.TestCase):
         self.assertEqual(select_binding([binding], "a", self.is_ancestor)["state"], "candidate")
         self.assertEqual(select_binding([binding], "b", self.is_ancestor)["reason"], "coordinate_review")
 
+    def test_freehand_area_follows_a_commit_with_the_same_design(self) -> None:
+        binding = {"commit": "a", "elementId": None, "sequence": 0}
+        designs = {"a": "k1", "b": "k1", "c": "k2"}
+        same = lambda older, newer: designs[older] == designs[newer]  # noqa: E731
+        self.assertEqual(select_binding([binding], "b", self.is_ancestor, same), {
+            "state": "candidate", "binding": binding, "sameDesign": True,
+        })
+        self.assertEqual(select_binding([binding], "c", self.is_ancestor, same)["reason"], "coordinate_review")
+
 
 if __name__ == "__main__":
     unittest.main()

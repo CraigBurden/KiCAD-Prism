@@ -422,6 +422,64 @@ class SessionRevocationTests(unittest.TestCase):
         self.assertEqual(user.role, "designer")
         self.assertEqual(user.session_id, "live-session")
 
+    def _record(self, *, password_change_required: bool):
+        from datetime import datetime, timezone
+
+        now = datetime.now(timezone.utc)
+        return session_store_service.SessionRecord(
+            session_id="temp-password-session",
+            email="designer@example.com",
+            name="Designer",
+            picture="",
+            created_at=now,
+            expires_at=now,
+            last_seen_at=now,
+            password_change_required=password_change_required,
+        )
+
+    def test_a_temporary_password_session_is_refused_everywhere_but_the_change(self) -> None:
+        # A reload or a second tab used to reach the workspace with the
+        # temporary password, because only the login page held the gate.
+        token = session.create_session_token("temp-password-session")
+        with patch.object(settings, "AUTH_ENABLED_OVERRIDE", True), patch.object(
+            session_store_service, "load_session", return_value=self._record(password_change_required=True)
+        ), patch.object(security, "_resolve_allowed_user_role", return_value="designer"):
+            with self.assertRaises(HTTPException) as ctx:
+                asyncio.run(security.get_current_user(self._request(token)))
+            allowed = asyncio.run(security.get_current_user_allowing_password_change(self._request(token)))
+
+        self.assertEqual(ctx.exception.status_code, 403)
+        self.assertEqual(ctx.exception.detail, security.PASSWORD_CHANGE_REQUIRED)
+        self.assertTrue(allowed.password_change_required)
+        self.assertEqual(allowed.role, "designer")
+
+    def test_a_changed_password_session_resolves_normally(self) -> None:
+        token = session.create_session_token("temp-password-session")
+        with patch.object(settings, "AUTH_ENABLED_OVERRIDE", True), patch.object(
+            session_store_service, "load_session", return_value=self._record(password_change_required=False)
+        ), patch.object(security, "_resolve_allowed_user_role", return_value="designer"):
+            user = asyncio.run(security.get_current_user(self._request(token)))
+        self.assertFalse(user.password_change_required)
+
+    def test_only_me_and_the_change_route_skip_the_gate(self) -> None:
+        from fastapi.routing import APIRoute
+
+        from app.api import auth
+
+        def dependencies(dependant) -> set:
+            found = {dependant.call}
+            for child in dependant.dependencies:
+                found |= dependencies(child)
+            return found
+
+        skipping = {
+            route.path
+            for route in auth.router.routes
+            if isinstance(route, APIRoute)
+            and security.get_current_user_allowing_password_change in dependencies(route.dependant)
+        }
+        self.assertEqual(skipping, {"/me", "/password/change"})
+
     def test_guest_role_is_configurable_and_only_reachable_with_auth_disabled(self) -> None:
         with patch.object(settings, "DEV_GUEST_ROLE", "viewer"):
             self.assertEqual(security.guest_user().role, "viewer")

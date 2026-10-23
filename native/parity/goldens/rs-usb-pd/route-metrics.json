@@ -1,0 +1,254 @@
+{
+ "schema": "prism.route_metrics.a0",
+ "nets": [
+  {
+   "netName": "GND",
+   "routeLengthNm": 26320905,
+   "viaCount": 11,
+   "usedLayers": [
+    "B.Cu",
+    "F.Cu"
+   ],
+   "viaSpans": [
+    {
+     "startLayer": "F.Cu",
+     "stopLayer": "B.Cu",
+     "viaCount": 11
+    }
+   ]
+  },
+  {
+   "netName": "Net-(D1-A)",
+   "routeLengthNm": 28165737,
+   "viaCount": 0,
+   "usedLayers": [
+    "F.Cu"
+   ],
+   "viaSpans": []
+  },
+  {
+   "netName": "Net-(D1-K)",
+   "routeLengthNm": 9665602,
+   "viaCount": 0,
+   "usedLayers": [
+    "F.Cu"
+   ],
+   "viaSpans": []
+  },
+  {
+   "netName": "Net-(D2-K)",
+   "routeLengthNm": 3322640,
+   "viaCount": 0,
+   "usedLayers": [
+    "F.Cu"
+   ],
+   "viaSpans": []
+  },
+  {
+   "netName": "Net-(D3-K)",
+   "routeLengthNm": 3578185,
+   "viaCount": 0,
+   "usedLayers": [
+    "F.Cu"
+   ],
+   "viaSpans": []
+  },
+  {
+   "netName": "Net-(J1-CC1)",
+   "routeLengthNm": 11031537,
+   "viaCount": 2,
+   "usedLayers": [
+    "B.Cu",
+    "F.Cu"
+   ],
+   "viaSpans": [
+    {
+     "startLayer": "F.Cu",
+     "stopLayer": "B.Cu",
+     "viaCount": 2
+    }
+   ]
+  },
+  {
+   "netName": "Net-(J1-CC2)",
+   "routeLengthNm": 16613499,
+   "viaCount": 0,
+   "usedLayers": [
+    "F.Cu"
+   ],
+   "viaSpans": []
+  },
+  {
+   "netName": "Net-(Q2-D)",
+   "routeLengthNm": 3117247,
+   "viaCount": 0,
+   "usedLayers": [
+    "F.Cu"
+   ],
+   "viaSpans": []
+  },
+  {
+   "netName": "Net-(Q2-G)",
+   "routeLengthNm": 21089392,
+   "viaCount": 2,
+   "usedLayers": [
+    "B.Cu",
+    "F.Cu"
+   ],
+   "viaSpans": [
+    {
+     "startLayer": "F.Cu",
+     "stopLayer": "B.Cu",
+     "viaCount": 2
+    }
+   ]
+  },
+  {
+   "netName": "Net-(Q3A-D1)",
+   "routeLengthNm": 2793503,
+   "viaCount": 0,
+   "usedLayers": [
+    "F.Cu"
+   ],
+   "viaSpans": []
+  },
+  {
+   "netName": "Net-(Q3A-G1)",
+   "routeLengthNm": 6304379,
+   "viaCount": 0,
+   "usedLayers": [
+    "F.Cu"
+   ],
+   "viaSpans": []
+  },
+  {
+   "netName": "Net-(U1-FLIP)",
+   "routeLengthNm": 2442678,
+   "viaCount": 0,
+   "usedLayers": [
+    "F.Cu"
+   ],
+   "viaSpans": []
+  },
+  {
+   "netName": "Net-(U1-ISNK_COARSE)",
+   "routeLengthNm": 5290622,
+   "viaCount": 0,
+   "usedLayers": [
+    "F.Cu"
+   ],
+   "viaSpans": []
+  },
+  {
+   "netName": "Net-(U1-ISNK_FINE)",
+   "routeLengthNm": 8266358,
+   "viaCount": 0,
+   "usedLayers": [
+    "F.Cu"
+   ],
+   "viaSpans": []
+  },
+  {
+   "netName": "Net-(U1-SAFE_PWR_EN)",
+   "routeLengthNm": 27517376,
+   "viaCount": 2,
+   "usedLayers": [
+    "B.Cu",
+    "F.Cu"
+   ],
+   "viaSpans": [
+    {
+     "startLayer": "F.Cu",
+     "stopLayer": "B.Cu",
+     "viaCount": 2
+    }
+   ]
+  },
+  {
+   "netName": "Net-(U1-VBUS_FET_EN)",
+   "routeLengthNm": 11893178,
+   "viaCount": 2,
+   "usedLayers": [
+    "B.Cu",
+    "F.Cu"
+   ],
+   "viaSpans": [
+    {
+     "startLayer": "F.Cu",
+     "stopLayer": "B.Cu",
+     "viaCount": 2
+    }
+   ]
+  },
+  {
+   "netName": "Net-(U1-VBUS_MAX)",
+   "routeLengthNm": 5260292,
+   "viaCount": 0,
+   "usedLayers": [
+    "F.Cu"
+   ],
+   "viaSpans": []
+  },
+  {
+   "netName": "Net-(U1-VBUS_MIN)",
+   "routeLengthNm": 4828490,
+   "viaCount": 0,
+   "usedLayers": [
+    "F.Cu"
+   ],
+   "viaSpans": []
+  },
+  {
+   "netName": "Net-(U1-VCCD)",
+   "routeLengthNm": 3311028,
+   "viaCount": 0,
+   "usedLayers": [
+    "F.Cu"
+   ],
+   "viaSpans": []
+  },
+  {
+   "netName": "V3P3",
+   "routeLengthNm": 50857122,
+   "viaCount": 0,
+   "usedLayers": [
+    "F.Cu"
+   ],
+   "viaSpans": []
+  },
+  {
+   "netName": "VCC_USB_PD_IN",
+   "routeLengthNm": 12843554,
+   "viaCount": 0,
+   "usedLayers": [
+    "F.Cu"
+   ],
+   "viaSpans": []
+  },
+  {
+   "netName": "VCC_USB_PD_OUT",
+   "routeLengthNm": 28867987,
+   "viaCount": 2,
+   "usedLayers": [
+    "B.Cu",
+    "F.Cu"
+   ],
+   "viaSpans": [
+    {
+     "startLayer": "F.Cu",
+     "stopLayer": "B.Cu",
+     "viaCount": 2
+    }
+   ]
+  },
+  {
+   "netName": "VCC_USB_SAFE_5V",
+   "routeLengthNm": 4051777,
+   "viaCount": 0,
+   "usedLayers": [
+    "F.Cu"
+   ],
+   "viaSpans": []
+  }
+ ]
+}

@@ -139,9 +139,10 @@ export interface Comment {
     revision?: number;
     permissions?: { canReply?: boolean; canEdit?: boolean; canDelete?: boolean; canResolve?: boolean;
         canPublish?: boolean; canRetry?: boolean };
-    anchor?: { state: string; commit?: string | null; source?: string | null };
+    anchor?: { state: string; commit?: string | null; source?: string | null;
+        designKey?: string | null; sourceRevisionKey?: string | null };
     anchorResolution?:
-        | { state: "candidate"; binding: {
+        | { state: "candidate"; sameDesign?: boolean; binding: {
             commit: string;
             elementId?: string | null;
             location: CommentLocation;

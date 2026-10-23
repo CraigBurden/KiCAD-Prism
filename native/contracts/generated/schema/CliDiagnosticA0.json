@@ -1,0 +1,329 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$id": "urn:prism:schema:prism.cli.diagnostic:a0",
+    "type": "object",
+    "properties": {
+        "schema": {
+            "type": "string",
+            "const": "prism.cli.diagnostic.a0",
+            "description": "Document schema id."
+        },
+        "severity": {
+            "$ref": "#/$defs/CliSeverity",
+            "description": "How serious the finding is."
+        },
+        "code": {
+            "$ref": "#/$defs/DiagnosticCode",
+            "description": "Stable code (cli-spec.md §8)."
+        },
+        "message": {
+            "type": "string",
+            "minLength": 1,
+            "description": "One-sentence explanation for people, at most 4096 bytes. It never contains a host path."
+        },
+        "stage": {
+            "$ref": "#/$defs/CliBuildStage",
+            "description": "The `bundle build` stage the finding belongs to. Absent for other commands and for findings outside a stage (argument parsing)."
+        },
+        "argument": {
+            "$ref": "#/$defs/CliArgument",
+            "description": "The command-line argument the finding is about, when it is about one."
+        },
+        "location": {
+            "$ref": "#/$defs/CliLocation",
+            "description": "Where the finding is, when known."
+        },
+        "limit": {
+            "$ref": "#/$defs/CliLimitHit",
+            "description": "The limit that was hit, for `limit-exceeded` and `diagnostics-truncated`."
+        }
+    },
+    "required": [
+        "schema",
+        "severity",
+        "code",
+        "message"
+    ],
+    "unevaluatedProperties": {
+        "not": {}
+    },
+    "description": "One stderr line. stderr is JSON Lines: every line is one compact\nCliDiagnosticA0 followed by LF, in the order the findings happen. It is a\nlog for people and the job log; callers never take control decisions from\nit, only from the exit code and stdout.",
+    "title": "prism-kicad diagnostic a0",
+    "$defs": {
+        "CliSeverity": {
+            "type": "string",
+            "enum": [
+                "info",
+                "warning",
+                "error"
+            ],
+            "description": "How serious a stderr diagnostic is."
+        },
+        "DiagnosticCode": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$",
+            "description": "Stable machine-readable code of a finding, in lowercase kebab-case, for\nexample `stale-saved-fills` or `net-mismatch`. A code never changes meaning\nonce published; a new meaning gets a new code."
+        },
+        "CliBuildStage": {
+            "type": "string",
+            "enum": [
+                "parse",
+                "board",
+                "models"
+            ],
+            "description": "A stage of `bundle build`, in the order the stages run (ADR §4.4). The\nsame three stages are recorded in the bundle manifest."
+        },
+        "CliArgument": {
+            "type": "string",
+            "enum": [
+                "command",
+                "project-file",
+                "bundle",
+                "member",
+                "repo",
+                "output",
+                "in",
+                "stage",
+                "source-root",
+                "refilled-board",
+                "refill-tool",
+                "models-glb",
+                "models-tool",
+                "revision-key",
+                "key-record",
+                "upgraded",
+                "config",
+                "commit",
+                "worktree",
+                "project",
+                "limit",
+                "threads",
+                "quiet",
+                "base",
+                "head",
+                "base-src",
+                "head-src",
+                "base-source-root",
+                "head-source-root",
+                "base-config",
+                "head-config",
+                "base-revision-key",
+                "head-revision-key",
+                "base-upgraded",
+                "head-upgraded",
+                "include-unchanged",
+                "view",
+                "variant",
+                "paper-scale",
+                "vendor",
+                "request",
+                "metrics",
+                "geometer",
+                "model-dir",
+                "hlr-cache"
+            ],
+            "description": "A command-line argument a diagnostic or error is about, named as the usage\ntext names it: an option by its long name without the leading `--`, a\npositional argument by its placeholder. Used instead of echoing the\nargument's value, which may be a host path."
+        },
+        "CliLocation": {
+            "type": "object",
+            "properties": {
+                "path": {
+                    "$ref": "#/$defs/ArchivePath",
+                    "description": "The file, named by the path it has as a bundle member, whether or not a\nbundle has been written yet: `sources/<RepoPath>` for a source file,\n`refilled/<board file name>` for the `--refilled-board` input (refill mode only),\n`viewer/models/components.glb` for the `--models-glb` input,\nthe member path itself for a member of an existing bundle. Absent when the finding\nis about an argument file that is not a member (`--config`) or about no\nfile at all."
+                },
+                "line": {
+                    "$ref": "#/$defs/CliOneBased",
+                    "description": "One-based line of the finding in a text file."
+                },
+                "column": {
+                    "$ref": "#/$defs/CliOneBased",
+                    "description": "One-based column, counted in Unicode scalar values, on `line`."
+                },
+                "offset": {
+                    "$ref": "#/$defs/ByteCount",
+                    "description": "Zero-based byte offset of the finding from the start of the file."
+                },
+                "pointer": {
+                    "$ref": "#/$defs/CliJsonPointer",
+                    "description": "JSON Pointer to the value in a JSON file (a `.kicad_pro`, `--config`, or a JSON member)."
+                },
+                "uuid": {
+                    "$ref": "#/$defs/KiCadUuid",
+                    "description": "UUID of the KiCad object the finding is about, as written in the file."
+                }
+            },
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "Where a finding is. Every field is optional; a field is present only when\nit is known. The field names are single words so the model can move to\ncommon.tsp unchanged and serve camelCase documents too."
+        },
+        "CliLimitHit": {
+            "oneOf": [
+                {
+                    "$ref": "#/$defs/CliByteLimitHit",
+                    "description": "A size limit."
+                },
+                {
+                    "$ref": "#/$defs/CliTimeLimitHit",
+                    "description": "The wall-clock limit."
+                },
+                {
+                    "$ref": "#/$defs/CliCountLimitHit",
+                    "description": "A count limit."
+                }
+            ],
+            "description": "The limit a resource-limit or timeout error, or a diagnostic, hit. The\nvariant follows the limit name's unit suffix."
+        },
+        "ArchivePath": {
+            "type": "string",
+            "pattern": "^(?:[^/\\\\:.][^/\\\\:]*|\\.[^/\\\\:.][^/\\\\:]*|\\.\\.[^/\\\\:]+)(?:/(?:[^/\\\\:.][^/\\\\:]*|\\.[^/\\\\:.][^/\\\\:]*|\\.\\.[^/\\\\:]+))*$",
+            "description": "Path of a member inside a `.prism` bundle archive: `/`-separated, relative,\nno empty, `.` or `..` segment, no leading or trailing `/`, no backslash and\nno `:`. The same rule as manifest a1's ArchivePath and prism-bundle's\n`check_member_name`, without lookaround."
+        },
+        "CliOneBased": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "A one-based line or column number."
+        },
+        "ByteCount": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "A size in bytes: a non-negative safe integer."
+        },
+        "CliJsonPointer": {
+            "type": "string",
+            "pattern": "^(/([^~/]|~[01])*)*$",
+            "description": "A JSON Pointer (RFC 6901) into a JSON file: empty for the whole document,\notherwise `/`-separated reference tokens with `~0` for `~` and `~1` for `/`."
+        },
+        "KiCadUuid": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+            "description": "KiCad object UUID in the canonical form KiCad writes (`KIID::AsString`):\nlowercase hexadecimal, 8-4-4-4-12. Copied from the file, never generated\nor re-cased."
+        },
+        "CliByteLimitHit": {
+            "type": "object",
+            "properties": {
+                "kind": {
+                    "type": "string",
+                    "const": "bytes",
+                    "description": "Variant tag: the limit is a size in bytes."
+                },
+                "name": {
+                    "$ref": "#/$defs/CliLimitName",
+                    "description": "Which limit."
+                },
+                "limit_bytes": {
+                    "$ref": "#/$defs/ByteCount",
+                    "description": "The limit's value for this invocation, its default or the `--limit` override."
+                },
+                "observed_bytes": {
+                    "$ref": "#/$defs/ByteCount",
+                    "description": "The size that exceeded it, when the input's size was known before reading it (a file or a declared member size). Absent when the work stopped at the limit without knowing the total, and always for `max-memory-bytes`."
+                }
+            },
+            "required": [
+                "kind",
+                "name",
+                "limit_bytes"
+            ],
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "A size limit that was hit: a limit whose name ends in `-bytes`."
+        },
+        "CliTimeLimitHit": {
+            "type": "object",
+            "properties": {
+                "kind": {
+                    "type": "string",
+                    "const": "time",
+                    "description": "Variant tag: the limit is a duration."
+                },
+                "name": {
+                    "$ref": "#/$defs/CliLimitName",
+                    "description": "Which limit."
+                },
+                "limit_ms": {
+                    "$ref": "#/$defs/CliMilliseconds",
+                    "description": "The limit's value for this invocation. No elapsed time is reported: documents carry no measured durations."
+                }
+            },
+            "required": [
+                "kind",
+                "name",
+                "limit_ms"
+            ],
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "A time limit that was hit: `timeout-ms`."
+        },
+        "CliCountLimitHit": {
+            "type": "object",
+            "properties": {
+                "kind": {
+                    "type": "string",
+                    "const": "count",
+                    "description": "Variant tag: the limit is a count."
+                },
+                "name": {
+                    "$ref": "#/$defs/CliLimitName",
+                    "description": "Which limit."
+                },
+                "limit_count": {
+                    "$ref": "#/$defs/Count",
+                    "description": "The limit's value for this invocation, its default or the `--limit` override."
+                },
+                "observed_count": {
+                    "$ref": "#/$defs/Count",
+                    "description": "The count that exceeded it, when it was known before stopping (for example the number of selected source files). Absent otherwise."
+                }
+            },
+            "required": [
+                "kind",
+                "name",
+                "limit_count"
+            ],
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "A count limit that was hit: a limit whose name ends neither in `-bytes` nor in `-ms`."
+        },
+        "CliLimitName": {
+            "type": "string",
+            "enum": [
+                "max-source-files",
+                "max-source-file-bytes",
+                "max-total-source-bytes",
+                "max-path-bytes",
+                "max-sexpr-depth",
+                "max-sexpr-nodes",
+                "max-sexpr-string-bytes",
+                "max-json-depth",
+                "max-json-nodes",
+                "max-config-bytes",
+                "max-models-glb-bytes",
+                "max-materialization-operations",
+                "max-member-bytes",
+                "max-archive-bytes",
+                "max-archive-members",
+                "max-total-unpacked-bytes",
+                "max-compression-ratio",
+                "max-diagnostic-lines",
+                "max-findings",
+                "max-memory-bytes",
+                "timeout-ms"
+            ],
+            "description": "A resource limit (cli-spec.md §7.2). The suffix gives the unit: `-bytes` is\nbytes, `-ms` is milliseconds, anything else is a count. Every limit can be\nset with `--limit <name>=<value>`, up to its hard bound. Hitting one is\nnever recorded in a bundle: limits are configuration, not part of the\nbundle key."
+        },
+        "CliMilliseconds": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "A duration in integer milliseconds (conventions.md §6, CLI limits)."
+        },
+        "Count": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "A count of things: a non-negative safe integer."
+        }
+    }
+}

@@ -1,0 +1,110 @@
+{
+ "schema": "prism.occurrences.a0",
+ "sheets": [
+  {
+   "sheetPath": "/6575bf28-d238-5208-9e0f-bc5b1fc0cd7f",
+   "dnp": false,
+   "excludeFromBom": false,
+   "excludeFromBoard": false,
+   "excludeFromSim": false,
+   "variants": []
+  }
+ ],
+ "symbols": [
+  {
+   "kiidPath": "/6575bf28-d238-5208-9e0f-bc5b1fc0cd7f/c542cab8-c38a-5a49-88f9-e840ed77b534",
+   "sheetPath": "/6575bf28-d238-5208-9e0f-bc5b1fc0cd7f",
+   "symbolUuid": "c542cab8-c38a-5a49-88f9-e840ed77b534",
+   "documentPath": "edge_b.kicad_sch",
+   "libId": "PrismFixture:Header_1x04_RA",
+   "reference": "J2",
+   "instanceMatched": true,
+   "unit": 1,
+   "dnp": false,
+   "excludeFromBom": false,
+   "excludeFromBoard": false,
+   "excludeFromSim": false,
+   "excludeFromPosFiles": false,
+   "properties": {
+    "Datasheet": "",
+    "Description": "",
+    "Footprint": "Connector_PinHeader_2.54mm:PinHeader_1x04_P2.54mm_Horizontal",
+    "Reference": "J2",
+    "Value": "Header_1x04_RA"
+   },
+   "bomFields": {
+    "value": "Header_1x04_RA",
+    "footprint": "Connector_PinHeader_2.54mm:PinHeader_1x04_P2.54mm_Horizontal"
+   },
+   "variants": []
+  },
+  {
+   "kiidPath": "/6575bf28-d238-5208-9e0f-bc5b1fc0cd7f/ef8032c9-b453-5a09-a17e-3578b2864f8a",
+   "sheetPath": "/6575bf28-d238-5208-9e0f-bc5b1fc0cd7f",
+   "symbolUuid": "ef8032c9-b453-5a09-a17e-3578b2864f8a",
+   "documentPath": "edge_b.kicad_sch",
+   "libId": "PrismFixture:Socket_1x04_V",
+   "reference": "J1",
+   "instanceMatched": true,
+   "unit": 1,
+   "dnp": false,
+   "excludeFromBom": false,
+   "excludeFromBoard": false,
+   "excludeFromSim": false,
+   "excludeFromPosFiles": false,
+   "properties": {
+    "Datasheet": "",
+    "Description": "",
+    "Footprint": "Connector_PinSocket_2.54mm:PinSocket_1x04_P2.54mm_Vertical",
+    "Reference": "J1",
+    "Value": "Socket_1x04_V"
+   },
+   "bomFields": {
+    "value": "Socket_1x04_V",
+    "footprint": "Connector_PinSocket_2.54mm:PinSocket_1x04_P2.54mm_Vertical"
+   },
+   "variants": []
+  }
+ ],
+ "footprints": [
+  {
+   "uuid": "ffe11c84-dc17-5743-a076-b5194d4f29a5",
+   "documentPath": "edge_b.kicad_pcb",
+   "reference": "J1",
+   "dnp": false,
+   "excludeFromBom": false,
+   "excludeFromPosFiles": false,
+   "variants": []
+  },
+  {
+   "uuid": "45fed5f8-0c0d-5e7f-b267-4f9b0dee62c1",
+   "documentPath": "edge_b.kicad_pcb",
+   "reference": "J2",
+   "dnp": false,
+   "excludeFromBom": false,
+   "excludeFromPosFiles": false,
+   "variants": []
+  }
+ ],
+ "references": [
+  {
+   "reference": "J1",
+   "symbols": [
+    "/6575bf28-d238-5208-9e0f-bc5b1fc0cd7f/ef8032c9-b453-5a09-a17e-3578b2864f8a"
+   ],
+   "footprints": [
+    "ffe11c84-dc17-5743-a076-b5194d4f29a5"
+   ]
+  },
+  {
+   "reference": "J2",
+   "symbols": [
+    "/6575bf28-d238-5208-9e0f-bc5b1fc0cd7f/c542cab8-c38a-5a49-88f9-e840ed77b534"
+   ],
+   "footprints": [
+    "45fed5f8-0c0d-5e7f-b267-4f9b0dee62c1"
+   ]
+  }
+ ],
+ "variantDeclarations": []
+}

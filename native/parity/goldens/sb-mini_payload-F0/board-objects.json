@@ -1,0 +1,1411 @@
+{
+ "schema": "prism.board_objects.a0",
+ "documents": [
+  {
+   "path": "channel.kicad_sch",
+   "objects": [
+    {
+     "kind": "label",
+     "uuid": "87a7cc70-5393-59d5-b1e5-26325d8b02c2",
+     "contentDigest": "baf1f045cd6016c3",
+     "text": "CH_PWR",
+     "net": "CH_PWR",
+     "at": {
+      "xNm": 54920000,
+      "yNm": 40000000
+     },
+     "rotationDeg": 180,
+     "reviewFields": {
+      "Text": "CH_PWR"
+     }
+    },
+    {
+     "kind": "label",
+     "uuid": "50eaa7eb-9a30-54a5-a70f-a4db625efcf3",
+     "contentDigest": "630d7d988de5e2b0",
+     "text": "GND",
+     "net": "GND",
+     "at": {
+      "xNm": 54920000,
+      "yNm": 42540000
+     },
+     "rotationDeg": 180,
+     "reviewFields": {
+      "Text": "GND"
+     }
+    },
+    {
+     "kind": "symbol",
+     "uuid": "21efc24e-7520-56a7-8353-4b2fec7322ec",
+     "contentDigest": "88f0a00bcfbee3c6",
+     "libId": "Connector_Generic:Conn_01x02",
+     "at": {
+      "xNm": 60000000,
+      "yNm": 40000000
+     },
+     "rotationDeg": 0,
+     "dnp": false,
+     "inBom": true,
+     "onBoard": true,
+     "refdes": "J12",
+     "kiidPaths": [
+      "/d3146c74-5e35-516d-8c6e-8aa74fa572ef/1be6926c-1f66-559e-b180-22b373d042c4/21efc24e-7520-56a7-8353-4b2fec7322ec",
+      "/d3146c74-5e35-516d-8c6e-8aa74fa572ef/fa5dc19a-38e3-5a2d-9e7b-ce5a9ff878e9/21efc24e-7520-56a7-8353-4b2fec7322ec"
+     ],
+     "instances": [
+      {
+       "reference": "J12",
+       "path": "/d3146c74-5e35-516d-8c6e-8aa74fa572ef/1be6926c-1f66-559e-b180-22b373d042c4/21efc24e-7520-56a7-8353-4b2fec7322ec"
+      },
+      {
+       "reference": "J11",
+       "path": "/d3146c74-5e35-516d-8c6e-8aa74fa572ef/fa5dc19a-38e3-5a2d-9e7b-ce5a9ff878e9/21efc24e-7520-56a7-8353-4b2fec7322ec"
+      }
+     ],
+     "properties": [
+      {
+       "name": "Reference",
+       "value": "J11",
+       "at": {
+        "xNm": 63810000,
+        "yNm": 40000000
+       },
+       "rotationDeg": 0,
+       "hide": false,
+       "effects": {
+        "font": {
+         "size": {
+          "heightNm": 1270000,
+          "widthNm": 1270000
+         }
+        }
+       }
+      },
+      {
+       "name": "Value",
+       "value": "Conn_01x02",
+       "at": {
+        "xNm": 63810000,
+        "yNm": 41270000
+       },
+       "rotationDeg": 0,
+       "hide": false,
+       "effects": {
+        "font": {
+         "size": {
+          "heightNm": 1270000,
+          "widthNm": 1270000
+         }
+        }
+       }
+      },
+      {
+       "name": "Footprint",
+       "value": "Connector_PinHeader_2.54mm:PinHeader_1x02_P2.54mm_Vertical",
+       "at": {
+        "xNm": 63810000,
+        "yNm": 42540000
+       },
+       "rotationDeg": 0,
+       "hide": true,
+       "effects": {
+        "font": {
+         "size": {
+          "heightNm": 1270000,
+          "widthNm": 1270000
+         }
+        }
+       }
+      },
+      {
+       "name": "Datasheet",
+       "value": "",
+       "at": {
+        "xNm": 63810000,
+        "yNm": 43810000
+       },
+       "rotationDeg": 0,
+       "hide": true,
+       "effects": {
+        "font": {
+         "size": {
+          "heightNm": 1270000,
+          "widthNm": 1270000
+         }
+        }
+       }
+      },
+      {
+       "name": "Description",
+       "value": "",
+       "at": {
+        "xNm": 63810000,
+        "yNm": 45080000
+       },
+       "rotationDeg": 0,
+       "hide": true,
+       "effects": {
+        "font": {
+         "size": {
+          "heightNm": 1270000,
+          "widthNm": 1270000
+         }
+        }
+       }
+      }
+     ],
+     "reviewFields": {
+      "Unit": 1
+     }
+    },
+    {
+     "kind": "pin",
+     "uuid": "15fe6497-110a-5ab9-a45c-444586aec814",
+     "contentDigest": "13fe8f8a6def8b7a",
+     "parentUuid": "21efc24e-7520-56a7-8353-4b2fec7322ec",
+     "number": "1",
+     "refdes": "J12",
+     "at": {
+      "xNm": 60000000,
+      "yNm": 40000000
+     },
+     "reviewFields": {
+      "Pin number": "1"
+     }
+    },
+    {
+     "kind": "pin",
+     "uuid": "a7a52b49-05d0-518e-91b2-a65089a99d09",
+     "contentDigest": "19f666d2c9bdfb78",
+     "parentUuid": "21efc24e-7520-56a7-8353-4b2fec7322ec",
+     "number": "2",
+     "refdes": "J12",
+     "at": {
+      "xNm": 60000000,
+      "yNm": 40000000
+     },
+     "reviewFields": {
+      "Pin number": "2"
+     }
+    }
+   ],
+   "reviewOnlyObjects": []
+  },
+  {
+   "path": "mini_payload.kicad_pro",
+   "objects": [],
+   "reviewOnlyObjects": [
+    {
+     "kind": "net-class",
+     "id": "net-class:5eef40ed135ba38d",
+     "name": "Default",
+     "reviewFields": {
+      "Clearance": 0.2,
+      "Track width": 0.2,
+      "Via diameter": 0.6,
+      "Via drill": 0.3
+     }
+    }
+   ]
+  },
+  {
+   "path": "mini_payload.kicad_sch",
+   "objects": [
+    {
+     "kind": "no_connect",
+     "uuid": "128b4018-3a73-5c75-ac97-e8859c59802d",
+     "contentDigest": "946196c0e4427b97",
+     "at": {
+      "xNm": 34920000,
+      "yNm": 85720000
+     },
+     "reviewFields": {}
+    },
+    {
+     "kind": "no_connect",
+     "uuid": "769bd243-6edb-54f9-accf-454742367122",
+     "contentDigest": "3fd751cc1fe3cab8",
+     "at": {
+      "xNm": 34920000,
+      "yNm": 88260000
+     },
+     "reviewFields": {}
+    },
+    {
+     "kind": "label",
+     "uuid": "1a3895c8-8e07-5ba8-978e-442ca8b91726",
+     "contentDigest": "baffa86e6c747903",
+     "text": "CS_IN#",
+     "net": "CS_IN#",
+     "at": {
+      "xNm": 34920000,
+      "yNm": 52700000
+     },
+     "rotationDeg": 180,
+     "reviewFields": {
+      "Text": "CS_IN#"
+     }
+    },
+    {
+     "kind": "label",
+     "uuid": "1add156b-62e5-5a63-8c94-61f173fa1f6e",
+     "contentDigest": "8c8b39f5c4eb00c3",
+     "text": "IO0",
+     "net": "IO0",
+     "at": {
+      "xNm": 34920000,
+      "yNm": 60320000
+     },
+     "rotationDeg": 180,
+     "reviewFields": {
+      "Text": "IO0"
+     }
+    },
+    {
+     "kind": "label",
+     "uuid": "2d938724-3f82-5fc4-b4c2-42712485925d",
+     "contentDigest": "3756627e194df929",
+     "text": "IO2",
+     "net": "IO2",
+     "at": {
+      "xNm": 34920000,
+      "yNm": 65400000
+     },
+     "rotationDeg": 180,
+     "reviewFields": {
+      "Text": "IO2"
+     }
+    },
+    {
+     "kind": "label",
+     "uuid": "2f6a3fd5-a31b-5d43-8b83-2c824bae6ced",
+     "contentDigest": "32d933e0f0ff1a43",
+     "text": "IO5",
+     "net": "IO5",
+     "at": {
+      "xNm": 34920000,
+      "yNm": 73020000
+     },
+     "rotationDeg": 180,
+     "reviewFields": {
+      "Text": "IO5"
+     }
+    },
+    {
+     "kind": "label",
+     "uuid": "304174fc-7ffd-5d66-92e9-771c5d1cf077",
+     "contentDigest": "2d9ee790cd7ec9a2",
+     "text": "IO4",
+     "net": "IO4",
+     "at": {
+      "xNm": 34920000,
+      "yNm": 70480000
+     },
+     "rotationDeg": 180,
+     "reviewFields": {
+      "Text": "IO4"
+     }
+    },
+    {
+     "kind": "label",
+     "uuid": "3e4917a8-cfd2-5660-bd7f-79d561085d6e",
+     "contentDigest": "f4692cebfbb90e1d",
+     "text": "IO7",
+     "net": "IO7",
+     "at": {
+      "xNm": 34920000,
+      "yNm": 78100000
+     },
+     "rotationDeg": 180,
+     "reviewFields": {
+      "Text": "IO7"
+     }
+    },
+    {
+     "kind": "label",
+     "uuid": "83795246-9ccc-5187-b610-56bf91c7d74d",
+     "contentDigest": "f97bebf7f0f64f63",
+     "text": "IO6",
+     "net": "IO6",
+     "at": {
+      "xNm": 34920000,
+      "yNm": 75560000
+     },
+     "rotationDeg": 180,
+     "reviewFields": {
+      "Text": "IO6"
+     }
+    },
+    {
+     "kind": "label",
+     "uuid": "8d517039-1631-549c-bbde-3033cfeed357",
+     "contentDigest": "20ca4c0a6ae21034",
+     "text": "PROG_TX",
+     "net": "PROG_TX",
+     "at": {
+      "xNm": 94920000,
+      "yNm": 80000000
+     },
+     "rotationDeg": 180,
+     "reviewFields": {
+      "Text": "PROG_TX"
+     }
+    },
+    {
+     "kind": "label",
+     "uuid": "924b846e-d0aa-51b5-9a22-416a545a53c7",
+     "contentDigest": "83e104ffa25fed62",
+     "text": "IO3",
+     "net": "IO3",
+     "at": {
+      "xNm": 34920000,
+      "yNm": 67940000
+     },
+     "rotationDeg": 180,
+     "reviewFields": {
+      "Text": "IO3"
+     }
+    },
+    {
+     "kind": "label",
+     "uuid": "9ab548a8-571b-50d0-b9f3-386c11dff3b4",
+     "contentDigest": "51fdda49ecfbdae2",
+     "text": "IRQ_OUT#",
+     "net": "IRQ_OUT#",
+     "at": {
+      "xNm": 34920000,
+      "yNm": 83180000
+     },
+     "rotationDeg": 180,
+     "reviewFields": {
+      "Text": "IRQ_OUT#"
+     }
+    },
+    {
+     "kind": "label",
+     "uuid": "a260e6c6-75cb-51ca-a8bf-fc79e75e7cb7",
+     "contentDigest": "36181597ee596d14",
+     "text": "IO1",
+     "net": "IO1",
+     "at": {
+      "xNm": 34920000,
+      "yNm": 62860000
+     },
+     "rotationDeg": 180,
+     "reviewFields": {
+      "Text": "IO1"
+     }
+    },
+    {
+     "kind": "label",
+     "uuid": "a565b970-e8df-5517-a0e0-4950f4e806fc",
+     "contentDigest": "8a3c45e37232906f",
+     "text": "PROG_RX",
+     "net": "PROG_RX",
+     "at": {
+      "xNm": 94920000,
+      "yNm": 82540000
+     },
+     "rotationDeg": 180,
+     "reviewFields": {
+      "Text": "PROG_RX"
+     }
+    },
+    {
+     "kind": "label",
+     "uuid": "bec3ef9a-697b-5ede-bad8-320365d81105",
+     "contentDigest": "fa666cf2bbb91045",
+     "text": "RST_IN#",
+     "net": "RST_IN#",
+     "at": {
+      "xNm": 94920000,
+      "yNm": 40000000
+     },
+     "rotationDeg": 180,
+     "reviewFields": {
+      "Text": "RST_IN#"
+     }
+    },
+    {
+     "kind": "label",
+     "uuid": "d24c0759-dbf1-5aac-b200-76b20f05ef5b",
+     "contentDigest": "905ca24c7292ab3e",
+     "text": "MOSI_IN",
+     "net": "MOSI_IN",
+     "at": {
+      "xNm": 34920000,
+      "yNm": 47620000
+     },
+     "rotationDeg": 180,
+     "reviewFields": {
+      "Text": "MOSI_IN"
+     }
+    },
+    {
+     "kind": "label",
+     "uuid": "d3e7eea1-9994-5103-9f6e-86cac3171d05",
+     "contentDigest": "8fbee2a49ebf1f5e",
+     "text": "SCK_IN",
+     "net": "SCK_IN",
+     "at": {
+      "xNm": 34920000,
+      "yNm": 45080000
+     },
+     "rotationDeg": 180,
+     "reviewFields": {
+      "Text": "SCK_IN"
+     }
+    },
+    {
+     "kind": "label",
+     "uuid": "e25274a8-af0c-5ab1-a7e2-4c78bc21f8a3",
+     "contentDigest": "ca46a84a8038f048",
+     "text": "RST_IN#",
+     "net": "RST_IN#",
+     "at": {
+      "xNm": 34920000,
+      "yNm": 80640000
+     },
+     "rotationDeg": 180,
+     "reviewFields": {
+      "Text": "RST_IN#"
+     }
+    },
+    {
+     "kind": "label",
+     "uuid": "feaf9030-253b-5056-9638-843a1dad9c59",
+     "contentDigest": "e7673718bc7f73c8",
+     "text": "MISO_OUT",
+     "net": "MISO_OUT",
+     "at": {
+      "xNm": 34920000,
+      "yNm": 50160000
+     },
+     "rotationDeg": 180,
+     "reviewFields": {
+      "Text": "MISO_OUT"
+     }
+    },
+    {
+     "kind": "label",
+     "uuid": "00df6ea8-16b8-585a-ac5a-39ec19f1de69",
+     "contentDigest": "a6f88b01e4c6c1ec",
+     "text": "GND",
+     "net": "GND",
+     "at": {
+      "xNm": 34920000,
+      "yNm": 42540000
+     },
+     "rotationDeg": 180,
+     "reviewFields": {
+      "Text": "GND"
+     }
+    },
+    {
+     "kind": "label",
+     "uuid": "14958084-b776-5cfb-8cb5-e789f3d0a470",
+     "contentDigest": "3a427a14d985332e",
+     "text": "+3V3_OBC",
+     "net": "+3V3_OBC",
+     "at": {
+      "xNm": 34920000,
+      "yNm": 55240000
+     },
+     "rotationDeg": 180,
+     "reviewFields": {
+      "Text": "+3V3_OBC"
+     }
+    },
+    {
+     "kind": "label",
+     "uuid": "2e32be42-b1a6-5765-92b5-65e4094a5001",
+     "contentDigest": "0ca993611783025e",
+     "text": "GND",
+     "net": "GND",
+     "at": {
+      "xNm": 34920000,
+      "yNm": 40000000
+     },
+     "rotationDeg": 180,
+     "reviewFields": {
+      "Text": "GND"
+     }
+    },
+    {
+     "kind": "label",
+     "uuid": "bf100bc0-6ce4-5be7-9a22-4825d05470e3",
+     "contentDigest": "08012f20d0574b1f",
+     "text": "+3V3_OBC",
+     "net": "+3V3_OBC",
+     "at": {
+      "xNm": 34920000,
+      "yNm": 57780000
+     },
+     "rotationDeg": 180,
+     "reviewFields": {
+      "Text": "+3V3_OBC"
+     }
+    },
+    {
+     "kind": "symbol",
+     "uuid": "34f055d4-6678-5dc4-b79f-232a96428961",
+     "contentDigest": "6f04f938b5780aa6",
+     "libId": "Connector_Generic:Conn_02x10_Odd_Even",
+     "at": {
+      "xNm": 40000000,
+      "yNm": 40000000
+     },
+     "rotationDeg": 0,
+     "dnp": false,
+     "inBom": true,
+     "onBoard": true,
+     "refdes": "J4",
+     "kiidPaths": [
+      "/d3146c74-5e35-516d-8c6e-8aa74fa572ef/34f055d4-6678-5dc4-b79f-232a96428961"
+     ],
+     "instances": [
+      {
+       "reference": "J4",
+       "path": "/d3146c74-5e35-516d-8c6e-8aa74fa572ef/34f055d4-6678-5dc4-b79f-232a96428961"
+      }
+     ],
+     "properties": [
+      {
+       "name": "Reference",
+       "value": "J4",
+       "at": {
+        "xNm": 43810000,
+        "yNm": 40000000
+       },
+       "rotationDeg": 0,
+       "hide": false,
+       "effects": {
+        "font": {
+         "size": {
+          "heightNm": 1270000,
+          "widthNm": 1270000
+         }
+        }
+       }
+      },
+      {
+       "name": "Value",
+       "value": "Conn_02x10",
+       "at": {
+        "xNm": 43810000,
+        "yNm": 41270000
+       },
+       "rotationDeg": 0,
+       "hide": false,
+       "effects": {
+        "font": {
+         "size": {
+          "heightNm": 1270000,
+          "widthNm": 1270000
+         }
+        }
+       }
+      },
+      {
+       "name": "Footprint",
+       "value": "Connector_PinHeader_2.54mm:PinHeader_2x10_P2.54mm_Vertical",
+       "at": {
+        "xNm": 43810000,
+        "yNm": 42540000
+       },
+       "rotationDeg": 0,
+       "hide": true,
+       "effects": {
+        "font": {
+         "size": {
+          "heightNm": 1270000,
+          "widthNm": 1270000
+         }
+        }
+       }
+      },
+      {
+       "name": "Datasheet",
+       "value": "",
+       "at": {
+        "xNm": 43810000,
+        "yNm": 43810000
+       },
+       "rotationDeg": 0,
+       "hide": true,
+       "effects": {
+        "font": {
+         "size": {
+          "heightNm": 1270000,
+          "widthNm": 1270000
+         }
+        }
+       }
+      },
+      {
+       "name": "Description",
+       "value": "",
+       "at": {
+        "xNm": 43810000,
+        "yNm": 45080000
+       },
+       "rotationDeg": 0,
+       "hide": true,
+       "effects": {
+        "font": {
+         "size": {
+          "heightNm": 1270000,
+          "widthNm": 1270000
+         }
+        }
+       }
+      }
+     ],
+     "reviewFields": {
+      "Unit": 1
+     }
+    },
+    {
+     "kind": "pin",
+     "uuid": "4bdc63a0-5cfe-5693-bd85-9646e06b06b7",
+     "contentDigest": "13fe8f8a6def8b7a",
+     "parentUuid": "34f055d4-6678-5dc4-b79f-232a96428961",
+     "number": "1",
+     "refdes": "J4",
+     "at": {
+      "xNm": 40000000,
+      "yNm": 40000000
+     },
+     "reviewFields": {
+      "Pin number": "1"
+     }
+    },
+    {
+     "kind": "pin",
+     "uuid": "3bdf6f37-55fc-586c-ba56-c613a6297511",
+     "contentDigest": "19f666d2c9bdfb78",
+     "parentUuid": "34f055d4-6678-5dc4-b79f-232a96428961",
+     "number": "2",
+     "refdes": "J4",
+     "at": {
+      "xNm": 40000000,
+      "yNm": 40000000
+     },
+     "reviewFields": {
+      "Pin number": "2"
+     }
+    },
+    {
+     "kind": "pin",
+     "uuid": "6048a504-9b3a-5f02-b00d-f9d5be9cb906",
+     "contentDigest": "f115308b48b2b923",
+     "parentUuid": "34f055d4-6678-5dc4-b79f-232a96428961",
+     "number": "3",
+     "refdes": "J4",
+     "at": {
+      "xNm": 40000000,
+      "yNm": 40000000
+     },
+     "reviewFields": {
+      "Pin number": "3"
+     }
+    },
+    {
+     "kind": "pin",
+     "uuid": "304613e9-eb98-5230-8dee-df9811be90a1",
+     "contentDigest": "5e9f7a2776776754",
+     "parentUuid": "34f055d4-6678-5dc4-b79f-232a96428961",
+     "number": "4",
+     "refdes": "J4",
+     "at": {
+      "xNm": 40000000,
+      "yNm": 40000000
+     },
+     "reviewFields": {
+      "Pin number": "4"
+     }
+    },
+    {
+     "kind": "pin",
+     "uuid": "5108cc68-8981-5dc3-a81a-3c78aaf61a8b",
+     "contentDigest": "6443c3dca0927e1c",
+     "parentUuid": "34f055d4-6678-5dc4-b79f-232a96428961",
+     "number": "5",
+     "refdes": "J4",
+     "at": {
+      "xNm": 40000000,
+      "yNm": 40000000
+     },
+     "reviewFields": {
+      "Pin number": "5"
+     }
+    },
+    {
+     "kind": "pin",
+     "uuid": "319f471a-9e9a-5cf4-b06a-2ef53fc0d0b6",
+     "contentDigest": "3cbbbe89fcf32d42",
+     "parentUuid": "34f055d4-6678-5dc4-b79f-232a96428961",
+     "number": "6",
+     "refdes": "J4",
+     "at": {
+      "xNm": 40000000,
+      "yNm": 40000000
+     },
+     "reviewFields": {
+      "Pin number": "6"
+     }
+    },
+    {
+     "kind": "pin",
+     "uuid": "90c6cccc-b563-5ad6-ab31-722424e73aab",
+     "contentDigest": "4cb0bd542001acb8",
+     "parentUuid": "34f055d4-6678-5dc4-b79f-232a96428961",
+     "number": "7",
+     "refdes": "J4",
+     "at": {
+      "xNm": 40000000,
+      "yNm": 40000000
+     },
+     "reviewFields": {
+      "Pin number": "7"
+     }
+    },
+    {
+     "kind": "pin",
+     "uuid": "27a63d99-8a88-58b8-a286-d912a9c12494",
+     "contentDigest": "7958cec38bd78d78",
+     "parentUuid": "34f055d4-6678-5dc4-b79f-232a96428961",
+     "number": "8",
+     "refdes": "J4",
+     "at": {
+      "xNm": 40000000,
+      "yNm": 40000000
+     },
+     "reviewFields": {
+      "Pin number": "8"
+     }
+    },
+    {
+     "kind": "pin",
+     "uuid": "5b666519-1a79-5be8-883d-834df31dac9c",
+     "contentDigest": "088bad4da1e8ce8e",
+     "parentUuid": "34f055d4-6678-5dc4-b79f-232a96428961",
+     "number": "9",
+     "refdes": "J4",
+     "at": {
+      "xNm": 40000000,
+      "yNm": 40000000
+     },
+     "reviewFields": {
+      "Pin number": "9"
+     }
+    },
+    {
+     "kind": "pin",
+     "uuid": "e96272c6-abdd-50a9-8b3f-0d60ac8b4ca1",
+     "contentDigest": "4ed991b16e1d5c84",
+     "parentUuid": "34f055d4-6678-5dc4-b79f-232a96428961",
+     "number": "10",
+     "refdes": "J4",
+     "at": {
+      "xNm": 40000000,
+      "yNm": 40000000
+     },
+     "reviewFields": {
+      "Pin number": "10"
+     }
+    },
+    {
+     "kind": "pin",
+     "uuid": "36491285-8628-51a5-9937-55e212d75e60",
+     "contentDigest": "20d1992dc88ba8ee",
+     "parentUuid": "34f055d4-6678-5dc4-b79f-232a96428961",
+     "number": "11",
+     "refdes": "J4",
+     "at": {
+      "xNm": 40000000,
+      "yNm": 40000000
+     },
+     "reviewFields": {
+      "Pin number": "11"
+     }
+    },
+    {
+     "kind": "pin",
+     "uuid": "ef574eee-7cc8-5840-94c0-93984f0ff694",
+     "contentDigest": "aa90f604c0d62506",
+     "parentUuid": "34f055d4-6678-5dc4-b79f-232a96428961",
+     "number": "12",
+     "refdes": "J4",
+     "at": {
+      "xNm": 40000000,
+      "yNm": 40000000
+     },
+     "reviewFields": {
+      "Pin number": "12"
+     }
+    },
+    {
+     "kind": "pin",
+     "uuid": "44a1973f-108b-5493-b59d-d8b8fd598908",
+     "contentDigest": "1865ea97f3a054da",
+     "parentUuid": "34f055d4-6678-5dc4-b79f-232a96428961",
+     "number": "13",
+     "refdes": "J4",
+     "at": {
+      "xNm": 40000000,
+      "yNm": 40000000
+     },
+     "reviewFields": {
+      "Pin number": "13"
+     }
+    },
+    {
+     "kind": "pin",
+     "uuid": "67214928-384b-5df7-af01-91a2c767d272",
+     "contentDigest": "78bd937bda2baeec",
+     "parentUuid": "34f055d4-6678-5dc4-b79f-232a96428961",
+     "number": "14",
+     "refdes": "J4",
+     "at": {
+      "xNm": 40000000,
+      "yNm": 40000000
+     },
+     "reviewFields": {
+      "Pin number": "14"
+     }
+    },
+    {
+     "kind": "pin",
+     "uuid": "b8aa1d7b-6ace-5823-bfed-639c75b7825a",
+     "contentDigest": "0ee285239fcfe78c",
+     "parentUuid": "34f055d4-6678-5dc4-b79f-232a96428961",
+     "number": "15",
+     "refdes": "J4",
+     "at": {
+      "xNm": 40000000,
+      "yNm": 40000000
+     },
+     "reviewFields": {
+      "Pin number": "15"
+     }
+    },
+    {
+     "kind": "pin",
+     "uuid": "8940d296-6700-54f2-8fd9-faabefa36eff",
+     "contentDigest": "a3271fe6847af25f",
+     "parentUuid": "34f055d4-6678-5dc4-b79f-232a96428961",
+     "number": "16",
+     "refdes": "J4",
+     "at": {
+      "xNm": 40000000,
+      "yNm": 40000000
+     },
+     "reviewFields": {
+      "Pin number": "16"
+     }
+    },
+    {
+     "kind": "pin",
+     "uuid": "a572ad48-02b9-53b4-958b-e23a6fbea863",
+     "contentDigest": "90b34f2792a6cf7f",
+     "parentUuid": "34f055d4-6678-5dc4-b79f-232a96428961",
+     "number": "17",
+     "refdes": "J4",
+     "at": {
+      "xNm": 40000000,
+      "yNm": 40000000
+     },
+     "reviewFields": {
+      "Pin number": "17"
+     }
+    },
+    {
+     "kind": "pin",
+     "uuid": "2f3780ad-7059-5874-b819-8937c42cac8d",
+     "contentDigest": "592aeb554655d97b",
+     "parentUuid": "34f055d4-6678-5dc4-b79f-232a96428961",
+     "number": "18",
+     "refdes": "J4",
+     "at": {
+      "xNm": 40000000,
+      "yNm": 40000000
+     },
+     "reviewFields": {
+      "Pin number": "18"
+     }
+    },
+    {
+     "kind": "pin",
+     "uuid": "0b783ece-6de6-5de3-bb20-89bba3459de2",
+     "contentDigest": "f72aa56849f28f54",
+     "parentUuid": "34f055d4-6678-5dc4-b79f-232a96428961",
+     "number": "19",
+     "refdes": "J4",
+     "at": {
+      "xNm": 40000000,
+      "yNm": 40000000
+     },
+     "reviewFields": {
+      "Pin number": "19"
+     }
+    },
+    {
+     "kind": "pin",
+     "uuid": "a911bbaa-4943-5365-8904-1aa16748e066",
+     "contentDigest": "41a7e264953a7fd4",
+     "parentUuid": "34f055d4-6678-5dc4-b79f-232a96428961",
+     "number": "20",
+     "refdes": "J4",
+     "at": {
+      "xNm": 40000000,
+      "yNm": 40000000
+     },
+     "reviewFields": {
+      "Pin number": "20"
+     }
+    },
+    {
+     "kind": "symbol",
+     "uuid": "58a75445-193f-5b73-8bae-7031f82c3c1e",
+     "contentDigest": "dad52e59a71be280",
+     "libId": "Connector_Generic:Conn_01x02",
+     "at": {
+      "xNm": 100000000,
+      "yNm": 80000000
+     },
+     "rotationDeg": 0,
+     "dnp": false,
+     "inBom": true,
+     "onBoard": true,
+     "refdes": "J9",
+     "kiidPaths": [
+      "/d3146c74-5e35-516d-8c6e-8aa74fa572ef/58a75445-193f-5b73-8bae-7031f82c3c1e"
+     ],
+     "instances": [
+      {
+       "reference": "J9",
+       "path": "/d3146c74-5e35-516d-8c6e-8aa74fa572ef/58a75445-193f-5b73-8bae-7031f82c3c1e"
+      }
+     ],
+     "properties": [
+      {
+       "name": "Reference",
+       "value": "J9",
+       "at": {
+        "xNm": 103810000,
+        "yNm": 80000000
+       },
+       "rotationDeg": 0,
+       "hide": false,
+       "effects": {
+        "font": {
+         "size": {
+          "heightNm": 1270000,
+          "widthNm": 1270000
+         }
+        }
+       }
+      },
+      {
+       "name": "Value",
+       "value": "Conn_01x02",
+       "at": {
+        "xNm": 103810000,
+        "yNm": 81270000
+       },
+       "rotationDeg": 0,
+       "hide": false,
+       "effects": {
+        "font": {
+         "size": {
+          "heightNm": 1270000,
+          "widthNm": 1270000
+         }
+        }
+       }
+      },
+      {
+       "name": "Footprint",
+       "value": "Connector_PinHeader_2.54mm:PinHeader_1x02_P2.54mm_Vertical",
+       "at": {
+        "xNm": 103810000,
+        "yNm": 82540000
+       },
+       "rotationDeg": 0,
+       "hide": true,
+       "effects": {
+        "font": {
+         "size": {
+          "heightNm": 1270000,
+          "widthNm": 1270000
+         }
+        }
+       }
+      },
+      {
+       "name": "Datasheet",
+       "value": "",
+       "at": {
+        "xNm": 103810000,
+        "yNm": 83810000
+       },
+       "rotationDeg": 0,
+       "hide": true,
+       "effects": {
+        "font": {
+         "size": {
+          "heightNm": 1270000,
+          "widthNm": 1270000
+         }
+        }
+       }
+      },
+      {
+       "name": "Description",
+       "value": "",
+       "at": {
+        "xNm": 103810000,
+        "yNm": 85080000
+       },
+       "rotationDeg": 0,
+       "hide": true,
+       "effects": {
+        "font": {
+         "size": {
+          "heightNm": 1270000,
+          "widthNm": 1270000
+         }
+        }
+       }
+      },
+      {
+       "name": "Prism_Port",
+       "value": "no",
+       "at": {
+        "xNm": 103810000,
+        "yNm": 86350000
+       },
+       "rotationDeg": 0,
+       "hide": true,
+       "effects": {
+        "font": {
+         "size": {
+          "heightNm": 1270000,
+          "widthNm": 1270000
+         }
+        }
+       }
+      }
+     ],
+     "reviewFields": {
+      "Unit": 1
+     }
+    },
+    {
+     "kind": "pin",
+     "uuid": "273d39a1-4e19-5ffe-8124-7375d9e290d1",
+     "contentDigest": "13fe8f8a6def8b7a",
+     "parentUuid": "58a75445-193f-5b73-8bae-7031f82c3c1e",
+     "number": "1",
+     "refdes": "J9",
+     "at": {
+      "xNm": 100000000,
+      "yNm": 80000000
+     },
+     "reviewFields": {
+      "Pin number": "1"
+     }
+    },
+    {
+     "kind": "pin",
+     "uuid": "a4ee914b-081a-50d6-a922-7afa68a77709",
+     "contentDigest": "19f666d2c9bdfb78",
+     "parentUuid": "58a75445-193f-5b73-8bae-7031f82c3c1e",
+     "number": "2",
+     "refdes": "J9",
+     "at": {
+      "xNm": 100000000,
+      "yNm": 80000000
+     },
+     "reviewFields": {
+      "Pin number": "2"
+     }
+    },
+    {
+     "kind": "symbol",
+     "uuid": "8905aaee-fe73-5e88-a881-5d780581856f",
+     "contentDigest": "55b6d997a8382a71",
+     "libId": "MiniSys:TestPad",
+     "at": {
+      "xNm": 100000000,
+      "yNm": 40000000
+     },
+     "rotationDeg": 0,
+     "dnp": false,
+     "inBom": true,
+     "onBoard": true,
+     "refdes": "TP1",
+     "kiidPaths": [
+      "/d3146c74-5e35-516d-8c6e-8aa74fa572ef/8905aaee-fe73-5e88-a881-5d780581856f"
+     ],
+     "instances": [
+      {
+       "reference": "TP1",
+       "path": "/d3146c74-5e35-516d-8c6e-8aa74fa572ef/8905aaee-fe73-5e88-a881-5d780581856f"
+      }
+     ],
+     "properties": [
+      {
+       "name": "Reference",
+       "value": "TP1",
+       "at": {
+        "xNm": 103810000,
+        "yNm": 40000000
+       },
+       "rotationDeg": 0,
+       "hide": false,
+       "effects": {
+        "font": {
+         "size": {
+          "heightNm": 1270000,
+          "widthNm": 1270000
+         }
+        }
+       }
+      },
+      {
+       "name": "Value",
+       "value": "TestPad",
+       "at": {
+        "xNm": 103810000,
+        "yNm": 41270000
+       },
+       "rotationDeg": 0,
+       "hide": false,
+       "effects": {
+        "font": {
+         "size": {
+          "heightNm": 1270000,
+          "widthNm": 1270000
+         }
+        }
+       }
+      },
+      {
+       "name": "Footprint",
+       "value": "MiniSys:TestPad_1.5mm",
+       "at": {
+        "xNm": 103810000,
+        "yNm": 42540000
+       },
+       "rotationDeg": 0,
+       "hide": true,
+       "effects": {
+        "font": {
+         "size": {
+          "heightNm": 1270000,
+          "widthNm": 1270000
+         }
+        }
+       }
+      },
+      {
+       "name": "Datasheet",
+       "value": "",
+       "at": {
+        "xNm": 103810000,
+        "yNm": 43810000
+       },
+       "rotationDeg": 0,
+       "hide": true,
+       "effects": {
+        "font": {
+         "size": {
+          "heightNm": 1270000,
+          "widthNm": 1270000
+         }
+        }
+       }
+      },
+      {
+       "name": "Description",
+       "value": "",
+       "at": {
+        "xNm": 103810000,
+        "yNm": 45080000
+       },
+       "rotationDeg": 0,
+       "hide": true,
+       "effects": {
+        "font": {
+         "size": {
+          "heightNm": 1270000,
+          "widthNm": 1270000
+         }
+        }
+       }
+      },
+      {
+       "name": "Prism_Port",
+       "value": "yes",
+       "at": {
+        "xNm": 103810000,
+        "yNm": 46350000
+       },
+       "rotationDeg": 0,
+       "hide": true,
+       "effects": {
+        "font": {
+         "size": {
+          "heightNm": 1270000,
+          "widthNm": 1270000
+         }
+        }
+       }
+      }
+     ],
+     "reviewFields": {
+      "Unit": 1
+     }
+    },
+    {
+     "kind": "pin",
+     "uuid": "5463648d-56c3-5b36-9e89-6e3b81d86216",
+     "contentDigest": "13fe8f8a6def8b7a",
+     "parentUuid": "8905aaee-fe73-5e88-a881-5d780581856f",
+     "number": "1",
+     "refdes": "TP1",
+     "at": {
+      "xNm": 100000000,
+      "yNm": 40000000
+     },
+     "reviewFields": {
+      "Pin number": "1"
+     }
+    },
+    {
+     "kind": "sheet",
+     "uuid": "1be6926c-1f66-559e-b180-22b373d042c4",
+     "contentDigest": "9edec664fc1d3224",
+     "at": {
+      "xNm": 150000000,
+      "yNm": 80000000
+     },
+     "kiidPaths": [
+      "/d3146c74-5e35-516d-8c6e-8aa74fa572ef/1be6926c-1f66-559e-b180-22b373d042c4"
+     ],
+     "properties": [
+      {
+       "name": "Sheetname",
+       "value": "CH_B",
+       "at": {
+        "xNm": 150000000,
+        "yNm": 79300000
+       },
+       "rotationDeg": 0,
+       "hide": false,
+       "effects": {
+        "font": {
+         "size": {
+          "heightNm": 1270000,
+          "widthNm": 1270000
+         }
+        },
+        "justify": {
+         "horizontal": "left",
+         "vertical": "bottom",
+         "mirror": false
+        }
+       }
+      },
+      {
+       "name": "Sheetfile",
+       "value": "channel.kicad_sch",
+       "at": {
+        "xNm": 150000000,
+        "yNm": 93300000
+       },
+       "rotationDeg": 0,
+       "hide": false,
+       "effects": {
+        "font": {
+         "size": {
+          "heightNm": 1270000,
+          "widthNm": 1270000
+         }
+        },
+        "justify": {
+         "horizontal": "left",
+         "vertical": "top",
+         "mirror": false
+        }
+       }
+      }
+     ]
+    },
+    {
+     "kind": "sheet",
+     "uuid": "fa5dc19a-38e3-5a2d-9e7b-ce5a9ff878e9",
+     "contentDigest": "2236547f5629dca5",
+     "at": {
+      "xNm": 150000000,
+      "yNm": 40000000
+     },
+     "kiidPaths": [
+      "/d3146c74-5e35-516d-8c6e-8aa74fa572ef/fa5dc19a-38e3-5a2d-9e7b-ce5a9ff878e9"
+     ],
+     "properties": [
+      {
+       "name": "Sheetname",
+       "value": "CH_A",
+       "at": {
+        "xNm": 150000000,
+        "yNm": 39300000
+       },
+       "rotationDeg": 0,
+       "hide": false,
+       "effects": {
+        "font": {
+         "size": {
+          "heightNm": 1270000,
+          "widthNm": 1270000
+         }
+        },
+        "justify": {
+         "horizontal": "left",
+         "vertical": "bottom",
+         "mirror": false
+        }
+       }
+      },
+      {
+       "name": "Sheetfile",
+       "value": "channel.kicad_sch",
+       "at": {
+        "xNm": 150000000,
+        "yNm": 53300000
+       },
+       "rotationDeg": 0,
+       "hide": false,
+       "effects": {
+        "font": {
+         "size": {
+          "heightNm": 1270000,
+          "widthNm": 1270000
+         }
+        },
+        "justify": {
+         "horizontal": "left",
+         "vertical": "top",
+         "mirror": false
+        }
+       }
+      }
+     ]
+    }
+   ],
+   "reviewOnlyObjects": []
+  }
+ ]
+}

@@ -1,0 +1,24 @@
+{
+  "schema": "prism.sim.engines.lock.a0",
+  "repository": "krishna-swaroop/prism-sim-studio",
+  "tag": "v0.1.0",
+  "commit": "9690a142155c21f59f99ad27c3bf1e8cbbfbd4be",
+  "assets": {
+    "linux-arm64": {
+      "archive": "prism-sim-v0.1.0-linux-arm64.tar.gz",
+      "sha256": "8e96f542e41337f1d8089a0ed3fed91375e352d622afde7fe1af1536ad8c7915"
+    },
+    "linux-x64": {
+      "archive": "prism-sim-v0.1.0-linux-x64.tar.gz",
+      "sha256": "20ed6fd065e0b9555d0255e80326493d166ceb2291fcf51c483c39758ec02f17"
+    },
+    "macos-arm64": {
+      "archive": "prism-sim-v0.1.0-macos-arm64.tar.gz",
+      "sha256": "eed120d4c469d718a44a1d99642037702ebf905ce4863d7763b813cffd22f95e"
+    }
+  },
+  "engines": [
+    "dc-drop-grid",
+    "dc-drop-synthetic"
+  ]
+}

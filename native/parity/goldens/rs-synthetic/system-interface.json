@@ -1,0 +1,186 @@
+{
+ "schema": "prism.system_interface.v1",
+ "hasPcb": true,
+ "boardThicknessMm": 1.6,
+ "boardOutlineMm": {
+  "minMm": [
+   95.0,
+   -105.0
+  ],
+  "maxMm": [
+   125.0,
+   -90.0
+  ],
+  "source": "edge_cuts"
+ },
+ "components": [
+  {
+   "portKey": "/44444444-4444-4444-8444-444444444444/77777777-7777-4777-8777-777777777777",
+   "memberKeys": [
+    "/44444444-4444-4444-8444-444444444444/77777777-7777-4777-8777-777777777777"
+   ],
+   "reference": "D1",
+   "libId": "Device:LED",
+   "footprint": "LED_SMD:LED_0603_1608Metric",
+   "value": "STATUS",
+   "mpn": null,
+   "dnp": false,
+   "candidate": false,
+   "candidateReason": "none",
+   "pins": [
+    {
+     "pad": "1",
+     "nets": [],
+     "pcbNets": [
+      "STATUS"
+     ],
+     "pinNames": [
+      "K"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "2",
+     "nets": [],
+     "pcbNets": [
+      "GND"
+     ],
+     "pinNames": [
+      "A"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    }
+   ],
+   "geometry": {
+    "side": "top",
+    "positionMm": [
+     115.0,
+     -95.0
+    ],
+    "rotationDeg": 0.0,
+    "footprintName": "LED_0603_1608Metric",
+    "pads": [
+     {
+      "pad": "1",
+      "positionMm": [
+       114.2,
+       -95.0
+      ],
+      "sizeMm": [
+       0.8,
+       1.0
+      ],
+      "shape": "roundrect",
+      "tht": false
+     },
+     {
+      "pad": "2",
+      "positionMm": [
+       115.8,
+       -95.0
+      ],
+      "sizeMm": [
+       0.8,
+       1.0
+      ],
+      "shape": "roundrect",
+      "tht": false
+     }
+    ],
+    "courtyard": null,
+    "model": null
+   }
+  },
+  {
+   "portKey": "/44444444-4444-4444-8444-444444444444/55555555-5555-4555-8555-555555555555",
+   "memberKeys": [
+    "/44444444-4444-4444-8444-444444444444/55555555-5555-4555-8555-555555555555"
+   ],
+   "reference": "R1",
+   "libId": "Device:R",
+   "footprint": "Resistor_SMD:R_0603_1608Metric",
+   "value": "1k",
+   "mpn": null,
+   "dnp": false,
+   "candidate": false,
+   "candidateReason": "none",
+   "pins": [
+    {
+     "pad": "1",
+     "nets": [],
+     "pcbNets": [
+      "+5V"
+     ],
+     "pinNames": [
+      "~"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "2",
+     "nets": [],
+     "pcbNets": [
+      "STATUS"
+     ],
+     "pinNames": [
+      "~"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    }
+   ],
+   "geometry": {
+    "side": "top",
+    "positionMm": [
+     105.0,
+     -95.0
+    ],
+    "rotationDeg": 0.0,
+    "footprintName": "R_0603_1608Metric",
+    "pads": [
+     {
+      "pad": "1",
+      "positionMm": [
+       104.2,
+       -95.0
+      ],
+      "sizeMm": [
+       0.8,
+       1.0
+      ],
+      "shape": "roundrect",
+      "tht": false
+     },
+     {
+      "pad": "2",
+      "positionMm": [
+       105.8,
+       -95.0
+      ],
+      "sizeMm": [
+       0.8,
+       1.0
+      ],
+      "shape": "roundrect",
+      "tht": false
+     }
+    ],
+    "courtyard": null,
+    "model": null
+   }
+  }
+ ],
+ "diagnostics": [],
+ "digest": "sha256:bd997ed27ebb02af1b30476ff31ea3a8b3031f3f1a9d7a180f2c2375a8f8336e"
+}

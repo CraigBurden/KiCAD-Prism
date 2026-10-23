@@ -92,10 +92,34 @@ class PrismWorker:
         self._auto_sync_scan: threading.Thread | None = None
         self._next_tracker_scan = 0.0
         self._next_end_sweep = 0.0
+        self._next_bundle_backfill = 0.0
+        self._next_bundle_retention = 0.0
+        self._bundle_upkeep: threading.Thread | None = None
+        self._bundle_backfill_state = None
 
     @staticmethod
     def resource_capacities() -> dict[str, int]:
         return resource_capacities()
+
+    @staticmethod
+    def validate_memory_admission() -> None:
+        """Refuse a budget no declared heavy kind could ever fit.
+
+        The ``memory`` slot is reconciled from the same setting the kinds
+        declared their weight from, so this only fails on a deliberately small
+        override or a new kind whose weight outgrew the default.
+        """
+
+        from app.services.job_handlers import (
+            get_job_kind,
+            load_builtin_job_handlers,
+            registered_job_kinds,
+        )
+        from app.services.job_kinds import validate_memory_capacity
+
+        load_builtin_job_handlers()
+        kinds = [get_job_kind(name) for name in registered_job_kinds()]
+        validate_memory_capacity(kind for kind in kinds if kind is not None)
 
     def request_stop(self, *_args: object) -> None:
         self.stopping = True
@@ -526,6 +550,50 @@ class PrismWorker:
         except Exception:
             logger.exception("Could not queue project fetches")
 
+    def schedule_design_bundles(self) -> None:
+        """The paced backfill of branch-head bundles and hourly bundle retention (ADR §5, §8).
+
+        Both read Git (one ls-tree per branch head), so they run off the
+        supervision loop, one at a time.
+        """
+
+        if self.worker_pool != "prism":
+            return
+        now = time.monotonic()
+        interval = settings.PRISM_DESIGN_BUNDLE_BACKFILL_INTERVAL_SECONDS
+        backfill = settings.PRISM_DESIGN_BUNDLE_AUTO_BUILD and interval > 0 and now >= self._next_bundle_backfill
+        retention = now >= self._next_bundle_retention
+        if not (backfill or retention) or (self._bundle_upkeep is not None and self._bundle_upkeep.is_alive()):
+            return
+        if backfill:
+            self._next_bundle_backfill = now + interval
+        if retention:
+            self._next_bundle_retention = now + 3600
+        self._bundle_upkeep = threading.Thread(
+            target=self._design_bundle_upkeep, args=(backfill, retention), name="design-bundle-upkeep", daemon=True
+        )
+        self._bundle_upkeep.start()
+
+    def _design_bundle_upkeep(self, backfill: bool, retention: bool) -> None:
+        from app.services.design_bundle import backfill as bundle_backfill
+        from app.services.design_bundle import retention as bundle_retention
+        from app.services.design_bundle import store as bundle_store
+
+        if backfill:
+            try:
+                if self._bundle_backfill_state is None:
+                    self._bundle_backfill_state = bundle_backfill.BackfillState()
+                outcome = bundle_backfill.tick(self._bundle_backfill_state)
+                if outcome.get("queued"):
+                    logger.info("Design bundle backfill queued %s", outcome["queued"])
+            except Exception:
+                logger.exception("Design bundle backfill failed")
+        if retention and bundle_store.root().is_dir():  # nothing to keep or remove before the first bundle
+            try:
+                logger.info("Design bundle retention: %s", bundle_retention.run())
+            except Exception:
+                logger.exception("Design bundle retention failed")
+
     def schedule_tracker_jobs(self) -> None:
         if self.worker_pool != "prism" or time.monotonic() < self._next_tracker_scan:
             return
@@ -569,12 +637,14 @@ class PrismWorker:
                 time.sleep(min(1.0, self.poll_seconds))
         if self.stopping:
             return
+        self.validate_memory_admission()
         self.mount_tracker_composition()
         logger.info(
-            "Worker %s started pool=%s concurrency=%s",
+            "Worker %s started pool=%s concurrency=%s memory_budget=%sMiB",
             self.worker_id,
             self.worker_pool,
             self.concurrency,
+            settings.PRISM_WORKER_MEMORY_BUDGET_MIB,
         )
         while not self.stopping:
             try:
@@ -589,6 +659,10 @@ class PrismWorker:
                 self.schedule_tracker_jobs()
             except Exception:
                 self._log_database_error("schedule tracker jobs")
+            try:
+                self.schedule_design_bundles()
+            except Exception:
+                self._log_database_error("schedule design bundle upkeep")
             try:
                 self.sweep_job_ends()
             except Exception:

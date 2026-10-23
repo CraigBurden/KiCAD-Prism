@@ -1,11 +1,11 @@
 /**
  * Every native object kind a comparison change can name, in one table.
  *
- * The parser emits canonical kinds only (`segment` is `track`, `global_label`
- * is `label`, …; `CANONICAL_KINDS` in
- * `backend/design-compare-parser/ecad-parse.mjs`), so the kinds below are the
- * only ones a `ChangeItem.object_kind` or visual-target `kind` carries. The
- * backend still decides a change's category and primary/secondary class.
+ * Kinds arrive as the board-objects member spells them (`segment` is `track`,
+ * `global_label` is `label`, sheet-pin is `sheet-pin`), so the kinds below
+ * are the only ones a change's `objectKind`, or a target's `kind` or `role`,
+ * carries. `compare` still decides a change's category and primary/secondary
+ * class.
  *
  * A row says which domain the kind lives in, the reviewer noun for it, and the
  * traits the review modules ask about: how changes group, what counts as
@@ -61,12 +61,12 @@ export const CHANGE_KINDS: Readonly<Record<string, ChangeKindRow>> = {
     symbol: { domain: "schematic", noun: "symbol", traits: [] },
     pin: { domain: "schematic", noun: "pin", traits: ["schematic-exact"] },
     sheet: { domain: "schematic", noun: "sheet", traits: ["schematic-exact"] },
-    sheet_pin: { domain: "schematic", noun: "sheet pin", traits: ["schematic-exact"] },
-    no_connect: { domain: "schematic", noun: "no connect", traits: ["schematic-exact"] },
+    "sheet-pin": { domain: "schematic", noun: "sheet pin", traits: ["schematic-exact"] },
+    "no-connect": { domain: "schematic", noun: "no connect", traits: ["schematic-exact"] },
     wire: { domain: "schematic", noun: "wire", traits: ["wiring", "schematic-net"] },
     junction: { domain: "schematic", noun: "junction", traits: ["wiring", "schematic-net"] },
     bus: { domain: "schematic", noun: "bus", traits: ["wiring", "schematic-exact"] },
-    bus_entry: { domain: "schematic", noun: "bus entry", traits: ["wiring", "schematic-exact"] },
+    "bus-entry": { domain: "schematic", noun: "bus entry", traits: ["wiring", "schematic-exact"] },
     label: { domain: "schematic", noun: "label", traits: ["schematic-net", "schematic-label"] },
     // Board
     footprint: { domain: "pcb", noun: "footprint", traits: ["fabrication"] },
@@ -75,12 +75,12 @@ export const CHANGE_KINDS: Readonly<Record<string, ChangeKindRow>> = {
     arc: { domain: "pcb", noun: "arc", traits: ["copper", "fabrication"] },
     via: { domain: "pcb", noun: "via", traits: ["copper", "via-span", "fabrication"] },
     zone: { domain: "pcb", noun: "zone", traits: ["component-child", "fabrication"] },
-    footprint_graphic: {
+    "footprint-graphic": {
         domain: "pcb",
         noun: "footprint graphic",
         traits: ["component-child", "footprint-primitive", "pcb-graphic"],
     },
-    footprint_text: {
+    "footprint-text": {
         domain: "pcb",
         noun: "footprint text",
         traits: ["component-child", "footprint-primitive", "documentation"],
@@ -92,19 +92,19 @@ export const CHANGE_KINDS: Readonly<Record<string, ChangeKindRow>> = {
     image: { domain: "both", noun: "image", traits: ["documentation"] },
     table: { domain: "both", noun: "table", traits: ["documentation"] },
     // Rules and constraints
-    board_constraint: rule("pcb", "board constraint"),
-    board_default: rule("pcb", "board default"),
-    custom_rule: rule("pcb", "custom rule"),
-    drc_exclusion: rule("pcb", "drc exclusion"),
-    drc_severity: rule("pcb", "drc severity"),
-    erc_exclusion: rule("schematic", "erc exclusion"),
-    erc_pin_rule: rule("schematic", "erc pin rule"),
-    fabrication_output: rule("pcb", "fabrication output"),
-    net_class: rule("pcb", "net class"),
-    net_class_assignment: rule("pcb", "net class assignment"),
-    routing_preset: rule("pcb", "routing preset"),
-    teardrop_setting: rule("pcb", "teardrop setting"),
-    zone_setting: rule("pcb", "zone setting"),
+    "board-constraint": rule("pcb", "board constraint"),
+    "board-default": rule("pcb", "board default"),
+    "custom-rule": rule("pcb", "custom rule"),
+    "drc-exclusion": rule("pcb", "drc exclusion"),
+    "drc-severity": rule("pcb", "drc severity"),
+    "erc-exclusion": rule("schematic", "erc exclusion"),
+    "erc-pin-rule": rule("schematic", "erc pin rule"),
+    "fabrication-output": rule("pcb", "fabrication output"),
+    "net-class": rule("pcb", "net class"),
+    "net-class-assignment": rule("pcb", "net class assignment"),
+    "routing-preset": rule("pcb", "routing preset"),
+    "teardrop-setting": rule("pcb", "teardrop setting"),
+    "zone-setting": rule("pcb", "zone setting"),
 };
 
 /** The kinds carrying one trait, for membership checks. */
@@ -118,6 +118,6 @@ export function kindsWith(trait: ChangeKindTrait): ReadonlySet<string> {
 
 /** Reviewer noun for a kind, singular or plural; unknown kinds read as written. */
 export function kindNoun(kind: string, count = 1): string {
-    const noun = CHANGE_KINDS[kind]?.noun ?? kind.replace(/_/g, " ");
+    const noun = CHANGE_KINDS[kind]?.noun ?? kind.replace(/[-_]/g, " ");
     return count === 1 ? noun : `${noun}s`;
 }

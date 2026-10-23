@@ -554,6 +554,7 @@ export function Workspace({ searchQuery, user }: WorkspaceProps) {
     return <div className="flex h-64 items-center justify-center rounded-xl border text-destructive">{error}</div>;
   }
 
+
   const projectsToolbar = (
     <>
 <>

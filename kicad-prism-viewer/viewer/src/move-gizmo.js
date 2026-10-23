@@ -3,16 +3,33 @@
 // can be tested on its own.
 //
 // Poses follow CONTRACTS_P2 §14: millimetres, `T·R`, unit quaternions
-// `[x, y, z, w]` with `w ≥ 0`, column-major 4×4 matrices. A move always acts on
-// a top-level instance of the system (a board, or a child system as one rigid
+// `[x, y, z, w]` with `w ≥ 0`, column-major 4×4 matrices. A move acts on a
+// top-level instance of the system (a board, or a child system as one rigid
 // group), so its pose is in the world frame.
 
 import { cross, dot, normalize, quatAxis, quatMultiply, quatRotate } from "./math.js";
 
-// Snapping: whole millimetres and 15° steps; Shift for fine steps.
-export const SNAP = Object.freeze({ mm: 1, fineMm: 0.1, deg: 15, fineDeg: 1 });
+// Snapping: the host may set its own steps (setMoveSnap); Shift uses the fine
+// ones, a tenth of the translation step and one degree.
+export const DEFAULT_MOVE_SNAP = Object.freeze({ mm: 0.5, deg: 15 });
 
 export const AXES = Object.freeze([[1, 0, 0], [0, 1, 0], [0, 0, 1]]);
+
+/** The four steps a drag snaps to: the set steps and their Shift (fine) ones. */
+export function snapSteps(snap = DEFAULT_MOVE_SNAP) {
+  const mm = Number(snap?.mm) > 0 ? Number(snap.mm) : DEFAULT_MOVE_SNAP.mm;
+  const deg = Number(snap?.deg) > 0 ? Number(snap.deg) : DEFAULT_MOVE_SNAP.deg;
+  return { mm, deg, fineMm: mm / 10, fineDeg: 1 };
+}
+
+/** A host's snap as positive steps, keeping `fallback` for anything unusable. */
+export function normalizeMoveSnap(snap, fallback = DEFAULT_MOVE_SNAP) {
+  const base = snapSteps(fallback);
+  return {
+    mm: Number(snap?.mm) > 0 ? Number(snap.mm) : base.mm,
+    deg: Number(snap?.deg) > 0 ? Number(snap.deg) : base.deg,
+  };
+}
 
 function clean(value) {
   return Math.round(value * 1e9) / 1e9 + 0;
@@ -115,11 +132,20 @@ export function rotatePoseAbout(pose, axis, angle, pivotMm) {
   };
 }
 
-/** The top-level occurrence that moves when `key` is selected: a board, or the child system it is in. */
+/**
+ * The occurrence that moves when `key` is selected: a board, or the child
+ * system it is in. A flat descriptor (every occurrence its own board) names
+ * the occurrence itself; a nested one moves its top-level instance.
+ */
 export function moveTarget(descriptor, key) {
   if (key == null) return null;
+  const items = descriptor?.occurrences || [];
+  // A system scene since SB3b lists occurrences flat, with no depth.
+  if (!items.some((item) => item.depth != null)) {
+    return items.find((item) => item.path === String(key)) ?? null;
+  }
   const top = `/${String(key).split("/")[1] || ""}`;
-  return (descriptor?.occurrences || []).find((item) => item.path === top && item.depth === 1) ?? null;
+  return items.find((item) => item.path === top && item.depth === 1) ?? null;
 }
 
 /**
@@ -129,7 +155,8 @@ export function moveTarget(descriptor, key) {
  */
 export function moveDescriptor(descriptor, path, pose) {
   const target = descriptor.occurrences.find((item) => item.path === path);
-  if (!target || target.depth !== 1) return descriptor;
+  // A nested descriptor only moves its top-level instances; a flat one has none.
+  if (!target || (target.depth != null && target.depth !== 1)) return descriptor;
   const world = poseMatrix(pose);
   const delta = multiply(world, rigidInverse(target.worldMatrix));
   const inside = `${path}/`;

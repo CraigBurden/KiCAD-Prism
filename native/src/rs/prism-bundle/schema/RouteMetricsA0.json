@@ -1,0 +1,123 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$id": "urn:prism:schema:prism.route_metrics:a0",
+    "type": "object",
+    "properties": {
+        "schema": {
+            "type": "string",
+            "const": "prism.route_metrics.a0",
+            "description": "Schema id of this document."
+        },
+        "nets": {
+            "type": "array",
+            "items": {
+                "$ref": "#/$defs/RouteMetricsNet"
+            },
+            "description": "One entry per net that has at least one track or via on the board,\nsorted by `netName` in code point order; `netName` is unique. A net\nwith no track and no via is absent. Tracks and vias with no net (net 0,\na net code missing from the board's net table, an empty net name, or no\n`(net …)` form at all) belong to no entry and are not reported. Empty\nwhen no net is routed or the project has no board."
+        }
+    },
+    "required": [
+        "schema",
+        "nets"
+    ],
+    "unevaluatedProperties": {
+        "not": {}
+    },
+    "description": "Per-net routing metrics of the project's board: routed centerline length,\nvia count, copper layers used and via layer pairs. Computed from the\ntop-level tracks (`segment` and `arc` forms) and vias (`via` forms) of the\nproject's board, exactly the effective configuration's `board`\n(`config.board` in the manifest; never chosen by directory), as\ncommitted: never the refilled board. Pads, zones,\nzone fills and graphic shapes contribute nothing, even when they carry a\nnet. Design Comparison reads it for the route rows of a rerouted net\n(route length, via count, used layers, via barrel length).",
+    "title": "Route metrics a0",
+    "$defs": {
+        "RouteMetricsNet": {
+            "type": "object",
+            "properties": {
+                "netName": {
+                    "$ref": "#/$defs/NetName",
+                    "description": "KiCad full net name of the net's tracks and vias as the board resolves\nit: the name in the item's `(net \"<name>\")` form (KiCad 10), or the name\nthe board's net table gives the item's `(net <code>)` (KiCad 9 and\nearlier). Copied exactly: not trimmed, not re-cased."
+                },
+                "routeLengthNm": {
+                    "$ref": "#/$defs/NonNegativeNanometres",
+                    "description": "Routed centerline length of the net in nanometres: the sum, over the\nnet's tracks, of each `segment`'s straight start-to-end distance and\neach `arc`'s circular arc length through its start, mid and end points\n(the polyline start-mid-end when the three points are collinear). Summed\nin file order in IEEE double millimetres, then converted once with the\nconventions' rule (value_mm * 1e6, rounded half away from zero). The\narc's `hypot` and `atan2` are the pure-Rust `libm` crate's, so the total\nis the same on every architecture (conventions.md §14). One\ntotal over all layers; track widths, via barrels, pads and zones are not\nincluded. 0 when the net has vias but no track."
+                },
+                "viaCount": {
+                    "$ref": "#/$defs/Count",
+                    "description": "Number of vias on the net, of every type (through, blind, buried,\nmicro). Includes vias whose `(layers …)` form does not name exactly two\nlayers, which `viaSpans` leaves out."
+                },
+                "usedLayers": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/$defs/LayerName"
+                    },
+                    "description": "Layers the net's copper is routed on, each once, sorted in code point\norder: the layer of every track (its `(layer …)`, or the copper entries\nof its `(layers …)` form when KiCad writes the plural form for a track\nwith a solder-mask opening), plus, for every via, every copper layer it\nspans: for a `(layers …)` form naming exactly two layers, both of them\nand every copper layer between them in the board's copper order (the\nsame order as `prism.stackup.a0` `copperLayers`: the stackup's copper\nentries when the board has a stackup, else the layer table's `.Cu` rows\nin file order), so a through via adds every copper layer; otherwise the\nlayers its form names. Empty only when every track and via of the net\nlacks a layer."
+                },
+                "viaSpans": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/$defs/RouteMetricsViaSpan"
+                    },
+                    "description": "The net's vias grouped by layer pair, sorted by `startLayer`, then\n`stopLayer`, both in code point order; each pair appears once. Only vias\nwhose `(layers …)` form names exactly two layers are counted here, so\n`viaCount` minus the sum of `viaSpans[*].viaCount` is the number of the\nnet's vias that have no usable layer pair. Empty when the net has no\nsuch via."
+                }
+            },
+            "required": [
+                "netName",
+                "routeLengthNm",
+                "viaCount",
+                "usedLayers",
+                "viaSpans"
+            ],
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "Routing metrics of one net on the board."
+        },
+        "NetName": {
+            "type": "string",
+            "minLength": 1,
+            "description": "KiCad full net name as KiCad resolves it, including the sheet path prefix\nof a local net (`/Power/VBUS`), a global name (`GND`) or a generated name\n(`Net-(R1-Pad2)`, `unconnected-(U1-PA0-Pad3)`). \"No net\" is expressed by\nomitting the field, never by an empty name."
+        },
+        "NonNegativeNanometres": {
+            "type": "integer",
+            "description": "A Nanometres value that is never negative: a thickness, width, diameter or length.",
+            "minimum": 0
+        },
+        "Count": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "A count of things: a non-negative safe integer."
+        },
+        "LayerName": {
+            "type": "string",
+            "minLength": 1,
+            "description": "KiCad canonical layer name as the board file's `(layers …)` table spells\nit, for example `F.Cu`, `In1.Cu`, `B.Mask`, `Edge.Cuts` or `User.1`. Never\nthe user-assigned layer name, which a contract carries in a separate\noptional field. Never a wildcard set such as `*.Cu` or `F&B.Cu`."
+        },
+        "RouteMetricsViaSpan": {
+            "type": "object",
+            "properties": {
+                "startLayer": {
+                    "$ref": "#/$defs/LayerName",
+                    "description": "First layer of the via's `(layers …)` form, as written. KiCad writes the\nlayer nearer the front first, so for a through via this is `F.Cu`."
+                },
+                "stopLayer": {
+                    "$ref": "#/$defs/LayerName",
+                    "description": "Second layer of the via's `(layers …)` form, as written: for a through\nvia `B.Cu`, for a blind or micro via the inner layer it ends on."
+                },
+                "viaCount": {
+                    "$ref": "#/$defs/RouteMetricsSpanCount",
+                    "description": "Number of the net's vias with exactly this layer pair, in this order."
+                }
+            },
+            "required": [
+                "startLayer",
+                "stopLayer",
+                "viaCount"
+            ],
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "The vias of one net that share one layer pair, as their `(layers …)` form\nnames it. The layers between the pair follow from the board's stackup."
+        },
+        "RouteMetricsSpanCount": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "A via count within one via span: at least 1, because a span is listed only when one of the net's vias has that layer pair."
+        }
+    }
+}

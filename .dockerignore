@@ -19,8 +19,8 @@ backend/venv/
 frontend/node_modules/
 frontend/dist/
 kicad-prism-viewer/node_modules/
-kicad-prism-viewer/native/prism-clipper2/build/
-kicad-prism-viewer/native/prism-kicad-native/target/
+native/target/
+native/node_modules
 backend/app/static/remote_provider/
 
 # Local reports and logs

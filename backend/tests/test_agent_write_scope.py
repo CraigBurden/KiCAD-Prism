@@ -68,15 +68,15 @@ class DesignerRouteTest(unittest.TestCase):
     """Through a real designer route and its dependencies, as the review reproduced it."""
 
     def post(self, user: AuthenticatedUser):
-        from app.api import projects
+        from app.api import project_viewer_3d
 
         app = FastAPI()
 
         install_error_handlers(app)
-        app.include_router(projects.router, prefix="/api/projects")
+        app.include_router(project_viewer_3d.router, prefix="/api/projects")
         app.dependency_overrides[security.get_current_user] = lambda: user
-        with patch.object(projects, "get_project_for_role_or_404"), \
-                patch.object(projects.project_service, "start_workflow_job", return_value="job_x") as generate:
+        with patch.object(project_viewer_3d, "get_project_for_role_or_404"), \
+                patch.object(project_viewer_3d, "_generate_bundle", return_value={"job_id": "job_x"}) as generate:
             response = TestClient(app).post("/api/projects/prj_abc/webgpu-3d/generate", json={})
         return response, generate
 

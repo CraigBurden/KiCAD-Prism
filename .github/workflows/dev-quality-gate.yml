@@ -7,12 +7,16 @@ on:
       - main
       - feature/release-studio
       - feature/system-builder
+      - feature/native-design-bundle
+      # Work packages of the native design bundle stack on each other (ADR §9.1).
+      - wp/**
       - fix/architecture-consolidation
   push:
     branches:
       - dev
       - main
       - feature/release-studio
+      - feature/native-design-bundle
       - fix/architecture-consolidation
   schedule:
     # Live KiCad is not on every feature commit; keep a daily executor check.
@@ -22,11 +26,22 @@ on:
 permissions:
   contents: read
 
+env:
+  # Rust in CI: no incremental state (nothing reuses it, and it bloats the caches) and line tables
+  # only in dev and test builds, which keeps links fast and caches small. Release builds keep
+  # their own profile (native/Cargo.toml).
+  CARGO_INCREMENTAL: "0"
+  CARGO_PROFILE_DEV_DEBUG: line-tables-only
+  CARGO_PROFILE_TEST_DEBUG: line-tables-only
+
 concurrency:
   group: quality-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 jobs:
+  # Order: the fast checks (changes, catalog-architecture, native-hygiene; about a minute) run
+  # first, and every long job waits for them and is skipped when one fails. A failing PR fails
+  # in a minute instead of after twenty, and the quality gate still fails on the fast check.
   changes:
     name: Changed areas
     # Pull requests skip the jobs their files cannot affect (scripts/ci_changes.py). Pushes, the
@@ -37,8 +52,8 @@ jobs:
       backend: ${{ steps.areas.outputs.backend }}
       frontend: ${{ steps.areas.outputs.frontend }}
       viewer: ${{ steps.areas.outputs.viewer }}
-      design_compare: ${{ steps.areas.outputs.design_compare }}
       agent: ${{ steps.areas.outputs.agent }}
+      native: ${{ steps.areas.outputs.native }}
       deploy: ${{ steps.areas.outputs.deploy }}
       deps: ${{ steps.areas.outputs.deps }}
       image: ${{ steps.areas.outputs.image }}
@@ -52,6 +67,9 @@ jobs:
 
       - name: Test the path rules
         run: python3 -m unittest scripts.test_ci_changes
+
+      - name: Test the Simulation Studio engine fetch
+        run: python3 -m unittest scripts.test_fetch_sim_engines
 
       - name: Decide which jobs this change needs
         id: areas
@@ -187,8 +205,11 @@ jobs:
 
   frontend:
     name: Frontend
-    needs: changes
-    if: needs.changes.outputs.frontend == 'true'
+    needs: [changes, catalog-architecture, native-hygiene]
+    if: >-
+      !cancelled() && needs.catalog-architecture.result == 'success'
+      && contains(fromJSON('["success", "skipped"]'), needs.native-hygiene.result)
+      && needs.changes.outputs.frontend == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 20
 
@@ -219,6 +240,11 @@ jobs:
         # warning backlog may shrink but never grow.
         run: npm run scan:gate
 
+      - name: Check the wasm inlined in the viewer bundles
+        # Any text normalisation of a built bundle corrupts it (raw-byte
+        # string literals); the viewer then silently falls back to JS earcut.
+        run: node ../scripts/check-embedded-wasm.mjs public/ecad-viewer.js public/ecad-renderer.js
+
       - name: Build application
         run: npm run build
 
@@ -227,8 +253,11 @@ jobs:
 
   frontend-tests:
     name: Frontend tests (${{ matrix.shard }}/2)
-    needs: changes
-    if: needs.changes.outputs.frontend == 'true'
+    needs: [changes, catalog-architecture, native-hygiene]
+    if: >-
+      !cancelled() && needs.catalog-architecture.result == 'success'
+      && contains(fromJSON('["success", "skipped"]'), needs.native-hygiene.result)
+      && needs.changes.outputs.frontend == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     strategy:
@@ -259,8 +288,11 @@ jobs:
 
   backend:
     name: Backend (${{ matrix.shard }}/3)
-    needs: changes
-    if: needs.changes.outputs.backend == 'true'
+    needs: [changes, catalog-architecture, native-hygiene]
+    if: >-
+      !cancelled() && needs.catalog-architecture.result == 'success'
+      && contains(fromJSON('["success", "skipped"]'), needs.native-hygiene.result)
+      && needs.changes.outputs.backend == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     strategy:
@@ -349,7 +381,8 @@ jobs:
   backend-results:
     name: Backend
     needs: [changes, backend]
-    if: ${{ !cancelled() && needs.changes.outputs.backend == 'true' }}
+    # Skipped with the shards when a fast check fails; that check fails the gate.
+    if: ${{ !cancelled() && needs.changes.outputs.backend == 'true' && needs.backend.result != 'skipped' }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
 
@@ -455,31 +488,14 @@ jobs:
           cache: npm
           cache-dependency-path: kicad-prism-viewer/package-lock.json
 
-      - name: Set up Python
-        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
-        with:
-          python-version-file: .python-version
-          cache: pip
-          cache-dependency-path: requirements/runtime.lock
-
       - name: Install dependencies
-        run: |
-          npm ci
-          # The shared Python lock is the same graph used by the backend and
-          # production image, including the coordinated Monkey/Cruncher pair.
-          python -m pip install -r requirements-runtime.txt
-
-      - name: Test glTF conversion
-        run: npm run test:gltf
+        run: npm ci
 
       - name: Test viewer
         run: npm run test:viewer
 
       - name: Test pixel-diff harness helpers
         run: npm run test:harness
-
-      - name: Test topology compiler
-        run: python -m unittest discover -s tests -p "test_*.py"
 
       - name: Build viewer bundles
         run: npm run build
@@ -489,35 +505,31 @@ jobs:
         run: >-
           git diff --exit-code --
           frontend/public/prism-semantic-viewer.js
+          frontend/public/prism-semantic-viewer-lower.js
+          frontend/public/prism-kicad-analytic.wasm
           frontend/index.html
 
-  native-crate:
-    name: Native geometry crate
-    # The checks backend/Dockerfile runs on prism-kicad-native, on the PR instead of only in an
-    # image build. Same toolchain (rust-toolchain.toml), same Geometer SDK pins (read from the Dockerfile).
-    needs: changes
-    if: needs.changes.outputs.viewer == 'true'
+  native-lint:
+    name: Native lint
+    # Prism's KiCad parser and design-bundle workspace (native/, ADR §4.1, §9.1): formatting,
+    # clippy, generated contract types and dependency licences, on its pinned toolchain
+    # (native/rust-toolchain.toml). Runs beside native-workspace (the tests) once the fast checks
+    # pass, and only when native/ changes (ADR §11 G10).
+    needs: [changes, catalog-architecture, native-hygiene]
+    if: >-
+      !cancelled() && needs.catalog-architecture.result == 'success'
+      && contains(fromJSON('["success", "skipped"]'), needs.native-hygiene.result)
+      && needs.changes.outputs.native == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 30
 
     defaults:
       run:
-        working-directory: kicad-prism-viewer/native/prism-kicad-native
+        working-directory: native
 
     steps:
       - name: Check out source
         uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
-
-      - name: Cache the Rust toolchain, crates and build
-        uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5.1.0
-        with:
-          path: |
-            ~/.rustup/toolchains
-            ~/.cargo/registry
-            ~/.cargo/git
-            kicad-prism-viewer/native/prism-kicad-native/target
-          key: native-${{ runner.os }}-${{ hashFiles('kicad-prism-viewer/native/prism-kicad-native/rust-toolchain.toml', 'kicad-prism-viewer/native/prism-kicad-native/Cargo.lock') }}
-          restore-keys: native-${{ runner.os }}-
 
       - name: Install the pinned toolchain
         run: |
@@ -527,65 +539,293 @@ jobs:
           rustup toolchain install "$channel" --profile minimal --component rustfmt --component clippy
           cargo --version
 
-      - name: Install the SDK's system link libraries
-        # The SDK manifest links pthread, rt, stdc++, dl and X11 (OCCT). The image's builder stage
-        # (rust:bookworm, a buildpack-deps image) ships libx11-dev; the runner does not.
-        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libx11-dev
+      - name: Cache crates and dependency builds
+        # Pushes save; PRs only restore (from their base branch), so they skip the upload.
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          workspaces: native -> target
+          save-if: ${{ github.event_name != 'pull_request' }}
 
-      - name: Fetch the Geometer SDK the image links
-        working-directory: ${{ github.workspace }}
-        run: |
-          set -euo pipefail
-          arg() { sed -n "s/^ARG $1=//p" backend/Dockerfile | head -n 1; }
-          tag="$(arg GEOMETER_SDK_TAG)"; version="$(arg GEOMETER_SDK_VERSION)"; sha="$(arg GEOMETER_SDK_LINUX_AMD64_SHA256)"
-          test -n "$tag" && test -n "$version" && test -n "$sha"
-          archive="geometer-sdk-${version}-linux-x64.zip"
-          curl --fail --location --retry 3 \
-            "https://github.com/wavenumber-eng/geometer/releases/download/${tag}/${archive}" \
-            --output "$RUNNER_TEMP/${archive}"
-          echo "${sha}  $RUNNER_TEMP/${archive}" | sha256sum --check -
-          unzip -q "$RUNNER_TEMP/${archive}" -d "$RUNNER_TEMP/geometer-sdk"
-          echo "GEOMETER_SDK_DIR=$RUNNER_TEMP/geometer-sdk" >> "$GITHUB_ENV"
+      - name: Install cargo-deny
+        # A prebuilt, checksummed binary (the action's manifest) instead of a two-minute cargo install.
+        uses: taiki-e/install-action@83ac0ad63c0167e6f06796fab0fce28db1bf3db0 # v2.87.22
+        with:
+          tool: cargo-deny@0.18.3
 
       - name: Check formatting
-        run: cargo fmt --check
-
-      - name: Test
-        run: cargo test --release --locked
+        run: cargo fmt --all --check
 
       - name: Clippy
-        run: cargo clippy --release --locked -- -D warnings
+        run: cargo clippy --workspace --all-targets --locked -- -D warnings
 
-  design-compare-parser:
-    name: Design compare parser
-    # The Node object index and delta the design comparison worker runs (backend/design-compare-parser).
-    needs: changes
-    if: needs.changes.outputs.design_compare == 'true'
+      - name: Generated contract types are current
+        run: cargo run --locked -q -p prism-kicad-codegen -- --check
+
+      - name: Dependency licences and sources
+        run: cargo deny check licenses sources
+
+  native-workspace:
+    name: Native workspace
+    # The workspace's tests on linux amd64, the worker's platform, then the committed parity
+    # corpus round trip on the same debug build (parity_corpus.py sexpr-gate --debug).
+    needs: [changes, catalog-architecture, native-hygiene]
+    if: >-
+      !cancelled() && needs.catalog-architecture.result == 'success'
+      && contains(fromJSON('["success", "skipped"]'), needs.native-hygiene.result)
+      && needs.changes.outputs.native == 'true'
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 45
+
+    defaults:
+      run:
+        working-directory: native
 
     steps:
       - name: Check out source
         uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
 
-      - name: Set up Node.js
-        # No dependencies to install or cache: the package runs on Node alone, as in the image.
+      - name: Install the pinned toolchain
+        run: |
+          set -euo pipefail
+          channel="$(sed -n 's/^channel = "\(.*\)"/\1/p' rust-toolchain.toml)"
+          test -n "$channel"
+          rustup toolchain install "$channel" --profile minimal --component rustfmt --component clippy
+          cargo --version
+
+      - name: Cache crates and dependency builds
+        # Pushes save; PRs only restore (from their base branch), so they skip the upload.
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          workspaces: native -> target
+          save-if: ${{ github.event_name != 'pull_request' }}
+
+      - name: Test
+        run: cargo test --workspace --locked --no-fail-fast
+
+      - name: Parity corpus round trip
+        run: python3 scripts/parity_corpus.py sexpr-gate --committed-only --debug
+
+      - name: Projection parity on the committed fixtures
+        # Every finished projection against its goldens (ADR §7, §9.4 G): build each fixture's
+        # parse bundle with this debug prism-kicad, then the parity runner. A case whose
+        # sources need KiCad's upgrade is skipped and named (the local job covers it). Each
+        # producer's work package adds its member to PARITY_MEMBERS.
+        env:
+          PARITY_MEMBERS: semantic-index,project,stackup,placements,system-interface,board-objects,occurrences,route-metrics
+        run: |
+          set -euo pipefail
+          cargo build --locked -p prism-kicad-cli
+          cd parity
+          python3 -m prism_parity bundles --prism-kicad ../target/debug/prism-kicad \
+            --out "$RUNNER_TEMP/parity-bundles" --no-upgrade
+          python3 -m prism_parity compare --bundles "$RUNNER_TEMP/parity-bundles" \
+            --members "$PARITY_MEMBERS" --quiet
+
+  native-platforms:
+    name: Native workspace (${{ matrix.platform }})
+    # The fork's per-platform materializer job: the producer, pack and bundle tests on the other
+    # platforms the worker and developers run (linux amd64 is native-workspace). Parse-stage
+    # members must be byte-identical across them (decisions.md, Conventions 3). Agents test on
+    # macOS arm64 locally, so PRs into feature and work-package branches skip it; it runs on PRs
+    # into dev and main, on pushes (every merge into the feature branch) and nightly.
+    needs: [changes, catalog-architecture, native-hygiene]
+    if: >-
+      !cancelled() && needs.catalog-architecture.result == 'success'
+      && contains(fromJSON('["success", "skipped"]'), needs.native-hygiene.result)
+      && needs.changes.outputs.native == 'true'
+      && (github.event_name != 'pull_request' || github.base_ref == 'dev' || github.base_ref == 'main')
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-24.04-arm
+            platform: linux-arm64
+          - os: macos-15
+            platform: macos-arm64
+
+    defaults:
+      run:
+        working-directory: native
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+
+      - name: Install the pinned toolchain
+        run: |
+          set -euo pipefail
+          channel="$(sed -n 's/^channel = "\(.*\)"/\1/p' rust-toolchain.toml)"
+          test -n "$channel"
+          if ! command -v rustup >/dev/null; then
+            # Not every runner image (the arm64 partner images) ships rustup.
+            curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal --default-toolchain none
+            echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+            export PATH="$HOME/.cargo/bin:$PATH"
+          fi
+          # rust-toolchain.toml lists rustfmt and clippy; install them with the toolchain.
+          rustup toolchain install "$channel" --profile minimal --component rustfmt --component clippy
+          cargo --version
+
+      - name: Cache crates and dependency builds
+        # Pushes save; PRs only restore (from their base branch), so they skip the upload.
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          workspaces: native -> target
+          save-if: ${{ github.event_name != 'pull_request' }}
+
+      - name: Producer, pack, bundle and CLI tests
+        run: scripts/ci_native_platform.sh
+
+  native-wasm32:
+    name: Native wasm32
+    # The fork's wasm32 job (the viewer adapter and the in-browser producer build for
+    # wasm32-unknown-unknown) plus the wasm-bindgen tests its exit gate ran, under Node. Like
+    # native-platforms, it skips PRs into feature and work-package branches.
+    needs: [changes, catalog-architecture, native-hygiene]
+    if: >-
+      !cancelled() && needs.catalog-architecture.result == 'success'
+      && contains(fromJSON('["success", "skipped"]'), needs.native-hygiene.result)
+      && needs.changes.outputs.native == 'true'
+      && (github.event_name != 'pull_request' || github.base_ref == 'dev' || github.base_ref == 'main')
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    defaults:
+      run:
+        working-directory: native
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+
+      - name: Set up Node
         uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5.0.0
         with:
           node-version-file: .node-version
 
-      - name: Require the vendored parser to match its provenance
-        working-directory: backend/design-compare-parser/vendor
+      - name: Install the pinned toolchain and wasm32 target
+        id: toolchain
         run: |
-          expected="$(python3 -c 'import json; print(json.load(open("kicad-sexpr-parser.provenance.json"))["artifactSha256"])')"
-          echo "${expected}  kicad-sexpr-parser.mjs" | sha256sum --check -
+          set -euo pipefail
+          channel="$(sed -n 's/^channel = "\(.*\)"/\1/p' rust-toolchain.toml)"
+          test -n "$channel"
+          rustup toolchain install "$channel" --profile minimal --component rustfmt --component clippy --target wasm32-unknown-unknown
+          bindgen="$(sed -n '/^name = "wasm-bindgen"$/{n;s/^version = "\(.*\)"$/\1/p;}' Cargo.lock)"
+          test -n "$bindgen"
+          echo "bindgen=$bindgen" >> "$GITHUB_OUTPUT"
 
-      - name: Test object index and delta
-        working-directory: backend/design-compare-parser
-        run: npm test
+      - name: Install wasm-bindgen at the Cargo.lock version
+        # Prebuilt and checksummed (wasm-bindgen and wasm-bindgen-test-runner), not a cargo install.
+        uses: taiki-e/install-action@83ac0ad63c0167e6f06796fab0fce28db1bf3db0 # v2.87.22
+        with:
+          tool: wasm-bindgen@${{ steps.toolchain.outputs.bindgen }}
 
-      - name: Test the object-delta shadow comparison
-        run: python3 -m unittest scripts.test_compare_object_delta
+      - name: Cache crates and dependency builds
+        # Pushes save; PRs only restore (from their base branch), so they skip the upload.
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          workspaces: native -> target
+          save-if: ${{ github.event_name != 'pull_request' }}
+
+      - name: wasm32 builds, clippy and wasm-bindgen tests
+        run: scripts/ci_native_wasm32.sh
+
+  native-hygiene:
+    name: Native hygiene
+    # The Rust structural-hygiene ratchet (rust-hygiene.toml against rust-hygiene-baseline.json,
+    # Prism's port of the fork's wn-dev-std check), the parity corpus is present, and the Prism
+    # contracts (npm ci; npm run check:prism-contracts). A fast check: it compiles no Rust, and
+    # the long jobs wait for it.
+    needs: changes
+    if: needs.changes.outputs.native == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    defaults:
+      run:
+        working-directory: native
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+
+      - name: Set up Node
+        uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5.0.0
+        with:
+          node-version-file: .node-version
+          cache: npm
+          cache-dependency-path: native/package-lock.json
+
+      - name: Set up Python
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
+        with:
+          python-version-file: .python-version
+
+      - name: Install uv
+        run: |
+          set -euo pipefail
+          version="$(sed -n 's/^ARG UV_VERSION=//p' ../backend/Dockerfile | head -n 1)"
+          test -n "$version"
+          python -m pip install --disable-pip-version-check "uv==${version}"
+
+      - name: Hygiene ratchet, parity corpus and contracts
+        env:
+          PRISM_HYGIENE_PYTHON: python
+        run: scripts/ci_native_hygiene.sh
+
+  native-parity:
+    name: Native parity
+    # Goldens of every bundle projection on the committed fixtures and the parity runner
+    # (native/parity/, ADR §7, §9.4 G). Runs when native/ or a committed fixture changes; the
+    # private corpus is a local job (native/parity/README.md).
+    needs: changes
+    if: needs.changes.outputs.native == 'true' || needs.changes.outputs.backend == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    defaults:
+      run:
+        working-directory: native/parity
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+
+      - name: Set up Python
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
+        with:
+          python-version-file: .python-version
+
+      - name: Set up Node.js
+        uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5.0.0
+        with:
+          node-version-file: .node-version
+          cache: npm
+          cache-dependency-path: native/package-lock.json
+
+      - name: Install the contract toolchain (ajv)
+        working-directory: native
+        env:
+          PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: "1"
+        run: npm ci --ignore-scripts
+
+      - name: Runner unit tests
+        run: python -m unittest discover -s tests -v
+
+      - name: Goldens match the committed fixtures they were captured from
+        run: python -m prism_parity inputs
+
+      - name: Goldens validate against the frozen contracts
+        working-directory: native
+        run: node parity/validate.mjs --quiet parity/goldens
+
+      - name: Runner self-test on hand-made bundles (goldens, and a deliberate change)
+        run: python -m prism_parity selftest
+
+      # The projections' own parity (bundles built by prism-kicad) runs in native-workspace,
+      # on its debug build: "Projection parity on the committed fixtures".
 
   deployment-config:
     name: Deployment configuration
@@ -732,9 +972,11 @@ jobs:
     name: Backend image
     # PRs into dev/main build the image in the live KiCad job. Elsewhere, build it (no tests) when its
     # inputs change, so a Dockerfile, viewer or shared-placement break fails on the PR that causes it.
-    needs: changes
+    needs: [changes, catalog-architecture, native-hygiene]
     if: >-
-      github.event_name == 'pull_request' && github.base_ref != 'main' && github.base_ref != 'dev'
+      !cancelled() && needs.catalog-architecture.result == 'success'
+      && contains(fromJSON('["success", "skipped"]'), needs.native-hygiene.result)
+      && github.event_name == 'pull_request' && github.base_ref != 'main' && github.base_ref != 'dev'
       && needs.changes.outputs.image == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 35
@@ -760,13 +1002,15 @@ jobs:
     # Rebuilds the Prism backend image (FROM pinned kicad/kicad). That proves
     # kicad-cli and the baked executor identity. It is not compiling KiCad, and
     # it is not a per-commit concern — run it where a merge or nightly matters.
-    needs: changes
+    needs: [changes, catalog-architecture, native-hygiene]
     if: >-
-      github.event_name == 'schedule'
-      || github.event_name == 'workflow_dispatch'
-      || (github.event_name == 'pull_request' && (github.base_ref == 'main' || github.base_ref == 'dev')
-          && needs.changes.outputs.image_live == 'true')
-      || (github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/dev'))
+      !cancelled() && needs.catalog-architecture.result == 'success'
+      && contains(fromJSON('["success", "skipped"]'), needs.native-hygiene.result)
+      && (github.event_name == 'schedule'
+          || github.event_name == 'workflow_dispatch'
+          || (github.event_name == 'pull_request' && (github.base_ref == 'main' || github.base_ref == 'dev')
+              && needs.changes.outputs.image_live == 'true')
+          || (github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/dev')))
     runs-on: ubuntu-latest
     timeout-minutes: 35
 
@@ -790,26 +1034,6 @@ jobs:
           # No type=gha layer cache: the image's layers overflow the repository's 10 GB
           # Actions cache, so it evicted itself (and the uv/npm caches) between runs while
           # its export added ~3.5 min to every build.
-
-      - name: Smoke-test native semantic compiler
-        run: |
-          set -euo pipefail
-          smoke_root="$RUNNER_TEMP/prism-native-smoke"
-          mkdir -p "$smoke_root"
-          docker run --rm \
-            --platform linux/amd64 \
-            --volume "${GITHUB_WORKSPACE}/fixtures/release-studio/usb-pd:/fixture:ro" \
-            --volume "$smoke_root:/output" \
-            --entrypoint /usr/local/bin/prism-kicad-native \
-            release-studio-live-kicad:ci \
-            compile-semantic \
-            --pcb /fixture/USB-PD-Trigger-Board.kicad_pcb \
-            --output /output/semantic \
-            --tile-size auto \
-            --mesh-tolerance-mm 0.005 \
-            --meshopt-level medium
-          python3 -c 'import json, pathlib, sys; p=json.loads(pathlib.Path(sys.argv[1]).read_text()); assert p["schema"] == "prism.semantic_mesh_pack.v1"; assert p["tiles"]' \
-            "$smoke_root/semantic/mesh-pack.json"
 
       - name: Run Release Studio live KiCad tests
         run: |
@@ -842,8 +1066,12 @@ jobs:
       - backend-results
       - agent-plugin
       - semantic-viewer
-      - native-crate
-      - design-compare-parser
+      - native-lint
+      - native-workspace
+      - native-platforms
+      - native-wasm32
+      - native-hygiene
+      - native-parity
       - deployment-config
       - dependency-identity
       - image
@@ -855,6 +1083,7 @@ jobs:
       - name: Require every quality job
         # A job the change does not need is skipped (scripts/ci_changes.py); skipped passes. The
         # changes job itself must succeed, or every job would be skipped and the gate pass on nothing.
+        # When a fast check fails, the long jobs are skipped, and that check's failure fails the gate.
         env:
           RESULTS: ${{ toJSON(needs) }}
         run: |

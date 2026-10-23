@@ -1,0 +1,33 @@
+{
+  "schema": "prism.cli.verify_report.a0",
+  "status": "invalid",
+  "manifest_schema": "prism.bundle.manifest.a3",
+  "generator_matches": true,
+  "stages": [
+    {
+      "stage": "parse",
+      "status": "complete",
+      "failed_members": []
+    },
+    {
+      "stage": "board",
+      "status": "complete",
+      "failed_members": []
+    },
+    {
+      "stage": "models",
+      "status": "complete",
+      "failed_members": []
+    }
+  ],
+  "members_checked": 11,
+  "findings": [
+    {
+      "code": "member-digest-mismatch",
+      "message": "materialization/board.kmpack is 160312 bytes with sha256 5532b16e6e2d8ab84415756016c4fcc4306829dc6ca629f6576ad99b51535c94; the manifest lists 175592 bytes with sha256 e5bc57304ff8febd2738f22898de619c6263d393a33ed4f554007c0c3804e25f",
+      "location": {
+        "path": "materialization/board.kmpack"
+      }
+    }
+  ]
+}

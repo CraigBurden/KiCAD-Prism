@@ -1,0 +1,537 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$id": "urn:prism:schema:prism.revision_key.vectors:a1",
+    "type": "object",
+    "properties": {
+        "schema": {
+            "type": "string",
+            "const": "prism.revision_key.vectors.a1",
+            "description": "Document schema id."
+        },
+        "listing_git_version": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Version of git that printed every listing, as `git --version` reports it (for example `2.55.0`)."
+        },
+        "selection": {
+            "type": "array",
+            "items": {
+                "$ref": "#/$defs/RevisionKeySelectionVector"
+            },
+            "description": "Layer 1 vectors, sorted by `name` in code point order."
+        },
+        "hashing": {
+            "type": "array",
+            "items": {
+                "$ref": "#/$defs/RevisionKeyHashingVector"
+            },
+            "description": "Layer 2 vectors, sorted by `name` in code point order."
+        },
+        "relations": {
+            "type": "array",
+            "items": {
+                "$ref": "#/$defs/RevisionKeyVectorRelation"
+            },
+            "description": "Key assertions over selection vectors, sorted by `relation`, then by `vectors` element by element, in code point order."
+        }
+    },
+    "required": [
+        "schema",
+        "listing_git_version",
+        "selection",
+        "hashing",
+        "relations"
+    ],
+    "unevaluatedProperties": {
+        "not": {}
+    },
+    "description": "The revision-key test vectors (`revision-key-vectors.json`). Expected\nvalues were computed by two independent implementations (Python and Node)\nthat agree byte for byte; WP-K's Python and WP-B's Rust references must\nreproduce every value.",
+    "title": "Revision key vectors a1",
+    "$defs": {
+        "RevisionKeySelectionVector": {
+            "type": "object",
+            "properties": {
+                "name": {
+                    "$ref": "#/$defs/RevisionKeyVectorName",
+                    "description": "Unique vector name."
+                },
+                "scenario": {
+                    "type": "string",
+                    "minLength": 1,
+                    "description": "The scratch repository the listing was printed from; vectors of one scenario share a repository at different commits."
+                },
+                "description": {
+                    "type": "string",
+                    "minLength": 1,
+                    "description": "What the vector exercises."
+                },
+                "object_format": {
+                    "$ref": "#/$defs/RevisionKeyObjectFormat",
+                    "description": "Object format of the repository."
+                },
+                "listing": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/$defs/RevisionKeyListingEntry"
+                    },
+                    "description": "The full listing, record for record in the order `git ls-tree -r -z --full-tree` printed it for a real repository."
+                },
+                "config": {
+                    "$ref": "urn:prism:schema:prism.revision_key.effective_config:a1",
+                    "description": "The effective config given to the computation. Schema-valid, but may break a semantic rule (an `error` outcome)."
+                },
+                "expected": {
+                    "$ref": "#/$defs/RevisionKeySelectionOutcome",
+                    "description": "Expected outcome."
+                }
+            },
+            "required": [
+                "name",
+                "scenario",
+                "description",
+                "object_format",
+                "listing",
+                "config",
+                "expected"
+            ],
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "Layer 1: from a full listing and a config to the selected entries and the key."
+        },
+        "RevisionKeyHashingVector": {
+            "type": "object",
+            "properties": {
+                "name": {
+                    "$ref": "#/$defs/RevisionKeyVectorName",
+                    "description": "Unique vector name."
+                },
+                "description": {
+                    "type": "string",
+                    "minLength": 1,
+                    "description": "What the vector exercises."
+                },
+                "object_format": {
+                    "$ref": "#/$defs/RevisionKeyObjectFormat",
+                    "description": "Object format; hashed."
+                },
+                "config": {
+                    "$ref": "urn:prism:schema:prism.revision_key.effective_config:a1",
+                    "description": "The effective config."
+                },
+                "entries": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/$defs/RevisionKeyEntry"
+                    },
+                    "description": "The entries in the order the hashing function receives them, deliberately not sorted in some vectors: the function sorts them by path bytes. `category` is ignored."
+                },
+                "expected": {
+                    "$ref": "#/$defs/RevisionKeyHashingExpected",
+                    "description": "Expected values."
+                }
+            },
+            "required": [
+                "name",
+                "description",
+                "object_format",
+                "config",
+                "entries",
+                "expected"
+            ],
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "Layer 2: from selected entries and a config to the preimage and the key."
+        },
+        "RevisionKeyVectorRelation": {
+            "type": "object",
+            "properties": {
+                "relation": {
+                    "$ref": "#/$defs/RevisionKeyRelationKind",
+                    "description": "Same or different keys."
+                },
+                "vectors": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/$defs/RevisionKeyVectorName"
+                    },
+                    "minItems": 2,
+                    "description": "Names of `selected` selection vectors, sorted in code point order."
+                },
+                "reason": {
+                    "type": "string",
+                    "minLength": 1,
+                    "description": "Why the keys compare this way."
+                }
+            },
+            "required": [
+                "relation",
+                "vectors",
+                "reason"
+            ],
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "An assertion about the keys of two or more selection vectors, stating the intent behind them."
+        },
+        "RevisionKeyVectorName": {
+            "type": "string",
+            "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$",
+            "description": "Name of a test vector: lowercase kebab-case, unique within its array."
+        },
+        "RevisionKeyObjectFormat": {
+            "type": "string",
+            "enum": [
+                "sha1",
+                "sha256"
+            ],
+            "description": "Object format of the repository, as `git rev-parse --show-object-format` prints it."
+        },
+        "RevisionKeyListingEntry": {
+            "type": "object",
+            "properties": {
+                "mode": {
+                    "$ref": "#/$defs/RevisionKeyListingMode",
+                    "description": "Mode column."
+                },
+                "type": {
+                    "$ref": "#/$defs/RevisionKeyListingType",
+                    "description": "Type column."
+                },
+                "object_id": {
+                    "$ref": "#/$defs/GitObjectId",
+                    "description": "Object column."
+                },
+                "path": {
+                    "type": "string",
+                    "minLength": 1,
+                    "description": "Path column: the raw path bytes decoded as UTF-8. Not necessarily a RepoPath (an `unrepresentable-path` vector holds one that is not)."
+                }
+            },
+            "required": [
+                "mode",
+                "type",
+                "object_id",
+                "path"
+            ],
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "One record of `git ls-tree -r -z --full-tree <commit>`: `<mode> SP <type> SP <object> TAB <path> NUL`."
+        },
+        "RevisionKeySelectionOutcome": {
+            "oneOf": [
+                {
+                    "$ref": "#/$defs/RevisionKeySelectedOutcome",
+                    "description": "The computation succeeds."
+                },
+                {
+                    "$ref": "#/$defs/RevisionKeyErrorOutcome",
+                    "description": "The computation fails with a code."
+                }
+            ],
+            "description": "Expected outcome of a selection vector."
+        },
+        "RevisionKeyEntry": {
+            "type": "object",
+            "properties": {
+                "path": {
+                    "$ref": "#/$defs/RepoPath",
+                    "description": "Repository-relative path, exactly the bytes git lists (UTF-8, never Unicode-normalized or case-folded)."
+                },
+                "kind": {
+                    "$ref": "#/$defs/RevisionKeyEntryKind",
+                    "description": "Entry kind, from the git mode and object type."
+                },
+                "object_id": {
+                    "$ref": "#/$defs/GitObjectId",
+                    "description": "Blob id (regular, executable, symlink) or recorded commit id (gitlink), in the repository's object format."
+                },
+                "category": {
+                    "$ref": "#/$defs/RevisionKeySourceCategory",
+                    "description": "Selection rule the entry matched; not hashed."
+                }
+            },
+            "required": [
+                "path",
+                "kind",
+                "object_id",
+                "category"
+            ],
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "One entry of the source set: a tree entry the key hashes."
+        },
+        "RevisionKeyHashingExpected": {
+            "type": "object",
+            "properties": {
+                "config_canonical": {
+                    "type": "string",
+                    "minLength": 1,
+                    "description": "The canonical config bytes as text."
+                },
+                "config_digest": {
+                    "$ref": "#/$defs/Sha256Hex",
+                    "description": "SHA-256 of the canonical config bytes."
+                },
+                "preimage_hex": {
+                    "$ref": "#/$defs/RevisionKeyHex",
+                    "description": "The whole hashed preimage, in hex."
+                },
+                "revision_key": {
+                    "$ref": "#/$defs/Sha256Hex",
+                    "description": "SHA-256 of the preimage."
+                }
+            },
+            "required": [
+                "config_canonical",
+                "config_digest",
+                "preimage_hex",
+                "revision_key"
+            ],
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "Expected result of a hashing vector."
+        },
+        "RevisionKeyRelationKind": {
+            "type": "string",
+            "enum": [
+                "same-key",
+                "different-key"
+            ],
+            "description": "How the keys of related selection vectors compare."
+        },
+        "RevisionKeyListingMode": {
+            "type": "string",
+            "pattern": "^[0-7]{6}$",
+            "description": "A git tree mode as `git ls-tree` prints it: six octal digits."
+        },
+        "RevisionKeyListingType": {
+            "type": "string",
+            "enum": [
+                "blob",
+                "commit",
+                "tree"
+            ],
+            "description": "Object type column of a `git ls-tree` record."
+        },
+        "GitObjectId": {
+            "type": "string",
+            "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$",
+            "description": "Git object id in lowercase hexadecimal: 40 characters in a SHA-1\nrepository, 64 in a SHA-256 repository. Used for commit ids and blob ids."
+        },
+        "RevisionKeySelectedOutcome": {
+            "type": "object",
+            "properties": {
+                "kind": {
+                    "type": "string",
+                    "const": "selected",
+                    "description": "Variant tag."
+                },
+                "entries": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/$defs/RevisionKeyEntry"
+                    },
+                    "description": "The selected entries, sorted by `path` in code point order (UTF-8 byte order)."
+                },
+                "counts": {
+                    "$ref": "#/$defs/RevisionKeyCounts",
+                    "description": "Per-category counts of `entries`."
+                },
+                "config_canonical": {
+                    "type": "string",
+                    "minLength": 1,
+                    "description": "The canonical config bytes as text (revision-key.md, \"Canonical config bytes\")."
+                },
+                "config_digest": {
+                    "$ref": "#/$defs/Sha256Hex",
+                    "description": "SHA-256 of the canonical config bytes."
+                },
+                "revision_key": {
+                    "$ref": "#/$defs/Sha256Hex",
+                    "description": "The expected revision key."
+                }
+            },
+            "required": [
+                "kind",
+                "entries",
+                "counts",
+                "config_canonical",
+                "config_digest",
+                "revision_key"
+            ],
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "Expected result of a selection vector that succeeds."
+        },
+        "RevisionKeyErrorOutcome": {
+            "type": "object",
+            "properties": {
+                "kind": {
+                    "type": "string",
+                    "const": "error",
+                    "description": "Variant tag."
+                },
+                "code": {
+                    "$ref": "#/$defs/RevisionKeyErrorCode",
+                    "description": "The error every implementation must report."
+                }
+            },
+            "required": [
+                "kind",
+                "code"
+            ],
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "Expected result of a selection vector that fails."
+        },
+        "RepoPath": {
+            "type": "string",
+            "pattern": "^(?:[^/\\\\:.][^/\\\\:]*|\\.[^/\\\\:.][^/\\\\:]*|\\.\\.[^/\\\\:]+)(?:/(?:[^/\\\\:.][^/\\\\:]*|\\.[^/\\\\:.][^/\\\\:]*|\\.\\.[^/\\\\:]+))*$",
+            "description": "Repository-relative POSIX path, exactly as `git ls-tree` names the entry:\n`/`-separated, case preserved, no leading `/`, no empty, `.` or `..`\nsegment, no backslash and no `:`. The same character rule as ArchivePath.\nIt is the only path type in bundle documents: a file has one spelling\nwhichever project in the repository refers to it, and a file outside the\nproject directory needs no `..`."
+        },
+        "RevisionKeyEntryKind": {
+            "type": "string",
+            "enum": [
+                "regular",
+                "executable",
+                "symlink",
+                "gitlink"
+            ],
+            "description": "Kind of a source-set entry, fixed by its git tree mode and object type. The\nhashed framing spells each kind as git does (revision-key.md, \"Hashing\")."
+        },
+        "RevisionKeySourceCategory": {
+            "type": "string",
+            "enum": [
+                "kicad-project",
+                "kicad-schematic",
+                "kicad-board",
+                "kicad-design-rules",
+                "kicad-worksheet",
+                "kicad-jobset",
+                "library-table",
+                "symbol-library",
+                "footprint",
+                "model-3d",
+                "prism-settings",
+                "symlink",
+                "gitlink"
+            ],
+            "description": "Why an entry is in the source set, from its file name (revision-key.md,\n\"Selection\"). Name rules are ASCII case-insensitive. Not hashed: it is\nderived from the path and kind."
+        },
+        "Sha256Hex": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$",
+            "description": "Lowercase hexadecimal SHA-256 digest: exactly 64 characters, no prefix such as `sha256:`."
+        },
+        "RevisionKeyHex": {
+            "type": "string",
+            "pattern": "^(?:[0-9a-f]{2})+$",
+            "description": "Lowercase hexadecimal bytes, two characters per byte."
+        },
+        "RevisionKeyCounts": {
+            "type": "object",
+            "properties": {
+                "kicad_project": {
+                    "$ref": "#/$defs/Count",
+                    "description": "Entries of category `kicad-project`."
+                },
+                "kicad_schematic": {
+                    "$ref": "#/$defs/Count",
+                    "description": "Entries of category `kicad-schematic`."
+                },
+                "kicad_board": {
+                    "$ref": "#/$defs/Count",
+                    "description": "Entries of category `kicad-board`."
+                },
+                "kicad_design_rules": {
+                    "$ref": "#/$defs/Count",
+                    "description": "Entries of category `kicad-design-rules`."
+                },
+                "kicad_worksheet": {
+                    "$ref": "#/$defs/Count",
+                    "description": "Entries of category `kicad-worksheet`."
+                },
+                "kicad_jobset": {
+                    "$ref": "#/$defs/Count",
+                    "description": "Entries of category `kicad-jobset`."
+                },
+                "library_table": {
+                    "$ref": "#/$defs/Count",
+                    "description": "Entries of category `library-table`."
+                },
+                "symbol_library": {
+                    "$ref": "#/$defs/Count",
+                    "description": "Entries of category `symbol-library`."
+                },
+                "footprint": {
+                    "$ref": "#/$defs/Count",
+                    "description": "Entries of category `footprint`."
+                },
+                "model_3d": {
+                    "$ref": "#/$defs/Count",
+                    "description": "Entries of category `model-3d`."
+                },
+                "prism_settings": {
+                    "$ref": "#/$defs/Count",
+                    "description": "Entries of category `prism-settings`."
+                },
+                "symlink": {
+                    "$ref": "#/$defs/Count",
+                    "description": "Entries of category `symlink`."
+                },
+                "gitlink": {
+                    "$ref": "#/$defs/Count",
+                    "description": "Entries of category `gitlink`."
+                },
+                "total": {
+                    "$ref": "#/$defs/Count",
+                    "description": "All selected entries: the sum of the fields above, equal to the length of `entries`."
+                }
+            },
+            "required": [
+                "kicad_project",
+                "kicad_schematic",
+                "kicad_board",
+                "kicad_design_rules",
+                "kicad_worksheet",
+                "kicad_jobset",
+                "library_table",
+                "symbol_library",
+                "footprint",
+                "model_3d",
+                "prism_settings",
+                "symlink",
+                "gitlink",
+                "total"
+            ],
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "Number of selected entries per category. Each field is the count of entries whose `category` is the matching value."
+        },
+        "RevisionKeyErrorCode": {
+            "type": "string",
+            "enum": [
+                "config-invalid",
+                "project-absent",
+                "config-path-missing",
+                "unrepresentable-path",
+                "unsupported-entry",
+                "invalid-listing"
+            ],
+            "description": "Errors of the pure selection and hashing layers; each ends the whole computation. Every one but `project-absent` is a failure."
+        },
+        "Count": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "A count of things: a non-negative safe integer."
+        }
+    }
+}

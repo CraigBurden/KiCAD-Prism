@@ -78,8 +78,9 @@ Four things hold state you cannot recreate:
 component store and every component in the catalog exists, with a broken
 reference to its files. The two have to travel together.
 
-Everything else under `.kicad-prism` — job artifacts, semantic 3D bundles,
-KiCad database-library exports, validation runs — rebuilds on demand. On a
+Everything else under `.kicad-prism` — job artifacts, design bundles and their
+unpacked caches, KiCad database-library exports, validation runs — rebuilds on
+demand. On a
 working installation that is most of the bytes, and `prism_backup.py` leaves it
 out.
 

@@ -16,9 +16,10 @@ function change(reference: string): ChangeItem {
         classification: "primary",
         label: reference,
         reference,
-        object_kind: "footprint",
+        objectKind: "footprint",
         reasons: ["object-added"],
-        fields: { Layer: { old: null, new: "B.Cu" } },
+        fields: { Layer: { new: "B.Cu" } },
+        details: {},
     };
 }
 

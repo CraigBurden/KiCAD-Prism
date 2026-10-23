@@ -38,7 +38,18 @@ from app.services.workspace_migrations import m041_repository_origin
 from app.services.workspace_migrations import m055_project_path_settings
 from app.services.workspace_migrations import m056_release_studio_model_inputs
 from app.services.workspace_migrations import m057_job_retention_indexes
+from app.services.workspace_migrations import m100_design_bundle_commit_index
+from app.services.workspace_migrations import m101_design_bundles
+from app.services.workspace_migrations import m102_design_bundle_outcomes
+from app.services.workspace_migrations import m103_design_bundle_aliases
+from app.services.workspace_migrations import m118_design_bundle_design_keys
+from app.services.workspace_migrations import m120_sim_studio_setups
+from app.services.workspace_migrations import m121_sim_studio_runs
+from app.services.workspace_migrations import m122_sim_studio_layouts
 from app.services.workspace_migrations import m123_drop_system_builder_v1
+from app.services.workspace_migrations import m124_drop_mesh_viewer_readiness
+from app.services.workspace_migrations import m129_drop_system_builder_v2
+from app.services.workspace_migrations import m130_sim_run_solved_commit
 
 
 Migration = Callable[[Any], None]
@@ -70,13 +81,30 @@ MIGRATIONS: tuple[tuple[int, str, Migration], ...] = (
     (55, "project_path_settings", m055_project_path_settings.migrate),
     (56, "release_studio_model_inputs", m056_release_studio_model_inputs.migrate),
     (57, "job_retention_indexes", m057_job_retention_indexes.migrate),
+    # 100-103 and 118: the design bundle (WP-K; reserved block, native/contracts/prism/ownership.md §5).
+    (100, "design_bundle_commit_index", m100_design_bundle_commit_index.migrate),
+    (101, "design_bundles", m101_design_bundles.migrate),
+    (102, "design_bundle_outcomes", m102_design_bundle_outcomes.migrate),
+    (103, "design_bundle_aliases", m103_design_bundle_aliases.migrate),
+    (118, "design_bundle_design_keys", m118_design_bundle_design_keys.migrate),
+    (120, "sim_studio_setups", m120_sim_studio_setups.migrate),
+    (121, "sim_studio_runs", m121_sim_studio_runs.migrate),
+    (122, "sim_studio_layouts", m122_sim_studio_layouts.migrate),
     # 26-54 (but 41) were System Builder v1; 123 drops what they made.
     (123, "drop_system_builder_v1", m123_drop_system_builder_v1.migrate),
+    (124, "drop_mesh_viewer_readiness", m124_drop_mesh_viewer_readiness.migrate),
+    # 125-128 were System Builder v2; 129 drops what they made.
+    (129, "drop_system_builder_v2", m129_drop_system_builder_v2.migrate),
+    (130, "sim_run_solved_commit", m130_sim_run_solved_commit.migrate),
 )
 
 # Migrations that a long-lived branch database recorded under an earlier number.
 RENUMBERED: tuple[tuple[str, int, int], ...] = (
     ("repository_origin", 26, 41),
+    # Simulation Studio's first deployment recorded its migrations as 9056-9058.
+    ("sim_studio_setups", 9056, 120),
+    ("sim_studio_runs", 9057, 121),
+    ("sim_studio_layouts", 9058, 122),
 )
 
 

@@ -203,6 +203,7 @@ export async function loadGltfModels(url, options = {}) {
     const mesh = node.getMesh();
     if (mesh) {
       const rows = placementRows(node.getWorldMatrix());
+      rows[11] += Number(options.zOffset || 0);
       const featureId = Number(componentFeatures.get(designator)?.featureId || options.defaultFeatureId || 0);
       const nodeIndex = nextNode++;
       for (const primitive of mesh.listPrimitives()) {

@@ -1,0 +1,36 @@
+KiCAD Prism
+Licensed under the Apache License, Version 2.0 (see LICENSE).
+
+This product includes software and data from other projects, under their own
+licences:
+
+kicad_monkey (native/)
+  Copyright (c) 2026 Wavenumber LLC
+  Licensed under the MIT License; see native/LICENSE.
+  Imported from https://github.com/krishna-swaroop/kicad_monkey at b6316117,
+  a fork of https://github.com/wavenumber-eng/kicad_monkey.
+
+FreeType (native/src/rs/prism-kicad-core/src/fake_style.rs)
+  Portions of this software are copyright (c) 2024 The FreeType Project
+  (www.freetype.org). All rights reserved.
+  Used under the FreeType License (FTL); its full text is
+  native/licenses/FTL.TXT.
+
+Newstroke stroke fonts (native/assets/fonts/)
+  Dedicated to the public domain under CC0 1.0.
+
+KiCad drawing-sheet templates
+(native/tests/L1_parsing/cases/worksheets/input/: pagelayout_default,
+pagelayout_logo, A4_ISO5457-1999_ISO7200-2004_EN, gost_landscape)
+  From the KiCad template library, licensed under CC BY-SA 4.0 with the KiCad
+  libraries' exception for designs made with them. Used unmodified, as test
+  data only.
+
+Geometer client (native/third_party/geometer-client/)
+  Copyright (c) Wavenumber LLC
+  The Rust IPC client of https://github.com/wavenumber-eng/geometer
+  (src/rust/geometer-client) at commit 6d659f1811123fdbe665b3cfe1fc00cfaec32084 (2026.9.19),
+  vendored without its optional static-SDK dependency. Licensed under the MIT License; its text is in
+  native/third_party/geometer-client/LICENSE.
+
+Provenance and per-directory details: docs/architecture/native-provenance.md.

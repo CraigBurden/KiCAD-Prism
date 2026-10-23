@@ -1,0 +1,37 @@
+{
+ "case": "rs-cynthion",
+ "bundle": "/private/tmp/claude-503/-Users-Swaroop-Personal-Projects/f336681f-9155-4f00-80ce-4ac48096d8c0/scratchpad/c3/bundles/rs-cynthion.prism",
+ "documentPath": "cynthion.kicad_pcb",
+ "bundleSha256": "63ac118608f5f88925f1e7b5cd3870e2e4f2eb6b2a6e7ac3d8e75fb3ffe88266",
+ "config": "/Users/Swaroop/Personal-Projects/KiCAD-Platform/.worktrees/c3-d/backend/app/release_studio/documents/pcb-svg.config.json",
+ "configSha256": "846654369b1c27d95c885c7534f96c073b274887c85bffdb5f04d87aa9f32f64",
+ "views": [
+  "assembly_top_view",
+  "assembly_bottom_view"
+ ],
+ "argv": [
+  "pcb-svg",
+  "/private/tmp/claude-503/-Users-Swaroop-Personal-Projects/f336681f-9155-4f00-80ce-4ac48096d8c0/scratchpad/c3/hlr-golden/rs-cynthion/cynthion.kicad_pcb",
+  "--config",
+  "/Users/Swaroop/Personal-Projects/KiCAD-Platform/.worktrees/c3-d/backend/app/release_studio/documents/pcb-svg.config.json",
+  "--views",
+  "assembly_top_view,assembly_bottom_view",
+  "--output",
+  "/private/tmp/claude-503/-Users-Swaroop-Personal-Projects/f336681f-9155-4f00-80ce-4ac48096d8c0/scratchpad/c3/hlr-golden/rs-cynthion-views"
+ ],
+ "kicadCruncherVersion": "2026.9.7",
+ "geometerVersion": "2026.9.7",
+ "geometerAbi": 20260907,
+ "rustGeometerVersion": "2026.9.13",
+ "modelDirs": {
+  "KICAD6_3DMODEL_DIR": "/Applications/KiCad/KiCad.app/Contents/SharedSupport/3dmodels",
+  "KICAD9_3DMODEL_DIR": "/Applications/KiCad/KiCad.app/Contents/SharedSupport/3dmodels",
+  "KICAD10_3DMODEL_DIR": "/Applications/KiCad/KiCad.app/Contents/SharedSupport/3dmodels"
+ },
+ "footprints": 289,
+ "statuses": {
+  "model-not-step": 279,
+  "model-unavailable": 8,
+  "projected": 2
+ }
+}

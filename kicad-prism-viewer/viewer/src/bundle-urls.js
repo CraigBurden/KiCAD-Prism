@@ -1,4 +1,4 @@
-// Bundle URL helpers shared by the board viewer element and the system scene (SB2-27).
+// Bundle URL helpers for the board viewer element (SB2-27).
 
 export function withCacheKey(url, cacheKey) {
   if (!cacheKey) return url;

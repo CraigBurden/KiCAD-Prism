@@ -17,6 +17,7 @@ from app.release_studio import dossier as dossier_module
 from app.release_studio.documents.artwork import ArtworkError
 from app.release_studio.documents.engine import compose_documents
 from app.release_studio.documents.fonts import DEFAULT_TYPOGRAPHY
+from app.release_studio.documents.style import DEFAULT_SHEET_STYLE
 from app.release_studio.documents.inputs import DocumentInputs
 from app.release_studio.pipeline import PipelineTracker
 from app.release_studio.steps import DOCUMENT_STEP_SPEC, StepOutput
@@ -34,11 +35,12 @@ def with_documents(
     output_root: Path,
     cli: KicadTool | None,
     staging: Path,
-    cruncher: KicadTool | None = None,
     repo_root: Path | None = None,
     project_relpath: str | None = None,
     assembly_views: Mapping[str, Any] | None = None,
     assembly_error: BaseException | None = None,
+    artwork_sheet_size: str | None = None,
+    artwork_paper_scale: float | None = None,
     timings: list[dict[str, Any]] | None = None,
     tracker: PipelineTracker | None = None,
     repo_url: str = "",
@@ -65,10 +67,11 @@ def with_documents(
             candidate=candidate,
             output_root=output_root,
             cli=cli,
-            cruncher=cruncher,
             staging=staging,
             repo_root=repo_root,
             repo_url=repo_url,
+            artwork_sheet_size=artwork_sheet_size,
+            artwork_paper_scale=artwork_paper_scale,
         )
     except Exception as exc:  # noqa: BLE001
         logger.exception("Release Studio projections failed before compose")
@@ -100,7 +103,23 @@ def with_documents(
 
         compose_kwargs["assembly_acquirer"] = _failed_assembly
     elif assembly_views is not None:
-        compose_kwargs["assembly_acquirer"] = lambda *_args, **_kwargs: assembly_views
+        # The bundle artwork call returns assembly and testpoint views in one
+        # mapping; each sheet family gets its own side of it.
+        assembly = {
+            key: view
+            for key, view in assembly_views.items()
+            if not key.startswith("testpoint-")
+        }
+        testpoints = {
+            key: view
+            for key, view in assembly_views.items()
+            if key.startswith("testpoint-")
+        }
+        compose_kwargs["assembly_acquirer"] = lambda *_args, **_kwargs: assembly
+        if testpoints:
+            compose_kwargs["testpoint_acquirer"] = (
+                lambda *_args, **_kwargs: testpoints
+            )
 
     compose_started = time.perf_counter()
     try:
@@ -197,28 +216,24 @@ def _gather_document_inputs(
     candidate: Mapping[str, Any],
     output_root: Path,
     cli: KicadTool | None,
-    cruncher: KicadTool | None,
     staging: Path,
     repo_root: Path | None,
     repo_url: str,
+    artwork_sheet_size: str | None = None,
+    artwork_paper_scale: float | None = None,
 ) -> tuple[DocumentInputs, list[str], dict[str, Any]]:
     """Project board facts into a typed document-input record."""
 
-    from app.release_studio.projections import (
-        board_designators,
-        load_board_model,
-        project_board_stats_file,
-        project_population,
-        project_testpoints,
-        project_stackup,
-        project_variants,
-    )
-    from app.release_studio.semantic import semantic_scope_projections
-    from app.services import semantic_index_service
+    from app.release_studio import bundle_design, bundle_projections
+    from app.release_studio.projections import project_board_stats_file
 
     warnings: list[str] = []
     board_rel = str(config.get("board") or "")
-    board = closure_root / board_rel if board_rel else None
+    project_relpath = str(candidate.get("project_relpath") or "")
+    design = bundle_design.for_candidate(candidate)
+    # The document engine's own plots and renders read the same board the
+    # catalogue steps do (refilled/, or the saved board).
+    board = design.board_path(board_rel, project_relpath) if board_rel else None
 
     def _project(label: str, fn, default):
         """Run one projection; a failure costs that table, not the sheet set."""
@@ -242,43 +257,14 @@ def _gather_document_inputs(
     testpoints: dict[str, Any] = {}
     population: dict[str, Any] = {}
     designators: tuple[str, ...] = ()
-    parsed_pcb = None
-    fallback_reason = None
-    if board is not None and board.is_file():
-        # One parse for both projections.  On a 35 MB board this is over two
-        # minutes of work, and doing it twice for the same file was the
-        # single largest avoidable cost in a build.
-        model = _project("board model", lambda: load_board_model(board), (None, None))
-        stackup = _project("stackup", lambda: project_stackup(board, model=model), {})
-        if stackup.get("source") == "kicad_monkey.fallback":
-            warnings.append(
-                "documentation: stackup used the kicad_monkey targeted fallback "
-                f"({stackup.get('fallback_reason') or 'typed model rejected the board'})"
-            )
-        # Schematic variants live in the *project* file, not the schematic:
-        # `schematic_settings.cpp:266` reads them from `.kicad_pro`.
-        project_file = board.with_suffix(".kicad_pro")
-        # Only a *typed* model can answer the variant question; the targeted
-        # stackup fallback has no footprints, so that case re-parses.
-        parsed_pcb, fallback_reason = model
-        variants = _project(
-            "variants",
-            lambda: project_variants(
-                board,
-                project_file if project_file.is_file() else None,
-                pcb=None if fallback_reason else parsed_pcb,
-            ),
-            {},
-        )
-        testpoints = _project(
-            "testpoints", lambda: project_testpoints(board, model=model), {}
-        )
-        population = _project(
-            "population", lambda: project_population(board, model=model), {}
-        )
-        designators = _project(
-            "designators", lambda: board_designators(board, model=model), ()
-        )
+    # The readiness check at the start of the build made these members final,
+    # so a read fault here fails the build rather than falling back.
+    bundled = bundle_projections.board_projections_from_design(design)
+    stackup = bundled["stackup"]
+    variants = bundled["variants"]
+    testpoints = bundled["testpoints"]
+    population = bundled["population"]
+    designators = bundled["designators"]
 
     placements = _placements(output_root / "assembly/positions.csv")
     projections: dict[str, Any] = {
@@ -290,22 +276,9 @@ def _gather_document_inputs(
         "population": population,
     }
 
-    project_file = board.with_suffix(".kicad_pro") if board is not None else None
-    if project_file is not None and project_file.is_file():
-        semantic_index = _project(
-            "semantic index",
-            lambda: semantic_index_service.build_semantic_index(
-                project_file,
-                source_revision_key=(
-                    semantic_index_service.source_revision_key_for_project_file(project_file)
-                ),
-                commit=str(candidate.get("commit_sha") or "") or None,
-                pcb=None if fallback_reason else parsed_pcb,
-            ),
-            {},
-        )
-        if semantic_index:
-            projections["semantic"] = semantic_scope_projections(semantic_index)
+    # C3b: the a0-compatible view of the bundle's semantic index.  Not a
+    # fallback: readiness already established the member.
+    projections["semantic"] = bundle_projections.semantic_scope_from_design(design)
 
     # The cover lists the members produced so far; it cannot list itself.
     existing = dossier_module.build_members(list(outputs))
@@ -326,7 +299,12 @@ def _gather_document_inputs(
     )
 
     typography = str(config.get("typography") or DEFAULT_TYPOGRAPHY)
-    logger.info("Release Studio using typography %s", typography)
+    sheet_style = str(config.get("sheet_style") or DEFAULT_SHEET_STYLE)
+    logger.info(
+        "Release Studio using typography %s and sheet style %s",
+        typography,
+        sheet_style,
+    )
 
     impedance_rows = list(candidate.get("_impedance_rows") or [])
     stackup_pdf = candidate.get("_stackup_pdf") or None
@@ -356,14 +334,16 @@ def _gather_document_inputs(
         notes=config.get("notes") or {},
         fields=config.get("fields") or {},
         typography=typography,
+        sheet_style=sheet_style,
         revision_history=revision_history,
         impedance_rows=impedance_rows,
         stackup_pdf=stackup_pdf if isinstance(stackup_pdf, (bytes, bytearray)) else None,
         bom_headers=bom_headers,
         bom_rows=bom_rows,
+        sheet_size=artwork_sheet_size,
+        artwork_paper_scale=artwork_paper_scale,
         board=board if board and board.is_file() else None,
         cli=cli,
-        cruncher=cruncher,
         workdir=staging / "artwork",
     )
     return inputs, warnings, projections

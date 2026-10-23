@@ -11,7 +11,11 @@ from __future__ import annotations
 import re
 from typing import Any, Mapping, Sequence
 
-from app.release_studio.documents.layout import Table
+from app.release_studio.documents.fonts import (
+    DEFAULT_TYPOGRAPHY,
+    unsupported_codepoints,
+)
+from app.release_studio.documents.layout import Table, fit_text
 
 
 def _mm(value: Any, digits: int = 3) -> str:
@@ -138,11 +142,14 @@ def board_summary(
     pads = stats.get("pads") if isinstance(stats.get("pads"), Mapping) else {}
     total_holes = sum(int(item.get("count") or 0) for item in holes)
 
+    # The total and its front/back split come from the same KiCad statistics,
+    # so they always add up. The position file is a different set: it leaves
+    # out footprints marked "exclude from position files", so it gets its own,
+    # plainly named row rather than silently replacing the split (JTYU-OBC:
+    # 479 / 503 of 982 components, 899 in the position file).
     front = components.get("front")
     back = components.get("back")
-    if placements:
-        front = sum(1 for item in placements if str(item.get("side") or "").lower() == "top")
-        back = sum(1 for item in placements if str(item.get("side") or "").lower() == "bottom")
+    placed = len(placements) if placements else None
 
     smd = pads.get("smd")
     through_hole = pads.get("through_hole")
@@ -154,8 +161,10 @@ def board_summary(
         ("Board area", _text(board.get("area"))),
         ("Components", _text(components.get("total"))),
         ("Front / back", f"{_text(front)} / {_text(back)}"),
-        ("Pads (SMD / TH)", f"{_text(smd)} / {_text(through_hole)}"),
     ]
+    if placed is not None:
+        rows.append(("In position file", _text(placed)))
+    rows.append(("Pads (SMD / TH)", f"{_text(smd)} / {_text(through_hole)}"))
     if pad_total is not None:
         rows.append(("Pads total", _text(pad_total)))
     rows.extend(
@@ -362,7 +371,7 @@ def drill_table(stackup: Mapping[str, Any], stats: Mapping[str, Any]) -> Table:
                 # backend can only emit what the base-14 fonts encode -- so the
                 # two renderings of this sheet would show different text.
                 f"{_text(entry.get('start_layer'))} - {_text(entry.get('stop_layer'))}",
-                _text(entry.get("x_size")),
+                _drill_size(entry),
                 "yes" if entry.get("plated") else "no",
                 _text(entry.get("count")),
             )
@@ -376,6 +385,22 @@ def drill_table(stackup: Mapping[str, Any], stats: Mapping[str, Any]) -> Table:
         widths=(18.0, 34.0, 22.0, 16.0, 14.0),
         align=("start", "start", "end", "middle", "end"),
     )
+
+
+def _drill_size(entry: Mapping[str, Any]) -> str:
+    """A round hole's diameter, or a slot's length by width.
+
+    KiCad's statistics group slots by both sizes (``shape: "Slot"``); printing
+    only ``x_size`` would read as a round hole of the slot's length.
+    """
+
+    x_size = _text(entry.get("x_size"))
+    y_size = entry.get("y_size")
+    if str(entry.get("shape") or "").casefold() != "slot" or not y_size or y_size == entry.get("x_size"):
+        return x_size
+    unit = " mm"
+    length = x_size[: -len(unit)] if x_size.endswith(unit) else x_size
+    return f"{length} x {_text(y_size)}"
 
 
 def via_statistics_table(stackup: Mapping[str, Any]) -> Table:
@@ -499,40 +524,160 @@ def _designator_sort_key(reference: str) -> tuple[str, int, str]:
     return (reference.strip().upper(), 0, reference)
 
 
+#: KiCad writes an overbar as ``~{TEXT}``.
+_OVERBAR = re.compile(r"~\{([^}]*)\}")
+_COMBINING_OVERLINE = "\u0305"
+
+
+def _can_set_overbar(typography: str) -> bool:
+    return not unsupported_codepoints(
+        _COMBINING_OVERLINE, role="mono", typography=typography
+    )
+
+
+def _render_overbar(value: str, typography: str) -> str:
+    """Turn ``~{RESET}`` into an overline the selected face can actually set.
+
+    Geist has no combining overline, so the fallback is KiCad's older ``/X``
+    form: a reader of a plotter drawing already knows that slash means "bar
+    over the following text", and a sheet must not carry a missing glyph.
+    """
+
+    supported = _can_set_overbar(typography)
+
+    def _run(match: re.Match[str]) -> str:
+        text = match.group(1)
+        if supported:
+            return "".join(character + _COMBINING_OVERLINE for character in text)
+        return "/" + text
+
+    return _OVERBAR.sub(_run, value)
+
+
+def _shortest_unique_suffix(net: str, peers: Sequence[str]) -> str:
+    """The shortest path suffix that names this net uniquely among *peers*."""
+
+    text = str(net or "").strip()
+    if not text or "/" not in text:
+        return text
+    parts = [part for part in text.split("/") if part]
+    if len(parts) <= 1:
+        return text
+    for count in range(1, len(parts) + 1):
+        candidate = "/".join(parts[-count:])
+        matches = [
+            peer
+            for peer in peers
+            if peer == text or peer.endswith("/" + candidate)
+        ]
+        if len(matches) <= 1:
+            return candidate
+    return text
+
+
+def _net_display(
+    net: Any, peers: Sequence[str], typography: str
+) -> str:
+    text = str(net or "").strip()
+    if not text or text == "—":
+        return "—"
+    return _render_overbar(_shortest_unique_suffix(text, peers), typography)
+
+
+def dnp_table(designators: Sequence[Any], *, width: float = 92.0) -> Table:
+    """The do-not-populate designators, as a small schedule under the legend.
+
+    Sorted naturally (``R2`` before ``R10``) and wrapped into the column, so the
+    assembly sheet can keep the note's promise that they are listed separately.
+    """
+
+    references = sorted(
+        {str(item).strip() for item in designators if str(item).strip()},
+        key=_designator_sort_key,
+    )
+    rows = ((", ".join(references),),) if references else (("—",),)
+    return Table(
+        title="DO NOT POPULATE",
+        columns=("Designators",),
+        rows=rows,
+        widths=(width,),
+        max_cell_lines=12,
+        cell_family="mono",
+    )
+
+
 def testpoint_table(
     testpoints: Mapping[str, Any] | Sequence[Mapping[str, Any]],
     side: str,
     *,
     width: float = 92.0,
+    typography: str = DEFAULT_TYPOGRAPHY,
 ) -> Table:
-    """Where to put a probe: designator and position, for one side.
+    """Where to put a probe: designator, net and position, for one side.
 
     A testpoint drawing without coordinates only says a testpoint exists
     somewhere.  These are the footprint's own board coordinates, which is what
-    a probe fixture is dimensioned against.
+    a probe fixture is dimensioned against.  The net is the electrical target a
+    reader actually probes for; it is one line per row and ellipsized at the
+    column edge rather than wrapped, because a schedule that grows a second
+    line for every long net name stops being a schedule.
+
+    The coordinates are the position file's (``assembly/positions.csv`` of the
+    same release): KiCad's page origin with y pointing up, so a probe fixture
+    dimensioned from either agrees. The projection carries KiCad's internal y,
+    which points down; it is negated here.
+
+    The net's hierarchical sheet path is dropped when the leaf is unique on the
+    side, and otherwise reduced to the shortest unique suffix.  ``/Debugger/
+    MCU_SWCLK`` is a location, not a probe target; ``MCU_SWCLK`` is.
     """
 
+    share = width / 4.0
+    # The net is the wide column; designators are short but their header is
+    # not, so neither is squeezed to make room for the coordinates.
+    widths = (share * 0.8, share * 1.3, share * 0.95, share * 0.95)
+    # Fit the net at this table's own type size and cell gutter so a long name
+    # ends in an ellipsis at the column edge instead of being clipped there.
+    net_limit = max(widths[1] - 2.4 * 0.5, 1.0)
+    found = sorted(
+        testpoints_for_side(testpoints, side),
+        key=lambda item: _designator_sort_key(str(item.get("ref") or "")),
+    )
+    peers = [str(item.get("net") or "").strip() for item in found]
     rows = [
         (
             str(item.get("ref") or ""),
+            fit_text(
+                _net_display(item.get("net"), peers, typography),
+                net_limit,
+                2.4,
+                family="mono",
+                typography=typography,
+            ),
             _mm(item.get("x"), 3),
-            _mm(item.get("y"), 3),
+            _mm(_position_file_y(item.get("y")), 3),
         )
-        for item in sorted(
-            testpoints_for_side(testpoints, side),
-            key=lambda item: _designator_sort_key(str(item.get("ref") or "")),
-        )
+        for item in found
     ]
     if not rows:
-        rows = [("no testpoints on this side", "—", "—")]
-    share = width / 3.0
+        rows = [("no testpoints on this side", "—", "—", "—")]
     return Table(
         title=f"TESTPOINTS — {side.upper()}",
-        columns=("Designator", "X mm", "Y mm"),
+        columns=("Designator", "Net", "X mm", "Y mm"),
         rows=tuple(rows),
-        widths=(share * 1.2, share * 0.9, share * 0.9),
-        align=("start", "end", "end"),
+        widths=widths,
+        align=("start", "start", "end", "end"),
+        max_cell_lines=1,
     )
+
+
+def _position_file_y(value: Any) -> Any:
+    """KiCad's internal y (down) as the position file writes it (up)."""
+
+    try:
+        return -float(value) if value is not None else None
+    except (TypeError, ValueError):
+        return value
 
 
 def key_value_table(title: str, pairs: Sequence[tuple[str, str]], *, width: float = 110.0) -> Table:
@@ -543,4 +688,22 @@ def key_value_table(title: str, pairs: Sequence[tuple[str, str]], *, width: floa
         columns=("Property", "Value"),
         rows=tuple((key, value) for key, value in pairs),
         widths=(width * 0.42, width * 0.58),
+    )
+
+
+def notes_table(notes: Sequence[str], *, width: float = 136.0) -> Table:
+    """A drawing sheet's numbered notes as a schedule for a continuation page.
+
+    Used only when a sheet's notes cannot sit under its drawing at the set's
+    ratio; the continuation page then carries them with the sheet's tables.
+    """
+
+    rows = tuple((str(index), str(note)) for index, note in enumerate(notes, start=1))
+    return Table(
+        title="NOTES",
+        columns=("#", "Note"),
+        rows=rows or (("—", "—"),),
+        widths=(8.0, width - 8.0),
+        align=("end", "start"),
+        max_cell_lines=6,
     )

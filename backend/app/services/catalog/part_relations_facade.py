@@ -3,9 +3,7 @@
 A facade beside the compatibility facade (``component_catalog_domain``), which
 exposes it as ``catalog_service.part_relations``. It owns its transactions, like
 that facade, over the shared revision kernel. ``connect`` opens a catalog
-connection and ``initialize`` makes sure the schema exists. System Builder v2
-(``docs/architecture/adr-system-builder-v2.md``) reads both: housings mate with
-housings, and the assembly places aligned models.
+connection and ``initialize`` makes sure the schema exists.
 """
 
 from __future__ import annotations

@@ -55,7 +55,7 @@ base-table change is a new step. Only the epoch guard and derived state
 
 `catalog_validation`, `catalog_preview_generation`, `project_component_import`,
 `folder_library_import`, `artifact_maintenance`, `catalog_metadata_batch`,
-`catalog_model_glb` (System Builder STEP → GLB with Geometer), `project_catalog_usage`
+`catalog_model_glb` (catalog STEP → GLB with Geometer), `project_catalog_usage`
 (which catalog revision a synced commit placed; `project_catalog_usage_service.py`
 over `catalog/project_placements.py`, queued after each sync).
 
@@ -100,10 +100,10 @@ nothing writes into a checkout, because Sync fast-forwards only a clean tree.
 
 ## KiCad tools
 
-`kicad_tools.py` is the only place that locates or starts `kicad-cli` and
-`kicad-cruncher` (Settings `KICAD_CLI_PATH`, `KICAD_CRUNCHER_PATH`). Callers take
-a `KicadTool` and state a timeout; do not add `subprocess` calls or path lookups
-for them elsewhere. `kicad_tool_replay.py` records and replays runs for tests.
+`kicad_tools.py` is the only place that locates or starts `kicad-cli`
+(Settings `KICAD_CLI_PATH`). Callers take a `KicadTool` and state a timeout; do
+not add `subprocess` calls or path lookups for them elsewhere.
+`kicad_tool_replay.py` records and replays runs for tests.
 
 ## KiCad library text
 
@@ -116,46 +116,105 @@ discovery (`kicad_library_discovery.py`), folder import
 component extraction and the semantic index use it. Do not add another
 balancer or property regex.
 
+## Project component import
+
+`project_component_import_service.py` scans one session's projects into catalog
+proposals. `project_component_bundle_assets.py` is the only asset index (R1):
+it joins a component through the bundle's occurrences and placements
+projections, sources the symbol and footprint from the project's own symbol and
+footprint library tables, and resolves 3D models from the bundle's project
+projection. A member that is still building raises `DesignDataPending` and the
+import session retries. `project_component_asset_extractor.py` keeps the shared
+text helpers (`footprint_land_pattern`, `ContentAddressedAssetStager`,
+`sanitize_board_footprint`) for the bundle index; its checkout walk
+(`ProjectAssetSnapshotIndex`, `build_project_asset_index`) is gone with R1, and
+the catalog's library-file readers are the allow-listed tool uses (R2).
+
+## Viewer sources
+
+`project_viewer_sources_bundle.py` maps the viewer-source routes
+(`backend/app/api/project_viewer_sources.py`) onto a revision's bundle: the
+bundle manifest's effective configuration names the project file, root
+schematic and board, and its project projection lists the hierarchy's
+schematics and their resolved drawing sheets. A request without a commit reads
+the checkout's HEAD. It never reads a `.kicad_pro` or scans a directory, and it
+declines (404) rather than approximating when the bundle has no answer. The
+`/3d-model` route stays legacy: it serves a committed design-output model, which
+the bundle does not carry.
+
+## 3D tab
+
+`viewer_3d_bundle.py` serves the 3D tab from the design bundle (ADR amendment
+V2): the status the tab already reads, built from the pack's and the parts
+GLB's readiness (opening the revision queues its `design_bundle` build), the
+viewer's `prism.viewer_3d.analytic.a0` document, and the pack, stackup and GLB
+members by revision key under the asset route's design-bundle prefix
+(`backend/app/api/project_viewer_3d.py`). There is no mesh path; it went at
+System Builder v2's stage 0.
+
 ## Design variants
 
-`project_source_snapshot.py` resolves a working tree or an exact commit
-(through `project_revision.py`) and keys it by the configured anchor; `variant_catalog_service.py` discovers the
-ordered catalog from source text; `semantic_index_variants.py` resolves
-effective default and per-variant occurrence/component/footprint state through
-the pinned kicad-monkey helpers (applying the sheet fold and version gate the
-resolver leaves to the caller); `semantic_index_service.py` publishes the
-`assembly` block, joins it onto existing `componentUid`s, and hashes the three
-modules into `GENERATOR_BUILD`. Resolver semantics belong to the frozen
+`variant_catalog_service.py` reads the ordered catalog from the bundle's
+semantic-index member (a2): `assembly.catalog` is the catalog and the member's
+own diagnostics are the catalog's, with bundle paths mapped back to
+project-relative spelling. There is one path — no source scanner and no
+`bundle_only` switch (WP-X). A member that is
+building raises `DesignDataPending` and one that failed `DesignDataFailed`;
+Release Studio's Source step treats either as best-effort and offers only the
+explicit default. `project_source_snapshot.py` keeps only the revision-identity
+seam (`project_revision_identity`, `_anchor_source`) that comment anchors use;
+its checkout snapshot and catalog cache went with WP-X.
+The `assembly` block (default and per-variant occurrence, component and
+footprint state) comes from the bundle's semantic-index member (a2), built by
+`prism-kicad`; the Python resolver (`semantic_index_variants`) and the
+Python index build are gone (WP-R2). Resolver semantics belong to the frozen
 design-variant contract packet (issue #169), not to this file.
+`semantic_index_service` is a reader: every public function serves the bundle's
+semantic-index member (a2), a request without a commit reading HEAD. A member
+that is building raises `DesignDataPending` and one that failed
+`DesignDataFailed`. Its remaining cache-key helpers (`_revision_identity`,
+`_revision_key`, `_source_entries_*`, `source_revision_key_for_project_file`)
+are shared with the catalog, comment anchors and Sim Studio; they read Git
+listings only. `generator_cache_tag()` names the design-bundle generator
+contract for catalog provenance.
 
 ## Design comparison
 
-`design_compare_service.py` orchestrates; `design_compare_nodes.py` turns
-the parser's object delta into change records; `design_compare_occurrences.py`
-owns a revision's component occurrences (fields in the project BOM's mapping
-and column names, sheet-folded `DNP` / `In BOM`, designator identity) and the
-BOM rows built from them;
-`design_compare_net_pairing.py` decides which nets correspond across
-revisions; `design_compare_semantics.py` diffs nets, buses and sheet
-instances (grouping into review items is the frontend's);
-`design_compare_artifacts.py` persists output; `design_compare_sources.py`
-resolves revisions. The object index and delta come from the Node package
-`backend/design-compare-parser/` (`ecad-parse.mjs`, `ecad-diff.mjs`, the
-vendored parser; `npm test` there). The correctness rules
-for this pipeline are in
-`frontend/src/components/design-comparison/AGENTS.md`, because most of the ways
-to get it wrong are visible on the frontend side.
+Design Comparison has one path (R1): `design_compare_bundle_path.py` (§9 step
+5). Each side comes from its bundle, or from its source tree materialized as
+the `design_bundle` job does (`design_bundle/jobs.py` `prepare_sources`);
+`prism-kicad compare` computes every tab but fabrication; fabrication stays
+`kicad-cli`, cached by bundle key; the artifact is the
+`prism.design_compare_bundle_v2` manifest. `design_compare_service.py` keeps
+the revision cache, the fabrication plot, the render sidecars and the job
+status reads; the staged legacy pipeline, its Node parser and the
+`design_compare_nodes`/`occurrences`/`semantics`/`net_pairing`/`sources`/
+`document_diff_service`/`bom_diff_service` modules were deleted with R1.
 
 Settled (D24, D25): a change kind's category and primary/secondary stay on the
-backend (`_node_classification`); the frontend kind table holds domain, noun
-and traits only. There are two component ids on purpose: the project semantic
-index keys a component by `(reference, symbol UUID)`, design comparison keys a
-review row by designator (`component_uid(reference)`), because a comparison
-matches parts across revisions where symbol UUIDs may change. Unifying them
-would change every cached index's `componentUid` and the variant join.
+backend (in `prism-kicad compare`, `compare/result/objects.rs`); the frontend
+kind table holds domain, noun and traits only. There are two component ids on
+purpose: the project semantic index keys a component by `(reference, symbol
+UUID)`, design comparison keys a review row by designator
+(`component_uid(reference)`), because a comparison matches parts across
+revisions where symbol UUIDs may change. Unifying them would change every
+cached index's `componentUid` and the variant join.
 
 One backend rule: the viewer must never infer the old route from the comparison
-object (`design_compare_nodes.py`). Each revision carries its own geometry.
+object. Each revision carries its own geometry (amendment C2r).
+
+## Superseded stores
+
+`superseded_store_cleanup.py` runs once from the API lifespan (WP-R4, ADR §8):
+it removes the old `semantic-index` and `semantic-visualizer` directories under
+the data root's `.kicad-prism`, both retired with their readers, and the 3D
+commit index they carried (the per-project commit index file) goes with the
+latter. It logs the bytes reclaimed and records a marker beside them so a
+restart does nothing. It refuses symlinks and never removes anything outside
+the configured data root. `system_interface_artifacts` and
+`system_bundle_frames` were dropped by workspace migration 123. The Design
+Comparison revision cache is deliberately not part of this: source-tree
+comparisons and the fabrication plot cached by bundle key still use it.
 
 ## System Builder
 

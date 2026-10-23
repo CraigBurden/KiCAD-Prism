@@ -1,5 +1,4 @@
 import asyncio
-import json
 import logging
 import mimetypes
 import os
@@ -13,6 +12,7 @@ from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, Upl
 from fastapi.responses import FileResponse, Response
 from pydantic import BaseModel, Field
 
+from app.api._blocking import run_bounded_io
 from app.api._helpers import authorized_project, get_project_for_role_or_404, _row_to_project, require_output_type, resolve_path_within_root
 from app.core.errors import caller_error, caller_errors, value_errors_as
 from app.core.config import settings
@@ -25,12 +25,9 @@ from app.services import (
     path_config_service,
     project_deletion,
     project_import_service,
-    project_metadata_service,
     project_revision,
     project_service,
     project_settings_service,
-    semantic_index_service,
-    semantic_visualizer_service,
 )
 from app.services.workspace_service import ProjectHasSignedReleasesError, workspace
 from app.services.comments_url_service import build_comments_source_urls, resolve_comments_base_url
@@ -40,13 +37,13 @@ from app.services.git_service import (
     get_commit_file_summary,
     get_commits_list,
     get_commits_list_filtered,
+    get_head_commit,
     get_releases,
     get_releases_filtered,
 )
 from app.services.git_failures import GitAccessError
 from app.services.git_remote_url import RemoteUrlError, parse_remote_url
 from app.services.path_config_service import PathConfig
-from app.services.job_service import jobs as v3_jobs
 
 logger = logging.getLogger(__name__)
 
@@ -55,78 +52,12 @@ router = APIRouter(dependencies=[Depends(require_viewer)])
 ARCHIVE_DIR_NAMES = {"archive", "archived", "old", "backup", "backups", "obsolete"}
 
 
-def _worksheet_path_key(path: str | Path) -> tuple[int, int, str]:
-    normalized = str(path).replace("\\", "/")
-    parts = [part.casefold() for part in normalized.split("/")]
-    archived = int(any(part in ARCHIVE_DIR_NAMES for part in parts))
-    return archived, len(parts), normalized.casefold()
-
 class Monorepo(BaseModel):
     name: str
     path: str
     project_count: int
     last_synced: Optional[str] = None
     repo_url: Optional[str] = None
-
-
-class ProjectPropertiesTitleBlock(BaseModel):
-    # KiCad's title block also carries rev, company and numbered comments.
-    # Prism parsed all of them and rendered none; narrowed to what the
-    # properties panel displays.
-    title: str = ""
-    date: str = ""
-
-
-class ProjectPropertiesSchematicFile(BaseModel):
-    path: str
-    filename: str
-    version: Optional[int] = None
-    generator: Optional[str] = None
-    generator_version: Optional[str] = None
-    title_block: Optional[ProjectPropertiesTitleBlock] = None
-
-
-class ProjectPropertiesPcbFile(BaseModel):
-    path: str
-    filename: str
-    version: Optional[int] = None
-    generator: Optional[str] = None
-    generator_version: Optional[str] = None
-    dimensions_mm: Optional[Dict[str, float]] = None
-    thickness_mm: Optional[float] = None
-    title_block: Optional[ProjectPropertiesTitleBlock] = None
-
-
-class ProjectPropertiesLatestCommit(BaseModel):
-    hash: str
-    full_hash: str
-    author: str
-    email: str
-    date: str
-    message: str
-
-
-class ProjectPropertiesTag(BaseModel):
-    tag: str
-    commit_hash: str
-    date: str
-    message: str
-
-
-class ProjectPropertiesRepository(BaseModel):
-    latest_commit: Optional[ProjectPropertiesLatestCommit] = None
-    latest_tag: Optional[ProjectPropertiesTag] = None
-
-
-class ProjectPropertiesFiles(BaseModel):
-    schematic: Optional[ProjectPropertiesSchematicFile] = None
-    pcb: Optional[ProjectPropertiesPcbFile] = None
-
-
-class ProjectPropertiesResponse(BaseModel):
-    project: project_service.Project
-    repository: ProjectPropertiesRepository
-    files: ProjectPropertiesFiles
 
 
 def _project_location(project: project_service.Project) -> project_revision.ProjectLocation:
@@ -219,72 +150,6 @@ def _read_commit_file(
     )
 
 
-def _anchored_commit_path(
-    project: project_service.Project,
-    paths: List[str],
-    suffix: str,
-) -> Optional[str]:
-    """Select this project's root file from a commit listing.
-
-    The default schematic/PCB globs are shared by every project in the
-    directory. Once a project has an anchor, falling back to the first match is
-    the same identity bug as ignoring the anchor altogether. Legacy rows have
-    no anchor and retain the deterministic first-match behaviour.
-    """
-    if not paths:
-        return None
-    anchor = project_service.project_anchor(project)
-    if not anchor:
-        return paths[0]
-    expected = Path(anchor).with_suffix(suffix).name
-    return next((path for path in paths if path == expected), None)
-
-
-def _sibling_root_schematic_names(
-    project: project_service.Project, project_paths: List[str]
-) -> set[str]:
-    """Root schematics owned by the other anchored projects in this directory."""
-    anchor = project_service.project_anchor(project)
-    if not anchor:
-        return set()
-    own_project = Path(anchor).name
-    return {
-        Path(path).with_suffix(".kicad_sch").name
-        for path in project_paths
-        if Path(path).name != own_project
-    }
-
-
-def _read_configured_commit_file(
-    project: project_service.Project,
-    commit: str,
-    configured_path: Optional[str],
-    *,
-    not_found_detail: str,
-) -> file_service.CommitFile:
-    path = configured_path or ""
-    if not path:
-        raise HTTPException(status_code=404, detail=not_found_detail)
-
-    if "*" not in path:
-        return _read_commit_file(project, commit, path, not_found_detail=not_found_detail)
-
-    repo_path, sub_path = _repo_context(project)
-    matches = file_service.find_files_in_commit(repo_path, commit, path, relative_prefix=sub_path)
-    if not matches:
-        raise HTTPException(status_code=404, detail=not_found_detail)
-    selected = matches[0]
-    default_suffix = {
-        path_config_service.DEFAULT_PATHS["schematic"]: ".kicad_sch",
-        path_config_service.DEFAULT_PATHS["pcb"]: ".kicad_pcb",
-    }.get(path)
-    if default_suffix:
-        selected = _anchored_commit_path(project, matches, default_suffix)
-        if selected is None:
-            raise HTTPException(status_code=404, detail=not_found_detail)
-    return _read_commit_file(project, commit, selected, not_found_detail=not_found_detail)
-
-
 #: Larger commit files are served from the content-addressed blob cache, not read whole.
 COMMIT_FILE_STREAM_BYTES = 1 << 20
 
@@ -318,33 +183,6 @@ def _files_from_commit(
         commit,
         directory_path,
         relative_prefix=sub_path,
-    )
-
-
-def _find_commit_3d_model(
-    project: project_service.Project,
-    commit: str,
-    config: PathConfig,
-) -> file_service.CommitFile:
-    design_dir = _output_dir_from_config(config, "design")
-    files = _files_from_commit(project, commit, design_dir)
-
-    model_files = [
-        item for item in files
-        if not item.is_dir and item.name.lower().endswith((".glb", ".step", ".stp"))
-    ]
-    selected = next((item for item in model_files if item.path.lower().startswith("3dmodel/")), None)
-    if selected is None:
-        selected = next((item for item in model_files if "/" not in item.path), None)
-    if selected is None:
-        raise HTTPException(status_code=404, detail="3D model not found")
-
-    return _read_commit_file(
-        project,
-        commit,
-        selected.path,
-        relative_prefix=design_dir,
-        not_found_detail="3D model not found",
     )
 
 
@@ -680,10 +518,9 @@ async def sync_project_endpoint(project_id: str, user: AuthenticatedUser = Depen
     }
 
 class WorkflowRequest(BaseModel):
-    type: str # design, manufacturing, render, webgpu_3d
+    type: str # design, manufacturing, render
     author: Optional[str] = "anonymous"
     force: bool = False
-    commit: Optional[str] = None
 
 @router.post("/{project_id}/workflows", dependencies=[Depends(require_designer)])
 async def trigger_workflow(
@@ -694,7 +531,7 @@ async def trigger_workflow(
     """
     Trigger a KiCAD workflow (jobset output).
     """
-    valid_types = ["design", "manufacturing", "render", "webgpu_3d"]
+    valid_types = ["design", "manufacturing", "render"]
     if request.type not in valid_types:
         raise HTTPException(status_code=400, detail="Invalid workflow type")
         
@@ -706,165 +543,8 @@ async def trigger_workflow(
             request.type,
             request.author,
             force=request.force,
-            commit=request.commit if request.type == "webgpu_3d" else None,
         )
         return {"job_id": job_id}
-
-
-@router.get("/{project_id}/semantic-index/status")
-async def get_semantic_index_status(
-    project_id: str,
-    commit: Optional[str] = Query(default=None),
-    user: AuthenticatedUser = Depends(require_viewer),
-):
-    project = get_project_for_role_or_404(project_id, user.role)
-    with value_errors_as(400):
-        return await asyncio.to_thread(semantic_index_service.get_status, project, commit)
-
-
-class SemanticIndexGenerateRequest(BaseModel):
-    commit: Optional[str] = None
-    force: bool = False
-
-
-@router.post("/{project_id}/semantic-index/generate", dependencies=[Depends(require_designer)])
-async def generate_semantic_index(
-    project_id: str,
-    request: SemanticIndexGenerateRequest,
-    user: AuthenticatedUser = Depends(require_viewer),
-):
-    _ = get_project_for_role_or_404(project_id, user.role)
-    with caller_errors((ValueError, 400), (RuntimeError, 503)):
-        job_id = await asyncio.to_thread(
-            project_service.start_semantic_index_job,
-            project_id,
-            commit=request.commit,
-            force=request.force,
-            requested_by=user.email,
-        )
-        return {"job_id": job_id, "status": "started"}
-
-
-@router.get("/{project_id}/semantic-index/identity")
-async def get_semantic_index_identity(
-    request: Request,
-    project_id: str,
-    commit: Optional[str] = Query(default=None),
-    user: AuthenticatedUser = Depends(require_viewer),
-):
-    project = get_project_for_role_or_404(project_id, user.role)
-    with caller_errors((ValueError, 400), (RuntimeError, 503)):
-        # The stored file goes out as is: parsing and re-serializing a large
-        # board's index held tens of MB per request, and the process kept them.
-        path, source_revision_key = await asyncio.to_thread(
-            semantic_index_service.artifact_file,
-            project,
-            commit,
-        )
-        etag = f'"{source_revision_key}-{semantic_index_service.generator_cache_tag()}"'
-        headers = {"Cache-Control": "private, max-age=300", "ETag": etag}
-        if request.headers.get("if-none-match") == etag:
-            return Response(status_code=304, headers=headers)
-        return FileResponse(path, media_type="application/json", headers=headers)
-
-
-@router.get("/{project_id}/webgpu-3d/status")
-async def get_webgpu_3d_status(
-    project_id: str,
-    commit: Optional[str] = Query(default=None),
-    diagnostic: bool = Query(
-        default=False,
-        description="Perform full bundle validation instead of metadata-only readiness.",
-    ),
-    user: AuthenticatedUser = Depends(require_viewer),
-):
-    project = get_project_for_role_or_404(project_id, user.role)
-    with value_errors_as(400):
-        status_reader = (
-            semantic_visualizer_service.get_status
-            if diagnostic
-            else semantic_visualizer_service.get_status_fast
-        )
-        return await asyncio.to_thread(status_reader, project, commit)
-
-
-class WebGpu3dGenerateRequest(BaseModel):
-    commit: Optional[str] = None
-    force: bool = False
-
-
-@router.post("/{project_id}/webgpu-3d/generate", dependencies=[Depends(require_designer)])
-async def generate_webgpu_3d(
-    project_id: str,
-    request: WebGpu3dGenerateRequest,
-    user: AuthenticatedUser = Depends(require_viewer),
-):
-    _ = get_project_for_role_or_404(project_id, user.role)
-    job_id = await asyncio.to_thread(
-        project_service.start_workflow_job,
-        project_id,
-        "webgpu_3d",
-        user.email,
-        force=request.force,
-        commit=request.commit,
-    )
-    return {"job_id": job_id}
-
-
-@router.get("/{project_id}/webgpu-3d/manifest")
-async def get_webgpu_3d_manifest(
-    project_id: str,
-    commit: Optional[str] = Query(default=None),
-    user: AuthenticatedUser = Depends(require_viewer),
-):
-    project = get_project_for_role_or_404(project_id, user.role)
-    status = await asyncio.to_thread(
-        semantic_visualizer_service.get_status_fast,
-        project,
-        commit,
-    )
-    if not status.get("available"):
-        raise HTTPException(status_code=404, detail="WebGPU 3D assets are not available for this revision")
-    path = semantic_visualizer_service.bundle_path(
-        project_id,
-        status["source_fingerprint"],
-        status["build_fingerprint"],
-    )
-    if not path.is_file():
-        selector = str(status.get("status_selector") or "")
-        if selector:
-            await asyncio.to_thread(
-                v3_jobs.invalidate_webgpu_ready,
-                project_id,
-                selector,
-                str(status["build_fingerprint"]),
-            )
-        raise HTTPException(status_code=404, detail="WebGPU 3D assets are not available for this revision")
-    return FileResponse(path, media_type="application/json", headers={"Cache-Control": "private, max-age=300"})
-
-
-@router.get("/{project_id}/webgpu-3d/assets/{source_revision_key}/{generator_build}/{asset_path:path}")
-async def get_webgpu_3d_asset(
-    project_id: str,
-    source_revision_key: str,
-    generator_build: str,
-    asset_path: str,
-    user: AuthenticatedUser = Depends(require_viewer),
-):
-    _ = get_project_for_role_or_404(project_id, user.role)
-    with value_errors_as(400):
-        root = semantic_visualizer_service.bundle_dir(
-            project_id,
-            source_revision_key,
-            generator_build,
-        ).resolve()
-    candidate = (root / asset_path).resolve()
-    if candidate != root and root not in candidate.parents:
-        raise HTTPException(status_code=400, detail="Invalid WebGPU asset path")
-    if not candidate.is_file():
-        raise HTTPException(status_code=404, detail="WebGPU asset not found")
-    media_type = mimetypes.guess_type(candidate.name)[0] or "application/octet-stream"
-    return FileResponse(candidate, media_type=media_type, headers={"Cache-Control": "private, max-age=31536000, immutable"})
 
 
 @router.get("/{project_id}/branches")
@@ -1106,103 +786,6 @@ async def get_project_detail(project_id: str, user: AuthenticatedUser = Depends(
     return get_project_for_role_or_404(project_id, user.role)
 
 
-@router.get("/{project_id}/properties", response_model=ProjectPropertiesResponse)
-async def get_project_properties(project_id: str, user: AuthenticatedUser = Depends(require_viewer)):
-    project = get_project_for_role_or_404(project_id, user.role)
-    return await asyncio.to_thread(_build_project_properties, project)
-
-
-def _stored_project_metadata(
-    project: project_service.Project,
-) -> tuple[Optional[dict], Optional[dict], Optional[dict]]:
-    """Read the project's stored KiCad metadata, refreshing it out of band.
-
-    This used to derive both dictionaries inline, which meant reading and
-    scanning the schematic and the board on every open of the workspace preview
-    panel. On a 57 MB design that scan pinned a core for minutes and, being
-    pure Python, starved the event loop serving every other request -- which is
-    what made opening a large project take tens of seconds.
-
-    The facts change only when the files change, so the import and sync jobs
-    compute them and this reads the row. A project imported before the table
-    existed, or one whose files moved without a sync, has its refresh queued
-    here and returns what is stored meanwhile. That is a card with some blank
-    fields for one job's duration, never a request that blocks on kicad-cli.
-    """
-    anchor = project_service.project_anchor(project)
-    repo_path, _relative_path = _repo_context(project)
-
-    record, current = project_metadata_service.stored_metadata_is_current(
-        project.id, project.path, anchor, repo_path
-    )
-    if not current:
-        try:
-            project_import_service.start_project_metadata_job(
-                project.id, requested_by="project-properties"
-            )
-        except Exception as error:
-            # The queue being unavailable must not take the panel down with it;
-            # the card simply keeps whatever was last stored.
-            logger.warning(
-                "Could not queue metadata refresh for %s: %s", project.id, error
-            )
-
-    if not record:
-        return None, None, None
-    return record.get("schematic"), record.get("pcb"), record.get("repository")
-
-
-def _build_project_properties(project: project_service.Project) -> ProjectPropertiesResponse:
-    schematic_metadata, pcb_metadata, repository = _stored_project_metadata(project)
-    repository = repository or {}
-    latest_commit = repository.get("latest_commit")
-    latest_tag = repository.get("latest_tag")
-
-    return ProjectPropertiesResponse(
-        project=project,
-        repository=ProjectPropertiesRepository(
-            latest_commit=(
-                ProjectPropertiesLatestCommit(**latest_commit)
-                if latest_commit
-                else None
-            ),
-            latest_tag=(
-                ProjectPropertiesTag(**latest_tag)
-                if latest_tag
-                else None
-            ),
-        ),
-        files=ProjectPropertiesFiles(
-            schematic=(
-                ProjectPropertiesSchematicFile(**schematic_metadata)
-                if schematic_metadata
-                else None
-            ),
-            pcb=(
-                ProjectPropertiesPcbFile(**pcb_metadata)
-                if pcb_metadata
-                else None
-            ),
-        ),
-    )
-
-
-@router.get("/{project_id}/overview")
-async def get_project_overview(
-    project_id: str,
-    commit: str = None,
-    user: AuthenticatedUser = Depends(require_viewer),
-):
-    """
-    Return project detail and README content in one payload for the overview page.
-    """
-    project = get_project_for_role_or_404(project_id, user.role)
-    return {
-        "project": project.model_dump(),
-        "readme": _load_project_readme_content(project, commit),
-    }
-
-
 @router.get("/{project_id}/comments/source-urls")
 async def get_project_comments_source_urls(
     request: Request,
@@ -1269,6 +852,12 @@ async def get_project_files(
         type: 'design' or 'manufacturing'
     """
     output_type = require_output_type(type)
+    return await asyncio.to_thread(_project_files_response, project_id, output_type, commit, user)
+
+
+def _project_files_response(
+    project_id: str, output_type: str, commit: Optional[str], user: AuthenticatedUser
+):
     project = get_project_for_role_or_404(project_id, user.role)
     if commit:
         config = _path_config_from_commit(project, commit)
@@ -1294,6 +883,17 @@ async def download_file(
         inline: If True, serve as inline content (view in browser)
     """
     output_type = require_output_type(type)
+    return await run_bounded_io(_download_file_response, project_id, path, output_type, inline, commit, user)
+
+
+def _download_file_response(
+    project_id: str,
+    path: str,
+    output_type: str,
+    inline: bool,
+    commit: Optional[str],
+    user: AuthenticatedUser,
+):
     project = get_project_for_role_or_404(project_id, user.role)
 
     if commit:
@@ -1332,7 +932,7 @@ async def get_project_readme(
     For Type-2 projects, uses parent repo with relative path prefix.
     """
     project = get_project_for_role_or_404(project_id, user.role)
-    content = _load_project_readme_content(project, commit)
+    content = await asyncio.to_thread(_load_project_readme_content, project, commit)
     if content is None:
         raise HTTPException(status_code=404, detail="README not found")
     return {"content": content}
@@ -1349,6 +949,10 @@ async def get_project_asset(
     Typically used for README image references.
     """
     project = get_project_for_role_or_404(project_id, user.role)
+    return await run_bounded_io(_asset_response, project, asset_path, commit)
+
+
+def _asset_response(project: project_service.Project, asset_path: str, commit: Optional[str]):
     if commit:
         commit_file = _read_commit_file(
             project,
@@ -1379,17 +983,21 @@ async def get_docs_files(
     """
     project = get_project_for_role_or_404(project_id, user.role)
 
+    return await asyncio.to_thread(_docs_files_response, project, commit)
+
+
+def _docs_files_response(project: project_service.Project, commit: Optional[str]):
     if commit:
         config = _path_config_from_commit(project, commit)
         docs_path = config.documentation or "docs"
         return _files_from_commit(project, commit, docs_path)
-    
+
     resolved = project_service.resolved_paths_for(project)
     docs_dir = resolved.documentation_dir
-    
+
     if not docs_dir or not os.path.exists(docs_dir):
         return []  # Return empty list if docs not configured/found
-    
+
     return file_service.get_files_recursive(docs_dir)
 
 @router.get("/{project_id}/docs/content")
@@ -1405,11 +1013,14 @@ async def get_doc_file_content(
     For Type-2 projects, uses parent repo with relative path prefix.
     """
     project = get_project_for_role_or_404(project_id, user.role)
-    
+    return await run_bounded_io(_doc_file_content_response, project, path, commit)
+
+
+def _doc_file_content_response(project: project_service.Project, path: str, commit: Optional[str]):
     # Get documentation path from config
     config = _path_config_from_commit(project, commit)
     docs_path = config.documentation or "docs"
-    
+
     # If viewing a specific commit, use Git
     if commit:
         try:
@@ -1417,14 +1028,14 @@ async def get_doc_file_content(
             return {"content": content, "path": path}
         except HTTPException:
             raise
-    
+
     # Otherwise read from filesystem
     resolved = project_service.resolved_paths_for(project)
     docs_dir = resolved.documentation_dir
-    
+
     if not docs_dir or not os.path.exists(docs_dir):
         raise HTTPException(status_code=404, detail="Documentation folder not found")
-    
+
     file_path = resolve_path_within_root(docs_dir, path, invalid_detail="Invalid file path")
     return {
         "content": _read_utf8_file(
@@ -1516,10 +1127,12 @@ async def get_project_commits(
     """
     Get paginated commits for a project.
     For Type-2 projects, shows only commits affecting the subproject.
+    ``head`` is the checkout's HEAD, which a filtered or ``ref`` page may not list.
     """
     project = get_project_for_role_or_404(project_id, user.role)
     
     repo_path, relative_path = _repo_context(project)
+    head = await asyncio.to_thread(get_head_commit, repo_path)
     if relative_path:
         page = await asyncio.to_thread(
             get_commits_list_filtered,
@@ -1540,7 +1153,7 @@ async def get_project_commits(
             include_total,
         )
     
-    return page
+    return {**page, "head": head}
 
 
 @router.get("/{project_id}/commits/{commit_hash}/summary")
@@ -1581,6 +1194,12 @@ async def get_project_commit_file(
     endpoint for PDF, CSV, text, and markdown; CAD files go to the visualizer.
     """
     project = get_project_for_role_or_404(project_id, user.role)
+    return await run_bounded_io(_commit_file_response_for_project, project, commit_hash, path)
+
+
+def _commit_file_response_for_project(
+    project: project_service.Project, commit_hash: str, path: str
+):
     repo_path, relative_path = _repo_context(project)
 
     # The summary path is already repo-relative (it includes the subproject
@@ -1604,250 +1223,6 @@ async def get_project_commit_file(
     return _commit_file_response(commit_file, inline=True)
 
 
-@router.get("/{project_id}/schematic")
-async def get_project_schematic(
-    project_id: str,
-    commit: Optional[str] = None,
-    user: AuthenticatedUser = Depends(require_viewer),
-):
-    project = get_project_for_role_or_404(project_id, user.role)
-
-    if commit:
-        config = _path_config_from_commit(project, commit)
-        commit_file = _read_configured_commit_file(
-            project,
-            commit,
-            config.schematic or "*.kicad_sch",
-            not_found_detail="Schematic not found",
-        )
-        return _commit_file_response(commit_file, inline=True)
-    
-    path = project_service.find_schematic_file(
-        project.path, project_service.project_anchor(project)
-    )
-    if not path:
-        raise HTTPException(status_code=404, detail="Schematic not found")
-    return FileResponse(path)
-
-@router.get("/{project_id}/schematic/subsheets")
-async def get_project_subsheets(
-    project_id: str,
-    commit: Optional[str] = None,
-    user: AuthenticatedUser = Depends(require_viewer),
-):
-    project = get_project_for_role_or_404(project_id, user.role)
-
-    if commit:
-        config = _path_config_from_commit(project, commit)
-        main_schematic = _read_configured_commit_file(
-            project,
-            commit,
-            config.schematic or "*.kicad_sch",
-            not_found_detail="Schematic not found",
-        )
-        repo_path, sub_path = _repo_context(project)
-        sibling_roots = _sibling_root_schematic_names(
-            project,
-            file_service.find_files_in_commit(
-                repo_path,
-                commit,
-                "*.kicad_pro",
-                relative_prefix=sub_path,
-            ),
-        )
-        root_sheets = [
-            path for path in file_service.find_files_in_commit(
-                repo_path,
-                commit,
-                "*.kicad_sch",
-                relative_prefix=sub_path,
-            )
-            if path != main_schematic.path and path not in sibling_roots
-        ]
-        subsheets_dir = config.subsheets or "Subsheets"
-        nested_sheets = [
-            _join_relative_paths(subsheets_dir, item.path)
-            for item in _files_from_commit(project, commit, subsheets_dir)
-            if not item.is_dir and item.name.endswith(".kicad_sch")
-        ]
-        subsheets = sorted({*root_sheets, *nested_sheets})
-        subsheet_urls = [
-            {
-                "name": sheet,
-                "url": f"/api/projects/{quote(project_id, safe='')}/asset/{quote(sheet, safe='/')}?commit={quote(commit, safe='')}",
-            }
-            for sheet in subsheets
-        ]
-        return {"files": subsheet_urls}
-    
-    main_path = project_service.find_schematic_file(
-        project.path, project_service.project_anchor(project)
-    )
-    if not main_path:
-        raise HTTPException(status_code=404, detail="Schematic not found")
-        
-    subsheets = sorted(project_service.get_subsheets(project.path, main_path))
-    # Convert filenames to URLs
-    subsheet_urls = [{"name": s, "url": f"/api/projects/{project_id}/asset/{s}"} for s in subsheets]
-    return {"files": subsheet_urls}
-
-
-@router.get("/{project_id}/viewer/support-files")
-async def get_project_viewer_support_files(
-    project_id: str,
-    commit: Optional[str] = None,
-    user: AuthenticatedUser = Depends(require_viewer),
-):
-    """Return the small project/worksheet sources required by ecad-viewer.
-
-    These are identity and presentation inputs, not generated semantic assets.
-    Both the schematic and the board viewer need them, so they are served once
-    here rather than with each document. The host loads them together with the
-    document: the viewer does not repaint a sheet when they arrive afterwards.
-    """
-    project = get_project_for_role_or_404(project_id, user.role)
-
-    if commit:
-        repo_path, sub_path = _repo_context(project)
-        pro_paths = file_service.find_files_in_commit(
-            repo_path, commit, "*.kicad_pro", relative_prefix=sub_path
-        )
-        if not pro_paths:
-            return {"files": []}
-        pro_path = _anchored_commit_path(project, pro_paths, ".kicad_pro")
-        if pro_path is None:
-            return {"files": []}
-        pro_file = _read_commit_file(project, commit, pro_path)
-        files = [
-            {
-                "filename": Path(pro_path).name,
-                "content": pro_file.content.decode("utf-8"),
-            }
-        ]
-        try:
-            settings = json.loads(pro_file.content.decode("utf-8"))
-            configured = str(
-                settings.get("schematic", {}).get("page_layout_descr_file", "")
-                or settings.get("pcbnew", {}).get("page_layout_descr_file", "")
-            )
-        except (UnicodeDecodeError, json.JSONDecodeError):
-            configured = ""
-        worksheet_name = Path(configured.replace("kicad-embed://", "")).name
-        if worksheet_name:
-            worksheet_paths = file_service.find_files_in_commit(
-                repo_path, commit, "*.kicad_wks", relative_prefix=sub_path
-            )
-            worksheet_path = next(
-                iter(
-                    sorted(
-                        (
-                            path
-                            for path in worksheet_paths
-                            if Path(path).name == worksheet_name
-                        ),
-                        key=_worksheet_path_key,
-                    )
-                ),
-                None,
-            )
-            if worksheet_path:
-                worksheet = _read_commit_file(project, commit, worksheet_path)
-                files.append(
-                    {
-                        "filename": worksheet_path,
-                        "content": worksheet.content.decode("utf-8"),
-                    }
-                )
-        return {"files": files}
-
-    project_file = semantic_visualizer_service.find_kicad_project(
-        project.path, project_service.project_anchor(project)
-    )
-    files = [
-        {
-            "filename": project_file.name,
-            "content": project_file.read_text(encoding="utf-8"),
-        }
-    ]
-    try:
-        settings = json.loads(files[0]["content"])
-        configured = str(
-            settings.get("schematic", {}).get("page_layout_descr_file", "")
-            or settings.get("pcbnew", {}).get("page_layout_descr_file", "")
-        )
-    except json.JSONDecodeError:
-        configured = ""
-    worksheet_name = Path(configured.replace("kicad-embed://", "")).name
-    if worksheet_name:
-        worksheet = next(
-            iter(
-                sorted(
-                    (
-                        path
-                        for path in Path(project.path).rglob(worksheet_name)
-                        if path.is_file()
-                    ),
-                    key=_worksheet_path_key,
-                )
-            ),
-            None,
-        )
-        if worksheet:
-            files.append(
-                {
-                    "filename": worksheet.relative_to(project.path).as_posix(),
-                    "content": worksheet.read_text(encoding="utf-8"),
-                }
-            )
-    return {"files": files}
-
-@router.get("/{project_id}/pcb")
-async def get_project_pcb(
-    project_id: str,
-    commit: Optional[str] = None,
-    user: AuthenticatedUser = Depends(require_viewer),
-):
-    project = get_project_for_role_or_404(project_id, user.role)
-
-    if commit:
-        config = _path_config_from_commit(project, commit)
-        commit_file = _read_configured_commit_file(
-            project,
-            commit,
-            config.pcb or "*.kicad_pcb",
-            not_found_detail="PCB not found",
-        )
-        return _commit_file_response(commit_file, inline=True)
-    
-    path = project_service.find_pcb_file(
-        project.path, project_service.project_anchor(project)
-    )
-    if not path:
-        raise HTTPException(status_code=404, detail="PCB not found")
-    return FileResponse(path)
-
-@router.get("/{project_id}/3d-model")
-async def get_project_3d_model(
-    project_id: str,
-    commit: Optional[str] = None,
-    user: AuthenticatedUser = Depends(require_viewer),
-):
-    project = get_project_for_role_or_404(project_id, user.role)
-
-    if commit:
-        config = _path_config_from_commit(project, commit)
-        commit_file = _find_commit_3d_model(project, commit, config)
-        return _commit_file_response(
-            commit_file,
-            inline=True,
-            headers={"Cache-Control": "public, max-age=300"},
-        )
-    
-    path = project_service.find_3d_model(project.path)
-    if not path:
-        raise HTTPException(status_code=404, detail="3D model not found")
-    return FileResponse(path, headers={"Cache-Control": "public, max-age=300"})
-
 @router.get("/{project_id}/ibom")
 async def get_project_ibom(
     project_id: str,
@@ -1855,7 +1230,10 @@ async def get_project_ibom(
     user: AuthenticatedUser = Depends(require_viewer),
 ):
     project = get_project_for_role_or_404(project_id, user.role)
+    return await run_bounded_io(_ibom_response, project, commit)
 
+
+def _ibom_response(project: project_service.Project, commit: Optional[str]):
     if commit:
         config = _path_config_from_commit(project, commit)
         commit_file = _find_commit_ibom(project, commit, config)
@@ -1864,7 +1242,7 @@ async def get_project_ibom(
             inline=True,
             headers={"Cache-Control": "public, max-age=60"},
         )
-    
+
     path = project_service.find_ibom_file(project.path)
     if not path:
         raise HTTPException(status_code=404, detail="iBoM not found")

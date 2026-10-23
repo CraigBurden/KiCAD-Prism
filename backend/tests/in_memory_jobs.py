@@ -210,6 +210,18 @@ class InMemoryJobService:
         )
         return True
 
+    def active_job_ids(self, kind: str, *, requested_by: str, exclude_job_id: str = "") -> list[str]:
+        """Ids of the kind's queued, running or retry_wait jobs one requester asked for."""
+
+        return [
+            job_id
+            for job_id, row in self.rows.items()
+            if row["kind"] == kind
+            and row["requested_by"] == requested_by
+            and row["status"] in {"queued", "running", "retry_wait"}
+            and job_id != exclude_job_id
+        ]
+
     def ended_job_ids(self, kind: str, *, result_metadata: Mapping[str, Any], limit: int = 100) -> list[str]:
         return [
             job_id

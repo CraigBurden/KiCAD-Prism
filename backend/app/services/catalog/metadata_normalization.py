@@ -126,9 +126,7 @@ def normalize_metadata(payload: dict[str, Any]) -> dict[str, Any]:
         else normalized["source_internal_part_number"]
     )
     normalized["mpn_source"] = (
-        MPN_SOURCE_MANUFACTURER
-        if identity_kind == IDENTITY_KIND_MPN
-        else MPN_SOURCE_PROVISIONAL_IPN
+        MPN_SOURCE_MANUFACTURER if identity_kind == IDENTITY_KIND_MPN else MPN_SOURCE_PROVISIONAL_IPN
     )
     raw_extra_fields = payload.get("extra_fields") or payload.get("fields") or {}
     normalized["extra_fields"] = {

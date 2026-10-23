@@ -13,7 +13,10 @@ from typing import List
 import os
 import re
 
+from app.core.design_bundle_config import DesignBundleSettings
 from app.core.pipeline_config import PipelineSettings
+from app.core.sim_studio_config import SimStudioSettings
+from app.core.worker_memory import default_worker_memory_budget_mib
 
 
 # bcrypt ignores everything past 72 bytes, so longer passwords are rejected.
@@ -33,7 +36,7 @@ _WEAK_SESSION_SECRETS = {
 _TRACKER_KEY_ID_RE = re.compile(r"^[A-Za-z0-9._-]{1,64}$")
 
 
-class Settings(PipelineSettings):
+class Settings(PipelineSettings, DesignBundleSettings, SimStudioSettings):
     """Application settings loaded from environment variables.
 
     The only reader of process configuration in `app`. Design-pipeline fields
@@ -491,6 +494,22 @@ class Settings(PipelineSettings):
         description="Maximum number of supervised user jobs run by prism-worker.",
     )
 
+    PRISM_WORKER_MEMORY_BUDGET_MIB: int = Field(
+        default_factory=default_worker_memory_budget_mib,
+        ge=512,
+        le=65536,
+        description=(
+            "Memory the prism worker admits heavy jobs against, in MiB. "
+            "design_bundle, release_studio_build, design_compare, sim_run and "
+            "kicad_workflow reserve their measured peak as units of the shared "
+            "'memory' resource slot; a wave whose units exceed this budget waits. "
+            "Defaults to half the container (cgroup) or machine memory, clamped "
+            "to [4 GiB, 8 GiB] and rounded down to 256 MiB units (4 GiB on the "
+            "7.75 GiB deployment). Must fit the heaviest kind, or the worker "
+            "refuses to start."
+        ),
+    )
+
     PRISM_WORKER_POLL_SECONDS: float = Field(
         default=0.5,
         ge=0.1,
@@ -587,7 +606,6 @@ class Settings(PipelineSettings):
         ),
     )
 
-    PRISM_WEBGPU_CONCURRENCY: int = Field(default=1, ge=1, le=8)
     PRISM_DESIGN_COMPARE_CONCURRENCY: int = Field(default=1, ge=1, le=8)
     PRISM_WORKFLOW_CONCURRENCY: int = Field(default=1, ge=1, le=8)
     PRISM_IMPORT_CONCURRENCY: int = Field(default=1, ge=1, le=8)
@@ -703,6 +721,16 @@ class Settings(PipelineSettings):
         description="Run ssh-keyscan for common Git hosts during backend startup.",
     )
 
+    # A fetch that stops making progress must fail instead of pinning a worker
+    # (and, for a manual sync, the repository write lock) forever. git's
+    # low-speed abort reports a stalled transfer sooner; this is the hard
+    # ceiling for one that keeps talking too slowly to finish.
+    PRISM_GIT_FETCH_TIMEOUT_SECONDS: int = Field(
+        default=300,
+        ge=10,
+        description="Hard timeout for one project git fetch, in seconds.",
+    )
+
     # Comma-separated list of Git hosts projects may be imported from.
     # Empty means any host, which suits a single-operator deployment.
     IMPORT_ALLOWED_HOSTS_STR: str = Field(
@@ -726,14 +754,6 @@ class Settings(PipelineSettings):
             "kicad-cli every KiCad job runs. Empty: kicad-cli on PATH, then the usual "
             "install locations. KICAD_CLI is accepted as a legacy name."
         ),
-    )
-    KICAD_CRUNCHER_PATH: str = Field(
-        default="",
-        description="kicad-cruncher for Release Studio assembly views and vendor packs. Empty: PATH.",
-    )
-    PRISM_KICAD_NATIVE_PATH: str = Field(
-        default="/usr/local/bin/prism-kicad-native",
-        description="Native PCB geometry helper used by the experimental Rust backend.",
     )
 
     # ===========================================

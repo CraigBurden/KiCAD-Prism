@@ -14,7 +14,11 @@ from app.services.job_service import jobs as job_queue
 from app.release_studio.inputs import synthesize_configuration
 from app.release_studio.ipc import OTHER, public_ipc_payload
 from app.release_studio.source import apply_source_defaults, discover_source
+from app.services.design_bundle import consumer
+from app.services.design_bundle.errors import DesignDataPending
+from app.services.design_bundle.manifest import Readiness
 from app.services.kicad_tools import isolated_env
+from support.repo import init_repo
 from tests.kicad_tool_fakes import FakeTool
 
 
@@ -215,12 +219,31 @@ class SourceDiscoveryTests(unittest.TestCase):
                     "b" * 40,
                     "hardware/board",
                     "hardware/board/board.kicad_pro",
+                    "prj_board",
                 )
         self.assertEqual(names, ["Lite", "Pro"])
         project, commit = discover.call_args.args
         self.assertEqual(commit, "b" * 40)
         self.assertEqual(project.path, str(scoped.resolve()))
         self.assertEqual(project.project_file, "board.kicad_pro")
+        self.assertEqual(project.id, "prj_board")
+
+    def test_source_discovery_hands_the_project_id_to_the_catalog(self) -> None:
+        # The catalog reads the design bundle by project id; an empty id made
+        # every Release Studio lookup miss the bundle with a traceback.
+        files = ["board.kicad_pcb", "board.kicad_sch", "board.kicad_pro"]
+        with (
+            patch("app.release_studio.source._ls_tree", return_value=files),
+            patch("app.release_studio.source._bom_presets", return_value=[]),
+            patch(
+                "app.services.variant_catalog_service.discover_variant_catalog",
+                return_value={"variants": [{"name": "Lite"}]},
+            ) as discover,
+        ):
+            source = discover_source(Path("/unused"), "a" * 40, project_id="prj_1")
+        self.assertEqual(source["variants"], ["default", "Lite"])
+        project, _commit = discover.call_args.args
+        self.assertEqual(project.id, "prj_1")
 
     def test_variant_discovery_failure_offers_only_the_default(self) -> None:
         from app.release_studio import source as source_module
@@ -234,7 +257,9 @@ class SourceDiscoveryTests(unittest.TestCase):
                 side_effect=ValueError("no project file in this commit"),
             ),
         ):
-            source = discover_source(Path("/unused"), "a" * 40, "hardware/board")
+            source = discover_source(
+                Path("/unused"), "a" * 40, "hardware/board", project_id="prj_1"
+            )
         self.assertEqual(source["variants"], ["default"])
         self.assertEqual(source["variant"], "default")
 
@@ -247,6 +272,79 @@ class SourceDiscoveryTests(unittest.TestCase):
             names = source_module._variants(Path("/repo"), "b" * 40, None, None)
         self.assertEqual(names, [])
         discover.assert_not_called()
+
+    def test_without_a_project_id_the_catalog_is_not_read(self) -> None:
+        # The bundle is keyed by project id; a checkout path alone cannot name one.
+        from app.release_studio import source as source_module
+
+        with patch(
+            "app.services.variant_catalog_service.discover_variant_catalog"
+        ) as discover:
+            names = source_module._variants(
+                Path("/repo"), "b" * 40, "hardware/board", "hardware/board/board.kicad_pro"
+            )
+        self.assertEqual(names, [])
+        discover.assert_not_called()
+
+    def test_a_pending_bundle_is_logged_distinctly_and_offers_the_default(self) -> None:
+        from app.release_studio import source as source_module
+
+        with patch(
+            "app.services.variant_catalog_service.discover_variant_catalog",
+            side_effect=DesignDataPending(["projections/semantic-index.json"]),
+        ):
+            with self.assertLogs("app.release_studio.source", level="INFO") as logs:
+                names = source_module._variants(
+                    Path("/repo"), "b" * 40, None, "board.kicad_pro", "prj_1"
+                )
+        self.assertEqual(names, [])
+        self.assertIn("still building", "\n".join(logs.output))
+        self.assertNotIn("Traceback", "\n".join(logs.output))
+
+    def test_the_release_catalog_project_reads_the_bundle_by_id(self) -> None:
+        # Release Studio's _CatalogProject has no workspace row: the bundle
+        # read keys on its id and resolves the commit from its checkout.
+        from app.release_studio import source as source_module
+
+        class _Opened:
+            absent = False
+            working_tree_dirty = False
+
+            def readiness(self, paths):
+                return {path: Readiness(path, "ready", "parse", None) for path in paths}
+
+            def read_json(self, path):
+                return {
+                    "assembly": {
+                        "catalog": [
+                            {"name": "Lite", "description": None, "sources": ["project"]}
+                        ],
+                        "diagnostics": [],
+                    }
+                }
+
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw)
+            sha = init_repo(
+                root,
+                {
+                    "hardware/board/board.kicad_pro": "{}\n",
+                    "hardware/board/board.kicad_pcb": "(kicad_pcb)\n",
+                },
+            )
+            with patch.object(
+                consumer.reader, "open_revision", return_value=_Opened()
+            ) as open_revision:
+                names = source_module._variants(
+                    root,
+                    sha,
+                    "hardware/board",
+                    "hardware/board/board.kicad_pro",
+                    "prj_board",
+                )
+        self.assertEqual(names, ["Lite"])
+        self.assertEqual(open_revision.call_args.args[0], "prj_board")
+        self.assertEqual(open_revision.call_args.args[1], sha)
 
 
 class ApplySourceDefaultsTests(unittest.TestCase):

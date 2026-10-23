@@ -34,9 +34,11 @@ dist/
 # Local Compose development overrides
 docker-compose.override.yml
 
-# Deployment installer output: contains .env with live secrets
-generated/
-generated.bak.*/
+# Deployment installer output: contains .env with live secrets. Anchored to
+# the root, where scripts/prism_deploy writes it, so committed generated
+# contracts elsewhere (e.g. JSON Schema) are not hidden.
+/generated/
+/generated.bak.*/
 
 # Remote-panel loadtest secrets + reports
 loadtest/.env.loadtest

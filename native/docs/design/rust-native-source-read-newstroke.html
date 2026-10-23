@@ -1,0 +1,179 @@
+<!doctype html>
+<html lang="en" data-doc-status="accepted">
+<head>
+  <meta charset="utf-8">
+  <title>Rust native source reads and Newstroke geometry</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <h1>Rust native source reads and Newstroke geometry</h1>
+
+  <p>Status: accepted issue #84 importer/Newstroke slice after independent
+  review. This boundary exposes
+  source-owned embedded resources, standalone-footprint members, and native
+  KiCad Newstroke centerlines. Canonical PCB mapping, workspace path
+  resolution, resource fetching, and application rendering remain downstream.</p>
+
+  <h2>Embedded-resource ownership and payload states</h2>
+  <p><code>EmbeddedFile</code> is owned declaration metadata whose
+  <code>EmbeddedFileOwner</code> distinguishes the board, a board-embedded
+  footprint by stable source index, or the standalone footprint. Filename,
+  type, checksum, source range, and authored encoded-data size can be inspected
+  without decoding or copying the payload. Identical filenames under different
+  owners remain distinct lookup keys.</p>
+
+  <p><code>EmbeddedDataPresence</code> distinguishes a metadata-only declaration,
+  an explicitly authored empty <code>data</code> form, and nonempty encoded
+  data. <code>encoded_data()</code> returns the selected encoded data as an owned
+  string without decoding it;
+  <code>decode()</code> performs bounded base64 and zstd decoding on demand.
+  Malformed encoding, decompression overflow, and checksum mismatch are errors
+  labelled with the resource name. They are never converted to absent data.
+  KiCad's current and legacy seeded MurmurHash checksum forms and SHA-256 are
+  accepted; an explicit empty payload does not require a checksum.</p>
+
+  <h2>Standalone-footprint member parity</h2>
+  <p><code>FootprintView</code> exposes local pads, graphics, text/reference/value,
+  text boxes, models, metadata, and embedded resources directly from a
+  <code>.kicad_mod</code>. These records reuse the PCB source decoders and retain
+  stable owner/index identity, source ordering, and source ranges. They do not
+  fabricate a board occurrence or apply top/bottom occurrence transforms.</p>
+
+  <p>Pad records retain number and UUID evidence, authored net evidence, shape
+  and typed custom-primitive composition, local position/angle, layers, drills/slots/offset,
+  plating, mask/paste margins and ratios, thermal and zone policies, and
+  conditional-land fields. Footprint metadata retains local defaults,
+  component classes, private layers, net-tie groups, and jumper groups.
+  Unknown source forms remain governed by the existing source reader rather
+  than being silently emitted as supported typed values.</p>
+
+  <p><code>PcbPad.has_layers</code> distinguishes an omitted layer declaration
+  from an explicit empty <code>(layers)</code>; the existing layer vector remains
+  the authored list, not an inferred copper mask. This distinction is shared by
+  board-embedded and standalone pads and permits cut-only NPTH mapping without
+  guessing omitted source defaults. <code>PcbSetup.has_aux_axis_origin</code>
+  and <code>has_grid_origin</code> similarly distinguish explicitly authored zero
+  origins from their effective zero defaults.</p>
+
+  <p>Keepout records expose effective settings plus per-category
+  <code>has_*</code> declaration flags. Omitted pads and footprints are allowed,
+  as initialized by KiCad's keepout parser; the other three categories keep
+  their source defaults. Custom-pad primitive fill tokens remain unfiltered so
+  explicit <code>none</code> cannot become an omitted fill. Width assignments
+  follow source order across legacy <code>width</code> and nested
+  <code>stroke</code> forms; a style-only stroke does not reset a prior width.
+  These semantics were checked against
+  <a href="https://gitlab.com/kicad/code/kicad/-/blob/caf7377e9cb6fa1535ec3596dcb8c99bf44a996e/pcbnew/pcb_io/kicad_sexpr/pcb_io_kicad_sexpr_parser.cpp">KiCad 10.0.6's PCB parser</a>
+  and its shared stroke parser. Geometry is not solved by these reads.</p>
+
+  <p>Custom primitive geometry distinguishes lines, three-point arcs, circles,
+  rectangles, ordered polygon elements (including arcs), and cubic curves.
+  Proxy bounds/vectors remain distinguishable from copper. The existing raw
+  kind, fill, width and source range remain available; incomplete or unsupported
+  geometry is not replaced with an invented shape. Embedded and standalone
+  pads use this same source decoder.</p>
+
+  <p><code>PcbPadstack</code> and <code>PcbViaStack</code> expose authored
+  front-inner-back/custom modes and ordered source layer rows. Pad rows retain
+  optional shape, size, land offset, corner/custom geometry and local
+  clearance/thermal/zone declarations; explicit inherited zone connection
+  <code>-1</code> is distinct from absence. Via rows retain circular diameter,
+  not arbitrary pad shape. These are source records, not a resolved stack:
+  omitted rows remain omitted and KiCad may materialize them during save.
+  Embedded and standalone pads share decoding and aggregate custom-geometry
+  limits. Pad pin-function/type and signed pad-to-die length, board-root
+  properties and effective setup tenting defaults are also exposed.</p>
+
+  <p>Read fidelity does not establish plot fidelity. The source plotter's
+  <code>copper::exposed_mask_layers</code> currently checks explicit per-via
+  tenting only; it does not inherit setup tenting defaults. That source-plotter
+  follow-up remains separate from the implemented reader/writer retention.
+  Newly exposed custom/padstack geometry likewise does not establish complete
+  effective padstack plotting. Downstream consumers must retain these limits
+  rather than modifying source intent to match a partial plot.</p>
+
+  <h2>Newstroke coordinate and placement contract</h2>
+  <p><code>realize_newstroke_a0</code> accepts and returns KiCad source
+  millimetres in a y-down coordinate system. It realizes the package's vendored
+  KiCad Newstroke table, not a TTF outline approximation. Horizontal and
+  vertical alignment establish the local baseline origin; italic shear is
+  applied in local coordinates, followed by optional X mirroring, negative
+  source-angle rotation, and translation. Unambiguously, source
+  <code>+90 degrees</code> maps local <code>+X</code> toward global
+  <code>-Y</code>. The returned bounds use placed millimetre coordinates;
+  actual cursor advance and the Python-compatible pre-alignment width are
+  reported separately because an unsupported glyph advances as
+  <code>?</code> but contributes no width to the legacy alignment calculation.
+  Bounds cover centerlines only; consumers expand them by half the effective
+  stroke width when stroke extents are required.</p>
+
+  <p>Each pen-down run is returned as one ordered
+  <code>NewstrokePolyline</code>. Newstroke <code>" R"</code> pen-up markers
+  split paths, so disconnected strokes are never joined. Authored thickness is
+  returned unchanged. Without it, normal text uses one eighth of the effective
+  X size and bold text one fifth, clamped to one quarter of the smaller nonzero
+  text dimension; a fully zero-sized request retains the existing 0.15 mm
+  fallback.</p>
+
+  <p>The supported source markup is <code>~{overbar}</code>,
+  <code>_{subscript}</code>, and <code>^{superscript}</code>, including the
+  existing nested-style rules. Unsupported codepoints are realized as
+  <code>?</code> and counted. This API deliberately retains the existing
+  single-line realization behavior: newline is an unsupported glyph and uses
+  that same fallback; it does not introduce multiline block layout.</p>
+
+  <p>The consumer-completion inventory found no authored Newstroke multiline
+  requirement in the frozen 48 converter inputs or selected Yoshi, Taillight
+  and Speedy boards. The frozen-input result is a lexical negative screen;
+  the real-board result used public Python source records, not an exact-pin
+  native consumer. Speedy's seven trailing-LF strings use named Arial and
+  cached outlines, not Newstroke. Preserve those strings; do not trim them or
+  relabel fonts. Property/project expansion may introduce newlines later, so
+  resolved text still needs admission checks at actual native invocation.</p>
+
+  <h2>Usage shape</h2>
+  <pre><code>let output = realize_newstroke_a0(
+    NewstrokeRequest {
+        text: "R_{sense}",
+        position_x_mm: 10.0,
+        position_y_mm: 20.0,
+        size_x_mm: 1.0,
+        size_y_mm: 1.0,
+        angle_degrees: 90.0,
+        horizontal_alignment: TextHorizontalAlignment::Center,
+        vertical_alignment: TextVerticalAlignment::Center,
+        mirrored: false,
+        italic: false,
+        bold: false,
+        stroke_width_mm: None,
+    },
+    NewstrokeLimits::default(),
+)?;
+for path in &amp;output.polylines {
+    consume_centerline(&amp;path.points);
+}</code></pre>
+
+  <h2>Limits, evidence, and test ownership</h2>
+  <p>Newstroke input bytes, parsed markup nodes, retained polylines, and retained
+  points have independent inclusive ceilings. Invalid or derived-nonfinite
+  geometry and resource exhaustion fail without returning partial output.
+  Board bounds and dimension stroke geometry call the same realization engine,
+  removing the previous duplicate glyph traversals while retaining the TTF
+  render-cache path unchanged.</p>
+
+  <p><code>embedded_resource_slice</code> owns owner scoping, payload-state,
+  decoding, checksum, and malformed-data vectors.
+  <code>footprint_typed_slice</code> owns standalone/embedded local-member
+  parity and source identity. <code>newstroke_geometry</code> owns exact Python
+  realizer oracle coordinates, pen-up splits, placement, widths, markup,
+  fallback, and every public limit boundary. Existing board plotter, dimension,
+  and resource-limit suites own shared-engine regression coverage.</p>
+
+  <p>At the current consumer-completion checkpoint, 17 focused Rust tests and
+  the three Rack L1_040 checks pass. The latter use actual KiCad 10.0.5 and
+  exercise source pad/via-stack save normalization. Ambiguous source behavior
+  is checked against the exact KiCad 10.0.6 commit cited above. Full final
+  gates, combined review and Appz consumption of a reviewed exact candidate
+  remain pending; these receipts are not whole-corpus native acceptance.</p>
+</body>
+</html>

@@ -197,8 +197,8 @@ class ImmutableAnchorTests(unittest.TestCase):
 
         user = session("viewer")
         with patch.object(
-            comment_anchor_service.project_source_snapshot,
-            "project_source_snapshot",
+            comment_anchor_service.project_revision,
+            "checkout",
             side_effect=AssertionError("full checkout must not run"),
         ):
             created = self._create(user, revision={"commit": self.fixture.sha_a})

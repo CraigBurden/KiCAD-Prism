@@ -7,7 +7,11 @@ import {
 } from "./comparison-review-report";
 import type { ChangeItem } from "./types";
 
-function change(overrides: Partial<ChangeItem> = {}): ChangeItem {
+type ChangeSpec = Partial<ChangeItem> & { layers?: string[] };
+
+function change(overrides: ChangeSpec = {}): ChangeItem {
+    const { layers, ...rest } = overrides;
+    const sideLayers = layers ?? [];
     return {
         id: "change-1",
         kind: "changed",
@@ -16,12 +20,15 @@ function change(overrides: Partial<ChangeItem> = {}): ChangeItem {
         classification: "primary",
         label: "U1",
         reference: "U1",
-        semantic_id: "cmp:u1",
-        object_kind: "footprint",
+        semanticId: "cmp:u1",
+        objectKind: "footprint",
         page: "board.kicad_pcb",
         reasons: ["rotated"],
-        layers: ["F.Cu"],
-        ...overrides,
+        fields: {},
+        details: {},
+        base: { sourceId: "base-1", documentPath: "board.kicad_pcb", layers: sideLayers },
+        head: { sourceId: "head-1", documentPath: "board.kicad_pcb", layers: sideLayers },
+        ...rest,
     };
 }
 
@@ -29,7 +36,7 @@ describe("review report export", () => {
     it("reports the rollup the reviewer sees, not the parser events", () => {
         const groups = groupChanges([
             change({ id: "a" }),
-            change({ id: "b", object_kind: "pad", reasons: ["moved"] }),
+            change({ id: "b", objectKind: "pad", reasons: ["moved"] }),
         ]);
 
         const rows = reviewReportRows(groups);
@@ -50,8 +57,8 @@ describe("review report export", () => {
             change({
                 id: "net",
                 category: "nets",
-                reference: null,
-                object_kind: "track",
+                reference: undefined,
+                objectKind: "track",
                 net: "USB_D+",
                 reasons: ["net-changed"],
                 fields: { Net: { old: "D+", new: "USB_D+" } },
@@ -59,8 +66,8 @@ describe("review report export", () => {
             change({
                 id: "doc",
                 category: "graphics",
-                reference: null,
-                object_kind: "graphic",
+                reference: undefined,
+                objectKind: "graphic",
                 classification: "secondary",
                 layers: ["User.Comments"],
                 label: "Revision note",
@@ -84,8 +91,8 @@ describe("review report export", () => {
         const csv = reviewReportCsv(groupChanges([
             change({
                 category: "nets",
-                reference: null,
-                object_kind: "track",
+                reference: undefined,
+                objectKind: "track",
                 net: 'NET,"A"',
                 label: 'NET,"A"',
                 reasons: ["net-changed"],

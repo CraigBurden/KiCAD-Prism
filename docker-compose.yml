@@ -29,6 +29,9 @@ services:
         PRISM_RELEASE: ${PRISM_RELEASE:-development}
         PRISM_REVISION: ${PRISM_REVISION:-unknown}
         PRISM_BUILD_DATE: ${PRISM_BUILD_DATE:-unknown}
+      # The pinned Simulation Studio engines are a private release (backend/Dockerfile).
+      secrets:
+        - prism_sim_release_token
     platform: ${DOCKER_PLATFORM:-linux/amd64}
     container_name: kicad-prism-backend
     # CPU/memory ceilings protect interactive API capacity from unbounded worker
@@ -154,8 +157,6 @@ services:
       - PRISM_DESIGN_COMPARE_MAX_INITIAL_WORKERS=${PRISM_DESIGN_COMPARE_MAX_INITIAL_WORKERS:-2}
       - PRISM_DESIGN_COMPARE_MAX_PCB_WORKERS=${PRISM_DESIGN_COMPARE_MAX_PCB_WORKERS:-2}
       - PRISM_DESIGN_COMPARE_CACHE=${PRISM_DESIGN_COMPARE_CACHE:-/app/projects/.kicad-prism/design-compare/revision-cache}
-      - PRISM_SEMANTIC_VIEWER_CACHE=${PRISM_SEMANTIC_VIEWER_CACHE:-/app/projects/.kicad-prism/semantic-cache}
-      - PRISM_PCB_GEOMETRY_BACKEND=${PRISM_PCB_GEOMETRY_BACKEND:-legacy}
     command: >
       sh -c '/app/venv/bin/python -m uvicorn app.main:app
       --host 0.0.0.0
@@ -173,6 +174,9 @@ services:
         PRISM_RELEASE: ${PRISM_RELEASE:-development}
         PRISM_REVISION: ${PRISM_REVISION:-unknown}
         PRISM_BUILD_DATE: ${PRISM_BUILD_DATE:-unknown}
+      # The pinned Simulation Studio engines are a private release (backend/Dockerfile).
+      secrets:
+        - prism_sim_release_token
     platform: ${DOCKER_PLATFORM:-linux/amd64}
     container_name: kicad-prism-catalog-worker
     restart: unless-stopped
@@ -247,6 +251,9 @@ services:
         PRISM_RELEASE: ${PRISM_RELEASE:-development}
         PRISM_REVISION: ${PRISM_REVISION:-unknown}
         PRISM_BUILD_DATE: ${PRISM_BUILD_DATE:-unknown}
+      # The pinned Simulation Studio engines are a private release (backend/Dockerfile).
+      secrets:
+        - prism_sim_release_token
     platform: ${DOCKER_PLATFORM:-linux/amd64}
     container_name: kicad-prism-worker
     # Worker ceilings; pair with PRISM_*_CONCURRENCY slot caps in PostgreSQL.
@@ -283,6 +290,7 @@ services:
       - PRISM_WORKER_CONCURRENCY=${PRISM_WORKER_CONCURRENCY:-4}
       - PRISM_WORKER_POLL_SECONDS=${PRISM_WORKER_POLL_SECONDS:-0.5}
       - PRISM_AUTO_SYNC_INTERVAL_SECONDS=${PRISM_AUTO_SYNC_INTERVAL_SECONDS:-300}
+      - PRISM_GIT_FETCH_TIMEOUT_SECONDS=${PRISM_GIT_FETCH_TIMEOUT_SECONDS:-300}
       - PRISM_JOB_LEASE_SECONDS=${PRISM_JOB_LEASE_SECONDS:-30}
       - PRISM_JOB_HEARTBEAT_SECONDS=${PRISM_JOB_HEARTBEAT_SECONDS:-10}
       - PRISM_JOB_CANCEL_GRACE_SECONDS=${PRISM_JOB_CANCEL_GRACE_SECONDS:-10}
@@ -291,7 +299,6 @@ services:
       - COMMENT_ATTACHMENT_ROOT=${COMMENT_ATTACHMENT_ROOT:-/app/projects/.kicad-prism/comment-attachments}
       - COMMENT_ATTACHMENT_LINK_SECRET=${COMMENT_ATTACHMENT_LINK_SECRET:-}
       - COMMENT_ATTACHMENT_LINK_TTL_DAYS=${COMMENT_ATTACHMENT_LINK_TTL_DAYS:-365}
-      - PRISM_WEBGPU_CONCURRENCY=${PRISM_WEBGPU_CONCURRENCY:-1}
       - PRISM_DESIGN_COMPARE_CONCURRENCY=${PRISM_DESIGN_COMPARE_CONCURRENCY:-1}
       - PRISM_WORKFLOW_CONCURRENCY=${PRISM_WORKFLOW_CONCURRENCY:-1}
       - PRISM_IMPORT_CONCURRENCY=${PRISM_IMPORT_CONCURRENCY:-1}
@@ -302,13 +309,11 @@ services:
       - PRISM_DESIGN_COMPARE_MAX_INITIAL_WORKERS=${PRISM_DESIGN_COMPARE_MAX_INITIAL_WORKERS:-2}
       - PRISM_DESIGN_COMPARE_MAX_PCB_WORKERS=${PRISM_DESIGN_COMPARE_MAX_PCB_WORKERS:-2}
       - PRISM_DESIGN_COMPARE_CACHE=${PRISM_DESIGN_COMPARE_CACHE:-/app/projects/.kicad-prism/design-compare/revision-cache}
-      - PRISM_SEMANTIC_VIEWER_CACHE=${PRISM_SEMANTIC_VIEWER_CACHE:-/app/projects/.kicad-prism/semantic-cache}
       - PUBLIC_BASE_URL=${PUBLIC_BASE_URL:-}
       - TRACKER_CREDENTIAL_ROOT_KEY=${TRACKER_CREDENTIAL_ROOT_KEY:-}
       - TRACKER_CREDENTIAL_ROOT_KEY_ID=${TRACKER_CREDENTIAL_ROOT_KEY_ID:-v1}
       - TRACKER_CREDENTIAL_PREVIOUS_ROOT_KEY=${TRACKER_CREDENTIAL_PREVIOUS_ROOT_KEY:-}
       - TRACKER_CREDENTIAL_PREVIOUS_ROOT_KEY_ID=${TRACKER_CREDENTIAL_PREVIOUS_ROOT_KEY_ID:-}
-      - PRISM_PCB_GEOMETRY_BACKEND=${PRISM_PCB_GEOMETRY_BACKEND:-legacy}
     command:
       - /app/venv/bin/python
       - -m
@@ -334,3 +339,10 @@ services:
 
 volumes:
   prism-postgres-data:
+
+secrets:
+  # A GitHub token that can read krishna-swaroop/prism-sim-studio's releases,
+  # used only while building the image (scripts/fetch_sim_engines.py). Unset,
+  # the image builds without Simulation Studio engines.
+  prism_sim_release_token:
+    environment: PRISM_SIM_RELEASE_TOKEN

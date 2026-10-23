@@ -5,6 +5,8 @@ import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { DesignDataFailed, DesignDataPending } from "@/components/design-data-state";
+import { DesignDataFailedError, DesignDataPendingError } from "@/lib/api";
 import { throwIfJobFailed, watchPrismJob } from "@/lib/jobs";
 import { useServerState } from "@/lib/server-state";
 import { cn } from "@/lib/utils";
@@ -37,6 +39,37 @@ export function LibraryUsageButton({ projectId, canScan }: { projectId: string; 
     keepPrevious: true,
   });
   const report = usage.data;
+  const designDataPending = usage.error instanceof DesignDataPendingError;
+  const designDataFailed = usage.error instanceof DesignDataFailedError;
+
+  if (designDataPending || (usage.loading && !report)) {
+    return (
+      <div className="flex items-center gap-2 rounded-md border px-2.5 py-1.5" title="Library parts">
+        <Library className="h-4 w-4 text-muted-foreground" />
+        <DesignDataPending
+          label="Preparing design data…"
+          className="text-xs"
+          onRetry={designDataPending ? () => void usage.refresh() : undefined}
+        />
+      </div>
+    );
+  }
+
+  if (designDataFailed) {
+    return (
+      <Popover>
+        <PopoverTrigger asChild>
+          <Button variant="outline" size="sm" className="flex items-center gap-2" title="Library parts">
+            <Library className="h-4 w-4" />
+          </Button>
+        </PopoverTrigger>
+        <PopoverContent align="end" className="w-80 p-4">
+          <DesignDataFailed detail={usage.error?.message} onRetry={() => void usage.refresh()} />
+        </PopoverContent>
+      </Popover>
+    );
+  }
+
   if (!report?.scan || !report.items.length) return null;
   const updates = report.summary.update_available + report.summary.retired;
 

@@ -453,8 +453,12 @@ describe("ComparisonPresentationShell", () => {
             kind: "changed",
             domain: "schematic",
             category: "components",
+            classification: "primary",
             label: "R5",
             page: "main.kicad_sch",
+            reasons: ["content-changed"],
+            fields: {},
+            details: {},
         };
         const groups = [{ id: "component-r5", changes: [change] }];
         const diff: KiCadProjectDiffBundle = {
@@ -550,8 +554,12 @@ describe("ComparisonPresentationShell", () => {
             kind: "changed",
             domain: "schematic",
             category: "components",
+            classification: "primary",
             label: "R5",
             page: "main.kicad_sch",
+            reasons: ["content-changed"],
+            fields: {},
+            details: {},
         };
         const diff: KiCadProjectDiffBundle = {
             ...documentDiff,
@@ -611,8 +619,12 @@ describe("ComparisonPresentationShell", () => {
             kind: "changed",
             domain: "schematic",
             category: "components",
+            classification: "primary",
             label: "R5",
             page: "main.kicad_sch",
+            reasons: ["content-changed"],
+            fields: {},
+            details: {},
         };
         const diff: KiCadProjectDiffBundle = {
             ...documentDiff,
@@ -667,15 +679,16 @@ describe("ComparisonPresentationShell", () => {
             id,
             kind: "removed" as const,
             domain: "pcb" as const,
-            category: "nets",
+            category: "nets" as const,
             classification: "primary" as const,
             label: "AUX.DATA3",
-            object_kind: "track",
+            objectKind: "track",
             net: "AUX.DATA3",
+            reasons: ["object-removed" as const],
+            fields: {},
             details: {
-                visualTargets: [{
-                    side: "reference" as const,
-                    status: "removed" as const,
+                targets: [{
+                    side: "base" as const,
                     sourceId: "/r9",
                     role: "track" as const,
                 }],
@@ -829,16 +842,12 @@ describe("ComparisonPresentationShell", () => {
             kind: "changed",
             domain: "schematic",
             category: "components",
+            classification: "primary",
             label: "R5",
             page: "main.kicad_sch",
-            oldGeometry: {
-                kind: "symbol",
-                bounds: [10, 20, 4, 6],
-            },
-            geometry: {
-                kind: "symbol",
-                bounds: [30, 40, 4, 6],
-            },
+            reasons: ["content-changed"],
+            fields: {},
+            details: {},
         };
         const diff: KiCadProjectDiffBundle = {
             ...documentDiff,
@@ -874,9 +883,12 @@ describe("ComparisonPresentationShell", () => {
             kind: "added",
             domain: "schematic",
             category: "rules",
+            classification: "primary",
             label: "DRC exclusions",
             page: "main.kicad_sch",
-            details: { reviewOnly: true, visualTargets: [] },
+            reasons: ["object-added"],
+            fields: {},
+            details: { reviewOnly: true },
         };
         render(
             <ComparisonPresentationShell
@@ -900,12 +912,14 @@ describe("ComparisonPresentationShell", () => {
             kind: "changed",
             domain: "schematic",
             category: "nets",
+            classification: "primary",
             label: "USB_D+",
             page: "main.kicad_sch",
+            reasons: ["content-changed"],
+            fields: {},
             details: {
-                visualTargets: [{
-                    side: "comparison",
-                    status: "modified",
+                targets: [{
+                    side: "head",
                     sourceId: "wire-1",
                     role: "wire",
                 }],
@@ -930,25 +944,25 @@ describe("ComparisonPresentationShell", () => {
             kind: "changed",
             domain: "schematic",
             category: "nets",
+            classification: "primary",
             label: "PF_01",
             net: "PF_01",
             page: "main.kicad_sch",
             reasons: ["label-count-changed"],
+            fields: {},
             details: {
                 labelInstances: { old: 2, new: 0 },
-                visualTargets: [
+                targets: [
                     {
-                        side: "reference",
-                        status: "removed",
+                        side: "base",
                         sourceId: "label-a",
-                        page: "main.kicad_sch",
+                        documentPath: "main.kicad_sch",
                         role: "label",
                     },
                     {
-                        side: "reference",
-                        status: "removed",
+                        side: "base",
                         sourceId: "label-b",
-                        page: "main.kicad_sch",
+                        documentPath: "main.kicad_sch",
                         role: "label",
                     },
                 ],
@@ -999,10 +1013,13 @@ describe("ComparisonPresentationShell", () => {
             kind: "changed",
             domain: "pcb",
             category: "nets",
+            classification: "primary",
             label: "USB_DP",
-            object_kind: "track",
+            objectKind: "track",
             net: "USB_DP",
             reasons: ["content-changed"],
+            fields: {},
+            details: {},
         };
         const diff: KiCadProjectDiffBundle = {
             ...pcbDocumentDiff,
@@ -1045,10 +1062,13 @@ describe("ComparisonPresentationShell", () => {
             kind: "changed",
             domain: "schematic",
             category: "nets",
+            classification: "primary",
             label: "VCC",
             net: "VCC",
             page: "two.kicad_sch",
             reasons: ["content-changed"],
+            fields: {},
+            details: {},
         };
         const diff: KiCadProjectDiffBundle = {
             ...documentDiff,
@@ -1179,8 +1199,12 @@ describe("ComparisonPresentationShell", () => {
             kind: "changed",
             domain: "schematic",
             category: "components",
+            classification: "primary",
             label: "R5",
             page: "main.kicad_sch",
+            reasons: ["content-changed"],
+            fields: {},
+            details: {},
         };
         const groups = [{ id: "component-r5", changes: [change] }];
         const view = render(
@@ -1320,8 +1344,12 @@ describe("ComparisonPresentationShell", () => {
             kind: "changed",
             domain: "schematic",
             category: "nets",
+            classification: "primary",
             label: "VCC",
             net: "VCC",
+            reasons: ["content-changed"],
+            fields: {},
+            details: {},
         };
         const multiPageDiff: KiCadProjectDiffBundle = {
             ...documentDiff,
@@ -1559,11 +1587,14 @@ describe("ComparisonPresentationShell", () => {
             domain: "pcb",
             category: "nets",
             label: "USB_DP",
-            object_kind: "track",
+            objectKind: "track",
             net: "USB_DP",
             reasons: ["layer-changed"],
-            base_item: { source_id: "t1", layers: ["F.Cu"] },
-            compare_item: { source_id: "t1", layers: ["B.Cu"] },
+            classification: "primary",
+            fields: {},
+            details: {},
+            base: { sourceId: "t1", documentPath: "board.kicad_pcb", layers: ["F.Cu"] },
+            head: { sourceId: "t1", documentPath: "board.kicad_pcb", layers: ["B.Cu"] },
         };
         render(
             <ComparisonPresentationShell
@@ -1593,11 +1624,14 @@ describe("ComparisonPresentationShell", () => {
             domain: "pcb",
             category: "nets",
             label: "USB_DP",
-            object_kind: "track",
+            objectKind: "track",
             net: "USB_DP",
             reasons: ["content-changed"],
-            base_item: { source_id: "t1", layers: ["F.Cu"] },
-            compare_item: { source_id: "t1", layers: ["F.Cu"] },
+            classification: "primary",
+            fields: {},
+            details: {},
+            base: { sourceId: "t1", documentPath: "board.kicad_pcb", layers: ["F.Cu"] },
+            head: { sourceId: "t1", documentPath: "board.kicad_pcb", layers: ["F.Cu"] },
         };
         const reviewGroups = [{ id: "net-usb-dp", changes: [change] }];
         const view = render(
@@ -1661,11 +1695,14 @@ describe("ComparisonPresentationShell", () => {
             domain: "pcb",
             category: "components",
             label: "U1",
-            object_kind: "footprint",
+            objectKind: "footprint",
             reference: "U1",
             reasons: ["moved"],
-            base_item: { source_id: "f1", layers: ["F.Cu"] },
-            compare_item: { source_id: "f1", layers: ["F.Cu"] },
+            classification: "primary",
+            fields: {},
+            details: {},
+            base: { sourceId: "f1", documentPath: "board.kicad_pcb", layers: ["F.Cu"] },
+            head: { sourceId: "f1", documentPath: "board.kicad_pcb", layers: ["F.Cu"] },
         };
         render(
             <ComparisonPresentationShell
@@ -1697,11 +1734,14 @@ describe("ComparisonPresentationShell", () => {
             domain: "pcb",
             category: "graphics",
             label: "U1 designator",
-            object_kind: "footprint_text",
+            objectKind: "footprint_text",
             reference: "U1",
             reasons: ["moved"],
-            base_item: { source_id: "s1", layers: ["F.SilkS"] },
-            compare_item: { source_id: "s1", layers: ["F.SilkS"] },
+            classification: "primary",
+            fields: {},
+            details: {},
+            base: { sourceId: "s1", documentPath: "board.kicad_pcb", layers: ["F.SilkS"] },
+            head: { sourceId: "s1", documentPath: "board.kicad_pcb", layers: ["F.SilkS"] },
         };
         render(
             <ComparisonPresentationShell
@@ -1734,18 +1774,24 @@ describe("ComparisonPresentationShell", () => {
             domain: "pcb",
             category: "components",
             label: "R52",
-            object_kind: "footprint",
+            objectKind: "footprint",
             reference: "R52",
             reasons: ["properties-changed"],
-            base_item: { source_id: "r52", layers: ["B.Cu"] },
-            compare_item: { source_id: "r52", layers: ["B.Cu"] },
+            classification: "primary",
+            fields: {},
+            details: {},
+            base: { sourceId: "r52", documentPath: "board.kicad_pcb", layers: ["B.Cu"] },
+            head: { sourceId: "r52", documentPath: "board.kicad_pcb", layers: ["B.Cu"] },
         };
         const fabText: ChangeItem = {
             ...footprint,
             id: "pcb-changed-r52-text",
-            object_kind: "footprint_text",
-            base_item: { source_id: "r52t", layers: ["B.Fab"] },
-            compare_item: { source_id: "r52t", layers: ["B.Fab"] },
+            objectKind: "footprint_text",
+            classification: "primary",
+            fields: {},
+            details: {},
+            base: { sourceId: "r52t", documentPath: "board.kicad_pcb", layers: ["B.Fab"] },
+            head: { sourceId: "r52t", documentPath: "board.kicad_pcb", layers: ["B.Fab"] },
         };
         render(
             <ComparisonPresentationShell
@@ -1777,11 +1823,14 @@ describe("ComparisonPresentationShell", () => {
             domain: "pcb",
             category: "components",
             label: "R52",
-            object_kind: "footprint",
+            objectKind: "footprint",
             reference: "R52",
             reasons: ["properties-changed"],
-            base_item: { source_id: "r52", layers: ["B.Cu"] },
-            compare_item: { source_id: "r52", layers: ["B.Cu"] },
+            classification: "primary",
+            fields: {},
+            details: {},
+            base: { sourceId: "r52", documentPath: "board.kicad_pcb", layers: ["B.Cu"] },
+            head: { sourceId: "r52", documentPath: "board.kicad_pcb", layers: ["B.Cu"] },
         };
         FakeEcadViewer.resetLayersWhenSelectionSettles = true;
         const selectablePcbDiff: KiCadProjectDiffBundle = {
@@ -1822,11 +1871,14 @@ describe("ComparisonPresentationShell", () => {
             domain: "pcb",
             category: "components",
             label: "R52",
-            object_kind: "footprint",
+            objectKind: "footprint",
             reference: "R52",
             reasons: ["properties-changed"],
-            base_item: { source_id: "r52", layers: ["B.Cu"] },
-            compare_item: { source_id: "r52", layers: ["B.Cu"] },
+            classification: "primary",
+            fields: {},
+            details: {},
+            base: { sourceId: "r52", documentPath: "board.kicad_pcb", layers: ["B.Cu"] },
+            head: { sourceId: "r52", documentPath: "board.kicad_pcb", layers: ["B.Cu"] },
         };
         const { rerender } = render(
             <ComparisonPresentationShell
@@ -1889,11 +1941,14 @@ describe("ComparisonPresentationShell", () => {
             domain: "pcb",
             category: "components",
             label: "Q15",
-            object_kind: "footprint",
+            objectKind: "footprint",
             reference: "Q15",
             reasons: ["rotated"],
-            base_item: { source_id: "q15", layers: ["B.Cu"] },
-            compare_item: { source_id: "q15", layers: ["B.Cu"] },
+            classification: "primary",
+            fields: {},
+            details: {},
+            base: { sourceId: "q15", documentPath: "board.kicad_pcb", layers: ["B.Cu"] },
+            head: { sourceId: "q15", documentPath: "board.kicad_pcb", layers: ["B.Cu"] },
         };
         const selectablePcbDiff: KiCadProjectDiffBundle = {
             ...pcbDocumentDiff,
@@ -1950,19 +2005,25 @@ describe("ComparisonPresentationShell", () => {
             domain: "pcb",
             category: "components",
             label: "Q15",
-            object_kind: "footprint",
+            objectKind: "footprint",
             reference: "Q15",
             reasons: ["rotated"],
-            base_item: { source_id: "q15", layers: ["B.Cu"] },
-            compare_item: { source_id: "q15", layers: ["B.Cu"] },
+            classification: "primary",
+            fields: {},
+            details: {},
+            base: { sourceId: "q15", documentPath: "board.kicad_pcb", layers: ["B.Cu"] },
+            head: { sourceId: "q15", documentPath: "board.kicad_pcb", layers: ["B.Cu"] },
         };
         const hovered: ChangeItem = {
             ...selected,
             id: "pcb-changed-r52",
             label: "R52",
             reference: "R52",
-            base_item: { source_id: "r52", layers: ["B.Cu"] },
-            compare_item: { source_id: "r52", layers: ["B.Cu"] },
+            classification: "primary",
+            fields: {},
+            details: {},
+            base: { sourceId: "r52", documentPath: "board.kicad_pcb", layers: ["B.Cu"] },
+            head: { sourceId: "r52", documentPath: "board.kicad_pcb", layers: ["B.Cu"] },
         };
         const selectablePcbDiff: KiCadProjectDiffBundle = {
             ...pcbDocumentDiff,
@@ -2035,11 +2096,14 @@ describe("ComparisonPresentationShell", () => {
             domain: "pcb",
             category: "nets",
             label: "USB_DP",
-            object_kind: "track",
+            objectKind: "track",
             net: "USB_DP",
             reasons: ["content-changed"],
-            base_item: { source_id: "t1", layers: ["F.Cu"] },
-            compare_item: { source_id: "t1", layers: ["F.Cu"] },
+            classification: "primary",
+            fields: {},
+            details: {},
+            base: { sourceId: "t1", documentPath: "board.kicad_pcb", layers: ["F.Cu"] },
+            head: { sourceId: "t1", documentPath: "board.kicad_pcb", layers: ["F.Cu"] },
         };
         const onVisibleLayersChange = vi.fn();
         const view = render(

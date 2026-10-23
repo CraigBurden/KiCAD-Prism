@@ -1,9 +1,8 @@
-# One Python runtime for the API, workers, Release Studio, and semantic viewer.
+# One Python runtime for the API, workers and Release Studio.
 #
 # Compile this file with scripts/sync_dependencies.py --update-lock. Every
 # supported host, CI job, and Docker image installs requirements/runtime.lock;
-# do not add runtime packages to backend/requirements.txt or
-# kicad-prism-viewer/requirements-runtime.txt.
+# do not add runtime packages to backend/requirements.txt.
 
 fastapi>=0.141
 starlette>=1.0
@@ -24,11 +23,16 @@ psycopg-pool>=3.2,<4
 # exactly: zstd output is only byte-stable within one library version.
 zstandard==0.25.0
 
-# Published KiCad tooling is a coordinated pair. The optional local Docker
-# override replaces both packages from one modern kicad_monkey monorepo
-# checkout; it never upgrades one package independently.
+# Published KiCad tooling: kicad-monkey stays for the catalog's library-file
+# imports (allow-listed by WP-R2; a later ADR ports them onto Prism's parser).
+# The optional local Docker override replaces it from a modern kicad_monkey
+# monorepo checkout.
 kicad-monkey==2026.9.7
-kicad-cruncher==2026.9.7
+
+# The component catalog converts STEP models to GLB previews with Geometer's
+# Python package (app/services/catalog/models.py). It used to arrive through
+# kicad-cruncher; it is a direct dependency now that Cruncher is gone.
+wn-geometer==2026.9.7
 
 # Document and semantic-viewer runtime.
 Pillow>=11,<13
@@ -37,10 +41,6 @@ cairosvg>=2.7,<3
 pikepdf>=9,<11
 pypdf>=5,<7
 PyYAML>=6.0.1,<7
-# System Builder reviews and findings report (.xlsx).
-openpyxl>=3.1,<4
-# System Builder collision check: mesh intersection (CONTRACTS_P2 §24.2), on meshes trimesh loads.
-python-fcl>=0.7,<0.8
-trimesh>=4,<6
-# System Builder STEP export: an OCCT XCAF assembly of board and catalog STEPs (CONTRACTS_P2 §25, D-P2-59).
-cadquery-ocp-novtk>=7.9.3,<7.10
+# Design bundles: members and prism-kicad's JSON are validated against the
+# committed JSON Schema (native/contracts/generated/schema/, draft 2020-12).
+jsonschema>=4.23,<5

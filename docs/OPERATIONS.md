@@ -293,6 +293,39 @@ Monitor:
 - catalog import and validation duration;
 - PostgreSQL connection-pool saturation.
 
+Design bundles (`.kicad-prism/bundles`) are kept by use. An hourly pass on the
+general worker keeps the bundles of the prebuild's commits (branch heads, each
+branch's newest `PRISM_DESIGN_BUNDLE_PREBUILD_COMMITS` commits and every tagged
+commit), released Release Studio commits and every bundle an alias still points
+to. It removes the rest after `PRISM_DESIGN_BUNDLE_RETENTION_DAYS` unused, and
+sweeps old unpacked-cache versions, archives no row names and `prism-kicad`'s
+stale temporary files. Unpacked caches are also dropped after
+`PRISM_DESIGN_BUNDLE_CACHE_IDLE_DAYS` without a read and kept under the
+`PRISM_DESIGN_BUNDLE_CACHE_*_MAX_BYTES` caps; a reader re-extracts what it
+needs. The worker logs each pass's counts (`Design bundle retention: ...`).
+
+Plan disk for the archives: a large board (about 55 MB of `.kicad_pcb`) takes
+about 47 MB per bundled revision, so twenty prebuilt revisions of one such
+design hold about 1 GB, plus its unpacked cache.
+
+With `PRISM_DESIGN_BUNDLE_AUTO_BUILD=true`, the first deploy does not rebuild
+every project at once: the worker's backfill queues at most one branch-head
+bundle per `PRISM_DESIGN_BUNDLE_BACKFILL_INTERVAL_SECONDS`, and only while no
+`design_bundle` job is active. It records in `ws_design_bundle_flags` each
+project whose board or root schematic no longer resolves by its project file
+(`board-unresolved`, `schematic-unresolved`), whose committed `.prism.json` is
+invalid, or whose project file is missing at HEAD (`project-absent`). Fix a
+flagged project by setting its board or schematic path in the project settings;
+the flag clears at the next backfill or build of its HEAD.
+
+A `design_bundle` job that fails in a KiCad step (zone refill, GLB export,
+source upgrade) is retried; after its last attempt the stage stays pending and
+the bundle row is marked `failed` with the error. Readers then answer *failed*
+instead of *pending*. The first status read after
+`PRISM_DESIGN_BUNDLE_FAILED_RETRY_SECONDS` (default one hour) queues it again;
+Generate or Regenerate retries at once. A source KiCad cannot read stays failed
+until a deliberate retry.
+
 Use configured artifact and partial-output retention. Do not delete unknown
 content inside `.kicad-prism` manually. Confirm whether it is authoritative data
 or a regenerable cache first.
@@ -375,8 +408,7 @@ the purge ledger records both steps. The check lists quarantined files under
 for with `ledger` (`quarantined` or `purged`), and `--restore --apply` moves a
 quarantined file back and records the restore. A restored file stays until its
 asset is linked again and then abandoned. A quarantined file whose revision is
-released or pinned by System Builder again before it expires is restored by
-maintenance itself.
+released again before it expires is restored by maintenance itself.
 
 `scripts/report_unpinned_board_models.py [DIR ...]` (default
 `KICAD_PROJECTS_ROOT`) lists every board footprint whose 3D model still points

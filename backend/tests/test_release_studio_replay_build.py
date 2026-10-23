@@ -2,8 +2,10 @@
 
 ``execute_build`` runs every catalogue step and composes the documents through
 the replay adapter: no KiCad install is needed, and the recording is the
-evidence of what kicad-cli was asked and what it wrote. Two builds in
-different directories must produce the same dossier digest.
+evidence of what kicad-cli was asked and what it wrote.  The build reads its
+design from the committed ``fixtures/release-studio/synthetic/models.prism``
+bundle, so the steps run in bundle mode.  Two builds in different directories
+must produce the same dossier digest.
 
 Re-record after a catalogue or artwork argument change (needs kicad-cli)::
 
@@ -25,9 +27,15 @@ from app.services.job_artifact_service import JobArtifactService
 from app.services.job_runtime import JobContext
 from app.services.kicad_tool_replay import RecordingTool, ReplayTool
 from app.services.kicad_tools import KicadTools, kicad_cli
-from tests.release_studio_support import RECORDING_ROOT, fixture_root
+from tests.release_studio_support import (
+    RECORDING_ROOT,
+    documents_stub,
+    fixture_root,
+    synthetic_bundle_design,
+)
 
 RECORDING = RECORDING_ROOT / "synthetic-build" / "recording.json"
+BUNDLE = fixture_root("synthetic") / "models.prism"
 CONFIG = {
     "board": "synthetic.kicad_pcb",
     "schematic": "synthetic.kicad_sch",
@@ -35,6 +43,7 @@ CONFIG = {
 }
 CANDIDATE = {
     "id": "candidate-replay",
+    "project_id": "project-1",
     "commit_sha": "a" * 40,
     "config_key": "default",
     "variant": "",
@@ -72,6 +81,7 @@ def run_build(root: Path, tool_for: Any) -> tuple[dict[str, Any], Any, dict[str,
             service=service,  # type: ignore[arg-type]
         )
     cli = tool_for({"closure": closure, "staging": context.staging_dir})
+    design = synthetic_bundle_design(closure)
     completed: dict[str, Any] = {}
 
     def complete_build(**kwargs: Any) -> dict[str, Any]:
@@ -85,11 +95,11 @@ def run_build(root: Path, tool_for: Any) -> tuple[dict[str, Any], Any, dict[str,
     ):
         result = build_service.execute_build(
             context,
-            candidate=dict(CANDIDATE),
+            candidate={**CANDIDATE, "_bundle_design": design},
             closure_root=closure,
             config=dict(CONFIG),
             artifacts=JobArtifactService(root=root / "artifacts"),
-            tools=KicadTools(cli=cli, cruncher=None),
+            tools=KicadTools(cli=cli),
         )
         # The build row succeeds in the job's completion transaction.
         result["build"] = result["settle"](None)
@@ -97,11 +107,16 @@ def run_build(root: Path, tool_for: Any) -> tuple[dict[str, Any], Any, dict[str,
 
 
 @unittest.skipUnless(RECORDING.is_file(), "the synthetic build recording is not checked out")
+@unittest.skipUnless(BUNDLE.is_file(), "the synthetic design bundle is not checked out")
 class ReplayedReleaseBuildTests(unittest.TestCase):
     def _build(self) -> tuple[dict[str, Any], ReplayTool, dict[str, Any]]:
         tmp = tempfile.TemporaryDirectory()
         self.addCleanup(tmp.cleanup)
-        return run_build(Path(tmp.name), lambda roots: ReplayTool(RECORDING, roots))
+        # The document renderer and the artwork take their lettering, frame and
+        # views from prism-kicad; the reference stub keeps this build about the
+        # replayed kicad-cli.
+        with documents_stub():
+            return run_build(Path(tmp.name), lambda roots: ReplayTool(RECORDING, roots))
 
     def test_a_release_build_runs_end_to_end_on_the_replayed_cli(self) -> None:
         result, replay, completed = self._build()
@@ -115,7 +130,7 @@ class ReplayedReleaseBuildTests(unittest.TestCase):
         self.assertEqual({record["kind"] for record in dossier.evidence}, {"drc", "erc"})
         # Every sheet got its artwork: nothing degraded to "unavailable".
         self.assertFalse(
-            [w for w in completed["warnings"] if "unavailable" in w and "cruncher" not in w],
+            [w for w in completed["warnings"] if "unavailable" in w],
             completed["warnings"],
         )
 

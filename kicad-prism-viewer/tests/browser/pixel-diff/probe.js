@@ -18,6 +18,8 @@
     last: null, // { at, hash, image } of the newest rendered frame
     timing: false,
     gpuMs: [],
+    // Load timeline (--load), in performance.now() milliseconds.
+    load: { mountAt: null, readyAt: null, ready: null, componentsAt: null, firstDrawnAt: null, lastChangeAt: null, changes: 0 },
   };
   const scratch = document.createElement("canvas");
   let context = null;
@@ -37,7 +39,8 @@
   const grab = (at) => {
     const canvas = viewport();
     if (!canvas || !canvas.width || !canvas.height) return;
-    if (scratch.width !== canvas.width || scratch.height !== canvas.height) {
+    // The scratch canvas starts at the viewport's default 300x150: make its context then too.
+    if (!context || scratch.width !== canvas.width || scratch.height !== canvas.height) {
       scratch.width = canvas.width;
       scratch.height = canvas.height;
       context = scratch.getContext("2d", { willReadFrequently: true });
@@ -52,6 +55,11 @@
     }
     if (!drawn) return;
     const hash = fnv1a(data);
+    if (state.load.firstDrawnAt === null) state.load.firstDrawnAt = at;
+    if (!state.last || state.last.hash !== hash) {
+      state.load.lastChangeAt = at;
+      state.load.changes += 1;
+    }
     // Several rAF callbacks share one frame; keep one entry per frame.
     if (at === grabbedAt && state.frames.length) state.frames[state.frames.length - 1] = { at, hash };
     else state.frames.push({ at, hash });
@@ -102,13 +110,35 @@
         element.style.cssText = `display:block;width:${width}px;height:${height}px`;
         element.setAttribute("active", "true");
         element.setAttribute("hide-panel", "true");
-        element.addEventListener("prism-semantic-viewer:ready", () => resolve(true), { once: true });
+        state.load = { mountAt: performance.now(), readyAt: null, ready: null, componentsAt: null, firstDrawnAt: null, lastChangeAt: null, changes: 0 };
+        element.addEventListener("prism-semantic-viewer:performance", (event) => {
+          if (event.detail?.milestone === "components-loaded" && state.load.componentsAt === null) state.load.componentsAt = performance.now();
+        });
+        element.addEventListener("prism-semantic-viewer:ready", (event) => {
+          state.load.readyAt = performance.now();
+          state.load.ready = event.detail ?? null;
+          resolve(true);
+        }, { once: true });
         element.addEventListener("prism-semantic-viewer:error", (event) => reject(new Error(event.detail?.message || "viewer error")), { once: true });
         element.setAttribute("bundle-url", new URL(bundleUrl, location.href).toString());
         document.body.append(element);
         state.element = element;
         state.armed = true;
       });
+    },
+
+    // The load timeline relative to mount, in ms (--load).
+    loadTimes() {
+      const { mountAt, readyAt, componentsAt, firstDrawnAt, lastChangeAt, changes, ready } = state.load;
+      const since = (at) => (at === null || mountAt === null ? null : +(at - mountAt).toFixed(1));
+      return {
+        readyMs: since(readyAt),
+        firstDrawnMs: since(firstDrawnAt),
+        componentsMs: since(componentsAt),
+        lastChangeMs: since(lastChangeAt),
+        changes,
+        viewer: ready?.timings ?? ready?.performance ?? ready ?? null,
+      };
     },
 
     get element() {

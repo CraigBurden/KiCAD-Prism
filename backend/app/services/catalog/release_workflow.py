@@ -139,7 +139,7 @@ class CatalogReleaseWorkflow:
             "klc_release_gate": self._klc.release_gate(),
         }
         if release_status == "released":
-            self._assert_release_allowed(conn, revision_id, validation)
+            self._assert_release_allowed(conn, revision_id, validation, component=component)
 
         approval_decision = None
         if release_status == "released":
@@ -265,7 +265,7 @@ class CatalogReleaseWorkflow:
             raise ValueError("Provisional components require a manufacturer part number before approval or release")
         assets = self._revision_kernel.load_assets_for_revision(conn, revision_id)
         validation = self._read_models.component_validation_summary(conn, revision_id, assets)
-        self._assert_release_allowed(conn, revision_id, validation)
+        self._assert_release_allowed(conn, revision_id, validation, component=component)
         manifest_hash = self._revision_kernel.revision_manifest_hash(conn, revision_id)
         conn.execute(
             """
@@ -328,7 +328,14 @@ class CatalogReleaseWorkflow:
         )
         return self._revision_kernel.revision_row(conn, str(revision["id"])) or revision
 
-    def _assert_release_allowed(self, conn: Any, revision_id: str, validation: dict[str, Any]) -> None:
+    def _assert_release_allowed(
+        self,
+        conn: Any,
+        revision_id: str,
+        validation: dict[str, Any],
+        *,
+        component: dict[str, Any] | None = None,
+    ) -> None:
         default_representation = conn.execute(
             """
             SELECT symbol_asset_id, footprint_asset_id

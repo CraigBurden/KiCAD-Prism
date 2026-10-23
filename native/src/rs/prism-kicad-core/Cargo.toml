@@ -1,0 +1,46 @@
+[package]
+name = "prism-kicad-core"
+description = "KiCad source parsing, round-trip, and close-to-format operations"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+publish = false
+
+[lints]
+workspace = true
+
+[features]
+default = ["embedded-resource-zstd"]
+measurement = []
+embedded-resource-zstd = ["dep:zstd"]
+# Backwards-compatible alias retained for callers that selected the original
+# schematic-specific feature name.
+schematic-embedded-zstd = ["embedded-resource-zstd"]
+
+[dependencies]
+harfrust.workspace = true
+prism-kicad-contracts = { path = "../prism-kicad-contracts" }
+read-fonts.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+skrifa.workspace = true
+ttf-parser.workspace = true
+unicode-casefold.workspace = true
+zstd = { workspace = true, optional = true }
+
+[[example]]
+name = "sexpr_selection_sort_benchmark"
+required-features = ["measurement"]
+
+[[example]]
+name = "sexpr_projection_allocation_benchmark"
+required-features = ["measurement"]
+
+[dev-dependencies]
+prism-kicad-materialization-pack = { path = "../prism-kicad-materialization-pack" }
+serde.workspace = true
+stats_alloc = "0.1.10"

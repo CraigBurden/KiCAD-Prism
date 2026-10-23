@@ -1,6 +1,6 @@
-// D-P2-53: Route mode bends a harness by dragging it. A press on a tube (or on a
-// waypoint's handle) and a drag move the point in the plane facing the camera
-// through where it started, at the screen's scale there. Pure, for tests.
+// Route mode bends a harness by dragging it. A press on a tube (or on a
+// handle) and a drag move the point in the plane facing the camera through
+// where it started, at the screen's scale there. Pure, for tests.
 
 /** A world point (mm) `startMm` moved by a screen drag of (dx, dy) px, `pxPerMm` at that point. */
 export function dragInViewPlane(startMm, dx, dy, pxPerMm, { right, up }) {

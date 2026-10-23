@@ -1,0 +1,122 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$id": "urn:prism:schema:prism.drawing_sheet.request:a0",
+    "type": "object",
+    "properties": {
+        "schema": {
+            "type": "string",
+            "const": "prism.drawing_sheet.request.a0",
+            "description": "Document schema id."
+        },
+        "paper_width_nm": {
+            "$ref": "#/$defs/NonNegativeNanometres",
+            "description": "Page width in nanometres."
+        },
+        "paper_height_nm": {
+            "$ref": "#/$defs/NonNegativeNanometres",
+            "description": "Page height in nanometres."
+        },
+        "title_block": {
+            "$ref": "#/$defs/DrawingSheetTitleBlock",
+            "description": "The title block drawn on the page."
+        },
+        "sheet_index": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "One-based index of this sheet among `sheet_count`."
+        },
+        "sheet_count": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "How many sheets the document has."
+        },
+        "paper_name": {
+            "type": "string",
+            "description": "The paper's name, for example `A4` or `A3`."
+        },
+        "file_name": {
+            "type": "string",
+            "description": "The file name the sheet is drawn as, for example `doc.pdf`."
+        },
+        "sheet_path": {
+            "type": "string",
+            "description": "The schematic sheet path, for example `/key`."
+        },
+        "sheet_name": {
+            "type": "string",
+            "description": "The sheet's own name, for example `key`."
+        },
+        "kicad_version": {
+            "type": "string",
+            "description": "The KiCad version string recorded on the sheet, for example `10.0.6`, or\nthe literal `KiCad` when the version is unknown."
+        }
+    },
+    "required": [
+        "schema",
+        "paper_width_nm",
+        "paper_height_nm",
+        "title_block",
+        "sheet_index",
+        "sheet_count",
+        "paper_name",
+        "file_name",
+        "sheet_path",
+        "sheet_name",
+        "kicad_version"
+    ],
+    "unevaluatedProperties": {
+        "not": {}
+    },
+    "description": "The page and title block `prism-kicad drawing-sheet --request` draws the\ndefault worksheet on.",
+    "title": "Prism drawing-sheet request a0",
+    "$defs": {
+        "NonNegativeNanometres": {
+            "type": "integer",
+            "description": "A Nanometres value that is never negative: a thickness, width, diameter or length.",
+            "minimum": 0
+        },
+        "DrawingSheetTitleBlock": {
+            "type": "object",
+            "properties": {
+                "title": {
+                    "type": "string",
+                    "description": "The `Title` field."
+                },
+                "date": {
+                    "type": "string",
+                    "description": "The `Date` field, as written."
+                },
+                "rev": {
+                    "type": "string",
+                    "description": "The `Rev` field, as written."
+                },
+                "company": {
+                    "type": "string",
+                    "description": "The `Company` field."
+                },
+                "comments": {
+                    "$ref": "#/$defs/RecordString",
+                    "description": "The keys are the comment numbers `\"1\"` to `\"4\"` as decimal strings,\nserialized in code point order. A value is the comment's text, which may be\nempty."
+                }
+            },
+            "required": [
+                "title",
+                "date",
+                "rev",
+                "company",
+                "comments"
+            ],
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "The title block drawn in the sheet's lower-right corner, matching the four\nstandard fields and KiCad's comments 1 to 4."
+        },
+        "RecordString": {
+            "type": "object",
+            "properties": {},
+            "unevaluatedProperties": {
+                "type": "string"
+            }
+        }
+    }
+}

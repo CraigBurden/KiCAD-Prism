@@ -1,0 +1,60 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$id": "urn:prism:schema:prism.cli.project_absent:a0",
+    "type": "object",
+    "properties": {
+        "schema": {
+            "type": "string",
+            "const": "prism.cli.project_absent.a0",
+            "description": "Document schema id."
+        },
+        "code": {
+            "type": "string",
+            "const": "project-absent",
+            "description": "Stable code of the outcome (cli-spec.md §8), equivalent to exit 10."
+        },
+        "command": {
+            "$ref": "#/$defs/CliProjectAbsentCommand",
+            "description": "The command that found the project absent."
+        },
+        "project_file": {
+            "$ref": "#/$defs/RepoPath",
+            "description": "The absent anchor, repository-relative: `--project` of `revision-key`, or `<project.kicad_pro>` of `bundle build` relative to the source root."
+        },
+        "commit": {
+            "$ref": "#/$defs/GitObjectId",
+            "description": "The full commit id the revision resolved to, for `revision-key --commit`. Absent for `--worktree` and for `bundle build`."
+        }
+    },
+    "required": [
+        "schema",
+        "code",
+        "command",
+        "project_file"
+    ],
+    "unevaluatedProperties": {
+        "not": {}
+    },
+    "description": "stdout of `revision-key` and of `bundle build --stage parse` when the\nproject is absent at this revision: its anchor, the project file, is not\nin the tree (exit 10, cli-spec.md §4). This is an outcome, not a failure\n(conventions.md §8): the revision has no such project, so it has no\nrevision key and no bundle, nothing is retried, and consumers show \"not\npresent at this revision\". Nothing is written to `-o`.",
+    "title": "prism-kicad project absent a0",
+    "$defs": {
+        "CliProjectAbsentCommand": {
+            "type": "string",
+            "enum": [
+                "revision-key",
+                "bundle build"
+            ],
+            "description": "A command that can find the project absent at a revision (CliProjectAbsentA0)."
+        },
+        "RepoPath": {
+            "type": "string",
+            "pattern": "^(?:[^/\\\\:.][^/\\\\:]*|\\.[^/\\\\:.][^/\\\\:]*|\\.\\.[^/\\\\:]+)(?:/(?:[^/\\\\:.][^/\\\\:]*|\\.[^/\\\\:.][^/\\\\:]*|\\.\\.[^/\\\\:]+))*$",
+            "description": "Repository-relative POSIX path, exactly as `git ls-tree` names the entry:\n`/`-separated, case preserved, no leading `/`, no empty, `.` or `..`\nsegment, no backslash and no `:`. The same character rule as ArchivePath.\nIt is the only path type in bundle documents: a file has one spelling\nwhichever project in the repository refers to it, and a file outside the\nproject directory needs no `..`."
+        },
+        "GitObjectId": {
+            "type": "string",
+            "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$",
+            "description": "Git object id in lowercase hexadecimal: 40 characters in a SHA-1\nrepository, 64 in a SHA-256 repository. Used for commit ids and blob ids."
+        }
+    }
+}

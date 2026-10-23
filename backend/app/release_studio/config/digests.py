@@ -25,6 +25,8 @@ _TECHNICAL_KEYS = frozenset(
         "template",
         "sheets",
         "typography",
+        "sheet_style",
+        "artwork_line_weights",
         "vendors",
         "release_date",
         "release_notes",

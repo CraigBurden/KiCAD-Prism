@@ -1,4 +1,4 @@
-"""Post-import metadata and thumbnail scheduling.
+"""Post-import metadata, thumbnail and design-bundle scheduling.
 
 Import registration stays available even when a derived job cannot be queued.
 Outcomes are recorded so a later retry can name the project and operation.
@@ -56,8 +56,17 @@ def schedule_import_follow_ups(
         start_thumbnail_job,
     )
 
+    from app.core.config import settings
+    from app.services.design_bundle.jobs import queue_for_head
+
     outcomes: list[dict[str, str]] = []
     for project_id in project_ids:
+        if settings.PRISM_DESIGN_BUNDLE_AUTO_BUILD:
+            # The design bundle of the imported HEAD (ADR §4.4); a failure to
+            # queue it is recorded like the others and never fails the import.
+            outcomes.append(
+                schedule_import_follow_up(project_id, "design_bundle", queue_for_head, requested_by=requested_by)
+            )
         outcomes.append(
             schedule_import_follow_up(
                 project_id,

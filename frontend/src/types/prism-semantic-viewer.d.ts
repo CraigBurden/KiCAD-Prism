@@ -1,26 +1,32 @@
 import type React from "react";
 import type { PrismSelection } from "@/types/prism-selection";
-import type { SystemScene } from "@/types/system";
 
 export interface PrismSemanticViewerSelectionDetail {
     selection: PrismSelection | null;
 }
 
 export interface PrismRendererSelection {
+    /** mode="system": the occurrence to select on (alone: the board itself). */
+    occurrence?: string;
     reference?: string;
     pin?: string;
     netName?: string;
     netUid?: string;
     netCode?: number;
     featureId?: number;
-    /** mode="system": the board placement to select on (alone: the board itself). */
-    occurrence?: string;
 }
 
-/** What a click in `<prism-semantic-viewer mode="system">` selected: a board's own selection with its placement, or the board. */
-export type PrismSystemViewerSelection =
-    | (PrismSelection & { occurrence?: string })
-    | { kind: "board"; sourceContext: "3D"; occurrence: string; standIn?: string | null };
+/** Where a client point meets a catalog model in a system scene (`pickSurfaceAt`). */
+export interface PrismSurfacePick {
+    /** The occurrence path of the model that was hit. */
+    occurrence: string;
+    /** World point, millimetres. */
+    pointMm: [number, number, number];
+    /** World, unit length, facing the camera. */
+    normal: [number, number, number];
+    /** World, unit length, from the point towards the camera. */
+    toCamera: [number, number, number];
+}
 
 /** One placement of the loaded board; `key` (the occurrence path) returns on picks and selections. */
 export interface PrismViewerPick {
@@ -39,11 +45,26 @@ export interface PrismSemanticLayerState {
     visible: boolean;
 }
 
+export type PrismSemanticBoardLayerRole = "soldermask" | "silkscreen" | "paste";
+export type PrismSemanticBoardSide = "front" | "back";
+
+/** One side's solder mask, silkscreen or paste, by its KiCad name ("F.Mask", ...). */
+export interface PrismSemanticBoardLayerState {
+    role: PrismSemanticBoardLayerRole;
+    side: PrismSemanticBoardSide;
+    name: string;
+    /** CSS colour. */
+    color: string;
+    visible: boolean;
+}
+
 /** PCB 3D controls the host renders when it sets `hide-panel`. */
 export interface PrismSemanticViewState {
     /** "layer" is the stacked flat layer view. */
     mode: "3d" | "layer";
     layers: PrismSemanticLayerState[];
+    /** Each side's solder mask, silkscreen and paste the stackup lists. */
+    boardLayers?: PrismSemanticBoardLayerState[];
     showBoard: boolean;
     showComponents: boolean;
     /** Boxes standing in for footprints without a 3D model. */
@@ -51,24 +72,12 @@ export interface PrismSemanticViewState {
     realisticColors: boolean;
     /** 0..1 */
     separation: number;
+    /** mode="system": a section per placed board. */
+    boards?: PrismSystemBoardViewState[];
+    /** mode="system": the occurrence the selection belongs to, or null. */
+    selectedBoard?: string | null;
     isolateNet: boolean;
     hasNet: boolean;
-    /** mode="system" (SB2-31e): a layer section per placed board, in placement order. */
-    boards?: PrismSystemBoardViewState[];
-    /** mode="system": the placement path the selection belongs to, or null. */
-    selectedBoard?: string | null;
-}
-
-/** One placed board of a system scene and its copper layers (D-P2-26). */
-export interface PrismSystemBoardViewState {
-    /** The placement (occurrence) path. */
-    key: string;
-    name: string;
-    /** Why the board draws as a box (restricted, loading, building, missing, failed), or null. */
-    standIn: string | null;
-    /** This placement's own stackup separation, 0..1 (SB2-31f). */
-    separation: number;
-    layers: PrismSemanticLayerState[];
 }
 
 /** `prism-semantic-viewer:contextmenu`: a right-click without a drag. */
@@ -102,19 +111,22 @@ export interface PrismInsetView {
  * their documented default before one is mounted.
  */
 export interface PrismSemanticViewerCommon {
+    /** Where a world point (metres, the viewer's frame) appears on screen in client px; null off screen. */
+    projectPoint(point: [number, number, number], occurrenceKey?: string): { x: number; y: number } | null;
     /** Safe before ready and after reloads: the last selection is replayed on the next board mount. */
     setSelection(selection: PrismRendererSelection | null): void;
     resize(): void;
     /** Null until the viewer is ready. Changes arrive as `prism-semantic-viewer:viewstatechange`. */
     getViewState(): PrismSemanticViewState | null;
-    /** In a system scene, `placement` names one placed board (every placement of the selected board when omitted). */
-    setLayerVisible(layerId: number, visible: boolean, placement?: string | null): void;
-    applyLayerPreset(preset: PrismSemanticLayerPreset, placement?: string | null): void;
+    setLayerVisible(layerId: number, visible: boolean): void;
+    applyLayerPreset(preset: PrismSemanticLayerPreset): void;
     setShowBoard(visible: boolean): void;
     setShowComponents(visible: boolean): void;
     setShowPlaceholders(visible: boolean): void;
     setRealisticColors(enabled: boolean): void;
-    /** In a system scene, `placement` names one placed board (every placement of the selected board when omitted). */
+    /** Show or hide one side's solder mask, silkscreen or paste. */
+    setBoardLayerVisible(role: PrismSemanticBoardLayerRole, side: PrismSemanticBoardSide, visible: boolean): void;
+    /** In a system scene, `placement` names one placed board (the selected board when omitted). */
     setSeparation(value: number, placement?: string | null): void;
     showNetLayers(): void;
     setNetIsolation(enabled: boolean): void;
@@ -124,10 +136,7 @@ export interface PrismSemanticViewerCommon {
     pickAt(clientX: number, clientY: number): Promise<PrismViewerPick | null>;
 }
 
-/**
- * The one-board mode (no `mode` attribute). In system mode these keep the
- * host's state for the next board mount and otherwise answer their defaults.
- */
+/** The board's own members. */
 export interface PrismSemanticBoardMode {
     /**
      * Replace the highlighted nets: every listed net renders emphasised
@@ -154,69 +163,149 @@ export interface PrismSemanticBoardMode {
     releaseInset(key: string): void;
     /** Called when the main view redrew or the viewer reloaded; returns an unsubscribe. Survives reloads. */
     onSceneChange(listener: () => void): () => void;
+    /**
+     * Analytic spike: draw the board's copper from a kicad_monkey
+     * materialization pack instead of the mesh tiles. Survives reloads.
+     */
+    loadAnalyticPack(bytes: ArrayBuffer | Uint8Array, options?: PrismAnalyticPackOptions): Promise<PrismAnalyticStats | null>;
+    /** Colour the analytic copper from a result; null clears it. Survives reloads. */
+    setAnalyticOverlay(overlay: PrismAnalyticOverlay | null): void;
+    /** How result overlays look; returns the style in force. */
+    setAnalyticStyle(style: Partial<PrismAnalyticStyle>): PrismAnalyticStyle | null;
+    /** The named colormaps' hex stops and the default style. */
+    analyticColormaps(): { colormaps: Record<string, string[]>; defaults: PrismAnalyticStyle } | null;
+    /** Arrows of a vector result on the copper: its components as field grids; null clears them. */
+    setAnalyticVectors(vectors: PrismAnalyticVectors | null): { count: number; max: number; reference: number; spacingMm: number } | null;
+    /**
+     * The field overlay's value under a client point from a CPU ray against the copper slices: no GPU
+     * pick, so cheap per pointer move. No operation or binding; use `analyticAt` for those (and barrels).
+     */
+    analyticProbe(clientX: number, clientY: number): PrismAnalyticReading | null;
+    /**
+     * The field overlay as a relief over one copper layer, in place of the board: heights and colours
+     * from the field, the outline from the exact copper of the overlay's net. Null returns to the board.
+     * Survives reloads and overlay changes; returns the layer shown and those it can show.
+     */
+    setAnalyticRelief(options: { sliceKey?: string; heightShare?: number } | null): PrismAnalyticRelief | null;
+    /** Whether a click on the board selects what is under it (default on); off while a host tool owns clicks. */
+    setClickSelect(enabled: boolean): void;
+    /** The operation under a client point, its binding and overlay value; null off the analytic copper. */
+    analyticAt(clientX: number, clientY: number): Promise<PrismAnalyticHit | null>;
+    analyticStats(): PrismAnalyticStats | null;
+    /** Back to mesh copper. */
+    unloadAnalyticPack(): void;
+}
+
+export interface PrismAnalyticStyle {
+    /** A colormap name, or two or more #rrggbb stops. */
+    fieldColormap: string | string[];
+    arrowColormap: string | string[];
+    /** Arrows across the board's longer side. */
+    arrowDensity: number;
+    /** Arrow half width, as a share of the spacing. */
+    arrowWidth: number;
+    /** The shortest arrow, as a share of the longest. */
+    arrowMinLength: number;
+    /** Outline colour and opacity, 0..1. */
+    arrowOutline: [number, number, number, number];
+}
+
+export interface PrismAnalyticVectors {
+    quantity: string;
+    units: string;
+    /** `prism.sim.field` grids of the board-frame x and y components. */
+    x: PrismAnalyticFieldGrid;
+    y: PrismAnalyticFieldGrid;
+}
+
+export interface PrismAnalyticPackOptions {
+    /** URL or bytes of the analytic WASM; defaults to the one served beside the element. */
+    wasm?: string | URL | ArrayBuffer;
+    /** Flattening tolerance for regions and cubic segments, nm (default 1000). */
+    toleranceNm?: number;
+}
+
+export type PrismAnalyticOverlay =
+    | { kind: "operation_values"; quantity: string; units: string; values: ArrayLike<number> | Record<number, number>; range?: [number, number] }
+    | { kind: "field_tiles"; quantity: string; units: string; tiles: PrismAnalyticFieldTile[]; range?: [number, number] }
+    | { kind: "field_grid"; quantity: string; units: string; grid: PrismAnalyticFieldGrid; values?: Record<number, number>; range?: [number, number] };
+
+/** A prism.sim.field grid document with each slice's values loaded (sim-adr-0018). */
+export interface PrismAnalyticFieldGrid {
+    origin_x_m: number;
+    origin_y_m: number;
+    dx_m: number;
+    dy_m: number;
+    slices: { slice_key: string; ix0: number; iy0: number; nx: number; ny: number; values: Float32Array }[];
+}
+
+export interface PrismAnalyticFieldTile {
+    slice_key: string;
+    origin_nm: [number, number];
+    pitch_nm: number;
+    width: number;
+    height: number;
+    values: Float32Array | number[];
+}
+
+export interface PrismAnalyticHit extends PrismAnalyticReading {
+    operationIndex: number;
+    binding: Record<string, unknown> | null;
+}
+
+/** A relief's layer and the layers a relief can raise (those with a field raster), with their copper cells. */
+export interface PrismAnalyticRelief {
+    sliceKey: string | null;
+    slices: { key: string; layerId: number; cells: number }[];
+}
+
+/** An overlay value read on the copper (what `analyticProbe` returns). */
+export interface PrismAnalyticReading {
+    value?: number;
+    quantity?: string;
+    units?: string;
+    /** Raster overlays: the copper slice and board point (mm) the value was read at. */
+    sliceKey?: string;
+    boardMm?: [number, number];
+    /** World point (m) on the slice's face. */
+    world?: [number, number, number];
+    /** A ring lying on that face, in client px: shows which surface is read. */
+    marker?: { centre: { x: number; y: number }; ring: { x: number; y: number }[] } | null;
+}
+
+export interface PrismAnalyticStats {
+    operations: number;
+    lowerMs: number;
+    unmatched: string[];
+    slices: { key: string; layerId: number; shapes: number; subtractShapes: number; regionBatches: number }[];
+    overlay: number;
+    gpuMemoryBytes: number;
+    degraded: boolean;
 }
 
 /**
- * `mode="system"`: several boards from a system scene (SB2-31e). In board
- * mode these keep the host's state for the next system mount and otherwise
- * answer their defaults.
- */
-export interface PrismSemanticSystemMode {
-    /** The system to show, a `prism.system_scene.a0` descriptor. Safe before ready. */
-    setSystemScene(descriptor: SystemScene): void;
-    /** Light system nets on every board they reach; the report also arrives as `prism-semantic-viewer:emphasis`. [] before ready. */
-    setNetEmphasis(sets: readonly PrismSystemSceneEmphasisSet[]): PrismSystemSceneEmphasisResult[];
-    /** Frame a lit set's copper (or all), on one placement or all; false when nothing is lit there. */
-    frameNetEmphasis(key?: string | null, occurrence?: string | null): boolean;
-    /** Frame every placed board. */
-    frameAll(): void;
-    /** Frame one placed board. */
-    frameBoard(key: string): boolean;
-    /** Frame parts on their placements (SB2-32: a hop's two connectors); a null reference frames
-     *  its whole occurrence (SB2-108); false when none is drawn. */
-    frameParts(parts: readonly { occurrence: string; reference: string | null }[]): boolean;
-    /** Move mode (SB2-29); state arrives as `prism-semantic-viewer:move`. Who may move is the `move-allowed` attribute. */
-    setMoveMode(enabled: boolean, options?: { route?: boolean }): void;
-    setMoveSpace(space: "world" | "local"): void;
-    /** Show a pose for the move target without saving it; null shows the saved pose. */
-    previewPose(pose: PrismScenePose | null): void;
-    cancelMove(): void;
-    /** Harness editing (SB2-45b); state arrives as `prism-semantic-viewer:harness`. */
-    targetHarnessNode(id: string | null): void;
-    /** SB2-61: pick a root-level harness by id as a click would; null drops the pick; false when not drawn. */
-    selectHarness(id: string | null): boolean;
-    cancelHarnessNode(): void;
-    /** Board name labels (on by default). */
-    setLabelsVisible(visible: boolean): void;
-    /** The proxy harnesses (SB2-34), shown by default. */
-    setHarnessesVisible(visible: boolean): void;
-    /** The keyboard list (also `?`). */
-    setHelpVisible(visible: boolean): void;
-    isHelpVisible(): boolean;
-    /** SB2-48b: where a client point meets a `pickSurface` model, in world mm with the normal facing the viewer. */
-    pickSurfaceAt(clientX: number, clientY: number): PrismSurfacePick | null;
-    /** SB2-48b: look along a world axis from its + side (`opposite`: its − side), framing the scene. */
-    viewAxis(axis: "x" | "y" | "z", opposite?: boolean): void;
-    /** SB2-48b: put the move gizmo on an occurrence by path; false when it is not placed yet. */
-    focusMoveTarget(path: string): boolean;
-}
-
-/**
- * `<prism-semantic-viewer>`: both modes' members are always defined. The
- * element also has members Prism does not call (stats, LOD, GPU budget,
- * inset diagnostics, harness and move state reads); the pixel-diff harness
- * uses them, and kicad-prism-viewer/viewer/src/viewer-controllers.js lists
- * them all.
+ * `<prism-semantic-viewer>`. The element also has members Prism does not call
+ * (stats, GPU budget, inset diagnostics); the pixel-diff harness uses them,
+ * and kicad-prism-viewer/viewer/src/viewer-controllers.js lists them all.
  */
 export interface PrismSemanticViewerElement
     extends HTMLElement, PrismSemanticViewerCommon, PrismSemanticBoardMode, PrismSemanticSystemMode {}
 
-/** A surface pick (SB2-48b): the hit in world mm, the face normal and the direction to the camera (unit). */
-export interface PrismSurfacePick {
-    occurrence: string;
-    pointMm: [number, number, number];
-    normal: [number, number, number];
-    toCamera: [number, number, number];
+/** What a click in `<prism-semantic-viewer mode="system">` selected: a board's own selection with its occurrence, or the board. */
+export type PrismSystemViewerSelection =
+    | (PrismSelection & { occurrence?: string })
+    | { kind: "board"; sourceContext: "3D"; occurrence: string; standIn?: string | null };
+
+/** One placed board of a system scene (the system view state's `boards`). */
+export interface PrismSystemBoardViewState {
+    /** The occurrence id. */
+    key: string;
+    name: string;
+    /** Why the board draws as a box (restricted, loading, building, missing, failed), or null. */
+    standIn: string | null;
+    /** This board's own stackup separation, 0..1. */
+    separation: number;
+    layers: PrismSemanticLayerState[];
 }
 
 export interface PrismScenePose {
@@ -225,16 +314,16 @@ export interface PrismScenePose {
     rotation: [number, number, number, number];
 }
 
-/** `prism-semantic-viewer:move` (mode="system", SB2-29). "commit" asks the host to save `target.pose`. */
+/** `prism-semantic-viewer:move` (mode="system"). "commit" asks the host to save `target.pose`. */
 export interface PrismSystemSceneMoveState {
     /** "sync": the host gave a re-read scene (a save landed, or bundles changed). */
-    phase?: "mode" | "target" | "preview" | "commit" | "cancel" | "sync";
+    phase?: "mode" | "target" | "preview" | "commit" | "cancel" | "sync" | "snap";
     allowed: boolean;
     enabled: boolean;
-    /** D-P2-51: Route mode, move mode for harness routes only (boards take no gizmo). */
-    route?: boolean;
     space: "world" | "local";
     dragging: boolean;
+    /** The gizmo's steps (Shift: a tenth of `mm`, and 1°). */
+    snap?: { mm: number; deg: number };
     target: {
         occurrence: string;
         instanceId: string;
@@ -248,44 +337,12 @@ export interface PrismSystemSceneMoveState {
     } | null;
 }
 
-/**
- * `prism-semantic-viewer:harness` (mode="system", SB2-45b): the picked harness.
- * Points are in the harness's level frame (mm). "commit" asks the host to save
- * `node.positionMm`; "delete" to remove the node.
- */
-export interface PrismSystemSceneHarnessState {
-    phase?: "select" | "target" | "preview" | "commit" | "delete" | "cancel" | "sync" | "route-drag";
-    /** On "route-drag" (D-P2-53): where the bend started on the tube and where it was released (level frame, mm). */
-    atMm?: [number, number, number];
-    positionMm?: [number, number, number];
-    /** On "route-drag": Alt was held, so a breakout rather than a waypoint. */
-    breakout?: boolean;
-    harness: { id: string; level: string | null; name: string } | null;
-    /** The picked segment: its tree nodes (`auto` for the automatic breakout) and samples from `from`. */
-    segment: { id: string; from: string; to: string; samplesMm: [number, number, number][] } | null;
-    pointMm: [number, number, number] | null;
-    /** Where the automatic breakout is drawn, when the tree has one. */
-    autoMm: [number, number, number] | null;
-    node: {
-        id: string;
-        kind: "breakout" | "waypoint";
-        auto: boolean;
-        pinned: boolean;
-        positionMm: [number, number, number];
-        unsaved: boolean;
-    } | null;
-    /** A root-level harness and a reader who may edit. */
-    editable: boolean;
-}
-
-/** A system net to light (SB2-31): board nets by occurrence path. */
+/** A system net to light: board nets by occurrence id. */
 export interface PrismSystemSceneEmphasisSet {
     key: string;
     /** "#rrggbb"; omitted takes the next palette colour. */
     color?: string;
     members: readonly { occurrence: string; net: string }[];
-    /** SB2-34: harness wires the net runs through; `occurrence` (a board the wire reaches) tells child-system copies apart. */
-    wires?: readonly { harness: string; wire: string; occurrence?: string }[];
 }
 
 /** What a set lit (`setNetEmphasis`'s return and `prism-semantic-viewer:emphasis`). */
@@ -293,9 +350,69 @@ export interface PrismSystemSceneEmphasisResult {
     key: string;
     color: string;
     lit: number;
-    /** Harness wires lit (SB2-34). */
-    wires?: number;
     unresolved: { occurrence: string; net: string; reason: "not-drawn" | "loading" | "restricted" | "unknown-net" }[];
+}
+
+/** A tube or handle a route gesture names (§16.6). */
+export interface PrismSystemHarnessTarget {
+    kind: "segment" | "waypoint" | "branch-point" | "auto";
+    id: string;
+}
+
+/** `prism-semantic-viewer:harness-select`: a click on a harness tube or handle. */
+export interface PrismSystemHarnessSelectDetail extends PrismSystemHarnessTarget {
+    type: "select";
+    harness: string;
+    /** Where on the tube the click landed, millimetres (segments only). */
+    pointMm?: [number, number, number];
+    shiftKey: boolean;
+}
+
+/** `prism-semantic-viewer:harness-drag`: a route drag's phases, in world millimetres. */
+export interface PrismSystemHarnessDragDetail {
+    type: "drag";
+    phase: "start" | "move" | "end" | "cancel";
+    harness: string;
+    target: { kind: string; id: string };
+    /** Where the press happened. */
+    fromMm: [number, number, number];
+    /** The pointer now. */
+    pointMm: [number, number, number];
+}
+
+/** `mode="system"`: several boards from a system scene descriptor (System Builder stage 3b). */
+export interface PrismSemanticSystemMode {
+    /** The system to show, a `prism.system_scene.a0` descriptor. Safe before ready. */
+    setSystemScene(descriptor: unknown): void;
+    /** Light system nets on every board they reach; [] before ready. */
+    setNetEmphasis(sets: readonly PrismSystemSceneEmphasisSet[]): PrismSystemSceneEmphasisResult[];
+    frameNetEmphasis(key?: string | null, occurrence?: string | null): boolean;
+    frameAll(): void;
+    frameBoard(key: string): boolean;
+    /** Frame parts on their occurrences; a null reference frames the whole occurrence. */
+    frameParts(parts: readonly { occurrence: string; reference: string | null }[]): boolean;
+    /** Move mode; state arrives as `prism-semantic-viewer:move`. Who may move is the `move-allowed` attribute. */
+    setMoveMode(enabled: boolean): void;
+    /** Route tool: a press on a tube or handle drags it (only while moving is allowed). */
+    setRouteMode(on: boolean): void;
+    setMoveSpace(space: "world" | "local"): void;
+    /** The gizmo's steps in millimetres and degrees. */
+    setMoveSnap(snap: { mm: number; deg: number }): void;
+    /** Show a pose for the move target without saving it; null shows the saved pose. */
+    previewPose(pose: PrismScenePose | null): void;
+    cancelMove(): void;
+    getMoveState(): PrismSystemSceneMoveState | null;
+    /** Slide mated boards apart along their mate axes, 0 (assembled)..1. */
+    setAssemblyExplode(amount: number): void;
+    /**
+     * Where a client point meets the triangles of a catalog model occurrence
+     * marked `pickSurface`, in world millimetres; null on empty space.
+     */
+    pickSurfaceAt(clientX: number, clientY: number): PrismSurfacePick | null;
+    /** Board name labels (on by default). */
+    setLabelsVisible(visible: boolean): void;
+    setHelpVisible(visible: boolean): void;
+    isHelpVisible(): boolean;
 }
 
 /** `prism-semantic-viewer:error`: the viewer could not start or load. */
@@ -309,17 +426,18 @@ declare global {
     }
 
     interface HTMLElementEventMap {
-        /** A click selected something (mode="system": with its placement), or nothing. */
-        "prism-semantic-viewer:selectionchange": CustomEvent<{ selection: PrismSystemViewerSelection | null }>;
+        /** A click selected something, or nothing. */
+        "prism-semantic-viewer:selectionchange": CustomEvent<{ selection: PrismSelection | null }>;
         "prism-semantic-viewer:viewstatechange": CustomEvent<PrismSemanticViewState>;
-        "prism-semantic-viewer:emphasis": CustomEvent<{ results: PrismSystemSceneEmphasisResult[] }>;
         "prism-semantic-viewer:error": CustomEvent<PrismSemanticViewerErrorDetail>;
         /** The board is visible; detail is the viewer's performance milestone. */
         "prism-semantic-viewer:ready": CustomEvent<Record<string, unknown>>;
         "prism-semantic-viewer:performance": CustomEvent<Record<string, unknown>>;
         "prism-semantic-viewer:contextmenu": CustomEvent<PrismSemanticContextMenuDetail>;
+        "prism-semantic-viewer:emphasis": CustomEvent<{ results: PrismSystemSceneEmphasisResult[] }>;
         "prism-semantic-viewer:move": CustomEvent<PrismSystemSceneMoveState>;
-        "prism-semantic-viewer:harness": CustomEvent<PrismSystemSceneHarnessState>;
+        "prism-semantic-viewer:harness-select": CustomEvent<PrismSystemHarnessSelectDetail>;
+        "prism-semantic-viewer:harness-drag": CustomEvent<PrismSystemHarnessDragDetail>;
     }
 
     namespace JSX {
@@ -330,9 +448,9 @@ declare global {
                     workspace?: "pcb" | "stackup";
                     active?: string;
                     "hide-panel"?: string;
-                    /** "system": several boards from `setSystemScene` (SB2-31e). */
+                    /** "system": several boards from `setSystemScene`. */
                     mode?: "system";
-                    /** mode="system": "true" lets this reader move boards (SB2-29). */
+                    /** mode="system": "true" lets this reader move boards. */
                     "move-allowed"?: "true" | "false";
                 },
                 PrismSemanticViewerElement

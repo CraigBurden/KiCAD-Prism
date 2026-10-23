@@ -1,0 +1,32 @@
+{
+  "schema": "prism.cli.artwork_result.a0",
+  "paper_scale": 2.0,
+  "views": [
+    {
+      "name": "assembly_bottom_view",
+      "file": "assembly_bottom_view.svg",
+      "sha256": "508a38c55ebbce1b840c458a79a88e2e8a4256e834805f3c3554b2a2cb62d422",
+      "footprints_drawn": 5,
+      "designators_placed": 5,
+      "dnp_footprints_hatched": 0,
+      "footprints_without_outline": [
+        "fixtures/release-studio/usb-pd/USB-PD-Trigger-Board.kicad_pcb#0a68adf0-7cdc-46be-ae5f-e6c0b6455579",
+        "fixtures/release-studio/usb-pd/USB-PD-Trigger-Board.kicad_pcb#0d1ade47-5557-4371-bafc-b429b5fb3b77",
+        "fixtures/release-studio/usb-pd/USB-PD-Trigger-Board.kicad_pcb#21727be1-337f-407c-b580-722dde93e672"
+      ]
+    },
+    {
+      "name": "assembly_top_view",
+      "file": "assembly_top_view.svg",
+      "sha256": "508a38c55ebbce1b840c458a79a88e2e8a4256e834805f3c3554b2a2cb62d422",
+      "footprints_drawn": 5,
+      "designators_placed": 5,
+      "dnp_footprints_hatched": 0,
+      "footprints_without_outline": [
+        "fixtures/release-studio/usb-pd/USB-PD-Trigger-Board.kicad_pcb#0a68adf0-7cdc-46be-ae5f-e6c0b6455579",
+        "fixtures/release-studio/usb-pd/USB-PD-Trigger-Board.kicad_pcb#0d1ade47-5557-4371-bafc-b429b5fb3b77",
+        "fixtures/release-studio/usb-pd/USB-PD-Trigger-Board.kicad_pcb#21727be1-337f-407c-b580-722dde93e672"
+      ]
+    }
+  ]
+}

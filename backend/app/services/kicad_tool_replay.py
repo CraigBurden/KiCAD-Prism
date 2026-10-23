@@ -170,11 +170,25 @@ class ReplayTool:
         return ToolResult(command.exit_code, command.stdout, command.stderr)
 
 
+def _file_stats(paths: Sequence[Path]) -> dict[Path, tuple[int, int, int]]:
+    """Each file at or under ``paths``: its modification time, size and inode."""
+
+    stats: dict[Path, tuple[int, int, int]] = {}
+    for path in paths:
+        for candidate in sorted(path.rglob("*")) if path.is_dir() else [path]:
+            if candidate.is_file():
+                stat = candidate.stat()
+                stats[candidate] = (stat.st_mtime_ns, stat.st_size, stat.st_ino)
+    return stats
+
+
 class RecordingTool:
     """Runs ``inner`` and records each run, with the files it wrote, for replay.
 
-    A command's outputs are the files under the paths in its argv that were
-    written after it started; inputs are older and are not recorded. Every
+    A command's outputs are the files under the paths in its argv (and under
+    its working directory, when that is rooted) that it
+    created or changed, or that were written after it started; inputs are
+    untouched and are not recorded. Every
     absolute path in an argv must lie under one of the roots, or the recording
     would carry a host path.
     """
@@ -212,21 +226,27 @@ class RecordingTool:
         stray = [part for part in normalized if self._roots.unrooted_path(part)]
         if stray:
             raise ToolError(f"cannot record a host path: {stray[0]}")
+        paths = [Path(self._roots.expand(part)) for part in normalized if part.startswith("<")]
+        # A jobset names only its jobset and project files; its outputs land
+        # under the working directory, so a rooted cwd is an output root too.
+        rooted_cwd = self._roots.normalize(str(cwd)) if cwd is not None else ""
+        if rooted_cwd.startswith("<"):
+            paths.append(Path(self._roots.expand(rooted_cwd)))
+        before = _file_stats(paths)
         started = time.time_ns()
         result = self._inner.run(args, timeout=timeout, cwd=cwd, env=env, tee=tee)
         outputs: dict[str, str] = {}
-        for part in normalized:
-            if not part.startswith("<"):
+        for candidate, stat in _file_stats(paths).items():
+            # File times come from the kernel's coarse clock, which can trail
+            # time.time_ns() by a tick, so a file the run created or changed
+            # counts whatever its time says.
+            if before.get(candidate) == stat and stat[0] < started:
                 continue
-            path = Path(self._roots.expand(part))
-            candidates = sorted(path.rglob("*")) if path.is_dir() else [path]
-            for candidate in candidates:
-                if candidate.is_file() and candidate.stat().st_mtime_ns >= started:
-                    payload = candidate.read_bytes()
-                    digest = hashlib.sha256(payload).hexdigest()
-                    with self._lock:
-                        self.blobs[digest] = payload
-                    outputs[self._roots.normalize(str(candidate))] = digest
+            payload = candidate.read_bytes()
+            digest = hashlib.sha256(payload).hexdigest()
+            with self._lock:
+                self.blobs[digest] = payload
+            outputs[self._roots.normalize(str(candidate))] = digest
         with self._lock:
             self.commands.append(
                 {

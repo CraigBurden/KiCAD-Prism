@@ -1,0 +1,50 @@
+{
+ "schema": "prism.project.a0",
+ "projectFile": "synthetic.kicad_pro",
+ "projectName": "synthetic",
+ "textVariables": {},
+ "netClasses": [],
+ "documents": [
+  {
+   "path": "synthetic.kicad_pcb",
+   "kind": "board",
+   "formatVersion": 20260206,
+   "generator": "pcbnew",
+   "generatorVersion": "10.0",
+   "titleBlock": {
+    "title": "Release Studio Synthetic Board",
+    "date": "2026-01-01",
+    "rev": "R0",
+    "company": "KiCad Prism",
+    "comments": [
+     {
+      "number": 1,
+      "text": "Deterministic Release Studio fixture"
+     }
+    ]
+   },
+   "expandedTitleBlock": {
+    "title": "Release Studio Synthetic Board",
+    "date": "2026-01-01",
+    "rev": "R0",
+    "company": "KiCad Prism",
+    "comments": [
+     {
+      "number": 1,
+      "text": "Deterministic Release Studio fixture"
+     }
+    ]
+   },
+   "properties": {}
+  },
+  {
+   "path": "synthetic.kicad_sch",
+   "kind": "root-schematic",
+   "formatVersion": 20260306,
+   "generator": "eeschema",
+   "generatorVersion": "10.0",
+   "properties": {}
+  }
+ ],
+ "references": []
+}

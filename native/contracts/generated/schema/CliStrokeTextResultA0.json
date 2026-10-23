@@ -1,0 +1,83 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$id": "urn:prism:schema:prism.cli.stroke_text_result:a0",
+    "type": "object",
+    "properties": {
+        "schema": {
+            "type": "string",
+            "const": "prism.cli.stroke_text_result.a0",
+            "description": "Document schema id."
+        },
+        "runs": {
+            "type": "array",
+            "items": {
+                "$ref": "#/$defs/CliStrokeTextRun"
+            },
+            "description": "One entry per run of the request, in the request's run order."
+        }
+    },
+    "required": [
+        "schema",
+        "runs"
+    ],
+    "unevaluatedProperties": {
+        "not": {}
+    },
+    "description": "stdout of `stroke-text --request` (exit 0).",
+    "title": "prism-kicad stroke-text result a0",
+    "$defs": {
+        "CliStrokeTextRun": {
+            "type": "object",
+            "properties": {
+                "polylines_mm": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/$defs/CliMmPolyline"
+                    },
+                    "description": "The run's polylines in millimetres, in the order the renderer returns them; each polyline is one stroke."
+                },
+                "advance_mm": {
+                    "type": "number",
+                    "description": "The run's advance width in millimetres: `_calculate_text_width(text) × size_mm`."
+                },
+                "missing_codepoints": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/$defs/Count"
+                    },
+                    "description": "The code points the NewStroke font has no glyph for, so the run drew them\nas nothing (`fonts.unsupported_codepoints`), in ascending numeric order.\nEmpty when every code point is present."
+                }
+            },
+            "required": [
+                "polylines_mm",
+                "advance_mm",
+                "missing_codepoints"
+            ],
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "One rendered text run."
+        },
+        "CliMmPolyline": {
+            "type": "array",
+            "items": {
+                "$ref": "#/$defs/CliMmPoint"
+            },
+            "description": "One polyline in millimetres: its points in stroke order."
+        },
+        "Count": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "A count of things: a non-negative safe integer."
+        },
+        "CliMmPoint": {
+            "type": "array",
+            "items": {
+                "type": "number"
+            },
+            "minItems": 2,
+            "maxItems": 2,
+            "description": "A point in millimetres, `[x, y]` in that order, as the renderer returns it."
+        }
+    }
+}

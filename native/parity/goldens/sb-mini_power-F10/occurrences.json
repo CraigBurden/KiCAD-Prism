@@ -1,0 +1,155 @@
+{
+ "schema": "prism.occurrences.a0",
+ "sheets": [
+  {
+   "sheetPath": "/bf4216d1-fbe3-5c54-8514-d58b47dc3ddc",
+   "dnp": false,
+   "excludeFromBom": false,
+   "excludeFromBoard": false,
+   "excludeFromSim": false,
+   "variants": []
+  }
+ ],
+ "symbols": [
+  {
+   "kiidPath": "/bf4216d1-fbe3-5c54-8514-d58b47dc3ddc/2d5d8653-9cc7-5154-98b5-b1ccdceb4207",
+   "sheetPath": "/bf4216d1-fbe3-5c54-8514-d58b47dc3ddc",
+   "symbolUuid": "2d5d8653-9cc7-5154-98b5-b1ccdceb4207",
+   "documentPath": "mini_power.kicad_sch",
+   "libId": "MiniSys:Conn_Split_2x2",
+   "reference": "J3",
+   "instanceMatched": true,
+   "unit": 2,
+   "dnp": false,
+   "excludeFromBom": false,
+   "excludeFromBoard": false,
+   "excludeFromSim": false,
+   "excludeFromPosFiles": false,
+   "properties": {
+    "Datasheet": "",
+    "Description": "",
+    "Footprint": "MiniSys:Conn_Split_2x2",
+    "Reference": "J3",
+    "Value": "Conn_Split_2x2"
+   },
+   "bomFields": {
+    "value": "Conn_Split_2x2",
+    "footprint": "MiniSys:Conn_Split_2x2"
+   },
+   "variants": []
+  },
+  {
+   "kiidPath": "/bf4216d1-fbe3-5c54-8514-d58b47dc3ddc/3c61606f-5968-5d63-a864-46e169956912",
+   "sheetPath": "/bf4216d1-fbe3-5c54-8514-d58b47dc3ddc",
+   "symbolUuid": "3c61606f-5968-5d63-a864-46e169956912",
+   "documentPath": "mini_power.kicad_sch",
+   "libId": "Connector_Generic:Conn_01x02",
+   "reference": "J8",
+   "instanceMatched": true,
+   "unit": 1,
+   "dnp": true,
+   "excludeFromBom": false,
+   "excludeFromBoard": false,
+   "excludeFromSim": false,
+   "excludeFromPosFiles": false,
+   "properties": {
+    "Datasheet": "",
+    "Description": "",
+    "Footprint": "Connector_PinHeader_2.54mm:PinHeader_1x02_P2.54mm_Vertical",
+    "Reference": "J8",
+    "Value": "Conn_01x02"
+   },
+   "bomFields": {
+    "value": "Conn_01x02",
+    "footprint": "Connector_PinHeader_2.54mm:PinHeader_1x02_P2.54mm_Vertical"
+   },
+   "variants": []
+  },
+  {
+   "kiidPath": "/bf4216d1-fbe3-5c54-8514-d58b47dc3ddc/9fbb0e4e-6313-5ab5-88fd-43d9f13fc52f",
+   "sheetPath": "/bf4216d1-fbe3-5c54-8514-d58b47dc3ddc",
+   "symbolUuid": "9fbb0e4e-6313-5ab5-88fd-43d9f13fc52f",
+   "documentPath": "mini_power.kicad_sch",
+   "libId": "Connector_Generic:Conn_01x04",
+   "reference": "J1",
+   "instanceMatched": true,
+   "unit": 1,
+   "dnp": false,
+   "excludeFromBom": false,
+   "excludeFromBoard": false,
+   "excludeFromSim": false,
+   "excludeFromPosFiles": false,
+   "properties": {
+    "Datasheet": "",
+    "Description": "",
+    "Footprint": "Connector_PinHeader_2.54mm:PinHeader_1x04_P2.54mm_Vertical",
+    "Reference": "J1",
+    "Value": "Conn_01x04"
+   },
+   "bomFields": {
+    "value": "Conn_01x04",
+    "footprint": "Connector_PinHeader_2.54mm:PinHeader_1x04_P2.54mm_Vertical"
+   },
+   "variants": []
+  }
+ ],
+ "footprints": [
+  {
+   "uuid": "024715cb-8914-5466-858a-3605bcc29b5c",
+   "documentPath": "mini_power.kicad_pcb",
+   "reference": "J1",
+   "dnp": false,
+   "excludeFromBom": false,
+   "excludeFromPosFiles": false,
+   "variants": []
+  },
+  {
+   "uuid": "a00b664a-6006-5b83-b4a6-28b2207123d6",
+   "documentPath": "mini_power.kicad_pcb",
+   "reference": "J8",
+   "dnp": false,
+   "excludeFromBom": false,
+   "excludeFromPosFiles": false,
+   "variants": []
+  },
+  {
+   "uuid": "d1620b4a-ccfe-581c-954b-c154f6e337d4",
+   "documentPath": "mini_power.kicad_pcb",
+   "reference": "J3",
+   "dnp": false,
+   "excludeFromBom": false,
+   "excludeFromPosFiles": false,
+   "variants": []
+  }
+ ],
+ "references": [
+  {
+   "reference": "J1",
+   "symbols": [
+    "/bf4216d1-fbe3-5c54-8514-d58b47dc3ddc/9fbb0e4e-6313-5ab5-88fd-43d9f13fc52f"
+   ],
+   "footprints": [
+    "024715cb-8914-5466-858a-3605bcc29b5c"
+   ]
+  },
+  {
+   "reference": "J3",
+   "symbols": [
+    "/bf4216d1-fbe3-5c54-8514-d58b47dc3ddc/2d5d8653-9cc7-5154-98b5-b1ccdceb4207"
+   ],
+   "footprints": [
+    "d1620b4a-ccfe-581c-954b-c154f6e337d4"
+   ]
+  },
+  {
+   "reference": "J8",
+   "symbols": [
+    "/bf4216d1-fbe3-5c54-8514-d58b47dc3ddc/3c61606f-5968-5d63-a864-46e169956912"
+   ],
+   "footprints": [
+    "a00b664a-6006-5b83-b4a6-28b2207123d6"
+   ]
+  }
+ ],
+ "variantDeclarations": []
+}

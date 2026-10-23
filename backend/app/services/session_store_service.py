@@ -39,6 +39,9 @@ class SessionRecord:
     expires_at: datetime
     last_seen_at: datetime
     user_id: str = ""
+    # The account's local password must be changed before anything else; read
+    # live from user_credentials so an administrator's reset applies at once.
+    password_change_required: bool = False
 
 
 def _now() -> datetime:
@@ -70,6 +73,7 @@ def _row_to_record(row: dict[str, Any], session_id: str) -> SessionRecord:
         expires_at=row["expires_at"],
         last_seen_at=row["last_seen_at"],
         user_id=str(row["user_id"] or ""),
+        password_change_required=bool(row.get("password_change_required")),
     )
 
 
@@ -124,9 +128,12 @@ def load_session(session_id: str) -> SessionRecord | None:
         connection.execute("SET search_path TO workspace, public")
         row = connection.execute(
             """
-            SELECT email, name, picture, created_at, last_seen_at, expires_at, revoked_at, user_id
-            FROM user_sessions
-            WHERE session_digest = %s
+            SELECT s.email, s.name, s.picture, s.created_at, s.last_seen_at, s.expires_at,
+                   s.revoked_at, s.user_id,
+                   COALESCE(c.must_change_password, FALSE) AS password_change_required
+            FROM user_sessions s
+            LEFT JOIN user_credentials c ON c.user_id = s.user_id AND s.user_id <> ''
+            WHERE s.session_digest = %s
             """,
             (session_id_digest(session_id),),
         ).fetchone()

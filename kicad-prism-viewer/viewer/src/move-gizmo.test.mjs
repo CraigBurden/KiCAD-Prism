@@ -2,8 +2,8 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 const {
-  axisAmount, canonicalPose, moveDescriptor, moveTarget, poseMatrix, rigidInverse,
-  ringRotation, rotatePoseAbout, screenAngle, snapTo, translatePose,
+  DEFAULT_MOVE_SNAP, axisAmount, canonicalPose, moveDescriptor, moveTarget, normalizeMoveSnap, poseMatrix,
+  rigidInverse, ringRotation, rotatePoseAbout, screenAngle, snapSteps, snapTo, translatePose,
 } = await import("./move-gizmo.js");
 
 const close = (actual, expected, tolerance = 1e-9) => {
@@ -34,6 +34,23 @@ test("snapping rounds to the step", () => {
   assert.equal(snapTo(-7.6, 1), -8);
   assert.equal(snapTo(0.26, 0.1).toFixed(1), "0.3");
   assert.equal(snapTo(Math.PI / 5, Math.PI / 12), Math.PI / 6); // 36° snaps to 30° in 15° steps
+});
+
+test("snapping uses the host's steps, with Shift giving a tenth and one degree", () => {
+  assert.deepEqual({ ...DEFAULT_MOVE_SNAP }, { mm: 0.5, deg: 15 });
+  assert.deepEqual(snapSteps(DEFAULT_MOVE_SNAP), { mm: 0.5, deg: 15, fineMm: 0.05, fineDeg: 1 });
+  assert.deepEqual(snapSteps({ mm: 2, deg: 5 }), { mm: 2, deg: 5, fineMm: 0.2, fineDeg: 1 });
+  // Custom steps reach snapTo unchanged: 1.1 mm rounds to 1.4 mm, 8° to 10°.
+  assert.ok(Math.abs(snapTo(1.1, snapSteps({ mm: 0.7 }).mm) - 1.4) < 1e-9);
+  assert.ok(Math.abs(snapTo(8, snapSteps({ mm: 2, deg: 5 }).deg) - 10) < 1e-9);
+  assert.equal(snapTo(0.26, snapSteps({ mm: 0.5 }).fineMm).toFixed(2), "0.25");
+});
+
+test("an unusable snap keeps the last usable steps", () => {
+  assert.deepEqual(normalizeMoveSnap({ mm: 2, deg: 5 }), { mm: 2, deg: 5 });
+  for (const bad of [0, -1, Number.NaN, null, undefined, "x"]) {
+    assert.deepEqual(normalizeMoveSnap({ mm: bad, deg: bad }, { mm: 1, deg: 30 }), { mm: 1, deg: 30 });
+  }
 });
 
 test("a pointer drag converts to millimetres along the axis's screen direction", () => {
@@ -96,4 +113,19 @@ test("moving a child system carries its members as a rigid group", () => {
   assert.equal(moved.occurrences[0], descriptor.occurrences[0], "other boards are untouched");
   assert.equal(moveDescriptor(descriptor, "/g/b", { translationMm: [0, 0, 0], rotation: [0, 0, 0, 1] }), descriptor,
     "only top-level occurrences move");
+});
+
+test("a flat system scene moves the occurrence the selection names", () => {
+  const flat = {
+    occurrences: [
+      { path: "occ_a", kind: "board", movable: true, worldMatrix: poseMatrix({ translationMm: [0, 0, 0], rotation: [0, 0, 0, 1] }) },
+      { path: "occ_b", kind: "board", movable: false, worldMatrix: poseMatrix({ translationMm: [50, 0, 0], rotation: [0, 0, 0, 1] }) },
+    ],
+  };
+  assert.equal(moveTarget(flat, "occ_a").path, "occ_a");
+  assert.equal(moveTarget(flat, "occ_b").path, "occ_b");
+  assert.equal(moveTarget(flat, "occ_missing"), null);
+  const moved = moveDescriptor(flat, "occ_a", { translationMm: [5, 6, 7], rotation: [0, 0, 0, 1] });
+  assert.deepEqual(moved.occurrences[0].worldMatrix.slice(12, 15), [5, 6, 7]);
+  assert.equal(moved.occurrences[1], flat.occurrences[1]);
 });

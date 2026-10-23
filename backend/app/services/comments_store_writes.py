@@ -17,6 +17,7 @@ refused caller never reaches it.
 from __future__ import annotations
 
 import json
+import re
 from typing import TYPE_CHECKING, Callable, Dict, List, Optional, Tuple
 
 from app.services import comment_attachments, comment_live_events, comment_permissions, comment_social, comment_write, comments_revisions
@@ -118,6 +119,7 @@ class CommentsStoreWritesMixin:
         author_kind: Optional[str] = None,
         anchor_commit: Optional[str] = None,
         anchor_revision_key: Optional[str] = None,
+        anchor_design_key: Optional[str] = None,
         anchor_source: Optional[str] = None,
         selected_side: Optional[str] = None,
         project_relative_path: Optional[str] = None,
@@ -165,6 +167,7 @@ class CommentsStoreWritesMixin:
             "semantic_item_id": _optional_str(semantic_item_id), "anchor_kind": _optional_str(anchor_kind),
             "author_user_id": author_user_id, "author_kind": author_kind_norm, "updated_at": timestamp,
             "anchor_commit": anchor_commit, "anchor_revision_key": _optional_str(anchor_revision_key),
+            "anchor_design_key": _optional_str(anchor_design_key),
             "anchor_source": _optional_str(anchor_source),
             "anchor_state": ANCHOR_STATE_PINNED if (anchor_commit or has_comparison_pair) else ANCHOR_STATE_UNPINNED,
             "selected_side": _optional_str(selected_side),
@@ -385,6 +388,7 @@ class CommentsStoreWritesMixin:
         *,
         commit: str,
         source_revision_key: Optional[str] = None,
+        design_key: Optional[str] = None,
         file_path: Optional[str] = None,
         project_relative_path: Optional[str] = None,
         expected_revision: Optional[int] = None,
@@ -411,11 +415,12 @@ class CommentsStoreWritesMixin:
                     anchor = resolve(row["context"])
                     commit = anchor.commit or commit
                     source_revision_key = anchor.source_revision_key
+                    design_key = anchor.design_key
                     file_path, project_relative_path = anchor.file_path, anchor.project_relative_path
                 if _anchor_already_pinned(row):
                     raise comments_revisions.AnchorImmutable()
                 params: List[object] = [
-                    commit, source_revision_key, "manual", ANCHOR_STATE_PINNED,
+                    commit, source_revision_key, _optional_str(design_key), "manual", ANCHOR_STATE_PINNED,
                     _optional_str(file_path) or row.get("file_path"),
                     _optional_str(project_relative_path) or row.get("project_relative_path"),
                     now, project_id, comment_id, ANCHOR_STATE_UNPINNED,
@@ -427,8 +432,8 @@ class CommentsStoreWritesMixin:
                 updated = conn.execute(
                     f"""
                     UPDATE comments
-                    SET anchor_commit = %s, anchor_revision_key = %s, anchor_source = %s,
-                        anchor_state = %s, file_path = %s, project_relative_path = %s,
+                    SET anchor_commit = %s, anchor_revision_key = %s, anchor_design_key = %s,
+                        anchor_source = %s, anchor_state = %s, file_path = %s, project_relative_path = %s,
                         revision = revision + 1, updated_at = %s
                     WHERE project_id = %s AND id = %s AND deleted_at IS NULL{guard}
                     RETURNING revision
@@ -448,6 +453,37 @@ class CommentsStoreWritesMixin:
                     content=row["content"],
                 )
                 return _decorated(self._get_comment_with_replies(conn, project_id, comment_id), actor)
+
+    def fill_anchor_design_keys(self, project_id: str, keys: Dict[str, str]) -> int:
+        """Backfill the design key of already-pinned rows that predate the column.
+
+        A design key is derived identity, not an edit: the UPDATE fills only a
+        row that has a commit and no key yet, and never bumps ``revision``,
+        ``updated_at`` or records a revision. Keys that are not a 64-character
+        lowercase hex digest are ignored. Returns the number of rows filled.
+        """
+        self.initialize()
+        valid = {
+            comment_id: key
+            for comment_id, key in keys.items()
+            if isinstance(key, str) and re.fullmatch(r"[0-9a-f]{64}", key)
+        }
+        if not valid:
+            return 0
+        filled = 0
+        with self._connect() as conn:
+            with conn.transaction():
+                for comment_id, key in valid.items():
+                    cursor = conn.execute(
+                        """
+                        UPDATE comments SET anchor_design_key = %s
+                        WHERE project_id = %s AND id = %s
+                          AND anchor_design_key IS NULL AND anchor_commit IS NOT NULL
+                        """,
+                        (key, project_id, comment_id),
+                    )
+                    filled += cursor.rowcount
+        return filled
 
     @_retry_on_deadlock
     def reattach_comment(

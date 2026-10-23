@@ -604,10 +604,6 @@ class WorkspaceService:
                 "DELETE FROM ws_release_audit_events WHERE project_id = %s",
                 (project_id,),
             )
-            conn.execute(
-                "DELETE FROM ws_webgpu_ready WHERE project_id = %s",
-                (project_id,),
-            )
         finally:
             for table, trigger in _RELEASE_IMMUTABLE_TRIGGERS:
                 conn.execute(f"ALTER TABLE {table} ENABLE TRIGGER {trigger}")

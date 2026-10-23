@@ -240,6 +240,7 @@ class CatalogComponentWriter:
         external_source: str = "",
         external_id: str = "",
         change_kind: str = "metadata",
+        kind: str = "part",
     ) -> tuple[str, str]:
         """Write ``metadata`` as a new revision; returns ``(component_id, revision_id)``.
 
@@ -263,7 +264,9 @@ class CatalogComponentWriter:
             component_id=existing_component_id or "",
         )
         identity_source = (
-            metadata["identity_source"] if metadata["identity_kind"] == IDENTITY_KIND_PROVISIONAL_IPN else ""
+            metadata["identity_source"]
+            if metadata["identity_kind"] == IDENTITY_KIND_PROVISIONAL_IPN
+            else ""
         )
         normalized_manufacturer = (
             metadata["normalized_manufacturer"] if metadata["identity_kind"] == IDENTITY_KIND_MPN else ""
@@ -323,15 +326,16 @@ class CatalogComponentWriter:
         conn.execute(
             """
             INSERT INTO components (
-                id, slug, identity_kind, identity_source, normalized_manufacturer, normalized_part_number,
+                id, slug, kind, identity_kind, identity_source, normalized_manufacturer, normalized_part_number,
                 source, external_source, external_id, is_active, current_revision_id,
                 released_revision_id, created_at, updated_at
             )
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, 1, %s, '', %s, %s)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 1, %s, '', %s, %s)
             """,
             (
                 component_id,
                 slug,
+                kind,
                 metadata["identity_kind"],
                 identity_source,
                 normalized_manufacturer,

@@ -1,12 +1,13 @@
-// Harness tubes on the GPU (System Builder SB2-44, CONTRACTS_P2 §20.15).
+// Harness tubes on the GPU (System Builder 4c, CONTRACTS §16.6).
 //
 // `setTubes` uploads the samples and the index buffer (tube-mesh.js packs
 // them); the next frame's compute pass rebuilds the mesh: `frames` walks each
 // segment's samples once for its rotation-minimising normals (double
 // reflection), then `rings` writes every vertex in parallel. The draw shares
 // the scene's render pass and depth buffer, so tubes and boards hide each
-// other properly. Colours live in their own small buffer: lighting a net only
-// rewrites that.
+// other properly. Colours live in their own small buffer with their alpha, so
+// a drag preview can be translucent and a selected segment tinted without
+// re-uploading geometry.
 
 import { RING_SEGMENTS, packTubes } from "./tube-mesh.js";
 
@@ -100,7 +101,7 @@ fn segmentOf(vertex: u32) -> u32 {
 const DRAW = /* wgsl */ `
 struct Globals { viewProjection: mat4x4f, light: vec4f, time: vec4f };
 @group(0) @binding(0) var<uniform> globals: Globals;
-@group(0) @binding(1) var<storage, read> colors: array<vec4f>; // rgb, mode: 0 idle, 1 lit, 2 dim
+@group(0) @binding(1) var<storage, read> colors: array<vec4f>; // rgb, alpha
 
 struct Out {
   @builtin(position) position: vec4f,
@@ -116,15 +117,11 @@ struct Out {
 }
 @fragment fn fs(input: Out) -> @location(0) vec4f {
   let entry = colors[input.color];
-  let mode = u32(entry.a + 0.5);
-  var base = entry.rgb;
-  if (mode == 1u) { base = base * (0.9 + 0.1 * sin(globals.time.x * 3.2)); }
-  if (mode == 2u) { base = mix(base, vec3f(0.62, 0.64, 0.67), 0.7); }
   let n = normalize(input.normal);
   let diffuse = max(dot(n, normalize(globals.light.xyz)), 0.0);
   let hemi = mix(0.35, 0.7, n.z * 0.5 + 0.5);
-  let lit = base * (hemi + 0.6 * diffuse);
-  return vec4f(select(lit, max(lit, base * 0.95), mode == 1u), 1.0);
+  let lit = entry.rgb * (hemi + 0.6 * diffuse);
+  return vec4f(lit, entry.a);
 }
 `;
 
@@ -169,10 +166,20 @@ export class TubeRenderer {
         entryPoint: "vs",
         buffers: [{ arrayStride: 32, attributes: [{ shaderLocation: 0, offset: 0, format: "float32x4" }, { shaderLocation: 1, offset: 16, format: "float32x4" }] }],
       },
-      fragment: { module: drawModule, entryPoint: "fs", targets: [{ format: host.format }] },
+      fragment: {
+        module: drawModule,
+        entryPoint: "fs",
+        targets: [{
+          format: host.format,
+          blend: {
+            color: { srcFactor: "src-alpha", dstFactor: "one-minus-src-alpha", operation: "add" },
+            alpha: { srcFactor: "one", dstFactor: "one-minus-src-alpha", operation: "add" },
+          },
+        }],
+      },
       primitive: { topology: "triangle-list", cullMode: "none" },
       depthStencil: host.depthStencilState(),
-      multisample: { count: 1 },
+      multisample: { count: host.sampleCount },
     });
     this.globals = device.createBuffer({ label: "harness-tubes-globals", size: GLOBAL_BYTES, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
     this.countBuffer = device.createBuffer({ label: "harness-tubes-counts", size: 16, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
@@ -192,7 +199,7 @@ export class TubeRenderer {
 
   /**
    * The tubes to draw (`{samplesMm, radiusMm}` each) and their colours
-   * (`colorOf(tube) → {rgb: [r, g, b], mode: 0 | 1 | 2}`).
+   * (`colorOf(tube) → [r, g, b, a]`).
    */
   setTubes(tubes, colorOf) {
     const packed = packTubes(tubes);
@@ -225,14 +232,11 @@ export class TubeRenderer {
     this.dirty = true;
   }
 
-  /** Recolour the tubes set last (a net lit or cleared): only the small colour buffer changes. */
+  /** Recolour the tubes set last (selection or drag preview): only the small colour buffer changes. */
   setColors(colorOf) {
     if (!this.counts.segments) return;
     const data = new Float32Array(this.counts.segments * 4);
-    this.kept.forEach((tube, index) => {
-      const { rgb, mode } = colorOf(tube);
-      data.set([rgb[0], rgb[1], rgb[2], mode], index * 4);
-    });
+    this.kept.forEach((tube, index) => data.set(colorOf(tube), index * 4));
     if (this.ensure("colors", data.byteLength, GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST) || !this.drawGroup || this.drawGroupColors !== this.buffers.colors) {
       this.drawGroup = this.device.createBindGroup({
         layout: this.drawLayout,

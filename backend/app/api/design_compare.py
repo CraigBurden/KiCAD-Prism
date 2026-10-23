@@ -121,7 +121,8 @@ async def design_compare_result(
     result = await asyncio.to_thread(design_compare_service.get_job_result, job_id)
     if not result:
         raise HTTPException(status_code=404, detail="Result not found")
-    if result.get("schema") == "prism.design_compare_bundle_v1":
+    # v1: the legacy pipeline; v2: `prism-kicad compare` (ADR amendment C2r §9 step 5).
+    if result.get("schema") in ("prism.design_compare_bundle_v1", "prism.design_compare_bundle_v2"):
         sidecars = {
             name: {
                 **metadata,

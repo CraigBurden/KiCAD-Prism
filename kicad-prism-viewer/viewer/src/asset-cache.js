@@ -11,6 +11,8 @@
 
 const ASSET_PATH = /\/api\/projects\/([^/]+)\/webgpu-3d\/assets\/([^/]+)\/([^/]+)\/(.+)$/;
 const DIRECTORY = "prism-bundle-cache-a0";
+/** The OPFS directory the cache keeps its files in (workers write into it too; see `adopt`). */
+export const ASSET_CACHE_DIRECTORY = DIRECTORY;
 const MANIFEST = "manifest.json";
 export const CACHE_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000;
 export const CACHE_MAX_BYTES = 2 * 1024 * 1024 * 1024;
@@ -182,6 +184,17 @@ export class AssetCache {
     } catch {
       this.stats.writeErrors += 1;
     }
+  }
+
+  /**
+   * List `key` as cached: a worker wrote its file (`fileNameFor(key)` in
+   * `ASSET_CACHE_DIRECTORY`, `bytes` long) and closed it. A file never
+   * adopted is unlisted, and the next prune removes it.
+   */
+  adopt(key, bytes) {
+    if (!this.directory) return;
+    this.entries[key] = { bytes, lastUsed: Date.now() };
+    this.scheduleFlush();
   }
 
   async prune(now = Date.now()) {

@@ -1,0 +1,4445 @@
+{
+  "document": "Ownership map of the Prism-native design bundle work packages",
+  "status": "W0 draft for maintainer review",
+  "adr": "docs/architecture/adr-native-design-bundle.md",
+  "humanReadable": "ownership.md",
+  "verifiedAgainst": {
+    "dev": "0e2346c771d4cf8312c2d5725f991544517502fa (wp/w0-contracts = feature/native-design-bundle)",
+    "ref": "6c67ef387cc8df56a532e8dc01abda2e29406865 (feature/analytic-pack-spike) plus its uncommitted semantic_index_board.py and semantic_index_service.py",
+    "fork": "b6316117901b344114385242b0ad13be45dfefae"
+  },
+  "statusValues": {
+    "dev": "the path, or at least one match of the glob, exists on dev",
+    "ref-only": "exists only on the reference branch (copy-from)",
+    "new": "exists nowhere yet"
+  },
+  "owners": {
+    "INT": "the integration agent of the current wave: applies the W0 move, requested edits to a shared file whose owning WP has merged (one commit per request, before the requester stacks), wave-end AGENTS.md map updates, ceiling lowering and build-output rebuilds"
+  },
+  "wpOrder": [
+    "W0",
+    "F0",
+    "F1",
+    "F2",
+    "F3",
+    "B",
+    "K",
+    "G",
+    "L",
+    "S1",
+    "P1",
+    "P2",
+    "P3",
+    "P4",
+    "P5",
+    "V1",
+    "C1",
+    "C2",
+    "C3",
+    "C4",
+    "C5",
+    "C6",
+    "C7",
+    "C8",
+    "R1",
+    "R2",
+    "R3",
+    "R4",
+    "X"
+  ],
+  "workPackages": {
+    "W0": {
+      "wave": 0,
+      "title": "Contracts",
+      "adrSection": "§9.3",
+      "adrOwns": [
+        "native/src/tsp/prism/ (or the staging dir)",
+        "docs/architecture/adr-native-design-bundle.md"
+      ],
+      "owns": [
+        {
+          "path": "docs/architecture/adr-native-design-bundle.md",
+          "status": "dev",
+          "note": "the ADR; changed only by a maintainer-approved amendment PR"
+        },
+        {
+          "path": "native/contracts/prism/**",
+          "status": "dev",
+          "note": "the staging dir; untracked in the W0 worktree until W0 commits; removed by the W0 move"
+        },
+        {
+          "path": "native/contracts/generated/schema/BoardObjectsA0.json",
+          "status": "new",
+          "note": "generated from W0's TypeSpec; never edited by hand"
+        },
+        {
+          "path": "native/contracts/generated/schema/BundleManifestA3.json",
+          "status": "new",
+          "note": "generated from W0's TypeSpec; never edited by hand"
+        },
+        {
+          "path": "native/contracts/generated/schema/CliBuildResultA0.json",
+          "status": "new",
+          "note": "generated from W0's TypeSpec; never edited by hand"
+        },
+        {
+          "path": "native/contracts/generated/schema/CliDiagnosticA0.json",
+          "status": "new",
+          "note": "generated from W0's TypeSpec; never edited by hand"
+        },
+        {
+          "path": "native/contracts/generated/schema/CliErrorA0.json",
+          "status": "new",
+          "note": "generated from W0's TypeSpec; never edited by hand"
+        },
+        {
+          "path": "native/contracts/generated/schema/CliExtractResultA0.json",
+          "status": "new",
+          "note": "generated from W0's TypeSpec; never edited by hand"
+        },
+        {
+          "path": "native/contracts/generated/schema/CliProjectAbsentA0.json",
+          "status": "new",
+          "note": "generated from W0's TypeSpec; never edited by hand"
+        },
+        {
+          "path": "native/contracts/generated/schema/CliVerifyReportA0.json",
+          "status": "new",
+          "note": "generated from W0's TypeSpec; never edited by hand"
+        },
+        {
+          "path": "native/contracts/generated/schema/CliVersionA0.json",
+          "status": "new",
+          "note": "generated from W0's TypeSpec; never edited by hand"
+        },
+        {
+          "path": "native/contracts/generated/schema/OccurrencesA0.json",
+          "status": "new",
+          "note": "generated from W0's TypeSpec; never edited by hand"
+        },
+        {
+          "path": "native/contracts/generated/schema/PlacementsA1.json",
+          "status": "new",
+          "note": "generated from W0's TypeSpec; never edited by hand"
+        },
+        {
+          "path": "native/contracts/generated/schema/ProjectA0.json",
+          "status": "new",
+          "note": "generated from W0's TypeSpec; never edited by hand"
+        },
+        {
+          "path": "native/contracts/generated/schema/RevisionKeyEffectiveConfigA1.json",
+          "status": "new",
+          "note": "generated from W0's TypeSpec; never edited by hand"
+        },
+        {
+          "path": "native/contracts/generated/schema/RevisionKeyRecordA1.json",
+          "status": "new",
+          "note": "generated from W0's TypeSpec; never edited by hand"
+        },
+        {
+          "path": "native/contracts/generated/schema/RevisionKeyVectorsA1.json",
+          "status": "new",
+          "note": "generated from W0's TypeSpec; never edited by hand"
+        },
+        {
+          "path": "native/contracts/generated/schema/RouteMetricsA0.json",
+          "status": "new",
+          "note": "generated from W0's TypeSpec; never edited by hand"
+        },
+        {
+          "path": "native/contracts/generated/schema/SemanticIndexA2.json",
+          "status": "new",
+          "note": "generated from W0's TypeSpec; never edited by hand"
+        },
+        {
+          "path": "native/contracts/generated/schema/StackupA0.json",
+          "status": "new",
+          "note": "generated from W0's TypeSpec; never edited by hand"
+        },
+        {
+          "path": "native/contracts/generated/schema/SystemInterfaceV1.json",
+          "status": "new",
+          "note": "generated from W0's TypeSpec; never edited by hand"
+        },
+        {
+          "path": "native/contracts/prism/**",
+          "status": "new",
+          "note": "proposed home of STAGE's examples/, field-maps/, scripts/, conventions.md, cli-spec.md, bundle-format.md, revision-key.md, revision-key-vectors.json and this map (STAGE/README.md, 'After WP-F1')"
+        },
+        {
+          "path": "native/src/tsp/prism/**",
+          "status": "new",
+          "note": "STAGE/tsp/prism/ verbatim, by the W0 move (STAGE/README.md, 'After WP-F1')"
+        }
+      ],
+      "adrDepends": [],
+      "depends": [],
+      "mergeAfter": [],
+      "notes": [
+        "The W0 move is a patch the Wave 1 integration agent applies directly after F1's import merge commit and before F2."
+      ]
+    },
+    "F0": {
+      "wave": 1,
+      "title": "Licence and provenance",
+      "adrSection": "§9.4",
+      "adrOwns": [
+        "NOTICE",
+        "native/LICENSES.md"
+      ],
+      "owns": [
+        {
+          "path": "NOTICE",
+          "status": "new",
+          "note": "root notice pointing at native/LICENSE and native/LICENSES.md"
+        },
+        {
+          "path": "docs/architecture/native-provenance.md",
+          "status": "new",
+          "note": "proposed: the import allow-list, the fixtures excluded from history, the fake_style.rs decision and the kicad_cruncher corpus licences, reviewable before native/ exists"
+        },
+        {
+          "path": "native/LICENSES.md",
+          "status": "new",
+          "note": "lands in a commit stacked after F1's import: `git subtree add --prefix=native` refuses an existing prefix"
+        }
+      ],
+      "adrDepends": [
+        "W0"
+      ],
+      "depends": [
+        "W0"
+      ],
+      "mergeAfter": [],
+      "notes": [
+        "Maintainer sign-off precedes F1; only native/LICENSES.md lands after F1.",
+        "ADR §4.1 says native/ keeps `LICENSE (MIT, Wavenumber LLC), NOTICE` as imported, but the fork has no NOTICE file at b6316117 (only LICENSE). F0 writes the root NOTICE; there is no native/NOTICE to keep."
+      ]
+    },
+    "F1": {
+      "wave": 1,
+      "title": "History import",
+      "adrSection": "§9.4, §4.3",
+      "adrOwns": [
+        "native/** (import commit only)"
+      ],
+      "owns": [
+        {
+          "path": ".gitignore",
+          "status": "dev",
+          "note": "follow-up commit: `generated/` (.gitignore:38) also hides the 85 fork files tracked under contracts/generated/schema and src/rs/kicad-monkey-contracts/src/generated, and `build/` (:47) any build/ dir; re-include them"
+        },
+        {
+          "path": "native/**",
+          "status": "new",
+          "fromFork": true,
+          "note": "the subtree merge commit only, verbatim; plus one follow-up commit fixing native/AGENTS.md (see notes)"
+        }
+      ],
+      "adrDepends": [
+        "F0"
+      ],
+      "depends": [
+        "W0",
+        "F0"
+      ],
+      "mergeAfter": [],
+      "notes": [
+        "If F0's allow-list imports the fork's AGENTS.md, scripts/check_agent_docs.py fails on it: it names `input/`, `kicad/`, `output/`, `reference_output/` (fork AGENTS.md:7-9), which do not exist even in the fork. F1 fixes the text in a separate commit; the checker stays unchanged."
+      ]
+    },
+    "F2": {
+      "wave": 1,
+      "title": "Rename, workspace features, skeleton crates, Prism contract codegen",
+      "adrSection": "§9.4",
+      "adrOwns": [
+        "native/Cargo.toml",
+        "native/Cargo.lock",
+        "crate manifests"
+      ],
+      "owns": [
+        {
+          "path": "native/Cargo.lock",
+          "status": "new",
+          "fromFork": true
+        },
+        {
+          "path": "native/Cargo.toml",
+          "status": "new",
+          "fromFork": true,
+          "note": "workspace members and workspace.dependencies, including every dependency B and the P-WPs need, so Wave 2 never edits the lock"
+        },
+        {
+          "path": "native/packages/kicad_cruncher/src/rs/kicad-cruncher-cli/Cargo.toml",
+          "status": "new",
+          "fromFork": true,
+          "note": "rename of its dependencies"
+        },
+        {
+          "path": "native/src/rs/**",
+          "status": "new",
+          "fromFork": true,
+          "note": "the mechanical rename commit only (kicad-monkey-* -> prism-kicad-*, paths and `use` lines)"
+        },
+        {
+          "path": "native/src/rs/prism-bundle/Cargo.toml",
+          "status": "new",
+          "note": "skeleton carrying B's dependency set (sim: src/prism-bundle/Cargo.toml), handed to B"
+        },
+        {
+          "path": "native/src/rs/prism-kicad-cli/Cargo.toml",
+          "status": "new",
+          "note": "skeleton binary `prism-kicad` (prints `version`), handed to B"
+        },
+        {
+          "path": "native/src/rs/prism-kicad-cli/src/main.rs",
+          "status": "new",
+          "note": "skeleton, handed to B"
+        },
+        {
+          "path": "native/src/rs/prism-kicad-codegen/src/main.rs",
+          "status": "new",
+          "fromFork": true,
+          "note": "adds the W0 roots to the hard-coded SCHEMAS list (fork: src/rs/kicad-monkey-codegen/src/main.rs:17)"
+        },
+        {
+          "path": "native/src/rs/prism-kicad-contracts/src/generated/prism/**",
+          "status": "new",
+          "note": "generated Rust for the W0 roots; content owned by W0, regenerated only by an ADR amendment PR"
+        },
+        {
+          "path": "native/src/rs/prism-projections/Cargo.toml",
+          "status": "new",
+          "note": "skeleton with the projection dependencies"
+        },
+        {
+          "path": "native/src/rs/prism-projections/src/*.rs",
+          "status": "new",
+          "note": "one stub per projection (semantic_index, board_objects, occurrences, route_metrics, stackup, placements, project, system_interface), handed to its P-WP"
+        },
+        {
+          "path": "native/src/rs/prism-projections/src/lib.rs",
+          "status": "new",
+          "note": "declares every projection module; frozen in Wave 2 (replaces 'prism-projections/src/lib.rs (P1)' in §9.1)"
+        }
+      ],
+      "adrDepends": [
+        "F1"
+      ],
+      "depends": [
+        "W0",
+        "F1"
+      ],
+      "mergeAfter": [
+        "W0-move"
+      ],
+      "notes": [
+        "After F2 merges, native/Cargo.toml, Cargo.lock and every crate manifest pass to the integration agent until R3 (Wave 4)."
+      ]
+    },
+    "F3": {
+      "wave": 1,
+      "title": "Replace the Wavenumber infrastructure",
+      "adrSection": "§9.4, §4.2",
+      "adrOwns": [
+        "native/scripts/",
+        "native/rust-hygiene*",
+        "workflow files via L"
+      ],
+      "owns": [
+        {
+          "path": ".github/workflows/native-release.yml",
+          "status": "new",
+          "note": "proposed new file: the re-targeted release workflow (binaries, wasm package); not part of the quality gate, so it needs no shared file"
+        },
+        {
+          "path": "native/.github/**",
+          "status": "new",
+          "fromFork": true,
+          "note": "the fork's workflows, imported inert; removed once ported"
+        },
+        {
+          "path": "native/package-lock.json",
+          "status": "new",
+          "fromFork": true
+        },
+        {
+          "path": "native/package.json",
+          "status": "new",
+          "fromFork": true,
+          "note": "one TypeSpec pin for the fork's and Prism's contracts (fork 1.14.0, staging 1.16.0)"
+        },
+        {
+          "path": "native/rust-hygiene-baseline.json",
+          "status": "new",
+          "fromFork": true
+        },
+        {
+          "path": "native/rust-hygiene.toml",
+          "status": "new",
+          "fromFork": true
+        },
+        {
+          "path": "native/scripts/**",
+          "status": "new",
+          "fromFork": true,
+          "note": "hygiene checker, corpus pointer, oracle kicad-cli, release scripts, and the CI entry scripts the quality gate calls"
+        },
+        {
+          "path": "native/tspconfig.yaml",
+          "status": "new",
+          "fromFork": true,
+          "note": "second compile entry for src/tsp/prism/main.tsp"
+        }
+      ],
+      "adrDepends": [
+        "F1"
+      ],
+      "depends": [
+        "F1",
+        "F2"
+      ],
+      "mergeAfter": [
+        "L"
+      ],
+      "notes": [
+        "The native, wasm32 and hygiene jobs go into dev-quality-gate.yml, which L owns: F3 hands L the job definitions (or the integration agent applies them after L merges). The jobs call F3's scripts by fixed names."
+      ]
+    },
+    "B": {
+      "wave": 1,
+      "title": "Bundle crate and CLI",
+      "adrSection": "§9.4",
+      "adrOwns": [
+        "native/src/rs/prism-bundle/",
+        "native/src/rs/prism-kicad-cli/"
+      ],
+      "owns": [
+        {
+          "path": "native/src/rs/prism-bundle/**",
+          "status": "new",
+          "note": "after F2's skeleton manifest; moved from sim: src/prism-bundle"
+        },
+        {
+          "path": "native/src/rs/prism-bundle/A1-TO-A2.md",
+          "status": "new",
+          "note": "proposed name for the documented a1 -> a2 mapping"
+        },
+        {
+          "path": "native/src/rs/prism-kicad-cli/**",
+          "status": "new",
+          "note": "after F2's skeleton; includes tests/generator_pin.rs (cli-spec.md §4)"
+        }
+      ],
+      "adrDepends": [
+        "W0",
+        "F2"
+      ],
+      "depends": [
+        "W0",
+        "F2"
+      ],
+      "mergeAfter": [
+        "L"
+      ],
+      "notes": [
+        "sim's prism-bundle reader depends on sim's prism-geometry (sim: src/prism-bundle/src/reader.rs:9, :88-92), which §4.1 does not move. See the open question."
+      ]
+    },
+    "K": {
+      "wave": 1,
+      "title": "Backend bundle service",
+      "adrSection": "§9.4",
+      "adrOwns": [
+        "backend/app/services/design_bundle/",
+        "job registration",
+        "flags in config.py",
+        "a migration for the commit index if needed"
+      ],
+      "owns": [
+        {
+          "path": ".env.example",
+          "status": "dev",
+          "note": "document the new settings (scripts/test_compose_env_forwarding.py reads it)"
+        },
+        {
+          "path": "backend/app/core/config.py",
+          "status": "dev",
+          "note": "only the Settings base-class list (config.py:36); 1071 lines today against the 1,200-line gate"
+        },
+        {
+          "path": "backend/app/core/design_bundle_config.py",
+          "status": "new",
+          "note": "proposed settings group: the seven PRISM_DESIGN_SOURCE_* flags, PRISM_DESIGN_BUNDLE_* (slot, retention days, timeouts, memory cap, prism-kicad path), zone refill (KiCad python, timeout; ref: pipeline_config.py PRISM_KICAD_PYTHON, PRISM_ZONE_REFILL_TIMEOUT_SECONDS)"
+        },
+        {
+          "path": "backend/app/core/sim_studio_config.py",
+          "status": "new",
+          "note": "proposed: created empty so config.py is edited only in Wave 1; C6 owns it from Wave 3"
+        },
+        {
+          "path": "backend/app/prism_worker.py",
+          "status": "dev",
+          "note": "the paced backfill tick"
+        },
+        {
+          "path": "backend/app/services/design_bundle/**",
+          "status": "new",
+          "note": "reader, store, retention, commit index, revision key, effective config, the design_bundle job (stages parse and board), paced backfill, its AGENTS.md"
+        },
+        {
+          "path": "backend/app/services/design_bundle/stage_models.py",
+          "status": "new",
+          "note": "K creates the stage hook as a stub; V1 owns it from Wave 2"
+        },
+        {
+          "path": "backend/app/services/job_handlers.py",
+          "status": "dev",
+          "note": "one KIND_MODULES line (job_handlers.py:22-36)"
+        },
+        {
+          "path": "backend/app/services/job_kinds.py",
+          "status": "dev",
+          "note": "the design_bundle resource slot (job_kinds.py:31-41)"
+        },
+        {
+          "path": "backend/app/services/path_config_service.py",
+          "status": "dev",
+          "note": "only if K factors the listing-based effective-config resolution (revision-key.md §4.4) out of resolve_paths (:532-589); otherwise read-only"
+        },
+        {
+          "path": "backend/app/services/project_import_followups.py",
+          "status": "dev",
+          "note": "queue the design_bundle job after import (project_import_followups.py:49-77)"
+        },
+        {
+          "path": "backend/app/services/project_import_service.py",
+          "status": "dev",
+          "note": "queue the design_bundle job after sync (project_import_service.py:1236-1247)"
+        },
+        {
+          "path": "backend/app/services/project_revision.py",
+          "status": "dev",
+          "note": "only if the source materialization (git cat-file, LFS, gitlinks) is factored here for the job; frozen afterwards"
+        },
+        {
+          "path": "backend/app/services/workspace_migrations/m100_design_bundle_commit_index.py",
+          "status": "new",
+          "note": "workspace versions 100-103 are K's (revision-key.md:314: K owns the commit-index table)"
+        },
+        {
+          "path": "backend/app/services/workspace_schema_migrations.py",
+          "status": "dev",
+          "note": "registry lines for K's numbers only"
+        },
+        {
+          "path": "backend/tests/support/design_bundle_fixtures.py",
+          "status": "new",
+          "note": "proposed: fabricates bundles for consumer tests from G's committed goldens, so the backend CI job needs no Rust"
+        },
+        {
+          "path": "backend/tests/support/prism_kicad_stub.py",
+          "status": "new",
+          "note": "named by cli-spec.md:812 (owned by K)"
+        },
+        {
+          "path": "backend/tests/test_design_bundle*.py",
+          "status": "new"
+        },
+        {
+          "path": "backend/tests/test_job_kinds.py",
+          "status": "dev",
+          "note": "the design_bundle kind and slot; C6 owns it in Wave 3"
+        },
+        {
+          "path": "deploy/release/.env.example",
+          "status": "dev",
+          "note": "document the new settings, as in .env.example"
+        },
+        {
+          "path": "docs/ARCHITECTURE.md",
+          "status": "dev",
+          "note": "the .kicad-prism/bundles storage domain"
+        },
+        {
+          "path": "docs/CONFIGURATION.md",
+          "status": "dev"
+        },
+        {
+          "path": "docs/OPERATIONS.md",
+          "status": "dev",
+          "note": "retention and backfill"
+        },
+        {
+          "path": "requirements/runtime.in",
+          "status": "dev",
+          "note": "a runtime JSON Schema validator: cli-spec.md §9.1 has K validate CLI stdout against generated/schema/ (open question 7)"
+        },
+        {
+          "path": "requirements/runtime.lock",
+          "status": "dev",
+          "note": "regenerated with requirements/runtime.in by scripts/sync_dependencies.py --update-lock"
+        },
+        {
+          "path": "requirements/test.txt",
+          "status": "dev",
+          "note": "a JSON Schema validator for tests (the backend env has none today)"
+        }
+      ],
+      "adrDepends": [
+        "W0"
+      ],
+      "depends": [
+        "W0"
+      ],
+      "mergeAfter": [
+        "W0-move"
+      ],
+      "notes": [
+        "Port sources (read-only, ref-only, never created on the integration branch): ref backend/app/services/zone_refill.py (the refill, cli-spec.md §9.2) and ref backend/app/services/project_bundle.py (a1 build/store/gate, bundle-format.md §3.3).",
+        "K's tests read the revision-key vectors from the W0 move's location (native/contracts/prism/revision-key-vectors.json), so K stacks after the W0 move.",
+        "Sync initializes submodules recursively and fetches LFS objects; a design source that cannot be materialized fails the design_bundle job (retried), an unavailable 3D model is left out (stage parse warns model-unavailable). decisions.md, Bundle manifest and format item 3."
+      ]
+    },
+    "G": {
+      "wave": 1,
+      "title": "Goldens and parity runner",
+      "adrSection": "§9.4, §7",
+      "adrOwns": [
+        "native/parity/ (runner, golden format, fixture goldens)"
+      ],
+      "owns": [
+        {
+          "path": "native/parity/**",
+          "status": "new",
+          "note": "runner, golden format, capture scripts (run today's code on dev and on the reference branch), fixture goldens, README"
+        },
+        {
+          "path": "native/parity/divergences.md",
+          "status": "new",
+          "note": "the index only; each member's divergences are in native/parity/divergences/<member>.md, owned by its P-WP"
+        }
+      ],
+      "adrDepends": [
+        "W0"
+      ],
+      "depends": [
+        "W0",
+        "F1"
+      ],
+      "mergeAfter": [
+        "F1"
+      ],
+      "notes": [
+        "native/ must not exist before F1's `git subtree add --prefix=native`, so G lands after F1 although its content needs only W0."
+      ]
+    },
+    "L": {
+      "wave": 1,
+      "title": "Build and CI",
+      "adrSection": "§9.4",
+      "adrOwns": [
+        "backend/Dockerfile",
+        "docker-compose.yml",
+        ".github/workflows/*"
+      ],
+      "owns": [
+        {
+          "path": ".agents/skills/prism-quality-gate/SKILL.md",
+          "status": "dev",
+          "note": "native checks"
+        },
+        {
+          "path": ".claude/skills/prism-quality-gate/SKILL.md",
+          "status": "dev",
+          "note": "discovery shim; name and description must match"
+        },
+        {
+          "path": ".dockerignore",
+          "status": "dev",
+          "note": "native/target/ and native/node_modules/"
+        },
+        {
+          "path": ".github/workflows/build-plugin.yml",
+          "status": "dev",
+          "note": "no change expected"
+        },
+        {
+          "path": ".github/workflows/dev-quality-gate.yml",
+          "status": "dev",
+          "note": "the native and native-parity jobs, the aggregator's needs list, and `wp/**` in pull_request.branches"
+        },
+        {
+          "path": ".github/workflows/docker-publish.yml",
+          "status": "dev"
+        },
+        {
+          "path": "CONTRIBUTING.md",
+          "status": "dev",
+          "note": "the native check suite"
+        },
+        {
+          "path": "backend/Dockerfile",
+          "status": "dev",
+          "note": "the native/ workspace with cached dependency layers; prism-kicad on PATH"
+        },
+        {
+          "path": "deploy/release/compose.yml",
+          "status": "dev",
+          "note": "the release stack (env forwarding is tested against it)"
+        },
+        {
+          "path": "docker-compose.loadtest.yml",
+          "status": "dev"
+        },
+        {
+          "path": "docker-compose.local-kicad-monkey.yml",
+          "status": "dev"
+        },
+        {
+          "path": "docker-compose.proxy.yml",
+          "status": "dev"
+        },
+        {
+          "path": "docker-compose.yml",
+          "status": "dev"
+        },
+        {
+          "path": "docs/DEPENDENCIES.md",
+          "status": "dev",
+          "note": "the Rust toolchain and image"
+        },
+        {
+          "path": "frontend/Dockerfile",
+          "status": "dev"
+        },
+        {
+          "path": "frontend/nginx.conf",
+          "status": "dev"
+        },
+        {
+          "path": "scripts/ci_changes.py",
+          "status": "dev",
+          "note": "a native area: a PR touching only native/** runs no job today (ci_changes.py:30-57)"
+        },
+        {
+          "path": "scripts/test_ci_changes.py",
+          "status": "dev"
+        },
+        {
+          "path": "scripts/test_compose_env_forwarding.py",
+          "status": "dev",
+          "note": "add design_bundle_config.py and sim_studio_config.py to CONFIG_MODULES (:26-29)"
+        }
+      ],
+      "adrDepends": [
+        "W0",
+        "F1"
+      ],
+      "depends": [
+        "W0",
+        "F1",
+        "F2"
+      ],
+      "mergeAfter": [
+        "F2"
+      ],
+      "notes": [
+        "The integration-branch trigger is already on the branch (02e95c88, dev-quality-gate.yml:10,15). Stacked PRs whose base is a wp/* branch still get no CI.",
+        "The worker image installs git-lfs (absent today; revision-key.md §9 requires it). decisions.md, Bundle manifest and format item 3."
+      ]
+    },
+    "S1": {
+      "wave": 2,
+      "title": "Shared-file split (proposed)",
+      "adrSection": "new",
+      "proposed": true,
+      "adrOwns": [],
+      "owns": [
+        {
+          "path": "backend/app/api/project_properties.py",
+          "status": "new",
+          "note": "properties and overview routes (projects.py:1109-1205), then C8's"
+        },
+        {
+          "path": "backend/app/api/project_semantic_index.py",
+          "status": "new",
+          "note": "semantic-index routes (projects.py:714-770), then C1's"
+        },
+        {
+          "path": "backend/app/api/project_viewer_3d.py",
+          "status": "new",
+          "note": "webgpu-3d routes (projects.py:771-869), then C5's"
+        },
+        {
+          "path": "backend/app/api/project_viewer_sources.py",
+          "status": "new",
+          "note": "schematic, subsheets, viewer support files, pcb, 3d-model routes (projects.py:1607-1850), then C8's"
+        },
+        {
+          "path": "backend/app/api/projects.py",
+          "status": "dev",
+          "note": "behaviour-free split; the core routes stay"
+        },
+        {
+          "path": "backend/app/main.py",
+          "status": "dev",
+          "note": "include the new routers in the same matching order"
+        },
+        {
+          "path": "backend/app/services/job_handlers.py",
+          "status": "dev",
+          "note": "KIND_MODULES for the two moved kinds"
+        },
+        {
+          "path": "backend/app/services/project_service.py",
+          "status": "dev",
+          "note": "move the WEBGPU_3D and SEMANTIC_INDEX kinds out (project_service.py:618-637), keeping re-exports"
+        },
+        {
+          "path": "backend/app/services/semantic_index_jobs.py",
+          "status": "new",
+          "note": "then C1's"
+        },
+        {
+          "path": "backend/app/services/viewer_3d_jobs.py",
+          "status": "new",
+          "note": "then C5's"
+        },
+        {
+          "path": "backend/tests/test_project_route_table.py",
+          "status": "new",
+          "note": "proves the route table (path, method, order) is unchanged"
+        },
+        {
+          "path": "backend/tests/test_project_service_v3_jobs.py",
+          "status": "dev",
+          "note": "split along the moved kinds into test_semantic_index_jobs.py (then C1's) and test_viewer_3d_jobs.py (then C5's)"
+        },
+        {
+          "path": "backend/tests/test_semantic_index_jobs.py",
+          "status": "new",
+          "note": "then C1's"
+        },
+        {
+          "path": "backend/tests/test_viewer_3d_jobs.py",
+          "status": "new",
+          "note": "then C5's"
+        }
+      ],
+      "adrDepends": [],
+      "depends": [
+        "K"
+      ],
+      "mergeAfter": [
+        "K"
+      ],
+      "notes": [
+        "Without S1, C1, C5 and C8 all edit api/projects.py and C1 and C5 both edit project_service.py in Wave 3."
+      ]
+    },
+    "P1": {
+      "wave": 2,
+      "title": "semantic-index producer",
+      "adrSection": "§9.5",
+      "adrOwns": [
+        "prism-projections/src/<name>.rs, tests, divergence notes",
+        "prism-projections/src/lib.rs (§9.1)"
+      ],
+      "owns": [
+        {
+          "path": "native/parity/divergences/semantic-index.md",
+          "status": "new",
+          "note": "this member's accepted divergences (ADR §7)"
+        },
+        {
+          "path": "native/src/rs/prism-projections/src/semantic_index.rs",
+          "status": "new",
+          "note": "the `semantic-index` producer; the stub is created by F2 and handed over"
+        },
+        {
+          "path": "native/src/rs/prism-projections/src/semantic_index/**",
+          "status": "new",
+          "note": "submodules of the producer, if it needs them"
+        },
+        {
+          "path": "native/src/rs/prism-projections/tests/semantic_index*",
+          "status": "new",
+          "note": "the producer's tests"
+        }
+      ],
+      "adrDepends": [
+        "F2",
+        "B",
+        "G"
+      ],
+      "depends": [
+        "F2",
+        "B",
+        "G"
+      ],
+      "mergeAfter": [],
+      "notes": [
+        "Port sources (read-only): semantic_index_service.py (instance-field scan :395-432), semantic_index_variants.py, semantic_index_nets.py; ref: backend/app/services/semantic_index_board.py (uncommitted)."
+      ]
+    },
+    "P2": {
+      "wave": 2,
+      "title": "board-objects, occurrences, route-metrics producers",
+      "adrSection": "§9.5",
+      "adrOwns": [
+        "prism-projections/src/<name>.rs, tests, divergence notes"
+      ],
+      "owns": [
+        {
+          "path": "native/parity/divergences/board-objects.md",
+          "status": "new",
+          "note": "this member's accepted divergences (ADR §7)"
+        },
+        {
+          "path": "native/parity/divergences/occurrences.md",
+          "status": "new",
+          "note": "this member's accepted divergences (ADR §7)"
+        },
+        {
+          "path": "native/parity/divergences/route-metrics.md",
+          "status": "new",
+          "note": "this member's accepted divergences (ADR §7)"
+        },
+        {
+          "path": "native/src/rs/prism-projections/src/board_objects.rs",
+          "status": "new",
+          "note": "the `board-objects` producer; the stub is created by F2 and handed over"
+        },
+        {
+          "path": "native/src/rs/prism-projections/src/board_objects/**",
+          "status": "new",
+          "note": "submodules of the producer, if it needs them"
+        },
+        {
+          "path": "native/src/rs/prism-projections/src/occurrences.rs",
+          "status": "new",
+          "note": "the `occurrences` producer; the stub is created by F2 and handed over"
+        },
+        {
+          "path": "native/src/rs/prism-projections/src/occurrences/**",
+          "status": "new",
+          "note": "submodules of the producer, if it needs them"
+        },
+        {
+          "path": "native/src/rs/prism-projections/src/route_metrics.rs",
+          "status": "new",
+          "note": "the `route-metrics` producer; the stub is created by F2 and handed over"
+        },
+        {
+          "path": "native/src/rs/prism-projections/src/route_metrics/**",
+          "status": "new",
+          "note": "submodules of the producer, if it needs them"
+        },
+        {
+          "path": "native/src/rs/prism-projections/tests/board_objects*",
+          "status": "new",
+          "note": "the producer's tests"
+        },
+        {
+          "path": "native/src/rs/prism-projections/tests/occurrences*",
+          "status": "new",
+          "note": "the producer's tests"
+        },
+        {
+          "path": "native/src/rs/prism-projections/tests/route_metrics*",
+          "status": "new",
+          "note": "the producer's tests"
+        }
+      ],
+      "adrDepends": [
+        "F2",
+        "B",
+        "G"
+      ],
+      "depends": [
+        "F2",
+        "B",
+        "G"
+      ],
+      "mergeAfter": [],
+      "notes": [
+        "Port sources (read-only): backend/design-compare-parser/ecad-parse.mjs (route digest :1294-1347), design_compare_occurrences.py, design_compare_nodes.py:518-573, catalog/placement_stamp.py."
+      ]
+    },
+    "P3": {
+      "wave": 2,
+      "title": "stackup, placements producers",
+      "adrSection": "§9.5",
+      "adrOwns": [
+        "prism-projections/src/<name>.rs, tests, divergence notes"
+      ],
+      "owns": [
+        {
+          "path": "native/parity/divergences/placements.md",
+          "status": "new",
+          "note": "this member's accepted divergences (ADR §7)"
+        },
+        {
+          "path": "native/parity/divergences/stackup.md",
+          "status": "new",
+          "note": "this member's accepted divergences (ADR §7)"
+        },
+        {
+          "path": "native/src/rs/prism-projections/src/placements.rs",
+          "status": "new",
+          "note": "the `placements` producer; the stub is created by F2 and handed over"
+        },
+        {
+          "path": "native/src/rs/prism-projections/src/placements/**",
+          "status": "new",
+          "note": "submodules of the producer, if it needs them"
+        },
+        {
+          "path": "native/src/rs/prism-projections/src/stackup.rs",
+          "status": "new",
+          "note": "the `stackup` producer; the stub is created by F2 and handed over"
+        },
+        {
+          "path": "native/src/rs/prism-projections/src/stackup/**",
+          "status": "new",
+          "note": "submodules of the producer, if it needs them"
+        },
+        {
+          "path": "native/src/rs/prism-projections/tests/placements*",
+          "status": "new",
+          "note": "the producer's tests"
+        },
+        {
+          "path": "native/src/rs/prism-projections/tests/stackup*",
+          "status": "new",
+          "note": "the producer's tests"
+        }
+      ],
+      "adrDepends": [
+        "F2",
+        "B",
+        "G"
+      ],
+      "depends": [
+        "F2",
+        "B",
+        "G"
+      ],
+      "mergeAfter": [],
+      "notes": [
+        "Sole owner of the mask colours and board-body facts (stackup maskColors; placements outline); ref board_looks.py is P3's port source, not V1's."
+      ]
+    },
+    "P4": {
+      "wave": 2,
+      "title": "project producer",
+      "adrSection": "§9.5",
+      "adrOwns": [
+        "prism-projections/src/<name>.rs, tests, divergence notes"
+      ],
+      "owns": [
+        {
+          "path": "native/parity/divergences/project.md",
+          "status": "new",
+          "note": "this member's accepted divergences (ADR §7)"
+        },
+        {
+          "path": "native/src/rs/prism-projections/src/project.rs",
+          "status": "new",
+          "note": "the `project` producer; the stub is created by F2 and handed over"
+        },
+        {
+          "path": "native/src/rs/prism-projections/src/project/**",
+          "status": "new",
+          "note": "submodules of the producer, if it needs them"
+        },
+        {
+          "path": "native/src/rs/prism-projections/tests/project*",
+          "status": "new",
+          "note": "the producer's tests"
+        }
+      ],
+      "adrDepends": [
+        "F2",
+        "B",
+        "G"
+      ],
+      "depends": [
+        "F2",
+        "B",
+        "G"
+      ],
+      "mergeAfter": [],
+      "notes": []
+    },
+    "P5": {
+      "wave": 2,
+      "title": "system-interface producer",
+      "adrSection": "§9.5",
+      "adrOwns": [
+        "prism-projections/src/<name>.rs, tests, divergence notes"
+      ],
+      "owns": [
+        {
+          "path": "native/parity/divergences/system-interface.md",
+          "status": "new",
+          "note": "this member's accepted divergences (ADR §7)"
+        },
+        {
+          "path": "native/src/rs/prism-projections/src/system_interface.rs",
+          "status": "new",
+          "note": "the `system-interface` producer; the stub is created by F2 and handed over"
+        },
+        {
+          "path": "native/src/rs/prism-projections/src/system_interface/**",
+          "status": "new",
+          "note": "submodules of the producer, if it needs them"
+        },
+        {
+          "path": "native/src/rs/prism-projections/tests/system_interface*",
+          "status": "new",
+          "note": "the producer's tests"
+        }
+      ],
+      "adrDepends": [
+        "F2",
+        "B",
+        "G"
+      ],
+      "depends": [
+        "F2",
+        "B",
+        "G"
+      ],
+      "mergeAfter": [],
+      "notes": [
+        "Port source (read-only): backend/app/services/systems/interface_extractor.py (EXTRACTOR_VERSION 8, :38)."
+      ]
+    },
+    "V1": {
+      "wave": 2,
+      "title": "components.glb (models stage)",
+      "adrSection": "§9.5",
+      "adrOwns": [
+        "(no path named)"
+      ],
+      "owns": [
+        {
+          "path": "backend/app/services/design_bundle/stage_models.py",
+          "status": "new",
+          "note": "the models stage: kicad-cli pcb export glb --no-board-body, cached by board + model blobs + KiCad version"
+        },
+        {
+          "path": "backend/tests/test_design_bundle_models_stage.py",
+          "status": "new"
+        },
+        {
+          "path": "native/parity/divergences/components-glb.md",
+          "status": "new"
+        }
+      ],
+      "adrDepends": [
+        "F2",
+        "B",
+        "G"
+      ],
+      "depends": [
+        "B",
+        "K",
+        "G",
+        "P4"
+      ],
+      "mergeAfter": [
+        "K",
+        "P4"
+      ],
+      "notes": [
+        "Port source (read-only): kicad-prism-viewer/pipeline/topology_compiler/kicad_cli_export.py.",
+        "The GLB cache key needs the repository model files the board references (cli-spec.md §9.3 item 2). field-maps/project.md names projections/project.json (`model-3d` references with `inSources`) as that input, so V1 reads P4's member and stacks after P4. Alternative: key on every model blob of the revision-key listing, which needs no P4 but rebuilds on any model change."
+      ]
+    },
+    "C1": {
+      "wave": 3,
+      "title": "Semantic index consumers",
+      "adrSection": "§9.6",
+      "flag": "PRISM_DESIGN_SOURCE_SEMANTIC_INDEX",
+      "adrOwns": [
+        "semantic_index_service.py",
+        "api/projects.py index routes",
+        "api/project_variants.py",
+        "variant_catalog_service.py",
+        "project_component_import_service.py"
+      ],
+      "owns": [
+        {
+          "path": "backend/app/api/comments.py",
+          "status": "dev",
+          "note": "comment anchors store the index's sourceRevisionKey (:58, :117), which becomes the 64-hex revision key (field-maps/semantic-index.md D2)"
+        },
+        {
+          "path": "backend/app/api/project_semantic_index.py",
+          "status": "new",
+          "note": "after S1 (without S1: the index routes in api/projects.py:714-770)"
+        },
+        {
+          "path": "backend/app/api/project_variants.py",
+          "status": "dev"
+        },
+        {
+          "path": "backend/app/services/comment_anchor_service.py",
+          "status": "dev",
+          "note": "imports semantic_index_service._source_entries_in_commit (:121); same D2 re-keying"
+        },
+        {
+          "path": "backend/app/services/semantic_index_jobs.py",
+          "status": "new",
+          "note": "after S1"
+        },
+        {
+          "path": "backend/app/services/semantic_index_nets.py",
+          "status": "dev",
+          "note": "added"
+        },
+        {
+          "path": "backend/app/services/semantic_index_service.py",
+          "status": "dev",
+          "note": "becomes a reader; keeps the helper surface other modules import until R1"
+        },
+        {
+          "path": "backend/app/services/semantic_index_variants.py",
+          "status": "dev",
+          "note": "added: imports kicad_monkey (:40, :292, :473) and is the assembly builder"
+        },
+        {
+          "path": "backend/app/services/variant_catalog_service.py",
+          "status": "dev"
+        },
+        {
+          "path": "backend/app/services/variant_source_scan.py",
+          "status": "dev",
+          "note": "added: a KiCad parser (WP-X)"
+        },
+        {
+          "path": "backend/tests/test_project_variants_api.py",
+          "status": "dev"
+        },
+        {
+          "path": "backend/tests/test_semantic_index_*.py",
+          "status": "dev"
+        },
+        {
+          "path": "backend/tests/test_variant_*.py",
+          "status": "dev"
+        },
+        {
+          "path": "frontend/src/components/design-search-field.tsx",
+          "status": "dev",
+          "note": "only if a consumed semantic-index field changes"
+        },
+        {
+          "path": "frontend/src/components/design-variants/**",
+          "status": "dev",
+          "note": "variants UI"
+        },
+        {
+          "path": "frontend/src/components/engineering-bom-table.tsx",
+          "status": "dev",
+          "note": "only if a consumed field changes"
+        },
+        {
+          "path": "frontend/src/components/selection-inspector.tsx",
+          "status": "dev",
+          "note": "only if field order must be kept (field-maps/semantic-index.md D3: the inspector lists `fields` in object order, :665)"
+        },
+        {
+          "path": "frontend/src/hooks/use-prism-cross-probe.ts",
+          "status": "dev",
+          "note": "cross-probe guard compares sourceRevisionKey (:45-52)"
+        },
+        {
+          "path": "frontend/src/lib/design-search.ts",
+          "status": "dev",
+          "note": "only if a consumed semantic-index field changes"
+        },
+        {
+          "path": "frontend/src/lib/design-variants.ts",
+          "status": "dev",
+          "note": "only if a consumed semantic-index field changes"
+        },
+        {
+          "path": "frontend/src/lib/net-highlights.ts",
+          "status": "dev",
+          "note": "only if a consumed semantic-index field changes"
+        },
+        {
+          "path": "frontend/src/lib/prism-selection.ts",
+          "status": "dev",
+          "note": "only if a consumed semantic-index field changes"
+        },
+        {
+          "path": "frontend/src/types/prism-selection.ts",
+          "status": "dev",
+          "note": "a1's added fields; `schema` literal at :242"
+        }
+      ],
+      "adrDepends": [
+        "K",
+        "P1"
+      ],
+      "depends": [
+        "K",
+        "S1",
+        "P1"
+      ],
+      "mergeAfter": [],
+      "notes": [
+        "project_component_import_service.py moves to C7; 'Release Studio's index digest' (document_pipeline.py:294-308) moves to C3."
+      ]
+    },
+    "C2": {
+      "wave": 3,
+      "title": "Design Comparison",
+      "adrSection": "§9.6",
+      "flag": "PRISM_DESIGN_SOURCE_DESIGN_COMPARISON",
+      "adrOwns": [
+        "design_compare_*.py",
+        "fabrication_compare_service.py (keying only)",
+        "backend/design-compare-parser/ (removal)",
+        "frontend/.../design-comparison/revision-sources.ts"
+      ],
+      "owns": [
+        {
+          "path": ".agents/skills/prism-comparison-change-kind/SKILL.md",
+          "status": "dev"
+        },
+        {
+          "path": ".claude/skills/prism-comparison-change-kind/SKILL.md",
+          "status": "dev"
+        },
+        {
+          "path": "backend/app/api/design_compare.py",
+          "status": "dev",
+          "note": "added"
+        },
+        {
+          "path": "backend/app/services/bom_diff_service.py",
+          "status": "dev",
+          "note": "consumes the occurrences BOM rows (field-maps/occurrences.md: `diff_boms`, :63-160)"
+        },
+        {
+          "path": "backend/app/services/design_compare_*.py",
+          "status": "dev",
+          "note": "8 modules"
+        },
+        {
+          "path": "backend/app/services/fabrication_compare_service.py",
+          "status": "dev",
+          "note": "keying only"
+        },
+        {
+          "path": "backend/tests/design_compare_fixtures.py",
+          "status": "dev",
+          "note": "feature-local helper; only design-compare tests import it"
+        },
+        {
+          "path": "backend/tests/test_design_compare_*.py",
+          "status": "dev"
+        },
+        {
+          "path": "backend/tests/test_fabrication_compare_service.py",
+          "status": "dev"
+        },
+        {
+          "path": "docs/design-comparison/**",
+          "status": "dev"
+        },
+        {
+          "path": "frontend/src/components/design-comparison/**",
+          "status": "dev",
+          "note": "widened from revision-sources.ts; no other WP edits here"
+        },
+        {
+          "path": "native/src/rs/prism-projections/src/compare.rs",
+          "status": "new",
+          "note": "the object diff engine (amendment C2); prism-projections/src/lib.rs gains `pub mod compare;` through its owner"
+        },
+        {
+          "path": "native/src/rs/prism-projections/src/compare/**",
+          "status": "new",
+          "note": "submodules of the engine"
+        },
+        {
+          "path": "native/src/rs/prism-kicad-cli/src/cmd_compare.rs",
+          "status": "new",
+          "note": "the `compare` command (cli-spec.md §5.6); the CLI's argument table and dispatch gain it through their owner"
+        },
+        {
+          "path": "native/parity/divergences/compare.md",
+          "status": "new",
+          "note": "divergence compare-1 (code point order, amendment C2 D2), with the compare parity member's capture and pairs"
+        }
+      ],
+      "adrDepends": [
+        "K",
+        "P1",
+        "P2",
+        "P3"
+      ],
+      "depends": [
+        "K",
+        "P1",
+        "P2",
+        "P3"
+      ],
+      "mergeAfter": [],
+      "notes": [
+        "Amendment C2 (2026-10-17): the object diff moves to Rust as `prism-kicad compare`. Its contracts (native/src/tsp/prism/compare-a0.tsp, CliCompareResultA0 in cli-a0.tsp, their schemas, Rust bindings and examples) land in the amendment's contracts PR, not in C2.",
+        "C2r switch (2026-10-18): compare-a0.tsp and compare-font-a0.tsp are removed; the stdout document is CliCompareResultA1 in native/src/tsp/prism/cli-compare-a1.tsp (C2 owns it), with field map field-maps/cli-compare.md.",
+        "backend/design-compare-parser/ removal moves to R2: the legacy flag value still runs it until Wave 4 (§8), and its CI job, Dockerfile line and ci_changes area are L's/R2's files."
+      ]
+    },
+    "C3": {
+      "wave": 3,
+      "title": "Release Studio",
+      "adrSection": "§9.6",
+      "flag": "PRISM_DESIGN_SOURCE_RELEASE_STUDIO",
+      "adrOwns": [
+        "release_studio/projections.py",
+        "document_pipeline.py",
+        "closure*.py",
+        "source.py"
+      ],
+      "owns": [
+        {
+          "path": "backend/app/release_studio/**",
+          "status": "dev",
+          "note": "widened: documents/artwork.py loads KiCadPcb (:514, :745), needed for 'no KiCadPcb load remains'; documents/acquisition.py, pipeline.py and steps.py run the kicad-cli steps that must read sources/ and refilled/"
+        },
+        {
+          "path": "backend/app/services/release_studio_build_service.py",
+          "status": "dev",
+          "note": "build provenance records the kicad-monkey version (:108); the generator id replaces it"
+        },
+        {
+          "path": "backend/app/services/release_studio_model_inputs.py",
+          "status": "dev",
+          "note": "consumer of project.json model references (field-maps/project.md `rmi`)"
+        },
+        {
+          "path": "backend/tests/kicad_conformance.py",
+          "status": "dev",
+          "note": "only Release Studio tests import it"
+        },
+        {
+          "path": "backend/tests/release_publish_fakes.py",
+          "status": "dev",
+          "note": "feature-local helper"
+        },
+        {
+          "path": "backend/tests/release_studio_live_runner.py",
+          "status": "dev",
+          "note": "feature-local helper"
+        },
+        {
+          "path": "backend/tests/release_studio_support.py",
+          "status": "dev",
+          "note": "feature-local helper"
+        },
+        {
+          "path": "backend/tests/test_release_studio_*.py",
+          "status": "dev"
+        },
+        {
+          "path": "docs/release-studio/**",
+          "status": "dev"
+        }
+      ],
+      "adrDepends": [
+        "K",
+        "P1",
+        "P3",
+        "P4"
+      ],
+      "depends": [
+        "K",
+        "P1",
+        "P3",
+        "P4"
+      ],
+      "mergeAfter": [],
+      "notes": [
+        "documents/fonts.py and documents/worksheet.py render with Python kicad_monkey (stroke font, drawing sheet) and the Python kicad-cruncher runs pcb-svg, bom and pnp: none is a revision parse, and none has a Rust replacement today (open question)."
+      ]
+    },
+    "C4": {
+      "wave": 3,
+      "title": "System Builder",
+      "adrSection": "§9.6",
+      "flag": "PRISM_DESIGN_SOURCE_SYSTEM_BUILDER",
+      "adrOwns": [
+        "backend/app/services/systems/ (interface, bundles, collision meshes, step export)",
+        "frontend/src/features/system-builder/scene-3d-tab.tsx loaders only"
+      ],
+      "owns": [
+        {
+          "path": "backend/app/api/systems*.py",
+          "status": "dev",
+          "note": "only where a route's payload or keying changes"
+        },
+        {
+          "path": "backend/app/services/systems/**",
+          "status": "dev",
+          "note": "no other Wave 3 WP edits here"
+        },
+        {
+          "path": "backend/tests/system_builder_db.py",
+          "status": "dev",
+          "note": "feature-local helper"
+        },
+        {
+          "path": "backend/tests/system_builder_fixtures.py",
+          "status": "dev",
+          "note": "feature-local helper"
+        },
+        {
+          "path": "backend/tests/test_system_*.py",
+          "status": "dev"
+        },
+        {
+          "path": "docs/system-builder/**",
+          "status": "dev"
+        },
+        {
+          "path": "frontend/src/features/system-builder/**",
+          "status": "dev",
+          "note": "beyond the ADR's scene-3d-tab.tsx: placement/frames.ts, placement/mate.ts, findings-ui.tsx read interface and placement fields (field-maps/system-interface.md, placements.md); only if a payload changes"
+        },
+        {
+          "path": "frontend/src/features/system-builder/scene-3d-model.ts",
+          "status": "dev",
+          "note": "bundleToBoard readiness (:37)"
+        },
+        {
+          "path": "frontend/src/features/system-builder/scene-3d-tab.tsx",
+          "status": "dev",
+          "note": "loaders"
+        },
+        {
+          "path": "frontend/src/features/system-builder/use-board-indexes.ts",
+          "status": "dev",
+          "note": "reads the identity member"
+        },
+        {
+          "path": "frontend/src/lib/systems-api.ts",
+          "status": "dev",
+          "note": "identity fetch for system boards (:804-806)"
+        },
+        {
+          "path": "frontend/src/types/system.ts",
+          "status": "dev",
+          "note": "only if an interface or placement payload changes"
+        }
+      ],
+      "adrDepends": [
+        "K",
+        "P3",
+        "P5",
+        "V1"
+      ],
+      "depends": [
+        "K",
+        "P3",
+        "P5",
+        "V1",
+        "C5"
+      ],
+      "mergeAfter": [
+        "C5"
+      ],
+      "notes": [
+        "System Builder was removed on 2026-10-23 (archive tag `archive/system-builder-v2`); this entry is kept as history.",
+        "System mode renders boards through kicad-prism-viewer/viewer/src (prism-semantic-viewer-element.js:268, viewer-controllers.js:5), which C5 owns; so C4 is split (maintainer decision).",
+        "Split (decisions.md, Ownership map item 10): C4a owns the interface paths (backend/app/services/systems/ interface, drift and digests; api/systems*.py; types/system.ts; lib/systems-api.ts; placement/frames.ts, placement/mate.ts, findings-ui.tsx) and lands in parallel in Wave 3. C4b owns the 3D-scene paths (systems/bundles.py, collision meshes, STEP export, scene-3d-tab.tsx loaders) and lands after C5."
+      ]
+    },
+    "C5": {
+      "wave": 3,
+      "title": "3D tab on the analytic model",
+      "adrSection": "§9.6",
+      "flag": "PRISM_DESIGN_SOURCE_VIEWER_3D",
+      "adrOwns": [
+        "frontend/src/components/webgpu-3d-tab.tsx and the analytic renderer",
+        "semantic_visualizer_service.py",
+        "kicad-prism-viewer/ 3D pieces"
+      ],
+      "owns": [
+        {
+          "path": ".github/workflows/dev-quality-gate.yml",
+          "status": "dev",
+          "note": "Wave 3 owner: the served-WASM provenance check (ref adds it to the semantic-viewer job)"
+        },
+        {
+          "path": "backend/app/api/project_viewer_3d.py",
+          "status": "new",
+          "note": "after S1 (without S1: api/projects.py:771-869)"
+        },
+        {
+          "path": "backend/app/services/semantic_viewer_runtime.py",
+          "status": "dev"
+        },
+        {
+          "path": "backend/app/services/semantic_visualizer_service.py",
+          "status": "dev",
+          "note": "becomes a thin bundle reader; keeps find_kicad_project (:115) for C8"
+        },
+        {
+          "path": "backend/app/services/viewer_3d_bundle.py",
+          "status": "new",
+          "note": "V2a step 3: the 3D tab's status, analytic document and members from the bundle"
+        },
+        {
+          "path": "backend/app/services/viewer_3d_jobs.py",
+          "status": "new",
+          "note": "after S1"
+        },
+        {
+          "path": "backend/tests/test_viewer_3d_jobs.py",
+          "status": "new",
+          "note": "after S1"
+        },
+        {
+          "path": "docs/ANALYTIC_3D_VIEW.md",
+          "status": "ref-only",
+          "note": "ref"
+        },
+        {
+          "path": "frontend/index.html",
+          "status": "dev",
+          "note": "the served viewer's cache-key line only"
+        },
+        {
+          "path": "frontend/nginx.conf",
+          "status": "dev",
+          "note": "Wave 3: application/wasm in gzip_types (ref)"
+        },
+        {
+          "path": "frontend/public/*.wasm",
+          "status": "ref-only",
+          "note": "the analytic lowering WASM, built from native's wasm crate instead of ref's vendored copy"
+        },
+        {
+          "path": "frontend/public/prism-semantic-viewer-lower.js",
+          "status": "ref-only",
+          "note": "ref build output"
+        },
+        {
+          "path": "frontend/public/prism-semantic-viewer.js",
+          "status": "dev",
+          "note": "build output of kicad-prism-viewer; rebuilt, never hand-merged"
+        },
+        {
+          "path": "frontend/src/components/semantic-3d-controls.tsx",
+          "status": "dev",
+          "note": "ref changes it"
+        },
+        {
+          "path": "frontend/src/components/visualizer.tsx",
+          "status": "dev",
+          "note": "mounts the 3D tab (:9) and also fetches the identity (:482); C1 requests any change to the fetch"
+        },
+        {
+          "path": "frontend/src/components/webgpu-3d-tab.tsx",
+          "status": "dev"
+        },
+        {
+          "path": "frontend/src/hooks/use-analytic-pack.ts",
+          "status": "ref-only",
+          "note": "ref"
+        },
+        {
+          "path": "frontend/src/test/fake-semantic-viewer.ts",
+          "status": "dev"
+        },
+        {
+          "path": "frontend/src/types/prism-semantic-viewer.d.ts",
+          "status": "dev",
+          "note": "C4 and C6 request changes"
+        },
+        {
+          "path": "kicad-prism-viewer/package-lock.json",
+          "status": "dev"
+        },
+        {
+          "path": "kicad-prism-viewer/package.json",
+          "status": "dev"
+        },
+        {
+          "path": "kicad-prism-viewer/scripts/build-analytic-wasm.mjs",
+          "status": "ref-only",
+          "note": "ref"
+        },
+        {
+          "path": "kicad-prism-viewer/scripts/sync-served-element.mjs",
+          "status": "dev"
+        },
+        {
+          "path": "kicad-prism-viewer/tests/browser/**",
+          "status": "dev"
+        },
+        {
+          "path": "kicad-prism-viewer/tools/semantic-gltf/**",
+          "status": "dev"
+        },
+        {
+          "path": "kicad-prism-viewer/viewer/**",
+          "status": "dev",
+          "note": "the analytic renderer, 2D layer view, mask colours; C4 requests system-mode changes"
+        }
+      ],
+      "adrDepends": [
+        "K",
+        "P3",
+        "V1"
+      ],
+      "depends": [
+        "F2",
+        "K",
+        "S1",
+        "P1",
+        "P3",
+        "V1"
+      ],
+      "mergeAfter": [],
+      "notes": [
+        "kicad-prism-viewer/pipeline/** is not C5's: C5 stops calling it and R2 removes it.",
+        "ref backend/app/services/analytic_pack_service.py (the pack beside the 3D bundle) is not ported: the pack is the bundle member materialization/board.kmpack."
+      ]
+    },
+    "C6": {
+      "wave": 3,
+      "title": "Simulation Studio",
+      "adrSection": "§9.6",
+      "adrOwns": [
+        "backend/app/sim_studio/",
+        "frontend/src/components/sim-studio/",
+        "workspace migrations for setups/runs/layouts",
+        "prism-sim-studio dependency PR"
+      ],
+      "owns": [
+        {
+          "path": ".env.example",
+          "status": "dev",
+          "note": "Wave 3 owner"
+        },
+        {
+          "path": "backend/Dockerfile",
+          "status": "dev",
+          "note": "Wave 3 owner: the sim-worker binaries, if baked into the image"
+        },
+        {
+          "path": "backend/app/api/sim_studio.py",
+          "status": "ref-only",
+          "note": "ref"
+        },
+        {
+          "path": "backend/app/core/sim_studio_config.py",
+          "status": "new",
+          "note": "PRISM_SIM_* (ref pipeline_config.py); created empty by K"
+        },
+        {
+          "path": "backend/app/main.py",
+          "status": "dev",
+          "note": "Wave 3 owner: the sim router (ref main.py)"
+        },
+        {
+          "path": "backend/app/services/job_handlers.py",
+          "status": "dev",
+          "note": "Wave 3 owner: `app.sim_studio.runs`"
+        },
+        {
+          "path": "backend/app/services/job_kinds.py",
+          "status": "dev",
+          "note": "Wave 3 owner: the `sim` slot"
+        },
+        {
+          "path": "backend/app/services/workspace_migrations/m106_sim_studio_setups.py",
+          "status": "new",
+          "note": "ref m056"
+        },
+        {
+          "path": "backend/app/services/workspace_migrations/m107_sim_studio_runs.py",
+          "status": "new",
+          "note": "ref m057"
+        },
+        {
+          "path": "backend/app/services/workspace_migrations/m108_sim_studio_layouts.py",
+          "status": "new",
+          "note": "ref m058"
+        },
+        {
+          "path": "backend/app/services/workspace_schema_migrations.py",
+          "status": "dev",
+          "note": "Wave 3 owner: registry lines and RENUMBERED for the reference branch's numbers"
+        },
+        {
+          "path": "backend/app/sim_studio/**",
+          "status": "ref-only",
+          "note": "ref"
+        },
+        {
+          "path": "backend/tests/fixtures/sim_studio_contract/**",
+          "status": "ref-only",
+          "note": "ref"
+        },
+        {
+          "path": "backend/tests/test_sim_studio_*.py",
+          "status": "ref-only",
+          "note": "ref"
+        },
+        {
+          "path": "deploy/release/.env.example",
+          "status": "dev",
+          "note": "Wave 3 owner"
+        },
+        {
+          "path": "docker-compose.yml",
+          "status": "dev",
+          "note": "Wave 3 owner: PRISM_SIM_* forwarding (ref) and the sim binaries"
+        },
+        {
+          "path": "docs/CONFIGURATION.md",
+          "status": "dev",
+          "note": "Wave 3 owner"
+        },
+        {
+          "path": "frontend/package-lock.json",
+          "status": "dev",
+          "note": "Wave 3 owner"
+        },
+        {
+          "path": "frontend/package.json",
+          "status": "dev",
+          "note": "Wave 3 owner: echarts (ref)"
+        },
+        {
+          "path": "frontend/src/components/sim-studio/**",
+          "status": "ref-only",
+          "note": "ref"
+        },
+        {
+          "path": "frontend/src/components/ui/switch.tsx",
+          "status": "ref-only",
+          "note": "ref"
+        },
+        {
+          "path": "frontend/src/pages/ProjectDetailPage.tsx",
+          "status": "dev",
+          "note": "the Simulation Studio nav item (ref)"
+        },
+        {
+          "path": "frontend/src/pages/project-section-cache.tsx",
+          "status": "dev",
+          "note": "the section id (ref)"
+        }
+      ],
+      "adrDepends": [
+        "B",
+        "K",
+        "P1"
+      ],
+      "depends": [
+        "B",
+        "K",
+        "P1",
+        "C1"
+      ],
+      "mergeAfter": [
+        "C1"
+      ],
+      "notes": [
+        "C6 takes a1's pinName/pinType/libraryRef frontend types from C1 (ref adds them to prism-selection.ts:97-123).",
+        "Deliverable: a TypeSpec and JSON Schema for design.json (kicad_monkey.design.a0), added through an ADR amendment, as its first deep reader (ADR §11 G16; B adds them earlier if the cross-check needs them; decisions.md)."
+      ]
+    },
+    "C7": {
+      "wave": 3,
+      "title": "Catalog project component import and usage",
+      "adrSection": "§9.6",
+      "flag": "PRISM_DESIGN_SOURCE_CATALOG_IMPORT",
+      "adrOwns": [
+        "project_component_asset_extractor.py",
+        "project_catalog_usage_service.py",
+        "catalog/placement_stamp.py project paths"
+      ],
+      "owns": [
+        {
+          "path": "backend/app/api/project_catalog_usage.py",
+          "status": "dev",
+          "note": "added"
+        },
+        {
+          "path": "backend/app/services/catalog/placement_stamp.py",
+          "status": "dev",
+          "note": "project paths"
+        },
+        {
+          "path": "backend/app/services/catalog/project_placements.py",
+          "status": "dev",
+          "note": "added"
+        },
+        {
+          "path": "backend/app/services/catalog_schema_migrations.py",
+          "status": "dev",
+          "note": "catalog versions 100-101, only if usage is re-keyed"
+        },
+        {
+          "path": "backend/app/services/project_catalog_usage_service.py",
+          "status": "dev"
+        },
+        {
+          "path": "backend/app/services/project_component_asset_extractor.py",
+          "status": "dev"
+        },
+        {
+          "path": "backend/app/services/project_component_import_service.py",
+          "status": "dev",
+          "note": "moved from C1: it reads the index (:346) and checks out revision files (:358), both C7's concerns"
+        },
+        {
+          "path": "backend/tests/test_catalog_project_placements.py",
+          "status": "dev"
+        },
+        {
+          "path": "backend/tests/test_project_catalog_usage_api.py",
+          "status": "dev"
+        },
+        {
+          "path": "backend/tests/test_project_component_import_service.py",
+          "status": "dev"
+        }
+      ],
+      "adrDepends": [
+        "K",
+        "P2",
+        "P3"
+      ],
+      "depends": [
+        "K",
+        "P1",
+        "P2",
+        "P3"
+      ],
+      "mergeAfter": [],
+      "notes": []
+    },
+    "C8": {
+      "wave": 3,
+      "title": "Project metadata and viewer sources (proposed)",
+      "adrSection": "new",
+      "proposed": true,
+      "flag": "PRISM_DESIGN_SOURCE_PROJECT_METADATA",
+      "adrOwns": [],
+      "owns": [
+        {
+          "path": "backend/app/api/project_properties.py",
+          "status": "new",
+          "note": "after S1 (without S1: api/projects.py:1109-1205)"
+        },
+        {
+          "path": "backend/app/api/project_viewer_sources.py",
+          "status": "new",
+          "note": "after S1 (without S1: api/projects.py:1607-1850); the support-files route parses .kicad_pro in the API process (projects.py:1728, :1773)"
+        },
+        {
+          "path": "backend/app/services/kicad_text_variables.py",
+          "status": "dev"
+        },
+        {
+          "path": "backend/app/services/project_metadata_service.py",
+          "status": "dev",
+          "note": "imports KiCadProject (:56)"
+        },
+        {
+          "path": "backend/app/services/project_properties_service.py",
+          "status": "dev",
+          "note": "reads board headers (:40-55)"
+        },
+        {
+          "path": "backend/tests/test_project_metadata.py",
+          "status": "dev"
+        },
+        {
+          "path": "frontend/src/components/workspace/workspace-project-properties-sheet.tsx",
+          "status": "dev",
+          "note": "the properties pane (field-maps/project.md `pane`), only if its payload changes"
+        },
+        {
+          "path": "frontend/src/types/project.ts",
+          "status": "dev",
+          "note": "only if the properties payload changes"
+        }
+      ],
+      "adrDepends": [],
+      "depends": [
+        "K",
+        "S1",
+        "P4"
+      ],
+      "mergeAfter": [],
+      "notes": [
+        "§8 defines PRISM_DESIGN_SOURCE_PROJECT_METADATA but no Wave 3 WP flips it."
+      ]
+    },
+    "R1": {
+      "wave": 4,
+      "title": "Flip flags, delete legacy paths",
+      "adrSection": "§9.7",
+      "adrOwns": [
+        "(no path named)"
+      ],
+      "owns": [
+        {
+          "path": ".env.example",
+          "status": "dev"
+        },
+        {
+          "path": "AGENTS.md",
+          "status": "dev",
+          "note": "first Wave 4 owner (its traces name modules R1 deletes)"
+        },
+        {
+          "path": "backend/app/core/config.py",
+          "status": "dev"
+        },
+        {
+          "path": "backend/app/core/design_bundle_config.py",
+          "status": "new",
+          "note": "removes the flags"
+        },
+        {
+          "path": "backend/app/core/pipeline_config.py",
+          "status": "dev",
+          "note": "first Wave 4 owner; then R2, then R4"
+        },
+        {
+          "path": "backend/app/services/AGENTS.md",
+          "status": "dev"
+        },
+        {
+          "path": "backend/app/services/comment_anchor_service.py",
+          "status": "dev",
+          "note": "Wave 4: drops the legacy helper import C1 kept working (:121)"
+        },
+        {
+          "path": "backend/app/services/job_handlers.py",
+          "status": "dev",
+          "note": "Wave 4 owner"
+        },
+        {
+          "path": "backend/app/services/project_source_snapshot.py",
+          "status": "dev",
+          "note": "wraps semantic_index_service._revision_identity (:96-118)"
+        },
+        {
+          "path": "deploy/release/.env.example",
+          "status": "dev"
+        },
+        {
+          "path": "docs/CONFIGURATION.md",
+          "status": "dev"
+        },
+        {
+          "path": "scripts/benchmark_design_compare.py",
+          "status": "dev",
+          "note": "calls semantic_index_service._add_kicad_monkey_import_paths (:705)"
+        }
+      ],
+      "adrDepends": [],
+      "depends": [
+        "C1",
+        "C2",
+        "C3",
+        "C4",
+        "C5",
+        "C6",
+        "C7",
+        "C8"
+      ],
+      "mergeAfter": [
+        "C1",
+        "C2",
+        "C3",
+        "C4",
+        "C5",
+        "C6",
+        "C7",
+        "C8"
+      ],
+      "notes": [
+        "R1 also edits every path a Wave 3 WP owned, to delete its legacy branch; those paths are R1's in Wave 4."
+      ]
+    },
+    "R2": {
+      "wave": 4,
+      "title": "Remove the Python parsers",
+      "adrSection": "§9.7",
+      "adrOwns": [
+        "kicad-prism-viewer/pipeline/topology_compiler (3D parts)",
+        "backend/design-compare-parser/",
+        "kicad_monkey_design_adapter.py",
+        "requirements/runtime.in kicad-monkey and kicad-cruncher"
+      ],
+      "owns": [
+        {
+          "path": ".agents/skills/prism-viewer-rebuild/SKILL.md",
+          "status": "dev"
+        },
+        {
+          "path": ".claude/skills/prism-viewer-rebuild/SKILL.md",
+          "status": "dev"
+        },
+        {
+          "path": ".github/workflows/dev-quality-gate.yml",
+          "status": "dev",
+          "note": "design-compare-parser job; first Wave 4 owner, then R3"
+        },
+        {
+          "path": "AGENTS.md",
+          "status": "dev",
+          "note": "after R1 (vendored boundaries name the parser)"
+        },
+        {
+          "path": "CONTRIBUTING.md",
+          "status": "dev"
+        },
+        {
+          "path": "backend/Dockerfile",
+          "status": "dev",
+          "note": "kicad-monkey-local stage (:177-200); first Wave 4 owner, then R3"
+        },
+        {
+          "path": "backend/app/core/pipeline_config.py",
+          "status": "dev",
+          "note": "PRISM_KICAD_MONKEY_SOURCE, KICAD_MONKEY_PYTHONPATH (:78-86), after R1"
+        },
+        {
+          "path": "backend/app/services/catalog/mates.py",
+          "status": "dev",
+          "note": "blocked: open question"
+        },
+        {
+          "path": "backend/app/services/catalog/module_connectors.py",
+          "status": "dev",
+          "note": "blocked: open question"
+        },
+        {
+          "path": "backend/app/services/catalog/module_interface.py",
+          "status": "dev",
+          "note": "blocked: open question"
+        },
+        {
+          "path": "backend/app/services/kicad_monkey_design_adapter.py",
+          "status": "dev"
+        },
+        {
+          "path": "backend/design-compare-parser/**",
+          "status": "dev",
+          "note": "moved here from C2"
+        },
+        {
+          "path": "docker-compose.local-kicad-monkey.yml",
+          "status": "dev"
+        },
+        {
+          "path": "docs/DEPENDENCIES.md",
+          "status": "dev"
+        },
+        {
+          "path": "kicad-prism-viewer/README.md",
+          "status": "dev"
+        },
+        {
+          "path": "kicad-prism-viewer/docs/**",
+          "status": "dev"
+        },
+        {
+          "path": "kicad-prism-viewer/pipeline/topology_compiler/**",
+          "status": "dev",
+          "note": "3D parts"
+        },
+        {
+          "path": "kicad-prism-viewer/scripts/build_usb_pd_sample.sh",
+          "status": "dev"
+        },
+        {
+          "path": "kicad-prism-viewer/scripts/pcb_backend_benchmark.py",
+          "status": "dev"
+        },
+        {
+          "path": "kicad-prism-viewer/scripts/semantic_gltf_benchmark.py",
+          "status": "dev"
+        },
+        {
+          "path": "kicad-prism-viewer/tests/test_board_metadata.py",
+          "status": "dev"
+        },
+        {
+          "path": "kicad-prism-viewer/tests/test_topology_compiler.py",
+          "status": "dev"
+        },
+        {
+          "path": "kicad-prism-viewer/tests/test_vendor_paths.py",
+          "status": "dev"
+        },
+        {
+          "path": "requirements/runtime.in",
+          "status": "dev"
+        },
+        {
+          "path": "requirements/runtime.lock",
+          "status": "dev"
+        },
+        {
+          "path": "scripts/benchmark_monkey_jtyu_compare.py",
+          "status": "dev"
+        },
+        {
+          "path": "scripts/benchmark_webgpu_3d_h2h.py",
+          "status": "dev"
+        },
+        {
+          "path": "scripts/build-ecad-parser.sh",
+          "status": "dev",
+          "note": "vendors only design-compare-parser/vendor"
+        },
+        {
+          "path": "scripts/ci_changes.py",
+          "status": "dev"
+        },
+        {
+          "path": "scripts/compare_object_delta.py",
+          "status": "dev"
+        },
+        {
+          "path": "scripts/test_ci_changes.py",
+          "status": "dev"
+        },
+        {
+          "path": "scripts/test_compare_object_delta.py",
+          "status": "dev"
+        },
+        {
+          "path": "scripts/test_compose_env_forwarding.py",
+          "status": "dev",
+          "note": "SOURCE_STACKS names the local-kicad-monkey compose file (:31-35)"
+        },
+        {
+          "path": "scripts/verify_dependency_identity.py",
+          "status": "dev",
+          "note": "pins kicad-monkey and kicad-cruncher (:86-87)"
+        }
+      ],
+      "adrDepends": [],
+      "depends": [
+        "R1"
+      ],
+      "mergeAfter": [
+        "R1"
+      ],
+      "notes": [
+        "release_studio/documents/{fonts,worksheet,artwork}.py and vendors/jlcpcb.py keep R2's acceptance out of reach until the open question on Release Studio's Python tools is decided."
+      ]
+    },
+    "R3": {
+      "wave": 4,
+      "title": "prism-kicad-native onto the imported core",
+      "adrSection": "§9.7",
+      "adrOwns": [
+        "(no path named)"
+      ],
+      "owns": [
+        {
+          "path": ".github/workflows/dev-quality-gate.yml",
+          "status": "dev",
+          "note": "native-crate job, after R2"
+        },
+        {
+          "path": "backend/Dockerfile",
+          "status": "dev",
+          "note": "after R2"
+        },
+        {
+          "path": "docs/PCB_RUST_GEOMETRY.md",
+          "status": "dev"
+        },
+        {
+          "path": "kicad-prism-viewer/native/**",
+          "status": "dev"
+        },
+        {
+          "path": "native/Cargo.lock",
+          "status": "new",
+          "fromFork": true,
+          "note": "Wave 4 owner"
+        },
+        {
+          "path": "native/Cargo.toml",
+          "status": "new",
+          "fromFork": true,
+          "note": "Wave 4 owner"
+        },
+        {
+          "path": "native/src/rs/prism-projections/**",
+          "status": "new",
+          "note": "only if prism-kicad-native is absorbed"
+        },
+        {
+          "path": "scripts/build-prism-clipper2.sh",
+          "status": "dev"
+        }
+      ],
+      "adrDepends": [],
+      "depends": [
+        "F2",
+        "R2"
+      ],
+      "mergeAfter": [
+        "R2"
+      ],
+      "notes": []
+    },
+    "R4": {
+      "wave": 4,
+      "title": "Remove superseded stores",
+      "adrSection": "§9.7",
+      "adrOwns": [
+        "(no path named)"
+      ],
+      "owns": [
+        {
+          "path": "backend/app/core/pipeline_config.py",
+          "status": "dev",
+          "note": "store settings (PRISM_DESIGN_COMPARE_CACHE, PRISM_SEMANTIC_VIEWER_CACHE), after R2"
+        },
+        {
+          "path": "backend/app/services/workspace_migrations/m120_drop_superseded_stores.py",
+          "status": "new",
+          "note": "versions 120-123; destructive, so in a release after R1's (schema_ledger.py:19-21)"
+        },
+        {
+          "path": "backend/app/services/workspace_schema_migrations.py",
+          "status": "dev",
+          "note": "Wave 4 owner"
+        },
+        {
+          "path": "docs/ARCHITECTURE.md",
+          "status": "dev",
+          "note": "storage domains"
+        },
+        {
+          "path": "docs/UPGRADES.md",
+          "status": "dev"
+        },
+        {
+          "path": "scripts/cleanup_superseded_stores.py",
+          "status": "new",
+          "note": "proposed one-off cleanup"
+        }
+      ],
+      "adrDepends": [],
+      "depends": [
+        "R1"
+      ],
+      "mergeAfter": [
+        "R2"
+      ],
+      "notes": [
+        "The store code R4 deletes lives in files R1 already edited (semantic_index_service.py, semantic_visualizer_service.py, design_compare_service.py, systems/store_reviews.py, systems/bundles.py); R4 stacks after R1 and owns them in Wave 4 after R1 merges."
+      ]
+    },
+    "X": {
+      "wave": 4,
+      "title": "Architecture boundary test",
+      "adrSection": "§9.7",
+      "adrOwns": [
+        "backend/tests/test_design_source_boundary.py"
+      ],
+      "owns": [
+        {
+          "path": "backend/tests/test_design_source_boundary.py",
+          "status": "new",
+          "note": "allow-list: design_bundle/, the KiCad-output job modules and the catalog library reader (kicadImportSites in this file)"
+        }
+      ],
+      "adrDepends": [],
+      "depends": [
+        "R1",
+        "R2",
+        "R4"
+      ],
+      "mergeAfter": [
+        "R2",
+        "R4"
+      ],
+      "notes": []
+    }
+  },
+  "sharedFiles": [
+    {
+      "path": ".agents/skills/prism-comparison-change-kind/SKILL.md",
+      "status": "dev",
+      "ownerByWave": {
+        "3": [
+          "C2"
+        ],
+        "4": [
+          "R2"
+        ]
+      },
+      "rule": "with its .claude/skills shim"
+    },
+    {
+      "path": ".agents/skills/prism-quality-gate/SKILL.md",
+      "status": "dev",
+      "ownerByWave": {
+        "1": [
+          "L"
+        ]
+      },
+      "rule": "with its .claude/skills shim"
+    },
+    {
+      "path": ".agents/skills/prism-viewer-rebuild/SKILL.md",
+      "status": "dev",
+      "ownerByWave": {
+        "4": [
+          "R2"
+        ]
+      },
+      "rule": "with its .claude/skills shim"
+    },
+    {
+      "path": ".dockerignore",
+      "status": "dev",
+      "ownerByWave": {
+        "1": [
+          "L"
+        ]
+      }
+    },
+    {
+      "path": ".env.example",
+      "status": "dev",
+      "ownerByWave": {
+        "1": [
+          "K"
+        ],
+        "3": [
+          "C6"
+        ],
+        "4": [
+          "R1"
+        ]
+      },
+      "rule": "with deploy/release/.env.example and docs/CONFIGURATION.md"
+    },
+    {
+      "path": ".github/workflows/dev-quality-gate.yml",
+      "status": "dev",
+      "ownerByWave": {
+        "1": [
+          "L",
+          "INT"
+        ],
+        "3": [
+          "C5"
+        ],
+        "4": [
+          "R2",
+          "R3"
+        ]
+      },
+      "rule": "after L merges, the integration agent applies F3's and G's job definitions"
+    },
+    {
+      "path": ".github/workflows/native-release.yml",
+      "status": "new",
+      "ownerByWave": {
+        "1": [
+          "F3"
+        ]
+      },
+      "rule": "new file"
+    },
+    {
+      "path": ".gitignore",
+      "status": "dev",
+      "ownerByWave": {
+        "1": [
+          "F1"
+        ]
+      },
+      "rule": "re-include generated dirs; nobody else edits it"
+    },
+    {
+      "path": "AGENTS.md",
+      "status": "dev",
+      "ownerByWave": {
+        "1": [
+          "INT"
+        ],
+        "2": [
+          "INT"
+        ],
+        "3": [
+          "INT"
+        ],
+        "4": [
+          "R1",
+          "R2"
+        ]
+      },
+      "rule": "a WP edits only an AGENTS.md inside its own subtree (new ones included) and lists root-map lines in its PR body; the integration agent applies them once per wave"
+    },
+    {
+      "path": "NOTICE",
+      "status": "new",
+      "ownerByWave": {
+        "1": [
+          "F0"
+        ]
+      }
+    },
+    {
+      "path": "backend/Dockerfile",
+      "status": "dev",
+      "ownerByWave": {
+        "1": [
+          "L"
+        ],
+        "3": [
+          "C6"
+        ],
+        "4": [
+          "R2",
+          "R3"
+        ]
+      }
+    },
+    {
+      "path": "backend/app/api/projects.py",
+      "status": "dev",
+      "ownerByWave": {
+        "2": [
+          "S1"
+        ],
+        "4": [
+          "R1"
+        ]
+      },
+      "rule": "frozen in Wave 3 once S1 has split it; without S1, C1 owns it and C5, C8 stack after C1"
+    },
+    {
+      "path": "backend/app/core/config.py",
+      "status": "dev",
+      "ownerByWave": {
+        "1": [
+          "K"
+        ],
+        "4": [
+          "R1"
+        ]
+      },
+      "rule": "frozen in Waves 2-3: new settings go to the settings-group modules"
+    },
+    {
+      "path": "backend/app/core/design_bundle_config.py",
+      "status": "new",
+      "ownerByWave": {
+        "1": [
+          "K"
+        ],
+        "4": [
+          "R1"
+        ]
+      },
+      "rule": "new settings group"
+    },
+    {
+      "path": "backend/app/core/pipeline_config.py",
+      "status": "dev",
+      "ownerByWave": {
+        "4": [
+          "R1",
+          "R2",
+          "R4"
+        ]
+      },
+      "rule": "frozen in Waves 1-3"
+    },
+    {
+      "path": "backend/app/core/sim_studio_config.py",
+      "status": "new",
+      "ownerByWave": {
+        "1": [
+          "K"
+        ],
+        "3": [
+          "C6"
+        ]
+      },
+      "rule": "created empty by K"
+    },
+    {
+      "path": "backend/app/main.py",
+      "status": "dev",
+      "ownerByWave": {
+        "2": [
+          "S1"
+        ],
+        "3": [
+          "C6"
+        ]
+      },
+      "rule": "router includes"
+    },
+    {
+      "path": "backend/app/release_studio/AGENTS.md",
+      "status": "dev",
+      "ownerByWave": {
+        "3": [
+          "C3"
+        ],
+        "4": [
+          "R1"
+        ]
+      },
+      "rule": "inside C3's subtree"
+    },
+    {
+      "path": "backend/app/services/AGENTS.md",
+      "status": "dev",
+      "ownerByWave": {
+        "1": [
+          "INT"
+        ],
+        "2": [
+          "INT"
+        ],
+        "3": [
+          "INT"
+        ],
+        "4": [
+          "R1"
+        ]
+      },
+      "rule": "as AGENTS.md"
+    },
+    {
+      "path": "backend/app/services/catalog/AGENTS.md",
+      "status": "dev",
+      "ownerByWave": {
+        "1": [
+          "INT"
+        ],
+        "2": [
+          "INT"
+        ],
+        "3": [
+          "INT"
+        ],
+        "4": [
+          "INT"
+        ]
+      },
+      "rule": "as AGENTS.md: C7 edits catalog modules but does not own the directory"
+    },
+    {
+      "path": "backend/app/services/catalog_schema_migrations.py",
+      "status": "dev",
+      "ownerByWave": {
+        "3": [
+          "C7"
+        ]
+      },
+      "rule": "numbers are allocated in migrationNumbers"
+    },
+    {
+      "path": "backend/app/services/job_handlers.py",
+      "status": "dev",
+      "ownerByWave": {
+        "1": [
+          "K"
+        ],
+        "2": [
+          "S1"
+        ],
+        "3": [
+          "C6"
+        ],
+        "4": [
+          "R1"
+        ]
+      },
+      "rule": "one registration line per kind module"
+    },
+    {
+      "path": "backend/app/services/job_kinds.py",
+      "status": "dev",
+      "ownerByWave": {
+        "1": [
+          "K"
+        ],
+        "3": [
+          "C6"
+        ]
+      },
+      "rule": "one capacity line per resource slot"
+    },
+    {
+      "path": "backend/app/services/project_import_service.py",
+      "status": "dev",
+      "ownerByWave": {
+        "1": [
+          "K"
+        ],
+        "4": [
+          "R1"
+        ]
+      }
+    },
+    {
+      "path": "backend/app/services/project_revision.py",
+      "status": "dev",
+      "ownerByWave": {
+        "1": [
+          "K"
+        ]
+      },
+      "rule": "frozen afterwards; consumers import it"
+    },
+    {
+      "path": "backend/app/services/project_service.py",
+      "status": "dev",
+      "ownerByWave": {
+        "2": [
+          "S1"
+        ],
+        "4": [
+          "R1"
+        ]
+      },
+      "rule": "as api/projects.py"
+    },
+    {
+      "path": "backend/app/services/semantic_index_service.py",
+      "status": "dev",
+      "ownerByWave": {
+        "3": [
+          "C1"
+        ],
+        "4": [
+          "R1",
+          "R4"
+        ]
+      },
+      "rule": "C1 keeps every name other modules import (_revision_key, _source_entries_in_commit, _source_entries_on_disk, _revision_identity, _stable_uid, _canonical_fields, generator_cache_tag, SCHEMA, build_semantic_index, get_or_build, _project_file_for_revision) until R1"
+    },
+    {
+      "path": "backend/app/services/semantic_visualizer_service.py",
+      "status": "dev",
+      "ownerByWave": {
+        "3": [
+          "C5"
+        ],
+        "4": [
+          "R1",
+          "R4"
+        ]
+      },
+      "rule": "C5 keeps find_kicad_project (:115), which project_metadata_service.py:38 imports"
+    },
+    {
+      "path": "backend/app/services/workspace_schema_migrations.py",
+      "status": "dev",
+      "ownerByWave": {
+        "1": [
+          "K"
+        ],
+        "3": [
+          "C6"
+        ],
+        "4": [
+          "R4"
+        ]
+      },
+      "rule": "numbers are allocated in migrationNumbers"
+    },
+    {
+      "path": "backend/tests/.test_durations.json",
+      "status": "dev",
+      "ownerByWave": {
+        "1": [
+          "INT"
+        ],
+        "2": [
+          "INT"
+        ],
+        "3": [
+          "INT"
+        ],
+        "4": [
+          "INT"
+        ]
+      },
+      "rule": "refreshed only by scripts/update_backend_test_durations.py"
+    },
+    {
+      "path": "backend/tests/conftest.py",
+      "status": "dev",
+      "ownerByWave": {},
+      "rule": "frozen, with backend/tests/support/{__init__,postgres,repo}.py and the shared helpers at backend/tests/*.py; new helpers go in new files"
+    },
+    {
+      "path": "backend/tests/fixtures/design_variants/**",
+      "status": "dev",
+      "ownerByWave": {},
+      "rule": "frozen inputs (G's goldens are captured on them); a WP that needs a fixture adds a new directory it owns"
+    },
+    {
+      "path": "backend/tests/fixtures/system_builder/**",
+      "status": "dev",
+      "ownerByWave": {},
+      "rule": "frozen inputs (G's goldens are captured on them); a WP that needs a fixture adds a new directory it owns"
+    },
+    {
+      "path": "backend/tests/test_job_kinds.py",
+      "status": "dev",
+      "ownerByWave": {
+        "1": [
+          "K"
+        ],
+        "3": [
+          "C6"
+        ]
+      },
+      "rule": "with job_kinds.py"
+    },
+    {
+      "path": "backend/tests/test_project_service_v3_jobs.py",
+      "status": "dev",
+      "ownerByWave": {
+        "2": [
+          "S1"
+        ]
+      },
+      "rule": "split by S1; without S1, C1 owns it and C5 stacks on C1"
+    },
+    {
+      "path": "docker-compose.yml",
+      "status": "dev",
+      "ownerByWave": {
+        "1": [
+          "L"
+        ],
+        "3": [
+          "C6"
+        ],
+        "4": [
+          "R2"
+        ]
+      },
+      "rule": "also the other docker-compose*.yml files and deploy/release/compose.yml"
+    },
+    {
+      "path": "docs/ARCHITECTURE.md",
+      "status": "dev",
+      "ownerByWave": {
+        "1": [
+          "K"
+        ],
+        "4": [
+          "R4"
+        ]
+      }
+    },
+    {
+      "path": "docs/DEPENDENCIES.md",
+      "status": "dev",
+      "ownerByWave": {
+        "1": [
+          "L"
+        ],
+        "4": [
+          "R2"
+        ]
+      },
+      "rule": "with CONTRIBUTING.md"
+    },
+    {
+      "path": "fixtures/release-studio/**",
+      "status": "dev",
+      "ownerByWave": {},
+      "rule": "frozen inputs (G's goldens are captured on them); a WP that needs a fixture adds a new directory it owns"
+    },
+    {
+      "path": "frontend/index.html",
+      "status": "dev",
+      "ownerByWave": {
+        "3": [
+          "C5"
+        ]
+      },
+      "rule": "the cache-key line is build output; same rule"
+    },
+    {
+      "path": "frontend/nginx.conf",
+      "status": "dev",
+      "ownerByWave": {
+        "1": [
+          "L"
+        ],
+        "3": [
+          "C5"
+        ]
+      }
+    },
+    {
+      "path": "frontend/package-lock.json",
+      "status": "dev",
+      "ownerByWave": {
+        "3": [
+          "C6"
+        ]
+      }
+    },
+    {
+      "path": "frontend/package.json",
+      "status": "dev",
+      "ownerByWave": {
+        "3": [
+          "C6"
+        ]
+      },
+      "rule": "C5 requests any dependency it needs"
+    },
+    {
+      "path": "frontend/public/prism-semantic-viewer.js",
+      "status": "dev",
+      "ownerByWave": {
+        "3": [
+          "C5"
+        ]
+      },
+      "rule": "build output; after stacking any WP that touched kicad-prism-viewer/viewer/src, the integration agent rebuilds it instead of merging it"
+    },
+    {
+      "path": "frontend/src/components/design-comparison/AGENTS.md",
+      "status": "dev",
+      "ownerByWave": {
+        "3": [
+          "C2"
+        ],
+        "4": [
+          "R1"
+        ]
+      },
+      "rule": "inside C2's subtree"
+    },
+    {
+      "path": "frontend/src/components/visualizer.tsx",
+      "status": "dev",
+      "ownerByWave": {
+        "3": [
+          "C5"
+        ]
+      },
+      "rule": "C1 requests changes to the identity fetch (:482)"
+    },
+    {
+      "path": "frontend/src/components/workspace/AGENTS.md",
+      "status": "dev",
+      "ownerByWave": {
+        "1": [
+          "INT"
+        ],
+        "2": [
+          "INT"
+        ],
+        "3": [
+          "INT"
+        ],
+        "4": [
+          "INT"
+        ]
+      },
+      "rule": "as AGENTS.md: C8 edits one file in the directory"
+    },
+    {
+      "path": "frontend/src/pages/ProjectDetailPage.tsx",
+      "status": "dev",
+      "ownerByWave": {
+        "3": [
+          "C6"
+        ]
+      }
+    },
+    {
+      "path": "frontend/src/types/prism-selection.ts",
+      "status": "dev",
+      "ownerByWave": {
+        "3": [
+          "C1"
+        ]
+      },
+      "rule": "C6's fields are a1 fields, so C1 adds them"
+    },
+    {
+      "path": "frontend/src/types/prism-semantic-viewer.d.ts",
+      "status": "dev",
+      "ownerByWave": {
+        "3": [
+          "C5"
+        ]
+      },
+      "rule": "C4 and C6 request changes"
+    },
+    {
+      "path": "kicad-prism-viewer/package.json",
+      "status": "dev",
+      "ownerByWave": {
+        "3": [
+          "C5"
+        ]
+      }
+    },
+    {
+      "path": "native/Cargo.lock",
+      "status": "new",
+      "ownerByWave": {
+        "1": [
+          "F1",
+          "F2"
+        ],
+        "2": [
+          "INT"
+        ],
+        "3": [
+          "INT"
+        ],
+        "4": [
+          "R3"
+        ]
+      },
+      "fromFork": true,
+      "rule": "as native/Cargo.toml"
+    },
+    {
+      "path": "native/Cargo.toml",
+      "status": "new",
+      "ownerByWave": {
+        "1": [
+          "F1",
+          "F2"
+        ],
+        "2": [
+          "INT"
+        ],
+        "3": [
+          "INT"
+        ],
+        "4": [
+          "R3"
+        ]
+      },
+      "fromFork": true,
+      "rule": "F2 pre-declares every dependency B and the P-WPs need; a later request goes to the integration agent as its own commit before the requesting WP stacks"
+    },
+    {
+      "path": "native/contracts/generated/schema/** (urn:prism roots)",
+      "status": "new",
+      "ownerByWave": {
+        "0": [
+          "W0"
+        ]
+      },
+      "fromFork": true,
+      "rule": "generated by build.mjs; ADR amendment PR only"
+    },
+    {
+      "path": "native/parity/divergences.md",
+      "status": "new",
+      "ownerByWave": {
+        "1": [
+          "G"
+        ]
+      },
+      "rule": "index only; per-member files native/parity/divergences/<member>.md belong to the producing P-WP or V1"
+    },
+    {
+      "path": "native/src/rs/prism-kicad-contracts/src/generated/prism/**",
+      "status": "new",
+      "ownerByWave": {
+        "1": [
+          "F2"
+        ]
+      },
+      "rule": "generated from W0's schemas; afterwards ADR amendment PR only"
+    },
+    {
+      "path": "native/src/rs/prism-projections/Cargo.toml",
+      "status": "new",
+      "ownerByWave": {
+        "1": [
+          "F2"
+        ],
+        "2": [
+          "INT"
+        ],
+        "4": [
+          "R3"
+        ]
+      },
+      "rule": "as native/Cargo.toml"
+    },
+    {
+      "path": "native/src/rs/prism-projections/src/lib.rs",
+      "status": "new",
+      "ownerByWave": {
+        "1": [
+          "F2"
+        ],
+        "2": [
+          "INT"
+        ],
+        "4": [
+          "R3"
+        ]
+      },
+      "rule": "declares every projection module from the start; frozen in Wave 2"
+    },
+    {
+      "path": "native/src/tsp/prism/**",
+      "status": "new",
+      "ownerByWave": {
+        "0": [
+          "W0"
+        ]
+      },
+      "rule": "frozen after acceptance; ADR amendment PR only"
+    },
+    {
+      "path": "requirements/runtime.in",
+      "status": "dev",
+      "ownerByWave": {
+        "1": [
+          "K"
+        ],
+        "4": [
+          "R2"
+        ]
+      }
+    },
+    {
+      "path": "requirements/runtime.lock",
+      "status": "dev",
+      "ownerByWave": {
+        "1": [
+          "K"
+        ],
+        "4": [
+          "R2"
+        ]
+      },
+      "rule": "regenerated by scripts/sync_dependencies.py --update-lock, never by hand"
+    },
+    {
+      "path": "requirements/test.txt",
+      "status": "dev",
+      "ownerByWave": {
+        "1": [
+          "K"
+        ]
+      }
+    },
+    {
+      "path": "scripts/catalog_architecture_baseline.json",
+      "status": "dev",
+      "ownerByWave": {
+        "1": [
+          "INT"
+        ],
+        "2": [
+          "INT"
+        ],
+        "3": [
+          "INT"
+        ],
+        "4": [
+          "INT"
+        ]
+      },
+      "rule": "ceilings are only lowered, by the integration agent after each wave; shrinking a module needs no baseline edit (check_module_size.py:7-11)"
+    },
+    {
+      "path": "scripts/check_agent_docs.py",
+      "status": "dev",
+      "ownerByWave": {},
+      "rule": "frozen: F1 fixes the imported guidance instead"
+    },
+    {
+      "path": "scripts/ci_changes.py",
+      "status": "dev",
+      "ownerByWave": {
+        "1": [
+          "L"
+        ],
+        "4": [
+          "R2"
+        ]
+      },
+      "rule": "with scripts/test_ci_changes.py"
+    },
+    {
+      "path": "scripts/test_compose_env_forwarding.py",
+      "status": "dev",
+      "ownerByWave": {
+        "1": [
+          "L"
+        ],
+        "4": [
+          "R2"
+        ]
+      }
+    }
+  ],
+  "migrationNumbers": {
+    "workspace": {
+      "ledger": "backend/app/services/workspace_schema_migrations.py",
+      "devHead": 57,
+      "devHeadSource": "workspace_schema_migrations.py:127",
+      "refTaken": {
+        "56": "sim_studio_setups",
+        "57": "sim_studio_runs",
+        "58": "sim_studio_layouts",
+        "59": "job_retention_indexes"
+      },
+      "refSource": "ref workspace_schema_migrations.py:128-131 (dev has 56 release_studio_model_inputs, 57 job_retention_indexes)",
+      "block": [
+        100,
+        129
+      ],
+      "allocation": {
+        "K": [
+          100,
+          103
+        ],
+        "C4": [
+          104,
+          105
+        ],
+        "C6": [
+          106,
+          109
+        ],
+        "C1": [
+          110,
+          110
+        ],
+        "C2": [
+          111,
+          112
+        ],
+        "C3": [
+          113,
+          114
+        ],
+        "C5": [
+          115,
+          115
+        ],
+        "C7": [
+          116,
+          116
+        ],
+        "C8": [
+          117,
+          117
+        ],
+        "spare": [
+          118,
+          119
+        ],
+        "R4": [
+          120,
+          123
+        ],
+        "reserve": [
+          124,
+          129
+        ]
+      },
+      "renumbered": [
+        [
+          "sim_studio_setups",
+          56,
+          106
+        ],
+        [
+          "sim_studio_runs",
+          57,
+          107
+        ],
+        [
+          "sim_studio_layouts",
+          58,
+          108
+        ],
+        [
+          "job_retention_indexes",
+          59,
+          57
+        ]
+      ],
+      "renumberedNote": "C6 appends these to RENUMBERED after ('repository_origin', 26, 41), in this order: each UPDATE frees the number the next takes. They match no row on a database that never ran the reference branch."
+    },
+    "catalog": {
+      "ledger": "backend/app/services/catalog_schema_migrations.py",
+      "devHead": 12,
+      "devHeadSource": "catalog_schema_migrations.py:395",
+      "block": [
+        100,
+        109
+      ],
+      "allocation": {
+        "C7": [
+          100,
+          101
+        ],
+        "reserve": [
+          102,
+          109
+        ]
+      }
+    },
+    "artifact, comments, auth": {
+      "block": [
+        100,
+        109
+      ],
+      "allocation": {},
+      "note": "no step foreseen; the integration agent allocates on request"
+    },
+    "rule": "Gaps are allowed and a number another branch took stays reserved (schema_ledger.py:19-21). The block sits far above dev's head so dev's own migrations, which keep landing while the effort runs, never collide. Steps stay additive; R4's drops ship in a release after R1's.",
+    "liveInstanceRenumbered": "The live instance's workspace ledger was renumbered at the cutover to dev on 2026-10-16: sim_studio_* parked at 9056-9058, job_retention_indexes 59 -> 57. C6 adds RENUMBERED entries (sim_studio_setups,9056,106), (sim_studio_runs,9057,107), (sim_studio_layouts,9058,108) after the 56-59 ones."
+  },
+  "mergeOrder": {
+    "0": [
+      "W0"
+    ],
+    "1": [
+      "F0 (sign-off; NOTICE, docs/architecture/native-provenance.md)",
+      "F1 (import merge commit, then .gitignore and native/AGENTS.md commits)",
+      "W0-move (integration agent)",
+      "F2",
+      "L",
+      "F3 | B | G | K | F0 (native/LICENSES.md), in any order"
+    ],
+    "2": [
+      "S1 | P1 | P2 | P3 | P4 | P5, in any order",
+      "V1 (after K, B and P4)"
+    ],
+    "3": [
+      "C1 | C2 | C3 | C5 | C7 | C8, in any order",
+      "C6 (after C1)",
+      "C4 (after C5)"
+    ],
+    "4": [
+      "R1",
+      "R2",
+      "R3 | R4",
+      "X"
+    ]
+  },
+  "kicadMonkeyImportSites": [
+    {
+      "site": "backend/app/release_studio/closure.py:953",
+      "code": "from kicad_monkey import find_all_elements, parse_sexp, unquote_string",
+      "ownerAsWritten": "C3",
+      "owner": "C3",
+      "disposition": "migrate"
+    },
+    {
+      "site": "backend/app/release_studio/closure_references.py:80",
+      "code": "from kicad_monkey import parse_sexp",
+      "ownerAsWritten": "C3",
+      "owner": "C3",
+      "disposition": "migrate"
+    },
+    {
+      "site": "backend/app/release_studio/documents/artwork.py:514",
+      "code": "from kicad_monkey.kicad_pcb import KiCadPcb",
+      "owner": "C3",
+      "disposition": "migrate KiCadPcb loads; kicad_cruncher.config_json is blocked (open question)"
+    },
+    {
+      "site": "backend/app/release_studio/documents/artwork.py:714",
+      "code": "from kicad_cruncher.config_json import load_json_config",
+      "owner": "C3",
+      "disposition": "migrate KiCadPcb loads; kicad_cruncher.config_json is blocked (open question)"
+    },
+    {
+      "site": "backend/app/release_studio/documents/artwork.py:745",
+      "code": "from kicad_monkey.kicad_pcb import KiCadPcb",
+      "owner": "C3",
+      "disposition": "migrate KiCadPcb loads; kicad_cruncher.config_json is blocked (open question)"
+    },
+    {
+      "site": "backend/app/release_studio/documents/artwork.py:746",
+      "code": "from kicad_monkey.kicad_pcb_bounds import compute_pcb_svg_bounding_box",
+      "owner": "C3",
+      "disposition": "migrate KiCadPcb loads; kicad_cruncher.config_json is blocked (open question)"
+    },
+    {
+      "site": "backend/app/release_studio/documents/fonts.py:220",
+      "code": "from kicad_monkey.kicad_stroke_font import get_renderer",
+      "owner": "R2",
+      "disposition": "blocked: stroke-font rendering, no replacement (open question)"
+    },
+    {
+      "site": "backend/app/release_studio/documents/fonts.py:300",
+      "code": "from kicad_monkey.kicad_stroke_font import get_glyph",
+      "owner": "R2",
+      "disposition": "blocked: stroke-font rendering, no replacement (open question)"
+    },
+    {
+      "site": "backend/app/release_studio/documents/fonts.py:358",
+      "code": "from kicad_monkey.kicad_stroke_font import get_renderer",
+      "owner": "R2",
+      "disposition": "blocked: stroke-font rendering, no replacement (open question)"
+    },
+    {
+      "site": "backend/app/release_studio/documents/worksheet.py:36",
+      "code": "from kicad_monkey import drawing_sheet_to_ops, load_default_drawing_sheet",
+      "owner": "R2",
+      "disposition": "blocked: drawing-sheet rendering, no replacement (open question)"
+    },
+    {
+      "site": "backend/app/release_studio/projections.py:274",
+      "code": "from kicad_monkey import (",
+      "ownerAsWritten": "C3",
+      "owner": "C3",
+      "disposition": "migrate"
+    },
+    {
+      "site": "backend/app/release_studio/projections.py:283",
+      "code": "from kicad_monkey.kicad_pcb_other import Stackup",
+      "ownerAsWritten": "C3",
+      "owner": "C3",
+      "disposition": "migrate"
+    },
+    {
+      "site": "backend/app/release_studio/projections.py:652",
+      "code": "from kicad_monkey import VariantCatalog",
+      "ownerAsWritten": "C3",
+      "owner": "C3",
+      "disposition": "migrate"
+    },
+    {
+      "site": "backend/app/release_studio/projections.py:680",
+      "code": "from kicad_monkey import VariantCatalog",
+      "ownerAsWritten": "C3",
+      "owner": "C3",
+      "disposition": "migrate"
+    },
+    {
+      "site": "backend/app/release_studio/projections.py:692",
+      "code": "from kicad_monkey import VariantCatalog, collect_symbol_overrides",
+      "ownerAsWritten": "C3",
+      "owner": "C3",
+      "disposition": "migrate"
+    },
+    {
+      "site": "backend/app/release_studio/projections.py:771",
+      "code": "from kicad_monkey import KiCadPcb, KiCadProject, KiCadSchematic",
+      "ownerAsWritten": "C3",
+      "owner": "C3",
+      "disposition": "migrate"
+    },
+    {
+      "site": "backend/app/services/catalog/mates.py:149",
+      "code": "from kicad_monkey.kicad_symbol_lib import KiCadSymbolLib",
+      "owner": "R2",
+      "disposition": "blocked: library files, §2.1 defers them (open question)"
+    },
+    {
+      "site": "backend/app/services/catalog/mates.py:155",
+      "code": "from kicad_monkey import kicad_pcb_footprint, kicad_sexpr",
+      "owner": "R2",
+      "disposition": "blocked: library files, §2.1 defers them (open question)"
+    },
+    {
+      "site": "backend/app/services/catalog/module_connectors.py:49",
+      "code": "from kicad_monkey import kicad_pcb_footprint, kicad_sexpr",
+      "owner": "R2",
+      "disposition": "blocked: library files (open question)"
+    },
+    {
+      "site": "backend/app/services/catalog/module_interface.py:83",
+      "code": "from kicad_monkey.kicad_symbol_lib import KiCadSymbolLib",
+      "owner": "R2",
+      "disposition": "blocked: library files (open question)"
+    },
+    {
+      "site": "backend/app/services/project_metadata_service.py:56",
+      "code": "from kicad_monkey import KiCadProject",
+      "owner": "C8",
+      "disposition": "migrate"
+    },
+    {
+      "site": "backend/app/services/release_studio_build_service.py:108",
+      "code": "monkey_version = _distribution_version(\"kicad-monkey\", \"kicad_monkey\")",
+      "owner": "C3",
+      "disposition": "migrate: record the bundle generator id"
+    },
+    {
+      "site": "backend/app/services/semantic_index_service.py:27",
+      "code": "from app.services.kicad_monkey_design_adapter import KiCadMonkeyDesign",
+      "ownerAsWritten": "C1",
+      "owner": "C1",
+      "disposition": "migrate (C1), delete legacy (R1)"
+    },
+    {
+      "site": "backend/app/services/semantic_index_service.py:172",
+      "code": "def _add_kicad_monkey_import_paths() -> None:",
+      "ownerAsWritten": "C1",
+      "owner": "C1",
+      "disposition": "migrate (C1), delete legacy (R1)"
+    },
+    {
+      "site": "backend/app/services/semantic_index_service.py:813",
+      "code": "from kicad_monkey import KiCadDesign",
+      "ownerAsWritten": "C1",
+      "owner": "C1",
+      "disposition": "migrate (C1), delete legacy (R1)"
+    },
+    {
+      "site": "backend/app/services/semantic_index_variants.py:40",
+      "code": "from app.services.kicad_monkey_design_adapter import KiCadMonkeyDesign",
+      "owner": "C1",
+      "disposition": "migrate (C1), delete legacy (R1)"
+    },
+    {
+      "site": "backend/app/services/semantic_index_variants.py:292",
+      "code": "from kicad_monkey.kicad_variants import resolve_symbol",
+      "owner": "C1",
+      "disposition": "migrate (C1), delete legacy (R1)"
+    },
+    {
+      "site": "backend/app/services/semantic_index_variants.py:473",
+      "code": "from kicad_monkey.kicad_variants import resolve_footprint",
+      "owner": "C1",
+      "disposition": "migrate (C1), delete legacy (R1)"
+    },
+    {
+      "site": "backend/app/services/semantic_visualizer_service.py:38",
+      "code": "monkey_spec = importlib.util.find_spec(\"kicad_monkey\")",
+      "ownerAsWritten": "C5",
+      "owner": "C5",
+      "disposition": "migrate"
+    },
+    {
+      "site": "backend/app/services/semantic_visualizer_service.py:631",
+      "code": "\"import kicad_monkey; \"",
+      "ownerAsWritten": "C5",
+      "owner": "C5",
+      "disposition": "migrate"
+    },
+    {
+      "site": "backend/app/services/systems/interface_extractor.py:367",
+      "code": "from kicad_monkey import KiCadDesign",
+      "ownerAsWritten": "C4",
+      "owner": "C4",
+      "disposition": "migrate (P5 ports it)"
+    },
+    {
+      "site": "backend/app/services/systems/interface_extractor.py:491",
+      "code": "from kicad_monkey import KiCadDesign",
+      "ownerAsWritten": "C4",
+      "owner": "C4",
+      "disposition": "migrate (P5 ports it)"
+    },
+    {
+      "site": "backend/app/services/systems/interface_extractor.py:492",
+      "code": "from kicad_monkey.kicad_project import KiCadProject",
+      "ownerAsWritten": "C4",
+      "owner": "C4",
+      "disposition": "migrate (P5 ports it)"
+    },
+    {
+      "site": "backend/app/services/systems/interface_extractor.py:493",
+      "code": "from kicad_monkey.kicad_schematic import KiCadSchematic",
+      "ownerAsWritten": "C4",
+      "owner": "C4",
+      "disposition": "migrate (P5 ports it)"
+    },
+    {
+      "site": "kicad-prism-viewer/native/prism-kicad-native/Cargo.toml:12",
+      "code": "kicad-monkey-core = { git = \"https://github.com/wavenumber-eng/kicad_monkey\", rev = \"bc6796c1b8ce55bfbcb8b1771f3ecbc7065",
+      "ownerAsWritten": "R3",
+      "owner": "R3",
+      "disposition": "move onto the imported core"
+    },
+    {
+      "site": "kicad-prism-viewer/pipeline/topology_compiler/board_metadata.py:63",
+      "code": "from kicad_monkey.kicad_project import KiCadProject  # type: ignore",
+      "ownerAsWritten": "R2",
+      "owner": "R2",
+      "disposition": "remove (C5 stops calling it)"
+    },
+    {
+      "site": "kicad-prism-viewer/pipeline/topology_compiler/context.py:69",
+      "code": "from kicad_monkey import KiCadDesign  # type: ignore",
+      "ownerAsWritten": "R2",
+      "owner": "R2",
+      "disposition": "remove (C5 stops calling it)"
+    },
+    {
+      "site": "kicad-prism-viewer/pipeline/topology_compiler/copper_geometry.py:516",
+      "code": "from kicad_monkey import emit_pcb_copper_geometry  # type: ignore",
+      "ownerAsWritten": "R2",
+      "owner": "R2",
+      "disposition": "remove (C5 stops calling it)"
+    },
+    {
+      "site": "kicad-prism-viewer/pipeline/topology_compiler/copper_geometry.py:528",
+      "code": "from kicad_monkey import KICAD_COPPER_GEOMETRY_ACCEPTED_SCHEMAS  # type: ignore",
+      "ownerAsWritten": "R2",
+      "owner": "R2",
+      "disposition": "remove (C5 stops calling it)"
+    },
+    {
+      "site": "kicad-prism-viewer/pipeline/topology_compiler/copper_geometry.py:536",
+      "code": "from kicad_monkey import emit_pcb_copper_geometry  # type: ignore",
+      "ownerAsWritten": "R2",
+      "owner": "R2",
+      "disposition": "remove (C5 stops calling it)"
+    },
+    {
+      "site": "kicad-prism-viewer/pipeline/topology_compiler/pcb_extract.py:101",
+      "code": "from kicad_monkey.kicad_geometry import rotate_point  # type: ignore",
+      "ownerAsWritten": "R2",
+      "owner": "R2",
+      "disposition": "remove (C5 stops calling it)"
+    },
+    {
+      "site": "kicad-prism-viewer/pipeline/topology_compiler/pcb_extract.py:135",
+      "code": "from kicad_monkey.kicad_geometry import rotate_point  # type: ignore",
+      "ownerAsWritten": "R2",
+      "owner": "R2",
+      "disposition": "remove (C5 stops calling it)"
+    },
+    {
+      "site": "kicad-prism-viewer/pipeline/topology_compiler/pcb_extract.py:146",
+      "code": "from kicad_monkey.kicad_geometry import rotate_point  # type: ignore",
+      "ownerAsWritten": "R2",
+      "owner": "R2",
+      "disposition": "remove (C5 stops calling it)"
+    },
+    {
+      "site": "kicad-prism-viewer/pipeline/topology_compiler/pcb_extract.py:147",
+      "code": "from kicad_monkey.kicad_pcb_polygon_ops import circle_to_polygon, oval_to_polygon  # type: ignore",
+      "ownerAsWritten": "R2",
+      "owner": "R2",
+      "disposition": "remove (C5 stops calling it)"
+    },
+    {
+      "site": "kicad-prism-viewer/pipeline/topology_compiler/pcb_extract.py:392",
+      "code": "from kicad_monkey.kicad_sexpr import parse_sexp  # type: ignore",
+      "ownerAsWritten": "R2",
+      "owner": "R2",
+      "disposition": "remove (C5 stops calling it)"
+    },
+    {
+      "site": "kicad-prism-viewer/pipeline/topology_compiler/pcb_extract.py:441",
+      "code": "from kicad_monkey.kicad_sexpr import parse_sexp  # type: ignore",
+      "ownerAsWritten": "R2",
+      "owner": "R2",
+      "disposition": "remove (C5 stops calling it)"
+    },
+    {
+      "site": "kicad-prism-viewer/pipeline/topology_compiler/pcb_extract.py:1330",
+      "code": "from kicad_monkey import KiCadPcb  # type: ignore",
+      "ownerAsWritten": "R2",
+      "owner": "R2",
+      "disposition": "remove (C5 stops calling it)"
+    },
+    {
+      "site": "kicad-prism-viewer/pipeline/topology_compiler/soldermask.py:78",
+      "code": "from kicad_monkey import KiCadPcb  # type: ignore",
+      "ownerAsWritten": "R2",
+      "owner": "R2",
+      "disposition": "remove (C5 stops calling it)"
+    },
+    {
+      "site": "kicad-prism-viewer/scripts/build_usb_pd_sample.sh:8",
+      "code": "export PYTHONPATH=\"$ROOT/references/kicad_monkey/src/py:$ROOT${PYTHONPATH:+:$PYTHONPATH}\"",
+      "owner": "R2",
+      "disposition": "remove"
+    },
+    {
+      "site": "kicad-prism-viewer/scripts/pcb_backend_benchmark.py:289",
+      "code": "spec = importlib.util.find_spec(\"kicad_monkey\")",
+      "owner": "R2",
+      "disposition": "remove"
+    },
+    {
+      "site": "kicad-prism-viewer/scripts/semantic_gltf_benchmark.py:232",
+      "code": "from kicad_monkey import KiCadDesign  # type: ignore",
+      "owner": "R2",
+      "disposition": "remove"
+    },
+    {
+      "site": "kicad-prism-viewer/tests/test_board_metadata.py:183",
+      "code": "from kicad_monkey import KiCadPcb",
+      "owner": "R2",
+      "disposition": "remove with the compiler's 3D parts"
+    },
+    {
+      "site": "kicad-prism-viewer/tests/test_topology_compiler.py:695",
+      "code": "from kicad_monkey import KiCadPcb",
+      "owner": "R2",
+      "disposition": "remove with the compiler's 3D parts"
+    },
+    {
+      "site": "kicad-prism-viewer/tests/test_topology_compiler.py:957",
+      "code": "from kicad_monkey import KiCadPcb",
+      "owner": "R2",
+      "disposition": "remove with the compiler's 3D parts"
+    },
+    {
+      "site": "kicad-prism-viewer/tests/test_topology_compiler.py:991",
+      "code": "from kicad_monkey import KiCadPcb",
+      "owner": "R2",
+      "disposition": "remove with the compiler's 3D parts"
+    },
+    {
+      "site": "kicad-prism-viewer/tests/test_topology_compiler.py:1429",
+      "code": "from kicad_monkey import KiCadPcb",
+      "owner": "R2",
+      "disposition": "remove with the compiler's 3D parts"
+    },
+    {
+      "site": "kicad-prism-viewer/tests/test_topology_compiler.py:1430",
+      "code": "from kicad_monkey.kicad_pcb_to_ir import pcb_footprint_to_record",
+      "owner": "R2",
+      "disposition": "remove with the compiler's 3D parts"
+    },
+    {
+      "site": "scripts/benchmark_design_compare.py:705",
+      "code": "semantic_index_service._add_kicad_monkey_import_paths()",
+      "owner": "R1",
+      "disposition": "port or delete"
+    },
+    {
+      "site": "scripts/benchmark_design_compare.py:706",
+      "code": "import kicad_monkey  # type: ignore[import-not-found]",
+      "owner": "R1",
+      "disposition": "port or delete"
+    },
+    {
+      "site": "scripts/benchmark_monkey_jtyu_compare.py:64",
+      "code": "import kicad_monkey",
+      "owner": "R2",
+      "disposition": "delete"
+    },
+    {
+      "site": "scripts/benchmark_monkey_jtyu_compare.py:65",
+      "code": "from kicad_monkey import KiCadDesign",
+      "owner": "R2",
+      "disposition": "delete"
+    },
+    {
+      "site": "scripts/benchmark_monkey_jtyu_compare.py:66",
+      "code": "import kicad_monkey.kicad_sexpr as sx",
+      "owner": "R2",
+      "disposition": "delete"
+    },
+    {
+      "site": "scripts/benchmark_monkey_jtyu_compare.py:67",
+      "code": "from kicad_monkey.kicad_pcb import KiCadPcb",
+      "owner": "R2",
+      "disposition": "delete"
+    },
+    {
+      "site": "scripts/benchmark_monkey_jtyu_compare.py:96",
+      "code": "semantic_index_service._add_kicad_monkey_import_paths()",
+      "owner": "R2",
+      "disposition": "delete"
+    },
+    {
+      "site": "scripts/benchmark_monkey_jtyu_compare.py:157",
+      "code": "semantic_index_service._add_kicad_monkey_import_paths()",
+      "owner": "R2",
+      "disposition": "delete"
+    },
+    {
+      "site": "scripts/benchmark_monkey_jtyu_compare.py:162",
+      "code": "from kicad_monkey import KiCadDesign",
+      "owner": "R2",
+      "disposition": "delete"
+    },
+    {
+      "site": "scripts/benchmark_webgpu_3d_h2h.py:49",
+      "code": "import kicad_monkey",
+      "owner": "R2",
+      "disposition": "delete"
+    },
+    {
+      "site": "scripts/compare_object_delta.py:395",
+      "code": "semantic_index_service._add_kicad_monkey_import_paths()",
+      "owner": "R2",
+      "disposition": "delete with design-compare-parser"
+    }
+  ],
+  "kicadMonkeyMentions": [
+    {
+      "file": "backend/app/core/pipeline_config.py",
+      "lines": [
+        80,
+        84
+      ],
+      "owner": "R2",
+      "disposition": "remove PRISM_KICAD_MONKEY_SOURCE and KICAD_MONKEY_PYTHONPATH"
+    },
+    {
+      "file": "backend/app/release_studio/document_pipeline.py",
+      "lines": [
+        253,
+        255
+      ],
+      "ownerAsWritten": "C3",
+      "owner": "C3",
+      "disposition": "the 'kicad_monkey.fallback' stackup source tag (:253) changes with the stackup source"
+    },
+    {
+      "file": "backend/app/services/kicad_text_variables.py",
+      "lines": [
+        16
+      ],
+      "owner": "C8",
+      "disposition": "comment only"
+    },
+    {
+      "file": "kicad-prism-viewer/README.md",
+      "lines": [
+        69
+      ],
+      "owner": "R2",
+      "disposition": "text only"
+    },
+    {
+      "file": "kicad-prism-viewer/docs/architecture.md",
+      "lines": [
+        21
+      ],
+      "owner": "R2",
+      "disposition": "text only"
+    },
+    {
+      "file": "kicad-prism-viewer/docs/next-stage-plan.md",
+      "lines": [
+        10,
+        46,
+        183,
+        249,
+        299
+      ],
+      "owner": "R2",
+      "disposition": "text only"
+    },
+    {
+      "file": "kicad-prism-viewer/docs/reference-shas.md",
+      "lines": [
+        8
+      ],
+      "owner": "R2",
+      "disposition": "text only"
+    },
+    {
+      "file": "kicad-prism-viewer/docs/schematic-scene-a0.md",
+      "lines": [
+        41
+      ],
+      "owner": "R2",
+      "disposition": "text only"
+    },
+    {
+      "file": "kicad-prism-viewer/docs/schematic-vector-a0.md",
+      "lines": [
+        59
+      ],
+      "owner": "R2",
+      "disposition": "text only"
+    },
+    {
+      "file": "kicad-prism-viewer/native/prism-kicad-native/Cargo.lock",
+      "lines": [
+        244,
+        254
+      ],
+      "ownerAsWritten": "R3",
+      "owner": "R3",
+      "disposition": "move onto the imported core"
+    },
+    {
+      "file": "kicad-prism-viewer/native/prism-kicad-native/schema/prism.pcb_analytic_geometry.v2.schema.json",
+      "lines": [
+        10,
+        28,
+        29
+      ],
+      "ownerAsWritten": "R3",
+      "owner": "R3",
+      "disposition": "move onto the imported core"
+    },
+    {
+      "file": "kicad-prism-viewer/native/prism-kicad-native/schema/prism.pcb_geometry.v1.schema.json",
+      "lines": [
+        8,
+        14,
+        15
+      ],
+      "ownerAsWritten": "R3",
+      "owner": "R3",
+      "disposition": "move onto the imported core"
+    },
+    {
+      "file": "kicad-prism-viewer/native/prism-kicad-native/src/analytic_contract.rs",
+      "lines": [
+        253,
+        254
+      ],
+      "ownerAsWritten": "R3",
+      "owner": "R3",
+      "disposition": "move onto the imported core"
+    },
+    {
+      "file": "kicad-prism-viewer/native/prism-kicad-native/src/board_body.rs",
+      "lines": [
+        9,
+        36,
+        208,
+        525,
+        533,
+        724,
+        725,
+        726
+      ],
+      "ownerAsWritten": "R3",
+      "owner": "R3",
+      "disposition": "move onto the imported core"
+    },
+    {
+      "file": "kicad-prism-viewer/native/prism-kicad-native/src/contract.rs",
+      "lines": [
+        132,
+        133
+      ],
+      "ownerAsWritten": "R3",
+      "owner": "R3",
+      "disposition": "move onto the imported core"
+    },
+    {
+      "file": "kicad-prism-viewer/native/prism-kicad-native/src/materialize.rs",
+      "lines": [
+        11,
+        40,
+        316,
+        317,
+        589,
+        590,
+        2003
+      ],
+      "ownerAsWritten": "R3",
+      "owner": "R3",
+      "disposition": "move onto the imported core"
+    },
+    {
+      "file": "kicad-prism-viewer/native/prism-kicad-native/src/mesh_pack.rs",
+      "lines": [
+        164,
+        525,
+        1300,
+        1420,
+        1421
+      ],
+      "ownerAsWritten": "R3",
+      "owner": "R3",
+      "disposition": "move onto the imported core"
+    },
+    {
+      "file": "kicad-prism-viewer/pipeline/topology_compiler/__main__.py",
+      "lines": [
+        193,
+        311,
+        375
+      ],
+      "ownerAsWritten": "R2",
+      "owner": "R2",
+      "disposition": "remove (C5 stops calling it)"
+    },
+    {
+      "file": "kicad-prism-viewer/pipeline/topology_compiler/compiler.py",
+      "lines": [
+        51
+      ],
+      "ownerAsWritten": "R2",
+      "owner": "R2",
+      "disposition": "remove (C5 stops calling it)"
+    },
+    {
+      "file": "kicad-prism-viewer/pipeline/topology_compiler/vendor_paths.py",
+      "lines": [
+        30,
+        33,
+        39
+      ],
+      "ownerAsWritten": "R2",
+      "owner": "R2",
+      "disposition": "remove (C5 stops calling it)"
+    },
+    {
+      "file": "kicad-prism-viewer/tests/test_vendor_paths.py",
+      "lines": [
+        14,
+        70,
+        79,
+        84,
+        92,
+        99
+      ],
+      "owner": "R2",
+      "disposition": "remove with the compiler's 3D parts"
+    }
+  ],
+  "unownedAsWritten": [
+    "backend/app/release_studio/documents/artwork.py",
+    "backend/app/release_studio/documents/fonts.py",
+    "backend/app/release_studio/documents/worksheet.py",
+    "backend/app/services/catalog/mates.py",
+    "backend/app/services/catalog/module_connectors.py",
+    "backend/app/services/catalog/module_interface.py",
+    "backend/app/services/project_metadata_service.py",
+    "backend/app/services/release_studio_build_service.py",
+    "backend/app/services/semantic_index_variants.py",
+    "kicad-prism-viewer/scripts/build_usb_pd_sample.sh",
+    "kicad-prism-viewer/scripts/pcb_backend_benchmark.py",
+    "kicad-prism-viewer/scripts/semantic_gltf_benchmark.py",
+    "kicad-prism-viewer/tests/test_board_metadata.py",
+    "kicad-prism-viewer/tests/test_topology_compiler.py",
+    "scripts/benchmark_design_compare.py",
+    "scripts/benchmark_monkey_jtyu_compare.py",
+    "scripts/benchmark_webgpu_3d_h2h.py",
+    "scripts/compare_object_delta.py"
+  ],
+  "otherKiCadParserSites": [
+    {
+      "site": "backend/app/services/semantic_index_service.py:19",
+      "what": "imports kicad_library_reader for project schematics (:395-432)",
+      "owner": "C1",
+      "disposition": "migrate"
+    },
+    {
+      "site": "backend/app/services/semantic_index_variants.py:39",
+      "what": "imports kicad_library_reader; reads .kicad_sch/.kicad_pcb text (:596, :629)",
+      "owner": "C1",
+      "disposition": "migrate"
+    },
+    {
+      "site": "backend/app/services/variant_catalog_service.py:35",
+      "what": "imports variant_source_scan; parses .kicad_pro JSON (:181) and board/schematic text (:293, :321)",
+      "owner": "C1",
+      "disposition": "migrate"
+    },
+    {
+      "site": "backend/app/api/project_variants.py:27",
+      "what": "imports variant_source_scan (hashes its source for a cache key, :46)",
+      "owner": "C1",
+      "disposition": "migrate"
+    },
+    {
+      "site": "backend/app/services/design_compare_artifacts.py:12",
+      "what": "imports kicad_library_reader; reads the board text for stackup (:32)",
+      "owner": "C2",
+      "disposition": "migrate"
+    },
+    {
+      "site": "backend/app/services/design_compare_occurrences.py:26",
+      "what": "imports kicad_library_reader; reads .kicad_sch (:86)",
+      "owner": "C2",
+      "disposition": "migrate"
+    },
+    {
+      "site": "backend/app/services/design_compare_service.py:416",
+      "what": "builds the semantic index in the comparison job; runs Node ecad-diff",
+      "owner": "C2",
+      "disposition": "migrate"
+    },
+    {
+      "site": "backend/app/services/project_component_asset_extractor.py:13",
+      "what": "imports kicad_library_reader; reads .kicad_sch/.kicad_pcb (:272, :301, :332)",
+      "owner": "C7",
+      "disposition": "migrate"
+    },
+    {
+      "site": "backend/app/services/catalog/placement_stamp.py:20",
+      "what": "imports kicad_library_reader; scans schematic text (:76-87)",
+      "owner": "C7",
+      "disposition": "migrate project paths"
+    },
+    {
+      "site": "backend/app/services/project_catalog_usage_service.py:48",
+      "what": "reads .kicad_sch files of a materialized revision",
+      "owner": "C7",
+      "disposition": "migrate"
+    },
+    {
+      "site": "backend/app/services/project_properties_service.py:51",
+      "what": "reads the first 256 KiB of board/schematic files",
+      "owner": "C8",
+      "disposition": "migrate"
+    },
+    {
+      "site": "backend/app/api/projects.py:1728",
+      "what": "parses .kicad_pro JSON in the API process (viewer support files; also :1773)",
+      "owner": "C8",
+      "disposition": "migrate (S1 moves the route)"
+    },
+    {
+      "site": "backend/app/services/kicad_monkey_design_adapter.py:1",
+      "what": "the Python design adapter",
+      "owner": "R2",
+      "disposition": "remove"
+    },
+    {
+      "site": "backend/app/services/kicad_footprint_normalizer.py:98",
+      "what": "imports pcbnew (footprint flip)",
+      "owner": "exempt",
+      "disposition": "KiCad output (§2.1)"
+    },
+    {
+      "site": "backend/app/services/kicad_library_reader.py:1",
+      "what": "the catalog library reader",
+      "owner": "exempt",
+      "disposition": "catalog library reader (§2.1)"
+    },
+    {
+      "site": "backend/app/services/kicad_library_discovery.py:11",
+      "what": "library files",
+      "owner": "exempt",
+      "disposition": "catalog library reader (§2.1)"
+    },
+    {
+      "site": "backend/app/services/library_folder_import_service.py:12",
+      "what": "library files",
+      "owner": "exempt",
+      "disposition": "catalog library reader (§2.1)"
+    },
+    {
+      "site": "backend/app/services/catalog/asset_files.py:13",
+      "what": "library files",
+      "owner": "exempt",
+      "disposition": "catalog library reader (§2.1)"
+    },
+    {
+      "site": "backend/app/release_studio/jobset.py:169",
+      "what": "parses a .kicad_jobset (JSON)",
+      "owner": "exempt",
+      "disposition": "KiCad-output job"
+    },
+    {
+      "site": "backend/app/release_studio/vendors/jlcpcb.py:69",
+      "what": "runs the Python kicad-cruncher bom/pnp",
+      "owner": "C3",
+      "disposition": "blocked: no Rust bom/pnp (open question)"
+    }
+  ],
+  "adrPathCheck": [
+    {
+      "adrSection": "§9.1",
+      "adrNames": "prism-projections/src/lib.rs",
+      "actualPath": "native/src/rs/prism-projections/src/lib.rs",
+      "note": "path is relative to native/src/rs; owner changes to F2 (see sharedFiles)"
+    },
+    {
+      "adrSection": "§9.1",
+      "adrNames": "backend/app/core/config.py",
+      "actualPath": "backend/app/core/config.py",
+      "note": "Settings also inherits backend/app/core/pipeline_config.py (config.py:36); 1071 of 1,200 lines used"
+    },
+    {
+      "adrSection": "§9.1",
+      "adrNames": "docker-compose.yml and backend/Dockerfile",
+      "actualPath": "docker-compose.yml, docker-compose.loadtest.yml, docker-compose.proxy.yml, docker-compose.local-kicad-monkey.yml, deploy/release/compose.yml, backend/Dockerfile, frontend/Dockerfile, .dockerignore",
+      "note": "five compose files and three image files"
+    },
+    {
+      "adrSection": "§9.1",
+      "adrNames": ".github/workflows/*",
+      "actualPath": ".github/workflows/dev-quality-gate.yml, docker-publish.yml, build-plugin.yml",
+      "note": "plus scripts/ci_changes.py, which decides which jobs a PR runs"
+    },
+    {
+      "adrSection": "§9.3",
+      "adrNames": "native/src/tsp/prism/",
+      "actualPath": "native/src/tsp/prism/ (moved by the W0 move)"
+    },
+    {
+      "adrSection": "§9.4 F0",
+      "adrNames": "native/LICENSES.md",
+      "actualPath": "native/LICENSES.md, landing after F1",
+      "note": "native/ must not exist before `git subtree add --prefix=native`"
+    },
+    {
+      "adrSection": "§9.4 F0",
+      "adrNames": "NOTICE",
+      "actualPath": "NOTICE",
+      "note": "new"
+    },
+    {
+      "adrSection": "§9.4 K",
+      "adrNames": "job registration",
+      "actualPath": "backend/app/services/job_handlers.py (KIND_MODULES) and backend/app/services/job_kinds.py (_CAPACITIES)"
+    },
+    {
+      "adrSection": "§9.4 G",
+      "adrNames": "native/parity/",
+      "actualPath": "native/parity/",
+      "note": "new; after F1"
+    },
+    {
+      "adrSection": "§9.4 F3",
+      "adrNames": "native/scripts/, native/rust-hygiene*",
+      "actualPath": "native/scripts/, native/rust-hygiene.toml, native/rust-hygiene-baseline.json",
+      "note": "from the fork (fork: scripts/, rust-hygiene.toml, rust-hygiene-baseline.json)"
+    },
+    {
+      "adrSection": "§9.4 B",
+      "adrNames": "native/src/rs/prism-bundle/ (moved from prism-sim-studio)",
+      "actualPath": "sim: src/prism-bundle/ (lib, reader, crosscheck, bin/prism-bundle.rs)",
+      "note": "its reader imports sim's prism-geometry (sim: src/prism-bundle/src/reader.rs:9; Cargo.toml:22), which the ADR does not move (open question 6)"
+    },
+    {
+      "adrSection": "§9.5 P2",
+      "adrNames": "design-compare-parser/ecad-parse.mjs",
+      "actualPath": "backend/design-compare-parser/ecad-parse.mjs",
+      "note": "under backend/"
+    },
+    {
+      "adrSection": "§9.5 P2",
+      "adrNames": "design_compare_occurrences.py",
+      "actualPath": "backend/app/services/design_compare_occurrences.py"
+    },
+    {
+      "adrSection": "§9.5 P2",
+      "adrNames": "the route digest",
+      "actualPath": "backend/design-compare-parser/ecad-parse.mjs:1294-1347 and backend/app/services/design_compare_nodes.py:518-573"
+    },
+    {
+      "adrSection": "§9.5 P2",
+      "adrNames": "placement_stamp.py",
+      "actualPath": "backend/app/services/catalog/placement_stamp.py",
+      "note": "dev only; not on the reference branch"
+    },
+    {
+      "adrSection": "§9.5 P3",
+      "adrNames": "release_studio/projections.py",
+      "actualPath": "backend/app/release_studio/projections.py"
+    },
+    {
+      "adrSection": "§9.5 P3",
+      "adrNames": "design_compare_artifacts._extract_stackup",
+      "actualPath": "backend/app/services/design_compare_artifacts.py:25"
+    },
+    {
+      "adrSection": "§9.5 P3",
+      "adrNames": "pcb_extract.py",
+      "actualPath": "kicad-prism-viewer/pipeline/topology_compiler/pcb_extract.py"
+    },
+    {
+      "adrSection": "§9.5 P3, V1",
+      "adrNames": "board_looks.py (reference branch)",
+      "actualPath": "ref: kicad-prism-viewer/pipeline/topology_compiler/board_looks.py",
+      "note": "ref-only, as the ADR says"
+    },
+    {
+      "adrSection": "§9.5 P3, P5",
+      "adrNames": "systems/interface_extractor.py",
+      "actualPath": "backend/app/services/systems/interface_extractor.py",
+      "note": "EXTRACTOR_VERSION \"8\" at :38"
+    },
+    {
+      "adrSection": "§9.5 P4",
+      "adrNames": "project_metadata_service.py, project_properties_service.py",
+      "actualPath": "backend/app/services/project_metadata_service.py, backend/app/services/project_properties_service.py"
+    },
+    {
+      "adrSection": "§9.5 P4, §9.6 C3",
+      "adrNames": "release_studio/closure*.py",
+      "actualPath": "backend/app/release_studio/closure.py, closure_models.py, closure_references.py",
+      "note": "closure_references.py is dev-only"
+    },
+    {
+      "adrSection": "§9.5 P4",
+      "adrNames": "board_metadata.py",
+      "actualPath": "kicad-prism-viewer/pipeline/topology_compiler/board_metadata.py"
+    },
+    {
+      "adrSection": "§9.5 P1",
+      "adrNames": "semantic_index_nets.py",
+      "actualPath": "backend/app/services/semantic_index_nets.py"
+    },
+    {
+      "adrSection": "§9.5 V1",
+      "adrNames": "kicad_cli_export.py",
+      "actualPath": "kicad-prism-viewer/pipeline/topology_compiler/kicad_cli_export.py"
+    },
+    {
+      "adrSection": "§9.6 C1",
+      "adrNames": "api/projects.py index routes",
+      "actualPath": "backend/app/api/projects.py:714-770"
+    },
+    {
+      "adrSection": "§9.6 C1",
+      "adrNames": "api/project_variants.py",
+      "actualPath": "backend/app/api/project_variants.py"
+    },
+    {
+      "adrSection": "§9.6 C2",
+      "adrNames": "design_compare_*.py",
+      "actualPath": "backend/app/services/design_compare_{artifacts,benchmark,net_pairing,nodes,occurrences,semantics,service,sources}.py",
+      "note": "8 files"
+    },
+    {
+      "adrSection": "§9.6 C2",
+      "adrNames": "frontend/.../design-comparison/revision-sources.ts",
+      "actualPath": "frontend/src/components/design-comparison/revision-sources.ts"
+    },
+    {
+      "adrSection": "§9.6 C3",
+      "adrNames": "source.py",
+      "actualPath": "backend/app/release_studio/source.py"
+    },
+    {
+      "adrSection": "§9.6 C4",
+      "adrNames": "backend/app/services/systems/ (interface, bundles, collision meshes, step export)",
+      "actualPath": "backend/app/services/systems/{interface_extractor,interface_cache,jobs,bundles,collision_meshes,service_collisions,service_step_export,step_assembly}.py"
+    },
+    {
+      "adrSection": "§9.6 C5",
+      "adrNames": "the analytic renderer",
+      "actualPath": "ref: kicad-prism-viewer/viewer/src/analytic-*.js",
+      "note": "ref-only"
+    },
+    {
+      "adrSection": "§9.6 C6",
+      "adrNames": "backend/app/sim_studio/, frontend/src/components/sim-studio/",
+      "actualPath": "same paths",
+      "note": "ref-only"
+    },
+    {
+      "adrSection": "§9.6 C7",
+      "adrNames": "project_catalog_usage_service.py",
+      "actualPath": "backend/app/services/project_catalog_usage_service.py",
+      "note": "dev only; not on the reference branch"
+    },
+    {
+      "adrSection": "§9.6 C7",
+      "adrNames": "catalog/placement_stamp.py",
+      "actualPath": "backend/app/services/catalog/placement_stamp.py",
+      "note": "dev only"
+    },
+    {
+      "adrSection": "§9.7 R2",
+      "adrNames": "kicad-prism-viewer/pipeline/topology_compiler",
+      "actualPath": "kicad-prism-viewer/pipeline/topology_compiler/"
+    },
+    {
+      "adrSection": "§9.7 R2",
+      "adrNames": "kicad_monkey_design_adapter.py",
+      "actualPath": "backend/app/services/kicad_monkey_design_adapter.py"
+    },
+    {
+      "adrSection": "§9.7 R2",
+      "adrNames": "Release Studio calls the imported cruncher CLI",
+      "actualPath": "fork: packages/kicad_cruncher/src/rs/kicad-cruncher-cli (commands design, toon, version only: lib.rs:233-237)",
+      "note": "Release Studio runs the Python CLI's pcb-svg (artwork.py:669-674), bom and pnp (vendors/jlcpcb.py:69-71)"
+    },
+    {
+      "adrSection": "§4.1",
+      "adrNames": "native/ ... LICENSE (MIT, Wavenumber LLC), NOTICE kept as imported",
+      "actualPath": "fork: LICENSE only; the fork has no NOTICE at b6316117",
+      "note": "WRONG: there is no fork NOTICE to keep; F0 writes the root NOTICE (and native/LICENSES.md)"
+    },
+    {
+      "adrSection": "§4.1",
+      "adrNames": "contracts/generated/schema/ (committed)",
+      "actualPath": "native/contracts/generated/schema/ (fork: 42 tracked files) and native/src/rs/kicad-monkey-contracts/src/generated/ (43)",
+      "note": "the root .gitignore:38 `generated/` ignores both after the import; F1 re-includes them"
+    },
+    {
+      "adrSection": "§4.4 step 6",
+      "adrNames": "<bundle key>.prism",
+      "actualPath": ".kicad-prism/bundles/<project_id>/<revision_key>/<generator_digest>.prism (ADR §5; cli-spec.md §5.1.4)",
+      "note": "INCONSISTENT inside the ADR; cli-spec.md §12 item 3 already requests the amendment"
+    },
+    {
+      "adrSection": "§9.1 DoD",
+      "adrNames": "check_module_size.py, check_catalog_architecture.py, check_agent_docs.py",
+      "actualPath": "scripts/check_module_size.py, scripts/check_catalog_architecture.py, scripts/check_agent_docs.py",
+      "note": "under scripts/"
+    },
+    {
+      "adrSection": "§9.6 C4",
+      "adrNames": "test_system_e2e_replay",
+      "actualPath": "backend/tests/test_system_e2e_replay.py"
+    },
+    {
+      "adrSection": "§9.6 C7",
+      "adrNames": "test_project_component_import_service.py",
+      "actualPath": "backend/tests/test_project_component_import_service.py"
+    },
+    {
+      "adrSection": "§9.7 R2",
+      "adrNames": "requirements/runtime.in has no kicad-monkey",
+      "actualPath": "requirements/runtime.in:30-31 (kicad-monkey==2026.9.7, kicad-cruncher==2026.9.7) and requirements/runtime.lock",
+      "note": "the lock also pins both"
+    },
+    {
+      "adrSection": "§9.7 X",
+      "adrNames": "backend/tests/test_design_source_boundary.py",
+      "actualPath": "backend/tests/test_design_source_boundary.py",
+      "note": "new"
+    },
+    {
+      "adrSection": "§7",
+      "adrNames": "native/parity/divergences.md",
+      "actualPath": "native/parity/divergences.md (index) and native/parity/divergences/<member>.md",
+      "note": "split so parallel P-WPs never edit one file"
+    },
+    {
+      "adrSection": "§4.1",
+      "adrNames": "kicad-prism-viewer/native/",
+      "actualPath": "kicad-prism-viewer/native/prism-kicad-native/, kicad-prism-viewer/native/prism-clipper2/"
+    },
+    {
+      "adrSection": "§9.1",
+      "adrNames": "the integration branch's first commit adds it to the quality gate's triggers",
+      "actualPath": ".github/workflows/dev-quality-gate.yml:10,15 (commit 02e95c88)",
+      "note": "done"
+    }
+  ]
+}

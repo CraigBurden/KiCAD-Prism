@@ -1,5 +1,7 @@
 # M1: the Node parse step, measured where it will run
 
+> **Superseded (2026-10-23).** This milestone record describes the Node `ecad-parse`/`ecad-diff` and Python comparison pipeline. Design Comparison is now computed by `prism-kicad compare` ([ADR amendment C2r](../architecture/adr-native-design-bundle-amendment-c2r.md)), and the services named here were removed. Kept as a historical record.
+
 M1 of [the revamp plan](../DESIGN_COMPARISON_REVAMP.md), against the
 [M0 baseline](m0-baseline.md). The question M1 exists to answer is whether
 `kicad-sexpr-parser` can carry object-level parsing on the server: fast enough,

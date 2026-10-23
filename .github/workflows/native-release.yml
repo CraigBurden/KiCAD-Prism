@@ -1,0 +1,193 @@
+name: Native release
+
+# prism-kicad binaries and the prism-kicad-wasm package (ADR §4.2, WP-F3). This replaces the
+# fork's PyPI wheel release (native/.github/workflows/release.yml, retired). It is a release
+# step, not a check: manual (a dry run unless `publish` is set) or a `prism-kicad-v<version>` tag.
+#
+# Everything is native/scripts/native_release.py; the same commands run locally
+# (`python3 native/scripts/native_release.py dry-run --image-check`). The linux binaries are
+# built the way backend/Dockerfile's prism-kicad-builder stage builds the worker image's
+# /usr/local/bin/prism-kicad, and `image-check` builds that stage and requires the same bytes:
+# board.kmpack is byte-identical only for the same binary (decisions.md, Conventions 3).
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Expected prism-kicad-cli version (optional). Fails if the source says otherwise."
+        required: false
+      publish:
+        description: "Attach the artifacts to the prism-kicad-v<version> GitHub release"
+        type: boolean
+        default: false
+  push:
+    tags:
+      - "prism-kicad-v*"
+
+concurrency:
+  group: native-release-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  version:
+    name: Version
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - name: Check out source
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+
+      - name: Resolve and verify the version
+        id: version
+        env:
+          EXPECTED: ${{ inputs.version }}
+          REF_TYPE: ${{ github.ref_type }}
+          REF_NAME: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          version="$(python3 -c 'import tomllib; print(tomllib.load(open("native/src/rs/prism-kicad-cli/Cargo.toml","rb"))["package"]["version"])')"
+          if [[ -n "${EXPECTED}" && "${EXPECTED}" != "${version}" ]]; then
+            echo "prism-kicad-cli is ${version}, expected ${EXPECTED}" >&2; exit 1
+          fi
+          if [[ "${REF_TYPE}" == "tag" && "${REF_NAME}" != "prism-kicad-v${version}" ]]; then
+            echo "tag ${REF_NAME} does not match prism-kicad-cli ${version}" >&2; exit 1
+          fi
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
+
+  binary:
+    name: prism-kicad / ${{ matrix.platform }}
+    needs: version
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-24.04
+            platform: linux-amd64
+          - os: ubuntu-24.04-arm
+            platform: linux-arm64
+          - os: macos-15
+            platform: macos-arm64
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+
+      - name: Install the pinned toolchain (macOS builds on the host)
+        if: runner.os == 'macOS'
+        working-directory: native
+        run: |
+          set -euo pipefail
+          channel="$(sed -n 's/^channel = "\(.*\)"/\1/p' rust-toolchain.toml)"
+          rustup toolchain install "$channel" --profile minimal --component rustfmt --component clippy
+          cargo --version
+
+      - name: Set up Docker Buildx (linux builds in the worker image's builder)
+        if: runner.os == 'Linux'
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+
+      - name: Build and smoke-test the binary
+        run: python3 native/scripts/native_release.py binary --platform "${{ matrix.platform }}" --out dist
+
+      - name: The worker image ships the same binary
+        if: runner.os == 'Linux'
+        run: python3 native/scripts/native_release.py image-check --platform "${{ matrix.platform }}" --out dist
+
+      - name: Upload
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        with:
+          name: native-release-${{ matrix.platform }}
+          path: |
+            dist/*.tar.gz
+            dist/stage/${{ matrix.platform }}/
+          if-no-files-found: error
+          retention-days: 14
+
+  wasm:
+    name: prism-kicad-wasm
+    needs: version
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+
+      - name: Install the pinned toolchain, wasm32 target and wasm-bindgen
+        working-directory: native
+        run: |
+          set -euo pipefail
+          channel="$(sed -n 's/^channel = "\(.*\)"/\1/p' rust-toolchain.toml)"
+          rustup toolchain install "$channel" --profile minimal --component rustfmt --component clippy --target wasm32-unknown-unknown
+          bindgen="$(sed -n '/^name = "wasm-bindgen"$/{n;s/^version = "\(.*\)"$/\1/p;}' Cargo.lock)"
+          cargo install wasm-bindgen-cli --version "$bindgen" --locked
+          wasm-bindgen --version
+
+      - name: Build the package
+        run: python3 native/scripts/native_release.py wasm --out dist
+
+      - name: Upload
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        with:
+          name: native-release-wasm
+          path: |
+            dist/*.tgz
+            dist/stage/wasm/
+          if-no-files-found: error
+          retention-days: 14
+
+  assemble:
+    name: Assemble${{ (inputs.publish || github.ref_type == 'tag') && ' and publish' || ' (dry run)' }}
+    needs: [version, binary, wasm]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+
+      - name: Download the builds
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          pattern: native-release-*
+          path: dist
+          merge-multiple: true
+
+      - name: Checksums, manifest and local-path check
+        run: |
+          python3 native/scripts/native_release.py assemble --out dist
+          ls -l dist
+
+      - name: Upload the release set
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        with:
+          name: prism-kicad-${{ needs.version.outputs.version }}
+          path: |
+            dist/*.tar.gz
+            dist/*.tgz
+            dist/SHA256SUMS
+            dist/release.json
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Attach to the GitHub release
+        if: inputs.publish || github.ref_type == 'tag'
+        uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
+        with:
+          tag_name: prism-kicad-v${{ needs.version.outputs.version }}
+          target_commitish: ${{ github.sha }}
+          files: |
+            dist/*.tar.gz
+            dist/*.tgz
+            dist/SHA256SUMS
+            dist/release.json
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

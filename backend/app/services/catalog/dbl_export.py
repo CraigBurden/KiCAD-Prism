@@ -17,6 +17,7 @@ import sqlite3
 from typing import Any
 import uuid
 
+from app.services.catalog.harness_fields import GROUP as HARNESS_GROUP
 from app.services.catalog.normalization import sanitize_name, sha256_bytes
 from app.services.catalog.placement import CatalogPlacement
 from app.services.catalog.placement_payloads import materialize_asset
@@ -351,10 +352,13 @@ class CatalogDblExport:
         (export_root / "PcbLib").mkdir(parents=True, exist_ok=True)
 
         components = sorted(components, key=lambda c: (c["category"], c["mpn"], c["id"]))
+        # Harness attributes (System Builder §16.1) describe wiring parts, not KiCad symbols.
         custom_fields = [
             field
             for field in metadata_fields
-            if field["storage_kind"] == "extra" and field["key"] not in DBL_COMMON_COLUMNS
+            if field["storage_kind"] == "extra"
+            and field["key"] not in DBL_COMMON_COLUMNS
+            and field.get("group") != HARNESS_GROUP
         ]
         effective_columns = (*DBL_COMMON_COLUMNS, *(field["key"] for field in custom_fields))
         db_path = export_root / "Prism.sqlite"

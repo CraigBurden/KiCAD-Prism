@@ -1,0 +1,864 @@
+{
+ "schema": "prism.board_objects.a0",
+ "documents": [
+  {
+   "path": "ambiguous.kicad_pcb",
+   "objects": [
+    {
+     "kind": "footprint",
+     "uuid": "728727d3-9906-542d-b89f-c0d27a8d505a",
+     "contentDigest": "993b0ff95589bd0a",
+     "libId": "PrismFixture:Conn_Custom_2x05",
+     "at": {
+      "xNm": 110000000,
+      "yNm": 106000000
+     },
+     "rotationDeg": 0,
+     "layer": "F.Cu",
+     "footprintPath": "/3864e78d-5fe5-51cb-8013-c70e7368c94c/72af98b8-8f94-515a-b8ad-c2500955df2f",
+     "refdes": "J1",
+     "properties": [
+      {
+       "name": "Reference",
+       "value": "J1",
+       "at": {
+        "xNm": 0,
+        "yNm": -2500000
+       },
+       "hide": false
+      },
+      {
+       "name": "Value",
+       "value": "Conn_Custom_2x05",
+       "at": {
+        "xNm": 0,
+        "yNm": 12700000
+       },
+       "hide": false
+      },
+      {
+       "name": "Datasheet",
+       "value": "",
+       "at": {
+        "xNm": 0,
+        "yNm": 0
+       },
+       "hide": true
+      },
+      {
+       "name": "Description",
+       "value": "",
+       "at": {
+        "xNm": 0,
+        "yNm": 0
+       },
+       "hide": true
+      }
+     ],
+     "reviewFields": {
+      "Board only": false,
+      "Description": "SB2-21 fixture: a connector whose orientation cannot be inferred",
+      "Exclude from BOM": false,
+      "Exclude from position files": false
+     }
+    },
+    {
+     "kind": "footprint-graphic",
+     "uuid": "f8301af1-c452-561f-a156-1d71dc7d680e",
+     "contentDigest": "736e9cc517ea93fa",
+     "parentUuid": "728727d3-9906-542d-b89f-c0d27a8d505a",
+     "refdes": "J1",
+     "at": {
+      "xNm": 1270000,
+      "yNm": 5080000
+     },
+     "layer": "F.Fab",
+     "reviewFields": {
+      "Fill": "no",
+      "Stroke": "0.1 mm, solid"
+     }
+    },
+    {
+     "kind": "pad",
+     "uuid": "93f286ac-d5aa-57d6-b83a-03c130ebd55e",
+     "contentDigest": "a6b71063227d4cac",
+     "parentUuid": "728727d3-9906-542d-b89f-c0d27a8d505a",
+     "number": "1",
+     "refdes": "J1",
+     "at": {
+      "xNm": 0,
+      "yNm": 0
+     },
+     "rotationDeg": 0,
+     "layer": "*.Cu",
+     "net": "/X1",
+     "reviewFields": {
+      "Drill": "{\"diameter\":1}",
+      "Layers": "*.Cu, *.Mask",
+      "Pad number": "1",
+      "Pad shape": "rect",
+      "Pad type": "thru_hole",
+      "Size": "1.7 × 1.7"
+     }
+    },
+    {
+     "kind": "pad",
+     "uuid": "c4ef3c40-a7ad-59ab-9c16-1fb83208d5a6",
+     "contentDigest": "471fe28814ef4cc6",
+     "parentUuid": "728727d3-9906-542d-b89f-c0d27a8d505a",
+     "number": "2",
+     "refdes": "J1",
+     "at": {
+      "xNm": 2540000,
+      "yNm": 0
+     },
+     "rotationDeg": 0,
+     "layer": "*.Cu",
+     "net": "/X1",
+     "reviewFields": {
+      "Drill": "{\"diameter\":1}",
+      "Layers": "*.Cu, *.Mask",
+      "Pad number": "2",
+      "Pad shape": "circle",
+      "Pad type": "thru_hole",
+      "Size": "1.7 × 1.7"
+     }
+    },
+    {
+     "kind": "pad",
+     "uuid": "6f6173f5-54da-5e77-8f40-863e19398587",
+     "contentDigest": "fe19b281ff2e94fc",
+     "parentUuid": "728727d3-9906-542d-b89f-c0d27a8d505a",
+     "number": "3",
+     "refdes": "J1",
+     "at": {
+      "xNm": 0,
+      "yNm": 2540000
+     },
+     "rotationDeg": 0,
+     "layer": "*.Cu",
+     "net": "/X3",
+     "reviewFields": {
+      "Drill": "{\"diameter\":1}",
+      "Layers": "*.Cu, *.Mask",
+      "Pad number": "3",
+      "Pad shape": "circle",
+      "Pad type": "thru_hole",
+      "Size": "1.7 × 1.7"
+     }
+    },
+    {
+     "kind": "pad",
+     "uuid": "c69b0392-27c6-5b95-b4ef-a0f15d3e97c0",
+     "contentDigest": "6599a079ba3dfa22",
+     "parentUuid": "728727d3-9906-542d-b89f-c0d27a8d505a",
+     "number": "4",
+     "refdes": "J1",
+     "at": {
+      "xNm": 2540000,
+      "yNm": 2540000
+     },
+     "rotationDeg": 0,
+     "layer": "*.Cu",
+     "net": "/X3",
+     "reviewFields": {
+      "Drill": "{\"diameter\":1}",
+      "Layers": "*.Cu, *.Mask",
+      "Pad number": "4",
+      "Pad shape": "circle",
+      "Pad type": "thru_hole",
+      "Size": "1.7 × 1.7"
+     }
+    },
+    {
+     "kind": "pad",
+     "uuid": "3b6bdf72-9c12-5e14-951e-54bcd2fb9554",
+     "contentDigest": "63ad039508d891d4",
+     "parentUuid": "728727d3-9906-542d-b89f-c0d27a8d505a",
+     "number": "5",
+     "refdes": "J1",
+     "at": {
+      "xNm": 0,
+      "yNm": 5080000
+     },
+     "rotationDeg": 0,
+     "layer": "*.Cu",
+     "net": "/X5",
+     "reviewFields": {
+      "Drill": "{\"diameter\":1}",
+      "Layers": "*.Cu, *.Mask",
+      "Pad number": "5",
+      "Pad shape": "circle",
+      "Pad type": "thru_hole",
+      "Size": "1.7 × 1.7"
+     }
+    },
+    {
+     "kind": "pad",
+     "uuid": "e941ec37-57e8-5730-9d55-4d5e0b5eaa96",
+     "contentDigest": "7db3a7ff3ee1bcc7",
+     "parentUuid": "728727d3-9906-542d-b89f-c0d27a8d505a",
+     "number": "6",
+     "refdes": "J1",
+     "at": {
+      "xNm": 2540000,
+      "yNm": 5080000
+     },
+     "rotationDeg": 0,
+     "layer": "*.Cu",
+     "net": "/X5",
+     "reviewFields": {
+      "Drill": "{\"diameter\":1}",
+      "Layers": "*.Cu, *.Mask",
+      "Pad number": "6",
+      "Pad shape": "circle",
+      "Pad type": "thru_hole",
+      "Size": "1.7 × 1.7"
+     }
+    },
+    {
+     "kind": "pad",
+     "uuid": "31400e43-1db4-5998-9df4-96805684134c",
+     "contentDigest": "ad9516ccb9d60ab6",
+     "parentUuid": "728727d3-9906-542d-b89f-c0d27a8d505a",
+     "number": "7",
+     "refdes": "J1",
+     "at": {
+      "xNm": 0,
+      "yNm": 7620000
+     },
+     "rotationDeg": 0,
+     "layer": "*.Cu",
+     "net": "/X7",
+     "reviewFields": {
+      "Drill": "{\"diameter\":1}",
+      "Layers": "*.Cu, *.Mask",
+      "Pad number": "7",
+      "Pad shape": "circle",
+      "Pad type": "thru_hole",
+      "Size": "1.7 × 1.7"
+     }
+    },
+    {
+     "kind": "pad",
+     "uuid": "4a78c8e7-0e1d-5254-83c2-d3a6521e9d05",
+     "contentDigest": "5814f7f14ecb0be8",
+     "parentUuid": "728727d3-9906-542d-b89f-c0d27a8d505a",
+     "number": "8",
+     "refdes": "J1",
+     "at": {
+      "xNm": 2540000,
+      "yNm": 7620000
+     },
+     "rotationDeg": 0,
+     "layer": "*.Cu",
+     "net": "/X7",
+     "reviewFields": {
+      "Drill": "{\"diameter\":1}",
+      "Layers": "*.Cu, *.Mask",
+      "Pad number": "8",
+      "Pad shape": "circle",
+      "Pad type": "thru_hole",
+      "Size": "1.7 × 1.7"
+     }
+    },
+    {
+     "kind": "pad",
+     "uuid": "c6a11d14-11d7-5549-b809-ef2892ce72c4",
+     "contentDigest": "48bc491c439b6365",
+     "parentUuid": "728727d3-9906-542d-b89f-c0d27a8d505a",
+     "number": "9",
+     "refdes": "J1",
+     "at": {
+      "xNm": 0,
+      "yNm": 10160000
+     },
+     "rotationDeg": 0,
+     "layer": "*.Cu",
+     "net": "/X9",
+     "reviewFields": {
+      "Drill": "{\"diameter\":1}",
+      "Layers": "*.Cu, *.Mask",
+      "Pad number": "9",
+      "Pad shape": "circle",
+      "Pad type": "thru_hole",
+      "Size": "1.7 × 1.7"
+     }
+    },
+    {
+     "kind": "pad",
+     "uuid": "7dc170f3-4bcf-5a7e-b7d4-ef4ba893397e",
+     "contentDigest": "c48330a3ccc8f383",
+     "parentUuid": "728727d3-9906-542d-b89f-c0d27a8d505a",
+     "number": "10",
+     "refdes": "J1",
+     "at": {
+      "xNm": 2540000,
+      "yNm": 10160000
+     },
+     "rotationDeg": 0,
+     "layer": "*.Cu",
+     "net": "/X9",
+     "reviewFields": {
+      "Drill": "{\"diameter\":1}",
+      "Layers": "*.Cu, *.Mask",
+      "Pad number": "10",
+      "Pad shape": "circle",
+      "Pad type": "thru_hole",
+      "Size": "1.7 × 1.7"
+     }
+    },
+    {
+     "kind": "graphic",
+     "uuid": "3b1086a5-3af3-5123-b2a7-2327f6041990",
+     "contentDigest": "42a84db04518fbcb",
+     "at": {
+      "xNm": 115000000,
+      "yNm": 112500000
+     },
+     "layer": "Edge.Cuts",
+     "reviewFields": {
+      "Fill": "no",
+      "Stroke": "0.1 mm, solid"
+     }
+    },
+    {
+     "kind": "track",
+     "uuid": "018be5c0-22d6-553d-a9d5-e5c4482b52a3",
+     "contentDigest": "00d325d1348c8208",
+     "at": {
+      "xNm": 111270000,
+      "yNm": 106000000
+     },
+     "layer": "F.Cu",
+     "net": "/X1",
+     "reviewFields": {
+      "Width": 0.2
+     }
+    },
+    {
+     "kind": "track",
+     "uuid": "322ffcdd-3a0b-5422-9124-fbe32e2193b9",
+     "contentDigest": "bee9c30753a73d3b",
+     "at": {
+      "xNm": 111270000,
+      "yNm": 108540000
+     },
+     "layer": "F.Cu",
+     "net": "/X3",
+     "reviewFields": {
+      "Width": 0.2
+     }
+    },
+    {
+     "kind": "track",
+     "uuid": "aa437ffb-2e7e-5b9e-919b-5561fa8b4205",
+     "contentDigest": "7cefe9b34df193d5",
+     "at": {
+      "xNm": 111270000,
+      "yNm": 111080000
+     },
+     "layer": "F.Cu",
+     "net": "/X5",
+     "reviewFields": {
+      "Width": 0.2
+     }
+    },
+    {
+     "kind": "track",
+     "uuid": "cb8ad48c-6f1f-5cd6-84a8-a3b06512d2b7",
+     "contentDigest": "88b16cbba4ff0079",
+     "at": {
+      "xNm": 111270000,
+      "yNm": 113620000
+     },
+     "layer": "F.Cu",
+     "net": "/X7",
+     "reviewFields": {
+      "Width": 0.2
+     }
+    },
+    {
+     "kind": "track",
+     "uuid": "2ac73f90-d760-52d6-b8bc-dd3ac091c1c3",
+     "contentDigest": "208857adb95a27bf",
+     "at": {
+      "xNm": 111270000,
+      "yNm": 116160000
+     },
+     "layer": "F.Cu",
+     "net": "/X9",
+     "reviewFields": {
+      "Width": 0.2
+     }
+    }
+   ],
+   "reviewOnlyObjects": [
+    {
+     "kind": "fabrication-output",
+     "id": "fabrication-output:fa0df659a79fed73",
+     "name": "Fabrication output settings",
+     "reviewFields": {
+      "Create Gerber job file": true,
+      "Drill marks": 1,
+      "Mirror output": false,
+      "Output directory": "",
+      "Output format": "Gerber",
+      "Plot drawing sheet": false,
+      "Plot layers": [],
+      "Plot on all layers": [],
+      "Sketch pads on fabrication layers": false,
+      "Solder mask expansion (mm)": 0,
+      "Subtract solder mask from silkscreen": false,
+      "Use Gerber X2 attributes": true,
+      "Use Gerber file extensions": false,
+      "Use Gerber net attributes": true,
+      "Use auxiliary origin": false
+     }
+    }
+   ]
+  },
+  {
+   "path": "ambiguous.kicad_pro",
+   "objects": [],
+   "reviewOnlyObjects": [
+    {
+     "kind": "net-class",
+     "id": "net-class:5eef40ed135ba38d",
+     "name": "Default",
+     "reviewFields": {
+      "Clearance": 0.2,
+      "Track width": 0.2,
+      "Via diameter": 0.6,
+      "Via drill": 0.3
+     }
+    }
+   ]
+  },
+  {
+   "path": "ambiguous.kicad_sch",
+   "objects": [
+    {
+     "kind": "label",
+     "uuid": "08e8775d-1531-5048-ace4-b8b7e56fb3fe",
+     "contentDigest": "7c0d19985c236694",
+     "text": "X7",
+     "net": "X7",
+     "at": {
+      "xNm": 55880000,
+      "yNm": 66040000
+     },
+     "rotationDeg": 180,
+     "reviewFields": {
+      "Text": "X7"
+     }
+    },
+    {
+     "kind": "label",
+     "uuid": "0f83003c-8992-5cc9-9d56-01bf61355edf",
+     "contentDigest": "616060008c76cbe8",
+     "text": "X1",
+     "net": "X1",
+     "at": {
+      "xNm": 55880000,
+      "yNm": 53340000
+     },
+     "rotationDeg": 180,
+     "reviewFields": {
+      "Text": "X1"
+     }
+    },
+    {
+     "kind": "label",
+     "uuid": "27a49328-cdbb-5436-9bf4-54686b19d798",
+     "contentDigest": "90f8ebdb4929fe2a",
+     "text": "X9",
+     "net": "X9",
+     "at": {
+      "xNm": 55880000,
+      "yNm": 73660000
+     },
+     "rotationDeg": 180,
+     "reviewFields": {
+      "Text": "X9"
+     }
+    },
+    {
+     "kind": "label",
+     "uuid": "5b1d8104-d57e-5d88-a5dd-0c73e6063d64",
+     "contentDigest": "90b3c1bcdfcc4bfe",
+     "text": "X3",
+     "net": "X3",
+     "at": {
+      "xNm": 55880000,
+      "yNm": 58420000
+     },
+     "rotationDeg": 180,
+     "reviewFields": {
+      "Text": "X3"
+     }
+    },
+    {
+     "kind": "label",
+     "uuid": "78741424-1a7c-513b-a004-c615b8e43a8b",
+     "contentDigest": "306f1c54c3489ae0",
+     "text": "X5",
+     "net": "X5",
+     "at": {
+      "xNm": 55880000,
+      "yNm": 63500000
+     },
+     "rotationDeg": 180,
+     "reviewFields": {
+      "Text": "X5"
+     }
+    },
+    {
+     "kind": "label",
+     "uuid": "7be3fc27-1efc-5413-b002-b34b1f975f18",
+     "contentDigest": "8962bcb14f9e6a32",
+     "text": "X3",
+     "net": "X3",
+     "at": {
+      "xNm": 55880000,
+      "yNm": 55880000
+     },
+     "rotationDeg": 180,
+     "reviewFields": {
+      "Text": "X3"
+     }
+    },
+    {
+     "kind": "label",
+     "uuid": "bec87a16-afdf-51ef-9be6-fe48b57b9f13",
+     "contentDigest": "370acdc7e84c7e4f",
+     "text": "X1",
+     "net": "X1",
+     "at": {
+      "xNm": 55880000,
+      "yNm": 50800000
+     },
+     "rotationDeg": 180,
+     "reviewFields": {
+      "Text": "X1"
+     }
+    },
+    {
+     "kind": "label",
+     "uuid": "e2ec5bc5-3316-574d-9c7c-e14ba12e33c9",
+     "contentDigest": "8fba19d2bdd84c66",
+     "text": "X9",
+     "net": "X9",
+     "at": {
+      "xNm": 55880000,
+      "yNm": 71120000
+     },
+     "rotationDeg": 180,
+     "reviewFields": {
+      "Text": "X9"
+     }
+    },
+    {
+     "kind": "label",
+     "uuid": "e9a5f665-da40-59b1-a25c-405aa711c44b",
+     "contentDigest": "6aa9b2333432db00",
+     "text": "X7",
+     "net": "X7",
+     "at": {
+      "xNm": 55880000,
+      "yNm": 68580000
+     },
+     "rotationDeg": 180,
+     "reviewFields": {
+      "Text": "X7"
+     }
+    },
+    {
+     "kind": "label",
+     "uuid": "fa054fe0-fe82-5c62-afc3-3a5a2ae5ff60",
+     "contentDigest": "e34b2b43730e841f",
+     "text": "X5",
+     "net": "X5",
+     "at": {
+      "xNm": 55880000,
+      "yNm": 60960000
+     },
+     "rotationDeg": 180,
+     "reviewFields": {
+      "Text": "X5"
+     }
+    },
+    {
+     "kind": "symbol",
+     "uuid": "72af98b8-8f94-515a-b8ad-c2500955df2f",
+     "contentDigest": "4227427e6d572478",
+     "libId": "PrismFixture:Conn_Custom_2x05",
+     "at": {
+      "xNm": 60960000,
+      "yNm": 50800000
+     },
+     "rotationDeg": 0,
+     "dnp": false,
+     "inBom": true,
+     "onBoard": true,
+     "refdes": "J1",
+     "kiidPaths": [
+      "/3864e78d-5fe5-51cb-8013-c70e7368c94c/72af98b8-8f94-515a-b8ad-c2500955df2f"
+     ],
+     "instances": [
+      {
+       "reference": "J1",
+       "path": "/3864e78d-5fe5-51cb-8013-c70e7368c94c/72af98b8-8f94-515a-b8ad-c2500955df2f"
+      }
+     ],
+     "properties": [
+      {
+       "name": "Reference",
+       "value": "J1",
+       "at": {
+        "xNm": 64770000,
+        "yNm": 50800000
+       },
+       "rotationDeg": 0,
+       "hide": false,
+       "effects": {
+        "font": {
+         "size": {
+          "heightNm": 1270000,
+          "widthNm": 1270000
+         }
+        }
+       }
+      },
+      {
+       "name": "Value",
+       "value": "Conn_Custom_2x05",
+       "at": {
+        "xNm": 64770000,
+        "yNm": 52070000
+       },
+       "rotationDeg": 0,
+       "hide": false,
+       "effects": {
+        "font": {
+         "size": {
+          "heightNm": 1270000,
+          "widthNm": 1270000
+         }
+        }
+       }
+      },
+      {
+       "name": "Footprint",
+       "value": "PrismFixture:Conn_Custom_2x05",
+       "at": {
+        "xNm": 64770000,
+        "yNm": 53340000
+       },
+       "rotationDeg": 0,
+       "hide": true,
+       "effects": {
+        "font": {
+         "size": {
+          "heightNm": 1270000,
+          "widthNm": 1270000
+         }
+        }
+       }
+      },
+      {
+       "name": "Datasheet",
+       "value": "",
+       "at": {
+        "xNm": 64770000,
+        "yNm": 54610000
+       },
+       "rotationDeg": 0,
+       "hide": true,
+       "effects": {
+        "font": {
+         "size": {
+          "heightNm": 1270000,
+          "widthNm": 1270000
+         }
+        }
+       }
+      },
+      {
+       "name": "Description",
+       "value": "",
+       "at": {
+        "xNm": 64770000,
+        "yNm": 55880000
+       },
+       "rotationDeg": 0,
+       "hide": true,
+       "effects": {
+        "font": {
+         "size": {
+          "heightNm": 1270000,
+          "widthNm": 1270000
+         }
+        }
+       }
+      }
+     ],
+     "reviewFields": {
+      "Unit": 1
+     }
+    },
+    {
+     "kind": "pin",
+     "uuid": "a5eba47a-8099-5ba1-97b8-5fb04abc4388",
+     "contentDigest": "13fe8f8a6def8b7a",
+     "parentUuid": "72af98b8-8f94-515a-b8ad-c2500955df2f",
+     "number": "1",
+     "refdes": "J1",
+     "at": {
+      "xNm": 60960000,
+      "yNm": 50800000
+     },
+     "reviewFields": {
+      "Pin number": "1"
+     }
+    },
+    {
+     "kind": "pin",
+     "uuid": "1fc74e64-32e9-57ef-9a6c-cc6975367068",
+     "contentDigest": "19f666d2c9bdfb78",
+     "parentUuid": "72af98b8-8f94-515a-b8ad-c2500955df2f",
+     "number": "2",
+     "refdes": "J1",
+     "at": {
+      "xNm": 60960000,
+      "yNm": 50800000
+     },
+     "reviewFields": {
+      "Pin number": "2"
+     }
+    },
+    {
+     "kind": "pin",
+     "uuid": "c2dac4e2-8e68-540b-af30-84a8b4711f83",
+     "contentDigest": "f115308b48b2b923",
+     "parentUuid": "72af98b8-8f94-515a-b8ad-c2500955df2f",
+     "number": "3",
+     "refdes": "J1",
+     "at": {
+      "xNm": 60960000,
+      "yNm": 50800000
+     },
+     "reviewFields": {
+      "Pin number": "3"
+     }
+    },
+    {
+     "kind": "pin",
+     "uuid": "a3cfdab3-5fc7-5782-9ed3-59990b01398d",
+     "contentDigest": "5e9f7a2776776754",
+     "parentUuid": "72af98b8-8f94-515a-b8ad-c2500955df2f",
+     "number": "4",
+     "refdes": "J1",
+     "at": {
+      "xNm": 60960000,
+      "yNm": 50800000
+     },
+     "reviewFields": {
+      "Pin number": "4"
+     }
+    },
+    {
+     "kind": "pin",
+     "uuid": "4ab542fb-592a-595d-96a7-c57dd768f260",
+     "contentDigest": "6443c3dca0927e1c",
+     "parentUuid": "72af98b8-8f94-515a-b8ad-c2500955df2f",
+     "number": "5",
+     "refdes": "J1",
+     "at": {
+      "xNm": 60960000,
+      "yNm": 50800000
+     },
+     "reviewFields": {
+      "Pin number": "5"
+     }
+    },
+    {
+     "kind": "pin",
+     "uuid": "3cdc02f4-7a3d-5305-98f8-ebbe517f0bee",
+     "contentDigest": "3cbbbe89fcf32d42",
+     "parentUuid": "72af98b8-8f94-515a-b8ad-c2500955df2f",
+     "number": "6",
+     "refdes": "J1",
+     "at": {
+      "xNm": 60960000,
+      "yNm": 50800000
+     },
+     "reviewFields": {
+      "Pin number": "6"
+     }
+    },
+    {
+     "kind": "pin",
+     "uuid": "0df48d48-42aa-5e11-a70e-699da3b5ce59",
+     "contentDigest": "4cb0bd542001acb8",
+     "parentUuid": "72af98b8-8f94-515a-b8ad-c2500955df2f",
+     "number": "7",
+     "refdes": "J1",
+     "at": {
+      "xNm": 60960000,
+      "yNm": 50800000
+     },
+     "reviewFields": {
+      "Pin number": "7"
+     }
+    },
+    {
+     "kind": "pin",
+     "uuid": "2972c454-a5f8-5512-91b9-9852af8a1ce7",
+     "contentDigest": "7958cec38bd78d78",
+     "parentUuid": "72af98b8-8f94-515a-b8ad-c2500955df2f",
+     "number": "8",
+     "refdes": "J1",
+     "at": {
+      "xNm": 60960000,
+      "yNm": 50800000
+     },
+     "reviewFields": {
+      "Pin number": "8"
+     }
+    },
+    {
+     "kind": "pin",
+     "uuid": "af413e9f-2788-5c83-a16c-8acc1f29a7dc",
+     "contentDigest": "088bad4da1e8ce8e",
+     "parentUuid": "72af98b8-8f94-515a-b8ad-c2500955df2f",
+     "number": "9",
+     "refdes": "J1",
+     "at": {
+      "xNm": 60960000,
+      "yNm": 50800000
+     },
+     "reviewFields": {
+      "Pin number": "9"
+     }
+    },
+    {
+     "kind": "pin",
+     "uuid": "d6f3e7bb-bf0d-56b8-bc72-91f32d07647a",
+     "contentDigest": "4ed991b16e1d5c84",
+     "parentUuid": "72af98b8-8f94-515a-b8ad-c2500955df2f",
+     "number": "10",
+     "refdes": "J1",
+     "at": {
+      "xNm": 60960000,
+      "yNm": 50800000
+     },
+     "reviewFields": {
+      "Pin number": "10"
+     }
+    }
+   ],
+   "reviewOnlyObjects": []
+  }
+ ]
+}

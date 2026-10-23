@@ -12,7 +12,7 @@
 
 import { CATEGORY_META, type Category } from "@/lib/diff-grouping";
 import { kindsWith } from "./comparison-change-kinds";
-import type { ChangeItem, FieldDiffValue } from "./types";
+import type { ChangeItem, FieldDelta } from "./types";
 
 const NET_REASON_CODES = new Set([
     "connectivity-changed",
@@ -65,31 +65,26 @@ function isSchematicPowerReference(change: ChangeItem): boolean {
 }
 
 export function objectKind(change: ChangeItem): string {
-    return String(
-        change.object_kind
-        ?? change.geometry?.kind
-        ?? change.oldGeometry?.kind
-        ?? "object",
-    ).toLocaleLowerCase();
+    return (change.objectKind ?? "object").toLocaleLowerCase();
 }
 
+/** Every layer either revision's object occupies, sorted and once each. */
+export function unionLayers(change: ChangeItem): string[] {
+    return [...new Set([...(change.base?.layers ?? []), ...(change.head?.layers ?? [])])]
+        .sort();
+}
+
+/** The layers a change names: its objects' layers, then each side's own layer. */
 export function changeLayers(change: ChangeItem): string[] {
     return [
-        ...(change.layers ?? []),
-        change.geometry?.layer,
-        change.oldGeometry?.layer,
-        change.base_item?.layer,
-        change.compare_item?.layer,
+        ...unionLayers(change),
+        change.base?.layer,
+        change.head?.layer,
     ].filter((layer): layer is string => Boolean(layer));
 }
 
 export function hasNativeParent(change: ChangeItem): boolean {
-    return Boolean(
-        change.parent_source_id_base
-        || change.parent_source_id_compare
-        || change.base_item?.parent_source_id
-        || change.compare_item?.parent_source_id,
-    );
+    return Boolean(change.base?.parentSourceId || change.head?.parentSourceId);
 }
 
 export function semanticCategory(change: ChangeItem): Category {
@@ -120,21 +115,19 @@ export function semanticCategory(change: ChangeItem): Category {
 
 export function referenceFor(change: ChangeItem): string | null {
     return change.reference
-        ?? change.compare_item?.reference
-        ?? change.base_item?.reference
-        ?? change.details?.visualTargets?.find((target) => target.reference)?.reference
+        ?? change.head?.reference
+        ?? change.base?.reference
+        ?? change.details.targets?.find((target) => target.reference)?.reference
         ?? null;
 }
 
 export function pageFor(change: ChangeItem): string {
+    // A side whose document is not known has an empty path.
     return change.page
-        ?? change.compare_item?.path
-        ?? change.compare_item?.page
-        ?? change.base_item?.path
-        ?? change.base_item?.page
-        ?? change.details?.visualTargets?.[0]?.documentPath
-        ?? change.details?.visualTargets?.[0]?.page
-        ?? "Schematic";
+        || change.head?.documentPath
+        || change.base?.documentPath
+        || change.details.targets?.[0]?.documentPath
+        || "Schematic";
 }
 
 function normalizedValue(value: unknown): unknown {
@@ -150,7 +143,7 @@ function normalizedValue(value: unknown): unknown {
     return value;
 }
 
-export function fieldSides(value: FieldDiffValue): { old: unknown; new: unknown } | null {
+export function fieldSides(value: FieldDelta | undefined): { old: unknown; new: unknown } | null {
     if (!value || typeof value !== "object" || Array.isArray(value)) return null;
     const sides = value as { old?: unknown; new?: unknown };
     if (!("old" in sides) && !("new" in sides)) return null;

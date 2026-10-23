@@ -1,0 +1,7 @@
+# prism-kicad-cli — the `prism-kicad` binary (WP-B)
+
+The command line of `native/contracts/prism/cli-spec.md` over `prism-bundle`.
+
+- `src/main.rs` (dispatch, stdout document per exit code), `src/args.rs` (grammar), `src/output.rs` (documents and JSON Lines stderr), `src/version.rs` (the generator id: bump `crate_version` with any output change, `KICAD_VERSION` with the worker image's KiCad), `src/cmd_build.rs`, `src/cmd_bundle.rs` (verify, extract), `src/cmd_compare.rs` (compare: every Design Comparison tab except fabrication from two bundles or source trees, as `DesignCompareResultA1`; a source tree runs the parse stage with only the five members compare reads; the engine is `prism-bundle`'s re-export of `prism-projections`'s compare module, so the Cargo manifests do not change), `src/cmd_revision_key.rs` and `src/git.rs`, `src/atomic.rs` (atomic `-o`), `src/inputs.rs`, `src/process.rs` (the only `unsafe`: counting allocator, watchdog, signals, `RLIMIT_AS`).
+- **Tests** run the binary: `tests/generator_pin.rs` (every committed fixture, twice, against `tests/fixtures/generator-pin.json`; regenerate with `PRISM_KICAD_BLESS=1` after bumping `crate_version`), `tests/exits.rs`, `tests/chain.rs`, `tests/compare.rs`, `tests/revision_key_git.rs`.
+- `tests/fixtures/recordings/` holds KiCad 10.0.6's refilled boards and GLBs for the fixtures, zlib-compressed, made by `tests/fixtures/recordings/record.py`; the tests need no KiCad.

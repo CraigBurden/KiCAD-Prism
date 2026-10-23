@@ -23,6 +23,9 @@ change:
 | Catalog services | `backend/app/services/AGENTS.md` |
 | Design comparison | `frontend/src/components/design-comparison/AGENTS.md` |
 | Library workspace | `frontend/src/components/workspace/AGENTS.md` |
+| Design bundles (backend: keys, store, jobs, reader) | `backend/app/services/design_bundle/AGENTS.md` |
+| Native KiCad parser and design bundle (Rust) | `native/AGENTS.md` |
+| Projection goldens and the parity runner | `native/parity/AGENTS.md` |
 
 ## Task skills
 
@@ -75,14 +78,34 @@ then `run_project_import_job_v3`) →
 `frontend/src/components/import-dialog.tsx` →
 `frontend/src/components/workspace.tsx`
 
+**Build a revision's design bundle**
+Every feature below reads a revision through its bundle, never KiCad files.
+`backend/app/services/design_bundle/jobs.py` (`start_design_bundle_job`, the
+`design_bundle` kind) → `backend/app/services/design_bundle/reuse.py` (alias or
+build) → `backend/app/services/design_bundle/materialize.py` ·
+`backend/app/services/design_bundle/kicad_steps.py` (sources, upgrade, refill)
+→ `backend/app/services/design_bundle/cli.py` (`prism-kicad bundle build`, one
+stage at a time) → `backend/app/services/design_bundle/store.py` →
+`backend/app/services/design_bundle/consumer.py` (what readers call; pending and
+failed answers from `backend/app/services/design_bundle/errors.py`) →
+`frontend/src/components/design-data-state.tsx`. The CLI's source is
+`native/src/rs/prism-kicad-cli`; the paced prebuild is
+`backend/app/services/design_bundle/backfill.py`.
+
+**Open the 3D tab**
+`backend/app/api/project_viewer_3d.py` →
+`backend/app/services/viewer_3d_bundle.py` (the bundle's analytic pack,
+stackup and parts GLB) → `frontend/src/components/webgpu-3d-tab.tsx` →
+`kicad-prism-viewer/viewer/src/analytic-board.js` (lowering in workers with the
+WASM build of `native/src/rs/prism-kicad-wasm`)
+
 **Compare two commits**
 `backend/app/api/design_compare.py` →
-`backend/app/services/design_compare_service.py` (`run_design_compare_job_v3`)
-→ `backend/app/services/project_revision.py` (location, commit, snapshot) →
-`backend/app/services/design_compare_nodes.py` (parser changes) →
-`backend/app/services/design_compare_occurrences.py` (components, BOM rows) →
-`backend/app/services/design_compare_semantics.py` (nets, sheets) →
-`backend/app/services/design_compare_artifacts.py` →
+`backend/app/services/design_compare_service.py` (job, cache, status) →
+`backend/app/services/design_compare_bundle_path.py` (`prism-kicad compare`
+over each side's bundle or source tree) →
+`backend/app/services/project_revision.py` (location, commit, snapshot) →
+`backend/app/services/design_compare_artifacts.py` (fabrication) →
 `frontend/src/components/history-viewer.tsx` →
 `frontend/src/components/design-comparison/design-comparison-workspace.tsx`
 
@@ -135,8 +158,9 @@ publication are available; Gitea/Forgejo is account-linking only. See
 `docs/TRACKER_INTEGRATION.md` for credentials, destinations, and recovery.
 
 **Select a design variant**
-`backend/app/services/variant_catalog_service.py` →
-`backend/app/services/semantic_index_variants.py` (index catalog and assembly block) →
+`backend/app/services/variant_catalog_service.py` (the bundle catalog) →
+the bundle's semantic-index member (the `assembly` block, built by
+`prism-kicad`) →
 `frontend/src/components/design-variants/variant-selection.ts` (URL owner and
 resolution) →
 `frontend/src/lib/design-variants.ts` (effective projection) →
@@ -144,9 +168,16 @@ resolution) →
 `frontend/src/components/engineering-bom-table.tsx` (viewer-side selection)
 
 **Connect boards into a system**
-System Builder was removed on 2026-10-23 and is being re-scoped
-(`docs/system-builder/README.md`). Only the harness geometry the 3D viewer
-still imports remains, in `frontend/src/features/system-builder/placement/`.
+System Builder was removed on 2026-10-23 and is being re-scoped on
+`feature/system-builder-v3` (`docs/system-builder/README.md`). Nothing in
+this tree implements it.
+
+**Run a simulation (experimental, `PRISM_SIM_STUDIO_ENABLED`)**
+`backend/app/api/sim_studio.py` → `backend/app/sim_studio/service.py` (setups)
+· `backend/app/sim_studio/runs.py` (`sim_run` job, engines from
+`backend/sim-engines.lock.json`) →
+`frontend/src/components/sim-studio/SimStudioPanel.tsx`. See
+`docs/SIMULATION_STUDIO.md`.
 
 **Place a symbol from desktop KiCad**
 `backend/app/api/remote_provider.py` · `backend/app/api/provider_oauth.py` →
@@ -231,26 +262,32 @@ load the relevant ranges rather than reading them end to end.
 
 Release promotion requires reviewed `dev` to `main`, the main commit Quality
 gate, and checked-in `docs/releases/<tag>.md`; see `docs/RELEASES.md`.
-The next tag is `v4.0.0-alpha`, superseding the unpublished v3.1 plan.
+The latest tag is `v4.0.0-alpha`; it superseded the unpublished v3.1 plan.
 
-`PRISM_PCB_GEOMETRY_BACKEND=legacy` is the supported default. Rust and
-Python-copper require explicit experimental selection; never infer activation
-from an installed helper or replace the published Python toolchain with a
-sibling checkout. See `docs/PCB_RUST_GEOMETRY.md` and `docs/DEPENDENCIES.md`.
+Never replace the published Python toolchain with a sibling checkout; see
+`docs/DEPENDENCIES.md`.
 
 ## Generated and vendored boundaries
 
 Do not load minified bundles into context or edit them by hand when source is
 available.
 
-- `frontend/public/ecad-viewer.js`, `frontend/public/parser.worker.js`, and the
-  parser under `backend/design-compare-parser/vendor/` come from the sibling
-  `ecad-viewer` checkout.
+- `frontend/public/ecad-viewer.js` and `frontend/public/parser.worker.js` come
+  from the sibling `ecad-viewer` checkout.
   Use `.agents/skills/prism-viewer-rebuild/SKILL.md`.
 - `kicad-prism-viewer/` is Prism's semantic viewer source. Its build writes
   `kicad-prism-viewer/dist/prism-semantic-viewer.js` and synchronizes the served
-  `frontend/public/prism-semantic-viewer.js` plus its digest cache key. CI fails
-  when the tracked served files were not regenerated from current source.
+  `frontend/public/prism-semantic-viewer.js` plus its digest cache key, the
+  analytic lowering worker `frontend/public/prism-semantic-viewer-lower.js` and
+  the analytic WASM `frontend/public/prism-kicad-analytic.wasm`. CI fails when
+  the tracked served files were not regenerated from current source.
+- The analytic WASM is built from Prism's own Rust crate
+  `native/src/rs/prism-kicad-wasm` by `npm run build:analytic-wasm` (in
+  `kicad-prism-viewer/`) into `kicad-prism-viewer/viewer/vendor/prism-kicad-wasm/`
+  with a provenance file naming the source tree; rebuild it after changing the
+  crates it compiles. Boards draw from bundles through
+  `kicad-prism-viewer/viewer/src/analytic-board.js` (lowering pool, cache, board
+  clip and renderer in the `analytic-*.js` modules beside it).
 - `frontend/public/three/` is a vendored module tree used through the import map
   in `frontend/index.html` and imports in `frontend/public/3d-viewer.js`. Do not
   classify files there as dead from first-party import search alone.

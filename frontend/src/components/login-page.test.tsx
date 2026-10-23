@@ -122,4 +122,37 @@ describe("LoginPage method rendering", () => {
         await waitFor(() => expect(screen.getByText("Set a new password")).toBeTruthy());
         expect(onLoginSuccess).not.toHaveBeenCalled();
     });
+    it("asks a restored session for its current password before it continues", async () => {
+        // A reload or second tab lands here: the sign-in password is gone, so
+        // the change form must collect it again.
+        changeOwnPassword.mockResolvedValue({ success: true });
+        const restored: User = { email: "u@example.com", name: "u", role: "designer", must_change_password: true };
+        const onLoginSuccess = vi.fn();
+        const onSignOut = vi.fn();
+
+        render(
+            <LoginPage
+                authConfig={config({ password_auth_enabled: true })}
+                restoredUser={restored}
+                onLoginSuccess={onLoginSuccess}
+                onSignOut={onSignOut}
+            />,
+        );
+
+        expect(screen.getByText("Set a new password")).toBeTruthy();
+        expect(screen.queryByLabelText("Email")).toBeNull();
+        const current = "c".repeat(12); // placeholders, not real credentials
+        const next = "n".repeat(12);
+        fireEvent.change(screen.getByLabelText("Current password"), { target: { value: current } });
+        fireEvent.change(screen.getByLabelText("New password"), { target: { value: next } });
+        fireEvent.change(screen.getByLabelText("Confirm new password"), { target: { value: next } });
+        fireEvent.click(screen.getByRole("button", { name: "Set password and continue" }));
+
+        await waitFor(() => expect(changeOwnPassword).toHaveBeenCalledWith(current, next));
+        await waitFor(() =>
+            expect(onLoginSuccess).toHaveBeenCalledWith({ ...restored, must_change_password: false }),
+        );
+        fireEvent.click(screen.getByRole("button", { name: "Sign out" }));
+        expect(onSignOut).toHaveBeenCalled();
+    });
 });
