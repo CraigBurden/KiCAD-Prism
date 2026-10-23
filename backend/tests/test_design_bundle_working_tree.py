@@ -6,6 +6,8 @@ import os
 import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
+from unittest import mock
 
 from app.services.design_bundle import jobs, reader, revision_key as rk
 from app.services.design_bundle.effective_config import ProjectRef, key_at_commit
@@ -73,6 +75,21 @@ class NoCommitReadsHeadTests(unittest.TestCase):
 
         self.assertEqual(rk.worktree_changes(self.root), [])
         self.assertEqual(git(self.root, "diff-files", "--name-only"), "")
+
+    def test_a_status_that_fails_still_serves_the_bundle(self):
+        # The dirty check is a notice: an unreadable working tree logs and reads on.
+        generator = SimpleNamespace(digest="d" * 64)
+        with (
+            mock.patch("app.services.workspace_service.workspace.get_project_by_id", return_value=self.row),
+            mock.patch.object(reader, "_working_tree_dirty", side_effect=OSError("index.lock")),
+            mock.patch.object(reader.cli, "generator", return_value=generator),
+            mock.patch.object(reader, "_stored", return_value=("b" * 64, "r" * 64, False, None)),
+            mock.patch.object(reader.rows, "get_bundle", return_value=None),
+            self.assertLogs(reader.logger, "WARNING"),
+        ):
+            opened = reader.open_revision("prj")
+        self.assertFalse(opened.working_tree_dirty)
+        self.assertEqual(opened.commit, git(self.root, "rev-parse", "HEAD"))
 
 
 if __name__ == "__main__":

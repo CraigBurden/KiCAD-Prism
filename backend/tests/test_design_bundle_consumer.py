@@ -3,9 +3,10 @@
 from __future__ import annotations
 
 import unittest
+from types import SimpleNamespace
 from unittest import mock
 
-from app.services.design_bundle import consumer
+from app.services.design_bundle import consumer, reader
 from app.services.design_bundle.errors import DesignDataFailed, DesignDataPending
 from app.services.design_bundle.manifest import Readiness
 
@@ -13,8 +14,12 @@ PATH = "projections/project.json"
 
 
 class _Opened:
-    def __init__(self, states: dict[str, str], *, absent: bool = False, job_active: bool = False, dirty: bool = False):
+    def __init__(
+        self, states: dict[str, str], *, absent: bool = False, job_active: bool = False, dirty: bool = False,
+        failure: str | None = None,
+    ):
         self.absent = absent
+        self.failure = failure
         self.job_active = job_active
         self.working_tree_dirty = dirty
         self._states = states
@@ -55,6 +60,20 @@ class BundleReadTests(unittest.TestCase):
         with self.assertRaises(DesignDataPending) as raised:
             self._read(_Opened({PATH: "pending"}, job_active=True))
         self.assertEqual(raised.exception.job_state, "building")
+
+    def test_a_build_that_ended_in_failure_is_not_pending(self):
+        # Failed before parse (no archive), or a later stage left pending in a
+        # surviving archive: no job will make the member ready.
+        for state in ("unavailable", "pending"):
+            with self.subTest(state=state):
+                with self.assertRaises(DesignDataFailed) as raised:
+                    self._read(_Opened({PATH: state}, failure="KiCad cannot read board.kicad_pcb"))
+                self.assertEqual(raised.exception.members, (PATH,))
+                self.assertIn("KiCad cannot read", raised.exception.detail)
+
+    def test_members_a_failed_build_did_finish_are_still_served(self):
+        result, _ = self._read(_Opened({PATH: "ready"}, failure="zone refill failed"))
+        self.assertTrue(result.ready(PATH))
 
     def test_a_failed_member_is_a_typed_failure(self):
         with self.assertRaises(DesignDataFailed) as raised:
@@ -122,6 +141,44 @@ class IfReadyTests(unittest.TestCase):
             self.assertIsNotNone(
                 consumer.bundle_read_if_ready("DESIGN_COMPARISON", "prj", "c0ffee", [PATH])
             )
+
+
+class ReaderFailureTests(unittest.TestCase):
+    """``open_revision`` records a failure only when no build or retry is under way."""
+
+    ROW = {"project_file_rel": "demo.kicad_pro"}
+
+    def _open(self, *, job_status: str | None, queued: str | None):
+        key = SimpleNamespace(absent=False, commit="c0ffee", key=SimpleNamespace(revision_key="r" * 64))
+        bundle = {"state": "failed", "error": "KiCad cannot read demo.kicad_pcb", "job_id": "j1", "commit_sha": "c0ffee"}
+        with (
+            mock.patch("app.services.workspace_service.workspace.get_project_by_id", return_value=self.ROW),
+            mock.patch.object(reader.jobs, "project_key", return_value=key),
+            mock.patch.object(reader.cli, "generator", return_value=SimpleNamespace(digest="d" * 64)),
+            mock.patch.object(reader, "_stored", return_value=("b" * 64, "r" * 64, False, None)),
+            mock.patch.object(reader.rows, "get_bundle", return_value=bundle),
+            mock.patch.object(reader.rows, "job_status", return_value=job_status),
+            mock.patch.object(reader.jobs, "start_design_bundle_job", return_value=queued) as start,
+        ):
+            return reader.open_revision("prj", "c0ffee", queue=True), start
+
+    def test_a_held_failure_is_reported_and_read_as_failed(self):
+        opened, start = self._open(job_status="failed", queued=None)
+        start.assert_called_once()
+        self.assertFalse(opened.job_active)
+        self.assertEqual(opened.failure, "KiCad cannot read demo.kicad_pcb")
+        with mock.patch.object(consumer.reader, "open_revision", return_value=opened):
+            with self.assertRaises(DesignDataFailed):
+                consumer.bundle_read("PROJECT_METADATA", "prj", "c0ffee", [PATH])
+
+    def test_a_retry_that_was_queued_is_pending(self):
+        for job_status, queued in (("failed", "job-2"), ("retry_wait", None)):
+            with self.subTest(job_status=job_status):
+                opened, _ = self._open(job_status=job_status, queued=queued)
+                self.assertIsNone(opened.failure)
+                with mock.patch.object(consumer.reader, "open_revision", return_value=opened):
+                    with self.assertRaises(DesignDataPending):
+                        consumer.bundle_read("PROJECT_METADATA", "prj", "c0ffee", [PATH])
 
 
 if __name__ == "__main__":

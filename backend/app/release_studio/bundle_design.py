@@ -364,9 +364,16 @@ def readiness(
             "the design bundle is not built yet; its job has been queued"
         )
 
-    _check_stages(opened.archive.manifest)
     design = BundleDesign(project_id=project_id, commit=commit, opened=opened)
-    _check_members(opened, design.required_members())
+    try:
+        _check_stages(opened.archive.manifest)
+        _check_members(opened, design.required_members())
+    except BundlePending:
+        # A stage left pending by a build that ended, with no retry under
+        # way, will not finish: the archive is what a failed build left.
+        if opened.failure:
+            raise BundleFailed(opened.failure) from None
+        raise
     return design
 
 
