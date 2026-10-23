@@ -1,7 +1,7 @@
 """Extract catalog assets from a project's design bundle (CATALOG_IMPORT, C7b).
 
-With ``PRISM_DESIGN_SOURCE_CATALOG_IMPORT=bundle`` the project component import
-reads one revision's parse projections instead of walking a checkout:
+The project component import reads one revision's parse projections instead
+of walking a checkout:
 
 - ``projections/occurrences.json`` joins a semantic-index component, by
   reference, to its symbol and footprint occurrences and to the board

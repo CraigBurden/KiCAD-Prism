@@ -284,8 +284,10 @@ The principal executable contracts are:
 - `frontend/src/components/design-comparison/comparison-property-model.ts`
 - `frontend/src/components/design-comparison/comparison-url.ts`
 - their colocated tests; and
-- backend semantic and document-diff tests that produce the `ChangeItem`
-  evidence consumed by the workspace.
+- `frontend/src/components/design-comparison/design-compare-result.ts`, which
+  turns `prism-kicad compare`'s `prism.design_compare.result.a1` into the
+  `ChangeItem` evidence the workspace consumes, and the Rust `compare` tests in
+  `native/src/rs/prism-kicad-cli/` that produce it.
 
 A code review should compare those executable contracts to this document and
 the presentation policy. When they disagree, the discrepancy is a product

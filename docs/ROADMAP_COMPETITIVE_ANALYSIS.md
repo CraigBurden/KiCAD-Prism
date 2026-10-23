@@ -63,14 +63,16 @@ Read from the `dev` branch, not from marketing copy.
   caching, and benchmark metrics.
 - OIDC SSO, server-side sessions, session revocation, five roles, scoped
   service clients, rate limiting on auth paths, security headers.
-- Job kinds: `design_compare`, `webgpu_3d`, `kicad_workflow`, `semantic_index`,
-  `project_analyze`, `project_import`, `project_sync`, `project_thumbnail`,
-  plus catalog jobs.
+- Job kinds: `design_bundle`, `design_compare`, `kicad_workflow`,
+  `release_studio_build`, `project_analyze`, `project_import`, `project_sync`,
+  `project_fetch`, `project_metadata`, `project_thumbnail`, `sim_run`, plus
+  tracker and catalog jobs. (When this assessment was written, `webgpu_3d` and
+  `semantic_index` existed; the design bundle replaced both.)
 
 ### Stated boundaries (from `docs/OVERVIEW.md`)
 Single workspace; one role per user; project-scoped standard comments; mentions
 stored but not delivered; no webhooks or PR status integration; fixed workflow
-types (`design`, `manufacturing`, `render`, `webgpu_3d`) rather than arbitrary
+types (`design`, `manufacturing`, `render`) rather than arbitrary
 workflows; no real-time co-editing; no in-product approved/changes-requested
 state.
 

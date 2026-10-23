@@ -23,7 +23,9 @@ change:
 | Catalog services | `backend/app/services/AGENTS.md` |
 | Design comparison | `frontend/src/components/design-comparison/AGENTS.md` |
 | Library workspace | `frontend/src/components/workspace/AGENTS.md` |
+| Design bundles (backend: keys, store, jobs, reader) | `backend/app/services/design_bundle/AGENTS.md` |
 | Native KiCad parser and design bundle (Rust) | `native/AGENTS.md` |
+| Projection goldens and the parity runner | `native/parity/AGENTS.md` |
 
 ## Task skills
 
@@ -75,6 +77,27 @@ then `run_project_import_job_v3`) →
 `backend/app/services/git_access_service.py` → worker →
 `frontend/src/components/import-dialog.tsx` →
 `frontend/src/components/workspace.tsx`
+
+**Build a revision's design bundle**
+Every feature below reads a revision through its bundle, never KiCad files.
+`backend/app/services/design_bundle/jobs.py` (`start_design_bundle_job`, the
+`design_bundle` kind) → `backend/app/services/design_bundle/reuse.py` (alias or
+build) → `backend/app/services/design_bundle/materialize.py` ·
+`backend/app/services/design_bundle/kicad_steps.py` (sources, upgrade, refill)
+→ `backend/app/services/design_bundle/cli.py` (`prism-kicad bundle build`, one
+stage at a time) → `backend/app/services/design_bundle/store.py` →
+`backend/app/services/design_bundle/consumer.py` (what readers call; pending and
+failed answers from `backend/app/services/design_bundle/errors.py`) →
+`frontend/src/components/design-data-state.tsx`. The CLI's source is
+`native/src/rs/prism-kicad-cli`; the paced prebuild is
+`backend/app/services/design_bundle/backfill.py`.
+
+**Open the 3D tab**
+`backend/app/api/project_viewer_3d.py` →
+`backend/app/services/viewer_3d_bundle.py` (the bundle's analytic pack,
+stackup and parts GLB) → `frontend/src/components/webgpu-3d-tab.tsx` →
+`kicad-prism-viewer/viewer/src/analytic-board.js` (lowering in workers with the
+WASM build of `native/src/rs/prism-kicad-wasm`)
 
 **Compare two commits**
 `backend/app/api/design_compare.py` →
@@ -148,6 +171,13 @@ resolution) →
 System Builder was removed on 2026-10-23 and is being re-scoped on
 `feature/system-builder-v3` (`docs/system-builder/README.md`). Nothing in
 this tree implements it.
+
+**Run a simulation (experimental, `PRISM_SIM_STUDIO_ENABLED`)**
+`backend/app/api/sim_studio.py` → `backend/app/sim_studio/service.py` (setups)
+· `backend/app/sim_studio/runs.py` (`sim_run` job, engines from
+`backend/sim-engines.lock.json`) →
+`frontend/src/components/sim-studio/SimStudioPanel.tsx`. See
+`docs/SIMULATION_STUDIO.md`.
 
 **Place a symbol from desktop KiCad**
 `backend/app/api/remote_provider.py` · `backend/app/api/provider_oauth.py` →
@@ -232,7 +262,7 @@ load the relevant ranges rather than reading them end to end.
 
 Release promotion requires reviewed `dev` to `main`, the main commit Quality
 gate, and checked-in `docs/releases/<tag>.md`; see `docs/RELEASES.md`.
-The next tag is `v4.0.0-alpha`, superseding the unpublished v3.1 plan.
+The latest tag is `v4.0.0-alpha`; it superseded the unpublished v3.1 plan.
 
 Never replace the published Python toolchain with a sibling checkout; see
 `docs/DEPENDENCIES.md`.

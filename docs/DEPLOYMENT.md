@@ -511,6 +511,22 @@ The CPU and memory settings in `.env.example` are service ceilings. They are not
 reservations and their sum should not exceed what the host can sustain alongside
 PostgreSQL and filesystem cache.
 
+The prism worker admits memory-heavy jobs against `PRISM_WORKER_MEMORY_BUDGET_MIB`
+(default: half the container's memory, clamped to 4–8 GiB). Each kind reserves
+its measured peak: a Release Studio build 3.25 GiB, a design comparison 3 GiB, a
+design bundle build 2.25 GiB, a jobset 1.25 GiB and a simulation 1 GiB. Jobs
+that would exceed the budget wait instead of being killed. Give the
+`prism-worker` container memory for at least the heaviest job plus its own
+overhead; on an 8 GB container the default 4 GiB budget runs one heavy job at a
+time. Raise the budget only together with the container's memory limit.
+
+A cold design bundle for a large board (about 55 MB of `.kicad_pcb`) takes 2–2.5
+minutes and peaks at about 2.2 GB; prebuilding does that before anyone opens the
+revision. After a first deployment or a bulk import, the backfill builds every
+project's newest revisions one at a time, so expect the general worker to stay
+busy for a while. Plan disk for about 50 MB per prebuilt revision of a large
+design (see [Operations](OPERATIONS.md)).
+
 Increase one concurrency class at a time. Monitor worker memory, job duration,
 queue depth, PostgreSQL connections, and disk growth before raising it again.
 

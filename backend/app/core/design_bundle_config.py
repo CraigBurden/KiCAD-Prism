@@ -115,8 +115,8 @@ class DesignBundleSettings(BaseSettings):
         default=30,
         ge=1,
         description=(
-            "Days a bundle may go unused before retention removes it. Branch heads, System Builder "
-            "baselines and released Release Studio commits are always kept."
+            "Days a bundle may go unused before retention removes it. The prebuild's commits, "
+            "released Release Studio commits and bundles an alias points to are always kept."
         ),
     )
     PRISM_DESIGN_BUNDLE_CACHE_GRACE_SECONDS: int = Field(

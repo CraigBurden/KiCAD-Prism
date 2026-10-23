@@ -1,5 +1,7 @@
 # kicad_monkey corpus semantic benchmark and KiCad-less 3D study
 
+> **Superseded (2026-10-23).** This plan describes the Python `kicad_monkey` pipeline that the native design bundle replaced ([ADR](../architecture/adr-native-design-bundle.md)). Kept as a historical record; the paths, settings and jobs it names may no longer exist.
+
 Date: 2026-09-22
 Branch: `feat/kicad-monkey-rust-pcb`
 kicad_monkey revision: `bc6796c1b8ce55bfbcb8b1771f3ecbc70658d34d`

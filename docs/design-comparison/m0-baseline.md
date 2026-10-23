@@ -1,5 +1,7 @@
 # M0: the baseline, and what it took to make it reproducible
 
+> **Superseded (2026-10-23).** This milestone record describes the Node `ecad-parse`/`ecad-diff` and Python comparison pipeline. Design Comparison is now computed by `prism-kicad compare` ([ADR amendment C2r](../architecture/adr-native-design-bundle-amendment-c2r.md)), and the services named here were removed. Kept as a historical record.
+
 M0 of [the revamp plan](../DESIGN_COMPARISON_REVAMP.md). The plan said no later
 milestone's numbers mean anything until the current pipeline can be measured
 repeatably. Making that true took three fixes; two of them were harness bugs
