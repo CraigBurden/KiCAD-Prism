@@ -212,12 +212,86 @@ def acquire(
         for future in futures:
             future.result()
 
+    return _acquired(tuple(layers), svg_path, page_svg_path, pdf_path)
+
+
+def acquire_layers(
+    cli: KicadTool,
+    board: Path,
+    layers: Sequence[str],
+    workdir: Path,
+    *,
+    variant: str = "",
+    black_and_white: bool = True,
+) -> dict[str, AcquiredArtwork | ArtworkError]:
+    """Every layer page's artwork from one board load per format.
+
+    :func:`acquire` costs three ``kicad-cli`` processes per layer, and each
+    loads the board: about forty loads for a twelve-layer board, minutes each
+    on a 50 MB one. Here each format is one process: ``--mode-multi`` (SVG)
+    and ``--mode-separate`` (PDF) write a file per layer with ``Edge.Cuts`` as
+    a common layer, so every plot can still be located on the board.
+
+    Keyed by layer. A layer whose files did not appear maps to its
+    :class:`ArtworkError`; a failed invocation raises, and the caller falls
+    back to :func:`acquire` per layer.
+    """
+
+    workdir.mkdir(parents=True, exist_ok=True)
+    crop_dir, page_dir, pdf_dir = workdir / "svg", workdir / "page", workdir / "pdf"
+    plots = (
+        ("svg", crop_dir, ("--mode-multi", "--exclude-drawing-sheet", "--page-size-mode", "2")),
+        ("svg", page_dir, ("--mode-multi", "--exclude-drawing-sheet")),
+        ("pdf", pdf_dir, ("--mode-separate",)),
+    )
+
+    def _plot(fmt: str, out: Path, extra: tuple[str, ...]) -> None:
+        out.mkdir(parents=True, exist_ok=True)
+        argv = [
+            "pcb", "export", fmt,
+            "--layers", ",".join(layers),
+            "--common-layers", "Edge.Cuts",
+            "--output", str(out),
+            *extra,
+        ]
+        if black_and_white:
+            argv.append("--black-and-white")
+        if variant:
+            argv.extend(["--variant", variant])
+        argv.append(str(board))
+        result = _run_tool(cli, argv, PLOT_TIMEOUT_SECONDS)
+        if not result.ok:
+            raise ArtworkError(
+                f"kicad-cli pcb export {fmt} failed for layers {','.join(layers)}: "
+                f"{result.detail()[:400]}"
+            )
+
+    with ThreadPoolExecutor(max_workers=len(plots)) as pool:
+        futures = [pool.submit(_plot, fmt, out, extra) for fmt, out, extra in plots]
+        for future in futures:
+            future.result()
+
+    acquired: dict[str, AcquiredArtwork | ArtworkError] = {}
+    for layer in layers:
+        # KiCad names each file `<board stem>-<layer with dots as underscores>`.
+        name = f"{board.stem}-{layer.replace('.', '_')}"
+        files = (crop_dir / f"{name}.svg", page_dir / f"{name}.svg", pdf_dir / f"{name}.pdf")
+        missing = [path.name for path in files if not path.is_file()]
+        if missing:
+            acquired[layer] = ArtworkError(f"kicad-cli produced no {', '.join(missing)} for layer {layer}")
+            continue
+        plotted = ("Edge.Cuts", layer) if layer != "Edge.Cuts" else ("Edge.Cuts",)
+        acquired[layer] = _acquired(plotted, *files)
+    return acquired
+
+
+def _acquired(layers: tuple[str, ...], svg_path: Path, page_svg_path: Path, pdf_path: Path) -> AcquiredArtwork:
     svg_text = sanitize_artwork(svg_path.read_text(encoding="utf-8"))
     pdf_bytes = sanitize_artwork_pdf(pdf_path.read_bytes())
     x, y, width, height = extents(svg_text)
     offset = page_offset(svg_text, page_svg_path.read_text(encoding="utf-8"))
     return AcquiredArtwork(
-        layers=tuple(layers),
+        layers=layers,
         svg_text=svg_text,
         pdf_bytes=pdf_bytes,
         view_x=x,

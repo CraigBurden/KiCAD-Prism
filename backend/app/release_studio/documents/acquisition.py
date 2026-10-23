@@ -21,6 +21,7 @@ from app.release_studio.documents.artwork import (
     acquire,
     acquire_board_render,
     acquire_drill_map,
+    acquire_layers,
 )
 from app.services.kicad_tools import KicadTool
 
@@ -52,6 +53,7 @@ DRILL_ARTWORK_KEY = "drill"
 #: assembly and testpoint view from the design bundle. It runs in the same
 #: pool as the plots because the bundle load is a separate process.
 _BUNDLE_ARTWORK_JOB = "__artwork__"
+_LAYER_BATCH_JOB = "__layers__"
 
 #: Ceiling on concurrent acquisitions.
 #:
@@ -118,6 +120,7 @@ def _acquire_concurrently(
             key = futures[future]
             label = {
                 _BUNDLE_ARTWORK_JOB: "assembly views",
+                _LAYER_BATCH_JOB: "batched layer artwork",
             }.get(key, f"artwork for {key}")
             try:
                 results[key] = future.result()
@@ -179,8 +182,18 @@ def acquire_views(request: AcquisitionRequest) -> AcquisitionResult:
     cli = request.cli
     workdir = request.workdir
     if board is not None and cli and workdir is not None:
+        if request.acquirer is None and request.layer_pages:
+            # One board load per format for every layer (acquire_layers).
+            jobs[_LAYER_BATCH_JOB] = partial(
+                acquire_layers,
+                cli,
+                board,
+                request.layer_pages,
+                workdir / "layers",
+                variant=request.variant,
+            )
         fetch = request.acquirer or acquire
-        for layer in request.layer_pages:
+        for layer in request.layer_pages if request.acquirer is not None else ():
             jobs[layer_artwork_key(layer)] = partial(
                 fetch,
                 cli,
@@ -215,6 +228,30 @@ def acquire_views(request: AcquisitionRequest) -> AcquisitionResult:
         )
 
     acquired = _acquire_concurrently(jobs, warnings)
+    if _LAYER_BATCH_JOB in jobs:
+        batch = acquired.pop(_LAYER_BATCH_JOB, None)
+        if batch is None:
+            # The batched plot failed outright: plot layer by layer, so one
+            # bad layer costs its own page rather than all of them.
+            batch = _acquire_concurrently(
+                {
+                    layer: partial(
+                        acquire,
+                        cli,
+                        board,
+                        ("Edge.Cuts", layer) if layer != "Edge.Cuts" else ("Edge.Cuts",),
+                        workdir / f"layer-{layer.replace('.', '_')}",
+                        variant=request.variant,
+                    )
+                    for layer in request.layer_pages
+                },
+                warnings,
+            )
+        for layer, artwork in batch.items():
+            if isinstance(artwork, ArtworkError):
+                warnings.append(f"artwork for {layer_artwork_key(layer)} unavailable: {artwork}")
+            else:
+                layers[layer_artwork_key(layer)] = artwork
     board_render = acquired.pop(BOARD_RENDER_KEY, None)
     for key, value in acquired.items():
         if key != _BUNDLE_ARTWORK_JOB:
