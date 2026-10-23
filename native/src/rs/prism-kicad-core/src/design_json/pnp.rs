@@ -39,10 +39,6 @@ pub(super) fn pnp_json(
             continue;
         }
         let component = components.get(reference);
-        let raw = component
-            .and_then(|(index, _)| raw_components.get(*index))
-            .cloned()
-            .unwrap_or_else(|| json!({}));
         let value = component.map_or_else(
             || footprint.value.clone().unwrap_or_default(),
             |(_, component)| component.value.clone(),
@@ -52,7 +48,9 @@ pub(super) fn pnp_json(
             |(_, component)| component.libsource_description.clone(),
         );
         let parameters = component
-            .and_then(|_| raw.get("parameters").cloned())
+            .and_then(|(index, _)| raw_components.get(*index))
+            .and_then(|raw| raw.get("parameters"))
+            .cloned()
             .unwrap_or_else(|| {
                 json!(
                     footprint_parameters

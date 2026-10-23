@@ -315,12 +315,16 @@ pub(super) fn run(
             .map(|(index, facts)| {
                 if full {
                     design::design_json(index, facts, &design.project, &design.sheets, design_board)
+                        .map(|built| (Some(built.bytes), built.semantic))
                 } else {
-                    design::semantic_inputs(index, facts)
+                    design::semantic_inputs(index, facts).map(|semantic| (None, semantic))
                 }
             });
         let with_design = prism_projections::ProjectionInput {
-            design: design_json.as_ref().and_then(|built| built.as_ref().ok()),
+            design: design_json
+                .as_ref()
+                .and_then(|built| built.as_ref().ok())
+                .map(|(_, semantic)| semantic),
             ..*input
         };
         let semantic_result = semantic.map(|index| PRODUCERS[index].run(&with_design, encode));
@@ -336,7 +340,9 @@ pub(super) fn run(
             .collect();
         let design_json = design_json
             .filter(|built| full || built.is_err())
-            .map(|built| built.map(|value| json_bytes(&value)));
+            .map(|built| {
+                built.map(|(bytes, _)| bytes.expect("a full design build encodes its bytes"))
+            });
         (design_json, results)
     })
 }

@@ -5,7 +5,8 @@ use crate::{
     build_kicad_netlist_json,
 };
 use prism_kicad_contracts::generated::compiled_schematic_graph::CompiledSchematicGraphA0;
-use serde_json::{Value, json};
+use serde::Serialize;
+use serde_json::{Map, Value, json};
 use std::collections::BTreeMap;
 use std::fmt;
 use std::io::{self, Write};
@@ -258,6 +259,71 @@ pub fn build_kicad_design_json_with_limits(
         .map(|(value, _profile)| value)
 }
 
+/// `design.json` as its member's bytes, with the `components` and `nets` the
+/// semantic index reads out of it.
+///
+/// The document is written section by section in its final order: a section
+/// is serialized and dropped before the next is built, and the compiled graph
+/// is serialized from its typed form instead of a [`serde_json::Value`]
+/// mirror of it. Peak memory is then one section plus the bytes, rather than
+/// every section at once.
+#[derive(Debug)]
+pub struct KiCadDesignJsonBytes {
+    /// The document's bytes, identical to `serde_json::to_vec` of
+    /// [`build_kicad_design_json`] for the same inputs, without the member's
+    /// trailing LF.
+    pub bytes: Vec<u8>,
+    /// `{"components": …, "nets": …}`, equal to those sections of
+    /// [`build_kicad_design_json`]; what
+    /// `projections/semantic-index.json` reads.
+    pub semantic: Value,
+}
+
+pub fn build_kicad_design_json_bytes(
+    index: &SchematicBundleIndex,
+    facts: &KiCadDesignFacts<'_>,
+    paths: &KiCadDesignJsonPaths,
+    pcb: Option<KiCadDesignPcb<'_>>,
+    include_indexes: bool,
+) -> Result<KiCadDesignJsonBytes, KiCadDesignJsonError> {
+    build_kicad_design_json_bytes_with_limits(
+        index,
+        facts,
+        paths,
+        pcb,
+        include_indexes,
+        KiCadDesignJsonLimits::default(),
+    )
+}
+
+pub fn build_kicad_design_json_bytes_with_limits(
+    index: &SchematicBundleIndex,
+    facts: &KiCadDesignFacts<'_>,
+    paths: &KiCadDesignJsonPaths,
+    pcb: Option<KiCadDesignPcb<'_>>,
+    include_indexes: bool,
+    limits: KiCadDesignJsonLimits,
+) -> Result<KiCadDesignJsonBytes, KiCadDesignJsonError> {
+    let mut sink = BytesSink::new(limits.max_output_bytes);
+    let semantic = assemble_design_json(
+        &mut sink,
+        DesignJsonInputs {
+            index,
+            facts,
+            paths,
+            pcb,
+            include_indexes,
+            limits,
+        },
+        None,
+    )?;
+    let bytes = sink.finish()?;
+    let semantic = semantic.ok_or_else(|| {
+        KiCadDesignJsonError::context("could not build design JSON", "semantic sections absent")
+    })?;
+    Ok(KiCadDesignJsonBytes { bytes, semantic })
+}
+
 pub fn build_kicad_design_json_profiled(
     index: &SchematicBundleIndex,
     facts: &KiCadDesignFacts<'_>,
@@ -306,103 +372,354 @@ fn build_kicad_design_json_internal(
     limits: KiCadDesignJsonLimits,
     profile: bool,
 ) -> Result<(Value, KiCadDesignJsonBuildProfile), KiCadDesignJsonError> {
-    let preflight_started = profile.then(std::time::Instant::now);
+    let mut sink = ValueSink::new();
+    let mut profile = profile.then(KiCadDesignJsonBuildProfile::default);
+    assemble_design_json(
+        &mut sink,
+        DesignJsonInputs {
+            index,
+            facts,
+            paths,
+            pcb,
+            include_indexes,
+            limits,
+        },
+        profile.as_mut(),
+    )?;
+    let result = sink.finish()?;
+    let output_limit_started = profile.is_some().then(std::time::Instant::now);
+    enforce_output_limit(&result, limits.max_output_bytes)?;
+    let output_limit_serialization_ns = elapsed_ns(output_limit_started);
+    let mut profile = profile.unwrap_or_default();
+    profile.output_limit_serialization_ns = output_limit_serialization_ns;
+    Ok((result, profile))
+}
+
+/// Where an assembly writes its sections: a [`Value`] tree, or the document's
+/// bytes.
+trait DesignJsonSink {
+    type Output;
+
+    /// Add a section already built as a value.
+    fn add(&mut self, key: &str, value: Value) -> Result<(), KiCadDesignJsonError>;
+
+    /// Add a section serialized from its typed form.
+    fn add_serialized<T>(&mut self, key: &str, value: &T) -> Result<(), KiCadDesignJsonError>
+    where
+        T: Serialize + ?Sized;
+
+    /// Add a section the semantic index also reads: the bytes sink writes it
+    /// and hands it back, the value sink keeps it in the document and drops it
+    /// here.
+    fn add_kept(&mut self, key: &str, value: Value) -> Result<Option<Value>, KiCadDesignJsonError>;
+
+    /// Close the document and take what the sink collected.
+    fn finish(self) -> Result<Self::Output, KiCadDesignJsonError>;
+}
+
+/// The value sink: sections collected into the document's map, in order.
+struct ValueSink {
+    map: Map<String, Value>,
+}
+
+impl ValueSink {
+    fn new() -> Self {
+        Self { map: Map::new() }
+    }
+}
+
+impl DesignJsonSink for ValueSink {
+    type Output = Value;
+
+    fn add(&mut self, key: &str, value: Value) -> Result<(), KiCadDesignJsonError> {
+        self.map.insert(key.to_owned(), value);
+        Ok(())
+    }
+
+    fn add_serialized<T>(&mut self, key: &str, value: &T) -> Result<(), KiCadDesignJsonError>
+    where
+        T: Serialize + ?Sized,
+    {
+        let value = serde_json::to_value(value)
+            .map_err(|error| KiCadDesignJsonError::context("could not encode section", error))?;
+        self.add(key, value)
+    }
+
+    fn add_kept(&mut self, key: &str, value: Value) -> Result<Option<Value>, KiCadDesignJsonError> {
+        self.add(key, value)?;
+        Ok(None)
+    }
+
+    fn finish(self) -> Result<Value, KiCadDesignJsonError> {
+        Ok(Value::Object(self.map))
+    }
+}
+
+/// The bytes sink: sections serialized straight into the member's bytes, under
+/// the same output limit [`enforce_output_limit`] applies to the value form.
+struct BytesSink {
+    writer: LimitedBytes,
+    sections: usize,
+}
+
+impl BytesSink {
+    fn new(limit: usize) -> Self {
+        Self {
+            writer: LimitedBytes::new(limit),
+            sections: 0,
+        }
+    }
+
+    fn key(&mut self, key: &str) -> Result<(), KiCadDesignJsonError> {
+        self.writer
+            .write_all(if self.sections == 0 { b"{" } else { b"," })
+            .map_err(limit_error)?;
+        serde_json::to_writer(&mut self.writer, key).map_err(write_error)?;
+        self.writer.write_all(b":").map_err(limit_error)?;
+        self.sections += 1;
+        Ok(())
+    }
+}
+
+impl DesignJsonSink for BytesSink {
+    type Output = Vec<u8>;
+
+    fn add(&mut self, key: &str, value: Value) -> Result<(), KiCadDesignJsonError> {
+        self.add_serialized(key, &value)
+    }
+
+    fn add_serialized<T>(&mut self, key: &str, value: &T) -> Result<(), KiCadDesignJsonError>
+    where
+        T: Serialize + ?Sized,
+    {
+        self.key(key)?;
+        serde_json::to_writer(&mut self.writer, value).map_err(write_error)?;
+        Ok(())
+    }
+
+    fn add_kept(&mut self, key: &str, value: Value) -> Result<Option<Value>, KiCadDesignJsonError> {
+        self.add_serialized(key, &value)?;
+        Ok(Some(value))
+    }
+
+    fn finish(mut self) -> Result<Vec<u8>, KiCadDesignJsonError> {
+        self.writer.write_all(b"}").map_err(limit_error)?;
+        Ok(self.writer.into_bytes())
+    }
+}
+
+fn limit_error(error: io::Error) -> KiCadDesignJsonError {
+    KiCadDesignJsonError::context("KiCad design JSON output limit exceeded", error)
+}
+
+fn write_error(error: serde_json::Error) -> KiCadDesignJsonError {
+    if error.is_io() {
+        limit_error(io::Error::other(error.to_string()))
+    } else {
+        KiCadDesignJsonError::context("could not encode design JSON section", error)
+    }
+}
+
+/// The bytes the sink has written, refusing to grow past the output limit.
+struct LimitedBytes {
+    bytes: Vec<u8>,
+    limit: usize,
+}
+
+impl LimitedBytes {
+    fn new(limit: usize) -> Self {
+        Self {
+            bytes: Vec::new(),
+            limit,
+        }
+    }
+
+    fn into_bytes(self) -> Vec<u8> {
+        self.bytes
+    }
+}
+
+impl Write for LimitedBytes {
+    fn write(&mut self, buffer: &[u8]) -> io::Result<usize> {
+        if self
+            .bytes
+            .len()
+            .checked_add(buffer.len())
+            .is_none_or(|next| next > self.limit)
+        {
+            return Err(io::Error::other(format!(
+                "output exceeds {} bytes",
+                self.limit
+            )));
+        }
+        self.bytes.extend_from_slice(buffer);
+        Ok(buffer.len())
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        Ok(())
+    }
+}
+
+fn profile_started(
+    profile: &Option<&mut KiCadDesignJsonBuildProfile>,
+) -> Option<std::time::Instant> {
+    profile.as_ref().map(|_| std::time::Instant::now())
+}
+
+fn record_profile(
+    profile: &mut Option<&mut KiCadDesignJsonBuildProfile>,
+    field: impl FnOnce(&mut KiCadDesignJsonBuildProfile) -> &mut u64,
+    started: Option<std::time::Instant>,
+) {
+    if let Some(profile) = profile.as_deref_mut() {
+        *field(profile) = elapsed_ns(started);
+    }
+}
+
+/// What one design JSON assembly reads.
+#[derive(Clone, Copy)]
+struct DesignJsonInputs<'a, 'f> {
+    index: &'a SchematicBundleIndex,
+    facts: &'a KiCadDesignFacts<'f>,
+    paths: &'a KiCadDesignJsonPaths,
+    pcb: Option<KiCadDesignPcb<'a>>,
+    include_indexes: bool,
+    limits: KiCadDesignJsonLimits,
+}
+
+/// Bind and preflight `inputs`, then build the netlist JSON the sections are
+/// cut from.
+fn prepare_design_json(
+    inputs: DesignJsonInputs<'_, '_>,
+    profile: &mut Option<&mut KiCadDesignJsonBuildProfile>,
+) -> Result<Value, KiCadDesignJsonError> {
+    let DesignJsonInputs {
+        index,
+        facts,
+        paths,
+        pcb,
+        include_indexes,
+        limits,
+    } = inputs;
+    let preflight_started = profile_started(profile);
     validate_facts_binding(index, facts)?;
-    let project = facts.project();
-    let graph = facts.graph();
-    let netlist = facts.netlist();
     resource::preflight_design_json(
         index,
-        project,
-        netlist,
-        graph,
+        facts.project(),
+        facts.netlist(),
+        facts.graph(),
         paths,
         pcb,
         include_indexes,
         limits,
     )?;
-    let binding_and_preflight_ns = elapsed_ns(preflight_started);
-    let netlist_json_started = profile.then(std::time::Instant::now);
-    let netlist_json = build_kicad_netlist_json(netlist, KiCadNetlistJsonMetadata::default());
-    let netlist_json_ns = elapsed_ns(netlist_json_started);
-    let mut result = serde_json::Map::new();
-    result.insert("schema".to_owned(), json!(KICAD_DESIGN_JSON_SCHEMA));
-    result.insert("generator".to_owned(), json!(KICAD_DESIGN_JSON_GENERATOR));
-    let project_started = profile.then(std::time::Instant::now);
-    result.insert("project".to_owned(), project_json(project, paths)?);
-    result.insert(
-        "variants".to_owned(),
-        variants::variants_json(index, project)?,
+    record_profile(
+        profile,
+        |profile| &mut profile.binding_and_preflight_ns,
+        preflight_started,
     );
-    result.insert("options".to_owned(), options_json(project));
-    let project_variants_options_ns = elapsed_ns(project_started);
-    let sheets_started = profile.then(std::time::Instant::now);
-    result.insert(
-        "sheets".to_owned(),
-        hierarchy::sheets_json(index, netlist, paths),
+    let netlist_json_started = profile_started(profile);
+    let netlist_json =
+        build_kicad_netlist_json(facts.netlist(), KiCadNetlistJsonMetadata::default());
+    record_profile(
+        profile,
+        |profile| &mut profile.netlist_json_ns,
+        netlist_json_started,
     );
-    let sheets_ns = elapsed_ns(sheets_started);
-    let components_started = profile.then(std::time::Instant::now);
-    result.insert(
-        "components".to_owned(),
-        components::components_json(netlist, &netlist_json),
+    Ok(netlist_json)
+}
+
+/// The ordered document, written to `sink`. Returns `components` and `nets`
+/// as the semantic index reads them when the sink keeps them.
+fn assemble_design_json<S: DesignJsonSink>(
+    sink: &mut S,
+    inputs: DesignJsonInputs<'_, '_>,
+    mut profile: Option<&mut KiCadDesignJsonBuildProfile>,
+) -> Result<Option<Value>, KiCadDesignJsonError> {
+    let mut netlist_json = prepare_design_json(inputs, &mut profile)?;
+    let DesignJsonInputs {
+        index,
+        facts,
+        paths,
+        pcb,
+        include_indexes,
+        ..
+    } = inputs;
+    let project = facts.project();
+    let graph = facts.graph();
+    let netlist = facts.netlist();
+    sink.add("schema", Value::String(KICAD_DESIGN_JSON_SCHEMA.to_owned()))?;
+    sink.add(
+        "generator",
+        Value::String(KICAD_DESIGN_JSON_GENERATOR.to_owned()),
+    )?;
+    let project_started = profile_started(&profile);
+    sink.add("project", project_json(project, paths)?)?;
+    sink.add("variants", variants::variants_json(index, project)?)?;
+    sink.add("options", options_json(project))?;
+    record_profile(
+        &mut profile,
+        |profile| &mut profile.project_variants_options_ns,
+        project_started,
     );
-    let components_ns = elapsed_ns(components_started);
-    let hierarchy_started = profile.then(std::time::Instant::now);
-    result.insert(
-        "schematic_hierarchy".to_owned(),
+    let sheets_started = profile_started(&profile);
+    sink.add("sheets", hierarchy::sheets_json(index, netlist, paths))?;
+    record_profile(
+        &mut profile,
+        |profile| &mut profile.sheets_ns,
+        sheets_started,
+    );
+    let components_started = profile_started(&profile);
+    let components = components::components_json(netlist, &netlist_json);
+    let kept_components = sink.add_kept("components", components)?;
+    record_profile(
+        &mut profile,
+        |profile| &mut profile.components_ns,
+        components_started,
+    );
+    let hierarchy_started = profile_started(&profile);
+    sink.add(
+        "schematic_hierarchy",
         hierarchy::schematic_hierarchy_json(index, paths),
+    )?;
+    let kept_nets = sink.add_kept("nets", netlist_json["nets"].take())?;
+    record_profile(
+        &mut profile,
+        |profile| &mut profile.hierarchy_and_nets_ns,
+        hierarchy_started,
     );
-    result.insert("nets".to_owned(), netlist_json["nets"].clone());
-    let hierarchy_and_nets_ns = elapsed_ns(hierarchy_started);
-    let graph_started = profile.then(std::time::Instant::now);
-    result.insert(
-        "compiled_schematic_graph".to_owned(),
-        serde_json::to_value(graph)
-            .map_err(|error| KiCadDesignJsonError::context("could not encode graph", error))?,
+    let graph_started = profile_started(&profile);
+    sink.add_serialized("compiled_schematic_graph", graph)?;
+    record_profile(
+        &mut profile,
+        |profile| &mut profile.compiled_graph_value_ns,
+        graph_started,
     );
-    let compiled_graph_value_ns = elapsed_ns(graph_started);
-    let pnp_started = profile.then(std::time::Instant::now);
+    let pnp_started = profile_started(&profile);
     if let Some(pcb) = pcb
         && let Some(payload) = pnp::pnp_json(pcb, netlist, &netlist_json)?
     {
-        result.insert("pnp".to_owned(), payload);
+        sink.add("pnp", payload)?;
     }
-    let pnp_ns = elapsed_ns(pnp_started);
-    let indexes_started = profile.then(std::time::Instant::now);
+    record_profile(&mut profile, |profile| &mut profile.pnp_ns, pnp_started);
+    let indexes_started = profile_started(&profile);
     if !netlist.net_classes.is_empty() {
-        result.insert(
-            "net_classes".to_owned(),
-            netlist_json["net_classes"].clone(),
-        );
-        result.insert(
-            "net_name_to_classes".to_owned(),
-            indexes::net_name_to_classes(netlist),
-        );
+        sink.add("net_classes", netlist_json["net_classes"].take())?;
+        sink.add("net_name_to_classes", indexes::net_name_to_classes(netlist))?;
     }
     if include_indexes {
-        result.insert("indexes".to_owned(), indexes::indexes_json(netlist));
+        sink.add("indexes", indexes::indexes_json(netlist))?;
     }
-    let classes_and_indexes_ns = elapsed_ns(indexes_started);
-    let result = Value::Object(result);
-    let output_limit_started = profile.then(std::time::Instant::now);
-    enforce_output_limit(&result, limits.max_output_bytes)?;
-    let output_limit_serialization_ns = elapsed_ns(output_limit_started);
-    Ok((
-        result,
-        KiCadDesignJsonBuildProfile {
-            binding_and_preflight_ns,
-            netlist_json_ns,
-            project_variants_options_ns,
-            sheets_ns,
-            components_ns,
-            hierarchy_and_nets_ns,
-            compiled_graph_value_ns,
-            pnp_ns,
-            classes_and_indexes_ns,
-            output_limit_serialization_ns,
-        },
-    ))
+    record_profile(
+        &mut profile,
+        |profile| &mut profile.classes_and_indexes_ns,
+        indexes_started,
+    );
+    Ok(match (kept_components, kept_nets) {
+        (Some(components), Some(nets)) => Some(json!({"components": components, "nets": nets})),
+        _ => None,
+    })
 }
 
 fn validate_facts_binding(
