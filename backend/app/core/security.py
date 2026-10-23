@@ -28,6 +28,7 @@ class AuthenticatedUser(BaseModel):
     scopes: list[str] = []
     session_id: str = ""
     user_id: str = ""
+    password_change_required: bool = False
 
 
 def guest_user() -> AuthenticatedUser:
@@ -47,7 +48,23 @@ def _resolve_allowed_user_role(email: str) -> Role | None:
     return normalize_role(role)
 
 
+PASSWORD_CHANGE_REQUIRED = "Password change required"
+
+
 async def get_current_user(request: HTTPConnection) -> AuthenticatedUser:
+    """The caller, refused while its account must still change a temporary password.
+
+    Only the routes that let the caller finish that change (``/auth/me`` and
+    ``/auth/password/change``) resolve it through
+    :func:`get_current_user_allowing_password_change` instead.
+    """
+    user = await get_current_user_allowing_password_change(request)
+    if user.password_change_required:
+        raise HTTPException(status_code=403, detail=PASSWORD_CHANGE_REQUIRED)
+    return user
+
+
+async def get_current_user_allowing_password_change(request: HTTPConnection) -> AuthenticatedUser:
     """Resolve the caller from the session cookie or a bearer token.
 
     Every store this consults is synchronous (session rows, role rows, provider
@@ -91,6 +108,7 @@ def _resolve_session_user(session_id: str) -> AuthenticatedUser:
         auth_type="session",
         session_id=session.session_id,
         user_id=session.user_id,
+        password_change_required=session.password_change_required,
     )
 
 
@@ -161,6 +179,12 @@ def refuse_provider_token(user: AuthenticatedUser) -> None:
 
 
 async def require_viewer(user: AuthenticatedUser = Depends(get_current_user)) -> AuthenticatedUser:
+    return policy.authorize(user, "read")
+
+
+async def require_viewer_allowing_password_change(
+    user: AuthenticatedUser = Depends(get_current_user_allowing_password_change),
+) -> AuthenticatedUser:
     return policy.authorize(user, "read")
 
 

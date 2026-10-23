@@ -97,8 +97,10 @@ export function ReleaseStudioPanel({
     );
     // "New release" opens the Source stage so a revision and configuration can
     // be chosen. Building immediately took that choice away and made the button
-    // fire an expensive job on a single click.
+    // fire an expensive job on a single click. A viewer cannot create a
+    // candidate, so the wizard is a dead end and never opens for one.
     const [drafting, setDrafting] = useState(() => {
+        if (!canMutate) return false;
         if (typeof window !== "undefined" && new URLSearchParams(window.location.search).get("build")) return false;
         return true;
     });
@@ -130,6 +132,7 @@ export function ReleaseStudioPanel({
     const stackupB64Ref = useRef("");
     const [profiles, setProfiles] = useState<VendorProfile[]>([]);
     const [candidates, setCandidates] = useState<ReleaseCandidate[]>([]);
+    const [candidatesLoaded, setCandidatesLoaded] = useState(false);
     // The run lives in the URL so it survives a reload and can be shared --
     // an approver following a link must land on the build they were asked
     // about, not on whatever happens to be newest.
@@ -210,6 +213,8 @@ export function ReleaseStudioPanel({
         } catch (cause) {
             setError(cause instanceof Error ? cause.message : String(cause));
             return null;
+        } finally {
+            setCandidatesLoaded(true);
         }
     }, [draftingRef, projectId]);
 
@@ -454,6 +459,16 @@ export function ReleaseStudioPanel({
     const behind = Boolean(
         selectedBuildId && newestBuildId && selectedBuildId !== newestBuildId,
     );
+    // A viewer lands on the latest run when there is one. With no current
+    // release, Current has nothing to show and History is the only useful
+    // starting point. Only the first load decides, so a later refresh or a
+    // deliberate Current click is never overridden.
+    const viewerLandingRef = useRef(!canMutate);
+    useEffect(() => {
+        if (!viewerLandingRef.current || !candidatesLoaded) return;
+        viewerLandingRef.current = false;
+        if (!newestBuildId) setView("history");
+    }, [candidatesLoaded, newestBuildId]);
 
     const building = Boolean(activeJobId) || selectedDetail?.build.status === "running" || busy === "build";
     const stageStates = useMemo<Record<RunStage, StageState>>(() => {
@@ -499,10 +514,10 @@ export function ReleaseStudioPanel({
             <header className="flex min-h-9 shrink-0 flex-wrap items-center gap-2 border-b px-3 py-1">
                 <div className="flex items-center gap-0.5">
                     {([
-                        { id: "settings", label: "New release", icon: Settings2 },
-                        { id: "current", label: "Current", icon: ListRestart },
-                        { id: "history", label: "History", icon: History },
-                    ] as const).map(({ id, label, icon: Icon }) => (
+                        ...(canMutate ? [{ id: "settings" as const, label: "New release", icon: Settings2 }] : []),
+                        { id: "current" as const, label: "Current", icon: ListRestart },
+                        { id: "history" as const, label: "History", icon: History },
+                    ]).map(({ id, label, icon: Icon }) => (
                         <button
                             key={id}
                             type="button"
@@ -590,7 +605,7 @@ export function ReleaseStudioPanel({
 
                     {!selectedBuildId && !building && !drafting ? (
                         <div className="flex flex-1 items-center justify-center p-6 text-sm text-muted-foreground">
-                            Select a run, or start a new release.
+                            {canMutate ? "Select a run, or start a new release." : "Select a run from History."}
                         </div>
                     ) : (
                         <div className="flex min-h-0 flex-1">

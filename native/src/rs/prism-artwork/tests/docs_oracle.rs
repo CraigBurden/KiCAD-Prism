@@ -262,3 +262,45 @@ fn every_footprint_pad_extent_is_kicads_pad_copper() {
         );
     }
 }
+
+/// A rectangle whose sides miss their corners by `gap` mm at two joints.
+fn gapped_rectangle(gap: f64) -> String {
+    let line = |x1: f64, y1: f64, x2: f64, y2: f64, id: u32| {
+        format!(
+            "(gr_line (start {x1} {y1}) (end {x2} {y2}) (stroke (width 0.05) (type default)) \
+             (layer \"Edge.Cuts\") (uuid \"00000000-0000-0000-0000-00000000000{id}\"))"
+        )
+    };
+    format!(
+        "(kicad_pcb (version 20240108) (generator \"pcbnew\") (generator_version \"8.0\") \
+         (general (thickness 1.6)) (paper \"A4\") (layers (0 \"F.Cu\" signal) (31 \"B.Cu\" signal) \
+         (44 \"Edge.Cuts\" user)) {} {} {} {})",
+        line(0.0, 0.0, 50.0 + gap, 0.0, 1),
+        line(50.0, 0.0, 50.0, 30.0, 2),
+        line(50.0, 30.0, 0.0, 30.0 + gap, 3),
+        line(0.0, 30.0, 0.0, 0.0, 4),
+    )
+}
+
+#[test]
+fn an_outline_kicad_closes_within_its_chaining_epsilon_closes_here() {
+    // EDA-04903's outline has two 25 nm gaps; KiCad accepts it, and the
+    // exact-nanometre join this crate used to do refused the board.
+    for gap in [0.000_025, 0.009] {
+        let source = gapped_rectangle(gap);
+        let view = PcbView::parse(&source, PcbLimits::default()).expect("the board parses");
+        let geometry = board_geometry(&view).expect("board geometry");
+        let bounds = Bounds::of_ring(&geometry.outer);
+        assert!(
+            (bounds.width() - 50.0).abs() < 0.02 && (bounds.height() - 30.0).abs() < 0.02,
+            "a {gap} mm gap closes into the 50 x 30 outline, got {bounds:?}"
+        );
+    }
+    let source = gapped_rectangle(0.011);
+    let view = PcbView::parse(&source, PcbLimits::default()).expect("the board parses");
+    let geometry = board_geometry(&view).expect("board geometry");
+    assert!(
+        geometry.outer.is_empty(),
+        "an 11 µm gap is open in KiCad too"
+    );
+}

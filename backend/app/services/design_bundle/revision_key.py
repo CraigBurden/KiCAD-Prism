@@ -321,9 +321,9 @@ def _git_env() -> dict[str, str]:
     }
 
 
-def git(repo: Path, *args: str, stdin: bytes | None = None) -> bytes:
+def git(repo: Path, *args: str, stdin: bytes | None = None, optional_locks: bool = False) -> bytes:
     process = subprocess.run(
-        ["git", "--no-optional-locks", "-C", str(repo), *args],
+        ["git", *(() if optional_locks else ("--no-optional-locks",)), "-C", str(repo), *args],
         input=stdin,
         capture_output=True,
         env=_git_env(),
@@ -394,7 +394,12 @@ def worktree_changes(repo: Path) -> list[bytes]:
     covers. Rename and copy entries carry both names.
     """
 
-    output = git(repo, "status", "--porcelain=v1", "-z", "--untracked-files=normal")
+    # Optional locks on: status may write back the index's refreshed stat
+    # data. Without that, once a checkout's timestamps move (a sync, a host
+    # editor, a bind mount) every read re-hashes every tracked file: 6-9 s per
+    # project page on a repository of large boards. It changes no content and
+    # skips the write when another git process holds the lock.
+    output = git(repo, "status", "--porcelain=v1", "-z", "--untracked-files=normal", optional_locks=True)
     changes: list[bytes] = []
     fields = output.split(b"\0")
     index = 0

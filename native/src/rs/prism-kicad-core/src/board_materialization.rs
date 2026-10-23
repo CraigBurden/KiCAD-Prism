@@ -44,6 +44,7 @@ pub use prism_kicad_contracts::materialization_contract::{
     chunk_operations, filter_document, operation_bounds, operation_net, operation_product,
     operation_slice, scope_from_request,
 };
+pub use profile::{BoardProfile, board_profile};
 pub use sexpr_view::materialization_sexpr;
 
 use prism_kicad_contracts::generated::materialization_document::{

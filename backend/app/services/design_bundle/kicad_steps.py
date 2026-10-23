@@ -23,16 +23,26 @@ from typing import Callable, Mapping
 from app.core.config import settings
 from app.services import kicad_tools
 
+# pcbnew.LoadBoard answers None for a board its parser rejects, and handing
+# that None on segfaults with nothing on stderr. Loading again through the IO
+# manager lets the parse error escape as an uncaught PARSE_ERROR, whose text
+# (file, line, what was expected) libstdc++ prints before aborting.
+_LOAD_BOARD = (
+    "board = pcbnew.LoadBoard(sys.argv[1])\n"
+    "if board is None:\n"
+    "    pcbnew.PCB_IO_MGR.Load(pcbnew.PCB_IO_MGR.KICAD_SEXP, sys.argv[1])\n"
+    "    sys.exit('PARSE_ERROR: pcbnew could not load the board')\n"
+)
 UPGRADE_BOARD_SCRIPT = (
     "import sys, pcbnew\n"
     "pcbnew.KIID.SeedGenerator(0x50524953)\n"
-    "board = pcbnew.LoadBoard(sys.argv[1])\n"
-    "pcbnew.SaveBoard(sys.argv[1], board)\n"
+    + _LOAD_BOARD
+    + "pcbnew.SaveBoard(sys.argv[1], board)\n"
 )
 REFILL_SCRIPT = (
     "import sys, pcbnew\n"
-    "board = pcbnew.LoadBoard(sys.argv[1])\n"
-    "pcbnew.ZONE_FILLER(board).Fill(board.Zones())\n"
+    + _LOAD_BOARD
+    + "pcbnew.ZONE_FILLER(board).Fill(board.Zones())\n"
     "pcbnew.SaveBoard(sys.argv[1], board)\n"
 )
 _VERSION = re.compile(rb"\(\s*version\s+(\d+)\s*\)")
@@ -42,6 +52,15 @@ _HEAD_BYTES = 4096
 
 class KicadStepFailed(RuntimeError):
     """A KiCad step failed or timed out; retried by the job, never recorded."""
+
+
+#: How an unreadable-source failure's message starts; a failed bundle carrying
+#: it is not rebuilt on a timer (the same KiCad would reject it again).
+UNREADABLE_PREFIX = "KiCad cannot read "
+
+
+class KicadSourceUnreadable(KicadStepFailed):
+    """KiCad's parser rejects a source file: the same KiCad fails the same way every time."""
 
 
 _RELEASE = re.compile(r"(\d+)\.(\d+)\.(\d+)")
@@ -84,8 +103,14 @@ def _run_python(script: str, board: Path, *, timeout: float, cancel: Callable[[]
     except kicad_tools.ToolError as error:
         raise KicadStepFailed(f"KiCad's Python failed on {board.name}: {error}") from error
     if not result.ok:
-        detail = result.detail().splitlines()[-1:] or ["no output"]
-        raise KicadStepFailed(f"KiCad's Python failed on {board.name}: {detail[0][:400]}")
+        lines = [line.strip() for line in result.detail().splitlines() if line.strip()]
+        if "PARSE_ERROR" in result.detail():
+            what = next((line.removeprefix("what():").strip() for line in lines if line.startswith("what():")), "")
+            raise KicadSourceUnreadable(f"{UNREADABLE_PREFIX}{board.name}: {(what or lines[-1])[:400]}")
+        detail = lines[-1] if lines else "no output"
+        if result.returncode < 0:
+            detail = f"crashed with signal {-result.returncode} ({detail})"
+        raise KicadStepFailed(f"KiCad's Python failed on {board.name}: {detail[:400]}")
 
 
 # ------------------------------------------------------------------ upgrade

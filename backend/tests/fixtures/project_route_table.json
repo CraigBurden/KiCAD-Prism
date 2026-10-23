@@ -181,7 +181,7 @@
   "GET /api/projects/{project_id}/comments/{comment_id}/thread": "87a675c522c35dedde7e26360f355da30e87373736534a7448e462921ada982d",
   "GET /api/projects/{project_id}/comments/{comment_id}/tracker": "c760b17b0f6b69a3a1e68325406016c8ac23d7ce5e7468fb4eb6f2b2b2895b62",
   "GET /api/projects/{project_id}/comments/{comment_id}/tracker/history": "f352f49df8b1a1ead148f14e5c89845f34baf39c5c2bb6a2709f6f0c2f8190c3",
-  "GET /api/projects/{project_id}/commits": "2575d6c91ebaa72f5bf0dc1a116eaca856537a50cca7419591e23d0e4b9ddf48",
+  "GET /api/projects/{project_id}/commits": "382a2e01681ad48736f625586f845c03ce3ee5eaf191ee4a31bf78c413811df1",
   "GET /api/projects/{project_id}/commits/distance": "57f408ac96255836ceccfabbc1d93f4ecb3c78a0e811f7459580fd36d5ec1bd7",
   "GET /api/projects/{project_id}/commits/{commit_hash}/file": "41cd4480443f7c700774f375cb9612d1422c5b033b399f9a1c7c74b64134d64d",
   "GET /api/projects/{project_id}/commits/{commit_hash}/summary": "a1a1e3ae1b50fa3d85ec30ceeafe8f36346d002e71011b5ded8e9e694ba92467",

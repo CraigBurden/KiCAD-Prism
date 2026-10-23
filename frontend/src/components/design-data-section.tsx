@@ -17,6 +17,12 @@ interface DesignBundleStatus {
     storedBytes: number;
 }
 
+interface CommitsResponse {
+    commits: Array<{ full_hash: string }>;
+    /** The checkout's HEAD, which a Type-2 subproject's filtered list may not contain. */
+    head?: string | null;
+}
+
 interface DesignDataSectionProps {
     projectId: string;
     /** Whether the viewer may queue a rebuild. */
@@ -32,6 +38,9 @@ type Scope = "commit" | "project";
 export function DesignDataSection({ projectId, canEdit }: DesignDataSectionProps) {
     const [status, setStatus] = useState<DesignBundleStatus | null>(null);
     const [unavailable, setUnavailable] = useState(false);
+    // "Rebuild for HEAD" targets the checkout, not the branch ref History
+    // lists. Git resolves HEAD when the commits request names no ref.
+    const [headSha, setHeadSha] = useState<string | null>(null);
     const [busy, setBusy] = useState(false);
     const [confirmOpen, setConfirmOpen] = useState(false);
 
@@ -60,6 +69,21 @@ export function DesignDataSection({ projectId, canEdit }: DesignDataSectionProps
         load(controller.signal);
         return () => controller.abort();
     }, [load]);
+
+    useEffect(() => {
+        const controller = new AbortController();
+        fetchJson<CommitsResponse>(
+            `/api/projects/${projectId}/commits?limit=1&offset=0&include_total=false`,
+            { signal: controller.signal },
+        )
+            .then((data) => {
+                if (!controller.signal.aborted) setHeadSha(data.head ?? null);
+            })
+            .catch(() => {
+                if (!controller.signal.aborted) setHeadSha(null);
+            });
+        return () => controller.abort();
+    }, [projectId]);
 
     const rebuild = async (scope: Scope) => {
         setBusy(true);
@@ -108,7 +132,7 @@ export function DesignDataSection({ projectId, canEdit }: DesignDataSectionProps
             )}
 
             {canEdit && (
-                <div className="flex flex-wrap gap-2 pt-1">
+                <div className="flex flex-wrap items-center gap-2 pt-1">
                     <Button
                         variant="outline"
                         size="sm"
@@ -117,6 +141,14 @@ export function DesignDataSection({ projectId, canEdit }: DesignDataSectionProps
                     >
                         Rebuild for HEAD
                     </Button>
+                    {headSha && (
+                        <span
+                            className="font-mono text-xs text-muted-foreground"
+                            title={`The checkout's HEAD is ${headSha}`}
+                        >
+                            {headSha.slice(0, 8)}
+                        </span>
+                    )}
                     <Button
                         variant="outline"
                         size="sm"

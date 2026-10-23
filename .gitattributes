@@ -42,3 +42,8 @@ Caddyfile.* text eol=lf
 *.pdf binary
 *.zip binary
 *.gz binary
+
+# Generated viewer bundles inline wasm as raw-byte string literals: their
+# "trailing whitespace" is data. Keep whitespace checks off them.
+frontend/public/ecad-viewer.js -whitespace
+frontend/public/ecad-renderer.js -whitespace

@@ -15,15 +15,27 @@ import { cn } from "@/lib/utils";
 /** "Preparing design data…": a spinner and one line, inline. */
 export function DesignDataPending({
   label = "Preparing design data…",
+  onRetry,
   className,
 }: {
   label?: string;
+  /** Offered after the read stopped polling; starts it again. */
+  onRetry?: () => void;
   className?: string;
 }) {
   return (
     <div className={cn("flex items-center justify-center gap-2 text-sm text-muted-foreground", className)}>
       <Loader2 className="h-4 w-4 animate-spin text-primary" aria-hidden />
       <span>{label}</span>
+      {onRetry ? (
+        <button
+          type="button"
+          onClick={onRetry}
+          className="rounded-md border px-2.5 py-1 text-xs font-medium hover:bg-muted"
+        >
+          Check again
+        </button>
+      ) : null}
     </div>
   );
 }

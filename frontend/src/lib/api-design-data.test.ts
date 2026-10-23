@@ -4,6 +4,7 @@ import {
   ApiHttpError,
   DesignDataFailedError,
   DesignDataPendingError,
+  DESIGN_DATA_PENDING_TIMEOUT_MS,
   fetchDesignJson,
   fetchDesignText,
 } from "./api";
@@ -20,6 +21,7 @@ function textResponse(status: number, body: string, headers: Record<string, stri
 }
 
 const PENDING = { status: "pending", members: ["projections/project.json"], retryAfterSeconds: 0.01 };
+const PENDING_MINUTE = { ...PENDING, retryAfterSeconds: 60 };
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -49,6 +51,38 @@ describe("design data pending", () => {
     await expect(
       fetchDesignJson("/api/design", undefined, { pendingTimeoutMs: 0 }),
     ).rejects.toBeInstanceOf(DesignDataPendingError);
+  });
+
+  it("keeps polling past two minutes with the default window", async () => {
+    vi.useFakeTimers();
+    try {
+      const fetchMock = vi
+        .fn()
+        .mockResolvedValueOnce(jsonResponse(202, PENDING_MINUTE))
+        .mockResolvedValueOnce(jsonResponse(202, PENDING_MINUTE))
+        .mockResolvedValueOnce(jsonResponse(200, { ok: true }));
+      vi.stubGlobal("fetch", fetchMock);
+
+      const pending = fetchDesignJson<{ ok: boolean }>("/api/design", undefined, {
+        pendingTimeoutMs: DESIGN_DATA_PENDING_TIMEOUT_MS,
+      });
+      await vi.advanceTimersByTimeAsync(0);
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+
+      await vi.advanceTimersByTimeAsync(60_000);
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+
+      // Still polling well past the old two-minute window.
+      await vi.advanceTimersByTimeAsync(65_000);
+      expect(fetchMock).toHaveBeenCalledTimes(3);
+      await expect(pending).resolves.toEqual({ data: { ok: true }, workingTreeDirty: false });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("defaults to a fifteen-minute window", () => {
+    expect(DESIGN_DATA_PENDING_TIMEOUT_MS).toBe(900_000);
   });
 
   it("does not treat another 202 as design data", async () => {

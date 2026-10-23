@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import tempfile
 import unittest
 from pathlib import Path
@@ -60,6 +61,18 @@ class NoCommitReadsHeadTests(unittest.TestCase):
         changes = rk.worktree_changes(self.root)
         self.assertIn(b"board/demo.kicad_pcb", changes)
         self.assertIn(b"todo.txt", changes)
+
+    def test_status_saves_the_refreshed_index(self):
+        # A touched but unchanged file is stat-dirty until something writes the
+        # index back; until then every status re-hashes it (seconds per read on
+        # a repository of large boards).
+        board = self.root / "board/demo.kicad_pcb"
+        stamp = board.stat().st_mtime + 120
+        os.utime(board, (stamp, stamp))
+        self.assertIn("board/demo.kicad_pcb", git(self.root, "diff-files", "--name-only"))
+
+        self.assertEqual(rk.worktree_changes(self.root), [])
+        self.assertEqual(git(self.root, "diff-files", "--name-only"), "")
 
 
 if __name__ == "__main__":

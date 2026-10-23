@@ -11,7 +11,9 @@ the commit (one ``git ls-tree``), then:
 - aliases it to a stored bundle whose read set holds (``prism-kicad bundle
   reuse``, no build; K2 §3.3);
 - otherwise queues its build, at most one per tick and only while no
-  ``design_bundle`` job is queued or running (one slot).
+  ``design_bundle`` job is queued or running (one slot). An interactive
+  request preempts a queued or running backfill build, which leaves no bundle
+  row behind so the next tick queues it again.
 
 On the way it records what keying found about each project's HEAD
 (``ws_design_bundle_flags``): a board or root schematic that no longer
@@ -38,8 +40,6 @@ logger = logging.getLogger(__name__)
 
 #: Most branch heads keyed in one tick, so a tick stays short on a large workspace.
 MAX_KEYS_PER_TICK = 25
-REQUESTED_BY = "design-bundle-backfill"
-BACKFILL_PRIORITY = 300
 
 
 @dataclass
@@ -138,7 +138,7 @@ def _project(
         if busy:
             continue
         job_id = jobs.start_design_bundle_job(
-            project_id, commit=commit, requested_by=REQUESTED_BY, priority=BACKFILL_PRIORITY, head=commit == head
+            project_id, commit=commit, requested_by=jobs.BACKFILL_REQUESTED_BY, priority=jobs.BACKFILL_PRIORITY, head=commit == head
         )
         if job_id:
             outcome["queued"] = {"project_id": project_id, "commit": commit, "job_id": job_id}

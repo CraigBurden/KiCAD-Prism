@@ -17,7 +17,7 @@ import { CommentPanel } from "./comment-panel";
 import { ThreadUpdateContext } from "@/features/rich-comments/thread-updates";
 import { useLiveComments } from "@/features/live-comments/use-live-comments";
 import { ViewerOverlayRail, SELECTION_INSPECTOR_RAIL_RESIZE } from "./viewer-overlay-rail";
-import { fetchApi, fetchDesignJson, fetchDesignText, ifMatch, readApiError } from "@/lib/api";
+import { fetchApi, fetchDesignJson, fetchDesignText, DesignDataPendingError, ifMatch, readApiError } from "@/lib/api";
 import { throwIfJobFailed } from "@/lib/jobs";
 import { useJobWatcher } from "@/hooks/use-job-watcher";
 import { canCommentOnProjects, canWriteCatalog } from "@/lib/roles";
@@ -180,6 +180,20 @@ function useViewerVariant(
     }, [element, generation, report, target, variant, viewer]);
 }
 
+/**
+ * A design-data read that settled without data. A pending answer is not a
+ * failure: it keeps its own state so a screen can offer "Check again" instead
+ * of claiming the build failed.
+ */
+type DesignDataReadFailure =
+    | { kind: "pending" }
+    | { kind: "failed"; detail: string };
+
+function designDataReadFailure(error: unknown, fallback: string): DesignDataReadFailure {
+    if (error instanceof DesignDataPendingError) return { kind: "pending" };
+    return { kind: "failed", detail: error instanceof Error ? error.message : fallback };
+}
+
 // react-doctor-disable-next-line no-giant-component - viewer event orchestration and the comment system share the viewer refs
 export function Visualizer({ projectId, user, commit, active: viewerActive = true }: VisualizerProps) {
     // Open on the tab a caller asked for (e.g. clicking a changed .kicad_pcb in
@@ -210,6 +224,8 @@ export function Visualizer({ projectId, user, commit, active: viewerActive = tru
     const [pcbContentLoaded, setPcbContentLoaded] = useState(false);
     const [schematicPending, setSchematicPending] = useState(false);
     const [pcbPending, setPcbPending] = useState(false);
+    const [schematicError, setSchematicError] = useState<DesignDataReadFailure | null>(null);
+    const [pcbError, setPcbError] = useState<DesignDataReadFailure | null>(null);
     const [workingTreeDirty, setWorkingTreeDirty] = useState(false);
     const [semanticIndex, setSemanticIndex] = useState<PrismSemanticIndex | null>(null);
     const [semanticIndexLoading, setSemanticIndexLoading] = useState(true);
@@ -478,6 +494,7 @@ export function Visualizer({ projectId, user, commit, active: viewerActive = tru
         if (semanticIndex) return;
         const controller = new AbortController();
         setSemanticIndexLoading(true);
+        setSemanticIndexPending(false);
         setSemanticIndexError(null);
         // The compact identity artifact is generated independently from 3D
         // assets and loaded in the background. It never gates SCH/PCB source
@@ -496,18 +513,26 @@ export function Visualizer({ projectId, user, commit, active: viewerActive = tru
         )
             .then(({ data, workingTreeDirty: dirty }) => {
                 if (!controller.signal.aborted) {
+                    setSemanticIndexPending(false);
+                    setSemanticIndexError(null);
                     setSemanticIndex(data);
                     if (dirty) setWorkingTreeDirty(true);
                 }
             })
             .catch((error: unknown) => {
                 if (!isAbortError(error) && !controller.signal.aborted) {
-                    setSemanticIndexError(error instanceof Error ? error.message : "Semantic identity index is unavailable");
+                    if (error instanceof DesignDataPendingError) {
+                        // Still building, not failed: keep the pending state and
+                        // let "Check again" start another window.
+                        setSemanticIndexPending(true);
+                    } else {
+                        setSemanticIndexPending(false);
+                        setSemanticIndexError(error instanceof Error ? error.message : "Semantic identity index is unavailable");
+                    }
                 }
             })
             .finally(() => {
                 if (!controller.signal.aborted) {
-                    setSemanticIndexPending(false);
                     setSemanticIndexLoading(false);
                 }
             });
@@ -515,8 +540,12 @@ export function Visualizer({ projectId, user, commit, active: viewerActive = tru
     }, [appendCommit, projectId, semanticIndex, semanticIndexRetryToken]);
 
     const watchJob = useJobWatcher();
+    const retrySemanticIndexRead = useCallback(() => {
+        setSemanticIndexRetryToken((token) => token + 1);
+    }, []);
     const generateSemanticIdentity = useCallback(async () => {
         setSemanticIndexLoading(true);
+        setSemanticIndexPending(false);
         setSemanticIndexError(null);
         try {
             const response = await fetchApi(`/api/projects/${projectId}/semantic-index/generate`, {
@@ -546,6 +575,8 @@ export function Visualizer({ projectId, user, commit, active: viewerActive = tru
             const controller = new AbortController();
             const signal = controller.signal;
             let cancelled = false;
+            setSchematicError(null);
+            setSchematicPending(false);
 
             const loadSchematic = async () => {
                 try {
@@ -569,8 +600,10 @@ export function Visualizer({ projectId, user, commit, active: viewerActive = tru
                         setSchematicContent(schRes.value.data);
                         if (schRes.value.workingTreeDirty) setWorkingTreeDirty(true);
                     } else {
-                        console.error("Schematic not found", schRes.reason);
+                        const failure = designDataReadFailure(schRes.reason, "Schematic could not be loaded");
+                        if (failure.kind === "failed") console.error("Schematic not found", schRes.reason);
                         setSchematicContent(null);
+                        setSchematicError(failure);
                     }
 
                     // Handle Subsheets
@@ -631,6 +664,8 @@ export function Visualizer({ projectId, user, commit, active: viewerActive = tru
         const controller = new AbortController();
         const signal = controller.signal;
         let cancelled = false;
+        setPcbError(null);
+        setPcbPending(false);
 
         const loadPcb = async () => {
             try {
@@ -646,8 +681,12 @@ export function Visualizer({ projectId, user, commit, active: viewerActive = tru
                 }
             } catch (err) {
                 if (!cancelled) {
-                    if (!isAbortError(err)) console.error("Error loading PCB content", err);
+                    const failure = designDataReadFailure(err, "PCB source could not be loaded");
+                    if (!isAbortError(err) && failure.kind === "failed") {
+                        console.error("Error loading PCB content", err);
+                    }
                     setPcbContent(null);
+                    setPcbError(failure);
                 }
             } finally {
                 if (!cancelled) {
@@ -663,6 +702,17 @@ export function Visualizer({ projectId, user, commit, active: viewerActive = tru
             controller.abort();
         };
     }, [pcbContentLoaded, projectId, appendCommit]);
+
+    // A read that ended pending keeps its settled state so the view can offer
+    // "Check again"; clearing the settled flag starts the read again.
+    const retrySchematicRead = useCallback(() => {
+        setSchematicError(null);
+        setSchematicContentLoaded(false);
+    }, []);
+    const retryPcbRead = useCallback(() => {
+        setPcbError(null);
+        setPcbContentLoaded(false);
+    }, []);
 
     // A different project or commit is a different visualizer, not this one
     // with twenty-three values put back. ProjectDetailPage keys this component
@@ -1331,7 +1381,12 @@ export function Visualizer({ projectId, user, commit, active: viewerActive = tru
 
             {semanticIndexPending || semanticIndexError || workingTreeDirty ? (
                 <div className="flex shrink-0 flex-wrap items-center gap-x-4 gap-y-1 border-b bg-muted/20 px-3 py-1.5">
-                    {semanticIndexPending ? <DesignDataPending className="text-xs" /> : null}
+                    {semanticIndexPending ? (
+                        <DesignDataPending
+                            className="text-xs"
+                            onRetry={semanticIndexLoading ? undefined : retrySemanticIndexRead}
+                        />
+                    ) : null}
                     {semanticIndexError ? (
                         <DesignDataFailed
                             detail={semanticIndexError}
@@ -1349,7 +1404,15 @@ export function Visualizer({ projectId, user, commit, active: viewerActive = tru
                     {/* Schematic View - always mounted after first visit */}
                     <div aria-hidden={activeTab !== "sch"} className={`absolute inset-0 z-10 transition-opacity duration-200 ${activeTab === "sch" ? "visible pointer-events-auto opacity-100" : "invisible pointer-events-none opacity-0"}`}>
                         {schematicContentLoaded && viewerSupportFiles ? (
-                            schematicSources.length > 0 ? (
+                            schematicError ? (
+                                <div className="flex h-full items-center justify-center p-8">
+                                    {schematicError.kind === "pending" ? (
+                                        <DesignDataPending onRetry={retrySchematicRead} />
+                                    ) : (
+                                        <DesignDataFailed detail={schematicError.detail} onRetry={retrySchematicRead} />
+                                    )}
+                                </div>
+                            ) : schematicSources.length > 0 ? (
                                 <div className="relative h-full min-w-0 overflow-hidden">
                                     <div className="absolute inset-0 min-h-0 min-w-0">
                                         <EcadViewerHost
@@ -1398,7 +1461,15 @@ export function Visualizer({ projectId, user, commit, active: viewerActive = tru
                     {/* PCB View - always mounted after first visit */}
                     <div aria-hidden={activeTab !== "pcb"} className={`absolute inset-0 z-10 transition-opacity duration-200 ${activeTab === "pcb" ? "visible pointer-events-auto opacity-100" : "invisible pointer-events-none opacity-0"}`}>
                         {!modes.mounted.pcb ? null : pcbContentLoaded && viewerSupportFiles ? (
-                            pcbSources.length > 0 ? (
+                            pcbError ? (
+                                <div className="flex h-full items-center justify-center p-8">
+                                    {pcbError.kind === "pending" ? (
+                                        <DesignDataPending onRetry={retryPcbRead} />
+                                    ) : (
+                                        <DesignDataFailed detail={pcbError.detail} onRetry={retryPcbRead} />
+                                    )}
+                                </div>
+                            ) : pcbSources.length > 0 ? (
                                 <div className="relative h-full min-w-0 overflow-hidden">
                                     <div className="absolute inset-0 min-h-0 min-w-0">
                                         <EcadViewerHost
@@ -1472,10 +1543,14 @@ export function Visualizer({ projectId, user, commit, active: viewerActive = tru
                                 semanticIndex={semanticIndex}
                                 components={effectiveComponents}
                                 loading={semanticIndexLoading}
+                                pending={semanticIndexPending}
                                 error={semanticIndexError}
                                 selection={globalSelection}
                                 onSelection={crossProbeGlobal}
-                                onRetry={() => void generateSemanticIdentity()}
+                                onRetry={() => {
+                                    if (semanticIndexError) void generateSemanticIdentity();
+                                    else retrySemanticIndexRead();
+                                }}
                             />
                         </div>
                     )}

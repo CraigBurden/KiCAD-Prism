@@ -18,6 +18,13 @@ interface LoginPageProps {
   workspaceName?: string;
   initialError?: string | null;
   onLoginSuccess?: (user: User) => void;
+  /**
+   * A restored session whose temporary password must still be changed (after a
+   * reload or in another tab). The page opens on the change form and asks for
+   * the current password, which this browser no longer holds.
+   */
+  restoredUser?: User | null;
+  onSignOut?: () => void;
 }
 
 
@@ -42,6 +49,8 @@ export function LoginPage({
   workspaceName = "KiCAD Prism",
   initialError = null,
   onLoginSuccess,
+  restoredUser = null,
+  onSignOut,
 }: LoginPageProps) {
   const [error, setError] = useState<string | null>(initialError);
   const [isLoading, setIsLoading] = useState(false);
@@ -51,11 +60,12 @@ export function LoginPage({
   const [rememberMe, setRememberMe] = useState(false);
   const [passwordSubmitting, setPasswordSubmitting] = useState(false);
 
-  const [mustChange, setMustChange] = useState(false);
+  const [mustChange, setMustChange] = useState(Boolean(restoredUser));
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   // Written on sign-in and read by the password-change submit; never shown.
-  const pendingUserRef = useRef<User | null>(null);
+  const pendingUserRef = useRef<User | null>(restoredUser);
+  const [currentPassword, setCurrentPassword] = useState("");
 
   const showOidc = authConfig.oidc_enabled ?? !authConfig.password_auth_enabled;
   const showPassword = Boolean(authConfig.password_auth_enabled);
@@ -110,9 +120,9 @@ export function LoginPage({
     setPasswordSubmitting(true);
     setError(null);
     try {
-      await changeOwnPassword(password, newPassword);
+      await changeOwnPassword(restoredUser ? currentPassword : password, newPassword);
       const pendingUser = pendingUserRef.current;
-      if (pendingUser) continueAfterLogin(pendingUser, onLoginSuccess);
+      if (pendingUser) continueAfterLogin({ ...pendingUser, must_change_password: false }, onLoginSuccess);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to set a new password");
     } finally {
@@ -168,6 +178,19 @@ export function LoginPage({
             <CardContent className="space-y-5 pb-7">
               {mustChange ? (
                 <form className="space-y-4" onSubmit={(event) => void handleSetNewPassword(event)}>
+                  {restoredUser && (
+                    <div className="space-y-1.5">
+                      <Label htmlFor="current-password">Current password</Label>
+                      <Input
+                        id="current-password"
+                        type="password"
+                        autoComplete="current-password"
+                        value={currentPassword}
+                        onChange={(event) => setCurrentPassword(event.target.value)}
+                        required
+                      />
+                    </div>
+                  )}
                   <div className="space-y-1.5">
                     <Label htmlFor="new-password">New password</Label>
                     <Input
@@ -193,6 +216,11 @@ export function LoginPage({
                   <Button type="submit" className="w-full" disabled={passwordSubmitting}>
                     {passwordSubmitting ? "Saving…" : "Set password and continue"}
                   </Button>
+                  {onSignOut && (
+                    <Button type="button" variant="ghost" className="w-full" onClick={onSignOut}>
+                      Sign out
+                    </Button>
+                  )}
                 </form>
               ) : (
                 <>

@@ -13,7 +13,7 @@ import {
   X,
 } from "lucide-react";
 
-import { fetchDesignJson } from "@/lib/api";
+import { fetchDesignJson, DesignDataPendingError } from "@/lib/api";
 import { repositoryWebUrl } from "@/lib/repository-url";
 import { cn } from "@/lib/utils";
 import type { FolderTreeItem, Project, ProjectPropertiesResponse } from "@/types/project";
@@ -233,6 +233,7 @@ function useProjectProperties(open: boolean, project: Project | null) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
+  const [pendingError, setPendingError] = useState(false);
   const [dirty, setDirty] = useState(false);
   const [retryToken, setRetryToken] = useState(0);
 
@@ -245,6 +246,7 @@ function useProjectProperties(open: boolean, project: Project | null) {
     setLoading(true);
     setError(null);
     setPending(false);
+    setPendingError(false);
 
     void fetchDesignJson<ProjectPropertiesResponse>(
       `/api/projects/${project.id}/properties`,
@@ -267,7 +269,14 @@ function useProjectProperties(open: boolean, project: Project | null) {
       .catch((fetchError) => {
         if (!controller.signal.aborted) {
           setData(null);
-          setError(fetchError instanceof Error ? fetchError.message : "Failed to load project properties");
+          if (fetchError instanceof DesignDataPendingError) {
+            // Still building: a pending read is not a failure.
+            setError(null);
+            setPendingError(true);
+          } else {
+            setPendingError(false);
+            setError(fetchError instanceof Error ? fetchError.message : "Failed to load project properties");
+          }
         }
       })
       .finally(() => {
@@ -281,7 +290,7 @@ function useProjectProperties(open: boolean, project: Project | null) {
   }, [open, project, retryToken]);
 
   const retry = useCallback(() => setRetryToken((token) => token + 1), []);
-  return { data, loading, error, pending, dirty, retry };
+  return { data, loading, error, pending, pendingError, dirty, retry };
 }
 
 export function WorkspaceProjectPropertiesSheet({
@@ -295,7 +304,7 @@ export function WorkspaceProjectPropertiesSheet({
   onUploadThumbnail,
   onRevertThumbnail,
 }: WorkspaceProjectPropertiesSheetProps) {
-  const { data, loading, error, pending, dirty, retry } = useProjectProperties(open, project);
+  const { data, loading, error, pending, pendingError, dirty, retry } = useProjectProperties(open, project);
   const [thumbnailBusy, setThumbnailBusy] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -369,6 +378,10 @@ export function WorkspaceProjectPropertiesSheet({
           {loading && !pending ? <PropertiesSkeleton /> : null}
 
           {pending ? <DesignDataPending className="py-8" /> : null}
+
+          {!loading && pendingError ? (
+            <DesignDataPending onRetry={retry} className="py-8" />
+          ) : null}
 
           {!loading && error ? (
             <DesignDataFailed

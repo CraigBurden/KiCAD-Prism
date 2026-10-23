@@ -560,6 +560,20 @@ class JobService:
             conn.commit()
             return row is not None
 
+    def active_job_ids(self, kind: str, *, requested_by: str, exclude_job_id: str = "") -> list[str]:
+        """Ids of the kind's queued, running or retry_wait jobs one requester asked for."""
+
+        with self._connect() as conn:
+            conn.execute("SET search_path TO workspace, public")
+            rows = conn.execute(
+                """SELECT id FROM ws_jobs
+                   WHERE kind = %s AND requested_by = %s AND status IN ('queued', 'running', 'retry_wait')
+                     AND id <> %s
+                   ORDER BY created_at""",
+                (kind, requested_by, exclude_job_id),
+            ).fetchall()
+        return [str(row["id"]) for row in rows]
+
     def ended_job_ids(self, kind: str, *, result_metadata: Mapping[str, Any], limit: int = 100) -> list[str]:
         """``failed``/``cancelled`` jobs of ``kind`` whose result metadata contains ``result_metadata``."""
 

@@ -65,6 +65,9 @@ logger = logging.getLogger(__name__)
 KIND = "design_bundle"
 _STAGE_PERCENT = {"parse": 40, "board": 75, "models": 95}
 FLAG_NOTES = ("board-unresolved", "schematic-unresolved", "prism-json-invalid")
+#: The paced backfill's requester and priority; anything lower is a user request.
+BACKFILL_REQUESTED_BY = "design-bundle-backfill"
+BACKFILL_PRIORITY = 300
 
 
 def _workspace():
@@ -127,12 +130,18 @@ def _alias_serves(project_id: str, alias: Mapping[str, Any], *, connect: rows.Co
 def _failure_holds(row: Mapping[str, Any] | None) -> bool:
     """A failed bundle stays failed until a deliberate retry or ``PRISM_DESIGN_BUNDLE_FAILED_RETRY_SECONDS`` passes.
 
+    A source KiCad cannot read stays failed until a deliberate retry.
+
     Status reads poll; without this each read would queue a new job with a
     fresh attempt budget, retrying a permanent failure forever.
     """
 
     if not row or row["state"] != "failed":
         return False
+    # KiCad rejected a source: only a different generator (a new bundle key)
+    # or a deliberate Regenerate can change that.
+    if str(row.get("error") or "").startswith(kicad_steps.UNREADABLE_PREFIX):
+        return True
     delay = settings.PRISM_DESIGN_BUNDLE_FAILED_RETRY_SECONDS
     if delay <= 0:
         return True
@@ -197,11 +206,36 @@ def start_design_bundle_job(
         requested_by=requested_by,
         priority=priority,
     )
+    if not queued.get("deduplicated") and not queued.get("cache_hit"):
+        _preempt_backfill(str(queued["job_id"]), requested_by=requested_by, priority=priority)
     rows.upsert_bundle(
         bundle_key=bundle_key, project_id=project_id, revision_key=revision_key, generator_digest=generator.digest,
         commit=key.commit, state="queued", job_id=str(queued["job_id"]),
     )
     return str(queued["job_id"])
+
+
+def _preempt_backfill(interactive_job_id: str, *, requested_by: str, priority: int | None) -> None:
+    """Cancel a queued or running backfill build so an interactive request does not wait behind it.
+
+    The backfill holds the one ``design_bundle`` slot for minutes on a large
+    board. Only the backfill's own jobs are preempted: another interactive
+    request, another kind, or a user's forced rebuild is left alone.
+    """
+
+    if requested_by == BACKFILL_REQUESTED_BY:
+        return
+    if (DESIGN_BUNDLE.priority if priority is None else priority) >= BACKFILL_PRIORITY:
+        return
+    from app.services.job_service import jobs as job_service
+
+    cancelled_by = requested_by or "interactive"
+    for backfill_job_id in job_service.active_job_ids(
+        KIND, requested_by=BACKFILL_REQUESTED_BY, exclude_job_id=interactive_job_id
+    ):
+        status = job_service.request_cancel(backfill_job_id, requested_by=cancelled_by)
+        if status in ("cancelled", "cancel_requested"):
+            logger.info("Preempted backfill design bundle job %s for interactive job %s", backfill_job_id, interactive_job_id)
 
 
 def queue_for_head(project_id: str, *, requested_by: str = "") -> str | None:
@@ -252,6 +286,8 @@ def prepare_sources(
         upgraded = kicad_steps.upgrade_sources(
             src, config, generator.kicad_file_formats, cancel=cancel, cache=upgrade_cache
         )
+    except kicad_steps.KicadSourceUnreadable as error:
+        raise PermanentJobError(str(error), code="source-unreadable") from error
     except (materialize.SourceUnavailable, kicad_steps.KicadStepFailed) as error:
         raise RetryableJobError(str(error), code="sources-unavailable", retry_after_seconds=30) from error
     effective, key_record = work / "effective.json", work / "key-record.json"
@@ -398,6 +434,8 @@ class _Run:
             self.context.progress(stage="bundle-refill", message="Refilling zones with pcbnew", percent=50, force=True)
             try:
                 refilled = kicad_steps.refill_board(sources, self.config, self.work / "refill", cancel=self.cancel)
+            except kicad_steps.KicadSourceUnreadable as error:
+                raise PermanentJobError(str(error), code="source-unreadable") from error
             except kicad_steps.KicadStepFailed as error:
                 raise RetryableJobError(str(error), code="zone-refill-failed", retry_after_seconds=30) from error
             args += ["--refilled-board", str(refilled), "--refill-tool", self._tool_version()]
@@ -533,7 +571,12 @@ def _remove_superseded(run: _Run) -> None:
 
 
 def settle_design_bundle_end(job: Mapping[str, Any]) -> bool:
-    """End hook: a bundle whose job ended without completing is marked failed with its error."""
+    """End hook: a bundle whose job ended without completing is marked failed with its error.
+
+    A cancelled backfill build leaves no row: it was preempted by an
+    interactive request, so the next tick or request queues it again rather
+    than reading a failure (or waiting out the failed retry delay).
+    """
 
     if job.get("status") not in ("failed", "cancelled"):
         return False
@@ -542,6 +585,9 @@ def settle_design_bundle_end(job: Mapping[str, Any]) -> bool:
     found = rows.get_bundle(project_id, bundle_key) if bundle_key and project_id else None
     if not found or found["state"] not in ("queued", "building") or found.get("job_id") != str(job.get("id") or job.get("job_id")):
         return False
+    if job.get("status") == "cancelled" and str(job.get("requested_by") or "") == BACKFILL_REQUESTED_BY:
+        rows.delete_bundles(project_id, [bundle_key])
+        return True
     rows.upsert_bundle(
         bundle_key=bundle_key, project_id=found["project_id"], revision_key=found["revision_key"],
         generator_digest=found["generator_digest"], commit=found.get("commit_sha"), state="failed",

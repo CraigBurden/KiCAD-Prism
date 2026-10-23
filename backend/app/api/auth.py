@@ -15,7 +15,13 @@ from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from pydantic import BaseModel, Field
 from app.core.config import settings
 from app.core.roles import Role
-from app.core.security import AuthenticatedUser, guest_user, require_admin, require_viewer
+from app.core.security import (
+    AuthenticatedUser,
+    guest_user,
+    require_admin,
+    require_viewer,
+    require_viewer_allowing_password_change,
+)
 from app.core.session import (
     OIDC_TRANSACTION_COOKIE_NAME,
     SESSION_COOKIE_NAME,
@@ -83,6 +89,9 @@ class UserSession(BaseModel):
     name: str
     picture: str = ""
     role: Role
+    # Set while the account's temporary password must still be changed; the
+    # client shows only the change form until it is cleared.
+    must_change_password: bool = False
 
 
 class AuthConfig(BaseModel):
@@ -110,6 +119,7 @@ def _build_user_session(user: ResolvedSessionUser | AuthenticatedUser) -> UserSe
         name=user.name,
         picture=user.picture,
         role=user.role,
+        must_change_password=bool(getattr(user, "password_change_required", False)),
     )
 
 
@@ -315,7 +325,7 @@ async def login_with_password(
 @router.post("/password/change")
 async def change_own_password(
     request: ChangePasswordRequest,
-    user: AuthenticatedUser = Depends(require_viewer),
+    user: AuthenticatedUser = Depends(require_viewer_allowing_password_change),
 ):
     """Change the signed-in user's own local password."""
     if not password_auth_enabled():
@@ -336,7 +346,7 @@ async def change_own_password(
 
 
 @router.get("/me", response_model=UserSession)
-async def get_current_session_user(user: AuthenticatedUser = Depends(require_viewer)):
+async def get_current_session_user(user: AuthenticatedUser = Depends(require_viewer_allowing_password_change)):
     return _build_user_session(user)
 
 

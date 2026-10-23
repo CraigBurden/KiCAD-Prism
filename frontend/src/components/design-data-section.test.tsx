@@ -25,13 +25,22 @@ const STATUS = {
     storedBytes: 1024,
 };
 
+// A Type-2 subproject lists only commits touching it, so the newest listed
+// commit can be older than the checkout's HEAD; the label must name HEAD.
+const HEAD = {
+    commits: [{ full_hash: "1111111111111111111111111111111111111111" }],
+    head: "abcdef12abcdef12abcdef12abcdef12abcdef12",
+};
+
 const response = (ok: boolean) => ({ ok } as Response);
 
 const renderSection = (canEdit = true) =>
     render(<DesignDataSection projectId="p1" canEdit={canEdit} />);
 
 beforeEach(() => {
-    mocks.fetchJson.mockResolvedValue(STATUS);
+    mocks.fetchJson.mockImplementation(async (url: string) =>
+        url.includes("/commits?") ? HEAD : STATUS,
+    );
     mocks.fetchApi.mockResolvedValue(response(true));
     mocks.readApiError.mockResolvedValue("A design bundle of this project is being built; try again when it finishes");
 });
@@ -70,6 +79,11 @@ describe("DesignDataSection", () => {
         expect(await screen.findByText("Design data status unavailable")).toBeInTheDocument();
     });
 
+    it("names the commit that Rebuild for HEAD targets", async () => {
+        renderSection();
+        expect(await screen.findByText("abcdef12")).toBeInTheDocument();
+    });
+
     it("hides the rebuilds when the viewer may not edit", async () => {
         renderSection(false);
         await screen.findByText("2 stored · 3 reused");
@@ -87,8 +101,8 @@ describe("DesignDataSection", () => {
         expect(init.method).toBe("POST");
         expect(JSON.parse(init.body)).toEqual({ scope: "commit" });
         await waitFor(() => expect(mocks.toastSuccess).toHaveBeenCalledWith("Rebuild queued"));
-        // The counts are refreshed after the queue.
-        await waitFor(() => expect(mocks.fetchJson).toHaveBeenCalledTimes(2));
+        // The counts are refreshed after the queue, next to the HEAD read.
+        await waitFor(() => expect(mocks.fetchJson).toHaveBeenCalledTimes(3));
     });
 
     it("asks before rebuilding everything", async () => {
@@ -118,7 +132,7 @@ describe("DesignDataSection", () => {
             ),
         );
         expect(mocks.toastSuccess).not.toHaveBeenCalled();
-        // A refused rebuild does not refresh the counts.
-        expect(mocks.fetchJson).toHaveBeenCalledTimes(1);
+        // A refused rebuild does not refresh the counts; only the initial loads ran.
+        expect(mocks.fetchJson).toHaveBeenCalledTimes(2);
     });
 });

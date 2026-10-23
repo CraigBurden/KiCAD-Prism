@@ -36,6 +36,7 @@ from app.services.git_service import (
     get_commit_file_summary,
     get_commits_list,
     get_commits_list_filtered,
+    get_head_commit,
     get_releases,
     get_releases_filtered,
 )
@@ -1097,10 +1098,12 @@ async def get_project_commits(
     """
     Get paginated commits for a project.
     For Type-2 projects, shows only commits affecting the subproject.
+    ``head`` is the checkout's HEAD, which a filtered or ``ref`` page may not list.
     """
     project = get_project_for_role_or_404(project_id, user.role)
     
     repo_path, relative_path = _repo_context(project)
+    head = await asyncio.to_thread(get_head_commit, repo_path)
     if relative_path:
         page = await asyncio.to_thread(
             get_commits_list_filtered,
@@ -1121,7 +1124,7 @@ async def get_project_commits(
             include_total,
         )
     
-    return page
+    return {**page, "head": head}
 
 
 @router.get("/{project_id}/commits/{commit_hash}/summary")

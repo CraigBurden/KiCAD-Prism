@@ -91,20 +91,33 @@ class BundleDesign:
         """A repository path as the bundle's ``sources/`` names it.
 
         Release Studio's configuration names files repository-relative because
-        its closure is the whole repository; the bundle's source members are
-        relative to the project anchor.  The read_set's anchor is the project
-        folder, so stripping its prefix is the whole translation.
+        its closure is the whole repository. A bundle anchored at the project
+        folder stores its sources relative to that anchor; one keyed at the
+        repository root (a Type-2 subproject without an anchor) stores the
+        repository path itself. Whichever form the manifest holds wins; with no
+        manifest to ask, the anchor-relative form is the answer.
         """
 
         value = str(repository_path or "").replace("\\", "/").strip("/")
         anchor = str(project_relpath or "").replace("\\", "/").strip("/")
+        stripped = value
         if anchor and anchor not in ("", "."):
             prefix = f"{anchor}/"
             if value == anchor:
-                return ""
-            if value.startswith(prefix):
-                return value[len(prefix) :]
-        return value
+                stripped = ""
+            elif value.startswith(prefix):
+                stripped = value[len(prefix) :]
+        members = self._member_paths()
+        if members is not None and stripped != value:
+            if f"sources/{stripped}" not in members and f"sources/{value}" in members:
+                return value
+        return stripped
+
+    def _member_paths(self) -> frozenset[str] | None:
+        archive = getattr(self.opened, "archive", None) if self.opened is not None else None
+        if archive is None:
+            return None
+        return frozenset(str(member.get("path") or "") for member in archive.manifest.get("members") or ())
 
     def board_member(self, board: str, project_relpath: str = "") -> str:
         """The member the board steps read: ``refilled/`` or the saved board."""
