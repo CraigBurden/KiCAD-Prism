@@ -12,6 +12,7 @@ from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, Upl
 from fastapi.responses import FileResponse, Response
 from pydantic import BaseModel, Field
 
+from app.api._blocking import run_bounded_io
 from app.api._helpers import authorized_project, get_project_for_role_or_404, _row_to_project, require_output_type, resolve_path_within_root
 from app.core.errors import caller_error, caller_errors, value_errors_as
 from app.core.config import settings
@@ -851,6 +852,12 @@ async def get_project_files(
         type: 'design' or 'manufacturing'
     """
     output_type = require_output_type(type)
+    return await asyncio.to_thread(_project_files_response, project_id, output_type, commit, user)
+
+
+def _project_files_response(
+    project_id: str, output_type: str, commit: Optional[str], user: AuthenticatedUser
+):
     project = get_project_for_role_or_404(project_id, user.role)
     if commit:
         config = _path_config_from_commit(project, commit)
@@ -876,6 +883,17 @@ async def download_file(
         inline: If True, serve as inline content (view in browser)
     """
     output_type = require_output_type(type)
+    return await run_bounded_io(_download_file_response, project_id, path, output_type, inline, commit, user)
+
+
+def _download_file_response(
+    project_id: str,
+    path: str,
+    output_type: str,
+    inline: bool,
+    commit: Optional[str],
+    user: AuthenticatedUser,
+):
     project = get_project_for_role_or_404(project_id, user.role)
 
     if commit:
@@ -914,7 +932,7 @@ async def get_project_readme(
     For Type-2 projects, uses parent repo with relative path prefix.
     """
     project = get_project_for_role_or_404(project_id, user.role)
-    content = _load_project_readme_content(project, commit)
+    content = await asyncio.to_thread(_load_project_readme_content, project, commit)
     if content is None:
         raise HTTPException(status_code=404, detail="README not found")
     return {"content": content}
@@ -931,6 +949,10 @@ async def get_project_asset(
     Typically used for README image references.
     """
     project = get_project_for_role_or_404(project_id, user.role)
+    return await run_bounded_io(_asset_response, project, asset_path, commit)
+
+
+def _asset_response(project: project_service.Project, asset_path: str, commit: Optional[str]):
     if commit:
         commit_file = _read_commit_file(
             project,
@@ -961,17 +983,21 @@ async def get_docs_files(
     """
     project = get_project_for_role_or_404(project_id, user.role)
 
+    return await asyncio.to_thread(_docs_files_response, project, commit)
+
+
+def _docs_files_response(project: project_service.Project, commit: Optional[str]):
     if commit:
         config = _path_config_from_commit(project, commit)
         docs_path = config.documentation or "docs"
         return _files_from_commit(project, commit, docs_path)
-    
+
     resolved = project_service.resolved_paths_for(project)
     docs_dir = resolved.documentation_dir
-    
+
     if not docs_dir or not os.path.exists(docs_dir):
         return []  # Return empty list if docs not configured/found
-    
+
     return file_service.get_files_recursive(docs_dir)
 
 @router.get("/{project_id}/docs/content")
@@ -987,11 +1013,14 @@ async def get_doc_file_content(
     For Type-2 projects, uses parent repo with relative path prefix.
     """
     project = get_project_for_role_or_404(project_id, user.role)
-    
+    return await run_bounded_io(_doc_file_content_response, project, path, commit)
+
+
+def _doc_file_content_response(project: project_service.Project, path: str, commit: Optional[str]):
     # Get documentation path from config
     config = _path_config_from_commit(project, commit)
     docs_path = config.documentation or "docs"
-    
+
     # If viewing a specific commit, use Git
     if commit:
         try:
@@ -999,14 +1028,14 @@ async def get_doc_file_content(
             return {"content": content, "path": path}
         except HTTPException:
             raise
-    
+
     # Otherwise read from filesystem
     resolved = project_service.resolved_paths_for(project)
     docs_dir = resolved.documentation_dir
-    
+
     if not docs_dir or not os.path.exists(docs_dir):
         raise HTTPException(status_code=404, detail="Documentation folder not found")
-    
+
     file_path = resolve_path_within_root(docs_dir, path, invalid_detail="Invalid file path")
     return {
         "content": _read_utf8_file(
@@ -1165,6 +1194,12 @@ async def get_project_commit_file(
     endpoint for PDF, CSV, text, and markdown; CAD files go to the visualizer.
     """
     project = get_project_for_role_or_404(project_id, user.role)
+    return await run_bounded_io(_commit_file_response_for_project, project, commit_hash, path)
+
+
+def _commit_file_response_for_project(
+    project: project_service.Project, commit_hash: str, path: str
+):
     repo_path, relative_path = _repo_context(project)
 
     # The summary path is already repo-relative (it includes the subproject
@@ -1195,7 +1230,10 @@ async def get_project_ibom(
     user: AuthenticatedUser = Depends(require_viewer),
 ):
     project = get_project_for_role_or_404(project_id, user.role)
+    return await run_bounded_io(_ibom_response, project, commit)
 
+
+def _ibom_response(project: project_service.Project, commit: Optional[str]):
     if commit:
         config = _path_config_from_commit(project, commit)
         commit_file = _find_commit_ibom(project, commit, config)
@@ -1204,7 +1242,7 @@ async def get_project_ibom(
             inline=True,
             headers={"Cache-Control": "public, max-age=60"},
         )
-    
+
     path = project_service.find_ibom_file(project.path)
     if not path:
         raise HTTPException(status_code=404, detail="iBoM not found")
