@@ -8,10 +8,11 @@
 //! the schematics the root schematic reaches (`SchematicModel::bundle`).
 //! Another project's files, and a schematic the design never reaches, are not
 //! this project's documents (divergence D11). Each document is tokenized
-//! once ([`tree`]); the same tree gives the objects, the file order and every
+//! once ([`tree`]); the same tokens give the objects, the file order and every
 //! "as written" value, and [`digest`] gives each object's `contentDigest`.
-//! Review-only settings objects come from [`review`]. A document that cannot
-//! be read is left out with a warning (divergence 10).
+//! The board is read one top-level item at a time, so it is never held as one
+//! tree. Review-only settings objects come from [`review`]. A document that
+//! cannot be read is left out with a warning (divergence 10).
 
 mod blake2b;
 mod board;
@@ -126,7 +127,17 @@ fn document(
     warnings: &mut Vec<ProducerWarning>,
 ) -> Option<DocumentParts> {
     match kind {
-        DocumentKind::Schematic | DocumentKind::Board => {
+        DocumentKind::Board => {
+            // A board with no text has no root and is left out with a warning;
+            // one with text but no root list yields an empty document, as when
+            // the first root was not a list.
+            if tree::unbalanced(text).is_some() || text.trim().is_empty() {
+                warnings.push(unreadable(path));
+                return None;
+            }
+            Some(board::document(path, text, warnings))
+        }
+        DocumentKind::Schematic => {
             if tree::unbalanced(text).is_some() {
                 warnings.push(unreadable(path));
                 return None;
@@ -137,11 +148,7 @@ fn document(
                 warnings.push(unreadable(path));
                 return None;
             };
-            let parts = if matches!(kind, DocumentKind::Board) {
-                board::document(path, &root, warnings)
-            } else {
-                schematic::document(path, &root, warnings)
-            };
+            let parts = schematic::document(path, &root, warnings);
             drop(root);
             Some(parts)
         }

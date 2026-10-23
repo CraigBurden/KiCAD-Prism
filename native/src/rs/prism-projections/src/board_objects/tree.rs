@@ -18,6 +18,11 @@
 //! of it, and a quoted string is a slice too unless it carries an escape (then
 //! it is the one decoded `String`). A parse therefore allocates only the
 //! per-list child vectors, never one owned token text per token.
+//!
+//! A whole board is still roughly 600 MiB of nodes at 55 MB of text, so the
+//! board is read through [`items`] instead: one direct child of the file's
+//! single top-level form at a time, each dropped before the next is built. The
+//! two readers tokenize identically (an item is `parse`d from its own slice).
 
 use std::borrow::Cow;
 
@@ -108,6 +113,12 @@ impl<'a> Node<'a> {
 /// as both reference readers do. The nodes borrow `text`.
 #[must_use]
 pub fn parse(text: &str) -> Vec<Node<'_>> {
+    parse_at(text, 0)
+}
+
+/// Parse `text` into its top-level forms, adding `base` to every list's byte
+/// offset: a fragment of a larger document then keeps the offsets it has there.
+fn parse_at(text: &str, base: usize) -> Vec<Node<'_>> {
     let bytes = text.as_bytes();
     let mut roots: Vec<Node> = Vec::with_capacity(4);
     let mut stack: Vec<(usize, Vec<Node>)> = Vec::with_capacity(16);
@@ -115,7 +126,7 @@ pub fn parse(text: &str) -> Vec<Node<'_>> {
     while index < bytes.len() {
         match bytes[index] {
             b'(' => {
-                stack.push((index, Vec::with_capacity(4)));
+                stack.push((index + base, Vec::with_capacity(4)));
                 index += 1;
             }
             b')' => {
@@ -154,6 +165,174 @@ fn push<'a>(roots: &mut Vec<Node<'a>>, stack: &mut [(usize, Vec<Node<'a>>)], nod
     } else {
         roots.push(node);
     }
+}
+
+/// The direct child lists of `text`'s single top-level form, one at a time.
+///
+/// A board is one top-level form, so [`parse`] holds every node of the file at
+/// once (about 600 MiB for a 55 MB board). This reads the file as its single
+/// form's children instead: a child is built from its own slice, handed to the
+/// caller, and dropped before the next one is built, so peak memory is the
+/// largest child (a dense `zone`) rather than the document.
+///
+/// Leaves of the top-level form (its head, `(version …)`'s atoms) are skipped:
+/// every caller reads child lists by head, and the digest walk ignores leaves.
+pub fn items(text: &str) -> impl Iterator<Item = Node<'_>> {
+    child_ranges(text)
+        .filter_map(|(start, end)| parse_at(&text[start..end], start).into_iter().next())
+}
+
+/// The direct child lists of `text`'s single top-level form whose head is
+/// `head`. Only those children are built, so reading a board's `(net …)` table
+/// costs one byte scan, not a parse of the document.
+#[must_use]
+pub fn children_with_head<'a>(text: &'a str, head: &str) -> Vec<Node<'a>> {
+    child_ranges(text)
+        .filter(|(start, end)| head_at(text, *start, *end) == Some(head))
+        .flat_map(|(start, end)| parse_at(&text[start..end], start))
+        .collect()
+}
+
+/// The byte span of every direct child list of `text`'s single top-level form.
+///
+/// Tolerates what [`parse`] tolerates: a leading non-`(` token means there is
+/// no top-level list, and an unclosed list runs to the end of the text.
+fn child_ranges(text: &str) -> ChildRanges<'_> {
+    ChildRanges {
+        text,
+        index: 0,
+        in_root: false,
+        done: false,
+    }
+}
+
+struct ChildRanges<'a> {
+    text: &'a str,
+    index: usize,
+    in_root: bool,
+    done: bool,
+}
+
+impl Iterator for ChildRanges<'_> {
+    type Item = (usize, usize);
+
+    fn next(&mut self) -> Option<(usize, usize)> {
+        if !self.in_root && !self.enter_root() {
+            return None;
+        }
+        while !self.done && self.index < self.text.len() {
+            if let Some(range) = self.child_at() {
+                return Some(range);
+            }
+        }
+        None
+    }
+}
+
+impl<'a> ChildRanges<'a> {
+    /// Move past the top-level form's `(`; `false` when there is no top-level
+    /// list (`parse` would give a leaf root, which has no children).
+    fn enter_root(&mut self) -> bool {
+        let bytes = self.text.as_bytes();
+        while self.index < bytes.len() && bytes[self.index].is_ascii_whitespace() {
+            self.index += 1;
+        }
+        if self.index >= bytes.len() || bytes[self.index] != b'(' {
+            self.done = true;
+            return false;
+        }
+        self.in_root = true;
+        self.index += 1;
+        true
+    }
+
+    /// One step at the current byte: the span of a child list when the byte
+    /// opens one, otherwise `None` after stepping past it.
+    fn child_at(&mut self) -> Option<(usize, usize)> {
+        let bytes = self.text.as_bytes();
+        match bytes[self.index] {
+            b' ' | b'\t' | b'\n' | b'\r' => self.index += 1,
+            b')' => self.done = true,
+            b'(' => {
+                let start = self.index;
+                let end = form_end(self.text, start);
+                self.index = end;
+                return Some((start, end));
+            }
+            b'"' => self.index = string_end(bytes, self.index + 1),
+            _ => self.index = token_end(bytes, self.index),
+        }
+        None
+    }
+}
+
+/// The index just past the `)` matching the `(` at `start`, or the end of the
+/// text when the form does not close.
+fn form_end(text: &str, start: usize) -> usize {
+    let bytes = text.as_bytes();
+    let mut depth = 0usize;
+    let mut index = start;
+    while index < bytes.len() {
+        match bytes[index] {
+            b'"' => {
+                index = string_end(bytes, index + 1);
+                continue;
+            }
+            b'(' => depth += 1,
+            b')' => {
+                depth -= 1;
+                if depth == 0 {
+                    return index + 1;
+                }
+            }
+            _ => {}
+        }
+        index += 1;
+    }
+    bytes.len()
+}
+
+/// The index just past the quote closing the string that starts at `start`.
+fn string_end(bytes: &[u8], start: usize) -> usize {
+    let mut index = start;
+    while index < bytes.len() {
+        match bytes[index] {
+            b'"' => return index + 1,
+            b'\\' => index += usize::from(index + 1 < bytes.len()),
+            _ => {}
+        }
+        index += 1;
+    }
+    index
+}
+
+/// The index just past the unquoted token that starts at `start`.
+fn token_end(bytes: &[u8], start: usize) -> usize {
+    let mut index = start;
+    while index < bytes.len()
+        && !matches!(
+            bytes[index],
+            b'(' | b')' | b'"' | b' ' | b'\t' | b'\n' | b'\r'
+        )
+    {
+        index += 1;
+    }
+    index
+}
+
+/// The head symbol of the list spanning `start..end`, as [`Node::head`] reads
+/// it: the first child when that child is an unquoted token.
+fn head_at(text: &str, start: usize, end: usize) -> Option<&str> {
+    let bytes = text.as_bytes();
+    let mut index = start + 1;
+    while index < end && bytes[index].is_ascii_whitespace() {
+        index += 1;
+    }
+    let head_end = token_end(bytes, index);
+    if head_end == index || head_end > end {
+        return None;
+    }
+    Some(&text[index..head_end])
 }
 
 /// Read a quoted string starting after the opening quote at `start`; returns
@@ -428,6 +607,51 @@ mod tests {
         assert!(unbalanced("(a (b)").is_some());
         assert!(unbalanced("(a))").is_some());
         assert!(unbalanced("(a \"(\")").is_none());
+    }
+
+    #[test]
+    fn items_reads_the_top_level_forms_children() {
+        let text = "(kicad_pcb (version 9) (net 1 \"a\") (segment (uuid \"x\")))";
+        let heads: Vec<Option<String>> = items(text)
+            .map(|item| item.head().map(str::to_owned))
+            .collect();
+        assert_eq!(
+            heads,
+            vec![
+                Some("version".to_owned()),
+                Some("net".to_owned()),
+                Some("segment".to_owned())
+            ]
+        );
+        // The same nodes `parse` gives as the root's children.
+        let roots = parse(text);
+        let expected: Vec<&Node> = roots[0].items().unwrap().iter().skip(1).collect();
+        for (item, expected) in items(text).zip(expected) {
+            assert_eq!(&item, expected);
+        }
+    }
+
+    #[test]
+    fn items_skips_strings_and_tolerates_a_leaf_root() {
+        let text = "  (board (gr_text \"(\") (via))  (ignored (via))";
+        let heads: Vec<Option<String>> = items(text)
+            .map(|item| item.head().map(str::to_owned))
+            .collect();
+        assert_eq!(
+            heads,
+            vec![Some("gr_text".to_owned()), Some("via".to_owned())]
+        );
+        assert_eq!(items("nope (a)").count(), 0);
+    }
+
+    #[test]
+    fn children_with_head_builds_only_the_named_forms() {
+        let text = "(kicad_pcb (segment) (net 1 \"a\") (net 2 \"b\"))";
+        let nets = children_with_head(text, "net");
+        assert_eq!(nets.len(), 2);
+        assert_eq!(nets[1].head(), Some("net"));
+        assert_eq!(text_at(&nets[1], 1).as_deref(), Some("2"));
+        assert!(children_with_head(text, "zone").is_empty());
     }
 
     #[test]
