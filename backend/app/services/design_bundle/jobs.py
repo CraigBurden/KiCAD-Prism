@@ -57,7 +57,7 @@ from app.services.design_bundle import (
 from app.services.design_bundle.archive import Archive
 from app.services.design_bundle.effective_config import ProjectKey, ProjectRef, key_at_commit
 from app.services.design_bundle.generator import Generator
-from app.services.job_kinds import JobKind, JobSubject, repository_lock
+from app.services.job_kinds import JobKind, JobSubject, memory_units, repository_lock
 from app.services.job_runtime import JobContext, JobResult, PermanentJobError, RetryableJobError
 
 logger = logging.getLogger(__name__)
@@ -618,7 +618,15 @@ DESIGN_BUNDLE = JobKind(
     run_design_bundle_job,
     # cli-spec.md §7.4: while legacy consumers still run, a bundle build also
     # holds one semantic_compile unit, sharing the legacy memory budget.
-    resources={"prism_worker": 1, "design_bundle": 1, "semantic_compile": 1},
+    # 2304 MiB is the measured prism-kicad parse peak (2.0-2.1 GiB) with a
+    # small margin; the build must not share the worker with a Release Studio
+    # build on the 7.75 GiB deployment (see job_kinds.memory_units).
+    resources={
+        "prism_worker": 1,
+        "design_bundle": 1,
+        "semantic_compile": 1,
+        **memory_units(2304),
+    },
     lock=repository_lock("read"),
     max_attempts=settings.PRISM_DESIGN_BUNDLE_MAX_ATTEMPTS,
     priority=150,

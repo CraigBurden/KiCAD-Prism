@@ -289,16 +289,102 @@ class StoreTests(unittest.TestCase):
         self.assertEqual(store.remove_other_generators("proj-1", RK, self.digest), ["d" * 64])
         self.assertTrue(self.path.exists())
         archive = store.open_bundle("proj-1", RK, self.digest, self.manifest["bundle_key"])
+        assert archive is not None
         store.extract(archive, "proj-1", RK, self.digest, ["sources/"])
         stale = store.cache_dir("proj-1", RK, self.digest) / ("f" * 64)
         stale.mkdir()
         os.utime(stale, (time.time() - 7200, time.time() - 7200))
-        self.assertEqual(store.prune_versions("proj-1", RK, self.digest, archive.manifest_sha256, grace_seconds=3600), 1)
+        report = store.prune_cache_store(
+            keep={("proj-1", RK, self.digest): archive.manifest_sha256},
+            grace_seconds=3600, idle_before=0, max_bytes=0, max_bytes_per_project=0,
+        )
+        self.assertEqual(report["versions"], 1)
         temp = self.path.parent / f".{self.path.name}.prism-kicad-42-0.tmp"
         temp.write_bytes(b"partial")
         os.utime(temp, (time.time() - 7200, time.time() - 7200))
         self.assertEqual(store.sweep_temporary_files(), 1)
         self.assertGreater(store.stored_bytes("proj-1"), 0)
+
+    def _cache(self) -> tuple[store.Archive, Path, tuple[str, str, str]]:
+        archive = store.open_bundle("proj-1", RK, self.digest, self.manifest["bundle_key"])
+        assert archive is not None
+        version = store.extract(archive, "proj-1", RK, self.digest, ["sources/"])
+        return archive, version, ("proj-1", RK, self.digest)
+
+    def test_an_extract_refreshes_the_version_directory_mtime(self) -> None:
+        archive, version, _key = self._cache()
+        past = time.time() - 7200
+        os.utime(version, (past, past))
+        store.extract(archive, "proj-1", RK, self.digest, ["sources/"])
+        self.assertGreater(version.stat().st_mtime, past + 60)
+
+    def test_an_idle_cache_goes_and_the_archive_stays(self) -> None:
+        archive, version, key = self._cache()
+        now = time.time()
+        idle = now - 10 * 86400
+        os.utime(version, (idle, idle))
+        report = store.prune_cache_store(
+            keep={key: archive.manifest_sha256}, last_used={key: idle}, grace_seconds=3600,
+            idle_before=now - 7 * 86400, max_bytes=0, max_bytes_per_project=0, now=now,
+        )
+        self.assertEqual((report["idle_versions"], report["capped_versions"]), (1, 0))
+        self.assertGreater(report["idle_bytes"], 0)
+        self.assertFalse(version.exists())
+        self.assertTrue(self.path.is_file())  # the archive is what can be re-extracted from
+
+    def test_the_grace_period_protects_a_directory_a_reader_may_use(self) -> None:
+        archive, version, key = self._cache()
+        now = time.time()
+        stale = time.time() - 10 * 86400
+        os.utime(version, (stale, stale))
+        # The archive was last read a moment ago: the directory's own old mtime
+        # must not make it idle.
+        report = store.prune_cache_store(
+            keep={key: archive.manifest_sha256}, last_used={key: now}, grace_seconds=3600,
+            idle_before=now - 7 * 86400, max_bytes=1, max_bytes_per_project=1, now=now,
+        )
+        self.assertEqual((report["idle_versions"], report["capped_versions"]), (0, 0))
+        self.assertTrue(version.exists())
+        # And a fresh directory survives a cap it cannot fit in.
+        os.utime(version, (now, now))
+        report = store.prune_cache_store(
+            keep={key: archive.manifest_sha256}, last_used={key: stale}, grace_seconds=3600,
+            idle_before=now - 7 * 86400, max_bytes=1, max_bytes_per_project=1, now=now,
+        )
+        self.assertEqual(report["capped_versions"], 0)
+        self.assertTrue(version.exists())
+
+    def test_the_cap_evicts_least_recently_used_and_never_follows_a_symlink(self) -> None:
+        first, first_version, key = self._cache()
+        second_revision = "b" * 64
+        store.prepare("proj-1", second_revision, self.digest).write_bytes(self.path.read_bytes())
+        second = store.open_bundle("proj-1", second_revision, self.digest, self.manifest["bundle_key"])
+        assert second is not None
+        second_version = store.extract(second, "proj-1", second_revision, self.digest, ["sources/"])
+        now = time.time()
+        stale = now - 2 * 86400
+        for path in (first_version, second_version):
+            os.utime(path, (stale, stale))
+        outside = self.tmp / "outside"
+        outside.mkdir()
+        (outside / "keep.txt").write_text("not a bundle member")
+        linked_version = first_version.parent / ("e" * 64)
+        linked_version.symlink_to(outside)
+        (second_version / "linked").symlink_to(outside / "keep.txt")
+        size = store._tree_bytes(second_version)  # +1 byte over one cache; symlinks are not counted
+        report = store.prune_cache_store(
+            keep={key: first.manifest_sha256, ("proj-1", second_revision, self.digest): second.manifest_sha256},
+            last_used={key: stale, ("proj-1", second_revision, self.digest): now - 3600},
+            grace_seconds=3600, idle_before=now - 30 * 86400,
+            max_bytes=0, max_bytes_per_project=size + 1, now=now,
+        )
+        self.assertEqual(report["capped_versions"], 1)
+        self.assertFalse(first_version.exists())  # least recently used
+        self.assertTrue(second_version.exists())
+        self.assertTrue(linked_version.is_symlink())  # a symbolic link is not a version directory
+        self.assertEqual((outside / "keep.txt").read_text(), "not a bundle member")
+        self.assertTrue((second_version / "linked").is_symlink())
+        self.assertEqual((outside / "keep.txt").read_text(), "not a bundle member")
 
 
 if __name__ == "__main__":

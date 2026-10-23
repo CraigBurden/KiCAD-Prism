@@ -7,6 +7,7 @@ from typing import Dict, Optional
 from fastapi import APIRouter, Depends, Response
 from pydantic import BaseModel
 
+from app.api._blocking import run_bounded_io
 from app.api._helpers import get_project_for_role_or_404
 from app.api.projects import _load_project_readme_content, _repo_context
 from app.core.security import AuthenticatedUser, require_viewer
@@ -175,7 +176,8 @@ async def get_project_overview(
     Return project detail and README content in one payload for the overview page.
     """
     project = get_project_for_role_or_404(project_id, user.role)
+    readme = await run_bounded_io(_load_project_readme_content, project, commit)
     return {
         "project": project.model_dump(),
-        "readme": _load_project_readme_content(project, commit),
+        "readme": readme,
     }

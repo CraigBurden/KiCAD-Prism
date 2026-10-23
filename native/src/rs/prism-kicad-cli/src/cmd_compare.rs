@@ -268,7 +268,7 @@ fn open_source(args: &Args, side: &'static str, stderr: &Stderr) -> Outcome<Side
     let mut by_path: BTreeMap<String, Arc<[u8]>> = built
         .members
         .into_iter()
-        .map(|member| (member.path, member.bytes))
+        .filter_map(|member| member.bytes().cloned().map(|bytes| (member.path, bytes)))
         .collect();
     let mut documents = built.documents;
     let members: BTreeMap<&'static str, Member> = MEMBERS

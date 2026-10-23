@@ -102,8 +102,34 @@ class _Opened:
         return self._document
 
 
-class ConsumerTests(unittest.TestCase):
-    """The API consumer reads only the bundle (ADR §9.7 R1)."""
+class _Archive:
+    """The one member's manifest row, enough for the cache key."""
+
+    def __init__(self, sha256: str) -> None:
+        self._sha256 = sha256
+
+    def member(self, path: str) -> dict:
+        return {"path": path, "sha256": self._sha256}
+
+
+class _Bundled(_Opened):
+    """A revision in a stored archive, so the catalog cache can key it."""
+
+    def __init__(
+        self,
+        state: str,
+        document: dict | None = None,
+        *,
+        bundle_key: str = "bundle-a",
+        sha256: str = "a" * 64,
+    ) -> None:
+        super().__init__(state, document)
+        self.bundle_key = bundle_key
+        self.archive = _Archive(sha256)
+
+
+class _ProjectCase(unittest.TestCase):
+    """A repository with one project, and the discovery call the tests drive."""
 
     def setUp(self) -> None:
         self.root = Path(self.enterContext(tempfile.TemporaryDirectory(prefix="variant-bundle-")))
@@ -122,6 +148,10 @@ class ConsumerTests(unittest.TestCase):
                 ),
                 open_revision,
             )
+
+
+class ConsumerTests(_ProjectCase):
+    """The API consumer reads only the bundle (ADR §9.7 R1)."""
 
     def test_a_ready_member_supplies_the_catalog(self) -> None:
         document = {
@@ -171,3 +201,66 @@ class ConsumerTests(unittest.TestCase):
 
         with self.assertRaises(DesignDataFailed):
             self._discover(_Broken("ready", None))
+
+
+class CatalogCacheTests(_ProjectCase):
+    """A ready member is parsed once per (bundle key, member sha256, project dir)."""
+
+    def setUp(self) -> None:
+        super().setUp()
+        variant_catalog_service.reset_variant_catalog_cache()
+        self.addCleanup(variant_catalog_service.reset_variant_catalog_cache)
+
+    def _document(self, diagnostic_path: str = "boards/main/broken.kicad_sch") -> dict:
+        return {
+            "assembly": {
+                "catalog": [BUNDLE_ENTRY],
+                "diagnostics": [{**BUNDLE_DIAGNOSTIC, "path": diagnostic_path}],
+            }
+        }
+
+    def test_the_same_bundle_key_and_member_read_once(self) -> None:
+        opened = _Bundled("ready", self._document())
+        first, _ = self._discover(opened)
+        second, _ = self._discover(opened)
+        self.assertEqual(opened.read_paths, [variant_catalog_service.SEMANTIC_INDEX_MEMBER])
+        self.assertEqual(first, second)
+        # Key order is part of the HTTP body; a cached copy must not reorder it.
+        self.assertEqual(json.dumps(first), json.dumps(second))
+        self.assertEqual(variant_catalog_service.variant_catalog_cache_stats()["hits"], 1)
+
+    def test_a_changed_member_digest_is_a_miss(self) -> None:
+        document = self._document()
+        first, _ = self._discover(_Bundled("ready", document, sha256="a" * 64))
+        second, _ = self._discover(_Bundled("ready", document, sha256="b" * 64))
+        self.assertEqual(first, second)
+        self.assertEqual(variant_catalog_service.variant_catalog_cache_stats()["misses"], 2)
+
+    def test_a_different_project_directory_is_a_miss(self) -> None:
+        # Diagnostic paths are project-relative, so the same member shapes
+        # differently in another project directory.
+        opened = _Bundled("ready", self._document())
+        (self.root / "boards" / "other").mkdir()
+        first, _ = self._discover(opened)
+        self.project = SimpleNamespace(
+            id=self.project.id,
+            path=str(self.root / "boards"),
+            project_file="main.kicad_pro",
+        )
+        second, _ = self._discover(opened)
+        self.assertEqual(first["diagnostics"][0]["path"], "broken.kicad_sch")
+        self.assertEqual(second["diagnostics"][0]["path"], "main/broken.kicad_sch")
+        self.assertEqual(
+            opened.read_paths,
+            [variant_catalog_service.SEMANTIC_INDEX_MEMBER] * 2,
+        )
+
+    def test_a_revision_without_a_bundle_key_is_not_cached(self) -> None:
+        # A test double or an archive-less read has no key to trust.
+        opened = _Opened("ready", self._document())
+        self._discover(opened)
+        self._discover(opened)
+        self.assertEqual(
+            opened.read_paths,
+            [variant_catalog_service.SEMANTIC_INDEX_MEMBER] * 2,
+        )

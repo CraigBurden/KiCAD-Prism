@@ -6,6 +6,7 @@ from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, Response
 from fastapi.responses import FileResponse
 
+from app.api._blocking import run_bounded_io
 from app.api._helpers import get_project_for_role_or_404
 from app.api.projects import (
     COMMIT_FILE_STREAM_BYTES,
@@ -129,6 +130,12 @@ async def get_project_schematic(
     commit: Optional[str] = None,
     user: AuthenticatedUser = Depends(require_viewer),
 ):
+    return await run_bounded_io(_schematic_response, project_id, commit, user)
+
+
+def _schematic_response(
+    project_id: str, commit: Optional[str], user: AuthenticatedUser
+):
     get_project_for_role_or_404(project_id, user.role)
 
     read = _project_metadata_bundle(project_id, commit, user.email)
@@ -145,6 +152,16 @@ async def get_project_subsheets(
     commit: Optional[str] = None,
     include: Optional[str] = None,
     user: AuthenticatedUser = Depends(require_viewer),
+):
+    return await run_bounded_io(_subsheets_response, project_id, commit, include, user, response)
+
+
+def _subsheets_response(
+    project_id: str,
+    commit: Optional[str],
+    include: Optional[str],
+    user: AuthenticatedUser,
+    response: Response,
 ):
     get_project_for_role_or_404(project_id, user.role)
 
@@ -173,6 +190,12 @@ async def get_project_viewer_support_files(
     here rather than with each document. The host loads them together with the
     document: the viewer does not repaint a sheet when they arrive afterwards.
     """
+    return await run_bounded_io(_support_files_response, project_id, commit, user, response)
+
+
+def _support_files_response(
+    project_id: str, commit: Optional[str], user: AuthenticatedUser, response: Response
+):
     get_project_for_role_or_404(project_id, user.role)
 
     read = _project_metadata_bundle(project_id, commit, user.email)
@@ -190,6 +213,10 @@ async def get_project_pcb(
     commit: Optional[str] = None,
     user: AuthenticatedUser = Depends(require_viewer),
 ):
+    return await run_bounded_io(_pcb_response, project_id, commit, user)
+
+
+def _pcb_response(project_id: str, commit: Optional[str], user: AuthenticatedUser):
     get_project_for_role_or_404(project_id, user.role)
 
     read = _project_metadata_bundle(project_id, commit, user.email)
@@ -212,6 +239,10 @@ async def get_project_3d_model(
     commit: Optional[str] = None,
     user: AuthenticatedUser = Depends(require_viewer),
 ):
+    return await run_bounded_io(_3d_model_response, project_id, commit, user)
+
+
+def _3d_model_response(project_id: str, commit: Optional[str], user: AuthenticatedUser):
     project = get_project_for_role_or_404(project_id, user.role)
 
     if commit:

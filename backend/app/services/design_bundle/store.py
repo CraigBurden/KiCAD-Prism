@@ -16,9 +16,11 @@ store only creates directories, opens and validates archives, extracts
 members, and deletes. A file in a version directory is always verified: it is
 written to a temporary name beside its target, checked for size and SHA-256,
 then renamed, and nothing below a version directory is ever followed through a
-symbolic link. The marker beside the archive records that ``bundle verify``
-accepted its current manifest; it gates step 7 on reads (bundle-format.md §9)
-and is removed with the archive.
+symbolic link. Extracting refreshes the version directory's mtime, which is how
+:func:`prune_cache_store` tells a directory a reader is using from an idle one;
+that sweep never touches the archive or its marker. The marker beside the
+archive records that ``bundle verify`` accepted its current manifest; it gates
+step 7 on reads (bundle-format.md §9) and is removed with the archive.
 """
 
 from __future__ import annotations
@@ -33,7 +35,7 @@ import threading
 import time
 from collections import OrderedDict
 from pathlib import Path
-from typing import Any, BinaryIO, Callable, Iterable
+from typing import Any, BinaryIO, Callable, Iterable, Mapping
 
 from app.core.config import settings
 from app.services.design_bundle.archive import MANIFEST, Archive, BundleInvalid, open_archive
@@ -249,6 +251,10 @@ def extract(
 
     base = version_dir(archive, project_id, revision_key, generator_digest)
     base.mkdir(parents=True, exist_ok=True, mode=0o755)
+    # Retention reads this mtime to tell a directory a reader is using from an
+    # idle one. A reader that only re-reads already extracted files would
+    # otherwise leave it at the time the first member was written.
+    _touch(base)
     manifest_bytes = archive.manifest_bytes
     _install(base, base / MANIFEST, lambda handle: handle.write(manifest_bytes), len(manifest_bytes))
     members = archive.manifest["members"]
@@ -259,24 +265,165 @@ def extract(
         for member in chosen:
             target = base / member["path"]
             _install(base, target, lambda handle, path=member["path"]: archive.stream(path, handle), member["bytes"])
+    _touch(base)
     return base
 
 
-def prune_versions(project_id: str, revision_key: str, generator_digest: str, keep: str, *, grace_seconds: float) -> int:
-    """Remove version directories other than ``keep`` that are older than the grace period."""
+def _touch(path: Path) -> None:
+    try:
+        os.utime(path, None)
+    except OSError:
+        pass
 
-    directory = cache_dir(project_id, revision_key, generator_digest)
-    removed = 0
-    if not directory.is_dir():
-        return removed
-    cutoff = time.time() - grace_seconds
-    for item in directory.iterdir():
-        if item.name == keep or not _HEX64.match(item.name) or item.is_symlink():
+
+#: One unpacked version directory, as the store-wide cache sweep sees it.
+@dataclasses.dataclass
+class _CacheVersion:
+    path: Path
+    key: tuple[str, str, str]
+    bytes: int
+    accessed: float
+
+
+def _tree_bytes(path: Path) -> int:
+    """Bytes of the regular files below ``path``; symbolic links are never followed."""
+
+    total = 0
+    stack = [path]
+    while stack:
+        current = stack.pop()
+        try:
+            entries = list(os.scandir(current))
+        except OSError:
             continue
-        if item.lstat().st_mtime < cutoff:
-            shutil.rmtree(item, ignore_errors=True)
-            removed += 1
-    return removed
+        for entry in entries:
+            try:
+                if entry.is_symlink():
+                    continue
+                if entry.is_dir(follow_symlinks=False):
+                    stack.append(Path(entry.path))
+                elif entry.is_file(follow_symlinks=False):
+                    total += entry.stat(follow_symlinks=False).st_size
+            except OSError:
+                continue
+    return total
+
+
+def _subdirectories(path: Path) -> list[Path]:
+    try:
+        return [item for item in path.iterdir() if item.is_dir() and not item.is_symlink()]
+    except OSError:
+        return []
+
+
+def prune_cache_store(
+    *,
+    keep: Mapping[tuple[str, str, str], str],
+    last_used: Mapping[tuple[str, str, str], float] | None = None,
+    grace_seconds: float,
+    idle_before: float,
+    max_bytes: int,
+    max_bytes_per_project: int,
+    now: float | None = None,
+) -> dict[str, int]:
+    """Tighten the unpacked caches: superseded versions, idle archives, then caps (ADR §5, §8).
+
+    ``keep`` maps a cache key to the archive's current ``manifest_sha256``.
+    Version directories of that key other than ``keep``'s go after
+    ``grace_seconds``; all of an archive's version directories go once its last
+    read (``last_used``, else the directory's own mtime) is older than
+    ``idle_before``; then the least recently used directories go until the
+    project and store stay under their byte caps. A directory whose mtime is
+    inside the grace period -- or, for the caps, whose archive was read inside
+    it -- is never removed: that is the reader that may be using it right now.
+    Symbolic links are never followed, and only keys named by ``keep`` are
+    touched.
+
+    The archive and its marker are not part of this: a removed cache is
+    re-extracted from the archive on the next read.
+    """
+
+    now = time.time() if now is None else now
+    cutoff = now - max(0.0, grace_seconds)
+    report = {
+        "versions": 0, "idle_versions": 0, "idle_bytes": 0,
+        "capped_versions": 0, "capped_bytes": 0, "cache_bytes": 0,
+    }
+    base = root()
+    if base.is_symlink() or not base.is_dir():
+        return report
+    entries: list[_CacheVersion] = []
+    for project in _subdirectories(base):
+        for revision in _subdirectories(project):
+            if not _HEX64.match(revision.name):
+                continue
+            for digest in _subdirectories(revision):
+                if not _HEX64.match(digest.name):
+                    continue
+                key = (project.name, revision.name, digest.name)
+                current = keep.get(key)
+                if current is None:
+                    continue
+                versions = [item for item in _subdirectories(digest) if _HEX64.match(item.name)]
+                accessed: dict[str, float] = {}
+                for item in versions:
+                    try:
+                        accessed[item.name] = item.lstat().st_mtime
+                    except OSError:
+                        continue
+                # Superseded manifest versions: a reader that opened the earlier
+                # archive keeps its own directory until the grace period ends.
+                for name, mtime in list(accessed.items()):
+                    if name == current or mtime >= cutoff:
+                        continue
+                    shutil.rmtree(digest / name, ignore_errors=True)
+                    accessed.pop(name)
+                    report["versions"] += 1
+                newest = max(accessed.values(), default=now)
+                # The archive row's last read is the recency signal; a directory
+                # mtime only says when it was last written. Either inside the
+                # grace period still protects a directory from the caps.
+                last_read = newest if last_used is None else float(last_used.get(key, newest))
+                # Idle: the archive stays, its unpacked members do not.
+                if last_read < idle_before:
+                    for name, mtime in list(accessed.items()):
+                        if mtime >= cutoff:
+                            continue
+                        size = _tree_bytes(digest / name)
+                        shutil.rmtree(digest / name, ignore_errors=True)
+                        accessed.pop(name)
+                        report["idle_versions"] += 1
+                        report["idle_bytes"] += size
+                for name, mtime in accessed.items():
+                    entries.append(
+                        _CacheVersion(digest / name, key, _tree_bytes(digest / name), max(last_read, mtime))
+                    )
+                _remove_empty(digest)
+
+    def _evict(group: list[_CacheVersion], cap: int, *, versions_key: str, bytes_key: str) -> None:
+        if cap <= 0:
+            return
+        remaining = sum(entry.bytes for entry in group)
+        for entry in sorted(group, key=lambda item: (item.accessed, str(item.path))):
+            if remaining <= cap:
+                return
+            # Inside the grace period the reader may still be using it.
+            if entry.accessed >= cutoff:
+                continue
+            shutil.rmtree(entry.path, ignore_errors=True)
+            remaining -= entry.bytes
+            report[versions_key] += 1
+            report[bytes_key] += entry.bytes
+            entry.bytes = 0
+
+    projects: dict[str, list[_CacheVersion]] = {}
+    for entry in entries:
+        projects.setdefault(entry.key[0], []).append(entry)
+    for group in projects.values():
+        _evict(group, max_bytes_per_project, versions_key="capped_versions", bytes_key="capped_bytes")
+    _evict(entries, max_bytes, versions_key="capped_versions", bytes_key="capped_bytes")
+    report["cache_bytes"] = sum(entry.bytes for entry in entries)
+    return report
 
 
 def sweep_temporary_files(*, now: float | None = None) -> int:

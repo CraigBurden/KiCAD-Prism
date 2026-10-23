@@ -3,7 +3,7 @@
 //! `asset.extras.generated_at` and add it as `viewer/models/components.glb`.
 
 use super::chain::{self, Input};
-use super::{Built, Generator, MemberData, Reporter};
+use super::{Built, Generator, MemberContent, MemberData, Reporter};
 use crate::finding::{Failure, Outcome};
 use crate::limits::Limits;
 use crate::manifest::{
@@ -183,7 +183,7 @@ pub fn run(mut request: ModelsRequest<'_>) -> Outcome<Built> {
     members.push(MemberData {
         path: MODELS_PATH.to_owned(),
         role: Role::ComponentModels,
-        bytes: std::sync::Arc::from(glb),
+        content: MemberContent::Bytes(std::sync::Arc::from(glb)),
         schema: None,
         source: None,
     });
@@ -192,7 +192,7 @@ pub fn run(mut request: ModelsRequest<'_>) -> Outcome<Built> {
     {
         request.limits.check(
             crate::limits::LimitName::MaxMemberBytes,
-            u64::try_from(member.bytes.len()).unwrap_or(u64::MAX),
+            member.size(),
             ASSEMBLY_HLR_PATH,
         )?;
         written.push(ASSEMBLY_HLR_PATH.to_owned());
@@ -223,7 +223,7 @@ fn assembly_hlr(
         .ok_or_else(|| {
             Failure::internal("stage models has no board member for the assembly HLR")
         })?;
-    let text = std::str::from_utf8(document)
+    let text = std::str::from_utf8(&document)
         .map_err(|_| Failure::internal("the board member is not UTF-8"))?;
     let project_dir = crate::paths::parent(input.manifest.config.project_file.as_str());
     let sources = BundleSources { input };
@@ -249,7 +249,7 @@ fn assembly_hlr(
     Ok(Some(MemberData {
         path: ASSEMBLY_HLR_PATH.to_owned(),
         role: Role::AssemblyHlr,
-        bytes: std::sync::Arc::from(bytes),
+        content: MemberContent::Bytes(std::sync::Arc::from(bytes)),
         schema: Some(prism_projections::assembly_hlr::SCHEMA.to_owned()),
         source: None,
     }))
@@ -263,12 +263,7 @@ struct BundleSources<'a> {
 
 impl prism_projections::Sources for BundleSources<'_> {
     fn read(&self, path: &str) -> Option<std::sync::Arc<[u8]>> {
-        let member = format!("{SOURCES_PREFIX}{path}");
-        self.input
-            .members
-            .iter()
-            .find(|candidate| candidate.path == member)
-            .map(|candidate| candidate.bytes.clone())
+        self.input.member(&format!("{SOURCES_PREFIX}{path}"))
     }
 
     fn exists(&self, path: &str) -> bool {

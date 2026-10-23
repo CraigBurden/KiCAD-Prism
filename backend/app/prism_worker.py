@@ -101,6 +101,26 @@ class PrismWorker:
     def resource_capacities() -> dict[str, int]:
         return resource_capacities()
 
+    @staticmethod
+    def validate_memory_admission() -> None:
+        """Refuse a budget no declared heavy kind could ever fit.
+
+        The ``memory`` slot is reconciled from the same setting the kinds
+        declared their weight from, so this only fails on a deliberately small
+        override or a new kind whose weight outgrew the default.
+        """
+
+        from app.services.job_handlers import (
+            get_job_kind,
+            load_builtin_job_handlers,
+            registered_job_kinds,
+        )
+        from app.services.job_kinds import validate_memory_capacity
+
+        load_builtin_job_handlers()
+        kinds = [get_job_kind(name) for name in registered_job_kinds()]
+        validate_memory_capacity(kind for kind in kinds if kind is not None)
+
     def request_stop(self, *_args: object) -> None:
         self.stopping = True
 
@@ -617,12 +637,14 @@ class PrismWorker:
                 time.sleep(min(1.0, self.poll_seconds))
         if self.stopping:
             return
+        self.validate_memory_admission()
         self.mount_tracker_composition()
         logger.info(
-            "Worker %s started pool=%s concurrency=%s",
+            "Worker %s started pool=%s concurrency=%s memory_budget=%sMiB",
             self.worker_id,
             self.worker_pool,
             self.concurrency,
+            settings.PRISM_WORKER_MEMORY_BUDGET_MIB,
         )
         while not self.stopping:
             try:

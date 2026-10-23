@@ -65,7 +65,11 @@ fn result_document(built: &Built, written: &atomic::Written) -> Value {
     let mut members = vec![digest(MANIFEST_PATH, &built.manifest_bytes)];
     for member in &built.members {
         if built.written.contains(&member.path) {
-            members.push(digest(&member.path, &member.bytes));
+            members.push(json!({
+                "path": member.path,
+                "bytes": member.size(),
+                "sha256": member.sha256(),
+            }));
         }
     }
     members.sort_by(|a, b| a["path"].as_str().cmp(&b["path"].as_str()));

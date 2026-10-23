@@ -513,7 +513,7 @@ mod tests {
         MemberData {
             path: format!("sources/{}", entry.path.0),
             role: Role::SourceProject,
-            bytes: Arc::from(Vec::<u8>::new()),
+            content: crate::stages::MemberContent::Bytes(Arc::from(Vec::<u8>::new())),
             schema: None,
             source: Some(a3::BundleManifestSourceEntry {
                 path: a3::RepoPath(entry.path.0.clone()),
@@ -529,7 +529,7 @@ mod tests {
         MemberData {
             path: format!("{SOURCES_PREFIX}{path}"),
             role: Role::SourceProject,
-            bytes: Arc::from(Vec::<u8>::new()),
+            content: crate::stages::MemberContent::Bytes(Arc::from(Vec::<u8>::new())),
             schema: None,
             source: Some(a3::BundleManifestSourceEntry {
                 path: a3::RepoPath(path.to_owned()),

@@ -10,11 +10,18 @@ every other bundle goes once unused for as long. A bundle whose job is still
 queued or building is never removed.
 
 Also swept: unpacked-cache versions that are not the archive's current one
-(after a grace period), archives on disk that no row knows, the CLI's stale
+(after a grace period), caches of archives no read has used for
+``PRISM_DESIGN_BUNDLE_CACHE_IDLE_DAYS`` (the archive itself stays), and the
+least recently used caches until the store and each project fit under
+``PRISM_DESIGN_BUNDLE_CACHE_MAX_BYTES`` /
+``PRISM_DESIGN_BUNDLE_CACHE_PROJECT_MAX_BYTES``. A version directory touched
+inside ``PRISM_DESIGN_BUNDLE_CACHE_GRACE_SECONDS`` is never removed: a reader
+may still be using it. Archives on disk that no row knows, the CLI's stale
 temporary files, commit-index rows of unkept commits whose key has no
 bundle left, and the persistent KiCad caches unused for
 ``PRISM_DESIGN_BUNDLE_RETENTION_DAYS``: component GLBs of the models stage's
-export cache, refilled boards and upgraded files (their sizes are reported).
+export cache, refilled boards, upgraded files, and Release Studio's raytraced
+cover renders (their sizes are reported).
 """
 
 from __future__ import annotations
@@ -34,7 +41,6 @@ from app.services.design_bundle.backfill import repo_of
 
 logger = logging.getLogger(__name__)
 
-CACHE_GRACE_SECONDS = 3600
 _HEX64 = re.compile(r"^[0-9a-f]{64}$")
 
 
@@ -57,9 +63,12 @@ def run(*, now: datetime | None = None, connect: rows.Connect | None = None) -> 
     cutoff = now - timedelta(days=settings.PRISM_DESIGN_BUNDLE_RETENTION_DAYS)
     report = {
         "kept": 0, "removed": 0, "aliases_removed": 0, "orphan_archives": 0, "cache_versions": 0, "index_rows": 0,
-        "temp_files": 0,
+        "temp_files": 0, "cache_idle_versions": 0, "cache_idle_bytes": 0, "cache_capped_versions": 0,
+        "cache_capped_bytes": 0, "cache_bytes": 0,
     }
     known: set[tuple[str, str, str]] = set()
+    cache_keep: dict[tuple[str, str, str], str] = {}
+    cache_last_used: dict[tuple[str, str, str], float] = {}
     for project in rows.projects(connect=connect):
         project_id = str(project["id"])
         keep_commits = kept_commits(project, connect=connect)
@@ -78,7 +87,10 @@ def run(*, now: datetime | None = None, connect: rows.Connect | None = None) -> 
             if kept or active or _as_utc(bundle["last_used_at"]) >= cutoff:
                 known.add(identity)
                 report["kept"] += 1
-                report["cache_versions"] += _prune_cache(*identity)
+                current = _current_manifest(*identity)
+                if current is not None:
+                    cache_keep[identity] = current
+                    cache_last_used[identity] = _as_utc(bundle["last_used_at"]).timestamp()
                 continue
             store.delete(*identity)
             doomed.append(str(bundle["bundle_key"]))
@@ -88,6 +100,25 @@ def run(*, now: datetime | None = None, connect: rows.Connect | None = None) -> 
         report["index_rows"] += rows.prune_index(
             project_id, keep_commits, older_than_days=settings.PRISM_DESIGN_BUNDLE_RETENTION_DAYS, connect=connect
         )
+    caches = store.prune_cache_store(
+        keep=cache_keep,
+        last_used=cache_last_used,
+        grace_seconds=settings.PRISM_DESIGN_BUNDLE_CACHE_GRACE_SECONDS,
+        idle_before=(
+            (now - timedelta(days=settings.PRISM_DESIGN_BUNDLE_CACHE_IDLE_DAYS)).timestamp()
+            if settings.PRISM_DESIGN_BUNDLE_CACHE_IDLE_DAYS > 0
+            else float("-inf")
+        ),
+        max_bytes=settings.PRISM_DESIGN_BUNDLE_CACHE_MAX_BYTES,
+        max_bytes_per_project=settings.PRISM_DESIGN_BUNDLE_CACHE_PROJECT_MAX_BYTES,
+        now=now.timestamp(),
+    )
+    report["cache_versions"] = caches["versions"]
+    report["cache_idle_versions"] = caches["idle_versions"]
+    report["cache_idle_bytes"] = caches["idle_bytes"]
+    report["cache_capped_versions"] = caches["capped_versions"]
+    report["cache_capped_bytes"] = caches["capped_bytes"]
+    report["cache_bytes"] = caches["cache_bytes"]
     report["orphan_archives"] = _sweep_orphans(known, cutoff)
     report["temp_files"] = store.sweep_temporary_files(now=now.timestamp())
     models = stage_models.prune_cache(unused_before=cutoff.timestamp(), now=now.timestamp())
@@ -96,18 +127,24 @@ def run(*, now: datetime | None = None, connect: rows.Connect | None = None) -> 
     report["refill_cache_removed"], report["refill_cache_bytes"] = refill["removed"], refill["bytes"]
     upgrade = kicad_steps.prune_upgrade_cache(unused_before=cutoff.timestamp(), now=now.timestamp())
     report["upgrade_cache_removed"], report["upgrade_cache_bytes"] = upgrade["removed"], upgrade["bytes"]
+    # Imported here, not at module scope: this sweep belongs to Release Studio,
+    # and a design-bundle consumer that never composes documents should not load
+    # the document engine behind it.
+    from app.release_studio.documents import render_cache
+
+    renders = render_cache.prune(unused_before=cutoff.timestamp(), now=now.timestamp())
+    report["render_cache_removed"], report["render_cache_bytes"] = renders["removed"], renders["bytes"]
     return report
 
 
-def _prune_cache(project_id: str, revision_key: str, generator_digest: str) -> int:
+def _current_manifest(project_id: str, revision_key: str, generator_digest: str) -> str | None:
     path = store.archive_path(project_id, revision_key, generator_digest)
     if not path.is_file():
-        return 0
+        return None
     try:
-        current = open_archive(path).manifest_sha256
+        return open_archive(path).manifest_sha256
     except BundleInvalid:
-        return 0
-    return store.prune_versions(project_id, revision_key, generator_digest, current, grace_seconds=CACHE_GRACE_SECONDS)
+        return None
 
 
 def _sweep_orphans(known: set[tuple[str, str, str]], cutoff: datetime) -> int:

@@ -228,12 +228,12 @@ pub(crate) fn fill_offset_nm(zone: &PcbZone, version: i64) -> i32 {
 /// Stored zone fills, one planar region per filled polygon, grown as
 /// [`fill_offset_nm`] says.
 pub(crate) fn zone_fills(
-    zones: &[PcbZone],
+    zones: &[&PcbZone],
     stack: &CopperStack,
     version: i64,
     emitter: &mut Emitter,
 ) {
-    for zone in zones {
+    for &zone in zones {
         let offset_nm = fill_offset_nm(zone, version);
         let uid = source_uid("zone", zone.uuid.as_deref(), zone.source_range.start);
         let origin = Origin::routed(BindingSourceKind::ZoneFill, uid, net_key(&zone.net));

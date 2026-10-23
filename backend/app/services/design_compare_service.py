@@ -30,7 +30,7 @@ from app.services import design_compare_bundle_path
 from app.services.design_bundle import cli as design_bundle_cli
 from app.services.design_compare_artifacts import _manifest_entry
 from app.services.job_artifact_service import job_artifacts
-from app.services.job_kinds import JobKind, JobSubject, repository_lock
+from app.services.job_kinds import JobKind, JobSubject, memory_units, repository_lock
 from app.services.job_runtime import JobContext, JobResult
 from app.services.job_service import jobs as v3_jobs
 from app.services.workspace_service import workspace
@@ -419,7 +419,10 @@ def _unsettled_comparisons() -> list[str]:
 DESIGN_COMPARE = JobKind(
     "design_compare",
     run_design_compare_job_v3,
-    resources={"prism_worker": 1, "design_compare": 1},
+    # Two side reads (each a prism-kicad parse, the 2.0-2.1 GiB stage) run at
+    # once while two kicad-cli plots start, so 3072 MiB is estimated from two
+    # parsers plus one plot rather than from a single measurement.
+    resources={"prism_worker": 1, "design_compare": 1, **memory_units(3072)},
     lock=repository_lock("read"),
     settle=settle_comparison_end,
     orphans=_unsettled_comparisons,

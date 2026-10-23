@@ -13,7 +13,7 @@ from app.release_studio.jobset import WORKFLOW_OUTPUT_IDS as _WORKFLOW_OUTPUT_ID
 from app.services import kicad_jobset_service, path_config_service, project_settings_service
 from app.services.workspace_service import workspace
 from app.services.job_runtime import JobContext, JobResult
-from app.services.job_kinds import JobKind, JobSubject, repository_lock
+from app.services.job_kinds import JobKind, JobSubject, memory_units, repository_lock
 
 class Project(BaseModel):
     id: str
@@ -355,7 +355,9 @@ def get_subsheets(project_path: str, main_schematic: str) -> List[str]:
 KICAD_WORKFLOW = JobKind(
     "kicad_workflow",
     run_kicad_workflow_job_v3,
-    resources={"prism_worker": 1, "workflow": 1},
+    # DRC is the heaviest kicad-cli load this job runs (1.1 GiB); ERC follows
+    # it sequentially in the same job.
+    resources={"prism_worker": 1, "workflow": 1, **memory_units(1280)},
     lock=repository_lock("write"),
     max_attempts=1,
 )

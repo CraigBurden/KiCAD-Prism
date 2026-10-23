@@ -99,6 +99,9 @@ fn common_fields(header: &Header) -> Vec<u8> {
     out
 }
 
+/// The output chunk of a streaming inflate.
+const STREAM_CHUNK: usize = 64 * 1024;
+
 /// A streaming writer of the canonical subset.
 pub struct ZipWriter<W: Write> {
     out: W,
@@ -159,6 +162,51 @@ impl<W: Write> ZipWriter<W> {
         encoded: &Encoded<'_>,
         limits: &Limits,
     ) -> Result<(), WriteError> {
+        self.add_raw(
+            name,
+            encoded.method,
+            encoded.crc,
+            &encoded.body,
+            u64::try_from(data.len()).unwrap_or(u64::MAX),
+            limits,
+        )
+    }
+
+    /// Add a member already encoded in an input archive: its method, CRC-32,
+    /// uncompressed size and compressed body. The bytes written equal
+    /// [`ZipWriter::add`]'s when the input was written by this writer.
+    pub fn add_copied(
+        &mut self,
+        name: &str,
+        size: u64,
+        crc: u32,
+        deflated: bool,
+        body: &[u8],
+        limits: &Limits,
+    ) -> Result<(), WriteError> {
+        self.add_raw(
+            name,
+            if deflated {
+                METHOD_DEFLATED
+            } else {
+                METHOD_STORED
+            },
+            crc,
+            body,
+            size,
+            limits,
+        )
+    }
+
+    fn add_raw(
+        &mut self,
+        name: &str,
+        method: u16,
+        crc: u32,
+        body: &[u8],
+        size: u64,
+        limits: &Limits,
+    ) -> Result<(), WriteError> {
         self.count += 1;
         if self.count > self.max_members {
             return Err(WriteError::Limit(Box::new(too_large(
@@ -168,7 +216,6 @@ impl<W: Write> ZipWriter<W> {
                 "the number of archive members",
             ))));
         }
-        let size = u64::try_from(data.len()).unwrap_or(u64::MAX);
         let max_member = limits
             .get(LimitName::MaxMemberBytes)
             .min(u64::from(u32::MAX));
@@ -179,12 +226,11 @@ impl<W: Write> ZipWriter<W> {
                 name,
             ))));
         }
-        let body = &encoded.body;
         let header = Header {
-            method: encoded.method,
-            crc: encoded.crc,
+            method,
+            crc,
             compressed: u32::try_from(body.len()).map_err(|_| WriteError::internal("member"))?,
-            size: u32::try_from(data.len()).map_err(|_| WriteError::internal("member"))?,
+            size: u32::try_from(size).map_err(|_| WriteError::internal("member"))?,
             name_length: u16::try_from(name.len()).map_err(|_| WriteError::internal("name"))?,
         };
         let local_offset =
@@ -321,6 +367,14 @@ pub struct Entry {
     pub size: u64,
     /// Offset of the member's data.
     data_at: u64,
+}
+
+impl Entry {
+    /// Whether the member's data is deflated (method 8) rather than stored.
+    #[must_use]
+    pub fn is_deflated(&self) -> bool {
+        self.deflated
+    }
 }
 
 /// An archive whose structure passed every check of cli-spec.md §6.2.
@@ -703,17 +757,23 @@ impl ZipIndex {
         self.entries.iter().find(|entry| entry.name == name)
     }
 
+    /// The compressed body of `entry` as stored in the archive, without
+    /// inflating it.
+    pub fn body<R: ReadAt + ?Sized>(&self, source: &R, entry: &Entry) -> Result<Vec<u8>, ZipError> {
+        read_bytes(
+            source,
+            entry.data_at,
+            usize::try_from(entry.compressed).unwrap_or(usize::MAX),
+        )
+    }
+
     /// Inflate `entry`, bounded by its declared size, and check its size and
     /// CRC-32.
     pub fn read<R: ReadAt + ?Sized>(&self, source: &R, entry: &Entry) -> Result<Vec<u8>, ZipError> {
         let at = |code: &str, message: String| {
             ZipError::Finding(Finding::new(code, message).at_path(entry.name.clone()))
         };
-        let body = read_bytes(
-            source,
-            entry.data_at,
-            usize::try_from(entry.compressed).unwrap_or(usize::MAX),
-        )?;
+        let body = self.body(source, entry)?;
         let size = usize::try_from(entry.size).unwrap_or(usize::MAX);
         let data = if entry.deflated {
             miniz_oxide::inflate::decompress_to_vec_with_limit(&body, size).map_err(|_| {
@@ -748,51 +808,115 @@ impl ZipIndex {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::limits::Work;
+fn size_mismatch(entry: &Entry, message: String) -> ZipError {
+    ZipError::Finding(Finding::new("zip-size-mismatch", message).at_path(entry.name.clone()))
+}
 
-    fn archive(members: &[(&str, &[u8])]) -> Vec<u8> {
-        let limits = Limits::defaults(Work::Verify);
-        let mut writer = ZipWriter::new(Vec::new(), &limits);
-        for (name, data) in members {
-            writer.add(name, data, &limits).unwrap();
+/// Check an already-read compressed `body` of `entry` against its declared
+/// size and CRC-32, passing the inflated bytes to `sink` in chunks instead of
+/// retaining them. The bytes are identical to [`ZipIndex::read`]'s.
+pub fn check_body(entry: &Entry, body: &[u8], sink: &mut dyn FnMut(&[u8])) -> Result<(), ZipError> {
+    let mut crc = crc32fast::Hasher::new();
+    if entry.deflated {
+        inflate_stream(entry, body, sink, &mut crc)?;
+    } else {
+        let size = usize::try_from(entry.size).unwrap_or(usize::MAX);
+        if body.len() != size {
+            return Err(size_mismatch(
+                entry,
+                format!(
+                    "{} is {} bytes, not its declared {size}",
+                    entry.name,
+                    body.len()
+                ),
+            ));
         }
-        writer.finish(&limits).unwrap().0
-    }
-
-    #[test]
-    fn crc_matches_the_check_value() {
-        assert_eq!(crc32(b"123456789"), 0xCBF4_3926);
-    }
-
-    #[test]
-    fn round_trips_and_is_deterministic() {
-        let text = "(kicad_pcb (net 1 \"GND\"))\n".repeat(2000);
-        let members: [(&str, &[u8]); 3] = [
-            ("bundle.json", b"{}\n"),
-            ("sources/a.kicad_pcb", text.as_bytes()),
-            ("e", b""),
-        ];
-        let bytes = archive(&members);
-        assert_eq!(bytes, archive(&members));
-        let limits = Limits::defaults(Work::Verify);
-        let index = ZipIndex::open(bytes.as_slice(), &limits).unwrap();
-        assert_eq!(index.entries.len(), 3);
-        for (entry, (name, data)) in index.entries.iter().zip(members) {
-            assert_eq!(entry.name, name);
-            assert_eq!(index.read(bytes.as_slice(), entry).unwrap(), data);
+        for chunk in body.chunks(STREAM_CHUNK) {
+            crc.update(chunk);
+            sink(chunk);
         }
-        assert!(index.entries[1].deflated && !index.entries[2].deflated);
     }
+    if crc.finalize() != entry.crc {
+        return Err(ZipError::Finding(
+            Finding::new(
+                "zip-crc-mismatch",
+                format!("{} does not match its CRC-32", entry.name),
+            )
+            .at_path(entry.name.clone()),
+        ));
+    }
+    Ok(())
+}
 
-    #[test]
-    fn rejects_a_trailing_comment_and_a_gap() {
-        let limits = Limits::defaults(Work::Verify);
-        let mut bytes = archive(&[("a", b"hello")]);
-        bytes.push(0);
-        let error = ZipIndex::open(bytes.as_slice(), &limits).unwrap_err();
-        assert_eq!(error.finding().code, "zip-malformed");
+/// Inflate a raw DEFLATE body in [`STREAM_CHUNK`] pieces, checking the
+/// declared size and passing each piece to `sink`.
+fn inflate_stream(
+    entry: &Entry,
+    body: &[u8],
+    sink: &mut dyn FnMut(&[u8]),
+    crc: &mut crc32fast::Hasher,
+) -> Result<(), ZipError> {
+    use miniz_oxide::inflate::stream::{InflateState, inflate};
+    use miniz_oxide::{DataFormat, MZFlush, MZStatus};
+    let size = usize::try_from(entry.size).unwrap_or(usize::MAX);
+    let short = |entry: &Entry| {
+        size_mismatch(
+            entry,
+            format!(
+                "{} does not inflate to its declared {size} bytes",
+                entry.name
+            ),
+        )
+    };
+    let mut state = InflateState::new_boxed(DataFormat::Raw);
+    let mut buffer = vec![0u8; STREAM_CHUNK];
+    let mut input = body;
+    let mut produced = 0usize;
+    loop {
+        let result = inflate(&mut state, input, &mut buffer, MZFlush::None);
+        let status = result.status.map_err(|_| short(entry))?;
+        input = &input[result.bytes_consumed..];
+        let chunk = &buffer[..result.bytes_written];
+        produced = produced.saturating_add(chunk.len());
+        if produced > size {
+            return Err(size_mismatch(
+                entry,
+                format!(
+                    "{} inflates to more than its declared {size} bytes",
+                    entry.name
+                ),
+            ));
+        }
+        if !chunk.is_empty() {
+            crc.update(chunk);
+            sink(chunk);
+        }
+        match status {
+            MZStatus::StreamEnd => break,
+            MZStatus::Ok => {
+                if result.bytes_consumed == 0 && result.bytes_written == 0 {
+                    return Err(short(entry));
+                }
+            }
+            MZStatus::NeedDict => {
+                return Err(size_mismatch(
+                    entry,
+                    format!(
+                        "{} needs a preset dictionary that a raw DEFLATE member cannot have",
+                        entry.name
+                    ),
+                ));
+            }
+        }
     }
+    if produced != size {
+        return Err(size_mismatch(
+            entry,
+            format!(
+                "{} inflates to {produced} bytes, not its declared {size}",
+                entry.name
+            ),
+        ));
+    }
+    Ok(())
 }

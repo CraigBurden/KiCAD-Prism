@@ -74,6 +74,52 @@ impl Generator {
     }
 }
 
+/// An entry copied unchanged from the `--in` archive: its compressed body,
+/// encoding and the digest it was checked against when the input was loaded.
+#[derive(Clone, Debug)]
+pub struct Carried {
+    /// Whether the body is deflated (method 8) rather than stored.
+    pub deflated: bool,
+    /// CRC-32 of the uncompressed bytes.
+    pub crc: u32,
+    /// Uncompressed size.
+    pub size: u64,
+    /// SHA-256 of the uncompressed bytes, as the input manifest records it.
+    pub sha256: String,
+    /// The compressed body, exactly as it appears in the input archive.
+    pub body: Arc<[u8]>,
+}
+
+impl Carried {
+    /// The member's uncompressed bytes. The input archive's reader checks
+    /// verified them before [`Carried`] was built.
+    #[must_use]
+    pub fn decode(&self) -> Option<Arc<[u8]>> {
+        let size = usize::try_from(self.size).ok()?;
+        let bytes = if self.deflated {
+            miniz_oxide::inflate::decompress_to_vec_with_limit(&self.body, size).ok()?
+        } else {
+            if self.body.len() != size {
+                return None;
+            }
+            self.body.to_vec()
+        };
+        if bytes.len() != size || crate::zip::crc32(&bytes) != self.crc {
+            return None;
+        }
+        Some(Arc::from(bytes))
+    }
+}
+
+/// Where a member's content comes from.
+#[derive(Clone, Debug)]
+pub enum MemberContent {
+    /// Uncompressed bytes this invocation produced or read.
+    Bytes(Arc<[u8]>),
+    /// An entry this invocation copies from `--in` without inflating it.
+    Carried(Carried),
+}
+
 /// One member's content.
 #[derive(Clone, Debug)]
 pub struct MemberData {
@@ -81,8 +127,8 @@ pub struct MemberData {
     pub path: String,
     /// Role.
     pub role: Role,
-    /// Uncompressed bytes, shared with every reader that produced them.
-    pub bytes: Arc<[u8]>,
+    /// Its bytes, or the compressed input entry it is copied from.
+    pub content: MemberContent,
     /// `member_schema`, for structured members.
     pub schema: Option<String>,
     /// The key entry of a source member.
@@ -90,6 +136,42 @@ pub struct MemberData {
 }
 
 impl MemberData {
+    /// Uncompressed bytes, when this invocation holds them.
+    #[must_use]
+    pub fn bytes(&self) -> Option<&Arc<[u8]>> {
+        match &self.content {
+            MemberContent::Bytes(bytes) => Some(bytes),
+            MemberContent::Carried(_) => None,
+        }
+    }
+
+    /// The input entry this member is copied from, if any.
+    #[must_use]
+    pub fn carried(&self) -> Option<&Carried> {
+        match &self.content {
+            MemberContent::Bytes(_) => None,
+            MemberContent::Carried(carried) => Some(carried),
+        }
+    }
+
+    /// Uncompressed size.
+    #[must_use]
+    pub fn size(&self) -> u64 {
+        match &self.content {
+            MemberContent::Bytes(bytes) => u64::try_from(bytes.len()).unwrap_or(u64::MAX),
+            MemberContent::Carried(carried) => carried.size,
+        }
+    }
+
+    /// SHA-256 of the uncompressed bytes.
+    #[must_use]
+    pub fn sha256(&self) -> String {
+        match &self.content {
+            MemberContent::Bytes(bytes) => crate::generator::sha256_hex(bytes),
+            MemberContent::Carried(carried) => carried.sha256.clone(),
+        }
+    }
+
     /// The manifest record of this member.
     #[must_use]
     pub fn record(&self) -> a3::BundleManifestMember {
@@ -97,8 +179,8 @@ impl MemberData {
             path: a3::ArchivePath(self.path.clone()),
             role: self.role,
             stage: crate::manifest::role_stage(self.role),
-            sha256: a3::Sha256Hex(crate::generator::sha256_hex(&self.bytes)),
-            bytes: a3::ByteCount(u64::try_from(self.bytes.len()).unwrap_or(u64::MAX)),
+            sha256: a3::Sha256Hex(self.sha256()),
+            bytes: a3::ByteCount(self.size()),
             member_schema: self.schema.clone().map(a3::SchemaId),
             source: self.source.clone(),
         }
@@ -175,10 +257,27 @@ impl Built {
         writer
             .add(MANIFEST_PATH, &self.manifest_bytes, limits)
             .map_err(map)?;
-        for (member, encoded) in self.members.iter().zip(encode_all(&self.members)) {
-            writer
-                .add_encoded(&member.path, &member.bytes, &encoded, limits)
-                .map_err(map)?;
+        for (member, prepared) in self.members.iter().zip(prepare_all(&self.members)) {
+            match prepared {
+                Prepared::Encoded(encoded) => {
+                    let bytes = member
+                        .bytes()
+                        .ok_or_else(|| internal("an encoded member has no bytes"))?;
+                    writer
+                        .add_encoded(&member.path, bytes, &encoded, limits)
+                        .map_err(map)?;
+                }
+                Prepared::Carried(carried) => writer
+                    .add_copied(
+                        &member.path,
+                        carried.size,
+                        carried.crc,
+                        carried.deflated,
+                        &carried.body,
+                        limits,
+                    )
+                    .map_err(map)?,
+            }
         }
         writer.finish(limits).map_err(map)
     }
@@ -190,27 +289,46 @@ impl Built {
     }
 }
 
-/// Every member encoded for the archive, in `members` order. Deflate is
-/// most of a write, and members are independent, so they are encoded on up to
-/// eight threads; the archive is still written in member order.
-fn encode_all(members: &[MemberData]) -> Vec<crate::zip::Encoded<'_>> {
+/// A member ready to write: encoded from its bytes, or copied from `--in`.
+enum Prepared<'a> {
+    /// Deflated now, on this thread or another.
+    Encoded(crate::zip::Encoded<'a>),
+    /// Copied from the input archive's compressed body.
+    Carried(&'a Carried),
+}
+
+/// Every member ready for the archive, in `members` order. Deflate is most of
+/// a write, and members are independent, so they are encoded on up to eight
+/// threads; carried members need no work. The archive is still written in
+/// member order.
+fn prepare_all(members: &[MemberData]) -> Vec<Prepared<'_>> {
     use std::sync::atomic::{AtomicUsize, Ordering};
+    let jobs: Vec<usize> = members
+        .iter()
+        .enumerate()
+        .filter(|(_, member)| member.bytes().is_some())
+        .map(|(index, _)| index)
+        .collect();
     let workers = std::thread::available_parallelism()
         .map_or(1, std::num::NonZero::get)
         .clamp(1, 8)
-        .min(members.len().max(1));
+        .min(jobs.len().max(1));
     let next = AtomicUsize::new(0);
-    let mut encoded: Vec<(usize, crate::zip::Encoded<'_>)> = std::thread::scope(|scope| {
+    let encoded: Vec<(usize, crate::zip::Encoded<'_>)> = std::thread::scope(|scope| {
         let handles: Vec<_> = (0..workers)
             .map(|_| {
                 scope.spawn(|| {
                     let mut done = Vec::new();
                     loop {
-                        let index = next.fetch_add(1, Ordering::Relaxed);
-                        let Some(member) = members.get(index) else {
+                        let job = next.fetch_add(1, Ordering::Relaxed);
+                        let Some(&index) = jobs.get(job) else {
                             break done;
                         };
-                        done.push((index, crate::zip::encode_member(&member.bytes)));
+                        let member = &members[index];
+                        let bytes = member
+                            .bytes()
+                            .unwrap_or_else(|| unreachable!("a job names an encoded member"));
+                        done.push((index, crate::zip::encode_member(bytes)));
                     }
                 })
             })
@@ -224,8 +342,20 @@ fn encode_all(members: &[MemberData]) -> Vec<crate::zip::Encoded<'_>> {
             })
             .collect()
     });
-    encoded.sort_by_key(|(index, _)| *index);
-    encoded.into_iter().map(|(_, encoded)| encoded).collect()
+    let mut prepared: Vec<Option<Prepared<'_>>> = members.iter().map(|_| None).collect();
+    for (index, encoded) in encoded {
+        prepared[index] = Some(Prepared::Encoded(encoded));
+    }
+    prepared
+        .into_iter()
+        .zip(members)
+        .map(|(ready, member)| match ready {
+            Some(ready) => ready,
+            None => Prepared::Carried(member.carried().unwrap_or_else(|| {
+                unreachable!("a member without bytes is copied from the input archive")
+            })),
+        })
+        .collect()
 }
 
 /// The shared fields of one stage record.

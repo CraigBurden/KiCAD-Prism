@@ -16,6 +16,7 @@ import re
 from app.core.design_bundle_config import DesignBundleSettings
 from app.core.pipeline_config import PipelineSettings
 from app.core.sim_studio_config import SimStudioSettings
+from app.core.worker_memory import default_worker_memory_budget_mib
 
 
 # bcrypt ignores everything past 72 bytes, so longer passwords are rejected.
@@ -491,6 +492,22 @@ class Settings(PipelineSettings, DesignBundleSettings, SimStudioSettings):
         ge=1,
         le=16,
         description="Maximum number of supervised user jobs run by prism-worker.",
+    )
+
+    PRISM_WORKER_MEMORY_BUDGET_MIB: int = Field(
+        default_factory=default_worker_memory_budget_mib,
+        ge=512,
+        le=65536,
+        description=(
+            "Memory the prism worker admits heavy jobs against, in MiB. "
+            "design_bundle, release_studio_build, design_compare, sim_run and "
+            "kicad_workflow reserve their measured peak as units of the shared "
+            "'memory' resource slot; a wave whose units exceed this budget waits. "
+            "Defaults to half the container (cgroup) or machine memory, clamped "
+            "to [4 GiB, 8 GiB] and rounded down to 256 MiB units (4 GiB on the "
+            "7.75 GiB deployment). Must fit the heaviest kind, or the worker "
+            "refuses to start."
+        ),
     )
 
     PRISM_WORKER_POLL_SECONDS: float = Field(

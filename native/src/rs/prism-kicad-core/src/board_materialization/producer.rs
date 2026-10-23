@@ -76,14 +76,16 @@ fn collect<T, E: std::fmt::Display>(
 }
 
 /// Decoded source families used by the producer.
-struct Sources {
+struct Sources<'v> {
     footprints: Vec<PcbFootprint>,
     pads: Vec<PcbPad>,
     segments: Vec<PcbSegment>,
     arcs: Vec<PcbRoutingArc>,
     vias: Vec<PcbVia>,
-    zones: Vec<PcbZone>,
-    technical_zones: Vec<PcbZone>,
+    /// Zones borrow the view's decoded family: their fill geometry is far
+    /// larger than the rest of a record, so keeping it once matters.
+    zones: Vec<&'v PcbZone>,
+    technical_zones: Vec<&'v PcbZone>,
 }
 
 /// Copper zones, and zones on technical layers. Other zones never
@@ -91,7 +93,10 @@ struct Sources {
 /// footprint (they act only as rule areas), so a stored fill on one is
 /// reported and left out. A zone that fails to decode is reported, never
 /// silently dropped.
-fn split_zones(view: &PcbView<'_>, emitter: &mut Emitter) -> (Vec<PcbZone>, Vec<PcbZone>) {
+fn split_zones<'v>(
+    view: &'v PcbView<'_>,
+    emitter: &mut Emitter,
+) -> (Vec<&'v PcbZone>, Vec<&'v PcbZone>) {
     let (mut copper, mut technical) = (Vec::new(), Vec::new());
     // Zones may be on any layer, so their warnings belong to no product.
     let product = emitter.product.take();
@@ -113,7 +118,7 @@ fn split_zones(view: &PcbView<'_>, emitter: &mut Emitter) -> (Vec<PcbZone>, Vec<
             Err(cause) => emitter.warn("zone_not_decoded", cause.to_string(), None),
         }
     }
-    for zone in view.zones() {
+    for zone in view.decoded_zones() {
         match zone {
             Ok(zone) if zone.layers.iter().any(|layer| layer.ends_with(".Cu")) => copper.push(zone),
             Ok(zone)
@@ -132,7 +137,10 @@ fn split_zones(view: &PcbView<'_>, emitter: &mut Emitter) -> (Vec<PcbZone>, Vec<
     (copper, technical)
 }
 
-fn load(view: &PcbView<'_>, emitter: &mut Emitter) -> Result<Sources, MaterializationError> {
+fn load<'v>(
+    view: &'v PcbView<'_>,
+    emitter: &mut Emitter,
+) -> Result<Sources<'v>, MaterializationError> {
     emitter.product = Some(MaterialProduct::Copper);
     // Zones decode alongside the other families. Their warnings belong to
     // no product and keep their place ahead of everything load reports.
@@ -165,7 +173,7 @@ fn load(view: &PcbView<'_>, emitter: &mut Emitter) -> Result<Sources, Materializ
     })
 }
 
-fn nets(view: &PcbView<'_>, sources: &Sources) -> Result<Vec<Net>, MaterializationError> {
+fn nets(view: &PcbView<'_>, sources: &Sources<'_>) -> Result<Vec<Net>, MaterializationError> {
     let references = sources
         .segments
         .iter()
@@ -335,8 +343,8 @@ fn emit_view(
 }
 
 /// The decoded board, and its graphics when a drawn product needs them.
-struct Decoded {
-    sources: Sources,
+struct Decoded<'v> {
+    sources: Sources<'v>,
     nets: Vec<Net>,
     setup: Option<PcbSetup>,
     stack: Stack,
@@ -345,13 +353,13 @@ struct Decoded {
 
 /// Decode the board and emit its copper, all but the text, which needs
 /// the plot document.
-fn decode_and_emit_copper(
-    view: &PcbView<'_>,
+fn decode_and_emit_copper<'v>(
+    view: &'v PcbView<'_>,
     copper: &CopperStack,
     products: &[MaterialProduct],
     drawn: bool,
     emitter: &mut Emitter,
-) -> Result<Decoded, MaterializationError> {
+) -> Result<Decoded<'v>, MaterializationError> {
     let sources = load(view, emitter)?;
     let nets = nets(view, &sources)?;
     let setup = view.setup().map_err(parse_error)?;
@@ -393,7 +401,7 @@ fn decode_and_emit_copper(
 
 /// Holes, and the dielectric they are cut from.
 fn emit_drilled(
-    sources: &Sources,
+    sources: &Sources<'_>,
     vias: &ViaDefaults,
     copper: &CopperStack,
     regions: &[PlanarRegion2d],
@@ -421,7 +429,7 @@ fn emit_drilled(
 
 fn emit_copper(
     view: &PcbView<'_>,
-    sources: &Sources,
+    sources: &Sources<'_>,
     copper: &CopperStack,
     emitter: &mut Emitter,
 ) -> Result<(), MaterializationError> {
@@ -466,7 +474,7 @@ fn emit_copper(
 }
 
 fn hole_specs(
-    sources: &Sources,
+    sources: &Sources<'_>,
     vias: &ViaDefaults,
     copper: &CopperStack,
     emitter: &mut Emitter,
@@ -492,7 +500,7 @@ fn hole_specs(
 /// mask needs it. Outline problems are reported for each of those products.
 fn profile_regions(
     view: &PcbView<'_>,
-    sources: &Sources,
+    sources: &Sources<'_>,
     products: &[MaterialProduct],
     emitter: &mut Emitter,
 ) -> Result<Vec<PlanarRegion2d>, MaterializationError> {
@@ -529,8 +537,8 @@ fn profile_regions(
 }
 
 /// Parsed board state shared by the technical products.
-struct Board<'a> {
-    sources: &'a Sources,
+struct Board<'a, 'v> {
+    sources: &'a Sources<'v>,
     setup: Option<&'a PcbSetup>,
     stack: &'a Stack,
     regions: &'a [PlanarRegion2d],
@@ -631,7 +639,7 @@ fn text_context(source: &str, view: &PcbView<'_>, graphics: &[PcbGraphic]) -> Te
     }
 }
 
-fn emit_technical(board: &Board<'_>, products: &[MaterialProduct], emitter: &mut Emitter) {
+fn emit_technical(board: &Board<'_, '_>, products: &[MaterialProduct], emitter: &mut Emitter) {
     let wanted: Vec<MaterialProduct> = TECHNICAL_PRODUCTS
         .into_iter()
         .filter(|product| products.contains(product))
@@ -706,7 +714,11 @@ impl Pads<'_> {
 }
 
 /// Component records, with each footprint's net-tie and jumper groups.
-fn components(sources: &Sources, graphics: &[PcbFootprintGraphic], version: i64) -> Vec<Component> {
+fn components(
+    sources: &Sources<'_>,
+    graphics: &[PcbFootprintGraphic],
+    version: i64,
+) -> Vec<Component> {
     let mut pads: Vec<Vec<&PcbPad>> = vec![Vec::new(); sources.footprints.len()];
     for pad in &sources.pads {
         if let Some(owned) = pads.get_mut(pad.footprint_index) {

@@ -7,7 +7,9 @@ client can revalidate instead of refetching.
 
 Responses are private and revalidate on every request: the revision's bundle
 content and the catalog generator's behavior can both change without the URL
-changing. ETags avoid resending an unchanged payload.
+changing. ETags avoid resending an unchanged payload. The revision is opened
+once; the shaped catalog is cached by bundle key and member digest, so a
+revalidation does not inflate and parse the multi-megabyte semantic index.
 """
 
 from __future__ import annotations
@@ -66,6 +68,7 @@ async def get_project_variants(
             variant_catalog_service.discover_variant_catalog,
             project,
             commit,
+            read,
         )
     except ValueError as error:
         raise HTTPException(status_code=400, detail="Could not read design variants for this revision") from error

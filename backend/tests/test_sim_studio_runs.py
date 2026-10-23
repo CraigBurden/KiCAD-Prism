@@ -230,7 +230,10 @@ class JobKindTest(unittest.TestCase):
 
         load_builtin_job_handlers()
         self.assertIn("sim_run", registered_job_kinds())
-        self.assertEqual(dict(runs_module.SIM_RUN.resources), {"prism_worker": 1, "sim": 1})
+        self.assertEqual(
+            dict(runs_module.SIM_RUN.resources),
+            {"prism_worker": 1, "sim": 1, "memory": 4},
+        )
 
     def test_result_files_are_limited_to_listed_artifacts(self) -> None:
         run = {"run_id": "run_x", "result": {"artifacts": [{"path": "out/a.json"}]}}
