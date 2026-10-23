@@ -7,11 +7,20 @@ the project's configuration says ``zone_fills: "saved"``. Both scripts are the
 spec's, verbatim. A failing step raises :class:`KicadStepFailed`, which the
 job retries; it is never recorded in a bundle and never replaced by the saved
 fills.
+
+Both results depend only on their inputs, so each cache persists under
+``KICAD_PROJECTS_ROOT/.kicad-prism``: ``upgrade-cache`` keeps upgraded bytes
+keyed by the file, its project file, the script and the worker's KiCad, and
+``refill-cache`` keeps a refilled board keyed by the board, its project and
+rules files, the script and the worker's KiCad. The in-memory
+:class:`UpgradeCache` still de-duplicates one job's shared files, so a cold
+disk cache upgrades each file once.
 """
 
 from __future__ import annotations
 
 import hashlib
+import os
 import re
 import shutil
 import tempfile
@@ -45,6 +54,8 @@ REFILL_SCRIPT = (
     + "pcbnew.ZONE_FILLER(board).Fill(board.Zones())\n"
     "pcbnew.SaveBoard(sys.argv[1], board)\n"
 )
+#: What a schematic upgrade runs instead of a pcbnew script; part of its cache key.
+SCHEMATIC_UPGRADE_ARGS = ("sch", "upgrade")
 _VERSION = re.compile(rb"\(\s*version\s+(\d+)\s*\)")
 _SHEET_FILE = re.compile(r'\(property\s+"Sheet\s?file"\s+"((?:[^"\\]|\\.)*)"')
 _HEAD_BYTES = 4096
@@ -168,14 +179,18 @@ class UpgradeCache:
     A board's upgrade reads the board and the project file copied beside it; a
     schematic's reads the schematic and the project file of the same stem, if
     any (cli-spec.md §9.4; a sheet's sub-sheets do not change its output). Two
-    revisions that share a file at the same content upgrade it once.
+    revisions that share a file at the same content upgrade it once: the
+    in-memory futures de-duplicate within one job, and the persistent cache
+    under ``upgrade-cache`` serves a later job without running KiCad at all.
     """
 
     def __init__(self) -> None:
         self._lock = threading.Lock()
         self._futures: dict[str, Future[bytes]] = {}
+        self.hits = 0
+        self.misses = 0
 
-    def get(self, key: str, upgrade: Callable[[], bytes]) -> bytes:
+    def get(self, key: str, upgrade: Callable[[], bytes], *, suffix: str) -> bytes:
         with self._lock:
             future = self._futures.get(key)
             owner = future is None
@@ -184,10 +199,31 @@ class UpgradeCache:
         assert future is not None
         if owner:
             try:
-                future.set_result(upgrade())
+                future.set_result(self._load(key, suffix, upgrade))
             except BaseException as error:
                 future.set_exception(error)
         return future.result()
+
+    def _load(self, key: str, suffix: str, upgrade: Callable[[], bytes]) -> bytes:
+        cached = upgrade_cache_root() / f"{key}.{suffix}"
+        upgraded: bytes | None
+        try:
+            upgraded = cached.read_bytes()
+        except OSError:
+            upgraded = None
+        if upgraded is not None:
+            _stamp(cached)
+            with self._lock:
+                self.hits += 1
+            return upgraded
+        upgraded = upgrade()
+        cached.parent.mkdir(parents=True, exist_ok=True)
+        temp = cached.with_name(f".{cached.name}.{os.getpid()}.part")
+        temp.write_bytes(upgraded)
+        os.replace(temp, cached)
+        with self._lock:
+            self.misses += 1
+        return upgraded
 
 
 def upgrade_sources(
@@ -218,12 +254,18 @@ def upgrade_sources(
     if not selected:
         return []
     cache = cache or UpgradeCache()
+    tool_version = worker_kicad_version()
 
     def upgrade(path: str, board: bool) -> bytes:
         target = src / path
         project = _project_beside(src, config, target, board)
-        key = _upgrade_key(board, target.read_bytes(), project.read_bytes() if project else None)
-        upgraded = cache.get(key, lambda: _upgrade_isolated(target, project, board, cancel=cancel))
+        procedure = UPGRADE_BOARD_SCRIPT if board else "\0".join(SCHEMATIC_UPGRADE_ARGS)
+        key = _upgrade_key(
+            board, target.read_bytes(), project.read_bytes() if project else None,
+            procedure=procedure.encode("utf-8"), tool_version=tool_version,
+        )
+        suffix = "kicad_pcb" if board else "kicad_sch"
+        upgraded = cache.get(key, lambda: _upgrade_isolated(target, project, board, cancel=cancel), suffix=suffix)
         target.write_bytes(upgraded)
         return upgraded
 
@@ -242,8 +284,14 @@ def _project_beside(src: Path, config: Mapping[str, object], target: Path, board
     return project if project.is_file() else None
 
 
-def _upgrade_key(board: bool, content: bytes, project: bytes | None) -> str:
+def _upgrade_key(board: bool, content: bytes, project: bytes | None, *, procedure: bytes, tool_version: str) -> str:
+    """What determines an upgraded file: its kind, procedure, worker KiCad, bytes and project bytes."""
+
     digest = hashlib.sha256(b"board\0" if board else b"schematic\0")
+    digest.update(procedure)
+    digest.update(b"\0")
+    digest.update(tool_version.encode("utf-8"))
+    digest.update(b"\0")
     digest.update(hashlib.sha256(content).digest())
     digest.update(hashlib.sha256(project).digest() if project is not None else b"\0")
     return digest.hexdigest()
@@ -270,7 +318,7 @@ def _upgrade_schematic(schematic: Path, *, cancel: Callable[[], None] | None) ->
         raise KicadStepFailed("kicad-cli is not installed; an older schematic cannot be upgraded")
     try:
         result = tool.with_cancel(cancel).run(
-            ["sch", "upgrade", str(schematic)], timeout=settings.PRISM_DESIGN_BUNDLE_UPGRADE_TIMEOUT_SECONDS
+            [*SCHEMATIC_UPGRADE_ARGS, str(schematic)], timeout=settings.PRISM_DESIGN_BUNDLE_UPGRADE_TIMEOUT_SECONDS
         )
     except kicad_tools.ToolError as error:
         raise KicadStepFailed(f"kicad-cli sch upgrade failed: {error}") from error
@@ -283,12 +331,15 @@ def _upgrade_schematic(schematic: Path, *, cancel: Callable[[], None] | None) ->
 
 def refill_board(
     sources: Path, config: Mapping[str, object], work: Path, *, cancel: Callable[[], None] | None = None
-) -> Path:
-    """cli-spec.md §9.2: refill a scratch copy; returns the refilled ``.kicad_pcb``.
+) -> tuple[Path, bool]:
+    """cli-spec.md §9.2: refill a scratch copy; returns ``(path, cache_hit)``.
 
     ``sources`` holds the bundle's sources at repository paths. The project
     and rules files are named after the board's stem so pcbnew finds them;
-    only the board is handed to the CLI.
+    only the board is handed to the CLI. An identical board, project and rules
+    file refill to the same bytes, so a hit copies the cached board and runs no
+    pcbnew; a miss refills and publishes the result atomically. A failed refill
+    publishes nothing.
     """
 
     board_path = str(config["board"])
@@ -296,6 +347,12 @@ def refill_board(
     stem = PurePosixPath(board_name).stem
     work.mkdir(parents=True, exist_ok=False)
     target = work / board_name
+    key = _refill_key(sources, config, worker_kicad_version())
+    cached = refill_cache_root() / f"{key}.kicad_pcb"
+    if cached.is_file():
+        shutil.copyfile(cached, target)
+        _stamp(cached)
+        return target, True
     shutil.copyfile(sources / board_path, target)
     project = sources / str(config["project_file"])
     shutil.copyfile(project, work / f"{stem}.kicad_pro")
@@ -303,4 +360,83 @@ def refill_board(
     if rules.is_file():
         shutil.copyfile(rules, work / f"{stem}.kicad_dru")
     _run_python(REFILL_SCRIPT, target, timeout=settings.PRISM_ZONE_REFILL_TIMEOUT_SECONDS, cancel=cancel)
-    return target
+    cached.parent.mkdir(parents=True, exist_ok=True)
+    temp = cached.with_name(f".{cached.name}.{os.getpid()}.part")
+    shutil.copyfile(target, temp)
+    os.replace(temp, cached)
+    return target, False
+
+
+def _refill_key(sources: Path, config: Mapping[str, object], tool_version: str) -> str:
+    """The board, its project and rules files, the script and the worker's KiCad, NUL-separated."""
+
+    project = sources / str(config["project_file"])
+    rules = project.with_suffix(".kicad_dru")
+    parts = [
+        b"refill-v1",
+        REFILL_SCRIPT.encode("utf-8"),
+        tool_version.encode("utf-8"),
+        hashlib.sha256((sources / str(config["board"])).read_bytes()).digest(),
+        hashlib.sha256(project.read_bytes()).digest(),
+        hashlib.sha256(rules.read_bytes()).digest() if rules.is_file() else b"",
+    ]
+    return hashlib.sha256(b"\0".join(parts)).hexdigest()
+
+
+# ------------------------------------------------------------------- caches
+
+
+def refill_cache_root() -> Path:
+    return Path(settings.KICAD_PROJECTS_ROOT).expanduser() / ".kicad-prism" / "refill-cache"
+
+
+def upgrade_cache_root() -> Path:
+    return Path(settings.KICAD_PROJECTS_ROOT).expanduser() / ".kicad-prism" / "upgrade-cache"
+
+
+#: A ``.part`` file older than this died before its rename; the GLB cache's grace.
+PART_GRACE_SECONDS = 3600
+
+
+def _stamp(path: Path) -> None:
+    """Mark a cached entry used, so retention evicts by last use."""
+
+    try:
+        os.utime(path, None)
+    except OSError:
+        pass  # a lost stamp only makes eviction earlier
+
+
+def _prune_cache(root: Path, suffixes: tuple[str, ...], *, unused_before: float, now: float) -> dict[str, int]:
+    removed, kept_bytes = 0, 0
+    if not root.is_dir():
+        return {"removed": 0, "bytes": 0}
+    for item in root.iterdir():
+        try:
+            info = item.stat()
+        except OSError:
+            continue
+        stale_part = item.name.endswith(".part") and info.st_mtime < now - PART_GRACE_SECONDS
+        if stale_part or (item.suffix in suffixes and info.st_mtime < unused_before):
+            item.unlink(missing_ok=True)
+            removed += item.suffix in suffixes
+        else:
+            kept_bytes += info.st_size
+    return {"removed": removed, "bytes": kept_bytes}
+
+
+def prune_refill_cache(*, unused_before: float, now: float) -> dict[str, int]:
+    """Retention's pass over the refill cache: drop entries unused since ``unused_before``.
+
+    Returns the entries removed and the bytes the cache still holds. A cache
+    file is only ever copied out, never read in place, so removing one a refill
+    is about to copy at worst refills again.
+    """
+
+    return _prune_cache(refill_cache_root(), (".kicad_pcb",), unused_before=unused_before, now=now)
+
+
+def prune_upgrade_cache(*, unused_before: float, now: float) -> dict[str, int]:
+    """Retention's pass over the upgrade cache; same rule as the refill cache's."""
+
+    return _prune_cache(upgrade_cache_root(), (".kicad_pcb", ".kicad_sch"), unused_before=unused_before, now=now)

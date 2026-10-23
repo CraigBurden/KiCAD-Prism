@@ -11,7 +11,7 @@ import unittest
 from unittest import mock
 
 from app.core.config import settings
-from app.services.design_bundle import backfill, jobs, retention, rows, store
+from app.services.design_bundle import backfill, jobs, kicad_steps, retention, rows, store
 from support.design_bundle_fixtures import PROJECT_FILES
 from support.postgres import requires_scratch_postgres, seed_job
 from support.repo import git
@@ -173,6 +173,26 @@ class RetentionTests(_Workspace, unittest.TestCase):
         self.assertFalse(orphan.exists())
         self.assertFalse(cache.exists())
         self.assertTrue(store.archive_path("p1", bundle["revision_key"], bundle["generator_digest"]).exists())
+
+    def test_kicad_caches_are_swept_with_the_glb_cache(self) -> None:
+        self.add_project()
+        self._bundle()
+        now, past = time.time(), time.time() - 60 * 86400
+        refill, upgrade = self.tmp / "refill-cache", self.tmp / "upgrade-cache"
+        for root, suffix in ((refill, ".kicad_pcb"), (upgrade, ".kicad_sch")):
+            root.mkdir()
+            old, part = root / f"old{suffix}", root / f".old{suffix}.1.part"
+            for path in (old, part):
+                path.write_bytes(b"old")
+                os.utime(path, (past, past))
+            (root / f"fresh{suffix}").write_bytes(b"new")
+        with mock.patch.object(kicad_steps, "refill_cache_root", return_value=refill), \
+                mock.patch.object(kicad_steps, "upgrade_cache_root", return_value=upgrade):
+            report = retention.run()
+        self.assertEqual((report["refill_cache_removed"], report["upgrade_cache_removed"]), (1, 1))
+        self.assertEqual((report["refill_cache_bytes"], report["upgrade_cache_bytes"]), (3, 3))
+        self.assertEqual(sorted(p.name for p in refill.iterdir()), ["fresh.kicad_pcb"])
+        self.assertEqual(sorted(p.name for p in upgrade.iterdir()), ["fresh.kicad_sch"])
 
     def test_superseded_generators_are_removed_when_a_new_one_is_stored(self) -> None:
         self.add_project()

@@ -12,8 +12,9 @@ queued or building is never removed.
 Also swept: unpacked-cache versions that are not the archive's current one
 (after a grace period), archives on disk that no row knows, the CLI's stale
 temporary files, commit-index rows of unkept commits whose key has no
-bundle left, and component GLBs of the models stage's export cache unused for
-``PRISM_DESIGN_BUNDLE_RETENTION_DAYS`` (its size is reported).
+bundle left, and the persistent KiCad caches unused for
+``PRISM_DESIGN_BUNDLE_RETENTION_DAYS``: component GLBs of the models stage's
+export cache, refilled boards and upgraded files (their sizes are reported).
 """
 
 from __future__ import annotations
@@ -27,7 +28,7 @@ from pathlib import Path
 from typing import Any
 
 from app.core.config import settings
-from app.services.design_bundle import reuse, rows, stage_models, store
+from app.services.design_bundle import kicad_steps, reuse, rows, stage_models, store
 from app.services.design_bundle.archive import BundleInvalid, open_archive
 from app.services.design_bundle.backfill import repo_of
 
@@ -91,6 +92,10 @@ def run(*, now: datetime | None = None, connect: rows.Connect | None = None) -> 
     report["temp_files"] = store.sweep_temporary_files(now=now.timestamp())
     models = stage_models.prune_cache(unused_before=cutoff.timestamp(), now=now.timestamp())
     report["model_cache_removed"], report["model_cache_bytes"] = models["removed"], models["bytes"]
+    refill = kicad_steps.prune_refill_cache(unused_before=cutoff.timestamp(), now=now.timestamp())
+    report["refill_cache_removed"], report["refill_cache_bytes"] = refill["removed"], refill["bytes"]
+    upgrade = kicad_steps.prune_upgrade_cache(unused_before=cutoff.timestamp(), now=now.timestamp())
+    report["upgrade_cache_removed"], report["upgrade_cache_bytes"] = upgrade["removed"], upgrade["bytes"]
     return report
 
 
