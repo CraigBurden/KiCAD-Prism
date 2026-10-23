@@ -409,8 +409,8 @@ fn board_graphics(
 }
 
 /// Stored fills of zones on technical layers, grown as legacy fills are.
-fn zone_graphics(zones: &[PcbZone], version: i64, out: &mut Vec<PlacedGraphic>) {
-    for zone in zones {
+fn zone_graphics(zones: &[&PcbZone], version: i64, out: &mut Vec<PlacedGraphic>) {
+    for &zone in zones {
         let uid = source_uid("zone", zone.uuid.as_deref(), zone.source_range.start);
         let offset_nm = fill_offset_nm(zone, version);
         for polygon in &zone.filled_polygons {
@@ -449,7 +449,7 @@ pub(crate) struct SourceGraphics<'a> {
     pub board: &'a [PcbGraphic],
     pub footprint: &'a [PcbFootprintGraphic],
     pub footprints: &'a [PcbFootprint],
-    pub zones: &'a [PcbZone],
+    pub zones: &'a [&'a PcbZone],
     /// Board solder-mask expansion for copper shapes without their own.
     pub mask_margin_nm: i64,
 }
