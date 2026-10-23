@@ -226,6 +226,7 @@ def run_artifact_maintenance(context: JobContext) -> dict[str, Any]:
     from app.services.job_retention import prune_jobs
 
     job_retention = prune_jobs(context_jobs)
+    sim_retention = _sim_studio_retention()
     _step(context, progress=80, message="Quarantining superseded STEP payloads")
     step_result = purge_superseded_step_files(job_id=context.job_id)
     staging = catalog_service.cleanup_resolved_import_staging(
@@ -243,7 +244,23 @@ def run_artifact_maintenance(context: JobContext) -> dict[str, Any]:
         "quarantined_steps_deleted": step_result["expired"]["deleted"],
         "quarantined_steps_restored": step_result["expired"]["restored"],
         "staging_sessions_removed": staging["removed"],
+        **sim_retention,
     }
+
+
+def _sim_studio_retention() -> dict[str, int]:
+    """Simulation Studio's runs, run folders and meshes (``app.sim_studio.retention``).
+
+    Runs while the Studio is enabled, and afterwards for as long as runs it
+    left behind are on disk; an installation that never used it is untouched.
+    """
+
+    from app.sim_studio import retention as sim_retention
+    from app.sim_studio.runs import sim_root
+
+    if not settings.PRISM_SIM_STUDIO_ENABLED and not sim_root().is_dir():
+        return {}
+    return sim_retention.prune_runs()
 
 
 def run_metadata_batch(context: JobContext) -> dict[str, Any]:

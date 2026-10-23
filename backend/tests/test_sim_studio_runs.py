@@ -390,6 +390,66 @@ class MeshRetentionTest(unittest.TestCase):
             self.assertEqual(retention.prune_meshes(keep=2, now=now), 2)
         self.assertEqual(sorted(p.name for p in meshes.iterdir()), ["a.dcmesh", "b.dcmesh", "new.1.partial"])
 
+
+class MaintenanceScheduleTest(unittest.TestCase):
+    """The daily artifact maintenance applies Simulation Studio's retention."""
+
+    def setUp(self) -> None:
+        tmp = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, tmp, True)
+        patcher = mock.patch.object(settings, "KICAD_PROJECTS_ROOT", str(tmp))
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def _sim_retention(self, *, enabled: bool) -> tuple[dict, mock.Mock]:
+        from app.services import catalog_worker_tasks
+
+        with mock.patch.object(settings, "PRISM_SIM_STUDIO_ENABLED", enabled), mock.patch(
+            "app.sim_studio.retention.prune_runs", return_value={"sim_runs_pruned": 2}
+        ) as prune:
+            return catalog_worker_tasks._sim_studio_retention(), prune
+
+    def test_an_installation_that_never_used_the_studio_is_untouched(self) -> None:
+        report, prune = self._sim_retention(enabled=False)
+        self.assertEqual(report, {})
+        prune.assert_not_called()
+
+    def test_runs_while_enabled(self) -> None:
+        report, prune = self._sim_retention(enabled=True)
+        self.assertEqual(report, {"sim_runs_pruned": 2})
+        prune.assert_called_once_with()
+
+    def test_runs_left_on_disk_are_pruned_after_the_studio_is_disabled(self) -> None:
+        runs_module.sim_root().mkdir(parents=True)
+        report, prune = self._sim_retention(enabled=False)
+        self.assertEqual(report, {"sim_runs_pruned": 2})
+        prune.assert_called_once_with()
+
+    def test_artifact_maintenance_reports_the_studio_retention(self) -> None:
+        from app.services import catalog_worker_tasks as tasks
+
+        step = {"quarantined": 0, "expired": {"deleted": 0, "restored": 0}}
+        with mock.patch.object(tasks, "_step"), mock.patch.object(
+            tasks, "artifact_store", run_retention=mock.Mock(return_value={})
+        ), mock.patch.object(
+            tasks,
+            "job_artifacts",
+            reconcile_registered_artifacts=mock.Mock(return_value={}),
+            collect_unreferenced_objects=mock.Mock(return_value={}),
+            cleanup_stale_staging=mock.Mock(return_value={}),
+        ), mock.patch.object(
+            tasks, "context_jobs", prune_artifact_metadata=mock.Mock(return_value=0)
+        ), mock.patch.object(tasks, "git_read_cache", prune=mock.Mock(return_value=0)), mock.patch(
+            "app.services.job_retention.prune_jobs", return_value={}
+        ), mock.patch.object(tasks, "purge_superseded_step_files", return_value=step), mock.patch.object(
+            tasks, "catalog_service", cleanup_resolved_import_staging=mock.Mock(return_value={"removed": 0})
+        ), mock.patch.object(tasks, "_sim_studio_retention", return_value={"sim_runs_pruned": 4}) as sim:
+            result = tasks.run_artifact_maintenance(SimpleNamespace(job_id="job-1"))
+
+        sim.assert_called_once_with()
+        self.assertEqual(result["sim_runs_pruned"], 4)
+
+
 if __name__ == "__main__":
     unittest.main()
 
