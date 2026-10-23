@@ -130,17 +130,17 @@ fn contains_inserted_property_with_complete_placement(value: &Sexp) -> bool {
         return false;
     };
     let is_inserted = matches!(
-        items.as_slice(),
+        &items[..],
         [Sexp::Atom(head), Sexp::Quoted(name), Sexp::Quoted(value), rest @ ..]
-            if head == "property"
-                && name == "Value"
-                && value == "10k"
+            if head.as_ref() == "property"
+                && name.as_ref() == "Value"
+                && value.as_ref() == "10k"
                 && rest.iter().any(|child| matches!(
                     child,
                     Sexp::List(at)
-                        if matches!(at.as_slice(),
+                        if matches!(&at[..],
                             [Sexp::Atom(head), Sexp::Integer(0), Sexp::Integer(0), Sexp::Integer(0)]
-                            if head == "at")
+                            if head.as_ref() == "at")
                 ))
     );
     is_inserted

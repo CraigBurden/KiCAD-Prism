@@ -499,8 +499,8 @@ fn build_sexpr_impl(request_json: &[u8]) -> Result<Vec<u8>, String> {
 fn core_node(node: ValidatedNode) -> Sexp {
     match node {
         ValidatedNode::List(children) => Sexp::List(children.into_iter().map(core_node).collect()),
-        ValidatedNode::Atom(value) => Sexp::Atom(value),
-        ValidatedNode::Quoted(value) => Sexp::Quoted(value),
+        ValidatedNode::Atom(value) => Sexp::Atom(value.into()),
+        ValidatedNode::Quoted(value) => Sexp::Quoted(value.into()),
         ValidatedNode::Integer(value) => Sexp::Integer(value),
         ValidatedNode::Float(value) => Sexp::Float(value),
     }

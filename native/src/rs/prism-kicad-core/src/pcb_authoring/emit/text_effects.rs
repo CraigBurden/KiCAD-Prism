@@ -11,7 +11,7 @@ pub(super) fn effects(value: &AuthoredTextEffects) -> Sexp {
     if let Some(href) = &value.href {
         children.push(form("href", [quoted(href)]));
     }
-    Sexp::List(children)
+    Sexp::List(children.into())
 }
 
 fn font_effects(value: &AuthoredTextEffects) -> Sexp {
@@ -46,7 +46,7 @@ fn font_effects(value: &AuthoredTextEffects) -> Sexp {
             ],
         ));
     }
-    Sexp::List(font)
+    Sexp::List(font.into())
 }
 
 fn text_justification(value: &AuthoredTextEffects) -> Vec<Sexp> {

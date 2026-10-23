@@ -7,11 +7,11 @@ use std::fs;
 use std::path::PathBuf;
 
 fn atom(value: &str) -> Sexp {
-    Sexp::Atom(value.to_owned())
+    Sexp::Atom(value.into())
 }
 
 fn quoted(value: &str) -> Sexp {
-    Sexp::Quoted(value.to_owned())
+    Sexp::Quoted(value.into())
 }
 
 #[test]
@@ -28,7 +28,7 @@ fn bounded_builder_refuses_output_growth_before_appending_past_the_limit() {
 }
 
 fn list(values: Vec<Sexp>) -> Sexp {
-    Sexp::List(values)
+    Sexp::List(values.into())
 }
 
 #[test]

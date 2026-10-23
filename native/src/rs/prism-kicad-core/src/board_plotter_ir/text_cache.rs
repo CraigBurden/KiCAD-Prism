@@ -99,7 +99,7 @@ pub(super) fn parse_render_cache(
         return Ok(None);
     };
     let text = match &values[1] {
-        Sexp::Atom(value) | Sexp::Quoted(value) => Some(value.clone()),
+        Sexp::Atom(value) | Sexp::Quoted(value) => Some(value.to_string()),
         // Python `unquote_string` stringifies scalar tokens.
         Sexp::Integer(value) => Some(value.to_string()),
         _ => None,

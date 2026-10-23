@@ -32,7 +32,7 @@ pub(super) fn is_canonical_uuid(text: &str) -> bool {
 /// A borrowed `Sexp` list, or `None` for a scalar.
 pub(super) fn as_list(form: &Sexp) -> Option<&[Sexp]> {
     match form {
-        Sexp::List(values) => Some(values.as_slice()),
+        Sexp::List(values) => Some(&values[..]),
         _ => None,
     }
 }
@@ -139,7 +139,7 @@ pub(super) fn is_named_property(property: &Sexp, names: &[&str]) -> bool {
 /// instead of allocating its `str()`.
 fn scalar_at_is(form: &Sexp, index: usize, names: &[&str]) -> bool {
     match atom(Some(form), index) {
-        Some(Sexp::Atom(text) | Sexp::Quoted(text)) => names.contains(&text.as_str()),
+        Some(Sexp::Atom(text) | Sexp::Quoted(text)) => names.contains(&text.as_ref()),
         Some(value @ (Sexp::Integer(_) | Sexp::Float(_))) => {
             names.contains(&scalar(value).as_str())
         }
@@ -172,7 +172,7 @@ pub(super) fn sheet_name(sheet: &Sexp) -> Option<String> {
 /// `project.py:508-516`: a document's top-level `(property "N" "V")`.
 pub(super) fn document_property(property: &Sexp) -> Option<(String, String)> {
     let name = match atom(Some(property), 1)? {
-        Sexp::Atom(name) | Sexp::Quoted(name) if !name.is_empty() => name.clone(),
+        Sexp::Atom(name) | Sexp::Quoted(name) if !name.is_empty() => name.to_string(),
         _ => return None,
     };
     let value = atom(Some(property), 2)?;

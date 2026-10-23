@@ -58,7 +58,7 @@ pub(super) fn board_text(board: &AuthoredPcb, limits: PcbAuthoringLimits) -> Res
     values.extend(board.zones.iter().map(zone));
     values.extend(board.rule_areas.iter().map(rule_areas::rule_area));
     values.extend(board.groups.iter().map(group));
-    build_document(Sexp::List(values), limits.max_output_bytes)
+    build_document(Sexp::List(values.into()), limits.max_output_bytes)
 }
 
 fn group(value: &AuthoredGroup) -> Sexp {
@@ -112,9 +112,9 @@ fn layer_table(layers: &[AuthoredLayer]) -> Sexp {
         if let Some(user_name) = &layer.user_name {
             values.push(quoted(user_name));
         }
-        children.push(Sexp::List(values));
+        children.push(Sexp::List(values.into()));
     }
-    Sexp::List(children)
+    Sexp::List(children.into())
 }
 
 fn setup(value: &AuthoredSetup) -> Sexp {
@@ -153,7 +153,7 @@ fn setup(value: &AuthoredSetup) -> Sexp {
     if let Some(stackup) = &value.stackup {
         children.push(stackup_form(stackup));
     }
-    Sexp::List(children)
+    Sexp::List(children.into())
 }
 
 fn stackup_form(value: &AuthoredStackup) -> Sexp {
@@ -172,7 +172,7 @@ fn stackup_form(value: &AuthoredStackup) -> Sexp {
     if value.edge_plating {
         children.push(form("edge_plating", [atom("yes")]));
     }
-    Sexp::List(children)
+    Sexp::List(children.into())
 }
 
 fn stackup_layer(value: &AuthoredStackupLayer) -> Sexp {
@@ -200,7 +200,7 @@ fn stackup_layer(value: &AuthoredStackupLayer) -> Sexp {
     if let Some(color) = &value.color {
         children.push(form("color", [quoted(color)]));
     }
-    Sexp::List(children)
+    Sexp::List(children.into())
 }
 
 fn net(value: &AuthoredNet) -> Sexp {
@@ -259,7 +259,7 @@ fn footprint_form(
     if !value.embedded_files.is_empty() {
         children.push(resources.files(&value.embedded_files)?);
     }
-    Ok(Sexp::List(children))
+    Ok(Sexp::List(children.into()))
 }
 
 fn append_footprint_metadata(value: &AuthoredFootprint, children: &mut Vec<Sexp>) {
@@ -335,7 +335,7 @@ fn footprint_property(
             limits,
         )?);
     }
-    Ok(Sexp::List(children))
+    Ok(Sexp::List(children.into()))
 }
 
 fn footprint_text_value(
@@ -368,7 +368,7 @@ fn footprint_text_value(
             limits,
         )?);
     }
-    Ok(Sexp::List(children))
+    Ok(Sexp::List(children.into()))
 }
 
 fn board_text_value(value: &AuthoredBoardText, limits: PcbAuthoringLimits) -> Result<Sexp, Error> {
@@ -386,7 +386,7 @@ fn board_text_value(value: &AuthoredBoardText, limits: PcbAuthoringLimits) -> Re
     if let Some(cache) = &value.render_cache {
         children.push(render_cache(cache, None, limits)?);
     }
-    Ok(Sexp::List(children))
+    Ok(Sexp::List(children.into()))
 }
 
 fn text_box(
@@ -431,7 +431,7 @@ fn text_box(
             limits,
         )?);
     }
-    Ok(Sexp::List(children))
+    Ok(Sexp::List(children.into()))
 }
 
 fn text_layer(layer: &str, knockout: bool) -> Sexp {
@@ -559,7 +559,7 @@ fn graphic(value: &AuthoredGraphic, prefix: &str) -> Sexp {
         children.push(form("net", [quoted(&net.name)]));
     }
     children.push(form("uuid", [quoted(&value.uuid)]));
-    Sexp::List(children)
+    Sexp::List(children.into())
 }
 
 fn graphic_geometry(value: &AuthoredGraphicGeometry) -> (&'static str, Vec<Sexp>) {
@@ -647,7 +647,7 @@ fn pad(value: &AuthoredPad) -> Sexp {
     if let Some(stack) = &value.padstack {
         children.push(padstacks::padstack(stack));
     }
-    Sexp::List(children)
+    Sexp::List(children.into())
 }
 
 fn drill_form(value: &AuthoredDrill) -> Sexp {
@@ -780,7 +780,7 @@ fn via(value: &AuthoredVia) -> Sexp {
         form("net", [integer(value.net_code)]),
         form("uuid", [quoted(&value.uuid)]),
     ]);
-    Sexp::List(children)
+    Sexp::List(children.into())
 }
 
 fn append_via_policies(value: &AuthoredVia, children: &mut Vec<Sexp>) {
@@ -917,7 +917,7 @@ fn zone(value: &AuthoredZone) -> Sexp {
     }
     children.extend(value.outlines.iter().map(zone_polygon));
     children.extend(value.filled_polygons.iter().map(zone_filled_polygon));
-    Sexp::List(children)
+    Sexp::List(children.into())
 }
 
 fn zone_fill(value: &AuthoredZoneFill) -> Sexp {
@@ -945,7 +945,7 @@ fn zone_polygon(value: &AuthoredZonePolygon) -> Sexp {
 fn zone_filled_polygon(value: &AuthoredZoneFilledPolygon) -> Sexp {
     let mut children = vec![form("layer", [quoted(&value.layer)])];
     if value.island {
-        children.push(Sexp::List(vec![atom("island")]));
+        children.push(Sexp::List(vec![atom("island")].into()));
     }
     children.push(points_form(&value.points));
     form("filled_polygon", children)
@@ -976,15 +976,15 @@ fn xyz_parent(head: &str, values: [f64; 3]) -> Sexp {
 fn form(head: &str, children: impl IntoIterator<Item = Sexp>) -> Sexp {
     let mut values = vec![atom(head)];
     values.extend(children);
-    Sexp::List(values)
+    Sexp::List(values.into())
 }
 
 fn atom(value: &str) -> Sexp {
-    Sexp::Atom(value.to_owned())
+    Sexp::Atom(value.to_owned().into())
 }
 
 fn quoted(value: &str) -> Sexp {
-    Sexp::Quoted(value.to_owned())
+    Sexp::Quoted(value.to_owned().into())
 }
 
 const fn integer(value: i64) -> Sexp {

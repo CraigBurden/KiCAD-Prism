@@ -1962,7 +1962,7 @@ fn text(value: &Sexp) -> Option<&str> {
 }
 fn scalar_at(form: &Sexp, index: usize) -> Option<String> {
     list(form)?.get(index).map(|value| match value {
-        Sexp::Atom(value) | Sexp::Quoted(value) => value.clone(),
+        Sexp::Atom(value) | Sexp::Quoted(value) => value.to_string(),
         Sexp::Integer(value) => value.to_string(),
         Sexp::Float(value) => value.to_string(),
         Sexp::List(_) => String::new(),

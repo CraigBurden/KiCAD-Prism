@@ -26,10 +26,11 @@ pub fn remove_element(root: &mut Sexp, name: &str) -> Option<Sexp> {
     let Sexp::List(values) = root else {
         return None;
     };
-    values
-        .iter()
-        .position(|value| named_list(value, name))
-        .map(|index| values.remove(index))
+    let index = values.iter().position(|value| named_list(value, name))?;
+    let mut items = std::mem::take(values).into_vec();
+    let removed = items.remove(index);
+    *values = items.into_boxed_slice();
+    Some(removed)
 }
 
 /// Remove every direct child list whose head matches `name`, preserving order.
@@ -38,15 +39,16 @@ pub fn remove_all_elements(root: &mut Sexp, name: &str) -> Vec<Sexp> {
         return Vec::new();
     };
     let mut removed = Vec::new();
-    let mut retained = Vec::with_capacity(values.len());
-    for value in values.drain(..) {
+    let items = std::mem::take(values).into_vec();
+    let mut retained = Vec::with_capacity(items.len());
+    for value in items {
         if named_list(&value, name) {
             removed.push(value);
         } else {
             retained.push(value);
         }
     }
-    *values = retained;
+    *values = retained.into_boxed_slice();
     removed
 }
 
@@ -58,7 +60,7 @@ pub fn set_value(root: &mut Sexp, name: &str, value: Sexp) -> Result<(), Error> 
             "set_value root must be a list",
         ));
     }
-    let replacement = Sexp::List(vec![Sexp::Atom(name.to_owned()), value]);
+    let replacement = Sexp::List(vec![Sexp::Atom(name.into()), value].into());
     if !replace_element(root, name, replacement.clone()) {
         let Sexp::List(values) = root else {
             return Err(Error::build(
@@ -66,7 +68,9 @@ pub fn set_value(root: &mut Sexp, name: &str, value: Sexp) -> Result<(), Error> 
                 "set_value root must be a list",
             ));
         };
-        values.push(replacement);
+        let mut items = std::mem::take(values).into_vec();
+        items.push(replacement);
+        *values = items.into_boxed_slice();
     }
     Ok(())
 }
