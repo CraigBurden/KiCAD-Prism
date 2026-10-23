@@ -704,6 +704,16 @@ class Settings(PipelineSettings, DesignBundleSettings, SimStudioSettings):
         description="Run ssh-keyscan for common Git hosts during backend startup.",
     )
 
+    # A fetch that stops making progress must fail instead of pinning a worker
+    # (and, for a manual sync, the repository write lock) forever. git's
+    # low-speed abort reports a stalled transfer sooner; this is the hard
+    # ceiling for one that keeps talking too slowly to finish.
+    PRISM_GIT_FETCH_TIMEOUT_SECONDS: int = Field(
+        default=300,
+        ge=10,
+        description="Hard timeout for one project git fetch, in seconds.",
+    )
+
     # Comma-separated list of Git hosts projects may be imported from.
     # Empty means any host, which suits a single-operator deployment.
     IMPORT_ALLOWED_HOSTS_STR: str = Field(
