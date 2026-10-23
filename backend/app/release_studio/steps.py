@@ -650,14 +650,20 @@ def run_board_jobset(
     jobset = work / "release.kicad_jobset"
     jobset.write_text(json.dumps({"jobs": jobs, "meta": {"version": 1}, "outputs": outputs}, indent=2, sort_keys=True), encoding="utf-8")
 
+    # The runner stages each output in a folder under the system temp
+    # directory and never removes it, so it gets a temp directory of its own.
+    temp = work / "tmp"
+    temp.mkdir()
     argv = ["jobset", "run", "-f", str(jobset), str(project)]
     started = time.perf_counter()
     print(f"[board-jobset] $ {shlex.join([tool.executable(), *argv])}", flush=True)
     try:
-        result = tool.run(argv, cwd=project_dir, timeout=timeout_seconds, tee=True)
+        result = tool.run(argv, cwd=project_dir, env={"TMPDIR": str(temp)}, timeout=timeout_seconds, tee=True)
     except ToolError as exc:
         print(f"[board-jobset] {exc}; running the steps one by one", flush=True)
         return ()
+    finally:
+        shutil.rmtree(temp, ignore_errors=True)
     elapsed_ms = int((time.perf_counter() - started) * 1000)
 
     done: list[StepOutput] = []

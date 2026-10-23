@@ -23,9 +23,13 @@ BOARD_STEPS = steps.CATALOGUE_WAVE_BOARD
 def _kicad(*, jobset_writes: bool = True):
     """A kicad-cli that writes a jobset's outputs the way KiCad names them, and any single step."""
 
-    def run(args, cwd=None, **_kwargs):  # noqa: ANN001
+    def run(args, cwd=None, env=None, **_kwargs):  # noqa: ANN001
         args = list(args)
         if args[:2] == ["jobset", "run"]:
+            # KiCad stages every output under the temp directory and leaves it there.
+            staged = Path((env or {})["TMPDIR"]) / "c8506cbb"
+            staged.mkdir()
+            (staged / "leftover.gbr").write_text("G04*", encoding="utf-8")
             if not jobset_writes:
                 return ToolResult(0, "0 jobs succeeded, 0 job failed", "")
             document = json.loads(Path(args[3]).read_text(encoding="utf-8"))
@@ -96,6 +100,9 @@ class BoardJobsetTests(unittest.TestCase):
         self.assertTrue((self.output / "fabrication/gerbers/demo-F_Cu.gtl").is_file())
         self.assertTrue((self.output / "fabrication/drill/demo.drl").is_file())
         self.assertFalse((self.project / steps.JOBSET_DIR).exists())
+        temp = Path(tool.calls[0]["env"]["TMPDIR"])
+        self.assertEqual(temp.parent, self.project / steps.JOBSET_DIR)
+        self.assertFalse(temp.exists())
         drc = outputs["drc"].normalized_argv
         self.assertEqual(drc[:4], ("kicad-cli", "jobset", "run", "pcb_drc"))
         self.assertTrue(json.loads(drc[4])["parity"])
