@@ -64,15 +64,12 @@ Left out, and so absent from all imported history:
 - **History.** `git log --all --name-only` over the fork's history gave every path ever committed, which the GPL and third-party search covered.
 - **Completeness.** A dry run exported exactly the allow-listed paths at `b6316117` and ran `cargo test --workspace --offline --no-fail-fast` on Rust 1.98.0: 103 test binaries, 883 tests passed, 0 failed, 0 ignored. The allow-list is complete for the workspace's own tests, with no network.
 
-## 6. SolidCraft (prism-step)
+## 6. SolidCraft (removed)
 
-`native/src/rs/prism-step/` adapts SolidCraft's ISO 10303-21 parser
-(`crates/kernel/src/step_in/p21.rs`) and the assembly/copy parts of its AP242
-writer (`crates/kernel/src/step_out.rs`), from
-https://github.com/tangency-labs/solidcraft at commit `a0c1a67`, licensed
-MIT OR Apache-2.0, Copyright (c) 2026 SolidCraft contributors. The truck
-B-rep writing and its dependencies are not used. The root `NOTICE` carries
-the attribution; every ported file names its SolidCraft origin.
+`native/src/rs/prism-step/` adapted SolidCraft's ISO 10303-21 parser and AP242
+assembly writer (MIT OR Apache-2.0) for System Builder's STEP assembly. The
+crate went with System Builder on 2026-10-23; the archive tag
+`archive/system-builder-v2` keeps it.
 
 ## 7. Geometer client (vendored)
 

@@ -44,10 +44,3 @@ PyYAML>=6.0.1,<7
 # Design bundles: members and prism-kicad's JSON are validated against the
 # committed JSON Schema (native/contracts/generated/schema/, draft 2020-12).
 jsonschema>=4.23,<5
-# System Builder reviews and findings report (.xlsx).
-openpyxl>=3.1,<4
-# System Builder collision check: mesh intersection (CONTRACTS_P2 §24.2), on meshes trimesh loads.
-python-fcl>=0.7,<0.8
-trimesh>=4,<6
-# System Builder STEP export: an OCCT XCAF assembly of board and catalog STEPs (CONTRACTS_P2 §25, D-P2-59).
-cadquery-ocp-novtk>=7.9.3,<7.10

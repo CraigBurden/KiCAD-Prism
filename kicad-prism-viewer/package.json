@@ -18,10 +18,7 @@
   "dependencies": {
     "@gltf-transform/core": "^4.4.2",
     "@gltf-transform/extensions": "^4.4.2",
-    "@gltf-transform/functions": "^4.4.2",
-    "earcut": "^3.2.3",
     "esbuild": "^0.25.5",
-    "meshoptimizer": "^0.24.0",
-    "polygon-clipping": "^0.15.7"
+    "meshoptimizer": "^0.24.0"
   }
 }

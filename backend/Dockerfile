@@ -73,20 +73,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     git \
     git-lfs \
     openssh-client \
-    g++ \
-    cmake \
-    make \
     curl \
     ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
 COPY --from=uv-bin /uv /uvx /usr/local/bin/
-
-# Reuse the pinned Node runtime for the isolated WebGPU asset compiler.
-COPY --from=remote-provider-panel /usr/local/bin/node /usr/local/bin/node
-COPY --from=remote-provider-panel /usr/local/lib/node_modules /usr/local/lib/node_modules
-RUN ln -sf /usr/local/lib/node_modules/npm/bin/npm-cli.js /usr/local/bin/npm \
-    && ln -sf /usr/local/lib/node_modules/npm/bin/npx-cli.js /usr/local/bin/npx
 
 # Optional KiCad Library Convention checker used by the component catalog health view.
 RUN git clone --depth 1 https://gitlab.com/kicad/libraries/kicad-library-utils.git /opt/kicad-library-utils \
@@ -111,7 +102,7 @@ ENV MALLOC_ARENA_MAX=2
 
 # API, workers and Release Studio share one fully resolved runtime.
 COPY requirements/runtime.lock /app/requirements/runtime.lock
-COPY .python-version .node-version /app/
+COPY .python-version /app/
 COPY scripts/verify_dependency_identity.py /app/scripts/verify_dependency_identity.py
 RUN uv pip sync --python /app/venv/bin/python /app/requirements/runtime.lock \
     && python /app/scripts/verify_dependency_identity.py --python-only

@@ -16,8 +16,4 @@ workspace = true
 prism-bundle = { path = "../prism-bundle", default-features = false }
 prism-kicad-contracts = { path = "../prism-kicad-contracts" }
 prism-kicad-core = { path = "../prism-kicad-core" }
-serde.workspace = true
 serde_json.workspace = true
-
-[dev-dependencies]
-miniz_oxide.workspace = true
