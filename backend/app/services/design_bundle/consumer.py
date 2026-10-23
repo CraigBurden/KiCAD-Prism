@@ -69,6 +69,14 @@ class BundleRead:
     def bytes(self, path: str) -> bytes:
         return self.opened.read(path)
 
+    def size(self, path: str) -> int:
+        """A ready member's size, from the verified manifest: nothing is inflated."""
+
+        member = self.opened.archive.member(path) if self.opened.archive is not None else None
+        if member is None:
+            raise KeyError(path)
+        return int(member["bytes"])
+
     def extract(self, paths: Iterable[str]) -> Path:
         """Ready members as files in the verified version directory (§8)."""
 

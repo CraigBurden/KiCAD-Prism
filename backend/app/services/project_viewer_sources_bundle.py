@@ -24,9 +24,10 @@ no anchor), and the route answers 404 rather than approximating.
 
 from __future__ import annotations
 
+import functools
 import posixpath
 from dataclasses import dataclass
-from typing import Any, Mapping
+from typing import Any, Callable, Mapping
 from urllib.parse import quote
 
 from app.services.design_bundle.consumer import BundleRead
@@ -42,13 +43,23 @@ _SHEET_FIELDS = ("/schematic/page_layout_descr_file", "/pcbnew/page_layout_descr
 MAX_INLINE_SUBSHEET_CONTENT_BYTES = 64 * 1024 * 1024
 
 
-@dataclass(frozen=True)
 class SourceFile:
-    """One ready ``sources/`` member: its name, its repository path and its bytes."""
+    """One ready ``sources/`` member: its name, repository path and size.
 
-    name: str
-    repo_path: str
-    content: bytes
+    Its bytes are read only when ``content`` is first asked for: a route serves
+    a large file from the extracted version directory instead, and never holds
+    it whole in memory.
+    """
+
+    def __init__(self, name: str, repo_path: str, size: int, load: Callable[[], bytes]) -> None:
+        self.name = name
+        self.repo_path = repo_path
+        self.size = size
+        self._load = load
+
+    @functools.cached_property
+    def content(self) -> bytes:
+        return self._load()
 
 
 def _extended(read: BundleRead, paths: list[str]) -> BundleRead:
@@ -114,7 +125,10 @@ def source(read: BundleRead, repo_path: str) -> SourceFile | None:
     if not available(read, repo_path):
         return None
     member = f"{_SOURCE_PREFIX}{repo_path}"
-    return SourceFile(name=posixpath.basename(repo_path), repo_path=repo_path, content=read.bytes(member))
+    return SourceFile(
+        name=posixpath.basename(repo_path), repo_path=repo_path, size=read.size(member),
+        load=lambda: read.bytes(member),
+    )
 
 
 def schematic(read: BundleRead) -> SourceFile | None:
@@ -188,9 +202,9 @@ def subsheets(
         if include_content and not exhausted:
             member = source(read, repo_path)
             if member is not None:
-                if len(member.content) <= remaining:
+                if member.size <= remaining:
                     item["content"] = member.content.decode("utf-8", errors="replace")
-                    remaining -= len(member.content)
+                    remaining -= member.size
                 else:
                     exhausted = True
         files.append(item)

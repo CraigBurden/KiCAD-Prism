@@ -314,6 +314,29 @@ class ViewerSourceBundleTests(_BundleFixture):
         self.assertEqual(status, 200)
         self.assertEqual(body, PCB_CONTENT.encode("utf-8"))
 
+    def test_a_large_source_is_served_from_the_extracted_file_without_reading_it_whole(self) -> None:
+        # Over the streaming threshold the route sizes the member from the
+        # manifest and serves the verified extracted file, never its bytes.
+        from app.services.design_bundle.archive import Archive
+
+        read = Archive.read
+        whole: list[str] = []
+
+        def read_member(archive, path, **kwargs):
+            whole.append(path)
+            return read(archive, path, **kwargs)
+
+        from app.api import projects
+
+        with mock.patch.object(viewer_sources, "COMMIT_FILE_STREAM_BYTES", 4), \
+                mock.patch.object(projects, "COMMIT_FILE_STREAM_BYTES", 4), \
+                mock.patch.object(settings, "PRISM_DESIGN_BUNDLE_ROOT", str(self.tmp / "bundles")), \
+                mock.patch.object(Archive, "read", read_member):
+            response = self._serve(viewer_sources.get_project_pcb, commit=self.repo)
+        self.assertTrue(Path(response.path).is_file())
+        self.assertEqual(Path(response.path).read_bytes(), PCB_CONTENT.encode("utf-8"))
+        self.assertFalse([path for path in whole if path.startswith("sources/")])
+
     def test_subsheets_are_the_hierarchy_documents(self) -> None:
         response = Response()
         files = self._serve(viewer_sources.get_project_subsheets, commit=self.repo, response=response)
