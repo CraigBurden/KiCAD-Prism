@@ -175,6 +175,41 @@ class RetentionTests(_Workspace, unittest.TestCase):
         self.assertFalse(cache.exists())
         self.assertTrue(store.archive_path("p1", bundle["revision_key"], bundle["generator_digest"]).exists())
 
+    def test_an_idle_revisions_cache_goes_while_its_archive_stays(self) -> None:
+        self.add_project()
+        bundle = self._bundle()
+        key = ("p1", bundle["revision_key"], bundle["generator_digest"])
+        archive = store.open_bundle(*key, bundle["bundle_key"])
+        version = store.extract(archive, *key, ["sources/"])
+        past = time.time() - 10 * 86400
+        os.utime(version, (past, past))
+        self._age(bundle["bundle_key"], 10)
+        report = retention.run()
+        self.assertTrue(store.archive_path(*key).exists())  # the archive is kept, its cache is not
+        self.assertFalse(version.exists(), report)
+        self.assertEqual(report["cache_idle_versions"], 1)
+        self.assertGreater(report["cache_idle_bytes"], 0)
+        # A read re-extracts it; the archive is the source of truth.
+        reopened = store.open_bundle(*key, bundle["bundle_key"])
+        self.assertTrue(store.extract(reopened, *key, ["sources/"]).is_dir())
+
+    def test_the_cache_cap_evicts_the_least_recently_used_and_keeps_archives(self) -> None:
+        self.add_project()
+        bundle = self._bundle()
+        key = ("p1", bundle["revision_key"], bundle["generator_digest"])
+        archive = store.open_bundle(*key, bundle["bundle_key"])
+        store.extract(archive, *key, ["sources/"])
+        past = time.time() - 2 * 86400
+        for version in store.cache_dir(*key).iterdir():
+            if version.is_dir() and not version.is_symlink():
+                os.utime(version, (past, past))
+        self._age(bundle["bundle_key"], 2)  # outside the grace period, inside the idle period
+        with mock.patch.object(settings, "PRISM_DESIGN_BUNDLE_CACHE_PROJECT_MAX_BYTES", 1):
+            report = retention.run()
+        self.assertGreater(report["cache_capped_versions"], 0)
+        self.assertTrue(store.archive_path(*key).exists())
+        self.assertEqual(report["cache_bytes"], 0)
+
     def test_kicad_caches_are_swept_with_the_glb_cache(self) -> None:
         self.add_project()
         self._bundle()

@@ -119,6 +119,40 @@ class DesignBundleSettings(BaseSettings):
             "baselines and released Release Studio commits are always kept."
         ),
     )
+    PRISM_DESIGN_BUNDLE_CACHE_GRACE_SECONDS: int = Field(
+        default=3600,
+        ge=0,
+        description=(
+            "How long an unpacked-cache version directory must be untouched before retention may remove it. "
+            "A reader's extract refreshes it; this is the floor that keeps a directory a reader may still "
+            "be using (a slow comparison or release build) out of the sweep."
+        ),
+    )
+    PRISM_DESIGN_BUNDLE_CACHE_IDLE_DAYS: int = Field(
+        default=7,
+        ge=0,
+        description=(
+            "Drop an archive's unpacked caches once no read has used it for this many days, even while the "
+            "archive itself stays. 0 keeps them as long as the archive is kept. Caches are re-extracted on "
+            "the next read."
+        ),
+    )
+    PRISM_DESIGN_BUNDLE_CACHE_MAX_BYTES: int = Field(
+        default=4 * GIB,
+        ge=0,
+        description=(
+            "Total unpacked-cache bytes across the bundle store. Over the cap, the least recently used "
+            "version directories go first. 0 disables the cap."
+        ),
+    )
+    PRISM_DESIGN_BUNDLE_CACHE_PROJECT_MAX_BYTES: int = Field(
+        default=1 * GIB,
+        ge=0,
+        description=(
+            "Unpacked-cache bytes one project may hold. Over the cap, that project's least recently used "
+            "version directories go first. 0 disables the cap."
+        ),
+    )
     PRISM_DESIGN_BUNDLE_BACKFILL_INTERVAL_SECONDS: int = Field(
         default=60,
         ge=0,
