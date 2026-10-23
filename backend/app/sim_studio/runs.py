@@ -25,7 +25,7 @@ from typing import Any, Mapping, Optional
 
 from app.core import errors
 from app.core.config import settings
-from app.services.job_kinds import JobKind, JobSubject
+from app.services.job_kinds import JobKind, JobSubject, memory_units
 from app.services.job_runtime import JobContext, JobResult
 from app.sim_studio import board_source, validation
 from app.sim_studio.run_store import TERMINAL, RunStore, public
@@ -307,7 +307,10 @@ def _unsettled_runs() -> list[str]:
 SIM_RUN = JobKind(
     "sim_run",
     run_sim_job,
-    resources={"prism_worker": 1, "sim": 1},
+    # The engine is a child process; 1024 MiB is an estimate (the sim slot
+    # already runs one at a time; the weight keeps it from sharing a wave with
+    # a bundle or release build on a small worker).
+    resources={"prism_worker": 1, "sim": 1, **memory_units(1024)},
     max_attempts=1,
     settle=settle_run,
     orphans=_unsettled_runs,

@@ -48,7 +48,7 @@ from app.services import release_studio_model_inputs as model_inputs
 from app.services import release_studio_service as store
 from app.release_studio.bundle_errors import BundleFailed, BundlePending
 from app.services.job_artifact_service import JobArtifactService
-from app.services.job_kinds import JobKind
+from app.services.job_kinds import JobKind, memory_units
 from app.services.job_runtime import JobCancelled, JobContext, JobResult
 from app.services.kicad_tools import KicadTools
 
@@ -866,9 +866,9 @@ RELEASE_BUILD = JobKind(
     "release_studio_build",
     run_release_studio_build_job,
     # A build runs kicad-cli and a Cruncher board load; two of them on one
-    # worker have been measured at 6.4 GiB peak RSS. It takes the same slot
-    # every other heavy job takes so they serialize instead of racing.
-    resources={"prism_worker": 1},
+    # worker have been measured at 6.4 GiB peak RSS, so each reserves about
+    # half of that: a second build (and a design_bundle beside it) waits.
+    resources={"prism_worker": 1, **memory_units(3328)},
     settle=attempts.settle_build_job,
     orphans=attempts.orphaned_jobs,
 )

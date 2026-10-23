@@ -18,6 +18,7 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Callable, Iterable, Mapping
 
 from app.core.config import settings
+from app.core.worker_memory import MEMORY_UNIT_MIB
 
 if TYPE_CHECKING:  # importable from any service module without a cycle
     from app.services.job_runtime import JobHandler
@@ -25,6 +26,22 @@ if TYPE_CHECKING:  # importable from any service module without a cycle
 POOLS = frozenset({"prism", "catalog"})
 
 TRACKER_RESOURCE = "tracker_sync"
+
+#: The shared memory slot. Its capacity is ``PRISM_WORKER_MEMORY_BUDGET_MIB``
+#: in units of ``MEMORY_UNIT_MIB``; a heavy kind holds one unit per 256 MiB of
+#: its measured peak. Several units of one resource are supported by the
+#: existing claim path (``job_claims.find_slots`` takes ``LIMIT count`` rows),
+#: so a job can reserve e.g. 9 units of this one name.
+MEMORY_RESOURCE = "memory"
+
+
+def memory_units(peak_mib: int) -> dict[str, int]:
+    """The ``memory`` reservation for a job whose measured peak is ``peak_mib``."""
+
+    if peak_mib < 1:
+        raise ValueError("A memory weight must be positive")
+    return {MEMORY_RESOURCE: (peak_mib + MEMORY_UNIT_MIB - 1) // MEMORY_UNIT_MIB}
+
 
 # Resource slot -> capacity. The worker configures exactly these slots, so a
 # kind can only ask for a slot named here.
@@ -39,12 +56,37 @@ _CAPACITIES: Mapping[str, Callable[[], int]] = {
     "catalog_worker": lambda: settings.CATALOG_WORKER_CONCURRENCY,
     "catalog_kicad": lambda: settings.CATALOG_KICAD_CONCURRENCY,
     TRACKER_RESOURCE: lambda: min(2, max(1, settings.PRISM_WORKER_CONCURRENCY - 1)),
+    MEMORY_RESOURCE: lambda: max(
+        1, settings.PRISM_WORKER_MEMORY_BUDGET_MIB // MEMORY_UNIT_MIB
+    ),
 }
 RESOURCES = frozenset(_CAPACITIES)
 
 
 def resource_capacities() -> dict[str, int]:
     return {name: capacity() for name, capacity in _CAPACITIES.items()}
+
+
+def validate_memory_capacity(kinds: Iterable["JobKind"]) -> None:
+    """Refuse a budget that cannot fit a declared kind in an empty worker.
+
+    A kind whose ``memory`` requirement exceeds the capacity can never be
+    claimed; that is a configuration error, not a queue that will drain.
+    """
+
+    capacity = _CAPACITIES[MEMORY_RESOURCE]()
+    over = {
+        kind.name: need
+        for kind in kinds
+        for need in (kind.resources.get(MEMORY_RESOURCE, 0),)
+        if need > capacity
+    }
+    if over:
+        raise ValueError(
+            "PRISM_WORKER_MEMORY_BUDGET_MIB is too small for "
+            + ", ".join(f"{name} needs {need} units" for name, need in sorted(over.items()))
+            + f" (capacity is {capacity} units of {MEMORY_UNIT_MIB} MiB)"
+        )
 
 
 @dataclass(frozen=True)

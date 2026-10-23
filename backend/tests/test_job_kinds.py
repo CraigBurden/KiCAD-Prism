@@ -56,10 +56,43 @@ class JobKindRegistryTests(unittest.TestCase):
         while legacy consumers still run, under the repository read lock."""
 
         kind = get_job_kind("design_bundle")
-        self.assertEqual(dict(kind.resources), {"prism_worker": 1, "design_bundle": 1, "semantic_compile": 1})
+        self.assertEqual(
+            dict(kind.resources),
+            {
+                "prism_worker": 1,
+                "design_bundle": 1,
+                "semantic_compile": 1,
+                "memory": 9,  # 2304 MiB / 256
+            },
+        )
         self.assertEqual(PrismWorker.resource_capacities()["design_bundle"], 1)
         self.assertEqual(kind.lock(JobSubject(project_id="p", repository_id="r")), [{"key": "repository:r", "mode": "read"}])
         self.assertIsNotNone(kind.settle)
+
+    def test_heavy_kinds_reserve_their_peak_in_memory_units(self) -> None:
+        """A wave is admitted by summed peak, not by a slot per kind (item A)."""
+
+        expected = {
+            "design_bundle": 9,        # 2304 MiB: prism-kicad parse 2.0-2.1 GiB
+            "release_studio_build": 13,  # 3328 MiB: 6.4 GiB two builds
+            "design_compare": 12,      # 3072 MiB: two parsers plus a plot
+            "sim_run": 4,              # 1024 MiB: estimate for the engine child
+            "kicad_workflow": 5,       # 1280 MiB: DRC 1.1 GiB
+        }
+        capacity = PrismWorker.resource_capacities()["memory"]
+        for name, units in expected.items():
+            with self.subTest(kind=name):
+                kind = get_job_kind(name)
+                self.assertEqual(kind.resources.get("memory"), units)
+                self.assertLessEqual(units, capacity, f"{name} could never run alone")
+
+    def test_a_budget_below_the_heaviest_kind_is_refused(self) -> None:
+        from app.services.job_kinds import validate_memory_capacity
+
+        kinds = [get_job_kind(name) for name in registered_job_kinds()]
+        heavy = JobKind("too-heavy", lambda context: None, resources={"memory": 4096})
+        with self.assertRaises(ValueError):
+            validate_memory_capacity([*kinds, heavy])
 
     def test_catalog_kinds_run_on_the_catalog_pool_and_nothing_else_does(self) -> None:
         for name in registered_job_kinds():

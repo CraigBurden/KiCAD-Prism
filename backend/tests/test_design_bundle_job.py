@@ -77,7 +77,10 @@ class DesignBundleJobTests(_Workspace, unittest.TestCase):
         payload = self.queue.rows[job_id]["payload"]
         self.assertEqual(payload["commit"], git(repo, "rev-parse", "HEAD"))
         self.assertEqual(self.queue.rows[job_id]["artifact_key"], f"p1:{payload['bundle_key']}")  # dedup on the bundle key
-        self.assertEqual(self.queue.rows[job_id]["resource_requirements"], {"prism_worker": 1, "design_bundle": 1, "semantic_compile": 1})
+        self.assertEqual(
+            self.queue.rows[job_id]["resource_requirements"],
+            {"prism_worker": 1, "design_bundle": 1, "semantic_compile": 1, "memory": 9},
+        )
         result = self.run_job(job_id)
         self.assertEqual(result.details["stages"], {"parse": "complete", "board": "complete", "models": "complete"})
 
