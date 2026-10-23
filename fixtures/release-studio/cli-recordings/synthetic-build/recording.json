@@ -8,40 +8,30 @@
  "commands": [
   {
    "argv": [
-    "pcb",
-    "drc",
-    "--format",
-    "json",
-    "--severity-all",
-    "--output",
-    "<staging>/outputs/evidence/drc.json",
-    "<closure>/_bundle/refilled/synthetic.kicad_pcb"
+    "jobset",
+    "run",
+    "-f",
+    "<staging>/board-project/.prism-jobset/release.kicad_jobset",
+    "<staging>/board-project/synthetic.kicad_pro"
    ],
    "exit_code": 0,
-   "stdout": "Found 10 violations\nFound 1 unconnected items\nSaved DRC Report to <staging>/outputs/evidence/drc.json\n",
-   "stderr": "",
+   "stdout": "|--------------------------------\n| Running jobs for destination 73e9bbc8-bc70-5c32-b9a9-d414611e3701\n|--------------------------------\n|No.   | Description                                       \n|1     | drc                                               \n|--------------------------------\n\n\n|--------------------------------\n| Running job 1: drc\n|--------------------------------\nFound 10 violations\nFound 1 unconnected items\nSaved DRC Report to /tmp/kicad-cli-m_gtkezs/1c65f591-c910-40a1-9e32-ecab7742d376/drc.json\n\u001b[32;1mJob successful\u001b[0m\n\n\n\n\n\u001b[33;1m1 jobs succeeded, 0 job failed\u001b[0m\n|--------------------------------\n| Running jobs for destination 51bc8891-9a8b-5b83-91cc-602f0fa7411b\n|--------------------------------\n|No.   | Description                                       \n|1     | board_stats                                       \n|--------------------------------\n\n\n|--------------------------------\n| Running job 1: board_stats\n|--------------------------------\nWrote board statistics to '/tmp/kicad-cli-m_gtkezs/20cc3760-cd67-425e-a824-4b184446c1ce/board-stats.json'.\n\u001b[32;1mJob successful\u001b[0m\n\n\n\n\n\u001b[33;1m1 jobs succeeded, 0 job failed\u001b[0m\n|--------------------------------\n| Running jobs for destination de6b626c-16a3-5775-afe4-52f0fc19e629\n|--------------------------------\n|No.   | Description                                       \n|1     | gerbers                                           \n|--------------------------------\n\n\n|--------------------------------\n| Running job 1: gerbers\n|--------------------------------\nPlotted to '/tmp/kicad-cli-m_gtkezs/851d72f4-4a56-4f14-a4ae-a88b0d0106bd/synthetic-F_Cu.gtl'.\nPlotted to '/tmp/kicad-cli-m_gtkezs/851d72f4-4a56-4f14-a4ae-a88b0d0106bd/synthetic-B_Cu.gbl'.\nPlotted to '/tmp/kicad-cli-m_gtkezs/851d72f4-4a56-4f14-a4ae-a88b0d0106bd/synthetic-f_silkscreen.gto'.\nPlotted to '/tmp/kicad-cli-m_gtkezs/851d72f4-4a56-4f14-a4ae-a88b0d0106bd/synthetic-b_silkscreen.gbo'.\nPlotted to '/tmp/kicad-cli-m_gtkezs/851d72f4-4a56-4f14-a4ae-a88b0d0106bd/synthetic-Edge_Cuts.gm1'.\nPlotted to '/tmp/kicad-cli-m_gtkezs/851d72f4-4a56-4f14-a4ae-a88b0d0106bd/synthetic-Margin.gbr'.\nPlotted to '/tmp/kicad-cli-m_gtkezs/851d72f4-4a56-4f14-a4ae-a88b0d0106bd/synthetic-F_Courtyard.gbr'.\nPlotted to '/tmp/kicad-cli-m_gtkezs/851d72f4-4a56-4f14-a4ae-a88b0d0106bd/synthetic-B_Courtyard.gbr'.\n\u001b[32;1mJob successful\u001b[0m\n\n\n\n\n\u001b[33;1m1 jobs succeeded, 0 job failed\u001b[0m\n|--------------------------------\n| Running jobs for destination 7c40e31c-e4fe-527d-bb27-0a28b32befa9\n|--------------------------------\n|No.   | Description                                       \n|1     | drill                                             \n|--------------------------------\n\n\n|--------------------------------\n| Running job 1: drill\n|--------------------------------\nCreated file '/tmp/kicad-cli-m_gtkezs/cc5464f7-c38c-4501-831b-d151aba97d93/synthetic.drl'\nDone.\n\u001b[32;1mJob successful\u001b[0m\n\n\n\n\n\u001b[33;1m1 jobs succeeded, 0 job failed\u001b[0m\n|--------------------------------\n| Running jobs for destination 52fa11a1-64c5-570d-bc37-b70cd7301585\n|--------------------------------\n|No.   | Description                                       \n|1     | positions                                         \n|--------------------------------\n\n\n|--------------------------------\n| Running job 1: positions\n|--------------------------------\nWrote position data to '/tmp/kicad-cli-m_gtkezs/8de9b0d6-08fc-4480-b2b1-5ec0e952618f/positions-all-pos.csv'.\n\u001b[32;1mJob successful\u001b[0m\n\n\n\n\n\u001b[33;1m1 jobs succeeded, 0 job failed\u001b[0m\n",
+   "stderr": "Failed to fetch schematic netlist for parity tests.\nSchematic parity tests require a fully annotated schematic.\n",
    "outputs": {
-    "<staging>/outputs/evidence/drc.json": "ab5dcf17b2ab141a2f01dee316e6b4f6b1d807d9ddf301ad4ec853fbda2b69de"
-   }
-  },
-  {
-   "argv": [
-    "pcb",
-    "export",
-    "drill",
-    "--format",
-    "excellon",
-    "--excellon-units",
-    "mm",
-    "--output",
-    "<staging>/outputs/fabrication/drill",
-    "<closure>/_bundle/refilled/synthetic.kicad_pcb"
-   ],
-   "exit_code": 0,
-   "stdout": "Created file '<staging>/outputs/fabrication/drill/synthetic.drl'\nDone.\n",
-   "stderr": "",
-   "outputs": {
-    "<staging>/outputs/fabrication/drill/synthetic.drl": "49d9b21b8dfe4837fc9622ac7131d20f4fd87f06f71e16b722c9cdcf28d3ba95"
+    "<staging>/board-project/.prism-jobset/board_stats/board-stats.json": "bbbfd558fef5d10facbfc4df7d9aee2f61f0badb7a61c31820dc3f14f63eeedf",
+    "<staging>/board-project/.prism-jobset/drc/drc.json": "f52971cd5758ffc2ff15556fbd51f1704ed4d2495d437b5ead0175c19b01c9c4",
+    "<staging>/board-project/.prism-jobset/drill/synthetic.drl": "a7e52b0a6655ca02729e4ad2f587913496f1dddaf6bdaf38da629bba0000c077",
+    "<staging>/board-project/.prism-jobset/gerbers/synthetic-B_Courtyard.gbr": "0f58e0ece46ce47ac4ced37b6a0d31717cad18af03c8c58cd0dea5a89da65e6f",
+    "<staging>/board-project/.prism-jobset/gerbers/synthetic-B_Cu.gbl": "8fd9d5a268aec52cca14e22f8a2dfb19f5c8bc1c42c0ec140d09a2918c844191",
+    "<staging>/board-project/.prism-jobset/gerbers/synthetic-Edge_Cuts.gm1": "4ead897929696a9dd3ab72692f403f8d9f7ecc261eee7d585e6f89192dc3d953",
+    "<staging>/board-project/.prism-jobset/gerbers/synthetic-F_Courtyard.gbr": "0f58e0ece46ce47ac4ced37b6a0d31717cad18af03c8c58cd0dea5a89da65e6f",
+    "<staging>/board-project/.prism-jobset/gerbers/synthetic-F_Cu.gtl": "743ef8337ea4396dc84c58091954988e0b61e28602d56c1ce3c8a7b0d90efead",
+    "<staging>/board-project/.prism-jobset/gerbers/synthetic-Margin.gbr": "0f58e0ece46ce47ac4ced37b6a0d31717cad18af03c8c58cd0dea5a89da65e6f",
+    "<staging>/board-project/.prism-jobset/gerbers/synthetic-b_silkscreen.gbo": "65be8e373aa3c62f01d0d078baba4e142e1c9edc4e440785bc82dff497dfb2fe",
+    "<staging>/board-project/.prism-jobset/gerbers/synthetic-f_silkscreen.gto": "9a275f4077e9162330300836ead9f53704e82aafd26f4a4132d5323c678c311d",
+    "<staging>/board-project/.prism-jobset/gerbers/synthetic-job.gbrjob": "488b20d80682121124ca082a5f4de1430011a5ab19483db5881189af8e7b9967",
+    "<staging>/board-project/.prism-jobset/positions/positions-all-pos.csv": "5df5b6a6828dcd6a0fc8e63970779b267b1ba9570f7363959df6bf07f0b29396",
+    "<staging>/board-project/synthetic.kicad_prl": "0f9f3641f24d314e392684355ed3c60c203198e3ffccf52bed5490108bf0ffd9"
    }
   },
   {
@@ -60,8 +50,8 @@
    "stdout": "Created file '<staging>/artwork/drill/pdf/synthetic.drl'\nCreated file '<staging>/artwork/drill/pdf/synthetic-drl_map.pdf'.\nDone.\n",
    "stderr": "",
    "outputs": {
-    "<staging>/artwork/drill/pdf/synthetic-drl_map.pdf": "2544ba5776849a73aecb104c937c128d5cecf327ea58f67a8ccc3f0717202053",
-    "<staging>/artwork/drill/pdf/synthetic.drl": "fe226387f537de4ab4c3fce531992aed3a619a97c3f3e75c53dac5d1d744a93c"
+    "<staging>/artwork/drill/pdf/synthetic-drl_map.pdf": "ddebe61ecde0c3ac3277f7643b83f647e5ea6a52a8f428a901392c65fb085a46",
+    "<staging>/artwork/drill/pdf/synthetic.drl": "fec099b217d14dbbfc2a64844aa8e3a6b1866dcaa3b5b79f3d755223edfc8308"
    }
   },
   {
@@ -80,32 +70,8 @@
    "stdout": "Created file '<staging>/artwork/drill/svg/synthetic.drl'\nCreated file '<staging>/artwork/drill/svg/synthetic-drl_map.svg'.\nDone.\n",
    "stderr": "",
    "outputs": {
-    "<staging>/artwork/drill/svg/synthetic-drl_map.svg": "b7ad733d3bfb89a397b1687b6086cd79be60e7c818da7f3e51ec82bfd1b17aac",
-    "<staging>/artwork/drill/svg/synthetic.drl": "fe226387f537de4ab4c3fce531992aed3a619a97c3f3e75c53dac5d1d744a93c"
-   }
-  },
-  {
-   "argv": [
-    "pcb",
-    "export",
-    "gerbers",
-    "--output",
-    "<staging>/outputs/fabrication/gerbers",
-    "<closure>/_bundle/refilled/synthetic.kicad_pcb"
-   ],
-   "exit_code": 0,
-   "stdout": "Plotted to '<staging>/outputs/fabrication/gerbers/synthetic-F_Cu.gtl'.\nPlotted to '<staging>/outputs/fabrication/gerbers/synthetic-B_Cu.gbl'.\nPlotted to '<staging>/outputs/fabrication/gerbers/synthetic-f_silkscreen.gto'.\nPlotted to '<staging>/outputs/fabrication/gerbers/synthetic-b_silkscreen.gbo'.\nPlotted to '<staging>/outputs/fabrication/gerbers/synthetic-Edge_Cuts.gm1'.\nPlotted to '<staging>/outputs/fabrication/gerbers/synthetic-Margin.gbr'.\nPlotted to '<staging>/outputs/fabrication/gerbers/synthetic-F_Courtyard.gbr'.\nPlotted to '<staging>/outputs/fabrication/gerbers/synthetic-B_Courtyard.gbr'.\n",
-   "stderr": "",
-   "outputs": {
-    "<staging>/outputs/fabrication/gerbers/synthetic-B_Courtyard.gbr": "9ee80cbfb730c8beed8fecb4f45d3b3c3c4a5874bc331a589940d91730da5709",
-    "<staging>/outputs/fabrication/gerbers/synthetic-B_Cu.gbl": "c6f6f83df2e1eea6b2d3699660494769874ade7438d5ae17fd7e3e6a6afd0723",
-    "<staging>/outputs/fabrication/gerbers/synthetic-Edge_Cuts.gm1": "ee49640482415ef3a0d9380e21b24bedc9bae31f3e02bd20b7682280b1a45a40",
-    "<staging>/outputs/fabrication/gerbers/synthetic-F_Courtyard.gbr": "9ee80cbfb730c8beed8fecb4f45d3b3c3c4a5874bc331a589940d91730da5709",
-    "<staging>/outputs/fabrication/gerbers/synthetic-F_Cu.gtl": "af74c9827b1a8e0bc4cf006832d58d2a6260f71958d2fb8bb2dda7d88189f060",
-    "<staging>/outputs/fabrication/gerbers/synthetic-Margin.gbr": "9ee80cbfb730c8beed8fecb4f45d3b3c3c4a5874bc331a589940d91730da5709",
-    "<staging>/outputs/fabrication/gerbers/synthetic-b_silkscreen.gbo": "97eda38e7da6a64f9114dbf0445251039aa8e79ab85eb63c4ae3d0194a63e5b4",
-    "<staging>/outputs/fabrication/gerbers/synthetic-f_silkscreen.gto": "089054c94bb15d3179ef20bb0aae28179e2003bac373044444e360daab0df4af",
-    "<staging>/outputs/fabrication/gerbers/synthetic-job.gbrjob": "cc0d3b9e40dec93de3b564bd256ef693e4d89cbe20d1bf3c396ad6fda1e37e4c"
+    "<staging>/artwork/drill/svg/synthetic-drl_map.svg": "72e5a3aaa57ac1ff8ee783423be8638b4f3f6d110662f26727141d932edb3e4f",
+    "<staging>/artwork/drill/svg/synthetic.drl": "08918a761c2af4bee87a229739bc642e2346eede238041af0b03742a85ca3e28"
    }
   },
   {
@@ -127,55 +93,15 @@
    "stdout": "Plotted to '<staging>/artwork/layers/pdf/synthetic-F_Cu.pdf'.\nPlotted to '<staging>/artwork/layers/pdf/synthetic-B_Cu.pdf'.\nPlotted to '<staging>/artwork/layers/pdf/synthetic-f_silkscreen.pdf'.\nPlotted to '<staging>/artwork/layers/pdf/synthetic-b_silkscreen.pdf'.\nPlotted to '<staging>/artwork/layers/pdf/synthetic-F_Mask.pdf'.\nPlotted to '<staging>/artwork/layers/pdf/synthetic-B_Mask.pdf'.\nPlotted to '<staging>/artwork/layers/pdf/synthetic-F_Paste.pdf'.\nPlotted to '<staging>/artwork/layers/pdf/synthetic-B_Paste.pdf'.\nPlotted to '<staging>/artwork/layers/pdf/synthetic-Edge_Cuts.pdf'.\nDone.\n",
    "stderr": "",
    "outputs": {
-    "<staging>/artwork/layers/pdf/synthetic-B_Cu.pdf": "562daf62273d4dba12652aa916fe8db03d871fdf83fddc8971a87579cef53bc9",
-    "<staging>/artwork/layers/pdf/synthetic-B_Mask.pdf": "838133e2c6a7c96be62f05bdf55f3fdd4c5af7d47aefd76b8e50be6e16f6ee4b",
-    "<staging>/artwork/layers/pdf/synthetic-B_Paste.pdf": "48d3a1cb307b514bf945a43c5835fe8b0f3d62abfb560db81de574aefa84c250",
-    "<staging>/artwork/layers/pdf/synthetic-Edge_Cuts.pdf": "851fd33b26df38ee1c78bbbd99e1248ba39ef5f463a8b788b4b3955cbd7596e6",
-    "<staging>/artwork/layers/pdf/synthetic-F_Cu.pdf": "4186b8600dbe2bbed6cbb69b3e2a590551409b90b1a895f8739f4bc0cd9660bc",
-    "<staging>/artwork/layers/pdf/synthetic-F_Mask.pdf": "3e64b9b77aa96b181c00a7e49fd306c159a94bdafe9dd2be1a9b212736e2ad0a",
-    "<staging>/artwork/layers/pdf/synthetic-F_Paste.pdf": "20b2e7b923512a8b0db70e8dbb6f080bc85543217985a87efd1a5f674f68e6ed",
-    "<staging>/artwork/layers/pdf/synthetic-b_silkscreen.pdf": "a8f258f6ef37f1d01c3422d621ea04a56b40ac54366f0bf21b397cbdaa1cadc9",
-    "<staging>/artwork/layers/pdf/synthetic-f_silkscreen.pdf": "b19dcd8b3f784b704603de173d3a2a4f26365fad9a69e14919c20f3b3f42835a"
-   }
-  },
-  {
-   "argv": [
-    "pcb",
-    "export",
-    "pos",
-    "--format",
-    "csv",
-    "--units",
-    "mm",
-    "--side",
-    "both",
-    "--output",
-    "<staging>/outputs/assembly/positions.csv",
-    "<closure>/_bundle/refilled/synthetic.kicad_pcb"
-   ],
-   "exit_code": 0,
-   "stdout": "Wrote position data to '<staging>/outputs/assembly/positions.csv'.\n",
-   "stderr": "",
-   "outputs": {
-    "<staging>/outputs/assembly/positions.csv": "5df5b6a6828dcd6a0fc8e63970779b267b1ba9570f7363959df6bf07f0b29396"
-   }
-  },
-  {
-   "argv": [
-    "pcb",
-    "export",
-    "stats",
-    "--format",
-    "json",
-    "--output",
-    "<staging>/outputs/fabrication/board-stats.json",
-    "<closure>/_bundle/refilled/synthetic.kicad_pcb"
-   ],
-   "exit_code": 0,
-   "stdout": "Wrote board statistics to '<staging>/outputs/fabrication/board-stats.json'.\n",
-   "stderr": "",
-   "outputs": {
-    "<staging>/outputs/fabrication/board-stats.json": "d4a8d65c2d80a1eb30d19797a13ce8347a3b48f5531f319d0c4e0ba90b20a204"
+    "<staging>/artwork/layers/pdf/synthetic-B_Cu.pdf": "a579112bab5be7043628133510e9ebc510cb545f65cb40c853e18b32dee16d24",
+    "<staging>/artwork/layers/pdf/synthetic-B_Mask.pdf": "e449ac1b6f9ae200a71f1e98c2e2e8d50b9d47ca5fed84dd0d60aa93aeab15d7",
+    "<staging>/artwork/layers/pdf/synthetic-B_Paste.pdf": "e357a7cdf439580527798d7f53a4a8dcbe100cfde833596e5e73065b63776c5a",
+    "<staging>/artwork/layers/pdf/synthetic-Edge_Cuts.pdf": "b5632814eb66d826a1bfad74cfea813ec939535ac965d2711e0b1f052f2abf60",
+    "<staging>/artwork/layers/pdf/synthetic-F_Cu.pdf": "a4145d6e4a060d183e067db4a8977e6b244367028425a1e36c14c849a09524de",
+    "<staging>/artwork/layers/pdf/synthetic-F_Mask.pdf": "5afc5e8de6354a34b0d7054866305cfd48dec63ce31ecf55533ae25bcaba9678",
+    "<staging>/artwork/layers/pdf/synthetic-F_Paste.pdf": "b6f1c995bf5ca3ef8c39320556e260639e513680585fc79ff01fbd119e0af217",
+    "<staging>/artwork/layers/pdf/synthetic-b_silkscreen.pdf": "7629347a0d67ebcf588f1712959fa106c7215e01ad351dd266b3e8854ed95b5d",
+    "<staging>/artwork/layers/pdf/synthetic-f_silkscreen.pdf": "3c98cdbb35b6a7bda235dc2b017454810b8436a82d46f2782301d25ef5ef1b8e"
    }
   },
   {
@@ -198,15 +124,15 @@
    "stdout": "Plotted to '<staging>/artwork/layers/page/synthetic-F_Cu.svg'.\nPlotted to '<staging>/artwork/layers/page/synthetic-B_Cu.svg'.\nPlotted to '<staging>/artwork/layers/page/synthetic-f_silkscreen.svg'.\nPlotted to '<staging>/artwork/layers/page/synthetic-b_silkscreen.svg'.\nPlotted to '<staging>/artwork/layers/page/synthetic-F_Mask.svg'.\nPlotted to '<staging>/artwork/layers/page/synthetic-B_Mask.svg'.\nPlotted to '<staging>/artwork/layers/page/synthetic-F_Paste.svg'.\nPlotted to '<staging>/artwork/layers/page/synthetic-B_Paste.svg'.\nPlotted to '<staging>/artwork/layers/page/synthetic-Edge_Cuts.svg'.\nDone.\n",
    "stderr": "",
    "outputs": {
-    "<staging>/artwork/layers/page/synthetic-B_Cu.svg": "2a0c1c123b4f69c1ebfcc7d3b196a3a35219ca0523b67afcb9b1f571b75c9b32",
-    "<staging>/artwork/layers/page/synthetic-B_Mask.svg": "5935a0566f0fcaede494dd5e5a5c66ae2fdab469b9b6b2654cb19085c72caa48",
-    "<staging>/artwork/layers/page/synthetic-B_Paste.svg": "58bf34b9b772b4412b756e8248d06b762baf1f70d88b771ed15f033d341e97ce",
-    "<staging>/artwork/layers/page/synthetic-Edge_Cuts.svg": "a26272e6d58a6ce3bfe2d53a966103a790b6fa5556a96c25c4b7f95edbb1c46a",
-    "<staging>/artwork/layers/page/synthetic-F_Cu.svg": "1ac765f09f09b15cdacf70755986447b147b054530163e28774b412c8e0cbfd4",
-    "<staging>/artwork/layers/page/synthetic-F_Mask.svg": "125ab0790a05e869b52100fc59f741f8c434dcad38294c83d5ca218bfa190105",
-    "<staging>/artwork/layers/page/synthetic-F_Paste.svg": "dddc3e305fc88d74c41f39c7cdd1e0485f7cc15086b64c50079f6248c000c1c4",
-    "<staging>/artwork/layers/page/synthetic-b_silkscreen.svg": "91607f67751e1905ae54875d312ab93b877b1c5c4f6e0814b71a8bc2679aa05c",
-    "<staging>/artwork/layers/page/synthetic-f_silkscreen.svg": "d3cbf6c8c16e2d5840e0a5988284e08a7262da19a30ff094e1cf1f889b1529f9"
+    "<staging>/artwork/layers/page/synthetic-B_Cu.svg": "7b6efd5469d8a807fe375bbe211ac616c24388462111e206beefe94f76f1704e",
+    "<staging>/artwork/layers/page/synthetic-B_Mask.svg": "a1de23bf5ac48adb1797e2ad8a8392f32b4eac0f85082d1ae2a4b710128d4e2a",
+    "<staging>/artwork/layers/page/synthetic-B_Paste.svg": "79ac5b0d67fc6d63e274043387dd99440fbcf89f60152af74a8353d9b290e1c6",
+    "<staging>/artwork/layers/page/synthetic-Edge_Cuts.svg": "0937b933b778431f289ad90015f3a0755ae2784008c04d162da4d74c5f8704e7",
+    "<staging>/artwork/layers/page/synthetic-F_Cu.svg": "ec9a2d14a0812036c0e0995e1969550b175dfc100a264b412c87241685d25292",
+    "<staging>/artwork/layers/page/synthetic-F_Mask.svg": "232e600df38c83859be8226cd2f7bc7bd1906cdb17869bd359c80c8bc496c6d1",
+    "<staging>/artwork/layers/page/synthetic-F_Paste.svg": "85ecce3fae21b5c860bd6c03400575e9d03e2f90f95d405a17a38b81e7f7e0f1",
+    "<staging>/artwork/layers/page/synthetic-b_silkscreen.svg": "e28898a2a6e7fe1fa85f48d2a93d428ae232fe6d798868241b9ea0be34b9771a",
+    "<staging>/artwork/layers/page/synthetic-f_silkscreen.svg": "101998d37b293b936aa2c0b4a5c12653f175886b4c355b3f4f528075786f43c9"
    }
   },
   {
@@ -231,15 +157,15 @@
    "stdout": "Plotted to '<staging>/artwork/layers/svg/synthetic-F_Cu.svg'.\nPlotted to '<staging>/artwork/layers/svg/synthetic-B_Cu.svg'.\nPlotted to '<staging>/artwork/layers/svg/synthetic-f_silkscreen.svg'.\nPlotted to '<staging>/artwork/layers/svg/synthetic-b_silkscreen.svg'.\nPlotted to '<staging>/artwork/layers/svg/synthetic-F_Mask.svg'.\nPlotted to '<staging>/artwork/layers/svg/synthetic-B_Mask.svg'.\nPlotted to '<staging>/artwork/layers/svg/synthetic-F_Paste.svg'.\nPlotted to '<staging>/artwork/layers/svg/synthetic-B_Paste.svg'.\nPlotted to '<staging>/artwork/layers/svg/synthetic-Edge_Cuts.svg'.\nDone.\n",
    "stderr": "",
    "outputs": {
-    "<staging>/artwork/layers/svg/synthetic-B_Cu.svg": "831c846ebffa2be28e087a5ea1d8dcead67f1537dfd8cf57147a75e85d9e34cd",
-    "<staging>/artwork/layers/svg/synthetic-B_Mask.svg": "edaeabe97bf8a05a832fa6e22d0827ae491694e0c37734948c44642af309aec6",
-    "<staging>/artwork/layers/svg/synthetic-B_Paste.svg": "5d6b53c237655101e12d607853202ec381c20b384404e7d59be70383a10558c2",
-    "<staging>/artwork/layers/svg/synthetic-Edge_Cuts.svg": "a2cb7f8a6eb3db0d662c5968a5faee631cc5a288c1cd10844f3878d4cbd0ec2d",
-    "<staging>/artwork/layers/svg/synthetic-F_Cu.svg": "527ecb2aeefda10963700506abb8fb46481ee80af7fae19fbc5dae391a72b450",
-    "<staging>/artwork/layers/svg/synthetic-F_Mask.svg": "a8b474847fc34c1daed47e35914e35a2878145e81e061ce44f5defb6c94377b1",
-    "<staging>/artwork/layers/svg/synthetic-F_Paste.svg": "8d5116d08df15a7421471b74a9bf76790a5cc674d1686f1787581bcae517c447",
-    "<staging>/artwork/layers/svg/synthetic-b_silkscreen.svg": "9a717871edd653a70e8581f2d9e14eb908f47c5ccbe4811b7c6c632a00595d91",
-    "<staging>/artwork/layers/svg/synthetic-f_silkscreen.svg": "8dafcf9ef63df80564338b6a8ee6aa57e275818c6bca00a423be55e8f044065b"
+    "<staging>/artwork/layers/svg/synthetic-B_Cu.svg": "9a9824f60b0c5164c38b759a8dfe7c8c7691a2c2803fe1840fcf2414b7ccb946",
+    "<staging>/artwork/layers/svg/synthetic-B_Mask.svg": "8e9551a135df318ecd94a95180f86be04739dae066b513d3ba8e785cb07bf7a0",
+    "<staging>/artwork/layers/svg/synthetic-B_Paste.svg": "c5cce854f1bf21042900b8ffc0366828b286ab78c4c333db673a7c446aafab78",
+    "<staging>/artwork/layers/svg/synthetic-Edge_Cuts.svg": "405ffb7e972d729c320ee7e8998b21dc8e4e5c262c1c1cad36da38b8a591c64c",
+    "<staging>/artwork/layers/svg/synthetic-F_Cu.svg": "6102bd6b281a7e64c69e24dec956a6b31f9503bd02d8499b8e0c71b04f06164c",
+    "<staging>/artwork/layers/svg/synthetic-F_Mask.svg": "79e7614b80f6fc1626cf3332eede924aad55aaf0b166f481039ef211d630b0ed",
+    "<staging>/artwork/layers/svg/synthetic-F_Paste.svg": "a17e5aae97243af61ae784fce18de6a98c9b39c908c17ed20d0d397d7901ebb3",
+    "<staging>/artwork/layers/svg/synthetic-b_silkscreen.svg": "9d5d5974195b719525b5ac2df3d13170663e828ff1f840f3c4d90beb166cc457",
+    "<staging>/artwork/layers/svg/synthetic-f_silkscreen.svg": "c6f4da257a46cbb3fe754c94a72da71720ffe1df2bb095ae5f5e56d13027d985"
    }
   },
   {
@@ -261,10 +187,10 @@
     "<closure>/_bundle/refilled/synthetic.kicad_pcb"
    ],
    "exit_code": 0,
-   "stdout": "Loading...\nBuild board outline\n\nCreate layers\nCreate tracks and vias\nCreate zones\nBuild Tech layers\nBuild Tech layer 11\nBuild Tech layer 9\nBuild Tech layer 15\nBuild Tech layer 13\nBuild Tech layer 7\nBuild Tech layer 5\nBuild Tech layer 3\nBuild Tech layer 1\nBuild Tech layer 17\nBuild Tech layer 19\nBuild Tech layer 21\nBuild Tech layer 23\nBuild Tech layer 39\nBuild Tech layer 41\nBuild Tech layer 43\nBuild Tech layer 45\nBuild Tech layer 47\nBuild Tech layer 49\nBuild Tech layer 51\nBuild Tech layer 53\nBuild Tech layer 55\nBuild Tech layer 57\nBuild Tech layer 59\nBuild Tech layer 61\nBuild Tech layer 63\nBuild Tech layer 65\nBuild Tech layer 67\nBuild Tech layer 69\nBuild Tech layer 71\nBuild Tech layer 73\nBuild Tech layer 75\nBuild Tech layer 77\nBuild Tech layer 79\nBuild Tech layer 81\nBuild Tech layer 83\nBuild Tech layer 85\nBuild Tech layer 87\nBuild Tech layer 89\nBuild Tech layer 91\nBuild Tech layer 93\nBuild Tech layer 95\nBuild Tech layer 97\nBuild Tech layer 99\nBuild Tech layer 101\nBuild Tech layer 103\nBuild Tech layer 105\nBuild Tech layer 107\nBuild Tech layer 109\nBuild Tech layer 111\nBuild Tech layer 113\nBuild Tech layer 115\nBuild Tech layer 117\nBuild Tech layer 119\nBuild Tech layer 121\nBuild Tech layer 123\nBuild Tech layer 125\nBuild Tech layer 127\nSimplifying copper layer polygons\nCalculating plated copper\nSimplify holes contours\nBuild BVH for holes and vias\nLoad Raytracing: board\nLoad Raytracing: layers\nLoading 3D models...\nReload time 0.088 s\nRendering: 12 %\nRendering: 24 %\nRendering: 36 %\nRendering: 48 %\nRendering: 60 %\nRendering: 72 %\nRendering: 84 %\nRendering: 96 %\nRendering: 100 %\nRendering: Post processing shader\nRendering time 3.544 s\nSuccessfully created 3D render image\n",
+   "stdout": "Loading...\nBuild board outline\n\nCreate layers\nCreate tracks and vias\nCreate zones\nBuild Tech layers\nBuild Tech layer 11\nBuild Tech layer 9\nBuild Tech layer 15\nBuild Tech layer 13\nBuild Tech layer 7\nBuild Tech layer 5\nBuild Tech layer 3\nBuild Tech layer 1\nBuild Tech layer 17\nBuild Tech layer 19\nBuild Tech layer 21\nBuild Tech layer 23\nBuild Tech layer 39\nBuild Tech layer 41\nBuild Tech layer 43\nBuild Tech layer 45\nBuild Tech layer 47\nBuild Tech layer 49\nBuild Tech layer 51\nBuild Tech layer 53\nBuild Tech layer 55\nBuild Tech layer 57\nBuild Tech layer 59\nBuild Tech layer 61\nBuild Tech layer 63\nBuild Tech layer 65\nBuild Tech layer 67\nBuild Tech layer 69\nBuild Tech layer 71\nBuild Tech layer 73\nBuild Tech layer 75\nBuild Tech layer 77\nBuild Tech layer 79\nBuild Tech layer 81\nBuild Tech layer 83\nBuild Tech layer 85\nBuild Tech layer 87\nBuild Tech layer 89\nBuild Tech layer 91\nBuild Tech layer 93\nBuild Tech layer 95\nBuild Tech layer 97\nBuild Tech layer 99\nBuild Tech layer 101\nBuild Tech layer 103\nBuild Tech layer 105\nBuild Tech layer 107\nBuild Tech layer 109\nBuild Tech layer 111\nBuild Tech layer 113\nBuild Tech layer 115\nBuild Tech layer 117\nBuild Tech layer 119\nBuild Tech layer 121\nBuild Tech layer 123\nBuild Tech layer 125\nBuild Tech layer 127\nSimplifying copper layer polygons\nCalculating plated copper\nSimplify holes contours\nBuild BVH for holes and vias\nLoad Raytracing: board\nLoad Raytracing: layers\nLoading 3D models...\nReload time 0.208 s\nRendering: 12 %\nRendering: 24 %\nRendering: 36 %\nRendering: 46 %\nRendering: 58 %\nRendering: 70 %\nRendering: 83 %\nRendering: 95 %\nRendering: 100 %\nRendering: Post processing shader\nRendering time 3.570 s\nSuccessfully created 3D render image\n",
    "stderr": "",
    "outputs": {
-    "<staging>/artwork/render/board.png": "d2ccd4acee2cbab69dbb0f8ab846d29300d570aa3d92b8da48df5f0b8cc67b68"
+    "<staging>/artwork/render/board.png": "dd77a9fdc0f3bbf2ecfd532e020215e1ec1224a728ae8fff7831eefe21336dcc"
    }
   },
   {
@@ -282,7 +208,8 @@
    "stdout": "Found 10 violations\nSaved ERC Report to <staging>/outputs/evidence/erc.json\n",
    "stderr": "",
    "outputs": {
-    "<staging>/outputs/evidence/erc.json": "fd2dce322b577ee74b39ad3a90297984743d4919bb2e4334a1126632cdeac4b6"
+    "<closure>/_bundle/sources/synthetic.kicad_prl": "0f9f3641f24d314e392684355ed3c60c203198e3ffccf52bed5490108bf0ffd9",
+    "<staging>/outputs/evidence/erc.json": "7a9e89f4d6f9109517b4773d6ea1180fddb141a7b5693ce68f4d6a31001e207f"
    }
   },
   {
@@ -314,7 +241,7 @@
    "stdout": "Plotted to '<staging>/outputs/documentation/schematic.pdf'.\nDone.\n",
    "stderr": "",
    "outputs": {
-    "<staging>/outputs/documentation/schematic.pdf": "e0cab334dd8b6e56b9900a5300974bd1316cbd04fc395d6f65f2e0e97509c329"
+    "<staging>/outputs/documentation/schematic.pdf": "54285f6dd95b91518815b5f9ad4cd552ccae712c969604bc671fcab630a485e7"
    }
   }
  ]

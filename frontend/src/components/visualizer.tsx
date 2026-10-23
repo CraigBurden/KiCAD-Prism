@@ -587,8 +587,8 @@ export function Visualizer({ projectId, user, commit, active: viewerActive = tru
 
                     const [schRes, subsheetsRes] = await Promise.allSettled([
                         fetchDesignText(appendCommit(`${baseUrl}/schematic`), { signal }, { onPending }),
-                        fetchDesignJson<{ files?: { name?: string; path?: string; url: string }[] }>(
-                            appendCommit(`${baseUrl}/schematic/subsheets`),
+                        fetchDesignJson<{ files?: { name?: string; path?: string; url: string; content?: string }[] }>(
+                            appendCommit(`${baseUrl}/schematic/subsheets?include=content`),
                             { signal },
                             { onPending },
                         )
@@ -611,11 +611,14 @@ export function Visualizer({ projectId, user, commit, active: viewerActive = tru
                         const data = subsheetsRes.value.data;
                         if (data.files?.length) {
                             const subsheetResults = await Promise.allSettled(data.files.map(async (f) => {
-                                const loaded = await fetchDesignText(f.url, { signal }, { onPending });
+                                // The hierarchy read inlines each sheet's text;
+                                // only entries past its size cap need their own read.
+                                const content = f.content
+                                    ?? (await fetchDesignText(f.url, { signal }, { onPending })).data;
                                 let filename = f.name || f.path || f.url.split("/")?.pop() || "subsheet.kicad_sch";
                                 if (!filename.endsWith('.kicad_sch')) filename += '.kicad_sch';
                                 if (!filename.includes("/") && f.url.includes("Subsheets")) filename = `Subsheets/${filename}`;
-                                return { filename, content: loaded.data };
+                                return { filename, content };
                             }));
 
                             if (cancelled) return;

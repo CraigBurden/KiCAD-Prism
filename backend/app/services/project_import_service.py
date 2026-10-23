@@ -13,6 +13,7 @@ from functools import wraps
 from typing import Callable, List, Optional, Sequence
 from dataclasses import dataclass
 from git import Repo, RemoteProgress
+from app.core.config import settings
 from app.services import derived_assets, git_remote_access, project_revision, project_service, path_config_service
 from app.services.design_bundle import jobs as design_bundle_jobs, repo_hydration
 from app.services.git_failures import GitAccessError, as_access_error
@@ -1214,7 +1215,8 @@ def start_sync_job(project_id: str, *, requested_by: str = "", fetch_only: bool 
         raise ValueError("Project not found")
     mode = "fetch" if fetch_only else "sync"
     active_key = hashlib.sha256(f"{mode}:{project_id}".encode("utf-8")).hexdigest()
-    queued = PROJECT_SYNC.enqueue(
+    kind = PROJECT_FETCH if fetch_only else PROJECT_SYNC
+    queued = kind.enqueue(
         {"project_id": project_id, "fetch_only": fetch_only},
         subject=JobSubject.of_project(row, project_id),
         artifact_key=active_key,
@@ -1237,7 +1239,12 @@ def run_project_sync_job_v3(context: JobContext) -> JobResult:
     result = sync_project(project_id, fetch_only=fetch_only)
     context.check_cancelled()
     if result.get("status") == "error":
-        raise RuntimeError(str(result.get("message") or "Project sync failed"))
+        message = str(result.get("message") or "Project sync failed")
+        if result.get("retryable"):
+            raise RetryableJobError(
+                message, code=str(result.get("code") or "transient_failure")
+            )
+        raise RuntimeError(message)
     from app.services import file_service
 
     file_service.invalidate_file_listing_cache()
@@ -1268,6 +1275,28 @@ def run_project_sync_job_v3(context: JobContext) -> JobResult:
     )
 
 
+# git's low-speed abort ends a transfer that has stalled. The environment is
+# only defaulted: an operator who set either value keeps it.
+_FETCH_LOW_SPEED_ENV = {
+    "GIT_HTTP_LOW_SPEED_LIMIT": "1000",
+    "GIT_HTTP_LOW_SPEED_TIME": "60",
+}
+
+
+def _fetch_timed_out(error: BaseException) -> bool:
+    """Whether GitPython's ``kill_after_timeout`` watchdog stopped the fetch.
+
+    GitPython replaces git's stderr with this marker when it kills the process.
+    git's own "operation timed out" from the low-speed abort means something
+    else, so it stays an ordinary fetch error.
+    """
+
+    stderr = getattr(error, "stderr", "") or ""
+    if isinstance(stderr, bytes):
+        stderr = stderr.decode("utf-8", "replace")
+    return "did not complete in" in stderr
+
+
 def sync_project(project_id: str, *, fetch_only: bool = False) -> dict:
     """
     Sync a project with its remote repository.
@@ -1294,12 +1323,31 @@ def sync_project(project_id: str, *, fetch_only: bool = False) -> dict:
 
         # Reuse the clone's pinned-host-key and noninteractive Git policy.
         env = git_remote_access.git_env()
+        for name, value in _FETCH_LOW_SPEED_ENV.items():
+            env.setdefault(name, value)
 
         if not fetch_only:
             derived_assets.purge_legacy_in_tree_thumbnails(sync_path, repo)
 
-        # Fetch all refs for branch viewing and prune deleted branches.
-        fetch_info = origin.fetch(env=env, prune=True)
+        # Fetch all refs for branch viewing and prune deleted branches. A host
+        # that went away mid-transfer must not hold the repository lock until
+        # the network notices.
+        timeout_seconds = settings.PRISM_GIT_FETCH_TIMEOUT_SECONDS
+        try:
+            fetch_info = origin.fetch(
+                env=env,
+                prune=True,
+                kill_after_timeout=timeout_seconds,
+            )
+        except Exception as error:
+            if not _fetch_timed_out(error):
+                raise
+            return {
+                "status": "error",
+                "message": f"git fetch timed out after {timeout_seconds} s",
+                "code": "git-fetch-timeout",
+                "retryable": True,
+            }
 
         if fetch_only:
             message = f"Fetched {len(fetch_info)} ref(s)"
@@ -1361,6 +1409,19 @@ PROJECT_SYNC = JobKind(
     lock=repository_lock("write"),
     max_attempts=2,
 )
+# A fetch only updates remote-tracking refs and objects, which readers already
+# tolerate, so it takes the repository read lock: a slow fetch must not block a
+# design-bundle build. This is a separate kind rather than a payload-dependent
+# lock because a JobKind's lock shape is fixed at declaration. PROJECT_SYNC
+# still runs a fetch-only payload queued before this kind existed.
+PROJECT_FETCH = JobKind(
+    "project_fetch",
+    run_project_sync_job_v3,
+    resources={"prism_worker": 1, "import": 1},
+    lock=repository_lock("read"),
+    max_attempts=2,
+    priority=200,
+)
 # Thumbnail and metadata read the checkout with kicad-cli; the read lock keeps
 # them from seeing it halfway through a sync fast-forward.
 PROJECT_THUMBNAIL = JobKind(
@@ -1375,4 +1436,11 @@ PROJECT_METADATA = JobKind(
     lock=repository_lock("read", project_fallback=False),
     max_attempts=2,
 )
-JOB_KINDS = (PROJECT_ANALYZE, PROJECT_IMPORT, PROJECT_SYNC, PROJECT_THUMBNAIL, PROJECT_METADATA)
+JOB_KINDS = (
+    PROJECT_ANALYZE,
+    PROJECT_IMPORT,
+    PROJECT_SYNC,
+    PROJECT_FETCH,
+    PROJECT_THUMBNAIL,
+    PROJECT_METADATA,
+)

@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import os
 import threading
+import time
 from pathlib import Path
 
 import pytest
@@ -11,6 +13,16 @@ from app.services.design_bundle import kicad_steps
 
 CONFIG = {"project_file": "p.kicad_pro", "root_schematic": "p.kicad_sch", "board": "p.kicad_pcb"}
 FORMATS = {"board": 20260206, "schematic": 20260306}
+
+
+@pytest.fixture(autouse=True)
+def upgrade_cache(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    """A scratch persistent cache and a fixed worker KiCad for every test here."""
+
+    root = tmp_path / "upgrade-cache"
+    monkeypatch.setattr(kicad_steps, "upgrade_cache_root", lambda: root)
+    monkeypatch.setattr(kicad_steps, "worker_kicad_version", lambda: "10.0.7")
+    return root
 
 
 def _tree(root: Path, child_text: str = "child") -> Path:
@@ -85,3 +97,34 @@ def test_a_current_tree_runs_nothing(tmp_path: Path, upgrades) -> None:
     (src / "p.kicad_sch").write_text("(kicad_sch (version 20260306))", encoding="utf-8")
     assert kicad_steps.upgrade_sources(src, {"project_file": "p.kicad_pro", "root_schematic": "p.kicad_sch"}, FORMATS) == []
     assert upgrades == []
+
+
+def test_the_cache_survives_a_new_cache_instance(tmp_path: Path, upgrades) -> None:
+    first = _tree(tmp_path / "first")
+    kicad_steps.upgrade_sources(first, CONFIG, FORMATS, cache=kicad_steps.UpgradeCache())
+    calls = list(upgrades)
+    second = _tree(tmp_path / "second")
+    kicad_steps.upgrade_sources(second, CONFIG, FORMATS)  # a later job, with its own cache
+    assert upgrades == calls  # every file came from disk; KiCad ran for none
+    assert (second / "p.kicad_pcb").read_bytes() == (first / "p.kicad_pcb").read_bytes()
+
+
+def test_a_changed_worker_kicad_is_a_miss(tmp_path: Path, upgrades, monkeypatch: pytest.MonkeyPatch) -> None:
+    kicad_steps.upgrade_sources(_tree(tmp_path / "first"), CONFIG, FORMATS)
+    calls = list(upgrades)
+    monkeypatch.setattr(kicad_steps, "worker_kicad_version", lambda: "10.0.8")
+    kicad_steps.upgrade_sources(_tree(tmp_path / "second"), CONFIG, FORMATS)
+    assert len(upgrades) == len(calls) + 3
+
+
+def test_retention_drops_unused_entries_and_dead_part_files(upgrade_cache: Path) -> None:
+    upgrade_cache.mkdir(parents=True)
+    now = time.time()
+    old, fresh = upgrade_cache / "old.kicad_sch", upgrade_cache / "fresh.kicad_pcb"
+    part, live_part = upgrade_cache / ".x.kicad_sch.1.part", upgrade_cache / ".y.kicad_pcb.2.part"
+    for path, age in ((old, 40 * 86400), (fresh, 60), (part, 7200), (live_part, 60)):
+        path.write_bytes(b"x" * 10)
+        os.utime(path, (now - age, now - age))
+    report = kicad_steps.prune_upgrade_cache(unused_before=now - 30 * 86400, now=now)
+    assert report == {"removed": 1, "bytes": 20}
+    assert sorted(p.name for p in upgrade_cache.iterdir()) == [live_part.name, fresh.name]

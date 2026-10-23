@@ -141,12 +141,15 @@ async def get_project_subsheets(
     project_id: str,
     response: Response,
     commit: Optional[str] = None,
+    include: Optional[str] = None,
     user: AuthenticatedUser = Depends(require_viewer),
 ):
     get_project_for_role_or_404(project_id, user.role)
 
     read = _project_metadata_bundle(project_id, commit, user.email)
-    files = viewer_sources_bundle.subsheets(read, project_id, commit)
+    files = viewer_sources_bundle.subsheets(
+        read, project_id, commit, include_content=include == "content"
+    )
     if files is None:
         raise _not_found("Schematic not found")
     for name, value in read.response_headers().items():

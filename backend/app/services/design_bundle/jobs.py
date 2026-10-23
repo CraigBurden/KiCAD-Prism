@@ -10,10 +10,10 @@ the bundle key. It resumes from the stored archive: a stage only moves from
    reuse        prism-kicad bundle reuse against a few stored bundles; on a
                 hold, an alias row and no build (ADR amendment K2 §3.3).
                 Skipped for a forced rebuild.
-1. materialize  $JOB/src (LFS, gitlinks); upgrade older boards and schematics;
-                effective.json and key-record.json
+1. materialize  $JOB/src (LFS, gitlinks); upgrade older boards and schematics
+                (cached); effective.json and key-record.json
 2. parse        prism-kicad bundle build --stage parse -o <store>
-3. refill       pcbnew ZONE_FILLER (not with zone_fills "saved")
+3. refill       pcbnew ZONE_FILLER (cached; not with zone_fills "saved")
 4. board        prism-kicad bundle build --stage board --in <store> -o <store>
 5. models       kicad-cli pcb export glb (stage_models, cached)
 6. models       prism-kicad bundle build --stage models --in <store> -o <store>
@@ -406,12 +406,16 @@ class _Run:
 
     def parse(self) -> Archive | None:
         self.context.progress(stage="bundle-materialize", message="Materializing design sources", percent=5, force=True)
-        prepared = prepare_sources(self.repo, self.key, self.generator, self.work, cancel=self.cancel)
+        upgrades = kicad_steps.UpgradeCache()
+        prepared = prepare_sources(
+            self.repo, self.key, self.generator, self.work, cancel=self.cancel, upgrade_cache=upgrades
+        )
         src, effective, key_record, upgraded = prepared.src, prepared.effective, prepared.key_record, prepared.upgraded
         done = prepared.materialized
         self.details.update(
             files=done.files, lfs_hydrated=done.lfs_hydrated, unavailable_models=done.unavailable_models,
             unavailable_gitlinks=done.unavailable_gitlinks, upgraded=upgraded,
+            upgrade_cache_hits=upgrades.hits, upgrade_cache_misses=upgrades.misses,
         )
         self.context.progress(stage="bundle-parse", message="Design bundle: stage parse", percent=15, force=True)
         args = [
@@ -433,11 +437,14 @@ class _Run:
             sources = self._sources(archive, self._board_inputs(archive))
             self.context.progress(stage="bundle-refill", message="Refilling zones with pcbnew", percent=50, force=True)
             try:
-                refilled = kicad_steps.refill_board(sources, self.config, self.work / "refill", cancel=self.cancel)
+                refilled, refill_hit = kicad_steps.refill_board(
+                    sources, self.config, self.work / "refill", cancel=self.cancel
+                )
             except kicad_steps.KicadSourceUnreadable as error:
                 raise PermanentJobError(str(error), code="source-unreadable") from error
             except kicad_steps.KicadStepFailed as error:
                 raise RetryableJobError(str(error), code="zone-refill-failed", retry_after_seconds=30) from error
+            self.details["refill_cache_hit"] = refill_hit
             args += ["--refilled-board", str(refilled), "--refill-tool", self._tool_version()]
         self.cli(args, "board")
         return self._reopen("board")

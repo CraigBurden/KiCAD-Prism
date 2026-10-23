@@ -41,6 +41,7 @@ PRO_CONTENT = json.dumps({"schematic": {"page_layout_descr_file": "Sheet.kicad_w
 SCH_CONTENT = "(kicad_sch (version 20260306) (generator \"eeschema\"))\n"
 PCB_CONTENT = "(kicad_pcb (version 20260206) (generator \"pcbnew\"))\n"
 POWER_CONTENT = "(kicad_sch (version 20260306))\n"
+FILTER_CONTENT = "(kicad_sch (version 20260306) (uuid filter))\n"
 WKS_CONTENT = "(page_layout (version 20240101))\n"
 
 REPO_FILES = {
@@ -116,6 +117,20 @@ def bundle_members(*, sources: dict[str, bytes] | None = None, document: dict | 
     members = dict(SOURCE_MEMBERS if sources is None else sources)
     members[mapping.PROJECT_JSON] = (json.dumps(document or project_document()) + "\n").encode("utf-8")
     return members
+
+
+def two_sheet_members() -> dict[str, bytes]:
+    """``bundle_members`` with a second sub-sheet in the hierarchy."""
+
+    document = project_document()
+    document["documents"].insert(
+        0, {"path": "board/Subsheets/filter.kicad_sch", "kind": "schematic", "properties": {}}
+    )
+    sources = {
+        **SOURCE_MEMBERS,
+        "sources/board/Subsheets/filter.kicad_sch": FILTER_CONTENT.encode("utf-8"),
+    }
+    return bundle_members(sources=sources, document=document)
 
 
 def manifest_for(members: dict[str, bytes], config: dict, *, parse_status: str = "complete") -> dict:
@@ -305,6 +320,32 @@ class ViewerSourceBundleTests(_BundleFixture):
         self.assertEqual([item["name"] for item in files["files"]], ["Subsheets/power.kicad_sch"])
         self.assertIn(f"commit={self.repo}", files["files"][0]["url"])
 
+    def test_subsheets_without_include_carry_only_the_urls(self) -> None:
+        response = Response()
+        files = self._serve(viewer_sources.get_project_subsheets, commit=self.repo, response=response)
+        self.assertEqual(set(files["files"][0]), {"name", "url"})
+
+    def test_subsheets_with_content_read_from_one_bundle_open(self) -> None:
+        with mock.patch.object(viewer_sources, "get_project_for_role_or_404", return_value=self.project), \
+                mock.patch.object(
+                    reader, "open_revision", return_value=self.opened(members=two_sheet_members())
+                ) as open_revision:
+            response = Response()
+            files = asyncio.run(
+                viewer_sources.get_project_subsheets(
+                    user=self.user,
+                    project_id=PROJECT_ID,
+                    commit=self.repo,
+                    response=response,
+                    include="content",
+                )
+            )
+        open_revision.assert_called_once()
+        self.assertEqual(
+            [item["content"] for item in files["files"]],
+            [FILTER_CONTENT, POWER_CONTENT],
+        )
+
     def test_support_files_are_the_project_file_and_its_drawing_sheet(self) -> None:
         response = Response()
         files = self._serve(
@@ -388,6 +429,35 @@ class MappingTests(_BundleFixture):
                 "url": f"/api/projects/{PROJECT_ID}/asset/Subsheets/power.kicad_sch",
             }],
         )
+
+    def test_subsheets_with_content_carry_each_sheets_text(self) -> None:
+        files = mapping.subsheets(
+            self.read(members=two_sheet_members()), PROJECT_ID, self.repo, include_content=True
+        )
+        self.assertEqual(
+            files,
+            [
+                {
+                    "name": "Subsheets/filter.kicad_sch",
+                    "url": f"/api/projects/{PROJECT_ID}/asset/Subsheets/filter.kicad_sch?commit={self.repo}",
+                    "content": FILTER_CONTENT,
+                },
+                {
+                    "name": "Subsheets/power.kicad_sch",
+                    "url": f"/api/projects/{PROJECT_ID}/asset/Subsheets/power.kicad_sch?commit={self.repo}",
+                    "content": POWER_CONTENT,
+                },
+            ],
+        )
+
+    def test_subsheets_leave_the_sheets_past_the_cap_without_content(self) -> None:
+        with mock.patch.object(mapping, "MAX_INLINE_SUBSHEET_CONTENT_BYTES", len(FILTER_CONTENT)):
+            files = mapping.subsheets(
+                self.read(members=two_sheet_members()), PROJECT_ID, self.repo, include_content=True
+            )
+        assert files is not None
+        self.assertEqual(files[0]["content"], FILTER_CONTENT)
+        self.assertNotIn("content", files[1])
 
     def test_subsheets_decline_without_a_main_schematic(self) -> None:
         config = {**CONFIG}

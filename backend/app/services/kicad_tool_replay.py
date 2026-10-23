@@ -185,7 +185,8 @@ def _file_stats(paths: Sequence[Path]) -> dict[Path, tuple[int, int, int]]:
 class RecordingTool:
     """Runs ``inner`` and records each run, with the files it wrote, for replay.
 
-    A command's outputs are the files under the paths in its argv that it
+    A command's outputs are the files under the paths in its argv (and under
+    its working directory, when that is rooted) that it
     created or changed, or that were written after it started; inputs are
     untouched and are not recorded. Every
     absolute path in an argv must lie under one of the roots, or the recording
@@ -226,6 +227,11 @@ class RecordingTool:
         if stray:
             raise ToolError(f"cannot record a host path: {stray[0]}")
         paths = [Path(self._roots.expand(part)) for part in normalized if part.startswith("<")]
+        # A jobset names only its jobset and project files; its outputs land
+        # under the working directory, so a rooted cwd is an output root too.
+        rooted_cwd = self._roots.normalize(str(cwd)) if cwd is not None else ""
+        if rooted_cwd.startswith("<"):
+            paths.append(Path(self._roots.expand(rooted_cwd)))
         before = _file_stats(paths)
         started = time.time_ns()
         result = self._inner.run(args, timeout=timeout, cwd=cwd, env=env, tee=tee)

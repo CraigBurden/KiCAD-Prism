@@ -22,6 +22,7 @@ ROUTINE_KINDS = (
     "tracker_sweep",
     "tracker_dispatch",
     "project_sync",
+    "project_fetch",
     "system_source_check",
 )
 _DAY = 24 * 60 * 60

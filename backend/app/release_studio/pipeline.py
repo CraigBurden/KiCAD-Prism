@@ -14,6 +14,8 @@ job payload as ``pipeline`` and never into a fingerprint or the manifest.
 from __future__ import annotations
 
 import logging
+import os
+import shutil
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -22,9 +24,9 @@ from typing import TYPE_CHECKING, Any, Callable, Mapping, Sequence
 from app.release_studio.config.schema import DEFAULT_ARTWORK_LINE_WEIGHTS
 from app.release_studio.steps import (
     CATALOGUE_WAVE_ARTWORK,
+    CATALOGUE_WAVE_BOARD,
     CATALOGUE_WAVE_BOM,
     CATALOGUE_WAVE_CHECKS,
-    CATALOGUE_WAVE_POSITIONS,
     STEP_CATALOGUE,
     StepOutput,
     run_step_catalogue,
@@ -383,7 +385,15 @@ def run_build_waves(
     assembly_views: dict[str, Any] | None = None
     assembly_error: BaseException | None = None
 
-    def _catalogue(timing_name: str, only: tuple[str, ...], *, with_bom_preset: bool = False):
+    board_project = _board_project(design, design_board_path, output_root.parent / "board-project")
+
+    def _catalogue(
+        timing_name: str,
+        only: tuple[str, ...],
+        *,
+        with_bom_preset: bool = False,
+        project_dir: Path | None = None,
+    ):
         return _timed(
             timing_name,
             lambda: run_step_catalogue(
@@ -401,14 +411,15 @@ def run_build_waves(
                 schematic_path=design_schematic_path,
                 board_label=design_board_label,
                 schematic_label=design_schematic_label,
+                project_dir=project_dir,
             ),
         )
 
-    # Checks first. Positions, then BOM, then artwork: each of those
-    # used to share the worker with DRC/ERC and with each other, and
-    # BOM died with std::bad_alloc.
+    # The board outputs first, from one board load (DRC leads, so a board that
+    # will not open fails early), then ERC, BOM and artwork, one wave at a
+    # time: parallel kicad-cli loads have died with std::bad_alloc.
+    outputs_board = _catalogue("catalogue-wave-board", CATALOGUE_WAVE_BOARD, project_dir=board_project)
     outputs_checks = _catalogue("catalogue-wave-checks", CATALOGUE_WAVE_CHECKS)
-    outputs_positions = _catalogue("catalogue-wave-positions", CATALOGUE_WAVE_POSITIONS)
     outputs_bom = _catalogue(
         "catalogue-wave-bom",
         CATALOGUE_WAVE_BOM,
@@ -460,7 +471,7 @@ def run_build_waves(
 
     combined = {
         output.step_id: output
-        for output in (*outputs_checks, *outputs_positions, *outputs_bom, *outputs_artwork)
+        for output in (*outputs_board, *outputs_checks, *outputs_bom, *outputs_artwork)
     }
     return WaveOutputs(
         outputs=tuple(
@@ -474,6 +485,45 @@ def run_build_waves(
         artwork_sheet_size=artwork_sheet_size,
         artwork_paper_scale=artwork_paper_scale,
     )
+
+
+def _board_project(design: Any, board: Path | None, root: Path) -> Path | None:
+    """A scratch project directory the board steps run in, or ``None``.
+
+    The bundle's ``sources/`` tree hard-linked (copied where linking fails)
+    under ``root``, with the board the steps read (the refilled one) in place
+    of the saved board. The board jobset needs the project file named after
+    the board, and DRC's schematic parity needs the schematics beside it.
+    """
+
+    config = getattr(design, "config", None) or {}
+    project_file = str(config.get("project_file") or "")
+    board_file = str(config.get("board") or "")
+    if board is None or not project_file or not board_file:
+        return None
+    try:
+        sources = design.sources_dir()
+        shutil.rmtree(root, ignore_errors=True)
+        shutil.copytree(sources, root, copy_function=_link_or_copy)
+        target = root / board_file
+        # A hard link shares the extraction's bytes: unlink before writing.
+        target.unlink(missing_ok=True)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(board, target)
+    except (OSError, AttributeError) as exc:
+        logger.warning("Release Studio board steps run without a project tree: %s", exc)
+        return None
+    project_dir = target.parent
+    if (project_dir / f"{target.stem}.kicad_pro").is_file() and (root / project_file).parent == project_dir:
+        return project_dir
+    return None
+
+
+def _link_or_copy(source: str, destination: str) -> None:
+    try:
+        os.link(source, destination)
+    except OSError:
+        shutil.copy2(source, destination)
 
 
 def _artwork_scale(

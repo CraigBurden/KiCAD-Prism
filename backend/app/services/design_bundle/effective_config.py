@@ -15,6 +15,8 @@ from __future__ import annotations
 import fnmatch
 import json
 import posixpath
+import threading
+from collections import OrderedDict
 from dataclasses import dataclass, field
 from pathlib import Path, PurePosixPath
 from typing import Any, Mapping, Sequence
@@ -250,13 +252,39 @@ def _keyed(
     )
 
 
-def key_at_commit(repo: Path, ref: ProjectRef, commit: str) -> ProjectKey:
-    """The project's key at ``commit``: one ``ls-tree`` and the ``.prism.json`` blob."""
+#: Keys of resolved commits, by repository, commit and project reference. A
+#: commit's tree and blobs never change, so an entry stays right for as long as
+#: it is kept; the bound only caps memory.
+_KEYS_AT_COMMIT: "OrderedDict[tuple[str, ...], ProjectKey]" = OrderedDict()
+_KEYS_AT_COMMIT_MAX = 512
+_keys_lock = threading.Lock()
 
-    resolved, listing = rk.commit_listing(repo, commit)
+
+def key_at_commit(repo: Path, ref: ProjectRef, commit: str) -> ProjectKey:
+    """The project's key at ``commit``: one ``ls-tree`` and the ``.prism.json`` blob.
+
+    Resolving ``commit`` is one ``rev-parse``; the rest is memoized per
+    resolved commit, because every design-data read of a page (a schematic's
+    every sheet) asks for the same key and the full-tree ``ls-tree`` was most
+    of each read's cost.
+    """
+
+    resolved = rk.resolve_commit(repo, commit)
+    memo = (str(repo), resolved, ref.project_dir, ref.anchor, json.dumps(ref.stored, sort_keys=True, default=str))
+    with _keys_lock:
+        cached = _KEYS_AT_COMMIT.get(memo)
+        if cached is not None:
+            _KEYS_AT_COMMIT.move_to_end(memo)
+            return cached
+    _, listing = rk.commit_listing(repo, resolved)
     oid = _settings_blob(ref, listing)
     prism_json = rk.read_blob(repo, oid) if oid else None
-    return _keyed(ref, listing, prism_json, rk.object_format_of(repo), resolved)
+    key = _keyed(ref, listing, prism_json, rk.object_format_of(repo), resolved)
+    with _keys_lock:
+        _KEYS_AT_COMMIT[memo] = key
+        while len(_KEYS_AT_COMMIT) > _KEYS_AT_COMMIT_MAX:
+            _KEYS_AT_COMMIT.popitem(last=False)
+    return key
 
 
 def key_of_worktree(repo: Path, ref: ProjectRef) -> ProjectKey:
