@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Fails when a bundle's inlined wasm (Emscripten SINGLE_FILE) no longer compiles.
+// Fails when a bundle's inlined wasm (Emscripten SINGLE_FILE, raw-byte or base64) no longer compiles.
 //
 // esbuild writes the module's binary string as a template literal holding raw
 // tab, space and newline bytes, so any text normalisation of a built bundle
@@ -43,7 +43,10 @@ function embeddedModules(source) {
     } catch {
       continue;
     }
-    if (typeof text === "string" && text.startsWith("\0asm")) found.push(decode(text));
+    if (typeof text !== "string") continue;
+    if (text.startsWith("\0asm")) found.push(decode(text));
+    // SINGLE_FILE_BINARY_ENCODE=0 (ecad-viewer since krishna-swaroop/ecad-viewer#69): base64.
+    else if (text.startsWith("AGFzbQ")) found.push(new Uint8Array(Buffer.from(text, "base64")));
   }
   return found;
 }
