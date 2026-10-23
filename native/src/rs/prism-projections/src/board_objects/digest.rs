@@ -14,12 +14,39 @@ use std::fmt::Write as _;
 /// (`board_objects_sexpr.mjs:69-79`) — including a nested form that shares a
 /// uuid with the object that contains it, as a `dimension` and its `gr_text`
 /// do, so the digest is indexed by a whole-tree walk, not at emission.
+///
+/// The index is filled one top-level item at a time ([`DigestIndex::add`]), so
+/// a board is never held as one tree. An item's forms are indexed before its
+/// objects read their digest, and an object's own item is the one that holds
+/// its uuid, so a document's index is the same either way.
 #[derive(Debug, Default)]
 pub struct DigestIndex {
     map: BTreeMap<String, (usize, String)>,
+    board: bool,
+    net_table: BTreeMap<String, String>,
 }
 
 impl DigestIndex {
+    /// An empty index: `board` selects the board allow-lists and `net_table`
+    /// resolves a board's `(net <code>)` references.
+    #[must_use]
+    pub fn new(board: bool, net_table: BTreeMap<String, String>) -> Self {
+        Self {
+            map: BTreeMap::new(),
+            board,
+            net_table,
+        }
+    }
+
+    /// Index every form of `node`, one top-level item of a document.
+    pub fn add(&mut self, node: &Node<'_>) {
+        let context = Context {
+            board: self.board,
+            net_table: &self.net_table,
+        };
+        walk(node, None, &context, &mut self.map);
+    }
+
     /// The digest and offset of the object with `uuid`, if it was indexed.
     #[must_use]
     pub fn get(&self, uuid: &str) -> Option<(usize, &str)> {
@@ -33,13 +60,22 @@ impl DigestIndex {
 /// canonical uuid and whose head has an allow-list.
 #[must_use]
 pub fn index(root: &Node<'_>, board: bool) -> DigestIndex {
-    let context = Context::new(root, board);
-    let mut index = DigestIndex::default();
-    walk(root, None, &context, &mut index);
+    let net_table = if board {
+        net_table(root.children("net"))
+    } else {
+        BTreeMap::new()
+    };
+    let mut index = DigestIndex::new(board, net_table);
+    index.add(root);
     index
 }
 
-fn walk(node: &Node<'_>, parent_head: Option<&str>, context: &Context, index: &mut DigestIndex) {
+fn walk(
+    node: &Node<'_>,
+    parent_head: Option<&str>,
+    context: &Context<'_>,
+    map: &mut BTreeMap<String, (usize, String)>,
+) {
     let Node::List { items, start } = node else {
         return;
     };
@@ -47,35 +83,28 @@ fn walk(node: &Node<'_>, parent_head: Option<&str>, context: &Context, index: &m
         && is_canonical_uuid(id)
         && let Some(digest) = object_digest(node, parent_head, context)
     {
-        index.map.insert(id.to_owned(), (*start, digest));
+        map.insert(id.to_owned(), (*start, digest));
     }
     let head = node.head();
     for child in items {
-        walk(child, head, context, index);
+        walk(child, head, context, map);
     }
 }
 
 /// The document context a digest needs: whether it is a board, and the board's
 /// `(net <code> "<name>")` table.
-struct Context {
+struct Context<'a> {
     board: bool,
-    net_table: BTreeMap<String, String>,
-}
-
-impl Context {
-    fn new(root: &Node<'_>, board: bool) -> Self {
-        let net_table = if board {
-            net_table(root)
-        } else {
-            BTreeMap::new()
-        };
-        Self { board, net_table }
-    }
+    net_table: &'a BTreeMap<String, String>,
 }
 
 /// The `contentDigest` of one object form, or `None` when its head has no
 /// allow-list. `parent_head` distinguishes a sheet `pin` from a symbol `pin`.
-fn object_digest(node: &Node<'_>, parent_head: Option<&str>, context: &Context) -> Option<String> {
+fn object_digest(
+    node: &Node<'_>,
+    parent_head: Option<&str>,
+    context: &Context<'_>,
+) -> Option<String> {
     let (allow, children) = allow_for(node, parent_head, context.board)?;
     Some(digest_form(node, allow, children, context))
 }
@@ -258,7 +287,7 @@ fn digest_form(
     form: &Node<'_>,
     allow: &'static str,
     children: &'static [&'static str],
-    context: &Context,
+    context: &Context<'_>,
 ) -> String {
     use sha2::Digest as _;
     let mut hasher = sha2::Sha256::new();
@@ -273,7 +302,7 @@ fn write_form<'n, 'a, S: Canon>(
     form: &'n Node<'a>,
     allow: &'static str,
     children: &'static [&'static str],
-    context: &Context,
+    context: &Context<'_>,
 ) {
     sink.byte(b'(');
     let mut first = true;
@@ -296,7 +325,7 @@ fn write_children<'n, 'a, S: Canon>(
     sink: &mut S,
     items: impl IntoIterator<Item = &'n Node<'a>>,
     form: &'n Node<'a>,
-    context: &Context,
+    context: &Context<'_>,
     depth: usize,
     path: &[&str],
 ) {
@@ -314,7 +343,7 @@ fn write_piece<'n, 'a, S: Canon>(
     sink: &mut S,
     child: &'n Node<'a>,
     form: &'n Node<'a>,
-    context: &Context,
+    context: &Context<'_>,
     depth: usize,
     path: &[&str],
     first: &mut bool,
@@ -381,7 +410,7 @@ fn separator<S: Canon>(sink: &mut S, first: &mut bool) {
 fn write_text<'n, 'a, S: Canon>(
     sink: &mut S,
     node: &'n Node<'a>,
-    context: &Context,
+    context: &Context<'_>,
     depth: usize,
     path: &[&str],
 ) {
@@ -410,7 +439,7 @@ fn write_leaf<S: Canon>(sink: &mut S, node: &Node<'_>) {
 fn net_part(
     child: &Node<'_>,
     form: &Node<'_>,
-    context: &Context,
+    context: &Context<'_>,
     depth: usize,
     head: Option<&str>,
 ) -> Option<String> {
@@ -430,7 +459,7 @@ fn child_object_id<'n, 'a>(node: &'n Node<'a>) -> Option<&'n str> {
 
 /// Step 3 (`board_objects_sexpr.mjs:161-184`). `form` is the object's own
 /// form, so a zone can prefer its `(net_name …)`.
-fn resolve_net(net_node: &Node<'_>, form: &Node<'_>, context: &Context) -> String {
+fn resolve_net(net_node: &Node<'_>, form: &Node<'_>, context: &Context<'_>) -> String {
     if form.head() == Some("zone")
         && let Some(name) = form
             .child("net_name")
@@ -463,13 +492,16 @@ fn resolve_net(net_node: &Node<'_>, form: &Node<'_>, context: &Context) -> Strin
     String::new()
 }
 
-fn net_table(root: &Node<'_>) -> BTreeMap<String, String> {
+/// The `(net <code> "<name>")` table a board's digest resolves a numeric
+/// `(net <code>)` through, from the board's top-level net forms.
+#[must_use]
+pub fn net_table<'n, 'a>(nets: impl IntoIterator<Item = &'n Node<'a>>) -> BTreeMap<String, String>
+where
+    'a: 'n,
+{
     let mut table = BTreeMap::new();
-    for child in root.items().unwrap_or_default() {
-        if child.head() != Some("net") {
-            continue;
-        }
-        let items = child.items().unwrap_or_default();
+    for net in nets {
+        let items = net.items().unwrap_or_default();
         if let Some(Node::Atom(code)) = items.get(1)
             && is_number_token(code)
         {

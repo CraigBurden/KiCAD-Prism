@@ -1,6 +1,7 @@
 //! Board objects (`index_board`, `ecad-parse.mjs:1286-1625`) and the
 //! transform in `capture/board_objects.py:337-403`.
 
+use super::digest::{self, DigestIndex};
 use super::emit::{Document, identity, parse_nonempty, point_nm, rotation_deg};
 use super::review::{self, shapes};
 use super::tree::{self, Node};
@@ -10,41 +11,38 @@ use prism_kicad_contracts::generated::prism_board_objects_a0 as bo;
 use serde_json::{Map, Value};
 
 /// Every object and review-only object of one `.kicad_pcb`.
+///
+/// The board is read one top-level item at a time ([`tree::items`]): each item
+/// is indexed for `contentDigest`, turned into its objects, and dropped, so the
+/// document is never held as one tree (about 600 MiB of nodes for a 55 MB
+/// board).
 #[must_use]
 pub(crate) fn document(
     path: &str,
-    root: &Node<'_>,
+    text: &str,
     warnings: &mut Vec<ProducerWarning>,
 ) -> super::DocumentParts {
-    let mut document = Document::new(path, root, true);
-    let nets = nets_by_code(root);
-    for footprint in root.children("footprint").chain(root.children("module")) {
-        footprints(&mut document, footprint, &nets);
-    }
-    for item in root.children("segment").chain(root.children("arc")) {
-        segments(&mut document, item, &nets);
-    }
-    for item in root.children("via") {
-        vias(&mut document, item, &nets);
-    }
-    for item in root.children("zone") {
-        zones(&mut document, item, &nets);
-    }
-    for head in [
-        "gr_line",
-        "gr_rect",
-        "gr_arc",
-        "gr_circle",
-        "gr_poly",
-        "gr_text",
-        "dimension",
-    ] {
-        for item in root.children(head) {
-            drawings(&mut document, item);
+    let net_forms = tree::children_with_head(text, "net");
+    let nets = nets_by_code(&net_forms);
+    let mut document = Document::new(path, DigestIndex::new(true, digest::net_table(&net_forms)));
+    let mut setup: Option<Node<'_>> = None;
+    let mut layers: Option<Node<'_>> = None;
+    for item in tree::items(text) {
+        document.index_form(&item);
+        match item.head() {
+            Some("footprint" | "module") => footprints(&mut document, &item, &nets),
+            Some("segment" | "arc") => segments(&mut document, &item, &nets),
+            Some("via") => vias(&mut document, &item, &nets),
+            Some("zone") => zones(&mut document, &item, &nets),
+            Some(
+                "gr_line" | "gr_rect" | "gr_arc" | "gr_circle" | "gr_poly" | "gr_text"
+                | "dimension",
+            ) => drawings(&mut document, &item),
+            Some("group") => groups(&mut document, &item),
+            Some("setup") => setup = Some(item),
+            Some("layers") => layers = Some(item),
+            _ => {}
         }
-    }
-    for item in root.children("group") {
-        groups(&mut document, item);
     }
 
     let mut review_only = Vec::new();
@@ -53,7 +51,7 @@ pub(crate) fn document(
         "fabrication_output",
         "Fabrication output settings",
         "Fabrication output settings",
-        review::fabrication_output(root),
+        review::fabrication_output(setup.as_ref(), layers.as_ref()),
     );
     let review_only = review::finish_review(review_only);
     let (objects, document_warnings) = document.finish();
@@ -65,8 +63,9 @@ pub(crate) fn document(
 }
 
 /// The board net table, `number -> name` (`ecad-parse.mjs:1293`).
-fn nets_by_code(root: &Node<'_>) -> Vec<(f64, String)> {
-    root.children("net")
+fn nets_by_code(forms: &[Node<'_>]) -> Vec<(f64, String)> {
+    forms
+        .iter()
         .filter_map(|net| {
             let number = tree::number_at(net, 1)?;
             Some((number, tree::text_at(net, 2).unwrap_or_default()))
@@ -772,14 +771,15 @@ mod net_name_tests {
     use super::{net_name_of, nets_by_code, tree};
 
     fn net_of(board: &str) -> Option<String> {
-        let roots = tree::parse(board);
-        let root = &roots[0];
-        let nets = nets_by_code(root);
-        let pad = root
-            .child("footprint")
-            .and_then(|footprint| footprint.child("pad"))
-            .expect("a pad");
-        net_name_of(pad, &nets)
+        let nets = nets_by_code(&tree::children_with_head(board, "net"));
+        for footprint in tree::items(board) {
+            if footprint.head() != Some("footprint") {
+                continue;
+            }
+            let pad = footprint.child("pad").expect("a pad");
+            return net_name_of(pad, &nets);
+        }
+        panic!("a footprint");
     }
 
     #[test]

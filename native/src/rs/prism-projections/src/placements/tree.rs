@@ -11,7 +11,7 @@ use prism_kicad_core::sexpr::Sexp;
 /// The list contents of `item`, or `None` for an atom or number.
 pub(crate) fn as_list(item: &Sexp) -> Option<&[Sexp]> {
     match item {
-        Sexp::List(values) => Some(values.as_slice()),
+        Sexp::List(values) => Some(&values[..]),
         _ => None,
     }
 }
@@ -19,7 +19,7 @@ pub(crate) fn as_list(item: &Sexp) -> Option<&[Sexp]> {
 /// Python `str(item)` for the variants a form head or scalar can hold.
 pub(crate) fn py_str(item: &Sexp) -> String {
     match item {
-        Sexp::Atom(value) | Sexp::Quoted(value) => value.clone(),
+        Sexp::Atom(value) | Sexp::Quoted(value) => value.to_string(),
         Sexp::Integer(value) => value.to_string(),
         Sexp::Float(value) => crate::python::float(*value),
         Sexp::List(values) => {

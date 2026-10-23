@@ -13,12 +13,12 @@ const PCB: &str = "(kicad_pcb\n  # (footprint \"Ignored:Comment\")\n  (setup\n  
 fn atoms(values: &[&str]) -> Vec<Sexp> {
     values
         .iter()
-        .map(|value| Sexp::Atom((*value).to_owned()))
+        .map(|value| Sexp::Atom((*value).into()))
         .collect()
 }
 
 fn named(name: &str, value: Sexp) -> Sexp {
-    Sexp::List(vec![Sexp::Atom(name.to_owned()), value])
+    Sexp::List(vec![Sexp::Atom(name.into()), value].into())
 }
 
 #[test]
@@ -181,10 +181,13 @@ fn selected_nested_form_has_exact_position_and_materializes_on_demand() {
     );
     assert_eq!(
         parse_form(PCB, span).expect("selected form should parse"),
-        Sexp::List(vec![
-            Sexp::Atom("model".to_owned()),
-            Sexp::Quoted("models/name(with-parens).step".to_owned()),
-        ])
+        Sexp::List(
+            vec![
+                Sexp::Atom("model".into()),
+                Sexp::Quoted("models/name(with-parens).step".into()),
+            ]
+            .into()
+        ),
     );
 }
 
@@ -243,12 +246,15 @@ fn projection_errors_pin_lex_and_tree_locations() {
 
 #[test]
 fn mutation_primitives_match_python_tree_behavior() {
-    let mut root = Sexp::List(vec![
-        Sexp::Atom("root".to_owned()),
-        named("version", Sexp::Integer(1)),
-        named("version", Sexp::Integer(2)),
-        named("name", Sexp::Atom("foo".to_owned())),
-    ]);
+    let mut root = Sexp::List(
+        vec![
+            Sexp::Atom("root".into()),
+            named("version", Sexp::Integer(1)),
+            named("version", Sexp::Integer(2)),
+            named("name", Sexp::Atom("foo".into())),
+        ]
+        .into(),
+    );
 
     assert!(replace_element(
         &mut root,
@@ -259,27 +265,36 @@ fn mutation_primitives_match_python_tree_behavior() {
         remove_element(&mut root, "version"),
         Some(named("version", Sexp::Integer(99)))
     );
-    set_value(&mut root, "enabled", Sexp::Atom("yes".to_owned()))
+    set_value(&mut root, "enabled", Sexp::Atom("yes".into()))
         .expect("list root should accept value");
-    let expected = named("enabled", Sexp::Atom("yes".to_owned()));
+    let expected = named("enabled", Sexp::Atom("yes".into()));
     assert_eq!(find_path(&root, &["enabled"]), Some(&expected));
 }
 
 #[test]
 fn mutation_walk_remove_all_and_transform_are_depth_first_and_stable() {
-    let mut root = Sexp::List(vec![
-        Sexp::Atom("root".to_owned()),
-        Sexp::List(vec![
-            Sexp::Atom("symbol".to_owned()),
-            Sexp::List(vec![
-                Sexp::Atom("property".to_owned()),
-                Sexp::Atom("Reference".to_owned()),
-                Sexp::Atom("U".to_owned()),
-            ]),
-        ]),
-        named("line", Sexp::Integer(1)),
-        named("line", Sexp::Integer(2)),
-    ]);
+    let mut root = Sexp::List(
+        vec![
+            Sexp::Atom("root".into()),
+            Sexp::List(
+                vec![
+                    Sexp::Atom("symbol".into()),
+                    Sexp::List(
+                        vec![
+                            Sexp::Atom("property".into()),
+                            Sexp::Atom("Reference".into()),
+                            Sexp::Atom("U".into()),
+                        ]
+                        .into(),
+                    ),
+                ]
+                .into(),
+            ),
+            named("line", Sexp::Integer(1)),
+            named("line", Sexp::Integer(2)),
+        ]
+        .into(),
+    );
 
     assert_eq!(walk(&root).count(), 5);
     assert_eq!(remove_all_elements(&mut root, "line").len(), 2);
@@ -288,11 +303,11 @@ fn mutation_walk_remove_all_and_transform_are_depth_first_and_stable() {
             return value.clone();
         };
         let mut replacement = values.clone();
-        replacement[1] = Sexp::Atom("reference".to_owned());
+        replacement[1] = Sexp::Atom("reference".into());
         Sexp::List(replacement)
     });
     assert_eq!(count, 1);
-    let expected = Sexp::List(atoms(&["property", "reference", "U"]));
+    let expected = Sexp::List(atoms(&["property", "reference", "U"]).into());
     assert_eq!(find_path(&root, &["symbol", "property"]), Some(&expected));
 }
 

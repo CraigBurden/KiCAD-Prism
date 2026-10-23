@@ -541,7 +541,7 @@ fn scalar_value_range(
                 .parse()
                 .map_err(|_| source_error("expected worksheet number", span.start))?,
         ),
-        _ => Sexp::Atom(token.lexeme.to_owned()),
+        _ => Sexp::Atom(token.lexeme.into()),
     };
     Ok((
         value,
@@ -835,7 +835,7 @@ fn children_in<'a>(value: &'a [Sexp], head: &'a str) -> impl Iterator<Item = &'a
 }
 
 fn is_atom(value: &Sexp, expected: &str) -> bool {
-    matches!(value, Sexp::Atom(value) if value == expected)
+    matches!(value, Sexp::Atom(value) if value.as_ref() == expected)
 }
 
 fn child_string(value: &Sexp, head: &str) -> String {
@@ -882,7 +882,7 @@ fn child_optional_number_from_list(value: &[Sexp], head: &str) -> Result<Option<
 fn has_atom(value: &[Sexp], atom: &str) -> bool {
     value
         .iter()
-        .any(|value| matches!(value, Sexp::Atom(found) if found == atom))
+        .any(|value| matches!(value, Sexp::Atom(found) if found.as_ref() == atom))
 }
 
 fn number_at(values: &[Sexp], index: usize, default: f64) -> Result<f64, Error> {
@@ -925,7 +925,7 @@ fn integer_text(value: &str) -> Result<i64, Error> {
 
 fn scalar(value: &Sexp) -> String {
     match value {
-        Sexp::Atom(value) | Sexp::Quoted(value) => value.clone(),
+        Sexp::Atom(value) | Sexp::Quoted(value) => value.to_string(),
         Sexp::Integer(value) => value.to_string(),
         Sexp::Float(value) => value.to_string(),
         Sexp::List(_) => String::new(),
@@ -934,7 +934,7 @@ fn scalar(value: &Sexp) -> String {
 
 fn string_scalar(value: &Sexp) -> Option<String> {
     match value {
-        Sexp::Atom(value) | Sexp::Quoted(value) => Some(value.clone()),
+        Sexp::Atom(value) | Sexp::Quoted(value) => Some(value.to_string()),
         _ => None,
     }
 }

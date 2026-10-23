@@ -13,7 +13,7 @@ pub(super) fn components_json(netlist: &KiCadNetlist, netlist_json: &Value) -> V
             .iter()
             .enumerate()
             .map(|(index, component)| {
-                let raw = raw.get(index).cloned().unwrap_or_else(|| json!({}));
+                let raw = raw.get(index);
                 let prefix = component
                     .reference
                     .chars()
@@ -25,7 +25,7 @@ pub(super) fn components_json(netlist: &KiCadNetlist, netlist_json: &Value) -> V
                     "svg_id": component.instance_uuids.last().cloned().unwrap_or_default(),
                     "value": component.value,
                     "footprint": component.footprint,
-                    "library_ref": raw["library_ref"],
+                    "library_ref": raw.map_or(Value::Null, |raw| raw["library_ref"].clone()),
                     "description": component.libsource_description,
                     "hierarchy": {
                         "base_designator": component.reference,
@@ -40,7 +40,7 @@ pub(super) fn components_json(netlist: &KiCadNetlist, netlist_json: &Value) -> V
                         "type": component_type(&prefix),
                         "pin_count": pin_counts.get(component.reference.as_str()).copied().unwrap_or(0),
                     },
-                    "parameters": raw["parameters"],
+                    "parameters": raw.map_or(Value::Null, |raw| raw["parameters"].clone()),
                 })
             })
             .collect(),

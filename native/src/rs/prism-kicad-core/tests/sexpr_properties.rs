@@ -19,23 +19,26 @@ impl Generator {
     fn tree(&mut self, depth: usize) -> Sexp {
         if depth == 0 || self.bounded(4) != 0 {
             return match self.bounded(4) {
-                0 => Sexp::Atom(format!("atom_{}", self.bounded(10_000))),
-                1 => Sexp::Quoted(format!(
-                    "quoted {} \\\" line\\n{}",
-                    self.bounded(100),
-                    self.bounded(100)
-                )),
+                0 => Sexp::Atom(format!("atom_{}", self.bounded(10_000)).into()),
+                1 => Sexp::Quoted(
+                    format!(
+                        "quoted {} \\\" line\\n{}",
+                        self.bounded(100),
+                        self.bounded(100)
+                    )
+                    .into(),
+                ),
                 2 => Sexp::Integer(i64::try_from(self.bounded(100_000)).expect("small integer")),
                 _ => Sexp::Float((self.bounded(100_000) as f64) / 37.0),
             };
         }
         let count = 1 + self.bounded(6);
         let mut values = Vec::with_capacity(count);
-        values.push(Sexp::Atom(format!("form_{}", self.bounded(32))));
+        values.push(Sexp::Atom(format!("form_{}", self.bounded(32)).into()));
         for _ in 1..count {
             values.push(self.tree(depth - 1));
         }
-        Sexp::List(values)
+        Sexp::List(values.into())
     }
 }
 
@@ -45,7 +48,7 @@ fn generated_trees_preserve_semantics_and_stable_second_writes() {
     for case in 0..2_000 {
         let mut tree = generator.tree(5);
         if !matches!(tree, Sexp::List(_)) {
-            tree = Sexp::List(vec![Sexp::Atom("root".to_owned()), tree]);
+            tree = Sexp::List(vec![Sexp::Atom("root".into()), tree].into());
         }
         let first = build(&tree).unwrap_or_else(|error| panic!("case {case} build: {error}"));
         let reparsed = parse(&first).unwrap_or_else(|error| panic!("case {case} parse: {error}"));
@@ -68,11 +71,14 @@ fn generated_trees_preserve_semantics_and_stable_second_writes() {
 fn generated_malformed_variants_never_parse_as_the_original_tree() {
     let mut generator = Generator(0xa11c_e5ed_5eed_1234);
     for case in 0..1_000 {
-        let tree = Sexp::List(vec![
-            Sexp::Atom("root".to_owned()),
-            generator.tree(4),
-            Sexp::Quoted(format!("value {}", generator.next())),
-        ]);
+        let tree = Sexp::List(
+            vec![
+                Sexp::Atom("root".into()),
+                generator.tree(4),
+                Sexp::Quoted(format!("value {}", generator.next()).into()),
+            ]
+            .into(),
+        );
         let valid = build(&tree).expect("generated tree should build");
         let malformed = match case % 3 {
             0 => valid[..valid.len() - 1].to_owned(),

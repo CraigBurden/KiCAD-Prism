@@ -598,10 +598,10 @@ fn layer_has_knockout(source: &str, graphic: &PcbGraphic) -> bool {
     };
     items.iter().any(|item| match item {
         Sexp::List(layer) => {
-            matches!(layer.first(), Some(Sexp::Atom(head)) if head == "layer")
+            matches!(layer.first(), Some(Sexp::Atom(head)) if head.as_ref() == "layer")
                 && layer
                     .iter()
-                    .any(|value| matches!(value, Sexp::Atom(flag) if flag == "knockout"))
+                    .any(|value| matches!(value, Sexp::Atom(flag) if flag.as_ref() == "knockout"))
         }
         _ => false,
     })

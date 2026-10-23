@@ -517,7 +517,7 @@ fn quoted(
     max_output_bytes: usize,
     source_path: &str,
 ) -> Result<String, SourceBundleError> {
-    build_with_limit(&Sexp::Quoted(value.to_owned()), max_output_bytes)
+    build_with_limit(&Sexp::Quoted(value.to_owned().into()), max_output_bytes)
         .map_err(|error| schematic_error(source_path, error))
 }
 

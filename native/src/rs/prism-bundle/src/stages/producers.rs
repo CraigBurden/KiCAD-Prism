@@ -231,6 +231,15 @@ const PRODUCERS: [ProducerKind; 8] = [
     ProducerKind::Json(system_interface),
 ];
 
+/// The producers that read the shared board tree (`BoardModel::tree`):
+/// `project.json` scans the board's footprints and models, and
+/// `system-interface.json` reads its outline and board text. (The stackup and
+/// route-metrics producers read only the forms they need, from the view.)
+const TREE_READERS: [&str; 2] = [
+    "projections/project.json",
+    "projections/system-interface.json",
+];
+
 impl ProducerKind {
     fn run(
         self,
@@ -282,6 +291,18 @@ pub(super) fn run(
     wanted: &(dyn Fn(&str) -> bool + Sync),
     encode: bool,
 ) -> ProducerResults {
+    // Parse the shared board tree before the producers start when one of them
+    // reads it. The tree is a large resident parse (about 340 MiB for a 57 MB
+    // board) whose parse transient is larger still; built here, that
+    // transient overlaps nothing, where a reader that builds it later stacks
+    // it on the other producers' work (measured on EDA-04903: +90 MiB live
+    // peak when `project.json` built it after its schematic scan). A failure
+    // is left to the reader that reports it, with its own wording.
+    if TREE_READERS.iter().any(|path| wanted(path))
+        && let Some(board) = input.board
+    {
+        let _ = board.tree();
+    }
     std::thread::scope(|scope| {
         let joined = |handle: std::thread::ScopedJoinHandle<'_, _>| {
             handle
@@ -315,12 +336,16 @@ pub(super) fn run(
             .map(|(index, facts)| {
                 if full {
                     design::design_json(index, facts, &design.project, &design.sheets, design_board)
+                        .map(|built| (Some(built.bytes), built.semantic))
                 } else {
-                    design::semantic_inputs(index, facts)
+                    design::semantic_inputs(index, facts).map(|semantic| (None, semantic))
                 }
             });
         let with_design = prism_projections::ProjectionInput {
-            design: design_json.as_ref().and_then(|built| built.as_ref().ok()),
+            design: design_json
+                .as_ref()
+                .and_then(|built| built.as_ref().ok())
+                .map(|(_, semantic)| semantic),
             ..*input
         };
         let semantic_result = semantic.map(|index| PRODUCERS[index].run(&with_design, encode));
@@ -336,7 +361,9 @@ pub(super) fn run(
             .collect();
         let design_json = design_json
             .filter(|built| full || built.is_err())
-            .map(|built| built.map(|value| json_bytes(&value)));
+            .map(|built| {
+                built.map(|(bytes, _)| bytes.expect("a full design build encodes its bytes"))
+            });
         (design_json, results)
     })
 }

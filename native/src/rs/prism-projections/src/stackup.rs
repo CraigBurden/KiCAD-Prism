@@ -5,21 +5,26 @@
 //! board's S-expression tree. The contract's root is
 //! [`StackupA0`](prism_kicad_contracts::generated::prism_stackup_a0::StackupA0).
 //!
-//! The producer reads the board's own tree (never the core's typed `PcbView`),
-//! because the golden did: the layer table, the stackup, the vias and the
-//! `(general (thickness …))` form are all read straight from the tokens. The
-//! tree is the shared, once-parsed [`crate::BoardModel::tree`], so the stackup
-//! build parses the board no more than the bundle already did. The tree helpers
-//! of [`tree`] mirror `stackup_build.py`'s, so a bare token and a quoted one
-//! give the same string kicad_monkey's tokenizer produced.
+//! The producer reads the board's own tokens (never the core's typed
+//! `PcbView`), because the golden did: the layer table, the stackup, the vias
+//! and the `(general (thickness …))` form are all read straight from the
+//! tokens. [`spans`] takes just those four top-level forms from the shared
+//! board view's indexed source spans and parses them into a small
+//! `(kicad_pcb …)` root, so this member never builds the whole board tree
+//! ([`crate::BoardModel::tree`]) that the other tree readers pay ~340 MiB
+//! for; the tokens are identical because both go through
+//! `prism_kicad_core::parse`. The tree helpers of [`tree`] mirror
+//! `stackup_build.py`'s, so a bare token and a quoted one give the same string
+//! kicad_monkey's tokenizer produced.
 //!
 //! A project without a board gets the empty form (`stackup_build.py:empty_form`)
 //! (bundle-format.md §2.1); the contract has no explicit empty form.
 //!
 //! The implementation is grouped by concern: [`tree`] holds the token and
 //! diagnostic helpers, [`records`] the records and the empty form, [`read`]
-//! the reader of one `.kicad_pcb`, [`summary`] the derived aggregates and
-//! [`via`] the via spans.
+//! the reader of one `.kicad_pcb`, [`spans`] the board forms that reader
+//! takes from the view, [`summary`] the derived aggregates and [`via`] the via
+//! spans.
 //!
 //! # Warnings
 //!
@@ -31,6 +36,7 @@
 
 mod read;
 mod records;
+mod spans;
 mod summary;
 mod tree;
 mod via;
@@ -80,7 +86,7 @@ const EDGE_CONNECTORS: [&str; 2] = ["yes", "bevelled"];
 /// Build `projections/stackup.json` from the single parse of the revision.
 pub fn produce(input: &ProjectionInput<'_>) -> Result<Produced<StackupA0>, ProjectionError> {
     let (value, warnings) = match input.board {
-        Some(board) => read::build(board.tree().map_err(parse_error)?, board.path)?,
+        Some(board) => read::build(&spans::root(board, &spans::BUILD_HEADS)?, board.path)?,
         None => (records::empty_form(), Vec::new()),
     };
     let mut produced = document(NAME, value)?;
@@ -89,15 +95,11 @@ pub fn produce(input: &ProjectionInput<'_>) -> Result<Produced<StackupA0>, Proje
 }
 
 /// R6's copper order for `route_metrics`: the stackup member's `copperLayers`
-/// (`stackup_build.py:222-228`, rule 7) from the shared board tree, without
-/// building the whole member. The rule lives once, in [`read::copper_order`].
+/// (`stackup_build.py:222-228`, rule 7) from the board's layer and stackup
+/// forms, without building the whole member (or the whole board tree). The
+/// rule lives once, in [`read::copper_order`].
 pub(crate) fn copper_layers(board: &crate::BoardModel<'_>) -> Result<Vec<String>, ProjectionError> {
-    read::copper_order(board.tree().map_err(parse_error)?, board.path)
-}
-
-/// The stackup wording for a shared-tree parse failure (`stackup_build.py:175`).
-fn parse_error(error: ProjectionError) -> ProjectionError {
-    ProjectionError::new(format!("{NAME}: the board does not parse: {error}"))
+    read::copper_order(&spans::root(board, &spans::COPPER_HEADS)?, board.path)
 }
 
 #[cfg(test)]
@@ -270,8 +272,6 @@ mod tests {
 
     #[test]
     fn the_shared_copper_order_matches_the_document() {
-        // The route-metrics path (`copper_layers`) reads the same rule as the
-        // member, from the same shared tree.
         let text = "(kicad_pcb (layers (0 \"F.Cu\" signal) (2 \"B.Cu\" signal)) \
             (setup (stackup (layer \"F.Cu\" (type \"copper\")) \
             (layer \"dielectric 1\" (type \"core\")) \
@@ -283,6 +283,48 @@ mod tests {
             copper_layers(&board).expect("the copper order"),
             vec!["F.Cu".to_owned(), "B.Cu".to_owned()]
         );
+    }
+
+    #[test]
+    fn the_reduced_root_holds_only_the_forms_the_reader_takes() {
+        // The reader takes `general`, `layers`, `setup` and top-level vias; a
+        // net, a segment and a footprint's own via are not read, so the
+        // `(kicad_pcb …)` root `spans::root` parses holds none of them.
+        let text = r#"
+            (kicad_pcb
+                (general (thickness 1.2))
+                (layers (0 "F.Cu" signal) (2 "B.Cu" signal))
+                (net 0 "")
+                (setup (stackup (layer "F.Cu" (type "copper"))
+                                (layer "dielectric 1" (type "core"))
+                                (layer "B.Cu" (type "copper"))))
+                (segment (start 0 0) (end 1 0) (width 0.2) (layer "F.Cu") (net 0))
+                (via (at 0 0) (size 0.4) (drill 0.2) (layers "F.Cu" "B.Cu"))
+                (footprint "X"
+                    (via (at 0 0) (size 0.4) (drill 0.2) (layers "F.Cu" "B.Cu")))
+            )"#;
+        let view = prism_kicad_core::PcbView::parse(text, prism_kicad_core::PcbLimits::default())
+            .expect("the board parses");
+        let board = crate::BoardModel::new("boards/demo.kicad_pcb", text, &view);
+        let root = super::spans::root(&board, &super::spans::BUILD_HEADS)
+            .expect("the reduced root parses");
+        let heads: Vec<&str> = super::tree::form_children(&root)
+            .iter()
+            .skip(1)
+            .filter_map(|item| match item {
+                prism_kicad_core::Sexp::List(items) => items.first().and_then(|head| match head {
+                    prism_kicad_core::Sexp::Atom(head) => Some(&**head),
+                    _ => None,
+                }),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(heads, ["general", "layers", "setup", "via"]);
+        // The one top-level via, its footprint's copy excluded.
+        let (value, _) = build(&root, "boards/demo.kicad_pcb").expect("the board builds");
+        assert_eq!(value["copperLayers"], json!(["F.Cu", "B.Cu"]));
+        assert_eq!(value["viaSpans"][0]["count"], 1);
+        assert_eq!(value["boardThicknessNm"], 1_200_000);
     }
 
     #[test]

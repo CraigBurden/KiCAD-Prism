@@ -385,7 +385,8 @@ impl<'a> FootprintView<'a> {
                 changed: false,
             });
         }
-        let replacement = build_with_limit(&Sexp::Quoted(value.to_owned()), max_output_bytes)?;
+        let replacement =
+            build_with_limit(&Sexp::Quoted(value.to_owned().into()), max_output_bytes)?;
         let source = apply_patches_with_limit(
             self.source,
             &[Patch::new(

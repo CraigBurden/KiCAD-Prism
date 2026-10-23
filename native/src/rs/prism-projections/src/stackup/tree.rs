@@ -16,7 +16,7 @@ pub(super) fn is_form(item: &Sexp, head: &str) -> bool {
     match item {
         Sexp::List(items) => matches!(
             items.first(),
-            Some(Sexp::Atom(value) | Sexp::Quoted(value)) if value.as_str() == head
+            Some(Sexp::Atom(value) | Sexp::Quoted(value)) if value.as_ref() == head
         ),
         _ => false,
     }

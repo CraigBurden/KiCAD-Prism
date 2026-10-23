@@ -47,5 +47,5 @@ pub(super) fn rule_area(value: &AuthoredRuleArea) -> Sexp {
         ));
     }
     children.extend(value.outlines.iter().map(zone_polygon));
-    Sexp::List(children)
+    Sexp::List(children.into())
 }

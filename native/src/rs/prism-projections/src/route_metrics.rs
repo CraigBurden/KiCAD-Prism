@@ -11,8 +11,11 @@
 //! The inputs are the fork's single board parse (`BoardModel.view`): its
 //! top-level `segment`, `arc` and `via` forms only (field map:31). The copper
 //! order R6 needs is the produced `prism.stackup.a0` `copperLayers`, read
-//! through [`crate::stackup::copper_layers`] from the shared board tree rather
-//! than by building the whole stackup member or restating its rule.
+//! through [`crate::stackup::copper_layers`] from the board's layer and
+//! stackup forms rather than by building the whole stackup member, the whole
+//! board tree, or restating its rule. Tracks and vias come from the shared
+//! `PcbView` decode memo, so the per-net totals keep only what the member
+//! needs.
 //!
 //! A project without a board gets the empty form (bundle-format.md §2.1):
 //! `{"schema": …, "nets": []}`. Rules are grouped into [`accumulate`] (R1,

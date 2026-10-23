@@ -696,13 +696,15 @@ pub(crate) fn bus_aliases(schematic: &Node<'_>, objects: &mut Vec<Value>) {
     }
 }
 
-/// `fabrication_output_fields` (`ecad-parse.mjs:1247-1284`).
+/// `fabrication_output_fields` (`ecad-parse.mjs:1247-1284`), from the board's
+/// top-level `(setup …)` and `(layers …)` forms.
 #[must_use]
-pub(crate) fn fabrication_output(board_root: &Node<'_>) -> Value {
-    let setup = board_root.child("setup");
+pub(crate) fn fabrication_output(
+    setup: Option<&Node<'_>>,
+    board_layers: Option<&Node<'_>>,
+) -> Value {
     let plot = setup.and_then(|setup| setup.child("pcbplotparams"));
-    let layers: Vec<Value> = board_root
-        .child("layers")
+    let layers: Vec<Value> = board_layers
         .and_then(Node::items)
         .map(layers_of)
         .unwrap_or_default();

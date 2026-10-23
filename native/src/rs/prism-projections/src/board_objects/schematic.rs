@@ -15,7 +15,7 @@ pub(crate) fn document(
     root: &Node<'_>,
     warnings: &mut Vec<ProducerWarning>,
 ) -> super::DocumentParts {
-    let mut document = Document::new(path, root, false);
+    let mut document = Document::new(path, super::digest::index(root, false));
     collect(&mut document, root);
 
     let mut review_only = Vec::new();

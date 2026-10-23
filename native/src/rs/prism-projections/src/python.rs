@@ -7,7 +7,7 @@ use prism_kicad_core::Sexp;
 /// `str(token)` for an atom; `None` for a form.
 pub(crate) fn token(value: &Sexp) -> Option<String> {
     match value {
-        Sexp::Atom(text) | Sexp::Quoted(text) => Some(text.clone()),
+        Sexp::Atom(text) | Sexp::Quoted(text) => Some(text.to_string()),
         Sexp::Integer(integer) => Some(integer.to_string()),
         Sexp::Float(number) => Some(float(*number)),
         Sexp::List(_) => None,

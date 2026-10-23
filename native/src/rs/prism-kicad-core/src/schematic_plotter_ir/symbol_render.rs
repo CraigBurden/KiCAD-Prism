@@ -671,14 +671,14 @@ fn selected_alternate_pin(pin: &Sexp, alternate: Option<&str>) -> Sexp {
             if let Some(style) = scalar_at(alt, 3)
                 && values.len() > 2
             {
-                values[2] = Sexp::Atom(style);
+                values[2] = Sexp::Atom(style.into());
             }
             if let Some(name) = values.iter_mut().find(|value| {
                 list(value).and_then(|values| values.first()).and_then(text) == Some("name")
             }) && let Sexp::List(name_values) = name
                 && name_values.len() > 1
             {
-                name_values[1] = Sexp::Quoted(alternate.to_owned());
+                name_values[1] = Sexp::Quoted(alternate.to_owned().into());
             }
             break;
         }

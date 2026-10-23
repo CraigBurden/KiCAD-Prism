@@ -306,7 +306,7 @@ impl NetClassSettings {
 /// The text of a scalar.
 fn scalar(value: &Sexp) -> Option<String> {
     match value {
-        Sexp::Atom(text) | Sexp::Quoted(text) => Some(text.clone()),
+        Sexp::Atom(text) | Sexp::Quoted(text) => Some(text.to_string()),
         Sexp::Integer(value) => Some(value.to_string()),
         Sexp::Float(value) => Some(value.to_string()),
         Sexp::List(_) => None,

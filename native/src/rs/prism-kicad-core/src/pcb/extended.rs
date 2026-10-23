@@ -329,7 +329,7 @@ impl<'a> PcbView<'a> {
             });
         }
         let replacement = build_with_limit(
-            &Sexp::Quoted(layer.to_owned()),
+            &Sexp::Quoted(layer.to_owned().into()),
             self.limits.max_output_bytes,
         )?;
         Ok(PcbEdit {

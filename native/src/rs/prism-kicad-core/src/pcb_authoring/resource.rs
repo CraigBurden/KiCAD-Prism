@@ -21,18 +21,18 @@ impl ResourceEncoder {
 
     pub(super) fn files(&mut self, files: &[AuthoredEmbeddedFile]) -> Result<Sexp, Error> {
         let mut children = Vec::with_capacity(files.len().saturating_add(1));
-        children.push(Sexp::Atom("embedded_files".to_owned()));
+        children.push(Sexp::Atom("embedded_files".to_owned().into()));
         for file in files {
             children.push(self.file(file)?);
         }
-        Ok(Sexp::List(children))
+        Ok(Sexp::List(children.into()))
     }
 
     fn file(&mut self, file: &AuthoredEmbeddedFile) -> Result<Sexp, Error> {
         let mut children = vec![
-            Sexp::Atom("file".to_owned()),
-            form("name", [Sexp::Quoted(file.name.clone())]),
-            form("type", [Sexp::Atom(file.file_type.clone())]),
+            Sexp::Atom("file".to_owned().into()),
+            form("name", [Sexp::Quoted(file.name.clone().into())]),
+            form("type", [Sexp::Atom(file.file_type.clone().into())]),
         ];
         match &file.data {
             AuthoredResourceData::DeclarationOnly => {}
@@ -54,11 +54,11 @@ impl ResourceEncoder {
                 if self.encoded_bytes > self.maximum_encoded_bytes {
                     return Err(resource_limit());
                 }
-                children.push(form("data", [Sexp::Atom(format!("|{encoded}|"))]));
-                children.push(form("checksum", [Sexp::Quoted(checksum)]));
+                children.push(form("data", [Sexp::Atom(format!("|{encoded}|").into())]));
+                children.push(form("checksum", [Sexp::Quoted(checksum.into())]));
             }
         }
-        Ok(Sexp::List(children))
+        Ok(Sexp::List(children.into()))
     }
 }
 
@@ -133,9 +133,9 @@ fn encode_base64(bytes: &[u8]) -> String {
 }
 
 fn form(head: &str, children: impl IntoIterator<Item = Sexp>) -> Sexp {
-    let mut values = vec![Sexp::Atom(head.to_owned())];
+    let mut values = vec![Sexp::Atom(head.to_owned().into())];
     values.extend(children);
-    Sexp::List(values)
+    Sexp::List(values.into())
 }
 
 fn resource_limit() -> Error {

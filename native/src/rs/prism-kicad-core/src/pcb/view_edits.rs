@@ -63,7 +63,7 @@ impl PcbView<'_> {
             });
         }
         let replacement = build_with_limit(
-            &Sexp::Quoted(value.to_owned()),
+            &Sexp::Quoted(value.to_owned().into()),
             self.limits.max_output_bytes,
         )?;
         let source = apply_patches_with_limit(
@@ -147,11 +147,14 @@ impl PcbView<'_> {
             return Err(limit_error());
         }
         let form = build_with_limit(
-            &Sexp::List(vec![
-                Sexp::Atom("property".to_owned()),
-                Sexp::Quoted(name.to_owned()),
-                Sexp::Quoted(value.to_owned()),
-            ]),
+            &Sexp::List(
+                vec![
+                    Sexp::Atom("property".to_owned().into()),
+                    Sexp::Quoted(name.to_owned().into()),
+                    Sexp::Quoted(value.to_owned().into()),
+                ]
+                .into(),
+            ),
             self.limits.max_output_bytes,
         )?;
         let offset = self.root.range.end.saturating_sub(1);

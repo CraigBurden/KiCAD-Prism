@@ -4,7 +4,7 @@
 //! Objects are built as the bundle's generated structs, never as
 //! `serde_json::Value`, so the parse stage serializes one typed document.
 
-use super::digest::{self, DigestIndex, is_canonical_uuid};
+use super::digest::{DigestIndex, is_canonical_uuid};
 use super::tree::Node;
 use crate::ProducerWarning;
 use prism_kicad_contracts::generated::prism_board_objects_a0 as bo;
@@ -21,17 +21,25 @@ pub(crate) struct Document {
 }
 
 impl Document {
+    /// A document over an empty digest index; [`Document::index_form`] fills it
+    /// as the document's top-level items are read.
     #[must_use]
-    pub(crate) fn new(path: &str, root: &Node<'_>, board: bool) -> Self {
+    pub(crate) fn new(path: &str, index: DigestIndex) -> Self {
         Self {
             path: path.to_owned(),
-            index: digest::index(root, board),
+            index,
             objects: Vec::new(),
             warnings: Vec::new(),
             duplicates: 0,
             invalid: 0,
             invalid_paths: 0,
         }
+    }
+
+    /// Index one top-level item's forms (`contentDigest`) before its objects
+    /// are built.
+    pub(crate) fn index_form(&mut self, item: &Node<'_>) {
+        self.index.add(item);
     }
 
     /// The `contentDigest` of the object with `uuid`.
@@ -141,7 +149,7 @@ mod tests {
         let text = "(kicad_sch (symbol (lib_id \"a\") (uuid \"aaaa-0201\")))";
         let parsed = root(text);
         let node = parsed.child("symbol").unwrap();
-        let mut document = Document::new("board.kicad_sch", &parsed, false);
+        let mut document = Document::new("board.kicad_sch", DigestIndex::default());
         document.add(
             node,
             "aaaa-0201",
@@ -161,7 +169,7 @@ mod tests {
             "(kicad_sch (symbol (lib_id \"first\") (uuid \"{uuid}\")) (symbol (lib_id \"second\") (uuid \"{uuid}\")))"
         );
         let parsed = root(&text);
-        let mut document = Document::new("board.kicad_sch", &parsed, false);
+        let mut document = Document::new("board.kicad_sch", DigestIndex::default());
         for symbol in parsed.children("symbol") {
             document.add(symbol, uuid, bo::BoardObjectsObject::Group(tag("group")));
         }

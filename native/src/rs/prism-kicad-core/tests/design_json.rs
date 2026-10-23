@@ -5,6 +5,7 @@ use prism_kicad_core::{
     KiCadDesignJsonLimits, KiCadDesignJsonPaths, KiCadNetlistLimits, ProjectLimits,
     SchematicBundleIndex, SchematicBundleLimits, SourceBundle, SourceBundleLimits,
     build_kicad_design_facts, build_kicad_design_facts_profiled, build_kicad_design_json,
+    build_kicad_design_json_bytes, build_kicad_design_json_bytes_with_limits,
     build_kicad_design_json_profiled, build_kicad_design_json_with_limits,
 };
 
@@ -77,6 +78,72 @@ fn profiled_facts_and_design_json_preserve_public_results() {
             .saturating_add(profile.output_limit_serialization_ns)
             > 0
     );
+}
+
+#[test]
+fn streamed_bytes_and_semantic_sections_match_the_value_document() {
+    let (bundle, index) = design_input("Streamed");
+    let facts = build_kicad_design_facts(
+        &index,
+        &bundle,
+        ProjectLimits::default(),
+        Default::default(),
+        KiCadNetlistLimits::default(),
+    )
+    .expect("design facts");
+    let paths = KiCadDesignJsonPaths::default();
+    let value = build_kicad_design_json(&index, &facts, &paths, None, true).expect("design JSON");
+    let streamed = build_kicad_design_json_bytes(&index, &facts, &paths, None, true)
+        .expect("streamed design JSON");
+    assert_eq!(
+        streamed.bytes,
+        serde_json::to_vec(&value).expect("serialized")
+    );
+    assert_eq!(streamed.semantic["components"], value["components"]);
+    assert_eq!(streamed.semantic["nets"], value["nets"]);
+}
+
+#[test]
+fn streamed_builder_enforces_the_exact_output_limit() {
+    let (bundle, index) = design_input("Limited");
+    let facts = build_kicad_design_facts(
+        &index,
+        &bundle,
+        ProjectLimits::default(),
+        Default::default(),
+        KiCadNetlistLimits::default(),
+    )
+    .expect("design facts");
+    let paths = KiCadDesignJsonPaths::default();
+    let baseline =
+        build_kicad_design_json(&index, &facts, &paths, None, true).expect("baseline design JSON");
+    let output_bytes = serde_json::to_vec(&baseline).expect("serialized").len();
+
+    build_kicad_design_json_bytes_with_limits(
+        &index,
+        &facts,
+        &paths,
+        None,
+        true,
+        KiCadDesignJsonLimits {
+            max_output_bytes: output_bytes,
+            ..KiCadDesignJsonLimits::default()
+        },
+    )
+    .expect("exact limit");
+    let error = build_kicad_design_json_bytes_with_limits(
+        &index,
+        &facts,
+        &paths,
+        None,
+        true,
+        KiCadDesignJsonLimits {
+            max_output_bytes: output_bytes - 1,
+            ..KiCadDesignJsonLimits::default()
+        },
+    )
+    .expect_err("one byte over");
+    assert!(error.to_string().contains("output exceeds"));
 }
 
 #[test]

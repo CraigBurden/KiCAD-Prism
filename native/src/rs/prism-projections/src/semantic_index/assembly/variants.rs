@@ -403,7 +403,7 @@ fn list(sexp: &Sexp) -> &[Sexp] {
 
 fn head(sexp: &Sexp) -> Option<&str> {
     match list(sexp).first() {
-        Some(Sexp::Atom(atom)) => Some(atom.as_str()),
+        Some(Sexp::Atom(atom)) => Some(atom.as_ref()),
         _ => None,
     }
 }
@@ -433,7 +433,7 @@ fn children<'a>(sexp: &'a Sexp, name: &str) -> Vec<&'a Sexp> {
 /// The decoded string value of a scalar token.
 fn scalar(sexp: &Sexp) -> String {
     match sexp {
-        Sexp::Quoted(value) | Sexp::Atom(value) => value.clone(),
+        Sexp::Quoted(value) | Sexp::Atom(value) => value.to_string(),
         Sexp::Integer(value) => value.to_string(),
         Sexp::Float(value) => value.to_string(),
         Sexp::List(_) => String::new(),

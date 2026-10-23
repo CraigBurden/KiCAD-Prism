@@ -10,10 +10,10 @@ use prism_kicad_contracts::generated::source_bundle_manifest::{
     SourceBundleManifestA0, SourceBundleSource, SourceKind,
 };
 use prism_kicad_core::{
-    KiCadDesignFacts, KiCadDesignJsonPaths, KiCadDesignPcb, KiCadDesignSourcePath,
-    KiCadNetlistLimits, PcbView, ProjectLimits, SchematicBundleIndex, SchematicBundleLimits,
-    SourceBundle, SourceBundleLimits, build_kicad_design_facts, build_kicad_design_json,
-    build_kicad_design_semantic_inputs,
+    KiCadDesignFacts, KiCadDesignJsonBytes, KiCadDesignJsonPaths, KiCadDesignPcb,
+    KiCadDesignSourcePath, KiCadNetlistLimits, PcbView, ProjectLimits, SchematicBundleIndex,
+    SchematicBundleLimits, SourceBundle, SourceBundleLimits, build_kicad_design_facts,
+    build_kicad_design_json_bytes, build_kicad_design_semantic_inputs,
 };
 use serde_json::Value;
 
@@ -108,20 +108,24 @@ fn paths(project: &Text, sheets: &[Text]) -> KiCadDesignJsonPaths {
     }
 }
 
-/// `design.json` of the project, with the board's placement facts.
+/// `design.json` of the project, with the board's placement facts: the
+/// member's bytes, and the `components` and `nets` the semantic index reads.
 pub fn design_json(
     index: &SchematicBundleIndex,
     facts: &KiCadDesignFacts<'_>,
     project: &Text,
     sheets: &[Text],
     board: Option<(&str, &PcbView<'_>)>,
-) -> Result<Value, String> {
+) -> Result<KiCadDesignJsonBytes, String> {
     let pcb = board.map(|(path, view)| KiCadDesignPcb {
         source_filename: path,
         view,
     });
-    build_kicad_design_json(index, facts, &paths(project, sheets), pcb, true)
-        .map_err(|error| error.to_string())
+    let mut built = build_kicad_design_json_bytes(index, facts, &paths(project, sheets), pcb, true)
+        .map_err(|error| error.to_string())?;
+    // The member is compact JSON plus one LF (conventions.md §13).
+    built.bytes.push(b'\n');
+    Ok(built)
 }
 
 /// The `components` and `nets` the semantic index reads, for a run that does

@@ -165,15 +165,15 @@ impl Default for Limits {
     }
 }
 
-/// Owned compatibility tree produced on demand.
+/// Owned compatibility tree produced on demand (24-byte node: boxed-slice children, boxed `str` token).
 #[derive(Clone, Debug)]
 pub enum Sexp {
     /// Parenthesized child sequence.
-    List(Vec<Self>),
+    List(Box<[Self]>),
     /// Unquoted atom.
-    Atom(String),
+    Atom(Box<str>),
     /// Quoted string after KiCad escape decoding.
-    Quoted(String),
+    Quoted(Box<str>),
     /// Base-10 integer.
     Integer(i64),
     /// Decimal or exponent-form floating-point value.
@@ -199,7 +199,7 @@ impl PartialEq for Sexp {
 
 impl Sexp {
     pub(crate) fn is_atom(&self, expected: &str) -> bool {
-        matches!(self, Self::Atom(value) if value == expected)
+        matches!(self, Self::Atom(value) if value.as_ref() == expected)
     }
 }
 
@@ -400,21 +400,21 @@ impl<'a> Parser<'a> {
 
         if self.peek_kind()? == Some(TokenKind::Right) {
             self.take_token()?;
-            return Ok(Sexp::List(Vec::new()));
+            return Ok(Sexp::List(Box::default()));
         }
 
         let first = self.parse_item(depth)?;
         let mut values = vec![first];
         if values[0].is_atom("teardrops") {
             self.parse_teardrops_body(&mut values, depth, open.position)?;
-            return Ok(Sexp::List(values));
+            return Ok(Sexp::List(values.into()));
         }
 
         loop {
             match self.peek_kind()? {
                 Some(TokenKind::Right) => {
                     self.take_token()?;
-                    return Ok(Sexp::List(values));
+                    return Ok(Sexp::List(values.into()));
                 }
                 Some(_) => values.push(self.parse_item(depth)?),
                 None => {
@@ -551,12 +551,12 @@ impl<'a> Parser<'a> {
     ) -> Result<Sexp, Error> {
         self.account_node(key_token.position)?;
         let key = key_token.lexeme.to_owned();
-        let mut field = vec![Sexp::Atom(key.clone())];
+        let mut field = vec![Sexp::Atom(key.clone().into())];
         if is_teardrop_bool_key(&key) {
             if parenthesized {
                 if self.peek_kind()? == Some(TokenKind::Right) {
                     self.take_token()?;
-                    return Ok(Sexp::List(field));
+                    return Ok(Sexp::List(field.into()));
                 }
                 let Some(value_token) = self.take_token()? else {
                     return Err(Error::at(
@@ -583,7 +583,7 @@ impl<'a> Parser<'a> {
                 field.push(self.value_from_token(value_token)?);
                 self.expect(TokenKind::Right, "Expected closing parenthesis")?;
             }
-            return Ok(Sexp::List(field));
+            return Ok(Sexp::List(field.into()));
         }
 
         if self.peek_kind()?.is_none() {
@@ -596,7 +596,7 @@ impl<'a> Parser<'a> {
         }
         field.push(self.parse_item(depth)?);
         self.expect(TokenKind::Right, "Expected closing parenthesis")?;
-        Ok(Sexp::List(field))
+        Ok(Sexp::List(field.into()))
     }
 
     fn parse_list_tail(
@@ -609,7 +609,7 @@ impl<'a> Parser<'a> {
             match self.peek_kind()? {
                 Some(TokenKind::Right) => {
                     self.take_token()?;
-                    return Ok(Sexp::List(values));
+                    return Ok(Sexp::List(values.into()));
                 }
                 Some(_) => values.push(self.parse_item(depth)?),
                 None => {
@@ -627,7 +627,7 @@ impl<'a> Parser<'a> {
     fn value_from_token(&mut self, token: Token<'a>) -> Result<Sexp, Error> {
         self.account_node(token.position)?;
         match token.kind {
-            TokenKind::Atom => Ok(Sexp::Atom(token.lexeme.to_owned())),
+            TokenKind::Atom => Ok(Sexp::Atom(token.lexeme.into())),
             TokenKind::QuotedString => {
                 let decoded =
                     decode_quoted_with_limit(token.lexeme, self.limits.max_decoded_string_bytes)
@@ -639,7 +639,7 @@ impl<'a> Parser<'a> {
                                 token.position,
                             )
                         })?;
-                Ok(Sexp::Quoted(decoded))
+                Ok(Sexp::Quoted(decoded.into()))
             }
             TokenKind::Integer => token.lexeme.parse::<i64>().map(Sexp::Integer).map_err(|_| {
                 Error::at(
