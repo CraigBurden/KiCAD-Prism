@@ -10,9 +10,10 @@
 //! inside them are cutouts. Loops below [`MIN_LOOP_AREA_NM2`] are dropped.
 
 use super::geometry::{circumcircle, nm, rotate_mm};
+use crate::Error;
 use crate::pcb::{
     PcbFootprint, PcbGraphic, PcbGraphicKind, PcbPoint, PcbPolygonPoint, PcbProfileOwner,
-    PcbProfilePrimitive,
+    PcbProfilePrimitive, PcbView,
 };
 use prism_kicad_contracts::generated::materialization_document::{
     ArcSegment, Contour, CubicSegment, LineSegment, Nm, NmPoint, PathSegment, PlanarRegion2d,
@@ -450,6 +451,27 @@ fn contains(polygon: &[(f64, f64)], (x, y): (f64, f64)) -> bool {
         }
     }
     inside
+}
+
+/// The board profile as KiCad closes it, for readers outside materialization
+/// (the artwork views): every board and footprint `Edge.Cuts` carrier,
+/// chained within [`CHAIN_TOLERANCE_NM`], nested into regions and cutouts.
+pub struct BoardProfile {
+    pub regions: Vec<PlanarRegion2d>,
+    /// Open edges left after chaining; KiCad reports such a board as malformed.
+    pub unclosed_edges: usize,
+}
+
+/// Close one parsed board's profile.
+pub fn board_profile(view: &PcbView<'_>) -> Result<BoardProfile, Error> {
+    let primitives: Vec<PcbProfilePrimitive> =
+        view.profile_primitives().collect::<Result<_, _>>()?;
+    let footprints: Vec<PcbFootprint> = view.footprints().collect::<Result<_, _>>()?;
+    let profile = close_profile(&primitives, &footprints);
+    Ok(BoardProfile {
+        regions: profile.regions,
+        unclosed_edges: profile.unclosed_edges,
+    })
 }
 
 /// Result of profile closure.

@@ -1,18 +1,19 @@
 //! Board geometry for the artwork views: the closed `Edge.Cuts` profile, the
 //! board-level canvas extent, the drills and slots, and footprint envelopes.
 //!
-//! The region assembly follows the harvested Cruncher Rust work
-//! (`kicad-cruncher-cli/src/pcb_svg/virtual_layers.rs`, `board_regions` and
-//! `assemble_regions`): segments and arcs are chained by endpoint, the
-//! largest closed ring is the board outline and the others inside it are
-//! cutouts. Coordinates here are millimetres; the contract stores nanometres
+//! The profile comes from `prism_kicad_core::board_materialization::board_profile`,
+//! which closes `Edge.Cuts` the way KiCad does (board and footprint carriers,
+//! KiCad's chaining epsilon); the largest region is the board outline and
+//! its holes are the cutouts. Coordinates here are millimetres; the contract stores nanometres
 //! and every call site converts once.
 
 use std::collections::BTreeMap;
 
+use prism_kicad_contracts::generated::materialization_document::{Contour, NmPoint, PathSegment};
 use prism_kicad_contracts::generated::prism_assembly_hlr_a0::{
     AssemblyHlrArc, AssemblyHlrEdges, AssemblyHlrSegment,
 };
+use prism_kicad_core::board_materialization::board_profile;
 use prism_kicad_core::{
     Error, PcbFootprint, PcbGraphic, PcbGraphicKind, PcbHole, PcbHoleOwner, PcbPad, PcbPoint,
     PcbPolygonPoint, PcbProfileOwner, PcbView,
@@ -204,40 +205,28 @@ pub fn board_geometry(view: &PcbView<'_>) -> Result<BoardGeometry, Error> {
     let pads: Vec<PcbPad> = view.pads().collect::<Result<_, _>>()?;
     let holes: Vec<PcbHole> = view.holes().collect::<Result<_, _>>()?;
 
-    let mut segments = Vec::new();
-    let mut closed = Vec::new();
     let mut outline_bounds = Bounds::empty();
     for primitive in view.profile_primitives() {
         let primitive = primitive?;
         if primitive.owner != PcbProfileOwner::Board {
             continue;
         }
-        append_graphic(&primitive.graphic, &mut segments, &mut closed);
         include_graphic_bounds(&primitive.graphic, &mut outline_bounds);
     }
-    closed.extend(assemble_rings(&segments));
-    closed.retain(|ring| polygon_area(ring).abs() > 1e-6);
-    let outer_index = closed
-        .iter()
-        .enumerate()
-        .max_by(|(_, left), (_, right)| {
-            polygon_area(left)
-                .abs()
-                .total_cmp(&polygon_area(right).abs())
-        })
-        .map(|(index, _)| index);
-    let outer = outer_index.map_or_else(Vec::new, |index| closed[index].clone());
-    let cutouts = closed
-        .into_iter()
-        .enumerate()
-        .filter(|(index, ring)| {
-            Some(*index) != outer_index
-                && outer_index.is_some()
-                && polygon_area(ring).abs() < polygon_area(&outer).abs() * 0.95
-                && point_in_polygon(ring_centroid(ring), &outer)
-        })
-        .map(|(_, ring)| ring)
-        .collect();
+    // The profile is closed the way KiCad closes it (prism-kicad-core): board
+    // and footprint carriers, endpoints joined within KiCad's chaining epsilon.
+    // An exact-nanometre join here once refused EDA-04903, whose outline has
+    // two 25 nm gaps KiCad accepts.
+    let profile = board_profile(view)?;
+    let outer_region = profile.regions.iter().max_by(|left, right| {
+        polygon_area(&contour_points(&left.outer))
+            .abs()
+            .total_cmp(&polygon_area(&contour_points(&right.outer)).abs())
+    });
+    let outer = outer_region.map_or_else(Vec::new, |region| contour_points(&region.outer));
+    let cutouts = outer_region.map_or_else(Vec::new, |region| {
+        region.holes.iter().map(contour_points).collect()
+    });
 
     let transforms: Vec<FootprintTransform> =
         footprints.iter().map(FootprintTransform::of).collect();
@@ -420,103 +409,6 @@ fn graphic_points(graphic: &PcbGraphic) -> Vec<Point> {
     }
 }
 
-fn append_graphic(
-    graphic: &PcbGraphic,
-    segments: &mut Vec<Vec<Point>>,
-    closed: &mut Vec<Vec<Point>>,
-) {
-    match graphic.kind {
-        PcbGraphicKind::Line => append_line(graphic, segments),
-        PcbGraphicKind::Arc => append_arc(graphic, segments),
-        PcbGraphicKind::Curve => append_curve(graphic, segments),
-        PcbGraphicKind::Rect => append_rect(graphic, closed),
-        PcbGraphicKind::Circle => append_circle(graphic, closed),
-        PcbGraphicKind::Poly => append_poly(graphic, closed),
-        PcbGraphicKind::Text | PcbGraphicKind::TextBox => {}
-    }
-}
-
-fn append_line(graphic: &PcbGraphic, segments: &mut Vec<Vec<Point>>) {
-    if let (Some(start), Some(end)) = (graphic.start, graphic.end) {
-        segments.push(vec![Point::from(start), Point::from(end)]);
-    }
-}
-
-fn append_arc(graphic: &PcbGraphic, segments: &mut Vec<Vec<Point>>) {
-    if let (Some(start), Some(mid), Some(end)) = (graphic.start, graphic.mid, graphic.end) {
-        segments.push(sample_arc(
-            Point::from(start),
-            Point::from(mid),
-            Point::from(end),
-        ));
-    }
-}
-
-fn append_curve(graphic: &PcbGraphic, segments: &mut Vec<Vec<Point>>) {
-    if graphic.points.len() == 4 {
-        segments.push(sample_curve(
-            graphic.points.iter().copied().map(Point::from).collect(),
-        ));
-    }
-}
-
-fn append_rect(graphic: &PcbGraphic, closed: &mut Vec<Vec<Point>>) {
-    if let (Some(start), Some(end)) = (graphic.start, graphic.end) {
-        let start = Point::from(start);
-        let end = Point::from(end);
-        closed.push(vec![
-            start,
-            Point {
-                x: end.x,
-                y: start.y,
-            },
-            end,
-            Point {
-                x: start.x,
-                y: end.y,
-            },
-        ]);
-    }
-}
-
-fn append_circle(graphic: &PcbGraphic, closed: &mut Vec<Vec<Point>>) {
-    if let (Some(center), Some(end)) = (graphic.center.or(graphic.start), graphic.end) {
-        let center = Point::from(center);
-        let radius = distance(center, Point::from(end));
-        if radius > 0.0 {
-            closed.push(circle_ring(center, radius));
-        }
-    }
-}
-
-fn append_poly(graphic: &PcbGraphic, closed: &mut Vec<Vec<Point>>) {
-    let points = polygon_points(&graphic.polygon_points);
-    if points.len() >= 3 {
-        closed.push(points);
-    }
-}
-
-fn polygon_points(authored: &[PcbPolygonPoint]) -> Vec<Point> {
-    let mut result = Vec::new();
-    for point in authored {
-        match point {
-            PcbPolygonPoint::Xy(point) => result.push(Point::from(*point)),
-            PcbPolygonPoint::Arc { start, mid, end } => {
-                let arc = sample_arc(Point::from(*start), Point::from(*mid), Point::from(*end));
-                if result
-                    .last()
-                    .is_some_and(|last| point_key(*last) == point_key(arc[0]))
-                {
-                    result.extend_from_slice(&arc[1..]);
-                } else {
-                    result.extend(arc);
-                }
-            }
-        }
-    }
-    result
-}
-
 pub(crate) fn circle_ring(center: Point, radius: f64) -> Vec<Point> {
     const COUNT: usize = 64;
     (0..COUNT)
@@ -535,6 +427,72 @@ fn point_key(point: Point) -> (i64, i64) {
         (point.x * 1_000_000.0).round() as i64,
         (point.y * 1_000_000.0).round() as i64,
     )
+}
+
+/// A closed contour from the core profile as a millimetre polyline, arcs and
+/// curves sampled like the rest of the artwork.
+fn contour_points(contour: &Contour) -> Vec<Point> {
+    let mm = |point: &NmPoint| Point {
+        x: f64::from(point.0[0].0) / 1_000_000.0,
+        y: f64::from(point.0[1].0) / 1_000_000.0,
+    };
+    let mut points = vec![mm(&contour.start_nm)];
+    for segment in &contour.segments {
+        let previous = *points.last().expect("a contour starts with a point");
+        match segment {
+            PathSegment::LineSegment(line) => points.push(mm(&line.end_nm)),
+            PathSegment::ArcSegment(arc) => {
+                points.extend(sample_arc_through_mid(
+                    previous,
+                    mm(&arc.mid_nm),
+                    mm(&arc.end_nm),
+                ));
+            }
+            PathSegment::CubicSegment(cubic) => points.extend(
+                sample_curve(vec![
+                    previous,
+                    mm(&cubic.control1_nm),
+                    mm(&cubic.control2_nm),
+                    mm(&cubic.end_nm),
+                ])
+                .into_iter()
+                .skip(1),
+            ),
+        }
+    }
+    points
+}
+
+/// An arc sampled as its two halves, so the authored mid point (a circle's
+/// extreme, when the profile writes a circle as two half arcs) is a vertex;
+/// the start point is left out.
+fn sample_arc_through_mid(start: Point, mid: Point, end: Point) -> Vec<Point> {
+    let Some((center, radius)) = circle_from_three_points(start, mid, end) else {
+        return vec![mid, end];
+    };
+    let half_mid = |from: Point, to: Point| {
+        let chord = Point {
+            x: (from.x + to.x) / 2.0 - center.x,
+            y: (from.y + to.y) / 2.0 - center.y,
+        };
+        let length = chord.x.hypot(chord.y);
+        if length <= 1.0e-12 {
+            return None;
+        }
+        Some(Point {
+            x: center.x + chord.x / length * radius,
+            y: center.y + chord.y / length * radius,
+        })
+    };
+    match (half_mid(start, mid), half_mid(mid, end)) {
+        (Some(first), Some(second)) => {
+            let mut points: Vec<Point> =
+                sample_arc(start, first, mid).into_iter().skip(1).collect();
+            points.extend(sample_arc(mid, second, end).into_iter().skip(1));
+            points
+        }
+        _ => sample_arc(start, mid, end).into_iter().skip(1).collect(),
+    }
 }
 
 fn assemble_rings(segments: &[Vec<Point>]) -> Vec<Vec<Point>> {
@@ -597,30 +555,6 @@ fn polygon_area(points: &[Point]) -> f64 {
         sum += current.x * next.y - next.x * current.y;
     }
     sum / 2.0
-}
-
-fn ring_centroid(points: &[Point]) -> Point {
-    let count = points.len().max(1) as f64;
-    Point {
-        x: points.iter().map(|point| point.x).sum::<f64>() / count,
-        y: points.iter().map(|point| point.y).sum::<f64>() / count,
-    }
-}
-
-fn point_in_polygon(point: Point, polygon: &[Point]) -> bool {
-    let mut inside = false;
-    let mut previous = *polygon.last().unwrap_or(&point);
-    for current in polygon {
-        if (current.y > point.y) != (previous.y > point.y) {
-            let x = (previous.x - current.x) * (point.y - current.y) / (previous.y - current.y)
-                + current.x;
-            if point.x < x {
-                inside = !inside;
-            }
-        }
-        previous = *current;
-    }
-    inside
 }
 
 pub(crate) fn distance(left: Point, right: Point) -> f64 {
