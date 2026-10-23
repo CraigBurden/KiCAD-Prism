@@ -184,29 +184,29 @@ class CatalogueWaveCoverageTests(unittest.TestCase):
     def test_every_catalogue_step_is_in_exactly_one_wave(self) -> None:
         from app.release_studio.steps import (
             CATALOGUE_WAVE_ARTWORK,
+            CATALOGUE_WAVE_BOARD,
             CATALOGUE_WAVE_BOM,
             CATALOGUE_WAVE_CHECKS,
-            CATALOGUE_WAVE_POSITIONS,
         )
 
         wave = (
-            CATALOGUE_WAVE_CHECKS
-            + CATALOGUE_WAVE_POSITIONS
+            CATALOGUE_WAVE_BOARD
+            + CATALOGUE_WAVE_CHECKS
             + CATALOGUE_WAVE_BOM
             + CATALOGUE_WAVE_ARTWORK
         )
         self.assertEqual(len(wave), len(set(wave)))
         self.assertEqual(set(wave), {spec.step_id for spec in STEP_CATALOGUE})
 
-    def test_bom_is_alone_after_positions_and_checks(self) -> None:
+    def test_the_board_wave_is_every_jobset_step_and_bom_runs_alone(self) -> None:
         from app.release_studio.steps import (
+            CATALOGUE_WAVE_BOARD,
             CATALOGUE_WAVE_BOM,
-            CATALOGUE_WAVE_CHECKS,
-            CATALOGUE_WAVE_POSITIONS,
+            JOBSET_SETTINGS,
         )
 
-        self.assertEqual(CATALOGUE_WAVE_CHECKS, ("drc", "erc", "board_stats"))
-        self.assertEqual(CATALOGUE_WAVE_POSITIONS, ("positions",))
+        self.assertEqual(set(CATALOGUE_WAVE_BOARD), set(JOBSET_SETTINGS))
+        self.assertEqual(CATALOGUE_WAVE_BOARD[0], "drc")
         self.assertEqual(CATALOGUE_WAVE_BOM, ("bom",))
 
 
