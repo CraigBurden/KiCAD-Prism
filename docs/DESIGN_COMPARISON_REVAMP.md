@@ -1,5 +1,7 @@
 # Design Comparison: plan, revision 3
 
+> **Superseded (2026-10-23).** Design Comparison no longer runs the Node and Python pipeline this plan describes: `prism-kicad compare` computes every tab in Rust from design bundles ([ADR amendment C2r](architecture/adr-native-design-bundle-amendment-c2r.md)), and ecad-viewer only displays the result. Kept as a historical record.
+
 Status: implementation through M5 complete. Revision 3 re-architects around
 one parser instead of four.
 

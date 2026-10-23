@@ -38,9 +38,9 @@ The tabs read `prism.design_compare.result.a1`, the review document
 `prism-kicad compare` writes (`design-compare-result.ts` mirrors
 `native/src/tsp/prism/design-compare-a1.tsp`; its test ties the two). Lengths
 and positions are nanometres; convert to millimetres only for display. The
-backend's legacy path still writes `prism.semantic_comparison_v3` until the C2r
-gate; `legacy-v3-result.ts` reads it into a1 on load, and nothing else may read
-a v3 field.
+backend no longer writes `prism.semantic_comparison_v3`; `legacy-v3-result.ts`
+reads results stored before the C2r switch into a1 on load, and nothing else
+may read a v3 field.
 
 **Review shaping** — `comparison-change-kinds.ts`, `comparison-review-groups.ts`,
 `comparison-review-noise.ts`, `comparison-review-policy.ts`,

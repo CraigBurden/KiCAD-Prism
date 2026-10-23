@@ -1,5 +1,7 @@
 # JTYU-OBC three-backend PCB benchmark
 
+> **Superseded (2026-10-23).** This plan describes the Python `kicad_monkey` pipeline that the native design bundle replaced ([ADR](../architecture/adr-native-design-bundle.md)). Kept as a historical record; the paths, settings and jobs it names may no longer exist.
+
 Date: 2026-09-21
 
 This report records the first JTYU-OBC benchmark of all three Prism PCB

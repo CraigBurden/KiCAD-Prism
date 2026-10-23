@@ -26,7 +26,7 @@ Project views include:
 
 - schematic and PCB viewers, with component and net search in the Visualizer header;
 - cross-probing between compatible schematic, PCB, and BOM identities;
-- WebGPU 3D board views;
+- 3D board views drawn from the board's own geometry, with cross-probing;
 - engineering BOM, stackup, assembly, and Interactive HTML BOM outputs when
   available;
 - commit history, release tags, and semantic design comparison;
@@ -34,6 +34,11 @@ Project views include:
 - design variants with effective BOM and DNP visibility;
 - pad/net labels, multiple highlighted nets, and per-net routing statistics;
 - generated design, manufacturing, and render assets.
+
+Every view reads the revision's design data: Prism reads each revision once, in
+a background job, with its own Rust KiCad parser (`prism-kicad`), and prepares
+the newest commits of each branch and every tag ahead of time. See
+[design data](PROJECT_WORKFLOWS.md#design-data).
 
 Prism is a review surface, not an in-browser ECAD editor. Design changes continue
 to be made in KiCad and committed to Git.
@@ -59,6 +64,12 @@ assets are exposed to desktop placement.
 documentation, and vendor packs from a committed revision, records evidence
 and dual sign-off, and publishes approved dossiers to GitHub or GitLab.
 
+### Simulation Studio (experimental)
+
+[Simulation Studio](SIMULATION_STUDIO.md) sets up and runs DC IR-drop
+simulations on a revision's board and draws the results on it. It is off by
+default.
+
 ### Authentication and integration
 
 Prism supports OIDC single sign-on, optional local password login, server-side sessions, workspace roles,
@@ -74,6 +85,7 @@ Prism deliberately uses more than one persistence system:
 | KiCad projects and revision history | Imported Git repositories |
 | Workspace, access, sessions, comments, catalog, jobs | PostgreSQL |
 | Generated artifacts and catalog files | Persistent project storage |
+| Design bundles (each revision's parsed design data) | Persistent project storage; a cache rebuilt from Git |
 | Git SSH identity and known hosts | Persistent SSH storage |
 
 Do not describe the whole platform as storing everything in Git. Git is

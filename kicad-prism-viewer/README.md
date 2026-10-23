@@ -8,7 +8,9 @@ board from its design bundle's analytic model (ADR amendment V2): the
 With `mode="system"` it draws every board of a system scene at once, each from
 its own analytic bundle, placed by the host's `prism.system_scene.a0`
 descriptor, with board labels, per-board layers and stackup separation, net
-emphasis across boards, an assembly explode and a move gizmo.
+emphasis across boards, an assembly explode and a move gizmo. No Prism page uses
+`mode="system"` since System Builder was removed (2026-10-23); it stays for its
+re-scope on `feature/system-builder-v3`.
 
 The mesh pipeline that came before it (the Python topology compiler, its
 semantic glTF tiles and the standalone viewer page) was removed at System

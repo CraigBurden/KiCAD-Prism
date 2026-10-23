@@ -1,5 +1,7 @@
 # M2: object delta in Node, shadow agreement
 
+> **Superseded (2026-10-23).** This milestone record describes the Node `ecad-parse`/`ecad-diff` and Python comparison pipeline. Design Comparison is now computed by `prism-kicad compare` ([ADR amendment C2r](../architecture/adr-native-design-bundle-amendment-c2r.md)), and the services named here were removed. Kept as a historical record.
+
 M2 of [the revamp plan](../DESIGN_COMPARISON_REVAMP.md), against the
 [M0 baseline](m0-baseline.md) and [M1 parser measurement](m1-node-parse.md).
 Nothing in the shipping comparison depends on this delta yet. The milestone

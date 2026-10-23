@@ -1,8 +1,8 @@
 # Dependency identity
 
-Prism deliberately has one Python runtime identity and two independently
-locked JavaScript workspaces. Hosts, CI, and Docker must not resolve different
-versions from the same source declarations.
+Prism deliberately has one Python runtime identity, two independently locked
+JavaScript workspaces and one locked Rust workspace (`native/`). Hosts, CI, and
+Docker must not resolve different versions from the same source declarations.
 
 ## Runtime versions
 
@@ -45,6 +45,32 @@ Release Studio's PDF conversion also needs the native Cairo library. On macOS,
 install it with Homebrew. Prism locates the normal Apple Silicon and Intel
 Homebrew paths for uv's portable Python; set `PRISM_CAIRO_LIBRARY_DIR` only for
 a nonstandard installation.
+
+## Native (Rust) ownership
+
+`native/` is Prism's KiCad parser and design-bundle CLI, `prism-kicad`
+([ADR](architecture/adr-native-design-bundle.md)).
+
+- `native/rust-toolchain.toml` pins the Rust toolchain (1.98.0); the image's
+  `prism-kicad-builder` stage uses the same version (`NATIVE_RUST_VERSION`).
+- `native/Cargo.lock` is the complete crate graph. The image build fails if it
+  would build any crate version that is not already locked, and CI runs
+  `cargo deny check licenses sources` (`native/deny.toml`).
+- `native/third_party/` vendors `geometer-client`, so building the workspace
+  clones nothing.
+
+Binary tools the worker image installs beside `prism-kicad`, each pinned by
+version and sha256 in `backend/Dockerfile`:
+
+- the Geometer runtime (`GEOMETER_RELEASE_TAG`, ABI `20260919`), which the
+  bundle's `models` stage runs for the parts' hidden-line views;
+- Simulation Studio's engines, from the `prism-sim-studio` release pinned in
+  `backend/sim-engines.lock.json`. That release is private: the build reads a
+  token from the BuildKit secret `prism_sim_release_token`, and without one it
+  leaves the engines out (Simulation Studio is opt-in).
+
+Python `kicad-monkey` remains only for the catalog's library files
+(`.kicad_sym`, `.kicad_mod`); project revisions are read by `prism-kicad`.
 
 ## JavaScript ownership
 

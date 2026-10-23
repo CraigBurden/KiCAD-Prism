@@ -1,5 +1,7 @@
 # M7 performance follow-up
 
+> **Superseded (2026-10-23).** This milestone record describes the Node `ecad-parse`/`ecad-diff` and Python comparison pipeline. Design Comparison is now computed by `prism-kicad compare` ([ADR amendment C2r](../architecture/adr-native-design-bundle-amendment-c2r.md)), and the services named here were removed. Kept as a historical record.
+
 This follow-up benchmarks the completed Design Comparison revamp in its
 production worker image, checks the dependency actually used by each Docker
 configuration, replays the Cynthion failure case from

@@ -87,6 +87,30 @@ A commit-file endpoint is confined to the project's own subtree so one subprojec
 Branch and commit query parameters can pin the design source being viewed.
 Share commit-pinned links when a review must refer to an immutable revision.
 
+## Design data
+
+Prism reads each revision of a project once, in the background, and keeps the
+result as that revision's design data (a design bundle, built by the
+`prism-kicad` worker job). The project card, the viewers, the 3D tab, BOM,
+variants, Design Comparison, catalog imports and Release Studio all read it.
+
+- **Prepared ahead.** After an import or a sync, Prism prepares the newest
+  commits of each branch and every tagged commit before anyone opens them. A
+  commit that leaves the design files unchanged reuses the previous design
+  data instead of being read again.
+- **Preparing design data…** A screen that opens a revision without design
+  data shows this while the data is built, then fills in. A large board takes
+  a few minutes the first time, most of it KiCad's zone refill; later opens are
+  immediate. The 3D tab follows the same three stages, and the board can appear
+  before its parts do.
+- **Design data could not be built.** The screen shows KiCad's or Prism's error
+  with **Retry**. Without a retry, the first open after an hour tries again. A
+  file KiCad cannot read stays failed until it is fixed in Git or retried.
+- **Project Settings → Design data** shows how many revisions are ready,
+  building, queued or failed, and how much storage they use. Maintainers can
+  **Rebuild for HEAD**, or **Rebuild all** to drop and rebuild every revision
+  of the project.
+
 ## Cross-probe
 
 When semantic identities are available, selecting a schematic symbol, PCB
@@ -244,15 +268,19 @@ From History, select two revisions and open Design Comparison. Prism prepares
 schematic, PCB, BOM, and other supported domain changes in a queued job.
 
 Comparison provides side-by-side and synchronized presentation, change groups,
-cross-probe where supported, and commit-pinned discussions. Large boards can
-take time to prepare; repeated comparisons may reuse generated caches.
+cross-probe where supported, and commit-pinned discussions. When both
+revisions already have [design data](#design-data), the comparison itself takes
+a few seconds; fabrication (Gerber) comparison runs KiCad and takes longer. A
+revision without design data is read from its source files, which takes longer
+on a large board.
 
-The default `Auto` presentation follows the selected change: Composite for
-simple schematic additions/removals, Side-by-side for connectivity, geometry,
-and fabrication changes, and Old/New for clean content or constraint review.
-A manual presentation choice applies to the selected change. Selecting another
-change hands the decision back to `Auto`; an explicit URL choice can still seed
-the presentation for the change it names. See the
+The toolbar offers **Composite**, **Side by side** and **Old / New**. Selecting
+a change applies the recommended presentation: Composite for simple schematic
+additions and removals, Side by side for connectivity, geometry and fabrication
+changes, and Old / New for content or constraint review. Choosing another mode
+overrides it for the selected change; selecting another change applies that
+change's recommendation again. An explicit URL choice can still seed the
+presentation for the change it names. See the
 [reviewer presentation policy](design-comparison/reviewer-presentation-policy.md)
 for the complete schematic and PCB map.
 

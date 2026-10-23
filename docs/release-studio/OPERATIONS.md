@@ -8,12 +8,12 @@ Release execution is pinned to the KiCad executor image declared in
 same value through `PRISM_RELEASE_EXECUTOR_IMAGE`. The live contract requires
 a lowercase SHA-256 image digest and KiCad `10.0.4`.
 
-The image, CI, and host tools all install `requirements/runtime.lock`. The lock
-contains the coordinated published `kicad-monkey` and `kicad-cruncher` pair;
+The image, CI, and host tools all install `requirements/runtime.lock`;
 `scripts/verify_dependency_identity.py` rejects a runtime whose Python or
-toolchain versions differ. The optional local image replaces both packages
-from one modern upstream monorepo checkout and never overlays a lone local
-Monkey on an unrelated published Cruncher.
+toolchain versions differ. Release Studio no longer uses `kicad-cruncher` or
+Python `kicad_monkey`: its board data, assembly artwork, vendor files and sheet
+text come from the design bundle and `prism-kicad` (ADR amendment C3). The
+worker image builds `prism-kicad` from `native/` at the pinned Rust toolchain.
 
 The live release suite runs `kicad-cli` with argument vectors, not shell
 interpolation. The required quality gate on the core merge paths builds the

@@ -88,11 +88,18 @@ artifact locations and surfaced through the Assets portal.
 Each job kind is declared once, next to its handler
 (`backend/app/services/job_kinds.py`): the worker pool (`prism` or `catalog`),
 the resource slots it holds, the shape of its lock, its attempts and priority.
-CPU-heavy kinds take separate slots (`import`, `design_compare`, `webgpu`,
-`workflow`, `semantic_compile`, `catalog_kicad`) with their own concurrency
-settings, so imports, design comparison, WebGPU generation, and jobsets do not
-consume unbounded resources. Tracker jobs take a dedicated `tracker_sync` slot
-at a low priority.
+CPU-heavy kinds take separate slots (`import`, `design_compare`,
+`design_bundle`, `workflow`, `semantic_compile`, `sim`, `catalog_kicad`) with
+their own concurrency settings, so imports, design comparison, bundle builds,
+simulations and jobsets do not consume unbounded resources. Tracker jobs take a
+dedicated `tracker_sync` slot at a low priority.
+
+Memory-heavy kinds also reserve units of the shared `memory` slot, one unit per
+256 MiB of their measured peak: a design bundle build 2.25 GiB, a design
+comparison 3 GiB, a Release Studio build 3.25 GiB, a jobset 1.25 GiB and a
+simulation 1 GiB. The slot's capacity is `PRISM_WORKER_MEMORY_BUDGET_MIB`, so
+jobs that would together exceed the worker's memory wait instead of being
+killed (`backend/app/core/worker_memory.py`).
 
 Some features keep their own rows next to the job (a Release Studio build
 attempt). Their kind declares an end hook: success settles the row inside the
@@ -106,8 +113,7 @@ settled by the hook.
 
 `/api/jobs/{id}` (status, events, artifact, cancel) is authorised by the job's
 subject, never by who queued it, because enqueue deduplicates a second request
-onto the first job: project jobs follow the project, System jobs the System,
-import and analyze jobs anyone who may import, catalog jobs the catalog roles;
+onto the first job: project jobs follow the project, import and analyze jobs anyone who may import, catalog jobs the catalog roles;
 only a job with none of these is its requester's or an admin's.
 
 ## Project ingestion
@@ -121,12 +127,19 @@ push from their normal development clones.
 
 ## Viewer architecture
 
-Schematic and PCB content is rendered through the bundled ECAD viewer. Prism
-adds semantic selection identity, cross-probe state, comment overlays, and
-comparison presentation. 3D output uses generated WebGPU-friendly assets.
+Schematic and PCB content is rendered through the bundled ECAD viewer, from the
+source files in the revision's design bundle. Prism adds semantic selection
+identity, cross-probe state, comment overlays, and comparison presentation.
 
-Generated viewer artifacts are caches and can be rebuilt, but rebuilding may be
-expensive. Include them in routine backups when recovery time matters.
+The 3D tab draws the board analytically: the browser lowers the bundle's
+`materialization/board.kmpack` with Prism's own WASM build of the parser
+(`native/src/rs/prism-kicad-wasm`) in a worker, and loads the parts from the
+bundle's `viewer/models/components.glb`, which `kicad-cli` exports in the
+bundle's `models` stage (`backend/app/services/viewer_3d_bundle.py`).
+
+Design bundles are caches and can be rebuilt from Git, but a cold build of a
+large board takes minutes. Include `.kicad-prism/bundles` in backups only when
+recovery time matters more than storage.
 
 ## Trust boundaries
 

@@ -83,9 +83,11 @@ A divergence is accepted only when `divergences/<member>.md` names the case, say
 - `patches`: exact RFC 6902 edits of the golden for one case;
 - `ignore`: JSON-pointer patterns removed on both sides, where `*` matches any key or index. Prefer patches: an ignore also hides regressions.
 
-A producer WP that finds a new divergence adds the prose and the entry in its own two files and never edits a golden. If today's code itself changes, the goldens are recaptured (below) and the change is reviewed like any other.
+A producer WP that finds a new divergence adds the prose and the entry in its own two files and never edits a golden. If a member's intended output changes, its golden is updated in the same pull request and reviewed like any other change; recapture from Python is no longer possible (below).
 
 ## Capturing goldens
+
+> **Frozen since Wave 4 (2026-10-22).** The committed goldens were captured from the Python producers that WP-R1, R2 and R4 then removed, so the capture modules below import code (`app.services.systems`, `semantic_index_variants`, `design_compare_nodes`, `kicad_cruncher`) that no longer exists on this branch. They can only be rerun from a checkout of the baseline commit recorded in each case's `capture.json`. The goldens are now the reference; a deliberate change to a member's output updates its golden and is reviewed like any other change. This section records how they were made.
 
 Capture runs in the backend environment, from `backend/`:
 

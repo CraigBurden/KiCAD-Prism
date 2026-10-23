@@ -56,6 +56,7 @@ password auth), or if required secret or database settings are incomplete.
 | `UVICORN_WORKERS` | API worker processes |
 | `PRISM_AUTO_SYNC_INTERVAL_SECONDS` | background remote fetch interval; 300 seconds by default, 0 disables it |
 | `PRISM_WORKER_CONCURRENCY` | general queued-job concurrency |
+| `PRISM_WORKER_MEMORY_BUDGET_MIB` | memory the prism worker admits heavy jobs against, in MiB. Bundle builds, design comparisons, Release Studio builds, jobsets and simulations reserve their measured peak in 256 MiB units, and a job that would exceed the budget waits. Default: half the container's (or machine's) memory, clamped to 4–8 GiB. It must fit the heaviest kind (Release Studio, 3.25 GiB), or the worker refuses to start |
 | `CATALOG_WORKER_CONCURRENCY` | catalog queued-job concurrency |
 | `PRISM_*_CONCURRENCY` | fenced slots for heavy job classes |
 | `PRISM_JOB_*` | leases, heartbeat, cancellation, and artifact retention |
@@ -72,6 +73,7 @@ Database capacity must cover all API and worker pools, not only one process.
 | `IMPORT_ALLOWED_HOSTS_STR` | comma-separated Git host allowlist |
 | `IMPORT_ALLOW_INSECURE_HTTP` | permits plaintext HTTP remotes when explicitly required |
 | `GIT_SCAN_KNOWN_HOSTS_ON_STARTUP` | optional host-key discovery during startup |
+| `PRISM_GIT_FETCH_TIMEOUT_SECONDS` | hard timeout for one project fetch (default 300) |
 
 Prism rejects `file://`, local paths, embedded URL credentials, and Git remote
 helper transports regardless of allowlist settings.
@@ -125,7 +127,7 @@ source-build and release targets are Linux AMD64.
 
 Prism finds its KiCad tools the same way for every job (release builds,
 jobsets, catalog previews, board statistics, thumbnails, fabrication
-comparison, system STEP export). The image already has them on `PATH`; set
+comparison, design bundle stages). The image already has them on `PATH`; set
 these only for a host run or a pinned install:
 
 ```env
@@ -165,12 +167,15 @@ constrained host. Unless noted, an empty value means the default.
 ### Design bundles
 
 A design bundle is one parse of a project revision by `prism-kicad`, stored as
-`KICAD_PROJECTS_ROOT/.kicad-prism/bundles/<project>/<revision key>/<generator>.prism`
+`KICAD_PROJECTS_ROOT/.kicad-prism/bundles/<project>/<revision key>/<generator digest>.prism`
 ([ADR](architecture/adr-native-design-bundle.md)). The `design_bundle` job
 builds it in stages (parse, board, models) on the general worker. Every
-consumer — Release Studio, the semantic index, project metadata, catalog
-import and design comparison — reads the bundle unconditionally (ADR §9.7 R1,
-amendment C3 F4c).
+consumer — Release Studio, the semantic index, variants, project metadata and
+viewer sources, catalog import, the 3D tab, design comparison and Simulation
+Studio — reads the bundle unconditionally (ADR §9.7 R1, amendment C3 F4c). A
+consumer that finds no ready bundle queues one and answers *pending* (HTTP 202
+with `Retry-After`); a failed build answers *failed* (HTTP 422) until it is
+retried.
 
 | Setting | Purpose |
 | --- | --- |
@@ -185,9 +190,14 @@ amendment C3 F4c).
 | `PRISM_DESIGN_BUNDLE_BACKFILL_INTERVAL_SECONDS` | seconds between prebuild ticks; each aliases what it can and queues at most one build; 0 disables (default 60) |
 | `PRISM_DESIGN_BUNDLE_PREBUILD_COMMITS` | how many of each branch's newest commits (first parent) the background prebuild keeps bundles for, besides every tagged commit; 0 prebuilds branch heads and tags only (default 10) |
 | `PRISM_DESIGN_BUNDLE_REUSE_CANDIDATES` | how many stored bundles a new revision is checked against with `prism-kicad bundle reuse` before it is built; 0 disables reuse (default 3) |
+| `PRISM_DESIGN_BUNDLE_CACHE_GRACE_SECONDS` | how long an unpacked-cache version must be untouched before retention may remove it, so a slow reader keeps its files (default 3600) |
+| `PRISM_DESIGN_BUNDLE_CACHE_IDLE_DAYS` | drop an archive's unpacked caches after this many days without a read, while the archive stays; 0 keeps them as long as the archive (default 7) |
+| `PRISM_DESIGN_BUNDLE_CACHE_MAX_BYTES`, `PRISM_DESIGN_BUNDLE_CACHE_PROJECT_MAX_BYTES` | unpacked-cache caps for the whole store and per project; least recently used versions go first; 0 disables a cap (defaults 4 GiB and 1 GiB). Archives are never evicted by these caps |
 | `PRISM_DESIGN_BUNDLE_GLB_TIMEOUT_SECONDS`, `PRISM_DESIGN_BUNDLE_UPGRADE_TIMEOUT_SECONDS` | the component GLB export and each source upgrade (defaults 600 and 900 s) |
+| `PRISM_DESIGN_BUNDLE_UPGRADE_WORKERS` | KiCad upgrades of one older source set run at once, each file in its own scratch directory (default 8) |
 | `PRISM_KICAD_PYTHON`, `PRISM_ZONE_REFILL_TIMEOUT_SECONDS` | KiCad's Python (imports `pcbnew`) for the zone refill and board upgrades, and the refill's timeout (default 900 s) |
 | `PRISM_DESIGN_BUNDLE_CLI_PATH`, `PRISM_DESIGN_BUNDLE_ROOT`, `PRISM_DESIGN_BUNDLE_SCHEMA_DIR` | host overrides for the binary (default `prism-kicad` on PATH), the store and the committed JSON Schema |
+| `GEOMETER_EXECUTABLE`, `PRISM_ARTWORK_CONFIG_DIR` | the pinned Geometer runtime the `models` stage runs for the parts' hidden-line views (the image sets it; empty leaves that member out), and the `prism-kicad artwork` configurations (default: from the checkout or the image) |
 
 A project's `zone_fills` setting, stored in Prism (`"saved"` or unset), builds
 the board stage from the board's saved zone fills instead of a pcbnew refill.
