@@ -313,7 +313,7 @@ mod tests {
             .skip(1)
             .filter_map(|item| match item {
                 prism_kicad_core::Sexp::List(items) => items.first().and_then(|head| match head {
-                    prism_kicad_core::Sexp::Atom(head) => Some(head.as_str()),
+                    prism_kicad_core::Sexp::Atom(head) => Some(&**head),
                     _ => None,
                 }),
                 _ => None,
