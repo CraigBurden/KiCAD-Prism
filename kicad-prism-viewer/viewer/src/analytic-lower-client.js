@@ -101,9 +101,7 @@ export class LowerPool {
       };
       worker.onerror = (event) => {
         event.preventDefault?.();
-        member.alive = false;
-        for (const settle of member.pending.values()) settle({ error: "worker failed" });
-        member.pending.clear();
+        stop(member, "worker failed");
       };
       // Resolves to the pack's header, or null when the worker could not open it.
       member.opened = new Promise((resolve) => member.pending.set(0, (data) => resolve(data.error ? null : data.header)));
@@ -181,7 +179,7 @@ export class LowerPool {
   /** Stop every worker but the host, which keeps the pack open for later questions. */
   async release() {
     const host = await this.host();
-    for (const member of this.members) if (member !== host) member.worker.terminate();
+    for (const member of this.members) if (member !== host) stop(member, "worker released");
     this.members = host ? [host] : [];
   }
 
@@ -213,9 +211,18 @@ export class LowerPool {
   }
 
   close() {
-    for (const member of this.members) member.worker.terminate();
+    for (const member of this.members) stop(member, "worker closed");
     this.members = [];
   }
+}
+
+/** Terminate `member`'s worker and settle everything still waiting on it, cache writes included. */
+function stop(member, reason) {
+  member.alive = false;
+  member.worker.terminate();
+  const waiting = [...member.pending.values()];
+  member.pending.clear();
+  for (const settle of waiting) settle({ error: reason });
 }
 
 /**

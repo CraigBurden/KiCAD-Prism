@@ -121,6 +121,8 @@ self.onmessage = async ({ data }) => {
     return;
   }
   const { id } = data;
+  let answered = false;
+  let stored = [];
   try {
     // Planning a step needs no pack.
     if (data.type !== "step") {
@@ -131,8 +133,13 @@ self.onmessage = async ({ data }) => {
     if (!answer) throw new Error(`unknown message ${data.type}`);
     const [body, transfer, after] = await answer(data);
     self.postMessage({ id, ...body }, transfer);
-    if (after) self.postMessage({ id: -id, stored: await after() });
+    answered = true;
+    if (after) stored = await after();
   } catch (error) {
-    self.postMessage({ id, error: error instanceof Error ? error.message : String(error) });
+    if (!answered) self.postMessage({ id, error: error instanceof Error ? error.message : String(error) });
+  } finally {
+    // A request that asked to cache always hears back, even when it failed:
+    // the page releases its surplus workers once every write has settled.
+    if (data.store) self.postMessage({ id: -id, stored });
   }
 };
