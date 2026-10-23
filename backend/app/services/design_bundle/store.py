@@ -23,14 +23,17 @@ and is removed with the archive.
 
 from __future__ import annotations
 
+import dataclasses
 import logging
 import os
 import re
 import shutil
 import stat
+import threading
 import time
+from collections import OrderedDict
 from pathlib import Path
-from typing import BinaryIO, Callable, Iterable
+from typing import Any, BinaryIO, Callable, Iterable
 
 from app.core.config import settings
 from app.services.design_bundle.archive import MANIFEST, Archive, BundleInvalid, open_archive
@@ -115,6 +118,13 @@ def prepare(project_id: str, revision_key: str, generator_digest: str) -> Path:
     return path
 
 
+#: Validated archives (bundle-format.md §9 steps 1-5), by file identity. Every
+#: design-data read opened and re-checked the same archive: ~0.2 s each.
+_opened: "OrderedDict[tuple[Any, ...], Archive]" = OrderedDict()
+_OPENED_MAX = 64
+_opened_lock = threading.Lock()
+
+
 def open_bundle(project_id: str, revision_key: str, generator_digest: str, bundle_key: str) -> Archive | None:
     """The stored archive, validated (§9 steps 1-5), or ``None``.
 
@@ -123,19 +133,33 @@ def open_bundle(project_id: str, revision_key: str, generator_digest: str, bundl
     """
 
     path = archive_path(project_id, revision_key, generator_digest)
-    if not path.is_file():
-        return None
     try:
-        archive = open_archive(path, expected_bundle_key=bundle_key)
-    except BundleInvalid as error:
-        logger.warning("Deleting rejected bundle %s: %s", path, error)
-        delete(project_id, revision_key, generator_digest)
+        info = path.stat()
+    except OSError:
         return None
+    # A stored archive is replaced by rename, never edited in place, so the
+    # same inode, size and mtime are the same validated archive.
+    identity = (str(path), info.st_ino, info.st_size, info.st_mtime_ns, bundle_key)
+    with _opened_lock:
+        archive = _opened.get(identity)
+        if archive is not None:
+            _opened.move_to_end(identity)
+    if archive is None:
+        try:
+            archive = open_archive(path, expected_bundle_key=bundle_key)
+        except BundleInvalid as error:
+            logger.warning("Deleting rejected bundle %s: %s", path, error)
+            delete(project_id, revision_key, generator_digest)
+            return None
+        with _opened_lock:
+            _opened[identity] = archive
+            while len(_opened) > _OPENED_MAX:
+                _opened.popitem(last=False)
     # A marker that names another manifest is stale: the archive was rewritten
     # since it was verified, so step 7 runs as usual.
-    if _marked_manifest(marker_path(project_id, revision_key, generator_digest)) == archive.manifest_sha256:
-        archive.verified = True
-    return archive
+    # The cached archive is shared; each caller gets its own verified flag.
+    verified = _marked_manifest(marker_path(project_id, revision_key, generator_digest)) == archive.manifest_sha256
+    return dataclasses.replace(archive, verified=verified)
 
 
 def delete(project_id: str, revision_key: str, generator_digest: str) -> None:

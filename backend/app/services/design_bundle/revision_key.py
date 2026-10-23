@@ -23,6 +23,8 @@ import re
 import shutil
 import stat
 import subprocess
+import threading
+import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Iterable, Mapping, Sequence
@@ -351,8 +353,16 @@ def parse_ls_tree(output: bytes) -> list[ListingEntry]:
     return entries
 
 
+_object_formats: dict[str, str] = {}
+
+
 def object_format_of(repo: Path) -> str:
-    return git(repo, "rev-parse", "--show-object-format").decode("ascii").strip()
+    """``sha1`` or ``sha256``: fixed when a repository is created, so asked once per repository."""
+
+    found = _object_formats.get(str(repo))
+    if found is None:
+        found = _object_formats[str(repo)] = git(repo, "rev-parse", "--show-object-format").decode("ascii").strip()
+    return found
 
 
 def resolve_commit(repo: Path, rev: str) -> str:
@@ -387,12 +397,37 @@ def _hash_args() -> list[str]:
     return ["-c", "filter.lfs.clean=git-lfs clean -- %f"] if shutil.which("git-lfs") else []
 
 
+# Concurrent readers of one repository share a ``git status``: a page load
+# reads many members at once (every sheet of a schematic) and each read used to
+# run its own. A caller only takes a result whose status *started* after the
+# caller arrived, so nothing it sees is older than its own request.
+_worktree_changes: dict[str, tuple[float, list[bytes]]] = {}
+_worktree_locks: dict[str, threading.Lock] = {}
+_worktree_locks_guard = threading.Lock()
+
+
 def worktree_changes(repo: Path) -> list[bytes]:
     """Paths ``git add -A`` would touch (§9): staged, modified, deleted and untracked.
 
     Only names, never contents: the caller decides which names its read set
     covers. Rename and copy entries carry both names.
     """
+
+    arrived = time.monotonic()
+    name = str(repo)
+    with _worktree_locks_guard:
+        lock = _worktree_locks.setdefault(name, threading.Lock())
+    with lock:
+        shared = _worktree_changes.get(name)
+        if shared is not None and shared[0] >= arrived:
+            return list(shared[1])
+        started = time.monotonic()
+        changes = _read_worktree_changes(repo)
+        _worktree_changes[name] = (started, changes)
+        return list(changes)
+
+
+def _read_worktree_changes(repo: Path) -> list[bytes]:
 
     # Optional locks on: status may write back the index's refreshed stat
     # data. Without that, once a checkout's timestamps move (a sync, a host
