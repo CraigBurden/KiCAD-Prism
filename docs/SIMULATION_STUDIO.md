@@ -71,9 +71,7 @@ every call.
 Runs live under `KICAD_PROJECTS_ROOT/.kicad-prism/sim/`: `runs/<run id>/` holds
 the run's input bundle (a hard link to the design bundle it ran on) and the
 engine's output, and `meshes/<project>/` holds the engine meshes kept for
-re-runs. Setups and run records are in the `workspace` schema (migrations
+re-runs. The catalog worker's daily artifact maintenance applies the retention
+settings above, and keeps doing so after the Studio is disabled while its runs
+are on disk. Setups and run records are in the `workspace` schema (migrations
 m120–m122 and m130).
-
-**Known gap:** `backend/app/sim_studio/retention.py` (`prune_runs`) applies
-`PRISM_SIM_SUCCEEDED_RUNS_KEPT` and `PRISM_SIM_MESHES_KEPT`, but no scheduled
-job calls it yet, so runs and meshes are not pruned automatically.
