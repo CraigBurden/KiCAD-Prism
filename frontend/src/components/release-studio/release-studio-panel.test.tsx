@@ -416,6 +416,22 @@ describe("ReleaseStudioPanel", () => {
         expect(screen.getByRole("button", { name: /^PDF$/i })).toBeTruthy();
     });
 
+    it("says when the documents could not be read, and retries", async () => {
+        vi.mocked(api.listDocumentSheets).mockRejectedValueOnce(new Error("sheets unavailable"));
+        render(<ReleaseStudioPanel projectId="p1" canMutate />);
+        await openOutputs();
+        expect(await screen.findByText("Documents not loaded")).toHaveAttribute("title", "sheets unavailable");
+        expect(screen.queryByText("No documents")).toBeNull();
+        vi.mocked(api.listDocumentSheets).mockResolvedValueOnce([
+            {
+                key: "fabrication",
+                pdf: { path: "documentation/fabrication.pdf", released_digest: "b".repeat(64), media_type: "application/pdf" },
+            },
+        ]);
+        fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+        expect(await screen.findByRole("button", { name: "Fabrication" })).toBeTruthy();
+    });
+
     it("renders the GitHub Actions-style jobs rail from pipeline metadata", async () => {
         const { watchPrismJob } = await import("@/lib/jobs");
         vi.mocked(watchPrismJob).mockImplementation(async (_id, options) => {

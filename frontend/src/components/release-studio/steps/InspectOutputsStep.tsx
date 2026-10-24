@@ -209,7 +209,16 @@ export function InspectOutputsStep({
                                 </div>
                             ) : null}
                         </div>
-                    ) : (
+                    ) : sheetsRead.error ? (
+                        <div className="flex items-center gap-2 p-3 text-sm">
+                            <span className="min-w-0 truncate text-destructive" title={sheetsRead.error.message}>
+                                Documents not loaded
+                            </span>
+                            <Button size="xs" variant="outline" className="shrink-0" onClick={() => void sheetsRead.refresh()}>
+                                Retry
+                            </Button>
+                        </div>
+                    ) : sheetsRead.loading ? null : (
                         <p className="p-3 text-sm text-muted-foreground">No documents</p>
                     )
                 )}
