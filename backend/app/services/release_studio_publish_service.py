@@ -129,6 +129,49 @@ class BuildArchives:
             )
         return payload
 
+    def released_members(
+        self, build: Mapping[str, Any], members: Sequence[Mapping[str, Any]]
+    ) -> dict[str, bytes]:
+        """The bytes of *members* (rows of the build's members table) out of its dossier.
+
+        Viewing an output is only meaningful if what you are shown is the
+        released bytes, so each extracted member is hashed and compared with
+        its ``released_digest``. A mismatch means the stored dossier no longer
+        matches the record and is a hard error, never a silent best effort. A
+        member absent from the archive is left out of the result.
+        """
+
+        payload = self.artifact_bytes(build.get("dossier_artifact_id"))
+        files: dict[str, bytes] = {}
+        try:
+            with tarfile.open(fileobj=io.BytesIO(payload), mode="r:gz") as archive:
+                for member in members:
+                    path = str(member["path"])
+                    try:
+                        extracted = archive.extractfile(path)
+                    except KeyError:
+                        continue
+                    if extracted is None:
+                        continue
+                    data = extracted.read()
+                    actual = hashlib.sha256(data).hexdigest()
+                    if actual != member["released_digest"]:
+                        raise errors.DomainError(
+                            f"Released digest mismatch for {path}: the manifest records "
+                            f"{member['released_digest']} but the stored dossier holds {actual}",
+                            code="released_digest_mismatch",
+                            status_code=500,
+                        )
+                    files[path] = data
+        except tarfile.TarError as exc:
+            logger.exception("Could not read the stored dossier of build %s", build.get("id"))
+            raise errors.DomainError(
+                "The stored dossier could not be read.",
+                code="dossier_unreadable",
+                status_code=500,
+            ) from exc
+        return files
+
     def evidence_member(self, build: Mapping[str, Any], path: str) -> bytes | None:
         """One file out of build-evidence.tar.gz, or ``None`` when it is absent.
 

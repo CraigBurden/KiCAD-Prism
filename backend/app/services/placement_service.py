@@ -19,6 +19,8 @@ import re
 from dataclasses import dataclass
 from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence, Tuple
 
+from app.core import errors
+
 _SPLIT_REFS = re.compile(r"[,;\s]+")
 _RANGE = re.compile(r"^([A-Za-z_]+)(\d+)-(?:\1)?(\d+)$")
 #: A range this long is a typo, not a run of parts.
@@ -53,7 +55,7 @@ STATUS_NO_BOM = "no-bom"
 STATUS_NOT_PLACED = "not-placed"
 
 
-class PlacementError(ValueError):
+class PlacementError(errors.Invalid):
     """The file is not a position file or a BOM this module can read."""
 
 

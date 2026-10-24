@@ -8,30 +8,27 @@ commit.  Only where the bytes come from differs.  Mounted at ``/api/projects``.
 
 from __future__ import annotations
 
-import hashlib
-import io
 import logging
 import os
 import posixpath
 import re
-import tarfile
-from typing import Any, Optional
+from typing import Any, Callable, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import Response
 
 from app.api import projects as projects_api
-from app.api import release_studio as release_api
 from app.api._helpers import (
     get_project_for_role_or_404,
     require_output_type,
     resolve_path_within_root,
 )
+from app.api.release_studio import ARCHIVES
 from app.core.security import AuthenticatedUser, require_viewer
+from app.services import release_studio_service as release_store
 from app.services.fabrication_view_service import (
     BoundedCache,
     FabricationPackage,
-    FabricationViewError,
     RENDER_VERSION,
 )
 from app.services.placement_service import PlacementError, parse_bom, parse_positions
@@ -82,50 +79,30 @@ _BOM_MEMBER = "assembly/bom.csv"
 
 
 def _dossier_files(
-    build: dict[str, Any], prefixes: tuple[str, ...], missing_detail: str
+    build: dict[str, Any], wanted: Callable[[str], bool], missing_detail: str
 ) -> dict[str, bytes]:
-    """Digest-checked members under ``prefixes`` out of the stored dossier.
+    """Digest-checked members whose path ``wanted`` accepts, out of the stored dossier.
 
-    The same rule as Release Studio's member download: a viewer only ever shows
+    The same read as Release Studio's member download: a viewer only ever shows
     bytes that match what the manifest released.
     """
 
-    wanted = {
-        item["path"]: item
-        for item in release_api.store.build_members(build["id"])
-        if str(item["path"]).startswith(prefixes)
-    }
-    if not wanted:
+    members = [
+        item
+        for item in release_store.build_members(build["id"])
+        if wanted(str(item["path"]))
+    ]
+    if not members:
         raise HTTPException(status_code=404, detail=missing_detail)
-    payload = release_api._artifact_bytes(build["dossier_artifact_id"])
-    files: dict[str, bytes] = {}
-    try:
-        with tarfile.open(fileobj=io.BytesIO(payload), mode="r:gz") as archive:
-            for path, member in wanted.items():
-                extracted = archive.extractfile(path)
-                if extracted is None:
-                    continue
-                data = extracted.read()
-                actual = hashlib.sha256(data).hexdigest()
-                if actual != member["released_digest"]:
-                    raise HTTPException(
-                        status_code=500,
-                        detail=(
-                            f"Released digest mismatch for {path}: the manifest records "
-                            f"{member['released_digest']} but the stored dossier holds {actual}"
-                        ),
-                    )
-                files[path] = data
-    except tarfile.TarError as exc:
-        logger.exception("Could not read stored dossier for build %s", build["id"])
-        raise HTTPException(
-            status_code=500, detail="The stored dossier could not be read."
-        ) from exc
-    return files
+    return ARCHIVES.released_members(build, members)
 
 
 def _fabrication_files(build: dict[str, Any]) -> dict[str, bytes]:
-    return _dossier_files(build, _FABRICATION_PREFIXES, "This build has no fabrication files")
+    return _dossier_files(
+        build,
+        lambda path: path.startswith(_FABRICATION_PREFIXES),
+        "This build has no fabrication files",
+    )
 
 
 def _fabrication_package(build: dict[str, Any]) -> FabricationPackage:
@@ -134,17 +111,14 @@ def _fabrication_package(build: dict[str, Any]) -> FabricationPackage:
     cached = _fabrication_cache.get(build_id)
     if cached is not None:
         return cached
-    try:
-        package = FabricationPackage.from_files(_fabrication_files(build))
-    except FabricationViewError as exc:
-        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    package = FabricationPackage.from_files(_fabrication_files(build))
     _fabrication_cache.put(build_id, package)
     return package
 
 
 def _build_for(project_id: str, build_id: str, user: AuthenticatedUser) -> dict[str, Any]:
     get_project_for_role_or_404(project_id, user.role)
-    return release_api._build_or_404(project_id, build_id)
+    return ARCHIVES.build(project_id, build_id)
 
 
 # Plain `def` throughout: parsing a dense board takes real CPU, which belongs in
@@ -193,21 +167,20 @@ def get_build_placement(
     cached = _placement_cache.get(("build", str(build["id"])))
     if cached is not None:
         return cached
-    members = {str(item["path"]) for item in release_api.store.build_members(build["id"])}
-    if _POSITIONS_MEMBER not in members:
+    files = _dossier_files(
+        build,
+        lambda path: path in (_POSITIONS_MEMBER, _BOM_MEMBER),
+        "This build has no position file",
+    )
+    if _POSITIONS_MEMBER not in files:
         raise HTTPException(status_code=404, detail="This build has no position file")
-    wanted = (_POSITIONS_MEMBER,) + ((_BOM_MEMBER,) if _BOM_MEMBER in members else ())
-    files = _dossier_files(build, wanted, "This build has no position file")
     bom = files.get(_BOM_MEMBER)
-    try:
-        view = build_placement_view(
-            files[_POSITIONS_MEMBER].decode("utf-8", errors="replace"),
-            bom.decode("utf-8", errors="replace") if bom is not None else None,
-            positions_name=_POSITIONS_MEMBER.rsplit("/", 1)[-1],
-            bom_name=_BOM_MEMBER.rsplit("/", 1)[-1],
-        )
-    except PlacementError as exc:
-        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    view = build_placement_view(
+        files[_POSITIONS_MEMBER].decode("utf-8", errors="replace"),
+        bom.decode("utf-8", errors="replace") if bom is not None else None,
+        positions_name=_POSITIONS_MEMBER.rsplit("/", 1)[-1],
+        bom_name=_BOM_MEMBER.rsplit("/", 1)[-1],
+    )
     _placement_cache.put(("build", str(build["id"])), view)
     return view
 
@@ -327,10 +300,7 @@ def _package(
     cached = _cache.get(key) if _cacheable(commit) else None
     if cached is not None:
         return cached
-    try:
-        package = FabricationPackage.from_files(read())
-    except FabricationViewError as exc:
-        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    package = FabricationPackage.from_files(read())
     if _cacheable(commit):
         _cache.put(key, package)
     return package
@@ -433,15 +403,12 @@ def get_output_placement(
         return not _is_position_file(text)
 
     bom = _pick(others, is_bom, _BOM_NAME)
-    try:
-        view = build_placement_view(
-            files[positions],
-            others[bom] if bom else None,
-            positions_name=positions,
-            bom_name=bom or "",
-        )
-    except PlacementError as exc:
-        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    view = build_placement_view(
+        files[positions],
+        others[bom] if bom else None,
+        positions_name=positions,
+        bom_name=bom or "",
+    )
     if _cacheable(commit):
         _placement_cache.put(key, view)
     return view

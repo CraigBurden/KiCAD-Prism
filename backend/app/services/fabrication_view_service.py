@@ -20,6 +20,7 @@ from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple
 
+from app.core import errors
 from app.services import fabrication_compare_service as fab
 
 #: Role names the viewer groups and colours by.
@@ -136,7 +137,7 @@ _ROLE_RANK = {"silk": 0, "paste": 1, "mask": 2, "copper": 3}
 _SIDE_RANK = {"top": 0, "inner": 1, "bottom": 2, "both": 3}
 
 
-class FabricationViewError(ValueError):
+class FabricationViewError(errors.NotFound):
     """The package holds nothing the viewer can draw."""
 
 
@@ -256,7 +257,7 @@ def _unique_ids(layers: Sequence[fab.FabricationLayer]) -> List[str]:
     seen: Counter = Counter()
     ids: List[str] = []
     for layer in layers:
-        base = fab._safe_name(layer.name).casefold()
+        base = fab.safe_name(layer.name).casefold()
         seen[base] += 1
         ids.append(base if seen[base] == 1 else f"{base}-{seen[base]}")
     return ids
@@ -320,7 +321,7 @@ class FabricationPackage:
             ))
         infos.sort(key=_sort_key)
         self.infos = infos
-        self._outline = fab._board_outline(self._outline_candidates(infos))
+        self._outline = fab.board_outline(self._outline_candidates(infos))
         self._bounds = self._extent()
 
     def _outline_candidates(self, infos: List[LayerInfo]) -> List[fab.FabricationLayer]:
@@ -343,7 +344,7 @@ class FabricationPackage:
         if self._outline:
             boxes.append(tuple(self._outline["bounds"]))  # type: ignore[arg-type]
         for parsed in self._parsed.values():
-            box = fab._layer_bounds(parsed)
+            box = fab.layer_bounds(parsed)
             if box is not None:
                 # Gerber Y grows up; the board frame is KiCad's, Y down.
                 boxes.append((box[0], -box[3], box[2], -box[1]))
@@ -367,7 +368,7 @@ class FabricationPackage:
         inner = plot[plot.index(">", plot.index("<svg")) + 1:plot.rindex("</svg>")]
         backdrop_end = inner.index("/>") + 2
         artwork = inner[backdrop_end:]
-        box = f'x="{fab._fmt(x0)}" y="{fab._fmt(y0)}" width="{fab._fmt(x1 - x0)}" height="{fab._fmt(y1 - y0)}"'
+        box = f'x="{fab.svg_number(x0)}" y="{fab.svg_number(y0)}" width="{fab.svg_number(x1 - x0)}" height="{fab.svg_number(y1 - y0)}"'
         if f'"{_MASK_OFF}"' in artwork:
             # Something is cleared (clear polarity, or an aperture with a hole): fill the
             # colour through the plot as a mask, so the cut shows what is behind.
@@ -380,8 +381,8 @@ class FabricationPackage:
             # directly. Same picture, and a mask costs the browser a second drawing.
             body = artwork.replace(f'"{_MASK_ON}"', f'"{info.colour}"')
         svg = (
-            f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="{fab._fmt(x0)} {fab._fmt(y0)}'
-            f' {fab._fmt(x1 - x0)} {fab._fmt(y1 - y0)}" preserveAspectRatio="xMidYMid meet">'
+            f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="{fab.svg_number(x0)} {fab.svg_number(y0)}'
+            f' {fab.svg_number(x1 - x0)} {fab.svg_number(y1 - y0)}" preserveAspectRatio="xMidYMid meet">'
             f"{body}</svg>"
         )
         return with_minimum_stroke(svg, x1 - x0, holes=info.kind == "excellon")

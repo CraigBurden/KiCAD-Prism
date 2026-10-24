@@ -21,8 +21,15 @@ if str(REPO_ROOT) not in sys.path:  # pragma: no cover - import bootstrap
 
 from fastapi import HTTPException  # noqa: E402
 
+from app.core import errors  # noqa: E402
+
 from tests.test_fabrication_view_service import package_files  # noqa: E402
 from tests.test_placement_service import KICAD_BOM, KICAD_POS  # noqa: E402
+
+
+#: A refusal reaches the client either way: a router's HTTPException or a
+#: service's typed error, which the one handler in app.core.errors renders.
+REFUSED = (HTTPException, errors.DomainError)
 
 
 @dataclass
@@ -65,9 +72,9 @@ class FabricationViewRouteTests(unittest.TestCase):
         build = {"id": "build-1", "dossier_artifact_id": "a1"}
         return (
             patch.object(self.api, "get_project_for_role_or_404"),
-            patch.object(self.rel, "_build_or_404", lambda *_args: build),
+            patch.object(self.rel.ARCHIVES, "build", lambda *_args: build),
             patch.object(self.rel.store, "build_members", lambda _id: members if members is not None else self.members),
-            patch.object(self.rel, "_artifact_bytes", artifact),
+            patch.object(self.rel.ARCHIVES, "artifact_bytes", artifact),
         )
 
     def _call(self, func, *args, members=None, payload=None):
@@ -89,19 +96,19 @@ class FabricationViewRouteTests(unittest.TestCase):
         self.assertEqual(response.headers["X-Content-Type-Options"], "nosniff")
 
     def test_unknown_layer_is_404(self) -> None:
-        with self.assertRaises(HTTPException) as caught:
+        with self.assertRaises(REFUSED) as caught:
             self._call(self.api.get_fabrication_layer, "nope")
         self.assertEqual(caught.exception.status_code, 404)
 
     def test_build_without_fabrication_files_is_404(self) -> None:
         other = [{"path": "documentation/bom.csv", "released_digest": "0"}]
-        with self.assertRaises(HTTPException) as caught:
+        with self.assertRaises(REFUSED) as caught:
             self._call(self.api.get_fabrication_view, members=other)
         self.assertEqual(caught.exception.status_code, 404)
 
     def test_a_digest_mismatch_is_a_hard_error(self) -> None:
         tampered = [dict(item, released_digest="0" * 64) for item in self.members]
-        with self.assertRaises(HTTPException) as caught:
+        with self.assertRaises(REFUSED) as caught:
             self._call(self.api.get_fabrication_view, members=tampered)
         self.assertEqual(caught.exception.status_code, 500)
         self.assertIn("digest mismatch", caught.exception.detail)
@@ -118,7 +125,7 @@ class FabricationViewRouteTests(unittest.TestCase):
             build = {"id": f"build-{index}", "dossier_artifact_id": "a1"}
             with (
                 patch.object(self.rel.store, "build_members", lambda _id: self.members),
-                patch.object(self.rel, "_artifact_bytes", lambda _id: self.payload),
+                patch.object(self.rel.ARCHIVES, "artifact_bytes", lambda _id: self.payload),
             ):
                 self.api._fabrication_package(build)
         self.assertEqual(len(self.api._fabrication_cache), size)
@@ -151,9 +158,9 @@ class PlacementRouteTests(unittest.TestCase):
         build = {"id": "build-1", "dossier_artifact_id": "a1"}
         with (
             patch.object(self.api, "get_project_for_role_or_404"),
-            patch.object(self.rel, "_build_or_404", lambda *_args: build),
+            patch.object(self.rel.ARCHIVES, "build", lambda *_args: build),
             patch.object(self.rel.store, "build_members", lambda _id: members),
-            patch.object(self.rel, "_artifact_bytes", lambda _id: payload),
+            patch.object(self.rel.ARCHIVES, "artifact_bytes", lambda _id: payload),
         ):
             return self.api.get_build_placement("project", "build-1", _User())
 
@@ -180,9 +187,9 @@ class PlacementRouteTests(unittest.TestCase):
         build = {"id": "build-1", "dossier_artifact_id": "a1"}
         with (
             patch.object(self.api, "get_project_for_role_or_404"),
-            patch.object(self.rel, "_build_or_404", lambda *_args: build),
+            patch.object(self.rel.ARCHIVES, "build", lambda *_args: build),
             patch.object(self.rel.store, "build_members", lambda _id: members),
-            patch.object(self.rel, "_artifact_bytes", artifact),
+            patch.object(self.rel.ARCHIVES, "artifact_bytes", artifact),
         ):
             first = self.api.get_build_placement("project", "build-1", _User())
             second = self.api.get_build_placement("project", "build-1", _User())
@@ -195,12 +202,12 @@ class PlacementRouteTests(unittest.TestCase):
         self.assertEqual(view["counts"]["placed"], 4)
 
     def test_a_build_without_positions_is_404(self) -> None:
-        with self.assertRaises(HTTPException) as caught:
+        with self.assertRaises(REFUSED) as caught:
             self._call({"assembly/bom.csv": KICAD_BOM.encode()})
         self.assertEqual(caught.exception.status_code, 404)
 
     def test_an_unreadable_position_file_is_422(self) -> None:
-        with self.assertRaises(HTTPException) as caught:
+        with self.assertRaises(REFUSED) as caught:
             self._call({"assembly/positions.csv": b"nothing,useful\n1,2\n"})
         self.assertEqual(caught.exception.status_code, 422)
 
@@ -210,10 +217,10 @@ class PlacementRouteTests(unittest.TestCase):
         build = {"id": "build-1", "dossier_artifact_id": "a1"}
         with (
             patch.object(self.api, "get_project_for_role_or_404"),
-            patch.object(self.rel, "_build_or_404", lambda *_args: build),
+            patch.object(self.rel.ARCHIVES, "build", lambda *_args: build),
             patch.object(self.rel.store, "build_members", lambda _id: members),
-            patch.object(self.rel, "_artifact_bytes", lambda _id: payload),
-            self.assertRaises(HTTPException) as caught,
+            patch.object(self.rel.ARCHIVES, "artifact_bytes", lambda _id: payload),
+            self.assertRaises(REFUSED) as caught,
         ):
             self.api.get_build_placement("project", "build-1", _User())
         self.assertEqual(caught.exception.status_code, 500)

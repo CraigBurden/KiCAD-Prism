@@ -10,6 +10,7 @@ import tempfile
 import unittest
 from dataclasses import dataclass
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -18,8 +19,13 @@ if str(REPO_ROOT) not in sys.path:  # pragma: no cover - import bootstrap
 
 from fastapi import HTTPException  # noqa: E402
 
-from app.services.file_service import CommitFile, FileItem  # noqa: E402
+from app.core import errors  # noqa: E402
+from app.services.file_service import FileItem  # noqa: E402
 from tests.test_fabrication_view_service import package_files  # noqa: E402
+
+
+#: A router's HTTPException or a service's typed error; the client sees the same body.
+REFUSED = (HTTPException, errors.DomainError)
 
 
 @dataclass
@@ -92,28 +98,28 @@ class OutputFabricationViewTests(unittest.TestCase):
         self.assertEqual(response.headers["Cache-Control"], "private, no-cache")
 
     def test_a_folder_without_gerbers_is_404(self) -> None:
-        with self.assertRaises(HTTPException) as caught:
+        with self.assertRaises(REFUSED) as caught:
             self._view(folder="")
         self.assertEqual(caught.exception.status_code, 404)
 
     def test_a_missing_folder_is_404(self) -> None:
-        with self.assertRaises(HTTPException) as caught:
+        with self.assertRaises(REFUSED) as caught:
             self._view(folder="nope")
         self.assertEqual(caught.exception.status_code, 404)
 
     def test_escaping_the_outputs_folder_is_rejected(self) -> None:
         for folder in ("..", "../x", "/etc", "gerbers/../../x"):
-            with self.subTest(folder), self.assertRaises(HTTPException) as caught:
+            with self.subTest(folder), self.assertRaises(REFUSED) as caught:
                 self._view(folder=folder)
             self.assertIn(caught.exception.status_code, (400, 404))
 
     def test_an_unknown_output_type_is_400(self) -> None:
-        with self.assertRaises(HTTPException) as caught:
+        with self.assertRaises(REFUSED) as caught:
             self._view(type="secrets")
         self.assertEqual(caught.exception.status_code, 400)
 
     def test_unknown_layer_is_404(self) -> None:
-        with self.assertRaises(HTTPException) as caught:
+        with self.assertRaises(REFUSED) as caught:
             self._layer("nope")
         self.assertEqual(caught.exception.status_code, 404)
 
@@ -128,16 +134,16 @@ class OutputFabricationViewTests(unittest.TestCase):
 
     def test_a_folder_that_is_too_big_in_total_is_refused(self) -> None:
         # Each file is within its own limit; together they are not.
-        with patch.object(self.api, "_MAX_TOTAL_BYTES", 100), self.assertRaises(HTTPException) as caught:
+        with patch.object(self.api, "_MAX_TOTAL_BYTES", 100), self.assertRaises(REFUSED) as caught:
             self._view()
         self.assertEqual(caught.exception.status_code, 413)
         self.assertIn("too large", caught.exception.detail)
 
     def test_oversized_and_overfull_folders_are_refused(self) -> None:
-        with patch.object(self.api, "_MAX_FILES", 3), self.assertRaises(HTTPException) as caught:
+        with patch.object(self.api, "_MAX_FILES", 3), self.assertRaises(REFUSED) as caught:
             self._view()
         self.assertEqual(caught.exception.status_code, 413)
-        with patch.object(self.api, "_MAX_FILE_BYTES", 10), self.assertRaises(HTTPException) as caught:
+        with patch.object(self.api, "_MAX_FILE_BYTES", 10), self.assertRaises(REFUSED) as caught:
             self._view()
         self.assertEqual(caught.exception.status_code, 413)
 
@@ -157,7 +163,8 @@ class CommitFabricationViewTests(unittest.TestCase):
 
         def read(_project, _commit, name, *, relative_prefix, not_found_detail):
             self.read_calls.append(f"{relative_prefix}/{name}")
-            return CommitFile(name=name, path=name, content=self.files[name])
+            # CommitFile reads its blob from git lazily; the route only needs `content`.
+            return SimpleNamespace(name=name, path=name, size=len(self.files[name]), content=self.files[name])
 
         with (
             patch.object(self.api, "get_project_for_role_or_404", lambda *_a: object()),
@@ -248,15 +255,15 @@ class OutputPlacementTests(unittest.TestCase):
 
     def test_no_position_file_is_404(self) -> None:
         self._folder("none", {"bom.csv": self.texts[1]})
-        with self.assertRaises(HTTPException) as caught:
+        with self.assertRaises(REFUSED) as caught:
             self._view("none")
         self.assertEqual(caught.exception.status_code, 404)
 
     def test_a_folder_without_csv_is_404_and_traversal_is_refused(self) -> None:
         self._folder("empty", {"readme.txt": "x"})
-        with self.assertRaises(HTTPException) as caught:
+        with self.assertRaises(REFUSED) as caught:
             self._view("empty")
         self.assertEqual(caught.exception.status_code, 404)
-        with self.assertRaises(HTTPException) as caught:
+        with self.assertRaises(REFUSED) as caught:
             self._view("../x")
         self.assertIn(caught.exception.status_code, (400, 404))

@@ -257,14 +257,19 @@ remote recovery, or authorization behavior.
 
 `fabrication_view_service.py` turns a set of Gerber and drill files into a view
 model and one SVG per layer; `placement_service.py` parses a position file and a
-BOM and checks one against the other. Both are pure: files in, view out. The
-routes that feed them are all in `backend/app/api/fabrication_view.py`: a
-Release Studio build's dossier, and a folder of committed outputs. Keep them
-together; the Release Studio router is upstream's and carries none of this.
+BOM and checks one against the other. Both are pure: files in, view out, and
+both refuse with typed errors (`FabricationViewError` is a 404,
+`PlacementError` a 422). The routes that feed them are all in
+`backend/app/api/fabrication_view.py`: a Release Studio build's dossier, and a
+folder of committed outputs. A build's members are read through
+`BuildArchives.released_members` (`release_studio_publish_service.py`), the
+same digest-checked read as Release Studio's member download; never open the
+dossier tarball yourself.
 
 The parsing and drawing belong to `fabrication_compare_service.py`, which is
 grandfathered at its current length and must not grow. New behavior goes in the
-new modules; reach into the old one by module attribute rather than copying.
+new modules; use its public functions (`board_outline`, `layer_bounds`,
+`safe_name`, `svg_number` ...) rather than copying them.
 
 Rules that are easy to break:
 
