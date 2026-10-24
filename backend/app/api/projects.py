@@ -3,7 +3,6 @@ import logging
 import mimetypes
 import os
 import posixpath
-import subprocess
 from pathlib import Path
 from typing import List, Optional
 from urllib.parse import quote
