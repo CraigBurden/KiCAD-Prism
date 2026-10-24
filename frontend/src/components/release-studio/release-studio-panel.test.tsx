@@ -190,6 +190,7 @@ describe("ReleaseStudioPanel", () => {
         // A desktop window: below 1280 px the release checks rail starts collapsed.
         vi.stubGlobal("innerWidth", 1600);
         window.localStorage.removeItem("prism.releaseStudio.checksRailCollapsed");
+        window.localStorage.removeItem("prism.releaseStudio.runHistoryCollapsed");
         vi.mocked(api.getSource).mockResolvedValue({
             source,
             ipc: {
@@ -813,6 +814,17 @@ describe("ReleaseStudioPanel", () => {
         const run = await screen.findByRole("button", { name: /succeeded.*attempt 1/i });
         expect(within(run).getByText("succeeded")).toBeTruthy();
         expect(within(run).getByText("published")).toBeTruthy();
+    });
+
+    it("collapses the run history and remembers it", async () => {
+        render(<ReleaseStudioPanel projectId="p1" canMutate />);
+        fireEvent.click(await screen.findByRole("tab", { name: /^history$/i }));
+        expect(await screen.findByText("Run history")).toBeInTheDocument();
+        fireEvent.click(screen.getByRole("button", { name: "Hide run history" }));
+        expect(screen.queryByText("Run history")).toBeNull();
+        expect(window.localStorage.getItem("prism.releaseStudio.runHistoryCollapsed")).toBe("true");
+        fireEvent.click(screen.getByRole("button", { name: "Show run history" }));
+        expect(await screen.findByText("Run history")).toBeInTheDocument();
     });
 
     it("starts the release checks rail collapsed in a narrow window", async () => {

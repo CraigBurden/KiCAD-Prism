@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { History, ListRestart, Settings2 } from "lucide-react";
+import { History, ListRestart, PanelLeftOpen, Settings2 } from "lucide-react";
 import { toast } from "sonner";
 
+import { Button } from "@/components/ui/button";
 import { ResizablePanel } from "@/components/ui/resizable-panel";
 import { StudioTabsList, StudioTabsTrigger } from "@/components/ui/studio-tabs";
 import { Tabs } from "@/components/ui/tabs";
@@ -16,6 +17,7 @@ import { IdentityStrip } from "./IdentityStrip";
 import { RunList } from "./RunList";
 import { IdentityDetails, LockedStage, ManufacturingDetails, SourceDetails } from "./RunSnapshot";
 import { StageRail } from "./StageRail";
+import { useCollapsed } from "./use-collapsed";
 import { InspectOutputsStep } from "./steps/InspectOutputsStep";
 import { ObserveBuildStep } from "./steps/ObserveBuildStep";
 import { PublishStep } from "./steps/PublishStep";
@@ -112,6 +114,7 @@ export function ReleaseStudioPanel({
         return true;
     });
     const draftingRef = useCommittedRef(drafting);
+    const [historyCollapsed, setHistoryCollapsed] = useCollapsed("prism.releaseStudio.runHistoryCollapsed", () => false);
     const [commits, setCommits] = useState<ProjectCommit[]>([]);
     const [commitsLoading, setCommitsLoading] = useState(true);
     const [commitSha, setCommitSha] = useState(defaultCommit);
@@ -584,7 +587,19 @@ export function ReleaseStudioPanel({
             )}
             {view === "settings" ? null : (
                 <div className="flex min-h-0 min-w-0 flex-1">
-                    {view === "history" && (
+                    {view === "history" && (historyCollapsed ? (
+                        <aside aria-label="Run history" className="flex w-11 shrink-0 flex-col items-center gap-2 border-r py-2">
+                            <Button
+                                size="icon-sm"
+                                variant="ghost"
+                                aria-label="Show run history"
+                                title="Show run history"
+                                onClick={() => setHistoryCollapsed(false)}
+                            >
+                                <PanelLeftOpen className="h-4 w-4" />
+                            </Button>
+                        </aside>
+                    ) : (
                         <ResizablePanel
                             side="left"
                             storageKey="prism.releaseStudio.runHistoryWidth"
@@ -600,9 +615,10 @@ export function ReleaseStudioPanel({
                                     setDrafting(false);
                                     openRun(buildId);
                                 }}
+                                onCollapse={() => setHistoryCollapsed(true)}
                             />
                         </ResizablePanel>
-                    )}
+                    ))}
 
                     {!selectedBuildId && !building && !drafting ? (
                         <div className="flex flex-1 items-center justify-center p-6 text-sm text-muted-foreground">

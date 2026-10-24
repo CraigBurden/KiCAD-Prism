@@ -1,6 +1,9 @@
-import { Badge } from "@/components/ui/badge";
-import { cn } from "@/lib/utils";
 import type { ReactNode } from "react";
+import { PanelLeftClose } from "lucide-react";
+
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
 
 import type { ReleaseCandidate } from "./types";
 
@@ -22,10 +25,12 @@ export function RunList({
     candidates,
     selectedBuildId,
     onSelect,
+    onCollapse,
 }: {
     candidates: ReleaseCandidate[];
     selectedBuildId: string | null;
     onSelect: (buildId: string) => void;
+    onCollapse?: () => void;
 }) {
     const attempts = candidates
         .flatMap((candidate) => {
@@ -36,7 +41,14 @@ export function RunList({
 
     return (
         <div className="flex h-full min-h-0 flex-1 flex-col">
-            <div className="border-b px-3 py-2 text-sm font-medium">Run history</div>
+            <div className="flex h-10 shrink-0 items-center gap-2 border-b pl-3 pr-1 text-sm font-medium">
+                <span className="flex-1 truncate">Run history</span>
+                {onCollapse && (
+                    <Button size="icon-sm" variant="ghost" aria-label="Hide run history" title="Hide run history" onClick={onCollapse}>
+                        <PanelLeftClose className="h-4 w-4" />
+                    </Button>
+                )}
+            </div>
             <div className="min-h-0 flex-1 overflow-y-auto">
                 {attempts.length === 0 && <Empty>No runs yet.</Empty>}
                 {attempts.map(({ candidate, build }) => {

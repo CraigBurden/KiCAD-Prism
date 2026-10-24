@@ -14,32 +14,14 @@ import { ResizablePanel } from "@/components/ui/resizable-panel";
 import { cn } from "@/lib/utils";
 
 import { UnpinnedModelsAck, useModelAcknowledgement } from "../../UnpinnedModels";
+import { useCollapsed } from "../../use-collapsed";
 import { VendorPackCard, type RunFn } from "../../shared";
 import type { BuildDetail, VendorProfile } from "../../types";
 import { PackRequirementTiles } from "./PackRequirements";
 import { SignOffCards } from "./SignOff";
 
-const COLLAPSED_KEY = "prism.releaseStudio.checksRailCollapsed";
 /** Below this window width the rail starts as its icon strip, so the preview keeps the room. */
 const COLLAPSE_BELOW = 1280;
-
-function initiallyCollapsed(): boolean {
-    try {
-        const stored = window.localStorage.getItem(COLLAPSED_KEY);
-        if (stored === "true" || stored === "false") return stored === "true";
-    } catch {
-        // Storage can be unavailable; the width rule still applies.
-    }
-    return window.innerWidth < COLLAPSE_BELOW;
-}
-
-function rememberCollapsed(collapsed: boolean) {
-    try {
-        window.localStorage.setItem(COLLAPSED_KEY, String(collapsed));
-    } catch {
-        // A preference that cannot be stored is only lost on reload.
-    }
-}
 
 /**
  * Everything a reviewer decides about a finished build, beside its outputs:
@@ -63,7 +45,10 @@ export function ReleaseChecksRail({
     onRun: RunFn;
     onRefresh?: () => Promise<unknown> | void;
 }) {
-    const [collapsed, setCollapsed] = useState(initiallyCollapsed);
+    const [collapsed, toggle] = useCollapsed(
+        "prism.releaseStudio.checksRailCollapsed",
+        () => window.innerWidth < COLLAPSE_BELOW,
+    );
     const [vendorId, setVendorId] = useState("");
     const approvals = detail.approvals;
     const unpinned = approvals?.unpinned_models ?? [];
@@ -76,10 +61,6 @@ export function ReleaseChecksRail({
     const selectedReadiness = detail.vendor_readiness?.find(
         (item) => (item.vendor_id || item.profile_id) === selectedProfile?.id,
     );
-    const toggle = (next: boolean) => {
-        setCollapsed(next);
-        rememberCollapsed(next);
-    };
 
     if (collapsed) {
         return (
