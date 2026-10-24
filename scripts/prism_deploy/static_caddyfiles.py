@@ -41,6 +41,14 @@ _INTERNAL_HEADER = """\
 # KiCAD Prism reverse proxy (internal CA / custom certificates)
 
 # Replace kicad-prism.corp.internal and certificate paths.
+#
+# Serving a bare IP? Clients that send no SNI (Windows Schannel, Chrome) fail
+# the handshake unless this file starts with a global block naming that IP:
+#
+#   {
+#   	default_sni 192.168.1.20
+#   }
+#
 """
 
 _INTERNAL_REPOSITORY_NOTE = """\
