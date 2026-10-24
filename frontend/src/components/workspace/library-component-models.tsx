@@ -140,7 +140,7 @@ function AlignmentEditor({ componentId, model, partners, canMutate, onSaved }: {
           {valid ? (
             <img alt={`${model.name} ${view} view`} className="max-h-full max-w-full" data-testid="model-preview"
               src={previewUrl(componentId, model.assetId, settled, view, partner === "none" ? null : partner)} />
-          ) : <p className="text-sm text-muted-foreground">Fix the alignment to see the preview.</p>}
+          ) : <p className="text-sm text-muted-foreground">No preview until aligned</p>}
         </div>
       </div>
     </div>
@@ -198,8 +198,7 @@ export function ModelsPanel({ componentId, canMutate }: { componentId: string; c
     <section className="space-y-4 border p-4" aria-label="3D models">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div>
-          <h3 className="flex items-center gap-2 text-sm font-semibold"><Box className="h-4 w-4" /> 3D models</h3>
-          <p className="text-xs text-muted-foreground">Converted from STEP for the system 3D view. Colours and bounds come from the STEP file.</p>
+          <h3 className="flex items-center gap-2 text-sm font-semibold" title="Converted from STEP for the system 3D view"><Box className="h-4 w-4" /> 3D models</h3>
         </div>
         {canMutate && pending && (
           <Button size="sm" variant="outline" disabled={converting} onClick={() => void convert()}>

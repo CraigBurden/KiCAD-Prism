@@ -262,7 +262,7 @@ export function AssetAttachDialog({
       <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-xl">
         <DialogHeader>
           <DialogTitle>Add {label.toLowerCase()}</DialogTitle>
-          <DialogDescription>Upload a file or link one already present in Prism storage. Attaching it creates a new immutable component revision.</DialogDescription>
+          <DialogDescription className="sr-only">Attach a file as a new revision</DialogDescription>
         </DialogHeader>
         {importSelection ? (
           <div className="space-y-4">
@@ -336,7 +336,6 @@ export function AssetAttachDialog({
                     <SelectTrigger id="component-counterpart-asset" className="w-full"><SelectValue placeholder="Select the counterpart asset" /></SelectTrigger>
                     <SelectContent>{session.counterpartAssets.map((asset) => <SelectItem key={asset.id} value={asset.id}>{asset.target_library ? `${asset.target_library}:` : ""}{asset.target_name}</SelectItem>)}</SelectContent>
                   </Select>
-                  <p className="text-xs text-muted-foreground">The current default counterpart is preselected. You can edit the resulting pair in Representations.</p>
                 </div>
               ) : null}
             </div>

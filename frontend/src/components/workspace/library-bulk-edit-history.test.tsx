@@ -37,7 +37,7 @@ afterEach(() => vi.clearAllMocks());
 
 const undoButton = () => screen.getByRole("button", { name: "Undo metadata edit" });
 const redoButton = () => screen.getByRole("button", { name: "Redo metadata edit" });
-const stagedCount = () => screen.getByText(/staged components/).textContent;
+const stagedCount = () => screen.getByRole("button", { name: /staged components/ }).getAttribute("aria-label");
 
 async function renderGrid() {
     render(<LibraryBulkEditWorkspace user={{ id: "u1", email: "a@b.c", role: "admin" } as never} />);

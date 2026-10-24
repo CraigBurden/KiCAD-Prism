@@ -27,7 +27,7 @@ describe("LibraryCatalogFileCheck", () => {
     expect(getCatalogHealth).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole("button", { name: /Check released files/ }));
 
-    expect(await screen.findByText("2 released missing on disk")).toBeInTheDocument();
+    expect(await screen.findByText("2 missing")).toBeInTheDocument();
     expect(getCatalogHealth).toHaveBeenCalledWith({ checkFiles: true });
   });
 
@@ -37,6 +37,6 @@ describe("LibraryCatalogFileCheck", () => {
 
     fireEvent.click(screen.getByRole("button", { name: /Check released files/ }));
 
-    expect(await screen.findByText("Released files on disk")).toBeInTheDocument();
+    expect(await screen.findByText("Files OK")).toBeInTheDocument();
   });
 });

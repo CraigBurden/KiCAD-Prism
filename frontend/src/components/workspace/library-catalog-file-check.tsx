@@ -26,14 +26,14 @@ export function LibraryCatalogFileCheck() {
   return (
     <div className="flex items-center gap-2">
       {missing === null ? null : missing > 0 ? (
-        <Badge variant="destructive" title="Components whose released revision links a file missing on disk">
-          {missing.toLocaleString()} released missing on disk
+        <Badge variant="destructive" title="Released components with a file missing on disk">
+          {missing.toLocaleString()} missing
         </Badge>
       ) : (
-        <Badge variant="success">Released files on disk</Badge>
+        <Badge variant="success" title="Every released file is on disk">Files OK</Badge>
       )}
-      <Button size="sm" variant="outline" disabled={checking} onClick={runCheck}>
-        {checking ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <FileSearch className="h-3.5 w-3.5" />} Check released files
+      <Button size="icon-sm" variant="outline" disabled={checking} onClick={runCheck} aria-label="Check released files" title="Check released files">
+        {checking ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <FileSearch className="h-3.5 w-3.5" />}
       </Button>
     </div>
   );
