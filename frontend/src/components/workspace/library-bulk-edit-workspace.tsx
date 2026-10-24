@@ -228,7 +228,7 @@ function FieldDefinitionDialog({
   }, [field, open]);
   return <Dialog open={open} onOpenChange={onOpenChange}>
     <DialogContent>
-      <DialogHeader><DialogTitle>{field ? "Edit custom field" : "Add custom field"}</DialogTitle><DialogDescription>Typed fields are validated in the grid, CSV imports, and release revisions.</DialogDescription></DialogHeader>
+      <DialogHeader><DialogTitle>{field ? "Edit custom field" : "Add custom field"}</DialogTitle><DialogDescription className="sr-only">Custom metadata field</DialogDescription></DialogHeader>
       <div className="grid gap-3 sm:grid-cols-2">
         <label className="space-y-1 text-xs"><span className="font-medium">Label</span><Input value={draft.label} onChange={(event) => setDraft({ ...draft, label: event.target.value })} /></label>
         <label className="space-y-1 text-xs"><span className="font-medium">Machine key</span><Input value={draft.key} disabled={Boolean(field)} onChange={(event) => setDraft({ ...draft, key: event.target.value })} placeholder="voltage_rating" /></label>
@@ -266,7 +266,7 @@ function BatchReviewDialog({
   const allSelected = valid.length > 0 && selectedIds.length === valid.length;
   return <Dialog open={open} onOpenChange={onOpenChange}>
     <DialogContent className="flex max-h-[88vh] max-w-4xl flex-col overflow-hidden">
-      <DialogHeader><DialogTitle>Review metadata changes</DialogTitle><DialogDescription>Each valid component becomes one metadata-only revision in Awaiting QA. CAD assets remain unchanged.</DialogDescription></DialogHeader>
+      <DialogHeader><DialogTitle>Review metadata changes</DialogTitle><DialogDescription>One metadata revision per component, into Awaiting QA.</DialogDescription></DialogHeader>
       {!batch ? <div className="space-y-4">
         <div className="border bg-muted/20 p-3 text-sm"><span className="font-medium">{localCount} components</span> have staged spreadsheet changes.</div>
         <label className="space-y-1 text-xs"><span className="font-medium">Required change summary</span><Input value={summary} onChange={(event) => onSummaryChange(event.target.value)} placeholder="Correct sourcing and engineering metadata" /></label>
@@ -279,7 +279,7 @@ function BatchReviewDialog({
           {batch.unknown_fields.length ? <Badge variant="warning">{batch.unknown_fields.length} new fields</Badge> : null}
           <a className="ml-auto text-primary underline-offset-4 hover:underline" href={metadataBatchReportUrl(batch.id)}>Download report</a>
         </div>
-        {batch.unknown_fields.length ? <div className="border border-warning/50 bg-warning/10 p-3 text-xs"><p className="font-medium">CSV proposes: {batch.unknown_fields.map((field) => field.label).join(", ")}</p><p className="mt-1 text-muted-foreground">These will be registered as text fields before the batch can run.</p>{isAdmin ? <Button className="mt-2" size="sm" variant="outline" onClick={onApproveFields} disabled={busy}>Approve new fields</Button> : <p className="mt-2 text-warning">An administrator must approve these definitions.</p>}</div> : null}
+        {batch.unknown_fields.length ? <div className="border border-warning/50 bg-warning/10 p-3 text-xs"><p className="font-medium" title="Registered as text fields before the batch runs">New fields: {batch.unknown_fields.map((field) => field.label).join(", ")}</p>{isAdmin ? <Button className="mt-2" size="sm" variant="outline" onClick={onApproveFields} disabled={busy}>Approve new fields</Button> : <p className="mt-2 text-warning">Needs an admin</p>}</div> : null}
         <ScrollArea className="min-h-0 flex-1 border">
           <div className="divide-y">
             {batch.items.map((item) => <div key={item.id} className="p-3 text-xs">

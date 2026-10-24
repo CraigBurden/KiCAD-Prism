@@ -74,11 +74,10 @@ export function MatesWithPanel({ componentId, canMutate }: { componentId: string
   return (
     <section className="space-y-3 border p-4" aria-label="Mates with">
       <div>
-        <h3 className="text-sm font-semibold">Mates with</h3>
-        <p className="text-xs text-muted-foreground">Parts this connector plugs into. System Builder suggests them for harness ends and checks board-to-board pairs.</p>
+        <h3 className="text-sm font-semibold" title="Parts this connector plugs into">Mates with</h3>
       </div>
       {items === null ? <p className="text-sm text-muted-foreground">Loading…</p> : items.length === 0 ? (
-        <p className="text-sm text-muted-foreground">No mating parts recorded.</p>
+        <p className="text-sm text-muted-foreground">None</p>
       ) : (
         <ul className="divide-y border">
           {items.map((item) => (

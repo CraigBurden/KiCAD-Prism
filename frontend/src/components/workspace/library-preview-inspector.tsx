@@ -345,7 +345,7 @@ function LibraryPreviewPairSession({
           >
             <DialogHeader className="shrink-0 pr-8">
               <DialogTitle>{label} · Pin↔pad inspection</DialogTitle>
-              <DialogDescription>
+              <DialogDescription className="sr-only">
                 Hover to preview a mapping. Click to latch it; press Escape or
                 click empty space to clear.
               </DialogDescription>

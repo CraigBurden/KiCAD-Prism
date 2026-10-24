@@ -769,7 +769,7 @@ export function LibraryComponentWorkspace({
         <DialogContent>
           <DialogHeader>
             <DialogTitle>{transitionTarget ? `Move v${currentComponent.revision} to ${WORKFLOW_LABELS[transitionTarget]}` : "Workflow decision"}</DialogTitle>
-            <DialogDescription>This decision is stored as structured review evidence and in the hash-chained audit trail.</DialogDescription>
+            <DialogDescription className="sr-only">Recorded as review evidence and in the audit trail</DialogDescription>
           </DialogHeader>
           <div className="space-y-4">
             <div className="space-y-2">
@@ -778,7 +778,7 @@ export function LibraryComponentWorkspace({
             </div>
             {sameActorApproval ? (
               <div className="space-y-2 border border-destructive bg-destructive/10 p-3">
-                <div className="flex items-start gap-2"><CircleAlert className="mt-0.5 h-4 w-4 text-destructive" /><p className="text-xs">You created this revision. Administrator self-approval or self-publication is an emergency override and requires a separate justification.</p></div>
+                <div className="flex items-start gap-2"><CircleAlert className="mt-0.5 h-4 w-4 text-destructive" /><p className="text-xs" title="Self-approval or self-publication is an emergency override">You created this revision: override</p></div>
                 <Label htmlFor="component-override-reason">Override justification (required)</Label>
                 <Textarea id="component-override-reason" value={overrideReason} onChange={(event) => setOverrideReason(event.target.value)} placeholder="Why could an independent reviewer not approve this revision?" rows={3} />
               </div>
@@ -834,7 +834,7 @@ export function LibraryComponentWorkspace({
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
             <DialogTitle>Detach {detachAsset?.name || "asset"}</DialogTitle>
-            <DialogDescription>This creates a new revision without this file. A symbol or footprint that a representation still references must be reassigned first. Prior revisions and canonical files remain intact.</DialogDescription>
+            <DialogDescription>New revision without this file. Earlier revisions keep it.</DialogDescription>
           </DialogHeader>
           <DialogFooter>
             <Button variant="outline" disabled={busyAction === "detach-id"} onClick={() => setDetachAsset(null)}>Cancel</Button>

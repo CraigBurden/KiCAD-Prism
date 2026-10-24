@@ -513,7 +513,7 @@ function KlcValidationEvidence({ component, historical }: { component: CatalogCo
 
       <div className="mt-3 space-y-3 border-t pt-3">
         {historical ? (
-          <p className="border bg-muted/30 p-3 text-xs text-muted-foreground">Detailed KLC reports are currently available for the active revision. This historical revision retains its validation summary above.</p>
+          <p className="text-xs text-muted-foreground" title="Detailed reports are kept for the active revision only">Summary only</p>
         ) : loading ? (
           <p className="inline-flex items-center gap-2 text-xs text-muted-foreground"><Loader2 className="h-3.5 w-3.5 animate-spin" /> Loading validation evidence…</p>
         ) : error ? (
@@ -554,10 +554,10 @@ function KlcValidationEvidence({ component, historical }: { component: CatalogCo
                   ))}
                 </div>
               </div>
-            ) : <p className="mt-3 text-xs text-muted-foreground">No normalized findings were recorded for this run. Download the reports for checker output.</p>}
+            ) : <p className="mt-2 text-xs text-muted-foreground">No findings</p>}
           </article>
         )) : (
-          <p className="border border-dashed p-3 text-xs text-muted-foreground">No KLC run has been recorded for this revision yet. Run validation from the Assets tab.</p>
+          <p className="text-xs text-muted-foreground" title="Run KLC from the Assets tab">Not run</p>
         )}
       </div>
     </details>
@@ -600,7 +600,7 @@ export function ReleaseReviewPanel({
       {historical ? (
         <div className="flex items-start gap-3 border bg-muted/30 p-3 text-sm">
           <History className="mt-0.5 h-4 w-4 text-muted-foreground" />
-          <div><p className="font-medium">Historical revision is read-only</p><p className="text-xs text-muted-foreground">Return to the current revision to perform a workflow transition.</p></div>
+          <p className="font-medium" title="Return to the current revision to change its workflow">Historical revision · read only</p>
         </div>
       ) : null}
 
@@ -635,7 +635,7 @@ export function ReleaseReviewPanel({
                   </Button>
                 ))}
               </div>
-            ) : <p className="text-xs text-muted-foreground">No transitions are available for your role from this stage.</p>}
+            ) : <p className="text-xs text-muted-foreground">No actions for your role</p>}
           </div>
         </PanelCard>
       </div>
