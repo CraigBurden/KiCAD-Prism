@@ -76,7 +76,8 @@ The release job runs on a GitHub-hosted Linux AMD64 runner. It:
    those local images;
 3. waits for service health;
 4. verifies API readiness, frontend health, both worker processes, embedded Git
-   revision, `x86_64`, and `kicad-cli --version`;
+   revision, `x86_64`, `kicad-cli --version`, and `prism-kicad --version` in
+   the API and general worker;
 5. tears down the test stack;
 6. logs into GitHub Container Registry only after all smoke checks pass.
 
