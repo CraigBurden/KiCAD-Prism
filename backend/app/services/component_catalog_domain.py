@@ -457,6 +457,13 @@ class ComponentCatalogDomainService:
             conn.commit()
         return self.get_project_import_proposal(proposal_id) or {}
 
+    def delete_project_import_session(self, session_id: str) -> None:
+        self.initialize()
+        with self._connect() as conn:
+            self._project_import_sessions.delete_session(conn, session_id)
+            conn.commit()
+        self._project_import_sessions.remove_staging_directories(store_root=self.store_root, session_ids=[session_id])
+
     def cleanup_resolved_import_staging(self, *, older_than: str) -> dict[str, Any]:
         """Remove regenerable staged copies after every proposal is resolved."""
         self.initialize()

@@ -421,6 +421,7 @@ export interface ProjectComponentImportSession {
   updated_at: string;
   error_message: string;
   proposal_count: number;
+  candidate_count: number;
   selection: {
     component_uid?: string;
     reference?: string;

@@ -6,7 +6,10 @@ import uuid
 from pathlib import Path
 from typing import Any
 
+from app.core.errors import Conflict, NotFound
 from app.services.catalog.normalization import json_loads
+
+_RUNNING_STATUSES = frozenset({"queued", "uploading", "scanning"})
 
 
 class CatalogProjectImportSessions:
@@ -58,10 +61,14 @@ class CatalogProjectImportSessions:
         payload["project_ids"] = json_loads(payload.pop("project_ids_json"), [])
         payload["project_revisions"] = json_loads(payload.pop("project_revisions_json"), {})
         count = conn.execute(
-            "SELECT COUNT(1) AS count FROM project_component_import_proposals WHERE session_id = %s",
+            """
+            SELECT COUNT(1) AS count, COUNT(1) FILTER (WHERE status = 'candidate') AS candidates
+            FROM project_component_import_proposals WHERE session_id = %s
+            """,
             (session_id,),
         ).fetchone()
         payload["proposal_count"] = int(count["count"] if count else 0)
+        payload["candidate_count"] = int(count["candidates"] if count else 0)
         return payload
 
     def list_session_ids(
@@ -188,6 +195,25 @@ class CatalogProjectImportSessions:
         )
         if result.rowcount == 0:
             raise ValueError("Project import proposal was not found or has already been resolved")
+
+    def delete_session(self, conn: Any, session_id: str) -> None:
+        """Remove a session and its proposals. Components already accepted stay
+        in the catalog; a session still scanning or accepting is refused."""
+        session = conn.execute(
+            "SELECT status FROM project_component_import_sessions WHERE id = %s FOR UPDATE",
+            (session_id,),
+        ).fetchone()
+        if not session:
+            raise NotFound("Import session not found")
+        if session["status"] in _RUNNING_STATUSES:
+            raise Conflict("The import session is still running")
+        statuses = conn.execute(
+            "SELECT status FROM project_component_import_proposals WHERE session_id = %s FOR UPDATE",
+            (session_id,),
+        ).fetchall()
+        if any(row["status"] == "accepting" for row in statuses):
+            raise Conflict("A component from this import session is being accepted")
+        conn.execute("DELETE FROM project_component_import_sessions WHERE id = %s", (session_id,))
 
     def list_resolved_session_ids(self, conn: Any, *, older_than: str) -> list[str]:
         rows = conn.execute(
