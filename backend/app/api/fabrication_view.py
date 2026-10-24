@@ -32,7 +32,12 @@ from app.services.fabrication_view_service import (
     FabricationPackage,
     RENDER_VERSION,
 )
-from app.services.placement_service import PlacementError, parse_bom, parse_positions
+from app.services.placement_service import (
+    PlacementError,
+    parse_bom,
+    parse_positions,
+    position_files,
+)
 from app.services.placement_service import build_view as build_placement_view
 
 router = APIRouter(dependencies=[Depends(require_viewer)])
@@ -43,9 +48,15 @@ _LAYER_FILE = re.compile(
     r"\.(gbr|gtl|gbl|gts|gbs|gto|gbo|gtp|gbp|gta|gba|gm\d|gko|g\d+|gbrjob|drl|xln)$",
     re.IGNORECASE,
 )
-_CSV_FILE = re.compile(r"\.csv$", re.IGNORECASE)
+#: A position file or BOM: CSV, or KiCad's ``*-pos`` export whatever its extension.
+_TABLE_FILE = re.compile(r"(\.(csv|pos|txt)|[-_]pos)$", re.IGNORECASE)
 _LAYERS = (_LAYER_FILE, "No Gerber or drill files in this folder")
-_TABLES = (_CSV_FILE, "No CSV files in this folder")
+_TABLES = (_TABLE_FILE, "No position file or BOM in this folder")
+
+#: How many folder levels below the one asked for belong to its package. CAM
+#: exports keep drill files in a subfolder of the Gerbers, and an output folder
+#: keeps the Gerbers, the positions and the BOM in folders of their own.
+_MAX_DEPTH = 3
 
 #: Limits that keep one request bounded: how many files, how big each is, and how
 #: much a folder may ask to hold in memory at once.
@@ -210,21 +221,37 @@ def _candidates(names_sizes: list[tuple[str, int]], kind) -> list[tuple[str, int
     return found
 
 
+def _walk(directory: str, kind, prefix: str = "", depth: int = 0) -> list[tuple[str, os.stat_result]]:
+    """Files of one kind under ``directory``, by path relative to it, ``_MAX_DEPTH`` deep.
+
+    Hidden folders are skipped, and links are never followed: a link could
+    reach outside the output folder the request was checked against.
+    """
+
+    found: list[tuple[str, os.stat_result]] = []
+    for entry in os.scandir(directory):
+        if entry.name.startswith("."):
+            continue
+        path = f"{prefix}{entry.name}"
+        if entry.is_dir(follow_symlinks=False):
+            if depth < _MAX_DEPTH:
+                found.extend(_walk(entry.path, kind, f"{path}/", depth + 1))
+        elif entry.is_file(follow_symlinks=False) and kind[0].search(entry.name):
+            found.append((path, entry.stat(follow_symlinks=False)))
+    return found
+
+
 def _working_tree(project, output_type: str, folder: str, kind=_LAYERS):
     output_dir = project_outputs.output_dir(project, output_type)
     directory = resolve_path_within_root(output_dir, folder, invalid_detail="Invalid folder path")
     if not directory.is_dir():
         raise HTTPException(status_code=404, detail="Folder not found")
-    entries = [
-        (entry.name, entry.stat())
-        for entry in os.scandir(directory)
-        if entry.is_file() and kind[0].search(entry.name)
-    ]
-    _candidates([(name, stat.st_size) for name, stat in entries], kind)
-    signature = tuple(sorted((name, stat.st_size, stat.st_mtime_ns) for name, stat in entries))
+    entries = _walk(str(directory), kind)
+    _candidates([(path, stat.st_size) for path, stat in entries], kind)
+    signature = tuple(sorted((path, stat.st_size, stat.st_mtime_ns) for path, stat in entries))
 
     def read() -> dict[str, bytes]:
-        return {name: (directory / name).read_bytes() for name, _ in entries}
+        return {path: (directory / path).read_bytes() for path, _ in entries}
 
     return signature, read
 
@@ -237,9 +264,11 @@ def _at_commit(project, output_type: str, folder: str, commit: str, kind=_LAYERS
     items = [
         item
         for item in project_outputs.list_commit_files(project, commit, base)
-        if not item.is_dir and "/" not in item.path
+        if not item.is_dir
+        and item.path.count("/") <= _MAX_DEPTH
+        and not any(part.startswith(".") for part in item.path.split("/"))
     ]
-    found = _candidates([(item.name, item.size) for item in items], kind)
+    found = _candidates([(item.path, item.size) for item in items], kind)
     signature = tuple(sorted(found))
 
     def read() -> dict[str, bytes]:
@@ -350,13 +379,19 @@ def _is_position_file(text: str) -> bool:
     return True
 
 
-def _pick(files: dict[str, str], wanted, prefer: re.Pattern[str]) -> Optional[str]:
-    """First file `wanted` accepts, those named like `prefer` first."""
+def _preferred(names, prefer: re.Pattern[str]) -> list[str]:
+    """``names`` with those named like ``prefer`` first, shallowest first, then by name."""
 
-    for name in sorted(files, key=lambda item: (not prefer.search(item), item.casefold())):
-        if wanted(files[name]):
-            return name
-    return None
+    return sorted(
+        names,
+        key=lambda item: (not prefer.search(item.rsplit("/", 1)[-1]), item.count("/"), item.casefold()),
+    )
+
+
+def _pick(files: dict[str, str], wanted, prefer: re.Pattern[str]) -> Optional[str]:
+    """First file `wanted` accepts, in ``_preferred`` order."""
+
+    return next((name for name in _preferred(files, prefer) if wanted(files[name])), None)
 
 
 _POSITION_NAME = re.compile(r"pos|cpl|place|centroid", re.IGNORECASE)
@@ -371,10 +406,11 @@ def get_output_placement(
     commit: Optional[str] = None,
     user: AuthenticatedUser = Depends(require_viewer),
 ):
-    """Parts of the position file in a folder, checked against its BOM if it has one.
+    """Parts of the position files in a folder, checked against its BOM if it has one.
 
     The files are found by what they contain, not by name: KiCad calls them
     ``*-pos.csv`` and ``*.csv``, the JLCPCB plugin ``CPL-*.csv`` and ``BOM-*.csv``.
+    A top and a bottom position file are read together.
     """
 
     output_type = require_output_type(type)
@@ -385,10 +421,12 @@ def get_output_placement(
     if cached is not None:
         return cached
     files = {name: data.decode("utf-8", errors="replace") for name, data in read().items()}
-    positions = _pick(files, _is_position_file, _POSITION_NAME)
-    if positions is None:
+    positions = position_files(
+        [(name, files[name]) for name in _preferred(files, _POSITION_NAME)]
+    )
+    if not positions:
         raise HTTPException(status_code=404, detail="No position file in this folder")
-    others = {name: text for name, text in files.items() if name != positions}
+    others = {name: text for name, text in files.items() if name not in positions}
 
     def is_bom(text: str) -> bool:
         try:
@@ -399,9 +437,9 @@ def get_output_placement(
 
     bom = _pick(others, is_bom, _BOM_NAME)
     view = build_placement_view(
-        files[positions],
+        [files[name] for name in positions],
         others[bom] if bom else None,
-        positions_name=positions,
+        positions_name=", ".join(positions),
         bom_name=bom or "",
     )
     if _cacheable(commit):

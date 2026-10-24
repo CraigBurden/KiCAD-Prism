@@ -11,6 +11,13 @@ Studio build and for a committed output folder. Add a new source there, not
 inside the viewer. Key the viewer on `source.key`: a new package is a new
 component, so no state has to reset itself.
 
+A committed output folder is a package together with its subfolders,
+`PACKAGE_DEPTH` (3) levels down, the backend's `_MAX_DEPTH`: CAM exports keep
+drill files, positions and the BOM in folders of their own. The Assets Portal
+offers the viewer on a folder with a layer anywhere in that reach
+(`holdsLayers`), and on each output tree's header for the whole folder. Drill
+maps are drawings, not layers (`isLayerName`).
+
 ## It is built from the existing viewers' parts
 
 Look and behavior are meant to match the Visualizer and Design Comparison, so
@@ -87,7 +94,12 @@ If one of these changes, the viewer should follow it.
   and `Pane` takes `mirrored`, so dragging and zoom-to-cursor still follow the
   pointer; text drawn inside the pane (marker labels) must be flipped back.
 - **Fit to the board with a margin** (`withMargin`). Fitting the profile exactly
-  puts its edges on the pane border, where they are clipped.
+  puts its edges on the pane border, where they are clipped. Artwork past the
+  profile (a connector's silkscreen over the edge) may run off a narrow pane; that
+  is the board being fitted, not a lost fit.
+- **Resizing needs no refit code.** The camera is board millimetres relative to
+  fit and `Pane` re-measures itself, so an unmoved view stays fitted at every size
+  (`frontend/src/components/design-comparison/fabrication-pane-resize.test.tsx`).
 - **A press on a marker is a pick, not a drag.** The pane captures the pointer to
   pan, so markers stop `pointerdown` from reaching it.
 - **Parts not in the BOM are not drawn** (unless picked); the table still lists

@@ -10,6 +10,7 @@ from app.services.fabrication_view_service import (
     FabricationPackage,
     FabricationViewError,
     classify,
+    is_drill_map,
 )
 
 
@@ -367,14 +368,57 @@ class MinimumStrokeTests(unittest.TestCase):
         self.assertIn('<line x1="0" y1="0" x2="1" y2="1" stroke="#fff" stroke-width="0.1"/>', out)
 
 
+def _names(files: dict[str, bytes]) -> list[str]:
+    return sorted(layer["name"] for layer in FabricationPackage.from_files(files).view()["layers"])
+
+
 class LayerNameTests(unittest.TestCase):
-    def test_two_drill_programs_are_told_apart_by_file(self) -> None:
+    def test_drill_programs_are_named_by_their_plating(self) -> None:
         files = {"board-PTH.drl": DRILL, "board-NPTH.drl": DRILL, "board-F_Cu.gtl": gerber(PAD)}
+        self.assertEqual(_names(files), ["Drill (NPTH)", "Drill (PTH)", "F.Cu"])
+
+    def test_without_a_job_file_the_shared_board_name_is_dropped(self) -> None:
+        # A drill folder on its own: no job file names the board.
+        files = {
+            "USB-PD-Trigger-Board-PTH.drl": DRILL,
+            "USB-PD-Trigger-Board-NPTH.drl": DRILL,
+        }
+        self.assertEqual(_names(files), ["Drill (NPTH)", "Drill (PTH)"])
+
+    def test_programs_that_say_nothing_of_plating_keep_what_tells_them_apart(self) -> None:
+        files = {"board-1-2.drl": DRILL, "board-2-3.drl": DRILL}
+        self.assertEqual(_names(files), ["Drill (1-2)", "Drill (2-3)"])
+
+    def test_the_whole_file_name_is_the_last_resort(self) -> None:
+        self.assertEqual(
+            _names({"a.drl": DRILL, "b.drl": DRILL}), ["Drill (a)", "Drill (b)"]
+        )
+
+
+class PackageFileTests(unittest.TestCase):
+    def test_drill_maps_are_not_layers(self) -> None:
+        files = package_files()
+        drill_map = b"%TF.FileFunction,Drillmap*%\n" + gerber(SILK_MARK)
+        files["drill-data/board-PTH-map.gbr"] = drill_map
+        files["drill-data/board-NPTH-drl_map.gbr"] = gerber(SILK_MARK)
+        package = FabricationPackage.from_files(files)
+        self.assertEqual(
+            [layer for layer in package.layers if "map" in layer.filename], []
+        )
+        # The map's legend would have widened the board.
+        self.assertEqual(package.view()["size"], {"width": 20.0, "height": 10.0})
+
+    def test_is_drill_map_reads_the_header_or_the_name(self) -> None:
+        self.assertTrue(is_drill_map("x.gbr", b"%TF.FileFunction,Drillmap*%\n"))
+        self.assertTrue(is_drill_map("board-PTH-drl_map.gbr", b""))
+        self.assertFalse(is_drill_map("board-F_Cu.gbr", gerber(PAD)))
+
+    def test_the_file_nearest_the_top_wins_a_name_clash(self) -> None:
+        files = package_files()
+        files["old/board-F_Silkscreen.gto"] = gerber(SILK_MARK)
         view = FabricationPackage.from_files(files).view()
-        names = {layer["id"]: layer["name"] for layer in view["layers"]}
-        self.assertEqual(sorted(name for name in names.values() if name.endswith(".drl")),
-                         ["board-NPTH.drl", "board-PTH.drl"])
-        self.assertIn("F.Cu", names.values())
+        # The silkscreen mark at 30 mm would have widened the board.
+        self.assertEqual(view["size"], {"width": 20.0, "height": 10.0})
 
 
 class PackageViewTests(unittest.TestCase):

@@ -12,6 +12,7 @@ Studio build, committed outputs) is the caller's business.
 
 from __future__ import annotations
 
+import os
 import re
 import tempfile
 import threading
@@ -78,7 +79,8 @@ _MASK_ID = "layer"
 #: Bump whenever `svg()` draws differently. Layer URLs carry it, so a browser that
 #: holds a year-long cached SVG from an older drawing fetches the new one instead
 #: of stacking stale artwork (an opaque black layer once hid everything under it).
-RENDER_VERSION = 3
+#: 4: drill maps left out of a package, which changes the extent layers are drawn on.
+RENDER_VERSION = 4
 
 #: A drawn line is never thinner than this on screen. A 0.1 mm silkscreen or outline
 #: line is a fraction of a pixel when the whole board is in view, and anti-aliasing
@@ -253,6 +255,57 @@ def _sort_key(info: LayerInfo) -> Tuple[Any, ...]:
     return (10 + ROLES.index(info.role), 0, _natural(info.name))
 
 
+_PLATING = re.compile(r"(?<![a-z])(n?pth)(?![a-z])", re.IGNORECASE)
+
+
+def _board_prefix(filenames: Sequence[str]) -> str:
+    """The board name every file of the package starts with, through its last ``-`` or ``_``.
+
+    ``USB-PD-Trigger-Board-PTH.drl`` and ``USB-PD-Trigger-Board-NPTH.drl`` share
+    ``USB-PD-Trigger-Board-``. A package of one file has no shared name.
+    """
+
+    stems = [Path(name).stem for name in filenames]
+    if len(stems) < 2:
+        return ""
+    shared = os.path.commonprefix(stems)
+    cut = max(shared.rfind("-"), shared.rfind("_"))
+    return shared[: cut + 1] if cut >= 0 else ""
+
+
+def display_names(layers: Sequence[fab.FabricationLayer]) -> List[str]:
+    """A name for each layer that a reader can tell apart from the others.
+
+    Discovery names a layer by its Gerber function or by KiCad's file-name
+    convention. A drill program is named by its plating (``Drill (PTH)``). Where
+    two layers still read the same, the file name without the board name the
+    package shares is used, and the whole file name only if that is ambiguous too.
+    """
+
+    prefix = _board_prefix([layer.filename for layer in layers])
+
+    def label(layer: fab.FabricationLayer) -> str:
+        stem = Path(layer.filename).stem
+        return stem[len(prefix):] if prefix and stem.startswith(prefix) else stem
+
+    names: List[str] = []
+    for layer in layers:
+        name = layer.name
+        if layer.kind == "excellon":
+            plating = _PLATING.search(label(layer))
+            name = f"Drill ({plating.group(1).upper()})" if plating else name
+        names.append(name)
+    for fallback in (
+        lambda layer: f"Drill ({label(layer)})" if layer.kind == "excellon" else label(layer).replace("_", "."),
+        lambda layer: layer.filename,
+    ):
+        counts = Counter(names)
+        names = [
+            fallback(layer) if counts[name] > 1 else name for layer, name in zip(layers, names)
+        ]
+    return names
+
+
 def _unique_ids(layers: Sequence[fab.FabricationLayer]) -> List[str]:
     seen: Counter = Counter()
     ids: List[str] = []
@@ -263,14 +316,44 @@ def _unique_ids(layers: Sequence[fab.FabricationLayer]) -> List[str]:
     return ids
 
 
+#: A drill map declares itself in its header (KiCad writes ``%TF.FileFunction,Drillmap*%``).
+_DRILL_MAP_FUNCTION = re.compile(rb"%TF\.FileFunction,Drillmap", re.IGNORECASE)
+_DRILL_MAP_NAME = re.compile(r"(drl|drill)[-_]?map", re.IGNORECASE)
+#: The header is where a Gerber file's attributes are; no need to scan a whole plot.
+_HEADER_BYTES = 4096
+
+
+def is_drill_map(name: str, data: bytes) -> bool:
+    """A drill map is a drawing of the holes with a legend, not a layer of the board.
+
+    Drawn with the layers, its legend sets the board's extent and its symbols
+    sit over the holes, so it is left out of a package.
+    """
+
+    return bool(
+        _DRILL_MAP_NAME.search(Path(name).name) or _DRILL_MAP_FUNCTION.search(data[:_HEADER_BYTES])
+    )
+
+
 def layers_from_files(files: Mapping[str, bytes]) -> List[fab.FabricationLayer]:
-    """Discover layers in an in-memory file set, by the same rules as a directory."""
+    """Discover layers in an in-memory file set, by the same rules as a directory.
+
+    Members arrive with their path (a dossier member, or a file in a subfolder of
+    an output folder); only the file name matters to discovery, so the set is
+    laid out flat. When two files share a name, the one nearest the top wins.
+    Drill maps are not layers and are left out.
+    """
 
     with tempfile.TemporaryDirectory(prefix="prism-fab-view-") as scratch:
         root = Path(scratch)
-        for name, data in files.items():
-            # Members arrive with their archive path; only the file name matters.
-            (root / Path(name).name).write_bytes(data)
+        written: set[str] = set()
+        for name in sorted(files, key=lambda item: (item.count("/"), item)):
+            data = files[name]
+            filename = Path(name).name
+            if filename in written or is_drill_map(filename, data):
+                continue
+            written.add(filename)
+            (root / filename).write_bytes(data)
         return fab.read_layers(root)
 
 
@@ -296,10 +379,8 @@ class FabricationPackage:
 
     def _load(self) -> None:
         infos: List[LayerInfo] = []
-        # Two layers can read the same ("Drill" for a PTH and an NPTH program);
-        # the file name is then the only thing that tells them apart.
-        names = Counter(layer.name for layer in self.layers)
-        for layer, layer_id in zip(self.layers, _unique_ids(self.layers)):
+        names = display_names(self.layers)
+        for layer, layer_id, name in zip(self.layers, _unique_ids(self.layers), names):
             role, side = classify(layer.function, layer.kind, layer.filename, layer.name)
             colour = (
                 _OTHER_COLOURS.get(layer_id, _FALLBACK_COLOUR)
@@ -315,7 +396,7 @@ class FabricationPackage:
                 self._parsed[layer_id] = parsed
                 self._warnings[layer_id] = sorted(set(parsed.warnings))
             infos.append(LayerInfo(
-                id=layer_id, name=layer.filename if names[layer.name] > 1 else layer.name,
+                id=layer_id, name=name,
                 function=layer.function, role=role,
                 side=side, colour=colour, filename=layer.filename, kind=layer.kind,
             ))

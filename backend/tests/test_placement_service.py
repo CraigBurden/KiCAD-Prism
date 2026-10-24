@@ -12,6 +12,7 @@ from app.services.placement_service import (
     natural_key,
     parse_bom,
     parse_positions,
+    position_files,
 )
 
 KICAD_POS = (
@@ -203,6 +204,22 @@ class PreambleTests(unittest.TestCase):
         with self.assertRaises(PlacementError) as caught:
             parse_positions("a,b\n1,2\n")
         self.assertIn("no ref", str(caught.exception))
+
+
+class PositionFilesTests(unittest.TestCase):
+    HEADER = "Ref,Val,Package,PosX,PosY,Rot,Side\n"
+
+    def test_a_split_export_is_read_together_and_a_duplicate_is_not(self) -> None:
+        top = self.HEADER + "C1,1u,C_0402,1,-1,0,top\n"
+        bottom = self.HEADER + "R1,1k,R_0402,2,-2,0,bottom\n"
+        candidates = [("top", top), ("bom", KICAD_BOM), ("bottom", bottom), ("cpl", JLC_CPL), ("empty", self.HEADER)]
+        self.assertEqual(position_files(candidates), ["top", "bottom"])
+
+    def test_several_texts_make_one_view(self) -> None:
+        top = self.HEADER + "C1,1u,C_0402,1,-1,0,top\n"
+        bottom = self.HEADER + "R1,1k,R_0402,2,-2,0,bottom\n"
+        view = build_view([top, bottom])
+        self.assertEqual([part["ref"] for part in view["parts"]], ["C1", "R1"])
 
 
 class DocumentPipelinePlacementsTests(unittest.TestCase):

@@ -18,7 +18,10 @@ export type OutputType = "design" | "manufacturing";
 /**
  * Gerber and drill files committed in a project's output folders.
  *
- * `folder` is relative to the output folder, and only its direct files are read.
+ * `folder` is relative to the output folder ("" is the whole output folder).
+ * Its files and those in its subfolders, `PACKAGE_DEPTH` levels down, are one
+ * package: CAM exports keep drill files, positions and the BOM in folders of
+ * their own.
  */
 export function outputsSource(
     projectId: string,
@@ -37,14 +40,32 @@ export function outputsSource(
     };
 }
 
+/** How many folder levels below an opened folder its package reaches (the backend's `_MAX_DEPTH`). */
+export const PACKAGE_DEPTH = 3;
+
 /**
  * Gerber (`.gbr`, Protel `.gtl`/`.gm1`/..., inner `.g1`) or drill file by name.
- * The job file is metadata and is not a layer.
+ * The job file is metadata, and a drill map is a drawing with a legend; neither
+ * is a layer.
  */
 const LAYER_NAME = /\.(gbr|gtl|gbl|gts|gbs|gto|gbo|gtp|gbp|gta|gba|gm\d|gko|g\d+|drl|xln)$/i;
+const DRILL_MAP_NAME = /(drl|drill)[-_]?map/i;
 
 export function isLayerName(name: string): boolean {
-    return LAYER_NAME.test(name) && !/\.gbrjob$/i.test(name);
+    return LAYER_NAME.test(name) && !/\.gbrjob$/i.test(name) && !DRILL_MAP_NAME.test(name);
+}
+
+interface PackageNode {
+    name: string;
+    isDir: boolean;
+    children: readonly PackageNode[];
+}
+
+/** Whether a folder with these entries opens as a package: a layer file within `PACKAGE_DEPTH` levels. */
+export function holdsLayers(entries: readonly PackageNode[], depth: number = PACKAGE_DEPTH): boolean {
+    return entries.some((entry) =>
+        entry.isDir ? depth > 0 && holdsLayers(entry.children, depth - 1) : isLayerName(entry.name),
+    );
 }
 
 /** Gerber and drill files a build keeps, which the viewer draws. */

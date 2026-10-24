@@ -98,9 +98,32 @@ class OutputFabricationViewTests(unittest.TestCase):
         self.assertEqual(response.headers["Cache-Control"], "private, no-cache")
 
     def test_a_folder_without_gerbers_is_404(self) -> None:
+        (self.root / "docs").mkdir()
+        (self.root / "docs" / "readme.txt").write_text("hi")
         with self.assertRaises(REFUSED) as caught:
-            self._view(folder="")
+            self._view(folder="docs")
         self.assertEqual(caught.exception.status_code, 404)
+
+    def test_a_package_reaches_into_its_subfolders(self) -> None:
+        # CAM exports keep the drill files in a folder of their own.
+        gerbers = self.root / "gerbers"
+        drills = gerbers / "drill-data"
+        drills.mkdir()
+        (gerbers / "board.drl").rename(drills / "board.drl")
+        self.assertEqual(self._view()["drill"]["holes"], 4)
+        # The output folder itself is the whole package.
+        self.assertEqual(self._view(folder="")["drill"]["holes"], 4)
+
+    def test_subfolders_deeper_than_the_limit_and_hidden_ones_are_not_read(self) -> None:
+        gerbers = self.root / "gerbers"
+        deep = gerbers / "a" / "b" / "c" / "d"
+        deep.mkdir(parents=True)
+        (gerbers / "board.drl").rename(deep / "board.drl")
+        self.assertEqual(self._view()["drill"]["holes"], 0)
+        hidden = gerbers / ".cache"
+        hidden.mkdir()
+        (deep / "board.drl").rename(hidden / "board.drl")
+        self.assertEqual(self._view()["drill"]["holes"], 0)
 
     def test_a_missing_folder_is_404(self) -> None:
         with self.assertRaises(REFUSED) as caught:
@@ -158,13 +181,20 @@ class CommitFabricationViewTests(unittest.TestCase):
         self.read_calls: list[str] = []
 
     def _view(self, folder="gerbers", commit="a" * 40):
-        listing = [_item(name, len(data)) for name, data in self.files.items()]
-        listing += [_item("sub", 0, is_dir=True), _item("deep.gbr", 5, path="sub/deep.gbr")]
+        # Drill files one folder down are part of the package; four down is not.
+        placed = {
+            name: "drill-data/board.drl" if name == "board.drl" else name for name in self.files
+        }
+        placed["board-F_Fab.gbr"] = "a/b/c/d/board-F_Fab.gbr"
+        listing = [_item(name, len(self.files[name]), path=path) for name, path in placed.items()]
+        listing += [_item("drill-data", 0, is_dir=True)]
+        by_path = {path: self.files[name] for name, path in placed.items()}
 
-        def read(_project, _commit, name, *, relative_prefix, not_found_detail):
-            self.read_calls.append(f"{relative_prefix}/{name}")
+        def read(_project, _commit, path, *, relative_prefix, not_found_detail):
+            self.read_calls.append(f"{relative_prefix}/{path}")
             # CommitFile reads its blob from git lazily; the route only needs `content`.
-            return SimpleNamespace(name=name, path=name, size=len(self.files[name]), content=self.files[name])
+            data = by_path[path]
+            return SimpleNamespace(name=path.rsplit("/", 1)[-1], path=path, size=len(data), content=data)
 
         with (
             patch.object(self.api, "get_project_for_role_or_404", lambda *_a: object()),
@@ -179,9 +209,11 @@ class CommitFabricationViewTests(unittest.TestCase):
         self.assertEqual(view["size"], {"width": 20.0, "height": 10.0})
         self.assertTrue(all(call.startswith("Manufacturing-Outputs/gerbers/") for call in self.read_calls))
 
-    def test_only_direct_children_are_read(self) -> None:
-        self._view()
-        self.assertFalse(any("deep.gbr" in call for call in self.read_calls))
+    def test_subfolders_are_read_to_the_depth_limit(self) -> None:
+        view = self._view()
+        self.assertEqual(view["drill"]["holes"], 4)
+        self.assertIn("Manufacturing-Outputs/gerbers/drill-data/board.drl", self.read_calls)
+        self.assertFalse(any("F_Fab" in call for call in self.read_calls))
 
     def test_a_second_request_for_the_same_commit_does_not_read_git_again(self) -> None:
         self._view()
@@ -201,10 +233,6 @@ class CommitFabricationViewTests(unittest.TestCase):
         self._view(commit="a" * 40)
         self._view(commit="b" * 40)
         self.assertEqual(len(self.api._cache), 2)
-
-
-if __name__ == "__main__":
-    unittest.main()
 
 
 class OutputPlacementTests(unittest.TestCase):
@@ -267,3 +295,34 @@ class OutputPlacementTests(unittest.TestCase):
         with self.assertRaises(REFUSED) as caught:
             self._view("../x")
         self.assertIn(caught.exception.status_code, (400, 404))
+
+    def test_a_top_and_a_bottom_file_are_read_together(self) -> None:
+        header = "Ref,Val,Package,PosX,PosY,Rot,Side\n"
+        self._folder("split", {
+            "board-top-pos.csv": header + "C1,1u,C_0402,1,-1,0,top\n",
+            "board-bottom-pos.csv": header + "R1,1k,R_0402,2,-2,0,bottom\n",
+        })
+        view = self._view("split")
+        self.assertEqual(view["counts"]["placed"], 2)
+        self.assertEqual((view["counts"]["top"], view["counts"]["bottom"]), (1, 1))
+
+    def test_a_second_export_of_the_same_board_is_not_added_twice(self) -> None:
+        pos, _, cpl, _ = self.texts
+        # KiCad's positions and the JLCPCB CPL both hold C1.
+        self._folder("both", {"board-pos.csv": pos, "CPL-board.csv": cpl})
+        view = self._view("both")
+        self.assertEqual(view["files"]["positions"], "board-pos.csv")
+        self.assertEqual(view["counts"]["placed"], 4)
+
+    def test_positions_and_bom_in_sibling_folders_of_the_output_folder(self) -> None:
+        pos, bom, _, _ = self.texts
+        # KiCad's `-pos` export with no extension, and a header-only bottom file.
+        self._folder("XY-Data", {"-top-pos": pos, "-bottom-pos": "Ref,Val,Package,PosX,PosY,Rot,Side\n"})
+        self._folder("BOM", {"board-BoM.csv": bom})
+        view = self._view("")
+        self.assertEqual(view["files"], {"positions": "XY-Data/-top-pos", "bom": "BOM/board-BoM.csv"})
+        self.assertEqual(view["counts"]["placed"], 4)
+
+
+if __name__ == "__main__":
+    unittest.main()

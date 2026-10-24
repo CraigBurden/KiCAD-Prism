@@ -17,7 +17,7 @@ import csv
 import io
 import re
 from dataclasses import dataclass
-from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence, Tuple
+from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence, Tuple, Union
 
 from app.core import errors
 
@@ -253,8 +253,32 @@ def _check(parts: Iterable[Part], bom: Sequence[BomLine]) -> Tuple[Dict[str, str
     return statuses, missing
 
 
+def position_files(candidates: Sequence[Tuple[str, str]]) -> List[str]:
+    """Which of ``candidates`` (name, text), in order of preference, make one board's parts.
+
+    The first readable position file is taken. Another one joins it only when it
+    has none of the parts already taken: KiCad writes a top and a bottom file
+    when asked to split them. A second export of the same board (KiCad's file
+    beside a vendor's CPL) shares its parts and is left out.
+    """
+
+    chosen: List[str] = []
+    taken: set[str] = set()
+    for name, text in candidates:
+        try:
+            parts, _warnings = parse_positions(text)
+        except PlacementError:
+            continue
+        refs = {part.ref for part in parts}
+        if chosen and refs & taken:
+            continue
+        chosen.append(name)
+        taken |= refs
+    return chosen
+
+
 def build_view(
-    positions_text: str,
+    positions_text: Union[str, Sequence[str]],
     bom_text: Optional[str] = None,
     *,
     positions_name: str = "",
@@ -262,11 +286,19 @@ def build_view(
 ) -> Dict[str, Any]:
     """Parts in board coordinates, with the BOM check when a BOM is given.
 
-    Position files are Y-up, like Gerber; the board frame the viewer draws in is
-    KiCad's, Y-down, so ``y`` is negated here and nowhere else.
+    ``positions_text`` is one position file, or several that together hold the
+    board's parts (``position_files`` picks them). Position files are Y-up, like
+    Gerber; the board frame the viewer draws in is KiCad's, Y-down, so ``y`` is
+    negated here and nowhere else.
     """
 
-    parts, warnings = parse_positions(positions_text)
+    texts = [positions_text] if isinstance(positions_text, str) else list(positions_text)
+    parts: List[Part] = []
+    warnings: List[str] = []
+    for text in texts:
+        found, notes = parse_positions(text)
+        parts.extend(found)
+        warnings.extend(notes)
     bom: List[BomLine] = []
     if bom_text is not None:
         try:

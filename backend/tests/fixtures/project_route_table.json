@@ -208,7 +208,7 @@
   "GET /api/projects/{project_id}/name": "25ef1781419a8f63c1c6bbcc210b1bb6855cc05fd13a2dfbe43a3c418fe31ea6",
   "GET /api/projects/{project_id}/overview": "ac71efc9660b80522a2fbe94086c62bc6041a80cecda467c627d4129a0d5a555",
   "GET /api/projects/{project_id}/pcb": "361a630a84db665ecf33c42ee88099c9c8e89bda0b80b49d0d63eabe01ec1c20",
-  "GET /api/projects/{project_id}/placement": "8de4941b061f88a596a999b8fdf2d94c309f819d2c3042eb6294d469f69c065d",
+  "GET /api/projects/{project_id}/placement": "fd3aa382ad7beef962e7f87ccc7dd0fc9f70c7c059e23d05350e24ba93dac0fb",
   "GET /api/projects/{project_id}/properties": "9b8b2e593b39817d46bbfef5ca41356bea179962ad0bf3673a3cd1f2b445da69",
   "GET /api/projects/{project_id}/readme": "2e068d0da1850d8b485d942646fff6641c873b5e149d81f7681eb643e8d1bd64",
   "GET /api/projects/{project_id}/release-studio/builds/{build_id}": "81989e8869901cf29110654b8751cc5d2332d222f42de9e6e45822250a344a17",

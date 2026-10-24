@@ -280,6 +280,17 @@ Rules that are easy to break:
   flip again downstream.
 - **A declared layer function wins.** File names are read only for files with no
   Gerber X2 function (`fabrication_view_service._classify_by_name`).
+- **An output folder's package reaches three levels down** (`_MAX_DEPTH` in
+  `backend/app/api/fabrication_view.py`, `PACKAGE_DEPTH` in
+  `frontend/src/components/fabrication-viewer/sources.ts`). Files
+  are laid out flat by name for discovery; on a name clash the file nearest the
+  top wins. A top and a bottom position file are read together
+  (`placement_service.position_files`); a second export of the same board is not.
+- **Drill maps are not layers** (`fabrication_view_service.is_drill_map`): their
+  legend would set the board's extent.
+- **Layer names are for reading** (`display_names`). Drill programs are named by
+  plating; a name that is still ambiguous drops the board name the package's files
+  share before falling back to the whole file name.
 - **Match columns by meaning, not by name.** KiCad and the JLCPCB plugin name the
   same columns differently, and a JLCPCB BOM has a `Designator` column, so a
   position file is recognised by having coordinates, not by its name.
@@ -289,11 +300,13 @@ Rules that are easy to break:
   mask with the colour filled through it, so the cut shows what is behind instead of
   painting black. A mask costs the browser a second drawing, so it is used only then.
   The viewer stacks the layers; nothing is blended, and no SVG carries `opacity`.
-- **Bump `RENDER_VERSION` whenever `svg()` draws differently.** Build layers are
-  cached by the browser for a year as immutable, and the viewer puts the version in
-  every layer URL. Without the bump, a browser keeps the old drawing: after the
-  switch to opaque stacking, cached SVGs with a black background hid every layer
-  under the last one painted.
+- **Bump `RENDER_VERSION` whenever `svg()` draws differently.** Build layers and
+  layers at a pinned commit are cached by the browser for a year as immutable, and
+  the viewer puts the version in every layer URL. Without the bump, a browser keeps
+  the old drawing: after the switch to opaque stacking, cached SVGs with a black
+  background hid every layer under the last one painted. Changing which files make
+  a package counts: every layer is drawn on the package's extent, so leaving drill
+  maps out (version 4) moved every layer.
 - **A drawn line is at least 1.5 screen pixels wide.** `with_minimum_stroke` adds a
   `width` media-query ladder to each layer SVG: an image SVG evaluates those against
   its own rendered width, so the SVG can size its minimum line to the zoom without

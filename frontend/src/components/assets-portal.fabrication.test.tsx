@@ -33,6 +33,12 @@ const MANUFACTURING = [
     file("gerbers/board-F_Cu.gtl"),
     file("gerbers/board-job.gbrjob"),
     file("gerbers/board.drl"),
+    file("gerbers/drill-data", true),
+    file("gerbers/drill-data/board-PTH.drl"),
+    file("gerbers/drill-data/board-PTH-drl_map.gbr"),
+    file("fab", true),
+    file("fab/v2", true),
+    file("fab/v2/board-B_Cu.gbl"),
     file("docs", true),
     file("docs/fab-notes.pdf"),
     file("docs/logo.gif"),
@@ -89,6 +95,28 @@ describe("AssetsPortal fabrication entry points", () => {
         await openTree("c".repeat(40));
         fireEvent.click(screen.getByRole("button", { name: "Open gerbers in the Gerber viewer" }));
         expect(await screen.findByTestId("dialog")).toHaveAttribute("data-url", expect.stringContaining(`commit=${"c".repeat(40)}`));
+    });
+
+    it("offers the viewer on a folder whose layers are in a subfolder", async () => {
+        await openTree();
+        expect(screen.getByRole("button", { name: "Open fab in the Gerber viewer" })).toBeInTheDocument();
+    });
+
+    it("does not offer a drill map, which is a drawing and not a layer", async () => {
+        await openTree();
+        fireEvent.click(screen.getByRole("button", { name: "Expand drill-data" }));
+        expect(screen.getByRole("button", { name: "Open board-PTH.drl in the Gerber viewer" })).toBeInTheDocument();
+        expect(screen.queryByRole("button", { name: "Open board-PTH-drl_map.gbr in the Gerber viewer" })).not.toBeInTheDocument();
+    });
+
+    it("opens a whole output folder from its header, and only one that holds layers", async () => {
+        await openTree();
+        expect(screen.queryByRole("button", { name: "Open Design Outputs in the Gerber viewer" })).not.toBeInTheDocument();
+        fireEvent.click(screen.getByRole("button", { name: "Open Manufacturing Outputs in the Gerber viewer" }));
+        const dialog = await screen.findByTestId("dialog");
+        expect(dialog).toHaveAttribute("data-url", expect.stringContaining("type=manufacturing&folder="));
+        expect(dialog).toHaveAttribute("data-url", expect.not.stringContaining("folder=gerbers"));
+        expect(dialog).toHaveAttribute("data-title", "Manufacturing Outputs");
     });
 
     it("closes", async () => {

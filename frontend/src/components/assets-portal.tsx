@@ -5,7 +5,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { FileItem, TreeNode, formatBytes, buildFileTree, calculateTotalSize } from "@/lib/file-utils";
 import { fetchApi } from "@/lib/api";
 import { FabricationDialog } from "@/components/fabrication-viewer/fabrication-dialog";
-import { isLayerName, outputsSource, type OutputType } from "@/components/fabrication-viewer/sources";
+import { holdsLayers, isLayerName, outputsSource, type OutputType } from "@/components/fabrication-viewer/sources";
 
 interface FabricationTarget {
     type: OutputType;
@@ -16,6 +16,27 @@ interface FabricationTarget {
 }
 
 const dirname = (path: string) => path.split("/").slice(0, -1).join("/");
+
+const OUTPUTS_LABEL: Record<OutputType, string> = {
+    design: "Design Outputs",
+    manufacturing: "Manufacturing Outputs",
+};
+
+/** Opens a whole output folder as one package: Gerbers, drills, positions and BOM in their own folders. */
+function OutputsViewerButton({ label, onOpen }: { label: string; onOpen: () => void }) {
+    return (
+        <Button
+            size="sm"
+            variant="ghost"
+            onClick={onOpen}
+            className="h-7 flex-shrink-0"
+            title="Open in the Gerber viewer"
+            aria-label={`Open ${label} in the Gerber viewer`}
+        >
+            <CircuitBoard className="h-4 w-4" />
+        </Button>
+    );
+}
 
 interface AssetsPortalProps {
     projectId: string;
@@ -64,7 +85,7 @@ function TreeNodeComponent({
     const hasChildren = node.children.length > 0;
     const isPdf = node.type.toLowerCase() === 'pdf';
     const isLayer = !node.isDir && isLayerName(node.name);
-    const holdsLayers = node.isDir && node.children.some((child) => !child.isDir && isLayerName(child.name));
+    const opensAsPackage = node.isDir && holdsLayers(node.children);
 
     return (
         <div>
@@ -99,7 +120,7 @@ function TreeNodeComponent({
                         )}
                     </div>
 
-                    {holdsLayers && (
+                    {opensAsPackage && (
                         <Button
                             size="sm"
                             variant="ghost"
@@ -235,6 +256,8 @@ export function AssetsPortal({ projectId, commit }: AssetsPortalProps) {
 
     const designTree = useMemo(() => buildFileTree(designFiles), [designFiles]);
     const mfgTree = useMemo(() => buildFileTree(mfgFiles), [mfgFiles]);
+    const designHasLayers = useMemo(() => holdsLayers(designTree), [designTree]);
+    const mfgHasLayers = useMemo(() => holdsLayers(mfgTree), [mfgTree]);
     const designTotalSize = useMemo(() => calculateTotalSize(designFiles), [designFiles]);
     const mfgTotalSize = useMemo(() => calculateTotalSize(mfgFiles), [mfgFiles]);
 
@@ -257,9 +280,14 @@ export function AssetsPortal({ projectId, commit }: AssetsPortalProps) {
             <div className="space-y-4">
                 <div className="flex items-center justify-between">
                     <h3 className="text-lg font-semibold">Design Outputs</h3>
-                    <span className="text-xs text-muted-foreground">
-                        {formatBytes(designTotalSize)} total
-                    </span>
+                    <div className="flex items-center gap-2">
+                        {designHasLayers && (
+                            <OutputsViewerButton label="Design Outputs" onOpen={() => setViewing({ type: "design", folder: "" })} />
+                        )}
+                        <span className="text-xs text-muted-foreground">
+                            {formatBytes(designTotalSize)} total
+                        </span>
+                    </div>
                 </div>
                 <div className="border rounded-lg p-4 max-h-[600px] overflow-y-auto">
                     {designFiles.length === 0 ? (
@@ -286,9 +314,14 @@ export function AssetsPortal({ projectId, commit }: AssetsPortalProps) {
             <div className="space-y-4">
                 <div className="flex items-center justify-between">
                     <h3 className="text-lg font-semibold">Manufacturing Outputs</h3>
-                    <span className="text-xs text-muted-foreground">
-                        {formatBytes(mfgTotalSize)} total
-                    </span>
+                    <div className="flex items-center gap-2">
+                        {mfgHasLayers && (
+                            <OutputsViewerButton label="Manufacturing Outputs" onOpen={() => setViewing({ type: "manufacturing", folder: "" })} />
+                        )}
+                        <span className="text-xs text-muted-foreground">
+                            {formatBytes(mfgTotalSize)} total
+                        </span>
+                    </div>
                 </div>
                 <div className="border rounded-lg p-4 max-h-[600px] overflow-y-auto">
                     {mfgFiles.length === 0 ? (
@@ -315,7 +348,7 @@ export function AssetsPortal({ projectId, commit }: AssetsPortalProps) {
                 <FabricationDialog
                     source={outputsSource(projectId, viewing.type, viewing.folder, commit)}
                     focusFile={viewing.focusFile}
-                    title={viewing.folder || "Output folder"}
+                    title={viewing.folder || OUTPUTS_LABEL[viewing.type]}
                     onClose={() => setViewing(null)}
                 />
             )}
