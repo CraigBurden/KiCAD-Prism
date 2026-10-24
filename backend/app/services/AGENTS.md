@@ -252,3 +252,44 @@ handlers. Tests plug `backend/tests/tracker_fault_harness.py` `StatefulFakeForge
 the runtime seam (`install_fake_provider`), not by patching executor privates. Read `docs/TRACKER_INTEGRATION.md` and
 `docs/tracker-integration/CONTRACTS.md` before changing credential, idempotency,
 remote recovery, or authorization behavior.
+
+## Fabrication viewer
+
+`fabrication_view_service.py` turns a set of Gerber and drill files into a view
+model and one SVG per layer; `placement_service.py` parses a position file and a
+BOM and checks one against the other. Both are pure: files in, view out. The
+routes that feed them are all in `backend/app/api/fabrication_view.py`: a
+Release Studio build's dossier, and a folder of committed outputs. Keep them
+together; the Release Studio router is upstream's and carries none of this.
+
+The parsing and drawing belong to `fabrication_compare_service.py`, which is
+grandfathered at its current length and must not grow. New behavior goes in the
+new modules; reach into the old one by module attribute rather than copying.
+
+Rules that are easy to break:
+
+- **Gerber and position files are Y-up; the board frame is Y-down.** The flip is
+  done once, in the SVG renderer and in `placement_service.build_view`. Do not
+  flip again downstream.
+- **A declared layer function wins.** File names are read only for files with no
+  Gerber X2 function (`fabrication_view_service._classify_by_name`).
+- **Match columns by meaning, not by name.** KiCad and the JLCPCB plugin name the
+  same columns differently, and a JLCPCB BOM has a `Designator` column, so a
+  position file is recognised by having coordinates, not by its name.
+- **A layer SVG is its colour, fully opaque, where plotted and transparent elsewhere.**
+  A layer with nothing cleared (most of them) is drawn in its colour directly. Only a
+  layer with clear polarity, or an aperture with a hole, is drawn white-on-black as a
+  mask with the colour filled through it, so the cut shows what is behind instead of
+  painting black. A mask costs the browser a second drawing, so it is used only then.
+  The viewer stacks the layers; nothing is blended, and no SVG carries `opacity`.
+- **Bump `RENDER_VERSION` whenever `svg()` draws differently.** Build layers are
+  cached by the browser for a year as immutable, and the viewer puts the version in
+  every layer URL. Without the bump, a browser keeps the old drawing: after the
+  switch to opaque stacking, cached SVGs with a black background hid every layer
+  under the last one painted.
+- **A drawn line is at least 1.5 screen pixels wide.** `with_minimum_stroke` adds a
+  `width` media-query ladder to each layer SVG: an image SVG evaluates those against
+  its own rendered width, so the SVG can size its minimum line to the zoom without
+  the viewer telling it. Without it a 0.1 mm silkscreen or outline line is under a
+  pixel at fit zoom and renders dimmer than its swatch. Only polylines (and drill
+  circles) are widened; pads, vias and aperture-macro lines keep their true size.

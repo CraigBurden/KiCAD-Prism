@@ -1,9 +1,21 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Download, File, FileText, Package, Image as ImageIcon, Folder, ChevronRight, ChevronDown, Eye } from "lucide-react";
+import { Download, File, FileText, Package, Image as ImageIcon, Folder, ChevronRight, ChevronDown, Eye, CircuitBoard } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { FileItem, TreeNode, formatBytes, buildFileTree, calculateTotalSize } from "@/lib/file-utils";
 import { fetchApi } from "@/lib/api";
+import { FabricationDialog } from "@/components/fabrication-viewer/fabrication-dialog";
+import { isLayerName, outputsSource, type OutputType } from "@/components/fabrication-viewer/sources";
+
+interface FabricationTarget {
+    type: OutputType;
+    /** Folder inside the output folder; its direct Gerber and drill files are shown. */
+    folder: string;
+    /** Open on this file's layer. */
+    focusFile?: string;
+}
+
+const dirname = (path: string) => path.split("/").slice(0, -1).join("/");
 
 interface AssetsPortalProps {
     projectId: string;
@@ -36,6 +48,7 @@ function TreeNodeComponent({
     projectId,
     onDownload,
     onPreview,
+    onViewFabrication,
     level = 0
 }: {
     node: TreeNode;
@@ -43,12 +56,15 @@ function TreeNodeComponent({
     projectId: string;
     onDownload: (path: string, type: string) => void;
     onPreview: (path: string, type: string) => void;
+    onViewFabrication: (folder: string, focusFile?: string) => void;
     level?: number;
 }) {
     const [expanded, setExpanded] = useState(false);
     const Icon = getFileIcon(node.type, node.isDir);
     const hasChildren = node.children.length > 0;
     const isPdf = node.type.toLowerCase() === 'pdf';
+    const isLayer = !node.isDir && isLayerName(node.name);
+    const holdsLayers = node.isDir && node.children.some((child) => !child.isDir && isLayerName(child.name));
 
     return (
         <div>
@@ -83,8 +99,33 @@ function TreeNodeComponent({
                         )}
                     </div>
 
+                    {holdsLayers && (
+                        <Button
+                            size="sm"
+                            variant="ghost"
+                            onClick={() => onViewFabrication(node.path)}
+                            className="flex-shrink-0"
+                            title="Open Gerbers in the viewer"
+                            aria-label={`Open ${node.name} in the Gerber viewer`}
+                        >
+                            <CircuitBoard className="h-4 w-4" />
+                        </Button>
+                    )}
+
                     {!node.isDir && (
                         <div className="flex items-center gap-1">
+                            {isLayer && (
+                                <Button
+                                    size="sm"
+                                    variant="ghost"
+                                    onClick={() => onViewFabrication(dirname(node.path), node.name)}
+                                    className="flex-shrink-0"
+                                    title="Open in the Gerber viewer"
+                                    aria-label={`Open ${node.name} in the Gerber viewer`}
+                                >
+                                    <CircuitBoard className="h-4 w-4" />
+                                </Button>
+                            )}
                             {isPdf && (
                                 <Button
                                     size="sm"
@@ -120,6 +161,7 @@ function TreeNodeComponent({
                             projectId={projectId}
                             onDownload={onDownload}
                             onPreview={onPreview}
+                            onViewFabrication={onViewFabrication}
                             level={level + 1}
                         />
                     ))}
@@ -133,6 +175,7 @@ export function AssetsPortal({ projectId, commit }: AssetsPortalProps) {
     const [designFiles, setDesignFiles] = useState<FileItem[]>([]);
     const [mfgFiles, setMfgFiles] = useState<FileItem[]>([]);
     const [loading, setLoading] = useState(true);
+    const [viewing, setViewing] = useState<FabricationTarget | null>(null);
 
     const appendCommit = useCallback((url: string) => {
         if (!commit) return url;
@@ -231,6 +274,7 @@ export function AssetsPortal({ projectId, commit }: AssetsPortalProps) {
                                     projectId={projectId}
                                     onDownload={handleDownload}
                                     onPreview={handlePreview}
+                                    onViewFabrication={(folder, focusFile) => setViewing({ type: "design", folder, focusFile })}
                                 />
                             ))}
                         </div>
@@ -259,12 +303,22 @@ export function AssetsPortal({ projectId, commit }: AssetsPortalProps) {
                                     projectId={projectId}
                                     onDownload={handleDownload}
                                     onPreview={handlePreview}
+                                    onViewFabrication={(folder, focusFile) => setViewing({ type: "manufacturing", folder, focusFile })}
                                 />
                             ))}
                         </div>
                     )}
                 </div>
             </div>
+
+            {viewing && (
+                <FabricationDialog
+                    source={outputsSource(projectId, viewing.type, viewing.folder, commit)}
+                    focusFile={viewing.focusFile}
+                    title={viewing.folder || "Output folder"}
+                    onClose={() => setViewing(null)}
+                />
+            )}
         </div>
     );
 }
