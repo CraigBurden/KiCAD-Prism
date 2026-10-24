@@ -55,6 +55,13 @@ def _within(path: Path, root: Path) -> bool:
         return False
 
 
+def _ignore_vanished(function: Any, path: str, error: BaseException) -> None:
+    """Every API process runs this at startup; an entry another one removed first is already gone."""
+
+    if not isinstance(error, FileNotFoundError):
+        raise error
+
+
 def _tree_bytes(path: Path) -> int:
     """Bytes below ``path``, without following symlinks out of the tree."""
 
@@ -147,7 +154,7 @@ def cleanup_superseded_stores(root: str | Path | None = None) -> dict[str, Any]:
 
         size = _tree_bytes(target)
         try:
-            shutil.rmtree(target)
+            shutil.rmtree(target, onexc=_ignore_vanished)
         except OSError as error:
             logger.exception("Could not remove superseded store %s", target)
             refused.append({"path": str(target), "reason": str(error)})
