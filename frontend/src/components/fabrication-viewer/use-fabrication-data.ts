@@ -1,5 +1,7 @@
 import { useEffect, useReducer, useRef } from "react";
 
+import { useServerState } from "@/lib/server-state";
+
 import { fetchFabricationView, fetchLayerObjectUrl } from "./fabrication-api";
 import type { FabricationSource, FabricationView } from "./types";
 
@@ -8,43 +10,19 @@ type ViewState =
     | { status: "ready"; view: FabricationView }
     | { status: "error"; message: string };
 
-type ViewAction =
-    | { type: "ready"; view: FabricationView }
-    | { type: "error"; message: string };
-
-function viewReducer(_state: ViewState, action: ViewAction): ViewState {
-    return action.type === "ready"
-        ? { status: "ready", view: action.view }
-        : { status: "error", message: action.message };
-}
-
 const messageOf = (cause: unknown) => (cause instanceof Error ? cause.message : String(cause));
 
 /**
  * Load a package's layer list. The viewer is keyed on the source, so a new
- * package is a new component and this never has to reset itself.
+ * package is a new component; the read itself is server state, keyed by URL.
  */
 export function useFabricationView(source: FabricationSource): ViewState {
-    const [state, dispatch] = useReducer(viewReducer, { status: "loading" });
-
-    // The project has no data-fetching layer; this is one request owned by the
-    // view that shows it.
-    // react-doctor-disable-next-line react-doctor/no-fetch-in-effect
-    useEffect(() => {
-        let cancelled = false;
-        fetchFabricationView(source.viewUrl)
-            .then((view) => {
-                if (!cancelled) dispatch({ type: "ready", view });
-            })
-            .catch((cause: unknown) => {
-                if (!cancelled) dispatch({ type: "error", message: messageOf(cause) });
-            });
-        return () => {
-            cancelled = true;
-        };
-    }, [source.viewUrl]);
-
-    return state;
+    const read = useServerState(["fabrication-view", source.viewUrl], (signal) =>
+        fetchFabricationView(source.viewUrl, signal),
+    );
+    if (read.data) return { status: "ready", view: read.data };
+    if (read.error) return { status: "error", message: read.error.message };
+    return { status: "loading" };
 }
 
 export type LayerImage =

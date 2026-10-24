@@ -2,12 +2,12 @@ import { fetchApi, fetchJson, readApiError } from "@/lib/api";
 
 import type { FabricationView, PlacementView } from "./types";
 
-export function fetchFabricationView(viewUrl: string): Promise<FabricationView> {
-    return fetchJson<FabricationView>(viewUrl, undefined, "Could not load the fabrication package");
+export function fetchFabricationView(viewUrl: string, signal?: AbortSignal): Promise<FabricationView> {
+    return fetchJson<FabricationView>(viewUrl, { signal }, "Could not load the fabrication package");
 }
 
-export function fetchPlacement(placementUrl: string): Promise<PlacementView> {
-    return fetchJson<PlacementView>(placementUrl, undefined, "Could not load the placement data");
+export function fetchPlacement(placementUrl: string, signal?: AbortSignal): Promise<PlacementView> {
+    return fetchJson<PlacementView>(placementUrl, { signal }, "Could not load the placement data");
 }
 
 /**

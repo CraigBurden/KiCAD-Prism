@@ -42,8 +42,11 @@ If one of these changes, the viewer should follow it.
 - `viewer-toolbar.tsx`, `viewer-footer.tsx`: the strips above and below the board.
 - `board-canvas.tsx`, `part-markers.tsx`, `part-status.ts`: the stacked layers,
   the parts over them, and the BOM-check vocabulary they and the table share.
-- `use-fabrication-data.ts`, `use-placement.ts`: loading. Layer SVGs are fetched
-  the first time a layer is shown, then kept; object URLs are revoked on unmount.
+- `use-fabrication-data.ts`, `use-placement.ts`: loading. The view and the
+  placement are `useServerState` reads keyed by URL (`frontend/src/lib/server-state.ts`).
+  Layer SVGs are fetched the first time a layer is shown, then kept as object
+  URLs, which are revoked on unmount; that lifecycle is why they stay a hook of
+  their own.
 - `drill-table.tsx`, `placement-panel.tsx`: the two table views.
 - `fabrication-dialog.tsx`: the viewer in a dialog, for file lists.
 
