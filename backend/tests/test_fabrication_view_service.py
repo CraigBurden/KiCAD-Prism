@@ -498,5 +498,38 @@ class EmptyPackageTests(unittest.TestCase):
         self.assertEqual(view["copperLayers"], 0)
 
 
+class NearestExportTests(unittest.TestCase):
+    def test_drills_in_a_subfolder_and_a_sibling_drill_folder_belong_to_the_export(self) -> None:
+        from app.services.fabrication_view_service import nearest_export
+
+        paths = ["Gerbers/b-F_Cu.gbr", "Gerbers/drill-data/b-PTH.drl", "Drill/b-NPTH.drl", "Gerbers/b-job.gbrjob"]
+        self.assertEqual(nearest_export(paths), paths)
+
+    def test_a_nested_or_sibling_export_is_left_out(self) -> None:
+        from app.services.fabrication_view_service import nearest_export
+
+        paths = [
+            "Gerbers/b-F_Cu.gbr",
+            "Gerbers/b.drl",
+            "Gerbers/vendors/jlcpcb/CuTop.gbr",
+            "Gerbers/vendors/jlcpcb/drill.drl",
+            "archive/rev-a/b-F_Cu.gbr",
+        ]
+        self.assertEqual(nearest_export(paths), ["Gerbers/b-F_Cu.gbr", "Gerbers/b.drl"])
+
+    def test_the_shallowest_export_wins_and_a_drill_map_is_not_an_export(self) -> None:
+        from app.services.fabrication_view_service import nearest_export
+
+        self.assertEqual(
+            nearest_export(["b/x-F_Cu.gbr", "a/x-F_Cu.gbr", "maps/x-PTH-drl_map.gbr", "maps/x.drl"]),
+            ["a/x-F_Cu.gbr", "maps/x.drl"],
+        )
+
+    def test_drills_alone_are_the_package(self) -> None:
+        from app.services.fabrication_view_service import nearest_export
+
+        self.assertEqual(nearest_export(["x-PTH.drl", "x-NPTH.drl"]), ["x-PTH.drl", "x-NPTH.drl"])
+
+
 if __name__ == "__main__":
     unittest.main()

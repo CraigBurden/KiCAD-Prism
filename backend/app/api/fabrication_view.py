@@ -31,6 +31,7 @@ from app.services.fabrication_view_service import (
     BoundedCache,
     FabricationPackage,
     RENDER_VERSION,
+    nearest_export,
 )
 from app.services.placement_service import (
     PlacementError,
@@ -207,10 +208,18 @@ def _clean_folder(folder: str) -> str:
 
 
 def _candidates(names_sizes: list[tuple[str, int]], kind) -> list[tuple[str, int]]:
-    """The files of one kind, with the limits that keep a request bounded."""
+    """The files of one kind, with the limits that keep a request bounded.
+
+    Layers are those of the nearest export (``nearest_export``); tables are
+    every position file and BOM under the folder, wherever the export keeps them.
+    """
 
     pattern, empty = kind
     found = [(name, size) for name, size in names_sizes if pattern.search(name)]
+    if kind is _LAYERS:
+        # One export, and the limits measure that export, not the whole tree.
+        shown = set(nearest_export([name for name, _ in found]))
+        found = [(name, size) for name, size in found if name in shown]
     if not found:
         raise HTTPException(status_code=404, detail=empty)
     if len(found) > _MAX_FILES:
@@ -247,8 +256,9 @@ def _working_tree(project, output_type: str, folder: str, kind=_LAYERS):
     directory = resolve_path_within_root(output_dir, folder, invalid_detail="Invalid folder path")
     if not directory.is_dir():
         raise HTTPException(status_code=404, detail="Folder not found")
-    entries = _walk(str(directory), kind)
-    _candidates([(path, stat.st_size) for path, stat in entries], kind)
+    walked = _walk(str(directory), kind)
+    chosen = {path for path, _ in _candidates([(path, stat.st_size) for path, stat in walked], kind)}
+    entries = [(path, stat) for path, stat in walked if path in chosen]
     signature = tuple(sorted((path, stat.st_size, stat.st_mtime_ns) for path, stat in entries))
 
     def read() -> dict[str, bytes]:
