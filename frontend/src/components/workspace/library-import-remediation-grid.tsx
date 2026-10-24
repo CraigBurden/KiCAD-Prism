@@ -7,6 +7,7 @@ import { toast } from "sonner";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Separator } from "@/components/ui/separator";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { bulkAcceptProposals, importProposalsCsv, importProposalsCsvUrl, saveProposalDrafts } from "./catalog-client";
@@ -530,67 +531,66 @@ export function LibraryImportRemediationGrid({
   const gridTemplate = `36px 40px 150px ${columns.map((column) => `${column.width}px`).join(" ")} 200px`;
 
   return (
-    <div className="flex h-full min-h-0 flex-col gap-3" data-testid="import-remediation-grid">
-      <div className="flex shrink-0 flex-wrap items-center gap-2" data-testid="import-remediation-controls">
+    <div className="flex h-full min-h-0 flex-col gap-2" data-testid="import-remediation-grid">
+      <div className="flex shrink-0 flex-wrap items-center gap-1.5" data-testid="import-remediation-controls">
         <Input
           value={filter}
           onChange={(event) => setFilter(event.target.value)}
-          placeholder="Filter rows"
-          className="h-8 w-56 text-xs"
+          placeholder="Filter"
+          aria-label="Filter rows"
+          className="h-8 w-44 text-xs"
         />
         <Button
           variant={onlyProblems ? "default" : "outline"}
           size="sm"
-          className="h-8 text-xs"
+          className="h-8 gap-1.5 px-2 text-xs"
+          aria-pressed={onlyProblems}
+          aria-label={`Needs attention (${groups.length - readyRows.length})`}
+          title="Only rows that need attention"
           onClick={() => setOnlyProblems((current) => !current)}
         >
-          <AlertTriangle className="mr-1.5 h-3.5 w-3.5" />
-          Needs attention ({groups.length - readyRows.length})
+          <AlertTriangle className="h-3.5 w-3.5" />
+          <span className="tabular-nums">{groups.length - readyRows.length}</span>
         </Button>
         <Button
           variant={groupByMpn ? "default" : "outline"}
-          size="sm"
-          className="h-8 text-xs"
-          title="Show one row per catalog component instead of one per placed reference"
+          size="icon-sm"
+          className="size-8"
+          aria-pressed={groupByMpn}
+          aria-label="Group by MPN"
+          title={groupByMpn && mergedGroupCount > 0 ? `One row per MPN (${mergedGroupCount} merged)` : "One row per MPN"}
           onClick={() => setGroupByMpn((current) => !current)}
         >
-          <Combine className="mr-1.5 h-3.5 w-3.5" />
-          Group by MPN
-          {groupByMpn && mergedGroupCount > 0 ? ` (${mergedGroupCount} merged)` : ""}
+          <Combine className="h-3.5 w-3.5" />
         </Button>
-        <Button variant="outline" size="sm" className="ml-auto h-8 text-xs" onClick={onShowDetailView}>
-          <Rows3 className="mr-1.5 h-3.5 w-3.5" />Detail view
-        </Button>
-
+        <Separator orientation="vertical" className="mx-0.5 h-5" />
         <PermissionHint
           blocked={!canWrite}
           action="edit or accept import proposals"
           allowedRoles={["designer", "admin"]}
-          className="basis-full"
+          className="flex min-w-0 flex-1 max-w-none"
         >
-        <div className="flex w-full basis-full flex-wrap items-center gap-2">
-          <Button
-            variant="outline"
-            size="icon-sm"
-            aria-label="Undo"
-            title="Undo (⌘Z)"
-            disabled={!canWrite || !canUndo}
-            onClick={undo}
-          >
+        <div className="flex min-w-0 flex-1 flex-wrap items-center gap-1.5">
+          <Button variant="ghost" size="icon-sm" className="size-8" aria-label="Undo" title="Undo (⌘Z)" disabled={!canWrite || !canUndo} onClick={undo}>
             <Undo2 className="h-3.5 w-3.5" />
           </Button>
-          <Button
-            variant="outline"
-            size="icon-sm"
-            aria-label="Redo"
-            title="Redo (⇧⌘Z)"
-            disabled={!canWrite || !canRedo}
-            onClick={redo}
-          >
+          <Button variant="ghost" size="icon-sm" className="size-8" aria-label="Redo" title="Redo (⇧⌘Z)" disabled={!canWrite || !canRedo} onClick={redo}>
             <Redo2 className="h-3.5 w-3.5" />
           </Button>
-          <Button variant="outline" size="sm" className="h-8 text-xs" onClick={exportCsv}>
-            <Download className="mr-1.5 h-3.5 w-3.5" /> Export CSV
+          <Button
+            variant="outline"
+            size="sm"
+            className="h-8 gap-1.5 px-2 text-xs"
+            aria-label={`Save edits${dirtyCount > 0 ? ` (${dirtyCount})` : ""}`}
+            title="Save edits (⌘S)"
+            disabled={!canWrite || saving || dirtyCount === 0}
+            onClick={() => void saveDrafts()}
+          >
+            {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Save className="h-3.5 w-3.5" />}
+            {dirtyCount > 0 ? <span className="tabular-nums">{dirtyCount}</span> : null}
+          </Button>
+          <Button variant="ghost" size="icon-sm" className="size-8" aria-label="Export CSV" title="Export CSV" onClick={exportCsv}>
+            <Download className="h-3.5 w-3.5" />
           </Button>
           <input
             ref={fileInputRef}
@@ -599,56 +599,39 @@ export function LibraryImportRemediationGrid({
             className="hidden"
             onChange={(event) => void importCsv(event.target.files?.[0])}
           />
-          <Button
-            variant="outline"
-            size="sm"
-            className="h-8 text-xs"
-            disabled={!canWrite || saving}
-            onClick={() => fileInputRef.current?.click()}
-          >
-            <Upload className="mr-1.5 h-3.5 w-3.5" /> Import CSV
+          <Button variant="ghost" size="icon-sm" className="size-8" aria-label="Import CSV" title="Import CSV" disabled={!canWrite || saving} onClick={() => fileInputRef.current?.click()}>
+            <Upload className="h-3.5 w-3.5" />
           </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            className="h-8 text-xs"
-            disabled={!canWrite || saving || dirtyCount === 0}
-            onClick={() => void saveDrafts()}
-          >
-            {saving ? (
-              <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
-            ) : (
-              <Save className="mr-1.5 h-3.5 w-3.5" />
-            )}
-            Save edits{dirtyCount > 0 ? ` (${dirtyCount})` : ""}
-          </Button>
-          <div className="ml-auto flex items-center gap-2">
+          <div className="ml-auto flex items-center gap-1.5">
             <Button
               size="sm"
-              className="h-8 text-xs"
+              className="h-8 gap-1.5 text-xs"
+              aria-label={`Import selected (${selectedReady.length})`}
+              title="Accept the selected ready rows"
               disabled={!canWrite || accepting || selectedReady.length === 0}
               onClick={() => void acceptRows(selectedReady)}
             >
-              {accepting ? (
-                <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
-              ) : (
-                <Check className="mr-1.5 h-3.5 w-3.5" />
-              )}
-              Import selected ({selectedReady.length})
+              {accepting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5" />}
+              Selected <span className="tabular-nums">{selectedReady.length}</span>
             </Button>
             <Button
               size="sm"
               variant="secondary"
-              className="h-8 text-xs"
+              className="h-8 gap-1.5 text-xs"
+              aria-label={`Import all ready (${readyRows.length})`}
+              title="Accept every ready row"
               disabled={!canWrite || accepting || readyRows.length === 0}
               onClick={() => void acceptRows(readyRows)}
             >
-              <CheckCheck className="mr-1.5 h-3.5 w-3.5" />
-              Import all ready ({readyRows.length})
+              <CheckCheck className="h-3.5 w-3.5" />
+              All ready <span className="tabular-nums">{readyRows.length}</span>
             </Button>
           </div>
         </div>
         </PermissionHint>
+        <Button variant="ghost" size="icon-sm" className="size-8" aria-label="Detail view" title="Detail view" onClick={onShowDetailView}>
+          <Rows3 className="h-3.5 w-3.5" />
+        </Button>
       </div>
 
       <div className="themed-scrollbar min-h-0 flex-1 overflow-auto border" data-testid="import-remediation-scroll-region">
@@ -783,11 +766,6 @@ export function LibraryImportRemediationGrid({
         </div>
       </div>
 
-      <div className="flex shrink-0 flex-wrap items-center gap-3 text-xs text-muted-foreground">
-        <Badge variant="outline">{visibleRows.length} shown</Badge>
-        <Badge variant="outline">{readyRows.length} ready</Badge>
-        <Badge variant="outline">{groups.length - readyRows.length} need attention</Badge>
-      </div>
     </div>
   );
 }
