@@ -7,6 +7,7 @@ import {
   Columns2,
   ExternalLink,
   FileDiff,
+  GitCompareArrows,
   History,
   Layers3,
   Link2,
@@ -20,6 +21,7 @@ import {
 } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
+import { WORKFLOW_BADGE_VARIANT } from "@/lib/catalog-badges";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import { catalogPreviewUrl as previewUrl, getComponentValidation } from "./catalog-client";
@@ -342,26 +344,36 @@ export function RevisionsPanel({
         title="Revision history"
         action={activeRevisionId !== currentRevisionId ? <Button size="sm" variant="outline" onClick={onCurrent}>Current</Button> : undefined}
       >
-        <div className="space-y-2">
+        <div className="-m-3">
           {revisions.map((revision) => {
             const isActive = revision.id === activeRevisionId;
             const isCurrent = revision.id === currentRevisionId;
+            const summary = revision.change_summary || humanize(revision.change_kind);
+            const compare = !isCurrent
+              ? { label: `Compare v${revision.version} with current`, run: () => onCompare(revision.id, currentRevisionId) }
+              : revision.parent_revision_id
+                ? { label: `Compare v${revision.version} with its parent`, run: () => onCompare(revision.parent_revision_id, revision.id) }
+                : null;
             return (
-              <div key={revision.id} className={cn("border p-3", isActive && "border-primary bg-primary/5")}>
-                <div className="flex min-w-0 items-center justify-between gap-2">
-                  <p className="truncate text-sm font-medium">v{revision.version}</p>
-                  <div className="flex shrink-0 gap-1">
-                    {isCurrent ? <Badge>Current</Badge> : null}
-                    <Badge variant="outline">{WORKFLOW_LABELS[revision.release_status]}</Badge>
-                  </div>
-                </div>
-                <p className="mt-1 text-xs text-muted-foreground">{formatDate(revision.created_at)}</p>
-                <p className="mt-2 text-xs">{revision.change_summary || humanize(revision.change_kind)}</p>
-                <p className="mt-1 truncate text-xs text-muted-foreground">{revision.created_by || "Unknown actor"}</p>
-                <div className="mt-3 flex gap-2">
-                  <Button size="sm" variant={isActive ? "secondary" : "outline"} onClick={() => onView(revision.id)}>View</Button>
-                  {revision.id !== currentRevisionId ? <Button size="sm" variant="ghost" onClick={() => onCompare(revision.id, currentRevisionId)}>Compare current</Button> : revision.parent_revision_id ? <Button size="sm" variant="ghost" onClick={() => onCompare(revision.parent_revision_id, revision.id)}>Compare parent</Button> : null}
-                </div>
+              <div key={revision.id} className={cn("flex h-9 items-center gap-1 border-b pr-1 last:border-b-0", isActive ? "bg-muted shadow-[inset_2px_0_0_hsl(var(--primary))]" : "hover:bg-muted/40")}>
+                <button
+                  type="button"
+                  className="flex h-full min-w-0 flex-1 items-center gap-2 pl-3 text-left text-xs"
+                  aria-label={`View v${revision.version}`}
+                  aria-current={isActive ? "true" : undefined}
+                  title={`${formatDate(revision.created_at)} · ${revision.created_by || "Unknown"} · ${summary}`}
+                  onClick={() => onView(revision.id)}
+                >
+                  <span className="w-8 shrink-0 font-medium tabular-nums">v{revision.version}</span>
+                  <span className="min-w-0 flex-1 truncate text-muted-foreground">{summary}</span>
+                  {isCurrent ? <Badge className="h-4 shrink-0 px-1 text-[10px]">Current</Badge> : null}
+                  <Badge variant={WORKFLOW_BADGE_VARIANT[revision.release_status]} className="h-4 shrink-0 px-1 text-[10px]">{WORKFLOW_LABELS[revision.release_status]}</Badge>
+                </button>
+                {compare ? (
+                  <Button size="icon-sm" variant="ghost" className="size-7 shrink-0" aria-label={compare.label} title={compare.label} onClick={compare.run}>
+                    <GitCompareArrows className="h-3.5 w-3.5" />
+                  </Button>
+                ) : <span className="size-7 shrink-0" />}
               </div>
             );
           })}
