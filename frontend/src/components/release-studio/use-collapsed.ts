@@ -2,18 +2,23 @@ import { useState } from "react";
 
 /**
  * A side panel's collapsed state, remembered per viewer under `storageKey`.
- * With nothing stored, `initial()` decides (a window-width rule, say). Storage
- * can be unavailable; the panel then simply forgets on reload.
+ *
+ * Below `collapseBelow` (a window width) the panel always starts collapsed, so
+ * a narrow window keeps its room for the content; the remembered choice only
+ * applies where there is space for it. Storage can be unavailable; the panel
+ * then simply forgets on reload.
  */
-export function useCollapsed(storageKey: string, initial: () => boolean): [boolean, (next: boolean) => void] {
+export function useCollapsed(
+    storageKey: string,
+    collapseBelow: number,
+): [boolean, (next: boolean) => void] {
     const [collapsed, setCollapsed] = useState(() => {
+        if (window.innerWidth < collapseBelow) return true;
         try {
-            const stored = window.localStorage.getItem(storageKey);
-            if (stored === "true" || stored === "false") return stored === "true";
+            return window.localStorage.getItem(storageKey) === "true";
         } catch {
-            // Fall through to the default.
+            return false;
         }
-        return initial();
     });
     const set = (next: boolean) => {
         setCollapsed(next);

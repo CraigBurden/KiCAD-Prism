@@ -114,7 +114,7 @@ export function ReleaseStudioPanel({
         return true;
     });
     const draftingRef = useCommittedRef(drafting);
-    const [historyCollapsed, setHistoryCollapsed] = useCollapsed("prism.releaseStudio.runHistoryCollapsed", () => false);
+    const [historyCollapsed, setHistoryCollapsed] = useCollapsed("prism.releaseStudio.runHistoryCollapsed", 1600);
     const [commits, setCommits] = useState<ProjectCommit[]>([]);
     const [commitsLoading, setCommitsLoading] = useState(true);
     const [commitSha, setCommitSha] = useState(defaultCommit);

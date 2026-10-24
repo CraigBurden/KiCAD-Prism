@@ -168,6 +168,9 @@ async function startRun() {
 
 async function selectHistoryRun() {
     fireEvent.click(await screen.findByRole("tab", { name: /^history$/i }));
+    // Narrow windows start with Run history collapsed.
+    const show = screen.queryByRole("button", { name: "Show run history" });
+    if (show) fireEvent.click(show);
     fireEvent.click(await screen.findByRole("button", { name: /abcdef12/i }));
 }
 
@@ -409,7 +412,7 @@ describe("ReleaseStudioPanel", () => {
         await waitFor(() =>
             expect(screen.getByRole("tab", { name: /Documents \(1\)/ })).toBeTruthy(),
         );
-        expect(screen.getByRole("tab", { name: "Fabrication" })).toBeTruthy();
+        expect(screen.getByRole("button", { name: "Fabrication" })).toHaveAttribute("aria-current", "true");
         expect(screen.getByRole("button", { name: /^PDF$/i })).toBeTruthy();
     });
 
@@ -835,7 +838,7 @@ describe("ReleaseStudioPanel", () => {
         expect(screen.queryByRole("button", { name: "Approve Designer" })).toBeNull();
         fireEvent.click(screen.getByRole("button", { name: "Show release checks" }));
         expect(await screen.findByRole("button", { name: "Approve Designer" })).toBeTruthy();
-        // The reviewer's choice outlives the window rule.
+        // The reviewer's choice is remembered for wider windows.
         expect(window.localStorage.getItem("prism.releaseStudio.checksRailCollapsed")).toBe("false");
         fireEvent.click(screen.getByRole("button", { name: "Hide release checks" }));
         expect(screen.queryByRole("button", { name: "Approve Designer" })).toBeNull();

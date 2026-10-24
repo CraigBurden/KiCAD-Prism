@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import {
     CircleDot,
     CircuitBoard,
@@ -15,7 +15,9 @@ import {
 
 import { Button } from "@/components/ui/button";
 import { StudioTabsList, StudioTabsTrigger } from "@/components/ui/studio-tabs";
-import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Tabs } from "@/components/ui/tabs";
+import { useServerState } from "@/lib/server-state";
+import { cn } from "@/lib/utils";
 import { FabricationViewer } from "@/components/fabrication-viewer/fabrication-viewer";
 import {
     buildSource,
@@ -36,7 +38,6 @@ import { EvidenceWarnings } from "./outputs/Evidence";
 import { ReleaseChecksRail } from "./outputs/ReleaseChecksRail";
 import type {
     BuildDetail,
-    DocumentSheet,
     ReleaseMember,
     VendorProfile,
 } from "../types";
@@ -68,24 +69,15 @@ export function InspectOutputsStep({
     onRun: RunFn;
     onRefresh?: () => Promise<unknown> | void;
 }) {
-    const [sheets, setSheets] = useState<DocumentSheet[]>([]);
+    const sheetsRead = useServerState(
+        ["release-studio", "sheets", projectId, detail.build.id],
+        (signal) => api.listDocumentSheets(projectId, detail.build.id, signal),
+    );
+    const sheets = useMemo(() => orderedSheets(sheetsRead.data ?? []), [sheetsRead.data]);
     const [sheetKey, setSheetKey] = useState("");
     const [outputView, setOutputView] = useState("documents");
     const [member, setMember] = useState<ReleaseMember | null>(null);
     const [focusFile, setFocusFile] = useState("");
-
-    useEffect(() => {
-        let cancelled = false;
-        void api.listDocumentSheets(projectId, detail.build.id).then((next) => {
-            if (cancelled) return;
-            const ordered = orderedSheets(next);
-            setSheets(ordered);
-            setSheetKey((current) => current || ordered[0]?.key || "");
-        });
-        return () => {
-            cancelled = true;
-        };
-    }, [projectId, detail.build.id]);
 
     const selectedSheet = sheets.find((sheet) => sheet.key === sheetKey) ?? sheets[0];
     const membersByDomain = useMemo(() => groupMembers(detail.members), [detail.members]);
@@ -133,66 +125,90 @@ export function InspectOutputsStep({
                             <Button
                                 size="xs"
                                 variant="outline"
+                                aria-label="Dossier"
+                                title="Download the dossier"
                                 onClick={() => void onRun("download-dossier", () => api.downloadFile(api.dossierDownloadUrl(projectId, detail.build.id), `build-${detail.build.id}-dossier.tar.gz`))}
                             >
-                                <Download className="mr-1 h-3 w-3" /> Dossier
+                                <Download className="h-3 w-3" aria-hidden />
+                                <span className="hidden xl:inline">Dossier</span>
                             </Button>
                             <Button
                                 size="xs"
                                 variant="outline"
+                                aria-label="Build evidence"
+                                title="Download the build evidence"
                                 onClick={() => void onRun("download-build-evidence", () => api.downloadFile(api.buildEvidenceDownloadUrl(projectId, detail.build.id), `build-${detail.build.id}-evidence.tar.gz`))}
                             >
-                                <Download className="mr-1 h-3 w-3" /> Build evidence
+                                <Download className="h-3 w-3" aria-hidden />
+                                <span className="hidden xl:inline">Build evidence</span>
                             </Button>
                         </div>
                     </div>
                 </Tabs>
                 {outputView === "documents" && (
                     sheets.length > 0 ? (
-                        <Tabs
-                            value={selectedSheet?.key}
-                            onValueChange={setSheetKey}
-                            className="flex min-h-0 flex-1 flex-col gap-0 overflow-hidden"
-                        >
-                            <div className="flex shrink-0 items-center gap-2 border-b bg-card px-2">
-                                <TabsList variant="line" className="h-10 min-w-0 flex-1 gap-2 overflow-x-auto" aria-label="Output documents">
-                                    {sheets.map((sheet) => {
-                                        const Icon = SHEET_ICONS[sheet.key] ?? FileText;
-                                        return (
-                                            <TabsTrigger key={sheet.key} value={sheet.key} className="gap-2 px-2 text-sm">
-                                                <Icon className="h-4 w-4" />
-                                                {sheetLabel(sheet.key)}
-                                            </TabsTrigger>
-                                        );
-                                    })}
-                                </TabsList>
-                                {selectedSheet && (
-                                    <Button
-                                        size="xs"
-                                        variant="outline"
-                                        className="shrink-0"
-                                        onClick={() =>
-                                            void api.downloadFile(
-                                                api.downloadUrl(
-                                                    projectId,
-                                                    `builds/${encodeURIComponent(detail.build.id)}/sheets/${encodeURIComponent(selectedSheet.key)}.pdf`,
-                                                ),
-                                                `${selectedSheet.key}.pdf`,
-                                            )
-                                        }
-                                    >
-                                        <Download className="mr-1 h-3 w-3" /> PDF
-                                    </Button>
-                                )}
-                            </div>
+                        <div className="flex min-h-0 flex-1 overflow-hidden">
+                            <nav aria-label="Documents" className="w-44 shrink-0 overflow-y-auto border-r p-1.5">
+                                <div className="flex h-7 items-center gap-1.5 px-1.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                                    <FileText className="size-3" aria-hidden />
+                                    Drawings
+                                    <span className="ml-auto font-medium normal-case tracking-normal">{sheets.length}</span>
+                                </div>
+                                {sheets.map((sheet) => {
+                                    const Icon = SHEET_ICONS[sheet.key] ?? FileText;
+                                    const active = sheet.key === selectedSheet?.key;
+                                    return (
+                                        <button
+                                            key={sheet.key}
+                                            type="button"
+                                            aria-current={active ? "true" : undefined}
+                                            onClick={() => setSheetKey(sheet.key)}
+                                            className={cn(
+                                                "flex h-7 w-full items-center gap-2 rounded-sm px-2 text-left text-sm",
+                                                active
+                                                    ? "bg-muted shadow-[inset_2px_0_0_hsl(var(--primary))]"
+                                                    : "text-muted-foreground hover:bg-muted/50 hover:text-foreground",
+                                            )}
+                                        >
+                                            <Icon className="size-3.5 shrink-0" aria-hidden />
+                                            <span className="truncate">{sheetLabel(sheet.key)}</span>
+                                        </button>
+                                    );
+                                })}
+                            </nav>
                             {selectedSheet ? (
-                                <DocumentSheetPreview
-                                    projectId={projectId}
-                                    buildId={detail.build.id}
-                                    sheet={selectedSheet}
-                                />
+                                <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+                                    <div className="flex h-9 shrink-0 items-center gap-2 border-b px-2 text-sm">
+                                        <span className="shrink-0 font-medium">{sheetLabel(selectedSheet.key)}</span>
+                                        <span className="min-w-0 truncate font-mono text-xs text-muted-foreground" title={selectedSheet.pdf?.path}>
+                                            {selectedSheet.pdf?.path}
+                                        </span>
+                                        <span className="flex-1" />
+                                        <Button
+                                            size="xs"
+                                            variant="outline"
+                                            className="shrink-0"
+                                            onClick={() =>
+                                                void api.downloadFile(
+                                                    api.downloadUrl(
+                                                        projectId,
+                                                        `builds/${encodeURIComponent(detail.build.id)}/sheets/${encodeURIComponent(selectedSheet.key)}.pdf`,
+                                                    ),
+                                                    `${selectedSheet.key}.pdf`,
+                                                )
+                                            }
+                                        >
+                                            <Download className="mr-1 h-3 w-3" /> PDF
+                                        </Button>
+                                    </div>
+                                    <DocumentSheetPreview
+                                        projectId={projectId}
+                                        buildId={detail.build.id}
+                                        sheet={selectedSheet}
+                                    />
+                                </div>
                             ) : null}
-                        </Tabs>
+                        </div>
                     ) : (
                         <p className="p-3 text-sm text-muted-foreground">No documents</p>
                     )

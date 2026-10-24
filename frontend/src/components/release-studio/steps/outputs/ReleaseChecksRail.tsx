@@ -45,10 +45,7 @@ export function ReleaseChecksRail({
     onRun: RunFn;
     onRefresh?: () => Promise<unknown> | void;
 }) {
-    const [collapsed, toggle] = useCollapsed(
-        "prism.releaseStudio.checksRailCollapsed",
-        () => window.innerWidth < COLLAPSE_BELOW,
-    );
+    const [collapsed, toggle] = useCollapsed("prism.releaseStudio.checksRailCollapsed", COLLAPSE_BELOW);
     const [vendorId, setVendorId] = useState("");
     const approvals = detail.approvals;
     const unpinned = approvals?.unpinned_models ?? [];
