@@ -4,24 +4,19 @@ import {
   ArrowLeft,
   Boxes,
   CircleAlert,
-  CircleDashed,
   Clock3,
-  Download,
   Edit3,
   ExternalLink,
   FileBox,
   FileCheck2,
   GitCompareArrows,
   Link2,
-  Layers3,
   Loader2,
   PackageCheck,
   RefreshCw,
-  RotateCcw,
   SearchCheck,
   ShieldCheck,
   UserRoundCheck,
-  Upload,
   XCircle,
 } from "lucide-react";
 import { useSearchParams } from "react-router-dom";
@@ -47,24 +42,13 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
-import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
 import { StudioTabsList, StudioTabsTrigger } from "@/components/ui/studio-tabs";
 import { Tabs } from "@/components/ui/tabs";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import {
-  catalogPreviewUrl,
   compareComponentRevisions,
-  createRepresentation,
-  deleteRepresentation,
   detachComponentAsset,
   getComponent,
   getComponentRevision,
@@ -75,7 +59,6 @@ import {
   listComponentUsage,
   regenerateComponentPreviews,
   releaseComponent,
-  updateRepresentation,
   verifyComponentAudit,
 } from "./catalog-client";
 import { canAdministerCatalog, canReviewCatalogQa, canWriteCatalog, workflowStage } from "@/lib/roles";
@@ -84,7 +67,6 @@ import type {
   AvailabilityState,
   CatalogAsset,
   CatalogComponent,
-  CatalogRepresentation,
   CatalogRevisionDiff,
   CatalogValidationStatus,
   WorkflowStage,
@@ -93,13 +75,11 @@ import type { Project } from "@/types/project";
 import {
   DefinitionRows,
   EmptyState,
-  formatBytes,
   humanize,
   LoadingState,
   MetricCard,
   PanelCard,
   shortHash,
-  StatusBadge,
 } from "./library-component-chrome";
 import {
   combinedEvidenceState,
@@ -118,6 +98,7 @@ import {
   RevisionsPanel,
   WhereUsedPanel,
 } from "./library-component-evidence-panels";
+import { AssetsPanel, ProvisionalNotice, isProvisionalPart } from "./library-component-assets";
 import { MatesWithPanel } from "./library-component-mates";
 import { ModelsPanel } from "./library-component-models";
 import { LibraryPreviewPair } from "./library-preview-inspector";
@@ -216,11 +197,7 @@ function OverviewPanel({ component, canMutate, onEdit }: { component: CatalogCom
 
   return (
     <div className="space-y-4">
-      {isProvisionalPart(component) ? (
-        <div className="border border-amber-500/30 bg-amber-500/10 p-3 text-sm text-amber-700 dark:text-amber-300">
-          <strong>Provisional component.</strong> Add the real manufacturer part number before approval, release, inventory synchronization, or placement.
-        </div>
-      ) : null}
+      {isProvisionalPart(component) ? <ProvisionalNotice /> : null}
       <div className="grid grid-cols-2 gap-2 lg:grid-cols-4">
         <MetricCard label="Release state" value={WORKFLOW_LABELS[workflowStage(component)]} detail={`Revision v${component.revision}`} />
         <MetricCard label="Required assets" value={`${requiredAttached}/${requiredAttached + component.missing_assets.length}`} detail={component.missing_assets.length ? `Missing ${component.missing_assets.join(", ")}` : "All required assets attached"} />
@@ -293,234 +270,6 @@ function OverviewPanel({ component, canMutate, onEdit }: { component: CatalogCom
   );
 }
 
-function RepresentationRow({
-  component,
-  representation,
-  canMutate,
-  onChanged,
-}: {
-  component: CatalogComponent;
-  representation: CatalogRepresentation;
-  canMutate: boolean;
-  onChanged: () => void;
-}) {
-  const symbols = component.assets.filter((asset) => asset.asset_type === "symbol");
-  const footprints = component.assets.filter((asset) => asset.asset_type === "footprint");
-  // An edit buffer, not a mirror: it is meant to diverge from the prop as soon
-  // as the field is typed in, so it cannot be computed inline. The row is keyed
-  // on representation.id, so a different representation gets a different form.
-  // react-doctor-disable-next-line react-doctor/no-derived-useState
-  const [label, setLabel] = useState(representation.label);
-  const [symbolId, setSymbolId] = useState(representation.symbol?.id || "");
-  const [footprintId, setFootprintId] = useState(representation.footprint?.id || "");
-  const [order, setOrder] = useState(String(representation.display_order));
-  const [saving, setSaving] = useState(false);
-
-  const update = async (makeDefault = representation.is_default) => {
-    setSaving(true);
-    try {
-      await updateRepresentation(component.id, representation.id, {
-        label,
-        symbol_asset_id: symbolId,
-        footprint_asset_id: footprintId,
-        display_order: Number(order) || 0,
-        is_default: makeDefault,
-      }, component.revision_id);
-      toast.success(makeDefault && !representation.is_default ? "Default representation updated." : "Representation saved.");
-      onChanged();
-    } catch (reason) {
-      toast.error(reason instanceof Error ? reason.message : String(reason));
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const remove = async () => {
-    setSaving(true);
-    try {
-      await deleteRepresentation(component.id, representation.id, component.revision_id);
-      toast.success("Representation removed in a new revision.");
-      onChanged();
-    } catch (reason) {
-      toast.error(reason instanceof Error ? reason.message : String(reason));
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  return (
-    <div className="grid gap-2 border p-3 lg:grid-cols-[minmax(10rem,1fr)_minmax(10rem,1fr)_minmax(10rem,1fr)_5rem_auto]">
-      <Input aria-label="Representation label" value={label} onChange={(event) => setLabel(event.target.value)} disabled={!canMutate || saving} />
-      <Select value={symbolId || "none"} onValueChange={(value) => setSymbolId(value === "none" ? "" : value)} disabled={!canMutate || saving}>
-        <SelectTrigger aria-label="Symbol asset"><SelectValue placeholder="No symbol" /></SelectTrigger>
-        <SelectContent><SelectItem value="none">No symbol</SelectItem>{symbols.map((asset) => <SelectItem key={asset.id} value={asset.id}>{asset.target_name}</SelectItem>)}</SelectContent>
-      </Select>
-      <Select value={footprintId || "none"} onValueChange={(value) => setFootprintId(value === "none" ? "" : value)} disabled={!canMutate || saving}>
-        <SelectTrigger aria-label="Footprint asset"><SelectValue placeholder="No footprint" /></SelectTrigger>
-        <SelectContent><SelectItem value="none">No footprint</SelectItem>{footprints.map((asset) => <SelectItem key={asset.id} value={asset.id}>{asset.target_name}</SelectItem>)}</SelectContent>
-      </Select>
-      <Input aria-label="Display order" type="number" value={order} onChange={(event) => setOrder(event.target.value)} disabled={!canMutate || saving} />
-      <div className="flex items-center justify-end gap-1">
-        {representation.is_default ? <Badge>Default</Badge> : <Button size="sm" variant="outline" disabled={!canMutate || saving || !symbolId || !footprintId} onClick={() => void update(true)}>Make default</Button>}
-        <Button size="sm" disabled={!canMutate || saving} onClick={() => void update()}>{saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}Save</Button>
-        <Button size="icon-sm" variant="ghost" className="text-destructive" aria-label={`Delete ${representation.label}`} disabled={!canMutate || saving} onClick={() => void remove()}><XCircle className="h-3.5 w-3.5" /></Button>
-      </div>
-      {(representation.symbol?.preview_id || representation.footprint?.preview_id) ? (
-        <div className="grid gap-2 border-t pt-2 lg:col-span-5 sm:grid-cols-2">
-          {(["symbol", "footprint"] as const).map((kind) => {
-            const asset = representation[kind];
-            return asset?.preview_id ? (
-              <div key={kind} className="flex min-h-28 items-center justify-center bg-preview-surface p-2">
-                <img src={catalogPreviewUrl(asset.preview_id)} alt={`${representation.label} ${kind} preview`} className="max-h-36 max-w-full object-contain" />
-              </div>
-            ) : <div key={kind} className="flex min-h-28 items-center justify-center border border-dashed text-xs text-muted-foreground">No {kind} preview</div>;
-          })}
-        </div>
-      ) : null}
-    </div>
-  );
-}
-
-function RepresentationsPanel({ component, canMutate, onChanged }: { component: CatalogComponent; canMutate: boolean; onChanged: () => void }) {
-  const [creating, setCreating] = useState(false);
-  const symbols = component.assets.filter((asset) => asset.asset_type === "symbol");
-  const footprints = component.assets.filter((asset) => asset.asset_type === "footprint");
-  const add = async () => {
-    setCreating(true);
-    try {
-      const currentDefault = component.representations.find((item) => item.is_default);
-      const candidates = symbols.flatMap((symbol) => footprints.map((footprint) => ({ symbol, footprint })));
-      const unused = candidates.find(({ symbol, footprint }) => !component.representations.some((item) => item.symbol?.id === symbol.id && item.footprint?.id === footprint.id));
-      await createRepresentation(component.id, {
-        label: `Representation ${component.representations.length + 1}`,
-        symbol_asset_id: unused?.symbol.id || (component.representations.length ? "" : currentDefault?.symbol?.id || symbols[0]?.id || ""),
-        footprint_asset_id: unused?.footprint.id || (component.representations.length ? "" : currentDefault?.footprint?.id || footprints[0]?.id || ""),
-        display_order: component.representations.length,
-      }, component.revision_id);
-      toast.success("Representation added in a new revision.");
-      onChanged();
-    } catch (reason) {
-      toast.error(reason instanceof Error ? reason.message : String(reason));
-    } finally {
-      setCreating(false);
-    }
-  };
-  return (
-    <PanelCard
-      title="Symbol-footprint representations"
-      action={canMutate ? <Button size="sm" variant="outline" disabled={creating} onClick={() => void add()}>{creating ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Layers3 className="h-3.5 w-3.5" />} Add representation</Button> : null}
-    >
-      {isProvisionalPart(component) ? <div className="mb-3 border border-amber-500/30 bg-amber-500/10 p-3 text-sm text-amber-700 dark:text-amber-300">This provisional component cannot be completed or released until it has a real manufacturer and MPN.</div> : null}
-      <div className="space-y-2">
-        {component.representations.map((representation) => <RepresentationRow key={representation.id} component={component} representation={representation} canMutate={canMutate} onChanged={onChanged} />)}
-        {!component.representations.length ? <EmptyState icon={Layers3} title="No representations" /> : null}
-      </div>
-    </PanelCard>
-  );
-}
-
-function AssetsPanel({
-  component,
-  canMutate,
-  busyAction,
-  onAttach,
-  onDetachAsset,
-  onDownload,
-  onRegeneratePreviews,
-  onValidate,
-  onRepresentationsChanged,
-}: {
-  component: CatalogComponent;
-  canMutate: boolean;
-  busyAction: string;
-  onAttach: (assetType: AssetType) => void;
-  onDetachAsset: (asset: CatalogAsset) => void;
-  onDownload: (asset: CatalogAsset) => void;
-  onRegeneratePreviews: () => void;
-  onValidate: () => void;
-  onRepresentationsChanged: () => void;
-}) {
-  const groups = (["symbol", "footprint", "3dmodel", "spice"] as const).map((type) => ({
-    type,
-    assets: component.assets.filter((asset) => asset.asset_type === type),
-  }));
-  const downloadsAvailable = component.revision_id === component.released_revision_id;
-  const previewPair = resolveLibraryPreviewPairAssetIds(component);
-  const hasRenderableAssets = Boolean(previewPair.symbolAssetId || previewPair.footprintAssetId);
-
-  return (
-    <div className="space-y-4">
-      <RepresentationsPanel component={component} canMutate={canMutate} onChanged={onRepresentationsChanged} />
-      <div className="flex flex-wrap items-center justify-between gap-3 border bg-card p-3">
-        <div>
-          <p className="text-sm font-medium">Revision assets and evidence</p>
-        </div>
-        {canMutate ? (
-          <div className="flex flex-wrap gap-2">
-            <Button size="sm" variant="outline" disabled={Boolean(busyAction)} onClick={onRegeneratePreviews}>
-              {busyAction === "previews" ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RotateCcw className="h-3.5 w-3.5" />} Regenerate previews
-            </Button>
-            <Button size="sm" disabled={Boolean(busyAction) || !component.validation.enabled} onClick={onValidate} title={component.validation.enabled ? "Run KiCad Library Convention validation" : "Enable CATALOG_KLC_ENABLED to run validation"}>
-              {busyAction === "validation" ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <ShieldCheck className="h-3.5 w-3.5" />} Run KLC validation
-            </Button>
-          </div>
-        ) : null}
-      </div>
-      <div className="grid gap-4 lg:grid-cols-2">
-        {groups.map(({ type, assets }) => (
-          <PanelCard
-            key={type}
-            title={type === "3dmodel" ? "3D models" : type === "spice" ? "SPICE models" : `${humanize(type)} assets`}
-            action={(
-              <div className="flex items-center gap-2">
-                <StatusBadge tone={assets.length ? "success" : type === "symbol" || type === "footprint" ? "danger" : "warning"}>{assets.length ? "Attached" : "Missing"}</StatusBadge>
-                {canMutate ? <Button size="sm" variant="outline" disabled={Boolean(busyAction)} onClick={() => onAttach(type)}><Upload className="h-3.5 w-3.5" />Add</Button> : null}
-              </div>
-            )}
-          >
-            {assets.length ? (
-              <div className="divide-y divide-border">
-                {assets.map((asset) => (
-                  <div key={asset.id} className="space-y-2 py-3 first:pt-0 last:pb-0">
-                    <div className="flex items-start justify-between gap-3">
-                      <div className="min-w-0">
-                        <p className="truncate text-sm font-medium">{asset.name}</p>
-                        <p className="truncate text-xs text-muted-foreground">{asset.target_library ? `${asset.target_library}:` : ""}{asset.target_name}</p>
-                      </div>
-                      <div className="flex shrink-0 items-center gap-1">
-                        {asset.required ? <Badge>Required</Badge> : <Badge variant="secondary">Optional</Badge>}
-                        <Button size="icon-sm" variant="ghost" aria-label={`Download ${asset.name}`} title={downloadsAvailable ? "Download released asset" : "Downloads are available from the released revision"} disabled={!downloadsAvailable} onClick={() => onDownload(asset)}><Download className="h-3.5 w-3.5" /></Button>
-                        {canMutate ? <Button size="icon-sm" variant="ghost" className="text-destructive" aria-label={`Detach ${asset.name}`} onClick={() => onDetachAsset(asset)}><XCircle className="h-3.5 w-3.5" /></Button> : null}
-                      </div>
-                    </div>
-                    <div className="grid min-w-0 gap-1 text-xs text-muted-foreground sm:grid-cols-2">
-                      <span className="min-w-0 truncate">{asset.content_type || "Unknown content type"}</span>
-                      <span>{formatBytes(asset.size_bytes)}</span>
-                      <span className="min-w-0 truncate font-mono sm:col-span-2" title={asset.sha256}>{asset.sha256 ? `SHA-256 ${asset.sha256}` : `Asset ${asset.id}`}</span>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <EmptyState icon={CircleDashed} title={`No ${humanize(type)} asset`} />
-            )}
-          </PanelCard>
-        ))}
-      </div>
-
-      {hasRenderableAssets ? (
-        <PanelCard title="Rendered previews">
-          <LibraryPreviewPair
-            label={component.name}
-            symbolAssetId={previewPair.symbolAssetId}
-            footprintAssetId={previewPair.footprintAssetId}
-          />
-        </PanelCard>
-      ) : null}
-    </div>
-  );
-}
-
 function ErrorState({ message, onRetry }: { message: string; onRetry: () => void }) {
   return (
     <div className="flex h-full items-center justify-center p-6">
@@ -534,9 +283,6 @@ function ErrorState({ message, onRetry }: { message: string; onRetry: () => void
   );
 }
 
-function isProvisionalPart(component: CatalogComponent): boolean {
-  return component.identity_kind === "provisional_ipn";
-}
 
 // react-doctor-disable-next-line no-giant-component - tabs, evidence, and release queue share one component resource
 export function LibraryComponentWorkspace({

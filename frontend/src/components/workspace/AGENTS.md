@@ -27,7 +27,10 @@ these modules are forms and grids over server data rather than viewer bridges.
 
 **Component authoring** — `library-component-workspace.tsx` (the coordinator:
 URL ownership and current/historical selection stay here),
-`library-component-chrome.tsx` (shared badges, cards, empty/loading chrome),
+`library-component-chrome.tsx` (shared badges, cards, empty/loading chrome;
+cards carry a title, never a description),
+`library-component-assets.tsx` (the Assets tab: representation rows, files by
+type, one preview of the picked representation),
 `library-component-evidence.ts` (tab evidence load hooks, no store or query
 library), `library-component-validation.ts` (component-scoped AbortController
 and `watchPrismJob` adapter; the coordinator starts/aborts and applies the
@@ -63,6 +66,11 @@ with its footprint, `library-cross-probe.tsx` carries a pin↔pad probe between
 the two, and `library-preview-pair.ts` decides which representation's assets a
 pair draws. Navigation belongs to the viewer, not to the frame around it — see
 `frontend/src/lib/ecad-renderer.ts`.
+
+**Lists** — the catalog, release queue and bulk edit page with
+`library-pager.tsx`. Section and filter switches use the studios' segmented
+tabs (`frontend/src/components/ui/studio-tabs.tsx`). No helper sentences: labels, counts, and
+`title` hints for the detail.
 
 **Catalog client** — `catalog-client.ts` is the one place that knows
 `/api/catalog` URLs: one function per operation over `frontend/src/lib/api.ts`.
