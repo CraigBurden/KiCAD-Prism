@@ -1,6 +1,5 @@
 import { Boxes, Loader2 } from "lucide-react";
 
-import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
 import { LibraryPreviewViewport } from "./library-preview-viewport";
@@ -33,11 +32,6 @@ export const formatBytes = (value?: number) => {
   if (value < 1024 * 1024) return `${(value / 1024).toFixed(1)} KB`;
   return `${(value / (1024 * 1024)).toFixed(1)} MB`;
 };
-
-export function StatusBadge({ children, tone = "neutral" }: { children: React.ReactNode; tone?: "neutral" | "success" | "warning" | "danger" }) {
-  const variant = tone === "success" ? "success" : tone === "warning" ? "warning" : tone === "danger" ? "destructive" : "outline";
-  return <Badge variant={variant}>{children}</Badge>;
-}
 
 /** A label and its value; `detail` is the hover hint. */
 export function MetricCard({ label, value, detail }: { label: string; value: React.ReactNode; detail?: string }) {
