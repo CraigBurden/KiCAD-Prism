@@ -1,4 +1,7 @@
+import mimetypes
 from pathlib import Path
+from typing import Dict, Optional
+from urllib.parse import quote
 
 from fastapi import HTTPException, Request
 from fastapi.responses import FileResponse, Response
@@ -7,7 +10,7 @@ from app.core import policy
 from app.core.roles import Role
 from app.core.security import AuthenticatedUser
 from app.services.workspace_service import workspace
-from app.services import project_service
+from app.services import file_service, project_service
 from app.services.catalog.preview_files import stored_file
 
 
@@ -136,3 +139,37 @@ def preview_file_response(request: Request, path: Path, media_type: str, headers
     import gzip  # noqa: PLC0415
 
     return Response(gzip.decompress(file.read_bytes()), media_type=media_type, headers=headers)
+
+
+#: Headers for bytes Prism serves but did not write -- released members, KiCad's
+#: SVG plots, Gerber layers drawn as SVG. SVG served inline from this origin is
+#: script; the sandbox and the sniffing block keep an inline view from becoming
+#: a way to run code against a logged-in session.
+SANDBOXED_CONTENT_HEADERS = {
+    "Content-Security-Policy": "default-src 'none'; style-src 'unsafe-inline'; sandbox",
+    "X-Content-Type-Options": "nosniff",
+    "Referrer-Policy": "no-referrer",
+}
+
+
+#: Larger commit files are served from the content-addressed blob cache, not read whole.
+COMMIT_FILE_STREAM_BYTES = 1 << 20
+
+
+def commit_file_response(
+    commit_file: file_service.CommitFile,
+    *,
+    inline: bool = True,
+    headers: Optional[Dict[str, str]] = None,
+) -> Response:
+    """Serve a file read at a commit; a large one streams from the blob cache."""
+    media_type = mimetypes.guess_type(commit_file.name)[0] or "application/octet-stream"
+    response_headers = dict(headers or {})
+    disposition = "inline" if inline else "attachment"
+    safe_name = commit_file.name.replace('"', "")
+    response_headers["Content-Disposition"] = (
+        f'{disposition}; filename="{safe_name}"; filename*=UTF-8\'\'{quote(commit_file.name)}'
+    )
+    if commit_file.size > COMMIT_FILE_STREAM_BYTES:
+        return FileResponse(commit_file.cached_path(), media_type=media_type, headers=response_headers)
+    return Response(content=commit_file.content, media_type=media_type, headers=response_headers)

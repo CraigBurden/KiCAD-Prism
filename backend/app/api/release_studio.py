@@ -8,10 +8,7 @@ serves Git tags and must keep doing so.
 from __future__ import annotations
 
 import asyncio
-import hashlib
-import io
 import logging
-import tarfile
 from pathlib import Path
 from typing import Annotated, Any
 
@@ -19,7 +16,11 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import Response
 from pydantic import BaseModel, Field
 
-from app.api._helpers import authorized_project, get_project_for_role_or_404
+from app.api._helpers import (
+    SANDBOXED_CONTENT_HEADERS,
+    authorized_project,
+    get_project_for_role_or_404,
+)
 from app.core.security import (
     AuthenticatedUser,
     require_designer,
@@ -386,24 +387,10 @@ async def download_member(
 
     get_project_for_role_or_404(project_id, user.role)
     build = ARCHIVES.build(project_id, build_id)
-
-    return _released_member_response(
-        build, member_path, disposition=disposition, build_id=build_id
-    )
-
-
-def _released_member_response(
-    build: dict[str, Any],
-    member_path: str,
-    *,
-    disposition: str = "inline",
-    public_share: bool = False,
-    build_id: str | None = None,
-) -> Response:
     member = next(
         (
             item
-            for item in store.build_members(build_id or build["id"])
+            for item in store.build_members(build_id)
             if item["path"] == member_path
         ),
         None,
@@ -413,35 +400,11 @@ def _released_member_response(
     if member is None:
         raise HTTPException(status_code=404, detail="Member not found in this build")
 
-    payload = ARCHIVES.artifact_bytes(build["dossier_artifact_id"])
-    try:
-        with tarfile.open(fileobj=io.BytesIO(payload), mode="r:gz") as archive:
-            extracted = archive.extractfile(member_path)
-            if extracted is None:
-                raise HTTPException(
-                    status_code=404, detail="Member is absent from the stored dossier"
-                )
-            data = extracted.read()
-    except tarfile.TarError as exc:
-        logger.exception(
-            "Could not read stored Release Studio dossier for build %s member %s",
-            build_id or build["id"],
-            member_path,
-        )
-        raise HTTPException(
-            status_code=500, detail="The stored dossier could not be read."
-        ) from exc
+    data = ARCHIVES.released_members(build, [member]).get(member_path)
+    if data is None:
+        raise HTTPException(status_code=404, detail="Member is absent from the stored dossier")
 
-    actual = hashlib.sha256(data).hexdigest()
-    if actual != member["released_digest"]:
-        raise HTTPException(
-            status_code=500,
-            detail=(
-                f"Released digest mismatch for {member_path}: the manifest records "
-                f"{member['released_digest']} but the stored dossier holds {actual}"
-            ),
-        )
-
+    digest = member["released_digest"]
     filename = member_path.rsplit("/", 1)[-1]
     return Response(
         content=data,
@@ -449,19 +412,9 @@ def _released_member_response(
         headers={
             "Content-Disposition": f'{disposition}; filename="{filename}"',
             # The bytes are immutable and named by their digest.
-            "Cache-Control": (
-                "private, no-store"
-                if public_share
-                else "private, max-age=31536000, immutable"
-            ),
-            "ETag": f'"{actual}"',
-            # Released members are third-party bytes -- KiCad's SVG plots most
-            # of all -- and SVG served inline from this origin is script.  The
-            # sandbox and the sniffing block keep an inline view from becoming
-            # a way to run code against a logged-in session.
-            "Content-Security-Policy": "default-src 'none'; style-src 'unsafe-inline'; sandbox",
-            "X-Content-Type-Options": "nosniff",
-            "Referrer-Policy": "no-referrer",
+            "Cache-Control": "private, max-age=31536000, immutable",
+            "ETag": f'"{digest}"',
+            **SANDBOXED_CONTENT_HEADERS,
         },
     )
 

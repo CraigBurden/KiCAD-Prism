@@ -3,6 +3,7 @@ import {
     CheckCircle2,
     ChevronDown,
     CircleDot,
+    CircuitBoard,
     Crosshair,
     Download,
     FileCheck2,
@@ -20,6 +21,13 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { cn } from "@/lib/utils";
+import { FabricationViewer } from "@/components/fabrication-viewer/fabrication-viewer";
+import {
+    buildSource,
+    isFabricationMember,
+    isLayerFile,
+    memberFileName,
+} from "@/components/fabrication-viewer/sources";
 
 import * as api from "../api";
 import { shortDigest } from "../flow";
@@ -73,6 +81,7 @@ export function InspectOutputsStep({
     const [sheetKey, setSheetKey] = useState("");
     const [outputView, setOutputView] = useState("documents");
     const [member, setMember] = useState<ReleaseMember | null>(null);
+    const [focusFile, setFocusFile] = useState("");
     const [vendorId, setVendorId] = useState("");
 
     useEffect(() => {
@@ -90,6 +99,20 @@ export function InspectOutputsStep({
 
     const selectedSheet = sheets.find((sheet) => sheet.key === sheetKey) ?? sheets[0];
     const membersByDomain = useMemo(() => groupMembers(detail.members), [detail.members]);
+    const hasFabrication = detail.members.some((item) => isFabricationMember(item.path));
+    const fabricationSource = useMemo(
+        () => buildSource(projectId, detail.build.id),
+        [projectId, detail.build.id],
+    );
+    // A layer file opens in the viewer; the job file and everything else stay text.
+    const openMember = (item: ReleaseMember) => {
+        if (isLayerFile(item.path)) {
+            setFocusFile(memberFileName(item.path));
+            setOutputView("fabrication");
+        } else {
+            setMember(item);
+        }
+    };
     const selectedProfile = profiles.find((profile) => profile.id === vendorId) ?? profiles[0];
     const selectedReadiness = detail.vendor_readiness?.find(
         (item) => (item.vendor_id || item.profile_id) === selectedProfile?.id,
@@ -105,6 +128,12 @@ export function InspectOutputsStep({
                                 <FileText className="h-4 w-4" />
                                 Documents{sheets.length ? ` (${sheets.length})` : ""}
                             </TabsTrigger>
+                            {hasFabrication && (
+                                <TabsTrigger value="fabrication" className="gap-2 px-2 text-sm">
+                                    <CircuitBoard className="h-4 w-4" />
+                                    Gerber
+                                </TabsTrigger>
+                            )}
                             <TabsTrigger value="members" className="gap-2 px-2 text-sm">
                                 <Layers3 className="h-4 w-4" />
                                 Members ({detail.members.length})
@@ -182,6 +211,15 @@ export function InspectOutputsStep({
                         <p className="p-3 text-sm text-muted-foreground">No composed documents for this build.</p>
                     )
                 )}
+                {outputView === "fabrication" && hasFabrication && (
+                    <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+                        <FabricationViewer
+                            key={`${fabricationSource.key}:${focusFile}`}
+                            source={fabricationSource}
+                            focusFile={focusFile || undefined}
+                        />
+                    </div>
+                )}
                 {outputView === "members" && (
                     <div className="flex min-h-0 flex-1 flex-col gap-2 overflow-hidden">
                         <div className="min-h-0 flex-1 overflow-y-auto border">
@@ -191,15 +229,27 @@ export function InspectOutputsStep({
                                         {domain.replace("_", " ")}
                                     </h5>
                                     {members.map((item) => (
-                                        <button
-                                            key={item.path}
-                                            type="button"
-                                            className="flex w-full items-center gap-2 border-t px-3 py-1.5 text-left text-xs hover:bg-muted/40"
-                                            onClick={() => setMember(item)}
-                                        >
-                                            <span className="flex-1 truncate font-mono">{item.path}</span>
-                                            <span className="text-muted-foreground">{shortDigest(item.released_digest)}</span>
-                                        </button>
+                                        <div key={item.path} className="flex items-center border-t hover:bg-muted/40">
+                                            <button
+                                                type="button"
+                                                className="flex min-w-0 flex-1 items-center gap-2 px-3 py-1.5 text-left text-xs"
+                                                onClick={() => openMember(item)}
+                                            >
+                                                <span className="flex-1 truncate font-mono">{item.path}</span>
+                                                <span className="text-muted-foreground">{shortDigest(item.released_digest)}</span>
+                                            </button>
+                                            {isLayerFile(item.path) && (
+                                                <Button
+                                                    size="xs"
+                                                    variant="ghost"
+                                                    className="mr-2 shrink-0"
+                                                    aria-label={`View ${item.path} as text`}
+                                                    onClick={() => setMember(item)}
+                                                >
+                                                    Text
+                                                </Button>
+                                            )}
+                                        </div>
                                     ))}
                                 </div>
                             ))}
