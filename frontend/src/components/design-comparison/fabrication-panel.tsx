@@ -167,12 +167,22 @@ const MarkerLayer = memo(function MarkerLayer({
     );
 });
 
-function Pane({
+/**
+ * One board pane: pan and zoom over a drawn rectangle, with its label above.
+ *
+ * Shared with the fabrication viewer, which stacks any number of layers in it.
+ * `mirrored` turns the pane over left to right, for viewing a board's bottom;
+ * pair it with `useBoardViewport(..., { mirrorX })` so dragging follows the pointer.
+ */
+export function Pane({
     label,
     drawn,
     board,
     camera,
     handlers,
+    mirrored = false,
+    panning = false,
+    className,
     children,
 }: {
     label: string;
@@ -180,6 +190,11 @@ function Pane({
     board: BoardRect | null;
     camera: Camera;
     handlers: ReturnType<typeof useBoardViewport>["handlers"];
+    mirrored?: boolean;
+    /** A pan is under way: the artwork goes on its own GPU layer so moving it does not redraw it. */
+    panning?: boolean;
+    /** Merged over the pane's classes, such as a different background. */
+    className?: string;
     children: (pxPerMm: number) => ReactNode;
 }) {
     const ref = useRef<HTMLDivElement | null>(null);
@@ -217,21 +232,32 @@ function Pane({
             </span>
             <div
                 ref={ref}
-                className="relative min-h-0 flex-1 cursor-grab touch-none overflow-hidden rounded border bg-[#0b0f14] active:cursor-grabbing"
+                className={cn(
+                    "relative min-h-0 flex-1 cursor-grab touch-none select-none overflow-hidden rounded border bg-[#0b0f14] active:cursor-grabbing",
+                    className,
+                )}
+                // A pan must never turn into the browser dragging the artwork or a selection.
+                onDragStart={(event) => event.preventDefault()}
                 {...handlers}
             >
                 <div
-                    className={cn("absolute", !layout && "inset-0")}
-                    style={layout
-                        ? {
-                            width: layout.width,
-                            height: layout.height,
-                            left: layout.left,
-                            top: layout.top,
-                        }
-                        : undefined}
+                    className="absolute inset-0"
+                    style={mirrored ? { transform: "scaleX(-1)" } : undefined}
                 >
-                    {children(pxPerMm)}
+                    <div
+                        className={cn("absolute", layout ? "left-0 top-0" : "inset-0", layout && panning && "will-change-transform")}
+                        style={layout && drawn
+                            ? {
+                                // Sized at the current zoom, so the artwork is always drawn sharp, and
+                                // moved by a transform, so a pan on its own GPU layer never redraws it.
+                                width: layout.width,
+                                height: layout.height,
+                                transform: `translate(${layout.left}px, ${layout.top}px)`,
+                            }
+                            : undefined}
+                    >
+                        {children(pxPerMm)}
+                    </div>
                 </div>
             </div>
         </div>
@@ -293,7 +319,7 @@ export function FabricationPanel({
     // courtyard layers annotate well outside the profile.
     const board = useRect(fabrication?.board) ?? drawn;
 
-    const { frame, reset, zoomBy, view, handlers } = useBoardViewport(board);
+    const { frame, reset, zoomBy, view, handlers, panning } = useBoardViewport(board);
     const regions = useMemo(() => current?.regions ?? [], [current?.regions]);
 
     const layerName = current?.name;
@@ -561,7 +587,7 @@ export function FabricationPanel({
                 <div className="flex min-h-0 flex-1 gap-2 p-3">
                     {presentationMode === "side-by-side" ? (
                         <>
-                            <Pane label="Old" drawn={drawn} board={board} camera={view} handlers={handlers}>
+                            <Pane label="Old" drawn={drawn} board={board} camera={view} handlers={handlers} panning={panning}>
                                 {(pxPerMm) => (
                                     <>
                                         <LayerImage url={baseUrl} alt="Old revision" />
@@ -569,7 +595,7 @@ export function FabricationPanel({
                                     </>
                                 )}
                             </Pane>
-                            <Pane label="New" drawn={drawn} board={board} camera={view} handlers={handlers}>
+                            <Pane label="New" drawn={drawn} board={board} camera={view} handlers={handlers} panning={panning}>
                                 {(pxPerMm) => (
                                     <>
                                         <LayerImage url={compareUrl} alt="New revision" />
@@ -584,6 +610,7 @@ export function FabricationPanel({
                             drawn={drawn} board={board}
                             camera={view}
                             handlers={handlers}
+                            panning={panning}
                         >
                             {(pxPerMm) => (
                                 <>
@@ -596,7 +623,7 @@ export function FabricationPanel({
                             )}
                         </Pane>
                     ) : (
-                        <Pane label="Composite" drawn={drawn} board={board} camera={view} handlers={handlers}>
+                        <Pane label="Composite" drawn={drawn} board={board} camera={view} handlers={handlers} panning={panning}>
                             {(pxPerMm) => (
                                 <>
                                     <LayerImage url={baseUrl} alt="Old revision" />

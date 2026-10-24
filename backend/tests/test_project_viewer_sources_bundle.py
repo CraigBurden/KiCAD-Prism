@@ -326,10 +326,10 @@ class ViewerSourceBundleTests(_BundleFixture):
             whole.append(path)
             return read(archive, path, **kwargs)
 
-        from app.api import projects
+        from app.api import _helpers
 
         with mock.patch.object(viewer_sources, "COMMIT_FILE_STREAM_BYTES", 4), \
-                mock.patch.object(projects, "COMMIT_FILE_STREAM_BYTES", 4), \
+                mock.patch.object(_helpers, "COMMIT_FILE_STREAM_BYTES", 4), \
                 mock.patch.object(settings, "PRISM_DESIGN_BUNDLE_ROOT", str(self.tmp / "bundles")), \
                 mock.patch.object(Archive, "read", read_member):
             response = self._serve(viewer_sources.get_project_pcb, commit=self.repo)

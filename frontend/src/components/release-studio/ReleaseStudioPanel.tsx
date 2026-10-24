@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { History, ListRestart, Settings2 } from "lucide-react";
+import { History, ListRestart, PanelLeftOpen, Settings2 } from "lucide-react";
 import { toast } from "sonner";
 
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { ResizablePanel } from "@/components/ui/resizable-panel";
+import { StudioTabsList, StudioTabsTrigger } from "@/components/ui/studio-tabs";
+import { Tabs } from "@/components/ui/tabs";
 import { cancelPrismJob, jobPipeline, throwIfJobFailed, watchPrismJob } from "@/lib/jobs";
 import { usePoll } from "@/lib/server-state";
 import { cn } from "@/lib/utils";
@@ -12,8 +13,11 @@ import { useCommittedRef } from "@/hooks/use-committed-ref";
 import type { UserRole } from "@/types/auth";
 
 import * as api from "./api";
+import { IdentityStrip } from "./IdentityStrip";
 import { RunList } from "./RunList";
+import { IdentityDetails, LockedStage, ManufacturingDetails, SourceDetails } from "./RunSnapshot";
 import { StageRail } from "./StageRail";
+import { useCollapsed } from "./use-collapsed";
 import { InspectOutputsStep } from "./steps/InspectOutputsStep";
 import { ObserveBuildStep } from "./steps/ObserveBuildStep";
 import { PublishStep } from "./steps/PublishStep";
@@ -26,7 +30,6 @@ import type {
     PipelineState,
     ProjectCommit,
     ReleaseCandidate,
-    ReleaseConfiguration,
     ReleaseIdentity,
     ReleaseManufacturing,
     ReleaseSource,
@@ -44,6 +47,12 @@ type Props = {
 };
 
 const FULL_SHA = /^[a-f0-9]{40}$/i;
+
+const MODES = [
+    { id: "settings" as const, label: "New release", icon: Settings2 },
+    { id: "current" as const, label: "Current", icon: ListRestart },
+    { id: "history" as const, label: "History", icon: History },
+];
 
 /**
  * Kept below the 20 MB base64 ceiling `CandidateRequest.stackup_pdf_b64`
@@ -105,6 +114,7 @@ export function ReleaseStudioPanel({
         return true;
     });
     const draftingRef = useCommittedRef(drafting);
+    const [historyCollapsed, setHistoryCollapsed] = useCollapsed("prism.releaseStudio.runHistoryCollapsed", 1600);
     const [commits, setCommits] = useState<ProjectCommit[]>([]);
     const [commitsLoading, setCommitsLoading] = useState(true);
     const [commitSha, setCommitSha] = useState(defaultCommit);
@@ -509,50 +519,44 @@ export function ReleaseStudioPanel({
         [building, drafting, selectedCandidate, selectedDetail],
     );
 
+    const activeMode: StudioView = drafting && !selectedBuildId ? "settings" : view;
+    const selectMode = (id: StudioView) => {
+        setView(id);
+        if (id === "settings") {
+            setDrafting(true);
+            setView("current");
+            setStage("source");
+            setSelectedBuildId(null);
+            setDetail(null);
+            return;
+        }
+        setDrafting(false);
+        if (id === "current") {
+            setSelectedBuildId(currentBuildIdRef.current);
+            setStage(activeJobId ? "build" : "outputs");
+        } else if (id === "history") {
+            pinnedRef.current = false;
+            setSelectedBuildId(null);
+            setDetail(null);
+            setStage("build");
+        }
+    };
+
     return (
         <div className="flex h-full min-h-0 flex-col">
-            <header className="flex min-h-9 shrink-0 flex-wrap items-center gap-2 border-b px-3 py-1">
-                <div className="flex items-center gap-0.5">
-                    {([
-                        ...(canMutate ? [{ id: "settings" as const, label: "New release", icon: Settings2 }] : []),
-                        { id: "current" as const, label: "Current", icon: ListRestart },
-                        { id: "history" as const, label: "History", icon: History },
-                    ]).map(({ id, label, icon: Icon }) => (
-                        <button
-                            key={id}
-                            type="button"
-                            onClick={() => {
-                                setView(id);
-                                if (id === "settings") {
-                                    setDrafting(true);
-                                    setView("current");
-                                    setStage("source");
-                                    setSelectedBuildId(null);
-                                    setDetail(null);
-                                    return;
-                                }
-                                setDrafting(false);
-                                if (id === "current") {
-                                    setSelectedBuildId(currentBuildIdRef.current);
-                                    setStage(activeJobId ? "build" : "outputs");
-                                } else if (id === "history") {
-                                    pinnedRef.current = false;
-                                    setSelectedBuildId(null);
-                                    setDetail(null);
-                                    setStage("build");
-                                }
-                            }}
-                            aria-current={(view === id || (id === "settings" && drafting && !selectedBuildId)) ? "page" : undefined}
-                            className={cn(
-                                "flex items-center gap-1.5 rounded px-2.5 py-1 text-sm",
-                                view === id || (id === "settings" && drafting && !selectedBuildId) ? "bg-muted font-medium" : "text-muted-foreground",
-                            )}
-                        >
-                            <Icon className="h-3.5 w-3.5" />
-                            {label}
-                        </button>
-                    ))}
-                </div>
+            <header className="flex h-11 shrink-0 items-center gap-2 overflow-hidden border-b px-2">
+                {/* Manual activation: arrows move focus, a click or Enter selects,
+                    and selecting the open view re-runs it (a fresh New release). */}
+                <Tabs value={activeMode} activationMode="manual" className="shrink-0">
+                    <StudioTabsList aria-label="Release Studio views">
+                        {MODES.filter((mode) => canMutate || mode.id !== "settings").map(({ id, label, icon: Icon }) => (
+                            <StudioTabsTrigger key={id} value={id} className="gap-1.5" onClick={() => selectMode(id)}>
+                                <Icon className="size-3.5" aria-hidden />
+                                {label}
+                            </StudioTabsTrigger>
+                        ))}
+                    </StudioTabsList>
+                </Tabs>
                 {(selectedBuildId || building || drafting) && (
                     <IdentityStrip
                         candidate={selectedCandidate}
@@ -582,8 +586,20 @@ export function ReleaseStudioPanel({
                 </div>
             )}
             {view === "settings" ? null : (
-                <div className="flex min-h-0 flex-1">
-                    {view === "history" && (
+                <div className="flex min-h-0 min-w-0 flex-1">
+                    {view === "history" && (historyCollapsed ? (
+                        <aside aria-label="Run history" className="flex w-11 shrink-0 flex-col items-center gap-2 border-r py-2">
+                            <Button
+                                size="icon-sm"
+                                variant="ghost"
+                                aria-label="Show run history"
+                                title="Show run history"
+                                onClick={() => setHistoryCollapsed(false)}
+                            >
+                                <PanelLeftOpen className="h-4 w-4" />
+                            </Button>
+                        </aside>
+                    ) : (
                         <ResizablePanel
                             side="left"
                             storageKey="prism.releaseStudio.runHistoryWidth"
@@ -599,16 +615,17 @@ export function ReleaseStudioPanel({
                                     setDrafting(false);
                                     openRun(buildId);
                                 }}
+                                onCollapse={() => setHistoryCollapsed(true)}
                             />
                         </ResizablePanel>
-                    )}
+                    ))}
 
                     {!selectedBuildId && !building && !drafting ? (
                         <div className="flex flex-1 items-center justify-center p-6 text-sm text-muted-foreground">
-                            {canMutate ? "Select a run, or start a new release." : "Select a run from History."}
+                            No run selected
                         </div>
                     ) : (
-                        <div className="flex min-h-0 flex-1">
+                        <div className="flex min-h-0 min-w-0 flex-1">
                             <ResizablePanel
                                 side="left"
                                 storageKey="prism.releaseStudio.stageRailWidth"
@@ -631,9 +648,11 @@ export function ReleaseStudioPanel({
                             <div
                                 className={cn(
                                     "min-h-0 min-w-0 flex-1",
-                                    stage === "outputs" || stage === "publish"
-                                        ? "flex flex-col overflow-hidden p-2"
-                                        : "overflow-y-auto p-4",
+                                    stage === "outputs"
+                                        ? "flex flex-col overflow-hidden"
+                                        : stage === "publish"
+                                          ? "flex flex-col overflow-hidden p-2"
+                                          : "overflow-y-auto p-4",
                                 )}
                             >
                                     {stage === "source" && drafting && (
@@ -770,116 +789,3 @@ export function ReleaseStudioPanel({
 }
 
 export default ReleaseStudioPanel;
-
-function IdentityStrip({
-    candidate,
-    configuration,
-    identity,
-    fallbackCommit,
-    variant,
-    status,
-    behind,
-    onJumpToLatest,
-}: {
-    candidate: ReleaseCandidate | null;
-    configuration: ReleaseConfiguration | null;
-    identity: ReleaseIdentity;
-    fallbackCommit: string;
-    variant: string;
-    status: string;
-    behind: boolean;
-    onJumpToLatest: () => void;
-}) {
-    const commit = candidate?.commit_sha || fallbackCommit;
-    const resolvedVariant = candidate?.variant || variant || configuration?.default_variant || "default";
-    const documentName = configuration?.document_number || identity.document_name || "—";
-    const revision = configuration?.revision || identity.tag || "—";
-    return (
-        <div
-            aria-label="Release identity"
-            className="ml-auto flex min-w-0 flex-wrap items-center gap-1.5 text-xs leading-none"
-        >
-            <span className="font-mono text-muted-foreground">{commit.slice(0, 12) || "HEAD"}</span>
-            <Badge variant="outline" className="h-5 px-1.5">{status}</Badge>
-            <span className="text-muted-foreground">{resolvedVariant}</span>
-            <span className="truncate">{documentName}</span>
-            <span className="text-muted-foreground">Rev {revision}</span>
-            {behind && (
-                <Button size="xs" variant="outline" onClick={onJumpToLatest}>
-                    Jump to latest
-                </Button>
-            )}
-        </div>
-    );
-}
-
-function LockedStage() {
-    return <div className="rounded border border-dashed p-4 text-sm text-muted-foreground">Locked until the build finishes.</div>;
-}
-
-function SourceDetails({ detail }: { detail: BuildDetail }) {
-    const source = detail.candidate;
-    const configuration = detail.configuration;
-    const rows: [string, string][] = [
-        ["Commit", source?.commit_sha || "—"],
-        ["Board", configuration?.board_rel || "—"],
-        ["Schematic", configuration?.schematic_rel || "—"],
-        ["Variant", source?.variant || configuration?.default_variant || "default"],
-    ];
-    return <SnapshotDetails title="Source" rows={rows} />;
-}
-
-function IdentityDetails({ configuration }: { configuration: ReleaseConfiguration | null }) {
-    return (
-        <SnapshotDetails
-            title="Release identity"
-            rows={[
-                ["Tag", configuration?.revision || "—"],
-                ["Document Name", configuration?.document_number || "—"],
-                ["Date", configuration?.release_date || "—"],
-                ["Release notes", configuration?.release_notes || "—"],
-            ]}
-        />
-    );
-}
-
-function snapshotSpec(configuration: ReleaseConfiguration | null, key: string): string {
-    // synthesize_configuration stores IPC/finish callouts under fields[]; identity
-    // stays at the document root. History must read the same shape the cover uses.
-    const nested = configuration?.fields?.[key];
-    const top = (configuration as Record<string, unknown> | null)?.[key];
-    const value = (typeof nested === "string" && nested) || (typeof top === "string" && top) || "";
-    return value.trim() || "—";
-}
-
-function ManufacturingDetails({ configuration }: { configuration: ReleaseConfiguration | null }) {
-    return (
-        <SnapshotDetails
-            title="Manufacturing and assembly"
-            rows={[
-                ["Manufacturing IPC class", snapshotSpec(configuration, "manufacturing_ipc_class")],
-                ["Assembly IPC class", snapshotSpec(configuration, "assembly_ipc_class")],
-                ["Solder mask colour", snapshotSpec(configuration, "solder_mask_colour")],
-                ["Silkscreen colour", snapshotSpec(configuration, "silkscreen_colour")],
-                ["Via treatment", snapshotSpec(configuration, "via_treatment")],
-                ["Vendors", (configuration?.vendors || []).join(", ") || "—"],
-            ]}
-        />
-    );
-}
-
-function SnapshotDetails({ title, rows }: { title: string; rows: [string, string][] }) {
-    return (
-        <div className="space-y-4">
-            <h3 className="text-lg font-semibold">{title}</h3>
-            <dl className="grid gap-3 rounded-lg border p-4 sm:grid-cols-2">
-                {rows.map(([label, value]) => (
-                    <div key={label} className="space-y-1">
-                        <dt className="text-xs font-medium uppercase tracking-wide text-muted-foreground">{label}</dt>
-                        <dd className="break-all text-sm">{value}</dd>
-                    </div>
-                ))}
-            </dl>
-        </div>
-    );
-}

@@ -19,7 +19,7 @@ import type { SimSetup } from "../types";
 
 import { netLeaf } from "./board-index";
 import { settingsOf, withSetting, type Settings } from "./settings";
-import { StudioTabsList, StudioTabsTrigger } from "../studio-tabs";
+import { StudioTabsList, StudioTabsTrigger } from "@/components/ui/studio-tabs";
 
 /**
  * The DC drop analysis's mesher and solver settings, by theme. Every field

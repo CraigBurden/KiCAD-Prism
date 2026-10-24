@@ -126,6 +126,17 @@ forge, record) → `backend/app/services/forge_publish_service.py`
 (`GitHubForge` / `GitLabForge`) → `backend/app/services/release_studio_service.py`
 (publish record)
 
+**View a fabrication package**
+`backend/app/api/fabrication_view.py` (a Release Studio build's package and
+committed output folders, both sources) →
+`backend/app/services/fabrication_view_service.py` (layers, drill) ·
+`backend/app/services/placement_service.py` (parts, BOM check) →
+`backend/app/services/fabrication_compare_service.py` (the Gerber parser and
+renderer it reuses) →
+`frontend/src/components/fabrication-viewer/fabrication-viewer.tsx`, opened from
+`frontend/src/components/release-studio/steps/InspectOutputsStep.tsx` and
+`frontend/src/components/assets-portal.tsx`
+
 **Author and release a component**
 `backend/app/api/catalog_admin.py` →
 `backend/app/services/component_catalog_service.py` (runtime alias) →

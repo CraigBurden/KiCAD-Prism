@@ -24,10 +24,11 @@ const base = (projectId: string) =>
 export async function listDocumentSheets(
     projectId: string,
     buildId: string,
+    signal?: AbortSignal,
 ): Promise<DocumentSheet[]> {
     const data = await fetchJson<{ sheets: DocumentSheet[] }>(
         `${base(projectId)}/builds/${encodeURIComponent(buildId)}/sheets`,
-        undefined,
+        { signal },
         "Could not load documentation sheets",
     );
     return data.sheets ?? [];
