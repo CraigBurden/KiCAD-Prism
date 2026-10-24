@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import shutil
 import tempfile
 import unittest
@@ -86,6 +87,27 @@ class SupersededStoreCleanupTests(unittest.TestCase):
         self.assertEqual(second["bytes"], 0)
         self.assertEqual(second["removed"], [])
         self.assertTrue(reappeared.is_file(), "the marker records the one run; later starts do nothing")
+
+    def test_a_store_another_process_is_removing_counts_as_removed(self) -> None:
+        # Each uvicorn worker runs the cleanup at startup; the first to delete a
+        # directory leaves the other's rmtree finding it gone.
+        self._write(".kicad-prism/semantic-index/prj/key/a.json", 10)
+        real_rmdir = os.rmdir
+        calls = []
+
+        def rmdir_raced(path, *args, **kwargs):
+            real_rmdir(path, *args, **kwargs)
+            calls.append(path)
+            if len(calls) == 1:
+                raise FileNotFoundError(2, "No such file or directory", path)
+
+        with mock.patch("os.rmdir", side_effect=rmdir_raced):
+            result = cleanup_superseded_stores()
+
+        self.assertTrue(result["ran"])
+        self.assertEqual(result["refused"], [])
+        self.assertEqual(len(result["removed"]), 1)
+        self.assertFalse((self.state / "semantic-index").exists())
 
     def test_refuses_a_symlinked_store_instead_of_following_it(self) -> None:
         outside = self.temporary / "outside"
