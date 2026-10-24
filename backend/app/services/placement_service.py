@@ -253,8 +253,8 @@ def _check(parts: Iterable[Part], bom: Sequence[BomLine]) -> Tuple[Dict[str, str
     return statuses, missing
 
 
-def position_files(candidates: Sequence[Tuple[str, str]]) -> List[str]:
-    """Which of ``candidates`` (name, text), in order of preference, make one board's parts.
+def position_files(candidates: Sequence[Tuple[str, Sequence[Part]]]) -> List[str]:
+    """Which of ``candidates`` (name, parsed parts), in order of preference, make one board's parts.
 
     The first readable position file is taken. Another one joins it only when it
     has none of the parts already taken: KiCad writes a top and a bottom file
@@ -264,11 +264,7 @@ def position_files(candidates: Sequence[Tuple[str, str]]) -> List[str]:
 
     chosen: List[str] = []
     taken: set[str] = set()
-    for name, text in candidates:
-        try:
-            parts, _warnings = parse_positions(text)
-        except PlacementError:
-            continue
+    for name, parts in candidates:
         refs = {part.ref for part in parts}
         if chosen and refs & taken:
             continue
@@ -293,20 +289,37 @@ def build_view(
     """
 
     texts = [positions_text] if isinstance(positions_text, str) else list(positions_text)
-    parts: List[Part] = []
-    warnings: List[str] = []
-    for text in texts:
-        found, notes = parse_positions(text)
-        parts.extend(found)
-        warnings.extend(notes)
-    bom: List[BomLine] = []
+    parsed = [parse_positions(text) for text in texts]
+    bom: Optional[List[BomLine]] = None
+    bom_warning = ""
     if bom_text is not None:
         try:
             bom = parse_bom(bom_text)
         except PlacementError as error:
-            warnings.append(f"BOM not used: {error}")
-            bom_text = None
-    statuses, missing = _check(parts, bom) if bom_text is not None else ({}, [])
+            bom_warning = f"BOM not used: {error}"
+    return view_of(parsed, bom, positions_name=positions_name, bom_name=bom_name, bom_warning=bom_warning)
+
+
+def view_of(
+    positions: Sequence[Tuple[Sequence[Part], Sequence[str]]],
+    bom: Optional[Sequence[BomLine]],
+    *,
+    positions_name: str = "",
+    bom_name: str = "",
+    bom_warning: str = "",
+) -> Dict[str, Any]:
+    """The placement view from parsed position files and a parsed BOM (``None``: no BOM).
+
+    ``build_view`` parses and calls this; a caller that has already parsed the
+    files to choose among them passes the results, so nothing is read twice.
+    """
+
+    parts: List[Part] = [part for found, _notes in positions for part in found]
+    warnings: List[str] = [note for _found, notes in positions for note in notes]
+    if bom_warning:
+        warnings.append(bom_warning)
+    has_bom = bom is not None
+    statuses, missing = _check(parts, bom) if bom is not None else ({}, [])
     ordered = sorted(parts, key=lambda part: natural_key(part.ref))
     rows = [
         {
@@ -334,7 +347,7 @@ def build_view(
         "parts": rows,
         "missing": missing,
         "counts": counts,
-        "hasBom": bom_text is not None,
-        "files": {"positions": positions_name, "bom": bom_name if bom_text is not None else ""},
+        "hasBom": has_bom,
+        "files": {"positions": positions_name, "bom": bom_name if has_bom else ""},
         "warnings": warnings,
     }

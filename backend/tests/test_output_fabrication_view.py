@@ -125,6 +125,27 @@ class OutputFabricationViewTests(unittest.TestCase):
         (deep / "board.drl").rename(hidden / "board.drl")
         self.assertEqual(self._view()["drill"]["holes"], 0)
 
+    def test_a_second_export_is_left_out_of_the_package(self) -> None:
+        # A vendor pack beside the plots: the same board under other names.
+        vendor = self.root / "gerbers" / "vendors" / "jlcpcb"
+        vendor.mkdir(parents=True)
+        for name in ("CuTop.gbr", "CuBottom.gbr", "EdgeCuts.gbr"):
+            (vendor / name).write_bytes((self.root / "gerbers" / "board-F_Cu.gtl").read_bytes())
+        files = [layer["file"] for layer in self._view()["layers"]]
+        self.assertNotIn("CuTop.gbr", files)
+        self.assertIn("board-F_Cu.gtl", files)
+        # The vendor export still opens on its own.
+        self.assertIn("CuTop.gbr", [layer["file"] for layer in self._view(folder="gerbers/vendors/jlcpcb")["layers"]])
+
+    def test_limits_measure_the_export_shown_not_the_whole_tree(self) -> None:
+        archive = self.root / "archive" / "rev-a"
+        archive.mkdir(parents=True)
+        for index in range(5):
+            (archive / f"old-{index}.gbr").write_bytes(b"G04 old*\nM02*\n")
+        # The output folder holds 13 layer files; the export shown holds 8.
+        with patch.object(self.api, "_MAX_FILES", 9):
+            self.assertIn("f.cu", [layer["id"] for layer in self._view(folder="")["layers"]])
+
     def test_a_missing_folder_is_404(self) -> None:
         with self.assertRaises(REFUSED) as caught:
             self._view(folder="nope")

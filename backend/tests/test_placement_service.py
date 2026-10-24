@@ -13,6 +13,7 @@ from app.services.placement_service import (
     parse_bom,
     parse_positions,
     position_files,
+    view_of,
 )
 
 KICAD_POS = (
@@ -212,8 +213,15 @@ class PositionFilesTests(unittest.TestCase):
     def test_a_split_export_is_read_together_and_a_duplicate_is_not(self) -> None:
         top = self.HEADER + "C1,1u,C_0402,1,-1,0,top\n"
         bottom = self.HEADER + "R1,1k,R_0402,2,-2,0,bottom\n"
-        candidates = [("top", top), ("bom", KICAD_BOM), ("bottom", bottom), ("cpl", JLC_CPL), ("empty", self.HEADER)]
+        # The caller passes the files that parsed as position files, in its order.
+        candidates = [(name, parse_positions(text)[0]) for name, text in (("top", top), ("bottom", bottom), ("cpl", JLC_CPL))]
         self.assertEqual(position_files(candidates), ["top", "bottom"])
+
+    def test_view_of_takes_parsed_files_and_no_bom(self) -> None:
+        view = view_of([parse_positions(KICAD_POS)], None)
+        self.assertFalse(view["hasBom"])
+        self.assertEqual(view["counts"]["placed"], 4)
+        self.assertEqual(view, build_view(KICAD_POS))
 
     def test_several_texts_make_one_view(self) -> None:
         top = self.HEADER + "C1,1u,C_0402,1,-1,0,top\n"

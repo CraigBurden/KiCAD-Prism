@@ -13,7 +13,9 @@ component, so no state has to reset itself.
 
 A committed output folder is a package together with its subfolders,
 `PACKAGE_DEPTH` (3) levels down, the backend's `_MAX_DEPTH`: CAM exports keep
-drill files, positions and the BOM in folders of their own. The Assets Portal
+drill files, positions and the BOM in folders of their own. When it holds more
+than one export, the backend shows the nearest one (`nearest_export`). Hidden
+(dot) folders are never part of a package. The Assets Portal
 offers the viewer on a folder with a layer anywhere in that reach
 (`holdsLayers`), and on each output tree's header for the whole folder. Drill
 maps are drawings, not layers (`isLayerName`).

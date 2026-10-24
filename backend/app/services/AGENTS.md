@@ -282,9 +282,14 @@ Rules that are easy to break:
   Gerber X2 function (`fabrication_view_service._classify_by_name`).
 - **An output folder's package reaches three levels down** (`_MAX_DEPTH` in
   `backend/app/api/fabrication_view.py`, `PACKAGE_DEPTH` in
-  `frontend/src/components/fabrication-viewer/sources.ts`). Files
-  are laid out flat by name for discovery; on a name clash the file nearest the
-  top wins. A top and a bottom position file are read together
+  `frontend/src/components/fabrication-viewer/sources.ts`), and shows **one
+  export** (`fabrication_view_service.nearest_export`): the shallowest folder of
+  Gerbers with its own subfolders, plus drill files outside every other export.
+  Another folder of Gerbers in reach (a vendor pack, an older revision) is left
+  out and opens on its own; the file limits measure the export shown. Files are
+  laid out flat by name for discovery; on a name clash the file nearest the top
+  wins. Position files and the BOM are found anywhere in reach, each parsed once;
+  a top and a bottom position file are read together
   (`placement_service.position_files`); a second export of the same board is not.
 - **Drill maps are not layers** (`fabrication_view_service.is_drill_map`): their
   legend would set the board's extent.

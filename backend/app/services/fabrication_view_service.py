@@ -335,6 +335,52 @@ def is_drill_map(name: str, data: bytes) -> bool:
     )
 
 
+_DRILL_SUFFIXES = (".drl", ".xln")
+
+
+def _parent(path: str) -> str:
+    return path.rsplit("/", 1)[0] if "/" in path else ""
+
+
+def _within(folder: str, root: str) -> bool:
+    return root == "" or folder == root or folder.startswith(f"{root}/")
+
+
+def nearest_export(paths: Sequence[str]) -> List[str]:
+    """The files of one Gerber export among the layer files under an opened folder.
+
+    Each folder holding Gerbers is an export. The shallowest one is shown (by
+    depth, then name), with its own subfolders; a folder of Gerbers nested in it
+    or beside it is another export and is left out, so two exports (KiCad's
+    plots beside a vendor pack's renamed copies, or an older revision) are never
+    drawn as one board. Drill files outside every other export (a sibling
+    ``Drill`` folder) belong to the shown one. With no Gerbers at all, every
+    drill file is the package.
+    """
+
+    def gerber(path: str) -> bool:
+        name = path.rsplit("/", 1)[-1].casefold()
+        return not name.endswith(_DRILL_SUFFIXES + (".gbrjob",)) and not _DRILL_MAP_NAME.search(name)
+
+    exports = {_parent(path) for path in paths if gerber(path)}
+    if not exports:
+        return list(paths)
+    shown = min(exports, key=lambda folder: (0 if folder == "" else folder.count("/") + 1, folder))
+
+    def owner(folder: str) -> Optional[str]:
+        """The deepest export holding ``folder``."""
+
+        holding = [export for export in exports if _within(folder, export)]
+        return max(holding, key=len) if holding else None
+
+    kept: List[str] = []
+    for path in paths:
+        found = owner(_parent(path))
+        if found == shown or (found is None and path.casefold().endswith(_DRILL_SUFFIXES)):
+            kept.append(path)
+    return kept
+
+
 def layers_from_files(files: Mapping[str, bytes]) -> List[fab.FabricationLayer]:
     """Discover layers in an in-memory file set, by the same rules as a directory.
 

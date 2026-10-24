@@ -61,10 +61,17 @@ interface PackageNode {
     children: readonly PackageNode[];
 }
 
-/** Whether a folder with these entries opens as a package: a layer file within `PACKAGE_DEPTH` levels. */
+/**
+ * Whether a folder with these entries opens as a package: a layer file within
+ * `PACKAGE_DEPTH` levels. Hidden (dot) entries are skipped, as the backend skips them.
+ */
 export function holdsLayers(entries: readonly PackageNode[], depth: number = PACKAGE_DEPTH): boolean {
     return entries.some((entry) =>
-        entry.isDir ? depth > 0 && holdsLayers(entry.children, depth - 1) : isLayerName(entry.name),
+        entry.name.startsWith(".")
+            ? false
+            : entry.isDir
+              ? depth > 0 && holdsLayers(entry.children, depth - 1)
+              : isLayerName(entry.name),
     );
 }
 

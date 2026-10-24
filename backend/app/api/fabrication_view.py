@@ -31,6 +31,7 @@ from app.services.fabrication_view_service import (
     BoundedCache,
     FabricationPackage,
     RENDER_VERSION,
+    nearest_export,
 )
 from app.services.placement_service import (
     PlacementError,
@@ -39,6 +40,7 @@ from app.services.placement_service import (
     position_files,
 )
 from app.services.placement_service import build_view as build_placement_view
+from app.services.placement_service import view_of as placement_view_of
 
 router = APIRouter(dependencies=[Depends(require_viewer)])
 logger = logging.getLogger(__name__)
@@ -206,10 +208,18 @@ def _clean_folder(folder: str) -> str:
 
 
 def _candidates(names_sizes: list[tuple[str, int]], kind) -> list[tuple[str, int]]:
-    """The files of one kind, with the limits that keep a request bounded."""
+    """The files of one kind, with the limits that keep a request bounded.
+
+    Layers are those of the nearest export (``nearest_export``); tables are
+    every position file and BOM under the folder, wherever the export keeps them.
+    """
 
     pattern, empty = kind
     found = [(name, size) for name, size in names_sizes if pattern.search(name)]
+    if kind is _LAYERS:
+        # One export, and the limits measure that export, not the whole tree.
+        shown = set(nearest_export([name for name, _ in found]))
+        found = [(name, size) for name, size in found if name in shown]
     if not found:
         raise HTTPException(status_code=404, detail=empty)
     if len(found) > _MAX_FILES:
@@ -246,8 +256,9 @@ def _working_tree(project, output_type: str, folder: str, kind=_LAYERS):
     directory = resolve_path_within_root(output_dir, folder, invalid_detail="Invalid folder path")
     if not directory.is_dir():
         raise HTTPException(status_code=404, detail="Folder not found")
-    entries = _walk(str(directory), kind)
-    _candidates([(path, stat.st_size) for path, stat in entries], kind)
+    walked = _walk(str(directory), kind)
+    chosen = {path for path, _ in _candidates([(path, stat.st_size) for path, stat in walked], kind)}
+    entries = [(path, stat) for path, stat in walked if path in chosen]
     signature = tuple(sorted((path, stat.st_size, stat.st_mtime_ns) for path, stat in entries))
 
     def read() -> dict[str, bytes]:
@@ -371,14 +382,6 @@ def get_output_fabrication_layer(
     )
 
 
-def _is_position_file(text: str) -> bool:
-    try:
-        parse_positions(text)
-    except PlacementError:
-        return False
-    return True
-
-
 def _preferred(names, prefer: re.Pattern[str]) -> list[str]:
     """``names`` with those named like ``prefer`` first, shallowest first, then by name."""
 
@@ -386,12 +389,6 @@ def _preferred(names, prefer: re.Pattern[str]) -> list[str]:
         names,
         key=lambda item: (not prefer.search(item.rsplit("/", 1)[-1]), item.count("/"), item.casefold()),
     )
-
-
-def _pick(files: dict[str, str], wanted, prefer: re.Pattern[str]) -> Optional[str]:
-    """First file `wanted` accepts, in ``_preferred`` order."""
-
-    return next((name for name in _preferred(files, prefer) if wanted(files[name])), None)
 
 
 _POSITION_NAME = re.compile(r"pos|cpl|place|centroid", re.IGNORECASE)
@@ -420,25 +417,28 @@ def get_output_placement(
     cached = _placement_cache.get(key) if _cacheable(commit) else None
     if cached is not None:
         return cached
-    files = {name: data.decode("utf-8", errors="replace") for name, data in read().items()}
-    positions = position_files(
-        [(name, files[name]) for name in _preferred(files, _POSITION_NAME)]
-    )
+    # Each table is parsed once: as a position file if it has coordinates,
+    # otherwise as a BOM. A file that reads as a position file is never a BOM.
+    parsed: dict[str, tuple] = {}
+    boms: dict[str, list] = {}
+    for name, data in read().items():
+        text = data.decode("utf-8", errors="replace")
+        try:
+            parsed[name] = parse_positions(text)
+            continue
+        except PlacementError:
+            pass
+        try:
+            boms[name] = parse_bom(text)
+        except PlacementError:
+            pass
+    positions = position_files([(name, parsed[name][0]) for name in _preferred(parsed, _POSITION_NAME)])
     if not positions:
         raise HTTPException(status_code=404, detail="No position file in this folder")
-    others = {name: text for name, text in files.items() if name not in positions}
-
-    def is_bom(text: str) -> bool:
-        try:
-            parse_bom(text)
-        except PlacementError:
-            return False
-        return not _is_position_file(text)
-
-    bom = _pick(others, is_bom, _BOM_NAME)
-    view = build_placement_view(
-        [files[name] for name in positions],
-        others[bom] if bom else None,
+    bom = next(iter(_preferred(boms, _BOM_NAME)), None)
+    view = placement_view_of(
+        [parsed[name] for name in positions],
+        boms[bom] if bom else None,
         positions_name=", ".join(positions),
         bom_name=bom or "",
     )
